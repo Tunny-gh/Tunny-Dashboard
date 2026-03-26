@@ -1,0 +1,39 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local environment overrides
+*.local
+.env
+.env.*
+!.env.example
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/coverage/
+frontend/.vite/
+frontend/.cache/
+frontend/.eslintcache
+frontend/src/wasm/pkg/
+
+# Rust artifacts
+rust_core/target/
+rust_core/Cargo.lock
