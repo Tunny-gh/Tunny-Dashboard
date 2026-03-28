@@ -50,7 +50,7 @@ export function ToolBar() {
   return (
     <div
       data-testid="toolbar"
-      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderBottom: '1px solid #e5e7eb' }}
+      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border)' }}
     >
       {/* 【ファイル入力】: Journalファイルを選択する input 🟢 */}
       <input
@@ -63,7 +63,7 @@ export function ToolBar() {
 
       {/* 【ローディング表示】 */}
       {isLoading && (
-        <span data-testid="toolbar-loading" style={{ fontSize: '13px', color: '#6b7280' }}>
+        <span data-testid="toolbar-loading" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
           読み込み中...
         </span>
       )}
@@ -77,7 +77,7 @@ export function ToolBar() {
 
       {/* 【Study情報】 */}
       {currentStudy && (
-        <span data-testid="toolbar-study-info" style={{ fontSize: '13px', color: '#374151' }}>
+        <span data-testid="toolbar-study-info" style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 600 }}>
           {currentStudy.name} — {currentStudy.completedTrials} trials
         </span>
       )}
@@ -90,11 +90,14 @@ export function ToolBar() {
             data-testid={`layout-btn-${mode}`}
             onClick={() => setLayoutMode(mode)}
             style={{
-              padding: '2px 8px',
-              border: '1px solid #d1d5db',
+              padding: '2px 10px',
+              border: '1px solid var(--accent)',
               borderRadius: '4px',
               cursor: 'pointer',
               fontSize: '13px',
+              background: 'var(--bg)',
+              color: 'var(--accent)',
+              fontWeight: 500,
             }}
           >
             {mode}

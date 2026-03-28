@@ -70,7 +70,7 @@ export function AppShell() {
       </div>
 
       {/* 【LeftPanel エリア】: 左側パネル */}
-      <div data-testid="left-panel" style={{ width: '260px', overflowY: 'auto', borderRight: '1px solid var(--border)' }}>
+      <div data-testid="left-panel" style={{ width: '260px', overflowY: 'auto', borderRight: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
         <LeftPanel />
       </div>
 

@@ -214,19 +214,19 @@ export const FreeLayoutCanvas: React.FC = () => {
         <button
           data-testid="save-free-layout-btn"
           onClick={handleSave}
-          style={{ padding: '2px 10px', fontSize: '13px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          style={{ padding: '2px 10px', fontSize: '13px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
         >
           レイアウト保存
         </button>
 
         {/* プリセットボタン */}
-        <span style={{ fontSize: '12px', color: '#9ca3af' }}>プリセット:</span>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>プリセット:</span>
         {(['A', 'B', 'C'] as const).map((preset) => (
           <button
             key={preset}
             data-testid={`free-layout-preset-${preset}`}
             onClick={() => handlePreset(preset)}
-            style={{ padding: '1px 8px', fontSize: '12px', border: '1px solid #d1d5db', borderRadius: '4px', color: '#4b5563', background: '#fff', cursor: 'pointer' }}
+            style={{ padding: '1px 8px', fontSize: '12px', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--accent)', background: 'var(--bg)', cursor: 'pointer' }}
           >
             Mode {preset}
           </button>
@@ -292,10 +292,10 @@ export const FreeLayoutCanvas: React.FC = () => {
                 gridArea: `${gridRow[0]} / ${gridCol[0]} / ${gridRow[1]} / ${gridCol[1]}`,
                 zIndex: 1,
                 pointerEvents: 'auto',
-                border: '1px solid #e5e7eb',
+                border: '1px solid var(--border)',
                 borderRadius: '4px',
-                background: '#fff',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                background: 'var(--bg)',
+                boxShadow: '0 1px 3px rgba(37,99,235,0.08)',
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
@@ -307,7 +307,7 @@ export const FreeLayoutCanvas: React.FC = () => {
                 draggable
                 onDragStart={() => setDraggingChartId(chartId)}
                 onDragEnd={() => setDraggingChartId(null)}
-                style={{ padding: '3px 8px', fontSize: '12px', fontWeight: 600, color: '#4b5563', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', cursor: 'grab', userSelect: 'none', flexShrink: 0 }}
+                style={{ padding: '3px 8px', fontSize: '12px', fontWeight: 600, color: 'var(--accent)', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', cursor: 'grab', userSelect: 'none', flexShrink: 0 }}
               >
                 {CHART_LABELS[chartId] ?? chartId}
               </div>

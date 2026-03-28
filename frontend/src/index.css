@@ -1,10 +1,12 @@
 :root {
-  --accent: #4f46e5;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
   --bg: #ffffff;
-  --bg-panel: #f8f8fa;
-  --border: #e5e4e7;
-  --text: #1f2028;
-  --text-muted: #6b6375;
+  --bg-panel: #eff6ff;
+  --bg-header: #dbeafe;
+  --border: #bfdbfe;
+  --text: #18181b;
+  --text-muted: #52525b;
 
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
@@ -16,12 +18,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16171d;
-    --bg-panel: #1f2028;
-    --border: #2e303a;
-    --text: #e5e4e7;
-    --text-muted: #9ca3af;
-    --accent: #818cf8;
+    --accent: #60a5fa;
+    --accent-hover: #93c5fd;
+    --bg: #0f172a;
+    --bg-panel: #1e293b;
+    --bg-header: #1e3a5f;
+    --border: #1e40af;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
   }
 }
 
