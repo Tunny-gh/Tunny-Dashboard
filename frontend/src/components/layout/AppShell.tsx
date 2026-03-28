@@ -75,7 +75,7 @@ export function AppShell() {
       </div>
 
       {/* 【MainCanvas エリア】: メインの描画エリア */}
-      <div data-testid="main-canvas" style={{ overflow: 'hidden', position: 'relative' }}>
+      <div data-testid="main-canvas" style={{ overflow: 'hidden', position: 'relative', height: '100%' }}>
         <FreeLayoutCanvas />
       </div>
 

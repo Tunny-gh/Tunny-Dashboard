@@ -29,6 +29,9 @@ const LAYOUT_MODES: LayoutMode[] = ['A', 'B', 'C', 'D'];
 export function ToolBar() {
   // 【Store接続】: loadJournal と setLayoutMode を取得 🟢
   const loadJournal = useStudyStore((s) => s.loadJournal);
+  const isLoading = useStudyStore((s) => s.isLoading);
+  const loadError = useStudyStore((s) => s.loadError);
+  const currentStudy = useStudyStore((s) => s.currentStudy);
   const setLayoutMode = useLayoutStore((s) => s.setLayoutMode);
 
   /**
@@ -53,10 +56,31 @@ export function ToolBar() {
       <input
         data-testid="file-input"
         type="file"
-        accept=".log,.journal"
+        accept=".log,.journal,.txt"
         onChange={handleFileChange}
         style={{ fontSize: '14px' }}
       />
+
+      {/* 【ローディング表示】 */}
+      {isLoading && (
+        <span data-testid="toolbar-loading" style={{ fontSize: '13px', color: '#6b7280' }}>
+          読み込み中...
+        </span>
+      )}
+
+      {/* 【エラー表示】 */}
+      {loadError && (
+        <span data-testid="toolbar-error" style={{ fontSize: '13px', color: '#dc2626', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={loadError}>
+          エラー: {loadError}
+        </span>
+      )}
+
+      {/* 【Study情報】 */}
+      {currentStudy && (
+        <span data-testid="toolbar-study-info" style={{ fontSize: '13px', color: '#374151' }}>
+          {currentStudy.name} — {currentStudy.completedTrials} trials
+        </span>
+      )}
 
       {/* 【レイアウトモードボタン群】: A〜D の切り替えボタン 🟢 */}
       <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>

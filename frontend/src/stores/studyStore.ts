@@ -77,8 +77,11 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
       const wasm = await WasmLoader.getInstance();
       const result = wasm.parseJournal(data);
 
-      // 【状態更新】: allStudies に設定
+      // 【状態更新】: allStudies に設定し、最初の Study を自動選択
       set({ allStudies: result.studies, isLoading: false });
+      if (result.studies.length > 0) {
+        get().selectStudy(result.studies[0].studyId);
+      }
     } catch (err) {
       // 【エラー処理】: loadError にメッセージを格納
       set({ isLoading: false, loadError: String(err) });

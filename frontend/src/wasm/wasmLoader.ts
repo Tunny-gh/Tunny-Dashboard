@@ -8,7 +8,7 @@
  * 🟢 REQ-015 シングルトン設計に準拠
  */
 
-import initWasm from './pkg/tunny_core';
+import initWasm, { parseJournal as wasmParseJournal, selectStudy as wasmSelectStudy } from './pkg/tunny_core';
 import type { ParseJournalResult, ParetoResult } from '../types/index';
 
 // -------------------------------------------------------------------------
@@ -144,8 +144,8 @@ export class WasmLoader {
 
     // 【ラッパーバインド】: TASK-103 の WASM-bindgen 関数が確定次第、実体に差し替える
     // 現時点では stub を設定（TypeScript 型チェックを満たすため）
-    loader.parseJournal = _notImplemented('parseJournal');
-    loader.selectStudy = _notImplemented('selectStudy');
+    loader.parseJournal = (data: Uint8Array) => wasmParseJournal(data) as ParseJournalResult;
+    loader.selectStudy = (studyId: number) => wasmSelectStudy(studyId) as SelectStudyResult;
     loader.filterByRanges = _notImplemented('filterByRanges');
     loader.computeParetoRanks = _notImplemented('computeParetoRanks');
     loader.computeHvHistory = _notImplemented('computeHvHistory');

@@ -12,11 +12,16 @@
  */
 
 import React, { useState } from 'react';
+import ReactECharts from 'echarts-for-react';
 import {
   useLayoutStore,
   DEFAULT_FREE_LAYOUT,
 } from '../../stores/layoutStore';
+import { useStudyStore } from '../../stores/studyStore';
 import type { ChartId, FreeModeLayout, LayoutMode } from '../../types';
+import { OptimizationHistory } from '../charts/OptimizationHistory';
+import { ParallelCoordinates } from '../charts/ParallelCoordinates';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // 定数
@@ -72,6 +77,58 @@ const PRESET_LAYOUTS: Record<Exclude<LayoutMode, 'D'>, FreeModeLayout> = {
 
 /** グリッドの次元数（4×4） */
 const GRID_SIZE = 4;
+
+// -------------------------------------------------------------------------
+// ChartContent — chartId に応じて実コンポーネントを返す
+// -------------------------------------------------------------------------
+
+function ChartContent({ chartId }: { chartId: ChartId }) {
+  const currentStudy = useStudyStore((s) => s.currentStudy);
+  const gpuBuffer = useStudyStore((s) => s.gpuBuffer);
+
+  if (!currentStudy || !gpuBuffer) {
+    return <EmptyState />;
+  }
+
+  switch (chartId) {
+    case 'pareto-front': {
+      // positions[i*2], positions[i*2+1] からECharts散布図を構築
+      // 単目的: [normalized_idx, obj0]  多目的: [obj0, obj1]
+      const scatterData = Array.from({ length: gpuBuffer.trialCount }, (_, i) => [
+        gpuBuffer.positions[i * 2],
+        gpuBuffer.positions[i * 2 + 1],
+      ]);
+      const isMulti = currentStudy.directions.length > 1;
+      const xLabel = isMulti ? (currentStudy.objectiveNames[0] ?? 'obj0') : 'trial';
+      const yLabel = currentStudy.objectiveNames[isMulti ? 1 : 0] ?? 'value';
+      const option = {
+        grid: { left: '12%', right: '4%', top: '8%', bottom: '14%' },
+        xAxis: { type: 'value', name: xLabel, nameLocation: 'middle' as const, nameGap: 24 },
+        yAxis: { type: 'value', name: yLabel, nameLocation: 'middle' as const, nameGap: 40 },
+        tooltip: { trigger: 'item' as const },
+        series: [{ type: 'scatter' as const, data: scatterData, symbolSize: 5, itemStyle: { opacity: 0.7 } }],
+      };
+      return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} />;
+    }
+    case 'parallel-coords':
+      return <ParallelCoordinates gpuBuffer={gpuBuffer} currentStudy={currentStudy} />;
+    case 'history': {
+      // positions から TrialData を導出
+      // 単目的: [norm_idx, obj0]  多目的: [obj0, obj1]
+      const isMulti = currentStudy.directions.length > 1;
+      const data = Array.from({ length: gpuBuffer.trialCount }, (_, i) => ({
+        trial: i + 1,
+        value: isMulti
+          ? gpuBuffer.positions[i * 2]       // multi: x = obj0
+          : gpuBuffer.positions[i * 2 + 1],  // single: y = obj0
+      }));
+      const direction = currentStudy.directions[0] === 'minimize' ? 'minimize' : 'maximize';
+      return <OptimizationHistory data={data} direction={direction} />;
+    }
+    default:
+      return <EmptyState message={`${chartId} チャートは準備中です`} />;
+  }
+}
 
 // -------------------------------------------------------------------------
 // FreeLayoutCanvas コンポーネント
@@ -133,14 +190,17 @@ export const FreeLayoutCanvas: React.FC = () => {
   };
 
   return (
-    <div data-testid="free-layout-canvas" className="flex flex-col gap-2 p-2 h-full">
+    <div
+      data-testid="free-layout-canvas"
+      style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px', height: '100%', boxSizing: 'border-box' }}
+    >
       {/* ---------------------------------------------------------------- */}
       {/* エラーメッセージ                                                  */}
       {/* ---------------------------------------------------------------- */}
       {layoutLoadError && (
         <div
           data-testid="layout-error-msg"
-          className="px-3 py-1.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded"
+          style={{ padding: '6px 12px', fontSize: '13px', color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px' }}
         >
           {layoutLoadError}
         </div>
@@ -149,24 +209,24 @@ export const FreeLayoutCanvas: React.FC = () => {
       {/* ---------------------------------------------------------------- */}
       {/* ツールバー                                                        */}
       {/* ---------------------------------------------------------------- */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
         {/* レイアウト保存ボタン */}
         <button
           data-testid="save-free-layout-btn"
           onClick={handleSave}
-          className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          style={{ padding: '2px 10px', fontSize: '13px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
         >
           レイアウト保存
         </button>
 
         {/* プリセットボタン */}
-        <span className="text-xs text-gray-400">プリセット:</span>
+        <span style={{ fontSize: '12px', color: '#9ca3af' }}>プリセット:</span>
         {(['A', 'B', 'C'] as const).map((preset) => (
           <button
             key={preset}
             data-testid={`free-layout-preset-${preset}`}
             onClick={() => handlePreset(preset)}
-            className="px-2 py-0.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+            style={{ padding: '1px 8px', fontSize: '12px', border: '1px solid #d1d5db', borderRadius: '4px', color: '#4b5563', background: '#fff', cursor: 'pointer' }}
           >
             Mode {preset}
           </button>
@@ -176,7 +236,7 @@ export const FreeLayoutCanvas: React.FC = () => {
         {showToast && (
           <span
             data-testid="layout-saved-toast"
-            className="ml-2 text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded"
+            style={{ marginLeft: '8px', fontSize: '12px', color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1px 8px', borderRadius: '4px' }}
           >
             レイアウトを保存しました
           </span>
@@ -186,9 +246,9 @@ export const FreeLayoutCanvas: React.FC = () => {
       {/* ---------------------------------------------------------------- */}
       {/* グリッドエリア                                                    */}
       {/* ---------------------------------------------------------------- */}
-      <div className="relative flex-1 min-h-0" style={{ minHeight: '400px' }}>
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         {/* ドロップゾーン層（背景、絶対配置）*/}
-        <div className="absolute inset-0">
+        <div style={{ position: 'absolute', inset: 0 }}>
           {Array.from({ length: GRID_SIZE }, (_, r) =>
             Array.from({ length: GRID_SIZE }, (_, c) => {
               const row = r + 1;
@@ -197,12 +257,13 @@ export const FreeLayoutCanvas: React.FC = () => {
                 <div
                   key={`dz-${row}-${col}`}
                   data-testid={`free-layout-dropzone-${row}-${col}`}
-                  className="absolute border border-dashed border-gray-200 hover:bg-blue-50/30 transition-colors"
                   style={{
+                    position: 'absolute',
                     top: `${r * 25}%`,
                     left: `${c * 25}%`,
                     width: '25%',
                     height: '25%',
+                    border: '1px dashed #e5e7eb',
                   }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleDrop(row, col)}
@@ -214,8 +275,10 @@ export const FreeLayoutCanvas: React.FC = () => {
 
         {/* チャートカード層（CSS Grid、ドロップゾーンの上に重ねる）*/}
         <div
-          className="absolute inset-0 pointer-events-none"
           style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
             display: 'grid',
             gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
             gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
@@ -225,10 +288,17 @@ export const FreeLayoutCanvas: React.FC = () => {
             <div
               key={chartId}
               data-testid={`free-layout-card-${chartId}`}
-              className="pointer-events-auto border border-gray-200 rounded bg-white shadow-sm overflow-hidden"
               style={{
                 gridArea: `${gridRow[0]} / ${gridCol[0]} / ${gridRow[1]} / ${gridCol[1]}`,
                 zIndex: 1,
+                pointerEvents: 'auto',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                background: '#fff',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
               }}
             >
               {/* ドラッグハンドル（タイトルバー） */}
@@ -237,14 +307,14 @@ export const FreeLayoutCanvas: React.FC = () => {
                 draggable
                 onDragStart={() => setDraggingChartId(chartId)}
                 onDragEnd={() => setDraggingChartId(null)}
-                className="px-2 py-1 text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200 cursor-grab select-none"
+                style={{ padding: '3px 8px', fontSize: '12px', fontWeight: 600, color: '#4b5563', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', cursor: 'grab', userSelect: 'none', flexShrink: 0 }}
               >
                 {CHART_LABELS[chartId] ?? chartId}
               </div>
 
-              {/* チャートコンテンツエリア（プレースホルダー） */}
-              <div className="flex-1 bg-gray-50 flex items-center justify-center text-xs text-gray-300">
-                {chartId}
+              {/* チャートコンテンツエリア */}
+              <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <ChartContent chartId={chartId} />
               </div>
             </div>
           ))}

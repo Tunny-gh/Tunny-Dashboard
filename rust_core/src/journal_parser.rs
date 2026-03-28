@@ -504,6 +504,7 @@ impl ParserState {
 /// # 引数
 /// * `data` - Journalファイルの UTF-8 バイト列（Uint8Array からの変換）
 pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
+    #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
     // 空ファイルは Ok([]) を即時返却（TC-101-B01）🟡
@@ -545,7 +546,10 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
         return Err("No valid JSON lines found in journal".to_string());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+    #[cfg(target_arch = "wasm32")]
+    let duration_ms = 0.0_f64;
     // finalize() は StudyMeta と DataFrame を同時に返す（TASK-102）🟢
     let (studies, dataframes) = state.finalize();
     // DataFrame を WASM グローバル状態に格納（select_study() から参照できるようにする）🟢
