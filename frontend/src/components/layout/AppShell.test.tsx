@@ -38,6 +38,15 @@ vi.mock('../../stores/layoutStore', () => ({
   ),
 }));
 
+// -------------------------------------------------------------------------
+// 子コンポーネントモック（AppShell の単体テスト分離）
+// -------------------------------------------------------------------------
+
+vi.mock('./ToolBar', () => ({ ToolBar: () => <div data-testid="toolbar-mock" /> }));
+vi.mock('../panels/LeftPanel', () => ({ LeftPanel: () => <div data-testid="left-panel-mock" /> }));
+vi.mock('../panels/BottomPanel', () => ({ BottomPanel: () => <div data-testid="bottom-panel-mock" /> }));
+vi.mock('./FreeLayoutCanvas', () => ({ FreeLayoutCanvas: () => <div data-testid="canvas-mock" /> }));
+
 import { AppShell } from './AppShell';
 import { useStudyStore } from '../../stores/studyStore';
 

@@ -9,6 +9,9 @@
 import { useStudyStore } from '../../stores/studyStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { ToolBar } from './ToolBar';
+import { LeftPanel } from '../panels/LeftPanel';
+import { BottomPanel } from '../panels/BottomPanel';
+import { FreeLayoutCanvas } from './FreeLayoutCanvas';
 import type { DragEvent } from 'react';
 
 // -------------------------------------------------------------------------
@@ -66,14 +69,20 @@ export function AppShell() {
         <ToolBar />
       </div>
 
-      {/* 【LeftPanel エリア】: 左側パネル（TASK-402 で実装） */}
-      <div data-testid="left-panel" style={{ width: '260px', overflowY: 'auto' }} />
+      {/* 【LeftPanel エリア】: 左側パネル */}
+      <div data-testid="left-panel" style={{ width: '260px', overflowY: 'auto', borderRight: '1px solid var(--border)' }}>
+        <LeftPanel />
+      </div>
 
       {/* 【MainCanvas エリア】: メインの描画エリア */}
-      <div data-testid="main-canvas" style={{ overflow: 'hidden', position: 'relative' }} />
+      <div data-testid="main-canvas" style={{ overflow: 'hidden', position: 'relative' }}>
+        <FreeLayoutCanvas />
+      </div>
 
-      {/* 【BottomPanel エリア】: 全幅で最下部に配置（TASK-402 で実装） */}
-      <div data-testid="bottom-panel" style={{ gridColumn: '1 / -1', height: '220px', overflowY: 'auto' }} />
+      {/* 【BottomPanel エリア】: 全幅で最下部に配置 */}
+      <div data-testid="bottom-panel" style={{ gridColumn: '1 / -1', height: '220px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+        <BottomPanel />
+      </div>
 
       {/* 【ローディングインジケータ】: isLoading=true のとき表示 🟢 */}
       {isLoading && (
