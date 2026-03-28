@@ -21,6 +21,8 @@ import { useStudyStore } from '../../stores/studyStore';
 import type { ChartId, FreeModeLayout, LayoutMode } from '../../types';
 import { OptimizationHistory } from '../charts/OptimizationHistory';
 import { ParallelCoordinates } from '../charts/ParallelCoordinates';
+import { ScatterMatrix } from '../charts/ScatterMatrix';
+import { EdfPlot } from '../charts/EdfPlot';
 import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
@@ -124,6 +126,33 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
       }));
       const direction = currentStudy.directions[0] === 'minimize' ? 'minimize' : 'maximize';
       return <OptimizationHistory data={data} direction={direction} />;
+    }
+    case 'scatter-matrix':
+      // engine=null のとき ScatterMatrix はモード UI + グレーセルを表示する
+      return <ScatterMatrix engine={null} currentStudy={currentStudy} />;
+    case 'edf': {
+      // gpuBuffer.positions から目的関数値を取り出して EDF を描画する
+      // 単目的: positions[i*2+1] = obj0
+      // 多目的: positions[i*2] = obj0, positions[i*2+1] = obj1
+      const isMultiEdf = currentStudy.directions.length > 1;
+      const edfSeries = isMultiEdf
+        ? [
+            {
+              name: currentStudy.objectiveNames[0] ?? 'obj0',
+              values: Array.from({ length: gpuBuffer.trialCount }, (_, i) => gpuBuffer.positions[i * 2]),
+            },
+            {
+              name: currentStudy.objectiveNames[1] ?? 'obj1',
+              values: Array.from({ length: gpuBuffer.trialCount }, (_, i) => gpuBuffer.positions[i * 2 + 1]),
+            },
+          ]
+        : [
+            {
+              name: currentStudy.objectiveNames[0] ?? 'value',
+              values: Array.from({ length: gpuBuffer.trialCount }, (_, i) => gpuBuffer.positions[i * 2 + 1]),
+            },
+          ];
+      return <EdfPlot series={edfSeries} />;
     }
     default:
       return <EmptyState message={`${chartId} チャートは準備中です`} />;

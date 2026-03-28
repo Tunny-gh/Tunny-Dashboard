@@ -23,8 +23,9 @@ export function BottomPanel() {
   const highlighted = useSelectionStore((s) => s.highlighted);
   const setHighlight = useSelectionStore((s) => s.setHighlight);
 
-  // 【Store接続】: studyStore から currentStudy を取得 🟢
+  // 【Store接続】: studyStore から currentStudy と gpuBuffer を取得 🟢
   const currentStudy = useStudyStore((s) => s.currentStudy);
+  const gpuBuffer = useStudyStore((s) => s.gpuBuffer);
 
   // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
@@ -68,13 +69,28 @@ export function BottomPanel() {
             >
               {/* 【trial_id セル】: インデックスを trial_id として表示（WASM実装後に実際の値に変更） */}
               <td style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>{idx}</td>
-              {/* 【データセル】: 現時点はプレースホルダー — TASK-102 完成後に実データを使用 */}
+              {/* 【パラメータセル】: Trial パラメータデータは TASK-102 完成後に実装 */}
               {currentStudy.paramNames.map((name) => (
                 <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>—</td>
               ))}
-              {currentStudy.objectiveNames.map((name) => (
-                <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>—</td>
-              ))}
+              {/* 【目的関数セル】: gpuBuffer.positions から値を読み取り表示する
+                   単目的: positions[i*2+1] = obj0
+                   多目的: positions[i*2] = obj0, positions[i*2+1] = obj1 */}
+              {currentStudy.objectiveNames.map((name, objIdx) => {
+                let value = '—';
+                if (gpuBuffer && idx < gpuBuffer.trialCount) {
+                  const isMulti = (currentStudy.directions?.length ?? 1) > 1;
+                  if (isMulti) {
+                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2].toFixed(4);
+                    else if (objIdx === 1) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4);
+                  } else {
+                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4);
+                  }
+                }
+                return (
+                  <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>{value}</td>
+                );
+              })}
             </tr>
           ))}
         </tbody>

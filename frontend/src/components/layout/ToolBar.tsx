@@ -32,6 +32,8 @@ export function ToolBar() {
   const isLoading = useStudyStore((s) => s.isLoading);
   const loadError = useStudyStore((s) => s.loadError);
   const currentStudy = useStudyStore((s) => s.currentStudy);
+  const allStudies = useStudyStore((s) => s.allStudies);
+  const selectStudy = useStudyStore((s) => s.selectStudy);
   const setLayoutMode = useLayoutStore((s) => s.setLayoutMode);
 
   /**
@@ -75,11 +77,27 @@ export function ToolBar() {
         </span>
       )}
 
-      {/* 【Study情報】 */}
-      {currentStudy && (
-        <span data-testid="toolbar-study-info" style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 600 }}>
-          {currentStudy.name} — {currentStudy.completedTrials} trials
-        </span>
+      {/* 【Study セレクタ】: 2件以上のときドロップダウンを表示 */}
+      {(allStudies?.length ?? 0) > 1 ? (
+        <select
+          data-testid="study-select"
+          value={currentStudy?.studyId ?? ''}
+          onChange={(e) => selectStudy?.(Number(e.target.value))}
+          style={{ fontSize: '13px', padding: '2px 6px', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--accent)', background: 'var(--bg)', fontWeight: 600 }}
+        >
+          {allStudies!.map((s) => (
+            <option key={s.studyId} value={s.studyId}>
+              {s.name} — {s.completedTrials} trials
+            </option>
+          ))}
+        </select>
+      ) : (
+        /* 【Study情報】: 単一 Study のときはラベル表示 */
+        currentStudy && (
+          <span data-testid="toolbar-study-info" style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 600 }}>
+            {currentStudy.name} — {currentStudy.completedTrials} trials
+          </span>
+        )
       )}
 
       {/* 【レイアウトモードボタン群】: A〜D の切り替えボタン 🟢 */}
