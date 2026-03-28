@@ -35,6 +35,10 @@ const CHART_LABELS: Partial<Record<ChartId, string>> = {
   'sensitivity-heatmap': 'Sensitivity',
   'cluster-view': 'Cluster View',
   'umap': 'UMAP',
+  // 🟢 optuna-dashboard 相当の追加チャート
+  'slice': 'Slice Plot',
+  'edf': 'EDF',
+  'contour': 'Contour Plot',
 };
 
 /**

@@ -142,7 +142,16 @@ export type ChartId =
   | 'pdp'
   | 'sensitivity-heatmap'
   | 'cluster-view'
-  | 'umap';
+  | 'umap'
+  // 🟢 optuna-dashboard 相当の追加チャート（Python 不要）
+  | 'slice'    // Slice Plot: パラメータ vs 目的関数値 scatter
+  | 'edf'      // EDF: 経験累積分布関数 (Empirical Distribution Function)
+  | 'contour'; // Contour Plot: 2パラメータ相関（実点散布のみ、ML 補間は Python 必須）
+// 🔴 未実装（データ拡張が必要）:
+//   'timeline'            — Trial.datetime_start/datetime_complete が必要
+//                           Optuna Journal には記録されているが WASM パーサの拡張が必要
+//   'intermediate-values' — Trial.intermediate_values が必要
+//                           PRUNED 試行の途中値は Journal に含まれるが WASM パーサ未対応
 
 export interface PanelSizes {
   leftPanel: number;
