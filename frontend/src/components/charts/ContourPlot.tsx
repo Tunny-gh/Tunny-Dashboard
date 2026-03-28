@@ -16,6 +16,7 @@
 
 import { useState } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -56,13 +57,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
 
   // 【空状態チェック】: データなし or パラメータ数不足（2つ必要）
   if (trials.length === 0 || paramNames.length < 2) {
-    return (
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
-      >
-        <span>データがありません（パラメータが2つ以上必要です）</span>
-      </div>
-    );
+    return <EmptyState message="データがありません（パラメータが2つ以上必要です）" />;
   }
 
   const xParam = paramNames[xParamIdx];

@@ -88,6 +88,24 @@ export class WasmLoader {
   computeHvHistory!: (isMinimize: boolean[]) => HvHistoryResult;
 
   /**
+   * 【CSV シリアライズ】: 選択した試行を CSV 文字列に変換する
+   * 🟡 TASK-103 WASM 実装後に実体を接続する
+   */
+  serializeCsv!: (indices: number[], columnsJson: string) => string;
+
+  /**
+   * 【差分更新】: Journal の差分データを追記して新規完了試行数を返す
+   * 🟡 TASK-103 WASM 実装後に実体を接続する
+   */
+  appendJournalDiff!: (data: Uint8Array) => { new_completed: number; consumed_bytes: number };
+
+  /**
+   * 【レポート統計】: レポート生成用のサマリー統計 JSON を返す
+   * 🟡 TASK-103 WASM 実装後に実体を接続する
+   */
+  computeReportStats!: () => string;
+
+  /**
    * 【コンストラクタ】: 外部からの直接生成を禁止する
    */
   private constructor() {}
@@ -131,6 +149,9 @@ export class WasmLoader {
     loader.filterByRanges = _notImplemented('filterByRanges');
     loader.computeParetoRanks = _notImplemented('computeParetoRanks');
     loader.computeHvHistory = _notImplemented('computeHvHistory');
+    loader.serializeCsv = _notImplemented('serializeCsv');
+    loader.appendJournalDiff = _notImplemented('appendJournalDiff');
+    loader.computeReportStats = _notImplemented('computeReportStats');
 
     return loader;
   }

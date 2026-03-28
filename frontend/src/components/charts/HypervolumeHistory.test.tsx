@@ -9,20 +9,11 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 
 // -------------------------------------------------------------------------
-// echarts-for-react モック
+// echarts-for-react モック（__mocks__/echarts-for-react.tsx を自動使用）
 // 【モック理由】: ECharts は Canvas を使用するため jsdom では描画できない
 // -------------------------------------------------------------------------
 
-const { mockReactECharts } = vi.hoisted(() => {
-  const mockReactECharts = vi.fn(({ option }: { option: unknown }) => (
-    <div data-testid="echarts" data-option={JSON.stringify(option)} />
-  ));
-  return { mockReactECharts };
-});
-
-vi.mock('echarts-for-react', () => ({
-  default: mockReactECharts,
-}));
+vi.mock('echarts-for-react');
 
 import { HypervolumeHistory } from './HypervolumeHistory';
 

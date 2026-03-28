@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -62,13 +63,7 @@ export function SlicePlot({
 
   // 【空状態チェック】: データまたはパラメータがない場合はプレースホルダー表示
   if (trials.length === 0 || paramNames.length === 0) {
-    return (
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
-      >
-        <span>データがありません</span>
-      </div>
-    );
+    return <EmptyState />;
   }
 
   // 【選択パラメータ・目的関数名】

@@ -20,8 +20,8 @@ const { mockSerializeCsv, mockComputeReportStats } = vi.hoisted(() => {
 vi.mock('../wasm/wasmLoader', () => ({
   WasmLoader: {
     getInstance: vi.fn().mockResolvedValue({
-      serialize_csv: mockSerializeCsv,
-      compute_report_stats: mockComputeReportStats,
+      serializeCsv: mockSerializeCsv,
+      computeReportStats: mockComputeReportStats,
     }),
   },
 }));

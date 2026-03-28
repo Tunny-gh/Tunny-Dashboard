@@ -19,7 +19,7 @@ const { mockAppendDiff } = vi.hoisted(() => {
 vi.mock('./wasmLoader', () => ({
   WasmLoader: {
     getInstance: vi.fn().mockResolvedValue({
-      append_journal_diff: mockAppendDiff,
+      appendJournalDiff: mockAppendDiff,
     }),
   },
 }));

@@ -212,8 +212,7 @@ export class FsapiPoller {
 
       // 【WASM 呼び出し】: 差分データを渡して新規 COMPLETE 試行数を取得
       const wasm = await WasmLoader.getInstance();
-      const result = (wasm as unknown as { append_journal_diff: (data: Uint8Array) => { new_completed: number; consumed_bytes: number } })
-        .append_journal_diff(data);
+      const result = wasm.appendJournalDiff(data);
 
       // 【オフセット更新】: consumed_bytes だけ進める
       this.byteOffset += result.consumed_bytes;

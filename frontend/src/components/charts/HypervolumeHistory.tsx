@@ -7,6 +7,7 @@
  */
 
 import ReactECharts from 'echarts-for-react';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -33,11 +34,7 @@ export interface HypervolumeHistoryProps {
 export function HypervolumeHistory({ data }: HypervolumeHistoryProps) {
   // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (data.length === 0) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <span>データがありません</span>
-      </div>
-    );
+    return <EmptyState />;
   }
 
   // 【ECharts option 構築】: series に [trial, hypervolume] の配列を渡す 🟢

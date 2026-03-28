@@ -11,6 +11,7 @@ import { DeckGL, PointCloudLayer } from 'deck.gl';
 import { useSelectionStore } from '../../stores/selectionStore';
 import type { GpuBuffer } from '../../wasm/gpuBuffer';
 import type { Study } from '../../types';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -58,11 +59,7 @@ export function ParetoScatter3D({ gpuBuffer }: ParetoScatter3DProps) {
 
   // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (!gpuBuffer) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <span>データがありません</span>
-      </div>
-    );
+    return <EmptyState />;
   }
 
   // 【deck.gl レイヤー定義】: PointCloudLayer に GpuBuffer データを渡す 🟢

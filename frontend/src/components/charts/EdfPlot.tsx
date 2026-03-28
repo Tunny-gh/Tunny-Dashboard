@@ -10,6 +10,7 @@
  */
 
 import ReactECharts from 'echarts-for-react';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -65,13 +66,7 @@ export function computeEdf(values: number[]): [number, number][] {
 export function EdfPlot({ series }: EdfPlotProps) {
   // 【空状態チェック】: シリーズなし or 全シリーズが空値の場合はプレースホルダー表示
   if (series.length === 0 || series.every((s) => s.values.length === 0)) {
-    return (
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
-      >
-        <span>データがありません</span>
-      </div>
-    );
+    return <EmptyState />;
   }
 
   // 【ECharts オプション構築】: step line で CDF を表現

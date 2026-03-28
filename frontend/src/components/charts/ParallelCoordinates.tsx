@@ -10,6 +10,7 @@ import ReactECharts from 'echarts-for-react';
 import { useSelectionStore } from '../../stores/selectionStore';
 import type { GpuBuffer } from '../../wasm/gpuBuffer';
 import type { Study } from '../../types';
+import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -49,11 +50,7 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
 
   // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (!gpuBuffer || !currentStudy) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <span>データが読み込まれていません</span>
-      </div>
-    );
+    return <EmptyState message="データが読み込まれていません" />;
   }
 
   // 【軸名配列構築】: paramNames + objectiveNames で全軸名を定義 🟢

@@ -187,8 +187,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
           : JSON.stringify([]);
 
       // 【WASM CSV 生成】: serialize_csv は UTF-8 文字列を返す
-      const csvContent = (wasm as unknown as { serialize_csv: (indices: number[], columnsJson: string) => string })
-        .serialize_csv(Array.from(indices), columnsJson);
+      const csvContent = wasm.serializeCsv(Array.from(indices), columnsJson);
 
       // 【ダウンロード起動】: Blob → URL → <a download> フォールバック
       _downloadCsv(csvContent, `tunny-export-${Date.now()}.csv`);
@@ -276,9 +275,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       const { reportSections, pinnedTrials } = get();
 
       // 【統計取得】: WASM でサマリー統計 JSON を取得
-      const statsJson = (wasm as unknown as Record<string, unknown>)
-        .compute_report_stats as () => string;
-      const stats = typeof statsJson === 'function' ? statsJson() : '{}';
+      const stats = wasm.computeReportStats();
 
       // 【HTML 組み立て】: セクション順序に従ってコンテンツを生成
       const html = _buildHtmlReport(reportSections, stats, pinnedTrials, paretoIndices);

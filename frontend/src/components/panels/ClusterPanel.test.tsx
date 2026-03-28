@@ -10,14 +10,10 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 // -------------------------------------------------------------------------
-// ECharts モック（jsdom 環境では canvas 不可のため）
+// ECharts モック（__mocks__/echarts-for-react.tsx を自動使用）
 // -------------------------------------------------------------------------
 
-vi.mock('echarts-for-react', () => ({
-  default: ({ style }: { style?: React.CSSProperties }) => (
-    <div data-testid="echarts-mock" style={style} />
-  ),
-}));
+vi.mock('echarts-for-react');
 
 import { ClusterPanel } from './ClusterPanel';
 import type { ClusterPanelProps } from './ClusterPanel';
