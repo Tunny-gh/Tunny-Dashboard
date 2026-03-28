@@ -22,6 +22,14 @@ export interface Study {
 
 export type OptimizationDirection = 'minimize' | 'maximize';
 
+/** getTrials() WASM メソッドが返す per-trial データ */
+export interface TrialData {
+  trialId: number;
+  params: Record<string, number>;
+  values: number[];
+  paretoRank: number | null;
+}
+
 /** 1試行分のデータ（Bottom Table表示用） */
 export interface Trial {
   trialId: number;
@@ -160,6 +168,8 @@ export interface PanelSizes {
 
 export interface FreeModeLayout {
   cells: Array<{
+    /** セルの一意識別子。カタログからの追加時は crypto.randomUUID() で生成。デフォルトレイアウトは chartId と同一。 */
+    cellId: string;
     chartId: ChartId;
     gridRow: [number, number];
     gridCol: [number, number];

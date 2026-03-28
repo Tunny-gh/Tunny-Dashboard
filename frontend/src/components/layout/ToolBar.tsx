@@ -8,15 +8,8 @@
 
 import type { ChangeEvent } from 'react';
 import { useStudyStore } from '../../stores/studyStore';
-import { useLayoutStore } from '../../stores/layoutStore';
-import type { LayoutMode } from '../../types';
-
-// -------------------------------------------------------------------------
-// レイアウトモード定義
-// -------------------------------------------------------------------------
-
-/** 🟢 レイアウトモードの一覧（A〜D） */
-const LAYOUT_MODES: LayoutMode[] = ['A', 'B', 'C', 'D'];
+import { useLiveUpdateStore } from '../../stores/liveUpdateStore';
+import { LayoutTabBar } from './LayoutTabBar';
 
 // -------------------------------------------------------------------------
 // コンポーネント実装
@@ -28,13 +21,16 @@ const LAYOUT_MODES: LayoutMode[] = ['A', 'B', 'C', 'D'];
  */
 export function ToolBar() {
   // 【Store接続】: loadJournal と setLayoutMode を取得 🟢
+  const isLive = useLiveUpdateStore((s) => s.isLive);
+  const isSupported = useLiveUpdateStore((s) => s.isSupported);
+  const startLive = useLiveUpdateStore((s) => s.startLive);
+  const stopLive = useLiveUpdateStore((s) => s.stopLive);
   const loadJournal = useStudyStore((s) => s.loadJournal);
   const isLoading = useStudyStore((s) => s.isLoading);
   const loadError = useStudyStore((s) => s.loadError);
   const currentStudy = useStudyStore((s) => s.currentStudy);
   const allStudies = useStudyStore((s) => s.allStudies);
   const selectStudy = useStudyStore((s) => s.selectStudy);
-  const setLayoutMode = useLayoutStore((s) => s.setLayoutMode);
 
   /**
    * 【ファイル選択ハンドラ】: input[type=file] の change イベントで loadJournal を呼ぶ
@@ -100,27 +96,31 @@ export function ToolBar() {
         )
       )}
 
-      {/* 【レイアウトモードボタン群】: A〜D の切り替えボタン 🟢 */}
-      <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
-        {LAYOUT_MODES.map((mode) => (
-          <button
-            key={mode}
-            data-testid={`layout-btn-${mode}`}
-            onClick={() => setLayoutMode(mode)}
-            style={{
-              padding: '2px 10px',
-              border: '1px solid var(--accent)',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              background: 'var(--bg)',
-              color: 'var(--accent)',
-              fontWeight: 500,
-            }}
-          >
-            {mode}
-          </button>
-        ))}
+      {/* 【レイアウトタブバー + ライブ更新ボタン】: 右端に配置 🟢 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+        {/* 【LayoutTabBar】: タブ型レイアウト切替 🟢 REQ-001 */}
+        <LayoutTabBar />
+
+        {/* 【ライブ更新ボタン】: Journal ファイルの差分ポーリング ON/OFF 🟢 REQ-104 */}
+        <button
+          data-testid="live-update-btn"
+          disabled={!isSupported}
+          title={isSupported ? undefined : 'このブラウザは対応していません（Chrome/Edge 推奨）'}
+          onClick={isLive ? stopLive : startLive}
+          style={{
+            padding: '2px 10px',
+            border: '1px solid var(--border)',
+            borderRadius: '4px',
+            cursor: isSupported ? 'pointer' : 'not-allowed',
+            fontSize: '13px',
+            fontWeight: 500,
+            background: isLive ? '#c0392b' : '#27ae60',
+            color: '#fff',
+            opacity: isSupported ? 1 : 0.5,
+          }}
+        >
+          {isLive ? 'ライブ停止' : 'ライブ開始'}
+        </button>
       </div>
     </div>
   );

@@ -11,19 +11,24 @@
  * 🟢 REQ-032, NFR-031, NFR-032 に準拠
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import {
   useLayoutStore,
   DEFAULT_FREE_LAYOUT,
 } from '../../stores/layoutStore';
 import { useStudyStore } from '../../stores/studyStore';
-import type { ChartId, FreeModeLayout, LayoutMode } from '../../types';
+import type { ChartId, FreeModeLayout, Study } from '../../types';
 import { OptimizationHistory } from '../charts/OptimizationHistory';
 import { ParallelCoordinates } from '../charts/ParallelCoordinates';
 import { ScatterMatrix } from '../charts/ScatterMatrix';
 import { EdfPlot } from '../charts/EdfPlot';
+import { ObjectivePairMatrix } from '../charts/ObjectivePairMatrix';
+import { SlicePlot } from '../charts/SlicePlot';
+import { ContourPlot } from '../charts/ContourPlot';
+import { HypervolumeHistory, type HypervolumeDataPoint } from '../charts/HypervolumeHistory';
 import { EmptyState } from '../common/EmptyState';
+import { WasmLoader } from '../../wasm/wasmLoader';
 
 // -------------------------------------------------------------------------
 // 定数
@@ -48,48 +53,50 @@ const CHART_LABELS: Partial<Record<ChartId, string>> = {
   'contour': 'Contour Plot',
 };
 
-/**
- * 【プリセットレイアウト】: Mode A〜C 相当の FreeModeLayout 定義
- * プリセットボタンクリック時に適用される
- */
-const PRESET_LAYOUTS: Record<Exclude<LayoutMode, 'D'>, FreeModeLayout> = {
-  A: {
-    cells: [
-      { chartId: 'pareto-front', gridRow: [1, 3], gridCol: [1, 3] },
-      { chartId: 'parallel-coords', gridRow: [1, 3], gridCol: [3, 5] },
-      { chartId: 'scatter-matrix', gridRow: [3, 5], gridCol: [1, 3] },
-      { chartId: 'history', gridRow: [3, 5], gridCol: [3, 5] },
-    ],
-  },
-  B: {
-    cells: [
-      { chartId: 'pareto-front', gridRow: [1, 5], gridCol: [1, 3] },
-      { chartId: 'parallel-coords', gridRow: [1, 3], gridCol: [3, 5] },
-      { chartId: 'hypervolume', gridRow: [3, 5], gridCol: [3, 5] },
-    ],
-  },
-  C: {
-    cells: [
-      { chartId: 'pareto-front', gridRow: [1, 3], gridCol: [1, 3] },
-      { chartId: 'parallel-coords', gridRow: [1, 3], gridCol: [3, 5] },
-      { chartId: 'scatter-matrix', gridRow: [3, 5], gridCol: [1, 5] },
-    ],
-  },
-};
-
 /** グリッドの次元数（4×4） */
 const GRID_SIZE = 4;
 
 // -------------------------------------------------------------------------
+// HypervolumeContent — computeHvHistory の非同期 WASM 呼び出しを担うサブコンポーネント
+// -------------------------------------------------------------------------
+
+function HypervolumeContent({ study }: { study: Study }) {
+  const [data, setData] = useState<HypervolumeDataPoint[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const isMinimize = study.directions.map((d) => d === 'minimize');
+    WasmLoader.getInstance()
+      .then((wasm) => {
+        const result = wasm.computeHvHistory(isMinimize);
+        setData(
+          Array.from(result.trialIds).map((id, i) => ({
+            trial: id,
+            hypervolume: result.hvValues[i],
+          })),
+        );
+      })
+      .catch(() => setError('HV 計算エラー'));
+  }, [study]);
+
+  if (error) return <EmptyState message={error} />;
+  return (
+    <div data-testid="hypervolume-chart" style={{ width: '100%', height: '100%' }}>
+      <HypervolumeHistory data={data} />
+    </div>
+  );
+}
+
 // ChartContent — chartId に応じて実コンポーネントを返す
 // -------------------------------------------------------------------------
 
 function ChartContent({ chartId }: { chartId: ChartId }) {
   const currentStudy = useStudyStore((s) => s.currentStudy);
   const gpuBuffer = useStudyStore((s) => s.gpuBuffer);
+  const trialRows = useStudyStore((s) => s.trialRows);
 
   if (!currentStudy || !gpuBuffer) {
-    return <EmptyState />;
+    return <EmptyState message="データを読み込んでください" />;
   }
 
   switch (chartId) {
@@ -130,6 +137,50 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
     case 'scatter-matrix':
       // engine=null のとき ScatterMatrix はモード UI + グレーセルを表示する
       return <ScatterMatrix engine={null} currentStudy={currentStudy} />;
+    case 'objective-pair-matrix':
+      if (currentStudy.objectiveNames.length <= 1) {
+        return <EmptyState message="多目的 Study でのみ利用可能です" />;
+      }
+      return <ObjectivePairMatrix gpuBuffer={gpuBuffer} currentStudy={currentStudy} />;
+    case 'importance': {
+      if (currentStudy.paramNames.length === 0) {
+        return <EmptyState />;
+      }
+      const importanceOption = {
+        title: { text: '重要度（暫定・WASM未計算）', textStyle: { fontSize: 12 } },
+        xAxis: { type: 'category', data: currentStudy.paramNames },
+        yAxis: { type: 'value' },
+        series: [{ type: 'bar', data: currentStudy.paramNames.map(() => 1.0) }],
+        grid: { containLabel: true },
+      };
+      return <ReactECharts option={importanceOption} style={{ height: '100%', width: '100%' }} />;
+    }
+    case 'slice':
+      if (trialRows.length === 0) return <EmptyState />;
+      return (
+        <SlicePlot
+          trials={trialRows.map(t => ({
+            trialId: t.trialId,
+            params: t.params,
+            values: t.values,
+            paretoRank: t.paretoRank,
+          }))}
+          paramNames={currentStudy.paramNames}
+          objectiveNames={currentStudy.objectiveNames}
+        />
+      );
+    case 'contour':
+      if (trialRows.length === 0) return <EmptyState />;
+      if (currentStudy.paramNames.length < 2) {
+        return <EmptyState message="パラメータが2つ以上必要です" />;
+      }
+      return (
+        <ContourPlot
+          trials={trialRows.map(t => ({ params: t.params, values: t.values }))}
+          paramNames={currentStudy.paramNames}
+          objectiveNames={currentStudy.objectiveNames}
+        />
+      );
     case 'edf': {
       // gpuBuffer.positions から目的関数値を取り出して EDF を描画する
       // 単目的: positions[i*2+1] = obj0
@@ -154,8 +205,13 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
           ];
       return <EdfPlot series={edfSeries} />;
     }
+    case 'hypervolume':
+      if (currentStudy.directions.length < 2) {
+        return <EmptyState message="多目的 Study でのみ利用可能です" />;
+      }
+      return <HypervolumeContent study={currentStudy} />;
     default:
-      return <EmptyState message={`${chartId} チャートは準備中です`} />;
+      return <EmptyState message="このチャートは準備中です" />;
   }
 }
 
@@ -167,11 +223,13 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
  * 【機能概要】: 4×4グリッドのドラッグ&ドロップレイアウト編集コンポーネント
  */
 export const FreeLayoutCanvas: React.FC = () => {
-  const { freeModeLayout, layoutLoadError, setFreeModeLayout, updateCellPosition } =
+  const { freeModeLayout, layoutLoadError, setFreeModeLayout, updateCellPosition, addCell, removeCell } =
     useLayoutStore();
+  const setLayoutMode = useLayoutStore((s) => s.setLayoutMode);
+  const layoutMode = useLayoutStore((s) => s.layoutMode);
 
-  // 【ドラッグ中チャートID】: dataTransfer を使わず state で管理（テスト容易性向上）
-  const [draggingChartId, setDraggingChartId] = useState<ChartId | null>(null);
+  // 【ドラッグ中セルID】: cellId で管理（同一 chartId の複数インスタンスを識別するため）
+  const [draggingCellId, setDraggingCellId] = useState<string | null>(null);
   // 【保存トースト表示状態】
   const [showToast, setShowToast] = useState(false);
 
@@ -180,12 +238,33 @@ export const FreeLayoutCanvas: React.FC = () => {
 
   /**
    * 【ドロップ処理】: ドロップゾーン (row, col) への配置を確定する
-   * 現在のスパン（行/列の幅）を維持しつつグリッド境界内にクランプする
+   * dataTransfer の type で 'move-chart'（再配置）と 'add-chart'（カタログ追加）を判別する
    */
-  const handleDrop = (row: number, col: number) => {
-    if (!draggingChartId) return;
+  const handleDrop = (row: number, col: number, e: React.DragEvent) => {
+    e.preventDefault();
 
-    const cell = layout.cells.find((c) => c.chartId === draggingChartId);
+    // 【カタログからの追加ドロップ】
+    try {
+      const raw = e.dataTransfer.getData('text/plain');
+      if (raw) {
+        const payload = JSON.parse(raw) as { type: string; chartId?: ChartId; cellId?: string };
+        if (payload.type === 'add-chart' && payload.chartId) {
+          // Mode D 以外のとき自動切替
+          if (layoutMode !== 'D') setLayoutMode('D');
+          const newRowEnd = Math.min(row + 2, GRID_SIZE + 1);
+          const newColEnd = Math.min(col + 2, GRID_SIZE + 1);
+          addCell(payload.chartId, [row, newRowEnd], [col, newColEnd]);
+          return;
+        }
+      }
+    } catch {
+      // 不正 JSON はサイレントに無視
+    }
+
+    // 【既存タイルの再配置ドロップ】
+    if (!draggingCellId) return;
+
+    const cell = layout.cells.find((c) => c.cellId === draggingCellId);
     if (!cell) return;
 
     const spanRow = cell.gridRow[1] - cell.gridRow[0];
@@ -195,8 +274,8 @@ export const FreeLayoutCanvas: React.FC = () => {
     const newRowEnd = Math.min(row + spanRow, GRID_SIZE + 1);
     const newColEnd = Math.min(col + spanCol, GRID_SIZE + 1);
 
-    updateCellPosition(draggingChartId, [row, newRowEnd], [col, newColEnd]);
-    setDraggingChartId(null);
+    updateCellPosition(draggingCellId, [row, newRowEnd], [col, newColEnd]);
+    setDraggingCellId(null);
   };
 
   /**
@@ -207,15 +286,6 @@ export const FreeLayoutCanvas: React.FC = () => {
     // freeModeLayout は常に最新状態が store に入っているため追加処理不要
     setShowToast(true);
     setTimeout(() => setShowToast(false), 2000);
-  };
-
-  /**
-   * 【プリセット適用】: confirm 確認後にプリセットレイアウトを適用する
-   */
-  const handlePreset = (preset: Exclude<LayoutMode, 'D'>) => {
-    if (window.confirm(`Mode ${preset} のプリセットでレイアウトを上書きしますか？`)) {
-      setFreeModeLayout(PRESET_LAYOUTS[preset]);
-    }
   };
 
   return (
@@ -247,19 +317,6 @@ export const FreeLayoutCanvas: React.FC = () => {
         >
           レイアウト保存
         </button>
-
-        {/* プリセットボタン */}
-        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>プリセット:</span>
-        {(['A', 'B', 'C'] as const).map((preset) => (
-          <button
-            key={preset}
-            data-testid={`free-layout-preset-${preset}`}
-            onClick={() => handlePreset(preset)}
-            style={{ padding: '1px 8px', fontSize: '12px', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--accent)', background: 'var(--bg)', cursor: 'pointer' }}
-          >
-            Mode {preset}
-          </button>
-        ))}
 
         {/* 保存成功トースト */}
         {showToast && (
@@ -295,7 +352,7 @@ export const FreeLayoutCanvas: React.FC = () => {
                     border: '1px dashed #e5e7eb',
                   }}
                   onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDrop(row, col)}
+                  onDrop={(e) => handleDrop(row, col, e)}
                 />
               );
             }),
@@ -313,9 +370,9 @@ export const FreeLayoutCanvas: React.FC = () => {
             gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
           }}
         >
-          {layout.cells.map(({ chartId, gridRow, gridCol }) => (
+          {layout.cells.map(({ cellId, chartId, gridRow, gridCol }) => (
             <div
-              key={chartId}
+              key={cellId}
               data-testid={`free-layout-card-${chartId}`}
               style={{
                 gridArea: `${gridRow[0]} / ${gridCol[0]} / ${gridRow[1]} / ${gridCol[1]}`,
@@ -330,15 +387,25 @@ export const FreeLayoutCanvas: React.FC = () => {
                 flexDirection: 'column',
               }}
             >
-              {/* ドラッグハンドル（タイトルバー） */}
+              {/* ドラッグハンドル（タイトルバー）+ 削除ボタン */}
               <div
                 data-testid={`free-layout-drag-handle-${chartId}`}
                 draggable
-                onDragStart={() => setDraggingChartId(chartId)}
-                onDragEnd={() => setDraggingChartId(null)}
-                style={{ padding: '3px 8px', fontSize: '12px', fontWeight: 600, color: 'var(--accent)', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', cursor: 'grab', userSelect: 'none', flexShrink: 0 }}
+                onDragStart={(e) => {
+                  setDraggingCellId(cellId);
+                  e.dataTransfer?.setData('text/plain', JSON.stringify({ type: 'move-chart', cellId }));
+                }}
+                onDragEnd={() => setDraggingCellId(null)}
+                style={{ padding: '3px 8px', fontSize: '12px', fontWeight: 600, color: 'var(--accent)', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', cursor: 'grab', userSelect: 'none', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
               >
-                {CHART_LABELS[chartId] ?? chartId}
+                <span>{CHART_LABELS[chartId] ?? chartId}</span>
+                <button
+                  data-testid={`chart-close-btn-${cellId}`}
+                  onClick={(e) => { e.stopPropagation(); removeCell(cellId); }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1, padding: '0 2px' }}
+                >
+                  ×
+                </button>
               </div>
 
               {/* チャートコンテンツエリア */}

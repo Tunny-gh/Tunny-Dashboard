@@ -46,6 +46,7 @@ vi.mock('./ToolBar', () => ({ ToolBar: () => <div data-testid="toolbar-mock" /> 
 vi.mock('../panels/LeftPanel', () => ({ LeftPanel: () => <div data-testid="left-panel-mock" /> }));
 vi.mock('../panels/BottomPanel', () => ({ BottomPanel: () => <div data-testid="bottom-panel-mock" /> }));
 vi.mock('./FreeLayoutCanvas', () => ({ FreeLayoutCanvas: () => <div data-testid="canvas-mock" /> }));
+vi.mock('./ChartCatalogPanel', () => ({ ChartCatalogPanel: () => <div data-testid="catalog-toggle-btn" /> }));
 
 import { AppShell } from './AppShell';
 import { useStudyStore } from '../../stores/studyStore';
@@ -74,6 +75,23 @@ describe('AppShell — 正常系', () => {
     render(<AppShell />);
     const shell = screen.getByTestId('app-shell');
     expect(shell).toHaveAttribute('data-layout', 'A');
+  });
+
+  // TC-401-08: ChartCatalogPanel のトグルボタンが AppShell 内に存在する
+  test('TC-401-08: data-testid="catalog-toggle-btn" が AppShell 内に存在する', () => {
+    // 【テスト目的】: REQ-001 — ChartCatalogPanel が AppShell に統合されていること
+    render(<AppShell />);
+    expect(screen.getByTestId('catalog-toggle-btn')).toBeInTheDocument();
+  });
+
+  // TC-401-09: 既存コンポーネントが退行なく存在する
+  test('TC-401-09: ToolBar / LeftPanel / FreeLayoutCanvas / BottomPanel が存在する', () => {
+    // 【テスト目的】: REQ-402 — 既存コンポーネントへの退行がないこと
+    render(<AppShell />);
+    expect(screen.getByTestId('toolbar-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('left-panel-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('canvas-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('bottom-panel-mock')).toBeInTheDocument();
   });
 
   // TC-401-02: ファイルドロップで loadJournal が呼ばれる

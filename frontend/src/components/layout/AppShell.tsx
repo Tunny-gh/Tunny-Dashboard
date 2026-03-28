@@ -12,6 +12,7 @@ import { ToolBar } from './ToolBar';
 import { LeftPanel } from '../panels/LeftPanel';
 import { BottomPanel } from '../panels/BottomPanel';
 import { FreeLayoutCanvas } from './FreeLayoutCanvas';
+import { ChartCatalogPanel } from './ChartCatalogPanel';
 import type { DragEvent } from 'react';
 
 // -------------------------------------------------------------------------
@@ -59,13 +60,13 @@ export function AppShell() {
       style={{
         display: 'grid',
         gridTemplateRows: 'auto 1fr auto',
-        gridTemplateColumns: 'auto 1fr',
+        gridTemplateColumns: 'auto 1fr auto',
         height: '100vh',
         width: '100vw',
       }}
     >
       {/* 【ToolBar エリア】: 全幅で最上部に配置 */}
-      <div style={{ gridColumn: '1 / -1' }}>
+      <div style={{ gridColumn: '1 / 4' }}>
         <ToolBar />
       </div>
 
@@ -79,8 +80,11 @@ export function AppShell() {
         <FreeLayoutCanvas />
       </div>
 
+      {/* 【ChartCatalogPanel エリア】: 右側収納可能チャートカタログ */}
+      <ChartCatalogPanel />
+
       {/* 【BottomPanel エリア】: 全幅で最下部に配置 */}
-      <div data-testid="bottom-panel" style={{ gridColumn: '1 / -1', height: '220px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+      <div data-testid="bottom-panel" style={{ gridColumn: '1 / 4', height: '220px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
         <BottomPanel />
       </div>
 

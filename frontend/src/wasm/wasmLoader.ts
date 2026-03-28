@@ -8,8 +8,17 @@
  * 🟢 REQ-015 シングルトン設計に準拠
  */
 
-import initWasm, { parseJournal as wasmParseJournal, selectStudy as wasmSelectStudy } from './pkg/tunny_core';
-import type { ParseJournalResult, ParetoResult } from '../types/index';
+import initWasm, {
+  parseJournal as wasmParseJournal,
+  selectStudy as wasmSelectStudy,
+  getTrials as wasmGetTrials,
+  filterByRanges as wasmFilterByRanges,
+  serializeCsv as wasmSerializeCsv,
+  computeHvHistory as wasmComputeHvHistory,
+  appendJournalDiff as wasmAppendJournalDiff,
+  computeReportStats as wasmComputeReportStats,
+} from './pkg/tunny_core';
+import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index';
 
 // -------------------------------------------------------------------------
 // 型定義（WASM API 境界）
@@ -28,11 +37,11 @@ export interface SelectStudyResult {
 
 /**
  * 【HV 推移結果型】: computeHvHistory() の戻り値
- * 🟡 WASM API が確定次第 types/index.ts に移動予定
+ * 🟢 WASM bindgen が返す trialIds / hvValues の形式に合わせた型
  */
 export interface HvHistoryResult {
-  values: Float64Array;
-  durationMs: number;
+  trialIds: Uint32Array;
+  hvValues: Float64Array;
 }
 
 // -------------------------------------------------------------------------
@@ -106,6 +115,12 @@ export class WasmLoader {
   computeReportStats!: () => string;
 
   /**
+   * 【トライアル一覧取得】: アクティブ Study の全完了トライアルをパラメータ・目的関数値付きで返す
+   * 🟢 TASK-004 で実装
+   */
+  getTrials!: () => TrialData[];
+
+  /**
    * 【コンストラクタ】: 外部からの直接生成を禁止する
    */
   private constructor() {}
@@ -146,12 +161,13 @@ export class WasmLoader {
     // 現時点では stub を設定（TypeScript 型チェックを満たすため）
     loader.parseJournal = (data: Uint8Array) => wasmParseJournal(data) as ParseJournalResult;
     loader.selectStudy = (studyId: number) => wasmSelectStudy(studyId) as SelectStudyResult;
-    loader.filterByRanges = _notImplemented('filterByRanges');
+    loader.filterByRanges = (rangesJson: string) => wasmFilterByRanges(rangesJson) as Uint32Array;
     loader.computeParetoRanks = _notImplemented('computeParetoRanks');
-    loader.computeHvHistory = _notImplemented('computeHvHistory');
-    loader.serializeCsv = _notImplemented('serializeCsv');
-    loader.appendJournalDiff = _notImplemented('appendJournalDiff');
-    loader.computeReportStats = _notImplemented('computeReportStats');
+    loader.computeHvHistory = (isMinimize: boolean[]) => wasmComputeHvHistory(isMinimize) as HvHistoryResult;
+    loader.serializeCsv = (indices: number[], columnsJson: string) => wasmSerializeCsv(indices, columnsJson) as string;
+    loader.appendJournalDiff = (data: Uint8Array) => wasmAppendJournalDiff(data) as { new_completed: number; consumed_bytes: number };
+    loader.computeReportStats = () => wasmComputeReportStats() as string;
+    loader.getTrials = () => wasmGetTrials() as TrialData[];
 
     return loader;
   }

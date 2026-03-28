@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import type { Study, DataFrameInfo, StudyMode } from '../types';
+import type { Study, DataFrameInfo, StudyMode, TrialData } from '../types';
 import { WasmLoader } from '../wasm/wasmLoader';
 import { GpuBuffer } from '../wasm/gpuBuffer';
 import { useSelectionStore } from './selectionStore';
@@ -37,6 +37,8 @@ interface StudyState {
   // --- 内部状態 ---
   /** 現在選択中の Study の GpuBuffer（チャートコンポーネントが参照） */
   gpuBuffer: GpuBuffer | null;
+  /** 現在選択中の Study の per-trial データ（slice / contour チャートが参照） */
+  trialRows: TrialData[];
 }
 
 // -------------------------------------------------------------------------
@@ -53,6 +55,7 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
   isLoading: false,
   loadError: null,
   gpuBuffer: null,
+  trialRows: [],
 
   // -------------------------------------------------------------------------
   // アクション実装
@@ -106,7 +109,15 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
         const studyMode: StudyMode =
           study && study.directions.length > 1 ? 'multi-objective' : 'single-objective';
 
-        set({ currentStudy: study, gpuBuffer, studyMode });
+        // 【getTrials 呼び出し】: per-trial データを取得して trialRows に保持
+        let trialRows: TrialData[] = [];
+        try {
+          trialRows = wasm.getTrials();
+        } catch {
+          // WASM getTrials 未実装の場合は空配列のまま
+        }
+
+        set({ currentStudy: study, gpuBuffer, studyMode, trialRows });
 
         // 【SelectionStore 初期化】: trialCount と全インデックスを設定
         useSelectionStore.getState()._setTrialCount(gpuBuffer.trialCount);

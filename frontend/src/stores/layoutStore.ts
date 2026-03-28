@@ -19,10 +19,10 @@ import type { LayoutMode, ChartId, LayoutConfig, PanelSizes, FreeModeLayout } fr
  */
 export const DEFAULT_FREE_LAYOUT: FreeModeLayout = {
   cells: [
-    { chartId: 'pareto-front', gridRow: [1, 3], gridCol: [1, 3] },
-    { chartId: 'parallel-coords', gridRow: [1, 3], gridCol: [3, 5] },
-    { chartId: 'scatter-matrix', gridRow: [3, 5], gridCol: [1, 3] },
-    { chartId: 'history', gridRow: [3, 5], gridCol: [3, 5] },
+    { cellId: crypto.randomUUID(), chartId: 'pareto-front', gridRow: [1, 3], gridCol: [1, 3] },
+    { cellId: crypto.randomUUID(), chartId: 'parallel-coords', gridRow: [1, 3], gridCol: [3, 5] },
+    { cellId: crypto.randomUUID(), chartId: 'scatter-matrix', gridRow: [3, 5], gridCol: [1, 3] },
+    { cellId: crypto.randomUUID(), chartId: 'history', gridRow: [3, 5], gridCol: [3, 5] },
   ],
 };
 
@@ -48,14 +48,28 @@ interface LayoutState {
   /** フリーモードレイアウト全体を設定する */
   setFreeModeLayout: (layout: FreeModeLayout | null) => void;
   /**
-   * 指定チャートのグリッド位置を更新する
+   * 指定セル（cellId）のグリッド位置を更新する
    * ドラッグ&ドロップによる移動時に呼ぶ 🟢 REQ-032
    */
   updateCellPosition: (
+    cellId: string,
+    gridRow: [number, number],
+    gridCol: [number, number],
+  ) => void;
+  /**
+   * 新しいチャートセルを追加する（cellId は自動生成）
+   * freeModeLayout が null のとき DEFAULT_FREE_LAYOUT をベースに追加
+   */
+  addCell: (
     chartId: ChartId,
     gridRow: [number, number],
     gridCol: [number, number],
   ) => void;
+  /**
+   * 指定 cellId のセルを削除する
+   * 存在しない cellId の場合は何もしない
+   */
+  removeCell: (cellId: string) => void;
   /**
    * JSON 文字列からレイアウトを読み込む
    * 形式エラー時は layoutLoadError をセットしてデフォルトに戻す
@@ -152,15 +166,37 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   setFreeModeLayout: (layout) => set({ freeModeLayout: layout }),
 
   /**
-   * 【グリッド位置更新】: 指定チャートのグリッド位置のみを更新する
+   * 【グリッド位置更新】: 指定セル（cellId）のグリッド位置のみを更新する
    * ドラッグ&ドロップの完了時に呼ぶ 🟢 REQ-032
    */
-  updateCellPosition: (chartId, gridRow, gridCol) => {
+  updateCellPosition: (cellId, gridRow, gridCol) => {
     const { freeModeLayout } = get();
     if (!freeModeLayout) return;
     const cells = freeModeLayout.cells.map((cell) =>
-      cell.chartId === chartId ? { ...cell, gridRow, gridCol } : cell,
+      cell.cellId === cellId ? { ...cell, gridRow, gridCol } : cell,
     );
+    set({ freeModeLayout: { cells } });
+  },
+
+  /**
+   * 【セル追加】: 新しいチャートセルを freeModeLayout に追加する
+   * cellId は crypto.randomUUID() で自動生成
+   */
+  addCell: (chartId, gridRow, gridCol) => {
+    const base = get().freeModeLayout ?? DEFAULT_FREE_LAYOUT;
+    const cellId = crypto.randomUUID();
+    set({ freeModeLayout: { cells: [...base.cells, { cellId, chartId, gridRow, gridCol }] } });
+  },
+
+  /**
+   * 【セル削除】: 指定 cellId のセルを削除する
+   * 存在しない cellId の場合は state を変化させない
+   */
+  removeCell: (cellId) => {
+    const { freeModeLayout } = get();
+    if (!freeModeLayout) return;
+    const cells = freeModeLayout.cells.filter((cell) => cell.cellId !== cellId);
+    if (cells.length === freeModeLayout.cells.length) return; // 変化なし
     set({ freeModeLayout: { cells } });
   },
 
