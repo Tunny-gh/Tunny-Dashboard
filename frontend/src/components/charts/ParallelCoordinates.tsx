@@ -10,6 +10,8 @@ import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
+import { COLORMAPS } from '../../colormaps'
+import type { ColormapName } from '../../colormaps'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 import { EmptyState } from '../common/EmptyState'
@@ -51,6 +53,7 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
   const addAxisFilter = useSelectionStore((s) => s.addAxisFilter)
   const removeAxisFilter = useSelectionStore((s) => s.removeAxisFilter)
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
+  const colormapName = useSelectionStore((s) => s.colorMode) as ColormapName
   const trialRows = useStudyStore((s) => s.trialRows)
 
   // Documentation.
@@ -120,11 +123,44 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
       }
     }
 
+    // Compute first-objective min/max for rainbow visualMap
+    let _objMin = Number.POSITIVE_INFINITY
+    let _objMax = Number.NEGATIVE_INFINITY
+    const _objDim = _paramCount // first objective is the dimension right after params
+    for (const row of _seriesData) {
+      const v = row[_objDim]
+      if (Number.isFinite(v)) {
+        if (v < _objMin) _objMin = v
+        if (v > _objMax) _objMax = v
+      }
+    }
+    const _hasObjRange = Number.isFinite(_objMin) && Number.isFinite(_objMax)
+
+    // Use the selected colormap stops for visualMap
+    const _colormapStops = COLORMAPS[colormapName].stops
+
     return {
       axisNames: _axisNames,
       option: {
-        parallel: { left: '5%', right: '5%', top: '10%', bottom: '10%' },
+        parallel: { left: '5%', right: '13%', top: '10%', bottom: '10%' },
         parallelAxis: _parallelAxis,
+        ...(_hasObjRange
+          ? {
+              visualMap: {
+                show: true,
+                dimension: _objDim,
+                min: _objMin,
+                max: _objMax,
+                inRange: {
+                  color: _colormapStops,
+                },
+                right: 0,
+                top: 'center',
+                text: ['High', 'Low'],
+                textStyle: { fontSize: 10 },
+              },
+            }
+          : {}),
         series: [
           ...(_unselectedData.length > 0
             ? [
@@ -139,12 +175,12 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
           {
             type: 'parallel',
             data: _selectedData,
-            lineStyle: { width: 1, opacity: 0.3 },
+            lineStyle: { width: 1, opacity: 0.4 },
           },
         ],
       },
     }
-  }, [currentStudy, trialRows, gpuBuffer, selectedIndices])
+  }, [currentStudy, trialRows, gpuBuffer, selectedIndices, colormapName])
 
   /**
    * Documentation.

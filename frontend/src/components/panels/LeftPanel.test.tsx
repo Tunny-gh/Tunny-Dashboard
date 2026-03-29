@@ -34,7 +34,7 @@ vi.mock('../../stores/selectionStore', () => ({
       ) =>
         selector({
           selectedIndices: new Uint32Array([0, 1, 2]),
-          colorMode: 'objective',
+          colorMode: 'Viridis',
           addAxisFilter: mockAddAxisFilter,
           removeAxisFilter: mockRemoveAxisFilter,
           setColorMode: mockSetColorMode,
@@ -131,10 +131,11 @@ describe('translated test case', () => {
     render(<LeftPanel />)
 
     // Documentation.
-    fireEvent.click(screen.getByTestId('color-mode-cluster'))
+    const select = screen.getByTestId('colormap-select')
+    fireEvent.change(select, { target: { value: 'Plasma' } })
 
     // Documentation.
-    expect(mockSetColorMode).toHaveBeenCalledWith('cluster')
+    expect(mockSetColorMode).toHaveBeenCalledWith('Plasma')
   })
 })
 

@@ -9,14 +9,14 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
-import type { ColorMode } from '../../types'
+import { COLORMAP_NAMES } from '../../colormaps'
+import type { ColormapName } from '../../colormaps'
 
 // -------------------------------------------------------------------------
 // Documentation.
 // -------------------------------------------------------------------------
 
-/** 🟢 Available color modes */
-const COLOR_MODES: ColorMode[] = ['objective', 'cluster', 'rank', 'generation']
+// (ColorMode radio section removed — replaced by Colormap dropdown below)
 
 // -------------------------------------------------------------------------
 // Dual-handle Range Slider
@@ -256,25 +256,27 @@ export function LeftPanel() {
         })}
       </div>
 
-      {/* Documentation. */}
+      {/* Colormap selector */}
       <div>
-        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Color Mode</div>
-        {COLOR_MODES.map((mode) => (
-          <label
-            key={mode}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
-          >
-            <input
-              data-testid={`color-mode-${mode}`}
-              type="radio"
-              name="color-mode"
-              value={mode}
-              checked={colorMode === mode}
-              onChange={() => setColorMode(mode)}
-            />
-            {mode}
-          </label>
-        ))}
+        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Colormap</div>
+        <select
+          data-testid="colormap-select"
+          value={colorMode}
+          onChange={(e) => setColorMode(e.target.value as ColormapName)}
+          style={{
+            width: '100%',
+            fontSize: '13px',
+            padding: '4px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+          }}
+        >
+          {COLORMAP_NAMES.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   )

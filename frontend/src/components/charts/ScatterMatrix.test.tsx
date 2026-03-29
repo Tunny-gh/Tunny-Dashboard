@@ -10,6 +10,15 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
+// Mock selectionStore for colorMode
+vi.mock('../../stores/selectionStore', () => ({
+  useSelectionStore: vi
+    .fn()
+    .mockImplementation((selector: (s: { colorMode: string }) => unknown) =>
+      selector({ colorMode: 'Viridis' }),
+    ),
+}))
+
 import { ScatterMatrix } from './ScatterMatrix'
 import type { Study, TrialData } from '../../types'
 

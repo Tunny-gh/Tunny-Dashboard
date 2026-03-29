@@ -57,6 +57,7 @@ vi.mock('../../stores/selectionStore', () => ({
         addAxisFilter: mockAddAxisFilter,
         removeAxisFilter: mockRemoveAxisFilter,
         selectedIndices: new Uint32Array(0),
+        colorMode: 'Viridis',
       }
       return selector ? selector(state) : state
     }),

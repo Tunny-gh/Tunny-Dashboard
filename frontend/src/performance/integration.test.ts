@@ -29,7 +29,7 @@ function resetAllStores() {
     selectedIndices: new Uint32Array(0),
     filterRanges: {},
     highlighted: null,
-    colorMode: 'objective',
+    colorMode: 'Viridis',
     _trialCount: 0,
   })
   useLayoutStore.setState({

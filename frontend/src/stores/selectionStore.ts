@@ -10,6 +10,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { ColorMode, Range } from '../types'
+import { DEFAULT_COLORMAP } from '../colormaps'
 import { WasmLoader } from '../wasm/wasmLoader'
 
 // -------------------------------------------------------------------------
@@ -65,7 +66,7 @@ export const useSelectionStore = create<SelectionState>()(
     selectedIndices: new Uint32Array(0),
     filterRanges: {},
     highlighted: null,
-    colorMode: 'objective' as ColorMode,
+    colorMode: DEFAULT_COLORMAP as ColorMode,
     _trialCount: 0,
 
     // -------------------------------------------------------------------------

@@ -7,6 +7,9 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Study, TrialData } from '../../types'
+import { useSelectionStore } from '../../stores/selectionStore'
+import { COLORMAPS } from '../../colormaps'
+import type { ColormapName } from '../../colormaps'
 
 // -------------------------------------------------------------------------
 // Constants / Types
@@ -94,21 +97,33 @@ interface ScatterCellProps {
   yAxis: string
   trialRows: TrialData[]
   study: Study
+  colorValues: number[]
+  colormapName: ColormapName
 }
 
-function ScatterCell({ row, col, xAxis, yAxis, trialRows, study }: ScatterCellProps) {
+function ScatterCell({
+  row,
+  col,
+  xAxis,
+  yAxis,
+  trialRows,
+  study,
+  colorValues,
+  colormapName,
+}: ScatterCellProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  // Pre-compute points array (memoised so canvas effect doesn't re-extract every render)
+  // Pre-compute points + colour array
   const points = useMemo(() => {
-    const pts: [number, number][] = []
-    for (const trial of trialRows) {
+    const pts: { x: number; y: number; c: number }[] = []
+    for (let i = 0; i < trialRows.length; i++) {
+      const trial = trialRows[i]
       const x = getAxisValue(trial, xAxis, study)
       const y = getAxisValue(trial, yAxis, study)
-      if (x !== null && y !== null) pts.push([x, y])
+      if (x !== null && y !== null) pts.push({ x, y, c: colorValues[i] })
     }
     return pts
-  }, [trialRows, xAxis, yAxis, study])
+  }, [trialRows, xAxis, yAxis, study, colorValues])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -166,27 +181,28 @@ function ScatterCell({ row, col, xAxis, yAxis, trialRows, study }: ScatterCellPr
       xMax = -Infinity,
       yMin = Infinity,
       yMax = -Infinity
-    for (const [x, y] of points) {
-      if (x < xMin) xMin = x
-      if (x > xMax) xMax = x
-      if (y < yMin) yMin = y
-      if (y > yMax) yMax = y
+    for (const p of points) {
+      if (p.x < xMin) xMin = p.x
+      if (p.x > xMax) xMax = p.x
+      if (p.y < yMin) yMin = p.y
+      if (p.y > yMax) yMax = p.y
     }
     const xRange = xMax - xMin || 1
     const yRange = yMax - yMin || 1
     const pad = 4
     const plotSize = size - pad * 2
 
-    // Draw dots
-    ctx.fillStyle = 'rgba(79, 70, 229, 0.55)' // indigo-600
-    for (const [x, y] of points) {
-      const px = pad + ((x - xMin) / xRange) * plotSize
-      const py = pad + (1 - (y - yMin) / yRange) * plotSize
+    // Draw dots with selected colormap
+    const interpolate = COLORMAPS[colormapName].interpolate
+    for (const p of points) {
+      const px = pad + ((p.x - xMin) / xRange) * plotSize
+      const py = pad + (1 - (p.y - yMin) / yRange) * plotSize
+      ctx.fillStyle = interpolate(p.c)
       ctx.beginPath()
       ctx.arc(px, py, 1.5, 0, Math.PI * 2)
       ctx.fill()
     }
-  }, [points, xAxis, yAxis])
+  }, [points, xAxis, yAxis, colormapName])
 
   return (
     <div
@@ -216,6 +232,23 @@ function ScatterCell({ row, col, xAxis, yAxis, trialRows, study }: ScatterCellPr
 export function ScatterMatrix({ trialRows, currentStudy }: ScatterMatrixProps) {
   const [mode, setMode] = useState<ScatterMode>('mode1')
   const [sortOrder, setSortOrder] = useState<SortOrder>('alphabetical')
+  const colormapName = useSelectionStore((s) => s.colorMode) as ColormapName
+
+  // Pre-compute normalised first-objective colour values for rainbow mapping
+  const colorValues = useMemo(() => {
+    if (trialRows.length === 0) return []
+    const vals = trialRows.map((t) => (t.values && t.values.length > 0 ? t.values[0] : Number.NaN))
+    let min = Infinity,
+      max = -Infinity
+    for (const v of vals) {
+      if (Number.isFinite(v)) {
+        if (v < min) min = v
+        if (v > max) max = v
+      }
+    }
+    const range = max - min || 1
+    return vals.map((v) => (Number.isFinite(v) ? (v - min) / range : 0.5))
+  }, [trialRows])
 
   if (!currentStudy) {
     return (
@@ -306,6 +339,8 @@ export function ScatterMatrix({ trialRows, currentStudy }: ScatterMatrixProps) {
               yAxis={yAxis}
               trialRows={trialRows}
               study={currentStudy}
+              colorValues={colorValues}
+              colormapName={colormapName}
             />
           )),
         )}

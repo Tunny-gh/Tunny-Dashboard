@@ -86,7 +86,7 @@ export interface SelectionStore {
   selectedIndices: Uint32Array
   filterRanges: Record<string, Range>
   highlighted: number | null
-  colorMode: ColorMode
+  colorMode: ColormapName
 
   // Actions
   brushSelect: (indices: Uint32Array) => void
@@ -94,10 +94,12 @@ export interface SelectionStore {
   removeAxisFilter: (axis: string) => void
   clearSelection: () => void
   setHighlight: (index: number | null) => void
-  setColorMode: (mode: ColorMode) => void
+  setColorMode: (mode: ColormapName) => void
 }
 
-export type ColorMode = 'objective' | 'cluster' | 'rank' | 'generation'
+export type { ColormapName } from '../colormaps'
+
+export type ColorMode = ColormapName
 
 export interface Range {
   min: number
