@@ -91,7 +91,9 @@ pub fn wasm_parse_journal(data: &[u8]) -> Result<JsValue, JsValue> {
             .collect(),
     };
 
-    serde_wasm_bindgen::to_value(&js_result).map_err(|e| JsValue::from_str(&e.to_string()))
+    js_result
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 /// アクティブ Study を切り替え、GPU バッファを JS オブジェクトで返す
@@ -281,7 +283,9 @@ pub fn wasm_get_trials() -> Result<JsValue, JsValue> {
     })
     .unwrap_or_default();
 
-    serde_wasm_bindgen::to_value(&trials).map_err(|e| JsValue::from_str(&e.to_string()))
+    trials
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[cfg(test)]

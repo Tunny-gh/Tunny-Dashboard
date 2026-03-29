@@ -8,6 +8,7 @@
 
 import ReactECharts from 'echarts-for-react'
 import { useSelectionStore } from '../../stores/selectionStore'
+import { useStudyStore } from '../../stores/studyStore'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 import { EmptyState } from '../common/EmptyState'
@@ -47,6 +48,7 @@ interface AxisAreaSelectedEvent {
 export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordinatesProps) {
   // 【Store接続】: addAxisFilter / removeAxisFilter を取得 🟢
   const { addAxisFilter, removeAxisFilter } = useSelectionStore()
+  const trialRows = useStudyStore((s) => s.trialRows)
 
   // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (!gpuBuffer || !currentStudy) {
@@ -55,25 +57,71 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
 
   // 【軸名配列構築】: paramNames + objectiveNames で全軸名を定義 🟢
   const axisNames = [...currentStudy.paramNames, ...currentStudy.objectiveNames]
+  const paramCount = currentStudy.paramNames.length
 
-  // 【parallelAxis 定義】: ECharts に軸名と軸インデックスを渡す 🟢
-  const parallelAxis = axisNames.map((name, dim) => ({
-    dim,
-    name,
-    type: 'value' as const,
-  }))
+  // 【series データ構築】: trialRows がある場合は params/values から実データを使用する
+  // trialRows が空の場合のみ、positions から最小限のフォールバックを生成する
+  const seriesData: number[][] =
+    trialRows.length > 0
+      ? trialRows.map((trial) =>
+          axisNames.map((axisName, dim) => {
+            const raw = dim < paramCount ? trial.params[axisName] : trial.values[dim - paramCount]
+            const value = Number(raw)
+            return Number.isFinite(value) ? value : Number.NaN
+          }),
+        )
+      : Array.from({ length: gpuBuffer.trialCount }, (_, i) => {
+          const row = new Array(axisNames.length).fill(Number.NaN)
+          if (gpuBuffer.positions.length >= (i + 1) * 2) {
+            row[0] = gpuBuffer.positions[i * 2]
+            if (axisNames.length > 1) {
+              row[1] = gpuBuffer.positions[i * 2 + 1]
+            }
+          }
+          return row
+        })
 
-  // 【series データ構築】: GpuBuffer から各トライアルのパラメータ値を取得 🟢
-  // ※ GpuBuffer には positions しかないので N点分のプレースホルダーデータを使う
-  // （実際のパラメータ値は WASM の get_column() で取得する予定 — TASK-102 完成後）
-  const seriesData: number[][] = Array.from({ length: gpuBuffer.trialCount }, (_, i) => {
-    // 【プレースホルダー】: positions配列から x,y 座標を繰り返し埋める
-    const row = new Array(axisNames.length).fill(0)
-    if (gpuBuffer.positions.length >= (i + 1) * 2) {
-      row[0] = gpuBuffer.positions[i * 2]
-      row[1] = gpuBuffer.positions[i * 2 + 1]
+  // 【parallelAxis 定義】: 軸ごとに min/max を計算し、ゼロ埋め由来の表示崩れを防ぐ
+  const parallelAxis = axisNames.map((name, dim) => {
+    let min = Number.POSITIVE_INFINITY
+    let max = Number.NEGATIVE_INFINITY
+
+    for (const row of seriesData) {
+      const value = row[dim]
+      if (Number.isFinite(value)) {
+        if (value < min) min = value
+        if (value > max) max = value
+      }
     }
-    return row
+
+    const hasValidRange = Number.isFinite(min) && Number.isFinite(max)
+    if (!hasValidRange) {
+      return {
+        dim,
+        name,
+        type: 'value' as const,
+      }
+    }
+
+    // min===max の場合は微小幅を持たせる（ECharts の自動レンダリング安定化）
+    if (min === max) {
+      const delta = Math.abs(min) * 0.01 || 1
+      return {
+        dim,
+        name,
+        type: 'value' as const,
+        min: min - delta,
+        max: max + delta,
+      }
+    }
+
+    return {
+      dim,
+      name,
+      type: 'value' as const,
+      min,
+      max,
+    }
   })
 
   // 【ECharts option 構築】: parallel チャートの設定を組み立てる 🟢

@@ -57,6 +57,7 @@ vi.mock('../../stores/selectionStore', () => ({
 }))
 
 import { ParallelCoordinates } from './ParallelCoordinates'
+import { useStudyStore } from '../../stores/studyStore'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 
@@ -103,6 +104,7 @@ function makeStudy(opts: { paramNames?: string[]; objectiveNames?: string[] } = 
 describe('ParallelCoordinates — 正常系', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useStudyStore.setState({ trialRows: [] })
   })
 
   afterEach(() => {
@@ -161,6 +163,39 @@ describe('ParallelCoordinates — 正常系', () => {
     // 【確認内容】: addAxisFilter が 'x1', 0.2, 0.8 で呼ばれた
     expect(mockAddAxisFilter).toHaveBeenCalledWith('x1', 0.2, 0.8)
   })
+
+  // TC-601-05: trialRows の実データが parallel series に反映される
+  test('TC-601-05: trialRows の params/values を parallel series data に反映する', () => {
+    const study = makeStudy({ paramNames: ['x1', 'x2'], objectiveNames: ['obj1'] })
+    useStudyStore.setState({
+      trialRows: [
+        {
+          trialId: 1,
+          params: { x1: 10, x2: 20 },
+          values: [0.5],
+          paretoRank: 0,
+        },
+        {
+          trialId: 2,
+          params: { x1: 11, x2: 21 },
+          values: [0.6],
+          paretoRank: 1,
+        },
+      ],
+    })
+
+    render(<ParallelCoordinates gpuBuffer={makeGpuBuffer(2)} currentStudy={study} />)
+
+    const el = screen.getByTestId('echarts-pc')
+    const option = JSON.parse(el.getAttribute('data-option') ?? '{}') as {
+      series: Array<{ data: number[][] }>
+    }
+
+    expect(option.series[0]?.data).toEqual([
+      [10, 20, 0.5],
+      [11, 21, 0.6],
+    ])
+  })
 })
 
 // -------------------------------------------------------------------------
@@ -170,6 +205,7 @@ describe('ParallelCoordinates — 正常系', () => {
 describe('ParallelCoordinates — 異常系', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useStudyStore.setState({ trialRows: [] })
   })
 
   afterEach(() => {
@@ -198,6 +234,7 @@ describe('ParallelCoordinates — 異常系', () => {
 describe('ParallelCoordinates — 境界値', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useStudyStore.setState({ trialRows: [] })
   })
 
   afterEach(() => {
