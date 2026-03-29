@@ -35,7 +35,7 @@ class MockWorker {
       {
         type: 'loaded',
         success: false,
-        error: 'ONNX Runtime は未実装です。Ridge 簡易版 PDP を使用してください。',
+        error: 'ONNX Runtime is not implemented. Please use the Ridge simplified PDP instead.',
       } as OnnxWorkerResponse,
     ],
     // 【infer レスポンス】: スタブは空の outputData を返す

@@ -26,16 +26,16 @@ export type SortOrder = 'alphabetical' | 'correlation' | 'importance'
 
 /** 【モードラベル】: UI 表示用のモード名 */
 const MODE_LABELS: Record<ScatterMode, string> = {
-  mode1: '変数×変数', // 🟢 変数間の散布図行列
-  mode2: '変数×目的', // 🟢 変数と目的関数間の散布図
-  mode3: '全変数', // 🟢 全変数（変数+目的）の散布図行列
+  mode1: 'Params×Params', // 🟢 変数間の散布図行列
+  mode2: 'Params×Objectives', // 🟢 変数と目的関数間の散布図
+  mode3: 'All', // 🟢 全変数（変数+目的）の散布図行列
 }
 
 /** 【ソートラベル】: UI 表示用のソート順名 */
 const SORT_LABELS: Record<SortOrder, string> = {
-  alphabetical: 'アルファベット順', // 🟢 常に利用可能
-  correlation: '相関順', // 🟡 WASM 実装後に有効化
-  importance: '重要度順', // 🟡 WASM 実装後に有効化
+  alphabetical: 'Alphabetical', // 🟢 常に利用可能
+  correlation: 'By Correlation', // 🟡 WASM 実装後に有効化
+  importance: 'By Importance', // 🟡 WASM 実装後に有効化
 }
 
 // -------------------------------------------------------------------------
@@ -160,7 +160,7 @@ function ScatterCell({ row, col, xAxis, yAxis, engine, size = 'thumbnail' }: Sca
   return (
     <div
       data-testid={`scatter-cell-${row}-${col}`}
-      title={`${xAxis} vs ${yAxis} — クリックで展開`}
+      title={`${xAxis} vs ${yAxis} — Click to expand`}
       style={{
         width: `${pixelSize}px`,
         height: `${pixelSize}px`,
@@ -227,7 +227,7 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
-        <span>データが読み込まれていません</span>
+        <span>Data not loaded</span>
       </div>
     )
   }

@@ -202,7 +202,7 @@ describe('ExportStore — 異常系', () => {
     // 【テスト目的】: 選択0件時に適切なエラーが表示されることを確認 🟢
     await useExportStore.getState().exportCsv(new Uint32Array([]))
     // 【確認内容】: exportError が「対象データがありません」
-    expect(useExportStore.getState().exportError).toBe('対象データがありません')
+    expect(useExportStore.getState().exportError).toBe('No data to export')
     // 【確認内容】: WASM は呼ばれないこと
     expect(mockSerializeCsv).not.toHaveBeenCalled()
   })
@@ -217,7 +217,7 @@ describe('ExportStore — 異常系', () => {
     // 【処理実行】: MAX_PINS + 1 件目のピン留み試行
     useExportStore.getState().pinTrial(MAX_PINS, MAX_PINS)
     // 【確認内容】: pinError がセットされること
-    expect(useExportStore.getState().pinError).toMatch(/上限/)
+    expect(useExportStore.getState().pinError).toMatch(/Limit/)
     // 【確認内容】: pinnedTrials は MAX_PINS 件のまま
     expect(useExportStore.getState().pinnedTrials).toHaveLength(MAX_PINS)
   })
@@ -274,7 +274,7 @@ describe('ExportStore — generateHtmlReport (TASK-1102)', () => {
   test('TC-1102-S04: ピン留め試行が generateHtmlReport で生成された HTML に含まれる', async () => {
     // 【テスト目的】: 注目解（ピン留め）セクションにピン留め情報が含まれることを確認 🟢
     useExportStore.getState().pinTrial(0, 42)
-    useExportStore.getState().updatePinMemo(0, '最良の解')
+    useExportStore.getState().updatePinMemo(0, 'Best solution')
 
     // Blob への引数を捕捉する
     const capturedContent: string[] = []
@@ -292,8 +292,8 @@ describe('ExportStore — generateHtmlReport (TASK-1102)', () => {
     // 【確認内容】: 生成 HTML に trial_id=42 が含まれること
     const html = capturedContent.join('')
     expect(html).toContain('42')
-    // 【確認内容】: メモ '最良の解' が含まれること
-    expect(html).toContain('最良の解')
+    // 【確認内容】: メモ 'Best solution' が含まれること
+    expect(html).toContain('Best solution')
   })
 
   // TC-1102-S05: setReportSections で順序が更新される
@@ -419,7 +419,7 @@ describe('ExportStore — セッション復元 loadSessionFromJson (TASK-1103)'
     // 【テスト目的】: 不正 JSON 読み込み時にエラーが表示されることを確認 🟢
     useExportStore.getState().loadSessionFromJson('not valid json {{{')
     // 【確認内容】: sessionError が設定されること
-    expect(useExportStore.getState().sessionError).toContain('形式が正しくありません')
+    expect(useExportStore.getState().sessionError).toContain('Invalid session file format')
   })
 
   // TC-1103-07: バージョン不一致で sessionWarning がセットされ復元は続行する
@@ -443,7 +443,7 @@ describe('ExportStore — セッション復元 loadSessionFromJson (TASK-1103)'
     useExportStore.getState().loadSessionFromJson(oldSessionJson)
 
     // 【確認内容】: sessionWarning がセットされること
-    expect(useExportStore.getState().sessionWarning).toContain('古いバージョン')
+    expect(useExportStore.getState().sessionWarning).toContain('Old session version')
     // 【確認内容】: 復元は続行されること（sessionState が設定される）
     expect(useExportStore.getState().sessionState).not.toBeNull()
   })

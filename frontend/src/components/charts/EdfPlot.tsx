@@ -80,13 +80,13 @@ export function EdfPlot({ series }: EdfPlotProps) {
     },
     xAxis: {
       type: 'value',
-      name: '目的関数値',
+      name: 'Objective Value',
       nameLocation: 'center',
       nameGap: 24,
     },
     yAxis: {
       type: 'value',
-      name: '累積割合',
+      name: 'Cumulative Probability',
       nameLocation: 'center',
       nameGap: 40,
       min: 0,

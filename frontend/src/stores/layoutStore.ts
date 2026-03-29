@@ -184,7 +184,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
    * NFR-032: error message is shown when loading fails.
    */
   loadLayoutFromJson: (json) => {
-    const ERR = 'レイアウトを読み込めませんでした'
+    const ERR = 'Failed to load layout'
     try {
       const config = JSON.parse(json) as LayoutConfig
       // Validate required fields

@@ -106,8 +106,8 @@ describe('ChartCatalogPanel', () => {
     fireEvent.click(screen.getByTestId('catalog-toggle-btn'))
     const sliceItem = screen.getByTestId('catalog-item-slice')
     expect(sliceItem).toHaveAttribute('data-count', '0')
-    // インスタンス数テキスト（N個）が表示されていないこと
-    expect(sliceItem.textContent).not.toContain('個）')
+    // Instance count text should not be shown when count is 0
+    expect(sliceItem.textContent).not.toMatch(/\(\d+\)/)
   })
 
   // TC-CC-P07: freeModeLayout が null のとき全アイテムが data-count="0"

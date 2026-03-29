@@ -138,6 +138,6 @@ describe('LeftPanel — 異常系', () => {
     )
 
     render(<LeftPanel />)
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 })

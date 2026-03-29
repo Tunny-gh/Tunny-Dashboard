@@ -78,10 +78,10 @@ describe('LayoutTabBar — happy path', () => {
   test('TC-LT-03: tab labels are "4分割", "左大", "縦並び", "フリー"', () => {
     // REQ-002 — descriptive labels instead of opaque A/B/C/D
     render(<LayoutTabBar />)
-    expect(screen.getByTestId('layout-tab-A')).toHaveTextContent('4分割')
-    expect(screen.getByTestId('layout-tab-B')).toHaveTextContent('左大')
-    expect(screen.getByTestId('layout-tab-C')).toHaveTextContent('縦並び')
-    expect(screen.getByTestId('layout-tab-D')).toHaveTextContent('フリー')
+    expect(screen.getByTestId('layout-tab-A')).toHaveTextContent('Quad')
+    expect(screen.getByTestId('layout-tab-B')).toHaveTextContent('Left Main')
+    expect(screen.getByTestId('layout-tab-C')).toHaveTextContent('Vertical')
+    expect(screen.getByTestId('layout-tab-D')).toHaveTextContent('Free')
   })
 
   // TC-LT-04: when layoutMode=B, layout-tab-B has aria-selected="true"

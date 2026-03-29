@@ -117,7 +117,7 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
    */
   pickDirectory: async () => {
     if (!useArtifactStore.isSupported?.()) {
-      set({ error: 'このブラウザはディレクトリ選択に対応していません' })
+      set({ error: 'This browser does not support directory selection' })
       return false
     }
 
@@ -143,7 +143,7 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
         return false
       }
       set({
-        error: e instanceof Error ? e.message : 'ディレクトリの選択に失敗しました',
+        error: e instanceof Error ? e.message : 'Failed to select directory',
         isPickingDir: false,
       })
       return false

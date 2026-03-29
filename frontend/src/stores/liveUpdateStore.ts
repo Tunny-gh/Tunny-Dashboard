@@ -108,7 +108,7 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
     const { isSupported, pollIntervalMs } = get()
 
     if (!isSupported) {
-      set({ error: 'ライブ更新は Chrome / Edge のみ対応しています' })
+      set({ error: 'Live update is only supported on Chrome / Edge' })
       return
     }
 
@@ -183,7 +183,7 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
     _poller = null
     set({
       isLive: false,
-      error: '更新に失敗しました（3回連続エラーにより自動停止しました）',
+      error: 'Update failed (auto-stopped after 3 consecutive errors)',
     })
   },
 }))

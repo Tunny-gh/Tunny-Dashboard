@@ -61,9 +61,9 @@ const K_DEFAULT = 4
 
 /** 【空間ラベル】: ClusterSpace → 日本語表示名 */
 const SPACE_LABELS: Record<ClusterSpace, string> = {
-  param: 'パラメータ',
-  objective: '目的関数',
-  all: '全て',
+  param: 'Parameters',
+  objective: 'Objectives',
+  all: 'All',
 }
 
 // -------------------------------------------------------------------------
@@ -177,7 +177,7 @@ export function ClusterPanel({
    */
   const handleRun = () => {
     if (k < K_MIN) {
-      setKError('k=2以上を指定してください')
+      setKError('Please specify k >= 2')
       return
     }
     setKError(null)
@@ -195,7 +195,7 @@ export function ClusterPanel({
     >
       {/* 【対象空間選択】: パラメータ / 目的関数 / 全て 🟢 REQ-080 */}
       <div>
-        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>対象空間</div>
+        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Target Space</div>
         {(['param', 'objective', 'all'] as ClusterSpace[]).map((s) => (
           <label
             key={s}
@@ -216,7 +216,7 @@ export function ClusterPanel({
 
       {/* 【k 設定】: クラスタ数入力フィールド 🟢 REQ-081 */}
       <div>
-        <label style={{ fontSize: '12px', color: '#6b7280' }}>クラスタ数 (k)</label>
+        <label style={{ fontSize: '12px', color: '#6b7280' }}>Number of Clusters (k)</label>
         <input
           data-testid="k-input"
           type="number"
@@ -260,7 +260,7 @@ export function ClusterPanel({
           alignSelf: 'flex-start',
         }}
       >
-        {isRunning ? '計算中...' : '実行'}
+        {isRunning ? 'Computing...' : 'Run'}
       </button>
 
       {/* 【プログレスバー】: isRunning=true のみ表示 🟢 */}
@@ -288,7 +288,7 @@ export function ClusterPanel({
             data-testid="progress-text"
             style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}
           >
-            計算中...{progress}%
+            Computing...{progress}%
           </div>
         </div>
       )}
@@ -317,7 +317,7 @@ export function ClusterPanel({
             data-testid="elbow-recommended"
             style={{ fontSize: '13px', fontWeight: 600, color: '#4f46e5', marginBottom: '4px' }}
           >
-            推薦 k = {elbowResult.recommendedK}
+            Recommended k = {elbowResult.recommendedK}
           </div>
           <ReactECharts option={buildElbowOption(elbowResult)} style={{ height: '180px' }} />
         </div>

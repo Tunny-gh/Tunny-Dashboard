@@ -180,14 +180,14 @@ describe('ParallelCoordinates — 異常系', () => {
   test('TC-601-E01: gpuBuffer=null のとき「データが読み込まれていません」を表示する', () => {
     // 【テスト目的】: データなし時に適切な空状態UIが表示されること 🟢
     render(<ParallelCoordinates gpuBuffer={null} currentStudy={null} />)
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
   // TC-601-E02: currentStudy=null で空状態UI表示
   test('TC-601-E02: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
     // 【テスト目的】: Study なし時に適切な空状態UIが表示されること 🟢
     render(<ParallelCoordinates gpuBuffer={makeGpuBuffer()} currentStudy={null} />)
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 })
 

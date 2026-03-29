@@ -19,20 +19,20 @@ import type { ChartId } from '../../types'
 
 /** カタログに表示するチャートの一覧（ChartId + 表示名） */
 export const CHART_CATALOG: { chartId: ChartId; label: string }[] = [
-  { chartId: 'pareto-front', label: 'パレートフロント' },
-  { chartId: 'parallel-coords', label: '平行座標' },
-  { chartId: 'scatter-matrix', label: '散布図行列' },
-  { chartId: 'history', label: '最適化履歴' },
-  { chartId: 'hypervolume', label: 'ハイパーボリューム' },
-  { chartId: 'objective-pair-matrix', label: '目的関数ペア行列' },
-  { chartId: 'pdp', label: '部分依存プロット' },
-  { chartId: 'importance', label: 'パラメータ重要度' },
-  { chartId: 'sensitivity-heatmap', label: '感度ヒートマップ' },
-  { chartId: 'cluster-view', label: 'クラスタービュー' },
+  { chartId: 'pareto-front', label: 'Pareto Front' },
+  { chartId: 'parallel-coords', label: 'Parallel Coordinates' },
+  { chartId: 'scatter-matrix', label: 'Scatter Matrix' },
+  { chartId: 'history', label: 'Optimization History' },
+  { chartId: 'hypervolume', label: 'Hypervolume' },
+  { chartId: 'objective-pair-matrix', label: 'Objective Pair Matrix' },
+  { chartId: 'pdp', label: 'Partial Dependence Plot' },
+  { chartId: 'importance', label: 'Parameter Importance' },
+  { chartId: 'sensitivity-heatmap', label: 'Sensitivity Heatmap' },
+  { chartId: 'cluster-view', label: 'Cluster View' },
   { chartId: 'umap', label: 'UMAP' },
-  { chartId: 'slice', label: 'スライスプロット' },
+  { chartId: 'slice', label: 'Slice Plot' },
   { chartId: 'edf', label: 'EDF' },
-  { chartId: 'contour', label: 'コンタープロット' },
+  { chartId: 'contour', label: 'Contour Plot' },
 ]
 
 // -------------------------------------------------------------------------
@@ -77,7 +77,7 @@ export function ChartCatalogPanel() {
       <button
         data-testid="catalog-toggle-btn"
         onClick={() => setIsOpen((prev) => !prev)}
-        title={isOpen ? 'パネルを閉じる' : 'チャートを追加'}
+        title={isOpen ? 'Close Panel' : 'Add Chart'}
         style={{
           width: '28px',
           minWidth: '28px',
@@ -119,7 +119,7 @@ export function ChartCatalogPanel() {
             padding: '0 10px 6px',
           }}
         >
-          チャート追加
+          Add Chart
         </div>
         {CHART_CATALOG.map(({ chartId, label }) => {
           const count = chartInstanceCount[chartId] ?? 0
@@ -159,7 +159,7 @@ export function ChartCatalogPanel() {
                     flexShrink: 0,
                   }}
                 >
-                  （{count}個）
+                  ({count})
                 </span>
               )}
             </div>

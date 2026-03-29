@@ -151,7 +151,7 @@ describe('ExportPanel — 正常系', () => {
   test('TC-1101-22: pinnedTrials=[] のとき「ピン留めはありません」が表示される', () => {
     // 【テスト目的】: ピン留め未登録時に空状態UIが表示されることを確認 🟢
     render(<ExportPanel />)
-    expect(screen.getByText('ピン留めはありません')).toBeInTheDocument()
+    expect(screen.getByText('No pins yet')).toBeInTheDocument()
   })
 })
 
@@ -244,7 +244,7 @@ describe('ExportPanel — 異常系', () => {
           csvTarget: 'all',
           selectedColumns: [],
           isExporting: false,
-          exportError: '対象データがありません', // 【注目】: エラーあり
+          exportError: 'No data to export', // 【注目】: エラーあり
           pinnedTrials: [],
           pinError: null,
           setCsvTarget: vi.fn(),
@@ -259,7 +259,7 @@ describe('ExportPanel — 異常系', () => {
 
     render(<ExportPanel />)
     // 【確認内容】: export-error に「対象データがありません」が表示されること
-    expect(screen.getByTestId('export-error')).toHaveTextContent('対象データがありません')
+    expect(screen.getByTestId('export-error')).toHaveTextContent('No data to export')
   })
 
   // TC-1101-E04: pinError あり時に pin-error が表示される
@@ -289,7 +289,7 @@ describe('ExportPanel — 異常系', () => {
           isExporting: false,
           exportError: null,
           pinnedTrials: [],
-          pinError: '上限20件です。古いピン留めを削除してください', // 【注目】: pinError あり
+          pinError: 'Limit is 20. Please remove an old pin first.', // 【注目】: pinError あり
           setCsvTarget: vi.fn(),
           setSelectedColumns: vi.fn(),
           exportCsv: vi.fn(),
@@ -302,6 +302,6 @@ describe('ExportPanel — 異常系', () => {
 
     render(<ExportPanel />)
     // 【確認内容】: pin-error が表示されること
-    expect(screen.getByTestId('pin-error')).toHaveTextContent('上限20件')
+    expect(screen.getByTestId('pin-error')).toHaveTextContent('Limit is 20')
   })
 })

@@ -53,10 +53,10 @@ const PRESET_LAYOUTS: Record<Exclude<LayoutMode, 'D'>, () => FreeModeLayout> = {
 
 /** Display order, mode, and label for each tab. REQ-002, REQ-506 */
 const LAYOUT_TABS: Array<{ mode: LayoutMode; label: string }> = [
-  { mode: 'A', label: '4分割' },
-  { mode: 'B', label: '左大' },
-  { mode: 'C', label: '縦並び' },
-  { mode: 'D', label: 'フリー' },
+  { mode: 'A', label: 'Quad' },
+  { mode: 'B', label: 'Left Main' },
+  { mode: 'C', label: 'Vertical' },
+  { mode: 'D', label: 'Free' },
 ]
 
 // -------------------------------------------------------------------------

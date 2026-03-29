@@ -85,16 +85,16 @@ const ICE_HIGHLIGHT_COLOR = '#f59e0b'
 // -------------------------------------------------------------------------
 
 /** Model quality label based on R² */
-export type ModelQuality = '良好' | '要注意' | '推奨外'
+export type ModelQuality = 'Good' | 'Caution' | 'Not Recommended'
 
 /**
  * Returns a quality label based on R²:
  * R² >= 0.8 → good / R² >= 0.5 → caution / R² < 0.5 → not recommended
  */
 export function getModelQuality(rSquared: number): ModelQuality {
-  if (rSquared >= R2_GOOD_THRESHOLD) return '良好'
-  if (rSquared >= R2_WARN_THRESHOLD) return '要注意'
-  return '推奨外'
+  if (rSquared >= R2_GOOD_THRESHOLD) return 'Good'
+  if (rSquared >= R2_WARN_THRESHOLD) return 'Caution'
+  return 'Not Recommended'
 }
 
 // -------------------------------------------------------------------------
@@ -274,7 +274,7 @@ export function PDPChart({
             animation: 'spin 1s linear infinite',
           }}
         />
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>PDP計算中...</span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>Computing PDP...</span>
       </div>
     )
   }
@@ -286,7 +286,7 @@ export function PDPChart({
   if (!data1d && !data2d) {
     return (
       <div data-testid="pdp-chart" style={{ padding: '12px' }}>
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>データが読み込まれていません</span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>Data not loaded</span>
       </div>
     )
   }
@@ -297,8 +297,10 @@ export function PDPChart({
 
   const rSquared = data1d?.rSquared ?? data2d?.rSquared ?? 0
   const quality = getModelQuality(rSquared)
-  const qualityLabel = quality === '良好' ? '✓良好' : quality === '要注意' ? '△要注意' : '✕推奨外'
-  const qualityColor = quality === '良好' ? '#16a34a' : quality === '要注意' ? '#d97706' : '#dc2626'
+  const qualityLabel =
+    quality === 'Good' ? '✓ Good' : quality === 'Caution' ? '△ Caution' : '✕ Not Recommended'
+  const qualityColor =
+    quality === 'Good' ? '#16a34a' : quality === 'Caution' ? '#d97706' : '#dc2626'
 
   // -------------------------------------------------------------------------
   // Highlighted index set
@@ -328,7 +330,7 @@ export function PDPChart({
             justifyContent: 'space-between',
           }}
         >
-          <span>線形近似で表示中 / より精度の高いPDPには .onnx ファイルを読み込んでください</span>
+          <span>Displaying linear approximation / Load .onnx file for higher accuracy PDP</span>
           {/* Button to request ONNX model loading */}
           {onOnnxRequest && (
             <button
@@ -344,7 +346,7 @@ export function PDPChart({
                 cursor: 'pointer',
               }}
             >
-              .onnx を読み込む
+              Load .onnx
             </button>
           )}
         </div>
@@ -363,7 +365,7 @@ export function PDPChart({
             color: '#dc2626',
           }}
         >
-          PDPの解釈に注意が必要です（R²={rSquared.toFixed(2)}）
+          Caution: PDP interpretation may be unreliable (R²={rSquared.toFixed(2)})
         </div>
       )}
 

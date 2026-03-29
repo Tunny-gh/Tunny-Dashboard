@@ -75,8 +75,8 @@ export function BestTrialHistory({ data, direction, onRowClick }: BestTrialHisto
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
         <thead>
           <tr style={{ background: '#f3f4f6', borderBottom: '1px solid #e5e7eb' }}>
-            <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>試行番号</th>
-            <th style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600 }}>目的値</th>
+            <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>Trial #</th>
+            <th style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600 }}>Objective</th>
           </tr>
         </thead>
         <tbody>

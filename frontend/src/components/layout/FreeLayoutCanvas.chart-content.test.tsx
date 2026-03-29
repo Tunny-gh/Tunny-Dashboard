@@ -169,7 +169,7 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         },
       })
       render(<FreeLayoutCanvas />)
-      expect(screen.getByTestId('empty-state')).toHaveTextContent('データを読み込んでください')
+      expect(screen.getByTestId('empty-state')).toHaveTextContent('Please load data')
     })
 
     test('TC-CC-002: 未知のchartIdのとき「このチャートは準備中です」が表示される', () => {
@@ -181,7 +181,7 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         },
       })
       render(<FreeLayoutCanvas />)
-      expect(screen.getByTestId('empty-state')).toHaveTextContent('このチャートは準備中です')
+      expect(screen.getByTestId('empty-state')).toHaveTextContent('This chart is under development')
     })
   })
 
@@ -211,7 +211,7 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         },
       })
       render(<FreeLayoutCanvas />)
-      expect(screen.getByTestId('empty-state')).toHaveTextContent('多目的 Study でのみ利用可能です')
+      expect(screen.getByTestId('empty-state')).toHaveTextContent('Available for multi-objective studies only')
     })
 
     test('TC-CC-012: gpuBuffer === null でもクラッシュしない', () => {
@@ -259,7 +259,7 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       })
       render(<FreeLayoutCanvas />)
       const option = JSON.parse(screen.getByTestId('echarts').dataset.option ?? '{}')
-      expect(option.title?.text).toContain('重要度')
+      expect(option.title?.text).toContain('Importance')
     })
 
     test('TC-CC-022: paramNames が空のとき EmptyState が表示される', () => {
@@ -355,7 +355,9 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         },
       })
       render(<FreeLayoutCanvas />)
-      expect(screen.getByTestId('empty-state')).toHaveTextContent('多目的 Study でのみ利用可能です')
+      expect(screen.getByTestId('empty-state')).toHaveTextContent(
+        'Available for multi-objective studies only',
+      )
     })
 
     test('TC-CC-062: computeHvHistory が reject したとき EmptyState「HV 計算エラー」が表示される', async () => {
@@ -381,7 +383,7 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       })
       render(<FreeLayoutCanvas />)
       await waitFor(() => {
-        expect(screen.getByTestId('empty-state')).toHaveTextContent('HV 計算エラー')
+        expect(screen.getByTestId('empty-state')).toHaveTextContent('HV computation error')
       })
     })
   })
@@ -409,7 +411,7 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         },
       })
       render(<FreeLayoutCanvas />)
-      expect(screen.getByTestId('empty-state')).toHaveTextContent('パラメータが2つ以上必要です')
+      expect(screen.getByTestId('empty-state')).toHaveTextContent('At least 2 parameters required')
     })
 
     test('TC-CC-042: trialData が空のとき EmptyState が表示される', () => {

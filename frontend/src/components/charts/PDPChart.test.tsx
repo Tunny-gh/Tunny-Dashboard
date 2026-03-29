@@ -130,7 +130,7 @@ describe('PDPChart — ローディング状態', () => {
   test('TC-804-06: isLoading=true のとき「PDP計算中...」が表示される', () => {
     render(<PDPChart data1d={null} isLoading />)
 
-    expect(screen.getByText('PDP計算中...')).toBeInTheDocument()
+    expect(screen.getByText('Computing PDP...')).toBeInTheDocument()
   })
 
   // TC-804-07: ECharts is hidden while loading
@@ -155,7 +155,7 @@ describe('PDPChart — R² 警告バッジ', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.65 })} />)
 
     expect(screen.getByTestId('r2-warning-badge')).toBeInTheDocument()
-    expect(screen.getByText(/PDPの解釈に注意が必要です/)).toBeInTheDocument()
+    expect(screen.getByText(/Caution: PDP interpretation may be unreliable/)).toBeInTheDocument()
   })
 
   // TC-804-09: warning badge includes the R² value
@@ -188,7 +188,7 @@ describe('PDPChart — 線形近似警告バナー', () => {
     render(<PDPChart data1d={makePdpData1d()} useOnnx={false} />)
 
     expect(screen.getByTestId('linear-approx-banner')).toBeInTheDocument()
-    expect(screen.getByText(/線形近似で表示中/)).toBeInTheDocument()
+    expect(screen.getByText(/Displaying linear approximation/)).toBeInTheDocument()
   })
 
   // TC-804-12: useOnnx=true hides the warning banner
@@ -265,14 +265,14 @@ describe('PDPChart — 異常系', () => {
   test('TC-804-E01: data1d=null・data2d なしのとき「データが読み込まれていません」が表示される', () => {
     render(<PDPChart data1d={null} isLoading={false} />)
 
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
   // TC-804-E02: rSquared=0 shows "not recommended" quality label
   test('TC-804-E02: rSquared=0 のとき quality-label に「推奨外」が含まれる', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.0 })} />)
 
-    expect(screen.getByTestId('quality-label').textContent).toContain('推奨外')
+    expect(screen.getByTestId('quality-label').textContent).toContain('Not Recommended')
   })
 })
 
@@ -283,22 +283,22 @@ describe('PDPChart — 異常系', () => {
 describe('getModelQuality — 品質評価関数', () => {
   // TC-804-Q01: R² >= 0.8 returns '良好'
   test('TC-804-Q01: R² >= 0.8 のとき "良好" を返す', () => {
-    expect(getModelQuality(0.8)).toBe('良好')
-    expect(getModelQuality(0.95)).toBe('良好')
-    expect(getModelQuality(1.0)).toBe('良好')
+    expect(getModelQuality(0.8)).toBe('Good')
+    expect(getModelQuality(0.95)).toBe('Good')
+    expect(getModelQuality(1.0)).toBe('Good')
   })
 
   // TC-804-Q02: 0.5 <= R² < 0.8 returns '要注意'
   test('TC-804-Q02: 0.5 <= R² < 0.8 のとき "要注意" を返す', () => {
-    expect(getModelQuality(0.5)).toBe('要注意')
-    expect(getModelQuality(0.65)).toBe('要注意')
-    expect(getModelQuality(0.79)).toBe('要注意')
+    expect(getModelQuality(0.5)).toBe('Caution')
+    expect(getModelQuality(0.65)).toBe('Caution')
+    expect(getModelQuality(0.79)).toBe('Caution')
   })
 
   // TC-804-Q03: R² < 0.5 returns '推奨外'
   test('TC-804-Q03: R² < 0.5 のとき "推奨外" を返す', () => {
-    expect(getModelQuality(0.0)).toBe('推奨外')
-    expect(getModelQuality(0.3)).toBe('推奨外')
-    expect(getModelQuality(0.49)).toBe('推奨外')
+    expect(getModelQuality(0.0)).toBe('Not Recommended')
+    expect(getModelQuality(0.3)).toBe('Not Recommended')
+    expect(getModelQuality(0.49)).toBe('Not Recommended')
   })
 })

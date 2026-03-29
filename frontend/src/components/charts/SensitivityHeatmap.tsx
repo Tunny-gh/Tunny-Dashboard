@@ -197,7 +197,7 @@ export function SensitivityHeatmap({
             animation: 'spin 1s linear infinite',
           }}
         />
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>WASM計算中...</span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>Computing (WASM)...</span>
       </div>
     )
   }
@@ -209,7 +209,7 @@ export function SensitivityHeatmap({
   if (!data) {
     return (
       <div data-testid="sensitivity-heatmap" style={{ padding: '12px' }}>
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>データが読み込まれていません</span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>Data not loaded</span>
       </div>
     )
   }
@@ -266,7 +266,7 @@ export function SensitivityHeatmap({
 
         {/* 【しきい値スライダー】: 表示フィルタのしきい値を設定する 🟢 */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-          <span style={{ color: '#6b7280' }}>しきい値:</span>
+          <span style={{ color: '#6b7280' }}>Threshold:</span>
           <input
             data-testid="threshold-slider"
             type="range"

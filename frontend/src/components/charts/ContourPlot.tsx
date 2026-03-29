@@ -54,7 +54,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
 
   // Show empty state when there are no trials or fewer than 2 parameters
   if (trials.length === 0 || paramNames.length < 2) {
-    return <EmptyState message="データがありません（パラメータが2つ以上必要です）" />
+    return <EmptyState message="No data available (at least 2 parameters required)" />
   }
 
   const xParam = paramNames[xParamIdx]
@@ -152,8 +152,8 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
           flexShrink: 0,
         }}
       >
-        ⚠️ optuna-dashboard のコンター補間（Python / scikit-learn
-        必須）は非対応。実トライアル点のみ表示。
+        ⚠️ Contour interpolation (requires Python / scikit-learn) from optuna-dashboard is not
+        supported. Only actual trial points are shown.
       </div>
 
       {/* Control bar: X/Y parameter and objective selectors */}
@@ -203,7 +203,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
         {/* Objective selector: shown only when there are 2 or more objectives */}
         {objectiveNames.length > 1 && (
           <label>
-            目的関数:{' '}
+            Objective:{' '}
             <select
               data-testid="contour-obj-select"
               value={objIdx}

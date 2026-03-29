@@ -21,10 +21,10 @@ import type { ChangeEvent } from 'react'
 
 /** 【CSV 対象ラベル】: CsvTarget → 日本語表示名 */
 const CSV_TARGET_LABELS: Record<CsvTarget, string> = {
-  all: '全件',
-  selected: '選択中',
-  pareto: 'Pareto解のみ',
-  cluster: 'クラスタ指定',
+  all: 'All',
+  selected: 'Selected',
+  pareto: 'Pareto Only',
+  cluster: 'By Cluster',
 }
 
 // -------------------------------------------------------------------------
@@ -86,7 +86,7 @@ export function ExportPanel() {
     >
       {/* 【CSV 対象選択】: ラジオボタン 🟢 REQ-150 */}
       <div>
-        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>対象選択</div>
+        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Target</div>
         {(Object.keys(CSV_TARGET_LABELS) as CsvTarget[]).map((t) => (
           <label
             key={t}
@@ -108,7 +108,7 @@ export function ExportPanel() {
       {/* 【列選択】: チェックボックス 🟢 REQ-152 */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
-          列選択（空=全列）
+          Columns (empty=all)
         </div>
         {allColumns.map((col) => (
           <label
@@ -160,7 +160,7 @@ export function ExportPanel() {
             }}
           />
         )}
-        {isExporting ? 'エクスポート中...' : 'CSVダウンロード'}
+        {isExporting ? 'Exporting...' : 'Download CSV'}
       </button>
 
       {/* 【エクスポートエラー】: 対象0件や WASM エラー 🟢 REQ-150 */}
@@ -201,7 +201,7 @@ export function ExportPanel() {
           }}
         >
           <span>
-            ピン留め ({pinnedTrials.length}/{MAX_PINS})
+            Pins ({pinnedTrials.length}/{MAX_PINS})
           </span>
         </div>
 
@@ -233,9 +233,7 @@ export function ExportPanel() {
 
         {/* 【ピン留めテーブル】: trial_id・メモ欄・削除ボタン */}
         {pinnedTrials.length === 0 ? (
-          <div style={{ fontSize: '12px', color: '#9ca3af', padding: '8px 0' }}>
-            ピン留めはありません
-          </div>
+          <div style={{ fontSize: '12px', color: '#9ca3af', padding: '8px 0' }}>No pins yet</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
             <thead>
@@ -256,7 +254,7 @@ export function ExportPanel() {
                     borderBottom: '1px solid #e5e7eb',
                   }}
                 >
-                  メモ
+                  Memo
                 </th>
                 <th style={{ borderBottom: '1px solid #e5e7eb', width: '24px' }} />
               </tr>
@@ -275,7 +273,7 @@ export function ExportPanel() {
                       type="text"
                       value={pin.memo}
                       onChange={(e) => updatePinMemo(pin.index, e.target.value)}
-                      placeholder="メモを入力..."
+                      placeholder="Enter memo..."
                       style={{
                         width: '100%',
                         border: '1px solid #e5e7eb',
@@ -297,7 +295,7 @@ export function ExportPanel() {
                         fontSize: '14px',
                         padding: '0 2px',
                       }}
-                      title="ピン留めを解除"
+                      title="Unpin"
                     >
                       ×
                     </button>

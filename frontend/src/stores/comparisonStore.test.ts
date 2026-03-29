@@ -129,7 +129,7 @@ describe('buildComparisonResult', () => {
     expect(result.canComparePareto).toBe(false)
     // 【確認内容】: warningMessage が設定されている
     expect(result.warningMessage).not.toBeNull()
-    expect(result.warningMessage).toContain('目的数が異なります')
+    expect(result.warningMessage).toContain('Objective count differs')
     // 【確認内容】: Pareto支配率は null
     expect(result.paretoDominanceRatio).toBeNull()
   })
@@ -214,7 +214,7 @@ describe('ComparisonStore — computeResults', () => {
     // 【確認内容】: canComparePareto が false
     expect(result.canComparePareto).toBe(false)
     // 【確認内容】: warningMessage が設定されている
-    expect(result.warningMessage).toContain('目的数が異なります')
+    expect(result.warningMessage).toContain('Objective count differs')
   })
 })
 

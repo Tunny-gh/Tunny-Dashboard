@@ -122,6 +122,6 @@ describe('ParetoScatter2D — 異常系', () => {
   test('TC-501-E02: gpuBuffer=null のとき「データがありません」を表示する', () => {
     // 【テスト目的】: データなし時に適切な空状態UIが表示されること 🟢
     render(<ParetoScatter2D gpuBuffer={null} currentStudy={null} />)
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
   })
 })

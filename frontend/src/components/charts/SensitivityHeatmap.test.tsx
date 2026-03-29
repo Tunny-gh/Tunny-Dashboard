@@ -152,7 +152,7 @@ describe('SensitivityHeatmap — ローディング状態', () => {
     render(<SensitivityHeatmap data={null} metric="spearman" threshold={0} isLoading />)
 
     // 【確認内容】: ローディングメッセージが表示されること
-    expect(screen.getByText('WASM計算中...')).toBeInTheDocument()
+    expect(screen.getByText('Computing (WASM)...')).toBeInTheDocument()
   })
 
   // TC-802-08: isLoading=true のとき ECharts は表示されない
@@ -180,7 +180,7 @@ describe('SensitivityHeatmap — 異常系', () => {
     render(<SensitivityHeatmap data={null} metric="spearman" threshold={0} isLoading={false} />)
 
     // 【確認内容】: 空状態メッセージが表示されること
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
   // TC-802-E02: threshold が高くてデータがない → ECharts は表示されるが系列が空

@@ -135,9 +135,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
   if (clusterStats.length === 0) {
     return (
       <div data-testid="cluster-list" style={{ padding: '12px' }}>
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>
-          クラスタリングが実行されていません
-        </span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>Clustering has not been run yet</span>
       </div>
     )
   }
@@ -162,7 +160,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                 whiteSpace: 'nowrap',
               }}
             >
-              クラスタ
+              Cluster
             </th>
             <th
               style={{
@@ -172,7 +170,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                 whiteSpace: 'nowrap',
               }}
             >
-              件数
+              Count
             </th>
             {featureNames.map((name) => (
               <th

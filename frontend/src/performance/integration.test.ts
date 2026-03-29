@@ -330,7 +330,7 @@ describe('統合テスト — セッション JSON 保存・復元 (TASK-1502)',
 
     // 【結果検証】: 失敗を返し、エラーメッセージが設定されること
     expect(result.success).toBe(false) // 【確認内容】: 失敗を返す
-    expect(useLayoutStore.getState().layoutLoadError).toContain('読み込めませんでした') // 【確認内容】: エラーメッセージが設定される
+    expect(useLayoutStore.getState().layoutLoadError).toContain('Failed to load layout') // 【確認内容】: エラーメッセージが設定される
   })
 
   // TC-1502-I09: 有効な JSON をロードするとレイアウトが復元される

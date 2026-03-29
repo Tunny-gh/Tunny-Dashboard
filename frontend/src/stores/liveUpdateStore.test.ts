@@ -238,7 +238,7 @@ describe('LiveUpdateStore — _onError / _onAutoStop', () => {
     // 【確認内容】: isLive が false になること
     expect(state.isLive).toBe(false)
     // 【確認内容】: error に自動停止メッセージがセットされること
-    expect(state.error).toContain('自動停止')
+    expect(state.error).toContain('auto-stopped')
   })
 
   // TC-1201-S11: clearError で error が null になる

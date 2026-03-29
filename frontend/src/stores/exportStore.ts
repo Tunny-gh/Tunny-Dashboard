@@ -170,7 +170,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
   exportCsv: async (indices) => {
     // 【空チェック】: 選択が 0 件なら即エラー
     if (indices.length === 0) {
-      set({ exportError: '対象データがありません' })
+      set({ exportError: 'No data to export' })
       return
     }
 
@@ -190,7 +190,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       // 【ダウンロード起動】: Blob → URL → <a download> フォールバック
       _downloadCsv(csvContent, `tunny-export-${Date.now()}.csv`)
     } catch (e) {
-      set({ exportError: e instanceof Error ? e.message : 'エクスポートに失敗しました' })
+      set({ exportError: e instanceof Error ? e.message : 'Export failed' })
     } finally {
       set({ isExporting: false })
     }
@@ -210,7 +210,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
 
     // 【上限チェック】: MAX_PINS 超過時はエラー
     if (pinnedTrials.length >= MAX_PINS) {
-      set({ pinError: `上限${MAX_PINS}件です。古いピン留めを削除してください` })
+      set({ pinError: `Limit is ${MAX_PINS}. Please remove an old pin first.` })
       return
     }
 
@@ -280,7 +280,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       _downloadFile(html, `tunny-report-${Date.now()}.html`, 'text/html;charset=utf-8')
     } catch (e) {
       set({
-        reportError: e instanceof Error ? e.message : 'レポート生成に失敗しました',
+        reportError: e instanceof Error ? e.message : 'Report generation failed',
       })
     } finally {
       set({ isGeneratingReport: false })
@@ -334,7 +334,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       set({ sessionState: session })
     } catch (e) {
       set({
-        sessionError: e instanceof Error ? e.message : 'セッションの保存に失敗しました',
+        sessionError: e instanceof Error ? e.message : 'Failed to save session',
       })
     } finally {
       set({ isSavingSession: false })
@@ -357,14 +357,14 @@ export const useExportStore = create<ExportState>()((set, get) => ({
     try {
       session = JSON.parse(json) as SessionState
     } catch {
-      set({ sessionError: 'セッションファイルの形式が正しくありません' })
+      set({ sessionError: 'Invalid session file format' })
       return
     }
 
     // 【バージョン確認】: 異なるバージョンは警告を表示して続行
     if (session.version !== SESSION_VERSION) {
       set({
-        sessionWarning: '古いバージョンのセッションです。一部の設定が復元できない場合があります',
+        sessionWarning: 'Old session version. Some settings may not be restored.',
       })
     }
 
@@ -494,7 +494,7 @@ function _buildHtmlReport(
     .join('\n')
 
   return `<!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -513,9 +513,9 @@ tr:nth-child(even){background:#f1f5f9;}
 </head>
 <body>
 <h1>Tunny Dashboard Report</h1>
-<p class="note">生成日時: ${new Date().toLocaleString('ja-JP')}</p>
+<p class="note">Generated: ${new Date().toLocaleString('en-US')}</p>
 <div class="no-print" style="margin:1rem 0;">
-  <button onclick="window.print()" style="background:#3b82f6;color:#fff;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">PDFとして印刷</button>
+  <button onclick="window.print()" style="background:#3b82f6;color:#fff;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Print as PDF</button>
 </div>
 ${sectionHtml}
 <script>
@@ -534,28 +534,28 @@ function _buildSectionHtml(
 ): string {
   switch (section) {
     case 'summary':
-      return '<h2>統計サマリー</h2><p class="note">各パラメータ・目的関数の統計値は埋め込みデータ (REPORT_DATA.stats) を参照してください。</p>'
+      return '<h2>Statistics Summary</h2><p class="note">Refer to embedded data (REPORT_DATA.stats) for parameter and objective statistics.</p>'
     case 'pareto':
-      return `<h2>Pareto 解</h2><p>Pareto 最適解: ${paretoIndices.length} 件</p>`
+      return `<h2>Pareto Solutions</h2><p>Pareto optimal solutions: ${paretoIndices.length}</p>`
     case 'pinned':
       if (pinnedTrials.length === 0) {
-        return '<h2>注目解（ピン留め）</h2><p class="note">ピン留めされた試行はありません。</p>'
+        return '<h2>Pinned Trials</h2><p class="note">No trials have been pinned.</p>'
       }
       return (
-        '<h2>注目解（ピン留め）</h2>' +
-        '<table><thead><tr><th>Trial ID</th><th>ピン留め日時</th><th>メモ</th></tr></thead><tbody>' +
+        '<h2>Pinned Trials</h2>' +
+        '<table><thead><tr><th>Trial ID</th><th>Pinned At</th><th>Memo</th></tr></thead><tbody>' +
         pinnedTrials
           .map(
             (p) =>
-              `<tr><td>${p.trialId}</td><td>${new Date(p.pinnedAt).toLocaleString('ja-JP')}</td><td>${_escapeHtml(p.memo)}</td></tr>`,
+              `<tr><td>${p.trialId}</td><td>${new Date(p.pinnedAt).toLocaleString('en-US')}</td><td>${_escapeHtml(p.memo)}</td></tr>`,
           )
           .join('') +
         '</tbody></table>'
       )
     case 'history':
-      return '<h2>最適化履歴</h2><p class="note">最適化履歴チャートは Plotly.js が利用可能な環境で表示されます。</p>'
+      return '<h2>Optimization History</h2><p class="note">Optimization history charts are displayed when Plotly.js is available.</p>'
     case 'cluster':
-      return '<h2>クラスタ分析</h2><p class="note">クラスタ分析結果は埋め込みデータを参照してください。</p>'
+      return '<h2>Cluster Analysis</h2><p class="note">Refer to the embedded data for cluster analysis results.</p>'
     default:
       return ''
   }

@@ -189,7 +189,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
     const result = useLayoutStore.getState().loadLayoutFromJson('{ invalid json')
 
     expect(result.success).toBe(false)
-    expect(useLayoutStore.getState().layoutLoadError).toContain('読み込めませんでした')
+    expect(useLayoutStore.getState().layoutLoadError).toContain('Failed to load layout')
     expect(useLayoutStore.getState().freeModeLayout).toEqual(DEFAULT_FREE_LAYOUT)
   })
 

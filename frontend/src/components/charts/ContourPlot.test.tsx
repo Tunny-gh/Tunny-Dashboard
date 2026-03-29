@@ -117,7 +117,7 @@ describe('ContourPlot — 異常系', () => {
   test('TC-CONTOUR-E01: trials=[] のとき空状態UIを表示する', () => {
     render(<ContourPlot trials={[]} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
-    expect(screen.getByText(/データがありません/)).toBeInTheDocument()
+    expect(screen.getByText(/No data available/)).toBeInTheDocument()
     expect(screen.queryByTestId('echarts')).toBeNull()
   })
 
@@ -125,6 +125,6 @@ describe('ContourPlot — 異常系', () => {
   test('TC-CONTOUR-E02: paramNames が 1 つのとき空状態UIを表示する（2 つ必要）', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x']} objectiveNames={['obj']} />)
 
-    expect(screen.getByText(/データがありません/)).toBeInTheDocument()
+    expect(screen.getByText(/No data available/)).toBeInTheDocument()
   })
 })

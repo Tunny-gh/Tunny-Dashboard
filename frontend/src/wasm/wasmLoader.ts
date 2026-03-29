@@ -200,6 +200,6 @@ export class WasmLoader {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function _notImplemented(name: string): (...args: any[]) => never {
   return () => {
-    throw new Error(`WasmLoader.${name} は TASK-103 実装後に利用可能になります`)
+    throw new Error(`WasmLoader.${name} will be available after TASK-103 implementation`)
   }
 }

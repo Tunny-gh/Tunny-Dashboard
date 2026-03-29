@@ -54,7 +54,7 @@ export function ObjectivePairMatrix({
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
-        <span>データが読み込まれていません</span>
+        <span>Data not loaded</span>
       </div>
     )
   }

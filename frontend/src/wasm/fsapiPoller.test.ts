@@ -141,7 +141,7 @@ describe('FsapiPoller — ポーリング動作', () => {
   test('TC-1201-P04: 3 回連続エラーで onAutoStop が呼ばれ running=false になる', async () => {
     // 【テスト目的】: 連続エラーで自動停止する REQ-135 を確認 🟢
     const badHandle = {
-      getFile: vi.fn().mockRejectedValue(new Error('ファイルが見つかりません')),
+      getFile: vi.fn().mockRejectedValue(new Error('File not found')),
     } as unknown as FileSystemFileHandle
 
     const onAutoStop = vi.fn()

@@ -50,7 +50,7 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
 
   // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (!gpuBuffer || !currentStudy) {
-    return <EmptyState message="データが読み込まれていません" />
+    return <EmptyState message="Data not loaded" />
   }
 
   // 【軸名配列構築】: paramNames + objectiveNames で全軸名を定義 🟢

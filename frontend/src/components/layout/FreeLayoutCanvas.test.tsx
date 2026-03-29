@@ -162,13 +162,11 @@ describe('FreeLayoutCanvas', () => {
   // TC-1501-F05: layoutLoadError があるときエラーメッセージが表示される
   test('TC-1501-F05: layoutLoadErrorがあるときエラーメッセージが表示される', () => {
     // 【テスト目的】: レイアウト読み込みエラー時にエラーメッセージが表示されることを確認 🟢
-    useLayoutStore.setState({ layoutLoadError: 'レイアウトを読み込めませんでした' })
+    useLayoutStore.setState({ layoutLoadError: 'Failed to load layout' })
     render(<FreeLayoutCanvas />)
     // 【確認内容】: エラーメッセージが表示されること
     expect(screen.getByTestId('layout-error-msg')).toBeInTheDocument()
-    expect(screen.getByTestId('layout-error-msg')).toHaveTextContent(
-      'レイアウトを読み込めませんでした',
-    )
+    expect(screen.getByTestId('layout-error-msg')).toHaveTextContent('Failed to load layout')
   })
 
   // TC-1501-F06: プリセットボタン（A/B/C）が存在しない（TASK-003 削除後）

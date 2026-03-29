@@ -60,7 +60,7 @@ describe('ConvergenceDiagnosis — 正常系', () => {
     render(<ConvergenceDiagnosis data={[]} direction="minimize" />)
 
     // 【確認内容】: 「判定不可（試行数不足）」メッセージが表示されること
-    expect(screen.getByText('判定不可（試行数不足）')).toBeInTheDocument()
+    expect(screen.getByText('Insufficient (not enough trials)')).toBeInTheDocument()
   })
 
   // TC-1001-08: 収束済みデータで converged バッジを表示

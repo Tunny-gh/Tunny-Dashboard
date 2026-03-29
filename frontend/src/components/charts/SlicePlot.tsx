@@ -134,7 +134,7 @@ export function SlicePlot({
         }}
       >
         <label>
-          パラメータ:{' '}
+          Parameter:{' '}
           <select
             data-testid="slice-param-select"
             value={paramIndex}
@@ -152,7 +152,7 @@ export function SlicePlot({
         {/* 【多目的専用】: 目的関数が 2 つ以上のとき表示 */}
         {objectiveNames.length > 1 && (
           <label>
-            目的関数:{' '}
+            Objective:{' '}
             <select
               data-testid="slice-obj-select"
               value={objIndex}

@@ -167,6 +167,6 @@ describe('ObjectivePairMatrix — 異常系', () => {
   test('TC-502-E02: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={null} />)
 
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 })

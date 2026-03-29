@@ -89,7 +89,7 @@ self.onmessage = (event: MessageEvent<OnnxWorkerRequest>): void => {
           type: 'loaded',
           success: false,
           // 🟡 エラーメッセージは Ridge フォールバックへの案内を含む
-          error: 'ONNX Runtime は未実装です。Ridge 簡易版 PDP を使用してください。',
+          error: 'ONNX Runtime is not implemented. Please use the Ridge simplified PDP instead.',
         }
         self.postMessage(response)
         return

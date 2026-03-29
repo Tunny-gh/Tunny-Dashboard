@@ -112,7 +112,7 @@ describe('EdfPlot — 異常系', () => {
   test('TC-EDF-E01: series=[] のとき「データがありません」を表示する', () => {
     render(<EdfPlot series={[]} />)
 
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
     expect(screen.queryByTestId('echarts')).toBeNull()
   })
 
@@ -120,6 +120,6 @@ describe('EdfPlot — 異常系', () => {
   test('TC-EDF-E02: 全 series の values が空のとき「データがありません」を表示する', () => {
     render(<EdfPlot series={[{ name: 'obj', values: [] }]} />)
 
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
   })
 })

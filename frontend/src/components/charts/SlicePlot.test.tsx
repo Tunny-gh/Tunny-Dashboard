@@ -118,7 +118,7 @@ describe('SlicePlot — 異常系', () => {
     render(<SlicePlot trials={[]} paramNames={['x']} objectiveNames={['obj']} />)
 
     // 【確認内容】: 空状態メッセージ / ECharts は非表示
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
     expect(screen.queryByTestId('echarts')).toBeNull()
   })
 
@@ -128,6 +128,6 @@ describe('SlicePlot — 異常系', () => {
     render(<SlicePlot trials={SAMPLE_TRIALS} paramNames={[]} objectiveNames={['obj']} />)
 
     // 【確認内容】: 空状態メッセージが表示される
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
   })
 })

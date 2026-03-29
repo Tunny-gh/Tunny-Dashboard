@@ -148,7 +148,7 @@ describe('ArtifactStore — ディレクトリ選択', () => {
     // 【確認内容】: false が返ること
     expect(result).toBe(false)
     // 【確認内容】: error が設定されること
-    expect(useArtifactStore.getState().error).toContain('対応していません')
+    expect(useArtifactStore.getState().error).toContain('does not support')
 
     if (orig) (window as Record<string, unknown>).showDirectoryPicker = orig
   })

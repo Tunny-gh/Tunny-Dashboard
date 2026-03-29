@@ -69,7 +69,7 @@ export function ToolBar() {
           data-testid="toolbar-loading"
           style={{ fontSize: '13px', color: 'var(--text-muted)' }}
         >
-          読み込み中...
+          Loading...
         </span>
       )}
 
@@ -87,7 +87,7 @@ export function ToolBar() {
           }}
           title={loadError}
         >
-          エラー: {loadError}
+          Error: {loadError}
         </span>
       )}
 
@@ -134,7 +134,9 @@ export function ToolBar() {
         <button
           data-testid="live-update-btn"
           disabled={!isSupported}
-          title={isSupported ? undefined : 'このブラウザは対応していません（Chrome/Edge 推奨）'}
+          title={
+            isSupported ? undefined : 'This browser is not supported (Chrome/Edge recommended)'
+          }
           onClick={isLive ? stopLive : startLive}
           style={{
             padding: '2px 10px',
@@ -148,7 +150,7 @@ export function ToolBar() {
             opacity: isSupported ? 1 : 0.5,
           }}
         >
-          {isLive ? 'ライブ停止' : 'ライブ開始'}
+          {isLive ? 'Stop Live' : 'Start Live'}
         </button>
       </div>
     </div>

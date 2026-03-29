@@ -29,11 +29,11 @@ interface ReportBuilderProps {
 
 /** 【セクション表示名】: セクション識別子 → 日本語ラベル */
 const SECTION_LABELS: Record<ReportSection, string> = {
-  summary: '統計サマリー',
-  pareto: 'Pareto 解',
-  pinned: '注目解（ピン留め）',
-  history: '最適化履歴',
-  cluster: 'クラスタ分析',
+  summary: 'Statistics Summary',
+  pareto: 'Pareto Solutions',
+  pinned: 'Pinned Trials',
+  history: 'Optimization History',
+  cluster: 'Cluster Analysis',
 }
 
 /** 【全セクション一覧】: デフォルト順 */
@@ -127,12 +127,12 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
   return (
     <div data-testid="report-builder" className="p-4 space-y-4">
       {/* タイトル */}
-      <h3 className="text-base font-semibold text-gray-800">HTML レポート生成</h3>
+      <h3 className="text-base font-semibold text-gray-800">Generate HTML Report</h3>
 
       {/* セクション選択・並び替えリスト */}
       <div>
         <p className="text-xs text-gray-500 mb-2">
-          レポートに含めるセクションをドラッグして並び替えできます
+          Drag to reorder the sections included in the report
         </p>
 
         {/* 有効なセクション（並び替え可能） */}
@@ -216,17 +216,17 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
                 data-testid="report-spinner"
                 className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"
               />
-              生成中...
+              Generating...
             </>
           ) : (
-            <>HTMLダウンロード</>
+            <>Download HTML</>
           )}
         </button>
       </div>
 
       {/* PDF 印刷ヒント */}
       <p className="text-xs text-gray-400">
-        ※ ダウンロード後にブラウザで開き「印刷」を選択するとPDFとして保存できます。
+        * After downloading, open in a browser and select "Print" to save as PDF.
       </p>
     </div>
   )

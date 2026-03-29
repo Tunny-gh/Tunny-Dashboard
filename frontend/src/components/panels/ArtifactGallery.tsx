@@ -84,7 +84,7 @@ const ArtifactCard: React.FC<{
         )}
         {!isLoading && url === null && (
           <span className="text-xs text-gray-400">
-            {firstArtifactId ? 'ファイルが見つかりません' : 'なし'}
+            {firstArtifactId ? 'File not found' : 'None'}
           </span>
         )}
         {!isLoading && url && type === 'image' && (
@@ -151,17 +151,17 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
               className={`px-2 py-0.5 text-xs rounded border transition-colors
                 ${cardSize === size ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
             >
-              {size === 'small' ? '小' : size === 'medium' ? '中' : '大'}
+              {size === 'small' ? 'S' : size === 'medium' ? 'M' : 'L'}
             </button>
           ))}
         </div>
-        <span className="text-xs text-gray-400">{filteredTrials.length} 件</span>
+        <span className="text-xs text-gray-400">{filteredTrials.length} items</span>
       </div>
 
       {/* Grid */}
       {visibleTrials.length === 0 ? (
         <p data-testid="gallery-empty" className="text-sm text-gray-400">
-          表示するアーティファクトがありません
+          No artifacts to display
         </p>
       ) : (
         <div className={`grid ${colClass} gap-2`} data-testid="gallery-grid">
@@ -179,7 +179,7 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
           className="self-center px-4 py-1.5 text-sm border border-gray-300 rounded
                      text-gray-600 hover:bg-gray-50 transition-colors"
         >
-          さらに読み込む ({filteredTrials.length - visibleCount} 件)
+          Load more ({filteredTrials.length - visibleCount} remaining)
         </button>
       )}
     </div>

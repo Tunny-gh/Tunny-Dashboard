@@ -205,6 +205,6 @@ describe('ClusterList — 異常系', () => {
     // 【テスト目的】: クラスタリング未実行時に適切な空状態UIが表示されることを確認 🟢
     render(<ClusterList clusterStats={[]} featureNames={[]} trialsByCluster={[]} />)
     // 【確認内容】: 「クラスタリングが実行されていません」が表示されること
-    expect(screen.getByText('クラスタリングが実行されていません')).toBeInTheDocument()
+    expect(screen.getByText('Clustering has not been run yet')).toBeInTheDocument()
   })
 })

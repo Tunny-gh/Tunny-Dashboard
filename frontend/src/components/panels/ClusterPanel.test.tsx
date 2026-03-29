@@ -74,7 +74,7 @@ describe('ClusterPanel — 正常系', () => {
     // 【テスト目的】: プログレステキストに正確な数値が表示されることを確認 🟢
     render(<ClusterPanel {...makeProps({ isRunning: true, progress: 68 })} />)
     // 【確認内容】: 「計算中...68%」を含むテキストが表示されること
-    expect(screen.getByTestId('progress-text')).toHaveTextContent('計算中...68%')
+    expect(screen.getByTestId('progress-text')).toHaveTextContent('Computing...68%')
   })
 
   // TC-902-05: elbowResult あり時に推薦 k が表示される
@@ -165,15 +165,15 @@ describe('ClusterPanel — 異常系', () => {
     fireEvent.click(screen.getByTestId('run-clustering-btn'))
 
     // 【確認内容】: k-error が表示されて onRunClustering は呼ばれないこと
-    expect(screen.getByTestId('k-error')).toHaveTextContent('k=2以上を指定してください')
+    expect(screen.getByTestId('k-error')).toHaveTextContent('Please specify k >= 2')
     expect(props.onRunClustering).not.toHaveBeenCalled()
   })
 
   // TC-902-E02: error prop があればエラーメッセージが表示される
   test('TC-902-E02: error prop があれば cluster-error が表示される', () => {
     // 【テスト目的】: 計算失敗エラーが UI に表示されることを確認 🟢
-    render(<ClusterPanel {...makeProps({ error: 'クラスタリングに失敗しました' })} />)
+    render(<ClusterPanel {...makeProps({ error: 'Clustering failed' })} />)
     // 【確認内容】: cluster-error にエラーメッセージが含まれること
-    expect(screen.getByTestId('cluster-error')).toHaveTextContent('クラスタリングに失敗しました')
+    expect(screen.getByTestId('cluster-error')).toHaveTextContent('Clustering failed')
   })
 })

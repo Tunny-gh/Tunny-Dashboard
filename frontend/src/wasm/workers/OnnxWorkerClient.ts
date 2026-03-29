@@ -85,7 +85,7 @@ export class OnnxWorkerClient {
     }
     this.worker.onerror = (error) => {
       // 【エラーハンドリング】: Worker エラー時は全保留リクエストを reject する
-      const err = new Error(`OnnxWorker エラー: ${error.message}`)
+      const err = new Error(`OnnxWorker error: ${error.message}`)
       for (const { reject } of this.pendingRequests.values()) {
         reject(err)
       }
@@ -103,7 +103,7 @@ export class OnnxWorkerClient {
   async load(modelData: ArrayBuffer): Promise<OnnxLoadResult> {
     const response = await this.sendRequest({ type: 'load', modelData })
     if (response.type !== 'loaded') {
-      return { success: false, error: '想定外のレスポンスタイプです' }
+      return { success: false, error: 'Unexpected response type' }
     }
     const loadResponse = response as OnnxLoadResponse
     return { success: loadResponse.success, error: loadResponse.error }

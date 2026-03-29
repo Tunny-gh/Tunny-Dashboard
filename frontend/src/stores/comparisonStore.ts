@@ -133,9 +133,9 @@ export function buildComparisonResult(
     const mLen = mainStudy.directions.length
     const cLen = compareStudy.directions.length
     if (mLen !== cLen) {
-      warningMessage = `目的数が異なります（${mainStudy.name}: ${mLen}目的、${compareStudy.name}: ${cLen}目的）。History・変数分布のみ比較可能です。`
+      warningMessage = `Objective count differs (${mainStudy.name}: ${mLen} objectives, ${compareStudy.name}: ${cLen} objectives). Only History and variable distribution can be compared.`
     } else {
-      warningMessage = '最適化方向が異なります。Pareto比較は無効です。'
+      warningMessage = 'Optimization directions differ. Pareto comparison is disabled.'
     }
   }
 
@@ -240,7 +240,7 @@ export const useComparisonStore = create<ComparisonState>()((set, get) => ({
           mainStudyId: mainStudy.studyId,
           comparisonStudyId: id,
           canComparePareto: false,
-          warningMessage: `Study ${id} が見つかりません`,
+          warningMessage: `Study ${id} not found`,
           paretoDominanceRatio: null,
         }
       }

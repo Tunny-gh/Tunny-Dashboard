@@ -159,7 +159,7 @@ describe('ParetoScatter3D — 異常系', () => {
     render(<ParetoScatter3D gpuBuffer={null} currentStudy={null} />)
 
     // 【確認内容】: 空状態メッセージが表示されている
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
   })
 })
 

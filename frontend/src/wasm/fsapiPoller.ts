@@ -96,7 +96,7 @@ export class FsapiPoller {
    */
   async pickFile(): Promise<boolean> {
     if (!FsapiPoller.isSupported()) {
-      this.config.onError(new Error('File System Access API はこのブラウザでは利用できません'))
+      this.config.onError(new Error('File System Access API is not available in this browser'))
       return false
     }
 

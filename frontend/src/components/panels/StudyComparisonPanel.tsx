@@ -27,9 +27,9 @@ import type { ComparisonMode } from '../../types'
 
 /** 【比較モードラベル】 */
 const MODE_LABELS: Record<ComparisonMode, string> = {
-  overlay: '重畳',
-  'side-by-side': '並列',
-  diff: '差分',
+  overlay: 'Overlay',
+  'side-by-side': 'Side by Side',
+  diff: 'Diff',
 }
 
 // -------------------------------------------------------------------------
@@ -66,7 +66,7 @@ export const StudyComparisonPanel: React.FC = () => {
       {/* Study 選択リスト                                                  */}
       {/* ---------------------------------------------------------------- */}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">比較対象 Study</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Comparison Studies</p>
         <ul data-testid="comparison-study-list" className="flex flex-col gap-1">
           {otherStudies.map((study, idx) => {
             const isSelected = comparisonStudyIds.includes(study.studyId)
@@ -104,13 +104,13 @@ export const StudyComparisonPanel: React.FC = () => {
                 <span className="flex-1 truncate text-gray-700">{study.name}</span>
 
                 {/* 目的数表示 */}
-                <span className="text-xs text-gray-400">{study.directions.length}目的</span>
+                <span className="text-xs text-gray-400">{study.directions.length} obj</span>
 
                 {/* 不一致警告アイコン */}
                 {isIncompat && (
                   <span
                     data-testid={`comparison-warning-${study.studyId}`}
-                    title="History・変数分布のみ比較可能"
+                    title="Only History and variable distribution can be compared"
                     className="text-amber-500 text-xs"
                   >
                     ⚠
@@ -126,7 +126,7 @@ export const StudyComparisonPanel: React.FC = () => {
       {/* 比較モード切替                                                    */}
       {/* ---------------------------------------------------------------- */}
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">比較モード</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">Comparison Mode</p>
         <div className="flex gap-1" data-testid="comparison-mode-controls">
           {(['overlay', 'side-by-side', 'diff'] as ComparisonMode[]).map((m) => (
             <button
@@ -151,13 +151,13 @@ export const StudyComparisonPanel: React.FC = () => {
       {/* ---------------------------------------------------------------- */}
       {results.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-600 mb-1">Pareto支配率</p>
+          <p className="text-xs font-semibold text-gray-600 mb-1">Pareto Dominance Ratio</p>
           <table data-testid="comparison-summary-table" className="w-full text-xs border-collapse">
             <thead>
               <tr className="bg-gray-50">
                 <th className="text-left px-1 py-0.5 border border-gray-200">Study</th>
-                <th className="text-right px-1 py-0.5 border border-gray-200">Main優勢</th>
-                <th className="text-right px-1 py-0.5 border border-gray-200">Comp優勢</th>
+                <th className="text-right px-1 py-0.5 border border-gray-200">Main Dominates</th>
+                <th className="text-right px-1 py-0.5 border border-gray-200">Comp Dominates</th>
               </tr>
             </thead>
             <tbody>

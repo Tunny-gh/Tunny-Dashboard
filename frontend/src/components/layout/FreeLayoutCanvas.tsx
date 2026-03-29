@@ -73,7 +73,7 @@ function HypervolumeContent({ study }: { study: Study }) {
           })),
         )
       })
-      .catch(() => setError('HV 計算エラー'))
+      .catch(() => setError('HV computation error'))
   }, [study])
 
   if (error) return <EmptyState message={error} />
@@ -93,7 +93,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   const trialRows = useStudyStore((s) => s.trialRows)
 
   if (!currentStudy || !gpuBuffer) {
-    return <EmptyState message="データを読み込んでください" />
+    return <EmptyState message="Please load data" />
   }
 
   switch (chartId) {
@@ -143,7 +143,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
       return <ScatterMatrix engine={null} currentStudy={currentStudy} />
     case 'objective-pair-matrix':
       if (currentStudy.objectiveNames.length <= 1) {
-        return <EmptyState message="多目的 Study でのみ利用可能です" />
+        return <EmptyState message="Available for multi-objective studies only" />
       }
       return <ObjectivePairMatrix gpuBuffer={gpuBuffer} currentStudy={currentStudy} />
     case 'importance': {
@@ -151,7 +151,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
         return <EmptyState />
       }
       const importanceOption = {
-        title: { text: '重要度（暫定・WASM未計算）', textStyle: { fontSize: 12 } },
+        title: { text: 'Importance (tentative, WASM not computed)', textStyle: { fontSize: 12 } },
         xAxis: { type: 'category', data: currentStudy.paramNames },
         yAxis: { type: 'value' },
         series: [{ type: 'bar', data: currentStudy.paramNames.map(() => 1.0) }],
@@ -176,7 +176,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
     case 'contour':
       if (trialRows.length === 0) return <EmptyState />
       if (currentStudy.paramNames.length < 2) {
-        return <EmptyState message="パラメータが2つ以上必要です" />
+        return <EmptyState message="At least 2 parameters required" />
       }
       return (
         <ContourPlot
@@ -220,11 +220,11 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
     }
     case 'hypervolume':
       if (currentStudy.directions.length < 2) {
-        return <EmptyState message="多目的 Study でのみ利用可能です" />
+        return <EmptyState message="Available for multi-objective studies only" />
       }
       return <HypervolumeContent study={currentStudy} />
     default:
-      return <EmptyState message="このチャートは準備中です" />
+      return <EmptyState message="This chart is under development" />
   }
 }
 
@@ -364,7 +364,7 @@ export const FreeLayoutCanvas: React.FC = () => {
             cursor: 'pointer',
           }}
         >
-          レイアウト保存
+          Save Layout
         </button>
 
         {/* 保存成功トースト */}
@@ -381,7 +381,7 @@ export const FreeLayoutCanvas: React.FC = () => {
               borderRadius: '4px',
             }}
           >
-            レイアウトを保存しました
+            Layout saved
           </span>
         )}
       </div>

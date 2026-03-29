@@ -109,25 +109,25 @@ interface BadgeConfig {
 const BADGE_CONFIG: Record<ConvergenceStatus, BadgeConfig> = {
   converged: {
     testId: 'badge-converged',
-    label: '収束済み',
+    label: 'Converged',
     color: '#fff',
     background: '#16a34a', // 🟢 緑: 収束済み
   },
   converging: {
     testId: 'badge-converging',
-    label: '収束中',
+    label: 'Converging',
     color: '#92400e',
     background: '#fbbf24', // 🟡 黄: 収束中
   },
   'not-converged': {
     testId: 'badge-not-converged',
-    label: '未収束',
+    label: 'Not Converged',
     color: '#fff',
     background: '#dc2626', // 🔴 赤: 未収束
   },
   insufficient: {
     testId: 'badge-insufficient',
-    label: '判定不可',
+    label: 'Insufficient',
     color: '#374151',
     background: '#e5e7eb', // ⚪ グレー: 判定不可
   },
@@ -168,7 +168,7 @@ export function ConvergenceDiagnosis({ data, direction }: ConvergenceDiagnosisPr
         data-testid="convergence-diagnosis"
         style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}
       >
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>収束診断:</span>
+        <span style={{ fontSize: '13px', color: '#6b7280' }}>Convergence:</span>
         <span
           data-testid="badge-insufficient"
           style={{
@@ -179,7 +179,7 @@ export function ConvergenceDiagnosis({ data, direction }: ConvergenceDiagnosisPr
             color: BADGE_CONFIG.insufficient.color,
           }}
         >
-          判定不可（試行数不足）
+          Insufficient (not enough trials)
         </span>
       </div>
     )
@@ -193,7 +193,7 @@ export function ConvergenceDiagnosis({ data, direction }: ConvergenceDiagnosisPr
       style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}
     >
       {/* 【ラベル】: パネルタイトル */}
-      <span style={{ fontSize: '13px', color: '#6b7280' }}>収束診断:</span>
+      <span style={{ fontSize: '13px', color: '#6b7280' }}>Convergence:</span>
 
       {/* 【バッジ】: 収束状態を色付きバッジで表示する 🟢 */}
       <span

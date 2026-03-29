@@ -41,10 +41,10 @@ export type OptimizationPhase = 'exploration' | 'exploitation' | 'convergence'
 
 /** Mode labels for UI display */
 const MODE_LABELS: Record<HistoryMode, string> = {
-  best: 'Best値推移',
-  all: '全試行値',
-  'moving-avg': '移動平均',
-  improvement: '改善率',
+  best: 'Best History',
+  all: 'All Trials',
+  'moving-avg': 'Moving Avg',
+  improvement: 'Improvement',
 }
 
 /** Window size for moving average computation */
@@ -157,7 +157,7 @@ function buildChartOption(
       return {
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
-        series: [{ type: 'line', data: bestSeries, name: 'Best値' }],
+        series: [{ type: 'line', data: bestSeries, name: 'Best Value' }],
       }
 
     case 'all':
@@ -165,7 +165,9 @@ function buildChartOption(
       return {
         xAxis: { type: 'value' },
         yAxis: { type: 'value' },
-        series: [{ type: 'scatter', data: trials.map((t, i) => [t, values[i]]), name: '全試行値' }],
+        series: [
+          { type: 'scatter', data: trials.map((t, i) => [t, values[i]]), name: 'All Trials' },
+        ],
       }
 
     case 'moving-avg': {
@@ -175,8 +177,8 @@ function buildChartOption(
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
         series: [
-          { type: 'line', data: values, name: '全試行値', opacity: 0.4 },
-          { type: 'line', data: movingAvg, name: `移動平均(${MOVING_AVG_WINDOW})` },
+          { type: 'line', data: values, name: 'All Trials', opacity: 0.4 },
+          { type: 'line', data: movingAvg, name: `Moving Avg(${MOVING_AVG_WINDOW})` },
         ],
       }
     }
@@ -187,7 +189,7 @@ function buildChartOption(
       return {
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
-        series: [{ type: 'bar', data: improvementRate, name: '改善率(%)' }],
+        series: [{ type: 'bar', data: improvementRate, name: 'Improvement(%)' }],
       }
     }
 

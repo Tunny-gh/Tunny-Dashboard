@@ -65,13 +65,13 @@ const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
   if (isLoading) {
     return (
       <div data-testid="csv-loading" className="text-gray-400 text-sm">
-        読み込み中...
+        Loading...
       </div>
     )
   }
 
   if (rows.length === 0) {
-    return <p className="text-gray-400 text-sm">CSV データを読み込めませんでした</p>
+    return <p className="text-gray-400 text-sm">Failed to load CSV data</p>
   }
 
   const [header, ...dataRows] = rows
@@ -101,7 +101,7 @@ const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
         </tbody>
       </table>
       {rows.length > MAX_CSV_ROWS && (
-        <p className="text-xs text-gray-400 mt-1">先頭 {MAX_CSV_ROWS} 行を表示</p>
+        <p className="text-xs text-gray-400 mt-1">Showing first {MAX_CSV_ROWS} rows</p>
       )}
     </div>
   )
@@ -119,14 +119,14 @@ const Lightbox: React.FC<{ url: string; onClose: () => void }> = ({ url, onClose
   >
     <img
       src={url}
-      alt="拡大表示"
+      alt="Enlarged view"
       className="max-w-[90vw] max-h-[90vh] object-contain"
       onClick={(e) => e.stopPropagation()}
     />
     <button
       className="absolute top-4 right-4 text-white text-2xl"
       onClick={onClose}
-      aria-label="閉じる"
+      aria-label="Close"
     >
       ✕
     </button>
@@ -183,9 +183,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
 
   return (
     <div data-testid="artifact-viewer" className="space-y-3 p-3">
-      <h4 className="text-sm font-semibold text-gray-700">
-        Trial {trial.trialId} のアーティファクト
-      </h4>
+      <h4 className="text-sm font-semibold text-gray-700">Artifacts for Trial {trial.trialId}</h4>
 
       {items.map((item) => (
         <div
@@ -206,7 +204,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
           {/* 【ファイルなし】 */}
           {!item.isLoading && item.url === null && (
             <p data-testid={`artifact-missing-${item.artifactId}`} className="text-xs text-red-500">
-              ファイルが見つかりません
+              File not found
             </p>
           )}
 
@@ -236,7 +234,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
               download={item.filename}
               className="text-xs text-blue-600 underline"
             >
-              {item.filename} をダウンロード
+              Download {item.filename}
             </a>
           )}
         </div>

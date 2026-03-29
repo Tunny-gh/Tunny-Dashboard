@@ -129,7 +129,7 @@ describe('ScatterMatrix — 異常系', () => {
     render(<ScatterMatrix engine={null} currentStudy={null} />)
 
     // 【確認内容】: 空状態メッセージが表示されること
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
   // TC-702-E02: currentStudy + engine ありでグリッドが表示される

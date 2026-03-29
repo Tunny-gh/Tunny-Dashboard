@@ -21,7 +21,7 @@ export interface EmptyStateProps {
 /**
  * 【機能概要】: 親コンテナ全体に中央揃えで空状態メッセージを表示する
  */
-export function EmptyState({ message = 'データがありません' }: EmptyStateProps) {
+export function EmptyState({ message = 'No data available' }: EmptyStateProps) {
   return (
     <div
       data-testid="empty-state"

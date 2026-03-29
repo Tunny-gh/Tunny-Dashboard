@@ -119,6 +119,6 @@ describe('BottomPanel — 異常系', () => {
     )
 
     render(<BottomPanel />)
-    expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument()
+    expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 })

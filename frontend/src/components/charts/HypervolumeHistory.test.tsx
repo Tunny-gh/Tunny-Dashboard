@@ -79,7 +79,7 @@ describe('HypervolumeHistory — 異常系', () => {
   test('TC-501-E03: data=[] のとき「データがありません」を表示する', () => {
     render(<HypervolumeHistory data={[]} />)
 
-    expect(screen.getByText('データがありません')).toBeInTheDocument()
+    expect(screen.getByText('No data available')).toBeInTheDocument()
     expect(screen.queryByTestId('echarts')).toBeNull()
   })
 })
