@@ -109,15 +109,17 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
 
   switch (chartId) {
     case 'pareto-front': {
+      if (currentStudy.directions.length < 2) {
+        return <EmptyState message="Available for multi-objective studies only" />
+      }
       // positions[i*2], positions[i*2+1] からECharts散布図を構築
-      // 単目的: [normalized_idx, obj0]  多目的: [obj0, obj1]
+      // 多目的: [obj0, obj1]
       const allScatter = Array.from({ length: gpuBuffer.trialCount }, (_, i) => [
         gpuBuffer.positions[i * 2],
         gpuBuffer.positions[i * 2 + 1],
       ])
-      const isMulti = currentStudy.directions.length > 1
-      const xLabel = isMulti ? (currentStudy.objectiveNames[0] ?? 'obj0') : 'trial'
-      const yLabel = currentStudy.objectiveNames[isMulti ? 1 : 0] ?? 'value'
+      const xLabel = currentStudy.objectiveNames[0] ?? 'obj0'
+      const yLabel = currentStudy.objectiveNames[1] ?? 'obj1'
 
       const selectedScatter = selectedSet
         ? allScatter.filter((_, i) => selectedSet.has(i))
