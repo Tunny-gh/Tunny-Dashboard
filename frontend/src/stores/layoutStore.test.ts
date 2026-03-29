@@ -36,6 +36,16 @@ describe('translated test case', () => {
     expect(useLayoutStore.getState().layoutMode).toBe('B')
   })
 
+  test('initializes freeModeLayout when switching to D from default state', () => {
+    expect(useLayoutStore.getState().freeModeLayout).toBeNull()
+
+    useLayoutStore.getState().setLayoutMode('D')
+
+    expect(useLayoutStore.getState().layoutMode).toBe('D')
+    expect(useLayoutStore.getState().freeModeLayout).not.toBeNull()
+    expect(useLayoutStore.getState().freeModeLayout?.cells.length).toBe(4)
+  })
+
   // TC-302-12: toggleChart updates visibleCharts
   test('TC-302-12', () => {
     expect(useLayoutStore.getState().visibleCharts.has('history')).toBe(true)

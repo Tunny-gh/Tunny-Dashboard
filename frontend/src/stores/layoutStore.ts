@@ -81,6 +81,16 @@ const DEFAULT_VISIBLE_CHARTS: ChartId[] = [
   'history',
 ]
 
+/** Returns a layout copy with fresh cell IDs to avoid accidental shared identity. */
+function cloneWithFreshCellIds(layout: FreeModeLayout): FreeModeLayout {
+  return {
+    cells: layout.cells.map((cell) => ({
+      ...cell,
+      cellId: crypto.randomUUID(),
+    })),
+  }
+}
+
 // -------------------------------------------------------------------------
 // Store implementation
 // -------------------------------------------------------------------------
@@ -100,7 +110,16 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   // -------------------------------------------------------------------------
 
   /** Switches the layout mode (A–D) */
-  setLayoutMode: (mode) => set({ layoutMode: mode }),
+  setLayoutMode: (mode) => {
+    if (mode === 'D') {
+      const { freeModeLayout } = get()
+      if (!freeModeLayout) {
+        set({ layoutMode: mode, freeModeLayout: cloneWithFreshCellIds(DEFAULT_FREE_LAYOUT) })
+        return
+      }
+    }
+    set({ layoutMode: mode })
+  },
 
   /** Toggles a chart in visibleCharts: removes it if present, adds it if absent */
   toggleChart: (chartId) => {
