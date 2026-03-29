@@ -31,6 +31,11 @@ vi.mock('../wasm/wasmLoader', () => ({
 
 import { useStudyStore } from './studyStore'
 
+async function flushMicrotasks() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 // -------------------------------------------------------------------------
 // Documentation.
 // -------------------------------------------------------------------------
@@ -52,6 +57,8 @@ function resetStore() {
     studyMode: 'single-objective',
     isLoading: false,
     loadError: null,
+    gpuBuffer: null,
+    trialRows: [],
   })
 }
 
@@ -115,6 +122,42 @@ describe('translated test case', () => {
     // Documentation.
     expect(useStudyStore.getState().isLoading).toBe(false)
   })
+
+  test('shows a dedicated message for an empty log file', async () => {
+    useStudyStore.setState({
+      currentStudy: {
+        studyId: 9,
+        name: 'previous-study',
+        directions: ['minimize'],
+        completedTrials: 1,
+        totalTrials: 1,
+        paramNames: ['x'],
+        objectiveNames: ['y'],
+        userAttrNames: [],
+        hasConstraints: false,
+      },
+      allStudies: [
+        {
+          studyId: 9,
+          name: 'previous-study',
+          directions: ['minimize'],
+          completedTrials: 1,
+          totalTrials: 1,
+          paramNames: ['x'],
+          objectiveNames: ['y'],
+          userAttrNames: [],
+          hasConstraints: false,
+        },
+      ],
+    })
+
+    await useStudyStore.getState().loadJournal(makeFile(''))
+
+    expect(mockGetInstance).not.toHaveBeenCalled()
+    expect(useStudyStore.getState().currentStudy).toBeNull()
+    expect(useStudyStore.getState().allStudies).toEqual([])
+    expect(useStudyStore.getState().loadError).toBe('The selected log file is empty.')
+  })
 })
 
 // -------------------------------------------------------------------------
@@ -147,5 +190,32 @@ describe('translated test case', () => {
     expect(useStudyStore.getState().isLoading).toBe(false)
     // Documentation.
     expect(useStudyStore.getState().allStudies).toEqual([])
+  })
+
+  test('surfaces selectStudy failures after a successful parse', async () => {
+    const mockStudies = [
+      {
+        studyId: 1,
+        name: 'study-1',
+        directions: ['minimize'],
+        completedTrials: 1,
+        totalTrials: 1,
+        paramNames: ['x'],
+        objectiveNames: ['y'],
+        userAttrNames: [],
+        hasConstraints: false,
+      },
+    ]
+    mockParseJournal.mockReturnValue({ studies: mockStudies, durationMs: 10 })
+    mockSelectStudy.mockImplementation(() => {
+      throw new Error('select failed')
+    })
+
+    await useStudyStore.getState().loadJournal(makeFile())
+    await flushMicrotasks()
+
+    expect(useStudyStore.getState().loadError).toContain('select failed')
+    expect(useStudyStore.getState().currentStudy).toBeNull()
+    expect(useStudyStore.getState().trialRows).toEqual([])
   })
 })

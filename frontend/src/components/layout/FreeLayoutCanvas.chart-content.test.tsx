@@ -126,6 +126,7 @@ function setStudyStore(
   currentStudy: Study | null,
   gpuBuffer: GpuBuffer | null,
   trialRows: TrialData[] = [],
+  loadError: string | null = null,
 ) {
   mockStudySelector.mockImplementation(
     (
@@ -133,8 +134,9 @@ function setStudyStore(
         currentStudy: Study | null
         gpuBuffer: GpuBuffer | null
         trialRows: TrialData[]
+        loadError: string | null
       }) => unknown,
-    ) => selector({ currentStudy, gpuBuffer, trialRows }),
+    ) => selector({ currentStudy, gpuBuffer, trialRows, loadError }),
   )
 }
 
@@ -170,6 +172,19 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       })
       render(<FreeLayoutCanvas />)
       expect(screen.getByTestId('empty-state')).toHaveTextContent('Please load data')
+    })
+
+    test('shows the study load error when the selected log file is empty', () => {
+      setStudyStore(null, null, [], 'The selected log file is empty.')
+      useLayoutStore.setState({
+        freeModeLayout: {
+          cells: [{ chartId: 'pareto-front', gridRow: [1, 3], gridCol: [1, 3] }],
+        },
+      })
+
+      render(<FreeLayoutCanvas />)
+
+      expect(screen.getByTestId('empty-state')).toHaveTextContent('The selected log file is empty.')
     })
 
     test('TC-CC-002', () => {

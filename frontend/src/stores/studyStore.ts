@@ -72,6 +72,19 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
     set({ isLoading: true, loadError: null })
 
     try {
+      if (file.size === 0) {
+        set({
+          currentStudy: null,
+          allStudies: [],
+          studyMode: 'single-objective',
+          isLoading: false,
+          loadError: 'The selected log file is empty.',
+          gpuBuffer: null,
+          trialRows: [],
+        })
+        return
+      }
+
       // Documentation.
       const arrayBuffer = await file.arrayBuffer()
       const data = new Uint8Array(arrayBuffer)
@@ -81,13 +94,29 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
       const result = wasm.parseJournal(data)
 
       // Documentation.
-      set({ allStudies: result.studies, isLoading: false })
+      set({
+        currentStudy: null,
+        allStudies: result.studies,
+        studyMode: 'single-objective',
+        isLoading: false,
+        loadError: null,
+        gpuBuffer: null,
+        trialRows: [],
+      })
       if (result.studies.length > 0) {
         get().selectStudy(result.studies[0].studyId)
       }
     } catch (err) {
       // Documentation.
-      set({ isLoading: false, loadError: String(err) })
+      set({
+        currentStudy: null,
+        allStudies: [],
+        studyMode: 'single-objective',
+        isLoading: false,
+        loadError: String(err),
+        gpuBuffer: null,
+        trialRows: [],
+      })
     }
   },
 
@@ -126,8 +155,14 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
         // Documentation.
         useComparisonStore.getState().reset()
       })
-      .catch(() => {
-        // Documentation.
+      .catch((err) => {
+        set({
+          currentStudy: null,
+          gpuBuffer: null,
+          trialRows: [],
+          studyMode: 'single-objective',
+          loadError: String(err),
+        })
       })
   },
 

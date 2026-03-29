@@ -92,6 +92,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const gpuBuffer = useStudyStore((s) => s.gpuBuffer)
   const trialRows = useStudyStore((s) => s.trialRows)
+  const loadError = useStudyStore((s) => s.loadError)
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
 
   // Build a Set of selected indices for quick lookup (memoized to avoid O(n) on every render)
@@ -104,7 +105,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   }, [selectedIndices, gpuBuffer])
 
   if (!currentStudy || !gpuBuffer) {
-    return <EmptyState message="Please load data" />
+    return <EmptyState message={loadError ?? 'Please load data'} />
   }
 
   switch (chartId) {
@@ -134,7 +135,10 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
           let aNotWorse = true
           for (let k = 0; k < a.norm.length; k++) {
             if (b.norm[k] < a.norm[k]) bBetter = true
-            if (b.norm[k] > a.norm[k]) { aNotWorse = false; break }
+            if (b.norm[k] > a.norm[k]) {
+              aNotWorse = false
+              break
+            }
           }
           if (bBetter && aNotWorse) return false // a is dominated by b
         }
