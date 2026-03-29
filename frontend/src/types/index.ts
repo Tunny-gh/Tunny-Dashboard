@@ -1,3 +1,5 @@
+import type { ColormapName } from '../colormaps'
+
 /**
  * Tunny Dashboard - TypeScript type definitions
  * Boundary contract with WASM, Zustand stores, and UI component props
@@ -97,7 +99,7 @@ export interface SelectionStore {
   setColorMode: (mode: ColormapName) => void
 }
 
-export type { ColormapName } from '../colormaps'
+export type { ColormapName }
 
 export type ColorMode = ColormapName
 

@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 /// Documentation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptimizationDirection {
-    Minimize, // directions[i] == 0
-    Maximize, // directions[i] == 1
+    Minimize, // directions[i] == 1 (Optuna StudyDirection.MINIMIZE)
+    Maximize, // directions[i] == 2 (Optuna StudyDirection.MAXIMIZE)
 }
 
 /// Documentation.
@@ -246,10 +246,11 @@ impl ParserState {
             .map(|arr| {
                 arr.iter()
                     .map(|d| {
-                        if d.as_u64() == Some(0) {
-                            OptimizationDirection::Minimize
-                        } else {
-                            OptimizationDirection::Maximize
+                        match d.as_u64() {
+                            Some(1) => OptimizationDirection::Minimize,
+                            Some(2) => OptimizationDirection::Maximize,
+                            // 0 = NOT_SET in Optuna; default to Minimize
+                            _ => OptimizationDirection::Minimize,
                         }
                     })
                     .collect()
@@ -610,7 +611,7 @@ mod tests {
     fn tc_101_01_create_study_basic() {
         // Documentation.
         let data = to_bytes(
-            r#"{"op_code":0,"worker_id":"w1","study_name":"my_study","directions":[0,1]}"#,
+            r#"{"op_code":0,"worker_id":"w1","study_name":"my_study","directions":[1,2]}"#,
         );
         let result = parse_journal(&data).expect("translated");
         assert_eq!(result.studies.len(), 1); // Documentation.
@@ -789,7 +790,7 @@ mod tests {
     fn tc_101_16_multi_objective_values() {
         // Documentation.
         let data = to_bytes(concat!(
-            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0,1]}\n",
+            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[1,2]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.1,0.9],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));

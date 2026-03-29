@@ -10,6 +10,18 @@ import type { ChangeEvent } from 'react'
 import { useStudyStore } from '../../stores/studyStore'
 import { useLiveUpdateStore } from '../../stores/liveUpdateStore'
 import { LayoutTabBar } from './LayoutTabBar'
+import type { Study } from '../../types'
+
+// -------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------
+
+/** Build a compact label like "2 obj (min, max)" from a Study. */
+function formatDirections(s: Study): string {
+  const n = s.directions.length
+  const dirs = s.directions.map((d) => (d === 'minimize' ? 'min' : 'max')).join(', ')
+  return `${n} obj (${dirs})`
+}
 
 // -------------------------------------------------------------------------
 // Component
@@ -109,7 +121,7 @@ export function ToolBar() {
         >
           {allStudies!.map((s) => (
             <option key={s.studyId} value={s.studyId}>
-              {s.name} — {s.completedTrials} trials
+              {s.name} — {s.completedTrials} trials | {formatDirections(s)}
             </option>
           ))}
         </select>
@@ -120,7 +132,8 @@ export function ToolBar() {
             data-testid="toolbar-study-info"
             style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 600 }}
           >
-            {currentStudy.name} — {currentStudy.completedTrials} trials
+            {currentStudy.name} — {currentStudy.completedTrials} trials |{' '}
+            {formatDirections(currentStudy)}
           </span>
         )
       )}
