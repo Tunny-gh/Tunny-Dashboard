@@ -11,8 +11,8 @@
  * 🟢 REQ-140〜REQ-144 に準拠
  */
 
-import { create } from 'zustand';
-import type { ArtifactMeta, ArtifactType } from '../types';
+import { create } from 'zustand'
+import type { ArtifactMeta, ArtifactType } from '../types'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -24,26 +24,26 @@ import type { ArtifactMeta, ArtifactType } from '../types';
 interface ArtifactStoreState {
   // --- 状態 ---
   /** 選択済みアーティファクトディレクトリ（null = 未選択）*/
-  dirHandle: FileSystemDirectoryHandle | null;
+  dirHandle: FileSystemDirectoryHandle | null
   /** artifactId → ObjectURL キャッシュ */
-  urlCache: Map<string, string>;
+  urlCache: Map<string, string>
   /** ディレクトリ選択中フラグ */
-  isPickingDir: boolean;
+  isPickingDir: boolean
   /** エラーメッセージ */
-  error: string | null;
+  error: string | null
 
   // --- アクション ---
   /** ディレクトリ選択ダイアログを開く 🟢 REQ-140 */
-  pickDirectory: () => Promise<boolean>;
+  pickDirectory: () => Promise<boolean>
   /**
    * アーティファクトファイルの ObjectURL を返す
    * キャッシュ済みなら即返却、未ロードならディレクトリから読み込む
    */
-  loadArtifactUrl: (artifactId: string, filename: string) => Promise<string | null>;
+  loadArtifactUrl: (artifactId: string, filename: string) => Promise<string | null>
   /** 全 ObjectURL を解放してメモリを回収する */
-  releaseAll: () => void;
+  releaseAll: () => void
   /** エラーをクリアする */
-  clearError: () => void;
+  clearError: () => void
 }
 
 // -------------------------------------------------------------------------
@@ -55,14 +55,14 @@ interface ArtifactStoreState {
  * 🟡 major な拡張子のみ対応（その他は 'other'）
  */
 export function getMimeTypeCategory(filename: string): ArtifactType {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image';
-  if (ext === 'csv') return 'csv';
-  if (['txt', 'log', 'md'].includes(ext)) return 'text';
-  if (ext === 'json') return 'json';
-  if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) return 'audio';
-  if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) return 'video';
-  return 'other';
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image'
+  if (ext === 'csv') return 'csv'
+  if (['txt', 'log', 'md'].includes(ext)) return 'text'
+  if (ext === 'json') return 'json'
+  if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) return 'audio'
+  if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) return 'video'
+  return 'other'
 }
 
 /**
@@ -73,7 +73,7 @@ export function buildArtifactMeta(
   filename: string,
   trialId: number,
 ): ArtifactMeta {
-  const type = getMimeTypeCategory(filename);
+  const type = getMimeTypeCategory(filename)
   const mimeMap: Record<ArtifactType, string> = {
     image: 'image/*',
     csv: 'text/csv',
@@ -82,13 +82,13 @@ export function buildArtifactMeta(
     audio: 'audio/*',
     video: 'video/*',
     other: 'application/octet-stream',
-  };
+  }
   return {
     artifactId,
     filename,
     mimetype: mimeMap[type],
     trialId,
-  };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -117,36 +117,36 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
    */
   pickDirectory: async () => {
     if (!useArtifactStore.isSupported?.()) {
-      set({ error: 'このブラウザはディレクトリ選択に対応していません' });
-      return false;
+      set({ error: 'このブラウザはディレクトリ選択に対応していません' })
+      return false
     }
 
-    set({ isPickingDir: true, error: null });
+    set({ isPickingDir: true, error: null })
 
     try {
       const handle = await (
         window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
-      ).showDirectoryPicker();
+      ).showDirectoryPicker()
 
       // 【既存キャッシュ解放】: 新しいディレクトリを選択したら前の URL をクリア
-      get().releaseAll();
+      get().releaseAll()
 
-      set({ dirHandle: handle, isPickingDir: false });
-      return true;
+      set({ dirHandle: handle, isPickingDir: false })
+      return true
     } catch (e) {
       // 【キャンセル処理】: AbortError はエラー通知しない（DOMException も含む）
       if (
         (e instanceof Error && e.name === 'AbortError') ||
         (e instanceof DOMException && e.name === 'AbortError')
       ) {
-        set({ isPickingDir: false });
-        return false;
+        set({ isPickingDir: false })
+        return false
       }
       set({
         error: e instanceof Error ? e.message : 'ディレクトリの選択に失敗しました',
         isPickingDir: false,
-      });
-      return false;
+      })
+      return false
     }
   },
 
@@ -162,32 +162,32 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
    * 🟢 REQ-141: ファイルが存在しない場合は null を返す
    */
   loadArtifactUrl: async (artifactId, filename) => {
-    const { dirHandle, urlCache } = get();
+    const { dirHandle, urlCache } = get()
 
     // 【キャッシュ確認】: 既にロード済みなら即返却
     if (urlCache.has(artifactId)) {
-      return urlCache.get(artifactId) ?? null;
+      return urlCache.get(artifactId) ?? null
     }
 
     if (!dirHandle) {
-      return null;
+      return null
     }
 
     try {
       // 【ファイル取得】: filename でまずアクセスを試みる
-      const fileHandle = await dirHandle.getFileHandle(filename, { create: false });
-      const file = await fileHandle.getFile();
-      const url = URL.createObjectURL(file);
+      const fileHandle = await dirHandle.getFileHandle(filename, { create: false })
+      const file = await fileHandle.getFile()
+      const url = URL.createObjectURL(file)
 
       // 【キャッシュ保存】: 新しいマップを作成して immutable 更新
-      const nextCache = new Map(get().urlCache);
-      nextCache.set(artifactId, url);
-      set({ urlCache: nextCache });
+      const nextCache = new Map(get().urlCache)
+      nextCache.set(artifactId, url)
+      set({ urlCache: nextCache })
 
-      return url;
+      return url
     } catch {
       // 【ファイルなし】: 見つからない場合は null を返す（エラーは設定しない）
-      return null;
+      return null
     }
   },
 
@@ -196,14 +196,14 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
    * 🟡 コンポーネントのアンマウント時またはディレクトリ切り替え時に呼ぶ
    */
   releaseAll: () => {
-    const { urlCache } = get();
-    urlCache.forEach((url) => URL.revokeObjectURL(url));
-    set({ urlCache: new Map() });
+    const { urlCache } = get()
+    urlCache.forEach((url) => URL.revokeObjectURL(url))
+    set({ urlCache: new Map() })
   },
 
   /** 【エラークリア】 */
   clearError: () => set({ error: null }),
-}));
+}))
 
 // -------------------------------------------------------------------------
 // 静的メソッド（Store 外）
@@ -214,12 +214,12 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
  * Firefox / Safari では false になる 🟢 REQ-140
  */
 useArtifactStore.isSupported = (): boolean =>
-  typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+  typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
 // TypeScript 型拡張: isSupported 静的メソッド
 declare module 'zustand' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface StoreApi<T> {
-    isSupported?: () => boolean;
+    isSupported?: () => boolean
   }
 }

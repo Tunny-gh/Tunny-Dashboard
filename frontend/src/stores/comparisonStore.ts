@@ -10,8 +10,8 @@
  * 🟢 REQ-120〜REQ-124 に準拠
  */
 
-import { create } from 'zustand';
-import type { ComparisonMode, StudyComparisonResult, Study, Trial } from '../types';
+import { create } from 'zustand'
+import type { ComparisonMode, StudyComparisonResult, Study, Trial } from '../types'
 
 // -------------------------------------------------------------------------
 // 定数
@@ -26,10 +26,10 @@ export const COMPARISON_COLORS = [
   '#22c55e', // green-500
   '#a855f7', // purple-500
   '#f59e0b', // amber-500
-] as const;
+] as const
 
 /** 【最大比較Study数】: UI 色バッジが 4 色まで */
-export const MAX_COMPARISON_STUDIES = 4;
+export const MAX_COMPARISON_STUDIES = 4
 
 // -------------------------------------------------------------------------
 // ユーティリティ（エクスポート）
@@ -42,9 +42,9 @@ export const MAX_COMPARISON_STUDIES = 4;
  */
 export function canComparePareto(a: Study, b: Study): boolean {
   // 【目的数チェック】: 目的数が異なれば即 false
-  if (a.directions.length !== b.directions.length) return false;
+  if (a.directions.length !== b.directions.length) return false
   // 【方向チェック】: 各次元の最適化方向が一致するか確認
-  return a.directions.every((d, i) => d === b.directions[i]);
+  return a.directions.every((d, i) => d === b.directions[i])
 }
 
 /**
@@ -52,15 +52,15 @@ export function canComparePareto(a: Study, b: Study): boolean {
  * 支配条件: a[i] ≤ b[i] (全次元) かつ a[j] < b[j] (少なくとも1次元)
  */
 function dominates(a: number[], b: number[], isMinimize: boolean[]): boolean {
-  let strictlyBetter = false;
+  let strictlyBetter = false
   for (let i = 0; i < a.length; i++) {
     // 【方向正規化】: maximize を minimize に変換（符号反転）
-    const ai = isMinimize[i] ? a[i] : -a[i];
-    const bi = isMinimize[i] ? b[i] : -b[i];
-    if (ai > bi) return false; // 劣っている次元がある → 支配しない
-    if (ai < bi) strictlyBetter = true; // 優れている次元
+    const ai = isMinimize[i] ? a[i] : -a[i]
+    const bi = isMinimize[i] ? b[i] : -b[i]
+    if (ai > bi) return false // 劣っている次元がある → 支配しない
+    if (ai < bi) strictlyBetter = true // 優れている次元
   }
-  return strictlyBetter;
+  return strictlyBetter
 }
 
 /**
@@ -78,42 +78,42 @@ export function computeDominanceRatio(
   compareTrials: Trial[],
   directions: Study['directions'],
 ): StudyComparisonResult['paretoDominanceRatio'] {
-  const isMin = directions.map((d) => d === 'minimize');
+  const isMin = directions.map((d) => d === 'minimize')
 
   // 【有効試行フィルタ】: values が非 null かつ全次元が有限値の試行のみ使用
   const mainPts = mainTrials
     .filter((t) => t.values !== null && t.values.every((v) => Number.isFinite(v)))
-    .map((t) => t.values as number[]);
+    .map((t) => t.values as number[])
   const compPts = compareTrials
     .filter((t) => t.values !== null && t.values.every((v) => Number.isFinite(v)))
-    .map((t) => t.values as number[]);
+    .map((t) => t.values as number[])
 
-  if (mainPts.length === 0 || compPts.length === 0) return null;
+  if (mainPts.length === 0 || compPts.length === 0) return null
 
   // 【タグ付き合流】: 出身Study を識別するタグを付与
-  type Tagged = { pt: number[]; isMain: boolean };
+  type Tagged = { pt: number[]; isMain: boolean }
   const combined: Tagged[] = [
     ...mainPts.map((pt) => ({ pt, isMain: true })),
     ...compPts.map((pt) => ({ pt, isMain: false })),
-  ];
+  ]
 
   // 【Pareto Front 抽出】: どの点にも支配されない点集合
   const front = combined.filter(
     (a) => !combined.some((b) => b !== a && dominates(b.pt, a.pt, isMin)),
-  );
+  )
 
-  if (front.length === 0) return null;
+  if (front.length === 0) return null
 
   // 【出身Study割合計算】: Front 内の各点の出身 Study 割合
-  const mainInFront = front.filter((p) => p.isMain).length;
-  const compInFront = front.filter((p) => !p.isMain).length;
-  const nonDom = front.length - mainInFront - compInFront; // 通常0（計算誤差対策）
+  const mainInFront = front.filter((p) => p.isMain).length
+  const compInFront = front.filter((p) => !p.isMain).length
+  const nonDom = front.length - mainInFront - compInFront // 通常0（計算誤差対策）
 
   return {
     mainDominatesComparison: Math.round((mainInFront / front.length) * 100),
     nonDominated: Math.round((nonDom / front.length) * 100),
     comparisonDominatesMain: Math.round((compInFront / front.length) * 100),
-  };
+  }
 }
 
 /**
@@ -125,17 +125,17 @@ export function buildComparisonResult(
   compareStudy: Study,
   compareTrials: Trial[],
 ): StudyComparisonResult {
-  const compatible = canComparePareto(mainStudy, compareStudy);
+  const compatible = canComparePareto(mainStudy, compareStudy)
 
   // 【警告メッセージ生成】: 不一致の理由に応じたメッセージを設定
-  let warningMessage: string | null = null;
+  let warningMessage: string | null = null
   if (!compatible) {
-    const mLen = mainStudy.directions.length;
-    const cLen = compareStudy.directions.length;
+    const mLen = mainStudy.directions.length
+    const cLen = compareStudy.directions.length
     if (mLen !== cLen) {
-      warningMessage = `目的数が異なります（${mainStudy.name}: ${mLen}目的、${compareStudy.name}: ${cLen}目的）。History・変数分布のみ比較可能です。`;
+      warningMessage = `目的数が異なります（${mainStudy.name}: ${mLen}目的、${compareStudy.name}: ${cLen}目的）。History・変数分布のみ比較可能です。`
     } else {
-      warningMessage = '最適化方向が異なります。Pareto比較は無効です。';
+      warningMessage = '最適化方向が異なります。Pareto比較は無効です。'
     }
   }
 
@@ -148,7 +148,7 @@ export function buildComparisonResult(
     paretoDominanceRatio: compatible
       ? computeDominanceRatio(mainTrials, compareTrials, mainStudy.directions)
       : null,
-  };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -158,19 +158,19 @@ export function buildComparisonResult(
 interface ComparisonState {
   // --- 状態 ---
   /** 比較対象 Study ID リスト（Main Study 除く、最大 MAX_COMPARISON_STUDIES） */
-  comparisonStudyIds: number[];
+  comparisonStudyIds: number[]
   /** 比較表示モード（重畳 / 並列 / 差分） */
-  mode: ComparisonMode;
+  mode: ComparisonMode
   /** 各比較 Study との比較計算結果 */
-  results: StudyComparisonResult[];
+  results: StudyComparisonResult[]
   /** 比較計算中フラグ */
-  isComputing: boolean;
+  isComputing: boolean
 
   // --- アクション ---
   /** 比較対象 Study ID を設定する（MAX 超は切り詰め） */
-  setComparisonStudyIds: (ids: number[]) => void;
+  setComparisonStudyIds: (ids: number[]) => void
   /** 比較モードを切り替える */
-  setMode: (mode: ComparisonMode) => void;
+  setMode: (mode: ComparisonMode) => void
   /**
    * 各比較 Study との比較結果を計算する
    * @param mainStudy - メイン Study のメタ情報
@@ -183,9 +183,9 @@ interface ComparisonState {
     mainTrials: Trial[],
     allStudies: Study[],
     trialMap: Map<number, Trial[]>,
-  ) => void;
+  ) => void
   /** 比較状態をリセットする（Study 切替時に呼ぶ）🟢 REQ-124 */
-  reset: () => void;
+  reset: () => void
 }
 
 // -------------------------------------------------------------------------
@@ -213,7 +213,7 @@ export const useComparisonStore = create<ComparisonState>()((set, get) => ({
    */
   setComparisonStudyIds: (ids) => {
     // 【最大件数制限】: 色バッジが 4 色までのため4件に制限
-    set({ comparisonStudyIds: ids.slice(0, MAX_COMPARISON_STUDIES) });
+    set({ comparisonStudyIds: ids.slice(0, MAX_COMPARISON_STUDIES) })
   },
 
   /** 【比較モード設定】 */
@@ -228,11 +228,11 @@ export const useComparisonStore = create<ComparisonState>()((set, get) => ({
    *   3. 計算完了後 results と isComputing を更新
    */
   computeResults: (mainStudy, mainTrials, allStudies, trialMap) => {
-    set({ isComputing: true });
-    const { comparisonStudyIds } = get();
+    set({ isComputing: true })
+    const { comparisonStudyIds } = get()
 
     const results: StudyComparisonResult[] = comparisonStudyIds.map((id) => {
-      const compareStudy = allStudies.find((s) => s.studyId === id);
+      const compareStudy = allStudies.find((s) => s.studyId === id)
 
       // 【Study未発見】: 見つからない場合は無効な結果を返す
       if (!compareStudy) {
@@ -242,20 +242,19 @@ export const useComparisonStore = create<ComparisonState>()((set, get) => ({
           canComparePareto: false,
           warningMessage: `Study ${id} が見つかりません`,
           paretoDominanceRatio: null,
-        };
+        }
       }
 
-      const compareTrials = trialMap.get(id) ?? [];
-      return buildComparisonResult(mainStudy, mainTrials, compareStudy, compareTrials);
-    });
+      const compareTrials = trialMap.get(id) ?? []
+      return buildComparisonResult(mainStudy, mainTrials, compareStudy, compareTrials)
+    })
 
-    set({ results, isComputing: false });
+    set({ results, isComputing: false })
   },
 
   /**
    * 【全状態リセット】: Study 切替時に呼び出して比較状態を初期化する
    * studyStore.selectStudy から呼ばれる 🟢 REQ-124
    */
-  reset: () =>
-    set({ comparisonStudyIds: [], results: [], mode: 'overlay', isComputing: false }),
-}));
+  reset: () => set({ comparisonStudyIds: [], results: [], mode: 'overlay', isComputing: false }),
+}))

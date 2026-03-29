@@ -10,9 +10,9 @@
  * 🟢 optuna-dashboard の plot_slice と同等機能（Python 不要）
  */
 
-import { useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import { EmptyState } from '../common/EmptyState';
+import { useState } from 'react'
+import ReactECharts from 'echarts-for-react'
+import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -21,25 +21,25 @@ import { EmptyState } from '../common/EmptyState';
 /** 【試行データ型】: SlicePlot が受け取る1試行分のデータ */
 export interface SliceTrial {
   /** 試行ID */
-  trialId: number;
+  trialId: number
   /** パラメータ値マップ（数値・文字列混在可） */
-  params: Record<string, number | string>;
+  params: Record<string, number | string>
   /** 目的関数値リスト（null = 未完了試行） */
-  values: number[] | null;
+  values: number[] | null
   /** Pareto ランク（色分け用） */
-  paretoRank: number | null;
+  paretoRank: number | null
 }
 
 /** 【Props 型】 */
 export interface SlicePlotProps {
   /** 表示する試行一覧 */
-  trials: SliceTrial[];
+  trials: SliceTrial[]
   /** パラメータ名リスト */
-  paramNames: string[];
+  paramNames: string[]
   /** 目的関数名リスト */
-  objectiveNames: string[];
+  objectiveNames: string[]
   /** 初期表示する目的関数インデックス（デフォルト 0） */
-  objectiveIndex?: number;
+  objectiveIndex?: number
 }
 
 // -------------------------------------------------------------------------
@@ -58,17 +58,17 @@ export function SlicePlot({
   objectiveIndex: initialObjIdx = 0,
 }: SlicePlotProps) {
   // 【状態管理】: 選択中パラメータインデックス・目的関数インデックス
-  const [paramIndex, setParamIndex] = useState(0);
-  const [objIndex, setObjIndex] = useState(initialObjIdx);
+  const [paramIndex, setParamIndex] = useState(0)
+  const [objIndex, setObjIndex] = useState(initialObjIdx)
 
   // 【空状態チェック】: データまたはパラメータがない場合はプレースホルダー表示
   if (trials.length === 0 || paramNames.length === 0) {
-    return <EmptyState />;
+    return <EmptyState />
   }
 
   // 【選択パラメータ・目的関数名】
-  const selectedParam = paramNames[paramIndex] ?? paramNames[0];
-  const selectedObj = objectiveNames[objIndex] ?? objectiveNames[0];
+  const selectedParam = paramNames[paramIndex] ?? paramNames[0]
+  const selectedObj = objectiveNames[objIndex] ?? objectiveNames[0]
 
   // 【散布データ生成】: 数値パラメータのみ対象にフィルタして [param_val, obj_val, trial_idx] を生成
   const scatterData = trials
@@ -78,7 +78,7 @@ export function SlicePlot({
         t.values[objIndex] != null &&
         typeof t.params[selectedParam] === 'number',
     )
-    .map((t, i) => [t.params[selectedParam] as number, t.values![objIndex], i]);
+    .map((t, i) => [t.params[selectedParam] as number, t.values![objIndex], i])
 
   // 【ECharts オプション構築】: scatter + visualMap (試行番号で色分け)
   const option = {
@@ -115,7 +115,7 @@ export function SlicePlot({
       },
     ],
     grid: { containLabel: true },
-  };
+  }
 
   return (
     <div
@@ -172,7 +172,7 @@ export function SlicePlot({
       {/* 【チャート本体】: ECharts scatter */}
       <ReactECharts option={option} style={{ flex: 1 }} />
     </div>
-  );
+  )
 }
 
-export default SlicePlot;
+export default SlicePlot

@@ -6,8 +6,8 @@
  * 🟢 行クリック → setHighlight(trialIndex) でハイライト連動
  */
 
-import { useSelectionStore } from '../../stores/selectionStore';
-import { useStudyStore } from '../../stores/studyStore';
+import { useSelectionStore } from '../../stores/selectionStore'
+import { useStudyStore } from '../../stores/studyStore'
 
 // -------------------------------------------------------------------------
 // コンポーネント実装
@@ -19,13 +19,13 @@ import { useStudyStore } from '../../stores/studyStore';
  */
 export function BottomPanel() {
   // 【Store接続】: selectionStore から selectedIndices, highlighted, setHighlight を取得 🟢
-  const selectedIndices = useSelectionStore((s) => s.selectedIndices);
-  const highlighted = useSelectionStore((s) => s.highlighted);
-  const setHighlight = useSelectionStore((s) => s.setHighlight);
+  const selectedIndices = useSelectionStore((s) => s.selectedIndices)
+  const highlighted = useSelectionStore((s) => s.highlighted)
+  const setHighlight = useSelectionStore((s) => s.setHighlight)
 
   // 【Store接続】: studyStore から currentStudy と gpuBuffer を取得 🟢
-  const currentStudy = useStudyStore((s) => s.currentStudy);
-  const gpuBuffer = useStudyStore((s) => s.gpuBuffer);
+  const currentStudy = useStudyStore((s) => s.currentStudy)
+  const gpuBuffer = useStudyStore((s) => s.gpuBuffer)
 
   // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
@@ -33,11 +33,11 @@ export function BottomPanel() {
       <div style={{ padding: '12px' }}>
         <span>データが読み込まれていません</span>
       </div>
-    );
+    )
   }
 
   // 【列定義】: trial_id + paramNames + objectiveNames 🟢
-  const columns = ['trial_id', ...currentStudy.paramNames, ...currentStudy.objectiveNames];
+  const columns = ['trial_id', ...currentStudy.paramNames, ...currentStudy.objectiveNames]
 
   // 【レンダリング】: スクロール可能なテーブル 🟢
   return (
@@ -48,7 +48,14 @@ export function BottomPanel() {
             {columns.map((col) => (
               <th
                 key={col}
-                style={{ padding: '4px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left', position: 'sticky', top: 0, background: '#f9fafb' }}
+                style={{
+                  padding: '4px 8px',
+                  borderBottom: '1px solid #e5e7eb',
+                  textAlign: 'left',
+                  position: 'sticky',
+                  top: 0,
+                  background: '#f9fafb',
+                }}
               >
                 {col}
               </th>
@@ -71,30 +78,34 @@ export function BottomPanel() {
               <td style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>{idx}</td>
               {/* 【パラメータセル】: Trial パラメータデータは TASK-102 完成後に実装 */}
               {currentStudy.paramNames.map((name) => (
-                <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>—</td>
+                <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                  —
+                </td>
               ))}
               {/* 【目的関数セル】: gpuBuffer.positions から値を読み取り表示する
                    単目的: positions[i*2+1] = obj0
                    多目的: positions[i*2] = obj0, positions[i*2+1] = obj1 */}
               {currentStudy.objectiveNames.map((name, objIdx) => {
-                let value = '—';
+                let value = '—'
                 if (gpuBuffer && idx < gpuBuffer.trialCount) {
-                  const isMulti = (currentStudy.directions?.length ?? 1) > 1;
+                  const isMulti = (currentStudy.directions?.length ?? 1) > 1
                   if (isMulti) {
-                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2].toFixed(4);
-                    else if (objIdx === 1) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4);
+                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2].toFixed(4)
+                    else if (objIdx === 1) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4)
                   } else {
-                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4);
+                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4)
                   }
                 }
                 return (
-                  <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>{value}</td>
-                );
+                  <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                    {value}
+                  </td>
+                )
               })}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
-  );
+  )
 }

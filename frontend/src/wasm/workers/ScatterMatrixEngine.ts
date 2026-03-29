@@ -17,23 +17,23 @@
  * 【セルサイズ型】: サムネイル / ホバープレビュー / フルサイズの 3 種類
  * 🟢 仕様書 § ScatterMatrix Cell Sizes に準拠
  */
-export type ScatterCellSize = 'thumbnail' | 'preview' | 'full';
+export type ScatterCellSize = 'thumbnail' | 'preview' | 'full'
 
 /**
  * 【ピクセルサイズ定数】: ScatterCellSize に対応するピクセル数
  * 🟢 thumbnail: 80×80px, preview: 300×300px, full: 600×600px
  */
 export const CELL_PIXEL_SIZES: Record<ScatterCellSize, number> = {
-  thumbnail: 80,   // 【サムネイル】: 一覧表示用の小サイズ
-  preview: 300,    // 【プレビュー】: ホバー時の中サイズ
-  full: 600,       // 【フルサイズ】: クリック展開時の大サイズ（Brushing 完全有効）
-};
+  thumbnail: 80, // 【サムネイル】: 一覧表示用の小サイズ
+  preview: 300, // 【プレビュー】: ホバー時の中サイズ
+  full: 600, // 【フルサイズ】: クリック展開時の大サイズ（Brushing 完全有効）
+}
 
 /** 【Worker 数のデフォルト値】: CPU コア数に合わせた 4 並列 */
-export const WORKER_COUNT = 4;
+export const WORKER_COUNT = 4
 
 /** 【行グループサイズ】: 1 Worker が担当する行数（rows 0-9 → Worker[0] 等）*/
-export const WORKER_ROW_GROUP = 10;
+export const WORKER_ROW_GROUP = 10
 
 // -------------------------------------------------------------------------
 // 内部型定義
@@ -43,18 +43,18 @@ export const WORKER_ROW_GROUP = 10;
  * 【保留中レンダリング】: renderCell() が生成した Promise の resolve/reject を保持する
  */
 interface PendingRender {
-  resolve: (data: ImageData | null) => void;
-  reject: (err: Error) => void;
+  resolve: (data: ImageData | null) => void
+  reject: (err: Error) => void
 }
 
 /**
  * 【Worker 完了メッセージ型】: scatterMatrixWorker からの応答形式
  */
 interface WorkerDoneMessage {
-  type: 'done';
-  row: number;
-  col: number;
-  imageData: ImageData | null;
+  type: 'done'
+  row: number
+  col: number
+  imageData: ImageData | null
 }
 
 // -------------------------------------------------------------------------
@@ -71,34 +71,31 @@ interface WorkerDoneMessage {
  */
 export class ScatterMatrixEngine {
   /** 【Worker プール】: workerFactory で生成された Worker インスタンス群 */
-  private workers: Worker[];
+  private workers: Worker[]
 
   /** 【保留中レンダリングMap】: cellKey('row-col') → PendingRender のマッピング */
-  private pending: Map<string, PendingRender>;
+  private pending: Map<string, PendingRender>
 
   /**
    * 【コンストラクタ】: Worker プールを生成し onmessage/onerror ハンドラを設定する
    * @param workerFactory - Worker インスタンスを生成するファクトリ関数（テスト時はモックを注入）
    * @param workerCount - 生成する Worker 数（デフォルト: WORKER_COUNT=4）
    */
-  constructor(
-    workerFactory: () => Worker,
-    workerCount: number = WORKER_COUNT,
-  ) {
-    this.pending = new Map();
+  constructor(workerFactory: () => Worker, workerCount: number = WORKER_COUNT) {
+    this.pending = new Map()
 
     // 【Worker プール生成】: workerCount 個の Worker を生成し、イベントハンドラを設定する
     this.workers = Array.from({ length: workerCount }, (_, i) => {
-      const w = workerFactory();
+      const w = workerFactory()
 
       // 【メッセージハンドラ設定】: Worker からの done メッセージを受信して Promise を解決する
-      w.onmessage = (e: MessageEvent) => this.handleMessage(e);
+      w.onmessage = (e: MessageEvent) => this.handleMessage(e)
 
       // 【エラーハンドラ設定】: Worker エラー時に対象行グループの保留タスクを reject する
-      w.onerror = (_ev: Event) => this.handleWorkerError(i);
+      w.onerror = (_ev: Event) => this.handleWorkerError(i)
 
-      return w;
-    });
+      return w
+    })
   }
 
   // -------------------------------------------------------------------------
@@ -110,18 +107,18 @@ export class ScatterMatrixEngine {
    * @param e - Worker からの MessageEvent
    */
   private handleMessage(e: MessageEvent): void {
-    const { type, row, col, imageData } = e.data as WorkerDoneMessage;
+    const { type, row, col, imageData } = e.data as WorkerDoneMessage
 
     // 【型チェック】: 'done' 以外のメッセージは無視する
-    if (type !== 'done') return;
+    if (type !== 'done') return
 
-    const key = this.cellKey(row, col);
-    const pending = this.pending.get(key);
+    const key = this.cellKey(row, col)
+    const pending = this.pending.get(key)
 
     if (pending) {
       // 【Promise 解決】: imageData を Promise に渡す（null も許容）
-      pending.resolve(imageData ?? null);
-      this.pending.delete(key);
+      pending.resolve(imageData ?? null)
+      this.pending.delete(key)
     }
   }
 
@@ -131,20 +128,20 @@ export class ScatterMatrixEngine {
    */
   private handleWorkerError(workerIdx: number): void {
     // 【対象キー収集】: reject すべき cellKey を先に収集してからイテレーション中の削除を防ぐ
-    const keysToReject: string[] = [];
+    const keysToReject: string[] = []
     for (const [key] of this.pending) {
-      const row = parseInt(key.split('-')[0], 10);
+      const row = parseInt(key.split('-')[0], 10)
       if (this.workerIndex(row) === workerIdx) {
-        keysToReject.push(key);
+        keysToReject.push(key)
       }
     }
 
     // 【Promise reject】: 収集したキーに対応する保留タスクをエラーで解決する
     for (const key of keysToReject) {
-      const pending = this.pending.get(key);
+      const pending = this.pending.get(key)
       if (pending) {
-        pending.reject(new Error('Worker error'));
-        this.pending.delete(key);
+        pending.reject(new Error('Worker error'))
+        this.pending.delete(key)
       }
     }
   }
@@ -155,7 +152,7 @@ export class ScatterMatrixEngine {
    * @param col - 列インデックス（x 軸変数）
    */
   private cellKey(row: number, col: number): string {
-    return `${row}-${col}`;
+    return `${row}-${col}`
   }
 
   // -------------------------------------------------------------------------
@@ -170,7 +167,7 @@ export class ScatterMatrixEngine {
    * @param row - 行インデックス
    */
   workerIndex(row: number): number {
-    return Math.floor(row / WORKER_ROW_GROUP) % this.workers.length;
+    return Math.floor(row / WORKER_ROW_GROUP) % this.workers.length
   }
 
   /**
@@ -189,21 +186,21 @@ export class ScatterMatrixEngine {
     col: number,
     size: ScatterCellSize = 'thumbnail',
   ): Promise<ImageData | null> {
-    const key = this.cellKey(row, col);
+    const key = this.cellKey(row, col)
 
     return new Promise((resolve, reject) => {
       // 【保留登録】: Promise の resolve/reject を保留マップに登録する
-      this.pending.set(key, { resolve, reject });
+      this.pending.set(key, { resolve, reject })
 
       // 【Worker へ送信】: 対応 Worker に render メッセージを送信する
-      const wIdx = this.workerIndex(row);
+      const wIdx = this.workerIndex(row)
       this.workers[wIdx].postMessage({
         type: 'render',
         row,
         col,
         size: CELL_PIXEL_SIZES[size],
-      });
-    });
+      })
+    })
   }
 
   /**
@@ -213,9 +210,9 @@ export class ScatterMatrixEngine {
    */
   dispose(): void {
     // 【Worker 停止】: 全 Worker を terminate する
-    this.workers.forEach((w) => w.terminate());
+    this.workers.forEach((w) => w.terminate())
 
     // 【保留クリア】: 未完了タスクを破棄する（reject はしない — アンマウント済みのため）
-    this.pending.clear();
+    this.pending.clear()
   }
 }

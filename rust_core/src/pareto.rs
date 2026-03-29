@@ -59,7 +59,13 @@ fn normalize_objectives(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<Ve
         .map(|obj| {
             obj.iter()
                 .enumerate()
-                .map(|(j, &v)| if is_minimize.get(j).copied().unwrap_or(true) { v } else { -v })
+                .map(|(j, &v)| {
+                    if is_minimize.get(j).copied().unwrap_or(true) {
+                        v
+                    } else {
+                        -v
+                    }
+                })
                 .collect()
         })
         .collect()
@@ -84,11 +90,20 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     }
 
     // NaN を含む点のマスク（NaN は被支配扱い、後で最大ランク+1 に設定）
-    let nan_mask: Vec<bool> = objectives.iter().map(|obj| obj.iter().any(|v| v.is_nan())).collect();
+    let nan_mask: Vec<bool> = objectives
+        .iter()
+        .map(|obj| obj.iter().any(|v| v.is_nan()))
+        .collect();
 
     // 方向符号（minimize=+1, maximize=-1）で平坦化して normalize を回避
     let signs: Vec<f64> = (0..m)
-        .map(|j| if is_minimize.get(j).copied().unwrap_or(true) { 1.0 } else { -1.0 })
+        .map(|j| {
+            if is_minimize.get(j).copied().unwrap_or(true) {
+                1.0
+            } else {
+                -1.0
+            }
+        })
         .collect();
     // 平坦配列: norm_flat[i*m + j] = sign[j] * objectives[i][j]（二重参照を排除）🟢
     let mut norm_flat: Vec<f64> = Vec::with_capacity(n * m);
@@ -103,21 +118,29 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     let mut domination_count = vec![0u32; n];
     // dominates_list[i] = i が支配する点のインデックスリスト（初期容量を確保してリアロケを削減）🟡
     let init_cap = (n / 4).clamp(4, 128);
-    let mut dominates_list: Vec<Vec<usize>> = (0..n).map(|_| Vec::with_capacity(init_cap)).collect();
+    let mut dominates_list: Vec<Vec<usize>> =
+        (0..n).map(|_| Vec::with_capacity(init_cap)).collect();
 
     // 【O(N²) 事前計算フェーズ】: 各ペアを1回だけ評価、関数呼び出し排除でデバッグ高速化 🟢
     for i in 0..n {
-        if nan_mask[i] { continue; }
+        if nan_mask[i] {
+            continue;
+        }
         let oi = &norm_flat[i * m..(i + 1) * m];
         for j in (i + 1)..n {
-            if nan_mask[j] { continue; }
+            if nan_mask[j] {
+                continue;
+            }
             let oj = &norm_flat[j * m..(j + 1) * m];
             // i と j の両方向を1ループで判定（関数呼び出し2回分を削減）
             let mut i_better = false;
             let mut j_better = false;
             for k in 0..m {
-                if oi[k] < oj[k] { i_better = true; }
-                else if oi[k] > oj[k] { j_better = true; }
+                if oi[k] < oj[k] {
+                    i_better = true;
+                } else if oi[k] > oj[k] {
+                    j_better = true;
+                }
             }
             if i_better && !j_better {
                 dominates_list[i].push(j);
@@ -185,7 +208,11 @@ pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f
     // 各ストリップ [x_i, x_{i+1}] の高さ = ref_y - y_i（累積支配領域の正しい高さ）🟢
     let mut hv = 0.0f64;
     for i in 0..pts.len() {
-        let next_x = if i + 1 < pts.len() { pts[i + 1].0 } else { ref_x };
+        let next_x = if i + 1 < pts.len() {
+            pts[i + 1].0
+        } else {
+            ref_x
+        };
         let width = next_x - pts[i].0;
         let height = ref_y - pts[i].1;
         if width > 0.0 && height > 0.0 {
@@ -204,8 +231,12 @@ fn compute_ref_point(pareto_objs: &[Vec<f64>], m: usize) -> Vec<f64> {
     // 1パスで min（ideal）と max（nadir）を同時収集
     for obj in pareto_objs {
         for (j, &v) in obj.iter().enumerate() {
-            if v > nadir[j] { nadir[j] = v; }
-            if v < ideal[j] { ideal[j] = v; }
+            if v > nadir[j] {
+                nadir[j] = v;
+            }
+            if v < ideal[j] {
+                ideal[j] = v;
+            }
         }
     }
     // 10% マージン（+ 1.0 ベースライン）を加えて参照点が Pareto 点より必ず大きくなるよう保証 🟡
@@ -218,11 +249,7 @@ fn compute_ref_point(pareto_objs: &[Vec<f64>], m: usize) -> Vec<f64> {
 ///
 /// 【スコア式】: score_i = max_j( w_j × |f_j(i) - ideal_j| )
 /// 【ideal点】: minimize → 各目的の最小値, maximize → 各目的の最大値
-pub fn chebyshev_sort(
-    objectives: &[Vec<f64>],
-    weights: &[f64],
-    is_minimize: &[bool],
-) -> Vec<u32> {
+pub fn chebyshev_sort(objectives: &[Vec<f64>], weights: &[f64], is_minimize: &[bool]) -> Vec<u32> {
     let n = objectives.len();
     if n == 0 {
         return vec![];
@@ -282,7 +309,11 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
         let m = obj_names.len();
         let n = df.row_count();
         if n == 0 || m == 0 {
-            return ParetoResult { ranks: vec![], pareto_indices: vec![], hypervolume: None };
+            return ParetoResult {
+                ranks: vec![],
+                pareto_indices: vec![],
+                hypervolume: None,
+            };
         }
 
         // 目的値を Vec<Vec<f64>> に収集
@@ -318,18 +349,23 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
             let norm_pareto = normalize_objectives(&pareto_objs, is_minimize);
             // 2D のみ exact HV、3D+ は obj0×obj1 の 2D 射影 🟡
             let ref_pt = compute_ref_point(&norm_pareto, m);
-            let pts_2d: Vec<(f64, f64)> = norm_pareto
-                .iter()
-                .map(|obj| (obj[0], obj[1]))
-                .collect();
+            let pts_2d: Vec<(f64, f64)> = norm_pareto.iter().map(|obj| (obj[0], obj[1])).collect();
             Some(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]))
         } else {
             None
         };
 
-        ParetoResult { ranks, pareto_indices, hypervolume }
+        ParetoResult {
+            ranks,
+            pareto_indices,
+            hypervolume,
+        }
     })
-    .unwrap_or(ParetoResult { ranks: vec![], pareto_indices: vec![], hypervolume: None })
+    .unwrap_or(ParetoResult {
+        ranks: vec![],
+        pareto_indices: vec![],
+        hypervolume: None,
+    })
 }
 
 /// 試行番号順の Hypervolume 推移を計算する 🟢
@@ -339,13 +375,14 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
         let obj_names = df.objective_col_names();
         let m = obj_names.len();
 
-        let trial_ids: Vec<u32> = (0..n)
-            .filter_map(|i| df.get_trial_id(i))
-            .collect();
+        let trial_ids: Vec<u32> = (0..n).filter_map(|i| df.get_trial_id(i)).collect();
 
         if m < 2 {
             // 1目的: HV は定義されないため全て 0.0 🟢
-            return HvHistoryResult { trial_ids, hv_values: vec![0.0; n] };
+            return HvHistoryResult {
+                trial_ids,
+                hv_values: vec![0.0; n],
+            };
         }
 
         // 参照点は全データの nadir + マージン（事前計算）
@@ -363,9 +400,16 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
             })
             .collect();
         let norm_all = normalize_objectives(&all_objs, is_minimize);
-        let valid_objs: Vec<Vec<f64>> = norm_all.iter().filter(|obj| !obj.iter().any(|v| v.is_nan())).cloned().collect();
+        let valid_objs: Vec<Vec<f64>> = norm_all
+            .iter()
+            .filter(|obj| !obj.iter().any(|v| v.is_nan()))
+            .cloned()
+            .collect();
         if valid_objs.is_empty() {
-            return HvHistoryResult { trial_ids, hv_values: vec![0.0; n] };
+            return HvHistoryResult {
+                trial_ids,
+                hv_values: vec![0.0; n],
+            };
         }
         let ref_pt = compute_ref_point(&valid_objs, m);
 
@@ -391,9 +435,15 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
             hv_values.push(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]));
         }
 
-        HvHistoryResult { trial_ids, hv_values }
+        HvHistoryResult {
+            trial_ids,
+            hv_values,
+        }
     })
-    .unwrap_or(HvHistoryResult { trial_ids: vec![], hv_values: vec![] })
+    .unwrap_or(HvHistoryResult {
+        trial_ids: vec![],
+        hv_values: vec![],
+    })
 }
 
 /// Trade-off Navigator: 重み付きチェビシェフでスコアリングして昇順インデックスを返す 🟢
@@ -422,13 +472,20 @@ pub fn score_tradeoff_navigator(weights: &[f64], is_minimize: &[bool]) -> Vec<u3
 
         // 方向符号（minimize=+1, maximize=-1）で内部的に全て最小化に統一
         let sign: Vec<f64> = (0..m)
-            .map(|j| if is_minimize.get(j).copied().unwrap_or(true) { 1.0 } else { -1.0 })
+            .map(|j| {
+                if is_minimize.get(j).copied().unwrap_or(true) {
+                    1.0
+                } else {
+                    -1.0
+                }
+            })
             .collect();
 
         // ideal 点 = 各目的の最小値（正規化後）
         let ideal: Vec<f64> = (0..m)
             .map(|j| {
-                cols[j].iter()
+                cols[j]
+                    .iter()
                     .filter(|v| !v.is_nan())
                     .map(|&v| sign[j] * v)
                     .fold(f64::INFINITY, f64::min)
@@ -463,7 +520,7 @@ pub fn score_tradeoff_navigator(weights: &[f64], is_minimize: &[bool]) -> Vec<u3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataframe::{DataFrame, TrialRow, store_dataframes, select_study};
+    use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
     use std::collections::HashMap;
 
     // -------------------------------------------------------------------------
@@ -512,11 +569,7 @@ mod tests {
     #[test]
     fn tc_201_02_two_obj_clear_domination() {
         // 【テスト目的】: 明確な支配チェーン (1,1)>(2,2)>(3,3) 🟢
-        let objs = vec![
-            vec![1.0, 1.0],
-            vec![2.0, 2.0],
-            vec![3.0, 3.0],
-        ];
+        let objs = vec![vec![1.0, 1.0], vec![2.0, 2.0], vec![3.0, 3.0]];
         let is_min = [true, true];
         let ranks = nd_sort(&objs, &is_min);
         // 【確認】ranks = [1, 2, 3]
@@ -542,13 +595,7 @@ mod tests {
     #[test]
     fn tc_201_04_single_objective_all_rank1() {
         // 【テスト目的】: 1目的の場合は全点 Rank1（支配比較が意味をなさない）🟢
-        let objs = vec![
-            vec![3.0],
-            vec![1.0],
-            vec![4.0],
-            vec![1.5],
-            vec![2.0],
-        ];
+        let objs = vec![vec![3.0], vec![1.0], vec![4.0], vec![1.5], vec![2.0]];
         let is_min = [true];
         let ranks = nd_sort(&objs, &is_min);
         // 【確認】全点 rank=1
@@ -622,11 +669,7 @@ mod tests {
         // score0 = max(0.5×|1-1|, 0.5×|4-1|) = max(0, 1.5) = 1.5
         // score1 = max(0.5×|2-1|, 0.5×|2-1|) = max(0.5, 0.5) = 0.5
         // score2 = max(0.5×|4-1|, 0.5×|1-1|) = max(1.5, 0) = 1.5
-        let objs = vec![
-            vec![1.0, 4.0],
-            vec![2.0, 2.0],
-            vec![4.0, 1.0],
-        ];
+        let objs = vec![vec![1.0, 4.0], vec![2.0, 2.0], vec![4.0, 1.0]];
         let is_min = [true, true];
         let weights = [0.5, 0.5];
         let result = chebyshev_sort(&objs, &weights, &is_min);
@@ -683,11 +726,7 @@ mod tests {
     #[test]
     fn tc_201_b01_all_same_coords() {
         // 【テスト目的】: 全点が同一座標（全点非支配）→ 全 rank=1 🟢
-        let objs = vec![
-            vec![1.0, 1.0],
-            vec![1.0, 1.0],
-            vec![1.0, 1.0],
-        ];
+        let objs = vec![vec![1.0, 1.0], vec![1.0, 1.0], vec![1.0, 1.0]];
         let is_min = [true, true];
         let ranks = nd_sort(&objs, &is_min);
         // 【確認】完全に同一の点は互いを支配しない → 全 rank=1

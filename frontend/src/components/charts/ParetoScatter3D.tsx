@@ -6,12 +6,12 @@
  * 🟢 Brushing & Linking は React サイクル外で GPU alpha を直接更新する
  */
 
-import { useEffect, useRef } from 'react';
-import { DeckGL, PointCloudLayer } from 'deck.gl';
-import { useSelectionStore } from '../../stores/selectionStore';
-import type { GpuBuffer } from '../../wasm/gpuBuffer';
-import type { Study } from '../../types';
-import { EmptyState } from '../common/EmptyState';
+import { useEffect, useRef } from 'react'
+import { DeckGL, PointCloudLayer } from 'deck.gl'
+import { useSelectionStore } from '../../stores/selectionStore'
+import type { GpuBuffer } from '../../wasm/gpuBuffer'
+import type { Study } from '../../types'
+import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -19,9 +19,9 @@ import { EmptyState } from '../common/EmptyState';
 
 export interface ParetoScatter3DProps {
   /** 🟢 GPU バッファ — null のとき空状態UIを表示 */
-  gpuBuffer: GpuBuffer | null;
+  gpuBuffer: GpuBuffer | null
   /** 🟢 現在の Study — 軸名取得用 */
-  currentStudy: Study | null;
+  currentStudy: Study | null
 }
 
 // -------------------------------------------------------------------------
@@ -35,7 +35,7 @@ export interface ParetoScatter3DProps {
  */
 export function ParetoScatter3D({ gpuBuffer }: ParetoScatter3DProps) {
   // 【購読参照】: unsubscribe 関数を保持するための ref
-  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     // 【Brushing購読設定】: selectionStore の selectedIndices 変化を購読して alpha を更新 🟢
@@ -44,22 +44,22 @@ export function ParetoScatter3D({ gpuBuffer }: ParetoScatter3DProps) {
       const unsubscribe = useSelectionStore.subscribe(
         (state) => state.selectedIndices,
         (indices) => gpuBuffer.updateAlphas(indices),
-      );
-      unsubscribeRef.current = unsubscribe;
+      )
+      unsubscribeRef.current = unsubscribe
     }
 
     // 【クリーンアップ】: アンマウント時に購読解除してメモリリークを防ぐ
     return () => {
       if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
+        unsubscribeRef.current()
+        unsubscribeRef.current = null
       }
-    };
-  }, [gpuBuffer]);
+    }
+  }, [gpuBuffer])
 
   // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (!gpuBuffer) {
-    return <EmptyState />;
+    return <EmptyState />
   }
 
   // 【deck.gl レイヤー定義】: PointCloudLayer に GpuBuffer データを渡す 🟢
@@ -79,14 +79,8 @@ export function ParetoScatter3D({ gpuBuffer }: ParetoScatter3DProps) {
     ],
     getRadius: (_: unknown, { index }: { index: number }) => gpuBuffer.sizes[index],
     pickable: true,
-  });
+  })
 
   // 【DeckGL レンダリング】: PointCloudLayer を描画する 🟢
-  return (
-    <DeckGL
-      layers={[layer]}
-      controller={true}
-      style={{ width: '100%', height: '100%' }}
-    />
-  );
+  return <DeckGL layers={[layer]} controller={true} style={{ width: '100%', height: '100%' }} />
 }

@@ -9,9 +9,9 @@
  *   - Tailwind クラス不使用（インラインスタイルのみ）
  */
 
-import { useState } from 'react';
-import { useLayoutStore } from '../../stores/layoutStore';
-import type { ChartId } from '../../types';
+import { useState } from 'react'
+import { useLayoutStore } from '../../stores/layoutStore'
+import type { ChartId } from '../../types'
 
 // -------------------------------------------------------------------------
 // チャートカタログ定義
@@ -33,7 +33,7 @@ export const CHART_CATALOG: { chartId: ChartId; label: string }[] = [
   { chartId: 'slice', label: 'スライスプロット' },
   { chartId: 'edf', label: 'EDF' },
   { chartId: 'contour', label: 'コンタープロット' },
-];
+]
 
 // -------------------------------------------------------------------------
 // コンポーネント実装
@@ -45,14 +45,14 @@ export const CHART_CATALOG: { chartId: ChartId; label: string }[] = [
  */
 export function ChartCatalogPanel() {
   // 【開閉状態】: ローカル管理（永続化なし）
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false)
 
   // 【配置済み数の計算】: freeModeLayout の cells から chartId ごとにカウント
-  const freeModeLayout = useLayoutStore((s) => s.freeModeLayout);
-  const chartInstanceCount: Record<string, number> = {};
+  const freeModeLayout = useLayoutStore((s) => s.freeModeLayout)
+  const chartInstanceCount: Record<string, number> = {}
   if (freeModeLayout) {
     for (const cell of freeModeLayout.cells) {
-      chartInstanceCount[cell.chartId] = (chartInstanceCount[cell.chartId] ?? 0) + 1;
+      chartInstanceCount[cell.chartId] = (chartInstanceCount[cell.chartId] ?? 0) + 1
     }
   }
 
@@ -111,11 +111,18 @@ export function ChartCatalogPanel() {
           padding: '8px 0',
         }}
       >
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', padding: '0 10px 6px' }}>
+        <div
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: 'var(--text-muted)',
+            padding: '0 10px 6px',
+          }}
+        >
           チャート追加
         </div>
         {CHART_CATALOG.map(({ chartId, label }) => {
-          const count = chartInstanceCount[chartId] ?? 0;
+          const count = chartInstanceCount[chartId] ?? 0
           return (
             <div
               key={chartId}
@@ -123,7 +130,10 @@ export function ChartCatalogPanel() {
               data-count={count}
               draggable
               onDragStart={(e) => {
-                e.dataTransfer?.setData('text/plain', JSON.stringify({ type: 'add-chart', chartId }));
+                e.dataTransfer?.setData(
+                  'text/plain',
+                  JSON.stringify({ type: 'add-chart', chartId }),
+                )
               }}
               style={{
                 padding: '5px 10px',
@@ -153,9 +163,9 @@ export function ChartCatalogPanel() {
                 </span>
               )}
             </div>
-          );
+          )
         })}
       </div>
     </div>
-  );
+  )
 }

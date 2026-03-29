@@ -14,7 +14,7 @@ import type {
   OnnxWorkerResponse,
   OnnxLoadResponse,
   OnnxInferResponse,
-} from './onnxWorker';
+} from './onnxWorker'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -24,16 +24,16 @@ import type {
  * 【Worker ファクトリ型】: テスト時にモック Worker を注入するための型
  * 🟢 依存性注入パターン: 実コードでは new Worker(...) を使用
  */
-export type WorkerFactory = () => Worker;
+export type WorkerFactory = () => Worker
 
 /**
  * 【ONNX 読み込み結果型】: load() の戻り値
  */
 export interface OnnxLoadResult {
   /** 読み込み成否 */
-  success: boolean;
+  success: boolean
   /** エラーメッセージ（success=false のとき設定） */
-  error?: string;
+  error?: string
 }
 
 /**
@@ -41,7 +41,7 @@ export interface OnnxLoadResult {
  */
 export interface OnnxInferResult {
   /** 出力テンソルデータ */
-  outputData: Float32Array;
+  outputData: Float32Array
 }
 
 // -------------------------------------------------------------------------
@@ -63,34 +63,34 @@ export interface OnnxInferResult {
  */
 export class OnnxWorkerClient {
   /** 【Worker インスタンス】: workerFactory から生成 */
-  private readonly worker: Worker;
+  private readonly worker: Worker
 
   /** 【保留中リクエスト】: メッセージ ID → resolve/reject マップ */
   private pendingRequests = new Map<
     number,
     { resolve: (res: OnnxWorkerResponse) => void; reject: (err: Error) => void }
-  >();
+  >()
 
   /** 【メッセージ ID カウンタ】: リクエストと応答を対応付けるための連番 */
-  private nextId = 0;
+  private nextId = 0
 
   /**
    * @param workerFactory Worker インスタンスを生成するファクトリ関数
    */
   constructor(workerFactory: WorkerFactory) {
-    this.worker = workerFactory();
+    this.worker = workerFactory()
     // 【メッセージ受信ハンドラ登録】: Worker からの応答を対応する Promise に届ける
     this.worker.onmessage = (event: MessageEvent<OnnxWorkerResponse>) => {
-      this.handleMessage(event.data);
-    };
+      this.handleMessage(event.data)
+    }
     this.worker.onerror = (error) => {
       // 【エラーハンドリング】: Worker エラー時は全保留リクエストを reject する
-      const err = new Error(`OnnxWorker エラー: ${error.message}`);
+      const err = new Error(`OnnxWorker エラー: ${error.message}`)
       for (const { reject } of this.pendingRequests.values()) {
-        reject(err);
+        reject(err)
       }
-      this.pendingRequests.clear();
-    };
+      this.pendingRequests.clear()
+    }
   }
 
   /**
@@ -101,12 +101,12 @@ export class OnnxWorkerClient {
    * @returns 読み込み結果（success フラグ・エラーメッセージ）
    */
   async load(modelData: ArrayBuffer): Promise<OnnxLoadResult> {
-    const response = await this.sendRequest({ type: 'load', modelData });
+    const response = await this.sendRequest({ type: 'load', modelData })
     if (response.type !== 'loaded') {
-      return { success: false, error: '想定外のレスポンスタイプです' };
+      return { success: false, error: '想定外のレスポンスタイプです' }
     }
-    const loadResponse = response as OnnxLoadResponse;
-    return { success: loadResponse.success, error: loadResponse.error };
+    const loadResponse = response as OnnxLoadResponse
+    return { success: loadResponse.success, error: loadResponse.error }
   }
 
   /**
@@ -118,20 +118,20 @@ export class OnnxWorkerClient {
    * @returns 推論結果（出力テンソルデータ）
    */
   async infer(inputData: Float32Array, inputShape: [number, number]): Promise<OnnxInferResult> {
-    const response = await this.sendRequest({ type: 'infer', inputData, inputShape });
+    const response = await this.sendRequest({ type: 'infer', inputData, inputShape })
     if (response.type !== 'result') {
-      return { outputData: new Float32Array(0) };
+      return { outputData: new Float32Array(0) }
     }
-    const inferResponse = response as OnnxInferResponse;
-    return { outputData: inferResponse.outputData };
+    const inferResponse = response as OnnxInferResponse
+    return { outputData: inferResponse.outputData }
   }
 
   /**
    * 【Worker 終了】: Worker スレッドを終了する
    */
   terminate(): void {
-    this.worker.terminate();
-    this.pendingRequests.clear();
+    this.worker.terminate()
+    this.pendingRequests.clear()
   }
 
   // -------------------------------------------------------------------------
@@ -147,10 +147,10 @@ export class OnnxWorkerClient {
    */
   private sendRequest(request: OnnxWorkerRequest): Promise<OnnxWorkerResponse> {
     return new Promise((resolve, reject) => {
-      const id = this.nextId++;
-      this.pendingRequests.set(id, { resolve, reject });
-      this.worker.postMessage(request);
-    });
+      const id = this.nextId++
+      this.pendingRequests.set(id, { resolve, reject })
+      this.worker.postMessage(request)
+    })
   }
 
   /**
@@ -160,14 +160,14 @@ export class OnnxWorkerClient {
    */
   private handleMessage(response: OnnxWorkerResponse): void {
     // 最古の保留リクエストを取り出す（FIFO）
-    const firstKey = this.pendingRequests.keys().next().value;
+    const firstKey = this.pendingRequests.keys().next().value
     if (firstKey === undefined) {
-      return;
+      return
     }
-    const pending = this.pendingRequests.get(firstKey);
+    const pending = this.pendingRequests.get(firstKey)
     if (pending) {
-      this.pendingRequests.delete(firstKey);
-      pending.resolve(response);
+      this.pendingRequests.delete(firstKey)
+      pending.resolve(response)
     }
   }
 }

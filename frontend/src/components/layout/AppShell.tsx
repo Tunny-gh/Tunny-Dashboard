@@ -6,14 +6,14 @@
  * File drag-and-drop triggers studyStore.loadJournal().
  */
 
-import { useStudyStore } from '../../stores/studyStore';
-import { useLayoutStore } from '../../stores/layoutStore';
-import { ToolBar } from './ToolBar';
-import { LeftPanel } from '../panels/LeftPanel';
-import { BottomPanel } from '../panels/BottomPanel';
-import { FreeLayoutCanvas } from './FreeLayoutCanvas';
-import { ChartCatalogPanel } from './ChartCatalogPanel';
-import type { DragEvent } from 'react';
+import { useStudyStore } from '../../stores/studyStore'
+import { useLayoutStore } from '../../stores/layoutStore'
+import { ToolBar } from './ToolBar'
+import { LeftPanel } from '../panels/LeftPanel'
+import { BottomPanel } from '../panels/BottomPanel'
+import { FreeLayoutCanvas } from './FreeLayoutCanvas'
+import { ChartCatalogPanel } from './ChartCatalogPanel'
+import type { DragEvent } from 'react'
 
 // -------------------------------------------------------------------------
 // Component
@@ -24,28 +24,28 @@ import type { DragEvent } from 'react';
  */
 export function AppShell() {
   // Read layoutMode and loadJournal from their respective stores
-  const layoutMode = useLayoutStore((s) => s.layoutMode);
-  const loadJournal = useStudyStore((s) => s.loadJournal);
-  const isLoading = useStudyStore((s) => s.isLoading);
+  const layoutMode = useLayoutStore((s) => s.layoutMode)
+  const loadJournal = useStudyStore((s) => s.loadJournal)
+  const isLoading = useStudyStore((s) => s.isLoading)
 
   /**
    * Prevents the default browser behavior to allow file drop.
    */
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
+    e.preventDefault()
+  }
 
   /**
    * Passes the first dropped file to loadJournal. Multiple files are ignored.
    */
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const file = e.dataTransfer?.files?.[0];
+    e.preventDefault()
+    const file = e.dataTransfer?.files?.[0]
     if (file) {
       // fire-and-forget async load
-      void loadJournal(file);
+      void loadJournal(file)
     }
-  };
+  }
 
   return (
     <div
@@ -67,12 +67,23 @@ export function AppShell() {
       </div>
 
       {/* Left panel area */}
-      <div data-testid="left-panel" style={{ width: '260px', overflowY: 'auto', borderRight: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
+      <div
+        data-testid="left-panel"
+        style={{
+          width: '260px',
+          overflowY: 'auto',
+          borderRight: '1px solid var(--border)',
+          background: 'var(--bg-panel)',
+        }}
+      >
         <LeftPanel />
       </div>
 
       {/* Main canvas area */}
-      <div data-testid="main-canvas" style={{ overflow: 'hidden', position: 'relative', height: '100%' }}>
+      <div
+        data-testid="main-canvas"
+        style={{ overflow: 'hidden', position: 'relative', height: '100%' }}
+      >
         <FreeLayoutCanvas />
       </div>
 
@@ -80,7 +91,15 @@ export function AppShell() {
       <ChartCatalogPanel />
 
       {/* Bottom panel area: full width, bottom row */}
-      <div data-testid="bottom-panel" style={{ gridColumn: '1 / 4', height: '220px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+      <div
+        data-testid="bottom-panel"
+        style={{
+          gridColumn: '1 / 4',
+          height: '220px',
+          overflowY: 'auto',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
         <BottomPanel />
       </div>
 
@@ -100,5 +119,5 @@ export function AppShell() {
         />
       )}
     </div>
-  );
+  )
 }

@@ -3,8 +3,8 @@
 //!
 //! 参照: docs/implements/TASK-101/journal-parser-requirements.md
 
-use std::collections::{HashMap, HashSet};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 // =============================================================================
 // 公開型定義
@@ -68,7 +68,11 @@ impl Distribution {
             "IntDistribution" => Distribution::Int {
                 low: json.get("low").and_then(|v| v.as_i64()).unwrap_or(0),
                 // step は最低 1（0除算防止）🟡
-                step: json.get("step").and_then(|v| v.as_i64()).unwrap_or(1).max(1),
+                step: json
+                    .get("step")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1)
+                    .max(1),
                 log: json.get("log").and_then(|v| v.as_bool()).unwrap_or(false),
             },
             "CategoricalDistribution" => Distribution::Categorical {
@@ -88,7 +92,11 @@ impl Distribution {
         match self {
             // REQ-010: FloatDistribution log=true → exp(v) 🟢
             Distribution::Float { log } => {
-                if *log { internal.exp() } else { internal }
+                if *log {
+                    internal.exp()
+                } else {
+                    internal
+                }
             }
             // REQ-010: IntDistribution — low + round(v) * step 🟡
             Distribution::Int { low, step, log } => {
@@ -107,7 +115,9 @@ impl Distribution {
 
     /// CategoricalDistribution の文字列ラベルを返す（非数値 choices の場合）🟡
     fn categorical_label(&self, internal: f64) -> Option<String> {
-        let Distribution::Categorical { choices } = self else { return None };
+        let Distribution::Categorical { choices } = self else {
+            return None;
+        };
         let idx = internal.round() as usize;
         choices.get(idx).map(|v| match v {
             Value::String(s) => s.clone(),
@@ -308,7 +318,9 @@ impl ParserState {
 
         if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
             // REQ-010: 内部スケール値を表示値に逆変換して格納 🟢
-            trial.param_display.insert(param_name.clone(), dist.to_display_f64(internal));
+            trial
+                .param_display
+                .insert(param_name.clone(), dist.to_display_f64(internal));
             // CategoricalDistribution の文字列ラベルを保存 🟡
             if let Some(label) = dist.categorical_label(internal) {
                 trial.param_category_label.insert(param_name, label);
@@ -337,8 +349,12 @@ impl ParserState {
     /// op_code=8: SET_TRIAL_USER_ATTR — REQ-012 型別に分けて格納 🟢
     fn process_set_trial_user_attr(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
-        let Some(attrs) = json.get("user_attr").and_then(|v| v.as_object()) else { return };
-        let Some(trial) = self.trial_builders.get_mut(&trial_id) else { return };
+        let Some(attrs) = json.get("user_attr").and_then(|v| v.as_object()) else {
+            return;
+        };
+        let Some(trial) = self.trial_builders.get_mut(&trial_id) else {
+            return;
+        };
 
         for (key, val) in attrs {
             // REQ-012: 数値型 → float64列、文字列型 → カテゴリ列 🟢
@@ -354,8 +370,12 @@ impl ParserState {
     /// op_code=9: SET_TRIAL_SYSTEM_ATTR — REQ-013 constraints を展開 🟢
     fn process_set_trial_system_attr(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
-        let Some(attrs) = json.get("system_attr").and_then(|v| v.as_object()) else { return };
-        let Some(trial) = self.trial_builders.get_mut(&trial_id) else { return };
+        let Some(attrs) = json.get("system_attr").and_then(|v| v.as_object()) else {
+            return;
+        };
+        let Some(trial) = self.trial_builders.get_mut(&trial_id) else {
+            return;
+        };
 
         // REQ-013: constraints → c1,c2,c3... 個別列展開（TASK-102 DataFrame で行う）🟢
         // ここでは値リストを保持し、is_feasible / constraint_sum は TrialBuilder のメソッドで取得
@@ -373,19 +393,21 @@ impl ParserState {
     fn finalize(self) -> (Vec<StudyMeta>, Vec<crate::dataframe::DataFrame>) {
         use crate::dataframe::{DataFrame, TrialRow};
 
-        let ParserState { mut studies, trial_builders, .. } = self;
+        let ParserState {
+            mut studies,
+            trial_builders,
+            ..
+        } = self;
         let n_studies = studies.len();
 
         // --- trial_id 昇順でソート（DataFrame の行順を決定）🟢 ---
         // HashMap 反復順は非決定的なため、ソートで安定した列データを保証する
-        let mut sorted_trials: Vec<(u32, TrialBuilder)> =
-            trial_builders.into_iter().collect();
+        let mut sorted_trials: Vec<(u32, TrialBuilder)> = trial_builders.into_iter().collect();
         sorted_trials.sort_by_key(|(id, _)| *id);
 
         // --- Study ごとの DataFrame 構築データ収集 ---
         // `(0..n).map(|_| Vec::new()).collect()` で Clone 境界なしに初期化 🟡
-        let mut per_study_rows: Vec<Vec<TrialRow>> =
-            (0..n_studies).map(|_| Vec::new()).collect();
+        let mut per_study_rows: Vec<Vec<TrialRow>> = (0..n_studies).map(|_| Vec::new()).collect();
         let mut per_study_unn: Vec<HashSet<String>> = // user_attr 数値列名
             (0..n_studies).map(|_| HashSet::new()).collect();
         let mut per_study_usn: Vec<HashSet<String>> = // user_attr 文字列列名
@@ -436,7 +458,7 @@ impl ParserState {
 
             // TrialRow へムーブ: HashMap データのクローンを排除 🟡
             per_study_rows[study_idx].push(TrialRow {
-                trial_id,                                       // Optuna の実際の trial_id 🟢
+                trial_id, // Optuna の実際の trial_id 🟢
                 param_display: trial.param_display,
                 param_category_label: trial.param_category_label,
                 objective_values: trial.values.unwrap_or_default(),
@@ -453,8 +475,7 @@ impl ParserState {
         for (i, b) in studies.into_iter().enumerate() {
             let mut param_names: Vec<String> = b.param_names.into_iter().collect();
             param_names.sort();
-            let mut user_attr_names: Vec<String> =
-                b.user_attr_names.into_iter().collect();
+            let mut user_attr_names: Vec<String> = b.user_attr_names.into_iter().collect();
             user_attr_names.sort();
             let objective_names = b.objective_names; // DataFrame 構築にも使用
 
@@ -510,7 +531,10 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     // 空ファイルは Ok([]) を即時返却（TC-101-B01）🟡
     if data.is_empty() {
         crate::dataframe::store_dataframes(vec![]);
-        return Ok(ParseResult { studies: vec![], duration_ms: 0.0 });
+        return Ok(ParseResult {
+            studies: vec![],
+            duration_ms: 0.0,
+        });
     }
 
     // UTF-8 デコード: バイナリ混入に対応するため lossy 変換（TC-101-E02）🟢
@@ -520,7 +544,10 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.is_empty() {
         crate::dataframe::store_dataframes(vec![]);
-        return Ok(ParseResult { studies: vec![], duration_ms: 0.0 });
+        return Ok(ParseResult {
+            studies: vec![],
+            duration_ms: 0.0,
+        });
     }
 
     let mut state = ParserState::new();
@@ -554,7 +581,10 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     let (studies, dataframes) = state.finalize();
     // DataFrame を WASM グローバル状態に格納（select_study() から参照できるようにする）🟢
     crate::dataframe::store_dataframes(dataframes);
-    Ok(ParseResult { studies, duration_ms })
+    Ok(ParseResult {
+        studies,
+        duration_ms,
+    })
 }
 
 // =============================================================================
@@ -584,7 +614,10 @@ mod tests {
         assert_eq!(result.studies[0].name, "my_study"); // Study名 🟢
         assert_eq!(
             result.studies[0].directions,
-            vec![OptimizationDirection::Minimize, OptimizationDirection::Maximize]
+            vec![
+                OptimizationDirection::Minimize,
+                OptimizationDirection::Maximize
+            ]
         ); // 最適化方向 🟢
     }
 
@@ -702,7 +735,9 @@ mod tests {
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
         let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].user_attr_names.contains(&"loss".to_string())); // 数値列 🟢
+        assert!(result.studies[0]
+            .user_attr_names
+            .contains(&"loss".to_string())); // 数値列 🟢
     }
 
     #[test]
@@ -715,7 +750,9 @@ mod tests {
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
         let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].user_attr_names.contains(&"tag".to_string())); // 文字列列 🟢
+        assert!(result.studies[0]
+            .user_attr_names
+            .contains(&"tag".to_string())); // 文字列列 🟢
     }
 
     #[test]
@@ -760,9 +797,7 @@ mod tests {
     #[test]
     fn tc_101_17_duration_ms_returned() {
         // 【テスト目的】: ParseResult.duration_ms が 0 以上の値を返す 🟢
-        let data = to_bytes(
-            r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#,
-        );
+        let data = to_bytes(r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#);
         let result = parse_journal(&data).expect("パース成功を期待");
         assert!(result.duration_ms >= 0.0); // 処理時間が非負 🟢
     }
@@ -789,7 +824,9 @@ mod tests {
     fn tc_101_e02_non_json_line_skipped() {
         // 【テスト目的】: バイナリ混入行をスキップして処理継続する 🟢
         let mut data = Vec::new();
-        data.extend_from_slice(b"{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n");
+        data.extend_from_slice(
+            b"{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
+        );
         data.extend_from_slice(b"not-json-at-all\n");
         data.extend_from_slice(b"\xff\xfe\x00\n");
         data.extend_from_slice(b"{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n");
@@ -861,9 +898,7 @@ mod tests {
     #[test]
     fn tc_101_b02_study_only_no_trials() {
         // 【テスト目的】: CREATE_STUDY のみで completed_trials == 0 🟢
-        let data = to_bytes(
-            r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#,
-        );
+        let data = to_bytes(r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#);
         let result = parse_journal(&data).expect("パース成功を期待");
         assert_eq!(result.studies.len(), 1); // Study 数 🟢
         assert_eq!(result.studies[0].completed_trials, 0); // 完了試行なし 🟢
@@ -946,14 +981,22 @@ mod tests {
     #[test]
     fn distribution_int_step1() {
         // 【テスト目的】: IntDistribution(low=0, step=1) は round(internal) + low 🟢
-        let dist = Distribution::Int { low: 0, step: 1, log: false };
+        let dist = Distribution::Int {
+            low: 0,
+            step: 1,
+            log: false,
+        };
         assert!((dist.to_display_f64(3.0) - 3.0).abs() < 1e-10);
     }
 
     #[test]
     fn distribution_int_step2() {
         // 【テスト目的】: IntDistribution(low=0, step=2) は low + round(v) * step 🟡
-        let dist = Distribution::Int { low: 0, step: 2, log: false };
+        let dist = Distribution::Int {
+            low: 0,
+            step: 2,
+            log: false,
+        };
         // internal=2.0 → 0 + 2*2 = 4
         assert!((dist.to_display_f64(2.0) - 4.0).abs() < 1e-10);
     }
@@ -977,9 +1020,13 @@ mod tests {
     fn trial_builder_is_feasible() {
         // 【テスト目的】: is_feasible は全 constraint <= 0 のとき true 🟢
         let mut trial = TrialBuilder {
-            study_id: 0, state: 1, values: None,
-            param_display: HashMap::new(), param_category_label: HashMap::new(),
-            user_attrs_numeric: HashMap::new(), user_attrs_string: HashMap::new(),
+            study_id: 0,
+            state: 1,
+            values: None,
+            param_display: HashMap::new(),
+            param_category_label: HashMap::new(),
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
             constraint_values: vec![-1.0, -0.5, 0.0],
             has_constraints: true,
         };

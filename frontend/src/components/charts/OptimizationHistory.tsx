@@ -11,8 +11,8 @@
  * Conforms to REQ-1001–REQ-1006.
  */
 
-import { useState } from 'react';
-import ReactECharts from 'echarts-for-react';
+import { useState } from 'react'
+import ReactECharts from 'echarts-for-react'
 
 // -------------------------------------------------------------------------
 // Types
@@ -21,19 +21,19 @@ import ReactECharts from 'echarts-for-react';
 /** One trial's result data */
 export interface TrialData {
   /** Trial number (1-based) */
-  trial: number;
+  trial: number
   /** Objective value */
-  value: number;
+  value: number
 }
 
 /** Display mode for the convergence history chart */
-export type HistoryMode = 'best' | 'all' | 'moving-avg' | 'improvement';
+export type HistoryMode = 'best' | 'all' | 'moving-avg' | 'improvement'
 
 /** Optimization direction */
-export type OptimizationDirection = 'minimize' | 'maximize';
+export type OptimizationDirection = 'minimize' | 'maximize'
 
 /** Optimization progress phase */
-export type OptimizationPhase = 'exploration' | 'exploitation' | 'convergence';
+export type OptimizationPhase = 'exploration' | 'exploitation' | 'convergence'
 
 // -------------------------------------------------------------------------
 // Constants
@@ -45,10 +45,10 @@ const MODE_LABELS: Record<HistoryMode, string> = {
   all: '全試行値',
   'moving-avg': '移動平均',
   improvement: '改善率',
-};
+}
 
 /** Window size for moving average computation */
-const MOVING_AVG_WINDOW = 5;
+const MOVING_AVG_WINDOW = 5
 
 // -------------------------------------------------------------------------
 // Pure functions
@@ -69,15 +69,15 @@ const MOVING_AVG_WINDOW = 5;
  * @returns Phase string
  */
 export function detectPhase(trialIndex: number, totalTrials: number): OptimizationPhase {
-  const progress = trialIndex / totalTrials;
+  const progress = trialIndex / totalTrials
 
   if (progress < 0.3) {
-    return 'exploration';
+    return 'exploration'
   }
   if (progress < 0.7) {
-    return 'exploitation';
+    return 'exploitation'
   }
-  return 'convergence';
+  return 'convergence'
 }
 
 /**
@@ -87,15 +87,15 @@ export function detectPhase(trialIndex: number, totalTrials: number): Optimizati
  * @returns Best value at each trial
  */
 function computeBestSeries(data: TrialData[], direction: OptimizationDirection): number[] {
-  let best = direction === 'minimize' ? Infinity : -Infinity;
+  let best = direction === 'minimize' ? Infinity : -Infinity
   return data.map(({ value }) => {
     if (direction === 'minimize') {
-      best = Math.min(best, value);
+      best = Math.min(best, value)
     } else {
-      best = Math.max(best, value);
+      best = Math.max(best, value)
     }
-    return best;
-  });
+    return best
+  })
 }
 
 /**
@@ -106,10 +106,10 @@ function computeBestSeries(data: TrialData[], direction: OptimizationDirection):
  */
 function computeMovingAverage(values: number[], window: number): number[] {
   return values.map((_, i) => {
-    const start = Math.max(0, i - window + 1);
-    const slice = values.slice(start, i + 1);
-    return slice.reduce((sum, v) => sum + v, 0) / slice.length;
-  });
+    const start = Math.max(0, i - window + 1)
+    const slice = values.slice(start, i + 1)
+    return slice.reduce((sum, v) => sum + v, 0) / slice.length
+  })
 }
 
 /**
@@ -120,11 +120,11 @@ function computeMovingAverage(values: number[], window: number): number[] {
  */
 function computeImprovementRate(bestSeries: number[]): number[] {
   return bestSeries.map((curr, i) => {
-    if (i === 0) return 0;
-    const prev = bestSeries[i - 1];
-    if (prev === 0) return 0;
-    return Math.abs((prev - curr) / prev) * 100;
-  });
+    if (i === 0) return 0
+    const prev = bestSeries[i - 1]
+    if (prev === 0) return 0
+    return Math.abs((prev - curr) / prev) * 100
+  })
 }
 
 // -------------------------------------------------------------------------
@@ -144,12 +144,12 @@ function buildChartOption(
   direction: OptimizationDirection,
 ): object {
   if (data.length === 0) {
-    return { xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [] };
+    return { xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [] }
   }
 
-  const trials = data.map((d) => d.trial);
-  const values = data.map((d) => d.value);
-  const bestSeries = computeBestSeries(data, direction);
+  const trials = data.map((d) => d.trial)
+  const values = data.map((d) => d.value)
+  const bestSeries = computeBestSeries(data, direction)
 
   switch (mode) {
     case 'best':
@@ -158,7 +158,7 @@ function buildChartOption(
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
         series: [{ type: 'line', data: bestSeries, name: 'Best値' }],
-      };
+      }
 
     case 'all':
       // All trial values scatter plot
@@ -166,11 +166,11 @@ function buildChartOption(
         xAxis: { type: 'value' },
         yAxis: { type: 'value' },
         series: [{ type: 'scatter', data: trials.map((t, i) => [t, values[i]]), name: '全試行値' }],
-      };
+      }
 
     case 'moving-avg': {
       // Moving average line chart
-      const movingAvg = computeMovingAverage(values, MOVING_AVG_WINDOW);
+      const movingAvg = computeMovingAverage(values, MOVING_AVG_WINDOW)
       return {
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
@@ -178,21 +178,21 @@ function buildChartOption(
           { type: 'line', data: values, name: '全試行値', opacity: 0.4 },
           { type: 'line', data: movingAvg, name: `移動平均(${MOVING_AVG_WINDOW})` },
         ],
-      };
+      }
     }
 
     case 'improvement': {
       // Best value improvement rate bar chart
-      const improvementRate = computeImprovementRate(bestSeries);
+      const improvementRate = computeImprovementRate(bestSeries)
       return {
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
         series: [{ type: 'bar', data: improvementRate, name: '改善率(%)' }],
-      };
+      }
     }
 
     default:
-      return { xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [] };
+      return { xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [] }
   }
 }
 
@@ -202,9 +202,9 @@ function buildChartOption(
 
 export interface OptimizationHistoryProps {
   /** Trial data array */
-  data: TrialData[];
+  data: TrialData[]
   /** Optimization direction */
-  direction: OptimizationDirection;
+  direction: OptimizationDirection
 }
 
 // -------------------------------------------------------------------------
@@ -220,9 +220,9 @@ export interface OptimizationHistoryProps {
  */
 export function OptimizationHistory({ data, direction }: OptimizationHistoryProps) {
   // Default mode is 'best' (running best value)
-  const [mode, setMode] = useState<HistoryMode>('best');
+  const [mode, setMode] = useState<HistoryMode>('best')
 
-  const option = buildChartOption(data, mode, direction);
+  const option = buildChartOption(data, mode, direction)
 
   return (
     <div
@@ -266,5 +266,5 @@ export function OptimizationHistory({ data, direction }: OptimizationHistoryProp
         <ReactECharts option={option} style={{ height: '100%' }} />
       </div>
     </div>
-  );
+  )
 }

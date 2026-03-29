@@ -6,17 +6,17 @@
  * 🟢 スライダー変更 → addAxisFilter(axis, 0, value) でリアルタイムフィルタ
  */
 
-import { useSelectionStore } from '../../stores/selectionStore';
-import { useStudyStore } from '../../stores/studyStore';
-import type { ColorMode } from '../../types';
-import type { ChangeEvent } from 'react';
+import { useSelectionStore } from '../../stores/selectionStore'
+import { useStudyStore } from '../../stores/studyStore'
+import type { ColorMode } from '../../types'
+import type { ChangeEvent } from 'react'
 
 // -------------------------------------------------------------------------
 // カラーモード定義
 // -------------------------------------------------------------------------
 
 /** 🟢 選択可能なカラーモード一覧 */
-const COLOR_MODES: ColorMode[] = ['objective', 'cluster', 'rank', 'generation'];
+const COLOR_MODES: ColorMode[] = ['objective', 'cluster', 'rank', 'generation']
 
 // -------------------------------------------------------------------------
 // コンポーネント実装
@@ -28,13 +28,13 @@ const COLOR_MODES: ColorMode[] = ['objective', 'cluster', 'rank', 'generation'];
  */
 export function LeftPanel() {
   // 【Store接続】: selectionStore から selectedIndices, colorMode, addAxisFilter を取得 🟢
-  const selectedIndices = useSelectionStore((s) => s.selectedIndices);
-  const colorMode = useSelectionStore((s) => s.colorMode);
-  const addAxisFilter = useSelectionStore((s) => s.addAxisFilter);
-  const setColorMode = useSelectionStore((s) => s.setColorMode);
+  const selectedIndices = useSelectionStore((s) => s.selectedIndices)
+  const colorMode = useSelectionStore((s) => s.colorMode)
+  const addAxisFilter = useSelectionStore((s) => s.addAxisFilter)
+  const setColorMode = useSelectionStore((s) => s.setColorMode)
 
   // 【Store接続】: studyStore から currentStudy を取得 🟢
-  const currentStudy = useStudyStore((s) => s.currentStudy);
+  const currentStudy = useStudyStore((s) => s.currentStudy)
 
   // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
@@ -42,7 +42,7 @@ export function LeftPanel() {
       <div style={{ padding: '12px' }}>
         <span>データが読み込まれていません</span>
       </div>
-    );
+    )
   }
 
   /**
@@ -50,8 +50,8 @@ export function LeftPanel() {
    * 【設計方針】: 0 を min 固定とし、スライダー値を max として addAxisFilter を呼ぶ
    */
   const handleSliderChange = (axisName: string) => (e: ChangeEvent<HTMLInputElement>) => {
-    addAxisFilter(axisName, 0, parseFloat(e.target.value));
-  };
+    addAxisFilter(axisName, 0, parseFloat(e.target.value))
+  }
 
   // 【レンダリング】: カウンタ + スライダー + カラーモード 🟢
   return (
@@ -88,7 +88,10 @@ export function LeftPanel() {
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Color Mode</div>
         {COLOR_MODES.map((mode) => (
-          <label key={mode} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+          <label
+            key={mode}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+          >
             <input
               data-testid={`color-mode-${mode}`}
               type="radio"
@@ -102,5 +105,5 @@ export function LeftPanel() {
         ))}
       </div>
     </div>
-  );
+  )
 }

@@ -112,12 +112,7 @@ fn col_means(data: &[Vec<f64>]) -> Vec<f64> {
 /// データを列平均で中心化する
 fn center_data(data: &[Vec<f64>], means: &[f64]) -> Vec<Vec<f64>> {
     data.iter()
-        .map(|row| {
-            row.iter()
-                .zip(means.iter())
-                .map(|(&v, &m)| v - m)
-                .collect()
-        })
+        .map(|row| row.iter().zip(means.iter()).map(|(&v, &m)| v - m).collect())
         .collect()
 }
 
@@ -281,8 +276,12 @@ pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaRe
         for j in i..p {
             let col_i = &x_cols[i * n..(i + 1) * n];
             let col_j = &x_cols[j * n..(j + 1) * n];
-            let val: f64 =
-                col_i.iter().zip(col_j.iter()).map(|(a, b)| a * b).sum::<f64>() / nf;
+            let val: f64 = col_i
+                .iter()
+                .zip(col_j.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                / nf;
             cov[i][j] = val;
             cov[j][i] = val;
         }
@@ -413,7 +412,12 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
         if !changed {
             // 【収束】
             let wcss = compute_wcss(flat_data, n, p, &labels, &centroids, k);
-            return KmeansResult { labels, centroids, wcss, iterations: iter + 1 };
+            return KmeansResult {
+                labels,
+                centroids,
+                wcss,
+                iterations: iter + 1,
+            };
         }
 
         // 【重心更新フェーズ】: 各クラスタの平均に重心を移動
@@ -442,7 +446,12 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
 
     // 最大イテレーション後の WCSS を計算
     let wcss = compute_wcss(flat_data, n, p, &labels, &centroids, k);
-    KmeansResult { labels, centroids, wcss, iterations: max_iter }
+    KmeansResult {
+        labels,
+        centroids,
+        wcss,
+        iterations: max_iter,
+    }
 }
 
 /// WCSS（クラスタ内誤差平方和）を計算する
@@ -472,7 +481,10 @@ pub(crate) fn estimate_k_elbow_on_data(
 ) -> ElbowResult {
     let effective_max_k = max_k.min(n);
     if effective_max_k < 2 {
-        return ElbowResult { wcss_per_k: vec![], recommended_k: 2 };
+        return ElbowResult {
+            wcss_per_k: vec![],
+            recommended_k: 2,
+        };
     }
 
     let wcss_per_k: Vec<f64> = (2..=effective_max_k)
@@ -503,7 +515,10 @@ pub(crate) fn estimate_k_elbow_on_data(
 
     let recommended_k = recommended_k.clamp(2, effective_max_k);
 
-    ElbowResult { wcss_per_k, recommended_k }
+    ElbowResult {
+        wcss_per_k,
+        recommended_k,
+    }
 }
 
 /// クラスタ統計量を計算する（テスト・内部向け）
@@ -668,7 +683,12 @@ pub fn run_pca(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
 /// 【設計】: JS/WASM から直接呼べるように flat_data を受け取る 🟢
 pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize) -> KmeansResult {
     if n_cols == 0 || flat_data.is_empty() {
-        return KmeansResult { labels: vec![], centroids: vec![], wcss: 0.0, iterations: 0 };
+        return KmeansResult {
+            labels: vec![],
+            centroids: vec![],
+            wcss: 0.0,
+            iterations: 0,
+        };
     }
     let n = flat_data.len() / n_cols;
     run_kmeans_on_data(flat_data, n, n_cols, k)
@@ -677,7 +697,10 @@ pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize) -> KmeansResult {
 /// Elbow 法で最適 k を推定する（公開 API）
 pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> ElbowResult {
     if n_cols == 0 || flat_data.is_empty() {
-        return ElbowResult { wcss_per_k: vec![], recommended_k: 2 };
+        return ElbowResult {
+            wcss_per_k: vec![],
+            recommended_k: 2,
+        };
     }
     let n = flat_data.len() / n_cols;
     estimate_k_elbow_on_data(flat_data, n, n_cols, max_k)
@@ -701,14 +724,12 @@ pub fn compute_cluster_stats(labels: &[usize]) -> Vec<ClusterStat> {
         let k = labels.iter().copied().max().map(|m| m + 1).unwrap_or(0);
         let flat_data: Vec<f64> = (0..n)
             .flat_map(|i| {
-                all_names
-                    .iter()
-                    .map(move |name| {
-                        df.get_numeric_column(name)
-                            .and_then(|c| c.get(i))
-                            .copied()
-                            .unwrap_or(0.0)
-                    })
+                all_names.iter().map(move |name| {
+                    df.get_numeric_column(name)
+                        .and_then(|c| c.get(i))
+                        .copied()
+                        .unwrap_or(0.0)
+                })
             })
             .collect();
 
@@ -769,7 +790,11 @@ mod tests {
 
         // 【確認内容】: 主成分数が 2 であること
         assert_eq!(result.loadings.len(), 2, "主成分数が 2 であること");
-        assert_eq!(result.explained_variance.len(), 2, "説明分散の個数が 2 であること");
+        assert_eq!(
+            result.explained_variance.len(),
+            2,
+            "説明分散の個数が 2 であること"
+        );
 
         // 【確認内容】: 第1主成分の説明分散 > 第2主成分の説明分散
         assert!(
@@ -803,7 +828,11 @@ mod tests {
 
         // 【確認内容】: 射影行列のサイズが n × 2 であること
         assert_eq!(result.projections.len(), n, "射影行列の行数が n であること");
-        assert_eq!(result.projections[0].len(), 2, "射影行列の列数が 2 であること");
+        assert_eq!(
+            result.projections[0].len(),
+            2,
+            "射影行列の列数が 2 であること"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -814,7 +843,10 @@ mod tests {
     fn tc_901_03_pca_empty_data() {
         // 【テスト目的】: n < 2 のとき空の PcaResult を返すことを検証する 🟢
         let result = run_pca_on_matrix(&[vec![1.0, 2.0]], 2);
-        assert!(result.projections.is_empty(), "n<2 のとき射影が空であること");
+        assert!(
+            result.projections.is_empty(),
+            "n<2 のとき射影が空であること"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -842,7 +874,11 @@ mod tests {
             counts[l] += 1;
         }
         for (c, &cnt) in counts.iter().enumerate() {
-            assert_eq!(cnt, n_per_cluster, "クラスタ {} のサンプル数が {} であること", c, n_per_cluster);
+            assert_eq!(
+                cnt, n_per_cluster,
+                "クラスタ {} のサンプル数が {} であること",
+                c, n_per_cluster
+            );
         }
     }
 
@@ -885,7 +921,11 @@ mod tests {
         let result = estimate_k_elbow_on_data(&data, n, p, 8);
 
         // 【確認内容】: WCSS リストが (max_k - 2 + 1) 個の要素を持つこと
-        assert_eq!(result.wcss_per_k.len(), 7, "WCSS リストが 7 個 (k=2..8) であること");
+        assert_eq!(
+            result.wcss_per_k.len(),
+            7,
+            "WCSS リストが 7 個 (k=2..8) であること"
+        );
 
         // 【確認内容】: 推薦 k が妥当な範囲 [2, 8] に収まること
         assert!(
@@ -914,8 +954,14 @@ mod tests {
 
         // 【確認内容】: クラスタ 0 の重心が [1.0, 2.0] であること
         let stat0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-        assert!((stat0.centroid[0] - 1.0).abs() < 1e-9, "クラスタ0の x1 重心が 1.0 であること");
-        assert!((stat0.centroid[1] - 2.0).abs() < 1e-9, "クラスタ0の x2 重心が 2.0 であること");
+        assert!(
+            (stat0.centroid[0] - 1.0).abs() < 1e-9,
+            "クラスタ0の x1 重心が 1.0 であること"
+        );
+        assert!(
+            (stat0.centroid[1] - 2.0).abs() < 1e-9,
+            "クラスタ0の x2 重心が 2.0 であること"
+        );
         assert_eq!(stat0.size, 2, "クラスタ0のサイズが 2 であること");
     }
 
@@ -966,7 +1012,11 @@ mod tests {
         let (n, p) = (50_000, 10);
 
         let data: Vec<Vec<f64>> = (0..n)
-            .map(|i| (0..p).map(|j| i as f64 / n as f64 + j as f64 * 0.1).collect())
+            .map(|i| {
+                (0..p)
+                    .map(|j| i as f64 / n as f64 + j as f64 * 0.1)
+                    .collect()
+            })
             .collect();
 
         let start = std::time::Instant::now();
@@ -995,9 +1045,7 @@ mod tests {
         #[cfg(not(debug_assertions))]
         let (n, p) = (50_000, 4);
 
-        let flat_data: Vec<f64> = (0..n * p)
-            .map(|i| i as f64 / (n * p) as f64)
-            .collect();
+        let flat_data: Vec<f64> = (0..n * p).map(|i| i as f64 / (n * p) as f64).collect();
 
         let start = std::time::Instant::now();
         let result = run_kmeans_on_data(&flat_data, n, p, 4);
@@ -1024,9 +1072,7 @@ mod tests {
         #[cfg(not(debug_assertions))]
         let (n, p) = (50_000, 4);
 
-        let flat_data: Vec<f64> = (0..n * p)
-            .map(|i| i as f64 / (n * p) as f64)
-            .collect();
+        let flat_data: Vec<f64> = (0..n * p).map(|i| i as f64 / (n * p) as f64).collect();
         let labels: Vec<usize> = (0..n).map(|i| i % 4).collect();
 
         let start = std::time::Instant::now();

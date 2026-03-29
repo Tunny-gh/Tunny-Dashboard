@@ -7,15 +7,15 @@
  * Hidden when no directory is selected or the trial has no artifacts.
  */
 
-import React, { useEffect, useState } from 'react';
-import { useArtifactStore, getMimeTypeCategory } from '../../stores/artifactStore';
-import type { Trial, ArtifactType } from '../../types';
+import React, { useEffect, useState } from 'react'
+import { useArtifactStore, getMimeTypeCategory } from '../../stores/artifactStore'
+import type { Trial, ArtifactType } from '../../types'
 
 // -------------------------------------------------------------------------
 // Constants
 // -------------------------------------------------------------------------
 
-const MAX_CSV_ROWS = 20;
+const MAX_CSV_ROWS = 20
 
 // -------------------------------------------------------------------------
 // Types
@@ -23,54 +23,58 @@ const MAX_CSV_ROWS = 20;
 
 interface ArtifactViewerProps {
   /** Trial to display */
-  trial: Trial;
+  trial: Trial
 }
 
 /** Internal state for a single artifact item */
 interface ArtifactItem {
-  artifactId: string;
-  filename: string;
-  type: ArtifactType;
-  url: string | null;
-  isLoading: boolean;
+  artifactId: string
+  filename: string
+  type: ArtifactType
+  url: string | null
+  isLoading: boolean
 }
 
 // -------------------------------------------------------------------------
 // CSV preview component
 // -------------------------------------------------------------------------
 const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
-  const [rows, setRows] = useState<string[][]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [rows, setRows] = useState<string[][]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     const fetchCsv = async () => {
       try {
-        const response = await fetch(url);
-        const text = await response.text();
+        const response = await fetch(url)
+        const text = await response.text()
         const parsed = text
           .trim()
           .split('\n')
           .slice(0, MAX_CSV_ROWS + 1) // ヘッダ + MAX_CSV_ROWS 行
-          .map((line) => line.split(','));
-        setRows(parsed);
+          .map((line) => line.split(','))
+        setRows(parsed)
       } catch {
-        setRows([]);
+        setRows([])
       } finally {
-        setIsLoading(false);
+        setIsLoading(false)
       }
-    };
-    fetchCsv();
-  }, [url]);
+    }
+    fetchCsv()
+  }, [url])
 
   if (isLoading) {
-    return <div data-testid="csv-loading" className="text-gray-400 text-sm">読み込み中...</div>;
+    return (
+      <div data-testid="csv-loading" className="text-gray-400 text-sm">
+        読み込み中...
+      </div>
+    )
   }
 
   if (rows.length === 0) {
-    return <p className="text-gray-400 text-sm">CSV データを読み込めませんでした</p>;
+    return <p className="text-gray-400 text-sm">CSV データを読み込めませんでした</p>
   }
 
-  const [header, ...dataRows] = rows;
+  const [header, ...dataRows] = rows
 
   return (
     <div data-testid="csv-table" className="overflow-x-auto max-h-64">
@@ -100,8 +104,8 @@ const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
         <p className="text-xs text-gray-400 mt-1">先頭 {MAX_CSV_ROWS} 行を表示</p>
       )}
     </div>
-  );
-};
+  )
+}
 
 // -------------------------------------------------------------------------
 // ライトボックスコンポーネント
@@ -127,7 +131,7 @@ const Lightbox: React.FC<{ url: string; onClose: () => void }> = ({ url, onClose
       ✕
     </button>
   </div>
-);
+)
 
 // -------------------------------------------------------------------------
 // ArtifactViewer コンポーネント
@@ -137,15 +141,15 @@ const Lightbox: React.FC<{ url: string; onClose: () => void }> = ({ url, onClose
  * 【機能概要】: 単一 trial のアーティファクト一覧を表示するビューア
  */
 export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
-  const { dirHandle, loadArtifactUrl } = useArtifactStore();
-  const [items, setItems] = useState<ArtifactItem[]>([]);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const { dirHandle, loadArtifactUrl } = useArtifactStore()
+  const [items, setItems] = useState<ArtifactItem[]>([])
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   // 【アーティファクトロード】: trial の artifactIds からファイルをロードする
   useEffect(() => {
     if (!dirHandle || !trial.artifactIds || trial.artifactIds.length === 0) {
-      setItems([]);
-      return;
+      setItems([])
+      return
     }
 
     // 【初期状態】: ロード中プレースホルダーを設定
@@ -155,26 +159,26 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
       type: 'other' as ArtifactType,
       url: null,
       isLoading: true,
-    }));
-    setItems(initial);
+    }))
+    setItems(initial)
 
     // 【非同期ロード】: 各アーティファクトの URL を取得
     trial.artifactIds.forEach(async (artifactId, index) => {
-      const filename = artifactId; // 🟡 ファイル名は artifactId と同じと仮定
-      const url = await loadArtifactUrl(artifactId, filename);
-      const type = getMimeTypeCategory(filename);
+      const filename = artifactId // 🟡 ファイル名は artifactId と同じと仮定
+      const url = await loadArtifactUrl(artifactId, filename)
+      const type = getMimeTypeCategory(filename)
 
       setItems((prev) => {
-        const next = [...prev];
-        next[index] = { artifactId, filename, type, url, isLoading: false };
-        return next;
-      });
-    });
-  }, [dirHandle, trial.artifactIds, loadArtifactUrl]);
+        const next = [...prev]
+        next[index] = { artifactId, filename, type, url, isLoading: false }
+        return next
+      })
+    })
+  }, [dirHandle, trial.artifactIds, loadArtifactUrl])
 
   // 【非表示条件】: ディレクトリ未選択またはアーティファクトなし
   if (!dirHandle || !trial.artifactIds || trial.artifactIds.length === 0) {
-    return null;
+    return null
   }
 
   return (
@@ -222,9 +226,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
           )}
 
           {/* 【CSV】: テーブル表示 🟢 REQ-142 */}
-          {!item.isLoading && item.url && item.type === 'csv' && (
-            <CsvPreview url={item.url} />
-          )}
+          {!item.isLoading && item.url && item.type === 'csv' && <CsvPreview url={item.url} />}
 
           {/* 【その他】: ダウンロードリンク 🟢 REQ-143 */}
           {!item.isLoading && item.url && item.type !== 'image' && item.type !== 'csv' && (
@@ -241,11 +243,9 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
       ))}
 
       {/* 【ライトボックス】: 画像拡大表示 */}
-      {lightboxUrl && (
-        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
-      )}
+      {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
     </div>
-  );
-};
+  )
+}
 
-export default ArtifactViewer;
+export default ArtifactViewer

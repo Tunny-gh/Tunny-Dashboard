@@ -8,9 +8,9 @@
  * Conforms to REQ-070, REQ-075.
  */
 
-import { DeckGL, ScatterplotLayer } from 'deck.gl';
-import type { GpuBuffer } from '../../wasm/gpuBuffer';
-import type { Study } from '../../types';
+import { DeckGL, ScatterplotLayer } from 'deck.gl'
+import type { GpuBuffer } from '../../wasm/gpuBuffer'
+import type { Study } from '../../types'
 
 // -------------------------------------------------------------------------
 // Props types
@@ -18,14 +18,14 @@ import type { Study } from '../../types';
 
 export interface ObjectivePairMatrixProps {
   /** GPU buffer — scatter cells show a placeholder when null */
-  gpuBuffer: GpuBuffer | null;
+  gpuBuffer: GpuBuffer | null
   /** Current study — used to obtain objective names and count */
-  currentStudy: Study | null;
+  currentStudy: Study | null
   /**
    * Cell click callback: notifies the caller of the selected xAxisName and yAxisName.
    * Used by AppShell (etc.) to assign axes in the 3D view.
    */
-  onCellClick?: (xAxisName: string, yAxisName: string) => void;
+  onCellClick?: (xAxisName: string, yAxisName: string) => void
 }
 
 // -------------------------------------------------------------------------
@@ -46,20 +46,24 @@ export interface ObjectivePairMatrixProps {
  *
  * Corresponds to TC-502-01–04, TC-502-E01–E02.
  */
-export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: ObjectivePairMatrixProps) {
+export function ObjectivePairMatrix({
+  gpuBuffer,
+  currentStudy,
+  onCellClick,
+}: ObjectivePairMatrixProps) {
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
         <span>データが読み込まれていません</span>
       </div>
-    );
+    )
   }
 
-  const { objectiveNames } = currentStudy;
-  const n = objectiveNames.length;
+  const { objectiveNames } = currentStudy
+  const n = objectiveNames.length
 
   // Hide the matrix when there is only one objective
-  if (n <= 1) return null;
+  if (n <= 1) return null
 
   // -------------------------------------------------------------------------
   // Cell generation
@@ -70,10 +74,10 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
    * Index mapping: row = Math.floor(idx / n), col = idx % n
    */
   const cells = Array.from({ length: n * n }, (_, idx) => {
-    const row = Math.floor(idx / n);
-    const col = idx % n;
-    const xAxis = objectiveNames[col]; // column → x-axis
-    const yAxis = objectiveNames[row]; // row → y-axis
+    const row = Math.floor(idx / n)
+    const col = idx % n
+    const xAxis = objectiveNames[col] // column → x-axis
+    const yAxis = objectiveNames[row] // row → y-axis
 
     return (
       <div
@@ -141,13 +145,11 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
               —
             </div>
           )
-        ) : (
-          // Upper-triangle cell: currently empty (reserved for future statistics)
-          null
-        )}
+        ) : // Upper-triangle cell: currently empty (reserved for future statistics)
+        null}
       </div>
-    );
-  });
+    )
+  })
 
   // -------------------------------------------------------------------------
   // Render
@@ -167,5 +169,5 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
     >
       {cells}
     </div>
-  );
+  )
 }

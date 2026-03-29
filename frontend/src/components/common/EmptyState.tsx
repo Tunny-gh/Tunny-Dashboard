@@ -11,7 +11,7 @@
 
 export interface EmptyStateProps {
   /** 表示メッセージ（省略時: 「データがありません」） */
-  message?: string;
+  message?: string
 }
 
 // -------------------------------------------------------------------------
@@ -29,7 +29,7 @@ export function EmptyState({ message = 'データがありません' }: EmptySta
     >
       <span>{message}</span>
     </div>
-  );
+  )
 }
 
-export default EmptyState;
+export default EmptyState

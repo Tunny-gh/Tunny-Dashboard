@@ -11,8 +11,8 @@
  * 🟢 REQ-130〜REQ-135 に準拠
  */
 
-import { create } from 'zustand';
-import { FsapiPoller } from '../wasm/fsapiPoller';
+import { create } from 'zustand'
+import { FsapiPoller } from '../wasm/fsapiPoller'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -23,9 +23,9 @@ import { FsapiPoller } from '../wasm/fsapiPoller';
  */
 export interface UpdateRecord {
   /** 更新日時 */
-  at: Date;
+  at: Date
   /** 今回の差分で追加された試行数 */
-  newTrials: number;
+  newTrials: number
 }
 
 /**
@@ -34,35 +34,35 @@ export interface UpdateRecord {
 interface LiveUpdateState {
   // --- 状態 ---
   /** ライブ更新が実行中かどうか */
-  isLive: boolean;
+  isLive: boolean
   /** FSAPI がこのブラウザでサポートされているか */
-  isSupported: boolean;
+  isSupported: boolean
   /** ポーリング間隔 (ms) */
-  pollIntervalMs: number;
+  pollIntervalMs: number
   /** 最終更新日時 */
-  lastUpdateAt: Date | null;
+  lastUpdateAt: Date | null
   /** 直近 MAX_HISTORY 件の更新履歴 */
-  updateHistory: UpdateRecord[];
+  updateHistory: UpdateRecord[]
   /** エラーメッセージ（null=正常）*/
-  error: string | null;
+  error: string | null
 
   // --- アクション ---
   /** ファイル選択してライブ更新を開始する */
-  startLive: () => Promise<void>;
+  startLive: () => Promise<void>
   /** ライブ更新を停止する */
-  stopLive: () => void;
+  stopLive: () => void
   /** ポーリング間隔を変更する */
-  setPollInterval: (ms: number) => void;
+  setPollInterval: (ms: number) => void
   /** エラーメッセージをクリアする */
-  clearError: () => void;
+  clearError: () => void
 
   // --- 内部アクション（テスト用に公開）---
   /** 新試行通知を受け取り履歴を更新する（FsapiPoller コールバックから呼ばれる）*/
-  _onNewTrials: (newCompleted: number) => void;
+  _onNewTrials: (newCompleted: number) => void
   /** エラーを受け取り state に反映する */
-  _onError: (err: Error) => void;
+  _onError: (err: Error) => void
   /** 自動停止通知を受け取る */
-  _onAutoStop: () => void;
+  _onAutoStop: () => void
 }
 
 // -------------------------------------------------------------------------
@@ -70,17 +70,17 @@ interface LiveUpdateState {
 // -------------------------------------------------------------------------
 
 /** 【更新履歴保持件数】: 直近 N 件のみ保持 */
-const MAX_HISTORY = 10;
+const MAX_HISTORY = 10
 
 /** 【デフォルトポーリング間隔】: 5 秒 */
-const DEFAULT_POLL_INTERVAL_MS = 5000;
+const DEFAULT_POLL_INTERVAL_MS = 5000
 
 // -------------------------------------------------------------------------
 // Store 実装
 // -------------------------------------------------------------------------
 
 /** ポーリングインスタンス（Store 外に保持して React レンダリングの影響を受けない）*/
-let _poller: FsapiPoller | null = null;
+let _poller: FsapiPoller | null = null
 
 /**
  * 【LiveUpdateStore 作成】
@@ -105,11 +105,11 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
    * FSAPI 非対応時はエラーをセットして終了 🟢 REQ-133
    */
   startLive: async () => {
-    const { isSupported, pollIntervalMs } = get();
+    const { isSupported, pollIntervalMs } = get()
 
     if (!isSupported) {
-      set({ error: 'ライブ更新は Chrome / Edge のみ対応しています' });
-      return;
+      set({ error: 'ライブ更新は Chrome / Edge のみ対応しています' })
+      return
     }
 
     // 【ポーラー作成】: コールバックを Store アクションに接続
@@ -118,17 +118,17 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
       onNewTrials: (n) => get()._onNewTrials(n),
       onError: (err) => get()._onError(err),
       onAutoStop: () => get()._onAutoStop(),
-    });
+    })
 
     // 【ファイル選択】: ユーザーが選択キャンセルなら開始しない
-    const selected = await _poller.pickFile();
+    const selected = await _poller.pickFile()
     if (!selected) {
-      _poller = null;
-      return;
+      _poller = null
+      return
     }
 
-    _poller.start();
-    set({ isLive: true, error: null });
+    _poller.start()
+    set({ isLive: true, error: null })
   },
 
   /**
@@ -136,19 +136,19 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
    */
   stopLive: () => {
     if (_poller) {
-      _poller.stop();
-      _poller = null;
+      _poller.stop()
+      _poller = null
     }
-    set({ isLive: false });
+    set({ isLive: false })
   },
 
   /**
    * 【ポーリング間隔変更】: 現在のポーラーにも反映する
    */
   setPollInterval: (ms) => {
-    set({ pollIntervalMs: ms });
+    set({ pollIntervalMs: ms })
     if (_poller) {
-      _poller.setInterval(ms);
+      _poller.setInterval(ms)
     }
   },
 
@@ -160,30 +160,30 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
    * 🟢 REQ-134: selectionStore は操作しない（Brushing 不干渉）
    */
   _onNewTrials: (newCompleted) => {
-    const now = new Date();
-    const record: UpdateRecord = { at: now, newTrials: newCompleted };
+    const now = new Date()
+    const record: UpdateRecord = { at: now, newTrials: newCompleted }
 
     set((s) => ({
       lastUpdateAt: now,
       updateHistory: [record, ...s.updateHistory].slice(0, MAX_HISTORY),
-    }));
+    }))
   },
 
   /**
    * 【エラー通知】: ポーリングエラーを Store に反映する
    */
   _onError: (err) => {
-    set({ error: err.message });
+    set({ error: err.message })
   },
 
   /**
    * 【自動停止通知】: 3 回連続エラーで自動停止したとき呼ばれる 🟢 REQ-135
    */
   _onAutoStop: () => {
-    _poller = null;
+    _poller = null
     set({
       isLive: false,
       error: '更新に失敗しました（3回連続エラーにより自動停止しました）',
-    });
+    })
   },
-}));
+}))

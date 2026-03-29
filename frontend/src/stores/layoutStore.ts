@@ -6,8 +6,8 @@
  * Conforms to the LayoutStore interface in types/index.ts.
  */
 
-import { create } from 'zustand';
-import type { LayoutMode, ChartId, LayoutConfig, PanelSizes, FreeModeLayout } from '../types';
+import { create } from 'zustand'
+import type { LayoutMode, ChartId, LayoutConfig, PanelSizes, FreeModeLayout } from '../types'
 
 // -------------------------------------------------------------------------
 // Constants (exported)
@@ -24,7 +24,7 @@ export const DEFAULT_FREE_LAYOUT: FreeModeLayout = {
     { cellId: crypto.randomUUID(), chartId: 'scatter-matrix', gridRow: [3, 5], gridCol: [1, 3] },
     { cellId: crypto.randomUUID(), chartId: 'history', gridRow: [3, 5], gridCol: [3, 5] },
   ],
-};
+}
 
 // -------------------------------------------------------------------------
 // Types
@@ -34,47 +34,39 @@ export const DEFAULT_FREE_LAYOUT: FreeModeLayout = {
  * LayoutStore state type. Conforms to the LayoutStore interface.
  */
 interface LayoutState {
-  layoutMode: LayoutMode;
-  visibleCharts: Set<ChartId>;
-  panelSizes: PanelSizes;
-  freeModeLayout: FreeModeLayout | null;
+  layoutMode: LayoutMode
+  visibleCharts: Set<ChartId>
+  panelSizes: PanelSizes
+  freeModeLayout: FreeModeLayout | null
   /** Error message from the last layout JSON load attempt */
-  layoutLoadError: string | null;
+  layoutLoadError: string | null
 
-  setLayoutMode: (mode: LayoutMode) => void;
-  toggleChart: (chartId: ChartId) => void;
-  saveLayout: () => LayoutConfig;
-  loadLayout: (config: LayoutConfig) => void;
+  setLayoutMode: (mode: LayoutMode) => void
+  toggleChart: (chartId: ChartId) => void
+  saveLayout: () => LayoutConfig
+  loadLayout: (config: LayoutConfig) => void
   /** Replaces the entire free-mode layout */
-  setFreeModeLayout: (layout: FreeModeLayout | null) => void;
+  setFreeModeLayout: (layout: FreeModeLayout | null) => void
   /**
    * Updates the grid position of the specified cell (cellId).
    * Called after a drag-and-drop move. REQ-032
    */
-  updateCellPosition: (
-    cellId: string,
-    gridRow: [number, number],
-    gridCol: [number, number],
-  ) => void;
+  updateCellPosition: (cellId: string, gridRow: [number, number], gridCol: [number, number]) => void
   /**
    * Adds a new chart cell to freeModeLayout. cellId is auto-generated.
    * Falls back to DEFAULT_FREE_LAYOUT as the base when freeModeLayout is null.
    */
-  addCell: (
-    chartId: ChartId,
-    gridRow: [number, number],
-    gridCol: [number, number],
-  ) => void;
+  addCell: (chartId: ChartId, gridRow: [number, number], gridCol: [number, number]) => void
   /**
    * Removes the cell with the given cellId.
    * Does nothing if the cellId does not exist.
    */
-  removeCell: (cellId: string) => void;
+  removeCell: (cellId: string) => void
   /**
    * Parses a JSON string and calls loadLayout.
    * On parse or validation failure, sets layoutLoadError and resets to the default layout.
    */
-  loadLayoutFromJson: (json: string) => { success: boolean; error?: string };
+  loadLayoutFromJson: (json: string) => { success: boolean; error?: string }
 }
 
 // -------------------------------------------------------------------------
@@ -87,7 +79,7 @@ const DEFAULT_VISIBLE_CHARTS: ChartId[] = [
   'parallel-coords',
   'scatter-matrix',
   'history',
-];
+]
 
 // -------------------------------------------------------------------------
 // Store implementation
@@ -112,14 +104,14 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
 
   /** Toggles a chart in visibleCharts: removes it if present, adds it if absent */
   toggleChart: (chartId) => {
-    const current = get().visibleCharts;
-    const next = new Set(current);
+    const current = get().visibleCharts
+    const next = new Set(current)
     if (next.has(chartId)) {
-      next.delete(chartId);
+      next.delete(chartId)
     } else {
-      next.add(chartId);
+      next.add(chartId)
     }
-    set({ visibleCharts: next });
+    set({ visibleCharts: next })
   },
 
   /**
@@ -127,13 +119,13 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
    * Converts the visibleCharts Set to an Array for JSON compatibility.
    */
   saveLayout: (): LayoutConfig => {
-    const { layoutMode, visibleCharts, panelSizes, freeModeLayout } = get();
+    const { layoutMode, visibleCharts, panelSizes, freeModeLayout } = get()
     return {
       mode: layoutMode,
       visibleCharts: Array.from(visibleCharts),
       panelSizes,
       freeModeLayout,
-    };
+    }
   },
 
   /**
@@ -145,7 +137,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
       visibleCharts: new Set(config.visibleCharts),
       panelSizes: config.panelSizes,
       freeModeLayout: config.freeModeLayout,
-    });
+    })
   },
 
   /** Directly sets freeModeLayout (used when applying a preset or resetting) */
@@ -156,12 +148,12 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
    * Called when a drag-and-drop operation completes. REQ-032
    */
   updateCellPosition: (cellId, gridRow, gridCol) => {
-    const { freeModeLayout } = get();
-    if (!freeModeLayout) return;
+    const { freeModeLayout } = get()
+    if (!freeModeLayout) return
     const cells = freeModeLayout.cells.map((cell) =>
       cell.cellId === cellId ? { ...cell, gridRow, gridCol } : cell,
-    );
-    set({ freeModeLayout: { cells } });
+    )
+    set({ freeModeLayout: { cells } })
   },
 
   /**
@@ -169,9 +161,9 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
    * cellId is auto-generated via crypto.randomUUID().
    */
   addCell: (chartId, gridRow, gridCol) => {
-    const base = get().freeModeLayout ?? DEFAULT_FREE_LAYOUT;
-    const cellId = crypto.randomUUID();
-    set({ freeModeLayout: { cells: [...base.cells, { cellId, chartId, gridRow, gridCol }] } });
+    const base = get().freeModeLayout ?? DEFAULT_FREE_LAYOUT
+    const cellId = crypto.randomUUID()
+    set({ freeModeLayout: { cells: [...base.cells, { cellId, chartId, gridRow, gridCol }] } })
   },
 
   /**
@@ -179,11 +171,11 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
    * Does not mutate state if the cellId does not exist.
    */
   removeCell: (cellId) => {
-    const { freeModeLayout } = get();
-    if (!freeModeLayout) return;
-    const cells = freeModeLayout.cells.filter((cell) => cell.cellId !== cellId);
-    if (cells.length === freeModeLayout.cells.length) return; // no change
-    set({ freeModeLayout: { cells } });
+    const { freeModeLayout } = get()
+    if (!freeModeLayout) return
+    const cells = freeModeLayout.cells.filter((cell) => cell.cellId !== cellId)
+    if (cells.length === freeModeLayout.cells.length) return // no change
+    set({ freeModeLayout: { cells } })
   },
 
   /**
@@ -192,20 +184,20 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
    * NFR-032: error message is shown when loading fails.
    */
   loadLayoutFromJson: (json) => {
-    const ERR = 'レイアウトを読み込めませんでした';
+    const ERR = 'レイアウトを読み込めませんでした'
     try {
-      const config = JSON.parse(json) as LayoutConfig;
+      const config = JSON.parse(json) as LayoutConfig
       // Validate required fields
       if (!config.mode || !Array.isArray(config.visibleCharts)) {
-        set({ layoutLoadError: ERR, freeModeLayout: DEFAULT_FREE_LAYOUT });
-        return { success: false, error: ERR };
+        set({ layoutLoadError: ERR, freeModeLayout: DEFAULT_FREE_LAYOUT })
+        return { success: false, error: ERR }
       }
-      get().loadLayout(config);
-      set({ layoutLoadError: null });
-      return { success: true };
+      get().loadLayout(config)
+      set({ layoutLoadError: null })
+      return { success: true }
     } catch {
-      set({ layoutLoadError: ERR, freeModeLayout: DEFAULT_FREE_LAYOUT });
-      return { success: false, error: ERR };
+      set({ layoutLoadError: ERR, freeModeLayout: DEFAULT_FREE_LAYOUT })
+      return { success: false, error: ERR }
     }
   },
-}));
+}))

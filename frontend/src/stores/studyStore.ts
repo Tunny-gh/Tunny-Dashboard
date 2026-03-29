@@ -6,12 +6,12 @@
  * 🟢 StudyStore インターフェース（types/index.ts）に準拠
  */
 
-import { create } from 'zustand';
-import type { Study, DataFrameInfo, StudyMode, TrialData } from '../types';
-import { WasmLoader } from '../wasm/wasmLoader';
-import { GpuBuffer } from '../wasm/gpuBuffer';
-import { useSelectionStore } from './selectionStore';
-import { useComparisonStore } from './comparisonStore';
+import { create } from 'zustand'
+import type { Study, DataFrameInfo, StudyMode, TrialData } from '../types'
+import { WasmLoader } from '../wasm/wasmLoader'
+import { GpuBuffer } from '../wasm/gpuBuffer'
+import { useSelectionStore } from './selectionStore'
+import { useComparisonStore } from './comparisonStore'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -22,23 +22,23 @@ import { useComparisonStore } from './comparisonStore';
  */
 interface StudyState {
   // --- 公開状態 ---
-  currentStudy: Study | null;
-  allStudies: Study[];
-  studyMode: StudyMode;
-  isLoading: boolean;
-  loadError: string | null;
+  currentStudy: Study | null
+  allStudies: Study[]
+  studyMode: StudyMode
+  isLoading: boolean
+  loadError: string | null
 
   // --- アクション ---
-  loadJournal: (file: File) => Promise<void>;
-  selectStudy: (studyId: number) => void;
-  setComparisonStudies: (studyIds: number[]) => void;
-  getDataFrameInfo: () => DataFrameInfo | null;
+  loadJournal: (file: File) => Promise<void>
+  selectStudy: (studyId: number) => void
+  setComparisonStudies: (studyIds: number[]) => void
+  getDataFrameInfo: () => DataFrameInfo | null
 
   // --- 内部状態 ---
   /** 現在選択中の Study の GpuBuffer（チャートコンポーネントが参照） */
-  gpuBuffer: GpuBuffer | null;
+  gpuBuffer: GpuBuffer | null
   /** 現在選択中の Study の per-trial データ（slice / contour チャートが参照） */
-  trialRows: TrialData[];
+  trialRows: TrialData[]
 }
 
 // -------------------------------------------------------------------------
@@ -69,25 +69,25 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
    */
   loadJournal: async (file) => {
     // 【ローディング開始】: 同期的に isLoading を true に設定
-    set({ isLoading: true, loadError: null });
+    set({ isLoading: true, loadError: null })
 
     try {
       // 【ファイル読み込み】: File API で ArrayBuffer を取得
-      const arrayBuffer = await file.arrayBuffer();
-      const data = new Uint8Array(arrayBuffer);
+      const arrayBuffer = await file.arrayBuffer()
+      const data = new Uint8Array(arrayBuffer)
 
       // 【WASM 呼び出し】: WasmLoader 経由で parseJournal を実行
-      const wasm = await WasmLoader.getInstance();
-      const result = wasm.parseJournal(data);
+      const wasm = await WasmLoader.getInstance()
+      const result = wasm.parseJournal(data)
 
       // 【状態更新】: allStudies に設定し、最初の Study を自動選択
-      set({ allStudies: result.studies, isLoading: false });
+      set({ allStudies: result.studies, isLoading: false })
       if (result.studies.length > 0) {
-        get().selectStudy(result.studies[0].studyId);
+        get().selectStudy(result.studies[0].studyId)
       }
     } catch (err) {
       // 【エラー処理】: loadError にメッセージを格納
-      set({ isLoading: false, loadError: String(err) });
+      set({ isLoading: false, loadError: String(err) })
     }
   },
 
@@ -100,35 +100,35 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
     WasmLoader.getInstance()
       .then((wasm) => {
         // 【WASM selectStudy】: positions / sizes / trialCount を取得
-        const result = wasm.selectStudy(studyId);
-        const gpuBuffer = new GpuBuffer(result);
+        const result = wasm.selectStudy(studyId)
+        const gpuBuffer = new GpuBuffer(result)
 
         // 【currentStudy 更新】
-        const study = get().allStudies.find((s) => s.studyId === studyId) ?? null;
+        const study = get().allStudies.find((s) => s.studyId === studyId) ?? null
         // 【studyMode 判定】: 目的関数数 > 1 なら multi-objective
         const studyMode: StudyMode =
-          study && study.directions.length > 1 ? 'multi-objective' : 'single-objective';
+          study && study.directions.length > 1 ? 'multi-objective' : 'single-objective'
 
         // 【getTrials 呼び出し】: per-trial データを取得して trialRows に保持
-        let trialRows: TrialData[] = [];
+        let trialRows: TrialData[] = []
         try {
-          trialRows = wasm.getTrials();
+          trialRows = wasm.getTrials()
         } catch {
           // WASM getTrials 未実装の場合は空配列のまま
         }
 
-        set({ currentStudy: study, gpuBuffer, studyMode, trialRows });
+        set({ currentStudy: study, gpuBuffer, studyMode, trialRows })
 
         // 【SelectionStore 初期化】: trialCount と全インデックスを設定
-        useSelectionStore.getState()._setTrialCount(gpuBuffer.trialCount);
-        useSelectionStore.getState().clearSelection();
+        useSelectionStore.getState()._setTrialCount(gpuBuffer.trialCount)
+        useSelectionStore.getState().clearSelection()
 
         // 【ComparisonStore リセット】: Study 切替時に比較状態をクリア 🟢 REQ-124
-        useComparisonStore.getState().reset();
+        useComparisonStore.getState().reset()
       })
       .catch(() => {
         // 【WASM 未初期化時】: 無視
-      });
+      })
   },
 
   /**
@@ -143,4 +143,4 @@ export const useStudyStore = create<StudyState>()((set, get) => ({
    * 【DataFrame情報取得】: 🟡 スタブ実装（後続タスクで完成）
    */
   getDataFrameInfo: () => null,
-}));
+}))

@@ -9,11 +9,11 @@
  * 🟢 REQ-150〜REQ-153, REQ-156 に準拠
  */
 
-import { useExportStore, MAX_PINS } from '../../stores/exportStore';
-import type { CsvTarget } from '../../stores/exportStore';
-import { useSelectionStore } from '../../stores/selectionStore';
-import { useStudyStore } from '../../stores/studyStore';
-import type { ChangeEvent } from 'react';
+import { useExportStore, MAX_PINS } from '../../stores/exportStore'
+import type { CsvTarget } from '../../stores/exportStore'
+import { useSelectionStore } from '../../stores/selectionStore'
+import { useStudyStore } from '../../stores/studyStore'
+import type { ChangeEvent } from 'react'
 
 // -------------------------------------------------------------------------
 // 定数
@@ -25,7 +25,7 @@ const CSV_TARGET_LABELS: Record<CsvTarget, string> = {
   selected: '選択中',
   pareto: 'Pareto解のみ',
   cluster: 'クラスタ指定',
-};
+}
 
 // -------------------------------------------------------------------------
 // メインコンポーネント
@@ -38,46 +38,46 @@ const CSV_TARGET_LABELS: Record<CsvTarget, string> = {
  */
 export function ExportPanel() {
   // 【Store 接続】: exportStore から状態・アクションを取得 🟢
-  const csvTarget = useExportStore((s) => s.csvTarget);
-  const selectedColumns = useExportStore((s) => s.selectedColumns);
-  const isExporting = useExportStore((s) => s.isExporting);
-  const exportError = useExportStore((s) => s.exportError);
-  const pinnedTrials = useExportStore((s) => s.pinnedTrials);
-  const pinError = useExportStore((s) => s.pinError);
-  const setCsvTarget = useExportStore((s) => s.setCsvTarget);
-  const setSelectedColumns = useExportStore((s) => s.setSelectedColumns);
-  const exportCsv = useExportStore((s) => s.exportCsv);
-  const unpinTrial = useExportStore((s) => s.unpinTrial);
-  const updatePinMemo = useExportStore((s) => s.updatePinMemo);
-  const clearExportError = useExportStore((s) => s.clearExportError);
-  const clearPinError = useExportStore((s) => s.clearPinError);
+  const csvTarget = useExportStore((s) => s.csvTarget)
+  const selectedColumns = useExportStore((s) => s.selectedColumns)
+  const isExporting = useExportStore((s) => s.isExporting)
+  const exportError = useExportStore((s) => s.exportError)
+  const pinnedTrials = useExportStore((s) => s.pinnedTrials)
+  const pinError = useExportStore((s) => s.pinError)
+  const setCsvTarget = useExportStore((s) => s.setCsvTarget)
+  const setSelectedColumns = useExportStore((s) => s.setSelectedColumns)
+  const exportCsv = useExportStore((s) => s.exportCsv)
+  const unpinTrial = useExportStore((s) => s.unpinTrial)
+  const updatePinMemo = useExportStore((s) => s.updatePinMemo)
+  const clearExportError = useExportStore((s) => s.clearExportError)
+  const clearPinError = useExportStore((s) => s.clearPinError)
 
   // 【Store 接続】: selectionStore から selectedIndices を取得 🟢
-  const selectedIndices = useSelectionStore((s) => s.selectedIndices);
+  const selectedIndices = useSelectionStore((s) => s.selectedIndices)
 
   // 【Store 接続】: studyStore から列名リストを取得 🟢
-  const currentStudy = useStudyStore((s) => s.currentStudy);
+  const currentStudy = useStudyStore((s) => s.currentStudy)
 
   // 【エクスポート実行】: 対象に応じたインデックスを渡す
   const handleExport = () => {
     // 【対象インデックス決定】: selected 以外は全件（TASK-302/901 で絞り込み予定）
-    const indices = csvTarget === 'selected' ? selectedIndices : selectedIndices;
-    exportCsv(indices);
-  };
+    const indices = csvTarget === 'selected' ? selectedIndices : selectedIndices
+    exportCsv(indices)
+  }
 
   // 【列選択トグル】: チェックボックスの on/off で selectedColumns を更新
   const handleColumnToggle = (colName: string) => (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      setSelectedColumns([...selectedColumns, colName]);
+      setSelectedColumns([...selectedColumns, colName])
     } else {
-      setSelectedColumns(selectedColumns.filter((c) => c !== colName));
+      setSelectedColumns(selectedColumns.filter((c) => c !== colName))
     }
-  };
+  }
 
   // 【全列名リスト】: Study があれば trial_id + params + objectives を列挙
   const allColumns = currentStudy
     ? ['trial_id', ...currentStudy.paramNames, ...currentStudy.objectiveNames]
-    : ['trial_id'];
+    : ['trial_id']
 
   return (
     <div
@@ -200,7 +200,9 @@ export function ExportPanel() {
             justifyContent: 'space-between',
           }}
         >
-          <span>ピン留め ({pinnedTrials.length}/{MAX_PINS})</span>
+          <span>
+            ピン留め ({pinnedTrials.length}/{MAX_PINS})
+          </span>
         </div>
 
         {/* 【ピン上限エラー】 */}
@@ -235,9 +237,7 @@ export function ExportPanel() {
             ピン留めはありません
           </div>
         ) : (
-          <table
-            style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}
-          >
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
             <thead>
               <tr style={{ background: '#f9fafb' }}>
                 <th
@@ -309,5 +309,5 @@ export function ExportPanel() {
         )}
       </div>
     </div>
-  );
+  )
 }

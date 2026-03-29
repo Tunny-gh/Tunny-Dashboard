@@ -21,9 +21,9 @@
  * 🟢 REQ-103: .onnx ファイル読み込みで高精度PDP を有効化
  */
 export interface OnnxLoadRequest {
-  type: 'load';
+  type: 'load'
   /** .onnx モデルのバイナリデータ */
-  modelData: ArrayBuffer;
+  modelData: ArrayBuffer
 }
 
 /**
@@ -31,38 +31,38 @@ export interface OnnxLoadRequest {
  * 🟢 REQ-104: ONNX モデルによる高精度 PDP 推論
  */
 export interface OnnxInferRequest {
-  type: 'infer';
+  type: 'infer'
   /** 入力テンソルデータ（フラット Float32Array） */
-  inputData: Float32Array;
+  inputData: Float32Array
   /** 入力テンソル形状 [batch_size, n_features] */
-  inputShape: [number, number];
+  inputShape: [number, number]
 }
 
 /** 【Worker リクエスト型】: load / infer の Union */
-export type OnnxWorkerRequest = OnnxLoadRequest | OnnxInferRequest;
+export type OnnxWorkerRequest = OnnxLoadRequest | OnnxInferRequest
 
 /**
  * 【ONNX モデル読み込みレスポンス】: 読み込み成否を返す
  */
 export interface OnnxLoadResponse {
-  type: 'loaded';
+  type: 'loaded'
   /** 読み込み成否 */
-  success: boolean;
+  success: boolean
   /** エラーメッセージ（success=false のとき設定） */
-  error?: string;
+  error?: string
 }
 
 /**
  * 【ONNX 推論レスポンス】: 出力テンソル（PDP 値）を返す
  */
 export interface OnnxInferResponse {
-  type: 'result';
+  type: 'result'
   /** 出力テンソルデータ（フラット Float32Array） */
-  outputData: Float32Array;
+  outputData: Float32Array
 }
 
 /** 【Worker レスポンス型】: loaded / result の Union */
-export type OnnxWorkerResponse = OnnxLoadResponse | OnnxInferResponse;
+export type OnnxWorkerResponse = OnnxLoadResponse | OnnxInferResponse
 
 // -------------------------------------------------------------------------
 // Worker 実装（スタブ）
@@ -76,10 +76,10 @@ export type OnnxWorkerResponse = OnnxLoadResponse | OnnxInferResponse;
  * const ONNX_AVAILABLE = true;
  * 🟡 ONNX Runtime Web の統合は TASK-803 以降に実装予定
  */
-const ONNX_AVAILABLE = false;
+const ONNX_AVAILABLE = false
 
 self.onmessage = (event: MessageEvent<OnnxWorkerRequest>): void => {
-  const request = event.data;
+  const request = event.data
 
   switch (request.type) {
     case 'load': {
@@ -90,12 +90,12 @@ self.onmessage = (event: MessageEvent<OnnxWorkerRequest>): void => {
           success: false,
           // 🟡 エラーメッセージは Ridge フォールバックへの案内を含む
           error: 'ONNX Runtime は未実装です。Ridge 簡易版 PDP を使用してください。',
-        };
-        self.postMessage(response);
-        return;
+        }
+        self.postMessage(response)
+        return
       }
       // 【将来実装】: ort.InferenceSession.create(request.modelData) を呼び出す
-      break;
+      break
     }
 
     case 'infer': {
@@ -104,9 +104,9 @@ self.onmessage = (event: MessageEvent<OnnxWorkerRequest>): void => {
       const response: OnnxInferResponse = {
         type: 'result',
         outputData: new Float32Array(0),
-      };
-      self.postMessage(response);
-      break;
+      }
+      self.postMessage(response)
+      break
     }
   }
-};
+}

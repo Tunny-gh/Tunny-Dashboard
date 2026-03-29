@@ -1,16 +1,16 @@
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
-pub mod journal_parser;
-pub mod dataframe;
-pub mod filter;
-pub mod pareto;
 pub mod clustering;
-pub mod sensitivity;
+pub mod dataframe;
+pub mod export;
+pub mod filter;
+pub mod journal_parser;
+pub mod live_update;
+pub mod pareto;
 pub mod pdp;
 pub mod sampling;
-pub mod export;
-pub mod live_update;
+pub mod sensitivity;
 
 /// WASM初期化時にパニックハンドラをセットアップする
 #[cfg(feature = "wasm")]
@@ -39,8 +39,8 @@ fn console_error_panic_hook() {
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "parseJournal")]
 pub fn wasm_parse_journal(data: &[u8]) -> Result<JsValue, JsValue> {
-    use serde::Serialize;
     use crate::journal_parser::OptimizationDirection;
+    use serde::Serialize;
 
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -63,8 +63,7 @@ pub fn wasm_parse_journal(data: &[u8]) -> Result<JsValue, JsValue> {
         duration_ms: f64,
     }
 
-    let result = crate::journal_parser::parse_journal(data)
-        .map_err(|e| JsValue::from_str(&e))?;
+    let result = crate::journal_parser::parse_journal(data).map_err(|e| JsValue::from_str(&e))?;
 
     let js_result = JsParseResult {
         duration_ms: result.duration_ms,
@@ -102,8 +101,7 @@ pub fn wasm_parse_journal(data: &[u8]) -> Result<JsValue, JsValue> {
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "selectStudy")]
 pub fn wasm_select_study(study_id: u32) -> Result<JsValue, JsValue> {
-    let result = crate::dataframe::select_study(study_id)
-        .map_err(|e| JsValue::from_str(&e))?;
+    let result = crate::dataframe::select_study(study_id).map_err(|e| JsValue::from_str(&e))?;
 
     let gpu = result.gpu_buffer_data;
 
@@ -118,14 +116,15 @@ pub fn wasm_select_study(study_id: u32) -> Result<JsValue, JsValue> {
     sizes_arr.copy_from(&gpu.sizes);
 
     let obj = js_sys::Object::new();
-    js_sys::Reflect::set(&obj, &"positions".into(), &pos_arr.buffer())
-        .map_err(|e| e)?;
-    js_sys::Reflect::set(&obj, &"positions3d".into(), &pos3d_arr.buffer())
-        .map_err(|e| e)?;
-    js_sys::Reflect::set(&obj, &"sizes".into(), &sizes_arr.buffer())
-        .map_err(|e| e)?;
-    js_sys::Reflect::set(&obj, &"trialCount".into(), &JsValue::from(gpu.trial_count as u32))
-        .map_err(|e| e)?;
+    js_sys::Reflect::set(&obj, &"positions".into(), &pos_arr.buffer()).map_err(|e| e)?;
+    js_sys::Reflect::set(&obj, &"positions3d".into(), &pos3d_arr.buffer()).map_err(|e| e)?;
+    js_sys::Reflect::set(&obj, &"sizes".into(), &sizes_arr.buffer()).map_err(|e| e)?;
+    js_sys::Reflect::set(
+        &obj,
+        &"trialCount".into(),
+        &JsValue::from(gpu.trial_count as u32),
+    )
+    .map_err(|e| e)?;
 
     Ok(obj.into())
 }
@@ -196,8 +195,18 @@ pub fn wasm_append_journal_diff(data: &[u8]) -> Result<JsValue, JsValue> {
     let result = crate::live_update::append_journal_diff(data);
 
     let obj = js_sys::Object::new();
-    js_sys::Reflect::set(&obj, &"new_completed".into(), &JsValue::from(result.new_completed as u32)).map_err(|e| e)?;
-    js_sys::Reflect::set(&obj, &"consumed_bytes".into(), &JsValue::from(result.consumed_bytes as u32)).map_err(|e| e)?;
+    js_sys::Reflect::set(
+        &obj,
+        &"new_completed".into(),
+        &JsValue::from(result.new_completed as u32),
+    )
+    .map_err(|e| e)?;
+    js_sys::Reflect::set(
+        &obj,
+        &"consumed_bytes".into(),
+        &JsValue::from(result.consumed_bytes as u32),
+    )
+    .map_err(|e| e)?;
 
     Ok(obj.into())
 }
@@ -290,12 +299,17 @@ mod tests {
         // WASM 環境外では wasm_get_trials() を直接呼べないため、
         // with_active_df が None を返すことを確認する
         let result = crate::dataframe::with_active_df(|_df| 42usize);
-        assert!(result.is_none(), "アクティブ Study がない場合は None を返す");
+        assert!(
+            result.is_none(),
+            "アクティブ Study がない場合は None を返す"
+        );
     }
 
     #[test]
     fn wasm_get_trials_with_dataframe() {
-        use crate::dataframe::{DataFrame, TrialRow, store_dataframes, select_study, with_active_df};
+        use crate::dataframe::{
+            select_study, store_dataframes, with_active_df, DataFrame, TrialRow,
+        };
         use std::collections::HashMap;
 
         // テスト用 DataFrame を構築してアクティブにする

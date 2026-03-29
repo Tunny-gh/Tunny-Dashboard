@@ -146,9 +146,8 @@ pub fn serialize_csv(indices: &[u32], columns_json: &str) -> String {
     }
 
     // 【DataFrame アクセス】: アクティブ DataFrame を参照して CSV を構築
-    let result = crate::dataframe::with_active_df(|df| {
-        serialize_csv_from_df(df, indices, &columns)
-    });
+    let result =
+        crate::dataframe::with_active_df(|df| serialize_csv_from_df(df, indices, &columns));
 
     result.unwrap_or_default()
 }
@@ -356,8 +355,7 @@ mod tests {
     fn tc_1101_03_numeric_column_values() {
         // 【テスト目的】: 数値列が適切にフォーマットされて出力されることを確認 🟢
         let df = make_test_df();
-        let csv =
-            serialize_csv_from_df(&df, &[0], &["x1".to_string(), "obj0".to_string()]);
+        let csv = serialize_csv_from_df(&df, &[0], &["x1".to_string(), "obj0".to_string()]);
 
         let lines: Vec<&str> = csv.lines().collect();
         // 【確認内容】: "1.5,10" が2行目に出力されること
@@ -373,7 +371,11 @@ mod tests {
 
         let lines: Vec<&str> = csv.lines().collect();
         // 【確認内容】: データ行が1行だけ（ヘッダ除く）
-        assert_eq!(lines.len(), 2, "index=[1] なら出力は2行（ヘッダ+データ1行）");
+        assert_eq!(
+            lines.len(),
+            2,
+            "index=[1] なら出力は2行（ヘッダ+データ1行）"
+        );
         assert_eq!(lines[1], "3", "row=1 の x1=3.0 → 整数表示で '3'");
     }
 
@@ -432,8 +434,7 @@ mod tests {
     fn tc_1101_10_nonexistent_column_empty() {
         // 【テスト目的】: 存在しない列名は空文字列セルになることを確認 🟢
         let df = make_test_df();
-        let csv =
-            serialize_csv_from_df(&df, &[0], &["nonexistent".to_string()]);
+        let csv = serialize_csv_from_df(&df, &[0], &["nonexistent".to_string()]);
         let lines: Vec<&str> = csv.lines().collect();
         // 【確認内容】: データ行は空セル1つ
         assert_eq!(lines[1], "", "存在しない列は空文字列");
@@ -451,11 +452,26 @@ mod tests {
         // 【確認内容】: x1 列が含まれること
         assert!(json.contains("\"x1\""), "x1 列が JSON に含まれるべき");
         // 【確認内容】: min/max/mean/std/count キーが含まれること
-        assert!(json.contains("\"min\""), "min フィールドが JSON に含まれるべき");
-        assert!(json.contains("\"max\""), "max フィールドが JSON に含まれるべき");
-        assert!(json.contains("\"mean\""), "mean フィールドが JSON に含まれるべき");
-        assert!(json.contains("\"std\""), "std フィールドが JSON に含まれるべき");
-        assert!(json.contains("\"count\""), "count フィールドが JSON に含まれるべき");
+        assert!(
+            json.contains("\"min\""),
+            "min フィールドが JSON に含まれるべき"
+        );
+        assert!(
+            json.contains("\"max\""),
+            "max フィールドが JSON に含まれるべき"
+        );
+        assert!(
+            json.contains("\"mean\""),
+            "mean フィールドが JSON に含まれるべき"
+        );
+        assert!(
+            json.contains("\"std\""),
+            "std フィールドが JSON に含まれるべき"
+        );
+        assert!(
+            json.contains("\"count\""),
+            "count フィールドが JSON に含まれるべき"
+        );
     }
 
     // TC-1102-02: 空 DataFrame では "{}" を返す
@@ -477,11 +493,23 @@ mod tests {
 
         // x1 列: 値は [1.5, 3.0] → min=1.5, max=3, mean=2.25
         // 【確認内容】: min が 1.5 であること
-        assert!(json.contains("\"min\":1.5"), "x1 の min=1.5 であるべき: {}", json);
+        assert!(
+            json.contains("\"min\":1.5"),
+            "x1 の min=1.5 であるべき: {}",
+            json
+        );
         // 【確認内容】: max が 3 であること
-        assert!(json.contains("\"max\":3"), "x1 の max=3 であるべき: {}", json);
+        assert!(
+            json.contains("\"max\":3"),
+            "x1 の max=3 であるべき: {}",
+            json
+        );
         // 【確認内容】: count が 2 であること
-        assert!(json.contains("\"count\":2"), "x1 の count=2 であるべき: {}", json);
+        assert!(
+            json.contains("\"count\":2"),
+            "x1 の count=2 であるべき: {}",
+            json
+        );
     }
 
     // TC-1102-04: 有効な JSON 構造 (波括弧で囲まれている)

@@ -10,8 +10,8 @@
  * 🟢 REQ-096〜REQ-098 に準拠
  */
 
-import { useState } from 'react';
-import ReactECharts from 'echarts-for-react';
+import { useState } from 'react'
+import ReactECharts from 'echarts-for-react'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -22,17 +22,17 @@ import ReactECharts from 'echarts-for-react';
  */
 export interface SensitivityData {
   /** パラメータ名リスト */
-  paramNames: string[];
+  paramNames: string[]
   /** 目的名リスト */
-  objectiveNames: string[];
+  objectiveNames: string[]
   /** Spearman 相関行列: spearman[param_idx][obj_idx] ∈ [-1.0, 1.0] */
-  spearman: number[][];
+  spearman: number[][]
   /** Ridge 回帰結果: ridge[obj_idx].beta[param_idx] */
-  ridge: { beta: number[]; rSquared: number }[];
+  ridge: { beta: number[]; rSquared: number }[]
 }
 
 /** 【感度指標型】: 表示する感度の種類 */
-export type SensitivityMetric = 'spearman' | 'beta';
+export type SensitivityMetric = 'spearman' | 'beta'
 
 // -------------------------------------------------------------------------
 // 定数定義
@@ -42,7 +42,7 @@ export type SensitivityMetric = 'spearman' | 'beta';
 const METRIC_LABELS: Record<SensitivityMetric, string> = {
   spearman: 'Spearman',
   beta: 'Ridge β',
-};
+}
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -53,17 +53,17 @@ const METRIC_LABELS: Record<SensitivityMetric, string> = {
  */
 export interface SensitivityHeatmapProps {
   /** 🟢 感度分析データ — null のときは空状態 or ローディングを表示 */
-  data: SensitivityData | null;
+  data: SensitivityData | null
   /** 🟢 表示する感度指標 */
-  metric: SensitivityMetric;
+  metric: SensitivityMetric
   /** 🟢 しきい値: |感度| がこの値未満の行をグレーアウト */
-  threshold: number;
+  threshold: number
   /** 🟢 WASM 計算中フラグ */
-  isLoading?: boolean;
+  isLoading?: boolean
   /** 🟢 しきい値変更コールバック */
-  onThresholdChange?: (threshold: number) => void;
+  onThresholdChange?: (threshold: number) => void
   /** 🟢 セルクリックコールバック — Pareto 図カラーモード切り替え用 */
-  onCellClick?: (paramName: string, objectiveName: string) => void;
+  onCellClick?: (paramName: string, objectiveName: string) => void
 }
 
 // -------------------------------------------------------------------------
@@ -82,7 +82,7 @@ function buildHeatmapOption(
   metric: SensitivityMetric,
   threshold: number,
 ): object {
-  const { paramNames, objectiveNames } = data;
+  const { paramNames, objectiveNames } = data
 
   // 【感度行列抽出】: 指標に応じて spearman または beta を取得する
   const matrix: number[][] =
@@ -91,19 +91,19 @@ function buildHeatmapOption(
       : // beta[obj_idx][param_idx] → [param_idx][obj_idx] に転置
         paramNames.map((_, pIdx) =>
           objectiveNames.map((_, oIdx) => data.ridge[oIdx]?.beta[pIdx] ?? 0),
-        );
+        )
 
   // 【ヒートマップデータ変換】: [obj_idx, param_idx, value] 形式に変換
-  const heatmapData: [number, number, number][] = [];
+  const heatmapData: [number, number, number][] = []
   for (let pIdx = 0; pIdx < paramNames.length; pIdx++) {
     // 【しきい値フィルタ】: パラメータの最大|感度|がしきい値未満はグレーアウト値を使用
-    const maxAbs = Math.max(...(matrix[pIdx] ?? [0]).map(Math.abs));
-    const isFiltered = maxAbs < threshold;
+    const maxAbs = Math.max(...(matrix[pIdx] ?? [0]).map(Math.abs))
+    const isFiltered = maxAbs < threshold
 
     for (let oIdx = 0; oIdx < objectiveNames.length; oIdx++) {
-      const value = matrix[pIdx]?.[oIdx] ?? 0;
+      const value = matrix[pIdx]?.[oIdx] ?? 0
       // 【フィルタ処理】: しきい値以下のパラメータは 0 として表示（無相関色）
-      heatmapData.push([oIdx, pIdx, isFiltered ? 0 : value]);
+      heatmapData.push([oIdx, pIdx, isFiltered ? 0 : value])
     }
   }
 
@@ -111,8 +111,8 @@ function buildHeatmapOption(
     tooltip: {
       trigger: 'item',
       formatter: (params: { data: [number, number, number] }) => {
-        const [oIdx, pIdx, val] = params.data;
-        return `${paramNames[pIdx]} × ${objectiveNames[oIdx]}: ${val.toFixed(3)}`;
+        const [oIdx, pIdx, val] = params.data
+        return `${paramNames[pIdx]} × ${objectiveNames[oIdx]}: ${val.toFixed(3)}`
       },
     },
     xAxis: {
@@ -144,15 +144,14 @@ function buildHeatmapOption(
         data: heatmapData,
         label: {
           show: true,
-          formatter: (params: { data: [number, number, number] }) =>
-            params.data[2].toFixed(2),
+          formatter: (params: { data: [number, number, number] }) => params.data[2].toFixed(2),
         },
         emphasis: {
           itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' },
         },
       },
     ],
-  };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -175,7 +174,7 @@ export function SensitivityHeatmap({
   onCellClick,
 }: SensitivityHeatmapProps) {
   // 【内部メトリクス状態】: 外部 metric prop を初期値として持つ内部状態
-  const [activeMetric, setActiveMetric] = useState<SensitivityMetric>(metric);
+  const [activeMetric, setActiveMetric] = useState<SensitivityMetric>(metric)
 
   // -------------------------------------------------------------------------
   // ローディング状態の表示
@@ -200,7 +199,7 @@ export function SensitivityHeatmap({
         />
         <span style={{ fontSize: '13px', color: '#6b7280' }}>WASM計算中...</span>
       </div>
-    );
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -212,14 +211,14 @@ export function SensitivityHeatmap({
       <div data-testid="sensitivity-heatmap" style={{ padding: '12px' }}>
         <span style={{ fontSize: '13px', color: '#6b7280' }}>データが読み込まれていません</span>
       </div>
-    );
+    )
   }
 
   // -------------------------------------------------------------------------
   // ECharts オプション生成
   // -------------------------------------------------------------------------
 
-  const option = buildHeatmapOption(data, activeMetric, threshold);
+  const option = buildHeatmapOption(data, activeMetric, threshold)
 
   // -------------------------------------------------------------------------
   // レンダリング
@@ -266,9 +265,7 @@ export function SensitivityHeatmap({
         </div>
 
         {/* 【しきい値スライダー】: 表示フィルタのしきい値を設定する 🟢 */}
-        <label
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-        >
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
           <span style={{ color: '#6b7280' }}>しきい値:</span>
           <input
             data-testid="threshold-slider"
@@ -280,9 +277,7 @@ export function SensitivityHeatmap({
             onChange={(e) => onThresholdChange?.(parseFloat(e.target.value))}
             style={{ width: '80px' }}
           />
-          <span style={{ color: '#374151', minWidth: '32px' }}>
-            {threshold.toFixed(2)}
-          </span>
+          <span style={{ color: '#374151', minWidth: '32px' }}>{threshold.toFixed(2)}</span>
         </label>
       </div>
 
@@ -292,7 +287,7 @@ export function SensitivityHeatmap({
         onClick={(e) => {
           // 【セルクリック処理】: ECharts のクリックイベントは onEvents で処理
           // ここでは DOM クリックイベントをパス (onCellClick は ECharts コールバック経由)
-          void e;
+          void e
         }}
       >
         <ReactECharts
@@ -303,11 +298,11 @@ export function SensitivityHeatmap({
               ? {
                   click: (params: { data?: [number, number, number] }) => {
                     if (params.data) {
-                      const [oIdx, pIdx] = params.data;
-                      const paramName = data.paramNames[pIdx];
-                      const objectiveName = data.objectiveNames[oIdx];
+                      const [oIdx, pIdx] = params.data
+                      const paramName = data.paramNames[pIdx]
+                      const objectiveName = data.objectiveNames[oIdx]
                       if (paramName && objectiveName) {
-                        onCellClick(paramName, objectiveName);
+                        onCellClick(paramName, objectiveName)
                       }
                     }
                   },
@@ -317,5 +312,5 @@ export function SensitivityHeatmap({
         />
       </div>
     </div>
-  );
+  )
 }

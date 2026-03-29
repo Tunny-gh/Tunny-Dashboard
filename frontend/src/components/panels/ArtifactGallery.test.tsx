@@ -4,9 +4,9 @@
  * Stubs artifactStore with vi.mock.
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import '@testing-library/jest-dom'
 
 // -------------------------------------------------------------------------
 // artifactStore mock
@@ -19,15 +19,15 @@ vi.mock('../../stores/artifactStore', () => ({
     urlCache: new Map(),
   })),
   getMimeTypeCategory: (filename: string) => {
-    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-    if (['png', 'jpg'].includes(ext)) return 'image';
-    return 'other';
+    const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+    if (['png', 'jpg'].includes(ext)) return 'image'
+    return 'other'
   },
-}));
+}))
 
-import { ArtifactGallery } from './ArtifactGallery';
-import type { Trial } from '../../types';
-import { useArtifactStore } from '../../stores/artifactStore';
+import { ArtifactGallery } from './ArtifactGallery'
+import type { Trial } from '../../types'
+import { useArtifactStore } from '../../stores/artifactStore'
 
 // -------------------------------------------------------------------------
 // Helpers
@@ -43,7 +43,7 @@ function makeTrial(trialId: number, hasArtifact = true): Trial {
     isFeasible: true,
     userAttrs: {},
     artifactIds: hasArtifact ? [`artifact-${trialId}.png`] : [],
-  };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -52,75 +52,75 @@ function makeTrial(trialId: number, hasArtifact = true): Trial {
 
 describe('ArtifactGallery', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.clearAllMocks()
     // Reset mock to default state (TC-1301-G01 sets dirHandle=null)
-    (useArtifactStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    ;(useArtifactStore as ReturnType<typeof vi.fn>).mockReturnValue({
       dirHandle: { name: 'artifacts' } as unknown as FileSystemDirectoryHandle,
       loadArtifactUrl: vi.fn().mockResolvedValue(null),
       urlCache: new Map(),
-    });
-  });
+    })
+  })
 
   // TC-1301-G01: hidden when no directory is selected
   test('TC-1301-G01: dirHandle=null のとき ArtifactGallery は非表示', () => {
-    (useArtifactStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    ;(useArtifactStore as ReturnType<typeof vi.fn>).mockReturnValue({
       dirHandle: null,
       loadArtifactUrl: vi.fn(),
-    });
-    render(<ArtifactGallery trials={[makeTrial(1)]} />);
-    expect(screen.queryByTestId('artifact-gallery')).not.toBeInTheDocument();
-  });
+    })
+    render(<ArtifactGallery trials={[makeTrial(1)]} />)
+    expect(screen.queryByTestId('artifact-gallery')).not.toBeInTheDocument()
+  })
 
   // TC-1301-G02: trials with artifacts are shown as cards
   test('TC-1301-G02: アーティファクトある trial のカードが表示される', () => {
-    const trials = [makeTrial(1), makeTrial(2), makeTrial(3)];
-    render(<ArtifactGallery trials={trials} />);
-    expect(screen.getByTestId('gallery-card-1')).toBeInTheDocument();
-    expect(screen.getByTestId('gallery-card-2')).toBeInTheDocument();
-    expect(screen.getByTestId('gallery-card-3')).toBeInTheDocument();
-  });
+    const trials = [makeTrial(1), makeTrial(2), makeTrial(3)]
+    render(<ArtifactGallery trials={trials} />)
+    expect(screen.getByTestId('gallery-card-1')).toBeInTheDocument()
+    expect(screen.getByTestId('gallery-card-2')).toBeInTheDocument()
+    expect(screen.getByTestId('gallery-card-3')).toBeInTheDocument()
+  })
 
   // TC-1301-G03: trials without artifacts are filtered out
   test('TC-1301-G03: アーティファクトなし trial は gallery に表示されない', () => {
-    const trials = [makeTrial(1, true), makeTrial(2, false)];
-    render(<ArtifactGallery trials={trials} />);
-    expect(screen.getByTestId('gallery-card-1')).toBeInTheDocument();
-    expect(screen.queryByTestId('gallery-card-2')).not.toBeInTheDocument();
-  });
+    const trials = [makeTrial(1, true), makeTrial(2, false)]
+    render(<ArtifactGallery trials={trials} />)
+    expect(screen.getByTestId('gallery-card-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('gallery-card-2')).not.toBeInTheDocument()
+  })
 
   // TC-1301-G04: card size toggle buttons are shown
   test('TC-1301-G04: カードサイズ切替ボタン（小/中/大）が表示される', () => {
-    render(<ArtifactGallery trials={[makeTrial(1)]} />);
-    expect(screen.getByTestId('card-size-small')).toBeInTheDocument();
-    expect(screen.getByTestId('card-size-medium')).toBeInTheDocument();
-    expect(screen.getByTestId('card-size-large')).toBeInTheDocument();
-  });
+    render(<ArtifactGallery trials={[makeTrial(1)]} />)
+    expect(screen.getByTestId('card-size-small')).toBeInTheDocument()
+    expect(screen.getByTestId('card-size-medium')).toBeInTheDocument()
+    expect(screen.getByTestId('card-size-large')).toBeInTheDocument()
+  })
 
   // TC-1301-G05: "load more" button appears when items exceed page size
   test('TC-1301-G05: 49 件のとき「さらに読み込む」ボタンが表示される', () => {
-    const trials = Array.from({ length: 49 }, (_, i) => makeTrial(i + 1));
-    render(<ArtifactGallery trials={trials} />);
-    expect(screen.getByTestId('load-more-btn')).toBeInTheDocument();
-  });
+    const trials = Array.from({ length: 49 }, (_, i) => makeTrial(i + 1))
+    render(<ArtifactGallery trials={trials} />)
+    expect(screen.getByTestId('load-more-btn')).toBeInTheDocument()
+  })
 
   // TC-1301-G06: clicking "load more" increases visible count
   test('TC-1301-G06: 「さらに読み込む」クリックで表示件数が増える', () => {
-    const trials = Array.from({ length: 49 }, (_, i) => makeTrial(i + 1));
-    render(<ArtifactGallery trials={trials} />);
+    const trials = Array.from({ length: 49 }, (_, i) => makeTrial(i + 1))
+    render(<ArtifactGallery trials={trials} />)
 
     // Before clicking: 48 items shown
-    expect(screen.getByTestId('gallery-card-48')).toBeInTheDocument();
-    expect(screen.queryByTestId('gallery-card-49')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gallery-card-48')).toBeInTheDocument()
+    expect(screen.queryByTestId('gallery-card-49')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByTestId('load-more-btn'));
+    fireEvent.click(screen.getByTestId('load-more-btn'))
 
     // After clicking: all 49 items shown
-    expect(screen.getByTestId('gallery-card-49')).toBeInTheDocument();
-  });
+    expect(screen.getByTestId('gallery-card-49')).toBeInTheDocument()
+  })
 
   // TC-1301-G07: empty message shown when no artifacts
   test('TC-1301-G07: アーティファクトなし trial のみのとき gallery-empty が表示される', () => {
-    render(<ArtifactGallery trials={[makeTrial(1, false)]} />);
-    expect(screen.getByTestId('gallery-empty')).toBeInTheDocument();
-  });
-});
+    render(<ArtifactGallery trials={[makeTrial(1, false)]} />)
+    expect(screen.getByTestId('gallery-empty')).toBeInTheDocument()
+  })
+})

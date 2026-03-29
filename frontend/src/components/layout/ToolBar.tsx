@@ -6,10 +6,10 @@
  * File input change event triggers loadJournal(file).
  */
 
-import type { ChangeEvent } from 'react';
-import { useStudyStore } from '../../stores/studyStore';
-import { useLiveUpdateStore } from '../../stores/liveUpdateStore';
-import { LayoutTabBar } from './LayoutTabBar';
+import type { ChangeEvent } from 'react'
+import { useStudyStore } from '../../stores/studyStore'
+import { useLiveUpdateStore } from '../../stores/liveUpdateStore'
+import { LayoutTabBar } from './LayoutTabBar'
 
 // -------------------------------------------------------------------------
 // Component
@@ -20,32 +20,39 @@ import { LayoutTabBar } from './LayoutTabBar';
  */
 export function ToolBar() {
   // Read store state and actions
-  const isLive = useLiveUpdateStore((s) => s.isLive);
-  const isSupported = useLiveUpdateStore((s) => s.isSupported);
-  const startLive = useLiveUpdateStore((s) => s.startLive);
-  const stopLive = useLiveUpdateStore((s) => s.stopLive);
-  const loadJournal = useStudyStore((s) => s.loadJournal);
-  const isLoading = useStudyStore((s) => s.isLoading);
-  const loadError = useStudyStore((s) => s.loadError);
-  const currentStudy = useStudyStore((s) => s.currentStudy);
-  const allStudies = useStudyStore((s) => s.allStudies);
-  const selectStudy = useStudyStore((s) => s.selectStudy);
+  const isLive = useLiveUpdateStore((s) => s.isLive)
+  const isSupported = useLiveUpdateStore((s) => s.isSupported)
+  const startLive = useLiveUpdateStore((s) => s.startLive)
+  const stopLive = useLiveUpdateStore((s) => s.stopLive)
+  const loadJournal = useStudyStore((s) => s.loadJournal)
+  const isLoading = useStudyStore((s) => s.isLoading)
+  const loadError = useStudyStore((s) => s.loadError)
+  const currentStudy = useStudyStore((s) => s.currentStudy)
+  const allStudies = useStudyStore((s) => s.allStudies)
+  const selectStudy = useStudyStore((s) => s.selectStudy)
 
   /**
    * Calls loadJournal when the file input changes. Ignores empty file lists.
    */
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files?.[0]
     if (file) {
       // fire-and-forget
-      void loadJournal(file);
+      void loadJournal(file)
     }
-  };
+  }
 
   return (
     <div
       data-testid="toolbar"
-      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border)' }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '4px 12px',
+        background: 'var(--bg-header)',
+        borderBottom: '1px solid var(--border)',
+      }}
     >
       {/* Journal file selector */}
       <input
@@ -58,14 +65,28 @@ export function ToolBar() {
 
       {/* Loading indicator */}
       {isLoading && (
-        <span data-testid="toolbar-loading" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+        <span
+          data-testid="toolbar-loading"
+          style={{ fontSize: '13px', color: 'var(--text-muted)' }}
+        >
           読み込み中...
         </span>
       )}
 
       {/* Error message */}
       {loadError && (
-        <span data-testid="toolbar-error" style={{ fontSize: '13px', color: '#dc2626', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={loadError}>
+        <span
+          data-testid="toolbar-error"
+          style={{
+            fontSize: '13px',
+            color: '#dc2626',
+            maxWidth: '300px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={loadError}
+        >
           エラー: {loadError}
         </span>
       )}
@@ -76,7 +97,15 @@ export function ToolBar() {
           data-testid="study-select"
           value={currentStudy?.studyId ?? ''}
           onChange={(e) => selectStudy?.(Number(e.target.value))}
-          style={{ fontSize: '13px', padding: '2px 6px', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--accent)', background: 'var(--bg)', fontWeight: 600 }}
+          style={{
+            fontSize: '13px',
+            padding: '2px 6px',
+            border: '1px solid var(--border)',
+            borderRadius: '4px',
+            color: 'var(--accent)',
+            background: 'var(--bg)',
+            fontWeight: 600,
+          }}
         >
           {allStudies!.map((s) => (
             <option key={s.studyId} value={s.studyId}>
@@ -87,7 +116,10 @@ export function ToolBar() {
       ) : (
         /* Single study: show as a label */
         currentStudy && (
-          <span data-testid="toolbar-study-info" style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 600 }}>
+          <span
+            data-testid="toolbar-study-info"
+            style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 600 }}
+          >
             {currentStudy.name} — {currentStudy.completedTrials} trials
           </span>
         )
@@ -120,5 +152,5 @@ export function ToolBar() {
         </button>
       </div>
     </div>
-  );
+  )
 }

@@ -10,33 +10,33 @@
  * 🟢 REQ-060〜REQ-066 に準拠
  */
 
-import { useState, useEffect } from 'react';
-import type { ScatterMatrixEngine, ScatterCellSize } from '../../wasm/workers/ScatterMatrixEngine';
-import type { Study } from '../../types';
+import { useState, useEffect } from 'react'
+import type { ScatterMatrixEngine, ScatterCellSize } from '../../wasm/workers/ScatterMatrixEngine'
+import type { Study } from '../../types'
 
 // -------------------------------------------------------------------------
 // 定数・型定義
 // -------------------------------------------------------------------------
 
 /** 【表示モード型】: 散布図行列の表示モード */
-export type ScatterMode = 'mode1' | 'mode2' | 'mode3';
+export type ScatterMode = 'mode1' | 'mode2' | 'mode3'
 
 /** 【軸ソート型】: 軸の並び順 */
-export type SortOrder = 'alphabetical' | 'correlation' | 'importance';
+export type SortOrder = 'alphabetical' | 'correlation' | 'importance'
 
 /** 【モードラベル】: UI 表示用のモード名 */
 const MODE_LABELS: Record<ScatterMode, string> = {
-  mode1: '変数×変数',    // 🟢 変数間の散布図行列
-  mode2: '変数×目的',    // 🟢 変数と目的関数間の散布図
-  mode3: '全変数',       // 🟢 全変数（変数+目的）の散布図行列
-};
+  mode1: '変数×変数', // 🟢 変数間の散布図行列
+  mode2: '変数×目的', // 🟢 変数と目的関数間の散布図
+  mode3: '全変数', // 🟢 全変数（変数+目的）の散布図行列
+}
 
 /** 【ソートラベル】: UI 表示用のソート順名 */
 const SORT_LABELS: Record<SortOrder, string> = {
-  alphabetical: 'アルファベット順',  // 🟢 常に利用可能
-  correlation: '相関順',             // 🟡 WASM 実装後に有効化
-  importance: '重要度順',            // 🟡 WASM 実装後に有効化
-};
+  alphabetical: 'アルファベット順', // 🟢 常に利用可能
+  correlation: '相関順', // 🟡 WASM 実装後に有効化
+  importance: '重要度順', // 🟡 WASM 実装後に有効化
+}
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -47,9 +47,9 @@ const SORT_LABELS: Record<SortOrder, string> = {
  */
 export interface ScatterMatrixProps {
   /** 🟢 WebWorker エンジン — null のときセルはローディングプレースホルダーを表示 */
-  engine: ScatterMatrixEngine | null;
+  engine: ScatterMatrixEngine | null
   /** 🟢 現在の Study — 変数名・目的名の取得用 */
-  currentStudy: Study | null;
+  currentStudy: Study | null
 }
 
 // -------------------------------------------------------------------------
@@ -71,27 +71,27 @@ export function getAxesForMode(
   // 【ソート適用】: アルファベット順のみ実装（相関順・重要度順は WASM 依存のためプレースホルダー）
   const applySort = (axes: string[]): string[] => {
     if (sortOrder === 'alphabetical') {
-      return [...axes].sort();
+      return [...axes].sort()
     }
     // 🟡 correlation / importance: TASK-801 (WASM 感度分析) 完成後に実データソートを実装予定
-    return [...axes];
-  };
+    return [...axes]
+  }
 
-  const params = applySort(study.paramNames);
-  const objectives = applySort(study.objectiveNames);
-  const all = applySort([...study.paramNames, ...study.objectiveNames]);
+  const params = applySort(study.paramNames)
+  const objectives = applySort(study.objectiveNames)
+  const all = applySort([...study.paramNames, ...study.objectiveNames])
 
   switch (mode) {
     case 'mode1':
       // 【変数×変数】: 変数間の正方行列
-      return { rowAxes: params, colAxes: params };
+      return { rowAxes: params, colAxes: params }
     case 'mode2':
       // 【変数×目的】: 変数行・目的列の矩形行列
-      return { rowAxes: params, colAxes: objectives };
+      return { rowAxes: params, colAxes: objectives }
     case 'mode3':
     default:
       // 【全変数】: 変数+目的の正方行列
-      return { rowAxes: all, colAxes: all };
+      return { rowAxes: all, colAxes: all }
   }
 }
 
@@ -103,12 +103,12 @@ export function getAxesForMode(
  * 【ScatterCell Props】: 散布図行列の 1 セルのプロパティ
  */
 interface ScatterCellProps {
-  row: number;
-  col: number;
-  xAxis: string;
-  yAxis: string;
-  engine: ScatterMatrixEngine | null;
-  size?: ScatterCellSize;
+  row: number
+  col: number
+  xAxis: string
+  yAxis: string
+  engine: ScatterMatrixEngine | null
+  size?: ScatterCellSize
 }
 
 /**
@@ -121,41 +121,41 @@ interface ScatterCellProps {
  * 🟢 REQ-064 (Worker 失敗時は ❌ 表示) に準拠
  */
 function ScatterCell({ row, col, xAxis, yAxis, engine, size = 'thumbnail' }: ScatterCellProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
     // 【エンジン未初期化】: engine がなければ何もしない（ローディング状態を維持）
-    if (!engine) return;
+    if (!engine) return
 
-    let cancelled = false;
+    let cancelled = false
 
     // 【非同期描画】: engine.renderCell() でサムネイルを取得する 🟢
     engine
       .renderCell(row, col, size)
       .then((imageData) => {
-        if (cancelled || !imageData) return;
+        if (cancelled || !imageData) return
 
         // 【Canvas 変換】: ImageData → ObjectURL 経由で img タグに表示
-        const canvas = document.createElement('canvas');
-        canvas.width = imageData.width;
-        canvas.height = imageData.height;
-        const ctx = canvas.getContext('2d');
-        ctx?.putImageData(imageData, 0, 0);
-        setImageUrl(canvas.toDataURL());
+        const canvas = document.createElement('canvas')
+        canvas.width = imageData.width
+        canvas.height = imageData.height
+        const ctx = canvas.getContext('2d')
+        ctx?.putImageData(imageData, 0, 0)
+        setImageUrl(canvas.toDataURL())
       })
       .catch(() => {
         // 【エラー処理】: Worker 失敗時はエラーフラグを立てて ❌ を表示する 🟢
-        if (!cancelled) setError(true);
-      });
+        if (!cancelled) setError(true)
+      })
 
     // 【クリーンアップ】: アンマウント時にキャンセルしてメモリリークを防ぐ
     return () => {
-      cancelled = true;
-    };
-  }, [engine, row, col, size]);
+      cancelled = true
+    }
+  }, [engine, row, col, size])
 
-  const pixelSize = size === 'thumbnail' ? 80 : size === 'preview' ? 300 : 600;
+  const pixelSize = size === 'thumbnail' ? 80 : size === 'preview' ? 300 : 600
 
   return (
     <div
@@ -202,7 +202,7 @@ function ScatterCell({ row, col, xAxis, yAxis, engine, size = 'thumbnail' }: Sca
         />
       )}
     </div>
-  );
+  )
 }
 
 // -------------------------------------------------------------------------
@@ -218,10 +218,10 @@ function ScatterCell({ row, col, xAxis, yAxis, engine, size = 'thumbnail' }: Sca
  */
 export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
   // 【表示モード状態】: デフォルトは Mode 1（変数×変数）
-  const [mode, setMode] = useState<ScatterMode>('mode1');
+  const [mode, setMode] = useState<ScatterMode>('mode1')
 
   // 【ソート順状態】: デフォルトはアルファベット順
-  const [sortOrder, setSortOrder] = useState<SortOrder>('alphabetical');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('alphabetical')
 
   // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
@@ -229,18 +229,21 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
       <div style={{ padding: '12px' }}>
         <span>データが読み込まれていません</span>
       </div>
-    );
+    )
   }
 
   // 【軸計算】: モードとソート順から行・列軸名を取得する
-  const { rowAxes, colAxes } = getAxesForMode(currentStudy, mode, sortOrder);
+  const { rowAxes, colAxes } = getAxesForMode(currentStudy, mode, sortOrder)
 
   // -------------------------------------------------------------------------
   // レンダリング
   // -------------------------------------------------------------------------
 
   return (
-    <div data-testid="scatter-matrix" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div
+      data-testid="scatter-matrix"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+    >
       {/* 【コントロールバー】: モード切り替え + ソート選択 */}
       <div
         style={{
@@ -281,7 +284,12 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
           data-testid="sort-select"
           value={sortOrder}
           onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-          style={{ fontSize: '12px', padding: '4px', border: '1px solid #d1d5db', borderRadius: '4px' }}
+          style={{
+            fontSize: '12px',
+            padding: '4px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+          }}
         >
           {(['alphabetical', 'correlation', 'importance'] as SortOrder[]).map((s) => (
             <option key={s} value={s}>
@@ -317,5 +325,5 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
         )}
       </div>
     </div>
-  );
+  )
 }

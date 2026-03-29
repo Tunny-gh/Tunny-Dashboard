@@ -6,37 +6,37 @@
  * paginated loading (48 per page), and hides entirely when no directory is selected.
  */
 
-import React, { useState, useEffect } from 'react';
-import { useArtifactStore, getMimeTypeCategory } from '../../stores/artifactStore';
-import type { Trial } from '../../types';
+import React, { useState, useEffect } from 'react'
+import { useArtifactStore, getMimeTypeCategory } from '../../stores/artifactStore'
+import type { Trial } from '../../types'
 
 // -------------------------------------------------------------------------
 // Constants
 // -------------------------------------------------------------------------
 
-const PAGE_SIZE = 48;
+const PAGE_SIZE = 48
 
 /** Card height CSS classes keyed by size */
 const CARD_SIZE_CLASSES: Record<CardSize, string> = {
   small: 'h-20',
   medium: 'h-36',
   large: 'h-56',
-};
+}
 
 // -------------------------------------------------------------------------
 // Types
 // -------------------------------------------------------------------------
 
-export type CardSize = 'small' | 'medium' | 'large';
-export type GalleryGroup = 'selection' | 'pareto' | 'cluster' | 'all';
+export type CardSize = 'small' | 'medium' | 'large'
+export type GalleryGroup = 'selection' | 'pareto' | 'cluster' | 'all'
 
 interface ArtifactGalleryProps {
   /** Trials to display */
-  trials: Trial[];
+  trials: Trial[]
   /** Pareto solution indices */
-  paretoIndices?: Uint32Array;
+  paretoIndices?: Uint32Array
   /** Active group filter */
-  group?: GalleryGroup;
+  group?: GalleryGroup
 }
 
 // -------------------------------------------------------------------------
@@ -44,30 +44,30 @@ interface ArtifactGalleryProps {
 // -------------------------------------------------------------------------
 
 const ArtifactCard: React.FC<{
-  trial: Trial;
-  cardSize: CardSize;
+  trial: Trial
+  cardSize: CardSize
 }> = ({ trial, cardSize }) => {
-  const { dirHandle, loadArtifactUrl } = useArtifactStore();
-  const [url, setUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [type, setType] = useState<string>('other');
+  const { dirHandle, loadArtifactUrl } = useArtifactStore()
+  const [url, setUrl] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [type, setType] = useState<string>('other')
 
-  const firstArtifactId = trial.artifactIds?.[0] ?? null;
+  const firstArtifactId = trial.artifactIds?.[0] ?? null
 
   useEffect(() => {
     if (!dirHandle || !firstArtifactId) {
-      setIsLoading(false);
-      return;
+      setIsLoading(false)
+      return
     }
-    const filename = firstArtifactId;
+    const filename = firstArtifactId
     loadArtifactUrl(firstArtifactId, filename).then((u) => {
-      setUrl(u);
-      setType(getMimeTypeCategory(filename));
-      setIsLoading(false);
-    });
-  }, [dirHandle, firstArtifactId, loadArtifactUrl]);
+      setUrl(u)
+      setType(getMimeTypeCategory(filename))
+      setIsLoading(false)
+    })
+  }, [dirHandle, firstArtifactId, loadArtifactUrl])
 
-  const sizeClass = CARD_SIZE_CLASSES[cardSize];
+  const sizeClass = CARD_SIZE_CLASSES[cardSize]
 
   return (
     <div
@@ -101,12 +101,10 @@ const ArtifactCard: React.FC<{
       </div>
 
       {/* Footer */}
-      <div className="px-2 py-1 text-xs text-gray-600">
-        Trial {trial.trialId}
-      </div>
+      <div className="px-2 py-1 text-xs text-gray-600">Trial {trial.trialId}</div>
     </div>
-  );
-};
+  )
+}
 
 // -------------------------------------------------------------------------
 // ArtifactGallery component
@@ -116,28 +114,28 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
   paretoIndices,
   group = 'all',
 }) => {
-  const { dirHandle } = useArtifactStore();
-  const [cardSize, setCardSize] = useState<CardSize>('medium');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const { dirHandle } = useArtifactStore()
+  const [cardSize, setCardSize] = useState<CardSize>('medium')
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   // Hide when no directory is selected
-  if (!dirHandle) return null;
+  if (!dirHandle) return null
 
   // Filter by group: Pareto / selection / all
   const filteredTrials = React.useMemo(() => {
     if (group === 'pareto' && paretoIndices) {
-      const set = new Set(Array.from(paretoIndices));
-      return trials.filter((t) => set.has(t.trialId));
+      const set = new Set(Array.from(paretoIndices))
+      return trials.filter((t) => set.has(t.trialId))
     }
-    return trials.filter((t) => t.artifactIds && t.artifactIds.length > 0);
-  }, [trials, group, paretoIndices]);
+    return trials.filter((t) => t.artifactIds && t.artifactIds.length > 0)
+  }, [trials, group, paretoIndices])
 
-  const visibleTrials = filteredTrials.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredTrials.length;
+  const visibleTrials = filteredTrials.slice(0, visibleCount)
+  const hasMore = visibleCount < filteredTrials.length
 
   // Column count based on card size (max 4 columns)
   const colClass =
-    cardSize === 'small' ? 'grid-cols-4' : cardSize === 'medium' ? 'grid-cols-3' : 'grid-cols-2';
+    cardSize === 'small' ? 'grid-cols-4' : cardSize === 'medium' ? 'grid-cols-3' : 'grid-cols-2'
 
   return (
     <div data-testid="artifact-gallery" className="flex flex-col gap-3 p-3">
@@ -185,7 +183,7 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
         </button>
       )}
     </div>
-  );
-};
+  )
+}
 
-export default ArtifactGallery;
+export default ArtifactGallery

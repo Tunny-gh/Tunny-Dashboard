@@ -9,7 +9,7 @@
  * 🟢 REQ-110, REQ-113 に準拠
  */
 
-import type { TrialData, OptimizationDirection } from '../charts/OptimizationHistory';
+import type { TrialData, OptimizationDirection } from '../charts/OptimizationHistory'
 
 // -------------------------------------------------------------------------
 // 純粋関数
@@ -23,21 +23,20 @@ import type { TrialData, OptimizationDirection } from '../charts/OptimizationHis
  * @returns Best値が更新された試行データの配列
  */
 function extractBestTrials(data: TrialData[], direction: OptimizationDirection): TrialData[] {
-  let best = direction === 'minimize' ? Infinity : -Infinity;
-  const result: TrialData[] = [];
+  let best = direction === 'minimize' ? Infinity : -Infinity
+  const result: TrialData[] = []
 
   for (const trial of data) {
     // 【Best判定】: 現試行がBest値を更新するか判定する 🟢
-    const isBetter =
-      direction === 'minimize' ? trial.value < best : trial.value > best;
+    const isBetter = direction === 'minimize' ? trial.value < best : trial.value > best
 
     if (isBetter) {
-      best = trial.value;
-      result.push(trial);
+      best = trial.value
+      result.push(trial)
     }
   }
 
-  return result;
+  return result
 }
 
 // -------------------------------------------------------------------------
@@ -49,11 +48,11 @@ function extractBestTrials(data: TrialData[], direction: OptimizationDirection):
  */
 export interface BestTrialHistoryProps {
   /** 🟢 試行データ配列 */
-  data: TrialData[];
+  data: TrialData[]
   /** 🟢 最適化方向 */
-  direction: OptimizationDirection;
+  direction: OptimizationDirection
   /** 🟢 行クリックコールバック — 全グラフハイライト連動用 */
-  onRowClick?: (trial: TrialData) => void;
+  onRowClick?: (trial: TrialData) => void
 }
 
 // -------------------------------------------------------------------------
@@ -68,13 +67,10 @@ export interface BestTrialHistoryProps {
  */
 export function BestTrialHistory({ data, direction, onRowClick }: BestTrialHistoryProps) {
   // 【Best更新試行抽出】: Best値が更新された試行のみを取得する 🟢
-  const bestTrials = extractBestTrials(data, direction);
+  const bestTrials = extractBestTrials(data, direction)
 
   return (
-    <div
-      data-testid="best-trial-table"
-      style={{ overflow: 'auto', maxHeight: '300px' }}
-    >
+    <div data-testid="best-trial-table" style={{ overflow: 'auto', maxHeight: '300px' }}>
       {/* 【テーブルヘッダー】: 試行番号と目的値のカラム */}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
         <thead>
@@ -107,5 +103,5 @@ export function BestTrialHistory({ data, direction, onRowClick }: BestTrialHisto
         </tbody>
       </table>
     </div>
-  );
+  )
 }

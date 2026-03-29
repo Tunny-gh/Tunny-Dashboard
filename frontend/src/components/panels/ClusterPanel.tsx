@@ -9,9 +9,9 @@
  * 🟢 REQ-080〜REQ-087 に準拠
  */
 
-import { useState } from 'react';
-import type { ChangeEvent } from 'react';
-import ReactECharts from 'echarts-for-react';
+import { useState } from 'react'
+import type { ChangeEvent } from 'react'
+import ReactECharts from 'echarts-for-react'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -21,16 +21,16 @@ import ReactECharts from 'echarts-for-react';
  * 【PCA 対象空間】: クラスタリングに使用する列の種類
  * 🟢 REQ-080 に準拠
  */
-export type ClusterSpace = 'param' | 'objective' | 'all';
+export type ClusterSpace = 'param' | 'objective' | 'all'
 
 /**
  * 【Elbow 結果データ型】: WASM estimate_k_elbow() の結果を UI 表示用に変換した型
  */
 export interface ElbowResultData {
   /** k=2, 3, ... に対応する WCSS 値 */
-  wcssPerK: number[];
+  wcssPerK: number[]
   /** Elbow 法による推薦 k */
-  recommendedK: number;
+  recommendedK: number
 }
 
 /**
@@ -38,15 +38,15 @@ export interface ElbowResultData {
  */
 export interface ClusterPanelProps {
   /** クラスタリング実行コールバック: 実行ボタン押下時に呼ばれる 🟢 */
-  onRunClustering: (space: ClusterSpace, k: number) => void;
+  onRunClustering: (space: ClusterSpace, k: number) => void
   /** 計算実行中フラグ: true のときプログレスバーを表示 */
-  isRunning?: boolean;
+  isRunning?: boolean
   /** 進捗 0〜100 */
-  progress?: number;
+  progress?: number
   /** Elbow 法の結果（クラスタリング実行後に提供）*/
-  elbowResult?: ElbowResultData | null;
+  elbowResult?: ElbowResultData | null
   /** エラーメッセージ（計算失敗時）*/
-  error?: string | null;
+  error?: string | null
 }
 
 // -------------------------------------------------------------------------
@@ -54,17 +54,17 @@ export interface ClusterPanelProps {
 // -------------------------------------------------------------------------
 
 /** 【k 最小値】: k=1 は意味がないため 2 以上を強制 */
-const K_MIN = 2;
+const K_MIN = 2
 
 /** 【k デフォルト値】: 一般的な初期値として 4 を設定 */
-const K_DEFAULT = 4;
+const K_DEFAULT = 4
 
 /** 【空間ラベル】: ClusterSpace → 日本語表示名 */
 const SPACE_LABELS: Record<ClusterSpace, string> = {
   param: 'パラメータ',
   objective: '目的関数',
   all: '全て',
-};
+}
 
 // -------------------------------------------------------------------------
 // ECharts オプション生成
@@ -78,13 +78,13 @@ const SPACE_LABELS: Record<ClusterSpace, string> = {
  *   - 推薦 k をマークポイントで強調 (🟢 REQ-084)
  */
 function buildElbowOption(elbow: ElbowResultData): object {
-  const kStart = 2;
-  const kLabels = elbow.wcssPerK.map((_, i) => String(i + kStart));
-  const recommendedIdx = elbow.recommendedK - kStart;
+  const kStart = 2
+  const kLabels = elbow.wcssPerK.map((_, i) => String(i + kStart))
+  const recommendedIdx = elbow.recommendedK - kStart
   const recommendedWcss =
     recommendedIdx >= 0 && recommendedIdx < elbow.wcssPerK.length
       ? elbow.wcssPerK[recommendedIdx]
-      : undefined;
+      : undefined
 
   return {
     tooltip: { trigger: 'axis' },
@@ -127,7 +127,7 @@ function buildElbowOption(elbow: ElbowResultData): object {
           : {}),
       },
     ],
-  };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -151,11 +151,11 @@ export function ClusterPanel({
   // -------------------------------------------------------------------------
 
   /** 【空間選択状態】: 現在選択されている PCA 対象空間 */
-  const [space, setSpace] = useState<ClusterSpace>('param');
+  const [space, setSpace] = useState<ClusterSpace>('param')
   /** 【k 設定状態】: ユーザーが入力したクラスタ数 */
-  const [k, setK] = useState<number>(K_DEFAULT);
+  const [k, setK] = useState<number>(K_DEFAULT)
   /** 【k バリデーションエラー】: k<2 のとき警告メッセージ */
-  const [kError, setKError] = useState<string | null>(null);
+  const [kError, setKError] = useState<string | null>(null)
 
   // -------------------------------------------------------------------------
   // イベントハンドラ
@@ -165,11 +165,11 @@ export function ClusterPanel({
    * 【k 入力変更ハンドラ】: 数値に変換し、有効値なら kError をクリア
    */
   const handleKChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = parseInt(e.target.value, 10);
-    const newK = isNaN(val) ? K_DEFAULT : val;
-    setK(newK);
-    if (newK >= K_MIN) setKError(null);
-  };
+    const val = parseInt(e.target.value, 10)
+    const newK = isNaN(val) ? K_DEFAULT : val
+    setK(newK)
+    if (newK >= K_MIN) setKError(null)
+  }
 
   /**
    * 【実行ハンドラ】: k バリデーション後に onRunClustering コールバックを呼ぶ
@@ -177,12 +177,12 @@ export function ClusterPanel({
    */
   const handleRun = () => {
     if (k < K_MIN) {
-      setKError('k=2以上を指定してください');
-      return;
+      setKError('k=2以上を指定してください')
+      return
     }
-    setKError(null);
-    onRunClustering(space, k);
-  };
+    setKError(null)
+    onRunClustering(space, k)
+  }
 
   // -------------------------------------------------------------------------
   // レンダリング
@@ -197,7 +197,10 @@ export function ClusterPanel({
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>対象空間</div>
         {(['param', 'objective', 'all'] as ClusterSpace[]).map((s) => (
-          <label key={s} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+          <label
+            key={s}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+          >
             <input
               data-testid={`space-${s}`}
               type="radio"
@@ -320,5 +323,5 @@ export function ClusterPanel({
         </div>
       )}
     </div>
-  );
+  )
 }

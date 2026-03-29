@@ -69,10 +69,7 @@ pub fn parse_ranges(ranges_json: &str) -> HashMap<String, Range> {
 ///
 /// 【設計】: グローバル状態に依存しないため単体テストが容易
 /// 【複雑度】: O(N×K)（N=行数, K=条件数）— REQ-042 の性能要件を満たす
-pub fn filter_rows(
-    df: &crate::dataframe::DataFrame,
-    ranges: &HashMap<String, Range>,
-) -> Vec<u32> {
+pub fn filter_rows(df: &crate::dataframe::DataFrame, ranges: &HashMap<String, Range>) -> Vec<u32> {
     let n = df.row_count();
     // 【早期リターン①】: DataFrame が空 → 空配列
     if n == 0 {
@@ -135,10 +132,7 @@ pub fn filter_rows(
 }
 
 /// DataFrame の行からTrialDataを構築する（純粋関数）🟢
-pub fn build_trial_data(
-    df: &crate::dataframe::DataFrame,
-    row: usize,
-) -> Option<TrialData> {
+pub fn build_trial_data(df: &crate::dataframe::DataFrame, row: usize) -> Option<TrialData> {
     if row >= df.row_count() {
         return None; // 【範囲外】: None を返す（TC-103-E03）
     }
@@ -169,9 +163,7 @@ pub fn build_trial_data(
     let values: Vec<f64> = df
         .objective_col_names()
         .iter()
-        .filter_map(|name| {
-            df.get_numeric_column(name).map(|col| col[row])
-        })
+        .filter_map(|name| df.get_numeric_column(name).map(|col| col[row]))
         .collect();
 
     // 【フィージビリティ】: is_feasible 列が存在する場合のみ Some
@@ -221,8 +213,7 @@ pub fn build_trial_data(
 /// 【エラー処理】: 存在しない列名 → 空配列（パニックなし）、min>max → 空配列
 pub fn filter_by_ranges(ranges_json: &str) -> Vec<u32> {
     let ranges = parse_ranges(ranges_json);
-    crate::dataframe::with_active_df(|df| filter_rows(df, &ranges))
-        .unwrap_or_default()
+    crate::dataframe::with_active_df(|df| filter_rows(df, &ranges)).unwrap_or_default()
 }
 
 /// アクティブ Study の DataFrame から1試行分のデータを返す 🟢
@@ -230,8 +221,7 @@ pub fn filter_by_ranges(ranges_json: &str) -> Vec<u32> {
 /// 【引数】: `index` — DataFrame 内の0ベース行インデックス
 /// 【戻り値】: 存在しないインデックスの場合は None
 pub fn get_trial(index: u32) -> Option<TrialData> {
-    crate::dataframe::with_active_df(|df| build_trial_data(df, index as usize))
-        .flatten()
+    crate::dataframe::with_active_df(|df| build_trial_data(df, index as usize)).flatten()
 }
 
 /// アクティブ Study の DataFrame から複数試行のデータを返す 🟢
@@ -254,7 +244,7 @@ pub fn get_trials_batch(indices: &[u32]) -> Vec<TrialData> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataframe::{DataFrame, TrialRow, store_dataframes, select_study};
+    use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
     use std::collections::HashMap;
 
     // -------------------------------------------------------------------------
@@ -275,11 +265,7 @@ mod tests {
     }
 
     /// DataFrame を作成して store_dataframes + select_study するヘルパー
-    fn setup_df(
-        rows: Vec<TrialRow>,
-        params: &[&str],
-        objs: &[&str],
-    ) -> DataFrame {
+    fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
         let param_names: Vec<String> = params.iter().map(|s| s.to_string()).collect();
         let obj_names: Vec<String> = objs.iter().map(|s| s.to_string()).collect();
         // 【設計】: DataFrame::Clone を使って1回の構築でストア用・返却用を両立
@@ -305,7 +291,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &["obj0"]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(3.0), max: Some(7.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(3.0),
+                max: Some(7.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -324,8 +316,20 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &["obj0"]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(3.0), max: Some(7.0) });
-        ranges.insert("obj0".to_string(), Range { min: Some(20.0), max: Some(30.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(3.0),
+                max: Some(7.0),
+            },
+        );
+        ranges.insert(
+            "obj0".to_string(),
+            Range {
+                min: Some(20.0),
+                max: Some(30.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -343,7 +347,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: None, max: Some(6.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: None,
+                max: Some(6.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -361,7 +371,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(4.0), max: None });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(4.0),
+                max: None,
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -379,7 +395,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: None, max: None });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: None,
+                max: None,
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -397,7 +419,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(4.0), max: Some(8.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(4.0),
+                max: Some(8.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -415,7 +443,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(0.0), max: Some(4.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(0.0),
+                max: Some(4.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -433,7 +467,13 @@ mod tests {
         ];
         let df = setup_df(rows, &[], &["obj0"]);
         let mut ranges = HashMap::new();
-        ranges.insert("obj0".to_string(), Range { min: Some(0.3), max: Some(0.7) });
+        ranges.insert(
+            "obj0".to_string(),
+            Range {
+                min: Some(0.3),
+                max: Some(0.7),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -455,7 +495,10 @@ mod tests {
         // 【確認】trial_id, params_numeric, values が正確
         assert_eq!(trial.trial_id, 10); // 【確認】Optunaのtrial_id=10
         assert_eq!(trial.values, vec![2.0]); // 【確認】obj0=2.0
-        let x_val = trial.params_numeric.iter().find(|(k, _)| k == "x")
+        let x_val = trial
+            .params_numeric
+            .iter()
+            .find(|(k, _)| k == "x")
             .map(|(_, v)| *v)
             .expect("xパラメータが存在するはず");
         assert!((x_val - 0.5).abs() < 1e-9); // 【確認】x=0.5
@@ -491,7 +534,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("nonexistent".to_string(), Range { min: Some(0.0), max: Some(10.0) });
+        ranges.insert(
+            "nonexistent".to_string(),
+            Range {
+                min: Some(0.0),
+                max: Some(10.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -509,7 +558,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(8.0), max: Some(2.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(8.0),
+                max: Some(2.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -538,7 +593,13 @@ mod tests {
         // 【テスト目的】: 空DataFrameに対してフィルタ → 空結果 🟢
         let df = DataFrame::empty();
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(0.0), max: Some(1.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(0.0),
+                max: Some(1.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -556,7 +617,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(0.0), max: Some(100.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(0.0),
+                max: Some(100.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -574,7 +641,13 @@ mod tests {
         ];
         let df = setup_df(rows, &["x"], &[]);
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(20.0), max: Some(30.0) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(20.0),
+                max: Some(30.0),
+            },
+        );
 
         let result = filter_rows(&df, &ranges);
 
@@ -610,9 +683,27 @@ mod tests {
         let df = setup_df(rows, &["x", "y"], &["obj0"]);
 
         let mut ranges = HashMap::new();
-        ranges.insert("x".to_string(), Range { min: Some(0.2), max: Some(0.8) });
-        ranges.insert("y".to_string(), Range { min: Some(0.1), max: Some(0.9) });
-        ranges.insert("obj0".to_string(), Range { min: Some(0.3), max: Some(1.5) });
+        ranges.insert(
+            "x".to_string(),
+            Range {
+                min: Some(0.2),
+                max: Some(0.8),
+            },
+        );
+        ranges.insert(
+            "y".to_string(),
+            Range {
+                min: Some(0.1),
+                max: Some(0.9),
+            },
+        );
+        ranges.insert(
+            "obj0".to_string(),
+            Range {
+                min: Some(0.3),
+                max: Some(1.5),
+            },
+        );
 
         let start = std::time::Instant::now();
         let result = filter_rows(&df, &ranges);
@@ -624,6 +715,9 @@ mod tests {
             "filter_rows が {}ms かかった（期待: ≤5ms）",
             elapsed.as_millis()
         );
-        assert!(!result.is_empty(), "フィルタ結果が空 — 何かの条件が間違っている可能性");
+        assert!(
+            !result.is_empty(),
+            "フィルタ結果が空 — 何かの条件が間違っている可能性"
+        );
     }
 }

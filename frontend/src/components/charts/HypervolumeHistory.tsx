@@ -4,21 +4,21 @@
  * Displays the hypervolume trend over trial numbers as a line chart.
  */
 
-import ReactECharts from 'echarts-for-react';
-import { EmptyState } from '../common/EmptyState';
+import ReactECharts from 'echarts-for-react'
+import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
 // Props types
 // -------------------------------------------------------------------------
 
 export interface HypervolumeDataPoint {
-  trial: number;
-  hypervolume: number;
+  trial: number
+  hypervolume: number
 }
 
 export interface HypervolumeHistoryProps {
   /** Hypervolume history data — shows empty state when the array is empty */
-  data: HypervolumeDataPoint[];
+  data: HypervolumeDataPoint[]
 }
 
 // -------------------------------------------------------------------------
@@ -31,7 +31,7 @@ export interface HypervolumeHistoryProps {
  */
 export function HypervolumeHistory({ data }: HypervolumeHistoryProps) {
   if (data.length === 0) {
-    return <EmptyState />;
+    return <EmptyState />
   }
 
   const option = {
@@ -53,12 +53,7 @@ export function HypervolumeHistory({ data }: HypervolumeHistoryProps) {
     tooltip: {
       trigger: 'axis',
     },
-  };
+  }
 
-  return (
-    <ReactECharts
-      option={option}
-      style={{ width: '100%', height: '100%' }}
-    />
-  );
+  return <ReactECharts option={option} style={{ width: '100%', height: '100%' }} />
 }

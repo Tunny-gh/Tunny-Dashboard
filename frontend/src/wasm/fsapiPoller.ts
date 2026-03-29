@@ -10,7 +10,7 @@
  * 🟢 REQ-130〜REQ-135 に準拠
  */
 
-import { WasmLoader } from './wasmLoader';
+import { WasmLoader } from './wasmLoader'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -21,21 +21,21 @@ import { WasmLoader } from './wasmLoader';
  */
 export interface FsapiPollerConfig {
   /** ポーリング間隔 (ms): デフォルト 5000ms 🟢 */
-  intervalMs?: number;
+  intervalMs?: number
   /** 新規 COMPLETE 試行が検出されたときのコールバック */
-  onNewTrials: (newCompleted: number) => void;
+  onNewTrials: (newCompleted: number) => void
   /** エラー発生時のコールバック */
-  onError: (err: Error) => void;
+  onError: (err: Error) => void
   /** 自動停止したときのコールバック（3 回連続エラー）*/
-  onAutoStop?: () => void;
+  onAutoStop?: () => void
 }
 
 /**
  * 【差分読み込み結果】
  */
 export interface PollResult {
-  newCompleted: number;
-  consumedBytes: number;
+  newCompleted: number
+  consumedBytes: number
 }
 
 // -------------------------------------------------------------------------
@@ -43,10 +43,10 @@ export interface PollResult {
 // -------------------------------------------------------------------------
 
 /** 【デフォルトポーリング間隔】: 5 秒 */
-const DEFAULT_INTERVAL_MS = 5000;
+const DEFAULT_INTERVAL_MS = 5000
 
 /** 【自動停止エラー閾値】: 3 回連続エラーで停止 🟢 REQ-135 */
-const MAX_ERROR_COUNT = 3;
+const MAX_ERROR_COUNT = 3
 
 // -------------------------------------------------------------------------
 // FsapiPoller クラス
@@ -58,12 +58,12 @@ const MAX_ERROR_COUNT = 3;
  * 🟢 REQ-130〜REQ-135 に準拠
  */
 export class FsapiPoller {
-  private fileHandle: FileSystemFileHandle | null = null;
-  private byteOffset = 0;
-  private timerId: ReturnType<typeof setTimeout> | null = null;
-  private isRunning = false;
-  private consecutiveErrors = 0;
-  private readonly config: Required<FsapiPollerConfig>;
+  private fileHandle: FileSystemFileHandle | null = null
+  private byteOffset = 0
+  private timerId: ReturnType<typeof setTimeout> | null = null
+  private isRunning = false
+  private consecutiveErrors = 0
+  private readonly config: Required<FsapiPollerConfig>
 
   constructor(config: FsapiPollerConfig) {
     this.config = {
@@ -71,7 +71,7 @@ export class FsapiPoller {
       onNewTrials: config.onNewTrials,
       onError: config.onError,
       onAutoStop: config.onAutoStop ?? (() => {}),
-    };
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -83,7 +83,7 @@ export class FsapiPoller {
    * Firefox / Safari では false になる 🟢 REQ-133
    */
   static isSupported(): boolean {
-    return typeof window !== 'undefined' && 'showOpenFilePicker' in window;
+    return typeof window !== 'undefined' && 'showOpenFilePicker' in window
   }
 
   // -------------------------------------------------------------------------
@@ -96,31 +96,34 @@ export class FsapiPoller {
    */
   async pickFile(): Promise<boolean> {
     if (!FsapiPoller.isSupported()) {
-      this.config.onError(new Error('File System Access API はこのブラウザでは利用できません'));
-      return false;
+      this.config.onError(new Error('File System Access API はこのブラウザでは利用できません'))
+      return false
     }
 
     try {
-      const [handle] = await (window as unknown as { showOpenFilePicker: (opts?: object) => Promise<FileSystemFileHandle[]> })
-        .showOpenFilePicker({
-          types: [
-            {
-              description: 'Optuna Journal',
-              accept: { 'application/json': ['.log', '.jsonl'], 'text/plain': ['.log'] },
-            },
-          ],
-        });
-      this.fileHandle = handle;
-      this.byteOffset = 0; // 【オフセットリセット】: 新ファイル選択時は先頭から
-      this.consecutiveErrors = 0;
-      return true;
+      const [handle] = await (
+        window as unknown as {
+          showOpenFilePicker: (opts?: object) => Promise<FileSystemFileHandle[]>
+        }
+      ).showOpenFilePicker({
+        types: [
+          {
+            description: 'Optuna Journal',
+            accept: { 'application/json': ['.log', '.jsonl'], 'text/plain': ['.log'] },
+          },
+        ],
+      })
+      this.fileHandle = handle
+      this.byteOffset = 0 // 【オフセットリセット】: 新ファイル選択時は先頭から
+      this.consecutiveErrors = 0
+      return true
     } catch (e) {
       // ユーザーキャンセルは AbortError → エラー通知しない
       if (e instanceof Error && e.name === 'AbortError') {
-        return false;
+        return false
       }
-      this.config.onError(e instanceof Error ? e : new Error(String(e)));
-      return false;
+      this.config.onError(e instanceof Error ? e : new Error(String(e)))
+      return false
     }
   }
 
@@ -133,19 +136,19 @@ export class FsapiPoller {
    * ファイルが選択されていない場合は何もしない
    */
   start(): void {
-    if (this.isRunning || !this.fileHandle) return;
-    this.isRunning = true;
-    this.scheduleNext();
+    if (this.isRunning || !this.fileHandle) return
+    this.isRunning = true
+    this.scheduleNext()
   }
 
   /**
    * 【ポーリング停止】: タイマーをクリアして停止
    */
   stop(): void {
-    this.isRunning = false;
+    this.isRunning = false
     if (this.timerId !== null) {
-      clearTimeout(this.timerId);
-      this.timerId = null;
+      clearTimeout(this.timerId)
+      this.timerId = null
     }
   }
 
@@ -153,17 +156,17 @@ export class FsapiPoller {
    * 【ポーリング間隔変更】: 次回スケジュールから有効
    */
   setInterval(ms: number): void {
-    this.config.intervalMs = ms;
+    this.config.intervalMs = ms
   }
 
   /** 現在のポーリング状態 */
   get running(): boolean {
-    return this.isRunning;
+    return this.isRunning
   }
 
   /** 現在のバイトオフセット（テスト・モニタリング用）*/
   get offset(): number {
-    return this.byteOffset;
+    return this.byteOffset
   }
 
   // -------------------------------------------------------------------------
@@ -174,10 +177,10 @@ export class FsapiPoller {
    * 【次回スケジュール】: 指定間隔後に poll() を呼ぶ
    */
   private scheduleNext(): void {
-    if (!this.isRunning) return;
+    if (!this.isRunning) return
     this.timerId = setTimeout(() => {
-      this.poll().finally(() => this.scheduleNext());
-    }, this.config.intervalMs);
+      this.poll().finally(() => this.scheduleNext())
+    }, this.config.intervalMs)
   }
 
   /**
@@ -192,52 +195,52 @@ export class FsapiPoller {
    */
   async poll(): Promise<PollResult> {
     if (!this.fileHandle) {
-      return { newCompleted: 0, consumedBytes: 0 };
+      return { newCompleted: 0, consumedBytes: 0 }
     }
 
     try {
-      const file = await this.fileHandle.getFile();
-      const fileSize = file.size;
+      const file = await this.fileHandle.getFile()
+      const fileSize = file.size
 
       // 【差分なし】: ファイルサイズが変わっていなければスキップ
       if (fileSize <= this.byteOffset) {
-        this.consecutiveErrors = 0;
-        return { newCompleted: 0, consumedBytes: 0 };
+        this.consecutiveErrors = 0
+        return { newCompleted: 0, consumedBytes: 0 }
       }
 
       // 【差分読み込み】: byteOffset から末尾まで
-      const slice = file.slice(this.byteOffset);
-      const buffer = await slice.arrayBuffer();
-      const data = new Uint8Array(buffer);
+      const slice = file.slice(this.byteOffset)
+      const buffer = await slice.arrayBuffer()
+      const data = new Uint8Array(buffer)
 
       // 【WASM 呼び出し】: 差分データを渡して新規 COMPLETE 試行数を取得
-      const wasm = await WasmLoader.getInstance();
-      const result = wasm.appendJournalDiff(data);
+      const wasm = await WasmLoader.getInstance()
+      const result = wasm.appendJournalDiff(data)
 
       // 【オフセット更新】: consumed_bytes だけ進める
-      this.byteOffset += result.consumed_bytes;
-      this.consecutiveErrors = 0;
+      this.byteOffset += result.consumed_bytes
+      this.consecutiveErrors = 0
 
       if (result.new_completed > 0) {
-        this.config.onNewTrials(result.new_completed);
+        this.config.onNewTrials(result.new_completed)
       }
 
       return {
         newCompleted: result.new_completed,
         consumedBytes: result.consumed_bytes,
-      };
+      }
     } catch (e) {
-      this.consecutiveErrors++;
-      const err = e instanceof Error ? e : new Error(String(e));
-      this.config.onError(err);
+      this.consecutiveErrors++
+      const err = e instanceof Error ? e : new Error(String(e))
+      this.config.onError(err)
 
       // 【自動停止】: 3 回連続エラーで停止 🟢 REQ-135
       if (this.consecutiveErrors >= MAX_ERROR_COUNT) {
-        this.stop();
-        this.config.onAutoStop();
+        this.stop()
+        this.config.onAutoStop()
       }
 
-      return { newCompleted: 0, consumedBytes: 0 };
+      return { newCompleted: 0, consumedBytes: 0 }
     }
   }
 }

@@ -158,11 +158,18 @@ impl DataFrame {
         // CategoricalDistribution ラベルがある列 → string_cols へ
         // それ以外（FloatDistribution, IntDistribution 等）→ numeric_cols へ 🟢
         for name in param_names {
-            let has_label = trial_rows.iter().any(|r| r.param_category_label.contains_key(name));
+            let has_label = trial_rows
+                .iter()
+                .any(|r| r.param_category_label.contains_key(name));
             if has_label {
                 let vals: Vec<String> = trial_rows
                     .iter()
-                    .map(|r| r.param_category_label.get(name).cloned().unwrap_or_default())
+                    .map(|r| {
+                        r.param_category_label
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default()
+                    })
                     .collect();
                 string_cols.push((name.clone(), vals));
             } else {
@@ -286,8 +293,7 @@ impl DataFrame {
 
     /// 全列名リストを返す（数値列→文字列列の順）🟢
     pub fn column_names(&self) -> Vec<String> {
-        let mut names: Vec<String> =
-            self.numeric_cols.iter().map(|(n, _)| n.clone()).collect();
+        let mut names: Vec<String> = self.numeric_cols.iter().map(|(n, _)| n.clone()).collect();
         names.extend(self.string_cols.iter().map(|(n, _)| n.clone()));
         names
     }
@@ -332,7 +338,12 @@ impl DataFrame {
         let positions3d = build_positions3d(self, n);
         // sizes: 初期値 1.0（フィルタ操作でも変更しない — REQ-015）🟢
         let sizes = vec![1.0f32; n];
-        GpuBufferData { positions, positions3d, sizes, trial_count: n }
+        GpuBufferData {
+            positions,
+            positions3d,
+            sizes,
+            trial_count: n,
+        }
     }
 }
 
@@ -359,8 +370,7 @@ fn build_positions(df: &DataFrame, n: usize) -> Vec<f32> {
             let x_scale = if n > 1 { (n - 1) as f32 } else { 1.0 };
             for i in 0..n {
                 positions[i * 2] = i as f32 / x_scale;
-                positions[i * 2 + 1] =
-                    obj0.get(i).copied().unwrap_or(f64::NAN) as f32;
+                positions[i * 2 + 1] = obj0.get(i).copied().unwrap_or(f64::NAN) as f32;
             }
         }
         _ => {
@@ -392,8 +402,12 @@ fn build_positions3d(df: &DataFrame, n: usize) -> Vec<f32> {
     }
 
     let obj0 = df.get_numeric_column(&obj_names[0]).unwrap_or(&[]);
-    let obj1 = obj_names.get(1).and_then(|name| df.get_numeric_column(name));
-    let obj2 = obj_names.get(2).and_then(|name| df.get_numeric_column(name));
+    let obj1 = obj_names
+        .get(1)
+        .and_then(|name| df.get_numeric_column(name));
+    let obj2 = obj_names
+        .get(2)
+        .and_then(|name| df.get_numeric_column(name));
     let x_scale = if n > 1 { (n - 1) as f32 } else { 1.0 };
 
     for i in 0..n {
@@ -407,23 +421,14 @@ fn build_positions3d(df: &DataFrame, n: usize) -> Vec<f32> {
             2 => {
                 // x: obj0, y: obj1, z: 0.0 🟢
                 let x = obj0.get(i).copied().unwrap_or(f64::NAN) as f32;
-                let y = obj1
-                    .and_then(|v| v.get(i))
-                    .copied()
-                    .unwrap_or(f64::NAN) as f32;
+                let y = obj1.and_then(|v| v.get(i)).copied().unwrap_or(f64::NAN) as f32;
                 (x, y, 0.0f32)
             }
             _ => {
                 // x: obj0, y: obj1, z: obj2 🟢
                 let x = obj0.get(i).copied().unwrap_or(f64::NAN) as f32;
-                let y = obj1
-                    .and_then(|v| v.get(i))
-                    .copied()
-                    .unwrap_or(f64::NAN) as f32;
-                let z = obj2
-                    .and_then(|v| v.get(i))
-                    .copied()
-                    .unwrap_or(0.0) as f32;
+                let y = obj1.and_then(|v| v.get(i)).copied().unwrap_or(f64::NAN) as f32;
+                let z = obj2.and_then(|v| v.get(i)).copied().unwrap_or(0.0) as f32;
                 (x, y, z)
             }
         };
@@ -479,7 +484,13 @@ pub fn select_study(study_id: u32) -> Result<SelectStudyResult, String> {
                 data_frame_info: df.info(),
                 gpu_buffer_data: df.gpu_buffers(),
             })
-            .ok_or_else(|| format!("study_id {} not found (total: {})", study_id, s.dataframes.len()));
+            .ok_or_else(|| {
+                format!(
+                    "study_id {} not found (total: {})",
+                    study_id,
+                    s.dataframes.len()
+                )
+            });
         if result.is_ok() {
             s.active_study_id = Some(study_id);
         }
@@ -562,8 +573,7 @@ mod tests {
             make_trial(&[("x", 1.5), ("y", 3.0)], vec![2.0]),
         ];
         let param_names = vec!["x".to_string(), "y".to_string()];
-        let df =
-            DataFrame::from_trials(&rows, &param_names, &["obj0".to_string()], &[], &[], 0);
+        let df = DataFrame::from_trials(&rows, &param_names, &["obj0".to_string()], &[], &[], 0);
         let x_col = df.get_numeric_column("x").expect("x列が存在するはず");
         assert!((x_col[0] - 0.5).abs() < 1e-9); // 【確認】x[0] == 0.5
         assert!((x_col[1] - 1.5).abs() < 1e-9); // 【確認】x[1] == 1.5
@@ -602,7 +612,8 @@ mod tests {
     fn tc_102_05_user_attr_string() {
         // 【テスト目的】: user_attr文字列列が正確に格納される 🟢
         let mut row = make_trial(&[], vec![1.0]);
-        row.user_attrs_string.insert("tag".to_string(), "run_a".to_string());
+        row.user_attrs_string
+            .insert("tag".to_string(), "run_a".to_string());
         let df = DataFrame::from_trials(
             &[row],
             &[],
@@ -623,10 +634,14 @@ mod tests {
         let df = DataFrame::from_trials(&[row], &[], &["obj0".to_string()], &[], &[], 2);
         let c1 = df.get_numeric_column("c1").expect("c1が存在するはず");
         let c2 = df.get_numeric_column("c2").expect("c2が存在するはず");
-        let is_feas = df.get_numeric_column("is_feasible").expect("is_feasibleが存在するはず");
-        let csum = df.get_numeric_column("constraint_sum").expect("constraint_sumが存在するはず");
+        let is_feas = df
+            .get_numeric_column("is_feasible")
+            .expect("is_feasibleが存在するはず");
+        let csum = df
+            .get_numeric_column("constraint_sum")
+            .expect("constraint_sumが存在するはず");
         assert!((c1[0] - (-0.5)).abs() < 1e-9); // 【確認】c1 == -0.5
-        assert!((c2[0] - 0.3).abs() < 1e-9);    // 【確認】c2 == 0.3
+        assert!((c2[0] - 0.3).abs() < 1e-9); // 【確認】c2 == 0.3
         assert!((is_feas[0] - 0.0).abs() < 1e-9); // 【確認】0.3>0 → feasible=0（false）
         assert!((csum[0] - (-0.2)).abs() < 1e-6); // 【確認】sum == -0.2
     }
@@ -643,7 +658,7 @@ mod tests {
         let df = DataFrame::from_trials(&rows, &[], &obj_names, &[], &[], 0);
         let gpu = df.gpu_buffers();
         assert_eq!(gpu.positions.len(), 6); // N=3, 3×2=6 🟢
-        assert_eq!(gpu.trial_count, 3);     // trial_count=3 🟢
+        assert_eq!(gpu.trial_count, 3); // trial_count=3 🟢
     }
 
     #[test]
@@ -721,10 +736,10 @@ mod tests {
             1,
         );
         let info = df.info();
-        assert_eq!(info.param_columns, vec!["x"]);           // 【確認】param列
-        assert_eq!(info.objective_columns, vec!["obj0"]);    // 【確認】obj列
-        assert_eq!(info.user_attr_columns, vec!["loss"]);    // 【確認】user_attr列
-        assert_eq!(info.constraint_columns, vec!["c1"]);     // 【確認】constraint列
+        assert_eq!(info.param_columns, vec!["x"]); // 【確認】param列
+        assert_eq!(info.objective_columns, vec!["obj0"]); // 【確認】obj列
+        assert_eq!(info.user_attr_columns, vec!["loss"]); // 【確認】user_attr列
+        assert_eq!(info.constraint_columns, vec!["c1"]); // 【確認】constraint列
         assert!(info.derived_columns.contains(&"is_feasible".to_string())); // 【確認】派生列
         assert!(info.derived_columns.contains(&"constraint_sum".to_string())); // 【確認】派生列
     }
@@ -806,8 +821,7 @@ mod tests {
     fn tc_102_b01_three_objectives_positions() {
         // 【テスト目的】: 3目的StudyのpositionsはObj0×Obj1、positions3dはObj0×Obj1×Obj2 🟢
         let rows = vec![make_trial(&[], vec![0.1, 0.2, 0.3])];
-        let obj_names =
-            vec!["obj0".to_string(), "obj1".to_string(), "obj2".to_string()];
+        let obj_names = vec!["obj0".to_string(), "obj1".to_string(), "obj2".to_string()];
         let df = DataFrame::from_trials(&rows, &[], &obj_names, &[], &[], 0);
         let gpu = df.gpu_buffers();
         // positions: [obj0, obj1] = [0.1, 0.2] 🟢
@@ -863,6 +877,10 @@ mod tests {
         let elapsed_ms = start.elapsed().as_millis();
 
         assert_eq!(result.data_frame_info.row_count, 50_000); // 【確認】50000行
-        assert!(elapsed_ms < 100, "select_study が 100ms を超過: {}ms", elapsed_ms); // 🟢
+        assert!(
+            elapsed_ms < 100,
+            "select_study が 100ms を超過: {}ms",
+            elapsed_ms
+        ); // 🟢
     }
 }

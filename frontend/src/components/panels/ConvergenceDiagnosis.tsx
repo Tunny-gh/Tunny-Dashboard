@@ -9,30 +9,30 @@
  * 🟢 REQ-111〜REQ-113 に準拠
  */
 
-import type { TrialData, OptimizationDirection } from '../charts/OptimizationHistory';
+import type { TrialData, OptimizationDirection } from '../charts/OptimizationHistory'
 
 // -------------------------------------------------------------------------
 // 定数定義
 // -------------------------------------------------------------------------
 
 /** 【最小試行数】: 収束判定に必要な最低試行数 */
-const MINIMUM_TRIALS = 10;
+const MINIMUM_TRIALS = 10
 
 /** 【末尾観測ウィンドウ率】: 末尾何%を収束判定に使うか */
-const TAIL_WINDOW_RATE = 0.2;
+const TAIL_WINDOW_RATE = 0.2
 
 /** 【収束判定閾値】: 末尾ウィンドウ内の改善率がこれ未満なら収束済み */
-const CONVERGED_THRESHOLD = 0.001; // 0.1%
+const CONVERGED_THRESHOLD = 0.001 // 0.1%
 
 /** 【収束中判定閾値】: 末尾ウィンドウ内の改善率がこれ未満なら収束中 */
-const CONVERGING_THRESHOLD = 0.01; // 1%
+const CONVERGING_THRESHOLD = 0.01 // 1%
 
 // -------------------------------------------------------------------------
 // 型定義
 // -------------------------------------------------------------------------
 
 /** 【収束状態型】: 収束診断の結果 */
-export type ConvergenceStatus = 'converged' | 'converging' | 'not-converged' | 'insufficient';
+export type ConvergenceStatus = 'converged' | 'converging' | 'not-converged' | 'insufficient'
 
 // -------------------------------------------------------------------------
 // 純粋関数
@@ -57,42 +57,40 @@ export function diagnoseConvergence(
 ): ConvergenceStatus {
   // 【試行数チェック】: 最低試行数未満の場合は判定不可を返す 🟢
   if (data.length < MINIMUM_TRIALS) {
-    return 'insufficient';
+    return 'insufficient'
   }
 
   // 【Best値系列計算】: 各試行時点でのBest値を累積計算する 🟢
-  let best = direction === 'minimize' ? Infinity : -Infinity;
+  let best = direction === 'minimize' ? Infinity : -Infinity
   const bestSeries = data.map(({ value }) => {
     if (direction === 'minimize') {
-      best = Math.min(best, value);
+      best = Math.min(best, value)
     } else {
-      best = Math.max(best, value);
+      best = Math.max(best, value)
     }
-    return best;
-  });
+    return best
+  })
 
   // 【末尾ウィンドウ抽出】: 末尾 20% のBest値を取得する 🟢
-  const tailStart = Math.floor(data.length * (1 - TAIL_WINDOW_RATE));
-  const tailBest = bestSeries.slice(tailStart);
+  const tailStart = Math.floor(data.length * (1 - TAIL_WINDOW_RATE))
+  const tailBest = bestSeries.slice(tailStart)
 
   // 【改善率計算】: 末尾ウィンドウの先頭と末尾のBest値から改善率を算出する 🟢
-  const firstBest = tailBest[0];
-  const lastBest = tailBest[tailBest.length - 1];
+  const firstBest = tailBest[0]
+  const lastBest = tailBest[tailBest.length - 1]
 
   // 【ゼロ除算ガード】: firstBest が 0 の場合は絶対差を使う
   const improvementRate =
-    firstBest !== 0
-      ? Math.abs((firstBest - lastBest) / firstBest)
-      : Math.abs(firstBest - lastBest);
+    firstBest !== 0 ? Math.abs((firstBest - lastBest) / firstBest) : Math.abs(firstBest - lastBest)
 
   // 【収束判定】: 改善率の大きさで 3 段階に分類する 🟢
   if (improvementRate < CONVERGED_THRESHOLD) {
-    return 'converged';
+    return 'converged'
   }
   if (improvementRate < CONVERGING_THRESHOLD) {
-    return 'converging';
+    return 'converging'
   }
-  return 'not-converged';
+  return 'not-converged'
 }
 
 // -------------------------------------------------------------------------
@@ -101,10 +99,10 @@ export function diagnoseConvergence(
 
 /** 【バッジ設定型】: バッジの表示内容 */
 interface BadgeConfig {
-  testId: string;
-  label: string;
-  color: string;
-  background: string;
+  testId: string
+  label: string
+  color: string
+  background: string
 }
 
 /** 【バッジ設定マップ】: 収束状態ごとのバッジ設定 */
@@ -113,27 +111,27 @@ const BADGE_CONFIG: Record<ConvergenceStatus, BadgeConfig> = {
     testId: 'badge-converged',
     label: '収束済み',
     color: '#fff',
-    background: '#16a34a',  // 🟢 緑: 収束済み
+    background: '#16a34a', // 🟢 緑: 収束済み
   },
   converging: {
     testId: 'badge-converging',
     label: '収束中',
     color: '#92400e',
-    background: '#fbbf24',  // 🟡 黄: 収束中
+    background: '#fbbf24', // 🟡 黄: 収束中
   },
   'not-converged': {
     testId: 'badge-not-converged',
     label: '未収束',
     color: '#fff',
-    background: '#dc2626',  // 🔴 赤: 未収束
+    background: '#dc2626', // 🔴 赤: 未収束
   },
   insufficient: {
     testId: 'badge-insufficient',
     label: '判定不可',
     color: '#374151',
-    background: '#e5e7eb',  // ⚪ グレー: 判定不可
+    background: '#e5e7eb', // ⚪ グレー: 判定不可
   },
-};
+}
 
 // -------------------------------------------------------------------------
 // Props 型定義
@@ -144,9 +142,9 @@ const BADGE_CONFIG: Record<ConvergenceStatus, BadgeConfig> = {
  */
 export interface ConvergenceDiagnosisProps {
   /** 🟢 試行データ配列 */
-  data: TrialData[];
+  data: TrialData[]
   /** 🟢 最適化方向 */
-  direction: OptimizationDirection;
+  direction: OptimizationDirection
 }
 
 // -------------------------------------------------------------------------
@@ -161,7 +159,7 @@ export interface ConvergenceDiagnosisProps {
  */
 export function ConvergenceDiagnosis({ data, direction }: ConvergenceDiagnosisProps) {
   // 【収束診断実行】: 試行データから収束状態を判定する
-  const status = diagnoseConvergence(data, direction);
+  const status = diagnoseConvergence(data, direction)
 
   // 【判定不可処理】: 試行数不足の場合はメッセージのみ表示する 🟢
   if (status === 'insufficient') {
@@ -184,10 +182,10 @@ export function ConvergenceDiagnosis({ data, direction }: ConvergenceDiagnosisPr
           判定不可（試行数不足）
         </span>
       </div>
-    );
+    )
   }
 
-  const config = BADGE_CONFIG[status];
+  const config = BADGE_CONFIG[status]
 
   return (
     <div
@@ -212,5 +210,5 @@ export function ConvergenceDiagnosis({ data, direction }: ConvergenceDiagnosisPr
         {config.label}
       </span>
     </div>
-  );
+  )
 }

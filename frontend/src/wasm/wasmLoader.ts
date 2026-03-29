@@ -17,8 +17,8 @@ import initWasm, {
   computeHvHistory as wasmComputeHvHistory,
   appendJournalDiff as wasmAppendJournalDiff,
   computeReportStats as wasmComputeReportStats,
-} from './pkg/tunny_core';
-import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index';
+} from './pkg/tunny_core'
+import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index'
 
 // -------------------------------------------------------------------------
 // 型定義（WASM API 境界）
@@ -29,10 +29,10 @@ import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index
  * 🟡 WASM API が確定次第 types/index.ts に移動予定
  */
 export interface SelectStudyResult {
-  positions: ArrayBuffer;
-  positions3d: ArrayBuffer;
-  sizes: ArrayBuffer;
-  trialCount: number;
+  positions: ArrayBuffer
+  positions3d: ArrayBuffer
+  sizes: ArrayBuffer
+  trialCount: number
 }
 
 /**
@@ -40,8 +40,8 @@ export interface SelectStudyResult {
  * 🟢 WASM bindgen が返す trialIds / hvValues の形式に合わせた型
  */
 export interface HvHistoryResult {
-  trialIds: Uint32Array;
-  hvValues: Float64Array;
+  trialIds: Uint32Array
+  hvValues: Float64Array
 }
 
 // -------------------------------------------------------------------------
@@ -60,7 +60,7 @@ export class WasmLoader {
    * 【シングルトン Promise】: null の間のみ初期化が実行される
    * reject 状態でもキャッシュし、後続呼び出しに同じエラーを返す
    */
-  private static _promise: Promise<WasmLoader> | null = null;
+  private static _promise: Promise<WasmLoader> | null = null
 
   // -------------------------------------------------------------------------
   // WASM ラッパーメソッド（TASK-103 実装後にバインド）
@@ -70,55 +70,55 @@ export class WasmLoader {
    * 【Journalパース】: Optuna Journal ファイルをパースして Study 一覧を返す
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  parseJournal!: (data: Uint8Array) => ParseJournalResult;
+  parseJournal!: (data: Uint8Array) => ParseJournalResult
 
   /**
    * 【Study 選択】: studyId に対応する Study を選択し GpuBuffer 用データを返す
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  selectStudy!: (studyId: number) => SelectStudyResult;
+  selectStudy!: (studyId: number) => SelectStudyResult
 
   /**
    * 【フィルタ】: 範囲条件 JSON を受け取り、条件を満たす trial インデックスを返す
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  filterByRanges!: (rangesJson: string) => Uint32Array;
+  filterByRanges!: (rangesJson: string) => Uint32Array
 
   /**
    * 【Paretoランク計算】: is_minimize 配列を受け取り Pareto ランクを計算する
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  computeParetoRanks!: (isMinimize: boolean[]) => ParetoResult;
+  computeParetoRanks!: (isMinimize: boolean[]) => ParetoResult
 
   /**
    * 【HV 推移計算】: Hypervolume 推移を計算する
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  computeHvHistory!: (isMinimize: boolean[]) => HvHistoryResult;
+  computeHvHistory!: (isMinimize: boolean[]) => HvHistoryResult
 
   /**
    * 【CSV シリアライズ】: 選択した試行を CSV 文字列に変換する
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  serializeCsv!: (indices: number[], columnsJson: string) => string;
+  serializeCsv!: (indices: number[], columnsJson: string) => string
 
   /**
    * 【差分更新】: Journal の差分データを追記して新規完了試行数を返す
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  appendJournalDiff!: (data: Uint8Array) => { new_completed: number; consumed_bytes: number };
+  appendJournalDiff!: (data: Uint8Array) => { new_completed: number; consumed_bytes: number }
 
   /**
    * 【レポート統計】: レポート生成用のサマリー統計 JSON を返す
    * 🟡 TASK-103 WASM 実装後に実体を接続する
    */
-  computeReportStats!: () => string;
+  computeReportStats!: () => string
 
   /**
    * 【トライアル一覧取得】: アクティブ Study の全完了トライアルをパラメータ・目的関数値付きで返す
    * 🟢 TASK-004 で実装
    */
-  getTrials!: () => TrialData[];
+  getTrials!: () => TrialData[]
 
   /**
    * 【コンストラクタ】: 外部からの直接生成を禁止する
@@ -142,9 +142,9 @@ export class WasmLoader {
     if (WasmLoader._promise === null) {
       // 【初期化開始】: Promise を即座に _promise に代入してから await する
       // これにより並列呼び出し時も initWasm が1回しか実行されない
-      WasmLoader._promise = WasmLoader._initialize();
+      WasmLoader._promise = WasmLoader._initialize()
     }
-    return WasmLoader._promise;
+    return WasmLoader._promise
   }
 
   /**
@@ -153,23 +153,26 @@ export class WasmLoader {
    */
   private static async _initialize(): Promise<WasmLoader> {
     // 【WASM ロード】: wasm-pack が生成した init 関数を呼ぶ
-    await initWasm();
+    await initWasm()
 
-    const loader = new WasmLoader();
+    const loader = new WasmLoader()
 
     // 【ラッパーバインド】: TASK-103 の WASM-bindgen 関数が確定次第、実体に差し替える
     // 現時点では stub を設定（TypeScript 型チェックを満たすため）
-    loader.parseJournal = (data: Uint8Array) => wasmParseJournal(data) as ParseJournalResult;
-    loader.selectStudy = (studyId: number) => wasmSelectStudy(studyId) as SelectStudyResult;
-    loader.filterByRanges = (rangesJson: string) => wasmFilterByRanges(rangesJson) as Uint32Array;
-    loader.computeParetoRanks = _notImplemented('computeParetoRanks');
-    loader.computeHvHistory = (isMinimize: boolean[]) => wasmComputeHvHistory(isMinimize) as HvHistoryResult;
-    loader.serializeCsv = (indices: number[], columnsJson: string) => wasmSerializeCsv(indices, columnsJson) as string;
-    loader.appendJournalDiff = (data: Uint8Array) => wasmAppendJournalDiff(data) as { new_completed: number; consumed_bytes: number };
-    loader.computeReportStats = () => wasmComputeReportStats() as string;
-    loader.getTrials = () => wasmGetTrials() as TrialData[];
+    loader.parseJournal = (data: Uint8Array) => wasmParseJournal(data) as ParseJournalResult
+    loader.selectStudy = (studyId: number) => wasmSelectStudy(studyId) as SelectStudyResult
+    loader.filterByRanges = (rangesJson: string) => wasmFilterByRanges(rangesJson) as Uint32Array
+    loader.computeParetoRanks = _notImplemented('computeParetoRanks')
+    loader.computeHvHistory = (isMinimize: boolean[]) =>
+      wasmComputeHvHistory(isMinimize) as HvHistoryResult
+    loader.serializeCsv = (indices: number[], columnsJson: string) =>
+      wasmSerializeCsv(indices, columnsJson) as string
+    loader.appendJournalDiff = (data: Uint8Array) =>
+      wasmAppendJournalDiff(data) as { new_completed: number; consumed_bytes: number }
+    loader.computeReportStats = () => wasmComputeReportStats() as string
+    loader.getTrials = () => wasmGetTrials() as TrialData[]
 
-    return loader;
+    return loader
   }
 
   // -------------------------------------------------------------------------
@@ -182,7 +185,7 @@ export class WasmLoader {
    * 🟢 REQ-015 § reset() メソッド（テスト用のみ）に準拠
    */
   static reset(): void {
-    WasmLoader._promise = null;
+    WasmLoader._promise = null
   }
 }
 
@@ -197,6 +200,6 @@ export class WasmLoader {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function _notImplemented(name: string): (...args: any[]) => never {
   return () => {
-    throw new Error(`WasmLoader.${name} は TASK-103 実装後に利用可能になります`);
-  };
+    throw new Error(`WasmLoader.${name} は TASK-103 実装後に利用可能になります`)
+  }
 }

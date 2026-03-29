@@ -70,7 +70,11 @@ fn col_mean_std(data: &[f64]) -> (f64, f64) {
     }
     let mean = data.iter().sum::<f64>() / n as f64;
     let var = data.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n as f64;
-    let std_dev = if var.sqrt() < f64::EPSILON { 1.0 } else { var.sqrt() };
+    let std_dev = if var.sqrt() < f64::EPSILON {
+        1.0
+    } else {
+        var.sqrt()
+    };
     (mean, std_dev)
 }
 
@@ -113,7 +117,10 @@ pub(crate) fn compute_pdp_from_matrix(
     n_grid: usize,
 ) -> PdpResult1d {
     // 【空結果の雛形】: エラー時に返すデフォルト値
-    let param_name = param_names.get(target_param_idx).cloned().unwrap_or_default();
+    let param_name = param_names
+        .get(target_param_idx)
+        .cloned()
+        .unwrap_or_default();
     let empty = PdpResult1d {
         param_name: param_name.clone(),
         objective_name: objective_name.to_string(),
@@ -139,8 +146,14 @@ pub(crate) fn compute_pdp_from_matrix(
     let y_mean = y.iter().sum::<f64>() / n as f64;
 
     // 【グリッド生成】: 観測範囲 [min, max] を n_grid 等分
-    let min_j = param_col.iter().cloned().fold(f64::INFINITY, |a, b| a.min(b));
-    let max_j = param_col.iter().cloned().fold(f64::NEG_INFINITY, |a, b| a.max(b));
+    let min_j = param_col
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, |a, b| a.min(b));
+    let max_j = param_col
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
     let grid = linspace(min_j, max_j, n_grid);
 
     // 【PDP値計算】: 解析式 f̄_j(v) = y_mean + β_j * (v - mean_j) / std_j
@@ -209,9 +222,15 @@ pub(crate) fn compute_pdp_2d_from_matrix(
 
     // 【グリッド生成】
     let min1 = col1.iter().cloned().fold(f64::INFINITY, |a, b| a.min(b));
-    let max1 = col1.iter().cloned().fold(f64::NEG_INFINITY, |a, b| a.max(b));
+    let max1 = col1
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
     let min2 = col2.iter().cloned().fold(f64::INFINITY, |a, b| a.min(b));
-    let max2 = col2.iter().cloned().fold(f64::NEG_INFINITY, |a, b| a.max(b));
+    let max2 = col2
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
     let grid1 = linspace(min1, max1, n_grid);
     let grid2 = linspace(min2, max2, n_grid);
 
@@ -223,11 +242,7 @@ pub(crate) fn compute_pdp_2d_from_matrix(
         .map(|&v1| {
             grid2
                 .iter()
-                .map(|&v2| {
-                    y_mean
-                        + beta1 * (v1 - mean1) / std1
-                        + beta2 * (v2 - mean2) / std2
-                })
+                .map(|&v2| y_mean + beta1 * (v1 - mean1) / std1 + beta2 * (v2 - mean2) / std2)
                 .collect()
         })
         .collect();
@@ -444,9 +459,7 @@ mod tests {
     fn tc_803_02_pdp_monotone_negative() {
         // 【テスト目的】: y = -x1 のとき x1 の PDP が単調減少であることを検証する 🟢
         let n = 100;
-        let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| vec![i as f64 / n as f64])
-            .collect();
+        let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64 / n as f64]).collect();
         let y: Vec<f64> = x_matrix.iter().map(|row| -row[0]).collect();
         let names = vec!["x1".to_string()];
 
@@ -631,9 +644,16 @@ mod tests {
 
         // 【テストデータ準備】: 線形関係を持つ合成データ
         let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| (0..p).map(|j| i as f64 / n as f64 + j as f64 * 0.1).collect())
+            .map(|i| {
+                (0..p)
+                    .map(|j| i as f64 / n as f64 + j as f64 * 0.1)
+                    .collect()
+            })
             .collect();
-        let y: Vec<f64> = x_matrix.iter().map(|row| row[0] * 2.0 + row[1] * 0.5).collect();
+        let y: Vec<f64> = x_matrix
+            .iter()
+            .map(|row| row[0] * 2.0 + row[1] * 0.5)
+            .collect();
         let names: Vec<String> = (0..p).map(|j| format!("x{}", j)).collect();
 
         let start = std::time::Instant::now();
@@ -664,9 +684,16 @@ mod tests {
         let (n, p) = (50_000, 10);
 
         let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| (0..p).map(|j| i as f64 / n as f64 + j as f64 * 0.1).collect())
+            .map(|i| {
+                (0..p)
+                    .map(|j| i as f64 / n as f64 + j as f64 * 0.1)
+                    .collect()
+            })
             .collect();
-        let y: Vec<f64> = x_matrix.iter().map(|row| row[0] * 2.0 + row[1] * 0.5).collect();
+        let y: Vec<f64> = x_matrix
+            .iter()
+            .map(|row| row[0] * 2.0 + row[1] * 0.5)
+            .collect();
         let names: Vec<String> = (0..p).map(|j| format!("x{}", j)).collect();
 
         let start = std::time::Instant::now();

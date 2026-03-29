@@ -9,8 +9,8 @@
  *   - ECharts step: 'end' represents the staircase shape of a CDF
  */
 
-import ReactECharts from 'echarts-for-react';
-import { EmptyState } from '../common/EmptyState';
+import ReactECharts from 'echarts-for-react'
+import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
 // Types
@@ -19,15 +19,15 @@ import { EmptyState } from '../common/EmptyState';
 /** EDF data for one objective */
 export interface EdfSeries {
   /** Objective name (shown as legend label) */
-  name: string;
+  name: string
   /** Objective values (unsorted is fine) */
-  values: number[];
+  values: number[]
 }
 
 /** Props */
 export interface EdfPlotProps {
   /** Series to display (pass multiple for multi-objective) */
-  series: EdfSeries[];
+  series: EdfSeries[]
 }
 
 // -------------------------------------------------------------------------
@@ -45,14 +45,14 @@ export interface EdfPlotProps {
  * @returns Array of [value, cumulative probability] pairs
  */
 export function computeEdf(values: number[]): [number, number][] {
-  if (values.length === 0) return [];
+  if (values.length === 0) return []
 
   // Sort without mutating the original array
-  const sorted = [...values].sort((a, b) => a - b);
-  const n = sorted.length;
+  const sorted = [...values].sort((a, b) => a - b)
+  const n = sorted.length
 
   // Cumulative probability for the i-th point (1-based) = i / n
-  return sorted.map((v, i) => [v, (i + 1) / n]);
+  return sorted.map((v, i) => [v, (i + 1) / n])
 }
 
 // -------------------------------------------------------------------------
@@ -66,7 +66,7 @@ export function computeEdf(values: number[]): [number, number][] {
 export function EdfPlot({ series }: EdfPlotProps) {
   // Show empty state when there are no series or all series have no values
   if (series.length === 0 || series.every((s) => s.values.length === 0)) {
-    return <EmptyState />;
+    return <EmptyState />
   }
 
   const option = {
@@ -95,20 +95,17 @@ export function EdfPlot({ series }: EdfPlotProps) {
     series: series.map((s) => ({
       name: s.name,
       type: 'line',
-      step: 'end',   // Horizontal segments give the CDF staircase appearance
+      step: 'end', // Horizontal segments give the CDF staircase appearance
       data: computeEdf(s.values),
       symbolSize: 0, // Hide point markers, show line only
     })),
-  };
+  }
 
   return (
-    <div
-      data-testid="edf-plot"
-      style={{ height: '100%' }}
-    >
+    <div data-testid="edf-plot" style={{ height: '100%' }}>
       <ReactECharts option={option} style={{ height: '100%' }} />
     </div>
-  );
+  )
 }
 
-export default EdfPlot;
+export default EdfPlot

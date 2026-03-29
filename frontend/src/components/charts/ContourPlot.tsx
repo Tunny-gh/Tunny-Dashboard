@@ -13,9 +13,9 @@
  *   - Numeric parameters only (string parameters are excluded)
  */
 
-import { useState } from 'react';
-import ReactECharts from 'echarts-for-react';
-import { EmptyState } from '../common/EmptyState';
+import { useState } from 'react'
+import ReactECharts from 'echarts-for-react'
+import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
 // Types
@@ -24,19 +24,19 @@ import { EmptyState } from '../common/EmptyState';
 /** One trial's data as received by ContourPlot */
 export interface ContourTrial {
   /** Parameter value map (numeric or string values) */
-  params: Record<string, number | string>;
+  params: Record<string, number | string>
   /** Objective values (null = incomplete trial) */
-  values: number[] | null;
+  values: number[] | null
 }
 
 /** Props */
 export interface ContourPlotProps {
   /** List of trials to display */
-  trials: ContourTrial[];
+  trials: ContourTrial[]
   /** Parameter name list */
-  paramNames: string[];
+  paramNames: string[]
   /** Objective name list */
-  objectiveNames: string[];
+  objectiveNames: string[]
 }
 
 // -------------------------------------------------------------------------
@@ -48,17 +48,17 @@ export interface ContourPlotProps {
  * Dropdowns for X/Y parameters and objective update the chart in real time.
  */
 export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotProps) {
-  const [xParamIdx, setXParamIdx] = useState(0);
-  const [yParamIdx, setYParamIdx] = useState(Math.min(1, paramNames.length - 1));
-  const [objIdx, setObjIdx] = useState(0);
+  const [xParamIdx, setXParamIdx] = useState(0)
+  const [yParamIdx, setYParamIdx] = useState(Math.min(1, paramNames.length - 1))
+  const [objIdx, setObjIdx] = useState(0)
 
   // Show empty state when there are no trials or fewer than 2 parameters
   if (trials.length === 0 || paramNames.length < 2) {
-    return <EmptyState message="データがありません（パラメータが2つ以上必要です）" />;
+    return <EmptyState message="データがありません（パラメータが2つ以上必要です）" />
   }
 
-  const xParam = paramNames[xParamIdx];
-  const yParam = paramNames[yParamIdx];
+  const xParam = paramNames[xParamIdx]
+  const yParam = paramNames[yParamIdx]
 
   // Filter to trials where X/Y params are numeric and objective value exists
   const validTrials = trials.filter(
@@ -67,12 +67,12 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       t.values[objIdx] != null &&
       typeof t.params[xParam] === 'number' &&
       typeof t.params[yParam] === 'number',
-  );
+  )
 
   // Compute objective value range for visualMap min/max
-  const objValues = validTrials.map((t) => t.values![objIdx]);
-  const minObj = objValues.length > 0 ? Math.min(...objValues) : 0;
-  const maxObj = objValues.length > 0 ? Math.max(...objValues) : 1;
+  const objValues = validTrials.map((t) => t.values![objIdx])
+  const minObj = objValues.length > 0 ? Math.min(...objValues) : 0
+  const maxObj = objValues.length > 0 ? Math.max(...objValues) : 1
 
   // ECharts option: scatter + visualMap (color scale by objective value)
   const option = {
@@ -102,9 +102,17 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       dimension: 2,
       inRange: {
         color: [
-          '#313695', '#4575b4', '#74add1', '#abd9e9',
-          '#e0f3f8', '#ffffbf', '#fee090', '#fdae61',
-          '#f46d43', '#d73027', '#a50026',
+          '#313695',
+          '#4575b4',
+          '#74add1',
+          '#abd9e9',
+          '#e0f3f8',
+          '#ffffbf',
+          '#fee090',
+          '#fdae61',
+          '#f46d43',
+          '#d73027',
+          '#a50026',
         ],
       },
       calculable: true,
@@ -125,7 +133,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       },
     ],
     grid: { containLabel: true, right: 80 },
-  };
+  }
 
   return (
     <div
@@ -144,7 +152,8 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
           flexShrink: 0,
         }}
       >
-        ⚠️ optuna-dashboard のコンター補間（Python / scikit-learn 必須）は非対応。実トライアル点のみ表示。
+        ⚠️ optuna-dashboard のコンター補間（Python / scikit-learn
+        必須）は非対応。実トライアル点のみ表示。
       </div>
 
       {/* Control bar: X/Y parameter and objective selectors */}
@@ -214,7 +223,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       {/* Chart: ECharts scatter + visualMap */}
       <ReactECharts option={option} style={{ flex: 1 }} />
     </div>
-  );
+  )
 }
 
-export default ContourPlot;
+export default ContourPlot

@@ -16,10 +16,10 @@
  * 🟢 要件定義書 § GpuBufferInitData に準拠
  */
 export interface GpuBufferInitData {
-  positions: ArrayBuffer;   // Float32Array として解釈 (N×2)
-  positions3d: ArrayBuffer; // Float32Array として解釈 (N×3)
-  sizes: ArrayBuffer;       // Float32Array として解釈 (N×1)
-  trialCount: number;
+  positions: ArrayBuffer // Float32Array として解釈 (N×2)
+  positions3d: ArrayBuffer // Float32Array として解釈 (N×3)
+  sizes: ArrayBuffer // Float32Array として解釈 (N×1)
+  trialCount: number
 }
 
 // -------------------------------------------------------------------------
@@ -34,19 +34,19 @@ export interface GpuBufferInitData {
  */
 export class GpuBuffer {
   /** N×2: (x, y) — WASM が設定、JS 側は読み取り専用 */
-  readonly positions: Float32Array;
+  readonly positions: Float32Array
 
   /** N×3: (x, y, z) — 3D Pareto 用、JS 側は読み取り専用 */
-  readonly positions3d: Float32Array;
+  readonly positions3d: Float32Array
 
   /** N×1: 点サイズ — WASM が設定、JS 側は読み取り専用 */
-  readonly sizes: Float32Array;
+  readonly sizes: Float32Array
 
   /** N×4: (r, g, b, a) — alpha のみ JS で更新する */
-  readonly colors: Float32Array;
+  readonly colors: Float32Array
 
   /** 試行数 */
-  readonly trialCount: number;
+  readonly trialCount: number
 
   /**
    * 【コンストラクタ】: WASM からの初期化データを受け取り Float32Array を構築する
@@ -56,24 +56,21 @@ export class GpuBuffer {
    * @param data - WASM select_study() の戻り値から渡されるバッファ群
    * @param defaultRgb - 初期 RGB カラー（省略時 [1.0, 1.0, 1.0]）
    */
-  constructor(
-    data: GpuBufferInitData,
-    defaultRgb: [number, number, number] = [1.0, 1.0, 1.0],
-  ) {
-    this.trialCount = data.trialCount;
+  constructor(data: GpuBufferInitData, defaultRgb: [number, number, number] = [1.0, 1.0, 1.0]) {
+    this.trialCount = data.trialCount
 
     // 【バッファ参照】: positions/sizes は WASM が確保した ArrayBuffer を直接参照
-    this.positions = new Float32Array(data.positions);
-    this.positions3d = new Float32Array(data.positions3d);
-    this.sizes = new Float32Array(data.sizes);
+    this.positions = new Float32Array(data.positions)
+    this.positions3d = new Float32Array(data.positions3d)
+    this.sizes = new Float32Array(data.sizes)
 
     // 【colors 初期化】: N×4 RGBA を新規確保し、defaultRgb + alpha=1.0 で埋める
-    this.colors = new Float32Array(data.trialCount * 4);
+    this.colors = new Float32Array(data.trialCount * 4)
     for (let i = 0; i < data.trialCount; i++) {
-      this.colors[i * 4 + 0] = defaultRgb[0]; // R
-      this.colors[i * 4 + 1] = defaultRgb[1]; // G
-      this.colors[i * 4 + 2] = defaultRgb[2]; // B
-      this.colors[i * 4 + 3] = 1.0;           // A = 1.0（初期値: 全選択状態）
+      this.colors[i * 4 + 0] = defaultRgb[0] // R
+      this.colors[i * 4 + 1] = defaultRgb[1] // G
+      this.colors[i * 4 + 2] = defaultRgb[2] // B
+      this.colors[i * 4 + 3] = 1.0 // A = 1.0（初期値: 全選択状態）
     }
   }
 
@@ -93,19 +90,19 @@ export class GpuBuffer {
     deselectedAlpha: number = 0.2,
   ): void {
     // 【ローカルキャッシュ】: this.colors プロパティ参照をループ外でキャッシュして高速化
-    const c = this.colors;
-    const limit = this.trialCount * 4;
+    const c = this.colors
+    const limit = this.trialCount * 4
 
     // 【Pass 1 — 全点を非選択状態に設定】: stride=4 でアルファチャンネルのみ書き換え
     // i * 4 + 3 の乗算を省き、インデックスを i=3, 7, 11, ... とストライドで進める
     for (let i = 3; i < limit; i += 4) {
-      c[i] = deselectedAlpha;
+      c[i] = deselectedAlpha
     }
 
     // 【Pass 2 — 選択点の alpha を更新】: O(|selected|) で選択点のみ selectedAlpha に設定
-    const len = selectedIndices.length;
+    const len = selectedIndices.length
     for (let i = 0; i < len; i++) {
-      c[(selectedIndices[i] << 2) + 3] = selectedAlpha; // << 2 は *4 の高速版
+      c[(selectedIndices[i] << 2) + 3] = selectedAlpha // << 2 は *4 の高速版
     }
   }
 
@@ -116,10 +113,10 @@ export class GpuBuffer {
    */
   resetAlphas(): void {
     // 【O(N) リセット】: stride=4 ストライドで alpha チャンネルのみ 1.0 に一括更新
-    const c = this.colors;
-    const limit = this.trialCount * 4;
+    const c = this.colors
+    const limit = this.trialCount * 4
     for (let i = 3; i < limit; i += 4) {
-      c[i] = 1.0;
+      c[i] = 1.0
     }
   }
 }

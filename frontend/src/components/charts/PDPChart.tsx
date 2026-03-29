@@ -14,7 +14,7 @@
  * Conforms to REQ-103–REQ-106.
  */
 
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from 'echarts-for-react'
 
 // -------------------------------------------------------------------------
 // Types
@@ -25,20 +25,20 @@ import ReactECharts from 'echarts-for-react';
  */
 export interface PdpData1d {
   /** Target parameter name */
-  paramName: string;
+  paramName: string
   /** Target objective name */
-  objectiveName: string;
+  objectiveName: string
   /** Parameter values at grid points (n_grid points) */
-  grid: number[];
+  grid: number[]
   /** PDP values at each grid point (n_grid points) */
-  values: number[];
+  values: number[]
   /** Ridge model coefficient of determination R² ∈ [0, 1] */
-  rSquared: number;
+  rSquared: number
   /**
    * ICE lines: conditional expectation curves per sample (optional)
    * iceLines[sample_idx][grid_idx]
    */
-  iceLines?: number[][];
+  iceLines?: number[][]
 }
 
 /**
@@ -46,19 +46,19 @@ export interface PdpData1d {
  */
 export interface PdpData2d {
   /** First parameter name */
-  param1Name: string;
+  param1Name: string
   /** Second parameter name */
-  param2Name: string;
+  param2Name: string
   /** Target objective name */
-  objectiveName: string;
+  objectiveName: string
   /** Grid points for the first parameter */
-  grid1: number[];
+  grid1: number[]
   /** Grid points for the second parameter */
-  grid2: number[];
+  grid2: number[]
   /** PDP value matrix: values[i][j] = f̄(grid1[i], grid2[j]) */
-  values: number[][];
+  values: number[][]
   /** Ridge model coefficient of determination R² */
-  rSquared: number;
+  rSquared: number
 }
 
 // -------------------------------------------------------------------------
@@ -66,35 +66,35 @@ export interface PdpData2d {
 // -------------------------------------------------------------------------
 
 /** R² threshold above which quality is considered "good" */
-const R2_GOOD_THRESHOLD = 0.8;
+const R2_GOOD_THRESHOLD = 0.8
 
 /** R² threshold above which quality is considered "caution" (below R2_GOOD) */
-const R2_WARN_THRESHOLD = 0.5;
+const R2_WARN_THRESHOLD = 0.5
 
 /** Color for the PDP curve */
-const PDP_LINE_COLOR = '#4f46e5';
+const PDP_LINE_COLOR = '#4f46e5'
 
 /** Color for normal ICE lines */
-const ICE_NORMAL_COLOR = 'rgba(107, 114, 128, 0.3)';
+const ICE_NORMAL_COLOR = 'rgba(107, 114, 128, 0.3)'
 
 /** Color for highlighted ICE lines */
-const ICE_HIGHLIGHT_COLOR = '#f59e0b';
+const ICE_HIGHLIGHT_COLOR = '#f59e0b'
 
 // -------------------------------------------------------------------------
 // Model quality assessment
 // -------------------------------------------------------------------------
 
 /** Model quality label based on R² */
-export type ModelQuality = '良好' | '要注意' | '推奨外';
+export type ModelQuality = '良好' | '要注意' | '推奨外'
 
 /**
  * Returns a quality label based on R²:
  * R² >= 0.8 → good / R² >= 0.5 → caution / R² < 0.5 → not recommended
  */
 export function getModelQuality(rSquared: number): ModelQuality {
-  if (rSquared >= R2_GOOD_THRESHOLD) return '良好';
-  if (rSquared >= R2_WARN_THRESHOLD) return '要注意';
-  return '推奨外';
+  if (rSquared >= R2_GOOD_THRESHOLD) return '良好'
+  if (rSquared >= R2_WARN_THRESHOLD) return '要注意'
+  return '推奨外'
 }
 
 // -------------------------------------------------------------------------
@@ -111,7 +111,7 @@ export function getModelQuality(rSquared: number): ModelQuality {
  * Conforms to REQ-104: highlight ICE lines for selected samples after Brushing.
  */
 function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
-  const iceLines = data.iceLines ?? [];
+  const iceLines = data.iceLines ?? []
 
   // ICE line series: draw each sample's conditional expectation as a thin line
   const iceSeries = iceLines.map((iceLine, idx) => ({
@@ -125,7 +125,7 @@ function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
     symbolSize: 0,
     // Hide from legend; ICE lines don't need individual entries
     showInLegend: false,
-  }));
+  }))
 
   // PDP curve series: thick purple line drawn on top of ICE lines
   const pdpSeries = {
@@ -135,15 +135,15 @@ function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
     lineStyle: { width: 3, color: PDP_LINE_COLOR },
     symbolSize: 0,
     z: 10, // Render in front of ICE lines
-  };
+  }
 
   return {
     tooltip: {
       trigger: 'axis',
       formatter: (params: { seriesName: string; data: [number, number] }[]) => {
-        const pdp = params.find((p) => p.seriesName === 'PDP');
-        if (!pdp) return '';
-        return `${data.paramName}: ${pdp.data[0].toFixed(3)}<br/>PDP: ${pdp.data[1].toFixed(4)}`;
+        const pdp = params.find((p) => p.seriesName === 'PDP')
+        if (!pdp) return ''
+        return `${data.paramName}: ${pdp.data[0].toFixed(3)}<br/>PDP: ${pdp.data[1].toFixed(4)}`
       },
     },
     xAxis: {
@@ -159,7 +159,7 @@ function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
     series: [...iceSeries, pdpSeries],
     // Show only the PDP entry in the legend
     legend: { data: ['PDP'] },
-  };
+  }
 }
 
 /**
@@ -168,16 +168,16 @@ function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
  */
 function buildPdp2dOption(data: PdpData2d): object {
   // Convert to [grid1_idx, grid2_idx, value] format for ECharts heatmap
-  const heatmapData: [number, number, number][] = [];
+  const heatmapData: [number, number, number][] = []
   for (let i = 0; i < data.grid1.length; i++) {
     for (let j = 0; j < data.grid2.length; j++) {
-      heatmapData.push([i, j, data.values[i]?.[j] ?? 0]);
+      heatmapData.push([i, j, data.values[i]?.[j] ?? 0])
     }
   }
 
-  const allValues = heatmapData.map((d) => d[2]);
-  const minVal = Math.min(...allValues);
-  const maxVal = Math.max(...allValues);
+  const allValues = heatmapData.map((d) => d[2])
+  const minVal = Math.min(...allValues)
+  const maxVal = Math.max(...allValues)
 
   return {
     xAxis: {
@@ -208,7 +208,7 @@ function buildPdp2dOption(data: PdpData2d): object {
         label: { show: false },
       },
     ],
-  };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -217,20 +217,20 @@ function buildPdp2dOption(data: PdpData2d): object {
 
 export interface PDPChartProps {
   /** 1D PDP data — shows empty state or loading when null */
-  data1d: PdpData1d | null;
+  data1d: PdpData1d | null
   /** 2D PDP data (optional) */
-  data2d?: PdpData2d | null;
+  data2d?: PdpData2d | null
   /** PDP computation in progress */
-  isLoading?: boolean;
+  isLoading?: boolean
   /** Whether ONNX high-precision mode is enabled */
-  useOnnx?: boolean;
+  useOnnx?: boolean
   /**
    * ICE line indices to highlight (Brushing integration).
    * ICE lines at these indices are highlighted in orange.
    */
-  highlightedIndices?: number[];
+  highlightedIndices?: number[]
   /** Callback to request ONNX model loading */
-  onOnnxRequest?: () => void;
+  onOnnxRequest?: () => void
 }
 
 // -------------------------------------------------------------------------
@@ -276,7 +276,7 @@ export function PDPChart({
         />
         <span style={{ fontSize: '13px', color: '#6b7280' }}>PDP計算中...</span>
       </div>
-    );
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -288,35 +288,30 @@ export function PDPChart({
       <div data-testid="pdp-chart" style={{ padding: '12px' }}>
         <span style={{ fontSize: '13px', color: '#6b7280' }}>データが読み込まれていません</span>
       </div>
-    );
+    )
   }
 
   // -------------------------------------------------------------------------
   // R² and quality assessment
   // -------------------------------------------------------------------------
 
-  const rSquared = data1d?.rSquared ?? data2d?.rSquared ?? 0;
-  const quality = getModelQuality(rSquared);
-  const qualityLabel =
-    quality === '良好' ? '✓良好' : quality === '要注意' ? '△要注意' : '✕推奨外';
-  const qualityColor =
-    quality === '良好' ? '#16a34a' : quality === '要注意' ? '#d97706' : '#dc2626';
+  const rSquared = data1d?.rSquared ?? data2d?.rSquared ?? 0
+  const quality = getModelQuality(rSquared)
+  const qualityLabel = quality === '良好' ? '✓良好' : quality === '要注意' ? '△要注意' : '✕推奨外'
+  const qualityColor = quality === '良好' ? '#16a34a' : quality === '要注意' ? '#d97706' : '#dc2626'
 
   // -------------------------------------------------------------------------
   // Highlighted index set
   // -------------------------------------------------------------------------
 
-  const highlightedSet = new Set(highlightedIndices);
+  const highlightedSet = new Set(highlightedIndices)
 
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   return (
-    <div
-      data-testid="pdp-chart"
-      style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-    >
+    <div data-testid="pdp-chart" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {/* Linear approximation warning banner: shown when ONNX is not in use (REQ-105) */}
       {!useOnnx && (
         <div
@@ -333,9 +328,7 @@ export function PDPChart({
             justifyContent: 'space-between',
           }}
         >
-          <span>
-            線形近似で表示中 / より精度の高いPDPには .onnx ファイルを読み込んでください
-          </span>
+          <span>線形近似で表示中 / より精度の高いPDPには .onnx ファイルを読み込んでください</span>
           {/* Button to request ONNX model loading */}
           {onOnnxRequest && (
             <button
@@ -399,19 +392,11 @@ export function PDPChart({
 
       {/* 1D PDP chart: ECharts with PDP curve and ICE lines */}
       {data1d && !data2d && (
-        <ReactECharts
-          option={buildPdpOption(data1d, highlightedSet)}
-          style={{ height: '300px' }}
-        />
+        <ReactECharts option={buildPdpOption(data1d, highlightedSet)} style={{ height: '300px' }} />
       )}
 
       {/* 2D PDP heatmap: ECharts interaction heatmap */}
-      {data2d && (
-        <ReactECharts
-          option={buildPdp2dOption(data2d)}
-          style={{ height: '300px' }}
-        />
-      )}
+      {data2d && <ReactECharts option={buildPdp2dOption(data2d)} style={{ height: '300px' }} />}
     </div>
-  );
+  )
 }

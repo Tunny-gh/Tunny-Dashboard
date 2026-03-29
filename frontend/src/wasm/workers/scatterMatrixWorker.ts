@@ -21,13 +21,13 @@
  * 【受信メッセージ型】: ScatterMatrixEngine から送られてくる描画要求
  */
 interface RenderMessage {
-  type: 'render';
+  type: 'render'
   /** 行インデックス（y 軸変数） */
-  row: number;
+  row: number
   /** 列インデックス（x 軸変数） */
-  col: number;
+  col: number
   /** ピクセルサイズ（80 / 300 / 600） */
-  size: number;
+  size: number
 }
 
 // -------------------------------------------------------------------------
@@ -44,42 +44,39 @@ interface RenderMessage {
  * 🟢 Pareto 点は必ずダウンサンプリングに含める（REQ-066）
  */
 self.onmessage = (e: MessageEvent<RenderMessage>) => {
-  const { type, row, col, size } = e.data;
+  const { type, row, col, size } = e.data
 
   // 【型チェック】: 未知のメッセージタイプは無視する
-  if (type !== 'render') return;
+  if (type !== 'render') return
 
   try {
     // 【OffscreenCanvas 生成】: Worker スレッド内でキャンバスを生成する
-    const canvas = new OffscreenCanvas(size, size);
-    const ctx = canvas.getContext('2d');
+    const canvas = new OffscreenCanvas(size, size)
+    const ctx = canvas.getContext('2d')
 
     if (!ctx) {
       // 【コンテキスト取得失敗】: null で応答して他セルへの影響を防ぐ
-      self.postMessage({ type: 'done', row, col, imageData: null });
-      return;
+      self.postMessage({ type: 'done', row, col, imageData: null })
+      return
     }
 
     // 【背景描画】: グレー背景でプレースホルダーを描画する
-    ctx.fillStyle = '#f9fafb';
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#f9fafb'
+    ctx.fillRect(0, 0, size, size)
 
     // 【TODO】: WASM downsample_for_thumbnail(row, col, size) を呼び出して実データを描画する
     //           TASK-102 (WASM DataFrame 実装) 完成後に実装予定
     // 🔴 現在はプレースホルダー描画のみ
 
     // 【ImageData 取得】: キャンバスの画素データを取得する
-    const imageData = ctx.getImageData(0, 0, size, size);
+    const imageData = ctx.getImageData(0, 0, size, size)
 
     // 【完了メッセージ送信】: ImageData バッファを転送して Main スレッドに返す
     // 【転送最適化】: Transferable Objects で ImageData バッファをコピーなし転送
-    self.postMessage(
-      { type: 'done', row, col, imageData },
-      { transfer: [imageData.data.buffer] },
-    );
+    self.postMessage({ type: 'done', row, col, imageData }, { transfer: [imageData.data.buffer] })
   } catch (_err) {
     // 【エラー回復】: 例外をキャッチして null を返し、当該セルのみを無効化する
     // 🟢 Worker がクラッシュせず他セルへの影響を防ぐ（REQ-066 エラーハンドリング）
-    self.postMessage({ type: 'done', row, col, imageData: null });
+    self.postMessage({ type: 'done', row, col, imageData: null })
   }
-};
+}

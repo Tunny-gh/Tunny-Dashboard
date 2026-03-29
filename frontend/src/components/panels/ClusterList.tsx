@@ -9,8 +9,8 @@
  * 🟢 REQ-083〜REQ-087 に準拠
  */
 
-import { useState } from 'react';
-import { useSelectionStore } from '../../stores/selectionStore';
+import { useState } from 'react'
+import { useSelectionStore } from '../../stores/selectionStore'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -21,15 +21,15 @@ import { useSelectionStore } from '../../stores/selectionStore';
  */
 export interface ClusterStatData {
   /** クラスタ ID（0 始まり）*/
-  clusterId: number;
+  clusterId: number
   /** クラスタに含まれるサンプル数 */
-  size: number;
+  size: number
   /** 各特徴の重心値（centroid[j] = 特徴 j の平均）*/
-  centroid: number[];
+  centroid: number[]
   /** 各特徴の標準偏差 */
-  stdDev: number[];
+  stdDev: number[]
   /** 有意差フラグ: Welch's t 検定 |t|>3.0 のとき true 🟢 */
-  significantFeatures: boolean[];
+  significantFeatures: boolean[]
 }
 
 /**
@@ -37,14 +37,14 @@ export interface ClusterStatData {
  */
 export interface ClusterListProps {
   /** クラスタ統計データ一覧 */
-  clusterStats: ClusterStatData[];
+  clusterStats: ClusterStatData[]
   /** 特徴名リスト（centroid/std の列名に対応）*/
-  featureNames: string[];
+  featureNames: string[]
   /**
    * 各クラスタに含まれる試行インデックス: trialsByCluster[clusterId] = Uint32Array
    * クラスタ行クリック時に brushSelect() に渡すインデックス群
    */
-  trialsByCluster: Uint32Array[];
+  trialsByCluster: Uint32Array[]
 }
 
 // -------------------------------------------------------------------------
@@ -64,7 +64,7 @@ const CLUSTER_COLORS = [
   '#7c3aed', // violet
   '#ea580c', // orange
   '#0d9488', // teal
-];
+]
 
 // -------------------------------------------------------------------------
 // ユーティリティ
@@ -74,7 +74,7 @@ const CLUSTER_COLORS = [
  * 【クラスタ色取得】: clusterId から識別色を返す（8 色以上は循環）
  */
 export function getClusterColor(clusterId: number): string {
-  return CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length];
+  return CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]
 }
 
 // -------------------------------------------------------------------------
@@ -89,43 +89,43 @@ export function getClusterColor(clusterId: number): string {
  */
 export function ClusterList({ clusterStats, featureNames, trialsByCluster }: ClusterListProps) {
   // 【Store 接続】: selectionStore から brushSelect を取得 🟢
-  const brushSelect = useSelectionStore((s) => s.brushSelect);
+  const brushSelect = useSelectionStore((s) => s.brushSelect)
 
   // 【内部状態】: 現在選択中のクラスタ ID セット
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   /**
    * 【クラスタ行クリックハンドラ】: 通常クリックは単一選択、Ctrl+クリックは複数選択
    * 選択後に対象クラスタの全インデックスを brushSelect() に渡す 🟢 REQ-085
    */
   const handleClusterClick = (clusterId: number, ctrlKey: boolean) => {
-    let newSelected: Set<number>;
+    let newSelected: Set<number>
 
     if (ctrlKey) {
       // 【Ctrl+クリック】: 既存選択セットに追加 or 除外
-      newSelected = new Set(selectedIds);
+      newSelected = new Set(selectedIds)
       if (newSelected.has(clusterId)) {
-        newSelected.delete(clusterId);
+        newSelected.delete(clusterId)
       } else {
-        newSelected.add(clusterId);
+        newSelected.add(clusterId)
       }
     } else {
       // 【通常クリック】: 単一クラスタのみ選択
-      newSelected = new Set([clusterId]);
+      newSelected = new Set([clusterId])
     }
 
-    setSelectedIds(newSelected);
+    setSelectedIds(newSelected)
 
     // 【brushSelect 呼び出し】: 選択クラスタの全インデックスを結合してソート
-    const allIndices: number[] = [];
+    const allIndices: number[] = []
     newSelected.forEach((id) => {
-      const cluster = trialsByCluster[id];
+      const cluster = trialsByCluster[id]
       if (cluster) {
-        allIndices.push(...Array.from(cluster));
+        allIndices.push(...Array.from(cluster))
       }
-    });
-    brushSelect(new Uint32Array(allIndices.sort((a, b) => a - b)));
-  };
+    })
+    brushSelect(new Uint32Array(allIndices.sort((a, b) => a - b)))
+  }
 
   // -------------------------------------------------------------------------
   // 空状態UI
@@ -139,7 +139,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
           クラスタリングが実行されていません
         </span>
       </div>
-    );
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -147,10 +147,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
   // -------------------------------------------------------------------------
 
   return (
-    <div
-      data-testid="cluster-list"
-      style={{ overflowX: 'auto' }}
-    >
+    <div data-testid="cluster-list" style={{ overflowX: 'auto' }}>
       {/* 【クラスタ比較テーブル】: centroid ± std + 有意差★ 🟢 REQ-083 */}
       <table
         style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '400px' }}
@@ -197,8 +194,8 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
         </thead>
         <tbody>
           {clusterStats.map((stat) => {
-            const color = getClusterColor(stat.clusterId);
-            const isSelected = selectedIds.has(stat.clusterId);
+            const color = getClusterColor(stat.clusterId)
+            const isSelected = selectedIds.has(stat.clusterId)
 
             return (
               <tr
@@ -244,8 +241,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                     }}
                   >
                     <span data-testid={`stat-${stat.clusterId}-${j}`}>
-                      {stat.centroid[j] !== undefined ? stat.centroid[j].toFixed(3) : '—'}
-                      ±
+                      {stat.centroid[j] !== undefined ? stat.centroid[j].toFixed(3) : '—'}±
                       {stat.stdDev[j] !== undefined ? stat.stdDev[j].toFixed(3) : '—'}
                     </span>
                     {/* 【有意差マーク】: Welch's t |t|>3.0 のとき ★ 表示 🟢 */}
@@ -260,10 +256,10 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                   </td>
                 ))}
               </tr>
-            );
+            )
           })}
         </tbody>
       </table>
     </div>
-  );
+  )
 }

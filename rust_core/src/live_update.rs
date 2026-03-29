@@ -16,9 +16,9 @@
 //!
 //! 参照: docs/tasks/tunny-dashboard-tasks.md TASK-1201
 
+use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use serde_json::Value;
 
 // =============================================================================
 // 公開型定義
@@ -120,7 +120,8 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
 
         // 【行ループ】: 完全な各 JSON 行を処理
         for line in complete_data.split(|&b| b == b'\n') {
-            let trimmed = line.iter()
+            let trimmed = line
+                .iter()
                 .position(|&b| b != b' ' && b != b'\r' && b != b'\t')
                 .map(|i| &line[i..])
                 .unwrap_or(line);
@@ -142,10 +143,8 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
             match op {
                 // 【CREATE_TRIAL (op=4)】: 新 RUNNING 試行を保留リストへ追加 🟢
                 4 => {
-                    let study_idx = json
-                        .get("study_id")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
+                    let study_idx =
+                        json.get("study_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                     let trial_id = s.next_trial_id;
                     s.next_trial_id += 1;
                     s.pending.insert(
@@ -169,8 +168,7 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                             json.get("param_value_internal").and_then(|v| v.as_f64()),
                         ) {
                             // 【簡易逆変換】: distribution から表示値を計算
-                            let display_val =
-                                decode_param_value(val, json.get("distribution"));
+                            let display_val = decode_param_value(val, json.get("distribution"));
                             let label = extract_categorical_label(val, json.get("distribution"));
                             if let Some(lbl) = label {
                                 pending.param_category_label.insert(name.to_string(), lbl);
@@ -187,22 +185,15 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         .get("trial_id")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(u64::MAX) as u32;
-                    let state_val = json
-                        .get("state")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u8;
+                    let state_val = json.get("state").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
 
                     if state_val == 1 {
                         // 【COMPLETE 確定】: 保留から除去して new_completed++ 🟢
                         if let Some(mut pending) = s.pending.remove(&trial_id) {
                             // 目的値を設定
                             if let Some(vals_json) = json.get("values").and_then(|v| v.as_array()) {
-                                pending.values = Some(
-                                    vals_json
-                                        .iter()
-                                        .filter_map(|v| v.as_f64())
-                                        .collect(),
-                                );
+                                pending.values =
+                                    Some(vals_json.iter().filter_map(|v| v.as_f64()).collect());
                             }
                             // TODO: 実際の DataFrame 追記は将来の実装で対応 (TASK-1201拡張)
                             // 現在は new_completed カウントのみ返す
@@ -276,7 +267,11 @@ fn decode_param_value(internal: f64, dist: Option<&Value>) -> f64 {
         }
         "IntDistribution" => {
             let low = dist.get("low").and_then(|v| v.as_i64()).unwrap_or(0);
-            let step = dist.get("step").and_then(|v| v.as_i64()).unwrap_or(1).max(1);
+            let step = dist
+                .get("step")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(1)
+                .max(1);
             let log = dist.get("log").and_then(|v| v.as_bool()).unwrap_or(false);
             let rounded = if log {
                 internal.exp().round() as i64
@@ -363,7 +358,10 @@ mod tests {
             let data = make_diff_bytes(&lines);
             let result = append_journal_diff(&data);
             // 【確認内容】: 1つの COMPLETE 試行が検出されること
-            assert_eq!(result.new_completed, 1, "COMPLETE 試行が1件カウントされるべき");
+            assert_eq!(
+                result.new_completed, 1,
+                "COMPLETE 試行が1件カウントされるべき"
+            );
             assert_eq!(result.pending_running, 0, "COMPLETE後の保留リストは空");
         });
     }

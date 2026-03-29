@@ -248,7 +248,10 @@ fn gaussian_elimination(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64
 /// @param alpha Ridge 正則化パラメータ（通常 1.0）
 pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResult {
     let n = y.len();
-    let empty = RidgeResult { beta: vec![], r_squared: 0.0 };
+    let empty = RidgeResult {
+        beta: vec![],
+        r_squared: 0.0,
+    };
 
     if n < 2 || x_matrix.len() != n {
         return empty;
@@ -290,7 +293,9 @@ pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResul
     }
 
     // 【β の解法】: ガウス消去法 (p×p 系)
-    let xtx_2d: Vec<Vec<f64>> = (0..p).map(|i| xtx_flat[i * p..(i + 1) * p].to_vec()).collect();
+    let xtx_2d: Vec<Vec<f64>> = (0..p)
+        .map(|i| xtx_flat[i * p..(i + 1) * p].to_vec())
+        .collect();
     let beta = match gaussian_elimination(xtx_2d, xty) {
         Some(b) => b,
         None => vec![0.0; p],
@@ -302,7 +307,11 @@ pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResul
         .collect();
 
     // 【R² 計算】: R² = 1 - SS_res / SS_tot
-    let ss_res: f64 = y_c.iter().zip(y_hat.iter()).map(|(yi, yhi)| (yi - yhi).powi(2)).sum();
+    let ss_res: f64 = y_c
+        .iter()
+        .zip(y_hat.iter())
+        .map(|(yi, yhi)| (yi - yhi).powi(2))
+        .sum();
     let ss_tot: f64 = y_c.iter().map(|&yi| yi.powi(2)).sum();
 
     let r_squared = if ss_tot < f64::EPSILON {
@@ -375,7 +384,9 @@ pub fn compute_sensitivity_all(df: &crate::dataframe::DataFrame) -> SensitivityR
         let mean: f64 = col.iter().sum::<f64>() / nf;
         let std_dev = (col.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / nf).sqrt();
         let std_dev = if std_dev < f64::EPSILON { 1.0 } else { std_dev };
-        for v in col.iter_mut() { *v = (*v - mean) / std_dev; }
+        for v in col.iter_mut() {
+            *v = (*v - mean) / std_dev;
+        }
     }
 
     // 【X^T X の事前計算】: 全目的で共有（コスト節約）
@@ -397,7 +408,8 @@ pub fn compute_sensitivity_all(df: &crate::dataframe::DataFrame) -> SensitivityR
     let ridge: Vec<RidgeResult> = objective_names
         .iter()
         .map(|o_name| {
-            let y: Vec<f64> = df.get_numeric_column(o_name)
+            let y: Vec<f64> = df
+                .get_numeric_column(o_name)
                 .map(|col| col[..n].to_vec())
                 .unwrap_or_else(|| vec![0.0; n]);
             let y_mean = y.iter().sum::<f64>() / n as f64;
@@ -420,11 +432,23 @@ pub fn compute_sensitivity_all(df: &crate::dataframe::DataFrame) -> SensitivityR
             };
 
             let y_hat: Vec<f64> = (0..n)
-                .map(|i| (0..num_params).map(|j| x_cols_flat[j * n + i] * beta[j]).sum())
+                .map(|i| {
+                    (0..num_params)
+                        .map(|j| x_cols_flat[j * n + i] * beta[j])
+                        .sum()
+                })
                 .collect();
-            let ss_res: f64 = y_c.iter().zip(y_hat.iter()).map(|(yi, yhi)| (yi - yhi).powi(2)).sum();
+            let ss_res: f64 = y_c
+                .iter()
+                .zip(y_hat.iter())
+                .map(|(yi, yhi)| (yi - yhi).powi(2))
+                .sum();
             let ss_tot: f64 = y_c.iter().map(|&yi| yi.powi(2)).sum();
-            let r_squared = if ss_tot < f64::EPSILON { 0.0 } else { (1.0 - ss_res / ss_tot).max(0.0) };
+            let r_squared = if ss_tot < f64::EPSILON {
+                0.0
+            } else {
+                (1.0 - ss_res / ss_tot).max(0.0)
+            };
 
             RidgeResult { beta, r_squared }
         })
@@ -467,7 +491,11 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             .iter()
             .filter_map(|&i| {
                 let u = i as usize;
-                if u < n_rows { Some(u) } else { None }
+                if u < n_rows {
+                    Some(u)
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -550,7 +578,7 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataframe::{DataFrame, TrialRow, store_dataframes, select_study};
+    use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
     use std::collections::HashMap;
 
     // -------------------------------------------------------------------------
@@ -558,11 +586,7 @@ mod tests {
     // -------------------------------------------------------------------------
 
     /// 多パラメータ・多目的の TrialRow を生成するヘルパー
-    fn make_row_multi(
-        trial_id: u32,
-        params: &[(&str, f64)],
-        objectives: Vec<f64>,
-    ) -> TrialRow {
+    fn make_row_multi(trial_id: u32, params: &[(&str, f64)], objectives: Vec<f64>) -> TrialRow {
         TrialRow {
             trial_id,
             param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
@@ -575,11 +599,7 @@ mod tests {
     }
 
     /// DataFrame を構築してアクティブに設定するヘルパー
-    fn setup_df(
-        rows: Vec<TrialRow>,
-        params: &[&str],
-        objs: &[&str],
-    ) -> DataFrame {
+    fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
         let param_names: Vec<String> = params.iter().map(|s| s.to_string()).collect();
         let obj_names: Vec<String> = objs.iter().map(|s| s.to_string()).collect();
         let df = DataFrame::from_trials(&rows, &param_names, &obj_names, &[], &[], 0);
@@ -602,7 +622,8 @@ mod tests {
 
         assert!(
             (r - 1.0).abs() < 1e-9,
-            "完全正相関のSpearmanは1.0のはず: {}", r
+            "完全正相関のSpearmanは1.0のはず: {}",
+            r
         );
     }
 
@@ -616,7 +637,8 @@ mod tests {
 
         assert!(
             (r + 1.0).abs() < 1e-9,
-            "完全負相関のSpearmanは-1.0のはず: {}", r
+            "完全負相関のSpearmanは-1.0のはず: {}",
+            r
         );
     }
 
@@ -635,7 +657,9 @@ mod tests {
         let expected = 13.0 / 35.0; // = 0.37142857...
         assert!(
             (r - expected).abs() < 1e-9,
-            "Spearman相関が期待値と不一致: expected={}, got={}", expected, r
+            "Spearman相関が期待値と不一致: expected={}, got={}",
+            expected,
+            r
         );
     }
 
@@ -669,16 +693,15 @@ mod tests {
     fn tc_801_06_ridge_perfect_linear_r_squared_near_1() {
         // 【テスト目的】: 完全線形データで R² ≈ 1.0 になる 🟢
         let n = 50;
-        let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| vec![i as f64])
-            .collect();
+        let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
         let y: Vec<f64> = (0..n).map(|i| 2.0 * i as f64 + 1.0).collect();
 
         let result = compute_ridge(&x_matrix, &y, 0.001);
 
         assert!(
             result.r_squared > 0.99,
-            "完全線形データのR²は1.0に近いはず: {}", result.r_squared
+            "完全線形データのR²は1.0に近いはず: {}",
+            result.r_squared
         );
     }
 
@@ -693,7 +716,8 @@ mod tests {
 
         assert!(
             result.beta[0] > 0.0,
-            "正の関係ではβ>0のはず: {}", result.beta[0]
+            "正の関係ではβ>0のはず: {}",
+            result.beta[0]
         );
     }
 
@@ -702,9 +726,7 @@ mod tests {
         // 【テスト目的】: 2変数で強い関係のパラメータのβ絶対値が大きい 🟢
         let n = 50;
         // x1 は y と強い正相関、x2 は弱い相関
-        let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| vec![i as f64, (i % 5) as f64])
-            .collect();
+        let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 5) as f64]).collect();
         let y: Vec<f64> = (0..n).map(|i| i as f64 + 0.1 * (i % 5) as f64).collect();
 
         let result = compute_ridge(&x_matrix, &y, 0.01);
@@ -712,7 +734,8 @@ mod tests {
         assert_eq!(result.beta.len(), 2, "β係数は2個のはず");
         assert!(
             result.beta[0].abs() > result.beta[1].abs(),
-            "x1の感度がx2より大きいはず: beta={:?}", result.beta
+            "x1の感度がx2より大きいはず: beta={:?}",
+            result.beta
         );
     }
 
@@ -746,11 +769,11 @@ mod tests {
         let result = compute_sensitivity_all(&df);
 
         // 【確認】構造が正しいこと
-        assert_eq!(result.param_names.len(), 2);   // x1, x2
+        assert_eq!(result.param_names.len(), 2); // x1, x2
         assert_eq!(result.objective_names.len(), 2); // obj0, obj1
-        assert_eq!(result.spearman.len(), 2);        // 2パラメータ行
-        assert_eq!(result.spearman[0].len(), 2);     // 2目的列
-        assert_eq!(result.ridge.len(), 2);            // 2目的
+        assert_eq!(result.spearman.len(), 2); // 2パラメータ行
+        assert_eq!(result.spearman[0].len(), 2); // 2目的列
+        assert_eq!(result.ridge.len(), 2); // 2目的
     }
 
     #[test]
@@ -770,8 +793,16 @@ mod tests {
         let result = compute_sensitivity_all(&df);
 
         // 【確認】x1 と obj0 の相関は正、x2 と obj0 の相関は負
-        assert!(result.spearman[0][0] > 0.99, "x1-obj0は正相関のはず: {}", result.spearman[0][0]);
-        assert!(result.spearman[1][0] < -0.99, "x2-obj0は負相関のはず: {}", result.spearman[1][0]);
+        assert!(
+            result.spearman[0][0] > 0.99,
+            "x1-obj0は正相関のはず: {}",
+            result.spearman[0][0]
+        );
+        assert!(
+            result.spearman[1][0] < -0.99,
+            "x2-obj0は負相関のはず: {}",
+            result.spearman[1][0]
+        );
     }
 
     // =========================================================================
@@ -782,13 +813,7 @@ mod tests {
     fn tc_801_12_sensitivity_selected_subset() {
         // 【テスト目的】: compute_sensitivity_selected が指定インデックスのサブセットで計算する 🟢
         let rows: Vec<TrialRow> = (0..20)
-            .map(|i| {
-                make_row_multi(
-                    i,
-                    &[("x1", i as f64)],
-                    vec![i as f64],
-                )
-            })
+            .map(|i| make_row_multi(i, &[("x1", i as f64)], vec![i as f64]))
             .collect();
         setup_df(rows, &["x1"], &["obj0"]);
 
@@ -799,7 +824,11 @@ mod tests {
         assert_eq!(result.param_names, vec!["x1"]);
         assert_eq!(result.objective_names, vec!["obj0"]);
         // サブセットでも x1-obj0 は完全正相関
-        assert!(result.spearman[0][0] > 0.99, "サブセットでも正相関のはず: {}", result.spearman[0][0]);
+        assert!(
+            result.spearman[0][0] > 0.99,
+            "サブセットでも正相関のはず: {}",
+            result.spearman[0][0]
+        );
     }
 
     #[test]
@@ -812,7 +841,10 @@ mod tests {
 
         let result = compute_sensitivity_selected(&[]).expect("結果があるはず");
 
-        assert!(result.spearman.is_empty(), "空インデックスはspearman空のはず");
+        assert!(
+            result.spearman.is_empty(),
+            "空インデックスはspearman空のはず"
+        );
     }
 
     // =========================================================================
@@ -847,7 +879,10 @@ mod tests {
         assert!(
             elapsed.as_millis() <= 500,
             "Spearman計算が{}msかかった（期待: ≤500ms, n={}, params={}, objs={}）",
-            elapsed.as_millis(), n, n_params, n_objs
+            elapsed.as_millis(),
+            n,
+            n_params,
+            n_objs
         );
     }
 
@@ -877,7 +912,9 @@ mod tests {
         assert!(
             elapsed.as_millis() <= 300,
             "Ridge計算が{}msかかった（期待: ≤300ms, n={}, params={}）",
-            elapsed.as_millis(), n, n_params
+            elapsed.as_millis(),
+            n,
+            n_params
         );
     }
 
@@ -904,7 +941,8 @@ mod tests {
         assert!(
             elapsed.as_millis() <= 50,
             "compute_sensitivity_selected が {}ms かかった（期待: ≤50ms, n={}）",
-            elapsed.as_millis(), n
+            elapsed.as_millis(),
+            n
         );
     }
 }

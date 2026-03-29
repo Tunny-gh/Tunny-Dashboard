@@ -7,10 +7,10 @@
  * 🟢 REQ-040〜REQ-044 に準拠
  */
 
-import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
-import type { ColorMode, Range } from '../types';
-import { WasmLoader } from '../wasm/wasmLoader';
+import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
+import type { ColorMode, Range } from '../types'
+import { WasmLoader } from '../wasm/wasmLoader'
 
 // -------------------------------------------------------------------------
 // 型定義
@@ -23,27 +23,27 @@ import { WasmLoader } from '../wasm/wasmLoader';
 interface SelectionState {
   // --- 公開状態 ---
   /** 現在選択中の trial インデックス（N個） */
-  selectedIndices: Uint32Array;
+  selectedIndices: Uint32Array
   /** 軸名 → {min, max} フィルタ範囲 */
-  filterRanges: Record<string, Range>;
+  filterRanges: Record<string, Range>
   /** ハイライト中の trial インデックス（null = なし） */
-  highlighted: number | null;
+  highlighted: number | null
   /** カラーリングモード */
-  colorMode: ColorMode;
+  colorMode: ColorMode
 
   // --- 公開アクション ---
-  brushSelect: (indices: Uint32Array) => void;
-  addAxisFilter: (axis: string, min: number, max: number) => void;
-  removeAxisFilter: (axis: string) => void;
-  clearSelection: () => void;
-  setHighlight: (index: number | null) => void;
-  setColorMode: (mode: ColorMode) => void;
+  brushSelect: (indices: Uint32Array) => void
+  addAxisFilter: (axis: string, min: number, max: number) => void
+  removeAxisFilter: (axis: string) => void
+  clearSelection: () => void
+  setHighlight: (index: number | null) => void
+  setColorMode: (mode: ColorMode) => void
 
   // --- 内部状態（公開インターフェース外）---
   /** clearSelection で全インデックス生成に使用する trial 数 */
-  _trialCount: number;
+  _trialCount: number
   /** studyStore から呼び出して trialCount を初期化する */
-  _setTrialCount: (n: number) => void;
+  _setTrialCount: (n: number) => void
 }
 
 // -------------------------------------------------------------------------
@@ -77,7 +77,7 @@ export const useSelectionStore = create<SelectionState>()(
      * 🟢 selectedIndices を同期更新 → subscribe が GPU alpha を更新
      */
     brushSelect: (indices) => {
-      set({ selectedIndices: indices });
+      set({ selectedIndices: indices })
     },
 
     /**
@@ -92,18 +92,18 @@ export const useSelectionStore = create<SelectionState>()(
       const newRanges: Record<string, Range> = {
         ...get().filterRanges,
         [axis]: { min, max },
-      };
-      set({ filterRanges: newRanges });
+      }
+      set({ filterRanges: newRanges })
 
       // 【非同期 WASM 呼び出し】: fire-and-forget
       WasmLoader.getInstance()
         .then((wasm) => {
-          const indices = wasm.filterByRanges(JSON.stringify(newRanges));
-          set({ selectedIndices: indices });
+          const indices = wasm.filterByRanges(JSON.stringify(newRanges))
+          set({ selectedIndices: indices })
         })
         .catch(() => {
           // 【WASM 未初期化】: filterRanges のみ更新済み、selectedIndices は変更しない
-        });
+        })
     },
 
     /**
@@ -113,27 +113,27 @@ export const useSelectionStore = create<SelectionState>()(
      */
     removeAxisFilter: (axis) => {
       // 【フィルタ除去】: 指定軸を除いた新しい filterRanges を生成
-      const current = get().filterRanges;
+      const current = get().filterRanges
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { [axis]: _removed, ...newRanges } = current;
-      set({ filterRanges: newRanges as Record<string, Range> });
+      const { [axis]: _removed, ...newRanges } = current
+      set({ filterRanges: newRanges as Record<string, Range> })
 
       if (Object.keys(newRanges).length === 0) {
         // 【全フィルタ除去】: 全インデックスを選択状態に
-        const n = get()._trialCount;
-        set({ selectedIndices: _makeAllIndices(n) });
-        return;
+        const n = get()._trialCount
+        set({ selectedIndices: _makeAllIndices(n) })
+        return
       }
 
       // 【残りフィルタ再適用】: WASM を再呼び出し
       WasmLoader.getInstance()
         .then((wasm) => {
-          const indices = wasm.filterByRanges(JSON.stringify(newRanges));
-          set({ selectedIndices: indices });
+          const indices = wasm.filterByRanges(JSON.stringify(newRanges))
+          set({ selectedIndices: indices })
         })
         .catch(() => {
           // WASM 未初期化時は無視
-        });
+        })
     },
 
     /**
@@ -141,11 +141,11 @@ export const useSelectionStore = create<SelectionState>()(
      * 🟢 _trialCount から全インデックス [0, 1, ..., N-1] を生成
      */
     clearSelection: () => {
-      const n = get()._trialCount;
+      const n = get()._trialCount
       set({
         selectedIndices: _makeAllIndices(n),
         filterRanges: {},
-      });
+      })
     },
 
     /** 【ハイライト設定】 */
@@ -157,7 +157,7 @@ export const useSelectionStore = create<SelectionState>()(
     /** 【内部】: trialCount を studyStore から設定する */
     _setTrialCount: (n) => set({ _trialCount: n }),
   })),
-);
+)
 
 // -------------------------------------------------------------------------
 // 内部ユーティリティ
@@ -168,7 +168,7 @@ export const useSelectionStore = create<SelectionState>()(
  * clearSelection / removeAxisFilter（全除去時）で使用
  */
 function _makeAllIndices(n: number): Uint32Array {
-  const arr = new Uint32Array(n);
-  for (let i = 0; i < n; i++) arr[i] = i;
-  return arr;
+  const arr = new Uint32Array(n)
+  for (let i = 0; i < n; i++) arr[i] = i
+  return arr
 }
