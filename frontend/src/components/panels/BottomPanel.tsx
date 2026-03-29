@@ -23,9 +23,9 @@ export function BottomPanel() {
   const highlighted = useSelectionStore((s) => s.highlighted)
   const setHighlight = useSelectionStore((s) => s.setHighlight)
 
-  // 【Store接続】: studyStore から currentStudy と gpuBuffer を取得 🟢
+  // 【Store接続】: studyStore から currentStudy と trialRows を取得 🟢
   const currentStudy = useStudyStore((s) => s.currentStudy)
-  const gpuBuffer = useStudyStore((s) => s.gpuBuffer)
+  const trialRows = useStudyStore((s) => s.trialRows)
 
   // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
@@ -74,31 +74,28 @@ export function BottomPanel() {
                 background: highlighted === idx ? '#eff6ff' : undefined,
               }}
             >
-              {/* 【trial_id セル】: インデックスを trial_id として表示（WASM実装後に実際の値に変更） */}
-              <td style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>{idx}</td>
-              {/* 【パラメータセル】: Trial パラメータデータは TASK-102 完成後に実装 */}
-              {currentStudy.paramNames.map((name) => (
-                <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
-                  —
-                </td>
-              ))}
-              {/* 【目的関数セル】: gpuBuffer.positions から値を読み取り表示する
-                   単目的: positions[i*2+1] = obj0
-                   多目的: positions[i*2] = obj0, positions[i*2+1] = obj1 */}
-              {currentStudy.objectiveNames.map((name, objIdx) => {
-                let value = '—'
-                if (gpuBuffer && idx < gpuBuffer.trialCount) {
-                  const isMulti = (currentStudy.directions?.length ?? 1) > 1
-                  if (isMulti) {
-                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2].toFixed(4)
-                    else if (objIdx === 1) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4)
-                  } else {
-                    if (objIdx === 0) value = gpuBuffer.positions[idx * 2 + 1].toFixed(4)
-                  }
-                }
+              {/* 【trial_id セル】: trialRows から実際の trial_id を表示 */}
+              <td style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                {trialRows[idx]?.trialId ?? idx}
+              </td>
+              {/* 【パラメータセル】: trialRows の params から実データを表示 🟢 */}
+              {currentStudy.paramNames.map((name) => {
+                const trial = trialRows[idx]
+                const raw = trial?.params[name]
+                const value = raw !== undefined ? Number(raw) : undefined
                 return (
                   <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
-                    {value}
+                    {value !== undefined && Number.isFinite(value) ? value.toPrecision(6) : '—'}
+                  </td>
+                )
+              })}
+              {/* 【目的関数セル】: trialRows の values から実データを表示 🟢 */}
+              {currentStudy.objectiveNames.map((name, objIdx) => {
+                const trial = trialRows[idx]
+                const value = trial?.values[objIdx]
+                return (
+                  <td key={name} style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                    {value !== undefined && Number.isFinite(value) ? value.toFixed(4) : '—'}
                   </td>
                 )
               })}

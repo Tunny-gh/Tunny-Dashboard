@@ -211,7 +211,9 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         },
       })
       render(<FreeLayoutCanvas />)
-      expect(screen.getByTestId('empty-state')).toHaveTextContent('Available for multi-objective studies only')
+      expect(screen.getByTestId('empty-state')).toHaveTextContent(
+        'Available for multi-objective studies only',
+      )
     })
 
     test('TC-CC-012: gpuBuffer === null でもクラッシュしない', () => {

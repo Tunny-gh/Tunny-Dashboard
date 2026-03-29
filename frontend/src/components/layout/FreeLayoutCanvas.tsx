@@ -15,7 +15,7 @@ import React, { useState, useEffect } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useLayoutStore, DEFAULT_FREE_LAYOUT } from '../../stores/layoutStore'
 import { useStudyStore } from '../../stores/studyStore'
-import type { ChartId, FreeModeLayout, Study } from '../../types'
+import type { ChartId, Study } from '../../types'
 import { OptimizationHistory } from '../charts/OptimizationHistory'
 import { ParallelCoordinates } from '../charts/ParallelCoordinates'
 import { ScatterMatrix } from '../charts/ScatterMatrix'
@@ -236,14 +236,8 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
  * 【機能概要】: 4×4グリッドのドラッグ&ドロップレイアウト編集コンポーネント
  */
 export const FreeLayoutCanvas: React.FC = () => {
-  const {
-    freeModeLayout,
-    layoutLoadError,
-    setFreeModeLayout,
-    updateCellPosition,
-    addCell,
-    removeCell,
-  } = useLayoutStore()
+  const { freeModeLayout, layoutLoadError, updateCellPosition, addCell, removeCell } =
+    useLayoutStore()
   const setLayoutMode = useLayoutStore((s) => s.setLayoutMode)
   const layoutMode = useLayoutStore((s) => s.layoutMode)
 

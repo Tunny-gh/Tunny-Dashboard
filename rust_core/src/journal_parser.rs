@@ -60,23 +60,38 @@ enum Distribution {
 
 impl Distribution {
     /// distribution JSON フィールドから Distribution を構築 🟢
+    /// 【対応形式】:
+    ///   1. JSON オブジェクト: {"name": "FloatDistribution", "low": 0.0, ...}
+    ///   2. JSON 文字列（実ログ形式）: "{\"name\": \"FloatDistribution\", \"attributes\": {...}}"
+    ///   3. attributes ネスト: {"name": ..., "attributes": {"low": ..., "high": ..., "log": ...}}
     fn from_json(json: &Value) -> Self {
+        // 【文字列 JSON 対応】: distribution が文字列の場合はパースする 🟢
+        if let Some(s) = json.as_str() {
+            if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                return Distribution::from_json(&parsed);
+            }
+            return Distribution::Uniform;
+        }
+
+        // 【attributes ネスト対応】: attributes があればそちらを優先参照 🟢
+        let attrs = json.get("attributes").unwrap_or(json);
+
         match get_str(json, "name").unwrap_or("") {
             "FloatDistribution" => Distribution::Float {
-                log: json.get("log").and_then(|v| v.as_bool()).unwrap_or(false),
+                log: attrs.get("log").and_then(|v| v.as_bool()).unwrap_or(false),
             },
             "IntDistribution" => Distribution::Int {
-                low: json.get("low").and_then(|v| v.as_i64()).unwrap_or(0),
+                low: attrs.get("low").and_then(|v| v.as_i64()).unwrap_or(0),
                 // step は最低 1（0除算防止）🟡
-                step: json
+                step: attrs
                     .get("step")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(1)
                     .max(1),
-                log: json.get("log").and_then(|v| v.as_bool()).unwrap_or(false),
+                log: attrs.get("log").and_then(|v| v.as_bool()).unwrap_or(false),
             },
             "CategoricalDistribution" => Distribution::Categorical {
-                choices: json
+                choices: attrs
                     .get("choices")
                     .and_then(|v| v.as_array())
                     .cloned()
@@ -162,21 +177,9 @@ struct TrialBuilder {
     user_attrs_numeric: HashMap<String, f64>,
     /// user_attr 文字列型（REQ-012）🟢
     user_attrs_string: HashMap<String, String>,
-    /// constraint 値リスト（is_feasible / constraint_sum 計算用、REQ-013）🟢
+    /// constraint 値リスト（REQ-013）🟢
     constraint_values: Vec<f64>,
     has_constraints: bool,
-}
-
-impl TrialBuilder {
-    /// is_feasible: 全 constraint <= 0 のとき true（REQ-013）🟢
-    fn is_feasible(&self) -> bool {
-        self.constraint_values.iter().all(|&c| c <= 0.0)
-    }
-
-    /// constraint_sum（REQ-013）🟢
-    fn constraint_sum(&self) -> f64 {
-        self.constraint_values.iter().sum()
-    }
 }
 
 /// パース全体のステート
@@ -378,7 +381,7 @@ impl ParserState {
         };
 
         // REQ-013: constraints → c1,c2,c3... 個別列展開（TASK-102 DataFrame で行う）🟢
-        // ここでは値リストを保持し、is_feasible / constraint_sum は TrialBuilder のメソッドで取得
+        // ここでは TrialBuilder に値リストを保持する
         if let Some(constraints) = attrs.get("constraints").and_then(|v| v.as_array()) {
             trial.constraint_values = constraints.iter().filter_map(|v| v.as_f64()).collect();
             trial.has_constraints = true;
@@ -1017,9 +1020,9 @@ mod tests {
     }
 
     #[test]
-    fn trial_builder_is_feasible() {
-        // 【テスト目的】: is_feasible は全 constraint <= 0 のとき true 🟢
-        let mut trial = TrialBuilder {
+    fn trial_builder_constraint_values_stored() {
+        // 【テスト目的】: constraint_values が TrialBuilder に正しく保持される 🟢
+        let trial = TrialBuilder {
             study_id: 0,
             state: 1,
             values: None,
@@ -1030,10 +1033,131 @@ mod tests {
             constraint_values: vec![-1.0, -0.5, 0.0],
             has_constraints: true,
         };
-        assert!(trial.is_feasible()); // 全て <= 0 → feasible 🟢
-        assert!((trial.constraint_sum() - (-1.5)).abs() < 1e-10); // constraint_sum 🟢
+        assert_eq!(trial.constraint_values.len(), 3);
+        assert!(trial.constraint_values.iter().all(|&c| c <= 0.0)); // 全て <= 0 🟢
+        let sum: f64 = trial.constraint_values.iter().sum();
+        assert!((sum - (-1.5)).abs() < 1e-10); // constraint_sum 🟢
+    }
 
-        trial.constraint_values = vec![-0.5, 0.3];
-        assert!(!trial.is_feasible()); // 0.3 > 0 → infeasible 🟢
+    // =========================================================================
+    // distribution 文字列 JSON + attributes ネスト対応テスト
+    // =========================================================================
+
+    #[test]
+    fn distribution_from_json_string_with_attributes() {
+        // 【テスト目的】: 実ログ形式の文字列 distribution（attributes ネスト）を正しくパースする 🟢
+        let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.01, \"low\": -32.77, \"high\": 32.77, \"log\": false}}""#;
+        let val: Value = serde_json::from_str(json_str).unwrap();
+        let dist = Distribution::from_json(&val);
+        // FloatDistribution(log=false) にマッチすること
+        assert!(matches!(dist, Distribution::Float { log: false }));
+        // 逆変換: log=false なので identity
+        assert!((dist.to_display_f64(7.4) - 7.4).abs() < 1e-10);
+    }
+
+    #[test]
+    fn distribution_from_json_string_log_true() {
+        // 【テスト目的】: log=true の文字列 distribution を正しくパースする 🟢
+        let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.0, \"low\": 1e-5, \"high\": 1.0, \"log\": true}}""#;
+        let val: Value = serde_json::from_str(json_str).unwrap();
+        let dist = Distribution::from_json(&val);
+        assert!(matches!(dist, Distribution::Float { log: true }));
+        // 逆変換: log=true → exp(v)
+        let ln2 = std::f64::consts::LN_2;
+        assert!((dist.to_display_f64(ln2) - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn distribution_from_json_object_with_attributes() {
+        // 【テスト目的】: オブジェクト形式 + attributes ネストにも対応する 🟢
+        let val: Value = serde_json::from_str(
+            r#"{"name": "IntDistribution", "attributes": {"low": 0, "high": 10, "step": 2, "log": false}}"#,
+        ).unwrap();
+        let dist = Distribution::from_json(&val);
+        assert!(matches!(
+            dist,
+            Distribution::Int {
+                low: 0,
+                step: 2,
+                log: false
+            }
+        ));
+        // low=0, step=2: to_display = 0 + round(3.0)*2 = 6.0
+        assert!((dist.to_display_f64(3.0) - 6.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn parse_real_log_format_param_values() {
+        // 【テスト目的】: 実ログ形式（文字列 distribution）で param_display が正しく構築される 🟢
+        let data = to_bytes(concat!(
+            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[1]}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-03-28T11:58:48.485367\"}\n",
+            "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x0\",\"param_value_internal\":7.4,\"distribution\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": -32.77, \\\"high\\\": 32.77, \\\"log\\\": false}}\"}\n",
+            "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x1\",\"param_value_internal\":17.43,\"distribution\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": -32.77, \\\"high\\\": 32.77, \\\"log\\\": false}}\"}\n",
+            "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[21.64],\"datetime_complete\":\"2026-03-28T11:58:48.612043\"}\n"
+        ));
+        let result = parse_journal(&data).expect("パース成功を期待");
+        assert_eq!(result.studies[0].completed_trials, 1);
+        assert!(result.studies[0].param_names.contains(&"x0".to_string()));
+        assert!(result.studies[0].param_names.contains(&"x1".to_string()));
+    }
+
+    #[test]
+    fn parse_real_log_file() {
+        // 【テスト目的】: 実際の test.log ファイルをパースして全パラメータが取得されることを検証 🟢
+        let log_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test.log");
+        if !log_path.exists() {
+            // CI 等で test.log がない場合はスキップ
+            eprintln!("test.log not found at {:?}, skipping", log_path);
+            return;
+        }
+        let data = std::fs::read(&log_path).expect("test.log の読み込みに失敗");
+        let result = parse_journal(&data).expect("test.log のパースに失敗");
+
+        // 2 つの Study が含まれるはず（Ackley + DTLZ1）
+        assert!(result.studies.len() >= 2, "少なくとも 2 Study が含まれる");
+
+        // Ackley Study: 10 変数 (Ackley_Variable0..9)
+        let ackley = &result.studies[0];
+        assert!(ackley.completed_trials > 0, "Ackley に完了試行がある");
+        assert_eq!(ackley.param_names.len(), 10, "Ackley は 10 パラメータ");
+        for i in 0..10 {
+            let name = format!("Ackley_Variable{i}");
+            assert!(
+                ackley.param_names.contains(&name),
+                "Ackley に {name} が含まれる"
+            );
+        }
+
+        // DTLZ1 Study: 10 変数 (DTLZ1_Variable0..9)
+        let dtlz = &result.studies[1];
+        assert!(dtlz.completed_trials > 0, "DTLZ1 に完了試行がある");
+        assert_eq!(dtlz.param_names.len(), 10, "DTLZ1 は 10 パラメータ");
+        for i in 0..10 {
+            let name = format!("DTLZ1_Variable{i}");
+            assert!(
+                dtlz.param_names.contains(&name),
+                "DTLZ1 に {name} が含まれる"
+            );
+        }
+
+        // DataFrame にパラメータ値が入っていることを検証
+        // (parse_journal 経由で DataFrame が GLOBAL_STATE にセットされているはず)
+        // select_study で DataFrame をアクティブにして getTrials で確認
+        use crate::dataframe::with_df;
+        let df_check = with_df(0, |df| {
+            let param_cols = df.param_col_names();
+            assert_eq!(param_cols.len(), 10, "Ackley DataFrame に 10 パラメータ列");
+            // 最初の行のパラメータ値が 0 でないことを確認
+            let col = df
+                .get_numeric_column("Ackley_Variable0")
+                .expect("列が存在する");
+            assert!(
+                col[0].abs() > 1e-10,
+                "Ackley_Variable0 の最初の値が非ゼロ: {}",
+                col[0]
+            );
+        });
+        assert!(df_check.is_some(), "DataFrame が存在する");
     }
 }

@@ -47,7 +47,14 @@ vi.mock('../../stores/studyStore', () => ({
         currentStudy: {
           paramNames: string[]
           objectiveNames: string[]
+          directions?: string[]
         } | null
+        trialRows: Array<{
+          trialId: number
+          params: Record<string, number>
+          values: number[]
+          paretoRank: number | null
+        }>
       }) => unknown,
     ) =>
       selector({
@@ -55,6 +62,11 @@ vi.mock('../../stores/studyStore', () => ({
           paramNames: ['x1'],
           objectiveNames: ['obj1'],
         },
+        trialRows: [
+          { trialId: 0, params: { x1: 1.5 }, values: [0.25], paretoRank: null },
+          { trialId: 1, params: { x1: 2.5 }, values: [0.5], paretoRank: null },
+          { trialId: 2, params: { x1: 3.5 }, values: [0.75], paretoRank: null },
+        ],
       }),
   ),
 }))
