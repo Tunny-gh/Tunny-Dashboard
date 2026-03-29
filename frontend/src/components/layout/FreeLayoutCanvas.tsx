@@ -170,8 +170,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
       )
     }
     case 'scatter-matrix':
-      // Documentation.
-      return <ScatterMatrix engine={null} currentStudy={currentStudy} />
+      return <ScatterMatrix trialRows={trialRows} currentStudy={currentStudy} />
     case 'objective-pair-matrix':
       if (currentStudy.objectiveNames.length <= 1) {
         return <EmptyState message="Available for multi-objective studies only" />

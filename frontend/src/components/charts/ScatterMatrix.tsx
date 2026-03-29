@@ -1,79 +1,57 @@
 /**
- * Documentation.
+ * ScatterMatrix — renders a grid of small scatter plot thumbnails.
  *
- * Documentation.
- * Design:
- * Documentation.
- * Documentation.
- * Documentation.
- * Documentation.
- * Documentation.
+ * Each cell shows one axis vs another, drawn directly on a <canvas> element
+ * using trial data (no WebWorker needed for 80 px thumbnails).
  */
 
-import { useState, useEffect } from 'react'
-import type { ScatterMatrixEngine, ScatterCellSize } from '../../wasm/workers/ScatterMatrixEngine'
-import type { Study } from '../../types'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import type { Study, TrialData } from '../../types'
 
 // -------------------------------------------------------------------------
-// Constants・Type definitions
+// Constants / Types
 // -------------------------------------------------------------------------
 
-/** Documentation. */
 export type ScatterMode = 'mode1' | 'mode2' | 'mode3'
 
-/** Documentation. */
 export type SortOrder = 'alphabetical' | 'correlation' | 'importance'
 
-/** Documentation. */
 const MODE_LABELS: Record<ScatterMode, string> = {
-  mode1: 'Params×Params', // Documentation.
-  mode2: 'Params×Objectives', // Documentation.
-  mode3: 'All', // Documentation.
+  mode1: 'Params×Params',
+  mode2: 'Params×Objectives',
+  mode3: 'All',
 }
 
-/** Documentation. */
 const SORT_LABELS: Record<SortOrder, string> = {
-  alphabetical: 'Alphabetical', // Documentation.
-  correlation: 'By Correlation', // Documentation.
-  importance: 'By Importance', // Documentation.
+  alphabetical: 'Alphabetical',
+  correlation: 'By Correlation',
+  importance: 'By Importance',
 }
 
+const CELL_PX = 80
+
 // -------------------------------------------------------------------------
-// Props Type definitions
+// Props
 // -------------------------------------------------------------------------
 
-/**
- * Documentation.
- */
 export interface ScatterMatrixProps {
-  /** Documentation. */
-  engine: ScatterMatrixEngine | null
-  /** Documentation. */
+  trialRows: TrialData[]
   currentStudy: Study | null
 }
 
 // -------------------------------------------------------------------------
-// Documentation.
+// Helpers
 // -------------------------------------------------------------------------
 
-/**
- * Documentation.
- * @param study - current Study
- * Documentation.
- * Documentation.
- * Documentation.
- */
 export function getAxesForMode(
   study: Study,
   mode: ScatterMode,
   sortOrder: SortOrder,
 ): { rowAxes: string[]; colAxes: string[] } {
-  // Documentation.
   const applySort = (axes: string[]): string[] => {
     if (sortOrder === 'alphabetical') {
       return [...axes].sort()
     }
-    // Documentation.
     return [...axes]
   }
 
@@ -83,147 +61,159 @@ export function getAxesForMode(
 
   switch (mode) {
     case 'mode1':
-      // Documentation.
       return { rowAxes: params, colAxes: params }
     case 'mode2':
-      // Documentation.
       return { rowAxes: params, colAxes: objectives }
     case 'mode3':
     default:
-      // Documentation.
       return { rowAxes: all, colAxes: all }
   }
 }
 
+/** Extract a numeric value for the given axis name from a trial. */
+function getAxisValue(trial: TrialData, axisName: string, study: Study): number | null {
+  if (axisName in trial.params) {
+    const v = trial.params[axisName]
+    return typeof v === 'number' ? v : null
+  }
+  const objIdx = study.objectiveNames.indexOf(axisName)
+  if (objIdx >= 0 && trial.values && objIdx < trial.values.length) {
+    return trial.values[objIdx]
+  }
+  return null
+}
+
 // -------------------------------------------------------------------------
-// Documentation.
+// ScatterCell — draws a single scatter thumbnail on <canvas>
 // -------------------------------------------------------------------------
 
-/**
- * Documentation.
- */
 interface ScatterCellProps {
   row: number
   col: number
   xAxis: string
   yAxis: string
-  engine: ScatterMatrixEngine | null
-  size?: ScatterCellSize
+  trialRows: TrialData[]
+  study: Study
 }
 
-/**
- * Documentation.
- * 【RenderingState】:
- * Documentation.
- * Documentation.
- * Documentation.
- * Documentation.
- * Documentation.
- */
-function ScatterCell({ row, col, xAxis, yAxis, engine, size = 'thumbnail' }: ScatterCellProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [error, setError] = useState(false)
+function ScatterCell({ row, col, xAxis, yAxis, trialRows, study }: ScatterCellProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Pre-compute points array (memoised so canvas effect doesn't re-extract every render)
+  const points = useMemo(() => {
+    const pts: [number, number][] = []
+    for (const trial of trialRows) {
+      const x = getAxisValue(trial, xAxis, study)
+      const y = getAxisValue(trial, yAxis, study)
+      if (x !== null && y !== null) pts.push([x, y])
+    }
+    return pts
+  }, [trialRows, xAxis, yAxis, study])
 
   useEffect(() => {
-    // Documentation.
-    if (!engine) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-    let cancelled = false
+    const size = CELL_PX
+    ctx.clearRect(0, 0, size, size)
 
-    // Documentation.
-    engine
-      .renderCell(row, col, size)
-      .then((imageData) => {
-        if (cancelled || !imageData) return
+    // Diagonal cell: show axis label instead of scatter
+    if (xAxis === yAxis) {
+      ctx.fillStyle = '#f3f4f6'
+      ctx.fillRect(0, 0, size, size)
+      ctx.fillStyle = '#374151'
+      ctx.textAlign = 'center'
 
-        // Documentation.
-        const canvas = document.createElement('canvas')
-        canvas.width = imageData.width
-        canvas.height = imageData.height
-        const ctx = canvas.getContext('2d')
-        ctx?.putImageData(imageData, 0, 0)
-        setImageUrl(canvas.toDataURL())
-      })
-      .catch(() => {
-        // Documentation.
-        if (!cancelled) setError(true)
-      })
+      // Word-wrap: split on _ / - / camelCase boundaries, then greedily pack lines
+      const tokens = xAxis.split(/[_\-]|(?<=[a-z])(?=[A-Z])/).filter(Boolean)
+      const maxWidth = size - 8 // 4px padding each side
+      const fontSize = 9
+      ctx.font = `${fontSize}px sans-serif`
 
-    // Documentation.
-    return () => {
-      cancelled = true
+      const lines: string[] = []
+      let cur = tokens[0] ?? ''
+      for (let i = 1; i < tokens.length; i++) {
+        const candidate = cur + '_' + tokens[i]
+        if (ctx.measureText(candidate).width <= maxWidth) {
+          cur = candidate
+        } else {
+          lines.push(cur)
+          cur = tokens[i]
+        }
+      }
+      if (cur) lines.push(cur)
+
+      const lineHeight = fontSize + 2
+      const totalHeight = lines.length * lineHeight
+      const startY = (size - totalHeight) / 2 + fontSize / 2
+
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], size / 2, startY + i * lineHeight, maxWidth)
+      }
+      return
     }
-  }, [engine, row, col, size])
 
-  const pixelSize = size === 'thumbnail' ? 80 : size === 'preview' ? 300 : 600
+    // Background
+    ctx.fillStyle = '#f9fafb'
+    ctx.fillRect(0, 0, size, size)
+
+    if (points.length === 0) return
+
+    // Compute bounds
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+    for (const [x, y] of points) {
+      if (x < xMin) xMin = x
+      if (x > xMax) xMax = x
+      if (y < yMin) yMin = y
+      if (y > yMax) yMax = y
+    }
+    const xRange = xMax - xMin || 1
+    const yRange = yMax - yMin || 1
+    const pad = 4
+    const plotSize = size - pad * 2
+
+    // Draw dots
+    ctx.fillStyle = 'rgba(79, 70, 229, 0.55)' // indigo-600
+    for (const [x, y] of points) {
+      const px = pad + ((x - xMin) / xRange) * plotSize
+      const py = pad + (1 - (y - yMin) / yRange) * plotSize
+      ctx.beginPath()
+      ctx.arc(px, py, 1.5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }, [points, xAxis, yAxis])
 
   return (
     <div
       data-testid={`scatter-cell-${row}-${col}`}
-      title={`${xAxis} vs ${yAxis} — Click to expand`}
+      title={`${xAxis} vs ${yAxis}`}
       style={{
-        width: `${pixelSize}px`,
-        height: `${pixelSize}px`,
-        position: 'relative',
+        width: `${CELL_PX}px`,
+        height: `${CELL_PX}px`,
         overflow: 'hidden',
-        cursor: 'pointer',
         border: '1px solid #e5e7eb',
       }}
     >
-      {error ? (
-        // Documentation.
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '100%',
-            height: '100%',
-            fontSize: '24px',
-          }}
-        >
-          ❌
-        </div>
-      ) : imageUrl ? (
-        // Documentation.
-        <img
-          src={imageUrl}
-          alt={`${xAxis} vs ${yAxis}`}
-          style={{ width: '100%', height: '100%', objectFit: 'fill' }}
-        />
-      ) : (
-        // Documentation.
-        <div
-          style={{
-            width: '100%',
-            height: '100%',
-            background: '#e5e7eb',
-          }}
-        />
-      )}
+      <canvas
+        ref={canvasRef}
+        width={CELL_PX}
+        height={CELL_PX}
+        style={{ width: '100%', height: '100%', display: 'block' }}
+      />
     </div>
   )
 }
 
 // -------------------------------------------------------------------------
-// Documentation.
+// Main component
 // -------------------------------------------------------------------------
 
-/**
- * Documentation.
- * Documentation.
- * Documentation.
- * Documentation.
- * Test Coverage: TC-702-01〜05, TC-702-E01〜E02
- */
-export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
-  // Documentation.
+export function ScatterMatrix({ trialRows, currentStudy }: ScatterMatrixProps) {
   const [mode, setMode] = useState<ScatterMode>('mode1')
-
-  // Documentation.
   const [sortOrder, setSortOrder] = useState<SortOrder>('alphabetical')
 
-  // Documentation.
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
@@ -232,19 +222,14 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
     )
   }
 
-  // Documentation.
   const { rowAxes, colAxes } = getAxesForMode(currentStudy, mode, sortOrder)
-
-  // -------------------------------------------------------------------------
-  // Rendering
-  // -------------------------------------------------------------------------
 
   return (
     <div
       data-testid="scatter-matrix"
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
     >
-      {/* Documentation. */}
+      {/* Mode & sort controls */}
       <div
         style={{
           display: 'flex',
@@ -255,7 +240,6 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
           flexShrink: 0,
         }}
       >
-        {/* Documentation. */}
         <div style={{ display: 'flex', gap: '4px' }}>
           {(['mode1', 'mode2', 'mode3'] as ScatterMode[]).map((m) => (
             <button
@@ -279,7 +263,6 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
           ))}
         </div>
 
-        {/* Documentation. */}
         <select
           data-testid="sort-select"
           value={sortOrder}
@@ -299,18 +282,17 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
         </select>
       </div>
 
-      {/* Documentation. */}
+      {/* Grid of scatter cells */}
       <div
         data-testid="scatter-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${colAxes.length}, 80px)`,
-          gridAutoRows: '80px',
+          gridTemplateColumns: `repeat(${colAxes.length}, ${CELL_PX}px)`,
+          gridAutoRows: `${CELL_PX}px`,
           overflow: 'auto',
           flex: 1,
         }}
       >
-        {/* Documentation. */}
         {rowAxes.flatMap((yAxis, row) =>
           colAxes.map((xAxis, col) => (
             <ScatterCell
@@ -319,7 +301,8 @@ export function ScatterMatrix({ engine, currentStudy }: ScatterMatrixProps) {
               col={col}
               xAxis={xAxis}
               yAxis={yAxis}
-              engine={engine}
+              trialRows={trialRows}
+              study={currentStudy}
             />
           )),
         )}

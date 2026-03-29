@@ -11,23 +11,12 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 import { ScatterMatrix } from './ScatterMatrix'
-import type { ScatterMatrixEngine } from '../../wasm/workers/ScatterMatrixEngine'
-import type { Study } from '../../types'
+import type { Study, TrialData } from '../../types'
 
 // -------------------------------------------------------------------------
-// Documentation.
+// Test helpers
 // -------------------------------------------------------------------------
 
-/** Documentation. */
-function makeMockEngine(): ScatterMatrixEngine {
-  return {
-    renderCell: vi.fn().mockResolvedValue(null),
-    workerIndex: vi.fn().mockReturnValue(0),
-    dispose: vi.fn(),
-  } as unknown as ScatterMatrixEngine
-}
-
-/** Documentation. */
 function makeStudy(): Study {
   return {
     studyId: 1,
@@ -40,6 +29,14 @@ function makeStudy(): Study {
     userAttrNames: [],
     hasConstraints: false,
   }
+}
+
+function makeTrialRows(): TrialData[] {
+  return [
+    { trialId: 0, params: { x1: 1, x2: 2 }, values: [10, 20], paretoRank: null },
+    { trialId: 1, params: { x1: 3, x2: 4 }, values: [30, 40], paretoRank: null },
+    { trialId: 2, params: { x1: 5, x2: 6 }, values: [50, 60], paretoRank: null },
+  ]
 }
 
 // -------------------------------------------------------------------------
@@ -58,15 +55,14 @@ describe('translated test case', () => {
   // Documentation.
   test('TC-702-01', () => {
     // Documentation.
-    expect(() => render(<ScatterMatrix engine={null} currentStudy={makeStudy()} />)).not.toThrow()
+    expect(() => render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)).not.toThrow()
   })
 
   // Documentation.
   test('TC-702-02', () => {
     // Documentation.
-    render(<ScatterMatrix engine={null} currentStudy={makeStudy()} />)
+    render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)
 
-    // Documentation.
     expect(screen.getByTestId('mode-btn-mode1')).toBeInTheDocument()
     expect(screen.getByTestId('mode-btn-mode2')).toBeInTheDocument()
     expect(screen.getByTestId('mode-btn-mode3')).toBeInTheDocument()
@@ -75,9 +71,8 @@ describe('translated test case', () => {
   // Documentation.
   test('TC-702-03', () => {
     // Documentation.
-    render(<ScatterMatrix engine={null} currentStudy={makeStudy()} />)
+    render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)
 
-    // Documentation.
     expect(screen.getByTestId('mode-btn-mode1')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('mode-btn-mode2')).toHaveAttribute('aria-pressed', 'false')
 
@@ -92,9 +87,8 @@ describe('translated test case', () => {
   // Documentation.
   test('TC-702-04', () => {
     // Documentation.
-    render(<ScatterMatrix engine={null} currentStudy={makeStudy()} />)
+    render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)
 
-    // Documentation.
     const sortSelect = screen.getByTestId('sort-select')
     expect(sortSelect).toBeInTheDocument()
     expect(sortSelect).toHaveValue('alphabetical')
@@ -103,9 +97,8 @@ describe('translated test case', () => {
   // Documentation.
   test('TC-702-05', () => {
     // Documentation.
-    render(<ScatterMatrix engine={null} currentStudy={makeStudy()} />)
+    render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)
 
-    // Documentation.
     const sortSelect = screen.getByTestId('sort-select')
     fireEvent.change(sortSelect, { target: { value: 'correlation' } })
 
@@ -126,19 +119,16 @@ describe('translated test case', () => {
   // Documentation.
   test('TC-702-E01', () => {
     // Documentation.
-    render(<ScatterMatrix engine={null} currentStudy={null} />)
+    render(<ScatterMatrix trialRows={[]} currentStudy={null} />)
 
-    // Documentation.
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
   // Documentation.
   test('TC-702-E02', () => {
     // Documentation.
-    const engine = makeMockEngine()
-    render(<ScatterMatrix engine={engine} currentStudy={makeStudy()} />)
+    render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)
 
-    // Documentation.
     expect(screen.getByTestId('scatter-grid')).toBeInTheDocument()
   })
 })
