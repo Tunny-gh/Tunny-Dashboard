@@ -1,9 +1,9 @@
 /**
- * ConvergenceDiagnosis テスト (TASK-1001)
+ * Documentation.
  *
- * 【テスト対象】: ConvergenceDiagnosis — 収束診断パネル
- * 【テスト方針】: diagnoseConvergence() の判定ロジック（境界値）と
- *               バッジ表示（converged/converging/not-converged/insufficient）を検証する
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -13,19 +13,19 @@ import { ConvergenceDiagnosis, diagnoseConvergence } from './ConvergenceDiagnosi
 import type { TrialData } from '../charts/OptimizationHistory'
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** 【ヘルパー】: 収束済みに見えるデータを生成する（最後の20%で改善なし） */
+/** Documentation. */
 function makeConvergedData(total: number): TrialData[] {
   return Array.from({ length: total }, (_, i) => ({
     trial: i + 1,
-    // 最初の80%は急速に改善、最後の20%はほぼ変化なし
+    // Documentation.
     value: i < total * 0.8 ? 100 - i * 1.0 : 100 - total * 0.8,
   }))
 }
 
-/** 【ヘルパー】: 改善中のデータを生成する（全体で緩やかに改善） */
+/** Documentation. */
 function makeConvergingData(total: number): TrialData[] {
   return Array.from({ length: total }, (_, i) => ({
     trial: i + 1,
@@ -33,7 +33,7 @@ function makeConvergingData(total: number): TrialData[] {
   }))
 }
 
-/** 【ヘルパー】: 試行数が少ないデータ（判定不可）を生成する */
+/** Documentation. */
 function makeInsufficientData(count: number): TrialData[] {
   return Array.from({ length: count }, (_, i) => ({
     trial: i + 1,
@@ -42,10 +42,10 @@ function makeInsufficientData(count: number): TrialData[] {
 }
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ConvergenceDiagnosis — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -54,58 +54,58 @@ describe('ConvergenceDiagnosis — 正常系', () => {
     cleanup()
   })
 
-  // TC-1001-07: 試行数不足で「判定不可」を表示
-  test('TC-1001-07: data=[](試行数不足) のとき「判定不可（試行数不足）」を表示する', () => {
-    // 【テスト目的】: 試行数が少ない場合に適切なメッセージが表示されること 🟢
+  // Documentation.
+  test('TC-1001-07', () => {
+    // Documentation.
     render(<ConvergenceDiagnosis data={[]} direction="minimize" />)
 
-    // 【確認内容】: 「判定不可（試行数不足）」メッセージが表示されること
+    // Documentation.
     expect(screen.getByText('Insufficient (not enough trials)')).toBeInTheDocument()
   })
 
-  // TC-1001-08: 収束済みデータで converged バッジを表示
-  test('TC-1001-08: 収束済みデータで data-testid=badge-converged が表示される', () => {
-    // 【テスト目的】: 収束済み判定時に緑バッジが表示されること 🟢
+  // Documentation.
+  test('TC-1001-08', () => {
+    // Documentation.
     render(<ConvergenceDiagnosis data={makeConvergedData(30)} direction="minimize" />)
 
-    // 【確認内容】: 収束済みバッジが表示されること
+    // Documentation.
     expect(screen.getByTestId('badge-converged')).toBeInTheDocument()
   })
 
-  // TC-1001-09: 収束中データで converging バッジを表示
-  test('TC-1001-09: 収束中データで data-testid=badge-converging が表示される', () => {
-    // 【テスト目的】: 収束中判定時に黄バッジが表示されること 🟢
+  // Documentation.
+  test('TC-1001-09', () => {
+    // Documentation.
     render(<ConvergenceDiagnosis data={makeConvergingData(20)} direction="minimize" />)
 
-    // 【確認内容】: 収束中バッジが表示されること
+    // Documentation.
     expect(screen.getByTestId('badge-converging')).toBeInTheDocument()
   })
 })
 
 // -------------------------------------------------------------------------
-// diagnoseConvergence — 収束判定ロジック
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('diagnoseConvergence — 収束判定ロジック', () => {
-  // TC-1001-10: 試行数 < 10 で 'insufficient' を返す
-  test('TC-1001-10: data.length=5 のとき insufficient が返される', () => {
-    // 【テスト目的】: 試行数が 10 未満の場合は判定不可を返すこと 🟢
+describe('translated test case', () => {
+  // Documentation.
+  test('TC-1001-10', () => {
+    // Documentation.
     const result = diagnoseConvergence(makeInsufficientData(5), 'minimize')
-    expect(result).toBe('insufficient') // 【確認内容】: 試行数不足でinsufficientが返ること
+    expect(result).toBe('insufficient') // Documentation.
   })
 
-  // TC-1001-11: 収束済みデータで 'converged' を返す
-  test('TC-1001-11: 最後の20%で改善なしのデータで converged が返される', () => {
-    // 【テスト目的】: 末尾 20% で改善がない場合は収束済みを返すこと 🟢
+  // Documentation.
+  test('TC-1001-11', () => {
+    // Documentation.
     const result = diagnoseConvergence(makeConvergedData(30), 'minimize')
-    expect(result).toBe('converged') // 【確認内容】: 収束済みデータでconvergedが返ること
+    expect(result).toBe('converged') // Documentation.
   })
 
-  // TC-1001-12: 改善中データで 'converging' または 'not-converged' を返す
-  test('TC-1001-12: 緩やかに改善中のデータで converged にはならない', () => {
-    // 【テスト目的】: 継続的に改善しているデータは収束済みにならないこと 🟢
+  // Documentation.
+  test('TC-1001-12', () => {
+    // Documentation.
     const result = diagnoseConvergence(makeConvergingData(20), 'minimize')
-    expect(result).not.toBe('converged') // 【確認内容】: 改善継続中はconvergedにならないこと
-    expect(result).not.toBe('insufficient') // 【確認内容】: 試行数は十分なのでinsufficientにならないこと
+    expect(result).not.toBe('converged') // Documentation.
+    expect(result).not.toBe('insufficient') // Documentation.
   })
 })

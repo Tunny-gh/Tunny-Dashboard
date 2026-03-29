@@ -1,15 +1,15 @@
 /**
- * StudyStore テスト (TASK-302)
+ * Documentation.
  *
- * 【テスト対象】: useStudyStore — Journal 読み込み・Study 選択
- * 【テスト方針】: WasmLoader と File API を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 
 // -------------------------------------------------------------------------
-// WasmLoader モック
-// vi.hoisted でファクトリより前に変数を確保する（hoisting 問題の回避）
+// Documentation.
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockParseJournal, mockSelectStudy, mockGetInstance } = vi.hoisted(() => {
@@ -32,18 +32,18 @@ vi.mock('../wasm/wasmLoader', () => ({
 import { useStudyStore } from './studyStore'
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【ヘルパー】: テスト用の File モックを生成する
+ * Documentation.
  */
 function makeFile(content: string = 'dummy journal') {
   return new File([content], 'journal.log', { type: 'text/plain' })
 }
 
 /**
- * 【ヘルパー】: StudyStore を初期状態にリセットする
+ * Documentation.
  */
 function resetStore() {
   useStudyStore.setState({
@@ -56,10 +56,10 @@ function resetStore() {
 }
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('StudyStore — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetStore()
     vi.clearAllMocks()
@@ -69,9 +69,9 @@ describe('StudyStore — 正常系', () => {
     })
   })
 
-  // TC-302-09: loadJournal が WASM parseJournal を呼び出す
-  test('TC-302-09: loadJournal が parseJournal を呼び出し allStudies を更新する', async () => {
-    // 【テスト目的】: loadJournal が WASM を呼び出して allStudies を設定すること 🟢
+  // Documentation.
+  test('TC-302-09', async () => {
+    // Documentation.
     const mockStudies = [
       {
         studyId: 1,
@@ -87,41 +87,41 @@ describe('StudyStore — 正常系', () => {
     ]
     mockParseJournal.mockReturnValue({ studies: mockStudies, durationMs: 10 })
 
-    // 【処理実行】
+    // Documentation.
     await useStudyStore.getState().loadJournal(makeFile())
 
-    // 【確認内容】: parseJournal が呼ばれた
+    // Documentation.
     expect(mockParseJournal).toHaveBeenCalledOnce()
-    // 【確認内容】: allStudies が更新された
+    // Documentation.
     expect(useStudyStore.getState().allStudies).toEqual(mockStudies)
-    // 【確認内容】: isLoading が false に戻った
+    // Documentation.
     expect(useStudyStore.getState().isLoading).toBe(false)
   })
 
-  // TC-302-10: loadJournal 中は isLoading=true になる
-  test('TC-302-10: loadJournal 開始時に isLoading=true になり完了後 false になる', async () => {
-    // 【テスト目的】: ローディング状態が正しく管理されること 🟢
+  // Documentation.
+  test('TC-302-10', async () => {
+    // Documentation.
     mockParseJournal.mockReturnValue({ studies: [], durationMs: 0 })
 
-    // 【処理実行】: loadJournal を開始（await しない）
+    // Documentation.
     const loadPromise = useStudyStore.getState().loadJournal(makeFile())
 
-    // 【確認内容 — ロード中】: set({isLoading:true}) は同期実行のため即座に true
+    // Documentation.
     expect(useStudyStore.getState().isLoading).toBe(true)
 
-    // 【完了待機】
+    // Documentation.
     await loadPromise
 
-    // 【確認内容 — ロード完了】: isLoading = false
+    // Documentation.
     expect(useStudyStore.getState().isLoading).toBe(false)
   })
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('StudyStore — 異常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetStore()
     vi.clearAllMocks()
@@ -131,21 +131,21 @@ describe('StudyStore — 異常系', () => {
     })
   })
 
-  // TC-302-E01: loadJournal 失敗時に loadError が設定される
-  test('TC-302-E01: parseJournal がエラーを throw すると loadError が設定される', async () => {
-    // 【テスト目的】: WASM 失敗時にエラー状態が適切に設定されること 🟢
+  // Documentation.
+  test('TC-302-E01', async () => {
+    // Documentation.
     mockParseJournal.mockImplementation(() => {
       throw new Error('parse failed')
     })
 
-    // 【処理実行】
+    // Documentation.
     await useStudyStore.getState().loadJournal(makeFile())
 
-    // 【確認内容】: loadError にエラーメッセージが設定された
+    // Documentation.
     expect(useStudyStore.getState().loadError).toContain('parse failed')
-    // 【確認内容】: isLoading = false
+    // Documentation.
     expect(useStudyStore.getState().isLoading).toBe(false)
-    // 【確認内容】: allStudies は空のまま
+    // Documentation.
     expect(useStudyStore.getState().allStudies).toEqual([])
   })
 })

@@ -1,12 +1,12 @@
 /**
- * ExportPanel — CSV エクスポート・ピン留め UI (TASK-1101)
+ * Documentation.
  *
- * 【役割】: CSV エクスポート設定・ピン留み管理のUIパネル
- * 【設計方針】:
- *   - exportStore に直接接続
- *   - 対象選択ラジオ + 列選択チェックボックス + ダウンロードボタン
- *   - ピン留めリスト（trial_id・メモ欄・削除ボタン）
- * 🟢 REQ-150〜REQ-153, REQ-156 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useExportStore, MAX_PINS } from '../../stores/exportStore'
@@ -16,10 +16,10 @@ import { useStudyStore } from '../../stores/studyStore'
 import type { ChangeEvent } from 'react'
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【CSV 対象ラベル】: CsvTarget → 日本語表示名 */
+/** Documentation. */
 const CSV_TARGET_LABELS: Record<CsvTarget, string> = {
   all: 'All',
   selected: 'Selected',
@@ -28,16 +28,16 @@ const CSV_TARGET_LABELS: Record<CsvTarget, string> = {
 }
 
 // -------------------------------------------------------------------------
-// メインコンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: CSV エクスポートパネル
- * 【UI 構成】: 対象選択 → 列選択 → ダウンロードボタン → エラー表示 → ピン留めリスト
- * 🟢 REQ-150〜REQ-153, REQ-156 に準拠
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 export function ExportPanel() {
-  // 【Store 接続】: exportStore から状態・アクションを取得 🟢
+  // Documentation.
   const csvTarget = useExportStore((s) => s.csvTarget)
   const selectedColumns = useExportStore((s) => s.selectedColumns)
   const isExporting = useExportStore((s) => s.isExporting)
@@ -52,20 +52,20 @@ export function ExportPanel() {
   const clearExportError = useExportStore((s) => s.clearExportError)
   const clearPinError = useExportStore((s) => s.clearPinError)
 
-  // 【Store 接続】: selectionStore から selectedIndices を取得 🟢
+  // Documentation.
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
 
-  // 【Store 接続】: studyStore から列名リストを取得 🟢
+  // Documentation.
   const currentStudy = useStudyStore((s) => s.currentStudy)
 
-  // 【エクスポート実行】: 対象に応じたインデックスを渡す
+  // Documentation.
   const handleExport = () => {
-    // 【対象インデックス決定】: selected 以外は全件（TASK-302/901 で絞り込み予定）
+    // Documentation.
     const indices = csvTarget === 'selected' ? selectedIndices : selectedIndices
     exportCsv(indices)
   }
 
-  // 【列選択トグル】: チェックボックスの on/off で selectedColumns を更新
+  // Documentation.
   const handleColumnToggle = (colName: string) => (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
       setSelectedColumns([...selectedColumns, colName])
@@ -74,7 +74,7 @@ export function ExportPanel() {
     }
   }
 
-  // 【全列名リスト】: Study があれば trial_id + params + objectives を列挙
+  // Documentation.
   const allColumns = currentStudy
     ? ['trial_id', ...currentStudy.paramNames, ...currentStudy.objectiveNames]
     : ['trial_id']
@@ -84,7 +84,7 @@ export function ExportPanel() {
       data-testid="export-panel"
       style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}
     >
-      {/* 【CSV 対象選択】: ラジオボタン 🟢 REQ-150 */}
+      {/* Documentation. */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Target</div>
         {(Object.keys(CSV_TARGET_LABELS) as CsvTarget[]).map((t) => (
@@ -105,7 +105,7 @@ export function ExportPanel() {
         ))}
       </div>
 
-      {/* 【列選択】: チェックボックス 🟢 REQ-152 */}
+      {/* Documentation. */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
           Columns (empty=all)
@@ -126,7 +126,7 @@ export function ExportPanel() {
         ))}
       </div>
 
-      {/* 【ダウンロードボタン】: 実行中は disabled 🟢 */}
+      {/* Documentation. */}
       <button
         data-testid="export-csv-btn"
         onClick={handleExport}
@@ -145,7 +145,7 @@ export function ExportPanel() {
           gap: '6px',
         }}
       >
-        {/* 【スピナー】: エクスポート中のみ表示 */}
+        {/* Documentation. */}
         {isExporting && (
           <span
             data-testid="export-spinner"
@@ -163,7 +163,7 @@ export function ExportPanel() {
         {isExporting ? 'Exporting...' : 'Download CSV'}
       </button>
 
-      {/* 【エクスポートエラー】: 対象0件や WASM エラー 🟢 REQ-150 */}
+      {/* Documentation. */}
       {exportError && (
         <div
           data-testid="export-error"
@@ -189,7 +189,7 @@ export function ExportPanel() {
         </div>
       )}
 
-      {/* 【ピン留めリスト】: 最大 MAX_PINS 件 🟢 REQ-156 */}
+      {/* Documentation. */}
       <div>
         <div
           style={{
@@ -205,7 +205,7 @@ export function ExportPanel() {
           </span>
         </div>
 
-        {/* 【ピン上限エラー】 */}
+        {/* Documentation. */}
         {pinError && (
           <div
             data-testid="pin-error"
@@ -231,7 +231,7 @@ export function ExportPanel() {
           </div>
         )}
 
-        {/* 【ピン留めテーブル】: trial_id・メモ欄・削除ボタン */}
+        {/* Documentation. */}
         {pinnedTrials.length === 0 ? (
           <div style={{ fontSize: '12px', color: '#9ca3af', padding: '8px 0' }}>No pins yet</div>
         ) : (

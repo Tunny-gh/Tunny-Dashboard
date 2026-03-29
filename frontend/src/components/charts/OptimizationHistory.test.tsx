@@ -33,7 +33,7 @@ function makeConvergingData(count: number): { trial: number; value: number }[] {
 // Happy path
 // -------------------------------------------------------------------------
 
-describe('OptimizationHistory — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -43,12 +43,12 @@ describe('OptimizationHistory — 正常系', () => {
   })
 
   // TC-1001-01: renders without error
-  test('TC-1001-01: OptimizationHistory がエラーなくレンダリングされる', () => {
+  test('TC-1001-01', () => {
     expect(() => render(<OptimizationHistory data={[]} direction="minimize" />)).not.toThrow()
   })
 
   // TC-1001-02: all four mode buttons exist
-  test('TC-1001-02: 4つの表示モードボタン（best/all/moving-avg/improvement）が表示される', () => {
+  test('TC-1001-02', () => {
     render(<OptimizationHistory data={makeConvergingData(10)} direction="minimize" />)
 
     expect(screen.getByTestId('mode-btn-best')).toBeInTheDocument()
@@ -58,7 +58,7 @@ describe('OptimizationHistory — 正常系', () => {
   })
 
   // TC-1001-03: clicking a mode button updates aria-pressed
-  test('TC-1001-03: moving-avg ボタンクリックで moving-avg モードがアクティブになる', () => {
+  test('TC-1001-03', () => {
     render(<OptimizationHistory data={makeConvergingData(10)} direction="minimize" />)
 
     // Default mode is 'best'
@@ -75,19 +75,19 @@ describe('OptimizationHistory — 正常系', () => {
 // Phase detection — boundary value tests
 // -------------------------------------------------------------------------
 
-describe('detectPhase — フェーズ自動検出 境界値テスト', () => {
+describe('translated test case', () => {
   // TC-1001-04: exploration phase (progress < 0.3)
-  test('TC-1001-04: progress=0.1 のとき exploration（探索期）が返される', () => {
+  test('TC-1001-04', () => {
     expect(detectPhase(10, 100)).toBe('exploration') // 10/100 = 0.1
   })
 
   // TC-1001-05: exploitation phase (0.3 <= progress < 0.7)
-  test('TC-1001-05: progress=0.5 のとき exploitation（精緻化期）が返される', () => {
+  test('TC-1001-05', () => {
     expect(detectPhase(50, 100)).toBe('exploitation') // 50/100 = 0.5
   })
 
   // TC-1001-06: convergence phase (progress >= 0.7)
-  test('TC-1001-06: progress=0.8 のとき convergence（収束期）が返される', () => {
+  test('TC-1001-06', () => {
     expect(detectPhase(80, 100)).toBe('convergence') // 80/100 = 0.8
   })
 })

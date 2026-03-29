@@ -12,11 +12,11 @@ pub mod pdp;
 pub mod sampling;
 pub mod sensitivity;
 
-/// WASM初期化時にパニックハンドラをセットアップする
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(start)]
 pub fn main() {
-    // パニック時のデバッグ情報をコンソールに出力（リリースビルドでも有効）
+    // Documentation.
     console_error_panic_hook();
 }
 
@@ -28,12 +28,12 @@ fn console_error_panic_hook() {
 }
 
 // =============================================================================
-// WASM公開API
+// Documentation.
 // =============================================================================
 
-/// Optuna Journal ファイルをパースして Study 一覧を JS オブジェクトで返す
+/// Documentation.
 ///
-/// 戻り値: { studies: Study[], durationMs: number }
+/// Documentation.
 /// Study: { studyId, name, directions, completedTrials, totalTrials,
 ///           paramNames, objectiveNames, userAttrNames, hasConstraints }
 #[cfg(feature = "wasm")]
@@ -96,9 +96,9 @@ pub fn wasm_parse_journal(data: &[u8]) -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
-/// アクティブ Study を切り替え、GPU バッファを JS オブジェクトで返す
+/// Documentation.
 ///
-/// 戻り値: { positions: ArrayBuffer, positions3d: ArrayBuffer,
+/// Documentation.
 ///           sizes: ArrayBuffer, trialCount: number }
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "selectStudy")]
@@ -107,7 +107,7 @@ pub fn wasm_select_study(study_id: u32) -> Result<JsValue, JsValue> {
 
     let gpu = result.gpu_buffer_data;
 
-    // Vec<f32> → Float32Array（データをコピー）→ .buffer() で ArrayBuffer を取得
+    // Documentation.
     let pos_arr = js_sys::Float32Array::new_with_length(gpu.positions.len() as u32);
     pos_arr.copy_from(&gpu.positions);
 
@@ -131,11 +131,11 @@ pub fn wasm_select_study(study_id: u32) -> Result<JsValue, JsValue> {
     Ok(obj.into())
 }
 
-/// 範囲条件 JSON を受け取り、条件を満たす trial の行インデックスを Uint32Array で返す
+/// Documentation.
 ///
-/// 引数: ranges_json — `{"col": {"min": 2.0, "max": 8.0}}` 形式の JSON 文字列
-/// 戻り値: 条件を満たす行の 0 ベースインデックス（昇順）
-/// 存在しない列名は無視、min > max の場合は空配列を返す
+/// Documentation.
+/// Documentation.
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "filterByRanges")]
 pub fn wasm_filter_by_ranges(ranges_json: &str) -> Result<JsValue, JsValue> {
@@ -145,11 +145,11 @@ pub fn wasm_filter_by_ranges(ranges_json: &str) -> Result<JsValue, JsValue> {
     Ok(arr.into())
 }
 
-/// 選択された試行インデックスと列名 JSON から CSV 文字列を生成して返す
+/// Documentation.
 ///
-/// 引数: indices — 出力対象の行インデックス（JS Array<number>）
-///        columns_json — 列名配列 JSON（`[]` の場合は全列）
-/// 戻り値: RFC 4180 準拠の UTF-8 CSV 文字列
+/// Documentation.
+/// Documentation.
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "serializeCsv")]
 pub fn wasm_serialize_csv(indices: js_sys::Array, columns_json: &str) -> Result<JsValue, JsValue> {
@@ -161,10 +161,10 @@ pub fn wasm_serialize_csv(indices: js_sys::Array, columns_json: &str) -> Result<
     Ok(JsValue::from_str(&result))
 }
 
-/// Hypervolume 推移を計算して trialIds / hvValues を返す
+/// Documentation.
 ///
-/// 引数: is_minimize — 各目的関数の最小化フラグ配列（JS Array<boolean>）
-/// 戻り値: { trialIds: Uint32Array, hvValues: Float64Array }
+/// Documentation.
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "computeHvHistory")]
 pub fn wasm_compute_hv_history(is_minimize: js_sys::Array) -> Result<JsValue, JsValue> {
@@ -187,10 +187,10 @@ pub fn wasm_compute_hv_history(is_minimize: js_sys::Array) -> Result<JsValue, Js
     Ok(obj.into())
 }
 
-/// Journal ファイルの差分データを追記し、新規完了試行数と消費バイト数を返す
+/// Documentation.
 ///
-/// 引数: data — Journal ファイルの追加バイト列（Uint8Array）
-/// 戻り値: { new_completed: number, consumed_bytes: number }
+/// Documentation.
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "appendJournalDiff")]
 pub fn wasm_append_journal_diff(data: &[u8]) -> Result<JsValue, JsValue> {
@@ -213,10 +213,10 @@ pub fn wasm_append_journal_diff(data: &[u8]) -> Result<JsValue, JsValue> {
     Ok(obj.into())
 }
 
-/// レポート生成用のサマリー統計 JSON を返す
+/// Documentation.
 ///
-/// 戻り値: JSON 文字列 — 各数値列の min/max/mean/std/count
-/// アクティブ Study 未選択の場合は `"{}"` を返す
+/// Documentation.
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "computeReportStats")]
 pub fn wasm_compute_report_stats() -> Result<JsValue, JsValue> {
@@ -224,10 +224,10 @@ pub fn wasm_compute_report_stats() -> Result<JsValue, JsValue> {
     Ok(JsValue::from_str(&result))
 }
 
-/// アクティブ Study の全完了トライアルをパラメータ・目的関数値付きで返す
+/// Documentation.
 ///
-/// 戻り値: TrialData[] = [{ trialId, params: Record<string,number>, values: number[], paretoRank: null }]
-/// アクティブ Study が未選択の場合は空配列 [] を返す
+/// Documentation.
+/// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "getTrials")]
 pub fn wasm_get_trials() -> Result<JsValue, JsValue> {
@@ -250,7 +250,7 @@ pub fn wasm_get_trials() -> Result<JsValue, JsValue> {
 
         (0..n)
             .map(|row| {
-                // パラメータ列を走査して HashMap を構築
+                // Documentation.
                 let params: HashMap<String, f64> = param_names
                     .iter()
                     .map(|name| {
@@ -262,7 +262,7 @@ pub fn wasm_get_trials() -> Result<JsValue, JsValue> {
                     })
                     .collect();
 
-                // 目的関数列を走査して Vec を構築
+                // Documentation.
                 let values: Vec<f64> = obj_names
                     .iter()
                     .map(|name| {
@@ -292,20 +292,20 @@ pub fn wasm_get_trials() -> Result<JsValue, JsValue> {
 mod tests {
     #[test]
     fn lib_compiles() {
-        // 基本的なコンパイル確認
+        // Documentation.
         assert!(true);
     }
 
     #[test]
     fn wasm_get_trials_no_active_study_returns_empty() {
-        // 【テスト目的】: アクティブ Study が未選択のとき with_active_df は None を返し
-        //                 unwrap_or_default() で空 Vec になることを確認
-        // WASM 環境外では wasm_get_trials() を直接呼べないため、
-        // with_active_df が None を返すことを確認する
+        // Documentation.
+        // Documentation.
+        // Documentation.
+        // Documentation.
         let result = crate::dataframe::with_active_df(|_df| 42usize);
         assert!(
             result.is_none(),
-            "アクティブ Study がない場合は None を返す"
+            "translated Study translated None translated"
         );
     }
 
@@ -316,7 +316,7 @@ mod tests {
         };
         use std::collections::HashMap;
 
-        // テスト用 DataFrame を構築してアクティブにする
+        // Documentation.
         let rows = vec![
             TrialRow {
                 trial_id: 0,
@@ -347,33 +347,33 @@ mod tests {
             0,
         );
 
-        // DataFrame を保存してアクティブにする
+        // Documentation.
         store_dataframes(vec![df]);
         select_study(0).unwrap();
 
-        // with_active_df でパラメータ列を確認
+        // Documentation.
         let param_count = with_active_df(|df| df.param_col_names().len()).unwrap_or(0);
-        assert_eq!(param_count, 1, "パラメータ列数が一致する");
+        assert_eq!(param_count, 1, "parametertranslated");
 
         let row_count = with_active_df(|df| df.row_count()).unwrap_or(0);
-        assert_eq!(row_count, 2, "行数が一致する");
+        assert_eq!(row_count, 2, "translated");
 
-        // パラメータ値の確認
+        // Documentation.
         let x_values: Vec<f64> = with_active_df(|df| {
             df.get_numeric_column("x")
                 .map(|col| col.to_vec())
                 .unwrap_or_default()
         })
         .unwrap_or_default();
-        assert_eq!(x_values, vec![1.5, 2.5], "x パラメータ値が一致する");
+        assert_eq!(x_values, vec![1.5, 2.5], "x parametertranslated");
 
-        // 目的関数値の確認
+        // Documentation.
         let obj_values: Vec<f64> = with_active_df(|df| {
             df.get_numeric_column("obj0")
                 .map(|col| col.to_vec())
                 .unwrap_or_default()
         })
         .unwrap_or_default();
-        assert_eq!(obj_values, vec![10.0, 5.0], "目的関数値が一致する");
+        assert_eq!(obj_values, vec![10.0, 5.0], "objectivetranslated");
     }
 }

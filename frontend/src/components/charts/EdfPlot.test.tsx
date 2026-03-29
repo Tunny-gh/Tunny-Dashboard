@@ -20,19 +20,19 @@ import { EdfPlot, computeEdf } from './EdfPlot'
 // computeEdf pure function tests
 // -------------------------------------------------------------------------
 
-describe('computeEdf — 純粋関数', () => {
+describe('translated test case', () => {
   // TC-EDF-PURE-01: empty array
-  test('TC-EDF-PURE-01: 空配列は空を返す', () => {
+  test('TC-EDF-PURE-01', () => {
     expect(computeEdf([])).toEqual([])
   })
 
   // TC-EDF-PURE-02: single element
-  test('TC-EDF-PURE-02: 1要素のとき [value, 1.0] を返す', () => {
+  test('TC-EDF-PURE-02', () => {
     expect(computeEdf([5])).toEqual([[5, 1.0]])
   })
 
   // TC-EDF-PURE-03: multiple elements sorted and cumulative probability computed
-  test('TC-EDF-PURE-03: 3要素を昇順ソートして累積確率を計算する', () => {
+  test('TC-EDF-PURE-03', () => {
     const result = computeEdf([3, 1, 2])
 
     expect(result).toHaveLength(3)
@@ -42,7 +42,7 @@ describe('computeEdf — 純粋関数', () => {
   })
 
   // TC-EDF-PURE-04: duplicate values still produce monotonically increasing CDF
-  test('TC-EDF-PURE-04: 重複値でも CDF が単調増加になる', () => {
+  test('TC-EDF-PURE-04', () => {
     const result = computeEdf([1, 1, 2])
 
     expect(result[0][1]).toBeLessThan(result[1][1])
@@ -55,12 +55,12 @@ describe('computeEdf — 純粋関数', () => {
 // Happy path
 // -------------------------------------------------------------------------
 
-describe('EdfPlot — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
   // TC-EDF-01: with data, ECharts is rendered
-  test('TC-EDF-01: データありで edf-plot コンテナと ECharts が表示される', () => {
+  test('TC-EDF-01', () => {
     render(<EdfPlot series={[{ name: 'obj1', values: [0.1, 0.5, 0.3] }]} />)
 
     expect(screen.getByTestId('edf-plot')).toBeInTheDocument()
@@ -68,7 +68,7 @@ describe('EdfPlot — 正常系', () => {
   })
 
   // TC-EDF-02: series name is passed to legend
-  test('TC-EDF-02: series の名前が ECharts legend に渡される', () => {
+  test('TC-EDF-02', () => {
     render(<EdfPlot series={[{ name: 'cost', values: [1, 2, 3] }]} />)
 
     const option = JSON.parse(screen.getByTestId('echarts').getAttribute('data-option') ?? '{}')
@@ -76,7 +76,7 @@ describe('EdfPlot — 正常系', () => {
   })
 
   // TC-EDF-03: data is passed as a step='end' line series
-  test('TC-EDF-03: series データが step="end" の折れ線として渡される', () => {
+  test('TC-EDF-03', () => {
     render(<EdfPlot series={[{ name: 'obj', values: [2, 1, 3] }]} />)
 
     const option = JSON.parse(screen.getByTestId('echarts').getAttribute('data-option') ?? '{}')
@@ -85,7 +85,7 @@ describe('EdfPlot — 正常系', () => {
   })
 
   // TC-EDF-04: multiple series render as multiple lines
-  test('TC-EDF-04: 多目的のとき series が 2 本になる', () => {
+  test('TC-EDF-04', () => {
     render(
       <EdfPlot
         series={[
@@ -104,12 +104,12 @@ describe('EdfPlot — 正常系', () => {
 // Error cases
 // -------------------------------------------------------------------------
 
-describe('EdfPlot — 異常系', () => {
+describe('translated test case', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
   // TC-EDF-E01: series=[] shows empty state
-  test('TC-EDF-E01: series=[] のとき「データがありません」を表示する', () => {
+  test('TC-EDF-E01', () => {
     render(<EdfPlot series={[]} />)
 
     expect(screen.getByText('No data available')).toBeInTheDocument()
@@ -117,7 +117,7 @@ describe('EdfPlot — 異常系', () => {
   })
 
   // TC-EDF-E02: all series with empty values shows empty state
-  test('TC-EDF-E02: 全 series の values が空のとき「データがありません」を表示する', () => {
+  test('TC-EDF-E02', () => {
     render(<EdfPlot series={[{ name: 'obj', values: [] }]} />)
 
     expect(screen.getByText('No data available')).toBeInTheDocument()

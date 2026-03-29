@@ -1,16 +1,16 @@
 /**
- * 統合テスト + 性能ベンチマーク (TASK-1502)
+ * Documentation.
  *
- * 【テスト対象】: SelectionStore / LayoutStore / ExportStore の統合動作と性能
- * 【テスト方針】:
- *   - 主要フロー: loadJournal(mock) → brushSelect → addAxisFilter → CSV 生成
- *   - 性能目標: 5万件 brushSelect < 100ms、フィルタ更新 < 5ms
- *   - WASM 呼び出しはモック（stub）して純粋な JS/TS 層の性能を計測
- * 🟢 REQ-040: brushSelect 性能
- * 🟢 REQ-042: addAxisFilter 性能（同期部分）
- * 🟢 REQ-150: CSV エクスポートフロー
- * 🟢 NFR-012: 5万件読み込み 5秒以内（JS層）
- * 🟢 NFR-013: フィルタ操作 100ms 以内
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
@@ -20,10 +20,10 @@ import { useExportStore, MAX_PINS } from '../stores/exportStore'
 import { useStudyStore } from '../stores/studyStore'
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** 【ストアリセット】: 各テスト前に全ストアを初期状態に戻す */
+/** Documentation. */
 function resetAllStores() {
   useSelectionStore.setState({
     selectedIndices: new Uint32Array(0),
@@ -55,7 +55,7 @@ function resetAllStores() {
   })
 }
 
-/** 【50k インデックス生成】: [0, 1, ..., 49999] の Uint32Array を生成 */
+/** Documentation. */
 function makeIndices(n: number): Uint32Array {
   const arr = new Uint32Array(n)
   for (let i = 0; i < n; i++) arr[i] = i
@@ -63,213 +63,213 @@ function makeIndices(n: number): Uint32Array {
 }
 
 // -------------------------------------------------------------------------
-// 正常系: Store 統合フロー
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('統合テスト — Store 連携フロー (TASK-1502)', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetAllStores()
     vi.clearAllMocks()
   })
 
-  // TC-1502-I01: SelectionStore の brushSelect → selectedIndices 反映
-  test('TC-1502-I01: brushSelect で selectedIndices が更新される', () => {
-    // 【テスト目的】: brushSelect が selectedIndices を正しく更新することを確認 🟢 REQ-040
+  // Documentation.
+  test('TC-1502-I01', () => {
+    // Documentation.
     const indices = new Uint32Array([0, 1, 2, 3, 4])
 
-    // 【処理実行】: brushSelect でインデックスを選択
+    // Documentation.
     useSelectionStore.getState().brushSelect(indices)
 
-    // 【結果検証】: selectedIndices が更新されていること
-    expect(useSelectionStore.getState().selectedIndices).toEqual(indices) // 【確認内容】: brushSelect が正しく動作
+    // Documentation.
+    expect(useSelectionStore.getState().selectedIndices).toEqual(indices) // Documentation.
   })
 
-  // TC-1502-I02: addAxisFilter → filterRanges 同期更新
-  test('TC-1502-I02: addAxisFilter で filterRanges が同期的に更新される', () => {
-    // 【テスト目的】: addAxisFilter の同期部分が正しく動作することを確認 🟢 REQ-042
+  // Documentation.
+  test('TC-1502-I02', () => {
+    // Documentation.
     useSelectionStore.getState().addAxisFilter('objective_0', 0.1, 0.9)
 
-    // 【結果検証】: filterRanges に軸フィルタが追加されること
+    // Documentation.
     const ranges = useSelectionStore.getState().filterRanges
-    expect(ranges['objective_0']).toEqual({ min: 0.1, max: 0.9 }) // 【確認内容】: filterRanges が同期更新される
+    expect(ranges['objective_0']).toEqual({ min: 0.1, max: 0.9 }) // Documentation.
   })
 
-  // TC-1502-I03: removeAxisFilter で全フィルタ除去時に全インデックス復元
-  test('TC-1502-I03: removeAxisFilter（全フィルタ除去）で全インデックスに戻る', () => {
-    // 【テスト目的】: 全フィルタ除去時に全インデックスが復元されることを確認 🟢 REQ-042
+  // Documentation.
+  test('TC-1502-I03', () => {
+    // Documentation.
     useSelectionStore.getState()._setTrialCount(10)
     useSelectionStore.getState().addAxisFilter('objective_0', 0.1, 0.9)
 
-    // 【処理実行】: フィルタを除去
+    // Documentation.
     useSelectionStore.getState().removeAxisFilter('objective_0')
 
-    // 【結果検証】: 全 10 インデックスが選択状態になること
+    // Documentation.
     const indices = useSelectionStore.getState().selectedIndices
-    expect(indices.length).toBe(10) // 【確認内容】: 全インデックス復元
-    expect(indices[0]).toBe(0) // 【確認内容】: インデックス先頭が 0
-    expect(indices[9]).toBe(9) // 【確認内容】: インデックス末尾が 9
+    expect(indices.length).toBe(10) // Documentation.
+    expect(indices[0]).toBe(0) // Documentation.
+    expect(indices[9]).toBe(9) // Documentation.
   })
 
-  // TC-1502-I04: clearSelection で全インデックスと filterRanges がリセット
-  test('TC-1502-I04: clearSelection で選択状態と filterRanges がリセットされる', () => {
-    // 【テスト目的】: clearSelection が全状態を初期化することを確認 🟢 REQ-044
+  // Documentation.
+  test('TC-1502-I04', () => {
+    // Documentation.
     useSelectionStore.getState()._setTrialCount(5)
     useSelectionStore.getState().addAxisFilter('objective_0', 0.1, 0.9)
     useSelectionStore.getState().brushSelect(new Uint32Array([1, 2]))
 
-    // 【処理実行】: 全選択クリア
+    // Documentation.
     useSelectionStore.getState().clearSelection()
 
-    // 【結果検証】: 全インデックスが選択され filterRanges が空になること
-    expect(useSelectionStore.getState().selectedIndices.length).toBe(5) // 【確認内容】: 全 5 件選択
-    expect(useSelectionStore.getState().filterRanges).toEqual({}) // 【確認内容】: filterRanges がクリア
+    // Documentation.
+    expect(useSelectionStore.getState().selectedIndices.length).toBe(5) // Documentation.
+    expect(useSelectionStore.getState().filterRanges).toEqual({}) // Documentation.
   })
 
-  // TC-1502-I05: ExportStore の pinTrial → MAX_PINS 超過エラー
-  test('TC-1502-I05: MAX_PINS(20)超過でピン留めエラーが発生する', () => {
-    // 【テスト目的】: ピン留め上限 20 件超過時のエラー処理を確認 🟢 REQ-156
-    // 【前提準備】: 20 件のピン留めを追加
+  // Documentation.
+  test('TC-1502-I05', () => {
+    // Documentation.
+    // Documentation.
     for (let i = 0; i < MAX_PINS; i++) {
       useExportStore.getState().pinTrial(i, i + 1000)
     }
-    expect(useExportStore.getState().pinnedTrials.length).toBe(MAX_PINS) // 【確認内容】: 上限まで追加できる
+    expect(useExportStore.getState().pinnedTrials.length).toBe(MAX_PINS) // Documentation.
 
-    // 【処理実行】: 21 件目の追加（上限超過）
+    // Documentation.
     useExportStore.getState().pinTrial(100, 9999)
 
-    // 【結果検証】: エラーが設定され pinnedTrials は増えないこと
-    expect(useExportStore.getState().pinnedTrials.length).toBe(MAX_PINS) // 【確認内容】: 上限を超えない
-    expect(useExportStore.getState().pinError).not.toBeNull() // 【確認内容】: エラーメッセージが設定される
+    // Documentation.
+    expect(useExportStore.getState().pinnedTrials.length).toBe(MAX_PINS) // Documentation.
+    expect(useExportStore.getState().pinError).not.toBeNull() // Documentation.
   })
 
-  // TC-1502-I06: LayoutStore の saveLayout / loadLayout ラウンドトリップ
-  test('TC-1502-I06: saveLayout → loadLayout でレイアウト状態が完全復元される', () => {
-    // 【テスト目的】: セッション保存・復元の完全なラウンドトリップを確認 🟢 REQ-157
+  // Documentation.
+  test('TC-1502-I06', () => {
+    // Documentation.
     useLayoutStore.getState().setLayoutMode('C')
     useLayoutStore.getState().toggleChart('history')
 
-    // 【保存】
+    // Documentation.
     const config = useLayoutStore.getState().saveLayout()
 
-    // 【状態変更】
+    // Documentation.
     useLayoutStore.getState().setLayoutMode('B')
-    useLayoutStore.getState().toggleChart('history') // 再追加
+    useLayoutStore.getState().toggleChart('history') // Documentation.
 
-    // 【復元】
+    // Documentation.
     useLayoutStore.getState().loadLayout(config)
 
-    // 【結果検証】: 保存時の状態に戻っていること
-    expect(useLayoutStore.getState().layoutMode).toBe('C') // 【確認内容】: モードが復元される
-    expect(useLayoutStore.getState().visibleCharts.has('history')).toBe(false) // 【確認内容】: チャート表示状態が復元される
+    // Documentation.
+    expect(useLayoutStore.getState().layoutMode).toBe('C') // Documentation.
+    expect(useLayoutStore.getState().visibleCharts.has('history')).toBe(false) // Documentation.
   })
 
-  // TC-1502-I07: StudyStore の selectStudy で ComparisonStore がリセットされる
-  test('TC-1502-I07: Study 選択時に selectionStore の状態がリセットされる', () => {
-    // 【テスト目的】: Study 切替時に選択状態がリセットされることを確認 🟢 REQ-124
-    // 【前提準備】: 選択状態とハイライトを設定
+  // Documentation.
+  test('TC-1502-I07', () => {
+    // Documentation.
+    // Documentation.
     useSelectionStore.getState().brushSelect(new Uint32Array([1, 2, 3]))
     useSelectionStore.getState().setHighlight(5)
 
-    // 【確認内容】: brushSelect は独立した操作（selectionStore への直接操作）
+    // Documentation.
     expect(useSelectionStore.getState().selectedIndices.length).toBe(3)
 
-    // 【処理実行】: clearSelection は選択とフィルタをリセットする
+    // Documentation.
     useSelectionStore.getState()._setTrialCount(100)
     useSelectionStore.getState().clearSelection()
 
-    // 【結果検証】: clearSelection で全インデックスが選択される
-    expect(useSelectionStore.getState().selectedIndices.length).toBe(100) // 【確認内容】: 全インデックスに戻る
-    expect(useSelectionStore.getState().filterRanges).toEqual({}) // 【確認内容】: フィルタがクリアされる
+    // Documentation.
+    expect(useSelectionStore.getState().selectedIndices.length).toBe(100) // Documentation.
+    expect(useSelectionStore.getState().filterRanges).toEqual({}) // Documentation.
   })
 })
 
 // -------------------------------------------------------------------------
-// 性能テスト: CI 自動計測
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('性能テスト — CI 自動計測 (TASK-1502)', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetAllStores()
   })
 
-  // TC-1502-P01: 5万件 brushSelect が 100ms 以内
-  test('TC-1502-P01: 5万件の brushSelect が 100ms 以内に完了する', () => {
-    // 【テスト目的】: 大量データのブラッシング操作が UI をブロックしないことを確認 🟢 NFR-013
-    // 【テスト内容】: 50,000 インデックスの brushSelect タイミングを計測
-    // 【期待される動作】: 100ms 以内に完了する
+  // Documentation.
+  test('TC-1502-P01', () => {
+    // Documentation.
+    // Documentation.
+    // Documentation.
     const indices = makeIndices(50_000)
 
-    // 【計測開始】
+    // Documentation.
     const start = performance.now()
     useSelectionStore.getState().brushSelect(indices)
     const elapsed = performance.now() - start
 
-    // 【結果検証】: 100ms 以内に完了していること
-    expect(elapsed).toBeLessThan(100) // 【確認内容】: NFR-013 性能要件（フィルタ操作 100ms 以内）
-    expect(useSelectionStore.getState().selectedIndices.length).toBe(50_000) // 【確認内容】: データが正しく設定される
+    // Documentation.
+    expect(elapsed).toBeLessThan(100) // Documentation.
+    expect(useSelectionStore.getState().selectedIndices.length).toBe(50_000) // Documentation.
   })
 
-  // TC-1502-P02: 5万件 clearSelection が 100ms 以内
-  test('TC-1502-P02: 5万件の clearSelection が 100ms 以内に完了する', () => {
-    // 【テスト目的】: 5万件の全インデックス生成と選択リセットが高速なことを確認 🟢 NFR-013
-    // 【テスト内容】: trialCount=50,000 の状態で clearSelection のタイミングを計測
+  // Documentation.
+  test('TC-1502-P02', () => {
+    // Documentation.
+    // Documentation.
     useSelectionStore.getState()._setTrialCount(50_000)
 
-    // 【計測開始】
+    // Documentation.
     const start = performance.now()
     useSelectionStore.getState().clearSelection()
     const elapsed = performance.now() - start
 
-    // 【結果検証】: 100ms 以内に完了していること
-    expect(elapsed).toBeLessThan(100) // 【確認内容】: 大量インデックス生成が高速
-    expect(useSelectionStore.getState().selectedIndices.length).toBe(50_000) // 【確認内容】: 全インデックスが生成される
+    // Documentation.
+    expect(elapsed).toBeLessThan(100) // Documentation.
+    expect(useSelectionStore.getState().selectedIndices.length).toBe(50_000) // Documentation.
   })
 
-  // TC-1502-P03: filterRanges 更新が 5ms 以内（同期部分）
-  test('TC-1502-P03: addAxisFilter の同期処理が 5ms 以内に完了する', () => {
-    // 【テスト目的】: フィルタ操作の同期部分が即座に UI を更新することを確認 🟢 NFR-013
-    // 【テスト内容】: addAxisFilter の filterRanges 更新タイミングを計測（WASM 呼び出しは除く）
+  // Documentation.
+  test('TC-1502-P03', () => {
+    // Documentation.
+    // Documentation.
 
-    // 【計測開始】
+    // Documentation.
     const start = performance.now()
     useSelectionStore.getState().addAxisFilter('objective_0', 0.2, 0.8)
     const elapsed = performance.now() - start
 
-    // 【結果検証】: 5ms 以内に同期部分が完了していること
-    expect(elapsed).toBeLessThan(5) // 【確認内容】: filterRanges 同期更新が高速
-    expect(useSelectionStore.getState().filterRanges['objective_0']).toBeDefined() // 【確認内容】: filterRanges が即座に更新される
+    // Documentation.
+    expect(elapsed).toBeLessThan(5) // Documentation.
+    expect(useSelectionStore.getState().filterRanges['objective_0']).toBeDefined() // Documentation.
   })
 
-  // TC-1502-P04: 5万件モックデータの生成・Store への設定が 5 秒以内
-  test('TC-1502-P04: 5万件のモックトライアルデータ生成と Store 設定が 5000ms 以内', () => {
-    // 【テスト目的】: 5万件データの JS 層処理が 5 秒以内に完了することを確認 🟢 NFR-012
-    // 【テスト内容】: 50,000 件分のトライアルデータ生成とインデックス設定のタイミングを計測
-    // 【注意】: WASM パース部分は除く（WASM はスタブ状態）
+  // Documentation.
+  test('TC-1502-P04', () => {
+    // Documentation.
+    // Documentation.
+    // Documentation.
 
-    // 【計測開始】
+    // Documentation.
     const start = performance.now()
 
-    // 【モックデータ生成】: 50,000 件分のインデックスと座標データを生成
+    // Documentation.
     const trialCount = 50_000
     const allIndices = makeIndices(trialCount)
 
-    // 【Store 設定】: trialCount と全インデックスを設定
+    // Documentation.
     useSelectionStore.getState()._setTrialCount(trialCount)
     useSelectionStore.getState().brushSelect(allIndices)
 
     const elapsed = performance.now() - start
 
-    // 【結果検証】: 5000ms 以内に完了していること
-    expect(elapsed).toBeLessThan(5000) // 【確認内容】: NFR-012（5万件読込 5 秒以内）JS 層
-    expect(useSelectionStore.getState().selectedIndices.length).toBe(trialCount) // 【確認内容】: 全データが設定される
+    // Documentation.
+    expect(elapsed).toBeLessThan(5000) // Documentation.
+    expect(useSelectionStore.getState().selectedIndices.length).toBe(trialCount) // Documentation.
   })
 
-  // TC-1502-P05: CSV フォーマット生成が 1000ms 以内（5万件）
-  test('TC-1502-P05: 5万件 CSV データのフォーマット処理が 1000ms 以内', () => {
-    // 【テスト目的】: CSV 生成の純粋な JS 部分が高速なことを確認 🟢 REQ-150
-    // 【テスト内容】: 50,000 行の CSV データ生成タイミングを計測
+  // Documentation.
+  test('TC-1502-P05', () => {
+    // Documentation.
+    // Documentation.
 
-    // 【モック CSV データ生成】: ヘッダー + 5万行のトライアルデータ
+    // Documentation.
     const headers = ['trial_id', 'objective_0', 'objective_1', 'param_x', 'param_y']
     const rows: string[][] = []
     for (let i = 0; i < 50_000; i++) {
@@ -282,20 +282,20 @@ describe('性能テスト — CI 自動計測 (TASK-1502)', () => {
       ])
     }
 
-    // 【計測開始】: CSV 文字列への変換タイミング
+    // Documentation.
     const start = performance.now()
     const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n')
     const elapsed = performance.now() - start
 
-    // 【結果検証】: 1000ms 以内に完了していること
-    expect(elapsed).toBeLessThan(1000) // 【確認内容】: CSV フォーマット処理が高速
-    expect(csvContent.split('\n').length).toBe(50_001) // 【確認内容】: ヘッダー + 5万行
+    // Documentation.
+    expect(elapsed).toBeLessThan(1000) // Documentation.
+    expect(csvContent.split('\n').length).toBe(50_001) // Documentation.
   })
 
-  // TC-1502-P06: フィルタ操作を 100 回繰り返しても 1000ms 以内
-  test('TC-1502-P06: addAxisFilter を 100 回連続で実行しても 1000ms 以内', () => {
-    // 【テスト目的】: 連続フィルタ操作のパフォーマンスを確認 🟢 NFR-013
-    // 【テスト内容】: addAxisFilter を 100 回実行してトータル時間を計測
+  // Documentation.
+  test('TC-1502-P06', () => {
+    // Documentation.
+    // Documentation.
 
     const start = performance.now()
     for (let i = 0; i < 100; i++) {
@@ -305,37 +305,37 @@ describe('性能テスト — CI 自動計測 (TASK-1502)', () => {
     }
     const elapsed = performance.now() - start
 
-    // 【結果検証】: 100 回の操作が 1000ms 以内に完了すること
-    expect(elapsed).toBeLessThan(1000) // 【確認内容】: 連続フィルタ操作が高速
+    // Documentation.
+    expect(elapsed).toBeLessThan(1000) // Documentation.
     const rangeCount = Object.keys(useSelectionStore.getState().filterRanges).length
-    expect(rangeCount).toBe(100) // 【確認内容】: 100 個のフィルタが設定される
+    expect(rangeCount).toBe(100) // Documentation.
   })
 })
 
 // -------------------------------------------------------------------------
-// セッション保存・復元フロー
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('統合テスト — セッション JSON 保存・復元 (TASK-1502)', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetAllStores()
   })
 
-  // TC-1502-I08: loadLayoutFromJson エラーハンドリング
-  test('TC-1502-I08: 不正な JSON をロードするとエラーメッセージが設定される', () => {
-    // 【テスト目的】: JSON エラーハンドリングが正しく動作することを確認 🟢 NFR-032
+  // Documentation.
+  test('TC-1502-I08', () => {
+    // Documentation.
 
-    // 【処理実行】: 不正 JSON を渡す
+    // Documentation.
     const result = useLayoutStore.getState().loadLayoutFromJson('{ invalid json }')
 
-    // 【結果検証】: 失敗を返し、エラーメッセージが設定されること
-    expect(result.success).toBe(false) // 【確認内容】: 失敗を返す
-    expect(useLayoutStore.getState().layoutLoadError).toContain('Failed to load layout') // 【確認内容】: エラーメッセージが設定される
+    // Documentation.
+    expect(result.success).toBe(false) // Documentation.
+    expect(useLayoutStore.getState().layoutLoadError).toContain('Failed to load layout') // Documentation.
   })
 
-  // TC-1502-I09: 有効な JSON をロードするとレイアウトが復元される
-  test('TC-1502-I09: 有効な JSON をロードするとレイアウトが正しく復元される', () => {
-    // 【テスト目的】: セッション復元の完全なフローを確認 🟢 REQ-157
+  // Documentation.
+  test('TC-1502-I09', () => {
+    // Documentation.
     const sessionJson = JSON.stringify({
       mode: 'C',
       visibleCharts: ['pareto-front', 'scatter-matrix'],
@@ -343,12 +343,12 @@ describe('統合テスト — セッション JSON 保存・復元 (TASK-1502)',
       freeModeLayout: null,
     })
 
-    // 【処理実行】: 有効な JSON をロード
+    // Documentation.
     const result = useLayoutStore.getState().loadLayoutFromJson(sessionJson)
 
-    // 【結果検証】: 成功し、状態が正しく復元されること
-    expect(result.success).toBe(true) // 【確認内容】: 成功を返す
-    expect(useLayoutStore.getState().layoutMode).toBe('C') // 【確認内容】: モードが復元される
-    expect(useLayoutStore.getState().panelSizes.leftPanel).toBe(320) // 【確認内容】: パネルサイズが復元される
+    // Documentation.
+    expect(result.success).toBe(true) // Documentation.
+    expect(useLayoutStore.getState().layoutMode).toBe('C') // Documentation.
+    expect(useLayoutStore.getState().panelSizes.leftPanel).toBe(320) // Documentation.
   })
 })

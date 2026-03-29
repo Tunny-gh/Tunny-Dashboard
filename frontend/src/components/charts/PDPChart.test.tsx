@@ -72,7 +72,7 @@ function makePdpData2d(): PdpData2d {
 // Happy path
 // -------------------------------------------------------------------------
 
-describe('PDPChart — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -82,26 +82,26 @@ describe('PDPChart — 正常系', () => {
   })
 
   // TC-804-01: renders without error when data is null
-  test('TC-804-01: data1d=null・data2d 未指定でエラーなくレンダリングされる', () => {
+  test('TC-804-01', () => {
     expect(() => render(<PDPChart data1d={null} />)).not.toThrow()
   })
 
   // TC-804-02: ECharts is shown when data1d is provided
-  test('TC-804-02: data1d あり・isLoading=false で ECharts が表示される', () => {
+  test('TC-804-02', () => {
     render(<PDPChart data1d={makePdpData1d()} />)
 
     expect(screen.getByTestId('echarts')).toBeInTheDocument()
   })
 
   // TC-804-03: ECharts is shown when only data2d is provided
-  test('TC-804-03: data2d あり・data1d=null で ECharts が表示される', () => {
+  test('TC-804-03', () => {
     render(<PDPChart data1d={null} data2d={makePdpData2d()} />)
 
     expect(screen.getByTestId('echarts')).toBeInTheDocument()
   })
 
   // TC-804-04: model quality panel is shown
-  test('TC-804-04: モデル品質パネル（data-testid=model-quality-panel）が表示される', () => {
+  test('TC-804-04', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.85 })} />)
 
     expect(screen.getByTestId('model-quality-panel')).toBeInTheDocument()
@@ -110,7 +110,7 @@ describe('PDPChart — 正常系', () => {
   })
 
   // TC-804-05: R² value is shown in the panel
-  test('TC-804-05: モデル品質パネルに R² 値が表示される', () => {
+  test('TC-804-05', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.923 })} />)
 
     expect(screen.getByTestId('r2-value').textContent).toBe('0.923')
@@ -121,20 +121,20 @@ describe('PDPChart — 正常系', () => {
 // Loading state
 // -------------------------------------------------------------------------
 
-describe('PDPChart — ローディング状態', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
   // TC-804-06: isLoading=true shows the loading indicator
-  test('TC-804-06: isLoading=true のとき「PDP計算中...」が表示される', () => {
+  test('TC-804-06', () => {
     render(<PDPChart data1d={null} isLoading />)
 
     expect(screen.getByText('Computing PDP...')).toBeInTheDocument()
   })
 
   // TC-804-07: ECharts is hidden while loading
-  test('TC-804-07: isLoading=true のとき ECharts コンテナは表示されない', () => {
+  test('TC-804-07', () => {
     render(<PDPChart data1d={makePdpData1d()} isLoading />)
 
     expect(screen.queryByTestId('echarts')).not.toBeInTheDocument()
@@ -145,13 +145,13 @@ describe('PDPChart — ローディング状態', () => {
 // R² warning badge
 // -------------------------------------------------------------------------
 
-describe('PDPChart — R² 警告バッジ', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
   // TC-804-08: R² < 0.8 shows the warning badge
-  test('TC-804-08: R² < 0.8 のとき「PDPの解釈に注意が必要です」警告バッジが表示される', () => {
+  test('TC-804-08', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.65 })} />)
 
     expect(screen.getByTestId('r2-warning-badge')).toBeInTheDocument()
@@ -159,7 +159,7 @@ describe('PDPChart — R² 警告バッジ', () => {
   })
 
   // TC-804-09: warning badge includes the R² value
-  test('TC-804-09: 警告バッジに R² の数値が含まれる', () => {
+  test('TC-804-09', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.72 })} />)
 
     const badge = screen.getByTestId('r2-warning-badge')
@@ -167,7 +167,7 @@ describe('PDPChart — R² 警告バッジ', () => {
   })
 
   // TC-804-10: R² >= 0.8 does not show the warning badge
-  test('TC-804-10: R² >= 0.8 のとき警告バッジは表示されない', () => {
+  test('TC-804-10', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.85 })} />)
 
     expect(screen.queryByTestId('r2-warning-badge')).not.toBeInTheDocument()
@@ -178,13 +178,13 @@ describe('PDPChart — R² 警告バッジ', () => {
 // Linear approximation warning banner
 // -------------------------------------------------------------------------
 
-describe('PDPChart — 線形近似警告バナー', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
   // TC-804-11: useOnnx=false shows the warning banner
-  test('TC-804-11: useOnnx=false のとき「線形近似で表示中」警告バナーが表示される', () => {
+  test('TC-804-11', () => {
     render(<PDPChart data1d={makePdpData1d()} useOnnx={false} />)
 
     expect(screen.getByTestId('linear-approx-banner')).toBeInTheDocument()
@@ -192,14 +192,14 @@ describe('PDPChart — 線形近似警告バナー', () => {
   })
 
   // TC-804-12: useOnnx=true hides the warning banner
-  test('TC-804-12: useOnnx=true のとき「線形近似」警告バナーは表示されない', () => {
+  test('TC-804-12', () => {
     render(<PDPChart data1d={makePdpData1d()} useOnnx={true} />)
 
     expect(screen.queryByTestId('linear-approx-banner')).not.toBeInTheDocument()
   })
 
   // TC-804-13: ONNX load button shown when onOnnxRequest is provided
-  test('TC-804-13: onOnnxRequest あり・useOnnx=false のとき .onnx 読み込みボタンが表示される', () => {
+  test('TC-804-13', () => {
     const onOnnxRequest = vi.fn()
     render(<PDPChart data1d={makePdpData1d()} useOnnx={false} onOnnxRequest={onOnnxRequest} />)
 
@@ -207,7 +207,7 @@ describe('PDPChart — 線形近似警告バナー', () => {
   })
 
   // TC-804-14: clicking the ONNX button fires the callback
-  test('TC-804-14: .onnx ボタンクリックで onOnnxRequest が呼ばれる', () => {
+  test('TC-804-14', () => {
     const onOnnxRequest = vi.fn()
     render(<PDPChart data1d={makePdpData1d()} useOnnx={false} onOnnxRequest={onOnnxRequest} />)
 
@@ -221,20 +221,20 @@ describe('PDPChart — 線形近似警告バナー', () => {
 // ICE line highlight integration
 // -------------------------------------------------------------------------
 
-describe('PDPChart — ICE ラインハイライト連動', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
   // TC-804-15: passing highlightedIndices does not crash
-  test('TC-804-15: highlightedIndices=[0,1] を渡してもクラッシュしない', () => {
+  test('TC-804-15', () => {
     expect(() =>
       render(<PDPChart data1d={makePdpData1dWithIce(2)} highlightedIndices={[0, 1]} />),
     ).not.toThrow()
   })
 
   // TC-804-16: ECharts is still shown after highlightedIndices changes
-  test('TC-804-16: highlightedIndices 変更後も ECharts コンテナが表示される', () => {
+  test('TC-804-16', () => {
     const { rerender } = render(
       <PDPChart data1d={makePdpData1dWithIce(2)} highlightedIndices={[]} />,
     )
@@ -246,7 +246,7 @@ describe('PDPChart — ICE ラインハイライト連動', () => {
   })
 
   // TC-804-17: no crash when iceLines is omitted
-  test('TC-804-17: iceLines 省略でも highlightedIndices を渡してもクラッシュしない', () => {
+  test('TC-804-17', () => {
     const data = makePdpData1d() // no iceLines
     expect(() => render(<PDPChart data1d={data} highlightedIndices={[0, 1, 2]} />)).not.toThrow()
   })
@@ -256,20 +256,20 @@ describe('PDPChart — ICE ラインハイライト連動', () => {
 // Error cases
 // -------------------------------------------------------------------------
 
-describe('PDPChart — 異常系', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
   // TC-804-E01: no data and not loading shows empty state
-  test('TC-804-E01: data1d=null・data2d なしのとき「データが読み込まれていません」が表示される', () => {
+  test('TC-804-E01', () => {
     render(<PDPChart data1d={null} isLoading={false} />)
 
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
   // TC-804-E02: rSquared=0 shows "not recommended" quality label
-  test('TC-804-E02: rSquared=0 のとき quality-label に「推奨外」が含まれる', () => {
+  test('TC-804-E02', () => {
     render(<PDPChart data1d={makePdpData1d({ rSquared: 0.0 })} />)
 
     expect(screen.getByTestId('quality-label').textContent).toContain('Not Recommended')
@@ -280,23 +280,23 @@ describe('PDPChart — 異常系', () => {
 // getModelQuality pure function tests
 // -------------------------------------------------------------------------
 
-describe('getModelQuality — 品質評価関数', () => {
-  // TC-804-Q01: R² >= 0.8 returns '良好'
-  test('TC-804-Q01: R² >= 0.8 のとき "良好" を返す', () => {
+describe('translated test case', () => {
+  // Documentation.
+  test('TC-804-Q01', () => {
     expect(getModelQuality(0.8)).toBe('Good')
     expect(getModelQuality(0.95)).toBe('Good')
     expect(getModelQuality(1.0)).toBe('Good')
   })
 
-  // TC-804-Q02: 0.5 <= R² < 0.8 returns '要注意'
-  test('TC-804-Q02: 0.5 <= R² < 0.8 のとき "要注意" を返す', () => {
+  // Documentation.
+  test('TC-804-Q02', () => {
     expect(getModelQuality(0.5)).toBe('Caution')
     expect(getModelQuality(0.65)).toBe('Caution')
     expect(getModelQuality(0.79)).toBe('Caution')
   })
 
-  // TC-804-Q03: R² < 0.5 returns '推奨外'
-  test('TC-804-Q03: R² < 0.5 のとき "推奨外" を返す', () => {
+  // Documentation.
+  test('TC-804-Q03', () => {
     expect(getModelQuality(0.0)).toBe('Not Recommended')
     expect(getModelQuality(0.3)).toBe('Not Recommended')
     expect(getModelQuality(0.49)).toBe('Not Recommended')

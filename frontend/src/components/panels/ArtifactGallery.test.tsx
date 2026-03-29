@@ -62,7 +62,7 @@ describe('ArtifactGallery', () => {
   })
 
   // TC-1301-G01: hidden when no directory is selected
-  test('TC-1301-G01: dirHandle=null のとき ArtifactGallery は非表示', () => {
+  test('TC-1301-G01', () => {
     ;(useArtifactStore as ReturnType<typeof vi.fn>).mockReturnValue({
       dirHandle: null,
       loadArtifactUrl: vi.fn(),
@@ -72,7 +72,7 @@ describe('ArtifactGallery', () => {
   })
 
   // TC-1301-G02: trials with artifacts are shown as cards
-  test('TC-1301-G02: アーティファクトある trial のカードが表示される', () => {
+  test('TC-1301-G02', () => {
     const trials = [makeTrial(1), makeTrial(2), makeTrial(3)]
     render(<ArtifactGallery trials={trials} />)
     expect(screen.getByTestId('gallery-card-1')).toBeInTheDocument()
@@ -81,7 +81,7 @@ describe('ArtifactGallery', () => {
   })
 
   // TC-1301-G03: trials without artifacts are filtered out
-  test('TC-1301-G03: アーティファクトなし trial は gallery に表示されない', () => {
+  test('TC-1301-G03', () => {
     const trials = [makeTrial(1, true), makeTrial(2, false)]
     render(<ArtifactGallery trials={trials} />)
     expect(screen.getByTestId('gallery-card-1')).toBeInTheDocument()
@@ -89,7 +89,7 @@ describe('ArtifactGallery', () => {
   })
 
   // TC-1301-G04: card size toggle buttons are shown
-  test('TC-1301-G04: カードサイズ切替ボタン（小/中/大）が表示される', () => {
+  test('TC-1301-G04', () => {
     render(<ArtifactGallery trials={[makeTrial(1)]} />)
     expect(screen.getByTestId('card-size-small')).toBeInTheDocument()
     expect(screen.getByTestId('card-size-medium')).toBeInTheDocument()
@@ -97,14 +97,14 @@ describe('ArtifactGallery', () => {
   })
 
   // TC-1301-G05: "load more" button appears when items exceed page size
-  test('TC-1301-G05: 49 件のとき「さらに読み込む」ボタンが表示される', () => {
+  test('TC-1301-G05', () => {
     const trials = Array.from({ length: 49 }, (_, i) => makeTrial(i + 1))
     render(<ArtifactGallery trials={trials} />)
     expect(screen.getByTestId('load-more-btn')).toBeInTheDocument()
   })
 
   // TC-1301-G06: clicking "load more" increases visible count
-  test('TC-1301-G06: 「さらに読み込む」クリックで表示件数が増える', () => {
+  test('TC-1301-G06', () => {
     const trials = Array.from({ length: 49 }, (_, i) => makeTrial(i + 1))
     render(<ArtifactGallery trials={trials} />)
 
@@ -119,7 +119,7 @@ describe('ArtifactGallery', () => {
   })
 
   // TC-1301-G07: empty message shown when no artifacts
-  test('TC-1301-G07: アーティファクトなし trial のみのとき gallery-empty が表示される', () => {
+  test('TC-1301-G07', () => {
     render(<ArtifactGallery trials={[makeTrial(1, false)]} />)
     expect(screen.getByTestId('gallery-empty')).toBeInTheDocument()
   })

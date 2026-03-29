@@ -1,15 +1,15 @@
 /**
- * AppShell テスト (TASK-401)
+ * Documentation.
  *
- * 【テスト対象】: AppShell — 4エリア CSS Grid レイアウトのアプリ骨格
- * 【テスト方針】: studyStore / layoutStore を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 // -------------------------------------------------------------------------
-// studyStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockLoadJournal } = vi.hoisted(() => {
@@ -27,7 +27,7 @@ vi.mock('../../stores/studyStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// layoutStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockSetLayoutMode } = vi.hoisted(() => {
@@ -45,7 +45,7 @@ vi.mock('../../stores/layoutStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// 子コンポーネントモック（AppShell の単体テスト分離）
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('./ToolBar', () => ({ ToolBar: () => <div data-testid="toolbar-mock" /> }))
@@ -62,10 +62,10 @@ import { AppShell } from './AppShell'
 import { useStudyStore } from '../../stores/studyStore'
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('AppShell — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -74,29 +74,29 @@ describe('AppShell — 正常系', () => {
     cleanup()
   })
 
-  // TC-401-01: AppShell が4エリアでレンダリングされる
-  test('TC-401-01: AppShell がエラーなくレンダリングされる', () => {
-    // 【テスト目的】: AppShell が正常にレンダリングできること 🟢
+  // Documentation.
+  test('TC-401-01', () => {
+    // Documentation.
     expect(() => render(<AppShell />)).not.toThrow()
   })
 
-  test('TC-401-01b: AppShell の data-layout 属性に layoutMode が反映される', () => {
-    // 【テスト目的】: レイアウトモードが DOM 属性として反映されること 🟢
+  test('TC-401-01', () => {
+    // Documentation.
     render(<AppShell />)
     const shell = screen.getByTestId('app-shell')
     expect(shell).toHaveAttribute('data-layout', 'A')
   })
 
-  // TC-401-08: ChartCatalogPanel のトグルボタンが AppShell 内に存在する
-  test('TC-401-08: data-testid="catalog-toggle-btn" が AppShell 内に存在する', () => {
-    // 【テスト目的】: REQ-001 — ChartCatalogPanel が AppShell に統合されていること
+  // Documentation.
+  test('TC-401-08', () => {
+    // Documentation.
     render(<AppShell />)
     expect(screen.getByTestId('catalog-toggle-btn')).toBeInTheDocument()
   })
 
-  // TC-401-09: 既存コンポーネントが退行なく存在する
-  test('TC-401-09: ToolBar / LeftPanel / FreeLayoutCanvas / BottomPanel が存在する', () => {
-    // 【テスト目的】: REQ-402 — 既存コンポーネントへの退行がないこと
+  // Documentation.
+  test('TC-401-09', () => {
+    // Documentation.
     render(<AppShell />)
     expect(screen.getByTestId('toolbar-mock')).toBeInTheDocument()
     expect(screen.getByTestId('left-panel-mock')).toBeInTheDocument()
@@ -104,50 +104,50 @@ describe('AppShell — 正常系', () => {
     expect(screen.getByTestId('bottom-panel-mock')).toBeInTheDocument()
   })
 
-  // TC-401-02: ファイルドロップで loadJournal が呼ばれる
-  test('TC-401-02: ファイルドロップで studyStore.loadJournal が呼ばれる', () => {
-    // 【テスト目的】: drag & drop でファイルが読み込まれること 🟢
+  // Documentation.
+  test('TC-401-02', () => {
+    // Documentation.
     render(<AppShell />)
     const shell = screen.getByTestId('app-shell')
 
-    // 【テストデータ準備】: ドロップ用のファイルモック
+    // Documentation.
     const file = new File(['content'], 'journal.log', { type: 'text/plain' })
     const dataTransfer = { files: [file] }
 
-    // 【処理実行】: dragOver + drop イベントをシミュレート
+    // Documentation.
     fireEvent.dragOver(shell, { preventDefault: vi.fn() })
     fireEvent.drop(shell, { dataTransfer })
 
-    // 【確認内容】: loadJournal が呼ばれた
+    // Documentation.
     expect(mockLoadJournal).toHaveBeenCalledOnce()
     expect(mockLoadJournal).toHaveBeenCalledWith(file)
   })
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('AppShell — 異常系', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
-  // TC-401-E01: isLoading=true のときローディング表示
-  test('TC-401-E01: isLoading=true のとき Loading インジケータが表示される', () => {
-    // 【テスト目的】: 読み込み中の状態が正しく表示されること 🟢
+  // Documentation.
+  test('TC-401-E01', () => {
+    // Documentation.
 
-    // 【前提条件】: isLoading=true の state をモックで設定
-    // Zustand の複雑な型を回避するため unknown 経由でキャスト
+    // Documentation.
+    // Documentation.
     ;(useStudyStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (selector: (s: { loadJournal: typeof mockLoadJournal; isLoading: boolean }) => unknown) =>
         selector({ loadJournal: mockLoadJournal, isLoading: true }),
     )
 
-    // 【処理実行】
+    // Documentation.
     render(<AppShell />)
 
-    // 【確認内容】: Loading インジケータが表示されている
+    // Documentation.
     expect(screen.getByTestId('loading-indicator')).toBeInTheDocument()
   })
 })

@@ -1,8 +1,8 @@
 /**
- * ArtifactViewer テスト (TASK-1301)
+ * Documentation.
  *
- * 【テスト対象】: ArtifactViewer コンポーネント
- * 【テスト方針】: artifactStore を vi.hoisted + vi.mock でスタブ
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
@@ -10,7 +10,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 // -------------------------------------------------------------------------
-// artifactStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockLoadArtifactUrl } = vi.hoisted(() => ({
@@ -43,7 +43,7 @@ import { ArtifactViewer } from './ArtifactViewer'
 import type { Trial } from '../../types'
 
 // -------------------------------------------------------------------------
-// ヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
 function makeTrial(artifactIds: string[] = []): Trial {
@@ -60,7 +60,7 @@ function makeTrial(artifactIds: string[] = []): Trial {
 }
 
 // -------------------------------------------------------------------------
-// テスト
+// Documentation.
 // -------------------------------------------------------------------------
 
 describe('ArtifactViewer', () => {
@@ -70,45 +70,45 @@ describe('ArtifactViewer', () => {
     mockStoreState.error = null
   })
 
-  // TC-1301-V01: ディレクトリ未選択時は表示されない
-  test('TC-1301-V01: dirHandle=null のとき ArtifactViewer は非表示', () => {
-    // 【テスト目的】: ディレクトリ未選択時にコンポーネントが非表示になることを確認 🟢 REQ-140
+  // Documentation.
+  test('TC-1301-V01', () => {
+    // Documentation.
     mockStoreState.dirHandle = null as unknown as FileSystemDirectoryHandle
     render(<ArtifactViewer trial={makeTrial(['artifact1'])} />)
-    // 【確認内容】: artifact-viewer が存在しないこと
+    // Documentation.
     expect(screen.queryByTestId('artifact-viewer')).not.toBeInTheDocument()
   })
 
-  // TC-1301-V02: アーティファクトなし時は表示されない
-  test('TC-1301-V02: artifactIds が空のとき ArtifactViewer は非表示', () => {
-    // 【テスト目的】: アーティファクトがない trial では非表示になることを確認 🟢
+  // Documentation.
+  test('TC-1301-V02', () => {
+    // Documentation.
     render(<ArtifactViewer trial={makeTrial([])} />)
     expect(screen.queryByTestId('artifact-viewer')).not.toBeInTheDocument()
   })
 
-  // TC-1301-V03: ローディング中はプレースホルダーが表示される
-  test('TC-1301-V03: ローディング中にグレープレースホルダーが表示される', () => {
-    // 【テスト目的】: ロード前にプレースホルダーが表示されることを確認 🟢 REQ-144
+  // Documentation.
+  test('TC-1301-V03', () => {
+    // Documentation.
     mockLoadArtifactUrl.mockReturnValue(new Promise(() => {})) // pending
     render(<ArtifactViewer trial={makeTrial(['artifact1.png'])} />)
-    // 【確認内容】: ローディングプレースホルダーが表示されること
+    // Documentation.
     expect(screen.getByTestId('artifact-loading-artifact1.png')).toBeInTheDocument()
   })
 
-  // TC-1301-V04: 画像アーティファクトはサムネイルが表示される
-  test('TC-1301-V04: 画像ファイルはサムネイルが表示される', async () => {
-    // 【テスト目的】: 画像アーティファクトがサムネイルとして表示されることを確認 🟢 REQ-141
+  // Documentation.
+  test('TC-1301-V04', async () => {
+    // Documentation.
     mockLoadArtifactUrl.mockResolvedValue('blob:image-url')
     render(<ArtifactViewer trial={makeTrial(['photo.png'])} />)
-    // 【確認内容】: サムネイルボタンが表示されること
+    // Documentation.
     await waitFor(() => {
       expect(screen.getByTestId('artifact-thumbnail-photo.png')).toBeInTheDocument()
     })
   })
 
-  // TC-1301-V05: ファイルなし時は「ファイルが見つかりません」が表示される
-  test('TC-1301-V05: ファイルが見つからない場合エラーメッセージが表示される', async () => {
-    // 【テスト目的】: ファイルが見つからない場合にエラー表示されることを確認 🟢 REQ-141
+  // Documentation.
+  test('TC-1301-V05', async () => {
+    // Documentation.
     mockLoadArtifactUrl.mockResolvedValue(null)
     render(<ArtifactViewer trial={makeTrial(['missing.png'])} />)
     await waitFor(() => {
@@ -116,9 +116,9 @@ describe('ArtifactViewer', () => {
     })
   })
 
-  // TC-1301-V06: その他ファイルはダウンロードリンクが表示される
-  test('TC-1301-V06: その他ファイルはダウンロードリンクが表示される', async () => {
-    // 【テスト目的】: 非画像/CSV ファイルにダウンロードリンクが表示されることを確認 🟢 REQ-143
+  // Documentation.
+  test('TC-1301-V06', async () => {
+    // Documentation.
     mockLoadArtifactUrl.mockResolvedValue('blob:file-url')
     render(<ArtifactViewer trial={makeTrial(['data.pkl'])} />)
     await waitFor(() => {

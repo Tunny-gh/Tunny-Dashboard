@@ -1,20 +1,20 @@
 /**
- * ParallelCoordinates テスト (TASK-601)
+ * Documentation.
  *
- * 【テスト対象】: ParallelCoordinates — ECharts parallel座標 30軸コンポーネント
- * 【テスト方針】: echarts-for-react と selectionStore を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 
 // -------------------------------------------------------------------------
-// echarts-for-react モック
-// onEvents を capture して axisareaselected ハンドラをテストから呼べるようにする
+// Documentation.
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockReactEChartsPC, captureOnEvents } = vi.hoisted(() => {
-  // 【onEvents capture】: コンポーネントが渡す onEvents を保持する 🟢
+  // Documentation.
   let capturedOnEvents: Record<string, (params: unknown) => void> = {}
   const captureOnEvents = () => capturedOnEvents
 
@@ -26,7 +26,7 @@ const { mockReactEChartsPC, captureOnEvents } = vi.hoisted(() => {
       option: unknown
       onEvents?: Record<string, (p: unknown) => void>
     }) => {
-      // 【キャプチャ】: テストから axisareaselected を呼び出せるよう保持する
+      // Documentation.
       if (onEvents) capturedOnEvents = onEvents
       return <div data-testid="echarts-pc" data-option={JSON.stringify(option)} />
     },
@@ -39,8 +39,8 @@ vi.mock('echarts-for-react', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// selectionStore モック
-// vi.hoisted でファクトリより前に変数を確保する（hoisting 問題の回避）
+// Documentation.
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockAddAxisFilter, mockRemoveAxisFilter } = vi.hoisted(() => {
@@ -50,14 +50,16 @@ const { mockAddAxisFilter, mockRemoveAxisFilter } = vi.hoisted(() => {
 })
 
 vi.mock('../../stores/selectionStore', () => ({
-  useSelectionStore: vi.fn().mockImplementation((selector?: (s: Record<string, unknown>) => unknown) => {
-    const state = {
-      addAxisFilter: mockAddAxisFilter,
-      removeAxisFilter: mockRemoveAxisFilter,
-      selectedIndices: new Uint32Array(0),
-    }
-    return selector ? selector(state) : state
-  }),
+  useSelectionStore: vi
+    .fn()
+    .mockImplementation((selector?: (s: Record<string, unknown>) => unknown) => {
+      const state = {
+        addAxisFilter: mockAddAxisFilter,
+        removeAxisFilter: mockRemoveAxisFilter,
+        selectedIndices: new Uint32Array(0),
+      }
+      return selector ? selector(state) : state
+    }),
 }))
 
 import { ParallelCoordinates } from './ParallelCoordinates'
@@ -66,11 +68,11 @@ import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【ヘルパー】: テスト用 GpuBuffer モックを生成する
+ * Documentation.
  */
 function makeGpuBuffer(n = 5): GpuBuffer {
   return {
@@ -85,7 +87,7 @@ function makeGpuBuffer(n = 5): GpuBuffer {
 }
 
 /**
- * 【ヘルパー】: テスト用 Study を生成する（paramNames/objectiveNames 指定可）
+ * Documentation.
  */
 function makeStudy(opts: { paramNames?: string[]; objectiveNames?: string[] } = {}): Study {
   return {
@@ -102,10 +104,10 @@ function makeStudy(opts: { paramNames?: string[]; objectiveNames?: string[] } = 
 }
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParallelCoordinates — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useStudyStore.setState({ trialRows: [] })
@@ -115,61 +117,61 @@ describe('ParallelCoordinates — 正常系', () => {
     cleanup()
   })
 
-  // TC-601-01: null データでもエラーなくレンダリング
-  test('TC-601-01: gpuBuffer=null, currentStudy=null でもエラーなくレンダリングされる', () => {
-    // 【テスト目的】: null データで安全にレンダリングできること 🟢
+  // Documentation.
+  test('TC-601-01', () => {
+    // Documentation.
     expect(() => render(<ParallelCoordinates gpuBuffer={null} currentStudy={null} />)).not.toThrow()
   })
 
-  // TC-601-02: データありで ECharts コンテナ表示
-  test('TC-601-02: gpuBuffer と currentStudy があると ECharts コンテナが表示される', () => {
-    // 【テスト目的】: データありの場合に ECharts ラッパー要素が表示されること 🟢
+  // Documentation.
+  test('TC-601-02', () => {
+    // Documentation.
     render(<ParallelCoordinates gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy()} />)
     expect(screen.getByTestId('echarts-pc')).toBeInTheDocument()
   })
 
-  // TC-601-03: ECharts option が paramNames + objectiveNames の軸を含む
-  test('TC-601-03: ECharts option の parallelAxis に paramNames と objectiveNames が含まれる', () => {
-    // 【テスト目的】: 全変数・目的関数が軸として定義されること 🟢
+  // Documentation.
+  test('TC-601-03', () => {
+    // Documentation.
     const study = makeStudy({ paramNames: ['x1', 'x2'], objectiveNames: ['obj1'] })
 
-    // 【処理実行】
+    // Documentation.
     render(<ParallelCoordinates gpuBuffer={makeGpuBuffer()} currentStudy={study} />)
 
-    // 【確認内容】: ECharts option が設定されている
+    // Documentation.
     const el = screen.getByTestId('echarts-pc')
     const option = JSON.parse(el.getAttribute('data-option') ?? '{}') as {
       parallelAxis: Array<{ name: string }>
     }
 
-    // 【確認内容】: parallelAxis に x1, x2, obj1 が含まれている
+    // Documentation.
     const axisNames = option.parallelAxis.map((a) => a.name)
     expect(axisNames).toContain('x1')
     expect(axisNames).toContain('x2')
     expect(axisNames).toContain('obj1')
   })
 
-  // TC-601-04: axisareaselected イベントで addAxisFilter が呼ばれる
-  test('TC-601-04: axisareaselected イベントで selectionStore.addAxisFilter が呼ばれる', () => {
-    // 【テスト目的】: 軸ブラシ操作が addAxisFilter に正しく連携されること 🟢
+  // Documentation.
+  test('TC-601-04', () => {
+    // Documentation.
     const study = makeStudy({ paramNames: ['x1', 'x2'], objectiveNames: [] })
 
-    // 【処理実行】: コンポーネントをレンダリングして onEvents をキャプチャ
+    // Documentation.
     render(<ParallelCoordinates gpuBuffer={makeGpuBuffer()} currentStudy={study} />)
 
-    // 【処理実行】: axisareaselected イベントをシミュレート
+    // Documentation.
     // axisIndex=0 → 'x1', intervals=[[0.2, 0.8]]
     const onEvents = captureOnEvents()
     onEvents['axisareaselected']({
       axesInfo: [{ axisIndex: 0, intervals: [[0.2, 0.8]] }],
     })
 
-    // 【確認内容】: addAxisFilter が 'x1', 0.2, 0.8 で呼ばれた
+    // Documentation.
     expect(mockAddAxisFilter).toHaveBeenCalledWith('x1', 0.2, 0.8)
   })
 
-  // TC-601-05: trialRows の実データが parallel series に反映される
-  test('TC-601-05: trialRows の params/values を parallel series data に反映する', () => {
+  // Documentation.
+  test('TC-601-05', () => {
     const study = makeStudy({ paramNames: ['x1', 'x2'], objectiveNames: ['obj1'] })
     useStudyStore.setState({
       trialRows: [
@@ -203,10 +205,10 @@ describe('ParallelCoordinates — 正常系', () => {
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParallelCoordinates — 異常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useStudyStore.setState({ trialRows: [] })
@@ -216,26 +218,26 @@ describe('ParallelCoordinates — 異常系', () => {
     cleanup()
   })
 
-  // TC-601-E01: gpuBuffer=null で空状態UI表示
-  test('TC-601-E01: gpuBuffer=null のとき「データが読み込まれていません」を表示する', () => {
-    // 【テスト目的】: データなし時に適切な空状態UIが表示されること 🟢
+  // Documentation.
+  test('TC-601-E01', () => {
+    // Documentation.
     render(<ParallelCoordinates gpuBuffer={null} currentStudy={null} />)
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 
-  // TC-601-E02: currentStudy=null で空状態UI表示
-  test('TC-601-E02: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
-    // 【テスト目的】: Study なし時に適切な空状態UIが表示されること 🟢
+  // Documentation.
+  test('TC-601-E02', () => {
+    // Documentation.
     render(<ParallelCoordinates gpuBuffer={makeGpuBuffer()} currentStudy={null} />)
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()
   })
 })
 
 // -------------------------------------------------------------------------
-// 境界値
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParallelCoordinates — 境界値', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useStudyStore.setState({ trialRows: [] })
@@ -245,19 +247,19 @@ describe('ParallelCoordinates — 境界値', () => {
     cleanup()
   })
 
-  // TC-601-B01: 軸数 34（30変数+4目的）でも crash しない
-  test('TC-601-B01: 30変数+4目的（合計34軸）でも crash しない', () => {
-    // 【テスト目的】: 最大軸数でも安全に動作すること 🟢
+  // Documentation.
+  test('TC-601-B01', () => {
+    // Documentation.
     const paramNames = Array.from({ length: 30 }, (_, i) => `x${i + 1}`)
     const objectiveNames = ['obj1', 'obj2', 'obj3', 'obj4']
     const study = makeStudy({ paramNames, objectiveNames })
 
-    // 【処理実行】: クラッシュしないこと
+    // Documentation.
     expect(() =>
       render(<ParallelCoordinates gpuBuffer={makeGpuBuffer(50)} currentStudy={study} />),
     ).not.toThrow()
 
-    // 【確認内容】: 34軸が定義されている
+    // Documentation.
     const el = screen.getByTestId('echarts-pc')
     const option = JSON.parse(el.getAttribute('data-option') ?? '{}') as {
       parallelAxis: unknown[]

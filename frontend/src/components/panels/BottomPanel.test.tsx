@@ -1,15 +1,15 @@
 /**
- * BottomPanel テスト (TASK-402)
+ * Documentation.
  *
- * 【テスト対象】: BottomPanel — 仮想スクロールテーブル（trial一覧）
- * 【テスト方針】: selectionStore / studyStore を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 // -------------------------------------------------------------------------
-// selectionStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockSetHighlight } = vi.hoisted(() => {
@@ -37,7 +37,7 @@ vi.mock('../../stores/selectionStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// studyStore モック — trial データ
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('../../stores/studyStore', () => ({
@@ -75,10 +75,10 @@ import { BottomPanel } from './BottomPanel'
 import { useStudyStore } from '../../stores/studyStore'
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('BottomPanel — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -87,45 +87,45 @@ describe('BottomPanel — 正常系', () => {
     cleanup()
   })
 
-  // TC-402-05: BottomPanel がレンダリングされる
-  test('TC-402-05: BottomPanel がエラーなくレンダリングされる', () => {
-    // 【テスト目的】: BottomPanel が正常にレンダリングできること 🟢
+  // Documentation.
+  test('TC-402-05', () => {
+    // Documentation.
     expect(() => render(<BottomPanel />)).not.toThrow()
   })
 
-  // TC-402-06: テーブルヘッダーが表示される
-  test('TC-402-06: テーブルに trial_id ヘッダーが表示される', () => {
-    // 【テスト目的】: テーブルの列ヘッダーが正しく表示されること 🟢
+  // Documentation.
+  test('TC-402-06', () => {
+    // Documentation.
     render(<BottomPanel />)
     expect(screen.getByText('trial_id')).toBeInTheDocument()
   })
 
-  // TC-402-07: 行クリックで setHighlight が呼ばれる
-  test('TC-402-07: テーブル行クリックで selectionStore.setHighlight が呼ばれる', () => {
-    // 【テスト目的】: 行クリックがハイライト操作に連携されること 🟢
+  // Documentation.
+  test('TC-402-07', () => {
+    // Documentation.
     render(<BottomPanel />)
 
-    // 【処理実行】: 最初の行をクリック
+    // Documentation.
     const firstRow = screen.getByTestId('trial-row-0')
     fireEvent.click(firstRow)
 
-    // 【確認内容】: setHighlight が trial index 0 で呼ばれた
+    // Documentation.
     expect(mockSetHighlight).toHaveBeenCalledWith(0)
   })
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('BottomPanel — 異常系', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
-  // TC-402-E02: currentStudy=null のとき空状態UIを表示
-  test('TC-402-E02: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
-    // 【テスト目的】: Study なし時に適切な空状態UIが表示されること 🟢
+  // Documentation.
+  test('TC-402-E02', () => {
+    // Documentation.
     ;(useStudyStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (selector: (s: { currentStudy: null }) => unknown) => selector({ currentStudy: null }),
     )

@@ -96,7 +96,7 @@ function makeStudy1(): Study {
 // Happy path
 // -------------------------------------------------------------------------
 
-describe('ObjectivePairMatrix — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -106,14 +106,14 @@ describe('ObjectivePairMatrix — 正常系', () => {
   })
 
   // TC-502-01: renders without error with 4 objectives
-  test('TC-502-01: ObjectivePairMatrix が4目的でエラーなくレンダリングされる', () => {
+  test('TC-502-01', () => {
     expect(() =>
       render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy4()} />),
     ).not.toThrow()
   })
 
   // TC-502-02: 4 objectives produce a 4×4 grid (16 cells)
-  test('TC-502-02: 4目的のとき4×4グリッド（16セル）が表示される', () => {
+  test('TC-502-02', () => {
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy4()} />)
 
     const cells = screen.getAllByTestId(/^matrix-cell-/)
@@ -121,7 +121,7 @@ describe('ObjectivePairMatrix — 正常系', () => {
   })
 
   // TC-502-03: cell click fires onCellClick with correct axis names
-  test('TC-502-03: セルクリックでonCellClickが正しい軸名で呼ばれる', () => {
+  test('TC-502-03', () => {
     const onCellClick = vi.fn()
     render(
       <ObjectivePairMatrix
@@ -139,7 +139,7 @@ describe('ObjectivePairMatrix — 正常系', () => {
   })
 
   // TC-502-04: 2 objectives produce a 2×2 grid (4 cells)
-  test('TC-502-04: 2目的のとき2×2グリッド（4セル）が表示される', () => {
+  test('TC-502-04', () => {
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy2()} />)
 
     const cells = screen.getAllByTestId(/^matrix-cell-/)
@@ -151,20 +151,20 @@ describe('ObjectivePairMatrix — 正常系', () => {
 // Error cases
 // -------------------------------------------------------------------------
 
-describe('ObjectivePairMatrix — 異常系', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
   // TC-502-E01: 1 objective hides the component
-  test('TC-502-E01: 1目的のときコンポーネントが非表示になる', () => {
+  test('TC-502-E01', () => {
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy1()} />)
 
     expect(screen.queryByTestId('objective-pair-matrix')).not.toBeInTheDocument()
   })
 
   // TC-502-E02: currentStudy=null shows empty state
-  test('TC-502-E02: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
+  test('TC-502-E02', () => {
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={null} />)
 
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()

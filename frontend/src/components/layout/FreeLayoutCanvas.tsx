@@ -1,14 +1,14 @@
 /**
- * FreeLayoutCanvas — フリーレイアウト（Mode D）キャンバス (TASK-1501)
+ * FreeLayoutCanvas — Free-layout (Mode D) canvas (TASK-1501)
  *
- * 【役割】: 4×4グリッドのドラッグ&ドロップでチャートを自由配置する
- * 【設計方針】:
- *   - 4×4 CSS Grid（絶対配置ドロップゾーン + CSS Grid チャートカード）
- *   - ドラッグ状態を useState で管理（dataTransfer 不使用でテスト容易）
- *   - freeModeLayout が null のときは DEFAULT_FREE_LAYOUT を使用
- *   - レイアウト保存後に 2 秒間トースト通知を表示
- *   - プリセット（A/B/C）適用は window.confirm で確認後に適用
- * 🟢 REQ-032, NFR-031, NFR-032 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import React, { useState, useEffect, useMemo } from 'react'
@@ -29,10 +29,10 @@ import { EmptyState } from '../common/EmptyState'
 import { WasmLoader } from '../../wasm/wasmLoader'
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【チャートラベル】: ChartId → 表示名マッピング */
+/** Documentation. */
 const CHART_LABELS: Partial<Record<ChartId, string>> = {
   'pareto-front': 'Pareto Front',
   'parallel-coords': 'Parallel Coordinates',
@@ -45,17 +45,17 @@ const CHART_LABELS: Partial<Record<ChartId, string>> = {
   'sensitivity-heatmap': 'Sensitivity',
   'cluster-view': 'Cluster View',
   umap: 'UMAP',
-  // 🟢 optuna-dashboard 相当の追加チャート
+  // Documentation.
   slice: 'Slice Plot',
   edf: 'EDF',
   contour: 'Contour Plot',
 }
 
-/** グリッドの次元数（4×4） */
+/** Grid dimension count（4×4） */
 const GRID_SIZE = 4
 
 // -------------------------------------------------------------------------
-// HypervolumeContent — computeHvHistory の非同期 WASM 呼び出しを担うサブコンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 function HypervolumeContent({ study }: { study: Study }) {
@@ -85,7 +85,7 @@ function HypervolumeContent({ study }: { study: Study }) {
   )
 }
 
-// ChartContent — chartId に応じて実コンポーネントを返す
+// Documentation.
 // -------------------------------------------------------------------------
 
 function ChartContent({ chartId }: { chartId: ChartId }) {
@@ -112,8 +112,8 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
       if (currentStudy.directions.length < 2) {
         return <EmptyState message="Available for multi-objective studies only" />
       }
-      // positions[i*2], positions[i*2+1] からECharts散布図を構築
-      // 多目的: [obj0, obj1]
+      // Documentation.
+      // multi-objective: [obj0, obj1]
       const allScatter = Array.from({ length: gpuBuffer.trialCount }, (_, i) => [
         gpuBuffer.positions[i * 2],
         gpuBuffer.positions[i * 2 + 1],
@@ -124,9 +124,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
       const selectedScatter = selectedSet
         ? allScatter.filter((_, i) => selectedSet.has(i))
         : allScatter
-      const unselectedScatter = selectedSet
-        ? allScatter.filter((_, i) => !selectedSet.has(i))
-        : []
+      const unselectedScatter = selectedSet ? allScatter.filter((_, i) => !selectedSet.has(i)) : []
 
       const seriesList: object[] = [
         {
@@ -157,8 +155,8 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
     case 'parallel-coords':
       return <ParallelCoordinates gpuBuffer={gpuBuffer} currentStudy={currentStudy} />
     case 'history': {
-      // positions から TrialData を導出
-      // 単目的: [norm_idx, obj0]  多目的: [obj0, obj1]
+      // Documentation.
+      // single-objective: [norm_idx, obj0]  multi-objective: [obj0, obj1]
       const isMulti = currentStudy.directions.length > 1
       const data = Array.from({ length: gpuBuffer.trialCount }, (_, i) => ({
         trial: i + 1,
@@ -167,10 +165,12 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
           : gpuBuffer.positions[i * 2 + 1], // single: y = obj0
       }))
       const direction = currentStudy.directions[0] === 'minimize' ? 'minimize' : 'maximize'
-      return <OptimizationHistory data={data} direction={direction} selectedIndices={selectedIndices} />
+      return (
+        <OptimizationHistory data={data} direction={direction} selectedIndices={selectedIndices} />
+      )
     }
     case 'scatter-matrix':
-      // engine=null のとき ScatterMatrix はモード UI + グレーセルを表示する
+      // Documentation.
       return <ScatterMatrix engine={null} currentStudy={currentStudy} />
     case 'objective-pair-matrix':
       if (currentStudy.objectiveNames.length <= 1) {
@@ -188,7 +188,13 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
         series: [{ type: 'bar', data: currentStudy.paramNames.map(() => 1.0) }],
         grid: { containLabel: true },
       }
-      return <ReactECharts option={importanceOption} style={{ height: '100%', width: '100%' }} lazyUpdate />
+      return (
+        <ReactECharts
+          option={importanceOption}
+          style={{ height: '100%', width: '100%' }}
+          lazyUpdate
+        />
+      )
     }
     case 'slice':
       if (trialRows.length === 0) return <EmptyState />
@@ -219,9 +225,9 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
         />
       )
     case 'edf': {
-      // gpuBuffer.positions から目的関数値を取り出して EDF を描画する
-      // 単目的: positions[i*2+1] = obj0
-      // 多目的: positions[i*2] = obj0, positions[i*2+1] = obj1
+      // Documentation.
+      // single-objective: positions[i*2+1] = obj0
+      // multi-objective: positions[i*2] = obj0, positions[i*2+1] = obj1
       const isMultiEdf = currentStudy.directions.length > 1
       const edfSeries = isMultiEdf
         ? [
@@ -262,11 +268,11 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
 }
 
 // -------------------------------------------------------------------------
-// FreeLayoutCanvas コンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 4×4グリッドのドラッグ&ドロップレイアウト編集コンポーネント
+ * Documentation.
  */
 export const FreeLayoutCanvas: React.FC = () => {
   const { freeModeLayout, layoutLoadError, updateCellPosition, addCell, removeCell } =
@@ -274,28 +280,28 @@ export const FreeLayoutCanvas: React.FC = () => {
   const setLayoutMode = useLayoutStore((s) => s.setLayoutMode)
   const layoutMode = useLayoutStore((s) => s.layoutMode)
 
-  // 【ドラッグ中セルID】: cellId で管理（同一 chartId の複数インスタンスを識別するため）
+  // Documentation.
   const [draggingCellId, setDraggingCellId] = useState<string | null>(null)
-  // 【保存トースト表示状態】
+  // Documentation.
   const [showToast, setShowToast] = useState(false)
 
-  // 【実効レイアウト】: null のときはデフォルトを使用
+  // Documentation.
   const layout = freeModeLayout ?? DEFAULT_FREE_LAYOUT
 
   /**
-   * 【ドロップ処理】: ドロップゾーン (row, col) への配置を確定する
-   * dataTransfer の type で 'move-chart'（再配置）と 'add-chart'（カタログ追加）を判別する
+   * Documentation.
+   * Documentation.
    */
   const handleDrop = (row: number, col: number, e: React.DragEvent) => {
     e.preventDefault()
 
-    // 【カタログからの追加ドロップ】
+    // Documentation.
     try {
       const raw = e.dataTransfer.getData('text/plain')
       if (raw) {
         const payload = JSON.parse(raw) as { type: string; chartId?: ChartId; cellId?: string }
         if (payload.type === 'add-chart' && payload.chartId) {
-          // Mode D 以外のとき自動切替
+          // Documentation.
           if (layoutMode !== 'D') setLayoutMode('D')
           const newRowEnd = Math.min(row + 2, GRID_SIZE + 1)
           const newColEnd = Math.min(col + 2, GRID_SIZE + 1)
@@ -304,10 +310,10 @@ export const FreeLayoutCanvas: React.FC = () => {
         }
       }
     } catch {
-      // 不正 JSON はサイレントに無視
+      // Documentation.
     }
 
-    // 【既存タイルの再配置ドロップ】
+    // Documentation.
     if (!draggingCellId) return
 
     const cell = layout.cells.find((c) => c.cellId === draggingCellId)
@@ -316,7 +322,7 @@ export const FreeLayoutCanvas: React.FC = () => {
     const spanRow = cell.gridRow[1] - cell.gridRow[0]
     const spanCol = cell.gridCol[1] - cell.gridCol[0]
 
-    // 【境界クランプ】: グリッド外にはみ出さないよう制限
+    // Documentation.
     const newRowEnd = Math.min(row + spanRow, GRID_SIZE + 1)
     const newColEnd = Math.min(col + spanCol, GRID_SIZE + 1)
 
@@ -325,11 +331,11 @@ export const FreeLayoutCanvas: React.FC = () => {
   }
 
   /**
-   * 【レイアウト保存】: freeModeLayout を確定してトーストを表示する
-   * 実際の永続化は sessionStore.saveSession() を通じて行う
+   * Documentation.
+   * Documentation.
    */
   const handleSave = () => {
-    // freeModeLayout は常に最新状態が store に入っているため追加処理不要
+    // Documentation.
     setShowToast(true)
     setTimeout(() => setShowToast(false), 2000)
   }
@@ -347,7 +353,7 @@ export const FreeLayoutCanvas: React.FC = () => {
       }}
     >
       {/* ---------------------------------------------------------------- */}
-      {/* エラーメッセージ                                                  */}
+      {/* error message                                                  */}
       {/* ---------------------------------------------------------------- */}
       {layoutLoadError && (
         <div
@@ -366,7 +372,7 @@ export const FreeLayoutCanvas: React.FC = () => {
       )}
 
       {/* ---------------------------------------------------------------- */}
-      {/* ツールバー                                                        */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       <div
         style={{
@@ -377,7 +383,7 @@ export const FreeLayoutCanvas: React.FC = () => {
           flexShrink: 0,
         }}
       >
-        {/* レイアウト保存ボタン */}
+        {/* Documentation. */}
         <button
           data-testid="save-free-layout-btn"
           onClick={handleSave}
@@ -394,7 +400,7 @@ export const FreeLayoutCanvas: React.FC = () => {
           Save Layout
         </button>
 
-        {/* 保存成功トースト */}
+        {/* Documentation. */}
         {showToast && (
           <span
             data-testid="layout-saved-toast"
@@ -414,10 +420,10 @@ export const FreeLayoutCanvas: React.FC = () => {
       </div>
 
       {/* ---------------------------------------------------------------- */}
-      {/* グリッドエリア                                                    */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        {/* ドロップゾーン層（背景、絶対配置）*/}
+        {/* Documentation. */}
         <div style={{ position: 'absolute', inset: 0 }}>
           {Array.from({ length: GRID_SIZE }, (_, r) =>
             Array.from({ length: GRID_SIZE }, (_, c) => {
@@ -443,7 +449,7 @@ export const FreeLayoutCanvas: React.FC = () => {
           )}
         </div>
 
-        {/* チャートカード層（CSS Grid、ドロップゾーンの上に重ねる）*/}
+        {/* Documentation. */}
         <div
           style={{
             position: 'absolute',
@@ -471,7 +477,7 @@ export const FreeLayoutCanvas: React.FC = () => {
                 flexDirection: 'column',
               }}
             >
-              {/* ドラッグハンドル（タイトルバー）+ 削除ボタン */}
+              {/* Documentation. */}
               <div
                 data-testid={`free-layout-drag-handle-${chartId}`}
                 draggable
@@ -519,7 +525,7 @@ export const FreeLayoutCanvas: React.FC = () => {
                 </button>
               </div>
 
-              {/* チャートコンテンツエリア */}
+              {/* Documentation. */}
               <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <ChartContent chartId={chartId} />
               </div>

@@ -49,7 +49,12 @@ export interface ContourPlotProps {
  * Scatter plot of 2 parameters colored by objective value.
  * Dropdowns for X/Y parameters and objective update the chart in real time.
  */
-export function ContourPlot({ trials, paramNames, objectiveNames, selectedIndices }: ContourPlotProps) {
+export function ContourPlot({
+  trials,
+  paramNames,
+  objectiveNames,
+  selectedIndices,
+}: ContourPlotProps) {
   const [xParamIdx, setXParamIdx] = useState(0)
   const [yParamIdx, setYParamIdx] = useState(Math.min(1, paramNames.length - 1))
   const [objIdx, setObjIdx] = useState(0)

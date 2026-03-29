@@ -1,33 +1,33 @@
 /**
- * BottomPanel — 仮想スクロールテーブル（trial一覧）(TASK-402)
+ * Documentation.
  *
- * 【役割】: selectedIndices の trial を一覧表示し、行クリック → setHighlight() を呼ぶ
- * 【設計方針】: selectionStore / studyStore に直接接続
- * 🟢 行クリック → setHighlight(trialIndex) でハイライト連動
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: selectedIndices に対応するトライアル一覧テーブル
- * 【テスト対応】: TC-402-05〜07, TC-402-E02
+ * Documentation.
+ * Test Coverage: TC-402-05〜07, TC-402-E02
  */
 export function BottomPanel() {
-  // 【Store接続】: selectionStore から selectedIndices, highlighted, setHighlight を取得 🟢
+  // Documentation.
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
   const highlighted = useSelectionStore((s) => s.highlighted)
   const setHighlight = useSelectionStore((s) => s.setHighlight)
 
-  // 【Store接続】: studyStore から currentStudy と trialRows を取得 🟢
+  // Documentation.
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const trialRows = useStudyStore((s) => s.trialRows)
 
-  // 【空状態UI】: Study がない場合はメッセージを表示 🟢
+  // Documentation.
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
@@ -36,10 +36,10 @@ export function BottomPanel() {
     )
   }
 
-  // 【列定義】: trial_id + paramNames + objectiveNames 🟢
+  // Documentation.
   const columns = ['trial_id', ...currentStudy.paramNames, ...currentStudy.objectiveNames]
 
-  // 【レンダリング】: スクロール可能なテーブル 🟢
+  // Documentation.
   return (
     <div style={{ height: '100%', overflowY: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
@@ -63,7 +63,7 @@ export function BottomPanel() {
           </tr>
         </thead>
         <tbody>
-          {/* 【行レンダリング】: selectedIndices に対応する行を表示 🟢 */}
+          {/* Documentation. */}
           {Array.from(selectedIndices).map((idx) => (
             <tr
               key={idx}
@@ -74,11 +74,11 @@ export function BottomPanel() {
                 background: highlighted === idx ? '#eff6ff' : undefined,
               }}
             >
-              {/* 【trial_id セル】: trialRows から実際の trial_id を表示 */}
+              {/* Documentation. */}
               <td style={{ padding: '3px 8px', borderBottom: '1px solid #f3f4f6' }}>
                 {trialRows[idx]?.trialId ?? idx}
               </td>
-              {/* 【パラメータセル】: trialRows の params から実データを表示 🟢 */}
+              {/* Documentation. */}
               {currentStudy.paramNames.map((name) => {
                 const trial = trialRows[idx]
                 const raw = trial?.params[name]
@@ -89,7 +89,7 @@ export function BottomPanel() {
                   </td>
                 )
               })}
-              {/* 【目的関数セル】: trialRows の values から実データを表示 🟢 */}
+              {/* Documentation. */}
               {currentStudy.objectiveNames.map((name, objIdx) => {
                 const trial = trialRows[idx]
                 const value = trial?.values[objIdx]

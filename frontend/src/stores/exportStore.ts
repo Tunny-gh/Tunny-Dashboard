@@ -1,12 +1,12 @@
 /**
- * ExportStore — CSV エクスポート・ピン留め管理 Zustand Store (TASK-1101)
+ * Documentation.
  *
- * 【役割】: CSVエクスポート設定・ピン留め試行・エクスポート実行を一元管理する
- * 【設計方針】:
- *   - CSV 対象選択（全件/選択/Pareto/クラスタ）+ 列選択を保持
- *   - ピン留め上限: 最大 20 件（超過時はエラーメッセージ）
- *   - File System Access API 非対応時は <a download> フォールバック
- * 🟢 REQ-150〜REQ-153, REQ-156 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { create } from 'zustand'
@@ -16,65 +16,65 @@ import { useSelectionStore } from './selectionStore'
 import { useLayoutStore } from './layoutStore'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【CSV 対象選択型】: どのトライアルを CSV に含めるか
- * 🟢 REQ-150: 対象選択
+ * Documentation.
+ * Documentation.
  */
 export type CsvTarget = 'all' | 'selected' | 'pareto' | 'cluster'
 
 /**
- * 【ピン留めトライアル型】: ピン留めした試行のデータ
- * 🟢 REQ-156: ピン留め機能
+ * Documentation.
+ * Documentation.
  */
 export interface PinnedTrial {
-  /** DataFrame の行インデックス */
+  /** Documentation. */
   index: number
   /** Optuna trial_id */
   trialId: number
-  /** ユーザーメモ（空文字列可）*/
+  /** Documentation. */
   memo: string
-  /** ピン留め日時（ISO文字列）*/
+  /** Documentation. */
   pinnedAt: string
 }
 
 /**
- * 【HTMLレポートセクション型】: レポートに含められるセクションの識別子
- * 🟢 REQ-154: レポートセクション選択
+ * Documentation.
+ * Documentation.
  */
 export type ReportSection = 'summary' | 'pareto' | 'pinned' | 'history' | 'cluster'
 
 /**
- * 【ExportStore 状態型】
+ * Documentation.
  */
 interface ExportState {
-  // --- CSV 設定 ---
-  /** CSV 出力対象 */
+  // Documentation.
+  /** Documentation. */
   csvTarget: CsvTarget
-  /** 出力列名リスト（空のとき全列） */
+  /** Documentation. */
   selectedColumns: string[]
-  /** CSV エクスポート実行中フラグ */
+  /** Documentation. */
   isExporting: boolean
-  /** エクスポートエラーメッセージ */
+  /** Documentation. */
   exportError: string | null
 
-  // --- ピン留め ---
-  /** ピン留め試行リスト（最大 MAX_PINS 件）*/
+  // Documentation.
+  /** Documentation. */
   pinnedTrials: PinnedTrial[]
-  /** ピン留め超過エラーメッセージ */
+  /** Documentation. */
   pinError: string | null
 
-  // --- HTMLレポート ---
-  /** レポートに含めるセクションの順序リスト */
+  // Documentation.
+  /** Documentation. */
   reportSections: ReportSection[]
-  /** レポート生成中フラグ */
+  /** Documentation. */
   isGeneratingReport: boolean
-  /** レポート生成エラーメッセージ */
+  /** Documentation. */
   reportError: string | null
 
-  // --- アクション ---
+  // --- Actions ---
   setCsvTarget: (target: CsvTarget) => void
   setSelectedColumns: (columns: string[]) => void
   exportCsv: (indices: Uint32Array) => Promise<void>
@@ -83,51 +83,51 @@ interface ExportState {
   updatePinMemo: (index: number, memo: string) => void
   clearPinError: () => void
   clearExportError: () => void
-  /** HTMLレポートセクション順序を設定する */
+  /** Documentation. */
   setReportSections: (sections: ReportSection[]) => void
-  /** HTMLレポートを生成してダウンロードする 🟢 REQ-154〜REQ-155 */
+  /** Documentation. */
   generateHtmlReport: (paretoIndices: Uint32Array) => Promise<void>
-  /** レポートエラーをクリアする */
+  /** Documentation. */
   clearReportError: () => void
 
-  // --- セッション保存・復元 ---
-  /** 最後に読み込んだセッション状態 */
+  // Documentation.
+  /** Documentation. */
   sessionState: SessionState | null
-  /** セッション保存中フラグ */
+  /** Documentation. */
   isSavingSession: boolean
-  /** セッション操作エラーメッセージ */
+  /** Documentation. */
   sessionError: string | null
-  /** バージョン不一致警告（復元は続行）*/
+  /** Documentation. */
   sessionWarning: string | null
 
-  /** 現在の全ストア状態をセッション JSON として保存する 🟢 REQ-157 */
+  /** Documentation. */
   saveSession: (studyId: number, journalPath: string) => Promise<void>
-  /** JSON 文字列からセッションを復元する */
+  /** Documentation. */
   loadSessionFromJson: (json: string) => void
-  /** セッションエラー・警告をクリアする */
+  /** Documentation. */
   clearSessionMessages: () => void
 }
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【ピン留め上限】: REQ-156 仕様 🟢 */
+/** Documentation. */
 export const MAX_PINS = 20
 
-/** 【セッションバージョン】: 互換性チェック用 🟢 REQ-157 */
+/** Documentation. */
 export const SESSION_VERSION = '1.0'
 
 // -------------------------------------------------------------------------
-// Store 実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【ExportStore 作成】: CSV エクスポート・ピン留め管理
+ * Documentation.
  */
 export const useExportStore = create<ExportState>()((set, get) => ({
   // -------------------------------------------------------------------------
-  // 初期状態
+  // Documentation.
   // -------------------------------------------------------------------------
   csvTarget: 'all',
   selectedColumns: [],
@@ -144,31 +144,31 @@ export const useExportStore = create<ExportState>()((set, get) => ({
   sessionWarning: null,
 
   // -------------------------------------------------------------------------
-  // アクション実装
+  // Documentation.
   // -------------------------------------------------------------------------
 
   /**
-   * 【CSV 対象設定】: エクスポート対象の選択範囲を変更する
+   * Documentation.
    */
   setCsvTarget: (target) => set({ csvTarget: target }),
 
   /**
-   * 【列選択設定】: エクスポートする列名リストを設定する
-   * 空配列のときは全列を出力する（WASM 側が全列を返す）
+   * Documentation.
+   * Documentation.
    */
   setSelectedColumns: (columns) => set({ selectedColumns: columns }),
 
   /**
-   * 【CSV エクスポート実行】: WASM serialize_csv() を呼び出してダウンロードを起動する
+   * Documentation.
    *
-   * 【処理フロー】:
-   *   1. indices が空なら「対象データがありません」エラー 🟢 REQ-150
-   *   2. WASM serialize_csv(indices, columns_json) を呼び出す
-   *   3. File System Access API があれば showSaveFilePicker で保存
-   *      なければ <a download> フォールバック 🟢 REQ-153
+   * Documentation.
+   * Documentation.
+   * Documentation.
+   * Documentation.
+   * Documentation.
    */
   exportCsv: async (indices) => {
-    // 【空チェック】: 選択が 0 件なら即エラー
+    // Documentation.
     if (indices.length === 0) {
       set({ exportError: 'No data to export' })
       return
@@ -180,14 +180,14 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       const wasm = await WasmLoader.getInstance()
       const { selectedColumns } = get()
 
-      // 【列名 JSON 生成】: 空のとき全列を指定（"" を空配列として WASM に渡す）
+      // Documentation.
       const columnsJson =
         selectedColumns.length > 0 ? JSON.stringify(selectedColumns) : JSON.stringify([])
 
-      // 【WASM CSV 生成】: serialize_csv は UTF-8 文字列を返す
+      // Documentation.
       const csvContent = wasm.serializeCsv(Array.from(indices), columnsJson)
 
-      // 【ダウンロード起動】: Blob → URL → <a download> フォールバック
+      // Documentation.
       _downloadCsv(csvContent, `tunny-export-${Date.now()}.csv`)
     } catch (e) {
       set({ exportError: e instanceof Error ? e.message : 'Export failed' })
@@ -197,18 +197,18 @@ export const useExportStore = create<ExportState>()((set, get) => ({
   },
 
   /**
-   * 【ピン留め追加】: 試行をピン留めリストに追加する
-   * 上限 20 件を超える場合は pinError をセットしてキャンセル 🟢 REQ-156
+   * Documentation.
+   * Documentation.
    */
   pinTrial: (index, trialId) => {
     const { pinnedTrials } = get()
 
-    // 【重複チェック】: 既にピン留めされている場合は何もしない
+    // Documentation.
     if (pinnedTrials.some((p) => p.index === index)) {
       return
     }
 
-    // 【上限チェック】: MAX_PINS 超過時はエラー
+    // Documentation.
     if (pinnedTrials.length >= MAX_PINS) {
       set({ pinError: `Limit is ${MAX_PINS}. Please remove an old pin first.` })
       return
@@ -225,7 +225,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
   },
 
   /**
-   * 【ピン留め削除】: 指定インデックスのピン留めを削除する
+   * Documentation.
    */
   unpinTrial: (index) => {
     set((s) => ({
@@ -234,7 +234,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
   },
 
   /**
-   * 【ピンメモ更新】: ピン留め試行のメモを更新する
+   * Documentation.
    */
   updatePinMemo: (index, memo) => {
     set((s) => ({
@@ -242,24 +242,24 @@ export const useExportStore = create<ExportState>()((set, get) => ({
     }))
   },
 
-  /** 【ピンエラークリア】 */
+  /** Documentation. */
   clearPinError: () => set({ pinError: null }),
 
-  /** 【エクスポートエラークリア】 */
+  /** Documentation. */
   clearExportError: () => set({ exportError: null }),
 
   /**
-   * 【レポートセクション設定】: ユーザーが並び替え・選択したセクション順序を設定する
+   * Documentation.
    */
   setReportSections: (sections) => set({ reportSections: sections }),
 
   /**
-   * 【HTML レポート生成】: WASM 統計 + ピン留め情報を組み合わせてスタンドアロン HTML を生成する
+   * Documentation.
    *
-   * 【処理フロー】:
-   *   1. WASM compute_report_stats() でサマリー統計を取得
-   *   2. reportSections の順序に従い HTML を組み立てる
-   *   3. <a download> でダウンロードを起動する 🟢 REQ-155
+   * Documentation.
+   * Documentation.
+   * Documentation.
+   * Documentation.
    *
    * 🟢 REQ-154〜REQ-155
    */
@@ -270,13 +270,13 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       const wasm = await WasmLoader.getInstance()
       const { reportSections, pinnedTrials } = get()
 
-      // 【統計取得】: WASM でサマリー統計 JSON を取得
+      // Documentation.
       const stats = wasm.computeReportStats()
 
-      // 【HTML 組み立て】: セクション順序に従ってコンテンツを生成
+      // Documentation.
       const html = _buildHtmlReport(reportSections, stats, pinnedTrials, paretoIndices)
 
-      // 【ダウンロード起動】
+      // Documentation.
       _downloadFile(html, `tunny-report-${Date.now()}.html`, 'text/html;charset=utf-8')
     } catch (e) {
       set({
@@ -287,13 +287,13 @@ export const useExportStore = create<ExportState>()((set, get) => ({
     }
   },
 
-  /** 【レポートエラークリア】 */
+  /** Documentation. */
   clearReportError: () => set({ reportError: null }),
 
   /**
-   * 【セッション保存】: 現在の全ストア状態を JSON ファイルとしてダウンロードする
+   * Documentation.
    *
-   * 【収集対象】:
+   * Documentation.
    *   - filterRanges / selectedIndices / colorMode (selectionStore)
    *   - layoutMode / freeModeLayout / visibleCharts (layoutStore)
    *   - pinnedTrials (exportStore)
@@ -315,7 +315,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
         filterRanges: sel.filterRanges,
         selectedIndices: Array.from(sel.selectedIndices),
         colorMode: sel.colorMode,
-        clusterConfig: null as ClusterConfig | null, // 🟡 クラスタ Store 接続は TASK-1301 以降
+        clusterConfig: null as ClusterConfig | null, // Documentation.
         layoutMode: layout.layoutMode,
         visibleCharts: Array.from(layout.visibleCharts),
         pinnedTrials: pinnedTrials.map((p) => ({
@@ -342,11 +342,11 @@ export const useExportStore = create<ExportState>()((set, get) => ({
   },
 
   /**
-   * 【セッション復元】: JSON 文字列を解析して全ストアに状態を適用する
+   * Documentation.
    *
-   * 【エラー処理】:
-   *   - JSON パースエラー → sessionError をセット
-   *   - バージョン不一致 → sessionWarning をセットして続行
+   * Documentation.
+   * Documentation.
+   * Documentation.
    *
    * 🟢 REQ-157
    */
@@ -361,17 +361,17 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       return
     }
 
-    // 【バージョン確認】: 異なるバージョンは警告を表示して続行
+    // Documentation.
     if (session.version !== SESSION_VERSION) {
       set({
         sessionWarning: 'Old session version. Some settings may not be restored.',
       })
     }
 
-    // 【各ストアへの適用】: selectionStore
+    // Documentation.
     const sel = useSelectionStore.getState()
     sel.brushSelect(new Uint32Array(session.selectedIndices ?? []))
-    // filterRanges: 各軸フィルタを再適用
+    // Documentation.
     sel.clearSelection()
     if (session.filterRanges) {
       Object.entries(session.filterRanges).forEach(([axis, range]) => {
@@ -382,7 +382,7 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       sel.setColorMode(session.colorMode)
     }
 
-    // 【各ストアへの適用】: layoutStore
+    // Documentation.
     const layout = useLayoutStore.getState()
     if (session.layoutMode) {
       layout.setLayoutMode(session.layoutMode)
@@ -396,10 +396,10 @@ export const useExportStore = create<ExportState>()((set, get) => ({
       })
     }
 
-    // 【各ストアへの適用】: pinnedTrials の復元
+    // Documentation.
     if (Array.isArray(session.pinnedTrials)) {
       const restored = session.pinnedTrials.map((p, i) => ({
-        index: i, // ⚠️ 元の DataFrame インデックスは保存していないため仮インデックスを使用 🟡
+        index: i, // Documentation.
         trialId: p.trialId,
         memo: p.note ?? '',
         pinnedAt:
@@ -413,25 +413,25 @@ export const useExportStore = create<ExportState>()((set, get) => ({
     set({ sessionState: session })
   },
 
-  /** 【セッションメッセージクリア】 */
+  /** Documentation. */
   clearSessionMessages: () => set({ sessionError: null, sessionWarning: null }),
 }))
 
 // -------------------------------------------------------------------------
-// 内部ユーティリティ
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【CSV ダウンロード】: <a download> 要素でブラウザダウンロードを起動する
- * 🟢 REQ-153: File System Access API 非対応時フォールバック
+ * Documentation.
+ * Documentation.
  */
 function _downloadCsv(content: string, filename: string): void {
-  // 【Blob 生成】: UTF-8 BOM 付きで Excel 互換にする 🟡
+  // Documentation.
   const bom = '\uFEFF'
   const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
 
-  // 【<a download> フォールバック】: 非表示リンクを生成してクリック
+  // Documentation.
   const link = document.createElement('a')
   link.href = url
   link.download = filename
@@ -439,13 +439,13 @@ function _downloadCsv(content: string, filename: string): void {
   document.body.appendChild(link)
   link.click()
 
-  // 【クリーンアップ】: リンク要素と Blob URL を解放
+  // Documentation.
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
 
 /**
- * 【ファイルダウンロード】: 任意の MIME タイプで <a download> を起動する
+ * Documentation.
  */
 function _downloadFile(content: string, filename: string, mimeType: string): void {
   const blob = new Blob([content], { type: mimeType })
@@ -462,12 +462,12 @@ function _downloadFile(content: string, filename: string, mimeType: string): voi
 }
 
 /**
- * 【HTML レポート組み立て】: セクション・統計・ピン留め情報をスタンドアロン HTML に変換する
+ * Documentation.
  *
- * 【設計方針】:
- *   - 生データ（全試行）は埋め込まない → 5〜15MB 目標
- *   - Plotly.js は CDN から読み込む（オフライン環境ではチャート非表示）🟡
- *   - 統計サマリーと注目解のみを JSON として埋め込む
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
  * 🟢 REQ-154〜REQ-155
  */
 function _buildHtmlReport(
@@ -476,7 +476,7 @@ function _buildHtmlReport(
   pinnedTrials: PinnedTrial[],
   paretoIndices: Uint32Array,
 ): string {
-  // 【データ埋め込み】: Pareto 解インデックスと統計をシリアライズ
+  // Documentation.
   const embeddedData = JSON.stringify({
     generatedAt: new Date().toISOString(),
     stats: JSON.parse(statsJson || '{}'),
@@ -488,7 +488,7 @@ function _buildHtmlReport(
     paretoCount: paretoIndices.length,
   })
 
-  // 【セクション HTML 生成】
+  // Documentation.
   const sectionHtml = sections
     .map((sec) => _buildSectionHtml(sec, pinnedTrials, paretoIndices))
     .join('\n')
@@ -519,14 +519,14 @@ tr:nth-child(even){background:#f1f5f9;}
 </div>
 ${sectionHtml}
 <script>
-// 【埋め込みデータ】: レポート生成時の統計・試行情報
+// Documentation.
 const REPORT_DATA = ${embeddedData};
 </script>
 </body>
 </html>`
 }
 
-/** 【セクション HTML 生成】: セクション種別に応じた HTML を返す */
+/** Documentation. */
 function _buildSectionHtml(
   section: ReportSection,
   pinnedTrials: PinnedTrial[],
@@ -561,7 +561,7 @@ function _buildSectionHtml(
   }
 }
 
-/** 【HTML エスケープ】: XSS 対策のため特殊文字をエスケープする */
+/** Documentation. */
 function _escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')

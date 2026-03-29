@@ -42,7 +42,7 @@ export interface ObjectivePairMatrixProps {
  *
  * Visibility rules:
  *   - 1 or fewer objectives: returns null (component hidden)
- *   - currentStudy=null: shows "データが読み込まれていません"
+ * Documentation.
  *
  * Corresponds to TC-502-01–04, TC-502-E01–E02.
  */

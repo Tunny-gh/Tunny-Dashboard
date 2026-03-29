@@ -444,16 +444,16 @@ export interface StudyComparisonResult {
 }
 
 // =============================================================================
-// セッション保存形式
+// Documentation.
 // =============================================================================
 
-/** 分析セッションの永続化形式（JSON） */
+/** Documentation. */
 export interface SessionState {
   version: string
   journalPath: string
   selectedStudyId: number
   filterRanges: Record<string, Range>
-  selectedIndices: number[] // Uint32Arrayをシリアライズ
+  selectedIndices: number[] // Documentation.
   colorMode: ColorMode
   clusterConfig: ClusterConfig | null
   layoutMode: LayoutMode

@@ -1,9 +1,9 @@
 /**
- * ParetoScatter2D — deck.gl ScatterplotLayer 2D散布図 (TASK-501)
+ * Documentation.
  *
- * 【役割】: GpuBuffer の positions/colors/sizes を使った2D点群描画
- * 【設計方針】: selectionStore.subscribe() で直接GPUバッファを更新（React再レンダリングなし）
- * 🟢 ParetoScatter3D と同じ Brushing パターンを2D用に適用
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useEffect, useRef } from 'react'
@@ -14,31 +14,31 @@ import type { Study } from '../../types'
 import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
-// Props 型定義
+// Props Type definitions
 // -------------------------------------------------------------------------
 
 export interface ParetoScatter2DProps {
-  /** 🟢 GPU バッファ — null のとき空状態UIを表示 */
+  /** Documentation. */
   gpuBuffer: GpuBuffer | null
-  /** 🟢 現在の Study — 軸名取得用 */
+  /** Documentation. */
   currentStudy: Study | null
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: deck.gl ScatterplotLayer を使った2D Pareto散布図
- * 【Brushing連携】: selectionStore.subscribe() で selectedIndices 変化時に alpha を更新
- * 【テスト対応】: TC-501-04, TC-501-E02
+ * Documentation.
+ * Documentation.
+ * Test Coverage: TC-501-04, TC-501-E02
  */
 export function ParetoScatter2D({ gpuBuffer }: ParetoScatter2DProps) {
-  // 【購読参照】: unsubscribe 関数を保持するための ref
+  // Documentation.
   const unsubscribeRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
-    // 【Brushing購読設定】: selectionStore の selectedIndices 変化を購読して alpha を更新 🟢
+    // Documentation.
     if (gpuBuffer) {
       const unsubscribe = useSelectionStore.subscribe(
         (state) => state.selectedIndices,
@@ -47,7 +47,7 @@ export function ParetoScatter2D({ gpuBuffer }: ParetoScatter2DProps) {
       unsubscribeRef.current = unsubscribe
     }
 
-    // 【クリーンアップ】: アンマウント時に購読解除してメモリリークを防ぐ
+    // Documentation.
     return () => {
       if (unsubscribeRef.current) {
         unsubscribeRef.current()
@@ -56,12 +56,12 @@ export function ParetoScatter2D({ gpuBuffer }: ParetoScatter2DProps) {
     }
   }, [gpuBuffer])
 
-  // 【空状態UI】: データがない場合はメッセージを表示 🟢
+  // Documentation.
   if (!gpuBuffer) {
     return <EmptyState />
   }
 
-  // 【deck.gl レイヤー定義】: ScatterplotLayer に GpuBuffer データを渡す 🟢
+  // Documentation.
   const layer = new ScatterplotLayer({
     id: 'pareto-2d',
     data: { length: gpuBuffer.trialCount },
@@ -80,6 +80,6 @@ export function ParetoScatter2D({ gpuBuffer }: ParetoScatter2DProps) {
     pickable: true,
   })
 
-  // 【DeckGL レンダリング】: ScatterplotLayer を描画する 🟢
+  // Documentation.
   return <DeckGL layers={[layer]} controller={true} style={{ width: '100%', height: '100%' }} />
 }

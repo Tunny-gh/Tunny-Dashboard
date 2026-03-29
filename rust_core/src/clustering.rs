@@ -1,96 +1,96 @@
-//! PCA・k-means・クラスタ統計量 (TASK-901)
+//! Module documentation.
 //!
-//! 【役割】: 教師なし学習によるトライアルのグループ化
-//! 【設計方針】:
-//!   - PCA: 共分散行列 + Jacobi 固有値分解（p≤30 で O(p³) → 高速）
-//!   - k-means: k-means++ 初期化 + Lloyd's algorithm
-//!   - Elbow: WCSS の二次差分最大点で最適 k を推定
-//!   - ClusterStats: centroid・std・Welch's t検定（有意差マーク）
+//! Module documentation.
+//! Design:
+//! Module documentation.
+//! Module documentation.
+//! Module documentation.
+//! Module documentation.
 //!
-//! REQ-080: PCA run_pca() — 固有値分解
+//! Module documentation.
 //! REQ-081: k-means run_kmeans() — Lloyd's algorithm
-//! REQ-082: estimate_k_elbow() — Elbow法
-//! REQ-083: compute_cluster_stats() — centroid / std / t検定
+//! Module documentation.
+//! Module documentation.
 //!
-//! 参照: docs/tasks/tunny-dashboard-tasks.md TASK-901
+//! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-901
 
 // =============================================================================
-// 公開型定義
+// Documentation.
 // =============================================================================
 
-/// PCA 空間の指定
+/// Documentation.
 ///
-/// 【設計】: どの列群に対してPCAを実行するかを指定する 🟢
+/// Documentation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PcaSpace {
-    /// パラメータ列のみ
+    /// Documentation.
     Param,
-    /// 目的列のみ
+    /// Documentation.
     Objective,
-    /// 全数値列（パラメータ + 目的 + user_attr_numeric）
+    /// Documentation.
     All,
 }
 
-/// PCA の結果
+/// Documentation.
 ///
-/// 【設計】: 射影座標・負荷量・説明分散をまとめて保持する 🟢
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct PcaResult {
-    /// 射影座標: projections[i][j] = サンプル i の主成分 j の値 (n × k)
+    /// Documentation.
     pub projections: Vec<Vec<f64>>,
-    /// 負荷量ベクタ: loadings[j][k] = 主成分 j での特徴 k の重み (n_components × p)
+    /// Documentation.
     pub loadings: Vec<Vec<f64>>,
-    /// 各主成分の説明分散（固有値）
+    /// Documentation.
     pub explained_variance: Vec<f64>,
-    /// 分析対象の特徴名リスト
+    /// Documentation.
     pub feature_names: Vec<String>,
 }
 
-/// k-means クラスタリングの結果
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct KmeansResult {
-    /// 各サンプルのクラスタラベル: labels[i] ∈ [0, k)
+    /// Documentation.
     pub labels: Vec<usize>,
-    /// クラスタ重心: centroids[k][p]
+    /// Documentation.
     pub centroids: Vec<Vec<f64>>,
-    /// クラスタ内誤差平方和（Within-Cluster Sum of Squares）
+    /// Documentation.
     pub wcss: f64,
-    /// 収束に要したイテレーション数
+    /// Documentation.
     pub iterations: usize,
 }
 
-/// Elbow 法の結果
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct ElbowResult {
-    /// 各 k での WCSS: wcss_per_k[0] = k=2, [1] = k=3, ...
+    /// Documentation.
     pub wcss_per_k: Vec<f64>,
-    /// Elbow 法による推薦 k（2 ≤ recommended_k ≤ max_k）
+    /// Documentation.
     pub recommended_k: usize,
 }
 
-/// 単一クラスタの統計量
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct ClusterStat {
-    /// クラスタ ID（0 始まり）
+    /// Documentation.
     pub cluster_id: usize,
-    /// クラスタのサンプル数
+    /// Documentation.
     pub size: usize,
-    /// 各特徴の平均（重心）
+    /// Documentation.
     pub centroid: Vec<f64>,
-    /// 各特徴の標準偏差
+    /// Documentation.
     pub std_dev: Vec<f64>,
-    /// 全体平均との有意差フラグ（Welch's t 検定、|t| > 3.0）
-    /// significant_features[j] = true なら j 番目特徴が有意に異なる 🟢
+    /// Documentation.
+    /// Documentation.
     pub significant_features: Vec<bool>,
 }
 
 // =============================================================================
-// 内部ヘルパー関数
+// Documentation.
 // =============================================================================
 
-/// 列方向の平均を計算する
+/// Documentation.
 ///
-/// 【設計】: PCA・クラスタ統計量の前処理で使用 🟢
+/// Documentation.
 fn col_means(data: &[Vec<f64>]) -> Vec<f64> {
     let n = data.len();
     if n == 0 {
@@ -109,27 +109,27 @@ fn col_means(data: &[Vec<f64>]) -> Vec<f64> {
     means
 }
 
-/// データを列平均で中心化する
+/// Documentation.
 fn center_data(data: &[Vec<f64>], means: &[f64]) -> Vec<Vec<f64>> {
     data.iter()
         .map(|row| row.iter().zip(means.iter()).map(|(&v, &m)| v - m).collect())
         .collect()
 }
 
-/// 2点間のユークリッド距離の二乗を計算する（O(p)）
+/// Documentation.
 #[inline]
 fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum()
 }
 
-/// 対称行列の Jacobi 固有値分解を実行する
+/// Documentation.
 ///
-/// 【アルゴリズム】: Jacobi 回転法 — 最大非対角要素を順次ゼロ化する
-/// 【適用範囲】: p ≤ 30 の小行列向け（O(p³ × sweep数)）
-/// 【戻り値】: (固有値, 固有ベクタ行列) — 固有値降順でソート済み
-/// 🟢 共分散行列に適用して PCA の主成分を取得する
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
 fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>>) {
-    // 【固有ベクタ行列の初期化】: 単位行列から開始
+    // Documentation.
     let mut eigvec: Vec<Vec<f64>> = (0..p)
         .map(|i| (0..p).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
         .collect();
@@ -137,7 +137,7 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
     let max_sweeps = 100 * p * p;
 
     for _ in 0..max_sweeps {
-        // 【最大非対角要素の探索】
+        // Documentation.
         let mut max_off = 0.0f64;
         let mut pi = 0usize;
         let mut qi = 1usize;
@@ -152,12 +152,12 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
             }
         }
 
-        // 【収束判定】: 最大非対角要素が十分小さければ終了
+        // Documentation.
         if max_off < 1e-12 {
             break;
         }
 
-        // 【Jacobi 回転角度の計算】: tan(2θ) = 2*a_pq / (a_qq - a_pp)
+        // Documentation.
         let a_pp = a[pi][pi];
         let a_qq = a[qi][qi];
         let a_pq = a[pi][qi];
@@ -168,7 +168,7 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
             (a_qq - a_pp) / (2.0 * a_pq)
         };
 
-        // 【t = tan(θ)】: 絶対値最小解を選択して数値安定性を確保
+        // Documentation.
         let t = if theta >= 0.0 {
             1.0 / (theta + (1.0 + theta * theta).sqrt())
         } else {
@@ -177,13 +177,13 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
         let c = 1.0 / (1.0 + t * t).sqrt(); // cos(θ)
         let s = t * c; // sin(θ)
 
-        // 【対角要素の更新】
+        // Documentation.
         a[pi][pi] = c * c * a_pp - 2.0 * s * c * a_pq + s * s * a_qq;
         a[qi][qi] = s * s * a_pp + 2.0 * s * c * a_pq + c * c * a_qq;
         a[pi][qi] = 0.0;
         a[qi][pi] = 0.0;
 
-        // 【非対角要素の更新】
+        // Documentation.
         for r in 0..p {
             if r == pi || r == qi {
                 continue;
@@ -198,7 +198,7 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
             a[qi][r] = new_rq;
         }
 
-        // 【固有ベクタ行列の更新】
+        // Documentation.
         for r in 0..p {
             let v_rp = eigvec[r][pi];
             let v_rq = eigvec[r][qi];
@@ -207,10 +207,10 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
         }
     }
 
-    // 【固有値取得】
+    // Documentation.
     let mut eigenvalues: Vec<f64> = (0..p).map(|i| a[i][i].max(0.0)).collect();
 
-    // 【降順ソート】: 説明分散の大きい主成分が先頭に来るよう並び替え
+    // Documentation.
     let mut idx: Vec<usize> = (0..p).collect();
     idx.sort_by(|&i, &j| {
         eigenvalues[j]
@@ -223,25 +223,25 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
         .map(|row| idx.iter().map(|&i| eigvec[row][i]).collect())
         .collect();
 
-    // 【未使用変数の警告を抑制】
+    // Documentation.
     eigenvalues.clear();
 
     (sorted_eigenvalues, sorted_eigvec)
 }
 
 // =============================================================================
-// pub(crate) 計算関数（テスト・内部向け）
+// Documentation.
 // =============================================================================
 
-/// 行優先データ行列から PCA を実行する（テスト・内部向け）
+/// Documentation.
 ///
-/// 【アルゴリズム】: 共分散行列（p×p）を構築 → Jacobi 固有値分解 → 上位 k 主成分に射影
+/// Documentation.
 ///
-/// 【計算ステップ】🟢:
-///   1. 列平均で中心化: X_c[i][j] = X[i][j] - mean_j
-///   2. 共分散行列: C[i][j] = (1/(n-1)) * Σ_k X_c[k,i] * X_c[k,j]
-///   3. 固有値分解: C = V Λ V^T（Jacobi 回転法）
-///   4. 射影: projections[i][comp] = Σ_j X_c[i][j] * loading[comp][j]
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
 pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaResult {
     let empty = PcaResult {
         projections: vec![],
@@ -257,12 +257,12 @@ pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaRe
     let p = data[0].len();
     let k = n_components.min(p);
 
-    // 【中心化】
+    // Documentation.
     let means = col_means(data);
     let x_c = center_data(data, &means);
 
-    // 【共分散行列の構築（列優先メモリで計算効率化）】
-    // x_cols[j * n + i] = x_c[i][j] (連続メモリ → キャッシュ効率良好)
+    // Documentation.
+    // Documentation.
     let mut x_cols = vec![0.0f64; n * p];
     for (i, row) in x_c.iter().enumerate() {
         for (j, &v) in row.iter().enumerate() {
@@ -287,15 +287,15 @@ pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaRe
         }
     }
 
-    // 【固有値分解（降順ソート済み）】
+    // Documentation.
     let (eigenvalues, eigvec) = jacobi_eigensystem(cov, p);
 
-    // 【上位 k 主成分の負荷量】: loadings[comp][feat] = eigvec[feat][comp]
+    // Documentation.
     let loadings: Vec<Vec<f64>> = (0..k)
         .map(|comp| (0..p).map(|feat| eigvec[feat][comp]).collect())
         .collect();
 
-    // 【射影】: projections[i][comp] = Σ_j X_c[i][j] * loadings[comp][j]
+    // Documentation.
     let projections: Vec<Vec<f64>> = x_c
         .iter()
         .map(|row| {
@@ -318,17 +318,17 @@ pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaRe
     }
 }
 
-/// フラット行優先データ配列から k-means クラスタリングを実行する（テスト・内部向け）
+/// Documentation.
 ///
-/// 【アルゴリズム】:
-///   1. k-means++ 初期化: D²確率比例サンプリングで初期重心を選択
-///   2. Lloyd's algorithm: 割り当て → 重心更新 → 収束まで繰り返す
+/// Documentation.
+/// Documentation.
+/// Documentation.
 ///
-/// 【パラメータ】:
-///   - flat_data: 行優先フラット配列 (n * p 要素)
-///   - n: サンプル数
-///   - p: 特徴数
-///   - k: クラスタ数
+/// 【parameter】:
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
 pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize) -> KmeansResult {
     let empty = KmeansResult {
         labels: vec![0; n],
@@ -341,18 +341,18 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
         return empty;
     }
 
-    // 【点取得ヘルパー】: flat_data[i*p .. (i+1)*p] = サンプル i の特徴ベクタ
+    // Documentation.
     let get_point = |i: usize| -> &[f64] { &flat_data[i * p..(i + 1) * p] };
 
-    // 【k-means++ 初期化】: D²確率比例サンプリングで初期重心を選択
+    // Documentation.
     let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
 
-    // 最初の重心: データの中央付近のサンプルを選択（決定論的にする）
+    // Documentation.
     centroids.push(get_point(n / 2).to_vec());
 
-    // 残りの重心
+    // Documentation.
     for _ in 1..k {
-        // 各点から最近の既存重心までの距離² を計算
+        // Documentation.
         let mut distances: Vec<f64> = (0..n)
             .map(|i| {
                 centroids
@@ -362,17 +362,17 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
             })
             .collect();
 
-        // 距離の合計
+        // Documentation.
         let total: f64 = distances.iter().sum();
         if total < f64::EPSILON {
-            // 全点が同一の場合はランダム選択代わりに次の点を使用
+            // Documentation.
             let idx = centroids.len() % n;
             centroids.push(get_point(idx).to_vec());
             continue;
         }
 
-        // 確率的サンプリング: 距離²に比例する確率でサンプルを選択
-        // 決定論的実装: 累積距離が total/k * (選択済み数+1) を超えた最初の点を選択
+        // Documentation.
+        // Documentation.
         let threshold = total / (k - centroids.len() + 1) as f64;
         let mut cum = 0.0;
         let mut chosen = n - 1;
@@ -392,7 +392,7 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
     let max_iter = 300;
 
     for iter in 0..max_iter {
-        // 【割り当てフェーズ】: 各点を最近の重心に割り当て
+        // Documentation.
         let mut changed = false;
         for i in 0..n {
             let pt = get_point(i);
@@ -410,7 +410,7 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
         }
 
         if !changed {
-            // 【収束】
+            // Documentation.
             let wcss = compute_wcss(flat_data, n, p, &labels, &centroids, k);
             return KmeansResult {
                 labels,
@@ -420,7 +420,7 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
             };
         }
 
-        // 【重心更新フェーズ】: 各クラスタの平均に重心を移動
+        // Documentation.
         let mut new_centroids = vec![vec![0.0f64; p]; k];
         let mut counts = vec![0usize; k];
         for i in 0..n {
@@ -437,14 +437,14 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
                     new_centroids[c][j] /= counts[c] as f64;
                 }
             } else {
-                // 【空クラスタ処理】: 元の重心を維持する
+                // Documentation.
                 new_centroids[c] = centroids[c].clone();
             }
         }
         centroids = new_centroids;
     }
 
-    // 最大イテレーション後の WCSS を計算
+    // Documentation.
     let wcss = compute_wcss(flat_data, n, p, &labels, &centroids, k);
     KmeansResult {
         labels,
@@ -454,7 +454,7 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
     }
 }
 
-/// WCSS（クラスタ内誤差平方和）を計算する
+/// Documentation.
 fn compute_wcss(
     flat_data: &[f64],
     n: usize,
@@ -469,10 +469,10 @@ fn compute_wcss(
         .sum()
 }
 
-/// Elbow 法で最適 k を推定する（テスト・内部向け）
+/// Documentation.
 ///
-/// 【アルゴリズム】: k=2..max_k で k-means を実行し WCSS の二次差分が最大の k を選択
-/// 【設計】: 二次差分 = Δ²WCSS(k) = WCSS(k-1) - 2*WCSS(k) + WCSS(k+1) 🟢
+/// Documentation.
+/// Documentation.
 pub(crate) fn estimate_k_elbow_on_data(
     flat_data: &[f64],
     n: usize,
@@ -491,12 +491,12 @@ pub(crate) fn estimate_k_elbow_on_data(
         .map(|k| run_kmeans_on_data(flat_data, n, p, k).wcss)
         .collect();
 
-    // 【推薦 k の選択】: 二次差分が最大の点を Elbow と見なす
+    // Documentation.
     let recommended_k = if wcss_per_k.len() < 3 {
-        // k=2 または k=3 しかない場合はそのまま返す
+        // Documentation.
         wcss_per_k.len() + 1
     } else {
-        // 二次差分: second_diff[i] = wcss[i] - 2*wcss[i+1] + wcss[i+2]
+        // Documentation.
         let second_diffs: Vec<f64> = (0..wcss_per_k.len() - 2)
             .map(|i| wcss_per_k[i] - 2.0 * wcss_per_k[i + 1] + wcss_per_k[i + 2])
             .collect();
@@ -508,9 +508,9 @@ pub(crate) fn estimate_k_elbow_on_data(
             .map(|(i, _)| i)
             .unwrap_or(0);
 
-        // 二次差分のインデックスは k=2..max_k-2 に対応する
-        // second_diffs[0] は k=3 の前後の変化率を反映
-        best_idx + 3 // k=3 が基準（second_diffs[0] = k=3 のElbow）
+        // Documentation.
+        // Documentation.
+        best_idx + 3 // Documentation.
     };
 
     let recommended_k = recommended_k.clamp(2, effective_max_k);
@@ -521,12 +521,12 @@ pub(crate) fn estimate_k_elbow_on_data(
     }
 }
 
-/// クラスタ統計量を計算する（テスト・内部向け）
+/// Documentation.
 ///
-/// 【算出内容】: 各クラスタの centroid・std・Welch's t 検定（全体平均との比較）
+/// Documentation.
 ///
-/// 【t検定設計】🟢: Welch's t = (cluster_mean - global_mean) / sqrt(var/n_c + var_global/n)
-///   |t| > 3.0 かつ標準化効果量 > 0.1 を有意差ありと判定
+/// Documentation.
+/// Documentation.
 pub(crate) fn compute_cluster_stats_on_data(
     flat_data: &[f64],
     n: usize,
@@ -538,7 +538,7 @@ pub(crate) fn compute_cluster_stats_on_data(
         return vec![];
     }
 
-    // 【全体統計量】
+    // Documentation.
     let mut global_mean = vec![0.0f64; p];
     let mut global_var = vec![0.0f64; p];
     for i in 0..n {
@@ -558,7 +558,7 @@ pub(crate) fn compute_cluster_stats_on_data(
         *v /= (n as f64 - 1.0).max(1.0);
     }
 
-    // 【クラスタ統計量の計算】
+    // Documentation.
     (0..k)
         .map(|c| {
             let indices: Vec<usize> = (0..n).filter(|&i| labels[i] == c).collect();
@@ -573,7 +573,7 @@ pub(crate) fn compute_cluster_stats_on_data(
                 };
             }
 
-            // クラスタ内平均
+            // Documentation.
             let mut centroid = vec![0.0f64; p];
             for &i in &indices {
                 for j in 0..p {
@@ -584,7 +584,7 @@ pub(crate) fn compute_cluster_stats_on_data(
                 *m /= nc as f64;
             }
 
-            // クラスタ内標準偏差
+            // Documentation.
             let mut var_c = vec![0.0f64; p];
             for &i in &indices {
                 for j in 0..p {
@@ -597,7 +597,7 @@ pub(crate) fn compute_cluster_stats_on_data(
             }
             let std_dev: Vec<f64> = var_c.iter().map(|&v| v.sqrt()).collect();
 
-            // 【Welch's t 検定】: クラスタ平均 vs 全体平均
+            // Documentation.
             // t = (mean_c - mean_global) / sqrt(var_c/n_c + var_global/n)
             let n_f = n as f64;
             let significant_features: Vec<bool> = (0..p)
@@ -608,7 +608,7 @@ pub(crate) fn compute_cluster_stats_on_data(
                         return false;
                     }
                     let t = diff / se;
-                    // 【有意差判定】: |t| > 3.0（≒ p < 0.003）
+                    // Documentation.
                     t > 3.0
                 })
                 .collect();
@@ -625,17 +625,17 @@ pub(crate) fn compute_cluster_stats_on_data(
 }
 
 // =============================================================================
-// DataFrame 対応 公開 API
+// Documentation.
 // =============================================================================
 
-/// アクティブ Study から PCA を実行する
+/// Documentation.
 ///
-/// 【設計】: with_active_df で列データを取得し run_pca_on_matrix に委譲する 🟢
-/// @param n_components 主成分数（1〜p）
-/// @param space 対象空間（Param / Objective / All）
+/// Documentation.
+/// Documentation.
+/// Documentation.
 pub fn run_pca(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
     crate::dataframe::with_active_df(|df| {
-        // 【対象列の選択】
+        // Documentation.
         let feature_names: Vec<String> = match space {
             PcaSpace::Param => df.param_col_names().to_vec(),
             PcaSpace::Objective => df.objective_col_names().to_vec(),
@@ -656,7 +656,7 @@ pub fn run_pca(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
             return None;
         }
 
-        // 【行優先行列構築】
+        // Documentation.
         let data: Vec<Vec<f64>> = (0..n)
             .map(|i| {
                 feature_names
@@ -678,9 +678,9 @@ pub fn run_pca(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
     .flatten()
 }
 
-/// フラットデータ配列から k-means を実行する（公開 API）
+/// Documentation.
 ///
-/// 【設計】: JS/WASM から直接呼べるように flat_data を受け取る 🟢
+/// Documentation.
 pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize) -> KmeansResult {
     if n_cols == 0 || flat_data.is_empty() {
         return KmeansResult {
@@ -694,7 +694,7 @@ pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize) -> KmeansResult {
     run_kmeans_on_data(flat_data, n, n_cols, k)
 }
 
-/// Elbow 法で最適 k を推定する（公開 API）
+/// Documentation.
 pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> ElbowResult {
     if n_cols == 0 || flat_data.is_empty() {
         return ElbowResult {
@@ -706,9 +706,9 @@ pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> Elbow
     estimate_k_elbow_on_data(flat_data, n, n_cols, max_k)
 }
 
-/// アクティブ Study のデータに対してクラスタ統計量を計算する（公開 API）
+/// Documentation.
 ///
-/// 【設計】: with_active_df から全数値列のデータを取得し統計を計算する 🟢
+/// Documentation.
 pub fn compute_cluster_stats(labels: &[usize]) -> Vec<ClusterStat> {
     let Some(result) = crate::dataframe::with_active_df(|df| {
         let mut all_names = df.param_col_names().to_vec();
@@ -720,7 +720,7 @@ pub fn compute_cluster_stats(labels: &[usize]) -> Vec<ClusterStat> {
             return vec![];
         }
 
-        // フラット配列構築
+        // Documentation.
         let k = labels.iter().copied().max().map(|m| m + 1).unwrap_or(0);
         let flat_data: Vec<f64> = (0..n)
             .flat_map(|i| {
@@ -741,7 +741,7 @@ pub fn compute_cluster_stats(labels: &[usize]) -> Vec<ClusterStat> {
 }
 
 // =============================================================================
-// テスト
+// Documentation.
 // =============================================================================
 
 #[cfg(test)]
@@ -749,27 +749,27 @@ mod tests {
     use super::*;
 
     // ------------------------------------------------------------------
-    // テストデータ生成ヘルパー
+    // Documentation.
     // ------------------------------------------------------------------
 
-    /// 【ヘルパー】: x1 高分散・x2 ほぼゼロ分散の2次元データを生成する
+    /// Documentation.
     fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
         (0..n)
             .map(|i| {
-                let x1 = i as f64 / n as f64 * 10.0; // 高分散
-                let x2 = 0.01 * (i as f64 / n as f64); // 低分散
+                let x1 = i as f64 / n as f64 * 10.0; // Documentation.
+                let x2 = 0.01 * (i as f64 / n as f64); // Documentation.
                 vec![x1, x2]
             })
             .collect()
     }
 
-    /// 【ヘルパー】: k 個の明確に分離されたクラスタを持つデータを生成する
+    /// Documentation.
     fn make_clustered_data(n_per_cluster: usize, k: usize) -> Vec<f64> {
         let mut data = Vec::with_capacity(n_per_cluster * k * 2);
         for c in 0..k {
-            let center = (c as f64) * 100.0; // 十分広い間隔
+            let center = (c as f64) * 100.0; // Documentation.
             for i in 0..n_per_cluster {
-                let x = center + (i as f64) * 0.01; // ほぼ点群
+                let x = center + (i as f64) * 0.01; // Documentation.
                 let y = center + (i as f64) * 0.01;
                 data.push(x);
                 data.push(y);
@@ -779,83 +779,76 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // TC-901-01: PCA 主成分の正確性テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_01_pca_dominant_axis() {
-        // 【テスト目的】: x1 に高分散・x2 に低分散のデータで第1主成分が x1 方向を指すことを検証する 🟢
+        // Documentation.
         let data = make_dominant_axis_data(200);
         let result = run_pca_on_matrix(&data, 2);
 
-        // 【確認内容】: 主成分数が 2 であること
-        assert_eq!(result.loadings.len(), 2, "主成分数が 2 であること");
+        // Documentation.
+        assert_eq!(result.loadings.len(), 2, "translated 2 translated");
         assert_eq!(
             result.explained_variance.len(),
             2,
-            "説明分散の個数が 2 であること"
+            "translated 2 translated"
         );
 
-        // 【確認内容】: 第1主成分の説明分散 > 第2主成分の説明分散
+        // Documentation.
         assert!(
             result.explained_variance[0] > result.explained_variance[1],
-            "第1主成分の説明分散 {} が第2主成分 {} より大きいこと",
+            "translated1translated {} translated2translated {} translated",
             result.explained_variance[0],
             result.explained_variance[1]
         );
 
-        // 【確認内容】: 第1主成分の x1 成分（index=0）が x2 成分（index=1）より大きい
+        // Documentation.
         let loading0 = result.loadings[0][0].abs();
         let loading1 = result.loadings[0][1].abs();
         assert!(
             loading0 > loading1,
-            "第1主成分の x1 成分 {} が x2 成分 {} より大きいこと",
+            "translated1translated x1 translated {} translated x2 translated {} translated",
             loading0,
             loading1
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-901-02: PCA 射影結果の形状テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_02_pca_projection_shape() {
-        // 【テスト目的】: 射影結果が n × n_components の形状であることを検証する 🟢
+        // Documentation.
         let n = 100;
         let data = make_dominant_axis_data(n);
         let result = run_pca_on_matrix(&data, 2);
 
-        // 【確認内容】: 射影行列のサイズが n × 2 であること
-        assert_eq!(result.projections.len(), n, "射影行列の行数が n であること");
-        assert_eq!(
-            result.projections[0].len(),
-            2,
-            "射影行列の列数が 2 であること"
-        );
+        // Documentation.
+        assert_eq!(result.projections.len(), n, "translated n translated");
+        assert_eq!(result.projections[0].len(), 2, "translated 2 translated");
     }
 
     // ------------------------------------------------------------------
-    // TC-901-03: PCA 空データで空結果を返す
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_03_pca_empty_data() {
-        // 【テスト目的】: n < 2 のとき空の PcaResult を返すことを検証する 🟢
+        // Documentation.
         let result = run_pca_on_matrix(&[vec![1.0, 2.0]], 2);
-        assert!(
-            result.projections.is_empty(),
-            "n<2 のとき射影が空であること"
-        );
+        assert!(result.projections.is_empty(), "n<2 translated");
     }
 
     // ------------------------------------------------------------------
-    // TC-901-04: k-means 収束テスト（明確に分離されたクラスタ）
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_04_kmeans_convergence() {
-        // 【テスト目的】: 明確に分離された 3 クラスタのデータで k=3 が収束することを検証する 🟢
+        // Documentation.
         let k = 3;
         let n_per_cluster = 50;
         let data = make_clustered_data(n_per_cluster, k);
@@ -864,11 +857,11 @@ mod tests {
 
         let result = run_kmeans_on_data(&data, n, p, k);
 
-        // 【確認内容】: ラベル数が n 個であること
-        assert_eq!(result.labels.len(), n, "ラベル数が n であること");
-        assert_eq!(result.centroids.len(), k, "重心数が k であること");
+        // Documentation.
+        assert_eq!(result.labels.len(), n, "translated n translated");
+        assert_eq!(result.centroids.len(), k, "translated k translated");
 
-        // 【確認内容】: 各クラスタが正確に n_per_cluster 個のサンプルを持つこと
+        // Documentation.
         let mut counts = vec![0usize; k];
         for &l in &result.labels {
             counts[l] += 1;
@@ -876,19 +869,19 @@ mod tests {
         for (c, &cnt) in counts.iter().enumerate() {
             assert_eq!(
                 cnt, n_per_cluster,
-                "クラスタ {} のサンプル数が {} であること",
+                "translated {} translated {} translated",
                 c, n_per_cluster
             );
         }
     }
 
     // ------------------------------------------------------------------
-    // TC-901-05: k-means WCSS 正確性テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_05_kmeans_wcss_decreases_with_k() {
-        // 【テスト目的】: k が増加するにつれて WCSS が単調減少することを検証する 🟢
+        // Documentation.
         let data = make_clustered_data(30, 4);
         let n = 120;
         let p = 2;
@@ -896,23 +889,23 @@ mod tests {
         let wcss_k2 = run_kmeans_on_data(&data, n, p, 2).wcss;
         let wcss_k4 = run_kmeans_on_data(&data, n, p, 4).wcss;
 
-        // 【確認内容】: k が大きいほど WCSS が小さいこと
+        // Documentation.
         assert!(
             wcss_k4 < wcss_k2,
-            "k=4 の WCSS {} が k=2 の WCSS {} より小さいこと",
+            "k=4 translated WCSS {} translated k=2 translated WCSS {} translated",
             wcss_k4,
             wcss_k2
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-901-06: Elbow 法の推薦 k の妥当性テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_06_elbow_recommended_k_valid() {
-        // 【テスト目的】: 3 クラスタデータで推薦 k が 2〜5 の範囲に収まることを検証する 🟢
-        // 【注意】: Elbow 法は近似的な手法なので、正確な k=3 を要求しない
+        // Documentation.
+        // Documentation.
         let k_true = 3;
         let data = make_clustered_data(50, k_true);
         let n = 50 * k_true;
@@ -920,91 +913,88 @@ mod tests {
 
         let result = estimate_k_elbow_on_data(&data, n, p, 8);
 
-        // 【確認内容】: WCSS リストが (max_k - 2 + 1) 個の要素を持つこと
+        // Documentation.
         assert_eq!(
             result.wcss_per_k.len(),
             7,
-            "WCSS リストが 7 個 (k=2..8) であること"
+            "WCSS translated 7 translated (k=2..8) translated"
         );
 
-        // 【確認内容】: 推薦 k が妥当な範囲 [2, 8] に収まること
+        // Documentation.
         assert!(
             result.recommended_k >= 2 && result.recommended_k <= 8,
-            "推薦 k={} が範囲 [2, 8] にあること",
+            "translated k={} translatedrange [2, 8] translated",
             result.recommended_k
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-901-07: クラスタ統計量の正確性テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_07_cluster_stats_centroid() {
-        // 【テスト目的】: クラスタ 0 の重心が正しく計算されることを検証する 🟢
-        // 【データ設計】: クラスタ 0 = [0, 1, 2]、クラスタ 1 = [10, 11, 12]
+        // Documentation.
+        // Documentation.
         let flat_data = vec![
-            0.0, 1.0, // サンプル 0, クラスタ 0
-            2.0, 3.0, // サンプル 1, クラスタ 0
-            10.0, 11.0, // サンプル 2, クラスタ 1
-            12.0, 13.0, // サンプル 3, クラスタ 1
+            0.0, 1.0, // Documentation.
+            2.0, 3.0, // Documentation.
+            10.0, 11.0, // Documentation.
+            12.0, 13.0, // Documentation.
         ];
         let labels = vec![0, 0, 1, 1];
         let stats = compute_cluster_stats_on_data(&flat_data, 4, 2, &labels, 2);
 
-        // 【確認内容】: クラスタ 0 の重心が [1.0, 2.0] であること
+        // Documentation.
         let stat0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
         assert!(
             (stat0.centroid[0] - 1.0).abs() < 1e-9,
-            "クラスタ0の x1 重心が 1.0 であること"
+            "translated0translated x1 translated 1.0 translated"
         );
         assert!(
             (stat0.centroid[1] - 2.0).abs() < 1e-9,
-            "クラスタ0の x2 重心が 2.0 であること"
+            "translated0translated x2 translated 2.0 translated"
         );
-        assert_eq!(stat0.size, 2, "クラスタ0のサイズが 2 であること");
+        assert_eq!(stat0.size, 2, "translated0translated 2 translated");
     }
 
     // ------------------------------------------------------------------
-    // TC-901-08: クラスタ統計量 有意差テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_08_cluster_stats_significant() {
-        // 【テスト目的】: 大きく分離されたクラスタで有意差フラグが立つことを検証する 🟢
-        // 100点のデータ、各クラスタが全体平均から 10σ 離れている
+        // Documentation.
+        // Documentation.
         let n_per = 50;
         let mut flat_data = Vec::new();
         let mut labels = Vec::new();
         for i in 0..n_per {
             flat_data.push(i as f64 / n_per as f64); // x ≈ 0.5 (mean)
-            flat_data.push(-1000.0 + i as f64 * 0.01); // クラスタ0: y ≪ 0
+            flat_data.push(-1000.0 + i as f64 * 0.01); // Documentation.
             labels.push(0usize);
         }
         for i in 0..n_per {
             flat_data.push(i as f64 / n_per as f64);
-            flat_data.push(1000.0 + i as f64 * 0.01); // クラスタ1: y ≫ 0
+            flat_data.push(1000.0 + i as f64 * 0.01); // Documentation.
             labels.push(1usize);
         }
 
         let stats = compute_cluster_stats_on_data(&flat_data, 2 * n_per, 2, &labels, 2);
 
-        // 【確認内容】: y 特徴 (index=1) は有意差ありと判定されること
+        // Documentation.
         let stat0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-        assert!(
-            stat0.significant_features[1],
-            "大きく分離された y 特徴が有意差ありと判定されること"
-        );
+        assert!(stat0.significant_features[1], "translated y translated");
     }
 
     // ------------------------------------------------------------------
-    // TC-901-P01: PCA 50ms 以内のパフォーマンステスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_p01_pca_performance() {
-        // 【テスト目的】: PCA が 50ms 以内で完了することを検証する 🟢
-        // 【データ規模】: debug=2,000行×4列 / release=50,000行×10列
+        // Documentation.
+        // Documentation.
 
         #[cfg(debug_assertions)]
         let (n, p) = (2_000, 4);
@@ -1023,22 +1013,22 @@ mod tests {
         let result = run_pca_on_matrix(&data, 2);
         let elapsed = start.elapsed();
 
-        assert_eq!(result.projections.len(), n, "射影行数が n であること");
+        assert_eq!(result.projections.len(), n, "translated n translated");
         assert!(
             elapsed.as_millis() < 50,
-            "PCA が 50ms 以内: 実測 {}ms",
+            "PCA translated 50ms translated: translated {}ms",
             elapsed.as_millis()
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-901-P02: k-means 200ms 以内のパフォーマンステスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_p02_kmeans_performance() {
-        // 【テスト目的】: k-means が 200ms 以内で完了することを検証する 🟢
-        // 【データ規模】: debug=2,000行×4列 / release=50,000行×4列
+        // Documentation.
+        // Documentation.
 
         #[cfg(debug_assertions)]
         let (n, p) = (2_000, 4);
@@ -1051,21 +1041,21 @@ mod tests {
         let result = run_kmeans_on_data(&flat_data, n, p, 4);
         let elapsed = start.elapsed();
 
-        assert_eq!(result.labels.len(), n, "ラベル数が n であること");
+        assert_eq!(result.labels.len(), n, "translated n translated");
         assert!(
             elapsed.as_millis() < 200,
-            "k-means が 200ms 以内: 実測 {}ms",
+            "k-means translated 200ms translated: translated {}ms",
             elapsed.as_millis()
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-901-P03: クラスタ統計量 150ms 以内のパフォーマンステスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_901_p03_cluster_stats_performance() {
-        // 【テスト目的】: クラスタ統計量が 150ms 以内で完了することを検証する 🟢
+        // Documentation.
 
         #[cfg(debug_assertions)]
         let (n, p) = (2_000, 4);
@@ -1079,10 +1069,10 @@ mod tests {
         let stats = compute_cluster_stats_on_data(&flat_data, n, p, &labels, 4);
         let elapsed = start.elapsed();
 
-        assert_eq!(stats.len(), 4, "統計量が 4 クラスタ分あること");
+        assert_eq!(stats.len(), 4, "translated 4 translated");
         assert!(
             elapsed.as_millis() < 150,
-            "クラスタ統計量が 150ms 以内: 実測 {}ms",
+            "translated 150ms translated: translated {}ms",
             elapsed.as_millis()
         );
     }

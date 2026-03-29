@@ -1,3 +1,3 @@
-//! ダウンサンプリング戦略
+//! Module documentation.
 
 pub struct Sampler;

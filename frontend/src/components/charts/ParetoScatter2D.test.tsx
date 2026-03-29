@@ -1,18 +1,18 @@
 /**
- * ParetoScatter2D テスト (TASK-501)
+ * Documentation.
  *
- * 【テスト対象】: ParetoScatter2D — deck.gl ScatterplotLayer 2D散布図コンポーネント
- * 【テスト方針】: deck.gl と selectionStore を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 
 // -------------------------------------------------------------------------
-// deck.gl モック
+// Documentation.
 // -------------------------------------------------------------------------
 
-// 【deck.gl モック】: WebGL不要のダミーコンポーネントを返す 🟢
+// Documentation.
 vi.mock('deck.gl', () => ({
   DeckGL: vi.fn(({ children }: { children?: unknown }) => (
     <div data-testid="deck-gl">{children as never}</div>
@@ -23,7 +23,7 @@ vi.mock('deck.gl', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// selectionStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockSubscribe2D } = vi.hoisted(() => {
@@ -48,7 +48,7 @@ import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
 function makeGpuBuffer(): GpuBuffer {
@@ -78,10 +78,10 @@ function makeStudy(): Study {
 }
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParetoScatter2D — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSubscribe2D.mockReturnValue(vi.fn())
@@ -91,24 +91,24 @@ describe('ParetoScatter2D — 正常系', () => {
     cleanup()
   })
 
-  // TC-501-04: deck.glモックでエラーなくレンダリング
-  test('TC-501-04: ParetoScatter2D がエラーなくレンダリングされる', () => {
-    // 【テスト目的】: 2D散布図コンポーネントが安全にレンダリングできること 🟢
+  // Documentation.
+  test('TC-501-04', () => {
+    // Documentation.
     expect(() => render(<ParetoScatter2D gpuBuffer={null} currentStudy={null} />)).not.toThrow()
   })
 
-  test('TC-501-04b: gpuBuffer が渡されると DeckGL コンテナが表示される', () => {
-    // 【テスト目的】: データありの場合に deck.gl ラッパー要素が表示されること 🟢
+  test('TC-501-04', () => {
+    // Documentation.
     render(<ParetoScatter2D gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy()} />)
     expect(screen.getByTestId('deck-gl')).toBeInTheDocument()
   })
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParetoScatter2D — 異常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSubscribe2D.mockReturnValue(vi.fn())
@@ -118,9 +118,9 @@ describe('ParetoScatter2D — 異常系', () => {
     cleanup()
   })
 
-  // TC-501-E02: gpuBuffer=null で空状態UIを表示
-  test('TC-501-E02: gpuBuffer=null のとき「データがありません」を表示する', () => {
-    // 【テスト目的】: データなし時に適切な空状態UIが表示されること 🟢
+  // Documentation.
+  test('TC-501-E02', () => {
+    // Documentation.
     render(<ParetoScatter2D gpuBuffer={null} currentStudy={null} />)
     expect(screen.getByText('No data available')).toBeInTheDocument()
   })

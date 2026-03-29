@@ -1,23 +1,23 @@
-//! Optuna Journal形式（JSONL）パーサー
-//! op_codeベースのステートマシンでパースする
+//! Module documentation.
+//! Module documentation.
 //!
-//! 参照: docs/implements/TASK-101/journal-parser-requirements.md
+//! Reference: docs/implements/TASK-101/journal-parser-requirements.md
 
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 // =============================================================================
-// 公開型定義
+// Documentation.
 // =============================================================================
 
-/// 最適化方向 🟢 (optuna-journal-log-format.md §CREATE_STUDY)
+/// Documentation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptimizationDirection {
     Minimize, // directions[i] == 0
     Maximize, // directions[i] == 1
 }
 
-/// Study のメタ情報（interfaces.ts `Study` 型に対応）🟢
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct StudyMeta {
     pub study_id: u32,
@@ -31,7 +31,7 @@ pub struct StudyMeta {
     pub has_constraints: bool,
 }
 
-/// parse_journal() の戻り値（interfaces.ts `ParseJournalResult` に対応）🟢
+/// Documentation.
 #[derive(Debug)]
 pub struct ParseResult {
     pub studies: Vec<StudyMeta>,
@@ -41,31 +41,31 @@ pub struct ParseResult {
 pub struct JournalParser;
 
 // =============================================================================
-// 分布型・逆変換（REQ-010）
+// Documentation.
 // =============================================================================
 
-/// Optuna パラメータ分布型
-/// 参照: optuna-journal-log-format.md §SET_TRIAL_PARAM distribution 🟢
+/// Documentation.
+/// Reference: optuna-journal-log-format.md §SET_TRIAL_PARAM distribution 🟢
 #[derive(Debug)]
 enum Distribution {
-    /// 連続浮動小数点 — log=true のとき exp(v) で逆変換 🟢
+    /// Documentation.
     Float { log: bool },
-    /// 整数 — low + round(v) * step（log=true のとき exp してから round）🟡
+    /// Documentation.
     Int { low: i64, step: i64, log: bool },
-    /// カテゴリ — choices[round(v) as usize] 🟢
+    /// Documentation.
     Categorical { choices: Vec<Value> },
-    /// 旧形式 Uniform（Float log=false と同等）🟡
+    /// Documentation.
     Uniform,
 }
 
 impl Distribution {
-    /// distribution JSON フィールドから Distribution を構築 🟢
-    /// 【対応形式】:
-    ///   1. JSON オブジェクト: {"name": "FloatDistribution", "low": 0.0, ...}
-    ///   2. JSON 文字列（実ログ形式）: "{\"name\": \"FloatDistribution\", \"attributes\": {...}}"
-    ///   3. attributes ネスト: {"name": ..., "attributes": {"low": ..., "high": ..., "log": ...}}
+    /// Documentation.
+    /// Documentation.
+    /// Documentation.
+    /// Documentation.
+    /// Documentation.
     fn from_json(json: &Value) -> Self {
-        // 【文字列 JSON 対応】: distribution が文字列の場合はパースする 🟢
+        // Documentation.
         if let Some(s) = json.as_str() {
             if let Ok(parsed) = serde_json::from_str::<Value>(s) {
                 return Distribution::from_json(&parsed);
@@ -73,7 +73,7 @@ impl Distribution {
             return Distribution::Uniform;
         }
 
-        // 【attributes ネスト対応】: attributes があればそちらを優先参照 🟢
+        // Documentation.
         let attrs = json.get("attributes").unwrap_or(json);
 
         match get_str(json, "name").unwrap_or("") {
@@ -82,7 +82,7 @@ impl Distribution {
             },
             "IntDistribution" => Distribution::Int {
                 low: attrs.get("low").and_then(|v| v.as_i64()).unwrap_or(0),
-                // step は最低 1（0除算防止）🟡
+                // Documentation.
                 step: attrs
                     .get("step")
                     .and_then(|v| v.as_i64())
@@ -101,8 +101,8 @@ impl Distribution {
         }
     }
 
-    /// 内部表現値（Optuna to_internal_repr 変換済み）→ 表示値（f64）に逆変換
-    /// Categorical の場合は choices インデックスを返す（文字列ラベルは categorical_label で取得）🟢
+    /// Documentation.
+    /// Documentation.
     fn to_display_f64(&self, internal: f64) -> f64 {
         match self {
             // REQ-010: FloatDistribution log=true → exp(v) 🟢
@@ -122,13 +122,13 @@ impl Distribution {
                 };
                 (*low + rounded * *step) as f64
             }
-            // REQ-010: CategoricalDistribution — インデックスを float で返す 🟢
+            // Documentation.
             Distribution::Categorical { .. } => internal.round(),
             Distribution::Uniform => internal,
         }
     }
 
-    /// CategoricalDistribution の文字列ラベルを返す（非数値 choices の場合）🟡
+    /// Documentation.
     fn categorical_label(&self, internal: f64) -> Option<String> {
         let Distribution::Categorical { choices } = self else {
             return None;
@@ -144,100 +144,100 @@ impl Distribution {
 }
 
 // =============================================================================
-// 内部ステートマシン型
+// Documentation.
 // =============================================================================
 
-/// Study 構築中の中間状態
+/// Documentation.
 struct StudyBuilder {
     study_id: u32,
     name: String,
     directions: Vec<OptimizationDirection>,
-    /// RUNNING 含む全試行数（CREATE_TRIAL 出現回数）🟢
+    /// Documentation.
     total_trials: u32,
-    /// COMPLETE 試行のみ（finalize() で集計）🟢
+    /// Documentation.
     completed_trials: u32,
     param_names: HashSet<String>,
-    /// 目的列名（最初の COMPLETE 試行の values.len() から生成）🟡
+    /// Documentation.
     objective_names: Vec<String>,
     user_attr_names: HashSet<String>,
     has_constraints: bool,
 }
 
-/// Trial 構築中の中間状態
+/// Documentation.
 struct TrialBuilder {
     study_id: u32,
     /// TrialState: 0=RUNNING 1=COMPLETE 2=PRUNED 3=FAIL 4=WAITING 🟢
     state: u8,
     values: Option<Vec<f64>>,
-    /// param_name → 逆変換済み表示値（REQ-010）🟢
+    /// Documentation.
     param_display: HashMap<String, f64>,
-    /// CategoricalDistribution の文字列ラベル（文字列 choices の場合）🟡
+    /// Documentation.
     param_category_label: HashMap<String, String>,
-    /// user_attr 数値型（REQ-012）🟢
+    /// user_attr numeric type（REQ-012）🟢
     user_attrs_numeric: HashMap<String, f64>,
-    /// user_attr 文字列型（REQ-012）🟢
+    /// user_attr string type（REQ-012）🟢
     user_attrs_string: HashMap<String, String>,
-    /// constraint 値リスト（REQ-013）🟢
+    /// constraint value list（REQ-013）🟢
     constraint_values: Vec<f64>,
     has_constraints: bool,
 }
 
-/// パース全体のステート
+/// Documentation.
 struct ParserState {
     studies: Vec<StudyBuilder>,
-    /// trial_id（グローバル連番）→ TrialBuilder のマップ 🟢
-    /// 分散最適化の重複書き込みは同一キーへの上書きで自動対応（REQ-002）
+    /// Documentation.
+    /// Documentation.
     trial_builders: HashMap<u32, TrialBuilder>,
-    /// 次に採番する trial_id（CREATE_TRIAL 出現順、ログに明示されない）🟢
+    /// Documentation.
     next_trial_id: u32,
 }
 
 // =============================================================================
-// JSON フィールド抽出ヘルパー（DRY 化）
+// Documentation.
 // =============================================================================
 
-/// JSON Value から u64 フィールドを取得
+/// Documentation.
 #[inline]
 fn get_u64(json: &Value, key: &str) -> Option<u64> {
     json.get(key).and_then(|v| v.as_u64())
 }
 
-/// JSON Value から &str フィールドを取得
+/// Documentation.
 #[inline]
 fn get_str<'a>(json: &'a Value, key: &str) -> Option<&'a str> {
     json.get(key).and_then(|v| v.as_str())
 }
 
 // =============================================================================
-// ステートマシン実装
+// Documentation.
 // =============================================================================
 
 impl ParserState {
     fn new() -> Self {
         ParserState {
             studies: Vec::new(),
-            // 大規模 Journal（50,000 試行）を想定した初期容量 🟡
+            // Documentation.
             trial_builders: HashMap::with_capacity(1024),
             next_trial_id: 0,
         }
     }
 
-    /// op_code を見て適切なハンドラにディスパッチ 🟢
+    /// Documentation.
     fn process_op(&mut self, op: u8, json: &Value) {
         match op {
             0 => self.process_create_study(json),
-            // op_code 1 (DELETE_STUDY) / 2 / 3 / 7 は現バージョンで未対応（無視）🟡
+            // Documentation.
             4 => self.process_create_trial(json),
             5 => self.process_set_trial_param(json),
             6 => self.process_set_trial_state_values(json),
             8 => self.process_set_trial_user_attr(json),
             9 => self.process_set_trial_system_attr(json),
-            // REQ-002: 未知の op_code は無視してログ継続（TC-101-E03）🟢
+            // Documentation.
             _ => {}
         }
     }
 
-    /// op_code=0: CREATE_STUDY — Study メタ情報を登録 🟢
+    /// Documentation.
     fn process_create_study(&mut self, json: &Value) {
         let name = get_str(json, "study_name").unwrap_or("").to_string();
         let directions = json
@@ -256,7 +256,7 @@ impl ParserState {
             })
             .unwrap_or_default();
 
-        // study_id = CREATE_STUDY 出現順（0始まり）🟢
+        // Documentation.
         let study_id = self.studies.len() as u32;
         self.studies.push(StudyBuilder {
             study_id,
@@ -271,27 +271,27 @@ impl ParserState {
         });
     }
 
-    /// op_code=4: CREATE_TRIAL — trial_id を採番して TrialBuilder を作成 🟢
+    /// Documentation.
     fn process_create_trial(&mut self, json: &Value) {
         let study_id = get_u64(json, "study_id").unwrap_or(0) as u32;
 
-        // 未知の study_id → スキップ（TC-101-E05）🟡
+        // Documentation.
         if (study_id as usize) >= self.studies.len() {
             return;
         }
 
-        // trial_id = CREATE_TRIAL 出現順（ログに明示されない）🟢
+        // Documentation.
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
 
-        // total_trials には RUNNING 試行も含む 🟢
+        // Documentation.
         self.studies[study_id as usize].total_trials += 1;
 
         self.trial_builders.insert(
             trial_id,
             TrialBuilder {
                 study_id,
-                state: 0, // デフォルト RUNNING
+                state: 0, // Documentation.
                 values: None,
                 param_display: HashMap::new(),
                 param_category_label: HashMap::new(),
@@ -303,7 +303,7 @@ impl ParserState {
         );
     }
 
-    /// op_code=5: SET_TRIAL_PARAM — REQ-010 分布型逆変換を実施 🟢
+    /// Documentation.
     fn process_set_trial_param(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
         let param_name = match get_str(json, "param_name") {
@@ -320,19 +320,19 @@ impl ParserState {
             .unwrap_or(Distribution::Uniform);
 
         if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
-            // REQ-010: 内部スケール値を表示値に逆変換して格納 🟢
+            // Documentation.
             trial
                 .param_display
                 .insert(param_name.clone(), dist.to_display_f64(internal));
-            // CategoricalDistribution の文字列ラベルを保存 🟡
+            // Documentation.
             if let Some(label) = dist.categorical_label(internal) {
                 trial.param_category_label.insert(param_name, label);
             }
         }
     }
 
-    /// op_code=6: SET_TRIAL_STATE_VALUES — 状態と目的値を記録 🟢
-    /// 分散最適化時の重複書き込みは上書きで対応（TC-101-E07）
+    /// Documentation.
+    /// Documentation.
     fn process_set_trial_state_values(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
         let state = get_u64(json, "state").unwrap_or(0) as u8;
@@ -349,7 +349,7 @@ impl ParserState {
         }
     }
 
-    /// op_code=8: SET_TRIAL_USER_ATTR — REQ-012 型別に分けて格納 🟢
+    /// Documentation.
     fn process_set_trial_user_attr(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
         let Some(attrs) = json.get("user_attr").and_then(|v| v.as_object()) else {
@@ -360,17 +360,17 @@ impl ParserState {
         };
 
         for (key, val) in attrs {
-            // REQ-012: 数値型 → float64列、文字列型 → カテゴリ列 🟢
+            // Documentation.
             if let Some(n) = val.as_f64() {
                 trial.user_attrs_numeric.insert(key.clone(), n);
             } else if let Some(s) = val.as_str() {
                 trial.user_attrs_string.insert(key.clone(), s.to_string());
             }
-            // bool 等は現バージョンで対象外 🟡
+            // Documentation.
         }
     }
 
-    /// op_code=9: SET_TRIAL_SYSTEM_ATTR — REQ-013 constraints を展開 🟢
+    /// Documentation.
     fn process_set_trial_system_attr(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
         let Some(attrs) = json.get("system_attr").and_then(|v| v.as_object()) else {
@@ -380,19 +380,19 @@ impl ParserState {
             return;
         };
 
-        // REQ-013: constraints → c1,c2,c3... 個別列展開（TASK-102 DataFrame で行う）🟢
-        // ここでは TrialBuilder に値リストを保持する
+        // Documentation.
+        // Documentation.
         if let Some(constraints) = attrs.get("constraints").and_then(|v| v.as_array()) {
             trial.constraint_values = constraints.iter().filter_map(|v| v.as_f64()).collect();
             trial.has_constraints = true;
         }
     }
 
-    /// 全 TrialBuilder を集約して `(Vec<StudyMeta>, Vec<DataFrame>)` を返す 🟢
+    /// Documentation.
     ///
-    /// 【改善内容】TASK-102: DataFrame を同時に構築し WASM メモリに格納できるよう変更
-    /// 【パフォーマンス】TrialBuilder のデータをムーブセマンティクスで TrialRow に移送し
-    ///   HashMap のクローンコストを排除（30変数×50,000試行で約75%のメモリコスト削減）🟡
+    /// Documentation.
+    /// Documentation.
+    /// Documentation.
     fn finalize(self) -> (Vec<StudyMeta>, Vec<crate::dataframe::DataFrame>) {
         use crate::dataframe::{DataFrame, TrialRow};
 
@@ -403,22 +403,22 @@ impl ParserState {
         } = self;
         let n_studies = studies.len();
 
-        // --- trial_id 昇順でソート（DataFrame の行順を決定）🟢 ---
-        // HashMap 反復順は非決定的なため、ソートで安定した列データを保証する
+        // Documentation.
+        // Documentation.
         let mut sorted_trials: Vec<(u32, TrialBuilder)> = trial_builders.into_iter().collect();
         sorted_trials.sort_by_key(|(id, _)| *id);
 
-        // --- Study ごとの DataFrame 構築データ収集 ---
-        // `(0..n).map(|_| Vec::new()).collect()` で Clone 境界なしに初期化 🟡
+        // Documentation.
+        // Documentation.
         let mut per_study_rows: Vec<Vec<TrialRow>> = (0..n_studies).map(|_| Vec::new()).collect();
-        let mut per_study_unn: Vec<HashSet<String>> = // user_attr 数値列名
+        let mut per_study_unn: Vec<HashSet<String>> = // Documentation.
             (0..n_studies).map(|_| HashSet::new()).collect();
-        let mut per_study_usn: Vec<HashSet<String>> = // user_attr 文字列列名
+        let mut per_study_usn: Vec<HashSet<String>> = // Documentation.
             (0..n_studies).map(|_| HashSet::new()).collect();
-        let mut per_study_max_c: Vec<usize> = vec![0; n_studies]; // 最大 constraint 数
+        let mut per_study_max_c: Vec<usize> = vec![0; n_studies]; // Documentation.
 
-        // --- COMPLETE (state=1) 試行のみ集約（REQ-011）🟢 ---
-        // TrialBuilder をムーブ消費することで HashMap データのクローンを回避 🟡
+        // Documentation.
+        // Documentation.
         for (trial_id, trial) in sorted_trials {
             if trial.state != 1 {
                 continue;
@@ -428,14 +428,14 @@ impl ParserState {
                 continue;
             }
 
-            // StudyBuilder の集約（参照でアクセスし、ムーブ前に完了）🟢
+            // Documentation.
             {
                 let study = &mut studies[study_idx];
                 study.completed_trials += 1;
                 for name in trial.param_display.keys() {
                     study.param_names.insert(name.clone());
                 }
-                // user_attr を StudyBuilder と per_study_unn/usn に同時登録 🟡
+                // Documentation.
                 for name in trial.user_attrs_numeric.keys() {
                     study.user_attr_names.insert(name.clone());
                     per_study_unn[study_idx].insert(name.clone());
@@ -447,21 +447,21 @@ impl ParserState {
                 if trial.has_constraints {
                     study.has_constraints = true;
                 }
-                // 目的列名: 最初の COMPLETE 試行の values.len() から "obj0","obj1"... を生成 🟡
+                // Documentation.
                 if study.objective_names.is_empty() {
                     if let Some(values) = &trial.values {
                         study.objective_names =
                             (0..values.len()).map(|i| format!("obj{i}")).collect();
                     }
                 }
-            } // StudyBuilder の可変借用ここで解放
+            } // Documentation.
 
             per_study_max_c[study_idx] =
                 per_study_max_c[study_idx].max(trial.constraint_values.len());
 
-            // TrialRow へムーブ: HashMap データのクローンを排除 🟡
+            // Documentation.
             per_study_rows[study_idx].push(TrialRow {
-                trial_id, // Optuna の実際の trial_id 🟢
+                trial_id, // Documentation.
                 param_display: trial.param_display,
                 param_category_label: trial.param_category_label,
                 objective_values: trial.values.unwrap_or_default(),
@@ -471,7 +471,7 @@ impl ParserState {
             });
         }
 
-        // --- StudyMeta と DataFrame を一緒に構築 ---
+        // Documentation.
         let mut study_metas = Vec::with_capacity(n_studies);
         let mut dataframes = Vec::with_capacity(n_studies);
 
@@ -480,7 +480,7 @@ impl ParserState {
             param_names.sort();
             let mut user_attr_names: Vec<String> = b.user_attr_names.into_iter().collect();
             user_attr_names.sort();
-            let objective_names = b.objective_names; // DataFrame 構築にも使用
+            let objective_names = b.objective_names; // Documentation.
 
             study_metas.push(StudyMeta {
                 study_id: b.study_id,
@@ -494,8 +494,8 @@ impl ParserState {
                 has_constraints: b.has_constraints,
             });
 
-            // user_attr 名リストをソートして DataFrame 構築 🟢
-            // std::mem::take でインデックス経由の所有権移動（Clone不要）
+            // Documentation.
+            // Documentation.
             let mut unn: Vec<String> = std::mem::take(&mut per_study_unn[i]).into_iter().collect();
             unn.sort();
             let mut usn: Vec<String> = std::mem::take(&mut per_study_usn[i]).into_iter().collect();
@@ -516,22 +516,22 @@ impl ParserState {
 }
 
 // =============================================================================
-// 公開 API
+// Documentation.
 // =============================================================================
 
-/// Journalファイルをパースして全 Study のメタ情報を返す
+/// Documentation.
 ///
-/// 【機能概要】: Optuna Journal形式（JSONL）を op_code ステートマシンで処理する
-/// 【設計方針】: 不完全行・非JSON行はスキップ、全行無効の場合のみ Err を返す
-/// 🟢 wasm-api.md §parse_journal に準拠
+/// Documentation.
+/// Documentation.
+/// Documentation.
 ///
-/// # 引数
-/// * `data` - Journalファイルの UTF-8 バイト列（Uint8Array からの変換）
+/// Documentation.
+/// Documentation.
 pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
-    // 空ファイルは Ok([]) を即時返却（TC-101-B01）🟡
+    // Documentation.
     if data.is_empty() {
         crate::dataframe::store_dataframes(vec![]);
         return Ok(ParseResult {
@@ -540,10 +540,10 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
         });
     }
 
-    // UTF-8 デコード: バイナリ混入に対応するため lossy 変換（TC-101-E02）🟢
+    // Documentation.
     let text = String::from_utf8_lossy(data);
 
-    // 空行を除いた行リストを構築
+    // Documentation.
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.is_empty() {
         crate::dataframe::store_dataframes(vec![]);
@@ -561,17 +561,17 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
             Ok(json) => {
                 valid_lines += 1;
                 if let Some(op) = get_u64(&json, "op_code") {
-                    // op_code は 0-9 の範囲（u8 として安全）🟢
+                    // Documentation.
                     #[allow(clippy::cast_possible_truncation)]
                     state.process_op(op as u8, &json);
                 }
             }
-            // 不完全/非JSON 行はスキップして継続（TC-101-E01, TC-101-E02）🟢
+            // Documentation.
             Err(_) => {}
         }
     }
 
-    // 有効な JSON 行が 1 行もない場合はエラー（TC-101-E04）🟢
+    // Documentation.
     if valid_lines == 0 {
         return Err("No valid JSON lines found in journal".to_string());
     }
@@ -580,9 +580,9 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
     #[cfg(target_arch = "wasm32")]
     let duration_ms = 0.0_f64;
-    // finalize() は StudyMeta と DataFrame を同時に返す（TASK-102）🟢
+    // Documentation.
     let (studies, dataframes) = state.finalize();
-    // DataFrame を WASM グローバル状態に格納（select_study() から参照できるようにする）🟢
+    // Documentation.
     crate::dataframe::store_dataframes(dataframes);
     Ok(ParseResult {
         studies,
@@ -591,7 +591,7 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
 }
 
 // =============================================================================
-// テスト
+// Documentation.
 // =============================================================================
 
 #[cfg(test)]
@@ -603,56 +603,56 @@ mod tests {
     }
 
     // =========================================================================
-    // 正常系
+    // Documentation.
     // =========================================================================
 
     #[test]
     fn tc_101_01_create_study_basic() {
-        // 【テスト目的】: op_code=0(CREATE_STUDY)を処理し Study名・最適化方向が記録される 🟢
+        // Documentation.
         let data = to_bytes(
             r#"{"op_code":0,"worker_id":"w1","study_name":"my_study","directions":[0,1]}"#,
         );
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies.len(), 1); // Study数 🟢
-        assert_eq!(result.studies[0].name, "my_study"); // Study名 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies.len(), 1); // Documentation.
+        assert_eq!(result.studies[0].name, "my_study"); // Documentation.
         assert_eq!(
             result.studies[0].directions,
             vec![
                 OptimizationDirection::Minimize,
                 OptimizationDirection::Maximize
             ]
-        ); // 最適化方向 🟢
+        ); // Documentation.
     }
 
     #[test]
     fn tc_101_02_create_trial_complete() {
-        // 【テスト目的】: CREATE_TRIAL → COMPLETE 遷移で completed_trials がカウントされる 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies[0].completed_trials, 1); // COMPLETE 試行数 🟢
-        assert_eq!(result.studies[0].total_trials, 1); // 総試行数 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies[0].completed_trials, 1); // Documentation.
+        assert_eq!(result.studies[0].total_trials, 1); // Documentation.
     }
 
     #[test]
     fn tc_101_03_float_distribution_no_log() {
-        // 【テスト目的】: FloatDistribution(log=false) の param が登録される 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x\",\"param_value_internal\":0.5,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0,\"log\":false}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].param_names.contains(&"x".to_string())); // param 登録 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].param_names.contains(&"x".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_04_float_distribution_log_true() {
-        // 【テスト目的】: FloatDistribution(log=true) の param が登録される 🟡
+        // Documentation.
         let ln2: f64 = std::f64::consts::LN_2;
         let line = format!(
             "{{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"lr\",\"param_value_internal\":{ln2},\"distribution\":{{\"name\":\"FloatDistribution\",\"low\":1e-5,\"high\":1.0,\"log\":true}}}}"
@@ -664,39 +664,39 @@ mod tests {
             line,
             r#"{"op_code":6,"worker_id":"w","trial_id":0,"state":1,"values":[0.5],"datetime_complete":"2024-01-01T00:00:01.000000"}"#,
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].param_names.contains(&"lr".to_string())); // param 登録 🟡
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].param_names.contains(&"lr".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_05_int_distribution_basic() {
-        // 【テスト目的】: IntDistribution(step=1) の param が登録される 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"n\",\"param_value_internal\":3.0,\"distribution\":{\"name\":\"IntDistribution\",\"low\":0,\"high\":10,\"step\":1,\"log\":false}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].param_names.contains(&"n".to_string())); // param 登録 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].param_names.contains(&"n".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_07_categorical_distribution_string() {
-        // 【テスト目的】: CategoricalDistribution の param が登録される 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"cat\",\"param_value_internal\":1.0,\"distribution\":{\"name\":\"CategoricalDistribution\",\"choices\":[\"a\",\"b\",\"c\"]}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].param_names.contains(&"cat".to_string())); // param 登録 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].param_names.contains(&"cat".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_10_multiple_studies() {
-        // 【テスト目的】: 複数 Study が独立して構築される 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"A\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
@@ -707,111 +707,111 @@ mod tests {
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:02.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":2,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:03.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies.len(), 2); // Study 数 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies.len(), 2); // Documentation.
         let sa = result.studies.iter().find(|s| s.name == "A").unwrap();
         let sb = result.studies.iter().find(|s| s.name == "B").unwrap();
-        assert_eq!(sa.completed_trials, 2); // Study A 完了数 🟢
-        assert_eq!(sb.completed_trials, 1); // Study B 完了数 🟢
+        assert_eq!(sa.completed_trials, 2); // Documentation.
+        assert_eq!(sb.completed_trials, 1); // Documentation.
     }
 
     #[test]
     fn tc_101_11_trial_id_sequential() {
-        // 【テスト目的】: total_trials が CREATE_TRIAL 出現回数に一致する 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:01.000000\"}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:02.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies[0].total_trials, 3); // 総試行数 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies[0].total_trials, 3); // Documentation.
     }
 
     #[test]
     fn tc_101_12_user_attr_numeric() {
-        // 【テスト目的】: 数値型 user_attr が user_attr_names に登録される（REQ-012）🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":8,\"worker_id\":\"w\",\"trial_id\":0,\"user_attr\":{\"loss\":0.123}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
+        let result = parse_journal(&data).expect("translated");
         assert!(result.studies[0]
             .user_attr_names
-            .contains(&"loss".to_string())); // 数値列 🟢
+            .contains(&"loss".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_13_user_attr_string() {
-        // 【テスト目的】: 文字列型 user_attr が user_attr_names に登録される（REQ-012）🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":8,\"worker_id\":\"w\",\"trial_id\":0,\"user_attr\":{\"tag\":\"run_a\"}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
+        let result = parse_journal(&data).expect("translated");
         assert!(result.studies[0]
             .user_attr_names
-            .contains(&"tag".to_string())); // 文字列列 🟢
+            .contains(&"tag".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_14_constraints_expansion() {
-        // 【テスト目的】: constraints がある場合 has_constraints=true（REQ-013）🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":9,\"worker_id\":\"w\",\"trial_id\":0,\"system_attr\":{\"constraints\":[-0.5,0.3]}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].has_constraints); // constraints フラグ 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].has_constraints); // Documentation.
     }
 
     #[test]
     fn tc_101_15_constraints_all_feasible() {
-        // 【テスト目的】: 全 constraint <= 0 のとき completed_trials がカウントされる 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":9,\"worker_id\":\"w\",\"trial_id\":0,\"system_attr\":{\"constraints\":[-1.0,-0.5,0.0]}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].has_constraints); // constraints フラグ 🟢
-        assert_eq!(result.studies[0].completed_trials, 1); // COMPLETE 数 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].has_constraints); // Documentation.
+        assert_eq!(result.studies[0].completed_trials, 1); // Documentation.
     }
 
     #[test]
     fn tc_101_16_multi_objective_values() {
-        // 【テスト目的】: 2 目的の values が objective_names に展開される 🟡
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0,1]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.1,0.9],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies[0].objective_names.len(), 2); // 目的列数 🟡
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies[0].objective_names.len(), 2); // Documentation.
     }
 
     #[test]
     fn tc_101_17_duration_ms_returned() {
-        // 【テスト目的】: ParseResult.duration_ms が 0 以上の値を返す 🟢
+        // Documentation.
         let data = to_bytes(r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#);
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.duration_ms >= 0.0); // 処理時間が非負 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.duration_ms >= 0.0); // Documentation.
     }
 
     // =========================================================================
-    // 異常系
+    // Documentation.
     // =========================================================================
 
     #[test]
     fn tc_101_e01_incomplete_json_line_skipped() {
-        // 【テスト目的】: 不完全 JSON 行をスキップして処理継続する 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\n",
@@ -819,13 +819,13 @@ mod tests {
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
         let result = parse_journal(&data);
-        assert!(result.is_ok()); // エラーなし 🟢
-        assert_eq!(result.unwrap().studies[0].completed_trials, 1); // 有効な試行のみカウント 🟢
+        assert!(result.is_ok()); // Documentation.
+        assert_eq!(result.unwrap().studies[0].completed_trials, 1); // Documentation.
     }
 
     #[test]
     fn tc_101_e02_non_json_line_skipped() {
-        // 【テスト目的】: バイナリ混入行をスキップして処理継続する 🟢
+        // Documentation.
         let mut data = Vec::new();
         data.extend_from_slice(
             b"{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
@@ -835,12 +835,12 @@ mod tests {
         data.extend_from_slice(b"{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n");
         data.extend_from_slice(b"{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n");
         let result = parse_journal(&data);
-        assert!(result.is_ok()); // バイナリ混入でもエラーなし 🟢
+        assert!(result.is_ok()); // Documentation.
     }
 
     #[test]
     fn tc_101_e03_unknown_opcode_ignored() {
-        // 【テスト目的】: 未知 op_code を無視して処理継続する 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":99,\"worker_id\":\"w\"}\n",
@@ -848,97 +848,97 @@ mod tests {
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
         let result = parse_journal(&data);
-        assert!(result.is_ok()); // 未知 op_code でもエラーなし 🟢
+        assert!(result.is_ok()); // Documentation.
     }
 
     #[test]
     fn tc_101_e04_all_lines_invalid_returns_error() {
-        // 【テスト目的】: 全行がパース不可の場合は Err を返す 🟢
+        // Documentation.
         let data: Vec<u8> = vec![0xff, 0xfe, 0x00, 0x01, 0x02];
         let result = parse_journal(&data);
-        assert!(result.is_err()); // 全行無効時はエラー 🟢
+        assert!(result.is_err()); // Documentation.
     }
 
     #[test]
     fn tc_101_e06_all_trials_not_complete() {
-        // 【テスト目的】: 全試行が RUNNING のとき completed_trials == 0 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies[0].completed_trials, 0); // RUNNING 除外 🟢
-        assert_eq!(result.studies[0].total_trials, 2); // 総数は 2 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies[0].completed_trials, 0); // Documentation.
+        assert_eq!(result.studies[0].total_trials, 2); // Documentation.
     }
 
     #[test]
     fn tc_101_e07_distributed_optimization_overwrite() {
-        // 【テスト目的】: 同一 trial_id への重複書き込みは最後の値で上書き 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w1\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w2\",\"trial_id\":0,\"state\":1,\"values\":[0.3],\"datetime_complete\":\"2024-01-01T00:00:02.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies[0].completed_trials, 1); // 重複でも 1 件 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies[0].completed_trials, 1); // Documentation.
     }
 
     // =========================================================================
-    // 境界値
+    // Documentation.
     // =========================================================================
 
     #[test]
     fn tc_101_b01_empty_file() {
-        // 【テスト目的】: 空ファイルでクラッシュしない 🟡
+        // Documentation.
         let data: Vec<u8> = Vec::new();
         let result = parse_journal(&data);
-        assert!(result.is_ok()); // 空ファイルでもエラーなし 🟡
-        assert_eq!(result.unwrap().studies.len(), 0); // Study 数 0 🟡
+        assert!(result.is_ok()); // Documentation.
+        assert_eq!(result.unwrap().studies.len(), 0); // Documentation.
     }
 
     #[test]
     fn tc_101_b02_study_only_no_trials() {
-        // 【テスト目的】: CREATE_STUDY のみで completed_trials == 0 🟢
+        // Documentation.
         let data = to_bytes(r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#);
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies.len(), 1); // Study 数 🟢
-        assert_eq!(result.studies[0].completed_trials, 0); // 完了試行なし 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies.len(), 1); // Documentation.
+        assert_eq!(result.studies[0].completed_trials, 0); // Documentation.
     }
 
     #[test]
     fn tc_101_b03_categorical_boundary_indices() {
-        // 【テスト目的】: Categorical の境界インデックス 0.0 が安全に処理される 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"cat\",\"param_value_internal\":0.0,\"distribution\":{\"name\":\"CategoricalDistribution\",\"choices\":[\"a\",\"b\",\"c\"]}}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert!(result.studies[0].param_names.contains(&"cat".to_string())); // param 登録 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert!(result.studies[0].param_names.contains(&"cat".to_string())); // Documentation.
     }
 
     #[test]
     fn tc_101_b07_minimal_journal() {
-        // 【テスト目的】: 最小 3 行 Journal で completed_trials == 1 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
-        assert_eq!(result.studies[0].completed_trials, 1); // 最小構成での完了試行 🟢
+        let result = parse_journal(&data).expect("translated");
+        assert_eq!(result.studies[0].completed_trials, 1); // Documentation.
     }
 
     // =========================================================================
-    // パフォーマンス
+    // Documentation.
     // =========================================================================
 
     #[test]
     fn tc_101_p01_performance_50000_lines() {
-        // 【テスト目的】: 50,000 試行の Journal を 5,000ms 以内にパースできる 🟢
+        // Documentation.
         let mut lines = Vec::with_capacity(150_002);
         lines.push(
             r#"{"op_code":0,"worker_id":"w","study_name":"perf","directions":[0]}"#.to_string(),
@@ -952,30 +952,30 @@ mod tests {
         let data = lines.join("\n").into_bytes();
 
         let start = std::time::Instant::now();
-        let result = parse_journal(&data).expect("50,000 行のパースが成功するべき");
+        let result = parse_journal(&data).expect("50,000 translated");
         let elapsed_ms = start.elapsed().as_millis() as f64;
 
-        assert_eq!(result.studies[0].completed_trials, 50_000); // 全試行処理 🟢
+        assert_eq!(result.studies[0].completed_trials, 50_000); // Documentation.
         assert!(
             elapsed_ms < 5_000.0,
-            "50,000 行のパースが 5,000ms 以内に完了するべき（実測: {elapsed_ms}ms）"
-        ); // 性能要件 🟢
+            "50,000 translated 5,000ms translated（translated: {elapsed_ms}ms）"
+        ); // Documentation.
     }
 
     // =========================================================================
-    // Distribution 逆変換の単体テスト（REQ-010）
+    // Documentation.
     // =========================================================================
 
     #[test]
     fn distribution_float_log_false_identity() {
-        // 【テスト目的】: FloatDistribution(log=false) は internal == display 🟢
+        // Documentation.
         let dist = Distribution::Float { log: false };
         assert!((dist.to_display_f64(0.5) - 0.5).abs() < 1e-10);
     }
 
     #[test]
     fn distribution_float_log_true_exp() {
-        // 【テスト目的】: FloatDistribution(log=true) は exp(internal) == display 🟢
+        // Documentation.
         let dist = Distribution::Float { log: true };
         let expected = std::f64::consts::LN_2.exp(); // ≈ 2.0
         assert!((dist.to_display_f64(std::f64::consts::LN_2) - expected).abs() < 1e-10);
@@ -983,7 +983,7 @@ mod tests {
 
     #[test]
     fn distribution_int_step1() {
-        // 【テスト目的】: IntDistribution(low=0, step=1) は round(internal) + low 🟢
+        // Documentation.
         let dist = Distribution::Int {
             low: 0,
             step: 1,
@@ -994,7 +994,7 @@ mod tests {
 
     #[test]
     fn distribution_int_step2() {
-        // 【テスト目的】: IntDistribution(low=0, step=2) は low + round(v) * step 🟡
+        // Documentation.
         let dist = Distribution::Int {
             low: 0,
             step: 2,
@@ -1006,7 +1006,7 @@ mod tests {
 
     #[test]
     fn distribution_categorical_label() {
-        // 【テスト目的】: CategoricalDistribution は choices[round(v)] を返す 🟢
+        // Documentation.
         let dist = Distribution::Categorical {
             choices: vec![
                 Value::String("a".to_string()),
@@ -1021,7 +1021,7 @@ mod tests {
 
     #[test]
     fn trial_builder_constraint_values_stored() {
-        // 【テスト目的】: constraint_values が TrialBuilder に正しく保持される 🟢
+        // Documentation.
         let trial = TrialBuilder {
             study_id: 0,
             state: 1,
@@ -1034,42 +1034,42 @@ mod tests {
             has_constraints: true,
         };
         assert_eq!(trial.constraint_values.len(), 3);
-        assert!(trial.constraint_values.iter().all(|&c| c <= 0.0)); // 全て <= 0 🟢
+        assert!(trial.constraint_values.iter().all(|&c| c <= 0.0)); // Documentation.
         let sum: f64 = trial.constraint_values.iter().sum();
         assert!((sum - (-1.5)).abs() < 1e-10); // constraint_sum 🟢
     }
 
     // =========================================================================
-    // distribution 文字列 JSON + attributes ネスト対応テスト
+    // Documentation.
     // =========================================================================
 
     #[test]
     fn distribution_from_json_string_with_attributes() {
-        // 【テスト目的】: 実ログ形式の文字列 distribution（attributes ネスト）を正しくパースする 🟢
+        // Documentation.
         let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.01, \"low\": -32.77, \"high\": 32.77, \"log\": false}}""#;
         let val: Value = serde_json::from_str(json_str).unwrap();
         let dist = Distribution::from_json(&val);
-        // FloatDistribution(log=false) にマッチすること
+        // Documentation.
         assert!(matches!(dist, Distribution::Float { log: false }));
-        // 逆変換: log=false なので identity
+        // Documentation.
         assert!((dist.to_display_f64(7.4) - 7.4).abs() < 1e-10);
     }
 
     #[test]
     fn distribution_from_json_string_log_true() {
-        // 【テスト目的】: log=true の文字列 distribution を正しくパースする 🟢
+        // Documentation.
         let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.0, \"low\": 1e-5, \"high\": 1.0, \"log\": true}}""#;
         let val: Value = serde_json::from_str(json_str).unwrap();
         let dist = Distribution::from_json(&val);
         assert!(matches!(dist, Distribution::Float { log: true }));
-        // 逆変換: log=true → exp(v)
+        // Documentation.
         let ln2 = std::f64::consts::LN_2;
         assert!((dist.to_display_f64(ln2) - 2.0).abs() < 1e-10);
     }
 
     #[test]
     fn distribution_from_json_object_with_attributes() {
-        // 【テスト目的】: オブジェクト形式 + attributes ネストにも対応する 🟢
+        // Documentation.
         let val: Value = serde_json::from_str(
             r#"{"name": "IntDistribution", "attributes": {"low": 0, "high": 10, "step": 2, "log": false}}"#,
         ).unwrap();
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[test]
     fn parse_real_log_format_param_values() {
-        // 【テスト目的】: 実ログ形式（文字列 distribution）で param_display が正しく構築される 🟢
+        // Documentation.
         let data = to_bytes(concat!(
             "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[1]}\n",
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-03-28T11:58:48.485367\"}\n",
@@ -1096,7 +1096,7 @@ mod tests {
             "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x1\",\"param_value_internal\":17.43,\"distribution\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": -32.77, \\\"high\\\": 32.77, \\\"log\\\": false}}\"}\n",
             "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[21.64],\"datetime_complete\":\"2026-03-28T11:58:48.612043\"}\n"
         ));
-        let result = parse_journal(&data).expect("パース成功を期待");
+        let result = parse_journal(&data).expect("translated");
         assert_eq!(result.studies[0].completed_trials, 1);
         assert!(result.studies[0].param_names.contains(&"x0".to_string()));
         assert!(result.studies[0].param_names.contains(&"x1".to_string()));
@@ -1104,60 +1104,68 @@ mod tests {
 
     #[test]
     fn parse_real_log_file() {
-        // 【テスト目的】: 実際の test.log ファイルをパースして全パラメータが取得されることを検証 🟢
+        // Documentation.
         let log_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test.log");
         if !log_path.exists() {
-            // CI 等で test.log がない場合はスキップ
+            // Documentation.
             eprintln!("test.log not found at {:?}, skipping", log_path);
             return;
         }
-        let data = std::fs::read(&log_path).expect("test.log の読み込みに失敗");
-        let result = parse_journal(&data).expect("test.log のパースに失敗");
+        let data = std::fs::read(&log_path).expect("test.log translated");
+        let result = parse_journal(&data).expect("test.log translated");
 
-        // 2 つの Study が含まれるはず（Ackley + DTLZ1）
-        assert!(result.studies.len() >= 2, "少なくとも 2 Study が含まれる");
+        // Documentation.
+        assert!(result.studies.len() >= 2, "translated 2 Study translated");
 
-        // Ackley Study: 10 変数 (Ackley_Variable0..9)
+        // Ackley Study: 10 parameter (Ackley_Variable0..9)
         let ackley = &result.studies[0];
-        assert!(ackley.completed_trials > 0, "Ackley に完了試行がある");
-        assert_eq!(ackley.param_names.len(), 10, "Ackley は 10 パラメータ");
+        assert!(ackley.completed_trials > 0, "Ackley translated");
+        assert_eq!(
+            ackley.param_names.len(),
+            10,
+            "Ackley translated 10 parameter"
+        );
         for i in 0..10 {
             let name = format!("Ackley_Variable{i}");
             assert!(
                 ackley.param_names.contains(&name),
-                "Ackley に {name} が含まれる"
+                "Ackley translated {name} translated"
             );
         }
 
-        // DTLZ1 Study: 10 変数 (DTLZ1_Variable0..9)
+        // DTLZ1 Study: 10 parameter (DTLZ1_Variable0..9)
         let dtlz = &result.studies[1];
-        assert!(dtlz.completed_trials > 0, "DTLZ1 に完了試行がある");
-        assert_eq!(dtlz.param_names.len(), 10, "DTLZ1 は 10 パラメータ");
+        assert!(dtlz.completed_trials > 0, "DTLZ1 translated");
+        assert_eq!(dtlz.param_names.len(), 10, "DTLZ1 translated 10 parameter");
         for i in 0..10 {
             let name = format!("DTLZ1_Variable{i}");
             assert!(
                 dtlz.param_names.contains(&name),
-                "DTLZ1 に {name} が含まれる"
+                "DTLZ1 translated {name} translated"
             );
         }
 
-        // DataFrame にパラメータ値が入っていることを検証
-        // (parse_journal 経由で DataFrame が GLOBAL_STATE にセットされているはず)
-        // select_study で DataFrame をアクティブにして getTrials で確認
+        // Documentation.
+        // Documentation.
+        // Documentation.
         use crate::dataframe::with_df;
         let df_check = with_df(0, |df| {
             let param_cols = df.param_col_names();
-            assert_eq!(param_cols.len(), 10, "Ackley DataFrame に 10 パラメータ列");
-            // 最初の行のパラメータ値が 0 でないことを確認
+            assert_eq!(
+                param_cols.len(),
+                10,
+                "Ackley DataFrame translated 10 parametertranslated"
+            );
+            // Documentation.
             let col = df
                 .get_numeric_column("Ackley_Variable0")
-                .expect("列が存在する");
+                .expect("translated");
             assert!(
                 col[0].abs() > 1e-10,
-                "Ackley_Variable0 の最初の値が非ゼロ: {}",
+                "Ackley_Variable0 translated: {}",
                 col[0]
             );
         });
-        assert!(df_check.is_some(), "DataFrame が存在する");
+        assert!(df_check.is_some(), "DataFrame translated");
     }
 }

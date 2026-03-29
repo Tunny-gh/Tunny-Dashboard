@@ -1,18 +1,18 @@
 /**
- * ParetoScatter3D テスト (TASK-501)
+ * Documentation.
  *
- * 【テスト対象】: ParetoScatter3D — deck.gl PointCloudLayer 3D散布図コンポーネント
- * 【テスト方針】: deck.gl と selectionStore を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 
 // -------------------------------------------------------------------------
-// deck.gl モック
+// Documentation.
 // -------------------------------------------------------------------------
 
-// 【deck.gl モック】: WebGL不要のダミーコンポーネントを返す 🟢
+// Documentation.
 vi.mock('deck.gl', () => ({
   DeckGL: vi.fn(({ children }: { children?: unknown }) => (
     <div data-testid="deck-gl">{children as never}</div>
@@ -23,8 +23,8 @@ vi.mock('deck.gl', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// selectionStore モック
-// vi.hoisted でファクトリより前に変数を確保する
+// Documentation.
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockSubscribe, mockGetState } = vi.hoisted(() => {
@@ -42,7 +42,7 @@ vi.mock('../../stores/selectionStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// GpuBuffer モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('../../wasm/gpuBuffer', () => ({
@@ -54,11 +54,11 @@ import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【ヘルパー】: テスト用 GpuBuffer モックを生成する
+ * Documentation.
  */
 function makeGpuBuffer(): GpuBuffer {
   return {
@@ -73,7 +73,7 @@ function makeGpuBuffer(): GpuBuffer {
 }
 
 /**
- * 【ヘルパー】: テスト用 Study を生成する
+ * Documentation.
  */
 function makeStudy(): Study {
   return {
@@ -90,58 +90,58 @@ function makeStudy(): Study {
 }
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParetoScatter3D — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockSubscribe.mockReturnValue(vi.fn()) // unsubscribe 関数を返す
+    mockSubscribe.mockReturnValue(vi.fn()) // Documentation.
   })
 
   afterEach(() => {
     cleanup()
   })
 
-  // TC-501-01: deck.glモックでエラーなくレンダリング
-  test('TC-501-01: gpuBuffer=null でもコンポーネントがエラーなくレンダリングされる', () => {
-    // 【テスト目的】: コンポーネントが null データで安全にレンダリングできること 🟢
+  // Documentation.
+  test('TC-501-01', () => {
+    // Documentation.
 
-    // 【処理実行】
+    // Documentation.
     expect(() => render(<ParetoScatter3D gpuBuffer={null} currentStudy={null} />)).not.toThrow()
   })
 
-  // TC-501-02: gpuBufferありでDeckGLが表示される
-  test('TC-501-02: gpuBuffer が渡されると DeckGL コンテナが表示される', () => {
-    // 【テスト目的】: データありの場合に deck.gl ラッパー要素が表示されること 🟢
+  // Documentation.
+  test('TC-501-02', () => {
+    // Documentation.
     const gpuBuffer = makeGpuBuffer()
     const study = makeStudy()
 
-    // 【処理実行】
+    // Documentation.
     render(<ParetoScatter3D gpuBuffer={gpuBuffer} currentStudy={study} />)
 
-    // 【確認内容】: deck.gl コンテナが存在する
+    // Documentation.
     expect(screen.getByTestId('deck-gl')).toBeInTheDocument()
   })
 
-  // TC-501-03: selectionStore購読が mount で設定される
-  test('TC-501-03: コンポーネントが mount したときに selectionStore.subscribe が呼ばれる', () => {
-    // 【テスト目的】: Brushing & Linking のための subscribe が設定されること 🟢
+  // Documentation.
+  test('TC-501-03', () => {
+    // Documentation.
     const gpuBuffer = makeGpuBuffer()
 
-    // 【処理実行】
+    // Documentation.
     render(<ParetoScatter3D gpuBuffer={gpuBuffer} currentStudy={makeStudy()} />)
 
-    // 【確認内容】: subscribe が呼ばれた
+    // Documentation.
     expect(mockSubscribe).toHaveBeenCalledOnce()
   })
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParetoScatter3D — 異常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSubscribe.mockReturnValue(vi.fn())
@@ -151,23 +151,23 @@ describe('ParetoScatter3D — 異常系', () => {
     cleanup()
   })
 
-  // TC-501-E01: gpuBuffer=null で空状態UIを表示
-  test('TC-501-E01: gpuBuffer=null のとき「データがありません」を表示する', () => {
-    // 【テスト目的】: データなし時に適切な空状態UIが表示されること 🟢
+  // Documentation.
+  test('TC-501-E01', () => {
+    // Documentation.
 
-    // 【処理実行】
+    // Documentation.
     render(<ParetoScatter3D gpuBuffer={null} currentStudy={null} />)
 
-    // 【確認内容】: 空状態メッセージが表示されている
+    // Documentation.
     expect(screen.getByText('No data available')).toBeInTheDocument()
   })
 })
 
 // -------------------------------------------------------------------------
-// 境界値
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ParetoScatter3D — 境界値', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -176,21 +176,21 @@ describe('ParetoScatter3D — 境界値', () => {
     cleanup()
   })
 
-  // TC-501-B01: アンマウント時に unsubscribe が呼ばれる
-  test('TC-501-B01: コンポーネントがアンマウントされると unsubscribe が呼ばれる', () => {
-    // 【テスト目的】: メモリリークを防ぐためにアンマウント時に購読解除されること 🟢
+  // Documentation.
+  test('TC-501-B01', () => {
+    // Documentation.
     const mockUnsubscribe = vi.fn()
     mockSubscribe.mockReturnValue(mockUnsubscribe)
 
     const gpuBuffer = makeGpuBuffer()
 
-    // 【処理実行】: マウント
+    // Documentation.
     const { unmount } = render(<ParetoScatter3D gpuBuffer={gpuBuffer} currentStudy={makeStudy()} />)
 
-    // 【処理実行】: アンマウント
+    // Documentation.
     unmount()
 
-    // 【確認内容】: unsubscribe が呼ばれた
+    // Documentation.
     expect(mockUnsubscribe).toHaveBeenCalledOnce()
   })
 })

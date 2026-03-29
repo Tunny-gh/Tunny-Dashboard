@@ -1,8 +1,8 @@
 /**
- * FreeLayoutCanvas — ChartContent 追加チャートのテスト
+ * Documentation.
  *
- * 【テスト対象】: ChartContent の objective-pair-matrix / importance / EmptyState メッセージ
- * 【テスト方針】: studyStore / layoutStore をモックしてチャート内容を検証
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
@@ -10,13 +10,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 // -------------------------------------------------------------------------
-// echarts-for-react モック（__mocks__/echarts-for-react.tsx を使用）
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('echarts-for-react')
 
 // -------------------------------------------------------------------------
-// deck.gl モック — WebGL不要ダミー
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('deck.gl', () => ({
@@ -30,7 +30,7 @@ vi.mock('deck.gl', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// studyStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const mockStudySelector = vi.fn()
@@ -40,7 +40,7 @@ vi.mock('../../stores/studyStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// wasmLoader モック（getTrials は studyStore 経由で使うが念のため）
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('../../wasm/wasmLoader', () => ({
@@ -56,7 +56,7 @@ vi.mock('../../wasm/wasmLoader', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// layoutStore モック（チャートカードを表示するため）
+// Documentation.
 // -------------------------------------------------------------------------
 
 import { useLayoutStore, DEFAULT_FREE_LAYOUT } from '../../stores/layoutStore'
@@ -64,14 +64,14 @@ import { FreeLayoutCanvas } from './FreeLayoutCanvas'
 import type { Study, TrialData } from '../../types'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 
-// DEFAULT_FREE_LAYOUT の型エラー回避（使用していないが import 解決のため）
+// Documentation.
 void DEFAULT_FREE_LAYOUT
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** 2目的 Study スタブ */
+/** Documentation. */
 function makeMultiObjectiveStudy(): Study {
   return {
     studyId: 1,
@@ -86,7 +86,7 @@ function makeMultiObjectiveStudy(): Study {
   }
 }
 
-/** 1目的 Study スタブ */
+/** Documentation. */
 function makeSingleObjectiveStudy(): Study {
   return {
     studyId: 1,
@@ -101,7 +101,7 @@ function makeSingleObjectiveStudy(): Study {
   }
 }
 
-/** GpuBuffer スタブ（5トライアル分） */
+/** Documentation. */
 function makeGpuBuffer(): GpuBuffer {
   const n = 5
   const positions = new Float32Array(n * 2).fill(0.5)
@@ -113,7 +113,7 @@ function makeGpuBuffer(): GpuBuffer {
   } as unknown as GpuBuffer
 }
 
-/** テスト用 TrialData */
+/** Documentation. */
 function makeTrialData(): TrialData[] {
   return [
     { trialId: 0, params: { x: 1.5, y: 0.5 }, values: [10.0], paretoRank: null },
@@ -121,7 +121,7 @@ function makeTrialData(): TrialData[] {
   ]
 }
 
-/** studyStore モックを指定の currentStudy / gpuBuffer / trialRows で設定 */
+/** Documentation. */
 function setStudyStore(
   currentStudy: Study | null,
   gpuBuffer: GpuBuffer | null,
@@ -139,13 +139,13 @@ function setStudyStore(
 }
 
 // -------------------------------------------------------------------------
-// テスト
+// Documentation.
 // -------------------------------------------------------------------------
 
 describe('FreeLayoutCanvas — ChartContent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // レイアウトをデフォルトにリセット
+    // Documentation.
     useLayoutStore.setState({
       layoutMode: 'D',
       freeModeLayout: null,
@@ -156,12 +156,12 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   })
 
   // ----------------------------------------------------------------
-  // EmptyState メッセージ
+  // Documentation.
   // ----------------------------------------------------------------
 
-  describe('EmptyState メッセージ', () => {
-    test('TC-CC-001: データ未ロード時に「データを読み込んでください」が表示される', () => {
-      // 【目的】: REQ-C03 — currentStudy === null のとき正しいメッセージが表示される
+  describe('translated test case', () => {
+    test('TC-CC-001', () => {
+      // Documentation.
       setStudyStore(null, null)
       useLayoutStore.setState({
         freeModeLayout: {
@@ -172,8 +172,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(screen.getByTestId('empty-state')).toHaveTextContent('Please load data')
     })
 
-    test('TC-CC-002: 未知のchartIdのとき「このチャートは準備中です」が表示される', () => {
-      // 【目的】: REQ-C03 — 未実装チャートで適切なメッセージを表示する
+    test('TC-CC-002', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -190,8 +190,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   // ----------------------------------------------------------------
 
   describe('objective-pair-matrix', () => {
-    test('TC-CC-010: 2目的 Study のとき ObjectivePairMatrix がレンダリングされる', () => {
-      // 【目的】: REQ-C01-A — 多目的 Study で ObjectivePairMatrix が表示される
+    test('TC-CC-010', () => {
+      // Documentation.
       setStudyStore(makeMultiObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -202,8 +202,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(screen.getByTestId('objective-pair-matrix')).toBeInTheDocument()
     })
 
-    test('TC-CC-011: 1目的 Study のとき EmptyState が表示される', () => {
-      // 【目的】: REQ-C01-B — 単目的 Study では ObjectivePairMatrix を表示しない
+    test('TC-CC-011', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -216,16 +216,16 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       )
     })
 
-    test('TC-CC-012: gpuBuffer === null でもクラッシュしない', () => {
-      // 【目的】: REQ-C01-C — gpuBuffer なし時に ObjectivePairMatrix 内部の — プレースホルダーが表示される
+    test('TC-CC-012', () => {
+      // Documentation.
       setStudyStore(makeMultiObjectiveStudy(), null)
       useLayoutStore.setState({
         freeModeLayout: {
           cells: [{ chartId: 'objective-pair-matrix', gridRow: [1, 3], gridCol: [1, 3] }],
         },
       })
-      // gpuBuffer=null のとき currentStudy || gpuBuffer チェックで EmptyState になる
-      // (ChartContent は currentStudy && gpuBuffer がある場合のみ switch に進む)
+      // Documentation.
+      // Documentation.
       expect(() => render(<FreeLayoutCanvas />)).not.toThrow()
     })
   })
@@ -235,8 +235,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   // ----------------------------------------------------------------
 
   describe('importance', () => {
-    test('TC-CC-020: paramNames が存在するとき ECharts バーチャートがレンダリングされる', () => {
-      // 【目的】: REQ-C02-A — paramNames をラベルとするバーチャートが表示される
+    test('TC-CC-020', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -246,13 +246,13 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       render(<FreeLayoutCanvas />)
       const echartsEl = screen.getByTestId('echarts')
       expect(echartsEl).toBeInTheDocument()
-      // option に paramNames が含まれているか確認
+      // Documentation.
       const option = JSON.parse(echartsEl.dataset.option ?? '{}')
       expect(option.xAxis?.data).toEqual(['x', 'y'])
     })
 
-    test('TC-CC-021: タイトルに「重要度（暫定・WASM未計算）」が含まれる', () => {
-      // 【目的】: REQ-C02-B — 暫定表示であることをタイトルで明示する
+    test('TC-CC-021', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -264,8 +264,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(option.title?.text).toContain('Importance')
     })
 
-    test('TC-CC-022: paramNames が空のとき EmptyState が表示される', () => {
-      // 【目的】: REQ-C02-C — パラメータなし時は EmptyState を表示する
+    test('TC-CC-022', () => {
+      // Documentation.
       const studyNoParams: Study = {
         ...makeSingleObjectiveStudy(),
         paramNames: [],
@@ -280,8 +280,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
 
-    test('TC-CC-023: バーの数が paramNames の数と一致する', () => {
-      // 【目的】: REQ-C02-A — paramNames の数だけバーが表示される
+    test('TC-CC-023', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -290,8 +290,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       })
       render(<FreeLayoutCanvas />)
       const option = JSON.parse(screen.getByTestId('echarts').dataset.option ?? '{}')
-      // series[0].data の長さが paramNames.length と一致すること
-      expect(option.series?.[0]?.data?.length).toBe(2) // x, y の2パラメータ
+      // Documentation.
+      expect(option.series?.[0]?.data?.length).toBe(2) // Documentation.
     })
   })
 
@@ -300,8 +300,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   // ----------------------------------------------------------------
 
   describe('slice', () => {
-    test('TC-CC-030: trialData が存在するとき SlicePlot がレンダリングされる', () => {
-      // 【目的】: REQ-C05-A — trialRows があるとき SlicePlot が表示される
+    test('TC-CC-030', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer(), makeTrialData())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -312,8 +312,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(screen.getByTestId('slice-plot')).toBeInTheDocument()
     })
 
-    test('TC-CC-031: trialData が空のとき EmptyState が表示される', () => {
-      // 【目的】: REQ-C05-D — trialRows 空のとき EmptyState
+    test('TC-CC-031', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer(), [])
       useLayoutStore.setState({
         freeModeLayout: {
@@ -334,8 +334,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   // ----------------------------------------------------------------
 
   describe('hypervolume', () => {
-    test('TC-CC-060: 2目的 Study のとき HypervolumeHistory がレンダリングされる', async () => {
-      // 【目的】: REQ-103-G — 多目的 Study で hypervolume チャートが表示される
+    test('TC-CC-060', async () => {
+      // Documentation.
       setStudyStore(makeMultiObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -348,8 +348,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       })
     })
 
-    test('TC-CC-061: 1目的 Study のとき EmptyState「多目的 Study でのみ利用可能です」が表示される', () => {
-      // 【目的】: REQ-103-I — 単目的 Study では hypervolume チャートを表示しない
+    test('TC-CC-061', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -362,8 +362,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       )
     })
 
-    test('TC-CC-062: computeHvHistory が reject したとき EmptyState「HV 計算エラー」が表示される', async () => {
-      // 【目的】: REQ-103-J — WASM エラー時に EmptyState を表示してクラッシュしない
+    test('TC-CC-062', async () => {
+      // Documentation.
       const { WasmLoader } = await import('../../wasm/wasmLoader')
       vi.mocked(WasmLoader.getInstance).mockResolvedValueOnce({
         getTrials: vi.fn().mockReturnValue([]),
@@ -391,8 +391,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   })
 
   describe('contour', () => {
-    test('TC-CC-040: trialData が存在するとき ContourPlot がレンダリングされる', () => {
-      // 【目的】: REQ-C06-A — trialRows があり paramNames >= 2 のとき ContourPlot が表示される
+    test('TC-CC-040', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer(), makeTrialData())
       useLayoutStore.setState({
         freeModeLayout: {
@@ -403,8 +403,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(screen.getByTestId('contour-plot')).toBeInTheDocument()
     })
 
-    test('TC-CC-041: paramNames < 2 のとき EmptyState が表示される', () => {
-      // 【目的】: REQ-C06-C — パラメータ不足時 EmptyState
+    test('TC-CC-041', () => {
+      // Documentation.
       const studyOneParam: Study = { ...makeSingleObjectiveStudy(), paramNames: ['x'] }
       setStudyStore(studyOneParam, makeGpuBuffer(), makeTrialData())
       useLayoutStore.setState({
@@ -416,8 +416,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       expect(screen.getByTestId('empty-state')).toHaveTextContent('At least 2 parameters required')
     })
 
-    test('TC-CC-042: trialData が空のとき EmptyState が表示される', () => {
-      // 【目的】: REQ-C06-D — trialRows 空のとき EmptyState
+    test('TC-CC-042', () => {
+      // Documentation.
       setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer(), [])
       useLayoutStore.setState({
         freeModeLayout: {

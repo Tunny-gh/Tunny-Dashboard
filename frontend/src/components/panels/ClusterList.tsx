@@ -1,59 +1,59 @@
 /**
- * ClusterList — クラスタ一覧コンポーネント (TASK-902)
+ * Documentation.
  *
- * 【役割】: クラスタ一覧（件数・特徴サマリー・行クリック選択）を表示する
- * 【設計方針】:
- *   - クラスタ行クリック → selectionStore.brushSelect() で選択更新 🟢 REQ-085
- *   - Ctrl+クリック → 複数クラスタの OR 選択
- *   - centroid ± std + 有意差★ を比較テーブルで表示 🟢 REQ-083
- * 🟢 REQ-083〜REQ-087 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useState } from 'react'
 import { useSelectionStore } from '../../stores/selectionStore'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【クラスタ統計データ型】: WASM compute_cluster_stats() の結果を UI 表示用に変換した型
+ * Documentation.
  */
 export interface ClusterStatData {
-  /** クラスタ ID（0 始まり）*/
+  /** Documentation. */
   clusterId: number
-  /** クラスタに含まれるサンプル数 */
+  /** Documentation. */
   size: number
-  /** 各特徴の重心値（centroid[j] = 特徴 j の平均）*/
+  /** Documentation. */
   centroid: number[]
-  /** 各特徴の標準偏差 */
+  /** Documentation. */
   stdDev: number[]
-  /** 有意差フラグ: Welch's t 検定 |t|>3.0 のとき true 🟢 */
+  /** Documentation. */
   significantFeatures: boolean[]
 }
 
 /**
- * 【ClusterList Props】: クラスタ一覧のプロパティ
+ * Documentation.
  */
 export interface ClusterListProps {
-  /** クラスタ統計データ一覧 */
+  /** Documentation. */
   clusterStats: ClusterStatData[]
-  /** 特徴名リスト（centroid/std の列名に対応）*/
+  /** Documentation. */
   featureNames: string[]
   /**
-   * 各クラスタに含まれる試行インデックス: trialsByCluster[clusterId] = Uint32Array
-   * クラスタ行クリック時に brushSelect() に渡すインデックス群
+   * Documentation.
+   * Documentation.
    */
   trialsByCluster: Uint32Array[]
 }
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
 /**
- * 【クラスタ識別色】: 最大 8 クラスタまで対応
- * 【色選択方針】: 視認性・色覚バリアフリーを考慮した彩度高めの配色 🟡
+ * Documentation.
+ * Documentation.
  */
 const CLUSTER_COLORS = [
   '#4f46e5', // indigo
@@ -67,42 +67,42 @@ const CLUSTER_COLORS = [
 ]
 
 // -------------------------------------------------------------------------
-// ユーティリティ
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【クラスタ色取得】: clusterId から識別色を返す（8 色以上は循環）
+ * Documentation.
  */
 export function getClusterColor(clusterId: number): string {
   return CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]
 }
 
 // -------------------------------------------------------------------------
-// メインコンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: クラスタ一覧表示コンポーネント
- * 【クラスタ選択】: 行クリック → brushSelect()、Ctrl+クリック → 複数選択
- * 【特徴サマリー】: centroid ± std、有意差★
- * 🟢 REQ-083〜REQ-087 に準拠
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 export function ClusterList({ clusterStats, featureNames, trialsByCluster }: ClusterListProps) {
-  // 【Store 接続】: selectionStore から brushSelect を取得 🟢
+  // Documentation.
   const brushSelect = useSelectionStore((s) => s.brushSelect)
 
-  // 【内部状態】: 現在選択中のクラスタ ID セット
+  // Documentation.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   /**
-   * 【クラスタ行クリックハンドラ】: 通常クリックは単一選択、Ctrl+クリックは複数選択
-   * 選択後に対象クラスタの全インデックスを brushSelect() に渡す 🟢 REQ-085
+   * Documentation.
+   * Documentation.
    */
   const handleClusterClick = (clusterId: number, ctrlKey: boolean) => {
     let newSelected: Set<number>
 
     if (ctrlKey) {
-      // 【Ctrl+クリック】: 既存選択セットに追加 or 除外
+      // Documentation.
       newSelected = new Set(selectedIds)
       if (newSelected.has(clusterId)) {
         newSelected.delete(clusterId)
@@ -110,13 +110,13 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
         newSelected.add(clusterId)
       }
     } else {
-      // 【通常クリック】: 単一クラスタのみ選択
+      // Documentation.
       newSelected = new Set([clusterId])
     }
 
     setSelectedIds(newSelected)
 
-    // 【brushSelect 呼び出し】: 選択クラスタの全インデックスを結合してソート
+    // Documentation.
     const allIndices: number[] = []
     newSelected.forEach((id) => {
       const cluster = trialsByCluster[id]
@@ -128,10 +128,10 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
   }
 
   // -------------------------------------------------------------------------
-  // 空状態UI
+  // empty stateUI
   // -------------------------------------------------------------------------
 
-  /** 【空状態】: クラスタリング未実行時のメッセージ */
+  /** Documentation. */
   if (clusterStats.length === 0) {
     return (
       <div data-testid="cluster-list" style={{ padding: '12px' }}>
@@ -141,12 +141,12 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
   }
 
   // -------------------------------------------------------------------------
-  // レンダリング
+  // Rendering
   // -------------------------------------------------------------------------
 
   return (
     <div data-testid="cluster-list" style={{ overflowX: 'auto' }}>
-      {/* 【クラスタ比較テーブル】: centroid ± std + 有意差★ 🟢 REQ-083 */}
+      {/* Documentation. */}
       <table
         style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '400px' }}
       >
@@ -206,7 +206,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                   borderBottom: '1px solid #f3f4f6',
                 }}
               >
-                {/* 【クラスタバッジ】: 識別色のカラードバッジ 🟢 REQ-086 */}
+                {/* Documentation. */}
                 <td style={{ padding: '4px 8px' }}>
                   <span
                     data-testid={`cluster-badge-${stat.clusterId}`}
@@ -224,10 +224,10 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                   </span>
                 </td>
 
-                {/* 【件数セル】 */}
+                {/* Documentation. */}
                 <td style={{ padding: '4px 8px', textAlign: 'right' }}>{stat.size}</td>
 
-                {/* 【特徴統計セル】: centroid ± std + 有意差★ */}
+                {/* Documentation. */}
                 {featureNames.map((_, j) => (
                   <td
                     key={j}
@@ -242,7 +242,7 @@ export function ClusterList({ clusterStats, featureNames, trialsByCluster }: Clu
                       {stat.centroid[j] !== undefined ? stat.centroid[j].toFixed(3) : '—'}±
                       {stat.stdDev[j] !== undefined ? stat.stdDev[j].toFixed(3) : '—'}
                     </span>
-                    {/* 【有意差マーク】: Welch's t |t|>3.0 のとき ★ 表示 🟢 */}
+                    {/* Documentation. */}
                     {stat.significantFeatures[j] && (
                       <span
                         data-testid={`sig-${stat.clusterId}-${j}`}

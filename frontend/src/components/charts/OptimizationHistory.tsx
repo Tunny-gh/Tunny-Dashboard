@@ -167,12 +167,12 @@ function buildChartOption(
         selectedIndices && selectedIndices.length > 0 && selectedIndices.length < data.length
       const selectedSet = isFiltered ? new Set(selectedIndices) : null
       const allPoints = trials.map((t, i) => [t, values[i]])
-      const selectedPoints = selectedSet ? allPoints.filter((_, i) => selectedSet.has(i)) : allPoints
+      const selectedPoints = selectedSet
+        ? allPoints.filter((_, i) => selectedSet.has(i))
+        : allPoints
       const unselectedPoints = selectedSet ? allPoints.filter((_, i) => !selectedSet.has(i)) : []
 
-      const seriesList: object[] = [
-        { type: 'scatter', data: selectedPoints, name: 'All Trials' },
-      ]
+      const seriesList: object[] = [{ type: 'scatter', data: selectedPoints, name: 'All Trials' }]
       if (unselectedPoints.length > 0) {
         seriesList.push({
           type: 'scatter',
@@ -241,7 +241,11 @@ export interface OptimizationHistoryProps {
  *
  * Conforms to REQ-1001–REQ-1006.
  */
-export function OptimizationHistory({ data, direction, selectedIndices }: OptimizationHistoryProps) {
+export function OptimizationHistory({
+  data,
+  direction,
+  selectedIndices,
+}: OptimizationHistoryProps) {
   // Default mode is 'best' (running best value)
   const [mode, setMode] = useState<HistoryMode>('best')
 

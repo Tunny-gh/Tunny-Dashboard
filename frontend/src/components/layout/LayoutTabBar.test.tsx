@@ -75,7 +75,7 @@ describe('LayoutTabBar — happy path', () => {
   })
 
   // TC-LT-03: each tab shows its descriptive label
-  test('TC-LT-03: tab labels are "4分割", "左大", "縦並び", "フリー"', () => {
+  test('TC-LT-03', () => {
     // REQ-002 — descriptive labels instead of opaque A/B/C/D
     render(<LayoutTabBar />)
     expect(screen.getByTestId('layout-tab-A')).toHaveTextContent('Quad')

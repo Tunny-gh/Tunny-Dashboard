@@ -25,19 +25,19 @@ function resetStore() {
 // Happy path
 // -------------------------------------------------------------------------
 
-describe('LayoutStore — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetStore()
   })
 
   // TC-302-11: setLayoutMode updates layoutMode
-  test('TC-302-11: setLayoutMode("B") が layoutMode を B に更新する', () => {
+  test('TC-302-11', () => {
     useLayoutStore.getState().setLayoutMode('B')
     expect(useLayoutStore.getState().layoutMode).toBe('B')
   })
 
   // TC-302-12: toggleChart updates visibleCharts
-  test('TC-302-12: toggleChart("history") が history を visibleCharts から除去する', () => {
+  test('TC-302-12', () => {
     expect(useLayoutStore.getState().visibleCharts.has('history')).toBe(true)
 
     useLayoutStore.getState().toggleChart('history')
@@ -48,7 +48,7 @@ describe('LayoutStore — 正常系', () => {
   })
 
   // TC-302-13: saveLayout / loadLayout round-trips the layout config
-  test('TC-302-13: saveLayout → 状態変更 → loadLayout で元の設定が復元される', () => {
+  test('TC-302-13', () => {
     useLayoutStore.getState().setLayoutMode('C')
     useLayoutStore.getState().toggleChart('history')
 
@@ -67,20 +67,20 @@ describe('LayoutStore — 正常系', () => {
 // TASK-1501 additional tests
 // -------------------------------------------------------------------------
 
-describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     resetStore()
     useLayoutStore.setState({ layoutLoadError: null })
   })
 
   // TC-1501-L01: setFreeModeLayout sets freeModeLayout
-  test('TC-1501-L01: setFreeModeLayoutでfreeModeLayoutが設定される', () => {
+  test('TC-1501-L01', () => {
     useLayoutStore.getState().setFreeModeLayout(DEFAULT_FREE_LAYOUT)
     expect(useLayoutStore.getState().freeModeLayout).toEqual(DEFAULT_FREE_LAYOUT)
   })
 
   // TC-1501-L02: updateCellPosition updates the grid position of the specified cell
-  test('TC-1501-L02: updateCellPositionで指定セルのグリッド位置が更新される', () => {
+  test('TC-1501-L02', () => {
     useLayoutStore.getState().setFreeModeLayout(DEFAULT_FREE_LAYOUT)
 
     // cellId is a UUID so it must be retrieved dynamically
@@ -100,7 +100,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L03: saveLayout → loadLayout round-trips freeModeLayout
-  test('TC-1501-L03: saveLayout→loadLayoutでfreeModeLayoutが正しく保存・復元される', () => {
+  test('TC-1501-L03', () => {
     useLayoutStore.getState().setFreeModeLayout(DEFAULT_FREE_LAYOUT)
     useLayoutStore.getState().setLayoutMode('D')
 
@@ -115,7 +115,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L06: addCell appends a new cell
-  test('TC-1501-L06: addCellでセルが追加される', () => {
+  test('TC-1501-L06', () => {
     useLayoutStore.getState().setFreeModeLayout(DEFAULT_FREE_LAYOUT)
     const before = useLayoutStore.getState().freeModeLayout!.cells.length
 
@@ -132,7 +132,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L07: calling addCell twice with the same chartId adds 2 entries with distinct cellIds (REQ-106)
-  test('TC-1501-L07: addCellを2回呼ぶと同一chartIdでも2エントリ追加される', () => {
+  test('TC-1501-L07', () => {
     useLayoutStore.getState().setFreeModeLayout({ cells: [] })
 
     useLayoutStore.getState().addCell('slice', [1, 3], [1, 3])
@@ -146,7 +146,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L08: when freeModeLayout is null, addCell uses DEFAULT_FREE_LAYOUT as the base
-  test('TC-1501-L08: freeModeLayout=nullのときaddCellはDEFAULT_FREE_LAYOUTをベースに追加する', () => {
+  test('TC-1501-L08', () => {
     // freeModeLayout is null (set by resetStore())
     useLayoutStore.getState().addCell('edf', [1, 3], [1, 3])
 
@@ -157,7 +157,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L09: removeCell removes only the specified cell
-  test('TC-1501-L09: removeCellで指定cellIdのセルが削除される', () => {
+  test('TC-1501-L09', () => {
     useLayoutStore.getState().setFreeModeLayout(DEFAULT_FREE_LAYOUT)
 
     // cellIds are UUIDs, so retrieve them dynamically
@@ -174,7 +174,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L10: passing a non-existent cellId to removeCell does not change state
-  test('TC-1501-L10: 存在しないcellIdをremoveCellに渡してもstateが変化しない', () => {
+  test('TC-1501-L10', () => {
     useLayoutStore.getState().setFreeModeLayout(DEFAULT_FREE_LAYOUT)
     const before = useLayoutStore.getState().freeModeLayout!.cells.length
 
@@ -185,7 +185,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L04: loadLayoutFromJson returns an error for invalid JSON
-  test('TC-1501-L04: loadLayoutFromJsonで不正JSONはエラーメッセージを設定してデフォルトに戻す', () => {
+  test('TC-1501-L04', () => {
     const result = useLayoutStore.getState().loadLayoutFromJson('{ invalid json')
 
     expect(result.success).toBe(false)
@@ -194,7 +194,7 @@ describe('LayoutStore — フリーモードレイアウト操作 (TASK-1501)', 
   })
 
   // TC-1501-L05: loadLayoutFromJson successfully loads valid JSON
-  test('TC-1501-L05: loadLayoutFromJsonで有効なJSONは正常に読み込まれる', () => {
+  test('TC-1501-L05', () => {
     const config = {
       mode: 'D',
       visibleCharts: ['pareto-front'],

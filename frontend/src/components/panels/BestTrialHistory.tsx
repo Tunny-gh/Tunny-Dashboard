@@ -1,33 +1,33 @@
 /**
- * BestTrialHistory — Best解遷移トラッキングテーブル (TASK-1001)
+ * Documentation.
  *
- * 【役割】: 最適化過程でBest値が更新された試行のみをテーブルで表示する
- * 【設計方針】:
- *   - Best値が更新された試行のみを一覧表示（非更新行は除外）
- *   - 行クリックで onRowClick コールバックを呼び出す（全グラフハイライト連動用）
- *   - minimize/maximize 方向に対応
- * 🟢 REQ-110, REQ-113 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import type { TrialData, OptimizationDirection } from '../charts/OptimizationHistory'
 
 // -------------------------------------------------------------------------
-// 純粋関数
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【Best更新試行抽出】: Best値が更新された試行のみを抽出する
- * 🟢 REQ-110 に準拠
- * @param data - 試行データ配列（試行番号順）
- * @param direction - 最適化方向
- * @returns Best値が更新された試行データの配列
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 function extractBestTrials(data: TrialData[], direction: OptimizationDirection): TrialData[] {
   let best = direction === 'minimize' ? Infinity : -Infinity
   const result: TrialData[] = []
 
   for (const trial of data) {
-    // 【Best判定】: 現試行がBest値を更新するか判定する 🟢
+    // Documentation.
     const isBetter = direction === 'minimize' ? trial.value < best : trial.value > best
 
     if (isBetter) {
@@ -40,38 +40,38 @@ function extractBestTrials(data: TrialData[], direction: OptimizationDirection):
 }
 
 // -------------------------------------------------------------------------
-// Props 型定義
+// Props Type definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【Props】: BestTrialHistory コンポーネントのプロパティ
+ * Documentation.
  */
 export interface BestTrialHistoryProps {
-  /** 🟢 試行データ配列 */
+  /** Documentation. */
   data: TrialData[]
-  /** 🟢 最適化方向 */
+  /** Documentation. */
   direction: OptimizationDirection
-  /** 🟢 行クリックコールバック — 全グラフハイライト連動用 */
+  /** Documentation. */
   onRowClick?: (trial: TrialData) => void
 }
 
 // -------------------------------------------------------------------------
-// メインコンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: Best解遷移トラッキングテーブルコンポーネント
- * 【表示内容】: Best値が更新された試行番号と目的値を一覧表示する
- * 【行クリック】: クリックで onRowClick(trial) を呼び出して全グラフに連動させる
- * 🟢 REQ-110, REQ-113 に準拠
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 export function BestTrialHistory({ data, direction, onRowClick }: BestTrialHistoryProps) {
-  // 【Best更新試行抽出】: Best値が更新された試行のみを取得する 🟢
+  // Documentation.
   const bestTrials = extractBestTrials(data, direction)
 
   return (
     <div data-testid="best-trial-table" style={{ overflow: 'auto', maxHeight: '300px' }}>
-      {/* 【テーブルヘッダー】: 試行番号と目的値のカラム */}
+      {/* Documentation. */}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
         <thead>
           <tr style={{ background: '#f3f4f6', borderBottom: '1px solid #e5e7eb' }}>
@@ -80,7 +80,7 @@ export function BestTrialHistory({ data, direction, onRowClick }: BestTrialHisto
           </tr>
         </thead>
         <tbody>
-          {/* 【行生成】: Best更新試行ごとにテーブル行を生成する 🟢 */}
+          {/* Documentation. */}
           {bestTrials.map((trial) => (
             <tr
               key={trial.trial}
@@ -91,10 +91,10 @@ export function BestTrialHistory({ data, direction, onRowClick }: BestTrialHisto
                 cursor: onRowClick ? 'pointer' : 'default',
               }}
             >
-              {/* 【試行番号セル】: 試行番号を左揃えで表示する */}
+              {/* Documentation. */}
               <td style={{ padding: '5px 12px' }}>{trial.trial}</td>
 
-              {/* 【目的値セル】: 目的値を右揃えで表示する */}
+              {/* Documentation. */}
               <td style={{ padding: '5px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
                 {trial.value.toFixed(4)}
               </td>

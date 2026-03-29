@@ -31,12 +31,12 @@ const SAMPLE_TRIALS: ContourTrial[] = [
 // Happy path
 // -------------------------------------------------------------------------
 
-describe('ContourPlot — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
   // TC-CONTOUR-01: with data, ECharts is rendered
-  test('TC-CONTOUR-01: データありで contour-plot コンテナと ECharts が表示される', () => {
+  test('TC-CONTOUR-01', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
     expect(screen.getByTestId('contour-plot')).toBeInTheDocument()
@@ -44,14 +44,14 @@ describe('ContourPlot — 正常系', () => {
   })
 
   // TC-CONTOUR-02: Python warning banner is shown
-  test('TC-CONTOUR-02: Python/scikit-learn 注意バナーが表示される', () => {
+  test('TC-CONTOUR-02', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
     expect(screen.getByTestId('contour-note')).toBeInTheDocument()
   })
 
   // TC-CONTOUR-03: X/Y parameter dropdowns are shown
-  test('TC-CONTOUR-03: X / Y パラメータ選択ドロップダウンが表示される', () => {
+  test('TC-CONTOUR-03', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
     expect(screen.getByTestId('contour-x-select')).toBeInTheDocument()
@@ -59,7 +59,7 @@ describe('ContourPlot — 正常系', () => {
   })
 
   // TC-CONTOUR-04: initial xAxis name is paramNames[0]
-  test('TC-CONTOUR-04: 初期表示で xAxis 名が paramNames[0] になる', () => {
+  test('TC-CONTOUR-04', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
     const option = JSON.parse(screen.getByTestId('echarts').getAttribute('data-option') ?? '{}')
@@ -67,7 +67,7 @@ describe('ContourPlot — 正常系', () => {
   })
 
   // TC-CONTOUR-05: changing X selection updates the axis name
-  test('TC-CONTOUR-05: X を 3 番目パラメータに変更後 xAxis 名が更新される', () => {
+  test('TC-CONTOUR-05', () => {
     render(
       <ContourPlot
         trials={[{ params: { x: 1, y: 2, z: 3 }, values: [0.5] }]}
@@ -83,7 +83,7 @@ describe('ContourPlot — 正常系', () => {
   })
 
   // TC-CONTOUR-06: objective selector shown for multi-objective
-  test('TC-CONTOUR-06: 目的関数が 2 つのとき目的関数選択ドロップダウンが表示される', () => {
+  test('TC-CONTOUR-06', () => {
     const multiObjTrials = SAMPLE_TRIALS.map((t) => ({ ...t, values: [0.5, 0.3] }))
     render(
       <ContourPlot
@@ -97,7 +97,7 @@ describe('ContourPlot — 正常系', () => {
   })
 
   // TC-CONTOUR-07: scatter data length matches valid trial count
-  test('TC-CONTOUR-07: scatter series の data 点数が有効トライアル数と一致する', () => {
+  test('TC-CONTOUR-07', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
     const option = JSON.parse(screen.getByTestId('echarts').getAttribute('data-option') ?? '{}')
@@ -109,12 +109,12 @@ describe('ContourPlot — 正常系', () => {
 // Error cases
 // -------------------------------------------------------------------------
 
-describe('ContourPlot — 異常系', () => {
+describe('translated test case', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
   // TC-CONTOUR-E01: trials=[] shows empty state
-  test('TC-CONTOUR-E01: trials=[] のとき空状態UIを表示する', () => {
+  test('TC-CONTOUR-E01', () => {
     render(<ContourPlot trials={[]} paramNames={['x', 'y']} objectiveNames={['obj']} />)
 
     expect(screen.getByText(/No data available/)).toBeInTheDocument()
@@ -122,7 +122,7 @@ describe('ContourPlot — 異常系', () => {
   })
 
   // TC-CONTOUR-E02: only one paramName shows empty state
-  test('TC-CONTOUR-E02: paramNames が 1 つのとき空状態UIを表示する（2 つ必要）', () => {
+  test('TC-CONTOUR-E02', () => {
     render(<ContourPlot trials={SAMPLE_TRIALS} paramNames={['x']} objectiveNames={['obj']} />)
 
     expect(screen.getByText(/No data available/)).toBeInTheDocument()

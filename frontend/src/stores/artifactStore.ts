@@ -1,58 +1,58 @@
 /**
- * ArtifactStore — アーティファクト管理 Zustand Store (TASK-1301)
+ * Documentation.
  *
- * 【役割】: Directory Picker API でアーティファクトディレクトリを管理し、
- *          trial_id / artifact_id をキーにファイル URL を提供する
- * 【設計方針】:
- *   - `showDirectoryPicker()` でユーザーがディレクトリを選択
- *   - ObjectURL キャッシュ: artifactId → ObjectURL（解放は releaseAll() で一括）
- *   - MIME タイプは拡張子から推定（ArtifactType に変換）
- *   - 非対応ブラウザ（Firefox 等）では isSupported()=false 🟢 REQ-140
- * 🟢 REQ-140〜REQ-144 に準拠
+ * Documentation.
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { create } from 'zustand'
 import type { ArtifactMeta, ArtifactType } from '../types'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【ArtifactStore 状態型】
+ * Documentation.
  */
 interface ArtifactStoreState {
-  // --- 状態 ---
-  /** 選択済みアーティファクトディレクトリ（null = 未選択）*/
+  // --- State ---
+  /** selectedartifactdirectory（null = unselected）*/
   dirHandle: FileSystemDirectoryHandle | null
-  /** artifactId → ObjectURL キャッシュ */
+  /** artifactId → ObjectURL cache */
   urlCache: Map<string, string>
-  /** ディレクトリ選択中フラグ */
+  /** directoryselection flag */
   isPickingDir: boolean
-  /** エラーメッセージ */
+  /** error message */
   error: string | null
 
-  // --- アクション ---
-  /** ディレクトリ選択ダイアログを開く 🟢 REQ-140 */
+  // --- Actions ---
+  /** Open the directory selection dialog 🟢 REQ-140 */
   pickDirectory: () => Promise<boolean>
   /**
-   * アーティファクトファイルの ObjectURL を返す
-   * キャッシュ済みなら即返却、未ロードならディレクトリから読み込む
+   * Documentation.
+   * Documentation.
    */
   loadArtifactUrl: (artifactId: string, filename: string) => Promise<string | null>
-  /** 全 ObjectURL を解放してメモリを回収する */
+  /** Documentation. */
   releaseAll: () => void
-  /** エラーをクリアする */
+  /** Documentation. */
   clearError: () => void
 }
 
 // -------------------------------------------------------------------------
-// ユーティリティ
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【MIME タイプ推定】: ファイル名の拡張子から ArtifactType を返す
- * 🟡 major な拡張子のみ対応（その他は 'other'）
+ * Documentation.
+ * Documentation.
  */
 export function getMimeTypeCategory(filename: string): ArtifactType {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
@@ -66,7 +66,7 @@ export function getMimeTypeCategory(filename: string): ArtifactType {
 }
 
 /**
- * 【ArtifactMeta からメタ情報を生成】: filename と artifactId から ArtifactMeta を構築する
+ * Documentation.
  */
 export function buildArtifactMeta(
   artifactId: string,
@@ -92,15 +92,15 @@ export function buildArtifactMeta(
 }
 
 // -------------------------------------------------------------------------
-// Store 実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【ArtifactStore 作成】
+ * Documentation.
  */
 export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
   // -------------------------------------------------------------------------
-  // 初期状態
+  // Documentation.
   // -------------------------------------------------------------------------
   dirHandle: null,
   urlCache: new Map(),
@@ -108,12 +108,12 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
   error: null,
 
   // -------------------------------------------------------------------------
-  // アクション実装
+  // Documentation.
   // -------------------------------------------------------------------------
 
   /**
-   * 【ディレクトリ選択】: showDirectoryPicker でユーザーにディレクトリを選択させる
-   * 成功時 true、キャンセル / エラー時 false を返す 🟢 REQ-140
+   * Documentation.
+   * Documentation.
    */
   pickDirectory: async () => {
     if (!useArtifactStore.isSupported?.()) {
@@ -128,13 +128,13 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
         window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
       ).showDirectoryPicker()
 
-      // 【既存キャッシュ解放】: 新しいディレクトリを選択したら前の URL をクリア
+      // Documentation.
       get().releaseAll()
 
       set({ dirHandle: handle, isPickingDir: false })
       return true
     } catch (e) {
-      // 【キャンセル処理】: AbortError はエラー通知しない（DOMException も含む）
+      // Documentation.
       if (
         (e instanceof Error && e.name === 'AbortError') ||
         (e instanceof DOMException && e.name === 'AbortError')
@@ -151,20 +151,20 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
   },
 
   /**
-   * 【アーティファクト URL 取得】: artifactId に対応するファイルの ObjectURL を返す
+   * Documentation.
    *
-   * 【処理フロー】:
-   *   1. キャッシュにあれば即返却
-   *   2. dirHandle からファイルを取得
-   *   3. ObjectURL を生成してキャッシュに保存
-   *   4. ファイルが見つからなければ null を返す
+   * Documentation.
+   * Documentation.
+   * Documentation.
+   * Documentation.
+   * Documentation.
    *
-   * 🟢 REQ-141: ファイルが存在しない場合は null を返す
+   * Documentation.
    */
   loadArtifactUrl: async (artifactId, filename) => {
     const { dirHandle, urlCache } = get()
 
-    // 【キャッシュ確認】: 既にロード済みなら即返却
+    // Documentation.
     if (urlCache.has(artifactId)) {
       return urlCache.get(artifactId) ?? null
     }
@@ -174,26 +174,26 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
     }
 
     try {
-      // 【ファイル取得】: filename でまずアクセスを試みる
+      // Documentation.
       const fileHandle = await dirHandle.getFileHandle(filename, { create: false })
       const file = await fileHandle.getFile()
       const url = URL.createObjectURL(file)
 
-      // 【キャッシュ保存】: 新しいマップを作成して immutable 更新
+      // Documentation.
       const nextCache = new Map(get().urlCache)
       nextCache.set(artifactId, url)
       set({ urlCache: nextCache })
 
       return url
     } catch {
-      // 【ファイルなし】: 見つからない場合は null を返す（エラーは設定しない）
+      // Documentation.
       return null
     }
   },
 
   /**
-   * 【全 URL 解放】: キャッシュ済みの ObjectURL を全て解放する
-   * 🟡 コンポーネントのアンマウント時またはディレクトリ切り替え時に呼ぶ
+   * Documentation.
+   * Documentation.
    */
   releaseAll: () => {
     const { urlCache } = get()
@@ -201,22 +201,22 @@ export const useArtifactStore = create<ArtifactStoreState>()((set, get) => ({
     set({ urlCache: new Map() })
   },
 
-  /** 【エラークリア】 */
+  /** Documentation. */
   clearError: () => set({ error: null }),
 }))
 
 // -------------------------------------------------------------------------
-// 静的メソッド（Store 外）
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【Directory Picker 対応チェック】: showDirectoryPicker がブラウザで利用可能か判定する
- * Firefox / Safari では false になる 🟢 REQ-140
+ * Documentation.
+ * Documentation.
  */
 useArtifactStore.isSupported = (): boolean =>
   typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
-// TypeScript 型拡張: isSupported 静的メソッド
+// Documentation.
 declare module 'zustand' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface StoreApi<T> {

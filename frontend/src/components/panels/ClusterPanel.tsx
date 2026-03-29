@@ -1,12 +1,12 @@
 /**
- * ClusterPanel — クラスタリング設定パネル (TASK-902)
+ * Documentation.
  *
- * 【役割】: PCA + k-means のパラメータ設定・実行制御・Elbow チャート表示
- * 【設計方針】:
- *   - Props でコールバックを受け取る（テスト可能な純粋コンポーネント）
- *   - Elbow 曲線を ECharts で表示し、推薦 k を強調
- *   - k=1 の不正入力をクライアント側でブロック
- * 🟢 REQ-080〜REQ-087 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useState } from 'react'
@@ -14,52 +14,52 @@ import type { ChangeEvent } from 'react'
 import ReactECharts from 'echarts-for-react'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【PCA 対象空間】: クラスタリングに使用する列の種類
- * 🟢 REQ-080 に準拠
+ * Documentation.
+ * Documentation.
  */
 export type ClusterSpace = 'param' | 'objective' | 'all'
 
 /**
- * 【Elbow 結果データ型】: WASM estimate_k_elbow() の結果を UI 表示用に変換した型
+ * Documentation.
  */
 export interface ElbowResultData {
-  /** k=2, 3, ... に対応する WCSS 値 */
+  /** Documentation. */
   wcssPerK: number[]
-  /** Elbow 法による推薦 k */
+  /** Documentation. */
   recommendedK: number
 }
 
 /**
- * 【ClusterPanel Props】: クラスタリングパネルのプロパティ
+ * Documentation.
  */
 export interface ClusterPanelProps {
-  /** クラスタリング実行コールバック: 実行ボタン押下時に呼ばれる 🟢 */
+  /** Documentation. */
   onRunClustering: (space: ClusterSpace, k: number) => void
-  /** 計算実行中フラグ: true のときプログレスバーを表示 */
+  /** Documentation. */
   isRunning?: boolean
-  /** 進捗 0〜100 */
+  /** Documentation. */
   progress?: number
-  /** Elbow 法の結果（クラスタリング実行後に提供）*/
+  /** Documentation. */
   elbowResult?: ElbowResultData | null
-  /** エラーメッセージ（計算失敗時）*/
+  /** Documentation. */
   error?: string | null
 }
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【k 最小値】: k=1 は意味がないため 2 以上を強制 */
+/** Documentation. */
 const K_MIN = 2
 
-/** 【k デフォルト値】: 一般的な初期値として 4 を設定 */
+/** Documentation. */
 const K_DEFAULT = 4
 
-/** 【空間ラベル】: ClusterSpace → 日本語表示名 */
+/** Documentation. */
 const SPACE_LABELS: Record<ClusterSpace, string> = {
   param: 'Parameters',
   objective: 'Objectives',
@@ -67,15 +67,15 @@ const SPACE_LABELS: Record<ClusterSpace, string> = {
 }
 
 // -------------------------------------------------------------------------
-// ECharts オプション生成
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【Elbow チャートオプション生成】: WCSS 折れ線グラフ + 推薦 k マークポイント
+ * Documentation.
  *
- * 【設計方針】:
- *   - k=2 スタートで横軸を category 型で表示
- *   - 推薦 k をマークポイントで強調 (🟢 REQ-084)
+ * Design:
+ * Documentation.
+ * Documentation.
  */
 function buildElbowOption(elbow: ElbowResultData): object {
   const kStart = 2
@@ -131,13 +131,13 @@ function buildElbowOption(elbow: ElbowResultData): object {
 }
 
 // -------------------------------------------------------------------------
-// メインコンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: クラスタリング設定・実行パネル
- * 【UI 構成】: 空間選択 → k 設定 → 実行ボタン → プログレスバー → Elbow チャート
- * 🟢 REQ-080〜REQ-087 に準拠
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 export function ClusterPanel({
   onRunClustering,
@@ -147,22 +147,22 @@ export function ClusterPanel({
   error,
 }: ClusterPanelProps) {
   // -------------------------------------------------------------------------
-  // 内部状態
+  // Documentation.
   // -------------------------------------------------------------------------
 
-  /** 【空間選択状態】: 現在選択されている PCA 対象空間 */
+  /** Documentation. */
   const [space, setSpace] = useState<ClusterSpace>('param')
-  /** 【k 設定状態】: ユーザーが入力したクラスタ数 */
+  /** Documentation. */
   const [k, setK] = useState<number>(K_DEFAULT)
-  /** 【k バリデーションエラー】: k<2 のとき警告メッセージ */
+  /** Documentation. */
   const [kError, setKError] = useState<string | null>(null)
 
   // -------------------------------------------------------------------------
-  // イベントハンドラ
+  // event handler
   // -------------------------------------------------------------------------
 
   /**
-   * 【k 入力変更ハンドラ】: 数値に変換し、有効値なら kError をクリア
+   * Documentation.
    */
   const handleKChange = (e: ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value, 10)
@@ -172,8 +172,8 @@ export function ClusterPanel({
   }
 
   /**
-   * 【実行ハンドラ】: k バリデーション後に onRunClustering コールバックを呼ぶ
-   * k=1 は「k=2以上を指定してください」警告を表示してキャンセル 🟢 REQ-087
+   * Documentation.
+   * Documentation.
    */
   const handleRun = () => {
     if (k < K_MIN) {
@@ -185,7 +185,7 @@ export function ClusterPanel({
   }
 
   // -------------------------------------------------------------------------
-  // レンダリング
+  // Rendering
   // -------------------------------------------------------------------------
 
   return (
@@ -193,7 +193,7 @@ export function ClusterPanel({
       data-testid="cluster-panel"
       style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}
     >
-      {/* 【対象空間選択】: パラメータ / 目的関数 / 全て 🟢 REQ-080 */}
+      {/* Documentation. */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Target Space</div>
         {(['param', 'objective', 'all'] as ClusterSpace[]).map((s) => (
@@ -214,7 +214,7 @@ export function ClusterPanel({
         ))}
       </div>
 
-      {/* 【k 設定】: クラスタ数入力フィールド 🟢 REQ-081 */}
+      {/* Documentation. */}
       <div>
         <label style={{ fontSize: '12px', color: '#6b7280' }}>Number of Clusters (k)</label>
         <input
@@ -233,7 +233,7 @@ export function ClusterPanel({
             marginTop: '4px',
           }}
         />
-        {/* 【k バリデーション警告】: k<2 指定時に表示 🟢 REQ-087 */}
+        {/* Documentation. */}
         {kError && (
           <div
             data-testid="k-error"
@@ -244,7 +244,7 @@ export function ClusterPanel({
         )}
       </div>
 
-      {/* 【実行ボタン】: 計算中は非活性 */}
+      {/* Documentation. */}
       <button
         data-testid="run-clustering-btn"
         onClick={handleRun}
@@ -263,7 +263,7 @@ export function ClusterPanel({
         {isRunning ? 'Computing...' : 'Run'}
       </button>
 
-      {/* 【プログレスバー】: isRunning=true のみ表示 🟢 */}
+      {/* Documentation. */}
       {isRunning && (
         <div data-testid="progress-container">
           <div
@@ -293,7 +293,7 @@ export function ClusterPanel({
         </div>
       )}
 
-      {/* 【エラー表示】: 計算失敗時 */}
+      {/* Documentation. */}
       {error && (
         <div
           data-testid="cluster-error"
@@ -310,7 +310,7 @@ export function ClusterPanel({
         </div>
       )}
 
-      {/* 【Elbow チャート】: 実行後に表示、推薦 k を強調 🟢 REQ-084 */}
+      {/* Documentation. */}
       {elbowResult && (
         <div>
           <div

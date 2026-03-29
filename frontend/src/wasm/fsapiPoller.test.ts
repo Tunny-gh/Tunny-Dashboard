@@ -1,14 +1,14 @@
 /**
- * FsapiPoller テスト (TASK-1201)
+ * Documentation.
  *
- * 【テスト対象】: FsapiPoller — File System Access API 差分ポーリング
- * 【テスト方針】: WasmLoader と File System Access API を vi.mock / vi.fn でスタブ
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 
 // -------------------------------------------------------------------------
-// WasmLoader モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const { mockAppendDiff } = vi.hoisted(() => {
@@ -27,10 +27,10 @@ vi.mock('./wasmLoader', () => ({
 import { FsapiPoller } from './fsapiPoller'
 
 // -------------------------------------------------------------------------
-// ユーティリティ
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** モックの FileSystemFileHandle を生成する */
+/** Documentation. */
 function makeFileHandle(fileSize: number): FileSystemFileHandle {
   const mockFile = {
     size: fileSize,
@@ -47,18 +47,18 @@ function makeFileHandle(fileSize: number): FileSystemFileHandle {
 }
 
 // -------------------------------------------------------------------------
-// Feature 検出
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('FsapiPoller — Feature 検出', () => {
-  // TC-1201-F01: FSAPI 対応環境では isSupported() が true
-  test('TC-1201-F01: showOpenFilePicker がある環境では isSupported()=true', () => {
-    // 【テスト目的】: FSAPI 対応判定が正しく動くことを確認 🟢
+describe('translated test case', () => {
+  // Documentation.
+  test('TC-1201-F01', () => {
+    // Documentation.
     const orig = (window as Record<string, unknown>).showOpenFilePicker
     ;(window as Record<string, unknown>).showOpenFilePicker = vi.fn()
-    // 【確認内容】: isSupported() が true
+    // Documentation.
     expect(FsapiPoller.isSupported()).toBe(true)
-    // 【クリーンアップ】
+    // Documentation.
     if (orig === undefined) {
       delete (window as Record<string, unknown>).showOpenFilePicker
     } else {
@@ -66,14 +66,14 @@ describe('FsapiPoller — Feature 検出', () => {
     }
   })
 
-  // TC-1201-F02: FSAPI 非対応環境では isSupported() が false
-  test('TC-1201-F02: showOpenFilePicker がない環境では isSupported()=false', () => {
-    // 【テスト目的】: Firefox 等の非対応環境で false を返すことを確認 🟢
+  // Documentation.
+  test('TC-1201-F02', () => {
+    // Documentation.
     const orig = (window as Record<string, unknown>).showOpenFilePicker
     delete (window as Record<string, unknown>).showOpenFilePicker
-    // 【確認内容】: isSupported() が false
+    // Documentation.
     expect(FsapiPoller.isSupported()).toBe(false)
-    // 【クリーンアップ】
+    // Documentation.
     if (orig !== undefined) {
       ;(window as Record<string, unknown>).showOpenFilePicker = orig
     }
@@ -81,18 +81,18 @@ describe('FsapiPoller — Feature 検出', () => {
 })
 
 // -------------------------------------------------------------------------
-// ポーリング動作
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('FsapiPoller — ポーリング動作', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAppendDiff.mockReturnValue({ new_completed: 0, consumed_bytes: 0 })
   })
 
-  // TC-1201-P01: 新試行があれば onNewTrials コールバックが呼ばれる
-  test('TC-1201-P01: 新規 COMPLETE 試行があれば onNewTrials が呼ばれる', async () => {
-    // 【テスト目的】: 差分に COMPLETE 試行があればコールバックが発火することを確認 🟢
+  // Documentation.
+  test('TC-1201-P01', async () => {
+    // Documentation.
     mockAppendDiff.mockReturnValue({ new_completed: 3, consumed_bytes: 100 })
 
     const onNewTrials = vi.fn()
@@ -101,31 +101,31 @@ describe('FsapiPoller — ポーリング動作', () => {
       onError: vi.fn(),
     })
 
-    // 【内部状態セット】: fileHandle を直接設定
+    // Documentation.
     ;(poller as unknown as Record<string, unknown>)['fileHandle'] = makeFileHandle(200)
 
     await poller.poll()
 
-    // 【確認内容】: onNewTrials が 3 で呼ばれること
+    // Documentation.
     expect(onNewTrials).toHaveBeenCalledWith(3)
   })
 
-  // TC-1201-P02: 差分なし (fileSize <= offset) でスキップ
-  test('TC-1201-P02: ファイルサイズが変わらなければ WASM は呼ばれない', async () => {
-    // 【テスト目的】: 差分なし時に WASM を無駄に呼ばないことを確認 🟢
+  // Documentation.
+  test('TC-1201-P02', async () => {
+    // Documentation.
     const poller = new FsapiPoller({ onNewTrials: vi.fn(), onError: vi.fn() })
     ;(poller as unknown as Record<string, unknown>)['fileHandle'] = makeFileHandle(0)
     ;(poller as unknown as Record<string, unknown>)['byteOffset'] = 0
 
     await poller.poll()
 
-    // 【確認内容】: append_journal_diff が呼ばれないこと（ファイルサイズ=0）
+    // Documentation.
     expect(mockAppendDiff).not.toHaveBeenCalled()
   })
 
-  // TC-1201-P03: byteOffset が consumed_bytes だけ更新される
-  test('TC-1201-P03: consumed_bytes=50 なら byteOffset が 50 増加する', async () => {
-    // 【テスト目的】: バイトオフセットが正確に更新されることを確認 🟢
+  // Documentation.
+  test('TC-1201-P03', async () => {
+    // Documentation.
     mockAppendDiff.mockReturnValue({ new_completed: 0, consumed_bytes: 50 })
 
     const poller = new FsapiPoller({ onNewTrials: vi.fn(), onError: vi.fn() })
@@ -133,13 +133,13 @@ describe('FsapiPoller — ポーリング動作', () => {
 
     await poller.poll()
 
-    // 【確認内容】: offset が 50 になること
+    // Documentation.
     expect(poller.offset).toBe(50)
   })
 
-  // TC-1201-P04: 3 回連続エラーで自動停止し onAutoStop が呼ばれる
-  test('TC-1201-P04: 3 回連続エラーで onAutoStop が呼ばれ running=false になる', async () => {
-    // 【テスト目的】: 連続エラーで自動停止する REQ-135 を確認 🟢
+  // Documentation.
+  test('TC-1201-P04', async () => {
+    // Documentation.
     const badHandle = {
       getFile: vi.fn().mockRejectedValue(new Error('File not found')),
     } as unknown as FileSystemFileHandle
@@ -153,14 +153,14 @@ describe('FsapiPoller — ポーリング動作', () => {
     ;(poller as unknown as Record<string, unknown>)['fileHandle'] = badHandle
     ;(poller as unknown as Record<string, unknown>)['isRunning'] = true
 
-    // 3 回 poll を実行
+    // Documentation.
     await poller.poll()
     await poller.poll()
     await poller.poll()
 
-    // 【確認内容】: onAutoStop が 1 回呼ばれること
+    // Documentation.
     expect(onAutoStop).toHaveBeenCalledOnce()
-    // 【確認内容】: running が false になること
+    // Documentation.
     expect(poller.running).toBe(false)
   })
 })

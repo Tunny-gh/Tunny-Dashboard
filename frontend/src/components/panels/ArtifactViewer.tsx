@@ -50,7 +50,7 @@ const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
         const parsed = text
           .trim()
           .split('\n')
-          .slice(0, MAX_CSV_ROWS + 1) // ヘッダ + MAX_CSV_ROWS 行
+          .slice(0, MAX_CSV_ROWS + 1) // Documentation.
           .map((line) => line.split(','))
         setRows(parsed)
       } catch {
@@ -108,7 +108,7 @@ const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
 }
 
 // -------------------------------------------------------------------------
-// ライトボックスコンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 const Lightbox: React.FC<{ url: string; onClose: () => void }> = ({ url, onClose }) => (
@@ -134,37 +134,37 @@ const Lightbox: React.FC<{ url: string; onClose: () => void }> = ({ url, onClose
 )
 
 // -------------------------------------------------------------------------
-// ArtifactViewer コンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 単一 trial のアーティファクト一覧を表示するビューア
+ * Documentation.
  */
 export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
   const { dirHandle, loadArtifactUrl } = useArtifactStore()
   const [items, setItems] = useState<ArtifactItem[]>([])
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
-  // 【アーティファクトロード】: trial の artifactIds からファイルをロードする
+  // Documentation.
   useEffect(() => {
     if (!dirHandle || !trial.artifactIds || trial.artifactIds.length === 0) {
       setItems([])
       return
     }
 
-    // 【初期状態】: ロード中プレースホルダーを設定
+    // Documentation.
     const initial: ArtifactItem[] = trial.artifactIds.map((aid) => ({
       artifactId: aid,
-      filename: aid, // 🟡 ファイル名はデフォルトで artifactId と同じ
+      filename: aid, // Documentation.
       type: 'other' as ArtifactType,
       url: null,
       isLoading: true,
     }))
     setItems(initial)
 
-    // 【非同期ロード】: 各アーティファクトの URL を取得
+    // Documentation.
     trial.artifactIds.forEach(async (artifactId, index) => {
-      const filename = artifactId // 🟡 ファイル名は artifactId と同じと仮定
+      const filename = artifactId // Documentation.
       const url = await loadArtifactUrl(artifactId, filename)
       const type = getMimeTypeCategory(filename)
 
@@ -176,7 +176,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
     })
   }, [dirHandle, trial.artifactIds, loadArtifactUrl])
 
-  // 【非表示条件】: ディレクトリ未選択またはアーティファクトなし
+  // Documentation.
   if (!dirHandle || !trial.artifactIds || trial.artifactIds.length === 0) {
     return null
   }
@@ -193,7 +193,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
         >
           <p className="text-xs text-gray-500 mb-1">{item.filename}</p>
 
-          {/* 【ローディング中】: グレープレースホルダー */}
+          {/* Documentation. */}
           {item.isLoading && (
             <div
               data-testid={`artifact-loading-${item.artifactId}`}
@@ -201,14 +201,14 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
             />
           )}
 
-          {/* 【ファイルなし】 */}
+          {/* Documentation. */}
           {!item.isLoading && item.url === null && (
             <p data-testid={`artifact-missing-${item.artifactId}`} className="text-xs text-red-500">
               File not found
             </p>
           )}
 
-          {/* 【画像】: サムネイル + ライトボックス 🟢 REQ-141 */}
+          {/* Documentation. */}
           {!item.isLoading && item.url && item.type === 'image' && (
             <button
               data-testid={`artifact-thumbnail-${item.artifactId}`}
@@ -223,10 +223,10 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
             </button>
           )}
 
-          {/* 【CSV】: テーブル表示 🟢 REQ-142 */}
+          {/* Documentation. */}
           {!item.isLoading && item.url && item.type === 'csv' && <CsvPreview url={item.url} />}
 
-          {/* 【その他】: ダウンロードリンク 🟢 REQ-143 */}
+          {/* Documentation. */}
           {!item.isLoading && item.url && item.type !== 'image' && item.type !== 'csv' && (
             <a
               data-testid={`artifact-download-${item.artifactId}`}
@@ -240,7 +240,7 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ trial }) => {
         </div>
       ))}
 
-      {/* 【ライトボックス】: 画像拡大表示 */}
+      {/* Documentation. */}
       {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
     </div>
   )

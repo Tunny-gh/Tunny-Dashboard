@@ -1,93 +1,93 @@
 /**
- * LiveUpdateStore — ライブ更新状態管理 Zustand Store (TASK-1201)
+ * Documentation.
  *
- * 【役割】: ライブ更新の ON/OFF・進捗・履歴・エラーを一元管理する
- * 【設計方針】:
- *   - FsapiPoller を内部で保持し、start/stop を制御
- *   - FSAPI 非対応ブラウザのフォールバック検出
- *   - 更新履歴: 直近 MAX_HISTORY 件を保持
- *   - 連続エラー 3 回で自動停止 + エラートースト用メッセージセット
- *   - Brushing 不干渉: selectionStore は一切操作しない 🟢 REQ-134
- * 🟢 REQ-130〜REQ-135 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { create } from 'zustand'
 import { FsapiPoller } from '../wasm/fsapiPoller'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【更新履歴レコード】: 直近の更新記録
+ * Documentation.
  */
 export interface UpdateRecord {
-  /** 更新日時 */
+  /** Documentation. */
   at: Date
-  /** 今回の差分で追加された試行数 */
+  /** Documentation. */
   newTrials: number
 }
 
 /**
- * 【LiveUpdateStore 状態型】
+ * Documentation.
  */
 interface LiveUpdateState {
-  // --- 状態 ---
-  /** ライブ更新が実行中かどうか */
+  // --- State ---
+  /** Documentation. */
   isLive: boolean
-  /** FSAPI がこのブラウザでサポートされているか */
+  /** Documentation. */
   isSupported: boolean
-  /** ポーリング間隔 (ms) */
+  /** Documentation. */
   pollIntervalMs: number
-  /** 最終更新日時 */
+  /** Documentation. */
   lastUpdateAt: Date | null
-  /** 直近 MAX_HISTORY 件の更新履歴 */
+  /** Documentation. */
   updateHistory: UpdateRecord[]
-  /** エラーメッセージ（null=正常）*/
+  /** Documentation. */
   error: string | null
 
-  // --- アクション ---
-  /** ファイル選択してライブ更新を開始する */
+  // --- Actions ---
+  /** Documentation. */
   startLive: () => Promise<void>
-  /** ライブ更新を停止する */
+  /** Documentation. */
   stopLive: () => void
-  /** ポーリング間隔を変更する */
+  /** Documentation. */
   setPollInterval: (ms: number) => void
-  /** エラーメッセージをクリアする */
+  /** Documentation. */
   clearError: () => void
 
-  // --- 内部アクション（テスト用に公開）---
-  /** 新試行通知を受け取り履歴を更新する（FsapiPoller コールバックから呼ばれる）*/
+  // Documentation.
+  /** Documentation. */
   _onNewTrials: (newCompleted: number) => void
-  /** エラーを受け取り state に反映する */
+  /** Documentation. */
   _onError: (err: Error) => void
-  /** 自動停止通知を受け取る */
+  /** Documentation. */
   _onAutoStop: () => void
 }
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【更新履歴保持件数】: 直近 N 件のみ保持 */
+/** Documentation. */
 const MAX_HISTORY = 10
 
-/** 【デフォルトポーリング間隔】: 5 秒 */
+/** Documentation. */
 const DEFAULT_POLL_INTERVAL_MS = 5000
 
 // -------------------------------------------------------------------------
-// Store 実装
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** ポーリングインスタンス（Store 外に保持して React レンダリングの影響を受けない）*/
+/** Documentation. */
 let _poller: FsapiPoller | null = null
 
 /**
- * 【LiveUpdateStore 作成】
+ * Documentation.
  */
 export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
   // -------------------------------------------------------------------------
-  // 初期状態
+  // Documentation.
   // -------------------------------------------------------------------------
   isLive: false,
   isSupported: FsapiPoller.isSupported(),
@@ -97,12 +97,12 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
   error: null,
 
   // -------------------------------------------------------------------------
-  // アクション実装
+  // Documentation.
   // -------------------------------------------------------------------------
 
   /**
-   * 【ライブ更新開始】: ファイル選択ダイアログを開いてポーリングを開始する
-   * FSAPI 非対応時はエラーをセットして終了 🟢 REQ-133
+   * Documentation.
+   * Documentation.
    */
   startLive: async () => {
     const { isSupported, pollIntervalMs } = get()
@@ -112,7 +112,7 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
       return
     }
 
-    // 【ポーラー作成】: コールバックを Store アクションに接続
+    // Documentation.
     _poller = new FsapiPoller({
       intervalMs: pollIntervalMs,
       onNewTrials: (n) => get()._onNewTrials(n),
@@ -120,7 +120,7 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
       onAutoStop: () => get()._onAutoStop(),
     })
 
-    // 【ファイル選択】: ユーザーが選択キャンセルなら開始しない
+    // Documentation.
     const selected = await _poller.pickFile()
     if (!selected) {
       _poller = null
@@ -132,7 +132,7 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
   },
 
   /**
-   * 【ライブ更新停止】: ポーリングを停止して isLive を false にする
+   * Documentation.
    */
   stopLive: () => {
     if (_poller) {
@@ -143,7 +143,7 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
   },
 
   /**
-   * 【ポーリング間隔変更】: 現在のポーラーにも反映する
+   * Documentation.
    */
   setPollInterval: (ms) => {
     set({ pollIntervalMs: ms })
@@ -152,12 +152,12 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
     }
   },
 
-  /** 【エラークリア】 */
+  /** Documentation. */
   clearError: () => set({ error: null }),
 
   /**
-   * 【新試行通知】: 差分で新規 COMPLETE 試行が検出されたとき呼ばれる
-   * 🟢 REQ-134: selectionStore は操作しない（Brushing 不干渉）
+   * Documentation.
+   * Documentation.
    */
   _onNewTrials: (newCompleted) => {
     const now = new Date()
@@ -170,14 +170,14 @@ export const useLiveUpdateStore = create<LiveUpdateState>()((set, get) => ({
   },
 
   /**
-   * 【エラー通知】: ポーリングエラーを Store に反映する
+   * Documentation.
    */
   _onError: (err) => {
     set({ error: err.message })
   },
 
   /**
-   * 【自動停止通知】: 3 回連続エラーで自動停止したとき呼ばれる 🟢 REQ-135
+   * Documentation.
    */
   _onAutoStop: () => {
     _poller = null

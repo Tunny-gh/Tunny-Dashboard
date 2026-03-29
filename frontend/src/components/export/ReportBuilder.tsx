@@ -1,13 +1,13 @@
 /**
- * ReportBuilder — HTMLレポート生成 UI コンポーネント (TASK-1102)
+ * Documentation.
  *
- * 【役割】: レポートセクションの選択・並び替えと HTML レポートのダウンロードを提供する
- * 【設計方針】:
- *   - セクションリストのドラッグ&ドロップ（HTML5 Drag API）🟡
- *   - プレビュー: iframe モーダルで生成前確認
- *   - 生成・ダウンロードボタン + 進捗インジケーター
- *   - PDF 印刷: window.print() を提供
- * 🟢 REQ-154〜REQ-155, REQ-158 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import React, { useState, useRef } from 'react'
@@ -15,19 +15,19 @@ import { useExportStore } from '../../stores/exportStore'
 import type { ReportSection } from '../../stores/exportStore'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
 interface ReportBuilderProps {
-  /** Pareto 解インデックス（エクスポート対象）*/
+  /** Documentation. */
   paretoIndices: Uint32Array
 }
 
 // -------------------------------------------------------------------------
-// セクション表示名マップ
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** 【セクション表示名】: セクション識別子 → 日本語ラベル */
+/** Documentation. */
 const SECTION_LABELS: Record<ReportSection, string> = {
   summary: 'Statistics Summary',
   pareto: 'Pareto Solutions',
@@ -36,16 +36,16 @@ const SECTION_LABELS: Record<ReportSection, string> = {
   cluster: 'Cluster Analysis',
 }
 
-/** 【全セクション一覧】: デフォルト順 */
+/** Documentation. */
 const ALL_SECTIONS: ReportSection[] = ['summary', 'pareto', 'pinned', 'history', 'cluster']
 
 // -------------------------------------------------------------------------
-// ReportBuilder コンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: HTMLレポート生成 UI
- * 【設計方針】: セクション選択・並び替え → ダウンロード
+ * Documentation.
+ * Documentation.
  */
 export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) => {
   const {
@@ -57,19 +57,19 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
     clearReportError,
   } = useExportStore()
 
-  // 【選択セクション管理】: チェックボックスで on/off
+  // Documentation.
   const [enabledSections, setEnabledSections] = useState<Set<ReportSection>>(
     new Set(reportSections),
   )
 
-  // 【ドラッグ状態】: ドラッグ中のセクション index
+  // Documentation.
   const dragIndex = useRef<number | null>(null)
 
   // -------------------------------------------------------------------------
-  // ハンドラ
+  // Documentation.
   // -------------------------------------------------------------------------
 
-  /** 【セクション有効/無効切り替え】 */
+  /** Documentation. */
   const handleToggleSection = (sec: ReportSection) => {
     const next = new Set(enabledSections)
     if (next.has(sec)) {
@@ -78,23 +78,23 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
       next.add(sec)
     }
     setEnabledSections(next)
-    // 【Store 更新】: 有効なセクションのみ Store に反映（順序を保持）
+    // Documentation.
     setReportSections(reportSections.filter((s) => next.has(s)))
   }
 
-  /** 【ドラッグ開始】 */
+  /** Documentation. */
   const handleDragStart = (e: React.DragEvent, index: number) => {
     dragIndex.current = index
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  /** 【ドラッグオーバー】: デフォルトを無効化してドロップを許可 */
+  /** Documentation. */
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
   }
 
-  /** 【ドロップ】: 順序を入れ替える */
+  /** Documentation. */
   const handleDrop = (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault()
     if (dragIndex.current === null || dragIndex.current === targetIndex) return
@@ -106,36 +106,36 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
     dragIndex.current = null
   }
 
-  /** 【レポート生成・ダウンロード】 */
+  /** Documentation. */
   const handleGenerate = () => {
     clearReportError()
     generateHtmlReport(paretoIndices)
   }
 
   // -------------------------------------------------------------------------
-  // 全セクションリスト（有効・無効含む）
+  // Documentation.
   // -------------------------------------------------------------------------
 
-  /** 【全セクション表示順】: 有効なものを先頭、無効なものを末尾 */
+  /** Documentation. */
   const enabledList = reportSections.filter((s) => enabledSections.has(s))
   const disabledList = ALL_SECTIONS.filter((s) => !enabledSections.has(s))
 
   // -------------------------------------------------------------------------
-  // レンダリング
+  // Rendering
   // -------------------------------------------------------------------------
 
   return (
     <div data-testid="report-builder" className="p-4 space-y-4">
-      {/* タイトル */}
+      {/* Documentation. */}
       <h3 className="text-base font-semibold text-gray-800">Generate HTML Report</h3>
 
-      {/* セクション選択・並び替えリスト */}
+      {/* Documentation. */}
       <div>
         <p className="text-xs text-gray-500 mb-2">
           Drag to reorder the sections included in the report
         </p>
 
-        {/* 有効なセクション（並び替え可能） */}
+        {/* Documentation. */}
         <ul className="space-y-1" data-testid="section-list">
           {enabledList.map((sec, index) => (
             <li
@@ -147,9 +147,9 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
               onDrop={(e) => handleDrop(e, index)}
               className="flex items-center gap-2 p-2 bg-white border border-blue-200 rounded cursor-grab active:cursor-grabbing"
             >
-              {/* ドラッグハンドルアイコン */}
+              {/* Documentation. */}
               <span className="text-gray-400 text-xs select-none">⠿</span>
-              {/* チェックボックス */}
+              {/* Documentation. */}
               <input
                 type="checkbox"
                 id={`sec-${sec}`}
@@ -165,7 +165,7 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
           ))}
         </ul>
 
-        {/* 無効化されたセクション */}
+        {/* Documentation. */}
         {disabledList.length > 0 && (
           <ul className="space-y-1 mt-2 opacity-50" data-testid="disabled-section-list">
             {disabledList.map((sec) => (
@@ -192,16 +192,16 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
         )}
       </div>
 
-      {/* エラー表示 */}
+      {/* Documentation. */}
       {reportError && (
         <p data-testid="report-error" className="text-red-600 text-xs">
           {reportError}
         </p>
       )}
 
-      {/* アクションボタン */}
+      {/* Documentation. */}
       <div className="flex gap-2">
-        {/* HTML ダウンロードボタン */}
+        {/* Documentation. */}
         <button
           data-testid="generate-report-btn"
           onClick={handleGenerate}
@@ -211,7 +211,7 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
         >
           {isGeneratingReport ? (
             <>
-              {/* 生成中スピナー */}
+              {/* Documentation. */}
               <span
                 data-testid="report-spinner"
                 className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"
@@ -224,7 +224,7 @@ export const ReportBuilder: React.FC<ReportBuilderProps> = ({ paretoIndices }) =
         </button>
       </div>
 
-      {/* PDF 印刷ヒント */}
+      {/* Documentation. */}
       <p className="text-xs text-gray-400">
         * After downloading, open in a browser and select "Print" to save as PDF.
       </p>

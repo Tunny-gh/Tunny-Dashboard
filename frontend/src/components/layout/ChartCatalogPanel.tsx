@@ -1,12 +1,12 @@
 /**
- * ChartCatalogPanel — 右側収納可能なチャートカタログパネル (chart-catalog TASK-003)
+ * Documentation.
  *
- * 【役割】: 全 ChartId のカタログ一覧を表示し、ドラッグでキャンバスに追加できる
- * 【設計方針】:
- *   - isOpen はコンポーネントローカル状態（useState）で管理
- *   - freeModeLayout を購読して各 chartId のインスタンス数を表示
- *   - ドラッグ開始時に dataTransfer に { type: 'add-chart', chartId } をセット
- *   - Tailwind クラス不使用（インラインスタイルのみ）
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useState } from 'react'
@@ -14,10 +14,10 @@ import { useLayoutStore } from '../../stores/layoutStore'
 import type { ChartId } from '../../types'
 
 // -------------------------------------------------------------------------
-// チャートカタログ定義
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** カタログに表示するチャートの一覧（ChartId + 表示名） */
+/** Documentation. */
 export const CHART_CATALOG: { chartId: ChartId; label: string }[] = [
   { chartId: 'pareto-front', label: 'Pareto Front' },
   { chartId: 'parallel-coords', label: 'Parallel Coordinates' },
@@ -36,18 +36,18 @@ export const CHART_CATALOG: { chartId: ChartId; label: string }[] = [
 ]
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 右側収納可能なチャートカタログパネル
- * 【テスト対応】: TASK-003 テストケース
+ * Documentation.
+ * Documentation.
  */
 export function ChartCatalogPanel() {
-  // 【開閉状態】: ローカル管理（永続化なし）
+  // Documentation.
   const [isOpen, setIsOpen] = useState(false)
 
-  // 【配置済み数の計算】: freeModeLayout の cells から chartId ごとにカウント
+  // Documentation.
   const freeModeLayout = useLayoutStore((s) => s.freeModeLayout)
   const chartInstanceCount: Record<string, number> = {}
   if (freeModeLayout) {
@@ -72,7 +72,7 @@ export function ChartCatalogPanel() {
       }}
     >
       {/* ---------------------------------------------------------------- */}
-      {/* トグルボタン                                                      */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       <button
         data-testid="catalog-toggle-btn"
@@ -99,7 +99,7 @@ export function ChartCatalogPanel() {
       </button>
 
       {/* ---------------------------------------------------------------- */}
-      {/* カタログリスト（isOpen のときのみ表示）                           */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       <div
         data-testid="catalog-list"

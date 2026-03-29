@@ -1,68 +1,68 @@
-//! 部分依存プロット（PDP）— Ridge簡易版 (TASK-803)
+//! Module documentation.
 //!
-//! 【役割】: Ridge回帰を用いた解析的PDP計算（1変数・2変数交互作用）
-//! 【設計方針】:
-//!   - 線形Ridge モデルの PDP は解析的に計算可能 → グリッドごとの N 回推論が不要
+//! Module documentation.
+//! Design:
+//! Module documentation.
 //!   - f̄_j(v) = y_mean + β_j * (v - mean_j) / std_j
-//!   - compute_ridge() (TASK-801) を再利用して β 係数を取得
+//! Module documentation.
 //!
-//! REQ-100: compute_pdp() — Ridge回帰によるPDP ≤20ms
-//! REQ-101: compute_pdp_2d() — 2変数交互作用PDP ≤100ms
+//! Module documentation.
+//! Module documentation.
 //!
-//! 参照: docs/tasks/tunny-dashboard-tasks.md TASK-803
+//! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-803
 
 use crate::sensitivity::compute_ridge;
 
 // =============================================================================
-// 公開型定義
+// Documentation.
 // =============================================================================
 
-/// 1変数PDPの結果
+/// Documentation.
 ///
-/// 【設計】: grid[i] のパラメータ値に対する PDP 値 values[i] を保持する 🟢
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct PdpResult1d {
-    /// 対象パラメータ名
+    /// Documentation.
     pub param_name: String,
-    /// 対象目的名
+    /// Documentation.
     pub objective_name: String,
-    /// グリッド点のパラメータ値（n_grid 点、等間隔）
+    /// Documentation.
     pub grid: Vec<f64>,
-    /// 各グリッド点でのPDP値（n_grid 点）
+    /// Documentation.
     pub values: Vec<f64>,
-    /// Ridge モデルの決定係数 R²（モデル適合度の指標）
+    /// Documentation.
     pub r_squared: f64,
 }
 
-/// 2変数PDPの結果
+/// Documentation.
 ///
-/// 【設計】: values[i][j] = f̄(grid1[i], grid2[j]) の行列形式で保持する 🟢
+/// Documentation.
 #[derive(Debug, Clone)]
 pub struct PdpResult2d {
-    /// 第1パラメータ名
+    /// Documentation.
     pub param1_name: String,
-    /// 第2パラメータ名
+    /// Documentation.
     pub param2_name: String,
-    /// 対象目的名
+    /// Documentation.
     pub objective_name: String,
-    /// 第1パラメータのグリッド点（n_grid 点）
+    /// Documentation.
     pub grid1: Vec<f64>,
-    /// 第2パラメータのグリッド点（n_grid 点）
+    /// Documentation.
     pub grid2: Vec<f64>,
-    /// PDP値行列: values[i][j] = f̄(grid1[i], grid2[j])（n_grid × n_grid）
+    /// Documentation.
     pub values: Vec<Vec<f64>>,
-    /// Ridge モデルの決定係数 R²
+    /// Documentation.
     pub r_squared: f64,
 }
 
 // =============================================================================
-// 内部ヘルパー関数
+// Documentation.
 // =============================================================================
 
-/// 数値配列の平均と母集団標準偏差を計算する
+/// Documentation.
 ///
-/// 【設計】: compute_ridge 内の transpose_and_standardize と同じ計算式（nで除算）を使う 🟢
-/// 【ゼロ保護】: std が EPSILON 以下のときは 1.0 を返して除算エラーを防ぐ
+/// Documentation.
+/// Documentation.
 fn col_mean_std(data: &[f64]) -> (f64, f64) {
     let n = data.len();
     if n == 0 {
@@ -78,9 +78,9 @@ fn col_mean_std(data: &[f64]) -> (f64, f64) {
     (mean, std_dev)
 }
 
-/// [min, max] の等間隔 n 点グリッドを生成する
+/// Documentation.
 ///
-/// 【設計】: n=0 → 空、n=1 → 中点、n≥2 → [min, max] を n-1 等分 🟢
+/// Documentation.
 fn linspace(min: f64, max: f64, n: usize) -> Vec<f64> {
     if n == 0 {
         return vec![];
@@ -94,20 +94,20 @@ fn linspace(min: f64, max: f64, n: usize) -> Vec<f64> {
 }
 
 // =============================================================================
-// pub(crate) 計算関数（テスト・内部利用向け）
+// Documentation.
 // =============================================================================
 
-/// 行優先 x_matrix から1変数PDPを計算する（テスト・内部向け）
+/// Documentation.
 ///
-/// 【アルゴリズム】:
-///   1. Ridge 回帰で β_j を取得（TASK-801 の compute_ridge を再利用）
-///   2. 対象パラメータの mean_j・std_j を計算
-///   3. 解析式 f̄_j(v) = y_mean + β_j * (v - mean_j) / std_j でグリッド値を算出
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
 ///
-/// 【線形PDP解析式の導出】🟢:
-///   Ridge 予測: ŷ_i = y_mean + Σ_k β_k * (x_ki - mean_k) / std_k
+/// Documentation.
+/// Documentation.
 ///   PDP = (1/N) Σ_i ŷ_i|x_j=v = y_mean + β_j*(v-mean_j)/std_j + Σ_{k≠j} β_k * mean((x_ki-mean_k)/std_k)
-///       = y_mean + β_j*(v-mean_j)/std_j  （標準化後の平均=0 なので第3項は消える）
+/// Documentation.
 pub(crate) fn compute_pdp_from_matrix(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -116,7 +116,7 @@ pub(crate) fn compute_pdp_from_matrix(
     target_param_idx: usize,
     n_grid: usize,
 ) -> PdpResult1d {
-    // 【空結果の雛形】: エラー時に返すデフォルト値
+    // Documentation.
     let param_name = param_names
         .get(target_param_idx)
         .cloned()
@@ -137,15 +137,15 @@ pub(crate) fn compute_pdp_from_matrix(
         return empty;
     }
 
-    // 【Ridge 回帰】: β 係数・R² を取得（compute_ridge は内部で標準化を行う）
+    // Documentation.
     let ridge = compute_ridge(x_matrix, y, 1.0);
 
-    // 【統計量計算】: compute_ridge 内と同じ母集団標準偏差を使って整合性を保つ
+    // Documentation.
     let param_col: Vec<f64> = x_matrix.iter().map(|row| row[target_param_idx]).collect();
     let (mean_j, std_j) = col_mean_std(&param_col);
     let y_mean = y.iter().sum::<f64>() / n as f64;
 
-    // 【グリッド生成】: 観測範囲 [min, max] を n_grid 等分
+    // Documentation.
     let min_j = param_col
         .iter()
         .cloned()
@@ -156,7 +156,7 @@ pub(crate) fn compute_pdp_from_matrix(
         .fold(f64::NEG_INFINITY, |a, b| a.max(b));
     let grid = linspace(min_j, max_j, n_grid);
 
-    // 【PDP値計算】: 解析式 f̄_j(v) = y_mean + β_j * (v - mean_j) / std_j
+    // Documentation.
     let beta_j = ridge.beta.get(target_param_idx).copied().unwrap_or(0.0);
     let values: Vec<f64> = grid
         .iter()
@@ -172,13 +172,13 @@ pub(crate) fn compute_pdp_from_matrix(
     }
 }
 
-/// 行優先 x_matrix から2変数交互作用PDPを計算する（テスト・内部向け）
+/// Documentation.
 ///
-/// 【アルゴリズム】:
-///   Ridge 解析式を2変数に拡張:
+/// Documentation.
+/// Documentation.
 ///   f̄_{j1,j2}(v1, v2) = y_mean + β_j1*(v1-mean_j1)/std_j1 + β_j2*(v2-mean_j2)/std_j2
 ///
-/// 【注意】: 線形モデルなので真の交互作用項はない（ONNX版で非線形交互作用を捕捉予定）🟢
+/// Documentation.
 pub(crate) fn compute_pdp_2d_from_matrix(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -188,7 +188,7 @@ pub(crate) fn compute_pdp_2d_from_matrix(
     param2_idx: usize,
     n_grid: usize,
 ) -> PdpResult2d {
-    // 【空結果の雛形】
+    // Documentation.
     let p1_name = param_names.get(param1_idx).cloned().unwrap_or_default();
     let p2_name = param_names.get(param2_idx).cloned().unwrap_or_default();
     let empty = PdpResult2d {
@@ -210,17 +210,17 @@ pub(crate) fn compute_pdp_2d_from_matrix(
         return empty;
     }
 
-    // 【Ridge 回帰】
+    // Documentation.
     let ridge = compute_ridge(x_matrix, y, 1.0);
 
-    // 【各パラメータの統計量】
+    // Documentation.
     let col1: Vec<f64> = x_matrix.iter().map(|row| row[param1_idx]).collect();
     let col2: Vec<f64> = x_matrix.iter().map(|row| row[param2_idx]).collect();
     let (mean1, std1) = col_mean_std(&col1);
     let (mean2, std2) = col_mean_std(&col2);
     let y_mean = y.iter().sum::<f64>() / n as f64;
 
-    // 【グリッド生成】
+    // Documentation.
     let min1 = col1.iter().cloned().fold(f64::INFINITY, |a, b| a.min(b));
     let max1 = col1
         .iter()
@@ -234,7 +234,7 @@ pub(crate) fn compute_pdp_2d_from_matrix(
     let grid1 = linspace(min1, max1, n_grid);
     let grid2 = linspace(min2, max2, n_grid);
 
-    // 【PDP値行列計算】: values[i][j] = f̄(grid1[i], grid2[j])
+    // Documentation.
     let beta1 = ridge.beta.get(param1_idx).copied().unwrap_or(0.0);
     let beta2 = ridge.beta.get(param2_idx).copied().unwrap_or(0.0);
     let values: Vec<Vec<f64>> = grid1
@@ -259,17 +259,17 @@ pub(crate) fn compute_pdp_2d_from_matrix(
 }
 
 // =============================================================================
-// DataFrame 対応 公開 API
+// Documentation.
 // =============================================================================
 
-/// アクティブ Study から1変数PDPを計算する
+/// Documentation.
 ///
-/// 【設計】: with_active_df で DataFrame を参照し、行優先行列を構築して
-///           compute_pdp_from_matrix に委譲する 🟢
-/// @param param_name  対象パラメータ名
-/// @param objective_name 対象目的名
-/// @param n_grid グリッド点数（推奨: 20〜50）
-/// @param _n_samples ICEライン用サンプル数（Ridge解析式では未使用・将来拡張用）
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
+/// Documentation.
 pub fn compute_pdp(
     param_name: &str,
     objective_name: &str,
@@ -281,11 +281,11 @@ pub fn compute_pdp(
         let objective_names = df.objective_col_names().to_vec();
         let n = df.row_count();
 
-        // 【存在確認】: 指定した列が DataFrame に存在するかチェック
+        // Documentation.
         let target_idx = param_names.iter().position(|p| p == param_name)?;
         let _ = objective_names.iter().position(|o| o == objective_name)?;
 
-        // 【行優先行列構築】: DataFrame 列 → Vec<Vec<f64>>
+        // Documentation.
         let x_matrix: Vec<Vec<f64>> = (0..n)
             .map(|i| {
                 param_names
@@ -320,9 +320,9 @@ pub fn compute_pdp(
     .flatten()
 }
 
-/// アクティブ Study から2変数交互作用PDPを計算する
+/// Documentation.
 ///
-/// 【設計】: with_active_df で DataFrame を参照し、compute_pdp_2d_from_matrix に委譲する 🟢
+/// Documentation.
 pub fn compute_pdp_2d(
     param1_name: &str,
     param2_name: &str,
@@ -374,7 +374,7 @@ pub fn compute_pdp_2d(
 }
 
 // =============================================================================
-// テスト
+// Documentation.
 // =============================================================================
 
 #[cfg(test)]
@@ -382,18 +382,18 @@ mod tests {
     use super::*;
 
     // ------------------------------------------------------------------
-    // テストデータ生成ヘルパー
+    // Documentation.
     // ------------------------------------------------------------------
 
-    /// 【ヘルパー】: y = x1 の完全線形データを生成する（x1, x2 の2パラメータ）
+    /// Documentation.
     ///
-    /// 【設計】: x1 = i/n の等間隔、x2 はノイズ的な定数変化
-    ///           y = x1 なので x1 の PDP は単調増加かつ R² ≈ 1.0 になる 🟢
+    /// Documentation.
+    /// Documentation.
     fn make_linear_data_1d(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<String>) {
         let x_matrix: Vec<Vec<f64>> = (0..n)
             .map(|i| {
                 let x1 = i as f64 / n as f64;
-                let x2 = (i as f64 * 0.3).sin(); // x2 は y に無相関
+                let x2 = (i as f64 * 0.3).sin(); // Documentation.
                 vec![x1, x2]
             })
             .collect();
@@ -402,9 +402,9 @@ mod tests {
         (x_matrix, y, names)
     }
 
-    /// 【ヘルパー】: y = 2*x1 - 0.5*x2 + 0.3*x3 のデータを生成する
+    /// Documentation.
     ///
-    /// 【設計】: 複数パラメータの交互作用なし線形モデル 🟢
+    /// Documentation.
     fn make_linear_data_multi(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<String>) {
         let x_matrix: Vec<Vec<f64>> = (0..n)
             .map(|i| {
@@ -421,28 +421,28 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // TC-803-01: 1変数PDP 単調性テスト（既知の線形データ）
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_01_pdp_monotone_positive() {
-        // 【テスト目的】: y = x1 のとき x1 の PDP が単調増加であることを検証する 🟢
-        // 【テスト内容】: values[i] < values[i+1] が全隣接ペアで成立することを確認
+        // Documentation.
+        // Documentation.
         let n = 200;
         let (x_matrix, y, names) = make_linear_data_1d(n);
 
-        // 【処理実行】: x1 (index=0) の PDP を 10 点グリッドで計算
+        // Documentation.
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 10);
 
-        // 【確認内容】: グリッドが存在すること
-        assert_eq!(result.grid.len(), 10, "グリッド点数が 10 であること");
-        assert_eq!(result.values.len(), 10, "PDP値点数が 10 であること");
+        // Documentation.
+        assert_eq!(result.grid.len(), 10, "translated 10 translated");
+        assert_eq!(result.values.len(), 10, "PDPtranslated 10 translated");
 
-        // 【確認内容】: PDP が厳密に単調増加であること（y = x1 なので必ず増加する）
+        // Documentation.
         for i in 0..result.values.len() - 1 {
             assert!(
                 result.values[i] < result.values[i + 1],
-                "PDP[{}]={} が PDP[{}]={} より小さいこと（単調増加）",
+                "PDP[{}]={} translated PDP[{}]={} translated（translated）",
                 i,
                 result.values[i],
                 i + 1,
@@ -452,12 +452,12 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // TC-803-02: 1変数PDP 単調性テスト（負の相関）
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_02_pdp_monotone_negative() {
-        // 【テスト目的】: y = -x1 のとき x1 の PDP が単調減少であることを検証する 🟢
+        // Documentation.
         let n = 100;
         let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64 / n as f64]).collect();
         let y: Vec<f64> = x_matrix.iter().map(|row| -row[0]).collect();
@@ -465,11 +465,11 @@ mod tests {
 
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 8);
 
-        // 【確認内容】: PDP が単調減少であること（y = -x1 なので必ず減少する）
+        // Documentation.
         for i in 0..result.values.len() - 1 {
             assert!(
                 result.values[i] > result.values[i + 1],
-                "PDP[{}]={} が PDP[{}]={} より大きいこと（単調減少）",
+                "PDP[{}]={} translated PDP[{}]={} translated（translated）",
                 i,
                 result.values[i],
                 i + 1,
@@ -479,41 +479,41 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // TC-803-03: 1変数PDP 正確性テスト（PDP中点 ≈ y_mean）
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_03_pdp_midpoint_equals_ymean() {
-        // 【テスト目的】: PDP の中点グリッド値が y_mean と一致することを検証する 🟢
-        // 【根拠】: f̄_j((min+max)/2) = y_mean + β_j*(mean_grid-mean_j)/std_j
-        //          グリッド中点 = (min+max)/2 ≈ mean_j なので PDP ≈ y_mean
+        // Documentation.
+        // Documentation.
+        // Documentation.
         let n = 200;
         let (x_matrix, y, names) = make_linear_data_1d(n);
         let y_mean = y.iter().sum::<f64>() / n as f64;
 
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 11);
 
-        // 中央インデックス（n_grid=11 のとき index=5）
+        // Documentation.
         let mid_idx = result.values.len() / 2;
         let mid_val = result.values[mid_idx];
 
-        // 【確認内容】: 中点 PDP 値が y_mean の ±5% 以内であること
+        // Documentation.
         let tolerance = (y_mean.abs() + 0.01) * 0.05;
         assert!(
             (mid_val - y_mean).abs() < tolerance,
-            "中点PDP値 {} が y_mean {} の ±5% 以内であること",
+            "translatedPDPtranslated {} translated y_mean {} translated ±5% translated",
             mid_val,
             y_mean
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-803-04: 1変数PDP R² 正確性テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_04_pdp_r_squared_high_for_linear() {
-        // 【テスト目的】: 完全線形データで R² > 0.99 を検証する 🟢
+        // Documentation.
         let n = 200;
         let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
         let y: Vec<f64> = x_matrix.iter().map(|row| row[0] * 3.0 + 1.0).collect();
@@ -521,128 +521,134 @@ mod tests {
 
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 10);
 
-        // 【確認内容】: 完全線形データなので R² が 0.99 以上であること
+        // Documentation.
         assert!(
             result.r_squared > 0.99,
-            "完全線形データの R² {} が 0.99 超であること",
+            "translated R² {} translated 0.99 translated",
             result.r_squared
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-803-05: 空データ・データ不足で空結果を返す
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_05_empty_data_returns_empty() {
-        // 【テスト目的】: n < 2 のときは空の PdpResult1d を返すことを検証する 🟢
+        // Documentation.
         let x_matrix: Vec<Vec<f64>> = vec![vec![1.0]]; // n=1
         let y = vec![1.0f64];
         let names = vec!["x1".to_string()];
 
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 10);
 
-        // 【確認内容】: グリッドと値が空であること
-        assert!(result.grid.is_empty(), "n<2 のときグリッドが空であること");
-        assert!(result.values.is_empty(), "n<2 のとき値が空であること");
-        assert_eq!(result.r_squared, 0.0, "n<2 のとき R² が 0.0 であること");
+        // Documentation.
+        assert!(result.grid.is_empty(), "n<2 translated");
+        assert!(result.values.is_empty(), "n<2 translated");
+        assert_eq!(
+            result.r_squared, 0.0,
+            "n<2 translated R² translated 0.0 translated"
+        );
     }
 
     // ------------------------------------------------------------------
-    // TC-803-06: 2変数PDP グリッド形状テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_06_pdp_2d_grid_shape() {
-        // 【テスト目的】: 2変数PDP の結果行列が n_grid×n_grid であることを検証する 🟢
+        // Documentation.
         let n = 100;
         let (x_matrix, y, names) = make_linear_data_multi(n);
 
         let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 8);
 
-        // 【確認内容】: グリッド点数が正しいこと
-        assert_eq!(result.grid1.len(), 8, "grid1 の点数が 8 であること");
-        assert_eq!(result.grid2.len(), 8, "grid2 の点数が 8 であること");
-        assert_eq!(result.values.len(), 8, "values の行数が 8 であること");
+        // Documentation.
+        assert_eq!(result.grid1.len(), 8, "grid1 translated 8 translated");
+        assert_eq!(result.grid2.len(), 8, "grid2 translated 8 translated");
+        assert_eq!(result.values.len(), 8, "values translated 8 translated");
         for row in &result.values {
-            assert_eq!(row.len(), 8, "values の各行の列数が 8 であること");
+            assert_eq!(row.len(), 8, "values translated 8 translated");
         }
     }
 
     // ------------------------------------------------------------------
-    // TC-803-07: 2変数PDP 空データで空結果を返す
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_07_pdp_2d_empty_data() {
-        // 【テスト目的】: n < 2 のとき 2変数PDP も空結果を返すことを検証する 🟢
+        // Documentation.
         let x_matrix: Vec<Vec<f64>> = vec![vec![1.0, 2.0]];
         let y = vec![1.0f64];
         let names = vec!["x1".to_string(), "x2".to_string()];
 
         let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 5);
 
-        // 【確認内容】: 空結果が返ること
-        assert!(result.grid1.is_empty(), "n<2 のとき grid1 が空であること");
-        assert!(result.grid2.is_empty(), "n<2 のとき grid2 が空であること");
-        assert!(result.values.is_empty(), "n<2 のとき values が空であること");
+        // Documentation.
+        assert!(result.grid1.is_empty(), "n<2 translated grid1 translated");
+        assert!(result.grid2.is_empty(), "n<2 translated grid2 translated");
+        assert!(result.values.is_empty(), "n<2 translated values translated");
     }
 
     // ------------------------------------------------------------------
-    // TC-803-08: 2変数PDP R² テスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_08_pdp_2d_r_squared() {
-        // 【テスト目的】: 2変数PDPでも完全線形データで R² > 0.99 を検証する 🟢
+        // Documentation.
         let n = 200;
         let (x_matrix, y, names) = make_linear_data_multi(n);
 
         let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 5);
 
-        // 【確認内容】: 線形データなので R² が高いこと
+        // Documentation.
         assert!(
             result.r_squared > 0.95,
-            "線形データの 2変数PDP R² {} が 0.95 超であること",
+            "translated 2parameterPDP R² {} translated 0.95 translated",
             result.r_squared
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-803-09: param_name・objective_name が正しく保持されること
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_09_result_names() {
-        // 【テスト目的】: 結果の param_name と objective_name が正しく設定されることを検証する 🟢
+        // Documentation.
         let n = 50;
         let (x_matrix, y, names) = make_linear_data_1d(n);
 
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj_target", 0, 5);
 
-        // 【確認内容】: 名前が正しく設定されること
-        assert_eq!(result.param_name, "x1", "param_name が 'x1' であること");
+        // Documentation.
+        assert_eq!(
+            result.param_name, "x1",
+            "param_name translated 'x1' translated"
+        );
         assert_eq!(
             result.objective_name, "obj_target",
-            "objective_name が 'obj_target' であること"
+            "objective_name translated 'obj_target' translated"
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-803-P01: 1変数PDP 20ms以内のパフォーマンステスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_p01_pdp_1d_performance() {
-        // 【テスト目的】: 1変数PDP（Ridge）が 20ms 以内で完了することを検証する 🟢
-        // 【データ規模】: debug=1,000行×4パラメータ / release=50,000行×10パラメータ
+        // Documentation.
+        // Documentation.
 
         #[cfg(debug_assertions)]
         let (n, p) = (1_000, 4);
         #[cfg(not(debug_assertions))]
         let (n, p) = (50_000, 10);
 
-        // 【テストデータ準備】: 線形関係を持つ合成データ
+        // Documentation.
         let x_matrix: Vec<Vec<f64>> = (0..n)
             .map(|i| {
                 (0..p)
@@ -660,23 +666,23 @@ mod tests {
         let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 20);
         let elapsed = start.elapsed();
 
-        // 【確認内容】: 計算が正常完了し 20ms 以内であること
-        assert_eq!(result.grid.len(), 20, "グリッド点数が 20 であること");
+        // Documentation.
+        assert_eq!(result.grid.len(), 20, "translated 20 translated");
         assert!(
             elapsed.as_millis() < 20,
-            "1変数PDP が 20ms 以内: 実測 {}ms",
+            "1parameterPDP translated 20ms translated: translated {}ms",
             elapsed.as_millis()
         );
     }
 
     // ------------------------------------------------------------------
-    // TC-803-P02: 2変数PDP 100ms以内のパフォーマンステスト
+    // Documentation.
     // ------------------------------------------------------------------
 
     #[test]
     fn tc_803_p02_pdp_2d_performance() {
-        // 【テスト目的】: 2変数PDP が 100ms 以内で完了することを検証する 🟢
-        // 【データ規模】: debug=1,000行×4パラメータ / release=50,000行×10パラメータ
+        // Documentation.
+        // Documentation.
 
         #[cfg(debug_assertions)]
         let (n, p) = (1_000, 4);
@@ -700,12 +706,16 @@ mod tests {
         let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 15);
         let elapsed = start.elapsed();
 
-        // 【確認内容】: 計算が正常完了し 100ms 以内であること
-        assert_eq!(result.values.len(), 15, "values の行数が 15 であること");
-        assert_eq!(result.values[0].len(), 15, "values の列数が 15 であること");
+        // Documentation.
+        assert_eq!(result.values.len(), 15, "values translated 15 translated");
+        assert_eq!(
+            result.values[0].len(),
+            15,
+            "values translated 15 translated"
+        );
         assert!(
             elapsed.as_millis() < 100,
-            "2変数PDP が 100ms 以内: 実測 {}ms",
+            "2parameterPDP translated 100ms translated: translated {}ms",
             elapsed.as_millis()
         );
     }

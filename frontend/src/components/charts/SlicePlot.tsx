@@ -1,13 +1,13 @@
 /**
- * SlicePlot — パラメータ vs 目的関数値 散布図 (Optuna-Dashboard Slice Plot 相当)
+ * Documentation.
  *
- * 【役割】: 各パラメータと目的関数値の1対1関係を散布図で可視化する
- * 【設計方針】:
- *   - 数値パラメータのみ対象（typeof === 'number' でフィルタ）
- *   - パラメータ選択ドロップダウン + ECharts scatter
- *   - 多目的の場合は目的関数選択ドロップダウンも表示
- *   - 色: 試行番号（早期=青, 後期=赤）で傾向を視覚化
- * 🟢 optuna-dashboard の plot_slice と同等機能（Python 不要）
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useState, useMemo } from 'react'
@@ -15,43 +15,43 @@ import ReactECharts from 'echarts-for-react'
 import { EmptyState } from '../common/EmptyState'
 
 // -------------------------------------------------------------------------
-// 型定義
+// Type definitions
 // -------------------------------------------------------------------------
 
-/** 【試行データ型】: SlicePlot が受け取る1試行分のデータ */
+/** Documentation. */
 export interface SliceTrial {
-  /** 試行ID */
+  /** Documentation. */
   trialId: number
-  /** パラメータ値マップ（数値・文字列混在可） */
+  /** Documentation. */
   params: Record<string, number | string>
-  /** 目的関数値リスト（null = 未完了試行） */
+  /** Documentation. */
   values: number[] | null
-  /** Pareto ランク（色分け用） */
+  /** Documentation. */
   paretoRank: number | null
 }
 
-/** 【Props 型】 */
+/** Documentation. */
 export interface SlicePlotProps {
-  /** 表示する試行一覧 */
+  /** Documentation. */
   trials: SliceTrial[]
-  /** パラメータ名リスト */
+  /** Documentation. */
   paramNames: string[]
-  /** 目的関数名リスト */
+  /** Documentation. */
   objectiveNames: string[]
-  /** 初期表示する目的関数インデックス（デフォルト 0） */
+  /** Documentation. */
   objectiveIndex?: number
-  /** 選択中の試行インデックス（0-based）。指定時、非選択を薄グレーで表示 */
+  /** Documentation. */
   selectedIndices?: Uint32Array
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: パラメータと目的関数値の1対1散布図
- * 【データフロー】: trials → 数値パラメータフィルタ → ECharts scatter series
- * 【インタラクション】: パラメータ選択・目的関数選択でリアルタイム更新
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 export function SlicePlot({
   trials,
@@ -60,22 +60,22 @@ export function SlicePlot({
   objectiveIndex: initialObjIdx = 0,
   selectedIndices,
 }: SlicePlotProps) {
-  // 【状態管理】: 選択中パラメータインデックス・目的関数インデックス
+  // Documentation.
   const [paramIndex, setParamIndex] = useState(0)
   const [objIndex, setObjIndex] = useState(initialObjIdx)
 
-  // 【空状態チェック】: データまたはパラメータがない場合はプレースホルダー表示
+  // Documentation.
   if (trials.length === 0 || paramNames.length === 0) {
     return <EmptyState />
   }
 
-  // 【選択パラメータ・目的関数名】
+  // Selected Parameter and Objective Name
   const selectedParam = paramNames[paramIndex] ?? paramNames[0]
   const selectedObj = objectiveNames[objIndex] ?? objectiveNames[0]
 
-  // 【ECharts オプション構築】: memoize heavy computation
+  // ECharts Option Build: memoize heavy computation
   const option = useMemo(() => {
-    // 【散布データ生成】: 数値パラメータのみ対象にフィルタして [param_val, obj_val, trial_idx] を生成
+    // Documentation.
     const scatterData = trials
       .filter(
         (t) =>
@@ -85,12 +85,12 @@ export function SlicePlot({
       )
       .map((t, i) => [t.params[selectedParam] as number, t.values![objIndex], i])
 
-    // 【選択状態の分割】: selectedIndices がある場合は選択/非選択を分割
+    // Documentation.
     const isFiltered =
       selectedIndices && selectedIndices.length > 0 && selectedIndices.length < trials.length
     const selectedSet = isFiltered ? new Set(selectedIndices) : null
 
-    // trials のフィルタ後のインデックスではなく、元の trial インデックスで判定
+    // Documentation.
     const validTrialIndices = trials
       .map((t, i) => ({ trial: t, originalIndex: i }))
       .filter(
@@ -160,7 +160,7 @@ export function SlicePlot({
       data-testid="slice-plot"
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
     >
-      {/* 【コントロールバー】: パラメータ・目的関数選択ドロップダウン */}
+      {/* Documentation. */}
       <div
         style={{
           display: 'flex',
@@ -187,7 +187,7 @@ export function SlicePlot({
           </select>
         </label>
 
-        {/* 【多目的専用】: 目的関数が 2 つ以上のとき表示 */}
+        {/* Documentation. */}
         {objectiveNames.length > 1 && (
           <label>
             Objective:{' '}
@@ -207,7 +207,7 @@ export function SlicePlot({
         )}
       </div>
 
-      {/* 【チャート本体】: ECharts scatter */}
+      {/* Documentation. */}
       <ReactECharts option={option} style={{ flex: 1 }} lazyUpdate />
     </div>
   )

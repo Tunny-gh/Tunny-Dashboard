@@ -1,9 +1,9 @@
 /**
- * LeftPanel — Study情報カウンタ・フィルタスライダー・カラーリング選択 (TASK-402)
+ * LeftPanel — study info counter, filter sliders, and color mode selection (TASK-402)
  *
- * 【役割】: selected件数表示 / 変数フィルタスライダー / カラーモード選択
- * 【設計方針】: selectionStore / studyStore に直接接続
- * 🟢 スライダー変更 → addAxisFilter(axis, min, max) でリアルタイムフィルタ
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
@@ -12,10 +12,10 @@ import { useStudyStore } from '../../stores/studyStore'
 import type { ColorMode } from '../../types'
 
 // -------------------------------------------------------------------------
-// カラーモード定義
+// Documentation.
 // -------------------------------------------------------------------------
 
-/** 🟢 選択可能なカラーモード一覧 */
+/** 🟢 Available color modes */
 const COLOR_MODES: ColorMode[] = ['objective', 'cluster', 'rank', 'generation']
 
 // -------------------------------------------------------------------------
@@ -35,7 +35,12 @@ function DualRangeSlider({ name, dataMin, dataMax, onRangeChange }: DualRangeSli
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Cleanup debounce timer on unmount
-  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    },
+    [],
+  )
 
   const range = dataMax - dataMin || 1
   const step = range / 200
@@ -156,26 +161,26 @@ function DualRangeSlider({ name, dataMin, dataMax, onRangeChange }: DualRangeSli
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 左側パネル — カウンタ / フィルタスライダー / カラーモード選択
- * 【テスト対応】: TC-402-01〜04, TC-402-E01
+ * Documentation.
+ * Test Coverage: TC-402-01〜04, TC-402-E01
  */
 export function LeftPanel() {
-  // 【Store接続】: selectionStore から selectedIndices, colorMode, addAxisFilter を取得 🟢
+  // Documentation.
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
   const colorMode = useSelectionStore((s) => s.colorMode)
   const addAxisFilter = useSelectionStore((s) => s.addAxisFilter)
   const removeAxisFilter = useSelectionStore((s) => s.removeAxisFilter)
   const setColorMode = useSelectionStore((s) => s.setColorMode)
 
-  // 【Store接続】: studyStore から currentStudy と trialRows を取得 🟢
+  // Documentation.
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const trialRows = useStudyStore((s) => s.trialRows)
 
-  // 【パラメータ範囲計算】: trialRows から各パラメータの実際の min/max を算出 🟢
+  // Documentation.
   const paramRanges = useMemo(() => {
     const ranges: Record<string, { min: number; max: number }> = {}
     if (!currentStudy) return ranges
@@ -196,11 +201,15 @@ export function LeftPanel() {
     return ranges
   }, [currentStudy, trialRows])
 
-  // 【フィルタ更新ハンドラ】: min===dataMin && max===dataMax なら filter を除去、それ以外なら適用 🟢
+  // Documentation.
   const handleRangeChange = useCallback(
     (name: string, min: number, max: number) => {
       const dataRange = paramRanges[name]
-      if (dataRange && Math.abs(min - dataRange.min) < 1e-10 && Math.abs(max - dataRange.max) < 1e-10) {
+      if (
+        dataRange &&
+        Math.abs(min - dataRange.min) < 1e-10 &&
+        Math.abs(max - dataRange.max) < 1e-10
+      ) {
         removeAxisFilter(name)
       } else {
         addAxisFilter(name, min, max)
@@ -209,7 +218,7 @@ export function LeftPanel() {
     [addAxisFilter, removeAxisFilter, paramRanges],
   )
 
-  // 【空状態UI】: Study がない場合はメッセージを表示 🟢
+  // Documentation.
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
@@ -218,10 +227,10 @@ export function LeftPanel() {
     )
   }
 
-  // 【レンダリング】: カウンタ + スライダー + カラーモード 🟢
+  // Documentation.
   return (
     <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* 【選択件数カウンタ】: selectedIndices.length をリアルタイム表示 🟢 */}
+      {/* Documentation. */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280' }}>Selected</div>
         <div data-testid="selected-count" style={{ fontSize: '20px', fontWeight: 'bold' }}>
@@ -229,7 +238,7 @@ export function LeftPanel() {
         </div>
       </div>
 
-      {/* 【パラメータフィルタスライダー群】: 各変数のデュアルレンジスライダー 🟢 */}
+      {/* Documentation. */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Parameters</div>
         {currentStudy.paramNames.map((name) => {
@@ -247,7 +256,7 @@ export function LeftPanel() {
         })}
       </div>
 
-      {/* 【カラーモード選択】: ラジオボタンで4モードを切り替え 🟢 */}
+      {/* Documentation. */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Color Mode</div>
         {COLOR_MODES.map((mode) => (

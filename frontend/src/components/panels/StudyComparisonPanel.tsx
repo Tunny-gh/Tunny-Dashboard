@@ -1,15 +1,15 @@
 /**
- * StudyComparisonPanel — 複数Study比較パネル (TASK-1401)
+ * Documentation.
  *
- * 【役割】: 複数 Study の比較設定・比較結果を表示する
- * 【設計方針】:
- *   - Study 選択チェックボックス（Main Study は除外）
- *   - 目的数不一致 Study に ⚠ 警告アイコンを表示
- *   - 選択 Study に色バッジを割り当て（最大4色）
- *   - 比較モード切替: 重畳（Overlay）/ 並列（Side-by-side）/ 差分（Diff）
- *   - Pareto 支配率サマリーテーブル
- *   - currentStudy が null のときは非表示
- * 🟢 REQ-120〜REQ-124 に準拠
+ * Documentation.
+ * Design:
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
+ * Documentation.
  */
 
 import React from 'react'
@@ -22,10 +22,10 @@ import {
 import type { ComparisonMode } from '../../types'
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【比較モードラベル】 */
+/** Documentation. */
 const MODE_LABELS: Record<ComparisonMode, string> = {
   overlay: 'Overlay',
   'side-by-side': 'Side by Side',
@@ -33,24 +33,24 @@ const MODE_LABELS: Record<ComparisonMode, string> = {
 }
 
 // -------------------------------------------------------------------------
-// StudyComparisonPanel コンポーネント
+// Documentation.
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 複数 Study の比較設定と支配率サマリーを提供するパネル
+ * Documentation.
  */
 export const StudyComparisonPanel: React.FC = () => {
   const { currentStudy, allStudies } = useStudyStore()
   const { comparisonStudyIds, mode, results, setComparisonStudyIds, setMode } = useComparisonStore()
 
-  // 【currentStudy 未選択時は非表示】
+  // Documentation.
   if (!currentStudy) return null
 
-  // Main Study 以外の Study リスト
+  // Documentation.
   const otherStudies = allStudies.filter((s) => s.studyId !== currentStudy.studyId)
 
   /**
-   * 【チェックボックス切替】: Study の選択/解除を処理する
+   * Documentation.
    */
   const handleToggle = (studyId: number) => {
     if (comparisonStudyIds.includes(studyId)) {
@@ -63,7 +63,7 @@ export const StudyComparisonPanel: React.FC = () => {
   return (
     <div data-testid="study-comparison-panel" className="flex flex-col gap-3 p-3">
       {/* ---------------------------------------------------------------- */}
-      {/* Study 選択リスト                                                  */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">Comparison Studies</p>
@@ -71,7 +71,7 @@ export const StudyComparisonPanel: React.FC = () => {
           {otherStudies.map((study, idx) => {
             const isSelected = comparisonStudyIds.includes(study.studyId)
             const isIncompat = !canComparePareto(currentStudy, study)
-            // 選択済みの場合に割り当てる色インデックス
+            // Documentation.
             const colorIdx = comparisonStudyIds.indexOf(study.studyId)
             const color = colorIdx >= 0 ? COMPARISON_COLORS[colorIdx] : undefined
             void idx // suppress unused var
@@ -82,7 +82,7 @@ export const StudyComparisonPanel: React.FC = () => {
                 data-testid={`comparison-study-item-${study.studyId}`}
                 className="flex items-center gap-2 text-sm"
               >
-                {/* チェックボックス */}
+                {/* Documentation. */}
                 <input
                   type="checkbox"
                   data-testid={`comparison-study-checkbox-${study.studyId}`}
@@ -91,7 +91,7 @@ export const StudyComparisonPanel: React.FC = () => {
                   className="h-3.5 w-3.5 rounded border-gray-300"
                 />
 
-                {/* 色バッジ（選択済みのみ表示） */}
+                {/* Documentation. */}
                 {isSelected && color && (
                   <span
                     data-testid={`comparison-color-badge-${study.studyId}`}
@@ -100,13 +100,13 @@ export const StudyComparisonPanel: React.FC = () => {
                   />
                 )}
 
-                {/* Study名 */}
+                {/* Documentation. */}
                 <span className="flex-1 truncate text-gray-700">{study.name}</span>
 
-                {/* 目的数表示 */}
+                {/* Documentation. */}
                 <span className="text-xs text-gray-400">{study.directions.length} obj</span>
 
-                {/* 不一致警告アイコン */}
+                {/* Documentation. */}
                 {isIncompat && (
                   <span
                     data-testid={`comparison-warning-${study.studyId}`}
@@ -123,7 +123,7 @@ export const StudyComparisonPanel: React.FC = () => {
       </div>
 
       {/* ---------------------------------------------------------------- */}
-      {/* 比較モード切替                                                    */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">Comparison Mode</p>
@@ -147,7 +147,7 @@ export const StudyComparisonPanel: React.FC = () => {
       </div>
 
       {/* ---------------------------------------------------------------- */}
-      {/* Pareto 支配率サマリーテーブル（比較結果あり時のみ）               */}
+      {/* Documentation. */}
       {/* ---------------------------------------------------------------- */}
       {results.length > 0 && (
         <div>

@@ -1,15 +1,15 @@
 /**
- * ExportPanel テスト (TASK-1101)
+ * Documentation.
  *
- * 【テスト対象】: ExportPanel — CSV エクスポート・ピン留め UI
- * 【テスト方針】: exportStore / selectionStore / studyStore を vi.mock でモック
+ * Documentation.
+ * Documentation.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 // -------------------------------------------------------------------------
-// exportStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 const {
@@ -69,7 +69,7 @@ vi.mock('../../stores/exportStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// selectionStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('../../stores/selectionStore', () => ({
@@ -81,7 +81,7 @@ vi.mock('../../stores/selectionStore', () => ({
 }))
 
 // -------------------------------------------------------------------------
-// studyStore モック
+// Documentation.
 // -------------------------------------------------------------------------
 
 vi.mock('../../stores/studyStore', () => ({
@@ -103,10 +103,10 @@ import { ExportPanel } from './ExportPanel'
 import { useExportStore } from '../../stores/exportStore'
 
 // -------------------------------------------------------------------------
-// 正常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ExportPanel — 正常系', () => {
+describe('translated test case', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -115,15 +115,15 @@ describe('ExportPanel — 正常系', () => {
     cleanup()
   })
 
-  // TC-1101-18: エクスポートパネルがレンダリングされる
-  test('TC-1101-18: ExportPanel がエラーなくレンダリングされる', () => {
-    // 【テスト目的】: ExportPanel が正常にレンダリングできることを確認 🟢
+  // Documentation.
+  test('TC-1101-18', () => {
+    // Documentation.
     expect(() => render(<ExportPanel />)).not.toThrow()
   })
 
-  // TC-1101-19: 対象ラジオボタンが表示される
-  test('TC-1101-19: 対象選択ラジオボタン（全件・選択中・Pareto解・クラスタ）が表示される', () => {
-    // 【テスト目的】: CSV 対象選択のすべてのオプションが表示されることを確認 🟢
+  // Documentation.
+  test('TC-1101-19', () => {
+    // Documentation.
     render(<ExportPanel />)
     expect(screen.getByTestId('csv-target-all')).toBeInTheDocument()
     expect(screen.getByTestId('csv-target-selected')).toBeInTheDocument()
@@ -131,42 +131,42 @@ describe('ExportPanel — 正常系', () => {
     expect(screen.getByTestId('csv-target-cluster')).toBeInTheDocument()
   })
 
-  // TC-1101-20: 対象変更で setCsvTarget が呼ばれる
-  test('TC-1101-20: 「選択中」ラジオ選択で setCsvTarget("selected") が呼ばれる', () => {
-    // 【テスト目的】: ラジオ選択が Store に反映されることを確認 🟢
+  // Documentation.
+  test('TC-1101-20', () => {
+    // Documentation.
     render(<ExportPanel />)
     fireEvent.click(screen.getByTestId('csv-target-selected'))
     expect(mockSetCsvTarget).toHaveBeenCalledWith('selected')
   })
 
-  // TC-1101-21: ダウンロードボタンクリックで exportCsv が呼ばれる
-  test('TC-1101-21: ダウンロードボタンクリックで exportCsv が呼ばれる', () => {
-    // 【テスト目的】: ダウンロードボタンがエクスポートアクションをトリガーすることを確認 🟢
+  // Documentation.
+  test('TC-1101-21', () => {
+    // Documentation.
     render(<ExportPanel />)
     fireEvent.click(screen.getByTestId('export-csv-btn'))
     expect(mockExportCsv).toHaveBeenCalledOnce()
   })
 
-  // TC-1101-22: ピン留めなし時は「ピン留めはありません」を表示
-  test('TC-1101-22: pinnedTrials=[] のとき「ピン留めはありません」が表示される', () => {
-    // 【テスト目的】: ピン留め未登録時に空状態UIが表示されることを確認 🟢
+  // Documentation.
+  test('TC-1101-22', () => {
+    // Documentation.
     render(<ExportPanel />)
     expect(screen.getByText('No pins yet')).toBeInTheDocument()
   })
 })
 
 // -------------------------------------------------------------------------
-// ローディング
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ExportPanel — ローディング', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
-  // TC-1101-L01: isExporting=true でボタンが disabled になる
-  test('TC-1101-L01: isExporting=true のときダウンロードボタンが disabled になる', () => {
-    // 【テスト目的】: エクスポート中は重複実行を防ぐことを確認 🟢
+  // Documentation.
+  test('TC-1101-L01', () => {
+    // Documentation.
     ;(useExportStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (
         selector: (s: {
@@ -188,7 +188,7 @@ describe('ExportPanel — ローディング', () => {
         selector({
           csvTarget: 'all',
           selectedColumns: [],
-          isExporting: true, // 【注目】: エクスポート中
+          isExporting: true, // Documentation.
           exportError: null,
           pinnedTrials: [],
           pinError: null,
@@ -203,25 +203,25 @@ describe('ExportPanel — ローディング', () => {
     )
 
     render(<ExportPanel />)
-    // 【確認内容】: ダウンロードボタンが disabled
+    // Documentation.
     expect(screen.getByTestId('export-csv-btn')).toBeDisabled()
-    // 【確認内容】: スピナーが表示されること
+    // Documentation.
     expect(screen.getByTestId('export-spinner')).toBeInTheDocument()
   })
 })
 
 // -------------------------------------------------------------------------
-// 異常系
+// Documentation.
 // -------------------------------------------------------------------------
 
-describe('ExportPanel — 異常系', () => {
+describe('translated test case', () => {
   afterEach(() => {
     cleanup()
   })
 
-  // TC-1101-E03: exportError あり時にエラーメッセージが表示される
-  test('TC-1101-E03: exportError があれば export-error が表示される', () => {
-    // 【テスト目的】: エクスポートエラーが UI に表示されることを確認 🟢
+  // Documentation.
+  test('TC-1101-E03', () => {
+    // Documentation.
     ;(useExportStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (
         selector: (s: {
@@ -244,7 +244,7 @@ describe('ExportPanel — 異常系', () => {
           csvTarget: 'all',
           selectedColumns: [],
           isExporting: false,
-          exportError: 'No data to export', // 【注目】: エラーあり
+          exportError: 'No data to export', // Documentation.
           pinnedTrials: [],
           pinError: null,
           setCsvTarget: vi.fn(),
@@ -258,13 +258,13 @@ describe('ExportPanel — 異常系', () => {
     )
 
     render(<ExportPanel />)
-    // 【確認内容】: export-error に「対象データがありません」が表示されること
+    // Documentation.
     expect(screen.getByTestId('export-error')).toHaveTextContent('No data to export')
   })
 
-  // TC-1101-E04: pinError あり時に pin-error が表示される
-  test('TC-1101-E04: pinError があれば pin-error が表示される', () => {
-    // 【テスト目的】: ピン留め上限エラーが UI に表示されることを確認 🟢
+  // Documentation.
+  test('TC-1101-E04', () => {
+    // Documentation.
     ;(useExportStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (
         selector: (s: {
@@ -289,7 +289,7 @@ describe('ExportPanel — 異常系', () => {
           isExporting: false,
           exportError: null,
           pinnedTrials: [],
-          pinError: 'Limit is 20. Please remove an old pin first.', // 【注目】: pinError あり
+          pinError: 'Limit is 20. Please remove an old pin first.', // Documentation.
           setCsvTarget: vi.fn(),
           setSelectedColumns: vi.fn(),
           exportCsv: vi.fn(),
@@ -301,7 +301,7 @@ describe('ExportPanel — 異常系', () => {
     )
 
     render(<ExportPanel />)
-    // 【確認内容】: pin-error が表示されること
+    // Documentation.
     expect(screen.getByTestId('pin-error')).toHaveTextContent('Limit is 20')
   })
 })
