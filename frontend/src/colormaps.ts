@@ -180,4 +180,4 @@ export const COLORMAPS: Record<ColormapName, Colormap> = {
 
 export const COLORMAP_NAMES: ColormapName[] = Object.keys(COLORMAPS) as ColormapName[]
 
-export const DEFAULT_COLORMAP: ColormapName = 'Jet'
+export const DEFAULT_COLORMAP: ColormapName = 'Spectral'
