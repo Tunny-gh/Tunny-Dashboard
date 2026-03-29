@@ -1,90 +1,92 @@
 /**
- * OptimizationHistory — 単目的最適化の収束履歴チャート (TASK-1001)
+ * OptimizationHistory — Convergence history chart for single-objective optimization (TASK-1001)
  *
- * 【役割】: 最適化の収束過程を ECharts で可視化する
- * 【設計方針】:
- *   - best/all/moving-avg/improvement の 4 表示モード切り替え
- *   - detectPhase() で試行進捗からフェーズを自動検出
- *   - echarts-for-react でレンダリング（jsdom テスト用にモック対応）
- * 🟢 REQ-1001〜REQ-1006 に準拠
+ * Visualizes the optimization convergence process using ECharts.
+ *
+ * Design:
+ *   - Four display modes: best / all / moving-avg / improvement
+ *   - detectPhase() automatically detects the optimization phase from trial progress
+ *   - Rendered with echarts-for-react (mock-compatible for jsdom tests)
+ *
+ * Conforms to REQ-1001–REQ-1006.
  */
 
 import { useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
-/** 【試行データ型】: 1 試行あたりの結果データ */
+/** One trial's result data */
 export interface TrialData {
-  /** 試行番号（1始まり） */
+  /** Trial number (1-based) */
   trial: number;
-  /** 目的関数値 */
+  /** Objective value */
   value: number;
 }
 
-/** 【表示モード型】: 収束履歴の表示モード */
+/** Display mode for the convergence history chart */
 export type HistoryMode = 'best' | 'all' | 'moving-avg' | 'improvement';
 
-/** 【最適化方向型】: 最小化 or 最大化 */
+/** Optimization direction */
 export type OptimizationDirection = 'minimize' | 'maximize';
 
-/** 【フェーズ型】: 最適化の進捗フェーズ */
+/** Optimization progress phase */
 export type OptimizationPhase = 'exploration' | 'exploitation' | 'convergence';
 
 // -------------------------------------------------------------------------
-// 定数定義
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【モードラベル】: UI 表示用のモード名 */
+/** Mode labels for UI display */
 const MODE_LABELS: Record<HistoryMode, string> = {
-  best: 'Best値推移',        // 🟢 各試行時点のBest値を折れ線表示
-  all: '全試行値',           // 🟢 全試行の目的値を散布図表示
-  'moving-avg': '移動平均',  // 🟢 移動平均を折れ線表示
-  improvement: '改善率',     // 🟢 Best値の改善率を棒グラフ表示
+  best: 'Best値推移',
+  all: '全試行値',
+  'moving-avg': '移動平均',
+  improvement: '改善率',
 };
 
-/** 【移動平均ウィンドウ】: 移動平均計算の窓幅 */
+/** Window size for moving average computation */
 const MOVING_AVG_WINDOW = 5;
 
 // -------------------------------------------------------------------------
-// 純粋関数
+// Pure functions
 // -------------------------------------------------------------------------
 
 /**
- * 【フェーズ自動検出】: 試行進捗（progress）からフェーズを判定する
- * 【判定基準】:
- *   - exploration : progress < 0.3  （探索期: 全試行の先頭 30%）
- *   - exploitation: 0.3 <= progress < 0.7（精緻化期: 中間 40%）
- *   - convergence : progress >= 0.7 （収束期: 末尾 30%）
- * 🟢 REQ-1004〜REQ-1006 に準拠
- * @param trialIndex - 現在の試行インデックス（1始まり）
- * @param totalTrials - 試行総数
- * @returns フェーズ文字列
+ * Detect the optimization phase from trial progress.
+ *
+ * Phase boundaries:
+ *   - exploration  : progress < 0.3  (first 30% of trials)
+ *   - exploitation : 0.3 <= progress < 0.7 (middle 40%)
+ *   - convergence  : progress >= 0.7 (last 30%)
+ *
+ * Conforms to REQ-1004–REQ-1006.
+ *
+ * @param trialIndex - Current trial index (1-based)
+ * @param totalTrials - Total number of trials
+ * @returns Phase string
  */
 export function detectPhase(trialIndex: number, totalTrials: number): OptimizationPhase {
-  // 【進捗計算】: 全試行数に対する現在試行の割合を算出
   const progress = trialIndex / totalTrials;
 
-  // 【フェーズ判定】: progress の境界値で 3 フェーズに分類する 🟢
   if (progress < 0.3) {
-    return 'exploration';   // 【探索期】: 試行空間を広く探索している段階
+    return 'exploration';
   }
   if (progress < 0.7) {
-    return 'exploitation';  // 【精緻化期】: 有望領域を集中的に探索している段階
+    return 'exploitation';
   }
-  return 'convergence';     // 【収束期】: 解が収束しつつある段階
+  return 'convergence';
 }
 
 /**
- * 【Best値系列計算】: 各試行時点でのBest値配列を計算する
- * @param data - 試行データ配列
- * @param direction - 最適化方向
- * @returns Best値配列
+ * Compute the running best value at each trial.
+ * @param data - Trial data array
+ * @param direction - Optimization direction
+ * @returns Best value at each trial
  */
 function computeBestSeries(data: TrialData[], direction: OptimizationDirection): number[] {
-  // 【累積Best計算】: 各試行時点における最良値を積み上げる 🟢
   let best = direction === 'minimize' ? Infinity : -Infinity;
   return data.map(({ value }) => {
     if (direction === 'minimize') {
@@ -97,13 +99,12 @@ function computeBestSeries(data: TrialData[], direction: OptimizationDirection):
 }
 
 /**
- * 【移動平均計算】: 指定ウィンドウ幅の移動平均を計算する
- * @param values - 入力値配列
- * @param window - ウィンドウ幅
- * @returns 移動平均配列
+ * Compute a moving average with the given window size.
+ * @param values - Input value array
+ * @param window - Window size
+ * @returns Moving average array
  */
 function computeMovingAverage(values: number[], window: number): number[] {
-  // 【移動平均】: 各点について直前 window 件の平均を計算する 🟢
   return values.map((_, i) => {
     const start = Math.max(0, i - window + 1);
     const slice = values.slice(start, i + 1);
@@ -112,12 +113,12 @@ function computeMovingAverage(values: number[], window: number): number[] {
 }
 
 /**
- * 【改善率計算】: 前試行からのBest値改善率を計算する
- * @param bestSeries - Best値配列
- * @returns 改善率配列（%）
+ * Compute the improvement rate from the previous trial's best value.
+ * Formula: |prev - curr| / |prev| * 100
+ * @param bestSeries - Running best value array
+ * @returns Improvement rate array (%)
  */
 function computeImprovementRate(bestSeries: number[]): number[] {
-  // 【改善率】: |prev - curr| / |prev| * 100 で変化率を算出する 🟡
   return bestSeries.map((curr, i) => {
     if (i === 0) return 0;
     const prev = bestSeries[i - 1];
@@ -127,22 +128,21 @@ function computeImprovementRate(bestSeries: number[]): number[] {
 }
 
 // -------------------------------------------------------------------------
-// ECharts オプション生成
+// ECharts option builder
 // -------------------------------------------------------------------------
 
 /**
- * 【オプション生成】: 表示モードに応じた ECharts option を生成する
- * @param data - 試行データ配列
- * @param mode - 表示モード
- * @param direction - 最適化方向
- * @returns ECharts option オブジェクト
+ * Build the ECharts option for the given display mode.
+ * @param data - Trial data array
+ * @param mode - Display mode
+ * @param direction - Optimization direction
+ * @returns ECharts option object
  */
 function buildChartOption(
   data: TrialData[],
   mode: HistoryMode,
   direction: OptimizationDirection,
 ): object {
-  // 【空データ処理】: データがない場合は空のオプションを返す 🟢
   if (data.length === 0) {
     return { xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [] };
   }
@@ -153,7 +153,7 @@ function buildChartOption(
 
   switch (mode) {
     case 'best':
-      // 【Best値推移】: 累積Best値の折れ線グラフ
+      // Running best value line chart
       return {
         xAxis: { type: 'category', data: trials },
         yAxis: { type: 'value' },
@@ -161,7 +161,7 @@ function buildChartOption(
       };
 
     case 'all':
-      // 【全試行値】: 全試行の目的値散布図
+      // All trial values scatter plot
       return {
         xAxis: { type: 'value' },
         yAxis: { type: 'value' },
@@ -169,7 +169,7 @@ function buildChartOption(
       };
 
     case 'moving-avg': {
-      // 【移動平均】: Best値の移動平均折れ線グラフ
+      // Moving average line chart
       const movingAvg = computeMovingAverage(values, MOVING_AVG_WINDOW);
       return {
         xAxis: { type: 'category', data: trials },
@@ -182,7 +182,7 @@ function buildChartOption(
     }
 
     case 'improvement': {
-      // 【改善率】: Best値改善率の棒グラフ
+      // Best value improvement rate bar chart
       const improvementRate = computeImprovementRate(bestSeries);
       return {
         xAxis: { type: 'category', data: trials },
@@ -197,34 +197,31 @@ function buildChartOption(
 }
 
 // -------------------------------------------------------------------------
-// Props 型定義
+// Props types
 // -------------------------------------------------------------------------
 
-/**
- * 【Props】: OptimizationHistory コンポーネントのプロパティ
- */
 export interface OptimizationHistoryProps {
-  /** 🟢 試行データ配列 */
+  /** Trial data array */
   data: TrialData[];
-  /** 🟢 最適化方向 */
+  /** Optimization direction */
   direction: OptimizationDirection;
 }
 
 // -------------------------------------------------------------------------
-// メインコンポーネント
+// Main component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 単目的最適化の収束履歴チャートコンポーネント
- * 【表示モード】: best/all/moving-avg/improvement の 4 モード切り替え
- * 【フェーズ検出】: detectPhase() で試行進捗からフェーズを自動判定
- * 🟢 REQ-1001〜REQ-1006 に準拠
+ * Convergence history chart for single-objective optimization.
+ * Four display modes: best / all / moving-avg / improvement.
+ * Automatically detects the optimization phase via detectPhase().
+ *
+ * Conforms to REQ-1001–REQ-1006.
  */
 export function OptimizationHistory({ data, direction }: OptimizationHistoryProps) {
-  // 【表示モード状態】: デフォルトは 'best'（Best値推移）
+  // Default mode is 'best' (running best value)
   const [mode, setMode] = useState<HistoryMode>('best');
 
-  // 【ECharts オプション生成】: 現在のモードとデータに応じたオプションを生成
   const option = buildChartOption(data, mode, direction);
 
   return (
@@ -232,7 +229,7 @@ export function OptimizationHistory({ data, direction }: OptimizationHistoryProp
       data-testid="optimization-history"
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
     >
-      {/* 【コントロールバー】: 表示モード切り替えボタン群 */}
+      {/* Control bar: mode toggle buttons */}
       <div
         style={{
           display: 'flex',
@@ -242,7 +239,6 @@ export function OptimizationHistory({ data, direction }: OptimizationHistoryProp
           flexShrink: 0,
         }}
       >
-        {/* 【モードボタン群】: 4 表示モードを切り替えるボタン 🟢 */}
         {(['best', 'all', 'moving-avg', 'improvement'] as HistoryMode[]).map((m) => (
           <button
             key={m}
@@ -265,7 +261,7 @@ export function OptimizationHistory({ data, direction }: OptimizationHistoryProp
         ))}
       </div>
 
-      {/* 【チャートエリア】: ECharts で収束履歴を描画する 🟢 */}
+      {/* Chart area: ECharts convergence history */}
       <div style={{ flex: 1 }}>
         <ReactECharts option={option} style={{ height: '100%' }} />
       </div>

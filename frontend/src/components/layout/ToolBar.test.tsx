@@ -1,15 +1,15 @@
 /**
- * ToolBar テスト (TASK-401 / TASK-002)
+ * ToolBar tests (TASK-401 / TASK-002)
  *
- * 【テスト対象】: ToolBar — ファイル読込・Study選択・レイアウト切替 UI
- * 【テスト方針】: studyStore / layoutStore を vi.mock でモック、LayoutTabBar はモック
+ * Tests the ToolBar file-loading, study-selection, and layout-switching UI.
+ * studyStore/layoutStore are mocked with vi.mock; LayoutTabBar is also mocked.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 // -------------------------------------------------------------------------
-// studyStore / layoutStore モック
+// studyStore / layoutStore mocks
 // -------------------------------------------------------------------------
 
 const { mockLoadJournalTB, mockStartLive, mockStopLive } = vi.hoisted(() => {
@@ -36,17 +36,17 @@ vi.mock('../../stores/liveUpdateStore', () => ({
   ),
 }));
 
-// LayoutTabBar をモックして ToolBar の単体テストを分離する
+// Mock LayoutTabBar to isolate ToolBar unit tests
 vi.mock('./LayoutTabBar', () => ({ LayoutTabBar: () => <div data-testid="layout-tab-bar" /> }));
 
 import { ToolBar } from './ToolBar';
 import { useLiveUpdateStore } from '../../stores/liveUpdateStore';
 
 // -------------------------------------------------------------------------
-// 正常系
+// Happy path
 // -------------------------------------------------------------------------
 
-describe('ToolBar — 正常系', () => {
+describe('ToolBar — happy path', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -55,40 +55,35 @@ describe('ToolBar — 正常系', () => {
     cleanup();
   });
 
-  // TC-401-03: ToolBar がレンダリングされる
-  test('TC-401-03: ToolBar がエラーなくレンダリングされる', () => {
-    // 【テスト目的】: ToolBar コンポーネントが正常にレンダリングできること 🟢
+  // TC-401-03: ToolBar renders without errors
+  test('TC-401-03: ToolBar renders without throwing', () => {
     expect(() => render(<ToolBar />)).not.toThrow();
   });
 
-  // TC-401-04: ファイル input 変更で loadJournal が呼ばれる
-  test('TC-401-04: ファイル input の変更で studyStore.loadJournal が呼ばれる', () => {
-    // 【テスト目的】: ファイル選択ダイアログで loadJournal が呼ばれること 🟢
+  // TC-401-04: file input change calls loadJournal
+  test('TC-401-04: changing the file input calls studyStore.loadJournal', () => {
     render(<ToolBar />);
 
-    // 【テストデータ準備】: ファイルモック
     const file = new File(['content'], 'journal.log', { type: 'text/plain' });
 
-    // 【処理実行】: file input の change イベント
     const fileInput = screen.getByTestId('file-input');
     Object.defineProperty(fileInput, 'files', { value: [file] });
     fireEvent.change(fileInput);
 
-    // 【確認内容】: loadJournal が呼ばれた
     expect(mockLoadJournalTB).toHaveBeenCalledOnce();
     expect(mockLoadJournalTB).toHaveBeenCalledWith(file);
   });
 
-  // TC-401-07: LayoutTabBar が ToolBar 内に存在する（TASK-002）
-  test('TC-401-07: data-testid="layout-tab-bar" が ToolBar 内に存在する', () => {
-    // 【テスト目的】: REQ-001 — LayoutTabBar が ToolBar に統合されていること
+  // TC-401-07: LayoutTabBar is present inside ToolBar (TASK-002)
+  test('TC-401-07: data-testid="layout-tab-bar" exists inside ToolBar', () => {
+    // REQ-001 — LayoutTabBar is integrated into ToolBar
     render(<ToolBar />);
     expect(screen.getByTestId('layout-tab-bar')).toBeInTheDocument();
   });
 
-  // TC-401-08: 旧レイアウトボタン（layout-btn-*）が存在しない（TASK-002）
-  test('TC-401-08: layout-btn-A 〜 layout-btn-D が DOM に存在しない', () => {
-    // 【テスト目的】: REQ-405 — 旧ボタン群が削除されていること
+  // TC-401-08: legacy layout buttons are absent (TASK-002)
+  test('TC-401-08: layout-btn-A through layout-btn-D are not in the DOM', () => {
+    // REQ-405 — legacy buttons have been removed
     render(<ToolBar />);
     expect(screen.queryByTestId('layout-btn-A')).not.toBeInTheDocument();
     expect(screen.queryByTestId('layout-btn-B')).not.toBeInTheDocument();
@@ -96,25 +91,25 @@ describe('ToolBar — 正常系', () => {
     expect(screen.queryByTestId('layout-btn-D')).not.toBeInTheDocument();
   });
 
-  // TC-401-10: ライブ更新ボタンが DOM に存在する
-  test('TC-401-10: ライブ更新ボタンが data-testid="live-update-btn" で存在する', () => {
-    // 【テスト目的】: REQ-104-G — ToolBar にライブ更新ボタンが表示される
+  // TC-401-10: live-update button is present
+  test('TC-401-10: live-update-btn exists in the DOM', () => {
+    // REQ-104-G — live-update button is shown in the ToolBar
     render(<ToolBar />);
     expect(screen.getByTestId('live-update-btn')).toBeInTheDocument();
   });
 
-  // TC-401-11: isLive=false のとき startLive が呼ばれる
-  test('TC-401-11: isLive=false のときボタンをクリックすると startLive が呼ばれる', () => {
-    // 【テスト目的】: REQ-104-K — isLive=false 時のクリックで startLive() を呼ぶ
+  // TC-401-11: when isLive=false, clicking the button calls startLive
+  test('TC-401-11: when isLive=false, clicking the button calls startLive', () => {
+    // REQ-104-K — click with isLive=false calls startLive()
     render(<ToolBar />);
     fireEvent.click(screen.getByTestId('live-update-btn'));
     expect(mockStartLive).toHaveBeenCalledOnce();
     expect(mockStopLive).not.toHaveBeenCalled();
   });
 
-  // TC-401-12: isLive=true のとき stopLive が呼ばれる
-  test('TC-401-12: isLive=true のときボタンをクリックすると stopLive が呼ばれる', () => {
-    // 【テスト目的】: REQ-104-J — isLive=true 時のクリックで stopLive() を呼ぶ
+  // TC-401-12: when isLive=true, clicking the button calls stopLive
+  test('TC-401-12: when isLive=true, clicking the button calls stopLive', () => {
+    // REQ-104-J — click with isLive=true calls stopLive()
     vi.mocked(useLiveUpdateStore).mockImplementation((selector) =>
       selector({ isLive: true, isSupported: true, startLive: mockStartLive, stopLive: mockStopLive }),
     );
@@ -124,9 +119,9 @@ describe('ToolBar — 正常系', () => {
     expect(mockStartLive).not.toHaveBeenCalled();
   });
 
-  // TC-401-13: isSupported=false のときボタンが disabled になる
-  test('TC-401-13: isSupported=false のときライブ更新ボタンが disabled になる', () => {
-    // 【テスト目的】: REQ-104-I — isSupported=false 時はボタンを disabled にする
+  // TC-401-13: when isSupported=false, the button is disabled
+  test('TC-401-13: when isSupported=false, the live-update button is disabled', () => {
+    // REQ-104-I — button is disabled when the feature is unsupported
     vi.mocked(useLiveUpdateStore).mockImplementation((selector) =>
       selector({ isLive: false, isSupported: false, startLive: mockStartLive, stopLive: mockStopLive }),
     );

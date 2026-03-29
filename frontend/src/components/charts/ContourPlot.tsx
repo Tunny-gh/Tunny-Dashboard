@@ -1,17 +1,16 @@
 /**
- * ContourPlot — 2次元パラメータ相関散布図（コンタープロット簡易版）
+ * ContourPlot — 2D parameter correlation scatter plot (simplified contour plot)
  *
- * 【役割】: 2つのパラメータを軸として目的関数値で色付けした散布図を表示する
+ * Displays a scatter plot of two parameters colored by objective value.
  *
- * ⚠️【注意】: optuna-dashboard の contour plot は Gradient Boosting Tree
- *   (scikit-learn) でサーフェスを補間しコンター線を描画します（Python 必須）。
- *   このコンポーネントは実トライアル点の散布のみ表示します（補間なし）。
+ * Note: optuna-dashboard's contour plot interpolates a surface using Gradient
+ * Boosting Tree (scikit-learn) and draws contour lines (requires Python).
+ * This component only shows actual trial points without interpolation.
  *
- * 【設計方針】:
- *   - X軸・Y軸パラメータ、目的関数を選択可能なドロップダウン
- *   - visualMap で目的関数値をカラースケールにマッピング
- *   - 数値パラメータのみ対象（文字列パラメータは散布できないため除外）
- * 🟢 Python 不要の範囲で optuna-dashboard の contour plot に相当する機能を提供
+ * Design:
+ *   - Dropdowns to select X/Y parameters and objective
+ *   - visualMap maps objective values to a color scale
+ *   - Numeric parameters only (string parameters are excluded)
  */
 
 import { useState } from 'react';
@@ -19,43 +18,41 @@ import ReactECharts from 'echarts-for-react';
 import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
-/** 【試行データ型】: ContourPlot が受け取る1試行分のデータ */
+/** One trial's data as received by ContourPlot */
 export interface ContourTrial {
-  /** パラメータ値マップ（数値・文字列混在可） */
+  /** Parameter value map (numeric or string values) */
   params: Record<string, number | string>;
-  /** 目的関数値リスト（null = 未完了試行） */
+  /** Objective values (null = incomplete trial) */
   values: number[] | null;
 }
 
-/** 【Props 型】 */
+/** Props */
 export interface ContourPlotProps {
-  /** 表示する試行一覧 */
+  /** List of trials to display */
   trials: ContourTrial[];
-  /** パラメータ名リスト */
+  /** Parameter name list */
   paramNames: string[];
-  /** 目的関数名リスト */
+  /** Objective name list */
   objectiveNames: string[];
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 2パラメータ × 目的関数値の散布図（コンタープロット簡易版）
- * 【データフロー】: trials → X/Y/目的関数フィルタ → ECharts scatter + visualMap
- * 【インタラクション】: X/Yパラメータ・目的関数のドロップダウン選択でリアルタイム更新
+ * Scatter plot of 2 parameters colored by objective value.
+ * Dropdowns for X/Y parameters and objective update the chart in real time.
  */
 export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotProps) {
-  // 【状態管理】: X軸・Y軸パラメータインデックス、目的関数インデックス
   const [xParamIdx, setXParamIdx] = useState(0);
   const [yParamIdx, setYParamIdx] = useState(Math.min(1, paramNames.length - 1));
   const [objIdx, setObjIdx] = useState(0);
 
-  // 【空状態チェック】: データなし or パラメータ数不足（2つ必要）
+  // Show empty state when there are no trials or fewer than 2 parameters
   if (trials.length === 0 || paramNames.length < 2) {
     return <EmptyState message="データがありません（パラメータが2つ以上必要です）" />;
   }
@@ -63,7 +60,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
   const xParam = paramNames[xParamIdx];
   const yParam = paramNames[yParamIdx];
 
-  // 【有効トライアルフィルタ】: X/Y パラメータが数値かつ目的関数値が存在するものだけ使用
+  // Filter to trials where X/Y params are numeric and objective value exists
   const validTrials = trials.filter(
     (t) =>
       t.values !== null &&
@@ -72,12 +69,12 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       typeof t.params[yParam] === 'number',
   );
 
-  // 【目的関数値の範囲】: visualMap の min/max 計算
+  // Compute objective value range for visualMap min/max
   const objValues = validTrials.map((t) => t.values![objIdx]);
   const minObj = objValues.length > 0 ? Math.min(...objValues) : 0;
   const maxObj = objValues.length > 0 ? Math.max(...objValues) : 1;
 
-  // 【ECharts オプション構築】: scatter + visualMap（目的関数値でカラースケール）
+  // ECharts option: scatter + visualMap (color scale by objective value)
   const option = {
     tooltip: {
       trigger: 'item',
@@ -98,7 +95,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       nameLocation: 'center',
       nameGap: 40,
     },
-    // 【カラースケール】: 青（低値）→ 赤（高値）で目的関数値を表現
+    // Color scale: blue (low) → red (high)
     visualMap: {
       min: minObj,
       max: maxObj,
@@ -118,7 +115,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
     series: [
       {
         type: 'scatter',
-        // 【データ形式】: [x値, y値, 目的関数値（visualMap の dimension=2 で参照）]
+        // Data format: [x, y, objective value] — dimension=2 used by visualMap
         data: validTrials.map((t) => [
           t.params[xParam] as number,
           t.params[yParam] as number,
@@ -135,7 +132,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       data-testid="contour-plot"
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
     >
-      {/* 【注意バナー】: Python/scikit-learn が必要な機能との差異を明示 */}
+      {/* Warning banner: contour interpolation requires Python/scikit-learn */}
       <div
         data-testid="contour-note"
         style={{
@@ -150,7 +147,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
         ⚠️ optuna-dashboard のコンター補間（Python / scikit-learn 必須）は非対応。実トライアル点のみ表示。
       </div>
 
-      {/* 【コントロールバー】: X/Y パラメータ・目的関数選択 */}
+      {/* Control bar: X/Y parameter and objective selectors */}
       <div
         style={{
           display: 'flex',
@@ -194,7 +191,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
           </select>
         </label>
 
-        {/* 【多目的専用】: 目的関数が 2 つ以上のとき表示 */}
+        {/* Objective selector: shown only when there are 2 or more objectives */}
         {objectiveNames.length > 1 && (
           <label>
             目的関数:{' '}
@@ -214,7 +211,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
         )}
       </div>
 
-      {/* 【チャート本体】: ECharts scatter + visualMap */}
+      {/* Chart: ECharts scatter + visualMap */}
       <ReactECharts option={option} style={{ flex: 1 }} />
     </div>
   );

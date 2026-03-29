@@ -1,94 +1,95 @@
 /**
- * PDPChart — 部分依存プロット（PDP）コンポーネント (TASK-804)
+ * PDPChart — Partial Dependence Plot (PDP) component (TASK-804)
  *
- * 【役割】: Ridge 簡易版 PDP を ECharts で可視化する
- * 【設計方針】:
- *   - ECharts Line で PDP 曲線（太線）を表示
- *   - ICE ライン（グレー半透明）を重ねて個体差を可視化
- *   - Brushing 連動: highlightedIndices の ICE ラインをオレンジでハイライト
- *   - useOnnx=false のとき「線形近似で表示中」警告バナーを表示
- *   - R² < 0.8 のとき「PDPの解釈に注意が必要です」警告バッジを表示
- *   - 2変数 PDP は交互作用ヒートマップで表示（data2d 指定時）
- * 🟢 REQ-103〜REQ-106 に準拠
+ * Visualizes a Ridge-based simplified PDP using ECharts.
+ *
+ * Design:
+ *   - ECharts Line shows the PDP curve (thick line)
+ *   - ICE lines (semi-transparent gray) overlaid to show individual variation
+ *   - Brushing integration: ICE lines in highlightedIndices are highlighted in orange
+ *   - Shows "Displaying linear approximation" warning banner when useOnnx=false
+ *   - Shows "Caution interpreting PDP" warning badge when R² < 0.8
+ *   - Two-variable PDP shown as an interaction heatmap when data2d is provided
+ *
+ * Conforms to REQ-103–REQ-106.
  */
 
 import ReactECharts from 'echarts-for-react';
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
 /**
- * 【1変数PDPデータ型】: WASM compute_pdp() から受け取る PDP 計算結果
+ * 1D PDP data: result of WASM compute_pdp()
  */
 export interface PdpData1d {
-  /** 対象パラメータ名 */
+  /** Target parameter name */
   paramName: string;
-  /** 対象目的名 */
+  /** Target objective name */
   objectiveName: string;
-  /** グリッド点のパラメータ値（n_grid 点） */
+  /** Parameter values at grid points (n_grid points) */
   grid: number[];
-  /** 各グリッド点での PDP 値（n_grid 点） */
+  /** PDP values at each grid point (n_grid points) */
   values: number[];
-  /** Ridge モデルの決定係数 R² ∈ [0, 1] */
+  /** Ridge model coefficient of determination R² ∈ [0, 1] */
   rSquared: number;
   /**
-   * ICE ライン: 各サンプルの条件付き期待値曲線 (省略可能)
+   * ICE lines: conditional expectation curves per sample (optional)
    * iceLines[sample_idx][grid_idx]
    */
   iceLines?: number[][];
 }
 
 /**
- * 【2変数PDPデータ型】: WASM compute_pdp_2d() から受け取る交互作用 PDP 結果
+ * 2D PDP data: result of WASM compute_pdp_2d() for interaction PDP
  */
 export interface PdpData2d {
-  /** 第1パラメータ名 */
+  /** First parameter name */
   param1Name: string;
-  /** 第2パラメータ名 */
+  /** Second parameter name */
   param2Name: string;
-  /** 対象目的名 */
+  /** Target objective name */
   objectiveName: string;
-  /** 第1パラメータのグリッド点 */
+  /** Grid points for the first parameter */
   grid1: number[];
-  /** 第2パラメータのグリッド点 */
+  /** Grid points for the second parameter */
   grid2: number[];
-  /** PDP値行列: values[i][j] = f̄(grid1[i], grid2[j]) */
+  /** PDP value matrix: values[i][j] = f̄(grid1[i], grid2[j]) */
   values: number[][];
-  /** Ridge モデルの決定係数 R² */
+  /** Ridge model coefficient of determination R² */
   rSquared: number;
 }
 
 // -------------------------------------------------------------------------
-// 定数定義
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【R² しきい値】: R² がこの値以上なら「良好」と評価する */
+/** R² threshold above which quality is considered "good" */
 const R2_GOOD_THRESHOLD = 0.8;
 
-/** 【R² しきい値】: R² がこの値以上なら「要注意」（< R2_GOOD）と評価する */
+/** R² threshold above which quality is considered "caution" (below R2_GOOD) */
 const R2_WARN_THRESHOLD = 0.5;
 
-/** 【カラー定数】: PDP 曲線の色 */
+/** Color for the PDP curve */
 const PDP_LINE_COLOR = '#4f46e5';
 
-/** 【カラー定数】: ICE 通常ラインの色 */
+/** Color for normal ICE lines */
 const ICE_NORMAL_COLOR = 'rgba(107, 114, 128, 0.3)';
 
-/** 【カラー定数】: ICE ハイライトラインの色 */
+/** Color for highlighted ICE lines */
 const ICE_HIGHLIGHT_COLOR = '#f59e0b';
 
 // -------------------------------------------------------------------------
-// モデル品質評価
+// Model quality assessment
 // -------------------------------------------------------------------------
 
-/** 【モデル品質型】: R² に基づく評価結果 */
+/** Model quality label based on R² */
 export type ModelQuality = '良好' | '要注意' | '推奨外';
 
 /**
- * 【品質評価】: R² から評価ラベルを返す
- *
- * 【評価基準】: R² ≥ 0.8 → 良好 / R² ≥ 0.5 → 要注意 / R² < 0.5 → 推奨外 🟢
+ * Returns a quality label based on R²:
+ * R² >= 0.8 → good / R² >= 0.5 → caution / R² < 0.5 → not recommended
  */
 export function getModelQuality(rSquared: number): ModelQuality {
   if (rSquared >= R2_GOOD_THRESHOLD) return '良好';
@@ -97,21 +98,22 @@ export function getModelQuality(rSquared: number): ModelQuality {
 }
 
 // -------------------------------------------------------------------------
-// ECharts オプション生成
+// ECharts option builders
 // -------------------------------------------------------------------------
 
 /**
- * 【1変数PDP オプション生成】: PDP 曲線 + ICE ライン ECharts オプションを構築する
+ * Build ECharts option for 1D PDP: PDP curve + ICE lines.
  *
- * 【ICEライン設計】:
- *   - 通常: グレー半透明 (opacity=0.3)
- *   - ハイライト: オレンジ太線（Brushing 連動）
- * 🟢 REQ-104: Brushing 後に選択サンプルの ICE ラインをハイライト
+ * ICE line styling:
+ *   - Normal: semi-transparent gray (opacity=0.3)
+ *   - Highlighted: thick orange line (Brushing integration)
+ *
+ * Conforms to REQ-104: highlight ICE lines for selected samples after Brushing.
  */
 function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
   const iceLines = data.iceLines ?? [];
 
-  // 【ICE ライン系列】: 各サンプルの条件付き期待値を薄い線で描画
+  // ICE line series: draw each sample's conditional expectation as a thin line
   const iceSeries = iceLines.map((iceLine, idx) => ({
     type: 'line',
     name: `ICE-${idx}`,
@@ -121,18 +123,18 @@ function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
       color: highlightedSet.has(idx) ? ICE_HIGHLIGHT_COLOR : ICE_NORMAL_COLOR,
     },
     symbolSize: 0,
-    // 【凡例非表示】: ICE は個別凡例不要
+    // Hide from legend; ICE lines don't need individual entries
     showInLegend: false,
   }));
 
-  // 【PDP 曲線系列】: 太い紫線でメイン PDP を描画（ICE の上に重ねる）
+  // PDP curve series: thick purple line drawn on top of ICE lines
   const pdpSeries = {
     type: 'line',
     name: 'PDP',
     data: data.grid.map((x, i) => [x, data.values[i]]),
     lineStyle: { width: 3, color: PDP_LINE_COLOR },
     symbolSize: 0,
-    z: 10, // 【前面描画】: ICE ラインより前面に配置
+    z: 10, // Render in front of ICE lines
   };
 
   return {
@@ -155,17 +157,17 @@ function buildPdpOption(data: PdpData1d, highlightedSet: Set<number>): object {
       name: data.objectiveName,
     },
     series: [...iceSeries, pdpSeries],
-    // 【凡例設定】: PDP のみ表示
+    // Show only the PDP entry in the legend
     legend: { data: ['PDP'] },
   };
 }
 
 /**
- * 【2変数PDP オプション生成】: 交互作用ヒートマップの ECharts オプションを構築する
- * 🟢 REQ-106: 2変数 PDP 交互作用ヒートマップ
+ * Build ECharts option for 2D PDP interaction heatmap.
+ * Conforms to REQ-106: 2-variable PDP interaction heatmap.
  */
 function buildPdp2dOption(data: PdpData2d): object {
-  // 【ヒートマップデータ変換】: [grid1_idx, grid2_idx, value] 形式に変換
+  // Convert to [grid1_idx, grid2_idx, value] format for ECharts heatmap
   const heatmapData: [number, number, number][] = [];
   for (let i = 0; i < data.grid1.length; i++) {
     for (let j = 0; j < data.grid2.length; j++) {
@@ -195,7 +197,7 @@ function buildPdp2dOption(data: PdpData2d): object {
       orient: 'horizontal',
       left: 'center',
       bottom: '0%',
-      // 【色設定】: 青=低・赤=高 🟢
+      // Blue = low, red = high
       inRange: { color: ['#2563eb', '#ffffff', '#dc2626'] },
     },
     series: [
@@ -210,40 +212,38 @@ function buildPdp2dOption(data: PdpData2d): object {
 }
 
 // -------------------------------------------------------------------------
-// Props 型定義
+// Props types
 // -------------------------------------------------------------------------
 
-/**
- * 【Props】: PDPChart コンポーネントのプロパティ
- */
 export interface PDPChartProps {
-  /** 🟢 1変数 PDP データ — null のときは空状態 or ローディングを表示 */
+  /** 1D PDP data — shows empty state or loading when null */
   data1d: PdpData1d | null;
-  /** 🟢 2変数 PDP データ（省略可） */
+  /** 2D PDP data (optional) */
   data2d?: PdpData2d | null;
-  /** 🟢 PDP 計算中フラグ */
+  /** PDP computation in progress */
   isLoading?: boolean;
-  /** 🟢 ONNX 高精度モードが有効かどうか */
+  /** Whether ONNX high-precision mode is enabled */
   useOnnx?: boolean;
   /**
-   * 🟢 ハイライトする ICE ライン インデックス（Brushing 連動）
-   * highlightedIndices に含まれるインデックスの ICE ラインをオレンジでハイライトする
+   * ICE line indices to highlight (Brushing integration).
+   * ICE lines at these indices are highlighted in orange.
    */
   highlightedIndices?: number[];
-  /** 🟢 ONNX モデル読み込みリクエストコールバック */
+  /** Callback to request ONNX model loading */
   onOnnxRequest?: () => void;
 }
 
 // -------------------------------------------------------------------------
-// メインコンポーネント
+// Main component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 部分依存プロット（PDP）コンポーネント
- * 【PDP曲線】: Ridge 簡易版 PDP を太線で表示（.onnx 読み込み後は高精度版に切り替え）
- * 【ICEライン】: 個体差を薄い線で重ね描き・Brushing 連動ハイライト
- * 【品質表示】: R²・評価（良好/要注意/推奨外）をパネルで表示
- * 🟢 REQ-103〜REQ-106 に準拠
+ * Partial Dependence Plot (PDP) component.
+ * - PDP curve: Ridge-based simplified PDP shown as a thick line (switches to high-precision after .onnx load)
+ * - ICE lines: individual variation shown as thin overlaid lines; Brushing-linked highlighting
+ * - Quality display: R² and assessment (good/caution/not recommended)
+ *
+ * Conforms to REQ-103–REQ-106.
  */
 export function PDPChart({
   data1d,
@@ -254,7 +254,7 @@ export function PDPChart({
   onOnnxRequest,
 }: PDPChartProps) {
   // -------------------------------------------------------------------------
-  // ローディング状態の表示
+  // Loading state
   // -------------------------------------------------------------------------
 
   if (isLoading) {
@@ -263,7 +263,7 @@ export function PDPChart({
         data-testid="pdp-chart"
         style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}
       >
-        {/* 【ローディングインジケーター】: PDP 計算中のスピナー 🟢 */}
+        {/* Loading spinner while PDP is being computed */}
         <div
           style={{
             width: '16px',
@@ -280,7 +280,7 @@ export function PDPChart({
   }
 
   // -------------------------------------------------------------------------
-  // 空状態の表示
+  // Empty state
   // -------------------------------------------------------------------------
 
   if (!data1d && !data2d) {
@@ -292,7 +292,7 @@ export function PDPChart({
   }
 
   // -------------------------------------------------------------------------
-  // R² ・品質評価の計算
+  // R² and quality assessment
   // -------------------------------------------------------------------------
 
   const rSquared = data1d?.rSquared ?? data2d?.rSquared ?? 0;
@@ -303,13 +303,13 @@ export function PDPChart({
     quality === '良好' ? '#16a34a' : quality === '要注意' ? '#d97706' : '#dc2626';
 
   // -------------------------------------------------------------------------
-  // ハイライトセット構築
+  // Highlighted index set
   // -------------------------------------------------------------------------
 
   const highlightedSet = new Set(highlightedIndices);
 
   // -------------------------------------------------------------------------
-  // レンダリング
+  // Render
   // -------------------------------------------------------------------------
 
   return (
@@ -317,7 +317,7 @@ export function PDPChart({
       data-testid="pdp-chart"
       style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
     >
-      {/* 【線形近似警告バナー】: ONNX 未使用時に表示 🟢 REQ-105 */}
+      {/* Linear approximation warning banner: shown when ONNX is not in use (REQ-105) */}
       {!useOnnx && (
         <div
           data-testid="linear-approx-banner"
@@ -336,7 +336,7 @@ export function PDPChart({
           <span>
             線形近似で表示中 / より精度の高いPDPには .onnx ファイルを読み込んでください
           </span>
-          {/* 【ONNXリクエストボタン】: ユーザーが ONNX を有効化するためのボタン */}
+          {/* Button to request ONNX model loading */}
           {onOnnxRequest && (
             <button
               data-testid="onnx-request-btn"
@@ -357,7 +357,7 @@ export function PDPChart({
         </div>
       )}
 
-      {/* 【R² 警告バッジ】: R² < 0.8 のとき表示 🟢 REQ-103 */}
+      {/* R² warning badge: shown when R² < 0.8 (REQ-103) */}
       {rSquared < R2_GOOD_THRESHOLD && (
         <div
           data-testid="r2-warning-badge"
@@ -374,7 +374,7 @@ export function PDPChart({
         </div>
       )}
 
-      {/* 【モデル品質パネル】: R²・評価を表示 🟢 REQ-103 */}
+      {/* Model quality panel: shows R² and assessment (REQ-103) */}
       <div
         data-testid="model-quality-panel"
         style={{
@@ -397,7 +397,7 @@ export function PDPChart({
         </span>
       </div>
 
-      {/* 【1変数 PDP チャートエリア】: ECharts で PDP 曲線・ICE ラインを描画 🟢 */}
+      {/* 1D PDP chart: ECharts with PDP curve and ICE lines */}
       {data1d && !data2d && (
         <ReactECharts
           option={buildPdpOption(data1d, highlightedSet)}
@@ -405,7 +405,7 @@ export function PDPChart({
         />
       )}
 
-      {/* 【2変数 PDP ヒートマップ】: ECharts で交互作用を描画 🟢 */}
+      {/* 2D PDP heatmap: ECharts interaction heatmap */}
       {data2d && (
         <ReactECharts
           option={buildPdp2dOption(data2d)}

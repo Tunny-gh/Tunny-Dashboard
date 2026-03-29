@@ -1,21 +1,21 @@
 /**
- * LayoutStore — レイアウトモード・表示チャート・パネルサイズ管理 (TASK-302)
+ * LayoutStore — layout mode, visible charts, and panel size management (TASK-302)
  *
- * 【役割】: レイアウトモード A〜D / 表示チャート Set / パネルサイズを管理する
- * 【設計方針】: 純粋な状態管理（WASM 呼び出しなし）
- * 🟢 LayoutStore インターフェース（types/index.ts）に準拠
+ * Manages layout modes A–D, the visible chart Set, and panel sizes.
+ * Pure state management with no WASM calls.
+ * Conforms to the LayoutStore interface in types/index.ts.
  */
 
 import { create } from 'zustand';
 import type { LayoutMode, ChartId, LayoutConfig, PanelSizes, FreeModeLayout } from '../types';
 
 // -------------------------------------------------------------------------
-// 定数（エクスポート）
+// Constants (exported)
 // -------------------------------------------------------------------------
 
 /**
- * 【デフォルトフリーモードレイアウト】: freeModeLayout が null のときに使用する初期配置
- * 4×4 グリッドを 4 等分した 2×2 配置
+ * Default free-mode layout used when freeModeLayout is null.
+ * A 2×2 arrangement that evenly divides a 4×4 grid.
  */
 export const DEFAULT_FREE_LAYOUT: FreeModeLayout = {
   cells: [
@@ -27,29 +27,29 @@ export const DEFAULT_FREE_LAYOUT: FreeModeLayout = {
 };
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
 /**
- * 【Store 状態型】: LayoutStore インターフェースに準拠
+ * LayoutStore state type. Conforms to the LayoutStore interface.
  */
 interface LayoutState {
   layoutMode: LayoutMode;
   visibleCharts: Set<ChartId>;
   panelSizes: PanelSizes;
   freeModeLayout: FreeModeLayout | null;
-  /** レイアウト JSON 読み込みエラーメッセージ */
+  /** Error message from the last layout JSON load attempt */
   layoutLoadError: string | null;
 
   setLayoutMode: (mode: LayoutMode) => void;
   toggleChart: (chartId: ChartId) => void;
   saveLayout: () => LayoutConfig;
   loadLayout: (config: LayoutConfig) => void;
-  /** フリーモードレイアウト全体を設定する */
+  /** Replaces the entire free-mode layout */
   setFreeModeLayout: (layout: FreeModeLayout | null) => void;
   /**
-   * 指定セル（cellId）のグリッド位置を更新する
-   * ドラッグ&ドロップによる移動時に呼ぶ 🟢 REQ-032
+   * Updates the grid position of the specified cell (cellId).
+   * Called after a drag-and-drop move. REQ-032
    */
   updateCellPosition: (
     cellId: string,
@@ -57,8 +57,8 @@ interface LayoutState {
     gridCol: [number, number],
   ) => void;
   /**
-   * 新しいチャートセルを追加する（cellId は自動生成）
-   * freeModeLayout が null のとき DEFAULT_FREE_LAYOUT をベースに追加
+   * Adds a new chart cell to freeModeLayout. cellId is auto-generated.
+   * Falls back to DEFAULT_FREE_LAYOUT as the base when freeModeLayout is null.
    */
   addCell: (
     chartId: ChartId,
@@ -66,25 +66,22 @@ interface LayoutState {
     gridCol: [number, number],
   ) => void;
   /**
-   * 指定 cellId のセルを削除する
-   * 存在しない cellId の場合は何もしない
+   * Removes the cell with the given cellId.
+   * Does nothing if the cellId does not exist.
    */
   removeCell: (cellId: string) => void;
   /**
-   * JSON 文字列からレイアウトを読み込む
-   * 形式エラー時は layoutLoadError をセットしてデフォルトに戻す
+   * Parses a JSON string and calls loadLayout.
+   * On parse or validation failure, sets layoutLoadError and resets to the default layout.
    */
   loadLayoutFromJson: (json: string) => { success: boolean; error?: string };
 }
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/**
- * 【デフォルト表示チャート】: レイアウトモード A の初期表示チャート
- * 🟢 主要な4チャートを初期表示
- */
+/** Initial visible charts for layout mode A */
 const DEFAULT_VISIBLE_CHARTS: ChartId[] = [
   'pareto-front',
   'parallel-coords',
@@ -93,12 +90,12 @@ const DEFAULT_VISIBLE_CHARTS: ChartId[] = [
 ];
 
 // -------------------------------------------------------------------------
-// Store 実装
+// Store implementation
 // -------------------------------------------------------------------------
 
 export const useLayoutStore = create<LayoutState>()((set, get) => ({
   // -------------------------------------------------------------------------
-  // 初期状態
+  // Initial state
   // -------------------------------------------------------------------------
   layoutMode: 'A' as LayoutMode,
   visibleCharts: new Set<ChartId>(DEFAULT_VISIBLE_CHARTS),
@@ -107,19 +104,13 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   layoutLoadError: null,
 
   // -------------------------------------------------------------------------
-  // アクション実装
+  // Actions
   // -------------------------------------------------------------------------
 
-  /**
-   * 【レイアウトモード設定】: モード A〜D を切り替える
-   * 🟢 モード切り替えは即座に反映
-   */
+  /** Switches the layout mode (A–D) */
   setLayoutMode: (mode) => set({ layoutMode: mode }),
 
-  /**
-   * 【チャート表示切り替え】: visibleCharts Set への追加・削除
-   * 含まれていれば削除、含まれていなければ追加
-   */
+  /** Toggles a chart in visibleCharts: removes it if present, adds it if absent */
   toggleChart: (chartId) => {
     const current = get().visibleCharts;
     const next = new Set(current);
@@ -132,9 +123,8 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   },
 
   /**
-   * 【レイアウト保存】: 現在のレイアウト設定を LayoutConfig として返す
-   * Set は Array に変換して JSON 互換にする
-   * 🟢 saveLayout / loadLayout でセッション保存・復元が可能
+   * Returns the current layout as a LayoutConfig.
+   * Converts the visibleCharts Set to an Array for JSON compatibility.
    */
   saveLayout: (): LayoutConfig => {
     const { layoutMode, visibleCharts, panelSizes, freeModeLayout } = get();
@@ -147,8 +137,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   },
 
   /**
-   * 【レイアウト復元】: 保存された LayoutConfig を適用する
-   * visibleCharts は Array から Set に変換する
+   * Applies a saved LayoutConfig, converting visibleCharts from Array back to Set.
    */
   loadLayout: (config) => {
     set({
@@ -159,15 +148,12 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
     });
   },
 
-  /**
-   * 【フリーモードレイアウト設定】: freeModeLayout を直接更新する
-   * プリセット適用・リセット時に使用
-   */
+  /** Directly sets freeModeLayout (used when applying a preset or resetting) */
   setFreeModeLayout: (layout) => set({ freeModeLayout: layout }),
 
   /**
-   * 【グリッド位置更新】: 指定セル（cellId）のグリッド位置のみを更新する
-   * ドラッグ&ドロップの完了時に呼ぶ 🟢 REQ-032
+   * Updates only the grid position of the specified cell.
+   * Called when a drag-and-drop operation completes. REQ-032
    */
   updateCellPosition: (cellId, gridRow, gridCol) => {
     const { freeModeLayout } = get();
@@ -179,8 +165,8 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   },
 
   /**
-   * 【セル追加】: 新しいチャートセルを freeModeLayout に追加する
-   * cellId は crypto.randomUUID() で自動生成
+   * Adds a new chart cell to freeModeLayout.
+   * cellId is auto-generated via crypto.randomUUID().
    */
   addCell: (chartId, gridRow, gridCol) => {
     const base = get().freeModeLayout ?? DEFAULT_FREE_LAYOUT;
@@ -189,27 +175,27 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   },
 
   /**
-   * 【セル削除】: 指定 cellId のセルを削除する
-   * 存在しない cellId の場合は state を変化させない
+   * Removes the cell with the given cellId.
+   * Does not mutate state if the cellId does not exist.
    */
   removeCell: (cellId) => {
     const { freeModeLayout } = get();
     if (!freeModeLayout) return;
     const cells = freeModeLayout.cells.filter((cell) => cell.cellId !== cellId);
-    if (cells.length === freeModeLayout.cells.length) return; // 変化なし
+    if (cells.length === freeModeLayout.cells.length) return; // no change
     set({ freeModeLayout: { cells } });
   },
 
   /**
-   * 【JSON レイアウト読み込み】: JSON 文字列をパースして loadLayout を呼ぶ
-   * パース失敗・バリデーション失敗時は layoutLoadError をセットしてデフォルトに戻す
-   * 🟢 NFR-032: エラー時は「レイアウトを読み込めませんでした」を表示
+   * Parses a JSON string and calls loadLayout.
+   * On parse or validation failure, sets layoutLoadError and resets to the default layout.
+   * NFR-032: error message is shown when loading fails.
    */
   loadLayoutFromJson: (json) => {
     const ERR = 'レイアウトを読み込めませんでした';
     try {
       const config = JSON.parse(json) as LayoutConfig;
-      // 【バリデーション】: 必須フィールドの確認
+      // Validate required fields
       if (!config.mode || !Array.isArray(config.visibleCharts)) {
         set({ layoutLoadError: ERR, freeModeLayout: DEFAULT_FREE_LAYOUT });
         return { success: false, error: ERR };

@@ -1,16 +1,14 @@
 /**
- * HypervolumeHistory — ECharts折れ線グラフ（Hypervolume推移）(TASK-501)
+ * HypervolumeHistory — ECharts line chart for hypervolume history (TASK-501)
  *
- * 【役割】: trial 番号ごとのHypervolume推移を折れ線グラフで表示
- * 【設計方針】: echarts-for-react でシンプルに実装
- * 🟢 EChartsOption の series に [trial, hypervolume] の配列を渡す
+ * Displays the hypervolume trend over trial numbers as a line chart.
  */
 
 import ReactECharts from 'echarts-for-react';
 import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
-// Props 型定義
+// Props types
 // -------------------------------------------------------------------------
 
 export interface HypervolumeDataPoint {
@@ -19,25 +17,23 @@ export interface HypervolumeDataPoint {
 }
 
 export interface HypervolumeHistoryProps {
-  /** 🟢 Hypervolume推移データ — 空配列のとき空状態UIを表示 */
+  /** Hypervolume history data — shows empty state when the array is empty */
   data: HypervolumeDataPoint[];
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: ECharts を使った Hypervolume 推移折れ線グラフ
- * 【テスト対応】: TC-501-05, TC-501-06, TC-501-E03
+ * Line chart showing hypervolume history over trials using ECharts.
+ * Corresponds to TC-501-05, TC-501-06, TC-501-E03.
  */
 export function HypervolumeHistory({ data }: HypervolumeHistoryProps) {
-  // 【空状態UI】: データがない場合はメッセージを表示 🟢
   if (data.length === 0) {
     return <EmptyState />;
   }
 
-  // 【ECharts option 構築】: series に [trial, hypervolume] の配列を渡す 🟢
   const option = {
     xAxis: {
       type: 'value',
@@ -50,7 +46,7 @@ export function HypervolumeHistory({ data }: HypervolumeHistoryProps) {
     series: [
       {
         type: 'line',
-        // 【データ変換】: {trial, hypervolume} → [trial, hypervolume] の形式に変換
+        // Convert {trial, hypervolume} objects to [trial, hypervolume] pairs
         data: data.map((d) => [d.trial, d.hypervolume]),
       },
     ],
@@ -59,7 +55,6 @@ export function HypervolumeHistory({ data }: HypervolumeHistoryProps) {
     },
   };
 
-  // 【ECharts レンダリング】: ReactECharts に option を渡す 🟢
   return (
     <ReactECharts
       option={option}

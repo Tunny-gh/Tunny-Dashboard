@@ -1,11 +1,11 @@
 /**
- * ObjectivePairMatrix — N×N目的ペア行列 (TASK-502)
+ * ObjectivePairMatrix — N×N objective pair matrix (TASK-502)
  *
- * 【役割】: 目的関数間の散布図行列を表示する
- *         - 対角セル: 1D分布ヒストグラム（目的名ラベル）
- *         - 下三角セル: 2D散布図（deck.gl ScatterplotLayer）
- * 【設計方針】: gpuBuffer と currentStudy を props で受け取り、直接描画する
- * 🟢 REQ-070, REQ-075 に準拠
+ * Displays a scatter matrix of objective pairs:
+ *   - Diagonal cells: 1D distribution histogram (objective name label)
+ *   - Lower-triangle cells: 2D scatter plot (deck.gl ScatterplotLayer)
+ *
+ * Conforms to REQ-070, REQ-075.
  */
 
 import { DeckGL, ScatterplotLayer } from 'deck.gl';
@@ -13,41 +13,40 @@ import type { GpuBuffer } from '../../wasm/gpuBuffer';
 import type { Study } from '../../types';
 
 // -------------------------------------------------------------------------
-// Props 型定義
+// Props types
 // -------------------------------------------------------------------------
 
-/**
- * 【Props】: ObjectivePairMatrix コンポーネントのプロパティ
- */
 export interface ObjectivePairMatrixProps {
-  /** 🟢 GPU バッファ — null のとき散布図セルは空表示 */
+  /** GPU buffer — scatter cells show a placeholder when null */
   gpuBuffer: GpuBuffer | null;
-  /** 🟢 現在の Study — 目的名・目的数の取得用 */
+  /** Current study — used to obtain objective names and count */
   currentStudy: Study | null;
   /**
-   * 【セルクリックコールバック】: セル選択時に xAxisName, yAxisName を通知する
-   * 🟢 呼び出し元（AppShell 等）が 3D ビューの軸割り当てに使用する
+   * Cell click callback: notifies the caller of the selected xAxisName and yAxisName.
+   * Used by AppShell (etc.) to assign axes in the 3D view.
    */
   onCellClick?: (xAxisName: string, yAxisName: string) => void;
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 目的ペアごとの散布図行列コンポーネント
- * 【グリッド構造】:
- *   - 対角 (row === col): 目的名ラベル / ヒストグラムプレースホルダー
- *   - 下三角 (row > col): deck.gl ScatterplotLayer による 2D 散布図
- *   - 上三角 (row < col): 空セル（将来的に統計情報を表示予定）
- * 【表示制御】:
- *   - 1目的以下: null を返しコンポーネント自体を非表示にする
- *   - currentStudy=null: 「データが読み込まれていません」を表示
- * 【テスト対応】: TC-502-01〜04, TC-502-E01〜E02
+ * Scatter matrix for each pair of objectives.
+ *
+ * Grid structure:
+ *   - Diagonal (row === col): objective name label / histogram placeholder
+ *   - Lower triangle (row > col): 2D scatter via deck.gl ScatterplotLayer
+ *   - Upper triangle (row < col): empty (reserved for future statistics)
+ *
+ * Visibility rules:
+ *   - 1 or fewer objectives: returns null (component hidden)
+ *   - currentStudy=null: shows "データが読み込まれていません"
+ *
+ * Corresponds to TC-502-01–04, TC-502-E01–E02.
  */
 export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: ObjectivePairMatrixProps) {
-  // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
@@ -59,22 +58,22 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
   const { objectiveNames } = currentStudy;
   const n = objectiveNames.length;
 
-  // 【1目的以下】: ペア行列が意味をなさないため非表示にする 🟢
+  // Hide the matrix when there is only one objective
   if (n <= 1) return null;
 
   // -------------------------------------------------------------------------
-  // セル生成
+  // Cell generation
   // -------------------------------------------------------------------------
 
   /**
-   * 【セル配列生成】: n×n の全セルをフラット配列として生成する
-   * インデックス変換: row = Math.floor(idx / n), col = idx % n
+   * Generate all n×n cells as a flat array.
+   * Index mapping: row = Math.floor(idx / n), col = idx % n
    */
   const cells = Array.from({ length: n * n }, (_, idx) => {
     const row = Math.floor(idx / n);
     const col = idx % n;
-    const xAxis = objectiveNames[col]; // 【x軸】: 列方向の目的名
-    const yAxis = objectiveNames[row]; // 【y軸】: 行方向の目的名
+    const xAxis = objectiveNames[col]; // column → x-axis
+    const yAxis = objectiveNames[row]; // row → y-axis
 
     return (
       <div
@@ -90,7 +89,7 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
         }}
       >
         {row === col ? (
-          // 【対角セル】: 目的名ラベル（将来的に 1D ヒストグラムを表示） 🟢
+          // Diagonal cell: objective name label (1D histogram planned for future)
           <div
             style={{
               display: 'flex',
@@ -107,7 +106,7 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
             {objectiveNames[row]}
           </div>
         ) : row > col ? (
-          // 【下三角セル】: deck.gl ScatterplotLayer による 2D 散布図 🟢
+          // Lower-triangle cell: 2D scatter via deck.gl ScatterplotLayer
           gpuBuffer ? (
             <DeckGL
               layers={[
@@ -119,7 +118,7 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
                     gpuBuffer.positions[index * 2 + 1],
                     0,
                   ],
-                  getColor: [79, 70, 229, 180], // 【配色】: インジゴ系（半透明）
+                  getColor: [79, 70, 229, 180], // Indigo, semi-transparent
                   getRadius: 3,
                   pickable: false,
                 }),
@@ -128,7 +127,7 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
               style={{ width: '100%', height: '100%' }}
             />
           ) : (
-            // 【データなし】: gpuBuffer 未ロード時はプレースホルダーを表示
+            // Placeholder shown when gpuBuffer is not yet loaded
             <div
               style={{
                 display: 'flex',
@@ -143,7 +142,7 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
             </div>
           )
         ) : (
-          // 【上三角セル】: 現在は空（将来的に統計情報を表示予定）
+          // Upper-triangle cell: currently empty (reserved for future statistics)
           null
         )}
       </div>
@@ -151,11 +150,11 @@ export function ObjectivePairMatrix({ gpuBuffer, currentStudy, onCellClick }: Ob
   });
 
   // -------------------------------------------------------------------------
-  // レンダリング
+  // Render
   // -------------------------------------------------------------------------
 
   return (
-    // 【グリッドコンテナ】: n×n CSS Grid レイアウト 🟢
+    // n×n CSS Grid layout
     <div
       data-testid="objective-pair-matrix"
       style={{

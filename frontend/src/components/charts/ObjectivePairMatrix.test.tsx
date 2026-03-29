@@ -1,18 +1,17 @@
 /**
- * ObjectivePairMatrix テスト (TASK-502)
+ * ObjectivePairMatrix tests (TASK-502)
  *
- * 【テスト対象】: ObjectivePairMatrix — N×N目的ペア行列（対角: ヒストグラム、下三角: 2D散布図）
- * 【テスト方針】: deck.gl をvi.mockでモック、props直接渡しでテスト
+ * Target: ObjectivePairMatrix — N×N objective pair matrix (diagonal: histogram, lower triangle: 2D scatter)
+ * Strategy: mock deck.gl with vi.mock; inject props directly
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 // -------------------------------------------------------------------------
-// deck.gl モック — WebGL不要のダミーコンポーネント
+// deck.gl mock — dummy components that do not require WebGL
 // -------------------------------------------------------------------------
 
-// 【deck.gl モック】: jsdom 環境でWebGLなしにレンダリング可能にする 🟢
 vi.mock('deck.gl', () => ({
   DeckGL: vi.fn(({ children }: { children?: unknown }) => (
     <div data-testid="deck-gl">{children as never}</div>
@@ -32,10 +31,10 @@ import type { GpuBuffer } from '../../wasm/gpuBuffer';
 import type { Study } from '../../types';
 
 // -------------------------------------------------------------------------
-// テストヘルパー
+// Test helpers
 // -------------------------------------------------------------------------
 
-/** 【ヘルパー】: テスト用 GpuBuffer スタブを生成する */
+/** Creates a GpuBuffer stub for testing */
 function makeGpuBuffer(): GpuBuffer {
   return {
     trialCount: 3,
@@ -48,7 +47,7 @@ function makeGpuBuffer(): GpuBuffer {
   } as unknown as GpuBuffer;
 }
 
-/** 【ヘルパー】: 4目的のテスト用 Study を生成する */
+/** Creates a test Study with 4 objectives */
 function makeStudy4(): Study {
   return {
     studyId: 1,
@@ -63,7 +62,7 @@ function makeStudy4(): Study {
   };
 }
 
-/** 【ヘルパー】: 2目的のテスト用 Study を生成する */
+/** Creates a test Study with 2 objectives */
 function makeStudy2(): Study {
   return {
     studyId: 2,
@@ -78,7 +77,7 @@ function makeStudy2(): Study {
   };
 }
 
-/** 【ヘルパー】: 1目的のテスト用 Study を生成する */
+/** Creates a test Study with 1 objective */
 function makeStudy1(): Study {
   return {
     studyId: 3,
@@ -94,7 +93,7 @@ function makeStudy1(): Study {
 }
 
 // -------------------------------------------------------------------------
-// 正常系
+// Happy path
 // -------------------------------------------------------------------------
 
 describe('ObjectivePairMatrix — 正常系', () => {
@@ -106,27 +105,23 @@ describe('ObjectivePairMatrix — 正常系', () => {
     cleanup();
   });
 
-  // TC-502-01: 4目的でエラーなくレンダリング
+  // TC-502-01: renders without error with 4 objectives
   test('TC-502-01: ObjectivePairMatrix が4目的でエラーなくレンダリングされる', () => {
-    // 【テスト目的】: 4目的のStudyで正常にレンダリングできること 🟢
     expect(() =>
       render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy4()} />),
     ).not.toThrow();
   });
 
-  // TC-502-02: 4目的で4×4グリッド（16セル）
+  // TC-502-02: 4 objectives produce a 4×4 grid (16 cells)
   test('TC-502-02: 4目的のとき4×4グリッド（16セル）が表示される', () => {
-    // 【テスト目的】: objectiveNames.length=4 で 16 個のセルが生成されること 🟢
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy4()} />);
 
-    // 【確認内容】: data-testid="matrix-cell-{row}-{col}" が 16 個存在すること
     const cells = screen.getAllByTestId(/^matrix-cell-/);
     expect(cells).toHaveLength(16);
   });
 
-  // TC-502-03: セルクリックでonCellClickが呼ばれる
+  // TC-502-03: cell click fires onCellClick with correct axis names
   test('TC-502-03: セルクリックでonCellClickが正しい軸名で呼ばれる', () => {
-    // 【テスト目的】: セルクリックが xAxis/yAxis 名で onCellClick に連携されること 🟢
     const onCellClick = vi.fn();
     render(
       <ObjectivePairMatrix
@@ -136,27 +131,24 @@ describe('ObjectivePairMatrix — 正常系', () => {
       />,
     );
 
-    // 【処理実行】: row=1, col=0 のセルをクリック → xAxis='f1', yAxis='f2'
+    // Click cell at row=1, col=0 → xAxis='f1', yAxis='f2'
     const cell = screen.getByTestId('matrix-cell-1-0');
     fireEvent.click(cell);
 
-    // 【確認内容】: onCellClick が ('f1', 'f2') で呼ばれた 🟢
     expect(onCellClick).toHaveBeenCalledWith('f1', 'f2');
   });
 
-  // TC-502-04: 2目的で2×2グリッド（4セル）
+  // TC-502-04: 2 objectives produce a 2×2 grid (4 cells)
   test('TC-502-04: 2目的のとき2×2グリッド（4セル）が表示される', () => {
-    // 【テスト目的】: objectiveNames.length=2 で 4 個のセルが生成されること 🟢
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy2()} />);
 
-    // 【確認内容】: data-testid="matrix-cell-{row}-{col}" が 4 個存在すること
     const cells = screen.getAllByTestId(/^matrix-cell-/);
     expect(cells).toHaveLength(4);
   });
 });
 
 // -------------------------------------------------------------------------
-// 異常系
+// Error cases
 // -------------------------------------------------------------------------
 
 describe('ObjectivePairMatrix — 異常系', () => {
@@ -164,21 +156,17 @@ describe('ObjectivePairMatrix — 異常系', () => {
     cleanup();
   });
 
-  // TC-502-E01: 1目的でコンポーネントが非表示
+  // TC-502-E01: 1 objective hides the component
   test('TC-502-E01: 1目的のときコンポーネントが非表示になる', () => {
-    // 【テスト目的】: 1目的以下の場合は行列を表示しないこと 🟢
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={makeStudy1()} />);
 
-    // 【確認内容】: objective-pair-matrix コンテナが存在しないこと
     expect(screen.queryByTestId('objective-pair-matrix')).not.toBeInTheDocument();
   });
 
-  // TC-502-E02: currentStudy=null で空状態UI
+  // TC-502-E02: currentStudy=null shows empty state
   test('TC-502-E02: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
-    // 【テスト目的】: Study なし時に適切な空状態UIが表示されること 🟢
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={null} />);
 
-    // 【確認内容】: 空状態メッセージが表示されること
     expect(screen.getByText('データが読み込まれていません')).toBeInTheDocument();
   });
 });

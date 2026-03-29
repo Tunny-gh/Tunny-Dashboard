@@ -1,13 +1,13 @@
 /**
- * Tunny Dashboard - TypeScript型定義
- * WASM側との境界契約・Zustand Store・UIコンポーネントのprops定義
+ * Tunny Dashboard - TypeScript type definitions
+ * Boundary contract with WASM, Zustand stores, and UI component props
  */
 
 // =============================================================================
-// コアエンティティ
+// Core entities
 // =============================================================================
 
-/** Optuna Study のメタ情報 */
+/** Optuna Study metadata */
 export interface Study {
   studyId: number;
   name: string;
@@ -22,7 +22,7 @@ export interface Study {
 
 export type OptimizationDirection = 'minimize' | 'maximize';
 
-/** getTrials() WASM メソッドが返す per-trial データ */
+/** Per-trial data returned by the getTrials() WASM method */
 export interface TrialData {
   trialId: number;
   params: Record<string, number>;
@@ -30,7 +30,7 @@ export interface TrialData {
   paretoRank: number | null;
 }
 
-/** 1試行分のデータ（Bottom Table表示用） */
+/** Single trial data (for the bottom table display) */
 export interface Trial {
   trialId: number;
   state: TrialState;
@@ -45,7 +45,7 @@ export interface Trial {
 
 export type TrialState = 'COMPLETE' | 'RUNNING' | 'PRUNED' | 'FAIL';
 
-/** WASM DataFrame の列情報（JS側が認識するメタデータ） */
+/** Column metadata of the WASM DataFrame (as recognized by the JS side) */
 export interface DataFrameInfo {
   rowCount: number;
   columnNames: string[];
@@ -53,10 +53,10 @@ export interface DataFrameInfo {
   objectiveColumns: string[];
   userAttrColumns: string[];
   constraintColumns: string[];
-  derivedColumns: string[]; // is_feasible, constraint_sum, pareto_rank, cluster_id
+  derivedColumns: string[]; // is_feasible, constraint_sum, pareto_rank, cluster_id (derived)
 }
 
-/** 配布の逆変換に使用する分布情報 */
+/** Distribution info used for inverse transformation */
 export type Distribution =
   | { type: 'FloatDistribution'; low: number; high: number; log: boolean }
   | { type: 'IntDistribution'; low: number; high: number; step: number; log: boolean }
@@ -64,15 +64,15 @@ export type Distribution =
   | { type: 'UniformDistribution'; low: number; high: number };
 
 // =============================================================================
-// GPU バッファ
+// GPU buffers
 // =============================================================================
 
-/** WebGL描画用のGPUバッファ群 */
+/** GPU buffer set for WebGL rendering */
 export interface GpuBuffers {
-  positions: Float32Array;  // x, y座標 (N × 2)
-  positions3d: Float32Array; // x, y, z座標 (N × 3)（3D Pareto用）
+  positions: Float32Array;  // x, y coordinates (N × 2)
+  positions3d: Float32Array; // x, y, z coordinates (N × 3) — for 3D Pareto
   colors: Float32Array;     // r, g, b, a (N × 4)
-  sizes: Float32Array;      // 点サイズ (N × 1)
+  sizes: Float32Array;      // point sizes (N × 1)
   trialCount: number;
 }
 
@@ -80,15 +80,15 @@ export interface GpuBuffers {
 // Zustand Stores
 // =============================================================================
 
-/** Brushing & Linking 中核Store（spec Section 6より） */
+/** Core brushing & linking store (spec Section 6) */
 export interface SelectionStore {
-  // 状態
+  // State
   selectedIndices: Uint32Array;
   filterRanges: Record<string, Range>;
   highlighted: number | null;
   colorMode: ColorMode;
 
-  // アクション
+  // Actions
   brushSelect: (indices: Uint32Array) => void;
   addAxisFilter: (axis: string, min: number, max: number) => void;
   removeAxisFilter: (axis: string) => void;
@@ -104,16 +104,16 @@ export interface Range {
   max: number;
 }
 
-/** Study管理Store */
+/** Study management store */
 export interface StudyStore {
-  // 状態
+  // State
   currentStudy: Study | null;
   allStudies: Study[];
   studyMode: StudyMode;
   isLoading: boolean;
   loadError: string | null;
 
-  // アクション
+  // Actions
   loadJournal: (file: File) => Promise<void>;
   selectStudy: (studyId: number) => void;
   setComparisonStudies: (studyIds: number[]) => void;
@@ -122,15 +122,15 @@ export interface StudyStore {
 
 export type StudyMode = 'single-objective' | 'multi-objective';
 
-/** レイアウト管理Store */
+/** Layout management store */
 export interface LayoutStore {
-  // 状態
+  // State
   layoutMode: LayoutMode;
   visibleCharts: Set<ChartId>;
   panelSizes: PanelSizes;
   freeModeLayout: FreeModeLayout | null;
 
-  // アクション
+  // Actions
   setLayoutMode: (mode: LayoutMode) => void;
   toggleChart: (chartId: ChartId) => void;
   saveLayout: () => LayoutConfig;
@@ -151,15 +151,15 @@ export type ChartId =
   | 'sensitivity-heatmap'
   | 'cluster-view'
   | 'umap'
-  // 🟢 optuna-dashboard 相当の追加チャート（Python 不要）
-  | 'slice'    // Slice Plot: パラメータ vs 目的関数値 scatter
-  | 'edf'      // EDF: 経験累積分布関数 (Empirical Distribution Function)
-  | 'contour'; // Contour Plot: 2パラメータ相関（実点散布のみ、ML 補間は Python 必須）
-// 🔴 未実装（データ拡張が必要）:
-//   'timeline'            — Trial.datetime_start/datetime_complete が必要
-//                           Optuna Journal には記録されているが WASM パーサの拡張が必要
-//   'intermediate-values' — Trial.intermediate_values が必要
-//                           PRUNED 試行の途中値は Journal に含まれるが WASM パーサ未対応
+  // Additional charts equivalent to optuna-dashboard (no Python required)
+  | 'slice'    // Slice Plot: parameter vs objective value scatter
+  | 'edf'      // EDF: Empirical Distribution Function
+  | 'contour'; // Contour Plot: 2-parameter correlation (scatter only; ML interpolation requires Python)
+// Not yet implemented (requires data extension):
+//   'timeline'            — needs Trial.datetime_start/datetime_complete
+//                           recorded in Optuna Journal but WASM parser extension required
+//   'intermediate-values' — needs Trial.intermediate_values
+//                           PRUNED trial intermediate values are in the Journal but not yet parsed by WASM
 
 export interface PanelSizes {
   leftPanel: number;
@@ -168,7 +168,7 @@ export interface PanelSizes {
 
 export interface FreeModeLayout {
   cells: Array<{
-    /** セルの一意識別子。カタログからの追加時は crypto.randomUUID() で生成。デフォルトレイアウトは chartId と同一。 */
+    /** Unique cell identifier. Generated via crypto.randomUUID() when added from the catalog; equals chartId in default layouts. */
     cellId: string;
     chartId: ChartId;
     gridRow: [number, number];
@@ -183,17 +183,17 @@ export interface LayoutConfig {
   freeModeLayout: FreeModeLayout | null;
 }
 
-/** クラスタリングStore */
+/** Clustering store */
 export interface ClusterStore {
-  // 状態
+  // State
   clusterConfig: ClusterConfig;
-  clusterLabels: Int32Array | null;       // 各trialのクラスタID (-1 = noise)
+  clusterLabels: Int32Array | null;       // cluster ID per trial (-1 = noise)
   clusterStats: ClusterStats[] | null;
   elbowData: ElbowData | null;
   isRunning: boolean;
-  progress: number; // 0〜1
+  progress: number; // 0–1
 
-  // アクション
+  // Actions
   setClusterConfig: (config: Partial<ClusterConfig>) => void;
   runClustering: () => Promise<void>;
   selectCluster: (clusterId: number | null) => void;
@@ -215,7 +215,7 @@ export interface ClusterStats {
   size: number;
   centroid: Record<string, number>;
   std: Record<string, number>;
-  significantDiffs: string[]; // 全体平均との差異が大きい変数名
+  significantDiffs: string[]; // variables with large deviation from the overall mean
 }
 
 export interface ElbowData {
@@ -224,9 +224,9 @@ export interface ElbowData {
   recommendedK: number;
 }
 
-/** 分析（感度・PDP）Store */
+/** Analysis (sensitivity / PDP) store */
 export interface AnalysisStore {
-  // 状態
+  // State
   sensitivityResult: SensitivityResult | null;
   sensitivityMetric: SensitivityMetric;
   pdpCache: Map<string, PDPResult>; // key = `${paramName}_${objectiveName}`
@@ -234,7 +234,7 @@ export interface AnalysisStore {
   isComputingSensitivity: boolean;
   isComputingMic: boolean;
 
-  // アクション
+  // Actions
   computeSensitivity: () => Promise<void>;
   computePDP: (paramName: string, objectiveName: string) => Promise<PDPResult>;
   loadOnnxModel: (file: File, objectiveName: string) => Promise<void>;
@@ -246,22 +246,22 @@ export type SensitivityMetric = 'spearman' | 'beta' | 'mic' | 'rf_importance' | 
 
 export interface SensitivityResult {
   metric: SensitivityMetric;
-  /** matrix[paramIdx][objectiveIdx] = 係数値 */
+  /** matrix[paramIdx][objectiveIdx] = coefficient value */
   matrix: number[][];
   paramNames: string[];
   objectiveNames: string[];
-  r2: number[] | null; // 目的関数ごとのR²（Layer 1-C）
+  r2: number[] | null; // R² per objective (Layer 1-C)
 }
 
 export interface PDPResult {
   paramName: string;
   objectiveName: string;
-  gridPoints: number[];       // x軸: 変数値グリッド（50点）
-  pdpValues: number[];         // PDP曲線
-  confidenceLow: number[];     // 95%CI下限
-  confidenceHigh: number[];    // 95%CI上限
-  iceLines: number[][] | null; // ICE個別軌跡（最大100本）
-  rugValues: number[];         // 実サンプル値（rug表示用）
+  gridPoints: number[];       // x-axis: variable value grid (50 points)
+  pdpValues: number[];         // PDP curve
+  confidenceLow: number[];     // 95% CI lower bound
+  confidenceHigh: number[];    // 95% CI upper bound
+  iceLines: number[][] | null; // ICE individual trajectories (up to 100)
+  rugValues: number[];         // actual sample values (for rug display)
   modelType: 'ridge' | 'random_forest';
 }
 
@@ -272,13 +272,13 @@ export interface ModelQuality {
   quality: 'good' | 'warning' | 'poor';
 }
 
-/** エクスポート・セッションStore */
+/** Export & session store */
 export interface ExportStore {
-  // 状態
+  // State
   pinnedTrials: PinnedTrial[];
   sessionState: SessionState | null;
 
-  // アクション
+  // Actions
   pinTrial: (trialId: number, note?: string) => void;
   unpinTrial: (trialId: number) => void;
   exportCsv: (config: CsvExportConfig) => Promise<void>;
@@ -292,7 +292,7 @@ export interface ExportStore {
 export interface PinnedTrial {
   trialId: number;
   note: string;
-  pinnedAt: number; // timestamp
+  pinnedAt: number; // Unix timestamp
 }
 
 export interface CsvExportConfig {
@@ -325,70 +325,70 @@ export type ReportSection =
   | 'pinned-trials'
   | 'scatter-matrix';
 
-/** ライブ更新Store */
+/** Live update store */
 export interface LiveUpdateStore {
-  // 状態
+  // State
   isLive: boolean;
-  pollInterval: number; // 秒
-  lastUpdated: number | null; // timestamp
+  pollInterval: number; // seconds
+  lastUpdated: number | null; // Unix timestamp
   newTrialCount: number;
   recentUpdates: Array<{ count: number; timestamp: number }>;
 
-  // アクション
+  // Actions
   toggleLive: () => Promise<void>;
   setPollInterval: (seconds: number) => void;
 }
 
 // =============================================================================
-// WASM境界の型（wasm-bindgen経由で受け取る値）
+// WASM boundary types (values received via wasm-bindgen)
 // =============================================================================
 
-/** WASM parse_journal() の戻り値 */
+/** Return value of WASM parse_journal() */
 export interface ParseJournalResult {
   studies: Study[];
   durationMs: number;
 }
 
-/** WASM filter_by_ranges() の戻り値 */
+/** Return value of WASM filter_by_ranges() */
 export interface FilterResult {
   selectedIndices: Uint32Array;
   selectedCount: number;
   durationMs: number;
 }
 
-/** WASM compute_pareto_ranks() の戻り値 */
+/** Return value of WASM compute_pareto_ranks() */
 export interface ParetoResult {
-  ranks: Uint32Array;        // 各trialのParetoランク (0 = 非Pareto対象外)
-  paretoIndices: Uint32Array; // Rank1のtrial_idのインデックス
+  ranks: Uint32Array;        // Pareto rank per trial (0 = not on Pareto front)
+  paretoIndices: Uint32Array; // indices of rank-1 trial IDs
   hypervolume: number | null;
   durationMs: number;
 }
 
-/** WASM run_kmeans() の戻り値 */
+/** Return value of WASM run_kmeans() */
 export interface KmeansResult {
-  labels: Int32Array;         // 各trialのクラスタラベル
+  labels: Int32Array;         // cluster label per trial
   centroids: number[][];      // [k][dims]
   wcss: number;
   silhouetteScore: number | null;
   durationMs: number;
 }
 
-/** WASM compute_spearman() の戻り値 */
+/** Return value of WASM compute_spearman() */
 export interface SpearmanResult {
-  matrix: Float64Array; // flattenedの [nParams × nObjectives]
+  matrix: Float64Array; // flattened [nParams × nObjectives]
   paramNames: string[];
   objectiveNames: string[];
   durationMs: number;
 }
 
-/** WASM compute_ridge() の戻り値 */
+/** Return value of WASM compute_ridge() */
 export interface RidgeResult {
   betaMatrix: Float64Array; // [nParams × nObjectives]
   r2Values: Float64Array;   // [nObjectives]
   durationMs: number;
 }
 
-/** WASM compute_pdp() の戻り値 */
+/** Return value of WASM compute_pdp() */
 export interface PdpRawResult {
   gridPoints: Float64Array;
   pdpValues: Float64Array;
@@ -399,7 +399,7 @@ export interface PdpRawResult {
 }
 
 // =============================================================================
-// アーティファクト
+// Artifacts
 // =============================================================================
 
 export interface ArtifactMeta {
@@ -411,16 +411,16 @@ export interface ArtifactMeta {
 
 export type ArtifactType = 'image' | 'csv' | 'text' | 'json' | 'audio' | 'video' | 'other';
 
-/** アーティファクトビューア表示用 */
+/** Data for the artifact viewer display */
 export interface ArtifactViewItem {
   meta: ArtifactMeta;
   type: ArtifactType;
-  url: string | null; // ObjectURL（読み込み後に設定）
+  url: string | null; // ObjectURL (set after loading)
   trial: Trial;
 }
 
 // =============================================================================
-// 複数Study比較
+// Multi-study comparison
 // =============================================================================
 
 export type ComparisonMode = 'overlay' | 'side-by-side' | 'diff';
@@ -434,7 +434,7 @@ export interface ComparisonConfig {
 export interface StudyComparisonResult {
   mainStudyId: number;
   comparisonStudyId: number;
-  canComparePareto: boolean; // 目的数・方向が一致するか
+  canComparePareto: boolean; // true if objective count and directions match
   warningMessage: string | null;
   paretoDominanceRatio: {
     mainDominatesComparison: number; // %

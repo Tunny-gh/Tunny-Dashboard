@@ -1,14 +1,10 @@
 /**
- * ArtifactViewer — trial ごとのアーティファクト詳細表示 (TASK-1301)
+ * ArtifactViewer — per-trial artifact detail viewer (TASK-1301)
  *
- * 【役割】: 選択した trial のアーティファクトを種別に応じて表示する
- * 【設計方針】:
- *   - 画像: サムネイル + クリックでライトボックス拡大 🟢 REQ-141
- *   - CSV: テーブル表示（先頭 20 行）🟢 REQ-142
- *   - その他: ダウンロードリンク 🟢 REQ-143
- *   - ローディング中: グレープレースホルダー 🟢 REQ-144
- *   - ディレクトリ未選択 / アーティファクトなし: 非表示 🟢 REQ-140
- * 🟢 REQ-140〜REQ-144 に準拠
+ * Renders artifacts for the selected trial by type:
+ * images as thumbnails with lightbox, CSV as a table (first 20 rows),
+ * other files as download links. Shows a grey placeholder while loading.
+ * Hidden when no directory is selected or the trial has no artifacts.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -16,22 +12,21 @@ import { useArtifactStore, getMimeTypeCategory } from '../../stores/artifactStor
 import type { Trial, ArtifactType } from '../../types';
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【CSV テーブル最大行数】 */
 const MAX_CSV_ROWS = 20;
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
 interface ArtifactViewerProps {
-  /** 表示する試行 */
+  /** Trial to display */
   trial: Trial;
 }
 
-/** アーティファクトアイテムの内部状態 */
+/** Internal state for a single artifact item */
 interface ArtifactItem {
   artifactId: string;
   filename: string;
@@ -41,12 +36,8 @@ interface ArtifactItem {
 }
 
 // -------------------------------------------------------------------------
-// CSV テーブル表示コンポーネント
+// CSV preview component
 // -------------------------------------------------------------------------
-
-/**
- * 【CSV テーブル】: テキストを CSV としてパースしてテーブル表示する
- */
 const CsvPreview: React.FC<{ url: string }> = ({ url }) => {
   const [rows, setRows] = useState<string[][]>([]);
   const [isLoading, setIsLoading] = useState(true);

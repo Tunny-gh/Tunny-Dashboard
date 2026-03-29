@@ -37,3 +37,4 @@ frontend/src/wasm/pkg/
 # Rust artifacts
 rust_core/target/
 rust_core/Cargo.lock
+node_modules/

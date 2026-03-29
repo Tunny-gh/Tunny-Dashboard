@@ -1,75 +1,74 @@
 /**
- * EdfPlot — 経験累積分布関数チャート (Optuna-Dashboard EDF 相当)
+ * EdfPlot — Empirical Cumulative Distribution Function chart (equivalent to Optuna-Dashboard EDF)
  *
- * 【役割】: 目的関数値の経験的累積分布関数 (EDF / ECDF) を折れ線で可視化する
- * 【設計方針】:
- *   - computeEdf() で昇順ソート → 累積確率を計算（純粋関数・テスト容易）
- *   - 複数の目的関数を同時比較可能（多目的最適化での比較に有用）
- *   - ECharts の step: 'end' で CDF の階段グラフを表現
- * 🟢 optuna-dashboard の plot_edf と同等機能（Python 不要）
+ * Visualizes the empirical CDF of objective values as a step line.
+ *
+ * Design:
+ *   - computeEdf() sorts ascending and computes cumulative probability (pure function, easy to test)
+ *   - Supports multiple objectives simultaneously (useful for multi-objective comparison)
+ *   - ECharts step: 'end' represents the staircase shape of a CDF
  */
 
 import ReactECharts from 'echarts-for-react';
 import { EmptyState } from '../common/EmptyState';
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
-/** 【シリーズ型】: 1目的関数分の EDF データ */
+/** EDF data for one objective */
 export interface EdfSeries {
-  /** 目的関数名（凡例ラベルとして表示） */
+  /** Objective name (shown as legend label) */
   name: string;
-  /** 目的関数値リスト（未ソートでよい） */
+  /** Objective values (unsorted is fine) */
   values: number[];
 }
 
-/** 【Props 型】 */
+/** Props */
 export interface EdfPlotProps {
-  /** 表示するシリーズ一覧（多目的は複数渡す） */
+  /** Series to display (pass multiple for multi-objective) */
   series: EdfSeries[];
 }
 
 // -------------------------------------------------------------------------
-// 純粋関数
+// Pure functions
 // -------------------------------------------------------------------------
 
 /**
- * 【EDF 計算】: 値リストから経験累積分布関数の座標列を生成する
- * 【処理フロー】:
- *   1. 昇順ソート
- *   2. 各点の累積確率 = (順位 / 総数) を計算
- * @param values - 目的関数値リスト（順不同）
- * @returns [値, 累積確率] のペアリスト
+ * Compute empirical CDF coordinates from a list of values.
+ *
+ * Steps:
+ *   1. Sort ascending
+ *   2. Cumulative probability of each point = rank / total
+ *
+ * @param values - Objective values (any order)
+ * @returns Array of [value, cumulative probability] pairs
  */
 export function computeEdf(values: number[]): [number, number][] {
-  // 【空チェック】: 空配列は空を返す
   if (values.length === 0) return [];
 
-  // 【昇順ソート】: 元配列を破壊しないようコピーしてソート
+  // Sort without mutating the original array
   const sorted = [...values].sort((a, b) => a - b);
   const n = sorted.length;
 
-  // 【CDF 計算】: i 番目（1始まり）の累積確率 = i / n
+  // Cumulative probability for the i-th point (1-based) = i / n
   return sorted.map((v, i) => [v, (i + 1) / n]);
 }
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: 目的関数値の経験累積分布関数を step 折れ線で描画
- * 【データフロー】: series → computeEdf() → ECharts line series (step: 'end')
- * 【多目的対応】: series を複数渡すことで複数ラインを同一チャートに表示
+ * Draws the empirical CDF of objective values as a step line.
+ * Pass multiple series to display several lines on the same chart.
  */
 export function EdfPlot({ series }: EdfPlotProps) {
-  // 【空状態チェック】: シリーズなし or 全シリーズが空値の場合はプレースホルダー表示
+  // Show empty state when there are no series or all series have no values
   if (series.length === 0 || series.every((s) => s.values.length === 0)) {
     return <EmptyState />;
   }
 
-  // 【ECharts オプション構築】: step line で CDF を表現
   const option = {
     tooltip: {
       trigger: 'axis',
@@ -93,13 +92,12 @@ export function EdfPlot({ series }: EdfPlotProps) {
       min: 0,
       max: 1,
     },
-    // 【各シリーズ】: computeEdf で計算した CDF データを step 折れ線で表示
     series: series.map((s) => ({
       name: s.name,
       type: 'line',
-      step: 'end',   // 【CDF らしい表現】: 各点を水平線でつなぐ
+      step: 'end',   // Horizontal segments give the CDF staircase appearance
       data: computeEdf(s.values),
-      symbolSize: 0, // 点を非表示にして折れ線のみ表示
+      symbolSize: 0, // Hide point markers, show line only
     })),
   };
 

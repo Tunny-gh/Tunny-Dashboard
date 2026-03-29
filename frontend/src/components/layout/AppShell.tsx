@@ -1,9 +1,9 @@
 /**
- * AppShell — 4エリア CSS Grid レイアウトのアプリ骨格 (TASK-401)
+ * AppShell — 4-area CSS Grid application skeleton (TASK-401)
  *
- * 【役割】: ToolBar / LeftPanel / MainCanvas / BottomPanel の4エリアを管理
- * 【設計方針】: layoutStore のモードに応じてグリッドを切り替え
- * 🟢 ファイルドラッグ&ドロップ → studyStore.loadJournal() を呼び出す
+ * Manages the ToolBar, LeftPanel, MainCanvas, and BottomPanel areas.
+ * Grid layout switches based on the current layoutStore mode.
+ * File drag-and-drop triggers studyStore.loadJournal().
  */
 
 import { useStudyStore } from '../../stores/studyStore';
@@ -16,41 +16,37 @@ import { ChartCatalogPanel } from './ChartCatalogPanel';
 import type { DragEvent } from 'react';
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: アプリケーション全体の CSS Grid レイアウト骨格
- * 【Brushing連携】: なし（ToolBar・Panel は各自 Store に接続）
- * 【テスト対応】: TC-401-01, TC-401-02, TC-401-E01
+ * CSS Grid skeleton for the whole application. TC-401-01, TC-401-02, TC-401-E01
  */
 export function AppShell() {
-  // 【Store接続】: layoutMode と loadJournal を取得 🟢
+  // Read layoutMode and loadJournal from their respective stores
   const layoutMode = useLayoutStore((s) => s.layoutMode);
   const loadJournal = useStudyStore((s) => s.loadJournal);
   const isLoading = useStudyStore((s) => s.isLoading);
 
   /**
-   * 【dragOver ハンドラ】: ファイルドロップを有効にするために preventDefault 🟢
+   * Prevents the default browser behavior to allow file drop.
    */
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
 
   /**
-   * 【drop ハンドラ】: ドロップされたファイルを loadJournal に渡す
-   * 【ファイル検証】: 最初のファイルのみを使用（複数ドロップは無視）
+   * Passes the first dropped file to loadJournal. Multiple files are ignored.
    */
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (file) {
-      // 【Journal読み込み開始】: fire-and-forget で非同期実行
+      // fire-and-forget async load
       void loadJournal(file);
     }
   };
 
-  // 【レンダリング】: 4エリア CSS Grid レイアウト 🟢
   return (
     <div
       data-testid="app-shell"
@@ -65,30 +61,30 @@ export function AppShell() {
         width: '100vw',
       }}
     >
-      {/* 【ToolBar エリア】: 全幅で最上部に配置 */}
+      {/* ToolBar area: full width, top row */}
       <div style={{ gridColumn: '1 / 4' }}>
         <ToolBar />
       </div>
 
-      {/* 【LeftPanel エリア】: 左側パネル */}
+      {/* Left panel area */}
       <div data-testid="left-panel" style={{ width: '260px', overflowY: 'auto', borderRight: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
         <LeftPanel />
       </div>
 
-      {/* 【MainCanvas エリア】: メインの描画エリア */}
+      {/* Main canvas area */}
       <div data-testid="main-canvas" style={{ overflow: 'hidden', position: 'relative', height: '100%' }}>
         <FreeLayoutCanvas />
       </div>
 
-      {/* 【ChartCatalogPanel エリア】: 右側収納可能チャートカタログ */}
+      {/* Chart catalog panel: collapsible, right side */}
       <ChartCatalogPanel />
 
-      {/* 【BottomPanel エリア】: 全幅で最下部に配置 */}
+      {/* Bottom panel area: full width, bottom row */}
       <div data-testid="bottom-panel" style={{ gridColumn: '1 / 4', height: '220px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
         <BottomPanel />
       </div>
 
-      {/* 【ローディングインジケータ】: isLoading=true のとき表示 🟢 */}
+      {/* Progress bar shown while loading */}
       {isLoading && (
         <div
           data-testid="loading-indicator"

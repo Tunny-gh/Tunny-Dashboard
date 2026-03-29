@@ -1,14 +1,9 @@
 /**
- * ArtifactGallery — アーティファクトギャラリービュー (TASK-1301)
+ * ArtifactGallery — artifact gallery view (TASK-1301)
  *
- * 【役割】: 複数 trial のアーティファクトをギャラリー形式で表示する
- * 【設計方針】:
- *   - グループ別表示: Brushing 選択 / Pareto / クラスタ
- *   - 最大 4 列の並列比較レイアウト 🟢 REQ-141
- *   - カードサイズ切替（小/中/大）
- *   - 「さらに読み込む」ボタン: 48 件ずつ追加表示 🟡
- *   - ディレクトリ未選択時は完全に非表示 🟢 REQ-140
- * 🟢 REQ-140〜REQ-144 に準拠
+ * Displays artifacts for multiple trials in a grid gallery.
+ * Supports group filtering (selection / Pareto / cluster), card size switching,
+ * paginated loading (48 per page), and hides entirely when no directory is selected.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -16,13 +11,12 @@ import { useArtifactStore, getMimeTypeCategory } from '../../stores/artifactStor
 import type { Trial } from '../../types';
 
 // -------------------------------------------------------------------------
-// 定数
+// Constants
 // -------------------------------------------------------------------------
 
-/** 【1ページあたりの表示件数】 */
 const PAGE_SIZE = 48;
 
-/** 【カードサイズ設定】: small/medium/large → CSS クラス */
+/** Card height CSS classes keyed by size */
 const CARD_SIZE_CLASSES: Record<CardSize, string> = {
   small: 'h-20',
   medium: 'h-36',
@@ -30,23 +24,23 @@ const CARD_SIZE_CLASSES: Record<CardSize, string> = {
 };
 
 // -------------------------------------------------------------------------
-// 型定義
+// Types
 // -------------------------------------------------------------------------
 
 export type CardSize = 'small' | 'medium' | 'large';
 export type GalleryGroup = 'selection' | 'pareto' | 'cluster' | 'all';
 
 interface ArtifactGalleryProps {
-  /** 表示する試行リスト */
+  /** Trials to display */
   trials: Trial[];
-  /** Pareto 解インデックス */
+  /** Pareto solution indices */
   paretoIndices?: Uint32Array;
-  /** 現在のグループフィルタ */
+  /** Active group filter */
   group?: GalleryGroup;
 }
 
 // -------------------------------------------------------------------------
-// ArtifactCard — 個別カード
+// ArtifactCard — individual card
 // -------------------------------------------------------------------------
 
 const ArtifactCard: React.FC<{
@@ -80,7 +74,7 @@ const ArtifactCard: React.FC<{
       data-testid={`gallery-card-${trial.trialId}`}
       className="border border-gray-200 rounded overflow-hidden bg-white"
     >
-      {/* サムネイル領域 */}
+      {/* Thumbnail area */}
       <div className={`${sizeClass} bg-gray-100 flex items-center justify-center`}>
         {isLoading && (
           <div
@@ -106,7 +100,7 @@ const ArtifactCard: React.FC<{
         )}
       </div>
 
-      {/* フッター情報 */}
+      {/* Footer */}
       <div className="px-2 py-1 text-xs text-gray-600">
         Trial {trial.trialId}
       </div>
@@ -115,12 +109,8 @@ const ArtifactCard: React.FC<{
 };
 
 // -------------------------------------------------------------------------
-// ArtifactGallery コンポーネント
+// ArtifactGallery component
 // -------------------------------------------------------------------------
-
-/**
- * 【機能概要】: 複数 trial のアーティファクトをグリッドギャラリーで表示する
- */
 export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
   trials,
   paretoIndices,
@@ -130,10 +120,10 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
   const [cardSize, setCardSize] = useState<CardSize>('medium');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // 【ディレクトリ未選択時は非表示】: REQ-140
+  // Hide when no directory is selected
   if (!dirHandle) return null;
 
-  // 【グループフィルタ】: Pareto / 選択 / 全件
+  // Filter by group: Pareto / selection / all
   const filteredTrials = React.useMemo(() => {
     if (group === 'pareto' && paretoIndices) {
       const set = new Set(Array.from(paretoIndices));
@@ -145,15 +135,15 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
   const visibleTrials = filteredTrials.slice(0, visibleCount);
   const hasMore = visibleCount < filteredTrials.length;
 
-  // 【列数設定】: カードサイズに応じて列数を変える（最大 4 列）
+  // Column count based on card size (max 4 columns)
   const colClass =
     cardSize === 'small' ? 'grid-cols-4' : cardSize === 'medium' ? 'grid-cols-3' : 'grid-cols-2';
 
   return (
     <div data-testid="artifact-gallery" className="flex flex-col gap-3 p-3">
-      {/* ツールバー */}
+      {/* Toolbar */}
       <div className="flex items-center gap-2">
-        {/* カードサイズ切替 */}
+        {/* Card size toggle */}
         <div className="flex gap-1" data-testid="card-size-controls">
           {(['small', 'medium', 'large'] as CardSize[]).map((size) => (
             <button
@@ -170,7 +160,7 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
         <span className="text-xs text-gray-400">{filteredTrials.length} 件</span>
       </div>
 
-      {/* グリッド */}
+      {/* Grid */}
       {visibleTrials.length === 0 ? (
         <p data-testid="gallery-empty" className="text-sm text-gray-400">
           表示するアーティファクトがありません
@@ -183,7 +173,7 @@ export const ArtifactGallery: React.FC<ArtifactGalleryProps> = ({
         </div>
       )}
 
-      {/* さらに読み込むボタン */}
+      {/* Load more button */}
       {hasMore && (
         <button
           data-testid="load-more-btn"

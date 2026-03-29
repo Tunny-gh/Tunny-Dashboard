@@ -1,29 +1,28 @@
 /**
- * LayoutTabBar — タブ型レイアウト切替コンポーネント (TASK-001)
+ * LayoutTabBar — tab-based layout switcher component (TASK-001)
  *
- * 【役割】: A〜D レイアウトモードをタブUIで切り替える
- * 【設計方針】:
- *   - プリセットタブ（A/B/C）クリック: setLayoutMode + setFreeModeLayout を同時実行
- *   - フリータブ（D）クリック: setLayoutMode のみ（freeModeLayout 維持）
- *   - アクティブタブ再クリック: べき等（何もしない）
- * 🟢 REQ-001, REQ-002, REQ-101〜106, REQ-401〜405, REQ-501〜506, REQ-601, REQ-602
+ * Switches between layout modes A–D via a tab UI.
+ * - Preset tabs (A/B/C): calls setLayoutMode + setFreeModeLayout together
+ * - Free tab (D): calls setLayoutMode only (freeModeLayout is preserved)
+ * - Re-clicking the active tab: idempotent (no-op)
+ * REQ-001, REQ-002, REQ-101–106, REQ-401–405, REQ-501–506, REQ-601, REQ-602
  */
 
 import { useLayoutStore } from '../../stores/layoutStore';
 import type { LayoutMode, FreeModeLayout } from '../../types';
 
 // -------------------------------------------------------------------------
-// プリセットレイアウト定義
+// Preset layout definitions
 // -------------------------------------------------------------------------
 
 /**
- * 【プリセット生成ヘルパー】: cellId を UUID で自動付与してレイアウトを生成する
+ * Generates a FreeModeLayout by auto-assigning a UUID to each cell's cellId.
  */
 const makePresetLayout = (cells: Array<Omit<FreeModeLayout['cells'][number], 'cellId'>>): FreeModeLayout => ({
   cells: cells.map((c) => ({ ...c, cellId: crypto.randomUUID() })),
 });
 
-/** 【プリセットレイアウト】: Mode A〜C に対応するレイアウト定義（クリック毎に新 UUID 生成） */
+/** Preset layouts for modes A–C. New UUIDs are generated on each click. */
 const PRESET_LAYOUTS: Record<Exclude<LayoutMode, 'D'>, () => FreeModeLayout> = {
   A: () => makePresetLayout([
     { chartId: 'pareto-front', gridRow: [1, 3], gridCol: [1, 3] },
@@ -44,10 +43,10 @@ const PRESET_LAYOUTS: Record<Exclude<LayoutMode, 'D'>, () => FreeModeLayout> = {
 };
 
 // -------------------------------------------------------------------------
-// タブ定義
+// Tab definitions
 // -------------------------------------------------------------------------
 
-/** 【タブ一覧】: 表示順と対応モード・ラベル 🟢 REQ-002, REQ-506 */
+/** Display order, mode, and label for each tab. REQ-002, REQ-506 */
 const LAYOUT_TABS: Array<{ mode: LayoutMode; label: string }> = [
   { mode: 'A', label: '4分割' },
   { mode: 'B', label: '左大' },
@@ -56,24 +55,23 @@ const LAYOUT_TABS: Array<{ mode: LayoutMode; label: string }> = [
 ];
 
 // -------------------------------------------------------------------------
-// コンポーネント実装
+// Component
 // -------------------------------------------------------------------------
 
 /**
- * 【機能概要】: レイアウトモードを切り替えるタブバー
- * 【テスト対応】: TC-LT-01〜07
+ * Tab bar for switching the layout mode. TC-LT-01–07
  */
 export function LayoutTabBar() {
-  // 【Store接続】: layoutMode と各アクションを取得
+  // Read layoutMode and actions from the store
   const layoutMode = useLayoutStore((s) => s.layoutMode);
   const setLayoutMode = useLayoutStore((s) => s.setLayoutMode);
   const setFreeModeLayout = useLayoutStore((s) => s.setFreeModeLayout);
 
   /**
-   * 【クリックハンドラ】: タブクリックでモード切替とプリセット適用を行う
-   * - アクティブタブ再クリックはべき等（REQ-106）
-   * - Mode D は freeModeLayout を変更しない（REQ-104）
-   * - Mode A/B/C はプリセットを即時適用（REQ-101〜103, REQ-602）
+   * Handles a tab click: switches mode and applies the preset layout when relevant.
+   * Re-clicking the active tab is a no-op (REQ-106).
+   * Mode D leaves freeModeLayout unchanged (REQ-104).
+   * Modes A/B/C apply the preset immediately (REQ-101–103, REQ-602).
    */
   const handleClick = (mode: LayoutMode) => {
     if (mode === layoutMode) return;

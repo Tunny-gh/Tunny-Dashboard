@@ -1,15 +1,15 @@
 /**
- * LayoutTabBar テスト (TASK-001)
+ * LayoutTabBar tests (TASK-001)
  *
- * 【テスト対象】: LayoutTabBar — タブ型レイアウト切替コンポーネント
- * 【テスト方針】: layoutStore を vi.mock でモック
+ * Tests the LayoutTabBar tab-based layout switcher.
+ * layoutStore is mocked with vi.mock.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 // -------------------------------------------------------------------------
-// layoutStore モック
+// layoutStore mock
 // -------------------------------------------------------------------------
 
 const { mockSetLayoutMode, mockSetFreeModeLayout } = vi.hoisted(() => ({
@@ -32,10 +32,10 @@ import { LayoutTabBar } from './LayoutTabBar';
 import { useLayoutStore } from '../../stores/layoutStore';
 
 // -------------------------------------------------------------------------
-// 正常系
+// Happy path
 // -------------------------------------------------------------------------
 
-describe('LayoutTabBar — 正常系', () => {
+describe('LayoutTabBar — happy path', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useLayoutStore).mockImplementation((selector) =>
@@ -47,16 +47,14 @@ describe('LayoutTabBar — 正常系', () => {
     cleanup();
   });
 
-  // TC-LT-01: layout-tab-bar コンテナが DOM に存在する
-  test('TC-LT-01: data-testid="layout-tab-bar" が存在する', () => {
-    // 【テスト目的】: コンテナ要素が正しくレンダリングされること
+  // TC-LT-01: layout-tab-bar container is present in the DOM
+  test('TC-LT-01: data-testid="layout-tab-bar" exists', () => {
     render(<LayoutTabBar />);
     expect(screen.getByTestId('layout-tab-bar')).toBeInTheDocument();
   });
 
-  // TC-LT-02: 4つのタブ（A〜D）が存在する
-  test('TC-LT-02: layout-tab-A 〜 layout-tab-D が全て存在する', () => {
-    // 【テスト目的】: 4つのタブが全て描画されること
+  // TC-LT-02: all four tabs (A–D) are rendered
+  test('TC-LT-02: layout-tab-A through layout-tab-D all exist', () => {
     render(<LayoutTabBar />);
     expect(screen.getByTestId('layout-tab-A')).toBeInTheDocument();
     expect(screen.getByTestId('layout-tab-B')).toBeInTheDocument();
@@ -64,9 +62,9 @@ describe('LayoutTabBar — 正常系', () => {
     expect(screen.getByTestId('layout-tab-D')).toBeInTheDocument();
   });
 
-  // TC-LT-03: 各タブのラベルが説明的な日本語ラベルであること
-  test('TC-LT-03: 各タブのラベルが「4分割」「左大」「縦並び」「フリー」であること', () => {
-    // 【テスト目的】: REQ-002 — 不透明な A/B/C/D ではなく説明的ラベルが表示されること
+  // TC-LT-03: each tab shows its descriptive label
+  test('TC-LT-03: tab labels are "4分割", "左大", "縦並び", "フリー"', () => {
+    // REQ-002 — descriptive labels instead of opaque A/B/C/D
     render(<LayoutTabBar />);
     expect(screen.getByTestId('layout-tab-A')).toHaveTextContent('4分割');
     expect(screen.getByTestId('layout-tab-B')).toHaveTextContent('左大');
@@ -74,9 +72,9 @@ describe('LayoutTabBar — 正常系', () => {
     expect(screen.getByTestId('layout-tab-D')).toHaveTextContent('フリー');
   });
 
-  // TC-LT-04: layoutMode=B のとき layout-tab-B が aria-selected="true"
-  test('TC-LT-04: layoutMode=B のとき layout-tab-B の aria-selected が "true" で他は "false"', () => {
-    // 【テスト目的】: REQ-105 — アクティブタブが視覚的に区別されること
+  // TC-LT-04: when layoutMode=B, layout-tab-B has aria-selected="true"
+  test('TC-LT-04: when layoutMode=B, layout-tab-B aria-selected is "true" and others are "false"', () => {
+    // REQ-105 — active tab is visually distinguished
     vi.mocked(useLayoutStore).mockImplementation((selector) =>
       selector({ layoutMode: 'B', setLayoutMode: mockSetLayoutMode, setFreeModeLayout: mockSetFreeModeLayout }),
     );
@@ -87,10 +85,10 @@ describe('LayoutTabBar — 正常系', () => {
     expect(screen.getByTestId('layout-tab-D')).toHaveAttribute('aria-selected', 'false');
   });
 
-  // TC-LT-05: プリセットタブ（A）クリックで setLayoutMode + setFreeModeLayout が呼ばれる
-  test('TC-LT-05: layout-tab-A クリックで setLayoutMode("A") と setFreeModeLayout が呼ばれる', () => {
-    // 【テスト目的】: REQ-101 — タブクリックでモード切替とレイアウト適用が同時に行われること
-    // 【前提条件】: layoutMode = 'B' (A は非アクティブなのでクリック可能)
+  // TC-LT-05: clicking a preset tab calls both setLayoutMode and setFreeModeLayout
+  test('TC-LT-05: clicking layout-tab-A calls setLayoutMode("A") and setFreeModeLayout', () => {
+    // REQ-101 — tab click switches mode and applies layout simultaneously
+    // Precondition: layoutMode = 'B' so tab A is inactive and clickable
     vi.mocked(useLayoutStore).mockImplementation((selector) =>
       selector({ layoutMode: 'B', setLayoutMode: mockSetLayoutMode, setFreeModeLayout: mockSetFreeModeLayout }),
     );
@@ -101,10 +99,10 @@ describe('LayoutTabBar — 正常系', () => {
     expect(mockSetFreeModeLayout).toHaveBeenCalledOnce();
   });
 
-  // TC-LT-06: フリータブ（D）クリックで setLayoutMode のみ呼ばれる
-  test('TC-LT-06: layout-tab-D クリックで setLayoutMode("D") が呼ばれ setFreeModeLayout は呼ばれない', () => {
-    // 【テスト目的】: REQ-104 — フリーモード切替では freeModeLayout を変更しないこと
-    // 【前提条件】: layoutMode = 'A' (D は非アクティブ)
+  // TC-LT-06: clicking the free tab calls setLayoutMode only
+  test('TC-LT-06: clicking layout-tab-D calls setLayoutMode("D") and does not call setFreeModeLayout', () => {
+    // REQ-104 — switching to free mode must not modify freeModeLayout
+    // Precondition: layoutMode = 'A' so tab D is inactive
     render(<LayoutTabBar />);
     fireEvent.click(screen.getByTestId('layout-tab-D'));
     expect(mockSetLayoutMode).toHaveBeenCalledOnce();
@@ -112,10 +110,10 @@ describe('LayoutTabBar — 正常系', () => {
     expect(mockSetFreeModeLayout).not.toHaveBeenCalled();
   });
 
-  // TC-LT-07: アクティブタブ再クリックで何も呼ばれない（べき等）
-  test('TC-LT-07: アクティブタブクリックで setLayoutMode も setFreeModeLayout も呼ばれない', () => {
-    // 【テスト目的】: REQ-106 — アクティブタブ再クリックはべき等であること
-    // 【前提条件】: layoutMode = 'A' (A がアクティブ)
+  // TC-LT-07: re-clicking the active tab calls nothing (idempotent)
+  test('TC-LT-07: clicking the active tab calls neither setLayoutMode nor setFreeModeLayout', () => {
+    // REQ-106 — re-clicking the active tab is a no-op
+    // Precondition: layoutMode = 'A' (A is active)
     render(<LayoutTabBar />);
     fireEvent.click(screen.getByTestId('layout-tab-A'));
     expect(mockSetLayoutMode).not.toHaveBeenCalled();
