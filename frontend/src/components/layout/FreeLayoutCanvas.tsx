@@ -112,42 +112,80 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
       if (currentStudy.directions.length < 2) {
         return <EmptyState message="Available for multi-objective studies only" />
       }
-      // Documentation.
-      // multi-objective: [obj0, obj1]
-      const allScatter = Array.from({ length: gpuBuffer.trialCount }, (_, i) => [
-        gpuBuffer.positions[i * 2],
-        gpuBuffer.positions[i * 2 + 1],
-      ])
       const xLabel = currentStudy.objectiveNames[0] ?? 'obj0'
       const yLabel = currentStudy.objectiveNames[1] ?? 'obj1'
 
-      const selectedScatter = selectedSet
-        ? allScatter.filter((_, i) => selectedSet.has(i))
-        : allScatter
-      const unselectedScatter = selectedSet ? allScatter.filter((_, i) => !selectedSet.has(i)) : []
+      // Build objective arrays with direction sign (minimize = as-is, maximize = negate)
+      const signs = currentStudy.directions.map((d) => (d === 'minimize' ? 1 : -1))
+      const pts: { xy: number[]; norm: number[] }[] = []
+      for (let i = 0; i < trialRows.length; i++) {
+        const v = trialRows[i].values
+        if (!v || v.length < 2) continue
+        const norm = v.map((val, j) => (signs[j] ?? 1) * val)
+        pts.push({ xy: [v[0], v[1]], norm })
+      }
+
+      // Non-dominated sort (rank 1 only)
+      const isNonDominated = pts.map((a, ai) => {
+        for (let bi = 0; bi < pts.length; bi++) {
+          if (ai === bi) continue
+          const b = pts[bi]
+          let bBetter = false
+          let aNotWorse = true
+          for (let k = 0; k < a.norm.length; k++) {
+            if (b.norm[k] < a.norm[k]) bBetter = true
+            if (b.norm[k] > a.norm[k]) { aNotWorse = false; break }
+          }
+          if (bBetter && aNotWorse) return false // a is dominated by b
+        }
+        return true
+      })
+
+      const paretoPoints: number[][] = []
+      const dominatedPoints: number[][] = []
+      for (let i = 0; i < pts.length; i++) {
+        if (isNonDominated[i]) {
+          paretoPoints.push(pts[i].xy)
+        } else {
+          dominatedPoints.push(pts[i].xy)
+        }
+      }
+
+      // Sort pareto front by x for the connecting line
+      const sortedPareto = [...paretoPoints].sort((a, b) => a[0] - b[0])
 
       const seriesList: object[] = [
         {
+          name: 'Dominated',
           type: 'scatter' as const,
-          data: selectedScatter,
+          data: dominatedPoints,
           symbolSize: 5,
-          itemStyle: { opacity: 0.7 },
+          itemStyle: { color: '#5470c6', opacity: 0.7 },
+        },
+        {
+          name: 'Pareto Front',
+          type: 'scatter' as const,
+          data: paretoPoints,
+          symbolSize: 7,
+          itemStyle: { color: '#ee6666', opacity: 0.9 },
+          z: 10,
+        },
+        {
+          name: 'Pareto Line',
+          type: 'line' as const,
+          data: sortedPareto,
+          showSymbol: false,
+          lineStyle: { color: '#ee6666', opacity: 0.35, width: 1.5 },
+          z: 5,
         },
       ]
-      if (unselectedScatter.length > 0) {
-        seriesList.push({
-          type: 'scatter' as const,
-          data: unselectedScatter,
-          symbolSize: 5,
-          itemStyle: { opacity: 0.08, color: '#94a3b8' },
-        })
-      }
 
       const option = {
         grid: { left: '12%', right: '4%', top: '8%', bottom: '14%' },
         xAxis: { type: 'value', name: xLabel, nameLocation: 'middle' as const, nameGap: 24 },
         yAxis: { type: 'value', name: yLabel, nameLocation: 'middle' as const, nameGap: 40 },
         tooltip: { trigger: 'item' as const },
+        legend: { show: false },
         series: seriesList,
       }
       return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} lazyUpdate />
