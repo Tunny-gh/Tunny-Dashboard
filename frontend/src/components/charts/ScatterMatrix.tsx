@@ -162,7 +162,10 @@ function ScatterCell({ row, col, xAxis, yAxis, trialRows, study }: ScatterCellPr
     if (points.length === 0) return
 
     // Compute bounds
-    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+    let xMin = Infinity,
+      xMax = -Infinity,
+      yMin = Infinity,
+      yMax = -Infinity
     for (const [x, y] of points) {
       if (x < xMin) xMin = x
       if (x > xMax) xMax = x

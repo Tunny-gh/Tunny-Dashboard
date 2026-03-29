@@ -55,7 +55,9 @@ describe('translated test case', () => {
   // Documentation.
   test('TC-702-01', () => {
     // Documentation.
-    expect(() => render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />)).not.toThrow()
+    expect(() =>
+      render(<ScatterMatrix trialRows={makeTrialRows()} currentStudy={makeStudy()} />),
+    ).not.toThrow()
   })
 
   // Documentation.
