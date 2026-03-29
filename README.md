@@ -10,6 +10,8 @@ An in-browser analytics dashboard for [Optuna](https://optuna.org/) optimization
 
 Tunny Dashboard parses Optuna Journal log files entirely inside the browser — no server, no Python installation required. The output is a single self-contained `index.html` file that can be opened directly in any modern browser.
 
+![Tunny-Dashboard](https://github.com/user-attachments/assets/d85a722f-ee7c-4217-a3a9-75ab2a20734c)
+
 ### Key Features
 
 - **Zero-dependency deployment** — distributes as a single `index.html` with all assets inlined
