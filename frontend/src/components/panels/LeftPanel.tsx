@@ -3,13 +3,13 @@
  *
  * 【役割】: selected件数表示 / 変数フィルタスライダー / カラーモード選択
  * 【設計方針】: selectionStore / studyStore に直接接続
- * 🟢 スライダー変更 → addAxisFilter(axis, 0, value) でリアルタイムフィルタ
+ * 🟢 スライダー変更 → addAxisFilter(axis, min, max) でリアルタイムフィルタ
  */
 
+import { useMemo, useState, useCallback } from 'react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
 import type { ColorMode } from '../../types'
-import type { ChangeEvent } from 'react'
 
 // -------------------------------------------------------------------------
 // カラーモード定義
@@ -17,6 +17,129 @@ import type { ChangeEvent } from 'react'
 
 /** 🟢 選択可能なカラーモード一覧 */
 const COLOR_MODES: ColorMode[] = ['objective', 'cluster', 'rank', 'generation']
+
+// -------------------------------------------------------------------------
+// Dual-handle Range Slider
+// -------------------------------------------------------------------------
+
+interface DualRangeSliderProps {
+  name: string
+  dataMin: number
+  dataMax: number
+  onRangeChange: (name: string, min: number, max: number) => void
+}
+
+function DualRangeSlider({ name, dataMin, dataMax, onRangeChange }: DualRangeSliderProps) {
+  const [lo, setLo] = useState(dataMin)
+  const [hi, setHi] = useState(dataMax)
+
+  const range = dataMax - dataMin || 1
+  const step = range / 200
+
+  const handleLo = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = Math.min(parseFloat(e.target.value), hi)
+      setLo(v)
+      onRangeChange(name, v, hi)
+    },
+    [hi, name, onRangeChange],
+  )
+
+  const handleHi = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = Math.max(parseFloat(e.target.value), lo)
+      setHi(v)
+      onRangeChange(name, lo, v)
+    },
+    [lo, name, onRangeChange],
+  )
+
+  const loPercent = ((lo - dataMin) / range) * 100
+  const hiPercent = ((hi - dataMin) / range) * 100
+
+  return (
+    <div style={{ marginBottom: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <label style={{ fontSize: '13px' }}>{name}</label>
+        <span style={{ fontSize: '11px', color: '#6b7280' }}>
+          {lo.toPrecision(4)} – {hi.toPrecision(4)}
+        </span>
+      </div>
+      <div
+        style={{ position: 'relative', height: '20px', marginTop: '2px' }}
+        data-testid={`range-slider-${name}`}
+      >
+        {/* Track background + active range highlight */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '8px',
+            left: 0,
+            right: 0,
+            height: '4px',
+            borderRadius: '2px',
+            background: '#e5e7eb',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            top: '8px',
+            left: `${loPercent}%`,
+            width: `${hiPercent - loPercent}%`,
+            height: '4px',
+            borderRadius: '2px',
+            background: '#3b82f6',
+          }}
+        />
+        {/* Low handle */}
+        <input
+          data-testid={`slider-lo-${name}`}
+          type="range"
+          min={dataMin}
+          max={dataMax}
+          step={step}
+          value={lo}
+          onChange={handleLo}
+          style={{
+            position: 'absolute',
+            width: '100%',
+            top: 0,
+            height: '20px',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+            background: 'transparent',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+          className="dual-range-thumb"
+        />
+        {/* High handle */}
+        <input
+          data-testid={`slider-hi-${name}`}
+          type="range"
+          min={dataMin}
+          max={dataMax}
+          step={step}
+          value={hi}
+          onChange={handleHi}
+          style={{
+            position: 'absolute',
+            width: '100%',
+            top: 0,
+            height: '20px',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+            background: 'transparent',
+            pointerEvents: 'none',
+            zIndex: 3,
+          }}
+          className="dual-range-thumb"
+        />
+      </div>
+    </div>
+  )
+}
 
 // -------------------------------------------------------------------------
 // コンポーネント実装
@@ -31,10 +154,46 @@ export function LeftPanel() {
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
   const colorMode = useSelectionStore((s) => s.colorMode)
   const addAxisFilter = useSelectionStore((s) => s.addAxisFilter)
+  const removeAxisFilter = useSelectionStore((s) => s.removeAxisFilter)
   const setColorMode = useSelectionStore((s) => s.setColorMode)
 
-  // 【Store接続】: studyStore から currentStudy を取得 🟢
+  // 【Store接続】: studyStore から currentStudy と trialRows を取得 🟢
   const currentStudy = useStudyStore((s) => s.currentStudy)
+  const trialRows = useStudyStore((s) => s.trialRows)
+
+  // 【パラメータ範囲計算】: trialRows から各パラメータの実際の min/max を算出 🟢
+  const paramRanges = useMemo(() => {
+    const ranges: Record<string, { min: number; max: number }> = {}
+    if (!currentStudy) return ranges
+    for (const name of currentStudy.paramNames) {
+      let min = Number.POSITIVE_INFINITY
+      let max = Number.NEGATIVE_INFINITY
+      for (const row of trialRows) {
+        const v = row.params[name]
+        if (v !== undefined && Number.isFinite(v)) {
+          if (v < min) min = v
+          if (v > max) max = v
+        }
+      }
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        ranges[name] = { min, max }
+      }
+    }
+    return ranges
+  }, [currentStudy, trialRows])
+
+  // 【フィルタ更新ハンドラ】: min===dataMin && max===dataMax なら filter を除去、それ以外なら適用 🟢
+  const handleRangeChange = useCallback(
+    (name: string, min: number, max: number) => {
+      const dataRange = paramRanges[name]
+      if (dataRange && Math.abs(min - dataRange.min) < 1e-10 && Math.abs(max - dataRange.max) < 1e-10) {
+        removeAxisFilter(name)
+      } else {
+        addAxisFilter(name, min, max)
+      }
+    },
+    [addAxisFilter, removeAxisFilter, paramRanges],
+  )
 
   // 【空状態UI】: Study がない場合はメッセージを表示 🟢
   if (!currentStudy) {
@@ -43,14 +202,6 @@ export function LeftPanel() {
         <span>Data not loaded</span>
       </div>
     )
-  }
-
-  /**
-   * 【スライダーハンドラ】: 軸フィルタを 0〜value の範囲で適用
-   * 【設計方針】: 0 を min 固定とし、スライダー値を max として addAxisFilter を呼ぶ
-   */
-  const handleSliderChange = (axisName: string) => (e: ChangeEvent<HTMLInputElement>) => {
-    addAxisFilter(axisName, 0, parseFloat(e.target.value))
   }
 
   // 【レンダリング】: カウンタ + スライダー + カラーモード 🟢
@@ -64,24 +215,22 @@ export function LeftPanel() {
         </div>
       </div>
 
-      {/* 【パラメータフィルタスライダー群】: 各変数のフィルタスライダー 🟢 */}
+      {/* 【パラメータフィルタスライダー群】: 各変数のデュアルレンジスライダー 🟢 */}
       <div>
         <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Parameters</div>
-        {currentStudy.paramNames.map((name) => (
-          <div key={name} style={{ marginBottom: '8px' }}>
-            <label style={{ fontSize: '13px' }}>{name}</label>
-            <input
-              data-testid={`slider-${name}`}
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              defaultValue="1"
-              onChange={handleSliderChange(name)}
-              style={{ width: '100%' }}
+        {currentStudy.paramNames.map((name) => {
+          const r = paramRanges[name]
+          if (!r) return null
+          return (
+            <DualRangeSlider
+              key={name}
+              name={name}
+              dataMin={r.min}
+              dataMax={r.max}
+              onRangeChange={handleRangeChange}
             />
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* 【カラーモード選択】: ラジオボタンで4モードを切り替え 🟢 */}

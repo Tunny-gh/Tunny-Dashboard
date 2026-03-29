@@ -12,10 +12,11 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 // selectionStore モック
 // -------------------------------------------------------------------------
 
-const { mockAddAxisFilter, mockSetColorMode } = vi.hoisted(() => {
+const { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter } = vi.hoisted(() => {
   const mockAddAxisFilter = vi.fn()
   const mockSetColorMode = vi.fn()
-  return { mockAddAxisFilter, mockSetColorMode }
+  const mockRemoveAxisFilter = vi.fn()
+  return { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter }
 })
 
 vi.mock('../../stores/selectionStore', () => ({
@@ -27,6 +28,7 @@ vi.mock('../../stores/selectionStore', () => ({
           selectedIndices: Uint32Array
           colorMode: string
           addAxisFilter: typeof mockAddAxisFilter
+          removeAxisFilter: typeof mockRemoveAxisFilter
           setColorMode: typeof mockSetColorMode
         }) => unknown,
       ) =>
@@ -34,6 +36,7 @@ vi.mock('../../stores/selectionStore', () => ({
           selectedIndices: new Uint32Array([0, 1, 2]),
           colorMode: 'objective',
           addAxisFilter: mockAddAxisFilter,
+          removeAxisFilter: mockRemoveAxisFilter,
           setColorMode: mockSetColorMode,
         }),
     ),
@@ -52,6 +55,12 @@ vi.mock('../../stores/studyStore', () => ({
           objectiveNames: string[]
           completedTrials: number
         } | null
+        trialRows: Array<{
+          trialId: number
+          params: Record<string, number>
+          values: number[]
+          paretoRank: number | null
+        }>
       }) => unknown,
     ) =>
       selector({
@@ -60,6 +69,11 @@ vi.mock('../../stores/studyStore', () => ({
           objectiveNames: ['obj1'],
           completedTrials: 10,
         },
+        trialRows: [
+          { trialId: 0, params: { x1: 0.0, x2: -5.0 }, values: [1.0], paretoRank: null },
+          { trialId: 1, params: { x1: 10.0, x2: 5.0 }, values: [2.0], paretoRank: null },
+          { trialId: 2, params: { x1: 5.0, x2: 0.0 }, values: [3.0], paretoRank: null },
+        ],
       }),
   ),
 }))
@@ -100,9 +114,9 @@ describe('LeftPanel — 正常系', () => {
     // 【テスト目的】: スライダー操作が addAxisFilter に連携されること 🟢
     render(<LeftPanel />)
 
-    // 【処理実行】: x1 スライダーの change イベントをシミュレート
-    const slider = screen.getByTestId('slider-x1')
-    fireEvent.change(slider, { target: { value: '0.5' } })
+    // 【処理実行】: x1 の high スライダーの change イベントをシミュレート
+    const slider = screen.getByTestId('slider-hi-x1')
+    fireEvent.change(slider, { target: { value: '5' } })
 
     // 【確認内容】: addAxisFilter が呼ばれた
     expect(mockAddAxisFilter).toHaveBeenCalled()
@@ -134,7 +148,8 @@ describe('LeftPanel — 異常系', () => {
   test('TC-402-E01: currentStudy=null のとき「データが読み込まれていません」を表示する', () => {
     // 【テスト目的】: Study なし時に適切な空状態UIが表示されること 🟢
     ;(useStudyStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { currentStudy: null }) => unknown) => selector({ currentStudy: null }),
+      (selector: (s: { currentStudy: null; trialRows: [] }) => unknown) =>
+        selector({ currentStudy: null, trialRows: [] }),
     )
 
     render(<LeftPanel />)
