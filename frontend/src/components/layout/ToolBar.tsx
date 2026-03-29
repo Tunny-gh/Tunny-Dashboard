@@ -66,42 +66,13 @@ export function ToolBar() {
         borderBottom: '1px solid var(--border)',
       }}
     >
-      {/* Journal file selector */}
-      <input
-        data-testid="file-input"
-        type="file"
-        accept=".log,.journal,.txt"
-        onChange={handleFileChange}
-        style={{ fontSize: '14px' }}
-      />
+      {/* App branding */}
+      <img src="/favicon.svg" alt="" style={{ width: 20, height: 20 }} />
+      <span style={{ fontSize: '14px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+        Tunny Dashboard
+      </span>
 
-      {/* Loading indicator */}
-      {isLoading && (
-        <span
-          data-testid="toolbar-loading"
-          style={{ fontSize: '13px', color: 'var(--text-muted)' }}
-        >
-          Loading...
-        </span>
-      )}
-
-      {/* Error message */}
-      {loadError && (
-        <span
-          data-testid="toolbar-error"
-          style={{
-            fontSize: '13px',
-            color: '#dc2626',
-            maxWidth: '300px',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={loadError}
-        >
-          Error: {loadError}
-        </span>
-      )}
+      <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
 
       {/* Study selector: shown as a dropdown when more than one study is available */}
       {(allStudies?.length ?? 0) > 1 ? (
@@ -138,10 +109,54 @@ export function ToolBar() {
         )
       )}
 
-      {/* LayoutTabBar and live-update button, right-aligned */}
+      {/* Right-aligned: file input, layout tabs, live update */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+        {/* Journal file selector */}
+        <input
+          data-testid="file-input"
+          type="file"
+          accept=".log,.journal,.txt"
+          onChange={handleFileChange}
+          style={{ fontSize: '14px' }}
+        />
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+          or Drag &amp; Drop
+        </span>
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <span
+            data-testid="toolbar-loading"
+            style={{ fontSize: '13px', color: 'var(--text-muted)' }}
+          >
+            Loading...
+          </span>
+        )}
+
+        {/* Error message */}
+        {loadError && (
+          <span
+            data-testid="toolbar-error"
+            style={{
+              fontSize: '13px',
+              color: '#dc2626',
+              maxWidth: '300px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+            title={loadError}
+          >
+            Error: {loadError}
+          </span>
+        )}
+
+        <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
+
         {/* Layout tab switcher — REQ-001 */}
         <LayoutTabBar />
+
+        <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
 
         {/* Live update toggle: polls the journal file for diffs — REQ-104 */}
         <button

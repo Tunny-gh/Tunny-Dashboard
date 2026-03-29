@@ -14,6 +14,7 @@ import { BottomPanel } from '../panels/BottomPanel'
 import { FreeLayoutCanvas } from './FreeLayoutCanvas'
 import { ChartCatalogPanel } from './ChartCatalogPanel'
 import type { DragEvent } from 'react'
+import { useState } from 'react'
 
 // -------------------------------------------------------------------------
 // Component
@@ -27,6 +28,8 @@ export function AppShell() {
   const layoutMode = useLayoutStore((s) => s.layoutMode)
   const loadJournal = useStudyStore((s) => s.loadJournal)
   const isLoading = useStudyStore((s) => s.isLoading)
+  const [isDragging, setIsDragging] = useState(false)
+  let dragCounter = 0
 
   /**
    * Prevents the default browser behavior to allow file drop.
@@ -35,11 +38,28 @@ export function AppShell() {
     e.preventDefault()
   }
 
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCounter++
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCounter--
+    if (dragCounter <= 0) {
+      dragCounter = 0
+      setIsDragging(false)
+    }
+  }
+
   /**
    * Passes the first dropped file to loadJournal. Multiple files are ignored.
    */
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
+    dragCounter = 0
+    setIsDragging(false)
     const file = e.dataTransfer?.files?.[0]
     if (file) {
       // fire-and-forget async load
@@ -52,6 +72,8 @@ export function AppShell() {
       data-testid="app-shell"
       data-layout={layoutMode}
       onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       style={{
         display: 'grid',
@@ -117,6 +139,29 @@ export function AppShell() {
             zIndex: 9999,
           }}
         />
+      )}
+
+      {/* Drag-and-drop overlay */}
+      {isDragging && (
+        <div
+          data-testid="drop-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(79, 70, 229, 0.12)',
+            border: '3px dashed var(--accent, #4f46e5)',
+            borderRadius: '8px',
+            zIndex: 9998,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <span style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent, #4f46e5)' }}>
+            Drop journal file here
+          </span>
+        </div>
       )}
     </div>
   )
