@@ -6,7 +6,7 @@
  * 🟢 スライダー変更 → addAxisFilter(axis, min, max) でリアルタイムフィルタ
  */
 
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
 import type { ColorMode } from '../../types'
@@ -32,26 +32,40 @@ interface DualRangeSliderProps {
 function DualRangeSlider({ name, dataMin, dataMax, onRangeChange }: DualRangeSliderProps) {
   const [lo, setLo] = useState(dataMin)
   const [hi, setHi] = useState(dataMax)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 
   const range = dataMax - dataMin || 1
   const step = range / 200
+
+  const debouncedRangeChange = useCallback(
+    (min: number, max: number) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        onRangeChange(name, min, max)
+      }, 150)
+    },
+    [name, onRangeChange],
+  )
 
   const handleLo = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const v = Math.min(parseFloat(e.target.value), hi)
       setLo(v)
-      onRangeChange(name, v, hi)
+      debouncedRangeChange(v, hi)
     },
-    [hi, name, onRangeChange],
+    [hi, debouncedRangeChange],
   )
 
   const handleHi = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const v = Math.max(parseFloat(e.target.value), lo)
       setHi(v)
-      onRangeChange(name, lo, v)
+      debouncedRangeChange(lo, v)
     },
-    [lo, name, onRangeChange],
+    [lo, debouncedRangeChange],
   )
 
   const loPercent = ((lo - dataMin) / range) * 100

@@ -103,7 +103,7 @@ export function EdfPlot({ series }: EdfPlotProps) {
 
   return (
     <div data-testid="edf-plot" style={{ height: '100%' }}>
-      <ReactECharts option={option} style={{ height: '100%' }} />
+      <ReactECharts option={option} style={{ height: '100%' }} lazyUpdate />
     </div>
   )
 }

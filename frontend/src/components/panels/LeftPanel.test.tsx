@@ -110,16 +110,19 @@ describe('LeftPanel — 正常系', () => {
   })
 
   // TC-402-03: スライダー変更で addAxisFilter が呼ばれる
-  test('TC-402-03: パラメータスライダーの変更で addAxisFilter が呼ばれる', () => {
+  test('TC-402-03: パラメータスライダーの変更で addAxisFilter が呼ばれる', async () => {
     // 【テスト目的】: スライダー操作が addAxisFilter に連携されること 🟢
+    vi.useFakeTimers()
     render(<LeftPanel />)
 
     // 【処理実行】: x1 の high スライダーの change イベントをシミュレート
     const slider = screen.getByTestId('slider-hi-x1')
     fireEvent.change(slider, { target: { value: '5' } })
 
-    // 【確認内容】: addAxisFilter が呼ばれた
+    // 【確認内容】: debounce 後に addAxisFilter が呼ばれた
+    vi.advanceTimersByTime(200)
     expect(mockAddAxisFilter).toHaveBeenCalled()
+    vi.useRealTimers()
   })
 
   // TC-402-04: カラーモード変更で setColorMode が呼ばれる

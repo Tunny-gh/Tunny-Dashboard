@@ -10,7 +10,7 @@
  * 🟢 optuna-dashboard の plot_slice と同等機能（Python 不要）
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { EmptyState } from '../common/EmptyState'
 
@@ -40,6 +40,8 @@ export interface SlicePlotProps {
   objectiveNames: string[]
   /** 初期表示する目的関数インデックス（デフォルト 0） */
   objectiveIndex?: number
+  /** 選択中の試行インデックス（0-based）。指定時、非選択を薄グレーで表示 */
+  selectedIndices?: Uint32Array
 }
 
 // -------------------------------------------------------------------------
@@ -56,6 +58,7 @@ export function SlicePlot({
   paramNames,
   objectiveNames,
   objectiveIndex: initialObjIdx = 0,
+  selectedIndices,
 }: SlicePlotProps) {
   // 【状態管理】: 選択中パラメータインデックス・目的関数インデックス
   const [paramIndex, setParamIndex] = useState(0)
@@ -70,52 +73,87 @@ export function SlicePlot({
   const selectedParam = paramNames[paramIndex] ?? paramNames[0]
   const selectedObj = objectiveNames[objIndex] ?? objectiveNames[0]
 
-  // 【散布データ生成】: 数値パラメータのみ対象にフィルタして [param_val, obj_val, trial_idx] を生成
-  const scatterData = trials
-    .filter(
-      (t) =>
-        t.values !== null &&
-        t.values[objIndex] != null &&
-        typeof t.params[selectedParam] === 'number',
-    )
-    .map((t, i) => [t.params[selectedParam] as number, t.values![objIndex], i])
+  // 【ECharts オプション構築】: memoize heavy computation
+  const option = useMemo(() => {
+    // 【散布データ生成】: 数値パラメータのみ対象にフィルタして [param_val, obj_val, trial_idx] を生成
+    const scatterData = trials
+      .filter(
+        (t) =>
+          t.values !== null &&
+          t.values[objIndex] != null &&
+          typeof t.params[selectedParam] === 'number',
+      )
+      .map((t, i) => [t.params[selectedParam] as number, t.values![objIndex], i])
 
-  // 【ECharts オプション構築】: scatter + visualMap (試行番号で色分け)
-  const option = {
-    tooltip: {
-      trigger: 'item',
-      formatter: (params: { value: [number, number, number] }) =>
-        `${selectedParam}: ${params.value[0]}<br/>${selectedObj}: ${params.value[1]}`,
-    },
-    xAxis: {
-      type: 'value',
-      name: selectedParam,
-      nameLocation: 'center',
-      nameGap: 24,
-    },
-    yAxis: {
-      type: 'value',
-      name: selectedObj,
-      nameLocation: 'center',
-      nameGap: 40,
-    },
-    // 【色分け】: 試行番号が小さい（早期）ほど青、大きい（後期）ほど赤
-    visualMap: {
-      min: 0,
-      max: Math.max(scatterData.length - 1, 1),
-      dimension: 2,
-      inRange: { color: ['#5470c6', '#91cc75', '#fac858', '#ee6666'] },
-      show: false,
-    },
-    series: [
+    // 【選択状態の分割】: selectedIndices がある場合は選択/非選択を分割
+    const isFiltered =
+      selectedIndices && selectedIndices.length > 0 && selectedIndices.length < trials.length
+    const selectedSet = isFiltered ? new Set(selectedIndices) : null
+
+    // trials のフィルタ後のインデックスではなく、元の trial インデックスで判定
+    const validTrialIndices = trials
+      .map((t, i) => ({ trial: t, originalIndex: i }))
+      .filter(
+        ({ trial: t }) =>
+          t.values !== null &&
+          t.values[objIndex] != null &&
+          typeof t.params[selectedParam] === 'number',
+      )
+
+    const selectedScatter = selectedSet
+      ? scatterData.filter((_, i) => selectedSet.has(validTrialIndices[i].originalIndex))
+      : scatterData
+    const unselectedScatter = selectedSet
+      ? scatterData.filter((_, i) => !selectedSet.has(validTrialIndices[i].originalIndex))
+      : []
+
+    const seriesList: object[] = [
       {
         type: 'scatter',
-        data: scatterData,
+        data: selectedScatter,
         symbolSize: 8,
       },
-    ],
-    grid: { containLabel: true },
-  }
+    ]
+    if (unselectedScatter.length > 0) {
+      seriesList.push({
+        type: 'scatter',
+        data: unselectedScatter,
+        symbolSize: 8,
+        itemStyle: { opacity: 0.08, color: '#94a3b8' },
+      })
+    }
+
+    return {
+      tooltip: {
+        trigger: 'item',
+        formatter: (params: { value: [number, number, number] }) =>
+          `${selectedParam}: ${params.value[0]}<br/>${selectedObj}: ${params.value[1]}`,
+      },
+      xAxis: {
+        type: 'value',
+        name: selectedParam,
+        nameLocation: 'center',
+        nameGap: 24,
+      },
+      yAxis: {
+        type: 'value',
+        name: selectedObj,
+        nameLocation: 'center',
+        nameGap: 40,
+      },
+      visualMap: selectedSet
+        ? undefined
+        : {
+            min: 0,
+            max: Math.max(scatterData.length - 1, 1),
+            dimension: 2,
+            inRange: { color: ['#5470c6', '#91cc75', '#fac858', '#ee6666'] },
+            show: false,
+          },
+      series: seriesList,
+      grid: { containLabel: true },
+    }
+  }, [trials, selectedParam, selectedObj, objIndex, selectedIndices])
 
   return (
     <div
@@ -170,7 +208,7 @@ export function SlicePlot({
       </div>
 
       {/* 【チャート本体】: ECharts scatter */}
-      <ReactECharts option={option} style={{ flex: 1 }} />
+      <ReactECharts option={option} style={{ flex: 1 }} lazyUpdate />
     </div>
   )
 }

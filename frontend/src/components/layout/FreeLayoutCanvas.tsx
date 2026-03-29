@@ -11,10 +11,11 @@
  * 🟢 REQ-032, NFR-031, NFR-032 に準拠
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useLayoutStore, DEFAULT_FREE_LAYOUT } from '../../stores/layoutStore'
 import { useStudyStore } from '../../stores/studyStore'
+import { useSelectionStore } from '../../stores/selectionStore'
 import type { ChartId, Study } from '../../types'
 import { OptimizationHistory } from '../charts/OptimizationHistory'
 import { ParallelCoordinates } from '../charts/ParallelCoordinates'
@@ -91,6 +92,16 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const gpuBuffer = useStudyStore((s) => s.gpuBuffer)
   const trialRows = useStudyStore((s) => s.trialRows)
+  const selectedIndices = useSelectionStore((s) => s.selectedIndices)
+
+  // Build a Set of selected indices for quick lookup (memoized to avoid O(n) on every render)
+  // Must be before early return to satisfy Rules of Hooks
+  const selectedSet = useMemo(() => {
+    if (gpuBuffer && selectedIndices.length > 0 && selectedIndices.length < gpuBuffer.trialCount) {
+      return new Set(selectedIndices)
+    }
+    return null
+  }, [selectedIndices, gpuBuffer])
 
   if (!currentStudy || !gpuBuffer) {
     return <EmptyState message="Please load data" />
@@ -100,28 +111,46 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
     case 'pareto-front': {
       // positions[i*2], positions[i*2+1] からECharts散布図を構築
       // 単目的: [normalized_idx, obj0]  多目的: [obj0, obj1]
-      const scatterData = Array.from({ length: gpuBuffer.trialCount }, (_, i) => [
+      const allScatter = Array.from({ length: gpuBuffer.trialCount }, (_, i) => [
         gpuBuffer.positions[i * 2],
         gpuBuffer.positions[i * 2 + 1],
       ])
       const isMulti = currentStudy.directions.length > 1
       const xLabel = isMulti ? (currentStudy.objectiveNames[0] ?? 'obj0') : 'trial'
       const yLabel = currentStudy.objectiveNames[isMulti ? 1 : 0] ?? 'value'
+
+      const selectedScatter = selectedSet
+        ? allScatter.filter((_, i) => selectedSet.has(i))
+        : allScatter
+      const unselectedScatter = selectedSet
+        ? allScatter.filter((_, i) => !selectedSet.has(i))
+        : []
+
+      const seriesList: object[] = [
+        {
+          type: 'scatter' as const,
+          data: selectedScatter,
+          symbolSize: 5,
+          itemStyle: { opacity: 0.7 },
+        },
+      ]
+      if (unselectedScatter.length > 0) {
+        seriesList.push({
+          type: 'scatter' as const,
+          data: unselectedScatter,
+          symbolSize: 5,
+          itemStyle: { opacity: 0.08, color: '#94a3b8' },
+        })
+      }
+
       const option = {
         grid: { left: '12%', right: '4%', top: '8%', bottom: '14%' },
         xAxis: { type: 'value', name: xLabel, nameLocation: 'middle' as const, nameGap: 24 },
         yAxis: { type: 'value', name: yLabel, nameLocation: 'middle' as const, nameGap: 40 },
         tooltip: { trigger: 'item' as const },
-        series: [
-          {
-            type: 'scatter' as const,
-            data: scatterData,
-            symbolSize: 5,
-            itemStyle: { opacity: 0.7 },
-          },
-        ],
+        series: seriesList,
       }
-      return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} />
+      return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} lazyUpdate />
     }
     case 'parallel-coords':
       return <ParallelCoordinates gpuBuffer={gpuBuffer} currentStudy={currentStudy} />
@@ -136,7 +165,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
           : gpuBuffer.positions[i * 2 + 1], // single: y = obj0
       }))
       const direction = currentStudy.directions[0] === 'minimize' ? 'minimize' : 'maximize'
-      return <OptimizationHistory data={data} direction={direction} />
+      return <OptimizationHistory data={data} direction={direction} selectedIndices={selectedIndices} />
     }
     case 'scatter-matrix':
       // engine=null のとき ScatterMatrix はモード UI + グレーセルを表示する
@@ -157,7 +186,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
         series: [{ type: 'bar', data: currentStudy.paramNames.map(() => 1.0) }],
         grid: { containLabel: true },
       }
-      return <ReactECharts option={importanceOption} style={{ height: '100%', width: '100%' }} />
+      return <ReactECharts option={importanceOption} style={{ height: '100%', width: '100%' }} lazyUpdate />
     }
     case 'slice':
       if (trialRows.length === 0) return <EmptyState />
@@ -171,6 +200,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
           }))}
           paramNames={currentStudy.paramNames}
           objectiveNames={currentStudy.objectiveNames}
+          selectedIndices={selectedIndices}
         />
       )
     case 'contour':
@@ -183,6 +213,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
           trials={trialRows.map((t) => ({ params: t.params, values: t.values }))}
           paramNames={currentStudy.paramNames}
           objectiveNames={currentStudy.objectiveNames}
+          selectedIndices={selectedIndices}
         />
       )
     case 'edf': {

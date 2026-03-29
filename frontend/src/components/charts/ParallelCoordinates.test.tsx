@@ -50,9 +50,13 @@ const { mockAddAxisFilter, mockRemoveAxisFilter } = vi.hoisted(() => {
 })
 
 vi.mock('../../stores/selectionStore', () => ({
-  useSelectionStore: vi.fn().mockReturnValue({
-    addAxisFilter: mockAddAxisFilter,
-    removeAxisFilter: mockRemoveAxisFilter,
+  useSelectionStore: vi.fn().mockImplementation((selector?: (s: Record<string, unknown>) => unknown) => {
+    const state = {
+      addAxisFilter: mockAddAxisFilter,
+      removeAxisFilter: mockRemoveAxisFilter,
+      selectedIndices: new Uint32Array(0),
+    }
+    return selector ? selector(state) : state
   }),
 }))
 

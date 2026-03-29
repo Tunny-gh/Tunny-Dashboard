@@ -13,7 +13,7 @@
  *   - Numeric parameters only (string parameters are excluded)
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { EmptyState } from '../common/EmptyState'
 
@@ -37,6 +37,8 @@ export interface ContourPlotProps {
   paramNames: string[]
   /** Objective name list */
   objectiveNames: string[]
+  /** Selected trial indices (0-based). When provided, unselected trials are dimmed */
+  selectedIndices?: Uint32Array
 }
 
 // -------------------------------------------------------------------------
@@ -47,7 +49,7 @@ export interface ContourPlotProps {
  * Scatter plot of 2 parameters colored by objective value.
  * Dropdowns for X/Y parameters and objective update the chart in real time.
  */
-export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotProps) {
+export function ContourPlot({ trials, paramNames, objectiveNames, selectedIndices }: ContourPlotProps) {
   const [xParamIdx, setXParamIdx] = useState(0)
   const [yParamIdx, setYParamIdx] = useState(Math.min(1, paramNames.length - 1))
   const [objIdx, setObjIdx] = useState(0)
@@ -60,80 +62,109 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
   const xParam = paramNames[xParamIdx]
   const yParam = paramNames[yParamIdx]
 
-  // Filter to trials where X/Y params are numeric and objective value exists
-  const validTrials = trials.filter(
-    (t) =>
-      t.values !== null &&
-      t.values[objIdx] != null &&
-      typeof t.params[xParam] === 'number' &&
-      typeof t.params[yParam] === 'number',
-  )
+  // Memoize heavy scatter + selection computation
+  const option = useMemo(() => {
+    // Filter to trials where X/Y params are numeric and objective value exists
+    const validEntries = trials
+      .map((t, i) => ({ trial: t, originalIndex: i }))
+      .filter(
+        ({ trial: t }) =>
+          t.values !== null &&
+          t.values[objIdx] != null &&
+          typeof t.params[xParam] === 'number' &&
+          typeof t.params[yParam] === 'number',
+      )
+    const validTrials = validEntries.map((e) => e.trial)
 
-  // Compute objective value range for visualMap min/max
-  const objValues = validTrials.map((t) => t.values![objIdx])
-  const minObj = objValues.length > 0 ? Math.min(...objValues) : 0
-  const maxObj = objValues.length > 0 ? Math.max(...objValues) : 1
+    // Selection state
+    const isFiltered =
+      selectedIndices && selectedIndices.length > 0 && selectedIndices.length < trials.length
+    const selectedSet = isFiltered ? new Set(selectedIndices) : null
 
-  // ECharts option: scatter + visualMap (color scale by objective value)
-  const option = {
-    tooltip: {
-      trigger: 'item',
-      formatter: (params: { value: [number, number, number] }) =>
-        `${xParam}: ${params.value[0].toFixed(4)}<br/>` +
-        `${yParam}: ${params.value[1].toFixed(4)}<br/>` +
-        `${objectiveNames[objIdx]}: ${params.value[2].toFixed(4)}`,
-    },
-    xAxis: {
-      type: 'value',
-      name: xParam,
-      nameLocation: 'center',
-      nameGap: 24,
-    },
-    yAxis: {
-      type: 'value',
-      name: yParam,
-      nameLocation: 'center',
-      nameGap: 40,
-    },
-    // Color scale: blue (low) → red (high)
-    visualMap: {
-      min: minObj,
-      max: maxObj,
-      dimension: 2,
-      inRange: {
-        color: [
-          '#313695',
-          '#4575b4',
-          '#74add1',
-          '#abd9e9',
-          '#e0f3f8',
-          '#ffffbf',
-          '#fee090',
-          '#fdae61',
-          '#f46d43',
-          '#d73027',
-          '#a50026',
-        ],
-      },
-      calculable: true,
-      orient: 'vertical',
-      right: 10,
-      top: 'center',
-    },
-    series: [
+    // Compute objective value range for visualMap min/max
+    const objValues = validTrials.map((t) => t.values![objIdx])
+    const minObj = objValues.length > 0 ? Math.min(...objValues) : 0
+    const maxObj = objValues.length > 0 ? Math.max(...objValues) : 1
+
+    // Split scatter data by selection
+    const allPoints = validEntries.map(({ trial: t }) => [
+      t.params[xParam] as number,
+      t.params[yParam] as number,
+      t.values![objIdx],
+    ])
+    const selectedPoints = selectedSet
+      ? allPoints.filter((_, i) => selectedSet.has(validEntries[i].originalIndex))
+      : allPoints
+    const unselectedPoints = selectedSet
+      ? allPoints.filter((_, i) => !selectedSet.has(validEntries[i].originalIndex))
+      : []
+
+    const seriesList: object[] = [
       {
         type: 'scatter',
-        // Data format: [x, y, objective value] — dimension=2 used by visualMap
-        data: validTrials.map((t) => [
-          t.params[xParam] as number,
-          t.params[yParam] as number,
-          t.values![objIdx],
-        ]),
+        data: selectedPoints,
         symbolSize: 8,
       },
-    ],
-    grid: { containLabel: true, right: 80 },
-  }
+    ]
+    if (unselectedPoints.length > 0) {
+      seriesList.push({
+        type: 'scatter',
+        data: unselectedPoints,
+        symbolSize: 8,
+        itemStyle: { opacity: 0.08, color: '#94a3b8' },
+      })
+    }
+
+    return {
+      tooltip: {
+        trigger: 'item',
+        formatter: (params: { value: [number, number, number] }) =>
+          `${xParam}: ${params.value[0].toFixed(4)}<br/>` +
+          `${yParam}: ${params.value[1].toFixed(4)}<br/>` +
+          `${objectiveNames[objIdx]}: ${params.value[2].toFixed(4)}`,
+      },
+      xAxis: {
+        type: 'value',
+        name: xParam,
+        nameLocation: 'center',
+        nameGap: 24,
+      },
+      yAxis: {
+        type: 'value',
+        name: yParam,
+        nameLocation: 'center',
+        nameGap: 40,
+      },
+      visualMap: selectedSet
+        ? undefined
+        : {
+            min: minObj,
+            max: maxObj,
+            dimension: 2,
+            inRange: {
+              color: [
+                '#313695',
+                '#4575b4',
+                '#74add1',
+                '#abd9e9',
+                '#e0f3f8',
+                '#ffffbf',
+                '#fee090',
+                '#fdae61',
+                '#f46d43',
+                '#d73027',
+                '#a50026',
+              ],
+            },
+            calculable: true,
+            orient: 'vertical',
+            right: 10,
+            top: 'center',
+          },
+      series: seriesList,
+      grid: { containLabel: true, right: selectedSet ? undefined : 80 },
+    }
+  }, [trials, xParam, yParam, objIdx, objectiveNames, selectedIndices])
 
   return (
     <div
@@ -221,7 +252,7 @@ export function ContourPlot({ trials, paramNames, objectiveNames }: ContourPlotP
       </div>
 
       {/* Chart: ECharts scatter + visualMap */}
-      <ReactECharts option={option} style={{ flex: 1 }} />
+      <ReactECharts option={option} style={{ flex: 1 }} lazyUpdate />
     </div>
   )
 }

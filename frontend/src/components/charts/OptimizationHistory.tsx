@@ -11,7 +11,7 @@
  * Conforms to REQ-1001–REQ-1006.
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 
 // -------------------------------------------------------------------------
@@ -142,6 +142,7 @@ function buildChartOption(
   data: TrialData[],
   mode: HistoryMode,
   direction: OptimizationDirection,
+  selectedIndices?: Uint32Array,
 ): object {
   if (data.length === 0) {
     return { xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [] }
@@ -160,15 +161,33 @@ function buildChartOption(
         series: [{ type: 'line', data: bestSeries, name: 'Best Value' }],
       }
 
-    case 'all':
-      // All trial values scatter plot
+    case 'all': {
+      // All trial values scatter plot — split by selection
+      const isFiltered =
+        selectedIndices && selectedIndices.length > 0 && selectedIndices.length < data.length
+      const selectedSet = isFiltered ? new Set(selectedIndices) : null
+      const allPoints = trials.map((t, i) => [t, values[i]])
+      const selectedPoints = selectedSet ? allPoints.filter((_, i) => selectedSet.has(i)) : allPoints
+      const unselectedPoints = selectedSet ? allPoints.filter((_, i) => !selectedSet.has(i)) : []
+
+      const seriesList: object[] = [
+        { type: 'scatter', data: selectedPoints, name: 'All Trials' },
+      ]
+      if (unselectedPoints.length > 0) {
+        seriesList.push({
+          type: 'scatter',
+          data: unselectedPoints,
+          name: 'Unselected',
+          itemStyle: { opacity: 0.08, color: '#94a3b8' },
+        })
+      }
+
       return {
         xAxis: { type: 'value' },
         yAxis: { type: 'value' },
-        series: [
-          { type: 'scatter', data: trials.map((t, i) => [t, values[i]]), name: 'All Trials' },
-        ],
+        series: seriesList,
       }
+    }
 
     case 'moving-avg': {
       // Moving average line chart
@@ -207,6 +226,8 @@ export interface OptimizationHistoryProps {
   data: TrialData[]
   /** Optimization direction */
   direction: OptimizationDirection
+  /** Selected trial indices (0-based). When provided, unselected trials are dimmed in 'all' mode */
+  selectedIndices?: Uint32Array
 }
 
 // -------------------------------------------------------------------------
@@ -220,11 +241,14 @@ export interface OptimizationHistoryProps {
  *
  * Conforms to REQ-1001–REQ-1006.
  */
-export function OptimizationHistory({ data, direction }: OptimizationHistoryProps) {
+export function OptimizationHistory({ data, direction, selectedIndices }: OptimizationHistoryProps) {
   // Default mode is 'best' (running best value)
   const [mode, setMode] = useState<HistoryMode>('best')
 
-  const option = buildChartOption(data, mode, direction)
+  const option = useMemo(
+    () => buildChartOption(data, mode, direction, selectedIndices),
+    [data, mode, direction, selectedIndices],
+  )
 
   return (
     <div
@@ -265,7 +289,7 @@ export function OptimizationHistory({ data, direction }: OptimizationHistoryProp
 
       {/* Chart area: ECharts convergence history */}
       <div style={{ flex: 1 }}>
-        <ReactECharts option={option} style={{ height: '100%' }} />
+        <ReactECharts option={option} style={{ height: '100%' }} lazyUpdate />
       </div>
     </div>
   )
