@@ -226,6 +226,7 @@ impl ParserState {
     fn process_op(&mut self, op: u8, json: &Value) {
         match op {
             0 => self.process_create_study(json),
+            3 => self.process_set_study_system_attr(json),
             // Documentation.
             4 => self.process_create_trial(json),
             5 => self.process_set_trial_param(json),
@@ -288,20 +289,115 @@ impl ParserState {
         // Documentation.
         self.studies[study_id as usize].total_trials += 1;
 
-        self.trial_builders.insert(
-            trial_id,
-            TrialBuilder {
-                study_id,
-                state: 0, // Documentation.
-                values: None,
-                param_display: HashMap::new(),
-                param_category_label: HashMap::new(),
-                user_attrs_numeric: HashMap::new(),
-                user_attrs_string: HashMap::new(),
-                constraint_values: Vec::new(),
-                has_constraints: false,
-            },
-        );
+        // In-memory format: all trial data is embedded in CREATE_TRIAL (has "distributions" key).
+        if json.get("distributions").is_some() {
+            let state = get_u64(json, "state").unwrap_or(0) as u8;
+            let values = json
+                .get("values")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>());
+
+            let mut param_display: HashMap<String, f64> = HashMap::new();
+            let mut param_category_label: HashMap<String, String> = HashMap::new();
+
+            let dist_obj = json.get("distributions").and_then(|v| v.as_object());
+            if let Some(params_obj) = json.get("params").and_then(|v| v.as_object()) {
+                for (name, val) in params_obj {
+                    if let Some(n) = val.as_f64() {
+                        param_display.insert(name.clone(), n);
+                    } else if let Some(s) = val.as_str() {
+                        // Categorical string: find index from distributions
+                        let idx = dist_obj
+                            .and_then(|d| d.get(name))
+                            .map(|dv| {
+                                let dist = Distribution::from_json(dv);
+                                if let Distribution::Categorical { choices } = &dist {
+                                    choices
+                                        .iter()
+                                        .position(|c| c.as_str() == Some(s))
+                                        .unwrap_or(0)
+                                } else {
+                                    0
+                                }
+                            })
+                            .unwrap_or(0);
+                        param_display.insert(name.clone(), idx as f64);
+                        param_category_label.insert(name.clone(), s.to_string());
+                    } else if let Some(b) = val.as_bool() {
+                        // Categorical bool: find index
+                        let idx = dist_obj
+                            .and_then(|d| d.get(name))
+                            .map(|dv| {
+                                let dist = Distribution::from_json(dv);
+                                if let Distribution::Categorical { choices } = &dist {
+                                    choices
+                                        .iter()
+                                        .position(|c| c.as_bool() == Some(b))
+                                        .unwrap_or(0)
+                                } else {
+                                    0
+                                }
+                            })
+                            .unwrap_or(0);
+                        param_display.insert(name.clone(), idx as f64);
+                        param_category_label.insert(name.clone(), b.to_string());
+                    }
+                    // null or other types: skip
+                }
+            }
+
+            let mut user_attrs_numeric: HashMap<String, f64> = HashMap::new();
+            let mut user_attrs_string: HashMap<String, String> = HashMap::new();
+            if let Some(attrs) = json.get("user_attrs").and_then(|v| v.as_object()) {
+                for (key, val) in attrs {
+                    if let Some(n) = val.as_f64() {
+                        user_attrs_numeric.insert(key.clone(), n);
+                    } else if let Some(s) = val.as_str() {
+                        user_attrs_string.insert(key.clone(), s.to_string());
+                    }
+                }
+            }
+
+            let mut constraint_values: Vec<f64> = Vec::new();
+            let mut has_constraints = false;
+            if let Some(sys_attrs) = json.get("system_attrs").and_then(|v| v.as_object()) {
+                if let Some(cs) = sys_attrs.get("constraints").and_then(|v| v.as_array()) {
+                    constraint_values = cs.iter().filter_map(|v| v.as_f64()).collect();
+                    has_constraints = true;
+                }
+            }
+
+            self.trial_builders.insert(
+                trial_id,
+                TrialBuilder {
+                    study_id,
+                    state,
+                    values,
+                    param_display,
+                    param_category_label,
+                    user_attrs_numeric,
+                    user_attrs_string,
+                    constraint_values,
+                    has_constraints,
+                },
+            );
+        } else {
+            // Standard streaming format: trial starts running, subsequent ops set data.
+            self.trial_builders.insert(
+                trial_id,
+                TrialBuilder {
+                    study_id,
+                    state: 0,
+                    values: None,
+                    param_display: HashMap::new(),
+                    param_category_label: HashMap::new(),
+                    user_attrs_numeric: HashMap::new(),
+                    user_attrs_string: HashMap::new(),
+                    constraint_values: Vec::new(),
+                    has_constraints: false,
+                },
+            );
+        }
     }
 
     /// Documentation.
@@ -386,6 +482,28 @@ impl ParserState {
         if let Some(constraints) = attrs.get("constraints").and_then(|v| v.as_array()) {
             trial.constraint_values = constraints.iter().filter_map(|v| v.as_f64()).collect();
             trial.has_constraints = true;
+        }
+    }
+
+    /// Handles op_code 3 (SET_STUDY_SYSTEM_ATTR).
+    /// Reads `study:metric_names` to set objective names from the study-level attribute.
+    fn process_set_study_system_attr(&mut self, json: &Value) {
+        let study_id = get_u64(json, "study_id").unwrap_or(0) as u32;
+        if (study_id as usize) >= self.studies.len() {
+            return;
+        }
+        let Some(attrs) = json.get("system_attr").and_then(|v| v.as_object()) else {
+            return;
+        };
+        if let Some(names_arr) = attrs.get("study:metric_names").and_then(|v| v.as_array()) {
+            let names: Vec<String> = names_arr
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+            if !names.is_empty() {
+                self.studies[study_id as usize].objective_names = names;
+            }
         }
     }
 
@@ -1101,6 +1219,79 @@ mod tests {
         assert_eq!(result.studies[0].completed_trials, 1);
         assert!(result.studies[0].param_names.contains(&"x0".to_string()));
         assert!(result.studies[0].param_names.contains(&"x1".to_string()));
+    }
+
+    // =========================================================================
+    // In-memory format tests
+    // =========================================================================
+
+    #[test]
+    fn tc_inmem_01_basic() {
+        // In-memory format: op_code:4 contains all trial data inline.
+        // op_code:3 sets objective names via study:metric_names.
+        let data = to_bytes(concat!(
+            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"dtlz\",\"directions\":[1,1]}\n",
+            "{\"op_code\":3,\"worker_id\":\"w\",\"study_id\":0,\"system_attr\":{\"study:metric_names\":[\"Obj1\",\"Obj2\"]}}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:00.000000\",\"state\":1,\"value\":null,\"values\":[1.0,2.0],\"datetime_complete\":\"2026-01-01T00:00:01.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.5},\"user_attrs\":{},\"system_attrs\":{},\"intermediate_values\":{}}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:01.000000\",\"state\":1,\"value\":null,\"values\":[3.0,0.5],\"datetime_complete\":\"2026-01-01T00:00:02.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.7},\"user_attrs\":{},\"system_attrs\":{},\"intermediate_values\":{}}\n"
+        ));
+        let result = parse_journal(&data).expect("inmem parse");
+        assert_eq!(result.studies.len(), 1);
+        assert_eq!(result.studies[0].name, "dtlz");
+        assert_eq!(result.studies[0].completed_trials, 2);
+        assert_eq!(result.studies[0].total_trials, 2);
+        assert!(result.studies[0].param_names.contains(&"x".to_string()));
+        assert_eq!(result.studies[0].objective_names, vec!["Obj1", "Obj2"]);
+    }
+
+    #[test]
+    fn tc_inmem_02_incomplete_state_not_counted() {
+        // In-memory format: state!=1 trials should not be counted as completed.
+        let data = to_bytes(concat!(
+            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[1]}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:00.000000\",\"state\":3,\"value\":null,\"values\":null,\"datetime_complete\":null,\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.5},\"user_attrs\":{},\"system_attrs\":{},\"intermediate_values\":{}}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:01.000000\",\"state\":1,\"value\":null,\"values\":[0.8],\"datetime_complete\":\"2026-01-01T00:00:02.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.3},\"user_attrs\":{},\"system_attrs\":{},\"intermediate_values\":{}}\n"
+        ));
+        let result = parse_journal(&data).expect("inmem incomplete state parse");
+        assert_eq!(result.studies[0].total_trials, 2);
+        assert_eq!(result.studies[0].completed_trials, 1);
+    }
+
+    #[test]
+    fn tc_inmem_03_user_attrs_inline() {
+        // In-memory format: user_attrs embedded in op_code:4.
+        let data = to_bytes(concat!(
+            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[1]}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:00.000000\",\"state\":1,\"value\":null,\"values\":[0.5],\"datetime_complete\":\"2026-01-01T00:00:01.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.5},\"user_attrs\":{\"loss\":0.123,\"tag\":\"run_a\"},\"system_attrs\":{},\"intermediate_values\":{}}\n"
+        ));
+        let result = parse_journal(&data).expect("inmem user_attrs parse");
+        assert!(result.studies[0].user_attr_names.contains(&"loss".to_string()));
+        assert!(result.studies[0].user_attr_names.contains(&"tag".to_string()));
+    }
+
+    #[test]
+    fn parse_real_inmem_log_file() {
+        let log_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test_inmem.log");
+        if !log_path.exists() {
+            eprintln!("test_inmem.log not found at {:?}, skipping", log_path);
+            return;
+        }
+        let data = std::fs::read(&log_path).expect("test_inmem.log read");
+        let result = parse_journal(&data).expect("test_inmem.log parse");
+
+        assert!(result.studies.len() >= 1, "at least 1 study");
+        let study = &result.studies[0];
+        assert!(study.completed_trials > 0, "should have completed trials");
+        assert_eq!(study.param_names.len(), 10, "DTLZ1 has 10 params");
+        for i in 0..10 {
+            let name = format!("DTLZ1_Variable{i}");
+            assert!(study.param_names.contains(&name), "missing param {name}");
+        }
+        assert_eq!(
+            study.objective_names,
+            vec!["Obj1", "Obj2"],
+            "objective names from study:metric_names"
+        );
     }
 
     #[test]

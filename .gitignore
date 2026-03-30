@@ -37,4 +37,7 @@ frontend/src/wasm/pkg/
 # Rust artifacts
 rust_core/target/
 rust_core/Cargo.lock
+
+# Test fixtures (allow *.log under rust_core for CI)
+!rust_core/test*.log
 node_modules/
