@@ -141,6 +141,32 @@ TASK-1601 → TASK-1602 → TASK-1603 → TASK-1605 → TASK-1608
 **クリティカルパス工数**: 4 + 3 + 5 + 6 + 4 = 22時間
 **並行作業可能**: TASK-1603/1604 並行（11h→6h）、TASK-1605/1606/1607/1609 並行（19h→6h）
 
+## 実行順序（ガントチャート）
+
+```mermaid
+gantt
+  title visualization-enablement 実装スケジュール
+  dateFormat  YYYY-MM-DD
+  axisFormat  Day %j
+
+  section Phase 1 - WASM インフラ
+    TASK-1601 WASM バインディング追加  :done, t1601, 2026-04-01, 1d
+    TASK-1602 TS型宣言 + WasmLoader   :done, t1602, after t1601, 1d
+
+  section Phase 2 - Zustand ストア
+    TASK-1603 analysisStore          :t1603, after t1602, 1d
+    TASK-1604 clusterStore           :t1604, after t1602, 1d
+
+  section Phase 3 - コンポーネント
+    TASK-1605 ImportanceChart        :t1605, after t1603, 1d
+    TASK-1606 ClusterScatter         :t1606, after t1604, 1d
+    TASK-1607 DimReductionScatter    :t1607, after t1604, 1d
+    TASK-1609 LeftPanel配線          :t1609, after t1604, 1d
+
+  section Phase 3 - 配線
+    TASK-1608 FreeLayoutCanvas配線   :t1608, after t1605, 1d
+```
+
 ## 次のステップ
 
 タスクを実装するには:
