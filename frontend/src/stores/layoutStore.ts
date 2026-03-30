@@ -67,6 +67,8 @@ interface LayoutState {
    * On parse or validation failure, sets layoutLoadError and resets to the default layout.
    */
   loadLayoutFromJson: (json: string) => { success: boolean; error?: string }
+  /** Updates panel sizes (left panel width and bottom panel height). */
+  setPanelSizes: (sizes: PanelSizes) => void
 }
 
 // -------------------------------------------------------------------------
@@ -161,6 +163,9 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
 
   /** Directly sets freeModeLayout (used when applying a preset or resetting) */
   setFreeModeLayout: (layout) => set({ freeModeLayout: layout }),
+
+  /** Updates panel sizes (left panel width and bottom panel height). */
+  setPanelSizes: (sizes) => set({ panelSizes: sizes }),
 
   /**
    * Updates only the grid position of the specified cell.
