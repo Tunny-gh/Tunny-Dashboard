@@ -2,6 +2,9 @@
 name = "tunny-core"
 version = "0.1.0"
 edition = "2021"
+description = "In-browser analytics dashboard for Optuna optimization results — Journal parsing and DataFrame operations in Rust/WebAssembly"
+repository = "https://github.com/Tunny-gh/Tunny-Dashboard"
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
