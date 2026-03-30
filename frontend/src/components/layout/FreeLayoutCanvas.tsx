@@ -11,7 +11,7 @@
  * Documentation.
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useLayoutStore, DEFAULT_FREE_LAYOUT } from '../../stores/layoutStore'
 import { useStudyStore } from '../../stores/studyStore'
@@ -95,14 +95,6 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   const loadError = useStudyStore((s) => s.loadError)
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
 
-  // Build a Set of selected indices for quick lookup (memoized to avoid O(n) on every render)
-  // Must be before early return to satisfy Rules of Hooks
-  const selectedSet = useMemo(() => {
-    if (gpuBuffer && selectedIndices.length > 0 && selectedIndices.length < gpuBuffer.trialCount) {
-      return new Set(selectedIndices)
-    }
-    return null
-  }, [selectedIndices, gpuBuffer])
 
   if (!currentStudy || !gpuBuffer) {
     return <EmptyState message={loadError ?? 'Please load data'} />
