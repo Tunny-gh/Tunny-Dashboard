@@ -12,12 +12,23 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 // Documentation.
 // -------------------------------------------------------------------------
 
-const { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter } = vi.hoisted(() => {
+const { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter, mockRunClustering, mockUseClusterStore } = vi.hoisted(() => {
   const mockAddAxisFilter = vi.fn()
   const mockSetColorMode = vi.fn()
   const mockRemoveAxisFilter = vi.fn()
-  return { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter }
+  const mockRunClustering = vi.fn()
+  const mockUseClusterStore = vi.fn().mockReturnValue({
+    runClustering: mockRunClustering,
+    isRunning: false,
+    elbowResult: null,
+    clusterError: null,
+  })
+  return { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter, mockRunClustering, mockUseClusterStore }
 })
+
+vi.mock('../../stores/clusterStore', () => ({
+  useClusterStore: mockUseClusterStore,
+}))
 
 vi.mock('../../stores/selectionStore', () => ({
   useSelectionStore: vi
@@ -158,5 +169,62 @@ describe('translated test case', () => {
 
     render(<LeftPanel />)
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TC-1609: LeftPanel → clusterStore wiring
+// ---------------------------------------------------------------------------
+
+describe('TC-1609: LeftPanel → clusterStore wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Restore studyStore mock with non-null currentStudy (TC-402-E01 may have overridden it)
+    ;(useStudyStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (s: {
+        currentStudy: { paramNames: string[]; objectiveNames: string[]; completedTrials: number } | null
+        trialRows: Array<{ trialId: number; params: Record<string, number>; values: number[]; paretoRank: number | null }>
+      }) => unknown) =>
+        selector({
+          currentStudy: { paramNames: ['x1', 'x2'], objectiveNames: ['obj1'], completedTrials: 10 },
+          trialRows: [
+            { trialId: 0, params: { x1: 0.0, x2: -5.0 }, values: [1.0], paretoRank: null },
+            { trialId: 1, params: { x1: 10.0, x2: 5.0 }, values: [2.0], paretoRank: null },
+          ],
+        }),
+    )
+    mockUseClusterStore.mockReturnValue({
+      runClustering: mockRunClustering,
+      isRunning: false,
+      elbowResult: null,
+      clusterError: null,
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  test('TC-1609-01: onRunClustering calls clusterStore.runClustering', () => {
+    render(<LeftPanel />)
+
+    const runBtn = screen.getByTestId('run-clustering-btn')
+    fireEvent.click(runBtn)
+
+    expect(mockRunClustering).toHaveBeenCalledWith('param', 4)
+  })
+
+  test('TC-1609-02: clusterStore.isRunning=true disables run button', () => {
+    mockUseClusterStore.mockReturnValue({
+      runClustering: mockRunClustering,
+      isRunning: true,
+      elbowResult: null,
+      clusterError: null,
+    })
+
+    render(<LeftPanel />)
+
+    const runBtn = screen.getByTestId('run-clustering-btn')
+    expect(runBtn).toBeDisabled()
   })
 })

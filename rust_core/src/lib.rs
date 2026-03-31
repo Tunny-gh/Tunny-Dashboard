@@ -288,6 +288,180 @@ pub fn wasm_get_trials() -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Documentation.
+///
+/// Documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computeSensitivity")]
+pub fn wasm_compute_sensitivity() -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let start = js_sys::Date::now();
+    match sensitivity::compute_sensitivity() {
+        Some(result) => {
+            let duration_ms = js_sys::Date::now() - start;
+            let output = serde_json::json!({
+                "spearman": result.spearman,
+                "ridge": result.ridge.iter().map(|r| serde_json::json!({"beta": r.beta, "rSquared": r.r_squared})).collect::<Vec<_>>(),
+                "paramNames": result.param_names,
+                "objectiveNames": result.objective_names,
+                "durationMs": duration_ms,
+            });
+            let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+            output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
+/// Documentation.
+///
+/// Documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computeSensitivitySelected")]
+pub fn wasm_compute_sensitivity_selected(indices: js_sys::Uint32Array) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    if indices.length() == 0 {
+        return Err(JsValue::from_str("Empty selection"));
+    }
+    let idx_vec: Vec<u32> = indices.to_vec();
+    let start = js_sys::Date::now();
+    match sensitivity::compute_sensitivity_selected(&idx_vec) {
+        Some(result) => {
+            let duration_ms = js_sys::Date::now() - start;
+            let output = serde_json::json!({
+                "spearman": result.spearman,
+                "ridge": result.ridge.iter().map(|r| serde_json::json!({"beta": r.beta, "rSquared": r.r_squared})).collect::<Vec<_>>(),
+                "paramNames": result.param_names,
+                "objectiveNames": result.objective_names,
+                "durationMs": duration_ms,
+            });
+            let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+            output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
+/// Documentation.
+///
+/// Documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "runPca")]
+pub fn wasm_run_pca(n_components: u32, space: &str) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let pca_space = match space {
+        "param" => clustering::PcaSpace::Param,
+        "objective" => clustering::PcaSpace::Objective,
+        "all" => clustering::PcaSpace::All,
+        _ => return Err(JsValue::from_str("Invalid space")),
+    };
+    let start = js_sys::Date::now();
+    match clustering::run_pca(n_components as usize, pca_space) {
+        Some(result) => {
+            let duration_ms = js_sys::Date::now() - start;
+            let output = serde_json::json!({
+                "projections": result.projections,
+                "explainedVariance": result.explained_variance,
+                "featureNames": result.feature_names,
+                "durationMs": duration_ms,
+            });
+            let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+            output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("Insufficient data for PCA")),
+    }
+}
+
+/// Documentation.
+///
+/// Documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "runKmeans")]
+pub fn wasm_run_kmeans(k: u32, data: js_sys::Float64Array, n_cols: u32) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let data_vec: Vec<f64> = data.to_vec();
+    let start = js_sys::Date::now();
+    let result = clustering::run_kmeans(k as usize, &data_vec, n_cols as usize);
+    let duration_ms = js_sys::Date::now() - start;
+    let output = serde_json::json!({
+        "labels": result.labels,
+        "centroids": result.centroids,
+        "wcss": result.wcss,
+        "durationMs": duration_ms,
+    });
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Documentation.
+///
+/// Documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "estimateKElbow")]
+pub fn wasm_estimate_k_elbow(data: js_sys::Float64Array, n_cols: u32, max_k: u32) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let data_vec: Vec<f64> = data.to_vec();
+    let start = js_sys::Date::now();
+    let result = clustering::estimate_k_elbow(&data_vec, n_cols as usize, max_k as usize);
+    let duration_ms = js_sys::Date::now() - start;
+    let output = serde_json::json!({
+        "wcssPerK": result.wcss_per_k,
+        "recommendedK": result.recommended_k,
+        "durationMs": duration_ms,
+    });
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Documentation.
+///
+/// Documentation.
+/// Documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computeClusterStats")]
+pub fn wasm_compute_cluster_stats(labels: js_sys::Int32Array) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    use std::collections::HashMap;
+    let labels_vec: Vec<usize> = labels.to_vec().into_iter().map(|l| l as usize).collect();
+    let start = js_sys::Date::now();
+    let stats = clustering::compute_cluster_stats(&labels_vec);
+    // Get feature names after compute_cluster_stats releases the dataframe borrow
+    let feature_names = crate::dataframe::with_active_df(|df| {
+        let mut names = df.param_col_names().to_vec();
+        names.extend_from_slice(df.objective_col_names());
+        names
+    })
+    .unwrap_or_default();
+    let duration_ms = js_sys::Date::now() - start;
+    let output = serde_json::json!({
+        "stats": stats.iter().map(|s| {
+            let centroid_map: HashMap<String, f64> = feature_names.iter()
+                .zip(s.centroid.iter())
+                .map(|(k, &v)| (k.clone(), v))
+                .collect();
+            let std_map: HashMap<String, f64> = feature_names.iter()
+                .zip(s.std_dev.iter())
+                .map(|(k, &v)| (k.clone(), v))
+                .collect();
+            let significant_diffs: Vec<&String> = feature_names.iter()
+                .zip(s.significant_features.iter())
+                .filter(|(_, &sig)| sig)
+                .map(|(name, _)| name)
+                .collect();
+            serde_json::json!({
+                "clusterId": s.cluster_id,
+                "size": s.size,
+                "centroid": centroid_map,
+                "std": std_map,
+                "significantDiffs": significant_diffs,
+            })
+        }).collect::<Vec<_>>(),
+        "durationMs": duration_ms,
+    });
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

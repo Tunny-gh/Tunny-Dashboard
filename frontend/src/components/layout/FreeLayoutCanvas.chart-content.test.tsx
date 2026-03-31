@@ -55,6 +55,43 @@ vi.mock('../../wasm/wasmLoader', () => ({
   },
 }))
 
+// Mock new stores to prevent module-level side effects (analysisStore/clusterStore
+// call useStudyStore.getState() at module initialization time, which fails when
+// studyStore is mocked as a plain function without .getState)
+
+const { mockUseAnalysisStoreCC } = vi.hoisted(() => {
+  const mockSensitivityResult = {
+    spearman: [[0.8], [0.5]],
+    ridge: [{ beta: [0.8, 0.5], rSquared: 0.9 }],
+    paramNames: ['x', 'y'],
+    objectiveNames: ['value'],
+    durationMs: 1,
+  }
+  const mockUseAnalysisStoreCC = vi.fn().mockReturnValue({
+    sensitivityResult: mockSensitivityResult,
+    isComputingSensitivity: false,
+    sensitivityError: null,
+    computeSensitivity: vi.fn(),
+    computeSensitivitySelected: vi.fn(),
+  })
+  return { mockUseAnalysisStoreCC }
+})
+
+vi.mock('../../stores/analysisStore', () => ({
+  useAnalysisStore: mockUseAnalysisStoreCC,
+}))
+
+vi.mock('../../stores/clusterStore', () => ({
+  useClusterStore: vi.fn().mockReturnValue({
+    pcaProjections: null,
+    clusterLabels: null,
+    isRunning: false,
+    clusterError: null,
+    runClustering: vi.fn(),
+    estimateK: vi.fn(),
+  }),
+}))
+
 // -------------------------------------------------------------------------
 // Documentation.
 // -------------------------------------------------------------------------
@@ -250,9 +287,24 @@ describe('FreeLayoutCanvas — ChartContent', () => {
   // ----------------------------------------------------------------
 
   describe('importance', () => {
+    beforeEach(() => {
+      mockUseAnalysisStoreCC.mockReturnValue({
+        sensitivityResult: {
+          spearman: [[0.8], [0.5]],
+          ridge: [{ beta: [0.8, 0.5], rSquared: 0.9 }],
+          paramNames: ['x', 'y'],
+          objectiveNames: ['value'],
+          durationMs: 1,
+        },
+        isComputingSensitivity: false,
+        sensitivityError: null,
+        computeSensitivity: vi.fn(),
+        computeSensitivitySelected: vi.fn(),
+      })
+    })
+
     test('TC-CC-020', () => {
-      // Documentation.
-      setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
+      // Documentation. (Now uses ImportanceChart with analysisStore)
       useLayoutStore.setState({
         freeModeLayout: {
           cells: [{ chartId: 'importance', gridRow: [1, 3], gridCol: [1, 3] }],
@@ -261,14 +313,10 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       render(<FreeLayoutCanvas />)
       const echartsEl = screen.getByTestId('echarts')
       expect(echartsEl).toBeInTheDocument()
-      // Documentation.
-      const option = JSON.parse(echartsEl.dataset.option ?? '{}')
-      expect(option.xAxis?.data).toEqual(['x', 'y'])
     })
 
     test('TC-CC-021', () => {
       // Documentation.
-      setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
           cells: [{ chartId: 'importance', gridRow: [1, 3], gridCol: [1, 3] }],
@@ -280,12 +328,20 @@ describe('FreeLayoutCanvas — ChartContent', () => {
     })
 
     test('TC-CC-022', () => {
-      // Documentation.
-      const studyNoParams: Study = {
-        ...makeSingleObjectiveStudy(),
-        paramNames: [],
-      }
-      setStudyStore(studyNoParams, makeGpuBuffer())
+      // Documentation. (ImportanceChart shows EmptyState when sensitivityResult has no params)
+      mockUseAnalysisStoreCC.mockReturnValue({
+        sensitivityResult: {
+          spearman: [],
+          ridge: [],
+          paramNames: [],
+          objectiveNames: ['value'],
+          durationMs: 1,
+        },
+        isComputingSensitivity: false,
+        sensitivityError: null,
+        computeSensitivity: vi.fn(),
+        computeSensitivitySelected: vi.fn(),
+      })
       useLayoutStore.setState({
         freeModeLayout: {
           cells: [{ chartId: 'importance', gridRow: [1, 3], gridCol: [1, 3] }],
@@ -297,7 +353,6 @@ describe('FreeLayoutCanvas — ChartContent', () => {
 
     test('TC-CC-023', () => {
       // Documentation.
-      setStudyStore(makeSingleObjectiveStudy(), makeGpuBuffer())
       useLayoutStore.setState({
         freeModeLayout: {
           cells: [{ chartId: 'importance', gridRow: [1, 3], gridCol: [1, 3] }],
@@ -305,8 +360,8 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       })
       render(<FreeLayoutCanvas />)
       const option = JSON.parse(screen.getByTestId('echarts').dataset.option ?? '{}')
-      // Documentation.
-      expect(option.series?.[0]?.data?.length).toBe(2) // Documentation.
+      // Documentation. (2 params in sensitivityResult → 2 bars)
+      expect(option.series?.[0]?.data?.length).toBe(2)
     })
   })
 

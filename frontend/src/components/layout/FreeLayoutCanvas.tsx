@@ -27,6 +27,11 @@ import { ContourPlot } from '../charts/ContourPlot'
 import { HypervolumeHistory, type HypervolumeDataPoint } from '../charts/HypervolumeHistory'
 import { EmptyState } from '../common/EmptyState'
 import { WasmLoader } from '../../wasm/wasmLoader'
+import { SensitivityHeatmap } from '../charts/SensitivityHeatmap'
+import { ImportanceChart } from '../charts/ImportanceChart'
+import { ClusterScatter } from '../charts/ClusterScatter'
+import { DimReductionScatter } from '../charts/DimReductionScatter'
+import { useAnalysisStore } from '../../stores/analysisStore'
 
 // -------------------------------------------------------------------------
 // Constants
@@ -85,6 +90,34 @@ function HypervolumeContent({ study }: { study: Study }) {
   )
 }
 
+// -------------------------------------------------------------------------
+// SensitivityHeatmapWrapper
+// -------------------------------------------------------------------------
+
+function SensitivityHeatmapWrapper() {
+  const [threshold, setThreshold] = useState(0.1)
+  const { sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity } =
+    useAnalysisStore()
+
+  useEffect(() => {
+    if (!sensitivityResult && !isComputingSensitivity) {
+      computeSensitivity()
+    }
+  }, [sensitivityResult, isComputingSensitivity, computeSensitivity])
+
+  if (sensitivityError) return <EmptyState message={sensitivityError} />
+
+  return (
+    <SensitivityHeatmap
+      data={sensitivityResult}
+      metric="spearman"
+      threshold={threshold}
+      isLoading={isComputingSensitivity}
+      onThresholdChange={setThreshold}
+    />
+  )
+}
+
 // Documentation.
 // -------------------------------------------------------------------------
 
@@ -95,6 +128,12 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   const loadError = useStudyStore((s) => s.loadError)
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
 
+
+  // Charts that work independently of study data
+  if (chartId === 'sensitivity-heatmap') return <SensitivityHeatmapWrapper />
+  if (chartId === 'importance') return <ImportanceChart />
+  if (chartId === 'cluster-view') return <ClusterScatter />
+  if (chartId === 'umap') return <DimReductionScatter />
 
   if (!currentStudy || !gpuBuffer) {
     return <EmptyState message={loadError ?? 'Please load data'} />
@@ -210,25 +249,6 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
         return <EmptyState message="Available for multi-objective studies only" />
       }
       return <ObjectivePairMatrix gpuBuffer={gpuBuffer} currentStudy={currentStudy} />
-    case 'importance': {
-      if (currentStudy.paramNames.length === 0) {
-        return <EmptyState />
-      }
-      const importanceOption = {
-        title: { text: 'Importance (tentative, WASM not computed)', textStyle: { fontSize: 12 } },
-        xAxis: { type: 'category', data: currentStudy.paramNames },
-        yAxis: { type: 'value' },
-        series: [{ type: 'bar', data: currentStudy.paramNames.map(() => 1.0) }],
-        grid: { containLabel: true },
-      }
-      return (
-        <ReactECharts
-          option={importanceOption}
-          style={{ height: '100%', width: '100%' }}
-          lazyUpdate
-        />
-      )
-    }
     case 'slice':
       if (trialRows.length === 0) return <EmptyState />
       return (

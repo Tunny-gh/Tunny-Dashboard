@@ -6,11 +6,73 @@
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { FreeLayoutCanvas } from './FreeLayoutCanvas'
 import type { FreeModeLayout } from '../../types'
+
+// ---------------------------------------------------------------------------
+// Mocks for TC-1608 (new chart cases)
+// ---------------------------------------------------------------------------
+
+vi.mock('echarts-for-react')
+
+const {
+  mockUseAnalysisStore,
+  mockUseClusterStore1608,
+  mockUseSelectionStore1608,
+  mockWasmGetInstance1608,
+  analysisState,
+  clusterState1608,
+} = vi.hoisted(() => {
+  const analysisState = {
+    sensitivityResult: null as null,
+    isComputingSensitivity: false,
+    sensitivityError: null as string | null,
+    computeSensitivity: vi.fn(),
+    computeSensitivitySelected: vi.fn(),
+  }
+  const mockUseAnalysisStore = vi.fn().mockImplementation(
+    (selector?: (s: typeof analysisState) => unknown) =>
+      typeof selector === 'function' ? selector(analysisState) : analysisState,
+  )
+
+  const clusterState1608 = {
+    pcaProjections: null as number[][] | null,
+    clusterLabels: null as number[] | null,
+    isRunning: false,
+    clusterError: null as string | null,
+  }
+  const mockUseClusterStore1608 = vi.fn().mockImplementation(
+    (selector?: (s: typeof clusterState1608) => unknown) =>
+      typeof selector === 'function' ? selector(clusterState1608) : clusterState1608,
+  )
+
+  const selectionState1608 = { colorMode: 'objective', selectedIndices: [] as number[] }
+  const mockUseSelectionStore1608 = vi.fn().mockImplementation(
+    (selector?: (s: typeof selectionState1608) => unknown) =>
+      typeof selector === 'function' ? selector(selectionState1608) : selectionState1608,
+  )
+
+  const mockWasmGetInstance1608 = vi.fn().mockReturnValue(new Promise(() => {}))
+
+  return {
+    mockUseAnalysisStore,
+    mockUseClusterStore1608,
+    mockUseSelectionStore1608,
+    mockWasmGetInstance1608,
+    analysisState,
+    clusterState1608,
+  }
+})
+
+vi.mock('../../stores/analysisStore', () => ({ useAnalysisStore: mockUseAnalysisStore }))
+vi.mock('../../stores/clusterStore', () => ({ useClusterStore: mockUseClusterStore1608 }))
+vi.mock('../../stores/selectionStore', () => ({ useSelectionStore: mockUseSelectionStore1608 }))
+vi.mock('../../wasm/wasmLoader', () => ({
+  WasmLoader: { getInstance: mockWasmGetInstance1608, reset: vi.fn() },
+}))
 
 // -------------------------------------------------------------------------
 // Documentation.
@@ -183,5 +245,95 @@ describe('FreeLayoutCanvas', () => {
     // Documentation.
     render(<FreeLayoutCanvas />)
     expect(screen.getByTestId('save-free-layout-btn')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TC-1608: new chart cases wired in FreeLayoutCanvas
+// ---------------------------------------------------------------------------
+
+describe('TC-1608: FreeLayoutCanvas new chart cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    analysisState.sensitivityResult = null
+    analysisState.isComputingSensitivity = false
+    analysisState.sensitivityError = null
+    clusterState1608.pcaProjections = null
+    clusterState1608.isRunning = false
+    clusterState1608.clusterError = null
+    clusterState1608.clusterLabels = null
+    useLayoutStore.setState({
+      layoutMode: 'D',
+      freeModeLayout: null,
+      layoutLoadError: null,
+      visibleCharts: new Set(),
+      panelSizes: { leftPanel: 280, bottomPanel: 200 },
+    })
+  })
+
+  test('TC-1608-01: sensitivity-heatmap renders SensitivityHeatmap', async () => {
+    useLayoutStore.setState({
+      freeModeLayout: {
+        cells: [
+          { cellId: 'heatmap-cell', chartId: 'sensitivity-heatmap', gridRow: [1, 3], gridCol: [1, 3] },
+        ],
+      },
+    })
+
+    await act(async () => {
+      render(<FreeLayoutCanvas />)
+    })
+
+    expect(screen.getByTestId('sensitivity-heatmap')).toBeDefined()
+  })
+
+  test('TC-1608-02: importance renders ImportanceChart (Loading state)', async () => {
+    analysisState.isComputingSensitivity = true
+    useLayoutStore.setState({
+      freeModeLayout: {
+        cells: [
+          { cellId: 'importance-cell', chartId: 'importance', gridRow: [1, 3], gridCol: [1, 3] },
+        ],
+      },
+    })
+
+    await act(async () => {
+      render(<FreeLayoutCanvas />)
+    })
+
+    expect(screen.getByText('Loading...')).toBeDefined()
+  })
+
+  test('TC-1608-03: cluster-view renders ClusterScatter (EmptyState)', async () => {
+    useLayoutStore.setState({
+      freeModeLayout: {
+        cells: [
+          { cellId: 'cluster-cell', chartId: 'cluster-view', gridRow: [1, 3], gridCol: [1, 3] },
+        ],
+      },
+    })
+
+    await act(async () => {
+      render(<FreeLayoutCanvas />)
+    })
+
+    expect(screen.getByText(/Run clustering/)).toBeDefined()
+  })
+
+  test('TC-1608-04: umap renders DimReductionScatter (Loading state)', async () => {
+    clusterState1608.isRunning = true
+    useLayoutStore.setState({
+      freeModeLayout: {
+        cells: [
+          { cellId: 'umap-cell', chartId: 'umap', gridRow: [1, 3], gridCol: [1, 3] },
+        ],
+      },
+    })
+
+    await act(async () => {
+      render(<FreeLayoutCanvas />)
+    })
+
+    expect(screen.getByText('Loading...')).toBeDefined()
   })
 })

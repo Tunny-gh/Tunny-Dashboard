@@ -9,6 +9,8 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
+import { useClusterStore } from '../../stores/clusterStore'
+import { ClusterPanel } from './ClusterPanel'
 import { COLORMAP_NAMES } from '../../colormaps'
 import type { ColormapName } from '../../colormaps'
 
@@ -180,6 +182,9 @@ export function LeftPanel() {
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const trialRows = useStudyStore((s) => s.trialRows)
 
+  const { runClustering, isRunning: clusterIsRunning, elbowResult, clusterError } =
+    useClusterStore()
+
   // Documentation.
   const paramRanges = useMemo(() => {
     const ranges: Record<string, { min: number; max: number }> = {}
@@ -278,6 +283,14 @@ export function LeftPanel() {
           ))}
         </select>
       </div>
+
+      {/* Clustering */}
+      <ClusterPanel
+        onRunClustering={runClustering}
+        isRunning={clusterIsRunning}
+        elbowResult={elbowResult}
+        error={clusterError}
+      />
     </div>
   )
 }

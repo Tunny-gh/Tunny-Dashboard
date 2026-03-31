@@ -17,6 +17,19 @@ import initWasm, {
   computeHvHistory as wasmComputeHvHistory,
   appendJournalDiff as wasmAppendJournalDiff,
   computeReportStats as wasmComputeReportStats,
+  computeSensitivity as wasmComputeSensitivity,
+  computeSensitivitySelected as wasmComputeSensitivitySelected,
+  runPca as wasmRunPca,
+  runKmeans as wasmRunKmeans,
+  estimateKElbow as wasmEstimateKElbow,
+  computeClusterStats as wasmComputeClusterStats,
+} from './pkg/tunny_core'
+import type {
+  SensitivityWasmResult,
+  PcaWasmResult,
+  KmeansWasmResult,
+  ElbowWasmResult,
+  ClusterStatsWasmResult,
 } from './pkg/tunny_core'
 import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index'
 
@@ -120,6 +133,13 @@ export class WasmLoader {
    */
   getTrials!: () => TrialData[]
 
+  computeSensitivity!: () => SensitivityWasmResult
+  computeSensitivitySelected!: (indices: Uint32Array) => SensitivityWasmResult
+  runPca!: (nComponents: number, space: string) => PcaWasmResult
+  runKmeans!: (k: number, data: Float64Array, nCols: number) => KmeansWasmResult
+  estimateKElbow!: (data: Float64Array, nCols: number, maxK: number) => ElbowWasmResult
+  computeClusterStats!: (labels: Int32Array) => ClusterStatsWasmResult
+
   /**
    * Documentation.
    */
@@ -171,6 +191,15 @@ export class WasmLoader {
       wasmAppendJournalDiff(data) as { new_completed: number; consumed_bytes: number }
     loader.computeReportStats = () => wasmComputeReportStats() as string
     loader.getTrials = () => wasmGetTrials() as TrialData[]
+    loader.computeSensitivity = () => wasmComputeSensitivity() as SensitivityWasmResult
+    loader.computeSensitivitySelected = (indices) =>
+      wasmComputeSensitivitySelected(indices) as SensitivityWasmResult
+    loader.runPca = (nComponents, space) => wasmRunPca(nComponents, space) as PcaWasmResult
+    loader.runKmeans = (k, data, nCols) => wasmRunKmeans(k, data, nCols) as KmeansWasmResult
+    loader.estimateKElbow = (data, nCols, maxK) =>
+      wasmEstimateKElbow(data, nCols, maxK) as ElbowWasmResult
+    loader.computeClusterStats = (labels) =>
+      wasmComputeClusterStats(labels) as ClusterStatsWasmResult
 
     return loader
   }

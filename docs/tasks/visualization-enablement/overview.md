@@ -28,9 +28,9 @@
 
 ## 全体進捗
 
-- [ ] Phase 1: WASM インフラ
-- [ ] Phase 2: Zustand ストア
-- [ ] Phase 3: チャートコンポーネント＋配線
+- [x] Phase 1: WASM インフラ
+- [x] Phase 2: Zustand ストア
+- [x] Phase 3: チャートコンポーネント＋配線
 
 ## マイルストーン
 
@@ -47,8 +47,8 @@
 
 ### タスク一覧
 
-- [ ] [TASK-1601: WASM バインディング追加 (lib.rs 6関数)](TASK-1601.md) - 4h (DIRECT) 🔵
-- [ ] [TASK-1602: TypeScript型宣言 + WasmLoaderバインディング追加](TASK-1602.md) - 3h (DIRECT) 🔵
+- [x] [TASK-1601: WASM バインディング追加 (lib.rs 6関数)](TASK-1601.md) - 4h (DIRECT) 🔵
+- [x] [TASK-1602: TypeScript型宣言 + WasmLoaderバインディング追加](TASK-1602.md) - 3h (DIRECT) 🔵
 
 ### 依存関係
 
@@ -65,8 +65,8 @@ TASK-1601 → TASK-1602
 
 ### タスク一覧
 
-- [ ] [TASK-1603: analysisStore 実装 + テスト](TASK-1603.md) - 5h (TDD) 🔵
-- [ ] [TASK-1604: clusterStore 実装 + テスト](TASK-1604.md) - 6h (TDD) 🔵
+- [x] [TASK-1603: analysisStore 実装 + テスト](TASK-1603.md) - 5h (TDD) 🔵
+- [x] [TASK-1604: clusterStore 実装 + テスト](TASK-1604.md) - 6h (TDD) 🔵
 
 ### 依存関係
 
@@ -85,11 +85,11 @@ TASK-1602 → TASK-1604
 
 ### タスク一覧
 
-- [ ] [TASK-1605: ImportanceChart コンポーネント実装 + テスト](TASK-1605.md) - 6h (TDD) 🔵
-- [ ] [TASK-1606: ClusterScatter コンポーネント実装 + テスト](TASK-1606.md) - 5h (TDD) 🔵
-- [ ] [TASK-1607: DimReductionScatter コンポーネント実装 + テスト](TASK-1607.md) - 5h (TDD) 🔵
-- [ ] [TASK-1608: FreeLayoutCanvas 4ケース配線](TASK-1608.md) - 4h (TDD) 🔵
-- [ ] [TASK-1609: LeftPanel → clusterStore 配線](TASK-1609.md) - 3h (TDD) 🔵
+- [x] [TASK-1605: ImportanceChart コンポーネント実装 + テスト](TASK-1605.md) - 6h (TDD) 🔵
+- [x] [TASK-1606: ClusterScatter コンポーネント実装 + テスト](TASK-1606.md) - 5h (TDD) 🔵
+- [x] [TASK-1607: DimReductionScatter コンポーネント実装 + テスト](TASK-1607.md) - 5h (TDD) 🔵
+- [x] [TASK-1608: FreeLayoutCanvas 4ケース配線](TASK-1608.md) - 4h (TDD) 🔵
+- [x] [TASK-1609: LeftPanel → clusterStore 配線](TASK-1609.md) - 3h (TDD) 🔵
 
 ### 依存関係
 
