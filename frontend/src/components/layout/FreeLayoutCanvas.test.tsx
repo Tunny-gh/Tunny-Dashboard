@@ -32,6 +32,10 @@ const {
     sensitivityError: null as string | null,
     computeSensitivity: vi.fn(),
     computeSensitivitySelected: vi.fn(),
+    sobolResult: null as null,
+    isComputingSobol: false,
+    sobolError: null as string | null,
+    computeSobol: vi.fn(),
   }
   const mockUseAnalysisStore = vi
     .fn()

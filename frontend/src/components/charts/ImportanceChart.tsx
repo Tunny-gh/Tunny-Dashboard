@@ -4,28 +4,56 @@ import { useAnalysisStore } from '../../stores/analysisStore'
 import { useStudyStore } from '../../stores/studyStore'
 import { EmptyState } from '../common/EmptyState'
 
-type ImportanceMetric = 'spearman' | 'beta'
+type ImportanceMetric = 'spearman' | 'beta' | 'sobol_first' | 'sobol_total'
 
 export function ImportanceChart() {
   const [metric, setMetric] = useState<ImportanceMetric>('spearman')
   const currentStudy = useStudyStore((s) => s.currentStudy)
-  const { sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity } =
-    useAnalysisStore()
+
+  const {
+    sensitivityResult,
+    isComputingSensitivity,
+    sensitivityError,
+    computeSensitivity,
+    sobolResult,
+    isComputingSobol,
+    sobolError,
+    computeSobol,
+  } = useAnalysisStore()
+
+  const isSobolMetric = metric === 'sobol_first' || metric === 'sobol_total'
 
   useEffect(() => {
-    if (currentStudy && !sensitivityResult && !isComputingSensitivity && !sensitivityError) {
-      computeSensitivity()
+    if (!currentStudy) return
+    if (isSobolMetric) {
+      if (!sobolResult && !isComputingSobol && !sobolError) {
+        computeSobol()
+      }
+    } else {
+      if (!sensitivityResult && !isComputingSensitivity && !sensitivityError) {
+        computeSensitivity()
+      }
     }
-  }, [currentStudy, sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity])
+  }, [
+    currentStudy,
+    metric,
+    isSobolMetric,
+    sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity,
+    sobolResult, isComputingSobol, sobolError, computeSobol,
+  ])
 
   if (!currentStudy) {
     return <EmptyState message="Please load data" />
   }
 
-  if (sensitivityError) {
-    return <EmptyState message={sensitivityError} />
+  const activeError   = isSobolMetric ? sobolError : sensitivityError
+  const activeLoading = isSobolMetric ? isComputingSobol : isComputingSensitivity
+  const activeResult  = isSobolMetric ? sobolResult : sensitivityResult
+
+  if (activeError) {
+    return <EmptyState message={activeError} />
   }
-  if (isComputingSensitivity || !sensitivityResult) {
+  if (activeLoading || !activeResult) {
     return (
       <div
         style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
@@ -34,32 +62,50 @@ export function ImportanceChart() {
       </div>
     )
   }
-  if (sensitivityResult.paramNames.length === 0) {
+  if (activeResult.paramNames.length === 0) {
     return <EmptyState message="No parameters" />
   }
 
-  const nObj = sensitivityResult.objectiveNames.length
-  const importances = sensitivityResult.paramNames.map((name, pi) => {
+  const nObj = activeResult.objectiveNames.length
+  const importances = activeResult.paramNames.map((name: string, pi: number) => {
     let score = 0
-    if (metric === 'spearman') {
-      score = sensitivityResult.spearman[pi].reduce((sum, v) => sum + Math.abs(v), 0) / nObj
-    } else {
-      score = sensitivityResult.ridge.reduce((sum, r) => sum + Math.abs(r.beta[pi]), 0) / nObj
+    if (metric === 'spearman' && sensitivityResult) {
+      score = sensitivityResult.spearman[pi].reduce(
+        (sum: number, v: number) => sum + Math.abs(v), 0
+      ) / nObj
+    } else if (metric === 'beta' && sensitivityResult) {
+      score = sensitivityResult.ridge.reduce(
+        (sum: number, r: { beta: number[] }) => sum + Math.abs(r.beta[pi]), 0
+      ) / nObj
+    } else if (metric === 'sobol_first' && sobolResult) {
+      score = sobolResult.firstOrder[pi].reduce(
+        (sum: number, v: number) => sum + v, 0
+      ) / nObj
+    } else if (metric === 'sobol_total' && sobolResult) {
+      score = sobolResult.totalEffect[pi].reduce(
+        (sum: number, v: number) => sum + v, 0
+      ) / nObj
     }
     return { name, score }
   })
 
-  // ECharts yAxis is bottom-to-top so ascending sort = descending display
-  importances.sort((a, b) => a.score - b.score)
+  importances.sort(
+    (a: { name: string; score: number }, b: { name: string; score: number }) =>
+      a.score - b.score
+  )
 
-  const metricLabel = metric === 'spearman' ? 'Spearman |ρ|' : 'Ridge |β|'
+  const metricLabel =
+    metric === 'spearman'    ? 'Spearman |ρ|' :
+    metric === 'beta'        ? 'Ridge |β|' :
+    metric === 'sobol_first' ? 'Sobol S_i (first-order)' :
+                               'Sobol ST_i (total-effect)'
 
   const option = {
     title: { text: `Parameter Importance (${metricLabel})` },
     tooltip: {},
-    xAxis: { type: 'value', min: 0 },
-    yAxis: { type: 'category', data: importances.map((i) => i.name) },
-    series: [{ type: 'bar', data: importances.map((i) => i.score) }],
+    xAxis: { type: 'value', min: 0, max: metric.startsWith('sobol') ? 1 : undefined },
+    yAxis: { type: 'category', data: importances.map((i: { name: string; score: number }) => i.name) },
+    series: [{ type: 'bar', data: importances.map((i: { name: string; score: number }) => i.score) }],
   }
 
   return (
@@ -72,6 +118,8 @@ export function ImportanceChart() {
         >
           <option value="spearman">Spearman |ρ|</option>
           <option value="beta">Ridge |β|</option>
+          <option value="sobol_first">Sobol S_i (first-order)</option>
+          <option value="sobol_total">Sobol ST_i (total-effect)</option>
         </select>
       </div>
       <ReactECharts option={option} style={{ flex: 1 }} />

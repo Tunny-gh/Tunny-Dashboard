@@ -346,6 +346,33 @@ pub fn wasm_compute_sensitivity_selected(indices: js_sys::Uint32Array) -> Result
     }
 }
 
+/// Sobol 感度指数（一次・全効果）を計算する
+/// n_samples: Saltelli サンプリング数（推奨: 1024）
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computeSobol")]
+pub fn wasm_compute_sobol(n_samples: u32) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let start = js_sys::Date::now();
+    match sensitivity::compute_sobol(n_samples as usize) {
+        Some(result) => {
+            let duration_ms = js_sys::Date::now() - start;
+            let output = serde_json::json!({
+                "paramNames":     result.param_names,
+                "objectiveNames": result.objective_names,
+                "firstOrder":     result.first_order,
+                "totalEffect":    result.total_effect,
+                "nSamples":       result.n_samples,
+                "durationMs":     duration_ms,
+            });
+            let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+            output
+                .serialize(&serializer)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
 /// Documentation.
 ///
 /// Documentation.

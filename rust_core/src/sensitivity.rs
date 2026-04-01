@@ -609,6 +609,352 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
 }
 
 // =============================================================================
+// Sobol 感度指数（サロゲート法・二次Ridge + Saltelli サンプリング）
+// =============================================================================
+
+/// 一次・全効果 Sobol 指数の計算結果
+#[derive(Debug, Clone)]
+pub struct SobolResult {
+    pub param_names:     Vec<String>,
+    pub objective_names: Vec<String>,
+    /// 一次 Sobol 指数 [param_idx][obj_idx]  値域 [0, 1]
+    pub first_order:     Vec<Vec<f64>>,
+    /// 全効果 Sobol 指数 [param_idx][obj_idx]  値域 [0, 1]
+    pub total_effect:    Vec<Vec<f64>>,
+    pub n_samples:       usize,
+}
+
+/// 二次 Ridge サロゲートモデル
+struct SobolSurrogate {
+    n_params:        usize,
+    param_means:     Vec<f64>,
+    param_stds:      Vec<f64>,
+    quad_feat_means: Vec<f64>,
+    quad_feat_stds:  Vec<f64>,
+    betas:           Vec<Vec<f64>>,   // [obj_idx][quad_feat_idx]
+    intercepts:      Vec<f64>,        // [obj_idx]
+}
+
+/// LCG64 疑似乱数生成器（外部クレート不要）
+fn lcg_next(state: &mut u64) -> f64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    ((*state >> 11) as f64) / ((1u64 << 53) as f64)
+}
+
+/// 二次特徴量の構築
+/// 入力: x_std (標準化済みの線形特徴量, 長さ p)
+/// 出力: [x_1,...,x_p, x_1^2,...,x_p^2, x_1*x_2, x_1*x_3, ..., x_{p-1}*x_p]
+fn build_quad_features(x_std: &[f64]) -> Vec<f64> {
+    let p = x_std.len();
+    let n_quad = 2 * p + p * (p - 1) / 2;
+    let mut feat = Vec::with_capacity(n_quad);
+
+    // 線形項
+    feat.extend_from_slice(x_std);
+
+    // 二乗項
+    for &xi in x_std {
+        feat.push(xi * xi);
+    }
+
+    // 交差項
+    for i in 0..p {
+        for j in (i + 1)..p {
+            feat.push(x_std[i] * x_std[j]);
+        }
+    }
+
+    feat
+}
+
+/// 二次 Ridge サロゲートを学習データから構築する
+fn build_sobol_surrogate(
+    x_matrix: &[Vec<f64>],  // [n_trials][n_params]
+    y_matrix: &[Vec<f64>],  // [n_objectives][n_trials]
+    n_params: usize,
+    alpha: f64,
+) -> Option<SobolSurrogate> {
+    let n = x_matrix.len();
+    if n < 2 || n_params == 0 {
+        return None;
+    }
+
+    // --- Step 1: 線形特徴量を Z スコア標準化 ---
+    let mut param_means = vec![0.0f64; n_params];
+    let mut param_stds  = vec![1.0f64; n_params];
+
+    for j in 0..n_params {
+        let vals: Vec<f64> = x_matrix.iter().map(|row| row[j]).collect();
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let std_dev = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n as f64).sqrt();
+        param_means[j] = mean;
+        param_stds[j]  = if std_dev < f64::EPSILON { 1.0 } else { std_dev };
+    }
+
+    // 標準化後の線形特徴量行列を構築
+    let x_std: Vec<Vec<f64>> = x_matrix
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(j, &v)| (v - param_means[j]) / param_stds[j])
+                .collect()
+        })
+        .collect();
+
+    // --- Step 2: 二次特徴量を構築 ---
+    let quad_feats: Vec<Vec<f64>> = x_std.iter().map(|row| build_quad_features(row)).collect();
+    let n_quad = quad_feats[0].len();
+
+    // --- Step 3: 二次特徴量を標準化 ---
+    let mut quad_feat_means = vec![0.0f64; n_quad];
+    let mut quad_feat_stds  = vec![1.0f64; n_quad];
+
+    for j in 0..n_quad {
+        let vals: Vec<f64> = quad_feats.iter().map(|row| row[j]).collect();
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let std_dev = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n as f64).sqrt();
+        quad_feat_means[j] = mean;
+        quad_feat_stds[j]  = if std_dev < f64::EPSILON { 1.0 } else { std_dev };
+    }
+
+    let x_quad_std: Vec<Vec<f64>> = quad_feats
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(j, &v)| (v - quad_feat_means[j]) / quad_feat_stds[j])
+                .collect()
+        })
+        .collect();
+
+    // --- Step 4: 各目的関数に Ridge 回帰を適合 ---
+    let n_objectives = y_matrix.len();
+    let mut betas     = Vec::with_capacity(n_objectives);
+    let mut intercepts = Vec::with_capacity(n_objectives);
+
+    for y in y_matrix {
+        let y_mean = y.iter().sum::<f64>() / n as f64;
+        let y_centered: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();
+
+        let ridge_res = compute_ridge(&x_quad_std, &y_centered, alpha);
+        betas.push(ridge_res.beta);
+        intercepts.push(y_mean);
+    }
+
+    Some(SobolSurrogate {
+        n_params,
+        param_means,
+        param_stds,
+        quad_feat_means,
+        quad_feat_stds,
+        betas,
+        intercepts,
+    })
+}
+
+/// サロゲートモデルで 1 点を評価する
+fn surrogate_eval(surrogate: &SobolSurrogate, x_raw: &[f64], obj_idx: usize) -> f64 {
+    // 線形標準化
+    let x_std: Vec<f64> = x_raw
+        .iter()
+        .enumerate()
+        .map(|(j, &v)| (v - surrogate.param_means[j]) / surrogate.param_stds[j])
+        .collect();
+
+    // 二次特徴量構築
+    let quad = build_quad_features(&x_std);
+
+    // 二次特徴量標準化
+    let quad_std: Vec<f64> = quad
+        .iter()
+        .enumerate()
+        .map(|(j, &v)| (v - surrogate.quad_feat_means[j]) / surrogate.quad_feat_stds[j])
+        .collect();
+
+    // Ridge モデル評価
+    let beta = &surrogate.betas[obj_idx];
+    let dot: f64 = beta.iter().zip(quad_std.iter()).map(|(&b, &x)| b * x).sum();
+    dot + surrogate.intercepts[obj_idx]
+}
+
+/// Sobol 指数を計算する（全トライアル対象）
+pub fn compute_sobol(n_samples: usize) -> Option<SobolResult> {
+    crate::dataframe::with_active_df(|df| {
+        let param_names     = df.param_col_names().to_vec();
+        let objective_names = df.objective_col_names().to_vec();
+        let n               = df.row_count();
+        let n_params        = param_names.len();
+        let n_objectives    = objective_names.len();
+
+        if n < 2 || n_params == 0 || n_objectives == 0 {
+            return None;
+        }
+
+        // DataFrameからX行列とY行列を取得
+        let x_matrix: Vec<Vec<f64>> = (0..n)
+            .map(|row| {
+                param_names
+                    .iter()
+                    .map(|name| {
+                        df.get_numeric_column(name)
+                            .and_then(|col| col.get(row).copied())
+                            .unwrap_or(0.0)
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let y_matrix: Vec<Vec<f64>> = objective_names
+            .iter()
+            .map(|name| {
+                (0..n)
+                    .map(|row| {
+                        df.get_numeric_column(name)
+                            .and_then(|col| col.get(row).copied())
+                            .unwrap_or(0.0)
+                    })
+                    .collect()
+            })
+            .collect();
+
+        // 二次 Ridge サロゲートを構築
+        let surrogate = build_sobol_surrogate(&x_matrix, &y_matrix, n_params, 1.0)?;
+
+        let mut rng_state: u64 = 0xDEAD_BEEF_1234_5678;
+
+        // パラメータ範囲を DataFrameから取得（min-max）
+        let param_ranges: Vec<(f64, f64)> = param_names
+            .iter()
+            .map(|name| {
+                let col = df.get_numeric_column(name).unwrap_or(&[]);
+                if col.is_empty() {
+                    return (0.0, 1.0);
+                }
+                let min = col.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                if (max - min).abs() < f64::EPSILON {
+                    (min - 1.0, max + 1.0)
+                } else {
+                    (min, max)
+                }
+            })
+            .collect();
+
+        // 行列 A, B を生成: N × n_params
+        let mat_a: Vec<Vec<f64>> = (0..n_samples)
+            .map(|_| {
+                param_ranges
+                    .iter()
+                    .map(|(lo, hi)| lo + lcg_next(&mut rng_state) * (hi - lo))
+                    .collect()
+            })
+            .collect();
+
+        let mat_b: Vec<Vec<f64>> = (0..n_samples)
+            .map(|_| {
+                param_ranges
+                    .iter()
+                    .map(|(lo, hi)| lo + lcg_next(&mut rng_state) * (hi - lo))
+                    .collect()
+            })
+            .collect();
+
+        // f_A[obj_idx][sample_idx]
+        let f_a: Vec<Vec<f64>> = (0..n_objectives)
+            .map(|k| {
+                mat_a
+                    .iter()
+                    .map(|row| surrogate_eval(&surrogate, row, k))
+                    .collect()
+            })
+            .collect();
+
+        // f_B[obj_idx][sample_idx]
+        let f_b: Vec<Vec<f64>> = (0..n_objectives)
+            .map(|k| {
+                mat_b
+                    .iter()
+                    .map(|row| surrogate_eval(&surrogate, row, k))
+                    .collect()
+            })
+            .collect();
+
+        // === Jansen/Saltelli 推定量 ===
+        let mut first_order = vec![vec![0.0f64; n_objectives]; n_params];
+        let mut total_effect = vec![vec![0.0f64; n_objectives]; n_params];
+
+        for pi in 0..n_params {
+            // AB_pi: A の第 pi 列を B の第 pi 列で置換
+            let f_ab_pi: Vec<Vec<f64>> = {
+                let ab_pi: Vec<Vec<f64>> = mat_a
+                    .iter()
+                    .zip(mat_b.iter())
+                    .map(|(a_row, b_row)| {
+                        let mut row = a_row.clone();
+                        row[pi] = b_row[pi];
+                        row
+                    })
+                    .collect();
+
+                (0..n_objectives)
+                    .map(|k| {
+                        ab_pi
+                            .iter()
+                            .map(|row| surrogate_eval(&surrogate, row, k))
+                            .collect()
+                    })
+                    .collect()
+            };
+
+            for k in 0..n_objectives {
+                let fa  = &f_a[k];
+                let fb  = &f_b[k];
+                let fab = &f_ab_pi[k];
+
+                let n_f = n_samples as f64;
+                let mean_fa  = fa.iter().sum::<f64>() / n_f;
+                let var_y    = fa.iter().map(|&v| (v - mean_fa).powi(2)).sum::<f64>() / n_f;
+
+                if var_y < f64::EPSILON {
+                    first_order[pi][k]  = 0.0;
+                    total_effect[pi][k] = 0.0;
+                    continue;
+                }
+
+                // 一次 Sobol 指数 (Saltelli 2010)
+                let s_i: f64 = fb.iter()
+                    .zip(fab.iter())
+                    .zip(fa.iter())
+                    .map(|((&fb_j, &fab_j), &fa_j)| fb_j * (fab_j - fa_j))
+                    .sum::<f64>()
+                    / (n_f * var_y);
+
+                // 全効果 Sobol 指数 (Jansen 1999)
+                let st_i: f64 = fa.iter()
+                    .zip(fab.iter())
+                    .map(|(&fa_j, &fab_j)| (fa_j - fab_j).powi(2))
+                    .sum::<f64>()
+                    / (2.0 * n_f * var_y);
+
+                first_order[pi][k]  = s_i.clamp(0.0, 1.0);
+                total_effect[pi][k] = st_i.clamp(0.0, 1.0);
+            }
+        }
+
+        Some(SobolResult {
+            param_names,
+            objective_names,
+            first_order,
+            total_effect,
+            n_samples,
+        })
+    })?
+}
+
+// =============================================================================
 // Documentation.
 // =============================================================================
 
@@ -1029,5 +1375,86 @@ mod tests {
             elapsed.as_millis(),
             n
         );
+    }
+
+    // =========================================================================
+    // TASK-1610: Sobol tests
+    // =========================================================================
+
+    #[test]
+    fn tc_1610_01_build_quad_features_output_length() {
+        // Given: p=3 の入力ベクトル
+        let x = vec![1.0, 2.0, 3.0];
+        let feats = build_quad_features(&x);
+        // p(p+3)/2 = 3*6/2 = 9
+        assert_eq!(feats.len(), 9);
+    }
+
+    #[test]
+    fn tc_1610_02_lcg_next_range() {
+        let mut state: u64 = 12345;
+        for _ in 0..1000 {
+            let v = lcg_next(&mut state);
+            assert!(v >= 0.0 && v < 1.0, "lcg_next out of [0,1): {}", v);
+        }
+    }
+
+    #[test]
+    fn tc_1610_03_compute_sobol_insufficient_data_returns_none() {
+        // Given: DataFrame に 1 行のみ
+        let rows: Vec<TrialRow> = vec![make_row_multi(0, &[("x1", 1.0), ("x2", 2.0)], vec![3.0])];
+        setup_df(rows, &["x1", "x2"], &["obj0"]);
+        let result = compute_sobol(1024);
+        assert!(result.is_none(), "n<2 の場合 None を返すこと");
+    }
+
+    #[test]
+    fn tc_1610_04_sobol_indices_in_range() {
+        // Given: 2 パラメータ・1 目的関数
+        let rows: Vec<TrialRow> = (0..50)
+            .map(|i| {
+                let x1 = i as f64;
+                let x2 = (i * 2) as f64;
+                let y  = x1 * 2.0; // x1 のみが目的関数に影響
+                make_row_multi(i as u32, &[("x1", x1), ("x2", x2)], vec![y])
+            })
+            .collect();
+        setup_df(rows, &["x1", "x2"], &["obj0"]);
+        let result = compute_sobol(1024);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        for pi in 0..r.param_names.len() {
+            for k in 0..r.objective_names.len() {
+                assert!(r.first_order[pi][k] >= 0.0 && r.first_order[pi][k] <= 1.0);
+                assert!(r.total_effect[pi][k] >= 0.0 && r.total_effect[pi][k] <= 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn tc_1610_integration_output_shape() {
+        // p=5, n=100 のダミーデータ
+        let rows: Vec<TrialRow> = (0..100)
+            .map(|i| {
+                make_row_multi(
+                    i as u32,
+                    &[
+                        ("p0", i as f64),
+                        ("p1", (i + 1) as f64),
+                        ("p2", (i + 2) as f64),
+                        ("p3", (i + 3) as f64),
+                        ("p4", (i + 4) as f64),
+                    ],
+                    vec![i as f64],
+                )
+            })
+            .collect();
+        setup_df(rows, &["p0", "p1", "p2", "p3", "p4"], &["obj0"]);
+        let result = compute_sobol(512);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.first_order.len(), 5);
+        assert_eq!(r.first_order[0].len(), 1);
+        assert_eq!(r.total_effect.len(), 5);
     }
 }

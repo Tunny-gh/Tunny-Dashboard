@@ -23,6 +23,7 @@ import initWasm, {
   runKmeans as wasmRunKmeans,
   estimateKElbow as wasmEstimateKElbow,
   computeClusterStats as wasmComputeClusterStats,
+  computeSobol as wasmComputeSobol,
 } from './pkg/tunny_core'
 import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index'
 
@@ -51,6 +52,15 @@ export interface KmeansWasmResult {
 export interface ElbowWasmResult {
   wcssPerK: number[]
   recommendedK: number
+  durationMs?: number
+}
+
+export interface SobolWasmResult {
+  paramNames: string[]
+  objectiveNames: string[]
+  firstOrder: number[][]
+  totalEffect: number[][]
+  nSamples: number
   durationMs?: number
 }
 
@@ -171,6 +181,7 @@ export class WasmLoader {
   runKmeans!: (k: number, data: Float64Array, nCols: number) => KmeansWasmResult
   estimateKElbow!: (data: Float64Array, nCols: number, maxK: number) => ElbowWasmResult
   computeClusterStats!: (labels: Int32Array) => ClusterStatsWasmResult
+  computeSobol!: (nSamples: number) => SobolWasmResult
 
   /**
    * Documentation.
@@ -232,6 +243,8 @@ export class WasmLoader {
       wasmEstimateKElbow(data, nCols, maxK) as ElbowWasmResult
     loader.computeClusterStats = (labels) =>
       wasmComputeClusterStats(labels) as ClusterStatsWasmResult
+    loader.computeSobol = (nSamples: number) =>
+      wasmComputeSobol(nSamples) as SobolWasmResult
 
     return loader
   }
