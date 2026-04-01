@@ -33,10 +33,11 @@ const {
     computeSensitivity: vi.fn(),
     computeSensitivitySelected: vi.fn(),
   }
-  const mockUseAnalysisStore = vi.fn().mockImplementation(
-    (selector?: (s: typeof analysisState) => unknown) =>
+  const mockUseAnalysisStore = vi
+    .fn()
+    .mockImplementation((selector?: (s: typeof analysisState) => unknown) =>
       typeof selector === 'function' ? selector(analysisState) : analysisState,
-  )
+    )
 
   const clusterState1608 = {
     pcaProjections: null as number[][] | null,
@@ -44,16 +45,18 @@ const {
     isRunning: false,
     clusterError: null as string | null,
   }
-  const mockUseClusterStore1608 = vi.fn().mockImplementation(
-    (selector?: (s: typeof clusterState1608) => unknown) =>
+  const mockUseClusterStore1608 = vi
+    .fn()
+    .mockImplementation((selector?: (s: typeof clusterState1608) => unknown) =>
       typeof selector === 'function' ? selector(clusterState1608) : clusterState1608,
-  )
+    )
 
   const selectionState1608 = { colorMode: 'objective', selectedIndices: [] as number[] }
-  const mockUseSelectionStore1608 = vi.fn().mockImplementation(
-    (selector?: (s: typeof selectionState1608) => unknown) =>
+  const mockUseSelectionStore1608 = vi
+    .fn()
+    .mockImplementation((selector?: (s: typeof selectionState1608) => unknown) =>
       typeof selector === 'function' ? selector(selectionState1608) : selectionState1608,
-  )
+    )
 
   const mockWasmGetInstance1608 = vi.fn().mockReturnValue(new Promise(() => {}))
 
@@ -275,7 +278,12 @@ describe('TC-1608: FreeLayoutCanvas new chart cases', () => {
     useLayoutStore.setState({
       freeModeLayout: {
         cells: [
-          { cellId: 'heatmap-cell', chartId: 'sensitivity-heatmap', gridRow: [1, 3], gridCol: [1, 3] },
+          {
+            cellId: 'heatmap-cell',
+            chartId: 'sensitivity-heatmap',
+            gridRow: [1, 3],
+            gridCol: [1, 3],
+          },
         ],
       },
     })
@@ -324,9 +332,7 @@ describe('TC-1608: FreeLayoutCanvas new chart cases', () => {
     clusterState1608.isRunning = true
     useLayoutStore.setState({
       freeModeLayout: {
-        cells: [
-          { cellId: 'umap-cell', chartId: 'umap', gridRow: [1, 3], gridCol: [1, 3] },
-        ],
+        cells: [{ cellId: 'umap-cell', chartId: 'umap', gridRow: [1, 3], gridCol: [1, 3] }],
       },
     })
 

@@ -7,23 +7,20 @@ import { render, screen, cleanup, act, waitFor } from '@testing-library/react'
 
 vi.mock('echarts-for-react')
 
-const {
-  mockUseClusterStore,
-  mockUseSelectionStore,
-  mockRunPca,
-  mockGetInstance,
-  clusterState,
-} = vi.hoisted(() => {
-  const mockRunPca = vi.fn()
-  const mockGetInstance = vi.fn().mockResolvedValue({ runPca: mockRunPca })
-  const clusterState = { pcaProjections: null as number[][] | null, isRunning: false }
-  // Apply selector when called with a function, otherwise return full state
-  const mockUseClusterStore = vi.fn().mockImplementation((selector?: (s: typeof clusterState) => unknown) =>
-    typeof selector === 'function' ? selector(clusterState) : clusterState
-  )
-  const mockUseSelectionStore = vi.fn().mockReturnValue({ colorMode: 'objective' })
-  return { mockUseClusterStore, mockUseSelectionStore, mockRunPca, mockGetInstance, clusterState }
-})
+const { mockUseClusterStore, mockUseSelectionStore, mockRunPca, mockGetInstance, clusterState } =
+  vi.hoisted(() => {
+    const mockRunPca = vi.fn()
+    const mockGetInstance = vi.fn().mockResolvedValue({ runPca: mockRunPca })
+    const clusterState = { pcaProjections: null as number[][] | null, isRunning: false }
+    // Apply selector when called with a function, otherwise return full state
+    const mockUseClusterStore = vi
+      .fn()
+      .mockImplementation((selector?: (s: typeof clusterState) => unknown) =>
+        typeof selector === 'function' ? selector(clusterState) : clusterState,
+      )
+    const mockUseSelectionStore = vi.fn().mockReturnValue({ colorMode: 'objective' })
+    return { mockUseClusterStore, mockUseSelectionStore, mockRunPca, mockGetInstance, clusterState }
+  })
 
 vi.mock('../../stores/clusterStore', () => ({
   useClusterStore: mockUseClusterStore,
@@ -46,7 +43,10 @@ import { DimReductionScatter } from './DimReductionScatter'
 // Helpers
 // ---------------------------------------------------------------------------
 
-const mockProjections = [[1.0, 2.0], [3.0, 4.0]]
+const mockProjections = [
+  [1.0, 2.0],
+  [3.0, 4.0],
+]
 const mockPcaResult = {
   projections: mockProjections,
   explainedVariance: [0.6, 0.3],
@@ -98,7 +98,11 @@ describe('DimReductionScatter', () => {
   it('TC-1607-03: shows Loading while WasmLoader is pending', async () => {
     setupClusterStore(null)
     let resolveWasm!: (value: unknown) => void
-    mockGetInstance.mockReturnValue(new Promise((resolve) => { resolveWasm = resolve }))
+    mockGetInstance.mockReturnValue(
+      new Promise((resolve) => {
+        resolveWasm = resolve
+      }),
+    )
 
     render(<DimReductionScatter />)
 
@@ -108,7 +112,9 @@ describe('DimReductionScatter', () => {
 
   it('TC-1607-04: shows EmptyState when runPca throws', async () => {
     setupClusterStore(null)
-    mockRunPca.mockImplementation(() => { throw new Error('Insufficient data') })
+    mockRunPca.mockImplementation(() => {
+      throw new Error('Insufficient data')
+    })
 
     render(<DimReductionScatter />)
 

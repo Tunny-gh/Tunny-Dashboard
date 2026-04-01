@@ -12,7 +12,13 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 // Documentation.
 // -------------------------------------------------------------------------
 
-const { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter, mockRunClustering, mockUseClusterStore } = vi.hoisted(() => {
+const {
+  mockAddAxisFilter,
+  mockSetColorMode,
+  mockRemoveAxisFilter,
+  mockRunClustering,
+  mockUseClusterStore,
+} = vi.hoisted(() => {
   const mockAddAxisFilter = vi.fn()
   const mockSetColorMode = vi.fn()
   const mockRemoveAxisFilter = vi.fn()
@@ -23,7 +29,13 @@ const { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter, mockRunCluste
     elbowResult: null,
     clusterError: null,
   })
-  return { mockAddAxisFilter, mockSetColorMode, mockRemoveAxisFilter, mockRunClustering, mockUseClusterStore }
+  return {
+    mockAddAxisFilter,
+    mockSetColorMode,
+    mockRemoveAxisFilter,
+    mockRunClustering,
+    mockUseClusterStore,
+  }
 })
 
 vi.mock('../../stores/clusterStore', () => ({
@@ -181,10 +193,21 @@ describe('TC-1609: LeftPanel → clusterStore wiring', () => {
     vi.clearAllMocks()
     // Restore studyStore mock with non-null currentStudy (TC-402-E01 may have overridden it)
     ;(useStudyStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: {
-        currentStudy: { paramNames: string[]; objectiveNames: string[]; completedTrials: number } | null
-        trialRows: Array<{ trialId: number; params: Record<string, number>; values: number[]; paretoRank: number | null }>
-      }) => unknown) =>
+      (
+        selector: (s: {
+          currentStudy: {
+            paramNames: string[]
+            objectiveNames: string[]
+            completedTrials: number
+          } | null
+          trialRows: Array<{
+            trialId: number
+            params: Record<string, number>
+            values: number[]
+            paretoRank: number | null
+          }>
+        }) => unknown,
+      ) =>
         selector({
           currentStudy: { paramNames: ['x1', 'x2'], objectiveNames: ['obj1'], completedTrials: 10 },
           trialRows: [

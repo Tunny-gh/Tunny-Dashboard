@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { useStudyStore } from './studyStore'
 import { WasmLoader } from '../wasm/wasmLoader'
-import type { SensitivityWasmResult } from '../wasm/pkg/tunny_core'
+import type { SensitivityWasmResult } from '../wasm/wasmLoader'
 
 interface AnalysisState {
   sensitivityResult: SensitivityWasmResult | null

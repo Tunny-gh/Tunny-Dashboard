@@ -1265,8 +1265,12 @@ mod tests {
             "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:00.000000\",\"state\":1,\"value\":null,\"values\":[0.5],\"datetime_complete\":\"2026-01-01T00:00:01.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.5},\"user_attrs\":{\"loss\":0.123,\"tag\":\"run_a\"},\"system_attrs\":{},\"intermediate_values\":{}}\n"
         ));
         let result = parse_journal(&data).expect("inmem user_attrs parse");
-        assert!(result.studies[0].user_attr_names.contains(&"loss".to_string()));
-        assert!(result.studies[0].user_attr_names.contains(&"tag".to_string()));
+        assert!(result.studies[0]
+            .user_attr_names
+            .contains(&"loss".to_string()));
+        assert!(result.studies[0]
+            .user_attr_names
+            .contains(&"tag".to_string()));
     }
 
     #[test]

@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useAnalysisStore } from '../../stores/analysisStore'
+import { useStudyStore } from '../../stores/studyStore'
 import { EmptyState } from '../common/EmptyState'
 
 type ImportanceMetric = 'spearman' | 'beta'
 
 export function ImportanceChart() {
   const [metric, setMetric] = useState<ImportanceMetric>('spearman')
+  const currentStudy = useStudyStore((s) => s.currentStudy)
   const { sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity } =
     useAnalysisStore()
 
   useEffect(() => {
-    if (!sensitivityResult && !isComputingSensitivity) {
+    if (currentStudy && !sensitivityResult && !isComputingSensitivity && !sensitivityError) {
       computeSensitivity()
     }
-  }, [sensitivityResult, isComputingSensitivity, computeSensitivity])
+  }, [currentStudy, sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity])
+
+  if (!currentStudy) {
+    return <EmptyState message="Please load data" />
+  }
 
   if (sensitivityError) {
     return <EmptyState message={sensitivityError} />

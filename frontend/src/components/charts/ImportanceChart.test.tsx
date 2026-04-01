@@ -24,7 +24,10 @@ import { ImportanceChart } from './ImportanceChart'
 // ---------------------------------------------------------------------------
 
 const mockSensitivityResult = {
-  spearman: [[0.8, -0.3], [0.1, 0.9]],
+  spearman: [
+    [0.8, -0.3],
+    [0.1, 0.9],
+  ],
   ridge: [
     { beta: [0.7, 0.1], rSquared: 0.85 },
     { beta: [-0.2, 0.8], rSquared: 0.92 },
@@ -34,12 +37,14 @@ const mockSensitivityResult = {
   durationMs: 10,
 }
 
-function setupStore(overrides: Partial<{
-  sensitivityResult: typeof mockSensitivityResult | null
-  isComputingSensitivity: boolean
-  sensitivityError: string | null
-  computeSensitivity: () => Promise<void>
-}> = {}) {
+function setupStore(
+  overrides: Partial<{
+    sensitivityResult: typeof mockSensitivityResult | null
+    isComputingSensitivity: boolean
+    sensitivityError: string | null
+    computeSensitivity: () => Promise<void>
+  }> = {},
+) {
   mockUseAnalysisStore.mockReturnValue({
     sensitivityResult: null,
     isComputingSensitivity: false,

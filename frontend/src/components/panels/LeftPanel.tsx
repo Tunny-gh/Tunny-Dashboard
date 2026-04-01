@@ -182,8 +182,12 @@ export function LeftPanel() {
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const trialRows = useStudyStore((s) => s.trialRows)
 
-  const { runClustering, isRunning: clusterIsRunning, elbowResult, clusterError } =
-    useClusterStore()
+  const {
+    runClustering,
+    isRunning: clusterIsRunning,
+    elbowResult,
+    clusterError,
+  } = useClusterStore()
 
   // Documentation.
   const paramRanges = useMemo(() => {

@@ -323,6 +323,42 @@ pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResul
     RidgeResult { beta, r_squared }
 }
 
+fn get_param_numeric_values(
+    df: &crate::dataframe::DataFrame,
+    param_name: &str,
+    n: usize,
+) -> Option<Vec<f64>> {
+    if let Some(col) = df.get_numeric_column(param_name) {
+        return Some(col.iter().take(n).copied().collect());
+    }
+
+    // Categorical params are stored as string columns; encode labels to stable ordinal ids.
+    if let Some(col) = df.get_string_column(param_name) {
+        use std::collections::HashMap;
+
+        let mut label_to_id: HashMap<String, f64> = HashMap::new();
+        let mut next_id = 0.0f64;
+        let mut out = Vec::with_capacity(n);
+
+        for label in col.iter().take(n) {
+            let id = match label_to_id.get(label) {
+                Some(v) => *v,
+                None => {
+                    let v = next_id;
+                    label_to_id.insert(label.clone(), v);
+                    next_id += 1.0;
+                    v
+                }
+            };
+            out.push(id);
+        }
+
+        return Some(out);
+    }
+
+    None
+}
+
 // =============================================================================
 // Documentation.
 // =============================================================================
@@ -349,7 +385,7 @@ pub fn compute_sensitivity_all(df: &crate::dataframe::DataFrame) -> SensitivityR
     let spearman: Vec<Vec<f64>> = param_names
         .iter()
         .map(|p_name| {
-            let x = match df.get_numeric_column(p_name) {
+            let x = match get_param_numeric_values(df, p_name, n) {
                 Some(col) => col,
                 None => return vec![0.0; objective_names.len()],
             };
@@ -360,7 +396,7 @@ pub fn compute_sensitivity_all(df: &crate::dataframe::DataFrame) -> SensitivityR
                         Some(col) => col,
                         None => return 0.0,
                     };
-                    compute_spearman(x, y)
+                    compute_spearman(&x, y)
                 })
                 .collect()
         })
@@ -371,7 +407,7 @@ pub fn compute_sensitivity_all(df: &crate::dataframe::DataFrame) -> SensitivityR
     let num_params = param_names.len();
     let mut x_cols_flat = vec![0.0f64; n * num_params];
     for (j, p_name) in param_names.iter().enumerate() {
-        if let Some(col) = df.get_numeric_column(p_name) {
+        if let Some(col) = get_param_numeric_values(df, p_name, n) {
             for (i, &v) in col.iter().enumerate().take(n) {
                 x_cols_flat[j * n + i] = v;
             }
@@ -512,7 +548,7 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
         let spearman: Vec<Vec<f64>> = param_names
             .iter()
             .map(|p_name| {
-                let full_x = match df.get_numeric_column(p_name) {
+                let full_x = match get_param_numeric_values(df, p_name, n_rows) {
                     Some(col) => col,
                     None => return vec![0.0; objective_names.len()],
                 };
@@ -533,16 +569,17 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             .collect();
 
         // Documentation.
+        let param_cols_all: Vec<Vec<f64>> = param_names
+            .iter()
+            .map(|p| get_param_numeric_values(df, p, n_rows).unwrap_or_else(|| vec![0.0; n_rows]))
+            .collect();
+
         let x_matrix: Vec<Vec<f64>> = valid_idx
             .iter()
             .map(|&row_idx| {
-                param_names
+                param_cols_all
                     .iter()
-                    .map(|p| {
-                        df.get_numeric_column(p)
-                            .map(|col| col[row_idx])
-                            .unwrap_or(0.0)
-                    })
+                    .map(|col| col.get(row_idx).copied().unwrap_or(0.0))
                     .collect()
             })
             .collect();
@@ -802,6 +839,57 @@ mod tests {
             result.spearman[1][0] < -0.99,
             "x2-obj0translated: {}",
             result.spearman[1][0]
+        );
+    }
+
+    #[test]
+    fn tc_801_11b_sensitivity_all_categorical_param_non_zero() {
+        use std::collections::HashMap;
+
+        let labels = ["A", "B", "C", "A", "B", "C"];
+        let y_vals = [1.0, 2.0, 3.0, 1.2, 2.2, 3.2];
+
+        let rows: Vec<TrialRow> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| {
+                let idx = match *label {
+                    "A" => 0.0,
+                    "B" => 1.0,
+                    _ => 2.0,
+                };
+
+                let mut param_display = HashMap::new();
+                param_display.insert("cat".to_string(), idx);
+
+                let mut param_category_label = HashMap::new();
+                param_category_label.insert("cat".to_string(), (*label).to_string());
+
+                TrialRow {
+                    trial_id: i as u32,
+                    param_display,
+                    param_category_label,
+                    objective_values: vec![y_vals[i]],
+                    user_attrs_numeric: HashMap::new(),
+                    user_attrs_string: HashMap::new(),
+                    constraint_values: vec![],
+                }
+            })
+            .collect();
+
+        let df = setup_df(rows, &["cat"], &["obj0"]);
+        let result = compute_sensitivity_all(&df);
+
+        assert_eq!(result.param_names, vec!["cat"]);
+        assert_eq!(result.objective_names, vec!["obj0"]);
+        assert!(
+            result.spearman[0][0].abs() > 0.7,
+            "categorical param should contribute to sensitivity: {}",
+            result.spearman[0][0]
+        );
+        assert!(
+            result.ridge[0].beta[0].abs() > 0.0,
+            "categorical param beta should not be zero"
         );
     }
 

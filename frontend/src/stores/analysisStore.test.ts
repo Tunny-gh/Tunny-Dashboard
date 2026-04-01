@@ -18,7 +18,12 @@ const {
     computeSensitivitySelected: mockComputeSensitivitySelected,
   })
   const capturedStudySubscribers: Array<(state: { currentStudy: unknown }) => void> = []
-  return { mockComputeSensitivity, mockComputeSensitivitySelected, mockGetInstance, capturedStudySubscribers }
+  return {
+    mockComputeSensitivity,
+    mockComputeSensitivitySelected,
+    mockGetInstance,
+    capturedStudySubscribers,
+  }
 })
 
 vi.mock('../wasm/wasmLoader', () => ({

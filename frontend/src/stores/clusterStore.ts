@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { useStudyStore } from './studyStore'
 import { WasmLoader } from '../wasm/wasmLoader'
-import type { ClusterStatsWasmResult, ElbowWasmResult } from '../wasm/pkg/tunny_core'
+import type { ClusterStatsWasmResult, ElbowWasmResult } from '../wasm/wasmLoader'
 
 export type ClusterSpace = 'param' | 'objective' | 'all'
 

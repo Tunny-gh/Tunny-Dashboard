@@ -24,14 +24,46 @@ import initWasm, {
   estimateKElbow as wasmEstimateKElbow,
   computeClusterStats as wasmComputeClusterStats,
 } from './pkg/tunny_core'
-import type {
-  SensitivityWasmResult,
-  PcaWasmResult,
-  KmeansWasmResult,
-  ElbowWasmResult,
-  ClusterStatsWasmResult,
-} from './pkg/tunny_core'
 import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index'
+
+export interface SensitivityWasmResult {
+  paramNames: string[]
+  objectiveNames: string[]
+  spearman: number[][]
+  ridge: Array<{ beta: number[]; rSquared: number }>
+  durationMs?: number
+}
+
+export interface PcaWasmResult {
+  projections: number[][]
+  explainedVariance?: number[]
+  featureNames?: string[]
+  durationMs?: number
+}
+
+export interface KmeansWasmResult {
+  labels: number[]
+  centroids?: number[][]
+  wcss?: number
+  durationMs?: number
+}
+
+export interface ElbowWasmResult {
+  wcssPerK: number[]
+  recommendedK: number
+  durationMs?: number
+}
+
+export interface ClusterStatsWasmResult {
+  stats: Array<{
+    clusterId: number
+    size: number
+    centroid: Record<string, number>
+    std: Record<string, number>
+    significantDiffs: string[]
+  }>
+  durationMs?: number
+}
 
 // -------------------------------------------------------------------------
 // Documentation.

@@ -307,7 +307,9 @@ pub fn wasm_compute_sensitivity() -> Result<JsValue, JsValue> {
                 "durationMs": duration_ms,
             });
             let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-            output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+            output
+                .serialize(&serializer)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
         }
         None => Err(JsValue::from_str("No active study")),
     }
@@ -336,7 +338,9 @@ pub fn wasm_compute_sensitivity_selected(indices: js_sys::Uint32Array) -> Result
                 "durationMs": duration_ms,
             });
             let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-            output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+            output
+                .serialize(&serializer)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
         }
         None => Err(JsValue::from_str("No active study")),
     }
@@ -366,7 +370,9 @@ pub fn wasm_run_pca(n_components: u32, space: &str) -> Result<JsValue, JsValue> 
                 "durationMs": duration_ms,
             });
             let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-            output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+            output
+                .serialize(&serializer)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
         }
         None => Err(JsValue::from_str("Insufficient data for PCA")),
     }
@@ -377,7 +383,11 @@ pub fn wasm_run_pca(n_components: u32, space: &str) -> Result<JsValue, JsValue> 
 /// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "runKmeans")]
-pub fn wasm_run_kmeans(k: u32, data: js_sys::Float64Array, n_cols: u32) -> Result<JsValue, JsValue> {
+pub fn wasm_run_kmeans(
+    k: u32,
+    data: js_sys::Float64Array,
+    n_cols: u32,
+) -> Result<JsValue, JsValue> {
     use serde::Serialize;
     let data_vec: Vec<f64> = data.to_vec();
     let start = js_sys::Date::now();
@@ -390,7 +400,9 @@ pub fn wasm_run_kmeans(k: u32, data: js_sys::Float64Array, n_cols: u32) -> Resul
         "durationMs": duration_ms,
     });
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-    output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+    output
+        .serialize(&serializer)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 /// Documentation.
@@ -398,7 +410,11 @@ pub fn wasm_run_kmeans(k: u32, data: js_sys::Float64Array, n_cols: u32) -> Resul
 /// Documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "estimateKElbow")]
-pub fn wasm_estimate_k_elbow(data: js_sys::Float64Array, n_cols: u32, max_k: u32) -> Result<JsValue, JsValue> {
+pub fn wasm_estimate_k_elbow(
+    data: js_sys::Float64Array,
+    n_cols: u32,
+    max_k: u32,
+) -> Result<JsValue, JsValue> {
     use serde::Serialize;
     let data_vec: Vec<f64> = data.to_vec();
     let start = js_sys::Date::now();
@@ -410,7 +426,9 @@ pub fn wasm_estimate_k_elbow(data: js_sys::Float64Array, n_cols: u32, max_k: u32
         "durationMs": duration_ms,
     });
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-    output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+    output
+        .serialize(&serializer)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 /// Documentation.
@@ -459,7 +477,9 @@ pub fn wasm_compute_cluster_stats(labels: js_sys::Int32Array) -> Result<JsValue,
         "durationMs": duration_ms,
     });
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-    output.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))
+    output
+        .serialize(&serializer)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[cfg(test)]

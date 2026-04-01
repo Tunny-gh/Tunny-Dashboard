@@ -96,14 +96,17 @@ function HypervolumeContent({ study }: { study: Study }) {
 
 function SensitivityHeatmapWrapper() {
   const [threshold, setThreshold] = useState(0.1)
+  const currentStudy = useStudyStore((s) => s.currentStudy)
   const { sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity } =
     useAnalysisStore()
 
   useEffect(() => {
-    if (!sensitivityResult && !isComputingSensitivity) {
+    if (currentStudy && !sensitivityResult && !isComputingSensitivity && !sensitivityError) {
       computeSensitivity()
     }
-  }, [sensitivityResult, isComputingSensitivity, computeSensitivity])
+  }, [currentStudy, sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity])
+
+  if (!currentStudy) return <EmptyState message="Please load data" />
 
   if (sensitivityError) return <EmptyState message={sensitivityError} />
 
@@ -127,7 +130,6 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   const trialRows = useStudyStore((s) => s.trialRows)
   const loadError = useStudyStore((s) => s.loadError)
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
-
 
   // Charts that work independently of study data
   if (chartId === 'sensitivity-heatmap') return <SensitivityHeatmapWrapper />

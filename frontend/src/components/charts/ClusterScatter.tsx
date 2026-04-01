@@ -27,9 +27,7 @@ export function ClusterScatter() {
     ? Array.from({ length: k }, (_, ci) => ({
         name: `Cluster ${ci}`,
         type: 'scatter' as const,
-        data: pcaProjections
-          .filter((_, i) => clusterLabels[i] === ci)
-          .map(([x, y]) => [x, y]),
+        data: pcaProjections.filter((_, i) => clusterLabels[i] === ci).map(([x, y]) => [x, y]),
         itemStyle: { color: getClusterColor(ci) },
       }))
     : [

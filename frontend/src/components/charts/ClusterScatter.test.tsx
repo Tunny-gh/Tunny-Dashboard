@@ -26,12 +26,14 @@ import { ClusterScatter } from './ClusterScatter'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function setupStore(overrides: Partial<{
-  pcaProjections: number[][] | null
-  clusterLabels: number[] | null
-  isRunning: boolean
-  clusterError: string | null
-}> = {}) {
+function setupStore(
+  overrides: Partial<{
+    pcaProjections: number[][] | null
+    clusterLabels: number[] | null
+    isRunning: boolean
+    clusterError: string | null
+  }> = {},
+) {
   mockUseClusterStore.mockReturnValue({
     pcaProjections: null,
     clusterLabels: null,
@@ -41,7 +43,11 @@ function setupStore(overrides: Partial<{
   })
 }
 
-const mockProjections = [[0, 1], [2, 3], [4, 5]]
+const mockProjections = [
+  [0, 1],
+  [2, 3],
+  [4, 5],
+]
 const mockLabels = [0, 1, 0]
 
 // ---------------------------------------------------------------------------

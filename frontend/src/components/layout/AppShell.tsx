@@ -164,7 +164,8 @@ export function AppShell() {
         width: '100vw',
         // Prevent text selection while resizing
         userSelect: resizing ? 'none' : undefined,
-        cursor: resizing === 'left' ? 'col-resize' : resizing === 'bottom' ? 'row-resize' : undefined,
+        cursor:
+          resizing === 'left' ? 'col-resize' : resizing === 'bottom' ? 'row-resize' : undefined,
       }}
     >
       {/* ToolBar area: full width, top row */}
@@ -199,7 +200,8 @@ export function AppShell() {
           zIndex: 10,
         }}
         onMouseEnter={(e) => {
-          if (!resizing) (e.currentTarget as HTMLDivElement).style.background = 'var(--accent, #4f46e5)'
+          if (!resizing)
+            (e.currentTarget as HTMLDivElement).style.background = 'var(--accent, #4f46e5)'
         }}
         onMouseLeave={(e) => {
           if (!resizing) (e.currentTarget as HTMLDivElement).style.background = 'var(--border)'
@@ -232,7 +234,8 @@ export function AppShell() {
           zIndex: 10,
         }}
         onMouseEnter={(e) => {
-          if (!resizing) (e.currentTarget as HTMLDivElement).style.background = 'var(--accent, #4f46e5)'
+          if (!resizing)
+            (e.currentTarget as HTMLDivElement).style.background = 'var(--accent, #4f46e5)'
         }}
         onMouseLeave={(e) => {
           if (!resizing) (e.currentTarget as HTMLDivElement).style.background = 'var(--border)'
