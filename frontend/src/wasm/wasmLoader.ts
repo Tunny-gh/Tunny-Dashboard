@@ -243,8 +243,7 @@ export class WasmLoader {
       wasmEstimateKElbow(data, nCols, maxK) as ElbowWasmResult
     loader.computeClusterStats = (labels) =>
       wasmComputeClusterStats(labels) as ClusterStatsWasmResult
-    loader.computeSobol = (nSamples: number) =>
-      wasmComputeSobol(nSamples) as SobolWasmResult
+    loader.computeSobol = (nSamples: number) => wasmComputeSobol(nSamples) as SobolWasmResult
 
     return loader
   }

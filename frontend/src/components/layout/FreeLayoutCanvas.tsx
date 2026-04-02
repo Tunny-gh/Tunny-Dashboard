@@ -104,7 +104,13 @@ function SensitivityHeatmapWrapper() {
     if (currentStudy && !sensitivityResult && !isComputingSensitivity && !sensitivityError) {
       computeSensitivity()
     }
-  }, [currentStudy, sensitivityResult, isComputingSensitivity, sensitivityError, computeSensitivity])
+  }, [
+    currentStudy,
+    sensitivityResult,
+    isComputingSensitivity,
+    sensitivityError,
+    computeSensitivity,
+  ])
 
   if (!currentStudy) return <EmptyState message="Please load data" />
 

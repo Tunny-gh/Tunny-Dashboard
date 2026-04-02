@@ -20,7 +20,7 @@ vi.mock('../../stores/analysisStore', () => ({
 
 vi.mock('../../stores/studyStore', () => ({
   useStudyStore: vi.fn((selector: (s: { currentStudy: unknown }) => unknown) =>
-    selector({ currentStudy: { studyId: 1, name: 'test' } })
+    selector({ currentStudy: { studyId: 1, name: 'test' } }),
   ),
 }))
 
@@ -47,8 +47,14 @@ const mockSensitivityResult = {
 const mockSobolResult = {
   paramNames: ['x1', 'x2'],
   objectiveNames: ['obj0', 'obj1'],
-  firstOrder: [[0.4, 0.6], [0.1, 0.3]],
-  totalEffect: [[0.5, 0.7], [0.2, 0.4]],
+  firstOrder: [
+    [0.4, 0.6],
+    [0.1, 0.3],
+  ],
+  totalEffect: [
+    [0.5, 0.7],
+    [0.2, 0.4],
+  ],
   nSamples: 1024,
   durationMs: 50,
 }
