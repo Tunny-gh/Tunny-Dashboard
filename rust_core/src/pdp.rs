@@ -12,6 +12,7 @@
 //! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-803
 
 use crate::sensitivity::compute_ridge;
+use crate::{kriging, rf};
 
 // =============================================================================
 // Documentation.
@@ -329,6 +330,7 @@ pub fn compute_pdp_2d(
     param2_name: &str,
     objective_name: &str,
     n_grid: usize,
+    model_type: &str,
 ) -> Option<PdpResult2d> {
     crate::dataframe::with_active_df(|df| {
         let param_names = df.param_col_names().to_vec();
@@ -361,17 +363,136 @@ pub fn compute_pdp_2d(
             })
             .collect();
 
-        Some(compute_pdp_2d_from_matrix(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            p1_idx,
-            p2_idx,
-            n_grid,
-        ))
+        match model_type {
+            "random_forest" => {
+                let (grid1, grid2, values, r_squared) =
+                    rf::compute_pdp_2d_rf(&x_matrix, &y, p1_idx, p2_idx, n_grid)?;
+                let p1_name = param_names.get(p1_idx).cloned().unwrap_or_default();
+                let p2_name = param_names.get(p2_idx).cloned().unwrap_or_default();
+                Some(PdpResult2d {
+                    param1_name: p1_name,
+                    param2_name: p2_name,
+                    objective_name: objective_name.to_string(),
+                    grid1,
+                    grid2,
+                    values,
+                    r_squared,
+                })
+            }
+            "kriging" => Some(compute_pdp_2d_kriging(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                p1_idx,
+                p2_idx,
+                n_grid,
+            )),
+            // "ridge" or unknown → fall back to Ridge
+            _ => Some(compute_pdp_2d_from_matrix(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                p1_idx,
+                p2_idx,
+                n_grid,
+            )),
+        }
     })
     .flatten()
+}
+
+/// Compute 2D PDP surface using Kriging (GP with ARD Matérn 5/2 kernel).
+pub(crate) fn compute_pdp_2d_kriging(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    param_names: &[String],
+    objective_name: &str,
+    param1_idx: usize,
+    param2_idx: usize,
+    n_grid: usize,
+) -> PdpResult2d {
+    let p1_name = param_names.get(param1_idx).cloned().unwrap_or_default();
+    let p2_name = param_names.get(param2_idx).cloned().unwrap_or_default();
+    let empty = PdpResult2d {
+        param1_name: p1_name.clone(),
+        param2_name: p2_name.clone(),
+        objective_name: objective_name.to_string(),
+        grid1: vec![],
+        grid2: vec![],
+        values: vec![],
+        r_squared: 0.0,
+    };
+
+    let n = y.len();
+    if n < 3 || n_grid == 0 {
+        return empty;
+    }
+    let p = x_matrix[0].len();
+    if param1_idx >= p || param2_idx >= p {
+        return empty;
+    }
+
+    // 2D subspace projection
+    let x_2d: Vec<Vec<f64>> = x_matrix
+        .iter()
+        .map(|row| vec![row[param1_idx], row[param2_idx]])
+        .collect();
+
+    // Train GP (subsample to 1000 if n > 1000)
+    let model = match kriging::train_gp(x_2d.clone(), y.to_vec(), 1000, 42) {
+        Some(m) => m,
+        None => return empty,
+    };
+
+    // Build grid
+    let col1: Vec<f64> = x_2d.iter().map(|r| r[0]).collect();
+    let col2: Vec<f64> = x_2d.iter().map(|r| r[1]).collect();
+    let min1 = col1.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max1 = col1.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min2 = col2.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max2 = col2.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let grid1 = linspace(min1, max1, n_grid);
+    let grid2 = linspace(min2, max2, n_grid);
+
+    // Predict on grid
+    let values: Vec<Vec<f64>> = grid1
+        .iter()
+        .map(|&v1| {
+            grid2
+                .iter()
+                .map(|&v2| kriging::predict_mean(&model, &[v1, v2]))
+                .collect()
+        })
+        .collect();
+
+    // R² on training data
+    let y_mean = y.iter().sum::<f64>() / n as f64;
+    let ss_tot: f64 = y.iter().map(|&v| (v - y_mean).powi(2)).sum();
+    let ss_res: f64 = x_2d
+        .iter()
+        .zip(y.iter())
+        .map(|(xi, &yi)| {
+            let pred = kriging::predict_mean(&model, xi);
+            (yi - pred).powi(2)
+        })
+        .sum();
+    let r_squared = if ss_tot < f64::EPSILON {
+        1.0
+    } else {
+        1.0 - ss_res / ss_tot
+    };
+
+    PdpResult2d {
+        param1_name: p1_name,
+        param2_name: p2_name,
+        objective_name: objective_name.to_string(),
+        grid1,
+        grid2,
+        values,
+        r_squared,
+    }
 }
 
 // =============================================================================

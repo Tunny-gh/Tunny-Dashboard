@@ -97,12 +97,12 @@ describe('SurfacePlot3D', () => {
     expect(screen.getByTestId('empty-state')).toBeInTheDocument()
   })
 
-  // TC-1628-03: isComputingSurface → loading UI
+  // TC-1628-03: isComputingSurface → loading overlay with spinner text
   it('TC-1628-03: shows loading state when isComputingSurface is true', () => {
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy())
     mockAnalysisState.isComputingSurface = true
     render(<SurfacePlot3D />)
-    expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+    // Spinner overlay replaces the EmptyState; text still contains "Computing"
     expect(screen.getByText(/Computing/)).toBeInTheDocument()
   })
 

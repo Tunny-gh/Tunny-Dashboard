@@ -214,6 +214,7 @@ export class WasmLoader {
     param2Name: string,
     objectiveName: string,
     nGrid: number,
+    modelType: string,
   ) => Pdp2dWasmResult
 
   /**
@@ -279,8 +280,8 @@ export class WasmLoader {
     loader.computeSobol = (nSamples: number) => wasmComputeSobol(nSamples) as SobolWasmResult
     loader.computeTopsis = (values, nTrials, nObjectives, weights, isMinimize) =>
       wasmComputeTopsis(values, nTrials, nObjectives, weights, isMinimize) as TopsisWasmResult
-    loader.computePdp2d = (param1Name, param2Name, objectiveName, nGrid) =>
-      wasmComputePdp2d(param1Name, param2Name, objectiveName, nGrid) as Pdp2dWasmResult
+    loader.computePdp2d = (param1Name, param2Name, objectiveName, nGrid, modelType) =>
+      wasmComputePdp2d(param1Name, param2Name, objectiveName, nGrid, modelType) as Pdp2dWasmResult
 
     return loader
   }

@@ -79,16 +79,19 @@ ParetoFront チャートを併用する
 
 `SurfacePlot3D`（2D PDP）・`PDPChart`（1D PDP）で使用されるサロゲートモデルベースの可視化手法。
 
-| 手法   | 入力          | 特徴                                           |
-| ------ | ------------- | ---------------------------------------------- |
-| 1D PDP | パラメータ 1 つ | 1 パラメータの限界効果を折れ線で可視化         |
-| 2D PDP | パラメータ 2 つ | 2 パラメータの複合効果を 3D 曲面で可視化       |
+### サロゲートモデルの選択肢
 
-Ridge 回帰サロゲートモデルによる解析的近似のため高速（50,000 トライアルでも 100ms 未満）。
+| モデル | 速度 | 非線形対応 | 少数サンプル | 特徴 |
+| ------ | ---- | ---------- | ------------ | ---- |
+| Ridge 回帰 | 最速（< 100ms） | ✗（線形のみ） | ○ | 解析的・高速 |
+| Random Forest | 中（< 2,000ms） | ✓（不連続も可） | △ | ノンパラメトリック |
+| Kriging | 遅（< 3,000ms） | ✓（滑らか） | ◎ | GP補間・最高品質 |
 
 ### 各手法の詳細
 
 - [部分依存プロット（PDP）による応答曲面](pdp.md)
+- [Random Forest サロゲートモデル](random-forest.md)
+- [Kriging（ガウス過程回帰）サロゲートモデル](kriging.md)
 
 ### 手法の選び方
 
@@ -97,13 +100,20 @@ Ridge 回帰サロゲートモデルによる解析的近似のため高速（50
   ↓
 着目パラメータが 1 つ → PDPChart（1D）
 着目パラメータが 2 つ → SurfacePlot3D（2D）
+  ↓
+サロゲートモデルの選択:
+  高速に確認したい          → Ridge 回帰
+  非線形・不連続な目的関数  → Random Forest
+  滑らかな補間・少数サンプル → Kriging
 
-R² が低い（< 0.5）場合は非線形関係が強い → Sobol で確認
+R² が低い（< 0.5）場合は非線形関係が強い → Random Forest / Kriging / Sobol で確認
 ```
 
 **実装ファイル:**
-- `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D）
-- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d`）
+- `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、モデルディスパッチ）
+- `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
+- `rust_core/src/kriging.rs` — Kriging（ARD Matérn 5/2 + L-BFGS）
+- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `model_type`）
 - `frontend/src/stores/analysisStore.ts` — 状態管理・キャッシュ（`surface3dCache`）
 - `frontend/src/components/charts/SurfacePlot3D.tsx` / `PDPChart.tsx` — UI
 
@@ -125,4 +135,7 @@ R² が低い（< 0.5）場合は非線形関係が強い → Sobol で確認
   └── パラメータと目的関数の関係を可視化したい
        ├── 1 パラメータ → 1D PDP（PDPChart）
        └── 2 パラメータ → 2D PDP（SurfacePlot3D）
+            ├── 高速・線形           → Ridge 回帰
+            ├── 非線形・不連続       → Random Forest
+            └── 滑らか・少数サンプル → Kriging
 ```

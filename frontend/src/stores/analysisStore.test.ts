@@ -225,7 +225,7 @@ describe('analysisStore - surface3d', () => {
     })
 
     expect(mockComputePdp2d).toHaveBeenCalledTimes(1)
-    expect(mockComputePdp2d).toHaveBeenCalledWith('x', 'y', 'obj0', 10)
+    expect(mockComputePdp2d).toHaveBeenCalledWith('x', 'y', 'obj0', 10, 'ridge')
 
     // English comment.
     const cache = useAnalysisStore.getState().surface3dCache

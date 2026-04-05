@@ -99,9 +99,16 @@ export const useAnalysisStore = create<AnalysisState>()(
       if (surface3dCache.has(cacheKey)) return
 
       set({ isComputingSurface: true, surface3dError: null })
+
+      // Yield to the event loop so React can render the loading spinner
+      // before the synchronous WASM computation blocks the main thread.
+      // Without this yield, React batches the state update and the spinner
+      // never appears before the thread freezes (especially for Kriging O(N³)).
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
       try {
         const wasm = await WasmLoader.getInstance()
-        const result = wasm.computePdp2d(param1, param2, objective, nGrid)
+        const result = wasm.computePdp2d(param1, param2, objective, nGrid, surrogateModelType)
         const newCache = new Map(surface3dCache)
         newCache.set(cacheKey, result)
         set({ surface3dCache: newCache, isComputingSurface: false })

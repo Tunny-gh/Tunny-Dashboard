@@ -6,9 +6,11 @@ pub mod dataframe;
 pub mod export;
 pub mod filter;
 pub mod journal_parser;
+pub(crate) mod kriging;
 pub mod live_update;
 pub mod pareto;
 pub mod pdp;
+pub(crate) mod rf;
 pub mod sampling;
 pub mod sensitivity;
 pub mod topsis;
@@ -386,9 +388,10 @@ pub fn wasm_compute_pdp_2d(
     param2_name: &str,
     objective_name: &str,
     n_grid: u32,
+    model_type: &str,
 ) -> Result<JsValue, JsValue> {
     use serde::Serialize;
-    match pdp::compute_pdp_2d(param1_name, param2_name, objective_name, n_grid as usize) {
+    match pdp::compute_pdp_2d(param1_name, param2_name, objective_name, n_grid as usize, model_type) {
         Some(result) => {
             let serializer = serde_wasm_bindgen::Serializer::json_compatible();
             result

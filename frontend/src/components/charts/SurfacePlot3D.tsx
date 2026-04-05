@@ -6,12 +6,18 @@ import { useAnalysisStore } from '../../stores/analysisStore'
 import { EmptyState } from '../common/EmptyState'
 import type { SurrogateModelType } from '../../types'
 
-// Surrogate model options (kriging is not yet implemented)
 const MODEL_OPTIONS: { value: SurrogateModelType; label: string; disabled?: boolean }[] = [
   { value: 'ridge', label: 'Ridge Regression' },
-  { value: 'random_forest', label: 'Random Forest (coming soon)', disabled: true },
-  { value: 'kriging', label: 'Kriging (coming soon)', disabled: true },
+  { value: 'random_forest', label: 'Random Forest' },
+  { value: 'kriging', label: 'Kriging' },
 ]
+
+/** Expected computation time label shown in the spinner. */
+const MODEL_COMPUTE_TIME: Record<SurrogateModelType, string> = {
+  ridge: '< 1s',
+  random_forest: '< 2s',
+  kriging: '< 30s',
+}
 
 export function SurfacePlot3D() {
   const currentStudy = useStudyStore((s) => s.currentStudy)
@@ -58,10 +64,6 @@ export function SurfacePlot3D() {
 
   if (paramNames.length < 2) {
     return <EmptyState message="At least 2 parameters required" />
-  }
-
-  if (isComputingSurface) {
-    return <EmptyState message="Computing 3D surface..." />
   }
 
   if (surface3dError) {
@@ -246,16 +248,59 @@ export function SurfacePlot3D() {
         )}
       </div>
 
-      {/* echarts-gl 3D surface */}
-      <div style={{ flex: 1, minHeight: 0 }}>
+      {/* echarts-gl 3D surface — spinner overlay during computation */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        {isComputingSurface && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(255,255,255,0.85)',
+              zIndex: 10,
+              gap: '12px',
+            }}
+          >
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 40 40"
+              style={{ animation: 'spin 1s linear infinite' }}
+            >
+              <circle
+                cx="20" cy="20" r="16"
+                fill="none"
+                stroke="#ccc"
+                strokeWidth="4"
+              />
+              <path
+                d="M20 4 A16 16 0 0 1 36 20"
+                fill="none"
+                stroke="#4575b4"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span style={{ fontSize: '13px', color: '#555', fontWeight: 500 }}>
+              Computing {surrogateModelType === 'random_forest' ? 'Random Forest' : surrogateModelType === 'kriging' ? 'Kriging' : 'Ridge'}…
+            </span>
+            <span style={{ fontSize: '11px', color: '#999' }}>
+              Expected: {MODEL_COMPUTE_TIME[surrogateModelType]}
+            </span>
+            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
         {result ? (
           <ReactECharts
             option={chartOption}
             style={{ height: '100%', minHeight: '200px' }}
           />
-        ) : (
+        ) : !isComputingSurface ? (
           <EmptyState message="Select parameters to compute" />
-        )}
+        ) : null}
       </div>
     </div>
   )
