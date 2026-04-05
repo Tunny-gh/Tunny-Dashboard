@@ -27,10 +27,6 @@ vi.mock('deck.gl', () => ({
     id: props.id,
     type: 'ScatterplotLayer',
   })),
-  GridLayer: vi.fn().mockImplementation((props: { id: string }) => ({
-    id: props.id,
-    type: 'GridLayer',
-  })),
 }))
 
 // -------------------------------------------------------------------------

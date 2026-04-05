@@ -39,13 +39,8 @@ vi.mock('../../stores/studyStore', () => ({
   useStudyStore: vi.fn().mockReturnValue(null),
 }))
 
-// English comment.
-vi.mock('deck.gl', () => ({
-  DeckGL: vi.fn(({ children }: { children?: unknown }) => (
-    <div data-testid="deck-gl">{children as never}</div>
-  )),
-  GridLayer: vi.fn().mockImplementation((props) => ({ id: props.id, type: 'GridLayer' })),
-}))
+// Mock echarts-for-react (replaces deck.gl after refactor)
+vi.mock('echarts-for-react')
 
 import { SurfacePlot3D } from './SurfacePlot3D'
 import { useStudyStore } from '../../stores/studyStore'
@@ -90,7 +85,6 @@ describe('SurfacePlot3D', () => {
 
   // TC-1628-01: No study → EmptyState
   it('TC-1628-01: shows EmptyState when no study is loaded', () => {
-    // English comment.
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(null)
     render(<SurfacePlot3D />)
     expect(screen.getByTestId('empty-state')).toBeInTheDocument()
@@ -98,7 +92,6 @@ describe('SurfacePlot3D', () => {
 
   // TC-1628-02: Too few parameters → EmptyState
   it('TC-1628-02: shows EmptyState when fewer than 2 parameters', () => {
-    // English comment.
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy(['x1']))
     render(<SurfacePlot3D />)
     expect(screen.getByTestId('empty-state')).toBeInTheDocument()
@@ -106,7 +99,6 @@ describe('SurfacePlot3D', () => {
 
   // TC-1628-03: isComputingSurface → loading UI
   it('TC-1628-03: shows loading state when isComputingSurface is true', () => {
-    // English comment.
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy())
     mockAnalysisState.isComputingSurface = true
     render(<SurfacePlot3D />)
@@ -116,7 +108,6 @@ describe('SurfacePlot3D', () => {
 
   // TC-1628-04: surface3dError → EmptyState with error message
   it('TC-1628-04: shows error EmptyState when surface3dError is set', () => {
-    // English comment.
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy())
     mockAnalysisState.surface3dError = 'computation failed'
     render(<SurfacePlot3D />)
@@ -126,29 +117,25 @@ describe('SurfacePlot3D', () => {
 
   // TC-1628-05: Valid study shows dropdowns
   it('TC-1628-05: renders param and objective dropdowns with valid study', () => {
-    // English comment.
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy())
     render(<SurfacePlot3D />)
-    // English comment.
     const selects = screen.getAllByRole('combobox')
     expect(selects.length).toBeGreaterThanOrEqual(3)
   })
 
   // TC-1628-06: Model type dropdown triggers setSurrogateModelType
   it('TC-1628-06: model type dropdown calls setSurrogateModelType', () => {
-    // English comment.
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy())
     render(<SurfacePlot3D />)
     const selects = screen.getAllByRole('combobox')
-    // English comment.
+    // Model selector is the last dropdown
     const modelSelect = selects[selects.length - 1]
     fireEvent.change(modelSelect, { target: { value: 'random_forest' } })
     expect(mockSetSurrogateModelType).toHaveBeenCalledWith('random_forest')
   })
 
-  // TC-1628-07: Cache hit shows deck.gl canvas
-  it('TC-1628-07: renders DeckGL when surface3dCache has data', () => {
-    // English comment.
+  // TC-1628-07: Cache hit renders chart container (ECharts heatmap)
+  it('TC-1628-07: renders chart when surface3dCache has data', () => {
     const study = makeStudy()
     ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(study)
     const cacheKey = `ridge_${study.paramNames[0]}_${study.paramNames[1]}_${study.objectiveNames[0]}_50`
@@ -171,6 +158,7 @@ describe('SurfacePlot3D', () => {
       ],
     ])
     render(<SurfacePlot3D />)
-    expect(screen.getByTestId('deck-gl')).toBeInTheDocument()
+    // ECharts is mocked; verify the surface-plot-3d container is rendered
+    expect(screen.getByTestId('surface-plot-3d')).toBeInTheDocument()
   })
 })

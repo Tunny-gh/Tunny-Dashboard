@@ -38,6 +38,7 @@ pub struct PdpResult1d {
 ///
 /// Documentation.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdpResult2d {
     /// Documentation.
     pub param1_name: String,

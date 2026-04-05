@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { DeckGL, GridLayer } from 'deck.gl'
+import ReactECharts from 'echarts-for-react'
 import { useStudyStore } from '../../stores/studyStore'
 import { useAnalysisStore } from '../../stores/analysisStore'
 import { EmptyState } from '../common/EmptyState'
 import type { SurrogateModelType } from '../../types'
 
-// English comment.
+// Surrogate model options (kriging is not yet implemented)
 const MODEL_OPTIONS: { value: SurrogateModelType; label: string; disabled?: boolean }[] = [
   { value: 'ridge', label: 'Ridge Regression' },
   { value: 'random_forest', label: 'Random Forest' },
@@ -30,7 +30,7 @@ export function SurfacePlot3D() {
   const [param2, setParam2] = useState<string>('')
   const [objective, setObjective] = useState<string>('')
 
-  // English comment.
+  // Initialize selections when study changes
   useEffect(() => {
     if (paramNames.length >= 2) {
       setParam1((prev) => (prev && paramNames.includes(prev) ? prev : paramNames[0]))
@@ -44,13 +44,13 @@ export function SurfacePlot3D() {
     }
   }, [currentStudy]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // English comment.
+  // Trigger computation when selections change
   useEffect(() => {
     if (!currentStudy || !param1 || !param2 || !objective || param1 === param2) return
     computeSurface3d(param1, param2, objective, 50)
   }, [currentStudy, param1, param2, objective, surrogateModelType, computeSurface3d])
 
-  // English comment.
+  // Guard: no study loaded
   if (!currentStudy) {
     return <EmptyState message="Please load data" />
   }
@@ -67,34 +67,85 @@ export function SurfacePlot3D() {
     return <EmptyState message={`Surface computation error: ${surface3dError}`} />
   }
 
-  // English comment.
+  // Look up cached result
   const cacheKey = `${surrogateModelType}_${param1}_${param2}_${objective}_50`
   const result = surface3dCache.get(cacheKey)
 
-  // English comment.
-  const gridData = result
-    ? result.values.flatMap((row, i) =>
-        row.map((val, j) => ({
-          position: [result.grid1[j], result.grid2[i]] as [number, number],
-          colorValue: val,
-        })),
-      )
-    : []
+  // Build ECharts heatmap data: [[x_index, y_index, value], ...]
+  // values[i][j] = f(grid1[i], grid2[j])
+  let chartOption: object = {}
+  if (result && result.grid1.length > 0 && result.grid2.length > 0) {
+    const flatData: [number, number, number][] = []
+    let minVal = Infinity
+    let maxVal = -Infinity
 
-  const layers = result
-    ? [
-        new GridLayer({
-          id: 'surface3d-layer',
-          data: gridData,
-          getPosition: (d: { position: [number, number] }) => d.position,
-          getColorWeight: (d: { colorValue: number }) => d.colorValue,
-          colorAggregation: 'MEAN',
-          cellSize: Math.abs((result.grid1[1] ?? 1) - (result.grid1[0] ?? 0)) * 1.05,
-          extruded: true,
-          pickable: true,
-        }),
-      ]
-    : []
+    for (let i = 0; i < result.grid1.length; i++) {
+      for (let j = 0; j < result.grid2.length; j++) {
+        const v = result.values[i][j]
+        if (isFinite(v)) {
+          flatData.push([i, j, v])
+          if (v < minVal) minVal = v
+          if (v > maxVal) maxVal = v
+        }
+      }
+    }
+
+    const fmt = (v: number) => (Math.abs(v) >= 1000 || Math.abs(v) < 0.01 ? v.toExponential(2) : v.toFixed(3))
+    const xLabels = result.grid1.map(fmt)
+    const yLabels = result.grid2.map(fmt)
+
+    chartOption = {
+      tooltip: {
+        position: 'top',
+        formatter: (p: { value: [number, number, number] }) =>
+          `${param1}: ${xLabels[p.value[0]]}<br/>${param2}: ${yLabels[p.value[1]]}<br/>${objective}: ${fmt(p.value[2])}`,
+      },
+      grid: { top: 40, right: 100, bottom: 60, left: 80 },
+      xAxis: {
+        type: 'category',
+        data: xLabels,
+        name: param1,
+        nameLocation: 'middle',
+        nameGap: 35,
+        axisLabel: {
+          interval: Math.floor(result.grid1.length / 6),
+          rotate: 30,
+          fontSize: 10,
+        },
+      },
+      yAxis: {
+        type: 'category',
+        data: yLabels,
+        name: param2,
+        nameLocation: 'middle',
+        nameGap: 55,
+        axisLabel: {
+          interval: Math.floor(result.grid2.length / 6),
+          fontSize: 10,
+        },
+      },
+      visualMap: {
+        min: minVal,
+        max: maxVal,
+        calculable: true,
+        orient: 'vertical',
+        right: 5,
+        top: 'center',
+        inRange: { color: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'] },
+        textStyle: { fontSize: 10 },
+        formatter: (v: number) => fmt(v),
+      },
+      series: [
+        {
+          name: objective,
+          type: 'heatmap',
+          data: flatData,
+          emphasis: { itemStyle: { shadowBlur: 6 } },
+          label: { show: false },
+        },
+      ],
+    }
+  }
 
   return (
     <div
@@ -170,12 +221,21 @@ export function SurfacePlot3D() {
             ))}
           </select>
         </label>
+
+        {result && (
+          <span style={{ color: result.rSquared >= 0.5 ? '#27ae60' : '#e67e22', fontSize: '11px', alignSelf: 'center' }}>
+            R²={result.rSquared.toFixed(3)}
+          </span>
+        )}
       </div>
 
-      {/* deck.gl 3D canvas */}
-      <div style={{ flex: 1, position: 'relative' }}>
+      {/* ECharts heatmap */}
+      <div style={{ flex: 1, minHeight: 0 }}>
         {result ? (
-          <DeckGL layers={layers} controller={true} style={{ width: '100%', height: '100%' }} />
+          <ReactECharts
+            option={chartOption}
+            style={{ height: '100%', minHeight: '200px' }}
+          />
         ) : (
           <EmptyState message="Select parameters to compute" />
         )}
