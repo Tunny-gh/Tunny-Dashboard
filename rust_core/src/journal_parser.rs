@@ -292,10 +292,17 @@ impl ParserState {
         // In-memory format: all trial data is embedded in CREATE_TRIAL (has "distributions" key).
         if json.get("distributions").is_some() {
             let state = get_u64(json, "state").unwrap_or(0) as u8;
+            // Multi-objective: "values" is an array.
+            // Single-objective: "value" holds the scalar, "values" is null.
             let values = json
                 .get("values")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>());
+                .map(|arr| arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>())
+                .or_else(|| {
+                    json.get("value")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| vec![v])
+                });
 
             let mut param_display: HashMap<String, f64> = HashMap::new();
             let mut param_category_label: HashMap<String, String> = HashMap::new();
@@ -1271,6 +1278,23 @@ mod tests {
         assert!(result.studies[0]
             .user_attr_names
             .contains(&"tag".to_string()));
+    }
+
+    #[test]
+    fn tc_inmem_04_single_objective_value_singular() {
+        // Single-objective in-memory format: "value" holds the scalar, "values" is null.
+        // This matches the Tunny-generated fish.log format.
+        let data = to_bytes(concat!(
+            "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"ackley\",\"directions\":[1]}\n",
+            "{\"op_code\":3,\"worker_id\":\"w\",\"study_id\":0,\"system_attr\":{\"study:metric_names\":[\"Obj\"]}}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:00.000000\",\"state\":1,\"value\":21.13,\"values\":null,\"datetime_complete\":\"2026-01-01T00:00:01.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": null, \\\"low\\\": -32.77, \\\"high\\\": 32.77, \\\"log\\\": false}}\"},\"params\":{\"x\":1.5},\"user_attrs\":{},\"system_attrs\":{},\"intermediate_values\":{}}\n",
+            "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2026-01-01T00:00:01.000000\",\"state\":1,\"value\":5.42,\"values\":null,\"datetime_complete\":\"2026-01-01T00:00:02.000000\",\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": null, \\\"low\\\": -32.77, \\\"high\\\": 32.77, \\\"log\\\": false}}\"},\"params\":{\"x\":0.1},\"user_attrs\":{},\"system_attrs\":{},\"intermediate_values\":{}}\n"
+        ));
+        let result = parse_journal(&data).expect("single-objective inmem parse");
+        assert_eq!(result.studies.len(), 1);
+        assert_eq!(result.studies[0].completed_trials, 2);
+        assert_eq!(result.studies[0].objective_names, vec!["Obj"]);
+        assert!(result.studies[0].param_names.contains(&"x".to_string()));
     }
 
     #[test]
