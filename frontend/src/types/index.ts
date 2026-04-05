@@ -159,6 +159,8 @@ export type ChartId =
   | 'slice' // Slice Plot: parameter vs objective value scatter
   | 'edf' // EDF: Empirical Distribution Function
   | 'contour' // Contour Plot: 2-parameter correlation (scatter only; ML interpolation requires Python)
+  | 'surface3d' // 3D Surface Plot: surrogate model response surface (WASM PDP-2D)
+  | 'topsis-ranking' // TOPSIS Ranking: multi-criteria decision making ranking chart
 // Not yet implemented (requires data extension):
 //   'timeline'            — needs Trial.datetime_start/datetime_complete
 //                           recorded in Optuna Journal but WASM parser extension required
@@ -275,6 +277,34 @@ export interface ModelQuality {
   rmse: number
   quality: 'good' | 'warning' | 'poor'
 }
+
+/** TOPSIS multi-criteria ranking result */
+export interface TopsisRankingResult {
+  scores: number[]
+  rankedIndices: number[]
+  positiveIdeal: number[]
+  negativeIdeal: number[]
+  durationMs: number
+}
+
+/** MCDM (Multi-Criteria Decision Making) store for TOPSIS */
+export interface McdmStore {
+  // State
+  topsisWeights: number[]
+  topsisResult: TopsisRankingResult | null
+  isComputing: boolean
+  topN: number
+  topsisError: string | null
+
+  // Actions
+  setTopsisWeights: (weights: number[]) => void
+  computeTopsis: () => Promise<void>
+  setTopN: (n: number) => void
+  reset: () => void
+}
+
+/** Surrogate model type for 3D surface plot */
+export type SurrogateModelType = 'ridge' | 'random_forest' | 'kriging'
 
 /** Export & session store */
 export interface ExportStore {

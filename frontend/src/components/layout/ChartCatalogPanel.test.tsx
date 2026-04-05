@@ -78,7 +78,7 @@ describe('ChartCatalogPanel', () => {
     // Documentation.
     render(<ChartCatalogPanel />)
     fireEvent.click(screen.getByTestId('catalog-toggle-btn'))
-    expect(CHART_CATALOG).toHaveLength(14)
+    expect(CHART_CATALOG).toHaveLength(16)
     CHART_CATALOG.forEach(({ chartId }) => {
       expect(screen.getByTestId(`catalog-item-${chartId}`)).toBeInTheDocument()
     })

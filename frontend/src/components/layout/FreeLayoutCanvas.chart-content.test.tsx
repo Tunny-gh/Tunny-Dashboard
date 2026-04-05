@@ -27,6 +27,10 @@ vi.mock('deck.gl', () => ({
     id: props.id,
     type: 'ScatterplotLayer',
   })),
+  GridLayer: vi.fn().mockImplementation((props: { id: string }) => ({
+    id: props.id,
+    type: 'GridLayer',
+  })),
 }))
 
 // -------------------------------------------------------------------------
@@ -73,6 +77,13 @@ const { mockUseAnalysisStoreCC } = vi.hoisted(() => {
     sensitivityError: null,
     computeSensitivity: vi.fn(),
     computeSensitivitySelected: vi.fn(),
+    surrogateModelType: 'ridge' as const,
+    surface3dCache: new Map(),
+    isComputingSurface: false,
+    surface3dError: null,
+    setSurrogateModelType: vi.fn(),
+    computeSurface3d: vi.fn().mockResolvedValue(undefined),
+    clearSurface3dCache: vi.fn(),
   })
   return { mockUseAnalysisStoreCC }
 })
@@ -89,6 +100,22 @@ vi.mock('../../stores/clusterStore', () => ({
     clusterError: null,
     runClustering: vi.fn(),
     estimateK: vi.fn(),
+  }),
+}))
+
+// Mock mcdmStore to prevent module-level side effects
+// (mcdmStore calls useStudyStore.getState() at initialization time)
+vi.mock('../../stores/mcdmStore', () => ({
+  useMcdmStore: vi.fn().mockReturnValue({
+    topsisResult: null,
+    topsisWeights: [],
+    isComputing: false,
+    topsisError: null,
+    topN: 10,
+    computeTopsis: vi.fn(),
+    setTopsisWeights: vi.fn(),
+    setTopN: vi.fn(),
+    reset: vi.fn(),
   }),
 }))
 
@@ -300,6 +327,13 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         sensitivityError: null,
         computeSensitivity: vi.fn(),
         computeSensitivitySelected: vi.fn(),
+        surrogateModelType: 'ridge' as const,
+        surface3dCache: new Map(),
+        isComputingSurface: false,
+        surface3dError: null,
+        setSurrogateModelType: vi.fn(),
+        computeSurface3d: vi.fn().mockResolvedValue(undefined),
+        clearSurface3dCache: vi.fn(),
       })
     })
 
@@ -341,6 +375,13 @@ describe('FreeLayoutCanvas — ChartContent', () => {
         sensitivityError: null,
         computeSensitivity: vi.fn(),
         computeSensitivitySelected: vi.fn(),
+        surrogateModelType: 'ridge' as const,
+        surface3dCache: new Map(),
+        isComputingSurface: false,
+        surface3dError: null,
+        setSurrogateModelType: vi.fn(),
+        computeSurface3d: vi.fn().mockResolvedValue(undefined),
+        clearSurface3dCache: vi.fn(),
       })
       useLayoutStore.setState({
         freeModeLayout: {
@@ -457,6 +498,45 @@ describe('FreeLayoutCanvas — ChartContent', () => {
       await waitFor(() => {
         expect(screen.getByTestId('empty-state')).toHaveTextContent('HV computation error')
       })
+    })
+  })
+
+  // ----------------------------------------------------------------
+  // topsis-ranking
+  // ----------------------------------------------------------------
+
+  describe('topsis-ranking', () => {
+    test('TC-1623-01: renders TopsisRankingChart for topsis-ranking chartId', () => {
+      // English comment.
+      // English comment.
+      setStudyStore(makeMultiObjectiveStudy(), makeGpuBuffer())
+      useLayoutStore.setState({
+        freeModeLayout: {
+          cells: [{ chartId: 'topsis-ranking', gridRow: [1, 3], gridCol: [1, 3] }],
+        },
+      })
+      render(<FreeLayoutCanvas />)
+      // English comment.
+      expect(screen.getByTestId('free-layout-card-topsis-ranking')).toBeInTheDocument()
+    })
+  })
+
+  // ----------------------------------------------------------------
+  // surface3d
+  // ----------------------------------------------------------------
+
+  describe('surface3d', () => {
+    test('TC-1629-01: renders SurfacePlot3D card for surface3d chartId', () => {
+      // English comment.
+      setStudyStore(makeMultiObjectiveStudy(), makeGpuBuffer())
+      useLayoutStore.setState({
+        freeModeLayout: {
+          cells: [{ chartId: 'surface3d', gridRow: [1, 3], gridCol: [1, 3] }],
+        },
+      })
+      render(<FreeLayoutCanvas />)
+      // English comment.
+      expect(screen.getByTestId('free-layout-card-surface3d')).toBeInTheDocument()
     })
   })
 

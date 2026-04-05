@@ -33,6 +33,8 @@ export const CHART_CATALOG: { chartId: ChartId; label: string }[] = [
   { chartId: 'slice', label: 'Slice Plot' },
   { chartId: 'edf', label: 'EDF' },
   { chartId: 'contour', label: 'Contour Plot' },
+  { chartId: 'topsis-ranking', label: 'TOPSIS Ranking' },
+  { chartId: 'surface3d', label: '3D Response Surface' },
 ]
 
 // -------------------------------------------------------------------------

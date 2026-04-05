@@ -15,6 +15,20 @@ import { describe, test, expect, beforeEach, vi } from 'vitest'
 vi.mock('./pkg/tunny_core', () => ({
   // Documentation.
   default: vi.fn().mockResolvedValue({}),
+  // English comment.
+  computePdp2d: vi.fn().mockReturnValue({
+    param1Name: 'x',
+    param2Name: 'y',
+    objectiveName: 'obj0',
+    grid1: [1.0, 2.0, 3.0],
+    grid2: [1.0, 2.0, 3.0],
+    values: [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+      [0.7, 0.8, 0.9],
+    ],
+    rSquared: 0.95,
+  }),
   // Documentation.
   getTrials: vi.fn().mockReturnValue([]),
   // Documentation.
@@ -30,6 +44,14 @@ vi.mock('./pkg/tunny_core', () => ({
   appendJournalDiff: vi.fn().mockReturnValue({ new_completed: 2, consumed_bytes: 100 }),
   // Documentation.
   computeReportStats: vi.fn().mockReturnValue('{"x":{"min":1.0,"max":2.0}}'),
+  // English comment.
+  computeTopsis: vi.fn().mockReturnValue({
+    scores: [0.8, 0.3],
+    rankedIndices: [0, 1],
+    positiveIdeal: [1.0, 2.0],
+    negativeIdeal: [5.0, 6.0],
+    durationMs: 0.5,
+  }),
 }))
 
 import { WasmLoader } from './wasmLoader'
@@ -137,6 +159,52 @@ describe('translated test case', () => {
     // Documentation.
     const result = loader.getTrials()
     expect(Array.isArray(result)).toBe(true)
+  })
+
+  // English comment.
+  test('TC-1619-01', async () => {
+    // English comment.
+    // English comment.
+    // English comment.
+    const loader = await WasmLoader.getInstance()
+
+    // English comment.
+    expect(typeof loader.computeTopsis).toBe('function')
+
+    // English comment.
+    const values = new Float64Array([1.0, 2.0, 5.0, 6.0])
+    const weights = new Float64Array([0.5, 0.5])
+    const result = loader.computeTopsis(values, 2, 2, weights, [true, true])
+
+    // English comment.
+    expect(result).toHaveProperty('scores')
+    expect(result).toHaveProperty('rankedIndices')
+    expect(result).toHaveProperty('positiveIdeal')
+    expect(result).toHaveProperty('negativeIdeal')
+    expect(result).toHaveProperty('durationMs')
+    expect(Array.isArray(result.scores)).toBe(true)
+    expect(Array.isArray(result.rankedIndices)).toBe(true)
+  })
+
+  // English comment.
+  test('TC-1626-01', async () => {
+    // English comment.
+    // English comment.
+    const loader = await WasmLoader.getInstance()
+
+    // English comment.
+    expect(typeof loader.computePdp2d).toBe('function')
+
+    // English comment.
+    const result = loader.computePdp2d('x', 'y', 'obj0', 10)
+
+    // English comment.
+    expect(result).toHaveProperty('grid1')
+    expect(result).toHaveProperty('grid2')
+    expect(result).toHaveProperty('values')
+    expect(result).toHaveProperty('rSquared')
+    expect(Array.isArray(result.grid1)).toBe(true)
+    expect(Array.isArray(result.values)).toBe(true)
   })
 })
 

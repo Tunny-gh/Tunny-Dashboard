@@ -31,6 +31,8 @@ import { SensitivityHeatmap } from '../charts/SensitivityHeatmap'
 import { ImportanceChart } from '../charts/ImportanceChart'
 import { ClusterScatter } from '../charts/ClusterScatter'
 import { DimReductionScatter } from '../charts/DimReductionScatter'
+import { TopsisRankingChart } from '../charts/TopsisRankingChart'
+import { SurfacePlot3D } from '../charts/SurfacePlot3D'
 import { useAnalysisStore } from '../../stores/analysisStore'
 
 // -------------------------------------------------------------------------
@@ -54,6 +56,8 @@ const CHART_LABELS: Partial<Record<ChartId, string>> = {
   slice: 'Slice Plot',
   edf: 'EDF',
   contour: 'Contour Plot',
+  'topsis-ranking': 'TOPSIS Ranking',
+  surface3d: '3D Surface Plot',
 }
 
 /** Grid dimension count（4×4） */
@@ -142,6 +146,7 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
   if (chartId === 'importance') return <ImportanceChart />
   if (chartId === 'cluster-view') return <ClusterScatter />
   if (chartId === 'umap') return <DimReductionScatter />
+  if (chartId === 'surface3d') return <SurfacePlot3D />
 
   if (!currentStudy || !gpuBuffer) {
     return <EmptyState message={loadError ?? 'Please load data'} />
@@ -323,6 +328,8 @@ function ChartContent({ chartId }: { chartId: ChartId }) {
         return <EmptyState message="Available for multi-objective studies only" />
       }
       return <HypervolumeContent study={currentStudy} />
+    case 'topsis-ranking':
+      return <TopsisRankingChart />
     default:
       return <EmptyState message="This chart is under development" />
   }

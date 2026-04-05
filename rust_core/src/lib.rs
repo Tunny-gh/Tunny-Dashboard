@@ -11,6 +11,7 @@ pub mod pareto;
 pub mod pdp;
 pub mod sampling;
 pub mod sensitivity;
+pub mod topsis;
 
 /// Documentation.
 #[cfg(feature = "wasm")]
@@ -346,8 +347,8 @@ pub fn wasm_compute_sensitivity_selected(indices: js_sys::Uint32Array) -> Result
     }
 }
 
-/// Sobol 感度指数（一次・全効果）を計算する
-/// n_samples: Saltelli サンプリング数（推奨: 1024）
+/// English documentation.
+/// English documentation.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen(js_name = "computeSobol")]
 pub fn wasm_compute_sobol(n_samples: u32) -> Result<JsValue, JsValue> {
@@ -371,6 +372,67 @@ pub fn wasm_compute_sobol(n_samples: u32) -> Result<JsValue, JsValue> {
         }
         None => Err(JsValue::from_str("No active study")),
     }
+}
+
+/// English documentation.
+///
+/// English documentation.
+/// English documentation.
+/// English documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computePdp2d")]
+pub fn wasm_compute_pdp_2d(
+    param1_name: &str,
+    param2_name: &str,
+    objective_name: &str,
+    n_grid: u32,
+) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    match pdp::compute_pdp_2d(param1_name, param2_name, objective_name, n_grid as usize) {
+        Some(result) => {
+            let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+            result
+                .serialize(&serializer)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study or parameter not found")),
+    }
+}
+
+/// English documentation.
+///
+/// English documentation.
+/// English documentation.
+/// English documentation.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computeTopsis")]
+pub fn wasm_compute_topsis(
+    values_js: js_sys::Float64Array,
+    n_trials: u32,
+    n_objectives: u32,
+    weights_js: js_sys::Float64Array,
+    is_minimize_js: js_sys::Array,
+) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let values: Vec<f64> = values_js.to_vec();
+    let weights: Vec<f64> = weights_js.to_vec();
+    let is_minimize: Vec<bool> = is_minimize_js
+        .iter()
+        .map(|v| v.as_bool().unwrap_or(true))
+        .collect();
+
+    topsis::compute_topsis(
+        &values,
+        n_trials as usize,
+        n_objectives as usize,
+        &weights,
+        &is_minimize,
+    )
+    .map(|result| {
+        let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+        result.serialize(&serializer).unwrap()
+    })
+    .map_err(|e| JsValue::from_str(&e))
 }
 
 /// Documentation.

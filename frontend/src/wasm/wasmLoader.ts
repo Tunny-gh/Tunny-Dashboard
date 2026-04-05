@@ -24,6 +24,8 @@ import initWasm, {
   estimateKElbow as wasmEstimateKElbow,
   computeClusterStats as wasmComputeClusterStats,
   computeSobol as wasmComputeSobol,
+  computeTopsis as wasmComputeTopsis,
+  computePdp2d as wasmComputePdp2d,
 } from './pkg/tunny_core'
 import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index'
 
@@ -73,6 +75,24 @@ export interface ClusterStatsWasmResult {
     significantDiffs: string[]
   }>
   durationMs?: number
+}
+
+export interface TopsisWasmResult {
+  scores: number[]
+  rankedIndices: number[]
+  positiveIdeal: number[]
+  negativeIdeal: number[]
+  durationMs: number
+}
+
+export interface Pdp2dWasmResult {
+  param1Name: string
+  param2Name: string
+  objectiveName: string
+  grid1: number[]
+  grid2: number[]
+  values: number[][]
+  rSquared: number
 }
 
 // -------------------------------------------------------------------------
@@ -182,6 +202,19 @@ export class WasmLoader {
   estimateKElbow!: (data: Float64Array, nCols: number, maxK: number) => ElbowWasmResult
   computeClusterStats!: (labels: Int32Array) => ClusterStatsWasmResult
   computeSobol!: (nSamples: number) => SobolWasmResult
+  computeTopsis!: (
+    values: Float64Array,
+    nTrials: number,
+    nObjectives: number,
+    weights: Float64Array,
+    isMinimize: boolean[],
+  ) => TopsisWasmResult
+  computePdp2d!: (
+    param1Name: string,
+    param2Name: string,
+    objectiveName: string,
+    nGrid: number,
+  ) => Pdp2dWasmResult
 
   /**
    * Documentation.
@@ -244,6 +277,10 @@ export class WasmLoader {
     loader.computeClusterStats = (labels) =>
       wasmComputeClusterStats(labels) as ClusterStatsWasmResult
     loader.computeSobol = (nSamples: number) => wasmComputeSobol(nSamples) as SobolWasmResult
+    loader.computeTopsis = (values, nTrials, nObjectives, weights, isMinimize) =>
+      wasmComputeTopsis(values, nTrials, nObjectives, weights, isMinimize) as TopsisWasmResult
+    loader.computePdp2d = (param1Name, param2Name, objectiveName, nGrid) =>
+      wasmComputePdp2d(param1Name, param2Name, objectiveName, nGrid) as Pdp2dWasmResult
 
     return loader
   }

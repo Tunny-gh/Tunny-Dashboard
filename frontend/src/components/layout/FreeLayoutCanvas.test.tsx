@@ -23,8 +23,10 @@ const {
   mockUseClusterStore1608,
   mockUseSelectionStore1608,
   mockWasmGetInstance1608,
+  mockUseStudyStore1608,
   analysisState,
   clusterState1608,
+  studyState1608,
 } = vi.hoisted(() => {
   const analysisState = {
     sensitivityResult: null as null,
@@ -36,6 +38,13 @@ const {
     isComputingSobol: false,
     sobolError: null as string | null,
     computeSobol: vi.fn(),
+    surrogateModelType: 'ridge' as const,
+    surface3dCache: new Map(),
+    isComputingSurface: false,
+    surface3dError: null as string | null,
+    setSurrogateModelType: vi.fn(),
+    computeSurface3d: vi.fn().mockResolvedValue(undefined),
+    clearSurface3dCache: vi.fn(),
   }
   const mockUseAnalysisStore = vi
     .fn()
@@ -62,6 +71,22 @@ const {
       typeof selector === 'function' ? selector(selectionState1608) : selectionState1608,
     )
 
+  const studyState1608 = {
+    currentStudy: null as { studyId: number; name: string; directions: string[]; completedTrials: number; totalTrials: number; paramNames: string[]; objectiveNames: string[]; userAttrNames: string[]; hasConstraints: boolean } | null,
+    gpuBuffer: null as null,
+    trialRows: [] as never[],
+    loadError: null as string | null,
+  }
+  const mockUseStudyStore1608 = Object.assign(
+    vi.fn().mockImplementation((selector?: (s: typeof studyState1608) => unknown) =>
+      typeof selector === 'function' ? selector(studyState1608) : studyState1608,
+    ),
+    {
+      getState: vi.fn().mockReturnValue(studyState1608),
+      subscribe: vi.fn().mockReturnValue(vi.fn()),
+    },
+  )
+
   const mockWasmGetInstance1608 = vi.fn().mockReturnValue(new Promise(() => {}))
 
   return {
@@ -69,14 +94,30 @@ const {
     mockUseClusterStore1608,
     mockUseSelectionStore1608,
     mockWasmGetInstance1608,
+    mockUseStudyStore1608,
     analysisState,
     clusterState1608,
+    studyState1608,
   }
 })
 
 vi.mock('../../stores/analysisStore', () => ({ useAnalysisStore: mockUseAnalysisStore }))
 vi.mock('../../stores/clusterStore', () => ({ useClusterStore: mockUseClusterStore1608 }))
 vi.mock('../../stores/selectionStore', () => ({ useSelectionStore: mockUseSelectionStore1608 }))
+vi.mock('../../stores/studyStore', () => ({ useStudyStore: mockUseStudyStore1608 }))
+vi.mock('../../stores/mcdmStore', () => ({
+  useMcdmStore: vi.fn().mockReturnValue({
+    topsisResult: null,
+    topsisWeights: [],
+    isComputing: false,
+    topsisError: null,
+    topN: 10,
+    computeTopsis: vi.fn(),
+    setTopsisWeights: vi.fn(),
+    setTopN: vi.fn(),
+    reset: vi.fn(),
+  }),
+}))
 vi.mock('../../wasm/wasmLoader', () => ({
   WasmLoader: { getInstance: mockWasmGetInstance1608, reset: vi.fn() },
 }))
@@ -265,10 +306,34 @@ describe('TC-1608: FreeLayoutCanvas new chart cases', () => {
     analysisState.sensitivityResult = null
     analysisState.isComputingSensitivity = false
     analysisState.sensitivityError = null
+    analysisState.surface3dCache = new Map()
+    analysisState.isComputingSurface = false
+    analysisState.surface3dError = null
     clusterState1608.pcaProjections = null
     clusterState1608.isRunning = false
     clusterState1608.clusterError = null
     clusterState1608.clusterLabels = null
+    // studyStore: set a valid study so wrappers don't short-circuit to EmptyState
+    studyState1608.currentStudy = {
+      studyId: 1,
+      name: 'test',
+      directions: ['minimize'],
+      completedTrials: 5,
+      totalTrials: 5,
+      paramNames: ['x', 'y'],
+      objectiveNames: ['value'],
+      userAttrNames: [],
+      hasConstraints: false,
+    }
+    mockUseStudyStore1608.getState.mockReturnValue(studyState1608)
+    mockUseAnalysisStore.mockImplementation(
+      (selector?: (s: typeof analysisState) => unknown) =>
+        typeof selector === 'function' ? selector(analysisState) : analysisState,
+    )
+    mockUseStudyStore1608.mockImplementation(
+      (selector?: (s: typeof studyState1608) => unknown) =>
+        typeof selector === 'function' ? selector(studyState1608) : studyState1608,
+    )
     useLayoutStore.setState({
       layoutMode: 'D',
       freeModeLayout: null,

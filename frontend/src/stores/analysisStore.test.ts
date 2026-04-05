@@ -8,19 +8,35 @@ import { act } from 'react'
 const {
   mockComputeSensitivity,
   mockComputeSensitivitySelected,
+  mockComputePdp2d,
   mockGetInstance,
   capturedStudySubscribers,
 } = vi.hoisted(() => {
   const mockComputeSensitivity = vi.fn()
   const mockComputeSensitivitySelected = vi.fn()
+  const mockComputePdp2d = vi.fn().mockReturnValue({
+    param1Name: 'x',
+    param2Name: 'y',
+    objectiveName: 'obj0',
+    grid1: [1.0, 2.0, 3.0],
+    grid2: [1.0, 2.0, 3.0],
+    values: [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+      [0.7, 0.8, 0.9],
+    ],
+    rSquared: 0.95,
+  })
   const mockGetInstance = vi.fn().mockResolvedValue({
     computeSensitivity: mockComputeSensitivity,
     computeSensitivitySelected: mockComputeSensitivitySelected,
+    computePdp2d: mockComputePdp2d,
   })
   const capturedStudySubscribers: Array<(state: { currentStudy: unknown }) => void> = []
   return {
     mockComputeSensitivity,
     mockComputeSensitivitySelected,
+    mockComputePdp2d,
     mockGetInstance,
     capturedStudySubscribers,
   }
@@ -76,6 +92,7 @@ describe('analysisStore', () => {
     mockGetInstance.mockResolvedValue({
       computeSensitivity: mockComputeSensitivity,
       computeSensitivitySelected: mockComputeSensitivitySelected,
+      computePdp2d: mockComputePdp2d,
     })
   })
 
@@ -157,5 +174,105 @@ describe('analysisStore', () => {
     expect(useAnalysisStore.getState().sensitivityResult).toBeNull()
     expect(useAnalysisStore.getState().sensitivityError).toBeNull()
     expect(useAnalysisStore.getState().isComputingSensitivity).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// surface3d tests (TASK-1627)
+// ---------------------------------------------------------------------------
+
+describe('analysisStore - surface3d', () => {
+  beforeEach(() => {
+    useAnalysisStore.setState({
+      surrogateModelType: 'ridge',
+      surface3dCache: new Map(),
+      isComputingSurface: false,
+      surface3dError: null,
+    })
+    vi.clearAllMocks()
+    mockComputePdp2d.mockReturnValue({
+      param1Name: 'x',
+      param2Name: 'y',
+      objectiveName: 'obj0',
+      grid1: [1.0, 2.0, 3.0],
+      grid2: [1.0, 2.0, 3.0],
+      values: [
+        [0.1, 0.2, 0.3],
+        [0.4, 0.5, 0.6],
+        [0.7, 0.8, 0.9],
+      ],
+      rSquared: 0.95,
+    })
+    mockGetInstance.mockResolvedValue({
+      computeSensitivity: mockComputeSensitivity,
+      computeSensitivitySelected: mockComputeSensitivitySelected,
+      computePdp2d: mockComputePdp2d,
+    })
+  })
+
+  // TC-1627-01: setSurrogateModelType
+  it('TC-1627-01: setSurrogateModelType updates surrogateModelType', () => {
+    // English comment.
+    useAnalysisStore.getState().setSurrogateModelType('random_forest')
+    expect(useAnalysisStore.getState().surrogateModelType).toBe('random_forest')
+  })
+
+  // English comment.
+  it('TC-1627-02: computeSurface3d calls WasmLoader on cache miss', async () => {
+    // English comment.
+    await act(async () => {
+      await useAnalysisStore.getState().computeSurface3d('x', 'y', 'obj0', 10)
+    })
+
+    expect(mockComputePdp2d).toHaveBeenCalledTimes(1)
+    expect(mockComputePdp2d).toHaveBeenCalledWith('x', 'y', 'obj0', 10)
+
+    // English comment.
+    const cache = useAnalysisStore.getState().surface3dCache
+    expect(cache.size).toBe(1)
+  })
+
+  // English comment.
+  it('TC-1627-03: computeSurface3d skips WasmLoader on cache hit', async () => {
+    // English comment.
+    await act(async () => {
+      await useAnalysisStore.getState().computeSurface3d('x', 'y', 'obj0', 10)
+    })
+    mockComputePdp2d.mockClear()
+
+    // English comment.
+    await act(async () => {
+      await useAnalysisStore.getState().computeSurface3d('x', 'y', 'obj0', 10)
+    })
+
+    // English comment.
+    expect(mockComputePdp2d).not.toHaveBeenCalled()
+  })
+
+  // English comment.
+  it('TC-1627-04: computeSurface3d sets surface3dError on failure', async () => {
+    // English comment.
+    mockComputePdp2d.mockImplementation(() => {
+      throw new Error('computation failed')
+    })
+
+    await act(async () => {
+      await useAnalysisStore.getState().computeSurface3d('x', 'y', 'obj0', 10)
+    })
+
+    expect(useAnalysisStore.getState().surface3dError).toBe('computation failed')
+    expect(useAnalysisStore.getState().isComputingSurface).toBe(false)
+  })
+
+  // TC-1627-05: clearSurface3dCache
+  it('TC-1627-05: clearSurface3dCache clears the cache', async () => {
+    // English comment.
+    await act(async () => {
+      await useAnalysisStore.getState().computeSurface3d('x', 'y', 'obj0', 10)
+    })
+    expect(useAnalysisStore.getState().surface3dCache.size).toBe(1)
+
+    useAnalysisStore.getState().clearSurface3dCache()
+    expect(useAnalysisStore.getState().surface3dCache.size).toBe(0)
   })
 })

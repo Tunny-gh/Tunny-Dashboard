@@ -39,8 +39,20 @@ vi.mock('../../stores/layoutStore', () => ({
   useLayoutStore: vi
     .fn()
     .mockImplementation(
-      (selector: (s: { layoutMode: string; setLayoutMode: typeof mockSetLayoutMode }) => unknown) =>
-        selector({ layoutMode: 'A', setLayoutMode: mockSetLayoutMode }),
+      (
+        selector: (s: {
+          layoutMode: string
+          setLayoutMode: typeof mockSetLayoutMode
+          panelSizes: { leftPanel: number; bottomPanel: number }
+          setPanelSizes: (sizes: { leftPanel: number; bottomPanel: number }) => void
+        }) => unknown,
+      ) =>
+        selector({
+          layoutMode: 'A',
+          setLayoutMode: mockSetLayoutMode,
+          panelSizes: { leftPanel: 280, bottomPanel: 200 },
+          setPanelSizes: vi.fn(),
+        }),
     ),
 }))
 

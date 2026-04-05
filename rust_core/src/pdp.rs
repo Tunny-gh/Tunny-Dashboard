@@ -37,7 +37,7 @@ pub struct PdpResult1d {
 /// Documentation.
 ///
 /// Documentation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PdpResult2d {
     /// Documentation.
     pub param1_name: String,
