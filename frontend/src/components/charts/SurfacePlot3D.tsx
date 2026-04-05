@@ -9,7 +9,7 @@ import type { SurrogateModelType } from '../../types'
 // Surrogate model options (kriging is not yet implemented)
 const MODEL_OPTIONS: { value: SurrogateModelType; label: string; disabled?: boolean }[] = [
   { value: 'ridge', label: 'Ridge Regression' },
-  { value: 'random_forest', label: 'Random Forest' },
+  { value: 'random_forest', label: 'Random Forest (coming soon)', disabled: true },
   { value: 'kriging', label: 'Kriging (coming soon)', disabled: true },
 ]
 
