@@ -4,7 +4,7 @@
 
 Kriging（クリギング）は、**ガウス過程（Gaussian Process, GP）** を使った非パラメトリック回帰手法。訓練点の間を確率論的に補間し、予測の不確実性も同時に定量化できる。BoTorch・Spearmint など最新のベイズ最適化フレームワークでも標準的に採用されている手法。
 
-本実装では **ARD（Automatic Relevance Determination）Matérn 5/2 カーネル** を採用し、**L-BFGS** によるハイパーパラメータ最適化を純 Rust で実装している。
+本実装では **ARD（Automatic Relevance Determination）Matérn 5/2 カーネル** を採用し、**L-BFGS** によるハイパーパラメータ最適化を純 Rust で実装している。大規模データへの対応として **Sparse Kriging（FITC 近似）** も実装されており、N=5000 規模を高速に処理できる（[sparse-kriging.md](sparse-kriging.md) 参照）。
 
 ---
 
@@ -202,48 +202,82 @@ f(x + α·d) ≤ f(x) + c₁ · α · (∇f^T d)   （c₁ = 1e-4）
 ‖∇L‖₂ < 1e-5
 ```
 
-または最大 100 イテレーション。
+または最大 50 イテレーション（release ビルド）。debug ビルドでは 5 イテレーションに短縮してテスト時間を短縮。
+
+---
+
+## データ正規化
+
+GP はハイパーパラメータの初期値 `log_ls = 0`（長さスケール = 1）を前提としているため、**x と y が [0,1] 程度のスケール**でないと最適化が適切に収束しない。Optuna のパラメータ範囲は [0, 1000] のような任意のスケールを取り得るため、GP 学習前に正規化を行う。
+
+### X の正規化（[0,1] スケーリング）
+
+```
+x̃_d = (x_d − min_d) / max(max_d − min_d, ε)
+```
+
+各次元を独立に最小値 0・最大値 1 にスケーリング。
+
+### Y の正規化（Z スコア）
+
+```
+ỹ = (y − ȳ) / max(σ_y, ε)
+```
+
+目的関数の平均を引いて標準偏差で割る。
+
+### 予測値の逆変換
+
+グリッド予測結果を元のスケールに戻す:
+
+```
+f̂(x*) = f̃(x̃*) × σ_y + ȳ
+```
 
 ---
 
 ## GP 学習の全体フロー
 
 ```
-入力: (x_matrix, y, param1_idx, param2_idx)
+入力: (x_2d, y)
   │
-  ├── 2D 部分空間射影: x_{2D} = x[:, [param1_idx, param2_idx]]
+  ├── X 正規化: x̃_d = (x_d − min_d) / range_d  （各次元独立）
+  ├── Y 正規化: ỹ = (y − ȳ) / σ_y
   │
-  ├── サブサンプリング（N > 1000 の場合）:
-  │     無作為に 1000 点を選択 → 計算量を O(1000³) に制限
+  ├── サブサンプリング（N > 500 の場合）:
+  │     無作為に 500 点を選択 → 計算量を O(500³) に制限
   │
   ├── ハイパーパラメータ初期化:
   │     θ₀ = [log l₁=0, log l₂=0, log σ_f=0, log σ_n=−2]
   │
-  ├── L-BFGS 最適化（最大 100 ステップ）:
+  ├── L-BFGS 最適化（最大 50 ステップ、release ビルド）:
   │     θ* = argmax L(θ)  （対数周辺尤度）
   │
   ├── 最終モデル学習:
-  │     K = build_kernel_matrix(x_sub, θ*)
+  │     K = build_kernel_matrix(x̃_sub, θ*)
   │     L = cholesky(K)
-  │     α = K^{-1} y  （forward/backward sub）
+  │     α = K^{-1} ỹ  （forward/backward sub）
   │
-  └── グリッド予測（50×50）:
-        values[i][j] = Σ_n α_n · k(x*, x_n)
+  ├── グリッド予測（50×50, 正規化座標）:
+  │     f̃[i][j] = Σ_n α_n · k(x̃*, x̃_n)
+  │
+  └── 逆変換:
+        values[i][j] = f̃[i][j] × σ_y + ȳ
 ```
 
 ---
 
 ## 計算量
 
-| 処理                  | 計算量      | N=1000 の概算 |
-| --------------------- | ----------- | ------------- |
-| カーネル行列構築      | O(N²)       | 10⁶ ops       |
-| Cholesky 分解         | O(N³)       | 10⁹ ops       |
-| alpha 計算            | O(N²)       | 10⁶ ops       |
-| 勾配計算（1 回）      | O(N²)       | 10⁶ ops       |
-| グリッド予測（50×50） | O(2500 × N) | 2.5×10⁶ ops   |
+| 処理                  | 計算量      | N=500 の概算 |
+| --------------------- | ----------- | ------------ |
+| カーネル行列構築      | O(N²)       | 2.5×10⁵ ops  |
+| Cholesky 分解         | O(N³)       | 4.2×10⁷ ops  |
+| alpha 計算            | O(N²)       | 2.5×10⁵ ops  |
+| 勾配計算（1 回）      | O(N²)       | 2.5×10⁵ ops  |
+| グリッド予測（50×50） | O(2500 × N) | 1.25×10⁶ ops |
 
-N > 1000 の場合は自動サブサンプリングにより O(1000³) ≈ 10⁹ ops に制限。**目標: 3,000ms 以内**。
+N > 500 の場合は自動サブサンプリングにより O(500³) ≈ 1.25×10⁸ ops に制限。**目標: 10,000ms 以内**（release ビルド）。
 
 ---
 
@@ -282,11 +316,26 @@ N > 1000 の場合は自動サブサンプリングにより O(1000³) ≈ 10⁹
 
 ---
 
+## 使用場面の更新
+
+```
+目的関数の形が...
+
+  線形に近い ──────────────────────────────────→ Ridge（最速）
+  非線形・不連続 ──────────────────────────────→ Random Forest
+  滑らかな非線形で少数サンプル（N ≤ 500） ────→ Kriging（最高品質）
+  滑らかな非線形で多数サンプル（N > 500） ────→ Sparse Kriging（速度と品質のバランス）
+  滑らかな非線形で大量サンプル（N > 5000）───→ Random Forest（速度優先）
+```
+
+---
+
 ## 実装ファイル
 
-- `rust_core/src/kriging.rs` — `GpModel`, `cholesky()`, `matern52_ard()`, `build_kernel_matrix()`, `compute_alpha()`, `log_marginal_likelihood()`, `log_ml_gradient()`, `lbfgs_direction()`, `armijo_line_search()`, `optimize_hyperparams()`, `train_gp()`, `predict_mean()`
-- `rust_core/src/pdp.rs` — `compute_pdp_2d_kriging()`, `"kriging"` ディスパッチ
+- `rust_core/src/kriging.rs` — `GpModel`, `cholesky()`, `matern52_ard()`, `build_kernel_matrix()`, `compute_alpha()`, `log_marginal_likelihood()`, `log_ml_gradient()`, `log_ml_with_gradient()`, `lbfgs_direction()`, `armijo_line_search()`, `optimize_hyperparams()`, `train_gp()`, `predict_mean()`
+- `rust_core/src/sparse_kriging.rs` — FITC 近似実装（[sparse-kriging.md](sparse-kriging.md) 参照）
+- `rust_core/src/pdp.rs` — `compute_pdp_2d_kriging_raw()`, `compute_pdp_2d_kriging()`, `"kriging"` ディスパッチ
 - `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` の `model_type` 引数）
 - `frontend/src/wasm/wasmLoader.ts` — TypeScript ラッパー
-- `frontend/src/stores/analysisStore.ts` — キャッシュ・状態管理
+- `frontend/src/stores/analysisStore.ts` — キャッシュ・状態管理（同期 WASM 呼び出し）
 - `frontend/src/components/charts/SurfacePlot3D.tsx` — UI（モデル選択）

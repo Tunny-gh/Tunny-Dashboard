@@ -72,15 +72,27 @@ const {
     )
 
   const studyState1608 = {
-    currentStudy: null as { studyId: number; name: string; directions: string[]; completedTrials: number; totalTrials: number; paramNames: string[]; objectiveNames: string[]; userAttrNames: string[]; hasConstraints: boolean } | null,
+    currentStudy: null as {
+      studyId: number
+      name: string
+      directions: string[]
+      completedTrials: number
+      totalTrials: number
+      paramNames: string[]
+      objectiveNames: string[]
+      userAttrNames: string[]
+      hasConstraints: boolean
+    } | null,
     gpuBuffer: null as null,
     trialRows: [] as never[],
     loadError: null as string | null,
   }
   const mockUseStudyStore1608 = Object.assign(
-    vi.fn().mockImplementation((selector?: (s: typeof studyState1608) => unknown) =>
-      typeof selector === 'function' ? selector(studyState1608) : studyState1608,
-    ),
+    vi
+      .fn()
+      .mockImplementation((selector?: (s: typeof studyState1608) => unknown) =>
+        typeof selector === 'function' ? selector(studyState1608) : studyState1608,
+      ),
     {
       getState: vi.fn().mockReturnValue(studyState1608),
       subscribe: vi.fn().mockReturnValue(vi.fn()),
@@ -326,13 +338,11 @@ describe('TC-1608: FreeLayoutCanvas new chart cases', () => {
       hasConstraints: false,
     }
     mockUseStudyStore1608.getState.mockReturnValue(studyState1608)
-    mockUseAnalysisStore.mockImplementation(
-      (selector?: (s: typeof analysisState) => unknown) =>
-        typeof selector === 'function' ? selector(analysisState) : analysisState,
+    mockUseAnalysisStore.mockImplementation((selector?: (s: typeof analysisState) => unknown) =>
+      typeof selector === 'function' ? selector(analysisState) : analysisState,
     )
-    mockUseStudyStore1608.mockImplementation(
-      (selector?: (s: typeof studyState1608) => unknown) =>
-        typeof selector === 'function' ? selector(studyState1608) : studyState1608,
+    mockUseStudyStore1608.mockImplementation((selector?: (s: typeof studyState1608) => unknown) =>
+      typeof selector === 'function' ? selector(studyState1608) : studyState1608,
     )
     useLayoutStore.setState({
       layoutMode: 'D',

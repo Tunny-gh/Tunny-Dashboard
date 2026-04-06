@@ -4,12 +4,21 @@
 
 部分依存プロット（Partial Dependence Plot; PDP）は、**特定のパラメータが目的関数に与える限界効果**を可視化する手法。他のパラメータの影響を平均化することで、着目パラメータと目的関数の関係を分離して把握できる。
 
-Tunny Dashboard では Ridge 回帰サロゲートモデルを使って 1D PDP・2D PDP を高速に計算し、3D 応答曲面プロットとして表示する。
+Tunny Dashboard では複数のサロゲートモデルで 1D PDP・2D PDP を計算し、echarts-gl による 3D 応答曲面プロット（`SurfacePlot3D`）として表示する。
 
 | 種別   | 入力                        | 出力                          |
 | ------ | --------------------------- | ----------------------------- |
 | 1D PDP | パラメータ 1 つ、目的関数 1 つ | グリッド配列 + 予測値配列      |
 | 2D PDP | パラメータ 2 つ、目的関数 1 つ | グリッド2配列 + 2D 予測値行列  |
+
+### 2D PDP のサロゲートモデル
+
+| モデル | 速度 | 品質 | 適用 N 規模 |
+| ------ | ---- | ---- | ----------- |
+| Ridge 回帰 | < 100ms | 線形のみ | 全規模 |
+| Random Forest | < 2,000ms | 非線形・不連続 | 全規模 |
+| Kriging | < 10,000ms | 滑らか・最高品質 | N ≤ 500（サブサンプリング） |
+| Sparse Kriging | < 5,000ms | FITC 近似 | N ≤ 5000 |
 
 ---
 
@@ -30,38 +39,36 @@ f̄_S(x_S) = E_{x_C}[ f(x_S, x_C) ]
 
 ### Tunny Dashboard の近似実装
 
-完全なモンテカルロ評価は N × グリッド数 の予測呼び出しが必要になるため、**Ridge 回帰サロゲートモデルによる解析的近似**を採用している。
+完全なモンテカルロ評価は N × グリッド数 の予測呼び出しが必要になるため、サロゲートモデルを使った近似計算を採用している。
 
-#### Ridge 回帰モデルの構築
+#### 1D PDP（Ridge 回帰による解析的計算）
 
-まず全パラメータで目的関数を Ridge 回帰でフィッティング（α = 1.0）:
+1D PDP は全パラメータで Ridge 回帰をフィッティング後、解析的に計算する:
 
 ```
 ŷ = y_mean + Σ_k β_k × (x_k - mean_k) / std_k
 ```
 
-#### 1D PDP の解析的計算
-
 パラメータ j に着目した場合、他のパラメータ k≠j を平均値 mean_k で代入すると:
 
 ```
 f̄_j(v) = y_mean + β_j × (v - mean_j) / std_j
-         + Σ_{k≠j} β_k × (mean_k - mean_k) / std_k
-       = y_mean + β_j × (v - mean_j) / std_j
 ```
 
-つまり **Ridge 係数 β_j に比例する線形関数**として表現される。
+**Ridge 係数 β_j に比例する線形関数**として解析的に表現される。
 
-#### 2D PDP の解析的計算
+#### 2D PDP（複数サロゲートモデルによる計算）
 
-パラメータ j1, j2 に着目した場合:
+2D PDP は選択されたサロゲートモデルで 50×50 グリッドを計算する:
 
-```
-f̄_{j1,j2}(v1, v2) = y_mean + β_j1 × (v1 - mean_j1) / std_j1
-                            + β_j2 × (v2 - mean_j2) / std_j2
-```
+| モデル | 計算方法 |
+| ------ | -------- |
+| Ridge | 2変数線形平面: `y_mean + β₁(v1−mean₁)/std₁ + β₂(v2−mean₂)/std₂` |
+| Random Forest | CART+Bagging でグリッド各点を予測 |
+| Kriging | ARD Matérn 5/2 GP（x/y正規化 + L-BFGS最適化 + サブサンプリング 500点） |
+| Sparse Kriging | FITC 近似（K-means 誘導点 M=50 + Woodbury 恒等式） |
 
-これは **2 変数の線形平面**として表現される。
+すべてのモデルで `model_type` 引数を `wasm.computePdp2d()` に渡すことでバックエンドのディスパッチが切り替わる。
 
 ---
 
@@ -101,7 +108,7 @@ x̃_k = (x_k - mean_k) / std_k
 
 ### 出力形式
 
-`values[i][j]` は `grid1[i]`（X 軸）× `grid2[j]`（Y 軸）のグリッド点における予測目的関数値。フロントエンドでは `values.flatMap((row, i) => row.map((val, j) => ({position: [grid1[j], grid2[i]], colorValue: val})))` の形で deck.gl `GridLayer` に渡す。
+`values[i][j]` は `grid1[i]`（X 軸）× `grid2[j]`（Y 軸）のグリッド点における予測目的関数値。フロントエンドでは `[[x, y, z], ...]` の形に展開して echarts-gl `surface` シリーズに渡す。
 
 ### キャッシュ戦略
 
@@ -111,32 +118,43 @@ x̃_k = (x_k - mean_k) / std_k
 
 ## R² について
 
-`r_squared` は Ridge サロゲートモデルの適合度:
+`r_squared` は各サロゲートモデルの訓練データへの適合度:
 
 ```
 R² = 1 - Σ(y_i - ŷ_i)² / Σ(y_i - ȳ)²
 ```
 
-- **R² ≈ 1.0**: パラメータ・目的関数間の関係が線形に近く、PDP の信頼度が高い
-- **R² < 0.5**: 非線形な関係が強く、PDP は目安程度にとどめる
-- R² が低い場合は、Spearman や Sobol による感度分析も参照することを推奨
+- **R² ≈ 1.0**: サロゲートモデルがデータをよく説明しており、PDP の信頼度が高い
+- **R² < 0.5**: モデルの説明力が低く、PDP は目安程度にとどめる
+- R² が低い場合は、より表現力の高いモデル（Kriging / Sparse Kriging）への切り替え、または Spearman / Sobol による感度分析を推奨
 
 ---
 
 ## 特性・限界
 
-**強み:**
+### Ridge 回帰（1D PDP・2D PDP デフォルト）
 
-- Ridge サロゲートによる解析解のため、グリッド点数に関わらず計算が非常に高速（O(np²) の Ridge フィッティング + O(n_grid²) のグリッド評価）
-- 最小値・最大値から推定した観測範囲内でのみ予測するため外挿しない
-- R² により信頼度を定量的に確認できる
+**強み:** 解析解のため非常に高速（< 100ms）。外挿しない。R² で信頼度確認可能。
 
-**弱み:**
+**弱み:** 線形のみ。非線形・U字型・交互作用は捉えられない。
 
-- **線形サロゲートの仮定**: 真のパラメータ・目的関数関係が非線形の場合、PDP は真の依存性を近似できない。特に U 字型の関係や急峻な変化は捉えられない
-- **交互作用の無視**: 2D PDP は独立な足し合わせのため、パラメータ間の交互作用（相乗効果・拮抗効果）は表現されない
-- **外挿なし**: 観測範囲外の予測は行わない（観測最小値〜最大値の範囲のみ表示）
-- **サロゲートバイアス**: 実際の目的関数形状よりも平滑化された曲面になる
+### Random Forest
+
+**強み:** 非線形・不連続な目的関数に対応。外挿しない。
+
+**弱み:** 決定木境界のアーティファクト（段差）が現れやすい。少数サンプルでは不安定。
+
+### Kriging（ガウス過程回帰）
+
+**強み:** 滑らかな補間。少数サンプル（N < 50）でも高品質。ARD で次元重要度を自動推定。
+
+**弱み:** O(N³) のため N > 500 はサブサンプリングが必要。局所最適解に収束することがある。
+
+### Sparse Kriging（FITC 近似）
+
+**強み:** Kriging と同等の滑らかさを O(N×M²) で実現。N=5000 規模でも < 5s。
+
+**弱み:** 誘導点 M=50 による近似誤差。N < 50 では標準 Kriging にフォールバック。
 
 ---
 
@@ -145,35 +163,39 @@ R² = 1 - Σ(y_i - ŷ_i)² / Σ(y_i - ȳ)²
 ```
 2つのパラメータが目的関数に与える複合的な影響を見たい
   ↓
-どのパラメータ組み合わせを選べばよいか知りたい
-  ↓
 ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
   ↓
 3D 応答曲面プロット（SurfacePlot3D）で上位 2 パラメータを可視化
 
-R² が低い場合は、非線形手法（Random Forest 等）によるサロゲートの将来対応を待つか、
-Sobol 全効果指数でパラメータ影響度を確認する
+サロゲートモデルの選択:
+  まず高速確認したい              → Ridge（デフォルト）
+  R² < 0.5 で非線形が疑われる    → Random Forest
+  滑らかな補間・少数サンプル      → Kriging（N ≤ 500 で最高品質）
+  滑らかな補間・大規模データ      → Sparse Kriging（N ≤ 5000）
 ```
 
 ---
 
 ## 1D PDP と 2D PDP の比較
 
-| 項目       | 1D PDP (`PDPChart`)       | 2D PDP (`SurfacePlot3D`)         |
-| ---------- | ------------------------- | -------------------------------- |
-| 着目変数   | パラメータ 1 つ           | パラメータ 2 つ                  |
-| 可視化形式 | 折れ線グラフ              | deck.gl GridLayer 3D ヒートマップ |
+| 項目       | 1D PDP (`PDPChart`)       | 2D PDP (`SurfacePlot3D`)              |
+| ---------- | ------------------------- | ------------------------------------- |
+| 着目変数   | パラメータ 1 つ           | パラメータ 2 つ                       |
+| 可視化形式 | 折れ線グラフ（ECharts）   | echarts-gl 3D サーフェスプロット      |
 | 出力       | `grid[k]`, `values[k]`   | `grid1[i]`, `grid2[j]`, `values[i][j]` |
-| サロゲート | Ridge（同一）             | Ridge（同一）                    |
-| 用途       | 単一パラメータの傾向確認  | 2変数複合効果・最適領域の把握    |
+| サロゲート | Ridge（固定）             | Ridge / Random Forest / Kriging / Sparse Kriging（選択可） |
+| 用途       | 単一パラメータの傾向確認  | 2変数複合効果・最適領域の把握         |
 
 ---
 
 ## 実装ファイル
 
-- `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D）
-- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d`）
+- `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、`compute_pdp_2d` モデルディスパッチ）
+- `rust_core/src/kriging.rs` — GP サロゲートモデル（ARD Matérn 5/2 + L-BFGS）
+- `rust_core/src/sparse_kriging.rs` — FITC 近似（K-means 誘導点選択・Woodbury）
+- `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
+- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
 - `frontend/src/wasm/wasmLoader.ts` — JS ブリッジ（`Pdp2dWasmResult` 型）
-- `frontend/src/stores/analysisStore.ts` — 状態管理・キャッシュ（`surface3dCache`）
-- `frontend/src/components/charts/SurfacePlot3D.tsx` — 3D 応答曲面 UI（deck.gl GridLayer）
+- `frontend/src/stores/analysisStore.ts` — 同期 WASM 呼び出し・キャッシュ（`surface3dCache`）
+- `frontend/src/components/charts/SurfacePlot3D.tsx` — echarts-gl 3D サーフェス UI
 - `frontend/src/components/charts/PDPChart.tsx` — 1D PDP UI（ECharts 折れ線）

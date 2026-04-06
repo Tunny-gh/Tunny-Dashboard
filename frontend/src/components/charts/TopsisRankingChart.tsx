@@ -103,7 +103,9 @@ export function TopsisRankingChart() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px' }}>
       {/* Weight sliders */}
       <div style={{ marginBottom: '8px' }}>
-        <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>Objective weights</div>
+        <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>
+          Objective weights
+        </div>
         {objectiveNames.map((name, i) => (
           <div
             key={i}

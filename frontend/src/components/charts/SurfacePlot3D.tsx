@@ -10,6 +10,7 @@ const MODEL_OPTIONS: { value: SurrogateModelType; label: string; disabled?: bool
   { value: 'ridge', label: 'Ridge Regression' },
   { value: 'random_forest', label: 'Random Forest' },
   { value: 'kriging', label: 'Kriging' },
+  { value: 'sparse_kriging', label: 'Sparse Kriging' },
 ]
 
 /** Expected computation time label shown in the spinner. */
@@ -17,6 +18,7 @@ const MODEL_COMPUTE_TIME: Record<SurrogateModelType, string> = {
   ridge: '< 1s',
   random_forest: '< 2s',
   kriging: '< 30s',
+  sparse_kriging: '< 5s',
 }
 
 export function SurfacePlot3D() {
@@ -102,7 +104,17 @@ export function SurfacePlot3D() {
         min: minZ,
         max: maxZ,
         inRange: {
-          color: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'],
+          color: [
+            '#313695',
+            '#4575b4',
+            '#74add1',
+            '#abd9e9',
+            '#fee090',
+            '#fdae61',
+            '#f46d43',
+            '#d73027',
+            '#a50026',
+          ],
         },
         orient: 'vertical',
         right: 0,
@@ -270,12 +282,7 @@ export function SurfacePlot3D() {
               viewBox="0 0 40 40"
               style={{ animation: 'spin 1s linear infinite' }}
             >
-              <circle
-                cx="20" cy="20" r="16"
-                fill="none"
-                stroke="#ccc"
-                strokeWidth="4"
-              />
+              <circle cx="20" cy="20" r="16" fill="none" stroke="#ccc" strokeWidth="4" />
               <path
                 d="M20 4 A16 16 0 0 1 36 20"
                 fill="none"
@@ -285,7 +292,13 @@ export function SurfacePlot3D() {
               />
             </svg>
             <span style={{ fontSize: '13px', color: '#555', fontWeight: 500 }}>
-              Computing {surrogateModelType === 'random_forest' ? 'Random Forest' : surrogateModelType === 'kriging' ? 'Kriging' : 'Ridge'}…
+              Computing{' '}
+              {surrogateModelType === 'random_forest'
+                ? 'Random Forest'
+                : surrogateModelType === 'kriging'
+                  ? 'Kriging'
+                  : 'Ridge'}
+              …
             </span>
             <span style={{ fontSize: '11px', color: '#999' }}>
               Expected: {MODEL_COMPUTE_TIME[surrogateModelType]}
@@ -294,10 +307,7 @@ export function SurfacePlot3D() {
           </div>
         )}
         {result ? (
-          <ReactECharts
-            option={chartOption}
-            style={{ height: '100%', minHeight: '200px' }}
-          />
+          <ReactECharts option={chartOption} style={{ height: '100%', minHeight: '200px' }} />
         ) : !isComputingSurface ? (
           <EmptyState message="Select parameters to compute" />
         ) : null}

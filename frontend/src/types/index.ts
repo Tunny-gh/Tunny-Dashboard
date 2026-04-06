@@ -304,7 +304,7 @@ export interface McdmStore {
 }
 
 /** Surrogate model type for 3D surface plot */
-export type SurrogateModelType = 'ridge' | 'random_forest' | 'kriging'
+export type SurrogateModelType = 'ridge' | 'random_forest' | 'kriging' | 'sparse_kriging'
 
 /** Export & session store */
 export interface ExportStore {

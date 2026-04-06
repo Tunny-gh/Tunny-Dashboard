@@ -81,17 +81,19 @@ ParetoFront チャートを併用する
 
 ### サロゲートモデルの選択肢
 
-| モデル | 速度 | 非線形対応 | 少数サンプル | 特徴 |
-| ------ | ---- | ---------- | ------------ | ---- |
-| Ridge 回帰 | 最速（< 100ms） | ✗（線形のみ） | ○ | 解析的・高速 |
-| Random Forest | 中（< 2,000ms） | ✓（不連続も可） | △ | ノンパラメトリック |
-| Kriging | 遅（< 3,000ms） | ✓（滑らか） | ◎ | GP補間・最高品質 |
+| モデル | 速度（release） | 非線形対応 | 少数サンプル | 適用 N 規模 |
+| ------ | --------------- | ---------- | ------------ | ----------- |
+| Ridge 回帰 | < 100ms | ✗（線形のみ） | ○ | 全規模 |
+| Random Forest | < 2,000ms | ✓（不連続も可） | △ | 全規模 |
+| Kriging | < 10,000ms | ✓（滑らか） | ◎ | N ≤ 500（サブサンプリング） |
+| Sparse Kriging | < 5,000ms | ✓（FITC 近似） | ○ | N ≤ 5000 |
 
 ### 各手法の詳細
 
 - [部分依存プロット（PDP）による応答曲面](pdp.md)
 - [Random Forest サロゲートモデル](random-forest.md)
 - [Kriging（ガウス過程回帰）サロゲートモデル](kriging.md)
+- [Sparse Kriging（FITC 近似）サロゲートモデル](sparse-kriging.md)
 
 ### 手法の選び方
 
@@ -102,9 +104,10 @@ ParetoFront チャートを併用する
 着目パラメータが 2 つ → SurfacePlot3D（2D）
   ↓
 サロゲートモデルの選択:
-  高速に確認したい          → Ridge 回帰
-  非線形・不連続な目的関数  → Random Forest
-  滑らかな補間・少数サンプル → Kriging
+  高速に確認したい              → Ridge 回帰
+  非線形・不連続な目的関数      → Random Forest
+  滑らかな補間・少数サンプル    → Kriging（N ≤ 500）
+  滑らかな補間・大規模データ    → Sparse Kriging（N ≤ 5000）
 
 R² が低い（< 0.5）場合は非線形関係が強い → Random Forest / Kriging / Sobol で確認
 ```
@@ -113,8 +116,9 @@ R² が低い（< 0.5）場合は非線形関係が強い → Random Forest / Kr
 - `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、モデルディスパッチ）
 - `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
 - `rust_core/src/kriging.rs` — Kriging（ARD Matérn 5/2 + L-BFGS）
-- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `model_type`）
-- `frontend/src/stores/analysisStore.ts` — 状態管理・キャッシュ（`surface3dCache`）
+- `rust_core/src/sparse_kriging.rs` — Sparse Kriging（FITC 近似 + K-means）
+- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
+- `frontend/src/stores/analysisStore.ts` — 同期 WASM 呼び出し・キャッシュ（`surface3dCache`）
 - `frontend/src/components/charts/SurfacePlot3D.tsx` / `PDPChart.tsx` — UI
 
 ---
@@ -135,7 +139,8 @@ R² が低い（< 0.5）場合は非線形関係が強い → Random Forest / Kr
   └── パラメータと目的関数の関係を可視化したい
        ├── 1 パラメータ → 1D PDP（PDPChart）
        └── 2 パラメータ → 2D PDP（SurfacePlot3D）
-            ├── 高速・線形           → Ridge 回帰
-            ├── 非線形・不連続       → Random Forest
-            └── 滑らか・少数サンプル → Kriging
+            ├── 高速・線形             → Ridge 回帰
+            ├── 非線形・不連続         → Random Forest
+            ├── 滑らか・少数サンプル   → Kriging（N ≤ 500）
+            └── 滑らか・大規模データ   → Sparse Kriging（N ≤ 5000）
 ```

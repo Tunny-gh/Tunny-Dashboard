@@ -137,7 +137,11 @@ pub(crate) fn find_best_split(
 
     for &feat in feature_indices {
         // Collect (feature_value, target) pairs and sort by feature value
-        let mut pairs: Vec<(f64, f64)> = x.iter().zip(y.iter()).map(|(xi, &yi)| (xi[feat], yi)).collect();
+        let mut pairs: Vec<(f64, f64)> = x
+            .iter()
+            .zip(y.iter())
+            .map(|(xi, &yi)| (xi[feat], yi))
+            .collect();
         pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
         // Try each unique threshold between consecutive distinct values
@@ -160,8 +164,7 @@ pub(crate) fn find_best_split(
             let n_right = right_y.len() as f64;
             let n_total = n as f64;
 
-            let weighted_mse =
-                (n_left * mse(&left_y) + n_right * mse(&right_y)) / n_total;
+            let weighted_mse = (n_left * mse(&left_y) + n_right * mse(&right_y)) / n_total;
             let gain = parent_mse - weighted_mse;
 
             if gain > best_gain {
@@ -262,7 +265,9 @@ pub(crate) fn predict_one(node: &TreeNode, x: &[f64]) -> f64 {
 /// Linear congruential generator: returns next 64-bit value and updates state.
 fn lcg_next(state: &mut u64) -> u64 {
     // Parameters from Knuth / Numerical Recipes
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     *state
 }
 
@@ -273,7 +278,9 @@ pub(crate) struct Lcg {
 
 impl Lcg {
     pub(crate) fn new(seed: u64) -> Self {
-        Lcg { state: seed ^ 0xcafef00dd15ea5e5 }
+        Lcg {
+            state: seed ^ 0xcafef00dd15ea5e5,
+        }
     }
 
     /// Returns a random `usize` in `[0, n)`.
@@ -329,18 +336,17 @@ pub(crate) fn compute_pdp_2d_rf(
     // Predict on grid
     let values: Vec<Vec<f64>> = grid1
         .iter()
-        .map(|&v1| {
-            grid2
-                .iter()
-                .map(|&v2| rf.predict(&[v1, v2]))
-                .collect()
-        })
+        .map(|&v1| grid2.iter().map(|&v2| rf.predict(&[v1, v2])).collect())
         .collect();
 
     // Compute OOB-style R² on training data (in-bag as fallback)
     let y_pred: Vec<f64> = x2d.iter().map(|xi| rf.predict(xi)).collect();
     let y_mean = y.iter().sum::<f64>() / n as f64;
-    let ss_res: f64 = y.iter().zip(y_pred.iter()).map(|(&yi, &yp)| (yi - yp).powi(2)).sum();
+    let ss_res: f64 = y
+        .iter()
+        .zip(y_pred.iter())
+        .map(|(&yi, &yp)| (yi - yp).powi(2))
+        .sum();
     let ss_tot: f64 = y.iter().map(|&yi| (yi - y_mean).powi(2)).sum();
     let r_squared = if ss_tot < f64::EPSILON {
         1.0
@@ -378,12 +384,7 @@ mod tests {
     /// TC1: Perfectly separable data — tree should split correctly.
     #[test]
     fn tc_1630_01_perfectly_separable() {
-        let x = vec![
-            vec![0.0f64],
-            vec![1.0],
-            vec![2.0],
-            vec![3.0],
-        ];
+        let x = vec![vec![0.0f64], vec![1.0], vec![2.0], vec![3.0]];
         let y = vec![0.0, 0.0, 1.0, 1.0];
         let feat = vec![0usize];
 
@@ -391,10 +392,22 @@ mod tests {
             root: build_tree(&x, &y, &feat, 0, 5, 1),
         };
 
-        assert!((tree.predict(&[0.0]) - 0.0).abs() < 1e-9, "x=0 should predict 0");
-        assert!((tree.predict(&[1.0]) - 0.0).abs() < 1e-9, "x=1 should predict 0");
-        assert!((tree.predict(&[2.0]) - 1.0).abs() < 1e-9, "x=2 should predict 1");
-        assert!((tree.predict(&[3.0]) - 1.0).abs() < 1e-9, "x=3 should predict 1");
+        assert!(
+            (tree.predict(&[0.0]) - 0.0).abs() < 1e-9,
+            "x=0 should predict 0"
+        );
+        assert!(
+            (tree.predict(&[1.0]) - 0.0).abs() < 1e-9,
+            "x=1 should predict 0"
+        );
+        assert!(
+            (tree.predict(&[2.0]) - 1.0).abs() < 1e-9,
+            "x=2 should predict 1"
+        );
+        assert!(
+            (tree.predict(&[3.0]) - 1.0).abs() < 1e-9,
+            "x=3 should predict 1"
+        );
     }
 
     /// TC2: max_depth=0 forces a leaf with the mean of all samples.
@@ -408,7 +421,11 @@ mod tests {
         match root {
             TreeNode::Leaf(v) => {
                 let expected = 0.5; // mean of [0,0,1,1]
-                assert!((v - expected).abs() < 1e-9, "leaf value should be mean: {}", v);
+                assert!(
+                    (v - expected).abs() < 1e-9,
+                    "leaf value should be mean: {}",
+                    v
+                );
             }
             _ => panic!("Expected Leaf node with max_depth=0"),
         }
@@ -417,12 +434,7 @@ mod tests {
     /// TC3: min_samples_leaf=3 prevents splits that leave fewer than 3 samples.
     #[test]
     fn tc_1630_03_min_samples_leaf() {
-        let x = vec![
-            vec![0.0f64],
-            vec![1.0],
-            vec![2.0],
-            vec![3.0],
-        ];
+        let x = vec![vec![0.0f64], vec![1.0], vec![2.0], vec![3.0]];
         let y = vec![0.0, 0.0, 1.0, 1.0];
         let feat = vec![0usize];
 
@@ -437,7 +449,11 @@ mod tests {
         match root {
             TreeNode::Leaf(v) => {
                 let expected = 0.5;
-                assert!((v - expected).abs() < 1e-9, "Should be leaf with mean: {}", v);
+                assert!(
+                    (v - expected).abs() < 1e-9,
+                    "Should be leaf with mean: {}",
+                    v
+                );
             }
             TreeNode::Split { .. } => {
                 // A 3/1 split might occur: verify both children have >= min_samples_leaf
@@ -479,7 +495,11 @@ mod tests {
 
         let rf = RandomForest::train(&x, &y, 50, 10, 2, 123);
         let y_mean = y.iter().sum::<f64>() / n as f64;
-        let ss_res: f64 = x.iter().zip(y.iter()).map(|(xi, &yi)| (yi - rf.predict(xi)).powi(2)).sum();
+        let ss_res: f64 = x
+            .iter()
+            .zip(y.iter())
+            .map(|(xi, &yi)| (yi - rf.predict(xi)).powi(2))
+            .sum();
         let ss_tot: f64 = y.iter().map(|&yi| (yi - y_mean).powi(2)).sum();
         let r2 = 1.0 - ss_res / ss_tot;
         assert!(r2 > 0.9, "R² should be > 0.9 for linear data, got {}", r2);
@@ -494,7 +514,11 @@ mod tests {
 
         for xi in &x {
             let pred = rf.predict(xi);
-            assert!(pred >= -0.01 && pred <= 1.01, "Prediction {} out of range", pred);
+            assert!(
+                pred >= -0.01 && pred <= 1.01,
+                "Prediction {} out of range",
+                pred
+            );
         }
     }
 

@@ -95,17 +95,14 @@ export const useAnalysisStore = create<AnalysisState>()(
       const { surrogateModelType, surface3dCache } = get()
       const cacheKey = `${surrogateModelType}_${param1}_${param2}_${objective}_${nGrid}`
 
-      // Cache hit: skip WASM call
+      // Cache hit: skip computation
       if (surface3dCache.has(cacheKey)) return
 
       set({ isComputingSurface: true, surface3dError: null })
 
-      // Yield to the event loop so React can render the loading spinner
-      // before the synchronous WASM computation blocks the main thread.
-      // Without this yield, React batches the state update and the spinner
-      // never appears before the thread freezes (especially for Kriging O(N³)).
+      // All model types use the synchronous WASM path on the main thread.
+      // Yield to the event loop first so React renders the spinner before the blocking call.
       await new Promise<void>((resolve) => setTimeout(resolve, 0))
-
       try {
         const wasm = await WasmLoader.getInstance()
         const result = wasm.computePdp2d(param1, param2, objective, nGrid, surrogateModelType)
@@ -126,7 +123,7 @@ export const useAnalysisStore = create<AnalysisState>()(
   })),
 )
 
-// Reset sensitivity when active study changes
+// Reset sensitivity state when active study changes
 let _prevStudy = useStudyStore.getState().currentStudy
 useStudyStore.subscribe((state) => {
   if (state.currentStudy !== _prevStudy) {

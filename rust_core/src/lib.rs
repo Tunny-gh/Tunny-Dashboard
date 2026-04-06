@@ -13,6 +13,7 @@ pub mod pdp;
 pub(crate) mod rf;
 pub mod sampling;
 pub mod sensitivity;
+pub(crate) mod sparse_kriging;
 pub mod topsis;
 
 /// Documentation.
@@ -376,6 +377,59 @@ pub fn wasm_compute_sobol(n_samples: u32) -> Result<JsValue, JsValue> {
     }
 }
 
+/// Kriging/Sparse Kriging computation without global state.
+///
+/// Designed for Web Worker use: receives data directly as arguments instead of
+/// reading from the WASM global state (`OnceLock<Mutex<GlobalState>>`).
+///
+/// # Arguments
+/// - `x_flat`: parameter data in column-major flat layout: `x_flat[col * n + row]`
+/// - `y`: objective values (length = n_samples)
+/// - `n_samples`: number of trials
+/// - `param1_idx`: column index for the first parameter in `x_flat`
+/// - `param2_idx`: column index for the second parameter in `x_flat`
+/// - `n_grid`: grid resolution (typically 50)
+/// - `model_type`: `"kriging"` (sparse_kriging added in Phase 3)
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "computeKrigingRaw")]
+pub fn wasm_compute_kriging_raw(
+    x_flat: &[f64],
+    y: &[f64],
+    n_samples: u32,
+    param1_idx: u32,
+    param2_idx: u32,
+    n_grid: u32,
+    model_type: &str,
+) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    let n = n_samples as usize;
+    let p1 = param1_idx as usize;
+    let p2 = param2_idx as usize;
+
+    // Reconstruct 2D input from column-major flat array: x_flat[col * n + row]
+    let x_2d: Vec<Vec<f64>> = (0..n)
+        .map(|i| vec![x_flat[p1 * n + i], x_flat[p2 * n + i]])
+        .collect();
+
+    let result = match model_type {
+        "kriging" => pdp::compute_pdp_2d_kriging_raw(&x_2d, y, n_grid as usize),
+        "sparse_kriging" => pdp::compute_pdp_2d_sparse_kriging_raw(&x_2d, y, n_grid as usize),
+        _ => {
+            return Err(JsValue::from_str(&format!(
+                "Unknown model_type: {}",
+                model_type
+            )))
+        }
+    };
+
+    match result {
+        Some(r) => r
+            .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+            .map_err(|e| JsValue::from_str(&e.to_string())),
+        None => Err(JsValue::from_str("Kriging computation failed")),
+    }
+}
+
 /// English documentation.
 ///
 /// English documentation.
@@ -391,7 +445,13 @@ pub fn wasm_compute_pdp_2d(
     model_type: &str,
 ) -> Result<JsValue, JsValue> {
     use serde::Serialize;
-    match pdp::compute_pdp_2d(param1_name, param2_name, objective_name, n_grid as usize, model_type) {
+    match pdp::compute_pdp_2d(
+        param1_name,
+        param2_name,
+        objective_name,
+        n_grid as usize,
+        model_type,
+    ) {
         Some(result) => {
             let serializer = serde_wasm_bindgen::Serializer::json_compatible();
             result

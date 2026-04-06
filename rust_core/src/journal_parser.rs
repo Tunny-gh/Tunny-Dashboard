@@ -298,11 +298,7 @@ impl ParserState {
                 .get("values")
                 .and_then(|v| v.as_array())
                 .map(|arr| arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>())
-                .or_else(|| {
-                    json.get("value")
-                        .and_then(|v| v.as_f64())
-                        .map(|v| vec![v])
-                });
+                .or_else(|| json.get("value").and_then(|v| v.as_f64()).map(|v| vec![v]));
 
             let mut param_display: HashMap<String, f64> = HashMap::new();
             let mut param_category_label: HashMap<String, String> = HashMap::new();
