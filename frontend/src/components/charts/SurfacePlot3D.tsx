@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import 'echarts-gl'
 import { useStudyStore } from '../../stores/studyStore'
 import { useAnalysisStore } from '../../stores/analysisStore'
+import { COLORMAPS } from '../../colormaps'
+import { useColormapName } from '../../hooks/useColormapName'
 import { EmptyState } from '../common/EmptyState'
 import type { SurrogateModelType } from '../../types'
 
@@ -23,6 +25,7 @@ const MODEL_COMPUTE_TIME: Record<SurrogateModelType, string> = {
 
 export function SurfacePlot3D() {
   const currentStudy = useStudyStore((s) => s.currentStudy)
+  const colormapName = useColormapName()
   const {
     surrogateModelType,
     surface3dCache,
@@ -59,28 +62,15 @@ export function SurfacePlot3D() {
     computeSurface3d(param1, param2, objective, 50)
   }, [currentStudy, param1, param2, objective, surrogateModelType, computeSurface3d])
 
-  // Guard: no study loaded
-  if (!currentStudy) {
-    return <EmptyState message="Please load data" />
-  }
-
-  if (paramNames.length < 2) {
-    return <EmptyState message="At least 2 parameters required" />
-  }
-
-  if (surface3dError) {
-    return <EmptyState message={`Surface computation error: ${surface3dError}`} />
-  }
-
-  // Look up cached result
+  // Look up cached result and build chart option — memoized to avoid rebuilding
+  // the 50×50 surface data loop on every render.
   const cacheKey = `${surrogateModelType}_${param1}_${param2}_${objective}_50`
   const result = surface3dCache.get(cacheKey)
 
-  // Build echarts-gl surface data: [[x, y, z], ...]
-  // result.values[i][j] = f(grid1[i], grid2[j])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let chartOption: any = {}
-  if (result && result.grid1.length > 0 && result.grid2.length > 0) {
+  const chartOption = useMemo((): any => {
+    if (!result || result.grid1.length === 0 || result.grid2.length === 0) return {}
+
     const surfaceData: [number, number, number][] = []
     let minZ = Infinity
     let maxZ = -Infinity
@@ -96,7 +86,7 @@ export function SurfacePlot3D() {
       }
     }
 
-    chartOption = {
+    return {
       tooltip: {},
       visualMap: {
         show: true,
@@ -104,17 +94,7 @@ export function SurfacePlot3D() {
         min: minZ,
         max: maxZ,
         inRange: {
-          color: [
-            '#313695',
-            '#4575b4',
-            '#74add1',
-            '#abd9e9',
-            '#fee090',
-            '#fdae61',
-            '#f46d43',
-            '#d73027',
-            '#a50026',
-          ],
+          color: COLORMAPS[colormapName].stops,
         },
         orient: 'vertical',
         right: 0,
@@ -141,35 +121,32 @@ export function SurfacePlot3D() {
           ambient: { intensity: 0.3 },
         },
       },
-      xAxis3D: {
-        name: param1,
-        type: 'value',
-        nameTextStyle: { fontSize: 11 },
-      },
-      yAxis3D: {
-        name: param2,
-        type: 'value',
-        nameTextStyle: { fontSize: 11 },
-      },
-      zAxis3D: {
-        name: objective,
-        type: 'value',
-        nameTextStyle: { fontSize: 11 },
-      },
+      xAxis3D: { name: param1, type: 'value', nameTextStyle: { fontSize: 11 } },
+      yAxis3D: { name: param2, type: 'value', nameTextStyle: { fontSize: 11 } },
+      zAxis3D: { name: objective, type: 'value', nameTextStyle: { fontSize: 11 } },
       series: [
         {
           type: 'surface',
           data: surfaceData,
           shading: 'color',
-          wireframe: {
-            show: false,
-          },
-          emphasis: {
-            itemStyle: { color: '#fff' },
-          },
+          wireframe: { show: false },
+          emphasis: { itemStyle: { color: '#fff' } },
         },
       ],
     }
+  }, [result, param1, param2, objective, colormapName])
+
+  // Guard: no study loaded
+  if (!currentStudy) {
+    return <EmptyState message="Please load data" />
+  }
+
+  if (paramNames.length < 2) {
+    return <EmptyState message="At least 2 parameters required" />
+  }
+
+  if (surface3dError) {
+    return <EmptyState message={`Surface computation error: ${surface3dError}`} />
   }
 
   return (

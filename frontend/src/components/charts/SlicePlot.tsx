@@ -13,6 +13,8 @@
 import { useState, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { EmptyState } from '../common/EmptyState'
+import { COLORMAPS } from '../../colormaps'
+import { useColormapName } from '../../hooks/useColormapName'
 
 // -------------------------------------------------------------------------
 // Type definitions
@@ -61,6 +63,7 @@ export function SlicePlot({
   selectedIndices,
 }: SlicePlotProps) {
   // Documentation.
+  const colormapName = useColormapName()
   const [paramIndex, setParamIndex] = useState(0)
   const [objIndex, setObjIndex] = useState(initialObjIdx)
 
@@ -147,13 +150,13 @@ export function SlicePlot({
             min: 0,
             max: Math.max(scatterData.length - 1, 1),
             dimension: 2,
-            inRange: { color: ['#5470c6', '#91cc75', '#fac858', '#ee6666'] },
+            inRange: { color: COLORMAPS[colormapName].stops },
             show: false,
           },
       series: seriesList,
       grid: { containLabel: true },
     }
-  }, [trials, selectedParam, selectedObj, objIndex, selectedIndices])
+  }, [trials, selectedParam, selectedObj, objIndex, selectedIndices, colormapName])
 
   return (
     <div

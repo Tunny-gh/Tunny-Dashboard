@@ -11,7 +11,7 @@ import ReactECharts from 'echarts-for-react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
 import { COLORMAPS } from '../../colormaps'
-import type { ColormapName } from '../../colormaps'
+import { useColormapName } from '../../hooks/useColormapName'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 import { EmptyState } from '../common/EmptyState'
@@ -53,7 +53,7 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
   const addAxisFilter = useSelectionStore((s) => s.addAxisFilter)
   const removeAxisFilter = useSelectionStore((s) => s.removeAxisFilter)
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
-  const colormapName = useSelectionStore((s) => s.colorMode) as ColormapName
+  const colormapName = useColormapName()
   const trialRows = useStudyStore((s) => s.trialRows)
 
   // Documentation.

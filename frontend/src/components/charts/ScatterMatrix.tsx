@@ -10,6 +10,7 @@ import type { Study, TrialData } from '../../types'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { COLORMAPS } from '../../colormaps'
 import type { ColormapName } from '../../colormaps'
+import { useColormapName } from '../../hooks/useColormapName'
 
 // -------------------------------------------------------------------------
 // Constants / Types
@@ -232,7 +233,7 @@ function ScatterCell({
 export function ScatterMatrix({ trialRows, currentStudy }: ScatterMatrixProps) {
   const [mode, setMode] = useState<ScatterMode>('mode1')
   const [sortOrder, setSortOrder] = useState<SortOrder>('alphabetical')
-  const colormapName = useSelectionStore((s) => s.colorMode) as ColormapName
+  const colormapName = useColormapName()
 
   // Pre-compute normalised first-objective colour values for rainbow mapping
   const colorValues = useMemo(() => {
