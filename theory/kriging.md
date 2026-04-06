@@ -12,28 +12,31 @@ Kriging（クリギング）は、**ガウス過程（Gaussian Process, GP）** 
 
 ### 定義
 
-ガウス過程は、任意の有限点集合 `{x_1, ..., x_N}` 上の関数値が**多変量正規分布**に従うことを仮定する確率過程:
+ガウス過程は、任意の有限点集合 $\{x_1, \ldots, x_N\}$ 上の関数値が**多変量正規分布**に従うことを仮定する確率過程:
 
-```
-f(x) ～ GP(m(x), k(x, x'))
-```
+$$
+f(x) \sim \mathcal{GP}(m(x), k(x,x'))
+$$
 
-- `m(x)`: 平均関数（実装では `m(x) = 0` を仮定）
-- `k(x, x')`: カーネル関数（データ点間の類似度を表す共分散関数）
+- $m(x)$: 平均関数（実装では $m(x)=0$ を仮定）
+- $k(x, x')$: カーネル関数（データ点間の類似度を表す共分散関数）
 
 ### 予測（事後分布）
 
-訓練データ `(X, y)` が与えられたとき、新しい点 `x*` に対する事後分布は:
+訓練データ $(X, y)$ が与えられたとき、新しい点 $x^*$ に対する事後分布は:
 
-```
-事後平均:   μ(x*) = k(x*, X) · K^{-1} · y  =  k(x*, X) · α
-事後分散:   σ²(x*) = k(x*, x*) − k(x*, X) · K^{-1} · k(X, x*)
-```
+$$
+\mu(x^*) = k(x^*,X)K^{-1}y = k(x^*,X)\alpha
+$$
+
+$$
+\sigma^2(x^*) = k(x^*,x^*) - k(x^*,X)K^{-1}k(X,x^*)
+$$
 
 ここで:
 
-- `K`（N×N）: 訓練点間のカーネル行列 `K[i,j] = k(x_i, x_j) + σ_n² δ_{ij}`
-- `α = K^{-1} y`: 重みベクトル
+- $K$（$N\times N$）: 訓練点間のカーネル行列 $K[i,j] = k(x_i, x_j) + \sigma_n^2\delta_{ij}$
+- $\alpha = K^{-1}y$: 重みベクトル
 
 **実装では事後平均のみ**を計算（応答曲面の可視化に不確実性は不要）。
 
@@ -43,19 +46,21 @@ f(x) ～ GP(m(x), k(x, x'))
 
 ### カーネル関数
 
-```
-k(x₁, x₂) = σ_f² · (1 + √5·r + 5r²/3) · exp(−√5·r)
+$$
+k(x_1,x_2) = \sigma_f^2\left(1+\sqrt{5}\,r+\frac{5r^2}{3}\right)\exp(-\sqrt{5}\,r)
+$$
 
-       r² = Σ_d  ( (x₁_d − x₂_d) / l_d )²   （ARD 距離）
-```
+$$
+r^2 = \sum_d \left(\frac{x_{1,d}-x_{2,d}}{l_d}\right)^2
+$$
 
 | パラメータ | 意味                                      |
 | ---------- | ----------------------------------------- |
-| `σ_f`      | シグナル標準偏差（関数の振幅スケール）    |
-| `l_d`      | 次元 d の長さスケール（大きいほど滑らか） |
-| `σ_n`      | 観測ノイズ標準偏差                        |
+| $σ_f$      | シグナル標準偏差（関数の振幅スケール）    |
+| $l_d$      | 次元 d の長さスケール（大きいほど滑らか） |
+| $σ_n$      | 観測ノイズ標準偏差                        |
 
-**ARD（Automatic Relevance Determination）** とは: 次元ごとに独立な長さスケール `l_d` を持つことで、重要な次元（小さい `l_d`）と無関係な次元（大きい `l_d`）を自動的に識別する仕組み。
+**ARD（Automatic Relevance Determination）** とは: 次元ごとに独立な長さスケール $l_d$ を持つことで、重要な次元（小さい $l_d$）と無関係な次元（大きい $l_d$）を自動的に識別する仕組み。
 
 ### RBF ではなく Matérn 5/2 を選ぶ理由
 
@@ -68,9 +73,9 @@ Optuna の目的関数（NNハイパーパラメータ・工学設計等）は C
 
 ### 同一点でのカーネル値
 
-```
-k(x, x) = σ_f²  （r = 0 のとき）
-```
+$$
+k(x,x)=\sigma_f^2 \quad (r=0)
+$$
 
 これはカーネル行列の対角要素（信号分散）に相当する。
 
@@ -84,18 +89,17 @@ k(x, x) = σ_f²  （r = 0 のとき）
 
 ### 数値安定性のためのジッター
 
-```
-K[i,i] += jitter   （jitter = 1e-6）
-```
+$$
+K_{ii} \leftarrow K_{ii} + \mathrm{jitter},\qquad \mathrm{jitter}=10^{-6}
+$$
 
 浮動小数点誤差による K の非正定値化を防ぐ。
 
 ### alpha の計算
 
-```
-α = K^{-1} y = L^{-T} (L^{-1} y)
-  = backward_sub(L, forward_sub(L, y))
-```
+$$
+\alpha = K^{-1}y = L^{-T}(L^{-1}y)
+$$
 
 前進代入（L · v = y）→ 後退代入（L^T · α = v）の 2 ステップ。計算量 O(N²)。
 
@@ -105,15 +109,11 @@ K[i,i] += jitter   （jitter = 1e-6）
 
 ### 対数周辺尤度
 
-ハイパーパラメータ `θ = {log l_d, log σ_f, log σ_n}` を、**対数周辺尤度（LML）** を最大化して推定する:
+ハイパーパラメータ $\theta = \{\log l_d, \log \sigma_f, \log \sigma_n\}$ を、**対数周辺尤度（LML）** を最大化して推定する:
 
-```
-L(θ) = −½ y^T α − Σ_i log(L_{ii}) − N/2 · log(2π)
-
-  第 1 項: データへの適合度（小さいほど良いフィット）
-  第 2 項: モデルの複雑さへのペナルティ（Occam の剃刀）
-  第 3 項: 定数
-```
+$$
+L(\theta) = -\frac{1}{2}y^T\alpha - \sum_i \log L_{ii} - \frac{N}{2}\log(2\pi)
+$$
 
 対数周辺尤度は自動的にデータへの過学習を罰するため、適切なハイパーパラメータを選ぶ。
 
@@ -121,29 +121,31 @@ L(θ) = −½ y^T α − Σ_i log(L_{ii}) − N/2 · log(2π)
 
 L-BFGS のために解析的勾配を計算する:
 
-```
-∂L/∂θⱼ = ½ · tr((α α^T − K^{-1}) · ∂K/∂θⱼ)
-```
+$$
+\frac{\partial L}{\partial \theta_j} = \frac{1}{2}\,\mathrm{tr}\!\left((\alpha\alpha^T-K^{-1})\frac{\partial K}{\partial \theta_j}\right)
+$$
 
-各パラメータに対する `∂K/∂θⱼ`:
+各パラメータに対する $\partial K/\partial \theta_j$:
 
-**長さスケール** `∂k/∂log(l_d)`:
+**長さスケール** $\partial k/\partial \log l_d$:
 
-```
-∂k/∂log(l_d) = σ_f² · (5/3) · (x₁_d−x₂_d)²/l_d² · (1+√5·r) · exp(−√5·r)
-```
+$$
+\frac{\partial k}{\partial \log l_d} = \sigma_f^2\frac{5}{3}\frac{(x_{1,d}-x_{2,d})^2}{l_d^2}(1+\sqrt{5}r)\exp(-\sqrt{5}r)
+$$
 
-**シグナル分散** `∂k/∂log(σ_f)`:
+**シグナル分散** $\partial k/\partial \log \sigma_f$:
 
-```
-∂k/∂log(σ_f) = 2 · k(x₁, x₂)
-```
+$$
+\frac{\partial k}{\partial \log \sigma_f} = 2k(x_1,x_2)
+$$
 
-**ノイズ分散** `∂K/∂log(σ_n)`:
+**ノイズ分散** $\partial K/\partial \log \sigma_n$:
 
-```
-∂K/∂log(σ_n) = 2σ_n² · I   →   ∂L/∂log(σ_n) = σ_n² · tr(αα^T − K^{-1})
-```
+$$
+\frac{\partial K}{\partial \log \sigma_n}=2\sigma_n^2 I,
+\qquad
+\frac{\partial L}{\partial \log \sigma_n}=\sigma_n^2\,\mathrm{tr}(\alpha\alpha^T-K^{-1})
+$$
 
 ---
 
@@ -161,12 +163,15 @@ p = 4（`[log l₁, log l₂, log σ_f, log σ_n]`）の小問題では L-BFGS �
 
 ### Two-loop Recursion
 
-L-BFGS の探索方向 `d = −H^{-1}∇L` を、直近 m ステップの差分履歴 `{s_k, y_k}` から効率的に計算する:
+L-BFGS の探索方向 $d=-H^{-1}\nabla L$ を、直近 $m$ ステップの差分履歴 $\{s_k, y_k\}$ から効率的に計算する:
 
-```
-s_k = x_{k+1} − x_k          （パラメータの差分）
-y_k = ∇L_{k+1} − ∇L_k        （勾配の差分）
-```
+$$
+s_k = x_{k+1} - x_k
+$$
+
+$$
+y_k = \nabla L_{k+1} - \nabla L_k
+$$
 
 ```python
 # First loop (backward): q ← ∇L
@@ -190,17 +195,17 @@ d = −r
 
 十分減少条件（Armijo 条件）を満たすステップ幅 α を二分探索で決定:
 
-```
-f(x + α·d) ≤ f(x) + c₁ · α · (∇f^T d)   （c₁ = 1e-4）
-```
+$$
+f(x+\alpha d) \le f(x) + c_1\alpha(\nabla f^T d),\qquad c_1=10^{-4}
+$$
 
-初期ステップ幅 α = 1.0 から始め、条件を満たすまで `α ← α/2` を繰り返す（最大 20 回）。
+初期ステップ幅 $\alpha = 1.0$ から始め、条件を満たすまで $\alpha \leftarrow \alpha/2$ を繰り返す（最大 20 回）。
 
 ### 収束条件
 
-```
-‖∇L‖₂ < 1e-5
-```
+$$
+\lVert \nabla L \rVert_2 < 10^{-5}
+$$
 
 または最大 50 イテレーション（release ビルド）。debug ビルドでは 5 イテレーションに短縮してテスト時間を短縮。
 
@@ -208,21 +213,21 @@ f(x + α·d) ≤ f(x) + c₁ · α · (∇f^T d)   （c₁ = 1e-4）
 
 ## データ正規化
 
-GP はハイパーパラメータの初期値 `log_ls = 0`（長さスケール = 1）を前提としているため、**x と y が [0,1] 程度のスケール**でないと最適化が適切に収束しない。Optuna のパラメータ範囲は [0, 1000] のような任意のスケールを取り得るため、GP 学習前に正規化を行う。
+GP はハイパーパラメータの初期値 $\log l_s = 0$（長さスケール $=1$）を前提としているため、$x$ と $y$ が $[0,1]$ 程度のスケールでないと最適化が適切に収束しない。Optuna のパラメータ範囲は $[0,1000]$ のような任意のスケールを取り得るため、GP 学習前に正規化を行う。
 
 ### X の正規化（[0,1] スケーリング）
 
-```
-x̃_d = (x_d − min_d) / max(max_d − min_d, ε)
-```
+$$
+\tilde x_d = \frac{x_d-\min_d}{\max(\max_d-\min_d,\varepsilon)}
+$$
 
 各次元を独立に最小値 0・最大値 1 にスケーリング。
 
 ### Y の正規化（Z スコア）
 
-```
-ỹ = (y − ȳ) / max(σ_y, ε)
-```
+$$
+\tilde y = \frac{y-\bar y}{\max(\sigma_y,\varepsilon)}
+$$
 
 目的関数の平均を引いて標準偏差で割る。
 
@@ -230,40 +235,59 @@ x̃_d = (x_d − min_d) / max(max_d − min_d, ε)
 
 グリッド予測結果を元のスケールに戻す:
 
-```
-f̂(x*) = f̃(x̃*) × σ_y + ȳ
-```
+$$
+\hat f(x^*) = \tilde f(\tilde x^*)\,\sigma_y + \bar y
+$$
 
 ---
 
 ## GP 学習の全体フロー
 
-```
-入力: (x_2d, y)
-  │
-  ├── X 正規化: x̃_d = (x_d − min_d) / range_d  （各次元独立）
-  ├── Y 正規化: ỹ = (y − ȳ) / σ_y
-  │
-  ├── サブサンプリング（N > 500 の場合）:
-  │     無作為に 500 点を選択 → 計算量を O(500³) に制限
-  │
-  ├── ハイパーパラメータ初期化:
-  │     θ₀ = [log l₁=0, log l₂=0, log σ_f=0, log σ_n=−2]
-  │
-  ├── L-BFGS 最適化（最大 50 ステップ、release ビルド）:
-  │     θ* = argmax L(θ)  （対数周辺尤度）
-  │
-  ├── 最終モデル学習:
-  │     K = build_kernel_matrix(x̃_sub, θ*)
-  │     L = cholesky(K)
-  │     α = K^{-1} ỹ  （forward/backward sub）
-  │
-  ├── グリッド予測（50×50, 正規化座標）:
-  │     f̃[i][j] = Σ_n α_n · k(x̃*, x̃_n)
-  │
-  └── 逆変換:
-        values[i][j] = f̃[i][j] × σ_y + ȳ
-```
+1. 入力: $(x_{2d}, y)$
+2. X 正規化:
+
+$$
+\tilde x_d = \frac{x_d - \min_d}{\mathrm{range}_d}
+$$
+
+3. Y 正規化:
+
+$$
+\tilde y = \frac{y - \bar y}{\sigma_y}
+$$
+
+4. サブサンプリング（$N > 500$）: 無作為に 500 点を選択し、計算量を $O(500^3)$ に制限
+5. ハイパーパラメータ初期化:
+
+$$
+\theta_0 = [\log l_1=0,\; \log l_2=0,\; \log \sigma_f=0,\; \log \sigma_n=-2]
+$$
+
+6. L-BFGS 最適化:
+
+$$
+\theta^* = \arg\max_\theta L(\theta)
+$$
+
+7. 最終モデル学習:
+
+$$
+K = \mathrm{build\_kernel\_matrix}(\tilde x_{\mathrm{sub}},\theta^*),\quad
+L = \mathrm{cholesky}(K),\quad
+\alpha = K^{-1}\tilde y
+$$
+
+8. グリッド予測（50×50）:
+
+$$
+\tilde f[i][j] = \sum_n \alpha_n\,k(\tilde x^*, \tilde x_n)
+$$
+
+9. 逆変換:
+
+$$
+\mathrm{values}[i][j] = \tilde f[i][j]\,\sigma_y + \bar y
+$$
 
 ---
 
@@ -311,7 +335,7 @@ N > 500 の場合は自動サブサンプリングにより O(500³) ≈ 1.25×1
 ```
 
 - N < 50 の Study では Kriging が最も信頼性の高い補間を提供する
-- `R² > 0.8` なら曲面はデータをよく説明できている
+- $R^2 > 0.8$ なら曲面はデータをよく説明できている
 - 学習時間が 3 秒を超える場合は N が大きすぎる（1000点サブサンプリングを確認）
 
 ---

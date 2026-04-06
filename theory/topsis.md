@@ -34,11 +34,11 @@ Step 6: スコア降順によるランキング
 
 ### Step 1: ベクトル正規化
 
-各目的関数列 j について、ユークリッドノルムで正規化する:
+各目的関数列 $j$ について、ユークリッドノルムで正規化する:
 
-```
-r_ij = v_ij / sqrt( Σ_i v_ij² )
-```
+$$
+r_{ij} = \frac{v_{ij}}{\sqrt{\sum_i v_{ij}^2}}
+$$
 
 これにより異なるスケールの目的関数が比較可能になる。
 
@@ -46,11 +46,11 @@ r_ij = v_ij / sqrt( Σ_i v_ij² )
 
 ### Step 2: 重み付き正規化行列
 
-正規化値に目的関数ごとの重み w_j を乗じる:
+正規化値に目的関数ごとの重み $w_j$ を乗じる:
 
-```
-w_ij = w_j × r_ij
-```
+$$
+w_{ij} = w_j r_{ij}
+$$
 
 重みはユーザが設定し（合計が 1 になるよう内部で正規化）、重要な目的関数の影響が大きくなる。
 
@@ -69,20 +69,20 @@ w_ij = w_j × r_ij
 
 ### Step 4: ユークリッド距離の計算
 
-各トライアル i から正理想解・負理想解までのユークリッド距離:
+各トライアル $i$ から正理想解・負理想解までのユークリッド距離:
 
-```
-D+_i = sqrt( Σ_j (w_ij - A+_j)² )   ← 正理想解からの距離
-D-_i = sqrt( Σ_j (w_ij - A-_j)² )   ← 負理想解からの距離
-```
+$$
+D_i^+ = \sqrt{\sum_j (w_{ij} - A_j^+)^2},\qquad
+D_i^- = \sqrt{\sum_j (w_{ij} - A_j^-)^2}
+$$
 
 ---
 
 ### Step 5: 相対的近接度（TOPSIS スコア）
 
-```
-score_i = D-_i / (D+_i + D-_i)
-```
+$$
+\mathrm{score}_i = \frac{D_i^-}{D_i^+ + D_i^-}
+$$
 
 - `score_i → 1`: 正理想解に近い（優れたトライアル）
 - `score_i → 0`: 負理想解に近い（劣ったトライアル）
@@ -100,6 +100,14 @@ score_i = D-_i / (D+_i + D-_i)
 let valid_indices: Vec<usize> = (0..n_trials)
     .filter(|&i| !(0..n_objectives).any(|j| values[i * n_objectives + j].is_nan()))
     .collect();
+```
+
+補足: すべてのトライアルが `NaN` の場合は `valid_indices.is_empty()` となり、実装は縮退ケースとして**全トライアルに `0.5`** を割り当てる（`uniform_score_result(..., score=0.5)`）。
+
+```
+if valid_indices.is_empty() {
+  return Ok(uniform_score_result(n_trials, n_objectives, 0.5, &start));
+}
 ```
 
 ### 全トライアルが同一値のとき
@@ -130,7 +138,7 @@ let valid_indices: Vec<usize> = (0..n_trials)
 | 理想解決定     | O(m × n)         |
 | 距離計算       | O(m × n)         |
 | ソート         | O(m log m)       |
-| **合計**       | **O(m × n)**     |
+| **合計**       | **O(m × n + m log m)** |
 
 50,000 トライアル × 4 目的関数で 100ms 未満（実測）。
 

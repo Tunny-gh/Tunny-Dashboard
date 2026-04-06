@@ -27,19 +27,20 @@ x = [1.0, 2.0, 2.0, 3.0]  →  rank(x) = [1, 2.5, 2.5, 4]
 
 ### Step 2: ピアソン相関を順位に適用
 
-順位変換後の R_x, R_y に対してピアソン積率相関係数を計算する。
+順位変換後の $R_x, R_y$ に対してピアソン積率相関係数を計算する。
 
-```
-ρ = Corr(R_x, R_y) = Σ (R_xi - R̄_x)(R_yi - R̄_y) / √[Σ(R_xi - R̄_x)² · Σ(R_yi - R̄_y)²]
-```
+$$
+\rho = \mathrm{Corr}(R_x, R_y)
+= \frac{\sum_i (R_{x,i} - \bar R_x)(R_{y,i} - \bar R_y)}{\sqrt{\sum_i (R_{x,i} - \bar R_x)^2\,\sum_i (R_{y,i} - \bar R_y)^2}}
+$$
 
 タイがない場合は以下の簡易式と等価:
 
-```
-ρ = 1 - 6 Σd_i² / (n(n² - 1))
-```
+$$
+\rho = 1 - \frac{6\sum_i d_i^2}{n(n^2 - 1)}
+$$
 
-ここで d_i = R_xi - R_yi（順位の差）。
+ここで $d_i = R_{x,i} - R_{y,i}$（順位の差）。
 
 ---
 
@@ -63,11 +64,11 @@ pub fn compute_spearman(x: &[f64], y: &[f64]) -> f64 {
 
 ### 複数目的関数への対応
 
-パラメータ p_j の重要度スコアは、全目的関数に対する |ρ| の平均:
+パラメータ $p_j$ の重要度スコアは、全目的関数に対する $|\rho|$ の平均:
 
-```
-score(p_j) = (1/m) Σ_k |ρ(p_j, y_k)|
-```
+$$
+\mathrm{score}(p_j) = \frac{1}{m} \sum_k \left|\rho(p_j, y_k)\right|
+$$
 
 ImportanceChart.tsx でこの平均化を実施している（`/ nObj`）。
 

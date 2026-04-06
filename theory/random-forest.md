@@ -34,22 +34,22 @@ enum TreeNode {
 
 ### MSE 最小化による分岐探索
 
-各分岐点 `(j, t)` は、分岐後の**加重 MSE（平均二乗誤差）** を最小化するように選択する:
+各分岐点 $(j, t)$ は、分岐後の**加重 MSE（平均二乗誤差）** を最小化するように選択する:
 
-```
-Gain(j, t) = MSE(y) − [ n_L/n · MSE(y_L) + n_R/n · MSE(y_R) ]
-```
+$$
+\mathrm{Gain}(j,t)=\mathrm{MSE}(y)-\left[\frac{n_L}{n}\mathrm{MSE}(y_L)+\frac{n_R}{n}\mathrm{MSE}(y_R)\right]
+$$
 
 ここで:
 
-- `y_L`, `y_R`：左右に分かれたサンプルの目的値
-- `n_L`, `n_R`：左右のサンプル数（`n = n_L + n_R`）
+- $y_L, y_R$：左右に分かれたサンプルの目的値
+- $n_L, n_R$：左右のサンプル数（$n = n_L + n_R$）
 
-```
-MSE(y) = (1/n) Σ_i (y_i − ȳ)²
-```
+$$
+\mathrm{MSE}(y)=\frac{1}{n}\sum_i (y_i-\bar y)^2
+$$
 
-最も Gain が大きい `(j, t)` を最良分岐点として採用する。
+最も $\mathrm{Gain}$ が大きい $(j,t)$ を最良分岐点として採用する。
 
 ### 停止条件
 
@@ -94,16 +94,16 @@ state = state * 6364136223846793005 + 1442695040888963407
 
 各木の予測値を平均して最終予測とする:
 
-```
-ŷ(x) = (1 / n_trees) Σ_{b=1}^{n_trees} T_b(x)
-```
+$$
+\hat y(x)=\frac{1}{n_{\mathrm{trees}}}\sum_{b=1}^{n_{\mathrm{trees}}} T_b(x)
+$$
 
 バイアスと分散のトレードオフ:
 
 - **単一決定木**: 低バイアス・高分散 → 過学習しやすい
-- **アンサンブル平均**: 分散が `1/n_trees` 倍に減少 → 汎化性能が向上
+- **アンサンブル平均**: 分散が $1/n_{\mathrm{trees}}$ 倍に減少 → 汎化性能が向上
 
-`n_trees = 100` の場合、分散は単一木の 1/100 になる（各木が独立と仮定）。
+$n_{\mathrm{trees}} = 100$ の場合、分散は単一木の $1/100$ になる（各木が独立と仮定）。
 
 ---
 
@@ -111,26 +111,37 @@ state = state * 6364136223846793005 + 1442695040888963407
 
 ### 射影の手順
 
-全パラメータ空間から 2 列を抽出して 2D Random Forest を学習する:
+全パラメータ空間から 2 列を抽出して 2D Random Forest を学習する。射影は
 
-```
-元データ: x ∈ R^p  (p パラメータ)
-                ↓
-2D 射影:  x_{2D} = [x[param1_idx], x[param2_idx]]  ∈ R²
-                ↓
-Random Forest を R² 上で学習・予測
-```
+$$
+x_{2D} = [x_{\mathrm{param1}}, x_{\mathrm{param2}}] \in \mathbb{R}^2
+$$
+
+で与えられる。
 
 ### グリッド予測
 
-```
-grid1 = linspace(min(x1), max(x1), n_grid)   # 通常 n_grid = 50
-grid2 = linspace(min(x2), max(x2), n_grid)
+$$
+\mathrm{grid}_1 = \mathrm{linspace}(\min(x_1), \max(x_1), n_{\mathrm{grid}})
+$$
 
-values[i][j] = RF.predict([grid1[i], grid2[j]])
-```
+$$
+\mathrm{grid}_2 = \mathrm{linspace}(\min(x_2), \max(x_2), n_{\mathrm{grid}})
+$$
 
-計算量: `n_grid² × n_trees × max_depth = 50² × 100 × 10 = 2,500,000` 演算程度
+$$
+\mathrm{values}[i][j] = \mathrm{RF.predict}([\mathrm{grid}_1[i],\mathrm{grid}_2[j]])
+$$
+
+計算量は
+
+$$
+n_{\mathrm{grid}}^2 \times n_{\mathrm{trees}} \times \mathrm{max\_depth}
+= 50^2 \times 100 \times 10
+= 2{,}500{,}000
+$$
+
+演算程度。
 
 ---
 
@@ -138,11 +149,11 @@ values[i][j] = RF.predict([grid1[i], grid2[j]])
 
 返り値の `r_squared` は、Random Forest の**訓練データ上の決定係数**（OOB が計算困難な小サンプル時のフォールバック）:
 
-```
-R² = 1 − Σ_i (y_i − ŷ_i)² / Σ_i (y_i − ȳ)²
-```
+$$
+R^2 = 1 - \frac{\sum_i (y_i - \hat y_i)^2}{\sum_i (y_i - \bar y)^2}
+$$
 
-訓練データへの過学習があるため R² は高くなりがち。モデルの質を評価するには視覚的に曲面の滑らかさを確認することが望ましい。
+訓練データへの過学習があるため $R^2$ は高くなりがち。モデルの質を評価するには視覚的に曲面の滑らかさを確認することが望ましい。
 
 ---
 
@@ -185,9 +196,9 @@ R² = 1 − Σ_i (y_i − ŷ_i)² / Σ_i (y_i − ȳ)²
   滑らかな非線形（GP的な連続性を期待する） ────→ Kriging
 ```
 
-- 試行数が多い（N ≥ 200）場合に効果的
-- `R² > 0.7` なら曲面の傾向は信頼できる
-- 曲面が粗い（ノイジー）場合は `n_trees` 増加または `max_depth` 削減を検討
+- 試行数が多い（$N \ge 200$）場合に効果的
+- $R^2 > 0.7$ なら曲面の傾向は信頼できる
+- 曲面が粗い（ノイジー）場合は $n_{\mathrm{trees}}$ 増加または $\mathrm{max\_depth}$ 削減を検討
 
 ---
 

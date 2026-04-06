@@ -26,12 +26,12 @@ Tunny Dashboard では複数のサロゲートモデルで 1D PDP・2D PDP を�
 
 ### 一般的な PDP の定義
 
-モデル f(x_S, x_C) において、着目変数の集合 S と補完変数の集合 C = X \ S に対して、PDP は:
+モデル $f(x_S, x_C)$ において、着目変数の集合 $S$ と補完変数の集合 $C = X \setminus S$ に対して、PDP は:
 
-```
-f̄_S(x_S) = E_{x_C}[ f(x_S, x_C) ]
-           ≈ (1/N) Σ_i f(x_S, x_{C,i})
-```
+$$
+\bar f_S(x_S) = \mathbb{E}_{x_C}[ f(x_S, x_C) ]
+\approx \frac{1}{N} \sum_i f(x_S, x_{C,i})
+$$
 
 すべてのトレーニングサンプルに対して x_C を周辺化（平均化）することで、x_S だけの純粋な効果を抽出する。
 
@@ -45,15 +45,23 @@ f̄_S(x_S) = E_{x_C}[ f(x_S, x_C) ]
 
 1D PDP は全パラメータで Ridge 回帰をフィッティング後、解析的に計算する:
 
-```
-ŷ = y_mean + Σ_k β_k × (x_k - mean_k) / std_k
-```
+$$
+\hat y = y_{\mathrm{mean}} + \sum_k \beta_k \frac{x_k - \mathrm{mean}_k}{\mathrm{std}_k}
+$$
 
-パラメータ j に着目した場合、他のパラメータ k≠j を平均値 mean_k で代入すると:
+パラメータ $j$ に着目した場合、他のパラメータ $k\ne j$ を平均値 $\mathrm{mean}_k$ で代入すると:
 
-```
-f̄_j(v) = y_mean + β_j × (v - mean_j) / std_j
-```
+$$
+\bar f_j(v) = y_{\mathrm{mean}} + \beta_j \frac{v - \mathrm{mean}_j}{\mathrm{std}_j}
+$$
+
+上式は、実装式
+
+$$
+\bar f_j(v)=\bar y + \beta_j\frac{v-\mu_j}{\sigma_j} + \sum_{k\ne j}\beta_k\,\mathbb{E}\left[\frac{x_k-\mu_k}{\sigma_k}\right]
+$$
+
+において、標準化項の平均が $\mathbb{E}[(x_k-\mu_k)/\sigma_k]=0$ となることを使って簡約した形である。
 
 **Ridge 係数 β_j に比例する線形関数**として解析的に表現される。
 
@@ -74,13 +82,18 @@ f̄_j(v) = y_mean + β_j × (v - mean_j) / std_j
 
 ## 実装の詳細
 
+### パラメータ型に関する前提
+
+`compute_pdp()` / `compute_pdp_2d()` は `DataFrame.get_numeric_column(...)` を使用して入力行列を構築している。したがって理論上の PDP 対象は数値パラメータに限定され、非数値列は `0.0` として扱われる（実装上のフォールバック値）。
+
 ### グリッドの構築
 
 各パラメータの観測値の最小値〜最大値を `n_grid` 点で等間隔サンプリング（linspace）:
 
-```
-grid_j[k] = min_j + (max_j - min_j) × k / (n_grid - 1)   (k = 0, ..., n_grid-1)
-```
+$$
+\mathrm{grid}_j[k] = \mathrm{min}_j + (\mathrm{max}_j - \mathrm{min}_j) \frac{k}{n_{\mathrm{grid}} - 1}
+\quad (k = 0, \ldots, n_{\mathrm{grid}}-1)
+$$
 
 デフォルト `n_grid = 50`。
 
@@ -88,23 +101,26 @@ grid_j[k] = min_j + (max_j - min_j) × k / (n_grid - 1)   (k = 0, ..., n_grid-1)
 
 Ridge 回帰前に各パラメータ列を Z スコア標準化する:
 
-```
-x̃_k = (x_k - mean_k) / std_k
-```
+$$
+  ilde x_k = \frac{x_k - \mathrm{mean}_k}{\mathrm{std}_k}
+$$
 
 `std_k ≈ 0`（定数列）の場合は `std_k = 1.0` でゼロ除算を回避。
 
 ### `compute_pdp_2d_from_matrix()` の処理フロー（`rust_core/src/pdp.rs`）
 
-```
-1. compute_ridge(x_matrix, y, α=1.0)   → β, r_squared
-2. col_mean_std(col1), col_mean_std(col2) → mean1/std1, mean2/std2
-3. linspace(min1, max1, n_grid) → grid1
-   linspace(min2, max2, n_grid) → grid2
-4. values[i][j] = y_mean + β1×(grid1[i]-mean1)/std1
-                          + β2×(grid2[j]-mean2)/std2
-5. PdpResult2d { grid1, grid2, values, r_squared } を返す
-```
+1. `compute_ridge(x_matrix, y, α=1.0)` で $\beta, r_{\mathrm{squared}}$ を算出
+2. `col_mean_std(col1), col_mean_std(col2)` で $(\mathrm{mean}_1,\mathrm{std}_1),(\mathrm{mean}_2,\mathrm{std}_2)$ を算出
+3. `linspace(min1, max1, n_grid)`, `linspace(min2, max2, n_grid)` でグリッド生成
+4. 各グリッド点の予測値を計算:
+
+$$
+\mathrm{values}[i][j] = y_{\mathrm{mean}}
++ \beta_1\frac{\mathrm{grid}_1[i]-\mathrm{mean}_1}{\mathrm{std}_1}
++ \beta_2\frac{\mathrm{grid}_2[j]-\mathrm{mean}_2}{\mathrm{std}_2}
+$$
+
+5. `PdpResult2d { grid1, grid2, values, r_squared }` を返す
 
 ### 出力形式
 
@@ -120,9 +136,9 @@ x̃_k = (x_k - mean_k) / std_k
 
 `r_squared` は各サロゲートモデルの訓練データへの適合度:
 
-```
-R² = 1 - Σ(y_i - ŷ_i)² / Σ(y_i - ȳ)²
-```
+$$
+R^2 = 1 - \frac{\sum_i (y_i - \hat y_i)^2}{\sum_i (y_i - \bar y)^2}
+$$
 
 - **R² ≈ 1.0**: サロゲートモデルがデータをよく説明しており、PDP の信頼度が高い
 - **R² < 0.5**: モデルの説明力が低く、PDP は目安程度にとどめる

@@ -2,14 +2,14 @@
 
 ## 概要
 
-Sobol 感度指数は、目的関数の**分散分解**に基づいてパラメータの重要度を定量化するグローバル感度分析手法。線形・非線形を問わず、またパラメータ間の**交互作用**も含めた影響度を [0, 1] の値として返す。
+Sobol 感度指数は、目的関数の**分散分解**に基づいてパラメータの重要度を定量化するグローバル感度分析手法。線形・非線形を問わず、またパラメータ間の**交互作用**も含めた影響度を $[0,1]$ の値として返す。
 
 Tunny Dashboard では 2 種類の指数を提供する:
 
 | 指数                      | 記号 | 意味                                                    |
 | ------------------------- | ---- | ------------------------------------------------------- |
-| 一次指数 (First-Order)    | S_i  | パラメータ x_i の**単独**寄与率                         |
-| 全効果指数 (Total-Effect) | ST_i | x_i の単独 + **他パラメータとの交互作用**を含む総寄与率 |
+| 一次指数 (First-Order)    | $S_i$  | パラメータ $x_i$ の**単独**寄与率                         |
+| 全効果指数 (Total-Effect) | $ST_i$ | $x_i$ の単独 + **他パラメータとの交互作用**を含む総寄与率 |
 
 ---
 
@@ -17,32 +17,33 @@ Tunny Dashboard では 2 種類の指数を提供する:
 
 ### ANOVA 分散分解
 
-Sobol 分解は、モデル出力 Y = f(X_1, ..., X_p) の分散を各パラメータの寄与に分解する:
+Sobol 分解は、モデル出力 $Y = f(X_1, \ldots, X_p)$ の分散を各パラメータの寄与に分解する:
 
-```
-Var(Y) = Σ_i V_i + Σ_{i<j} V_ij + ... + V_{1...p}
-```
+$$
+\mathrm{Var}(Y) = \sum_i V_i + \sum_{i<j} V_{ij} + \cdots + V_{1\ldots p}
+$$
 
-- V_i = Var(E[Y | X_i]) — x_i のみが変化したときの Y の期待値の分散
-- V_ij = Var(E[Y | X_i, X_j]) - V_i - V_j — x_i と x_j の交互作用分散
+- $V_i = \mathrm{Var}(\mathbb{E}[Y \mid X_i])$ — $x_i$ のみが変化したときの $Y$ の期待値の分散
+- $V_{ij} = \mathrm{Var}(\mathbb{E}[Y \mid X_i, X_j]) - V_i - V_j$ — $x_i$ と $x_j$ の交互作用分散
 
 ### 一次指数
 
-```
-S_i = V_i / Var(Y)
-```
+$$
+S_i = \frac{V_i}{\mathrm{Var}(Y)}
+$$
 
 x_i の変化だけで説明できる Y の分散の割合。S_i の合計は ≤ 1（交互作用がなければ = 1）。
 
 ### 全効果指数
 
-```
-ST_i = E[Var(Y | X_{~i})] / Var(Y) = 1 - Var(E[Y | X_{~i}]) / Var(Y)
-```
+$$
+ST_i = \frac{\mathbb{E}[\mathrm{Var}(Y \mid X_{\sim i})]}{\mathrm{Var}(Y)}
+= 1 - \frac{\mathrm{Var}(\mathbb{E}[Y \mid X_{\sim i}])}{\mathrm{Var}(Y)}
+$$
 
 X\_{~i} は「x_i 以外のすべてのパラメータ」。ST_i は x_i の単独効果と x_i が絡むすべての交互作用効果の合計。
 
-**ST_i ≥ S_i** は常に成立する。差 (ST_i - S_i) が大きいほど、x_i が他パラメータとの交互作用に強く関与している。
+$ST_i \ge S_i$ は常に成立する。差 $ST_i - S_i$ が大きいほど、$x_i$ が他パラメータとの交互作用に強く関与している。
 
 ---
 
@@ -72,29 +73,41 @@ Step 4: Jansen 推定量で S_i, ST_i を計算
 
 p 個の標準化済み線形入力から p(p+3)/2 次元の二次特徴量ベクトルを構築:
 
-```
-φ(x) = [x_1, ..., x_p,          ← 線形項: p 個
-         x_1², ..., x_p²,        ← 二乗項: p 個
-         x_1 x_2, ..., x_{p-1} x_p]  ← 交差項: p(p-1)/2 個
-```
+$$
+\phi(x) = [x_1, \ldots, x_p,\; x_1^2, \ldots, x_p^2,\; x_1x_2, \ldots, x_{p-1}x_p]
+$$
 
 例: p = 3 → 3 + 3 + 3 = 9 次元 (= 3×6/2)
 
+したがって、サロゲートの特徴量次元は
+
+$$
+d_\phi = p + p + \frac{p(p-1)}{2} = \frac{p(p+3)}{2}
+$$
+
+であり、学習サンプル数 $n$ は少なくとも $d_\phi$ と同程度、実務上は $n \gg d_\phi$ が望ましい。
+
 #### サロゲートの学習（`build_sobol_surrogate()`）
 
-```
-1. X の各列を Z スコア標準化: x̃_j = (x_j - μ_j) / σ_j
-2. build_quad_features で二次特徴量 Φ を構築
-3. Φ の各列を再度 Z スコア標準化
-4. 各目的関数に対して Ridge(α=1.0) を適合:
-   β_k = (Φ^T Φ + I)^{-1} Φ^T (y_k - ȳ_k)
-```
+1. $X$ の各列を Z スコア標準化
+
+$$
+\tilde x_j = \frac{x_j-\mu_j}{\sigma_j}
+$$
+
+2. `build_quad_features` で二次特徴量 $\Phi$ を構築
+3. $\Phi$ の各列を再度 Z スコア標準化
+4. 各目的関数に対して Ridge($\alpha=1.0$) を適合
+
+$$
+\beta_k = (\Phi^T\Phi + I)^{-1}\Phi^T(y_k-\bar y_k)
+$$
 
 #### サロゲートの評価（`surrogate_eval()`）
 
-```
-f̂(x) = β^T · φ̃(x) + intercept
-```
+$$
+\hat f(x) = \beta^T \tilde\phi(x) + \mathrm{intercept}
+$$
 
 ここで φ̃(x) は二次特徴量を訓練データの統計量で標準化したもの。
 
@@ -117,28 +130,34 @@ u = (state >> 11) as f64 / 2^53
 
 各パラメータの値域 [lo_j, hi_j] は実際のトライアルの min/max から取得する。
 
-```
-A[s][j] = lo_j + u × (hi_j - lo_j)    (s = 0..n_samples, j = 0..p)
-B[s][j] = lo_j + u × (hi_j - lo_j)    (A と B は独立サンプル)
-```
+$$
+A[s,j] = lo_j + u\,(hi_j - lo_j),\qquad
+B[s,j] = lo_j + u\,(hi_j - lo_j)
+$$
 
 #### AB_i 行列
 
 A の第 i 列のみを B の第 i 列で置換した行列:
 
-```
-AB_i[s] = [A[s][0], ..., A[s][i-1], B[s][i], A[s][i+1], ..., A[s][p-1]]
-```
+$$
+AB_i[s] = [A[s,0], \ldots, A[s,i-1], B[s,i], A[s,i+1], \ldots, A[s,p-1]]
+$$
 
 ---
 
 ### Step 3: サロゲート評価
 
-```
-f_A[k][s]    = surrogate_eval(A[s], objective=k)
-f_B[k][s]    = surrogate_eval(B[s], objective=k)
-f_AB_i[k][s] = surrogate_eval(AB_i[s], objective=k)
-```
+$$
+f_A[k,s] = \mathrm{surrogate\_eval}(A[s],\,\mathrm{objective}=k)
+$$
+
+$$
+f_B[k,s] = \mathrm{surrogate\_eval}(B[s],\,\mathrm{objective}=k)
+$$
+
+$$
+f_{AB_i}[k,s] = \mathrm{surrogate\_eval}(AB_i[s],\,\mathrm{objective}=k)
+$$
 
 ---
 
@@ -146,32 +165,32 @@ f_AB_i[k][s] = surrogate_eval(AB_i[s], objective=k)
 
 #### 一次指数（Saltelli 2010）
 
-```
-S_i ≈ [ Σ_s f_B[s] · (f_AB_i[s] - f_A[s]) ] / (N · Var_Y)
-```
+$$
+S_i \approx \frac{\sum_s f_B[s]\,(f_{AB_i}[s]-f_A[s])}{N\,\mathrm{Var}_Y}
+$$
 
 #### 全効果指数（Jansen 1999）
 
-```
-ST_i ≈ [ Σ_s (f_A[s] - f_AB_i[s])² ] / (2 · N · Var_Y)
-```
+$$
+ST_i \approx \frac{\sum_s (f_A[s]-f_{AB_i}[s])^2}{2N\,\mathrm{Var}_Y}
+$$
 
 #### 分散の推定
 
-```
-Var_Y = mean(f_A²) - mean(f_A)²
-```
+$$
+\mathrm{Var}_Y = \mathrm{mean}(f_A^2) - \mathrm{mean}(f_A)^2
+$$
 
-Var_Y ≈ 0 の場合（サロゲートが定数に近い）は S_i = ST_i = 0 を返す。
+$\mathrm{Var}_Y \approx 0$ の場合（サロゲートが定数に近い）は $S_i = ST_i = 0$ を返す。
 
 #### クリッピング
 
-推定誤差による範囲外値を防ぐため、最終値を [0, 1] にクリップ:
+推定誤差による範囲外値を防ぐため、最終値を $[0,1]$ にクリップ:
 
-```
-S_i  = clamp(S_i_raw,  0.0, 1.0)
-ST_i = clamp(ST_i_raw, 0.0, 1.0)
-```
+$$
+S_i = \mathrm{clamp}(S_i^{\mathrm{raw}}, 0, 1),\qquad
+ST_i = \mathrm{clamp}(ST_i^{\mathrm{raw}}, 0, 1)
+$$
 
 ---
 
@@ -179,10 +198,13 @@ ST_i = clamp(ST_i_raw, 0.0, 1.0)
 
 ImportanceChart では、各パラメータのスコアとして全目的関数に対する指数の**平均**を表示:
 
-```
-display_score(p_j) = (1/m) Σ_k S_i[j][k]     // sobol_first の場合
-display_score(p_j) = (1/m) Σ_k ST_i[j][k]    // sobol_total の場合
-```
+$$
+\mathrm{display\_score}(p_j)=\frac{1}{m}\sum_k S_i[j][k]
+$$
+
+$$
+\mathrm{display\_score}(p_j)=\frac{1}{m}\sum_k ST_i[j][k]
+$$
 
 ---
 
@@ -201,6 +223,18 @@ display_score(p_j) = (1/m) Σ_k ST_i[j][k]    // sobol_total の場合
 - 最低 2 トライアル（n ≥ 2）、p ≥ 1、目的関数 ≥ 1 が必要
 - サロゲートの精度は n とともに向上する。目安として n ≥ 10 × p(p+3)/2 を推奨
 
+## 実装上の前提（重要）
+
+現在の `compute_sobol()` 実装は、`DataFrame` から**数値パラメータ列のみ**を直接参照している。
+
+```
+df.get_numeric_column(name)
+    .and_then(|col| col.get(row).copied())
+    .unwrap_or(0.0)
+```
+
+このためカテゴリパラメータは Sobol 計算時に 0.0 として扱われ、感度は実質的に評価されない。Sobol 指数の解釈対象は連続値（または事前に数値化済み）のパラメータに限定される。
+
 ---
 
 ## 特性・限界
@@ -208,7 +242,7 @@ display_score(p_j) = (1/m) Σ_k ST_i[j][k]    // sobol_total の場合
 **強み:**
 
 - 線形・非線形・交互作用をすべて扱える
-- 値域が [0, 1] で複数パラメータ間の比較が容易
+- 値域が $[0,1]$ で複数パラメータ間の比較が容易
 - ST_i - S_i で交互作用の強度を把握できる
 - サロゲートを使うため、トライアル数が限られていても計算可能
 
