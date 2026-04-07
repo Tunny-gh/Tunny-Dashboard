@@ -17,8 +17,6 @@ pub(crate) struct GpModel {
     pub log_ls: Vec<f64>,
     /// Log signal variance
     pub log_sf: f64,
-    /// Log noise std-dev
-    pub log_sn: f64,
 }
 
 // =============================================================================
@@ -183,75 +181,6 @@ pub(crate) fn log_marginal_likelihood(
     let n = y.len() as f64;
 
     -0.5 * data_fit - log_det - 0.5 * n * (2.0 * std::f64::consts::PI).ln()
-}
-
-/// Analytical gradient of the log marginal likelihood:
-///   ∂L/∂θⱼ = ½ tr((αα^T − K^{-1}) · ∂K/∂θⱼ)
-///
-/// `params` layout: [log_ls_0, …, log_ls_{d-1}, log_sf, log_sn]
-pub(crate) fn log_ml_gradient(x: &[Vec<f64>], y: &[f64], params: &[f64]) -> Vec<f64> {
-    let ndim = if x.is_empty() {
-        return vec![];
-    } else {
-        x[0].len()
-    };
-    let log_ls = &params[..ndim];
-    let log_sf = params[ndim];
-    let log_sn = params[ndim + 1];
-
-    let k = build_kernel_matrix(x, log_ls, log_sf, log_sn);
-    let l = match cholesky(&k) {
-        Some(l) => l,
-        None => return vec![0.0; params.len()],
-    };
-    let alpha = compute_alpha(&l, y);
-    let n = y.len();
-
-    // Compute K^{-1} column by column: K^{-1} e_j via forward/backward sub
-    let k_inv: Vec<Vec<f64>> = (0..n)
-        .map(|j| {
-            let e_j: Vec<f64> = (0..n).map(|i| if i == j { 1.0 } else { 0.0 }).collect();
-            let v = forward_sub(&l, &e_j);
-            backward_sub(&l, &v)
-        })
-        .collect();
-
-    let mut grad = vec![0.0; params.len()];
-
-    // ∂L/∂log(l_d) for each dimension
-    for d in 0..ndim {
-        let mut tr = 0.0;
-        for i in 0..n {
-            for j in 0..n {
-                let w_ij = alpha[i] * alpha[j] - k_inv[j][i];
-                let dk_ij = matern52_ard_grad_ld(&x[i], &x[j], log_ls, log_sf, d);
-                tr += w_ij * dk_ij;
-            }
-        }
-        grad[d] = 0.5 * tr;
-    }
-
-    // ∂L/∂log(σ_f): ∂k/∂log(σ_f) = 2·k(x1,x2)
-    {
-        let mut tr = 0.0;
-        for i in 0..n {
-            for j in 0..n {
-                let w_ij = alpha[i] * alpha[j] - k_inv[j][i];
-                let dk_ij = 2.0 * matern52_ard(&x[i], &x[j], log_ls, log_sf);
-                tr += w_ij * dk_ij;
-            }
-        }
-        grad[ndim] = 0.5 * tr;
-    }
-
-    // ∂L/∂log(σ_n): ∂K/∂log(σ_n) = 2σ_n²·I
-    {
-        let sigma_n2 = (2.0 * log_sn).exp();
-        let tr_w: f64 = (0..n).map(|i| alpha[i].powi(2) - k_inv[i][i]).sum();
-        grad[ndim + 1] = sigma_n2 * tr_w;
-    }
-
-    grad
 }
 
 // =============================================================================
@@ -587,7 +516,6 @@ pub(crate) fn train_gp(
         x_train: x_sub,
         log_ls,
         log_sf,
-        log_sn,
     })
 }
 
