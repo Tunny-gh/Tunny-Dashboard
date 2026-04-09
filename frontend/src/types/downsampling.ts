@@ -7,18 +7,18 @@
 // ========================================
 
 export type DownsampleKey =
-  | 'scatter'     // ParetoScatter2D/3D, ObjectivePairMatrix (max 10,000)
-  | 'thumbnail'   // ScatterMatrix thumbnails (max 500, REQ-063)
-  | 'hover'       // ScatterMatrix hover expand (max 3,000)
-  | 'pcp'         // ParallelCoordinates (max 1,000)
+  | 'scatter' // ParetoScatter2D/3D, ObjectivePairMatrix (max 10,000)
+  | 'thumbnail' // ScatterMatrix thumbnails (max 500, REQ-063)
+  | 'hover' // ScatterMatrix hover expand (max 3,000)
+  | 'pcp' // ParallelCoordinates (max 1,000)
   | 'data_points' // SlicePlot, SurfacePlot3D data points (max 5,000)
-  | 'cluster'     // ClusterScatter, DimReductionScatter (max 10,000)
+  | 'cluster' // ClusterScatter, DimReductionScatter (max 10,000)
 
 export type DownsampleStrategy =
-  | 'smart'              // Pareto-reserving + random fill
-  | 'grid_thumbnail'     // Pareto-reserving + grid spatial sampling
+  | 'smart' // Pareto-reserving + random fill
+  | 'grid_thumbnail' // Pareto-reserving + grid spatial sampling
   | 'stratified_by_rank' // Pareto-rank stratified sampling
-  | 'by_cluster'         // Equal-per-cluster sampling (fallback: smart)
+  | 'by_cluster' // Equal-per-cluster sampling (fallback: smart)
 
 export interface DownsampleConfig {
   maxPoints: number

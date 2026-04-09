@@ -68,12 +68,12 @@ vi.mock('./studyStore', () => ({
 vi.mock('./selectionStore', () => ({
   useSelectionStore: {
     getState: vi.fn().mockReturnValue({ selectedIndices: new Uint32Array(0) }),
-    subscribe: vi.fn().mockImplementation(
-      (_selector: unknown, listener: (indices: Uint32Array) => void) => {
+    subscribe: vi
+      .fn()
+      .mockImplementation((_selector: unknown, listener: (indices: Uint32Array) => void) => {
         capturedSelectionListeners.push(listener)
         return () => {}
-      },
-    ),
+      }),
   },
 }))
 

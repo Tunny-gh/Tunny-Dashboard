@@ -66,8 +66,13 @@ pub fn compute_topsis(
         find_ideal_solutions(&weighted_matrix, n_valid, n_objectives, is_minimize);
 
     // English comment.
-    let valid_scores =
-        compute_scores(&weighted_matrix, n_valid, n_objectives, &positive_ideal, &negative_ideal);
+    let valid_scores = compute_scores(
+        &weighted_matrix,
+        n_valid,
+        n_objectives,
+        &positive_ideal,
+        &negative_ideal,
+    );
 
     // English comment.
     let mut scores = vec![0.0_f64; n_trials];

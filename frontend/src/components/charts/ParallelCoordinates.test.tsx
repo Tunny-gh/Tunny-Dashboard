@@ -69,9 +69,8 @@ const { mockGetIndicesPC } = vi.hoisted(() => {
 })
 
 vi.mock('../../stores/downsampleStore', () => ({
-  useDownsampleStore: vi.fn(
-    (selector: (s: { getIndices: typeof mockGetIndicesPC }) => unknown) =>
-      selector({ getIndices: mockGetIndicesPC }),
+  useDownsampleStore: vi.fn((selector: (s: { getIndices: typeof mockGetIndicesPC }) => unknown) =>
+    selector({ getIndices: mockGetIndicesPC }),
   ),
 }))
 

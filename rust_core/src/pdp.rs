@@ -574,7 +574,13 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
 
     // Optimise FITC hyperparameters on normalised data.
     // Fewer iters for large N to keep total time under NFR-002 (< 5s at N=5000).
-    let max_fitc_iter = if n >= 2000 { 3 } else if n >= 500 { 10 } else { 20 };
+    let max_fitc_iter = if n >= 2000 {
+        3
+    } else if n >= 500 {
+        10
+    } else {
+        20
+    };
     let params =
         sparse_kriging::optimize_fitc_hyperparams(&x_flat, &z, &y_norm, n, m, max_fitc_iter);
 

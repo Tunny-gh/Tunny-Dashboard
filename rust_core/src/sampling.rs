@@ -65,7 +65,11 @@ pub fn init_sampling(is_minimize: Vec<bool>, pareto_indices: Vec<u32>, all_ranks
         let mut st = s.borrow_mut();
         st.is_minimize = is_minimize;
         st.pareto_indices = Some(pareto_indices);
-        st.all_ranks = if all_ranks.is_empty() { None } else { Some(all_ranks) };
+        st.all_ranks = if all_ranks.is_empty() {
+            None
+        } else {
+            Some(all_ranks)
+        };
     });
 }
 
@@ -110,8 +114,8 @@ fn get_pareto_rank1_indices() -> Vec<u32> {
     let is_min = STATE.with(|s| {
         let st = s.borrow();
         if st.is_minimize.is_empty() {
-            let n = crate::dataframe::with_active_df(|df| df.objective_col_names().len())
-                .unwrap_or(1);
+            let n =
+                crate::dataframe::with_active_df(|df| df.objective_col_names().len()).unwrap_or(1);
             vec![true; n]
         } else {
             st.is_minimize.clone()
@@ -135,8 +139,8 @@ fn get_all_ranks() -> Vec<u32> {
     let is_min = STATE.with(|s| {
         let st = s.borrow();
         if st.is_minimize.is_empty() {
-            let n = crate::dataframe::with_active_df(|df| df.objective_col_names().len())
-                .unwrap_or(1);
+            let n =
+                crate::dataframe::with_active_df(|df| df.objective_col_names().len()).unwrap_or(1);
             vec![true; n]
         } else {
             st.is_minimize.clone()
@@ -305,27 +309,26 @@ pub fn downsample_for_thumbnail(max_points: usize) -> Option<DownsampleResult> {
     let pareto_set: HashSet<u32> = confirmed_pareto.iter().copied().collect();
 
     // Read objective values (first 2 objectives) for all non-Pareto indices.
-    let (obj0_vals, obj1_vals) =
-        crate::dataframe::with_active_df(|df| {
-            let names = df.objective_col_names();
-            let v0: Vec<f64> = names
-                .first()
-                .and_then(|n| df.get_numeric_column(n))
-                .map(|c| c.to_vec())
-                .unwrap_or_else(|| vec![0.0; total_count]);
-            let v1: Vec<f64> = names
-                .get(1)
-                .and_then(|n| df.get_numeric_column(n))
-                .map(|c| c.to_vec())
-                .unwrap_or_else(|| (0..total_count).map(|i| i as f64).collect());
-            (v0, v1)
-        })
-        .unwrap_or_else(|| {
-            (
-                vec![0.0; total_count],
-                (0..total_count).map(|i| i as f64).collect(),
-            )
-        });
+    let (obj0_vals, obj1_vals) = crate::dataframe::with_active_df(|df| {
+        let names = df.objective_col_names();
+        let v0: Vec<f64> = names
+            .first()
+            .and_then(|n| df.get_numeric_column(n))
+            .map(|c| c.to_vec())
+            .unwrap_or_else(|| vec![0.0; total_count]);
+        let v1: Vec<f64> = names
+            .get(1)
+            .and_then(|n| df.get_numeric_column(n))
+            .map(|c| c.to_vec())
+            .unwrap_or_else(|| (0..total_count).map(|i| i as f64).collect());
+        (v0, v1)
+    })
+    .unwrap_or_else(|| {
+        (
+            vec![0.0; total_count],
+            (0..total_count).map(|i| i as f64).collect(),
+        )
+    });
 
     let non_pareto: Vec<u32> = (0..total_count as u32)
         .filter(|i| !pareto_set.contains(i))
@@ -547,8 +550,7 @@ pub fn downsample_by_cluster(max_points: usize) -> Option<DownsampleResult> {
     let labels = labels_opt.unwrap();
 
     // --- Group indices by cluster ---
-    let mut clusters: std::collections::HashMap<i32, Vec<u32>> =
-        std::collections::HashMap::new();
+    let mut clusters: std::collections::HashMap<i32, Vec<u32>> = std::collections::HashMap::new();
     for (idx, &label) in labels.iter().enumerate() {
         if label >= 0 {
             clusters.entry(label).or_default().push(idx as u32);
@@ -633,9 +635,7 @@ mod tests {
     /// Build a DataFrame with `n` rows (single objective = row index).
     /// Pareto Rank 1 = row 0 (smallest value under minimisation).
     fn setup_single_obj(n: usize) {
-        let rows: Vec<TrialRow> = (0..n)
-            .map(|i| make_row(i as u32, vec![i as f64]))
-            .collect();
+        let rows: Vec<TrialRow> = (0..n).map(|i| make_row(i as u32, vec![i as f64])).collect();
         let df = DataFrame::from_trials(&rows, &[], &["obj0".to_string()], &[], &[], 0);
         store_dataframes(vec![df]);
         select_study(0).expect("select_study");
@@ -706,7 +706,10 @@ mod tests {
                     make_row(i as u32, vec![(pareto_size - i) as f64, i as f64])
                 } else {
                     // Dominated: both worse than row 0
-                    make_row(i as u32, vec![pareto_size as f64 + 1.0, pareto_size as f64 + 1.0])
+                    make_row(
+                        i as u32,
+                        vec![pareto_size as f64 + 1.0, pareto_size as f64 + 1.0],
+                    )
                 }
             })
             .collect();
@@ -790,7 +793,10 @@ mod tests {
                     make_row(i as u32, vec![(pareto_size - i) as f64, i as f64])
                 } else {
                     // dominated
-                    make_row(i as u32, vec![pareto_size as f64 + 1.0, pareto_size as f64 + 1.0])
+                    make_row(
+                        i as u32,
+                        vec![pareto_size as f64 + 1.0, pareto_size as f64 + 1.0],
+                    )
                 }
             })
             .collect();
@@ -854,7 +860,10 @@ mod tests {
                     make_row(i as u32, vec![(rank1_size - i) as f64, i as f64])
                 } else {
                     // All dominated: strictly worse than row 0
-                    make_row(i as u32, vec![rank1_size as f64 + 1.0, rank1_size as f64 + 1.0])
+                    make_row(
+                        i as u32,
+                        vec![rank1_size as f64 + 1.0, rank1_size as f64 + 1.0],
+                    )
                 }
             })
             .collect();
@@ -879,7 +888,10 @@ mod tests {
         let result_set: HashSet<u32> = result.indices.iter().copied().collect();
         // pareto_count from result should be ≤ total indices
         assert!(result.pareto_count <= result.indices.len());
-        assert_eq!(result.pareto_count, rank1_size, "all rank1 must be included");
+        assert_eq!(
+            result.pareto_count, rank1_size,
+            "all rank1 must be included"
+        );
         // Verify all rank1 indices are actually in the result
         assert!(result.indices.len() >= rank1_size);
         // The first pareto_count items should cover rank1
@@ -938,9 +950,7 @@ mod tests {
         init_sampling(vec![true], vec![0], vec![]);
 
         // Set cluster labels: cluster 0..3, each with 2000 points
-        let labels: Vec<i32> = (0..total)
-            .map(|i| (i / per_cluster_size) as i32)
-            .collect();
+        let labels: Vec<i32> = (0..total).map(|i| (i / per_cluster_size) as i32).collect();
         set_cluster_labels(labels.clone());
 
         let result = downsample_by_cluster(4_000).expect("should return Some");
@@ -955,7 +965,11 @@ mod tests {
             counts[cluster] += 1;
         }
         for (c, &cnt) in counts.iter().enumerate() {
-            assert_eq!(cnt, 1_000, "cluster {} expected 1000 points, got {}", c, cnt);
+            assert_eq!(
+                cnt, 1_000,
+                "cluster {} expected 1000 points, got {}",
+                c, cnt
+            );
         }
     }
 

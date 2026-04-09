@@ -120,12 +120,15 @@ export function ObjectivePairMatrix({
                 new ScatterplotLayer({
                   id: `scatter-${row}-${col}`,
                   data: {
-                    length:
-                      renderIndices.length > 0 ? renderIndices.length : gpuBuffer.trialCount,
+                    length: renderIndices.length > 0 ? renderIndices.length : gpuBuffer.trialCount,
                   },
                   getPosition: (_: unknown, { index }: { index: number }) => {
                     const trialIdx = renderIndices.length > 0 ? renderIndices[index] : index
-                    return [gpuBuffer.positions[trialIdx * 2], gpuBuffer.positions[trialIdx * 2 + 1], 0]
+                    return [
+                      gpuBuffer.positions[trialIdx * 2],
+                      gpuBuffer.positions[trialIdx * 2 + 1],
+                      0,
+                    ]
                   },
                   getColor: [79, 70, 229, 180], // Indigo, semi-transparent
                   getRadius: 3,

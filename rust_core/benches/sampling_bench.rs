@@ -62,13 +62,9 @@ fn setup_df(n: usize) {
 fn bench_downsample_smart(c: &mut Criterion) {
     let n = 50_000usize;
     setup_df(n);
-    c.bench_with_input(
-        BenchmarkId::new("downsample_smart", n),
-        &n,
-        |b, _| {
-            b.iter(|| downsample_smart(10_000, true));
-        },
-    );
+    c.bench_with_input(BenchmarkId::new("downsample_smart", n), &n, |b, _| {
+        b.iter(|| downsample_smart(10_000, true));
+    });
 }
 
 fn bench_downsample_for_thumbnail(c: &mut Criterion) {
@@ -98,32 +94,24 @@ fn bench_downsample_stratified_by_rank(c: &mut Criterion) {
 fn bench_downsample_by_cluster(c: &mut Criterion) {
     let n = 50_000usize;
     setup_df(n);
-    c.bench_with_input(
-        BenchmarkId::new("downsample_by_cluster", n),
-        &n,
-        |b, _| {
-            b.iter(|| downsample_by_cluster(10_000));
-        },
-    );
+    c.bench_with_input(BenchmarkId::new("downsample_by_cluster", n), &n, |b, _| {
+        b.iter(|| downsample_by_cluster(10_000));
+    });
 }
 
 fn bench_all_six_keys(c: &mut Criterion) {
     let n = 50_000usize;
     setup_df(n);
-    c.bench_with_input(
-        BenchmarkId::new("all_six_keys_combined", n),
-        &n,
-        |b, _| {
-            b.iter(|| {
-                let _ = downsample_smart(10_000, true); // scatter
-                let _ = downsample_for_thumbnail(500); // thumbnail
-                let _ = downsample_for_thumbnail(3_000); // hover
-                let _ = downsample_stratified_by_rank(1_000, 5); // pcp
-                let _ = downsample_smart(5_000, false); // data_points
-                let _ = downsample_by_cluster(10_000); // cluster
-            });
-        },
-    );
+    c.bench_with_input(BenchmarkId::new("all_six_keys_combined", n), &n, |b, _| {
+        b.iter(|| {
+            let _ = downsample_smart(10_000, true); // scatter
+            let _ = downsample_for_thumbnail(500); // thumbnail
+            let _ = downsample_for_thumbnail(3_000); // hover
+            let _ = downsample_stratified_by_rank(1_000, 5); // pcp
+            let _ = downsample_smart(5_000, false); // data_points
+            let _ = downsample_by_cluster(10_000); // cluster
+        });
+    });
 }
 
 criterion_group!(

@@ -58,12 +58,12 @@ vi.mock('./studyStore', () => ({
 vi.mock('./selectionStore', () => ({
   useSelectionStore: {
     getState: vi.fn().mockReturnValue({ selectedIndices: new Uint32Array(0) }),
-    subscribe: vi.fn().mockImplementation(
-      (_selector: unknown, listener: (indices: Uint32Array) => void) => {
+    subscribe: vi
+      .fn()
+      .mockImplementation((_selector: unknown, listener: (indices: Uint32Array) => void) => {
         capturedSelectionListeners.push(listener)
         return () => {}
-      },
-    ),
+      }),
   },
 }))
 
@@ -136,10 +136,10 @@ describe('downsampleStore - basic structure (TASK-1661)', () => {
       await useDownsampleStore.getState().recompute()
     })
 
-    expect(mockDownsampleSmart).toHaveBeenCalledWith(10_000, true)  // scatter
-    expect(mockDownsampleSmart).toHaveBeenCalledWith(5_000, false)  // data_points
-    expect(mockDownsampleForThumbnail).toHaveBeenCalledWith(500)    // thumbnail
-    expect(mockDownsampleForThumbnail).toHaveBeenCalledWith(3_000)  // hover
+    expect(mockDownsampleSmart).toHaveBeenCalledWith(10_000, true) // scatter
+    expect(mockDownsampleSmart).toHaveBeenCalledWith(5_000, false) // data_points
+    expect(mockDownsampleForThumbnail).toHaveBeenCalledWith(500) // thumbnail
+    expect(mockDownsampleForThumbnail).toHaveBeenCalledWith(3_000) // hover
     expect(mockDownsampleStratifiedByRank).toHaveBeenCalledWith(5_000, 5)
     expect(mockDownsampleByCluster).toHaveBeenCalledWith(10_000)
   })
@@ -189,7 +189,9 @@ describe('downsampleStore - getIndices (TASK-1663)', () => {
 
   it('TC-1663-02: getIndices returns cached value when cache is populated', async () => {
     mockGetInstance.mockResolvedValue({
-      downsampleSmart: vi.fn().mockReturnValue({ indices: [0, 5, 10], paretoCount: 1, totalCount: 100, durationMs: 1 }),
+      downsampleSmart: vi
+        .fn()
+        .mockReturnValue({ indices: [0, 5, 10], paretoCount: 1, totalCount: 100, durationMs: 1 }),
       downsampleForThumbnail: mockDownsampleForThumbnail,
       downsampleStratifiedByRank: mockDownsampleStratifiedByRank,
       downsampleByCluster: mockDownsampleByCluster,
