@@ -41,6 +41,18 @@ vi.mock('../../stores/selectionStore', () => ({
   }),
 }))
 
+const { mockGetIndices3D } = vi.hoisted(() => {
+  const mockGetIndices3D = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndices3D }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: typeof mockGetIndices3D }) => unknown) =>
+      selector({ getIndices: mockGetIndices3D }),
+  ),
+}))
+
 // -------------------------------------------------------------------------
 // Documentation.
 // -------------------------------------------------------------------------
@@ -49,6 +61,7 @@ vi.mock('../../wasm/gpuBuffer', () => ({
   GpuBuffer: vi.fn(),
 }))
 
+import { PointCloudLayer } from 'deck.gl'
 import { ParetoScatter3D } from './ParetoScatter3D'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
@@ -192,5 +205,47 @@ describe('translated test case', () => {
 
     // Documentation.
     expect(mockUnsubscribe).toHaveBeenCalledOnce()
+  })
+})
+
+// -------------------------------------------------------------------------
+// TASK-1665: scatter index integration
+// -------------------------------------------------------------------------
+
+describe('ParetoScatter3D - scatter index integration (TASK-1665)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSubscribe.mockReturnValue(vi.fn())
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  test('TC-1665-01: uses full data when renderIndices is empty', () => {
+    mockGetIndices3D.mockReturnValue(new Uint32Array(0))
+    const gpuBuffer = makeGpuBuffer() // trialCount=5
+    render(<ParetoScatter3D gpuBuffer={gpuBuffer} currentStudy={makeStudy()} />)
+
+    const calls = (PointCloudLayer as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1][0]
+    expect(lastCall.data.length).toBe(5)
+  })
+
+  test('TC-1665-02: uses renderIndices length when indices are provided', () => {
+    const indices = new Uint32Array([0, 2, 4])
+    mockGetIndices3D.mockReturnValue(indices)
+    const gpuBuffer = makeGpuBuffer() // trialCount=5
+    render(<ParetoScatter3D gpuBuffer={gpuBuffer} currentStudy={makeStudy()} />)
+
+    const calls = (PointCloudLayer as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1][0]
+    expect(lastCall.data.length).toBe(3)
+  })
+
+  test('TC-1665-03: getIndices is called with "scatter"', () => {
+    mockGetIndices3D.mockReturnValue(new Uint32Array(0))
+    render(<ParetoScatter3D gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy()} />)
+    expect(mockGetIndices3D).toHaveBeenCalledWith('scatter')
   })
 })

@@ -37,6 +37,18 @@ vi.mock('../../wasm/wasmLoader', () => ({
   },
 }))
 
+const { mockGetIndicesDR } = vi.hoisted(() => {
+  const mockGetIndicesDR = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndicesDR }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: typeof mockGetIndicesDR }) => unknown) =>
+      selector({ getIndices: mockGetIndicesDR }),
+  ),
+}))
+
 import { DimReductionScatter } from './DimReductionScatter'
 
 // ---------------------------------------------------------------------------
@@ -152,5 +164,49 @@ describe('DimReductionScatter', () => {
     render(<DimReductionScatter />)
 
     expect(screen.getByText('Loading...')).toBeDefined()
+  })
+})
+
+// -------------------------------------------------------------------------
+// TASK-1671: cluster index integration (DimReductionScatter)
+// -------------------------------------------------------------------------
+
+describe('DimReductionScatter - cluster index integration (TASK-1671)', () => {
+  beforeEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+    clusterState.isRunning = false
+    mockGetInstance.mockResolvedValue({ runPca: mockRunPca })
+    mockUseSelectionStore.mockReturnValue({ colorMode: 'objective' })
+    mockGetIndicesDR.mockReturnValue(new Uint32Array(0))
+  })
+
+  it('TC-1671-03: getIndices called with "cluster"', async () => {
+    setupClusterStore(mockProjections)
+
+    await act(async () => {
+      render(<DimReductionScatter />)
+    })
+
+    expect(mockGetIndicesDR).toHaveBeenCalledWith('cluster')
+  })
+
+  it('TC-1671-04: cluster indices filter projections for DimReductionScatter', async () => {
+    setupClusterStore(mockProjections) // [[1,2],[3,4]]
+    // Only show index 0
+    mockGetIndicesDR.mockImplementation((key: string) => {
+      if (key === 'cluster') return new Uint32Array([0])
+      return new Uint32Array(0)
+    })
+
+    await act(async () => {
+      render(<DimReductionScatter />)
+    })
+
+    const chart = screen.getByTestId('echarts')
+    const option = JSON.parse(chart.dataset.option ?? '{}')
+    const allData = option.series.flatMap((s: { data: number[][] }) => s.data)
+    expect(allData).toHaveLength(1)
+    expect(allData[0]).toEqual([1.0, 2.0])
   })
 })

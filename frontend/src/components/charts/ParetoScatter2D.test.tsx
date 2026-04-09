@@ -39,10 +39,22 @@ vi.mock('../../stores/selectionStore', () => ({
   }),
 }))
 
+const { mockGetIndices } = vi.hoisted(() => {
+  const mockGetIndices = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndices }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn((selector: (s: { getIndices: typeof mockGetIndices }) => unknown) =>
+    selector({ getIndices: mockGetIndices }),
+  ),
+}))
+
 vi.mock('../../wasm/gpuBuffer', () => ({
   GpuBuffer: vi.fn(),
 }))
 
+import { ScatterplotLayer } from 'deck.gl'
 import { ParetoScatter2D } from './ParetoScatter2D'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
@@ -123,5 +135,47 @@ describe('translated test case', () => {
     // Documentation.
     render(<ParetoScatter2D gpuBuffer={null} currentStudy={null} />)
     expect(screen.getByText('No data available')).toBeInTheDocument()
+  })
+})
+
+// -------------------------------------------------------------------------
+// TASK-1664: scatter index integration
+// -------------------------------------------------------------------------
+
+describe('ParetoScatter2D - scatter index integration (TASK-1664)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSubscribe2D.mockReturnValue(vi.fn())
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  test('TC-1664-01: uses full data when renderIndices is empty', () => {
+    mockGetIndices.mockReturnValue(new Uint32Array(0))
+    const gpuBuffer = makeGpuBuffer() // trialCount=5
+    render(<ParetoScatter2D gpuBuffer={gpuBuffer} currentStudy={makeStudy()} />)
+
+    const calls = (ScatterplotLayer as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1][0]
+    expect(lastCall.data.length).toBe(5)
+  })
+
+  test('TC-1664-02: uses renderIndices length when indices are provided', () => {
+    const indices = new Uint32Array([0, 2, 4])
+    mockGetIndices.mockReturnValue(indices)
+    const gpuBuffer = makeGpuBuffer() // trialCount=5
+    render(<ParetoScatter2D gpuBuffer={gpuBuffer} currentStudy={makeStudy()} />)
+
+    const calls = (ScatterplotLayer as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1][0]
+    expect(lastCall.data.length).toBe(3)
+  })
+
+  test('TC-1664-03: getIndices is called with "scatter"', () => {
+    mockGetIndices.mockReturnValue(new Uint32Array(0))
+    render(<ParetoScatter2D gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy()} />)
+    expect(mockGetIndices).toHaveBeenCalledWith('scatter')
   })
 })

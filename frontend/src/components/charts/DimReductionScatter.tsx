@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useClusterStore } from '../../stores/clusterStore'
 import { useSelectionStore } from '../../stores/selectionStore'
+import { useDownsampleStore } from '../../stores/downsampleStore'
 import { WasmLoader } from '../../wasm/wasmLoader'
 import { EmptyState } from '../common/EmptyState'
 
@@ -14,8 +15,15 @@ export function DimReductionScatter() {
   const isRunning = useClusterStore((s) => s.isRunning)
   // colorMode is read for future use
   useSelectionStore((s) => s.colorMode)
+  const clusterIndices = useDownsampleStore((s) => s.getIndices('cluster'))
 
-  const projections = pcaProjections ?? localProjections
+  const allProjections = pcaProjections ?? localProjections
+  const projections =
+    allProjections && clusterIndices.length > 0
+      ? Array.from(clusterIndices)
+          .map((i) => allProjections[i])
+          .filter((p): p is number[] => p !== undefined)
+      : allProjections
 
   useEffect(() => {
     if (!pcaProjections && !isLocalLoading && !localProjections) {

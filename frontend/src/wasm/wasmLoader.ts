@@ -26,8 +26,21 @@ import initWasm, {
   computeSobol as wasmComputeSobol,
   computeTopsis as wasmComputeTopsis,
   computePdp2d as wasmComputePdp2d,
+  initSampling as wasmInitSampling,
+  setClusterLabels as wasmSetClusterLabels,
+  downsampleSmart as wasmDownsampleSmart,
+  downsampleForThumbnail as wasmDownsampleForThumbnail,
+  downsampleStratifiedByRank as wasmDownsampleStratifiedByRank,
+  downsampleByCluster as wasmDownsampleByCluster,
 } from './pkg/tunny_core'
 import type { ParseJournalResult, ParetoResult, TrialData } from '../types/index'
+
+export interface DownsampleResult {
+  indices: number[]
+  paretoCount: number
+  totalCount: number
+  durationMs: number
+}
 
 export interface SensitivityWasmResult {
   paramNames: string[]
@@ -217,6 +230,13 @@ export class WasmLoader {
     modelType: string,
   ) => Pdp2dWasmResult
 
+  initSampling!: (isMinimize: boolean[], paretoIndices: Uint32Array, allRanks: Uint32Array) => void
+  setClusterLabels!: (labels: Int32Array) => void
+  downsampleSmart!: (maxPoints: number, includePareto: boolean) => DownsampleResult
+  downsampleForThumbnail!: (maxPoints: number) => DownsampleResult
+  downsampleStratifiedByRank!: (maxPoints: number, nStrata: number) => DownsampleResult
+  downsampleByCluster!: (maxPoints: number) => DownsampleResult
+
   /**
    * Documentation.
    */
@@ -282,6 +302,17 @@ export class WasmLoader {
       wasmComputeTopsis(values, nTrials, nObjectives, weights, isMinimize) as TopsisWasmResult
     loader.computePdp2d = (param1Name, param2Name, objectiveName, nGrid, modelType) =>
       wasmComputePdp2d(param1Name, param2Name, objectiveName, nGrid, modelType) as Pdp2dWasmResult
+    loader.initSampling = (isMinimize, paretoIndices, allRanks) =>
+      wasmInitSampling(isMinimize, paretoIndices, allRanks)
+    loader.setClusterLabels = (labels) => wasmSetClusterLabels(labels)
+    loader.downsampleSmart = (maxPoints, includePareto) =>
+      wasmDownsampleSmart(maxPoints, includePareto) as DownsampleResult
+    loader.downsampleForThumbnail = (maxPoints) =>
+      wasmDownsampleForThumbnail(maxPoints) as DownsampleResult
+    loader.downsampleStratifiedByRank = (maxPoints, nStrata) =>
+      wasmDownsampleStratifiedByRank(maxPoints, nStrata) as DownsampleResult
+    loader.downsampleByCluster = (maxPoints) =>
+      wasmDownsampleByCluster(maxPoints) as DownsampleResult
 
     return loader
   }

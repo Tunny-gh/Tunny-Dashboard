@@ -134,6 +134,16 @@ vi.mock('../../wasm/wasmLoader', () => ({
   WasmLoader: { getInstance: mockWasmGetInstance1608, reset: vi.fn() },
 }))
 
+// Mock downsampleStore to prevent module-level side effects
+// (downsampleStore calls useStudyStore.getState() and useSelectionStore.subscribe()
+// at module initialization time, which fails when those stores lack these methods)
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: (key: string) => Uint32Array }) => unknown) =>
+      selector({ getIndices: () => new Uint32Array(0) }),
+  ),
+}))
+
 // -------------------------------------------------------------------------
 // Documentation.
 // -------------------------------------------------------------------------

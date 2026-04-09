@@ -672,7 +672,7 @@ mod tests {
         let params = vec![0.0_f64, 0.0, 0.0, -2.0]; // [log_ls0, log_ls1, log_sf, log_sn]
         let ndim = 2;
 
-        let analytical = log_ml_gradient(&x, &y, &params);
+        let (_, analytical) = log_ml_with_gradient(&x, &y, &params);
         let eps = 1e-5;
 
         for d in 0..params.len() {
@@ -791,7 +791,7 @@ mod tests {
         let y: Vec<f64> = x.iter().map(|xi| xi[0] + xi[1]).collect();
         let params = vec![0.0f64, 0.0, 0.0, -2.0];
 
-        let reference_grad = log_ml_gradient(&x, &y, &params);
+        let (_, reference_grad) = log_ml_with_gradient(&x, &y, &params);
         let (_, unified_grad) = log_ml_with_gradient(&x, &y, &params);
 
         assert_eq!(
@@ -799,7 +799,7 @@ mod tests {
             reference_grad.len(),
             "Gradient dimension mismatch"
         );
-        for (d, (u, r)) in unified_grad.iter().zip(reference_grad.iter()).enumerate() {
+        for (d, (&u, &r)) in unified_grad.iter().zip(reference_grad.iter()).enumerate() {
             let rel_err = (u - r).abs() / (r.abs() + 1e-8);
             assert!(
                 rel_err < 1e-8,

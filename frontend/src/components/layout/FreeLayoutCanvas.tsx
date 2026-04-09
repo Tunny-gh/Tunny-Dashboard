@@ -34,6 +34,8 @@ import { DimReductionScatter } from '../charts/DimReductionScatter'
 import { TopsisRankingChart } from '../charts/TopsisRankingChart'
 import { SurfacePlot3D } from '../charts/SurfacePlot3D'
 import { useAnalysisStore } from '../../stores/analysisStore'
+import { useDownsampleStore } from '../../stores/downsampleStore'
+import type { DownsampleKey } from '../../types/downsampling'
 
 // -------------------------------------------------------------------------
 // Constants
@@ -62,6 +64,78 @@ const CHART_LABELS: Partial<Record<ChartId, string>> = {
 
 /** Grid dimension count（4×4） */
 const GRID_SIZE = 4
+
+/** Which DownsampleKey each chart uses for its primary render pass. */
+const CHART_DOWNSAMPLE_KEY: Partial<Record<ChartId, DownsampleKey>> = {
+  'pareto-front': 'scatter',
+  'objective-pair-matrix': 'scatter',
+  'scatter-matrix': 'thumbnail',
+  'parallel-coords': 'pcp',
+  slice: 'data_points',
+  surface3d: 'data_points',
+  'cluster-view': 'cluster',
+  umap: 'cluster',
+}
+
+/** Format a point count as "50K", "1.2K", or "800". */
+function formatPts(n: number): string {
+  if (n >= 10_000) return `${Math.round(n / 1000)}K`
+  if (n >= 1_000) return `${(n / 1000).toFixed(1).replace('.0', '')}K`
+  return String(n)
+}
+
+/**
+ * Small badge shown in the chart card header when downsampling is active.
+ * Shows "rendered / total" counts so users can tell at a glance that not all
+ * data points are being drawn.
+ */
+function DownsampleBadge({ chartId }: { chartId: ChartId }) {
+  const downsampleKey = CHART_DOWNSAMPLE_KEY[chartId]
+  const isComputing = useDownsampleStore((s) => s.isComputing)
+  const indices = useDownsampleStore((s) => (downsampleKey ? s.getIndices(downsampleKey) : null))
+  const totalCount = useStudyStore((s) => s.gpuBuffer?.trialCount ?? 0)
+
+  if (!downsampleKey) return null
+
+  if (isComputing) {
+    return (
+      <span
+        style={{
+          fontSize: '10px',
+          color: '#b45309',
+          padding: '1px 5px',
+          background: 'rgba(217,119,6,0.12)',
+          borderRadius: '3px',
+          fontWeight: 'normal',
+        }}
+      >
+        computing…
+      </span>
+    )
+  }
+
+  // No data yet or all points shown → no badge needed
+  if (!indices || indices.length === 0 || totalCount === 0 || indices.length >= totalCount)
+    return null
+
+  return (
+    <span
+      title={`Downsampled: showing ${indices.length.toLocaleString()} of ${totalCount.toLocaleString()} points`}
+      style={{
+        fontSize: '10px',
+        color: 'var(--accent)',
+        padding: '1px 5px',
+        background: 'rgba(59,130,246,0.12)',
+        borderRadius: '3px',
+        fontWeight: 'normal',
+        cursor: 'default',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {formatPts(indices.length)}&thinsp;/&thinsp;{formatPts(totalCount)}
+    </span>
+  )
+}
 
 // -------------------------------------------------------------------------
 // Documentation.
@@ -572,7 +646,10 @@ export const FreeLayoutCanvas: React.FC = () => {
                   justifyContent: 'space-between',
                 }}
               >
-                <span>{CHART_LABELS[chartId] ?? chartId}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{CHART_LABELS[chartId] ?? chartId}</span>
+                  <DownsampleBadge chartId={chartId} />
+                </span>
                 <button
                   data-testid={`chart-close-btn-${cellId}`}
                   onClick={(e) => {

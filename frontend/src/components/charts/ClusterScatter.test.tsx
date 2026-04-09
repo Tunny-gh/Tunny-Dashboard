@@ -20,6 +20,18 @@ vi.mock('../panels/ClusterList', () => ({
   getClusterColor: (id: number) => `#color${id}`,
 }))
 
+const { mockGetIndicesCS } = vi.hoisted(() => {
+  const mockGetIndicesCS = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndicesCS }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: typeof mockGetIndicesCS }) => unknown) =>
+      selector({ getIndices: mockGetIndicesCS }),
+  ),
+}))
+
 import { ClusterScatter } from './ClusterScatter'
 
 // ---------------------------------------------------------------------------
@@ -103,5 +115,50 @@ describe('ClusterScatter', () => {
     const seriesNames = option.series.map((s: { name: string }) => s.name)
     expect(seriesNames).toContain('Cluster 0')
     expect(seriesNames).toContain('Cluster 1')
+  })
+})
+
+// -------------------------------------------------------------------------
+// TASK-1671: cluster index integration (ClusterScatter)
+// -------------------------------------------------------------------------
+
+describe('ClusterScatter - cluster index integration (TASK-1671)', () => {
+  beforeEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('TC-1671-01: getIndices called with "cluster"', () => {
+    mockGetIndicesCS.mockReturnValue(new Uint32Array(0))
+    mockUseClusterStore.mockReturnValue({
+      pcaProjections: mockProjections,
+      clusterLabels: null,
+      isRunning: false,
+      clusterError: null,
+    })
+    render(<ClusterScatter />)
+    expect(mockGetIndicesCS).toHaveBeenCalledWith('cluster')
+  })
+
+  it('TC-1671-02: cluster indices filter projections', () => {
+    // Only show index 1
+    mockGetIndicesCS.mockImplementation((key: string) => {
+      if (key === 'cluster') return new Uint32Array([1])
+      return new Uint32Array(0)
+    })
+    mockUseClusterStore.mockReturnValue({
+      pcaProjections: mockProjections, // [[0,1],[2,3],[4,5]]
+      clusterLabels: null,
+      isRunning: false,
+      clusterError: null,
+    })
+    render(<ClusterScatter />)
+
+    const chart = screen.getByTestId('echarts')
+    const option = JSON.parse(chart.dataset.option ?? '{}')
+    const allData = option.series.flatMap((s: { data: number[][] }) => s.data)
+    // Only index 1 → [2,3]
+    expect(allData).toHaveLength(1)
+    expect(allData[0]).toEqual([2, 3])
   })
 })

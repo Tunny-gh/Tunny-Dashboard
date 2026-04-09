@@ -42,6 +42,18 @@ vi.mock('../../stores/studyStore', () => ({
 // Mock echarts-for-react (replaces deck.gl after refactor)
 vi.mock('echarts-for-react')
 
+const { mockGetIndicesSurf } = vi.hoisted(() => {
+  const mockGetIndicesSurf = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndicesSurf }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: typeof mockGetIndicesSurf }) => unknown) =>
+      selector({ getIndices: mockGetIndicesSurf }),
+  ),
+}))
+
 import { SurfacePlot3D } from './SurfacePlot3D'
 import { useStudyStore } from '../../stores/studyStore'
 import type { Study } from '../../types'
@@ -132,6 +144,13 @@ describe('SurfacePlot3D', () => {
     const modelSelect = selects[selects.length - 1]
     fireEvent.change(modelSelect, { target: { value: 'random_forest' } })
     expect(mockSetSurrogateModelType).toHaveBeenCalledWith('random_forest')
+  })
+
+  // TC-1670-01: getIndices called with "data_points"
+  it('TC-1670-01: getIndices is called with "data_points" (reserved for future overlay)', () => {
+    ;(useStudyStore as ReturnType<typeof vi.fn>).mockReturnValue(makeStudy())
+    render(<SurfacePlot3D />)
+    expect(mockGetIndicesSurf).toHaveBeenCalledWith('data_points')
   })
 
   // TC-1628-07: Cache hit renders chart container (ECharts heatmap)

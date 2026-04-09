@@ -63,6 +63,18 @@ vi.mock('../../stores/selectionStore', () => ({
     }),
 }))
 
+const { mockGetIndicesPC } = vi.hoisted(() => {
+  const mockGetIndicesPC = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndicesPC }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: typeof mockGetIndicesPC }) => unknown) =>
+      selector({ getIndices: mockGetIndicesPC }),
+  ),
+}))
+
 import { ParallelCoordinates } from './ParallelCoordinates'
 import { useStudyStore } from '../../stores/studyStore'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
@@ -266,5 +278,52 @@ describe('translated test case', () => {
       parallelAxis: unknown[]
     }
     expect(option.parallelAxis).toHaveLength(34)
+  })
+})
+
+// -------------------------------------------------------------------------
+// TASK-1668: pcp index integration
+// -------------------------------------------------------------------------
+
+describe('ParallelCoordinates - pcp index integration (TASK-1668)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useStudyStore.setState({ trialRows: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  test('TC-1668-01: getIndices called with "pcp"', () => {
+    mockGetIndicesPC.mockReturnValue(new Uint32Array(0))
+    render(<ParallelCoordinates gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy()} />)
+    expect(mockGetIndicesPC).toHaveBeenCalledWith('pcp')
+  })
+
+  test('TC-1668-02: pcp indices filter trialRows for series data', () => {
+    const study = makeStudy({ paramNames: ['x1'], objectiveNames: ['obj1'] })
+    useStudyStore.setState({
+      trialRows: [
+        { trialId: 0, params: { x1: 1 }, values: [0.1], paretoRank: null },
+        { trialId: 1, params: { x1: 2 }, values: [0.2], paretoRank: null },
+        { trialId: 2, params: { x1: 3 }, values: [0.3], paretoRank: null },
+      ],
+    })
+    // Only show trials at indices 0 and 2
+    mockGetIndicesPC.mockImplementation((key: string) => {
+      if (key === 'pcp') return new Uint32Array([0, 2])
+      return new Uint32Array(0)
+    })
+
+    render(<ParallelCoordinates gpuBuffer={makeGpuBuffer(3)} currentStudy={study} />)
+
+    const el = screen.getByTestId('echarts-pc')
+    const option = JSON.parse(el.getAttribute('data-option') ?? '{}') as {
+      series: Array<{ data: number[][] }>
+    }
+    // Should only have 2 data points (indices 0 and 2)
+    const totalPoints = option.series.reduce((sum, s) => sum + (s.data?.length ?? 0), 0)
+    expect(totalPoints).toBe(2)
   })
 })

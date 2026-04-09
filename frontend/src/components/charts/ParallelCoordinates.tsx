@@ -10,6 +10,7 @@ import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useSelectionStore } from '../../stores/selectionStore'
 import { useStudyStore } from '../../stores/studyStore'
+import { useDownsampleStore } from '../../stores/downsampleStore'
 import { COLORMAPS } from '../../colormaps'
 import { useColormapName } from '../../hooks/useColormapName'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
@@ -55,6 +56,7 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
   const selectedIndices = useSelectionStore((s) => s.selectedIndices)
   const colormapName = useColormapName()
   const trialRows = useStudyStore((s) => s.trialRows)
+  const pcpIndices = useDownsampleStore((s) => s.getIndices('pcp'))
 
   // Documentation.
   if (!gpuBuffer || !currentStudy) {
@@ -67,10 +69,18 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
     const _axisNames = [...currentStudy.paramNames, ...currentStudy.objectiveNames]
     const _paramCount = currentStudy.paramNames.length
 
+    // Filter trialRows using pcp indices for downsampling
+    const _visibleRows =
+      pcpIndices.length > 0
+        ? Array.from(pcpIndices)
+            .map((i) => trialRows[i])
+            .filter((t) => t !== undefined)
+        : trialRows
+
     // Series Data Build
     const _seriesData: number[][] =
-      trialRows.length > 0
-        ? trialRows.map((trial) =>
+      _visibleRows.length > 0
+        ? _visibleRows.map((trial) =>
             _axisNames.map((axisName, dim) => {
               const raw =
                 dim < _paramCount ? trial.params[axisName] : trial.values[dim - _paramCount]
@@ -180,7 +190,7 @@ export function ParallelCoordinates({ gpuBuffer, currentStudy }: ParallelCoordin
         ],
       },
     }
-  }, [currentStudy, trialRows, gpuBuffer, selectedIndices, colormapName])
+  }, [currentStudy, trialRows, gpuBuffer, selectedIndices, colormapName, pcpIndices])
 
   /**
    * Documentation.

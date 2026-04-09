@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import 'echarts-gl'
 import { useStudyStore } from '../../stores/studyStore'
 import { useAnalysisStore } from '../../stores/analysisStore'
+import { useDownsampleStore } from '../../stores/downsampleStore'
 import { COLORMAPS } from '../../colormaps'
 import { useColormapName } from '../../hooks/useColormapName'
 import { EmptyState } from '../common/EmptyState'
@@ -26,6 +27,9 @@ const MODEL_COMPUTE_TIME: Record<SurrogateModelType, string> = {
 export function SurfacePlot3D() {
   const currentStudy = useStudyStore((s) => s.currentStudy)
   const colormapName = useColormapName()
+  // Reserved for future data point overlay on the 3D surface
+  const _dataPointIndices = useDownsampleStore((s) => s.getIndices('data_points'))
+  void _dataPointIndices
   const {
     surrogateModelType,
     surface3dCache,

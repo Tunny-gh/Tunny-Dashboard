@@ -56,16 +56,18 @@ pub fn compute_topsis(
         return Ok(uniform_score_result(n_trials, n_objectives, 0.5, &start));
     }
 
-    // English comment.
+    // Flat row-major matrix: avoids 50K separate heap allocations and improves cache locality.
+    let n_valid = valid_indices.len();
     let weighted_matrix =
-        build_weighted_matrix(values, n_trials, n_objectives, weights, &valid_indices);
+        build_weighted_matrix(values, n_objectives, weights, &valid_indices, n_valid);
 
     // English comment.
     let (positive_ideal, negative_ideal) =
-        find_ideal_solutions(&weighted_matrix, n_objectives, is_minimize);
+        find_ideal_solutions(&weighted_matrix, n_valid, n_objectives, is_minimize);
 
     // English comment.
-    let valid_scores = compute_scores(&weighted_matrix, &positive_ideal, &negative_ideal);
+    let valid_scores =
+        compute_scores(&weighted_matrix, n_valid, n_objectives, &positive_ideal, &negative_ideal);
 
     // English comment.
     let mut scores = vec![0.0_f64; n_trials];
@@ -75,7 +77,7 @@ pub fn compute_topsis(
 
     // English comment.
     let mut ranked_indices: Vec<u32> = (0..n_trials as u32).collect();
-    ranked_indices.sort_by(|&a, &b| {
+    ranked_indices.sort_unstable_by(|&a, &b| {
         scores[b as usize]
             .partial_cmp(&scores[a as usize])
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -157,18 +159,19 @@ fn uniform_score_result(
     }
 }
 
-/// English documentation.
+/// Build a flat (row-major) weighted normalized matrix.
 ///
 /// r_ij = v_ij / sqrt(sum_i(v_ij^2))  → w_ij = weights[j] * r_ij
 ///
-/// English documentation.
+/// Using a flat Vec<f64> instead of Vec<Vec<f64>> avoids n_valid separate heap
+/// allocations and gives contiguous memory access (better cache locality).
 fn build_weighted_matrix(
     values: &[f64],
-    _n_trials: usize,
     n_objectives: usize,
     weights: &[f64],
     valid_indices: &[usize],
-) -> Vec<Vec<f64>> {
+    n_valid: usize,
+) -> Vec<f64> {
     // English comment.
     let mut col_norms = vec![0.0_f64; n_objectives];
     for &i in valid_indices {
@@ -181,50 +184,55 @@ fn build_weighted_matrix(
         *norm = norm.sqrt();
     }
 
-    // English comment.
-    valid_indices
-        .iter()
-        .map(|&i| {
-            (0..n_objectives)
-                .map(|j| {
-                    let v = values[i * n_objectives + j];
-                    let r = if col_norms[j].abs() < f64::EPSILON {
-                        0.0
-                    } else {
-                        v / col_norms[j]
-                    };
-                    r * weights[j]
-                })
-                .collect()
-        })
-        .collect()
+    // Build flat row-major matrix in one contiguous allocation.
+    let mut matrix = Vec::with_capacity(n_valid * n_objectives);
+    for &i in valid_indices {
+        for j in 0..n_objectives {
+            let v = values[i * n_objectives + j];
+            let r = if col_norms[j].abs() < f64::EPSILON {
+                0.0
+            } else {
+                v / col_norms[j]
+            };
+            matrix.push(r * weights[j]);
+        }
+    }
+    matrix
 }
 
 /// English documentation.
 ///
-/// English documentation.
-/// English documentation.
+/// Single row-major pass: cache-friendly, avoids multiple column scans.
 fn find_ideal_solutions(
-    weighted_matrix: &[Vec<f64>],
+    weighted_matrix: &[f64],
+    n_valid: usize,
     n_objectives: usize,
     is_minimize: &[bool],
 ) -> (Vec<f64>, Vec<f64>) {
+    let mut col_min = vec![f64::INFINITY; n_objectives];
+    let mut col_max = vec![f64::NEG_INFINITY; n_objectives];
+
+    // Single pass over all rows (row-major, contiguous access).
+    for i in 0..n_valid {
+        let base = i * n_objectives;
+        for j in 0..n_objectives {
+            let v = weighted_matrix[base + j];
+            if v < col_min[j] {
+                col_min[j] = v;
+            }
+            if v > col_max[j] {
+                col_max[j] = v;
+            }
+        }
+    }
+
     let mut positive = vec![0.0_f64; n_objectives];
     let mut negative = vec![0.0_f64; n_objectives];
-
     for j in 0..n_objectives {
-        let col_min = weighted_matrix
-            .iter()
-            .map(|r| r[j])
-            .fold(f64::INFINITY, f64::min);
-        let col_max = weighted_matrix
-            .iter()
-            .map(|r| r[j])
-            .fold(f64::NEG_INFINITY, f64::max);
         (positive[j], negative[j]) = if is_minimize[j] {
-            (col_min, col_max) // English: English
+            (col_min[j], col_max[j]) // English: English
         } else {
-            (col_max, col_min) // English: English
+            (col_max[j], col_min[j]) // English: English
         };
     }
     (positive, negative)
@@ -236,23 +244,21 @@ fn find_ideal_solutions(
 /// D-_i = sqrt(sum_j(w_ij - A-_j)^2)
 /// score_i = D-_i / (D+_i + D-_i)  D++D-=0 → 0.5 🔵
 fn compute_scores(
-    weighted_matrix: &[Vec<f64>],
+    weighted_matrix: &[f64],
+    n_valid: usize,
+    n_objectives: usize,
     positive_ideal: &[f64],
     negative_ideal: &[f64],
 ) -> Vec<f64> {
-    weighted_matrix
-        .iter()
-        .map(|row| {
-            let d_plus: f64 = row
-                .iter()
-                .enumerate()
-                .map(|(j, &w)| (w - positive_ideal[j]).powi(2))
+    (0..n_valid)
+        .map(|i| {
+            let base = i * n_objectives;
+            let d_plus: f64 = (0..n_objectives)
+                .map(|j| (weighted_matrix[base + j] - positive_ideal[j]).powi(2))
                 .sum::<f64>()
                 .sqrt();
-            let d_minus: f64 = row
-                .iter()
-                .enumerate()
-                .map(|(j, &w)| (w - negative_ideal[j]).powi(2))
+            let d_minus: f64 = (0..n_objectives)
+                .map(|j| (weighted_matrix[base + j] - negative_ideal[j]).powi(2))
                 .sum::<f64>()
                 .sqrt();
             let denom = d_plus + d_minus;

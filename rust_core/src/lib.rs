@@ -634,6 +634,120 @@ pub fn wasm_compute_cluster_stats(labels: js_sys::Int32Array) -> Result<JsValue,
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+// =============================================================================
+// Downsampling WASM bindings
+// =============================================================================
+
+/// Initialize sampling state with pre-computed Pareto data.
+/// Must be called once after selectStudy, before any downsample function.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "initSampling")]
+pub fn wasm_init_sampling(
+    is_minimize: js_sys::Array,
+    pareto_indices: js_sys::Uint32Array,
+    all_ranks: js_sys::Uint32Array,
+) {
+    let is_minimize: Vec<bool> = is_minimize
+        .iter()
+        .map(|v| v.as_bool().unwrap_or(true))
+        .collect();
+    crate::sampling::init_sampling(is_minimize, pareto_indices.to_vec(), all_ranks.to_vec());
+}
+
+/// Store k-means cluster labels for use by downsample_by_cluster.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "setClusterLabels")]
+pub fn wasm_set_cluster_labels(labels: js_sys::Int32Array) {
+    crate::sampling::set_cluster_labels(labels.to_vec());
+}
+
+/// Downsample to max_points using smart (Pareto-reserving) strategy.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "downsampleSmart")]
+pub fn wasm_downsample_smart(max_points: u32, include_pareto: bool) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    match crate::sampling::downsample_smart(max_points as usize, include_pareto) {
+        Some(r) => {
+            let output = serde_json::json!({
+                "indices": r.indices,
+                "paretoCount": r.pareto_count,
+                "totalCount": r.total_count,
+                "durationMs": r.duration_ms,
+            });
+            output
+                .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
+/// Downsample for ScatterMatrix thumbnails (Pareto ≤ 50%, grid fill).
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "downsampleForThumbnail")]
+pub fn wasm_downsample_for_thumbnail(max_points: u32) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    match crate::sampling::downsample_for_thumbnail(max_points as usize) {
+        Some(r) => {
+            let output = serde_json::json!({
+                "indices": r.indices,
+                "paretoCount": r.pareto_count,
+                "totalCount": r.total_count,
+                "durationMs": r.duration_ms,
+            });
+            output
+                .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
+/// Downsample with rank-stratified distribution for ParallelCoordinates.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "downsampleStratifiedByRank")]
+pub fn wasm_downsample_stratified_by_rank(
+    max_points: u32,
+    n_strata: u32,
+) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    match crate::sampling::downsample_stratified_by_rank(max_points as usize, n_strata as usize) {
+        Some(r) => {
+            let output = serde_json::json!({
+                "indices": r.indices,
+                "paretoCount": r.pareto_count,
+                "totalCount": r.total_count,
+                "durationMs": r.duration_ms,
+            });
+            output
+                .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
+/// Downsample with equal-per-cluster distribution for ClusterScatter.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen(js_name = "downsampleByCluster")]
+pub fn wasm_downsample_by_cluster(max_points: u32) -> Result<JsValue, JsValue> {
+    use serde::Serialize;
+    match crate::sampling::downsample_by_cluster(max_points as usize) {
+        Some(r) => {
+            let output = serde_json::json!({
+                "indices": r.indices,
+                "paretoCount": r.pareto_count,
+                "totalCount": r.total_count,
+                "durationMs": r.duration_ms,
+            });
+            output
+                .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        None => Err(JsValue::from_str("No active study")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

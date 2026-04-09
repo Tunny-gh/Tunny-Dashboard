@@ -26,6 +26,19 @@ vi.mock('../../wasm/gpuBuffer', () => ({
   GpuBuffer: vi.fn(),
 }))
 
+const { mockGetIndicesOPM } = vi.hoisted(() => {
+  const mockGetIndicesOPM = vi.fn().mockReturnValue(new Uint32Array(0))
+  return { mockGetIndicesOPM }
+})
+
+vi.mock('../../stores/downsampleStore', () => ({
+  useDownsampleStore: vi.fn(
+    (selector: (s: { getIndices: typeof mockGetIndicesOPM }) => unknown) =>
+      selector({ getIndices: mockGetIndicesOPM }),
+  ),
+}))
+
+import { ScatterplotLayer } from 'deck.gl'
 import { ObjectivePairMatrix } from './ObjectivePairMatrix'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
@@ -168,5 +181,38 @@ describe('translated test case', () => {
     render(<ObjectivePairMatrix gpuBuffer={null} currentStudy={null} />)
 
     expect(screen.getByText('Data not loaded')).toBeInTheDocument()
+  })
+})
+
+// -------------------------------------------------------------------------
+// TASK-1666: scatter index integration
+// -------------------------------------------------------------------------
+
+describe('ObjectivePairMatrix - scatter index integration (TASK-1666)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  test('TC-1666-01: getIndices called with "scatter"', () => {
+    mockGetIndicesOPM.mockReturnValue(new Uint32Array(0))
+    render(<ObjectivePairMatrix gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy2()} />)
+    expect(mockGetIndicesOPM).toHaveBeenCalledWith('scatter')
+  })
+
+  test('TC-1666-02: uses renderIndices length when indices are provided', () => {
+    const indices = new Uint32Array([0, 2])
+    mockGetIndicesOPM.mockReturnValue(indices)
+    render(<ObjectivePairMatrix gpuBuffer={makeGpuBuffer()} currentStudy={makeStudy2()} />)
+
+    const calls = (ScatterplotLayer as unknown as ReturnType<typeof vi.fn>).mock.calls
+    // First lower-triangle cell (row=1,col=0) should use indices length
+    const lowerTriangleCalls = calls.filter(
+      ([props]: [{ id: string }]) => props.id && props.id.startsWith('scatter-'),
+    )
+    expect(lowerTriangleCalls[0][0].data.length).toBe(2)
   })
 })

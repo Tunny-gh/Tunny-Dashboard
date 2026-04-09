@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Study, TrialData } from '../../types'
 import { useSelectionStore } from '../../stores/selectionStore'
+import { useDownsampleStore } from '../../stores/downsampleStore'
 import { COLORMAPS } from '../../colormaps'
 import type { ColormapName } from '../../colormaps'
 import { useColormapName } from '../../hooks/useColormapName'
@@ -234,6 +235,30 @@ export function ScatterMatrix({ trialRows, currentStudy }: ScatterMatrixProps) {
   const [mode, setMode] = useState<ScatterMode>('mode1')
   const [sortOrder, setSortOrder] = useState<SortOrder>('alphabetical')
   const colormapName = useColormapName()
+  const thumbnailIndices = useDownsampleStore((s) => s.getIndices('thumbnail'))
+  const hoverIndices = useDownsampleStore((s) => s.getIndices('hover'))
+
+  // Filter trialRows using downsampled indices for thumbnail rendering
+  const visibleRows = useMemo(() => {
+    if (thumbnailIndices.length > 0) {
+      return Array.from(thumbnailIndices)
+        .map((i) => trialRows[i])
+        .filter((t): t is TrialData => t !== undefined)
+    }
+    return trialRows
+  }, [trialRows, thumbnailIndices])
+
+  // hoverRows for hover-expanded view (future use)
+  const hoverRows = useMemo(() => {
+    if (hoverIndices.length > 0) {
+      return Array.from(hoverIndices)
+        .map((i) => trialRows[i])
+        .filter((t): t is TrialData => t !== undefined)
+    }
+    return trialRows
+  }, [trialRows, hoverIndices])
+
+  void hoverRows // reserved for future hover expansion
 
   // Pre-compute normalised first-objective colour values for rainbow mapping
   const colorValues = useMemo(() => {
@@ -338,7 +363,7 @@ export function ScatterMatrix({ trialRows, currentStudy }: ScatterMatrixProps) {
               col={col}
               xAxis={xAxis}
               yAxis={yAxis}
-              trialRows={trialRows}
+              trialRows={visibleRows}
               study={currentStudy}
               colorValues={colorValues}
               colormapName={colormapName}

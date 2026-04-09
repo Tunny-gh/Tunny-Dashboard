@@ -13,6 +13,7 @@
 import { useState, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { EmptyState } from '../common/EmptyState'
+import { useDownsampleStore } from '../../stores/downsampleStore'
 import { COLORMAPS } from '../../colormaps'
 import { useColormapName } from '../../hooks/useColormapName'
 
@@ -66,9 +67,20 @@ export function SlicePlot({
   const colormapName = useColormapName()
   const [paramIndex, setParamIndex] = useState(0)
   const [objIndex, setObjIndex] = useState(initialObjIdx)
+  const dataPointIndices = useDownsampleStore((s) => s.getIndices('data_points'))
+
+  // Filter trials using downsampled indices
+  const visibleTrials = useMemo(() => {
+    if (dataPointIndices.length > 0) {
+      return Array.from(dataPointIndices)
+        .map((i) => trials[i])
+        .filter((t): t is SliceTrial => t !== undefined)
+    }
+    return trials
+  }, [trials, dataPointIndices])
 
   // Documentation.
-  if (trials.length === 0 || paramNames.length === 0) {
+  if (visibleTrials.length === 0 || paramNames.length === 0) {
     return <EmptyState />
   }
 
@@ -79,7 +91,7 @@ export function SlicePlot({
   // ECharts Option Build: memoize heavy computation
   const option = useMemo(() => {
     // Documentation.
-    const scatterData = trials
+    const scatterData = visibleTrials
       .filter(
         (t) =>
           t.values !== null &&
@@ -90,11 +102,11 @@ export function SlicePlot({
 
     // Documentation.
     const isFiltered =
-      selectedIndices && selectedIndices.length > 0 && selectedIndices.length < trials.length
+      selectedIndices && selectedIndices.length > 0 && selectedIndices.length < visibleTrials.length
     const selectedSet = isFiltered ? new Set(selectedIndices) : null
 
     // Documentation.
-    const validTrialIndices = trials
+    const validTrialIndices = visibleTrials
       .map((t, i) => ({ trial: t, originalIndex: i }))
       .filter(
         ({ trial: t }) =>
@@ -156,7 +168,7 @@ export function SlicePlot({
       series: seriesList,
       grid: { containLabel: true },
     }
-  }, [trials, selectedParam, selectedObj, objIndex, selectedIndices, colormapName])
+  }, [visibleTrials, selectedParam, selectedObj, objIndex, selectedIndices, colormapName])
 
   return (
     <div

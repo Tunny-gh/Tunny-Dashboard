@@ -9,6 +9,7 @@
  */
 
 import { DeckGL, ScatterplotLayer } from 'deck.gl'
+import { useDownsampleStore } from '../../stores/downsampleStore'
 import type { GpuBuffer } from '../../wasm/gpuBuffer'
 import type { Study } from '../../types'
 
@@ -51,6 +52,8 @@ export function ObjectivePairMatrix({
   currentStudy,
   onCellClick,
 }: ObjectivePairMatrixProps) {
+  const renderIndices = useDownsampleStore((s) => s.getIndices('scatter'))
+
   if (!currentStudy) {
     return (
       <div style={{ padding: '12px' }}>
@@ -116,12 +119,14 @@ export function ObjectivePairMatrix({
               layers={[
                 new ScatterplotLayer({
                   id: `scatter-${row}-${col}`,
-                  data: { length: gpuBuffer.trialCount },
-                  getPosition: (_: unknown, { index }: { index: number }) => [
-                    gpuBuffer.positions[index * 2],
-                    gpuBuffer.positions[index * 2 + 1],
-                    0,
-                  ],
+                  data: {
+                    length:
+                      renderIndices.length > 0 ? renderIndices.length : gpuBuffer.trialCount,
+                  },
+                  getPosition: (_: unknown, { index }: { index: number }) => {
+                    const trialIdx = renderIndices.length > 0 ? renderIndices[index] : index
+                    return [gpuBuffer.positions[trialIdx * 2], gpuBuffer.positions[trialIdx * 2 + 1], 0]
+                  },
                   getColor: [79, 70, 229, 180], // Indigo, semi-transparent
                   getRadius: 3,
                   pickable: false,
