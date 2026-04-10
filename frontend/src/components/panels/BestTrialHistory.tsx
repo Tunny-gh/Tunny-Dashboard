@@ -9,7 +9,7 @@
  * Documentation.
  */
 
-import type { TrialData, OptimizationDirection } from '../charts/OptimizationHistory'
+import type { OptimizationDirection, TrialData } from '../charts/OptimizationHistory.types'
 
 // -------------------------------------------------------------------------
 // Documentation.

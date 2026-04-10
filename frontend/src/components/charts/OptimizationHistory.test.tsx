@@ -15,7 +15,8 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 vi.mock('echarts-for-react')
 
-import { OptimizationHistory, detectPhase } from './OptimizationHistory'
+import { OptimizationHistory } from './OptimizationHistory'
+import { detectPhase } from './OptimizationHistory.utils'
 
 // -------------------------------------------------------------------------
 // Test helpers

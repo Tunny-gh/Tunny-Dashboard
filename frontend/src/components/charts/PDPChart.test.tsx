@@ -16,8 +16,9 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 vi.mock('echarts-for-react')
 
-import { PDPChart, getModelQuality } from './PDPChart'
-import type { PdpData1d, PdpData2d } from './PDPChart'
+import { PDPChart } from './PDPChart'
+import { getModelQuality } from './PDPChart.quality'
+import type { PdpData1d, PdpData2d } from './PDPChart.types'
 
 // -------------------------------------------------------------------------
 // Test helpers

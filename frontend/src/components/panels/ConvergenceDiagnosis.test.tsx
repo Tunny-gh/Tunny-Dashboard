@@ -10,7 +10,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 
 import { ConvergenceDiagnosis, diagnoseConvergence } from './ConvergenceDiagnosis'
-import type { TrialData } from '../charts/OptimizationHistory'
+import type { TrialData } from '../charts/OptimizationHistory.types'
 
 // -------------------------------------------------------------------------
 // Documentation.
