@@ -285,9 +285,9 @@ fn tc_801_p01_spearman_50000_x_30_x_4_under_500ms() {
         .collect();
 
     let start = std::time::Instant::now();
-    for param_col in &param_cols {
-        for obj_col in &obj_cols {
-            let _ = compute_spearman(param_col, obj_col);
+    for param_column in &param_cols {
+        for objective_column in &obj_cols {
+            let _ = compute_spearman(param_column, objective_column);
         }
     }
     let elapsed = start.elapsed();

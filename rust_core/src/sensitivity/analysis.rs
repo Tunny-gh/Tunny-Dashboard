@@ -1,7 +1,8 @@
 use crate::dataframe::{self, DataFrame};
 
 use super::{
-    compute_ridge, compute_spearman, data::get_param_numeric_values, RidgeResult, SensitivityResult,
+    compute_ridge, compute_spearman, data::get_param_numeric_values, ridge::gaussian_elimination,
+    RidgeResult, SensitivityResult,
 };
 
 fn empty_result(param_names: Vec<String>, objective_names: Vec<String>) -> SensitivityResult {
@@ -11,52 +12,6 @@ fn empty_result(param_names: Vec<String>, objective_names: Vec<String>) -> Sensi
         spearman: vec![],
         ridge: vec![],
     }
-}
-
-fn gaussian_elimination(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
-    let p = b.len();
-    if p == 0 {
-        return Some(vec![]);
-    }
-
-    for col in 0..p {
-        let pivot_row = (col..p)
-            .max_by(|&i, &j| {
-                a[i][col]
-                    .abs()
-                    .partial_cmp(&a[j][col].abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap_or(col);
-
-        a.swap(col, pivot_row);
-        b.swap(col, pivot_row);
-
-        let pivot = a[col][col];
-        if pivot.abs() < 1e-12 {
-            return None;
-        }
-
-        for row in (col + 1)..p {
-            let factor = a[row][col] / pivot;
-            for k in col..p {
-                let v = a[col][k] * factor;
-                a[row][k] -= v;
-            }
-            b[row] -= b[col] * factor;
-        }
-    }
-
-    let mut x = vec![0.0f64; p];
-    for i in (0..p).rev() {
-        let mut sum = b[i];
-        for j in (i + 1)..p {
-            sum -= a[i][j] * x[j];
-        }
-        x[i] = sum / a[i][i];
-    }
-
-    Some(x)
 }
 
 fn build_standardized_param_columns(df: &DataFrame, param_names: &[String], n: usize) -> Vec<f64> {
