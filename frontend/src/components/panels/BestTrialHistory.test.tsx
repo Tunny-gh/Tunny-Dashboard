@@ -10,7 +10,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 import { BestTrialHistory } from './BestTrialHistory'
-import type { TrialData } from '../charts/OptimizationHistory'
+import type { TrialData } from '../charts/OptimizationHistory.types'
 
 // -------------------------------------------------------------------------
 // Documentation.
