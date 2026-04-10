@@ -1,5 +1,9 @@
 import type { HistoryMode, OptimizationDirection, TrialData } from './OptimizationHistory.types'
-import { computeBestSeries, computeImprovementRate, computeMovingAverage } from './OptimizationHistory.utils'
+import {
+  computeBestSeries,
+  computeImprovementRate,
+  computeMovingAverage,
+} from './OptimizationHistory.utils'
 
 export const MODE_LABELS: Record<HistoryMode, string> = {
   best: 'Best History',
