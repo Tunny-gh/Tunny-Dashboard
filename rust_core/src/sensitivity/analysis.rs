@@ -1,6 +1,8 @@
 use crate::dataframe::{self, DataFrame};
 
-use super::{compute_ridge, compute_spearman, data::get_param_numeric_values, RidgeResult, SensitivityResult};
+use super::{
+    compute_ridge, compute_spearman, data::get_param_numeric_values, RidgeResult, SensitivityResult,
+};
 
 fn empty_result(param_names: Vec<String>, objective_names: Vec<String>) -> SensitivityResult {
     SensitivityResult {
@@ -83,7 +85,11 @@ fn build_standardized_param_columns(df: &DataFrame, param_names: &[String], n: u
     x_cols_flat
 }
 
-fn compute_ridge_from_standardized_columns(x_cols_flat: &[f64], n: usize, y: &[f64]) -> RidgeResult {
+fn compute_ridge_from_standardized_columns(
+    x_cols_flat: &[f64],
+    n: usize,
+    y: &[f64],
+) -> RidgeResult {
     let num_params = if n == 0 { 0 } else { x_cols_flat.len() / n };
     let y_mean = y.iter().sum::<f64>() / n as f64;
     let y_c: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();

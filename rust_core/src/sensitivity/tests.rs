@@ -166,7 +166,13 @@ fn tc_801_10_sensitivity_all_correct_structure() {
 #[test]
 fn tc_801_11_sensitivity_all_known_correlations() {
     let rows: Vec<TrialRow> = (0..20)
-        .map(|i| make_row_multi(i, &[("x1", i as f64), ("x2", (20 - i) as f64)], vec![i as f64]))
+        .map(|i| {
+            make_row_multi(
+                i,
+                &[("x1", i as f64), ("x2", (20 - i) as f64)],
+                vec![i as f64],
+            )
+        })
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
