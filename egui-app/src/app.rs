@@ -3,10 +3,12 @@ use std::sync::mpsc;
 use crate::state::app_state::{AppState, StudyContext};
 use crate::state::layout_state::LayoutState;
 use crate::state::messages::AppMessage;
+use crate::ui::widget_states::WidgetStates;
 
 pub struct TunnyApp {
     pub app_state: AppState,
     pub layout: LayoutState,
+    pub widget_states: WidgetStates,
     pub is_loading: bool,
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
@@ -19,6 +21,7 @@ impl TunnyApp {
         Self {
             app_state: AppState::new(),
             layout: LayoutState::default(),
+            widget_states: WidgetStates::default(),
             is_loading: false,
             load_error: None,
             tx,
@@ -36,8 +39,19 @@ impl TunnyApp {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
                 AppMessage::JournalParsed(studies) => {
-                    self.app_state.all_studies = studies;
-                    self.is_loading = false;
+                    // スタディが1件のみの場合は自動選択する
+                    if studies.len() == 1 {
+                        let meta = studies[0].clone();
+                        self.app_state.all_studies = studies;
+                        self.is_loading = true;
+                        let tx2 = self.tx.clone();
+                        crate::app::spawn_task(tx2, move || {
+                            crate::io::study::select_study_task(meta)
+                        });
+                    } else {
+                        self.app_state.all_studies = studies;
+                        self.is_loading = false;
+                    }
                 }
                 AppMessage::StudySelected {
                     meta,

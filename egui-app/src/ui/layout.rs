@@ -11,12 +11,8 @@ pub fn validate_panel_constraints(
     left_width: f32,
     bottom_height: f32,
 ) -> (f32, f32) {
-    let clamped_left = left_width
-        .max(LEFT_WIDTH_MIN)
-        .min(LEFT_WIDTH_MAX);
-    let clamped_bottom = bottom_height
-        .max(BOTTOM_HEIGHT_MIN)
-        .min(BOTTOM_HEIGHT_MAX);
+    let clamped_left = left_width.clamp(LEFT_WIDTH_MIN, LEFT_WIDTH_MAX);
+    let clamped_bottom = bottom_height.clamp(BOTTOM_HEIGHT_MIN, BOTTOM_HEIGHT_MAX);
     (clamped_left, clamped_bottom)
 }
 
@@ -59,7 +55,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         });
 
     egui::CentralPanel::default().show(ctx, |ui| {
-        show_main_canvas(ui, &mut app.app_state, &mut app.layout);
+        show_main_canvas(ui, &mut app.app_state, &mut app.layout, &mut app.widget_states);
     });
 }
 

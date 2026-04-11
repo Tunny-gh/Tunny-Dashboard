@@ -3,4 +3,5 @@ pub mod layout;
 pub mod left_panel;
 pub mod main_canvas;
 pub mod toolbar;
+pub mod widget_states;
 pub mod widgets;

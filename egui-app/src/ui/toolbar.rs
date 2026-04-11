@@ -48,11 +48,47 @@ pub fn show_toolbar(
 
         ui.separator();
 
-        // Study名表示
-        if let Some(ctx) = &app_state.current_study {
+        // Study選択: 複数スタディがある場合は ComboBox、1件の場合は名前表示
+        if app_state.all_studies.len() > 1 {
+            let current_name = app_state
+                .current_study
+                .as_ref()
+                .map(|c| c.meta.name.clone())
+                .unwrap_or_default();
+            let mut selected_name = current_name.clone();
+            egui::ComboBox::from_id_salt("study_select_combo")
+                .selected_text(if selected_name.is_empty() {
+                    "Select a study"
+                } else {
+                    &selected_name
+                })
+                .show_ui(ui, |ui| {
+                    for study in &app_state.all_studies {
+                        ui.selectable_value(
+                            &mut selected_name,
+                            study.name.clone(),
+                            &study.name,
+                        );
+                    }
+                });
+            if selected_name != current_name && !selected_name.is_empty() {
+                if let Some(meta) = app_state
+                    .all_studies
+                    .iter()
+                    .find(|s| s.name == selected_name)
+                    .cloned()
+                {
+                    *is_loading = true;
+                    let tx2 = tx.clone();
+                    crate::app::spawn_task(tx2, move || {
+                        crate::io::study::select_study_task(meta)
+                    });
+                }
+            }
+        } else if let Some(ctx) = &app_state.current_study {
             ui.label(&ctx.meta.name);
         } else if !app_state.all_studies.is_empty() {
-            ui.label("Select a study");
+            ui.label("Loading study...");
         } else {
             ui.label("Open a file");
         }
