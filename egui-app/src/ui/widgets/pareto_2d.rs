@@ -1,10 +1,37 @@
 use crate::render::colormap::compute_point_alpha;
-use crate::state::app_state::AppState;
+use crate::state::app_state::{AppState, TrialRow};
+
+type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
+
+/// ダウンサンプリングインデックスでトライアルをフィルタリングする
+/// indices が Some の場合はそのインデックスのトライアルのみ、None の場合は全件を返す
+pub fn filter_by_downsample_indices<'a>(
+    trial_rows: &'a [TrialRow],
+    indices: Option<&[u32]>,
+) -> Vec<&'a TrialRow> {
+    match indices {
+        Some(idx) => idx
+            .iter()
+            .filter_map(|&i| trial_rows.get(i as usize))
+            .collect(),
+        None => trial_rows.iter().collect(),
+    }
+}
+
+/// Pareto ランクに応じたマーカー半径を返す（ランク0が最大）
+pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
+    if pareto_rank == 0 {
+        5.0
+    } else {
+        2.5
+    }
+}
 
 /// 2D Pareto 散布図ウィジェット（egui_plot ベース）
 pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
+    pub use_downsample: bool,
 }
 
 impl Default for ParetoScatter2D {
@@ -12,6 +39,7 @@ impl Default for ParetoScatter2D {
         Self {
             x_axis: "obj0".to_string(),
             y_axis: "obj1".to_string(),
+            use_downsample: true,
         }
     }
 }
@@ -26,7 +54,17 @@ impl ParetoScatter2D {
         };
 
         let obj_names = ctx.meta.objective_names.clone();
-        let trial_rows = ctx.trial_rows.clone();
+        let downsample_indices = if self.use_downsample {
+            app_state.downsample_cache.scatter.clone()
+        } else {
+            None
+        };
+        let display_rows: Vec<crate::state::app_state::TrialRow> =
+            filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
+                .into_iter()
+                .cloned()
+                .collect();
+        let trial_rows = display_rows;
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
@@ -96,7 +134,7 @@ pub fn partition_points(
     highlighted: Option<u32>,
     x_idx: usize,
     y_idx: usize,
-) -> (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>) {
+) -> PartitionedPoints {
     let mut selected_pts = vec![];
     let mut unselected_pts = vec![];
     let mut highlight_pt = None;
@@ -182,5 +220,37 @@ mod tests {
         let widget = ParetoScatter2D::default();
         assert_eq!(widget.x_axis, "obj0");
         assert_eq!(widget.y_axis, "obj1");
+        assert!(widget.use_downsample);
+    }
+
+    // TASK-2020 tests
+
+    #[test]
+    fn filter_by_downsample_none_returns_all() {
+        let rows = vec![make_trial(0, vec![]), make_trial(1, vec![]), make_trial(2, vec![])];
+        let result = filter_by_downsample_indices(&rows, None);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn filter_by_downsample_some_returns_subset() {
+        let rows = vec![make_trial(0, vec![]), make_trial(1, vec![]), make_trial(2, vec![])];
+        let indices = vec![0u32, 2u32];
+        let result = filter_by_downsample_indices(&rows, Some(&indices));
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].trial_id, 0);
+        assert_eq!(result[1].trial_id, 2);
+    }
+
+    #[test]
+    fn pareto_marker_radius_rank0_is_larger() {
+        let r0 = pareto_marker_radius(0);
+        let r1 = pareto_marker_radius(1);
+        assert!(r0 > r1);
+    }
+
+    #[test]
+    fn pareto_marker_radius_nonzero_rank_same() {
+        assert_eq!(pareto_marker_radius(1), pareto_marker_radius(2));
     }
 }

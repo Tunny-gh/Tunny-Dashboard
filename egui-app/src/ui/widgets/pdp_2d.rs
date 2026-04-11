@@ -2,24 +2,13 @@ use crate::render::colormap::ColorMap;
 use crate::state::messages::PdpResult2d;
 
 /// PDP 2D ウィジェット状態
+#[derive(Default)]
 pub struct PdpChart2DState {
     pub selected_param1: String,
     pub selected_param2: String,
     pub selected_objective: usize,
     pub result: Option<PdpResult2d>,
     pub computing: bool,
-}
-
-impl Default for PdpChart2DState {
-    fn default() -> Self {
-        Self {
-            selected_param1: String::new(),
-            selected_param2: String::new(),
-            selected_objective: 0,
-            result: None,
-            computing: false,
-        }
-    }
 }
 
 impl PdpChart2DState {

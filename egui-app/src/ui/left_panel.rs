@@ -76,14 +76,14 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
                 .add(
                     egui::Slider::new(&mut filter_min, data_min..=data_max)
                         .text("min")
-                        .clamp_to_range(true),
+                        .clamping(egui::SliderClamping::Always),
                 )
                 .changed();
             changed |= ui
                 .add(
                     egui::Slider::new(&mut filter_max, data_min..=data_max)
                         .text("max")
-                        .clamp_to_range(true),
+                        .clamping(egui::SliderClamping::Always),
                 )
                 .changed();
 

@@ -70,9 +70,7 @@ impl ColorMap {
 /// trial_id が selected_indices に含まれるかでアルファ値を計算する。
 /// selected_indices が空の場合は全点が不透明（255）を返す。
 pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
-    if selected_indices.is_empty() {
-        255
-    } else if selected_indices.contains(&trial_id) {
+    if selected_indices.is_empty() || selected_indices.contains(&trial_id) {
         255
     } else {
         50

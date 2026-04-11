@@ -1,18 +1,10 @@
 use crate::state::app_state::HvHistory;
 
 /// Hypervolume 推移チャートウィジェット
+#[derive(Default)]
 pub struct HvHistoryChart {
     pub hv_history: Option<HvHistory>,
     pub computing: bool,
-}
-
-impl Default for HvHistoryChart {
-    fn default() -> Self {
-        Self {
-            hv_history: None,
-            computing: false,
-        }
-    }
 }
 
 impl HvHistoryChart {

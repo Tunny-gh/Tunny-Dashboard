@@ -1,4 +1,5 @@
 use crate::state::messages::{PdpResult, PdpResult1d};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PdpMode {
@@ -21,6 +22,19 @@ impl ModelType {
             ModelType::SparseKriging => "Sparse Kriging",
         }
     }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            ModelType::Ridge => "ridge",
+            ModelType::Kriging => "kriging",
+            ModelType::SparseKriging => "sparse_kriging",
+        }
+    }
+}
+
+/// PDP キャッシュキーを生成する
+pub fn cache_key(param: &str, obj_idx: usize, model: &ModelType) -> String {
+    format!("{}:{}:{}", param, obj_idx, model.to_str())
 }
 
 /// R² 値の品質分類を返す
@@ -63,6 +77,7 @@ pub struct PdpChart {
     pub model_type: ModelType,
     pub result: Option<PdpResult>,
     pub computing: bool,
+    pub cache: HashMap<String, PdpResult1d>,
 }
 
 impl Default for PdpChart {
@@ -74,7 +89,22 @@ impl Default for PdpChart {
             model_type: ModelType::Ridge,
             result: None,
             computing: false,
+            cache: HashMap::new(),
         }
+    }
+}
+
+impl PdpChart {
+    /// キャッシュを確認して結果を返す。キャッシュミスの場合は None を返す
+    pub fn try_cache(&self) -> Option<&PdpResult1d> {
+        let key = cache_key(&self.selected_param, self.selected_objective, &self.model_type);
+        self.cache.get(&key)
+    }
+
+    /// キャッシュに結果を挿入する
+    pub fn insert_cache(&mut self, param: &str, obj_idx: usize, result: PdpResult1d) {
+        let key = cache_key(param, obj_idx, &self.model_type);
+        self.cache.insert(key, result);
     }
 }
 
@@ -257,5 +287,54 @@ mod tests {
         assert_eq!(chart.model_type, ModelType::Ridge);
         assert!(!chart.computing);
         assert!(chart.result.is_none());
+        assert!(chart.cache.is_empty());
+    }
+
+    // TASK-2025 tests
+
+    #[test]
+    fn cache_key_same_inputs_produce_same_key() {
+        let k1 = cache_key("x", 0, &ModelType::Ridge);
+        let k2 = cache_key("x", 0, &ModelType::Ridge);
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn cache_key_different_model_produces_different_key() {
+        let k1 = cache_key("x", 0, &ModelType::Ridge);
+        let k2 = cache_key("x", 0, &ModelType::Kriging);
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn cache_key_different_param_produces_different_key() {
+        let k1 = cache_key("x", 0, &ModelType::Ridge);
+        let k2 = cache_key("y", 0, &ModelType::Ridge);
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn cache_hit_returns_result() {
+        let mut chart = PdpChart::default();
+        chart.selected_param = "x".to_string();
+        chart.selected_objective = 0;
+        let result = PdpResult1d {
+            x_values: vec![0.0, 1.0],
+            y_values: vec![0.5, 1.5],
+            y_upper: None,
+            y_lower: None,
+            ice_lines: vec![],
+            r2: None,
+            param_name: "x".to_string(),
+            objective_name: "obj0".to_string(),
+        };
+        chart.insert_cache("x", 0, result);
+        assert!(chart.try_cache().is_some());
+    }
+
+    #[test]
+    fn cache_miss_returns_none() {
+        let chart = PdpChart::default();
+        assert!(chart.try_cache().is_none());
     }
 }

@@ -1,3 +1,6 @@
+// Widget APIs are defined ahead of full UI wiring; suppress dead_code for now
+#![allow(dead_code)]
+
 mod app;
 mod io;
 mod render;
