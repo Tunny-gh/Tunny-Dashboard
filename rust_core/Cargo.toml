@@ -10,7 +10,7 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["wasm"]
+default = []
 wasm = ["wasm-bindgen", "js-sys", "web-sys", "serde-wasm-bindgen"]
 
 [dependencies]
@@ -34,7 +34,3 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "sampling_bench"
 harness = false
-
-[profile.release]
-opt-level = "s"
-lto = true

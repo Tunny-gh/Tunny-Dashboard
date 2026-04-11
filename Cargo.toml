@@ -1,0 +1,7 @@
+[workspace]
+members = ["rust_core", "egui-app"]
+resolver = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
