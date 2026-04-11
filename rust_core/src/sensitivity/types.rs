@@ -4,6 +4,12 @@ pub struct SensitivityResult {
     pub objective_names: Vec<String>,
     pub spearman: Vec<Vec<f64>>,
     pub ridge: Vec<RidgeResult>,
+    pub rf_anova: Option<RfAnovaResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RfAnovaResult {
+    pub importances: Vec<Vec<f64>>, // [param][objective]
 }
 
 #[derive(Debug, Clone)]

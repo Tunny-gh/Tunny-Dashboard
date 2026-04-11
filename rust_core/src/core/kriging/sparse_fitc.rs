@@ -35,7 +35,7 @@ pub(crate) fn select_inducing_points_kmeans(
     );
     assert!(n_dims > 0, "n_dims must be > 0");
 
-    let mut rng = crate::rf::Lcg::new(seed);
+    let mut rng = crate::core::random_forest::Lcg::new(seed);
 
     // --- Step 1: initialise centers by random sampling without replacement ---
     let mut indices: Vec<usize> = (0..n_samples).collect();
@@ -109,7 +109,7 @@ fn compute_centroids(
     n_samples: usize,
     n_dims: usize,
     m: usize,
-    rng: &mut crate::rf::Lcg,
+    rng: &mut crate::core::random_forest::Lcg,
 ) -> Vec<f64> {
     let mut sums = vec![0.0_f64; m * n_dims];
     let mut counts = vec![0_usize; m];
@@ -183,7 +183,7 @@ pub(crate) fn build_kzz(z: &[f64], m: usize, params: &[f64]) -> Vec<f64> {
         let zi: Vec<f64> = (0..n_dims).map(|d| z[d * m + i]).collect();
         for j in i..m {
             let zj: Vec<f64> = (0..n_dims).map(|d| z[d * m + j]).collect();
-            let k = crate::kriging::matern52_ard(&zi, &zj, log_ls, log_sf);
+            let k = crate::core::kriging::gaussian_process::matern52_ard(&zi, &zj, log_ls, log_sf);
             kzz[i * m + j] = k;
             kzz[j * m + i] = k;
         }
@@ -213,7 +213,8 @@ pub(crate) fn build_kxz(x: &[f64], z: &[f64], n: usize, m: usize, params: &[f64]
         let xi: Vec<f64> = (0..n_dims).map(|d| x[d * n + i]).collect();
         for j in 0..m {
             let zj: Vec<f64> = (0..n_dims).map(|d| z[d * m + j]).collect();
-            kxz[i * m + j] = crate::kriging::matern52_ard(&xi, &zj, log_ls, log_sf);
+            kxz[i * m + j] =
+                crate::core::kriging::gaussian_process::matern52_ard(&xi, &zj, log_ls, log_sf);
         }
     }
     kxz
@@ -500,13 +501,15 @@ pub(crate) fn optimize_fitc_hyperparams(
             break;
         }
 
-        let d = crate::kriging::lbfgs_direction(&grad_neg, &s_hist, &y_hist);
+        let d =
+            crate::core::kriging::gaussian_process::lbfgs_direction(&grad_neg, &s_hist, &y_hist);
 
         // Armijo line search
         let f_x = -lml;
         let neg_lml = |p: &[f64]| -fitc_lml(x, z, y, p, n, m);
-        let alpha =
-            crate::kriging::armijo_line_search(f_x, &grad_neg, &d, neg_lml, &params, 1e-4, 20);
+        let alpha = crate::core::kriging::gaussian_process::armijo_line_search(
+            f_x, &grad_neg, &d, neg_lml, &params, 1e-4, 20,
+        );
 
         // Clamp to prevent extreme log-scale params causing numerical instability
         let x_new: Vec<f64> = params

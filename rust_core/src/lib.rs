@@ -2,19 +2,20 @@
 use wasm_bindgen::prelude::*;
 
 pub mod clustering;
-pub mod dataframe;
-pub mod export;
-pub mod filter;
-pub mod journal_parser;
-pub(crate) mod kriging;
-pub mod live_update;
-pub mod pareto;
+pub(crate) mod core;
+pub mod data;
+pub mod io;
+pub mod mcdm;
+pub mod multi_objective;
 pub mod pdp;
-pub(crate) mod rf;
 pub mod sampling;
 pub mod sensitivity;
-pub(crate) mod sparse_kriging;
-pub mod topsis;
+
+pub use data::{dataframe, filter};
+pub use io::journal::{live_update, parser as journal_parser};
+pub use io::{export, journal};
+pub use mcdm::topsis;
+pub use multi_objective::pareto;
 
 /// Documentation.
 #[cfg(feature = "wasm")]
@@ -306,6 +307,9 @@ pub fn wasm_compute_sensitivity() -> Result<JsValue, JsValue> {
             let output = serde_json::json!({
                 "spearman": result.spearman,
                 "ridge": result.ridge.iter().map(|r| serde_json::json!({"beta": r.beta, "rSquared": r.r_squared})).collect::<Vec<_>>(),
+                "rfAnova": result.rf_anova.as_ref().map(|rf| serde_json::json!({
+                    "importances": rf.importances,
+                })),
                 "paramNames": result.param_names,
                 "objectiveNames": result.objective_names,
                 "durationMs": duration_ms,
@@ -337,6 +341,9 @@ pub fn wasm_compute_sensitivity_selected(indices: js_sys::Uint32Array) -> Result
             let output = serde_json::json!({
                 "spearman": result.spearman,
                 "ridge": result.ridge.iter().map(|r| serde_json::json!({"beta": r.beta, "rSquared": r.r_squared})).collect::<Vec<_>>(),
+                "rfAnova": result.rf_anova.as_ref().map(|rf| serde_json::json!({
+                    "importances": rf.importances,
+                })),
                 "paramNames": result.param_names,
                 "objectiveNames": result.objective_names,
                 "durationMs": duration_ms,

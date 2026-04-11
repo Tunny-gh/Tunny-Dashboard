@@ -161,6 +161,10 @@ fn tc_801_10_sensitivity_all_correct_structure() {
     assert_eq!(result.spearman.len(), 2);
     assert_eq!(result.spearman[0].len(), 2);
     assert_eq!(result.ridge.len(), 2);
+    assert!(result.rf_anova.is_some(), "rf_anova should be present");
+    let rf_anova = result.rf_anova.as_ref().unwrap();
+    assert_eq!(rf_anova.importances.len(), 2);
+    assert_eq!(rf_anova.importances[0].len(), 2);
 }
 
 #[test]
@@ -255,6 +259,33 @@ fn tc_801_12_sensitivity_selected_subset() {
         result.spearman[0][0] > 0.99,
         "translated: {}",
         result.spearman[0][0]
+    );
+    assert!(result.rf_anova.is_some(), "rf_anova should be present");
+}
+
+#[test]
+fn tc_801_14_rf_anova_importances_sum_to_one_per_objective() {
+    let rows: Vec<TrialRow> = (0..80)
+        .map(|i| {
+            let x1 = i as f64 / 80.0;
+            let x2 = (i as f64 / 7.0).sin();
+            let y = 2.0 * x1 + 0.1 * x2;
+            make_row_multi(i as u32, &[("x1", x1), ("x2", x2)], vec![y])
+        })
+        .collect();
+    let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
+
+    let result = compute_sensitivity_all(&df);
+    let rf_anova = result.rf_anova.expect("rf_anova should be present");
+
+    assert_eq!(rf_anova.importances.len(), 2);
+    assert_eq!(rf_anova.importances[0].len(), 1);
+
+    let sum: f64 = rf_anova.importances.iter().map(|row| row[0]).sum();
+    assert!(
+        (sum - 1.0).abs() < 1e-6,
+        "rf_anova importances should sum to 1.0, got {}",
+        sum
     );
 }
 

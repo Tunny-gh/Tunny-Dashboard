@@ -71,6 +71,62 @@ pub(super) fn gaussian_elimination(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Opt
     Some(x)
 }
 
+pub(super) fn compute_ridge_from_standardized_columns(
+    x_cols: &[f64],
+    n: usize,
+    y: &[f64],
+    alpha: f64,
+) -> RidgeResult {
+    let num_params = if n == 0 { 0 } else { x_cols.len() / n };
+    let y_mean = y.iter().sum::<f64>() / n as f64;
+    let y_c: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();
+
+    let mut xtx_flat = vec![0.0f64; num_params * num_params];
+    for i in 0..num_params {
+        for j in i..num_params {
+            let col_i = &x_cols[i * n..(i + 1) * n];
+            let col_j = &x_cols[j * n..(j + 1) * n];
+            let val: f64 = col_i.iter().zip(col_j.iter()).map(|(a, b)| a * b).sum();
+            xtx_flat[i * num_params + j] = val;
+            xtx_flat[j * num_params + i] = val;
+        }
+    }
+    for i in 0..num_params {
+        xtx_flat[i * num_params + i] += alpha;
+    }
+
+    let mut xty = vec![0.0f64; num_params];
+    for j in 0..num_params {
+        let col_j = &x_cols[j * n..(j + 1) * n];
+        xty[j] = col_j.iter().zip(y_c.iter()).map(|(x, yy)| x * yy).sum();
+    }
+
+    let xtx_2d: Vec<Vec<f64>> = (0..num_params)
+        .map(|i| xtx_flat[i * num_params..(i + 1) * num_params].to_vec())
+        .collect();
+    let beta = match gaussian_elimination(xtx_2d, xty) {
+        Some(beta) => beta,
+        None => vec![0.0; num_params],
+    };
+
+    let y_hat: Vec<f64> = (0..n)
+        .map(|i| (0..num_params).map(|j| x_cols[j * n + i] * beta[j]).sum())
+        .collect();
+    let ss_res: f64 = y_c
+        .iter()
+        .zip(y_hat.iter())
+        .map(|(yi, yhi)| (yi - yhi).powi(2))
+        .sum();
+    let ss_tot: f64 = y_c.iter().map(|&yi| yi.powi(2)).sum();
+    let r_squared = if ss_tot < f64::EPSILON {
+        0.0
+    } else {
+        (1.0 - ss_res / ss_tot).max(0.0)
+    };
+
+    RidgeResult { beta, r_squared }
+}
+
 pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResult {
     let n = y.len();
     let empty = RidgeResult {
@@ -87,54 +143,5 @@ pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResul
     }
 
     let x_cols = transpose_and_standardize(x_matrix, n, p);
-
-    let y_mean: f64 = y.iter().sum::<f64>() / n as f64;
-    let y_c: Vec<f64> = y.iter().map(|&yi| yi - y_mean).collect();
-
-    let mut xtx_flat = vec![0.0f64; p * p];
-    for i in 0..p {
-        for j in i..p {
-            let col_i = &x_cols[i * n..(i + 1) * n];
-            let col_j = &x_cols[j * n..(j + 1) * n];
-            let val: f64 = col_i.iter().zip(col_j.iter()).map(|(a, b)| a * b).sum();
-            xtx_flat[i * p + j] = val;
-            xtx_flat[j * p + i] = val;
-        }
-    }
-    for i in 0..p {
-        xtx_flat[i * p + i] += alpha;
-    }
-
-    let mut xty = vec![0.0f64; p];
-    for j in 0..p {
-        let col_j = &x_cols[j * n..(j + 1) * n];
-        xty[j] = col_j.iter().zip(y_c.iter()).map(|(xij, yi)| xij * yi).sum();
-    }
-
-    let xtx_2d: Vec<Vec<f64>> = (0..p)
-        .map(|i| xtx_flat[i * p..(i + 1) * p].to_vec())
-        .collect();
-    let beta = match gaussian_elimination(xtx_2d, xty) {
-        Some(b) => b,
-        None => vec![0.0; p],
-    };
-
-    let y_hat: Vec<f64> = (0..n)
-        .map(|i| (0..p).map(|j| x_cols[j * n + i] * beta[j]).sum())
-        .collect();
-
-    let ss_res: f64 = y_c
-        .iter()
-        .zip(y_hat.iter())
-        .map(|(yi, yhi)| (yi - yhi).powi(2))
-        .sum();
-    let ss_tot: f64 = y_c.iter().map(|&yi| yi.powi(2)).sum();
-
-    let r_squared = if ss_tot < f64::EPSILON {
-        0.0
-    } else {
-        (1.0 - ss_res / ss_tot).max(0.0)
-    };
-
-    RidgeResult { beta, r_squared }
+    compute_ridge_from_standardized_columns(&x_cols, n, y, alpha)
 }
