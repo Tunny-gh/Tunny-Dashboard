@@ -4,6 +4,9 @@ use crate::state::app_state::{
 use crate::state::messages::AppMessage;
 use std::collections::HashMap;
 
+// parse_journal を同スレッドで再実行するために io::file を使用
+use tunny_core::io::journal::parser;
+
 /// 完了試行数が最多の Study を自動選択する（REQ-021 準拠）
 pub fn auto_select_study(studies: &[StudyMeta]) -> Option<&StudyMeta> {
     studies.iter().max_by_key(|s| s.completed_trials)
@@ -44,7 +47,7 @@ pub fn build_gpu_buffer_data(
 }
 
 /// rust_core の with_active_df から TrialRow を取得
-fn extract_trial_rows(meta: &StudyMeta) -> Vec<TrialRow> {
+fn extract_trial_rows(_meta: &StudyMeta) -> Vec<TrialRow> {
     tunny_core::dataframe::with_active_df(|df| {
         let param_names = df.param_col_names().to_vec();
         let obj_names = df.objective_col_names().to_vec();
@@ -87,6 +90,22 @@ fn extract_trial_rows(meta: &StudyMeta) -> Vec<TrialRow> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// ジャーナルファイルを再パースしてから select_study を実行する。
+/// thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため、
+/// パースと選択を必ず同一スレッドで行う必要がある。
+pub fn load_and_select_task(
+    path: std::path::PathBuf,
+    meta: StudyMeta,
+) -> AppMessage {
+    match crate::io::file::read_journal_file(&path) {
+        Ok(data) => match parser::parse_journal(&data) {
+            Ok(_) => select_study_task(meta),
+            Err(e) => AppMessage::Error(e),
+        },
+        Err(e) => AppMessage::Error(e),
+    }
 }
 
 /// バックグラウンドで select_study を実行し AppMessage を返す

@@ -27,13 +27,24 @@ fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
     }
 }
 
-/// ファイルを読み込んで parse_journal を呼び出し AppMessage を返す
+/// ファイルを読み込んで parse_journal を呼び出し AppMessage を返す。
+/// スタディが1件のみの場合は同スレッドでスタディ選択まで完結させる
+/// （thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため）。
 pub fn load_journal_task(path: PathBuf) -> AppMessage {
     match crate::io::file::read_journal_file(&path) {
         Ok(data) => match tunny_core::io::journal::parser::parse_journal(&data) {
             Ok(result) => {
-                let studies = result.studies.into_iter().map(convert_study_meta).collect();
-                AppMessage::JournalParsed(studies)
+                let studies: Vec<StudyMeta> =
+                    result.studies.into_iter().map(convert_study_meta).collect();
+                if studies.len() == 1 {
+                    // parse 済みの thread_local データを同スレッドで即選択する
+                    crate::io::study::select_study_task(studies[0].clone())
+                } else {
+                    AppMessage::JournalParsed {
+                        studies,
+                        path,
+                    }
+                }
             }
             Err(e) => AppMessage::Error(e),
         },

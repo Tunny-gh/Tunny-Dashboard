@@ -72,16 +72,19 @@ pub fn show_toolbar(
                     }
                 });
             if selected_name != current_name && !selected_name.is_empty() {
-                if let Some(meta) = app_state
-                    .all_studies
-                    .iter()
-                    .find(|s| s.name == selected_name)
-                    .cloned()
-                {
+                if let (Some(meta), Some(path)) = (
+                    app_state
+                        .all_studies
+                        .iter()
+                        .find(|s| s.name == selected_name)
+                        .cloned(),
+                    app_state.journal_path.clone(),
+                ) {
                     *is_loading = true;
                     let tx2 = tx.clone();
                     crate::app::spawn_task(tx2, move || {
-                        crate::io::study::select_study_task(meta)
+                        // 再パース + 同スレッドで選択（thread_local 制約を回避）
+                        crate::io::study::load_and_select_task(path, meta)
                     });
                 }
             }

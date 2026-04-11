@@ -38,20 +38,12 @@ impl TunnyApp {
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
-                AppMessage::JournalParsed(studies) => {
-                    // スタディが1件のみの場合は自動選択する
-                    if studies.len() == 1 {
-                        let meta = studies[0].clone();
-                        self.app_state.all_studies = studies;
-                        self.is_loading = true;
-                        let tx2 = self.tx.clone();
-                        crate::app::spawn_task(tx2, move || {
-                            crate::io::study::select_study_task(meta)
-                        });
-                    } else {
-                        self.app_state.all_studies = studies;
-                        self.is_loading = false;
-                    }
+                AppMessage::JournalParsed { studies, path } => {
+                    // 単一スタディの場合は load_journal_task 内で既に StudySelected が
+                    // 返るため、ここに来るのは複数スタディの場合のみ
+                    self.app_state.all_studies = studies;
+                    self.app_state.journal_path = Some(path);
+                    self.is_loading = false;
                 }
                 AppMessage::StudySelected {
                     meta,
@@ -168,9 +160,13 @@ mod tests {
             user_attr_names: vec![],
             has_constraints: false,
         }];
-        tx.send(AppMessage::JournalParsed(studies)).unwrap();
+        tx.send(AppMessage::JournalParsed {
+            studies,
+            path: std::path::PathBuf::from("test.log"),
+        })
+        .unwrap();
         match rx.recv().unwrap() {
-            AppMessage::JournalParsed(s) => assert_eq!(s.len(), 1),
+            AppMessage::JournalParsed { studies: s, .. } => assert_eq!(s.len(), 1),
             _ => panic!("Expected JournalParsed"),
         }
     }

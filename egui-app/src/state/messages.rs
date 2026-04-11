@@ -52,7 +52,10 @@ pub enum DownsampleKey {
 // ============================================================
 
 pub enum AppMessage {
-    JournalParsed(Vec<StudyMeta>),
+    JournalParsed {
+        studies: Vec<StudyMeta>,
+        path: std::path::PathBuf,
+    },
     StudySelected {
         meta: StudyMeta,
         trial_rows: Vec<TrialRow>,
