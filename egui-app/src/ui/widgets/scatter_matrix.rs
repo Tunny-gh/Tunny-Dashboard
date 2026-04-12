@@ -35,6 +35,88 @@ impl ScatterMatrix {
             selected_cell: None,
         }
     }
+
+    /// 散布図行列を描画する
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        trial_rows: &[crate::state::app_state::TrialRow],
+        param_names: &[String],
+        obj_names: &[String],
+    ) {
+        if trial_rows.is_empty() {
+            ui.centered_and_justified(|ui| {
+                ui.label(egui::RichText::new("No trial data.").weak());
+            });
+            return;
+        }
+
+        let all_names: Vec<String> = param_names
+            .iter()
+            .chain(obj_names.iter())
+            .cloned()
+            .collect();
+        let n = all_names.len();
+        if n == 0 {
+            return;
+        }
+
+        // 各変数のデータ列を抽出する
+        let n_params = param_names.len();
+        let col_data: Vec<Vec<f64>> = all_names
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| {
+                if idx < n_params {
+                    trial_rows
+                        .iter()
+                        .filter_map(|r| r.params.get(name).copied())
+                        .collect()
+                } else {
+                    let obj_idx = idx - n_params;
+                    trial_rows
+                        .iter()
+                        .filter_map(|r| r.objectives.get(obj_idx).copied())
+                        .collect()
+                }
+            })
+            .collect();
+
+        let available = ui.available_rect_before_wrap();
+        let cell_w = available.width() / n as f32;
+        let cell_h = available.height() / n as f32;
+        let painter = ui.painter().clone();
+        let dot_color = egui::Color32::from_rgb(70, 130, 220);
+        let point_colors: Vec<egui::Color32> = vec![dot_color; trial_rows.len()];
+
+        for row in 0..n {
+            for col in 0..n {
+                let min =
+                    available.min + egui::vec2(col as f32 * cell_w, row as f32 * cell_h);
+                let cell_rect =
+                    egui::Rect::from_min_size(min, egui::vec2(cell_w, cell_h));
+
+                if row == col {
+                    draw_histogram_cell(&painter, cell_rect, &col_data[row], 10);
+                } else if col > row {
+                    // 上三角: 相関係数
+                    draw_correlation_cell(&painter, cell_rect, &col_data[row], &col_data[col]);
+                } else {
+                    // 下三角: 散布図
+                    draw_scatter_cell(
+                        &painter,
+                        cell_rect,
+                        &col_data[col],
+                        &col_data[row],
+                        &point_colors,
+                        None,
+                    );
+                }
+            }
+        }
+
+        ui.allocate_rect(available, egui::Sense::hover());
+    }
 }
 
 impl Default for ScatterMatrix {

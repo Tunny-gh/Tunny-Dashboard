@@ -1,12 +1,10 @@
 use crate::state::app_state::{AppState, ColorMode};
-use crate::state::layout_state::{ChartId, LayoutState};
+use crate::state::layout_state::LayoutState;
 
-/// LeftPanel を描画する
-pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, layout: &mut LayoutState) {
+/// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
+pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mut LayoutState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         show_study_info(ui, app_state);
-        ui.separator();
-        show_chart_selection(ui, layout);
         ui.separator();
         show_filter_sliders(ui, app_state);
         ui.separator();
@@ -30,18 +28,6 @@ fn show_study_info(ui: &mut egui::Ui, app_state: &AppState) {
     } else {
         ui.label("Open a file");
     }
-}
-
-/// チャート表示選択リスト
-fn show_chart_selection(ui: &mut egui::Ui, layout: &mut LayoutState) {
-    ui.collapsing("Charts", |ui| {
-        for chart_id in ChartId::all() {
-            let mut visible = layout.is_chart_visible(chart_id);
-            if ui.checkbox(&mut visible, chart_id.label()).changed() {
-                layout.toggle_chart(chart_id.clone());
-            }
-        }
-    });
 }
 
 /// 変数フィルタースライダー
@@ -140,6 +126,7 @@ fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
 mod tests {
     use super::*;
     use crate::state::app_state::{AppState, ColorMode};
+    use crate::state::layout_state::ChartId;
 
     #[test]
     fn set_filter_updates_filter_ranges() {

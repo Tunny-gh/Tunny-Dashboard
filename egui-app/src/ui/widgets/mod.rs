@@ -1,4 +1,5 @@
 pub mod cluster_scatter;
+pub mod trial_table;
 pub mod hv_history;
 pub mod pareto_3d;
 pub mod importance_chart;

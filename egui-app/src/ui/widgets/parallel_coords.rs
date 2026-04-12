@@ -69,6 +69,121 @@ impl ParallelCoordsChart {
         self.brush_ranges.clear();
         self.drag_start = None;
     }
+
+    /// 平行座標プロットを描画する
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        trial_rows: &[crate::state::app_state::TrialRow],
+        param_names: &[String],
+        obj_names: &[String],
+    ) {
+        if trial_rows.is_empty() {
+            ui.centered_and_justified(|ui| {
+                ui.label(egui::RichText::new("No trial data.").weak());
+            });
+            return;
+        }
+
+        let all_names = build_axis_order(param_names, obj_names);
+        let n_axes = all_names.len();
+        if n_axes < 2 {
+            return;
+        }
+
+        let n_params = param_names.len();
+
+        // 各軸のデータ列を事前収集する（min/max 計算のため）
+        let col_data: Vec<Vec<f64>> = all_names
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| {
+                if idx < n_params {
+                    trial_rows
+                        .iter()
+                        .filter_map(|r| r.params.get(name).copied())
+                        .collect()
+                } else {
+                    let obj_idx = idx - n_params;
+                    trial_rows
+                        .iter()
+                        .filter_map(|r| r.objectives.get(obj_idx).copied())
+                        .collect()
+                }
+            })
+            .collect();
+
+        let col_ranges: Vec<(f64, f64)> = col_data
+            .iter()
+            .map(|data| {
+                let mn = data.iter().cloned().fold(f64::INFINITY, f64::min);
+                let mx = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                (mn, mx)
+            })
+            .collect();
+
+        let available = ui.available_rect_before_wrap();
+        let axis_margin = 40.0_f32;
+        let axis_top = available.min.y + 30.0;
+        let axis_bottom = available.max.y - 10.0;
+        let axis_x: Vec<f32> = (0..n_axes)
+            .map(|i| {
+                available.min.x
+                    + axis_margin
+                    + (available.width() - 2.0 * axis_margin) * i as f32
+                        / (n_axes - 1) as f32
+            })
+            .collect();
+
+        let painter = ui.painter().clone();
+        let text_color = ui.visuals().text_color();
+
+        // 軸ラベルと縦線を描画
+        for (i, name) in all_names.iter().enumerate() {
+            let x = axis_x[i];
+            painter.line_segment(
+                [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
+                egui::Stroke::new(1.5, egui::Color32::from_gray(150)),
+            );
+            painter.text(
+                egui::pos2(x, available.min.y + 15.0),
+                egui::Align2::CENTER_CENTER,
+                name.as_str(),
+                egui::FontId::proportional(10.0),
+                text_color,
+            );
+        }
+
+        // 各試行を折れ線で描画
+        for t_idx in 0..trial_rows.len() {
+            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
+            let mut valid = true;
+            for i in 0..n_axes {
+                let val_opt = col_data[i].get(t_idx).copied();
+                let Some(val) = val_opt else {
+                    valid = false;
+                    break;
+                };
+                let (mn, mx) = col_ranges[i];
+                let norm = normalize_value(val, mn, mx);
+                let y = normalized_to_screen_y(norm, axis_top, axis_bottom);
+                points.push(egui::pos2(axis_x[i], y));
+            }
+            if valid && points.len() >= 2 {
+                for pair in points.windows(2) {
+                    painter.line_segment(
+                        [pair[0], pair[1]],
+                        egui::Stroke::new(
+                            0.8,
+                            egui::Color32::from_rgba_unmultiplied(100, 150, 220, 80),
+                        ),
+                    );
+                }
+            }
+        }
+
+        ui.allocate_rect(available, egui::Sense::hover());
+    }
 }
 
 #[cfg(test)]
