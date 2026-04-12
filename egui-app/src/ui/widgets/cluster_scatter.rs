@@ -116,12 +116,11 @@ impl ClusterScatter {
         egui_plot::Plot::new("cluster_scatter").show(ui, |plot_ui| {
             for (label, pts) in &cluster_points {
                 let color = cluster_colors[(*label as usize) % cluster_colors.len()];
-                let points = egui_plot::Points::new(
-                    pts.iter().map(|&[x, y]| [x, y]).collect::<Vec<_>>(),
-                )
-                .color(color)
-                .radius(3.0)
-                .name(format!("Cluster {}", label));
+                let points =
+                    egui_plot::Points::new(pts.iter().map(|&[x, y]| [x, y]).collect::<Vec<_>>())
+                        .color(color)
+                        .radius(3.0)
+                        .name(format!("Cluster {}", label));
                 plot_ui.points(points);
             }
         });
@@ -170,10 +169,12 @@ fn compute_pca_2d(
                 .records()
                 .rows()
                 .into_iter()
-                .map(|row| [
-                    row[0] as f32,
-                    if row.len() > 1 { row[1] as f32 } else { 0.0 },
-                ])
+                .map(|row| {
+                    [
+                        row[0] as f32,
+                        if row.len() > 1 { row[1] as f32 } else { 0.0 },
+                    ]
+                })
                 .collect()
         }
         Err(_) => {
@@ -215,9 +216,21 @@ mod tests {
     #[test]
     fn cluster_stats_count_sum_matches_total() {
         let stats = vec![
-            ClusterStats { cluster_id: 0, count: 5, centroid: vec![] },
-            ClusterStats { cluster_id: 1, count: 3, centroid: vec![] },
-            ClusterStats { cluster_id: 2, count: 7, centroid: vec![] },
+            ClusterStats {
+                cluster_id: 0,
+                count: 5,
+                centroid: vec![],
+            },
+            ClusterStats {
+                cluster_id: 1,
+                count: 3,
+                centroid: vec![],
+            },
+            ClusterStats {
+                cluster_id: 2,
+                count: 7,
+                centroid: vec![],
+            },
         ];
         assert_eq!(cluster_stats_count_sum(&stats), 15);
     }

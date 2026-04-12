@@ -12,12 +12,7 @@ pub struct PdpChart2DState {
 }
 
 impl PdpChart2DState {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        param_names: &[String],
-        obj_names: &[String],
-    ) {
+    pub fn show(&mut self, ui: &mut egui::Ui, param_names: &[String], obj_names: &[String]) {
         // 2変数選択
         ui.horizontal(|ui| {
             ui.label("Parameter 1:");
@@ -39,9 +34,7 @@ impl PdpChart2DState {
         });
 
         // 同一パラメータ警告
-        if !self.selected_param1.is_empty()
-            && self.selected_param1 == self.selected_param2
-        {
+        if !self.selected_param1.is_empty() && self.selected_param1 == self.selected_param2 {
             ui.colored_label(
                 egui::Color32::YELLOW,
                 "Warning: the same parameter is selected",
@@ -119,12 +112,7 @@ fn draw_heatmap(painter: &egui::Painter, rect: egui::Rect, result: &PdpResult2d)
 }
 
 /// カラーバーを描画する
-fn draw_colorbar(
-    ui: &mut egui::Ui,
-    bar_rect: egui::Rect,
-    v_min: f64,
-    v_max: f64,
-) {
+fn draw_colorbar(ui: &mut egui::Ui, bar_rect: egui::Rect, v_min: f64, v_max: f64) {
     let painter = ui.painter_at(bar_rect);
     let cmap = ColorMap::viridis();
     let n_steps = 64;

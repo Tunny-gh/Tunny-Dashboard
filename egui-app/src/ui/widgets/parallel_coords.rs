@@ -130,8 +130,7 @@ impl ParallelCoordsChart {
             .map(|i| {
                 available.min.x
                     + axis_margin
-                    + (available.width() - 2.0 * axis_margin) * i as f32
-                        / (n_axes - 1) as f32
+                    + (available.width() - 2.0 * axis_margin) * i as f32 / (n_axes - 1) as f32
             })
             .collect();
 

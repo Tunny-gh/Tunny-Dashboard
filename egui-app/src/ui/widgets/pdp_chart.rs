@@ -50,11 +50,7 @@ pub fn r2_quality(r2: f64) -> &'static str {
 
 /// 信頼区間バンドのポリゴン点列を構築する
 /// 上限を左→右、下限を右→左の順で結合する
-pub fn compute_band_polygon(
-    x_vals: &[f64],
-    y_upper: &[f64],
-    y_lower: &[f64],
-) -> Vec<[f64; 2]> {
+pub fn compute_band_polygon(x_vals: &[f64], y_upper: &[f64], y_lower: &[f64]) -> Vec<[f64; 2]> {
     let upper: Vec<[f64; 2]> = x_vals
         .iter()
         .zip(y_upper.iter())
@@ -97,7 +93,11 @@ impl Default for PdpChart {
 impl PdpChart {
     /// キャッシュを確認して結果を返す。キャッシュミスの場合は None を返す
     pub fn try_cache(&self) -> Option<&PdpResult1d> {
-        let key = cache_key(&self.selected_param, self.selected_objective, &self.model_type);
+        let key = cache_key(
+            &self.selected_param,
+            self.selected_objective,
+            &self.model_type,
+        );
         self.cache.get(&key)
     }
 
@@ -109,12 +109,7 @@ impl PdpChart {
 }
 
 impl PdpChart {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        param_names: &[String],
-        obj_names: &[String],
-    ) {
+    pub fn show(&mut self, ui: &mut egui::Ui, param_names: &[String], obj_names: &[String]) {
         // パラメータ選択
         ui.horizontal(|ui| {
             ui.label("Parameter:");
@@ -145,7 +140,11 @@ impl PdpChart {
             egui::ComboBox::from_id_salt("pdp_model_combo")
                 .selected_text(self.model_type.label())
                 .show_ui(ui, |ui| {
-                    for model in [ModelType::Ridge, ModelType::Kriging, ModelType::SparseKriging] {
+                    for model in [
+                        ModelType::Ridge,
+                        ModelType::Kriging,
+                        ModelType::SparseKriging,
+                    ] {
                         let selected = self.model_type == model;
                         if ui.selectable_label(selected, model.label()).clicked() {
                             self.model_type = model;
@@ -189,12 +188,9 @@ impl PdpChart {
                     let band = compute_band_polygon(&result.x_values, upper, lower);
                     if !band.is_empty() {
                         plot_ui.polygon(
-                            egui_plot::Polygon::new(
-                                egui_plot::PlotPoints::new(band),
-                            )
-                            .fill_color(egui::Color32::from_rgba_unmultiplied(
-                                100, 100, 255, 40,
-                            )),
+                            egui_plot::Polygon::new(egui_plot::PlotPoints::new(band)).fill_color(
+                                egui::Color32::from_rgba_unmultiplied(100, 100, 255, 40),
+                            ),
                         );
                     }
                 }

@@ -88,8 +88,14 @@ impl ParetoScatter2D {
                 });
         });
 
-        let x_idx = obj_names.iter().position(|n| n == &self.x_axis).unwrap_or(0);
-        let y_idx = obj_names.iter().position(|n| n == &self.y_axis).unwrap_or(1);
+        let x_idx = obj_names
+            .iter()
+            .position(|n| n == &self.x_axis)
+            .unwrap_or(0);
+        let y_idx = obj_names
+            .iter()
+            .position(|n| n == &self.y_axis)
+            .unwrap_or(1);
 
         // 選択・非選択点の分離
         let (selected_pts, unselected_pts, highlight_pt) =
@@ -205,10 +211,7 @@ mod tests {
 
     #[test]
     fn partition_highlight_extracted_separately() {
-        let rows = vec![
-            make_trial(0, vec![1.0, 2.0]),
-            make_trial(5, vec![9.0, 8.0]),
-        ];
+        let rows = vec![make_trial(0, vec![1.0, 2.0]), make_trial(5, vec![9.0, 8.0])];
         let (sel, unsel, hl) = partition_points(&rows, &[], Some(5), 0, 1);
         assert_eq!(sel.len(), 1);
         assert_eq!(unsel.len(), 0);
@@ -227,14 +230,22 @@ mod tests {
 
     #[test]
     fn filter_by_downsample_none_returns_all() {
-        let rows = vec![make_trial(0, vec![]), make_trial(1, vec![]), make_trial(2, vec![])];
+        let rows = vec![
+            make_trial(0, vec![]),
+            make_trial(1, vec![]),
+            make_trial(2, vec![]),
+        ];
         let result = filter_by_downsample_indices(&rows, None);
         assert_eq!(result.len(), 3);
     }
 
     #[test]
     fn filter_by_downsample_some_returns_subset() {
-        let rows = vec![make_trial(0, vec![]), make_trial(1, vec![]), make_trial(2, vec![])];
+        let rows = vec![
+            make_trial(0, vec![]),
+            make_trial(1, vec![]),
+            make_trial(2, vec![]),
+        ];
         let indices = vec![0u32, 2u32];
         let result = filter_by_downsample_indices(&rows, Some(&indices));
         assert_eq!(result.len(), 2);

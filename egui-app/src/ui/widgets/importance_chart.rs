@@ -59,7 +59,10 @@ impl ImportanceChart {
         if obj_names.len() > 1 {
             ui.horizontal(|ui| {
                 for (i, name) in obj_names.iter().enumerate() {
-                    if ui.selectable_label(self.objective_index == i, name).clicked() {
+                    if ui
+                        .selectable_label(self.objective_index == i, name)
+                        .clicked()
+                    {
                         self.objective_index = i;
                     }
                 }
@@ -86,27 +89,23 @@ impl ImportanceChart {
             return;
         }
 
-        egui_plot::Plot::new("importance_chart_plot")
-            .show(ui, |plot_ui| {
-                let bars: Vec<egui_plot::Bar> = scores
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (_, score))| {
-                        egui_plot::Bar::new(i as f64, *score)
-                            .width(0.8)
-                            .fill(egui::Color32::from_rgb(70, 150, 250))
-                    })
-                    .collect();
-                plot_ui.bar_chart(egui_plot::BarChart::new(bars));
-            });
+        egui_plot::Plot::new("importance_chart_plot").show(ui, |plot_ui| {
+            let bars: Vec<egui_plot::Bar> = scores
+                .iter()
+                .enumerate()
+                .map(|(i, (_, score))| {
+                    egui_plot::Bar::new(i as f64, *score)
+                        .width(0.8)
+                        .fill(egui::Color32::from_rgb(70, 150, 250))
+                })
+                .collect();
+            plot_ui.bar_chart(egui_plot::BarChart::new(bars));
+        });
     }
 }
 
 /// SensitivityResult から重要度スコアを降順でソートして返す
-pub fn compute_sorted_importance(
-    result: &SensitivityResult,
-    obj_idx: usize,
-) -> Vec<(String, f64)> {
+pub fn compute_sorted_importance(result: &SensitivityResult, obj_idx: usize) -> Vec<(String, f64)> {
     let obj_scores = result.spearman.get(obj_idx);
     let Some(scores) = obj_scores else {
         return vec![];

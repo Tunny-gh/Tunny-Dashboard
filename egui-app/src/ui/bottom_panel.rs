@@ -99,8 +99,7 @@ pub fn get_display_rows<'a>(
     if selected_indices.is_empty() {
         study_ctx.trial_rows.iter().collect()
     } else {
-        let id_set: std::collections::HashSet<u32> =
-            selected_indices.iter().copied().collect();
+        let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
         study_ctx
             .trial_rows
             .iter()

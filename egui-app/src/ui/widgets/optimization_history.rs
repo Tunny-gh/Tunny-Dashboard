@@ -50,7 +50,13 @@ impl OptimizationHistoryChart {
             }
         });
 
-        let points = compute_history_points(trial_rows, self.obj_idx, &self.mode, self.window_size, is_minimize);
+        let points = compute_history_points(
+            trial_rows,
+            self.obj_idx,
+            &self.mode,
+            self.window_size,
+            is_minimize,
+        );
 
         egui_plot::Plot::new("optimization_history_plot")
             .legend(egui_plot::Legend::default())
@@ -93,7 +99,11 @@ pub fn compute_history_points(
 
 /// 累積ベスト値（最小化: 累積最小, 最大化: 累積最大）を計算する
 pub fn compute_best_values(values: &[f64], is_minimize: bool) -> Vec<[f64; 2]> {
-    let mut best = if is_minimize { f64::INFINITY } else { f64::NEG_INFINITY };
+    let mut best = if is_minimize {
+        f64::INFINITY
+    } else {
+        f64::NEG_INFINITY
+    };
     values
         .iter()
         .enumerate()

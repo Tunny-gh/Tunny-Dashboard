@@ -1,6 +1,4 @@
-use crate::state::app_state::{
-    Direction, GpuBufferData, StudyMeta, TrialRow, TrialState,
-};
+use crate::state::app_state::{Direction, GpuBufferData, StudyMeta, TrialRow, TrialState};
 use crate::state::messages::AppMessage;
 use std::collections::HashMap;
 
@@ -95,10 +93,7 @@ fn extract_trial_rows(_meta: &StudyMeta) -> Vec<TrialRow> {
 /// ジャーナルファイルを再パースしてから select_study を実行する。
 /// thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため、
 /// パースと選択を必ず同一スレッドで行う必要がある。
-pub fn load_and_select_task(
-    path: std::path::PathBuf,
-    meta: StudyMeta,
-) -> AppMessage {
+pub fn load_and_select_task(path: std::path::PathBuf, meta: StudyMeta) -> AppMessage {
     match crate::io::file::read_journal_file(&path) {
         Ok(data) => match parser::parse_journal(&data) {
             Ok(_) => select_study_task(meta),

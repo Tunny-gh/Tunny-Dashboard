@@ -477,10 +477,7 @@ mod tests {
         };
         state.apply_live_update(vec![new_trial]);
         // filter_ranges must be unchanged
-        assert_eq!(
-            state.filter_ranges.get("x"),
-            Some(&(0.1, 0.9))
-        );
+        assert_eq!(state.filter_ranges.get("x"), Some(&(0.1, 0.9)));
     }
 
     // TASK-2026 tests

@@ -64,11 +64,7 @@ pub fn show_toolbar(
                 })
                 .show_ui(ui, |ui| {
                     for study in &app_state.all_studies {
-                        ui.selectable_value(
-                            &mut selected_name,
-                            study.name.clone(),
-                            &study.name,
-                        );
+                        ui.selectable_value(&mut selected_name, study.name.clone(), &study.name);
                     }
                 });
             if selected_name != current_name && !selected_name.is_empty() {
@@ -141,10 +137,7 @@ mod tests {
 
     #[test]
     fn layout_mode_buttons_cover_all_modes() {
-        let modes: Vec<LayoutMode> = LAYOUT_MODE_BUTTONS
-            .iter()
-            .map(|(m, _)| m.clone())
-            .collect();
+        let modes: Vec<LayoutMode> = LAYOUT_MODE_BUTTONS.iter().map(|(m, _)| m.clone()).collect();
         assert!(modes.contains(&LayoutMode::MultiObjective));
         assert!(modes.contains(&LayoutMode::VariableSpace));
         assert!(modes.contains(&LayoutMode::ConvergenceAnalysis));
@@ -154,8 +147,14 @@ mod tests {
 
     #[test]
     fn layout_mode_label_returns_correct_label() {
-        assert_eq!(layout_mode_label(LayoutMode::MultiObjective), "Multi-Objective");
-        assert_eq!(layout_mode_label(LayoutMode::VariableSpace), "Variable Space");
+        assert_eq!(
+            layout_mode_label(LayoutMode::MultiObjective),
+            "Multi-Objective"
+        );
+        assert_eq!(
+            layout_mode_label(LayoutMode::VariableSpace),
+            "Variable Space"
+        );
         assert_eq!(
             layout_mode_label(LayoutMode::ConvergenceAnalysis),
             "Convergence Analysis"

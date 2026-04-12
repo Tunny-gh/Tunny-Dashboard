@@ -26,7 +26,9 @@ impl ArcballCamera {
     /// アイデンティティ回転かどうか
     pub fn is_identity_rotation(&self) -> bool {
         let [x, y, z, w] = self.rotation;
-        x.abs() < f32::EPSILON && y.abs() < f32::EPSILON && z.abs() < f32::EPSILON
+        x.abs() < f32::EPSILON
+            && y.abs() < f32::EPSILON
+            && z.abs() < f32::EPSILON
             && (w - 1.0).abs() < 1e-6
     }
 }

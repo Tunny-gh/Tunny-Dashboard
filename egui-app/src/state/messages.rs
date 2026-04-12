@@ -1,6 +1,5 @@
 use crate::state::app_state::{
-    ClusterResult, GpuBufferData, SensitivityResult, SobolResult, StudyMeta, TrialRow,
-    TopsisResult,
+    ClusterResult, GpuBufferData, SensitivityResult, SobolResult, StudyMeta, TopsisResult, TrialRow,
 };
 
 // ============================================================

@@ -5,13 +5,17 @@ use crate::ui::widgets::trial_table::TrialTableWidget;
 
 /// セルの幅を計算する（テスト可能な純粋関数）
 pub fn calc_cell_width(total_w: f32, cols: usize, col_span: u8) -> f32 {
-    if cols == 0 { return 0.0; }
+    if cols == 0 {
+        return 0.0;
+    }
     (total_w / cols as f32) * col_span as f32
 }
 
 /// セルの高さを計算する（テスト可能な純粋関数）
 pub fn calc_cell_height(total_h: f32, rows: usize, row_span: u8) -> f32 {
-    if rows == 0 { return 0.0; }
+    if rows == 0 {
+        return 0.0;
+    }
     (total_h / rows as f32) * row_span as f32
 }
 
@@ -167,11 +171,21 @@ pub fn show_grid_canvas(
     // 収集したコンテキストメニューアクションを適用
     for action in pending_actions {
         match action {
-            CellAction::ExpandRight(r, c) => { layout.grid.expand_right(r, c); }
-            CellAction::ExpandDown(r, c) => { layout.grid.expand_down(r, c); }
-            CellAction::ShrinkRight(r, c) => { layout.grid.shrink_right(r, c); }
-            CellAction::ShrinkDown(r, c) => { layout.grid.shrink_down(r, c); }
-            CellAction::Clear(r, c) => { layout.grid.cells[r][c].content = None; }
+            CellAction::ExpandRight(r, c) => {
+                layout.grid.expand_right(r, c);
+            }
+            CellAction::ExpandDown(r, c) => {
+                layout.grid.expand_down(r, c);
+            }
+            CellAction::ShrinkRight(r, c) => {
+                layout.grid.shrink_right(r, c);
+            }
+            CellAction::ShrinkDown(r, c) => {
+                layout.grid.shrink_down(r, c);
+            }
+            CellAction::Clear(r, c) => {
+                layout.grid.cells[r][c].content = None;
+            }
         }
     }
 
@@ -190,14 +204,20 @@ pub fn show_grid_canvas(
     if button_ui.button("＋行").clicked() {
         layout.grid.add_row();
     }
-    if button_ui.add_enabled(can_remove_row, egui::Button::new("－行")).clicked() {
+    if button_ui
+        .add_enabled(can_remove_row, egui::Button::new("－行"))
+        .clicked()
+    {
         layout.grid.try_remove_last_row();
     }
     button_ui.separator();
     if button_ui.button("＋列").clicked() {
         layout.grid.add_col();
     }
-    if button_ui.add_enabled(can_remove_col, egui::Button::new("－列")).clicked() {
+    if button_ui
+        .add_enabled(can_remove_col, egui::Button::new("－列"))
+        .clicked()
+    {
         layout.grid.try_remove_last_col();
     }
 }
@@ -275,16 +295,22 @@ fn show_chart(
             widgets.hv_history.show(ui);
         }
         ChartId::ImportanceChart => {
-            widgets.importance.show(ui, sensitivity.as_ref(), &obj_names);
+            widgets
+                .importance
+                .show(ui, sensitivity.as_ref(), &obj_names);
         }
         ChartId::PdpChart => {
             widgets.pdp_chart.show(ui, &param_names, &obj_names);
         }
         ChartId::ParallelCoordinates => {
-            widgets.parallel_coords.show(ui, &trial_rows, &param_names, &obj_names);
+            widgets
+                .parallel_coords
+                .show(ui, &trial_rows, &param_names, &obj_names);
         }
         ChartId::ScatterMatrix => {
-            widgets.scatter_matrix.show(ui, &trial_rows, &param_names, &obj_names);
+            widgets
+                .scatter_matrix
+                .show(ui, &trial_rows, &param_names, &obj_names);
         }
         ChartId::ParetoScatter3D => {
             ui.label("3D Pareto chart requires GPU rendering (not yet wired up).");
@@ -293,7 +319,12 @@ fn show_chart(
             widgets.sensitivity_heatmap.show(ui, sensitivity.as_ref());
         }
         ChartId::ClusterScatter => {
-            widgets.cluster_scatter.show(ui, &trial_rows, app_state.cluster_result.as_ref(), &param_names);
+            widgets.cluster_scatter.show(
+                ui,
+                &trial_rows,
+                app_state.cluster_result.as_ref(),
+                &param_names,
+            );
         }
     }
 }

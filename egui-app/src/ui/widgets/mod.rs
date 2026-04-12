@@ -1,12 +1,12 @@
 pub mod cluster_scatter;
-pub mod trial_table;
 pub mod hv_history;
-pub mod pareto_3d;
 pub mod importance_chart;
 pub mod optimization_history;
 pub mod parallel_coords;
 pub mod pareto_2d;
+pub mod pareto_3d;
 pub mod pdp_2d;
 pub mod pdp_chart;
 pub mod scatter_matrix;
 pub mod sensitivity_heatmap;
+pub mod trial_table;

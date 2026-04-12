@@ -91,10 +91,8 @@ impl ScatterMatrix {
 
         for row in 0..n {
             for col in 0..n {
-                let min =
-                    available.min + egui::vec2(col as f32 * cell_w, row as f32 * cell_h);
-                let cell_rect =
-                    egui::Rect::from_min_size(min, egui::vec2(cell_w, cell_h));
+                let min = available.min + egui::vec2(col as f32 * cell_w, row as f32 * cell_h);
+                let cell_rect = egui::Rect::from_min_size(min, egui::vec2(cell_w, cell_h));
 
                 if row == col {
                     draw_histogram_cell(&painter, cell_rect, &col_data[row], 10);
@@ -223,10 +221,10 @@ pub fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
         .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
         .sum::<f64>()
         / n as f64;
-    let std_x: f64 = (x[..n].iter().map(|&xi| (xi - mean_x).powi(2)).sum::<f64>() / n as f64)
-        .sqrt();
-    let std_y: f64 = (y[..n].iter().map(|&yi| (yi - mean_y).powi(2)).sum::<f64>() / n as f64)
-        .sqrt();
+    let std_x: f64 =
+        (x[..n].iter().map(|&xi| (xi - mean_x).powi(2)).sum::<f64>() / n as f64).sqrt();
+    let std_y: f64 =
+        (y[..n].iter().map(|&yi| (yi - mean_y).powi(2)).sum::<f64>() / n as f64).sqrt();
     if std_x < f64::EPSILON || std_y < f64::EPSILON {
         return 0.0;
     }
@@ -357,9 +355,9 @@ mod tests {
         let mut axes = vec!["x".to_string(), "y".to_string(), "z".to_string()];
         // z has highest absolute correlation sum
         let corr_matrix = vec![
-            vec![1.0, 0.1, 0.2],  // x
-            vec![0.1, 1.0, 0.3],  // y
-            vec![0.2, 0.3, 1.0],  // z → sum = 1.5
+            vec![1.0, 0.1, 0.2], // x
+            vec![0.1, 1.0, 0.3], // y
+            vec![0.2, 0.3, 1.0], // z → sum = 1.5
         ];
         sort_axes_by_correlation(&mut axes, &corr_matrix);
         // z (sum=1.5) > y (sum=1.4) > x (sum=1.3)

@@ -14,9 +14,7 @@ pub fn clamp_left_width(left_width: f32) -> f32 {
 /// TunnyApp のレイアウトを描画する（Toolbar + LeftPanel + RightPanel + CentralPanel）
 pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
     use crate::ui::{
-        left_panel::show_left_panel,
-        main_canvas::show_main_canvas,
-        right_panel::show_right_panel,
+        left_panel::show_left_panel, main_canvas::show_main_canvas, right_panel::show_right_panel,
         toolbar::show_toolbar,
     };
 
@@ -53,7 +51,12 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         });
 
     egui::CentralPanel::default().show(ctx, |ui| {
-        show_main_canvas(ui, &mut app.app_state, &mut app.layout, &mut app.widget_states);
+        show_main_canvas(
+            ui,
+            &mut app.app_state,
+            &mut app.layout,
+            &mut app.widget_states,
+        );
     });
 }
 

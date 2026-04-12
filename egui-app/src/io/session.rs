@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// セッションスナップショット（保存・復元用）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,7 +11,11 @@ pub struct SessionSnapshot {
 }
 
 impl SessionSnapshot {
-    pub fn new(study_name: String, filter_ranges: HashMap<String, (f64, f64)>, selected_indices: Vec<u32>) -> Self {
+    pub fn new(
+        study_name: String,
+        filter_ranges: HashMap<String, (f64, f64)>,
+        selected_indices: Vec<u32>,
+    ) -> Self {
         Self {
             study_name,
             filter_ranges,
@@ -38,11 +42,7 @@ mod tests {
     fn make_snapshot() -> SessionSnapshot {
         let mut filter_ranges = HashMap::new();
         filter_ranges.insert("x".to_string(), (0.1, 0.9));
-        SessionSnapshot::new(
-            "test_study".to_string(),
-            filter_ranges,
-            vec![0, 1, 2],
-        )
+        SessionSnapshot::new("test_study".to_string(), filter_ranges, vec![0, 1, 2])
     }
 
     #[test]

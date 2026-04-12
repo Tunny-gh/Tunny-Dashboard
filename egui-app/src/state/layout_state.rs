@@ -138,7 +138,11 @@ impl Default for GridLayout {
             vec![GridCell::new_empty(), GridCell::new_empty()],
             vec![GridCell::new_empty(), GridCell::new_empty()],
         ];
-        Self { rows: 2, cols: 2, cells }
+        Self {
+            rows: 2,
+            cols: 2,
+            cells,
+        }
     }
 }
 
@@ -164,7 +168,9 @@ impl GridLayout {
 
     /// 現在グリッドに配置済みのアイテム参照リストを返す（右パネルのグレーアウト用）
     pub fn placed_items(&self) -> Vec<&PanelItem> {
-        self.cells.iter().flatten()
+        self.cells
+            .iter()
+            .flatten()
             .filter_map(|c| c.content.as_ref())
             .collect()
     }
@@ -189,7 +195,9 @@ impl GridLayout {
             return false;
         }
         let last = self.rows - 1;
-        self.cells[last].iter().all(|c| c.content.is_none() && c.merged_into.is_none())
+        self.cells[last]
+            .iter()
+            .all(|c| c.content.is_none() && c.merged_into.is_none())
     }
 
     /// 末尾列が削除可能かチェックする（削除はしない）。
@@ -199,7 +207,9 @@ impl GridLayout {
         }
         let last = self.cols - 1;
         self.cells.iter().all(|row| {
-            row.get(last).map(|c| c.content.is_none() && c.merged_into.is_none()).unwrap_or(true)
+            row.get(last)
+                .map(|c| c.content.is_none() && c.merged_into.is_none())
+                .unwrap_or(true)
         })
     }
 
@@ -209,7 +219,9 @@ impl GridLayout {
             return false;
         }
         let last = self.rows - 1;
-        let can_remove = self.cells[last].iter().all(|c| c.content.is_none() && c.merged_into.is_none());
+        let can_remove = self.cells[last]
+            .iter()
+            .all(|c| c.content.is_none() && c.merged_into.is_none());
         if can_remove {
             self.cells.pop();
             self.rows -= 1;
@@ -226,7 +238,9 @@ impl GridLayout {
         }
         let last = self.cols - 1;
         let can_remove = self.cells.iter().all(|row| {
-            row.get(last).map(|c| c.content.is_none() && c.merged_into.is_none()).unwrap_or(true)
+            row.get(last)
+                .map(|c| c.content.is_none() && c.merged_into.is_none())
+                .unwrap_or(true)
         });
         if can_remove {
             for row in &mut self.cells {

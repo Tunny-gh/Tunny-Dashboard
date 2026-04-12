@@ -40,10 +40,7 @@ pub fn load_journal_task(path: PathBuf) -> AppMessage {
                     // parse 済みの thread_local データを同スレッドで即選択する
                     crate::io::study::select_study_task(studies[0].clone())
                 } else {
-                    AppMessage::JournalParsed {
-                        studies,
-                        path,
-                    }
+                    AppMessage::JournalParsed { studies, path }
                 }
             }
             Err(e) => AppMessage::Error(e),
@@ -71,7 +68,10 @@ mod tests {
         let core_meta = parser::StudyMeta {
             study_id: 0,
             name: "test".to_string(),
-            directions: vec![OptimizationDirection::Minimize, OptimizationDirection::Maximize],
+            directions: vec![
+                OptimizationDirection::Minimize,
+                OptimizationDirection::Maximize,
+            ],
             completed_trials: 5,
             total_trials: 10,
             param_names: vec!["x".to_string()],

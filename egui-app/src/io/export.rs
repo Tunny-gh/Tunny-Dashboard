@@ -31,7 +31,7 @@ pub fn select_rows_for_export<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{TrialState};
+    use crate::state::app_state::TrialState;
     use std::collections::HashMap;
 
     fn make_trial(id: u32) -> TrialRow {

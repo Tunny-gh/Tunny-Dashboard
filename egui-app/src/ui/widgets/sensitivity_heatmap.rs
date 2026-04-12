@@ -87,17 +87,11 @@ impl SensitivityHeatmap {
 
             for (j, &val) in sens.spearman[i].iter().enumerate() {
                 let x = available.min.x + header_w + j as f32 * cell_w;
-                let cell_rect = egui::Rect::from_min_size(
-                    egui::pos2(x, y),
-                    egui::vec2(cell_w, cell_h),
-                );
+                let cell_rect =
+                    egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
                 let color = diverging_colormap(val);
                 painter.rect_filled(cell_rect, 0.0, color);
-                painter.rect_stroke(
-                    cell_rect,
-                    0.0,
-                    egui::Stroke::new(0.5, egui::Color32::GRAY),
-                );
+                painter.rect_stroke(cell_rect, 0.0, egui::Stroke::new(0.5, egui::Color32::GRAY));
                 painter.text(
                     cell_rect.center(),
                     egui::Align2::CENTER_CENTER,

@@ -78,9 +78,7 @@ impl TunnyApp {
                         DownsampleKey::Scatter => {
                             self.app_state.downsample_cache.scatter = Some(indices)
                         }
-                        DownsampleKey::Pcp => {
-                            self.app_state.downsample_cache.pcp = Some(indices)
-                        }
+                        DownsampleKey::Pcp => self.app_state.downsample_cache.pcp = Some(indices),
                         DownsampleKey::Thumbnail => {
                             self.app_state.downsample_cache.thumbnail = Some(indices)
                         }
