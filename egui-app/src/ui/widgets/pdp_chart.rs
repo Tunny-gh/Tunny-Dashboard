@@ -1,3 +1,4 @@
+use crate::state::app_state::TrialRow;
 use crate::state::messages::{PdpResult, PdpResult1d};
 use std::collections::HashMap;
 
@@ -65,6 +66,22 @@ pub fn compute_band_polygon(x_vals: &[f64], y_upper: &[f64], y_lower: &[f64]) ->
     upper.into_iter().chain(lower).collect()
 }
 
+/// 観測データを trial_rows から抽出する（テスト可能な純粋関数）
+pub fn extract_observed(
+    trial_rows: &[TrialRow],
+    param_name: &str,
+    obj_idx: usize,
+) -> Vec<[f64; 2]> {
+    trial_rows
+        .iter()
+        .filter_map(|row| {
+            let x = row.params.get(param_name).copied()?;
+            let y = row.objectives.get(obj_idx).copied()?;
+            Some([x, y])
+        })
+        .collect()
+}
+
 /// PDP チャートウィジェット
 pub struct PdpChart {
     pub mode: PdpMode,
@@ -74,6 +91,7 @@ pub struct PdpChart {
     pub result: Option<PdpResult>,
     pub computing: bool,
     pub cache: HashMap<String, PdpResult1d>,
+    pub show_observed: bool,
 }
 
 impl Default for PdpChart {
@@ -86,6 +104,7 @@ impl Default for PdpChart {
             result: None,
             computing: false,
             cache: HashMap::new(),
+            show_observed: false,
         }
     }
 }
@@ -109,7 +128,13 @@ impl PdpChart {
 }
 
 impl PdpChart {
-    pub fn show(&mut self, ui: &mut egui::Ui, param_names: &[String], obj_names: &[String]) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        param_names: &[String],
+        obj_names: &[String],
+        trial_rows: &[TrialRow],
+    ) {
         // パラメータ選択
         ui.horizontal(|ui| {
             ui.label("Parameter:");
@@ -151,6 +176,9 @@ impl PdpChart {
                         }
                     }
                 });
+            // 観測データ表示トグル
+            ui.separator();
+            ui.toggle_value(&mut self.show_observed, "Show data");
         });
 
         if self.computing {
@@ -166,15 +194,22 @@ impl PdpChart {
             return;
         };
 
+        // 観測データを事前計算（show_observed == false のときはゼロコスト）
+        let observed = if self.show_observed {
+            extract_observed(trial_rows, &self.selected_param, self.selected_objective)
+        } else {
+            vec![]
+        };
+
         match result {
-            PdpResult::OneDim(r) => self.show_1d(ui, r),
+            PdpResult::OneDim(r) => self.show_1d(ui, r, &observed),
             PdpResult::TwoDim(_) => {
                 ui.label("2D PDP will be implemented in TASK-2017");
             }
         }
     }
 
-    fn show_1d(&self, ui: &mut egui::Ui, result: &PdpResult1d) {
+    fn show_1d(&self, ui: &mut egui::Ui, result: &PdpResult1d, observed: &[[f64; 2]]) {
         // R² 表示
         if let Some(r2) = result.r2 {
             ui.label(format!("R²: {:.2} ({})", r2, r2_quality(r2)));
@@ -223,6 +258,16 @@ impl PdpChart {
                         .width(2.0)
                         .color(egui::Color32::from_rgb(50, 100, 255)),
                 );
+
+                // 観測データ散布図（最前面）
+                if self.show_observed && !observed.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(observed.to_vec())
+                            .name("Observed")
+                            .color(egui::Color32::from_rgb(220, 50, 50))
+                            .radius(4.0),
+                    );
+                }
             });
     }
 }
@@ -284,6 +329,66 @@ mod tests {
         assert!(!chart.computing);
         assert!(chart.result.is_none());
         assert!(chart.cache.is_empty());
+    }
+
+    // TASK-2062 tests
+
+    #[test]
+    fn pdp_chart_default_show_observed_false() {
+        let chart = PdpChart::default();
+        assert!(!chart.show_observed);
+    }
+
+    #[test]
+    fn extract_observed_normal() {
+        use crate::state::app_state::TrialRow;
+        use crate::state::app_state::TrialState;
+        let row = TrialRow {
+            trial_id: 0,
+            params: [("x".to_string(), 1.5)].into(),
+            objectives: vec![2.0],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        };
+        let pts = extract_observed(&[row], "x", 0);
+        assert_eq!(pts.len(), 1);
+        assert_eq!(pts[0], [1.5, 2.0]);
+    }
+
+    #[test]
+    fn extract_observed_missing_param() {
+        use crate::state::app_state::TrialRow;
+        use crate::state::app_state::TrialState;
+        let row = TrialRow {
+            trial_id: 0,
+            params: [("y".to_string(), 1.5)].into(),
+            objectives: vec![2.0],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        };
+        let pts = extract_observed(&[row], "x", 0);
+        assert!(pts.is_empty());
+    }
+
+    #[test]
+    fn extract_observed_out_of_range_obj() {
+        use crate::state::app_state::TrialRow;
+        use crate::state::app_state::TrialState;
+        let row = TrialRow {
+            trial_id: 0,
+            params: [("x".to_string(), 1.5)].into(),
+            objectives: vec![2.0],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        };
+        let pts = extract_observed(&[row], "x", 5);
+        assert!(pts.is_empty());
     }
 
     // TASK-2025 tests

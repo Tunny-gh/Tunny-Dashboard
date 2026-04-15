@@ -109,6 +109,19 @@ pub struct SensitivityResult {
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
     pub spearman: Vec<Vec<f64>>,
+    pub ridge: Vec<RidgeResult>,
+    pub rf_anova: Option<RfAnovaResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RidgeResult {
+    pub beta: Vec<f64>,
+    pub r_squared: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RfAnovaResult {
+    pub importances: Vec<Vec<f64>>,
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +357,8 @@ mod tests {
             param_names: vec!["x".to_string()],
             objective_names: vec!["y".to_string()],
             spearman: vec![vec![0.9]],
+            ridge: vec![],
+            rf_anova: None,
         });
 
         state.clear();

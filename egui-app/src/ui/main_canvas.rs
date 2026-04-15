@@ -1,5 +1,8 @@
+use std::sync::mpsc;
+
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
+use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
 
 /// メインキャンバスを描画する。
@@ -9,6 +12,7 @@ pub fn show_main_canvas(
     app_state: &mut AppState,
     layout: &mut LayoutState,
     widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
 ) {
     // スタディ未選択時はガイダンスを表示
     if app_state.current_study.is_none() {
@@ -22,5 +26,5 @@ pub fn show_main_canvas(
         return;
     }
 
-    crate::ui::grid_canvas::show_grid_canvas(ui, app_state, layout, widgets);
+    crate::ui::grid_canvas::show_grid_canvas(ui, app_state, layout, widgets, tx);
 }

@@ -46,6 +46,10 @@ pub(crate) fn predict_mean(model: &GpModel, x_test: &[f64]) -> f64 {
     inference::predict_mean(model, x_test)
 }
 
+pub(crate) fn predict_variance(model: &GpModel, x_test: &[f64]) -> f64 {
+    inference::predict_variance(model, x_test)
+}
+
 #[cfg(test)]
 use kernel_ops::build_kernel_matrix;
 #[cfg(test)]

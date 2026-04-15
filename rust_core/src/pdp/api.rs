@@ -103,7 +103,7 @@ pub fn compute_pdp_2d(
 
         match model_type {
             "random_forest" => {
-                let (grid1, grid2, values, r_squared) =
+                let (x_values, y_values, z_values, r_squared) =
                     random_forest::compute_pdp_2d_rf(&x_matrix, &y, p1_idx, p2_idx, n_grid)?;
                 let p1_name = param_names.get(p1_idx).cloned().unwrap_or_default();
                 let p2_name = param_names.get(p2_idx).cloned().unwrap_or_default();
@@ -111,10 +111,11 @@ pub fn compute_pdp_2d(
                     param1_name: p1_name,
                     param2_name: p2_name,
                     objective_name: objective_name.to_string(),
-                    grid1,
-                    grid2,
-                    values,
+                    x_values,
+                    y_values,
+                    z_values,
                     r_squared,
+                    uncertainties: None,
                 })
             }
             "kriging" => Some(compute_pdp_2d_kriging(

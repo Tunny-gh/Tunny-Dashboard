@@ -11,7 +11,7 @@ pub use rf_anova::compute_rf_anova_importances;
 pub use ridge::compute_ridge;
 pub use sobol::compute_sobol;
 pub use spearman::compute_spearman;
-pub use types::{RfAnovaResult, RidgeResult, SensitivityResult, SobolResult};
+pub use types::{RfAnovaResult, RidgeResult, SensitivityMetric, SensitivityResult, SobolResult};
 
 #[cfg(test)]
 mod tests;

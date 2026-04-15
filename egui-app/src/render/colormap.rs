@@ -18,6 +18,19 @@ impl ColorMap {
         }
     }
 
+    /// Plasma カラーマップ（5停止点近似）— 不確実性（標準偏差）の可視化に使用
+    pub fn plasma() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(13, 8, 135)),
+                (0.25, egui::Color32::from_rgb(126, 3, 168)),
+                (0.5, egui::Color32::from_rgb(204, 71, 120)),
+                (0.75, egui::Color32::from_rgb(248, 149, 64)),
+                (1.0, egui::Color32::from_rgb(240, 249, 33)),
+            ],
+        }
+    }
+
     /// Blue-to-Yellow カラーマップ（Pareto ランク用）
     pub fn blue_yellow() -> Self {
         Self {

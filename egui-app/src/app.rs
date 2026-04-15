@@ -107,9 +107,16 @@ impl TunnyApp {
                 AppMessage::PdpDone { .. } => {
                     // TODO: TASK-2025で実装
                 }
+                AppMessage::Pdp2dDone(result) => {
+                    self.widget_states.pdp_2d.result = Some(result);
+                    self.widget_states.pdp_2d.computing = false;
+                }
                 AppMessage::Error(e) => {
                     self.load_error = Some(e);
                     self.is_loading = false;
+                }
+                AppMessage::SensitivityError(_e) => {
+                    self.widget_states.importance.computing = false;
                 }
             }
             ctx.request_repaint();

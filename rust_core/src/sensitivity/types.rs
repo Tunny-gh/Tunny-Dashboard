@@ -1,3 +1,11 @@
+/// Metric type for sensitivity analysis selection.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SensitivityMetric {
+    Spearman,
+    Ridge,
+    RfAnova,
+}
+
 #[derive(Debug, Clone)]
 pub struct SensitivityResult {
     pub param_names: Vec<String>,

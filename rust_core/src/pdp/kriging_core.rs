@@ -42,22 +42,26 @@ pub(crate) fn compute_pdp_2d_kriging_raw(
 
     let model = gaussian_process::train_gp(x_norm.clone(), y_norm, 500, 42)?;
 
-    let grid1 = linspace(min1, max1, n_grid);
-    let grid2 = linspace(min2, max2, n_grid);
+    let x_values = linspace(min1, max1, n_grid);
+    let y_values = linspace(min2, max2, n_grid);
 
-    let values: Vec<Vec<f64>> = grid1
-        .iter()
-        .map(|&v1| {
-            let v1n = (v1 - min1) / range1;
-            grid2
-                .iter()
-                .map(|&v2| {
-                    let v2n = (v2 - min2) / range2;
-                    gaussian_process::predict_mean(&model, &[v1n, v2n]) * y_std + y_mean
-                })
-                .collect()
-        })
-        .collect();
+    let mut z_values: Vec<Vec<f64>> = Vec::with_capacity(n_grid);
+    let mut uncertainties: Vec<Vec<f64>> = Vec::with_capacity(n_grid);
+
+    for &v1 in &x_values {
+        let v1n = (v1 - min1) / range1;
+        let mut mean_row = Vec::with_capacity(n_grid);
+        let mut var_row = Vec::with_capacity(n_grid);
+        for &v2 in &y_values {
+            let v2n = (v2 - min2) / range2;
+            let point = [v1n, v2n];
+            mean_row.push(gaussian_process::predict_mean(&model, &point) * y_std + y_mean);
+            // Variance is in normalized space; scale by y_std²
+            var_row.push(gaussian_process::predict_variance(&model, &point) * y_std * y_std);
+        }
+        z_values.push(mean_row);
+        uncertainties.push(var_row);
+    }
 
     let ss_tot: f64 = y.iter().map(|&v| (v - y_mean).powi(2)).sum();
     let ss_res: f64 = x_norm
@@ -78,10 +82,11 @@ pub(crate) fn compute_pdp_2d_kriging_raw(
         param1_name: String::new(),
         param2_name: String::new(),
         objective_name: String::new(),
-        grid1,
-        grid2,
-        values,
+        x_values,
+        y_values,
+        z_values,
         r_squared,
+        uncertainties: Some(uncertainties),
     })
 }
 
@@ -125,11 +130,18 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
 
     if n < m_inducing {
         return compute_pdp_2d_kriging_raw(&x_2d_norm, &y_norm, n_grid).map(|mut r| {
-            r.grid1 = r.grid1.iter().map(|&v| v * range1 + min1).collect();
-            r.grid2 = r.grid2.iter().map(|&v| v * range2 + min2).collect();
-            for row in &mut r.values {
+            r.x_values = r.x_values.iter().map(|&v| v * range1 + min1).collect();
+            r.y_values = r.y_values.iter().map(|&v| v * range2 + min2).collect();
+            for row in &mut r.z_values {
                 for v in row.iter_mut() {
                     *v = *v * y_std + y_mean;
+                }
+            }
+            if let Some(ref mut unc) = r.uncertainties {
+                for row in unc.iter_mut() {
+                    for v in row.iter_mut() {
+                        *v *= y_std * y_std;
+                    }
                 }
             }
             r
@@ -154,52 +166,43 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
     };
     let params = sparse_fitc::optimize_fitc_hyperparams(&x_flat, &z, &y_norm, n, m, max_fitc_iter);
 
-    let (w, _) = match sparse_fitc::fitc_predict_weights(&x_flat, &z, &y_norm, &params, n, m) {
-        Some(r) => r,
-        None => return compute_pdp_2d_kriging_raw(x_2d, y, n_grid),
-    };
+    let fitc_model =
+        match sparse_fitc::fitc_train(&x_flat, &z, &y_norm, &params, n, m) {
+            Some(model) => model,
+            None => return compute_pdp_2d_kriging_raw(x_2d, y, n_grid),
+        };
 
-    if w.iter().any(|v| !v.is_finite()) {
+    if fitc_model.w.iter().any(|v| !v.is_finite()) {
         return compute_pdp_2d_kriging_raw(x_2d, y, n_grid);
     }
 
-    let grid1 = linspace(min1, max1, n_grid);
-    let grid2 = linspace(min2, max2, n_grid);
+    let x_values = linspace(min1, max1, n_grid);
+    let y_values = linspace(min2, max2, n_grid);
 
-    let log_ls = &params[..n_dims];
-    let log_sf = params[n_dims];
+    let mut z_values: Vec<Vec<f64>> = Vec::with_capacity(n_grid);
+    let mut uncertainties: Vec<Vec<f64>> = Vec::with_capacity(n_grid);
 
-    let values: Vec<Vec<f64>> = grid1
-        .iter()
-        .map(|&v1| {
-            let v1n = (v1 - min1) / range1;
-            grid2
-                .iter()
-                .map(|&v2| {
-                    let v2n = (v2 - min2) / range2;
-                    let x_star = [v1n, v2n];
-                    let pred_norm: f64 = (0..m)
-                        .map(|j| {
-                            let zj = [z[j], z[m + j]];
-                            gaussian_process::matern52_ard(&x_star, &zj, log_ls, log_sf) * w[j]
-                        })
-                        .sum();
-                    pred_norm * y_std + y_mean
-                })
-                .collect()
-        })
-        .collect();
+    for &v1 in &x_values {
+        let v1n = (v1 - min1) / range1;
+        let mut mean_row = Vec::with_capacity(n_grid);
+        let mut var_row = Vec::with_capacity(n_grid);
+        for &v2 in &y_values {
+            let v2n = (v2 - min2) / range2;
+            let point = [v1n, v2n];
+            let mean_norm = sparse_fitc::fitc_predict_mean(&fitc_model, &point);
+            let var_norm = sparse_fitc::fitc_predict_variance(&fitc_model, &point);
+            mean_row.push(mean_norm * y_std + y_mean);
+            var_row.push(var_norm * y_std * y_std);
+        }
+        z_values.push(mean_row);
+        uncertainties.push(var_row);
+    }
 
     let ss_tot: f64 = y.iter().map(|&v| (v - y_mean).powi(2)).sum();
     let ss_res: f64 = (0..n)
         .map(|i| {
-            let xi = [x_flat[i], x_flat[n + i]];
-            let pred_norm: f64 = (0..m)
-                .map(|j| {
-                    let zj = [z[j], z[m + j]];
-                    gaussian_process::matern52_ard(&xi, &zj, log_ls, log_sf) * w[j]
-                })
-                .sum();
+            let xi = [x_2d_norm[i][0], x_2d_norm[i][1]];
+            let pred_norm = sparse_fitc::fitc_predict_mean(&fitc_model, &xi);
             let pred = pred_norm * y_std + y_mean;
             (y[i] - pred).powi(2)
         })
@@ -214,10 +217,11 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
         param1_name: String::new(),
         param2_name: String::new(),
         objective_name: String::new(),
-        grid1,
-        grid2,
-        values,
+        x_values,
+        y_values,
+        z_values,
         r_squared,
+        uncertainties: Some(uncertainties),
     })
 }
 
@@ -237,10 +241,11 @@ pub(crate) fn compute_pdp_2d_kriging(
         param1_name: p1_name.clone(),
         param2_name: p2_name.clone(),
         objective_name: objective_name.to_string(),
-        grid1: vec![],
-        grid2: vec![],
-        values: vec![],
+        x_values: vec![],
+        y_values: vec![],
+        z_values: vec![],
         r_squared: 0.0,
+        uncertainties: None,
     };
 
     let n = y.len();

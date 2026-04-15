@@ -26,6 +26,8 @@ pub struct PdpResult2d {
     pub param1_name: String,
     pub param2_name: String,
     pub objective_name: String,
+    /// Posterior variance grid (Kriging / Sparse Kriging only).
+    pub uncertainties: Option<Vec<Vec<f64>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +72,7 @@ pub enum AppMessage {
         objective: String,
         result: PdpResult,
     },
+    Pdp2dDone(PdpResult2d),
     DownsampleDone {
         key: DownsampleKey,
         indices: Vec<u32>,
@@ -84,6 +87,7 @@ pub enum AppMessage {
         hv_values: Vec<f64>,
     },
     Error(String),
+    SensitivityError(String),
 }
 
 #[cfg(test)]
