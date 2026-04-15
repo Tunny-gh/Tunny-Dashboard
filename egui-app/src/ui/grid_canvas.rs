@@ -308,7 +308,9 @@ fn show_chart(
                 .show(ui, sensitivity.as_ref(), sobol, &obj_names);
         }
         ChartId::PdpChart => {
-            widgets.pdp_chart.show(ui, &param_names, &obj_names, &trial_rows);
+            widgets
+                .pdp_chart
+                .show(ui, &param_names, &obj_names, &trial_rows);
         }
         ChartId::PdpChart2D => {
             widgets.pdp_2d.show(ui, &param_names, &obj_names);

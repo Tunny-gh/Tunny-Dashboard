@@ -256,7 +256,11 @@ fn predict_variance_at_training_point_is_near_zero() {
 
     // Variance at a training point should be very small (near 0)
     assert!(var_at_train >= 0.0, "variance must be non-negative");
-    assert!(var_at_train < 0.1, "variance at training point should be small: {}", var_at_train);
+    assert!(
+        var_at_train < 0.1,
+        "variance at training point should be small: {}",
+        var_at_train
+    );
 }
 
 #[test]
@@ -268,6 +272,11 @@ fn predict_variance_is_nonnegative() {
 
     for xi in [0.1, 0.3, 0.7, 1.5] {
         let var = predict_variance(&model, &[xi]);
-        assert!(var >= 0.0, "variance must be non-negative at x={}, got {}", xi, var);
+        assert!(
+            var >= 0.0,
+            "variance must be non-negative at x={}, got {}",
+            xi,
+            var
+        );
     }
 }

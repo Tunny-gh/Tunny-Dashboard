@@ -638,9 +638,8 @@ pub(crate) fn fitc_predict_mean(model: &SparseFitcModel, x_test: &[f64]) -> f64 
     (0..model.m)
         .map(|j| {
             let zj: Vec<f64> = (0..n_dims).map(|d| model.z[d * model.m + j]).collect();
-            let k = crate::core::kriging::gaussian_process::matern52_ard(
-                x_test, &zj, log_ls, log_sf,
-            );
+            let k =
+                crate::core::kriging::gaussian_process::matern52_ard(x_test, &zj, log_ls, log_sf);
             k * model.w[j]
         })
         .sum()
@@ -657,9 +656,8 @@ pub(crate) fn fitc_predict_variance(model: &SparseFitcModel, x_test: &[f64]) -> 
     let log_sf = model.params[n_dims];
 
     // k(x*, x*) — prior variance at the test point
-    let k_star_star = crate::core::kriging::gaussian_process::matern52_ard(
-        x_test, x_test, log_ls, log_sf,
-    );
+    let k_star_star =
+        crate::core::kriging::gaussian_process::matern52_ard(x_test, x_test, log_ls, log_sf);
 
     // k(Z, x*) — cross-covariance between inducing points and test point
     let k_z_star: Vec<f64> = (0..model.m)
@@ -886,12 +884,8 @@ mod tests {
         let n = 20_usize;
         let m = 5_usize;
         // Column-major 2D training data: x[0..n] = dim0, x[n..2n] = dim1
-        let x: Vec<f64> = (0..n * 2)
-            .map(|i| i as f64 / (n * 2) as f64)
-            .collect();
-        let y: Vec<f64> = (0..n)
-            .map(|i| (i as f64 / n as f64) * 2.0 - 0.5)
-            .collect();
+        let x: Vec<f64> = (0..n * 2).map(|i| i as f64 / (n * 2) as f64).collect();
+        let y: Vec<f64> = (0..n).map(|i| (i as f64 / n as f64) * 2.0 - 0.5).collect();
         (x, y, n, m)
     }
 

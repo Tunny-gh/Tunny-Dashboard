@@ -153,9 +153,18 @@ fn tc_803_07_pdp_2d_empty_data() {
 
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 5);
 
-    assert!(result.x_values.is_empty(), "n<2 translated x_values translated");
-    assert!(result.y_values.is_empty(), "n<2 translated y_values translated");
-    assert!(result.z_values.is_empty(), "n<2 translated z_values translated");
+    assert!(
+        result.x_values.is_empty(),
+        "n<2 translated x_values translated"
+    );
+    assert!(
+        result.y_values.is_empty(),
+        "n<2 translated y_values translated"
+    );
+    assert!(
+        result.z_values.is_empty(),
+        "n<2 translated z_values translated"
+    );
 }
 
 #[test]
@@ -245,7 +254,11 @@ fn tc_803_p02_pdp_2d_performance() {
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 15);
     let elapsed = start.elapsed();
 
-    assert_eq!(result.z_values.len(), 15, "z_values translated 15 translated");
+    assert_eq!(
+        result.z_values.len(),
+        15,
+        "z_values translated 15 translated"
+    );
     assert_eq!(
         result.z_values[0].len(),
         15,

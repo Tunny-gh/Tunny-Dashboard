@@ -153,9 +153,7 @@ pub fn compute_sorted_importance(
             };
             rf.importances
                 .iter()
-                .map(|param_imp| {
-                    param_imp.get(obj_idx).copied().unwrap_or(0.0).abs()
-                })
+                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
                 .collect()
         }
         ImportanceMetric::Sobol => return vec![],

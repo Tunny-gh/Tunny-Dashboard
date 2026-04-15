@@ -82,7 +82,11 @@ impl PdpChart2DState {
             egui::ComboBox::from_id_salt("pdp2d_model")
                 .selected_text(self.selected_model.label())
                 .show_ui(ui, |ui| {
-                    for model in [ModelType::Ridge, ModelType::Kriging, ModelType::SparseKriging] {
+                    for model in [
+                        ModelType::Ridge,
+                        ModelType::Kriging,
+                        ModelType::SparseKriging,
+                    ] {
                         let selected = self.selected_model == model;
                         if ui.selectable_label(selected, model.label()).clicked() {
                             self.selected_model = model;

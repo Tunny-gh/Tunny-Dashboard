@@ -166,11 +166,10 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
     };
     let params = sparse_fitc::optimize_fitc_hyperparams(&x_flat, &z, &y_norm, n, m, max_fitc_iter);
 
-    let fitc_model =
-        match sparse_fitc::fitc_train(&x_flat, &z, &y_norm, &params, n, m) {
-            Some(model) => model,
-            None => return compute_pdp_2d_kriging_raw(x_2d, y, n_grid),
-        };
+    let fitc_model = match sparse_fitc::fitc_train(&x_flat, &z, &y_norm, &params, n, m) {
+        Some(model) => model,
+        None => return compute_pdp_2d_kriging_raw(x_2d, y, n_grid),
+    };
 
     if fitc_model.w.iter().any(|v| !v.is_finite()) {
         return compute_pdp_2d_kriging_raw(x_2d, y, n_grid);
