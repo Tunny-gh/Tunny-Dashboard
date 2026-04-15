@@ -44,3 +44,4 @@ Cargo.lock
 # Test fixtures (allow *.log under rust_core for CI)
 !rust_core/test*.log
 node_modules/
+.claude/settings.local.json
