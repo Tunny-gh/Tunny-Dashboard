@@ -9,8 +9,8 @@ pub(crate) fn cholesky(a: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
     for i in 0..n {
         for j in 0..=i {
             let mut sum = a[i][j];
-            for k in 0..j {
-                sum -= l[i][k] * l[j][k];
+            for (&lik, &ljk) in l[i].iter().zip(l[j].iter()).take(j) {
+                sum -= lik * ljk;
             }
             if i == j {
                 let val = sum + 1e-6;

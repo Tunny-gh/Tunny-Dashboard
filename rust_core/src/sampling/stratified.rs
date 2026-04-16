@@ -67,11 +67,10 @@ pub fn downsample_stratified_by_rank(
     let mut result_indices: Vec<u32> = rank1.clone();
     let mut used = pareto_count;
 
-    for r in 2..=max_rank {
+    for (r, group) in by_rank.iter().enumerate().take(max_rank + 1).skip(2) {
         if used >= max_points {
             break;
         }
-        let group = &by_rank[r];
         if group.is_empty() {
             continue;
         }

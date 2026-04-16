@@ -12,12 +12,12 @@ struct SamplingState {
 }
 
 thread_local! {
-    static STATE: RefCell<SamplingState> = RefCell::new(SamplingState {
+    static STATE: RefCell<SamplingState> = const { RefCell::new(SamplingState {
         is_minimize: vec![],
         pareto_indices: None,
         all_ranks: None,
         cluster_labels: None,
-    });
+    }) };
 }
 
 /// Initialise sampling state after a study is loaded.

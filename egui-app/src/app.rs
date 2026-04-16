@@ -1,7 +1,8 @@
 use std::sync::mpsc;
 
-use crate::state::app_state::{AppState, StudyContext};
+use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
+use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
 
@@ -37,88 +38,13 @@ impl TunnyApp {
     /// ノンブロッキングにメッセージを処理し AppState を更新する
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
-            match msg {
-                AppMessage::JournalParsed { studies, path } => {
-                    // 単一スタディの場合は load_journal_task 内で既に StudySelected が
-                    // 返るため、ここに来るのは複数スタディの場合のみ
-                    self.app_state.all_studies = studies;
-                    self.app_state.journal_path = Some(path);
-                    self.is_loading = false;
-                }
-                AppMessage::StudySelected {
-                    meta,
-                    trial_rows,
-                    gpu_data,
-                    pareto_indices,
-                } => {
-                    self.app_state.clear();
-                    self.app_state.current_study = Some(StudyContext {
-                        meta,
-                        trial_rows,
-                        gpu_data,
-                        pareto_indices,
-                    });
-                    self.is_loading = false;
-                }
-                AppMessage::SensitivityDone(result) => {
-                    self.app_state.sensitivity_result = Some(result);
-                }
-                AppMessage::SobolDone(result) => {
-                    self.app_state.sobol_result = Some(result);
-                }
-                AppMessage::ClusteringDone(result) => {
-                    self.app_state.cluster_result = Some(result);
-                }
-                AppMessage::TopsisDone(result) => {
-                    self.app_state.topsis_result = Some(result);
-                }
-                AppMessage::DownsampleDone { key, indices } => {
-                    use crate::state::messages::DownsampleKey;
-                    match key {
-                        DownsampleKey::Scatter => {
-                            self.app_state.downsample_cache.scatter = Some(indices)
-                        }
-                        DownsampleKey::Pcp => self.app_state.downsample_cache.pcp = Some(indices),
-                        DownsampleKey::Thumbnail => {
-                            self.app_state.downsample_cache.thumbnail = Some(indices)
-                        }
-                        DownsampleKey::Hover => {
-                            self.app_state.downsample_cache.hover = Some(indices)
-                        }
-                    }
-                }
-                AppMessage::HvHistoryDone {
-                    trial_ids,
-                    hv_values,
-                } => {
-                    use crate::state::app_state::HvHistory;
-                    self.app_state.hv_history = Some(HvHistory {
-                        trial_ids,
-                        hv_values,
-                    });
-                }
-                AppMessage::LiveUpdateDone {
-                    new_trial_count: _,
-                    pareto_updated: _,
-                    new_indices: _,
-                } => {
-                    // TODO: TASK-2027で実装
-                }
-                AppMessage::PdpDone { .. } => {
-                    // TODO: TASK-2025で実装
-                }
-                AppMessage::Pdp2dDone(result) => {
-                    self.widget_states.pdp_2d.result = Some(result);
-                    self.widget_states.pdp_2d.computing = false;
-                }
-                AppMessage::Error(e) => {
-                    self.load_error = Some(e);
-                    self.is_loading = false;
-                }
-                AppMessage::SensitivityError(_e) => {
-                    self.widget_states.importance.computing = false;
-                }
-            }
+            MessageHandler::handle(
+                msg,
+                &mut self.app_state,
+                &mut self.widget_states,
+                &mut self.is_loading,
+                &mut self.load_error,
+            );
             ctx.request_repaint();
         }
     }

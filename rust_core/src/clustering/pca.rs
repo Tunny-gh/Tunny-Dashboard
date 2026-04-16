@@ -45,9 +45,10 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
         let mut max_off = 0.0f64;
         let mut pi = 0usize;
         let mut qi = 1usize;
-        for i in 0..p {
+        for (i, a_row) in a.iter().enumerate().take(p) {
+            #[allow(clippy::needless_range_loop)]
             for j in (i + 1)..p {
-                let value = a[i][j].abs();
+                let value = a_row[j].abs();
                 if value > max_off {
                     max_off = value;
                     pi = i;
@@ -83,6 +84,7 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
         a[pi][qi] = 0.0;
         a[qi][pi] = 0.0;
 
+        #[allow(clippy::needless_range_loop)]
         for r in 0..p {
             if r == pi || r == qi {
                 continue;
@@ -97,11 +99,11 @@ fn jacobi_eigensystem(mut a: Vec<Vec<f64>>, p: usize) -> (Vec<f64>, Vec<Vec<f64>
             a[qi][r] = new_rq;
         }
 
-        for r in 0..p {
-            let v_rp = eigvec[r][pi];
-            let v_rq = eigvec[r][qi];
-            eigvec[r][pi] = c * v_rp - s * v_rq;
-            eigvec[r][qi] = s * v_rp + c * v_rq;
+        for eigvec_row in eigvec.iter_mut().take(p) {
+            let v_rp = eigvec_row[pi];
+            let v_rq = eigvec_row[qi];
+            eigvec_row[pi] = c * v_rp - s * v_rq;
+            eigvec_row[qi] = s * v_rp + c * v_rq;
         }
     }
 

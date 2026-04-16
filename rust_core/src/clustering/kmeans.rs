@@ -71,7 +71,7 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
 
     for iter in 0..max_iter {
         let mut changed = false;
-        for i in 0..n {
+        for (i, label) in labels.iter_mut().enumerate().take(n) {
             let pt = get_point(i);
             let new_label = (0..k)
                 .min_by(|&a, &b| {
@@ -80,8 +80,8 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap_or(0);
-            if labels[i] != new_label {
-                labels[i] = new_label;
+            if *label != new_label {
+                *label = new_label;
                 changed = true;
             }
         }
@@ -98,8 +98,7 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
 
         let mut new_centroids = vec![vec![0.0f64; p]; k];
         let mut counts = vec![0usize; k];
-        for i in 0..n {
-            let lbl = labels[i];
+        for (i, &lbl) in labels.iter().enumerate().take(n) {
             let pt = get_point(i);
             for j in 0..p {
                 new_centroids[lbl][j] += pt[j];
@@ -108,8 +107,8 @@ pub(crate) fn run_kmeans_on_data(flat_data: &[f64], n: usize, p: usize, k: usize
         }
         for c in 0..k {
             if counts[c] > 0 {
-                for j in 0..p {
-                    new_centroids[c][j] /= counts[c] as f64;
+                for val in new_centroids[c].iter_mut().take(p) {
+                    *val /= counts[c] as f64;
                 }
             } else {
                 new_centroids[c] = centroids[c].clone();

@@ -395,6 +395,7 @@ pub(crate) fn fitc_lml(
 /// Prediction: `μ(x*) = K_{x*,Z} · w`
 ///
 /// Returns `Some((w, lambda_diag))` or `None` if Cholesky fails.
+#[allow(dead_code)]
 pub(crate) fn fitc_predict_weights(
     x: &[f64],
     z: &[f64],

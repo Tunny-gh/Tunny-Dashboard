@@ -81,8 +81,8 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
         let mut current_pareto: Vec<Vec<f64>> = Vec::new();
         let mut hv_values = Vec::with_capacity(n);
 
-        for row in 0..n {
-            let obj = norm_all[row].clone();
+        for obj in norm_all.iter().take(n) {
+            let obj = obj.clone();
             if obj.iter().any(|v| v.is_nan()) {
                 hv_values.push(hv_values.last().copied().unwrap_or(0.0));
                 continue;

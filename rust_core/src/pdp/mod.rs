@@ -1,9 +1,12 @@
 //! Module documentation.
 //!
 //! Module documentation.
+//!
 //! Design:
+//!
 //! Module documentation.
 //!   - f̄_j(v) = y_mean + β_j * (v - mean_j) / std_j
+//!
 //! Module documentation.
 //!
 //! Module documentation.

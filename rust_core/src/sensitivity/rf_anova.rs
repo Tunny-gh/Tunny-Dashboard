@@ -40,7 +40,7 @@ pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> Vec<f64
         .max(f64::EPSILON);
 
     let mut importances = vec![0.0; p];
-    for feature_idx in 0..p {
+    for (feature_idx, importance) in importances.iter_mut().enumerate().take(p) {
         let permuted =
             match permute_single_column(x_matrix, feature_idx, RF_SEED + feature_idx as u64) {
                 Some(data) => data,
@@ -48,7 +48,7 @@ pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> Vec<f64
             };
 
         let permuted_mse = mse_on_dataset(&rf, &permuted, y).unwrap_or(baseline_mse);
-        importances[feature_idx] = (permuted_mse - baseline_mse).max(0.0);
+        *importance = (permuted_mse - baseline_mse).max(0.0);
     }
 
     normalize(&mut importances);
