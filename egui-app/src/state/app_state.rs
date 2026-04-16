@@ -24,6 +24,8 @@ pub struct AppState {
     pub live_update: LiveUpdateState,
     pub topsis_result: Option<TopsisResult>,
     pub hv_history: Option<HvHistory>,
+    pub selected_colormap: ColormapName,
+    pub chart_colors: Vec<egui::Color32>,
 }
 
 impl AppState {
@@ -43,6 +45,8 @@ impl AppState {
             live_update: LiveUpdateState::default(),
             topsis_result: None,
             hv_history: None,
+            selected_colormap: ColormapName::Viridis,
+            chart_colors: Vec::new(),
         }
     }
 
@@ -62,6 +66,26 @@ impl AppState {
         self.topsis_result = None;
         self.hv_history = None;
         self.downsample_cache.clear();
+        self.chart_colors.clear();
+        // selected_colormap はユーザー設定を維持
+    }
+
+    /// ColorMode と ColormapName に基づいて chart_colors を即時再計算する
+    pub fn update_chart_colors(&mut self) {
+        if let Some(ctx) = &self.current_study {
+            let color_mode = self.color_mode.clone();
+            let colormap_name = self.selected_colormap.clone();
+            let trial_rows = &ctx.trial_rows;
+            let objective_names = &ctx.meta.objective_names;
+            self.chart_colors = crate::render::colormap::compute_chart_colors(
+                &color_mode,
+                &colormap_name,
+                trial_rows,
+                objective_names,
+            );
+        } else {
+            self.chart_colors.clear();
+        }
     }
 }
 
@@ -133,5 +157,96 @@ mod tests {
 
         // Studies should NOT be cleared
         assert_eq!(state.all_studies.len(), 1);
+    }
+
+    #[test]
+    fn app_state_new_colormap_defaults() {
+        let state = AppState::new();
+        assert_eq!(state.selected_colormap, ColormapName::Viridis);
+        assert!(state.chart_colors.is_empty());
+    }
+
+    fn make_simple_study_ctx() -> StudyContext {
+        use std::collections::HashMap;
+        StudyContext {
+            meta: StudyMeta {
+                study_id: 0,
+                name: "test".to_string(),
+                directions: vec![Direction::Minimize],
+                completed_trials: 2,
+                total_trials: 2,
+                param_names: vec!["x".to_string()],
+                objective_names: vec![],
+                user_attr_names: vec![],
+                has_constraints: false,
+            },
+            trial_rows: vec![
+                TrialRow {
+                    trial_id: 0,
+                    params: HashMap::new(),
+                    objectives: vec![],
+                    pareto_rank: 0,
+                    cluster_id: None,
+                    state: TrialState::Complete,
+                    user_attrs: HashMap::new(),
+                },
+                TrialRow {
+                    trial_id: 1,
+                    params: HashMap::new(),
+                    objectives: vec![],
+                    pareto_rank: 1,
+                    cluster_id: None,
+                    state: TrialState::Complete,
+                    user_attrs: HashMap::new(),
+                },
+            ],
+            gpu_data: GpuBufferData {
+                positions: vec![],
+                positions3d: vec![],
+                colors: vec![],
+                sizes: vec![],
+                trial_count: 2,
+            },
+            pareto_indices: vec![],
+        }
+    }
+
+    #[test]
+    fn update_chart_colors_with_study() {
+        let mut state = AppState::new();
+        state.current_study = Some(make_simple_study_ctx());
+        state.update_chart_colors();
+        assert!(!state.chart_colors.is_empty());
+        assert_eq!(state.chart_colors.len(), 2);
+    }
+
+    #[test]
+    fn update_chart_colors_without_study_clears() {
+        let mut state = AppState::new();
+        state.chart_colors = vec![egui::Color32::RED];
+        state.update_chart_colors();
+        assert!(state.chart_colors.is_empty());
+    }
+
+    #[test]
+    fn clear_clears_chart_colors() {
+        let mut state = AppState::new();
+        state.current_study = Some(make_simple_study_ctx());
+        state.update_chart_colors();
+        assert!(!state.chart_colors.is_empty());
+        state.clear();
+        assert!(state.chart_colors.is_empty());
+    }
+
+    #[test]
+    fn different_colormap_produces_different_colors() {
+        let mut state = AppState::new();
+        state.current_study = Some(make_simple_study_ctx());
+        state.update_chart_colors();
+        let viridis_colors = state.chart_colors.clone();
+        state.selected_colormap = ColormapName::Jet;
+        state.update_chart_colors();
+        let jet_colors = state.chart_colors.clone();
+        assert_ne!(viridis_colors, jet_colors);
     }
 }

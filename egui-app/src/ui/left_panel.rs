@@ -1,4 +1,4 @@
-use crate::state::app_state::{AppState, ColorMode};
+use crate::state::app_state::{AppState, ColorMode, ColormapName};
 use crate::state::layout_state::LayoutState;
 
 /// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
@@ -9,6 +9,7 @@ pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mu
         show_filter_sliders(ui, app_state);
         ui.separator();
         show_color_mode(ui, app_state);
+        show_colormap_selector(ui, app_state);
     });
 }
 
@@ -120,6 +121,29 @@ fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
                 );
             }
         });
+}
+
+/// カラーマップ選択セレクタ
+fn show_colormap_selector(ui: &mut egui::Ui, app_state: &mut AppState) {
+    ui.label("Colormap:");
+    let current_label = app_state.selected_colormap.label().to_string();
+    let mut changed = false;
+    egui::ComboBox::from_label("")
+        .selected_text(current_label)
+        .show_ui(ui, |ui| {
+            for cmap in ColormapName::all() {
+                if ui
+                    .selectable_label(app_state.selected_colormap == *cmap, cmap.label())
+                    .clicked()
+                {
+                    app_state.selected_colormap = cmap.clone();
+                    changed = true;
+                }
+            }
+        });
+    if changed {
+        app_state.update_chart_colors();
+    }
 }
 
 #[cfg(test)]

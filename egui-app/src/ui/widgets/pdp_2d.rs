@@ -37,7 +37,13 @@ impl Default for PdpChart2DState {
 }
 
 impl PdpChart2DState {
-    pub fn show(&mut self, ui: &mut egui::Ui, param_names: &[String], obj_names: &[String]) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        param_names: &[String],
+        obj_names: &[String],
+        cmap: ColorMap,
+    ) {
         // Row 1: Parameter 1 + Parameter 2
         ui.horizontal(|ui| {
             ui.label("Parameter 1:");
@@ -146,13 +152,13 @@ impl PdpChart2DState {
             let left_size = egui::vec2(half_w, plot_h);
             let (left_rect, _) = ui.allocate_exact_size(left_size, egui::Sense::hover());
             let painter = ui.painter_at(left_rect);
-            draw_heatmap_values(&painter, left_rect, &result.z_values, ColorMap::viridis());
+            draw_heatmap_values(&painter, left_rect, &result.z_values, cmap.clone());
             let bar_left = egui::Rect::from_min_size(
                 egui::pos2(left_rect.right() + 4.0, left_rect.top()),
                 egui::vec2(16.0, left_rect.height()),
             );
             let (v_min, v_max) = value_range_of(&result.z_values);
-            draw_colorbar(ui, bar_left, v_min, v_max, ColorMap::viridis());
+            draw_colorbar(ui, bar_left, v_min, v_max, cmap.clone());
 
             // Right pane: σ (sqrt of variance)
             let sigma: Vec<Vec<f64>> = uncertainties
@@ -162,13 +168,13 @@ impl PdpChart2DState {
             let right_size = egui::vec2(half_w, plot_h);
             let (right_rect, _) = ui.allocate_exact_size(right_size, egui::Sense::hover());
             let painter = ui.painter_at(right_rect);
-            draw_heatmap_values(&painter, right_rect, &sigma, ColorMap::plasma());
+            draw_heatmap_values(&painter, right_rect, &sigma, cmap.clone());
             let bar_right = egui::Rect::from_min_size(
                 egui::pos2(right_rect.right() + 4.0, right_rect.top()),
                 egui::vec2(16.0, right_rect.height()),
             );
             let (s_min, s_max) = value_range_of(&sigma);
-            draw_colorbar(ui, bar_right, s_min, s_max, ColorMap::plasma());
+            draw_colorbar(ui, bar_right, s_min, s_max, cmap.clone());
 
             ui.horizontal(|ui| {
                 ui.label(format!(
@@ -183,14 +189,14 @@ impl PdpChart2DState {
             let plot_size = egui::vec2(available.width() - 32.0, plot_h);
             let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
             let painter = ui.painter_at(rect);
-            draw_heatmap_values(&painter, rect, &result.z_values, ColorMap::viridis());
+            draw_heatmap_values(&painter, rect, &result.z_values, cmap.clone());
 
             let bar_rect = egui::Rect::from_min_size(
                 egui::pos2(rect.right() + 4.0, rect.top()),
                 egui::vec2(16.0, rect.height()),
             );
             let (v_min, v_max) = value_range_of(&result.z_values);
-            draw_colorbar(ui, bar_rect, v_min, v_max, ColorMap::viridis());
+            draw_colorbar(ui, bar_rect, v_min, v_max, cmap.clone());
 
             ui.label(format!(
                 "X: {} / Y: {} / Z: {}",

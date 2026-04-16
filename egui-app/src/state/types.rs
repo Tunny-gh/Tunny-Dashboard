@@ -100,6 +100,63 @@ impl ColorMode {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ColormapName {
+    Viridis,
+    Plasma,
+    Jet,
+    Turbo,
+    Inferno,
+    Coolwarm,
+    Spectral,
+    Cividis,
+    BlueYellow,
+}
+
+impl ColormapName {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Viridis => "Viridis",
+            Self::Plasma => "Plasma",
+            Self::Jet => "Jet",
+            Self::Turbo => "Turbo",
+            Self::Inferno => "Inferno",
+            Self::Coolwarm => "Coolwarm",
+            Self::Spectral => "Spectral",
+            Self::Cividis => "Cividis",
+            Self::BlueYellow => "Blue-Yellow",
+        }
+    }
+
+    pub fn all() -> &'static [ColormapName] {
+        &[
+            Self::Viridis,
+            Self::Plasma,
+            Self::Jet,
+            Self::Turbo,
+            Self::Inferno,
+            Self::Coolwarm,
+            Self::Spectral,
+            Self::Cividis,
+            Self::BlueYellow,
+        ]
+    }
+
+    pub fn to_colormap(&self) -> crate::render::colormap::ColorMap {
+        match self {
+            Self::Viridis => crate::render::colormap::ColorMap::viridis(),
+            Self::Plasma => crate::render::colormap::ColorMap::plasma(),
+            Self::Jet => crate::render::colormap::ColorMap::jet(),
+            Self::Turbo => crate::render::colormap::ColorMap::turbo(),
+            Self::Inferno => crate::render::colormap::ColorMap::inferno(),
+            Self::Coolwarm => crate::render::colormap::ColorMap::coolwarm(),
+            Self::Spectral => crate::render::colormap::ColorMap::spectral(),
+            Self::Cividis => crate::render::colormap::ColorMap::cividis(),
+            Self::BlueYellow => crate::render::colormap::ColorMap::blue_yellow(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,6 +166,41 @@ mod tests {
         let mode = ColorMode::ObjectiveValue("obj0".to_string());
         assert_ne!(mode, ColorMode::ParetoRank);
         assert_ne!(mode, ColorMode::TrialNumber);
+    }
+
+    #[test]
+    fn colormap_name_all_has_nine_variants() {
+        assert_eq!(ColormapName::all().len(), 9);
+    }
+
+    #[test]
+    fn colormap_name_labels_not_empty() {
+        for cmap in ColormapName::all() {
+            assert!(!cmap.label().is_empty(), "{:?} has empty label", cmap);
+        }
+    }
+
+    #[test]
+    fn colormap_name_to_colormap_jet_boundaries() {
+        use crate::render::colormap::ColorMap;
+        let jet = ColormapName::Jet.to_colormap();
+        assert_eq!(jet.interpolate(0.0), egui::Color32::from_rgb(0, 0, 143));
+        assert_eq!(jet.interpolate(1.0), egui::Color32::from_rgb(128, 0, 0));
+        // Clamping
+        assert_eq!(jet.interpolate(-0.1), jet.interpolate(0.0));
+        assert_eq!(jet.interpolate(1.1), jet.interpolate(1.0));
+    }
+
+    #[test]
+    fn colormap_name_to_colormap_each_boundary() {
+        for name in ColormapName::all() {
+            let cmap = name.to_colormap();
+            // interpolate(0.0) and interpolate(1.0) should not panic
+            let _ = cmap.interpolate(0.0);
+            let _ = cmap.interpolate(1.0);
+            let _ = cmap.interpolate(-0.5);
+            let _ = cmap.interpolate(1.5);
+        }
     }
 
     /// テスト用の StudyContext を生成するヘルパー

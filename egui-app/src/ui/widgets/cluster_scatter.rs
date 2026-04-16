@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::render::colormap::tab10_palette;
 use linfa::traits::{Fit, Transformer};
 use linfa::DatasetBase;
 use linfa_reduction::Pca;
@@ -70,6 +73,7 @@ impl ClusterScatter {
         trial_rows: &[crate::state::app_state::TrialRow],
         cluster_result: Option<&crate::state::app_state::ClusterResult>,
         param_names: &[String],
+        chart_colors: &[egui::Color32],
     ) {
         let Some(cr) = cluster_result else {
             ui.centered_and_justified(|ui| {
@@ -93,34 +97,34 @@ impl ClusterScatter {
         }
         let pca_points = self.cached_pca.as_ref().unwrap();
 
-        // クラスタ色テーブル
-        let cluster_colors = [
-            egui::Color32::from_rgb(230, 80, 80),
-            egui::Color32::from_rgb(80, 150, 230),
-            egui::Color32::from_rgb(80, 200, 120),
-            egui::Color32::from_rgb(230, 180, 60),
-            egui::Color32::from_rgb(180, 80, 200),
-        ];
+        // tab10 パレット（10色）
+        let palette = tab10_palette();
 
-        // クラスタ別に Points を集約
-        let mut cluster_points: std::collections::HashMap<i32, Vec<[f64; 2]>> =
-            std::collections::HashMap::new();
+        // クラスタ別に (point, original_index) を集約
+        let mut cluster_points: HashMap<i32, Vec<([f64; 2], usize)>> = HashMap::new();
         for (i, &[x, y]) in pca_points.iter().enumerate() {
             let label = cr.labels.get(i).copied().unwrap_or(0);
             cluster_points
                 .entry(label)
                 .or_default()
-                .push([x as f64, y as f64]);
+                .push(([x as f64, y as f64], i));
         }
 
         egui_plot::Plot::new("cluster_scatter").show(ui, |plot_ui| {
-            for (label, pts) in &cluster_points {
-                let color = cluster_colors[(*label as usize) % cluster_colors.len()];
-                let points =
-                    egui_plot::Points::new(pts.iter().map(|&[x, y]| [x, y]).collect::<Vec<_>>())
-                        .color(color)
-                        .radius(3.0)
-                        .name(format!("Cluster {}", label));
+            for (label, pts_with_idx) in &cluster_points {
+                let representative_color = if !chart_colors.is_empty() {
+                    pts_with_idx
+                        .first()
+                        .and_then(|&(_, idx)| chart_colors.get(idx).copied())
+                        .unwrap_or(palette[*label as usize % palette.len()])
+                } else {
+                    palette[*label as usize % palette.len()]
+                };
+                let pts: Vec<[f64; 2]> = pts_with_idx.iter().map(|&(pt, _)| pt).collect();
+                let points = egui_plot::Points::new(pts)
+                    .color(representative_color)
+                    .radius(3.0)
+                    .name(format!("Cluster {}", label));
                 plot_ui.points(points);
             }
         });

@@ -1,4 +1,5 @@
 /// カラーマップ補間ユーティリティ
+#[derive(Clone)]
 pub struct ColorMap {
     /// (t, color) の停止点リスト。t は [0.0, 1.0] の範囲。
     pub stops: Vec<(f32, egui::Color32)>,
@@ -37,6 +38,90 @@ impl ColorMap {
             stops: vec![
                 (0.0, egui::Color32::from_rgb(255, 220, 0)),
                 (1.0, egui::Color32::from_rgb(0, 80, 200)),
+            ],
+        }
+    }
+
+    /// Jet カラーマップ（7停止点近似）
+    pub fn jet() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(0, 0, 143)),
+                (0.17, egui::Color32::from_rgb(0, 0, 255)),
+                (0.33, egui::Color32::from_rgb(0, 200, 255)),
+                (0.5, egui::Color32::from_rgb(100, 255, 0)),
+                (0.67, egui::Color32::from_rgb(255, 255, 0)),
+                (0.83, egui::Color32::from_rgb(255, 100, 0)),
+                (1.0, egui::Color32::from_rgb(128, 0, 0)),
+            ],
+        }
+    }
+
+    /// Turbo カラーマップ（7停止点近似）
+    pub fn turbo() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(48, 18, 59)),
+                (0.17, egui::Color32::from_rgb(70, 108, 228)),
+                (0.33, egui::Color32::from_rgb(30, 195, 149)),
+                (0.5, egui::Color32::from_rgb(163, 222, 30)),
+                (0.67, egui::Color32::from_rgb(249, 160, 27)),
+                (0.83, egui::Color32::from_rgb(220, 50, 32)),
+                (1.0, egui::Color32::from_rgb(122, 4, 3)),
+            ],
+        }
+    }
+
+    /// Inferno カラーマップ（5停止点近似）
+    pub fn inferno() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(0, 0, 4)),
+                (0.25, egui::Color32::from_rgb(87, 16, 110)),
+                (0.5, egui::Color32::from_rgb(188, 55, 84)),
+                (0.75, egui::Color32::from_rgb(249, 142, 9)),
+                (1.0, egui::Color32::from_rgb(252, 255, 164)),
+            ],
+        }
+    }
+
+    /// Coolwarm カラーマップ（5停止点近似、発散型）
+    pub fn coolwarm() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(59, 76, 192)),
+                (0.25, egui::Color32::from_rgb(141, 176, 254)),
+                (0.5, egui::Color32::from_rgb(237, 237, 237)),
+                (0.75, egui::Color32::from_rgb(252, 146, 114)),
+                (1.0, egui::Color32::from_rgb(180, 4, 38)),
+            ],
+        }
+    }
+
+    /// Spectral カラーマップ（7停止点近似）
+    pub fn spectral() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(158, 1, 66)),
+                (0.17, egui::Color32::from_rgb(213, 62, 79)),
+                (0.33, egui::Color32::from_rgb(244, 109, 67)),
+                (0.5, egui::Color32::from_rgb(253, 200, 128)),
+                (0.67, egui::Color32::from_rgb(171, 222, 164)),
+                (0.83, egui::Color32::from_rgb(53, 151, 143)),
+                (1.0, egui::Color32::from_rgb(94, 79, 162)),
+            ],
+        }
+    }
+
+    /// Cividis カラーマップ（5停止点近似、色覚多様性対応）
+    pub fn cividis() -> Self {
+        Self {
+            stops: vec![
+                (0.0, egui::Color32::from_rgb(0, 32, 76)),
+                (0.25, egui::Color32::from_rgb(57, 89, 129)),
+                (0.5, egui::Color32::from_rgb(126, 160, 150)),
+                (0.75, egui::Color32::from_rgb(204, 213, 122)),
+                (1.0, egui::Color32::from_rgb(253, 252, 47)),
             ],
         }
     }
@@ -88,6 +173,113 @@ pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
     } else {
         50
     }
+}
+
+/// Tableau10 相当の離散カラーパレット（クラスタ表示用）
+pub fn tab10_palette() -> Vec<egui::Color32> {
+    vec![
+        egui::Color32::from_rgb(31, 119, 180),  // Blue
+        egui::Color32::from_rgb(255, 127, 14),  // Orange
+        egui::Color32::from_rgb(44, 160, 44),   // Green
+        egui::Color32::from_rgb(214, 39, 40),   // Red
+        egui::Color32::from_rgb(148, 103, 189), // Purple
+        egui::Color32::from_rgb(140, 86, 75),   // Brown
+        egui::Color32::from_rgb(227, 119, 194), // Pink
+        egui::Color32::from_rgb(127, 127, 127), // Gray
+        egui::Color32::from_rgb(188, 189, 34),  // Olive
+        egui::Color32::from_rgb(23, 190, 207),  // Cyan
+    ]
+}
+
+use crate::state::app_state::{ColorMode, ColormapName, TrialRow};
+
+/// ColorMode に基づいて TrialRow の値を [0.0, 1.0] に正規化する。
+/// ClusterId の場合は呼び出し側で tab10_palette を使用する（この関数は 0.5 を返す）。
+pub fn normalize_trial(
+    trial: &TrialRow,
+    color_mode: &ColorMode,
+    max_rank: u32,
+    obj_idx: Option<usize>,
+    obj_min_max: &[(f64, f64)],
+    total_trials: u32,
+) -> f32 {
+    match color_mode {
+        ColorMode::ParetoRank => {
+            let mr = max_rank.max(1) as f32 + 1.0;
+            1.0 - trial.pareto_rank as f32 / mr
+        }
+        ColorMode::ObjectiveValue(_) => {
+            if let Some(idx) = obj_idx {
+                if let Some(val) = trial.objectives.get(idx).copied() {
+                    let (min, max) = obj_min_max.get(idx).copied().unwrap_or((0.0, 1.0));
+                    let range = max - min;
+                    if range.abs() < f64::EPSILON {
+                        0.5
+                    } else {
+                        ((val - min) / range) as f32
+                    }
+                } else {
+                    0.5
+                }
+            } else {
+                0.5
+            }
+        }
+        ColorMode::TrialNumber => {
+            let total = total_trials.max(1) as f32;
+            trial.trial_id as f32 / (total - 1.0).max(1.0)
+        }
+        ColorMode::ClusterId => 0.5, // ClusterId は compute_chart_colors で直接処理
+    }
+}
+
+/// 全 TrialRow の色を ColorMode + ColormapName に基づいて計算する。
+pub fn compute_chart_colors(
+    color_mode: &ColorMode,
+    colormap_name: &ColormapName,
+    trial_rows: &[TrialRow],
+    objective_names: &[String],
+) -> Vec<egui::Color32> {
+    let cmap = colormap_name.to_colormap();
+    let palette = tab10_palette();
+    let max_rank = trial_rows.iter().map(|r| r.pareto_rank).max().unwrap_or(1);
+    let total = trial_rows.len() as u32;
+
+    // ObjectiveValue の場合、インデックスと min/max を事前計算
+    let obj_idx = match color_mode {
+        ColorMode::ObjectiveValue(name) => objective_names.iter().position(|n| n == name),
+        _ => None,
+    };
+    let obj_min_max: Vec<(f64, f64)> = if let Some(idx) = obj_idx {
+        let values: Vec<f64> = trial_rows
+            .iter()
+            .filter_map(|r| r.objectives.get(idx).copied())
+            .collect();
+        let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        vec![(min, max)]
+    } else {
+        vec![]
+    };
+
+    trial_rows
+        .iter()
+        .map(|trial| match color_mode {
+            ColorMode::ClusterId => {
+                let id = trial.cluster_id.unwrap_or(0);
+                if trial.cluster_id.is_none() {
+                    // クラスタ未割り当て → グレー
+                    egui::Color32::LIGHT_GRAY
+                } else {
+                    palette[(id.unsigned_abs() as usize) % palette.len()]
+                }
+            }
+            _ => {
+                let t = normalize_trial(trial, color_mode, max_rank, obj_idx, &obj_min_max, total);
+                cmap.interpolate(t)
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -148,5 +340,163 @@ mod tests {
     #[test]
     fn compute_point_alpha_not_selected_returns_transparent() {
         assert_eq!(compute_point_alpha(3, &[1, 5, 10]), 50);
+    }
+
+    #[test]
+    fn tab10_palette_has_ten_colors() {
+        let palette = tab10_palette();
+        assert_eq!(palette.len(), 10);
+        // 各色が異なる値
+        for i in 0..palette.len() {
+            for j in (i + 1)..palette.len() {
+                assert_ne!(palette[i], palette[j], "colors at {} and {} are same", i, j);
+            }
+        }
+    }
+
+    #[test]
+    fn normalize_pareto_rank_zero_is_highest() {
+        use crate::state::app_state::TrialState;
+        let trial = TrialRow {
+            trial_id: 0,
+            params: Default::default(),
+            objectives: vec![],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: Default::default(),
+        };
+        let t = normalize_trial(&trial, &ColorMode::ParetoRank, 5, None, &[], 10);
+        assert!(t > 0.8, "rank 0 should be high t, got {}", t);
+    }
+
+    #[test]
+    fn normalize_trial_number_linear() {
+        use crate::state::app_state::TrialState;
+        let trial = TrialRow {
+            trial_id: 9,
+            params: Default::default(),
+            objectives: vec![],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: Default::default(),
+        };
+        let t = normalize_trial(&trial, &ColorMode::TrialNumber, 0, None, &[], 10);
+        assert!(
+            (t - 1.0).abs() < 0.01,
+            "trial_id=9/10 should be ~1.0, got {}",
+            t
+        );
+    }
+
+    #[test]
+    fn compute_chart_colors_length_matches_trials() {
+        use crate::state::app_state::TrialState;
+        use std::collections::HashMap;
+        let rows = vec![
+            TrialRow {
+                trial_id: 0,
+                params: HashMap::new(),
+                objectives: vec![0.5],
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+            TrialRow {
+                trial_id: 1,
+                params: HashMap::new(),
+                objectives: vec![1.0],
+                pareto_rank: 1,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+        ];
+        let colors =
+            compute_chart_colors(&ColorMode::ParetoRank, &ColormapName::Viridis, &rows, &[]);
+        assert_eq!(colors.len(), 2);
+    }
+
+    #[test]
+    fn compute_chart_colors_pareto_rank_different_colors() {
+        use crate::state::app_state::TrialState;
+        use std::collections::HashMap;
+        let rows = vec![
+            TrialRow {
+                trial_id: 0,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+            TrialRow {
+                trial_id: 1,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 5,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+        ];
+        let colors =
+            compute_chart_colors(&ColorMode::ParetoRank, &ColormapName::Viridis, &rows, &[]);
+        assert_ne!(
+            colors[0], colors[1],
+            "different ranks should have different colors"
+        );
+    }
+
+    #[test]
+    fn compute_chart_colors_cluster_id_uses_palette() {
+        use crate::state::app_state::TrialState;
+        use std::collections::HashMap;
+        let rows = vec![
+            TrialRow {
+                trial_id: 0,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: Some(0),
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+            TrialRow {
+                trial_id: 1,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: Some(1),
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+        ];
+        let colors =
+            compute_chart_colors(&ColorMode::ClusterId, &ColormapName::Viridis, &rows, &[]);
+        let palette = tab10_palette();
+        assert_eq!(colors[0], palette[0]);
+        assert_eq!(colors[1], palette[1]);
+    }
+
+    #[test]
+    fn compute_chart_colors_cluster_none_is_gray() {
+        use crate::state::app_state::TrialState;
+        use std::collections::HashMap;
+        let rows = vec![TrialRow {
+            trial_id: 0,
+            params: HashMap::new(),
+            objectives: vec![],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        }];
+        let colors =
+            compute_chart_colors(&ColorMode::ClusterId, &ColormapName::Viridis, &rows, &[]);
+        assert_eq!(colors[0], egui::Color32::LIGHT_GRAY);
     }
 }

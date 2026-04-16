@@ -64,7 +64,8 @@ pub fn show_chart(
                 .show(ui, &param_names, &obj_names, &trial_rows);
         }
         ChartId::PdpChart2D => {
-            widgets.pdp_2d.show(ui, &param_names, &obj_names);
+            let cmap = app_state.selected_colormap.to_colormap();
+            widgets.pdp_2d.show(ui, &param_names, &obj_names, cmap);
             if let Some(req) = widgets.pdp_2d.pending_compute.take() {
                 widgets.pdp_2d.computing = true;
                 let tx = tx.clone();
@@ -102,7 +103,7 @@ pub fn show_chart(
         ChartId::ScatterMatrix => {
             widgets
                 .scatter_matrix
-                .show(ui, &trial_rows, &param_names, &obj_names);
+                .show(ui, &trial_rows, &param_names, &obj_names, &app_state.chart_colors);
         }
         ChartId::ParetoScatter3D => {
             ui.label("3D Pareto chart requires GPU rendering (not yet wired up).");
@@ -116,6 +117,7 @@ pub fn show_chart(
                 &trial_rows,
                 app_state.cluster_result.as_ref(),
                 &param_names,
+                &app_state.chart_colors,
             );
         }
     }

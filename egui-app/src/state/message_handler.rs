@@ -35,6 +35,7 @@ impl MessageHandler {
                     pareto_indices,
                 });
                 *is_loading = false;
+                app_state.update_chart_colors();
             }
             AppMessage::SensitivityDone(result) => {
                 app_state.sensitivity_result = Some(result);

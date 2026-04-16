@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::render::colormap::compute_point_alpha;
 use crate::state::app_state::{AppState, TrialRow};
 
@@ -67,6 +69,13 @@ impl ParetoScatter2D {
         let trial_rows = display_rows;
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
+        let chart_colors = app_state.chart_colors.clone();
+        let trial_id_to_color_idx: HashMap<u32, usize> = ctx
+            .trial_rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.trial_id, i))
+            .collect();
 
         // 軸割り当て ComboBox
         ui.horizontal(|ui| {
@@ -97,29 +106,63 @@ impl ParetoScatter2D {
             .position(|n| n == &self.y_axis)
             .unwrap_or(1);
 
-        // 選択・非選択点の分離
-        let (selected_pts, unselected_pts, highlight_pt) =
-            partition_points(&trial_rows, &selected, highlighted, x_idx, y_idx);
+        let default_color = egui::Color32::from_rgb(100, 100, 200);
+
+        // 色別グループ化（selected / unselected / highlighted）
+        let mut selected_groups: HashMap<egui::Color32, Vec<[f64; 2]>> = HashMap::new();
+        let mut unselected_groups: HashMap<egui::Color32, Vec<[f64; 2]>> = HashMap::new();
+        let mut highlight_pt: Option<[f64; 2]> = None;
+
+        for row in &trial_rows {
+            let x = row.objectives.get(x_idx).copied().unwrap_or(0.0);
+            let y = row.objectives.get(y_idx).copied().unwrap_or(0.0);
+            let pt = [x, y];
+
+            if let Some(h) = highlighted {
+                if row.trial_id == h {
+                    highlight_pt = Some(pt);
+                    continue;
+                }
+            }
+
+            let base_color = trial_id_to_color_idx
+                .get(&row.trial_id)
+                .and_then(|&idx| chart_colors.get(idx))
+                .copied()
+                .unwrap_or(default_color);
+
+            let alpha = compute_point_alpha(row.trial_id, &selected);
+            if alpha == 255 {
+                selected_groups.entry(base_color).or_default().push(pt);
+            } else {
+                let dimmed = apply_alpha(base_color, alpha);
+                unselected_groups.entry(dimmed).or_default().push(pt);
+            }
+        }
 
         // Plot 描画
         egui_plot::Plot::new("pareto_2d_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
-                if !unselected_pts.is_empty() {
-                    plot_ui.points(
-                        egui_plot::Points::new(unselected_pts)
-                            .name("Unselected")
-                            .color(egui::Color32::from_rgba_unmultiplied(100, 100, 200, 50))
-                            .radius(3.0),
-                    );
+                for (color, points) in &unselected_groups {
+                    if !points.is_empty() {
+                        plot_ui.points(
+                            egui_plot::Points::new(points.clone())
+                                .name("Unselected")
+                                .color(*color)
+                                .radius(3.0),
+                        );
+                    }
                 }
-                if !selected_pts.is_empty() {
-                    plot_ui.points(
-                        egui_plot::Points::new(selected_pts)
-                            .name("Selected")
-                            .color(egui::Color32::from_rgb(50, 100, 255))
-                            .radius(5.0),
-                    );
+                for (color, points) in &selected_groups {
+                    if !points.is_empty() {
+                        plot_ui.points(
+                            egui_plot::Points::new(points.clone())
+                                .name("Selected")
+                                .color(*color)
+                                .radius(5.0),
+                        );
+                    }
                 }
                 if let Some(pt) = highlight_pt {
                     plot_ui.points(
@@ -131,6 +174,12 @@ impl ParetoScatter2D {
                 }
             });
     }
+}
+
+/// Color32 の RGB を維持しつつ alpha 値を設定する
+fn apply_alpha(color: egui::Color32, alpha: u8) -> egui::Color32 {
+    let [r, g, b, _] = color.to_array();
+    egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)
 }
 
 /// TrialRow リストから選択・非選択・ハイライト点を分離する

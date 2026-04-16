@@ -43,6 +43,7 @@ impl ScatterMatrix {
         trial_rows: &[crate::state::app_state::TrialRow],
         param_names: &[String],
         obj_names: &[String],
+        chart_colors: &[egui::Color32],
     ) {
         if trial_rows.is_empty() {
             ui.centered_and_justified(|ui| {
@@ -87,7 +88,11 @@ impl ScatterMatrix {
         let cell_h = available.height() / n as f32;
         let painter = ui.painter().clone();
         let dot_color = egui::Color32::from_rgb(70, 130, 220);
-        let point_colors: Vec<egui::Color32> = vec![dot_color; trial_rows.len()];
+        let point_colors: Vec<egui::Color32> = if chart_colors.is_empty() {
+            vec![dot_color; trial_rows.len()]
+        } else {
+            chart_colors.to_vec()
+        };
 
         for row in 0..n {
             for col in 0..n {
