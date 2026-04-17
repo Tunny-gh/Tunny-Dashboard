@@ -7,7 +7,7 @@ use crate::state::layout_state::{DragPayload, LayoutState, PanelItem};
 /// - グリッドに配置済みのアイテムはグレーアウト
 pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut LayoutState) {
     // ≡ ハンバーガーボタンで開閉
-    if ui.button("≡").clicked() {
+    if ui.button("=").clicked() {
         layout.right_panel.is_open = !layout.right_panel.is_open;
     }
 
