@@ -101,6 +101,11 @@ pub fn show_grid_canvas(
                     .layout(egui::Layout::top_down(egui::Align::LEFT)),
             );
 
+            // Register before chart content so chart buttons win z-order for left-clicks;
+            // context_menu's inner interact() early-returns (same sense) and registers nothing new.
+            let bg_id = egui::Id::new("cell_bg_interact").with(r).with(c);
+            let bg_resp = child_ui.interact(cell_rect, bg_id, egui::Sense::click());
+
             // D&D ドロップゾーンとしてラップ（DragPayload 型に変更）
             let frame = egui::Frame::default();
             let mut should_clear = false;
@@ -195,7 +200,7 @@ pub fn show_grid_canvas(
             let can_shrink_down = row_span > 1;
             let has_content = cell.content.is_some();
 
-            inner_resp.response.context_menu(|ui| {
+            bg_resp.context_menu(|ui| {
                 ui.add_enabled_ui(can_expand_right, |ui| {
                     if ui.button("Expand Right").clicked() {
                         pending_actions.push(CellAction::ExpandRight(r, c));
