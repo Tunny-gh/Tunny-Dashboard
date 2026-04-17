@@ -1,5 +1,5 @@
 use crate::state::app_state::AppState;
-use crate::state::layout_state::{LayoutState, PanelItem};
+use crate::state::layout_state::{DragPayload, LayoutState, PanelItem};
 
 /// 右パネルを描画する。
 /// - ≡ ボタンで開閉切り替え
@@ -30,7 +30,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
         } else {
             // 未配置はドラッグソースとして登録
             let drag_id = egui::Id::new("right_panel_item").with(item.label());
-            ui.dnd_drag_source(drag_id, item.clone(), |ui| {
+            ui.dnd_drag_source(drag_id, DragPayload::NewWidget(item.clone()), |ui| {
                 ui.label(item.label());
             });
         }

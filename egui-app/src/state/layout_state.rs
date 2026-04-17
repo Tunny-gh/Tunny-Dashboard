@@ -80,6 +80,32 @@ impl PanelItem {
 }
 
 // ----------------------------------------
+// DragPayload — D&D ペイロードの統合型
+// 🔵 ユーザーヒアリング（D&D移動）+ 既存 PanelItem D&D より
+// ----------------------------------------
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DragPayload {
+    /// 右パネルからの新規配置
+    NewWidget(PanelItem),
+    /// セル間移動（元セル情報付き）
+    MoveFromCell {
+        item: PanelItem,
+        row: usize,
+        col: usize,
+    },
+}
+
+impl DragPayload {
+    /// ペイロードから PanelItem を取得する
+    pub fn item(&self) -> &PanelItem {
+        match self {
+            DragPayload::NewWidget(item) => item,
+            DragPayload::MoveFromCell { item, .. } => item,
+        }
+    }
+}
+
+// ----------------------------------------
 // GridCell — グリッドの1セルの状態
 // 🔵 ユーザーヒアリング（セル結合・D&D配置）より
 // ----------------------------------------
@@ -307,6 +333,42 @@ impl GridLayout {
         self.cells[row][col].row_span -= 1;
         true
     }
+
+    /// 安全な右方向拡張（対象セルが空の場合のみ結合を許可）
+    pub fn safe_expand_right(&mut self, row: usize, col: usize) -> bool {
+        let new_end_col = col + self.cells[row][col].col_span as usize;
+        if new_end_col >= self.cols {
+            return false;
+        }
+        let target = &self.cells[row][new_end_col];
+        if target.merged_into.is_some() {
+            return false;
+        }
+        if target.content.is_some() {
+            return false;
+        }
+        self.cells[row][new_end_col].merged_into = Some((row, col));
+        self.cells[row][col].col_span += 1;
+        true
+    }
+
+    /// 安全な下方向拡張（対象セルが空の場合のみ結合を許可）
+    pub fn safe_expand_down(&mut self, row: usize, col: usize) -> bool {
+        let new_end_row = row + self.cells[row][col].row_span as usize;
+        if new_end_row >= self.rows {
+            return false;
+        }
+        let target = &self.cells[new_end_row][col];
+        if target.merged_into.is_some() {
+            return false;
+        }
+        if target.content.is_some() {
+            return false;
+        }
+        self.cells[new_end_row][col].merged_into = Some((row, col));
+        self.cells[row][col].row_span += 1;
+        true
+    }
 }
 
 // ----------------------------------------
@@ -394,6 +456,63 @@ mod tests {
         let mut set = HashSet::new();
         set.insert(a);
         assert!(set.contains(&PanelItem::TrialTable));
+    }
+
+    // --- DragPayload tests ---
+
+    #[test]
+    fn drag_payload_new_widget_returns_item() {
+        let item = PanelItem::Chart(ChartId::ParetoScatter2D);
+        let payload = DragPayload::NewWidget(item.clone());
+        assert_eq!(payload.item(), &item);
+    }
+
+    #[test]
+    fn drag_payload_move_from_cell_returns_item_and_coords() {
+        let item = PanelItem::TrialTable;
+        let payload = DragPayload::MoveFromCell {
+            item: item.clone(),
+            row: 0,
+            col: 1,
+        };
+        assert_eq!(payload.item(), &item);
+        match payload {
+            DragPayload::MoveFromCell { row, col, .. } => {
+                assert_eq!(row, 0);
+                assert_eq!(col, 1);
+            }
+            _ => panic!("expected MoveFromCell"),
+        }
+    }
+
+    #[test]
+    fn drag_payload_clone_works() {
+        let a = DragPayload::NewWidget(PanelItem::TrialTable);
+        let b = a.clone();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn drag_payload_partial_eq_works() {
+        let a = DragPayload::MoveFromCell {
+            item: PanelItem::Chart(ChartId::OptimizationHistory),
+            row: 1,
+            col: 2,
+        };
+        let b = DragPayload::MoveFromCell {
+            item: PanelItem::Chart(ChartId::OptimizationHistory),
+            row: 1,
+            col: 2,
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn drag_payload_hash_works_in_set() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(DragPayload::NewWidget(PanelItem::TrialTable));
+        assert!(set.contains(&DragPayload::NewWidget(PanelItem::TrialTable)));
     }
 
     // --- GridCell tests ---
@@ -569,6 +688,58 @@ mod tests {
         assert!(result);
         assert_eq!(g.cells[0][0].row_span, 1);
         assert_eq!(g.cells[1][0].merged_into, None);
+    }
+
+    // --- safe_expand tests ---
+
+    #[test]
+    fn safe_expand_right_succeeds_on_empty_cell() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        // [0][1] is empty → should succeed
+        let result = g.safe_expand_right(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[0][0].col_span, 2);
+        assert_eq!(g.cells[0][1].merged_into, Some((0, 0)));
+    }
+
+    #[test]
+    fn safe_expand_right_fails_on_content_cell() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.place(0, 1, PanelItem::Chart(ChartId::ParetoScatter2D));
+        let result = g.safe_expand_right(0, 0);
+        assert!(!result);
+        assert_eq!(g.cells[0][0].col_span, 1);
+    }
+
+    #[test]
+    fn safe_expand_right_fails_at_boundary() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.safe_expand_right(0, 0); // col_span=2
+        let result = g.safe_expand_right(0, 0); // at boundary
+        assert!(!result);
+    }
+
+    #[test]
+    fn safe_expand_down_succeeds_on_empty_cell() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        let result = g.safe_expand_down(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[0][0].row_span, 2);
+        assert_eq!(g.cells[1][0].merged_into, Some((0, 0)));
+    }
+
+    #[test]
+    fn safe_expand_down_fails_on_content_cell() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.place(1, 0, PanelItem::Chart(ChartId::ParetoScatter2D));
+        let result = g.safe_expand_down(0, 0);
+        assert!(!result);
+        assert_eq!(g.cells[0][0].row_span, 1);
     }
 
     // --- LayoutState tests ---

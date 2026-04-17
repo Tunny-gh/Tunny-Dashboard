@@ -1,10 +1,13 @@
 use std::sync::mpsc;
 
 use crate::state::app_state::AppState;
-use crate::state::layout_state::{GridCell, LayoutState, PanelItem};
+use crate::state::layout_state::{DragPayload, GridCell, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::trial_table::TrialTableWidget;
+
+const CLOSE_BUTTON_SIZE: f32 = 16.0;
+const HANDLE_THICKNESS: f32 = 6.0;
 
 /// セルの幅を計算する（テスト可能な純粋関数）
 pub fn calc_cell_width(total_w: f32, cols: usize, col_span: u8) -> f32 {
@@ -97,9 +100,9 @@ pub fn show_grid_canvas(
                     .layout(egui::Layout::top_down(egui::Align::LEFT)),
             );
 
-            // D&D ドロップゾーンとしてラップ
+            // D&D ドロップゾーンとしてラップ（DragPayload 型に変更）
             let frame = egui::Frame::default();
-            let (inner_resp, payload) = child_ui.dnd_drop_zone::<PanelItem, _>(frame, |ui| {
+            let (inner_resp, payload) = child_ui.dnd_drop_zone::<DragPayload, _>(frame, |ui| {
                 render_cell_content(ui, app_state, widgets, cell, r, c, tx);
             });
 
@@ -116,7 +119,91 @@ pub fn show_grid_canvas(
 
             // ドロップされた場合は pending リストに追加
             if let Some(dropped) = payload {
-                pending_drops.push((r, c, (*dropped).clone()));
+                let item = (*dropped).item().clone();
+                pending_drops.push((r, c, item));
+            }
+
+            // ✕ボタン（コンテンツがあるセルの右上に常時表示）
+            if cell.content.is_some() {
+                let close_size = egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE);
+                let close_rect = egui::Rect::from_min_size(
+                    cell_rect.right_top() - egui::vec2(close_size.x, 0.0),
+                    close_size,
+                );
+                let close_resp = ui.put(
+                    close_rect,
+                    egui::Button::new(
+                        egui::RichText::new("✕").small().color(egui::Color32::from_gray(180)),
+                    )
+                    .frame(false),
+                );
+                if close_resp.hovered() {
+                    ui.painter().rect_filled(
+                        close_rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(255, 100, 100, 40),
+                    );
+                }
+                if close_resp.clicked() {
+                    pending_actions.push(CellAction::Clear(r, c));
+                }
+            }
+
+            // ドラッグハンドル（コンテンツがあるセルの右端・下端）
+            if cell.content.is_some() {
+                // 右端ハンドル
+                let can_expand_right = (c + cell.col_span as usize) < cols;
+                if can_expand_right {
+                    let right_handle_rect = egui::Rect::from_min_size(
+                        egui::pos2(
+                            cell_rect.right() - HANDLE_THICKNESS,
+                            cell_rect.top(),
+                        ),
+                        egui::vec2(HANDLE_THICKNESS, cell_rect.height()),
+                    );
+                    let right_id = egui::Id::new("resize_right").with(r).with(c);
+                    let right_resp =
+                        ui.interact(right_handle_rect, right_id, egui::Sense::click());
+                    if right_resp.hovered() {
+                        ui.ctx()
+                            .set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        ui.painter().rect_filled(
+                            right_handle_rect,
+                            0.0,
+                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 80),
+                        );
+                    }
+                    if right_resp.clicked() {
+                        pending_actions.push(CellAction::ExpandRight(r, c));
+                    }
+                }
+
+                // 下端ハンドル
+                let can_expand_down = (r + cell.row_span as usize) < rows;
+                if can_expand_down {
+                    let bottom_handle_rect = egui::Rect::from_min_size(
+                        egui::pos2(
+                            cell_rect.left(),
+                            cell_rect.bottom() - HANDLE_THICKNESS,
+                        ),
+                        egui::vec2(cell_rect.width(), HANDLE_THICKNESS),
+                    );
+                    let bottom_id = egui::Id::new("resize_bottom").with(r).with(c);
+                    let bottom_resp =
+                        ui.interact(bottom_handle_rect, bottom_id, egui::Sense::click());
+                    if bottom_resp.hovered() {
+                        ui.ctx()
+                            .set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        ui.painter().rect_filled(
+                            bottom_handle_rect,
+                            0.0,
+                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 80),
+                        );
+                    }
+                    if bottom_resp.clicked() {
+                        pending_actions.push(CellAction::ExpandDown(r, c));
+                    }
+                }
             }
 
             // 右クリックコンテキストメニュー
@@ -174,10 +261,10 @@ pub fn show_grid_canvas(
     for action in pending_actions {
         match action {
             CellAction::ExpandRight(r, c) => {
-                layout.grid.expand_right(r, c);
+                layout.grid.safe_expand_right(r, c);
             }
             CellAction::ExpandDown(r, c) => {
-                layout.grid.expand_down(r, c);
+                layout.grid.safe_expand_down(r, c);
             }
             CellAction::ShrinkRight(r, c) => {
                 layout.grid.shrink_right(r, c);
@@ -224,7 +311,8 @@ pub fn show_grid_canvas(
     }
 }
 
-/// セルのコンテンツを描画する
+/// セルのコンテンツを描画する。
+/// コンテンツがある場合は dnd_drag_source でラップし、セル間D&D移動を可能にする。
 fn render_cell_content(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -237,14 +325,38 @@ fn render_cell_content(
     match &cell.content {
         Some(PanelItem::Chart(id)) => {
             let id = id.clone();
-            crate::ui::chart_registry::show_cell_chart(ui, app_state, widgets, &id, tx);
+            let item = PanelItem::Chart(id);
+            let payload = DragPayload::MoveFromCell {
+                item,
+                row,
+                col,
+            };
+            let drag_id = egui::Id::new("cell_drag").with(row).with(col);
+            ui.dnd_drag_source(drag_id, payload, |ui| {
+                ui.push_id((row, col), |ui| {
+                    let chart_id = match &cell.content {
+                        Some(PanelItem::Chart(cid)) => cid.clone(),
+                        _ => return,
+                    };
+                    crate::ui::chart_registry::show_cell_chart(ui, app_state, widgets, &chart_id, tx);
+                });
+            });
         }
         Some(PanelItem::TrialTable) => {
-            TrialTableWidget.show(ui, app_state);
+            let payload = DragPayload::MoveFromCell {
+                item: PanelItem::TrialTable,
+                row,
+                col,
+            };
+            let drag_id = egui::Id::new("cell_drag").with(row).with(col);
+            ui.dnd_drag_source(drag_id, payload, |ui| {
+                ui.push_id((row, col), |ui| {
+                    TrialTableWidget.show(ui, app_state);
+                });
+            });
         }
         None => {
-            // 空セルのプレースホルダー
-            let _ = (row, col); // 将来のD&Dドロップゾーン登録用
+            let _ = (row, col);
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("— No chart selected —").weak());
             });
