@@ -8,6 +8,7 @@ use crate::ui::widgets::trial_table::TrialTableWidget;
 
 const CLOSE_BUTTON_SIZE: f32 = 16.0;
 const HANDLE_THICKNESS: f32 = 6.0;
+const DRAG_HANDLE_HEIGHT: f32 = 24.0;
 
 /// セルの幅を計算する（テスト可能な純粋関数）
 pub fn calc_cell_width(total_w: f32, cols: usize, col_span: u8) -> f32 {
@@ -102,8 +103,9 @@ pub fn show_grid_canvas(
 
             // D&D ドロップゾーンとしてラップ（DragPayload 型に変更）
             let frame = egui::Frame::default();
+            let mut should_clear = false;
             let (inner_resp, payload) = child_ui.dnd_drop_zone::<DragPayload, _>(frame, |ui| {
-                render_cell_content(ui, app_state, widgets, cell, r, c, tx);
+                should_clear = render_cell_content(ui, app_state, widgets, cell, r, c, tx);
             });
 
             // ホバー中はハイライト
@@ -123,30 +125,8 @@ pub fn show_grid_canvas(
                 pending_drops.push((r, c, item));
             }
 
-            // ✕ボタン（コンテンツがあるセルの右上に常時表示）
-            if cell.content.is_some() {
-                let close_size = egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE);
-                let close_rect = egui::Rect::from_min_size(
-                    cell_rect.right_top() - egui::vec2(close_size.x, 0.0),
-                    close_size,
-                );
-                let close_resp = ui.put(
-                    close_rect,
-                    egui::Button::new(
-                        egui::RichText::new("✕").small().color(egui::Color32::from_gray(180)),
-                    )
-                    .frame(false),
-                );
-                if close_resp.hovered() {
-                    ui.painter().rect_filled(
-                        close_rect,
-                        2.0,
-                        egui::Color32::from_rgba_unmultiplied(255, 100, 100, 40),
-                    );
-                }
-                if close_resp.clicked() {
-                    pending_actions.push(CellAction::Clear(r, c));
-                }
+            if should_clear {
+                pending_actions.push(CellAction::Clear(r, c));
             }
 
             // ドラッグハンドル（コンテンツがあるセルの右端・下端）
@@ -311,8 +291,72 @@ pub fn show_grid_canvas(
     }
 }
 
+/// セル上部のツールバーを描画する。
+/// 左上の Move ボタンだけがセル移動を開始し、右上の ✕ ボタンはセル内容をクリアする。
+fn show_cell_toolbar(
+    ui: &mut egui::Ui,
+    row: usize,
+    col: usize,
+    item: PanelItem,
+    title: &'static str,
+) -> bool {
+    let drag_id = egui::Id::new("cell_drag_handle").with(row).with(col);
+    let payload = DragPayload::MoveFromCell { item, row, col };
+    let fill = ui.visuals().widgets.inactive.bg_fill;
+    let stroke = ui.visuals().widgets.inactive.bg_stroke;
+    let mut should_clear = false;
+
+    egui::Frame::default()
+        .fill(fill)
+        .stroke(stroke)
+        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+        .show(ui, |ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), DRAG_HANDLE_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let drag_resp = ui.dnd_drag_source(drag_id, payload, |ui| {
+                        ui.add_sized(
+                            egui::vec2(56.0, DRAG_HANDLE_HEIGHT),
+                            egui::Button::new(egui::RichText::new("Move").small()),
+                        );
+                    });
+                    if drag_resp.response.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if drag_resp.response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+
+                    ui.add_space(8.0);
+                    ui.strong(title);
+
+                    let spacer = (ui.available_width() - CLOSE_BUTTON_SIZE).max(0.0);
+                    ui.add_space(spacer);
+
+                    let close_resp = ui.add_sized(
+                        egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
+                        egui::Button::new(
+                            egui::RichText::new("✕")
+                                .small()
+                                .color(egui::Color32::from_gray(180)),
+                        )
+                        .frame(false),
+                    );
+                    if close_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if close_resp.clicked() {
+                        should_clear = true;
+                    }
+                },
+            );
+        });
+
+    should_clear
+}
+
 /// セルのコンテンツを描画する。
-/// コンテンツがある場合は dnd_drag_source でラップし、セル間D&D移動を可能にする。
+/// コンテンツがある場合は上部ハンドルのみを dnd_drag_source として扱い、内部UI操作と競合しないようにする。
 fn render_cell_content(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -321,45 +365,35 @@ fn render_cell_content(
     row: usize,
     col: usize,
     tx: &mpsc::SyncSender<AppMessage>,
-) {
+) -> bool {
     match &cell.content {
         Some(PanelItem::Chart(id)) => {
-            let id = id.clone();
-            let item = PanelItem::Chart(id);
-            let payload = DragPayload::MoveFromCell {
-                item,
-                row,
-                col,
-            };
-            let drag_id = egui::Id::new("cell_drag").with(row).with(col);
-            ui.dnd_drag_source(drag_id, payload, |ui| {
-                ui.push_id((row, col), |ui| {
-                    let chart_id = match &cell.content {
-                        Some(PanelItem::Chart(cid)) => cid.clone(),
-                        _ => return,
-                    };
-                    crate::ui::chart_registry::show_cell_chart(ui, app_state, widgets, &chart_id, tx);
-                });
+            let chart_id = id.clone();
+            let item = PanelItem::Chart(chart_id.clone());
+            let title = item.label();
+            let should_clear = show_cell_toolbar(ui, row, col, item, title);
+            ui.add_space(4.0);
+            ui.push_id((row, col), |ui| {
+                crate::ui::chart_registry::show_chart(ui, app_state, widgets, &chart_id, tx);
             });
+            should_clear
         }
         Some(PanelItem::TrialTable) => {
-            let payload = DragPayload::MoveFromCell {
-                item: PanelItem::TrialTable,
-                row,
-                col,
-            };
-            let drag_id = egui::Id::new("cell_drag").with(row).with(col);
-            ui.dnd_drag_source(drag_id, payload, |ui| {
-                ui.push_id((row, col), |ui| {
-                    TrialTableWidget.show(ui, app_state);
-                });
+            let item = PanelItem::TrialTable;
+            let title = item.label();
+            let should_clear = show_cell_toolbar(ui, row, col, item, title);
+            ui.add_space(4.0);
+            ui.push_id((row, col), |ui| {
+                TrialTableWidget.show(ui, app_state);
             });
+            should_clear
         }
         None => {
             let _ = (row, col);
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("— No chart selected —").weak());
             });
+            false
         }
     }
 }
