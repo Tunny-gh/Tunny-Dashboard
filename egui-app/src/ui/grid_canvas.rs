@@ -197,33 +197,33 @@ pub fn show_grid_canvas(
 
             inner_resp.response.context_menu(|ui| {
                 ui.add_enabled_ui(can_expand_right, |ui| {
-                    if ui.button("右に拡張").clicked() {
+                    if ui.button("Expand Right").clicked() {
                         pending_actions.push(CellAction::ExpandRight(r, c));
                         ui.close_menu();
                     }
                 });
                 ui.add_enabled_ui(can_expand_down, |ui| {
-                    if ui.button("下に拡張").clicked() {
+                    if ui.button("Expand Down").clicked() {
                         pending_actions.push(CellAction::ExpandDown(r, c));
                         ui.close_menu();
                     }
                 });
                 ui.separator();
                 ui.add_enabled_ui(can_shrink_right, |ui| {
-                    if ui.button("縮小（右）").clicked() {
+                    if ui.button("Shrink Right").clicked() {
                         pending_actions.push(CellAction::ShrinkRight(r, c));
                         ui.close_menu();
                     }
                 });
                 ui.add_enabled_ui(can_shrink_down, |ui| {
-                    if ui.button("縮小（下）").clicked() {
+                    if ui.button("Shrink Down").clicked() {
                         pending_actions.push(CellAction::ShrinkDown(r, c));
                         ui.close_menu();
                     }
                 });
                 ui.separator();
                 ui.add_enabled_ui(has_content, |ui| {
-                    if ui.button("クリア").clicked() {
+                    if ui.button("Clear").clicked() {
                         pending_actions.push(CellAction::Clear(r, c));
                         ui.close_menu();
                     }
@@ -270,21 +270,21 @@ pub fn show_grid_canvas(
     );
     let can_remove_row = layout.grid.can_remove_last_row();
     let can_remove_col = layout.grid.can_remove_last_col();
-    if button_ui.button("＋行").clicked() {
+    if button_ui.button("+Row").clicked() {
         layout.grid.add_row();
     }
     if button_ui
-        .add_enabled(can_remove_row, egui::Button::new("－行"))
+        .add_enabled(can_remove_row, egui::Button::new("-Row"))
         .clicked()
     {
         layout.grid.try_remove_last_row();
     }
     button_ui.separator();
-    if button_ui.button("＋列").clicked() {
+    if button_ui.button("+Col").clicked() {
         layout.grid.add_col();
     }
     if button_ui
-        .add_enabled(can_remove_col, egui::Button::new("－列"))
+        .add_enabled(can_remove_col, egui::Button::new("-Col"))
         .clicked()
     {
         layout.grid.try_remove_last_col();
@@ -336,7 +336,7 @@ fn show_cell_toolbar(
                     let close_resp = ui.add_sized(
                         egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
                         egui::Button::new(
-                            egui::RichText::new("✕")
+                            egui::RichText::new("x")
                                 .small()
                                 .color(egui::Color32::from_gray(180)),
                         )
