@@ -90,7 +90,7 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
 fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
     ui.label("Color Mode:");
     let current_label = app_state.color_mode.label().to_string();
-    egui::ComboBox::from_label("")
+    egui::ComboBox::from_id_salt("left_panel_color_mode_combo")
         .selected_text(current_label)
         .show_ui(ui, |ui| {
             ui.selectable_value(
@@ -128,7 +128,7 @@ fn show_colormap_selector(ui: &mut egui::Ui, app_state: &mut AppState) {
     ui.label("Colormap:");
     let current_label = app_state.selected_colormap.label().to_string();
     let mut changed = false;
-    egui::ComboBox::from_label("")
+    egui::ComboBox::from_id_salt("left_panel_colormap_combo")
         .selected_text(current_label)
         .show_ui(ui, |ui| {
             for cmap in ColormapName::all() {
