@@ -68,18 +68,24 @@ pub fn show_toolbar(
             };
             ui.scope(|ui| {
                 let vis = ui.visuals_mut();
+                vis.override_text_color = Some(crate::theme::TOOLBAR_TEXT);
                 vis.widgets.noninteractive.bg_fill = crate::theme::TOOLBAR_INPUT_BG;
                 vis.widgets.noninteractive.bg_stroke =
                     egui::Stroke::new(1.0, crate::theme::TOOLBAR_INPUT_STROKE);
                 vis.widgets.noninteractive.fg_stroke =
-                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT);
+                    egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
                 vis.widgets.inactive.bg_fill = crate::theme::TOOLBAR_INPUT_BG;
                 vis.widgets.inactive.bg_stroke =
                     egui::Stroke::new(1.0, crate::theme::TOOLBAR_INPUT_STROKE);
-                vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT);
+                vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
+                vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
+                vis.widgets.active.fg_stroke = egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
                 ui.add_enabled_ui(has_studies && !*is_loading, |ui| {
                     egui::ComboBox::from_id_salt("study_select_combo")
-                        .selected_text(&display_text)
+                        .selected_text(
+                            egui::RichText::new(&display_text)
+                                .color(crate::theme::TEXT_PRIMARY),
+                        )
                         .show_ui(ui, |ui| {
                             for study in &app_state.all_studies {
                                 ui.selectable_value(
