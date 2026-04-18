@@ -45,6 +45,9 @@ pub struct ParallelCoordsChart {
     pub show_objectives: bool,
     pub brush_ranges: std::collections::HashMap<String, Option<(f32, f32)>>,
     pub drag_start: Option<(String, f32)>,
+    col_data_cache: Option<Vec<Vec<f64>>>,
+    col_ranges_cache: Option<Vec<(f64, f64)>>,
+    cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
 }
 
 impl Default for ParallelCoordsChart {
@@ -55,6 +58,9 @@ impl Default for ParallelCoordsChart {
             show_objectives: true,
             brush_ranges: std::collections::HashMap::new(),
             drag_start: None,
+            col_data_cache: None,
+            col_ranges_cache: None,
+            cache_key: (0, 0, 0),
         }
     }
 }
@@ -92,35 +98,40 @@ impl ParallelCoordsChart {
         }
 
         let n_params = param_names.len();
-
-        // 各軸のデータ列を事前収集する（min/max 計算のため）
-        let col_data: Vec<Vec<f64>> = all_names
-            .iter()
-            .enumerate()
-            .map(|(idx, name)| {
-                if idx < n_params {
-                    trial_rows
-                        .iter()
-                        .filter_map(|r| r.params.get(name).copied())
-                        .collect()
-                } else {
-                    let obj_idx = idx - n_params;
-                    trial_rows
-                        .iter()
-                        .filter_map(|r| r.objectives.get(obj_idx).copied())
-                        .collect()
-                }
-            })
-            .collect();
-
-        let col_ranges: Vec<(f64, f64)> = col_data
-            .iter()
-            .map(|data| {
-                let mn = data.iter().cloned().fold(f64::INFINITY, f64::min);
-                let mx = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                (mn, mx)
-            })
-            .collect();
+        let cache_key = (trial_rows.len(), n_params, obj_names.len());
+        if self.col_data_cache.is_none() || self.cache_key != cache_key {
+            let col_data: Vec<Vec<f64>> = all_names
+                .iter()
+                .enumerate()
+                .map(|(idx, name)| {
+                    if idx < n_params {
+                        trial_rows
+                            .iter()
+                            .filter_map(|r| r.params.get(name).copied())
+                            .collect()
+                    } else {
+                        let obj_idx = idx - n_params;
+                        trial_rows
+                            .iter()
+                            .filter_map(|r| r.objectives.get(obj_idx).copied())
+                            .collect()
+                    }
+                })
+                .collect();
+            let col_ranges: Vec<(f64, f64)> = col_data
+                .iter()
+                .map(|data| {
+                    let mn = data.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let mx = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    (mn, mx)
+                })
+                .collect();
+            self.col_data_cache = Some(col_data);
+            self.col_ranges_cache = Some(col_ranges);
+            self.cache_key = cache_key;
+        }
+        let col_data = self.col_data_cache.as_ref().unwrap();
+        let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
         let available = ui.available_rect_before_wrap();
         let axis_margin = 40.0_f32;

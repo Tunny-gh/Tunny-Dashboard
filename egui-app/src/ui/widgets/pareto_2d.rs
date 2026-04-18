@@ -34,6 +34,9 @@ pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
     pub use_downsample: bool,
+    display_rows_cache: Option<Vec<TrialRow>>,
+    color_idx_cache: Option<HashMap<u32, usize>>,
+    cache_key: (usize, usize), // (trial_count, downsample_count)
 }
 
 impl Default for ParetoScatter2D {
@@ -42,6 +45,9 @@ impl Default for ParetoScatter2D {
             x_axis: "obj0".to_string(),
             y_axis: "obj1".to_string(),
             use_downsample: true,
+            display_rows_cache: None,
+            color_idx_cache: None,
+            cache_key: (0, 0),
         }
     }
 }
@@ -61,21 +67,29 @@ impl ParetoScatter2D {
         } else {
             None
         };
-        let display_rows: Vec<crate::state::app_state::TrialRow> =
-            filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
-                .into_iter()
-                .cloned()
+        let ds_len = downsample_indices.as_ref().map_or(0, |v| v.len());
+        let cache_key = (ctx.trial_rows.len(), ds_len);
+        if self.display_rows_cache.is_none() || self.cache_key != cache_key {
+            let display_rows: Vec<TrialRow> =
+                filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
+                    .into_iter()
+                    .cloned()
+                    .collect();
+            let color_idx: HashMap<u32, usize> = ctx
+                .trial_rows
+                .iter()
+                .enumerate()
+                .map(|(i, r)| (r.trial_id, i))
                 .collect();
-        let trial_rows = display_rows;
+            self.display_rows_cache = Some(display_rows);
+            self.color_idx_cache = Some(color_idx);
+            self.cache_key = cache_key;
+        }
+        let trial_rows = self.display_rows_cache.as_ref().unwrap();
+        let trial_id_to_color_idx = self.color_idx_cache.as_ref().unwrap();
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
         let chart_colors = app_state.chart_colors.clone();
-        let trial_id_to_color_idx: HashMap<u32, usize> = ctx
-            .trial_rows
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.trial_id, i))
-            .collect();
 
         // 軸割り当て ComboBox
         ui.horizontal(|ui| {
@@ -113,7 +127,7 @@ impl ParetoScatter2D {
         let mut unselected_groups: HashMap<egui::Color32, Vec<[f64; 2]>> = HashMap::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
 
-        for row in &trial_rows {
+        for row in trial_rows {
             let x = row.objectives.get(x_idx).copied().unwrap_or(0.0);
             let y = row.objectives.get(y_idx).copied().unwrap_or(0.0);
             let pt = [x, y];

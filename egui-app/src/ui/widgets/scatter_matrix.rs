@@ -25,6 +25,8 @@ pub struct ScatterMatrix {
     pub mode: MatrixMode,
     pub sort: AxisSort,
     pub selected_cell: Option<(usize, usize)>,
+    col_data_cache: Option<Vec<Vec<f64>>>,
+    cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
 }
 
 impl ScatterMatrix {
@@ -33,6 +35,8 @@ impl ScatterMatrix {
             mode: MatrixMode::ParamsVsParams,
             sort: AxisSort::Alphabetical,
             selected_cell: None,
+            col_data_cache: None,
+            cache_key: (0, 0, 0),
         }
     }
 
@@ -62,26 +66,31 @@ impl ScatterMatrix {
             return;
         }
 
-        // 各変数のデータ列を抽出する
         let n_params = param_names.len();
-        let col_data: Vec<Vec<f64>> = all_names
-            .iter()
-            .enumerate()
-            .map(|(idx, name)| {
-                if idx < n_params {
-                    trial_rows
-                        .iter()
-                        .filter_map(|r| r.params.get(name).copied())
-                        .collect()
-                } else {
-                    let obj_idx = idx - n_params;
-                    trial_rows
-                        .iter()
-                        .filter_map(|r| r.objectives.get(obj_idx).copied())
-                        .collect()
-                }
-            })
-            .collect();
+        let cache_key = (trial_rows.len(), n_params, obj_names.len());
+        if self.col_data_cache.is_none() || self.cache_key != cache_key {
+            let col_data: Vec<Vec<f64>> = all_names
+                .iter()
+                .enumerate()
+                .map(|(idx, name)| {
+                    if idx < n_params {
+                        trial_rows
+                            .iter()
+                            .filter_map(|r| r.params.get(name).copied())
+                            .collect()
+                    } else {
+                        let obj_idx = idx - n_params;
+                        trial_rows
+                            .iter()
+                            .filter_map(|r| r.objectives.get(obj_idx).copied())
+                            .collect()
+                    }
+                })
+                .collect();
+            self.col_data_cache = Some(col_data);
+            self.cache_key = cache_key;
+        }
+        let col_data = self.col_data_cache.as_ref().unwrap();
 
         let available = ui.available_rect_before_wrap();
         let cell_w = available.width() / n as f32;
