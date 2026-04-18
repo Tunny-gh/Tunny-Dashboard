@@ -83,8 +83,7 @@ pub fn show_toolbar(
                 ui.add_enabled_ui(has_studies && !*is_loading, |ui| {
                     egui::ComboBox::from_id_salt("study_select_combo")
                         .selected_text(
-                            egui::RichText::new(&display_text)
-                                .color(crate::theme::TEXT_PRIMARY),
+                            egui::RichText::new(&display_text).color(crate::theme::TEXT_PRIMARY),
                         )
                         .show_ui(ui, |ui| {
                             for study in &app_state.all_studies {

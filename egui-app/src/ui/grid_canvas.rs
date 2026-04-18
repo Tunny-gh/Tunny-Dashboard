@@ -87,7 +87,9 @@ pub fn show_grid_canvas(
             let min = grid_area.min + egui::vec2(c as f32 * cell_w, r as f32 * cell_h);
             let cell_rect = egui::Rect::from_min_size(min, egui::vec2(w, h));
 
-            // セルの境界線を描画
+            // セルの背景と境界線を描画
+            ui.painter()
+                .rect_filled(cell_rect, 0.0, egui::Color32::WHITE);
             ui.painter().rect_stroke(
                 cell_rect,
                 0.0,
