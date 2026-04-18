@@ -104,6 +104,24 @@ impl OptimizationHistoryChart {
                             .color(egui::Color32::from_rgb(50, 150, 250)),
                     );
                 }
+                // All Trials / Moving Average のときはベスト値を赤線で重ねて表示
+                if !matches!(self.mode, HistoryMode::BestValue) {
+                    let best_points = compute_history_points(
+                        trial_rows,
+                        self.obj_idx,
+                        &HistoryMode::BestValue,
+                        self.window_size,
+                        is_minimize,
+                    );
+                    if !best_points.is_empty() {
+                        let pp: egui_plot::PlotPoints = best_points.into_iter().collect();
+                        plot_ui.line(
+                            egui_plot::Line::new(pp)
+                                .name(HistoryMode::BestValue.label())
+                                .color(egui::Color32::from_rgb(220, 50, 50)),
+                        );
+                    }
+                }
             });
     }
 }
