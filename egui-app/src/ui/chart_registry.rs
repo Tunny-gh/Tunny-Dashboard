@@ -26,46 +26,52 @@ pub fn show_chart(
     chart_id: &ChartId,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    let Some(ctx) = app_state.current_study.as_ref() else {
+    if app_state.current_study.is_none() {
         return;
-    };
-    let trial_rows = ctx.trial_rows.clone();
-    let obj_names = ctx.meta.objective_names.clone();
-    let param_names = ctx.meta.param_names.clone();
+    }
+
+    // ParetoScatter2D は &mut AppState が必要なため、ctx を借用する前に処理する
+    if matches!(chart_id, ChartId::ParetoScatter2D) {
+        widgets.pareto_2d.show(ui, app_state);
+        return;
+    }
+
+    // 以降は不変参照のみで足りるため、クローンせずに参照を使う
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let trial_rows = &ctx.trial_rows;
+    let obj_names = &ctx.meta.objective_names;
+    let param_names = &ctx.meta.param_names;
     let is_minimize = ctx
         .meta
         .directions
         .first()
         .map(|d| matches!(d, crate::state::app_state::Direction::Minimize))
         .unwrap_or(true);
-    let sensitivity = app_state.sensitivity_result.clone();
-    let hv_history = app_state.hv_history.clone();
 
     match chart_id {
-        ChartId::ParetoScatter2D => {
-            widgets.pareto_2d.show(ui, app_state);
-        }
+        ChartId::ParetoScatter2D => unreachable!(),
         ChartId::OptimizationHistory => {
-            widgets.opt_history.show(ui, &trial_rows, is_minimize);
+            widgets.opt_history.show(ui, trial_rows, is_minimize);
         }
         ChartId::HvHistory => {
-            widgets.hv_history.hv_history = hv_history;
+            // HvHistory は current_study と独立したフィールドなので clone 可能
+            widgets.hv_history.hv_history = app_state.hv_history.clone();
             widgets.hv_history.show(ui);
         }
         ChartId::ImportanceChart => {
-            let sobol = app_state.sobol_result.as_ref();
-            widgets
-                .importance
-                .show(ui, sensitivity.as_ref(), sobol, &obj_names);
+            widgets.importance.show(
+                ui,
+                app_state.sensitivity_result.as_ref(),
+                app_state.sobol_result.as_ref(),
+                obj_names,
+            );
         }
         ChartId::PdpChart => {
-            widgets
-                .pdp_chart
-                .show(ui, &param_names, &obj_names, &trial_rows);
+            widgets.pdp_chart.show(ui, param_names, obj_names, trial_rows);
         }
         ChartId::PdpChart2D => {
             let cmap = app_state.selected_colormap.to_colormap();
-            widgets.pdp_2d.show(ui, &param_names, &obj_names, cmap);
+            widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
             if let Some(req) = widgets.pdp_2d.pending_compute.take() {
                 widgets.pdp_2d.computing = true;
                 let tx = tx.clone();
@@ -96,16 +102,14 @@ pub fn show_chart(
             }
         }
         ChartId::ParallelCoordinates => {
-            widgets
-                .parallel_coords
-                .show(ui, &trial_rows, &param_names, &obj_names);
+            widgets.parallel_coords.show(ui, trial_rows, param_names, obj_names);
         }
         ChartId::ScatterMatrix => {
             widgets.scatter_matrix.show(
                 ui,
-                &trial_rows,
-                &param_names,
-                &obj_names,
+                trial_rows,
+                param_names,
+                obj_names,
                 &app_state.chart_colors,
             );
         }
@@ -113,14 +117,16 @@ pub fn show_chart(
             ui.label("3D Pareto chart requires GPU rendering (not yet wired up).");
         }
         ChartId::SensitivityHeatmap => {
-            widgets.sensitivity_heatmap.show(ui, sensitivity.as_ref());
+            widgets
+                .sensitivity_heatmap
+                .show(ui, app_state.sensitivity_result.as_ref());
         }
         ChartId::ClusterScatter => {
             widgets.cluster_scatter.show(
                 ui,
-                &trial_rows,
+                trial_rows,
                 app_state.cluster_result.as_ref(),
-                &param_names,
+                param_names,
                 &app_state.chart_colors,
             );
         }
