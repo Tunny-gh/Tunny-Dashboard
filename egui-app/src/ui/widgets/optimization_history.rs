@@ -8,19 +8,11 @@ pub enum HistoryMode {
     MovingAverage,
 }
 
-impl HistoryMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            HistoryMode::BestValue => "Best Value",
-            HistoryMode::AllTrials => "All Trials",
-            HistoryMode::MovingAverage => "Moving Average",
-        }
-    }
-}
-
 /// 最適化履歴チャートウィジェット
 pub struct OptimizationHistoryChart {
-    pub mode: HistoryMode,
+    pub show_all: bool,
+    pub show_best: bool,
+    pub show_moving_avg: bool,
     pub window_size: usize,
     pub obj_idx: usize,
 }
@@ -28,7 +20,9 @@ pub struct OptimizationHistoryChart {
 impl Default for OptimizationHistoryChart {
     fn default() -> Self {
         Self {
-            mode: HistoryMode::BestValue,
+            show_all: false,
+            show_best: true,
+            show_moving_avg: false,
             window_size: 10,
             obj_idx: 0,
         }
@@ -56,16 +50,17 @@ impl OptimizationHistoryChart {
             .unwrap_or(true);
 
         ui.horizontal(|ui| {
-            // モード選択
-            for mode in [
-                HistoryMode::BestValue,
-                HistoryMode::AllTrials,
-                HistoryMode::MovingAverage,
-            ] {
-                let selected = self.mode == mode;
-                if ui.selectable_label(selected, mode.label()).clicked() {
-                    self.mode = mode;
-                }
+            if ui.selectable_label(self.show_all, "All Trials").clicked() {
+                self.show_all = !self.show_all;
+            }
+            if ui.selectable_label(self.show_best, "Best Value").clicked() {
+                self.show_best = !self.show_best;
+            }
+            if ui
+                .selectable_label(self.show_moving_avg, "Moving Average")
+                .clicked()
+            {
+                self.show_moving_avg = !self.show_moving_avg;
             }
 
             // 多目的の場合のみ目的関数選択コンボボックスを表示
@@ -85,42 +80,50 @@ impl OptimizationHistoryChart {
             }
         });
 
-        let points = compute_history_points(
-            trial_rows,
-            self.obj_idx,
-            &self.mode,
-            self.window_size,
-            is_minimize,
-        );
+        let values: Vec<f64> = trial_rows
+            .iter()
+            .map(|r| r.objectives.get(self.obj_idx).copied().unwrap_or(0.0))
+            .collect();
 
         egui_plot::Plot::new("optimization_history_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
-                if !points.is_empty() {
-                    let plot_points: egui_plot::PlotPoints = points.into_iter().collect();
-                    plot_ui.line(
-                        egui_plot::Line::new(plot_points)
-                            .name(self.mode.label())
-                            .color(egui::Color32::from_rgb(50, 150, 250)),
+                if self.show_all && !values.is_empty() {
+                    let pts: egui_plot::PlotPoints = values
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &v)| [i as f64, v])
+                        .collect();
+                    plot_ui.points(
+                        egui_plot::Points::new(pts)
+                            .name("All Trials")
+                            .color(egui::Color32::from_rgb(50, 150, 250))
+                            .radius(1.5),
                     );
                 }
-                // All Trials / Moving Average のときはベスト値を赤線で重ねて表示
-                if !matches!(self.mode, HistoryMode::BestValue) {
-                    let best_points = compute_history_points(
-                        trial_rows,
-                        self.obj_idx,
-                        &HistoryMode::BestValue,
-                        self.window_size,
-                        is_minimize,
+
+                if self.show_best && !values.is_empty() {
+                    let pts: egui_plot::PlotPoints =
+                        compute_best_values(&values, is_minimize).into_iter().collect();
+                    plot_ui.line(
+                        egui_plot::Line::new(pts)
+                            .name("Best Value")
+                            .color(egui::Color32::from_rgb(220, 50, 50))
+                            .width(1.5),
                     );
-                    if !best_points.is_empty() {
-                        let pp: egui_plot::PlotPoints = best_points.into_iter().collect();
-                        plot_ui.line(
-                            egui_plot::Line::new(pp)
-                                .name(HistoryMode::BestValue.label())
-                                .color(egui::Color32::from_rgb(220, 50, 50)),
-                        );
-                    }
+                }
+
+                if self.show_moving_avg && !values.is_empty() {
+                    let pts: egui_plot::PlotPoints =
+                        compute_moving_average(&values, self.window_size)
+                            .into_iter()
+                            .collect();
+                    plot_ui.line(
+                        egui_plot::Line::new(pts)
+                            .name("Moving Average")
+                            .color(egui::Color32::from_rgb(50, 200, 120))
+                            .width(1.5),
+                    );
                 }
             });
     }
