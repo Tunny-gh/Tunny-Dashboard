@@ -24,10 +24,7 @@ pub fn show_toolbar(
     ui.horizontal(|ui| {
         // ファイル開くボタン
         let open_enabled = !*is_loading;
-        if ui
-            .add_enabled(open_enabled, egui::Button::new("Open"))
-            .clicked()
-        {
+        if toolbar_button(ui, "Open", open_enabled).clicked() {
             if let Some(path) = crate::io::file::open_file_dialog() {
                 *is_loading = true;
                 *load_error = None;
@@ -41,32 +38,59 @@ pub fn show_toolbar(
         // レイアウトモードボタン群
         for (mode, label) in LAYOUT_MODE_BUTTONS {
             let is_selected = layout.layout_mode == *mode;
-            if ui.selectable_label(is_selected, *label).clicked() {
+            if toolbar_mode_button(ui, label, is_selected).clicked() {
                 layout.layout_mode = mode.clone();
             }
         }
 
         ui.separator();
 
-        // Study選択: 複数スタディがある場合は ComboBox、1件の場合は名前表示
-        if app_state.all_studies.len() > 1 {
+        // Study選択: 常に ComboBox を表示、未読み込み時は無効
+        {
+            ui.label(
+                egui::RichText::new("Target Study:")
+                    .color(crate::theme::TOOLBAR_TEXT)
+                    .size(12.0),
+            );
             let current_name = app_state
                 .current_study
                 .as_ref()
                 .map(|c| c.meta.name.clone())
                 .unwrap_or_default();
             let mut selected_name = current_name.clone();
-            egui::ComboBox::from_id_salt("study_select_combo")
-                .selected_text(if selected_name.is_empty() {
-                    "Select a study"
-                } else {
-                    &selected_name
-                })
-                .show_ui(ui, |ui| {
-                    for study in &app_state.all_studies {
-                        ui.selectable_value(&mut selected_name, study.name.clone(), &study.name);
-                    }
+            let has_studies = !app_state.all_studies.is_empty();
+            let display_text = if *is_loading {
+                "Loading...".to_string()
+            } else if current_name.is_empty() {
+                String::new()
+            } else {
+                current_name.clone()
+            };
+            ui.scope(|ui| {
+                let vis = ui.visuals_mut();
+                vis.widgets.noninteractive.bg_fill = crate::theme::TOOLBAR_INPUT_BG;
+                vis.widgets.noninteractive.bg_stroke =
+                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_INPUT_STROKE);
+                vis.widgets.noninteractive.fg_stroke =
+                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT);
+                vis.widgets.inactive.bg_fill = crate::theme::TOOLBAR_INPUT_BG;
+                vis.widgets.inactive.bg_stroke =
+                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_INPUT_STROKE);
+                vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT);
+                ui.add_enabled_ui(has_studies && !*is_loading, |ui| {
+                    egui::ComboBox::from_id_salt("study_select_combo")
+                        .selected_text(&display_text)
+                        .show_ui(ui, |ui| {
+                            for study in &app_state.all_studies {
+                                ui.selectable_value(
+                                    &mut selected_name,
+                                    study.name.clone(),
+                                    &study.name,
+                                );
+                            }
+                        });
                 });
+            });
             if selected_name != current_name && !selected_name.is_empty() {
                 if let (Some(meta), Some(path)) = (
                     app_state
@@ -79,17 +103,10 @@ pub fn show_toolbar(
                     *is_loading = true;
                     let tx2 = tx.clone();
                     crate::app::spawn_task(tx2, move || {
-                        // 再パース + 同スレッドで選択（thread_local 制約を回避）
                         crate::io::study::load_and_select_task(path, meta)
                     });
                 }
             }
-        } else if let Some(ctx) = &app_state.current_study {
-            ui.label(&ctx.meta.name);
-        } else if !app_state.all_studies.is_empty() {
-            ui.label("Loading study...");
-        } else {
-            ui.label("Open a file");
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -99,7 +116,7 @@ pub fn show_toolbar(
             } else {
                 "Live Update: Off"
             };
-            if ui.button(live_label).clicked() {
+            if toolbar_button(ui, live_label, true).clicked() {
                 app_state.live_update.enabled = !app_state.live_update.enabled;
             }
 
@@ -119,6 +136,79 @@ pub fn show_toolbar(
             }
         });
     });
+}
+
+fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
+    let padding = egui::vec2(10.0, 5.0);
+    let text_color = if enabled {
+        crate::theme::TOOLBAR_TEXT
+    } else {
+        crate::theme::TOOLBAR_TEXT.gamma_multiply(0.4)
+    };
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(
+            label.to_string(),
+            egui::FontId::proportional(13.0),
+            text_color,
+        )
+    });
+    let desired = galley.size() + padding * 2.0;
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(desired, sense);
+
+    if ui.is_rect_visible(rect) {
+        let bg = if !enabled {
+            egui::Color32::TRANSPARENT
+        } else if resp.hovered() {
+            crate::theme::TOOLBAR_BTN_HOVER
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        let final_text_color = if enabled && resp.hovered() {
+            egui::Color32::WHITE
+        } else {
+            text_color
+        };
+        ui.painter().rect_filled(rect, 4.0, bg);
+        ui.painter()
+            .galley(rect.min + padding, galley, final_text_color);
+    }
+    resp
+}
+
+fn toolbar_mode_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+    let padding = egui::vec2(10.0, 5.0);
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(
+            label.to_string(),
+            egui::FontId::proportional(13.0),
+            egui::Color32::WHITE,
+        )
+    });
+    let desired = galley.size() + padding * 2.0;
+    let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let bg = if selected {
+            crate::theme::ACCENT_BLUE
+        } else if resp.hovered() {
+            crate::theme::TOOLBAR_BTN_HOVER
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        let text_color = if selected || resp.hovered() {
+            egui::Color32::WHITE
+        } else {
+            crate::theme::TOOLBAR_TEXT
+        };
+        ui.painter().rect_filled(rect, 4.0, bg);
+        ui.painter().galley(rect.min + padding, galley, text_color);
+    }
+    resp
 }
 
 /// LayoutMode を文字列から解決する（テスト用ユーティリティ）

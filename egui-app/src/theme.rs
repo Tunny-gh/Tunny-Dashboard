@@ -15,6 +15,10 @@ pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(100, 116, 139);
 pub const CELL_TOOLBAR_BG: Color32 = Color32::from_rgb(232, 239, 251);
 pub const WIDGET_BG: Color32 = Color32::from_rgb(235, 241, 252);
 pub const WIDGET_BG_HOVER: Color32 = Color32::from_rgb(220, 230, 247);
+pub const TOOLBAR_BTN_HOVER: Color32 = Color32::from_rgb(55, 78, 120);
+pub const TOOLBAR_BTN_ACTIVE: Color32 = Color32::from_rgb(37, 99, 235);
+pub const TOOLBAR_INPUT_BG: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 20);
+pub const TOOLBAR_INPUT_STROKE: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 50);
 
 pub fn tunny_light_visuals() -> Visuals {
     let mut v = Visuals::light();
