@@ -1,4 +1,5 @@
 use crate::state::app_state::TrialRow;
+use crate::state::types::Direction;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HistoryMode {
@@ -35,9 +36,27 @@ impl Default for OptimizationHistoryChart {
 }
 
 impl OptimizationHistoryChart {
-    pub fn show(&mut self, ui: &mut egui::Ui, trial_rows: &[TrialRow], is_minimize: bool) {
-        // モード選択
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        trial_rows: &[TrialRow],
+        obj_names: &[String],
+        directions: &[Direction],
+    ) {
+        // 目的関数インデックスを有効範囲に収める
+        if obj_names.is_empty() {
+            self.obj_idx = 0;
+        } else {
+            self.obj_idx = self.obj_idx.min(obj_names.len() - 1);
+        }
+
+        let is_minimize = directions
+            .get(self.obj_idx)
+            .map(|d| matches!(d, Direction::Minimize))
+            .unwrap_or(true);
+
         ui.horizontal(|ui| {
+            // モード選択
             for mode in [
                 HistoryMode::BestValue,
                 HistoryMode::AllTrials,
@@ -47,6 +66,22 @@ impl OptimizationHistoryChart {
                 if ui.selectable_label(selected, mode.label()).clicked() {
                     self.mode = mode;
                 }
+            }
+
+            // 多目的の場合のみ目的関数選択コンボボックスを表示
+            if obj_names.len() > 1 {
+                ui.separator();
+                let selected_label = obj_names
+                    .get(self.obj_idx)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+                egui::ComboBox::from_id_salt("opt_history_obj_select")
+                    .selected_text(selected_label)
+                    .show_ui(ui, |ui| {
+                        for (i, name) in obj_names.iter().enumerate() {
+                            ui.selectable_value(&mut self.obj_idx, i, name);
+                        }
+                    });
             }
         });
 

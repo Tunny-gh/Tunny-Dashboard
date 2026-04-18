@@ -41,17 +41,14 @@ pub fn show_chart(
     let trial_rows = &ctx.trial_rows;
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
-    let is_minimize = ctx
-        .meta
-        .directions
-        .first()
-        .map(|d| matches!(d, crate::state::app_state::Direction::Minimize))
-        .unwrap_or(true);
+    let directions = &ctx.meta.directions;
 
     match chart_id {
         ChartId::ParetoScatter2D => unreachable!(),
         ChartId::OptimizationHistory => {
-            widgets.opt_history.show(ui, trial_rows, is_minimize);
+            widgets
+                .opt_history
+                .show(ui, trial_rows, obj_names, directions);
         }
         ChartId::HvHistory => {
             // HvHistory は current_study と独立したフィールドなので clone 可能
