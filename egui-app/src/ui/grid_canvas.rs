@@ -136,18 +136,20 @@ pub fn show_grid_canvas(
                 pending_actions.push(CellAction::Clear(r, c));
             }
 
-            // ドラッグハンドル（コンテンツがあるセルの右端・下端）
+            // リサイズハンドル（コンテンツがあるセルの右端・下端）
+            // ドラッグ方向で拡張(右/下)・縮小(左/上)を判定する
             if cell.content.is_some() {
-                // 右端ハンドル
                 let can_expand_right = (c + cell.col_span as usize) < cols;
-                if can_expand_right {
+                let can_shrink_right = cell.col_span > 1;
+                if can_expand_right || can_shrink_right {
                     let right_handle_rect = egui::Rect::from_min_size(
                         egui::pos2(cell_rect.right() - HANDLE_THICKNESS, cell_rect.top()),
                         egui::vec2(HANDLE_THICKNESS, cell_rect.height()),
                     );
                     let right_id = egui::Id::new("resize_right").with(r).with(c);
-                    let right_resp = ui.interact(right_handle_rect, right_id, egui::Sense::click());
-                    if right_resp.hovered() {
+                    let right_resp =
+                        ui.interact(right_handle_rect, right_id, egui::Sense::click_and_drag());
+                    if right_resp.hovered() || right_resp.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                         ui.painter().rect_filled(
                             right_handle_rect,
@@ -155,22 +157,37 @@ pub fn show_grid_canvas(
                             egui::Color32::from_rgba_unmultiplied(37, 99, 235, 80),
                         );
                     }
-                    if right_resp.clicked() {
-                        pending_actions.push(CellAction::ExpandRight(r, c));
+                    if right_resp.dragged() {
+                        let dx = right_resp.drag_delta().x;
+                        ui.ctx().data_mut(|d| {
+                            *d.get_temp_mut_or_default::<f32>(right_id) += dx;
+                        });
+                    }
+                    if right_resp.drag_stopped() {
+                        let acc = ui.ctx().data_mut(|d| {
+                            let v: f32 = d.get_temp(right_id).unwrap_or(0.0);
+                            d.remove::<f32>(right_id);
+                            v
+                        });
+                        if acc > 30.0 && can_expand_right {
+                            pending_actions.push(CellAction::ExpandRight(r, c));
+                        } else if acc < -30.0 && can_shrink_right {
+                            pending_actions.push(CellAction::ShrinkRight(r, c));
+                        }
                     }
                 }
 
-                // 下端ハンドル
                 let can_expand_down = (r + cell.row_span as usize) < rows;
-                if can_expand_down {
+                let can_shrink_down = cell.row_span > 1;
+                if can_expand_down || can_shrink_down {
                     let bottom_handle_rect = egui::Rect::from_min_size(
                         egui::pos2(cell_rect.left(), cell_rect.bottom() - HANDLE_THICKNESS),
                         egui::vec2(cell_rect.width(), HANDLE_THICKNESS),
                     );
                     let bottom_id = egui::Id::new("resize_bottom").with(r).with(c);
                     let bottom_resp =
-                        ui.interact(bottom_handle_rect, bottom_id, egui::Sense::click());
-                    if bottom_resp.hovered() {
+                        ui.interact(bottom_handle_rect, bottom_id, egui::Sense::click_and_drag());
+                    if bottom_resp.hovered() || bottom_resp.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                         ui.painter().rect_filled(
                             bottom_handle_rect,
@@ -178,8 +195,23 @@ pub fn show_grid_canvas(
                             egui::Color32::from_rgba_unmultiplied(37, 99, 235, 80),
                         );
                     }
-                    if bottom_resp.clicked() {
-                        pending_actions.push(CellAction::ExpandDown(r, c));
+                    if bottom_resp.dragged() {
+                        let dy = bottom_resp.drag_delta().y;
+                        ui.ctx().data_mut(|d| {
+                            *d.get_temp_mut_or_default::<f32>(bottom_id) += dy;
+                        });
+                    }
+                    if bottom_resp.drag_stopped() {
+                        let acc = ui.ctx().data_mut(|d| {
+                            let v: f32 = d.get_temp(bottom_id).unwrap_or(0.0);
+                            d.remove::<f32>(bottom_id);
+                            v
+                        });
+                        if acc > 30.0 && can_expand_down {
+                            pending_actions.push(CellAction::ExpandDown(r, c));
+                        } else if acc < -30.0 && can_shrink_down {
+                            pending_actions.push(CellAction::ShrinkDown(r, c));
+                        }
                     }
                 }
             }
@@ -368,20 +400,28 @@ fn render_cell_content(
             let item = PanelItem::Chart(chart_id.clone());
             let title = item.label();
             let should_clear = show_cell_toolbar(ui, row, col, item, title);
-            ui.add_space(4.0);
-            ui.push_id((row, col), |ui| {
-                crate::ui::chart_registry::show_chart(ui, app_state, widgets, &chart_id, tx);
-            });
+            egui::Frame::default()
+                .inner_margin(egui::Margin::same(8.0))
+                .show(ui, |ui| {
+                    ui.push_id((row, col), |ui| {
+                        crate::ui::chart_registry::show_chart(
+                            ui, app_state, widgets, &chart_id, tx,
+                        );
+                    });
+                });
             should_clear
         }
         Some(PanelItem::TrialTable) => {
             let item = PanelItem::TrialTable;
             let title = item.label();
             let should_clear = show_cell_toolbar(ui, row, col, item, title);
-            ui.add_space(4.0);
-            ui.push_id((row, col), |ui| {
-                TrialTableWidget.show(ui, app_state);
-            });
+            egui::Frame::default()
+                .inner_margin(egui::Margin::same(8.0))
+                .show(ui, |ui| {
+                    ui.push_id((row, col), |ui| {
+                        TrialTableWidget.show(ui, app_state);
+                    });
+                });
             should_clear
         }
         None => {
