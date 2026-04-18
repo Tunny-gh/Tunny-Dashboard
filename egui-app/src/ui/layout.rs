@@ -22,7 +22,13 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
 
     egui::TopBottomPanel::top("toolbar")
         .min_height(32.0)
+        .frame(
+            egui::Frame::default()
+                .fill(crate::theme::TOOLBAR_BG)
+                .inner_margin(egui::Margin::symmetric(8.0, 4.0)),
+        )
         .show(ctx, |ui| {
+            ui.visuals_mut().override_text_color = Some(crate::theme::TOOLBAR_TEXT);
             show_toolbar(
                 ui,
                 &mut app.app_state,
@@ -37,6 +43,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         .resizable(true)
         .default_width(app.layout.left_panel_width)
         .width_range(LEFT_WIDTH_MIN..=LEFT_WIDTH_MAX)
+        .frame(egui::Frame::default().fill(crate::theme::PANEL_BG).inner_margin(egui::Margin::same(8.0)))
         .show(ctx, |ui| {
             show_left_panel(ui, &mut app.app_state, &mut app.layout);
         });
@@ -46,6 +53,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         .resizable(true)
         .default_width(app.layout.right_panel.width)
         .width_range(RIGHT_WIDTH_MIN..=RIGHT_WIDTH_MAX)
+        .frame(egui::Frame::default().fill(crate::theme::PANEL_BG).inner_margin(egui::Margin::same(8.0)))
         .show(ctx, |ui| {
             show_right_panel(ui, &app.app_state, &mut app.layout);
         });

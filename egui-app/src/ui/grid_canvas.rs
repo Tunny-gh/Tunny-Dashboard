@@ -91,7 +91,7 @@ pub fn show_grid_canvas(
             ui.painter().rect_stroke(
                 cell_rect,
                 0.0,
-                egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
+                egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
             );
 
             // セル内の子 UI を作成
@@ -120,7 +120,7 @@ pub fn show_grid_canvas(
                 ui.painter().rect_filled(
                     cell_rect,
                     0.0,
-                    egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40),
+                    egui::Color32::from_rgba_unmultiplied(37, 99, 235, 40),
                 );
             }
 
@@ -150,7 +150,7 @@ pub fn show_grid_canvas(
                         ui.painter().rect_filled(
                             right_handle_rect,
                             0.0,
-                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 80),
+                            egui::Color32::from_rgba_unmultiplied(37, 99, 235, 80),
                         );
                     }
                     if right_resp.clicked() {
@@ -173,7 +173,7 @@ pub fn show_grid_canvas(
                         ui.painter().rect_filled(
                             bottom_handle_rect,
                             0.0,
-                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 80),
+                            egui::Color32::from_rgba_unmultiplied(37, 99, 235, 80),
                         );
                     }
                     if bottom_resp.clicked() {
@@ -298,13 +298,11 @@ fn show_cell_toolbar(
 ) -> bool {
     let drag_id = egui::Id::new("cell_drag_handle").with(row).with(col);
     let payload = DragPayload::MoveFromCell { item, row, col };
-    let fill = ui.visuals().widgets.inactive.bg_fill;
-    let stroke = ui.visuals().widgets.inactive.bg_stroke;
     let mut should_clear = false;
 
     egui::Frame::default()
-        .fill(fill)
-        .stroke(stroke)
+        .fill(crate::theme::CELL_TOOLBAR_BG)
+        .stroke(egui::Stroke::new(1.0, crate::theme::BORDER_COLOR))
         .inner_margin(egui::Margin::symmetric(6.0, 4.0))
         .show(ui, |ui| {
             ui.allocate_ui_with_layout(

@@ -17,7 +17,8 @@ pub struct TunnyApp {
 }
 
 impl TunnyApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
         let (tx, rx) = mpsc::sync_channel(32);
         Self {
             app_state: AppState::new(),
