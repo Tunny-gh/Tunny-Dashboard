@@ -85,6 +85,7 @@ pub enum AppMessage {
     HvHistoryDone {
         trial_ids: Vec<u32>,
         hv_values: Vec<f64>,
+        sample_step: usize,
     },
     Error(String),
     SensitivityError(String),

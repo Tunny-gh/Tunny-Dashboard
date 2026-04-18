@@ -47,6 +47,8 @@ pub struct TopsisResult {
 pub struct HvHistory {
     pub trial_ids: Vec<u32>,
     pub hv_values: Vec<f64>,
+    /// ダウンサンプリングのステップ幅（1 = 全点）
+    pub sample_step: usize,
 }
 
 // ============================================================

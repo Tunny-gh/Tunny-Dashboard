@@ -1,6 +1,6 @@
 use std::sync::mpsc;
 
-use crate::state::app_state::AppState;
+use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
@@ -51,7 +51,38 @@ pub fn show_chart(
                 .show(ui, trial_rows, obj_names, directions);
         }
         ChartId::HvHistory => {
-            // HvHistory は current_study と独立したフィールドなので clone 可能
+            // 未計算かつ計算中でない場合にバックグラウンドで HV 計算を起動する
+            if app_state.hv_history.is_none() && !widgets.hv_history.computing {
+                let is_minimize: Vec<bool> = directions
+                    .iter()
+                    .map(|d| matches!(d, Direction::Minimize))
+                    .collect();
+
+                // データを main スレッドで抽出（with_active_df はスレッドローカルのため）
+                // 約 50 点に 1 点の間隔でダウンサンプリングして計算コストを削減
+                const TARGET_POINTS: usize = 50;
+                let step = (trial_rows.len() / TARGET_POINTS).max(1);
+                let (sampled_ids, sampled_objs): (Vec<u32>, Vec<Vec<f64>>) = trial_rows
+                    .iter()
+                    .step_by(step)
+                    .map(|r| (r.trial_id, r.objectives.clone()))
+                    .unzip();
+
+                widgets.hv_history.computing = true;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    let result = tunny_core::pareto::compute_hv_history_from_data(
+                        &sampled_ids,
+                        &sampled_objs,
+                        &is_minimize,
+                    );
+                    AppMessage::HvHistoryDone {
+                        trial_ids: result.trial_ids,
+                        hv_values: result.hv_values,
+                        sample_step: step,
+                    }
+                });
+            }
             widgets.hv_history.hv_history = app_state.hv_history.clone();
             widgets.hv_history.show(ui);
         }

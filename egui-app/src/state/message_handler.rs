@@ -34,6 +34,7 @@ impl MessageHandler {
                     gpu_data,
                     pareto_indices,
                 });
+                widget_states.hv_history.computing = false;
                 *is_loading = false;
                 app_state.update_chart_colors();
             }
@@ -58,11 +59,14 @@ impl MessageHandler {
             AppMessage::HvHistoryDone {
                 trial_ids,
                 hv_values,
+                sample_step,
             } => {
                 app_state.hv_history = Some(HvHistory {
                     trial_ids,
                     hv_values,
+                    sample_step,
                 });
+                widget_states.hv_history.computing = false;
             }
             AppMessage::Pdp2dDone(result) => {
                 widget_states.pdp_2d.result = Some(result);

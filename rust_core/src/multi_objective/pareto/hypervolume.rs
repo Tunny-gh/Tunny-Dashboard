@@ -35,22 +35,66 @@ pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f
     hv
 }
 
+/// スレッドローカルを使わずデータを直接受け取って HV 推移を計算する。
+/// バックグラウンドスレッドから呼び出す場合はこちらを使用する。
+pub fn compute_hv_history_from_data(
+    trial_ids: &[u32],
+    objectives: &[Vec<f64>],
+    is_minimize: &[bool],
+) -> HvHistoryResult {
+    let n = objectives.len();
+    let m = if n > 0 { objectives[0].len() } else { 0 };
+
+    if m < 2 {
+        return HvHistoryResult {
+            trial_ids: trial_ids.to_vec(),
+            hv_values: vec![0.0; n],
+        };
+    }
+
+    let norm_all = normalize_objectives(objectives, is_minimize);
+    let valid_objs: Vec<Vec<f64>> = norm_all
+        .iter()
+        .filter(|obj| !obj.iter().any(|v| v.is_nan()))
+        .cloned()
+        .collect();
+    if valid_objs.is_empty() {
+        return HvHistoryResult {
+            trial_ids: trial_ids.to_vec(),
+            hv_values: vec![0.0; n],
+        };
+    }
+    let ref_pt = compute_ref_point(&valid_objs, m);
+
+    let mut current_pareto: Vec<Vec<f64>> = Vec::new();
+    let mut hv_values = Vec::with_capacity(n);
+
+    for obj in norm_all.iter().take(n) {
+        if obj.iter().any(|v| v.is_nan()) {
+            hv_values.push(hv_values.last().copied().unwrap_or(0.0));
+            continue;
+        }
+        let dominated = current_pareto.iter().any(|p| dominates_minimized(p, obj));
+        if !dominated {
+            current_pareto.retain(|p| !dominates_minimized(obj, p));
+            current_pareto.push(obj.clone());
+        }
+        let pts_2d: Vec<(f64, f64)> = current_pareto.iter().map(|o| (o[0], o[1])).collect();
+        hv_values.push(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]));
+    }
+
+    HvHistoryResult {
+        trial_ids: trial_ids.to_vec(),
+        hv_values,
+    }
+}
+
 /// Documentation.
 pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
     crate::dataframe::with_active_df(|df| {
         let n = df.row_count();
         let obj_names = df.objective_col_names();
-        let m = obj_names.len();
-
         let trial_ids: Vec<u32> = (0..n).filter_map(|i| df.get_trial_id(i)).collect();
-
-        if m < 2 {
-            return HvHistoryResult {
-                trial_ids,
-                hv_values: vec![0.0; n],
-            };
-        }
-
         let all_objs: Vec<Vec<f64>> = (0..n)
             .map(|row| {
                 obj_names
@@ -64,42 +108,7 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
                     .collect()
             })
             .collect();
-        let norm_all = normalize_objectives(&all_objs, is_minimize);
-        let valid_objs: Vec<Vec<f64>> = norm_all
-            .iter()
-            .filter(|obj| !obj.iter().any(|v| v.is_nan()))
-            .cloned()
-            .collect();
-        if valid_objs.is_empty() {
-            return HvHistoryResult {
-                trial_ids,
-                hv_values: vec![0.0; n],
-            };
-        }
-        let ref_pt = compute_ref_point(&valid_objs, m);
-
-        let mut current_pareto: Vec<Vec<f64>> = Vec::new();
-        let mut hv_values = Vec::with_capacity(n);
-
-        for obj in norm_all.iter().take(n) {
-            let obj = obj.clone();
-            if obj.iter().any(|v| v.is_nan()) {
-                hv_values.push(hv_values.last().copied().unwrap_or(0.0));
-                continue;
-            }
-            let dominated = current_pareto.iter().any(|p| dominates_minimized(p, &obj));
-            if !dominated {
-                current_pareto.retain(|p| !dominates_minimized(&obj, p));
-                current_pareto.push(obj);
-            }
-            let pts_2d: Vec<(f64, f64)> = current_pareto.iter().map(|o| (o[0], o[1])).collect();
-            hv_values.push(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]));
-        }
-
-        HvHistoryResult {
-            trial_ids,
-            hv_values,
-        }
+        compute_hv_history_from_data(&trial_ids, &all_objs, is_minimize)
     })
     .unwrap_or(HvHistoryResult {
         trial_ids: vec![],

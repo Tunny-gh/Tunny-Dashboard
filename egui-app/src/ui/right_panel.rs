@@ -17,7 +17,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
     if !is_open {
         // 閉じた状態: パネル全体を使って▶ボタンを縦中央に配置
         ui.centered_and_justified(|ui| {
-            let arrow = animated_arrow(ui, t, anim_id);
+            let arrow = animated_arrow(t);
             if ui.button(arrow).clicked() {
                 layout.right_panel.is_open = true;
             }
@@ -31,7 +31,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
         ui.vertical(|ui| {
             ui.set_width(TOGGLE_BTN_WIDTH);
             ui.add_space((ui.available_height() / 2.0 - 12.0).max(0.0));
-            let arrow = animated_arrow(ui, t, anim_id);
+            let arrow = animated_arrow(t);
             if ui.button(arrow).clicked() {
                 layout.right_panel.is_open = false;
             }
@@ -101,13 +101,8 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
 }
 
 /// アニメーション値 t (0=閉, 1=開) から矢印文字を返す
-fn animated_arrow(_ui: &egui::Ui, t: f32, _id: egui::Id) -> &'static str {
-    // t が 0.5 以上なら開いている方向、未満なら閉じている方向
-    if t >= 0.5 {
-        "◀"
-    } else {
-        "▶"
-    }
+fn animated_arrow(t: f32) -> &'static str {
+    if t >= 0.5 { "◀" } else { "▶" }
 }
 
 /// is_open トグルのロジックを単独でテスト可能な関数

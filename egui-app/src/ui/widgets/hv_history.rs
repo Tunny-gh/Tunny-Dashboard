@@ -22,36 +22,51 @@ impl HvHistoryChart {
             return;
         };
 
+        let step = history.sample_step;
+        // X 軸はサンプリング順の連番 × ステップ (0, step, 2*step, …)。
+        // trial_id は途中試行から始まる場合があり 0 スタートにならないため使わない。
         let points: Vec<[f64; 2]> = history
-            .trial_ids
+            .hv_values
             .iter()
-            .zip(history.hv_values.iter())
-            .map(|(&id, &hv)| [id as f64, hv])
+            .enumerate()
+            .map(|(i, &hv)| [(i * step) as f64, hv])
             .collect();
+
+        let sampling_label = if step <= 1 {
+            "Sampling: Every trial".to_string()
+        } else {
+            format!("Sampling: Every {} trials", step)
+        };
+        ui.label(
+            egui::RichText::new(sampling_label)
+                .small()
+                .color(crate::theme::TEXT_SECONDARY),
+        );
 
         egui_plot::Plot::new("hv_history_plot")
             .legend(egui_plot::Legend::default())
+            .x_axis_label("Trial")
+            .y_axis_label("Hypervolume")
+            .include_x(0.0)
             .show(ui, |plot_ui| {
                 if !points.is_empty() {
-                    let plot_points: egui_plot::PlotPoints = points.into_iter().collect();
+                    let color = egui::Color32::from_rgb(50, 200, 100);
+                    let plot_points: egui_plot::PlotPoints = points.iter().copied().collect();
                     plot_ui.line(
                         egui_plot::Line::new(plot_points)
                             .name("Hypervolume")
-                            .color(egui::Color32::from_rgb(50, 200, 100)),
+                            .color(color),
+                    );
+                    let scatter: egui_plot::PlotPoints = points.into_iter().collect();
+                    plot_ui.points(
+                        egui_plot::Points::new(scatter)
+                            .name("Sampled points")
+                            .color(color)
+                            .radius(4.0),
                     );
                 }
             });
     }
-}
-
-/// HvHistoryResult を HvHistory ポイント列に変換する
-pub fn hv_history_to_plot_points(history: &HvHistory) -> Vec<[f64; 2]> {
-    history
-        .trial_ids
-        .iter()
-        .zip(history.hv_values.iter())
-        .map(|(&id, &hv)| [id as f64, hv])
-        .collect()
 }
 
 #[cfg(test)]
@@ -60,32 +75,29 @@ mod tests {
     use crate::state::app_state::HvHistory;
 
     #[test]
-    fn hv_history_to_plot_points_correct_mapping() {
-        let history = HvHistory {
-            trial_ids: vec![0, 1, 2],
-            hv_values: vec![0.1, 0.5, 0.8],
-        };
-        let pts = hv_history_to_plot_points(&history);
-        assert_eq!(pts.len(), 3);
-        assert_eq!(pts[0], [0.0, 0.1]);
-        assert_eq!(pts[1], [1.0, 0.5]);
-        assert_eq!(pts[2], [2.0, 0.8]);
-    }
-
-    #[test]
-    fn hv_history_to_plot_points_empty() {
-        let history = HvHistory {
-            trial_ids: vec![],
-            hv_values: vec![],
-        };
-        let pts = hv_history_to_plot_points(&history);
-        assert_eq!(pts.len(), 0);
-    }
-
-    #[test]
     fn hv_history_chart_default() {
         let chart = HvHistoryChart::default();
         assert!(chart.hv_history.is_none());
         assert!(!chart.computing);
+    }
+
+    #[test]
+    fn hv_history_show_uses_index_times_step() {
+        let history = HvHistory {
+            trial_ids: vec![10000, 10050, 10100],
+            hv_values: vec![0.1, 0.5, 0.8],
+            sample_step: 50,
+        };
+        // x values should be 0, 50, 100 — not 10000, 10050, 10100
+        let step = history.sample_step;
+        let points: Vec<[f64; 2]> = history
+            .hv_values
+            .iter()
+            .enumerate()
+            .map(|(i, &hv)| [(i * step) as f64, hv])
+            .collect();
+        assert_eq!(points[0][0], 0.0);
+        assert_eq!(points[1][0], 50.0);
+        assert_eq!(points[2][0], 100.0);
     }
 }
