@@ -140,18 +140,13 @@ pub fn show_grid_canvas(
                 let can_expand_right = (c + cell.col_span as usize) < cols;
                 if can_expand_right {
                     let right_handle_rect = egui::Rect::from_min_size(
-                        egui::pos2(
-                            cell_rect.right() - HANDLE_THICKNESS,
-                            cell_rect.top(),
-                        ),
+                        egui::pos2(cell_rect.right() - HANDLE_THICKNESS, cell_rect.top()),
                         egui::vec2(HANDLE_THICKNESS, cell_rect.height()),
                     );
                     let right_id = egui::Id::new("resize_right").with(r).with(c);
-                    let right_resp =
-                        ui.interact(right_handle_rect, right_id, egui::Sense::click());
+                    let right_resp = ui.interact(right_handle_rect, right_id, egui::Sense::click());
                     if right_resp.hovered() {
-                        ui.ctx()
-                            .set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                         ui.painter().rect_filled(
                             right_handle_rect,
                             0.0,
@@ -167,18 +162,14 @@ pub fn show_grid_canvas(
                 let can_expand_down = (r + cell.row_span as usize) < rows;
                 if can_expand_down {
                     let bottom_handle_rect = egui::Rect::from_min_size(
-                        egui::pos2(
-                            cell_rect.left(),
-                            cell_rect.bottom() - HANDLE_THICKNESS,
-                        ),
+                        egui::pos2(cell_rect.left(), cell_rect.bottom() - HANDLE_THICKNESS),
                         egui::vec2(cell_rect.width(), HANDLE_THICKNESS),
                     );
                     let bottom_id = egui::Id::new("resize_bottom").with(r).with(c);
                     let bottom_resp =
                         ui.interact(bottom_handle_rect, bottom_id, egui::Sense::click());
                     if bottom_resp.hovered() {
-                        ui.ctx()
-                            .set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                         ui.painter().rect_filled(
                             bottom_handle_rect,
                             0.0,
