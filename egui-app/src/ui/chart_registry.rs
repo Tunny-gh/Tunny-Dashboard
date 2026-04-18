@@ -67,7 +67,9 @@ pub fn show_chart(
             );
         }
         ChartId::PdpChart => {
-            widgets.pdp_chart.show(ui, param_names, obj_names, trial_rows);
+            widgets
+                .pdp_chart
+                .show(ui, param_names, obj_names, trial_rows);
         }
         ChartId::PdpChart2D => {
             let cmap = app_state.selected_colormap.to_colormap();
@@ -102,7 +104,9 @@ pub fn show_chart(
             }
         }
         ChartId::ParallelCoordinates => {
-            widgets.parallel_coords.show(ui, trial_rows, param_names, obj_names);
+            widgets
+                .parallel_coords
+                .show(ui, trial_rows, param_names, obj_names);
         }
         ChartId::ScatterMatrix => {
             widgets.scatter_matrix.show(
