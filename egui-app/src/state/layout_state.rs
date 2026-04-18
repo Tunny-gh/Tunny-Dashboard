@@ -285,13 +285,18 @@ impl GridLayout {
     /// セルを右方向に結合する。成功した場合 true を返す。
     pub fn expand_right(&mut self, row: usize, col: usize) -> bool {
         let new_end_col = col + self.cells[row][col].col_span as usize;
+        let row_span = self.cells[row][col].row_span as usize;
         if new_end_col >= self.cols {
             return false;
         }
-        if self.cells[row][new_end_col].merged_into.is_some() {
-            return false;
+        for r in row..row + row_span {
+            if self.cells[r][new_end_col].merged_into.is_some() {
+                return false;
+            }
         }
-        self.cells[row][new_end_col].merged_into = Some((row, col));
+        for r in row..row + row_span {
+            self.cells[r][new_end_col].merged_into = Some((row, col));
+        }
         self.cells[row][col].col_span += 1;
         true
     }
@@ -299,13 +304,18 @@ impl GridLayout {
     /// セルを下方向に結合する。成功した場合 true を返す。
     pub fn expand_down(&mut self, row: usize, col: usize) -> bool {
         let new_end_row = row + self.cells[row][col].row_span as usize;
+        let col_span = self.cells[row][col].col_span as usize;
         if new_end_row >= self.rows {
             return false;
         }
-        if self.cells[new_end_row][col].merged_into.is_some() {
-            return false;
+        for c in col..col + col_span {
+            if self.cells[new_end_row][c].merged_into.is_some() {
+                return false;
+            }
         }
-        self.cells[new_end_row][col].merged_into = Some((row, col));
+        for c in col..col + col_span {
+            self.cells[new_end_row][c].merged_into = Some((row, col));
+        }
         self.cells[row][col].row_span += 1;
         true
     }
@@ -316,8 +326,10 @@ impl GridLayout {
             return false;
         }
         let end_col = col + self.cells[row][col].col_span as usize - 1;
-        // 末端被結合セルを解放
-        self.cells[row][end_col].merged_into = None;
+        let row_span = self.cells[row][col].row_span as usize;
+        for r in row..row + row_span {
+            self.cells[r][end_col].merged_into = None;
+        }
         self.cells[row][col].col_span -= 1;
         true
     }
@@ -328,8 +340,10 @@ impl GridLayout {
             return false;
         }
         let end_row = row + self.cells[row][col].row_span as usize - 1;
-        // 末端被結合セルを解放
-        self.cells[end_row][col].merged_into = None;
+        let col_span = self.cells[row][col].col_span as usize;
+        for c in col..col + col_span {
+            self.cells[end_row][c].merged_into = None;
+        }
         self.cells[row][col].row_span -= 1;
         true
     }
@@ -337,17 +351,19 @@ impl GridLayout {
     /// 安全な右方向拡張（対象セルが空の場合のみ結合を許可）
     pub fn safe_expand_right(&mut self, row: usize, col: usize) -> bool {
         let new_end_col = col + self.cells[row][col].col_span as usize;
+        let row_span = self.cells[row][col].row_span as usize;
         if new_end_col >= self.cols {
             return false;
         }
-        let target = &self.cells[row][new_end_col];
-        if target.merged_into.is_some() {
-            return false;
+        for r in row..row + row_span {
+            let target = &self.cells[r][new_end_col];
+            if target.merged_into.is_some() || target.content.is_some() {
+                return false;
+            }
         }
-        if target.content.is_some() {
-            return false;
+        for r in row..row + row_span {
+            self.cells[r][new_end_col].merged_into = Some((row, col));
         }
-        self.cells[row][new_end_col].merged_into = Some((row, col));
         self.cells[row][col].col_span += 1;
         true
     }
@@ -355,17 +371,19 @@ impl GridLayout {
     /// 安全な下方向拡張（対象セルが空の場合のみ結合を許可）
     pub fn safe_expand_down(&mut self, row: usize, col: usize) -> bool {
         let new_end_row = row + self.cells[row][col].row_span as usize;
+        let col_span = self.cells[row][col].col_span as usize;
         if new_end_row >= self.rows {
             return false;
         }
-        let target = &self.cells[new_end_row][col];
-        if target.merged_into.is_some() {
-            return false;
+        for c in col..col + col_span {
+            let target = &self.cells[new_end_row][c];
+            if target.merged_into.is_some() || target.content.is_some() {
+                return false;
+            }
         }
-        if target.content.is_some() {
-            return false;
+        for c in col..col + col_span {
+            self.cells[new_end_row][c].merged_into = Some((row, col));
         }
-        self.cells[new_end_row][col].merged_into = Some((row, col));
         self.cells[row][col].row_span += 1;
         true
     }
@@ -740,6 +758,66 @@ mod tests {
         let result = g.safe_expand_down(0, 0);
         assert!(!result);
         assert_eq!(g.cells[0][0].row_span, 1);
+    }
+
+    #[test]
+    fn expand_down_on_col_span2_merges_all_cols_in_new_row() {
+        // 2x2 grid, [0][0] expanded right (col_span=2), then expanded down
+        // Bug: only [1][0] was merged, [1][1] was left free
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.expand_right(0, 0); // col_span=2
+        let result = g.expand_down(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[0][0].row_span, 2);
+        assert_eq!(g.cells[1][0].merged_into, Some((0, 0)));
+        assert_eq!(g.cells[1][1].merged_into, Some((0, 0))); // must also be merged
+    }
+
+    #[test]
+    fn safe_expand_down_on_col_span2_merges_all_cols_in_new_row() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.safe_expand_right(0, 0); // col_span=2
+        let result = g.safe_expand_down(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[1][0].merged_into, Some((0, 0)));
+        assert_eq!(g.cells[1][1].merged_into, Some((0, 0)));
+    }
+
+    #[test]
+    fn shrink_down_on_col_span2_releases_all_cols_in_end_row() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.expand_right(0, 0);
+        g.expand_down(0, 0);
+        let result = g.shrink_down(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[1][0].merged_into, None);
+        assert_eq!(g.cells[1][1].merged_into, None);
+    }
+
+    #[test]
+    fn expand_right_on_row_span2_merges_all_rows_in_new_col() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.expand_down(0, 0); // row_span=2
+        let result = g.expand_right(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[0][1].merged_into, Some((0, 0)));
+        assert_eq!(g.cells[1][1].merged_into, Some((0, 0)));
+    }
+
+    #[test]
+    fn shrink_right_on_row_span2_releases_all_rows_in_end_col() {
+        let mut g = GridLayout::default();
+        g.place(0, 0, PanelItem::TrialTable);
+        g.expand_down(0, 0);
+        g.expand_right(0, 0);
+        let result = g.shrink_right(0, 0);
+        assert!(result);
+        assert_eq!(g.cells[0][1].merged_into, None);
+        assert_eq!(g.cells[1][1].merged_into, None);
     }
 
     // --- LayoutState tests ---
