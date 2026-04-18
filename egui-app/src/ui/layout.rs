@@ -65,18 +65,35 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         });
 
     // 右パネル（ウィジェット一覧・ハンバーガーメニュー）
-    egui::SidePanel::right("right_panel")
-        .resizable(true)
-        .default_width(app.layout.right_panel.width)
-        .width_range(RIGHT_WIDTH_MIN..=RIGHT_WIDTH_MAX)
-        .frame(
-            egui::Frame::default()
-                .fill(crate::theme::PANEL_BG)
-                .inner_margin(egui::Margin::same(8.0)),
-        )
-        .show(ctx, |ui| {
-            show_right_panel(ui, &app.app_state, &mut app.layout);
-        });
+    // 開閉で異なる ID を使い分けることで egui の幅キャッシュを分離する。
+    // "right_panel" ID は開いた状態専用 → ユーザーがリサイズした幅がキャッシュされ、
+    // 再オープン時にその幅が自動復元される。
+    // "right_panel_closed" ID は閉じた状態専用 → 常に固定幅 (CLOSED_WIDTH) で表示。
+    const CLOSED_WIDTH: f32 = 48.0;
+
+    let panel_frame = egui::Frame::default()
+        .fill(crate::theme::PANEL_BG)
+        .inner_margin(egui::Margin::same(8.0));
+
+    if app.layout.right_panel.is_open {
+        egui::SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(app.layout.right_panel.width)
+            .width_range(RIGHT_WIDTH_MIN..=RIGHT_WIDTH_MAX)
+            .frame(panel_frame)
+            .show(ctx, |ui| {
+                show_right_panel(ui, &app.app_state, &mut app.layout);
+            });
+    } else {
+        egui::SidePanel::right("right_panel_closed")
+            .resizable(false)
+            .default_width(CLOSED_WIDTH)
+            .width_range(CLOSED_WIDTH..=CLOSED_WIDTH)
+            .frame(panel_frame)
+            .show(ctx, |ui| {
+                show_right_panel(ui, &app.app_state, &mut app.layout);
+            });
+    }
 
     egui::CentralPanel::default().show(ctx, |ui| {
         show_main_canvas(
