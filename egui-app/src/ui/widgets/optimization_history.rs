@@ -103,8 +103,9 @@ impl OptimizationHistoryChart {
                 }
 
                 if self.show_best && !values.is_empty() {
-                    let pts: egui_plot::PlotPoints =
-                        compute_best_values(&values, is_minimize).into_iter().collect();
+                    let pts: egui_plot::PlotPoints = compute_best_values(&values, is_minimize)
+                        .into_iter()
+                        .collect();
                     plot_ui.line(
                         egui_plot::Line::new(pts)
                             .name("Best Value")

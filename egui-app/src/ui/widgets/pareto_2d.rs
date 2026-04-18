@@ -5,7 +5,8 @@ type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
 
 const COLOR_PARETO: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
 const COLOR_NON_PARETO: egui::Color32 = egui::Color32::from_rgb(50, 150, 250);
-const COLOR_NON_PARETO_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(50, 150, 250, 60);
+const COLOR_NON_PARETO_DIM: egui::Color32 =
+    egui::Color32::from_rgba_premultiplied(50, 150, 250, 60);
 const COLOR_PARETO_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(220, 50, 50, 60);
 
 /// ダウンサンプリングインデックスでトライアルをフィルタリングする
@@ -131,9 +132,17 @@ impl ParetoScatter2D {
 
             let is_selected = compute_point_alpha(row.trial_id, &selected) == 255;
             if row.pareto_rank == 1 {
-                if is_selected { pareto_pts.push(pt); } else { pareto_pts_dim.push(pt); }
+                if is_selected {
+                    pareto_pts.push(pt);
+                } else {
+                    pareto_pts_dim.push(pt);
+                }
             } else {
-                if is_selected { non_pareto_pts.push(pt); } else { non_pareto_pts_dim.push(pt); }
+                if is_selected {
+                    non_pareto_pts.push(pt);
+                } else {
+                    non_pareto_pts_dim.push(pt);
+                }
             }
         }
 
@@ -170,8 +179,7 @@ impl ParetoScatter2D {
                     );
                 }
                 if !pareto_pts.is_empty() {
-                    let line_pts: egui_plot::PlotPoints =
-                        pareto_pts.iter().copied().collect();
+                    let line_pts: egui_plot::PlotPoints = pareto_pts.iter().copied().collect();
                     plot_ui.line(
                         egui_plot::Line::new(line_pts)
                             .name("Pareto Front")
