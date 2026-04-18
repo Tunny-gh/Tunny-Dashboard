@@ -47,35 +47,42 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
             let placed: Vec<&PanelItem> = layout.grid.placed_items();
 
             let groups: &[(&str, &[PanelItem])] = &[
-                ("Convergence", &[
-                    PanelItem::Chart(ChartId::OptimizationHistory),
-                    PanelItem::Chart(ChartId::HvHistory),
-                ]),
-                ("Pareto / Multi-Objective", &[
-                    PanelItem::Chart(ChartId::ParetoScatter2D),
-                    PanelItem::Chart(ChartId::ParetoScatter3D),
-                    PanelItem::Chart(ChartId::ParallelCoordinates),
-                ]),
-                ("Variable Analysis", &[
-                    PanelItem::Chart(ChartId::ImportanceChart),
-                    PanelItem::Chart(ChartId::SensitivityHeatmap),
-                    PanelItem::Chart(ChartId::PdpChart),
-                    PanelItem::Chart(ChartId::PdpChart2D),
-                    PanelItem::Chart(ChartId::ScatterMatrix),
-                ]),
-                ("Clustering", &[
-                    PanelItem::Chart(ChartId::ClusterScatter),
-                ]),
-                ("Data", &[
-                    PanelItem::TrialTable,
-                ]),
+                (
+                    "Convergence",
+                    &[
+                        PanelItem::Chart(ChartId::OptimizationHistory),
+                        PanelItem::Chart(ChartId::HvHistory),
+                    ],
+                ),
+                (
+                    "Pareto / Multi-Objective",
+                    &[
+                        PanelItem::Chart(ChartId::ParetoScatter2D),
+                        PanelItem::Chart(ChartId::ParetoScatter3D),
+                        PanelItem::Chart(ChartId::ParallelCoordinates),
+                    ],
+                ),
+                (
+                    "Variable Analysis",
+                    &[
+                        PanelItem::Chart(ChartId::ImportanceChart),
+                        PanelItem::Chart(ChartId::SensitivityHeatmap),
+                        PanelItem::Chart(ChartId::PdpChart),
+                        PanelItem::Chart(ChartId::PdpChart2D),
+                        PanelItem::Chart(ChartId::ScatterMatrix),
+                    ],
+                ),
+                ("Clustering", &[PanelItem::Chart(ChartId::ClusterScatter)]),
+                ("Data", &[PanelItem::TrialTable]),
             ];
 
             for (group_label, items) in groups {
                 ui.add_space(12.0);
-                ui.label(egui::RichText::new(*group_label)
-                    .small()
-                    .color(crate::theme::TEXT_SECONDARY));
+                ui.label(
+                    egui::RichText::new(*group_label)
+                        .small()
+                        .color(crate::theme::TEXT_SECONDARY),
+                );
                 ui.separator();
                 for item in *items {
                     let is_placed = placed.contains(&item);
@@ -96,7 +103,11 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
 /// アニメーション値 t (0=閉, 1=開) から矢印文字を返す
 fn animated_arrow(_ui: &egui::Ui, t: f32, _id: egui::Id) -> &'static str {
     // t が 0.5 以上なら開いている方向、未満なら閉じている方向
-    if t >= 0.5 { "◀" } else { "▶" }
+    if t >= 0.5 {
+        "◀"
+    } else {
+        "▶"
+    }
 }
 
 /// is_open トグルのロジックを単独でテスト可能な関数
