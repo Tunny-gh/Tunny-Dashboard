@@ -16,7 +16,7 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": ["${workspaceFolder}/test.log"],
             "cwd": "${workspaceFolder}",
             "env": {
                 "RUST_LOG": "debug",

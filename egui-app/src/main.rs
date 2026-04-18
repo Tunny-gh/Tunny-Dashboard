@@ -9,6 +9,8 @@ mod theme;
 mod ui;
 
 fn main() -> eframe::Result<()> {
+    let initial_path: Option<std::path::PathBuf> = std::env::args().nth(1).map(Into::into);
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]),
         ..Default::default()
@@ -16,6 +18,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Tunny Dashboard",
         options,
-        Box::new(|cc| Ok(Box::new(app::TunnyApp::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(app::TunnyApp::new(cc, initial_path)))),
     )
 }

@@ -17,14 +17,19 @@ pub struct TunnyApp {
 }
 
 impl TunnyApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
         let (tx, rx) = mpsc::sync_channel(32);
+        let is_loading = initial_path.is_some();
+        if let Some(path) = initial_path {
+            let tx2 = tx.clone();
+            spawn_task(tx2, move || crate::io::journal::load_journal_task(path));
+        }
         Self {
             app_state: AppState::new(),
             layout: LayoutState::default(),
             widget_states: WidgetStates::default(),
-            is_loading: false,
+            is_loading,
             load_error: None,
             tx,
             rx,
