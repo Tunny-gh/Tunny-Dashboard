@@ -1,9 +1,12 @@
-use std::collections::HashMap;
-
 use crate::render::colormap::compute_point_alpha;
 use crate::state::app_state::{AppState, TrialRow};
 
 type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
+
+const COLOR_PARETO: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
+const COLOR_NON_PARETO: egui::Color32 = egui::Color32::from_rgb(50, 150, 250);
+const COLOR_NON_PARETO_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(50, 150, 250, 60);
+const COLOR_PARETO_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(220, 50, 50, 60);
 
 /// ダウンサンプリングインデックスでトライアルをフィルタリングする
 /// indices が Some の場合はそのインデックスのトライアルのみ、None の場合は全件を返す
@@ -20,9 +23,9 @@ pub fn filter_by_downsample_indices<'a>(
     }
 }
 
-/// Pareto ランクに応じたマーカー半径を返す（ランク0が最大）
+/// Pareto ランクに応じたマーカー半径を返す（ランク1が最大）
 pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
-    if pareto_rank == 0 {
+    if pareto_rank == 1 {
         5.0
     } else {
         2.5
@@ -35,7 +38,6 @@ pub struct ParetoScatter2D {
     pub y_axis: String,
     pub use_downsample: bool,
     display_rows_cache: Option<Vec<TrialRow>>,
-    color_idx_cache: Option<HashMap<u32, usize>>,
     cache_key: (usize, usize), // (trial_count, downsample_count)
 }
 
@@ -46,7 +48,6 @@ impl Default for ParetoScatter2D {
             y_axis: "obj1".to_string(),
             use_downsample: true,
             display_rows_cache: None,
-            color_idx_cache: None,
             cache_key: (0, 0),
         }
     }
@@ -75,21 +76,12 @@ impl ParetoScatter2D {
                     .into_iter()
                     .cloned()
                     .collect();
-            let color_idx: HashMap<u32, usize> = ctx
-                .trial_rows
-                .iter()
-                .enumerate()
-                .map(|(i, r)| (r.trial_id, i))
-                .collect();
             self.display_rows_cache = Some(display_rows);
-            self.color_idx_cache = Some(color_idx);
             self.cache_key = cache_key;
         }
         let trial_rows = self.display_rows_cache.as_ref().unwrap();
-        let trial_id_to_color_idx = self.color_idx_cache.as_ref().unwrap();
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
-        let chart_colors = app_state.chart_colors.clone();
 
         // 軸割り当て ComboBox
         ui.horizontal(|ui| {
@@ -120,11 +112,11 @@ impl ParetoScatter2D {
             .position(|n| n == &self.y_axis)
             .unwrap_or(1);
 
-        let default_color = egui::Color32::from_rgb(100, 100, 200);
-
-        // 色別グループ化（selected / unselected / highlighted）
-        let mut selected_groups: HashMap<egui::Color32, Vec<[f64; 2]>> = HashMap::new();
-        let mut unselected_groups: HashMap<egui::Color32, Vec<[f64; 2]>> = HashMap::new();
+        // パレートフロント(rank==0)と非パレートに分類
+        let mut pareto_pts: Vec<[f64; 2]> = Vec::new();
+        let mut pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
+        let mut non_pareto_pts: Vec<[f64; 2]> = Vec::new();
+        let mut non_pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
 
         for row in trial_rows {
@@ -132,68 +124,78 @@ impl ParetoScatter2D {
             let y = row.objectives.get(y_idx).copied().unwrap_or(0.0);
             let pt = [x, y];
 
-            if let Some(h) = highlighted {
-                if row.trial_id == h {
-                    highlight_pt = Some(pt);
-                    continue;
-                }
+            if highlighted == Some(row.trial_id) {
+                highlight_pt = Some(pt);
+                continue;
             }
 
-            let base_color = trial_id_to_color_idx
-                .get(&row.trial_id)
-                .and_then(|&idx| chart_colors.get(idx))
-                .copied()
-                .unwrap_or(default_color);
-
-            let alpha = compute_point_alpha(row.trial_id, &selected);
-            if alpha == 255 {
-                selected_groups.entry(base_color).or_default().push(pt);
+            let is_selected = compute_point_alpha(row.trial_id, &selected) == 255;
+            if row.pareto_rank == 1 {
+                if is_selected { pareto_pts.push(pt); } else { pareto_pts_dim.push(pt); }
             } else {
-                let dimmed = apply_alpha(base_color, alpha);
-                unselected_groups.entry(dimmed).or_default().push(pt);
+                if is_selected { non_pareto_pts.push(pt); } else { non_pareto_pts_dim.push(pt); }
             }
         }
 
-        // Plot 描画
+        // パレートフロント点を x 昇順にソートして線で結ぶ
+        pareto_pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+
         egui_plot::Plot::new("pareto_2d_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
-                for (color, points) in &unselected_groups {
-                    if !points.is_empty() {
-                        plot_ui.points(
-                            egui_plot::Points::new(points.clone())
-                                .name("Unselected")
-                                .color(*color)
-                                .radius(3.0),
-                        );
-                    }
+                // 非パレート（青点）
+                if !non_pareto_pts_dim.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(non_pareto_pts_dim)
+                            .name("Others")
+                            .color(COLOR_NON_PARETO_DIM)
+                            .radius(2.5),
+                    );
                 }
-                for (color, points) in &selected_groups {
-                    if !points.is_empty() {
-                        plot_ui.points(
-                            egui_plot::Points::new(points.clone())
-                                .name("Selected")
-                                .color(*color)
-                                .radius(5.0),
-                        );
-                    }
+                if !non_pareto_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(non_pareto_pts)
+                            .name("Others")
+                            .color(COLOR_NON_PARETO)
+                            .radius(2.5),
+                    );
                 }
+                // パレートフロント（赤丸 + 赤線）
+                if !pareto_pts_dim.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(pareto_pts_dim)
+                            .name("Pareto Front")
+                            .color(COLOR_PARETO_DIM)
+                            .radius(4.0),
+                    );
+                }
+                if !pareto_pts.is_empty() {
+                    let line_pts: egui_plot::PlotPoints =
+                        pareto_pts.iter().copied().collect();
+                    plot_ui.line(
+                        egui_plot::Line::new(line_pts)
+                            .name("Pareto Front")
+                            .color(COLOR_PARETO)
+                            .width(1.5),
+                    );
+                    plot_ui.points(
+                        egui_plot::Points::new(pareto_pts)
+                            .name("Pareto Front")
+                            .color(COLOR_PARETO)
+                            .radius(4.0),
+                    );
+                }
+                // ハイライト点
                 if let Some(pt) = highlight_pt {
                     plot_ui.points(
                         egui_plot::Points::new(vec![pt])
                             .name("Highlighted")
-                            .color(egui::Color32::RED)
+                            .color(egui::Color32::YELLOW)
                             .radius(8.0),
                     );
                 }
             });
     }
-}
-
-/// Color32 の RGB を維持しつつ alpha 値を設定する
-fn apply_alpha(color: egui::Color32, alpha: u8) -> egui::Color32 {
-    let [r, g, b, _] = color.to_array();
-    egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)
 }
 
 /// TrialRow リストから選択・非選択・ハイライト点を分離する
