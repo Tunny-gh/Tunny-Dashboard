@@ -2,33 +2,18 @@
 name = "tunny-core"
 version = "0.1.0"
 edition = "2021"
-description = "In-browser analytics dashboard for Optuna optimization results — Journal parsing and DataFrame operations in Rust/WebAssembly"
+description = "Core analytics library for Tunny Dashboard — journal parsing and DataFrame operations"
 repository = "https://github.com/Tunny-gh/Tunny-Dashboard"
 license = "MIT"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-wasm = ["wasm-bindgen", "js-sys", "web-sys", "serde-wasm-bindgen"]
+crate-type = ["rlib"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# WASM-only dependencies (conditional)
-wasm-bindgen = { version = "0.2", optional = true }
-js-sys = { version = "0.3", optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
-
-[dependencies.web-sys]
-version = "0.3"
-optional = true
-features = ["console"]
-
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
