@@ -68,13 +68,13 @@ pub fn show_grid_canvas(
     let grid_area = egui::Rect::from_min_size(available.min, egui::vec2(total_w, grid_h));
     ui.allocate_rect(grid_area, egui::Sense::hover());
 
-    // 各セルをクローンして借用エラーを回避
-    let cells: Vec<Vec<GridCell>> = layout.grid.cells.clone();
-
     // ドロップ・コンテキストメニューアクションを収集してから一括適用（借用エラー回避）
     let mut pending_drops: Vec<(usize, usize, PanelItem)> = Vec::new();
     let mut pending_actions: Vec<CellAction> = Vec::new();
 
+    // スコープブロックで cells への不変参照を先に解放し、後段のミュータブルアクセスを許可
+    {
+    let cells = &layout.grid.cells;
     for (r, row_cells) in cells.iter().enumerate().take(rows) {
         for (c, cell) in row_cells.iter().enumerate().take(cols) {
             // 結合先のセルは描画をスキップ（結合元が担当）
@@ -261,6 +261,7 @@ pub fn show_grid_canvas(
             });
         }
     }
+    } // cells の不変参照をここで解放
 
     // 収集したドロップを適用
     for (r, c, item) in pending_drops {
