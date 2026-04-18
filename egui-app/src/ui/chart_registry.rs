@@ -101,9 +101,13 @@ pub fn show_chart(
                 .show(ui, &trial_rows, &param_names, &obj_names);
         }
         ChartId::ScatterMatrix => {
-            widgets
-                .scatter_matrix
-                .show(ui, &trial_rows, &param_names, &obj_names, &app_state.chart_colors);
+            widgets.scatter_matrix.show(
+                ui,
+                &trial_rows,
+                &param_names,
+                &obj_names,
+                &app_state.chart_colors,
+            );
         }
         ChartId::ParetoScatter3D => {
             ui.label("3D Pareto chart requires GPU rendering (not yet wired up).");
