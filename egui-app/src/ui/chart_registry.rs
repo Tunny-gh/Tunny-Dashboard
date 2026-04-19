@@ -95,7 +95,7 @@ pub fn show_chart(
             );
             if let Some(metric) = widgets.importance.pending_compute.take() {
                 use crate::state::results::{
-                    RfAnovaResult, RidgeResult, SensitivityResult, SobolResult,
+                    MdiResult, RfAnovaResult, RidgeResult, SensitivityResult, SobolResult,
                 };
                 use crate::ui::widgets::importance_chart::ImportanceMetric;
                 // thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため、
@@ -142,7 +142,11 @@ pub fn show_chart(
                     }
                     _ => {
                         crate::app::spawn_task(tx, move || {
-                            let r = tunny_core::sensitivity::compute_sensitivity_all(&df);
+                            let r = if matches!(metric, ImportanceMetric::Mdi) {
+                                tunny_core::sensitivity::compute_sensitivity_all(&df)
+                            } else {
+                                tunny_core::sensitivity::compute_sensitivity_without_mdi(&df)
+                            };
                             // tunny_core は spearman[param][obj] だが egui-app 側は [obj][param] を期待する
                             let n_params = r.spearman.len();
                             let n_objs = if n_params > 0 { r.spearman[0].len() } else { 0 };
@@ -162,6 +166,10 @@ pub fn show_chart(
                                     })
                                     .collect(),
                                 rf_anova: r.rf_anova.map(|x| RfAnovaResult {
+                                    importances: x.importances,
+                                    r_squared: x.r_squared,
+                                }),
+                                mdi: r.mdi.map(|x| MdiResult {
                                     importances: x.importances,
                                     r_squared: x.r_squared,
                                 }),

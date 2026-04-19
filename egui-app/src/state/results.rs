@@ -9,6 +9,7 @@ pub struct SensitivityResult {
     pub spearman: Vec<Vec<f64>>,
     pub ridge: Vec<RidgeResult>,
     pub rf_anova: Option<RfAnovaResult>,
+    pub mdi: Option<MdiResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,12 @@ pub struct RidgeResult {
 
 #[derive(Debug, Clone)]
 pub struct RfAnovaResult {
+    pub importances: Vec<Vec<f64>>,
+    pub r_squared: Vec<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MdiResult {
     pub importances: Vec<Vec<f64>>,
     pub r_squared: Vec<f64>,
 }

@@ -128,6 +128,7 @@ mod tests {
             spearman: vec![vec![0.9]],
             ridge: vec![],
             rf_anova: None,
+            mdi: None,
         });
 
         state.clear();

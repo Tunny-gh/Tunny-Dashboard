@@ -1,15 +1,24 @@
 use crate::dataframe::DataFrame;
 
 use super::super::{
-    compute_rf_anova_importances, compute_spearman, data::get_param_numeric_values,
-    SensitivityResult,
+    compute_mdi_importances, compute_rf_anova_importances, compute_spearman,
+    data::get_param_numeric_values, SensitivityResult,
 };
 use super::common::{
     build_standardized_param_columns, compute_ridge_from_standardized_columns, empty_result,
-    transpose_rf_anova_importances,
+    transpose_mdi_importances, transpose_rf_anova_importances,
 };
 
+/// Computes sensitivity analysis without MDI; the returned `result.mdi` is always `None`.
+pub fn compute_sensitivity_without_mdi(df: &DataFrame) -> SensitivityResult {
+    compute_sensitivity_impl(df, false)
+}
+
 pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
+    compute_sensitivity_impl(df, true)
+}
+
+fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityResult {
     let param_names = df.param_col_names().to_vec();
     let objective_names = df.objective_col_names().to_vec();
     let n = df.row_count();
@@ -80,6 +89,29 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
     let rf_anova_importances: Vec<Vec<f64>> =
         rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
 
+    let mdi = if include_mdi {
+        let mdi_by_obj: Vec<(Vec<f64>, f64)> = objective_names
+            .iter()
+            .map(|objective_name| {
+                let y: Vec<f64> = df
+                    .get_numeric_column(objective_name)
+                    .map(|col| col[..n].to_vec())
+                    .unwrap_or_else(|| vec![0.0; n]);
+                compute_mdi_importances(&x_matrix, &y)
+            })
+            .collect();
+        let mdi_r_squared: Vec<f64> = mdi_by_obj.iter().map(|(_, r2)| *r2).collect();
+        let mdi_importances: Vec<Vec<f64>> = mdi_by_obj.into_iter().map(|(imp, _)| imp).collect();
+        Some(transpose_mdi_importances(
+            &mdi_importances,
+            mdi_r_squared,
+            param_names.len(),
+            objective_names.len(),
+        ))
+    } else {
+        None
+    };
+
     SensitivityResult {
         param_names: param_names.clone(),
         objective_names: objective_names.clone(),
@@ -91,5 +123,6 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
             param_names.len(),
             objective_names.len(),
         )),
+        mdi,
     }
 }

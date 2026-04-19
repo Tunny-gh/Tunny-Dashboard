@@ -5,6 +5,7 @@ pub enum ImportanceMetric {
     Spearman,
     Ridge,
     RfAnova,
+    Mdi,
     SobolFirst,
     SobolTotal,
 }
@@ -15,6 +16,7 @@ impl ImportanceMetric {
             ImportanceMetric::Spearman => "Spearman",
             ImportanceMetric::Ridge => "Ridge",
             ImportanceMetric::RfAnova => "RF-Anova",
+            ImportanceMetric::Mdi => "MDI",
             ImportanceMetric::SobolFirst => "Sobol First",
             ImportanceMetric::SobolTotal => "Sobol Total",
         }
@@ -69,6 +71,7 @@ impl ImportanceChart {
                         ImportanceMetric::Spearman,
                         ImportanceMetric::Ridge,
                         ImportanceMetric::RfAnova,
+                        ImportanceMetric::Mdi,
                         ImportanceMetric::SobolFirst,
                         ImportanceMetric::SobolTotal,
                     ] {
@@ -107,6 +110,10 @@ impl ImportanceChart {
                     .and_then(|r| r.rf_anova.as_ref())
                     .and_then(|rf| rf.r_squared.get(self.objective_index))
                     .copied(),
+                ImportanceMetric::Mdi => sensitivity
+                    .and_then(|r| r.mdi.as_ref())
+                    .and_then(|m| m.r_squared.get(self.objective_index))
+                    .copied(),
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => sobol
                     .and_then(|s| s.r_squared.get(self.objective_index))
                     .copied(),
@@ -130,7 +137,10 @@ impl ImportanceChart {
         }
 
         let scores = match self.metric {
-            ImportanceMetric::Spearman | ImportanceMetric::Ridge | ImportanceMetric::RfAnova => {
+            ImportanceMetric::Spearman
+            | ImportanceMetric::Ridge
+            | ImportanceMetric::RfAnova
+            | ImportanceMetric::Mdi => {
                 let Some(result) = sensitivity else {
                     ui.label("No sensitivity data (start the computation first)");
                     return;
@@ -225,6 +235,15 @@ pub fn compute_sorted_importance(
                 .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
                 .collect()
         }
+        ImportanceMetric::Mdi => {
+            let Some(ref mdi) = result.mdi else {
+                return vec![];
+            };
+            mdi.importances
+                .iter()
+                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
+                .collect()
+        }
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return vec![],
     };
 
@@ -269,7 +288,7 @@ pub fn compute_sorted_sobol(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{RfAnovaResult, RidgeResult, SensitivityResult};
+    use crate::state::app_state::{MdiResult, RfAnovaResult, RidgeResult, SensitivityResult};
 
     fn make_result(params: &[&str], scores: Vec<f64>) -> SensitivityResult {
         SensitivityResult {
@@ -278,6 +297,7 @@ mod tests {
             spearman: vec![scores],
             ridge: vec![],
             rf_anova: None,
+            mdi: None,
         }
     }
 
@@ -291,6 +311,7 @@ mod tests {
                 r_squared: 0.8,
             }],
             rf_anova: None,
+            mdi: None,
         }
     }
 
@@ -301,6 +322,21 @@ mod tests {
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
             rf_anova: Some(RfAnovaResult {
+                importances,
+                r_squared: vec![0.8],
+            }),
+            mdi: None,
+        }
+    }
+
+    fn make_result_with_mdi(params: &[&str], importances: Vec<Vec<f64>>) -> SensitivityResult {
+        SensitivityResult {
+            param_names: params.iter().map(|s| s.to_string()).collect(),
+            objective_names: vec!["obj0".to_string()],
+            spearman: vec![vec![0.5; params.len()]],
+            ridge: vec![],
+            rf_anova: None,
+            mdi: Some(MdiResult {
                 importances,
                 r_squared: vec![0.8],
             }),
@@ -377,6 +413,29 @@ mod tests {
         let sorted = compute_sorted_importance(&result, &ImportanceMetric::SobolFirst, 0);
         assert!(sorted.is_empty());
         let sorted = compute_sorted_importance(&result, &ImportanceMetric::SobolTotal, 0);
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn sorted_importance_mdi_descending() {
+        // 2 params, 1 objective: param0 importance=0.2, param1 importance=0.8
+        let result = make_result_with_mdi(&["p0", "p1"], vec![vec![0.2], vec![0.8]]);
+        let sorted = compute_sorted_importance(&result, &ImportanceMetric::Mdi, 0);
+        assert_eq!(sorted.len(), 2);
+        assert_eq!(sorted[0].0, "p1");
+        assert!((sorted[0].1 - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn importance_metric_mdi_label() {
+        assert_eq!(ImportanceMetric::Mdi.label(), "MDI");
+        assert!(!ImportanceMetric::Mdi.is_sobol());
+    }
+
+    #[test]
+    fn sorted_importance_mdi_no_data_returns_empty() {
+        let result = make_result(&["x"], vec![0.5]);
+        let sorted = compute_sorted_importance(&result, &ImportanceMetric::Mdi, 0);
         assert!(sorted.is_empty());
     }
 
