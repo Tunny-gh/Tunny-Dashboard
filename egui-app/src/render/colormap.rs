@@ -200,8 +200,8 @@ pub fn normalize_trial(
     color_mode: &ColorMode,
     max_rank: u32,
     obj_idx: Option<usize>,
-    obj_min_max: &[(f64, f64)],
-    total_trials: u32,
+    obj_min_max: Option<(f64, f64)>,
+    max_trial_id: u32,
 ) -> f32 {
     match color_mode {
         ColorMode::ParetoRank => {
@@ -211,7 +211,7 @@ pub fn normalize_trial(
         ColorMode::ObjectiveValue(_) => {
             if let Some(idx) = obj_idx {
                 if let Some(val) = trial.objectives.get(idx).copied() {
-                    let (min, max) = obj_min_max.get(idx).copied().unwrap_or((0.0, 1.0));
+                    let (min, max) = obj_min_max.unwrap_or((0.0, 1.0));
                     let range = max - min;
                     if range.abs() < f64::EPSILON {
                         0.5
@@ -225,11 +225,8 @@ pub fn normalize_trial(
                 0.5
             }
         }
-        ColorMode::TrialNumber => {
-            let total = total_trials.max(1) as f32;
-            trial.trial_id as f32 / (total - 1.0).max(1.0)
-        }
-        ColorMode::ClusterId => 0.5, // ClusterId は compute_chart_colors で直接処理
+        ColorMode::TrialNumber => trial.trial_id as f32 / max_trial_id.max(1) as f32,
+        ColorMode::ClusterId => 0.5,
     }
 }
 
@@ -242,40 +239,43 @@ pub fn compute_chart_colors(
 ) -> Vec<egui::Color32> {
     let cmap = colormap_name.to_colormap();
     let palette = tab10_palette();
-    let max_rank = trial_rows.iter().map(|r| r.pareto_rank).max().unwrap_or(1);
-    let total = trial_rows.len() as u32;
+    // trial_id は非連続になりうるため件数ではなく最大値で正規化する
+    let (max_rank, max_trial_id) = trial_rows.iter().fold((1u32, 0u32), |(mr, mid), r| {
+        (mr.max(r.pareto_rank), mid.max(r.trial_id))
+    });
 
-    // ObjectiveValue の場合、インデックスと min/max を事前計算
     let obj_idx = match color_mode {
         ColorMode::ObjectiveValue(name) => objective_names.iter().position(|n| n == name),
         _ => None,
     };
-    let obj_min_max: Vec<(f64, f64)> = if let Some(idx) = obj_idx {
-        let values: Vec<f64> = trial_rows
+    let obj_min_max: Option<(f64, f64)> = obj_idx.map(|idx| {
+        trial_rows
             .iter()
             .filter_map(|r| r.objectives.get(idx).copied())
-            .collect();
-        let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        vec![(min, max)]
-    } else {
-        vec![]
-    };
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), v| {
+                (mn.min(v), mx.max(v))
+            })
+    });
 
     trial_rows
         .iter()
         .map(|trial| match color_mode {
             ColorMode::ClusterId => {
-                let id = trial.cluster_id.unwrap_or(0);
-                if trial.cluster_id.is_none() {
-                    // クラスタ未割り当て → グレー
-                    egui::Color32::LIGHT_GRAY
-                } else {
+                if let Some(id) = trial.cluster_id {
                     palette[(id.unsigned_abs() as usize) % palette.len()]
+                } else {
+                    egui::Color32::LIGHT_GRAY
                 }
             }
             _ => {
-                let t = normalize_trial(trial, color_mode, max_rank, obj_idx, &obj_min_max, total);
+                let t = normalize_trial(
+                    trial,
+                    color_mode,
+                    max_rank,
+                    obj_idx,
+                    obj_min_max,
+                    max_trial_id,
+                );
                 cmap.interpolate(t)
             }
         })
@@ -366,7 +366,7 @@ mod tests {
             state: TrialState::Complete,
             user_attrs: Default::default(),
         };
-        let t = normalize_trial(&trial, &ColorMode::ParetoRank, 5, None, &[], 10);
+        let t = normalize_trial(&trial, &ColorMode::ParetoRank, 5, None, None, 0);
         assert!(t > 0.8, "rank 0 should be high t, got {}", t);
     }
 
@@ -382,10 +382,10 @@ mod tests {
             state: TrialState::Complete,
             user_attrs: Default::default(),
         };
-        let t = normalize_trial(&trial, &ColorMode::TrialNumber, 0, None, &[], 10);
+        let t = normalize_trial(&trial, &ColorMode::TrialNumber, 0, None, None, 9);
         assert!(
             (t - 1.0).abs() < 0.01,
-            "trial_id=9/10 should be ~1.0, got {}",
+            "trial_id=9/max_id=9 should be 1.0, got {}",
             t
         );
     }

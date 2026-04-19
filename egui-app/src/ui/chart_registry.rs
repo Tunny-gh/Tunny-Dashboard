@@ -132,9 +132,13 @@ pub fn show_chart(
             }
         }
         ChartId::ParallelCoordinates => {
-            widgets
-                .parallel_coords
-                .show(ui, trial_rows, param_names, obj_names);
+            widgets.parallel_coords.show(
+                ui,
+                trial_rows,
+                param_names,
+                obj_names,
+                &app_state.chart_colors,
+            );
         }
         ChartId::ScatterMatrix => {
             widgets.scatter_matrix.show(

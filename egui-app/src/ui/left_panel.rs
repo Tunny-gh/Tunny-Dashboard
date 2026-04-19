@@ -90,37 +90,49 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
 fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
     ui.label("Color Mode:");
     let current_label = app_state.color_mode.label().to_string();
+    let mut changed = false;
     egui::ComboBox::from_id_salt("left_panel_color_mode_combo")
         .selected_text(current_label)
         .show_ui(ui, |ui| {
-            ui.selectable_value(
-                &mut app_state.color_mode,
-                ColorMode::ParetoRank,
-                "Pareto Rank",
-            );
-            ui.selectable_value(
-                &mut app_state.color_mode,
-                ColorMode::TrialNumber,
-                "Trial Number",
-            );
+            changed |= ui
+                .selectable_value(
+                    &mut app_state.color_mode,
+                    ColorMode::ParetoRank,
+                    "Pareto Rank",
+                )
+                .changed();
+            changed |= ui
+                .selectable_value(
+                    &mut app_state.color_mode,
+                    ColorMode::TrialNumber,
+                    "Trial Number",
+                )
+                .changed();
             if let Some(ctx) = &app_state.current_study {
-                for obj_name in ctx.meta.objective_names.clone() {
+                for obj_name in &ctx.meta.objective_names {
                     let mode = ColorMode::ObjectiveValue(obj_name.clone());
-                    ui.selectable_value(
-                        &mut app_state.color_mode,
-                        mode,
-                        format!("Objective: {}", obj_name),
-                    );
+                    changed |= ui
+                        .selectable_value(
+                            &mut app_state.color_mode,
+                            mode,
+                            format!("Objective: {}", obj_name),
+                        )
+                        .changed();
                 }
             }
             if app_state.cluster_result.is_some() {
-                ui.selectable_value(
-                    &mut app_state.color_mode,
-                    ColorMode::ClusterId,
-                    "Cluster ID",
-                );
+                changed |= ui
+                    .selectable_value(
+                        &mut app_state.color_mode,
+                        ColorMode::ClusterId,
+                        "Cluster ID",
+                    )
+                    .changed();
             }
         });
+    if changed {
+        app_state.update_chart_colors();
+    }
 }
 
 /// カラーマップ選択セレクタ

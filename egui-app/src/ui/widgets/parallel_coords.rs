@@ -1,3 +1,19 @@
+/// 値の範囲に応じた精度で軸目盛り値をフォーマットする
+pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
+    let range = (mx - mn).abs();
+    if range < 1e-9 {
+        format!("{:.3}", v)
+    } else if v.abs() >= 10_000.0 || (v.abs() < 0.001 && v.abs() > 0.0) {
+        format!("{:.2e}", v)
+    } else if range < 0.01 {
+        format!("{:.4}", v)
+    } else if range < 1.0 {
+        format!("{:.3}", v)
+    } else {
+        format!("{:.2}", v)
+    }
+}
+
 /// 値を [0, 1] に正規化する（min==max の場合は 0.5 を返す）
 pub fn normalize_value(v: f64, v_min: f64, v_max: f64) -> f32 {
     if (v_max - v_min).abs() < f64::EPSILON {
@@ -83,6 +99,7 @@ impl ParallelCoordsChart {
         trial_rows: &[crate::state::app_state::TrialRow],
         param_names: &[String],
         obj_names: &[String],
+        chart_colors: &[egui::Color32],
     ) {
         if trial_rows.is_empty() {
             ui.centered_and_justified(|ui| {
@@ -146,26 +163,29 @@ impl ParallelCoordsChart {
             .collect();
 
         let painter = ui.painter().clone();
-        let text_color = ui.visuals().text_color();
 
-        // 軸ラベルと縦線を描画
-        for (i, name) in all_names.iter().enumerate() {
-            let x = axis_x[i];
-            painter.line_segment(
-                [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
-                egui::Stroke::new(1.5, egui::Color32::from_gray(150)),
-            );
-            painter.text(
-                egui::pos2(x, available.min.y + 15.0),
-                egui::Align2::CENTER_CENTER,
-                name.as_str(),
-                egui::FontId::proportional(10.0),
-                text_color,
-            );
-        }
+        // 背景を白で塗りつぶす
+        painter.rect_filled(available, 0.0, egui::Color32::WHITE);
 
-        // 各試行を折れ線で描画
+        let text_color = egui::Color32::BLACK;
+        const N_TICKS: usize = 5;
+        let tick_len = 4.0_f32;
+        let tick_color = egui::Color32::from_gray(60);
+        let tick_font = egui::FontId::proportional(9.0);
+
+        // 各試行を折れ線で描画（半透明）
         for t_idx in 0..trial_rows.len() {
+            let base_color = chart_colors
+                .get(t_idx)
+                .copied()
+                .unwrap_or(egui::Color32::from_rgb(100, 150, 220));
+            let color = egui::Color32::from_rgba_unmultiplied(
+                base_color.r(),
+                base_color.g(),
+                base_color.b(),
+                120,
+            );
+
             let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
             let mut valid = true;
             for i in 0..n_axes {
@@ -181,14 +201,42 @@ impl ParallelCoordsChart {
             }
             if valid && points.len() >= 2 {
                 for pair in points.windows(2) {
-                    painter.line_segment(
-                        [pair[0], pair[1]],
-                        egui::Stroke::new(
-                            0.8,
-                            egui::Color32::from_rgba_unmultiplied(100, 150, 220, 80),
-                        ),
-                    );
+                    painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, color));
                 }
+            }
+        }
+
+        // 縦軸・ラベル・目盛りを最前面に描画
+        for (i, name) in all_names.iter().enumerate() {
+            let x = axis_x[i];
+            painter.line_segment(
+                [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
+                egui::Stroke::new(1.5, egui::Color32::from_gray(80)),
+            );
+            painter.text(
+                egui::pos2(x, available.min.y + 15.0),
+                egui::Align2::CENTER_CENTER,
+                name.as_str(),
+                egui::FontId::proportional(10.0),
+                text_color,
+            );
+
+            let (mn, mx) = col_ranges[i];
+            for t in 0..N_TICKS {
+                let frac = t as f32 / (N_TICKS - 1) as f32;
+                let y = normalized_to_screen_y(frac, axis_top, axis_bottom);
+                painter.line_segment(
+                    [egui::pos2(x - tick_len, y), egui::pos2(x + tick_len, y)],
+                    egui::Stroke::new(1.0, tick_color),
+                );
+                let val = mn + frac as f64 * (mx - mn);
+                painter.text(
+                    egui::pos2(x - tick_len - 2.0, y),
+                    egui::Align2::RIGHT_CENTER,
+                    fmt_tick_value(val, mn, mx),
+                    tick_font.clone(),
+                    tick_color,
+                );
             }
         }
 

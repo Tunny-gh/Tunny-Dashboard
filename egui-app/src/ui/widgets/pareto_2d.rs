@@ -327,14 +327,14 @@ mod tests {
     }
 
     #[test]
-    fn pareto_marker_radius_rank0_is_larger() {
-        let r0 = pareto_marker_radius(0);
+    fn pareto_marker_radius_rank1_is_larger() {
         let r1 = pareto_marker_radius(1);
-        assert!(r0 > r1);
+        let r2 = pareto_marker_radius(2);
+        assert!(r1 > r2);
     }
 
     #[test]
-    fn pareto_marker_radius_nonzero_rank_same() {
-        assert_eq!(pareto_marker_radius(1), pareto_marker_radius(2));
+    fn pareto_marker_radius_non_front_rank_same() {
+        assert_eq!(pareto_marker_radius(2), pareto_marker_radius(3));
     }
 }

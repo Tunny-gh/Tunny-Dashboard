@@ -8,6 +8,16 @@ pub enum HistoryMode {
     MovingAverage,
 }
 
+impl HistoryMode {
+    pub fn label(&self) -> &str {
+        match self {
+            HistoryMode::BestValue => "Best Value",
+            HistoryMode::AllTrials => "All Trials",
+            HistoryMode::MovingAverage => "Moving Average",
+        }
+    }
+}
+
 /// 最適化履歴チャートウィジェット
 pub struct OptimizationHistoryChart {
     pub show_all: bool,
