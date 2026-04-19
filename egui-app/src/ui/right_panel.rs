@@ -102,7 +102,11 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
 
 /// アニメーション値 t (0=閉, 1=開) から矢印文字を返す
 fn animated_arrow(t: f32) -> &'static str {
-    if t >= 0.5 { "◀" } else { "▶" }
+    if t >= 0.5 {
+        "◀"
+    } else {
+        "▶"
+    }
 }
 
 /// is_open トグルのロジックを単独でテスト可能な関数
