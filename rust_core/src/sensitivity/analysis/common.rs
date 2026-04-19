@@ -116,6 +116,7 @@ pub(super) fn collect_objective_subset(
 
 pub(super) fn transpose_rf_anova_importances(
     importances_by_objective: &[Vec<f64>],
+    r_squared: Vec<f64>,
     param_count: usize,
     objective_count: usize,
 ) -> RfAnovaResult {
@@ -128,5 +129,5 @@ pub(super) fn transpose_rf_anova_importances(
         }
     }
 
-    RfAnovaResult { importances }
+    RfAnovaResult { importances, r_squared }
 }

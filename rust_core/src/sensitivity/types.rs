@@ -18,6 +18,7 @@ pub struct SensitivityResult {
 #[derive(Debug, Clone)]
 pub struct RfAnovaResult {
     pub importances: Vec<Vec<f64>>, // [param][objective]
+    pub r_squared: Vec<f64>,        // [objective]
 }
 
 #[derive(Debug, Clone)]
@@ -32,5 +33,6 @@ pub struct SobolResult {
     pub objective_names: Vec<String>,
     pub first_order: Vec<Vec<f64>>,
     pub total_effect: Vec<Vec<f64>>,
+    pub r_squared: Vec<f64>, // surrogate fit per objective
     pub n_samples: usize,
 }

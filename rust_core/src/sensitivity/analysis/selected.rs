@@ -62,13 +62,15 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             })
             .collect();
 
-        let rf_anova_importances_by_objective: Vec<Vec<f64>> = objective_names
+        let rf_anova_by_obj: Vec<(Vec<f64>, f64)> = objective_names
             .iter()
             .map(|objective_name| {
                 let y_subset = collect_objective_subset(df, objective_name, &valid_idx);
                 compute_rf_anova_importances(&x_matrix, &y_subset)
             })
             .collect();
+        let rf_anova_r_squared: Vec<f64> = rf_anova_by_obj.iter().map(|(_, r2)| *r2).collect();
+        let rf_anova_importances: Vec<Vec<f64>> = rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
 
         SensitivityResult {
             param_names: param_names.clone(),
@@ -76,7 +78,8 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             spearman,
             ridge,
             rf_anova: Some(transpose_rf_anova_importances(
-                &rf_anova_importances_by_objective,
+                &rf_anova_importances,
+                rf_anova_r_squared,
                 param_names.len(),
                 objective_names.len(),
             )),

@@ -40,16 +40,19 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
 
     let x_cols_flat = build_standardized_param_columns(df, &param_names, n);
 
+    // Use get_param_numeric_values so categorical string params are ordinal-encoded (0,1,2,…)
+    // instead of always returning 0.0 from get_numeric_column.
+    let param_cols: Vec<Vec<f64>> = param_names
+        .iter()
+        .map(|name| {
+            get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n])
+        })
+        .collect();
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|row_index| {
-            param_names
+            param_cols
                 .iter()
-                .map(|param_name| {
-                    df.get_numeric_column(param_name)
-                        .and_then(|col| col.get(row_index))
-                        .copied()
-                        .unwrap_or(0.0)
-                })
+                .map(|col| col.get(row_index).copied().unwrap_or(0.0))
                 .collect()
         })
         .collect();
@@ -65,7 +68,7 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
         })
         .collect();
 
-    let rf_anova_importances_by_objective: Vec<Vec<f64>> = objective_names
+    let rf_anova_by_obj: Vec<(Vec<f64>, f64)> = objective_names
         .iter()
         .map(|objective_name| {
             let y: Vec<f64> = df
@@ -75,6 +78,8 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
             compute_rf_anova_importances(&x_matrix, &y)
         })
         .collect();
+    let rf_anova_r_squared: Vec<f64> = rf_anova_by_obj.iter().map(|(_, r2)| *r2).collect();
+    let rf_anova_importances: Vec<Vec<f64>> = rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
 
     SensitivityResult {
         param_names: param_names.clone(),
@@ -82,7 +87,8 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
         spearman,
         ridge,
         rf_anova: Some(transpose_rf_anova_importances(
-            &rf_anova_importances_by_objective,
+            &rf_anova_importances,
+            rf_anova_r_squared,
             param_names.len(),
             objective_names.len(),
         )),
