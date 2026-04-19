@@ -134,9 +134,9 @@ pub fn show_chart(
                                     total_effect: r.total_effect,
                                     r_squared: r.r_squared,
                                 }),
-                                None => AppMessage::SensitivityError(
-                                    "Sobol computation failed".into(),
-                                ),
+                                None => {
+                                    AppMessage::SensitivityError("Sobol computation failed".into())
+                                }
                             }
                         });
                     }
@@ -145,8 +145,7 @@ pub fn show_chart(
                             let r = tunny_core::sensitivity::compute_sensitivity_all(&df);
                             // tunny_core は spearman[param][obj] だが egui-app 側は [obj][param] を期待する
                             let n_params = r.spearman.len();
-                            let n_objs =
-                                if n_params > 0 { r.spearman[0].len() } else { 0 };
+                            let n_objs = if n_params > 0 { r.spearman[0].len() } else { 0 };
                             let spearman: Vec<Vec<f64>> = (0..n_objs)
                                 .map(|oi| (0..n_params).map(|pi| r.spearman[pi][oi]).collect())
                                 .collect();

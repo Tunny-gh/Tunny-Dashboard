@@ -21,7 +21,10 @@ impl ImportanceMetric {
     }
 
     pub fn is_sobol(&self) -> bool {
-        matches!(self, ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal)
+        matches!(
+            self,
+            ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal
+        )
     }
 }
 
@@ -116,15 +119,9 @@ impl ImportanceChart {
                 } else {
                     (egui::Color32::from_rgb(60, 180, 60), "")
                 };
-                ui.with_layout(
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        ui.label(
-                            egui::RichText::new(format!("R² = {r2:.3}{warning}"))
-                                .color(color),
-                        );
-                    },
-                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new(format!("R² = {r2:.3}{warning}")).color(color));
+                });
             }
         });
 
@@ -162,41 +159,40 @@ impl ImportanceChart {
 
         let bar_color = egui::Color32::from_rgb(0x0c, 0x0c, 0x6a);
         egui::ScrollArea::vertical().show(ui, |ui| {
-                    let available_width =
-                        ui.available_width() - label_width - value_text_width - 8.0;
-                    let bar_max_width = available_width.max(50.0);
+            let available_width = ui.available_width() - label_width - value_text_width - 8.0;
+            let bar_max_width = available_width.max(50.0);
 
-                    for (name, score) in &scores {
-                        ui.horizontal(|ui| {
-                            ui.add_sized(
-                                [label_width, bar_height],
-                                egui::Label::new(
-                                    egui::RichText::new(name).text_style(egui::TextStyle::Body),
-                                )
-                                .truncate(),
-                            );
+            for (name, score) in &scores {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [label_width, bar_height],
+                        egui::Label::new(
+                            egui::RichText::new(name).text_style(egui::TextStyle::Body),
+                        )
+                        .truncate(),
+                    );
 
-                            let bar_width = if max_score > 0.0 {
-                                (score / max_score * bar_max_width as f64) as f32
-                            } else {
-                                0.0
-                            };
+                    let bar_width = if max_score > 0.0 {
+                        (score / max_score * bar_max_width as f64) as f32
+                    } else {
+                        0.0
+                    };
 
-                            let (rect, _) = ui.allocate_exact_size(
-                                egui::vec2(bar_max_width, bar_height - bar_gap),
-                                egui::Sense::hover(),
-                            );
-                            if ui.is_rect_visible(rect) {
-                                let bar_rect = egui::Rect::from_min_size(
-                                    rect.min,
-                                    egui::vec2(bar_width, rect.height()),
-                                );
-                                ui.painter().rect_filled(bar_rect, 2.0, bar_color);
-                            }
-
-                            ui.label(format!("{score:.3}"));
-                        });
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(bar_max_width, bar_height - bar_gap),
+                        egui::Sense::hover(),
+                    );
+                    if ui.is_rect_visible(rect) {
+                        let bar_rect = egui::Rect::from_min_size(
+                            rect.min,
+                            egui::vec2(bar_width, rect.height()),
+                        );
+                        ui.painter().rect_filled(bar_rect, 2.0, bar_color);
                     }
+
+                    ui.label(format!("{score:.3}"));
+                });
+            }
         });
     }
 }
@@ -304,7 +300,10 @@ mod tests {
             objective_names: vec!["obj0".to_string()],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
-            rf_anova: Some(RfAnovaResult { importances, r_squared: vec![0.8] }),
+            rf_anova: Some(RfAnovaResult {
+                importances,
+                r_squared: vec![0.8],
+            }),
         }
     }
 
@@ -387,7 +386,7 @@ mod tests {
         let result = SobolResult {
             param_names: vec!["p0".into(), "p1".into()],
             objective_names: vec!["obj0".into()],
-            first_order: vec![vec![0.6, 0.2]],  // [obj][param]
+            first_order: vec![vec![0.6, 0.2]], // [obj][param]
             total_effect: vec![vec![0.8, 0.3]],
             r_squared: vec![0.9],
         };

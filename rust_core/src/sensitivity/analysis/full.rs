@@ -44,9 +44,7 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
     // instead of always returning 0.0 from get_numeric_column.
     let param_cols: Vec<Vec<f64>> = param_names
         .iter()
-        .map(|name| {
-            get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n])
-        })
+        .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
         .collect();
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|row_index| {
@@ -79,7 +77,8 @@ pub fn compute_sensitivity_all(df: &DataFrame) -> SensitivityResult {
         })
         .collect();
     let rf_anova_r_squared: Vec<f64> = rf_anova_by_obj.iter().map(|(_, r2)| *r2).collect();
-    let rf_anova_importances: Vec<Vec<f64>> = rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
+    let rf_anova_importances: Vec<Vec<f64>> =
+        rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
 
     SensitivityResult {
         param_names: param_names.clone(),

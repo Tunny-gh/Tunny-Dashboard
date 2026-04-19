@@ -70,7 +70,8 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             })
             .collect();
         let rf_anova_r_squared: Vec<f64> = rf_anova_by_obj.iter().map(|(_, r2)| *r2).collect();
-        let rf_anova_importances: Vec<Vec<f64>> = rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
+        let rf_anova_importances: Vec<Vec<f64>> =
+            rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
 
         SensitivityResult {
             param_names: param_names.clone(),

@@ -129,5 +129,8 @@ pub(super) fn transpose_rf_anova_importances(
         }
     }
 
-    RfAnovaResult { importances, r_squared }
+    RfAnovaResult {
+        importances,
+        r_squared,
+    }
 }

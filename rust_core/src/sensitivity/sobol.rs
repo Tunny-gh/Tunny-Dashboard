@@ -141,11 +141,13 @@ fn surrogate_eval(surrogate: &SobolSurrogate, x_raw: &[f64], obj_idx: usize) -> 
 }
 
 pub fn compute_sobol(n_samples: usize) -> Option<SobolResult> {
-    crate::dataframe::with_active_df(|df| compute_sobol_from_df(df, n_samples))
-        .flatten()
+    crate::dataframe::with_active_df(|df| compute_sobol_from_df(df, n_samples)).flatten()
 }
 
-pub fn compute_sobol_from_df(df: &crate::dataframe::DataFrame, n_samples: usize) -> Option<SobolResult> {
+pub fn compute_sobol_from_df(
+    df: &crate::dataframe::DataFrame,
+    n_samples: usize,
+) -> Option<SobolResult> {
     {
         let param_names = df.param_col_names().to_vec();
         let objective_names = df.objective_col_names().to_vec();
