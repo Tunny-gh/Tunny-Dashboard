@@ -268,6 +268,7 @@ mod tests {
         use crate::state::app_state::{TrialRow, TrialState};
         let trial = TrialRow {
             trial_id: 0,
+            trial_number: 0,
             params: std::collections::HashMap::new(),
             objectives: vec![1.0],
             pareto_rank: 0,

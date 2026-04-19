@@ -35,6 +35,8 @@ pub struct StudyMeta {
 #[derive(Debug, Clone)]
 pub struct TrialRow {
     pub trial_id: u32,
+    /// Study内での0始まり連番（表示用）
+    pub trial_number: u32,
     pub params: HashMap<String, f64>,
     pub objectives: Vec<f64>,
     pub pareto_rank: u32,
@@ -214,6 +216,7 @@ mod tests {
         let trial_rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 params: params0,
                 objectives: vec![],
                 pareto_rank: 0,
@@ -223,6 +226,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 params: params1,
                 objectives: vec![],
                 pareto_rank: 0,
@@ -232,6 +236,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 2,
+                trial_number: 2,
                 params: params2,
                 objectives: vec![],
                 pareto_rank: 0,

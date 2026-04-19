@@ -114,6 +114,7 @@ mod tests {
         let trial_rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 params: params0,
                 objectives: vec![],
                 pareto_rank: 0,
@@ -123,6 +124,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 params: params1,
                 objectives: vec![],
                 pareto_rank: 0,
@@ -132,6 +134,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 2,
+                trial_number: 2,
                 params: params2,
                 objectives: vec![],
                 pareto_rank: 0,
@@ -191,6 +194,7 @@ mod tests {
                 params.insert("y".to_string(), (i as f64 % 100.0) / 100.0);
                 TrialRow {
                     trial_id: i,
+                    trial_number: i,
                     params,
                     objectives: vec![i as f64],
                     pareto_rank: 0,
@@ -236,6 +240,7 @@ mod tests {
         let initial_count = state.current_study.as_ref().unwrap().trial_rows.len();
         let new_trial = TrialRow {
             trial_id: 99,
+            trial_number: 99,
             params: HashMap::new(),
             objectives: vec![],
             pareto_rank: 0,
@@ -257,6 +262,7 @@ mod tests {
         state.filter_ranges.insert("x".to_string(), (0.1, 0.9));
         let new_trial = TrialRow {
             trial_id: 99,
+            trial_number: 99,
             params: HashMap::new(),
             objectives: vec![],
             pareto_rank: 0,

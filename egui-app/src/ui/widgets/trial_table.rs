@@ -59,7 +59,8 @@ impl TrialTableWidget {
                     };
 
                     row.col(|ui| {
-                        let res = ui.selectable_label(is_highlighted, trial.trial_id.to_string());
+                        let res =
+                            ui.selectable_label(is_highlighted, trial.trial_number.to_string());
                         if res.clicked() {
                             clicked_trial = Some(trial.trial_id);
                         }
@@ -127,6 +128,7 @@ mod tests {
         let trial_rows: Vec<TrialRow> = (0..n as u32)
             .map(|i| TrialRow {
                 trial_id: i,
+                trial_number: i,
                 params: HashMap::new(),
                 objectives: vec![i as f64],
                 pareto_rank: 0,

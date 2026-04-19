@@ -183,6 +183,7 @@ mod tests {
             trial_rows: vec![
                 TrialRow {
                     trial_id: 0,
+                    trial_number: 0,
                     params: HashMap::new(),
                     objectives: vec![],
                     pareto_rank: 0,
@@ -192,6 +193,7 @@ mod tests {
                 },
                 TrialRow {
                     trial_id: 1,
+                    trial_number: 1,
                     params: HashMap::new(),
                     objectives: vec![],
                     pareto_rank: 1,

@@ -74,9 +74,11 @@ fn extract_trial_rows(_meta: &StudyMeta) -> Vec<TrialRow> {
                     .collect();
 
                 let trial_id = df.get_trial_id(row).unwrap_or(row as u32);
+                let trial_number = row as u32;
 
                 TrialRow {
                     trial_id,
+                    trial_number,
                     params,
                     objectives,
                     pareto_rank: 0, // filled in later

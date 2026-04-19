@@ -201,7 +201,7 @@ pub fn normalize_trial(
     max_rank: u32,
     obj_idx: Option<usize>,
     obj_min_max: Option<(f64, f64)>,
-    max_trial_id: u32,
+    max_trial_number: u32,
 ) -> f32 {
     match color_mode {
         ColorMode::ParetoRank => {
@@ -225,7 +225,7 @@ pub fn normalize_trial(
                 0.5
             }
         }
-        ColorMode::TrialNumber => trial.trial_id as f32 / max_trial_id.max(1) as f32,
+        ColorMode::TrialNumber => trial.trial_number as f32 / max_trial_number.max(1) as f32,
         ColorMode::ClusterId => 0.5,
     }
 }
@@ -239,9 +239,9 @@ pub fn compute_chart_colors(
 ) -> Vec<egui::Color32> {
     let cmap = colormap_name.to_colormap();
     let palette = tab10_palette();
-    // trial_id は非連続になりうるため件数ではなく最大値で正規化する
-    let (max_rank, max_trial_id) = trial_rows.iter().fold((1u32, 0u32), |(mr, mid), r| {
-        (mr.max(r.pareto_rank), mid.max(r.trial_id))
+    // trial_number は Study 内連番のため最大値で正規化する
+    let (max_rank, max_trial_number) = trial_rows.iter().fold((1u32, 0u32), |(mr, mid), r| {
+        (mr.max(r.pareto_rank), mid.max(r.trial_number))
     });
 
     let obj_idx = match color_mode {
@@ -274,7 +274,7 @@ pub fn compute_chart_colors(
                     max_rank,
                     obj_idx,
                     obj_min_max,
-                    max_trial_id,
+                    max_trial_number,
                 );
                 cmap.interpolate(t)
             }
@@ -359,6 +359,7 @@ mod tests {
         use crate::state::app_state::TrialState;
         let trial = TrialRow {
             trial_id: 0,
+            trial_number: 0,
             params: Default::default(),
             objectives: vec![],
             pareto_rank: 0,
@@ -375,6 +376,7 @@ mod tests {
         use crate::state::app_state::TrialState;
         let trial = TrialRow {
             trial_id: 9,
+            trial_number: 9,
             params: Default::default(),
             objectives: vec![],
             pareto_rank: 0,
@@ -385,7 +387,7 @@ mod tests {
         let t = normalize_trial(&trial, &ColorMode::TrialNumber, 0, None, None, 9);
         assert!(
             (t - 1.0).abs() < 0.01,
-            "trial_id=9/max_id=9 should be 1.0, got {}",
+            "trial_number=9/max_id=9 should be 1.0, got {}",
             t
         );
     }
@@ -397,6 +399,7 @@ mod tests {
         let rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 params: HashMap::new(),
                 objectives: vec![0.5],
                 pareto_rank: 0,
@@ -406,6 +409,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 params: HashMap::new(),
                 objectives: vec![1.0],
                 pareto_rank: 1,
@@ -426,6 +430,7 @@ mod tests {
         let rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 params: HashMap::new(),
                 objectives: vec![],
                 pareto_rank: 0,
@@ -435,6 +440,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 params: HashMap::new(),
                 objectives: vec![],
                 pareto_rank: 5,
@@ -458,6 +464,7 @@ mod tests {
         let rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 params: HashMap::new(),
                 objectives: vec![],
                 pareto_rank: 0,
@@ -467,6 +474,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 params: HashMap::new(),
                 objectives: vec![],
                 pareto_rank: 0,
@@ -488,6 +496,7 @@ mod tests {
         use std::collections::HashMap;
         let rows = vec![TrialRow {
             trial_id: 0,
+            trial_number: 0,
             params: HashMap::new(),
             objectives: vec![],
             pareto_rank: 0,

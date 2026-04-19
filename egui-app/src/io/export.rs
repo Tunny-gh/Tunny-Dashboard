@@ -37,6 +37,7 @@ mod tests {
     fn make_trial(id: u32) -> TrialRow {
         TrialRow {
             trial_id: id,
+            trial_number: id,
             params: HashMap::new(),
             objectives: vec![],
             pareto_rank: 0,

@@ -249,6 +249,7 @@ mod tests {
     fn make_trial(id: u32, objs: Vec<f64>) -> TrialRow {
         TrialRow {
             trial_id: id,
+            trial_number: id,
             params: HashMap::new(),
             objectives: objs,
             pareto_rank: 0,

@@ -345,6 +345,7 @@ mod tests {
         use crate::state::app_state::TrialState;
         let row = TrialRow {
             trial_id: 0,
+            trial_number: 0,
             params: [("x".to_string(), 1.5)].into(),
             objectives: vec![2.0],
             pareto_rank: 0,
@@ -363,6 +364,7 @@ mod tests {
         use crate::state::app_state::TrialState;
         let row = TrialRow {
             trial_id: 0,
+            trial_number: 0,
             params: [("y".to_string(), 1.5)].into(),
             objectives: vec![2.0],
             pareto_rank: 0,
@@ -380,6 +382,7 @@ mod tests {
         use crate::state::app_state::TrialState;
         let row = TrialRow {
             trial_id: 0,
+            trial_number: 0,
             params: [("x".to_string(), 1.5)].into(),
             objectives: vec![2.0],
             pareto_rank: 0,
