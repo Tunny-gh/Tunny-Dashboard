@@ -24,9 +24,9 @@ pub fn filter_by_downsample_indices<'a>(
     }
 }
 
-/// Pareto ランクに応じたマーカー半径を返す（ランク1が最大）
+/// Pareto ランクに応じたマーカー半径を返す（ランク0が最大）
 pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
-    if pareto_rank == 1 {
+    if pareto_rank == 0 {
         5.0
     } else {
         2.5
@@ -131,7 +131,7 @@ impl ParetoScatter2D {
             }
 
             let is_selected = compute_point_alpha(row.trial_id, &selected) == 255;
-            if row.pareto_rank == 1 {
+            if row.pareto_rank == 0 {
                 if is_selected {
                     pareto_pts.push(pt);
                 } else {
@@ -328,14 +328,14 @@ mod tests {
     }
 
     #[test]
-    fn pareto_marker_radius_rank1_is_larger() {
+    fn pareto_marker_radius_rank0_is_larger() {
+        let r0 = pareto_marker_radius(0);
         let r1 = pareto_marker_radius(1);
-        let r2 = pareto_marker_radius(2);
-        assert!(r1 > r2);
+        assert!(r0 > r1);
     }
 
     #[test]
     fn pareto_marker_radius_non_front_rank_same() {
-        assert_eq!(pareto_marker_radius(2), pareto_marker_radius(3));
+        assert_eq!(pareto_marker_radius(1), pareto_marker_radius(2));
     }
 }

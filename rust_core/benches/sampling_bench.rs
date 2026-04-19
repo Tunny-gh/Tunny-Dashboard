@@ -51,7 +51,7 @@ fn setup_df(n: usize) {
     // in multi-objective case row 0 has min obj0 but max obj1, so real Pareto front = all points).
     // For benchmark purposes use all indices as Pareto (worst case).
     let pareto_indices: Vec<u32> = (0..n.min(500) as u32).collect();
-    let all_ranks: Vec<u32> = (0..n as u32).map(|i| if i < 500 { 1 } else { 2 }).collect();
+    let all_ranks: Vec<u32> = (0..n as u32).map(|i| if i < 500 { 0 } else { 1 }).collect();
     init_sampling(vec![true, true], pareto_indices, all_ranks);
 
     // Set dummy cluster labels (round-robin into 5 clusters)

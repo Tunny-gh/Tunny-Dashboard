@@ -4,7 +4,7 @@ struct SamplingState {
     is_minimize: Vec<bool>,
     /// Pre-computed Pareto Rank 1 indices.  `None` means "not yet computed".
     pareto_indices: Option<Vec<u32>>,
-    /// Full per-row Pareto ranks (1-based).  `None` means "not yet computed".
+    /// Full per-row Pareto ranks (0-based).  `None` means "not yet computed".
     all_ranks: Option<Vec<u32>>,
     /// Per-row cluster labels (0-based, -1 = unclustered).
     /// `None` means cluster computation has not been run.
@@ -22,7 +22,7 @@ thread_local! {
 
 /// Initialise sampling state after a study is loaded.
 ///
-/// `pareto_indices` — Rank 1 indices from `pareto::compute_pareto_ranks`.
+/// `pareto_indices` — Rank 0 indices from `pareto::compute_pareto_ranks`.
 /// `all_ranks`      — per-row rank array from `pareto::compute_pareto_ranks`.
 ///
 /// Passing empty slices is safe; functions will fall back to on-demand
@@ -77,11 +77,11 @@ fn is_minimize() -> Vec<bool> {
     })
 }
 
-/// Return Pareto Rank 1 indices.
+/// Return Pareto Rank 0 indices.
 ///
 /// Uses the cached result from `init_sampling` when available; otherwise
 /// computes it on-demand (O(n²) — acceptable for small datasets or fallback).
-pub(crate) fn get_pareto_rank1_indices() -> Vec<u32> {
+pub(crate) fn get_pareto_rank0_indices() -> Vec<u32> {
     let cached = STATE.with(|s| s.borrow().pareto_indices.clone());
     if let Some(indices) = cached {
         return indices;
@@ -92,7 +92,7 @@ pub(crate) fn get_pareto_rank1_indices() -> Vec<u32> {
     indices
 }
 
-/// Return per-row Pareto rank array (1-based).
+/// Return per-row Pareto rank array (0-based).
 ///
 /// Uses the cached result from `init_sampling` when available; otherwise
 /// computes it on-demand and caches the result.

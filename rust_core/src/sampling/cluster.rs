@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::common::{full_result, random_sample_fixed_seed, DownsampleResult};
 use super::smart::downsample_smart;
-use super::state::{cluster_labels, get_pareto_rank1_indices};
+use super::state::{cluster_labels, get_pareto_rank0_indices};
 
 /// Cluster-equalised downsampling for ClusterScatter / DimReductionScatter.
 ///
@@ -69,7 +69,7 @@ pub fn downsample_by_cluster(max_points: usize) -> Option<DownsampleResult> {
         result_indices.extend_from_slice(&sampled);
     }
 
-    let pareto_count = get_pareto_rank1_indices()
+    let pareto_count = get_pareto_rank0_indices()
         .iter()
         .filter(|&&p| result_indices.contains(&p))
         .count();

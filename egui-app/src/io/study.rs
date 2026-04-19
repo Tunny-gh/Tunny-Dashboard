@@ -17,7 +17,7 @@ pub fn build_gpu_buffer_data(
     pareto_ranks: &[u32],
 ) -> GpuBufferData {
     let n = core_gpu.trial_count;
-    let max_rank = pareto_ranks.iter().max().copied().unwrap_or(1).max(1);
+    let max_rank = pareto_ranks.iter().max().copied().unwrap_or(0);
 
     // RGBA colors: Pareto rank 0 = vivid, higher = dimmer
     let mut colors = Vec::with_capacity(n * 4);

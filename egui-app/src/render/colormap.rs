@@ -240,7 +240,7 @@ pub fn compute_chart_colors(
     let cmap = colormap_name.to_colormap();
     let palette = tab10_palette();
     // trial_number は Study 内連番のため最大値で正規化する
-    let (max_rank, max_trial_number) = trial_rows.iter().fold((1u32, 0u32), |(mr, mid), r| {
+    let (max_rank, max_trial_number) = trial_rows.iter().fold((0u32, 0u32), |(mr, mid), r| {
         (mr.max(r.pareto_rank), mid.max(r.trial_number))
     });
 

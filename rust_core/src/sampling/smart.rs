@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::common::{full_result, random_sample_fixed_seed, DownsampleResult};
-use super::state::get_pareto_rank1_indices;
+use super::state::get_pareto_rank0_indices;
 
 /// General-purpose downsampling with Pareto Rank 1 preservation.
 ///
@@ -30,7 +30,7 @@ pub fn downsample_smart(max_points: usize, include_pareto: bool) -> Option<Downs
     }
 
     let pareto_indices = if include_pareto {
-        get_pareto_rank1_indices()
+        get_pareto_rank0_indices()
     } else {
         vec![]
     };
