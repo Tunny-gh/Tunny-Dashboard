@@ -246,20 +246,20 @@ pub fn compute_sorted_sobol(
     obj_idx: usize,
     metric: &ImportanceMetric,
 ) -> Vec<(String, f64)> {
-    let scores_opt = match metric {
-        ImportanceMetric::SobolFirst => result.first_order.get(obj_idx),
-        ImportanceMetric::SobolTotal => result.total_effect.get(obj_idx),
+    let data = match metric {
+        ImportanceMetric::SobolFirst => &result.first_order,
+        ImportanceMetric::SobolTotal => &result.total_effect,
         _ => return vec![],
-    };
-    let Some(scores) = scores_opt else {
-        return vec![];
     };
 
     let mut pairs: Vec<(String, f64)> = result
         .param_names
         .iter()
-        .zip(scores.iter())
-        .map(|(name, &score)| (name.clone(), score.abs()))
+        .zip(data.iter())
+        .map(|(name, param_scores)| {
+            let score = param_scores.get(obj_idx).copied().unwrap_or(0.0);
+            (name.clone(), score.abs())
+        })
         .collect();
 
     pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
