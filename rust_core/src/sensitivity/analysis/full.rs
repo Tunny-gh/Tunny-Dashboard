@@ -2,7 +2,7 @@ use crate::dataframe::DataFrame;
 
 use super::super::{
     compute_mdi_importances, compute_rf_anova_importances, compute_spearman,
-    data::get_param_numeric_values, SensitivityResult,
+    data::get_param_numeric_values, SensitivityMetric, SensitivityResult,
 };
 use super::common::{
     build_standardized_param_columns, compute_ridge_from_standardized_columns, empty_result,
