@@ -138,7 +138,11 @@ pub(super) fn transpose_mdi_importances(
     objective_count: usize,
 ) -> MdiResult {
     MdiResult {
-        importances: transpose_importances_matrix(importances_by_objective, param_count, objective_count),
+        importances: transpose_importances_matrix(
+            importances_by_objective,
+            param_count,
+            objective_count,
+        ),
         r_squared,
     }
 }
@@ -150,7 +154,11 @@ pub(super) fn transpose_rf_anova_importances(
     objective_count: usize,
 ) -> RfAnovaResult {
     RfAnovaResult {
-        importances: transpose_importances_matrix(importances_by_objective, param_count, objective_count),
+        importances: transpose_importances_matrix(
+            importances_by_objective,
+            param_count,
+            objective_count,
+        ),
         r_squared,
     }
 }

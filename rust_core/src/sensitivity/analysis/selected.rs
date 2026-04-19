@@ -1,6 +1,6 @@
 use super::super::{
-    compute_rf_anova_importances, compute_ridge, compute_spearman,
-    data::get_param_numeric_values, SensitivityResult,
+    compute_rf_anova_importances, compute_ridge, compute_spearman, data::get_param_numeric_values,
+    SensitivityResult,
 };
 use super::common::{
     build_param_columns, build_param_matrix_from_columns, collect_objective_subset,

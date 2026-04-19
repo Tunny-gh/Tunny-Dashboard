@@ -99,7 +99,8 @@ fn build_mdi_tree_idx(
         return MdiNode::Leaf;
     }
 
-    match find_best_split_with_gain_idx(x, y, indices, feature_indices, min_samples_leaf, pairs_buf) {
+    match find_best_split_with_gain_idx(x, y, indices, feature_indices, min_samples_leaf, pairs_buf)
+    {
         None => MdiNode::Leaf,
         Some((feat, threshold, raw_gain)) => {
             // Partition indices in-place using a temporary buffer
@@ -119,17 +120,36 @@ fn build_mdi_tree_idx(
             let right_indices: Vec<usize> = right_idx.to_vec();
 
             let left = Box::new(build_mdi_tree_idx(
-                x, y, &left_indices, feature_indices,
-                depth + 1, max_depth, min_samples_leaf, n_root,
-                pairs_buf, idx_buf,
+                x,
+                y,
+                &left_indices,
+                feature_indices,
+                depth + 1,
+                max_depth,
+                min_samples_leaf,
+                n_root,
+                pairs_buf,
+                idx_buf,
             ));
             let right = Box::new(build_mdi_tree_idx(
-                x, y, &right_indices, feature_indices,
-                depth + 1, max_depth, min_samples_leaf, n_root,
-                pairs_buf, idx_buf,
+                x,
+                y,
+                &right_indices,
+                feature_indices,
+                depth + 1,
+                max_depth,
+                min_samples_leaf,
+                n_root,
+                pairs_buf,
+                idx_buf,
             ));
 
-            MdiNode::Split { feature: feat, weighted_gain, left, right }
+            MdiNode::Split {
+                feature: feat,
+                weighted_gain,
+                left,
+                right,
+            }
         }
     }
 }
@@ -149,7 +169,12 @@ fn partition_in_place<T, F: Fn(&T) -> bool>(v: &mut Vec<T>, pred: F) -> usize {
 fn accumulate_gains(node: &MdiNode, gains: &mut [f64]) {
     match node {
         MdiNode::Leaf => {}
-        MdiNode::Split { feature, weighted_gain, left, right } => {
+        MdiNode::Split {
+            feature,
+            weighted_gain,
+            left,
+            right,
+        } => {
             if *feature < gains.len() {
                 gains[*feature] += weighted_gain;
             }
