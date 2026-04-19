@@ -40,9 +40,11 @@ impl MessageHandler {
             }
             AppMessage::SensitivityDone(result) => {
                 app_state.sensitivity_result = Some(result);
+                widget_states.importance.computing = false;
             }
             AppMessage::SobolDone(result) => {
                 app_state.sobol_result = Some(result);
+                widget_states.importance.computing = false;
             }
             AppMessage::ClusteringDone(result) => {
                 app_state.cluster_result = Some(result);

@@ -20,6 +20,7 @@ pub struct RidgeResult {
 #[derive(Debug, Clone)]
 pub struct RfAnovaResult {
     pub importances: Vec<Vec<f64>>,
+    pub r_squared: Vec<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,7 @@ pub struct SobolResult {
     pub objective_names: Vec<String>,
     pub first_order: Vec<Vec<f64>>,
     pub total_effect: Vec<Vec<f64>>,
+    pub r_squared: Vec<f64>,
 }
 
 #[derive(Debug, Clone)]

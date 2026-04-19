@@ -5,17 +5,23 @@ pub enum ImportanceMetric {
     Spearman,
     Ridge,
     RfAnova,
-    Sobol,
+    SobolFirst,
+    SobolTotal,
 }
 
 impl ImportanceMetric {
     pub fn label(&self) -> &'static str {
         match self {
             ImportanceMetric::Spearman => "Spearman",
-            ImportanceMetric::Ridge => "Ridge (beta)",
+            ImportanceMetric::Ridge => "Ridge",
             ImportanceMetric::RfAnova => "RF-Anova",
-            ImportanceMetric::Sobol => "Sobol",
+            ImportanceMetric::SobolFirst => "Sobol First",
+            ImportanceMetric::SobolTotal => "Sobol Total",
         }
+    }
+
+    pub fn is_sobol(&self) -> bool {
+        matches!(self, ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal)
     }
 }
 
@@ -46,44 +52,79 @@ impl ImportanceChart {
         sobol: Option<&SobolResult>,
         obj_names: &[String],
     ) {
-        // メトリクス切り替え
-        ui.horizontal(|ui| {
-            for metric in [
-                ImportanceMetric::Spearman,
-                ImportanceMetric::Ridge,
-                ImportanceMetric::RfAnova,
-                ImportanceMetric::Sobol,
-            ] {
-                let selected = self.metric == metric;
-                if ui.selectable_label(selected, metric.label()).clicked() {
-                    self.metric = metric;
-                }
-            }
-        });
-
-        // 目的関数タブ（複数目的の場合）
-        if obj_names.len() > 1 {
-            ui.horizontal(|ui| {
-                for (i, name) in obj_names.iter().enumerate() {
-                    if ui
-                        .selectable_label(self.objective_index == i, name)
-                        .clicked()
-                    {
-                        self.objective_index = i;
-                    }
-                }
-            });
-        }
-
-        // Run ボタン + spinner
+        // Run ボタン + メトリクスコンボボックス + 目的関数コンボボックス + spinner + R²（右端）
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
                 self.pending_compute = Some(self.metric.clone());
                 self.computing = true;
             }
+
+            egui::ComboBox::from_id_salt("importance_metric")
+                .selected_text(self.metric.label())
+                .show_ui(ui, |ui| {
+                    for metric in [
+                        ImportanceMetric::Spearman,
+                        ImportanceMetric::Ridge,
+                        ImportanceMetric::RfAnova,
+                        ImportanceMetric::SobolFirst,
+                        ImportanceMetric::SobolTotal,
+                    ] {
+                        let label = metric.label();
+                        ui.selectable_value(&mut self.metric, metric, label);
+                    }
+                });
+
+            if obj_names.len() > 1 {
+                egui::ComboBox::from_id_salt("importance_objective")
+                    .selected_text(
+                        obj_names
+                            .get(self.objective_index)
+                            .map(|s| s.as_str())
+                            .unwrap_or(""),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (i, name) in obj_names.iter().enumerate() {
+                            ui.selectable_value(&mut self.objective_index, i, name);
+                        }
+                    });
+            }
+
             if self.computing {
                 ui.spinner();
                 ui.label("Computing...");
+            }
+
+            // R² を右端に表示（Spearman 以外）
+            let r2_opt: Option<f64> = match self.metric {
+                ImportanceMetric::Spearman => None,
+                ImportanceMetric::Ridge => sensitivity
+                    .and_then(|r| r.ridge.get(self.objective_index))
+                    .map(|ridge| ridge.r_squared),
+                ImportanceMetric::RfAnova => sensitivity
+                    .and_then(|r| r.rf_anova.as_ref())
+                    .and_then(|rf| rf.r_squared.get(self.objective_index))
+                    .copied(),
+                ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => sobol
+                    .and_then(|s| s.r_squared.get(self.objective_index))
+                    .copied(),
+            };
+            if let Some(r2) = r2_opt {
+                let (color, warning) = if r2 < 0.5 {
+                    (egui::Color32::from_rgb(220, 80, 80), " (low fit)")
+                } else if r2 < 0.8 {
+                    (egui::Color32::from_rgb(200, 160, 0), "")
+                } else {
+                    (egui::Color32::from_rgb(60, 180, 60), "")
+                };
+                ui.with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("R² = {r2:.3}{warning}"))
+                                .color(color),
+                        );
+                    },
+                );
             }
         });
 
@@ -99,12 +140,12 @@ impl ImportanceChart {
                 };
                 compute_sorted_importance(result, &self.metric, self.objective_index)
             }
-            ImportanceMetric::Sobol => {
+            ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                 let Some(sobol_result) = sobol else {
                     ui.label("No Sobol data (start the computation first)");
                     return;
                 };
-                compute_sorted_sobol(sobol_result, self.objective_index)
+                compute_sorted_sobol(sobol_result, self.objective_index, &self.metric)
             }
         };
 
@@ -113,17 +154,49 @@ impl ImportanceChart {
             return;
         }
 
-        egui_plot::Plot::new("importance_chart_plot").show(ui, |plot_ui| {
-            let bars: Vec<egui_plot::Bar> = scores
-                .iter()
-                .enumerate()
-                .map(|(i, (_, score))| {
-                    egui_plot::Bar::new(i as f64, *score)
-                        .width(0.8)
-                        .fill(egui::Color32::from_rgb(70, 150, 250))
-                })
-                .collect();
-            plot_ui.bar_chart(egui_plot::BarChart::new(bars));
+        let max_score = scores.iter().map(|(_, s)| *s).fold(0.0_f64, f64::max);
+        let label_width = 150.0_f32;
+        let bar_height = 20.0_f32;
+        let bar_gap = 4.0_f32;
+        let value_text_width = 50.0_f32;
+
+        let bar_color = egui::Color32::from_rgb(0x0c, 0x0c, 0x6a);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+                    let available_width =
+                        ui.available_width() - label_width - value_text_width - 8.0;
+                    let bar_max_width = available_width.max(50.0);
+
+                    for (name, score) in &scores {
+                        ui.horizontal(|ui| {
+                            ui.add_sized(
+                                [label_width, bar_height],
+                                egui::Label::new(
+                                    egui::RichText::new(name).text_style(egui::TextStyle::Body),
+                                )
+                                .truncate(),
+                            );
+
+                            let bar_width = if max_score > 0.0 {
+                                (score / max_score * bar_max_width as f64) as f32
+                            } else {
+                                0.0
+                            };
+
+                            let (rect, _) = ui.allocate_exact_size(
+                                egui::vec2(bar_max_width, bar_height - bar_gap),
+                                egui::Sense::hover(),
+                            );
+                            if ui.is_rect_visible(rect) {
+                                let bar_rect = egui::Rect::from_min_size(
+                                    rect.min,
+                                    egui::vec2(bar_width, rect.height()),
+                                );
+                                ui.painter().rect_filled(bar_rect, 2.0, bar_color);
+                            }
+
+                            ui.label(format!("{score:.3}"));
+                        });
+                    }
         });
     }
 }
@@ -156,7 +229,7 @@ pub fn compute_sorted_importance(
                 .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
                 .collect()
         }
-        ImportanceMetric::Sobol => return vec![],
+        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return vec![],
     };
 
     let mut pairs: Vec<(String, f64)> = result
@@ -170,9 +243,19 @@ pub fn compute_sorted_importance(
     pairs
 }
 
-/// SobolResult から重要度スコア（first_order）を降順でソートして返す
-pub fn compute_sorted_sobol(result: &SobolResult, obj_idx: usize) -> Vec<(String, f64)> {
-    let Some(scores) = result.first_order.get(obj_idx) else {
+/// SobolResult から重要度スコアを降順でソートして返す。
+/// metric に応じて一次指数（SobolFirst）または全効果指数（SobolTotal）を使用する。
+pub fn compute_sorted_sobol(
+    result: &SobolResult,
+    obj_idx: usize,
+    metric: &ImportanceMetric,
+) -> Vec<(String, f64)> {
+    let scores_opt = match metric {
+        ImportanceMetric::SobolFirst => result.first_order.get(obj_idx),
+        ImportanceMetric::SobolTotal => result.total_effect.get(obj_idx),
+        _ => return vec![],
+    };
+    let Some(scores) = scores_opt else {
         return vec![];
     };
 
@@ -221,7 +304,7 @@ mod tests {
             objective_names: vec!["obj0".to_string()],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
-            rf_anova: Some(RfAnovaResult { importances }),
+            rf_anova: Some(RfAnovaResult { importances, r_squared: vec![0.8] }),
         }
     }
 
@@ -255,7 +338,8 @@ mod tests {
         assert!(!ImportanceMetric::Spearman.label().is_empty());
         assert!(!ImportanceMetric::Ridge.label().is_empty());
         assert!(!ImportanceMetric::RfAnova.label().is_empty());
-        assert!(!ImportanceMetric::Sobol.label().is_empty());
+        assert!(!ImportanceMetric::SobolFirst.label().is_empty());
+        assert!(!ImportanceMetric::SobolTotal.label().is_empty());
     }
 
     #[test]
@@ -288,9 +372,31 @@ mod tests {
     }
 
     #[test]
-    fn sorted_importance_sobol_returns_empty() {
+    fn sorted_importance_sobol_returns_empty_from_sensitivity() {
         let result = make_result(&["x"], vec![0.5]);
-        let sorted = compute_sorted_importance(&result, &ImportanceMetric::Sobol, 0);
+        // SobolFirst/SobolTotal are handled by the Sobol branch, not compute_sorted_importance
+        let sorted = compute_sorted_importance(&result, &ImportanceMetric::SobolFirst, 0);
         assert!(sorted.is_empty());
+        let sorted = compute_sorted_importance(&result, &ImportanceMetric::SobolTotal, 0);
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn sorted_sobol_first_and_total_use_correct_data() {
+        use crate::state::app_state::SobolResult;
+        let result = SobolResult {
+            param_names: vec!["p0".into(), "p1".into()],
+            objective_names: vec!["obj0".into()],
+            first_order: vec![vec![0.6, 0.2]],  // [obj][param]
+            total_effect: vec![vec![0.8, 0.3]],
+            r_squared: vec![0.9],
+        };
+        let first = compute_sorted_sobol(&result, 0, &ImportanceMetric::SobolFirst);
+        assert_eq!(first[0].0, "p0");
+        assert!((first[0].1 - 0.6).abs() < 1e-9);
+
+        let total = compute_sorted_sobol(&result, 0, &ImportanceMetric::SobolTotal);
+        assert_eq!(total[0].0, "p0");
+        assert!((total[0].1 - 0.8).abs() < 1e-9);
     }
 }
