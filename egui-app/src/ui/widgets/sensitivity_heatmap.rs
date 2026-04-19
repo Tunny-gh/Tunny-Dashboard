@@ -1,5 +1,4 @@
 use crate::state::app_state::SensitivityResult;
-
 /// 発散型カラーマップ: -1.0 → 青, 0.0 → 白, +1.0 → 赤
 pub fn diverging_colormap(score: f64) -> egui::Color32 {
     let t = ((score + 1.0) / 2.0).clamp(0.0, 1.0) as f32;
@@ -27,8 +26,8 @@ impl SensitivityHeatmap {
     }
 
     /// 感度ヒートマップを描画する
-    pub fn show(&mut self, ui: &mut egui::Ui, sensitivity: Option<&SensitivityResult>) {
-        let Some(sens) = sensitivity else {
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        let Some(sens) = self.result.as_ref() else {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No sensitivity data.").weak());
             });

@@ -28,6 +28,18 @@ impl ImportanceMetric {
             ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal
         )
     }
+
+    /// Stable numeric key for use in caches — decoupled from display labels.
+    pub fn cache_id(&self) -> u8 {
+        match self {
+            ImportanceMetric::Spearman => 0,
+            ImportanceMetric::Ridge => 1,
+            ImportanceMetric::RfAnova => 2,
+            ImportanceMetric::Mdi => 3,
+            ImportanceMetric::SobolFirst => 4,
+            ImportanceMetric::SobolTotal => 5,
+        }
+    }
 }
 
 /// 感度分析バーチャートウィジェット
@@ -35,7 +47,7 @@ pub struct ImportanceChart {
     pub metric: ImportanceMetric,
     pub computing: bool,
     pub objective_index: usize,
-    pub pending_compute: Option<ImportanceMetric>,
+    pub pending_compute: Option<(ImportanceMetric, usize)>,
 }
 
 impl Default for ImportanceChart {
@@ -60,7 +72,7 @@ impl ImportanceChart {
         // Run ボタン + メトリクスコンボボックス + 目的関数コンボボックス + spinner + R²（右端）
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
-                self.pending_compute = Some(self.metric.clone());
+                self.pending_compute = Some((self.metric.clone(), self.objective_index));
                 self.computing = true;
             }
 
@@ -104,19 +116,19 @@ impl ImportanceChart {
             let r2_opt: Option<f64> = match self.metric {
                 ImportanceMetric::Spearman => None,
                 ImportanceMetric::Ridge => sensitivity
-                    .and_then(|r| r.ridge.get(self.objective_index))
+                    .and_then(|r| r.ridge.get(0))
                     .map(|ridge| ridge.r_squared),
                 ImportanceMetric::RfAnova => sensitivity
                     .and_then(|r| r.rf_anova.as_ref())
-                    .and_then(|rf| rf.r_squared.get(self.objective_index))
+                    .and_then(|rf| rf.r_squared.get(0))
                     .copied(),
                 ImportanceMetric::Mdi => sensitivity
                     .and_then(|r| r.mdi.as_ref())
-                    .and_then(|m| m.r_squared.get(self.objective_index))
+                    .and_then(|m| m.r_squared.get(0))
                     .copied(),
-                ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => sobol
-                    .and_then(|s| s.r_squared.get(self.objective_index))
-                    .copied(),
+                ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
+                    sobol.and_then(|s| s.r_squared.get(0)).copied()
+                }
             };
             if let Some(r2) = r2_opt {
                 let (color, warning) = if r2 < 0.5 {
@@ -145,14 +157,14 @@ impl ImportanceChart {
                     ui.label("No sensitivity data (start the computation first)");
                     return;
                 };
-                compute_sorted_importance(result, &self.metric, self.objective_index)
+                compute_sorted_importance(result, &self.metric, 0)
             }
             ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                 let Some(sobol_result) = sobol else {
                     ui.label("No Sobol data (start the computation first)");
                     return;
                 };
-                compute_sorted_sobol(sobol_result, self.objective_index, &self.metric)
+                compute_sorted_sobol(sobol_result, 0, &self.metric)
             }
         };
 

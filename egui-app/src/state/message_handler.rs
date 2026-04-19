@@ -38,12 +38,12 @@ impl MessageHandler {
                 *is_loading = false;
                 app_state.update_chart_colors();
             }
-            AppMessage::SensitivityDone(result) => {
-                app_state.sensitivity_result = Some(result);
+            AppMessage::SensitivityDone { key, result } => {
+                app_state.importance_cache.insert(key, result);
                 widget_states.importance.computing = false;
             }
-            AppMessage::SobolDone(result) => {
-                app_state.sobol_result = Some(result);
+            AppMessage::SobolDone { obj_idx, result } => {
+                app_state.sobol_cache.insert(obj_idx, result);
                 widget_states.importance.computing = false;
             }
             AppMessage::ClusteringDone(result) => {

@@ -9,7 +9,7 @@ mod types;
 
 pub use analysis::{
     compute_sensitivity, compute_sensitivity_all, compute_sensitivity_selected,
-    compute_sensitivity_without_mdi,
+    compute_sensitivity_single_obj, compute_sensitivity_without_mdi,
 };
 pub use mdi::compute_mdi_importances;
 pub use rf_anova::compute_rf_anova_importances;

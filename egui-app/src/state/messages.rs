@@ -63,8 +63,14 @@ pub enum AppMessage {
         gpu_data: GpuBufferData,
         pareto_indices: Vec<u32>,
     },
-    SensitivityDone(SensitivityResult),
-    SobolDone(SobolResult),
+    SensitivityDone {
+        key: (u8, usize),
+        result: SensitivityResult,
+    },
+    SobolDone {
+        obj_idx: usize,
+        result: SobolResult,
+    },
     ClusteringDone(ClusterResult),
     TopsisDone(TopsisResult),
     PdpDone {

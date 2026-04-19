@@ -17,8 +17,8 @@ pub struct AppState {
     pub filter_ranges: HashMap<String, (f64, f64)>,
     pub highlighted_trial: Option<u32>,
     pub color_mode: ColorMode,
-    pub sensitivity_result: Option<SensitivityResult>,
-    pub sobol_result: Option<SobolResult>,
+    pub importance_cache: HashMap<(u8, usize), SensitivityResult>,
+    pub sobol_cache: HashMap<usize, SobolResult>,
     pub cluster_result: Option<ClusterResult>,
     pub downsample_cache: DownsampleCache,
     pub live_update: LiveUpdateState,
@@ -38,8 +38,8 @@ impl AppState {
             filter_ranges: HashMap::new(),
             highlighted_trial: None,
             color_mode: ColorMode::ParetoRank,
-            sensitivity_result: None,
-            sobol_result: None,
+            importance_cache: HashMap::new(),
+            sobol_cache: HashMap::new(),
             cluster_result: None,
             downsample_cache: DownsampleCache::default(),
             live_update: LiveUpdateState::default(),
@@ -60,8 +60,8 @@ impl AppState {
         self.selected_indices.clear();
         self.filter_ranges.clear();
         self.highlighted_trial = None;
-        self.sensitivity_result = None;
-        self.sobol_result = None;
+        self.importance_cache.clear();
+        self.sobol_cache.clear();
         self.cluster_result = None;
         self.topsis_result = None;
         self.hv_history = None;
@@ -112,7 +112,7 @@ mod tests {
         assert!(state.filter_ranges.is_empty());
         assert!(state.highlighted_trial.is_none());
         assert_eq!(state.color_mode, ColorMode::ParetoRank);
-        assert!(state.sensitivity_result.is_none());
+        assert!(state.importance_cache.is_empty());
         assert!(state.cluster_result.is_none());
     }
 
@@ -122,21 +122,24 @@ mod tests {
         state.selected_indices = vec![0, 1, 2];
         state.filter_ranges.insert("x".to_string(), (0.0, 1.0));
         state.highlighted_trial = Some(5);
-        state.sensitivity_result = Some(SensitivityResult {
-            param_names: vec!["x".to_string()],
-            objective_names: vec!["y".to_string()],
-            spearman: vec![vec![0.9]],
-            ridge: vec![],
-            rf_anova: None,
-            mdi: None,
-        });
+        state.importance_cache.insert(
+            (0u8, 0),
+            SensitivityResult {
+                param_names: vec!["x".to_string()],
+                objective_names: vec!["y".to_string()],
+                spearman: vec![vec![0.9]],
+                ridge: vec![],
+                rf_anova: None,
+                mdi: None,
+            },
+        );
 
         state.clear();
 
         assert!(state.selected_indices.is_empty());
         assert!(state.filter_ranges.is_empty());
         assert!(state.highlighted_trial.is_none());
-        assert!(state.sensitivity_result.is_none());
+        assert!(state.importance_cache.is_empty());
     }
 
     #[test]

@@ -9,6 +9,112 @@ use super::common::{
     transpose_mdi_importances, transpose_rf_anova_importances,
 };
 
+/// Computes sensitivity for a single objective and a single metric only.
+/// The returned SensitivityResult has `objective_names = [selected_obj]` and
+/// only the field corresponding to `metric` is populated; all others are empty/None.
+pub fn compute_sensitivity_single_obj(
+    df: &DataFrame,
+    metric: &SensitivityMetric,
+    obj_idx: usize,
+) -> SensitivityResult {
+    let param_names = df.param_col_names().to_vec();
+    let objective_names = df.objective_col_names().to_vec();
+    let n = df.row_count();
+
+    let Some(objective_name) = objective_names.get(obj_idx).cloned() else {
+        return empty_result(param_names, objective_names);
+    };
+
+    if n < 2 || param_names.is_empty() {
+        return empty_result(param_names, vec![objective_name]);
+    }
+
+    let y: Vec<f64> = df
+        .get_numeric_column(&objective_name)
+        .map(|col| col[..n].to_vec())
+        .unwrap_or_else(|| vec![0.0; n]);
+
+    match metric {
+        SensitivityMetric::Spearman => {
+            let spearman: Vec<Vec<f64>> = param_names
+                .iter()
+                .map(|name| {
+                    let x = get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]);
+                    vec![compute_spearman(&x, &y)]
+                })
+                .collect();
+            SensitivityResult {
+                param_names,
+                objective_names: vec![objective_name],
+                spearman,
+                ridge: vec![],
+                rf_anova: None,
+                mdi: None,
+            }
+        }
+        SensitivityMetric::Ridge => {
+            let x_flat = build_standardized_param_columns(df, &param_names, n);
+            let ridge = vec![compute_ridge_from_standardized_columns(&x_flat, n, &y)];
+            SensitivityResult {
+                param_names,
+                objective_names: vec![objective_name],
+                spearman: vec![],
+                ridge,
+                rf_anova: None,
+                mdi: None,
+            }
+        }
+        SensitivityMetric::RfAnova => {
+            let param_cols: Vec<Vec<f64>> = param_names
+                .iter()
+                .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
+                .collect();
+            let x_matrix: Vec<Vec<f64>> = (0..n)
+                .map(|row| param_cols.iter().map(|col| col[row]).collect())
+                .collect();
+            let (imp, r2) = compute_rf_anova_importances(&x_matrix, &y);
+            let rf_anova = Some(transpose_rf_anova_importances(
+                &[imp],
+                vec![r2],
+                param_names.len(),
+                1,
+            ));
+            SensitivityResult {
+                param_names,
+                objective_names: vec![objective_name],
+                spearman: vec![],
+                ridge: vec![],
+                rf_anova,
+                mdi: None,
+            }
+        }
+        SensitivityMetric::Mdi => {
+            let param_cols: Vec<Vec<f64>> = param_names
+                .iter()
+                .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
+                .collect();
+            let x_matrix: Vec<Vec<f64>> = (0..n)
+                .map(|row| param_cols.iter().map(|col| col[row]).collect())
+                .collect();
+            let (imp, r2) = compute_mdi_importances(&x_matrix, &y);
+            let mdi = Some(transpose_mdi_importances(
+                &[imp],
+                vec![r2],
+                param_names.len(),
+                1,
+            ));
+            SensitivityResult {
+                param_names,
+                objective_names: vec![objective_name],
+                spearman: vec![],
+                ridge: vec![],
+                rf_anova: None,
+                mdi,
+            }
+        }
+    }
+}
+
 /// Computes sensitivity analysis without MDI; the returned `result.mdi` is always `None`.
 pub fn compute_sensitivity_without_mdi(df: &DataFrame) -> SensitivityResult {
     compute_sensitivity_impl(df, false)

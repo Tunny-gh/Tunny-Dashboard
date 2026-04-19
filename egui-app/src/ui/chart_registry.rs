@@ -87,94 +87,142 @@ pub fn show_chart(
             widgets.hv_history.show(ui);
         }
         ChartId::ImportanceChart => {
-            widgets.importance.show(
-                ui,
-                app_state.sensitivity_result.as_ref(),
-                app_state.sobol_result.as_ref(),
-                obj_names,
+            let imp_key = (
+                widgets.importance.metric.cache_id(),
+                widgets.importance.objective_index,
             );
-            if let Some(metric) = widgets.importance.pending_compute.take() {
+            let current_sensitivity = app_state.importance_cache.get(&imp_key);
+            let current_sobol = app_state
+                .sobol_cache
+                .get(&widgets.importance.objective_index);
+            widgets
+                .importance
+                .show(ui, current_sensitivity, current_sobol, obj_names);
+
+            if let Some((metric, obj_idx)) = widgets.importance.pending_compute.take() {
                 use crate::state::results::{
                     MdiResult, RfAnovaResult, RidgeResult, SensitivityResult, SobolResult,
                 };
                 use crate::ui::widgets::importance_chart::ImportanceMetric;
-                // thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため、
-                // メインスレッドで app_state の trial_rows から DataFrame を再構築して渡す
-                let ctx = app_state.current_study.as_ref().unwrap();
-                let core_rows: Vec<tunny_core::dataframe::TrialRow> = ctx
-                    .trial_rows
-                    .iter()
-                    .map(|r| tunny_core::dataframe::TrialRow {
-                        trial_id: r.trial_id,
-                        param_display: r.params.clone(),
-                        param_category_label: Default::default(),
-                        objective_values: r.objectives.clone(),
-                        user_attrs_numeric: Default::default(),
-                        user_attrs_string: Default::default(),
-                        constraint_values: vec![],
-                    })
-                    .collect();
-                let df = tunny_core::dataframe::DataFrame::from_trials(
-                    &core_rows,
-                    &ctx.meta.param_names,
-                    &ctx.meta.objective_names,
-                    &[],
-                    &[],
-                    0,
-                );
-                let tx = tx.clone();
-                match metric {
-                    ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                        crate::app::spawn_task(tx, move || {
-                            match tunny_core::sensitivity::compute_sobol_from_df(&df, 1024) {
-                                Some(r) => AppMessage::SobolDone(SobolResult {
-                                    param_names: r.param_names,
-                                    objective_names: r.objective_names,
-                                    first_order: r.first_order,
-                                    total_effect: r.total_effect,
-                                    r_squared: r.r_squared,
-                                }),
-                                None => {
-                                    AppMessage::SensitivityError("Sobol computation failed".into())
+
+                let already_cached = if metric.is_sobol() {
+                    app_state.sobol_cache.contains_key(&obj_idx)
+                } else {
+                    app_state
+                        .importance_cache
+                        .contains_key(&(metric.cache_id(), obj_idx))
+                };
+
+                if already_cached {
+                    widgets.importance.computing = false;
+                } else {
+                    // thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため、
+                    // メインスレッドで app_state の trial_rows から DataFrame を再構築して渡す
+                    let ctx = app_state.current_study.as_ref().unwrap();
+                    let selected_obj = ctx
+                        .meta
+                        .objective_names
+                        .get(obj_idx)
+                        .cloned()
+                        .unwrap_or_default();
+                    let core_rows: Vec<tunny_core::dataframe::TrialRow> = ctx
+                        .trial_rows
+                        .iter()
+                        .map(|r| tunny_core::dataframe::TrialRow {
+                            trial_id: r.trial_id,
+                            param_display: r.params.clone(),
+                            param_category_label: Default::default(),
+                            objective_values: r.objectives.clone(),
+                            user_attrs_numeric: Default::default(),
+                            user_attrs_string: Default::default(),
+                            constraint_values: vec![],
+                        })
+                        .collect();
+                    let df = tunny_core::dataframe::DataFrame::from_trials(
+                        &core_rows,
+                        &ctx.meta.param_names,
+                        &[selected_obj],
+                        &[],
+                        &[],
+                        0,
+                    );
+                    let tx = tx.clone();
+                    match metric {
+                        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
+                            crate::app::spawn_task(tx, move || {
+                                match tunny_core::sensitivity::compute_sobol_from_df(&df, 1024) {
+                                    Some(r) => AppMessage::SobolDone {
+                                        obj_idx,
+                                        result: SobolResult {
+                                            param_names: r.param_names,
+                                            objective_names: r.objective_names,
+                                            first_order: r.first_order,
+                                            total_effect: r.total_effect,
+                                            r_squared: r.r_squared,
+                                        },
+                                    },
+                                    None => AppMessage::SensitivityError(
+                                        "Sobol computation failed".into(),
+                                    ),
                                 }
-                            }
-                        });
-                    }
-                    _ => {
-                        crate::app::spawn_task(tx, move || {
-                            let r = if matches!(metric, ImportanceMetric::Mdi) {
-                                tunny_core::sensitivity::compute_sensitivity_all(&df)
-                            } else {
-                                tunny_core::sensitivity::compute_sensitivity_without_mdi(&df)
+                            });
+                        }
+                        _ => {
+                            let core_metric = match metric {
+                                ImportanceMetric::Spearman => {
+                                    tunny_core::sensitivity::SensitivityMetric::Spearman
+                                }
+                                ImportanceMetric::Ridge => {
+                                    tunny_core::sensitivity::SensitivityMetric::Ridge
+                                }
+                                ImportanceMetric::RfAnova => {
+                                    tunny_core::sensitivity::SensitivityMetric::RfAnova
+                                }
+                                ImportanceMetric::Mdi => {
+                                    tunny_core::sensitivity::SensitivityMetric::Mdi
+                                }
+                                _ => unreachable!(),
                             };
-                            // tunny_core は spearman[param][obj] だが egui-app 側は [obj][param] を期待する
-                            let n_params = r.spearman.len();
-                            let n_objs = if n_params > 0 { r.spearman[0].len() } else { 0 };
-                            let spearman: Vec<Vec<f64>> = (0..n_objs)
-                                .map(|oi| (0..n_params).map(|pi| r.spearman[pi][oi]).collect())
-                                .collect();
-                            AppMessage::SensitivityDone(SensitivityResult {
-                                param_names: r.param_names,
-                                objective_names: r.objective_names,
-                                spearman,
-                                ridge: r
-                                    .ridge
-                                    .into_iter()
-                                    .map(|x| RidgeResult {
-                                        beta: x.beta,
-                                        r_squared: x.r_squared,
-                                    })
-                                    .collect(),
-                                rf_anova: r.rf_anova.map(|x| RfAnovaResult {
-                                    importances: x.importances,
-                                    r_squared: x.r_squared,
-                                }),
-                                mdi: r.mdi.map(|x| MdiResult {
-                                    importances: x.importances,
-                                    r_squared: x.r_squared,
-                                }),
-                            })
-                        });
+                            let key = (metric.cache_id(), obj_idx);
+                            crate::app::spawn_task(tx, move || {
+                                let r = tunny_core::sensitivity::compute_sensitivity_single_obj(
+                                    &df,
+                                    &core_metric,
+                                    0,
+                                );
+                                // tunny_core は spearman[param][obj] だが egui-app 側は [obj][param] を期待する
+                                let n_params = r.spearman.len();
+                                let spearman: Vec<Vec<f64>> = if n_params > 0 {
+                                    vec![(0..n_params).map(|pi| r.spearman[pi][0]).collect()]
+                                } else {
+                                    vec![]
+                                };
+                                AppMessage::SensitivityDone {
+                                    key,
+                                    result: SensitivityResult {
+                                        param_names: r.param_names,
+                                        objective_names: r.objective_names,
+                                        spearman,
+                                        ridge: r
+                                            .ridge
+                                            .into_iter()
+                                            .map(|x| RidgeResult {
+                                                beta: x.beta,
+                                                r_squared: x.r_squared,
+                                            })
+                                            .collect(),
+                                        rf_anova: r.rf_anova.map(|x| RfAnovaResult {
+                                            importances: x.importances,
+                                            r_squared: x.r_squared,
+                                        }),
+                                        mdi: r.mdi.map(|x| MdiResult {
+                                            importances: x.importances,
+                                            r_squared: x.r_squared,
+                                        }),
+                                    },
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -238,9 +286,7 @@ pub fn show_chart(
             ui.label("3D Pareto chart requires GPU rendering (not yet wired up).");
         }
         ChartId::SensitivityHeatmap => {
-            widgets
-                .sensitivity_heatmap
-                .show(ui, app_state.sensitivity_result.as_ref());
+            widgets.sensitivity_heatmap.show(ui);
         }
         ChartId::ClusterScatter => {
             widgets.cluster_scatter.show(
