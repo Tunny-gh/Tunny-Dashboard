@@ -35,6 +35,15 @@ pub(super) fn normalize_objectives(objectives: &[Vec<f64>], is_minimize: &[bool]
         .collect()
 }
 
+/// 点をパレートフロントに追加する。支配されていれば何もしない。
+pub(super) fn add_to_pareto_front(front: &mut Vec<Vec<f64>>, point: Vec<f64>) {
+    if front.iter().any(|f| dominates_minimized(f, &point)) {
+        return;
+    }
+    front.retain(|f| !dominates_minimized(&point, f));
+    front.push(point);
+}
+
 /// Documentation.
 ///
 /// Documentation.

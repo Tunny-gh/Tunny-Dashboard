@@ -146,9 +146,6 @@ impl ParetoScatter2D {
             }
         }
 
-        // パレートフロント点を x 昇順にソートして線で結ぶ
-        pareto_pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
-
         egui_plot::Plot::new("pareto_2d_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
@@ -179,13 +176,6 @@ impl ParetoScatter2D {
                     );
                 }
                 if !pareto_pts.is_empty() {
-                    let line_pts: egui_plot::PlotPoints = pareto_pts.iter().copied().collect();
-                    plot_ui.line(
-                        egui_plot::Line::new(line_pts)
-                            .name("Pareto Front")
-                            .color(COLOR_PARETO)
-                            .width(1.5),
-                    );
                     plot_ui.points(
                         egui_plot::Points::new(pareto_pts)
                             .name("Pareto Front")

@@ -171,6 +171,39 @@ fn tc_201_b03_single_point() {
 }
 
 #[test]
+fn tc_hv_5d_monotonically_nondecreasing() {
+    let objs: Vec<Vec<f64>> = vec![
+        vec![1.0, 5.0, 3.0, 2.0, 4.0],
+        vec![5.0, 1.0, 2.0, 4.0, 3.0],
+        vec![2.0, 3.0, 1.0, 5.0, 2.0],
+        vec![4.0, 2.0, 5.0, 1.0, 1.0],
+        vec![3.0, 4.0, 4.0, 3.0, 5.0],
+        vec![0.5, 0.5, 0.5, 0.5, 0.5],
+    ];
+    let trial_ids: Vec<u32> = (0..objs.len() as u32).collect();
+    let is_min = [true; 5];
+    let result = compute_hv_history_from_data(&trial_ids, &objs, &is_min);
+    let hvs = &result.hv_values;
+    for i in 1..hvs.len() {
+        assert!(
+            hvs[i] >= hvs[i - 1] - 1e-9,
+            "HV decreased at step {}: {} -> {}",
+            i,
+            hvs[i - 1],
+            hvs[i]
+        );
+    }
+}
+
+#[test]
+fn tc_hv_nd_3d_known_value() {
+    let pts = vec![vec![1.0, 1.0, 1.0]];
+    let ref_pt = vec![2.0, 2.0, 2.0];
+    let hv = hypervolume_nd(&pts, &ref_pt);
+    assert!((hv - 1.0).abs() < 1e-9, "HV = {}, expected 1.0", hv);
+}
+
+#[test]
 fn tc_201_p01_ndsort_1000_points_under_100ms() {
     let n = 1_000usize;
     let objs: Vec<Vec<f64>> = (0..n)
