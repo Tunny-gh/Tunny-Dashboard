@@ -98,12 +98,10 @@ fn find_best_split(
                 break;
             }
 
-            let left_mse =
-                (left_sum_sq / n_left - (left_sum / n_left).powi(2)).max(0.0);
+            let left_mse = (left_sum_sq / n_left - (left_sum / n_left).powi(2)).max(0.0);
             let right_sum = total_sum - left_sum;
             let right_sum_sq = total_sum_sq - left_sum_sq;
-            let right_mse =
-                (right_sum_sq / n_right - (right_sum / n_right).powi(2)).max(0.0);
+            let right_mse = (right_sum_sq / n_right - (right_sum / n_right).powi(2)).max(0.0);
 
             let weighted_mse = (n_left * left_mse + n_right * right_mse) / n_f;
             let gain = parent_mse - weighted_mse;
@@ -235,18 +233,13 @@ fn extend_path(
         pweight: if unique_depth == 0 { 1.0 } else { 0.0 },
     };
     for i in (0..unique_depth).rev() {
-        path[i + 1].pweight +=
-            o * path[i].pweight * (i + 1) as f64 / (unique_depth + 1) as f64;
+        path[i + 1].pweight += o * path[i].pweight * (i + 1) as f64 / (unique_depth + 1) as f64;
         path[i].pweight *= z * (unique_depth - i) as f64 / (unique_depth + 1) as f64;
     }
 }
 
 /// Undo `extend_path` for the element at `path_index`, shifting the array left.
-fn unwind_path(
-    path: &mut [PathElement; PATH_SIZE],
-    unique_depth: usize,
-    path_index: usize,
-) {
+fn unwind_path(path: &mut [PathElement; PATH_SIZE], unique_depth: usize, path_index: usize) {
     let o = path[path_index].one_fraction;
     let z = path[path_index].zero_fraction;
     let mut next_one = path[unique_depth].pweight;
@@ -254,14 +247,11 @@ fn unwind_path(
     for i in (0..unique_depth).rev() {
         if o != 0.0 {
             let tmp = path[i].pweight;
-            path[i].pweight =
-                next_one * (unique_depth + 1) as f64 / ((i + 1) as f64 * o);
+            path[i].pweight = next_one * (unique_depth + 1) as f64 / ((i + 1) as f64 * o);
             next_one =
-                tmp - path[i].pweight * z * (unique_depth - i) as f64
-                    / (unique_depth + 1) as f64;
+                tmp - path[i].pweight * z * (unique_depth - i) as f64 / (unique_depth + 1) as f64;
         } else {
-            path[i].pweight *=
-                (unique_depth + 1) as f64 / (z * (unique_depth - i) as f64);
+            path[i].pweight *= (unique_depth + 1) as f64 / (z * (unique_depth - i) as f64);
         }
     }
     for i in path_index..unique_depth {
@@ -271,11 +261,7 @@ fn unwind_path(
 
 /// Compute the Shapley weight for the element at `path_index` without modifying
 /// the path (read-only equivalent of unwind + sum).
-fn unwound_sum(
-    path: &[PathElement; PATH_SIZE],
-    unique_depth: usize,
-    path_index: usize,
-) -> f64 {
+fn unwound_sum(path: &[PathElement; PATH_SIZE], unique_depth: usize, path_index: usize) -> f64 {
     let o = path[path_index].one_fraction;
     let z = path[path_index].zero_fraction;
     let mut next_one = path[unique_depth].pweight;
@@ -285,8 +271,7 @@ fn unwound_sum(
         if o != 0.0 {
             let tmp = path[i].pweight;
             let w = next_one * (unique_depth + 1) as f64 / ((i + 1) as f64 * o);
-            next_one =
-                tmp - w * z * (unique_depth - i) as f64 / (unique_depth + 1) as f64;
+            next_one = tmp - w * z * (unique_depth - i) as f64 / (unique_depth + 1) as f64;
             total += w;
         } else if z != 0.0 {
             total += path[i].pweight / z / (unique_depth - i) as f64;
@@ -322,8 +307,7 @@ fn tree_shap_recurse(
             let w = unwound_sum(&path, unique_depth, k);
             let f = path[k].feature;
             if f >= 0 && (f as usize) < phi.len() {
-                phi[f as usize] +=
-                    w * (path[k].one_fraction - path[k].zero_fraction) * node.value;
+                phi[f as usize] += w * (path[k].one_fraction - path[k].zero_fraction) * node.value;
             }
         }
         return;
@@ -344,8 +328,7 @@ fn tree_shap_recurse(
 
     // Check whether this feature already appears on the path (may happen with
     // repeated splits on the same feature axis).
-    let path_index_opt =
-        (1..=unique_depth).find(|&i| path[i].feature == feat as i32);
+    let path_index_opt = (1..=unique_depth).find(|&i| path[i].feature == feat as i32);
 
     if let Some(idx) = path_index_opt {
         let incoming_z = path[idx].zero_fraction;
@@ -355,17 +338,38 @@ fn tree_shap_recurse(
         unwind_path(&mut unwound, unique_depth, idx);
         let new_depth = unique_depth - 1;
         tree_shap_recurse(
-            hot, x, new_depth + 1, unwound,
-            hot_z * incoming_z, incoming_o, feat as i32, phi,
+            hot,
+            x,
+            new_depth + 1,
+            unwound,
+            hot_z * incoming_z,
+            incoming_o,
+            feat as i32,
+            phi,
         );
         tree_shap_recurse(
-            cold, x, new_depth + 1, unwound,
-            cold_z * incoming_z, 0.0, feat as i32, phi,
+            cold,
+            x,
+            new_depth + 1,
+            unwound,
+            cold_z * incoming_z,
+            0.0,
+            feat as i32,
+            phi,
         );
     } else {
         // PathElement is Copy — each branch gets an independent copy of path.
-        tree_shap_recurse(hot,  x, unique_depth + 1, path, hot_z,  1.0, feat as i32, phi);
-        tree_shap_recurse(cold, x, unique_depth + 1, path, cold_z, 0.0, feat as i32, phi);
+        tree_shap_recurse(hot, x, unique_depth + 1, path, hot_z, 1.0, feat as i32, phi);
+        tree_shap_recurse(
+            cold,
+            x,
+            unique_depth + 1,
+            path,
+            cold_z,
+            0.0,
+            feat as i32,
+            phi,
+        );
     }
 }
 
@@ -480,7 +484,12 @@ pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, 
             &y_sh[split_idx..],
         )
     } else {
-        (x_sh.as_slice(), x_sh.as_slice(), y_sh.as_slice(), y_sh.as_slice())
+        (
+            x_sh.as_slice(),
+            x_sh.as_slice(),
+            y_sh.as_slice(),
+            y_sh.as_slice(),
+        )
     };
 
     // ---- TreeSHAP: accumulate |phi_j| over all samples and trees ----
@@ -494,8 +503,7 @@ pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, 
 
     for _ in 0..RF_TREES {
         // Bootstrap sample
-        let boot_indices: Vec<usize> =
-            (0..n_train).map(|_| rng.next_usize(n_train)).collect();
+        let boot_indices: Vec<usize> = (0..n_train).map(|_| rng.next_usize(n_train)).collect();
 
         let tree = build_shap_tree(
             x_train,
@@ -515,16 +523,7 @@ pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, 
 
         for row in 0..n_train {
             phi.fill(0.0);
-            tree_shap_recurse(
-                &tree,
-                &x_train[row],
-                0,
-                empty_path,
-                1.0,
-                1.0,
-                -1,
-                &mut phi,
-            );
+            tree_shap_recurse(&tree, &x_train[row], 0, empty_path, 1.0, 1.0, -1, &mut phi);
             for j in 0..p {
                 phi_sum[j] += phi[j].abs();
             }

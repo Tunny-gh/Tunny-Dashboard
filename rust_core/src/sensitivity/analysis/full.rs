@@ -35,23 +35,20 @@ pub fn compute_sensitivity_single_obj(
         .unwrap_or_else(|| vec![0.0; n]);
 
     // Spearman and Ridge use different data layouts; build x_matrix only for tree-based metrics.
-    let x_matrix: Option<Vec<Vec<f64>>> =
-        match metric {
-            SensitivityMetric::RfAnova | SensitivityMetric::Mdi | SensitivityMetric::Shap => {
-                let param_cols: Vec<Vec<f64>> = param_names
-                    .iter()
-                    .map(|name| {
-                        get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n])
-                    })
-                    .collect();
-                Some(
-                    (0..n)
-                        .map(|row| param_cols.iter().map(|col| col[row]).collect())
-                        .collect(),
-                )
-            }
-            _ => None,
-        };
+    let x_matrix: Option<Vec<Vec<f64>>> = match metric {
+        SensitivityMetric::RfAnova | SensitivityMetric::Mdi | SensitivityMetric::Shap => {
+            let param_cols: Vec<Vec<f64>> = param_names
+                .iter()
+                .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
+                .collect();
+            Some(
+                (0..n)
+                    .map(|row| param_cols.iter().map(|col| col[row]).collect())
+                    .collect(),
+            )
+        }
+        _ => None,
+    };
 
     match metric {
         SensitivityMetric::Spearman => {
