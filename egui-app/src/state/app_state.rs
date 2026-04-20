@@ -131,6 +131,7 @@ mod tests {
                 ridge: vec![],
                 rf_anova: None,
                 mdi: None,
+                shap: None,
             },
         );
 

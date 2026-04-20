@@ -30,9 +30,13 @@ pub fn show_chart(
         return;
     }
 
-    // ParetoScatter2D は &mut AppState が必要なため、ctx を借用する前に処理する
+    // &mut AppState が必要なウィジェットは ctx を借用する前に処理する
     if matches!(chart_id, ChartId::ParetoScatter2D) {
         widgets.pareto_2d.show(ui, app_state);
+        return;
+    }
+    if matches!(chart_id, ChartId::ParetoScatter3D) {
+        widgets.pareto_3d.show(ui, app_state);
         return;
     }
 
@@ -290,9 +294,7 @@ pub fn show_chart(
                 &app_state.chart_colors,
             );
         }
-        ChartId::ParetoScatter3D => {
-            ui.label("3D Pareto chart requires GPU rendering (not yet wired up).");
-        }
+        ChartId::ParetoScatter3D => unreachable!(),
         ChartId::SensitivityHeatmap => {
             widgets.sensitivity_heatmap.show(ui);
         }

@@ -1,8 +1,8 @@
 use crate::ui::widgets::{
     cluster_scatter::ClusterScatter, hv_history::HvHistoryChart, importance_chart::ImportanceChart,
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
-    pareto_2d::ParetoScatter2D, pdp_2d::PdpChart2DState, pdp_chart::PdpChart,
-    scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
+    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
+    pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
 };
 
 /// 各チャートウィジェットの UI 状態をまとめて保持する
@@ -10,6 +10,7 @@ use crate::ui::widgets::{
 #[derive(Default)]
 pub struct WidgetStates {
     pub pareto_2d: ParetoScatter2D,
+    pub pareto_3d: Pareto3dChart,
     pub opt_history: OptimizationHistoryChart,
     pub hv_history: HvHistoryChart,
     pub importance: ImportanceChart,
