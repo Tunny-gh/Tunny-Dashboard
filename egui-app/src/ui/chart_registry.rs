@@ -101,7 +101,8 @@ pub fn show_chart(
 
             if let Some((metric, obj_idx)) = widgets.importance.pending_compute.take() {
                 use crate::state::results::{
-                    MdiResult, RfAnovaResult, RidgeResult, SensitivityResult, SobolResult,
+                    MdiResult, RfAnovaResult, RidgeResult, SensitivityResult, ShapResult,
+                    SobolResult,
                 };
                 use crate::ui::widgets::importance_chart::ImportanceMetric;
 
@@ -181,6 +182,9 @@ pub fn show_chart(
                                 ImportanceMetric::Mdi => {
                                     tunny_core::sensitivity::SensitivityMetric::Mdi
                                 }
+                                ImportanceMetric::Shap => {
+                                    tunny_core::sensitivity::SensitivityMetric::Shap
+                                }
                                 _ => unreachable!(),
                             };
                             let key = (metric.cache_id(), obj_idx);
@@ -216,6 +220,10 @@ pub fn show_chart(
                                             r_squared: x.r_squared,
                                         }),
                                         mdi: r.mdi.map(|x| MdiResult {
+                                            importances: x.importances,
+                                            r_squared: x.r_squared,
+                                        }),
+                                        shap: r.shap.map(|x| ShapResult {
                                             importances: x.importances,
                                             r_squared: x.r_squared,
                                         }),

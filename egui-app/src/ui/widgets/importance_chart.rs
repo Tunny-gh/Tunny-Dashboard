@@ -8,6 +8,7 @@ pub enum ImportanceMetric {
     Mdi,
     SobolFirst,
     SobolTotal,
+    Shap,
 }
 
 impl ImportanceMetric {
@@ -19,6 +20,7 @@ impl ImportanceMetric {
             ImportanceMetric::Mdi => "MDI",
             ImportanceMetric::SobolFirst => "Sobol First",
             ImportanceMetric::SobolTotal => "Sobol Total",
+            ImportanceMetric::Shap => "SHAP",
         }
     }
 
@@ -38,6 +40,7 @@ impl ImportanceMetric {
             ImportanceMetric::Mdi => 3,
             ImportanceMetric::SobolFirst => 4,
             ImportanceMetric::SobolTotal => 5,
+            ImportanceMetric::Shap => 6,
         }
     }
 }
@@ -79,17 +82,48 @@ impl ImportanceChart {
             egui::ComboBox::from_id_salt("importance_metric")
                 .selected_text(self.metric.label())
                 .show_ui(ui, |ui| {
-                    for metric in [
+                    ui.label(group_header("── Correlation / Linear ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
                         ImportanceMetric::Spearman,
+                        ImportanceMetric::Spearman.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.metric,
                         ImportanceMetric::Ridge,
+                        ImportanceMetric::Ridge.label(),
+                    );
+
+                    ui.separator();
+                    ui.label(group_header("── Tree-based ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
                         ImportanceMetric::RfAnova,
+                        ImportanceMetric::RfAnova.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.metric,
                         ImportanceMetric::Mdi,
+                        ImportanceMetric::Mdi.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.metric,
+                        ImportanceMetric::Shap,
+                        ImportanceMetric::Shap.label(),
+                    );
+
+                    ui.separator();
+                    ui.label(group_header("── Global Sensitivity ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
                         ImportanceMetric::SobolFirst,
+                        ImportanceMetric::SobolFirst.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.metric,
                         ImportanceMetric::SobolTotal,
-                    ] {
-                        let label = metric.label();
-                        ui.selectable_value(&mut self.metric, metric, label);
-                    }
+                        ImportanceMetric::SobolTotal.label(),
+                    );
                 });
 
             if obj_names.len() > 1 {
@@ -126,6 +160,10 @@ impl ImportanceChart {
                     .and_then(|r| r.mdi.as_ref())
                     .and_then(|m| m.r_squared.get(0))
                     .copied(),
+                ImportanceMetric::Shap => sensitivity
+                    .and_then(|r| r.shap.as_ref())
+                    .and_then(|s| s.r_squared.get(0))
+                    .copied(),
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                     sobol.and_then(|s| s.r_squared.get(0)).copied()
                 }
@@ -152,7 +190,8 @@ impl ImportanceChart {
             ImportanceMetric::Spearman
             | ImportanceMetric::Ridge
             | ImportanceMetric::RfAnova
-            | ImportanceMetric::Mdi => {
+            | ImportanceMetric::Mdi
+            | ImportanceMetric::Shap => {
                 let Some(result) = sensitivity else {
                     ui.label("No sensitivity data (start the computation first)");
                     return;
@@ -219,6 +258,10 @@ impl ImportanceChart {
     }
 }
 
+fn group_header(text: &str) -> egui::RichText {
+    egui::RichText::new(text).weak().small()
+}
+
 /// SensitivityResult から重要度スコアを降順でソートして返す
 pub fn compute_sorted_importance(
     result: &SensitivityResult,
@@ -252,6 +295,15 @@ pub fn compute_sorted_importance(
                 return vec![];
             };
             mdi.importances
+                .iter()
+                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
+                .collect()
+        }
+        ImportanceMetric::Shap => {
+            let Some(ref shap) = result.shap else {
+                return vec![];
+            };
+            shap.importances
                 .iter()
                 .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
                 .collect()
@@ -310,6 +362,7 @@ mod tests {
             ridge: vec![],
             rf_anova: None,
             mdi: None,
+            shap: None,
         }
     }
 
@@ -324,6 +377,7 @@ mod tests {
             }],
             rf_anova: None,
             mdi: None,
+            shap: None,
         }
     }
 
@@ -338,6 +392,7 @@ mod tests {
                 r_squared: vec![0.8],
             }),
             mdi: None,
+            shap: None,
         }
     }
 
@@ -352,6 +407,7 @@ mod tests {
                 importances,
                 r_squared: vec![0.8],
             }),
+            shap: None,
         }
     }
 

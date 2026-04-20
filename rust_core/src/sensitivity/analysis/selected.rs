@@ -85,6 +85,7 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
                 objective_names.len(),
             )),
             mdi: None,
+            shap: None,
         }
     })
 }

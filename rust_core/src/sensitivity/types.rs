@@ -5,6 +5,7 @@ pub enum SensitivityMetric {
     Ridge,
     RfAnova,
     Mdi,
+    Shap,
 }
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,7 @@ pub struct SensitivityResult {
     pub ridge: Vec<RidgeResult>,
     pub rf_anova: Option<RfAnovaResult>,
     pub mdi: Option<MdiResult>,
+    pub shap: Option<ShapResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,12 @@ pub struct RfAnovaResult {
 
 #[derive(Debug, Clone)]
 pub struct MdiResult {
+    pub importances: Vec<Vec<f64>>, // [param][objective]
+    pub r_squared: Vec<f64>,        // [objective]
+}
+
+#[derive(Debug, Clone)]
+pub struct ShapResult {
     pub importances: Vec<Vec<f64>>, // [param][objective]
     pub r_squared: Vec<f64>,        // [objective]
 }

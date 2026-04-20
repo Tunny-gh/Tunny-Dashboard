@@ -1,12 +1,12 @@
 use crate::dataframe::DataFrame;
 
 use super::super::{
-    compute_mdi_importances, compute_rf_anova_importances, compute_spearman,
-    data::get_param_numeric_values, SensitivityMetric, SensitivityResult,
+    compute_mdi_importances, compute_rf_anova_importances, compute_shap_importances,
+    compute_spearman, data::get_param_numeric_values, SensitivityMetric, SensitivityResult,
 };
 use super::common::{
     build_standardized_param_columns, compute_ridge_from_standardized_columns, empty_result,
-    transpose_mdi_importances, transpose_rf_anova_importances,
+    transpose_mdi_importances, transpose_rf_anova_importances, transpose_shap_importances,
 };
 
 /// Computes sensitivity for a single objective and a single metric only.
@@ -34,6 +34,25 @@ pub fn compute_sensitivity_single_obj(
         .map(|col| col[..n].to_vec())
         .unwrap_or_else(|| vec![0.0; n]);
 
+    // Spearman and Ridge use different data layouts; build x_matrix only for tree-based metrics.
+    let x_matrix: Option<Vec<Vec<f64>>> =
+        match metric {
+            SensitivityMetric::RfAnova | SensitivityMetric::Mdi | SensitivityMetric::Shap => {
+                let param_cols: Vec<Vec<f64>> = param_names
+                    .iter()
+                    .map(|name| {
+                        get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n])
+                    })
+                    .collect();
+                Some(
+                    (0..n)
+                        .map(|row| param_cols.iter().map(|col| col[row]).collect())
+                        .collect(),
+                )
+            }
+            _ => None,
+        };
+
     match metric {
         SensitivityMetric::Spearman => {
             let spearman: Vec<Vec<f64>> = param_names
@@ -50,6 +69,7 @@ pub fn compute_sensitivity_single_obj(
                 ridge: vec![],
                 rf_anova: None,
                 mdi: None,
+                shap: None,
             }
         }
         SensitivityMetric::Ridge => {
@@ -62,16 +82,11 @@ pub fn compute_sensitivity_single_obj(
                 ridge,
                 rf_anova: None,
                 mdi: None,
+                shap: None,
             }
         }
         SensitivityMetric::RfAnova => {
-            let param_cols: Vec<Vec<f64>> = param_names
-                .iter()
-                .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
-                .collect();
-            let x_matrix: Vec<Vec<f64>> = (0..n)
-                .map(|row| param_cols.iter().map(|col| col[row]).collect())
-                .collect();
+            let x_matrix = x_matrix.unwrap();
             let (imp, r2) = compute_rf_anova_importances(&x_matrix, &y);
             let rf_anova = Some(transpose_rf_anova_importances(
                 &[imp],
@@ -86,16 +101,11 @@ pub fn compute_sensitivity_single_obj(
                 ridge: vec![],
                 rf_anova,
                 mdi: None,
+                shap: None,
             }
         }
         SensitivityMetric::Mdi => {
-            let param_cols: Vec<Vec<f64>> = param_names
-                .iter()
-                .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
-                .collect();
-            let x_matrix: Vec<Vec<f64>> = (0..n)
-                .map(|row| param_cols.iter().map(|col| col[row]).collect())
-                .collect();
+            let x_matrix = x_matrix.unwrap();
             let (imp, r2) = compute_mdi_importances(&x_matrix, &y);
             let mdi = Some(transpose_mdi_importances(
                 &[imp],
@@ -110,6 +120,26 @@ pub fn compute_sensitivity_single_obj(
                 ridge: vec![],
                 rf_anova: None,
                 mdi,
+                shap: None,
+            }
+        }
+        SensitivityMetric::Shap => {
+            let x_matrix = x_matrix.unwrap();
+            let (imp, r2) = compute_shap_importances(&x_matrix, &y);
+            let shap = Some(transpose_shap_importances(
+                &[imp],
+                vec![r2],
+                param_names.len(),
+                1,
+            ));
+            SensitivityResult {
+                param_names,
+                objective_names: vec![objective_name],
+                spearman: vec![],
+                ridge: vec![],
+                rf_anova: None,
+                mdi: None,
+                shap,
             }
         }
     }
@@ -230,5 +260,6 @@ fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityRes
             objective_names.len(),
         )),
         mdi,
+        shap: None,
     }
 }

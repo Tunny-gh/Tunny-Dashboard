@@ -3,7 +3,7 @@ use crate::dataframe::DataFrame;
 use super::super::{
     data::get_param_numeric_values,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    MdiResult, RfAnovaResult, RidgeResult, SensitivityResult,
+    MdiResult, RfAnovaResult, RidgeResult, SensitivityResult, ShapResult,
 };
 
 pub(super) fn empty_result(
@@ -17,6 +17,7 @@ pub(super) fn empty_result(
         ridge: vec![],
         rf_anova: None,
         mdi: None,
+        shap: None,
     }
 }
 
@@ -154,6 +155,22 @@ pub(super) fn transpose_rf_anova_importances(
     objective_count: usize,
 ) -> RfAnovaResult {
     RfAnovaResult {
+        importances: transpose_importances_matrix(
+            importances_by_objective,
+            param_count,
+            objective_count,
+        ),
+        r_squared,
+    }
+}
+
+pub(super) fn transpose_shap_importances(
+    importances_by_objective: &[Vec<f64>],
+    r_squared: Vec<f64>,
+    param_count: usize,
+    objective_count: usize,
+) -> ShapResult {
+    ShapResult {
         importances: transpose_importances_matrix(
             importances_by_objective,
             param_count,
