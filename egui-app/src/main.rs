@@ -1,4 +1,5 @@
 // Widget APIs are defined ahead of full UI wiring; suppress dead_code for now
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![allow(dead_code)]
 
 mod app;
