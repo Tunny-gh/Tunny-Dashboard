@@ -1,5 +1,6 @@
 use crate::state::app_state::{
-    ClusterResult, GpuBufferData, SensitivityResult, SobolResult, StudyMeta, TopsisResult, TrialRow,
+    ClusterResult, GpuBufferData, McdmResult, SensitivityResult, SobolResult, StudyMeta,
+    TopsisResult, TrialRow,
 };
 
 // ============================================================
@@ -73,6 +74,7 @@ pub enum AppMessage {
     },
     ClusteringDone(ClusterResult),
     TopsisDone(TopsisResult),
+    McdmDone(McdmResult),
     PdpDone {
         param: String,
         objective: String,

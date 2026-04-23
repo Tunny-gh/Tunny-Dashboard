@@ -10,8 +10,9 @@ pub enum Direction {
     Maximize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum TrialState {
+    #[default]
     Complete,
     Running,
     Pruned,
@@ -32,7 +33,7 @@ pub struct StudyMeta {
     pub has_constraints: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TrialRow {
     pub trial_id: u32,
     /// Study内での0始まり連番（表示用）
@@ -89,6 +90,7 @@ pub enum ColorMode {
     ObjectiveValue(String),
     TrialNumber,
     ClusterId,
+    McdmScore,
 }
 
 impl ColorMode {
@@ -98,6 +100,7 @@ impl ColorMode {
             ColorMode::ObjectiveValue(_) => "Objective",
             ColorMode::TrialNumber => "Trial Number",
             ColorMode::ClusterId => "Cluster ID",
+            ColorMode::McdmScore => "MCDM Score",
         }
     }
 }

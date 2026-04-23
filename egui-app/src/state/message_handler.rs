@@ -52,6 +52,10 @@ impl MessageHandler {
             AppMessage::TopsisDone(result) => {
                 app_state.topsis_result = Some(result);
             }
+            AppMessage::McdmDone(result) => {
+                app_state.mcdm_result = Some(result);
+                widget_states.mcdm_chart.computing = false;
+            }
             AppMessage::DownsampleDone { key, indices } => match key {
                 DownsampleKey::Scatter => app_state.downsample_cache.scatter = Some(indices),
                 DownsampleKey::Pcp => app_state.downsample_cache.pcp = Some(indices),

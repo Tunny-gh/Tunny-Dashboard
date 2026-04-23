@@ -1,6 +1,7 @@
 pub mod cluster_scatter;
 pub mod hv_history;
 pub mod importance_chart;
+pub mod mcdm_chart;
 pub mod optimization_history;
 pub mod parallel_coords;
 pub mod pareto_2d;

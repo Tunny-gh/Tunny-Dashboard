@@ -55,7 +55,62 @@ pub struct ClusterResult {
 #[derive(Debug, Clone)]
 pub struct TopsisResult {
     pub scores: Vec<f64>,
-    pub ranking: Vec<usize>,
+    pub ranked_indices: Vec<u32>,
+    pub positive_ideal: Vec<f64>,
+    pub negative_ideal: Vec<f64>,
+    pub duration_ms: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McdmMethod {
+    Topsis,
+}
+
+impl McdmMethod {
+    pub fn label(&self) -> &'static str {
+        match self {
+            McdmMethod::Topsis => "TOPSIS",
+        }
+    }
+
+    pub fn all() -> &'static [McdmMethod] {
+        &[McdmMethod::Topsis]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum McdmResult {
+    Topsis(TopsisResult),
+}
+
+impl McdmResult {
+    pub fn primary_scores(&self) -> &[f64] {
+        match self {
+            McdmResult::Topsis(r) => &r.scores,
+        }
+    }
+
+    pub fn ranked_indices(&self) -> &[u32] {
+        match self {
+            McdmResult::Topsis(r) => &r.ranked_indices,
+        }
+    }
+
+    pub fn duration_ms(&self) -> f64 {
+        match self {
+            McdmResult::Topsis(r) => r.duration_ms,
+        }
+    }
+
+    pub fn method(&self) -> McdmMethod {
+        match self {
+            McdmResult::Topsis(_) => McdmMethod::Topsis,
+        }
+    }
+
+    pub fn method_label(&self) -> &'static str {
+        self.method().label()
+    }
 }
 
 /// Hypervolume 推移データ
@@ -105,5 +160,85 @@ mod tests {
         assert!(state.file_path.is_none());
         assert_eq!(state.last_byte_offset, 0);
         assert_eq!(state.interval_ms, 2000);
+    }
+
+    // McdmMethod tests
+    #[test]
+    fn mcdm_method_label() {
+        assert_eq!(McdmMethod::Topsis.label(), "TOPSIS");
+    }
+
+    #[test]
+    fn mcdm_method_all() {
+        assert_eq!(McdmMethod::all(), &[McdmMethod::Topsis]);
+    }
+
+    // McdmResult tests
+    #[test]
+    fn mcdm_result_topsis_primary_scores() {
+        let result = McdmResult::Topsis(TopsisResult {
+            scores: vec![0.8, 0.6, 0.9],
+            ranked_indices: vec![2, 0, 1],
+            positive_ideal: vec![1.0],
+            negative_ideal: vec![0.0],
+            duration_ms: 12.5,
+        });
+        assert_eq!(result.primary_scores(), &[0.8, 0.6, 0.9]);
+    }
+
+    #[test]
+    fn mcdm_result_topsis_ranked_indices() {
+        let result = McdmResult::Topsis(TopsisResult {
+            scores: vec![0.8, 0.6, 0.9],
+            ranked_indices: vec![2, 0, 1],
+            positive_ideal: vec![1.0],
+            negative_ideal: vec![0.0],
+            duration_ms: 12.5,
+        });
+        assert_eq!(result.ranked_indices(), &[2, 0, 1]);
+    }
+
+    #[test]
+    fn mcdm_result_topsis_method_label() {
+        let result = McdmResult::Topsis(TopsisResult {
+            scores: vec![0.5],
+            ranked_indices: vec![0],
+            positive_ideal: vec![1.0],
+            negative_ideal: vec![0.0],
+            duration_ms: 1.0,
+        });
+        assert_eq!(result.method_label(), "TOPSIS");
+    }
+
+    #[test]
+    fn topsis_result_all_fields() {
+        let r = TopsisResult {
+            scores: vec![0.9, 0.1],
+            ranked_indices: vec![0, 1],
+            positive_ideal: vec![0.5, 0.5],
+            negative_ideal: vec![0.1, 0.1],
+            duration_ms: 42.0,
+        };
+        assert_eq!(r.scores.len(), 2);
+        assert_eq!(r.ranked_indices.len(), 2);
+        assert_eq!(r.positive_ideal.len(), 2);
+        assert_eq!(r.negative_ideal.len(), 2);
+        assert!((r.duration_ms - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn mcdm_result_wrap_topsis_integration() {
+        let topsis = TopsisResult {
+            scores: vec![0.8, 0.6, 0.9],
+            ranked_indices: vec![2, 0, 1],
+            positive_ideal: vec![1.0],
+            negative_ideal: vec![0.0],
+            duration_ms: 12.5,
+        };
+        let mcdm = McdmResult::Topsis(topsis);
+        assert_eq!(mcdm.primary_scores(), &[0.8, 0.6, 0.9]);
+        assert_eq!(mcdm.ranked_indices(), &[2, 0, 1]);
+        assert!((mcdm.duration_ms() - 12.5).abs() < f64::EPSILON);
+        assert_eq!(mcdm.method_label(), "TOPSIS");
     }
 }

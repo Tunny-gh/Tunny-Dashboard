@@ -11,6 +11,8 @@ pub enum ChartId {
     HvHistory,
     SensitivityHeatmap,
     ClusterScatter,
+    McdmRankChart,
+    McdmTable,
 }
 
 impl ChartId {
@@ -27,6 +29,8 @@ impl ChartId {
             ChartId::HvHistory,
             ChartId::SensitivityHeatmap,
             ChartId::ClusterScatter,
+            ChartId::McdmRankChart,
+            ChartId::McdmTable,
         ]
     }
 
@@ -43,6 +47,8 @@ impl ChartId {
             ChartId::HvHistory => "Hypervolume History",
             ChartId::SensitivityHeatmap => "Sensitivity Heatmap",
             ChartId::ClusterScatter => "Cluster Scatter",
+            ChartId::McdmRankChart => "MCDM Ranking",
+            ChartId::McdmTable => "MCDM Table",
         }
     }
 }

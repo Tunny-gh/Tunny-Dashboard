@@ -226,7 +226,7 @@ pub fn normalize_trial(
             }
         }
         ColorMode::TrialNumber => trial.trial_number as f32 / max_trial_number.max(1) as f32,
-        ColorMode::ClusterId => 0.5,
+        ColorMode::ClusterId | ColorMode::McdmScore => 0.5,
     }
 }
 
@@ -236,6 +236,7 @@ pub fn compute_chart_colors(
     colormap_name: &ColormapName,
     trial_rows: &[TrialRow],
     objective_names: &[String],
+    mcdm_scores: Option<&[f64]>,
 ) -> Vec<egui::Color32> {
     let cmap = colormap_name.to_colormap();
     let palette = tab10_palette();
@@ -259,10 +260,19 @@ pub fn compute_chart_colors(
 
     trial_rows
         .iter()
-        .map(|trial| match color_mode {
+        .enumerate()
+        .map(|(i, trial)| match color_mode {
             ColorMode::ClusterId => {
                 if let Some(id) = trial.cluster_id {
                     palette[(id.unsigned_abs() as usize) % palette.len()]
+                } else {
+                    egui::Color32::LIGHT_GRAY
+                }
+            }
+            ColorMode::McdmScore => {
+                if let Some(scores) = mcdm_scores {
+                    let score = scores.get(i).copied().unwrap_or(0.0);
+                    cmap.interpolate(score as f32)
                 } else {
                     egui::Color32::LIGHT_GRAY
                 }
@@ -418,8 +428,13 @@ mod tests {
                 user_attrs: HashMap::new(),
             },
         ];
-        let colors =
-            compute_chart_colors(&ColorMode::ParetoRank, &ColormapName::Viridis, &rows, &[]);
+        let colors = compute_chart_colors(
+            &ColorMode::ParetoRank,
+            &ColormapName::Viridis,
+            &rows,
+            &[],
+            None,
+        );
         assert_eq!(colors.len(), 2);
     }
 
@@ -449,8 +464,13 @@ mod tests {
                 user_attrs: HashMap::new(),
             },
         ];
-        let colors =
-            compute_chart_colors(&ColorMode::ParetoRank, &ColormapName::Viridis, &rows, &[]);
+        let colors = compute_chart_colors(
+            &ColorMode::ParetoRank,
+            &ColormapName::Viridis,
+            &rows,
+            &[],
+            None,
+        );
         assert_ne!(
             colors[0], colors[1],
             "different ranks should have different colors"
@@ -483,8 +503,13 @@ mod tests {
                 user_attrs: HashMap::new(),
             },
         ];
-        let colors =
-            compute_chart_colors(&ColorMode::ClusterId, &ColormapName::Viridis, &rows, &[]);
+        let colors = compute_chart_colors(
+            &ColorMode::ClusterId,
+            &ColormapName::Viridis,
+            &rows,
+            &[],
+            None,
+        );
         let palette = tab10_palette();
         assert_eq!(colors[0], palette[0]);
         assert_eq!(colors[1], palette[1]);
@@ -504,8 +529,89 @@ mod tests {
             state: TrialState::Complete,
             user_attrs: HashMap::new(),
         }];
-        let colors =
-            compute_chart_colors(&ColorMode::ClusterId, &ColormapName::Viridis, &rows, &[]);
+        let colors = compute_chart_colors(
+            &ColorMode::ClusterId,
+            &ColormapName::Viridis,
+            &rows,
+            &[],
+            None,
+        );
         assert_eq!(colors[0], egui::Color32::LIGHT_GRAY);
+    }
+
+    #[test]
+    fn compute_chart_colors_mcdm_score_with_scores() {
+        use crate::state::app_state::TrialState;
+        use std::collections::HashMap;
+        let rows = vec![
+            TrialRow {
+                trial_id: 0,
+                trial_number: 0,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+            TrialRow {
+                trial_id: 1,
+                trial_number: 1,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            },
+        ];
+        let scores = vec![0.0, 1.0];
+        let colors = compute_chart_colors(
+            &ColorMode::McdmScore,
+            &ColormapName::Viridis,
+            &rows,
+            &[],
+            Some(&scores),
+        );
+        assert_eq!(colors.len(), 2);
+        // score 0.0 → first stop, score 1.0 → last stop
+        assert_eq!(colors[0], ColorMap::viridis().interpolate(0.0));
+        assert_eq!(colors[1], ColorMap::viridis().interpolate(1.0));
+    }
+
+    #[test]
+    fn compute_chart_colors_mcdm_score_none_is_gray() {
+        use crate::state::app_state::TrialState;
+        use std::collections::HashMap;
+        let rows = vec![TrialRow {
+            trial_id: 0,
+            trial_number: 0,
+            params: HashMap::new(),
+            objectives: vec![],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        }];
+        let colors = compute_chart_colors(
+            &ColorMode::McdmScore,
+            &ColormapName::Viridis,
+            &rows,
+            &[],
+            None,
+        );
+        assert_eq!(colors[0], egui::Color32::LIGHT_GRAY);
+    }
+
+    #[test]
+    fn compute_chart_colors_mcdm_empty_scores() {
+        let colors = compute_chart_colors(
+            &ColorMode::McdmScore,
+            &ColormapName::Viridis,
+            &[],
+            &[],
+            Some(&[]),
+        );
+        assert!(colors.is_empty());
     }
 }

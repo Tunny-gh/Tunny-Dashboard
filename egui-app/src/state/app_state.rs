@@ -23,6 +23,7 @@ pub struct AppState {
     pub downsample_cache: DownsampleCache,
     pub live_update: LiveUpdateState,
     pub topsis_result: Option<TopsisResult>,
+    pub mcdm_result: Option<McdmResult>,
     pub hv_history: Option<HvHistory>,
     pub selected_colormap: ColormapName,
     pub chart_colors: Vec<egui::Color32>,
@@ -44,6 +45,7 @@ impl AppState {
             downsample_cache: DownsampleCache::default(),
             live_update: LiveUpdateState::default(),
             topsis_result: None,
+            mcdm_result: None,
             hv_history: None,
             selected_colormap: ColormapName::Viridis,
             chart_colors: Vec::new(),
@@ -64,6 +66,7 @@ impl AppState {
         self.sobol_cache.clear();
         self.cluster_result = None;
         self.topsis_result = None;
+        self.mcdm_result = None;
         self.hv_history = None;
         self.downsample_cache.clear();
         self.chart_colors.clear();
@@ -77,11 +80,13 @@ impl AppState {
             let colormap_name = self.selected_colormap.clone();
             let trial_rows = &ctx.trial_rows;
             let objective_names = &ctx.meta.objective_names;
+            let mcdm_scores = self.mcdm_result.as_ref().map(|r| r.primary_scores());
             self.chart_colors = crate::render::colormap::compute_chart_colors(
                 &color_mode,
                 &colormap_name,
                 trial_rows,
                 objective_names,
+                mcdm_scores,
             );
         } else {
             self.chart_colors.clear();

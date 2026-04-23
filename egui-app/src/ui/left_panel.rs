@@ -129,6 +129,15 @@ fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
                     )
                     .changed();
             }
+            if app_state.mcdm_result.is_some() {
+                changed |= ui
+                    .selectable_value(
+                        &mut app_state.color_mode,
+                        ColorMode::McdmScore,
+                        "MCDM Score",
+                    )
+                    .changed();
+            }
         });
     if changed {
         app_state.update_chart_colors();
@@ -186,6 +195,7 @@ mod tests {
         assert_eq!(ColorMode::ParetoRank.label(), "Pareto Rank");
         assert_eq!(ColorMode::TrialNumber.label(), "Trial Number");
         assert_eq!(ColorMode::ClusterId.label(), "Cluster ID");
+        assert_eq!(ColorMode::McdmScore.label(), "MCDM Score");
         assert_eq!(
             ColorMode::ObjectiveValue("y".to_string()).label(),
             "Objective"
@@ -203,9 +213,11 @@ mod tests {
     #[test]
     fn chart_id_all_returns_all_variants() {
         let all = ChartId::all();
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 13);
         assert!(all.contains(&ChartId::ParetoScatter2D));
         assert!(all.contains(&ChartId::ClusterScatter));
+        assert!(all.contains(&ChartId::McdmRankChart));
+        assert!(all.contains(&ChartId::McdmTable));
     }
 
     #[test]

@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
+use crate::state::results::McdmMethod;
 use crate::ui::widget_states::WidgetStates;
 
 /// タイトルと区切り線付きでチャートを描画する
@@ -306,6 +307,63 @@ pub fn show_chart(
                 param_names,
                 &app_state.chart_colors,
             );
+        }
+        ChartId::McdmRankChart => {
+            widgets
+                .mcdm_chart
+                .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
+
+            if let Some((method, weights)) = widgets.mcdm_chart.pending_compute.take() {
+                widgets.mcdm_chart.computing = true;
+
+                let objectives: Vec<f64> = trial_rows
+                    .iter()
+                    .flat_map(|r| r.objectives.iter().copied())
+                    .collect();
+                let n_trials = trial_rows.len();
+                let n_objectives = obj_names.len();
+                let is_minimize: Vec<bool> = directions
+                    .iter()
+                    .map(|d| matches!(d, Direction::Minimize))
+                    .collect();
+
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    let start = std::time::Instant::now();
+
+                    match method {
+                        McdmMethod::Topsis => {
+                            match tunny_core::topsis::compute_topsis(
+                                &objectives,
+                                n_trials,
+                                n_objectives,
+                                &weights,
+                                &is_minimize,
+                            ) {
+                                Ok(r) => {
+                                    AppMessage::McdmDone(crate::state::results::McdmResult::Topsis(
+                                        crate::state::results::TopsisResult {
+                                            scores: r.scores,
+                                            ranked_indices: r.ranked_indices,
+                                            positive_ideal: r.positive_ideal,
+                                            negative_ideal: r.negative_ideal,
+                                            duration_ms: start.elapsed().as_secs_f64() * 1000.0,
+                                        },
+                                    ))
+                                }
+                                Err(e) => {
+                                    AppMessage::Error(format!("TOPSIS computation failed: {}", e))
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        ChartId::McdmTable => {
+            widgets
+                .mcdm_table
+                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
         }
     }
 }

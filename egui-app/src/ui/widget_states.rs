@@ -1,5 +1,6 @@
 use crate::ui::widgets::{
     cluster_scatter::ClusterScatter, hv_history::HvHistoryChart, importance_chart::ImportanceChart,
+    mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
     pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
     pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
@@ -20,4 +21,6 @@ pub struct WidgetStates {
     pub scatter_matrix: ScatterMatrix,
     pub sensitivity_heatmap: SensitivityHeatmap,
     pub cluster_scatter: ClusterScatter,
+    pub mcdm_chart: McdmRankChart,
+    pub mcdm_table: McdmTable,
 }
