@@ -150,22 +150,22 @@ impl ImportanceChart {
             let r2_opt: Option<f64> = match self.metric {
                 ImportanceMetric::Spearman => None,
                 ImportanceMetric::Ridge => sensitivity
-                    .and_then(|r| r.ridge.get(0))
+                    .and_then(|r| r.ridge.first())
                     .map(|ridge| ridge.r_squared),
                 ImportanceMetric::RfAnova => sensitivity
                     .and_then(|r| r.rf_anova.as_ref())
-                    .and_then(|rf| rf.r_squared.get(0))
+                    .and_then(|rf| rf.r_squared.first())
                     .copied(),
                 ImportanceMetric::Mdi => sensitivity
                     .and_then(|r| r.mdi.as_ref())
-                    .and_then(|m| m.r_squared.get(0))
+                    .and_then(|m| m.r_squared.first())
                     .copied(),
                 ImportanceMetric::Shap => sensitivity
                     .and_then(|r| r.shap.as_ref())
-                    .and_then(|s| s.r_squared.get(0))
+                    .and_then(|s| s.r_squared.first())
                     .copied(),
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                    sobol.and_then(|s| s.r_squared.get(0)).copied()
+                    sobol.and_then(|s| s.r_squared.first()).copied()
                 }
             };
             if let Some(r2) = r2_opt {

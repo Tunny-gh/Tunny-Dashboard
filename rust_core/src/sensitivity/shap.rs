@@ -115,7 +115,7 @@ fn find_best_split(
     best_feat.map(|f| (f, best_thresh))
 }
 
-fn partition_in_place(v: &mut Vec<usize>, pred: impl Fn(usize) -> bool) -> usize {
+fn partition_in_place(v: &mut [usize], pred: impl Fn(usize) -> bool) -> usize {
     let mut pivot = 0;
     for i in 0..v.len() {
         if pred(v[i]) {
@@ -126,6 +126,7 @@ fn partition_in_place(v: &mut Vec<usize>, pred: impl Fn(usize) -> bool) -> usize
     pivot
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_shap_tree(
     x: &[Vec<f64>],
     y: &[f64],
@@ -288,6 +289,7 @@ fn unwound_sum(path: &[PathElement; PATH_SIZE], unique_depth: usize, path_index:
 ///
 /// `path` is passed by value (Copy) so each branch receives an independent copy.
 /// `unique_depth` is the position at which the current call will call extend_path.
+#[allow(clippy::too_many_arguments)]
 fn tree_shap_recurse(
     node: &ShapNode,
     x: &[f64],
@@ -521,9 +523,9 @@ pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, 
         let mut phi = vec![0.0_f64; p];
         let empty_path = [PathElement::default(); PATH_SIZE];
 
-        for row in 0..n_train {
+        for row in x_train.iter().take(n_train) {
             phi.fill(0.0);
-            tree_shap_recurse(&tree, &x_train[row], 0, empty_path, 1.0, 1.0, -1, &mut phi);
+            tree_shap_recurse(&tree, row, 0, empty_path, 1.0, 1.0, -1, &mut phi);
             for j in 0..p {
                 phi_sum[j] += phi[j].abs();
             }

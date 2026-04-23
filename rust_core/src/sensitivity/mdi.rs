@@ -83,6 +83,7 @@ fn find_best_split_with_gain_idx(
     best_feat.map(|f| (f, best_thresh, best_gain))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_mdi_tree_idx(
     x: &[Vec<f64>],
     y: &[f64],
@@ -154,7 +155,7 @@ fn build_mdi_tree_idx(
     }
 }
 
-fn partition_in_place<T, F: Fn(&T) -> bool>(v: &mut Vec<T>, pred: F) -> usize {
+fn partition_in_place<T, F: Fn(&T) -> bool>(v: &mut [T], pred: F) -> usize {
     let mut pivot = 0;
     for i in 0..v.len() {
         if pred(&v[i]) {

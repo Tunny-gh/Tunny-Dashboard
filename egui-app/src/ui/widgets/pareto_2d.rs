@@ -137,12 +137,10 @@ impl ParetoScatter2D {
                 } else {
                     pareto_pts_dim.push(pt);
                 }
+            } else if is_selected {
+                non_pareto_pts.push(pt);
             } else {
-                if is_selected {
-                    non_pareto_pts.push(pt);
-                } else {
-                    non_pareto_pts_dim.push(pt);
-                }
+                non_pareto_pts_dim.push(pt);
             }
         }
 

@@ -101,8 +101,10 @@ impl Default for Pareto3dChart {
     fn default() -> Self {
         // Y軸45° + X軸-30° のアイソメトリック初期視点
         // quat_mul(q_y(45°), q_x(-30°)) ≈ [-0.239, 0.370, 0.099, 0.892]
-        let mut camera = ArcballCamera::default();
-        camera.rotation = [-0.2391, 0.3696, 0.0990, 0.8924];
+        let camera = ArcballCamera {
+            rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
+            ..Default::default()
+        };
         Self {
             x_objective: 0,
             y_objective: 1,
