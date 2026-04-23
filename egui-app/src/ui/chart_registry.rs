@@ -5,6 +5,7 @@ use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
 use crate::state::results::McdmMethod;
 use crate::ui::widget_states::WidgetStates;
+use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
 
 /// タイトルと区切り線付きでチャートを描画する
 pub fn show_cell_chart(
@@ -313,8 +314,10 @@ pub fn show_chart(
                 .mcdm_chart
                 .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
 
-            if let Some((method, weights)) = widgets.mcdm_chart.pending_compute.take() {
+            if let Some(req) = widgets.mcdm_chart.pending_compute.take() {
                 widgets.mcdm_chart.computing = true;
+
+                let McdmComputeRequest { method, weights, v } = req;
 
                 let objectives: Vec<f64> = trial_rows
                     .iter()
@@ -353,6 +356,34 @@ pub fn show_chart(
                                 }
                                 Err(e) => {
                                     AppMessage::Error(format!("TOPSIS computation failed: {}", e))
+                                }
+                            }
+                        }
+                        McdmMethod::Vikor => {
+                            match tunny_core::vikor::compute_vikor(
+                                &objectives,
+                                n_trials,
+                                n_objectives,
+                                &weights,
+                                &is_minimize,
+                                v,
+                            ) {
+                                Ok(r) => {
+                                    AppMessage::McdmDone(crate::state::results::McdmResult::Vikor(
+                                        crate::state::results::VikorResult {
+                                            s_values: r.s_values,
+                                            r_values: r.r_values,
+                                            q_values: r.q_values,
+                                            display_scores: r.display_scores,
+                                            ranked_indices: r.ranked_indices,
+                                            best_values: r.best_values,
+                                            worst_values: r.worst_values,
+                                            duration_ms: start.elapsed().as_secs_f64() * 1000.0,
+                                        },
+                                    ))
+                                }
+                                Err(e) => {
+                                    AppMessage::Error(format!("VIKOR computation failed: {}", e))
                                 }
                             }
                         }

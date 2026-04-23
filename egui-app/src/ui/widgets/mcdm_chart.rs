@@ -1,6 +1,13 @@
 use crate::state::app_state::TrialRow;
 use crate::state::results::{McdmMethod, McdmResult};
 
+/// MCDM compute request payload
+pub struct McdmComputeRequest {
+    pub method: McdmMethod,
+    pub weights: Vec<f64>,
+    pub v: f64,
+}
+
 /// 上位N件表示切替
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McdmTopN {
@@ -41,8 +48,9 @@ impl McdmTopN {
 pub struct McdmRankChart {
     pub method: McdmMethod,
     pub weights: Vec<f64>,
+    pub v_param: f64,
     pub computing: bool,
-    pub pending_compute: Option<(McdmMethod, Vec<f64>)>,
+    pub pending_compute: Option<McdmComputeRequest>,
     pub top_n: McdmTopN,
 }
 
@@ -51,6 +59,7 @@ impl Default for McdmRankChart {
         Self {
             method: McdmMethod::Topsis,
             weights: Vec::new(),
+            v_param: 0.5,
             computing: false,
             pending_compute: None,
             top_n: McdmTopN::Top10,
@@ -121,7 +130,11 @@ impl McdmRankChart {
                 .clicked()
             {
                 let normalized = normalize_weights(&self.weights);
-                self.pending_compute = Some((self.method, normalized));
+                self.pending_compute = Some(McdmComputeRequest {
+                    method: self.method,
+                    weights: normalized,
+                    v: self.v_param,
+                });
                 self.computing = true;
             }
 
@@ -151,6 +164,14 @@ impl McdmRankChart {
             }
             let norm_sum: f64 = normalized.iter().sum();
             ui.label(format!("Sum: {:.2}", norm_sum));
+
+            if self.method == McdmMethod::Vikor {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Strategy weight v").strong());
+                    ui.add(egui::Slider::new(&mut self.v_param, 0.0..=1.0).text("v"));
+                    ui.label("(0=min-regret, 1=max-consensus)");
+                });
+            }
         });
 
         ui.separator();
@@ -441,6 +462,7 @@ mod tests {
         assert!(chart.pending_compute.is_none());
         assert_eq!(chart.top_n, McdmTopN::Top10);
         assert!(chart.weights.is_empty());
+        assert!((chart.v_param - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -677,7 +699,11 @@ mod tests {
         assert!(!chart.computing);
 
         let normalized = normalize_weights(&[1.0, 1.0]);
-        chart.pending_compute = Some((McdmMethod::Topsis, normalized));
+        chart.pending_compute = Some(McdmComputeRequest {
+            method: McdmMethod::Topsis,
+            weights: normalized,
+            v: 0.5,
+        });
         chart.computing = true;
 
         assert!(chart.pending_compute.is_some());
@@ -687,6 +713,17 @@ mod tests {
         assert!(payload.is_some());
         assert!(chart.pending_compute.is_none());
         assert!(chart.computing);
+    }
+
+    #[test]
+    fn mcdm_compute_request_vikor_includes_v() {
+        let req = McdmComputeRequest {
+            method: McdmMethod::Vikor,
+            weights: vec![0.5, 0.5],
+            v: 0.3,
+        };
+        assert_eq!(req.method, McdmMethod::Vikor);
+        assert!((req.v - 0.3).abs() < f64::EPSILON);
     }
 
     #[test]

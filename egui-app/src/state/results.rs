@@ -61,50 +61,69 @@ pub struct TopsisResult {
     pub duration_ms: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct VikorResult {
+    pub s_values: Vec<f64>,
+    pub r_values: Vec<f64>,
+    pub q_values: Vec<f64>,
+    pub display_scores: Vec<f64>,
+    pub ranked_indices: Vec<u32>,
+    pub best_values: Vec<f64>,
+    pub worst_values: Vec<f64>,
+    pub duration_ms: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McdmMethod {
     Topsis,
+    Vikor,
 }
 
 impl McdmMethod {
     pub fn label(&self) -> &'static str {
         match self {
             McdmMethod::Topsis => "TOPSIS",
+            McdmMethod::Vikor => "VIKOR",
         }
     }
 
     pub fn all() -> &'static [McdmMethod] {
-        &[McdmMethod::Topsis]
+        &[McdmMethod::Topsis, McdmMethod::Vikor]
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum McdmResult {
     Topsis(TopsisResult),
+    Vikor(VikorResult),
 }
 
 impl McdmResult {
     pub fn primary_scores(&self) -> &[f64] {
         match self {
             McdmResult::Topsis(r) => &r.scores,
+            McdmResult::Vikor(r) => &r.display_scores,
         }
     }
 
     pub fn ranked_indices(&self) -> &[u32] {
         match self {
             McdmResult::Topsis(r) => &r.ranked_indices,
+            McdmResult::Vikor(r) => &r.ranked_indices,
         }
     }
 
     pub fn duration_ms(&self) -> f64 {
         match self {
             McdmResult::Topsis(r) => r.duration_ms,
+            McdmResult::Vikor(r) => r.duration_ms,
         }
     }
 
     pub fn method(&self) -> McdmMethod {
         match self {
             McdmResult::Topsis(_) => McdmMethod::Topsis,
+            McdmResult::Vikor(_) => McdmMethod::Vikor,
         }
     }
 
@@ -170,7 +189,7 @@ mod tests {
 
     #[test]
     fn mcdm_method_all() {
-        assert_eq!(McdmMethod::all(), &[McdmMethod::Topsis]);
+        assert_eq!(McdmMethod::all(), &[McdmMethod::Topsis, McdmMethod::Vikor]);
     }
 
     // McdmResult tests
@@ -240,5 +259,60 @@ mod tests {
         assert_eq!(mcdm.ranked_indices(), &[2, 0, 1]);
         assert!((mcdm.duration_ms() - 12.5).abs() < f64::EPSILON);
         assert_eq!(mcdm.method_label(), "TOPSIS");
+    }
+
+    // VikorResult tests
+    #[test]
+    fn mcdm_method_vikor_label() {
+        assert_eq!(McdmMethod::Vikor.label(), "VIKOR");
+    }
+
+    #[test]
+    fn mcdm_method_all_includes_vikor() {
+        assert!(McdmMethod::all().contains(&McdmMethod::Vikor));
+        assert_eq!(McdmMethod::all().len(), 2);
+    }
+
+    fn make_vikor_mcdm_result() -> McdmResult {
+        McdmResult::Vikor(VikorResult {
+            s_values: vec![0.1, 0.5, 0.8],
+            r_values: vec![0.2, 0.4, 0.7],
+            q_values: vec![0.1, 0.5, 0.9],
+            display_scores: vec![0.9, 0.5, 0.1],
+            ranked_indices: vec![0, 1, 2],
+            best_values: vec![1.0, 2.0],
+            worst_values: vec![5.0, 8.0],
+            duration_ms: 5.0,
+        })
+    }
+
+    #[test]
+    fn mcdm_result_vikor_primary_scores() {
+        let r = make_vikor_mcdm_result();
+        assert_eq!(r.primary_scores(), &[0.9, 0.5, 0.1]);
+    }
+
+    #[test]
+    fn mcdm_result_vikor_ranked_indices() {
+        let r = make_vikor_mcdm_result();
+        assert_eq!(r.ranked_indices(), &[0, 1, 2]);
+    }
+
+    #[test]
+    fn mcdm_result_vikor_duration_ms() {
+        let r = make_vikor_mcdm_result();
+        assert!((r.duration_ms() - 5.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn mcdm_result_vikor_method_label() {
+        let r = make_vikor_mcdm_result();
+        assert_eq!(r.method_label(), "VIKOR");
+    }
+
+    #[test]
+    fn mcdm_result_vikor_method() {
+        let r = make_vikor_mcdm_result();
+        assert_eq!(r.method(), McdmMethod::Vikor);
     }
 }
