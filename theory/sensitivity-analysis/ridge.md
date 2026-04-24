@@ -1,0 +1,95 @@
+# Ridge 回帰によるパラメータ感度
+
+## 概要
+
+Ridge 回帰は、線形モデルに L2 正則化を加えた手法で、各パラメータの係数を使って感度を評価する。
+Tunny Dashboard の ImportanceChart では、目的関数ごとに学習した Ridge の係数の絶対値 $|\beta_j|$ を重要度スコアとして表示する。
+
+- 係数の符号: 目的関数を増やす方向か減らす方向か
+- 係数の絶対値: 影響の強さ（感度）
+
+Spearman と同様に軽量で、RF-ANOVA / SHAP / Sobol より高速に全体傾向を掴みたいときに有効。
+
+## 数式
+
+標準化済み入力行列を $X \in \mathbb{R}^{n \times p}$、目的変数を $y \in \mathbb{R}^{n}$ とする。
+実装ではまず $y$ を中心化して $y_c = y - \bar y$ を作る。
+
+Ridge の係数は次式で求める:
+
+$$
+\beta = (X^T X + \alpha I)^{-1} X^T y_c
+$$
+
+- $\alpha$: 正則化強度（本実装では 1.0）
+- $I$: 単位行列
+
+予測値（中心化空間）:
+
+$$
+\hat y_c = X\beta
+$$
+
+学習データ上の決定係数:
+
+$$
+R^2 = 1 - \frac{\sum_i (y_{c,i} - \hat y_{c,i})^2}{\sum_i y_{c,i}^2}
+$$
+
+実装では数値安定のため $R^2$ は下限 0 にクリップしている。
+
+## Tunny Dashboard での実装
+
+### 計算フロー
+
+1. パラメータ列を取得し、列ごとに標準化（平均 0、分散 1）
+2. 目的関数列を中心化（平均 0）
+3. 法方程式 $(X^TX + \alpha I)\beta = X^Ty_c$ を解く
+4. $\beta$ と $R^2$ を返す
+5. UI では $|\beta|$ を棒グラフにして表示
+
+### 重要度表示の定義
+
+ImportanceChart の Ridge 重要度は次で定義される:
+
+$$
+\mathrm{score}_j = |\beta_j|
+$$
+
+したがって、Ridge は「線形近似したときに、そのパラメータがどれだけ効くか」を示す指標である。
+
+## R² の解釈
+
+- $R^2 \ge 0.8$: 線形近似として十分に良好
+- $0.5 \le R^2 < 0.8$: 参考には使えるが、非線形の可能性あり
+- $R^2 < 0.5$: 線形モデルでは説明不足。RF-ANOVA / SHAP / Sobol の併用を推奨
+
+## 強みと限界
+
+強み:
+
+- 高速（大規模データでも実行しやすい）
+- 多重共線性にある程度強い（L2 正則化）
+- 係数で説明しやすい
+
+限界:
+
+- 非線形・しきい値・強い交互作用を直接は表現できない
+- 係数の大きさは線形近似の範囲での感度
+- 相関の強い説明変数間では係数の分配が不安定になる場合がある
+
+## 使いどころの目安
+
+- まず軽量に重要パラメータを絞り込みたい
+- 近似的に線形関係が支配的と考えられる
+- Spearman だけだと方向や寄与の線形解釈が不足する
+
+実務では、Ridge で一次スクリーニングし、非線形が疑われる場合に RF-ANOVA / SHAP / Sobol へ進む運用が扱いやすい。
+
+## 実装ファイル
+
+- `rust_core/src/sensitivity/ridge.rs` - Ridge の係数計算本体（標準化、法方程式、ガウス消去）
+- `rust_core/src/sensitivity/analysis/common.rs` - 標準化済み列データの構築
+- `rust_core/src/sensitivity/analysis/full.rs` - 感度分析全体の Ridge 分岐
+- `rust_core/src/sensitivity/analysis/selected.rs` - 選択行に対する Ridge 計算
+- `egui-app/src/ui/widgets/importance_chart.rs` - `|beta|` による Ridge 重要度表示
