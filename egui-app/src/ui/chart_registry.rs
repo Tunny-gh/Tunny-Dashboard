@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
-use crate::state::results::McdmMethod;
+use crate::state::results::{EntropyResult, McdmMethod};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
 
@@ -313,6 +313,43 @@ pub fn show_chart(
             widgets
                 .mcdm_chart
                 .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
+
+            // メソッド切替時のキャッシュ復元
+            if let Some(cached) = widgets.mcdm_chart.pending_restore.take() {
+                app_state.mcdm_result = Some(cached);
+            }
+
+            // Entropy dispatch: pending_entropy が true の場合、バックグラウンドでエントロピー計算を実行
+            if widgets.mcdm_chart.pending_entropy && !widgets.mcdm_chart.computing {
+                let objectives: Vec<f64> = trial_rows
+                    .iter()
+                    .flat_map(|r| r.objectives.iter().copied())
+                    .collect();
+                let n_trials = trial_rows.len();
+                let n_objectives = obj_names.len();
+
+                if n_trials > 0 && n_objectives > 0 {
+                    widgets.mcdm_chart.computing = true;
+                    let tx = tx.clone();
+                    crate::app::spawn_task(tx, move || {
+                        match tunny_core::entropy::compute_entropy_weights(
+                            &objectives,
+                            n_trials,
+                            n_objectives,
+                        ) {
+                            Ok(r) => AppMessage::EntropyDone(EntropyResult {
+                                weights: r.weights,
+                                entropies: r.entropies,
+                                diversities: r.diversities,
+                                duration_ms: r.duration_ms,
+                            }),
+                            Err(e) => {
+                                AppMessage::Error(format!("Entropy computation failed: {}", e))
+                            }
+                        }
+                    });
+                }
+            }
 
             if let Some(req) = widgets.mcdm_chart.pending_compute.take() {
                 widgets.mcdm_chart.computing = true;

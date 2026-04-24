@@ -1,6 +1,6 @@
 use crate::state::app_state::{AppState, StudyContext};
 use crate::state::messages::{AppMessage, DownsampleKey};
-use crate::state::results::HvHistory;
+use crate::state::results::{HvHistory, McdmResult};
 use crate::ui::widget_states::WidgetStates;
 
 /// バックグラウンドタスクからのメッセージを処理するハンドラー
@@ -53,7 +53,21 @@ impl MessageHandler {
                 app_state.topsis_result = Some(result);
             }
             AppMessage::McdmDone(result) => {
+                match &result {
+                    McdmResult::Topsis(r) => {
+                        widget_states.mcdm_chart.cached_topsis = Some(r.clone());
+                    }
+                    McdmResult::Vikor(r) => {
+                        widget_states.mcdm_chart.cached_vikor = Some(r.clone());
+                    }
+                }
                 app_state.mcdm_result = Some(result);
+                widget_states.mcdm_chart.computing = false;
+            }
+            AppMessage::EntropyDone(result) => {
+                widget_states.mcdm_chart.weights = result.weights.clone();
+                widget_states.mcdm_chart.entropy_result = Some(result);
+                widget_states.mcdm_chart.pending_entropy = false;
                 widget_states.mcdm_chart.computing = false;
             }
             AppMessage::DownsampleDone { key, indices } => match key {

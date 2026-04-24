@@ -11,6 +11,7 @@ pub mod sensitivity;
 pub use data::{dataframe, filter};
 pub use io::journal::{live_update, parser as journal_parser};
 pub use io::{export, journal};
+pub use mcdm::entropy;
 pub use mcdm::topsis;
 pub use mcdm::vikor;
 pub use multi_objective::pareto;

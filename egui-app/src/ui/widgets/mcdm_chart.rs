@@ -1,5 +1,7 @@
 use crate::state::app_state::TrialRow;
-use crate::state::results::{McdmMethod, McdmResult};
+use crate::state::results::{
+    EntropyResult, McdmMethod, McdmResult, TopsisResult, VikorResult, WeightMode,
+};
 
 /// MCDM compute request payload
 pub struct McdmComputeRequest {
@@ -47,22 +49,36 @@ impl McdmTopN {
 /// MCDMランキングバーチャートのUI状態
 pub struct McdmRankChart {
     pub method: McdmMethod,
+    pub weight_mode: WeightMode,
     pub weights: Vec<f64>,
     pub v_param: f64,
     pub computing: bool,
     pub pending_compute: Option<McdmComputeRequest>,
+    pub pending_entropy: bool,
+    pub entropy_result: Option<EntropyResult>,
     pub top_n: McdmTopN,
+    // Per-method result caches
+    pub cached_topsis: Option<TopsisResult>,
+    pub cached_vikor: Option<VikorResult>,
+    // Set when method combo changes and a cached result exists
+    pub pending_restore: Option<McdmResult>,
 }
 
 impl Default for McdmRankChart {
     fn default() -> Self {
         Self {
             method: McdmMethod::Topsis,
+            weight_mode: WeightMode::Manual,
             weights: Vec::new(),
             v_param: 0.5,
             computing: false,
             pending_compute: None,
+            pending_entropy: false,
+            entropy_result: None,
             top_n: McdmTopN::Top10,
+            cached_topsis: None,
+            cached_vikor: None,
+            pending_restore: None,
         }
     }
 }
@@ -113,8 +129,9 @@ impl McdmRankChart {
             self.weights = vec![1.0; obj_count];
         }
 
-        // 手法セレクタ + Top N + Runボタン + spinner
+        // 手法セレクタ + WeightMode + Top N + Runボタン + spinner
         ui.horizontal(|ui| {
+            let prev_method = self.method;
             egui::ComboBox::from_id_salt("mcdm_method_combo")
                 .selected_text(self.method.label())
                 .show_ui(ui, |ui| {
@@ -122,6 +139,35 @@ impl McdmRankChart {
                         ui.selectable_value(&mut self.method, *m, m.label());
                     }
                 });
+
+            // 手法切替時にキャッシュがあれば復元
+            if prev_method != self.method {
+                self.pending_restore = match self.method {
+                    McdmMethod::Topsis => self
+                        .cached_topsis
+                        .as_ref()
+                        .map(|r| McdmResult::Topsis(r.clone())),
+                    McdmMethod::Vikor => self
+                        .cached_vikor
+                        .as_ref()
+                        .map(|r| McdmResult::Vikor(r.clone())),
+                };
+            }
+
+            // WeightMode セレクタ（手法セレクタの横）
+            let prev_weight_mode = self.weight_mode;
+            egui::ComboBox::from_id_salt("mcdm_weight_mode_combo")
+                .selected_text(format!("Weight: {}", self.weight_mode.label()))
+                .show_ui(ui, |ui| {
+                    for wm in WeightMode::all() {
+                        ui.selectable_value(&mut self.weight_mode, *wm, wm.label());
+                    }
+                });
+
+            // WeightMode 切替ロジック
+            if prev_weight_mode != self.weight_mode {
+                self.pending_entropy = self.weight_mode == WeightMode::Entropy;
+            }
 
             self.top_n.show_combo(ui, "mcdm_top_n_combo");
 
@@ -149,15 +195,22 @@ impl McdmRankChart {
         // 重みスライダー
         ui.collapsing("Weights", |ui| {
             let normalized = normalize_weights(&self.weights);
+            let is_entropy = self.weight_mode == WeightMode::Entropy;
             for (i, obj_name) in obj_names.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(obj_name.as_str()).strong());
-                    let mut w = self.weights[i];
-                    if ui
-                        .add(egui::Slider::new(&mut w, 0.0..=1.0).text("weight"))
-                        .changed()
-                    {
-                        self.weights[i] = w;
+                    if is_entropy {
+                        // Entropy mode: 読み取り専用スライダー
+                        let mut w = self.weights[i];
+                        ui.add_enabled(false, egui::Slider::new(&mut w, 0.0..=1.0).text("weight"));
+                    } else {
+                        let mut w = self.weights[i];
+                        if ui
+                            .add(egui::Slider::new(&mut w, 0.0..=1.0).text("weight"))
+                            .changed()
+                        {
+                            self.weights[i] = w;
+                        }
                     }
                     ui.label(format!("(norm: {:.2})", normalized[i]));
                 });
@@ -173,6 +226,72 @@ impl McdmRankChart {
                 });
             }
         });
+
+        // エントロピー結果テーブル
+        if self.weight_mode == WeightMode::Entropy {
+            if let Some(ref entropy) = self.entropy_result {
+                ui.collapsing("Entropy Details", |ui| {
+                    ui.label(format!("Computed in {:.1}ms", entropy.duration_ms));
+
+                    use egui_extras::{Column, TableBuilder};
+                    let n_obj = entropy.weights.len();
+                    if n_obj == 0 {
+                        ui.colored_label(egui::Color32::GRAY, "No data");
+                        return;
+                    }
+
+                    TableBuilder::new(ui)
+                        .striped(true)
+                        .column(Column::exact(120.0))
+                        .columns(Column::remainder(), n_obj)
+                        .header(20.0, |mut header| {
+                            header.col(|ui| {
+                                ui.strong("Metric");
+                            });
+                            for name in obj_names.iter().take(n_obj) {
+                                header.col(|ui| {
+                                    ui.strong(name);
+                                });
+                            }
+                        })
+                        .body(|mut body| {
+                            // Entropy row
+                            body.row(18.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.label("Entropy");
+                                });
+                                for &e in &entropy.entropies {
+                                    row.col(|ui| {
+                                        ui.label(format!("{:.4}", e));
+                                    });
+                                }
+                            });
+                            // Diversity row
+                            body.row(18.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.label("Diversity");
+                                });
+                                for &d in &entropy.diversities {
+                                    row.col(|ui| {
+                                        ui.label(format!("{:.4}", d));
+                                    });
+                                }
+                            });
+                            // Weight row
+                            body.row(18.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.strong("Weight");
+                                });
+                                for &w in &entropy.weights {
+                                    row.col(|ui| {
+                                        ui.strong(format!("{:.4}", w));
+                                    });
+                                }
+                            });
+                        });
+                });
+            }
+        }
 
         ui.separator();
 
@@ -458,11 +577,17 @@ mod tests {
     fn mcdm_rank_chart_default() {
         let chart = McdmRankChart::default();
         assert_eq!(chart.method, McdmMethod::Topsis);
+        assert_eq!(chart.weight_mode, WeightMode::Manual);
         assert!(!chart.computing);
         assert!(chart.pending_compute.is_none());
+        assert!(!chart.pending_entropy);
+        assert!(chart.entropy_result.is_none());
         assert_eq!(chart.top_n, McdmTopN::Top10);
         assert!(chart.weights.is_empty());
         assert!((chart.v_param - 0.5).abs() < f64::EPSILON);
+        assert!(chart.cached_topsis.is_none());
+        assert!(chart.cached_vikor.is_none());
+        assert!(chart.pending_restore.is_none());
     }
 
     #[test]

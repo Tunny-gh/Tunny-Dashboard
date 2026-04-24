@@ -79,6 +79,33 @@ pub enum McdmMethod {
     Vikor,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeightMode {
+    Manual,
+    Entropy,
+}
+
+impl WeightMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            WeightMode::Manual => "Manual",
+            WeightMode::Entropy => "Entropy",
+        }
+    }
+
+    pub fn all() -> &'static [WeightMode] {
+        &[WeightMode::Manual, WeightMode::Entropy]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EntropyResult {
+    pub weights: Vec<f64>,
+    pub entropies: Vec<f64>,
+    pub diversities: Vec<f64>,
+    pub duration_ms: f64,
+}
+
 impl McdmMethod {
     pub fn label(&self) -> &'static str {
         match self {
@@ -314,5 +341,34 @@ mod tests {
     fn mcdm_result_vikor_method() {
         let r = make_vikor_mcdm_result();
         assert_eq!(r.method(), McdmMethod::Vikor);
+    }
+
+    // WeightMode tests
+    #[test]
+    fn weight_mode_labels() {
+        assert_eq!(WeightMode::Manual.label(), "Manual");
+        assert_eq!(WeightMode::Entropy.label(), "Entropy");
+    }
+
+    #[test]
+    fn weight_mode_all() {
+        assert_eq!(
+            WeightMode::all(),
+            &[WeightMode::Manual, WeightMode::Entropy]
+        );
+    }
+
+    // EntropyResult tests
+    #[test]
+    fn entropy_result_fields() {
+        let r = EntropyResult {
+            weights: vec![0.4, 0.6],
+            entropies: vec![0.8, 0.5],
+            diversities: vec![0.2, 0.5],
+            duration_ms: 1.23,
+        };
+        assert_eq!(r.weights.len(), 2);
+        assert!((r.weights[0] - 0.4).abs() < f64::EPSILON);
+        assert!((r.duration_ms - 1.23).abs() < 1e-9);
     }
 }
