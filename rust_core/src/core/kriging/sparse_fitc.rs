@@ -454,7 +454,8 @@ pub(crate) fn optimize_fitc_hyperparams(
     m: usize,
     max_iter: usize,
 ) -> Vec<f64> {
-    let n_dims = 2_usize; // 2D PDP
+    // Derive n_dims from column-major x layout (x.len() == n_dims * n)
+    let n_dims = if n > 0 { x.len() / n } else { 2 };
     let n_params = n_dims + 2;
     let mut params = vec![0.0_f64; n_params];
     params[n_params - 1] = -2.0; // initial log_sn

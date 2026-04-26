@@ -80,6 +80,7 @@ pub enum AppMessage {
     PdpDone {
         param: String,
         objective: String,
+        model_type: String,
         result: PdpResult,
     },
     Pdp2dDone(PdpResult2d),

@@ -1,8 +1,71 @@
 use crate::core::random_forest;
 
-use super::kriging_core::{compute_pdp_2d_kriging, compute_pdp_2d_sparse_kriging_raw};
+use super::kriging_core::{
+    compute_pdp_1d_kriging_raw, compute_pdp_1d_sparse_kriging_raw, compute_pdp_2d_kriging,
+    compute_pdp_2d_sparse_kriging_raw,
+};
 use super::ridge_core::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
 use super::types::{PdpResult1d, PdpResult2d};
+
+/// メインスレッド側で事前に抽出したデータを直接受け取って PDP を計算する。
+/// `with_active_df` を使わないため、バックグラウンドスレッドから安全に呼べる。
+/// `model_type` には "ridge", "kriging", "sparse_kriging" のいずれかを指定する。
+pub fn compute_pdp_from_data(
+    x_matrix: Vec<Vec<f64>>,
+    y: Vec<f64>,
+    param_names: Vec<String>,
+    objective_name: &str,
+    target_param_idx: usize,
+    n_grid: usize,
+    model_type: &str,
+) -> PdpResult1d {
+    match model_type {
+        "kriging" => compute_pdp_1d_kriging_raw(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+        )
+        .unwrap_or_else(|| {
+            compute_pdp_from_matrix(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                target_param_idx,
+                n_grid,
+            )
+        }),
+        "sparse_kriging" => compute_pdp_1d_sparse_kriging_raw(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+        )
+        .unwrap_or_else(|| {
+            compute_pdp_from_matrix(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                target_param_idx,
+                n_grid,
+            )
+        }),
+        _ => compute_pdp_from_matrix(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+        ),
+    }
+}
 
 /// Documentation.
 ///

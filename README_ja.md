@@ -52,6 +52,29 @@ tunny-dashboard/
 
 ---
 
+## 利用可能な Widget 一覧
+
+すべての Widget はドラッグ&ドロップでダッシュボードキャンバス上に自由に配置できます（Mode D）。
+
+| Widget | 説明 |
+|---|---|
+| **Pareto Scatter 2D** | Pareto Front の 2D 散布図。ブラッシング・GPU 高速描画対応。 |
+| **Pareto Scatter 3D** | アークボールカメラによる Pareto Front の 3D 散布図。 |
+| **Optimization History** | トライアル番号に対する目的関数値の折れ線/散布図。 |
+| **Hypervolume History** | 多目的最適化における Hypervolume 指標の推移グラフ。 |
+| **Parallel Coordinates** | パラメータと目的関数の関係を可視化する平行座標チャート。 |
+| **Scatter Matrix** | 全パラメータ・目的関数のペアワイズ散布図行列。 |
+| **Importance Chart** | パラメータ重要度の棒グラフ。対応指標: Spearman / Ridge / RF-Anova / MDI / SHAP / Sobol（1次・全次）。 |
+| **Sensitivity Heatmap** | 全パラメータ・目的関数間の感度をヒートマップで表示。 |
+| **PDP Chart** | 選択したパラメータの 1 次元部分依存プロット (PDP)。 |
+| **PDP Chart 2D** | パラメータペアの 2 次元部分依存プロット（ヒートマップ/サーフェス）。 |
+| **Cluster Scatter** | k-means クラスタリング結果を PCA で 2 次元に射影。対象空間は Objective / Variable / Combined から選択可能。 |
+| **MCDM Ranking** | 多基準意思決定 (MCDM) ランキング棒グラフ。対応手法: TOPSIS / VIKOR。 |
+| **MCDM Table** | MCDM 分析結果のソート可能なランキングテーブル（TOPSIS / VIKOR）。 |
+| **Trial Table** | ソート可能なカラムと行選択に対応したトライアルデータテーブル。 |
+
+---
+
 ## クイックスタート（Windows）
 
 プロジェクトルートにあるバッチファイルをダブルクリックするだけで実行できます：
