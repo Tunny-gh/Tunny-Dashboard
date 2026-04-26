@@ -245,6 +245,72 @@ pub fn show_chart(
             widgets
                 .pdp_chart
                 .show(ui, param_names, obj_names, trial_rows);
+            if let Some(req) = widgets.pdp_chart.pending_compute.take() {
+                // with_active_df はスレッドローカルなので、データをメインスレッドで抽出する
+                if let Some(ctx) = &app_state.current_study {
+                    let target_idx = ctx.meta.param_names.iter().position(|p| p == &req.param);
+                    if let Some(target_param_idx) = target_idx {
+                        let x_matrix: Vec<Vec<f64>> = ctx
+                            .trial_rows
+                            .iter()
+                            .map(|r| {
+                                ctx.meta
+                                    .param_names
+                                    .iter()
+                                    .map(|p| r.params.get(p).copied().unwrap_or(0.0))
+                                    .collect()
+                            })
+                            .collect();
+                        let y: Vec<f64> = ctx
+                            .trial_rows
+                            .iter()
+                            .map(|r| {
+                                ctx.meta
+                                    .objective_names
+                                    .iter()
+                                    .position(|o| o == &req.objective)
+                                    .and_then(|i| r.objectives.get(i).copied())
+                                    .unwrap_or(0.0)
+                            })
+                            .collect();
+                        let param_names_owned = ctx.meta.param_names.clone();
+                        let objective_name_owned = req.objective.clone();
+                        let n_grid = req.n_grid;
+                        let model_type_owned = req.model_type.clone();
+                        let param_for_msg = req.param.clone();
+                        let objective_for_msg = req.objective.clone();
+                        widgets.pdp_chart.computing = true;
+                        let tx = tx.clone();
+                        crate::app::spawn_task(tx, move || {
+                            use crate::state::messages::{PdpResult, PdpResult1d};
+                            let r = tunny_core::pdp::compute_pdp_from_data(
+                                x_matrix,
+                                y,
+                                param_names_owned,
+                                &objective_name_owned,
+                                target_param_idx,
+                                n_grid,
+                                &model_type_owned,
+                            );
+                            AppMessage::PdpDone {
+                                param: param_for_msg,
+                                objective: objective_for_msg,
+                                model_type: model_type_owned.clone(),
+                                result: PdpResult::OneDim(PdpResult1d {
+                                    x_values: r.grid,
+                                    y_values: r.values,
+                                    y_upper: r.y_upper,
+                                    y_lower: r.y_lower,
+                                    ice_lines: vec![],
+                                    r2: Some(r.r_squared),
+                                    param_name: r.param_name,
+                                    objective_name: r.objective_name,
+                                }),
+                            }
+                        });
+                    }
+                }
+            }
         }
         ChartId::PdpChart2D => {
             let cmap = app_state.selected_colormap.to_colormap();

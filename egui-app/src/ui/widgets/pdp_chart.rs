@@ -2,6 +2,14 @@ use crate::state::app_state::TrialRow;
 use crate::state::messages::{PdpResult, PdpResult1d};
 use std::collections::HashMap;
 
+/// 1D PDP 計算リクエスト（show() がセットし chart_registry が消費する）
+pub struct PdpComputeRequest {
+    pub param: String,
+    pub objective: String,
+    pub n_grid: usize,
+    pub model_type: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PdpMode {
     OneDim,
@@ -34,8 +42,8 @@ impl ModelType {
 }
 
 /// PDP キャッシュキーを生成する
-pub fn cache_key(param: &str, obj_idx: usize, model: &ModelType) -> String {
-    format!("{}:{}:{}", param, obj_idx, model.to_str())
+pub fn cache_key(param: &str, objective: &str, model_type_str: &str) -> String {
+    format!("{}:{}:{}", param, objective, model_type_str)
 }
 
 /// R² 値の品質分類を返す
@@ -92,6 +100,7 @@ pub struct PdpChart {
     pub computing: bool,
     pub cache: HashMap<String, PdpResult1d>,
     pub show_observed: bool,
+    pub pending_compute: Option<PdpComputeRequest>,
 }
 
 impl Default for PdpChart {
@@ -105,24 +114,21 @@ impl Default for PdpChart {
             computing: false,
             cache: HashMap::new(),
             show_observed: false,
+            pending_compute: None,
         }
     }
 }
 
 impl PdpChart {
     /// キャッシュを確認して結果を返す。キャッシュミスの場合は None を返す
-    pub fn try_cache(&self) -> Option<&PdpResult1d> {
-        let key = cache_key(
-            &self.selected_param,
-            self.selected_objective,
-            &self.model_type,
-        );
+    pub fn try_cache(&self, objective: &str) -> Option<&PdpResult1d> {
+        let key = cache_key(&self.selected_param, objective, self.model_type.to_str());
         self.cache.get(&key)
     }
 
     /// キャッシュに結果を挿入する
-    pub fn insert_cache(&mut self, param: &str, obj_idx: usize, result: PdpResult1d) {
-        let key = cache_key(param, obj_idx, &self.model_type);
+    pub fn insert_cache(&mut self, param: &str, objective: &str, model_type_str: &str, result: PdpResult1d) {
+        let key = cache_key(param, objective, model_type_str);
         self.cache.insert(key, result);
     }
 }
@@ -179,6 +185,38 @@ impl PdpChart {
             // 観測データ表示トグル
             ui.separator();
             ui.toggle_value(&mut self.show_observed, "Show data");
+
+            // Run ボタン
+            ui.separator();
+            let can_run =
+                !self.selected_param.is_empty() && !obj_names.is_empty() && !self.computing;
+            if ui
+                .add_enabled(can_run, egui::Button::new("Run PDP"))
+                .clicked()
+            {
+                if let Some(obj_name) = obj_names.get(self.selected_objective) {
+                    // キャッシュヒットの場合は再計算せずにキャッシュから結果を取得
+                    let cache_key_str = cache_key(
+                        &self.selected_param,
+                        obj_name,
+                        self.model_type.to_str(),
+                    );
+                    if let Some(cached) = self.cache.get(&cache_key_str) {
+                        self.result = Some(PdpResult::OneDim(cached.clone()));
+                    } else {
+                        let n_grid = match self.model_type {
+                            ModelType::Ridge => 50,
+                            _ => 30, // Kriging is O(N²×grid); 30 keeps debug builds fast
+                        };
+                        self.pending_compute = Some(PdpComputeRequest {
+                            param: self.selected_param.clone(),
+                            objective: obj_name.clone(),
+                            n_grid,
+                            model_type: self.model_type.to_str().to_string(),
+                        });
+                    }
+                }
+            }
         });
 
         if self.computing {
@@ -218,16 +256,35 @@ impl PdpChart {
         egui_plot::Plot::new("pdp_1d_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
-                // 信頼区間バンド
+                // 信頼区間バンド（グリッド区間ごとに凸四辺形を描画）
+                // egui_plot::Polygon はファン三角分割を使うため一枚の非凸ポリゴンでは
+                // 描画が崩れる。区間ごとの凸四辺形に分割することで正確に描画できる。
                 if let (Some(upper), Some(lower)) = (&result.y_upper, &result.y_lower) {
-                    let band = compute_band_polygon(&result.x_values, upper, lower);
-                    if !band.is_empty() {
+                    let fill = egui::Color32::from_rgba_unmultiplied(50, 100, 255, 50);
+                    let xs = &result.x_values;
+                    let n = xs.len();
+                    for i in 0..n.saturating_sub(1) {
+                        let quad = vec![
+                            [xs[i], upper[i]],
+                            [xs[i + 1], upper[i + 1]],
+                            [xs[i + 1], lower[i + 1]],
+                            [xs[i], lower[i]],
+                        ];
                         plot_ui.polygon(
-                            egui_plot::Polygon::new(egui_plot::PlotPoints::new(band)).fill_color(
-                                egui::Color32::from_rgba_unmultiplied(100, 100, 255, 40),
-                            ),
+                            egui_plot::Polygon::new(egui_plot::PlotPoints::new(quad))
+                                .fill_color(fill)
+                                .stroke(egui::Stroke::NONE),
                         );
                     }
+                }
+                // 凡例エントリ（透明な点でラベルのみ表示）
+                if result.y_upper.is_some() {
+                    plot_ui.points(
+                        egui_plot::Points::new(vec![[f64::NAN, f64::NAN]])
+                            .name("95% CI")
+                            .color(egui::Color32::from_rgba_unmultiplied(50, 100, 255, 120))
+                            .radius(6.0),
+                    );
                 }
 
                 // ICE ライン

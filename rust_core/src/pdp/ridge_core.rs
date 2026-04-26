@@ -32,6 +32,8 @@ pub(crate) fn compute_pdp_from_matrix(
         grid: vec![],
         values: vec![],
         r_squared: 0.0,
+        y_upper: None,
+        y_lower: None,
     };
 
     let n = y.len();
@@ -70,6 +72,8 @@ pub(crate) fn compute_pdp_from_matrix(
         grid,
         values,
         r_squared: ridge.r_squared,
+        y_upper: None,
+        y_lower: None,
     }
 }
 

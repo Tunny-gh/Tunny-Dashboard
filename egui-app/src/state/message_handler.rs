@@ -99,8 +99,16 @@ impl MessageHandler {
             AppMessage::SensitivityError(_e) => {
                 widget_states.importance.computing = false;
             }
-            AppMessage::LiveUpdateDone { .. } | AppMessage::PdpDone { .. } => {
+            AppMessage::LiveUpdateDone { .. } => {
                 // TODO: 今後のタスクで実装
+            }
+            AppMessage::PdpDone { param, objective, model_type, result } => {
+                // キャッシュに挿入してから result を設定
+                if let crate::state::messages::PdpResult::OneDim(ref r1d) = result {
+                    widget_states.pdp_chart.insert_cache(&param, &objective, &model_type, r1d.clone());
+                }
+                widget_states.pdp_chart.result = Some(result);
+                widget_states.pdp_chart.computing = false;
             }
         }
     }

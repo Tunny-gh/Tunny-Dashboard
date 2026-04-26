@@ -13,6 +13,10 @@ pub struct PdpResult1d {
     pub values: Vec<f64>,
     /// Documentation.
     pub r_squared: f64,
+    /// 95% confidence upper bound (Kriging/Sparse Kriging only).
+    pub y_upper: Option<Vec<f64>>,
+    /// 95% confidence lower bound (Kriging/Sparse Kriging only).
+    pub y_lower: Option<Vec<f64>>,
 }
 
 /// Documentation.
