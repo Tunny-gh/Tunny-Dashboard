@@ -1,0 +1,35 @@
+[package]
+name = "tunny-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tunny-desktop"
+path = "src/main.rs"
+
+[dependencies]
+tunny-core = { path = "../rust_core", default-features = false }
+eframe = { version = "0.30", features = ["wgpu"] }
+egui = "0.30"
+egui_extras = "0.30"
+egui_plot = "0.30"
+egui-wgpu = "0.30"
+wgpu = "24"
+bytemuck = { version = "1", features = ["derive"] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+linfa = "0.7"
+linfa-clustering = "0.7"
+linfa-reduction = "0.7"
+ndarray = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+open = "5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.build-dependencies]
+ico = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+winres = "0.1"

@@ -177,6 +177,15 @@ impl DataFrame {
     }
 
     /// Documentation.
+    pub fn get_trial_number(&self, row: usize) -> Option<u32> {
+        if row < self.row_count {
+            Some(row as u32)
+        } else {
+            None
+        }
+    }
+
+    /// Documentation.
     pub fn param_col_names(&self) -> &[String] {
         &self.param_col_names
     }

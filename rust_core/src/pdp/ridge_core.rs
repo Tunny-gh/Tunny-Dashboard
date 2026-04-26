@@ -32,6 +32,8 @@ pub(crate) fn compute_pdp_from_matrix(
         grid: vec![],
         values: vec![],
         r_squared: 0.0,
+        y_upper: None,
+        y_lower: None,
     };
 
     let n = y.len();
@@ -70,6 +72,8 @@ pub(crate) fn compute_pdp_from_matrix(
         grid,
         values,
         r_squared: ridge.r_squared,
+        y_upper: None,
+        y_lower: None,
     }
 }
 
@@ -95,10 +99,11 @@ pub(crate) fn compute_pdp_2d_from_matrix(
         param1_name: p1_name.clone(),
         param2_name: p2_name.clone(),
         objective_name: objective_name.to_string(),
-        grid1: vec![],
-        grid2: vec![],
-        values: vec![],
+        x_values: vec![],
+        y_values: vec![],
+        z_values: vec![],
         r_squared: 0.0,
+        uncertainties: None,
     };
 
     let n = y.len();
@@ -128,15 +133,15 @@ pub(crate) fn compute_pdp_2d_from_matrix(
         .iter()
         .cloned()
         .fold(f64::NEG_INFINITY, |a, b| a.max(b));
-    let grid1 = linspace(min1, max1, n_grid);
-    let grid2 = linspace(min2, max2, n_grid);
+    let x_values = linspace(min1, max1, n_grid);
+    let y_values = linspace(min2, max2, n_grid);
 
     let beta1 = ridge.beta.get(param1_idx).copied().unwrap_or(0.0);
     let beta2 = ridge.beta.get(param2_idx).copied().unwrap_or(0.0);
-    let values: Vec<Vec<f64>> = grid1
+    let z_values: Vec<Vec<f64>> = x_values
         .iter()
         .map(|&v1| {
-            grid2
+            y_values
                 .iter()
                 .map(|&v2| y_mean + beta1 * (v1 - mean1) / std1 + beta2 * (v2 - mean2) / std2)
                 .collect()
@@ -147,9 +152,10 @@ pub(crate) fn compute_pdp_2d_from_matrix(
         param1_name: p1_name,
         param2_name: p2_name,
         objective_name: objective_name.to_string(),
-        grid1,
-        grid2,
-        values,
+        x_values,
+        y_values,
+        z_values,
         r_squared: ridge.r_squared,
+        uncertainties: None,
     }
 }

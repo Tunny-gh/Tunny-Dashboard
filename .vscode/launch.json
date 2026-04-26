@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug tunny-desktop",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--manifest-path=${workspaceFolder}/egui-app/Cargo.toml",
+                    "--bin=tunny-desktop"
+                ],
+                "filter": {
+                    "name": "tunny-desktop",
+                    "kind": "bin"
+                }
+            },
+            "args": ["${workspaceFolder}/test.log"],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "debug",
+                "RUST_BACKTRACE": "1"
+            }
+        }
+    ]
+}

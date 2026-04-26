@@ -137,11 +137,11 @@ fn tc_803_06_pdp_2d_grid_shape() {
 
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 8);
 
-    assert_eq!(result.grid1.len(), 8, "grid1 translated 8 translated");
-    assert_eq!(result.grid2.len(), 8, "grid2 translated 8 translated");
-    assert_eq!(result.values.len(), 8, "values translated 8 translated");
-    for row in &result.values {
-        assert_eq!(row.len(), 8, "values translated 8 translated");
+    assert_eq!(result.x_values.len(), 8, "x_values translated 8 translated");
+    assert_eq!(result.y_values.len(), 8, "y_values translated 8 translated");
+    assert_eq!(result.z_values.len(), 8, "z_values translated 8 translated");
+    for row in &result.z_values {
+        assert_eq!(row.len(), 8, "z_values translated 8 translated");
     }
 }
 
@@ -153,9 +153,18 @@ fn tc_803_07_pdp_2d_empty_data() {
 
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 5);
 
-    assert!(result.grid1.is_empty(), "n<2 translated grid1 translated");
-    assert!(result.grid2.is_empty(), "n<2 translated grid2 translated");
-    assert!(result.values.is_empty(), "n<2 translated values translated");
+    assert!(
+        result.x_values.is_empty(),
+        "n<2 translated x_values translated"
+    );
+    assert!(
+        result.y_values.is_empty(),
+        "n<2 translated y_values translated"
+    );
+    assert!(
+        result.z_values.is_empty(),
+        "n<2 translated z_values translated"
+    );
 }
 
 #[test]
@@ -245,11 +254,15 @@ fn tc_803_p02_pdp_2d_performance() {
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 15);
     let elapsed = start.elapsed();
 
-    assert_eq!(result.values.len(), 15, "values translated 15 translated");
     assert_eq!(
-        result.values[0].len(),
+        result.z_values.len(),
         15,
-        "values translated 15 translated"
+        "z_values translated 15 translated"
+    );
+    assert_eq!(
+        result.z_values[0].len(),
+        15,
+        "z_values translated 15 translated"
     );
     assert!(
         elapsed.as_millis() < 100,
@@ -271,24 +284,24 @@ fn tc_1645_01_kriging_raw_grid_shape() {
         .expect("compute_pdp_2d_kriging_raw should succeed");
 
     assert_eq!(
-        result.grid1.len(),
+        result.x_values.len(),
         n_grid,
-        "grid1 should have n_grid points"
+        "x_values should have n_grid points"
     );
     assert_eq!(
-        result.grid2.len(),
+        result.y_values.len(),
         n_grid,
-        "grid2 should have n_grid points"
+        "y_values should have n_grid points"
     );
     assert_eq!(
-        result.values.len(),
+        result.z_values.len(),
         n_grid,
-        "values outer dim should be n_grid"
+        "z_values outer dim should be n_grid"
     );
     assert_eq!(
-        result.values[0].len(),
+        result.z_values[0].len(),
         n_grid,
-        "values inner dim should be n_grid"
+        "z_values inner dim should be n_grid"
     );
 }
 
@@ -316,13 +329,13 @@ fn tc_1652_tc_005_02_sparse_kriging_n100_grid_shape() {
     let result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, n_grid);
     assert!(result.is_some(), "Should succeed for N=100");
     let r = result.unwrap();
-    assert_eq!(r.grid1.len(), n_grid, "grid1.len() should be n_grid");
-    assert_eq!(r.grid2.len(), n_grid, "grid2.len() should be n_grid");
-    assert_eq!(r.values.len(), n_grid, "values.len() should be n_grid");
+    assert_eq!(r.x_values.len(), n_grid, "x_values.len() should be n_grid");
+    assert_eq!(r.y_values.len(), n_grid, "y_values.len() should be n_grid");
+    assert_eq!(r.z_values.len(), n_grid, "z_values.len() should be n_grid");
     assert_eq!(
-        r.values[0].len(),
+        r.z_values[0].len(),
         n_grid,
-        "values[0].len() should be n_grid"
+        "z_values[0].len() should be n_grid"
     );
 }
 
@@ -341,7 +354,7 @@ fn tc_1652_tc_005_03_fallback_when_n_lt_m() {
     let result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, n_grid);
     assert!(result.is_some(), "Fallback should succeed for N=30");
     let r = result.unwrap();
-    for row in &r.values {
+    for row in &r.z_values {
         for &v in row {
             assert!(v.is_finite(), "Grid value should be finite: {}", v);
         }
@@ -418,9 +431,9 @@ fn tc_1653_01_sparse_kriging_dispatch_returns_finite_results() {
         "sparse_kriging dispatch should succeed for N=60"
     );
     let r = result.unwrap();
-    assert_eq!(r.grid1.len(), n_grid);
-    assert_eq!(r.grid2.len(), n_grid);
-    for row in &r.values {
+    assert_eq!(r.x_values.len(), n_grid);
+    assert_eq!(r.y_values.len(), n_grid);
+    for row in &r.z_values {
         for &v in row {
             assert!(v.is_finite(), "All grid values should be finite: {}", v);
         }

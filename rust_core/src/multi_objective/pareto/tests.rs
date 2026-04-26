@@ -31,7 +31,7 @@ fn tc_201_01_two_obj_all_nondominated() {
     ];
     let is_min = [true, true];
     let ranks = nd_sort(&objs, &is_min);
-    assert_eq!(ranks, vec![1, 1, 1, 1]);
+    assert_eq!(ranks, vec![0, 0, 0, 0]);
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn tc_201_02_two_obj_clear_domination() {
     let objs = vec![vec![1.0, 1.0], vec![2.0, 2.0], vec![3.0, 3.0]];
     let is_min = [true, true];
     let ranks = nd_sort(&objs, &is_min);
-    assert_eq!(ranks, vec![1, 2, 3]);
+    assert_eq!(ranks, vec![0, 1, 2]);
 }
 
 #[test]
@@ -51,9 +51,9 @@ fn tc_201_03_four_objectives() {
     ];
     let is_min = [true, true, true, true];
     let ranks = nd_sort(&objs, &is_min);
-    assert_eq!(ranks[0], 1);
-    assert_eq!(ranks[2], 2);
-    assert_eq!(ranks[1], 3);
+    assert_eq!(ranks[0], 0);
+    assert_eq!(ranks[2], 1);
+    assert_eq!(ranks[1], 2);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn tc_201_04_single_objective_all_rank1() {
     let objs = vec![vec![3.0], vec![1.0], vec![4.0], vec![1.5], vec![2.0]];
     let is_min = [true];
     let ranks = nd_sort(&objs, &is_min);
-    assert!(ranks.iter().all(|&r| r == 1));
+    assert!(ranks.iter().all(|&r| r == 0));
 }
 
 #[test]
@@ -69,14 +69,14 @@ fn tc_201_05_maximize_direction() {
     let objs = vec![vec![1.0], vec![2.0], vec![3.0]];
     let is_min_single = [true];
     let ranks_single = nd_sort(&objs, &is_min_single);
-    assert!(ranks_single.iter().all(|&r| r == 1));
+    assert!(ranks_single.iter().all(|&r| r == 0));
 
     let objs2 = vec![vec![1.0, 3.0], vec![2.0, 2.0], vec![3.0, 1.0]];
     let is_min2 = [false, true];
     let ranks2 = nd_sort(&objs2, &is_min2);
-    assert_eq!(ranks2[2], 1);
-    assert_eq!(ranks2[1], 2);
-    assert_eq!(ranks2[0], 3);
+    assert_eq!(ranks2[2], 0);
+    assert_eq!(ranks2[1], 1);
+    assert_eq!(ranks2[0], 2);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn tc_201_b01_all_same_coords() {
     let objs = vec![vec![1.0, 1.0], vec![1.0, 1.0], vec![1.0, 1.0]];
     let is_min = [true, true];
     let ranks = nd_sort(&objs, &is_min);
-    assert!(ranks.iter().all(|&r| r == 1));
+    assert!(ranks.iter().all(|&r| r == 0));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn tc_201_b02_chain_dominance() {
     ];
     let is_min = [true, true];
     let ranks = nd_sort(&objs, &is_min);
-    assert_eq!(ranks, vec![1, 2, 3, 4]);
+    assert_eq!(ranks, vec![0, 1, 2, 3]);
 }
 
 #[test]
@@ -165,9 +165,42 @@ fn tc_201_b03_single_point() {
     let rows = vec![make_row_obj(0, vec![1.0, 2.0])];
     setup_study(rows, &["obj0", "obj1"]);
     let result = compute_pareto_ranks(&[true, true]);
-    assert_eq!(result.ranks, vec![1]);
+    assert_eq!(result.ranks, vec![0]);
     assert_eq!(result.pareto_indices, vec![0]);
     assert!(result.hypervolume.is_none());
+}
+
+#[test]
+fn tc_hv_5d_monotonically_nondecreasing() {
+    let objs: Vec<Vec<f64>> = vec![
+        vec![1.0, 5.0, 3.0, 2.0, 4.0],
+        vec![5.0, 1.0, 2.0, 4.0, 3.0],
+        vec![2.0, 3.0, 1.0, 5.0, 2.0],
+        vec![4.0, 2.0, 5.0, 1.0, 1.0],
+        vec![3.0, 4.0, 4.0, 3.0, 5.0],
+        vec![0.5, 0.5, 0.5, 0.5, 0.5],
+    ];
+    let trial_ids: Vec<u32> = (0..objs.len() as u32).collect();
+    let is_min = [true; 5];
+    let result = compute_hv_history_from_data(&trial_ids, &objs, &is_min);
+    let hvs = &result.hv_values;
+    for i in 1..hvs.len() {
+        assert!(
+            hvs[i] >= hvs[i - 1] - 1e-9,
+            "HV decreased at step {}: {} -> {}",
+            i,
+            hvs[i - 1],
+            hvs[i]
+        );
+    }
+}
+
+#[test]
+fn tc_hv_nd_3d_known_value() {
+    let pts = vec![vec![1.0, 1.0, 1.0]];
+    let ref_pt = vec![2.0, 2.0, 2.0];
+    let hv = hypervolume_nd(&pts, &ref_pt);
+    assert!((hv - 1.0).abs() < 1e-9, "HV = {}, expected 1.0", hv);
 }
 
 #[test]
@@ -192,7 +225,6 @@ fn tc_201_p01_ndsort_1000_points_under_100ms() {
         elapsed.as_millis()
     );
     assert_eq!(ranks.len(), n);
-    assert!(ranks.iter().all(|&r| r >= 1));
 }
 
 #[test]

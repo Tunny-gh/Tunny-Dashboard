@@ -1,5 +1,66 @@
-use super::helpers::{compute_ref_point, dominates_minimized, normalize_objectives};
+use super::helpers::{add_to_pareto_front, compute_ref_point, normalize_objectives};
 use super::types::HvHistoryResult;
+
+/// N次元ハイパーボリューム（再帰スライスアルゴリズム）
+///
+/// ref_point より小さい点のみ有効とし、最後の次元でスライスして再帰計算する。
+pub fn hypervolume_nd(points: &[Vec<f64>], ref_point: &[f64]) -> f64 {
+    let m = ref_point.len();
+    if points.is_empty() || m == 0 {
+        return 0.0;
+    }
+
+    let valid: Vec<Vec<f64>> = points
+        .iter()
+        .filter(|p| p.len() >= m && p.iter().zip(ref_point.iter()).all(|(pi, ri)| *pi < *ri))
+        .cloned()
+        .collect();
+
+    if valid.is_empty() {
+        return 0.0;
+    }
+
+    if m == 1 {
+        let min_v = valid.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
+        return ref_point[0] - min_v;
+    }
+
+    if m == 2 {
+        let pts_2d: Vec<(f64, f64)> = valid.iter().map(|p| (p[0], p[1])).collect();
+        return hypervolume_2d(&pts_2d, ref_point[0], ref_point[1]);
+    }
+
+    let last = m - 1;
+    let mut sorted = valid;
+    sorted.sort_by(|a, b| {
+        a[last]
+            .partial_cmp(&b[last])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut hv = 0.0f64;
+    let mut prev = ref_point[last];
+
+    for i in (0..sorted.len()).rev() {
+        let thickness = prev - sorted[i][last];
+        if thickness > 0.0 {
+            let proj_nd = nd_front_projected(&sorted[..=i], last);
+            let ref_proj = &ref_point[..last];
+            hv += thickness * hypervolume_nd(&proj_nd, ref_proj);
+        }
+        prev = sorted[i][last];
+    }
+
+    hv
+}
+
+fn nd_front_projected(points: &[Vec<f64>], drop_dim: usize) -> Vec<Vec<f64>> {
+    let mut front: Vec<Vec<f64>> = Vec::new();
+    for p in points {
+        add_to_pareto_front(&mut front, p[..drop_dim].to_vec());
+    }
+    front
+}
 
 /// Documentation.
 ///
@@ -35,22 +96,61 @@ pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f
     hv
 }
 
+/// スレッドローカルを使わずデータを直接受け取って HV 推移を計算する。
+/// バックグラウンドスレッドから呼び出す場合はこちらを使用する。
+pub fn compute_hv_history_from_data(
+    trial_ids: &[u32],
+    objectives: &[Vec<f64>],
+    is_minimize: &[bool],
+) -> HvHistoryResult {
+    let n = objectives.len();
+    let m = if n > 0 { objectives[0].len() } else { 0 };
+
+    if m < 2 {
+        return HvHistoryResult {
+            trial_ids: trial_ids.to_vec(),
+            hv_values: vec![0.0; n],
+        };
+    }
+
+    let norm_all = normalize_objectives(objectives, is_minimize);
+    let valid_objs: Vec<Vec<f64>> = norm_all
+        .iter()
+        .filter(|obj| !obj.iter().any(|v| v.is_nan()))
+        .cloned()
+        .collect();
+    if valid_objs.is_empty() {
+        return HvHistoryResult {
+            trial_ids: trial_ids.to_vec(),
+            hv_values: vec![0.0; n],
+        };
+    }
+    let ref_pt = compute_ref_point(&valid_objs, m);
+
+    let mut current_pareto: Vec<Vec<f64>> = Vec::new();
+    let mut hv_values = Vec::with_capacity(n);
+
+    for obj in norm_all.iter().take(n) {
+        if obj.iter().any(|v| v.is_nan()) {
+            hv_values.push(hv_values.last().copied().unwrap_or(0.0));
+            continue;
+        }
+        add_to_pareto_front(&mut current_pareto, obj.clone());
+        hv_values.push(hypervolume_nd(&current_pareto, &ref_pt));
+    }
+
+    HvHistoryResult {
+        trial_ids: trial_ids.to_vec(),
+        hv_values,
+    }
+}
+
 /// Documentation.
 pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
     crate::dataframe::with_active_df(|df| {
         let n = df.row_count();
         let obj_names = df.objective_col_names();
-        let m = obj_names.len();
-
         let trial_ids: Vec<u32> = (0..n).filter_map(|i| df.get_trial_id(i)).collect();
-
-        if m < 2 {
-            return HvHistoryResult {
-                trial_ids,
-                hv_values: vec![0.0; n],
-            };
-        }
-
         let all_objs: Vec<Vec<f64>> = (0..n)
             .map(|row| {
                 obj_names
@@ -64,42 +164,7 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
                     .collect()
             })
             .collect();
-        let norm_all = normalize_objectives(&all_objs, is_minimize);
-        let valid_objs: Vec<Vec<f64>> = norm_all
-            .iter()
-            .filter(|obj| !obj.iter().any(|v| v.is_nan()))
-            .cloned()
-            .collect();
-        if valid_objs.is_empty() {
-            return HvHistoryResult {
-                trial_ids,
-                hv_values: vec![0.0; n],
-            };
-        }
-        let ref_pt = compute_ref_point(&valid_objs, m);
-
-        let mut current_pareto: Vec<Vec<f64>> = Vec::new();
-        let mut hv_values = Vec::with_capacity(n);
-
-        for row in 0..n {
-            let obj = norm_all[row].clone();
-            if obj.iter().any(|v| v.is_nan()) {
-                hv_values.push(hv_values.last().copied().unwrap_or(0.0));
-                continue;
-            }
-            let dominated = current_pareto.iter().any(|p| dominates_minimized(p, &obj));
-            if !dominated {
-                current_pareto.retain(|p| !dominates_minimized(&obj, p));
-                current_pareto.push(obj);
-            }
-            let pts_2d: Vec<(f64, f64)> = current_pareto.iter().map(|o| (o[0], o[1])).collect();
-            hv_values.push(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]));
-        }
-
-        HvHistoryResult {
-            trial_ids,
-            hv_values,
-        }
+        compute_hv_history_from_data(&trial_ids, &all_objs, is_minimize)
     })
     .unwrap_or(HvHistoryResult {
         trial_ids: vec![],

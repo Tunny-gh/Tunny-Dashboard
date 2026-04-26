@@ -82,7 +82,7 @@ pub fn filter_rows(df: &crate::dataframe::DataFrame, ranges: &HashMap<String, Ra
 
     // Documentation.
     // Documentation.
-    for (col_name, _) in ranges {
+    for col_name in ranges.keys() {
         if df.get_numeric_column(col_name).is_none() {
             return vec![]; // Documentation.
         }

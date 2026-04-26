@@ -51,6 +51,7 @@ pub(super) fn gaussian_elimination(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Opt
 
         for row in (col + 1)..p {
             let factor = a[row][col] / pivot;
+            #[allow(clippy::needless_range_loop)]
             for k in col..p {
                 let v = a[col][k] * factor;
                 a[row][k] -= v;

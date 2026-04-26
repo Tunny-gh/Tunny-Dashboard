@@ -7,6 +7,7 @@ struct SobolSurrogate {
     quad_feat_stds: Vec<f64>,
     betas: Vec<Vec<f64>>,
     intercepts: Vec<f64>,
+    r_squared: Vec<f64>, // surrogate fit per objective
 }
 
 fn column_mean_std(vals: &[f64]) -> (f64, f64) {
@@ -96,12 +97,14 @@ fn build_sobol_surrogate(
     let n_objectives = y_matrix.len();
     let mut betas = Vec::with_capacity(n_objectives);
     let mut intercepts = Vec::with_capacity(n_objectives);
+    let mut r_squared = Vec::with_capacity(n_objectives);
 
     for y in y_matrix {
         let y_mean = y.iter().sum::<f64>() / n as f64;
         let y_centered: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();
 
         let ridge_res = compute_ridge(&x_quad_std, &y_centered, alpha);
+        r_squared.push(ridge_res.r_squared);
         betas.push(ridge_res.beta);
         intercepts.push(y_mean);
     }
@@ -113,6 +116,7 @@ fn build_sobol_surrogate(
         quad_feat_stds,
         betas,
         intercepts,
+        r_squared,
     })
 }
 
@@ -137,7 +141,14 @@ fn surrogate_eval(surrogate: &SobolSurrogate, x_raw: &[f64], obj_idx: usize) -> 
 }
 
 pub fn compute_sobol(n_samples: usize) -> Option<SobolResult> {
-    crate::dataframe::with_active_df(|df| {
+    crate::dataframe::with_active_df(|df| compute_sobol_from_df(df, n_samples)).flatten()
+}
+
+pub fn compute_sobol_from_df(
+    df: &crate::dataframe::DataFrame,
+    n_samples: usize,
+) -> Option<SobolResult> {
+    {
         let param_names = df.param_col_names().to_vec();
         let objective_names = df.objective_col_names().to_vec();
         let n = df.row_count();
@@ -299,7 +310,8 @@ pub fn compute_sobol(n_samples: usize) -> Option<SobolResult> {
             objective_names,
             first_order,
             total_effect,
+            r_squared: surrogate.r_squared,
             n_samples,
         })
-    })?
+    }
 }

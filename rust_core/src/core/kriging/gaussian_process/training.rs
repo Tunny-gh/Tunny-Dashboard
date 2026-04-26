@@ -49,5 +49,7 @@ pub(super) fn train_gp(
         x_train: x_sub,
         log_ls,
         log_sf,
+        l,
+        log_sn,
     })
 }

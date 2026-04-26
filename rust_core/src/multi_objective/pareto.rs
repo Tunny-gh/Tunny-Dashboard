@@ -12,7 +12,9 @@ mod ranking;
 mod tradeoff;
 mod types;
 
-pub use hypervolume::{compute_hypervolume_history, hypervolume_2d};
+pub use hypervolume::{
+    compute_hv_history_from_data, compute_hypervolume_history, hypervolume_2d, hypervolume_nd,
+};
 pub use ranking::{compute_pareto_ranks, nd_sort};
 pub use tradeoff::{chebyshev_sort, score_tradeoff_navigator};
 pub use types::{HvHistoryResult, ParetoResult};

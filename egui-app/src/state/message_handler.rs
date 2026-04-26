@@ -1,0 +1,161 @@
+use crate::state::app_state::{AppState, StudyContext};
+use crate::state::messages::{AppMessage, DownsampleKey};
+use crate::state::results::{HvHistory, McdmResult};
+use crate::ui::widget_states::WidgetStates;
+
+/// バックグラウンドタスクからのメッセージを処理するハンドラー
+pub struct MessageHandler;
+
+impl MessageHandler {
+    /// 単一メッセージを処理し、AppState と WidgetStates を更新する
+    pub fn handle(
+        msg: AppMessage,
+        app_state: &mut AppState,
+        widget_states: &mut WidgetStates,
+        is_loading: &mut bool,
+        load_error: &mut Option<String>,
+    ) {
+        match msg {
+            AppMessage::JournalParsed { studies, path } => {
+                app_state.all_studies = studies;
+                app_state.journal_path = Some(path);
+                *is_loading = false;
+            }
+            AppMessage::StudySelected {
+                meta,
+                trial_rows,
+                gpu_data,
+                pareto_indices,
+            } => {
+                app_state.clear();
+                app_state.current_study = Some(StudyContext {
+                    meta,
+                    trial_rows,
+                    gpu_data,
+                    pareto_indices,
+                });
+                widget_states.hv_history.computing = false;
+                *is_loading = false;
+                app_state.update_chart_colors();
+            }
+            AppMessage::SensitivityDone { key, result } => {
+                app_state.importance_cache.insert(key, result);
+                widget_states.importance.computing = false;
+            }
+            AppMessage::SobolDone { obj_idx, result } => {
+                app_state.sobol_cache.insert(obj_idx, result);
+                widget_states.importance.computing = false;
+            }
+            AppMessage::ClusteringDone(result) => {
+                app_state.cluster_result = Some(result);
+            }
+            AppMessage::TopsisDone(result) => {
+                app_state.topsis_result = Some(result);
+            }
+            AppMessage::McdmDone(result) => {
+                match &result {
+                    McdmResult::Topsis(r) => {
+                        widget_states.mcdm_chart.cached_topsis = Some(r.clone());
+                    }
+                    McdmResult::Vikor(r) => {
+                        widget_states.mcdm_chart.cached_vikor = Some(r.clone());
+                    }
+                }
+                app_state.mcdm_result = Some(result);
+                widget_states.mcdm_chart.computing = false;
+            }
+            AppMessage::EntropyDone(result) => {
+                widget_states.mcdm_chart.weights = result.weights.clone();
+                widget_states.mcdm_chart.entropy_result = Some(result);
+                widget_states.mcdm_chart.pending_entropy = false;
+                widget_states.mcdm_chart.computing = false;
+            }
+            AppMessage::DownsampleDone { key, indices } => match key {
+                DownsampleKey::Scatter => app_state.downsample_cache.scatter = Some(indices),
+                DownsampleKey::Pcp => app_state.downsample_cache.pcp = Some(indices),
+                DownsampleKey::Thumbnail => app_state.downsample_cache.thumbnail = Some(indices),
+                DownsampleKey::Hover => app_state.downsample_cache.hover = Some(indices),
+            },
+            AppMessage::HvHistoryDone {
+                trial_ids,
+                hv_values,
+                sample_step,
+            } => {
+                app_state.hv_history = Some(HvHistory {
+                    trial_ids,
+                    hv_values,
+                    sample_step,
+                });
+                widget_states.hv_history.computing = false;
+            }
+            AppMessage::Pdp2dDone(result) => {
+                widget_states.pdp_2d.result = Some(result);
+                widget_states.pdp_2d.computing = false;
+            }
+            AppMessage::Error(e) => {
+                *load_error = Some(e);
+                *is_loading = false;
+            }
+            AppMessage::SensitivityError(_e) => {
+                widget_states.importance.computing = false;
+            }
+            AppMessage::LiveUpdateDone { .. } => {
+                // TODO: 今後のタスクで実装
+            }
+            AppMessage::PdpDone {
+                param,
+                objective,
+                model_type,
+                result,
+            } => {
+                // キャッシュに挿入してから result を設定
+                if let crate::state::messages::PdpResult::OneDim(ref r1d) = result {
+                    widget_states.pdp_chart.insert_cache(
+                        &param,
+                        &objective,
+                        &model_type,
+                        r1d.clone(),
+                    );
+                }
+                widget_states.pdp_chart.result = Some(result);
+                widget_states.pdp_chart.computing = false;
+            }
+
+            // TASK-2112: 新規バリアント（TASK-2114 で詳細実装予定）
+            AppMessage::TradeoffDone { sorted_indices } => {
+                app_state.tradeoff_sorted_indices = Some(sorted_indices);
+            }
+            AppMessage::ComparisonStudyLoaded {
+                study_idx: _,
+                context,
+            } => {
+                app_state.comparison_studies.push(*context);
+            }
+            AppMessage::ArtifactsDirScanned {
+                trial_artifacts,
+                artifacts_dir,
+            } => {
+                app_state.artifact_map = trial_artifacts;
+                app_state.artifacts_dir = Some(artifacts_dir);
+            }
+            AppMessage::HtmlReportDone { .. } => {
+                // TASK-2117/2123 で実装
+            }
+        }
+    }
+
+    /// REQ-001: Trade-off Navigator — Chebyshev スコアを非同期計算して TradeoffDone を送信する
+    pub fn trigger_tradeoff_computation(
+        weights: Vec<f64>,
+        is_minimize: Vec<bool>,
+        tx: std::sync::mpsc::SyncSender<AppMessage>,
+    ) {
+        crate::app::spawn_task(tx, move || {
+            let sorted_indices = tunny_core::multi_objective::pareto::score_tradeoff_navigator(
+                &weights,
+                &is_minimize,
+            );
+            AppMessage::TradeoffDone { sorted_indices }
+        });
+    }
+}

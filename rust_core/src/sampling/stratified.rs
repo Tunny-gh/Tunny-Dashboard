@@ -6,10 +6,10 @@ use super::state::get_all_ranks;
 /// Algorithm:
 /// 1. Get per-row Pareto ranks (from cache or computed on-demand).
 /// 2. Group row indices by rank.
-/// 3. Rank 1 gets full allocation (all points included); if Rank 1 alone
-///    exceeds `max_points`, return the first `max_points` Rank 1 points.
+/// 3. Rank 0 gets full allocation (all points included); if Rank 0 alone
+///    exceeds `max_points`, return the first `max_points` Rank 0 points.
 /// 4. Remaining budget is distributed across higher ranks proportionally to
-///    1/rank (i.e., Rank 2 gets half the budget of Rank 1, Rank 3 one-third,
+///    1/(rank+1) (i.e., Rank 1 gets half the budget of Rank 0, Rank 2 one-third,
 ///    etc.), clamped to the group size.
 /// 5. Random-sample (seed 42) from each rank group up to its quota.
 ///
@@ -37,17 +37,17 @@ pub fn downsample_stratified_by_rank(
 
     let all_ranks = get_all_ranks();
     let max_rank = n_strata.max(1);
-    let mut by_rank: Vec<Vec<u32>> = vec![vec![]; max_rank + 1];
+    let mut by_rank: Vec<Vec<u32>> = vec![vec![]; max_rank];
 
     for (idx, &rank) in all_ranks.iter().enumerate() {
         let r = rank as usize;
-        if r >= 1 && r <= max_rank {
+        if r < max_rank {
             by_rank[r].push(idx as u32);
         }
     }
 
-    let rank1 = &by_rank[1];
-    let pareto_count = rank1.len();
+    let pareto_front = &by_rank[0];
+    let pareto_count = pareto_front.len();
 
     if pareto_count >= max_points {
         #[cfg(not(target_arch = "wasm32"))]
@@ -56,7 +56,7 @@ pub fn downsample_stratified_by_rank(
         let duration_ms = 0.0_f64;
 
         return Some(DownsampleResult {
-            indices: rank1[..max_points].to_vec(),
+            indices: pareto_front[..max_points].to_vec(),
             pareto_count,
             total_count,
             duration_ms,
@@ -64,18 +64,17 @@ pub fn downsample_stratified_by_rank(
     }
 
     let total_weight: f64 = (1..=max_rank).map(|r| 1.0 / r as f64).sum();
-    let mut result_indices: Vec<u32> = rank1.clone();
+    let mut result_indices: Vec<u32> = pareto_front.clone();
     let mut used = pareto_count;
 
-    for r in 2..=max_rank {
+    for (r, group) in by_rank.iter().enumerate().skip(1) {
         if used >= max_points {
             break;
         }
-        let group = &by_rank[r];
         if group.is_empty() {
             continue;
         }
-        let weight = 1.0 / r as f64;
+        let weight = 1.0 / (r + 1) as f64;
         let quota = ((weight / total_weight) * max_points as f64).round() as usize;
         let quota = quota.min(max_points - used).min(group.len());
         if quota == 0 {

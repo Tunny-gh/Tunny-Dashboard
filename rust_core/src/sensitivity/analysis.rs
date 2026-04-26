@@ -6,7 +6,9 @@ mod common;
 mod full;
 mod selected;
 
-pub use full::compute_sensitivity_all;
+pub use full::{
+    compute_sensitivity_all, compute_sensitivity_single_obj, compute_sensitivity_without_mdi,
+};
 pub use selected::compute_sensitivity_selected;
 
 pub fn compute_sensitivity() -> Option<SensitivityResult> {

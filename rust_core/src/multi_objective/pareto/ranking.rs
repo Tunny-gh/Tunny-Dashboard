@@ -13,10 +13,10 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     }
     let m = objectives[0].len();
     if m == 0 {
-        return vec![1u32; n];
+        return vec![0u32; n];
     }
     if m == 1 {
-        return vec![1u32; n];
+        return vec![0u32; n];
     }
 
     let nan_mask: Vec<bool> = objectives
@@ -78,7 +78,7 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     let mut current_front: Vec<usize> = (0..n)
         .filter(|&i| !nan_mask[i] && domination_count[i] == 0)
         .collect();
-    let mut rank = 1u32;
+    let mut rank = 0u32;
 
     while !current_front.is_empty() {
         let mut next_front = Vec::new();
@@ -139,7 +139,7 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
         let pareto_indices: Vec<u32> = ranks
             .iter()
             .enumerate()
-            .filter(|(_, &r)| r == 1)
+            .filter(|(_, &r)| r == 0)
             .map(|(i, _)| i as u32)
             .collect();
 

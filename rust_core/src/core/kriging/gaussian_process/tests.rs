@@ -191,6 +191,8 @@ fn predict_mean_matches_single_point_model() {
         x_train: vec![vec![1.0]],
         log_ls: vec![0.0],
         log_sf: 0.0,
+        l: vec![vec![1.0]],
+        log_sn: -2.0,
     };
 
     let prediction = predict_mean(&model, &[1.0]);
@@ -242,4 +244,39 @@ fn trained_gp_predictions_track_training_signal() {
         / x.len() as f64;
 
     assert!(mae < 0.35, "mae={}", mae);
+}
+
+#[test]
+fn predict_variance_at_training_point_is_near_zero() {
+    let x: Vec<Vec<f64>> = vec![vec![0.0], vec![0.5], vec![1.0]];
+    let y: Vec<f64> = vec![0.0, 0.5, 1.0];
+
+    let model = train_gp(x.clone(), y, 10, 42).expect("training should succeed");
+    let var_at_train = predict_variance(&model, &[0.5]);
+
+    // Variance at a training point should be very small (near 0)
+    assert!(var_at_train >= 0.0, "variance must be non-negative");
+    assert!(
+        var_at_train < 0.1,
+        "variance at training point should be small: {}",
+        var_at_train
+    );
+}
+
+#[test]
+fn predict_variance_is_nonnegative() {
+    let x: Vec<Vec<f64>> = (0..5).map(|i| vec![i as f64 / 4.0]).collect();
+    let y: Vec<f64> = x.iter().map(|row| row[0] * 2.0).collect();
+
+    let model = train_gp(x, y, 10, 42).expect("training should succeed");
+
+    for xi in [0.1, 0.3, 0.7, 1.5] {
+        let var = predict_variance(&model, &[xi]);
+        assert!(
+            var >= 0.0,
+            "variance must be non-negative at x={}, got {}",
+            xi,
+            var
+        );
+    }
 }

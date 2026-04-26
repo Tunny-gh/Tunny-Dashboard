@@ -395,6 +395,7 @@ pub(crate) fn fitc_lml(
 /// Prediction: `μ(x*) = K_{x*,Z} · w`
 ///
 /// Returns `Some((w, lambda_diag))` or `None` if Cholesky fails.
+#[allow(dead_code)]
 pub(crate) fn fitc_predict_weights(
     x: &[f64],
     z: &[f64],
@@ -453,7 +454,8 @@ pub(crate) fn optimize_fitc_hyperparams(
     m: usize,
     max_iter: usize,
 ) -> Vec<f64> {
-    let n_dims = 2_usize; // 2D PDP
+    // Derive n_dims from column-major x layout (x.len() == n_dims * n)
+    let n_dims = if n > 0 { x.len() / n } else { 2 };
     let n_params = n_dims + 2;
     let mut params = vec![0.0_f64; n_params];
     params[n_params - 1] = -2.0; // initial log_sn
@@ -552,6 +554,127 @@ pub(crate) fn optimize_fitc_hyperparams(
     }
 
     params
+}
+
+// =============================================================================
+// FITC posterior model + prediction (TASK-2054)
+// =============================================================================
+
+/// Trained sparse FITC model storing all state needed for posterior prediction.
+pub(crate) struct SparseFitcModel {
+    /// Posterior mean weights: `w = Σ^{-1} t`
+    pub w: Vec<f64>,
+    /// Flat lower-triangular Cholesky factor of Σ (M×M), used for variance.
+    pub l_sigma: Vec<f64>,
+    /// Inducing points in column-major flat layout: `z[dim * m + j]`
+    pub z: Vec<f64>,
+    /// Hyperparameters: `[log_ls_0, …, log_ls_{d-1}, log_sf, log_sn]`
+    pub params: Vec<f64>,
+    /// Number of inducing points.
+    pub m: usize,
+}
+
+/// Train a sparse FITC model and return posterior state needed for prediction.
+///
+/// Analogous to `fitc_predict_weights` but stores `l_sigma` for variance computation.
+pub(crate) fn fitc_train(
+    x: &[f64],
+    z: &[f64],
+    y: &[f64],
+    params: &[f64],
+    n: usize,
+    m: usize,
+) -> Option<SparseFitcModel> {
+    let kzz = build_kzz(z, m, params);
+    let kxz = build_kxz(x, z, n, m, params);
+
+    let log_sf = params[params.len() - 2];
+    let log_sn = params[params.len() - 1];
+    let (_, lambda_diag) = build_fitc_matrix(&kzz, &kxz, m, n, log_sf, log_sn)?;
+
+    let mut sigma = kzz.clone();
+    for i in 0..m {
+        for j in i..m {
+            let s: f64 = (0..n)
+                .map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t])
+                .sum();
+            sigma[i * m + j] += s;
+            if i != j {
+                sigma[j * m + i] += s;
+            }
+        }
+        sigma[i * m + i] += 1e-6;
+    }
+
+    let l_sigma = cholesky_flat(&sigma, m)?;
+
+    let u: Vec<f64> = y
+        .iter()
+        .zip(lambda_diag.iter())
+        .map(|(&yi, &li)| yi / li)
+        .collect();
+    let t: Vec<f64> = (0..m)
+        .map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum())
+        .collect();
+
+    let fw = forward_sub_flat(&l_sigma, &t, m);
+    let w = backward_sub_flat(&l_sigma, &fw, m);
+
+    Some(SparseFitcModel {
+        w,
+        l_sigma,
+        z: z.to_vec(),
+        params: params.to_vec(),
+        m,
+    })
+}
+
+/// Predict the FITC posterior mean at `x_test` (a single point with `n_dims` dimensions).
+///
+/// `μ(x*) = K_{x*,Z} · w`
+pub(crate) fn fitc_predict_mean(model: &SparseFitcModel, x_test: &[f64]) -> f64 {
+    let n_dims = x_test.len();
+    let log_ls = &model.params[..n_dims];
+    let log_sf = model.params[n_dims];
+
+    (0..model.m)
+        .map(|j| {
+            let zj: Vec<f64> = (0..n_dims).map(|d| model.z[d * model.m + j]).collect();
+            let k =
+                crate::core::kriging::gaussian_process::matern52_ard(x_test, &zj, log_ls, log_sf);
+            k * model.w[j]
+        })
+        .sum()
+}
+
+/// Predict the FITC posterior variance at `x_test`.
+///
+/// `var(x*) = k(x*,x*) − ‖L_Σ^{-1} k(Z,x*)‖²`
+///
+/// Clamped to 0 to prevent negative values from numerical error.
+pub(crate) fn fitc_predict_variance(model: &SparseFitcModel, x_test: &[f64]) -> f64 {
+    let n_dims = x_test.len();
+    let log_ls = &model.params[..n_dims];
+    let log_sf = model.params[n_dims];
+
+    // k(x*, x*) — prior variance at the test point
+    let k_star_star =
+        crate::core::kriging::gaussian_process::matern52_ard(x_test, x_test, log_ls, log_sf);
+
+    // k(Z, x*) — cross-covariance between inducing points and test point
+    let k_z_star: Vec<f64> = (0..model.m)
+        .map(|j| {
+            let zj: Vec<f64> = (0..n_dims).map(|d| model.z[d * model.m + j]).collect();
+            crate::core::kriging::gaussian_process::matern52_ard(&zj, x_test, log_ls, log_sf)
+        })
+        .collect();
+
+    // v = L_Σ^{-1} k(Z, x*)
+    let v = forward_sub_flat(&model.l_sigma, &k_z_star, model.m);
+
+    // posterior variance = k** - v^T v  (clamped to 0)
+    let reduction: f64 = v.iter().map(|vi| vi * vi).sum();
+    (k_star_star - reduction).max(0.0)
 }
 
 // =============================================================================
@@ -753,5 +876,64 @@ mod tests {
             cholesky_flat(&kzz, m).is_some(),
             "Cholesky should succeed for degenerate inducing points due to jitter"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // TASK-2054 unit tests: SparseFitcModel / fitc_train / fitc_predict_*
+    // -------------------------------------------------------------------------
+
+    fn make_simple_dataset() -> (Vec<f64>, Vec<f64>, usize, usize) {
+        let n = 20_usize;
+        let m = 5_usize;
+        // Column-major 2D training data: x[0..n] = dim0, x[n..2n] = dim1
+        let x: Vec<f64> = (0..n * 2).map(|i| i as f64 / (n * 2) as f64).collect();
+        let y: Vec<f64> = (0..n).map(|i| (i as f64 / n as f64) * 2.0 - 0.5).collect();
+        (x, y, n, m)
+    }
+
+    #[test]
+    fn fitc_train_returns_some_for_valid_input() {
+        let (x, y, n, m) = make_simple_dataset();
+        let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
+        let params = default_params();
+        let model = fitc_train(&x, &z, &y, &params, n, m);
+        assert!(model.is_some(), "fitc_train should succeed for valid input");
+    }
+
+    #[test]
+    fn fitc_predict_mean_is_finite() {
+        let (x, y, n, m) = make_simple_dataset();
+        let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
+        let params = default_params();
+        let model = fitc_train(&x, &z, &y, &params, n, m).expect("fitc_train should succeed");
+        let mean = fitc_predict_mean(&model, &[0.4, 0.6]);
+        assert!(mean.is_finite(), "fitc_predict_mean should be finite");
+    }
+
+    #[test]
+    fn fitc_predict_variance_is_nonnegative() {
+        let (x, y, n, m) = make_simple_dataset();
+        let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
+        let params = default_params();
+        let model = fitc_train(&x, &z, &y, &params, n, m).expect("fitc_train should succeed");
+        for xi in [[0.1_f64, 0.2], [0.5, 0.5], [0.9, 0.8]] {
+            let var = fitc_predict_variance(&model, &xi);
+            assert!(
+                var >= 0.0,
+                "fitc_predict_variance must be non-negative at {:?}, got {}",
+                xi,
+                var
+            );
+        }
+    }
+
+    #[test]
+    fn fitc_predict_variance_is_finite() {
+        let (x, y, n, m) = make_simple_dataset();
+        let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
+        let params = default_params();
+        let model = fitc_train(&x, &z, &y, &params, n, m).expect("fitc_train should succeed");
+        let var = fitc_predict_variance(&model, &[0.5, 0.5]);
+        assert!(var.is_finite(), "fitc_predict_variance should be finite");
     }
 }

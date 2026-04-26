@@ -54,6 +54,29 @@ tunny-dashboard/
 
 ---
 
+## Available Widgets
+
+All widgets can be freely arranged on the dashboard canvas via drag-and-drop (Mode D).
+
+| Widget | Description |
+|---|---|
+| **Pareto Scatter 2D** | 2D scatter plot of the Pareto front. Supports brushing and GPU-accelerated rendering. |
+| **Pareto Scatter 3D** | 3D scatter plot of the Pareto front with arcball camera rotation. |
+| **Optimization History** | Line/scatter chart of objective values over trial number. |
+| **Hypervolume History** | Hypervolume indicator history across trials (multi-objective). |
+| **Parallel Coordinates** | Multi-axis parallel coordinates chart for exploring parameter-objective relationships. |
+| **Scatter Matrix** | Pairwise scatter matrix covering all parameters and objectives. |
+| **Importance Chart** | Parameter importance bar chart. Supported metrics: Spearman, Ridge, RF-Anova, MDI, SHAP, Sobol (First-order / Total-effect). |
+| **Sensitivity Heatmap** | Heatmap of pairwise sensitivities across all parameters and objectives. |
+| **PDP Chart** | 1-D Partial Dependence Plot for a selected parameter. |
+| **PDP Chart 2D** | 2-D Partial Dependence Plot (heatmap/surface) for a pair of parameters. |
+| **Cluster Scatter** | k-means clustering projected to 2-D via PCA. Target space can be switched between Objective, Variable, or Combined. |
+| **MCDM Ranking** | Multi-criteria decision making ranking bar chart. Supported methods: TOPSIS, VIKOR. |
+| **MCDM Table** | Sortable ranking table produced by MCDM analysis (TOPSIS / VIKOR). |
+| **Trial Table** | Full trial data table with sortable columns and row selection. |
+
+---
+
 ## Quick Start (Windows)
 
 Double-click any of the batch files in the project root:

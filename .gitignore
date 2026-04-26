@@ -4,6 +4,7 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+!.vscode/launch.json
 *.suo
 *.ntvs*
 *.njsproj
@@ -37,7 +38,14 @@ frontend/src/wasm/pkg/
 # Rust artifacts
 rust_core/target/
 rust_core/Cargo.lock
+target/
+Cargo.lock
+
 
 # Test fixtures (allow *.log under rust_core for CI)
 !rust_core/test*.log
 node_modules/
+.claude/settings.local.json
+.rulesync/*
+.github/prompts/*
+.github/skills/*

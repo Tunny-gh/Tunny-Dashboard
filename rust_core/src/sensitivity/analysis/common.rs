@@ -3,7 +3,7 @@ use crate::dataframe::DataFrame;
 use super::super::{
     data::get_param_numeric_values,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    RfAnovaResult, RidgeResult, SensitivityResult,
+    MdiResult, RfAnovaResult, RidgeResult, SensitivityResult, ShapResult,
 };
 
 pub(super) fn empty_result(
@@ -16,6 +16,8 @@ pub(super) fn empty_result(
         spearman: vec![],
         ridge: vec![],
         rf_anova: None,
+        mdi: None,
+        shap: None,
     }
 }
 
@@ -114,19 +116,66 @@ pub(super) fn collect_objective_subset(
         .collect()
 }
 
-pub(super) fn transpose_rf_anova_importances(
+fn transpose_importances_matrix(
     importances_by_objective: &[Vec<f64>],
     param_count: usize,
     objective_count: usize,
-) -> RfAnovaResult {
+) -> Vec<Vec<f64>> {
     let mut importances = vec![vec![0.0; objective_count]; param_count];
     for (objective_index, values) in importances_by_objective.iter().enumerate() {
         for (param_index, &value) in values.iter().enumerate() {
-            if param_index < importances.len() {
+            if param_index < param_count {
                 importances[param_index][objective_index] = value;
             }
         }
     }
+    importances
+}
 
-    RfAnovaResult { importances }
+pub(super) fn transpose_mdi_importances(
+    importances_by_objective: &[Vec<f64>],
+    r_squared: Vec<f64>,
+    param_count: usize,
+    objective_count: usize,
+) -> MdiResult {
+    MdiResult {
+        importances: transpose_importances_matrix(
+            importances_by_objective,
+            param_count,
+            objective_count,
+        ),
+        r_squared,
+    }
+}
+
+pub(super) fn transpose_rf_anova_importances(
+    importances_by_objective: &[Vec<f64>],
+    r_squared: Vec<f64>,
+    param_count: usize,
+    objective_count: usize,
+) -> RfAnovaResult {
+    RfAnovaResult {
+        importances: transpose_importances_matrix(
+            importances_by_objective,
+            param_count,
+            objective_count,
+        ),
+        r_squared,
+    }
+}
+
+pub(super) fn transpose_shap_importances(
+    importances_by_objective: &[Vec<f64>],
+    r_squared: Vec<f64>,
+    param_count: usize,
+    objective_count: usize,
+) -> ShapResult {
+    ShapResult {
+        importances: transpose_importances_matrix(
+            importances_by_objective,
+            param_count,
+            objective_count,
+        ),
+        r_squared,
+    }
 }
