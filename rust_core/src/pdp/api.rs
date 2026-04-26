@@ -20,8 +20,16 @@ pub fn compute_pdp_from_data(
     model_type: &str,
 ) -> PdpResult1d {
     match model_type {
-        "kriging" => {
-            compute_pdp_1d_kriging_raw(
+        "kriging" => compute_pdp_1d_kriging_raw(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+        )
+        .unwrap_or_else(|| {
+            compute_pdp_from_matrix(
                 &x_matrix,
                 &y,
                 &param_names,
@@ -29,19 +37,17 @@ pub fn compute_pdp_from_data(
                 target_param_idx,
                 n_grid,
             )
-            .unwrap_or_else(|| {
-                compute_pdp_from_matrix(
-                    &x_matrix,
-                    &y,
-                    &param_names,
-                    objective_name,
-                    target_param_idx,
-                    n_grid,
-                )
-            })
-        }
-        "sparse_kriging" => {
-            compute_pdp_1d_sparse_kriging_raw(
+        }),
+        "sparse_kriging" => compute_pdp_1d_sparse_kriging_raw(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+        )
+        .unwrap_or_else(|| {
+            compute_pdp_from_matrix(
                 &x_matrix,
                 &y,
                 &param_names,
@@ -49,17 +55,7 @@ pub fn compute_pdp_from_data(
                 target_param_idx,
                 n_grid,
             )
-            .unwrap_or_else(|| {
-                compute_pdp_from_matrix(
-                    &x_matrix,
-                    &y,
-                    &param_names,
-                    objective_name,
-                    target_param_idx,
-                    n_grid,
-                )
-            })
-        }
+        }),
         _ => compute_pdp_from_matrix(
             &x_matrix,
             &y,

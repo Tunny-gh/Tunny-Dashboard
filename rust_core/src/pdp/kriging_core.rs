@@ -251,7 +251,12 @@ pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
         Some(model) if model.w.iter().all(|v| v.is_finite()) => model,
         _ => {
             return compute_pdp_1d_kriging_raw(
-                x_matrix, y, param_names, objective_name, target_param_idx, n_grid,
+                x_matrix,
+                y,
+                param_names,
+                objective_name,
+                target_param_idx,
+                n_grid,
             )
         }
     };

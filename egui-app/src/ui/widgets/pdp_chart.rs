@@ -127,7 +127,13 @@ impl PdpChart {
     }
 
     /// キャッシュに結果を挿入する
-    pub fn insert_cache(&mut self, param: &str, objective: &str, model_type_str: &str, result: PdpResult1d) {
+    pub fn insert_cache(
+        &mut self,
+        param: &str,
+        objective: &str,
+        model_type_str: &str,
+        result: PdpResult1d,
+    ) {
         let key = cache_key(param, objective, model_type_str);
         self.cache.insert(key, result);
     }
@@ -196,11 +202,8 @@ impl PdpChart {
             {
                 if let Some(obj_name) = obj_names.get(self.selected_objective) {
                     // キャッシュヒットの場合は再計算せずにキャッシュから結果を取得
-                    let cache_key_str = cache_key(
-                        &self.selected_param,
-                        obj_name,
-                        self.model_type.to_str(),
-                    );
+                    let cache_key_str =
+                        cache_key(&self.selected_param, obj_name, self.model_type.to_str());
                     if let Some(cached) = self.cache.get(&cache_key_str) {
                         self.result = Some(PdpResult::OneDim(cached.clone()));
                     } else {

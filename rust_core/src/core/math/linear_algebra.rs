@@ -11,13 +11,7 @@ pub(crate) fn cholesky(a: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
     }
 
     // Build faer matrix with diagonal jitter
-    let mat = faer::Mat::<f64>::from_fn(n, n, |i, j| {
-        if i == j {
-            a[i][j] + 1e-6
-        } else {
-            a[i][j]
-        }
-    });
+    let mat = faer::Mat::<f64>::from_fn(n, n, |i, j| if i == j { a[i][j] + 1e-6 } else { a[i][j] });
 
     let chol = mat.llt(faer::Side::Lower).ok()?;
     let l_ref = chol.L();
