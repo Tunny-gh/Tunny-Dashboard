@@ -499,5 +499,10 @@ pub fn show_chart(
                 .mcdm_table
                 .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
         }
+        ChartId::SliceChart => {
+            widgets
+                .slice_chart
+                .show(ui, trial_rows, param_names, obj_names, directions);
+        }
     }
 }

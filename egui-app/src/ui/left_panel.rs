@@ -384,11 +384,12 @@ mod tests {
     #[test]
     fn chart_id_all_returns_all_variants() {
         let all = ChartId::all();
-        assert_eq!(all.len(), 13);
+        assert_eq!(all.len(), 14);
         assert!(all.contains(&ChartId::ParetoScatter2D));
         assert!(all.contains(&ChartId::ClusterScatter));
         assert!(all.contains(&ChartId::McdmRankChart));
         assert!(all.contains(&ChartId::McdmTable));
+        assert!(all.contains(&ChartId::SliceChart));
     }
 
     #[test]

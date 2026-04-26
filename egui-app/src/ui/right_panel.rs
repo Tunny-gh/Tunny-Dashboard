@@ -70,6 +70,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                         PanelItem::Chart(ChartId::PdpChart),
                         PanelItem::Chart(ChartId::PdpChart2D),
                         PanelItem::Chart(ChartId::ScatterMatrix),
+                        PanelItem::Chart(ChartId::SliceChart),
                     ],
                 ),
                 ("Clustering", &[PanelItem::Chart(ChartId::ClusterScatter)]),
