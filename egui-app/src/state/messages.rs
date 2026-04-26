@@ -1,6 +1,6 @@
 use crate::state::app_state::{
-    ClusterResult, GpuBufferData, McdmResult, SensitivityResult, SobolResult, StudyMeta,
-    TopsisResult, TrialRow,
+    ClusterResult, GpuBufferData, McdmResult, SensitivityResult, SobolResult, StudyContext,
+    StudyMeta, TopsisResult, TrialRow,
 };
 use crate::state::results::EntropyResult;
 
@@ -100,6 +100,27 @@ pub enum AppMessage {
     },
     Error(String),
     SensitivityError(String),
+
+    // ── TASK-2112: 新規バリアント ────────────────────────────────────
+    /// REQ-001: Trade-off Navigator 計算完了
+    TradeoffDone {
+        sorted_indices: Vec<u32>,
+    },
+    /// REQ-006: 比較 Study のロード完了
+    ComparisonStudyLoaded {
+        study_idx: usize,
+        context: Box<StudyContext>,
+    },
+    /// REQ-007: Artifacts ディレクトリスキャン完了
+    ArtifactsDirScanned {
+        trial_artifacts: std::collections::HashMap<u32, Vec<std::path::PathBuf>>,
+        artifacts_dir: std::path::PathBuf,
+    },
+    /// REQ-005: HTML レポート生成完了
+    HtmlReportDone {
+        html: String,
+        suggested_filename: String,
+    },
 }
 
 #[cfg(test)]

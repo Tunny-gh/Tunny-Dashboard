@@ -27,6 +27,30 @@ pub struct AppState {
     pub hv_history: Option<HvHistory>,
     pub selected_colormap: ColormapName,
     pub chart_colors: Vec<egui::Color32>,
+
+    // ── REQ-001: Trade-off Navigator ──────────────────────────
+    /// 目的関数ごとの重みベクトル（スライダー値）
+    pub tradeoff_weights: Vec<f64>,
+    /// score_tradeoff_navigator() の結果（ソート済みインデックス）
+    pub tradeoff_sorted_indices: Option<Vec<u32>>,
+
+    // ── REQ-006: Multi-study 比較 ──────────────────────────────
+    /// 比較モードが有効か
+    pub comparison_mode: bool,
+    /// 比較対象の StudyContext リスト（最大 4 件）
+    pub comparison_studies: Vec<StudyContext>,
+    /// 比較スタディの色リスト
+    pub comparison_colors: Vec<egui::Color32>,
+
+    // ── REQ-007: Artifacts ────────────────────────────────────
+    /// スキャン済みの artifacts ベースディレクトリ
+    pub artifacts_dir: Option<std::path::PathBuf>,
+    /// trial_id → ファイルパスリストのマップ
+    pub artifact_map: HashMap<u32, Vec<std::path::PathBuf>>,
+
+    // ── REQ-008: 収束診断 ──────────────────────────────────────
+    /// (trial_id, cumulative_best_value) の履歴（単目的 Study のみ）
+    pub best_trial_history: Option<Vec<(u32, f64)>>,
 }
 
 impl AppState {
@@ -49,6 +73,14 @@ impl AppState {
             hv_history: None,
             selected_colormap: ColormapName::Viridis,
             chart_colors: Vec::new(),
+            tradeoff_weights: Vec::new(),
+            tradeoff_sorted_indices: None,
+            comparison_mode: false,
+            comparison_studies: Vec::new(),
+            comparison_colors: Vec::new(),
+            artifacts_dir: None,
+            artifact_map: HashMap::new(),
+            best_trial_history: None,
         }
     }
 
@@ -71,6 +103,20 @@ impl AppState {
         self.downsample_cache.clear();
         self.chart_colors.clear();
         // selected_colormap はユーザー設定を維持
+
+        // REQ-001: Trade-off 結果はリセット（Study 切り替え時に再計算が必要）
+        self.tradeoff_weights.clear();
+        self.tradeoff_sorted_indices = None;
+
+        // REQ-006: comparison_mode/studies/colors は Study 切り替えでも維持
+        // （ユーザーが明示的にリセットするまで比較セッションを保持）
+
+        // REQ-007: Artifacts は Study 切り替え時にリセット
+        self.artifacts_dir = None;
+        self.artifact_map.clear();
+
+        // REQ-008: 収束履歴は Study 切り替え時にリセット
+        self.best_trial_history = None;
     }
 
     /// ColorMode と ColormapName に基づいて chart_colors を即時再計算する
@@ -260,5 +306,84 @@ mod tests {
         state.update_chart_colors();
         let jet_colors = state.chart_colors.clone();
         assert_ne!(viridis_colors, jet_colors);
+    }
+
+    // ============================================================
+    // TASK-2110: 8 新規フィールドのテスト
+    // ============================================================
+
+    #[test]
+    fn task2110_tradeoff_fields_default() {
+        // TC-001, TC-002
+        let state = AppState::new();
+        assert!(state.tradeoff_weights.is_empty());
+        assert!(state.tradeoff_sorted_indices.is_none());
+    }
+
+    #[test]
+    fn task2110_comparison_fields_default() {
+        // TC-003, TC-004, TC-005
+        let state = AppState::new();
+        assert!(!state.comparison_mode);
+        assert!(state.comparison_studies.is_empty());
+        assert!(state.comparison_colors.is_empty());
+    }
+
+    #[test]
+    fn task2110_artifacts_fields_default() {
+        // TC-006, TC-007
+        let state = AppState::new();
+        assert!(state.artifacts_dir.is_none());
+        assert!(state.artifact_map.is_empty());
+    }
+
+    #[test]
+    fn task2110_best_trial_history_default() {
+        // TC-008
+        let state = AppState::new();
+        assert!(state.best_trial_history.is_none());
+    }
+
+    #[test]
+    fn task2110_clear_resets_artifact_and_history_fields() {
+        // TC-009, TC-010
+        let mut state = AppState::new();
+        state
+            .artifact_map
+            .insert(0, vec![std::path::PathBuf::from("/tmp/a.png")]);
+        state.artifacts_dir = Some(std::path::PathBuf::from("/tmp"));
+        state.best_trial_history = Some(vec![(0, 1.0)]);
+        state.tradeoff_weights = vec![0.5, 0.5];
+        state.tradeoff_sorted_indices = Some(vec![0, 1]);
+
+        state.clear();
+
+        assert!(state.artifact_map.is_empty());
+        assert!(state.artifacts_dir.is_none());
+        assert!(state.best_trial_history.is_none());
+        assert!(state.tradeoff_weights.is_empty());
+        assert!(state.tradeoff_sorted_indices.is_none());
+    }
+
+    #[test]
+    fn task2110_clear_preserves_comparison_fields() {
+        // comparison_mode/studies/colors は clear() でリセットしない
+        let mut state = AppState::new();
+        state.comparison_mode = true;
+        state.comparison_colors = vec![egui::Color32::RED];
+
+        state.clear();
+
+        // comparison_mode と comparison_colors は維持される
+        assert!(state.comparison_mode);
+        assert_eq!(state.comparison_colors.len(), 1);
+    }
+
+    #[test]
+    fn task2110_tradeoff_weights_writable() {
+        // TC-011
+        let mut state = AppState::new();
+        state.tradeoff_weights = vec![0.5, 0.5];
+        assert_eq!(state.tradeoff_weights, vec![0.5, 0.5]);
     }
 }

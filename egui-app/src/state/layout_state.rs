@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ChartId {
     ParetoScatter2D,
     ParetoScatter3D,
@@ -57,7 +57,7 @@ impl ChartId {
 // PanelItem — キャンバスに配置できるウィジェットの統合型
 // 🔵 ユーザーヒアリング（チャートとテーブルをD&D対象化）より
 // ----------------------------------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum PanelItem {
     /// 既存チャートをラップ
     Chart(ChartId),
@@ -115,7 +115,7 @@ impl DragPayload {
 // GridCell — グリッドの1セルの状態
 // 🔵 ユーザーヒアリング（セル結合・D&D配置）より
 // ----------------------------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GridCell {
     /// 配置されたウィジェット。None = 空スロット。
     pub content: Option<PanelItem>,
@@ -158,7 +158,7 @@ impl GridCell {
 // GridLayout — キャンバス全体のグリッドレイアウト
 // 🔵 ユーザーヒアリング（自由に行列を追加）より
 // ----------------------------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GridLayout {
     pub rows: usize,
     pub cols: usize,
@@ -399,7 +399,7 @@ impl GridLayout {
 // RightPanelState — 右パネルの開閉・サイズ状態
 // 🔵 ユーザーヒアリング（ハンバーガーメニュー）より
 // ----------------------------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RightPanelState {
     /// ハンバーガーメニューで切り替える開閉状態
     pub is_open: bool,
@@ -416,15 +416,17 @@ impl Default for RightPanelState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LayoutMode {
     MultiObjective,
     VariableSpace,
     ConvergenceAnalysis,
     FreeLayout,
+    /// REQ-006: Multi-study 比較モード
+    Comparison,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LayoutState {
     pub left_panel_width: f32,
     pub layout_mode: LayoutMode,

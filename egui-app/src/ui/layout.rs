@@ -61,7 +61,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 .inner_margin(egui::Margin::same(8.0)),
         )
         .show(ctx, |ui| {
-            show_left_panel(ui, &mut app.app_state, &mut app.layout);
+            show_left_panel(ui, &mut app.app_state, &mut app.layout, &tx);
         });
 
     // 右パネル（ウィジェット一覧・ハンバーガーメニュー）

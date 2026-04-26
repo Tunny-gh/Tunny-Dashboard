@@ -23,6 +23,8 @@ linfa = "0.7"
 linfa-clustering = "0.7"
 linfa-reduction = "0.7"
 ndarray = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+open = "5"
 
 [dev-dependencies]
 tempfile = "3"

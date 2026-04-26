@@ -1,5 +1,6 @@
 pub mod bottom_panel;
 pub mod chart_registry;
+pub mod comparison_panel;
 pub mod grid_canvas;
 pub mod layout;
 pub mod left_panel;

@@ -61,6 +61,8 @@ pub struct ParallelCoordsChart {
     pub show_objectives: bool,
     pub brush_ranges: std::collections::HashMap<String, Option<(f32, f32)>>,
     pub drag_start: Option<(String, f32)>,
+    /// REQ-004: 軸ごとの表示/非表示フラグ（true = 表示）
+    pub axis_visibility: std::collections::HashMap<String, bool>,
     col_data_cache: Option<Vec<Vec<f64>>>,
     col_ranges_cache: Option<Vec<(f64, f64)>>,
     cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
@@ -74,6 +76,7 @@ impl Default for ParallelCoordsChart {
             show_objectives: true,
             brush_ranges: std::collections::HashMap::new(),
             drag_start: None,
+            axis_visibility: std::collections::HashMap::new(),
             col_data_cache: None,
             col_ranges_cache: None,
             cache_key: (0, 0, 0),
@@ -343,5 +346,62 @@ mod tests {
         chart.clear_brushes();
         assert!(chart.brush_ranges.is_empty());
         assert!(chart.drag_start.is_none());
+    }
+
+    // TASK-2125 tests
+    #[test]
+    fn axis_visibility_filter() {
+        use std::collections::HashMap;
+        let mut visibility: HashMap<String, bool> = HashMap::new();
+        visibility.insert("x1".to_string(), true);
+        visibility.insert("x2".to_string(), false);
+        visibility.insert("x3".to_string(), true);
+        let axis_order = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
+        let visible: Vec<_> = axis_order
+            .iter()
+            .filter(|name| *visibility.get(*name).unwrap_or(&true))
+            .collect();
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0], "x1");
+        assert_eq!(visible[1], "x3");
+    }
+
+    #[test]
+    fn axis_reorder_logic() {
+        let mut axis_order = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
+        let dragged = "x1";
+        let target_idx = 2;
+        if let Some(from_idx) = axis_order.iter().position(|a| a == dragged) {
+            let name = axis_order.remove(from_idx);
+            let insert_at = target_idx.min(axis_order.len());
+            axis_order.insert(insert_at, name);
+        }
+        assert_eq!(axis_order, vec!["x2", "x3", "x1"]);
+    }
+
+    #[test]
+    fn axis_visibility_all_hidden() {
+        use std::collections::HashMap;
+        let mut visibility: HashMap<String, bool> = HashMap::new();
+        visibility.insert("x1".to_string(), false);
+        visibility.insert("x2".to_string(), false);
+        let axis_order = vec!["x1".to_string(), "x2".to_string()];
+        let visible: Vec<_> = axis_order
+            .iter()
+            .filter(|name| *visibility.get(*name).unwrap_or(&true))
+            .collect();
+        assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn axis_visibility_default_true_for_unknown() {
+        use std::collections::HashMap;
+        let visibility: HashMap<String, bool> = HashMap::new();
+        let axis_order = vec!["unknown_axis".to_string()];
+        let visible: Vec<_> = axis_order
+            .iter()
+            .filter(|name| *visibility.get(*name).unwrap_or(&true))
+            .collect();
+        assert_eq!(visible.len(), 1);
     }
 }

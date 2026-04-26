@@ -120,6 +120,42 @@ impl MessageHandler {
                 widget_states.pdp_chart.result = Some(result);
                 widget_states.pdp_chart.computing = false;
             }
+
+            // TASK-2112: 新規バリアント（TASK-2114 で詳細実装予定）
+            AppMessage::TradeoffDone { sorted_indices } => {
+                app_state.tradeoff_sorted_indices = Some(sorted_indices);
+            }
+            AppMessage::ComparisonStudyLoaded {
+                study_idx: _,
+                context,
+            } => {
+                app_state.comparison_studies.push(*context);
+            }
+            AppMessage::ArtifactsDirScanned {
+                trial_artifacts,
+                artifacts_dir,
+            } => {
+                app_state.artifact_map = trial_artifacts;
+                app_state.artifacts_dir = Some(artifacts_dir);
+            }
+            AppMessage::HtmlReportDone { .. } => {
+                // TASK-2117/2123 で実装
+            }
         }
+    }
+
+    /// REQ-001: Trade-off Navigator — Chebyshev スコアを非同期計算して TradeoffDone を送信する
+    pub fn trigger_tradeoff_computation(
+        weights: Vec<f64>,
+        is_minimize: Vec<bool>,
+        tx: std::sync::mpsc::SyncSender<AppMessage>,
+    ) {
+        crate::app::spawn_task(tx, move || {
+            let sorted_indices = tunny_core::multi_objective::pareto::score_tradeoff_navigator(
+                &weights,
+                &is_minimize,
+            );
+            AppMessage::TradeoffDone { sorted_indices }
+        });
     }
 }

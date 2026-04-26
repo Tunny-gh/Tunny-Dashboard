@@ -1,3 +1,4 @@
+pub mod artifact_modal;
 pub mod cluster_scatter;
 pub mod hv_history;
 pub mod importance_chart;

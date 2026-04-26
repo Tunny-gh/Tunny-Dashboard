@@ -46,3 +46,6 @@ Cargo.lock
 !rust_core/test*.log
 node_modules/
 .claude/settings.local.json
+.rulesync/*
+.github/prompts/*
+.github/skills/*

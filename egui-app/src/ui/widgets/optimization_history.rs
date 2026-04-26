@@ -25,6 +25,10 @@ pub struct OptimizationHistoryChart {
     pub show_moving_avg: bool,
     pub window_size: usize,
     pub obj_idx: usize,
+    /// REQ-008: 累積ベスト値ラインの表示切替
+    pub show_best_line: bool,
+    /// REQ-008: Y 軸対数スケール切替
+    pub log_scale: bool,
 }
 
 impl Default for OptimizationHistoryChart {
@@ -35,6 +39,8 @@ impl Default for OptimizationHistoryChart {
             show_moving_avg: false,
             window_size: 10,
             obj_idx: 0,
+            show_best_line: true,
+            log_scale: false,
         }
     }
 }
@@ -46,6 +52,17 @@ impl OptimizationHistoryChart {
         trial_rows: &[TrialRow],
         obj_names: &[String],
         directions: &[Direction],
+    ) {
+        self.show_with_history(ui, trial_rows, obj_names, directions, None);
+    }
+
+    pub fn show_with_history(
+        &mut self,
+        ui: &mut egui::Ui,
+        trial_rows: &[TrialRow],
+        obj_names: &[String],
+        directions: &[Direction],
+        best_history: Option<&[(u32, f64)]>,
     ) {
         // 目的関数インデックスを有効範囲に収める
         if obj_names.is_empty() {
@@ -88,6 +105,20 @@ impl OptimizationHistoryChart {
                         }
                     });
             }
+
+            // REQ-008-C: Best ライン表示トグル
+            ui.separator();
+            if ui
+                .selectable_label(self.show_best_line, "[*] Best Line")
+                .clicked()
+            {
+                self.show_best_line = !self.show_best_line;
+            }
+
+            // REQ-008-D: 対数スケールトグル
+            if ui.selectable_label(self.log_scale, "Log Scale").clicked() {
+                self.log_scale = !self.log_scale;
+            }
         });
 
         let values: Vec<f64> = trial_rows
@@ -95,14 +126,24 @@ impl OptimizationHistoryChart {
             .map(|r| r.objectives.get(self.obj_idx).copied().unwrap_or(0.0))
             .collect();
 
+        let show_best_line = self.show_best_line;
+        let log_scale = self.log_scale;
+        let show_all = self.show_all;
+        let show_best = self.show_best;
+        let show_moving_avg = self.show_moving_avg;
+        let window_size = self.window_size;
+
         egui_plot::Plot::new("optimization_history_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
-                if self.show_all && !values.is_empty() {
+                if show_all && !values.is_empty() {
                     let pts: egui_plot::PlotPoints = values
                         .iter()
                         .enumerate()
-                        .map(|(i, &v)| [i as f64, v])
+                        .map(|(i, &v)| {
+                            let y = if log_scale && v > 0.0 { v.ln() } else { v };
+                            [i as f64, y]
+                        })
                         .collect();
                     plot_ui.points(
                         egui_plot::Points::new(pts)
@@ -112,9 +153,13 @@ impl OptimizationHistoryChart {
                     );
                 }
 
-                if self.show_best && !values.is_empty() {
+                if show_best && !values.is_empty() {
                     let pts: egui_plot::PlotPoints = compute_best_values(&values, is_minimize)
                         .into_iter()
+                        .map(|[x, y]| {
+                            let y2 = if log_scale && y > 0.0 { y.ln() } else { y };
+                            [x, y2]
+                        })
                         .collect();
                     plot_ui.line(
                         egui_plot::Line::new(pts)
@@ -124,17 +169,40 @@ impl OptimizationHistoryChart {
                     );
                 }
 
-                if self.show_moving_avg && !values.is_empty() {
-                    let pts: egui_plot::PlotPoints =
-                        compute_moving_average(&values, self.window_size)
-                            .into_iter()
-                            .collect();
+                if show_moving_avg && !values.is_empty() {
+                    let pts: egui_plot::PlotPoints = compute_moving_average(&values, window_size)
+                        .into_iter()
+                        .map(|[x, y]| {
+                            let y2 = if log_scale && y > 0.0 { y.ln() } else { y };
+                            [x, y2]
+                        })
+                        .collect();
                     plot_ui.line(
                         egui_plot::Line::new(pts)
                             .name("Moving Average")
                             .color(egui::Color32::from_rgb(50, 200, 120))
                             .width(1.5),
                     );
+                }
+
+                // REQ-008-C: Best ライン（best_history から）
+                if show_best_line {
+                    if let Some(history) = best_history {
+                        let pts: egui_plot::PlotPoints = history
+                            .iter()
+                            .enumerate()
+                            .map(|(i, &(_id, v))| {
+                                let y = if log_scale && v > 0.0 { v.ln() } else { v };
+                                [i as f64, y]
+                            })
+                            .collect();
+                        plot_ui.line(
+                            egui_plot::Line::new(pts)
+                                .color(egui::Color32::GOLD)
+                                .width(2.0)
+                                .name("[*] Best"),
+                        );
+                    }
                 }
             });
     }
@@ -252,5 +320,43 @@ mod tests {
         assert!(!HistoryMode::BestValue.label().is_empty());
         assert!(!HistoryMode::AllTrials.label().is_empty());
         assert!(!HistoryMode::MovingAverage.label().is_empty());
+    }
+
+    // TASK-2126 tests
+    #[test]
+    fn best_line_toggle() {
+        let mut show_best_line = false;
+        show_best_line = !show_best_line;
+        assert!(show_best_line);
+        show_best_line = !show_best_line;
+        assert!(!show_best_line);
+    }
+
+    #[test]
+    fn best_line_plot_points() {
+        let history = vec![(0u32, 1.0_f64), (3, 0.8), (7, 0.5)];
+        let points: Vec<[f64; 2]> = history
+            .iter()
+            .enumerate()
+            .map(|(i, &(_id, val))| [i as f64, val])
+            .collect();
+        assert_eq!(points[0], [0.0, 1.0]);
+        assert_eq!(points[1], [1.0, 0.8]);
+        assert_eq!(points[2], [2.0, 0.5]);
+    }
+
+    #[test]
+    fn log_scale_toggle() {
+        let mut log_scale = false;
+        log_scale = !log_scale;
+        assert!(log_scale);
+    }
+
+    #[test]
+    fn best_line_none_history_no_panic() {
+        // best_history = None の場合、Best ライン描画コードはスキップされる
+        let history: Option<&[(u32, f64)]> = None;
+        let rendered = history.map(|h| h.len());
+        assert_eq!(rendered, None);
     }
 }

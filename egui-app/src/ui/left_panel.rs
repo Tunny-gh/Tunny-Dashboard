@@ -1,8 +1,14 @@
 use crate::state::app_state::{AppState, ColorMode, ColormapName};
 use crate::state::layout_state::LayoutState;
+use crate::state::messages::AppMessage;
 
 /// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
-pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mut LayoutState) {
+pub fn show_left_panel(
+    ui: &mut egui::Ui,
+    app_state: &mut AppState,
+    _layout: &mut LayoutState,
+    tx: &std::sync::mpsc::SyncSender<AppMessage>,
+) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         show_study_info(ui, app_state);
         ui.separator();
@@ -10,6 +16,26 @@ pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mu
         ui.separator();
         show_color_mode(ui, app_state);
         show_colormap_selector(ui, app_state);
+
+        // REQ-001: Trade-off Navigator（多目的 Study 時のみ）
+        let (obj_names, is_minimize) = if let Some(ctx) = &app_state.current_study {
+            let names = ctx.meta.objective_names.clone();
+            let minimize: Vec<bool> = ctx
+                .meta
+                .directions
+                .iter()
+                .map(|d| matches!(d, crate::state::types::Direction::Minimize))
+                .collect();
+            (names, minimize)
+        } else {
+            (vec![], vec![])
+        };
+        if obj_names.len() >= 2 {
+            show_tradeoff_navigator(ui, app_state, &obj_names, &is_minimize, tx);
+        } else if obj_names.len() == 1 {
+            // REQ-008: Convergence Card（単目的）
+            show_convergence_card(ui, app_state);
+        }
     });
 }
 
@@ -167,6 +193,151 @@ fn show_colormap_selector(ui: &mut egui::Ui, app_state: &mut AppState) {
     }
 }
 
+// ============================================================
+// TASK-2119: Trade-off Navigator UI
+// ============================================================
+
+/// 重みベクタの合計が 1.0 になるよう正規化する（合計が 0 なら均等分割）
+pub fn normalize_weights(weights: &mut [f64]) {
+    let sum: f64 = weights.iter().sum();
+    if sum > f64::EPSILON {
+        for w in weights.iter_mut() {
+            *w /= sum;
+        }
+    } else if !weights.is_empty() {
+        let uniform = 1.0 / weights.len() as f64;
+        for w in weights.iter_mut() {
+            *w = uniform;
+        }
+    }
+}
+
+/// Trade-off Navigator セクション（多目的 Study 時のみ表示）
+pub fn show_tradeoff_navigator(
+    ui: &mut egui::Ui,
+    app_state: &mut AppState,
+    objective_names: &[String],
+    is_minimize: &[bool],
+    tx: &std::sync::mpsc::SyncSender<AppMessage>,
+) {
+    if objective_names.len() < 2 {
+        return;
+    }
+
+    ui.collapsing("[*] Trade-off Navigator", |ui| {
+        // 重みをリサイズ（目的数に合わせる）
+        if app_state.tradeoff_weights.len() != objective_names.len() {
+            let n = objective_names.len();
+            app_state.tradeoff_weights = vec![1.0 / n as f64; n];
+        }
+
+        let mut changed = false;
+
+        // REQ-001-B: 各目的のスライダー
+        for (i, name) in objective_names.iter().enumerate() {
+            let mut val = app_state.tradeoff_weights[i] as f32;
+            if ui
+                .add(egui::Slider::new(&mut val, 0.0_f32..=1.0_f32).text(name))
+                .changed()
+            {
+                app_state.tradeoff_weights[i] = val as f64;
+                changed = true;
+            }
+        }
+
+        // REQ-001-C: 正規化 + REQ-001-D: 非同期スコアリング
+        if changed {
+            normalize_weights(&mut app_state.tradeoff_weights);
+            crate::state::message_handler::MessageHandler::trigger_tradeoff_computation(
+                app_state.tradeoff_weights.clone(),
+                is_minimize.to_vec(),
+                tx.clone(),
+            );
+        }
+
+        // REQ-001-E: 最良解の表示
+        if let Some(indices) = &app_state.tradeoff_sorted_indices {
+            if let Some(&best_id) = indices.first() {
+                ui.label(format!("[*] Best Trial: #{best_id}"));
+            }
+        }
+    });
+}
+
+// ============================================================
+// TASK-2120: Convergence Card UI
+// ============================================================
+
+/// 直近 last_n 試行で Best 値が改善された割合を計算する
+pub fn compute_improvement_rate(history: &[(u32, f64)], last_n: usize) -> f64 {
+    let window: Vec<_> = history.iter().rev().take(last_n).collect();
+    if window.len() < 2 {
+        return 0.0;
+    }
+    let mut best_so_far = f64::INFINITY;
+    let mut improved_count = 0usize;
+    for &(_, val) in window.iter().rev() {
+        if *val < best_so_far {
+            best_so_far = *val;
+            improved_count += 1;
+        }
+    }
+    (improved_count as f64) / (window.len() as f64)
+}
+
+/// 単目的 Study の Best 値推移を計算して返す（minimization 前提）
+pub fn build_best_trial_history(
+    trials: &[crate::state::types::TrialRow],
+    objective_idx: usize,
+    is_minimize: bool,
+) -> Vec<(u32, f64)> {
+    let mut history = Vec::with_capacity(trials.len());
+    let mut best = if is_minimize {
+        f64::INFINITY
+    } else {
+        f64::NEG_INFINITY
+    };
+    for trial in trials {
+        if let Some(&obj_val) = trial.objectives.get(objective_idx) {
+            let improved = if is_minimize {
+                obj_val < best
+            } else {
+                obj_val > best
+            };
+            if improved {
+                best = obj_val;
+            }
+            history.push((trial.trial_id, best));
+        }
+    }
+    history
+}
+
+/// 収束診断カード（単目的 Study 時のみ表示）
+pub fn show_convergence_card(ui: &mut egui::Ui, app_state: &AppState) {
+    ui.collapsing("[+] Convergence", |ui| {
+        match &app_state.best_trial_history {
+            None => {
+                ui.label("No data");
+            }
+            Some(history) if history.is_empty() => {
+                ui.label("No trials");
+            }
+            Some(history) => {
+                let (best_trial_id, best_value) = history
+                    .iter()
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .copied()
+                    .unwrap();
+                ui.label(format!("Best: {:.6}", best_value));
+                ui.label(format!("Best Trial: #{best_trial_id}"));
+                let rate = compute_improvement_rate(history, 100);
+                ui.label(format!("Improvement (last 100): {:.1}%", rate * 100.0));
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +396,46 @@ mod tests {
         for chart_id in ChartId::all() {
             assert!(!chart_id.label().is_empty());
         }
+    }
+
+    // TASK-2120 tests
+    #[test]
+    fn improvement_rate_all_improving() {
+        let history = vec![(0u32, 1.0_f64), (1, 0.8), (2, 0.5)];
+        let rate = compute_improvement_rate(&history, 100);
+        assert!(rate > 0.0);
+    }
+
+    #[test]
+    fn improvement_rate_empty_returns_zero() {
+        let rate = compute_improvement_rate(&[], 100);
+        assert_eq!(rate, 0.0);
+    }
+
+    #[test]
+    fn build_best_trial_history_minimize() {
+        use crate::state::types::TrialRow;
+        let mut t0 = TrialRow::default();
+        t0.trial_id = 0;
+        t0.objectives = vec![1.0];
+        let mut t1 = TrialRow::default();
+        t1.trial_id = 1;
+        t1.objectives = vec![0.5];
+        let mut t2 = TrialRow::default();
+        t2.trial_id = 2;
+        t2.objectives = vec![0.8];
+        let history = build_best_trial_history(&[t0, t1, t2], 0, true);
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0], (0, 1.0));
+        assert_eq!(history[1], (1, 0.5));
+        assert_eq!(history[2], (2, 0.5));
+    }
+
+    #[test]
+    fn normalize_weights_sum_to_one() {
+        let mut weights = vec![1.0, 2.0, 1.0];
+        normalize_weights(&mut weights);
+        let sum: f64 = weights.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-10);
     }
 }

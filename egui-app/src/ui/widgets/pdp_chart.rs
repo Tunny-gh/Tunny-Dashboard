@@ -458,22 +458,22 @@ mod tests {
 
     #[test]
     fn cache_key_same_inputs_produce_same_key() {
-        let k1 = cache_key("x", 0, &ModelType::Ridge);
-        let k2 = cache_key("x", 0, &ModelType::Ridge);
+        let k1 = cache_key("x", "obj0", "Ridge");
+        let k2 = cache_key("x", "obj0", "Ridge");
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn cache_key_different_model_produces_different_key() {
-        let k1 = cache_key("x", 0, &ModelType::Ridge);
-        let k2 = cache_key("x", 0, &ModelType::Kriging);
+        let k1 = cache_key("x", "obj0", "Ridge");
+        let k2 = cache_key("x", "obj0", "Kriging");
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn cache_key_different_param_produces_different_key() {
-        let k1 = cache_key("x", 0, &ModelType::Ridge);
-        let k2 = cache_key("y", 0, &ModelType::Ridge);
+        let k1 = cache_key("x", "obj0", "Ridge");
+        let k2 = cache_key("y", "obj0", "Ridge");
         assert_ne!(k1, k2);
     }
 
@@ -492,13 +492,13 @@ mod tests {
             param_name: "x".to_string(),
             objective_name: "obj0".to_string(),
         };
-        chart.insert_cache("x", 0, result);
-        assert!(chart.try_cache().is_some());
+        chart.insert_cache("x", "obj0", "ridge", result);
+        assert!(chart.try_cache("obj0").is_some());
     }
 
     #[test]
     fn cache_miss_returns_none() {
         let chart = PdpChart::default();
-        assert!(chart.try_cache().is_none());
+        assert!(chart.try_cache("obj0").is_none());
     }
 }

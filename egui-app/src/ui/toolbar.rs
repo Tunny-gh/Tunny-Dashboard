@@ -8,8 +8,9 @@ use crate::state::messages::AppMessage;
 pub const LAYOUT_MODE_BUTTONS: &[(LayoutMode, &str)] = &[
     (LayoutMode::MultiObjective, "Multi-Objective"),
     (LayoutMode::VariableSpace, "Variable Space"),
-    (LayoutMode::ConvergenceAnalysis, "Convergence Analysis"),
+    (LayoutMode::ConvergenceAnalysis, "Convergence"),
     (LayoutMode::FreeLayout, "Free Layout"),
+    (LayoutMode::Comparison, "Comparison"),
 ];
 
 /// ToolBar を描画する
@@ -35,12 +36,29 @@ pub fn show_toolbar(
 
         ui.separator();
 
-        // レイアウトモードボタン群
-        for (mode, label) in LAYOUT_MODE_BUTTONS {
-            let is_selected = layout.layout_mode == *mode;
-            if toolbar_mode_button(ui, label, is_selected).clicked() {
-                layout.layout_mode = mode.clone();
-            }
+        // レイアウトモード ComboBox
+        {
+            let current_label = LAYOUT_MODE_BUTTONS
+                .iter()
+                .find(|(m, _)| *m == layout.layout_mode)
+                .map(|(_, l)| *l)
+                .unwrap_or("Layout");
+            ui.scope(|ui| {
+                apply_combo_visuals(ui.visuals_mut());
+                egui::ComboBox::from_id_salt("layout_mode_combo")
+                    .selected_text(
+                        egui::RichText::new(current_label).color(crate::theme::TOOLBAR_TEXT),
+                    )
+                    .width(140.0)
+                    .show_ui(ui, |ui| {
+                        for (mode, label) in LAYOUT_MODE_BUTTONS {
+                            let selected = layout.layout_mode == *mode;
+                            if ui.selectable_label(selected, *label).clicked() {
+                                layout.layout_mode = mode.clone();
+                            }
+                        }
+                    });
+            });
         }
 
         ui.separator();
@@ -61,29 +79,15 @@ pub fn show_toolbar(
             let has_studies = !app_state.all_studies.is_empty();
             let display_text = if *is_loading {
                 "Loading...".to_string()
-            } else if current_name.is_empty() {
-                String::new()
             } else {
                 current_name.clone()
             };
             ui.scope(|ui| {
-                let vis = ui.visuals_mut();
-                vis.override_text_color = Some(crate::theme::TOOLBAR_TEXT);
-                vis.widgets.noninteractive.bg_fill = crate::theme::TOOLBAR_INPUT_BG;
-                vis.widgets.noninteractive.bg_stroke =
-                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_INPUT_STROKE);
-                vis.widgets.noninteractive.fg_stroke =
-                    egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
-                vis.widgets.inactive.bg_fill = crate::theme::TOOLBAR_INPUT_BG;
-                vis.widgets.inactive.bg_stroke =
-                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_INPUT_STROKE);
-                vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
-                vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
-                vis.widgets.active.fg_stroke = egui::Stroke::new(1.0, crate::theme::TEXT_PRIMARY);
+                apply_combo_visuals(ui.visuals_mut());
                 ui.add_enabled_ui(has_studies && !*is_loading, |ui| {
                     egui::ComboBox::from_id_salt("study_select_combo")
                         .selected_text(
-                            egui::RichText::new(&display_text).color(crate::theme::TEXT_PRIMARY),
+                            egui::RichText::new(&display_text).color(crate::theme::TOOLBAR_TEXT),
                         )
                         .show_ui(ui, |ui| {
                             for study in &app_state.all_studies {
@@ -117,12 +121,83 @@ pub fn show_toolbar(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // ライブ更新トグル
             let live_label = if app_state.live_update.enabled {
-                "Live Update: On"
+                "Live: On"
             } else {
-                "Live Update: Off"
+                "Live: Off"
             };
             if toolbar_button(ui, live_label, true).clicked() {
                 app_state.live_update.enabled = !app_state.live_update.enabled;
+            }
+
+            ui.separator();
+
+            // ── REQ-005: HTML レポート出力 ──────────────────────────────────
+            if toolbar_button(ui, "HTML", app_state.current_study.is_some()).clicked() {
+                if let Some(ctx) = &app_state.current_study {
+                    use crate::io::html_report::{
+                        generate_html_report_async, HtmlReportSnapshot, HtmlTrialRow,
+                        TrialStatistics,
+                    };
+                    let snap = HtmlReportSnapshot {
+                        study_name: ctx.meta.name.clone(),
+                        objective_names: ctx.meta.objective_names.clone(),
+                        param_names: ctx.meta.param_names.clone(),
+                        total_trials: ctx.trial_rows.len(),
+                        pareto_count: ctx.pareto_indices.len(),
+                        selected_trials: app_state
+                            .selected_indices
+                            .iter()
+                            .filter_map(|&id| ctx.trial_rows.iter().find(|r| r.trial_id == id))
+                            .map(|r| HtmlTrialRow {
+                                trial_id: r.trial_id,
+                                trial_number: r.trial_number,
+                                params: r.params.clone(),
+                                objectives: r.objectives.clone(),
+                                pareto_rank: r.pareto_rank,
+                            })
+                            .collect(),
+                        statistics: TrialStatistics {
+                            objective_means: vec![0.0; ctx.meta.objective_names.len()],
+                            objective_variances: vec![0.0; ctx.meta.objective_names.len()],
+                            pareto_count: ctx.pareto_indices.len(),
+                        },
+                    };
+                    generate_html_report_async(snap, tx.clone());
+                }
+            }
+
+            // ── REQ-007: Artifacts フォルダ選択 ───────────────────────────────
+            if toolbar_button(ui, "Artifacts", true).clicked() {
+                if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
+                    crate::io::artifacts::scan_artifacts_dir(base_dir, tx.clone());
+                }
+            }
+
+            ui.separator();
+
+            // ── REQ-004: セッション ──────────────────────────────────────────
+            if toolbar_button(ui, "Load Session", true).clicked() {
+                use crate::io::session;
+                if let Some(snap) = session::load_session() {
+                    app_state.filter_ranges = snap.filter_ranges;
+                    app_state.selected_indices = snap.selected_indices;
+                    app_state.tradeoff_weights = snap.tradeoff_weights;
+                }
+            }
+
+            if toolbar_button(ui, "Save Session", app_state.current_study.is_some()).clicked() {
+                use crate::io::session;
+                let name = app_state
+                    .current_study
+                    .as_ref()
+                    .map(|c| c.meta.name.clone())
+                    .unwrap_or_default();
+                let snap = session::SessionSnapshot::new(
+                    name,
+                    app_state.filter_ranges.clone(),
+                    app_state.selected_indices.clone(),
+                );
+                session::save_session(&snap);
             }
 
             // ローディングインジケーター
@@ -185,35 +260,26 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Respon
     resp
 }
 
-fn toolbar_mode_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
-    let padding = egui::vec2(10.0, 5.0);
-    let galley = ui.fonts(|f| {
-        f.layout_no_wrap(
-            label.to_string(),
-            egui::FontId::proportional(13.0),
-            egui::Color32::WHITE,
-        )
-    });
-    let desired = galley.size() + padding * 2.0;
-    let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let bg = if selected {
-            crate::theme::ACCENT_BLUE
-        } else if resp.hovered() {
-            crate::theme::TOOLBAR_BTN_HOVER
-        } else {
-            egui::Color32::TRANSPARENT
-        };
-        let text_color = if selected || resp.hovered() {
-            egui::Color32::WHITE
-        } else {
-            crate::theme::TOOLBAR_TEXT
-        };
-        ui.painter().rect_filled(rect, 4.0, bg);
-        ui.painter().galley(rect.min + padding, galley, text_color);
+fn apply_combo_visuals(vis: &mut egui::Visuals) {
+    use crate::theme::{
+        TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_HOVER, TOOLBAR_INPUT_BG, TOOLBAR_INPUT_STROKE, TOOLBAR_TEXT,
+    };
+    vis.override_text_color = Some(TOOLBAR_TEXT);
+    let bg_stroke = egui::Stroke::new(1.0, TOOLBAR_INPUT_STROKE);
+    let fg_text = egui::Stroke::new(1.0, TOOLBAR_TEXT);
+    let fg_white = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    for w in [&mut vis.widgets.inactive, &mut vis.widgets.noninteractive] {
+        w.weak_bg_fill = TOOLBAR_INPUT_BG;
+        w.bg_fill = TOOLBAR_INPUT_BG;
+        w.bg_stroke = bg_stroke;
+        w.fg_stroke = fg_text;
     }
-    resp
+    vis.widgets.hovered.weak_bg_fill = TOOLBAR_BTN_HOVER;
+    vis.widgets.hovered.bg_fill = TOOLBAR_BTN_HOVER;
+    vis.widgets.hovered.fg_stroke = fg_white;
+    vis.widgets.active.weak_bg_fill = TOOLBAR_BTN_ACTIVE;
+    vis.widgets.active.bg_fill = TOOLBAR_BTN_ACTIVE;
+    vis.widgets.active.fg_stroke = fg_white;
 }
 
 /// LayoutMode を文字列から解決する（テスト用ユーティリティ）
@@ -237,7 +303,8 @@ mod tests {
         assert!(modes.contains(&LayoutMode::VariableSpace));
         assert!(modes.contains(&LayoutMode::ConvergenceAnalysis));
         assert!(modes.contains(&LayoutMode::FreeLayout));
-        assert_eq!(modes.len(), 4);
+        assert!(modes.contains(&LayoutMode::Comparison));
+        assert_eq!(modes.len(), 5);
     }
 
     #[test]
@@ -252,7 +319,7 @@ mod tests {
         );
         assert_eq!(
             layout_mode_label(LayoutMode::ConvergenceAnalysis),
-            "Convergence Analysis"
+            "Convergence"
         );
         assert_eq!(layout_mode_label(LayoutMode::FreeLayout), "Free Layout");
     }
