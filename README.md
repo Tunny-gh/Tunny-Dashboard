@@ -1,238 +1,185 @@
 # Tunny Dashboard
 
-An in-browser analytics dashboard for [Optuna](https://optuna.org/) optimization results, built with Rust/WebAssembly and React.
-
-> **Japanese documentation**: [README_ja.md](README_ja.md)
+A desktop analytics dashboard for [Optuna](https://optuna.org/) optimization results, built with Rust/egui.
 
 ---
 
 ## Overview
 
-Tunny Dashboard parses Optuna Journal log files entirely inside the browser — no server, no Python installation required. The output is a single self-contained `index.html` file that can be opened directly in any modern browser.
+Tunny Dashboard parses Optuna Journal log files locally on your desktop — no server, no Python installation required.
 
 ![Tunny-Dashboard](https://github.com/user-attachments/assets/d85a722f-ee7c-4217-a3a9-75ab2a20734c)
 
 ### Key Features
 
-- **Zero-dependency deployment** — distributes as a single `index.html` with all assets inlined
-- **High-performance data processing** — Journal parsing and DataFrame operations run in Rust/WASM via a dedicated Web Worker
+- **High-performance data processing** — Journal parsing and DataFrame operations run in native Rust
 - **Interactive visualizations** — Pareto front (3D/2D), Parallel Coordinates, Scatter Matrix, Hypervolume history, Sensitivity analysis, and more
 - **Brushing & Linking** — cross-chart selection synchronized across all views in real time
-- **Free layout (Mode D)** — drag-and-drop chart arrangement on a 4×4 grid
-- **Multi-study comparison** — overlay or side-by-side comparison of up to 4 studies
-- **CSV / HTML report export** — export selected trials with customizable columns
+- **Free layout** — drag-and-drop chart arrangement
+- **Multi-study comparison** — overlay or side-by-side comparison of multiple studies
+- **CSV export** — export selected trials with customizable columns
 - **Session persistence** — save and restore the full UI state as a JSON file
 
 ### Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Core processing | Rust + [wasm-pack](https://rustwasm.github.io/wasm-pack/) (WebAssembly) |
-| Frontend framework | React 19 + TypeScript |
-| State management | [Zustand](https://zustand-demo.pmnd.rs/) |
-| 3D/2D charts | [deck.gl](https://deck.gl/) |
-| Statistical charts | [Apache ECharts](https://echarts.apache.org/) |
-| Build tool | [Vite](https://vite.dev/) + [vite-plugin-singlefile](https://github.com/richardtallent/vite-plugin-singlefile) |
-| Testing | [Vitest](https://vitest.dev/) + [Playwright](https://playwright.dev/) |
+| Layer            | Technology                                                              |
+| ---------------- | ----------------------------------------------------------------------- |
+| Core processing  | Rust + [ndarray](https://docs.rs/ndarray/)                              |
+| UI framework     | [eframe](https://docs.rs/eframe/) + [egui](https://docs.rs/egui/)       |
+| GPU rendering    | [wgpu](https://docs.rs/wgpu/) + [egui-wgpu](https://docs.rs/egui-wgpu/) |
+| Charts           | [egui_plot](https://docs.rs/egui_plot/)                                 |
+| Machine learning | [linfa](https://linfa-rs.github.io/)                                    |
+| Build tool       | [cargo](https://doc.rust-lang.org/cargo/)                               |
+| Testing          | [cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html)  |
 
 ### Repository Structure
 
 ```
 tunny-dashboard/
-├── rust_core/          # Rust/WASM core (Journal parser, DataFrame, analytics)
+├── rust_core/          # Core library (Journal parser, DataFrame, analytics)
 │   ├── src/
+│   │   ├── clustering/     # Clustering algorithms (k-means)
+│   │   ├── core/           # Core data structures
+│   │   ├── data/           # DataFrame operations
+│   │   ├── io/             # File I/O (Optuna Journal)
+│   │   ├── mcdm/           # Multi-criteria decision making (TOPSIS, VIKOR, PROMETHEE)
+│   │   ├── multi_objective/# Multi-objective optimization
+│   │   ├── pdp/            # Partial Dependence Plots
+│   │   ├── sensitivity/    # Sensitivity analysis
+│   │   └── tests/          # Unit tests
 │   └── Cargo.toml
-└── frontend/           # React/TypeScript frontend
-    ├── src/
-    │   ├── components/ # UI components (charts, panels, layout)
-    │   ├── stores/     # Zustand state stores
-    │   ├── wasm/       # WASM loader, GPU buffer, workers
-    │   └── types/      # Shared TypeScript type definitions
-    ├── e2e/            # Playwright E2E tests
-    └── package.json
+├── egui-app/           # Desktop application (egui UI)
+│   ├── src/
+│   │   ├── io/         # File dialogs, clipboard
+│   │   ├── render/     # Chart rendering
+│   │   ├── state/      # Application state
+│   │   ├── ui/         # UI components
+│   │   ├── app.rs      # Main app logic
+│   │   ├── main.rs     # Entry point
+│   │   └── theme.rs    # Theming
+│   └── Cargo.toml
+└── Cargo.toml          # Workspace configuration
 ```
 
 ---
 
 ## Available Widgets
 
-All widgets can be freely arranged on the dashboard canvas via drag-and-drop (Mode D).
+All widgets can be freely arranged on the dashboard canvas via drag-and-drop.
 
-| Widget | Description |
-|---|---|
-| **Pareto Scatter 2D** | 2D scatter plot of the Pareto front. Supports brushing and GPU-accelerated rendering. |
-| **Pareto Scatter 3D** | 3D scatter plot of the Pareto front with arcball camera rotation. |
-| **Optimization History** | Line/scatter chart of objective values over trial number. |
-| **Hypervolume History** | Hypervolume indicator history across trials (multi-objective). |
-| **Parallel Coordinates** | Multi-axis parallel coordinates chart for exploring parameter-objective relationships. |
-| **Scatter Matrix** | Pairwise scatter matrix covering all parameters and objectives. |
-| **Importance Chart** | Parameter importance bar chart. Supported metrics: Spearman, Ridge, RF-Anova, MDI, SHAP, Sobol (First-order / Total-effect). |
-| **Sensitivity Heatmap** | Heatmap of pairwise sensitivities across all parameters and objectives. |
-| **PDP Chart** | 1-D Partial Dependence Plot for a selected parameter. |
-| **PDP Chart 2D** | 2-D Partial Dependence Plot (heatmap/surface) for a pair of parameters. |
-| **Cluster Scatter** | k-means clustering projected to 2-D via PCA. Target space can be switched between Objective, Variable, or Combined. |
-| **MCDM Ranking** | Multi-criteria decision making ranking bar chart. Supported methods: TOPSIS, VIKOR. |
-| **MCDM Table** | Sortable ranking table produced by MCDM analysis (TOPSIS / VIKOR). |
-| **Trial Table** | Full trial data table with sortable columns and row selection. |
+| Widget                   | Description                                                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Pareto Scatter 2D**    | 2D scatter plot of the Pareto front. Supports brushing and GPU-accelerated rendering.                                        |
+| **Pareto Scatter 3D**    | 3D scatter plot of the Pareto front with arcball camera rotation.                                                            |
+| **Optimization History** | Line/scatter chart of objective values over trial number.                                                                    |
+| **Hypervolume History**  | Hypervolume indicator history across trials (multi-objective).                                                               |
+| **Parallel Coordinates** | Multi-axis parallel coordinates chart for exploring parameter-objective relationships.                                       |
+| **Scatter Matrix**       | Pairwise scatter matrix covering all parameters and objectives.                                                              |
+| **Importance Chart**     | Parameter importance bar chart. Supported metrics: Spearman, Ridge, RF-Anova, MDI, SHAP, Sobol (First-order / Total-effect). |
+| **Sensitivity Heatmap**  | Heatmap of pairwise sensitivities across all parameters and objectives.                                                      |
+| **PDP Chart**            | 1-D Partial Dependence Plot for a selected parameter.                                                                        |
+| **PDP Chart 2D**         | 2-D Partial Dependence Plot (heatmap/surface) for a pair of parameters.                                                      |
+| **Cluster Scatter**      | k-means clustering projected to 2-D via PCA. Target space can be switched between Objective, Variable, or Combined.          |
+| **MCDM Ranking**         | Multi-criteria decision making ranking bar chart. Supported methods: TOPSIS, VIKOR.                                          |
+| **MCDM Table**           | Sortable ranking table produced by MCDM analysis (TOPSIS / VIKOR).                                                           |
+| **Trial Table**          | Full trial data table with sortable columns and row selection.                                                               |
 
 ---
 
-## Quick Start (Windows)
+## Quick Start
 
-Double-click any of the batch files in the project root:
+Build and run the desktop application:
 
-| File | Action |
-|---|---|
-| `build.bat` | Full production build → outputs `frontend/dist/index.html` |
-| `dev.bat` | Start the development server at `http://localhost:5173` |
-| `format.bat` | Format all Rust and TypeScript/TSX source files |
+```bash
+cargo run --release
+```
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
-|---|---|---|
-| [Node.js](https://nodejs.org/) | ≥ 20 | Frontend build |
-| [Rust](https://www.rust-lang.org/tools/install) | stable (1.70+) | WASM core build |
-| [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) | ≥ 0.12 | Compile Rust to WASM |
+| Tool                                            | Version        | Purpose               |
+| ----------------------------------------------- | -------------- | --------------------- |
+| [Rust](https://www.rust-lang.org/tools/install) | stable (1.70+) | Build the application |
 
-Install `wasm-pack` if not already present:
+Install Rust if not already present:
 
 ```bash
-cargo install wasm-pack
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
 ---
 
 ## Build
 
-All frontend commands are run from the `frontend/` directory.
+### Development Build
 
 ```bash
-cd frontend
-npm install
+cargo run
 ```
 
-### Development Server
+Builds and runs the application in debug mode.
+
+### Production Build
 
 ```bash
-npm run dev
+cargo build --release
 ```
 
-Opens `http://localhost:5173`. The development server sets the required `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` headers needed for `SharedArrayBuffer` support.
+Builds an optimized release binary. The executable will be at:
 
-### Build WASM Core
+- Windows: `target/release/tunny-desktop.exe`
+- Linux/macOS: `target/release/tunny-desktop`
 
-```bash
-npm run build:wasm
-```
-
-Compiles `rust_core/` with `wasm-pack` and outputs the WASM package to `frontend/src/wasm/pkg/`.
-
-### Full Production Build
+### Build specific workspace members
 
 ```bash
-npm run build:all
-```
+# Build only the core library
+cargo build -p tunny-core
 
-Runs `build:wasm` then the Vite production build. Output is a single file at `frontend/dist/index.html` with all JavaScript, CSS, and WASM inlined as base64.
-
-To preview the production build locally:
-
-```bash
-npm run preview
-```
-
-### Build Steps Separately
-
-```bash
-# 1. Compile Rust core to WASM
-npm run build:wasm
-
-# 2. Type-check and bundle frontend
-npm run build
+# Build only the desktop app
+cargo build -p tunny-desktop
 ```
 
 ---
 
 ## Testing
 
-### Unit & Integration Tests (Vitest)
+Run tests for the entire workspace:
 
 ```bash
-cd frontend
-npm test
+cargo test
 ```
 
-Runs all Vitest tests (unit, integration, and performance benchmarks). Tests run in `jsdom` environment without requiring a browser or WASM runtime.
-
-### E2E Tests (Playwright)
+Run tests with output:
 
 ```bash
-cd frontend
+cargo test -- --nocapture
+```
 
-# First time only: install browser binaries (~200 MB)
-npx playwright install chromium
+Run tests for a specific module:
 
-# Run E2E tests (dev server starts automatically)
-npm run test:e2e
-
-# Interactive UI mode
-npm run test:e2e:ui
+```bash
+cargo test -p tunny-core
 ```
 
 ---
 
 ## Formatting
 
-### Rust (rust_core)
+Format all Rust code:
 
 ```bash
-cd rust_core
 cargo fmt
 ```
 
-Uses the standard `rustfmt` formatter. Configuration can be added in `rustfmt.toml` if needed.
-
-To check formatting without applying changes:
+Check formatting without applying changes:
 
 ```bash
 cargo fmt -- --check
 ```
 
-### TypeScript / TSX (frontend)
-
-The project uses [ESLint](https://eslint.org/) for linting and [Prettier](https://prettier.io/) for code formatting.
-
-**Lint (ESLint):**
-
-```bash
-cd frontend
-npm run lint
-```
-
-**Format (Prettier):**
-
-Prettier is configured via `frontend/.prettierrc`. Install and run it with:
-
-```bash
-cd frontend
-npm install --save-dev prettier
-npx prettier --write "src/**/*.{ts,tsx}"
-```
-
-Prettier settings (`.prettierrc`):
-
-| Option | Value |
-|---|---|
-| `semi` | `false` |
-| `singleQuote` | `true` |
-| `tabWidth` | `2` |
-| `trailingComma` | `"all"` |
-| `printWidth` | `100` |
-
-Most editors (VS Code, JetBrains) apply Prettier automatically on save when the [Prettier extension](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) is installed and `.prettierrc` is present.
+Configuration can be added in `rustfmt.toml` if needed.
 
 ---
 
