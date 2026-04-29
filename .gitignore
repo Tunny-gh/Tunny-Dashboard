@@ -41,6 +41,9 @@ rust_core/Cargo.lock
 target/
 Cargo.lock
 
+# Pre-built LightGBM library binaries (not tracked — see CONTRIBUTING.md)
+libs/
+
 
 # Test fixtures (allow *.log under rust_core for CI)
 !rust_core/test*.log
