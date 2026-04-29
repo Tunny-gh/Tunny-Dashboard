@@ -16,11 +16,14 @@ pub const C_API_DTYPE_FLOAT64: i32 = 1;
 
 // Prediction type tags
 pub const C_API_PREDICT_NORMAL: i32 = 0;
+#[allow(dead_code)]
 pub const C_API_PREDICT_RAWSCORE: i32 = 1;
+#[allow(dead_code)]
 pub const C_API_PREDICT_LEAFINDEX: i32 = 2;
 pub const C_API_PREDICT_CONTRIB: i32 = 3;
 
 // Feature importance types
+#[allow(dead_code)]
 pub const C_API_FEATURE_IMPORTANCE_SPLIT: i32 = 0;
 pub const C_API_FEATURE_IMPORTANCE_GAIN: i32 = 1;
 
@@ -53,9 +56,11 @@ extern "C" {
     pub fn LGBM_DatasetFree(handle: DatasetHandle) -> i32;
 
     /// Returns the number of data rows in a dataset.
+    #[allow(dead_code)]
     pub fn LGBM_DatasetGetNumData(handle: DatasetHandle, out: *mut i32) -> i32;
 
     /// Returns the number of features in a dataset.
+    #[allow(dead_code)]
     pub fn LGBM_DatasetGetNumFeature(handle: DatasetHandle, out: *mut i32) -> i32;
 
     /// Creates a booster (trains one iteration internally if parameters include them).
@@ -72,9 +77,11 @@ extern "C" {
     pub fn LGBM_BoosterUpdateOneIter(handle: BoosterHandle, is_finished: *mut i32) -> i32;
 
     /// Returns the current training iteration count.
+    #[allow(dead_code)]
     pub fn LGBM_BoosterGetCurrentIteration(handle: BoosterHandle, out_iteration: *mut i32) -> i32;
 
     /// Returns the number of features used by the booster.
+    #[allow(dead_code)]
     pub fn LGBM_BoosterGetNumFeature(handle: BoosterHandle, out_len: *mut i32) -> i32;
 
     /// Computes the number of output values for a given prediction call.

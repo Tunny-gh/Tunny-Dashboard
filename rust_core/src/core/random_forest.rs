@@ -1,11 +1,12 @@
 //! Random Forest module: CART decision tree + Bagging ensemble.
 
+#[allow(dead_code)]
 mod forest;
 mod rng;
+#[allow(dead_code)]
 mod tree;
 pub(crate) mod types;
 
-pub(crate) use forest::extract_columns;
 pub(crate) use rng::Lcg;
 
 #[cfg(test)]

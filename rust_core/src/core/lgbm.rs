@@ -302,6 +302,8 @@ fn predict_internal(booster: &LgbmBooster, x: &[Vec<f64>], predict_type: i32) ->
 
 // ── 2D PDP ────────────────────────────────────────────────────────────────────
 
+type Pdp2dResult = Option<(Vec<f64>, Vec<f64>, Vec<Vec<f64>>, f64)>;
+
 /// Compute a 2D partial dependence surface using a LightGBM RandomForest.
 ///
 /// Returns `(grid1, grid2, z_values, r_squared)` where `z_values` has shape
@@ -312,7 +314,7 @@ pub fn compute_pdp_2d_lgbm(
     param1_idx: usize,
     param2_idx: usize,
     n_grid: usize,
-) -> Option<(Vec<f64>, Vec<f64>, Vec<Vec<f64>>, f64)> {
+) -> Pdp2dResult {
     let n = y.len();
     if n < 2 || x_matrix.is_empty() || n_grid < 2 {
         return None;
