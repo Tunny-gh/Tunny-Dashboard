@@ -187,6 +187,19 @@ impl McdmResult {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AhpResult {
+    pub priority_vector: Vec<f64>,
+    pub scores: Vec<f64>,
+    pub ranked_indices: Vec<u32>,
+    pub lambda_max: f64,
+    pub ci: f64,
+    pub ri: f64,
+    pub cr: f64,
+    pub is_consistent: bool,
+    pub duration_ms: f64,
+}
+
 /// Hypervolume 推移データ
 #[derive(Debug, Clone)]
 pub struct HvHistory {
@@ -244,7 +257,15 @@ mod tests {
 
     #[test]
     fn mcdm_method_all() {
-        assert_eq!(McdmMethod::all(), &[McdmMethod::Topsis, McdmMethod::Vikor, McdmMethod::PrometheeI, McdmMethod::PrometheeII]);
+        assert_eq!(
+            McdmMethod::all(),
+            &[
+                McdmMethod::Topsis,
+                McdmMethod::Vikor,
+                McdmMethod::PrometheeI,
+                McdmMethod::PrometheeII
+            ]
+        );
     }
 
     // McdmResult tests

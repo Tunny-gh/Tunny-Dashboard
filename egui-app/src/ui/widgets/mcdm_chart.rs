@@ -333,33 +333,71 @@ impl McdmRankChart {
                 ui.label("No data");
                 return;
             }
-            let max_val = r.phi_plus.iter().chain(r.phi_minus.iter())
+            let max_val = r
+                .phi_plus
+                .iter()
+                .chain(r.phi_minus.iter())
                 .fold(0.0_f64, |a, &b| a.max(b));
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let available_width = ui.available_width() - label_width - value_text_width - 8.0;
                 let bar_max_width = (available_width / 2.0).max(25.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_i[rank] as usize;
-                    let trial_id = trial_rows.get(idx).map(|r| r.trial_id).unwrap_or(idx as u32);
+                    let trial_id = trial_rows
+                        .get(idx)
+                        .map(|r| r.trial_id)
+                        .unwrap_or(idx as u32);
                     ui.horizontal(|ui| {
                         ui.add_sized(
                             [label_width, bar_height],
                             egui::Label::new(
                                 egui::RichText::new(format!("Trial {trial_id}"))
                                     .text_style(egui::TextStyle::Body),
-                            ).truncate(),
+                            )
+                            .truncate(),
                         );
-                        let phi_plus_w = if max_val > 0.0 { (r.phi_plus[idx] / max_val * bar_max_width as f64) as f32 } else { 0.0 };
-                        let phi_minus_w = if max_val > 0.0 { (r.phi_minus[idx] / max_val * bar_max_width as f64) as f32 } else { 0.0 };
-                        let (rect_plus, _) = ui.allocate_exact_size(egui::vec2(bar_max_width, bar_height - bar_gap), egui::Sense::hover());
+                        let phi_plus_w = if max_val > 0.0 {
+                            (r.phi_plus[idx] / max_val * bar_max_width as f64) as f32
+                        } else {
+                            0.0
+                        };
+                        let phi_minus_w = if max_val > 0.0 {
+                            (r.phi_minus[idx] / max_val * bar_max_width as f64) as f32
+                        } else {
+                            0.0
+                        };
+                        let (rect_plus, _) = ui.allocate_exact_size(
+                            egui::vec2(bar_max_width, bar_height - bar_gap),
+                            egui::Sense::hover(),
+                        );
                         if ui.is_rect_visible(rect_plus) {
-                            ui.painter().rect_filled(egui::Rect::from_min_size(rect_plus.min, egui::vec2(phi_plus_w, rect_plus.height())), 2.0, egui::Color32::from_rgb(0x0c, 0x6a, 0xc0));
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    rect_plus.min,
+                                    egui::vec2(phi_plus_w, rect_plus.height()),
+                                ),
+                                2.0,
+                                egui::Color32::from_rgb(0x0c, 0x6a, 0xc0),
+                            );
                         }
-                        let (rect_minus, _) = ui.allocate_exact_size(egui::vec2(bar_max_width, bar_height - bar_gap), egui::Sense::hover());
+                        let (rect_minus, _) = ui.allocate_exact_size(
+                            egui::vec2(bar_max_width, bar_height - bar_gap),
+                            egui::Sense::hover(),
+                        );
                         if ui.is_rect_visible(rect_minus) {
-                            ui.painter().rect_filled(egui::Rect::from_min_size(rect_minus.min, egui::vec2(phi_minus_w, rect_minus.height())), 2.0, egui::Color32::from_rgb(0xc0, 0x20, 0x20));
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    rect_minus.min,
+                                    egui::vec2(phi_minus_w, rect_minus.height()),
+                                ),
+                                2.0,
+                                egui::Color32::from_rgb(0xc0, 0x20, 0x20),
+                            );
                         }
-                        ui.label(format!("Φ+{:.3} Φ-{:.3}", r.phi_plus[idx], r.phi_minus[idx]));
+                        ui.label(format!(
+                            "Φ+{:.3} Φ-{:.3}",
+                            r.phi_plus[idx], r.phi_minus[idx]
+                        ));
                     });
                 }
             });
@@ -378,21 +416,43 @@ impl McdmRankChart {
                 let bar_max_width = available_width.max(50.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_ii[rank] as usize;
-                    let trial_id = trial_rows.get(idx).map(|r| r.trial_id).unwrap_or(idx as u32);
+                    let trial_id = trial_rows
+                        .get(idx)
+                        .map(|r| r.trial_id)
+                        .unwrap_or(idx as u32);
                     let phi_net = r.phi_net[idx];
-                    let bar_w = if max_abs > 0.0 { (phi_net.abs() / max_abs * bar_max_width as f64) as f32 } else { 0.0 };
-                    let color = if phi_net >= 0.0 { egui::Color32::from_rgb(0x0c, 0x6a, 0xc0) } else { egui::Color32::from_rgb(0xe0, 0x70, 0x00) };
+                    let bar_w = if max_abs > 0.0 {
+                        (phi_net.abs() / max_abs * bar_max_width as f64) as f32
+                    } else {
+                        0.0
+                    };
+                    let color = if phi_net >= 0.0 {
+                        egui::Color32::from_rgb(0x0c, 0x6a, 0xc0)
+                    } else {
+                        egui::Color32::from_rgb(0xe0, 0x70, 0x00)
+                    };
                     ui.horizontal(|ui| {
                         ui.add_sized(
                             [label_width, bar_height],
                             egui::Label::new(
                                 egui::RichText::new(format!("Trial {trial_id}"))
                                     .text_style(egui::TextStyle::Body),
-                            ).truncate(),
+                            )
+                            .truncate(),
                         );
-                        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_max_width, bar_height - bar_gap), egui::Sense::hover());
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(bar_max_width, bar_height - bar_gap),
+                            egui::Sense::hover(),
+                        );
                         if ui.is_rect_visible(rect) {
-                            ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(bar_w, rect.height())), 2.0, color);
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    rect.min,
+                                    egui::vec2(bar_w, rect.height()),
+                                ),
+                                2.0,
+                                color,
+                            );
                         }
                         ui.label(format!("{phi_net:.4}"));
                     });

@@ -2,7 +2,7 @@ use crate::state::app_state::{
     ClusterResult, GpuBufferData, McdmResult, SensitivityResult, SobolResult, StudyContext,
     StudyMeta, TopsisResult, TrialRow,
 };
-use crate::state::results::EntropyResult;
+use crate::state::results::{AhpResult, EntropyResult};
 
 // ============================================================
 // PDP Result types (placeholder for TASK-2025)
@@ -76,6 +76,7 @@ pub enum AppMessage {
     ClusteringDone(ClusterResult),
     TopsisDone(TopsisResult),
     McdmDone(McdmResult),
+    AhpDone(AhpResult),
     EntropyDone(EntropyResult),
     PdpDone {
         param: String,

@@ -203,11 +203,7 @@ fn rank_promethee_i(
     result
 }
 
-fn rank_promethee_ii(
-    phi_net: &[f64],
-    n_trials: usize,
-    valid_indices: &[usize],
-) -> Vec<u32> {
+fn rank_promethee_ii(phi_net: &[f64], n_trials: usize, valid_indices: &[usize]) -> Vec<u32> {
     let valid_set: std::collections::HashSet<usize> = valid_indices.iter().copied().collect();
     let mut valid: Vec<usize> = valid_indices.to_vec();
     valid.sort_by(|&a, &b| {
@@ -310,7 +306,11 @@ mod tests {
             r.ranked_indices_i
         );
         // Verify phi_plus descending in ranked order
-        let phi_sorted: Vec<f64> = r.ranked_indices_i.iter().map(|&i| r.phi_plus[i as usize]).collect();
+        let phi_sorted: Vec<f64> = r
+            .ranked_indices_i
+            .iter()
+            .map(|&i| r.phi_plus[i as usize])
+            .collect();
         for k in 0..phi_sorted.len() - 1 {
             assert!(
                 phi_sorted[k] >= phi_sorted[k + 1] - 1e-9,
@@ -466,7 +466,10 @@ mod tests {
         let r = compute_promethee(&values, n_trials, n_obj, &weights, &is_minimize).unwrap();
         let elapsed = start.elapsed().as_millis();
         assert_eq!(r.ranked_indices_ii.len(), n_trials);
-        assert!(elapsed < 20, "10k trials took {elapsed} ms (target < 20ms in release)");
+        assert!(
+            elapsed < 20,
+            "10k trials took {elapsed} ms (target < 20ms in release)"
+        );
     }
 
     // TC-PR-NFR-001-01: 50,000 trials x 4 objectives < 200ms (release only, ignored)

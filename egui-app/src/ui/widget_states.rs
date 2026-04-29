@@ -1,6 +1,6 @@
 use crate::ui::widgets::{
-    cluster_scatter::ClusterScatter, hv_history::HvHistoryChart, importance_chart::ImportanceChart,
-    mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
+    ahp_chart::AhpChart, cluster_scatter::ClusterScatter, hv_history::HvHistoryChart,
+    importance_chart::ImportanceChart, mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
     pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
     pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
@@ -32,6 +32,7 @@ pub struct WidgetStates {
     pub cluster_scatter: ClusterScatter,
     pub mcdm_chart: McdmRankChart,
     pub mcdm_table: McdmTable,
+    pub ahp_chart: AhpChart,
     pub slice_chart: SliceChart,
     // TASK-2121: Artifacts modal state
     pub artifact_modal_open: bool,

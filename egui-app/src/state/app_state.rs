@@ -1,4 +1,5 @@
 pub use super::filter::*;
+pub use super::results::AhpResult;
 pub use super::results::*;
 pub use super::types::*;
 
@@ -24,6 +25,7 @@ pub struct AppState {
     pub live_update: LiveUpdateState,
     pub topsis_result: Option<TopsisResult>,
     pub mcdm_result: Option<McdmResult>,
+    pub ahp_result: Option<AhpResult>,
     pub hv_history: Option<HvHistory>,
     pub selected_colormap: ColormapName,
     pub chart_colors: Vec<egui::Color32>,
@@ -70,6 +72,7 @@ impl AppState {
             live_update: LiveUpdateState::default(),
             topsis_result: None,
             mcdm_result: None,
+            ahp_result: None,
             hv_history: None,
             selected_colormap: ColormapName::Viridis,
             chart_colors: Vec::new(),
@@ -99,6 +102,7 @@ impl AppState {
         self.cluster_result = None;
         self.topsis_result = None;
         self.mcdm_result = None;
+        self.ahp_result = None;
         self.hv_history = None;
         self.downsample_cache.clear();
         self.chart_colors.clear();

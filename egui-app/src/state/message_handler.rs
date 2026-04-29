@@ -35,6 +35,7 @@ impl MessageHandler {
                     pareto_indices,
                 });
                 widget_states.hv_history.computing = false;
+                widget_states.ahp_chart = Default::default();
                 *is_loading = false;
                 app_state.update_chart_colors();
             }
@@ -72,6 +73,10 @@ impl MessageHandler {
                 widget_states.mcdm_chart.entropy_result = Some(result);
                 widget_states.mcdm_chart.pending_entropy = false;
                 widget_states.mcdm_chart.computing = false;
+            }
+            AppMessage::AhpDone(result) => {
+                widget_states.ahp_chart.computing = false;
+                app_state.ahp_result = Some(result);
             }
             AppMessage::DownsampleDone { key, indices } => match key {
                 DownsampleKey::Scatter => app_state.downsample_cache.scatter = Some(indices),

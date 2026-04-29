@@ -13,6 +13,8 @@ pub enum ChartId {
     ClusterScatter,
     McdmRankChart,
     McdmTable,
+    AhpRankChart,
+    AhpTable,
     SliceChart,
 }
 
@@ -32,6 +34,8 @@ impl ChartId {
             ChartId::ClusterScatter,
             ChartId::McdmRankChart,
             ChartId::McdmTable,
+            ChartId::AhpRankChart,
+            ChartId::AhpTable,
             ChartId::SliceChart,
         ]
     }
@@ -51,6 +55,8 @@ impl ChartId {
             ChartId::ClusterScatter => "Cluster Scatter",
             ChartId::McdmRankChart => "MCDM Ranking",
             ChartId::McdmTable => "MCDM Table",
+            ChartId::AhpRankChart => "AHP Ranking",
+            ChartId::AhpTable => "AHP Table",
             ChartId::SliceChart => "Slice Chart",
         }
     }

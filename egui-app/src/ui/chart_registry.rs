@@ -3,8 +3,9 @@ use std::sync::mpsc;
 use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
-use crate::state::results::{EntropyResult, McdmMethod};
+use crate::state::results::{AhpResult, EntropyResult, McdmMethod};
 use crate::ui::widget_states::WidgetStates;
+use crate::ui::widgets::ahp_chart::AhpDataContext;
 use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
 
 /// タイトルと区切り線付きでチャートを描画する
@@ -514,9 +515,9 @@ pub fn show_chart(
                                     };
                                     AppMessage::McdmDone(mcdm)
                                 }
-                                Err(e) => AppMessage::Error(format!(
-                                    "PROMETHEE computation failed: {e}"
-                                )),
+                                Err(e) => {
+                                    AppMessage::Error(format!("PROMETHEE computation failed: {e}"))
+                                }
                             }
                         }
                     }
@@ -527,6 +528,60 @@ pub fn show_chart(
             widgets
                 .mcdm_table
                 .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+        }
+        ChartId::AhpRankChart => {
+            let objectives: Vec<f64> = trial_rows
+                .iter()
+                .flat_map(|r| r.objectives.iter().copied())
+                .collect();
+            let n_trials = trial_rows.len();
+            let n_objectives = obj_names.len();
+            let is_minimize: Vec<bool> = directions
+                .iter()
+                .map(|d| matches!(d, Direction::Minimize))
+                .collect();
+
+            let ahp_ctx = AhpDataContext {
+                values: &objectives,
+                n_trials,
+                n_objectives,
+                is_minimize: &is_minimize,
+            };
+            widgets
+                .ahp_chart
+                .show_rank_chart(ui, obj_names, &app_state.ahp_result, &ahp_ctx);
+
+            if let Some(req) = widgets.ahp_chart.pending_compute.take() {
+                widgets.ahp_chart.computing = true;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    match tunny_core::ahp::compute_ahp(
+                        &req.objectives,
+                        req.n_trials,
+                        req.n_objectives,
+                        &req.pairwise_matrix,
+                        &req.is_minimize,
+                    ) {
+                        Ok(r) => AppMessage::AhpDone(AhpResult {
+                            priority_vector: r.priority_vector,
+                            scores: r.scores,
+                            ranked_indices: r.ranked_indices,
+                            lambda_max: r.lambda_max,
+                            ci: r.ci,
+                            ri: r.ri,
+                            cr: r.cr,
+                            is_consistent: r.is_consistent,
+                            duration_ms: r.duration_ms,
+                        }),
+                        Err(e) => AppMessage::Error(format!("AHP computation failed: {}", e)),
+                    }
+                });
+            }
+        }
+        ChartId::AhpTable => {
+            widgets
+                .ahp_chart
+                .show_table(ui, obj_names, trial_rows, &app_state.ahp_result);
         }
         ChartId::SliceChart => {
             widgets
