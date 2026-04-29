@@ -1,5 +1,3 @@
-use crate::core::random_forest;
-
 use super::kriging_core::{
     compute_pdp_1d_kriging_raw, compute_pdp_1d_sparse_kriging_raw, compute_pdp_2d_kriging,
     compute_pdp_2d_sparse_kriging_raw,
@@ -167,7 +165,7 @@ pub fn compute_pdp_2d(
         match model_type {
             "random_forest" => {
                 let (x_values, y_values, z_values, r_squared) =
-                    random_forest::compute_pdp_2d_rf(&x_matrix, &y, p1_idx, p2_idx, n_grid)?;
+                    crate::core::lgbm::compute_pdp_2d_lgbm(&x_matrix, &y, p1_idx, p2_idx, n_grid)?;
                 let p1_name = param_names.get(p1_idx).cloned().unwrap_or_default();
                 let p2_name = param_names.get(p2_idx).cloned().unwrap_or_default();
                 Some(PdpResult2d {

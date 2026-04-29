@@ -126,32 +126,3 @@ fn tc_1631_02_rf_prediction_range() {
         );
     }
 }
-
-/// TC7: 2D PDP grid shape and value range.
-#[test]
-fn tc_1632_01_pdp_2d_rf_grid_shape() {
-    let n = 50;
-    let x: Vec<Vec<f64>> = (0..n)
-        .map(|i| {
-            let t = i as f64 / n as f64;
-            vec![t, t * 0.5]
-        })
-        .collect();
-    let y: Vec<f64> = x.iter().map(|xi| xi[0] + xi[1]).collect();
-
-    let result = compute_pdp_2d_rf(&x, &y, 0, 1, 5);
-    assert!(result.is_some(), "Should return Some");
-    let (grid1, grid2, values, r2) = result.unwrap();
-    assert_eq!(grid1.len(), 5, "grid1 length");
-    assert_eq!(grid2.len(), 5, "grid2 length");
-    assert_eq!(values.len(), 5, "values rows");
-    assert_eq!(values[0].len(), 5, "values cols");
-    assert!(r2 >= 0.0, "R² should be non-negative");
-}
-
-/// TC8: Returns None for empty input.
-#[test]
-fn tc_1632_02_pdp_2d_rf_empty() {
-    let result = compute_pdp_2d_rf(&[], &[], 0, 1, 5);
-    assert!(result.is_none(), "Empty input should return None");
-}

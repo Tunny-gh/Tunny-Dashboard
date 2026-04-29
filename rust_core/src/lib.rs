@@ -2,6 +2,7 @@ pub mod clustering;
 pub(crate) mod core;
 pub mod data;
 pub mod io;
+pub(crate) mod lgbm_sys;
 pub mod mcdm;
 pub mod multi_objective;
 pub mod pdp;
@@ -18,6 +19,8 @@ pub use multi_objective::pareto;
 
 #[cfg(test)]
 mod tests {
+    mod integration;
+
     #[test]
     fn lib_compiles() {
         assert!(true);

@@ -1,3 +1,4 @@
+use crate::core::random_forest::Lcg;
 use crate::dataframe::DataFrame;
 
 pub(super) fn get_param_numeric_values(
@@ -33,4 +34,24 @@ pub(super) fn get_param_numeric_values(
     }
 
     None
+}
+
+pub(super) fn sample_rows(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    max_rows: usize,
+    seed: u64,
+) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let n = y.len();
+    let mut indices: Vec<usize> = (0..n).collect();
+    let mut rng = Lcg::new(seed);
+    for i in (1..n).rev() {
+        let j = rng.next_usize(i + 1);
+        indices.swap(i, j);
+    }
+    indices.truncate(max_rows);
+    (
+        indices.iter().map(|&i| x_matrix[i].clone()).collect(),
+        indices.iter().map(|&i| y[i]).collect(),
+    )
 }

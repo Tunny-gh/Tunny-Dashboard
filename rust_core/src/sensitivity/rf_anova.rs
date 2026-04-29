@@ -1,4 +1,6 @@
-use crate::core::random_forest::{extract_columns, mse_on_dataset, train_rf_on_columns, Lcg};
+use super::data::sample_rows;
+use crate::core::lgbm::{lgbm_mse, train_lgbm_rf, LgbmRfConfig};
+use crate::core::random_forest::Lcg;
 
 const RF_TREES: usize = 100;
 const RF_MAX_DEPTH: usize = 10;
@@ -23,25 +25,24 @@ pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f6
         .filter(|&i| y[i].is_finite() && x_matrix[i].iter().all(|v| v.is_finite()))
         .collect();
 
-    let (x_clean, y_clean): (Vec<Vec<f64>>, Vec<f64>) = if valid_indices.len() < n {
-        (
-            valid_indices.iter().map(|&i| x_matrix[i].clone()).collect(),
-            valid_indices.iter().map(|&i| y[i]).collect(),
-        )
-    } else {
-        (x_matrix.to_vec(), y.to_vec())
-    };
-
-    let n = y_clean.len();
-    if n < 2 {
+    let n_valid = valid_indices.len();
+    if n_valid < 2 {
         return (vec![0.0; p], 0.0);
     }
 
-    // Downsample large datasets to stay within computational budget
-    let (x_data, y_data) = if n > RF_ANOVA_MAX_ROWS {
-        sample_rows(&x_clean, &y_clean, RF_ANOVA_MAX_ROWS, RF_SEED)
+    // Filter and/or downsample, avoiding a redundant full clone when all rows are valid
+    let (x_data, y_data) = if n_valid < n {
+        let x_clean: Vec<Vec<f64>> = valid_indices.iter().map(|&i| x_matrix[i].clone()).collect();
+        let y_clean: Vec<f64> = valid_indices.iter().map(|&i| y[i]).collect();
+        if n_valid > RF_ANOVA_MAX_ROWS {
+            sample_rows(&x_clean, &y_clean, RF_ANOVA_MAX_ROWS, RF_SEED)
+        } else {
+            (x_clean, y_clean)
+        }
+    } else if n > RF_ANOVA_MAX_ROWS {
+        sample_rows(x_matrix, y, RF_ANOVA_MAX_ROWS, RF_SEED)
     } else {
-        (x_clean, y_clean)
+        (x_matrix.to_vec(), y.to_vec())
     };
 
     let n = y_data.len();
@@ -86,21 +87,19 @@ pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f6
         )
     };
 
-    let all_columns: Vec<usize> = (0..p).collect();
-    let rf = match train_rf_on_columns(
-        x_train,
-        y_train,
-        &all_columns,
-        RF_TREES,
-        RF_MAX_DEPTH,
-        RF_MIN_SAMPLES_LEAF,
-        RF_SEED,
-    ) {
-        Some(model) => model,
+    let config = LgbmRfConfig {
+        num_iterations: RF_TREES,
+        max_depth: RF_MAX_DEPTH as i32,
+        min_data_in_leaf: RF_MIN_SAMPLES_LEAF as i32,
+        seed: RF_SEED as i32,
+        ..Default::default()
+    };
+    let booster = match train_lgbm_rf(x_train, y_train, &config) {
+        Some(b) => b,
         None => return (vec![0.0; p], 0.0),
     };
 
-    let baseline_mse = mse_on_dataset(&rf, x_eval, y_eval)
+    let baseline_mse = lgbm_mse(&booster, x_eval, y_eval)
         .unwrap_or(0.0)
         .max(f64::EPSILON);
 
@@ -121,31 +120,12 @@ pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f6
                 None => continue,
             };
 
-        let permuted_mse = mse_on_dataset(&rf, &permuted, y_eval).unwrap_or(baseline_mse);
+        let permuted_mse = lgbm_mse(&booster, &permuted, y_eval).unwrap_or(baseline_mse);
         *importance = (permuted_mse - baseline_mse).max(0.0);
     }
 
     normalize(&mut importances);
     (importances, r_squared)
-}
-
-fn sample_rows(
-    x_matrix: &[Vec<f64>],
-    y: &[f64],
-    max_rows: usize,
-    seed: u64,
-) -> (Vec<Vec<f64>>, Vec<f64>) {
-    let n = y.len();
-    let mut indices: Vec<usize> = (0..n).collect();
-    let mut rng = Lcg::new(seed);
-    for i in (1..n).rev() {
-        let j = rng.next_usize(i + 1);
-        indices.swap(i, j);
-    }
-    indices.truncate(max_rows);
-    let x_sampled = indices.iter().map(|&i| x_matrix[i].clone()).collect();
-    let y_sampled = indices.iter().map(|&i| y[i]).collect();
-    (x_sampled, y_sampled)
 }
 
 fn permute_single_column(
@@ -158,8 +138,7 @@ fn permute_single_column(
         return None;
     }
 
-    let column_source = extract_columns(x_matrix, &[feature_idx])?;
-    let mut column_values: Vec<f64> = column_source.iter().map(|row| row[0]).collect();
+    let mut column_values: Vec<f64> = x_matrix.iter().map(|row| row[feature_idx]).collect();
 
     let mut rng = Lcg::new(seed);
     for i in (1..n).rev() {
