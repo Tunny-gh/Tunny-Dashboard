@@ -52,3 +52,5 @@ node_modules/
 .rulesync/*
 .github/prompts/*
 .github/skills/*
+.cargo/*
+.claude/*
