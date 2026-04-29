@@ -73,10 +73,22 @@ pub struct VikorResult {
     pub duration_ms: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct PrometheeResult {
+    pub phi_plus: Vec<f64>,
+    pub phi_minus: Vec<f64>,
+    pub phi_net: Vec<f64>,
+    pub ranked_indices_i: Vec<u32>,
+    pub ranked_indices_ii: Vec<u32>,
+    pub duration_ms: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McdmMethod {
     Topsis,
     Vikor,
+    PrometheeI,
+    PrometheeII,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,11 +123,18 @@ impl McdmMethod {
         match self {
             McdmMethod::Topsis => "TOPSIS",
             McdmMethod::Vikor => "VIKOR",
+            McdmMethod::PrometheeI => "PROMETHEE I",
+            McdmMethod::PrometheeII => "PROMETHEE II",
         }
     }
 
     pub fn all() -> &'static [McdmMethod] {
-        &[McdmMethod::Topsis, McdmMethod::Vikor]
+        &[
+            McdmMethod::Topsis,
+            McdmMethod::Vikor,
+            McdmMethod::PrometheeI,
+            McdmMethod::PrometheeII,
+        ]
     }
 }
 
@@ -123,6 +142,8 @@ impl McdmMethod {
 pub enum McdmResult {
     Topsis(TopsisResult),
     Vikor(VikorResult),
+    PrometheeI(PrometheeResult),
+    PrometheeII(PrometheeResult),
 }
 
 impl McdmResult {
@@ -130,6 +151,8 @@ impl McdmResult {
         match self {
             McdmResult::Topsis(r) => &r.scores,
             McdmResult::Vikor(r) => &r.display_scores,
+            McdmResult::PrometheeI(r) => &r.phi_plus,
+            McdmResult::PrometheeII(r) => &r.phi_net,
         }
     }
 
@@ -137,6 +160,8 @@ impl McdmResult {
         match self {
             McdmResult::Topsis(r) => &r.ranked_indices,
             McdmResult::Vikor(r) => &r.ranked_indices,
+            McdmResult::PrometheeI(r) => &r.ranked_indices_i,
+            McdmResult::PrometheeII(r) => &r.ranked_indices_ii,
         }
     }
 
@@ -144,6 +169,7 @@ impl McdmResult {
         match self {
             McdmResult::Topsis(r) => r.duration_ms,
             McdmResult::Vikor(r) => r.duration_ms,
+            McdmResult::PrometheeI(r) | McdmResult::PrometheeII(r) => r.duration_ms,
         }
     }
 
@@ -151,6 +177,8 @@ impl McdmResult {
         match self {
             McdmResult::Topsis(_) => McdmMethod::Topsis,
             McdmResult::Vikor(_) => McdmMethod::Vikor,
+            McdmResult::PrometheeI(_) => McdmMethod::PrometheeI,
+            McdmResult::PrometheeII(_) => McdmMethod::PrometheeII,
         }
     }
 
@@ -216,7 +244,7 @@ mod tests {
 
     #[test]
     fn mcdm_method_all() {
-        assert_eq!(McdmMethod::all(), &[McdmMethod::Topsis, McdmMethod::Vikor]);
+        assert_eq!(McdmMethod::all(), &[McdmMethod::Topsis, McdmMethod::Vikor, McdmMethod::PrometheeI, McdmMethod::PrometheeII]);
     }
 
     // McdmResult tests
@@ -297,7 +325,7 @@ mod tests {
     #[test]
     fn mcdm_method_all_includes_vikor() {
         assert!(McdmMethod::all().contains(&McdmMethod::Vikor));
-        assert_eq!(McdmMethod::all().len(), 2);
+        assert_eq!(McdmMethod::all().len(), 4);
     }
 
     fn make_vikor_mcdm_result() -> McdmResult {
@@ -370,5 +398,87 @@ mod tests {
         assert_eq!(r.weights.len(), 2);
         assert!((r.weights[0] - 0.4).abs() < f64::EPSILON);
         assert!((r.duration_ms - 1.23).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tc_pr_011_01_promethee_i_label() {
+        assert_eq!(McdmMethod::PrometheeI.label(), "PROMETHEE I");
+    }
+
+    #[test]
+    fn tc_pr_011_02_promethee_ii_label() {
+        assert_eq!(McdmMethod::PrometheeII.label(), "PROMETHEE II");
+    }
+
+    #[test]
+    fn tc_pr_011_03_all_has_four_elements() {
+        assert_eq!(McdmMethod::all().len(), 4);
+        assert!(McdmMethod::all().contains(&McdmMethod::PrometheeI));
+        assert!(McdmMethod::all().contains(&McdmMethod::PrometheeII));
+    }
+
+    fn make_promethee_result() -> PrometheeResult {
+        PrometheeResult {
+            phi_plus: vec![0.8, 0.5, 0.2],
+            phi_minus: vec![0.2, 0.5, 0.8],
+            phi_net: vec![0.6, 0.0, -0.6],
+            ranked_indices_i: vec![0, 1, 2],
+            ranked_indices_ii: vec![0, 1, 2],
+            duration_ms: 3.0,
+        }
+    }
+
+    #[test]
+    fn mcdm_result_promethee_i_primary_scores() {
+        let r = McdmResult::PrometheeI(make_promethee_result());
+        assert_eq!(r.primary_scores(), &[0.8, 0.5, 0.2]);
+    }
+
+    #[test]
+    fn mcdm_result_promethee_ii_primary_scores() {
+        let r = McdmResult::PrometheeII(make_promethee_result());
+        assert_eq!(r.primary_scores(), &[0.6, 0.0, -0.6]);
+    }
+
+    #[test]
+    fn mcdm_result_promethee_i_ranked_indices() {
+        let r = McdmResult::PrometheeI(make_promethee_result());
+        assert_eq!(r.ranked_indices(), &[0, 1, 2]);
+    }
+
+    #[test]
+    fn mcdm_result_promethee_ii_ranked_indices() {
+        let r = McdmResult::PrometheeII(make_promethee_result());
+        assert_eq!(r.ranked_indices(), &[0, 1, 2]);
+    }
+
+    #[test]
+    fn mcdm_result_promethee_duration_ms() {
+        let r = McdmResult::PrometheeI(make_promethee_result());
+        assert!((r.duration_ms() - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn mcdm_result_promethee_i_method_label() {
+        let r = McdmResult::PrometheeI(make_promethee_result());
+        assert_eq!(r.method_label(), "PROMETHEE I");
+    }
+
+    #[test]
+    fn mcdm_result_promethee_ii_method_label() {
+        let r = McdmResult::PrometheeII(make_promethee_result());
+        assert_eq!(r.method_label(), "PROMETHEE II");
+    }
+
+    #[test]
+    fn mcdm_result_promethee_i_method() {
+        let r = McdmResult::PrometheeI(make_promethee_result());
+        assert_eq!(r.method(), McdmMethod::PrometheeI);
+    }
+
+    #[test]
+    fn mcdm_result_promethee_ii_method() {
+        let r = McdmResult::PrometheeII(make_promethee_result());
+        assert_eq!(r.method(), McdmMethod::PrometheeII);
     }
 }

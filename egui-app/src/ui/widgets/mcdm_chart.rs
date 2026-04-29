@@ -1,6 +1,6 @@
 use crate::state::app_state::TrialRow;
 use crate::state::results::{
-    EntropyResult, McdmMethod, McdmResult, TopsisResult, VikorResult, WeightMode,
+    EntropyResult, McdmMethod, McdmResult, PrometheeResult, TopsisResult, VikorResult, WeightMode,
 };
 
 /// MCDM compute request payload
@@ -60,6 +60,7 @@ pub struct McdmRankChart {
     // Per-method result caches
     pub cached_topsis: Option<TopsisResult>,
     pub cached_vikor: Option<VikorResult>,
+    pub cached_promethee: Option<PrometheeResult>,
     // Set when method combo changes and a cached result exists
     pub pending_restore: Option<McdmResult>,
 }
@@ -78,6 +79,7 @@ impl Default for McdmRankChart {
             top_n: McdmTopN::Top10,
             cached_topsis: None,
             cached_vikor: None,
+            cached_promethee: None,
             pending_restore: None,
         }
     }
@@ -151,6 +153,14 @@ impl McdmRankChart {
                         .cached_vikor
                         .as_ref()
                         .map(|r| McdmResult::Vikor(r.clone())),
+                    McdmMethod::PrometheeI => self
+                        .cached_promethee
+                        .as_ref()
+                        .map(|r| McdmResult::PrometheeI(r.clone())),
+                    McdmMethod::PrometheeII => self
+                        .cached_promethee
+                        .as_ref()
+                        .map(|r| McdmResult::PrometheeII(r.clone())),
                 };
             }
 
@@ -312,7 +322,85 @@ impl McdmRankChart {
             result.method_label()
         ));
 
-        // ランキングバーチャート（ImportanceChartと同じカスタム描画）
+        let label_width = 100.0_f32;
+        let bar_height = 20.0_f32;
+        let bar_gap = 4.0_f32;
+        let value_text_width = 60.0_f32;
+
+        if let McdmResult::PrometheeI(r) = result {
+            let top_n = self.top_n.value().min(r.ranked_indices_i.len());
+            if top_n == 0 {
+                ui.label("No data");
+                return;
+            }
+            let max_val = r.phi_plus.iter().chain(r.phi_minus.iter())
+                .fold(0.0_f64, |a, &b| a.max(b));
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let available_width = ui.available_width() - label_width - value_text_width - 8.0;
+                let bar_max_width = (available_width / 2.0).max(25.0);
+                for rank in 0..top_n {
+                    let idx = r.ranked_indices_i[rank] as usize;
+                    let trial_id = trial_rows.get(idx).map(|r| r.trial_id).unwrap_or(idx as u32);
+                    ui.horizontal(|ui| {
+                        ui.add_sized(
+                            [label_width, bar_height],
+                            egui::Label::new(
+                                egui::RichText::new(format!("Trial {trial_id}"))
+                                    .text_style(egui::TextStyle::Body),
+                            ).truncate(),
+                        );
+                        let phi_plus_w = if max_val > 0.0 { (r.phi_plus[idx] / max_val * bar_max_width as f64) as f32 } else { 0.0 };
+                        let phi_minus_w = if max_val > 0.0 { (r.phi_minus[idx] / max_val * bar_max_width as f64) as f32 } else { 0.0 };
+                        let (rect_plus, _) = ui.allocate_exact_size(egui::vec2(bar_max_width, bar_height - bar_gap), egui::Sense::hover());
+                        if ui.is_rect_visible(rect_plus) {
+                            ui.painter().rect_filled(egui::Rect::from_min_size(rect_plus.min, egui::vec2(phi_plus_w, rect_plus.height())), 2.0, egui::Color32::from_rgb(0x0c, 0x6a, 0xc0));
+                        }
+                        let (rect_minus, _) = ui.allocate_exact_size(egui::vec2(bar_max_width, bar_height - bar_gap), egui::Sense::hover());
+                        if ui.is_rect_visible(rect_minus) {
+                            ui.painter().rect_filled(egui::Rect::from_min_size(rect_minus.min, egui::vec2(phi_minus_w, rect_minus.height())), 2.0, egui::Color32::from_rgb(0xc0, 0x20, 0x20));
+                        }
+                        ui.label(format!("Φ+{:.3} Φ-{:.3}", r.phi_plus[idx], r.phi_minus[idx]));
+                    });
+                }
+            });
+            return;
+        }
+
+        if let McdmResult::PrometheeII(r) = result {
+            let top_n = self.top_n.value().min(r.ranked_indices_ii.len());
+            if top_n == 0 {
+                ui.label("No data");
+                return;
+            }
+            let max_abs = r.phi_net.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let available_width = ui.available_width() - label_width - value_text_width - 8.0;
+                let bar_max_width = available_width.max(50.0);
+                for rank in 0..top_n {
+                    let idx = r.ranked_indices_ii[rank] as usize;
+                    let trial_id = trial_rows.get(idx).map(|r| r.trial_id).unwrap_or(idx as u32);
+                    let phi_net = r.phi_net[idx];
+                    let bar_w = if max_abs > 0.0 { (phi_net.abs() / max_abs * bar_max_width as f64) as f32 } else { 0.0 };
+                    let color = if phi_net >= 0.0 { egui::Color32::from_rgb(0x0c, 0x6a, 0xc0) } else { egui::Color32::from_rgb(0xe0, 0x70, 0x00) };
+                    ui.horizontal(|ui| {
+                        ui.add_sized(
+                            [label_width, bar_height],
+                            egui::Label::new(
+                                egui::RichText::new(format!("Trial {trial_id}"))
+                                    .text_style(egui::TextStyle::Body),
+                            ).truncate(),
+                        );
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_max_width, bar_height - bar_gap), egui::Sense::hover());
+                        if ui.is_rect_visible(rect) {
+                            ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(bar_w, rect.height())), 2.0, color);
+                        }
+                        ui.label(format!("{phi_net:.4}"));
+                    });
+                }
+            });
+            return;
+        }
+
         let entries = enumerate_ranked(result, trial_rows, self.top_n.value());
         if entries.is_empty() {
             ui.label("No data");
@@ -320,10 +408,6 @@ impl McdmRankChart {
         }
 
         let max_score = entries.iter().map(|e| e.score).fold(0.0_f64, f64::max);
-        let label_width = 100.0_f32;
-        let bar_height = 20.0_f32;
-        let bar_gap = 4.0_f32;
-        let value_text_width = 60.0_f32;
         let bar_color = egui::Color32::from_rgb(0x0c, 0x6a, 0xc0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {

@@ -490,6 +490,35 @@ pub fn show_chart(
                                 }
                             }
                         }
+                        McdmMethod::PrometheeI | McdmMethod::PrometheeII => {
+                            match tunny_core::promethee::compute_promethee(
+                                &objectives,
+                                n_trials,
+                                n_objectives,
+                                &weights,
+                                &is_minimize,
+                            ) {
+                                Ok(r) => {
+                                    let result = crate::state::results::PrometheeResult {
+                                        phi_plus: r.phi_plus,
+                                        phi_minus: r.phi_minus,
+                                        phi_net: r.phi_net,
+                                        ranked_indices_i: r.ranked_indices_i,
+                                        ranked_indices_ii: r.ranked_indices_ii,
+                                        duration_ms: r.duration_ms,
+                                    };
+                                    let mcdm = if method == McdmMethod::PrometheeI {
+                                        crate::state::results::McdmResult::PrometheeI(result)
+                                    } else {
+                                        crate::state::results::McdmResult::PrometheeII(result)
+                                    };
+                                    AppMessage::McdmDone(mcdm)
+                                }
+                                Err(e) => AppMessage::Error(format!(
+                                    "PROMETHEE computation failed: {e}"
+                                )),
+                            }
+                        }
                     }
                 });
             }

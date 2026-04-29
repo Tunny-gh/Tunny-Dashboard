@@ -60,6 +60,9 @@ impl MessageHandler {
                     McdmResult::Vikor(r) => {
                         widget_states.mcdm_chart.cached_vikor = Some(r.clone());
                     }
+                    McdmResult::PrometheeI(r) | McdmResult::PrometheeII(r) => {
+                        widget_states.mcdm_chart.cached_promethee = Some(r.clone());
+                    }
                 }
                 app_state.mcdm_result = Some(result);
                 widget_states.mcdm_chart.computing = false;

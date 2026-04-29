@@ -1,4 +1,5 @@
 pub mod entropy;
+pub mod promethee;
 pub mod topsis;
 pub mod vikor;
 
