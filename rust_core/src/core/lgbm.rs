@@ -1,5 +1,6 @@
 use std::ffi::{CStr, CString};
 
+use crate::core::math::grid::linspace;
 use crate::lgbm_sys::{
     self, BoosterHandle, DatasetHandle, C_API_DTYPE_FLOAT32, C_API_DTYPE_FLOAT64,
     C_API_FEATURE_IMPORTANCE_GAIN, C_API_PREDICT_CONTRIB, C_API_PREDICT_NORMAL,
@@ -340,8 +341,8 @@ pub fn compute_pdp_2d_lgbm(
     let min2 = x2d.iter().map(|r| r[1]).fold(f64::INFINITY, f64::min);
     let max2 = x2d.iter().map(|r| r[1]).fold(f64::NEG_INFINITY, f64::max);
 
-    let grid1 = pdp_linspace(min1, max1, n_grid);
-    let grid2 = pdp_linspace(min2, max2, n_grid);
+    let grid1 = linspace(min1, max1, n_grid);
+    let grid2 = linspace(min2, max2, n_grid);
 
     let grid_points: Vec<Vec<f64>> = grid1
         .iter()
@@ -358,18 +359,6 @@ pub fn compute_pdp_2d_lgbm(
     let r_squared = mse_to_r_squared(mse, y);
 
     Some((grid1, grid2, z_values, r_squared))
-}
-
-fn pdp_linspace(min: f64, max: f64, n: usize) -> Vec<f64> {
-    if n == 0 {
-        return vec![];
-    }
-    if n == 1 {
-        return vec![(min + max) / 2.0];
-    }
-    (0..n)
-        .map(|i| min + (max - min) * i as f64 / (n - 1) as f64)
-        .collect()
 }
 
 // ── 1D PDP ────────────────────────────────────────────────────────────────────
@@ -404,9 +393,15 @@ pub fn compute_pdp_1d_lgbm(
     };
     let booster = train_lgbm_rf(x_matrix, y, &config)?;
 
-    let min_j = x_matrix.iter().map(|r| r[param_idx]).fold(f64::INFINITY, f64::min);
-    let max_j = x_matrix.iter().map(|r| r[param_idx]).fold(f64::NEG_INFINITY, f64::max);
-    let grid = pdp_linspace(min_j, max_j, n_grid);
+    let min_j = x_matrix
+        .iter()
+        .map(|r| r[param_idx])
+        .fold(f64::INFINITY, f64::min);
+    let max_j = x_matrix
+        .iter()
+        .map(|r| r[param_idx])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let grid = linspace(min_j, max_j, n_grid);
     let n_rows = x_matrix.len();
 
     // Single batch: create all grid-varied rows, predict once, then average.
@@ -576,7 +571,10 @@ mod tests {
         let (_, values, _) = compute_pdp_1d_lgbm(&x, &y, 0, 10).unwrap();
         // PDP should be non-decreasing for linear data
         for i in 0..values.len() - 1 {
-            assert!(values[i] <= values[i + 1] + 1e-6, "PDP should be non-decreasing");
+            assert!(
+                values[i] <= values[i + 1] + 1e-6,
+                "PDP should be non-decreasing"
+            );
         }
     }
 }

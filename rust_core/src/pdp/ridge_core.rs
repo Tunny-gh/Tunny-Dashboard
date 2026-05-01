@@ -1,7 +1,8 @@
+use crate::core::math::grid::linspace;
 use crate::sensitivity::compute_ridge;
 
 use super::types::{PdpResult1d, PdpResult2d};
-use super::utils::{col_mean_std, linspace};
+use super::utils::col_mean_std;
 
 /// Documentation.
 ///

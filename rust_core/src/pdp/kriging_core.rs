@@ -1,7 +1,7 @@
 use crate::core::kriging::{gaussian_process, sparse_fitc};
 
 use super::types::{PdpResult1d, PdpResult2d};
-use super::utils::linspace;
+use crate::core::math::grid::linspace;
 
 /// 1D PDP with Kriging (GP regression on all feature dimensions).
 ///

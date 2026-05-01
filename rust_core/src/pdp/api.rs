@@ -23,12 +23,7 @@ pub fn compute_pdp_from_data(
                 .get(target_param_idx)
                 .cloned()
                 .unwrap_or_default();
-            match crate::core::lgbm::compute_pdp_1d_lgbm(
-                &x_matrix,
-                &y,
-                target_param_idx,
-                n_grid,
-            ) {
+            match crate::core::lgbm::compute_pdp_1d_lgbm(&x_matrix, &y, target_param_idx, n_grid) {
                 Some((grid, values, r_squared)) => PdpResult1d {
                     param_name,
                     objective_name: objective_name.to_string(),
