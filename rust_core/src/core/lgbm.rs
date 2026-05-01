@@ -372,6 +372,69 @@ fn pdp_linspace(min: f64, max: f64, n: usize) -> Vec<f64> {
         .collect()
 }
 
+// ── 1D PDP ────────────────────────────────────────────────────────────────────
+
+type Pdp1dResult = Option<(Vec<f64>, Vec<f64>, f64)>;
+
+/// 1D partial dependence curve using a LightGBM RandomForest.
+///
+/// Trains on the full feature matrix. For each grid point v the target column
+/// is fixed to v in every row; the average prediction gives the PDP value.
+///
+/// Returns `(grid, values, r_squared)` where `grid` spans the data range of
+/// the target column and `values.len() == grid.len() == n_grid`.
+pub fn compute_pdp_1d_lgbm(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    param_idx: usize,
+    n_grid: usize,
+) -> Pdp1dResult {
+    let n = y.len();
+    if n < 2 || x_matrix.is_empty() || n_grid < 2 {
+        return None;
+    }
+    let p = x_matrix[0].len();
+    if param_idx >= p {
+        return None;
+    }
+
+    let config = LgbmRfConfig {
+        num_iterations: 100,
+        ..Default::default()
+    };
+    let booster = train_lgbm_rf(x_matrix, y, &config)?;
+
+    let min_j = x_matrix.iter().map(|r| r[param_idx]).fold(f64::INFINITY, f64::min);
+    let max_j = x_matrix.iter().map(|r| r[param_idx]).fold(f64::NEG_INFINITY, f64::max);
+    let grid = pdp_linspace(min_j, max_j, n_grid);
+    let n_rows = x_matrix.len();
+
+    // Single batch: create all grid-varied rows, predict once, then average.
+    let all_rows: Vec<Vec<f64>> = grid
+        .iter()
+        .flat_map(|&v| {
+            x_matrix.iter().map(move |r| {
+                let mut row = r.clone();
+                row[param_idx] = v;
+                row
+            })
+        })
+        .collect();
+    let all_preds = lgbm_predict(&booster, &all_rows);
+    if all_preds.len() != n_grid * n_rows {
+        return None;
+    }
+    let values: Vec<f64> = all_preds
+        .chunks(n_rows)
+        .map(|chunk| chunk.iter().sum::<f64>() / chunk.len() as f64)
+        .collect();
+
+    let mse = lgbm_mse(&booster, x_matrix, y)?;
+    let r_squared = mse_to_r_squared(mse, y);
+
+    Some((grid, values, r_squared))
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -485,5 +548,35 @@ mod tests {
         assert!(compute_pdp_2d_lgbm(&x, &y, 0, 1, 0).is_none());
         assert!(compute_pdp_2d_lgbm(&x, &y, 0, 99, 5).is_none());
         assert!(compute_pdp_2d_lgbm(&[], &[], 0, 1, 5).is_none());
+    }
+
+    #[test]
+    fn pdp_1d_lgbm_shape() {
+        let (x, y) = synthetic_data(30);
+        let (grid, values, r_squared) =
+            compute_pdp_1d_lgbm(&x, &y, 0, 5).expect("pdp_1d_lgbm should return Some");
+        assert_eq!(grid.len(), 5);
+        assert_eq!(values.len(), 5);
+        assert!(r_squared.is_finite());
+    }
+
+    #[test]
+    fn pdp_1d_lgbm_returns_none_for_invalid_input() {
+        let (x, y) = synthetic_data(30);
+        assert!(compute_pdp_1d_lgbm(&x, &y, 0, 0).is_none()); // n_grid < 2
+        assert!(compute_pdp_1d_lgbm(&x, &y, 99, 5).is_none()); // param_idx out of bounds
+        assert!(compute_pdp_1d_lgbm(&[], &[], 0, 5).is_none()); // empty data
+    }
+
+    #[test]
+    fn pdp_1d_lgbm_monotone_for_linear_data() {
+        let n = 40;
+        let x: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, 0.0]).collect();
+        let y: Vec<f64> = x.iter().map(|r| r[0] * 2.0).collect();
+        let (_, values, _) = compute_pdp_1d_lgbm(&x, &y, 0, 10).unwrap();
+        // PDP should be non-decreasing for linear data
+        for i in 0..values.len() - 1 {
+            assert!(values[i] <= values[i + 1] + 1e-6, "PDP should be non-decreasing");
+        }
     }
 }

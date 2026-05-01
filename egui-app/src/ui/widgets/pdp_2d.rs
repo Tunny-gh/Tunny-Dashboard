@@ -88,11 +88,7 @@ impl PdpChart2DState {
             egui::ComboBox::from_id_salt("pdp2d_model")
                 .selected_text(self.selected_model.label())
                 .show_ui(ui, |ui| {
-                    for model in [
-                        ModelType::Ridge,
-                        ModelType::Kriging,
-                        ModelType::SparseKriging,
-                    ] {
+                    for model in ModelType::ALL {
                         let selected = self.selected_model == model;
                         if ui.selectable_label(selected, model.label()).clicked() {
                             self.selected_model = model;
@@ -118,11 +114,15 @@ impl PdpChart2DState {
             .clicked()
         {
             if let Some(obj_name) = obj_names.get(self.selected_objective) {
+                let n_grid = match self.selected_model {
+                    ModelType::RandomForest => 30,
+                    _ => 20,
+                };
                 self.pending_compute = Some(Pdp2dComputeRequest {
                     param1: self.selected_param1.clone(),
                     param2: self.selected_param2.clone(),
                     objective: obj_name.clone(),
-                    n_grid: 20,
+                    n_grid,
                     model_type: self.selected_model.to_str().to_string(),
                 });
             }

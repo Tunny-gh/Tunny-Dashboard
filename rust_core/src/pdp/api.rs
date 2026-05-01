@@ -18,6 +18,36 @@ pub fn compute_pdp_from_data(
     model_type: &str,
 ) -> PdpResult1d {
     match model_type {
+        "random_forest" => {
+            let param_name = param_names
+                .get(target_param_idx)
+                .cloned()
+                .unwrap_or_default();
+            match crate::core::lgbm::compute_pdp_1d_lgbm(
+                &x_matrix,
+                &y,
+                target_param_idx,
+                n_grid,
+            ) {
+                Some((grid, values, r_squared)) => PdpResult1d {
+                    param_name,
+                    objective_name: objective_name.to_string(),
+                    grid,
+                    values,
+                    r_squared,
+                    y_upper: None,
+                    y_lower: None,
+                },
+                None => compute_pdp_from_matrix(
+                    &x_matrix,
+                    &y,
+                    &param_names,
+                    objective_name,
+                    target_param_idx,
+                    n_grid,
+                ),
+            }
+        }
         "kriging" => compute_pdp_1d_kriging_raw(
             &x_matrix,
             &y,

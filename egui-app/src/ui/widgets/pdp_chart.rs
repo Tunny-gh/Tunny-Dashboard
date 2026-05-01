@@ -21,14 +21,23 @@ pub enum ModelType {
     Ridge,
     Kriging,
     SparseKriging,
+    RandomForest,
 }
 
 impl ModelType {
+    pub const ALL: [ModelType; 4] = [
+        ModelType::Ridge,
+        ModelType::Kriging,
+        ModelType::SparseKriging,
+        ModelType::RandomForest,
+    ];
+
     pub fn label(&self) -> &'static str {
         match self {
             ModelType::Ridge => "Ridge",
             ModelType::Kriging => "Kriging",
             ModelType::SparseKriging => "Sparse Kriging",
+            ModelType::RandomForest => "Random Forest (LightGBM)",
         }
     }
 
@@ -37,6 +46,7 @@ impl ModelType {
             ModelType::Ridge => "ridge",
             ModelType::Kriging => "kriging",
             ModelType::SparseKriging => "sparse_kriging",
+            ModelType::RandomForest => "random_forest",
         }
     }
 }
@@ -177,11 +187,7 @@ impl PdpChart {
             egui::ComboBox::from_id_salt("pdp_model_combo")
                 .selected_text(self.model_type.label())
                 .show_ui(ui, |ui| {
-                    for model in [
-                        ModelType::Ridge,
-                        ModelType::Kriging,
-                        ModelType::SparseKriging,
-                    ] {
+                    for model in ModelType::ALL {
                         let selected = self.model_type == model;
                         if ui.selectable_label(selected, model.label()).clicked() {
                             self.model_type = model;
@@ -209,6 +215,7 @@ impl PdpChart {
                     } else {
                         let n_grid = match self.model_type {
                             ModelType::Ridge => 50,
+                            ModelType::RandomForest => 30,
                             _ => 30, // Kriging is O(N²×grid); 30 keeps debug builds fast
                         };
                         self.pending_compute = Some(PdpComputeRequest {
