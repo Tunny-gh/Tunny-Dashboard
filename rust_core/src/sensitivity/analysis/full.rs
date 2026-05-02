@@ -7,8 +7,7 @@ use super::super::{
 };
 use super::common::{
     build_standardized_param_columns, compute_ridge_from_standardized_columns, empty_result,
-    transpose_mdi_importances, transpose_permutation_importances, transpose_rf_anova_importances,
-    transpose_shap_importances,
+    transpose_to_tree_result,
 };
 
 /// Computes sensitivity for a single objective and a single metric only.
@@ -92,7 +91,7 @@ pub fn compute_sensitivity_single_obj(
         SensitivityMetric::RfAnova => {
             let x_matrix = x_matrix.unwrap();
             let (imp, r2) = compute_rf_anova_importances(&x_matrix, &y);
-            let rf_anova = Some(transpose_rf_anova_importances(
+            let rf_anova = Some(transpose_to_tree_result(
                 &[imp],
                 vec![r2],
                 param_names.len(),
@@ -112,7 +111,7 @@ pub fn compute_sensitivity_single_obj(
         SensitivityMetric::Mdi => {
             let x_matrix = x_matrix.unwrap();
             let (imp, r2) = compute_mdi_importances(&x_matrix, &y);
-            let mdi = Some(transpose_mdi_importances(
+            let mdi = Some(transpose_to_tree_result(
                 &[imp],
                 vec![r2],
                 param_names.len(),
@@ -132,7 +131,7 @@ pub fn compute_sensitivity_single_obj(
         SensitivityMetric::Shap => {
             let x_matrix = x_matrix.unwrap();
             let (imp, r2) = compute_shap_importances(&x_matrix, &y);
-            let shap = Some(transpose_shap_importances(
+            let shap = Some(transpose_to_tree_result(
                 &[imp],
                 vec![r2],
                 param_names.len(),
@@ -152,7 +151,7 @@ pub fn compute_sensitivity_single_obj(
         SensitivityMetric::Permutation => {
             let x_matrix = x_matrix.unwrap();
             let (imp, r2) = compute_permutation_importances(&x_matrix, &y);
-            let permutation = Some(transpose_permutation_importances(
+            let permutation = Some(transpose_to_tree_result(
                 &[imp],
                 vec![r2],
                 param_names.len(),
@@ -265,7 +264,7 @@ fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityRes
             .collect();
         let mdi_r_squared: Vec<f64> = mdi_by_obj.iter().map(|(_, r2)| *r2).collect();
         let mdi_importances: Vec<Vec<f64>> = mdi_by_obj.into_iter().map(|(imp, _)| imp).collect();
-        Some(transpose_mdi_importances(
+        Some(transpose_to_tree_result(
             &mdi_importances,
             mdi_r_squared,
             param_names.len(),
@@ -280,7 +279,7 @@ fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityRes
         objective_names: objective_names.clone(),
         spearman,
         ridge,
-        rf_anova: Some(transpose_rf_anova_importances(
+        rf_anova: Some(transpose_to_tree_result(
             &rf_anova_importances,
             rf_anova_r_squared,
             param_names.len(),

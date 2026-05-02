@@ -22,28 +22,15 @@ pub struct SensitivityResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct RfAnovaResult {
+pub struct TreeImportanceResult {
     pub importances: Vec<Vec<f64>>, // [param][objective]
     pub r_squared: Vec<f64>,        // [objective]
 }
 
-#[derive(Debug, Clone)]
-pub struct MdiResult {
-    pub importances: Vec<Vec<f64>>, // [param][objective]
-    pub r_squared: Vec<f64>,        // [objective]
-}
-
-#[derive(Debug, Clone)]
-pub struct ShapResult {
-    pub importances: Vec<Vec<f64>>, // [param][objective]
-    pub r_squared: Vec<f64>,        // [objective]
-}
-
-#[derive(Debug, Clone)]
-pub struct PermutationResult {
-    pub importances: Vec<Vec<f64>>, // [param][objective]
-    pub r_squared: Vec<f64>,        // [objective]
-}
+pub type RfAnovaResult = TreeImportanceResult;
+pub type MdiResult = TreeImportanceResult;
+pub type ShapResult = TreeImportanceResult;
+pub type PermutationResult = TreeImportanceResult;
 
 #[derive(Debug, Clone)]
 pub struct RidgeResult {

@@ -160,22 +160,12 @@ impl ImportanceChart {
                 ImportanceMetric::Ridge => sensitivity
                     .and_then(|r| r.ridge.first())
                     .map(|ridge| ridge.r_squared),
-                ImportanceMetric::RfAnova => sensitivity
-                    .and_then(|r| r.rf_anova.as_ref())
-                    .and_then(|rf| rf.r_squared.first())
-                    .copied(),
-                ImportanceMetric::Mdi => sensitivity
-                    .and_then(|r| r.mdi.as_ref())
-                    .and_then(|m| m.r_squared.first())
-                    .copied(),
-                ImportanceMetric::Shap => sensitivity
-                    .and_then(|r| r.shap.as_ref())
-                    .and_then(|s| s.r_squared.first())
-                    .copied(),
-                ImportanceMetric::Permutation => sensitivity
-                    .and_then(|r| r.permutation.as_ref())
-                    .and_then(|p| p.r_squared.first())
-                    .copied(),
+                ImportanceMetric::RfAnova
+                | ImportanceMetric::Mdi
+                | ImportanceMetric::Shap
+                | ImportanceMetric::Permutation => {
+                    sensitivity.and_then(|r| extract_tree_r_squared(r, &self.metric))
+                }
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                     sobol.and_then(|s| s.r_squared.first()).copied()
                 }
@@ -275,6 +265,37 @@ fn group_header(text: &str) -> egui::RichText {
     egui::RichText::new(text).weak().small()
 }
 
+/// RfAnova / Mdi / Shap / Permutation の R² を取得する（表示用の最初の目的関数値）
+fn extract_tree_r_squared(result: &SensitivityResult, metric: &ImportanceMetric) -> Option<f64> {
+    match metric {
+        ImportanceMetric::RfAnova => result.rf_anova.as_ref()?.r_squared.first().copied(),
+        ImportanceMetric::Mdi => result.mdi.as_ref()?.r_squared.first().copied(),
+        ImportanceMetric::Shap => result.shap.as_ref()?.r_squared.first().copied(),
+        ImportanceMetric::Permutation => result.permutation.as_ref()?.r_squared.first().copied(),
+        _ => None,
+    }
+}
+
+fn extract_tree_importance(
+    result: &SensitivityResult,
+    metric: &ImportanceMetric,
+    obj_idx: usize,
+) -> Option<Vec<f64>> {
+    let importances = match metric {
+        ImportanceMetric::RfAnova => result.rf_anova.as_ref()?.importances.clone(),
+        ImportanceMetric::Mdi => result.mdi.as_ref()?.importances.clone(),
+        ImportanceMetric::Shap => result.shap.as_ref()?.importances.clone(),
+        ImportanceMetric::Permutation => result.permutation.as_ref()?.importances.clone(),
+        _ => return None,
+    };
+    Some(
+        importances
+            .iter()
+            .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
+            .collect(),
+    )
+}
+
 /// SensitivityResult から重要度スコアを降順でソートして返す
 pub fn compute_sorted_importance(
     result: &SensitivityResult,
@@ -294,41 +315,11 @@ pub fn compute_sorted_importance(
             };
             ridge.beta.iter().map(|b| b.abs()).collect()
         }
-        ImportanceMetric::RfAnova => {
-            let Some(ref rf) = result.rf_anova else {
-                return vec![];
-            };
-            rf.importances
-                .iter()
-                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
-                .collect()
-        }
-        ImportanceMetric::Mdi => {
-            let Some(ref mdi) = result.mdi else {
-                return vec![];
-            };
-            mdi.importances
-                .iter()
-                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
-                .collect()
-        }
-        ImportanceMetric::Shap => {
-            let Some(ref shap) = result.shap else {
-                return vec![];
-            };
-            shap.importances
-                .iter()
-                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
-                .collect()
-        }
-        ImportanceMetric::Permutation => {
-            let Some(ref perm) = result.permutation else {
-                return vec![];
-            };
-            perm.importances
-                .iter()
-                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
-                .collect()
+        ImportanceMetric::RfAnova
+        | ImportanceMetric::Mdi
+        | ImportanceMetric::Shap
+        | ImportanceMetric::Permutation => {
+            extract_tree_importance(result, metric, obj_idx).unwrap_or_default()
         }
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return vec![],
     };

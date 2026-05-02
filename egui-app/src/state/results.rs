@@ -21,28 +21,15 @@ pub struct RidgeResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct RfAnovaResult {
+pub struct TreeImportanceResult {
     pub importances: Vec<Vec<f64>>,
     pub r_squared: Vec<f64>,
 }
 
-#[derive(Debug, Clone)]
-pub struct MdiResult {
-    pub importances: Vec<Vec<f64>>,
-    pub r_squared: Vec<f64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ShapResult {
-    pub importances: Vec<Vec<f64>>,
-    pub r_squared: Vec<f64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PermutationResult {
-    pub importances: Vec<Vec<f64>>,
-    pub r_squared: Vec<f64>,
-}
+pub type RfAnovaResult = TreeImportanceResult;
+pub type MdiResult = TreeImportanceResult;
+pub type ShapResult = TreeImportanceResult;
+pub type PermutationResult = TreeImportanceResult;
 
 #[derive(Debug, Clone)]
 pub struct SobolResult {

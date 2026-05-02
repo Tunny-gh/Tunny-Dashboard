@@ -3,7 +3,7 @@ use crate::dataframe::DataFrame;
 use super::super::{
     data::get_param_numeric_values,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult, ShapResult,
+    RidgeResult, SensitivityResult, TreeImportanceResult,
 };
 
 pub(super) fn empty_result(
@@ -133,61 +133,13 @@ fn transpose_importances_matrix(
     importances
 }
 
-pub(super) fn transpose_mdi_importances(
+pub(super) fn transpose_to_tree_result(
     importances_by_objective: &[Vec<f64>],
     r_squared: Vec<f64>,
     param_count: usize,
     objective_count: usize,
-) -> MdiResult {
-    MdiResult {
-        importances: transpose_importances_matrix(
-            importances_by_objective,
-            param_count,
-            objective_count,
-        ),
-        r_squared,
-    }
-}
-
-pub(super) fn transpose_rf_anova_importances(
-    importances_by_objective: &[Vec<f64>],
-    r_squared: Vec<f64>,
-    param_count: usize,
-    objective_count: usize,
-) -> RfAnovaResult {
-    RfAnovaResult {
-        importances: transpose_importances_matrix(
-            importances_by_objective,
-            param_count,
-            objective_count,
-        ),
-        r_squared,
-    }
-}
-
-pub(super) fn transpose_shap_importances(
-    importances_by_objective: &[Vec<f64>],
-    r_squared: Vec<f64>,
-    param_count: usize,
-    objective_count: usize,
-) -> ShapResult {
-    ShapResult {
-        importances: transpose_importances_matrix(
-            importances_by_objective,
-            param_count,
-            objective_count,
-        ),
-        r_squared,
-    }
-}
-
-pub(super) fn transpose_permutation_importances(
-    importances_by_objective: &[Vec<f64>],
-    r_squared: Vec<f64>,
-    param_count: usize,
-    objective_count: usize,
-) -> PermutationResult {
-    PermutationResult {
+) -> TreeImportanceResult {
+    TreeImportanceResult {
         importances: transpose_importances_matrix(
             importances_by_objective,
             param_count,

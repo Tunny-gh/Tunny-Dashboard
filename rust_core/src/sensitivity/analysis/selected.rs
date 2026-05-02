@@ -4,7 +4,7 @@ use super::super::{
 };
 use super::common::{
     build_param_columns, build_param_matrix_from_columns, collect_objective_subset,
-    collect_valid_indices, empty_result, transpose_rf_anova_importances,
+    collect_valid_indices, empty_result, transpose_to_tree_result,
 };
 
 pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult> {
@@ -78,7 +78,7 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             objective_names: objective_names.clone(),
             spearman,
             ridge,
-            rf_anova: Some(transpose_rf_anova_importances(
+            rf_anova: Some(transpose_to_tree_result(
                 &rf_anova_importances,
                 rf_anova_r_squared,
                 param_names.len(),

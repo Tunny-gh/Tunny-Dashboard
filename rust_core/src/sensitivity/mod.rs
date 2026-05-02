@@ -7,6 +7,7 @@ mod ridge;
 mod shap;
 mod sobol;
 mod spearman;
+mod tree_common;
 mod types;
 
 pub use analysis::{
@@ -22,7 +23,7 @@ pub use sobol::{compute_sobol, compute_sobol_from_df};
 pub use spearman::compute_spearman;
 pub use types::{
     MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityMetric, SensitivityResult,
-    ShapResult, SobolResult,
+    ShapResult, SobolResult, TreeImportanceResult,
 };
 
 #[cfg(test)]
