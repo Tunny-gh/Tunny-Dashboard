@@ -6,6 +6,7 @@ pub enum SensitivityMetric {
     RfAnova,
     Mdi,
     Shap,
+    Permutation,
 }
 
 #[derive(Debug, Clone)]
@@ -17,6 +18,7 @@ pub struct SensitivityResult {
     pub rf_anova: Option<RfAnovaResult>,
     pub mdi: Option<MdiResult>,
     pub shap: Option<ShapResult>,
+    pub permutation: Option<PermutationResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +35,12 @@ pub struct MdiResult {
 
 #[derive(Debug, Clone)]
 pub struct ShapResult {
+    pub importances: Vec<Vec<f64>>, // [param][objective]
+    pub r_squared: Vec<f64>,        // [objective]
+}
+
+#[derive(Debug, Clone)]
+pub struct PermutationResult {
     pub importances: Vec<Vec<f64>>, // [param][objective]
     pub r_squared: Vec<f64>,        // [objective]
 }

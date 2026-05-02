@@ -86,6 +86,7 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             )),
             mdi: None,
             shap: None,
+            permutation: None,
         }
     })
 }

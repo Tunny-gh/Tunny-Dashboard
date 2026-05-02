@@ -187,6 +187,7 @@ mod tests {
                 rf_anova: None,
                 mdi: None,
                 shap: None,
+                permutation: None,
             },
         );
 

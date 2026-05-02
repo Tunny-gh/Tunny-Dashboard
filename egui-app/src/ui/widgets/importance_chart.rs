@@ -9,6 +9,7 @@ pub enum ImportanceMetric {
     SobolFirst,
     SobolTotal,
     Shap,
+    Permutation,
 }
 
 impl ImportanceMetric {
@@ -21,6 +22,7 @@ impl ImportanceMetric {
             ImportanceMetric::SobolFirst => "Sobol First",
             ImportanceMetric::SobolTotal => "Sobol Total",
             ImportanceMetric::Shap => "SHAP",
+            ImportanceMetric::Permutation => "Permutation",
         }
     }
 
@@ -41,6 +43,7 @@ impl ImportanceMetric {
             ImportanceMetric::SobolFirst => 4,
             ImportanceMetric::SobolTotal => 5,
             ImportanceMetric::Shap => 6,
+            ImportanceMetric::Permutation => 7,
         }
     }
 }
@@ -111,6 +114,11 @@ impl ImportanceChart {
                         ImportanceMetric::Shap,
                         ImportanceMetric::Shap.label(),
                     );
+                    ui.selectable_value(
+                        &mut self.metric,
+                        ImportanceMetric::Permutation,
+                        ImportanceMetric::Permutation.label(),
+                    );
 
                     ui.separator();
                     ui.label(group_header("── Global Sensitivity ──"));
@@ -164,6 +172,10 @@ impl ImportanceChart {
                     .and_then(|r| r.shap.as_ref())
                     .and_then(|s| s.r_squared.first())
                     .copied(),
+                ImportanceMetric::Permutation => sensitivity
+                    .and_then(|r| r.permutation.as_ref())
+                    .and_then(|p| p.r_squared.first())
+                    .copied(),
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                     sobol.and_then(|s| s.r_squared.first()).copied()
                 }
@@ -191,7 +203,8 @@ impl ImportanceChart {
             | ImportanceMetric::Ridge
             | ImportanceMetric::RfAnova
             | ImportanceMetric::Mdi
-            | ImportanceMetric::Shap => {
+            | ImportanceMetric::Shap
+            | ImportanceMetric::Permutation => {
                 let Some(result) = sensitivity else {
                     ui.label("No sensitivity data (start the computation first)");
                     return;
@@ -308,6 +321,15 @@ pub fn compute_sorted_importance(
                 .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
                 .collect()
         }
+        ImportanceMetric::Permutation => {
+            let Some(ref perm) = result.permutation else {
+                return vec![];
+            };
+            perm.importances
+                .iter()
+                .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
+                .collect()
+        }
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return vec![],
     };
 
@@ -363,6 +385,7 @@ mod tests {
             rf_anova: None,
             mdi: None,
             shap: None,
+            permutation: None,
         }
     }
 
@@ -378,6 +401,7 @@ mod tests {
             rf_anova: None,
             mdi: None,
             shap: None,
+            permutation: None,
         }
     }
 
@@ -393,6 +417,7 @@ mod tests {
             }),
             mdi: None,
             shap: None,
+            permutation: None,
         }
     }
 
@@ -408,6 +433,7 @@ mod tests {
                 r_squared: vec![0.8],
             }),
             shap: None,
+            permutation: None,
         }
     }
 
@@ -524,5 +550,49 @@ mod tests {
         let total = compute_sorted_sobol(&result, 0, &ImportanceMetric::SobolTotal);
         assert_eq!(total[0].0, "p0");
         assert!((total[0].1 - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_permutation_cache_id() {
+        assert_eq!(ImportanceMetric::Permutation.cache_id(), 7);
+    }
+
+    #[test]
+    fn test_permutation_is_not_sobol() {
+        assert!(!ImportanceMetric::Permutation.is_sobol());
+    }
+
+    #[test]
+    fn test_permutation_label() {
+        assert_eq!(ImportanceMetric::Permutation.label(), "Permutation");
+    }
+
+    #[test]
+    fn sorted_importance_permutation_descending() {
+        use crate::state::app_state::PermutationResult;
+        let result = SensitivityResult {
+            param_names: vec!["p0".to_string(), "p1".to_string()],
+            objective_names: vec!["obj0".to_string()],
+            spearman: vec![],
+            ridge: vec![],
+            rf_anova: None,
+            mdi: None,
+            shap: None,
+            permutation: Some(PermutationResult {
+                importances: vec![vec![0.2], vec![0.8]],
+                r_squared: vec![0.85],
+            }),
+        };
+        let sorted = compute_sorted_importance(&result, &ImportanceMetric::Permutation, 0);
+        assert_eq!(sorted.len(), 2);
+        assert_eq!(sorted[0].0, "p1");
+        assert!((sorted[0].1 - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sorted_importance_permutation_no_data_returns_empty() {
+        let result = make_result(&["x"], vec![0.5]);
+        let sorted = compute_sorted_importance(&result, &ImportanceMetric::Permutation, 0);
+        assert!(sorted.is_empty());
     }
 }

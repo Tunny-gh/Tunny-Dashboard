@@ -1,12 +1,14 @@
 use crate::dataframe::DataFrame;
 
 use super::super::{
-    compute_mdi_importances, compute_rf_anova_importances, compute_shap_importances,
-    compute_spearman, data::get_param_numeric_values, SensitivityMetric, SensitivityResult,
+    compute_mdi_importances, compute_permutation_importances, compute_rf_anova_importances,
+    compute_shap_importances, compute_spearman, data::get_param_numeric_values, SensitivityMetric,
+    SensitivityResult,
 };
 use super::common::{
     build_standardized_param_columns, compute_ridge_from_standardized_columns, empty_result,
-    transpose_mdi_importances, transpose_rf_anova_importances, transpose_shap_importances,
+    transpose_mdi_importances, transpose_permutation_importances, transpose_rf_anova_importances,
+    transpose_shap_importances,
 };
 
 /// Computes sensitivity for a single objective and a single metric only.
@@ -36,7 +38,10 @@ pub fn compute_sensitivity_single_obj(
 
     // Spearman and Ridge use different data layouts; build x_matrix only for tree-based metrics.
     let x_matrix: Option<Vec<Vec<f64>>> = match metric {
-        SensitivityMetric::RfAnova | SensitivityMetric::Mdi | SensitivityMetric::Shap => {
+        SensitivityMetric::RfAnova
+        | SensitivityMetric::Mdi
+        | SensitivityMetric::Shap
+        | SensitivityMetric::Permutation => {
             let param_cols: Vec<Vec<f64>> = param_names
                 .iter()
                 .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
@@ -67,6 +72,7 @@ pub fn compute_sensitivity_single_obj(
                 rf_anova: None,
                 mdi: None,
                 shap: None,
+                permutation: None,
             }
         }
         SensitivityMetric::Ridge => {
@@ -80,6 +86,7 @@ pub fn compute_sensitivity_single_obj(
                 rf_anova: None,
                 mdi: None,
                 shap: None,
+                permutation: None,
             }
         }
         SensitivityMetric::RfAnova => {
@@ -99,6 +106,7 @@ pub fn compute_sensitivity_single_obj(
                 rf_anova,
                 mdi: None,
                 shap: None,
+                permutation: None,
             }
         }
         SensitivityMetric::Mdi => {
@@ -118,6 +126,7 @@ pub fn compute_sensitivity_single_obj(
                 rf_anova: None,
                 mdi,
                 shap: None,
+                permutation: None,
             }
         }
         SensitivityMetric::Shap => {
@@ -137,6 +146,27 @@ pub fn compute_sensitivity_single_obj(
                 rf_anova: None,
                 mdi: None,
                 shap,
+                permutation: None,
+            }
+        }
+        SensitivityMetric::Permutation => {
+            let x_matrix = x_matrix.unwrap();
+            let (imp, r2) = compute_permutation_importances(&x_matrix, &y);
+            let permutation = Some(transpose_permutation_importances(
+                &[imp],
+                vec![r2],
+                param_names.len(),
+                1,
+            ));
+            SensitivityResult {
+                param_names,
+                objective_names: vec![objective_name],
+                spearman: vec![],
+                ridge: vec![],
+                rf_anova: None,
+                mdi: None,
+                shap: None,
+                permutation,
             }
         }
     }
@@ -258,5 +288,6 @@ fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityRes
         )),
         mdi,
         shap: None,
+        permutation: None,
     }
 }
