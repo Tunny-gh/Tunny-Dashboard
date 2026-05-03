@@ -1,4 +1,5 @@
 use super::{compute_ridge, SobolResult};
+use crate::core::math::stats::column_mean_std;
 
 struct SobolSurrogate {
     param_means: Vec<f64>,
@@ -8,13 +9,6 @@ struct SobolSurrogate {
     betas: Vec<Vec<f64>>,
     intercepts: Vec<f64>,
     r_squared: Vec<f64>, // surrogate fit per objective
-}
-
-fn column_mean_std(vals: &[f64]) -> (f64, f64) {
-    let n = vals.len() as f64;
-    let mean = vals.iter().sum::<f64>() / n;
-    let std_dev = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
-    (mean, if std_dev < f64::EPSILON { 1.0 } else { std_dev })
 }
 
 pub(crate) fn lcg_next(state: &mut u64) -> f64 {

@@ -27,10 +27,14 @@ pub struct TreeImportanceResult {
     pub r_squared: Vec<f64>,        // [objective]
 }
 
-pub type RfAnovaResult = TreeImportanceResult;
-pub type MdiResult = TreeImportanceResult;
-pub type ShapResult = TreeImportanceResult;
-pub type PermutationResult = TreeImportanceResult;
+#[derive(Debug, Clone)]
+pub struct RfAnovaResult(pub TreeImportanceResult);
+#[derive(Debug, Clone)]
+pub struct MdiResult(pub TreeImportanceResult);
+#[derive(Debug, Clone)]
+pub struct ShapResult(pub TreeImportanceResult);
+#[derive(Debug, Clone)]
+pub struct PermutationResult(pub TreeImportanceResult);
 
 #[derive(Debug, Clone)]
 pub struct RidgeResult {

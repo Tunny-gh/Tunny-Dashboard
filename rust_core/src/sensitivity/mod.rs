@@ -1,6 +1,8 @@
 mod analysis;
+mod constants;
 mod data;
 mod mdi;
+mod metrics;
 mod permutation;
 mod rf_anova;
 mod ridge;

@@ -1,4 +1,5 @@
 use super::RidgeResult;
+use crate::core::math::stats::column_mean_std;
 
 fn transpose_and_standardize(x_matrix: &[Vec<f64>], n: usize, p: usize) -> Vec<f64> {
     let mut x_cols = vec![0.0f64; n * p];
@@ -9,13 +10,10 @@ fn transpose_and_standardize(x_matrix: &[Vec<f64>], n: usize, p: usize) -> Vec<f
         }
     }
 
-    let nf = n as f64;
-
     for j in 0..p {
         let col = &mut x_cols[j * n..(j + 1) * n];
-        let mean: f64 = col.iter().sum::<f64>() / nf;
-        let std_dev = (col.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / nf).sqrt();
-        let std_dev = if std_dev < f64::EPSILON { 1.0 } else { std_dev };
+        let vals: Vec<f64> = col.to_vec();
+        let (mean, std_dev) = column_mean_std(&vals);
 
         for v in col.iter_mut() {
             *v = (*v - mean) / std_dev;

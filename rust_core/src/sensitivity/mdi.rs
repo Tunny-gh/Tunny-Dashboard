@@ -1,14 +1,28 @@
-use super::data::sample_rows;
+use super::constants::{
+    MDI_MAX_ROWS, MDI_RF_MAX_DEPTH, MDI_RF_MIN_SAMPLES_LEAF, MDI_RF_TREES, MDI_SEED,
+};
+use super::tree_common::{prepare_training_data, PreparedData};
 use crate::core::lgbm::{
     lgbm_feature_importance, lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig,
 };
-use crate::core::random_forest::Lcg;
 
-const RF_TREES: usize = 64;
-const RF_MAX_DEPTH: usize = 64;
-const RF_MIN_SAMPLES_LEAF: usize = 2;
-const RF_SEED: u64 = 42;
-const MDI_MAX_ROWS: usize = 1_000;
+/// 前処理済みデータから MDI 重要度を計算する（`metrics::MdiMetric` からも呼ばれる）。
+pub(super) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+    let p = data.x_shuffled[0].len();
+    let (x_train, x_eval, y_train, y_eval) = data.split();
+    let config = LgbmRfConfig {
+        num_iterations: MDI_RF_TREES,
+        max_depth: MDI_RF_MAX_DEPTH as i32,
+        min_data_in_leaf: MDI_RF_MIN_SAMPLES_LEAF as i32,
+        seed: MDI_SEED as i32,
+        ..Default::default()
+    };
+    let booster = train_lgbm_rf(x_train, y_train, &config)?;
+    let importances = lgbm_feature_importance(&booster, p);
+    let mse = lgbm_mse(&booster, x_eval, y_eval).unwrap_or(f64::INFINITY);
+    let r_squared = mse_to_r_squared(mse, y_eval);
+    Some((importances, r_squared))
+}
 
 /// Compute MDI (Mean Decrease Impurity) importances via LightGBM gain-based feature importance.
 /// Returns `(importances, r_squared)` where importances sum to 1.0 (or all-zero on failure).
@@ -17,97 +31,26 @@ pub fn compute_mdi_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f
     if n < 2 || x_matrix.is_empty() || x_matrix.len() != n {
         return (vec![], 0.0);
     }
-
     let p = x_matrix[0].len();
     if p == 0 {
         return (vec![], 0.0);
     }
-
-    // Filter non-finite rows
-    let valid_indices: Vec<usize> = (0..n)
-        .filter(|&i| y[i].is_finite() && x_matrix[i].iter().all(|v| v.is_finite()))
-        .collect();
-
-    let n_valid = valid_indices.len();
-    if n_valid < 2 {
-        return (vec![0.0; p], 0.0);
+    match prepare_training_data(
+        x_matrix,
+        y,
+        MDI_MAX_ROWS,
+        MDI_SEED,
+        MDI_SEED.wrapping_add(1),
+    ) {
+        Some(data) => compute_from_prepared(&data).unwrap_or((vec![0.0; p], 0.0)),
+        None => (vec![0.0; p], 0.0),
     }
-
-    // Filter and/or downsample, avoiding a redundant full clone when all rows are valid
-    let (x_data, y_data) = if n_valid < n {
-        let x_clean: Vec<Vec<f64>> = valid_indices.iter().map(|&i| x_matrix[i].clone()).collect();
-        let y_clean: Vec<f64> = valid_indices.iter().map(|&i| y[i]).collect();
-        if n_valid > MDI_MAX_ROWS {
-            sample_rows(&x_clean, &y_clean, MDI_MAX_ROWS, RF_SEED)
-        } else {
-            (x_clean, y_clean)
-        }
-    } else if n > MDI_MAX_ROWS {
-        sample_rows(x_matrix, y, MDI_MAX_ROWS, RF_SEED)
-    } else {
-        (x_matrix.to_vec(), y.to_vec())
-    };
-
-    let n = y_data.len();
-
-    // 80/20 holdout split
-    const MIN_EVAL: usize = 2;
-    const MIN_TRAIN: usize = 2;
-    let use_holdout = n >= MIN_TRAIN + MIN_EVAL;
-    let split_idx = if use_holdout {
-        ((n * 4) / 5).max(MIN_TRAIN)
-    } else {
-        n
-    };
-
-    let mut shuffle_idx: Vec<usize> = (0..n).collect();
-    let mut rng_split = Lcg::new(RF_SEED.wrapping_add(1));
-    for i in (1..n).rev() {
-        let j = rng_split.next_usize(i + 1);
-        shuffle_idx.swap(i, j);
-    }
-    let x_shuffled: Vec<Vec<f64>> = shuffle_idx.iter().map(|&i| x_data[i].clone()).collect();
-    let y_shuffled: Vec<f64> = shuffle_idx.iter().map(|&i| y_data[i]).collect();
-
-    let (x_train, x_eval, y_train, y_eval) = if use_holdout {
-        (
-            &x_shuffled[..split_idx],
-            &x_shuffled[split_idx..],
-            &y_shuffled[..split_idx],
-            &y_shuffled[split_idx..],
-        )
-    } else {
-        (
-            x_shuffled.as_slice(),
-            x_shuffled.as_slice(),
-            y_shuffled.as_slice(),
-            y_shuffled.as_slice(),
-        )
-    };
-
-    let config = LgbmRfConfig {
-        num_iterations: RF_TREES,
-        max_depth: RF_MAX_DEPTH as i32,
-        min_data_in_leaf: RF_MIN_SAMPLES_LEAF as i32,
-        seed: RF_SEED as i32,
-        ..Default::default()
-    };
-    let booster = match train_lgbm_rf(x_train, y_train, &config) {
-        Some(b) => b,
-        None => return (vec![0.0; p], 0.0),
-    };
-
-    let importances = lgbm_feature_importance(&booster, p);
-
-    let mse = lgbm_mse(&booster, x_eval, y_eval).unwrap_or(f64::INFINITY);
-    let r_squared = mse_to_r_squared(mse, y_eval);
-
-    (importances, r_squared)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::random_forest::Lcg;
 
     fn make_xy(n: usize, dominant_feat: usize, n_feats: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
         let mut rng = Lcg::new(99);

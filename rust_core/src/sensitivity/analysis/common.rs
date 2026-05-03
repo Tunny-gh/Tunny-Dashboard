@@ -1,9 +1,10 @@
+use crate::core::math::stats::column_mean_std;
 use crate::dataframe::DataFrame;
 
 use super::super::{
-    data::get_param_numeric_values,
+    data::get_param_numeric_values, metrics::TreeMetric,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    RidgeResult, SensitivityResult, TreeImportanceResult,
+    tree_common::prepare_training_data, RidgeResult, SensitivityResult, TreeImportanceResult,
 };
 
 pub(super) fn empty_result(
@@ -38,12 +39,10 @@ pub(super) fn build_standardized_param_columns(
         }
     }
 
-    let nf = n as f64;
     for j in 0..num_params {
         let col = &mut x_cols_flat[j * n..(j + 1) * n];
-        let mean: f64 = col.iter().sum::<f64>() / nf;
-        let std_dev = (col.iter().map(|&value| (value - mean).powi(2)).sum::<f64>() / nf).sqrt();
-        let std_dev = if std_dev < f64::EPSILON { 1.0 } else { std_dev };
+        let vals: Vec<f64> = col.to_vec();
+        let (mean, std_dev) = column_mean_std(&vals);
         for value in col.iter_mut() {
             *value = (*value - mean) / std_dev;
         }
@@ -147,4 +146,47 @@ pub(super) fn transpose_to_tree_result(
         ),
         r_squared,
     }
+}
+
+/// Single-objective TreeMetric dispatch: prepares data and computes importances.
+pub(super) fn run_tree_metric_for_objective<M: TreeMetric>(
+    metric: &M,
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+) -> (Vec<f64>, f64) {
+    let p = if x_matrix.is_empty() || x_matrix[0].is_empty() {
+        0
+    } else {
+        x_matrix[0].len()
+    };
+    let data = match prepare_training_data(
+        x_matrix,
+        y,
+        metric.max_rows(),
+        metric.data_seed(),
+        metric.split_seed(),
+    ) {
+        Some(d) => d,
+        None => return (vec![0.0; p], 0.0),
+    };
+    metric
+        .compute_importances(&data)
+        .unwrap_or_else(|| (vec![0.0; p], 0.0))
+}
+
+/// Multi-objective TreeMetric dispatch: runs metric for each objective and transposes.
+pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric>(
+    metric: &M,
+    x_matrix: &[Vec<f64>],
+    objective_columns: &[Vec<f64>],
+    param_count: usize,
+    objective_count: usize,
+) -> TreeImportanceResult {
+    let results: Vec<(Vec<f64>, f64)> = objective_columns
+        .iter()
+        .map(|y| run_tree_metric_for_objective(metric, x_matrix, y))
+        .collect();
+    let importances: Vec<Vec<f64>> = results.iter().map(|(imp, _)| imp.clone()).collect();
+    let r_squared: Vec<f64> = results.iter().map(|(_, r2)| *r2).collect();
+    transpose_to_tree_result(&importances, r_squared, param_count, objective_count)
 }

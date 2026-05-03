@@ -163,8 +163,8 @@ fn tc_801_10_sensitivity_all_correct_structure() {
     assert_eq!(result.ridge.len(), 2);
     assert!(result.rf_anova.is_some(), "rf_anova should be present");
     let rf_anova = result.rf_anova.as_ref().unwrap();
-    assert_eq!(rf_anova.importances.len(), 2);
-    assert_eq!(rf_anova.importances[0].len(), 2);
+    assert_eq!(rf_anova.0.importances.len(), 2);
+    assert_eq!(rf_anova.0.importances[0].len(), 2);
 }
 
 #[test]
@@ -278,10 +278,10 @@ fn tc_801_14_rf_anova_importances_sum_to_one_per_objective() {
     let result = compute_sensitivity_all(&df);
     let rf_anova = result.rf_anova.expect("rf_anova should be present");
 
-    assert_eq!(rf_anova.importances.len(), 2);
-    assert_eq!(rf_anova.importances[0].len(), 1);
+    assert_eq!(rf_anova.0.importances.len(), 2);
+    assert_eq!(rf_anova.0.importances[0].len(), 1);
 
-    let sum: f64 = rf_anova.importances.iter().map(|row| row[0]).sum();
+    let sum: f64 = rf_anova.0.importances.iter().map(|row| row[0]).sum();
     assert!(
         (sum - 1.0).abs() < 1e-6,
         "rf_anova importances should sum to 1.0, got {}",
@@ -305,17 +305,17 @@ fn tc_801_15_rf_anova_small_dataset_non_zero() {
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
     let result = compute_sensitivity_all(&df);
     let rf = result.rf_anova.expect("rf_anova should be present");
-    let sum: f64 = rf.importances.iter().map(|row| row[0]).sum();
+    let sum: f64 = rf.0.importances.iter().map(|row| row[0]).sum();
     assert!(
         sum > 0.1,
         "importances should be non-zero on small data, got sum={}",
         sum
     );
     assert!(
-        rf.importances[0][0] > rf.importances[1][0],
+        rf.0.importances[0][0] > rf.0.importances[1][0],
         "x1 importance should exceed x2: x1={}, x2={}",
-        rf.importances[0][0],
-        rf.importances[1][0]
+        rf.0.importances[0][0],
+        rf.0.importances[1][0]
     );
 }
 
@@ -590,12 +590,12 @@ fn tc_pfi_int_02_result_shape() {
     let result = compute_sensitivity_single_obj(&df, &SensitivityMetric::Permutation, 0);
     let perm = result.permutation.unwrap();
     assert_eq!(
-        perm.importances.len(),
+        perm.0.importances.len(),
         3,
         "importances should have one entry per param"
     );
     assert_eq!(
-        perm.r_squared.len(),
+        perm.0.r_squared.len(),
         1,
         "r_squared should have one entry per objective"
     );

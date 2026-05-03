@@ -1,10 +1,10 @@
 use super::super::{
-    compute_rf_anova_importances, compute_ridge, compute_spearman, data::get_param_numeric_values,
-    SensitivityResult,
+    compute_ridge, compute_spearman, data::get_param_numeric_values, metrics::RfAnovaMetric,
+    RfAnovaResult, SensitivityResult,
 };
 use super::common::{
     build_param_columns, build_param_matrix_from_columns, collect_objective_subset,
-    collect_valid_indices, empty_result, transpose_to_tree_result,
+    collect_valid_indices, empty_result, run_tree_metric_for_all_objectives,
 };
 
 pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult> {
@@ -62,28 +62,25 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             })
             .collect();
 
-        let rf_anova_by_obj: Vec<(Vec<f64>, f64)> = objective_names
+        let objective_columns: Vec<Vec<f64>> = objective_names
             .iter()
-            .map(|objective_name| {
-                let y_subset = collect_objective_subset(df, objective_name, &valid_idx);
-                compute_rf_anova_importances(&x_matrix, &y_subset)
-            })
+            .map(|objective_name| collect_objective_subset(df, objective_name, &valid_idx))
             .collect();
-        let rf_anova_r_squared: Vec<f64> = rf_anova_by_obj.iter().map(|(_, r2)| *r2).collect();
-        let rf_anova_importances: Vec<Vec<f64>> =
-            rf_anova_by_obj.into_iter().map(|(imp, _)| imp).collect();
+
+        let rf_anova = RfAnovaResult(run_tree_metric_for_all_objectives(
+            &RfAnovaMetric,
+            &x_matrix,
+            &objective_columns,
+            param_names.len(),
+            objective_names.len(),
+        ));
 
         SensitivityResult {
             param_names: param_names.clone(),
             objective_names: objective_names.clone(),
             spearman,
             ridge,
-            rf_anova: Some(transpose_to_tree_result(
-                &rf_anova_importances,
-                rf_anova_r_squared,
-                param_names.len(),
-                objective_names.len(),
-            )),
+            rf_anova: Some(rf_anova),
             mdi: None,
             shap: None,
             permutation: None,

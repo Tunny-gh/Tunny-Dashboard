@@ -11,6 +11,28 @@ pub(crate) struct PreparedData {
     pub use_holdout: bool,
 }
 
+impl PreparedData {
+    /// (x_train, x_eval, y_train, y_eval) を返す。
+    /// use_holdout が false の場合は train と eval が同じスライスを指す。
+    pub(crate) fn split(&self) -> (&[Vec<f64>], &[Vec<f64>], &[f64], &[f64]) {
+        if self.use_holdout {
+            (
+                &self.x_shuffled[..self.split_idx],
+                &self.x_shuffled[self.split_idx..],
+                &self.y_shuffled[..self.split_idx],
+                &self.y_shuffled[self.split_idx..],
+            )
+        } else {
+            (
+                self.x_shuffled.as_slice(),
+                self.x_shuffled.as_slice(),
+                self.y_shuffled.as_slice(),
+                self.y_shuffled.as_slice(),
+            )
+        }
+    }
+}
+
 /// NaN/Inf フィルタリング、ダウンサンプリング、シャッフル、ホールドアウト分割を一括実行する。
 /// 有効行数が 2 未満の場合は `None` を返す。
 pub(crate) fn prepare_training_data(
