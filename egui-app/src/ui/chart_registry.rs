@@ -226,20 +226,20 @@ pub fn show_chart(
                                             })
                                             .collect(),
                                         rf_anova: r.rf_anova.map(|x| RfAnovaResult {
-                                            importances: x.importances,
-                                            r_squared: x.r_squared,
+                                            importances: x.0.importances,
+                                            r_squared: x.0.r_squared,
                                         }),
                                         mdi: r.mdi.map(|x| MdiResult {
-                                            importances: x.importances,
-                                            r_squared: x.r_squared,
+                                            importances: x.0.importances,
+                                            r_squared: x.0.r_squared,
                                         }),
                                         shap: r.shap.map(|x| ShapResult {
-                                            importances: x.importances,
-                                            r_squared: x.r_squared,
+                                            importances: x.0.importances,
+                                            r_squared: x.0.r_squared,
                                         }),
                                         permutation: r.permutation.map(|x| PermutationResult {
-                                            importances: x.importances,
-                                            r_squared: x.r_squared,
+                                            importances: x.0.importances,
+                                            r_squared: x.0.r_squared,
                                         }),
                                     },
                                 }

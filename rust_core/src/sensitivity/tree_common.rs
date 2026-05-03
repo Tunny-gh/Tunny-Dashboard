@@ -1,6 +1,9 @@
 use super::data::sample_rows;
 use crate::core::random_forest::Lcg;
 
+/// `PreparedData::split` の戻り値型
+type SplitData<'a> = (&'a [Vec<f64>], &'a [Vec<f64>], &'a [f64], &'a [f64]);
+
 /// NaN/Inf フィルタリング・ダウンサンプリング・シャッフル・ホールドアウト分割の結果
 pub(crate) struct PreparedData {
     pub x_shuffled: Vec<Vec<f64>>,
@@ -14,7 +17,7 @@ pub(crate) struct PreparedData {
 impl PreparedData {
     /// (x_train, x_eval, y_train, y_eval) を返す。
     /// use_holdout が false の場合は train と eval が同じスライスを指す。
-    pub(crate) fn split(&self) -> (&[Vec<f64>], &[Vec<f64>], &[f64], &[f64]) {
+    pub(crate) fn split(&self) -> SplitData<'_> {
         if self.use_holdout {
             (
                 &self.x_shuffled[..self.split_idx],
