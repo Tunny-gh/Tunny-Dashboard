@@ -2,19 +2,15 @@ use crate::core::math::grid::linspace;
 use crate::sensitivity::compute_ridge;
 
 use super::types::{PdpResult1d, PdpResult2d};
-use super::utils::col_mean_std;
+use super::utils::{col_mean_std, col_min_max};
 
-/// Documentation.
+/// Compute 1D PDP for `target_param_idx` using Ridge regression (`λ=1.0`).
 ///
-/// Documentation.
-/// Documentation.
-/// Documentation.
-/// Documentation.
+/// Uses the closed-form linear approximation:
+///   PDP(v) = y_mean + β_j * (v - mean_j) / std_j
+/// where β is the Ridge coefficient vector and the remaining terms cancel on average.
 ///
-/// Documentation.
-/// Documentation.
-///   PDP = (1/N) Σ_i ŷ_i|x_j=v = y_mean + β_j*(v-mean_j)/std_j + Σ_{k≠j} β_k * mean((x_ki-mean_k)/std_k)
-/// Documentation.
+/// Returns a result with `y_upper = None` / `y_lower = None` (no confidence bands for linear model).
 pub(crate) fn compute_pdp_from_matrix(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -51,14 +47,7 @@ pub(crate) fn compute_pdp_from_matrix(
     let (mean_j, std_j) = col_mean_std(&param_col);
     let y_mean = y.iter().sum::<f64>() / n as f64;
 
-    let min_j = param_col
-        .iter()
-        .cloned()
-        .fold(f64::INFINITY, |a, b| a.min(b));
-    let max_j = param_col
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
+    let (min_j, max_j) = col_min_max(&param_col);
     let grid = linspace(min_j, max_j, n_grid);
 
     let beta_j = ridge.beta.get(target_param_idx).copied().unwrap_or(0.0);
@@ -78,13 +67,12 @@ pub(crate) fn compute_pdp_from_matrix(
     }
 }
 
-/// Documentation.
+/// Compute 2D PDP surface for two parameters using Ridge regression (`λ=1.0`).
 ///
-/// Documentation.
-/// Documentation.
-///   f̄_{j1,j2}(v1, v2) = y_mean + β_j1*(v1-mean_j1)/std_j1 + β_j2*(v2-mean_j2)/std_j2
+/// Uses the additive closed-form:
+///   f̄(v1, v2) = y_mean + β_j1*(v1-mean_j1)/std_j1 + β_j2*(v2-mean_j2)/std_j2
 ///
-/// Documentation.
+/// Returns a result with `uncertainties = None` (linear models have no posterior variance).
 pub(crate) fn compute_pdp_2d_from_matrix(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -124,16 +112,8 @@ pub(crate) fn compute_pdp_2d_from_matrix(
     let (mean2, std2) = col_mean_std(&col2);
     let y_mean = y.iter().sum::<f64>() / n as f64;
 
-    let min1 = col1.iter().cloned().fold(f64::INFINITY, |a, b| a.min(b));
-    let max1 = col1
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
-    let min2 = col2.iter().cloned().fold(f64::INFINITY, |a, b| a.min(b));
-    let max2 = col2
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
+    let (min1, max1) = col_min_max(&col1);
+    let (min2, max2) = col_min_max(&col2);
     let x_values = linspace(min1, max1, n_grid);
     let y_values = linspace(min2, max2, n_grid);
 

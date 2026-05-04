@@ -1,9 +1,10 @@
 use super::kriging_core::{
     compute_pdp_1d_kriging_raw, compute_pdp_1d_sparse_kriging_raw, compute_pdp_2d_kriging,
-    compute_pdp_2d_sparse_kriging_raw,
+    compute_pdp_2d_sparse_kriging,
 };
 use super::ridge_core::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
 use super::types::{PdpResult1d, PdpResult2d};
+use super::utils::extract_xy;
 
 /// メインスレッド側で事前に抽出したデータを直接受け取って PDP を計算する。
 /// `with_active_df` を使わないため、バックグラウンドスレッドから安全に呼べる。
@@ -107,32 +108,11 @@ pub fn compute_pdp(
     crate::dataframe::with_active_df(|df| {
         let param_names = df.param_col_names().to_vec();
         let objective_names = df.objective_col_names().to_vec();
-        let n = df.row_count();
 
         let target_idx = param_names.iter().position(|p| p == param_name)?;
         let _ = objective_names.iter().position(|o| o == objective_name)?;
 
-        let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| {
-                param_names
-                    .iter()
-                    .map(|p| {
-                        df.get_numeric_column(p)
-                            .and_then(|c| c.get(i))
-                            .copied()
-                            .unwrap_or(0.0)
-                    })
-                    .collect()
-            })
-            .collect();
-        let y: Vec<f64> = (0..n)
-            .map(|i| {
-                df.get_numeric_column(objective_name)
-                    .and_then(|c| c.get(i))
-                    .copied()
-                    .unwrap_or(0.0)
-            })
-            .collect();
+        let (x_matrix, y) = extract_xy(df, &param_names, objective_name);
 
         Some(compute_pdp_from_matrix(
             &x_matrix,
@@ -159,33 +139,12 @@ pub fn compute_pdp_2d(
     crate::dataframe::with_active_df(|df| {
         let param_names = df.param_col_names().to_vec();
         let objective_names = df.objective_col_names().to_vec();
-        let n = df.row_count();
 
         let p1_idx = param_names.iter().position(|p| p == param1_name)?;
         let p2_idx = param_names.iter().position(|p| p == param2_name)?;
         let _ = objective_names.iter().position(|o| o == objective_name)?;
 
-        let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| {
-                param_names
-                    .iter()
-                    .map(|p| {
-                        df.get_numeric_column(p)
-                            .and_then(|c| c.get(i))
-                            .copied()
-                            .unwrap_or(0.0)
-                    })
-                    .collect()
-            })
-            .collect();
-        let y: Vec<f64> = (0..n)
-            .map(|i| {
-                df.get_numeric_column(objective_name)
-                    .and_then(|c| c.get(i))
-                    .copied()
-                    .unwrap_or(0.0)
-            })
-            .collect();
+        let (x_matrix, y) = extract_xy(df, &param_names, objective_name);
 
         match model_type {
             "random_forest" => {
@@ -213,19 +172,15 @@ pub fn compute_pdp_2d(
                 p2_idx,
                 n_grid,
             )),
-            "sparse_kriging" => {
-                let p1_name = param_names.get(p1_idx).cloned().unwrap_or_default();
-                let p2_name = param_names.get(p2_idx).cloned().unwrap_or_default();
-                let x_2d: Vec<Vec<f64>> = x_matrix
-                    .iter()
-                    .map(|row| vec![row[p1_idx], row[p2_idx]])
-                    .collect();
-                let mut result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, n_grid)?;
-                result.param1_name = p1_name;
-                result.param2_name = p2_name;
-                result.objective_name = objective_name.to_string();
-                Some(result)
-            }
+            "sparse_kriging" => Some(compute_pdp_2d_sparse_kriging(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                p1_idx,
+                p2_idx,
+                n_grid,
+            )),
             _ => Some(compute_pdp_2d_from_matrix(
                 &x_matrix,
                 &y,
