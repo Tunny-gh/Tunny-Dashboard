@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 
 use crate::render::colormap::tab10_palette;
-use linfa::traits::{Fit, Transformer};
-use linfa::DatasetBase;
-use linfa_reduction::Pca;
-use ndarray::Array2;
 
 /// クラスタ統計
 pub struct ClusterStats {
@@ -101,7 +97,6 @@ impl ClusterMatrix {
 /// クラスタリング結果
 pub struct ClusteringResult {
     pub labels: Vec<usize>,
-    pub pca_components: Vec<[f64; 2]>,
     pub cluster_stats: Vec<ClusterStats>,
 }
 
@@ -115,7 +110,7 @@ pub struct ClusterScatter {
     pub pending_compute: Option<ClusterComputeRequest>,
     pub last_error: Option<crate::state::messages::ClusterUiError>,
     pub result: Option<ClusteringResult>,
-    cached_pca: Option<Vec<[f32; 2]>>,
+    cached_points: Option<Vec<[f32; 2]>>,
     cache_key: (usize, usize), // (trial_count, n_clusters)
 }
 
@@ -130,7 +125,7 @@ impl Default for ClusterScatter {
             pending_compute: None,
             last_error: None,
             result: None,
-            cached_pca: None,
+            cached_points: None,
             cache_key: (0, 0),
         }
     }
@@ -147,7 +142,7 @@ impl ClusterScatter {
         ui: &mut egui::Ui,
         trial_rows: &[crate::state::app_state::TrialRow],
         cluster_result: Option<&crate::state::app_state::ClusterResult>,
-        param_names: &[String],
+        _param_names: &[String],
         obj_names: &[String],
         chart_colors: &[egui::Color32],
     ) {
@@ -196,28 +191,20 @@ impl ClusterScatter {
             return;
         }
 
-        // キャッシュ確認・更新
-        let new_key = (
-            trial_rows.len(),
-            cr.n_clusters + self.target_space.cache_offset(),
-        );
-        if self.cached_pca.is_none() || self.cache_key != new_key {
-            self.cached_pca = Some(compute_pca_2d(
-                trial_rows,
-                param_names,
-                obj_names,
-                &self.target_space,
-            ));
+        // キャッシュ確認・更新（目的関数軸の座標）
+        let new_key = (trial_rows.len(), cr.n_clusters);
+        if self.cached_points.is_none() || self.cache_key != new_key {
+            self.cached_points = Some(compute_obj_axes_2d(trial_rows, obj_names));
             self.cache_key = new_key;
         }
-        let pca_points = self.cached_pca.as_ref().unwrap();
+        let plot_points = self.cached_points.as_ref().unwrap();
 
         // tab10 パレット（10色）
         let palette = tab10_palette();
 
         // クラスタ別に (point, original_index) を集約
         let mut cluster_points: HashMap<i32, Vec<([f64; 2], usize)>> = HashMap::new();
-        for (i, &[x, y]) in pca_points.iter().enumerate() {
+        for (i, &[x, y]) in plot_points.iter().enumerate() {
             let label = cr.labels.get(i).copied().unwrap_or(0);
             cluster_points
                 .entry(label)
@@ -225,7 +212,12 @@ impl ClusterScatter {
                 .push(([x as f64, y as f64], i));
         }
 
-        egui_plot::Plot::new("cluster_scatter").show(ui, |plot_ui| {
+        let x_label = obj_names.first().map(|s| s.as_str()).unwrap_or("Obj 1");
+        let y_label = obj_names.get(1).map(|s| s.as_str()).unwrap_or("Obj 2");
+        egui_plot::Plot::new("cluster_scatter")
+            .x_axis_label(x_label)
+            .y_axis_label(y_label)
+            .show(ui, |plot_ui| {
             for (label, pts_with_idx) in &cluster_points {
                 let representative_color = if !chart_colors.is_empty() {
                     pts_with_idx
@@ -407,57 +399,25 @@ pub fn build_cluster_matrix(
     Ok(matrix)
 }
 
-/// パラメータ値を PCA 2D 投影する。
-/// パラメータが 1 次元以下の場合は第 1 軸のみ使用してフォールバックする。
-fn compute_pca_2d(
+/// 目的関数値の最初の 2 軸を散布図用に返す。
+/// 目的関数が 1 つのみの場合は Y 軸を 0.0 固定とする。
+fn compute_obj_axes_2d(
     trial_rows: &[crate::state::app_state::TrialRow],
-    param_names: &[String],
     obj_names: &[String],
-    target_space: &ClusterSpace,
 ) -> Vec<[f32; 2]> {
-    let matrix = build_cluster_matrix_data(trial_rows, param_names, obj_names, *target_space);
-    let n = matrix.n_rows;
-    let p = matrix.n_cols;
-
-    if p == 0 || n == 0 {
-        return vec![[0.0, 0.0]; n];
-    }
-
-    let Ok(data) = Array2::from_shape_vec((n, p), matrix.flat_data) else {
-        return vec![[0.0, 0.0]; n];
-    };
-
-    // 1次元のときはそのまま返す
-    if p == 1 {
-        return data.column(0).iter().map(|&v| [v as f32, 0.0]).collect();
-    }
-
-    // linfa PCA で 2D 投影を試みる
-    let n_components = 2.min(p);
-    let dataset = DatasetBase::from(data.clone());
-    match Pca::params(n_components).fit(&dataset) {
-        Ok(pca) => {
-            let projected = pca.transform(dataset);
-            projected
-                .records()
-                .rows()
-                .into_iter()
-                .map(|row| {
-                    [
-                        row[0] as f32,
-                        if row.len() > 1 { row[1] as f32 } else { 0.0 },
-                    ]
-                })
-                .collect()
-        }
-        Err(_) => {
-            // フォールバック: 最初の 2 次元をそのまま使用
-            data.rows()
-                .into_iter()
-                .map(|row| [row[0] as f32, row[1] as f32])
-                .collect()
-        }
-    }
+    let n_obj = obj_names.len();
+    trial_rows
+        .iter()
+        .map(|r| {
+            let x = r.objectives.first().copied().unwrap_or(0.0) as f32;
+            let y = if n_obj >= 2 {
+                r.objectives.get(1).copied().unwrap_or(0.0) as f32
+            } else {
+                0.0
+            };
+            [x, y]
+        })
+        .collect()
 }
 
 pub fn validate_cluster_request(
@@ -561,46 +521,39 @@ mod tests {
         assert!(cs.pending_compute.is_none());
         assert!(cs.last_error.is_none());
         assert!(cs.result.is_none());
-        assert!(cs.cached_pca.is_none());
+        assert!(cs.cached_points.is_none());
         assert_eq!(cs.cache_key, (0, 0));
     }
 
     #[test]
-    fn compute_pca_2d_empty_trials() {
-        let result = compute_pca_2d(
-            &[],
-            &["x".to_string()],
-            &["y".to_string()],
-            &ClusterSpace::Variable,
-        );
+    fn compute_obj_axes_2d_empty_trials() {
+        let result = compute_obj_axes_2d(&[], &["obj1".to_string()]);
         assert!(result.is_empty());
     }
 
     #[test]
-    fn compute_pca_2d_no_params_returns_n_zeros() {
+    fn compute_obj_axes_2d_single_objective() {
         use crate::state::app_state::{TrialRow, TrialState};
         let trial = TrialRow {
             trial_id: 0,
             trial_number: 0,
             params: std::collections::HashMap::new(),
-            objectives: vec![1.0],
+            objectives: vec![1.5],
             pareto_rank: 0,
             cluster_id: None,
             state: TrialState::Complete,
             user_attrs: std::collections::HashMap::new(),
         };
-        let result = compute_pca_2d(&[trial], &[], &[], &ClusterSpace::Variable);
-        // p==0 → returns vec![[0.0, 0.0]; n] where n==1
+        let result = compute_obj_axes_2d(&[trial], &["obj1".to_string()]);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], [0.0_f32, 0.0_f32]);
+        assert_eq!(result[0], [1.5_f32, 0.0_f32]);
     }
 
     #[test]
     fn cache_key_updated_on_data_change() {
         let cs = ClusterScatter::default();
         assert_eq!(cs.cache_key, (0, 0));
-        // キャッシュキーが正しく初期化されていること
-        assert!(cs.cached_pca.is_none());
+        assert!(cs.cached_points.is_none());
     }
 
     #[test]
