@@ -35,7 +35,8 @@ fn compute_single_feature_importance(
     let mut delta_sum = 0.0f64;
 
     for repeat_idx in 0..PFI_N_REPEATS {
-        let seed = PFI_SEED_BASE + (feature_idx as u64) * (PFI_N_REPEATS as u64) + (repeat_idx as u64);
+        let seed =
+            PFI_SEED_BASE + (feature_idx as u64) * (PFI_N_REPEATS as u64) + (repeat_idx as u64);
         restore_feature_column(&mut x_work, feature_idx, &orig_col);
         permute_column_inplace(&mut x_work, feature_idx, seed);
         let permuted_mse = lgbm_mse(&local_booster, &x_work, y_eval).unwrap_or(local_baseline_mse);

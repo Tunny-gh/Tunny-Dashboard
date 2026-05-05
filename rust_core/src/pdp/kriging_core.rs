@@ -245,7 +245,11 @@ pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
 
             let pdp_orig = mean_norm * y_std + y_mean;
             let std_orig = var_avg.sqrt() * y_std;
-            (pdp_orig, pdp_orig + 1.96 * std_orig, pdp_orig - 1.96 * std_orig)
+            (
+                pdp_orig,
+                pdp_orig + 1.96 * std_orig,
+                pdp_orig - 1.96 * std_orig,
+            )
         })
         .collect();
 

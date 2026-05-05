@@ -40,10 +40,14 @@ fn setup_sensitivity_df(n: usize, n_params: usize, n_objectives: usize) {
 fn bench_sensitivity(c: &mut Criterion) {
     let mut group = c.benchmark_group("sensitivity_objectives");
     for &n_obj in &[1usize, 2, 4, 8] {
-        group.bench_with_input(BenchmarkId::new("compute_sensitivity", n_obj), &n_obj, |b, &n_obj| {
-            setup_sensitivity_df(200, 5, n_obj);
-            b.iter(compute_sensitivity);
-        });
+        group.bench_with_input(
+            BenchmarkId::new("compute_sensitivity", n_obj),
+            &n_obj,
+            |b, &n_obj| {
+                setup_sensitivity_df(200, 5, n_obj);
+                b.iter(compute_sensitivity);
+            },
+        );
     }
     group.finish();
 }

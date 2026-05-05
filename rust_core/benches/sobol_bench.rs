@@ -39,10 +39,14 @@ fn setup_sobol_df(n: usize, n_params: usize, n_objectives: usize) {
 fn bench_sobol(c: &mut Criterion) {
     let mut group = c.benchmark_group("sobol_objectives");
     for &n_obj in &[1usize, 2, 4] {
-        group.bench_with_input(BenchmarkId::new("compute_sobol", n_obj), &n_obj, |b, &n_obj| {
-            setup_sobol_df(200, 5, n_obj);
-            b.iter(|| compute_sobol(512));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("compute_sobol", n_obj),
+            &n_obj,
+            |b, &n_obj| {
+                setup_sobol_df(200, 5, n_obj);
+                b.iter(|| compute_sobol(512));
+            },
+        );
     }
     group.finish();
 }

@@ -36,6 +36,7 @@ impl MessageHandler {
                 });
                 widget_states.hv_history.computing = false;
                 widget_states.ahp_chart = Default::default();
+                widget_states.cluster_scatter = Default::default();
                 *is_loading = false;
                 app_state.update_chart_colors();
             }
@@ -48,7 +49,10 @@ impl MessageHandler {
                 widget_states.importance.computing = false;
             }
             AppMessage::ClusteringDone(result) => {
-                app_state.cluster_result = Some(result);
+                Self::handle_clustering_done(result, app_state, widget_states);
+            }
+            AppMessage::ClusterFailed(err) => {
+                Self::handle_cluster_failed(err, app_state, widget_states);
             }
             AppMessage::TopsisDone(result) => {
                 app_state.topsis_result = Some(result);
@@ -165,5 +169,177 @@ impl MessageHandler {
             );
             AppMessage::TradeoffDone { sorted_indices }
         });
+    }
+
+    fn handle_clustering_done(
+        result: crate::state::results::ClusterResult,
+        app_state: &mut AppState,
+        widget_states: &mut WidgetStates,
+    ) {
+        let trial_count = app_state
+            .current_study
+            .as_ref()
+            .map(|c| c.trial_rows.len())
+            .unwrap_or(0);
+        if result.labels.len() == trial_count {
+            app_state.cluster_result = Some(result);
+            widget_states.cluster_scatter.clear_runtime_state();
+        } else {
+            app_state.cluster_result = None;
+            widget_states
+                .cluster_scatter
+                .set_error(crate::state::messages::cluster_ui_error(
+                    "Cluster result is inconsistent. Please run again.",
+                    Some(format!(
+                        "validation: labels_len({}) != trial_count({})",
+                        result.labels.len(),
+                        trial_count
+                    )),
+                    true,
+                ));
+        }
+    }
+
+    fn handle_cluster_failed(
+        err: crate::state::messages::ClusterUiError,
+        app_state: &mut AppState,
+        widget_states: &mut WidgetStates,
+    ) {
+        app_state.cluster_result = None;
+        widget_states.cluster_scatter.set_error(err);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::app_state::{Direction, GpuBufferData, StudyMeta, TrialRow, TrialState};
+
+    fn make_study_message(trial_count: usize) -> AppMessage {
+        AppMessage::StudySelected {
+            meta: StudyMeta {
+                study_id: 1,
+                name: "s".to_string(),
+                directions: vec![Direction::Minimize],
+                completed_trials: trial_count,
+                total_trials: trial_count,
+                param_names: vec!["x".to_string()],
+                objective_names: vec!["y".to_string()],
+                user_attr_names: vec![],
+                has_constraints: false,
+            },
+            trial_rows: (0..trial_count)
+                .map(|i| TrialRow {
+                    trial_id: i as u32,
+                    trial_number: i as u32,
+                    params: std::collections::HashMap::from([("x".to_string(), i as f64)]),
+                    objectives: vec![i as f64],
+                    pareto_rank: 0,
+                    cluster_id: None,
+                    state: TrialState::Complete,
+                    user_attrs: std::collections::HashMap::new(),
+                })
+                .collect(),
+            gpu_data: GpuBufferData {
+                positions: vec![],
+                positions3d: vec![],
+                colors: vec![],
+                sizes: vec![],
+                trial_count: trial_count as u32,
+            },
+            pareto_indices: vec![],
+        }
+    }
+
+    #[test]
+    fn clustering_done_updates_state_when_lengths_match() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        MessageHandler::handle(
+            make_study_message(3),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        widgets.cluster_scatter.computing = true;
+        MessageHandler::handle(
+            AppMessage::ClusteringDone(crate::state::results::ClusterResult {
+                labels: vec![0, 1, 0],
+                n_clusters: 2,
+            }),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.cluster_result.is_some());
+        assert!(!widgets.cluster_scatter.computing);
+        assert!(widgets.cluster_scatter.last_error.is_none());
+    }
+
+    #[test]
+    fn clustering_done_rejects_mismatched_label_length() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        MessageHandler::handle(
+            make_study_message(3),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        MessageHandler::handle(
+            AppMessage::ClusteringDone(crate::state::results::ClusterResult {
+                labels: vec![0, 1],
+                n_clusters: 2,
+            }),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.cluster_result.is_none());
+        assert!(widgets.cluster_scatter.last_error.is_some());
+    }
+
+    #[test]
+    fn study_selected_resets_cluster_widget_runtime_state() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        widgets.cluster_scatter.computing = true;
+        widgets.cluster_scatter.pending_compute =
+            Some(crate::ui::widgets::cluster_scatter::ClusterComputeRequest {
+                k: 3,
+                target_space: crate::ui::widgets::cluster_scatter::ClusterSpace::Objective,
+                k_mode: crate::ui::widgets::cluster_scatter::KSelectionMode::Manual,
+                init_strategy:
+                    crate::ui::widgets::cluster_scatter::KMeansInitStrategy::KMeansPlusPlus,
+            });
+
+        MessageHandler::handle(
+            make_study_message(4),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(!widgets.cluster_scatter.computing);
+        assert!(widgets.cluster_scatter.pending_compute.is_none());
+        assert!(widgets.cluster_scatter.last_error.is_none());
     }
 }

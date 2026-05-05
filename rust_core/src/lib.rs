@@ -9,10 +9,10 @@ pub mod pdp;
 pub mod sampling;
 pub mod sensitivity;
 
+pub use crate::core::random_forest::RandomForest;
 pub use data::{dataframe, filter};
 pub use io::journal::{live_update, parser as journal_parser};
 pub use io::{export, journal};
-pub use crate::core::random_forest::RandomForest;
 pub use mcdm::ahp;
 pub use mcdm::entropy;
 pub use mcdm::promethee;

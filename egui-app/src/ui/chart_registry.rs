@@ -6,6 +6,9 @@ use crate::state::messages::AppMessage;
 use crate::state::results::{AhpResult, EntropyResult, McdmMethod};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::ahp_chart::AhpDataContext;
+use crate::ui::widgets::cluster_scatter::{
+    build_cluster_matrix, ClusterComputeRequest, ClusterMatrix, KSelectionMode,
+};
 use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
 
 /// タイトルと区切り線付きでチャートを描画する
@@ -380,8 +383,22 @@ pub fn show_chart(
                 trial_rows,
                 app_state.cluster_result.as_ref(),
                 param_names,
+                obj_names,
                 &app_state.chart_colors,
             );
+
+            if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
+                match build_cluster_matrix(trial_rows, param_names, obj_names, req.target_space) {
+                    Ok(matrix) => {
+                        let tx = tx.clone();
+                        app_state.cluster_result = None;
+                        crate::app::spawn_task(tx, move || run_cluster_compute(req, matrix));
+                    }
+                    Err(err) => {
+                        widgets.cluster_scatter.set_error(err);
+                    }
+                }
+            }
         }
         ChartId::McdmRankChart => {
             widgets
@@ -596,4 +613,65 @@ pub fn show_chart(
                 .show(ui, trial_rows, param_names, obj_names, directions);
         }
     }
+}
+
+fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> AppMessage {
+    let trial_count = matrix.n_rows;
+    let n_cols = matrix.n_cols;
+
+    if !matrix.is_valid_for_clustering() {
+        return cluster_failed(
+            "At least 2 trials and one feature are required.",
+            Some(format!(
+                "validation: trial_count({trial_count}), n_cols({n_cols})"
+            )),
+            false,
+        );
+    }
+
+    let _init_strategy = req.init_strategy;
+    let selected_k = match req.k_mode {
+        KSelectionMode::ElbowDefault => {
+            let elbow = tunny_core::clustering::estimate_k_elbow(
+                &matrix.flat_data,
+                n_cols,
+                trial_count.min(10),
+            );
+            elbow.recommended_k.clamp(2, trial_count)
+        }
+        KSelectionMode::Manual => req.k,
+    };
+
+    if selected_k < 2 || selected_k > trial_count {
+        return cluster_failed(
+            "k must be in [2, trial_count].",
+            Some(format!(
+                "validation: k({selected_k}) outside [2, {trial_count}]"
+            )),
+            true,
+        );
+    }
+
+    let result = tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols);
+    if result.labels.len() != trial_count {
+        return cluster_failed(
+            "Cluster result is inconsistent. Please run again.",
+            Some(format!(
+                "validation: labels_len({}) != trial_count({trial_count})",
+                result.labels.len()
+            )),
+            true,
+        );
+    }
+
+    AppMessage::ClusteringDone(crate::state::results::ClusterResult {
+        labels: result.labels.into_iter().map(|v| v as i32).collect(),
+        n_clusters: selected_k,
+    })
+}
+
+fn cluster_failed(message: &str, detail: Option<String>, retryable: bool) -> AppMessage {
+    AppMessage::ClusterFailed(crate::state::messages::cluster_ui_error(
+        message, detail, retryable,
+    ))
 }

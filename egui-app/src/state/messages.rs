@@ -50,6 +50,25 @@ pub enum DownsampleKey {
     Hover,
 }
 
+#[derive(Debug, Clone)]
+pub struct ClusterUiError {
+    pub user_message: String,
+    pub detail_for_dev: Option<String>,
+    pub retryable: bool,
+}
+
+pub fn cluster_ui_error(
+    user_message: impl Into<String>,
+    detail: Option<String>,
+    retryable: bool,
+) -> ClusterUiError {
+    ClusterUiError {
+        user_message: user_message.into(),
+        detail_for_dev: if cfg!(debug_assertions) { detail } else { None },
+        retryable,
+    }
+}
+
 // ============================================================
 // AppMessage
 // ============================================================
@@ -74,6 +93,7 @@ pub enum AppMessage {
         result: SobolResult,
     },
     ClusteringDone(ClusterResult),
+    ClusterFailed(ClusterUiError),
     TopsisDone(TopsisResult),
     McdmDone(McdmResult),
     AhpDone(AhpResult),

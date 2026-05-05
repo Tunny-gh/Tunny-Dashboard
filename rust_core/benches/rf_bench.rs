@@ -17,10 +17,14 @@ fn make_data(n: usize, p: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
 fn bench_rf_train(c: &mut Criterion) {
     let mut group = c.benchmark_group("rf_train_n_trees");
     for &n_trees in &[10usize, 50, 100] {
-        group.bench_with_input(BenchmarkId::new("train", n_trees), &n_trees, |b, &n_trees| {
-            let (x, y) = make_data(200, 5);
-            b.iter(|| RandomForest::train(&x, &y, n_trees, 5, 2, 42));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("train", n_trees),
+            &n_trees,
+            |b, &n_trees| {
+                let (x, y) = make_data(200, 5);
+                b.iter(|| RandomForest::train(&x, &y, n_trees, 5, 2, 42));
+            },
+        );
     }
     group.finish();
 }

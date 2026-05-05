@@ -1,7 +1,7 @@
-use rayon::prelude::*;
 use super::rng::Lcg;
 use super::tree::{build_tree, predict_one};
 use super::types::{DecisionTree, RandomForest};
+use rayon::prelude::*;
 
 impl DecisionTree {
     /// Predict a single sample.

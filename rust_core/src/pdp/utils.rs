@@ -8,10 +8,10 @@ pub(super) fn col_mean_std(data: &[f64]) -> (f64, f64) {
 ///
 /// Returns `(min, max)`. Returns `(INFINITY, NEG_INFINITY)` for an empty slice.
 pub(super) fn col_min_max(data: &[f64]) -> (f64, f64) {
-    data.iter().fold(
-        (f64::INFINITY, f64::NEG_INFINITY),
-        |(mn, mx), &v| (mn.min(v), mx.max(v)),
-    )
+    data.iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &v| {
+            (mn.min(v), mx.max(v))
+        })
 }
 
 /// Normalize x matrix using min-max scaling.
@@ -21,14 +21,15 @@ pub(super) fn col_min_max(data: &[f64]) -> (f64, f64) {
 /// - x_norm: Normalized matrix where each value is in [0, 1]
 ///
 /// Constant columns (range == 0) are clamped with EPSILON to prevent NaN.
-pub(super) fn normalize_x_minmax(
-    x_matrix: &[Vec<f64>],
-) -> (Vec<(f64, f64)>, Vec<Vec<f64>>) {
+pub(super) fn normalize_x_minmax(x_matrix: &[Vec<f64>]) -> (Vec<(f64, f64)>, Vec<Vec<f64>>) {
     let n_dims = x_matrix.first().map(|r| r.len()).unwrap_or(0);
     let col_stats: Vec<(f64, f64)> = (0..n_dims)
         .map(|d| {
             let min = x_matrix.iter().map(|r| r[d]).fold(f64::INFINITY, f64::min);
-            let max = x_matrix.iter().map(|r| r[d]).fold(f64::NEG_INFINITY, f64::max);
+            let max = x_matrix
+                .iter()
+                .map(|r| r[d])
+                .fold(f64::NEG_INFINITY, f64::max);
             (min, (max - min).max(f64::EPSILON))
         })
         .collect();
@@ -123,11 +124,7 @@ mod tests {
     #[test]
     fn tc_101_01_normal_data_normalization() {
         // Given: x_matrix with 3 rows and 2 columns
-        let x_matrix = vec![
-            vec![0.0, 10.0],
-            vec![0.5, 20.0],
-            vec![1.0, 30.0],
-        ];
+        let x_matrix = vec![vec![0.0, 10.0], vec![0.5, 20.0], vec![1.0, 30.0]];
 
         // When: normalize_x_minmax is called
         let (col_stats, x_norm) = normalize_x_minmax(&x_matrix);
@@ -247,8 +244,8 @@ mod tests {
     #[test]
     fn tc_301_01_extract_xy_basic() {
         // Given: DataFrame with 2 rows, 2 params, 1 objective
-        use crate::dataframe::TrialRow;
         use crate::dataframe::DataFrame;
+        use crate::dataframe::TrialRow;
         use std::collections::HashMap;
 
         let rows = vec![
@@ -304,8 +301,8 @@ mod tests {
     #[test]
     fn tc_301_e01_missing_column_fallback() {
         // Given: DataFrame where requested column doesn't exist
-        use crate::dataframe::TrialRow;
         use crate::dataframe::DataFrame;
+        use crate::dataframe::TrialRow;
         use std::collections::HashMap;
 
         let rows = vec![TrialRow {
