@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use super::rng::Lcg;
 use super::tree::{build_tree, predict_one};
 use super::types::{DecisionTree, RandomForest};
@@ -23,29 +24,30 @@ impl RandomForest {
         let p = x.first().map(|row| row.len()).unwrap_or(0);
         let feature_indices: Vec<usize> = (0..p).collect();
 
-        let mut rng = Lcg::new(seed);
-        let mut trees = Vec::with_capacity(n_trees);
+        let trees: Vec<DecisionTree> = (0..n_trees)
+            .into_par_iter()
+            .map(|tree_idx| {
+                let mut local_rng = Lcg::new(seed.wrapping_add(tree_idx as u64));
+                let mut x_boot: Vec<Vec<f64>> = Vec::with_capacity(n);
+                let mut y_boot: Vec<f64> = Vec::with_capacity(n);
 
-        for _ in 0..n_trees {
-            let mut x_boot: Vec<Vec<f64>> = Vec::with_capacity(n);
-            let mut y_boot: Vec<f64> = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let idx = local_rng.next_usize(n);
+                    x_boot.push(x[idx].clone());
+                    y_boot.push(y[idx]);
+                }
 
-            for _ in 0..n {
-                let idx = rng.next_usize(n);
-                x_boot.push(x[idx].clone());
-                y_boot.push(y[idx]);
-            }
-
-            let root = build_tree(
-                &x_boot,
-                &y_boot,
-                &feature_indices,
-                0,
-                max_depth,
-                min_samples_leaf,
-            );
-            trees.push(DecisionTree { root });
-        }
+                let root = build_tree(
+                    &x_boot,
+                    &y_boot,
+                    &feature_indices,
+                    0,
+                    max_depth,
+                    min_samples_leaf,
+                );
+                DecisionTree { root }
+            })
+            .collect();
 
         RandomForest { trees }
     }

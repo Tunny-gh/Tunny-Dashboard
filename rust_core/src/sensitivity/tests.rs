@@ -1,4 +1,4 @@
-use super::sobol::{build_quad_features, lcg_next};
+use super::sobol::{build_quad_features, compute_sobol_index_pair, lcg_next};
 use super::*;
 use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
 use std::collections::HashMap;
@@ -465,6 +465,28 @@ fn tc_1610_04_sobol_indices_in_range() {
             assert!(r.total_effect[pi][k] >= 0.0 && r.total_effect[pi][k] <= 1.0);
         }
     }
+}
+
+#[test]
+fn tc_1610_05_compute_sobol_index_pair_zero_variance() {
+    let fa = vec![1.0, 1.0, 1.0, 1.0];
+    let fb = vec![0.5, 0.5, 0.5, 0.5];
+    let fab = vec![1.2, 1.2, 1.2, 1.2];
+    let (fo, te) = compute_sobol_index_pair(&fa, &fb, &fab);
+    assert_eq!(fo, 0.0);
+    assert_eq!(te, 0.0);
+}
+
+#[test]
+fn tc_1610_06_compute_sobol_index_pair_known_values() {
+    let fa = vec![1.0, 3.0];
+    let fb = vec![2.0, 4.0];
+    let fab = vec![1.5, 3.5];
+    let (fo, te) = compute_sobol_index_pair(&fa, &fb, &fab);
+
+    // var_y = 1, unclamped first-order = 1.5 -> clamped 1.0, total-effect = 0.125
+    assert!((fo - 1.0).abs() < 1e-12, "first-order mismatch: {fo}");
+    assert!((te - 0.125).abs() < 1e-12, "total-effect mismatch: {te}");
 }
 
 #[test]

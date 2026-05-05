@@ -1,5 +1,6 @@
 use crate::core::math::stats::column_mean_std;
 use crate::dataframe::DataFrame;
+use rayon::prelude::*;
 
 use super::super::{
     data::get_param_numeric_values, metrics::TreeMetric,
@@ -175,7 +176,7 @@ pub(super) fn run_tree_metric_for_objective<M: TreeMetric>(
 }
 
 /// Multi-objective TreeMetric dispatch: runs metric for each objective and transposes.
-pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric>(
+pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric + Send + Sync>(
     metric: &M,
     x_matrix: &[Vec<f64>],
     objective_columns: &[Vec<f64>],
@@ -183,10 +184,9 @@ pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric>(
     objective_count: usize,
 ) -> TreeImportanceResult {
     let results: Vec<(Vec<f64>, f64)> = objective_columns
-        .iter()
+        .par_iter()
         .map(|y| run_tree_metric_for_objective(metric, x_matrix, y))
         .collect();
-    let importances: Vec<Vec<f64>> = results.iter().map(|(imp, _)| imp.clone()).collect();
-    let r_squared: Vec<f64> = results.iter().map(|(_, r2)| *r2).collect();
+    let (importances, r_squared): (Vec<Vec<f64>>, Vec<f64>) = results.into_iter().unzip();
     transpose_to_tree_result(&importances, r_squared, param_count, objective_count)
 }

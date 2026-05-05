@@ -4,6 +4,46 @@ use super::constants::{
 };
 use super::tree_common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
 use crate::core::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
+use rayon::prelude::*;
+
+fn restore_feature_column(x_work: &mut [Vec<f64>], feature_idx: usize, original_values: &[f64]) {
+    for (i, row) in x_work.iter_mut().enumerate() {
+        row[feature_idx] = original_values[i];
+    }
+}
+
+fn compute_single_feature_importance(
+    feature_idx: usize,
+    x_train: &[Vec<f64>],
+    y_train: &[f64],
+    x_eval: &[Vec<f64>],
+    y_eval: &[f64],
+    config: &LgbmRfConfig,
+    fallback_baseline_mse: f64,
+) -> f64 {
+    let Some(local_booster) = train_lgbm_rf(x_train, y_train, config) else {
+        return 0.0;
+    };
+
+    let local_baseline_mse = lgbm_mse(&local_booster, x_eval, y_eval)
+        .unwrap_or(fallback_baseline_mse)
+        .max(f64::EPSILON);
+
+    // Each worker keeps an independent evaluation matrix to avoid write contention.
+    let mut x_work = x_eval.to_vec();
+    let orig_col: Vec<f64> = x_work.iter().map(|r| r[feature_idx]).collect();
+    let mut delta_sum = 0.0f64;
+
+    for repeat_idx in 0..PFI_N_REPEATS {
+        let seed = PFI_SEED_BASE + (feature_idx as u64) * (PFI_N_REPEATS as u64) + (repeat_idx as u64);
+        restore_feature_column(&mut x_work, feature_idx, &orig_col);
+        permute_column_inplace(&mut x_work, feature_idx, seed);
+        let permuted_mse = lgbm_mse(&local_booster, &x_work, y_eval).unwrap_or(local_baseline_mse);
+        delta_sum += (permuted_mse - local_baseline_mse).max(0.0);
+    }
+
+    delta_sum / PFI_N_REPEATS as f64
+}
 
 /// 前処理済みデータから PFI 重要度を計算する（`metrics::PermutationMetric` からも呼ばれる）。
 pub(super) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
@@ -22,30 +62,20 @@ pub(super) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f6
         .unwrap_or(0.0)
         .max(f64::EPSILON);
 
-    // eval 行列を 1 回だけクローンし、特徴量ごとに列をインプレース置換して MSE を測定する。
-    // permute_single_column(p×N_REPEATS 回クローン) と比べてアロケーションを O(1) に削減。
-    let mut x_eval_work = x_eval.to_vec();
-    let mut importances = vec![0.0f64; p];
-    for feature_idx in 0..p {
-        let orig_col: Vec<f64> = x_eval_work.iter().map(|r| r[feature_idx]).collect();
-        let mut delta_sum = 0.0f64;
-        for repeat_idx in 0..PFI_N_REPEATS {
-            let seed =
-                PFI_SEED_BASE + (feature_idx as u64) * (PFI_N_REPEATS as u64) + (repeat_idx as u64);
-            // 各リピートの前に元の列値を復元してから再置換する
-            for (i, row) in x_eval_work.iter_mut().enumerate() {
-                row[feature_idx] = orig_col[i];
-            }
-            permute_column_inplace(&mut x_eval_work, feature_idx, seed);
-            let permuted_mse = lgbm_mse(&booster, &x_eval_work, y_eval).unwrap_or(baseline_mse);
-            delta_sum += (permuted_mse - baseline_mse).max(0.0);
-        }
-        // 次の特徴量処理前に列を復元する
-        for (i, row) in x_eval_work.iter_mut().enumerate() {
-            row[feature_idx] = orig_col[i];
-        }
-        importances[feature_idx] = delta_sum / PFI_N_REPEATS as f64;
-    }
+    let mut importances: Vec<f64> = (0..p)
+        .into_par_iter()
+        .map(|feature_idx| {
+            compute_single_feature_importance(
+                feature_idx,
+                x_train,
+                y_train,
+                x_eval,
+                y_eval,
+                &config,
+                baseline_mse,
+            )
+        })
+        .collect();
 
     normalize(&mut importances);
     let r_squared = mse_to_r_squared(baseline_mse, y_eval);
