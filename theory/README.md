@@ -123,6 +123,17 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 
 ---
 
+## クラスタリング手法
+
+`ClusterScatter` ウィジェットで使用されるクラスタリング関連手法。
+
+| 手法 | 役割 | 詳細 |
+|------|------|------|
+| k-means | データを $k$ クラスタに分割（Lloyd's アルゴリズム） | [clustering/kmeans.md](clustering/kmeans.md) |
+| エルボー法 | 最適クラスタ数 $k$ の自動推定（WCSS 二次差分） | [clustering/elbow.md](clustering/elbow.md) |
+
+---
+
 ## 手法の全体マップ
 
 ```

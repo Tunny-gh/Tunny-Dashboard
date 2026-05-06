@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
-use crate::render::colormap::tab10_palette;
+use crate::render::colormap::ColorMap;
 
 /// クラスタ統計
 pub struct ClusterStats {
@@ -69,6 +69,15 @@ impl KMeansInitStrategy {
         match self {
             KMeansInitStrategy::KMeansPlusPlus => "k-means++",
             KMeansInitStrategy::Deterministic => "Deterministic",
+        }
+    }
+}
+
+impl From<KMeansInitStrategy> for tunny_core::clustering::InitStrategy {
+    fn from(s: KMeansInitStrategy) -> Self {
+        match s {
+            KMeansInitStrategy::KMeansPlusPlus => Self::KMeansPlusPlus,
+            KMeansInitStrategy::Deterministic => Self::Deterministic,
         }
     }
 }
@@ -144,7 +153,7 @@ impl ClusterScatter {
         cluster_result: Option<&crate::state::app_state::ClusterResult>,
         _param_names: &[String],
         obj_names: &[String],
-        chart_colors: &[egui::Color32],
+        colormap: &ColorMap,
     ) {
         if trial_rows.len() < 2 {
             ui.centered_and_justified(|ui| {
@@ -199,18 +208,27 @@ impl ClusterScatter {
         }
         let plot_points = self.cached_points.as_ref().unwrap();
 
-        // tab10 パレット（10色）
-        let palette = tab10_palette();
-
-        // クラスタ別に (point, original_index) を集約
-        let mut cluster_points: HashMap<i32, Vec<([f64; 2], usize)>> = HashMap::new();
+        // クラスタ別に座標を集約
+        let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
             let label = cr.labels.get(i).copied().unwrap_or(0);
             cluster_points
                 .entry(label)
                 .or_default()
-                .push(([x as f64, y as f64], i));
+                .push([x as f64, y as f64]);
         }
+
+        // k 個のクラスタを [0, 1] 上に等間隔配置してカラーマップからサンプリング
+        // k=2 → t=0.0, 1.0（両端）、k=3 → t=0.0, 0.5, 1.0 など
+        let n_clusters = cr.n_clusters.max(1);
+        let cluster_color = |label: i32| -> egui::Color32 {
+            let t = if n_clusters == 1 {
+                0.5
+            } else {
+                label as f32 / (n_clusters - 1) as f32
+            };
+            colormap.interpolate(t)
+        };
 
         let x_label = obj_names.first().map(|s| s.as_str()).unwrap_or("Obj 1");
         let y_label = obj_names.get(1).map(|s| s.as_str()).unwrap_or("Obj 2");
@@ -218,18 +236,10 @@ impl ClusterScatter {
             .x_axis_label(x_label)
             .y_axis_label(y_label)
             .show(ui, |plot_ui| {
-            for (label, pts_with_idx) in &cluster_points {
-                let representative_color = if !chart_colors.is_empty() {
-                    pts_with_idx
-                        .first()
-                        .and_then(|&(_, idx)| chart_colors.get(idx).copied())
-                        .unwrap_or(palette[*label as usize % palette.len()])
-                } else {
-                    palette[*label as usize % palette.len()]
-                };
-                let pts: Vec<[f64; 2]> = pts_with_idx.iter().map(|&(pt, _)| pt).collect();
+            for (label, pts) in cluster_points {
+                let color = cluster_color(label);
                 let points = egui_plot::Points::new(pts)
-                    .color(representative_color)
+                    .color(color)
                     .radius(3.0)
                     .name(format!("Cluster {}", label));
                 plot_ui.points(points);
@@ -239,9 +249,10 @@ impl ClusterScatter {
 
     fn show_header(&mut self, ui: &mut egui::Ui, trial_count: usize) {
         ui.horizontal(|ui| {
+            let k_editable = !self.computing && self.k_mode == KSelectionMode::Manual;
             ui.label("k:");
             ui.add_enabled(
-                !self.computing,
+                k_editable,
                 egui::DragValue::new(&mut self.k).range(2..=trial_count.max(2)),
             );
 
@@ -280,6 +291,7 @@ impl ClusterScatter {
                     );
                 });
 
+            ui.label("Init:");
             egui::ComboBox::from_id_salt("cluster_scatter_init")
                 .selected_text(self.init_strategy.label())
                 .show_ui(ui, |ui| {

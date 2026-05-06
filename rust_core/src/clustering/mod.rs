@@ -22,7 +22,7 @@ mod types;
 pub use kmeans::{estimate_k_elbow, run_kmeans};
 pub use pca::run_pca;
 pub use stats::compute_cluster_stats;
-pub use types::{ClusterStat, ElbowResult, KmeansResult, PcaResult, PcaSpace};
+pub use types::{ClusterStat, ElbowResult, InitStrategy, KmeansResult, PcaResult, PcaSpace};
 
 #[cfg(test)]
 pub(crate) use kmeans::{estimate_k_elbow_on_data, run_kmeans_on_data};

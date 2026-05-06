@@ -384,7 +384,7 @@ pub fn show_chart(
                 app_state.cluster_result.as_ref(),
                 param_names,
                 obj_names,
-                &app_state.chart_colors,
+                &app_state.selected_colormap.to_colormap(),
             );
 
             if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
@@ -629,7 +629,7 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
         );
     }
 
-    let _init_strategy = req.init_strategy;
+    let init_strategy: tunny_core::clustering::InitStrategy = req.init_strategy.into();
     let selected_k = match req.k_mode {
         KSelectionMode::ElbowDefault => {
             let elbow = tunny_core::clustering::estimate_k_elbow(
@@ -652,7 +652,7 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
         );
     }
 
-    let result = tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols);
+    let result = tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols, init_strategy);
     if result.labels.len() != trial_count {
         return cluster_failed(
             "Cluster result is inconsistent. Please run again.",

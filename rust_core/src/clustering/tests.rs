@@ -79,7 +79,7 @@ fn tc_901_04_kmeans_convergence() {
     let n = n_per_cluster * k;
     let p = 2;
 
-    let result = run_kmeans_on_data(&data, n, p, k);
+    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
 
     assert_eq!(result.labels.len(), n, "translated n translated");
     assert_eq!(result.centroids.len(), k, "translated k translated");
@@ -103,8 +103,8 @@ fn tc_901_05_kmeans_wcss_decreases_with_k() {
     let n = 120;
     let p = 2;
 
-    let wcss_k2 = run_kmeans_on_data(&data, n, p, 2).wcss;
-    let wcss_k4 = run_kmeans_on_data(&data, n, p, 4).wcss;
+    let wcss_k2 = run_kmeans_on_data(&data, n, p, 2, InitStrategy::Deterministic).wcss;
+    let wcss_k4 = run_kmeans_on_data(&data, n, p, 4, InitStrategy::Deterministic).wcss;
 
     assert!(
         wcss_k4 < wcss_k2,
@@ -213,7 +213,7 @@ fn tc_901_p02_kmeans_performance() {
     let flat_data: Vec<f64> = (0..n * p).map(|i| i as f64 / (n * p) as f64).collect();
 
     let start = std::time::Instant::now();
-    let result = run_kmeans_on_data(&flat_data, n, p, 4);
+    let result = run_kmeans_on_data(&flat_data, n, p, 4, InitStrategy::Deterministic);
     let elapsed = start.elapsed();
 
     assert_eq!(result.labels.len(), n, "translated n translated");

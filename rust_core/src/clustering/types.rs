@@ -1,3 +1,12 @@
+/// k-means 初期重心選択戦略
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitStrategy {
+    /// k-means++: D² 比例確率でサンプリング（固定シードで再現可能）
+    KMeansPlusPlus,
+    /// 決定論的スプレッド: 累積距離しきい値で等間隔選択
+    Deterministic,
+}
+
 /// Documentation.
 ///
 /// Documentation.
