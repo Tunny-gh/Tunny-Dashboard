@@ -236,15 +236,15 @@ impl ClusterScatter {
             .x_axis_label(x_label)
             .y_axis_label(y_label)
             .show(ui, |plot_ui| {
-            for (label, pts) in cluster_points {
-                let color = cluster_color(label);
-                let points = egui_plot::Points::new(pts)
-                    .color(color)
-                    .radius(3.0)
-                    .name(format!("Cluster {}", label));
-                plot_ui.points(points);
-            }
-        });
+                for (label, pts) in cluster_points {
+                    let color = cluster_color(label);
+                    let points = egui_plot::Points::new(pts)
+                        .color(color)
+                        .radius(3.0)
+                        .name(format!("Cluster {}", label));
+                    plot_ui.points(points);
+                }
+            });
     }
 
     fn show_header(&mut self, ui: &mut egui::Ui, trial_count: usize) {

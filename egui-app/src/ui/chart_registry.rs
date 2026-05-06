@@ -652,7 +652,8 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
         );
     }
 
-    let result = tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols, init_strategy);
+    let result =
+        tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols, init_strategy);
     if result.labels.len() != trial_count {
         return cluster_failed(
             "Cluster result is inconsistent. Please run again.",

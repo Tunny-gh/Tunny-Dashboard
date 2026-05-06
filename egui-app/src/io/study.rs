@@ -105,23 +105,32 @@ pub fn select_study_task(meta: StudyMeta) -> AppMessage {
         Ok(result) => {
             let t0 = std::time::Instant::now();
             let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
-                #[cfg(debug_assertions)]
-                eprintln!("[timing] compute_pareto_ranks: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[timing] compute_pareto_ranks: {:.1}ms",
+                t0.elapsed().as_secs_f64() * 1000.0
+            );
 
-                let t1 = std::time::Instant::now();
+            let t1 = std::time::Instant::now();
             let pareto_indices = pareto.pareto_indices;
-                let gpu_data = build_gpu_buffer_data(result.gpu_buffer_data, &pareto.ranks);
-                #[cfg(debug_assertions)]
-                eprintln!("[timing] build_gpu_buffer_data: {:.1}ms", t1.elapsed().as_secs_f64() * 1000.0);
+            let gpu_data = build_gpu_buffer_data(result.gpu_buffer_data, &pareto.ranks);
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[timing] build_gpu_buffer_data: {:.1}ms",
+                t1.elapsed().as_secs_f64() * 1000.0
+            );
 
             let t2 = std::time::Instant::now();
-                let ranks = pareto.ranks;
-                let mut trial_rows = extract_trial_rows();
+            let ranks = pareto.ranks;
+            let mut trial_rows = extract_trial_rows();
             for (i, row) in trial_rows.iter_mut().enumerate() {
                 row.pareto_rank = ranks.get(i).copied().unwrap_or(0);
             }
-                #[cfg(debug_assertions)]
-                eprintln!("[timing] extract_trial_rows: {:.1}ms", t2.elapsed().as_secs_f64() * 1000.0);
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[timing] extract_trial_rows: {:.1}ms",
+                t2.elapsed().as_secs_f64() * 1000.0
+            );
 
             AppMessage::StudySelected {
                 meta,
