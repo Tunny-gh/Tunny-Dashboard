@@ -133,7 +133,7 @@ impl AppState {
             let trial_rows = &ctx.trial_rows;
             let objective_names = &ctx.meta.objective_names;
             let mcdm_scores = self.mcdm_result.as_ref().map(|r| r.primary_scores());
-            self.chart_colors = crate::theme::colormap::compute_chart_colors(
+            self.chart_colors = crate::theme::color_compute::compute_chart_colors(
                 &color_mode,
                 &colormap_name,
                 trial_rows,

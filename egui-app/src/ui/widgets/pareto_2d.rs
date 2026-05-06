@@ -1,4 +1,4 @@
-use crate::theme::colormap::compute_point_alpha;
+use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::chart_colors::{COLOR_PARETO, COLOR_NON_PARETO, COLOR_PARETO_DIM, COLOR_NON_PARETO_DIM};
 use crate::state::app_state::{AppState, TrialRow};
 

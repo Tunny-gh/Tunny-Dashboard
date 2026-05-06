@@ -1010,7 +1010,7 @@ mod tests {
             tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize).unwrap();
 
         let scores = core_result.scores.clone();
-        let colors = crate::theme::colormap::compute_chart_colors(
+        let colors = crate::theme::color_compute::compute_chart_colors(
             &crate::state::types::ColorMode::McdmScore,
             &crate::state::app_state::ColormapName::Viridis,
             &rows,

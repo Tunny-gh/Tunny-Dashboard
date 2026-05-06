@@ -53,4 +53,5 @@ pub fn tunny_light_visuals() -> Visuals {
 
 
 pub mod colormap;
+pub mod color_compute;
 pub mod chart_colors;

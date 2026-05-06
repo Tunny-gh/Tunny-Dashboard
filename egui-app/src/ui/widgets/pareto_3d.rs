@@ -1,4 +1,4 @@
-use crate::theme::colormap::compute_point_alpha;
+use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::chart_colors::{COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_PARETO, COLOR_NON_PARETO};
 use crate::state::app_state::{AppState, TrialRow};
 use crate::ui::widgets::pareto_2d::filter_by_downsample_indices;
