@@ -1,13 +1,8 @@
-use crate::render::colormap::compute_point_alpha;
+use crate::theme::colormap::compute_point_alpha;
+use crate::theme::chart_colors::{COLOR_PARETO, COLOR_NON_PARETO, COLOR_PARETO_DIM, COLOR_NON_PARETO_DIM};
 use crate::state::app_state::{AppState, TrialRow};
 
 type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
-
-const COLOR_PARETO: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
-const COLOR_NON_PARETO: egui::Color32 = egui::Color32::from_rgb(50, 150, 250);
-const COLOR_NON_PARETO_DIM: egui::Color32 =
-    egui::Color32::from_rgba_premultiplied(50, 150, 250, 60);
-const COLOR_PARETO_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(220, 50, 50, 60);
 
 /// ダウンサンプリングインデックスでトライアルをフィルタリングする
 /// indices が Some の場合はそのインデックスのトライアルのみ、None の場合は全件を返す

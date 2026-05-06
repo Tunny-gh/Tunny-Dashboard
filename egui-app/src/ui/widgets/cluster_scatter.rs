@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use crate::render::colormap::ColorMap;
+use crate::theme::colormap::ColorMap;
+use crate::theme::ERROR_COLOR;
 
 /// クラスタ統計
 pub struct ClusterStats {
@@ -173,7 +174,7 @@ impl ClusterScatter {
         }
 
         if let Some(err) = &self.last_error {
-            ui.label(egui::RichText::new(&err.user_message).color(egui::Color32::RED));
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
             if let Some(detail) = &err.detail_for_dev {
                 ui.label(egui::RichText::new(detail).small().weak());
             }
@@ -194,7 +195,7 @@ impl ClusterScatter {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("Cluster result is inconsistent. Please run again.")
-                        .color(egui::Color32::RED),
+                        .color(ERROR_COLOR),
                 );
             });
             return;

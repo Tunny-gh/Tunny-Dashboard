@@ -1,4 +1,5 @@
 use crate::state::app_state::{AppState, StudyContext, TrialRow};
+use crate::theme::chart_colors::COLOR_LINK;
 
 /// トライアル一覧テーブルウィジェット。
 /// 旧 BottomPanel の描画ロジックを PanelItem として独立させたもの。
@@ -53,7 +54,7 @@ impl TrialTableWidget {
                     let trial = &display_rows[row.index()];
                     let is_highlighted = highlighted == Some(trial.trial_id);
                     let bg_color = if is_highlighted {
-                        Some(egui::Color32::from_rgb(80, 120, 180))
+                        Some(COLOR_LINK)
                     } else {
                         None
                     };

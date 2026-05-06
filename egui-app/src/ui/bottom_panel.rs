@@ -1,4 +1,5 @@
 use crate::state::app_state::{AppState, StudyContext, TrialRow};
+use crate::theme::chart_colors::COLOR_LINK;
 use crate::ui::widget_states::{BottomTab, WidgetStates};
 
 /// trial の artifacts ファイルリストから最初のファイルタイプに基づくアイコンを返す
@@ -113,7 +114,7 @@ pub fn show_bottom_panel(
                 let trial = &display_rows[row.index()];
                 let is_highlighted = highlighted == Some(trial.trial_id);
                 let bg_color = if is_highlighted {
-                    Some(egui::Color32::from_rgb(80, 120, 180))
+                    Some(COLOR_LINK)
                 } else {
                     None
                 };

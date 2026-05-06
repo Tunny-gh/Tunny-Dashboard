@@ -1,4 +1,5 @@
 use crate::state::app_state::HvHistory;
+use crate::theme::chart_colors::COLOR_HV_LINE;
 
 /// Hypervolume 推移チャートウィジェット
 #[derive(Default)]
@@ -50,7 +51,7 @@ impl HvHistoryChart {
             .include_x(0.0)
             .show(ui, |plot_ui| {
                 if !points.is_empty() {
-                    let color = egui::Color32::from_rgb(50, 200, 100);
+                    let color = COLOR_HV_LINE;
                     let plot_points: egui_plot::PlotPoints = points.iter().copied().collect();
                     plot_ui.line(
                         egui_plot::Line::new(plot_points)

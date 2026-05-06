@@ -1,4 +1,5 @@
 use crate::state::app_state::{SensitivityResult, SobolResult};
+use crate::theme::chart_colors::{COLOR_FIT_LOW, COLOR_FIT_MID, COLOR_FIT_HIGH, COLOR_IMPORTANCE_BAR};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportanceMetric {
@@ -172,11 +173,11 @@ impl ImportanceChart {
             };
             if let Some(r2) = r2_opt {
                 let (color, warning) = if r2 < 0.5 {
-                    (egui::Color32::from_rgb(220, 80, 80), " (low fit)")
+                    (COLOR_FIT_LOW, " (low fit)")
                 } else if r2 < 0.8 {
-                    (egui::Color32::from_rgb(200, 160, 0), "")
+                    (COLOR_FIT_MID, "")
                 } else {
-                    (egui::Color32::from_rgb(60, 180, 60), "")
+                    (COLOR_FIT_HIGH, "")
                 };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(egui::RichText::new(format!("R² = {r2:.3}{warning}")).color(color));
@@ -221,7 +222,7 @@ impl ImportanceChart {
         let bar_gap = 4.0_f32;
         let value_text_width = 50.0_f32;
 
-        let bar_color = egui::Color32::from_rgb(0x0c, 0x0c, 0x6a);
+        let bar_color = COLOR_IMPORTANCE_BAR;
         egui::ScrollArea::vertical().show(ui, |ui| {
             let available_width = ui.available_width() - label_width - value_text_width - 8.0;
             let bar_max_width = available_width.max(50.0);

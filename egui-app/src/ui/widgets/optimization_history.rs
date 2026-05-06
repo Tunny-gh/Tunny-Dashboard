@@ -1,5 +1,6 @@
 use crate::state::app_state::TrialRow;
 use crate::state::types::Direction;
+use crate::theme::chart_colors::{COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HistoryMode {
@@ -148,7 +149,7 @@ impl OptimizationHistoryChart {
                     plot_ui.points(
                         egui_plot::Points::new(pts)
                             .name("All Trials")
-                            .color(egui::Color32::from_rgb(50, 150, 250))
+                            .color(COLOR_OPT_TRIAL)
                             .radius(1.5),
                     );
                 }
@@ -164,7 +165,7 @@ impl OptimizationHistoryChart {
                     plot_ui.line(
                         egui_plot::Line::new(pts)
                             .name("Best Value")
-                            .color(egui::Color32::from_rgb(220, 50, 50))
+                            .color(COLOR_OPT_PRUNED)
                             .width(1.5),
                     );
                 }
@@ -180,7 +181,7 @@ impl OptimizationHistoryChart {
                     plot_ui.line(
                         egui_plot::Line::new(pts)
                             .name("Moving Average")
-                            .color(egui::Color32::from_rgb(50, 200, 120))
+                            .color(COLOR_OPT_RUNNING)
                             .width(1.5),
                     );
                 }
@@ -198,7 +199,7 @@ impl OptimizationHistoryChart {
                             .collect();
                         plot_ui.line(
                             egui_plot::Line::new(pts)
-                                .color(egui::Color32::GOLD)
+                                .color(COLOR_OPT_BEST)
                                 .width(2.0)
                                 .name("[*] Best"),
                         );

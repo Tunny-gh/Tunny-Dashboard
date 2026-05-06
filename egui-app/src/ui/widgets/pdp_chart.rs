@@ -1,5 +1,6 @@
 use crate::state::app_state::TrialRow;
 use crate::state::messages::{PdpResult, PdpResult1d};
+use crate::theme::chart_colors::{COLOR_ICE_LINE, COLOR_PARETO, COLOR_PDP_CI, COLOR_PDP_LINE};
 use std::collections::HashMap;
 
 /// 1D PDP 計算リクエスト（show() がセットし chart_registry が消費する）
@@ -270,7 +271,7 @@ impl PdpChart {
                 // egui_plot::Polygon はファン三角分割を使うため一枚の非凸ポリゴンでは
                 // 描画が崩れる。区間ごとの凸四辺形に分割することで正確に描画できる。
                 if let (Some(upper), Some(lower)) = (&result.y_upper, &result.y_lower) {
-                    let fill = egui::Color32::from_rgba_unmultiplied(50, 100, 255, 50);
+                    let fill = COLOR_PDP_CI;
                     let xs = &result.x_values;
                     let n = xs.len();
                     for i in 0..n.saturating_sub(1) {
@@ -308,7 +309,7 @@ impl PdpChart {
                     plot_ui.line(
                         egui_plot::Line::new(pts)
                             .width(0.5)
-                            .color(egui::Color32::from_rgba_unmultiplied(150, 150, 150, 60)),
+                            .color(COLOR_ICE_LINE),
                     );
                 }
 
@@ -323,7 +324,7 @@ impl PdpChart {
                     egui_plot::Line::new(main_pts)
                         .name("PDP")
                         .width(2.0)
-                        .color(egui::Color32::from_rgb(50, 100, 255)),
+                        .color(COLOR_PDP_LINE),
                 );
 
                 // 観測データ散布図（最前面）
@@ -331,7 +332,7 @@ impl PdpChart {
                     plot_ui.points(
                         egui_plot::Points::new(observed.to_vec())
                             .name("Observed")
-                            .color(egui::Color32::from_rgb(220, 50, 50))
+                            .color(COLOR_PARETO)
                             .radius(4.0),
                     );
                 }

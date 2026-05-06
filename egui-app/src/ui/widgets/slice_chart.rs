@@ -1,7 +1,5 @@
+use crate::theme::chart_colors::{COLOR_PARETO, COLOR_NON_PARETO};
 use crate::state::app_state::{Direction, TrialRow};
-
-const COLOR_PARETO: egui::Color32 = egui::Color32::from_rgb(220, 50, 50); // Red
-const COLOR_NON_PARETO: egui::Color32 = egui::Color32::from_rgb(100, 149, 237);
 
 /// パラメータ vs 目的関数の Slice 散布図ウィジェット
 ///

@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use crate::state::app_state::AppState;
 use crate::state::layout_state::{DragPayload, GridCell, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
+use crate::theme::chart_colors::{COLOR_CELL_HIGHLIGHT, COLOR_SELECTION_HIGHLIGHT};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::trial_table::TrialTableWidget;
 
@@ -122,7 +123,7 @@ pub fn show_grid_canvas(
                     ui.painter().rect_filled(
                         cell_rect,
                         0.0,
-                        egui::Color32::from_rgba_unmultiplied(37, 99, 235, 40),
+                        COLOR_SELECTION_HIGHLIGHT,
                     );
                 }
 
@@ -154,7 +155,7 @@ pub fn show_grid_canvas(
                             ui.painter().rect_filled(
                                 right_handle_rect,
                                 0.0,
-                                egui::Color32::from_rgba_unmultiplied(37, 99, 235, 80),
+                                COLOR_CELL_HIGHLIGHT,
                             );
                         }
                         if right_resp.dragged() {
@@ -195,7 +196,7 @@ pub fn show_grid_canvas(
                             ui.painter().rect_filled(
                                 bottom_handle_rect,
                                 0.0,
-                                egui::Color32::from_rgba_unmultiplied(37, 99, 235, 80),
+                                COLOR_CELL_HIGHLIGHT,
                             );
                         }
                         if bottom_resp.dragged() {

@@ -1,4 +1,5 @@
-use crate::render::colormap::compute_point_alpha;
+use crate::theme::colormap::compute_point_alpha;
+use crate::theme::chart_colors::{COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_PARETO, COLOR_NON_PARETO};
 use crate::state::app_state::{AppState, TrialRow};
 use crate::ui::widgets::pareto_2d::filter_by_downsample_indices;
 
@@ -279,7 +280,7 @@ impl Pareto3dChart {
             (
                 [-1.0f32, 0.0, 0.0],
                 [1.0f32, 0.0, 0.0],
-                egui::Color32::from_rgb(220, 80, 80),
+                COLOR_AXIS_X,
                 &x_name,
                 x_min,
                 x_max,
@@ -287,7 +288,7 @@ impl Pareto3dChart {
             (
                 [0.0, -1.0f32, 0.0],
                 [0.0, 1.0f32, 0.0],
-                egui::Color32::from_rgb(80, 220, 80),
+                COLOR_AXIS_Y,
                 &y_name,
                 y_min,
                 y_max,
@@ -295,7 +296,7 @@ impl Pareto3dChart {
             (
                 [0.0, 0.0, -1.0f32],
                 [0.0, 0.0, 1.0f32],
-                egui::Color32::from_rgb(80, 80, 220),
+                COLOR_AXIS_Z,
                 &z_name,
                 z_min,
                 z_max,
@@ -348,9 +349,9 @@ impl Pareto3dChart {
 
             let alpha = compute_point_alpha(row.trial_id, selected);
             let (base_color, radius) = if row.pareto_rank == 0 {
-                (egui::Color32::from_rgb(220, 50, 50), 5.0_f32)
+                (COLOR_PARETO, 5.0_f32)
             } else {
-                (egui::Color32::from_rgb(50, 150, 250), 3.0_f32)
+                (COLOR_NON_PARETO, 3.0_f32)
             };
             let color = if alpha == 255 {
                 base_color

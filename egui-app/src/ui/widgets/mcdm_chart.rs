@@ -2,6 +2,7 @@ use crate::state::app_state::TrialRow;
 use crate::state::results::{
     EntropyResult, McdmMethod, McdmResult, PrometheeResult, TopsisResult, VikorResult, WeightMode,
 };
+use crate::theme::chart_colors::{COLOR_BAR_PRIMARY, COLOR_BAR_NEGATIVE, COLOR_BAR_ACCENT};
 
 /// MCDM compute request payload
 pub struct McdmComputeRequest {
@@ -377,7 +378,7 @@ impl McdmRankChart {
                                     egui::vec2(phi_plus_w, rect_plus.height()),
                                 ),
                                 2.0,
-                                egui::Color32::from_rgb(0x0c, 0x6a, 0xc0),
+                                COLOR_BAR_PRIMARY,
                             );
                         }
                         let (rect_minus, _) = ui.allocate_exact_size(
@@ -391,7 +392,7 @@ impl McdmRankChart {
                                     egui::vec2(phi_minus_w, rect_minus.height()),
                                 ),
                                 2.0,
-                                egui::Color32::from_rgb(0xc0, 0x20, 0x20),
+                                COLOR_BAR_NEGATIVE,
                             );
                         }
                         ui.label(format!(
@@ -427,9 +428,9 @@ impl McdmRankChart {
                         0.0
                     };
                     let color = if phi_net >= 0.0 {
-                        egui::Color32::from_rgb(0x0c, 0x6a, 0xc0)
+                        COLOR_BAR_PRIMARY
                     } else {
-                        egui::Color32::from_rgb(0xe0, 0x70, 0x00)
+                        COLOR_BAR_ACCENT
                     };
                     ui.horizontal(|ui| {
                         ui.add_sized(
@@ -468,7 +469,7 @@ impl McdmRankChart {
         }
 
         let max_score = entries.iter().map(|e| e.score).fold(0.0_f64, f64::max);
-        let bar_color = egui::Color32::from_rgb(0x0c, 0x6a, 0xc0);
+        let bar_color = COLOR_BAR_PRIMARY;
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             let available_width = ui.available_width() - label_width - value_text_width - 8.0;
@@ -1009,7 +1010,7 @@ mod tests {
             tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize).unwrap();
 
         let scores = core_result.scores.clone();
-        let colors = crate::render::colormap::compute_chart_colors(
+        let colors = crate::theme::colormap::compute_chart_colors(
             &crate::state::types::ColorMode::McdmScore,
             &crate::state::app_state::ColormapName::Viridis,
             &rows,

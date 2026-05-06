@@ -2,13 +2,8 @@
 
 use crate::state::app_state::TrialRow;
 use crate::state::results::{McdmMethod, McdmResult};
+use crate::theme::chart_colors::{COLOR_MCDM_HIGH, COLOR_MCDM_MID, COLOR_MCDM_LOW, COLOR_MCDM_NONE};
 use egui::Color32;
-
-/// 散布図で使用する表示色（単一の定義ソース）
-pub(crate) const COLOR_RED: Color32 = Color32::from_rgb(255, 0, 0);
-pub(crate) const COLOR_ORANGE: Color32 = Color32::from_rgb(255, 165, 0);
-pub(crate) const COLOR_YELLOW: Color32 = Color32::from_rgb(255, 255, 0);
-pub(crate) const COLOR_GRAY: Color32 = Color32::from_rgb(200, 200, 200);
 
 /// 軸識別子定数（get_axis_options と extract_axis_values で共有）
 const AXIS_VIKOR_Q: &str = "VIKOR_Q";
@@ -278,11 +273,11 @@ fn render_scatter_plot(
 
     for &(x, y, color) in points {
         let pt = [x, y];
-        if color == COLOR_RED {
+        if color == COLOR_MCDM_HIGH {
             red_pts.push(pt);
-        } else if color == COLOR_ORANGE {
+        } else if color == COLOR_MCDM_MID {
             orange_pts.push(pt);
-        } else if color == COLOR_YELLOW {
+        } else if color == COLOR_MCDM_LOW {
             yellow_pts.push(pt);
         } else {
             gray_pts.push(pt);
@@ -298,7 +293,7 @@ fn render_scatter_plot(
                 plot_ui.points(
                     egui_plot::Points::new(gray_pts)
                         .name("Others")
-                        .color(COLOR_GRAY)
+                        .color(COLOR_MCDM_NONE)
                         .radius(3.0),
                 );
             }
@@ -306,7 +301,7 @@ fn render_scatter_plot(
                 plot_ui.points(
                     egui_plot::Points::new(yellow_pts)
                         .name("Top 20")
-                        .color(COLOR_YELLOW)
+                        .color(COLOR_MCDM_LOW)
                         .radius(4.0),
                 );
             }
@@ -314,7 +309,7 @@ fn render_scatter_plot(
                 plot_ui.points(
                     egui_plot::Points::new(orange_pts)
                         .name("Top 10")
-                        .color(COLOR_ORANGE)
+                        .color(COLOR_MCDM_MID)
                         .radius(4.5),
                 );
             }
@@ -322,7 +317,7 @@ fn render_scatter_plot(
                 plot_ui.points(
                     egui_plot::Points::new(red_pts)
                         .name("Top 5")
-                        .color(COLOR_RED)
+                        .color(COLOR_MCDM_HIGH)
                         .radius(5.0),
                 );
             }
@@ -492,10 +487,10 @@ pub(crate) fn normalize_values(values: &[f64]) -> Vec<f64> {
 /// - その他:     Gray
 pub(crate) fn map_rank_to_color(rank: usize, threshold: ScatterTopN) -> Color32 {
     match rank {
-        0..=4 => COLOR_RED,
-        5..=9 if threshold >= ScatterTopN::Top10 => COLOR_ORANGE,
-        10..=19 if threshold >= ScatterTopN::Top20 => COLOR_YELLOW,
-        _ => COLOR_GRAY,
+        0..=4 => COLOR_MCDM_HIGH,
+        5..=9 if threshold >= ScatterTopN::Top10 => COLOR_MCDM_MID,
+        10..=19 if threshold >= ScatterTopN::Top20 => COLOR_MCDM_LOW,
+        _ => COLOR_MCDM_NONE,
     }
 }
 
@@ -553,7 +548,7 @@ pub(crate) fn compute_scatter_points(
         }
         let rank = rank_map[i];
         let color = if rank == usize::MAX {
-            COLOR_GRAY // ランク外
+            COLOR_MCDM_NONE // ランク外
         } else {
             map_rank_to_color(rank, color_threshold)
         };
@@ -838,14 +833,14 @@ mod tests {
     #[test]
     fn test_rank_0_always_red() {
         for t in ScatterTopN::all() {
-            assert_eq!(map_rank_to_color(0, *t), COLOR_RED);
+            assert_eq!(map_rank_to_color(0, *t), COLOR_MCDM_HIGH);
         }
     }
 
     #[test]
     fn test_rank_4_always_red() {
         for t in ScatterTopN::all() {
-            assert_eq!(map_rank_to_color(4, *t), COLOR_RED);
+            assert_eq!(map_rank_to_color(4, *t), COLOR_MCDM_HIGH);
         }
     }
 
@@ -853,7 +848,7 @@ mod tests {
     fn test_rank_5_gray_when_top5() {
         assert_eq!(
             map_rank_to_color(5, ScatterTopN::Top5),
-            COLOR_GRAY
+            COLOR_MCDM_NONE
         );
     }
 
@@ -861,7 +856,7 @@ mod tests {
     fn test_rank_5_orange_when_top10() {
         assert_eq!(
             map_rank_to_color(5, ScatterTopN::Top10),
-            COLOR_ORANGE
+            COLOR_MCDM_MID
         );
     }
 
@@ -869,7 +864,7 @@ mod tests {
     fn test_rank_5_orange_when_top20() {
         assert_eq!(
             map_rank_to_color(5, ScatterTopN::Top20),
-            COLOR_ORANGE
+            COLOR_MCDM_MID
         );
     }
 
@@ -877,7 +872,7 @@ mod tests {
     fn test_rank_10_gray_when_top5() {
         assert_eq!(
             map_rank_to_color(10, ScatterTopN::Top5),
-            COLOR_GRAY
+            COLOR_MCDM_NONE
         );
     }
 
@@ -885,7 +880,7 @@ mod tests {
     fn test_rank_10_gray_when_top10() {
         assert_eq!(
             map_rank_to_color(10, ScatterTopN::Top10),
-            COLOR_GRAY
+            COLOR_MCDM_NONE
         );
     }
 
@@ -893,14 +888,14 @@ mod tests {
     fn test_rank_10_yellow_when_top20() {
         assert_eq!(
             map_rank_to_color(10, ScatterTopN::Top20),
-            COLOR_YELLOW
+            COLOR_MCDM_LOW
         );
     }
 
     #[test]
     fn test_rank_50_always_gray() {
         for t in ScatterTopN::all() {
-            assert_eq!(map_rank_to_color(50, *t), COLOR_GRAY);
+            assert_eq!(map_rank_to_color(50, *t), COLOR_MCDM_NONE);
         }
     }
 
@@ -978,7 +973,7 @@ mod tests {
         .unwrap();
 
         // Trial 0 is rank 0 (ranked_indices[0] = 0), should be Red
-        assert_eq!(points[0].2, COLOR_RED);
+        assert_eq!(points[0].2, COLOR_MCDM_HIGH);
     }
 
     #[test]

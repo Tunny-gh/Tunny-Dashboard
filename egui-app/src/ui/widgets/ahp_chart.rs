@@ -1,5 +1,7 @@
 use crate::state::app_state::TrialRow;
 use crate::state::results::AhpResult;
+use crate::theme::chart_colors::COLOR_BAR_PRIMARY;
+use crate::theme::ERROR_COLOR;
 
 #[derive(Debug)]
 pub struct AhpComputeRequest {
@@ -181,7 +183,7 @@ impl AhpChart {
         } else {
             (
                 format!("CR = {:.3}  Inconsistent (CR > 0.10)", r.cr),
-                egui::Color32::RED,
+                ERROR_COLOR,
             )
         };
         ui.colored_label(cr_color, &cr_label);
@@ -199,7 +201,7 @@ impl AhpChart {
                 let (rect, _resp) =
                     ui.allocate_exact_size(egui::vec2(200.0 * ratio, 14.0), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(rect, 2.0, egui::Color32::from_rgb(12, 106, 192));
+                    .rect_filled(rect, 2.0, COLOR_BAR_PRIMARY);
             });
         }
     }

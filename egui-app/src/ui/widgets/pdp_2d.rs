@@ -1,4 +1,5 @@
-use crate::render::colormap::ColorMap;
+use crate::theme::chart_colors::COLOR_CONTOUR;
+use crate::theme::colormap::ColorMap;
 use crate::state::messages::PdpResult2d;
 use crate::ui::widgets::pdp_chart::ModelType;
 
@@ -100,7 +101,7 @@ impl PdpChart2DState {
         // 同一パラメータ警告
         if !self.selected_param1.is_empty() && self.selected_param1 == self.selected_param2 {
             ui.colored_label(
-                egui::Color32::YELLOW,
+                COLOR_CONTOUR,
                 "Warning: the same parameter is selected",
             );
         }

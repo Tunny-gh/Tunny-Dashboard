@@ -20,6 +20,9 @@ pub const TOOLBAR_BTN_ACTIVE: Color32 = Color32::from_rgb(37, 99, 235);
 pub const TOOLBAR_INPUT_BG: Color32 = Color32::from_rgb(45, 62, 90);
 pub const TOOLBAR_INPUT_STROKE: Color32 = Color32::from_rgb(100, 130, 180);
 
+/// エラー表示に使用する赤色。Color32::RED より落ち着いた赤。
+pub const ERROR_COLOR: Color32 = Color32::from_rgb(220, 50, 50);
+
 pub fn tunny_light_visuals() -> Visuals {
     let mut v = Visuals::light();
 
@@ -47,3 +50,7 @@ pub fn tunny_light_visuals() -> Visuals {
 
     v
 }
+
+
+pub mod colormap;
+pub mod chart_colors;

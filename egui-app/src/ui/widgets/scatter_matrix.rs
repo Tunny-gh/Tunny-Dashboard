@@ -1,3 +1,4 @@
+use crate::theme::chart_colors::COLOR_SCATTER_DOT;
 /// Scatter Matrix の1セルタイプ
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellType {
@@ -96,7 +97,7 @@ impl ScatterMatrix {
         let cell_w = available.width() / n as f32;
         let cell_h = available.height() / n as f32;
         let painter = ui.painter().clone();
-        let dot_color = egui::Color32::from_rgb(70, 130, 220);
+        let dot_color = COLOR_SCATTER_DOT;
         let point_colors: Vec<egui::Color32> = if chart_colors.is_empty() {
             vec![dot_color; trial_rows.len()]
         } else {
@@ -314,7 +315,7 @@ pub fn draw_histogram_cell(
             ),
             egui::vec2(bar_width - 1.0, bar_height),
         );
-        painter.rect_filled(bar_rect, 0.0, egui::Color32::from_rgb(70, 130, 220));
+        painter.rect_filled(bar_rect, 0.0, COLOR_SCATTER_DOT);
     }
 }
 

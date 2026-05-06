@@ -4,6 +4,8 @@ pub use super::results::*;
 pub use super::types::*;
 
 use std::collections::HashMap;
+#[cfg(test)]
+use crate::theme::ERROR_COLOR;
 
 // ============================================================
 // AppState
@@ -131,7 +133,7 @@ impl AppState {
             let trial_rows = &ctx.trial_rows;
             let objective_names = &ctx.meta.objective_names;
             let mcdm_scores = self.mcdm_result.as_ref().map(|r| r.primary_scores());
-            self.chart_colors = crate::render::colormap::compute_chart_colors(
+            self.chart_colors = crate::theme::colormap::compute_chart_colors(
                 &color_mode,
                 &colormap_name,
                 trial_rows,
@@ -286,7 +288,7 @@ mod tests {
     #[test]
     fn update_chart_colors_without_study_clears() {
         let mut state = AppState::new();
-        state.chart_colors = vec![egui::Color32::RED];
+        state.chart_colors = vec![ERROR_COLOR];
         state.update_chart_colors();
         assert!(state.chart_colors.is_empty());
     }
@@ -375,7 +377,7 @@ mod tests {
         // comparison_mode/studies/colors は clear() でリセットしない
         let mut state = AppState::new();
         state.comparison_mode = true;
-        state.comparison_colors = vec![egui::Color32::RED];
+        state.comparison_colors = vec![ERROR_COLOR];
 
         state.clear();
 

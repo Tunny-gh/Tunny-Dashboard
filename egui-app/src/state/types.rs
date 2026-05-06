@@ -147,17 +147,17 @@ impl ColormapName {
         ]
     }
 
-    pub fn to_colormap(&self) -> crate::render::colormap::ColorMap {
+    pub fn to_colormap(&self) -> crate::theme::colormap::ColorMap {
         match self {
-            Self::Viridis => crate::render::colormap::ColorMap::viridis(),
-            Self::Plasma => crate::render::colormap::ColorMap::plasma(),
-            Self::Jet => crate::render::colormap::ColorMap::jet(),
-            Self::Turbo => crate::render::colormap::ColorMap::turbo(),
-            Self::Inferno => crate::render::colormap::ColorMap::inferno(),
-            Self::Coolwarm => crate::render::colormap::ColorMap::coolwarm(),
-            Self::Spectral => crate::render::colormap::ColorMap::spectral(),
-            Self::Cividis => crate::render::colormap::ColorMap::cividis(),
-            Self::BlueYellow => crate::render::colormap::ColorMap::blue_yellow(),
+            Self::Viridis => crate::theme::colormap::ColorMap::viridis(),
+            Self::Plasma => crate::theme::colormap::ColorMap::plasma(),
+            Self::Jet => crate::theme::colormap::ColorMap::jet(),
+            Self::Turbo => crate::theme::colormap::ColorMap::turbo(),
+            Self::Inferno => crate::theme::colormap::ColorMap::inferno(),
+            Self::Coolwarm => crate::theme::colormap::ColorMap::coolwarm(),
+            Self::Spectral => crate::theme::colormap::ColorMap::spectral(),
+            Self::Cividis => crate::theme::colormap::ColorMap::cividis(),
+            Self::BlueYellow => crate::theme::colormap::ColorMap::blue_yellow(),
         }
     }
 }
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn colormap_name_to_colormap_jet_boundaries() {
-        use crate::render::colormap::ColorMap;
+        use crate::theme::colormap::ColorMap;
         let jet = ColormapName::Jet.to_colormap();
         assert_eq!(jet.interpolate(0.0), egui::Color32::from_rgb(0, 0, 143));
         assert_eq!(jet.interpolate(1.0), egui::Color32::from_rgb(128, 0, 0));

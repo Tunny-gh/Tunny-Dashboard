@@ -3,6 +3,7 @@ use std::sync::mpsc::SyncSender;
 use crate::state::app_state::AppState;
 use crate::state::layout_state::{LayoutMode, LayoutState};
 use crate::state::messages::AppMessage;
+use crate::theme::ERROR_COLOR;
 
 /// レイアウトモードボタンのラベル定義
 pub const LAYOUT_MODE_BUTTONS: &[(LayoutMode, &str)] = &[
@@ -202,7 +203,7 @@ pub fn show_toolbar(
             // エラーメッセージ
             if let Some(err) = load_error.clone() {
                 if ui
-                    .colored_label(egui::Color32::RED, format!("Error: {}", err))
+                    .colored_label(ERROR_COLOR, format!("Error: {}", err))
                     .clicked()
                 {
                     *load_error = None;
