@@ -5,3 +5,4 @@ pub mod html_report;
 pub mod journal;
 pub mod session;
 pub mod study;
+pub mod study_worker;

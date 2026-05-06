@@ -29,8 +29,7 @@ pub fn show_toolbar(
             if let Some(path) = crate::io::file::open_file_dialog() {
                 *is_loading = true;
                 *load_error = None;
-                let tx2 = tx.clone();
-                crate::app::spawn_task(tx2, move || crate::io::journal::load_journal_task(path));
+                crate::io::study_worker::dispatch_load_journal(path, tx.clone());
             }
         }
 
@@ -101,19 +100,14 @@ pub fn show_toolbar(
                 });
             });
             if selected_name != current_name && !selected_name.is_empty() {
-                if let (Some(meta), Some(path)) = (
-                    app_state
-                        .all_studies
-                        .iter()
-                        .find(|s| s.name == selected_name)
-                        .cloned(),
-                    app_state.journal_path.clone(),
-                ) {
+                if let Some(meta) = app_state
+                    .all_studies
+                    .iter()
+                    .find(|s| s.name == selected_name)
+                    .cloned()
+                {
                     *is_loading = true;
-                    let tx2 = tx.clone();
-                    crate::app::spawn_task(tx2, move || {
-                        crate::io::study::load_and_select_task(path, meta)
-                    });
+                    crate::io::study_worker::dispatch_select_study(meta, tx.clone());
                 }
             }
         }

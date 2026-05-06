@@ -22,8 +22,7 @@ impl TunnyApp {
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
-            let tx2 = tx.clone();
-            spawn_task(tx2, move || crate::io::journal::load_journal_task(path));
+            crate::io::study_worker::dispatch_load_journal(path, tx.clone());
         }
         Self {
             app_state: AppState::new(),

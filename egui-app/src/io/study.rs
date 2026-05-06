@@ -1,9 +1,7 @@
 use crate::state::app_state::{Direction, GpuBufferData, StudyMeta, TrialRow, TrialState};
 use crate::state::messages::AppMessage;
+use rayon::prelude::*;
 use std::collections::HashMap;
-
-// parse_journal を同スレッドで再実行するために io::file を使用
-use tunny_core::io::journal::parser;
 
 /// 完了試行数が最多の Study を自動選択する（REQ-021 準拠）
 pub fn auto_select_study(studies: &[StudyMeta]) -> Option<&StudyMeta> {
@@ -45,64 +43,54 @@ pub fn build_gpu_buffer_data(
 }
 
 /// rust_core の with_active_df から TrialRow を取得
-fn extract_trial_rows(_meta: &StudyMeta) -> Vec<TrialRow> {
-    tunny_core::dataframe::with_active_df(|df| {
-        let param_names = df.param_col_names().to_vec();
-        let obj_names = df.objective_col_names().to_vec();
-        let n = df.row_count();
+fn extract_trial_rows() -> Vec<TrialRow> {
+    // thread_local からデータを一括コピーしてから rayon で並列処理
+    let Some((param_names, trial_ids, param_data, obj_data)) =
+        tunny_core::dataframe::with_active_df(|df| {
+            let param_names = df.param_col_names().to_vec();
+            let n = df.row_count();
+            let trial_ids: Vec<u32> = (0..n)
+                .map(|row| df.get_trial_id(row).unwrap_or(row as u32))
+                .collect();
+            let param_data: Vec<Vec<f64>> = param_names
+                .iter()
+                .map(|name| df.get_numeric_column(name).unwrap_or(&[]).to_vec())
+                .collect();
+            let obj_data: Vec<Vec<f64>> = df
+                .objective_col_names()
+                .iter()
+                .map(|name| df.get_numeric_column(name).unwrap_or(&[]).to_vec())
+                .collect();
+            (param_names, trial_ids, param_data, obj_data)
+        })
+    else {
+        return vec![];
+    };
 
-        (0..n)
-            .map(|row| {
-                let params: HashMap<String, f64> = param_names
-                    .iter()
-                    .map(|name| {
-                        let val = df
-                            .get_numeric_column(name)
-                            .and_then(|col| col.get(row).copied())
-                            .unwrap_or(0.0);
-                        (name.clone(), val)
-                    })
-                    .collect();
-
-                let objectives: Vec<f64> = obj_names
-                    .iter()
-                    .map(|name| {
-                        df.get_numeric_column(name)
-                            .and_then(|col| col.get(row).copied())
-                            .unwrap_or(0.0)
-                    })
-                    .collect();
-
-                let trial_id = df.get_trial_id(row).unwrap_or(row as u32);
-                let trial_number = row as u32;
-
-                TrialRow {
-                    trial_id,
-                    trial_number,
-                    params,
-                    objectives,
-                    pareto_rank: 0, // filled in later
-                    cluster_id: None,
-                    state: TrialState::Complete,
-                    user_attrs: HashMap::new(),
-                }
-            })
-            .collect()
-    })
-    .unwrap_or_default()
-}
-
-/// ジャーナルファイルを再パースしてから select_study を実行する。
-/// thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため、
-/// パースと選択を必ず同一スレッドで行う必要がある。
-pub fn load_and_select_task(path: std::path::PathBuf, meta: StudyMeta) -> AppMessage {
-    match crate::io::file::read_journal_file(&path) {
-        Ok(data) => match parser::parse_journal(&data) {
-            Ok(_) => select_study_task(meta),
-            Err(e) => AppMessage::Error(e),
-        },
-        Err(e) => AppMessage::Error(e),
-    }
+    let n = trial_ids.len();
+    (0..n)
+        .into_par_iter()
+        .map(|row| {
+            let mut params = HashMap::with_capacity(param_names.len());
+            for (name, col) in param_names.iter().zip(param_data.iter()) {
+                params.insert(name.clone(), col.get(row).copied().unwrap_or(0.0));
+            }
+            let objectives: Vec<f64> = obj_data
+                .iter()
+                .map(|col| col.get(row).copied().unwrap_or(0.0))
+                .collect();
+            TrialRow {
+                trial_id: trial_ids[row],
+                trial_number: row as u32,
+                params,
+                objectives,
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            }
+        })
+        .collect()
 }
 
 /// バックグラウンドで select_study を実行し AppMessage を返す
@@ -115,20 +103,25 @@ pub fn select_study_task(meta: StudyMeta) -> AppMessage {
 
     match tunny_core::dataframe::select_study(meta.study_id) {
         Ok(result) => {
-            // Pareto ランク計算
+            let t0 = std::time::Instant::now();
             let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
-            let ranks = pareto.ranks.clone();
+                #[cfg(debug_assertions)]
+                eprintln!("[timing] compute_pareto_ranks: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+
+                let t1 = std::time::Instant::now();
             let pareto_indices = pareto.pareto_indices;
+                let gpu_data = build_gpu_buffer_data(result.gpu_buffer_data, &pareto.ranks);
+                #[cfg(debug_assertions)]
+                eprintln!("[timing] build_gpu_buffer_data: {:.1}ms", t1.elapsed().as_secs_f64() * 1000.0);
 
-            // GPU バッファデータ構築
-            let gpu_data = build_gpu_buffer_data(result.gpu_buffer_data, &ranks);
-
-            // Trial rows を with_active_df から取得
-            let mut trial_rows = extract_trial_rows(&meta);
-            // Pareto ランクを TrialRow に設定
+            let t2 = std::time::Instant::now();
+                let ranks = pareto.ranks;
+                let mut trial_rows = extract_trial_rows();
             for (i, row) in trial_rows.iter_mut().enumerate() {
                 row.pareto_rank = ranks.get(i).copied().unwrap_or(0);
             }
+                #[cfg(debug_assertions)]
+                eprintln!("[timing] extract_trial_rows: {:.1}ms", t2.elapsed().as_secs_f64() * 1000.0);
 
             AppMessage::StudySelected {
                 meta,

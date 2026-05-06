@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 use super::helpers::{compute_ref_point, normalize_objectives};
 use super::hypervolume::hypervolume_2d;
 use super::types::ParetoResult;
@@ -41,37 +43,57 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     }
 
     let mut ranks = vec![0u32; n];
-    let mut domination_count = vec![0u32; n];
     let init_cap = (n / 4).clamp(4, 128);
+
+    // 並列フェーズ: 各 i について j > i との支配関係を並列計算
+    // pair_results[i] = (i が支配する j のリスト, i を支配する j のリスト)
+    let pair_results: Vec<(Vec<usize>, Vec<usize>)> = (0..n)
+        .into_par_iter()
+        .map(|i| {
+            if nan_mask[i] {
+                return (vec![], vec![]);
+            }
+            let oi = &norm_flat[i * m..(i + 1) * m];
+            let mut i_dom_j = Vec::new();
+            let mut j_dom_i = Vec::new();
+            for j in (i + 1)..n {
+                if nan_mask[j] {
+                    continue;
+                }
+                let oj = &norm_flat[j * m..(j + 1) * m];
+                let mut i_better = false;
+                let mut j_better = false;
+                for k in 0..m {
+                    if oi[k] < oj[k] {
+                        i_better = true;
+                    } else if oi[k] > oj[k] {
+                        j_better = true;
+                    }
+                }
+                if i_better && !j_better {
+                    i_dom_j.push(j);
+                } else if j_better && !i_better {
+                    j_dom_i.push(j);
+                }
+            }
+            (i_dom_j, j_dom_i)
+        })
+        .collect();
+
+    // 集約フェーズ: O(n + edges) で dominates_list と domination_count を構築
+    let mut domination_count = vec![0u32; n];
     let mut dominates_list: Vec<Vec<usize>> =
         (0..n).map(|_| Vec::with_capacity(init_cap)).collect();
 
-    for i in 0..n {
-        if nan_mask[i] {
-            continue;
+    for (i, (i_dom_j, j_dom_i)) in pair_results.into_iter().enumerate() {
+        for j in i_dom_j {
+            dominates_list[i].push(j);
+            domination_count[j] += 1;
         }
-        let oi = &norm_flat[i * m..(i + 1) * m];
-        for j in (i + 1)..n {
-            if nan_mask[j] {
-                continue;
-            }
-            let oj = &norm_flat[j * m..(j + 1) * m];
-            let mut i_better = false;
-            let mut j_better = false;
-            for k in 0..m {
-                if oi[k] < oj[k] {
-                    i_better = true;
-                } else if oi[k] > oj[k] {
-                    j_better = true;
-                }
-            }
-            if i_better && !j_better {
-                dominates_list[i].push(j);
-                domination_count[j] += 1;
-            } else if j_better && !i_better {
-                dominates_list[j].push(i);
-                domination_count[i] += 1;
-            }
+        // j_dom_i: j > i で j が i を支配 → dominates_list[j] に i を追加
+        for dom in j_dom_i {
+            dominates_list[dom].push(i);
+            domination_count[i] += 1;
         }
     }
 
@@ -121,16 +143,16 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
             };
         }
 
+        let obj_cols: Vec<Option<&[f64]>> = obj_names
+            .iter()
+            .map(|name| df.get_numeric_column(name))
+            .collect();
+
         let objectives: Vec<Vec<f64>> = (0..n)
             .map(|row| {
-                obj_names
+                obj_cols
                     .iter()
-                    .map(|name| {
-                        df.get_numeric_column(name)
-                            .and_then(|col| col.get(row))
-                            .copied()
-                            .unwrap_or(f64::NAN)
-                    })
+                    .map(|col| col.and_then(|c| c.get(row)).copied().unwrap_or(f64::NAN))
                     .collect()
             })
             .collect();
