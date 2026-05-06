@@ -1,10 +1,10 @@
 use crate::ui::widgets::{
     ahp_chart::AhpChart, cluster_scatter::ClusterScatter, hv_history::HvHistoryChart,
     importance_chart::ImportanceChart, mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
-    optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
-    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
-    pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
-    slice_chart::SliceChart,
+    mcdm_scatter_chart::McdmScatterChart, optimization_history::OptimizationHistoryChart,
+    parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
+    pdp_2d::PdpChart2DState, pdp_chart::PdpChart, scatter_matrix::ScatterMatrix,
+    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart,
 };
 
 /// Bottom Panel のタブ種別
@@ -34,6 +34,8 @@ pub struct WidgetStates {
     pub mcdm_table: McdmTable,
     pub ahp_chart: AhpChart,
     pub slice_chart: SliceChart,
+    // TASK-1504: MCDM 散布図ウィジェット
+    pub scatter_chart: McdmScatterChart,
     // TASK-2121: Artifacts modal state
     pub artifact_modal_open: bool,
     pub artifact_modal_trial_id: Option<u32>,

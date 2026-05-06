@@ -142,6 +142,14 @@ pub enum AppMessage {
         html: String,
         suggested_filename: String,
     },
+    /// TASK-1505: MCDM散布図計算完了
+    McdmScatterComputed {
+        /// 表示ポイント (x_norm, y_norm, r, g, b)
+        points: Vec<(f64, f64, u8, u8, u8)>,
+        total_trials: usize,
+    },
+    /// TASK-1505: MCDM散布図計算失敗
+    McdmScatterComputeFailed(String),
 }
 
 #[cfg(test)]

@@ -78,6 +78,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                     "MCDM",
                     &[
                         PanelItem::Chart(ChartId::McdmRankChart),
+                        PanelItem::Chart(ChartId::McdmScatterChart),
                         PanelItem::Chart(ChartId::McdmTable),
                     ],
                 ),

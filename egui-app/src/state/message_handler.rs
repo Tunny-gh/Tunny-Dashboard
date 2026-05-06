@@ -153,6 +153,15 @@ impl MessageHandler {
             AppMessage::HtmlReportDone { .. } => {
                 // TASK-2117/2123 で実装
             }
+            // TASK-1506: MCDM散布図メッセージ（散布図は同期計算のため現在は使用しない）
+            AppMessage::McdmScatterComputed { .. } => {
+                // 散布図ウィジェットの show() 内で同期計算済みのためno-op
+            }
+            AppMessage::McdmScatterComputeFailed(err) => {
+                // エラーをログ出力（デバッグ用）
+                #[cfg(debug_assertions)]
+                eprintln!("McdmScatter compute failed: {}", err);
+            }
         }
     }
 
