@@ -1,6 +1,7 @@
 use crate::state::app_state::AppState;
 use egui::Color32;
 
+/// state 層の RGBA 表現を UI 描画用 Color32 へ変換する。
 fn to_color32(rgba: [u8; 4]) -> Color32 {
     Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
 }

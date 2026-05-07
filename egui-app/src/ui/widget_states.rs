@@ -47,6 +47,8 @@ pub struct WidgetStates {
 }
 
 impl WidgetStates {
+    /// 色モード・カラーマップ・MCDM結果の変化を描画色キャッシュへ反映する。
+    /// `StudySelected` 後、色設定変更後、`McdmDone` 後に呼び出すことを想定する。
     pub fn update_chart_colors(&mut self, app_state: &AppState) {
         if let Some(ctx) = &app_state.current_study {
             let color_mode = app_state.color_mode.clone();

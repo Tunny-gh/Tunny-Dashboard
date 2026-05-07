@@ -2,6 +2,8 @@ use crate::state::types::ColormapName;
 
 use super::colormap::ColorMap;
 
+/// `ColormapName` から `ColorMap` への変換を担う UI/theme 側の窓口。
+/// state 層の型から theme 実装詳細への依存を分離するために集約している。
 pub fn colormap_from_name(name: &ColormapName) -> ColorMap {
     match name {
         ColormapName::Viridis => ColorMap::viridis(),
