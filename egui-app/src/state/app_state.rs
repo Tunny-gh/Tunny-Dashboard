@@ -40,8 +40,9 @@ pub struct AppState {
     pub comparison_mode: bool,
     /// 比較対象の StudyContext リスト（最大 4 件）
     pub comparison_studies: Vec<StudyContext>,
-    /// 比較スタディの色リスト（RGBA）。
+    /// 比較スタディの色リスト（各要素は `[R, G, B, A]` の非プリマルチプライドアルファ）。
     /// state 層から egui 依存を排除するため UI 型ではなく生配列で保持する。
+    /// 描画時は `crate::theme::color_compute::rgba_to_color32` で Color32 へ変換する。
     pub comparison_colors: Vec<[u8; 4]>,
 
     // ── REQ-007: Artifacts ────────────────────────────────────

@@ -1,5 +1,13 @@
 use crate::state::app_state::{ColorMode, ColormapName, TrialRow};
 
+/// RGBA バイト配列（非プリマルチプライドアルファ、順序 [R, G, B, A]）を
+/// egui の Color32 へ変換する。
+/// state 層は egui 依存を持たないため `[u8; 4]` で色を保持しており、
+/// UI 描画時にこの関数を使って Color32 へ変換する。
+pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
+}
+
 /// trial_id が selected_indices に含まれるかでアルファ値を計算する。
 /// selected_indices が空の場合は全点が不透明（255）を返す。
 pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {

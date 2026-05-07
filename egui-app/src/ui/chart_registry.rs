@@ -69,6 +69,8 @@ fn render_chart(
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
+    // カラーマップは複数チャートで共用するため一度だけ生成する
+    let cmap = colormap_from_name(&app_state.selected_colormap);
 
     match chart_id {
         ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => unreachable!(),
@@ -101,7 +103,6 @@ fn render_chart(
                 .show(ui, param_names, obj_names, trial_rows);
         }
         ChartId::PdpChart2D => {
-            let cmap = colormap_from_name(&app_state.selected_colormap);
             widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
         }
         ChartId::ParallelCoordinates => {
@@ -132,7 +133,7 @@ fn render_chart(
                 app_state.cluster_result.as_ref(),
                 param_names,
                 obj_names,
-                &colormap_from_name(&app_state.selected_colormap),
+                &cmap,
             );
         }
         ChartId::McdmRankChart => {
