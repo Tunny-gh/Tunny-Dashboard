@@ -25,7 +25,10 @@ pub fn show_cell_chart(
     show_chart(ui, app_state, widgets, chart_id, tx);
 }
 
-/// ChartId に対応するチャートウィジェットを描画する
+/// ChartId に対応するチャートウィジェットを描画する。
+///
+/// 内部で [`render_chart`]（描画のみ、`tx` 不要）と
+/// [`poll_chart_work`]（非同期 dispatch のみ、`ui` 不要）を順に呼び出す。
 pub fn show_chart(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -33,11 +36,25 @@ pub fn show_chart(
     chart_id: &ChartId,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
+    render_chart(ui, app_state, widgets, chart_id);
+    poll_chart_work(app_state, widgets, chart_id, tx);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// render_chart: 描画のみ。spawn_task や I/O は一切行わない。
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn render_chart(
+    ui: &mut egui::Ui,
+    app_state: &mut AppState,
+    widgets: &mut WidgetStates,
+    chart_id: &ChartId,
+) {
     if app_state.current_study.is_none() {
         return;
     }
 
-    // &mut AppState が必要なウィジェットは ctx を借用する前に処理する
+    // pareto_2d/3d は &mut AppState を要求するため先に処理する
     if matches!(chart_id, ChartId::ParetoScatter2D) {
         widgets.pareto_2d.show(ui, app_state);
         return;
@@ -47,7 +64,6 @@ pub fn show_chart(
         return;
     }
 
-    // 以降は不変参照のみで足りるため、クローンせずに参照を使う
     let ctx = app_state.current_study.as_ref().unwrap();
     let trial_rows = &ctx.trial_rows;
     let obj_names = &ctx.meta.objective_names;
@@ -55,12 +71,155 @@ pub fn show_chart(
     let directions = &ctx.meta.directions;
 
     match chart_id {
-        ChartId::ParetoScatter2D => unreachable!(),
+        ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => unreachable!(),
         ChartId::OptimizationHistory => {
             widgets
                 .opt_history
                 .show(ui, trial_rows, obj_names, directions);
         }
+        ChartId::HvHistory => {
+            // キャッシュ済み結果をウィジェットへ同期してから描画する
+            widgets.hv_history.hv_history = app_state.hv_history.clone();
+            widgets.hv_history.show(ui);
+        }
+        ChartId::ImportanceChart => {
+            let imp_key = (
+                widgets.importance.metric.cache_id(),
+                widgets.importance.objective_index,
+            );
+            let current_sensitivity = app_state.importance_cache.get(&imp_key);
+            let current_sobol = app_state
+                .sobol_cache
+                .get(&widgets.importance.objective_index);
+            widgets
+                .importance
+                .show(ui, current_sensitivity, current_sobol, obj_names);
+        }
+        ChartId::PdpChart => {
+            widgets
+                .pdp_chart
+                .show(ui, param_names, obj_names, trial_rows);
+        }
+        ChartId::PdpChart2D => {
+            let cmap = colormap_from_name(&app_state.selected_colormap);
+            widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
+        }
+        ChartId::ParallelCoordinates => {
+            widgets.parallel_coords.show(
+                ui,
+                trial_rows,
+                param_names,
+                obj_names,
+                &widgets.chart_colors,
+            );
+        }
+        ChartId::ScatterMatrix => {
+            widgets.scatter_matrix.show(
+                ui,
+                trial_rows,
+                param_names,
+                obj_names,
+                &widgets.chart_colors,
+            );
+        }
+        ChartId::SensitivityHeatmap => {
+            widgets.sensitivity_heatmap.show(ui);
+        }
+        ChartId::ClusterScatter => {
+            widgets.cluster_scatter.show(
+                ui,
+                trial_rows,
+                app_state.cluster_result.as_ref(),
+                param_names,
+                obj_names,
+                &colormap_from_name(&app_state.selected_colormap),
+            );
+        }
+        ChartId::McdmRankChart => {
+            widgets
+                .mcdm_chart
+                .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
+        }
+        ChartId::McdmScatterChart => {
+            widgets
+                .scatter_chart
+                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+        }
+        ChartId::McdmTable => {
+            widgets
+                .mcdm_table
+                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+        }
+        ChartId::AhpRankChart => {
+            let objectives: Vec<f64> = trial_rows
+                .iter()
+                .flat_map(|r| r.objectives.iter().copied())
+                .collect();
+            let n_trials = trial_rows.len();
+            let n_objectives = obj_names.len();
+            let is_minimize: Vec<bool> = directions
+                .iter()
+                .map(|d| matches!(d, Direction::Minimize))
+                .collect();
+            let ahp_ctx = AhpDataContext {
+                values: &objectives,
+                n_trials,
+                n_objectives,
+                is_minimize: &is_minimize,
+            };
+            widgets
+                .ahp_chart
+                .show_rank_chart(ui, obj_names, &app_state.ahp_result, &ahp_ctx);
+        }
+        ChartId::AhpTable => {
+            widgets
+                .ahp_chart
+                .show_table(ui, obj_names, trial_rows, &app_state.ahp_result);
+        }
+        ChartId::SliceChart => {
+            widgets
+                .slice_chart
+                .show(ui, trial_rows, param_names, obj_names, directions);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// poll_chart_work: 保留中の計算 dispatch のみ。egui::Ui は一切使わない。
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn poll_chart_work(
+    app_state: &mut AppState,
+    widgets: &mut WidgetStates,
+    chart_id: &ChartId,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    if app_state.current_study.is_none() {
+        return;
+    }
+
+    // dispatch を持たないチャートは早期リターン
+    match chart_id {
+        ChartId::ParetoScatter2D
+        | ChartId::ParetoScatter3D
+        | ChartId::OptimizationHistory
+        | ChartId::ParallelCoordinates
+        | ChartId::ScatterMatrix
+        | ChartId::SensitivityHeatmap
+        | ChartId::McdmScatterChart
+        | ChartId::McdmTable
+        | ChartId::AhpTable
+        | ChartId::SliceChart => return,
+        _ => {}
+    }
+
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let trial_rows = &ctx.trial_rows;
+    let obj_names = &ctx.meta.objective_names;
+    let param_names = &ctx.meta.param_names;
+    let directions = &ctx.meta.directions;
+
+    match chart_id {
         ChartId::HvHistory => {
             // 未計算かつ計算中でない場合にバックグラウンドで HV 計算を起動する
             if app_state.hv_history.is_none() && !widgets.hv_history.computing {
@@ -94,22 +253,8 @@ pub fn show_chart(
                     }
                 });
             }
-            widgets.hv_history.hv_history = app_state.hv_history.clone();
-            widgets.hv_history.show(ui);
         }
         ChartId::ImportanceChart => {
-            let imp_key = (
-                widgets.importance.metric.cache_id(),
-                widgets.importance.objective_index,
-            );
-            let current_sensitivity = app_state.importance_cache.get(&imp_key);
-            let current_sobol = app_state
-                .sobol_cache
-                .get(&widgets.importance.objective_index);
-            widgets
-                .importance
-                .show(ui, current_sensitivity, current_sobol, obj_names);
-
             if let Some((metric, obj_idx)) = widgets.importance.pending_compute.take() {
                 use crate::state::results::{
                     MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult,
@@ -254,9 +399,6 @@ pub fn show_chart(
             }
         }
         ChartId::PdpChart => {
-            widgets
-                .pdp_chart
-                .show(ui, param_names, obj_names, trial_rows);
             if let Some(req) = widgets.pdp_chart.pending_compute.take() {
                 // with_active_df はスレッドローカルなので、データをメインスレッドで抽出する
                 if let Some(ctx) = &app_state.current_study {
@@ -325,8 +467,6 @@ pub fn show_chart(
             }
         }
         ChartId::PdpChart2D => {
-            let cmap = colormap_from_name(&app_state.selected_colormap);
-            widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
             if let Some(req) = widgets.pdp_2d.pending_compute.take() {
                 widgets.pdp_2d.computing = true;
                 let tx = tx.clone();
@@ -356,38 +496,7 @@ pub fn show_chart(
                 });
             }
         }
-        ChartId::ParallelCoordinates => {
-            widgets.parallel_coords.show(
-                ui,
-                trial_rows,
-                param_names,
-                obj_names,
-                &widgets.chart_colors,
-            );
-        }
-        ChartId::ScatterMatrix => {
-            widgets.scatter_matrix.show(
-                ui,
-                trial_rows,
-                param_names,
-                obj_names,
-                &widgets.chart_colors,
-            );
-        }
-        ChartId::ParetoScatter3D => unreachable!(),
-        ChartId::SensitivityHeatmap => {
-            widgets.sensitivity_heatmap.show(ui);
-        }
         ChartId::ClusterScatter => {
-            widgets.cluster_scatter.show(
-                ui,
-                trial_rows,
-                app_state.cluster_result.as_ref(),
-                param_names,
-                obj_names,
-                &colormap_from_name(&app_state.selected_colormap),
-            );
-
             if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
                 match build_cluster_matrix(trial_rows, param_names, obj_names, req.target_space) {
                     Ok(matrix) => {
@@ -402,10 +511,6 @@ pub fn show_chart(
             }
         }
         ChartId::McdmRankChart => {
-            widgets
-                .mcdm_chart
-                .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
-
             // メソッド切替時のキャッシュ復元
             if let Some(cached) = widgets.mcdm_chart.pending_restore.take() {
                 app_state.mcdm_result = Some(cached);
@@ -549,38 +654,7 @@ pub fn show_chart(
                 });
             }
         }
-        ChartId::McdmScatterChart => {
-            widgets
-                .scatter_chart
-                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
-        }
-        ChartId::McdmTable => {
-            widgets
-                .mcdm_table
-                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
-        }
         ChartId::AhpRankChart => {
-            let objectives: Vec<f64> = trial_rows
-                .iter()
-                .flat_map(|r| r.objectives.iter().copied())
-                .collect();
-            let n_trials = trial_rows.len();
-            let n_objectives = obj_names.len();
-            let is_minimize: Vec<bool> = directions
-                .iter()
-                .map(|d| matches!(d, Direction::Minimize))
-                .collect();
-
-            let ahp_ctx = AhpDataContext {
-                values: &objectives,
-                n_trials,
-                n_objectives,
-                is_minimize: &is_minimize,
-            };
-            widgets
-                .ahp_chart
-                .show_rank_chart(ui, obj_names, &app_state.ahp_result, &ahp_ctx);
-
             if let Some(req) = widgets.ahp_chart.pending_compute.take() {
                 widgets.ahp_chart.computing = true;
                 let tx = tx.clone();
@@ -608,16 +682,7 @@ pub fn show_chart(
                 });
             }
         }
-        ChartId::AhpTable => {
-            widgets
-                .ahp_chart
-                .show_table(ui, obj_names, trial_rows, &app_state.ahp_result);
-        }
-        ChartId::SliceChart => {
-            widgets
-                .slice_chart
-                .show(ui, trial_rows, param_names, obj_names, directions);
-        }
+        _ => {}
     }
 }
 
