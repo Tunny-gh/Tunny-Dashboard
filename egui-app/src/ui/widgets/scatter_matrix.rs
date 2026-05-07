@@ -1,4 +1,6 @@
-use crate::theme::chart_colors::COLOR_SCATTER_DOT;
+use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_SCATTER_DOT};
+use crate::theme::color_compute::correlation_color;
+
 /// Scatter Matrix の1セルタイプ
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellType {
@@ -246,19 +248,6 @@ pub fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
     (cov / (std_x * std_y)).clamp(-1.0, 1.0)
 }
 
-/// 相関係数を Color32 に変換する（赤=負相関, 白=無相関, 青=正相関）
-pub fn correlation_color(corr: f64) -> egui::Color32 {
-    let t = ((corr + 1.0) / 2.0).clamp(0.0, 1.0) as f32;
-    // -1→赤, 0→白, 1→青
-    if t < 0.5 {
-        let f = t * 2.0;
-        egui::Color32::from_rgb(255, (255.0 * f) as u8, (255.0 * f) as u8)
-    } else {
-        let f = (t - 0.5) * 2.0;
-        egui::Color32::from_rgb((255.0 * (1.0 - f)) as u8, (255.0 * (1.0 - f)) as u8, 255)
-    }
-}
-
 /// 散布図セルを painter で描画する
 pub fn draw_scatter_cell(
     painter: &egui::Painter,
@@ -290,7 +279,7 @@ pub fn draw_scatter_cell(
             (y_min, y_max),
             cell_rect,
         );
-        let color = colors.get(i).copied().unwrap_or(egui::Color32::BLUE);
+        let color = colors.get(i).copied().unwrap_or(COLOR_SCATTER_DOT);
         painter.circle_filled(pos, 2.0, color);
     }
 }
@@ -334,7 +323,7 @@ pub fn draw_correlation_cell(
         egui::Align2::CENTER_CENTER,
         format!("{:.2}", corr),
         egui::FontId::proportional(12.0),
-        egui::Color32::BLACK,
+        COLOR_CHART_TEXT,
     );
 }
 
@@ -451,15 +440,4 @@ mod tests {
         assert!((pos.y - 0.0).abs() < 1e-3); // y is inverted
     }
 
-    #[test]
-    fn correlation_color_negative_is_reddish() {
-        let color = correlation_color(-1.0);
-        assert!(color.r() > color.b()); // More red than blue
-    }
-
-    #[test]
-    fn correlation_color_positive_is_bluish() {
-        let color = correlation_color(1.0);
-        assert!(color.b() > color.r()); // More blue than red
-    }
 }

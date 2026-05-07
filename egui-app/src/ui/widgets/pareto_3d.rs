@@ -1,7 +1,9 @@
 use crate::state::app_state::{AppState, TrialRow};
 use crate::theme::chart_colors::{
-    COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_NON_PARETO, COLOR_PARETO,
+    COLOR_3D_BG, COLOR_3D_GRID, COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_HIGHLIGHT_PT,
+    COLOR_NON_PARETO, COLOR_PARETO,
 };
+use crate::theme::TOOLBAR_BTN_FG;
 use crate::theme::color_compute::compute_point_alpha;
 use crate::ui::widgets::pareto_2d::filter_by_downsample_indices;
 
@@ -229,7 +231,7 @@ impl Pareto3dChart {
         }
 
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(20, 20, 30));
+        painter.rect_filled(rect, 0.0, COLOR_3D_BG);
 
         let center = rect.center();
         let half = rect.size().min_elem() * 0.5;
@@ -244,10 +246,7 @@ impl Pareto3dChart {
         };
 
         // グリッドプレーン（3面：XY@z=-1, XZ@y=-1, YZ@x=-1）
-        let grid_stroke = egui::Stroke::new(
-            0.5,
-            egui::Color32::from_rgba_unmultiplied(120, 120, 140, 70),
-        );
+        let grid_stroke = egui::Stroke::new(0.5, COLOR_3D_GRID);
         const GRID_DIVS: i32 = 4;
         for i in 0..=GRID_DIVS {
             let t = -1.0 + 2.0 * i as f32 / GRID_DIVS as f32;
@@ -376,8 +375,8 @@ impl Pareto3dChart {
         }
 
         if let Some(pos) = highlight_call {
-            painter.circle_filled(pos, 8.0, egui::Color32::YELLOW);
-            painter.circle_stroke(pos, 9.5, egui::Stroke::new(1.5, egui::Color32::WHITE));
+            painter.circle_filled(pos, 8.0, COLOR_HIGHLIGHT_PT);
+            painter.circle_stroke(pos, 9.5, egui::Stroke::new(1.5, TOOLBAR_BTN_FG));
         }
     }
 }

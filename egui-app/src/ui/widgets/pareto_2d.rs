@@ -1,6 +1,6 @@
 use crate::state::app_state::{AppState, TrialRow};
 use crate::theme::chart_colors::{
-    COLOR_NON_PARETO, COLOR_NON_PARETO_DIM, COLOR_PARETO, COLOR_PARETO_DIM,
+    COLOR_HIGHLIGHT_PT, COLOR_NON_PARETO, COLOR_NON_PARETO_DIM, COLOR_PARETO, COLOR_PARETO_DIM,
 };
 use crate::theme::color_compute::compute_point_alpha;
 
@@ -183,7 +183,7 @@ impl ParetoScatter2D {
                     plot_ui.points(
                         egui_plot::Points::new(vec![pt])
                             .name("Highlighted")
-                            .color(egui::Color32::YELLOW)
+                            .color(COLOR_HIGHLIGHT_PT)
                             .radius(8.0),
                     );
                 }

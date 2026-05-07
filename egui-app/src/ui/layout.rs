@@ -1,4 +1,5 @@
 use crate::app::TunnyApp;
+use crate::theme::TOOLBAR_BTN_FG;
 
 /// パネルサイズの定数
 pub const LEFT_WIDTH_MIN: f32 = 120.0;
@@ -36,10 +37,10 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT);
                 vis.widgets.hovered.bg_fill = crate::theme::TOOLBAR_BTN_HOVER;
                 vis.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-                vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+                vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TOOLBAR_BTN_FG);
                 vis.widgets.active.bg_fill = crate::theme::TOOLBAR_BTN_ACTIVE;
                 vis.widgets.active.bg_stroke = egui::Stroke::NONE;
-                vis.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+                vis.widgets.active.fg_stroke = egui::Stroke::new(1.5, TOOLBAR_BTN_FG);
             }
             let toolbar_actions = show_toolbar(
                 ui,

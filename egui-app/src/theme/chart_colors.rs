@@ -92,3 +92,51 @@ pub const COLOR_CELL_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(12, 3
 // ====================================================================
 
 pub const COLOR_LINK: Color32 = Color32::from_rgb(80, 120, 180);
+
+// ====================================================================
+// 3D ビュー系
+// ====================================================================
+
+pub const COLOR_3D_BG: Color32 = Color32::from_rgb(20, 20, 30);
+/// premultiplied: r=120*70/255≈33, g=120*70/255≈33, b=140*70/255≈38
+pub const COLOR_3D_GRID: Color32 = Color32::from_rgba_premultiplied(33, 33, 38, 70);
+
+// ====================================================================
+// ハイライト試行点（pareto_2d / pareto_3d 共通）
+// ====================================================================
+
+pub const COLOR_HIGHLIGHT_PT: Color32 = Color32::YELLOW;
+
+// ====================================================================
+// パラレルコーディネート系
+// ====================================================================
+
+pub const COLOR_PARALLEL_TICK: Color32 = Color32::from_gray(60);
+pub const COLOR_PARALLEL_LINE_DEFAULT: Color32 = Color32::from_rgb(100, 150, 220);
+pub const COLOR_PARALLEL_AXIS: Color32 = Color32::from_gray(80);
+
+// ====================================================================
+// PDP CI バンド凡例マーカー（egui_plot 用、non-premultiplied 相当）
+// ====================================================================
+
+/// premultiplied: r=50*120/255≈24, g=100*120/255≈47, b=255*120/255=120
+pub const COLOR_PDP_CI_LEGEND: Color32 = Color32::from_rgba_premultiplied(24, 47, 120, 120);
+
+// ====================================================================
+// AHP 一貫性比率
+// ====================================================================
+
+pub const COLOR_CR_OK: Color32 = Color32::GREEN;
+
+// ====================================================================
+// チャート汎用色
+// ====================================================================
+
+/// チャートセル内テキスト（ヒートマップ・相関係数セルなど）
+pub const COLOR_CHART_TEXT: Color32 = Color32::BLACK;
+
+/// データなし・空状態の表示色
+pub const COLOR_EMPTY_STATE: Color32 = Color32::GRAY;
+
+/// ヒートマップ・マトリクス系のグリッド線色
+pub const COLOR_GRID_STROKE: Color32 = Color32::GRAY;

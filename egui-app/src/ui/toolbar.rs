@@ -1,6 +1,6 @@
 use crate::state::app_state::{AppState, StudyMeta};
 use crate::state::layout_state::{LayoutMode, LayoutState};
-use crate::theme::ERROR_COLOR;
+use crate::theme::{ERROR_COLOR, TOOLBAR_BTN_FG};
 
 /// レイアウトモードボタンのラベル定義
 pub const LAYOUT_MODE_BUTTONS: &[(LayoutMode, &str)] = &[
@@ -206,7 +206,7 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Respon
             egui::Color32::TRANSPARENT
         };
         let final_text_color = if enabled && resp.hovered() {
-            egui::Color32::WHITE
+            TOOLBAR_BTN_FG
         } else {
             text_color
         };
@@ -224,7 +224,7 @@ fn apply_combo_visuals(vis: &mut egui::Visuals) {
     vis.override_text_color = Some(TOOLBAR_TEXT);
     let bg_stroke = egui::Stroke::new(1.0, TOOLBAR_INPUT_STROKE);
     let fg_text = egui::Stroke::new(1.0, TOOLBAR_TEXT);
-    let fg_white = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    let fg_white = egui::Stroke::new(1.0, TOOLBAR_BTN_FG);
     for w in [&mut vis.widgets.inactive, &mut vis.widgets.noninteractive] {
         w.weak_bg_fill = TOOLBAR_INPUT_BG;
         w.bg_fill = TOOLBAR_INPUT_BG;

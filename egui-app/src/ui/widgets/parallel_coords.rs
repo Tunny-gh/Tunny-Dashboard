@@ -1,3 +1,8 @@
+use crate::theme::chart_colors::{
+    COLOR_CHART_TEXT, COLOR_PARALLEL_AXIS, COLOR_PARALLEL_LINE_DEFAULT, COLOR_PARALLEL_TICK,
+};
+use crate::theme::CENTRAL_BG;
+
 /// 値の範囲に応じた精度で軸目盛り値をフォーマットする
 pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
     let range = (mx - mn).abs();
@@ -167,13 +172,12 @@ impl ParallelCoordsChart {
 
         let painter = ui.painter().clone();
 
-        // 背景を白で塗りつぶす
-        painter.rect_filled(available, 0.0, egui::Color32::WHITE);
+        painter.rect_filled(available, 0.0, CENTRAL_BG);
 
-        let text_color = egui::Color32::BLACK;
+        let text_color = COLOR_CHART_TEXT;
         const N_TICKS: usize = 5;
         let tick_len = 4.0_f32;
-        let tick_color = egui::Color32::from_gray(60);
+        let tick_color = COLOR_PARALLEL_TICK;
         let tick_font = egui::FontId::proportional(9.0);
 
         // 各試行を折れ線で描画（半透明）
@@ -181,7 +185,7 @@ impl ParallelCoordsChart {
             let base_color = chart_colors
                 .get(t_idx)
                 .copied()
-                .unwrap_or(egui::Color32::from_rgb(100, 150, 220));
+                .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
             let color = egui::Color32::from_rgba_unmultiplied(
                 base_color.r(),
                 base_color.g(),
@@ -214,7 +218,7 @@ impl ParallelCoordsChart {
             let x = axis_x[i];
             painter.line_segment(
                 [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
-                egui::Stroke::new(1.5, egui::Color32::from_gray(80)),
+                egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS),
             );
             painter.text(
                 egui::pos2(x, available.min.y + 15.0),

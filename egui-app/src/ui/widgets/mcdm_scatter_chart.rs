@@ -3,8 +3,9 @@
 use crate::state::app_state::TrialRow;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::theme::chart_colors::{
-    COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
+    COLOR_EMPTY_STATE, COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
 };
+use crate::theme::ERROR_COLOR;
 use egui::Color32;
 
 /// 軸識別子定数（get_axis_options と extract_axis_values で共有）
@@ -152,7 +153,7 @@ impl McdmScatterChart {
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
                 ui.colored_label(
-                    Color32::GRAY,
+                    COLOR_EMPTY_STATE,
                     "Run MCDM analysis first (Ranking tab → Run button)",
                 );
             });
@@ -232,7 +233,7 @@ impl McdmScatterChart {
         }
 
         if let Some(ref error) = self.error_message {
-            ui.colored_label(Color32::RED, error);
+            ui.colored_label(ERROR_COLOR, error);
             return;
         }
 

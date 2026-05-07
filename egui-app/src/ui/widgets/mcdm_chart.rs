@@ -2,7 +2,9 @@ use crate::state::app_state::TrialRow;
 use crate::state::results::{
     EntropyResult, McdmMethod, McdmResult, PrometheeResult, TopsisResult, VikorResult, WeightMode,
 };
-use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
+use crate::theme::chart_colors::{
+    COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY, COLOR_EMPTY_STATE,
+};
 
 /// MCDM compute request payload
 pub struct McdmComputeRequest {
@@ -123,7 +125,7 @@ impl McdmRankChart {
         let obj_count = obj_names.len();
         if obj_count == 0 {
             ui.vertical_centered(|ui| {
-                ui.colored_label(egui::Color32::GRAY, "Select a study first");
+                ui.colored_label(COLOR_EMPTY_STATE, "Select a study first");
             });
             return;
         }
@@ -247,7 +249,7 @@ impl McdmRankChart {
                     use egui_extras::{Column, TableBuilder};
                     let n_obj = entropy.weights.len();
                     if n_obj == 0 {
-                        ui.colored_label(egui::Color32::GRAY, "No data");
+                        ui.colored_label(COLOR_EMPTY_STATE, "No data");
                         return;
                     }
 
@@ -312,7 +314,7 @@ impl McdmRankChart {
 
         let Some(result) = result else {
             ui.vertical_centered(|ui| {
-                ui.colored_label(egui::Color32::GRAY, "Press Run to compute MCDM ranking");
+                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute MCDM ranking");
             });
             return;
         };
@@ -530,7 +532,7 @@ impl McdmTable {
         let Some(result) = result else {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    egui::Color32::GRAY,
+                    COLOR_EMPTY_STATE,
                     "No MCDM result — run computation from MCDM Ranking first",
                 );
             });
@@ -541,7 +543,7 @@ impl McdmTable {
 
         let rows = build_ranking_rows(result, trial_rows, self.top_n.value());
         if rows.is_empty() {
-            ui.colored_label(egui::Color32::GRAY, "No results to display");
+            ui.colored_label(COLOR_EMPTY_STATE, "No results to display");
             return;
         }
 

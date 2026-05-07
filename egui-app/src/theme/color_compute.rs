@@ -121,6 +121,38 @@ pub fn compute_chart_colors(
         .collect()
 }
 
+fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + t * (b as f32 - a as f32)) as u8
+}
+
+fn lerp_color(c0: egui::Color32, c1: egui::Color32, t: f32) -> egui::Color32 {
+    egui::Color32::from_rgb(
+        lerp_u8(c0.r(), c1.r(), t),
+        lerp_u8(c0.g(), c1.g(), t),
+        lerp_u8(c0.b(), c1.b(), t),
+    )
+}
+
+/// [-1, +1] の値を low(-1) → white(0) → high(+1) の3点グラデーションに変換する。
+fn signed_to_diverging_color(v: f64, low: egui::Color32, high: egui::Color32) -> egui::Color32 {
+    let t = ((v + 1.0) / 2.0).clamp(0.0, 1.0) as f32;
+    if t < 0.5 {
+        lerp_color(low, egui::Color32::WHITE, t * 2.0)
+    } else {
+        lerp_color(egui::Color32::WHITE, high, (t - 0.5) * 2.0)
+    }
+}
+
+/// 発散型カラーマップ: score=-1.0 → 青, 0.0 → 白, +1.0 → 赤
+pub fn diverging_colormap(score: f64) -> egui::Color32 {
+    signed_to_diverging_color(score, egui::Color32::BLUE, egui::Color32::RED)
+}
+
+/// 相関係数を Color32 に変換する（赤=負相関, 白=無相関, 青=正相関）
+pub fn correlation_color(corr: f64) -> egui::Color32 {
+    signed_to_diverging_color(corr, egui::Color32::RED, egui::Color32::BLUE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,5 +423,45 @@ mod tests {
             Some(&[]),
         );
         assert!(colors.is_empty());
+    }
+
+    #[test]
+    fn diverging_colormap_negative_one_is_blue() {
+        let color = diverging_colormap(-1.0);
+        assert!(color.b() > color.r(), "score=-1 should be blue-dominant");
+    }
+
+    #[test]
+    fn diverging_colormap_zero_is_white() {
+        let color = diverging_colormap(0.0);
+        assert_eq!(color.r(), 255);
+        assert_eq!(color.g(), 255);
+        assert_eq!(color.b(), 255);
+    }
+
+    #[test]
+    fn diverging_colormap_positive_one_is_red() {
+        let color = diverging_colormap(1.0);
+        assert!(color.r() > color.b(), "score=+1 should be red-dominant");
+    }
+
+    #[test]
+    fn diverging_colormap_intermediate_values_bounded() {
+        for i in -10..=10 {
+            let score = i as f64 / 10.0;
+            let _ = diverging_colormap(score);
+        }
+    }
+
+    #[test]
+    fn correlation_color_negative_is_reddish() {
+        let color = correlation_color(-1.0);
+        assert!(color.r() > color.b());
+    }
+
+    #[test]
+    fn correlation_color_positive_is_bluish() {
+        let color = correlation_color(1.0);
+        assert!(color.b() > color.r());
     }
 }

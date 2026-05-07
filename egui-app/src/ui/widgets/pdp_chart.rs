@@ -1,6 +1,8 @@
 use crate::state::app_state::TrialRow;
 use crate::state::messages::{PdpResult, PdpResult1d};
-use crate::theme::chart_colors::{COLOR_ICE_LINE, COLOR_PARETO, COLOR_PDP_CI, COLOR_PDP_LINE};
+use crate::theme::chart_colors::{
+    COLOR_ICE_LINE, COLOR_PARETO, COLOR_PDP_CI, COLOR_PDP_CI_LEGEND, COLOR_PDP_LINE,
+};
 use std::collections::HashMap;
 
 /// 1D PDP 計算リクエスト（show() がセットし chart_registry が消費する）
@@ -293,7 +295,7 @@ impl PdpChart {
                     plot_ui.points(
                         egui_plot::Points::new(vec![[f64::NAN, f64::NAN]])
                             .name("95% CI")
-                            .color(egui::Color32::from_rgba_unmultiplied(50, 100, 255, 120))
+                            .color(COLOR_PDP_CI_LEGEND)
                             .radius(6.0),
                     );
                 }

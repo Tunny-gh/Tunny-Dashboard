@@ -4,6 +4,7 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::{DragPayload, GridCell, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
 use crate::theme::chart_colors::{COLOR_CELL_HIGHLIGHT, COLOR_SELECTION_HIGHLIGHT};
+use crate::theme::{CENTRAL_BG, CLOSE_BTN_TEXT};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::trial_table::TrialTableWidget;
 
@@ -90,7 +91,7 @@ pub fn show_grid_canvas(
 
                 // セルの背景と境界線を描画
                 ui.painter()
-                    .rect_filled(cell_rect, 0.0, egui::Color32::WHITE);
+                    .rect_filled(cell_rect, 0.0, CENTRAL_BG);
                 ui.painter().rect_stroke(
                     cell_rect,
                     0.0,
@@ -362,7 +363,7 @@ fn show_cell_toolbar(
                         egui::Button::new(
                             egui::RichText::new("x")
                                 .small()
-                                .color(egui::Color32::from_gray(180)),
+                                .color(CLOSE_BTN_TEXT),
                         )
                         .frame(false),
                     );

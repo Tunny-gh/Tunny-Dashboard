@@ -1,6 +1,6 @@
 use crate::state::app_state::TrialRow;
 use crate::state::results::AhpResult;
-use crate::theme::chart_colors::COLOR_BAR_PRIMARY;
+use crate::theme::chart_colors::{COLOR_BAR_PRIMARY, COLOR_CR_OK, COLOR_EMPTY_STATE};
 use crate::theme::ERROR_COLOR;
 
 #[derive(Debug)]
@@ -90,7 +90,7 @@ impl AhpChart {
 
         if n_objectives == 0 {
             ui.vertical_centered(|ui| {
-                ui.colored_label(egui::Color32::GRAY, "Select a study first");
+                ui.colored_label(COLOR_EMPTY_STATE, "Select a study first");
             });
             return;
         }
@@ -169,7 +169,7 @@ impl AhpChart {
 
         let Some(r) = result else {
             ui.vertical_centered(|ui| {
-                ui.colored_label(egui::Color32::GRAY, "Press Run to compute AHP ranking");
+                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute AHP ranking");
             });
             return;
         };
@@ -178,7 +178,7 @@ impl AhpChart {
         let (cr_label, cr_color) = if r.is_consistent {
             (
                 format!("CR = {:.3}  Consistent", r.cr),
-                egui::Color32::GREEN,
+                COLOR_CR_OK,
             )
         } else {
             (
@@ -218,7 +218,7 @@ impl AhpChart {
 
         let Some(r) = result else {
             ui.vertical_centered(|ui| {
-                ui.colored_label(egui::Color32::GRAY, "Press Run to compute AHP ranking");
+                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute AHP ranking");
             });
             return;
         };
