@@ -2,7 +2,9 @@
 
 use crate::state::app_state::TrialRow;
 use crate::state::results::{McdmMethod, McdmResult};
-use crate::theme::chart_colors::{COLOR_MCDM_HIGH, COLOR_MCDM_MID, COLOR_MCDM_LOW, COLOR_MCDM_NONE};
+use crate::theme::chart_colors::{
+    COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
+};
 use egui::Color32;
 
 /// 軸識別子定数（get_axis_options と extract_axis_values で共有）
@@ -200,7 +202,6 @@ impl McdmScatterChart {
                         ui.selectable_value(&mut self.color_threshold, *t, t.label());
                     }
                 });
-
         });
 
         // キャッシュが陳腐化している場合に再計算
@@ -263,13 +264,13 @@ fn render_scatter_plot(
     y_label: &str,
 ) {
     // 色別にグループ分け（レンダリング順: gray→yellow→orange→red）
-    let top5  = 5_usize.min(points.len());
+    let top5 = 5_usize.min(points.len());
     let top10 = 10_usize.min(points.len());
     let top20 = 20_usize.min(points.len());
-    let mut gray_pts:   Vec<[f64; 2]> = Vec::with_capacity(points.len());
+    let mut gray_pts: Vec<[f64; 2]> = Vec::with_capacity(points.len());
     let mut yellow_pts: Vec<[f64; 2]> = Vec::with_capacity(top20 - top10);
     let mut orange_pts: Vec<[f64; 2]> = Vec::with_capacity(top10 - top5);
-    let mut red_pts:    Vec<[f64; 2]> = Vec::with_capacity(top5);
+    let mut red_pts: Vec<[f64; 2]> = Vec::with_capacity(top5);
 
     for &(x, y, color) in points {
         let pt = [x, y];
@@ -846,50 +847,32 @@ mod tests {
 
     #[test]
     fn test_rank_5_gray_when_top5() {
-        assert_eq!(
-            map_rank_to_color(5, ScatterTopN::Top5),
-            COLOR_MCDM_NONE
-        );
+        assert_eq!(map_rank_to_color(5, ScatterTopN::Top5), COLOR_MCDM_NONE);
     }
 
     #[test]
     fn test_rank_5_orange_when_top10() {
-        assert_eq!(
-            map_rank_to_color(5, ScatterTopN::Top10),
-            COLOR_MCDM_MID
-        );
+        assert_eq!(map_rank_to_color(5, ScatterTopN::Top10), COLOR_MCDM_MID);
     }
 
     #[test]
     fn test_rank_5_orange_when_top20() {
-        assert_eq!(
-            map_rank_to_color(5, ScatterTopN::Top20),
-            COLOR_MCDM_MID
-        );
+        assert_eq!(map_rank_to_color(5, ScatterTopN::Top20), COLOR_MCDM_MID);
     }
 
     #[test]
     fn test_rank_10_gray_when_top5() {
-        assert_eq!(
-            map_rank_to_color(10, ScatterTopN::Top5),
-            COLOR_MCDM_NONE
-        );
+        assert_eq!(map_rank_to_color(10, ScatterTopN::Top5), COLOR_MCDM_NONE);
     }
 
     #[test]
     fn test_rank_10_gray_when_top10() {
-        assert_eq!(
-            map_rank_to_color(10, ScatterTopN::Top10),
-            COLOR_MCDM_NONE
-        );
+        assert_eq!(map_rank_to_color(10, ScatterTopN::Top10), COLOR_MCDM_NONE);
     }
 
     #[test]
     fn test_rank_10_yellow_when_top20() {
-        assert_eq!(
-            map_rank_to_color(10, ScatterTopN::Top20),
-            COLOR_MCDM_LOW
-        );
+        assert_eq!(map_rank_to_color(10, ScatterTopN::Top20), COLOR_MCDM_LOW);
     }
 
     #[test]
@@ -980,14 +963,9 @@ mod tests {
     fn test_compute_scatter_points_empty_trials() {
         let vikor = make_vikor(0);
         let result = McdmResult::Vikor(vikor);
-        let (points, meta) = compute_scatter_points(
-            &result,
-            &[],
-            "Objective0",
-            "Objective1",
-            ScatterTopN::Top10,
-        )
-        .unwrap();
+        let (points, meta) =
+            compute_scatter_points(&result, &[], "Objective0", "Objective1", ScatterTopN::Top10)
+                .unwrap();
         assert!(points.is_empty());
         assert_eq!(meta.total_trials, 0);
     }
@@ -1000,14 +978,9 @@ mod tests {
             .collect();
         let result = make_vikor_result(n);
 
-        let (points, _) = compute_scatter_points(
-            &result,
-            &trials,
-            "VIKOR_Q",
-            "VIKOR_S",
-            ScatterTopN::Top10,
-        )
-        .unwrap();
+        let (points, _) =
+            compute_scatter_points(&result, &trials, "VIKOR_Q", "VIKOR_S", ScatterTopN::Top10)
+                .unwrap();
 
         // q_values == s_values for make_vikor, both are raw i * 0.1 values
         assert_eq!(points.len(), n);

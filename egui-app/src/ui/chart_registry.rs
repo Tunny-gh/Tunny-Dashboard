@@ -4,6 +4,7 @@ use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
 use crate::state::results::{AhpResult, EntropyResult, McdmMethod};
+use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::ahp_chart::AhpDataContext;
 use crate::ui::widgets::cluster_scatter::{
@@ -324,7 +325,7 @@ pub fn show_chart(
             }
         }
         ChartId::PdpChart2D => {
-            let cmap = app_state.selected_colormap.to_colormap();
+            let cmap = colormap_from_name(&app_state.selected_colormap);
             widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
             if let Some(req) = widgets.pdp_2d.pending_compute.take() {
                 widgets.pdp_2d.computing = true;
@@ -361,7 +362,7 @@ pub fn show_chart(
                 trial_rows,
                 param_names,
                 obj_names,
-                &app_state.chart_colors,
+                &widgets.chart_colors,
             );
         }
         ChartId::ScatterMatrix => {
@@ -370,7 +371,7 @@ pub fn show_chart(
                 trial_rows,
                 param_names,
                 obj_names,
-                &app_state.chart_colors,
+                &widgets.chart_colors,
             );
         }
         ChartId::ParetoScatter3D => unreachable!(),
@@ -384,7 +385,7 @@ pub fn show_chart(
                 app_state.cluster_result.as_ref(),
                 param_names,
                 obj_names,
-                &app_state.selected_colormap.to_colormap(),
+                &colormap_from_name(&app_state.selected_colormap),
             );
 
             if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
@@ -412,150 +413,141 @@ pub fn show_chart(
 
             // Entropy dispatch: pending_entropy が true の場合、バックグラウンドでエントロピー計算を実行
             if widgets.mcdm_chart.pending_entropy && !widgets.mcdm_chart.computing {
-                        let objectives: Vec<f64> = trial_rows
-                            .iter()
-                            .flat_map(|r| r.objectives.iter().copied())
-                            .collect();
-                        let n_trials = trial_rows.len();
-                        let n_objectives = obj_names.len();
+                let objectives: Vec<f64> = trial_rows
+                    .iter()
+                    .flat_map(|r| r.objectives.iter().copied())
+                    .collect();
+                let n_trials = trial_rows.len();
+                let n_objectives = obj_names.len();
 
-                        if n_trials > 0 && n_objectives > 0 {
-                            widgets.mcdm_chart.computing = true;
-                            let tx = tx.clone();
-                            crate::app::spawn_task(tx, move || {
-                                match tunny_core::entropy::compute_entropy_weights(
-                                    &objectives,
-                                    n_trials,
-                                    n_objectives,
-                                ) {
-                                    Ok(r) => AppMessage::EntropyDone(EntropyResult {
-                                        weights: r.weights,
-                                        entropies: r.entropies,
-                                        diversities: r.diversities,
-                                        duration_ms: r.duration_ms,
-                                    }),
-                                    Err(e) => AppMessage::Error(format!(
-                                        "Entropy computation failed: {}",
-                                        e
-                                    )),
-                                }
-                            });
+                if n_trials > 0 && n_objectives > 0 {
+                    widgets.mcdm_chart.computing = true;
+                    let tx = tx.clone();
+                    crate::app::spawn_task(tx, move || {
+                        match tunny_core::entropy::compute_entropy_weights(
+                            &objectives,
+                            n_trials,
+                            n_objectives,
+                        ) {
+                            Ok(r) => AppMessage::EntropyDone(EntropyResult {
+                                weights: r.weights,
+                                entropies: r.entropies,
+                                diversities: r.diversities,
+                                duration_ms: r.duration_ms,
+                            }),
+                            Err(e) => {
+                                AppMessage::Error(format!("Entropy computation failed: {}", e))
+                            }
                         }
-                    }
+                    });
+                }
+            }
 
-                    if let Some(req) = widgets.mcdm_chart.pending_compute.take() {
-                        widgets.mcdm_chart.computing = true;
+            if let Some(req) = widgets.mcdm_chart.pending_compute.take() {
+                widgets.mcdm_chart.computing = true;
 
-                        let McdmComputeRequest { method, weights, v } = req;
+                let McdmComputeRequest { method, weights, v } = req;
 
-                        let objectives: Vec<f64> = trial_rows
-                            .iter()
-                            .flat_map(|r| r.objectives.iter().copied())
-                            .collect();
-                        let n_trials = trial_rows.len();
-                        let n_objectives = obj_names.len();
-                        let is_minimize: Vec<bool> = directions
-                            .iter()
-                            .map(|d| matches!(d, Direction::Minimize))
-                            .collect();
+                let objectives: Vec<f64> = trial_rows
+                    .iter()
+                    .flat_map(|r| r.objectives.iter().copied())
+                    .collect();
+                let n_trials = trial_rows.len();
+                let n_objectives = obj_names.len();
+                let is_minimize: Vec<bool> = directions
+                    .iter()
+                    .map(|d| matches!(d, Direction::Minimize))
+                    .collect();
 
-                        let tx = tx.clone();
-                        crate::app::spawn_task(tx, move || {
-                            let start = std::time::Instant::now();
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    let start = std::time::Instant::now();
 
-                            match method {
-                                McdmMethod::Topsis => {
-                                    match tunny_core::topsis::compute_topsis(
-                                        &objectives,
-                                        n_trials,
-                                        n_objectives,
-                                        &weights,
-                                        &is_minimize,
-                                    ) {
-                                        Ok(r) => AppMessage::McdmDone(
-                                            crate::state::results::McdmResult::Topsis(
-                                                crate::state::results::TopsisResult {
-                                                    scores: r.scores,
-                                                    ranked_indices: r.ranked_indices,
-                                                    positive_ideal: r.positive_ideal,
-                                                    negative_ideal: r.negative_ideal,
-                                                    duration_ms: start.elapsed().as_secs_f64()
-                                                        * 1000.0,
-                                                },
-                                            ),
-                                        ),
-                                        Err(e) => AppMessage::Error(format!(
-                                            "TOPSIS computation failed: {}",
-                                            e
-                                        )),
-                                    }
+                    match method {
+                        McdmMethod::Topsis => {
+                            match tunny_core::topsis::compute_topsis(
+                                &objectives,
+                                n_trials,
+                                n_objectives,
+                                &weights,
+                                &is_minimize,
+                            ) {
+                                Ok(r) => {
+                                    AppMessage::McdmDone(crate::state::results::McdmResult::Topsis(
+                                        crate::state::results::TopsisResult {
+                                            scores: r.scores,
+                                            ranked_indices: r.ranked_indices,
+                                            positive_ideal: r.positive_ideal,
+                                            negative_ideal: r.negative_ideal,
+                                            duration_ms: start.elapsed().as_secs_f64() * 1000.0,
+                                        },
+                                    ))
                                 }
-                                McdmMethod::Vikor => {
-                                    match tunny_core::vikor::compute_vikor(
-                                        &objectives,
-                                        n_trials,
-                                        n_objectives,
-                                        &weights,
-                                        &is_minimize,
-                                        v,
-                                    ) {
-                                        Ok(r) => AppMessage::McdmDone(
-                                            crate::state::results::McdmResult::Vikor(
-                                                crate::state::results::VikorResult {
-                                                    s_values: r.s_values,
-                                                    r_values: r.r_values,
-                                                    q_values: r.q_values,
-                                                    display_scores: r.display_scores,
-                                                    ranked_indices: r.ranked_indices,
-                                                    best_values: r.best_values,
-                                                    worst_values: r.worst_values,
-                                                    duration_ms: start.elapsed().as_secs_f64()
-                                                        * 1000.0,
-                                                },
-                                            ),
-                                        ),
-                                        Err(e) => AppMessage::Error(format!(
-                                            "VIKOR computation failed: {}",
-                                            e
-                                        )),
-                                    }
-                                }
-                                McdmMethod::PrometheeI | McdmMethod::PrometheeII => {
-                                    match tunny_core::promethee::compute_promethee(
-                                        &objectives,
-                                        n_trials,
-                                        n_objectives,
-                                        &weights,
-                                        &is_minimize,
-                                    ) {
-                                        Ok(r) => {
-                                            let result = crate::state::results::PrometheeResult {
-                                                phi_plus: r.phi_plus,
-                                                phi_minus: r.phi_minus,
-                                                phi_net: r.phi_net,
-                                                ranked_indices_i: r.ranked_indices_i,
-                                                ranked_indices_ii: r.ranked_indices_ii,
-                                                duration_ms: r.duration_ms,
-                                            };
-                                            let mcdm = if method == McdmMethod::PrometheeI {
-                                                crate::state::results::McdmResult::PrometheeI(
-                                                    result,
-                                                )
-                                            } else {
-                                                crate::state::results::McdmResult::PrometheeII(
-                                                    result,
-                                                )
-                                            };
-                                            AppMessage::McdmDone(mcdm)
-                                        }
-                                        Err(e) => AppMessage::Error(format!(
-                                            "PROMETHEE computation failed: {e}"
-                                        )),
-                                    }
+                                Err(e) => {
+                                    AppMessage::Error(format!("TOPSIS computation failed: {}", e))
                                 }
                             }
-                        });
+                        }
+                        McdmMethod::Vikor => {
+                            match tunny_core::vikor::compute_vikor(
+                                &objectives,
+                                n_trials,
+                                n_objectives,
+                                &weights,
+                                &is_minimize,
+                                v,
+                            ) {
+                                Ok(r) => {
+                                    AppMessage::McdmDone(crate::state::results::McdmResult::Vikor(
+                                        crate::state::results::VikorResult {
+                                            s_values: r.s_values,
+                                            r_values: r.r_values,
+                                            q_values: r.q_values,
+                                            display_scores: r.display_scores,
+                                            ranked_indices: r.ranked_indices,
+                                            best_values: r.best_values,
+                                            worst_values: r.worst_values,
+                                            duration_ms: start.elapsed().as_secs_f64() * 1000.0,
+                                        },
+                                    ))
+                                }
+                                Err(e) => {
+                                    AppMessage::Error(format!("VIKOR computation failed: {}", e))
+                                }
+                            }
+                        }
+                        McdmMethod::PrometheeI | McdmMethod::PrometheeII => {
+                            match tunny_core::promethee::compute_promethee(
+                                &objectives,
+                                n_trials,
+                                n_objectives,
+                                &weights,
+                                &is_minimize,
+                            ) {
+                                Ok(r) => {
+                                    let result = crate::state::results::PrometheeResult {
+                                        phi_plus: r.phi_plus,
+                                        phi_minus: r.phi_minus,
+                                        phi_net: r.phi_net,
+                                        ranked_indices_i: r.ranked_indices_i,
+                                        ranked_indices_ii: r.ranked_indices_ii,
+                                        duration_ms: r.duration_ms,
+                                    };
+                                    let mcdm = if method == McdmMethod::PrometheeI {
+                                        crate::state::results::McdmResult::PrometheeI(result)
+                                    } else {
+                                        crate::state::results::McdmResult::PrometheeII(result)
+                                    };
+                                    AppMessage::McdmDone(mcdm)
+                                }
+                                Err(e) => {
+                                    AppMessage::Error(format!("PROMETHEE computation failed: {e}"))
+                                }
+                            }
+                        }
                     }
+                });
+            }
         }
         ChartId::McdmScatterChart => {
             widgets

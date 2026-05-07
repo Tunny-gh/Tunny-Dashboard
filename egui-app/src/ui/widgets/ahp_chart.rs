@@ -200,8 +200,7 @@ impl AhpChart {
                 let ratio = if max_w > 0.0 { (w / max_w) as f32 } else { 0.0 };
                 let (rect, _resp) =
                     ui.allocate_exact_size(egui::vec2(200.0 * ratio, 14.0), egui::Sense::hover());
-                ui.painter()
-                    .rect_filled(rect, 2.0, COLOR_BAR_PRIMARY);
+                ui.painter().rect_filled(rect, 2.0, COLOR_BAR_PRIMARY);
             });
         }
     }

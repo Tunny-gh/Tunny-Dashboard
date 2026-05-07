@@ -1,6 +1,8 @@
 use crate::state::app_state::TrialRow;
 use crate::state::types::Direction;
-use crate::theme::chart_colors::{COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL};
+use crate::theme::chart_colors::{
+    COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HistoryMode {

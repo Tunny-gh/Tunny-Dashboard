@@ -1,6 +1,8 @@
-use crate::theme::color_compute::compute_point_alpha;
-use crate::theme::chart_colors::{COLOR_PARETO, COLOR_NON_PARETO, COLOR_PARETO_DIM, COLOR_NON_PARETO_DIM};
 use crate::state::app_state::{AppState, TrialRow};
+use crate::theme::chart_colors::{
+    COLOR_NON_PARETO, COLOR_NON_PARETO_DIM, COLOR_PARETO, COLOR_PARETO_DIM,
+};
+use crate::theme::color_compute::compute_point_alpha;
 
 type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
 

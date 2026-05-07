@@ -306,11 +306,7 @@ impl PdpChart {
                         .zip(ice.iter())
                         .map(|(&x, &y)| [x, y])
                         .collect();
-                    plot_ui.line(
-                        egui_plot::Line::new(pts)
-                            .width(0.5)
-                            .color(COLOR_ICE_LINE),
-                    );
+                    plot_ui.line(egui_plot::Line::new(pts).width(0.5).color(COLOR_ICE_LINE));
                 }
 
                 // PDP 平均曲線

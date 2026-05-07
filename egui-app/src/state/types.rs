@@ -146,20 +146,6 @@ impl ColormapName {
             Self::BlueYellow,
         ]
     }
-
-    pub fn to_colormap(&self) -> crate::theme::colormap::ColorMap {
-        match self {
-            Self::Viridis => crate::theme::colormap::ColorMap::viridis(),
-            Self::Plasma => crate::theme::colormap::ColorMap::plasma(),
-            Self::Jet => crate::theme::colormap::ColorMap::jet(),
-            Self::Turbo => crate::theme::colormap::ColorMap::turbo(),
-            Self::Inferno => crate::theme::colormap::ColorMap::inferno(),
-            Self::Coolwarm => crate::theme::colormap::ColorMap::coolwarm(),
-            Self::Spectral => crate::theme::colormap::ColorMap::spectral(),
-            Self::Cividis => crate::theme::colormap::ColorMap::cividis(),
-            Self::BlueYellow => crate::theme::colormap::ColorMap::blue_yellow(),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -182,29 +168,6 @@ mod tests {
     fn colormap_name_labels_not_empty() {
         for cmap in ColormapName::all() {
             assert!(!cmap.label().is_empty(), "{:?} has empty label", cmap);
-        }
-    }
-
-    #[test]
-    fn colormap_name_to_colormap_jet_boundaries() {
-        use crate::theme::colormap::ColorMap;
-        let jet = ColormapName::Jet.to_colormap();
-        assert_eq!(jet.interpolate(0.0), egui::Color32::from_rgb(0, 0, 143));
-        assert_eq!(jet.interpolate(1.0), egui::Color32::from_rgb(128, 0, 0));
-        // Clamping
-        assert_eq!(jet.interpolate(-0.1), jet.interpolate(0.0));
-        assert_eq!(jet.interpolate(1.1), jet.interpolate(1.0));
-    }
-
-    #[test]
-    fn colormap_name_to_colormap_each_boundary() {
-        for name in ColormapName::all() {
-            let cmap = name.to_colormap();
-            // interpolate(0.0) and interpolate(1.0) should not panic
-            let _ = cmap.interpolate(0.0);
-            let _ = cmap.interpolate(1.0);
-            let _ = cmap.interpolate(-0.5);
-            let _ = cmap.interpolate(1.5);
         }
     }
 

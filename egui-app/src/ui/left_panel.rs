@@ -1,11 +1,13 @@
 use crate::state::app_state::{AppState, ColorMode, ColormapName};
 use crate::state::layout_state::LayoutState;
 use crate::state::messages::AppMessage;
+use crate::ui::widget_states::WidgetStates;
 
 /// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
 pub fn show_left_panel(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
+    widget_states: &mut WidgetStates,
     _layout: &mut LayoutState,
     tx: &std::sync::mpsc::SyncSender<AppMessage>,
 ) {
@@ -14,8 +16,8 @@ pub fn show_left_panel(
         ui.separator();
         show_filter_sliders(ui, app_state);
         ui.separator();
-        show_color_mode(ui, app_state);
-        show_colormap_selector(ui, app_state);
+        show_color_mode(ui, app_state, widget_states);
+        show_colormap_selector(ui, app_state, widget_states);
 
         // REQ-001: Trade-off Navigator（多目的 Study 時のみ）
         let (obj_names, is_minimize) = if let Some(ctx) = &app_state.current_study {
@@ -113,7 +115,7 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
 }
 
 /// カラーモード選択
-fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
+fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState, widget_states: &mut WidgetStates) {
     ui.label("Color Mode:");
     let current_label = app_state.color_mode.label().to_string();
     let mut changed = false;
@@ -166,12 +168,16 @@ fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState) {
             }
         });
     if changed {
-        app_state.update_chart_colors();
+        widget_states.update_chart_colors(app_state);
     }
 }
 
 /// カラーマップ選択セレクタ
-fn show_colormap_selector(ui: &mut egui::Ui, app_state: &mut AppState) {
+fn show_colormap_selector(
+    ui: &mut egui::Ui,
+    app_state: &mut AppState,
+    widget_states: &mut WidgetStates,
+) {
     ui.label("Colormap:");
     let current_label = app_state.selected_colormap.label().to_string();
     let mut changed = false;
@@ -189,7 +195,7 @@ fn show_colormap_selector(ui: &mut egui::Ui, app_state: &mut AppState) {
             }
         });
     if changed {
-        app_state.update_chart_colors();
+        widget_states.update_chart_colors(app_state);
     }
 }
 

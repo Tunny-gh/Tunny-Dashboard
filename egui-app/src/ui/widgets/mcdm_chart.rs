@@ -2,7 +2,7 @@ use crate::state::app_state::TrialRow;
 use crate::state::results::{
     EntropyResult, McdmMethod, McdmResult, PrometheeResult, TopsisResult, VikorResult, WeightMode,
 };
-use crate::theme::chart_colors::{COLOR_BAR_PRIMARY, COLOR_BAR_NEGATIVE, COLOR_BAR_ACCENT};
+use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 
 /// MCDM compute request payload
 pub struct McdmComputeRequest {
