@@ -3,8 +3,8 @@ use crate::theme::chart_colors::{
     COLOR_3D_BG, COLOR_3D_GRID, COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_HIGHLIGHT_PT,
     COLOR_NON_PARETO, COLOR_PARETO,
 };
-use crate::theme::TOOLBAR_BTN_FG;
 use crate::theme::color_compute::compute_point_alpha;
+use crate::theme::TOOLBAR_BTN_FG;
 use crate::ui::widgets::pareto_2d::filter_by_downsample_indices;
 
 /// クォータニオン積（Hamilton product）

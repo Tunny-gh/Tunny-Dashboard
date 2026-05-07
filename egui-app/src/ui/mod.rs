@@ -5,6 +5,8 @@ pub mod grid_canvas;
 pub mod layout;
 pub mod left_panel;
 pub mod main_canvas;
+pub mod poll_chart;
+pub mod render_chart;
 pub mod right_panel;
 pub mod toolbar;
 pub mod widget_states;

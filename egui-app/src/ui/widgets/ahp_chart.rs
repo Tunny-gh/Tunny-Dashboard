@@ -176,10 +176,7 @@ impl AhpChart {
 
         // CR display
         let (cr_label, cr_color) = if r.is_consistent {
-            (
-                format!("CR = {:.3}  Consistent", r.cr),
-                COLOR_CR_OK,
-            )
+            (format!("CR = {:.3}  Consistent", r.cr), COLOR_CR_OK)
         } else {
             (
                 format!("CR = {:.3}  Inconsistent (CR > 0.10)", r.cr),

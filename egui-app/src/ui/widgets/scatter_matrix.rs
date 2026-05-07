@@ -439,5 +439,4 @@ mod tests {
         assert!((pos.x - 100.0).abs() < 1e-3);
         assert!((pos.y - 0.0).abs() < 1e-3); // y is inverted
     }
-
 }

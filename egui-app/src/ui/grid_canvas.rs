@@ -90,8 +90,7 @@ pub fn show_grid_canvas(
                 let cell_rect = egui::Rect::from_min_size(min, egui::vec2(w, h));
 
                 // セルの背景と境界線を描画
-                ui.painter()
-                    .rect_filled(cell_rect, 0.0, CENTRAL_BG);
+                ui.painter().rect_filled(cell_rect, 0.0, CENTRAL_BG);
                 ui.painter().rect_stroke(
                     cell_rect,
                     0.0,
@@ -360,12 +359,8 @@ fn show_cell_toolbar(
 
                     let close_resp = ui.add_sized(
                         egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
-                        egui::Button::new(
-                            egui::RichText::new("x")
-                                .small()
-                                .color(CLOSE_BTN_TEXT),
-                        )
-                        .frame(false),
+                        egui::Button::new(egui::RichText::new("x").small().color(CLOSE_BTN_TEXT))
+                            .frame(false),
                     );
                     if close_resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

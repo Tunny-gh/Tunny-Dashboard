@@ -288,6 +288,43 @@ h1, h2 { color: #333; }
 }
 
 // ============================================================
+// build_and_send_report — StudyContext から直接レポートを送信
+// ============================================================
+
+pub fn build_and_send_report(
+    ctx: &crate::state::types::StudyContext,
+    selected_indices: &[u32],
+    tx: std::sync::mpsc::SyncSender<crate::state::messages::AppMessage>,
+) {
+    let trial_map: std::collections::HashMap<u32, &crate::state::types::TrialRow> =
+        ctx.trial_rows.iter().map(|r| (r.trial_id, r)).collect();
+    let snap = HtmlReportSnapshot {
+        study_name: ctx.meta.name.clone(),
+        objective_names: ctx.meta.objective_names.clone(),
+        param_names: ctx.meta.param_names.clone(),
+        total_trials: ctx.trial_rows.len(),
+        pareto_count: ctx.pareto_indices.len(),
+        selected_trials: selected_indices
+            .iter()
+            .filter_map(|&id| trial_map.get(&id).copied())
+            .map(|r| HtmlTrialRow {
+                trial_id: r.trial_id,
+                trial_number: r.trial_number,
+                params: r.params.clone(),
+                objectives: r.objectives.clone(),
+                pareto_rank: r.pareto_rank,
+            })
+            .collect(),
+        statistics: TrialStatistics {
+            objective_means: vec![0.0; ctx.meta.objective_names.len()],
+            objective_variances: vec![0.0; ctx.meta.objective_names.len()],
+            pareto_count: ctx.pareto_indices.len(),
+        },
+    };
+    generate_html_report_async(snap, tx);
+}
+
+// ============================================================
 // generate_html_report_async — バックグラウンド生成
 // ============================================================
 

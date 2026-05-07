@@ -1,4 +1,5 @@
 pub mod clustering;
+pub mod convergence;
 pub(crate) mod core;
 pub mod data;
 pub mod io;

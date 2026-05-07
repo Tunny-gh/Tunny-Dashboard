@@ -75,36 +75,11 @@ impl TunnyApp {
                 }
                 ToolbarAction::GenerateHtmlReport => {
                     if let Some(ctx) = &self.app_state.current_study {
-                        use crate::io::html_report::{
-                            generate_html_report_async, HtmlReportSnapshot, HtmlTrialRow,
-                            TrialStatistics,
-                        };
-                        let snap = HtmlReportSnapshot {
-                            study_name: ctx.meta.name.clone(),
-                            objective_names: ctx.meta.objective_names.clone(),
-                            param_names: ctx.meta.param_names.clone(),
-                            total_trials: ctx.trial_rows.len(),
-                            pareto_count: ctx.pareto_indices.len(),
-                            selected_trials: self
-                                .app_state
-                                .selected_indices
-                                .iter()
-                                .filter_map(|&id| ctx.trial_rows.iter().find(|r| r.trial_id == id))
-                                .map(|r| HtmlTrialRow {
-                                    trial_id: r.trial_id,
-                                    trial_number: r.trial_number,
-                                    params: r.params.clone(),
-                                    objectives: r.objectives.clone(),
-                                    pareto_rank: r.pareto_rank,
-                                })
-                                .collect(),
-                            statistics: TrialStatistics {
-                                objective_means: vec![0.0; ctx.meta.objective_names.len()],
-                                objective_variances: vec![0.0; ctx.meta.objective_names.len()],
-                                pareto_count: ctx.pareto_indices.len(),
-                            },
-                        };
-                        generate_html_report_async(snap, self.sender());
+                        crate::io::html_report::build_and_send_report(
+                            ctx,
+                            &self.app_state.selected_indices,
+                            self.sender(),
+                        );
                     }
                 }
                 ToolbarAction::ScanArtifacts(base_dir) => {

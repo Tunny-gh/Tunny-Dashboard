@@ -1,6 +1,7 @@
 pub mod ahp_chart;
 pub mod artifact_modal;
 pub mod cluster_scatter;
+pub mod convergence_card;
 pub mod hv_history;
 pub mod importance_chart;
 pub mod mcdm_chart;
@@ -14,4 +15,5 @@ pub mod pdp_chart;
 pub mod scatter_matrix;
 pub mod sensitivity_heatmap;
 pub mod slice_chart;
+pub mod tradeoff_navigator;
 pub mod trial_table;
