@@ -120,11 +120,8 @@ pub fn show_grid_canvas(
                 if inner_resp.response.contains_pointer()
                     && egui::DragAndDrop::has_any_payload(ui.ctx())
                 {
-                    ui.painter().rect_filled(
-                        cell_rect,
-                        0.0,
-                        COLOR_SELECTION_HIGHLIGHT,
-                    );
+                    ui.painter()
+                        .rect_filled(cell_rect, 0.0, COLOR_SELECTION_HIGHLIGHT);
                 }
 
                 // ドロップされた場合は pending リストに追加
@@ -152,11 +149,8 @@ pub fn show_grid_canvas(
                             ui.interact(right_handle_rect, right_id, egui::Sense::click_and_drag());
                         if right_resp.hovered() || right_resp.dragged() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                            ui.painter().rect_filled(
-                                right_handle_rect,
-                                0.0,
-                                COLOR_CELL_HIGHLIGHT,
-                            );
+                            ui.painter()
+                                .rect_filled(right_handle_rect, 0.0, COLOR_CELL_HIGHLIGHT);
                         }
                         if right_resp.dragged() {
                             let dx = right_resp.drag_delta().x;
@@ -193,11 +187,8 @@ pub fn show_grid_canvas(
                         );
                         if bottom_resp.hovered() || bottom_resp.dragged() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-                            ui.painter().rect_filled(
-                                bottom_handle_rect,
-                                0.0,
-                                COLOR_CELL_HIGHLIGHT,
-                            );
+                            ui.painter()
+                                .rect_filled(bottom_handle_rect, 0.0, COLOR_CELL_HIGHLIGHT);
                         }
                         if bottom_resp.dragged() {
                             let dy = bottom_resp.drag_delta().y;

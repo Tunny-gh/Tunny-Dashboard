@@ -3,6 +3,7 @@
 **作成日**: 2026-04-15
 **関連要件**: コード保守性向上・責務の分離
 **ヒアリング記録**: [design-interview.md](design-interview.md)
+**層境界契約**: [layer-contract.md](layer-contract.md)
 
 **【信頼性レベル凡例】**:
 - 🔵 **青信号**: 既存コード分析・ユーザヒアリングを参考にした確実な設計

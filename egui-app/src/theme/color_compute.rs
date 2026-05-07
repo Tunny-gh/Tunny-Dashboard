@@ -1,5 +1,12 @@
 use crate::state::app_state::{ColorMode, ColormapName, TrialRow};
-use crate::theme::colormap::ColorMap;
+
+/// RGBA バイト配列（非プリマルチプライドアルファ、順序 [R, G, B, A]）を
+/// egui の Color32 へ変換する。
+/// state 層は egui 依存を持たないため `[u8; 4]` で色を保持しており、
+/// UI 描画時にこの関数を使って Color32 へ変換する。
+pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
+}
 
 /// trial_id が selected_indices に含まれるかでアルファ値を計算する。
 /// selected_indices が空の場合は全点が不透明（255）を返す。
@@ -55,7 +62,7 @@ pub fn compute_chart_colors(
     objective_names: &[String],
     mcdm_scores: Option<&[f64]>,
 ) -> Vec<egui::Color32> {
-    let cmap = colormap_name.to_colormap();
+    let cmap = crate::theme::colormap_name::colormap_from_name(colormap_name);
     let (max_rank, max_trial_number) = trial_rows.iter().fold((0u32, 0u32), |(mr, mid), r| {
         (mr.max(r.pareto_rank), mid.max(r.trial_number))
     });
@@ -280,7 +287,7 @@ mod tests {
             &[],
             None,
         );
-        let cmap = ColormapName::Viridis.to_colormap();
+        let cmap = crate::theme::colormap_name::colormap_from_name(&ColormapName::Viridis);
         assert_eq!(colors[0], cmap.interpolate(0.0));
         assert_eq!(colors[1], cmap.interpolate(1.0));
         assert_ne!(colors[0], colors[1]);
@@ -313,6 +320,7 @@ mod tests {
     #[test]
     fn compute_chart_colors_mcdm_score_with_scores() {
         use crate::state::app_state::TrialState;
+        use crate::theme::colormap::ColorMap;
         use std::collections::HashMap;
         let rows = vec![
             TrialRow {

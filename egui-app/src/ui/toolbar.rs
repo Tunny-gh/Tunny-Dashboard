@@ -1,8 +1,5 @@
-use std::sync::mpsc::SyncSender;
-
-use crate::state::app_state::AppState;
+use crate::state::app_state::{AppState, StudyMeta};
 use crate::state::layout_state::{LayoutMode, LayoutState};
-use crate::state::messages::AppMessage;
 use crate::theme::ERROR_COLOR;
 
 /// レイアウトモードボタンのラベル定義
@@ -14,23 +11,34 @@ pub const LAYOUT_MODE_BUTTONS: &[(LayoutMode, &str)] = &[
     (LayoutMode::Comparison, "Comparison"),
 ];
 
+#[derive(Debug, Clone)]
+pub enum ToolbarAction {
+    OpenJournal(std::path::PathBuf),
+    SetLayoutMode(LayoutMode),
+    SelectStudy(StudyMeta),
+    ToggleLiveUpdate,
+    GenerateHtmlReport,
+    ScanArtifacts(std::path::PathBuf),
+    LoadSession,
+    SaveSession,
+    ClearLoadError,
+}
+
 /// ToolBar を描画する
 pub fn show_toolbar(
     ui: &mut egui::Ui,
-    app_state: &mut AppState,
-    layout: &mut LayoutState,
-    tx: &SyncSender<AppMessage>,
-    is_loading: &mut bool,
-    load_error: &mut Option<String>,
-) {
+    app_state: &AppState,
+    layout: &LayoutState,
+    is_loading: bool,
+    load_error: Option<&str>,
+) -> Vec<ToolbarAction> {
+    let mut actions = Vec::new();
     ui.horizontal(|ui| {
         // ファイル開くボタン
-        let open_enabled = !*is_loading;
+        let open_enabled = !is_loading;
         if toolbar_button(ui, "Open", open_enabled).clicked() {
             if let Some(path) = crate::io::file::open_file_dialog() {
-                *is_loading = true;
-                *load_error = None;
-                crate::io::study_worker::dispatch_load_journal(path, tx.clone());
+                actions.push(ToolbarAction::OpenJournal(path));
             }
         }
 
@@ -54,7 +62,7 @@ pub fn show_toolbar(
                         for (mode, label) in LAYOUT_MODE_BUTTONS {
                             let selected = layout.layout_mode == *mode;
                             if ui.selectable_label(selected, *label).clicked() {
-                                layout.layout_mode = mode.clone();
+                                actions.push(ToolbarAction::SetLayoutMode(mode.clone()));
                             }
                         }
                     });
@@ -77,14 +85,14 @@ pub fn show_toolbar(
                 .unwrap_or_default();
             let mut selected_name = current_name.clone();
             let has_studies = !app_state.all_studies.is_empty();
-            let display_text = if *is_loading {
+            let display_text = if is_loading {
                 "Loading...".to_string()
             } else {
                 current_name.clone()
             };
             ui.scope(|ui| {
                 apply_combo_visuals(ui.visuals_mut());
-                ui.add_enabled_ui(has_studies && !*is_loading, |ui| {
+                ui.add_enabled_ui(has_studies && !is_loading, |ui| {
                     egui::ComboBox::from_id_salt("study_select_combo")
                         .selected_text(
                             egui::RichText::new(&display_text).color(crate::theme::TOOLBAR_TEXT),
@@ -107,8 +115,7 @@ pub fn show_toolbar(
                     .find(|s| s.name == selected_name)
                     .cloned()
                 {
-                    *is_loading = true;
-                    crate::io::study_worker::dispatch_select_study(meta, tx.clone());
+                    actions.push(ToolbarAction::SelectStudy(meta));
                 }
             }
         }
@@ -121,50 +128,20 @@ pub fn show_toolbar(
                 "Live: Off"
             };
             if toolbar_button(ui, live_label, true).clicked() {
-                app_state.live_update.enabled = !app_state.live_update.enabled;
+                actions.push(ToolbarAction::ToggleLiveUpdate);
             }
 
             ui.separator();
 
             // ── REQ-005: HTML レポート出力 ──────────────────────────────────
             if toolbar_button(ui, "HTML", app_state.current_study.is_some()).clicked() {
-                if let Some(ctx) = &app_state.current_study {
-                    use crate::io::html_report::{
-                        generate_html_report_async, HtmlReportSnapshot, HtmlTrialRow,
-                        TrialStatistics,
-                    };
-                    let snap = HtmlReportSnapshot {
-                        study_name: ctx.meta.name.clone(),
-                        objective_names: ctx.meta.objective_names.clone(),
-                        param_names: ctx.meta.param_names.clone(),
-                        total_trials: ctx.trial_rows.len(),
-                        pareto_count: ctx.pareto_indices.len(),
-                        selected_trials: app_state
-                            .selected_indices
-                            .iter()
-                            .filter_map(|&id| ctx.trial_rows.iter().find(|r| r.trial_id == id))
-                            .map(|r| HtmlTrialRow {
-                                trial_id: r.trial_id,
-                                trial_number: r.trial_number,
-                                params: r.params.clone(),
-                                objectives: r.objectives.clone(),
-                                pareto_rank: r.pareto_rank,
-                            })
-                            .collect(),
-                        statistics: TrialStatistics {
-                            objective_means: vec![0.0; ctx.meta.objective_names.len()],
-                            objective_variances: vec![0.0; ctx.meta.objective_names.len()],
-                            pareto_count: ctx.pareto_indices.len(),
-                        },
-                    };
-                    generate_html_report_async(snap, tx.clone());
-                }
+                actions.push(ToolbarAction::GenerateHtmlReport);
             }
 
             // ── REQ-007: Artifacts フォルダ選択 ───────────────────────────────
             if toolbar_button(ui, "Artifacts", true).clicked() {
                 if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
-                    crate::io::artifacts::scan_artifacts_dir(base_dir, tx.clone());
+                    actions.push(ToolbarAction::ScanArtifacts(base_dir));
                 }
             }
 
@@ -172,45 +149,30 @@ pub fn show_toolbar(
 
             // ── REQ-004: セッション ──────────────────────────────────────────
             if toolbar_button(ui, "Load Session", true).clicked() {
-                use crate::io::session;
-                if let Some(snap) = session::load_session() {
-                    app_state.filter_ranges = snap.filter_ranges;
-                    app_state.selected_indices = snap.selected_indices;
-                    app_state.tradeoff_weights = snap.tradeoff_weights;
-                }
+                actions.push(ToolbarAction::LoadSession);
             }
 
             if toolbar_button(ui, "Save Session", app_state.current_study.is_some()).clicked() {
-                use crate::io::session;
-                let name = app_state
-                    .current_study
-                    .as_ref()
-                    .map(|c| c.meta.name.clone())
-                    .unwrap_or_default();
-                let snap = session::SessionSnapshot::new(
-                    name,
-                    app_state.filter_ranges.clone(),
-                    app_state.selected_indices.clone(),
-                );
-                session::save_session(&snap);
+                actions.push(ToolbarAction::SaveSession);
             }
 
             // ローディングインジケーター
-            if *is_loading {
+            if is_loading {
                 ui.spinner();
             }
 
             // エラーメッセージ
-            if let Some(err) = load_error.clone() {
+            if let Some(err) = load_error {
                 if ui
                     .colored_label(ERROR_COLOR, format!("Error: {}", err))
                     .clicked()
                 {
-                    *load_error = None;
+                    actions.push(ToolbarAction::ClearLoadError);
                 }
             }
         });
     });
+    actions
 }
 
 fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {

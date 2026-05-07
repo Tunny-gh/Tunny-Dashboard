@@ -38,7 +38,7 @@ impl MessageHandler {
                 widget_states.ahp_chart = Default::default();
                 widget_states.cluster_scatter = Default::default();
                 *is_loading = false;
-                app_state.update_chart_colors();
+                widget_states.update_chart_colors(app_state);
             }
             AppMessage::SensitivityDone { key, result } => {
                 app_state.importance_cache.insert(key, result);
@@ -71,6 +71,7 @@ impl MessageHandler {
                 }
                 app_state.mcdm_result = Some(result);
                 widget_states.mcdm_chart.computing = false;
+                widget_states.update_chart_colors(app_state);
             }
             AppMessage::EntropyDone(result) => {
                 widget_states.mcdm_chart.weights = result.weights.clone();

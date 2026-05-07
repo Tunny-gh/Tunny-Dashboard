@@ -4,8 +4,6 @@ pub use super::results::*;
 pub use super::types::*;
 
 use std::collections::HashMap;
-#[cfg(test)]
-use crate::theme::ERROR_COLOR;
 
 // ============================================================
 // AppState
@@ -30,7 +28,6 @@ pub struct AppState {
     pub ahp_result: Option<AhpResult>,
     pub hv_history: Option<HvHistory>,
     pub selected_colormap: ColormapName,
-    pub chart_colors: Vec<egui::Color32>,
 
     // ── REQ-001: Trade-off Navigator ──────────────────────────
     /// 目的関数ごとの重みベクトル（スライダー値）
@@ -43,8 +40,10 @@ pub struct AppState {
     pub comparison_mode: bool,
     /// 比較対象の StudyContext リスト（最大 4 件）
     pub comparison_studies: Vec<StudyContext>,
-    /// 比較スタディの色リスト
-    pub comparison_colors: Vec<egui::Color32>,
+    /// 比較スタディの色リスト（各要素は `[R, G, B, A]` の非プリマルチプライドアルファ）。
+    /// state 層から egui 依存を排除するため UI 型ではなく生配列で保持する。
+    /// 描画時は `crate::theme::color_compute::rgba_to_color32` で Color32 へ変換する。
+    pub comparison_colors: Vec<[u8; 4]>,
 
     // ── REQ-007: Artifacts ────────────────────────────────────
     /// スキャン済みの artifacts ベースディレクトリ
@@ -77,7 +76,6 @@ impl AppState {
             ahp_result: None,
             hv_history: None,
             selected_colormap: ColormapName::Viridis,
-            chart_colors: Vec::new(),
             tradeoff_weights: Vec::new(),
             tradeoff_sorted_indices: None,
             comparison_mode: false,
@@ -107,7 +105,6 @@ impl AppState {
         self.ahp_result = None;
         self.hv_history = None;
         self.downsample_cache.clear();
-        self.chart_colors.clear();
         // selected_colormap はユーザー設定を維持
 
         // REQ-001: Trade-off 結果はリセット（Study 切り替え時に再計算が必要）
@@ -123,26 +120,6 @@ impl AppState {
 
         // REQ-008: 収束履歴は Study 切り替え時にリセット
         self.best_trial_history = None;
-    }
-
-    /// ColorMode と ColormapName に基づいて chart_colors を即時再計算する
-    pub fn update_chart_colors(&mut self) {
-        if let Some(ctx) = &self.current_study {
-            let color_mode = self.color_mode.clone();
-            let colormap_name = self.selected_colormap.clone();
-            let trial_rows = &ctx.trial_rows;
-            let objective_names = &ctx.meta.objective_names;
-            let mcdm_scores = self.mcdm_result.as_ref().map(|r| r.primary_scores());
-            self.chart_colors = crate::theme::color_compute::compute_chart_colors(
-                &color_mode,
-                &colormap_name,
-                trial_rows,
-                objective_names,
-                mcdm_scores,
-            );
-        } else {
-            self.chart_colors.clear();
-        }
     }
 }
 
@@ -226,93 +203,6 @@ mod tests {
     fn app_state_new_colormap_defaults() {
         let state = AppState::new();
         assert_eq!(state.selected_colormap, ColormapName::Viridis);
-        assert!(state.chart_colors.is_empty());
-    }
-
-    fn make_simple_study_ctx() -> StudyContext {
-        use std::collections::HashMap;
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: 2,
-                total_trials: 2,
-                param_names: vec!["x".to_string()],
-                objective_names: vec![],
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows: vec![
-                TrialRow {
-                    trial_id: 0,
-                    trial_number: 0,
-                    params: HashMap::new(),
-                    objectives: vec![],
-                    pareto_rank: 0,
-                    cluster_id: None,
-                    state: TrialState::Complete,
-                    user_attrs: HashMap::new(),
-                },
-                TrialRow {
-                    trial_id: 1,
-                    trial_number: 1,
-                    params: HashMap::new(),
-                    objectives: vec![],
-                    pareto_rank: 1,
-                    cluster_id: None,
-                    state: TrialState::Complete,
-                    user_attrs: HashMap::new(),
-                },
-            ],
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 2,
-            },
-            pareto_indices: vec![],
-        }
-    }
-
-    #[test]
-    fn update_chart_colors_with_study() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_simple_study_ctx());
-        state.update_chart_colors();
-        assert!(!state.chart_colors.is_empty());
-        assert_eq!(state.chart_colors.len(), 2);
-    }
-
-    #[test]
-    fn update_chart_colors_without_study_clears() {
-        let mut state = AppState::new();
-        state.chart_colors = vec![ERROR_COLOR];
-        state.update_chart_colors();
-        assert!(state.chart_colors.is_empty());
-    }
-
-    #[test]
-    fn clear_clears_chart_colors() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_simple_study_ctx());
-        state.update_chart_colors();
-        assert!(!state.chart_colors.is_empty());
-        state.clear();
-        assert!(state.chart_colors.is_empty());
-    }
-
-    #[test]
-    fn different_colormap_produces_different_colors() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_simple_study_ctx());
-        state.update_chart_colors();
-        let viridis_colors = state.chart_colors.clone();
-        state.selected_colormap = ColormapName::Jet;
-        state.update_chart_colors();
-        let jet_colors = state.chart_colors.clone();
-        assert_ne!(viridis_colors, jet_colors);
     }
 
     // ============================================================
@@ -377,7 +267,7 @@ mod tests {
         // comparison_mode/studies/colors は clear() でリセットしない
         let mut state = AppState::new();
         state.comparison_mode = true;
-        state.comparison_colors = vec![ERROR_COLOR];
+        state.comparison_colors = vec![[255, 0, 0, 255]];
 
         state.clear();
 

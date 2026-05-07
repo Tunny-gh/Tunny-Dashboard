@@ -1,5 +1,5 @@
-use crate::theme::chart_colors::{COLOR_PARETO, COLOR_NON_PARETO};
 use crate::state::app_state::{Direction, TrialRow};
+use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
 
 /// パラメータ vs 目的関数の Slice 散布図ウィジェット
 ///

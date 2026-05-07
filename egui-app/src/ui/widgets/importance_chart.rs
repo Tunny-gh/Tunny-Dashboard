@@ -1,5 +1,7 @@
 use crate::state::app_state::{SensitivityResult, SobolResult};
-use crate::theme::chart_colors::{COLOR_FIT_LOW, COLOR_FIT_MID, COLOR_FIT_HIGH, COLOR_IMPORTANCE_BAR};
+use crate::theme::chart_colors::{
+    COLOR_FIT_HIGH, COLOR_FIT_LOW, COLOR_FIT_MID, COLOR_IMPORTANCE_BAR,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportanceMetric {

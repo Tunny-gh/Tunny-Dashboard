@@ -6,6 +6,7 @@ use crate::ui::widgets::{
     pdp_2d::PdpChart2DState, pdp_chart::PdpChart, scatter_matrix::ScatterMatrix,
     sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart,
 };
+use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors};
 
 /// Bottom Panel のタブ種別
 #[derive(Default, PartialEq, Clone)]
@@ -41,4 +42,29 @@ pub struct WidgetStates {
     pub artifact_modal_trial_id: Option<u32>,
     // TASK-2123: Bottom panel tab
     pub bottom_tab: BottomTab,
+    /// チャート描画用の色キャッシュ（UI専用）
+    pub chart_colors: Vec<egui::Color32>,
+}
+
+impl WidgetStates {
+    /// 色モード・カラーマップ・MCDM結果の変化を描画色キャッシュへ反映する。
+    /// `StudySelected` 後、色設定変更後、`McdmDone` 後に呼び出すことを想定する。
+    pub fn update_chart_colors(&mut self, app_state: &AppState) {
+        if let Some(ctx) = &app_state.current_study {
+            let color_mode = app_state.color_mode.clone();
+            let colormap_name = app_state.selected_colormap.clone();
+            let trial_rows = &ctx.trial_rows;
+            let objective_names = &ctx.meta.objective_names;
+            let mcdm_scores = app_state.mcdm_result.as_ref().map(|r| r.primary_scores());
+            self.chart_colors = compute_chart_colors(
+                &color_mode,
+                &colormap_name,
+                trial_rows,
+                objective_names,
+                mcdm_scores,
+            );
+        } else {
+            self.chart_colors.clear();
+        }
+    }
 }

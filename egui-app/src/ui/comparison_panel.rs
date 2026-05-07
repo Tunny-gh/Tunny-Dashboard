@@ -1,4 +1,5 @@
 use crate::state::app_state::AppState;
+use crate::theme::color_compute::rgba_to_color32;
 use egui::Color32;
 
 /// ビュー切り替えタブの状態
@@ -83,6 +84,7 @@ fn show_stats_summary(ui: &mut egui::Ui, app_state: &AppState) {
                     .comparison_colors
                     .get(idx)
                     .copied()
+                    .map(rgba_to_color32)
                     .unwrap_or(Color32::GRAY);
 
                 let obj_vals: Vec<f64> = study
@@ -123,6 +125,7 @@ fn show_hv_history(ui: &mut egui::Ui, app_state: &AppState) {
                 .comparison_colors
                 .get(idx)
                 .copied()
+                .map(rgba_to_color32)
                 .unwrap_or(Color32::GRAY);
 
             // Best 値の遷移を折れ線として表示（HV の代替）
@@ -170,6 +173,7 @@ fn show_pareto_overlay(ui: &mut egui::Ui, app_state: &AppState) {
                 .comparison_colors
                 .get(idx)
                 .copied()
+                .map(rgba_to_color32)
                 .unwrap_or(Color32::GRAY);
 
             let pareto_set: std::collections::HashSet<u32> =
@@ -238,6 +242,7 @@ fn show_kde_distribution(ui: &mut egui::Ui, app_state: &AppState) {
                 .comparison_colors
                 .get(idx)
                 .copied()
+                .map(rgba_to_color32)
                 .unwrap_or(Color32::GRAY);
 
             let vals: Vec<f64> = study

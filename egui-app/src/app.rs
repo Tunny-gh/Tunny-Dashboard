@@ -4,6 +4,7 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
+use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 
 pub struct TunnyApp {
@@ -51,6 +52,91 @@ impl TunnyApp {
                 &mut self.load_error,
             );
             ctx.request_repaint();
+        }
+    }
+
+    pub fn apply_toolbar_actions(&mut self, actions: Vec<ToolbarAction>) {
+        for action in actions {
+            match action {
+                ToolbarAction::OpenJournal(path) => {
+                    self.is_loading = true;
+                    self.load_error = None;
+                    crate::io::study_worker::dispatch_load_journal(path, self.sender());
+                }
+                ToolbarAction::SetLayoutMode(mode) => {
+                    self.layout.layout_mode = mode;
+                }
+                ToolbarAction::SelectStudy(meta) => {
+                    self.is_loading = true;
+                    crate::io::study_worker::dispatch_select_study(meta, self.sender());
+                }
+                ToolbarAction::ToggleLiveUpdate => {
+                    self.app_state.live_update.enabled = !self.app_state.live_update.enabled;
+                }
+                ToolbarAction::GenerateHtmlReport => {
+                    if let Some(ctx) = &self.app_state.current_study {
+                        use crate::io::html_report::{
+                            generate_html_report_async, HtmlReportSnapshot, HtmlTrialRow,
+                            TrialStatistics,
+                        };
+                        let snap = HtmlReportSnapshot {
+                            study_name: ctx.meta.name.clone(),
+                            objective_names: ctx.meta.objective_names.clone(),
+                            param_names: ctx.meta.param_names.clone(),
+                            total_trials: ctx.trial_rows.len(),
+                            pareto_count: ctx.pareto_indices.len(),
+                            selected_trials: self
+                                .app_state
+                                .selected_indices
+                                .iter()
+                                .filter_map(|&id| ctx.trial_rows.iter().find(|r| r.trial_id == id))
+                                .map(|r| HtmlTrialRow {
+                                    trial_id: r.trial_id,
+                                    trial_number: r.trial_number,
+                                    params: r.params.clone(),
+                                    objectives: r.objectives.clone(),
+                                    pareto_rank: r.pareto_rank,
+                                })
+                                .collect(),
+                            statistics: TrialStatistics {
+                                objective_means: vec![0.0; ctx.meta.objective_names.len()],
+                                objective_variances: vec![0.0; ctx.meta.objective_names.len()],
+                                pareto_count: ctx.pareto_indices.len(),
+                            },
+                        };
+                        generate_html_report_async(snap, self.sender());
+                    }
+                }
+                ToolbarAction::ScanArtifacts(base_dir) => {
+                    crate::io::artifacts::scan_artifacts_dir(base_dir, self.sender());
+                }
+                ToolbarAction::LoadSession => {
+                    use crate::io::session;
+                    if let Some(snap) = session::load_session() {
+                        self.app_state.filter_ranges = snap.filter_ranges;
+                        self.app_state.selected_indices = snap.selected_indices;
+                        self.app_state.tradeoff_weights = snap.tradeoff_weights;
+                    }
+                }
+                ToolbarAction::SaveSession => {
+                    use crate::io::session;
+                    let name = self
+                        .app_state
+                        .current_study
+                        .as_ref()
+                        .map(|c| c.meta.name.clone())
+                        .unwrap_or_default();
+                    let snap = session::SessionSnapshot::new(
+                        name,
+                        self.app_state.filter_ranges.clone(),
+                        self.app_state.selected_indices.clone(),
+                    );
+                    session::save_session(&snap);
+                }
+                ToolbarAction::ClearLoadError => {
+                    self.load_error = None;
+                }
+            }
         }
     }
 }
