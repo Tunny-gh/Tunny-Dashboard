@@ -41,14 +41,14 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 vis.widgets.active.bg_stroke = egui::Stroke::NONE;
                 vis.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
             }
-            show_toolbar(
+            let toolbar_actions = show_toolbar(
                 ui,
-                &mut app.app_state,
-                &mut app.layout,
-                &tx,
-                &mut app.is_loading,
-                &mut app.load_error,
+                &app.app_state,
+                &app.layout,
+                app.is_loading,
+                app.load_error.as_deref(),
             );
+            app.apply_toolbar_actions(toolbar_actions);
         });
 
     egui::SidePanel::left("left_panel")
