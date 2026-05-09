@@ -111,6 +111,8 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
             &tx,
         );
     });
+
+    crate::ui::help::help_modal::show_help_modal(ctx, &mut app.widget_states.help_modal);
 }
 
 #[cfg(test)]

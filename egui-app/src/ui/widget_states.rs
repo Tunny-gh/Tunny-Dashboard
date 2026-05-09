@@ -44,6 +44,8 @@ pub struct WidgetStates {
     pub bottom_tab: BottomTab,
     /// チャート描画用の色キャッシュ（UI専用）
     pub chart_colors: Vec<egui::Color32>,
+    /// ヘルプモーダル状態
+    pub help_modal: crate::ui::help::help_types::HelpModalState,
 }
 
 impl WidgetStates {

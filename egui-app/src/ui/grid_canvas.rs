@@ -12,6 +12,13 @@ const CLOSE_BUTTON_SIZE: f32 = 16.0;
 const HANDLE_THICKNESS: f32 = 6.0;
 const DRAG_HANDLE_HEIGHT: f32 = 24.0;
 
+/// Action returned by the cell toolbar.
+pub enum CellToolbarAction {
+    None,
+    Close,
+    Help(PanelItem),
+}
+
 /// セルの幅を計算する（テスト可能な純粋関数）
 pub fn calc_cell_width(total_w: f32, cols: usize, col_span: u8) -> f32 {
     if cols == 0 {
@@ -319,16 +326,17 @@ pub fn show_grid_canvas(
 
 /// セル上部のツールバーを描画する。
 /// 左上の Move ボタンだけがセル移動を開始し、右上の ✕ ボタンはセル内容をクリアする。
+/// ? ボタンはヘルプモーダルを開く。
 fn show_cell_toolbar(
     ui: &mut egui::Ui,
     row: usize,
     col: usize,
     item: PanelItem,
     title: &'static str,
-) -> bool {
+) -> CellToolbarAction {
     let drag_id = egui::Id::new("cell_drag_handle").with(row).with(col);
-    let payload = DragPayload::MoveFromCell { item, row, col };
-    let mut should_clear = false;
+    let payload = DragPayload::MoveFromCell { item: item.clone(), row, col };
+    let mut action = CellToolbarAction::None;
 
     egui::Frame::default()
         .fill(crate::theme::CELL_TOOLBAR_BG)
@@ -354,8 +362,25 @@ fn show_cell_toolbar(
                     ui.add_space(8.0);
                     ui.strong(title);
 
-                    let spacer = (ui.available_width() - CLOSE_BUTTON_SIZE).max(0.0);
+                    let spacer =
+                        (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
                     ui.add_space(spacer);
+
+                    let help_resp = ui.add_sized(
+                        egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
+                        egui::Button::new(
+                            egui::RichText::new("?").small().color(CLOSE_BTN_TEXT),
+                        )
+                        .frame(false),
+                    );
+                    if help_resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if help_resp.clicked() {
+                        action = CellToolbarAction::Help(item.clone());
+                    }
+
+                    ui.add_space(4.0);
 
                     let close_resp = ui.add_sized(
                         egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
@@ -366,13 +391,13 @@ fn show_cell_toolbar(
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
                     if close_resp.clicked() {
-                        should_clear = true;
+                        action = CellToolbarAction::Close;
                     }
                 },
             );
         });
 
-    should_clear
+    action
 }
 
 /// セルのコンテンツを描画する。
@@ -391,7 +416,11 @@ fn render_cell_content(
             let chart_id = id.clone();
             let item = PanelItem::Chart(chart_id.clone());
             let title = item.label();
-            let should_clear = show_cell_toolbar(ui, row, col, item, title);
+            let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
+            if let CellToolbarAction::Help(help_item) = &toolbar_action {
+                widgets.help_modal.open = true;
+                widgets.help_modal.item = Some(help_item.clone());
+            }
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
@@ -401,12 +430,16 @@ fn render_cell_content(
                         );
                     });
                 });
-            should_clear
+            matches!(toolbar_action, CellToolbarAction::Close)
         }
         Some(PanelItem::TrialTable) => {
             let item = PanelItem::TrialTable;
             let title = item.label();
-            let should_clear = show_cell_toolbar(ui, row, col, item, title);
+            let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
+            if let CellToolbarAction::Help(help_item) = &toolbar_action {
+                widgets.help_modal.open = true;
+                widgets.help_modal.item = Some(help_item.clone());
+            }
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
@@ -414,7 +447,7 @@ fn render_cell_content(
                         TrialTableWidget.show(ui, app_state);
                     });
                 });
-            should_clear
+            matches!(toolbar_action, CellToolbarAction::Close)
         }
         None => {
             let _ = (row, col);

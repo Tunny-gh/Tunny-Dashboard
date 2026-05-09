@@ -2,6 +2,7 @@ pub mod bottom_panel;
 pub mod chart_registry;
 pub mod comparison_panel;
 pub mod grid_canvas;
+pub mod help;
 pub mod layout;
 pub mod left_panel;
 pub mod main_canvas;
