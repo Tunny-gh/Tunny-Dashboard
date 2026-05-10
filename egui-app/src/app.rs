@@ -20,6 +20,25 @@ pub struct TunnyApp {
 impl TunnyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
+
+        // Inter フォントを設定
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "Inter".to_owned(),
+            egui::FontData::from_static(include_bytes!("../assets/Inter-VariableFont.ttf")).into(),
+        );
+        fonts
+            .families
+            .get_mut(&egui::FontFamily::Proportional)
+            .unwrap()
+            .insert(0, "Inter".to_owned());
+        fonts
+            .families
+            .get_mut(&egui::FontFamily::Monospace)
+            .unwrap()
+            .push("Inter".to_owned());
+        cc.egui_ctx.set_fonts(fonts);
+
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
