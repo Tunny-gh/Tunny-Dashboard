@@ -17,6 +17,7 @@ pub enum ToolbarAction {
     SetLayoutMode(LayoutMode),
     SelectStudy(StudyMeta),
     ToggleLiveUpdate,
+    SetPollInterval(u64),
     GenerateHtmlReport,
     ScanArtifacts(std::path::PathBuf),
     LoadSession,
@@ -121,14 +122,46 @@ pub fn show_toolbar(
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // ライブ更新トグル
+            // ライブ更新トグル（ファイル未開封時は無効）
+            let can_toggle = app_state.journal_path.is_some();
             let live_label = if app_state.live_update.enabled {
-                "Live: On"
+                format!(
+                    "Live: On ({}s)",
+                    app_state.live_update.interval_ms / 1000
+                )
             } else {
-                "Live: Off"
+                "Live: Off".to_string()
             };
-            if toolbar_button(ui, live_label, true).clicked() {
+            if toolbar_button(ui, &live_label, can_toggle).clicked() && can_toggle {
                 actions.push(ToolbarAction::ToggleLiveUpdate);
+            }
+
+            // 試行数カウンタ
+            let trial_label = if let Some(study) = &app_state.current_study {
+                format!("Trials: {}", study.trial_rows.len())
+            } else {
+                "Trials: -".to_string()
+            };
+            ui.label(
+                egui::RichText::new(trial_label)
+                    .color(crate::theme::TOOLBAR_TEXT)
+                    .size(12.0),
+            );
+
+            // ポーリング間隔スライダー（ライブ更新ON時のみ表示）
+            if app_state.live_update.enabled {
+                let mut interval_sec = app_state.live_update.interval_ms as f64 / 1000.0;
+                let prev = interval_sec;
+                ui.add(
+                    egui::Slider::new(&mut interval_sec, 1.0..=30.0)
+                        .step_by(1.0)
+                        .text(egui::RichText::new("s").color(crate::theme::TOOLBAR_TEXT)),
+                );
+                if (interval_sec - prev).abs() > f64::EPSILON {
+                    actions.push(ToolbarAction::SetPollInterval(
+                        (interval_sec * 1000.0) as u64,
+                    ));
+                }
             }
 
             ui.separator();

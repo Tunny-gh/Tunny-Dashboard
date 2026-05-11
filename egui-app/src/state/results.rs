@@ -207,12 +207,31 @@ pub struct HvHistory {
 // ライブ更新状態
 // ============================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LiveUpdateState {
     pub enabled: bool,
     pub file_path: Option<String>,
     pub last_byte_offset: u64,
     pub interval_ms: u64,
+    pub consecutive_errors: u32,
+    pub last_change_time: Option<std::time::Instant>,
+    pub poller_active: bool,
+    pub showing_completion_hint: bool,
+}
+
+impl Clone for LiveUpdateState {
+    fn clone(&self) -> Self {
+        Self {
+            enabled: self.enabled,
+            file_path: self.file_path.clone(),
+            last_byte_offset: self.last_byte_offset,
+            interval_ms: self.interval_ms,
+            consecutive_errors: self.consecutive_errors,
+            last_change_time: None,
+            poller_active: false,
+            showing_completion_hint: self.showing_completion_hint,
+        }
+    }
 }
 
 impl Default for LiveUpdateState {
@@ -222,6 +241,10 @@ impl Default for LiveUpdateState {
             file_path: None,
             last_byte_offset: 0,
             interval_ms: 2000,
+            consecutive_errors: 0,
+            last_change_time: None,
+            poller_active: false,
+            showing_completion_hint: false,
         }
     }
 }
@@ -241,6 +264,33 @@ mod tests {
         assert!(state.file_path.is_none());
         assert_eq!(state.last_byte_offset, 0);
         assert_eq!(state.interval_ms, 2000);
+        assert_eq!(state.consecutive_errors, 0);
+        assert!(state.last_change_time.is_none());
+        assert!(!state.poller_active);
+        assert!(!state.showing_completion_hint);
+    }
+
+    #[test]
+    fn live_update_state_extended_fields_update() {
+        let mut state = LiveUpdateState::default();
+        state.consecutive_errors = 3;
+        state.poller_active = true;
+        state.showing_completion_hint = true;
+        assert_eq!(state.consecutive_errors, 3);
+        assert!(state.poller_active);
+        assert!(state.showing_completion_hint);
+    }
+
+    #[test]
+    fn live_update_state_clone_resets_runtime_fields() {
+        let mut state = LiveUpdateState::default();
+        state.enabled = true;
+        state.last_change_time = Some(std::time::Instant::now());
+        state.poller_active = true;
+        let cloned = state.clone();
+        assert!(cloned.enabled);
+        assert!(cloned.last_change_time.is_none());
+        assert!(!cloned.poller_active);
     }
 
     // McdmMethod tests

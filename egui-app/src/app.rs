@@ -1,11 +1,13 @@
 use std::sync::mpsc;
 
+use crate::io::live_update_poller::LiveUpdatePoller;
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
 use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
+use tunny_core::io::journal::live_update::LiveUpdateContext;
 
 pub struct TunnyApp {
     pub app_state: AppState,
@@ -15,6 +17,7 @@ pub struct TunnyApp {
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
+    poller: Option<LiveUpdatePoller>,
 }
 
 impl TunnyApp {
@@ -52,6 +55,7 @@ impl TunnyApp {
             load_error: None,
             tx,
             rx,
+            poller: None,
         }
     }
 
@@ -63,6 +67,9 @@ impl TunnyApp {
     /// ノンブロッキングにメッセージを処理し AppState を更新する
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
+            let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
+            let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
+
             MessageHandler::handle(
                 msg,
                 &mut self.app_state,
@@ -70,6 +77,15 @@ impl TunnyApp {
                 &mut self.is_loading,
                 &mut self.load_error,
             );
+
+            if is_journal_parsed && self.app_state.live_update.enabled {
+                self.restart_poller();
+            }
+            if is_live_error {
+                // poller stopped itself — drop the handle
+                self.poller = None;
+            }
+
             ctx.request_repaint();
         }
     }
@@ -78,6 +94,10 @@ impl TunnyApp {
         for action in actions {
             match action {
                 ToolbarAction::OpenJournal(path) => {
+                    // Stop existing poller before loading new file
+                    if let Some(mut p) = self.poller.take() {
+                        p.stop();
+                    }
                     self.is_loading = true;
                     self.load_error = None;
                     crate::io::study_worker::dispatch_load_journal(path, self.sender());
@@ -90,7 +110,22 @@ impl TunnyApp {
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
                 }
                 ToolbarAction::ToggleLiveUpdate => {
-                    self.app_state.live_update.enabled = !self.app_state.live_update.enabled;
+                    self.app_state.live_update.enabled =
+                        !self.app_state.live_update.enabled;
+                    if self.app_state.live_update.enabled {
+                        self.restart_poller();
+                    } else {
+                        if let Some(mut p) = self.poller.take() {
+                            p.stop();
+                        }
+                        self.app_state.live_update.poller_active = false;
+                    }
+                }
+                ToolbarAction::SetPollInterval(ms) => {
+                    self.app_state.live_update.interval_ms = ms;
+                    if let Some(ref poller) = self.poller {
+                        poller.update_interval(ms);
+                    }
                 }
                 ToolbarAction::GenerateHtmlReport => {
                     if let Some(ctx) = &self.app_state.current_study {
@@ -131,6 +166,56 @@ impl TunnyApp {
                     self.load_error = None;
                 }
             }
+        }
+    }
+
+    /// ポーラーを現在のファイルで（再）起動する
+    fn restart_poller(&mut self) {
+        // Stop any existing poller
+        if let Some(mut p) = self.poller.take() {
+            p.stop();
+        }
+
+        let Some(ref file_path) = self.app_state.journal_path else {
+            return;
+        };
+
+        let byte_offset = std::fs::metadata(file_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let next_trial_id = self
+            .app_state
+            .current_study
+            .as_ref()
+            .map(|s| s.trial_rows.len() as u32)
+            .unwrap_or_else(|| {
+                self.app_state
+                    .all_studies
+                    .iter()
+                    .map(|s| s.completed_trials as u32)
+                    .sum()
+            });
+
+        let ctx = LiveUpdateContext {
+            file_path: file_path.clone(),
+            initial_byte_offset: byte_offset,
+            next_trial_id,
+            study_distributions: vec![],
+            no_change_timeout_ms: 60_000,
+        };
+
+        let interval_ms = self.app_state.live_update.interval_ms;
+        let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);
+        self.app_state.live_update.poller_active = true;
+        self.poller = Some(poller);
+    }
+}
+
+impl Drop for TunnyApp {
+    fn drop(&mut self) {
+        if let Some(mut p) = self.poller.take() {
+            p.stop();
         }
     }
 }
@@ -218,5 +303,23 @@ mod tests {
             }
         }
         assert_eq!(received.len(), 2);
+    }
+
+    #[test]
+    fn toggle_live_update_updates_state() {
+        let mut app_state = AppState::new();
+        assert!(!app_state.live_update.enabled);
+        app_state.live_update.enabled = true;
+        assert!(app_state.live_update.enabled);
+        app_state.live_update.enabled = false;
+        assert!(!app_state.live_update.enabled);
+    }
+
+    #[test]
+    fn set_poll_interval_updates_state() {
+        let mut app_state = AppState::new();
+        assert_eq!(app_state.live_update.interval_ms, 2000);
+        app_state.live_update.interval_ms = 5000;
+        assert_eq!(app_state.live_update.interval_ms, 5000);
     }
 }

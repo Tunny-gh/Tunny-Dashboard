@@ -110,10 +110,13 @@ pub enum AppMessage {
         indices: Vec<u32>,
     },
     LiveUpdateDone {
-        new_trial_count: usize,
-        pareto_updated: bool,
-        new_indices: Vec<u32>,
+        new_trial_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
+        updated_study_counts: Vec<(u32, usize)>,
     },
+    /// 連続エラー（ファイルアクセス失敗など）をポーラーが検出した
+    LiveUpdateError(String),
+    /// 60秒間ファイル変化がなく最適化完了の可能性を検出した
+    LiveUpdateMaybeComplete,
     HvHistoryDone {
         trial_ids: Vec<u32>,
         hv_values: Vec<f64>,

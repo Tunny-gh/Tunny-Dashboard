@@ -3,6 +3,10 @@ name = "tunny-desktop"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "tunny_desktop"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tunny-desktop"
 path = "src/main.rs"
