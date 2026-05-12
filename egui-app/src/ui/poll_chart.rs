@@ -10,6 +10,36 @@ use crate::ui::widgets::cluster_scatter::{
 };
 use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
 
+fn build_xy_for_objective(
+    ctx: &crate::state::app_state::StudyContext,
+    objective: &str,
+) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let x_matrix = ctx
+        .trial_rows
+        .iter()
+        .map(|r| {
+            ctx.meta
+                .param_names
+                .iter()
+                .map(|p| r.params.get(p).copied().unwrap_or(0.0))
+                .collect()
+        })
+        .collect();
+    let y = ctx
+        .trial_rows
+        .iter()
+        .map(|r| {
+            ctx.meta
+                .objective_names
+                .iter()
+                .position(|o| o == objective)
+                .and_then(|i| r.objectives.get(i).copied())
+                .unwrap_or(0.0)
+        })
+        .collect();
+    (x_matrix, y)
+}
+
 pub(crate) fn poll_chart_work(
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
@@ -222,29 +252,7 @@ pub(crate) fn poll_chart_work(
             else {
                 return;
             };
-            let x_matrix: Vec<Vec<f64>> = ctx
-                .trial_rows
-                .iter()
-                .map(|r| {
-                    ctx.meta
-                        .param_names
-                        .iter()
-                        .map(|p| r.params.get(p).copied().unwrap_or(0.0))
-                        .collect()
-                })
-                .collect();
-            let y: Vec<f64> = ctx
-                .trial_rows
-                .iter()
-                .map(|r| {
-                    ctx.meta
-                        .objective_names
-                        .iter()
-                        .position(|o| o == &req.objective)
-                        .and_then(|i| r.objectives.get(i).copied())
-                        .unwrap_or(0.0)
-                })
-                .collect();
+            let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective);
             let param_names_owned = ctx.meta.param_names.clone();
             let (param, objective, model_type) = (req.param, req.objective, req.model_type);
             let n_grid = req.n_grid;
@@ -489,6 +497,51 @@ pub(crate) fn poll_chart_work(
                         }),
                         Err(e) => AppMessage::Error(format!("AHP computation failed: {}", e)),
                     }
+                });
+            }
+        }
+        ChartId::SurfacePlot => {
+            if let Some(req) = widgets.surface_plot.pending_compute.take() {
+                let ctx = app_state.current_study.as_ref().unwrap();
+                let Some(px_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param_x)
+                else {
+                    widgets.surface_plot.error_message =
+                        Some(format!("Parameter '{}' not found", req.param_x));
+                    return;
+                };
+                let Some(py_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param_y)
+                else {
+                    widgets.surface_plot.error_message =
+                        Some(format!("Parameter '{}' not found", req.param_y));
+                    return;
+                };
+                let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective);
+                let param_names_owned = ctx.meta.param_names.clone();
+                let (param_x, param_y, objective, n_grid) =
+                    (req.param_x.clone(), req.param_y.clone(), req.objective.clone(), req.n_grid);
+                widgets.surface_plot.computing = true;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::SurfacePlotResult;
+                    let r = tunny_core::pdp::compute_surface_from_data(
+                        x_matrix,
+                        y,
+                        param_names_owned,
+                        &objective,
+                        px_idx,
+                        py_idx,
+                        n_grid,
+                        "ridge",
+                    );
+                    AppMessage::SurfacePlotDone(SurfacePlotResult {
+                        x_values: r.x_values,
+                        y_values: r.y_values,
+                        z_values: r.z_values,
+                        param_x_name: param_x,
+                        param_y_name: param_y,
+                        objective_name: objective,
+                        r2: Some(r.r_squared),
+                    })
                 });
             }
         }

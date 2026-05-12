@@ -15,5 +15,6 @@ pub mod pdp_chart;
 pub mod scatter_matrix;
 pub mod sensitivity_heatmap;
 pub mod slice_chart;
+pub mod surface_plot;
 pub mod tradeoff_navigator;
 pub mod trial_table;

@@ -6,7 +6,7 @@ use crate::state::messages::AppMessage;
 use tunny_core::io::journal::parser::{self, OptimizationDirection};
 
 /// rust_core の StudyMeta → egui-app の StudyMeta に変換
-fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
+pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
     StudyMeta {
         study_id: meta.study_id,
         name: meta.name,

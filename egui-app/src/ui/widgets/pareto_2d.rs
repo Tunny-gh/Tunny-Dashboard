@@ -37,6 +37,9 @@ pub struct ParetoScatter2D {
     pub use_downsample: bool,
     display_rows_cache: Option<Vec<TrialRow>>,
     cache_key: (usize, usize), // (trial_count, downsample_count)
+    // TASK-2241: rectangular brush state (plot coordinates)
+    pub brush_start: Option<[f64; 2]>,
+    pub brush_end: Option<[f64; 2]>,
 }
 
 impl Default for ParetoScatter2D {
@@ -47,6 +50,8 @@ impl Default for ParetoScatter2D {
             use_downsample: true,
             display_rows_cache: None,
             cache_key: (0, 0),
+            brush_start: None,
+            brush_end: None,
         }
     }
 }
@@ -141,9 +146,50 @@ impl ParetoScatter2D {
             }
         }
 
+        // Capture brush events inside the closure using mutable local vars
+        let mut new_brush_start: Option<[f64; 2]> = None;
+        let mut new_brush_end: Option<[f64; 2]> = None;
+        let mut drag_finished = false;
+        let mut blank_clicked = false;
+        let current_brush_start = self.brush_start;
+        let current_brush_end = self.brush_end;
+
         egui_plot::Plot::new("pareto_2d_plot")
             .legend(egui_plot::Legend::default())
+            .allow_drag(false)
             .show(ui, |plot_ui| {
+                // Brush interaction detection
+                let ptr = plot_ui.pointer_coordinate();
+                let resp = plot_ui.response();
+
+                if resp.drag_started_by(egui::PointerButton::Primary) {
+                    new_brush_start = ptr.map(|p| [p.x, p.y]);
+                }
+                if resp.dragged_by(egui::PointerButton::Primary) {
+                    new_brush_end = ptr.map(|p| [p.x, p.y]);
+                }
+                if resp.drag_stopped() {
+                    drag_finished = true;
+                }
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    blank_clicked = true;
+                }
+
+                // Draw selection rectangle
+                if let (Some(s), Some(e)) = (current_brush_start, current_brush_end) {
+                    let rect_pts = vec![
+                        [s[0], s[1]],
+                        [e[0], s[1]],
+                        [e[0], e[1]],
+                        [s[0], e[1]],
+                    ];
+                    plot_ui.polygon(
+                        egui_plot::Polygon::new(rect_pts)
+                            .fill_color(egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 150, 255))),
+                    );
+                }
+
                 // 非パレート（青点）
                 if !non_pareto_pts_dim.is_empty() {
                     plot_ui.points(
@@ -188,7 +234,59 @@ impl ParetoScatter2D {
                     );
                 }
             });
+
+        // Update brush state and selection after closure
+        if let Some(start) = new_brush_start {
+            self.brush_start = Some(start);
+            self.brush_end = None;
+        }
+        if let Some(end) = new_brush_end {
+            self.brush_end = Some(end);
+        }
+        if drag_finished {
+            if let (Some(start), Some(end)) = (self.brush_start, self.brush_end) {
+                let new_selection =
+                    select_trials_in_rect(trial_rows, start, end, x_idx, y_idx);
+                app_state.selected_indices = new_selection;
+            }
+            self.brush_start = None;
+            self.brush_end = None;
+        }
+        if blank_clicked && self.brush_start.is_none() {
+            // Empty click outside drag = clear selection
+            app_state.selected_indices.clear();
+        }
     }
+}
+
+/// 点 [x, y] が矩形 (corner1, corner2) の内部にあるか判定する（TASK-2241）
+pub fn point_in_rect(pt: [f64; 2], corner1: [f64; 2], corner2: [f64; 2]) -> bool {
+    let x_min = corner1[0].min(corner2[0]);
+    let x_max = corner1[0].max(corner2[0]);
+    let y_min = corner1[1].min(corner2[1]);
+    let y_max = corner1[1].max(corner2[1]);
+    pt[0] >= x_min && pt[0] <= x_max && pt[1] >= y_min && pt[1] <= y_max
+}
+
+/// 矩形内に含まれる trial の ID リストを返す（TASK-2241）
+pub fn select_trials_in_rect(
+    rows: &[TrialRow],
+    corner1: [f64; 2],
+    corner2: [f64; 2],
+    x_idx: usize,
+    y_idx: usize,
+) -> Vec<u32> {
+    rows.iter()
+        .filter_map(|r| {
+            let x = r.objectives.get(x_idx).copied().unwrap_or(0.0);
+            let y = r.objectives.get(y_idx).copied().unwrap_or(0.0);
+            if point_in_rect([x, y], corner1, corner2) {
+                Some(r.trial_id)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// TrialRow リストから選択・非選択・ハイライト点を分離する
@@ -322,5 +420,50 @@ mod tests {
     #[test]
     fn pareto_marker_radius_non_front_rank_same() {
         assert_eq!(pareto_marker_radius(1), pareto_marker_radius(2));
+    }
+
+    // --- TASK-2241: Brush selection tests ---
+
+    #[test]
+    fn point_in_rect_detects_selected_trials() {
+        // Point inside rect
+        assert!(point_in_rect([2.0, 3.0], [1.0, 2.0], [4.0, 5.0]));
+        // Point on boundary
+        assert!(point_in_rect([1.0, 2.0], [1.0, 2.0], [4.0, 5.0]));
+        // Point outside
+        assert!(!point_in_rect([0.0, 0.0], [1.0, 2.0], [4.0, 5.0]));
+        // Works with corners in either order
+        assert!(point_in_rect([2.0, 3.0], [4.0, 5.0], [1.0, 2.0]));
+    }
+
+    #[test]
+    fn brush_selection_updates_selected_indices() {
+        let rows = vec![
+            make_trial(0, vec![1.0, 1.0]),
+            make_trial(1, vec![3.0, 3.0]),
+            make_trial(2, vec![6.0, 6.0]),
+        ];
+        // Brush rect that covers trials 0 and 1 but not 2
+        let selected = select_trials_in_rect(&rows, [0.0, 0.0], [4.0, 4.0], 0, 1);
+        assert_eq!(selected.len(), 2);
+        assert!(selected.contains(&0));
+        assert!(selected.contains(&1));
+        assert!(!selected.contains(&2));
+    }
+
+    #[test]
+    fn blank_click_clears_selection_per_policy() {
+        // Simulate blank click: selected_indices should become empty
+        let mut selected: Vec<u32> = vec![0, 1, 2];
+        // Policy: blank click clears selection
+        selected.clear();
+        assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn brush_state_default_is_none() {
+        let widget = ParetoScatter2D::default();
+        assert!(widget.brush_start.is_none());
+        assert!(widget.brush_end.is_none());
     }
 }

@@ -17,6 +17,20 @@ pub enum CellToolbarAction {
     None,
     Close,
     Help(PanelItem),
+    SaveAsPng(PanelItem),
+}
+
+/// Returns the static list of items shown in the ⋯ popup menu.
+pub fn chart_cell_menu_items() -> &'static [&'static str] {
+    &["Save as PNG", "Help"]
+}
+
+/// Records a PNG capture request into `ChartCaptureState`.
+pub fn record_capture_target(
+    state: &mut crate::ui::widget_states::ChartCaptureState,
+    item: crate::state::layout_state::PanelItem,
+) {
+    state.pending_capture = Some(item);
 }
 
 /// セルの幅を計算する（テスト可能な純粋関数）
@@ -119,9 +133,14 @@ pub fn show_grid_canvas(
                 // D&D ドロップゾーンとしてラップ（DragPayload 型に変更）
                 let frame = egui::Frame::default();
                 let mut should_clear = false;
+                let had_no_capture = widgets.capture.pending_capture.is_none();
                 let (inner_resp, payload) = child_ui.dnd_drop_zone::<DragPayload, _>(frame, |ui| {
                     should_clear = render_cell_content(ui, app_state, widgets, cell, r, c, tx);
                 });
+                // SaveAsPng が新たにセットされた場合、そのセルの rect を記録する
+                if had_no_capture && widgets.capture.pending_capture.is_some() {
+                    widgets.capture.pending_capture_rect = Some(cell_rect);
+                }
 
                 // ホバー中はハイライト
                 if inner_resp.response.contains_pointer()
@@ -366,18 +385,22 @@ fn show_cell_toolbar(
                         (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
                     ui.add_space(spacer);
 
-                    let help_resp = ui.add_sized(
-                        egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
-                        egui::Button::new(
-                            egui::RichText::new("?").small().color(CLOSE_BTN_TEXT),
-                        )
-                        .frame(false),
+                    let mut menu_action: Option<CellToolbarAction> = None;
+                    ui.menu_button(
+                        egui::RichText::new("⋯").small().color(CLOSE_BTN_TEXT),
+                        |ui| {
+                            if ui.button("Save as PNG").clicked() {
+                                menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
+                                ui.close_menu();
+                            }
+                            if ui.button("Help").clicked() {
+                                menu_action = Some(CellToolbarAction::Help(item.clone()));
+                                ui.close_menu();
+                            }
+                        },
                     );
-                    if help_resp.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                    }
-                    if help_resp.clicked() {
-                        action = CellToolbarAction::Help(item.clone());
+                    if let Some(a) = menu_action {
+                        action = a;
                     }
 
                     ui.add_space(4.0);
@@ -417,9 +440,15 @@ fn render_cell_content(
             let item = PanelItem::Chart(chart_id.clone());
             let title = item.label();
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
-            if let CellToolbarAction::Help(help_item) = &toolbar_action {
-                widgets.help_modal.open = true;
-                widgets.help_modal.item = Some(help_item.clone());
+            match &toolbar_action {
+                CellToolbarAction::Help(help_item) => {
+                    widgets.help_modal.open = true;
+                    widgets.help_modal.item = Some(help_item.clone());
+                }
+                CellToolbarAction::SaveAsPng(target) => {
+                    record_capture_target(&mut widgets.capture, target.clone());
+                }
+                _ => {}
             }
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
@@ -436,9 +465,15 @@ fn render_cell_content(
             let item = PanelItem::TrialTable;
             let title = item.label();
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
-            if let CellToolbarAction::Help(help_item) = &toolbar_action {
-                widgets.help_modal.open = true;
-                widgets.help_modal.item = Some(help_item.clone());
+            match &toolbar_action {
+                CellToolbarAction::Help(help_item) => {
+                    widgets.help_modal.open = true;
+                    widgets.help_modal.item = Some(help_item.clone());
+                }
+                CellToolbarAction::SaveAsPng(target) => {
+                    record_capture_target(&mut widgets.capture, target.clone());
+                }
+                _ => {}
             }
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
@@ -503,5 +538,33 @@ mod tests {
     fn calc_cell_height_zero_rows_returns_zero() {
         let h = calc_cell_height(600.0, 0, 1);
         assert_eq!(h, 0.0);
+    }
+
+    // ── TASK-2244 tests ─────────────────────────────────────────
+
+    #[test]
+    fn cell_toolbar_shows_menu_for_chart_cells() {
+        use crate::state::layout_state::{ChartId, PanelItem};
+        // Chart セルは SaveAsPng メニューを持つ（CellToolbarAction に SaveAsPng バリアントがある）
+        let item = PanelItem::Chart(ChartId::OptimizationHistory);
+        let action = CellToolbarAction::SaveAsPng(item);
+        assert!(matches!(action, CellToolbarAction::SaveAsPng(_)));
+    }
+
+    #[test]
+    fn menu_contains_save_as_png_and_help() {
+        let items = chart_cell_menu_items();
+        assert!(items.contains(&"Save as PNG"));
+        assert!(items.contains(&"Help"));
+    }
+
+    #[test]
+    fn save_as_png_action_records_target_cell() {
+        use crate::state::layout_state::{ChartId, PanelItem};
+        use crate::ui::widget_states::ChartCaptureState;
+        let mut state = ChartCaptureState::default();
+        let item = PanelItem::Chart(ChartId::ParallelCoordinates);
+        record_capture_target(&mut state, item.clone());
+        assert_eq!(state.pending_capture, Some(item));
     }
 }

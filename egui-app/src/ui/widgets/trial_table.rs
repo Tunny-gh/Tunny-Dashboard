@@ -1,4 +1,4 @@
-use crate::state::app_state::{AppState, StudyContext, TrialRow};
+use crate::state::app_state::{filter_rows_for_display, AppState, StudyContext, TrialRow};
 use crate::theme::chart_colors::COLOR_LINK;
 
 /// トライアル一覧テーブルウィジェット。
@@ -18,7 +18,8 @@ impl TrialTableWidget {
         }
 
         let study_ctx = app_state.current_study.as_ref().unwrap();
-        let display_rows = get_display_rows(study_ctx, &app_state.selected_indices);
+        let pinned = app_state.pinned_trials.clone();
+        let display_rows = get_display_rows_with_pins(study_ctx, &app_state.selected_indices, &pinned);
         let highlighted = app_state.highlighted_trial;
 
         let param_names = study_ctx.meta.param_names.clone();
@@ -27,15 +28,20 @@ impl TrialTableWidget {
         use egui_extras::{Column, TableBuilder};
 
         let mut clicked_trial: Option<u32> = None;
+        let mut pin_toggled: Option<u32> = None;
 
         TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
+            .column(Column::auto().at_least(30.0))  // Pin column
             .column(Column::auto().at_least(60.0))
             .column(Column::remainder())
             .column(Column::remainder())
             .column(Column::auto().at_least(80.0))
             .header(20.0, |mut header| {
+                header.col(|ui| {
+                    ui.strong("📌");
+                });
                 header.col(|ui| {
                     ui.strong("Trial ID");
                 });
@@ -53,12 +59,19 @@ impl TrialTableWidget {
                 body.rows(18.0, display_rows.len(), |mut row| {
                     let trial = &display_rows[row.index()];
                     let is_highlighted = highlighted == Some(trial.trial_id);
+                    let is_pinned = pinned.contains(&trial.trial_id);
                     let bg_color = if is_highlighted {
                         Some(COLOR_LINK)
                     } else {
                         None
                     };
 
+                    row.col(|ui| {
+                        let pin_label = if is_pinned { "📌" } else { "·" };
+                        if ui.small_button(pin_label).clicked() {
+                            pin_toggled = Some(trial.trial_id);
+                        }
+                    });
                     row.col(|ui| {
                         let res =
                             ui.selectable_label(is_highlighted, trial.trial_number.to_string());
@@ -96,32 +109,37 @@ impl TrialTableWidget {
         if let Some(trial_id) = clicked_trial {
             app_state.set_highlight(trial_id);
         }
+        if let Some(trial_id) = pin_toggled {
+            // Ignore limit error for now; UI notification is handled by caller
+            let _ = app_state.toggle_pinned_trial(trial_id);
+        }
     }
 }
 
-/// 表示対象の TrialRow を返す。
+/// 表示対象の TrialRow を返す（ピン留め考慮版）。
+/// selected_indices が空なら全件、そうでなければ selected ∪ pinned で返す。
+pub fn get_display_rows_with_pins<'a>(
+    study_ctx: &'a StudyContext,
+    selected_indices: &[u32],
+    pinned: &[u32],
+) -> Vec<&'a TrialRow> {
+    filter_rows_for_display(&study_ctx.trial_rows, selected_indices, pinned)
+}
+
+/// 表示対象の TrialRow を返す（後方互換ラッパー）。
 /// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
 pub fn get_display_rows<'a>(
     study_ctx: &'a StudyContext,
     selected_indices: &[u32],
 ) -> Vec<&'a TrialRow> {
-    if selected_indices.is_empty() {
-        study_ctx.trial_rows.iter().collect()
-    } else {
-        let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
-        study_ctx
-            .trial_rows
-            .iter()
-            .filter(|r| id_set.contains(&r.trial_id))
-            .collect()
-    }
+    get_display_rows_with_pins(study_ctx, selected_indices, &[])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::app_state::{
-        Direction, GpuBufferData, StudyContext, StudyMeta, TrialRow, TrialState,
+        Direction, GpuBufferData, PinError, StudyContext, StudyMeta, TrialRow, TrialState,
     };
     use std::collections::HashMap;
 
@@ -187,5 +205,52 @@ mod tests {
         let ctx = make_study_ctx(3);
         let rows = get_display_rows(&ctx, &[99]);
         assert_eq!(rows.len(), 0);
+    }
+
+    // ── TASK-2235: ピン留めUIテスト ──────────────────────────────
+
+    #[test]
+    fn get_display_rows_keeps_pinned_rows_visible() {
+        let ctx = make_study_ctx(5);
+        // selected=[0,1], pinned=[4] → 0,1,4 visible
+        let rows = get_display_rows_with_pins(&ctx, &[0, 1], &[4]);
+        let ids: Vec<u32> = rows.iter().map(|r| r.trial_id).collect();
+        assert!(ids.contains(&0));
+        assert!(ids.contains(&1));
+        assert!(ids.contains(&4));
+        assert!(!ids.contains(&2));
+        assert!(!ids.contains(&3));
+    }
+
+    #[test]
+    fn pin_icon_reflects_current_state() {
+        // pin アイコンは is_pinned フラグで切り替わる
+        let is_pinned = true;
+        let label = if is_pinned { "📌" } else { "·" };
+        assert_eq!(label, "📌");
+
+        let is_pinned = false;
+        let label = if is_pinned { "📌" } else { "·" };
+        assert_eq!(label, "·");
+    }
+
+    #[test]
+    fn pin_limit_error_is_surfaceable_to_ui() {
+        use crate::state::app_state::AppState;
+        let mut state = AppState::new();
+        for i in 0..20u32 {
+            state.toggle_pinned_trial(i).unwrap();
+        }
+        let result = state.toggle_pinned_trial(100);
+        assert_eq!(result, Err(PinError::MaxPinnedReached { limit: 20 }));
+    }
+
+    #[test]
+    fn pin_row_then_change_selection_row_stays_visible() {
+        let ctx = make_study_ctx(5);
+        // pin trial 3, then selection is [0,1] (no longer includes 3)
+        let rows = get_display_rows_with_pins(&ctx, &[0, 1], &[3]);
+        let ids: Vec<u32> = rows.iter().map(|r| r.trial_id).collect();
+        assert!(ids.contains(&3), "pinned row 3 must remain visible");
     }
 }

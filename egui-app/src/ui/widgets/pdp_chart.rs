@@ -507,4 +507,56 @@ mod tests {
         let chart = PdpChart::default();
         assert!(chart.try_cache("obj0").is_none());
     }
+
+    // ── TASK-2237: PDP observed overlay 選択連動テスト ──────────
+
+    fn make_row(id: u32, x: f64, y: f64) -> TrialRow {
+        use crate::state::app_state::TrialState;
+        TrialRow {
+            trial_id: id,
+            trial_number: id,
+            params: [("x".to_string(), x)].into(),
+            objectives: vec![y],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn pdp_overlay_uses_filtered_rows_when_selection_exists() {
+        use crate::state::app_state::filter_rows_for_display;
+        let all_rows = vec![make_row(0, 1.0, 2.0), make_row(1, 2.0, 3.0), make_row(2, 3.0, 4.0)];
+        let selected = vec![0u32, 1];
+        let pinned: Vec<u32> = vec![];
+        let filtered = filter_rows_for_display(&all_rows, &selected, &pinned);
+        assert_eq!(filtered.len(), 2);
+        let ids: Vec<u32> = filtered.iter().map(|r| r.trial_id).collect();
+        assert!(ids.contains(&0));
+        assert!(ids.contains(&1));
+        assert!(!ids.contains(&2));
+    }
+
+    #[test]
+    fn pdp_overlay_falls_back_to_all_rows_without_selection() {
+        use crate::state::app_state::filter_rows_for_display;
+        let all_rows = vec![make_row(0, 1.0, 2.0), make_row(1, 2.0, 3.0)];
+        let selected: Vec<u32> = vec![];
+        let pinned: Vec<u32> = vec![];
+        let filtered = filter_rows_for_display(&all_rows, &selected, &pinned);
+        assert_eq!(filtered.len(), 2, "all rows returned when no selection");
+    }
+
+    #[test]
+    fn pinned_row_remains_in_observed_overlay() {
+        use crate::state::app_state::filter_rows_for_display;
+        let all_rows = vec![make_row(0, 1.0, 2.0), make_row(1, 2.0, 3.0), make_row(2, 3.0, 4.0)];
+        // selected only contains [0], pinned = [2]
+        let filtered = filter_rows_for_display(&all_rows, &[0], &[2]);
+        let ids: Vec<u32> = filtered.iter().map(|r| r.trial_id).collect();
+        assert!(ids.contains(&0), "selected row must be visible");
+        assert!(ids.contains(&2), "pinned row must remain visible");
+        assert!(!ids.contains(&1), "unselected unpin row must be hidden");
+    }
 }

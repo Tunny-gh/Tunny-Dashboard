@@ -71,6 +71,8 @@ pub struct ParallelCoordsChart {
     col_data_cache: Option<Vec<Vec<f64>>>,
     col_ranges_cache: Option<Vec<(f64, f64)>>,
     cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
+    // TASK-2242: pending selection from completed brush drag
+    pub pending_selection: Option<Vec<u32>>,
 }
 
 impl Default for ParallelCoordsChart {
@@ -85,6 +87,7 @@ impl Default for ParallelCoordsChart {
             col_data_cache: None,
             col_ranges_cache: None,
             cache_key: (0, 0, 0),
+            pending_selection: None,
         }
     }
 }
@@ -98,6 +101,7 @@ impl ParallelCoordsChart {
     pub fn clear_brushes(&mut self) {
         self.brush_ranges.clear();
         self.drag_start = None;
+        self.pending_selection = None;
     }
 
     /// 平行座標プロットを描画する
@@ -247,8 +251,105 @@ impl ParallelCoordsChart {
             }
         }
 
-        ui.allocate_rect(available, egui::Sense::hover());
+        // Draw brush range overlays
+        for (i, name) in all_names.iter().enumerate() {
+            if let Some(Some((y_lo, y_hi))) = self.brush_ranges.get(name.as_str()) {
+                let x = axis_x[i];
+                let screen_hi = normalized_to_screen_y(*y_hi, axis_top, axis_bottom);
+                let screen_lo = normalized_to_screen_y(*y_lo, axis_top, axis_bottom);
+                let brush_rect = egui::Rect::from_min_max(
+                    egui::pos2(x - 6.0, screen_hi),
+                    egui::pos2(x + 6.0, screen_lo),
+                );
+                painter.rect_filled(
+                    brush_rect,
+                    2.0,
+                    egui::Color32::from_rgba_unmultiplied(100, 150, 255, 80),
+                );
+                painter.rect_stroke(
+                    brush_rect,
+                    2.0,
+                    egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 150, 255)),
+                );
+            }
+        }
+
+        let response = ui.allocate_rect(available, egui::Sense::click_and_drag());
+
+        // Brush drag interaction
+        if let Some(ptr) = response.interact_pointer_pos() {
+            // Find closest axis
+            let closest_axis_idx = axis_x
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    (ptr.x - **a).abs().partial_cmp(&(ptr.x - **b).abs()).unwrap()
+                })
+                .map(|(i, _)| i);
+
+            if let Some(axis_idx) = closest_axis_idx {
+                let axis_name = all_names[axis_idx].clone();
+                // Normalize pointer Y to [0, 1]
+                let norm_y = ((axis_bottom - ptr.y) / (axis_bottom - axis_top)).clamp(0.0, 1.0);
+
+                if response.drag_started() {
+                    self.drag_start = Some((axis_name, norm_y));
+                } else if response.dragged() {
+                    if let Some((ref start_name, start_y)) = self.drag_start.clone() {
+                        if *start_name == axis_name {
+                            let (lo, hi) = ordered_brush_range(start_y, norm_y);
+                            self.brush_ranges.insert(axis_name, Some((lo, hi)));
+                        }
+                    }
+                } else if response.drag_stopped() {
+                    self.drag_start = None;
+                    // Compute selection from all active brush ranges
+                    let new_sel = filter_trials_by_brushes(
+                        trial_rows,
+                        &self.brush_ranges,
+                        col_data,
+                        col_ranges,
+                        &all_names,
+                    );
+                    self.pending_selection = Some(new_sel);
+                }
+            }
+        }
+
+        // Clear brushes on right-click or double-click
+        if response.secondary_clicked() || response.double_clicked() {
+            self.brush_ranges.clear();
+            self.pending_selection = Some(vec![]); // empty = no selection filter
+        }
     }
+}
+
+/// 全ブラシ範囲に対して AND 条件でトライアルをフィルタリングし trial_id リストを返す（TASK-2242）
+pub fn filter_trials_by_brushes(
+    trial_rows: &[crate::state::app_state::TrialRow],
+    brush_ranges: &std::collections::HashMap<String, Option<(f32, f32)>>,
+    col_data: &[Vec<f64>],
+    col_ranges: &[(f64, f64)],
+    all_names: &[String],
+) -> Vec<u32> {
+    trial_rows
+        .iter()
+        .enumerate()
+        .filter_map(|(t_idx, row)| {
+            for (axis_idx, axis_name) in all_names.iter().enumerate() {
+                let Some(Some((lo, hi))) = brush_ranges.get(axis_name.as_str()) else {
+                    continue; // no active brush on this axis
+                };
+                let val = col_data.get(axis_idx).and_then(|c| c.get(t_idx)).copied()?;
+                let (mn, mx) = col_ranges.get(axis_idx).copied()?;
+                let norm = normalize_value(val, mn, mx);
+                if norm < *lo || norm > *hi {
+                    return None; // outside brush range
+                }
+            }
+            Some(row.trial_id)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -407,5 +508,74 @@ mod tests {
             .filter(|name| *visibility.get(*name).unwrap_or(&true))
             .collect();
         assert_eq!(visible.len(), 1);
+    }
+
+    // --- TASK-2242: PCP brush tests ---
+
+    fn make_trial_with_params(
+        id: u32,
+        p: f64,
+        obj: f64,
+    ) -> crate::state::app_state::TrialRow {
+        use crate::state::app_state::{TrialRow, TrialState};
+        use std::collections::HashMap;
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), p);
+        TrialRow {
+            trial_id: id,
+            trial_number: id,
+            params,
+            objectives: vec![obj],
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn normalize_and_denormalize_brush_range_round_trip() {
+        // normalize 3.0 in [0, 10] → 0.3, then denormalize back
+        let norm = normalize_value(3.0, 0.0, 10.0);
+        let (lo, hi) = denormalize_brush_range(norm, norm, 0.0, 10.0);
+        assert!((lo - 3.0).abs() < 1e-4);
+        assert!((hi - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn multi_axis_brush_applies_and_filter() {
+        use std::collections::HashMap;
+        let rows = vec![
+            make_trial_with_params(0, 2.0, 5.0),
+            make_trial_with_params(1, 8.0, 5.0),  // x out of range
+            make_trial_with_params(2, 2.0, 9.0),  // obj out of range
+        ];
+        // col_data: axis 0 = x, axis 1 = obj
+        let col_data = vec![
+            vec![2.0, 8.0, 2.0], // x values
+            vec![5.0, 5.0, 9.0], // obj values
+        ];
+        let col_ranges = vec![(0.0_f64, 10.0_f64), (0.0_f64, 10.0_f64)];
+        let all_names = vec!["x".to_string(), "obj".to_string()];
+
+        let mut brush_ranges: HashMap<String, Option<(f32, f32)>> = HashMap::new();
+        // x in [0.0, 0.5] = values 0..5 → trial 0 and 2 pass
+        brush_ranges.insert("x".to_string(), Some((0.0, 0.5)));
+        // obj in [0.0, 0.6] = values 0..6 → trial 0 passes; trial 2 (obj=9) fails
+        brush_ranges.insert("obj".to_string(), Some((0.0, 0.6)));
+
+        let sel = filter_trials_by_brushes(&rows, &brush_ranges, &col_data, &col_ranges, &all_names);
+        assert_eq!(sel.len(), 1);
+        assert_eq!(sel[0], 0);
+    }
+
+    #[test]
+    fn clear_brushes_resets_selection_state() {
+        let mut chart = ParallelCoordsChart::default();
+        chart.brush_ranges.insert("x".to_string(), Some((0.2, 0.8)));
+        chart.pending_selection = Some(vec![0, 1]);
+        chart.clear_brushes();
+        assert!(chart.brush_ranges.is_empty());
+        assert!(chart.pending_selection.is_none());
     }
 }

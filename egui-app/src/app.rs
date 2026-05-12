@@ -145,6 +145,7 @@ impl TunnyApp {
                         self.app_state.filter_ranges = snap.filter_ranges;
                         self.app_state.selected_indices = snap.selected_indices;
                         self.app_state.tradeoff_weights = snap.tradeoff_weights;
+                        self.app_state.pinned_trials = snap.pinned_trials;
                     }
                 }
                 ToolbarAction::SaveSession => {
@@ -155,15 +156,60 @@ impl TunnyApp {
                         .as_ref()
                         .map(|c| c.meta.name.clone())
                         .unwrap_or_default();
-                    let snap = session::SessionSnapshot::new(
+                    let mut snap = session::SessionSnapshot::new(
                         name,
                         self.app_state.filter_ranges.clone(),
                         self.app_state.selected_indices.clone(),
                     );
+                    snap.pinned_trials = self.app_state.pinned_trials.clone();
                     session::save_session(&snap);
                 }
                 ToolbarAction::ClearLoadError => {
                     self.load_error = None;
+                }
+                ToolbarAction::ExportCsv(target) => {
+                    if let Some(ctx) = &self.app_state.current_study {
+                        let csv = crate::io::export::build_csv_string(
+                            &crate::io::export::select_rows_for_export(
+                                &ctx.trial_rows,
+                                &self.app_state.selected_indices,
+                                &ctx.pareto_indices,
+                                &target,
+                            ),
+                            &ctx.meta.param_names,
+                            &ctx.meta.objective_names,
+                        );
+                        let _ = crate::io::export::save_csv_to_file(&csv);
+                    }
+                }
+                ToolbarAction::AddComparisonStudy => {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Journal", &["log"])
+                        .pick_file()
+                    {
+                        let main_name = self
+                            .app_state
+                            .current_study
+                            .as_ref()
+                            .map(|c| c.meta.name.clone())
+                            .unwrap_or_default();
+                        let study_idx = self.app_state.comparison_studies.len();
+                        self.app_state.comparison_mode = true;
+                        crate::io::study_worker::dispatch_load_comparison_study(
+                            path,
+                            main_name,
+                            study_idx,
+                            self.sender(),
+                        );
+                    }
+                }
+                ToolbarAction::RemoveComparisonStudy(idx) => {
+                    if idx < self.app_state.comparison_studies.len() {
+                        self.app_state.comparison_studies.remove(idx);
+                        if idx < self.app_state.comparison_colors.len() {
+                            self.app_state.comparison_colors.remove(idx);
+                        }
+                    }
                 }
             }
         }
@@ -224,6 +270,49 @@ impl eframe::App for TunnyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_messages(ctx);
         crate::ui::layout::show_layout(self, ctx);
+
+        // PNG capture flow: request screenshot on next frame, consume event when it arrives
+        let cap = &mut self.widget_states.capture;
+        if cap.pending_capture.is_some() && !cap.screenshot_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            cap.screenshot_requested = true;
+        }
+
+        if cap.screenshot_requested {
+            let scale = ctx.pixels_per_point();
+            let crop_rect = cap.pending_capture_rect;
+            let event = ctx.input(|i| {
+                i.events.iter().find_map(|e| {
+                    if let egui::Event::Screenshot { image, .. } = e {
+                        Some(image.clone())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+            if let Some(image) = event {
+                cap.screenshot_requested = false;
+                cap.pending_capture = None;
+                cap.pending_capture_rect = None;
+
+                let result = (|| -> Result<Option<()>, String> {
+                    let rect = crop_rect.ok_or_else(|| "No capture rect".to_string())?;
+                    let cropped = crate::io::chart_capture::crop_image(&image, rect, scale)
+                        .ok_or_else(|| "Crop rect outside image bounds".to_string())?;
+                    let png_bytes = crate::io::chart_capture::encode_png(cropped)?;
+                    crate::io::chart_capture::save_png_to_file(&png_bytes)
+                })();
+
+                match result {
+                    Ok(None) => {} // user cancelled — no-op
+                    Ok(Some(())) => {}
+                    Err(e) => {
+                        self.widget_states.capture.last_error = Some(e);
+                    }
+                }
+            }
+        }
     }
 }
 

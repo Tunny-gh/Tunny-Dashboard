@@ -71,6 +71,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                         PanelItem::Chart(ChartId::PdpChart2D),
                         PanelItem::Chart(ChartId::ScatterMatrix),
                         PanelItem::Chart(ChartId::SliceChart),
+                        PanelItem::Chart(ChartId::SurfacePlot),
                     ],
                 ),
                 ("Clustering", &[PanelItem::Chart(ChartId::ClusterScatter)]),
@@ -155,5 +156,16 @@ mod tests {
         use crate::state::layout_state::ChartId;
         let items = PanelItem::all();
         assert_eq!(items.len(), ChartId::all().len() + 1);
+    }
+
+    #[test]
+    fn right_panel_lists_surface_plot_under_variable_analysis() {
+        // Verify SurfacePlot appears with the correct label in the Variable Analysis group
+        let sp = ChartId::SurfacePlot;
+        assert_eq!(sp.label(), "Surface Plot");
+        let all = ChartId::all();
+        assert!(all.contains(&ChartId::SurfacePlot));
+        let item = PanelItem::Chart(ChartId::SurfacePlot);
+        assert_eq!(item.label(), "Surface Plot");
     }
 }

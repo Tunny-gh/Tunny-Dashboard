@@ -439,4 +439,15 @@ mod tests {
         assert!(loaded.pcp_axis_order.is_empty());
         assert!(loaded.pinned_trials.is_empty());
     }
+
+    // ── TASK-2231: ピン留め round-trip テスト ──────────────────
+
+    #[test]
+    fn session_round_trip_preserves_pinned_trials() {
+        let mut snap = make_snapshot();
+        snap.pinned_trials = vec![3, 7, 15];
+        let json = serialize_session(&snap).unwrap();
+        let restored = deserialize_session(&json).unwrap();
+        assert_eq!(restored.pinned_trials, vec![3, 7, 15]);
+    }
 }

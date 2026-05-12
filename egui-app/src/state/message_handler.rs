@@ -145,12 +145,11 @@ impl MessageHandler {
                 widget_states.pdp_chart.computing = false;
             }
 
-            // TASK-2112: 新規バリアント（TASK-2114 で詳細実装予定）
             AppMessage::TradeoffDone { sorted_indices } => {
                 app_state.tradeoff_sorted_indices = Some(sorted_indices);
             }
             AppMessage::ComparisonStudyLoaded {
-                study_idx: _,
+                study_idx: _, // studies arrive in dispatch order; sequential append is correct
                 context,
             } => {
                 app_state.comparison_studies.push(*context);
@@ -173,6 +172,21 @@ impl MessageHandler {
                 // エラーをログ出力（デバッグ用）
                 #[cfg(debug_assertions)]
                 eprintln!("McdmScatter compute failed: {}", err);
+            }
+
+            AppMessage::ComparisonStudyLoadFailed(err) => {
+                *load_error = Some(err);
+            }
+            AppMessage::SurfacePlotDone(result) => {
+                widget_states.surface_plot.result = Some(result);
+                widget_states.surface_plot.computing = false;
+            }
+            AppMessage::SurfacePlotFailed(err) => {
+                widget_states.surface_plot.error_message = Some(err);
+                widget_states.surface_plot.computing = false;
+            }
+            AppMessage::ChartCaptureFailed(err) => {
+                widget_states.capture.last_error = Some(err);
             }
         }
     }
@@ -626,5 +640,71 @@ mod tests {
         assert!(!widgets.cluster_scatter.computing);
         assert!(widgets.cluster_scatter.pending_compute.is_none());
         assert!(widgets.cluster_scatter.last_error.is_none());
+    }
+
+    // ── TASK-2230: 比較ロードメッセージのテスト ──────────────────
+
+    #[test]
+    fn comparison_load_message_updates_state_entrypoint() {
+        use crate::state::app_state::StudyContext;
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        let context = StudyContext {
+            meta: StudyMeta {
+                study_id: 99,
+                name: "compare".to_string(),
+                directions: vec![Direction::Minimize],
+                completed_trials: 0,
+                total_trials: 0,
+                param_names: vec![],
+                objective_names: vec![],
+                user_attr_names: vec![],
+                has_constraints: false,
+            },
+            trial_rows: vec![],
+            gpu_data: GpuBufferData {
+                positions: vec![],
+                positions3d: vec![],
+                colors: vec![],
+                sizes: vec![],
+                trial_count: 0,
+            },
+            pareto_indices: vec![],
+        };
+
+        MessageHandler::handle(
+            AppMessage::ComparisonStudyLoaded {
+                study_idx: 0,
+                context: Box::new(context),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert_eq!(app_state.comparison_studies.len(), 1);
+        assert_eq!(app_state.comparison_studies[0].meta.study_id, 99);
+    }
+
+    #[test]
+    fn comparison_load_failed_message_sets_load_error() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+
+        MessageHandler::handle(
+            AppMessage::ComparisonStudyLoadFailed("file not found".to_string()),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert_eq!(load_error.as_deref(), Some("file not found"));
     }
 }

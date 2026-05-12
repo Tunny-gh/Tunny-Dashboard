@@ -70,6 +70,33 @@ pub fn cluster_ui_error(
 }
 
 // ============================================================
+// Surface Plot 関連型
+// ============================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfacePlotRenderMode {
+    Heatmap,
+    Contour,
+}
+
+impl Default for SurfacePlotRenderMode {
+    fn default() -> Self {
+        Self::Heatmap
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SurfacePlotResult {
+    pub x_values: Vec<f64>,
+    pub y_values: Vec<f64>,
+    pub z_values: Vec<Vec<f64>>,
+    pub param_x_name: String,
+    pub param_y_name: String,
+    pub objective_name: String,
+    pub r2: Option<f64>,
+}
+
+// ============================================================
 // AppMessage
 // ============================================================
 
@@ -153,6 +180,11 @@ pub enum AppMessage {
     },
     /// TASK-1505: MCDM散布図計算失敗
     McdmScatterComputeFailed(String),
+
+    ComparisonStudyLoadFailed(String),
+    SurfacePlotDone(SurfacePlotResult),
+    SurfacePlotFailed(String),
+    ChartCaptureFailed(String),
 }
 
 #[cfg(test)]
@@ -190,5 +222,40 @@ mod tests {
             PdpResult::OneDim(r) => assert_eq!(r.x_values.len(), 3),
             _ => panic!("Expected OneDim"),
         }
+    }
+
+    // ── TASK-2228: 新規バリアントとSurfacePlotResultのテスト ────────
+
+    #[test]
+    fn message_handler_accepts_new_message_family() {
+        let msgs: Vec<AppMessage> = vec![
+            AppMessage::ComparisonStudyLoadFailed("err".to_string()),
+            AppMessage::SurfacePlotDone(SurfacePlotResult {
+                x_values: vec![0.0],
+                y_values: vec![0.0],
+                z_values: vec![vec![0.0]],
+                param_x_name: "x".to_string(),
+                param_y_name: "y".to_string(),
+                objective_name: "f".to_string(),
+                r2: None,
+            }),
+            AppMessage::SurfacePlotFailed("compute error".to_string()),
+            AppMessage::ChartCaptureFailed("capture error".to_string()),
+        ];
+        // all variants should be matchable without panic
+        for msg in msgs {
+            match msg {
+                AppMessage::ComparisonStudyLoadFailed(e) => assert!(!e.is_empty()),
+                AppMessage::SurfacePlotDone(r) => assert_eq!(r.x_values.len(), 1),
+                AppMessage::SurfacePlotFailed(e) => assert!(!e.is_empty()),
+                AppMessage::ChartCaptureFailed(e) => assert!(!e.is_empty()),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn surface_plot_render_mode_default_is_heatmap() {
+        assert_eq!(SurfacePlotRenderMode::default(), SurfacePlotRenderMode::Heatmap);
     }
 }

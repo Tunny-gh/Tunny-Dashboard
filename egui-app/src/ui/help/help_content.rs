@@ -296,6 +296,13 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 markdown: include_str!("../../../../theory/en/widgets/hv-history.md"),
             }],
         },
+        ChartId::SurfacePlot => HelpContent {
+            title: "Surface Plot",
+            tabs: &[HelpTabDef {
+                label: "Overview",
+                markdown: "# Surface Plot\n\nVisualizes the response surface of an objective function over two selected parameters.",
+            }],
+        },
     }
 }
 

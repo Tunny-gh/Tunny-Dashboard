@@ -17,6 +17,7 @@ pub enum ChartId {
     AhpRankChart,
     AhpTable,
     SliceChart,
+    SurfacePlot,
 }
 
 impl ChartId {
@@ -39,6 +40,7 @@ impl ChartId {
             ChartId::AhpRankChart,
             ChartId::AhpTable,
             ChartId::SliceChart,
+            ChartId::SurfacePlot,
         ]
     }
 
@@ -61,6 +63,7 @@ impl ChartId {
             ChartId::AhpRankChart => "AHP Ranking",
             ChartId::AhpTable => "AHP Table",
             ChartId::SliceChart => "Slice Chart",
+            ChartId::SurfacePlot => "Surface Plot",
         }
     }
 }
@@ -462,6 +465,21 @@ impl Default for LayoutState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- PanelItem tests ---
+
+    // --- ChartId::SurfacePlot tests (TASK-2238) ---
+
+    #[test]
+    fn chart_id_all_contains_surface_plot() {
+        let all = ChartId::all();
+        assert!(all.contains(&ChartId::SurfacePlot));
+    }
+
+    #[test]
+    fn surface_plot_label_is_correct() {
+        assert_eq!(ChartId::SurfacePlot.label(), "Surface Plot");
+    }
 
     // --- PanelItem tests ---
 

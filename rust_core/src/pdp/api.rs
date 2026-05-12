@@ -194,3 +194,47 @@ pub fn compute_pdp_2d(
     })
     .flatten()
 }
+
+/// Compute a 2D response surface from raw data without using the thread-local dataframe.
+/// Suitable for calling from background threads.
+/// `model_type` accepts "ridge" (default), "kriging", "sparse_kriging".
+pub fn compute_surface_from_data(
+    x_matrix: Vec<Vec<f64>>,
+    y: Vec<f64>,
+    param_names: Vec<String>,
+    objective_name: &str,
+    param1_idx: usize,
+    param2_idx: usize,
+    n_grid: usize,
+    model_type: &str,
+) -> PdpResult2d {
+    match model_type {
+        "kriging" => compute_pdp_2d_kriging(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            param1_idx,
+            param2_idx,
+            n_grid,
+        ),
+        "sparse_kriging" => compute_pdp_2d_sparse_kriging(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            param1_idx,
+            param2_idx,
+            n_grid,
+        ),
+        _ => compute_pdp_2d_from_matrix(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            param1_idx,
+            param2_idx,
+            n_grid,
+        ),
+    }
+}

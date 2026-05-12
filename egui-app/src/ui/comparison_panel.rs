@@ -10,6 +10,76 @@ pub enum ComparisonView {
     HvHistory,
     ParetoFront,
     KdeDistribution,
+    Diff,
+}
+
+/// 1 比較 Study 分の差分行
+#[derive(Debug, Clone)]
+pub struct ComparisonDiffRow {
+    pub study_name: String,
+    pub trial_count_delta: i64,
+    pub best_value_delta: Option<f64>,
+    pub pareto_dominance_ratio: Option<f64>,
+    pub incompatible_reason: Option<String>,
+}
+
+/// base Study と comparison studies の差分行を生成する pure function。
+/// objective 名不一致の Study には `incompatible_reason` を設定する。
+pub fn build_comparison_diff_rows(
+    base: &crate::state::app_state::StudyContext,
+    comparison_studies: &[crate::state::app_state::StudyContext],
+) -> Vec<ComparisonDiffRow> {
+    let base_best = if base.meta.objective_names.len() == 1 {
+        base.trial_rows
+            .iter()
+            .filter_map(|r| r.objectives.first().copied())
+            .reduce(f64::min)
+    } else {
+        None
+    };
+
+    comparison_studies
+        .iter()
+        .map(|comp| {
+            if base.meta.objective_names != comp.meta.objective_names {
+                return ComparisonDiffRow {
+                    study_name: comp.meta.name.clone(),
+                    trial_count_delta: 0,
+                    best_value_delta: None,
+                    pareto_dominance_ratio: None,
+                    incompatible_reason: Some(format!(
+                        "Objective mismatch: {:?} vs {:?}",
+                        base.meta.objective_names, comp.meta.objective_names
+                    )),
+                };
+            }
+
+            let trial_count_delta =
+                comp.trial_rows.len() as i64 - base.trial_rows.len() as i64;
+
+            let best_value_delta = base_best.and_then(|b| {
+                comp.trial_rows
+                    .iter()
+                    .filter_map(|r| r.objectives.first().copied())
+                    .reduce(f64::min)
+                    .map(|c| c - b)
+            });
+
+            let pareto_dominance_ratio = if !comp.trial_rows.is_empty() {
+                Some(comp.pareto_indices.len() as f64 / comp.trial_rows.len() as f64)
+            } else {
+                None
+            };
+
+            ComparisonDiffRow {
+                study_name: comp.meta.name.clone(),
+                trial_count_delta,
+                best_value_delta,
+                pareto_dominance_ratio,
+                incompatible_reason: None,
+            }
+        })
+        .collect()
 }
 
 /// マルチスタディ比較パネルを表示する
@@ -30,6 +100,7 @@ pub fn show_comparison_panel(
         ui.selectable_value(active_view, ComparisonView::HvHistory, "HV History");
         ui.selectable_value(active_view, ComparisonView::ParetoFront, "Pareto");
         ui.selectable_value(active_view, ComparisonView::KdeDistribution, "KDE");
+        ui.selectable_value(active_view, ComparisonView::Diff, "Diff");
     });
     ui.separator();
 
@@ -38,6 +109,7 @@ pub fn show_comparison_panel(
         ComparisonView::HvHistory => show_hv_history(ui, app_state),
         ComparisonView::ParetoFront => show_pareto_overlay(ui, app_state),
         ComparisonView::KdeDistribution => show_kde_distribution(ui, app_state),
+        ComparisonView::Diff => show_diff_tab(ui, app_state),
     }
 }
 
@@ -266,6 +338,67 @@ fn show_kde_distribution(ui: &mut egui::Ui, app_state: &AppState) {
     });
 }
 
+// ============================================================
+// Diff タブ描画
+// ============================================================
+
+fn show_diff_tab(ui: &mut egui::Ui, app_state: &AppState) {
+    let Some(base) = &app_state.current_study else {
+        ui.label("No base study loaded.");
+        return;
+    };
+    if app_state.comparison_studies.is_empty() {
+        ui.label("No comparison studies added.");
+        return;
+    }
+
+    let rows = build_comparison_diff_rows(base, &app_state.comparison_studies);
+
+    use egui_extras::{Column, TableBuilder};
+    TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .column(Column::auto().at_least(120.0))
+        .column(Column::auto().at_least(80.0))
+        .column(Column::auto().at_least(100.0))
+        .column(Column::auto().at_least(100.0))
+        .column(Column::remainder())
+        .header(20.0, |mut header| {
+            header.col(|ui| { ui.strong("Study"); });
+            header.col(|ui| { ui.strong("Δ Trials"); });
+            header.col(|ui| { ui.strong("Δ Best Value"); });
+            header.col(|ui| { ui.strong("Pareto Ratio"); });
+            header.col(|ui| { ui.strong("Note"); });
+        })
+        .body(|body| {
+            body.rows(18.0, rows.len(), |mut row| {
+                let r = &rows[row.index()];
+                row.col(|ui| { ui.label(&r.study_name); });
+                row.col(|ui| {
+                    let s = format!("{:+}", r.trial_count_delta);
+                    ui.label(s);
+                });
+                row.col(|ui| {
+                    let s = r.best_value_delta
+                        .map(|v| format!("{:+.4}", v))
+                        .unwrap_or_else(|| "—".to_string());
+                    ui.label(s);
+                });
+                row.col(|ui| {
+                    let s = r.pareto_dominance_ratio
+                        .map(|v| format!("{:.1}%", v * 100.0))
+                        .unwrap_or_else(|| "—".to_string());
+                    ui.label(s);
+                });
+                row.col(|ui| {
+                    if let Some(reason) = &r.incompatible_reason {
+                        ui.label(reason);
+                    }
+                });
+            });
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +453,78 @@ mod tests {
     fn comparison_view_default_is_stats() {
         let view = ComparisonView::default();
         assert!(matches!(view, ComparisonView::Stats));
+    }
+
+    // ── TASK-2236: Comparison Diff テスト ──────────────────────
+
+    use crate::state::app_state::{Direction, GpuBufferData, StudyContext, StudyMeta, TrialRow, TrialState};
+    use std::collections::HashMap;
+
+    fn make_ctx(name: &str, obj_names: Vec<String>, objectives: Vec<Vec<f64>>, pareto: Vec<u32>) -> StudyContext {
+        let trial_rows = objectives.iter().enumerate().map(|(i, objs)| TrialRow {
+            trial_id: i as u32,
+            trial_number: i as u32,
+            params: HashMap::new(),
+            objectives: objs.clone(),
+            pareto_rank: 0,
+            cluster_id: None,
+            state: TrialState::Complete,
+            user_attrs: HashMap::new(),
+        }).collect();
+        StudyContext {
+            meta: StudyMeta {
+                study_id: 0,
+                name: name.to_string(),
+                directions: vec![Direction::Minimize],
+                completed_trials: objectives.len(),
+                total_trials: objectives.len(),
+                param_names: vec![],
+                objective_names: obj_names,
+                user_attr_names: vec![],
+                has_constraints: false,
+            },
+            trial_rows,
+            gpu_data: GpuBufferData { positions: vec![], positions3d: vec![], colors: vec![], sizes: vec![], trial_count: 0 },
+            pareto_indices: pareto,
+        }
+    }
+
+    #[test]
+    fn diff_metrics_compute_expected_delta_values() {
+        let base = make_ctx("base", vec!["f".to_string()], vec![vec![1.0], vec![2.0], vec![0.5]], vec![2]);
+        let comp = make_ctx("comp", vec!["f".to_string()], vec![vec![0.3], vec![1.5], vec![0.3], vec![0.3], vec![0.3]], vec![0]);
+        let rows = build_comparison_diff_rows(&base, &[comp]);
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].incompatible_reason.is_none());
+        // trial_count_delta = 5 - 3 = 2
+        assert_eq!(rows[0].trial_count_delta, 2);
+        // best_value_delta = 0.3 - 0.5 = -0.2
+        let delta = rows[0].best_value_delta.unwrap();
+        assert!((delta - (-0.2)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn diff_metrics_compute_pareto_dominance_ratio() {
+        let base = make_ctx("base", vec!["f".to_string()], vec![vec![1.0]], vec![0]);
+        let comp = make_ctx("comp", vec!["f".to_string()], vec![vec![0.5], vec![1.0], vec![1.5], vec![2.0]], vec![0]);
+        let rows = build_comparison_diff_rows(&base, &[comp]);
+        let ratio = rows[0].pareto_dominance_ratio.unwrap();
+        assert!((ratio - 0.25).abs() < 1e-9, "expected 1/4 = 0.25, got {}", ratio);
+    }
+
+    #[test]
+    fn diff_metrics_detect_objective_mismatch() {
+        let base = make_ctx("base", vec!["f1".to_string()], vec![vec![1.0]], vec![]);
+        let comp = make_ctx("comp", vec!["f2".to_string()], vec![vec![1.0]], vec![]);
+        let rows = build_comparison_diff_rows(&base, &[comp]);
+        assert!(rows[0].incompatible_reason.is_some());
+    }
+
+    #[test]
+    fn diff_tab_hidden_without_comparison_studies() {
+        // When comparison_studies is empty, build_comparison_diff_rows returns empty vec
+        let base = make_ctx("base", vec!["f".to_string()], vec![vec![1.0]], vec![]);
+        let rows = build_comparison_diff_rows(&base, &[]);
+        assert!(rows.is_empty());
     }
 }

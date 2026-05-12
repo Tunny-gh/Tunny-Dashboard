@@ -1,4 +1,4 @@
-use crate::state::app_state::{AppState, Direction};
+use crate::state::app_state::{filter_rows_for_display, AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widget_states::WidgetStates;
@@ -56,9 +56,14 @@ pub(crate) fn render_chart(
                 .show(ui, current_sensitivity, current_sobol, obj_names);
         }
         ChartId::PdpChart => {
+            // TASK-2237: pass selected ∪ pinned rows to PDP observed overlay
+            let pdp_rows: Vec<&crate::state::app_state::TrialRow> =
+                filter_rows_for_display(trial_rows, &app_state.selected_indices, &app_state.pinned_trials);
+            let pdp_rows_owned: Vec<crate::state::app_state::TrialRow> =
+                pdp_rows.into_iter().cloned().collect();
             widgets
                 .pdp_chart
-                .show(ui, param_names, obj_names, trial_rows);
+                .show(ui, param_names, obj_names, &pdp_rows_owned);
         }
         ChartId::PdpChart2D => {
             widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
@@ -71,6 +76,9 @@ pub(crate) fn render_chart(
                 obj_names,
                 &widgets.chart_colors,
             );
+            if let Some(sel) = widgets.parallel_coords.pending_selection.take() {
+                app_state.selected_indices = sel;
+            }
         }
         ChartId::ScatterMatrix => {
             widgets.scatter_matrix.show(
@@ -139,6 +147,17 @@ pub(crate) fn render_chart(
             widgets
                 .slice_chart
                 .show(ui, trial_rows, param_names, obj_names, directions);
+        }
+        ChartId::SurfacePlot => {
+            let trial_count = ctx.trial_rows.len();
+            crate::ui::widgets::surface_plot::show(
+                ui,
+                &mut widgets.surface_plot,
+                param_names,
+                obj_names,
+                cmap,
+                trial_count,
+            );
         }
     }
 }

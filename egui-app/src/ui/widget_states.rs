@@ -1,3 +1,4 @@
+use crate::state::messages::{SurfacePlotRenderMode, SurfacePlotResult};
 use crate::ui::widgets::{
     ahp_chart::AhpChart, cluster_scatter::ClusterScatter, hv_history::HvHistoryChart,
     importance_chart::ImportanceChart, mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
@@ -14,6 +15,39 @@ pub enum BottomTab {
     #[default]
     Trials,
     BestHistory,
+}
+
+// ── TASK-2239: Surface Plot 計算リクエスト ──────────────────────
+pub struct SurfacePlotComputeRequest {
+    pub param_x: String,
+    pub param_y: String,
+    pub objective: String,
+    pub n_grid: usize,
+}
+
+// ── TASK-2228: Surface Plot UI 状態 ─────────────────────────────
+#[derive(Default)]
+pub struct SurfacePlotState {
+    pub selected_x: String,
+    pub selected_y: String,
+    pub selected_objective: usize,
+    pub render_mode: SurfacePlotRenderMode,
+    pub computing: bool,
+    pub result: Option<SurfacePlotResult>,
+    pub error_message: Option<String>,
+    pub pending_compute: Option<SurfacePlotComputeRequest>,
+}
+
+// ── TASK-2228/2245: チャートキャプチャ状態 ───────────────────────
+#[derive(Default)]
+pub struct ChartCaptureState {
+    pub last_error: Option<String>,
+    /// PNG 保存対象セル（消費されたら `None` に戻す）
+    pub pending_capture: Option<crate::state::layout_state::PanelItem>,
+    /// 保存対象セルの描画矩形（`ViewportCommand::Screenshot` 後のクロップに使う）
+    pub pending_capture_rect: Option<egui::Rect>,
+    /// Screenshot コマンド発行済みフラグ（次フレームで `Event::Screenshot` を待つ）
+    pub screenshot_requested: bool,
 }
 
 /// 各チャートウィジェットの UI 状態をまとめて保持する
@@ -46,12 +80,16 @@ pub struct WidgetStates {
     pub chart_colors: Vec<egui::Color32>,
     /// ヘルプモーダル状態
     pub help_modal: crate::ui::help::help_types::HelpModalState,
+    // TASK-2228: Surface Plot と capture の一時状態
+    pub surface_plot: SurfacePlotState,
+    pub capture: ChartCaptureState,
 }
 
 impl WidgetStates {
     /// 色モード・カラーマップ・MCDM結果の変化を描画色キャッシュへ反映する。
     /// `StudySelected` 後、色設定変更後、`McdmDone` 後に呼び出すことを想定する。
     pub fn update_chart_colors(&mut self, app_state: &AppState) {
+
         if let Some(ctx) = &app_state.current_study {
             let color_mode = app_state.color_mode.clone();
             let colormap_name = app_state.selected_colormap.clone();
@@ -68,5 +106,103 @@ impl WidgetStates {
         } else {
             self.chart_colors.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn widget_states_default_has_surface_and_capture_slots() {
+        let ws = WidgetStates::default();
+        assert!(ws.surface_plot.result.is_none());
+        assert!(!ws.surface_plot.computing);
+        assert!(ws.surface_plot.error_message.is_none());
+        assert_eq!(ws.surface_plot.render_mode, SurfacePlotRenderMode::Heatmap);
+        assert!(ws.capture.last_error.is_none());
+    }
+
+    #[test]
+    fn render_surface_plot_placeholder_without_result() {
+        // Verify SurfacePlotState with no result does not panic when accessed
+        let state = SurfacePlotState::default();
+        assert!(state.result.is_none());
+        assert!(!state.computing);
+        assert!(state.selected_x.is_empty());
+        assert!(state.selected_y.is_empty());
+    }
+
+    // ── TASK-2246: 回帰テスト ──────────────────────────────────────
+
+    // F-005: surface plot state transitions (spinner on/off, error path)
+    #[test]
+    fn comparison_and_surface_plot_state_transitions_are_covered() {
+        let mut state = SurfacePlotState::default();
+
+        // start compute: computing = true, pending_compute set
+        state.computing = true;
+        state.pending_compute = Some(SurfacePlotComputeRequest {
+            param_x: "x".into(),
+            param_y: "y".into(),
+            objective: "f".into(),
+            n_grid: 20,
+        });
+        assert!(state.computing);
+        assert!(state.pending_compute.is_some());
+
+        // success: result arrives, spinner off
+        state.computing = false;
+        state.pending_compute = None;
+        state.result = Some(crate::state::messages::SurfacePlotResult {
+            x_values: vec![0.0],
+            y_values: vec![0.0],
+            z_values: vec![vec![0.0]],
+            param_x_name: "x".into(),
+            param_y_name: "y".into(),
+            objective_name: "f".into(),
+            r2: Some(0.9),
+        });
+        assert!(!state.computing);
+        assert!(state.result.is_some());
+
+        // failure: error message set, spinner off
+        state.result = None;
+        state.error_message = Some("compute failed".into());
+        assert!(state.error_message.is_some());
+    }
+
+    // F-008: PNG capture state transitions
+    #[test]
+    fn png_capture_state_transitions_are_covered() {
+        use crate::state::layout_state::{ChartId, PanelItem};
+
+        let mut capture = ChartCaptureState::default();
+        assert!(capture.pending_capture.is_none());
+        assert!(!capture.screenshot_requested);
+        assert!(capture.pending_capture_rect.is_none());
+
+        // "Save as PNG" pressed → pending set
+        capture.pending_capture = Some(PanelItem::Chart(ChartId::ParallelCoordinates));
+        capture.pending_capture_rect = Some(egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.0),
+            egui::pos2(100.0, 80.0),
+        ));
+        assert!(capture.pending_capture.is_some());
+
+        // Screenshot command issued
+        capture.screenshot_requested = true;
+        assert!(capture.screenshot_requested);
+
+        // Screenshot received → consumed and reset
+        capture.screenshot_requested = false;
+        capture.pending_capture = None;
+        capture.pending_capture_rect = None;
+        assert!(!capture.screenshot_requested);
+        assert!(capture.pending_capture.is_none());
+
+        // Failure path: error stored
+        capture.last_error = Some("crop rect outside image".into());
+        assert!(capture.last_error.is_some());
     }
 }

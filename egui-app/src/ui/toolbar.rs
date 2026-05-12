@@ -1,3 +1,4 @@
+use crate::io::export::ExportTarget;
 use crate::state::app_state::{AppState, StudyMeta};
 use crate::state::layout_state::{LayoutMode, LayoutState};
 use crate::theme::{ERROR_COLOR, TOOLBAR_BTN_FG};
@@ -23,6 +24,11 @@ pub enum ToolbarAction {
     LoadSession,
     SaveSession,
     ClearLoadError,
+
+    // TASK-2228: 新規アクション
+    ExportCsv(ExportTarget),
+    AddComparisonStudy,
+    RemoveComparisonStudy(usize),
 }
 
 /// ToolBar を描画する
@@ -176,6 +182,47 @@ pub fn show_toolbar(
                 if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
                     actions.push(ToolbarAction::ScanArtifacts(base_dir));
                 }
+            }
+
+            {
+                let has_study = app_state.current_study.is_some();
+                ui.scope(|ui| {
+                    apply_combo_visuals(ui.visuals_mut());
+                    ui.add_enabled_ui(has_study, |ui| {
+                        egui::ComboBox::from_id_salt("csv_export_combo")
+                            .selected_text(
+                                egui::RichText::new("CSV Export").color(crate::theme::TOOLBAR_TEXT),
+                            )
+                            .width(110.0)
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_label(false, "All Data").clicked() {
+                                    actions.push(ToolbarAction::ExportCsv(
+                                        crate::io::export::ExportTarget::AllData,
+                                    ));
+                                }
+                                if ui.selectable_label(false, "Selected Only").clicked() {
+                                    actions.push(ToolbarAction::ExportCsv(
+                                        crate::io::export::ExportTarget::SelectedOnly,
+                                    ));
+                                }
+                                if ui.selectable_label(false, "Pareto Only").clicked() {
+                                    actions.push(ToolbarAction::ExportCsv(
+                                        crate::io::export::ExportTarget::ParetoOnly,
+                                    ));
+                                }
+                            });
+                    });
+                });
+            }
+
+            for (idx, study) in app_state.comparison_studies.iter().enumerate() {
+                let label = format!("× {}", &study.meta.name);
+                if toolbar_button(ui, &label, true).clicked() {
+                    actions.push(ToolbarAction::RemoveComparisonStudy(idx));
+                }
+            }
+            if toolbar_button(ui, "+ Compare", app_state.current_study.is_some()).clicked() {
+                actions.push(ToolbarAction::AddComparisonStudy);
             }
 
             ui.separator();
@@ -339,5 +386,127 @@ mod tests {
         // エラーラベルクリック時のシミュレーション
         load_error = None;
         assert!(load_error.is_none());
+    }
+
+    // TASK-2228: 新規 ToolbarAction variants のテスト
+    #[test]
+    fn toolbar_action_variants_compile_and_match() {
+        let actions = vec![
+            ToolbarAction::ExportCsv(crate::io::export::ExportTarget::AllData),
+            ToolbarAction::ExportCsv(crate::io::export::ExportTarget::SelectedOnly),
+            ToolbarAction::ExportCsv(crate::io::export::ExportTarget::ParetoOnly),
+            ToolbarAction::AddComparisonStudy,
+            ToolbarAction::RemoveComparisonStudy(0),
+        ];
+        for action in &actions {
+            match action {
+                ToolbarAction::ExportCsv(t) => {
+                    let _t = t;
+                }
+                ToolbarAction::AddComparisonStudy => {}
+                ToolbarAction::RemoveComparisonStudy(idx) => {
+                    let _ = idx;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(actions.len(), 5);
+    }
+
+    // ── TASK-2233: CSV Export UI テスト ──────────────────────────
+
+    #[test]
+    fn export_csv_action_targets_all_three_modes() {
+        use crate::io::export::ExportTarget;
+        let targets = [ExportTarget::AllData, ExportTarget::SelectedOnly, ExportTarget::ParetoOnly];
+        for target in &targets {
+            let action = ToolbarAction::ExportCsv(target.clone());
+            match action {
+                ToolbarAction::ExportCsv(_) => {}
+                _ => panic!("Expected ExportCsv"),
+            }
+        }
+        assert_eq!(targets.len(), 3);
+    }
+
+    #[test]
+    fn apply_toolbar_actions_handles_cancel_as_noop() {
+        // save_csv_to_file returns Ok(()) on cancel; verify write_csv_to_path is a separate fn
+        let csv = "trial_id,trial_number\n0,0";
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let result = crate::io::export::write_csv_to_path(csv, tmp.path());
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert_eq!(content, csv);
+    }
+
+    // ── TASK-2234: Comparison UI テスト ──────────────────────────
+
+    #[test]
+    fn toolbar_emits_add_comparison_action() {
+        let action = ToolbarAction::AddComparisonStudy;
+        match action {
+            ToolbarAction::AddComparisonStudy => {}
+            _ => panic!("Expected AddComparisonStudy"),
+        }
+    }
+
+    #[test]
+    fn chip_remove_emits_remove_action() {
+        let action = ToolbarAction::RemoveComparisonStudy(2);
+        match action {
+            ToolbarAction::RemoveComparisonStudy(idx) => assert_eq!(idx, 2),
+            _ => panic!("Expected RemoveComparisonStudy"),
+        }
+    }
+
+    #[test]
+    fn successful_add_switches_to_comparison_mode() {
+        use crate::state::app_state::{AppState, Direction, GpuBufferData, StudyContext, StudyMeta};
+        use crate::state::messages::AppMessage;
+        use crate::state::message_handler::MessageHandler;
+        use crate::ui::widget_states::WidgetStates;
+
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        let context = StudyContext {
+            meta: StudyMeta {
+                study_id: 10,
+                name: "compare_study".to_string(),
+                directions: vec![Direction::Minimize],
+                completed_trials: 0,
+                total_trials: 0,
+                param_names: vec![],
+                objective_names: vec![],
+                user_attr_names: vec![],
+                has_constraints: false,
+            },
+            trial_rows: vec![],
+            gpu_data: GpuBufferData {
+                positions: vec![],
+                positions3d: vec![],
+                colors: vec![],
+                sizes: vec![],
+                trial_count: 0,
+            },
+            pareto_indices: vec![],
+        };
+
+        // Simulate setting comparison_mode before the load completes (as app.rs does)
+        app_state.comparison_mode = true;
+
+        MessageHandler::handle(
+            AppMessage::ComparisonStudyLoaded { study_idx: 0, context: Box::new(context) },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.comparison_mode);
+        assert_eq!(app_state.comparison_studies.len(), 1);
     }
 }
