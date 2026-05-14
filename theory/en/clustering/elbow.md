@@ -10,9 +10,9 @@ The Elbow Method automatically estimates the optimal number of clusters k for k-
 
 Run k-means for k = 2, 3, …, k_max and record:
 
-```
-W_k = WCSS(k)    for k = 2, ..., k_max
-```
+$$
+W_k = \text{WCSS}(k) \quad \text{for } k = 2, \ldots, k_{\max}
+$$
 
 k_max = min(user limit, N).
 
@@ -20,17 +20,17 @@ k_max = min(user limit, N).
 
 Compute the second-order difference of the WCSS sequence:
 
-```
-Δ²W_i = W_i − 2·W_{i+1} + W_{i+2}
-```
+$$
+\Delta^2 W_i = W_i - 2 W_{i+1} + W_{i+2}
+$$
 
 Δ²W_i captures the curvature at position k = i + 3. A straight line gives Δ²W = 0; the elbow point gives the maximum.
 
 ### Step 3: Recommended k
 
-```
-k̂ = argmax_i Δ²W_i + 3
-```
+$$
+\hat{k} = \arg\max_i \Delta^2 W_i + 3
+$$
 
 The +3 offset accounts for the k = 2 start of the WCSS sequence:
 

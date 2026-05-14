@@ -8,13 +8,13 @@ Tunny Dashboard shows a 1D line chart (PDP Chart) and a 2D surface (PDP Chart 2D
 
 ## Theory
 
-For a set of target parameters S and complement C = X \ S:
+For a set of target parameters $S$ and complement $C = X \setminus S$:
 
-```
-f̄_S(x_S) = E_{x_C}[f(x_S, x_C)] ≈ (1/N) Σ_i f(x_S, x_{C,i})
-```
+$$
+\bar{f}_S(x_S) = E_{x_C}[f(x_S, x_C)] \approx \frac{1}{N} \sum_{i=1}^{N} f(x_S, x_{C,i})
+$$
 
-By marginalizing (averaging) x_C, we isolate the pure effect of x_S.
+By marginalizing (averaging) $x_C$, we isolate the pure effect of $x_S$.
 
 ## Surrogate Models for 2D PDP
 

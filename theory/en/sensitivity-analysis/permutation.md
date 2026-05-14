@@ -6,23 +6,23 @@ Permutation Feature Importance (PFI) follows the same principle as RF-ANOVA — 
 
 ## Formula
 
-For each parameter j, repeat r = 1…5:
+For each parameter $j$, repeat $r = 1 \ldots 5$:
 
-```
-Δ_j^(r) = max(MSE_perm_j^(r) − MSE_baseline, 0)
-```
+$$
+\Delta_j^{(r)} = \max\!\left(\operatorname{MSE}_{\text{perm},j}^{(r)} - \operatorname{MSE}_{\text{baseline}},\; 0\right)
+$$
 
 Average across repeats:
 
-```
-I_j = (1/5) · Σ_r Δ_j^(r)
-```
+$$
+I_j = \frac{1}{5} \sum_{r=1}^{5} \Delta_j^{(r)}
+$$
 
 Normalized:
 
-```
-I_j_norm = I_j / Σ_j' I_j'
-```
+$$
+I_{j,\text{norm}} = \frac{I_j}{\sum_{j'} I_{j'}}
+$$
 
 ## Comparison with RF-ANOVA
 

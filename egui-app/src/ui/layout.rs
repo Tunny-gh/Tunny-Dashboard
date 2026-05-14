@@ -1,5 +1,7 @@
 use crate::app::TunnyApp;
+use crate::state::app_state::AppState;
 use crate::theme::TOOLBAR_BTN_FG;
+use crate::ui::help::help_types::HelpLanguage;
 
 /// パネルサイズの定数
 pub const LEFT_WIDTH_MIN: f32 = 120.0;
@@ -50,6 +52,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 app.load_error.as_deref(),
             );
             app.apply_toolbar_actions(toolbar_actions);
+            show_language_menu(ui, &mut app.app_state);
         });
 
     egui::SidePanel::left("left_panel")
@@ -112,12 +115,43 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         );
     });
 
-    crate::ui::help::help_modal::show_help_modal(ctx, &mut app.widget_states.help_modal);
+}
+
+/// ヘルプ言語切替メニューを描画する。
+/// ツールバーなど &mut AppState にアクセスできる場所から呼び出す。
+pub fn show_language_menu(ui: &mut egui::Ui, app_state: &mut AppState) {
+    let current = app_state.help_language;
+    ui.menu_button("🌐 Help Language", |ui| {
+        if ui
+            .selectable_label(current == HelpLanguage::En, "English")
+            .clicked()
+        {
+            app_state.help_language = HelpLanguage::En;
+            ui.close_menu();
+        }
+        if ui
+            .selectable_label(current == HelpLanguage::Ja, "日本語")
+            .clicked()
+        {
+            app_state.help_language = HelpLanguage::Ja;
+            ui.close_menu();
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_language_menu_logic_sets_ja() {
+        use crate::state::app_state::AppState;
+        use crate::ui::help::help_types::HelpLanguage;
+        let mut state = AppState::new();
+        assert_eq!(state.help_language, HelpLanguage::En);
+        state.help_language = HelpLanguage::Ja;
+        assert_eq!(state.help_language, HelpLanguage::Ja);
+    }
 
     #[test]
     fn clamp_left_width_clamps_min() {

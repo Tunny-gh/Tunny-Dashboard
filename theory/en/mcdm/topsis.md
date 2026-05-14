@@ -19,9 +19,7 @@ Given a decision matrix V (m trials × n objectives), TOPSIS computes scores in 
 
 Normalize each objective column j by its Euclidean norm:
 
-```
-r_ij = v_ij / sqrt(Σ_i v_ij²)
-```
+$$r_{ij} = \frac{v_{ij}}{\sqrt{\sum_i v_{ij}^2}}$$
 
 This makes objectives with different scales comparable.
 
@@ -29,9 +27,7 @@ This makes objectives with different scales comparable.
 
 Multiply normalized values by user-assigned weights w_j:
 
-```
-w_ij = w_j · r_ij
-```
+$$w_{ij} = w_j \cdot r_{ij}$$
 
 Weights are internally normalized to sum to 1.
 
@@ -46,16 +42,13 @@ For each objective, select the best and worst values according to direction:
 
 ### Step 4: Euclidean Distances
 
-```
-D_i+ = sqrt(Σ_j (w_ij − A_j+)²)
-D_i- = sqrt(Σ_j (w_ij − A_j-)²)
-```
+$$D_i^+ = \sqrt{\sum_j (w_{ij} - A_j^+)^2}$$
+
+$$D_i^- = \sqrt{\sum_j (w_{ij} - A_j^-)^2}$$
 
 ### Step 5: TOPSIS Score (Relative Closeness)
 
-```
-score_i = D_i- / (D_i+ + D_i-)
-```
+$$\text{score}_i = \frac{D_i^-}{D_i^+ + D_i^-}$$
 
 - score → 1: close to positive ideal (good trial)
 - score → 0: close to negative ideal (poor trial)

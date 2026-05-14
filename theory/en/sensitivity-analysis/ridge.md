@@ -11,23 +11,23 @@ Like Spearman, it is lightweight and useful for a quick global overview before r
 
 ## Formula
 
-Given standardized input matrix X and centered objective y_c = y − ȳ:
+Given standardized input matrix $X$ and centered objective $y_c = y - \bar{y}$:
 
-```
-β = (X^T X + αI)^{-1} X^T y_c      (α = 1.0)
-```
+$$
+\beta = (X^T X + \alpha I)^{-1} X^T y_c \quad (\alpha = 1.0)
+$$
 
 Coefficient of determination:
 
-```
-R² = 1 − Σ(y_c,i − ŷ_c,i)² / Σ y_c,i²
-```
+$$
+R^2 = 1 - \frac{\sum (y_{c,i} - \hat{y}_{c,i})^2}{\sum y_{c,i}^2}
+$$
 
 Importance score for parameter j:
 
-```
-score_j = |β_j|
-```
+$$
+\operatorname{score}_j = |\beta_j|
+$$
 
 ## Interpreting R²
 

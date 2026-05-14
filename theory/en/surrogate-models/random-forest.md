@@ -8,9 +8,9 @@ Random Forest is an ensemble of CART regression trees trained on bootstrap sampl
 
 Each tree uses Mean Squared Error (MSE) splitting:
 
-```
-Gain(j, t) = MSE(y) − [n_L/n · MSE(y_L) + n_R/n · MSE(y_R)]
-```
+$$
+\text{Gain}(j, t) = \text{MSE}(y) - \left[\frac{n_L}{n} \cdot \text{MSE}(y_L) + \frac{n_R}{n} \cdot \text{MSE}(y_R)\right]
+$$
 
 Pick the split (j, t) that maximizes Gain. Leaf nodes return the mean of their samples.
 
@@ -24,10 +24,9 @@ Pick the split (j, t) that maximizes Gain. Leaf nodes return the mean of their s
 
 ## Bagging
 
-```
-n_trees = 100 trees, each trained on N points resampled with replacement
-ŷ(x) = (1/n_trees) · Σ_b T_b(x)
-```
+$$
+\hat{y}(x) = \frac{1}{B} \sum_{b=1}^{B} T_b(x) \quad (B = 100 \text{ trees})
+$$
 
 Bootstrap sampling uses LCG pseudo-random numbers (Knuth's constants — no external crate). Each tree's independent variance contributes 1/100 of a single tree's variance in the ensemble.
 
@@ -35,9 +34,9 @@ Bootstrap sampling uses LCG pseudo-random numbers (Knuth's constants — no exte
 
 Projects all trials onto 2 selected parameters, fits a 2D Random Forest, then predicts on a 50×50 grid:
 
-```
-values[i][j] = RF.predict([grid_1[i], grid_2[j]])
-```
+$$
+\text{values}[i][j] = \text{RF.predict}([g_1[i], g_2[j]])
+$$
 
 Total grid predictions: 2,500 × 100 trees × depth 10 ≈ 2.5M operations.
 

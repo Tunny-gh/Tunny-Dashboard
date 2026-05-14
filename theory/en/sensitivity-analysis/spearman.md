@@ -10,41 +10,43 @@ The ImportanceChart displays |ρ| (absolute value): it captures how strongly a p
 
 ### Step 1: Convert values to ranks
 
-```
-x = [3.1, 1.2, 4.5, 2.0]
-rank(x) = [3, 1, 4, 2]
-```
+$$
+\mathbf{x} = [3.1, 1.2, 4.5, 2.0]
+$$
+
+$$
+\operatorname{rank}(\mathbf{x}) = [3, 1, 4, 2]
+$$
 
 Ties receive the average rank:
 
-```
-x = [1.0, 2.0, 2.0, 3.0]  →  rank(x) = [1, 2.5, 2.5, 4]
-```
+$$
+\mathbf{x} = [1.0, 2.0, 2.0, 3.0] \implies \operatorname{rank}(\mathbf{x}) = [1, 2.5, 2.5, 4]
+$$
 
 ### Step 2: Apply Pearson correlation to ranks
 
-After converting to ranks R_x and R_y:
+After converting to ranks $R_x$ and $R_y$:
 
-```
-ρ = Corr(R_x, R_y)
-  = Σ(R_xi − R̄_x)(R_yi − R̄_y) / sqrt(Σ(R_xi − R̄_x)² · Σ(R_yi − R̄_y)²)
-```
+$$
+\rho = \operatorname{Corr}(R_x, R_y) = \frac{\sum (R_{x_i} - \bar{R}_x)(R_{y_i} - \bar{R}_y)}{\sqrt{\sum (R_{x_i} - \bar{R}_x)^2 \cdot \sum (R_{y_i} - \bar{R}_y)^2}}
+$$
 
 For ties-free data this simplifies to:
 
-```
-ρ = 1 − 6·Σd² / (n·(n²−1))
-```
+$$
+\rho = 1 - \frac{6 \sum d_i^2}{n(n^2 - 1)}
+$$
 
-where d_i = R_xi − R_yi (difference of ranks).
+where $d_i = R_{x_i} - R_{y_i}$ (difference of ranks).
 
 ## Multiple Objectives
 
 The importance score for parameter j is the mean |ρ| across all objectives:
 
-```
-score(p_j) = (1/m) · Σ_k |ρ(p_j, y_k)|
-```
+$$
+\operatorname{score}(p_j) = \frac{1}{m} \sum_{k} |\rho(p_j, y_k)|
+$$
 
 ## Characteristics
 

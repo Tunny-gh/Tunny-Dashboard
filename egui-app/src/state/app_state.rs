@@ -3,6 +3,7 @@ pub use super::results::AhpResult;
 pub use super::results::*;
 pub use super::types::*;
 
+use crate::ui::help::help_types::HelpLanguage;
 use std::collections::HashMap;
 
 // ============================================================
@@ -60,6 +61,10 @@ pub struct AppState {
     pub pinned_trials: Vec<u32>,
     /// Comparison セッションの基準 study_id
     pub comparison_base_study: Option<u32>,
+
+    // ── HTML Help Browser ──────────────────────────────────────
+    /// ヘルプ表示言語（selected_colormap と同じパターンで clear() でリセットしない）
+    pub help_language: HelpLanguage,
 }
 
 impl AppState {
@@ -92,6 +97,7 @@ impl AppState {
             best_trial_history: None,
             pinned_trials: Vec::new(),
             comparison_base_study: None,
+            help_language: HelpLanguage::default(),
         }
     }
 
@@ -157,6 +163,7 @@ impl AppState {
 
         // pinned_trials は Study 切り替えでもリセットしない（ユーザーのピン設定を維持）
         // comparison_base_study は Study 切り替えでもリセットしない
+        // help_language はユーザー設定を維持（selected_colormap と同じパターン）
     }
 }
 
@@ -402,6 +409,24 @@ mod tests {
             PinError::MaxPinnedReached { limit } => assert_eq!(limit, 20),
             _ => panic!("expected MaxPinnedReached"),
         }
+    }
+
+    // ── TASK-2254: help_language フィールドのテスト ───────────────
+
+    #[test]
+    fn app_state_new_help_language_defaults_to_en() {
+        use crate::ui::help::help_types::HelpLanguage;
+        let state = AppState::new();
+        assert_eq!(state.help_language, HelpLanguage::En);
+    }
+
+    #[test]
+    fn app_state_clear_preserves_help_language() {
+        use crate::ui::help::help_types::HelpLanguage;
+        let mut state = AppState::new();
+        state.help_language = HelpLanguage::Ja;
+        state.clear();
+        assert_eq!(state.help_language, HelpLanguage::Ja);
     }
 
     // ── TASK-2232: 可視性ヘルパーテスト ──────────────────────────

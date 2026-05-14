@@ -6,29 +6,29 @@ Ridge regression (L2-regularized linear regression) fits a linear model to the t
 
 ## Formula
 
-```
-ŷ = β₀ + β₁x₁ + β₂x₂ + ... + βₚxₚ
-```
+$$
+\hat{y} = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \cdots + \beta_p x_p
+$$
 
 Objective (L2-regularized least squares):
 
-```
-min_β ||y − Xβ||² + α||β||²     (α = 1.0)
-```
+$$
+\min_\beta \|y - X\beta\|^2 + \alpha\|\beta\|^2 \quad (\alpha = 1.0)
+$$
 
 Closed-form solution:
 
-```
-β = (XᵀX + αI)⁻¹ Xᵀy
-```
+$$
+\beta = (X^\top X + \alpha I)^{-1} X^\top y
+$$
 
 ## Preprocessing
 
 **Z-score standardization** applied to each column of X before fitting:
 
-```
-x̃_j = (x_j − μ_j) / σ_j
-```
+$$
+\tilde{x}_j = \frac{x_j - \mu_j}{\sigma_j}
+$$
 
 If σ_j ≈ 0, set σ_j = 1.0 (constant column guard). y is mean-centered only (y_c = y − ȳ).
 

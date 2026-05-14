@@ -8,17 +8,17 @@ This approach avoids MDI's high-cardinality bias because it evaluates real predi
 
 ## Formula
 
-Importance of parameter j:
+Importance of parameter $j$:
 
-```
-I_j = MSE_permuted_j − MSE_baseline     (clipped to 0 if negative)
-```
+$$
+I_j = \operatorname{MSE}_{\text{permuted},j} - \operatorname{MSE}_{\text{baseline}} \quad (\text{clipped to } 0 \text{ if negative})
+$$
 
 Normalized:
 
-```
-I_j_norm = I_j / Σ_j' I_j'
-```
+$$
+I_{j,\text{norm}} = \frac{I_j}{\sum_{j'} I_{j'}}
+$$
 
 ## Holdout Evaluation
 

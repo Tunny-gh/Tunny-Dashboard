@@ -6,9 +6,9 @@ k-means partitions trials into k clusters by minimizing the Within-Cluster Sum o
 
 ## Objective
 
-```
-WCSS = Σ_k Σ_{x_i ∈ C_k} ||x_i − μ_k||²
-```
+$$
+\text{WCSS} = \sum_{k} \sum_{x_i \in C_k} \|x_i - \mu_k\|^2
+$$
 
 μ_k is the centroid of cluster C_k.
 
@@ -25,9 +25,9 @@ WCSS = Σ_k Σ_{x_i ∈ C_k} ||x_i − μ_k||²
 
 Selects centroids far from existing ones using D²-weighted probability:
 
-```
-p(x_i) = D(x_i)² / Σ_j D(x_j)²
-```
+$$
+p(x_i) = \frac{D(x_i)^2}{\sum_j D(x_j)^2}
+$$
 
 D(x_i) = distance from x_i to the nearest existing centroid.
 
@@ -39,9 +39,9 @@ Starting point: the ⌊N/2⌋-th point (fixed). Subsequent centroids sampled via
 
 No randomness — selects centroids by equal spacing via cumulative-distance threshold:
 
-```
-θ = Σ_i d_i / (remaining_selections + 1)
-```
+$$
+\theta = \frac{\sum_i d_i}{\text{remaining\_selections} + 1}
+$$
 
 Scans points in order; picks the first point where cumulative distance ≥ θ. Always produces identical results regardless of seed.
 

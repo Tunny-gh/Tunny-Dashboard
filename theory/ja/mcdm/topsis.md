@@ -62,8 +62,8 @@ $$
 
 | 方向     | 正理想解 A+\_j | 負理想解 A-\_j |
 | -------- | -------------- | -------------- |
-| minimize | `min_i w_ij`   | `max_i w_ij`   |
-| maximize | `max_i w_ij`   | `min_i w_ij`   |
+| minimize | $\min_i w_{ij}$   | $\max_i w_{ij}$   |
+| maximize | $\max_i w_{ij}$   | $\min_i w_{ij}$   |
 
 ---
 

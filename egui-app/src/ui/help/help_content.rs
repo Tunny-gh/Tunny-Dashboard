@@ -1,307 +1,174 @@
 use crate::state::layout_state::{ChartId, PanelItem};
-use crate::ui::help::help_types::{HelpContent, HelpTabDef};
+use crate::ui::help::help_types::{HelpContent, HelpLanguage};
 
-/// Returns help content for a given panel item.
-pub fn get_help_content(item: &PanelItem) -> HelpContent {
+pub fn get_help_html(item: &PanelItem, lang: HelpLanguage) -> &'static str {
+    get_help_content_inner(item).html(lang)
+}
+
+pub fn get_widget_name(item: &PanelItem) -> &'static str {
+    get_help_content_inner(item).widget_name
+}
+
+fn get_help_content_inner(item: &PanelItem) -> HelpContent {
     match item {
+        PanelItem::TrialTable => trial_table_help(),
         PanelItem::Chart(id) => chart_help(id),
-        PanelItem::TrialTable => HelpContent {
-            title: "Trial Table",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/trial-table.md"),
-            }],
-        },
+    }
+}
+
+fn trial_table_help() -> HelpContent {
+    HelpContent {
+        widget_name: "trial-table",
+        html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/trial-table.html")),
+        html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/trial-table.html")),
     }
 }
 
 fn chart_help(id: &ChartId) -> HelpContent {
     match id {
         ChartId::ImportanceChart => HelpContent {
-            title: "Importance Chart",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/overview.md"),
-                },
-                HelpTabDef {
-                    label: "Spearman",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/spearman.md"),
-                },
-                HelpTabDef {
-                    label: "Ridge",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/ridge.md"),
-                },
-                HelpTabDef {
-                    label: "Sobol",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/sobol.md"),
-                },
-                HelpTabDef {
-                    label: "MDI",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/mdi.md"),
-                },
-                HelpTabDef {
-                    label: "RF-ANOVA",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/rfanova.md"),
-                },
-                HelpTabDef {
-                    label: "Permutation",
-                    markdown: include_str!(
-                        "../../../../theory/en/sensitivity-analysis/permutation.md"
-                    ),
-                },
-                HelpTabDef {
-                    label: "SHAP",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/shap.md"),
-                },
-            ],
+            widget_name: "importance-chart",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/sensitivity-analysis/overview.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/sensitivity-analysis/overview.html"
+            )),
         },
         ChartId::SensitivityHeatmap => HelpContent {
-            title: "Sensitivity Heatmap",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/overview.md"),
-                },
-                HelpTabDef {
-                    label: "Spearman",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/spearman.md"),
-                },
-                HelpTabDef {
-                    label: "Ridge",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/ridge.md"),
-                },
-                HelpTabDef {
-                    label: "Sobol",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/sobol.md"),
-                },
-            ],
+            widget_name: "sensitivity-heatmap",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/sensitivity-analysis/overview.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/sensitivity-analysis/overview.html"
+            )),
         },
         ChartId::McdmRankChart => HelpContent {
-            title: "MCDM Ranking",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/mcdm/overview.md"),
-                },
-                HelpTabDef {
-                    label: "TOPSIS",
-                    markdown: include_str!("../../../../theory/en/mcdm/topsis.md"),
-                },
-                HelpTabDef {
-                    label: "VIKOR",
-                    markdown: include_str!("../../../../theory/en/mcdm/vikor.md"),
-                },
-                HelpTabDef {
-                    label: "PROMETHEE",
-                    markdown: include_str!("../../../../theory/en/mcdm/promethee.md"),
-                },
-            ],
+            widget_name: "mcdm-rank-chart",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
         },
         ChartId::McdmScatterChart => HelpContent {
-            title: "MCDM Scatter Chart",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/mcdm/overview.md"),
-                },
-                HelpTabDef {
-                    label: "TOPSIS",
-                    markdown: include_str!("../../../../theory/en/mcdm/topsis.md"),
-                },
-                HelpTabDef {
-                    label: "VIKOR",
-                    markdown: include_str!("../../../../theory/en/mcdm/vikor.md"),
-                },
-                HelpTabDef {
-                    label: "PROMETHEE",
-                    markdown: include_str!("../../../../theory/en/mcdm/promethee.md"),
-                },
-            ],
+            widget_name: "mcdm-scatter-chart",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
         },
         ChartId::McdmTable => HelpContent {
-            title: "MCDM Table",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/mcdm/overview.md"),
-                },
-                HelpTabDef {
-                    label: "TOPSIS",
-                    markdown: include_str!("../../../../theory/en/mcdm/topsis.md"),
-                },
-                HelpTabDef {
-                    label: "VIKOR",
-                    markdown: include_str!("../../../../theory/en/mcdm/vikor.md"),
-                },
-                HelpTabDef {
-                    label: "PROMETHEE",
-                    markdown: include_str!("../../../../theory/en/mcdm/promethee.md"),
-                },
-                HelpTabDef {
-                    label: "Entropy Weight",
-                    markdown: include_str!("../../../../theory/en/mcdm/entropy-weight.md"),
-                },
-            ],
+            widget_name: "mcdm-table",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
         },
         ChartId::AhpRankChart => HelpContent {
-            title: "AHP Ranking",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/mcdm/overview.md"),
-                },
-                HelpTabDef {
-                    label: "AHP",
-                    markdown: include_str!("../../../../theory/en/mcdm/ahp.md"),
-                },
-            ],
+            widget_name: "ahp-rank-chart",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/ahp.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/ahp.html")),
         },
         ChartId::AhpTable => HelpContent {
-            title: "AHP Table",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/mcdm/overview.md"),
-                },
-                HelpTabDef {
-                    label: "AHP",
-                    markdown: include_str!("../../../../theory/en/mcdm/ahp.md"),
-                },
-            ],
+            widget_name: "ahp-table",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/ahp.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/ahp.html")),
         },
         ChartId::ClusterScatter => HelpContent {
-            title: "Cluster Scatter",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/clustering/overview.md"),
-                },
-                HelpTabDef {
-                    label: "k-means",
-                    markdown: include_str!("../../../../theory/en/clustering/kmeans.md"),
-                },
-                HelpTabDef {
-                    label: "Elbow",
-                    markdown: include_str!("../../../../theory/en/clustering/elbow.md"),
-                },
-            ],
+            widget_name: "cluster-scatter",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/clustering/overview.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/clustering/overview.html"
+            )),
         },
         ChartId::PdpChart => HelpContent {
-            title: "PDP Chart",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/pdp.md"),
-                },
-                HelpTabDef {
-                    label: "Ridge",
-                    markdown: include_str!("../../../../theory/en/surrogate-models/ridge.md"),
-                },
-                HelpTabDef {
-                    label: "Random Forest",
-                    markdown: include_str!("../../../../theory/en/surrogate-models/random-forest.md"),
-                },
-                HelpTabDef {
-                    label: "Kriging",
-                    markdown: include_str!("../../../../theory/en/surrogate-models/kriging.md"),
-                },
-                HelpTabDef {
-                    label: "Sparse Kriging",
-                    markdown: include_str!(
-                        "../../../../theory/en/surrogate-models/sparse-kriging.md"
-                    ),
-                },
-            ],
+            widget_name: "pdp-chart",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/sensitivity-analysis/pdp.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/sensitivity-analysis/pdp.html"
+            )),
         },
         ChartId::PdpChart2D => HelpContent {
-            title: "PDP Chart 2D",
-            tabs: &[
-                HelpTabDef {
-                    label: "Overview",
-                    markdown: include_str!("../../../../theory/en/sensitivity-analysis/pdp.md"),
-                },
-                HelpTabDef {
-                    label: "Ridge",
-                    markdown: include_str!("../../../../theory/en/surrogate-models/ridge.md"),
-                },
-                HelpTabDef {
-                    label: "Random Forest",
-                    markdown: include_str!("../../../../theory/en/surrogate-models/random-forest.md"),
-                },
-                HelpTabDef {
-                    label: "Kriging",
-                    markdown: include_str!("../../../../theory/en/surrogate-models/kriging.md"),
-                },
-                HelpTabDef {
-                    label: "Sparse Kriging",
-                    markdown: include_str!(
-                        "../../../../theory/en/surrogate-models/sparse-kriging.md"
-                    ),
-                },
-            ],
+            widget_name: "pdp-chart-2d",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/sensitivity-analysis/pdp.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/sensitivity-analysis/pdp.html"
+            )),
         },
         ChartId::SliceChart => HelpContent {
-            title: "Slice Chart",
-            tabs: &[
-                HelpTabDef {
-                    label: "Usage Guide",
-                    markdown: include_str!("../../../../theory/en/widgets/slice-chart.md"),
-                },
-                HelpTabDef {
-                    label: "L-BFGS",
-                    markdown: include_str!("../../../../theory/en/optimization/lbfgs.md"),
-                },
-            ],
+            widget_name: "slice-chart",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/slice-chart.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/slice-chart.html")),
         },
         ChartId::ParetoScatter2D => HelpContent {
-            title: "Pareto Scatter 2D",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/pareto-2d.md"),
-            }],
+            widget_name: "pareto-2d",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/pareto-2d.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/pareto-2d.html")),
         },
         ChartId::ParetoScatter3D => HelpContent {
-            title: "Pareto Scatter 3D",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/pareto-3d.md"),
-            }],
+            widget_name: "pareto-3d",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/pareto-3d.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/pareto-3d.html")),
         },
         ChartId::ParallelCoordinates => HelpContent {
-            title: "Parallel Coordinates",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/parallel-coords.md"),
-            }],
+            widget_name: "parallel-coords",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/parallel-coords.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/parallel-coords.html"
+            )),
         },
         ChartId::ScatterMatrix => HelpContent {
-            title: "Scatter Matrix",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/scatter-matrix.md"),
-            }],
+            widget_name: "scatter-matrix",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/scatter-matrix.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/scatter-matrix.html"
+            )),
         },
         ChartId::OptimizationHistory => HelpContent {
-            title: "Optimization History",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/optimization-history.md"),
-            }],
+            widget_name: "optimization-history",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/optimization-history.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/optimization-history.html"
+            )),
         },
         ChartId::HvHistory => HelpContent {
-            title: "Hypervolume History",
-            tabs: &[HelpTabDef {
-                label: "Usage Guide",
-                markdown: include_str!("../../../../theory/en/widgets/hv-history.md"),
-            }],
+            widget_name: "hv-history",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/hv-history.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/hv-history.html")),
         },
         ChartId::SurfacePlot => HelpContent {
-            title: "Surface Plot",
-            tabs: &[HelpTabDef {
-                label: "Overview",
-                markdown: "# Surface Plot\n\nVisualizes the response surface of an objective function over two selected parameters.",
-            }],
+            widget_name: "surface-plot",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/surface-plot.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/surface-plot.html"
+            )),
         },
     }
 }
@@ -309,10 +176,9 @@ fn chart_help(id: &ChartId) -> HelpContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::help::help_types::HelpModalState;
 
     #[test]
-    fn all_panel_items_return_non_empty_help_content() {
+    fn all_panel_items_return_non_empty_html_en() {
         let items: Vec<PanelItem> = ChartId::all()
             .iter()
             .map(|id| PanelItem::Chart(id.clone()))
@@ -320,26 +186,29 @@ mod tests {
             .collect();
 
         for item in &items {
-            let content = get_help_content(item);
-            assert!(!content.title.is_empty(), "title empty for {item:?}");
-            assert!(!content.tabs.is_empty(), "no tabs for {item:?}");
-            for tab in content.tabs {
-                assert!(!tab.label.is_empty(), "empty label in {item:?}");
-                assert!(!tab.markdown.is_empty(), "empty markdown in {item:?} tab '{}'", tab.label);
-                assert!(
-                    !tab.markdown.contains("TODO: English content pending."),
-                    "placeholder found in {item:?} tab '{}'",
-                    tab.label
-                );
-            }
+            let html = get_help_html(item, HelpLanguage::En);
+            assert!(!html.is_empty(), "EN html empty for {item:?}");
         }
     }
 
     #[test]
-    fn help_modal_state_default_is_closed() {
-        let state = HelpModalState::default();
-        assert!(!state.open);
-        assert_eq!(state.active_tab, 0);
-        assert!(state.item.is_none());
+    fn all_panel_items_return_non_empty_html_ja() {
+        let items: Vec<PanelItem> = ChartId::all()
+            .iter()
+            .map(|id| PanelItem::Chart(id.clone()))
+            .chain(std::iter::once(PanelItem::TrialTable))
+            .collect();
+
+        for item in &items {
+            let html = get_help_html(item, HelpLanguage::Ja);
+            assert!(!html.is_empty(), "JA html empty for {item:?}");
+        }
+    }
+
+    #[test]
+    fn trial_table_en_and_ja_differ() {
+        let en = get_help_html(&PanelItem::TrialTable, HelpLanguage::En);
+        let ja = get_help_html(&PanelItem::TrialTable, HelpLanguage::Ja);
+        assert_ne!(en, ja, "EN and JA html should be different for TrialTable");
     }
 }

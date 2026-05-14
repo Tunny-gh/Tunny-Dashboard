@@ -21,11 +21,11 @@ AHP derives objective weights from a **pairwise comparison matrix** entered by t
 
 Enter relative importance between objectives using Saaty's 1–9 scale:
 
-```
-A[i][j] = a_ij    (i is a_ij times more important than j)
-A[j][i] = 1/a_ij  (reciprocal)
-A[i][i] = 1.0     (diagonal)
-```
+$$A_{ij} = a_{ij} \quad \text{(i is } a_{ij} \text{ times more important than j)}$$
+
+$$A_{ji} = \frac{1}{a_{ij}} \quad \text{(reciprocal)}$$
+
+$$A_{ii} = 1.0 \quad \text{(diagonal)}$$
 
 **Saaty scale:**
 
@@ -42,29 +42,21 @@ A[i][i] = 1.0     (diagonal)
 
 **Column normalize**: divide each element by its column sum:
 
-```
-B_ij = A_ij / Σ_k A_kj
-```
+$$B_{ij} = \frac{A_{ij}}{\sum_k A_{kj}}$$
 
 **Row average**: average each row to get the weight vector:
 
-```
-w_i = (1/n) · Σ_j B_ij         (Σ w_i = 1)
-```
+$$w_i = \frac{1}{n} \cdot \sum_j B_{ij} \quad (\sum w_i = 1)$$
 
 ### Step 3: Consistency Check
 
 **Maximum eigenvalue approximation:**
 
-```
-λ_max = Σ_j (Σ_i A_ij) · w_j
-```
+$$\lambda_{\max} = \sum_j \left( \sum_i A_{ij} \right) \cdot w_j$$
 
 **Consistency Index:**
 
-```
-CI = (λ_max − n) / (n − 1)
-```
+$$CI = \frac{\lambda_{\max} - n}{n - 1}$$
 
 **Random Index (Saaty's table):**
 
@@ -79,9 +71,7 @@ CI = (λ_max − n) / (n − 1)
 
 **Consistency Ratio:**
 
-```
-CR = CI / RI
-```
+$$CR = \frac{CI}{RI}$$
 
 - CR ≤ 0.10: consistent — comparisons are logically coherent
 - CR > 0.10: inconsistent — review and revise the pairwise comparisons
@@ -100,9 +90,7 @@ If V_max_j = V_min_j, normalized value = 0.
 
 **Weighted sum score:**
 
-```
-score_i = Σ_j w_j · v̂_ij
-```
+$$\text{score}_i = \sum_j w_j \cdot \hat{v}_{ij}$$
 
 Rank by score descending.
 

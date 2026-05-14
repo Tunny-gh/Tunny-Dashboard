@@ -17,9 +17,7 @@ The Entropy Weight Method uses Shannon entropy to compute objective weights **au
 
 Entropy requires non-negative values. For any objective column j that contains negative values, apply Min-Max normalization:
 
-```
-x'_ij = (x_ij − min_i x_ij) / (max_i x_ij − min_i x_ij)
-```
+$$x'_{ij} = \frac{x_{ij} - \min_i x_{ij}}{\max_i x_{ij} - \min_i x_{ij}}$$
 
 Columns with no negative values keep their original values. Zero-division guard: if max = min, set x'_ij = 0.
 
@@ -27,33 +25,25 @@ Columns with no negative values keep their original values. Zero-division guard:
 
 Normalize each column so its sum = 1, giving a probability-like matrix P:
 
-```
-p_ij = x'_ij / Σ_i x'_ij
-```
+$$p_{ij} = \frac{x'_{ij}}{\sum_i x'_{ij}}$$
 
 Zero-division guard: if the column sum is 0, set p_ij = 0.
 
 ### Step 3: Shannon Entropy
 
-```
-e_j = −(1 / ln m) · Σ_i p_ij · ln(p_ij)
-```
+$$e_j = -\frac{1}{\ln m} \cdot \sum_i p_{ij} \cdot \ln(p_{ij})$$
 
 The factor 1/ln(m) normalizes entropy to [0, 1]. Terms where p_ij = 0 contribute 0 (0·ln(0) = 0). When m = 1, set e_j = 0.
 
 ### Step 4: Diversity
 
-```
-d_j = 1 − e_j
-```
+$$d_j = 1 - e_j$$
 
 High entropy → low diversity → low weight (objective is uninformative).
 
 ### Step 5: Weight Normalization
 
-```
-w_j = d_j / Σ_k d_k
-```
+$$w_j = \frac{d_j}{\sum_k d_k}$$
 
 Uniform fallback: if all d_k = 0 (all objectives are constant), assign equal weights w_j = 1/n.
 

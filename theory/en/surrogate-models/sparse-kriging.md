@@ -8,15 +8,15 @@ Sparse Kriging reduces standard GP's O(N³) cost to O(N × M²) using the **FITC
 
 Instead of using all N training points, M ≪ N representative points Z = {z₁, …, z_M} are selected as mediators:
 
-```
-u = f(Z) ~ GP(0, K_ZZ)
-```
+$$
+u = f(Z) \sim \mathcal{GP}(0, K_{ZZ})
+$$
 
 FITC assumes conditional independence among training points given u:
 
-```
-p(f(X) | u) ≈ Π_i p(f(x_i) | u)
-```
+$$
+p(f(X) \mid u) \approx \prod_i p(f(x_i) \mid u)
+$$
 
 Inducing points are selected using k-means centroids (seed 42 for reproducibility).
 
@@ -29,15 +29,15 @@ Inducing points are selected using k-means centroids (seed 42 for reproducibilit
 
 **Q matrix (low-rank approximation):**
 
-```
-Q_XX ≈ K_XZ · K_ZZ⁻¹ · K_XZᵀ
-```
+$$
+Q_{XX} \approx K_{XZ} \cdot K_{ZZ}^{-1} \cdot K_{XZ}^\top
+$$
 
 **FITC diagonal Λ:**
 
-```
-Λ = diag(σ_f² − Q_diag) + σ_n²·I
-```
+$$
+\Lambda = \text{diag}(\sigma_f^2 - Q_{\text{diag}}) + \sigma_n^2 I
+$$
 
 Λ captures the residual variance not explained by the inducing points, plus observation noise.
 
@@ -45,10 +45,13 @@ Q_XX ≈ K_XZ · K_ZZ⁻¹ · K_XZᵀ
 
 Using the Woodbury identity, the expensive N×N inverse reduces to M×M operations:
 
-```
-(Q + Λ)⁻¹ = Λ⁻¹ − Λ⁻¹·K_XZ·Σ⁻¹·K_XZᵀ·Λ⁻¹
-Σ = K_ZZ + K_XZᵀ·Λ⁻¹·K_XZ
-```
+$$
+(Q + \Lambda)^{-1} = \Lambda^{-1} - \Lambda^{-1} K_{XZ} \Sigma^{-1} K_{XZ}^\top \Lambda^{-1}
+$$
+
+$$
+\Sigma = K_{ZZ} + K_{XZ}^\top \Lambda^{-1} K_{XZ}
+$$
 
 Main cost: O(N × M²).
 
@@ -68,10 +71,13 @@ Iteration count adapts to N:
 
 Post-training weight vector w (M-dimensional):
 
-```
-w = K_ZZ⁻¹ · K_XZᵀ · (Q + Λ)⁻¹ · y
-μ(x*) = K_{x*,Z} · w = Σ_j k(x*, z_j) · w_j
-```
+$$
+w = K_{ZZ}^{-1} \cdot K_{XZ}^\top \cdot (Q + \Lambda)^{-1} \cdot y
+$$
+
+$$
+\mu(x^*) = K_{x^*,Z} \cdot w = \sum_j k(x^*, z_j) \cdot w_j
+$$
 
 O(M) per grid point — 50×50 = 2,500 grid points → 125,000 kernel evaluations.
 

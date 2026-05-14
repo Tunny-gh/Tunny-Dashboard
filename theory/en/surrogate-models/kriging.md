@@ -8,11 +8,13 @@ For N > 500, the model automatically subsamples to 500 points. For larger datase
 
 ## Kernel: ARD Matérn 5/2
 
-```
-k(x₁, x₂) = σ_f² · (1 + √5·r + 5r²/3) · exp(−√5·r)
+$$
+k(x_1, x_2) = \sigma_f^2 \left(1 + \sqrt{5}\,r + \frac{5r^2}{3}\right) \exp(-\sqrt{5}\,r)
+$$
 
-r² = Σ_d ((x₁_d − x₂_d) / l_d)²
-```
+$$
+r^2 = \sum_{d} \left(\frac{x_{1,d} - x_{2,d}}{l_d}\right)^2
+$$
 
 | Parameter | Meaning                                        |
 | --------- | ---------------------------------------------- |
@@ -28,9 +30,9 @@ r² = Σ_d ((x₁_d − x₂_d) / l_d)²
 
 Given training data (X, y), posterior mean at x*:
 
-```
-μ(x*) = k(x*, X) · K⁻¹ · y = k(x*, X) · α
-```
+$$
+\mu(x^*) = k(x^*, X) \cdot K^{-1} \cdot y = k(x^*, X) \cdot \alpha
+$$
 
 K is the N×N kernel matrix (plus σ_n²·I on diagonal). Solved via Cholesky factorization with jitter = 1e-6 for numerical stability.
 
@@ -38,9 +40,9 @@ K is the N×N kernel matrix (plus σ_n²·I on diagonal). Solved via Cholesky fa
 
 Maximizes the log marginal likelihood (LML):
 
-```
-LML(θ) = −½ yᵀα − Σ_i log L_ii − N/2·log(2π)
-```
+$$
+\text{LML}(\theta) = -\frac{1}{2} y^\top \alpha - \sum_i \log L_{ii} - \frac{N}{2} \log(2\pi)
+$$
 
 θ = [log l₁, …, log l_D, log σ_f, log σ_n]. Analytic gradients are used with L-BFGS (50 iterations max, convergence at ||∇LML||₂ < 1e-5).
 

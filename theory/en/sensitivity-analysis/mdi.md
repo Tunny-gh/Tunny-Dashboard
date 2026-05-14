@@ -16,24 +16,27 @@ The ImportanceChart normalizes scores to sum to 1.
 
 ## Formula
 
-Impurity decrease at node t:
+Impurity decrease at node $t$:
 
-```
-ΔI(t) = MSE(y_t) − [n_L/n_t · MSE(y_L) + n_R/n_t · MSE(y_R)]
-```
+$$
+\Delta I(t) = \operatorname{MSE}(y_t) - \left[ \frac{n_L}{n_t} \cdot \operatorname{MSE}(y_L) + \frac{n_R}{n_t} \cdot \operatorname{MSE}(y_R) \right]
+$$
 
-MDI for parameter j in tree b:
+MDI for parameter $j$ in tree $b$:
 
-```
-MDI_b(j) = Σ_{splits on j} (n_t / n_root) · ΔI(t)
-```
+$$
+\operatorname{MDI}_b(j) = \sum_{\text{splits on } j} \frac{n_t}{n_{\text{root}}} \cdot \Delta I(t)
+$$
 
 Final normalized score:
 
-```
-MDI(j) = (1/T) Σ_b MDI_b(j)
-MDI_norm(j) = MDI(j) / Σ_j' MDI(j')
-```
+$$
+\operatorname{MDI}(j) = \frac{1}{T} \sum_{b} \operatorname{MDI}_b(j)
+$$
+
+$$
+\operatorname{MDI}_{\text{norm}}(j) = \frac{\operatorname{MDI}(j)}{\sum_{j'} \operatorname{MDI}(j')}
+$$
 
 ## Hyperparameters
 

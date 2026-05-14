@@ -16,11 +16,17 @@ p = number of parameters, m = history size.
 
 Instead of computing the true Hessian, use gradient differences to approximate it:
 
-```
-s_k = x_{k+1} − x_k          (parameter step)
-y_k = ∇f_{k+1} − ∇f_k        (gradient step)
-ρ_k = 1 / (y_kᵀ s_k)
-```
+$$
+s_k = x_{k+1} - x_k \quad \text{(parameter step)}
+$$
+
+$$
+y_k = \nabla f_{k+1} - \nabla f_k \quad \text{(gradient step)}
+$$
+
+$$
+\rho_k = \frac{1}{y_k^\top s_k}
+$$
 
 This secant condition approximates curvature without forming H explicitly.
 
@@ -54,9 +60,9 @@ Cost: O(mp) vs O(p²) for full BFGS.
 
 Find step size α satisfying the sufficient decrease condition:
 
-```
-f(x_k + α·d_k) ≤ f(x_k) + c₁·α·∇f_kᵀ·d_k     (c₁ = 1e-4)
-```
+$$
+f(x_k + \alpha \cdot d_k) \leq f(x_k) + c_1 \cdot \alpha \cdot \nabla f_k^\top \cdot d_k \quad (c_1 = 10^{-4})
+$$
 
 Start with α = 1.0; halve until satisfied (max 20 halvings).
 
@@ -64,9 +70,9 @@ Start with α = 1.0; halve until satisfied (max 20 halvings).
 
 Optimizes θ = [log l₁, …, log l_D, log σ_f, log σ_n] by maximizing the log marginal likelihood:
 
-```
-LML(θ) = −½·yᵀα − Σ_i log L_ii − N/2·log(2π)
-```
+$$
+\text{LML}(\theta) = -\frac{1}{2} y^\top \alpha - \sum_i \log L_{ii} - \frac{N}{2} \log(2\pi)
+$$
 
 Optimized in log space so all parameters remain positive without explicit constraints.
 

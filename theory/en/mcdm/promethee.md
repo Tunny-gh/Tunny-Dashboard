@@ -21,44 +21,37 @@ PROMETHEE (Preference Ranking Organisation METHod for Enrichment Evaluations) ev
 
 For each objective j, compute the preference threshold from the data range:
 
-```
-range_j = max_i f_ij − min_i f_ij
-p_j     = 0.2 × range_j          (strict preference threshold)
-q       = 0                       (indifference threshold)
-```
+$$\text{range}_j = \max_i f_{ij} - \min_i f_{ij}$$
+
+$$p_j = 0.2 \times \text{range}_j \quad \text{(strict preference threshold)}$$
+
+$$q = 0 \quad \text{(indifference threshold)}$$
 
 ### Step 2: Linear Preference Function
 
 For a trial pair (a, b), compute the signed difference for objective j:
 
-```
-d_j = f_bj − f_aj   (minimize)
-d_j = f_aj − f_bj   (maximize)
-```
+$$d_j = f_{bj} - f_{aj} \quad \text{(minimize)}$$
+
+$$d_j = f_{aj} - f_{bj} \quad \text{(maximize)}$$
 
 Linear preference function:
 
-```
-P_j(d) = 0          if d ≤ 0
-P_j(d) = d / p_j    if 0 < d < p_j
-P_j(d) = 1          if d ≥ p_j
-```
+$$P_j(d) = \begin{cases} 0 & \text{if } d \le 0 \\ \frac{d}{p_j} & \text{if } 0 < d < p_j \\ 1 & \text{if } d \ge p_j \end{cases}$$
 
 ### Step 3: Aggregated Preference Index
 
-```
-π(a, b) = Σ_j w_j · P_j(d_j(a, b))   ∈ [0, 1]
-```
+$$\pi(a, b) = \sum_j w_j \cdot P_j(d_j(a, b)) \quad \in [0, 1]$$
 
 π(a, b) = 1 means a is strictly preferred over b across all objectives.
 
 ### Step 4: Positive and Negative Flows
 
-```
-Φ+(i) = 1/(m−1) · Σ_{b≠i} π(i, b)
-Φ-(i) = 1/(m−1) · Σ_{b≠i} π(b, i)
-Φnet(i) = Φ+(i) − Φ-(i)
-```
+$$\Phi^+(i) = \frac{1}{m-1} \cdot \sum_{b \ne i} \pi(i, b)$$
+
+$$\Phi^-(i) = \frac{1}{m-1} \cdot \sum_{b \ne i} \pi(b, i)$$
+
+$$\Phi^{\text{net}}(i) = \Phi^+(i) - \Phi^-(i)$$
 
 ### Step 5: Ranking
 

@@ -25,17 +25,15 @@ VIKOR (VIseKriterijumska Optimizacija I Kompromisno Resenje) finds the compromis
 
 For each objective j:
 
-```
-f*_j = best value across all trials   (min if minimize, max if maximize)
-f-_j = worst value across all trials  (max if minimize, min if maximize)
-```
+$$f_j^* = \text{best value across all trials} \quad (\min \text{ if minimize, } \max \text{ if maximize})$$
+
+$$f_j^- = \text{worst value across all trials} \quad (\max \text{ if minimize, } \min \text{ if maximize})$$
 
 ### Step 2: S and R Values
 
-```
-S_i = Σ_j  w_j · (f*_j − f_ij) / (f*_j − f-_j)
-R_i = max_j [ w_j · (f*_j − f_ij) / (f*_j − f-_j) ]
-```
+$$S_i = \sum_j w_j \cdot \frac{f_j^* - f_{ij}}{f_j^* - f_j^-}$$
+
+$$R_i = \max_j \left[ w_j \cdot \frac{f_j^* - f_{ij}}{f_j^* - f_j^-} \right]$$
 
 - **S_i** (utility): sum of weighted gaps — lower is better overall
 - **R_i** (regret): maximum weighted gap — lower means even the worst criterion is acceptable
@@ -44,16 +42,13 @@ When f*_j = f-_j (all trials identical for that objective), the contribution is 
 
 ### Step 3: S*, S-, R*, R-
 
-```
-S* = min_i S_i,   S- = max_i S_i
-R* = min_i R_i,   R- = max_i R_i
-```
+$$S^* = \min_i S_i, \quad S^- = \max_i S_i$$
+
+$$R^* = \min_i R_i, \quad R^- = \max_i R_i$$
 
 ### Step 4: Q Score
 
-```
-Q_i = v · (S_i − S*) / (S- − S*) + (1 − v) · (R_i − R*) / (R- − R*)
-```
+$$Q_i = v \cdot \frac{S_i - S^*}{S^- - S^*} + (1 - v) \cdot \frac{R_i - R^*}{R^- - R^*}$$
 
 | v value | Emphasis    | Meaning                          |
 | ------- | ----------- | -------------------------------- |

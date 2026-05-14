@@ -423,6 +423,27 @@ fn show_cell_toolbar(
     action
 }
 
+fn handle_toolbar_action(
+    action: &CellToolbarAction,
+    help_language: crate::ui::help::help_types::HelpLanguage,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    match action {
+        CellToolbarAction::Help(help_item) => {
+            if let Err(e) =
+                crate::ui::help::help_launcher::open_help(help_item, help_language)
+            {
+                let _ = tx.try_send(AppMessage::Error(e));
+            }
+        }
+        CellToolbarAction::SaveAsPng(target) => {
+            record_capture_target(&mut widgets.capture, target.clone());
+        }
+        _ => {}
+    }
+}
+
 /// セルのコンテンツを描画する。
 /// コンテンツがある場合は上部ハンドルのみを dnd_drag_source として扱い、内部UI操作と競合しないようにする。
 fn render_cell_content(
@@ -440,16 +461,7 @@ fn render_cell_content(
             let item = PanelItem::Chart(chart_id.clone());
             let title = item.label();
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
-            match &toolbar_action {
-                CellToolbarAction::Help(help_item) => {
-                    widgets.help_modal.open = true;
-                    widgets.help_modal.item = Some(help_item.clone());
-                }
-                CellToolbarAction::SaveAsPng(target) => {
-                    record_capture_target(&mut widgets.capture, target.clone());
-                }
-                _ => {}
-            }
+            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, tx);
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
@@ -465,16 +477,7 @@ fn render_cell_content(
             let item = PanelItem::TrialTable;
             let title = item.label();
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
-            match &toolbar_action {
-                CellToolbarAction::Help(help_item) => {
-                    widgets.help_modal.open = true;
-                    widgets.help_modal.item = Some(help_item.clone());
-                }
-                CellToolbarAction::SaveAsPng(target) => {
-                    record_capture_target(&mut widgets.capture, target.clone());
-                }
-                _ => {}
-            }
+            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, tx);
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
