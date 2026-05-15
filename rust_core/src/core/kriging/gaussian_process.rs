@@ -12,6 +12,8 @@ mod solvers;
 mod training;
 
 pub(crate) use model::GpModel;
+#[cfg(test)]
+pub(crate) use model::{GpFittedModel, GpKernel};
 
 pub(crate) fn matern52_ard(x1: &[f64], x2: &[f64], log_ls: &[f64], log_sf: f64) -> f64 {
     kernel_ops::matern52_ard(x1, x2, log_ls, log_sf)

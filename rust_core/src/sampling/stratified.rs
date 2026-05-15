@@ -1,5 +1,5 @@
 use super::common::{full_result, random_sample_fixed_seed, DownsampleResult};
-use super::state::get_all_ranks;
+use super::context::SamplingContext;
 
 /// Pareto-rank–stratified downsampling for ParallelCoordinates.
 ///
@@ -18,6 +18,7 @@ use super::state::get_all_ranks;
 ///
 /// Returns `None` when no active study is loaded.
 pub fn downsample_stratified_by_rank(
+    ctx: &SamplingContext,
     max_points: usize,
     n_strata: usize,
 ) -> Option<DownsampleResult> {
@@ -35,7 +36,7 @@ pub fn downsample_stratified_by_rank(
         return Some(full_result(total_count, duration_ms));
     }
 
-    let all_ranks = get_all_ranks();
+    let all_ranks = ctx.get_all_ranks();
     let max_rank = n_strata.max(1);
     let mut by_rank: Vec<Vec<u32>> = vec![vec![]; max_rank];
 

@@ -1,5 +1,226 @@
 use super::*;
 
+// ---- TASK-2264: compute_cluster_stats_on_data 3 関数分割テスト ----
+
+/// flat_data (row-major, n×p): 4 rows × 2 cols
+/// cluster 0: rows 0,1 → centroid ≈ [1, 2]
+/// cluster 1: rows 2,3 → centroid ≈ [11, 12]
+fn make_two_cluster_data() -> (Vec<f64>, Vec<usize>, usize, usize, usize) {
+    let flat_data = vec![0.0f64, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0];
+    let labels = vec![0usize, 0, 1, 1];
+    let n = 4;
+    let p = 2;
+    let k = 2;
+    (flat_data, labels, n, p, k)
+}
+
+#[test]
+fn tc_2264_01_compute_global_stats_mean() {
+    let (flat_data, _, n, p, _) = make_two_cluster_data();
+    // global mean of col0: (0+2+10+12)/4 = 6, col1: (1+3+11+13)/4 = 7
+    let (mean, _std) = compute_global_stats(&flat_data, n, p);
+    assert_eq!(mean.len(), p);
+    assert!((mean[0] - 6.0).abs() < 1e-10, "global_mean[0] should be 6.0, got {}", mean[0]);
+    assert!((mean[1] - 7.0).abs() < 1e-10, "global_mean[1] should be 7.0, got {}", mean[1]);
+}
+
+#[test]
+fn tc_2264_02_compute_global_stats_std() {
+    let (flat_data, _, n, p, _) = make_two_cluster_data();
+    let (_mean, std) = compute_global_stats(&flat_data, n, p);
+    assert_eq!(std.len(), p);
+    // var col0 = ((0-6)²+(2-6)²+(10-6)²+(12-6)²)/3 = (36+16+16+36)/3 = 104/3
+    let expected_std0 = (104.0f64 / 3.0).sqrt();
+    assert!((std[0] - expected_std0).abs() < 1e-6, "global_std[0]={} expected={}", std[0], expected_std0);
+}
+
+#[test]
+fn tc_2264_03_compute_global_stats_empty() {
+    let (mean, std) = compute_global_stats(&[], 0, 2);
+    assert_eq!(mean, vec![0.0, 0.0]);
+    assert_eq!(std, vec![0.0, 0.0]);
+}
+
+#[test]
+fn tc_2264_04_compute_cluster_centroid_std_centroids() {
+    let (flat_data, labels, n, p, k) = make_two_cluster_data();
+    let (global_mean, _) = compute_global_stats(&flat_data, n, p);
+    let stats = compute_cluster_centroid_std(&flat_data, &labels, n, p, k, &global_mean);
+    assert_eq!(stats.len(), k);
+    let s0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
+    assert!((s0.centroid[0] - 1.0).abs() < 1e-10, "cluster0 centroid[0]={}", s0.centroid[0]);
+    assert!((s0.centroid[1] - 2.0).abs() < 1e-10, "cluster0 centroid[1]={}", s0.centroid[1]);
+    let s1 = stats.iter().find(|s| s.cluster_id == 1).unwrap();
+    assert!((s1.centroid[0] - 11.0).abs() < 1e-10, "cluster1 centroid[0]={}", s1.centroid[0]);
+    assert!((s1.centroid[1] - 12.0).abs() < 1e-10, "cluster1 centroid[1]={}", s1.centroid[1]);
+}
+
+#[test]
+fn tc_2264_05_compute_cluster_centroid_std_empty_cluster_uses_global_mean() {
+    let (flat_data, _, n, p, _) = make_two_cluster_data();
+    // labels: cluster 0 has all points, cluster 1 is empty
+    let labels = vec![0usize, 0, 0, 0];
+    let (global_mean, _) = compute_global_stats(&flat_data, n, p);
+    let stats = compute_cluster_centroid_std(&flat_data, &labels, n, p, 2, &global_mean);
+    let empty = stats.iter().find(|s| s.cluster_id == 1).unwrap();
+    assert_eq!(empty.size, 0);
+    for j in 0..p {
+        assert!((empty.centroid[j] - global_mean[j]).abs() < 1e-10,
+            "empty cluster centroid should be global_mean");
+    }
+    assert!(empty.significant_features.iter().all(|&b| !b));
+}
+
+#[test]
+fn tc_2264_06_compute_significant_features_detects_significance() {
+    // Use well-separated clusters (same as tc_901_08) so t >> 3.0
+    let n_per = 50usize;
+    let mut flat_data = Vec::new();
+    let mut labels = Vec::new();
+    for i in 0..n_per {
+        flat_data.push(i as f64 / n_per as f64);
+        flat_data.push(-1000.0 + i as f64 * 0.01);
+        labels.push(0usize);
+    }
+    for i in 0..n_per {
+        flat_data.push(i as f64 / n_per as f64);
+        flat_data.push(1000.0 + i as f64 * 0.01);
+        labels.push(1usize);
+    }
+    let n = 2 * n_per;
+    let p = 2;
+    let k = 2;
+    let (global_mean, global_std) = compute_global_stats(&flat_data, n, p);
+    let stats = compute_cluster_centroid_std(&flat_data, &labels, n, p, k, &global_mean);
+    let stats = compute_significant_features(stats, &global_mean, &global_std, n);
+    // y-feature (col 1) is -1000 vs +1000: definitely significant
+    let s0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
+    assert!(s0.significant_features[1], "y feature should be significant for well-separated clusters");
+}
+
+#[test]
+fn tc_2264_07_orchestrator_matches_original_behavior() {
+    let (flat_data, labels, n, p, k) = make_two_cluster_data();
+    let stats = compute_cluster_stats_on_data(&flat_data, n, p, &labels, k);
+    // Verify same results as existing tests
+    assert_eq!(stats.len(), k);
+    let s0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
+    assert!((s0.centroid[0] - 1.0).abs() < 1e-10);
+    assert!((s0.centroid[1] - 2.0).abs() < 1e-10);
+    assert_eq!(s0.size, 2);
+}
+
+#[test]
+fn tc_2264_08_orchestrator_empty_data() {
+    let stats = compute_cluster_stats_on_data(&[], 0, 2, &[], 2);
+    assert!(stats.is_empty(), "empty data should return empty stats");
+}
+
+// ---- TASK-2262: select_next_centroid テスト ----
+
+#[test]
+fn tc_2262_01_select_next_centroid_empty_existing_returns_valid_point() {
+    // flat_data: 3 points, 2 dims: [1,2], [3,4], [5,6]
+    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let n = 3;
+    let n_cols = 2;
+    // sampling_fn always picks index 0
+    let centroid = select_next_centroid(&data, n_cols, &[], n, |_weights| 0);
+    assert_eq!(centroid.len(), n_cols, "centroid length must equal n_cols");
+    assert!((centroid[0] - 1.0).abs() < 1e-10);
+    assert!((centroid[1] - 2.0).abs() < 1e-10);
+}
+
+#[test]
+fn tc_2262_02_select_next_centroid_empty_existing_uniform_weights() {
+    // sampling_fn receives all-1.0 weights when existing is empty
+    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let n = 3;
+    let n_cols = 2;
+    let mut weights_received: Vec<f64> = vec![];
+    select_next_centroid(&data, n_cols, &[], n, |w| {
+        weights_received = w.to_vec();
+        0
+    });
+    assert_eq!(weights_received.len(), n);
+    for &w in &weights_received {
+        assert!((w - 1.0).abs() < 1e-10, "uniform weight should be 1.0, got {}", w);
+    }
+}
+
+#[test]
+fn tc_2262_03_select_next_centroid_deterministic_reproducible() {
+    let data = make_clustered_data(10, 3);
+    let n = 30;
+    let n_cols = 2;
+    let existing = vec![vec![0.0, 0.0]];
+    let pick_max = |weights: &[f64]| {
+        weights
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    };
+    let r1 = select_next_centroid(&data, n_cols, &existing, n, pick_max);
+    let r2 = select_next_centroid(&data, n_cols, &existing, n, pick_max);
+    assert_eq!(r1, r2, "deterministic sampling_fn must return identical results");
+}
+
+#[test]
+fn tc_2262_04_select_next_centroid_avoids_existing_centroid() {
+    // existing centroid is [5,6] (last point); next should be chosen far from it
+    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let n = 3;
+    let n_cols = 2;
+    let existing = vec![vec![5.0, 6.0]];
+    // pick_max → should pick index 0 ([1,2]) which is farthest from [5,6]
+    let centroid = select_next_centroid(&data, n_cols, &existing, n, |weights| {
+        weights
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    });
+    assert_eq!(centroid.len(), n_cols);
+    assert!((centroid[0] - 1.0).abs() < 1e-10, "farthest point should be [1,2]");
+    assert!((centroid[1] - 2.0).abs() < 1e-10);
+}
+
+#[test]
+fn tc_2262_05_kmeans_plusplus_correct_clusters_after_refactor() {
+    let k = 3;
+    let n_per = 50;
+    let data = make_clustered_data(n_per, k);
+    let n = n_per * k;
+    let p = 2;
+    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::KMeansPlusPlus);
+    let mut counts = vec![0usize; k];
+    for &label in &result.labels {
+        counts[label] += 1;
+    }
+    for (c, &count) in counts.iter().enumerate() {
+        assert_eq!(count, n_per, "cluster {} should have {} points", c, n_per);
+    }
+}
+
+#[test]
+fn tc_2262_06_deterministic_correct_clusters_after_refactor() {
+    let k = 3;
+    let n_per = 50;
+    let data = make_clustered_data(n_per, k);
+    let n = n_per * k;
+    let p = 2;
+    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
+    // centroids should be near the true cluster centers (0, 100, 200)
+    let mut cx: Vec<f64> = result.centroids.iter().map(|c| c[0]).collect();
+    cx.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    assert!(cx[0] < 1.0, "first centroid x < 1.0, got {}", cx[0]);
+    assert!(cx[1] > 99.0 && cx[1] < 101.0, "second centroid x ~100, got {}", cx[1]);
+    assert!(cx[2] > 199.0, "third centroid x > 199.0, got {}", cx[2]);
+}
+
 /// Documentation.
 fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
     (0..n)
@@ -24,6 +245,51 @@ fn make_clustered_data(n_per_cluster: usize, k: usize) -> Vec<f64> {
         }
     }
     data
+}
+
+// ---- TASK-2267: k-means 不要クローン削減 回帰テスト ----
+
+#[test]
+fn tc_2267_01_kmeans_plusplus_determinism_after_clone_reduction() {
+    let k = 3;
+    let n_per = 30;
+    let data = make_clustered_data(n_per, k);
+    let n = n_per * k;
+    let p = 2;
+    let r1 = run_kmeans_on_data(&data, n, p, k, InitStrategy::KMeansPlusPlus);
+    let r2 = run_kmeans_on_data(&data, n, p, k, InitStrategy::KMeansPlusPlus);
+    assert_eq!(r1.labels, r2.labels, "same seed must produce same labels");
+    for (c1, c2) in r1.centroids.iter().zip(r2.centroids.iter()) {
+        for (v1, v2) in c1.iter().zip(c2.iter()) {
+            assert!((v1 - v2).abs() < 1e-12, "centroids must be identical");
+        }
+    }
+}
+
+#[test]
+fn tc_2267_02_deterministic_init_matches_after_extend_from_slice() {
+    let k = 3;
+    let n_per = 30;
+    let data = make_clustered_data(n_per, k);
+    let n = n_per * k;
+    let p = 2;
+    let r1 = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
+    let r2 = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
+    assert_eq!(r1.labels, r2.labels, "deterministic init must be identical");
+}
+
+#[test]
+fn tc_2267_03_empty_cluster_fallback_preserves_centroid() {
+    // Single point per "cluster" in 1D → force empty-cluster fallback path
+    let data = vec![0.0, 1.0, 100.0, 101.0];
+    let n = 4;
+    let p = 1;
+    let k = 2;
+    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
+    assert_eq!(result.centroids.len(), k);
+    for c in &result.centroids {
+        assert!(c[0].is_finite(), "centroid must be finite after fallback");
+    }
 }
 
 #[test]

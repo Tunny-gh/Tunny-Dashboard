@@ -8,7 +8,7 @@ pub(super) fn predict_mean(model: &GpModel, x_test: &[f64]) -> f64 {
         .x_train
         .iter()
         .zip(model.alpha.iter())
-        .map(|(x_train, alpha)| alpha * matern52_ard(x_test, x_train, &model.log_ls, model.log_sf))
+        .map(|(x_train, alpha)| alpha * matern52_ard(x_test, x_train, &model.kernel.log_ls, model.kernel.log_sf))
         .sum()
 }
 
@@ -17,13 +17,13 @@ pub(super) fn predict_mean(model: &GpModel, x_test: &[f64]) -> f64 {
 /// var(x*) = k(x*,x*) - ||L^{-1} k(X,x*)||²
 pub(crate) fn predict_variance(model: &GpModel, x_test: &[f64]) -> f64 {
     // k(x*, x*) — prior variance
-    let k_star_star = matern52_ard(x_test, x_test, &model.log_ls, model.log_sf);
+    let k_star_star = matern52_ard(x_test, x_test, &model.kernel.log_ls, model.kernel.log_sf);
 
     // k(X, x*) — cross-covariance vector
     let k_star: Vec<f64> = model
         .x_train
         .iter()
-        .map(|x_tr| matern52_ard(x_tr, x_test, &model.log_ls, model.log_sf))
+        .map(|x_tr| matern52_ard(x_tr, x_test, &model.kernel.log_ls, model.kernel.log_sf))
         .collect();
 
     // v = L^{-1} k_star

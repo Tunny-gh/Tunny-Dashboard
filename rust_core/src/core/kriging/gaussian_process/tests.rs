@@ -186,18 +186,51 @@ fn optimize_hyperparams_handles_empty_input() {
 
 #[test]
 fn predict_mean_matches_single_point_model() {
-    let model = GpModel {
+    let model = GpFittedModel {
+        kernel: GpKernel { log_ls: vec![0.0], log_sf: 0.0, log_sn: -2.0 },
         alpha: vec![2.0],
         x_train: vec![vec![1.0]],
-        log_ls: vec![0.0],
-        log_sf: 0.0,
         l: vec![vec![1.0]],
-        log_sn: -2.0,
     };
 
     let prediction = predict_mean(&model, &[1.0]);
 
     approx_eq(prediction, 2.0, 1e-12);
+}
+
+#[test]
+fn tc_2266_01_gpfittedmodel_kernel_field_access() {
+    let model = GpFittedModel {
+        kernel: GpKernel { log_ls: vec![0.5], log_sf: 1.0, log_sn: -2.0 },
+        alpha: vec![1.0],
+        x_train: vec![vec![0.0]],
+        l: vec![vec![1.0]],
+    };
+    assert!((model.kernel.log_sf - 1.0).abs() < 1e-12);
+    assert!((model.kernel.log_sn - (-2.0)).abs() < 1e-12);
+    assert_eq!(model.kernel.log_ls, vec![0.5]);
+}
+
+#[test]
+fn tc_2266_02_predict_mean_via_gp_fitted_model() {
+    let model = GpFittedModel {
+        kernel: GpKernel { log_ls: vec![0.0], log_sf: 0.0, log_sn: -2.0 },
+        alpha: vec![2.0],
+        x_train: vec![vec![1.0]],
+        l: vec![vec![1.0]],
+    };
+    approx_eq(predict_mean(&model, &[1.0]), 2.0, 1e-12);
+}
+
+#[test]
+fn tc_2266_03_empty_x_train_predict_mean_returns_zero() {
+    let model = GpFittedModel {
+        kernel: GpKernel { log_ls: vec![], log_sf: 0.0, log_sn: 0.0 },
+        alpha: vec![],
+        x_train: vec![],
+        l: vec![],
+    };
+    assert_eq!(predict_mean(&model, &[0.0]), 0.0);
 }
 
 #[test]
@@ -216,7 +249,7 @@ fn train_gp_subsamples_large_dataset() {
     let prediction = predict_mean(&model, &[0.5]);
 
     assert_eq!(model.x_train.len(), 5);
-    assert_eq!(model.log_ls.len(), 1);
+    assert_eq!(model.kernel.log_ls.len(), 1);
     assert!(prediction.is_finite());
 }
 

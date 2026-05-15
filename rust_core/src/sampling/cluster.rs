@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
 use super::common::{full_result, random_sample_fixed_seed, DownsampleResult};
+use super::context::SamplingContext;
 use super::smart::downsample_smart;
-use super::state::{cluster_labels, get_pareto_rank0_indices};
 
 /// Cluster-equalised downsampling for ClusterScatter / DimReductionScatter.
 ///
 /// Algorithm:
-/// 1. Read cluster labels from global state.
+/// 1. Read cluster labels from context.
 /// 2. If no labels are stored, fall back to `downsample_smart(max_points, true)`.
 /// 3. Otherwise, assign a budget of `max_points / K` to each of the K clusters.
 /// 4. Sample from each cluster (seed 42); the largest cluster absorbs any
 ///    remaining points from the integer division.
 ///
 /// Returns `None` when no active study is loaded.
-pub fn downsample_by_cluster(max_points: usize) -> Option<DownsampleResult> {
+pub fn downsample_by_cluster(ctx: &SamplingContext, max_points: usize) -> Option<DownsampleResult> {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
@@ -29,8 +29,8 @@ pub fn downsample_by_cluster(max_points: usize) -> Option<DownsampleResult> {
         return Some(full_result(total_count, duration_ms));
     }
 
-    let Some(labels) = cluster_labels() else {
-        return downsample_smart(max_points, true);
+    let Some(labels) = ctx.cluster_labels.as_ref() else {
+        return downsample_smart(ctx, max_points, true);
     };
 
     let mut clusters: HashMap<i32, Vec<u32>> = HashMap::new();
@@ -40,7 +40,7 @@ pub fn downsample_by_cluster(max_points: usize) -> Option<DownsampleResult> {
         }
     }
     if clusters.is_empty() {
-        return downsample_smart(max_points, true);
+        return downsample_smart(ctx, max_points, true);
     }
 
     let k = clusters.len();
@@ -69,7 +69,8 @@ pub fn downsample_by_cluster(max_points: usize) -> Option<DownsampleResult> {
         result_indices.extend_from_slice(&sampled);
     }
 
-    let pareto_count = get_pareto_rank0_indices()
+    let pareto_indices = ctx.get_pareto_rank0_indices();
+    let pareto_count = pareto_indices
         .iter()
         .filter(|&&p| result_indices.contains(&p))
         .count();

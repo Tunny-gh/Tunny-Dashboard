@@ -172,34 +172,34 @@ pub(crate) fn poll_chart_work(
                             });
                         }
                         _ => {
-                            let core_metric = match metric {
-                                ImportanceMetric::Spearman => {
-                                    tunny_core::sensitivity::SensitivityMetric::Spearman
-                                }
-                                ImportanceMetric::Ridge => {
-                                    tunny_core::sensitivity::SensitivityMetric::Ridge
-                                }
-                                ImportanceMetric::RfAnova => {
-                                    tunny_core::sensitivity::SensitivityMetric::RfAnova
-                                }
-                                ImportanceMetric::Mdi => {
-                                    tunny_core::sensitivity::SensitivityMetric::Mdi
-                                }
-                                ImportanceMetric::Shap => {
-                                    tunny_core::sensitivity::SensitivityMetric::Shap
-                                }
-                                ImportanceMetric::Permutation => {
-                                    tunny_core::sensitivity::SensitivityMetric::Permutation
-                                }
-                                _ => unreachable!(),
+                            use tunny_core::sensitivity::{
+                                MdiMetric, PermutationMetric, RfAnovaMetric, RidgeMetric,
+                                ShapMetric, SpearmanMetric,
                             };
+                            let core_metric: Box<dyn tunny_core::sensitivity::SensitivityMetric> =
+                                match metric {
+                                    ImportanceMetric::Spearman => Box::new(SpearmanMetric),
+                                    ImportanceMetric::Ridge => Box::new(RidgeMetric),
+                                    ImportanceMetric::RfAnova => Box::new(RfAnovaMetric),
+                                    ImportanceMetric::Mdi => Box::new(MdiMetric),
+                                    ImportanceMetric::Shap => Box::new(ShapMetric),
+                                    ImportanceMetric::Permutation => Box::new(PermutationMetric),
+                                    _ => unreachable!(),
+                                };
                             let key = (metric.cache_id(), obj_idx);
                             crate::app::spawn_task(tx, move || {
-                                let r = tunny_core::sensitivity::compute_sensitivity_single_obj(
-                                    &df,
-                                    &core_metric,
-                                    0,
-                                );
+                                let mut results =
+                                    tunny_core::sensitivity::compute_sensitivity_single_obj(
+                                        &df,
+                                        vec![core_metric],
+                                        0,
+                                    );
+                                let r = match results.pop() {
+                                    Some(r) => r,
+                                    None => return AppMessage::SensitivityError(
+                                        "Sensitivity computation failed".into(),
+                                    ),
+                                };
                                 let n_params = r.spearman.len();
                                 let spearman: Vec<Vec<f64>> = if n_params > 0 {
                                     vec![(0..n_params).map(|pi| r.spearman[pi][0]).collect()]

@@ -1,3 +1,52 @@
+use crate::core::math::stats::pearson_correlation;
+use crate::dataframe::DataFrame;
+use super::data::get_param_numeric_values;
+use super::metric_trait::SensitivityMetric;
+use super::types::SensitivityResult;
+
+pub struct SpearmanMetric;
+
+impl SensitivityMetric for SpearmanMetric {
+    fn compute(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
+        let param_names = df.param_col_names().to_vec();
+        let objective_names = df.objective_col_names().to_vec();
+        let n = df.row_count();
+
+        let objective_name = objective_names.get(obj_idx)?.clone();
+        if n < 2 || param_names.is_empty() {
+            return None;
+        }
+
+        let y: Vec<f64> = df
+            .get_numeric_column(&objective_name)
+            .map(|col| col[..n].to_vec())
+            .unwrap_or_else(|| vec![0.0; n]);
+
+        let spearman: Vec<Vec<f64>> = param_names
+            .iter()
+            .map(|name| {
+                let x = get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]);
+                vec![compute_spearman(&x, &y)]
+            })
+            .collect();
+
+        Some(SensitivityResult {
+            param_names,
+            objective_names: vec![objective_name],
+            spearman,
+            ridge: vec![],
+            rf_anova: None,
+            mdi: None,
+            shap: None,
+            permutation: None,
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "Spearman"
+    }
+}
+
 fn rank(values: &[f64]) -> Vec<f64> {
     let n = values.len();
     if n == 0 {
@@ -41,35 +90,6 @@ fn rank(values: &[f64]) -> Vec<f64> {
     }
 
     ranks
-}
-
-fn pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
-    let n = x.len();
-    if n < 2 {
-        return 0.0;
-    }
-    let nf = n as f64;
-
-    let mean_x: f64 = x.iter().sum::<f64>() / nf;
-    let mean_y: f64 = y.iter().sum::<f64>() / nf;
-
-    let mut cov = 0.0f64;
-    let mut var_x = 0.0f64;
-    let mut var_y = 0.0f64;
-
-    for (&xi, &yi) in x.iter().zip(y.iter()) {
-        let dx = xi - mean_x;
-        let dy = yi - mean_y;
-        cov += dx * dy;
-        var_x += dx * dx;
-        var_y += dy * dy;
-    }
-
-    let denom = (var_x * var_y).sqrt();
-    if denom < f64::EPSILON {
-        return 0.0;
-    }
-    cov / denom
 }
 
 pub fn compute_spearman(x: &[f64], y: &[f64]) -> f64 {

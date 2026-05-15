@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::common::{full_result, DownsampleResult};
-use super::state::get_pareto_rank0_indices;
+use super::context::SamplingContext;
 
 /// Thumbnail downsampling with Pareto preservation and grid spatial sampling.
 ///
@@ -16,7 +16,7 @@ use super::state::get_pareto_rank0_indices;
 /// 6. Return Pareto + grid-selected non-Pareto.
 ///
 /// Returns `None` when no active study is loaded.
-pub fn downsample_for_thumbnail(max_points: usize) -> Option<DownsampleResult> {
+pub fn downsample_for_thumbnail(ctx: &SamplingContext, max_points: usize) -> Option<DownsampleResult> {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
@@ -31,7 +31,7 @@ pub fn downsample_for_thumbnail(max_points: usize) -> Option<DownsampleResult> {
         return Some(full_result(total_count, duration_ms));
     }
 
-    let all_pareto = get_pareto_rank0_indices();
+    let all_pareto = ctx.get_pareto_rank0_indices();
     let max_pareto = max_points / 2;
     let confirmed_pareto: Vec<u32> = all_pareto[..all_pareto.len().min(max_pareto)].to_vec();
     let pareto_count = confirmed_pareto.len();

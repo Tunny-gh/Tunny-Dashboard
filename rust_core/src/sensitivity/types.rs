@@ -1,6 +1,6 @@
 /// Metric type for sensitivity analysis selection.
 #[derive(Debug, Clone, PartialEq)]
-pub enum SensitivityMetric {
+pub enum SensitivityKind {
     Spearman,
     Ridge,
     RfAnova,

@@ -49,11 +49,11 @@
 
 ### タスク一覧
 
-- [ ] [TASK-2258: SensitivityMetric トレイト定義と SensitivityKind リネーム](TASK-2258.md) - 4h (DIRECT) 🔵
-- [ ] [TASK-2259: SpearmanMetric・RidgeMetric の SensitivityMetric 実装](TASK-2259.md) - 4h (TDD) 🔵
-- [ ] [TASK-2260: RfAnovaMetric・MdiMetric・ShapMetric・PermutationMetric の SensitivityMetric 実装](TASK-2260.md) - 4h (TDD) 🔵
-- [ ] [TASK-2261: Pearson 相関の core/math/stats.rs への移動](TASK-2261.md) - 4h (TDD) 🔵
-- [ ] [TASK-2262: select_next_centroid による k-means 初期化共通化](TASK-2262.md) - 4h (TDD) 🔵
+- [x] [TASK-2258: SensitivityMetric トレイト定義と SensitivityKind リネーム](TASK-2258.md) - 4h (DIRECT) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2259: SpearmanMetric・RidgeMetric の SensitivityMetric 実装](TASK-2259.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2260: RfAnovaMetric・MdiMetric・ShapMetric・PermutationMetric の SensitivityMetric 実装](TASK-2260.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2261: Pearson 相関の core/math/stats.rs への移動](TASK-2261.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2262: select_next_centroid による k-means 初期化共通化](TASK-2262.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
 
 ### 依存関係
 
@@ -74,10 +74,10 @@ TASK-2262 (独立)
 
 ### タスク一覧
 
-- [ ] [TASK-2263: compute_sensitivity_single_obj の簡略化](TASK-2263.md) - 4h (TDD) 🔵
-- [ ] [TASK-2264: compute_cluster_stats_on_data の 3 関数分割](TASK-2264.md) - 4h (TDD) 🔵
-- [ ] [TASK-2265: Ridge 回帰 3 関数分割 + 行列フォーマット変換削減](TASK-2265.md) - 4h (TDD) 🔵
-- [ ] [TASK-2266: GpModel → GpKernel + GpFittedModel への分割](TASK-2266.md) - 4h (TDD) 🟡
+- [x] [TASK-2263: compute_sensitivity_single_obj の簡略化](TASK-2263.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2264: compute_cluster_stats_on_data の 3 関数分割](TASK-2264.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2265: Ridge 回帰 3 関数分割 + 行列フォーマット変換削減](TASK-2265.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2266: GpModel → GpKernel + GpFittedModel への分割](TASK-2266.md) - 4h (TDD) 🟡 ✅ 完了 (2026-05-15)
 
 ### 依存関係
 
@@ -99,10 +99,10 @@ TASK-2266 (独立)
 
 ### タスク一覧
 
-- [ ] [TASK-2267: k-means 不要クローン削減](TASK-2267.md) - 4h (TDD) 🟡
-- [ ] [TASK-2268: TOPSIS build_weighted_matrix 単一アロケーション化](TASK-2268.md) - 4h (TDD) 🔵
-- [ ] [TASK-2269: SamplingContext 実装（rust_core 側）](TASK-2269.md) - 4h (TDD) 🔵
-- [ ] [TASK-2270: egui-app 側の SamplingContext 統合](TASK-2270.md) - 4h (TDD) 🔵
+- [x] [TASK-2267: k-means 不要クローン削減](TASK-2267.md) - 4h (TDD) 🟡 ✅ 完了 (2026-05-15)
+- [x] [TASK-2268: TOPSIS build_weighted_matrix 単一アロケーション化](TASK-2268.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2269: SamplingContext 実装（rust_core 側）](TASK-2269.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
+- [x] [TASK-2270: egui-app 側の SamplingContext 統合](TASK-2270.md) - 4h (TDD) 🔵 ✅ 完了 (2026-05-15)
 
 ### 依存関係
 

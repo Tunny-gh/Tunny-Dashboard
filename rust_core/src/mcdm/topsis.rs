@@ -147,9 +147,8 @@ fn build_weighted_matrix(
         *norm = norm.sqrt();
     }
 
-    // Build flat row-major matrix in one contiguous allocation.
-    let mut matrix = Vec::with_capacity(n_valid * n_objectives);
-    for &i in valid_indices {
+    let mut matrix = vec![0.0_f64; n_valid * n_objectives];
+    for (idx, &i) in valid_indices.iter().enumerate() {
         for j in 0..n_objectives {
             let v = values[i * n_objectives + j];
             let r = if col_norms[j].abs() < f64::EPSILON {
@@ -157,7 +156,7 @@ fn build_weighted_matrix(
             } else {
                 v / col_norms[j]
             };
-            matrix.push(r * weights[j]);
+            matrix[idx * n_objectives + j] = r * weights[j];
         }
     }
     matrix
@@ -560,6 +559,37 @@ mod tests {
             result.scores[0] > result.scores[1],
             "trial0Englishtrial1English"
         );
+    }
+
+    // ---- TASK-2268: build_weighted_matrix 単一アロケーション化 ----
+
+    #[test]
+    fn tc_2268_01_topsis_scores_match_after_single_alloc_refactor() {
+        let values = [1.0_f64, 4.0, 4.0, 1.0, 2.0, 2.0];
+        let weights = [0.5_f64, 0.5];
+        let is_minimize = [true, true];
+        let r = compute_topsis(&values, 3, 2, &weights, &is_minimize).unwrap();
+        for (i, &s) in r.scores.iter().enumerate() {
+            assert!(s >= 0.0 && s <= 1.0, "score[{}]={} must be in [0,1]", i, s);
+        }
+        assert_eq!(r.ranked_indices[0], 2, "trial2 should rank best");
+    }
+
+    #[test]
+    fn tc_2268_02_all_nan_returns_empty_valid_scores() {
+        let values = [f64::NAN, f64::NAN, f64::NAN, f64::NAN];
+        let r = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]).unwrap();
+        for &s in &r.scores {
+            assert!((s - 0.5).abs() < 1e-9, "all-NaN gives uniform 0.5, got {}", s);
+        }
+    }
+
+    #[test]
+    fn tc_2268_03_single_objective_single_alloc() {
+        let values = [3.0_f64, 1.0, 2.0];
+        let r = compute_topsis(&values, 3, 1, &[1.0], &[true]).unwrap();
+        assert_eq!(r.ranked_indices[0], 1, "smallest value should rank first");
+        assert_eq!(r.ranked_indices[2], 0, "largest value should rank last");
     }
 
     #[test]

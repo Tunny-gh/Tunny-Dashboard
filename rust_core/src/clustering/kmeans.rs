@@ -20,6 +20,38 @@ fn uniform_f64(state: &mut u64) -> f64 {
     (xorshift64(state) >> 11) as f64 / (1u64 << 53) as f64
 }
 
+/// k-means++ / 決定論的初期化の共通重心選択。
+/// `existing` が空なら全点均一重みを使用し、非空なら各点の最小 D² を計算する。
+/// `sampling_fn` に重みスライスを渡し、返されたインデックスの点を返す。
+pub(crate) fn select_next_centroid<F>(
+    flat_data: &[f64],
+    n_cols: usize,
+    existing: &[Vec<f64>],
+    n: usize,
+    mut sampling_fn: F,
+) -> Vec<f64>
+where
+    F: FnMut(&[f64]) -> usize,
+{
+    let weights: Vec<f64> = if existing.is_empty() {
+        vec![1.0; n]
+    } else {
+        (0..n)
+            .map(|i| {
+                let pt = &flat_data[i * n_cols..(i + 1) * n_cols];
+                existing
+                    .iter()
+                    .map(|c| sq_dist(pt, c))
+                    .fold(f64::INFINITY, f64::min)
+            })
+            .collect()
+    };
+    let idx = sampling_fn(&weights);
+    let mut result = Vec::with_capacity(n_cols);
+    result.extend_from_slice(&flat_data[idx * n_cols..(idx + 1) * n_cols]);
+    result
+}
+
 /// k-means++ 初期化: D² 比例確率でサンプリング
 fn init_kmeans_plusplus(
     flat_data: &[f64],
@@ -28,42 +60,31 @@ fn init_kmeans_plusplus(
     k: usize,
     rng: &mut u64,
 ) -> Vec<Vec<f64>> {
-    let get_point = |i: usize| -> &[f64] { &flat_data[i * p..(i + 1) * p] };
-
     let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
-    // 最初の重心: n/2 番目（決定論的なベースポイント）
-    centroids.push(get_point(n / 2).to_vec());
+    let mut first = Vec::with_capacity(p);
+    first.extend_from_slice(&flat_data[n / 2 * p..(n / 2 + 1) * p]);
+    centroids.push(first);
 
     for _ in 1..k {
-        // 各点から最近傍重心への D² を計算
-        let d2: Vec<f64> = (0..n)
-            .map(|i| {
-                centroids
-                    .iter()
-                    .map(|c| sq_dist(get_point(i), c))
-                    .fold(f64::INFINITY, f64::min)
-            })
-            .collect();
-
-        let total: f64 = d2.iter().sum();
-        if total < f64::EPSILON {
-            // 全点が重なっている場合はフォールバック
-            centroids.push(get_point(centroids.len() % n).to_vec());
-            continue;
-        }
-
-        // D² 比例確率でサンプリング
-        let threshold = uniform_f64(rng) * total;
-        let mut cum = 0.0;
-        let mut chosen = n - 1;
-        for (i, &d) in d2.iter().enumerate() {
-            cum += d;
-            if cum >= threshold {
-                chosen = i;
-                break;
+        let centroids_len = centroids.len();
+        let centroid = select_next_centroid(flat_data, p, &centroids, n, |weights| {
+            let total: f64 = weights.iter().sum();
+            if total < f64::EPSILON {
+                return centroids_len % n;
             }
-        }
-        centroids.push(get_point(chosen).to_vec());
+            let threshold = uniform_f64(rng) * total;
+            let mut cum = 0.0;
+            let mut chosen = n - 1;
+            for (i, &d) in weights.iter().enumerate() {
+                cum += d;
+                if cum >= threshold {
+                    chosen = i;
+                    break;
+                }
+            }
+            chosen
+        });
+        centroids.push(centroid);
     }
 
     centroids
@@ -71,39 +92,32 @@ fn init_kmeans_plusplus(
 
 /// 決定論的スプレッド初期化: 累積距離しきい値で等間隔選択
 fn init_deterministic(flat_data: &[f64], n: usize, p: usize, k: usize) -> Vec<Vec<f64>> {
-    let get_point = |i: usize| -> &[f64] { &flat_data[i * p..(i + 1) * p] };
-
     let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
-    centroids.push(get_point(n / 2).to_vec());
+    let mut first = Vec::with_capacity(p);
+    first.extend_from_slice(&flat_data[n / 2 * p..(n / 2 + 1) * p]);
+    centroids.push(first);
 
     for _ in 1..k {
-        let distances: Vec<f64> = (0..n)
-            .map(|i| {
-                centroids
-                    .iter()
-                    .map(|c| sq_dist(get_point(i), c))
-                    .fold(f64::INFINITY, f64::min)
-            })
-            .collect();
-
-        let total: f64 = distances.iter().sum();
-        if total < f64::EPSILON {
-            let idx = centroids.len() % n;
-            centroids.push(get_point(idx).to_vec());
-            continue;
-        }
-
-        let threshold = total / (k - centroids.len() + 1) as f64;
-        let mut cum = 0.0;
-        let mut chosen = n - 1;
-        for (i, &d) in distances.iter().enumerate() {
-            cum += d;
-            if cum >= threshold {
-                chosen = i;
-                break;
+        let centroids_len = centroids.len();
+        let centroid = select_next_centroid(flat_data, p, &centroids, n, |weights| {
+            let total: f64 = weights.iter().sum();
+            if total < f64::EPSILON {
+                return centroids_len % n;
             }
-        }
-        centroids.push(get_point(chosen).to_vec());
+            let remaining = k - centroids_len + 1;
+            let threshold = total / remaining as f64;
+            let mut cum = 0.0;
+            let mut chosen = weights.len() - 1;
+            for (i, &d) in weights.iter().enumerate() {
+                cum += d;
+                if cum >= threshold {
+                    chosen = i;
+                    break;
+                }
+            }
+            chosen
+        });
+        centroids.push(centroid);
     }
 
     centroids
@@ -186,7 +200,7 @@ pub(crate) fn run_kmeans_on_data(
                     *val /= counts[c] as f64;
                 }
             } else {
-                new_centroids[c] = centroids[c].clone();
+                new_centroids[c].copy_from_slice(&centroids[c]);
             }
         }
         centroids = new_centroids;

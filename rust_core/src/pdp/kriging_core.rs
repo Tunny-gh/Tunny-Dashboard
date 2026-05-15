@@ -160,9 +160,9 @@ pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
     let gp_model = gaussian_process::train_gp(x_norm.clone(), y_norm.clone(), 100, 42)?;
 
     // Extract hyperparams in FITC layout: [log_ls..., log_sf, log_sn]
-    let mut fitc_params: Vec<f64> = gp_model.log_ls.clone();
-    fitc_params.push(gp_model.log_sf);
-    fitc_params.push(gp_model.log_sn);
+    let mut fitc_params: Vec<f64> = gp_model.kernel.log_ls.clone();
+    fitc_params.push(gp_model.kernel.log_sf);
+    fitc_params.push(gp_model.kernel.log_sn);
 
     // ── Step 2: K-means on GP subsample → inducing points Z ──────────────────
     // M=20 is sufficient for 1D PDP; using 50 (like 2D) is wasteful here.

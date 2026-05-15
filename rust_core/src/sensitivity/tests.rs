@@ -586,9 +586,10 @@ fn tc_pfi_int_01_single_obj_returns_some() {
         })
         .collect();
     let df = setup_df(rows, &["p0", "p1", "p2"], &["obj0"]);
-    let result = compute_sensitivity_single_obj(&df, &SensitivityMetric::Permutation, 0);
+    let results = compute_sensitivity_single_obj(&df, vec![Box::new(PermutationMetric)], 0);
+    assert!(!results.is_empty(), "should return at least one result");
     assert!(
-        result.permutation.is_some(),
+        results[0].permutation.is_some(),
         "permutation field should be Some"
     );
 }
@@ -609,8 +610,9 @@ fn tc_pfi_int_02_result_shape() {
         })
         .collect();
     let df = setup_df(rows, &["p0", "p1", "p2"], &["obj0"]);
-    let result = compute_sensitivity_single_obj(&df, &SensitivityMetric::Permutation, 0);
-    let perm = result.permutation.unwrap();
+    let results = compute_sensitivity_single_obj(&df, vec![Box::new(PermutationMetric)], 0);
+    assert!(!results.is_empty());
+    let perm = results.into_iter().next().unwrap().permutation.unwrap();
     assert_eq!(
         perm.0.importances.len(),
         3,
@@ -621,4 +623,61 @@ fn tc_pfi_int_02_result_shape() {
         1,
         "r_squared should have one entry per objective"
     );
+}
+
+// ===========================================================================
+// TASK-2263: compute_sensitivity_single_obj 簡略化テスト
+// ===========================================================================
+
+#[test]
+fn tc_2263_01_multiple_metrics_all_returned() {
+    let rows: Vec<TrialRow> = (0..20)
+        .map(|i| make_row_multi(i, &[("p0", i as f64), ("p1", (i * 2) as f64)], vec![i as f64]))
+        .collect();
+    let df = setup_df(rows, &["p0", "p1"], &["obj0"]);
+    let results = compute_sensitivity_single_obj(
+        &df,
+        vec![Box::new(SpearmanMetric), Box::new(RidgeMetric)],
+        0,
+    );
+    assert_eq!(results.len(), 2, "both metrics should produce a result");
+    assert!(!results[0].spearman.is_empty(), "first result should have spearman");
+    assert!(!results[1].ridge.is_empty(), "second result should have ridge");
+}
+
+#[test]
+fn tc_2263_02_none_excluded_from_results() {
+    // n=1 → too small for any metric → all return None → empty Vec
+    let rows = vec![make_row_multi(0, &[("p0", 1.0)], vec![1.0])];
+    let df = setup_df(rows, &["p0"], &["obj0"]);
+    let results = compute_sensitivity_single_obj(
+        &df,
+        vec![Box::new(SpearmanMetric), Box::new(RidgeMetric)],
+        0,
+    );
+    assert!(results.is_empty(), "None results should be filtered: got {} results", results.len());
+}
+
+#[test]
+fn tc_2263_03_invalid_obj_idx_excluded() {
+    let rows: Vec<TrialRow> = (0..20)
+        .map(|i| make_row_multi(i, &[("p0", i as f64)], vec![i as f64]))
+        .collect();
+    let df = setup_df(rows, &["p0"], &["obj0"]);
+    let results = compute_sensitivity_single_obj(
+        &df,
+        vec![Box::new(SpearmanMetric)],
+        99, // invalid obj_idx
+    );
+    assert!(results.is_empty(), "invalid obj_idx should produce no results");
+}
+
+#[test]
+fn tc_2263_04_empty_metrics_vec_returns_empty() {
+    let rows: Vec<TrialRow> = (0..20)
+        .map(|i| make_row_multi(i, &[("p0", i as f64)], vec![i as f64]))
+        .collect();
+    let df = setup_df(rows, &["p0"], &["obj0"]);
+    let results: Vec<SensitivityResult> = compute_sensitivity_single_obj(&df, vec![], 0);
+    assert!(results.is_empty());
 }

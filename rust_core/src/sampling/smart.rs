@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::common::{full_result, random_sample_fixed_seed, DownsampleResult};
-use super::state::get_pareto_rank0_indices;
+use super::context::SamplingContext;
 
 /// General-purpose downsampling with Pareto Rank 1 preservation.
 ///
@@ -14,7 +14,11 @@ use super::state::get_pareto_rank0_indices;
 /// 6. Return Pareto + sampled non-Pareto.
 ///
 /// Returns `None` when no active study is loaded.
-pub fn downsample_smart(max_points: usize, include_pareto: bool) -> Option<DownsampleResult> {
+pub fn downsample_smart(
+    ctx: &SamplingContext,
+    max_points: usize,
+    include_pareto: bool,
+) -> Option<DownsampleResult> {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
@@ -30,7 +34,7 @@ pub fn downsample_smart(max_points: usize, include_pareto: bool) -> Option<Downs
     }
 
     let pareto_indices = if include_pareto {
-        get_pareto_rank0_indices()
+        ctx.get_pareto_rank0_indices()
     } else {
         vec![]
     };

@@ -21,11 +21,14 @@ mod types;
 
 pub use kmeans::{estimate_k_elbow, run_kmeans};
 pub use pca::run_pca;
-pub use stats::compute_cluster_stats;
+pub use stats::{
+    compute_cluster_centroid_std, compute_cluster_stats, compute_global_stats,
+    compute_significant_features,
+};
 pub use types::{ClusterStat, ElbowResult, InitStrategy, KmeansResult, PcaResult, PcaSpace};
 
 #[cfg(test)]
-pub(crate) use kmeans::{estimate_k_elbow_on_data, run_kmeans_on_data};
+pub(crate) use kmeans::{estimate_k_elbow_on_data, run_kmeans_on_data, select_next_centroid};
 #[cfg(test)]
 pub(crate) use pca::run_pca_on_matrix;
 #[cfg(test)]
