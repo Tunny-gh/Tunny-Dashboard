@@ -3,8 +3,7 @@ use crate::sensitivity::{
 };
 
 fn make_xy(n: usize, dominant: usize, n_feats: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
-    use crate::core::random_forest::Lcg;
-    let mut rng = Lcg::new(99);
+    let mut rng = crate::core::math::rng::SeededRng::from_seed(99);
     let x: Vec<Vec<f64>> = (0..n)
         .map(|_| {
             (0..n_feats)

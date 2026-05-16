@@ -1,4 +1,4 @@
-use super::sobol::{build_quad_features, compute_sobol_index_pair, lcg_next};
+use super::sobol::{build_quad_features, compute_sobol_index_pair};
 use super::*;
 use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
 use std::collections::HashMap;
@@ -93,7 +93,7 @@ fn tc_801_06_ridge_perfect_linear_r_squared_near_1() {
     let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
     let y: Vec<f64> = (0..n).map(|i| 2.0 * i as f64 + 1.0).collect();
 
-    let result = compute_ridge(&x_matrix, &y, 0.001);
+    let result = compute_ridge_from_vecs(&x_matrix, &y, 0.001);
 
     assert!(
         result.r_squared > 0.99,
@@ -108,7 +108,7 @@ fn tc_801_07_ridge_beta_sign_correct() {
     let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
     let y: Vec<f64> = (0..n).map(|i| 3.0 * i as f64).collect();
 
-    let result = compute_ridge(&x_matrix, &y, 0.01);
+    let result = compute_ridge_from_vecs(&x_matrix, &y, 0.01);
 
     assert!(
         result.beta[0] > 0.0,
@@ -123,7 +123,7 @@ fn tc_801_08_ridge_two_params_identifies_stronger() {
     let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 5) as f64]).collect();
     let y: Vec<f64> = (0..n).map(|i| i as f64 + 0.1 * (i % 5) as f64).collect();
 
-    let result = compute_ridge(&x_matrix, &y, 0.01);
+    let result = compute_ridge_from_vecs(&x_matrix, &y, 0.01);
 
     assert_eq!(result.beta.len(), 2, "βtranslated2translated");
     assert!(
@@ -135,7 +135,8 @@ fn tc_801_08_ridge_two_params_identifies_stronger() {
 
 #[test]
 fn tc_801_09_ridge_empty_returns_zero_r_squared() {
-    let result = compute_ridge(&[], &[], 1.0);
+    let empty: Vec<Vec<f64>> = vec![];
+    let result = compute_ridge_from_vecs(&empty, &[], 1.0);
 
     assert_eq!(result.beta.len(), 0, "translatedβtranslated");
     assert_eq!(result.r_squared, 0.0, "translatedR²=0.0");
@@ -379,7 +380,7 @@ fn tc_801_p02_ridge_50000_x_30_under_300ms() {
 
     let start = std::time::Instant::now();
     for y in &y_vecs {
-        let _ = compute_ridge(&x_matrix, y, 1.0);
+        let _ = compute_ridge_from_vecs(&x_matrix, y, 1.0);
     }
     let elapsed = start.elapsed();
 
@@ -429,11 +430,31 @@ fn tc_1610_01_build_quad_features_output_length() {
 }
 
 #[test]
-fn tc_1610_02_lcg_next_range() {
-    let mut state: u64 = 12345;
-    for _ in 0..1000 {
-        let v = lcg_next(&mut state);
-        assert!(v >= 0.0 && v < 1.0, "lcg_next out of [0,1): {}", v);
+fn tc_301_06_sobol_regression_after_seeded_rng_migration() {
+    // 【テスト目的】: lcg_next → SeededRng 移行後も Sobol 感度解析が正常動作することを確認
+    let rows: Vec<TrialRow> = (0..50)
+        .map(|i| {
+            let x1 = i as f64;
+            let x2 = (i * 2) as f64;
+            let y = x1 * 2.0;
+            make_row_multi(i as u32, &[("x1", x1), ("x2", x2)], vec![y])
+        })
+        .collect();
+    setup_df(rows, &["x1", "x2"], &["obj0"]);
+    let result = compute_sobol(1024);
+    assert!(result.is_some(), "SeededRng 移行後も compute_sobol が Some を返すこと");
+    let r = result.unwrap();
+    for pi in 0..r.param_names.len() {
+        for k in 0..r.objective_names.len() {
+            assert!(
+                r.first_order[pi][k] >= 0.0 && r.first_order[pi][k] <= 1.0,
+                "first_order インデックスが [0,1] 範囲内"
+            );
+            assert!(
+                r.total_effect[pi][k] >= 0.0 && r.total_effect[pi][k] <= 1.0,
+                "total_effect インデックスが [0,1] 範囲内"
+            );
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::core::random_forest::Lcg;
+use crate::core::math::rng::SeededRng;
 use crate::dataframe::DataFrame;
 
 pub(super) fn get_param_numeric_values(
@@ -44,11 +44,8 @@ pub(super) fn sample_rows(
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
     let n = y.len();
     let mut indices: Vec<usize> = (0..n).collect();
-    let mut rng = Lcg::new(seed);
-    for i in (1..n).rev() {
-        let j = rng.next_usize(i + 1);
-        indices.swap(i, j);
-    }
+    let mut rng = SeededRng::from_seed(seed);
+    rng.shuffle(&mut indices);
     indices.truncate(max_rows);
     (
         indices.iter().map(|&i| x_matrix[i].clone()).collect(),

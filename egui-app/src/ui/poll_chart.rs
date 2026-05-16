@@ -14,28 +14,17 @@ fn build_xy_for_objective(
     ctx: &crate::state::app_state::StudyContext,
     objective: &str,
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let param_names = &ctx.meta.param_names;
     let x_matrix = ctx
         .trial_rows
         .iter()
-        .map(|r| {
-            ctx.meta
-                .param_names
-                .iter()
-                .map(|p| r.params.get(p).copied().unwrap_or(0.0))
-                .collect()
-        })
+        .map(|r| param_names.iter().map(|p| r.params.get(p).copied().unwrap_or(0.0)).collect())
         .collect();
+    let obj_idx = ctx.meta.objective_names.iter().position(|o| o == objective);
     let y = ctx
         .trial_rows
         .iter()
-        .map(|r| {
-            ctx.meta
-                .objective_names
-                .iter()
-                .position(|o| o == objective)
-                .and_then(|i| r.objectives.get(i).copied())
-                .unwrap_or(0.0)
-        })
+        .map(|r| obj_idx.and_then(|i| r.objectives.get(i).copied()).unwrap_or(0.0))
         .collect();
     (x_matrix, y)
 }

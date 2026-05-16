@@ -25,6 +25,7 @@ pub use ridge::RidgeMetric;
 pub use spearman::SpearmanMetric;
 pub use rf_anova::compute_rf_anova_importances;
 pub use ridge::compute_ridge;
+pub(crate) use ridge::compute_ridge_from_vecs;
 pub use shap::compute_shap_importances;
 pub use sobol::{compute_sobol, compute_sobol_from_df};
 pub use spearman::compute_spearman;

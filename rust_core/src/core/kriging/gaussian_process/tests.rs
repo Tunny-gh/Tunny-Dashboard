@@ -94,64 +94,6 @@ fn likelihood_gradient_matches_finite_difference() {
 }
 
 #[test]
-fn lbfgs_without_history_returns_negative_gradient() {
-    let grad = vec![1.0, -2.0];
-
-    let direction = lbfgs_direction(&grad, &[], &[]);
-
-    approx_eq(direction[0], -1.0, 1e-12);
-    approx_eq(direction[1], 2.0, 1e-12);
-}
-
-#[test]
-fn armijo_line_search_reduces_quadratic_objective() {
-    let x = vec![1.0, -1.0];
-    let grad = vec![1.0, -1.0];
-    let direction = vec![-1.0, 1.0];
-    let objective = |values: &[f64]| 0.5 * values.iter().map(|value| value * value).sum::<f64>();
-    let f_x = objective(&x);
-
-    let alpha = armijo_line_search(f_x, &grad, &direction, objective, &x, 1e-4, 20);
-    let x_new: Vec<f64> = x
-        .iter()
-        .zip(direction.iter())
-        .map(|(value, step)| value + alpha * step)
-        .collect();
-
-    assert!(alpha > 0.0);
-    assert!(objective(&x_new) < f_x);
-}
-
-#[test]
-fn armijo_line_search_keeps_unit_step_when_sufficient() {
-    let x = vec![1.0, 1.0];
-    let grad = vec![1.0, 1.0];
-    let direction = vec![-1.0, -1.0];
-    let objective = |values: &[f64]| 0.5 * values.iter().map(|value| value * value).sum::<f64>();
-    let f_x = objective(&x);
-
-    let alpha = armijo_line_search(f_x, &grad, &direction, objective, &x, 1e-4, 20);
-
-    approx_eq(alpha, 1.0, 1e-12);
-}
-
-#[test]
-fn lbfgs_with_history_still_points_downhill() {
-    let grad = vec![1.0, -0.5];
-    let s_hist = vec![vec![0.25, -0.1]];
-    let y_hist = vec![vec![0.5, -0.2]];
-
-    let direction = lbfgs_direction(&grad, &s_hist, &y_hist);
-    let slope: f64 = grad
-        .iter()
-        .zip(direction.iter())
-        .map(|(left, right)| left * right)
-        .sum();
-
-    assert!(slope < 0.0);
-}
-
-#[test]
 fn optimize_hyperparams_returns_expected_shape() {
     let x = vec![vec![0.0], vec![0.5], vec![1.0]];
     let y = vec![0.0, 0.4, 1.0];

@@ -1,5 +1,5 @@
 use crate::core::math::grid::linspace;
-use crate::sensitivity::compute_ridge;
+use crate::sensitivity::compute_ridge_from_vecs as compute_ridge;
 
 use super::types::{PdpResult1d, PdpResult2d};
 use super::utils::{col_mean_std, col_min_max};

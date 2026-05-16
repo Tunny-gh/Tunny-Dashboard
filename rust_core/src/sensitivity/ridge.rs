@@ -4,15 +4,7 @@ use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::types::{RidgeResult, SensitivityResult};
 
-fn transpose_and_standardize(x_matrix: &[Vec<f64>], n: usize, p: usize) -> Vec<f64> {
-    let mut x_cols = vec![0.0f64; n * p];
-
-    for (i, row) in x_matrix.iter().enumerate() {
-        for (j, &v) in row.iter().enumerate() {
-            x_cols[j * n + i] = v;
-        }
-    }
-
+fn standardize_columns_inplace(x_cols: &mut [f64], n: usize, p: usize) {
     for j in 0..p {
         let col = &mut x_cols[j * n..(j + 1) * n];
         let (mean, std_dev) = column_mean_std(col);
@@ -20,56 +12,19 @@ fn transpose_and_standardize(x_matrix: &[Vec<f64>], n: usize, p: usize) -> Vec<f
             *v = (*v - mean) / std_dev;
         }
     }
+}
 
+fn transpose_and_standardize_faer(x_matrix: &faer::Mat<f64>, n: usize, p: usize) -> Vec<f64> {
+    let mut x_cols = vec![0.0f64; n * p];
+    for j in 0..p {
+        for i in 0..n {
+            x_cols[j * n + i] = x_matrix[(i, j)];
+        }
+    }
+    standardize_columns_inplace(&mut x_cols, n, p);
     x_cols
 }
 
-pub(super) fn gaussian_elimination(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
-    let p = b.len();
-    if p == 0 {
-        return Some(vec![]);
-    }
-
-    for col in 0..p {
-        let pivot_row = (col..p)
-            .max_by(|&i, &j| {
-                a[i][col]
-                    .abs()
-                    .partial_cmp(&a[j][col].abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap_or(col);
-
-        a.swap(col, pivot_row);
-        b.swap(col, pivot_row);
-
-        let pivot = a[col][col];
-        if pivot.abs() < 1e-12 {
-            return None;
-        }
-
-        for row in (col + 1)..p {
-            let factor = a[row][col] / pivot;
-            #[allow(clippy::needless_range_loop)]
-            for k in col..p {
-                let v = a[col][k] * factor;
-                a[row][k] -= v;
-            }
-            b[row] -= b[col] * factor;
-        }
-    }
-
-    let mut x = vec![0.0f64; p];
-    for i in (0..p).rev() {
-        let mut sum = b[i];
-        for j in (i + 1)..p {
-            sum -= a[i][j] * x[j];
-        }
-        x[i] = sum / a[i][i];
-    }
-
-    Some(x)
-}
 
 pub(super) fn compute_ridge_from_standardized_columns(
     x_cols: &[f64],
@@ -84,13 +39,26 @@ pub(super) fn compute_ridge_from_standardized_columns(
     let xtx_flat = compute_xtx_matrix(x_cols, n, num_params, alpha);
     let xty = compute_xty_vector(x_cols, &y_c, n, num_params);
 
-    let xtx_2d: Vec<Vec<f64>> = (0..num_params)
-        .map(|i| xtx_flat[i * num_params..(i + 1) * num_params].to_vec())
-        .collect();
-    let beta = gaussian_elimination(xtx_2d, xty).unwrap_or_else(|| vec![0.0; num_params]);
+    // X'X + αI is SPD (α > 0), so use Cholesky solve for efficiency
+    let beta = solve_ridge_normal_equations(&xtx_flat, &xty, num_params);
 
     let r_squared = compute_r_squared(x_cols, &y_c, &beta, n);
     RidgeResult { beta, r_squared }
+}
+
+/// Solve the Ridge normal equations (X'X + αI)β = X'y using faer Cholesky.
+/// X'X + αI is always SPD when α > 0, making Cholesky the optimal solver.
+fn solve_ridge_normal_equations(xtx_flat: &[f64], xty: &[f64], p: usize) -> Vec<f64> {
+    if p == 0 {
+        return vec![];
+    }
+    let xtx_mat = faer::Mat::<f64>::from_fn(p, p, |i, j| xtx_flat[i * p + j]);
+    let xty_mat = faer::Mat::<f64>::from_fn(p, 1, |i, _| xty[i]);
+    use faer::prelude::Solve;
+    match xtx_mat.llt(faer::Side::Lower) {
+        Ok(chol) => (0..p).map(|i| chol.solve(&xty_mat)[(i, 0)]).collect(),
+        Err(_) => vec![0.0; p],
+    }
 }
 
 pub struct RidgeMetric;
@@ -120,13 +88,7 @@ impl SensitivityMetric for RidgeMetric {
                 }
             }
         }
-        for j in 0..num_params {
-            let col_slice = &mut x_cols_flat[j * n..(j + 1) * n];
-            let (mean, std_dev) = column_mean_std(col_slice);
-            for value in col_slice.iter_mut() {
-                *value = (*value - mean) / std_dev;
-            }
-        }
+        standardize_columns_inplace(&mut x_cols_flat, n, num_params);
 
         let ridge = vec![compute_ridge_from_standardized_columns(&x_cols_flat, n, &y, 1.0)];
 
@@ -192,23 +154,29 @@ pub(crate) fn compute_r_squared(x_cols: &[f64], y_c: &[f64], beta: &[f64], n: us
     (1.0 - ss_res / ss_tot).max(0.0)
 }
 
-pub fn compute_ridge(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResult {
+pub fn compute_ridge(x_matrix: &faer::Mat<f64>, y: &[f64], alpha: f64) -> RidgeResult {
     let n = y.len();
-    let empty = RidgeResult {
-        beta: vec![],
-        r_squared: 0.0,
-    };
-
-    if n < 2 || x_matrix.len() != n {
+    let empty = RidgeResult { beta: vec![], r_squared: 0.0 };
+    if n < 2 || x_matrix.nrows() != n {
         return empty;
     }
-    let p = x_matrix[0].len();
+    let p = x_matrix.ncols();
     if p == 0 {
         return empty;
     }
-
-    let x_cols = transpose_and_standardize(x_matrix, n, p);
+    let x_cols = transpose_and_standardize_faer(x_matrix, n, p);
     compute_ridge_from_standardized_columns(&x_cols, n, y, alpha)
+}
+
+/// Convenience wrapper for internal callers that have Vec<Vec<f64>>.
+pub(crate) fn compute_ridge_from_vecs(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResult {
+    let n = y.len();
+    let empty = RidgeResult { beta: vec![], r_squared: 0.0 };
+    if n < 2 || x_matrix.len() != n { return empty; }
+    let p = x_matrix.first().map(|r| r.len()).unwrap_or(0);
+    if p == 0 { return empty; }
+    let faer_x = faer::Mat::from_fn(n, p, |i, j| x_matrix[i][j]);
+    compute_ridge(&faer_x, y, alpha)
 }
 
 #[cfg(test)]
@@ -284,8 +252,43 @@ mod tests {
             vec![4.0, 2.0],
         ];
         let y = vec![1.5, 3.0, 4.5, 6.0];
-        let result = compute_ridge(&x_matrix, &y, 1.0);
+        let result = compute_ridge_from_vecs(&x_matrix, &y, 1.0);
         assert!(!result.beta.is_empty());
         assert!(result.r_squared >= 0.0 && result.r_squared <= 1.0);
+    }
+
+    // ---- TASK-2308: faer Cholesky replacement tests ----
+
+    #[test]
+    fn tc_103_01_ridge_beta_and_r2_consistent_with_linear_data() {
+        // Perfect linear relationship: y = 2*x1 + x2
+        let n = 20usize;
+        let x_matrix: Vec<Vec<f64>> = (0..n)
+            .map(|i| vec![i as f64, (i % 5) as f64])
+            .collect();
+        let y: Vec<f64> = x_matrix.iter().map(|r| 2.0 * r[0] + r[1]).collect();
+        let result = compute_ridge_from_vecs(&x_matrix, &y, 0.001);
+        assert_eq!(result.beta.len(), 2);
+        assert!(result.r_squared > 0.95, "R² should be high for linear data: {}", result.r_squared);
+        // First coefficient should dominate (x1 has larger scale contribution)
+        assert!(result.beta[0] > 0.0, "β[0] should be positive");
+    }
+
+    #[test]
+    fn tc_103_b01_ridge_empty_params_returns_empty() {
+        let empty: Vec<Vec<f64>> = vec![];
+        let result = compute_ridge_from_vecs(&empty, &[], 1.0);
+        assert_eq!(result.beta.len(), 0);
+        assert_eq!(result.r_squared, 0.0);
+    }
+
+    #[test]
+    fn tc_103_01_solve_ridge_normal_equations_correct() {
+        let (x, n, p) = super::tests::simple_x_cols();
+        let xtx = compute_xtx_matrix(&x, n, p, 1.0);
+        let xty = compute_xty_vector(&x, &[-1.0f64, -0.5, 0.5, 1.0], n, p);
+        let beta = solve_ridge_normal_equations(&xtx, &xty, p);
+        assert_eq!(beta.len(), p);
+        assert!(beta.iter().all(|b| b.is_finite()), "all betas should be finite");
     }
 }

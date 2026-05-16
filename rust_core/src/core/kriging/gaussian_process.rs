@@ -19,22 +19,6 @@ pub(crate) fn matern52_ard(x1: &[f64], x2: &[f64], log_ls: &[f64], log_sf: f64) 
     kernel_ops::matern52_ard(x1, x2, log_ls, log_sf)
 }
 
-pub(crate) fn lbfgs_direction(grad: &[f64], s_hist: &[Vec<f64>], y_hist: &[Vec<f64>]) -> Vec<f64> {
-    optimization::lbfgs_direction(grad, s_hist, y_hist)
-}
-
-pub(crate) fn armijo_line_search(
-    f_x: f64,
-    grad: &[f64],
-    d: &[f64],
-    f: impl Fn(&[f64]) -> f64,
-    x: &[f64],
-    c1: f64,
-    max_iter: usize,
-) -> f64 {
-    optimization::armijo_line_search(f_x, grad, d, f, x, c1, max_iter)
-}
-
 pub(crate) fn train_gp(
     x: Vec<Vec<f64>>,
     y: Vec<f64>,

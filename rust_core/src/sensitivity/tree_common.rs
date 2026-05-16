@@ -1,5 +1,5 @@
 use super::data::sample_rows;
-use crate::core::random_forest::Lcg;
+use crate::core::math::rng::SeededRng;
 
 /// `PreparedData::split` の戻り値型
 type SplitData<'a> = (&'a [Vec<f64>], &'a [Vec<f64>], &'a [f64], &'a [f64]);
@@ -81,11 +81,8 @@ pub(crate) fn prepare_training_data(
     };
 
     let mut indices: Vec<usize> = (0..n).collect();
-    let mut rng = Lcg::new(split_seed);
-    for i in (1..n).rev() {
-        let j = rng.next_usize(i + 1);
-        indices.swap(i, j);
-    }
+    let mut rng = SeededRng::from_seed(split_seed);
+    rng.shuffle(&mut indices);
 
     let x_shuffled: Vec<Vec<f64>> = indices.iter().map(|&i| x_data[i].clone()).collect();
     let y_shuffled: Vec<f64> = indices.iter().map(|&i| y_data[i]).collect();
@@ -105,13 +102,11 @@ pub(crate) fn permute_column_inplace(matrix: &mut [Vec<f64>], feature_idx: usize
     if n == 0 {
         return;
     }
-    let mut rng = Lcg::new(seed);
-    for i in (1..n).rev() {
-        let j = rng.next_usize(i + 1);
-        let vi = matrix[i][feature_idx];
-        let vj = matrix[j][feature_idx];
-        matrix[i][feature_idx] = vj;
-        matrix[j][feature_idx] = vi;
+    let mut rng = SeededRng::from_seed(seed);
+    let mut col: Vec<f64> = matrix.iter().map(|row| row[feature_idx]).collect();
+    rng.shuffle(&mut col);
+    for (row, &v) in matrix.iter_mut().zip(col.iter()) {
+        row[feature_idx] = v;
     }
 }
 

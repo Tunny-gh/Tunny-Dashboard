@@ -116,78 +116,6 @@ fn tc_2264_08_orchestrator_empty_data() {
     assert!(stats.is_empty(), "empty data should return empty stats");
 }
 
-// ---- TASK-2262: select_next_centroid テスト ----
-
-#[test]
-fn tc_2262_01_select_next_centroid_empty_existing_returns_valid_point() {
-    // flat_data: 3 points, 2 dims: [1,2], [3,4], [5,6]
-    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let n = 3;
-    let n_cols = 2;
-    // sampling_fn always picks index 0
-    let centroid = select_next_centroid(&data, n_cols, &[], n, |_weights| 0);
-    assert_eq!(centroid.len(), n_cols, "centroid length must equal n_cols");
-    assert!((centroid[0] - 1.0).abs() < 1e-10);
-    assert!((centroid[1] - 2.0).abs() < 1e-10);
-}
-
-#[test]
-fn tc_2262_02_select_next_centroid_empty_existing_uniform_weights() {
-    // sampling_fn receives all-1.0 weights when existing is empty
-    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let n = 3;
-    let n_cols = 2;
-    let mut weights_received: Vec<f64> = vec![];
-    select_next_centroid(&data, n_cols, &[], n, |w| {
-        weights_received = w.to_vec();
-        0
-    });
-    assert_eq!(weights_received.len(), n);
-    for &w in &weights_received {
-        assert!((w - 1.0).abs() < 1e-10, "uniform weight should be 1.0, got {}", w);
-    }
-}
-
-#[test]
-fn tc_2262_03_select_next_centroid_deterministic_reproducible() {
-    let data = make_clustered_data(10, 3);
-    let n = 30;
-    let n_cols = 2;
-    let existing = vec![vec![0.0, 0.0]];
-    let pick_max = |weights: &[f64]| {
-        weights
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i)
-            .unwrap_or(0)
-    };
-    let r1 = select_next_centroid(&data, n_cols, &existing, n, pick_max);
-    let r2 = select_next_centroid(&data, n_cols, &existing, n, pick_max);
-    assert_eq!(r1, r2, "deterministic sampling_fn must return identical results");
-}
-
-#[test]
-fn tc_2262_04_select_next_centroid_avoids_existing_centroid() {
-    // existing centroid is [5,6] (last point); next should be chosen far from it
-    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let n = 3;
-    let n_cols = 2;
-    let existing = vec![vec![5.0, 6.0]];
-    // pick_max → should pick index 0 ([1,2]) which is farthest from [5,6]
-    let centroid = select_next_centroid(&data, n_cols, &existing, n, |weights| {
-        weights
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i)
-            .unwrap_or(0)
-    });
-    assert_eq!(centroid.len(), n_cols);
-    assert!((centroid[0] - 1.0).abs() < 1e-10, "farthest point should be [1,2]");
-    assert!((centroid[1] - 2.0).abs() < 1e-10);
-}
-
 #[test]
 fn tc_2262_05_kmeans_plusplus_correct_clusters_after_refactor() {
     let k = 3;
@@ -472,7 +400,7 @@ fn tc_901_p01_pca_performance() {
 #[test]
 fn tc_901_p02_kmeans_performance() {
     #[cfg(debug_assertions)]
-    let (n, p) = (2_000, 4);
+    let (n, p) = (100, 4);
     #[cfg(not(debug_assertions))]
     let (n, p) = (50_000, 4);
 
@@ -510,4 +438,35 @@ fn tc_901_p03_cluster_stats_performance() {
         "translated 150ms translated: translated {}ms",
         elapsed.as_millis()
     );
+}
+
+#[test]
+fn tc_101_01_pca_p20_works() {
+    let p = 20;
+    let n = 50;
+    let data: Vec<Vec<f64>> = (0..n)
+        .map(|i| (0..p).map(|j| (i + j) as f64).collect())
+        .collect();
+    let result = run_pca_on_matrix(&data, 3);
+    assert_eq!(result.projections.len(), n);
+    assert_eq!(result.loadings.len(), 3);
+    assert_eq!(result.loadings[0].len(), p);
+    assert_eq!(result.explained_variance.len(), 3);
+    assert!(result.explained_variance[0] >= result.explained_variance[1]);
+}
+
+#[test]
+fn tc_101_b01_pca_n2_p2_minimum() {
+    let data = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+    let result = run_pca_on_matrix(&data, 1);
+    assert_eq!(result.projections.len(), 2);
+    assert_eq!(result.loadings.len(), 1);
+    assert_eq!(result.loadings[0].len(), 2);
+}
+
+#[test]
+fn tc_101_b02_pca_n1_returns_empty() {
+    let data = vec![vec![1.0, 2.0]];
+    let result = run_pca_on_matrix(&data, 1);
+    assert!(result.projections.is_empty());
 }

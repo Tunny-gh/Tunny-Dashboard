@@ -8,13 +8,12 @@ use tunny_core::{
     dataframe::{select_study, store_dataframes, DataFrame, TrialRow},
     sampling::{
         downsample_by_cluster, downsample_for_thumbnail, downsample_smart,
-        downsample_stratified_by_rank, init_sampling, set_cluster_labels,
+        downsample_stratified_by_rank, init_sampling, SamplingContext,
     },
 };
 
-/// Build a DataFrame with `n` rows (2 objectives, 3 params).
-/// Row 0 is the Pareto-optimal point.
-fn setup_df(n: usize) {
+/// Build a DataFrame with `n` rows (2 objectives, 3 params) and return a SamplingContext.
+fn setup_df(n: usize) -> SamplingContext {
     let rows: Vec<TrialRow> = (0..n)
         .map(|i| {
             let fi = i as f64;
@@ -47,69 +46,66 @@ fn setup_df(n: usize) {
     store_dataframes(vec![df]);
     select_study(0).expect("select_study failed");
 
-    // Row 0 is the Pareto point (min obj0=0, max obj1=n-1 → only it dominates all others
-    // in multi-objective case row 0 has min obj0 but max obj1, so real Pareto front = all points).
-    // For benchmark purposes use all indices as Pareto (worst case).
     let pareto_indices: Vec<u32> = (0..n.min(500) as u32).collect();
     let all_ranks: Vec<u32> = (0..n as u32).map(|i| if i < 500 { 0 } else { 1 }).collect();
-    init_sampling(vec![true, true], pareto_indices, all_ranks);
+    let mut ctx = init_sampling(vec![true, true], pareto_indices, all_ranks);
 
-    // Set dummy cluster labels (round-robin into 5 clusters)
     let labels: Vec<i32> = (0..n).map(|i| (i % 5) as i32).collect();
-    set_cluster_labels(labels);
+    ctx.cluster_labels = Some(labels);
+    ctx
 }
 
 fn bench_downsample_smart(c: &mut Criterion) {
     let n = 50_000usize;
-    setup_df(n);
+    let ctx = setup_df(n);
     c.bench_with_input(BenchmarkId::new("downsample_smart", n), &n, |b, _| {
-        b.iter(|| downsample_smart(10_000, true));
+        b.iter(|| downsample_smart(&ctx, 10_000, true));
     });
 }
 
 fn bench_downsample_for_thumbnail(c: &mut Criterion) {
     let n = 50_000usize;
-    setup_df(n);
+    let ctx = setup_df(n);
     c.bench_with_input(
         BenchmarkId::new("downsample_for_thumbnail", n),
         &n,
         |b, _| {
-            b.iter(|| downsample_for_thumbnail(500));
+            b.iter(|| downsample_for_thumbnail(&ctx, 500));
         },
     );
 }
 
 fn bench_downsample_stratified_by_rank(c: &mut Criterion) {
     let n = 50_000usize;
-    setup_df(n);
+    let ctx = setup_df(n);
     c.bench_with_input(
         BenchmarkId::new("downsample_stratified_by_rank", n),
         &n,
         |b, _| {
-            b.iter(|| downsample_stratified_by_rank(1_000, 5));
+            b.iter(|| downsample_stratified_by_rank(&ctx, 1_000, 5));
         },
     );
 }
 
 fn bench_downsample_by_cluster(c: &mut Criterion) {
     let n = 50_000usize;
-    setup_df(n);
+    let ctx = setup_df(n);
     c.bench_with_input(BenchmarkId::new("downsample_by_cluster", n), &n, |b, _| {
-        b.iter(|| downsample_by_cluster(10_000));
+        b.iter(|| downsample_by_cluster(&ctx, 10_000));
     });
 }
 
 fn bench_all_six_keys(c: &mut Criterion) {
     let n = 50_000usize;
-    setup_df(n);
+    let ctx = setup_df(n);
     c.bench_with_input(BenchmarkId::new("all_six_keys_combined", n), &n, |b, _| {
         b.iter(|| {
-            let _ = downsample_smart(10_000, true); // scatter
-            let _ = downsample_for_thumbnail(500); // thumbnail
-            let _ = downsample_for_thumbnail(3_000); // hover
-            let _ = downsample_stratified_by_rank(1_000, 5); // pcp
-            let _ = downsample_smart(5_000, false); // data_points
-            let _ = downsample_by_cluster(10_000); // cluster
+            let _ = downsample_smart(&ctx, 10_000, true);
+            let _ = downsample_for_thumbnail(&ctx, 500);
+            let _ = downsample_for_thumbnail(&ctx, 3_000);
+            let _ = downsample_stratified_by_rank(&ctx, 1_000, 5);
+            let _ = downsample_smart(&ctx, 5_000, false);
+            let _ = downsample_by_cluster(&ctx, 10_000);
         });
     });
 }

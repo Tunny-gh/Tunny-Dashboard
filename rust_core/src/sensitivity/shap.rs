@@ -73,10 +73,8 @@ pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::random_forest::Lcg;
-
     fn make_xy(n: usize, dominant: usize, n_feats: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
-        let mut rng = Lcg::new(77);
+        let mut rng = crate::core::math::rng::SeededRng::from_seed(77);
         let x: Vec<Vec<f64>> = (0..n)
             .map(|_| {
                 (0..n_feats)

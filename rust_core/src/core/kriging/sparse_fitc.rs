@@ -1,6 +1,5 @@
 //! Sparse Kriging (FITC approximation) for large-N Kriging.
 //!
-//! Pure-Rust implementation — no external crates.
 //! Uses inducing points selected via K-means clustering to approximate
 //! the full Gaussian Process with O(N·M²) instead of O(N³).
 
@@ -8,14 +7,14 @@
 // K-means inducing point selection
 // =============================================================================
 
-/// Select M inducing points from training data using K-means (Lloyd's algorithm).
+/// Select M inducing points from training data using K-means via the clustering module.
 ///
 /// # Arguments
 /// - `x`: training data in column-major flat layout: `x[dim * n_samples + i]`
 /// - `n_samples`: number of training samples (N)
 /// - `n_dims`: input dimensionality (typically 2 for 2D PDP)
 /// - `m`: number of inducing points (typically 50)
-/// - `seed`: random seed for reproducibility
+/// - `_seed`: unused (clustering module derives its own seed from n and k)
 ///
 /// # Returns
 /// Inducing points in column-major flat layout: `result[dim * m + j]`
@@ -25,7 +24,7 @@ pub(crate) fn select_inducing_points_kmeans(
     n_samples: usize,
     n_dims: usize,
     m: usize,
-    seed: u64,
+    _seed: u64,
 ) -> Vec<f64> {
     assert!(
         m > 0 && m <= n_samples,
@@ -35,126 +34,26 @@ pub(crate) fn select_inducing_points_kmeans(
     );
     assert!(n_dims > 0, "n_dims must be > 0");
 
-    let mut rng = crate::core::random_forest::Lcg::new(seed);
+    // Column-major x[d * n_samples + i] → row-major flat_row[i * n_dims + d]
+    let flat_row: Vec<f64> = (0..n_samples)
+        .flat_map(|i| (0..n_dims).map(move |d| x[d * n_samples + i]))
+        .collect();
 
-    // --- Step 1: initialise centers by random sampling without replacement ---
-    let mut indices: Vec<usize> = (0..n_samples).collect();
-    // Fisher-Yates partial shuffle to pick first m elements
-    for i in (1..n_samples).rev() {
-        let j = rng.next_usize(i + 1);
-        indices.swap(i, j);
-    }
-    // Copy the first m shuffled points as initial centers
-    let mut centers = vec![0.0_f64; m * n_dims];
-    for j in 0..m {
-        let sample_idx = indices[j];
-        for d in 0..n_dims {
-            centers[d * m + j] = x[d * n_samples + sample_idx];
+    let result = crate::clustering::run_kmeans(
+        m,
+        &flat_row,
+        n_dims,
+        crate::clustering::InitStrategy::KMeansPlusPlus,
+    );
+
+    // centroids[j][d] → column-major out[d * m + j]
+    let mut out = vec![0.0_f64; m * n_dims];
+    for (j, centroid) in result.centroids.iter().enumerate() {
+        for (d, &val) in centroid.iter().enumerate() {
+            out[d * m + j] = val;
         }
     }
-
-    // --- Step 2: Lloyd's iterations (max 100) ---
-    for _ in 0..100 {
-        let assignments = assign_clusters(&centers, x, n_samples, n_dims, m);
-        let new_centers =
-            compute_centroids(&assignments, &centers, x, n_samples, n_dims, m, &mut rng);
-
-        if has_converged(&centers, &new_centers, m, n_dims) {
-            return new_centers;
-        }
-        centers = new_centers;
-    }
-
-    centers
-}
-
-// =============================================================================
-// Helper functions
-// =============================================================================
-
-/// Assign each training sample to its nearest cluster center.
-fn assign_clusters(
-    centers: &[f64], // column-major: centers[d * m + j]
-    x: &[f64],       // column-major: x[d * n_samples + i]
-    n_samples: usize,
-    n_dims: usize,
-    m: usize,
-) -> Vec<usize> {
-    (0..n_samples)
-        .map(|i| {
-            let mut best_j = 0;
-            let mut best_dist = f64::INFINITY;
-            for j in 0..m {
-                let sq_dist: f64 = (0..n_dims)
-                    .map(|d| {
-                        let diff = x[d * n_samples + i] - centers[d * m + j];
-                        diff * diff
-                    })
-                    .sum();
-                if sq_dist < best_dist {
-                    best_dist = sq_dist;
-                    best_j = j;
-                }
-            }
-            best_j
-        })
-        .collect()
-}
-
-/// Compute new cluster centroids. Empty clusters reuse a random training sample.
-fn compute_centroids(
-    assignments: &[usize],
-    _old_centers: &[f64], // kept for API symmetry (not needed after random fallback)
-    x: &[f64],
-    n_samples: usize,
-    n_dims: usize,
-    m: usize,
-    rng: &mut crate::core::random_forest::Lcg,
-) -> Vec<f64> {
-    let mut sums = vec![0.0_f64; m * n_dims];
-    let mut counts = vec![0_usize; m];
-
-    for i in 0..n_samples {
-        let c = assignments[i];
-        counts[c] += 1;
-        for d in 0..n_dims {
-            sums[d * m + c] += x[d * n_samples + i];
-        }
-    }
-
-    let mut centers = vec![0.0_f64; m * n_dims];
-    for j in 0..m {
-        if counts[j] > 0 {
-            for d in 0..n_dims {
-                centers[d * m + j] = sums[d * m + j] / counts[j] as f64;
-            }
-        } else {
-            // Empty cluster: reinitialise from a random training sample
-            let random_idx = rng.next_usize(n_samples);
-            for d in 0..n_dims {
-                centers[d * m + j] = x[d * n_samples + random_idx];
-            }
-        }
-    }
-
-    centers
-}
-
-/// Return true if all centers moved less than 1e-6 (Euclidean distance).
-fn has_converged(old: &[f64], new: &[f64], m: usize, n_dims: usize) -> bool {
-    for j in 0..m {
-        let shift: f64 = (0..n_dims)
-            .map(|d| {
-                let diff = old[d * m + j] - new[d * m + j];
-                diff * diff
-            })
-            .sum::<f64>()
-            .sqrt();
-        if shift >= 1e-6 {
-            return false;
-        }
-    }
-    true
+    out
 }
 
 // =============================================================================
@@ -223,37 +122,28 @@ pub(crate) fn build_kxz(x: &[f64], z: &[f64], n: usize, m: usize, params: &[f64]
 /// Cholesky decomposition on flat row-major M×M matrix (L lower triangular).
 /// Returns flat L, or `None` if the matrix is not positive definite.
 pub(crate) fn cholesky_flat(a: &[f64], m: usize) -> Option<Vec<f64>> {
-    let mut l = vec![0.0_f64; m * m];
+    let mat = faer::Mat::<f64>::from_fn(m, m, |i, j| a[i * m + j]);
+    let chol = mat.llt(faer::Side::Lower).ok()?;
+    let l_ref = chol.L();
+    let mut result = vec![0.0_f64; m * m];
     for i in 0..m {
         for j in 0..=i {
-            let mut s = a[i * m + j];
-            for k in 0..j {
-                s -= l[i * m + k] * l[j * m + k];
-            }
-            if i == j {
-                if s <= 0.0 {
-                    return None;
-                }
-                l[i * m + j] = s.sqrt();
-            } else {
-                l[i * m + j] = s / l[j * m + j];
-            }
+            result[i * m + j] = l_ref[(i, j)];
         }
     }
-    Some(l)
+    Some(result)
 }
 
 /// Forward substitution: solve L · x = b where L is a flat lower-triangular M×M matrix.
 pub(crate) fn forward_sub_flat(l: &[f64], b: &[f64], m: usize) -> Vec<f64> {
-    let mut x = vec![0.0_f64; m];
-    for i in 0..m {
-        let mut s = b[i];
-        for j in 0..i {
-            s -= l[i * m + j] * x[j];
-        }
-        x[i] = s / l[i * m + i];
-    }
-    x
+    let l_mat = faer::Mat::<f64>::from_fn(m, m, |i, j| l[i * m + j]);
+    let mut x = faer::Mat::<f64>::from_fn(m, 1, |i, _| b[i]);
+    faer::linalg::triangular_solve::solve_lower_triangular_in_place(
+        l_mat.as_ref(),
+        x.as_mut(),
+        faer::Par::Seq,
+    );
+    (0..m).map(|i| x[(i, 0)]).collect()
 }
 
 /// Build FITC diagonal matrices Q_diag and Λ_diag.
@@ -297,17 +187,33 @@ pub(crate) fn build_fitc_matrix(
 // FITC LML optimization + prediction (TASK-1652)
 // =============================================================================
 
+/// Build Σ = K_ZZ + K_XZ^T diag(1/Λ) K_XZ with a 1e-6 diagonal jitter.
+fn build_sigma(kzz: &[f64], kxz: &[f64], lambda_diag: &[f64], m: usize, n: usize) -> Vec<f64> {
+    let mut sigma = kzz.to_vec();
+    for i in 0..m {
+        for j in i..m {
+            let s: f64 =
+                (0..n).map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t]).sum();
+            sigma[i * m + j] += s;
+            if i != j {
+                sigma[j * m + i] += s;
+            }
+        }
+        sigma[i * m + i] += 1e-6;
+    }
+    sigma
+}
+
 /// Backward substitution: solve L^T · x = b where L is a flat lower-triangular M×M matrix.
 pub(crate) fn backward_sub_flat(l: &[f64], b: &[f64], m: usize) -> Vec<f64> {
-    let mut x = vec![0.0_f64; m];
-    for i in (0..m).rev() {
-        let mut s = b[i];
-        for j in (i + 1)..m {
-            s -= l[j * m + i] * x[j]; // l[j][i] = L^T[i][j]
-        }
-        x[i] = s / l[i * m + i];
-    }
-    x
+    let l_mat = faer::Mat::<f64>::from_fn(m, m, |i, j| l[i * m + j]);
+    let mut x = faer::Mat::<f64>::from_fn(m, 1, |i, _| b[i]);
+    faer::linalg::triangular_solve::solve_upper_triangular_in_place(
+        l_mat.transpose(),
+        x.as_mut(),
+        faer::Par::Seq,
+    );
+    (0..m).map(|i| x[(i, 0)]).collect()
 }
 
 /// FITC log marginal likelihood using the Woodbury identity.
@@ -337,20 +243,7 @@ pub(crate) fn fitc_lml(
         None => return f64::NEG_INFINITY,
     };
 
-    // Σ = K_ZZ + K_XZ^T diag(1/Λ) K_XZ  (symmetric, compute upper triangle only)
-    let mut sigma = kzz.clone();
-    for i in 0..m {
-        for j in i..m {
-            let s: f64 = (0..n)
-                .map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t])
-                .sum();
-            sigma[i * m + j] += s;
-            if i != j {
-                sigma[j * m + i] += s;
-            }
-        }
-        sigma[i * m + i] += 1e-6; // jitter on Σ diagonal
-    }
+    let sigma = build_sigma(&kzz, &kxz, &lambda_diag, m, n);
 
     let l_zz = match cholesky_flat(&kzz, m) {
         Some(l) => l,
@@ -410,36 +303,83 @@ pub(crate) fn fitc_predict_weights(
     let log_sf = params[params.len() - 2];
     let log_sn = params[params.len() - 1];
     let (_, lambda_diag) = build_fitc_matrix(&kzz, &kxz, m, n, log_sf, log_sn)?;
-
-    let mut sigma = kzz.clone();
-    for i in 0..m {
-        for j in i..m {
-            let s: f64 = (0..n)
-                .map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t])
-                .sum();
-            sigma[i * m + j] += s;
-            if i != j {
-                sigma[j * m + i] += s;
-            }
-        }
-        sigma[i * m + i] += 1e-6;
-    }
-
+    let sigma = build_sigma(&kzz, &kxz, &lambda_diag, m, n);
     let l_sigma = cholesky_flat(&sigma, m)?;
 
-    let u: Vec<f64> = y
-        .iter()
-        .zip(lambda_diag.iter())
-        .map(|(&yi, &li)| yi / li)
-        .collect();
-    let t: Vec<f64> = (0..m)
-        .map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum())
-        .collect();
+    let u: Vec<f64> = y.iter().zip(lambda_diag.iter()).map(|(&yi, &li)| yi / li).collect();
+    let t: Vec<f64> =
+        (0..m).map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum()).collect();
 
     let fw = forward_sub_flat(&l_sigma, &t, m);
     let w = backward_sub_flat(&l_sigma, &fw, m);
 
     Some((w, lambda_diag))
+}
+
+/// L-BFGS two-loop recursion: compute search direction d = −H^{-1} · grad.
+fn fitc_lbfgs_direction(
+    grad: &[f64],
+    s_hist: &[Vec<f64>],
+    y_hist: &[Vec<f64>],
+) -> Vec<f64> {
+    let m = s_hist.len();
+    let mut q = grad.to_vec();
+    let mut rho = vec![0.0; m];
+    let mut alpha = vec![0.0; m];
+
+    for i in (0..m).rev() {
+        let sy: f64 = s_hist[i].iter().zip(y_hist[i].iter()).map(|(s, y)| s * y).sum();
+        if sy.abs() < 1e-15 {
+            continue;
+        }
+        rho[i] = 1.0 / sy;
+        alpha[i] = rho[i] * s_hist[i].iter().zip(q.iter()).map(|(s, qi)| s * qi).sum::<f64>();
+        for (qi, yi) in q.iter_mut().zip(y_hist[i].iter()) {
+            *qi -= alpha[i] * yi;
+        }
+    }
+
+    let gamma = if m > 0 {
+        let sy: f64 = s_hist[m - 1].iter().zip(y_hist[m - 1].iter()).map(|(s, y)| s * y).sum();
+        let yy: f64 = y_hist[m - 1].iter().map(|y| y * y).sum();
+        if yy > 1e-15 { sy / yy } else { 1.0 }
+    } else {
+        1.0
+    };
+    let mut r: Vec<f64> = q.iter().map(|qi| gamma * qi).collect();
+
+    for i in 0..m {
+        let yr: f64 = y_hist[i].iter().zip(r.iter()).map(|(y, ri)| y * ri).sum();
+        let beta = rho[i] * yr;
+        for (ri, si) in r.iter_mut().zip(s_hist[i].iter()) {
+            *ri += (alpha[i] - beta) * si;
+        }
+    }
+
+    r.iter_mut().for_each(|v| *v = -*v);
+    r
+}
+
+/// Armijo backtracking line search for FITC optimizer.
+fn fitc_armijo_line_search(
+    f_x: f64,
+    grad: &[f64],
+    d: &[f64],
+    f: impl Fn(&[f64]) -> f64,
+    x: &[f64],
+    c1: f64,
+    max_iter: usize,
+) -> f64 {
+    let slope: f64 = grad.iter().zip(d.iter()).map(|(g, di)| g * di).sum();
+    let mut alpha = 1.0;
+    for _ in 0..max_iter {
+        let x_new: Vec<f64> = x.iter().zip(d.iter()).map(|(xi, di)| xi + alpha * di).collect();
+        if f(&x_new) <= f_x + c1 * alpha * slope {
+            return alpha;
+        }
+        alpha *= 0.5;
+    }
+    alpha
 }
 
 /// Optimise FITC hyperparameters via L-BFGS with numerical gradients.
@@ -464,6 +404,9 @@ pub(crate) fn optimize_fitc_hyperparams(
     let mut y_hist: Vec<Vec<f64>> = Vec::new();
     let mut lml_history: std::collections::VecDeque<f64> =
         std::collections::VecDeque::with_capacity(6);
+    // Carry the gradient from the end of iteration k into the start of iteration k+1,
+    // saving 2*n_params fitc_lml calls per iteration after the first.
+    let mut prev_grad_neg: Option<Vec<f64>> = None;
 
     let eps = 1e-4_f64;
 
@@ -485,33 +428,35 @@ pub(crate) fn optimize_fitc_hyperparams(
             }
         }
 
-        // Numerical gradient (central difference)
-        let mut grad = vec![0.0_f64; n_params];
-        for d in 0..n_params {
-            let mut p_plus = params.clone();
-            p_plus[d] += eps;
-            let mut p_minus = params.clone();
-            p_minus[d] -= eps;
-            grad[d] = (fitc_lml(x, z, y, &p_plus, n, m) - fitc_lml(x, z, y, &p_minus, n, m))
-                / (2.0 * eps);
-        }
+        // Reuse gradient from previous iteration if available; otherwise compute fresh.
+        let grad_neg: Vec<f64> = match prev_grad_neg.take() {
+            Some(g) => g,
+            None => {
+                let mut grad = vec![0.0_f64; n_params];
+                for d in 0..n_params {
+                    let mut p_plus = params.clone();
+                    p_plus[d] += eps;
+                    let mut p_minus = params.clone();
+                    p_minus[d] -= eps;
+                    grad[d] = (fitc_lml(x, z, y, &p_plus, n, m)
+                        - fitc_lml(x, z, y, &p_minus, n, m))
+                        / (2.0 * eps);
+                }
+                grad.iter().map(|g| -g).collect()
+            }
+        };
 
-        // Negate for minimisation
-        let grad_neg: Vec<f64> = grad.iter().map(|g| -g).collect();
         let grad_norm: f64 = grad_neg.iter().map(|g| g * g).sum::<f64>().sqrt();
         if grad_norm < 1e-5 {
             break;
         }
 
-        let d =
-            crate::core::kriging::gaussian_process::lbfgs_direction(&grad_neg, &s_hist, &y_hist);
+        let d = fitc_lbfgs_direction(&grad_neg, &s_hist, &y_hist);
 
         // Armijo line search
         let f_x = -lml;
         let neg_lml = |p: &[f64]| -fitc_lml(x, z, y, p, n, m);
-        let alpha = crate::core::kriging::gaussian_process::armijo_line_search(
-            f_x, &grad_neg, &d, neg_lml, &params, 1e-4, 20,
-        );
+        let alpha = fitc_armijo_line_search(f_x, &grad_neg, &d, neg_lml, &params, 1e-4, 20);
 
         // Clamp to prevent extreme log-scale params causing numerical instability
         let x_new: Vec<f64> = params
@@ -520,14 +465,15 @@ pub(crate) fn optimize_fitc_hyperparams(
             .map(|(p, di)| (p + alpha * di).clamp(-6.0, 6.0))
             .collect();
 
-        // Gradient at new point for L-BFGS history
+        // Gradient at new point for L-BFGS history and reuse on the next iteration.
         let mut grad_new = vec![0.0_f64; n_params];
         for dd in 0..n_params {
             let mut p_plus = x_new.clone();
             p_plus[dd] += eps;
             let mut p_minus = x_new.clone();
             p_minus[dd] -= eps;
-            grad_new[dd] = (fitc_lml(x, z, y, &p_plus, n, m) - fitc_lml(x, z, y, &p_minus, n, m))
+            grad_new[dd] = (fitc_lml(x, z, y, &p_plus, n, m)
+                - fitc_lml(x, z, y, &p_minus, n, m))
                 / (2.0 * eps);
         }
         let grad_new_neg: Vec<f64> = grad_new.iter().map(|g| -g).collect();
@@ -544,6 +490,7 @@ pub(crate) fn optimize_fitc_hyperparams(
             .collect();
 
         params = x_new;
+        prev_grad_neg = Some(grad_new_neg);
 
         if s_hist.len() >= 5 {
             s_hist.remove(0);
@@ -591,31 +538,12 @@ pub(crate) fn fitc_train(
     let log_sf = params[params.len() - 2];
     let log_sn = params[params.len() - 1];
     let (_, lambda_diag) = build_fitc_matrix(&kzz, &kxz, m, n, log_sf, log_sn)?;
-
-    let mut sigma = kzz.clone();
-    for i in 0..m {
-        for j in i..m {
-            let s: f64 = (0..n)
-                .map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t])
-                .sum();
-            sigma[i * m + j] += s;
-            if i != j {
-                sigma[j * m + i] += s;
-            }
-        }
-        sigma[i * m + i] += 1e-6;
-    }
-
+    let sigma = build_sigma(&kzz, &kxz, &lambda_diag, m, n);
     let l_sigma = cholesky_flat(&sigma, m)?;
 
-    let u: Vec<f64> = y
-        .iter()
-        .zip(lambda_diag.iter())
-        .map(|(&yi, &li)| yi / li)
-        .collect();
-    let t: Vec<f64> = (0..m)
-        .map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum())
-        .collect();
+    let u: Vec<f64> = y.iter().zip(lambda_diag.iter()).map(|(&yi, &li)| yi / li).collect();
+    let t: Vec<f64> =
+        (0..m).map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum()).collect();
 
     let fw = forward_sub_flat(&l_sigma, &t, m);
     let w = backward_sub_flat(&l_sigma, &fw, m);
@@ -747,20 +675,6 @@ mod tests {
         let r1 = select_inducing_points_kmeans(&x, n, 2, m, 42);
         let r2 = select_inducing_points_kmeans(&x, n, 2, m, 42);
         assert_eq!(r1, r2, "Same seed should produce identical inducing points");
-    }
-
-    /// Different seeds produce different outputs
-    #[test]
-    fn tc_1650_04_different_seeds_give_different_results() {
-        let n = 100;
-        let x: Vec<f64> = (0..n * 2).map(|i| i as f64 / (n * 2) as f64).collect();
-        let m = 10;
-        let r1 = select_inducing_points_kmeans(&x, n, 2, m, 1);
-        let r2 = select_inducing_points_kmeans(&x, n, 2, m, 2);
-        assert_ne!(
-            r1, r2,
-            "Different seeds should generally produce different results"
-        );
     }
 
     /// M == N edge case: all points become centers (trivial)
@@ -935,5 +849,49 @@ mod tests {
         let model = fitc_train(&x, &z, &y, &params, n, m).expect("fitc_train should succeed");
         let var = fitc_predict_variance(&model, &[0.5, 0.5]);
         assert!(var.is_finite(), "fitc_predict_variance should be finite");
+    }
+
+    // -------------------------------------------------------------------------
+    // TASK-2307: faer Cholesky/triangular-solve replacement tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn tc_102_01_fitc_lml_is_finite_and_negative() {
+        let (x, y, n, m) = make_simple_dataset();
+        let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
+        let lml = fitc_lml(&x, &z, &y, &default_params(), n, m);
+        assert!(lml.is_finite(), "FITC LML should be finite, got {}", lml);
+        assert!(lml < 0.0, "FITC LML should be negative (log prob), got {}", lml);
+    }
+
+    #[test]
+    fn tc_102_02_fitc_predictions_within_data_range() {
+        let (x, y, n, m) = make_simple_dataset();
+        let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
+        let params = default_params();
+        let model = fitc_train(&x, &z, &y, &params, n, m).expect("fitc_train should succeed");
+        let mean = fitc_predict_mean(&model, &[0.5, 0.5]);
+        let var = fitc_predict_variance(&model, &[0.5, 0.5]);
+        let y_min = y.iter().cloned().fold(f64::INFINITY, f64::min);
+        let y_max = y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let margin = (y_max - y_min).max(1.0);
+        assert!(
+            mean >= y_min - margin && mean <= y_max + margin,
+            "FITC mean {} out of expected range [{}, {}]",
+            mean,
+            y_min - margin,
+            y_max + margin
+        );
+        assert!(var >= 0.0, "variance must be non-negative");
+    }
+
+    #[test]
+    fn tc_102_e01_cholesky_flat_returns_none_for_non_pd() {
+        // Matrix [[1, 2], [2, 1]] has eigenvalues -1 and 3, not PD
+        let non_pd = vec![1.0_f64, 2.0, 2.0, 1.0];
+        assert!(
+            cholesky_flat(&non_pd, 2).is_none(),
+            "cholesky_flat should return None for non-PD matrix"
+        );
     }
 }

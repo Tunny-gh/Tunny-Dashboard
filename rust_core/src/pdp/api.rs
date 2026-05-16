@@ -91,14 +91,6 @@ pub fn compute_pdp_from_data(
     }
 }
 
-/// Documentation.
-///
-/// Documentation.
-/// Documentation.
-/// Documentation.
-/// Documentation.
-/// Documentation.
-/// Documentation.
 pub fn compute_pdp(
     param_name: &str,
     objective_name: &str,

@@ -1,126 +1,26 @@
+use linfa::prelude::*;
+use linfa_clustering::KMeans;
+use ndarray::Array2;
+use rand_xoshiro::rand_core::SeedableRng;
+use rand_xoshiro::Xoshiro256Plus;
+
 use super::types::{ElbowResult, InitStrategy, KmeansResult};
 
-#[inline]
-fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum()
+fn flat_to_array2(flat_data: &[f64], n: usize, p: usize) -> Array2<f64> {
+    Array2::from_shape_vec((n, p), flat_data.to_vec())
+        .unwrap_or_else(|_| Array2::zeros((0, p)))
 }
 
-/// xorshift64 PRNG（外部クレート不要、再現可能な固定シード）
-#[inline]
-fn xorshift64(state: &mut u64) -> u64 {
-    *state ^= *state << 13;
-    *state ^= *state >> 7;
-    *state ^= *state << 17;
-    *state
-}
-
-/// [0.0, 1.0) の一様乱数
-#[inline]
-fn uniform_f64(state: &mut u64) -> f64 {
-    (xorshift64(state) >> 11) as f64 / (1u64 << 53) as f64
-}
-
-/// k-means++ / 決定論的初期化の共通重心選択。
-/// `existing` が空なら全点均一重みを使用し、非空なら各点の最小 D² を計算する。
-/// `sampling_fn` に重みスライスを渡し、返されたインデックスの点を返す。
-pub(crate) fn select_next_centroid<F>(
-    flat_data: &[f64],
-    n_cols: usize,
-    existing: &[Vec<f64>],
-    n: usize,
-    mut sampling_fn: F,
-) -> Vec<f64>
-where
-    F: FnMut(&[f64]) -> usize,
-{
-    let weights: Vec<f64> = if existing.is_empty() {
-        vec![1.0; n]
-    } else {
-        (0..n)
-            .map(|i| {
-                let pt = &flat_data[i * n_cols..(i + 1) * n_cols];
-                existing
-                    .iter()
-                    .map(|c| sq_dist(pt, c))
-                    .fold(f64::INFINITY, f64::min)
-            })
-            .collect()
-    };
-    let idx = sampling_fn(&weights);
-    let mut result = Vec::with_capacity(n_cols);
-    result.extend_from_slice(&flat_data[idx * n_cols..(idx + 1) * n_cols]);
-    result
-}
-
-/// k-means++ 初期化: D² 比例確率でサンプリング
-fn init_kmeans_plusplus(
-    flat_data: &[f64],
-    n: usize,
-    p: usize,
-    k: usize,
-    rng: &mut u64,
-) -> Vec<Vec<f64>> {
-    let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
-    let mut first = Vec::with_capacity(p);
-    first.extend_from_slice(&flat_data[n / 2 * p..(n / 2 + 1) * p]);
-    centroids.push(first);
-
-    for _ in 1..k {
-        let centroids_len = centroids.len();
-        let centroid = select_next_centroid(flat_data, p, &centroids, n, |weights| {
-            let total: f64 = weights.iter().sum();
-            if total < f64::EPSILON {
-                return centroids_len % n;
-            }
-            let threshold = uniform_f64(rng) * total;
-            let mut cum = 0.0;
-            let mut chosen = n - 1;
-            for (i, &d) in weights.iter().enumerate() {
-                cum += d;
-                if cum >= threshold {
-                    chosen = i;
-                    break;
-                }
-            }
-            chosen
-        });
-        centroids.push(centroid);
+fn make_seed(init: InitStrategy, n: usize, k: usize) -> u64 {
+    match init {
+        InitStrategy::KMeansPlusPlus => {
+            let s = (n as u64)
+                .wrapping_mul(0x9e3779b97f4a7c15)
+                ^ ((k as u64).wrapping_mul(0x6c62272e07bb0142));
+            s.max(1)
+        }
+        InitStrategy::Deterministic => 42,
     }
-
-    centroids
-}
-
-/// 決定論的スプレッド初期化: 累積距離しきい値で等間隔選択
-fn init_deterministic(flat_data: &[f64], n: usize, p: usize, k: usize) -> Vec<Vec<f64>> {
-    let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
-    let mut first = Vec::with_capacity(p);
-    first.extend_from_slice(&flat_data[n / 2 * p..(n / 2 + 1) * p]);
-    centroids.push(first);
-
-    for _ in 1..k {
-        let centroids_len = centroids.len();
-        let centroid = select_next_centroid(flat_data, p, &centroids, n, |weights| {
-            let total: f64 = weights.iter().sum();
-            if total < f64::EPSILON {
-                return centroids_len % n;
-            }
-            let remaining = k - centroids_len + 1;
-            let threshold = total / remaining as f64;
-            let mut cum = 0.0;
-            let mut chosen = weights.len() - 1;
-            for (i, &d) in weights.iter().enumerate() {
-                cum += d;
-                if cum >= threshold {
-                    chosen = i;
-                    break;
-                }
-            }
-            chosen
-        });
-        centroids.push(centroid);
-    }
-
-    centroids
 }
 
 pub(crate) fn run_kmeans_on_data(
@@ -130,108 +30,34 @@ pub(crate) fn run_kmeans_on_data(
     k: usize,
     init: InitStrategy,
 ) -> KmeansResult {
-    let empty = KmeansResult {
-        labels: vec![0; n],
-        centroids: vec![],
-        wcss: 0.0,
-        iterations: 0,
-    };
+    let empty =
+        KmeansResult { labels: vec![0; n], centroids: vec![], wcss: 0.0, iterations: 0 };
 
     if n < k || k == 0 || p == 0 || flat_data.len() < n * p {
         return empty;
     }
 
-    let mut centroids = match init {
-        InitStrategy::KMeansPlusPlus => {
-            // シードを n と k から導出して再現性を保つ
-            let mut rng: u64 = (n as u64).wrapping_mul(0x9e3779b97f4a7c15)
-                ^ (k as u64).wrapping_mul(0x6c62272e07bb0142);
-            if rng == 0 {
-                rng = 1;
-            }
-            init_kmeans_plusplus(flat_data, n, p, k, &mut rng)
-        }
-        InitStrategy::Deterministic => init_deterministic(flat_data, n, p, k),
+    let arr = flat_to_array2(flat_data, n, p);
+    let dataset = Dataset::from(arr.clone());
+    let rng = Xoshiro256Plus::seed_from_u64(make_seed(init, n, k));
+
+    let model = match KMeans::params_with_rng(k, rng)
+        .max_n_iterations(300)
+        .tolerance(1e-5)
+        .fit(&dataset)
+    {
+        Ok(m) => m,
+        Err(_) => return empty,
     };
 
-    let get_point = |i: usize| -> &[f64] { &flat_data[i * p..(i + 1) * p] };
-    let mut labels = vec![0usize; n];
-    let max_iter = 300;
+    let labels: Vec<usize> = model.predict(arr.view()).targets().to_vec();
+    let centroids_arr = model.centroids();
+    let centroids: Vec<Vec<f64>> =
+        (0..k).map(|i| (0..p).map(|j| centroids_arr[[i, j]]).collect()).collect();
 
-    for iter in 0..max_iter {
-        let mut changed = false;
-        for (i, label) in labels.iter_mut().enumerate().take(n) {
-            let pt = get_point(i);
-            let new_label = (0..k)
-                .min_by(|&a, &b| {
-                    sq_dist(pt, &centroids[a])
-                        .partial_cmp(&sq_dist(pt, &centroids[b]))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .unwrap_or(0);
-            if *label != new_label {
-                *label = new_label;
-                changed = true;
-            }
-        }
-
-        if !changed {
-            let wcss = compute_wcss(flat_data, n, p, &labels, &centroids);
-            return KmeansResult {
-                labels,
-                centroids,
-                wcss,
-                iterations: iter + 1,
-            };
-        }
-
-        let mut new_centroids = vec![vec![0.0f64; p]; k];
-        let mut counts = vec![0usize; k];
-        for (i, &lbl) in labels.iter().enumerate().take(n) {
-            let pt = get_point(i);
-            for j in 0..p {
-                new_centroids[lbl][j] += pt[j];
-            }
-            counts[lbl] += 1;
-        }
-        for c in 0..k {
-            if counts[c] > 0 {
-                for val in new_centroids[c].iter_mut().take(p) {
-                    *val /= counts[c] as f64;
-                }
-            } else {
-                new_centroids[c].copy_from_slice(&centroids[c]);
-            }
-        }
-        centroids = new_centroids;
-    }
-
-    let wcss = compute_wcss(flat_data, n, p, &labels, &centroids);
-    KmeansResult {
-        labels,
-        centroids,
-        wcss,
-        iterations: max_iter,
-    }
+    KmeansResult { labels, centroids, wcss: model.inertia(), iterations: 300 }
 }
 
-/// Documentation.
-fn compute_wcss(
-    flat_data: &[f64],
-    n: usize,
-    p: usize,
-    labels: &[usize],
-    centroids: &[Vec<f64>],
-) -> f64 {
-    (0..n)
-        .map(|i| sq_dist(&flat_data[i * p..(i + 1) * p], &centroids[labels[i]]))
-        .sum()
-}
-
-/// Documentation.
-///
-/// Documentation.
-/// Documentation.
 pub(crate) fn estimate_k_elbow_on_data(
     flat_data: &[f64],
     n: usize,
@@ -240,10 +66,7 @@ pub(crate) fn estimate_k_elbow_on_data(
 ) -> ElbowResult {
     let effective_max_k = max_k.min(n);
     if effective_max_k < 2 {
-        return ElbowResult {
-            wcss_per_k: vec![],
-            recommended_k: 2,
-        };
+        return ElbowResult { wcss_per_k: vec![], recommended_k: 2 };
     }
 
     let wcss_per_k: Vec<f64> = (2..=effective_max_k)
@@ -256,45 +79,30 @@ pub(crate) fn estimate_k_elbow_on_data(
         let second_diffs: Vec<f64> = (0..wcss_per_k.len() - 2)
             .map(|i| wcss_per_k[i] - 2.0 * wcss_per_k[i + 1] + wcss_per_k[i + 2])
             .collect();
-
         let best_idx = second_diffs
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i)
             .unwrap_or(0);
-
         best_idx + 3
     };
 
     let recommended_k = recommended_k.clamp(2, effective_max_k);
-
-    ElbowResult {
-        wcss_per_k,
-        recommended_k,
-    }
+    ElbowResult { wcss_per_k, recommended_k }
 }
 
 pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize, init: InitStrategy) -> KmeansResult {
     if n_cols == 0 || flat_data.is_empty() {
-        return KmeansResult {
-            labels: vec![],
-            centroids: vec![],
-            wcss: 0.0,
-            iterations: 0,
-        };
+        return KmeansResult { labels: vec![], centroids: vec![], wcss: 0.0, iterations: 0 };
     }
     let n = flat_data.len() / n_cols;
     run_kmeans_on_data(flat_data, n, n_cols, k, init)
 }
 
-/// Documentation.
 pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> ElbowResult {
     if n_cols == 0 || flat_data.is_empty() {
-        return ElbowResult {
-            wcss_per_k: vec![],
-            recommended_k: 2,
-        };
+        return ElbowResult { wcss_per_k: vec![], recommended_k: 2 };
     }
     let n = flat_data.len() / n_cols;
     estimate_k_elbow_on_data(flat_data, n, n_cols, max_k)

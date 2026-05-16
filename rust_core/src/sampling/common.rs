@@ -22,22 +22,13 @@ pub(crate) fn full_result(total_count: usize, duration_ms: f64) -> DownsampleRes
 
 /// Randomly sample `n` elements from `pool` using a fixed seed (42).
 ///
-/// Uses a 64-bit LCG — no external crate required and cross-platform
-/// reproducible.
+/// Uses ChaCha8 RNG via `rand` crate — cross-platform reproducible.
 pub(crate) fn random_sample_fixed_seed(pool: &[u32], n: usize) -> Vec<u32> {
     if n >= pool.len() {
         return pool.to_vec();
     }
     let mut buf: Vec<u32> = pool.to_vec();
-    let len = buf.len();
-    // Knuth's LCG constants
-    let mut state: u64 = 42;
-    for i in (1..len).rev() {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        let j = (state >> 33) as usize % (i + 1);
-        buf.swap(i, j);
-    }
+    let mut rng = crate::core::math::rng::SeededRng::from_seed(42);
+    rng.shuffle(&mut buf);
     buf[..n].to_vec()
 }

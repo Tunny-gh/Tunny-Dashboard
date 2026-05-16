@@ -28,7 +28,7 @@ pub use stats::{
 pub use types::{ClusterStat, ElbowResult, InitStrategy, KmeansResult, PcaResult, PcaSpace};
 
 #[cfg(test)]
-pub(crate) use kmeans::{estimate_k_elbow_on_data, run_kmeans_on_data, select_next_centroid};
+pub(crate) use kmeans::{estimate_k_elbow_on_data, run_kmeans_on_data};
 #[cfg(test)]
 pub(crate) use pca::run_pca_on_matrix;
 #[cfg(test)]
