@@ -1,7 +1,7 @@
 use super::super::constants::{
     SHAP_MAX_ROWS, SHAP_RF_MAX_DEPTH, SHAP_RF_MIN_SAMPLES_LEAF, SHAP_RF_TREES, SHAP_SEED,
 };
-use super::common::{prepare_training_data, PreparedData};
+use super::common::{run_importances_pipeline, PreparedData};
 use crate::lgbm::{
     lgbm_mse, lgbm_predict_contrib, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig,
 };
@@ -44,30 +44,9 @@ pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Opti
     Some((importances, r_squared))
 }
 
-/// Compute global SHAP feature importance via LightGBM native TreeSHAP.
-///
-/// Uses `predict_contrib` (C_API_PREDICT_CONTRIB) which returns exact Shapley
-/// values per sample. Global importance is mean |phi_j| normalised to sum = 1.
-/// Returns `(importances, r_squared)`.
+/// Uses `predict_contrib` (TreeSHAP) per sample; global importance is mean |phi_j| normalised to sum = 1.
 pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f64) {
-    let n = y.len();
-    if n < 2 || x_matrix.is_empty() || x_matrix.len() != n {
-        return (vec![], 0.0);
-    }
-    let p = x_matrix[0].len();
-    if p == 0 {
-        return (vec![], 0.0);
-    }
-    match prepare_training_data(
-        x_matrix,
-        y,
-        SHAP_MAX_ROWS,
-        SHAP_SEED,
-        SHAP_SEED.wrapping_add(1),
-    ) {
-        Some(data) => compute_from_prepared(&data).unwrap_or((vec![0.0; p], 0.0)),
-        None => (vec![0.0; p], 0.0),
-    }
+    run_importances_pipeline(x_matrix, y, SHAP_MAX_ROWS, SHAP_SEED, SHAP_SEED.wrapping_add(1), compute_from_prepared)
 }
 
 #[cfg(test)]

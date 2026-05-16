@@ -1,4 +1,4 @@
-use super::super::data::sample_rows;
+use crate::sensitivity::data::sample_rows;
 use crate::math::rng::SeededRng;
 
 /// `PreparedData::split` の戻り値型
@@ -107,6 +107,47 @@ pub(crate) fn permute_column_inplace(matrix: &mut [Vec<f64>], feature_idx: usize
     rng.shuffle(&mut col);
     for (row, &v) in matrix.iter_mut().zip(col.iter()) {
         row[feature_idx] = v;
+    }
+}
+
+/// Restore a single feature column from a saved backup slice.
+pub(in crate::sensitivity) fn restore_column(
+    matrix: &mut [Vec<f64>],
+    feature_idx: usize,
+    orig_col: &[f64],
+) {
+    for (row, &v) in matrix.iter_mut().zip(orig_col.iter()) {
+        row[feature_idx] = v;
+    }
+}
+
+/// Shared entry-point pipeline for the public `compute_*_importances` functions.
+///
+/// Validates input, runs `prepare_training_data`, then calls `compute_fn`.
+/// Returns `(vec![], 0.0)` for invalid input and `(vec![0.0; p], 0.0)` when
+/// training fails so callers stay zero-copy identical.
+pub(in crate::sensitivity) fn run_importances_pipeline<F>(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    max_rows: usize,
+    data_seed: u64,
+    split_seed: u64,
+    compute_fn: F,
+) -> (Vec<f64>, f64)
+where
+    F: FnOnce(&PreparedData) -> Option<(Vec<f64>, f64)>,
+{
+    let n = y.len();
+    if n < 2 || x_matrix.is_empty() || x_matrix.len() != n {
+        return (vec![], 0.0);
+    }
+    let p = x_matrix[0].len();
+    if p == 0 {
+        return (vec![], 0.0);
+    }
+    match prepare_training_data(x_matrix, y, max_rows, data_seed, split_seed) {
+        Some(data) => compute_fn(&data).unwrap_or((vec![0.0; p], 0.0)),
+        None => (vec![0.0; p], 0.0),
     }
 }
 

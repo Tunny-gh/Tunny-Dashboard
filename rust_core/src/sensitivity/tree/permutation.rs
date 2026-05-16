@@ -2,15 +2,9 @@ use super::super::constants::{
     PFI_MAX_ROWS, PFI_N_REPEATS, PFI_RF_MAX_DEPTH, PFI_RF_MIN_DATA_LEAF, PFI_RF_TREES,
     PFI_SEED_BASE, PFI_SPLIT_SEED,
 };
-use super::common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
+use super::common::{normalize, permute_column_inplace, restore_column, run_importances_pipeline, PreparedData};
 use crate::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 use rayon::prelude::*;
-
-fn restore_feature_column(x_work: &mut [Vec<f64>], feature_idx: usize, original_values: &[f64]) {
-    for (i, row) in x_work.iter_mut().enumerate() {
-        row[feature_idx] = original_values[i];
-    }
-}
 
 fn compute_single_feature_importance(
     feature_idx: usize,
@@ -37,7 +31,7 @@ fn compute_single_feature_importance(
     for repeat_idx in 0..PFI_N_REPEATS {
         let seed =
             PFI_SEED_BASE + (feature_idx as u64) * (PFI_N_REPEATS as u64) + (repeat_idx as u64);
-        restore_feature_column(&mut x_work, feature_idx, &orig_col);
+        restore_column(&mut x_work, feature_idx, &orig_col);
         permute_column_inplace(&mut x_work, feature_idx, seed);
         let permuted_mse = lgbm_mse(&local_booster, &x_work, y_eval).unwrap_or(local_baseline_mse);
         delta_sum += (permuted_mse - local_baseline_mse).max(0.0);
@@ -83,20 +77,6 @@ pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Opti
     Some((importances, r_squared))
 }
 
-/// Permutation Feature Importance via LightGBM Random Forest (n_repeats=5).
-/// Returns (importances_normalized, r_squared).
-/// importances.sum() ≈ 1.0 when valid data exists.
 pub fn compute_permutation_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f64) {
-    let n = y.len();
-    if n == 0 || x_matrix.is_empty() || x_matrix.len() != n {
-        return (vec![], 0.0);
-    }
-    let p = x_matrix[0].len();
-    if p == 0 {
-        return (vec![], 0.0);
-    }
-    match prepare_training_data(x_matrix, y, PFI_MAX_ROWS, PFI_SEED_BASE, PFI_SPLIT_SEED) {
-        Some(data) => compute_from_prepared(&data).unwrap_or((vec![0.0; p], 0.0)),
-        None => (vec![0.0; p], 0.0),
-    }
+    run_importances_pipeline(x_matrix, y, PFI_MAX_ROWS, PFI_SEED_BASE, PFI_SPLIT_SEED, compute_from_prepared)
 }

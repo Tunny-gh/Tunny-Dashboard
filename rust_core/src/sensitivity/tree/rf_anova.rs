@@ -2,7 +2,7 @@ use super::super::constants::{
     RF_ANOVA_MAX_ROWS, RF_ANOVA_RF_MAX_DEPTH, RF_ANOVA_RF_MIN_SAMPLES_LEAF, RF_ANOVA_RF_TREES,
     RF_ANOVA_SEED,
 };
-use super::common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
+use super::common::{normalize, permute_column_inplace, restore_column, run_importances_pipeline, PreparedData};
 use crate::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 
 /// 前処理済みデータから RF-ANOVA 重要度を計算する（`metrics::RfAnovaMetric` からも呼ばれる）。
@@ -36,33 +36,13 @@ pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Opti
         );
         let permuted_mse = lgbm_mse(&booster, &x_eval_work, y_eval).unwrap_or(baseline_mse);
         importances[feature_idx] = (permuted_mse - baseline_mse).max(0.0);
-        for (i, row) in x_eval_work.iter_mut().enumerate() {
-            row[feature_idx] = orig_col[i];
-        }
+        restore_column(&mut x_eval_work, feature_idx, &orig_col);
     }
 
     normalize(&mut importances);
     Some((importances, r_squared))
 }
 
-/// Returns (importances, r_squared).
 pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f64) {
-    let n = y.len();
-    if n < 2 || x_matrix.is_empty() || x_matrix.len() != n {
-        return (vec![], 0.0);
-    }
-    let p = x_matrix[0].len();
-    if p == 0 {
-        return (vec![], 0.0);
-    }
-    match prepare_training_data(
-        x_matrix,
-        y,
-        RF_ANOVA_MAX_ROWS,
-        RF_ANOVA_SEED,
-        RF_ANOVA_SEED.wrapping_add(1),
-    ) {
-        Some(data) => compute_from_prepared(&data).unwrap_or((vec![0.0; p], 0.0)),
-        None => (vec![0.0; p], 0.0),
-    }
+    run_importances_pipeline(x_matrix, y, RF_ANOVA_MAX_ROWS, RF_ANOVA_SEED, RF_ANOVA_SEED.wrapping_add(1), compute_from_prepared)
 }
