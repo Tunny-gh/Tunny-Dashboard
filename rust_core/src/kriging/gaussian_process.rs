@@ -1,7 +1,7 @@
 //! Gaussian Process regression (Kriging) with ARD Matérn 5/2 kernel.
 //!
 //! Pure-Rust implementation — no external crates.
-//! Used for 2D PDP surface computation in `pdp/kriging_core.rs`.
+//! Used for 2D PDP surface computation in `pdp/kriging.rs`.
 
 mod inference;
 mod kernel_ops;

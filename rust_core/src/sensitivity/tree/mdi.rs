@@ -1,13 +1,13 @@
-use super::constants::{
+use super::super::constants::{
     MDI_MAX_ROWS, MDI_RF_MAX_DEPTH, MDI_RF_MIN_SAMPLES_LEAF, MDI_RF_TREES, MDI_SEED,
 };
-use super::tree_common::{prepare_training_data, PreparedData};
-use crate::core::lgbm::{
+use super::common::{prepare_training_data, PreparedData};
+use crate::lgbm::{
     lgbm_feature_importance, lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig,
 };
 
 /// 前処理済みデータから MDI 重要度を計算する（`metrics::MdiMetric` からも呼ばれる）。
-pub(super) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
     let p = data.x_shuffled[0].len();
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let config = LgbmRfConfig {
@@ -51,7 +51,7 @@ pub fn compute_mdi_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f
 mod tests {
     use super::*;
     fn make_xy(n: usize, dominant_feat: usize, n_feats: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
-        let mut rng = crate::core::math::rng::SeededRng::from_seed(99);
+        let mut rng = crate::math::rng::SeededRng::from_seed(99);
         let x: Vec<Vec<f64>> = (0..n)
             .map(|_| {
                 (0..n_feats)

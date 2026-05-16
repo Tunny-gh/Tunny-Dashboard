@@ -1,9 +1,9 @@
-use super::constants::{
+use super::super::constants::{
     PFI_MAX_ROWS, PFI_N_REPEATS, PFI_RF_MAX_DEPTH, PFI_RF_MIN_DATA_LEAF, PFI_RF_TREES,
     PFI_SEED_BASE, PFI_SPLIT_SEED,
 };
-use super::tree_common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
-use crate::core::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
+use super::common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
+use crate::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 use rayon::prelude::*;
 
 fn restore_feature_column(x_work: &mut [Vec<f64>], feature_idx: usize, original_values: &[f64]) {
@@ -47,7 +47,7 @@ fn compute_single_feature_importance(
 }
 
 /// 前処理済みデータから PFI 重要度を計算する（`metrics::PermutationMetric` からも呼ばれる）。
-pub(super) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
     let p = data.x_shuffled[0].len();
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let config = LgbmRfConfig {

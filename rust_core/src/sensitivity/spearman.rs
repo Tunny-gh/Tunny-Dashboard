@@ -1,4 +1,4 @@
-use crate::core::math::stats::pearson_correlation;
+use crate::math::stats::pearson_correlation;
 use crate::dataframe::DataFrame;
 use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;

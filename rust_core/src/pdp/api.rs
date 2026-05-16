@@ -1,8 +1,8 @@
-use super::kriging_core::{
+use super::kriging::{
     compute_pdp_1d_kriging_raw, compute_pdp_1d_sparse_kriging_raw, compute_pdp_2d_kriging,
     compute_pdp_2d_sparse_kriging,
 };
-use super::ridge_core::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
+use super::ridge::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
 use super::types::{PdpResult1d, PdpResult2d};
 use super::utils::extract_xy;
 
@@ -24,7 +24,7 @@ pub fn compute_pdp_from_data(
                 .get(target_param_idx)
                 .cloned()
                 .unwrap_or_default();
-            match crate::core::lgbm::compute_pdp_1d_lgbm(&x_matrix, &y, target_param_idx, n_grid) {
+            match crate::lgbm::compute_pdp_1d_lgbm(&x_matrix, &y, target_param_idx, n_grid) {
                 Some((grid, values, r_squared)) => PdpResult1d {
                     param_name,
                     objective_name: objective_name.to_string(),
@@ -118,9 +118,6 @@ pub fn compute_pdp(
     .flatten()
 }
 
-/// Documentation.
-///
-/// Documentation.
 pub fn compute_pdp_2d(
     param1_name: &str,
     param2_name: &str,
@@ -141,7 +138,7 @@ pub fn compute_pdp_2d(
         match model_type {
             "random_forest" => {
                 let (x_values, y_values, z_values, r_squared) =
-                    crate::core::lgbm::compute_pdp_2d_lgbm(&x_matrix, &y, p1_idx, p2_idx, n_grid)?;
+                    crate::lgbm::compute_pdp_2d_lgbm(&x_matrix, &y, p1_idx, p2_idx, n_grid)?;
                 let p1_name = param_names.get(p1_idx).cloned().unwrap_or_default();
                 let p2_name = param_names.get(p2_idx).cloned().unwrap_or_default();
                 Some(PdpResult2d {

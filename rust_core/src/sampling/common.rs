@@ -28,7 +28,7 @@ pub(crate) fn random_sample_fixed_seed(pool: &[u32], n: usize) -> Vec<u32> {
         return pool.to_vec();
     }
     let mut buf: Vec<u32> = pool.to_vec();
-    let mut rng = crate::core::math::rng::SeededRng::from_seed(42);
+    let mut rng = crate::math::rng::SeededRng::from_seed(42);
     rng.shuffle(&mut buf);
     buf[..n].to_vec()
 }

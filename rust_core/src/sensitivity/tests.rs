@@ -547,7 +547,7 @@ fn tc_pfi_001_01_normal_case() {
         .map(|i| (0..p).map(|j| i as f64 + j as f64 * 0.1).collect())
         .collect();
     let y: Vec<f64> = (0..n).map(|i| i as f64).collect();
-    let (imp, _r2) = super::permutation::compute_permutation_importances(&x, &y);
+    let (imp, _r2) = super::tree::permutation::compute_permutation_importances(&x, &y);
     assert_eq!(imp.len(), p);
     let sum: f64 = imp.iter().sum();
     assert!((sum - 1.0).abs() < 1e-3, "expected sum ≈ 1.0, got {sum}");
@@ -557,7 +557,7 @@ fn tc_pfi_001_01_normal_case() {
 fn tc_pfi_001_02_single_feature() {
     let x: Vec<Vec<f64>> = (0..20).map(|i| vec![i as f64]).collect();
     let y: Vec<f64> = (0..20).map(|i| i as f64 * 2.0).collect();
-    let (imp, _) = super::permutation::compute_permutation_importances(&x, &y);
+    let (imp, _) = super::tree::permutation::compute_permutation_importances(&x, &y);
     assert_eq!(imp.len(), 1);
     assert!((imp[0] - 1.0).abs() < 1e-6);
 }
@@ -568,7 +568,7 @@ fn tc_pfi_001_e03_nan_filtering() {
     let mut y: Vec<f64> = (0..50).map(|i| i as f64).collect();
     x[5][0] = f64::NAN;
     y[10] = f64::INFINITY;
-    let (imp, _) = super::permutation::compute_permutation_importances(&x, &y);
+    let (imp, _) = super::tree::permutation::compute_permutation_importances(&x, &y);
     assert_eq!(imp.len(), 2);
     let sum: f64 = imp.iter().sum();
     assert!((sum - 1.0).abs() < 1e-6 || sum < f64::EPSILON);
@@ -578,13 +578,13 @@ fn tc_pfi_001_e03_nan_filtering() {
 fn tc_pfi_001_b01_min_valid_rows() {
     let x = vec![vec![1.0], vec![2.0]];
     let y = vec![1.0, 2.0];
-    let (imp, _) = super::permutation::compute_permutation_importances(&x, &y);
+    let (imp, _) = super::tree::permutation::compute_permutation_importances(&x, &y);
     assert_eq!(imp.len(), 1);
 }
 
 #[test]
 fn tc_pfi_001_e02_empty_input() {
-    let (imp, r2) = super::permutation::compute_permutation_importances(&[], &[]);
+    let (imp, r2) = super::tree::permutation::compute_permutation_importances(&[], &[]);
     assert!(imp.is_empty());
     assert_eq!(r2, 0.0);
 }

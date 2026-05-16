@@ -1,4 +1,4 @@
-use crate::core::math::stats::column_mean_std;
+use crate::math::stats::column_mean_std;
 use crate::dataframe::DataFrame;
 use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;

@@ -1,7 +1,7 @@
 use argmin::core::{CostFunction, Error, Gradient};
 
 use super::likelihood::log_ml_with_gradient;
-use crate::core::optimization::LbfgsOptimizer;
+use crate::optimization::LbfgsOptimizer;
 
 struct GpNegLml {
     x: Vec<Vec<f64>>,

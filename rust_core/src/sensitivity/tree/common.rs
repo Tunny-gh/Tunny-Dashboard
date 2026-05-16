@@ -1,5 +1,5 @@
-use super::data::sample_rows;
-use crate::core::math::rng::SeededRng;
+use super::super::data::sample_rows;
+use crate::math::rng::SeededRng;
 
 /// `PreparedData::split` の戻り値型
 type SplitData<'a> = (&'a [Vec<f64>], &'a [Vec<f64>], &'a [f64], &'a [f64]);

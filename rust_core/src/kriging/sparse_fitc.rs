@@ -82,7 +82,7 @@ pub(crate) fn build_kzz(z: &[f64], m: usize, params: &[f64]) -> Vec<f64> {
         let zi: Vec<f64> = (0..n_dims).map(|d| z[d * m + i]).collect();
         for j in i..m {
             let zj: Vec<f64> = (0..n_dims).map(|d| z[d * m + j]).collect();
-            let k = crate::core::kriging::gaussian_process::matern52_ard(&zi, &zj, log_ls, log_sf);
+            let k = crate::kriging::gaussian_process::matern52_ard(&zi, &zj, log_ls, log_sf);
             kzz[i * m + j] = k;
             kzz[j * m + i] = k;
         }
@@ -113,7 +113,7 @@ pub(crate) fn build_kxz(x: &[f64], z: &[f64], n: usize, m: usize, params: &[f64]
         for j in 0..m {
             let zj: Vec<f64> = (0..n_dims).map(|d| z[d * m + j]).collect();
             kxz[i * m + j] =
-                crate::core::kriging::gaussian_process::matern52_ard(&xi, &zj, log_ls, log_sf);
+                crate::kriging::gaussian_process::matern52_ard(&xi, &zj, log_ls, log_sf);
         }
     }
     kxz
@@ -569,7 +569,7 @@ pub(crate) fn fitc_predict_mean(model: &SparseFitcModel, x_test: &[f64]) -> f64 
         .map(|j| {
             let zj: Vec<f64> = (0..n_dims).map(|d| model.z[d * model.m + j]).collect();
             let k =
-                crate::core::kriging::gaussian_process::matern52_ard(x_test, &zj, log_ls, log_sf);
+                crate::kriging::gaussian_process::matern52_ard(x_test, &zj, log_ls, log_sf);
             k * model.w[j]
         })
         .sum()
@@ -587,13 +587,13 @@ pub(crate) fn fitc_predict_variance(model: &SparseFitcModel, x_test: &[f64]) -> 
 
     // k(x*, x*) — prior variance at the test point
     let k_star_star =
-        crate::core::kriging::gaussian_process::matern52_ard(x_test, x_test, log_ls, log_sf);
+        crate::kriging::gaussian_process::matern52_ard(x_test, x_test, log_ls, log_sf);
 
     // k(Z, x*) — cross-covariance between inducing points and test point
     let k_z_star: Vec<f64> = (0..model.m)
         .map(|j| {
             let zj: Vec<f64> = (0..n_dims).map(|d| model.z[d * model.m + j]).collect();
-            crate::core::kriging::gaussian_process::matern52_ard(&zj, x_test, log_ls, log_sf)
+            crate::kriging::gaussian_process::matern52_ard(&zj, x_test, log_ls, log_sf)
         })
         .collect();
 

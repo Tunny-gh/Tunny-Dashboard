@@ -5,7 +5,7 @@ use super::constants::{
 };
 use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
-use super::tree_common::{prepare_training_data, PreparedData};
+use super::tree::common::{prepare_training_data, PreparedData};
 use super::types::{
     MdiResult, PermutationResult, RfAnovaResult, SensitivityResult, ShapResult, TreeImportanceResult,
 };
@@ -40,7 +40,7 @@ pub struct PermutationMetric;
 
 impl TreeMetric for RfAnovaMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
-        super::rf_anova::compute_from_prepared(data)
+        super::tree::rf_anova::compute_from_prepared(data)
     }
     fn max_rows(&self) -> usize { RF_ANOVA_MAX_ROWS }
     fn data_seed(&self) -> u64 { RF_ANOVA_SEED }
@@ -53,7 +53,7 @@ impl TreeMetric for RfAnovaMetric {
 
 impl TreeMetric for MdiMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
-        super::mdi::compute_from_prepared(data)
+        super::tree::mdi::compute_from_prepared(data)
     }
     fn max_rows(&self) -> usize { MDI_MAX_ROWS }
     fn data_seed(&self) -> u64 { MDI_SEED }
@@ -66,7 +66,7 @@ impl TreeMetric for MdiMetric {
 
 impl TreeMetric for ShapMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
-        super::shap::compute_from_prepared(data)
+        super::tree::shap::compute_from_prepared(data)
     }
     fn max_rows(&self) -> usize { SHAP_MAX_ROWS }
     fn data_seed(&self) -> u64 { SHAP_SEED }
@@ -79,7 +79,7 @@ impl TreeMetric for ShapMetric {
 
 impl TreeMetric for PermutationMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
-        super::permutation::compute_from_prepared(data)
+        super::tree::permutation::compute_from_prepared(data)
     }
     fn max_rows(&self) -> usize { PFI_MAX_ROWS }
     fn data_seed(&self) -> u64 { PFI_SEED_BASE }

@@ -1,12 +1,12 @@
-use super::constants::{
+use super::super::constants::{
     RF_ANOVA_MAX_ROWS, RF_ANOVA_RF_MAX_DEPTH, RF_ANOVA_RF_MIN_SAMPLES_LEAF, RF_ANOVA_RF_TREES,
     RF_ANOVA_SEED,
 };
-use super::tree_common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
-use crate::core::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
+use super::common::{normalize, permute_column_inplace, prepare_training_data, PreparedData};
+use crate::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 
 /// 前処理済みデータから RF-ANOVA 重要度を計算する（`metrics::RfAnovaMetric` からも呼ばれる）。
-pub(super) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
     let p = data.x_shuffled[0].len();
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let config = LgbmRfConfig {

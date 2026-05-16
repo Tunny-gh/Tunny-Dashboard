@@ -1,7 +1,10 @@
 pub mod clustering;
 pub mod convergence;
-pub(crate) mod core;
 pub mod data;
+pub(crate) mod kriging;
+pub(crate) mod lgbm;
+pub(crate) mod math;
+pub(crate) mod optimization;
 pub mod io;
 pub(crate) mod lgbm_sys;
 pub mod mcdm;

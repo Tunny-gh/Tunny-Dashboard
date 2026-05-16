@@ -1,4 +1,4 @@
-use crate::core::math::rng::SeededRng;
+use crate::math::rng::SeededRng;
 use crate::dataframe::DataFrame;
 
 pub(super) fn get_param_numeric_values(

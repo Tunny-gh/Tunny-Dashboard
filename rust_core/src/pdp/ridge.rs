@@ -1,4 +1,4 @@
-use crate::core::math::grid::linspace;
+use crate::math::grid::linspace;
 use crate::sensitivity::compute_ridge_from_vecs as compute_ridge;
 
 use super::types::{PdpResult1d, PdpResult2d};

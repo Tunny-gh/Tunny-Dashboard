@@ -1,19 +1,3 @@
-//! Module documentation.
-//!
-//! Module documentation.
-//! Design:
-//! Module documentation.
-//! Module documentation.
-//! Module documentation.
-//! Module documentation.
-//!
-//! Module documentation.
-//! REQ-081: k-means run_kmeans() — Lloyd's algorithm
-//! Module documentation.
-//! Module documentation.
-//!
-//! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-901
-
 mod kmeans;
 mod pca;
 mod stats;

@@ -1,7 +1,7 @@
 use super::{compute_ridge_from_vecs, SobolResult};
 use super::data::get_param_numeric_values;
-use crate::core::math::rng::SeededRng;
-use crate::core::math::stats::column_mean_std;
+use crate::math::rng::SeededRng;
+use crate::math::stats::column_mean_std;
 use rayon::prelude::*;
 
 struct SobolSurrogate {

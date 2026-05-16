@@ -11,7 +11,7 @@ pub(super) fn train_gp(
     seed: u64,
 ) -> Option<GpModel> {
     let (x_sub, y_sub) = if x.len() > subsample_n {
-        let mut rng = crate::core::math::rng::SeededRng::from_seed(seed);
+        let mut rng = crate::math::rng::SeededRng::from_seed(seed);
         let n = x.len();
         let mut indices: Vec<usize> = (0..n).collect();
         for i in (1..n).rev() {

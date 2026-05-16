@@ -3,7 +3,7 @@ use crate::sensitivity::{
 };
 
 fn make_xy(n: usize, dominant: usize, n_feats: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
-    let mut rng = crate::core::math::rng::SeededRng::from_seed(99);
+    let mut rng = crate::math::rng::SeededRng::from_seed(99);
     let x: Vec<Vec<f64>> = (0..n)
         .map(|_| {
             (0..n_feats)
@@ -45,7 +45,7 @@ fn integration_rf_anova_importances_sum_to_one() {
 #[test]
 fn integration_pdp_2d_returns_result() {
     let (x, y) = make_xy(40, 0, 2);
-    let result = crate::core::lgbm::compute_pdp_2d_lgbm(&x, &y, 0, 1, 5);
+    let result = crate::lgbm::compute_pdp_2d_lgbm(&x, &y, 0, 1, 5);
     assert!(result.is_some(), "compute_pdp_2d_lgbm should return Some");
     let (x_vals, y_vals, z_vals, _r2) = result.unwrap();
     assert_eq!(x_vals.len(), 5);

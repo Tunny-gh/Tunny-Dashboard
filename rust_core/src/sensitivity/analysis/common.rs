@@ -1,11 +1,11 @@
-use crate::core::math::stats::column_mean_std;
+use crate::math::stats::column_mean_std;
 use crate::dataframe::DataFrame;
 use rayon::prelude::*;
 
 use super::super::{
     data::get_param_numeric_values, metrics::TreeMetric,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    tree_common::prepare_training_data, RidgeResult, SensitivityResult, TreeImportanceResult,
+    tree::common::prepare_training_data, RidgeResult, SensitivityResult, TreeImportanceResult,
 };
 
 pub(super) fn empty_result(
