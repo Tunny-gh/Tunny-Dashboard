@@ -125,21 +125,29 @@ body {{
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.6;
-  color: #24292f;
+  color: #4B5563;
   background: #ffffff;
   max-width: 860px;
   margin: 0 auto;
   padding: 24px;
 }}
-h1, h2, h3 {{ font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em; }}
-h1 {{ font-size: 1.8em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }}
-h2 {{ font-size: 1.4em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.2em; }}
-code {{ background: #f6f8fa; border-radius: 3px; padding: 0.1em 0.3em; font-size: 0.9em; }}
-pre {{ background: #f6f8fa; border-radius: 6px; padding: 16px; overflow: auto; }}
+h1, h2, h3 {{
+  font-weight: 800;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: #111827;
+  letter-spacing: -0.025em;
+}}
+h1 {{ font-size: 1.8em; border-bottom: 1px solid #E5E7EB; padding-bottom: 0.3em; }}
+h2 {{ font-size: 1.4em; border-bottom: 1px solid #E5E7EB; padding-bottom: 0.2em; }}
+a {{ color: #2563EB; text-decoration: none; }}
+a:hover {{ text-decoration: underline; }}
+code {{ background: #F3F4F6; border-radius: 3px; padding: 0.1em 0.3em; font-size: 0.9em; }}
+pre {{ background: #F3F4F6; border-radius: 6px; padding: 16px; overflow: auto; }}
 pre code {{ background: none; padding: 0; }}
 table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
-th, td {{ border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; }}
-th {{ background: #f6f8fa; font-weight: 600; }}
+th, td {{ border: 1px solid #E5E7EB; padding: 8px 12px; text-align: left; }}
+th {{ background: #F3F4F6; font-weight: 600; color: #111827; }}
 {katex_css}
 </style>
 </head>

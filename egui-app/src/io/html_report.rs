@@ -127,7 +127,7 @@ pub fn render_scatter_svg(snapshot: &HtmlReportSnapshot) -> String {
         let color = if row.pareto_rank == 0 {
             "#e74c3c"
         } else {
-            "#3498db"
+            "#3B82F6"
         };
         svg.push_str(&format!(
             r#"<circle cx="{:.1}" cy="{:.1}" r="4" fill="{color}" opacity="0.8"/>"#,
@@ -265,13 +265,13 @@ pub fn build_html_report(snapshot: &HtmlReportSnapshot) -> String {
 <meta charset="UTF-8">
 <title>Tunny Dashboard Report</title>
 <style>
-body { font-family: sans-serif; margin: 20px; }
+body { font-family: sans-serif; margin: 20px; color: #4B5563; }
 table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: right; }
-th { background: #f0f0f0; }
-h1, h2 { color: #333; }
+th, td { border: 1px solid #E5E7EB; padding: 6px 8px; text-align: right; }
+th { background: #F3F4F6; color: #111827; }
+h1, h2 { color: #111827; font-weight: 800; letter-spacing: -0.025em; }
 .summary { display: flex; gap: 20px; margin-bottom: 20px; }
-.card { border: 1px solid #ddd; border-radius: 4px; padding: 12px; min-width: 120px; }
+.card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px; min-width: 120px; }
 </style>
 </head>
 <body>
