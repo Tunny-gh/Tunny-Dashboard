@@ -36,19 +36,23 @@ pub(super) fn get_param_numeric_values(
     None
 }
 
+pub(super) fn sample_index_subset(n: usize, max_rows: usize, seed: u64) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..n).collect();
+    let mut rng = SeededRng::from_seed(seed);
+    rng.shuffle(&mut indices);
+    indices.truncate(max_rows);
+    indices
+}
+
 pub(super) fn sample_rows(
     x_matrix: &[Vec<f64>],
     y: &[f64],
     max_rows: usize,
     seed: u64,
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
-    let n = y.len();
-    let mut indices: Vec<usize> = (0..n).collect();
-    let mut rng = SeededRng::from_seed(seed);
-    rng.shuffle(&mut indices);
-    indices.truncate(max_rows);
+    let sampled = sample_index_subset(y.len(), max_rows, seed);
     (
-        indices.iter().map(|&i| x_matrix[i].clone()).collect(),
-        indices.iter().map(|&i| y[i]).collect(),
+        sampled.iter().map(|&i| x_matrix[i].clone()).collect(),
+        sampled.iter().map(|&i| y[i]).collect(),
     )
 }

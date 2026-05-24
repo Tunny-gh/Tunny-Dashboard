@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use super::super::{
     data::get_param_numeric_values, metrics::TreeMetric,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    tree::common::prepare_training_data, RidgeResult, SensitivityResult, TreeImportanceResult,
+    tree::common::{prepare_shared_x, prepare_training_data}, RidgeResult, SensitivityResult, TreeImportanceResult,
 };
 
 pub(super) fn empty_result(
@@ -149,33 +149,8 @@ pub(super) fn transpose_to_tree_result(
     }
 }
 
-/// Single-objective TreeMetric dispatch: prepares data and computes importances.
-pub(super) fn run_tree_metric_for_objective<M: TreeMetric>(
-    metric: &M,
-    x_matrix: &[Vec<f64>],
-    y: &[f64],
-) -> (Vec<f64>, f64) {
-    let p = if x_matrix.is_empty() || x_matrix[0].is_empty() {
-        0
-    } else {
-        x_matrix[0].len()
-    };
-    let data = match prepare_training_data(
-        x_matrix,
-        y,
-        metric.max_rows(),
-        metric.data_seed(),
-        metric.split_seed(),
-    ) {
-        Some(d) => d,
-        None => return (vec![0.0; p], 0.0),
-    };
-    metric
-        .compute_importances(&data)
-        .unwrap_or_else(|| (vec![0.0; p], 0.0))
-}
-
-/// Multi-objective TreeMetric dispatch: runs metric for each objective and transposes.
+/// Multi-objective TreeMetric dispatch: prepares x once via SharedX and reuses it per objective.
+/// Falls back to `prepare_training_data` for objectives with NaN/Inf y values.
 pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric + Send + Sync>(
     metric: &M,
     x_matrix: &[Vec<f64>],
@@ -183,9 +158,26 @@ pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric + Send + Sync>(
     param_count: usize,
     objective_count: usize,
 ) -> TreeImportanceResult {
+    let shared_x = prepare_shared_x(
+        x_matrix,
+        metric.max_rows(),
+        metric.data_seed(),
+        metric.split_seed(),
+    );
     let results: Vec<(Vec<f64>, f64)> = objective_columns
         .par_iter()
-        .map(|y| run_tree_metric_for_objective(metric, x_matrix, y))
+        .map(|y| {
+            let data = shared_x
+                .as_ref()
+                .and_then(|sx| sx.with_y(y))
+                .or_else(|| prepare_training_data(
+                    x_matrix, y, metric.max_rows(), metric.data_seed(), metric.split_seed(),
+                ));
+            match data {
+                Some(d) => metric.compute_importances(&d).unwrap_or_else(|| (vec![0.0; param_count], 0.0)),
+                None => (vec![0.0; param_count], 0.0),
+            }
+        })
         .collect();
     let (importances, r_squared): (Vec<Vec<f64>>, Vec<f64>) = results.into_iter().unzip();
     transpose_to_tree_result(&importances, r_squared, param_count, objective_count)
