@@ -233,6 +233,33 @@ fn tc_102_14_select_study_multiple_studies() {
 }
 
 #[test]
+fn tc_2330_all_studies_resident_by_id_after_parse() {
+    // TASK-2330: 初回パースで全 study が study_id キーで常駐し、
+    // select_study せずとも任意 study を snapshot で参照できること（比較の再パース廃止の土台）。
+    let data = to_bytes(concat!(
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"A\",\"directions\":[0]}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.0]}\n",
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"B\",\"directions\":[0]}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":1,\"state\":1,\"values\":[4.0]}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":2,\"state\":1,\"values\":[5.0]}\n"
+    ));
+    crate::journal_parser::parse_journal(&data).expect("parse ok");
+
+    // select_study を呼ばずに両 study を snapshot で取得できる
+    let s0 = snapshot(0).expect("study 0 resident");
+    let s1 = snapshot(1).expect("study 1 resident");
+    assert_eq!(s0.row_count(), 1);
+    assert_eq!(s1.row_count(), 2);
+
+    // with_df でも任意 study を参照できる
+    let rc1 = with_df(1, |df| df.row_count());
+    assert_eq!(rc1, Some(2));
+}
+
+#[test]
 fn tc_102_e01_invalid_study_id_returns_err() {
     let data =
         to_bytes("{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n");

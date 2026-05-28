@@ -15,5 +15,8 @@ mod types;
 mod tests;
 
 pub use model::DataFrame;
-pub use state::{select_study, store_dataframes, with_active_df, with_df};
+pub use state::{
+    active_snapshot, select_study, snapshot, store_dataframes, swap_snapshot, with_active_df,
+    with_df, SharedStudyStore,
+};
 pub use types::{DataFrameInfo, GpuBufferData, SelectStudyResult, TrialRow};

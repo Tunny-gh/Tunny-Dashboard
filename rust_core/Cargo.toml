@@ -22,6 +22,7 @@ rand_xoshiro = "0.6"
 linfa = "0.8"
 linfa-clustering = "0.8"
 ndarray = "0.16"
+arc-swap = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

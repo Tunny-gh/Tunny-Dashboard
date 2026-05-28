@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use tunny_core::dataframe::DataFrame;
 
 // ============================================================
 // 基本型定義
@@ -81,6 +84,112 @@ impl StudyContext {
         } else {
             (min, max)
         }
+    }
+}
+
+// ============================================================
+// TASK-2331: StudyView — 列指向 DataFrame スナップショットの軽量ビュー
+//
+// `Arc<DataFrame>` をラップし、DataFrame にないアプリ層算出値（pareto_rank /
+// cluster_id / state / trial_ids）を並行配列で保持する。行指向 `Vec<TrialRow>`
+// と per-row HashMap を永続保持しないため、列データの複製が発生しない（MEM-001）。
+// 段階移行のため一時的な互換ヘルパー `row_at` / `to_trial_rows` を提供する
+// （最終的に TASK-2342 で除去予定）。
+// ============================================================
+
+#[derive(Clone)]
+pub struct StudyView {
+    /// 共有ストアから取得した列データの不変スナップショット。
+    pub df: Arc<DataFrame>,
+    /// 行 index → trial_id。
+    pub trial_ids: Vec<u32>,
+    /// Pareto ランク（行 index 順、アプリ層算出）。
+    pub pareto_rank: Vec<u32>,
+    /// クラスタ ID（行 index 順、未割当は None）。
+    pub cluster_id: Vec<Option<i32>>,
+    /// 試行状態（行 index 順）。
+    pub state: Vec<TrialState>,
+}
+
+impl StudyView {
+    /// `Arc<DataFrame>` と Pareto ランクから StudyView を構築する。
+    /// pareto_rank の長さが row_count と不一致の場合は 0 埋めする。
+    pub fn new(df: Arc<DataFrame>, pareto_rank: Vec<u32>) -> Self {
+        let n = df.row_count();
+        let trial_ids: Vec<u32> = (0..n)
+            .map(|r| df.get_trial_id(r).unwrap_or(r as u32))
+            .collect();
+        let pareto_rank = if pareto_rank.len() == n {
+            pareto_rank
+        } else {
+            vec![0; n]
+        };
+        StudyView {
+            df,
+            trial_ids,
+            pareto_rank,
+            cluster_id: vec![None; n],
+            state: vec![TrialState::Complete; n],
+        }
+    }
+
+    /// 行数（= DataFrame.row_count）。
+    pub fn row_count(&self) -> usize {
+        self.df.row_count()
+    }
+
+    /// 数値列の借用スライス（行ごとの HashMap を作らない）。
+    pub fn numeric_column(&self, name: &str) -> Option<&[f64]> {
+        self.df.get_numeric_column(name)
+    }
+
+    /// パラメータ列名。
+    pub fn param_names(&self) -> &[String] {
+        self.df.param_col_names()
+    }
+
+    /// 目的列名。
+    pub fn objective_names(&self) -> &[String] {
+        self.df.objective_col_names()
+    }
+
+    /// 互換シム: 列 + 並行配列から一時的に `TrialRow` を組み立てる（永続保持しない・移行用）。
+    /// 旧 `extract_trial_rows`（io/study.rs）と等価な値を返す。
+    pub fn row_at(&self, index: usize) -> TrialRow {
+        let mut params = HashMap::with_capacity(self.df.param_col_names().len());
+        for name in self.df.param_col_names() {
+            if let Some(col) = self.df.get_numeric_column(name) {
+                if let Some(v) = col.get(index) {
+                    params.insert(name.clone(), *v);
+                }
+            }
+        }
+        let objectives: Vec<f64> = self
+            .df
+            .objective_col_names()
+            .iter()
+            .map(|name| {
+                self.df
+                    .get_numeric_column(name)
+                    .and_then(|c| c.get(index).copied())
+                    .unwrap_or(0.0)
+            })
+            .collect();
+        TrialRow {
+            trial_id: self.trial_ids.get(index).copied().unwrap_or(index as u32),
+            trial_number: index as u32,
+            params,
+            objectives,
+            pareto_rank: self.pareto_rank.get(index).copied().unwrap_or(0),
+            cluster_id: self.cluster_id.get(index).copied().flatten(),
+            state: self.state.get(index).cloned().unwrap_or(TrialState::Complete),
+            user_attrs: HashMap::new(),
+        }
+    }
+
+    /// 全行を `TrialRow` として組み立てる（移行用・大規模では使用を避ける）。
+    pub fn to_trial_rows(&self) -> Vec<TrialRow> {
+        (0..self.row_count()).map(|i| self.row_at(i)).collect()
     }
 }
 
@@ -169,6 +278,83 @@ mod tests {
         for cmap in ColormapName::all() {
             assert!(!cmap.label().is_empty(), "{:?} has empty label", cmap);
         }
+    }
+
+    // ── TASK-2331: StudyView テスト ──────────────────────────────
+    fn make_study_view(n: usize) -> StudyView {
+        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
+                trial_id: i as u32,
+                param_display: HashMap::from([("x".to_string(), i as f64 * 0.1)]),
+                param_category_label: HashMap::new(),
+                objective_values: vec![i as f64, i as f64 * 2.0],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["obj0".to_string(), "obj1".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        StudyView::new(std::sync::Arc::new(df), vec![0; n])
+    }
+
+    #[test]
+    fn study_view_row_count_and_columns() {
+        let view = make_study_view(3);
+        assert_eq!(view.row_count(), 3);
+        assert_eq!(view.numeric_column("x").map(|c| c.len()), Some(3));
+        assert!(view.numeric_column("missing").is_none());
+        assert_eq!(view.param_names(), &["x".to_string()]);
+    }
+
+    #[test]
+    fn study_view_row_at_matches_columnar_values() {
+        let view = make_study_view(3);
+        let row = view.row_at(2);
+        assert_eq!(row.trial_id, 2);
+        assert_eq!(row.trial_number, 2);
+        assert!((row.params["x"] - 0.2).abs() < 1e-9);
+        assert_eq!(row.objectives, vec![2.0, 4.0]);
+        assert_eq!(row.pareto_rank, 0);
+        assert_eq!(row.cluster_id, None);
+        assert_eq!(row.state, TrialState::Complete);
+        assert!(row.user_attrs.is_empty());
+    }
+
+    #[test]
+    fn study_view_to_trial_rows_roundtrip() {
+        let view = make_study_view(4);
+        let rows = view.to_trial_rows();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].trial_id, 0);
+        assert_eq!(rows[3].objectives, vec![3.0, 6.0]);
+    }
+
+    #[test]
+    fn study_view_new_pads_mismatched_pareto_rank() {
+        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        let core_rows: Vec<CoreRow> = (0..2)
+            .map(|i| CoreRow {
+                trial_id: i,
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: vec![i as f64],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &[], &["obj0".to_string()], &[], &[], 0);
+        // pareto_rank の長さ(1) != row_count(2) → 0 埋め
+        let view = StudyView::new(std::sync::Arc::new(df), vec![5]);
+        assert_eq!(view.pareto_rank, vec![0, 0]);
     }
 
     /// テスト用の StudyContext を生成するヘルパー
