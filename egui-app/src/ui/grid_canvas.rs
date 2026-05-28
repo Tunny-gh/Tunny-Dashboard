@@ -18,11 +18,12 @@ pub enum CellToolbarAction {
     Close,
     Help(PanelItem),
     SaveAsPng(PanelItem),
+    SaveAsCsv(PanelItem),
 }
 
 /// Returns the static list of items shown in the ⋯ popup menu.
 pub fn chart_cell_menu_items() -> &'static [&'static str] {
-    &["Save as PNG", "Help"]
+    &["Save as PNG", "Save as CSV", "Help"]
 }
 
 /// Records a PNG capture request into `ChartCaptureState`.
@@ -352,6 +353,7 @@ fn show_cell_toolbar(
     col: usize,
     item: PanelItem,
     title: &'static str,
+    csv_available: bool,
 ) -> CellToolbarAction {
     let drag_id = egui::Id::new("cell_drag_handle").with(row).with(col);
     let payload = DragPayload::MoveFromCell { item: item.clone(), row, col };
@@ -393,6 +395,17 @@ fn show_cell_toolbar(
                                 menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
                                 ui.close_menu();
                             }
+                            let csv_btn = ui.add_enabled(
+                                csv_available,
+                                egui::Button::new("Save as CSV"),
+                            );
+                            if csv_btn.clicked() {
+                                menu_action = Some(CellToolbarAction::SaveAsCsv(item.clone()));
+                                ui.close_menu();
+                            }
+                            if !csv_available {
+                                csv_btn.on_hover_text("No data available");
+                            }
                             if ui.button("Help").clicked() {
                                 menu_action = Some(CellToolbarAction::Help(item.clone()));
                                 ui.close_menu();
@@ -427,6 +440,7 @@ fn handle_toolbar_action(
     action: &CellToolbarAction,
     help_language: crate::ui::help::help_types::HelpLanguage,
     widgets: &mut WidgetStates,
+    app_state: &AppState,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
     match action {
@@ -439,6 +453,17 @@ fn handle_toolbar_action(
         }
         CellToolbarAction::SaveAsPng(target) => {
             record_capture_target(&mut widgets.capture, target.clone());
+        }
+        CellToolbarAction::SaveAsCsv(target) => {
+            if let PanelItem::Chart(chart_id) = target {
+                let csv = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets);
+                if let Some(csv_str) = csv {
+                    let filename = crate::io::csv_export::csv_export_filename(chart_id);
+                    if let Err(e) = crate::io::export::save_csv_to_file_named(&csv_str, &filename) {
+                        let _ = tx.try_send(AppMessage::Error(e));
+                    }
+                }
+            }
         }
         _ => {}
     }
@@ -460,8 +485,9 @@ fn render_cell_content(
             let chart_id = id.clone();
             let item = PanelItem::Chart(chart_id.clone());
             let title = item.label();
-            let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
-            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, tx);
+            let csv_available = crate::io::csv_export::has_csv_data(&chart_id, app_state, widgets);
+            let toolbar_action = show_cell_toolbar(ui, row, col, item, title, csv_available);
+            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, app_state, tx);
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
@@ -476,8 +502,8 @@ fn render_cell_content(
         Some(PanelItem::TrialTable) => {
             let item = PanelItem::TrialTable;
             let title = item.label();
-            let toolbar_action = show_cell_toolbar(ui, row, col, item, title);
-            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, tx);
+            let toolbar_action = show_cell_toolbar(ui, row, col, item, title, false);
+            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, app_state, tx);
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
@@ -558,6 +584,7 @@ mod tests {
     fn menu_contains_save_as_png_and_help() {
         let items = chart_cell_menu_items();
         assert!(items.contains(&"Save as PNG"));
+        assert!(items.contains(&"Save as CSV"));
         assert!(items.contains(&"Help"));
     }
 

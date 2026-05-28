@@ -86,6 +86,20 @@ pub fn save_csv_to_file(csv: &str) -> Result<(), String> {
     }
 }
 
+/// デフォルトファイル名を指定してCSVをファイルダイアログ経由で保存する。
+/// ダイアログがキャンセルされた場合は `Ok(())` を返す。
+pub fn save_csv_to_file_named(csv: &str, default_name: &str) -> Result<(), String> {
+    if let Some(path) = rfd::FileDialog::new()
+        .add_filter("CSV", &["csv"])
+        .set_file_name(default_name)
+        .save_file()
+    {
+        write_csv_to_path(csv, &path)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,6 @@
 pub mod artifacts;
 pub mod chart_capture;
+pub mod csv_export;
 pub mod export;
 pub mod file;
 pub mod html_report;
