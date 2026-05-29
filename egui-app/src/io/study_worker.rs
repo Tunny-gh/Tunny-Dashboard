@@ -62,36 +62,47 @@ pub fn dispatch_load_comparison_study(
     path: std::path::PathBuf,
     main_study_name: String,
     study_idx: usize,
+    // 同一ファイルの場合のみ Some: 再パース不要な既存 StudyMeta リスト（option C）。
+    same_file_metas: Option<Vec<StudyMeta>>,
     tx: SyncSender<AppMessage>,
 ) {
     std::thread::spawn(move || {
-        let msg = load_comparison_study_task(&path, &main_study_name, study_idx);
+        let msg = load_comparison_study_task(&path, &main_study_name, study_idx, same_file_metas);
         let _ = tx.send(msg);
     });
 }
 
 /// Journal ファイルを解析して比較 Study を選択し `AppMessage` を返す内部関数。
+///
+/// `same_file_metas` が `Some` のとき、同一ファイルへの比較ロード：
+///   - ファイル再読み込み・再パース・グローバルストア上書きを完全スキップ。
+///   - 既存の StudyMeta を使って `snapshot` で Arc<DataFrame> を直接取得する。
 fn load_comparison_study_task(
     path: &std::path::Path,
     main_study_name: &str,
     study_idx: usize,
+    same_file_metas: Option<Vec<StudyMeta>>,
 ) -> AppMessage {
-    let path_buf = path.to_path_buf();
-    let data = match crate::io::file::read_journal_file(&path_buf) {
-        Ok(d) => d,
-        Err(e) => return AppMessage::ComparisonStudyLoadFailed(e),
+    // 同一ファイル最適化: 既存メタを使い再パースをスキップ
+    let studies: Vec<StudyMeta> = if let Some(metas) = same_file_metas {
+        metas
+    } else {
+        // クロスファイル: 通常通りパース（グローバルストアを上書きするが最大 4 件なので許容）
+        let path_buf = path.to_path_buf();
+        let data = match crate::io::file::read_journal_file(&path_buf) {
+            Ok(d) => d,
+            Err(e) => return AppMessage::ComparisonStudyLoadFailed(e),
+        };
+        let result = match tunny_core::io::journal::parser::parse_journal(&data) {
+            Ok(r) => r,
+            Err(e) => return AppMessage::ComparisonStudyLoadFailed(e),
+        };
+        result
+            .studies
+            .into_iter()
+            .map(crate::io::journal::convert_study_meta)
+            .collect()
     };
-
-    let result = match tunny_core::io::journal::parser::parse_journal(&data) {
-        Ok(r) => r,
-        Err(e) => return AppMessage::ComparisonStudyLoadFailed(e),
-    };
-
-    let studies: Vec<StudyMeta> = result
-        .studies
-        .into_iter()
-        .map(crate::io::journal::convert_study_meta)
-        .collect();
 
     let meta = match choose_comparison_study(&studies, main_study_name) {
         Some(m) => m.clone(),

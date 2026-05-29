@@ -195,10 +195,18 @@ impl TunnyApp {
                             .unwrap_or_default();
                         let study_idx = self.app_state.comparison_studies.len();
                         self.app_state.comparison_mode = true;
+                        // 同一ファイルなら再パース不要: 既存メタをそのまま渡す（option C）
+                        let same_file_metas =
+                            if self.app_state.journal_path.as_deref() == Some(path.as_path()) {
+                                Some(self.app_state.all_studies.clone())
+                            } else {
+                                None
+                            };
                         crate::io::study_worker::dispatch_load_comparison_study(
                             path,
                             main_name,
                             study_idx,
+                            same_file_metas,
                             self.sender(),
                         );
                     }
