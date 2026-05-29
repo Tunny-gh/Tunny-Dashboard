@@ -70,7 +70,7 @@ TASK-2328 → TASK-2329 → TASK-2330
 ### タスク一覧
 
 - [x] [TASK-2331: StudyView 実装（互換シム付き）](TASK-2331.md) - 8h (TDD) 🔵 ✅完了
-- [ ] [TASK-2332: StudyContext 再設計と study 選択経路の刷新](TASK-2332.md) - 8h (TDD) 🔵
+- [x] [TASK-2332: StudyContext 再設計と study 選択経路の刷新](TASK-2332.md) - 8h (TDD) 🔵 ✅完了
 - [ ] [TASK-2333: 派生属性算出経路の StudyView 化](TASK-2333.md) - 8h (TDD) 🔵
 
 ### 依存関係
@@ -111,7 +111,7 @@ TASK-2333 → TASK-2337
 ### タスク一覧
 
 - [ ] [TASK-2339: 比較 study の軽量化と再パース廃止（MEM-005）](TASK-2339.md) - 8h (TDD) 🔵
-- [ ] [TASK-2340: ライブ更新の ArcSwap スナップショット差替え](TASK-2340.md) - 8h (TDD) 🔵
+- [x] [TASK-2340: ライブ更新の ArcSwap スナップショット差替え](TASK-2340.md) - 8h (TDD) 🔵 ✅完了（TASK-2332 と同時実装）
 - [ ] [TASK-2341: ジャーナルパースのピークメモリ削減（MEM-006）](TASK-2341.md) - 8h (TDD) 🟡
 - [ ] [TASK-2342: gpu_data 撤廃と互換シム除去（MEM-007）](TASK-2342.md) - 8h (TDD) 🔵
 - [ ] [TASK-2343: メモリ計測ベンチマーク基盤とベースライン測定](TASK-2343.md) - 8h (DIRECT) 🟡

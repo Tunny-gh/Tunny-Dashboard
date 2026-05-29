@@ -171,7 +171,7 @@ impl TunnyApp {
                     if let Some(ctx) = &self.app_state.current_study {
                         let csv = crate::io::export::build_csv_string(
                             &crate::io::export::select_rows_for_export(
-                                &ctx.trial_rows,
+                                &ctx.trial_rows(),
                                 &self.app_state.selected_indices,
                                 &ctx.pareto_indices,
                                 &target,
@@ -234,7 +234,7 @@ impl TunnyApp {
             .app_state
             .current_study
             .as_ref()
-            .map(|s| s.trial_rows.len() as u32)
+            .map(|s| s.trial_rows().len() as u32)
             .unwrap_or_else(|| {
                 self.app_state
                     .all_studies

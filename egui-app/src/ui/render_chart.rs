@@ -25,7 +25,7 @@ pub(crate) fn render_chart(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
-    let trial_rows = &ctx.trial_rows;
+    let trial_rows = &ctx.trial_rows();
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
@@ -149,7 +149,7 @@ pub(crate) fn render_chart(
                 .show(ui, trial_rows, param_names, obj_names, directions);
         }
         ChartId::SurfacePlot => {
-            let trial_count = ctx.trial_rows.len();
+            let trial_count = ctx.trial_rows().len();
             crate::ui::widgets::surface_plot::show(
                 ui,
                 &mut widgets.surface_plot,

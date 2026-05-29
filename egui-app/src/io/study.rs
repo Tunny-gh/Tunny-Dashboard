@@ -1,7 +1,5 @@
-use crate::state::app_state::{Direction, GpuBufferData, StudyMeta, TrialRow, TrialState};
+use crate::state::app_state::{Direction, GpuBufferData, StudyMeta};
 use crate::state::messages::AppMessage;
-use rayon::prelude::*;
-use std::collections::HashMap;
 
 /// 完了試行数が最多の Study を自動選択する（REQ-021 準拠）
 pub fn auto_select_study(studies: &[StudyMeta]) -> Option<&StudyMeta> {
@@ -42,58 +40,11 @@ pub fn build_gpu_buffer_data(
     }
 }
 
-/// rust_core の with_active_df から TrialRow を取得
-fn extract_trial_rows() -> Vec<TrialRow> {
-    // thread_local からデータを一括コピーしてから rayon で並列処理
-    let Some((param_names, trial_ids, param_data, obj_data)) =
-        tunny_core::dataframe::with_active_df(|df| {
-            let param_names = df.param_col_names().to_vec();
-            let n = df.row_count();
-            let trial_ids: Vec<u32> = (0..n)
-                .map(|row| df.get_trial_id(row).unwrap_or(row as u32))
-                .collect();
-            let param_data: Vec<Vec<f64>> = param_names
-                .iter()
-                .map(|name| df.get_numeric_column(name).unwrap_or(&[]).to_vec())
-                .collect();
-            let obj_data: Vec<Vec<f64>> = df
-                .objective_col_names()
-                .iter()
-                .map(|name| df.get_numeric_column(name).unwrap_or(&[]).to_vec())
-                .collect();
-            (param_names, trial_ids, param_data, obj_data)
-        })
-    else {
-        return vec![];
-    };
-
-    let n = trial_ids.len();
-    (0..n)
-        .into_par_iter()
-        .map(|row| {
-            let mut params = HashMap::with_capacity(param_names.len());
-            for (name, col) in param_names.iter().zip(param_data.iter()) {
-                params.insert(name.clone(), col.get(row).copied().unwrap_or(0.0));
-            }
-            let objectives: Vec<f64> = obj_data
-                .iter()
-                .map(|col| col.get(row).copied().unwrap_or(0.0))
-                .collect();
-            TrialRow {
-                trial_id: trial_ids[row],
-                trial_number: row as u32,
-                params,
-                objectives,
-                pareto_rank: 0,
-                cluster_id: None,
-                state: TrialState::Complete,
-                user_attrs: HashMap::new(),
-            }
-        })
-        .collect()
-}
-
-/// バックグラウンドで select_study を実行し AppMessage を返す
+/// バックグラウンドで select_study を実行し AppMessage を返す。
+///
+/// 行指向 `Vec<TrialRow>` は複製せず、`study_id` と Pareto ランクのみを送る（MEM-001）。
+/// UI 側は `StudySelected` 受信時に共有ストアから `Arc<DataFrame>` を取得し
+/// `StudyView` を構築する。
 pub fn select_study_task(meta: StudyMeta) -> AppMessage {
     let is_minimize: Vec<bool> = meta
         .directions
@@ -101,40 +52,16 @@ pub fn select_study_task(meta: StudyMeta) -> AppMessage {
         .map(|d| matches!(d, Direction::Minimize))
         .collect();
 
-    match tunny_core::dataframe::select_study(meta.study_id) {
+    let study_id = meta.study_id;
+    match tunny_core::dataframe::select_study(study_id) {
         Ok(result) => {
-            let t0 = std::time::Instant::now();
             let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[timing] compute_pareto_ranks: {:.1}ms",
-                t0.elapsed().as_secs_f64() * 1000.0
-            );
-
-            let t1 = std::time::Instant::now();
             let pareto_indices = pareto.pareto_indices;
             let gpu_data = build_gpu_buffer_data(result.gpu_buffer_data, &pareto.ranks);
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[timing] build_gpu_buffer_data: {:.1}ms",
-                t1.elapsed().as_secs_f64() * 1000.0
-            );
-
-            let t2 = std::time::Instant::now();
-            let ranks = pareto.ranks;
-            let mut trial_rows = extract_trial_rows();
-            for (i, row) in trial_rows.iter_mut().enumerate() {
-                row.pareto_rank = ranks.get(i).copied().unwrap_or(0);
-            }
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[timing] extract_trial_rows: {:.1}ms",
-                t2.elapsed().as_secs_f64() * 1000.0
-            );
-
             AppMessage::StudySelected {
                 meta,
-                trial_rows,
+                study_id,
+                pareto_rank: pareto.ranks,
                 gpu_data,
                 pareto_indices,
             }

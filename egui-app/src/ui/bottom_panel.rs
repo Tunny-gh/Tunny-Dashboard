@@ -241,7 +241,7 @@ fn show_best_history_table(ui: &mut egui::Ui, app_state: &AppState, objective_na
                     let trial_opt = app_state
                         .current_study
                         .as_ref()
-                        .and_then(|s| s.trial_rows.iter().find(|t| t.trial_id == trial_id));
+                        .and_then(|s| s.trial_rows().into_iter().find(|t| t.trial_id == trial_id));
                     if let Some(trial) = trial_opt {
                         for name in &top_param_names {
                             let val = trial
@@ -264,17 +264,13 @@ fn show_best_history_table(ui: &mut egui::Ui, app_state: &AppState, objective_na
 
 /// 表示対象の TrialRow を返す。
 /// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
-pub fn get_display_rows<'a>(
-    study_ctx: &'a StudyContext,
-    selected_indices: &[u32],
-) -> Vec<&'a TrialRow> {
+pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
+    let rows = study_ctx.trial_rows();
     if selected_indices.is_empty() {
-        study_ctx.trial_rows.iter().collect()
+        rows
     } else {
         let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
-        study_ctx
-            .trial_rows
-            .iter()
+        rows.into_iter()
             .filter(|r| id_set.contains(&r.trial_id))
             .collect()
     }
@@ -301,28 +297,18 @@ mod tests {
                 user_attrs: HashMap::new(),
             })
             .collect();
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: n,
-                total_trials: n,
-                param_names: vec![],
-                objective_names: vec!["y".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows,
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: n as u32,
-            },
-            pareto_indices: vec![],
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: n,
+            total_trials: n,
+            param_names: vec![],
+            objective_names: vec!["y".to_string()],
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        StudyContext::from_rows_for_test(meta, trial_rows)
     }
 
     #[test]

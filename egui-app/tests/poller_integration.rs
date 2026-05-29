@@ -2,14 +2,23 @@ use std::io::Write;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
+use std::sync::Arc;
 use tunny_desktop::io::live_update_poller::LiveUpdatePoller;
-use tunny_desktop::state::app_state::{AppState, Direction, GpuBufferData, StudyContext, StudyMeta};
+use tunny_desktop::state::app_state::{
+    AppState, Direction, GpuBufferData, StudyContext, StudyMeta, StudyView,
+};
 use tunny_desktop::state::message_handler::MessageHandler;
 use tunny_desktop::state::messages::AppMessage;
 use tunny_desktop::ui::widget_states::WidgetStates;
+use tunny_core::dataframe::DataFrame;
 use tunny_core::io::journal::live_update::{
     append_journal_diff, reset_live_update_state, LiveUpdateContext,
 };
+
+/// 空の StudyView（行0件）。ライブ更新テストの初期状態に用いる。
+fn empty_view() -> StudyView {
+    StudyView::new(Arc::new(DataFrame::empty()), vec![])
+}
 
 // ─────────────────────────────────────────────
 // Test helpers
@@ -105,7 +114,7 @@ fn tc_2224_01_e2e_polling_flow() {
     app_state.all_studies = vec![meta.clone()];
     app_state.current_study = Some(StudyContext {
         meta,
-        trial_rows: vec![],
+        view: empty_view(),
         gpu_data: empty_gpu_data(),
         pareto_indices: vec![],
     });
@@ -142,7 +151,7 @@ fn tc_2224_01_e2e_polling_flow() {
     );
 
     let study = app_state.current_study.as_ref().unwrap();
-    assert_eq!(study.trial_rows.len(), 10, "trial_rows should have 10 entries");
+    assert_eq!(study.trial_count(), 10, "trial_rows should have 10 entries");
     assert!(!study.pareto_indices.is_empty(), "pareto_indices should be populated");
     assert_eq!(study.gpu_data.trial_count, 10, "GPU buffer trial_count should be 10");
     assert!(load_error.is_none());
@@ -255,7 +264,7 @@ fn tc_2224_04_bulk_trials_performance() {
     app_state.all_studies = vec![meta.clone()];
     app_state.current_study = Some(StudyContext {
         meta,
-        trial_rows: vec![],
+        view: empty_view(),
         gpu_data: empty_gpu_data(),
         pareto_indices: vec![],
     });
@@ -289,10 +298,10 @@ fn tc_2224_04_bulk_trials_performance() {
 
     let study = app_state.current_study.as_ref().unwrap();
     assert!(
-        study.trial_rows.len() >= total_rows,
+        study.trial_count() >= total_rows,
         "Expected at least {} rows, got {}",
         total_rows,
-        study.trial_rows.len()
+        study.trial_count()
     );
     assert!(
         total_rows > 0,

@@ -91,7 +91,7 @@ impl WidgetStates {
         if let Some(ctx) = &app_state.current_study {
             let color_mode = app_state.color_mode.clone();
             let colormap_name = app_state.selected_colormap.clone();
-            let trial_rows = &ctx.trial_rows;
+            let trial_rows = &ctx.trial_rows();
             let objective_names = &ctx.meta.objective_names;
             let mcdm_scores = app_state.mcdm_result.as_ref().map(|r| r.primary_scores());
             self.chart_colors = compute_chart_colors(

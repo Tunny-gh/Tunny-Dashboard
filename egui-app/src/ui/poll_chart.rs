@@ -16,13 +16,13 @@ fn build_xy_for_objective(
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
     let param_names = &ctx.meta.param_names;
     let x_matrix = ctx
-        .trial_rows
+        .trial_rows()
         .iter()
         .map(|r| param_names.iter().map(|p| r.params.get(p).copied().unwrap_or(0.0)).collect())
         .collect();
     let obj_idx = ctx.meta.objective_names.iter().position(|o| o == objective);
     let y = ctx
-        .trial_rows
+        .trial_rows()
         .iter()
         .map(|r| obj_idx.and_then(|i| r.objectives.get(i).copied()).unwrap_or(0.0))
         .collect();
@@ -54,7 +54,7 @@ pub(crate) fn poll_chart_work(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
-    let trial_rows = &ctx.trial_rows;
+    let trial_rows = &ctx.trial_rows();
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
@@ -119,7 +119,7 @@ pub(crate) fn poll_chart_work(
                         .cloned()
                         .unwrap_or_default();
                     let core_rows: Vec<tunny_core::dataframe::TrialRow> = ctx
-                        .trial_rows
+                        .trial_rows()
                         .iter()
                         .map(|r| tunny_core::dataframe::TrialRow {
                             trial_id: r.trial_id,

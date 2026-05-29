@@ -180,12 +180,12 @@ impl Pareto3dChart {
         let downsample_indices = app_state.downsample_cache.scatter.clone();
         let ds_len = downsample_indices.as_ref().map_or(0, |v| v.len());
         let ctx = app_state.current_study.as_ref().unwrap();
-        let trial_count = ctx.trial_rows.len();
+        let trial_count = ctx.trial_rows().len();
 
         let cache_key = (trial_count, ds_len);
         if self.display_rows_cache.is_none() || self.cache_key != cache_key {
             let display_rows: Vec<TrialRow> =
-                filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
+                filter_by_downsample_indices(&ctx.trial_rows(), downsample_indices.as_deref())
                     .into_iter()
                     .cloned()
                     .collect();
@@ -201,9 +201,9 @@ impl Pareto3dChart {
         );
         if self.range_cache_key != range_cache_key {
             self.range_cache = [
-                compute_objective_range(&ctx.trial_rows, self.x_objective),
-                compute_objective_range(&ctx.trial_rows, self.y_objective),
-                compute_objective_range(&ctx.trial_rows, self.z_objective),
+                compute_objective_range(&ctx.trial_rows(), self.x_objective),
+                compute_objective_range(&ctx.trial_rows(), self.y_objective),
+                compute_objective_range(&ctx.trial_rows(), self.z_objective),
             ];
             self.range_cache_key = range_cache_key;
         }

@@ -100,21 +100,23 @@ impl Default for SharedStudyStore {
 //     クロススレッド共有の本番経路は egui-app 側の統合テストで検証する。
 // ============================================================
 
+/// プロセスグローバルな単一の共有ストア。read/write で同一インスタンスを共有する。
 #[cfg(not(test))]
-fn with_store_read<R>(f: impl FnOnce(&SharedStudyStore) -> R) -> R {
+fn global_store() -> &'static std::sync::RwLock<SharedStudyStore> {
     use std::sync::{OnceLock, RwLock};
     static STORE: OnceLock<RwLock<SharedStudyStore>> = OnceLock::new();
-    let lock = STORE.get_or_init(|| RwLock::new(SharedStudyStore::new()));
-    let guard = lock.read().unwrap_or_else(|p| p.into_inner());
+    STORE.get_or_init(|| RwLock::new(SharedStudyStore::new()))
+}
+
+#[cfg(not(test))]
+fn with_store_read<R>(f: impl FnOnce(&SharedStudyStore) -> R) -> R {
+    let guard = global_store().read().unwrap_or_else(|p| p.into_inner());
     f(&guard)
 }
 
 #[cfg(not(test))]
 fn with_store_write<R>(f: impl FnOnce(&mut SharedStudyStore) -> R) -> R {
-    use std::sync::{OnceLock, RwLock};
-    static STORE: OnceLock<RwLock<SharedStudyStore>> = OnceLock::new();
-    let lock = STORE.get_or_init(|| RwLock::new(SharedStudyStore::new()));
-    let mut guard = lock.write().unwrap_or_else(|p| p.into_inner());
+    let mut guard = global_store().write().unwrap_or_else(|p| p.into_inner());
     f(&mut guard)
 }
 

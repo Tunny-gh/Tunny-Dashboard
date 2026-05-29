@@ -30,7 +30,7 @@ pub fn build_comparison_diff_rows(
     comparison_studies: &[crate::state::app_state::StudyContext],
 ) -> Vec<ComparisonDiffRow> {
     let base_best = if base.meta.objective_names.len() == 1 {
-        base.trial_rows
+        base.trial_rows()
             .iter()
             .filter_map(|r| r.objectives.first().copied())
             .reduce(f64::min)
@@ -55,18 +55,18 @@ pub fn build_comparison_diff_rows(
             }
 
             let trial_count_delta =
-                comp.trial_rows.len() as i64 - base.trial_rows.len() as i64;
+                comp.trial_rows().len() as i64 - base.trial_rows().len() as i64;
 
             let best_value_delta = base_best.and_then(|b| {
-                comp.trial_rows
+                comp.trial_rows()
                     .iter()
                     .filter_map(|r| r.objectives.first().copied())
                     .reduce(f64::min)
                     .map(|c| c - b)
             });
 
-            let pareto_dominance_ratio = if !comp.trial_rows.is_empty() {
-                Some(comp.pareto_indices.len() as f64 / comp.trial_rows.len() as f64)
+            let pareto_dominance_ratio = if !comp.trial_rows().is_empty() {
+                Some(comp.pareto_indices.len() as f64 / comp.trial_rows().len() as f64)
             } else {
                 None
             };
@@ -160,7 +160,7 @@ fn show_stats_summary(ui: &mut egui::Ui, app_state: &AppState) {
                     .unwrap_or(Color32::GRAY);
 
                 let obj_vals: Vec<f64> = study
-                    .trial_rows
+                    .trial_rows()
                     .iter()
                     .filter_map(|t| t.objectives.first().copied())
                     .collect();
@@ -203,7 +203,7 @@ fn show_hv_history(ui: &mut egui::Ui, app_state: &AppState) {
             // Best 値の遷移を折れ線として表示（HV の代替）
             let mut best_so_far = f64::INFINITY;
             let points: PlotPoints = study
-                .trial_rows
+                .trial_rows()
                 .iter()
                 .enumerate()
                 .filter_map(|(i, t)| {
@@ -230,8 +230,7 @@ fn show_pareto_overlay(ui: &mut egui::Ui, app_state: &AppState) {
     let is_2d = app_state
         .comparison_studies
         .first()
-        .and_then(|s| s.trial_rows.first())
-        .map(|t| t.objectives.len() >= 2)
+        .map(|s| s.meta.objective_names.len() >= 2)
         .unwrap_or(false);
 
     if !is_2d {
@@ -252,7 +251,7 @@ fn show_pareto_overlay(ui: &mut egui::Ui, app_state: &AppState) {
                 study.pareto_indices.iter().copied().collect();
 
             let pts: Vec<[f64; 2]> = study
-                .trial_rows
+                .trial_rows()
                 .iter()
                 .filter(|t| pareto_set.contains(&t.trial_id))
                 .filter_map(|t| {
@@ -318,7 +317,7 @@ fn show_kde_distribution(ui: &mut egui::Ui, app_state: &AppState) {
                 .unwrap_or(Color32::GRAY);
 
             let vals: Vec<f64> = study
-                .trial_rows
+                .trial_rows()
                 .iter()
                 .filter_map(|t| t.objectives.first().copied())
                 .collect();
@@ -471,22 +470,20 @@ mod tests {
             state: TrialState::Complete,
             user_attrs: HashMap::new(),
         }).collect();
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: name.to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: objectives.len(),
-                total_trials: objectives.len(),
-                param_names: vec![],
-                objective_names: obj_names,
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows,
-            gpu_data: GpuBufferData { positions: vec![], positions3d: vec![], colors: vec![], sizes: vec![], trial_count: 0 },
-            pareto_indices: pareto,
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: name.to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: objectives.len(),
+            total_trials: objectives.len(),
+            param_names: vec![],
+            objective_names: obj_names,
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        let mut ctx = StudyContext::from_rows_for_test(meta, trial_rows);
+        ctx.pareto_indices = pareto;
+        ctx
     }
 
     #[test]

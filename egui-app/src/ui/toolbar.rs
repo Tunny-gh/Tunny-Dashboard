@@ -144,7 +144,7 @@ pub fn show_toolbar(
 
             // 試行数カウンタ
             let trial_label = if let Some(study) = &app_state.current_study {
-                format!("Trials: {}", study.trial_rows.len())
+                format!("Trials: {}", study.trial_rows().len())
             } else {
                 "Trials: -".to_string()
             };
@@ -472,8 +472,8 @@ mod tests {
         let mut is_loading = false;
         let mut load_error = None;
 
-        let context = StudyContext {
-            meta: StudyMeta {
+        let context = StudyContext::from_rows_for_test(
+            StudyMeta {
                 study_id: 10,
                 name: "compare_study".to_string(),
                 directions: vec![Direction::Minimize],
@@ -484,16 +484,8 @@ mod tests {
                 user_attr_names: vec![],
                 has_constraints: false,
             },
-            trial_rows: vec![],
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 0,
-            },
-            pareto_indices: vec![],
-        };
+            vec![],
+        );
 
         // Simulate setting comparison_mode before the load completes (as app.rs does)
         app_state.comparison_mode = true;

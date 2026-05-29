@@ -118,20 +118,21 @@ impl TrialTableWidget {
 
 /// 表示対象の TrialRow を返す（ピン留め考慮版）。
 /// selected_indices が空なら全件、そうでなければ selected ∪ pinned で返す。
-pub fn get_display_rows_with_pins<'a>(
-    study_ctx: &'a StudyContext,
+pub fn get_display_rows_with_pins(
+    study_ctx: &StudyContext,
     selected_indices: &[u32],
     pinned: &[u32],
-) -> Vec<&'a TrialRow> {
-    filter_rows_for_display(&study_ctx.trial_rows, selected_indices, pinned)
+) -> Vec<TrialRow> {
+    let rows = study_ctx.trial_rows();
+    filter_rows_for_display(&rows, selected_indices, pinned)
+        .into_iter()
+        .cloned()
+        .collect()
 }
 
 /// 表示対象の TrialRow を返す（後方互換ラッパー）。
 /// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
-pub fn get_display_rows<'a>(
-    study_ctx: &'a StudyContext,
-    selected_indices: &[u32],
-) -> Vec<&'a TrialRow> {
+pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
     get_display_rows_with_pins(study_ctx, selected_indices, &[])
 }
 
@@ -156,28 +157,18 @@ mod tests {
                 user_attrs: HashMap::new(),
             })
             .collect();
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: n,
-                total_trials: n,
-                param_names: vec![],
-                objective_names: vec!["y".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows,
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: n as u32,
-            },
-            pareto_indices: vec![],
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: n,
+            total_trials: n,
+            param_names: vec![],
+            objective_names: vec!["y".to_string()],
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        StudyContext::from_rows_for_test(meta, trial_rows)
     }
 
     #[test]

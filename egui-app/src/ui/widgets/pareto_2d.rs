@@ -72,10 +72,10 @@ impl ParetoScatter2D {
             None
         };
         let ds_len = downsample_indices.as_ref().map_or(0, |v| v.len());
-        let cache_key = (ctx.trial_rows.len(), ds_len);
+        let cache_key = (ctx.trial_rows().len(), ds_len);
         if self.display_rows_cache.is_none() || self.cache_key != cache_key {
             let display_rows: Vec<TrialRow> =
-                filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
+                filter_by_downsample_indices(&ctx.trial_rows(), downsample_indices.as_deref())
                     .into_iter()
                     .cloned()
                     .collect();

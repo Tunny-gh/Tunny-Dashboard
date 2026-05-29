@@ -105,19 +105,29 @@ fn load_comparison_study_task(
     match crate::io::study::select_study_task(meta) {
         AppMessage::StudySelected {
             meta,
-            trial_rows,
+            study_id,
+            pareto_rank,
             gpu_data,
             pareto_indices,
         } => {
-            use crate::state::app_state::StudyContext;
-            AppMessage::ComparisonStudyLoaded {
-                study_idx,
-                context: Box::new(StudyContext {
-                    meta,
-                    trial_rows,
-                    gpu_data,
-                    pareto_indices,
-                }),
+            use crate::state::app_state::{StudyContext, StudyView};
+            match tunny_core::dataframe::snapshot(study_id) {
+                Some(df) => {
+                    let view = StudyView::new(df, pareto_rank);
+                    AppMessage::ComparisonStudyLoaded {
+                        study_idx,
+                        context: Box::new(StudyContext {
+                            meta,
+                            view,
+                            gpu_data,
+                            pareto_indices,
+                        }),
+                    }
+                }
+                None => AppMessage::ComparisonStudyLoadFailed(format!(
+                    "study_id {} not found in shared store",
+                    study_id
+                )),
             }
         }
         AppMessage::Error(e) => AppMessage::ComparisonStudyLoadFailed(e),

@@ -296,13 +296,14 @@ pub fn build_and_send_report(
     selected_indices: &[u32],
     tx: std::sync::mpsc::SyncSender<crate::state::messages::AppMessage>,
 ) {
+    let trial_rows = ctx.trial_rows();
     let trial_map: std::collections::HashMap<u32, &crate::state::types::TrialRow> =
-        ctx.trial_rows.iter().map(|r| (r.trial_id, r)).collect();
+        trial_rows.iter().map(|r| (r.trial_id, r)).collect();
     let snap = HtmlReportSnapshot {
         study_name: ctx.meta.name.clone(),
         objective_names: ctx.meta.objective_names.clone(),
         param_names: ctx.meta.param_names.clone(),
-        total_trials: ctx.trial_rows.len(),
+        total_trials: trial_rows.len(),
         pareto_count: ctx.pareto_indices.len(),
         selected_trials: selected_indices
             .iter()

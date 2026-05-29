@@ -61,19 +61,30 @@ pub struct GpuBufferData {
 #[derive(Debug, Clone)]
 pub struct StudyContext {
     pub meta: StudyMeta,
-    pub trial_rows: Vec<TrialRow>,
+    /// 列指向データの軽量ビュー（旧 `trial_rows: Vec<TrialRow>` を置換、MEM-001）。
+    pub view: StudyView,
     pub gpu_data: GpuBufferData,
     pub pareto_indices: Vec<u32>,
 }
 
 impl StudyContext {
+    /// 試行数（旧 `trial_rows.len()` 相当）。列ビューから取得し複製しない。
+    pub fn trial_count(&self) -> usize {
+        self.view.row_count()
+    }
+
+    /// 互換アクセサ: 全試行を `TrialRow` として一時生成して返す（移行用）。
+    /// 旧 `ctx.trial_rows`（フィールド）の読み取り箇所の段階移行に用いる。
+    /// 永続保持はしない。ホットパスは後続タスクで列アクセスへ最適化する。
+    pub fn trial_rows(&self) -> Vec<TrialRow> {
+        self.view.to_trial_rows()
+    }
+
     /// パラメータのデータ範囲 [min, max] を返す（データがない場合は [0.0, 1.0]）
     pub fn param_range(&self, param_name: &str) -> (f64, f64) {
-        let values: Vec<f64> = self
-            .trial_rows
-            .iter()
-            .filter_map(|r| r.params.get(param_name).copied())
-            .collect();
+        let Some(values) = self.view.numeric_column(param_name) else {
+            return (0.0, 1.0);
+        };
         if values.is_empty() {
             return (0.0, 1.0);
         }
@@ -83,6 +94,65 @@ impl StudyContext {
             (min - 0.5, max + 0.5)
         } else {
             (min, max)
+        }
+    }
+
+    /// テスト用: 既存 StudyContext の行データを差し替える（view/gpu_data/pareto_indices を再構築）。
+    #[cfg(test)]
+    pub(crate) fn set_rows_for_test(&mut self, rows: Vec<TrialRow>) {
+        let rebuilt = StudyContext::from_rows_for_test(self.meta.clone(), rows);
+        self.view = rebuilt.view;
+        self.gpu_data = rebuilt.gpu_data;
+        self.pareto_indices = rebuilt.pareto_indices;
+    }
+
+    /// テスト用: egui `TrialRow` の Vec から StudyContext を構築する。
+    /// 列名は行データから導出し、DataFrame→StudyView を組み立てる。
+    /// pareto_rank / cluster_id / state は行から並行配列へ引き継ぐ。
+    #[cfg(test)]
+    pub(crate) fn from_rows_for_test(meta: StudyMeta, rows: Vec<TrialRow>) -> Self {
+        use tunny_core::dataframe::TrialRow as CoreRow;
+
+        let mut param_set = std::collections::BTreeSet::new();
+        for r in &rows {
+            for k in r.params.keys() {
+                param_set.insert(k.clone());
+            }
+        }
+        let param_names: Vec<String> = param_set.into_iter().collect();
+        let n_obj = rows.iter().map(|r| r.objectives.len()).max().unwrap_or(0);
+        let obj_names: Vec<String> = (0..n_obj).map(|i| format!("obj{i}")).collect();
+
+        let core_rows: Vec<CoreRow> = rows
+            .iter()
+            .map(|r| CoreRow {
+                trial_id: r.trial_id,
+                param_display: r.params.clone(),
+                param_category_label: HashMap::new(),
+                objective_values: r.objectives.clone(),
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &param_names, &obj_names, &[], &[], 0);
+        let pareto_rank: Vec<u32> = rows.iter().map(|r| r.pareto_rank).collect();
+        let mut view = StudyView::new(Arc::new(df), pareto_rank);
+        for (i, r) in rows.iter().enumerate() {
+            view.cluster_id[i] = r.cluster_id;
+            view.state[i] = r.state.clone();
+        }
+        StudyContext {
+            meta,
+            view,
+            gpu_data: GpuBufferData {
+                positions: vec![],
+                positions3d: vec![],
+                colors: vec![],
+                sizes: vec![],
+                trial_count: rows.len() as u32,
+            },
+            pareto_indices: vec![],
         }
     }
 }
@@ -97,7 +167,7 @@ impl StudyContext {
 // （最終的に TASK-2342 で除去予定）。
 // ============================================================
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StudyView {
     /// 共有ストアから取得した列データの不変スナップショット。
     pub df: Arc<DataFrame>,
@@ -397,27 +467,17 @@ mod tests {
                 user_attrs: HashMap::new(),
             },
         ];
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: 3,
-                total_trials: 3,
-                param_names: vec!["x".to_string()],
-                objective_names: vec![],
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows,
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 3,
-            },
-            pareto_indices: vec![],
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: 3,
+            total_trials: 3,
+            param_names: vec!["x".to_string()],
+            objective_names: vec![],
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        StudyContext::from_rows_for_test(meta, trial_rows)
     }
 }

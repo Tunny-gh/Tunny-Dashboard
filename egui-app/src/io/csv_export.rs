@@ -38,7 +38,7 @@ pub fn has_csv_data(
     match chart_id {
         ChartId::SurfacePlot => false,
         ChartId::OptimizationHistory | ChartId::ParallelCoordinates | ChartId::ScatterMatrix => {
-            app_state.current_study.as_ref().is_some_and(|s| !s.trial_rows.is_empty())
+            app_state.current_study.as_ref().is_some_and(|s| !s.trial_rows().is_empty())
         }
         ChartId::HvHistory => app_state.hv_history.is_some(),
         ChartId::ImportanceChart => {
@@ -68,7 +68,7 @@ pub fn has_csv_data(
             .current_study
             .as_ref()
             .zip(app_state.cluster_result.as_ref())
-            .is_some_and(|(s, cr)| cr.labels.len() == s.trial_rows.len()),
+            .is_some_and(|(s, cr)| cr.labels.len() == s.trial_rows().len()),
         ChartId::SensitivityHeatmap => widgets.sensitivity_heatmap.result.as_ref().is_some_and(|s| {
             !s.param_names.is_empty()
                 && !s.objective_names.is_empty()
@@ -85,7 +85,7 @@ pub fn has_csv_data(
             app_state.ahp_result.is_some() && app_state.current_study.is_some()
         }
         ChartId::SliceChart => app_state.current_study.as_ref().is_some_and(|s| {
-            !s.trial_rows.is_empty()
+            !s.trial_rows().is_empty()
                 && s.meta.param_names.get(widgets.slice_chart.selected_param_idx).is_some()
                 && s.meta.objective_names.get(widgets.slice_chart.selected_obj_idx).is_some()
         }),
@@ -118,14 +118,14 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
 
 fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_rows.is_empty() {
+    if study.trial_rows().is_empty() {
         return None;
     }
     let obj_idx = widgets.opt_history.obj_idx;
     let is_minimize = !matches!(study.meta.directions.get(obj_idx), Some(Direction::Maximize));
     let mut csv = String::from("trial_index,objective_value,best_value\n");
     let mut best = if is_minimize { f64::INFINITY } else { f64::NEG_INFINITY };
-    for (i, row) in study.trial_rows.iter().enumerate() {
+    for (i, row) in study.trial_rows().iter().enumerate() {
         let val = row.objectives.get(obj_idx).copied().unwrap_or(f64::NAN);
         if val.is_finite() {
             best = if is_minimize { best.min(val) } else { best.max(val) };
@@ -214,10 +214,11 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
 }
 fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_rows.is_empty() {
+    if study.trial_rows().is_empty() {
         return None;
     }
-    let rows: Vec<&TrialRow> = study.trial_rows.iter().collect();
+    let trial_rows = study.trial_rows();
+    let rows: Vec<&TrialRow> = trial_rows.iter().collect();
     let csv = crate::io::export::build_csv_string(
         &rows,
         &study.meta.param_names,
@@ -229,7 +230,7 @@ fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
 fn build_cluster_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
     let cr = app_state.cluster_result.as_ref()?;
-    if cr.labels.len() != study.trial_rows.len() {
+    if cr.labels.len() != study.trial_rows().len() {
         return None;
     }
     let param_names = &study.meta.param_names;
@@ -238,7 +239,7 @@ fn build_cluster_csv(app_state: &AppState) -> Option<String> {
     for name in param_names { csv.push_str(&format!(",{}", name)); }
     for name in obj_names { csv.push_str(&format!(",{}", name)); }
     csv.push_str(",cluster_id\n");
-    for (i, row) in study.trial_rows.iter().enumerate() {
+    for (i, row) in study.trial_rows().iter().enumerate() {
         csv.push_str(&format!("{},{}", row.trial_id, row.trial_number));
         for name in param_names {
             let v = row.params.get(name).copied().unwrap_or(f64::NAN);
@@ -283,7 +284,7 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     for name in param_names { csv.push_str(&format!(",{}", name)); }
     for name in obj_names { csv.push_str(&format!(",{}", name)); }
     csv.push_str(",pareto_rank\n");
-    for row in study.trial_rows.iter().filter(|r| pareto_set.contains(&r.trial_id)) {
+    for row in study.trial_rows().iter().filter(|r| pareto_set.contains(&r.trial_id)) {
         csv.push_str(&format!("{},{}", row.trial_id, row.trial_number));
         for name in param_names {
             let v = row.params.get(name).copied().unwrap_or(f64::NAN);
@@ -296,7 +297,7 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
 }
 fn build_mcdm_rank_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows;
+    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
     let method_name = result.method_label();
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
@@ -311,7 +312,7 @@ fn build_mcdm_rank_csv(app_state: &AppState) -> Option<String> {
 
 fn build_mcdm_scatter_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows;
+    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
     let mut csv = String::from("trial_id,rank,primary_score\n");
@@ -325,7 +326,7 @@ fn build_mcdm_scatter_csv(app_state: &AppState) -> Option<String> {
 
 fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows;
+    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
     match result {
         McdmResult::Topsis(r) => {
             let mut csv = String::from("trial_id,rank,topsis_score\n");
@@ -371,7 +372,7 @@ fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
 
 fn build_ahp_rank_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.ahp_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows;
+    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
     let mut csv = String::from("trial_id,rank,ahp_score\n");
     for (rank, &idx) in result.ranked_indices.iter().enumerate() {
         let Some(row) = trial_rows.get(idx as usize) else { continue };
@@ -385,7 +386,7 @@ fn build_ahp_table_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.ahp_result.as_ref()?;
     let study = app_state.current_study.as_ref()?;
     let obj_names = &study.meta.objective_names;
-    let trial_rows = &study.trial_rows;
+    let trial_rows = &study.trial_rows();
     let mut csv = String::from("trial_id,rank,ahp_score");
     for name in obj_names {
         csv.push_str(&format!(",{}", name));
@@ -404,7 +405,7 @@ fn build_ahp_table_csv(app_state: &AppState) -> Option<String> {
 }
 fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_rows.is_empty() {
+    if study.trial_rows().is_empty() {
         return None;
     }
     let param_idx = widgets.slice_chart.selected_param_idx;
@@ -412,7 +413,7 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
     let param_name = study.meta.param_names.get(param_idx)?;
     let obj_name = study.meta.objective_names.get(obj_idx)?;
     let mut csv = format!("trial_id,{},{},is_pareto\n", param_name, obj_name);
-    for row in &study.trial_rows {
+    for row in &study.trial_rows() {
         let param_val = row.params.get(param_name).copied().unwrap_or(f64::NAN);
         let obj_val = row.objectives.get(obj_idx).copied().unwrap_or(f64::NAN);
         let is_pareto = study.pareto_indices.contains(&row.trial_id);
@@ -431,29 +432,18 @@ mod tests {
     use std::collections::HashMap;
 
     fn make_study(param_names: Vec<String>, obj_names: Vec<String>, directions: Vec<Direction>) -> StudyContext {
-        use crate::state::types::GpuBufferData;
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions,
-                completed_trials: 0,
-                total_trials: 0,
-                param_names,
-                objective_names: obj_names,
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows: vec![],
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 0,
-            },
-            pareto_indices: vec![],
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions,
+            completed_trials: 0,
+            total_trials: 0,
+            param_names,
+            objective_names: obj_names,
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        StudyContext::from_rows_for_test(meta, vec![])
     }
 
     fn make_trial(id: u32, params: HashMap<String, f64>, objectives: Vec<f64>) -> TrialRow {
@@ -513,11 +503,11 @@ mod tests {
             vec!["f".into()],
             vec![Direction::Minimize],
         );
-        study.trial_rows = vec![
+        study.set_rows_for_test(vec![
             make_trial(0, HashMap::new(), vec![3.0]),
             make_trial(1, HashMap::new(), vec![1.0]),
             make_trial(2, HashMap::new(), vec![2.0]),
-        ];
+        ]);
         state.current_study = Some(study);
         let widgets = WidgetStates::default();
 
@@ -633,7 +623,7 @@ mod tests {
         let mut study = make_study(vec!["x".into()], vec!["f".into()], vec![Direction::Minimize]);
         let mut p = HashMap::new();
         p.insert("x".to_string(), 1.0_f64);
-        study.trial_rows = vec![make_trial(0, p, vec![0.5])];
+        study.set_rows_for_test(vec![make_trial(0, p, vec![0.5])]);
         state.current_study = Some(study);
         let csv = build_trial_based_csv(&state).unwrap();
         assert!(csv.lines().next().unwrap().contains("trial_id"));
@@ -649,7 +639,7 @@ mod tests {
     fn cluster_csv_returns_none_when_no_cluster_result() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![make_trial(0, HashMap::new(), vec![1.0])];
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
         // no cluster_result set
         assert!(build_cluster_csv(&state).is_none());
@@ -662,10 +652,10 @@ mod tests {
         let mut study = make_study(vec!["x".into()], vec!["f".into()], vec![Direction::Minimize]);
         let mut p = HashMap::new();
         p.insert("x".to_string(), 1.0_f64);
-        study.trial_rows = vec![
+        study.set_rows_for_test(vec![
             make_trial(0, p.clone(), vec![0.5]),
             make_trial(1, p.clone(), vec![1.0]),
-        ];
+        ]);
         state.current_study = Some(study);
         state.cluster_result = Some(ClusterResult { labels: vec![0, 1], n_clusters: 2 });
         let csv = build_cluster_csv(&state).unwrap();
@@ -679,12 +669,12 @@ mod tests {
     fn pareto_csv_only_includes_pareto_trials() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![
+        study.set_rows_for_test(vec![
             make_trial(0, HashMap::new(), vec![1.0]),
             make_trial(1, HashMap::new(), vec![2.0]),
             make_trial(2, HashMap::new(), vec![3.0]),
-        ];
-        study.trial_rows[0].pareto_rank = 1;
+        ]);
+        study.trial_rows()[0].pareto_rank = 1;
         study.pareto_indices = vec![0];
         state.current_study = Some(study);
         let csv = build_pareto_csv(&state).unwrap();
@@ -697,7 +687,7 @@ mod tests {
     fn pareto_csv_returns_none_when_no_pareto() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![make_trial(0, HashMap::new(), vec![1.0])];
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         // pareto_indices is empty
         state.current_study = Some(study);
         assert!(build_pareto_csv(&state).is_none());
@@ -801,10 +791,10 @@ mod tests {
     fn mcdm_rank_csv_has_correct_header_and_method_topsis() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![
+        study.set_rows_for_test(vec![
             make_trial(10, HashMap::new(), vec![1.0]),
             make_trial(11, HashMap::new(), vec![2.0]),
-        ];
+        ]);
         state.current_study = Some(study);
         state.mcdm_result = Some(make_topsis_mcdm(2));
         let csv = build_mcdm_rank_csv(&state).unwrap();
@@ -824,7 +814,7 @@ mod tests {
     fn mcdm_scatter_csv_has_correct_header() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![make_trial(0, HashMap::new(), vec![1.0])];
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
         state.mcdm_result = Some(make_topsis_mcdm(1));
         let csv = build_mcdm_scatter_csv(&state).unwrap();
@@ -835,7 +825,7 @@ mod tests {
     fn mcdm_table_csv_topsis_header() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![make_trial(0, HashMap::new(), vec![1.0])];
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
         state.mcdm_result = Some(make_topsis_mcdm(1));
         let csv = build_mcdm_table_csv(&state).unwrap();
@@ -847,7 +837,7 @@ mod tests {
         use crate::state::results::VikorResult;
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![make_trial(0, HashMap::new(), vec![1.0])];
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
         state.mcdm_result = Some(McdmResult::Vikor(VikorResult {
             s_values: vec![0.3],
@@ -874,10 +864,10 @@ mod tests {
         use crate::state::results::AhpResult;
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.trial_rows = vec![
+        study.set_rows_for_test(vec![
             make_trial(5, HashMap::new(), vec![1.0]),
             make_trial(6, HashMap::new(), vec![2.0]),
-        ];
+        ]);
         state.current_study = Some(study);
         state.ahp_result = Some(AhpResult {
             priority_vector: vec![1.0],
@@ -909,7 +899,7 @@ mod tests {
         use crate::state::results::AhpResult;
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f1".into(), "f2".into()], vec![Direction::Minimize, Direction::Minimize]);
-        study.trial_rows = vec![make_trial(0, HashMap::new(), vec![1.0, 2.0])];
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0, 2.0])]);
         state.current_study = Some(study);
         state.ahp_result = Some(AhpResult {
             priority_vector: vec![0.5, 0.5],
@@ -958,7 +948,7 @@ mod tests {
         );
         let mut p = HashMap::new();
         p.insert("x".to_string(), 1.5_f64);
-        study.trial_rows = vec![make_trial(0, p, vec![0.5])];
+        study.set_rows_for_test(vec![make_trial(0, p, vec![0.5])]);
         study.pareto_indices = vec![0];
         state.current_study = Some(study);
         let widgets = WidgetStates::default();

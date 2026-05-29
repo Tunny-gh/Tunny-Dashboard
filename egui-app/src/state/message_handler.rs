@@ -1,5 +1,8 @@
-use crate::state::app_state::{AppState, Direction, GpuBufferData, StudyContext, TrialRow, TrialState};
+use crate::state::app_state::{
+    AppState, Direction, GpuBufferData, StudyContext, StudyView, TrialRow,
+};
 use crate::state::messages::{AppMessage, DownsampleKey};
+use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 use crate::state::results::{HvHistory, McdmResult};
 use crate::ui::widget_states::WidgetStates;
 use std::collections::HashMap;
@@ -24,17 +27,29 @@ impl MessageHandler {
             }
             AppMessage::StudySelected {
                 meta,
-                trial_rows,
+                study_id,
+                pareto_rank,
                 gpu_data,
                 pareto_indices,
             } => {
                 app_state.clear();
-                app_state.current_study = Some(StudyContext {
-                    meta,
-                    trial_rows,
-                    gpu_data,
-                    pareto_indices,
-                });
+                match tunny_core::dataframe::snapshot(study_id) {
+                    Some(df) => {
+                        let view = StudyView::new(df, pareto_rank);
+                        app_state.current_study = Some(StudyContext {
+                            meta,
+                            view,
+                            gpu_data,
+                            pareto_indices,
+                        });
+                    }
+                    None => {
+                        *load_error =
+                            Some(format!("study_id {} not found in shared store", study_id));
+                        *is_loading = false;
+                        return;
+                    }
+                }
                 widget_states.hv_history.computing = false;
                 widget_states.ahp_chart = Default::default();
                 widget_states.cluster_scatter = Default::default();
@@ -206,52 +221,118 @@ impl MessageHandler {
         });
     }
 
+    /// 現在の DataFrame スナップショットから core TrialRow 群を再構築する。
+    /// ライブ更新で新試行を加えた DataFrame を作り直すための入力に用いる。
+    fn core_rows_from_df(df: &DataFrame) -> Vec<CoreTrialRow> {
+        let n = df.row_count();
+        let param_names = df.param_col_names().to_vec();
+        let obj_names = df.objective_col_names().to_vec();
+        let un = df.user_attr_numeric_col_names().to_vec();
+        let us = df.user_attr_string_col_names().to_vec();
+        let cn = df.constraint_col_names().to_vec();
+        (0..n)
+            .map(|i| {
+                let mut param_display = HashMap::new();
+                let mut param_category_label = HashMap::new();
+                for name in &param_names {
+                    if let Some(col) = df.get_numeric_column(name) {
+                        if let Some(v) = col.get(i) {
+                            param_display.insert(name.clone(), *v);
+                        }
+                    } else if let Some(col) = df.get_string_column(name) {
+                        if let Some(v) = col.get(i) {
+                            param_category_label.insert(name.clone(), v.clone());
+                        }
+                    }
+                }
+                let objective_values = obj_names
+                    .iter()
+                    .filter_map(|o| df.get_numeric_column(o).and_then(|c| c.get(i).copied()))
+                    .collect();
+                let mut user_attrs_numeric = HashMap::new();
+                for name in &un {
+                    if let Some(c) = df.get_numeric_column(name) {
+                        if let Some(v) = c.get(i) {
+                            user_attrs_numeric.insert(name.clone(), *v);
+                        }
+                    }
+                }
+                let mut user_attrs_string = HashMap::new();
+                for name in &us {
+                    if let Some(c) = df.get_string_column(name) {
+                        if let Some(v) = c.get(i) {
+                            user_attrs_string.insert(name.clone(), v.clone());
+                        }
+                    }
+                }
+                let constraint_values = cn
+                    .iter()
+                    .filter_map(|c| df.get_numeric_column(c).and_then(|col| col.get(i).copied()))
+                    .collect();
+                CoreTrialRow {
+                    trial_id: df.get_trial_id(i).unwrap_or(i as u32),
+                    param_display,
+                    param_category_label,
+                    objective_values,
+                    user_attrs_numeric,
+                    user_attrs_string,
+                    constraint_values,
+                }
+            })
+            .collect()
+    }
+
     fn handle_live_update_done(
         new_core_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
         app_state: &mut AppState,
     ) {
         if let Some(study) = &mut app_state.current_study {
-            let base_number = study.trial_rows.len() as u32;
-            for (i, core_row) in new_core_rows.iter().enumerate() {
-                let app_row = TrialRow {
+            let study_id = study.meta.study_id;
+
+            // 既存 DataFrame から core 行を再構築し、新試行を追加して DataFrame を作り直す。
+            let mut all_rows = Self::core_rows_from_df(&study.view.df);
+            for core_row in &new_core_rows {
+                all_rows.push(CoreTrialRow {
                     trial_id: core_row.trial_id,
-                    trial_number: base_number + i as u32,
-                    params: core_row.params.clone(),
-                    objectives: core_row.objectives.clone(),
-                    pareto_rank: 0,
-                    cluster_id: None,
-                    state: TrialState::Complete,
-                    user_attrs: HashMap::new(),
-                };
-                study.trial_rows.push(app_row);
+                    param_display: core_row.params.clone(),
+                    param_category_label: core_row.param_categories.clone(),
+                    objective_values: core_row.objectives.clone(),
+                    user_attrs_numeric: core_row.user_attrs_numeric.clone(),
+                    user_attrs_string: core_row.user_attrs_string.clone(),
+                    constraint_values: core_row.constraint_values.clone(),
+                });
             }
 
-            // Recompute Pareto ranks via nd_sort
+            let param_names = study.meta.param_names.clone();
+            let obj_names = study.meta.objective_names.clone();
+            let un = study.view.df.user_attr_numeric_col_names().to_vec();
+            let us = study.view.df.user_attr_string_col_names().to_vec();
+            let max_c = study.view.df.constraint_col_names().len();
+            let new_df = DataFrame::from_trials(&all_rows, &param_names, &obj_names, &un, &us, max_c);
+
+            // Pareto ランク再計算
             let is_minimize: Vec<bool> = study
                 .meta
                 .directions
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
                 .collect();
-            let objectives: Vec<Vec<f64>> = study
-                .trial_rows
-                .iter()
-                .map(|r| r.objectives.clone())
-                .collect();
+            let objectives: Vec<Vec<f64>> =
+                all_rows.iter().map(|r| r.objective_values.clone()).collect();
             let ranks = tunny_core::pareto::nd_sort(&objectives, &is_minimize);
+            let pareto_indices: Vec<u32> = ranks
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &r)| if r == 0 { Some(i as u32) } else { None })
+                .collect();
 
-            let mut pareto_indices = Vec::new();
-            for (i, row) in study.trial_rows.iter_mut().enumerate() {
-                let rank = ranks.get(i).copied().unwrap_or(0);
-                row.pareto_rank = rank;
-                if rank == 0 {
-                    pareto_indices.push(i as u32);
-                }
-            }
+            // ArcSwap で共有ストアのスナップショットを差し替え、view を作り直す。
+            let arc = std::sync::Arc::new(new_df);
+            tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
+            study.view = StudyView::new(arc, ranks.clone());
             study.pareto_indices = pareto_indices;
-
-            study.gpu_data = Self::build_gpu_data_from_rows(&study.trial_rows, &ranks);
+            study.gpu_data = Self::build_gpu_data_from_rows(&study.view.to_trial_rows(), &ranks);
         }
 
         // Update all_studies completed_trials
@@ -264,7 +345,6 @@ impl MessageHandler {
                 meta.completed_trials = new_count;
             }
         }
-
     }
 
     fn build_gpu_data_from_rows(rows: &[TrialRow], ranks: &[u32]) -> GpuBufferData {
@@ -325,7 +405,7 @@ impl MessageHandler {
         let trial_count = app_state
             .current_study
             .as_ref()
-            .map(|c| c.trial_rows.len())
+            .map(|c| c.trial_count())
             .unwrap_or(0);
         if result.labels.len() == trial_count {
             app_state.cluster_result = Some(result);
@@ -361,10 +441,33 @@ mod tests {
     use super::*;
     use crate::state::app_state::{Direction, GpuBufferData, StudyMeta, TrialRow, TrialState};
 
+    /// テスト用: 共有ストア（テストビルドでは thread_local）に DataFrame を格納し、
+    /// 新しい StudySelected ペイロード（study_id + pareto_rank）を返す。
     fn make_study_message(trial_count: usize) -> AppMessage {
+        let core_rows: Vec<CoreTrialRow> = (0..trial_count)
+            .map(|i| CoreTrialRow {
+                trial_id: i as u32,
+                param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
+                param_category_label: std::collections::HashMap::new(),
+                objective_values: vec![i as f64],
+                user_attrs_numeric: std::collections::HashMap::new(),
+                user_attrs_string: std::collections::HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["y".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        tunny_core::dataframe::store_dataframes(vec![df]);
+
         AppMessage::StudySelected {
             meta: StudyMeta {
-                study_id: 1,
+                study_id: 0,
                 name: "s".to_string(),
                 directions: vec![Direction::Minimize],
                 completed_trials: trial_count,
@@ -374,18 +477,8 @@ mod tests {
                 user_attr_names: vec![],
                 has_constraints: false,
             },
-            trial_rows: (0..trial_count)
-                .map(|i| TrialRow {
-                    trial_id: i as u32,
-                    trial_number: i as u32,
-                    params: std::collections::HashMap::from([("x".to_string(), i as f64)]),
-                    objectives: vec![i as f64],
-                    pareto_rank: 0,
-                    cluster_id: None,
-                    state: TrialState::Complete,
-                    user_attrs: std::collections::HashMap::new(),
-                })
-                .collect(),
+            study_id: 0,
+            pareto_rank: vec![0; trial_count],
             gpu_data: GpuBufferData {
                 positions: vec![],
                 positions3d: vec![],
@@ -397,8 +490,17 @@ mod tests {
         }
     }
 
+    /// 共有ストア（本番ビルドではプロセスグローバル）を使うテストを直列化するガード。
+    /// tunny-desktop のテストは tunny-core を通常リンクするため store は全テスト共有。
+    /// store_dataframes + snapshot を使うテストはこのガードで直列化して競合を防ぐ。
+    fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     #[test]
     fn clustering_done_updates_state_when_lengths_match() {
+        let _g = test_store_guard();
         let mut app_state = AppState::new();
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -431,6 +533,7 @@ mod tests {
 
     #[test]
     fn clustering_done_rejects_mismatched_label_length() {
+        let _g = test_store_guard();
         let mut app_state = AppState::new();
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -479,6 +582,7 @@ mod tests {
 
     #[test]
     fn live_update_done_appends_trial_rows() {
+        let _g = test_store_guard();
         let mut app_state = AppState::new();
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -491,7 +595,7 @@ mod tests {
             &mut is_loading,
             &mut load_error,
         );
-        assert_eq!(app_state.current_study.as_ref().unwrap().trial_rows.len(), 3);
+        assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 3);
 
         MessageHandler::handle(
             AppMessage::LiveUpdateDone {
@@ -507,7 +611,7 @@ mod tests {
             &mut load_error,
         );
 
-        assert_eq!(app_state.current_study.as_ref().unwrap().trial_rows.len(), 5);
+        assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
     }
 
     #[test]
@@ -544,6 +648,7 @@ mod tests {
 
     #[test]
     fn live_update_done_preserves_filter_ranges() {
+        let _g = test_store_guard();
         let mut app_state = AppState::new();
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -614,6 +719,7 @@ mod tests {
 
     #[test]
     fn study_selected_resets_cluster_widget_runtime_state() {
+        let _g = test_store_guard();
         let mut app_state = AppState::new();
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -652,8 +758,8 @@ mod tests {
         let mut is_loading = false;
         let mut load_error = None;
 
-        let context = StudyContext {
-            meta: StudyMeta {
+        let context = StudyContext::from_rows_for_test(
+            StudyMeta {
                 study_id: 99,
                 name: "compare".to_string(),
                 directions: vec![Direction::Minimize],
@@ -664,16 +770,8 @@ mod tests {
                 user_attr_names: vec![],
                 has_constraints: false,
             },
-            trial_rows: vec![],
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 0,
-            },
-            pareto_indices: vec![],
-        };
+            vec![],
+        );
 
         MessageHandler::handle(
             AppMessage::ComparisonStudyLoaded {

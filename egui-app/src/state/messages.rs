@@ -1,6 +1,6 @@
 use crate::state::app_state::{
     ClusterResult, GpuBufferData, McdmResult, SensitivityResult, SobolResult, StudyContext,
-    StudyMeta, TopsisResult, TrialRow,
+    StudyMeta, TopsisResult,
 };
 use crate::state::results::{AhpResult, EntropyResult};
 
@@ -107,7 +107,10 @@ pub enum AppMessage {
     },
     StudySelected {
         meta: StudyMeta,
-        trial_rows: Vec<TrialRow>,
+        /// 共有ストア参照キー。UI 側が snapshot(study_id) で Arc<DataFrame> を取得する。
+        study_id: u32,
+        /// Pareto ランク（行 index 順、アプリ層算出）。StudyView の並行配列へ。
+        pareto_rank: Vec<u32>,
         gpu_data: GpuBufferData,
         pareto_indices: Vec<u32>,
     },
