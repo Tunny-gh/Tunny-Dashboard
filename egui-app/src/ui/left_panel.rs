@@ -58,7 +58,7 @@ fn show_study_info(ui: &mut egui::Ui, app_state: &AppState) {
         ui.label(format!(
             "Selected: {} / {}",
             app_state.selected_indices.len(),
-            ctx.trial_rows().len()
+            ctx.trial_count()
         ));
     } else {
         ui.label("Open a file");

@@ -7,7 +7,7 @@ use crate::ui::widgets::{
     pdp_2d::PdpChart2DState, pdp_chart::PdpChart, scatter_matrix::ScatterMatrix,
     sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart,
 };
-use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors};
+use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors_view};
 
 /// Bottom Panel のタブ種別
 #[derive(Default, PartialEq, Clone)]
@@ -91,13 +91,12 @@ impl WidgetStates {
         if let Some(ctx) = &app_state.current_study {
             let color_mode = app_state.color_mode.clone();
             let colormap_name = app_state.selected_colormap.clone();
-            let trial_rows = &ctx.trial_rows();
             let objective_names = &ctx.meta.objective_names;
             let mcdm_scores = app_state.mcdm_result.as_ref().map(|r| r.primary_scores());
-            self.chart_colors = compute_chart_colors(
+            self.chart_colors = compute_chart_colors_view(
                 &color_mode,
                 &colormap_name,
-                trial_rows,
+                &ctx.view,
                 objective_names,
                 mcdm_scores,
             );

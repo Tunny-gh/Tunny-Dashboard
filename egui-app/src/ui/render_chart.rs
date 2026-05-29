@@ -1,9 +1,8 @@
-use crate::state::app_state::{filter_rows_for_display, AppState, Direction};
+use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::ahp_chart::AhpDataContext;
-
 
 pub(crate) fn render_chart(
     ui: &mut egui::Ui,
@@ -26,8 +25,6 @@ pub(crate) fn render_chart(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
-    // trial_rows は PdpChart (filter_rows_for_display 経由) がまだ使うため残す
-    let trial_rows = &ctx.trial_rows();
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
@@ -58,14 +55,14 @@ pub(crate) fn render_chart(
                 .show(ui, current_sensitivity, current_sobol, obj_names);
         }
         ChartId::PdpChart => {
-            // TASK-2237: pass selected ∪ pinned rows to PDP observed overlay
-            let pdp_rows: Vec<&crate::state::app_state::TrialRow> =
-                filter_rows_for_display(trial_rows, &app_state.selected_indices, &app_state.pinned_trials);
-            let pdp_rows_owned: Vec<crate::state::app_state::TrialRow> =
-                pdp_rows.into_iter().cloned().collect();
-            widgets
-                .pdp_chart
-                .show(ui, param_names, obj_names, &pdp_rows_owned);
+            widgets.pdp_chart.show(
+                ui,
+                param_names,
+                obj_names,
+                &ctx.view,
+                &app_state.selected_indices,
+                &app_state.pinned_trials,
+            );
         }
         ChartId::PdpChart2D => {
             widgets.pdp_2d.show(ui, param_names, obj_names, cmap);

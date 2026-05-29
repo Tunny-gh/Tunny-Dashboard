@@ -144,7 +144,7 @@ pub fn show_toolbar(
 
             // 試行数カウンタ
             let trial_label = if let Some(study) = &app_state.current_study {
-                format!("Trials: {}", study.trial_rows().len())
+                format!("Trials: {}", study.trial_count())
             } else {
                 "Trials: -".to_string()
             };

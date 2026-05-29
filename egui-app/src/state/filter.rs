@@ -65,19 +65,20 @@ impl AppState {
             }
             // filter_ranges のクローンを使ってボローを回避
             let ranges = self.filter_ranges.clone();
-            let trial_rows = ctx.trial_rows();
-            self.selected_indices = trial_rows
-                .iter()
-                .filter(|row| {
+            // 列スライスで直接フィルタ（per-row HashMap 再構築を回避）
+            let n = ctx.view.row_count();
+            self.selected_indices = (0..n)
+                .filter(|&i| {
                     ranges.iter().all(|(param, (min, max))| {
-                        if let Some(&val) = row.params.get(param) {
-                            val >= *min && val <= *max
+                        if let Some(col) = ctx.view.numeric_column(param) {
+                            let val = col.get(i).copied().unwrap_or(f64::NAN);
+                            val.is_finite() && val >= *min && val <= *max
                         } else {
-                            true // パラメータが存在しない Trial は除外しない
+                            true // 列が存在しない場合は除外しない
                         }
                     })
                 })
-                .map(|r| r.trial_id)
+                .map(|i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
                 .collect();
         }
     }

@@ -1,4 +1,5 @@
 use crate::state::app_state::{ColorMode, ColormapName, TrialRow};
+use crate::state::types::StudyView;
 
 /// RGBA バイト配列（非プリマルチプライドアルファ、順序 [R, G, B, A]）を
 /// egui の Color32 へ変換する。
@@ -116,6 +117,91 @@ pub fn compute_chart_colors(
                     max_trial_number,
                 );
                 cmap.interpolate(t)
+            }
+        })
+        .collect()
+}
+
+/// `StudyView` ベースの色計算（`compute_chart_colors` の view 版）。
+pub fn compute_chart_colors_view(
+    color_mode: &ColorMode,
+    colormap_name: &ColormapName,
+    view: &StudyView,
+    objective_names: &[String],
+    mcdm_scores: Option<&[f64]>,
+) -> Vec<egui::Color32> {
+    let cmap = crate::theme::colormap_name::colormap_from_name(colormap_name);
+    let n = view.row_count();
+
+    let max_rank = view.pareto_rank.iter().copied().max().unwrap_or(0);
+    let max_cluster_id = view
+        .cluster_id
+        .iter()
+        .filter_map(|&c| c)
+        .map(|id| id.unsigned_abs())
+        .max()
+        .unwrap_or(0);
+
+    let obj_idx = match color_mode {
+        ColorMode::ObjectiveValue(name) => objective_names.iter().position(|n| n == name),
+        _ => None,
+    };
+    let obj_col: Option<&[f64]> = obj_idx.and_then(|idx| {
+        objective_names.get(idx).and_then(|name| view.numeric_column(name))
+    });
+    let obj_min_max: Option<(f64, f64)> = obj_col.map(|col| {
+        col.iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), v| {
+                (mn.min(v), mx.max(v))
+            })
+    });
+
+    (0..n)
+        .map(|i| {
+            match color_mode {
+                ColorMode::ClusterId => {
+                    if let Some(id) = view.cluster_id.get(i).copied().flatten() {
+                        let t = id.unsigned_abs() as f32 / max_cluster_id.max(1) as f32;
+                        cmap.interpolate(t)
+                    } else {
+                        egui::Color32::LIGHT_GRAY
+                    }
+                }
+                ColorMode::McdmScore => {
+                    if let Some(scores) = mcdm_scores {
+                        let score = scores.get(i).copied().unwrap_or(0.0);
+                        cmap.interpolate(score as f32)
+                    } else {
+                        egui::Color32::LIGHT_GRAY
+                    }
+                }
+                ColorMode::ParetoRank => {
+                    let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+                    let mr = max_rank.max(1) as f32 + 1.0;
+                    let t = 1.0 - rank as f32 / mr;
+                    cmap.interpolate(t)
+                }
+                ColorMode::TrialNumber => {
+                    let t = i as f32 / n.max(1) as f32;
+                    cmap.interpolate(t)
+                }
+                ColorMode::ObjectiveValue(_) => {
+                    let val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+                    if val.is_finite() {
+                        let (min, max) = obj_min_max.unwrap_or((0.0, 1.0));
+                        let range = max - min;
+                        let t = if range.abs() < f64::EPSILON {
+                            0.5
+                        } else {
+                            ((val - min) / range) as f32
+                        };
+                        cmap.interpolate(t)
+                    } else {
+                        egui::Color32::LIGHT_GRAY
+                    }
+                }
             }
         })
         .collect()
