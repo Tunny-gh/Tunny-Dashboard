@@ -101,14 +101,18 @@ pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFra
             .collect();
         usn.sort();
 
+        // ピーク削減: 各 study の行 Vec を take して DataFrame 構築後に即解放する。
+        // take で所有権を移動させることで、全 study 行が同時メモリ上に残らない。
+        let study_rows = std::mem::take(&mut per_study_rows[index]);
         dataframes.push(DataFrame::from_trials(
-            &per_study_rows[index],
+            &study_rows,
             &param_names,
             &objective_names,
             &unn,
             &usn,
             per_study_max_c[index],
         ));
+        // study_rows はここでドロップされ、この study の中間行データが解放される
     }
 
     (study_metas, dataframes)
