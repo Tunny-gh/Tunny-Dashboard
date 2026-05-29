@@ -1,4 +1,4 @@
-use crate::state::app_state::{Direction, TrialRow};
+use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
 
 /// パラメータ vs 目的関数の Slice 散布図ウィジェット
@@ -19,12 +19,12 @@ impl SliceChart {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        trial_rows: &[TrialRow],
+        view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
         directions: &[Direction],
     ) {
-        if trial_rows.is_empty() {
+        if view.row_count() == 0 {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No trial data.").weak());
             });
@@ -76,7 +76,7 @@ impl SliceChart {
         let is_single = directions.len() == 1;
         let minimize = is_single && matches!(directions.first(), Some(Direction::Minimize));
         let (highlighted_pts, normal_pts) =
-            compute_plot_points(trial_rows, param_name, obj_idx, is_single, minimize);
+            compute_plot_points(view, param_name, obj_names, obj_idx, is_single, minimize);
 
         let (highlight_label, normal_label) = if is_single {
             ("Best", "Trials")
@@ -107,27 +107,39 @@ impl SliceChart {
     }
 }
 
-/// trial_rows から Slice チャートの描画点を計算する（テスト可能な純粋関数）
+/// view から Slice チャートの描画点を計算する（テスト可能な純粋関数）
 ///
-/// - `param_name` に一致するパラメータを X 軸、`obj_idx` 番目の目的関数を Y 軸とした点列を返す
+/// - `param_name` に一致するパラメータを X 軸、`obj_names[obj_idx]` の目的関数を Y 軸とした点列を返す
 /// - `single_objective=true` のとき: ベスト値（minimize なら最小、maximize なら最大）のトライアルを
 ///   1番目のタプルに、それ以外を2番目に分類する
 /// - `single_objective=false` のとき: pareto_rank == 0 を1番目、それ以外を2番目に分類する
-/// - パラメータが存在しない、または `objectives[obj_idx]` が存在しないトライアルはスキップする
+/// - `param_name` が view に存在しない、または `obj_idx` が範囲外のとき空を返す
+/// - NaN/Inf の値はスキップする
 pub fn compute_plot_points(
-    trial_rows: &[TrialRow],
+    view: &StudyView,
     param_name: &str,
+    obj_names: &[String],
     obj_idx: usize,
     single_objective: bool,
     minimize: bool,
 ) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
-    // まず有効な点を収集する
-    let valid: Vec<(f64, f64, u32)> = trial_rows
-        .iter()
-        .filter_map(|row| {
-            let x = row.params.get(param_name).copied()?;
-            let y = row.objectives.get(obj_idx).copied()?;
-            Some((x, y, row.pareto_rank))
+    let param_col = view.numeric_column(param_name);
+    let obj_col = obj_names.get(obj_idx).and_then(|name| view.numeric_column(name));
+
+    let (Some(params), Some(objs)) = (param_col, obj_col) else {
+        return (vec![], vec![]);
+    };
+
+    // 有効な点を収集する（NaN/Inf はスキップ）
+    let valid: Vec<(f64, f64, u32)> = (0..view.row_count())
+        .filter_map(|i| {
+            let x = params.get(i).copied()?;
+            let y = objs.get(i).copied()?;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            Some((x, y, rank))
         })
         .collect();
 
@@ -171,51 +183,57 @@ pub fn compute_plot_points(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{TrialRow, TrialState};
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
-    fn make_trial(
-        trial_id: u32,
-        param_val: Option<f64>,
-        obj_val: Option<f64>,
-        pareto_rank: u32,
-    ) -> TrialRow {
-        let mut params = HashMap::new();
-        if let Some(v) = param_val {
-            params.insert("x".to_string(), v);
-        }
-        let objectives = if let Some(v) = obj_val {
-            vec![v]
-        } else {
-            vec![]
-        };
-        TrialRow {
-            trial_id,
-            trial_number: trial_id,
-            params,
-            objectives,
-            pareto_rank,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        }
+    fn make_view(
+        param_vals: &[f64],
+        obj_vals: &[f64],
+        pareto_ranks: Vec<u32>,
+    ) -> StudyView {
+        let n = param_vals.len();
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
+                trial_id: i as u32,
+                param_display: HashMap::from([("x".to_string(), param_vals[i])]),
+                param_category_label: HashMap::new(),
+                objective_values: vec![obj_vals[i]],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["obj0".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        StudyView::new(Arc::new(df), pareto_ranks)
+    }
+
+    fn make_empty_view() -> StudyView {
+        let df = DataFrame::from_trials(&[], &[], &[], &[], &[], 0);
+        StudyView::new(Arc::new(df), vec![])
     }
 
     #[test]
     fn test_compute_plot_points_empty() {
-        let (highlighted, normal) = compute_plot_points(&[], "x", 0, false, true);
+        let view = make_empty_view();
+        let obj_names = vec!["obj0".to_string()];
+        let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 0, false, true);
         assert!(highlighted.is_empty());
         assert!(normal.is_empty());
     }
 
     #[test]
     fn test_compute_plot_points_pareto_classification() {
-        let rows = vec![
-            make_trial(0, Some(1.0), Some(2.0), 0), // pareto
-            make_trial(1, Some(3.0), Some(4.0), 1), // non-pareto
-            make_trial(2, Some(5.0), Some(6.0), 0), // pareto
-        ];
-        let (pareto, non_pareto) = compute_plot_points(&rows, "x", 0, false, true);
+        let view = make_view(&[1.0, 3.0, 5.0], &[2.0, 4.0, 6.0], vec![0, 1, 0]);
+        let obj_names = vec!["obj0".to_string()];
+        let (pareto, non_pareto) = compute_plot_points(&view, "x", &obj_names, 0, false, true);
         assert_eq!(pareto.len(), 2);
         assert_eq!(non_pareto.len(), 1);
         assert_eq!(pareto[0], [1.0, 2.0]);
@@ -224,12 +242,9 @@ mod tests {
 
     #[test]
     fn test_compute_plot_points_single_obj_minimize() {
-        let rows = vec![
-            make_trial(0, Some(1.0), Some(5.0), 0),
-            make_trial(1, Some(2.0), Some(3.0), 0), // best (minimize)
-            make_trial(2, Some(3.0), Some(7.0), 0),
-        ];
-        let (best, others) = compute_plot_points(&rows, "x", 0, true, true);
+        let view = make_view(&[1.0, 2.0, 3.0], &[5.0, 3.0, 7.0], vec![0; 3]);
+        let obj_names = vec!["obj0".to_string()];
+        let (best, others) = compute_plot_points(&view, "x", &obj_names, 0, true, true);
         assert_eq!(best.len(), 1);
         assert_eq!(best[0], [2.0, 3.0]);
         assert_eq!(others.len(), 2);
@@ -237,45 +252,71 @@ mod tests {
 
     #[test]
     fn test_compute_plot_points_single_obj_maximize() {
-        let rows = vec![
-            make_trial(0, Some(1.0), Some(5.0), 0),
-            make_trial(1, Some(2.0), Some(9.0), 0), // best (maximize)
-            make_trial(2, Some(3.0), Some(7.0), 0),
-        ];
-        let (best, others) = compute_plot_points(&rows, "x", 0, true, false);
+        let view = make_view(&[1.0, 2.0, 3.0], &[5.0, 9.0, 7.0], vec![0; 3]);
+        let obj_names = vec!["obj0".to_string()];
+        let (best, others) = compute_plot_points(&view, "x", &obj_names, 0, true, false);
         assert_eq!(best.len(), 1);
         assert_eq!(best[0], [2.0, 9.0]);
         assert_eq!(others.len(), 2);
     }
 
     #[test]
-    fn test_compute_plot_points_skips_missing_param() {
-        let rows = vec![
-            make_trial(0, None, Some(2.0), 0),      // param なし → スキップ
-            make_trial(1, Some(3.0), Some(4.0), 1), // 通常
-        ];
-        let (highlighted, normal) = compute_plot_points(&rows, "x", 0, false, true);
+    fn test_compute_plot_points_unknown_param_returns_empty() {
+        let view = make_view(&[1.0, 3.0], &[2.0, 4.0], vec![0, 1]);
+        let obj_names = vec!["obj0".to_string()];
+        // "y" は view に存在しない → 空
+        let (highlighted, normal) = compute_plot_points(&view, "y", &obj_names, 0, false, true);
         assert!(highlighted.is_empty());
-        assert_eq!(normal.len(), 1);
-    }
-
-    #[test]
-    fn test_compute_plot_points_skips_missing_obj() {
-        let rows = vec![
-            make_trial(0, Some(1.0), None, 0),      // obj なし → スキップ
-            make_trial(1, Some(3.0), Some(4.0), 1), // 通常
-        ];
-        let (highlighted, normal) = compute_plot_points(&rows, "x", 0, false, true);
-        assert!(highlighted.is_empty());
-        assert_eq!(normal.len(), 1);
+        assert!(normal.is_empty());
     }
 
     #[test]
     fn test_compute_plot_points_obj_idx_out_of_bounds() {
-        let rows = vec![make_trial(0, Some(1.0), Some(2.0), 0)];
-        // obj_idx=1 だが objectives は長さ 1 → スキップ
-        let (highlighted, normal) = compute_plot_points(&rows, "x", 1, false, true);
+        let view = make_view(&[1.0], &[2.0], vec![0]);
+        let obj_names = vec!["obj0".to_string()];
+        // obj_idx=1 だが obj_names は長さ 1 → 空
+        let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 1, false, true);
         assert!(highlighted.is_empty());
         assert!(normal.is_empty());
+    }
+
+    #[test]
+    fn test_compute_plot_points_skips_nan_obj() {
+        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        // obj_vals に NaN を含む行はスキップされる
+        let core_rows: Vec<CoreRow> = vec![
+            CoreRow {
+                trial_id: 0,
+                param_display: HashMap::from([("x".to_string(), 1.0)]),
+                param_category_label: HashMap::new(),
+                objective_values: vec![],  // 目的関数なし → NaN
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            },
+            CoreRow {
+                trial_id: 1,
+                param_display: HashMap::from([("x".to_string(), 3.0)]),
+                param_category_label: HashMap::new(),
+                objective_values: vec![4.0],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            },
+        ];
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["obj0".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        let view = StudyView::new(Arc::new(df), vec![0, 1]);
+        let obj_names = vec!["obj0".to_string()];
+        let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 0, false, true);
+        assert!(highlighted.is_empty());
+        assert_eq!(normal.len(), 1);
+        assert_eq!(normal[0], [3.0, 4.0]);
     }
 }

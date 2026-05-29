@@ -4,6 +4,7 @@ use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::ahp_chart::AhpDataContext;
 
+
 pub(crate) fn render_chart(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -25,6 +26,7 @@ pub(crate) fn render_chart(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
+    // trial_rows は PdpChart (filter_rows_for_display 経由) がまだ使うため残す
     let trial_rows = &ctx.trial_rows();
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
@@ -36,7 +38,7 @@ pub(crate) fn render_chart(
         ChartId::OptimizationHistory => {
             widgets
                 .opt_history
-                .show(ui, trial_rows, obj_names, directions);
+                .show(ui, &ctx.view, obj_names, directions);
         }
         ChartId::HvHistory => {
             widgets.hv_history.hv_history = app_state.hv_history.clone();
@@ -95,7 +97,7 @@ pub(crate) fn render_chart(
         ChartId::ClusterScatter => {
             widgets.cluster_scatter.show(
                 ui,
-                trial_rows,
+                &ctx.view,
                 app_state.cluster_result.as_ref(),
                 param_names,
                 obj_names,
@@ -105,25 +107,30 @@ pub(crate) fn render_chart(
         ChartId::McdmRankChart => {
             widgets
                 .mcdm_chart
-                .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
+                .show(ui, obj_names, &app_state.mcdm_result, &ctx.view);
         }
         ChartId::McdmScatterChart => {
             widgets
                 .scatter_chart
-                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
         }
         ChartId::McdmTable => {
             widgets
                 .mcdm_table
-                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
         }
         ChartId::AhpRankChart => {
-            let objectives: Vec<f64> = trial_rows
-                .iter()
-                .flat_map(|r| r.objectives.iter().copied())
-                .collect();
-            let n_trials = trial_rows.len();
+            let n_trials = ctx.trial_count();
             let n_objectives = obj_names.len();
+            let obj_cols: Vec<Option<&[f64]>> =
+                obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+            let objectives: Vec<f64> = (0..n_trials)
+                .flat_map(|i| {
+                    obj_cols.iter().map(move |col| {
+                        col.and_then(|c| c.get(i)).copied().unwrap_or(0.0)
+                    })
+                })
+                .collect();
             let is_minimize: Vec<bool> = directions
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
@@ -141,15 +148,15 @@ pub(crate) fn render_chart(
         ChartId::AhpTable => {
             widgets
                 .ahp_chart
-                .show_table(ui, obj_names, trial_rows, &app_state.ahp_result);
+                .show_table(ui, obj_names, &ctx.view, &app_state.ahp_result);
         }
         ChartId::SliceChart => {
             widgets
                 .slice_chart
-                .show(ui, trial_rows, param_names, obj_names, directions);
+                .show(ui, &ctx.view, param_names, obj_names, directions);
         }
         ChartId::SurfacePlot => {
-            let trial_count = ctx.trial_rows().len();
+            let trial_count = ctx.trial_count();
             crate::ui::widgets::surface_plot::show(
                 ui,
                 &mut widgets.surface_plot,

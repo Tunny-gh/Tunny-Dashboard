@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::state::types::StudyView;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 
@@ -150,20 +151,21 @@ impl ClusterScatter {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        trial_rows: &[crate::state::app_state::TrialRow],
+        view: &StudyView,
         cluster_result: Option<&crate::state::app_state::ClusterResult>,
         _param_names: &[String],
         obj_names: &[String],
         colormap: &ColorMap,
     ) {
-        if trial_rows.len() < 2 {
+        let n_trials = view.row_count();
+        if n_trials < 2 {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("At least 2 trials are required.").weak());
             });
             return;
         }
 
-        self.show_header(ui, trial_rows.len());
+        self.show_header(ui, n_trials);
 
         if self.computing {
             ui.horizontal(|ui| {
@@ -179,7 +181,7 @@ impl ClusterScatter {
                 ui.label(egui::RichText::new(detail).small().weak());
             }
             if err.retryable && ui.button("Retry").clicked() {
-                self.try_queue_compute(trial_rows.len());
+                self.try_queue_compute(n_trials);
             }
             ui.separator();
         }
@@ -191,7 +193,7 @@ impl ClusterScatter {
             return;
         };
 
-        if cr.labels.len() != trial_rows.len() {
+        if cr.labels.len() != n_trials {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("Cluster result is inconsistent. Please run again.")
@@ -202,9 +204,9 @@ impl ClusterScatter {
         }
 
         // キャッシュ確認・更新（目的関数軸の座標）
-        let new_key = (trial_rows.len(), cr.n_clusters);
+        let new_key = (n_trials, cr.n_clusters);
         if self.cached_points.is_none() || self.cache_key != new_key {
-            self.cached_points = Some(compute_obj_axes_2d(trial_rows, obj_names));
+            self.cached_points = Some(compute_obj_axes_2d(view, obj_names));
             self.cache_key = new_key;
         }
         let plot_points = self.cached_points.as_ref().unwrap();
@@ -351,38 +353,50 @@ impl ClusterScatter {
 }
 
 fn build_cluster_matrix_data(
-    trial_rows: &[crate::state::app_state::TrialRow],
+    view: &StudyView,
     param_names: &[String],
     obj_names: &[String],
     target_space: ClusterSpace,
 ) -> ClusterMatrix {
-    let n_rows = trial_rows.len();
+    let n_rows = view.row_count();
     let n_cols = target_space.feature_count(param_names.len(), obj_names.len());
 
+    // 列スライスを一括取得してフラットバッファへ書き込む
     let flat_data = match target_space {
-        ClusterSpace::Objective => trial_rows
-            .iter()
-            .flat_map(|r| (0..obj_names.len()).map(|i| r.objectives.get(i).copied().unwrap_or(0.0)))
-            .collect(),
-        ClusterSpace::Variable => trial_rows
-            .iter()
-            .flat_map(|r| {
-                param_names
-                    .iter()
-                    .map(|name| r.params.get(name).copied().unwrap_or(0.0))
-            })
-            .collect(),
-        ClusterSpace::Combined => trial_rows
-            .iter()
-            .flat_map(|r| {
-                param_names
-                    .iter()
-                    .map(|name| r.params.get(name).copied().unwrap_or(0.0))
-                    .chain(
-                        (0..obj_names.len()).map(|i| r.objectives.get(i).copied().unwrap_or(0.0)),
-                    )
-            })
-            .collect(),
+        ClusterSpace::Objective => {
+            let cols: Vec<Option<&[f64]>> =
+                obj_names.iter().map(|name| view.numeric_column(name)).collect();
+            (0..n_rows)
+                .flat_map(|i| {
+                    cols.iter()
+                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                })
+                .collect()
+        }
+        ClusterSpace::Variable => {
+            let cols: Vec<Option<&[f64]>> =
+                param_names.iter().map(|name| view.numeric_column(name)).collect();
+            (0..n_rows)
+                .flat_map(|i| {
+                    cols.iter()
+                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                })
+                .collect()
+        }
+        ClusterSpace::Combined => {
+            let param_cols: Vec<Option<&[f64]>> =
+                param_names.iter().map(|name| view.numeric_column(name)).collect();
+            let obj_cols: Vec<Option<&[f64]>> =
+                obj_names.iter().map(|name| view.numeric_column(name)).collect();
+            (0..n_rows)
+                .flat_map(|i| {
+                    param_cols
+                        .iter()
+                        .chain(obj_cols.iter())
+                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                })
+                .collect()
+        }
     };
 
     ClusterMatrix {
@@ -393,12 +407,12 @@ fn build_cluster_matrix_data(
 }
 
 pub fn build_cluster_matrix(
-    trial_rows: &[crate::state::app_state::TrialRow],
+    view: &StudyView,
     param_names: &[String],
     obj_names: &[String],
     target_space: ClusterSpace,
 ) -> Result<ClusterMatrix, crate::state::messages::ClusterUiError> {
-    let matrix = build_cluster_matrix_data(trial_rows, param_names, obj_names, target_space);
+    let matrix = build_cluster_matrix_data(view, param_names, obj_names, target_space);
     if !matrix.is_valid_for_clustering() {
         return Err(crate::state::messages::cluster_ui_error(
             "At least 2 trials and one feature are required.",
@@ -414,20 +428,14 @@ pub fn build_cluster_matrix(
 
 /// 目的関数値の最初の 2 軸を散布図用に返す。
 /// 目的関数が 1 つのみの場合は Y 軸を 0.0 固定とする。
-fn compute_obj_axes_2d(
-    trial_rows: &[crate::state::app_state::TrialRow],
-    obj_names: &[String],
-) -> Vec<[f32; 2]> {
-    let n_obj = obj_names.len();
-    trial_rows
-        .iter()
-        .map(|r| {
-            let x = r.objectives.first().copied().unwrap_or(0.0) as f32;
-            let y = if n_obj >= 2 {
-                r.objectives.get(1).copied().unwrap_or(0.0) as f32
-            } else {
-                0.0
-            };
+fn compute_obj_axes_2d(view: &StudyView, obj_names: &[String]) -> Vec<[f32; 2]> {
+    let n = view.row_count();
+    let col0 = obj_names.first().and_then(|name| view.numeric_column(name));
+    let col1 = obj_names.get(1).and_then(|name| view.numeric_column(name));
+    (0..n)
+        .map(|i| {
+            let x = col0.and_then(|c| c.get(i)).copied().unwrap_or(0.0) as f32;
+            let y = col1.and_then(|c| c.get(i)).copied().unwrap_or(0.0) as f32;
             [x, y]
         })
         .collect()
@@ -538,26 +546,43 @@ mod tests {
         assert_eq!(cs.cache_key, (0, 0));
     }
 
+    fn make_view_with_objs(obj_vals: &[Vec<f64>]) -> StudyView {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        let n = obj_vals.len();
+        if n == 0 {
+            let df = DataFrame::from_trials(&[], &[], &[], &[], &[], 0);
+            return StudyView::new(Arc::new(df), vec![]);
+        }
+        let n_obj = obj_vals[0].len();
+        let obj_names: Vec<String> = (0..n_obj).map(|i| format!("obj{i}")).collect();
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
+                trial_id: i as u32,
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: obj_vals[i].clone(),
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &[], &obj_names, &[], &[], 0);
+        StudyView::new(Arc::new(df), vec![0; n])
+    }
+
     #[test]
     fn compute_obj_axes_2d_empty_trials() {
-        let result = compute_obj_axes_2d(&[], &["obj1".to_string()]);
+        let view = make_view_with_objs(&[]);
+        let result = compute_obj_axes_2d(&view, &["obj0".to_string()]);
         assert!(result.is_empty());
     }
 
     #[test]
     fn compute_obj_axes_2d_single_objective() {
-        use crate::state::app_state::{TrialRow, TrialState};
-        let trial = TrialRow {
-            trial_id: 0,
-            trial_number: 0,
-            params: std::collections::HashMap::new(),
-            objectives: vec![1.5],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: std::collections::HashMap::new(),
-        };
-        let result = compute_obj_axes_2d(&[trial], &["obj1".to_string()]);
+        let view = make_view_with_objs(&[vec![1.5]]);
+        let result = compute_obj_axes_2d(&view, &["obj0".to_string()]);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], [1.5_f32, 0.0_f32]);
     }

@@ -307,7 +307,7 @@ pub(crate) fn poll_chart_work(
         }
         ChartId::ClusterScatter => {
             if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
-                match build_cluster_matrix(trial_rows, param_names, obj_names, req.target_space) {
+                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
                     Ok(matrix) => {
                         let tx = tx.clone();
                         app_state.cluster_result = None;
@@ -325,11 +325,16 @@ pub(crate) fn poll_chart_work(
             }
 
             if widgets.mcdm_chart.pending_entropy && !widgets.mcdm_chart.computing {
-                let objectives: Vec<f64> = trial_rows
-                    .iter()
-                    .flat_map(|r| r.objectives.iter().copied())
+                let n_trials = ctx.view.row_count();
+                let obj_cols: Vec<Option<&[f64]>> =
+                    obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+                let objectives: Vec<f64> = (0..n_trials)
+                    .flat_map(|i| {
+                        obj_cols
+                            .iter()
+                            .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                    })
                     .collect();
-                let n_trials = trial_rows.len();
                 let n_objectives = obj_names.len();
 
                 if n_trials > 0 && n_objectives > 0 {

@@ -1,5 +1,5 @@
-use crate::state::app_state::TrialRow;
 use crate::state::results::AhpResult;
+use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_PRIMARY, COLOR_CR_OK, COLOR_EMPTY_STATE};
 use crate::theme::ERROR_COLOR;
 
@@ -206,7 +206,7 @@ impl AhpChart {
         &mut self,
         ui: &mut egui::Ui,
         obj_names: &[String],
-        trial_rows: &[TrialRow],
+        view: &StudyView,
         result: &Option<AhpResult>,
     ) {
         self.top_n.show_combo(ui, "ahp_top_n_combo");
@@ -221,6 +221,10 @@ impl AhpChart {
         };
 
         let top_n = self.top_n.count().min(r.ranked_indices.len());
+
+        // 目的列スライスを一括取得
+        let obj_cols: Vec<Option<&[f64]>> =
+            obj_names.iter().map(|name| view.numeric_column(name)).collect();
 
         egui::ScrollArea::vertical()
             .max_height(400.0)
@@ -237,13 +241,13 @@ impl AhpChart {
                         ui.end_row();
 
                         for (rank, &trial_idx) in r.ranked_indices.iter().take(top_n).enumerate() {
+                            let i = trial_idx as usize;
                             ui.label(format!("{}", rank + 1));
                             ui.label(format!("#{}", trial_idx));
-                            ui.label(format!("{:.4}", r.scores[trial_idx as usize]));
-                            if let Some(row) = trial_rows.get(trial_idx as usize) {
-                                for &val in &row.objectives {
-                                    ui.label(format!("{:.4}", val));
-                                }
+                            ui.label(format!("{:.4}", r.scores[i]));
+                            for col in &obj_cols {
+                                let val = col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+                                ui.label(format!("{:.4}", val));
                             }
                             ui.end_row();
                         }
