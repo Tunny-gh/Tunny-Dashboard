@@ -15,17 +15,26 @@ fn build_xy_for_objective(
     objective: &str,
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
     let param_names = &ctx.meta.param_names;
-    let x_matrix = ctx
-        .trial_rows()
-        .iter()
-        .map(|r| param_names.iter().map(|p| r.params.get(p).copied().unwrap_or(0.0)).collect())
+    let n = ctx.view.row_count();
+
+    let param_cols: Vec<Option<&[f64]>> =
+        param_names.iter().map(|p| ctx.view.numeric_column(p)).collect();
+
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            param_cols
+                .iter()
+                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                .collect()
+        })
         .collect();
-    let obj_idx = ctx.meta.objective_names.iter().position(|o| o == objective);
-    let y = ctx
-        .trial_rows()
-        .iter()
-        .map(|r| obj_idx.and_then(|i| r.objectives.get(i).copied()).unwrap_or(0.0))
-        .collect();
+
+    let y: Vec<f64> = ctx
+        .view
+        .numeric_column(objective)
+        .map(|col| col.to_vec())
+        .unwrap_or_else(|| vec![0.0; n]);
+
     (x_matrix, y)
 }
 
@@ -54,7 +63,6 @@ pub(crate) fn poll_chart_work(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
-    let trial_rows = &ctx.trial_rows();
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
@@ -69,12 +77,24 @@ pub(crate) fn poll_chart_work(
 
                 // HV computation is expensive; downsample so each dispatch stays fast
                 const TARGET_POINTS: usize = 50;
-                let step = (trial_rows.len() / TARGET_POINTS).max(1);
-                let (sampled_ids, sampled_objs): (Vec<u32>, Vec<Vec<f64>>) = trial_rows
+                let n_trials = ctx.view.row_count();
+                let step = (n_trials / TARGET_POINTS).max(1);
+                let obj_cols: Vec<Option<&[f64]>> =
+                    obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+                let sampled_indices: Vec<usize> = (0..n_trials).step_by(step).collect();
+                let sampled_ids: Vec<u32> = sampled_indices
                     .iter()
-                    .step_by(step)
-                    .map(|r| (r.trial_id, r.objectives.clone()))
-                    .unzip();
+                    .map(|&i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
+                    .collect();
+                let sampled_objs: Vec<Vec<f64>> = sampled_indices
+                    .iter()
+                    .map(|&i| {
+                        obj_cols
+                            .iter()
+                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                            .collect()
+                    })
+                    .collect();
 
                 widgets.hv_history.computing = true;
                 let tx = tx.clone();
@@ -112,33 +132,8 @@ pub(crate) fn poll_chart_work(
                     widgets.importance.computing = false;
                 } else {
                     let ctx = app_state.current_study.as_ref().unwrap();
-                    let selected_obj = ctx
-                        .meta
-                        .objective_names
-                        .get(obj_idx)
-                        .cloned()
-                        .unwrap_or_default();
-                    let core_rows: Vec<tunny_core::dataframe::TrialRow> = ctx
-                        .trial_rows()
-                        .iter()
-                        .map(|r| tunny_core::dataframe::TrialRow {
-                            trial_id: r.trial_id,
-                            param_display: r.params.clone(),
-                            param_category_label: Default::default(),
-                            objective_values: r.objectives.clone(),
-                            user_attrs_numeric: Default::default(),
-                            user_attrs_string: Default::default(),
-                            constraint_values: vec![],
-                        })
-                        .collect();
-                    let df = tunny_core::dataframe::DataFrame::from_trials(
-                        &core_rows,
-                        &ctx.meta.param_names,
-                        &[selected_obj],
-                        &[],
-                        &[],
-                        0,
-                    );
+                    // 共有ストアの DataFrame を Arc::clone して直接利用（trial_rows 再構築不要）
+                    let df = std::sync::Arc::clone(&ctx.view.df);
                     let tx = tx.clone();
                     match metric {
                         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
@@ -181,7 +176,7 @@ pub(crate) fn poll_chart_work(
                                     tunny_core::sensitivity::compute_sensitivity_single_obj(
                                         &df,
                                         vec![core_metric],
-                                        0,
+                                        obj_idx,
                                     );
                                 let r = match results.pop() {
                                     Some(r) => r,
@@ -365,12 +360,17 @@ pub(crate) fn poll_chart_work(
 
                 let McdmComputeRequest { method, weights, v } = req;
 
-                let objectives: Vec<f64> = trial_rows
-                    .iter()
-                    .flat_map(|r| r.objectives.iter().copied())
-                    .collect();
-                let n_trials = trial_rows.len();
+                let n_trials = ctx.view.row_count();
                 let n_objectives = obj_names.len();
+                let obj_cols_mcdm: Vec<Option<&[f64]>> =
+                    obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+                let objectives: Vec<f64> = (0..n_trials)
+                    .flat_map(|i| {
+                        obj_cols_mcdm
+                            .iter()
+                            .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                    })
+                    .collect();
                 let is_minimize: Vec<bool> = directions
                     .iter()
                     .map(|d| matches!(d, Direction::Minimize))
