@@ -89,7 +89,7 @@ TASK-2330 → TASK-2332
 ### タスク一覧
 
 - [x] [TASK-2334: Pareto 2D/3D の行クローンキャッシュ撤廃（MEM-002）](TASK-2334.md) - 8h (TDD) 🔵 ✅完了
-- [ ] [TASK-2335: Parallel Coordinates / Scatter Matrix の列キャッシュ共有化（MEM-003）](TASK-2335.md) - 8h (TDD) 🔵
+- [x] [TASK-2335: Parallel Coordinates / Scatter Matrix の列キャッシュ共有化（MEM-003）](TASK-2335.md) - 8h (TDD) 🔵 ✅完了
 - [ ] [TASK-2336: Trial Table の列アクセス移行](TASK-2336.md) - 8h (TDD) 🔵
 - [ ] [TASK-2337: Cluster Scatter / MCDM 系ウィジェットの移行](TASK-2337.md) - 8h (TDD) 🔵
 - [ ] [TASK-2338: 分析パイプライン入力の列参照化（MEM-004）](TASK-2338.md) - 8h (TDD) 🔵

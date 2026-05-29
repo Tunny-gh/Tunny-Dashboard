@@ -68,7 +68,6 @@ pub struct ParallelCoordsChart {
     pub drag_start: Option<(String, f32)>,
     /// REQ-004: 軸ごとの表示/非表示フラグ（true = 表示）
     pub axis_visibility: std::collections::HashMap<String, bool>,
-    col_data_cache: Option<Vec<Vec<f64>>>,
     col_ranges_cache: Option<Vec<(f64, f64)>>,
     cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
     // TASK-2242: pending selection from completed brush drag
@@ -84,7 +83,6 @@ impl Default for ParallelCoordsChart {
             brush_ranges: std::collections::HashMap::new(),
             drag_start: None,
             axis_visibility: std::collections::HashMap::new(),
-            col_data_cache: None,
             col_ranges_cache: None,
             cache_key: (0, 0, 0),
             pending_selection: None,
@@ -108,12 +106,13 @@ impl ParallelCoordsChart {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        trial_rows: &[crate::state::app_state::TrialRow],
+        view: &crate::state::app_state::StudyView,
         param_names: &[String],
         obj_names: &[String],
         chart_colors: &[egui::Color32],
     ) {
-        if trial_rows.is_empty() {
+        let trial_count = view.row_count();
+        if trial_count == 0 {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No trial data.").weak());
             });
@@ -127,39 +126,26 @@ impl ParallelCoordsChart {
         }
 
         let n_params = param_names.len();
-        let cache_key = (trial_rows.len(), n_params, obj_names.len());
-        if self.col_data_cache.is_none() || self.cache_key != cache_key {
-            let col_data: Vec<Vec<f64>> = all_names
+        // 各軸の列スライスを view から借用（コピーしない・MEM-003）
+        let cols: Vec<Option<&[f64]>> =
+            all_names.iter().map(|name| view.numeric_column(name)).collect();
+
+        let cache_key = (trial_count, n_params, obj_names.len());
+        if self.col_ranges_cache.is_none() || self.cache_key != cache_key {
+            let col_ranges: Vec<(f64, f64)> = cols
                 .iter()
-                .enumerate()
-                .map(|(idx, name)| {
-                    if idx < n_params {
-                        trial_rows
-                            .iter()
-                            .filter_map(|r| r.params.get(name).copied())
-                            .collect()
-                    } else {
-                        let obj_idx = idx - n_params;
-                        trial_rows
-                            .iter()
-                            .filter_map(|r| r.objectives.get(obj_idx).copied())
-                            .collect()
+                .map(|data| match data {
+                    Some(c) => {
+                        let mn = c.iter().cloned().fold(f64::INFINITY, f64::min);
+                        let mx = c.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                        (mn, mx)
                     }
+                    None => (0.0, 1.0),
                 })
                 .collect();
-            let col_ranges: Vec<(f64, f64)> = col_data
-                .iter()
-                .map(|data| {
-                    let mn = data.iter().cloned().fold(f64::INFINITY, f64::min);
-                    let mx = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    (mn, mx)
-                })
-                .collect();
-            self.col_data_cache = Some(col_data);
             self.col_ranges_cache = Some(col_ranges);
             self.cache_key = cache_key;
         }
-        let col_data = self.col_data_cache.as_ref().unwrap();
         let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
         let available = ui.available_rect_before_wrap();
@@ -185,7 +171,7 @@ impl ParallelCoordsChart {
         let tick_font = egui::FontId::proportional(9.0);
 
         // 各試行を折れ線で描画（半透明）
-        for t_idx in 0..trial_rows.len() {
+        for t_idx in 0..trial_count {
             let base_color = chart_colors
                 .get(t_idx)
                 .copied()
@@ -200,7 +186,7 @@ impl ParallelCoordsChart {
             let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
             let mut valid = true;
             for i in 0..n_axes {
-                let val_opt = col_data[i].get(t_idx).copied();
+                let val_opt = cols.get(i).and_then(|c| c.as_ref()).and_then(|c| c.get(t_idx)).copied();
                 let Some(val) = val_opt else {
                     valid = false;
                     break;
@@ -305,9 +291,9 @@ impl ParallelCoordsChart {
                     self.drag_start = None;
                     // Compute selection from all active brush ranges
                     let new_sel = filter_trials_by_brushes(
-                        trial_rows,
+                        &view.trial_ids,
                         &self.brush_ranges,
-                        col_data,
+                        &cols,
                         col_ranges,
                         &all_names,
                     );
@@ -325,29 +311,32 @@ impl ParallelCoordsChart {
 }
 
 /// 全ブラシ範囲に対して AND 条件でトライアルをフィルタリングし trial_id リストを返す（TASK-2242）
+/// 列スライス（view 由来の借用）と trial_ids 並行配列から算出する（行クローン不要・MEM-003）。
 pub fn filter_trials_by_brushes(
-    trial_rows: &[crate::state::app_state::TrialRow],
+    trial_ids: &[u32],
     brush_ranges: &std::collections::HashMap<String, Option<(f32, f32)>>,
-    col_data: &[Vec<f64>],
+    cols: &[Option<&[f64]>],
     col_ranges: &[(f64, f64)],
     all_names: &[String],
 ) -> Vec<u32> {
-    trial_rows
-        .iter()
-        .enumerate()
-        .filter_map(|(t_idx, row)| {
+    (0..trial_ids.len())
+        .filter_map(|t_idx| {
             for (axis_idx, axis_name) in all_names.iter().enumerate() {
                 let Some(Some((lo, hi))) = brush_ranges.get(axis_name.as_str()) else {
                     continue; // no active brush on this axis
                 };
-                let val = col_data.get(axis_idx).and_then(|c| c.get(t_idx)).copied()?;
+                let val = cols
+                    .get(axis_idx)
+                    .and_then(|c| c.as_ref())
+                    .and_then(|c| c.get(t_idx))
+                    .copied()?;
                 let (mn, mx) = col_ranges.get(axis_idx).copied()?;
                 let norm = normalize_value(val, mn, mx);
                 if norm < *lo || norm > *hi {
                     return None; // outside brush range
                 }
             }
-            Some(row.trial_id)
+            trial_ids.get(t_idx).copied()
         })
         .collect()
 }
@@ -545,16 +534,14 @@ mod tests {
     #[test]
     fn multi_axis_brush_applies_and_filter() {
         use std::collections::HashMap;
-        let rows = vec![
-            make_trial_with_params(0, 2.0, 5.0),
-            make_trial_with_params(1, 8.0, 5.0),  // x out of range
-            make_trial_with_params(2, 2.0, 9.0),  // obj out of range
-        ];
+        let trial_ids = vec![0u32, 1, 2];
         // col_data: axis 0 = x, axis 1 = obj
         let col_data = vec![
             vec![2.0, 8.0, 2.0], // x values
             vec![5.0, 5.0, 9.0], // obj values
         ];
+        let cols: Vec<Option<&[f64]>> =
+            vec![Some(col_data[0].as_slice()), Some(col_data[1].as_slice())];
         let col_ranges = vec![(0.0_f64, 10.0_f64), (0.0_f64, 10.0_f64)];
         let all_names = vec!["x".to_string(), "obj".to_string()];
 
@@ -564,7 +551,7 @@ mod tests {
         // obj in [0.0, 0.6] = values 0..6 → trial 0 passes; trial 2 (obj=9) fails
         brush_ranges.insert("obj".to_string(), Some((0.0, 0.6)));
 
-        let sel = filter_trials_by_brushes(&rows, &brush_ranges, &col_data, &col_ranges, &all_names);
+        let sel = filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
         assert_eq!(sel.len(), 1);
         assert_eq!(sel[0], 0);
     }

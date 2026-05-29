@@ -71,7 +71,7 @@ pub(crate) fn render_chart(
         ChartId::ParallelCoordinates => {
             widgets.parallel_coords.show(
                 ui,
-                trial_rows,
+                &ctx.view,
                 param_names,
                 obj_names,
                 &widgets.chart_colors,
@@ -83,7 +83,7 @@ pub(crate) fn render_chart(
         ChartId::ScatterMatrix => {
             widgets.scatter_matrix.show(
                 ui,
-                trial_rows,
+                &ctx.view,
                 param_names,
                 obj_names,
                 &widgets.chart_colors,
