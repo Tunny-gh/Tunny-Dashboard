@@ -107,7 +107,6 @@ fn load_comparison_study_task(
             meta,
             study_id,
             pareto_rank,
-            gpu_data,
             pareto_indices,
         } => {
             use crate::state::app_state::{StudyContext, StudyView};
@@ -119,7 +118,6 @@ fn load_comparison_study_task(
                         context: Box::new(StudyContext {
                             meta,
                             view,
-                            gpu_data,
                             pareto_indices,
                         }),
                     }

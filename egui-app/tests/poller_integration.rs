@@ -5,7 +5,7 @@ use tempfile::tempdir;
 use std::sync::Arc;
 use tunny_desktop::io::live_update_poller::LiveUpdatePoller;
 use tunny_desktop::state::app_state::{
-    AppState, Direction, GpuBufferData, StudyContext, StudyMeta, StudyView,
+    AppState, Direction, StudyContext, StudyMeta, StudyView,
 };
 use tunny_desktop::state::message_handler::MessageHandler;
 use tunny_desktop::state::messages::AppMessage;
@@ -23,16 +23,6 @@ fn empty_view() -> StudyView {
 // ─────────────────────────────────────────────
 // Test helpers
 // ─────────────────────────────────────────────
-
-fn empty_gpu_data() -> GpuBufferData {
-    GpuBufferData {
-        positions: vec![],
-        positions3d: vec![],
-        colors: vec![],
-        sizes: vec![],
-        trial_count: 0,
-    }
-}
 
 fn test_study_meta(study_id: u32, n_obj: usize) -> StudyMeta {
     StudyMeta {
@@ -115,7 +105,6 @@ fn tc_2224_01_e2e_polling_flow() {
     app_state.current_study = Some(StudyContext {
         meta,
         view: empty_view(),
-        gpu_data: empty_gpu_data(),
         pareto_indices: vec![],
     });
 
@@ -153,7 +142,6 @@ fn tc_2224_01_e2e_polling_flow() {
     let study = app_state.current_study.as_ref().unwrap();
     assert_eq!(study.trial_count(), 10, "trial_rows should have 10 entries");
     assert!(!study.pareto_indices.is_empty(), "pareto_indices should be populated");
-    assert_eq!(study.gpu_data.trial_count, 10, "GPU buffer trial_count should be 10");
     assert!(load_error.is_none());
 }
 
@@ -265,7 +253,6 @@ fn tc_2224_04_bulk_trials_performance() {
     app_state.current_study = Some(StudyContext {
         meta,
         view: empty_view(),
-        gpu_data: empty_gpu_data(),
         pareto_indices: vec![],
     });
 

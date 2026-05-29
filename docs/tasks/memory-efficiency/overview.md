@@ -113,7 +113,7 @@ TASK-2333 → TASK-2337
 - [ ] [TASK-2339: 比較 study の軽量化と再パース廃止（MEM-005）](TASK-2339.md) - 8h (TDD) 🔵
 - [x] [TASK-2340: ライブ更新の ArcSwap スナップショット差替え](TASK-2340.md) - 8h (TDD) 🔵 ✅完了（TASK-2332 と同時実装）
 - [ ] [TASK-2341: ジャーナルパースのピークメモリ削減（MEM-006）](TASK-2341.md) - 8h (TDD) 🟡
-- [ ] [TASK-2342: gpu_data 撤廃と互換シム除去（MEM-007）](TASK-2342.md) - 8h (TDD) 🔵
+- [~] [TASK-2342: gpu_data 撤廃と互換シム除去（MEM-007）](TASK-2342.md) - 8h (TDD) 🔵 gpu_data撤廃✅完了 / 互換シムrow_at除去は全ウィジェット移行後に保留
 - [ ] [TASK-2343: メモリ計測ベンチマーク基盤とベースライン測定](TASK-2343.md) - 8h (DIRECT) 🟡
 - [ ] [TASK-2344: 改修後メモリ定量検証と等価性確認](TASK-2344.md) - 8h (TDD) 🔵
 

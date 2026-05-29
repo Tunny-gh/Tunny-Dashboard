@@ -50,20 +50,10 @@ pub struct TrialRow {
 }
 
 #[derive(Debug, Clone)]
-pub struct GpuBufferData {
-    pub positions: Vec<f32>,
-    pub positions3d: Vec<f32>,
-    pub colors: Vec<f32>,
-    pub sizes: Vec<f32>,
-    pub trial_count: u32,
-}
-
-#[derive(Debug, Clone)]
 pub struct StudyContext {
     pub meta: StudyMeta,
     /// 列指向データの軽量ビュー（旧 `trial_rows: Vec<TrialRow>` を置換、MEM-001）。
     pub view: StudyView,
-    pub gpu_data: GpuBufferData,
     pub pareto_indices: Vec<u32>,
 }
 
@@ -97,12 +87,11 @@ impl StudyContext {
         }
     }
 
-    /// テスト用: 既存 StudyContext の行データを差し替える（view/gpu_data/pareto_indices を再構築）。
+    /// テスト用: 既存 StudyContext の行データを差し替える（view/pareto_indices を再構築）。
     #[cfg(test)]
     pub(crate) fn set_rows_for_test(&mut self, rows: Vec<TrialRow>) {
         let rebuilt = StudyContext::from_rows_for_test(self.meta.clone(), rows);
         self.view = rebuilt.view;
-        self.gpu_data = rebuilt.gpu_data;
         self.pareto_indices = rebuilt.pareto_indices;
     }
 
@@ -145,13 +134,6 @@ impl StudyContext {
         StudyContext {
             meta,
             view,
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: rows.len() as u32,
-            },
             pareto_indices: vec![],
         }
     }

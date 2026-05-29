@@ -1,5 +1,5 @@
 use crate::state::app_state::{
-    AppState, Direction, GpuBufferData, StudyContext, StudyView, TrialRow,
+    AppState, Direction, StudyContext, StudyView,
 };
 use crate::state::messages::{AppMessage, DownsampleKey};
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
@@ -29,7 +29,6 @@ impl MessageHandler {
                 meta,
                 study_id,
                 pareto_rank,
-                gpu_data,
                 pareto_indices,
             } => {
                 app_state.clear();
@@ -39,7 +38,6 @@ impl MessageHandler {
                         app_state.current_study = Some(StudyContext {
                             meta,
                             view,
-                            gpu_data,
                             pareto_indices,
                         });
                     }
@@ -330,9 +328,8 @@ impl MessageHandler {
             // ArcSwap で共有ストアのスナップショットを差し替え、view を作り直す。
             let arc = std::sync::Arc::new(new_df);
             tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
-            study.view = StudyView::new(arc, ranks.clone());
+            study.view = StudyView::new(arc, ranks);
             study.pareto_indices = pareto_indices;
-            study.gpu_data = Self::build_gpu_data_from_rows(&study.view.to_trial_rows(), &ranks);
         }
 
         // Update all_studies completed_trials
@@ -344,56 +341,6 @@ impl MessageHandler {
             {
                 meta.completed_trials = new_count;
             }
-        }
-    }
-
-    fn build_gpu_data_from_rows(rows: &[TrialRow], ranks: &[u32]) -> GpuBufferData {
-        let n = rows.len();
-        let max_rank = ranks.iter().max().copied().unwrap_or(0);
-
-        let n_obj = rows.first().map(|r| r.objectives.len()).unwrap_or(0);
-        let x_scale = if n > 1 { (n - 1) as f32 } else { 1.0 };
-
-        let mut positions = vec![0.0f32; n * 2];
-        let mut positions3d = vec![0.0f32; n * 3];
-        for (i, row) in rows.iter().enumerate() {
-            match n_obj {
-                0 => {}
-                1 => {
-                    positions[i * 2] = i as f32 / x_scale;
-                    positions[i * 2 + 1] = row.objectives[0] as f32;
-                    positions3d[i * 3] = i as f32 / x_scale;
-                    positions3d[i * 3 + 1] = row.objectives[0] as f32;
-                }
-                _ => {
-                    positions[i * 2] = row.objectives[0] as f32;
-                    positions[i * 2 + 1] = row.objectives[1] as f32;
-                    positions3d[i * 3] = row.objectives[0] as f32;
-                    positions3d[i * 3 + 1] = row.objectives[1] as f32;
-                    if n_obj >= 3 {
-                        positions3d[i * 3 + 2] =
-                            row.objectives.get(2).copied().unwrap_or(0.0) as f32;
-                    }
-                }
-            }
-        }
-
-        let mut colors = Vec::with_capacity(n * 4);
-        for i in 0..n {
-            let rank = ranks.get(i).copied().unwrap_or(max_rank);
-            let t = 1.0 - (rank as f32 / (max_rank + 1) as f32);
-            colors.push(t);
-            colors.push(0.5 + t * 0.5);
-            colors.push(1.0 - t);
-            colors.push(0.8f32);
-        }
-
-        GpuBufferData {
-            positions,
-            positions3d,
-            colors,
-            sizes: vec![1.0f32; n],
-            trial_count: n as u32,
         }
     }
 
@@ -439,7 +386,7 @@ impl MessageHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{Direction, GpuBufferData, StudyMeta};
+    use crate::state::app_state::{Direction, StudyMeta};
 
     /// テスト用: 共有ストア（テストビルドでは thread_local）に DataFrame を格納し、
     /// 新しい StudySelected ペイロード（study_id + pareto_rank）を返す。
@@ -479,13 +426,6 @@ mod tests {
             },
             study_id: 0,
             pareto_rank: vec![0; trial_count],
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: trial_count as u32,
-            },
             pareto_indices: vec![],
         }
     }
