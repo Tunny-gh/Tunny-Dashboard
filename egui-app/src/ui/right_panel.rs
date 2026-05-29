@@ -127,7 +127,7 @@ pub fn toggle_right_panel(layout: &mut LayoutState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::layout_state::{GridLayout, LayoutState, RightPanelState};
+    use crate::state::layout_state::LayoutState;
 
     #[test]
     fn toggle_right_panel_opens_closed() {

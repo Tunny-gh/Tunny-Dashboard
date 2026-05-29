@@ -439,7 +439,7 @@ impl MessageHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{Direction, GpuBufferData, StudyMeta, TrialRow, TrialState};
+    use crate::state::app_state::{Direction, GpuBufferData, StudyMeta};
 
     /// テスト用: 共有ストア（テストビルドでは thread_local）に DataFrame を格納し、
     /// 新しい StudySelected ペイロード（study_id + pareto_rank）を返す。

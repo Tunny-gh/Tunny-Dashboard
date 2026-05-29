@@ -462,7 +462,7 @@ mod tests {
 
     #[test]
     fn successful_add_switches_to_comparison_mode() {
-        use crate::state::app_state::{AppState, Direction, GpuBufferData, StudyContext, StudyMeta};
+        use crate::state::app_state::{AppState, Direction, StudyContext, StudyMeta};
         use crate::state::messages::AppMessage;
         use crate::state::message_handler::MessageHandler;
         use crate::ui::widget_states::WidgetStates;

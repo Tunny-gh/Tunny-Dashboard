@@ -140,7 +140,7 @@ pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> V
 mod tests {
     use super::*;
     use crate::state::app_state::{
-        Direction, GpuBufferData, PinError, StudyContext, StudyMeta, TrialRow, TrialState,
+        Direction, PinError, StudyContext, StudyMeta, TrialRow, TrialState,
     };
     use std::collections::HashMap;
 

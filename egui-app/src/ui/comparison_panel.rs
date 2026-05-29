@@ -456,7 +456,7 @@ mod tests {
 
     // ── TASK-2236: Comparison Diff テスト ──────────────────────
 
-    use crate::state::app_state::{Direction, GpuBufferData, StudyContext, StudyMeta, TrialRow, TrialState};
+    use crate::state::app_state::{Direction, StudyContext, StudyMeta, TrialRow, TrialState};
     use std::collections::HashMap;
 
     fn make_ctx(name: &str, obj_names: Vec<String>, objectives: Vec<Vec<f64>>, pareto: Vec<u32>) -> StudyContext {
