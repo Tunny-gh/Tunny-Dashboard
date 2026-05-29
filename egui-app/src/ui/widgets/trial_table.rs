@@ -19,11 +19,35 @@ impl TrialTableWidget {
 
         let study_ctx = app_state.current_study.as_ref().unwrap();
         let pinned = app_state.pinned_trials.clone();
-        let display_rows = get_display_rows_with_pins(study_ctx, &app_state.selected_indices, &pinned);
         let highlighted = app_state.highlighted_trial;
 
         let param_names = study_ctx.meta.param_names.clone();
         let obj_names = study_ctx.meta.objective_names.clone();
+
+        // 行を materialize せず、表示対象の行インデックス（選択∪ピン、元順序）を計算する
+        let view = &study_ctx.view;
+        let n = view.row_count();
+        let visible: Vec<usize> = if app_state.selected_indices.is_empty() {
+            (0..n).collect()
+        } else {
+            let set: std::collections::HashSet<u32> =
+                crate::state::app_state::merge_selected_with_pinned(
+                    &app_state.selected_indices,
+                    &pinned,
+                )
+                .into_iter()
+                .collect();
+            (0..n)
+                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| set.contains(id)))
+                .collect()
+        };
+        // 列スライスを view から借用（行クローンを持たない）
+        let param_cols: Vec<Option<&[f64]>> =
+            param_names.iter().map(|nme| view.numeric_column(nme)).collect();
+        let obj_cols: Vec<Option<&[f64]>> =
+            obj_names.iter().map(|nme| view.numeric_column(nme)).collect();
+        let trial_ids = &view.trial_ids;
+        let pareto_rank = &view.pareto_rank;
 
         use egui_extras::{Column, TableBuilder};
 
@@ -56,10 +80,13 @@ impl TrialTableWidget {
                 });
             })
             .body(|body| {
-                body.rows(18.0, display_rows.len(), |mut row| {
-                    let trial = &display_rows[row.index()];
-                    let is_highlighted = highlighted == Some(trial.trial_id);
-                    let is_pinned = pinned.contains(&trial.trial_id);
+                body.rows(18.0, visible.len(), |mut row| {
+                    let idx = visible[row.index()];
+                    let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
+                    let trial_number = idx as u32;
+                    let rank = pareto_rank.get(idx).copied().unwrap_or(0);
+                    let is_highlighted = highlighted == Some(trial_id);
+                    let is_pinned = pinned.contains(&trial_id);
                     let bg_color = if is_highlighted {
                         Some(COLOR_LINK)
                     } else {
@@ -69,39 +96,40 @@ impl TrialTableWidget {
                     row.col(|ui| {
                         let pin_label = if is_pinned { "📌" } else { "·" };
                         if ui.small_button(pin_label).clicked() {
-                            pin_toggled = Some(trial.trial_id);
+                            pin_toggled = Some(trial_id);
                         }
                     });
                     row.col(|ui| {
-                        let res =
-                            ui.selectable_label(is_highlighted, trial.trial_number.to_string());
+                        let res = ui.selectable_label(is_highlighted, trial_number.to_string());
                         if res.clicked() {
-                            clicked_trial = Some(trial.trial_id);
+                            clicked_trial = Some(trial_id);
                         }
                         if let Some(color) = bg_color {
                             ui.painter().rect_filled(res.rect, 0.0, color);
                         }
                     });
                     row.col(|ui| {
-                        let params_str: Vec<String> = param_names
+                        let params_str: Vec<String> = param_cols
                             .iter()
-                            .map(|n| {
-                                let v = trial.params.get(n).copied().unwrap_or(0.0);
+                            .map(|c| {
+                                let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
                                 format!("{:.3}", v)
                             })
                             .collect();
                         ui.label(params_str.join(", "));
                     });
                     row.col(|ui| {
-                        let objs_str: Vec<String> = trial
-                            .objectives
+                        let objs_str: Vec<String> = obj_cols
                             .iter()
-                            .map(|v| format!("{:.4}", v))
+                            .map(|c| {
+                                let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
+                                format!("{:.4}", v)
+                            })
                             .collect();
                         ui.label(objs_str.join(", "));
                     });
                     row.col(|ui| {
-                        ui.label(trial.pareto_rank.to_string());
+                        ui.label(rank.to_string());
                     });
                 });
             });
