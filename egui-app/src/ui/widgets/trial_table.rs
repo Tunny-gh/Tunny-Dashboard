@@ -1,4 +1,4 @@
-use crate::state::app_state::{filter_rows_for_display, AppState, StudyContext, TrialRow};
+use crate::state::app_state::{AppState, StudyContext, TrialRow};
 use crate::theme::chart_colors::COLOR_LINK;
 
 /// トライアル一覧テーブルウィジェット。
@@ -151,10 +151,18 @@ pub fn get_display_rows_with_pins(
     selected_indices: &[u32],
     pinned: &[u32],
 ) -> Vec<TrialRow> {
-    let rows = study_ctx.trial_rows();
-    filter_rows_for_display(&rows, selected_indices, pinned)
-        .into_iter()
-        .cloned()
+    let use_filter = !selected_indices.is_empty();
+    let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
+    let pin_set: std::collections::HashSet<u32> = pinned.iter().copied().collect();
+    study_ctx
+        .view
+        .trial_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, &id)| {
+            !use_filter || id_set.contains(&id) || pin_set.contains(&id)
+        })
+        .map(|(i, _)| study_ctx.view.row_at(i))
         .collect()
 }
 

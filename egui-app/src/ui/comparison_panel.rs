@@ -23,20 +23,23 @@ pub struct ComparisonDiffRow {
     pub incompatible_reason: Option<String>,
 }
 
+/// 単一目的列の最小値を返す（NaN/Inf 除外）。
+fn col_min(col: &[f64]) -> Option<f64> {
+    col.iter().copied().filter(|v| v.is_finite()).reduce(f64::min)
+}
+
 /// base Study と comparison studies の差分行を生成する pure function。
 /// objective 名不一致の Study には `incompatible_reason` を設定する。
 pub fn build_comparison_diff_rows(
     base: &crate::state::app_state::StudyContext,
     comparison_studies: &[crate::state::app_state::StudyContext],
 ) -> Vec<ComparisonDiffRow> {
-    let base_best = if base.meta.objective_names.len() == 1 {
-        base.trial_rows()
-            .iter()
-            .filter_map(|r| r.objectives.first().copied())
-            .reduce(f64::min)
-    } else {
-        None
-    };
+    let base_best = base
+        .meta
+        .objective_names
+        .first()
+        .and_then(|name| base.view.numeric_column(name))
+        .and_then(col_min);
 
     comparison_studies
         .iter()
@@ -55,18 +58,20 @@ pub fn build_comparison_diff_rows(
             }
 
             let trial_count_delta =
-                comp.trial_rows().len() as i64 - base.trial_rows().len() as i64;
+                comp.trial_count() as i64 - base.trial_count() as i64;
 
             let best_value_delta = base_best.and_then(|b| {
-                comp.trial_rows()
-                    .iter()
-                    .filter_map(|r| r.objectives.first().copied())
-                    .reduce(f64::min)
+                comp.meta
+                    .objective_names
+                    .first()
+                    .and_then(|name| comp.view.numeric_column(name))
+                    .and_then(col_min)
                     .map(|c| c - b)
             });
 
-            let pareto_dominance_ratio = if !comp.trial_rows().is_empty() {
-                Some(comp.pareto_indices.len() as f64 / comp.trial_rows().len() as f64)
+            let n = comp.trial_count();
+            let pareto_dominance_ratio = if n > 0 {
+                Some(comp.pareto_indices.len() as f64 / n as f64)
             } else {
                 None
             };
@@ -160,10 +165,12 @@ fn show_stats_summary(ui: &mut egui::Ui, app_state: &AppState) {
                     .unwrap_or(Color32::GRAY);
 
                 let obj_vals: Vec<f64> = study
-                    .trial_rows()
-                    .iter()
-                    .filter_map(|t| t.objectives.first().copied())
-                    .collect();
+                    .meta
+                    .objective_names
+                    .first()
+                    .and_then(|name| study.view.numeric_column(name))
+                    .map(|col| col.iter().copied().filter(|v| v.is_finite()).collect())
+                    .unwrap_or_default();
 
                 let n = obj_vals.len();
                 let best = obj_vals.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -201,13 +208,18 @@ fn show_hv_history(ui: &mut egui::Ui, app_state: &AppState) {
                 .unwrap_or(Color32::GRAY);
 
             // Best 値の遷移を折れ線として表示（HV の代替）
+            let obj_col = study
+                .meta
+                .objective_names
+                .first()
+                .and_then(|name| study.view.numeric_column(name));
             let mut best_so_far = f64::INFINITY;
-            let points: PlotPoints = study
-                .trial_rows()
-                .iter()
-                .enumerate()
-                .filter_map(|(i, t)| {
-                    let v = t.objectives.first().copied()?;
+            let points: PlotPoints = (0..study.view.row_count())
+                .filter_map(|i| {
+                    let v = obj_col?.get(i).copied()?;
+                    if !v.is_finite() {
+                        return None;
+                    }
                     if v < best_so_far {
                         best_so_far = v;
                     }
@@ -250,16 +262,19 @@ fn show_pareto_overlay(ui: &mut egui::Ui, app_state: &AppState) {
             let pareto_set: std::collections::HashSet<u32> =
                 study.pareto_indices.iter().copied().collect();
 
-            let pts: Vec<[f64; 2]> = study
-                .trial_rows()
-                .iter()
-                .filter(|t| pareto_set.contains(&t.trial_id))
-                .filter_map(|t| {
-                    if t.objectives.len() >= 2 {
-                        Some([t.objectives[0], t.objectives[1]])
-                    } else {
-                        None
+            let obj_names = &study.meta.objective_names;
+            let col0 = obj_names.first().and_then(|n| study.view.numeric_column(n));
+            let col1 = obj_names.get(1).and_then(|n| study.view.numeric_column(n));
+
+            let pts: Vec<[f64; 2]> = (0..study.view.row_count())
+                .filter_map(|i| {
+                    let tid = study.view.trial_ids.get(i).copied()?;
+                    if !pareto_set.contains(&tid) {
+                        return None;
                     }
+                    let x = col0?.get(i).copied()?;
+                    let y = col1?.get(i).copied()?;
+                    Some([x, y])
                 })
                 .collect();
 
@@ -317,10 +332,12 @@ fn show_kde_distribution(ui: &mut egui::Ui, app_state: &AppState) {
                 .unwrap_or(Color32::GRAY);
 
             let vals: Vec<f64> = study
-                .trial_rows()
-                .iter()
-                .filter_map(|t| t.objectives.first().copied())
-                .collect();
+                .meta
+                .objective_names
+                .first()
+                .and_then(|name| study.view.numeric_column(name))
+                .map(|col| col.iter().copied().filter(|v| v.is_finite()).collect())
+                .unwrap_or_default();
 
             if vals.is_empty() {
                 continue;

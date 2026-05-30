@@ -296,24 +296,29 @@ pub fn build_and_send_report(
     selected_indices: &[u32],
     tx: std::sync::mpsc::SyncSender<crate::state::messages::AppMessage>,
 ) {
-    let trial_rows = ctx.trial_rows();
-    let trial_map: std::collections::HashMap<u32, &crate::state::types::TrialRow> =
-        trial_rows.iter().map(|r| (r.trial_id, r)).collect();
+    // 選択インデックスを trial_id → row_index マップに変換（view 直接参照）
+    let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
     let snap = HtmlReportSnapshot {
         study_name: ctx.meta.name.clone(),
         objective_names: ctx.meta.objective_names.clone(),
         param_names: ctx.meta.param_names.clone(),
-        total_trials: trial_rows.len(),
+        total_trials: ctx.trial_count(),
         pareto_count: ctx.pareto_indices.len(),
-        selected_trials: selected_indices
+        selected_trials: ctx
+            .view
+            .trial_ids
             .iter()
-            .filter_map(|&id| trial_map.get(&id).copied())
-            .map(|r| HtmlTrialRow {
-                trial_id: r.trial_id,
-                trial_number: r.trial_number,
-                params: r.params.clone(),
-                objectives: r.objectives.clone(),
-                pareto_rank: r.pareto_rank,
+            .enumerate()
+            .filter(|(_, &id)| selected_set.contains(&id))
+            .map(|(i, &tid)| {
+                let row = ctx.view.row_at(i);
+                HtmlTrialRow {
+                    trial_id: tid,
+                    trial_number: row.trial_number,
+                    params: row.params,
+                    objectives: row.objectives,
+                    pareto_rank: row.pareto_rank,
+                }
             })
             .collect(),
         statistics: TrialStatistics {

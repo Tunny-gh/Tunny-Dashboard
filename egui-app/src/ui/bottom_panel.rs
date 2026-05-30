@@ -237,16 +237,21 @@ fn show_best_history_table(ui: &mut egui::Ui, app_state: &AppState, objective_na
                         format!("{:+.6}", delta)
                     });
 
-                    // trial_id に対応する試行データから変数値を取得
-                    let trial_opt = app_state
+                    // trial_id に対応する試行データから変数値を取得（view 列参照）
+                    let row_idx = app_state
                         .current_study
                         .as_ref()
-                        .and_then(|s| s.trial_rows().into_iter().find(|t| t.trial_id == trial_id));
-                    if let Some(trial) = trial_opt {
+                        .and_then(|s| {
+                            s.view.trial_ids.iter().position(|&id| id == trial_id)
+                        });
+                    if let (Some(i), Some(study)) =
+                        (row_idx, app_state.current_study.as_ref())
+                    {
                         for name in &top_param_names {
-                            let val = trial
-                                .params
-                                .get(name)
+                            let val = study
+                                .view
+                                .numeric_column(name)
+                                .and_then(|col| col.get(i))
                                 .map(|v| format!("{:.4}", v))
                                 .unwrap_or_else(|| "-".to_string());
                             ui.label(val);
@@ -265,13 +270,17 @@ fn show_best_history_table(ui: &mut egui::Ui, app_state: &AppState, objective_na
 /// 表示対象の TrialRow を返す。
 /// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
 pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
-    let rows = study_ctx.trial_rows();
     if selected_indices.is_empty() {
-        rows
+        study_ctx.view.to_trial_rows()
     } else {
         let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
-        rows.into_iter()
-            .filter(|r| id_set.contains(&r.trial_id))
+        study_ctx
+            .view
+            .trial_ids
+            .iter()
+            .enumerate()
+            .filter(|(_, &id)| id_set.contains(&id))
+            .map(|(i, _)| study_ctx.view.row_at(i))
             .collect()
     }
 }

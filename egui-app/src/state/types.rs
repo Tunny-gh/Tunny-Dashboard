@@ -109,8 +109,14 @@ impl StudyContext {
             }
         }
         let param_names: Vec<String> = param_set.into_iter().collect();
+        // meta.objective_names を優先して DataFrame 列名と一致させる。
+        // meta が空のときは行データから auto 生成する（後方互換）。
         let n_obj = rows.iter().map(|r| r.objectives.len()).max().unwrap_or(0);
-        let obj_names: Vec<String> = (0..n_obj).map(|i| format!("obj{i}")).collect();
+        let obj_names: Vec<String> = if !meta.objective_names.is_empty() {
+            meta.objective_names.clone()
+        } else {
+            (0..n_obj).map(|i| format!("obj{i}")).collect()
+        };
 
         let core_rows: Vec<CoreRow> = rows
             .iter()

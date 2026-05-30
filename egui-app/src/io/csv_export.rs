@@ -38,7 +38,7 @@ pub fn has_csv_data(
     match chart_id {
         ChartId::SurfacePlot => false,
         ChartId::OptimizationHistory | ChartId::ParallelCoordinates | ChartId::ScatterMatrix => {
-            app_state.current_study.as_ref().is_some_and(|s| !s.trial_rows().is_empty())
+            app_state.current_study.as_ref().is_some_and(|s| s.trial_count() > 0)
         }
         ChartId::HvHistory => app_state.hv_history.is_some(),
         ChartId::ImportanceChart => {
@@ -68,7 +68,7 @@ pub fn has_csv_data(
             .current_study
             .as_ref()
             .zip(app_state.cluster_result.as_ref())
-            .is_some_and(|(s, cr)| cr.labels.len() == s.trial_rows().len()),
+            .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
         ChartId::SensitivityHeatmap => widgets.sensitivity_heatmap.result.as_ref().is_some_and(|s| {
             !s.param_names.is_empty()
                 && !s.objective_names.is_empty()
@@ -85,7 +85,7 @@ pub fn has_csv_data(
             app_state.ahp_result.is_some() && app_state.current_study.is_some()
         }
         ChartId::SliceChart => app_state.current_study.as_ref().is_some_and(|s| {
-            !s.trial_rows().is_empty()
+            s.trial_count() > 0
                 && s.meta.param_names.get(widgets.slice_chart.selected_param_idx).is_some()
                 && s.meta.objective_names.get(widgets.slice_chart.selected_obj_idx).is_some()
         }),
@@ -118,15 +118,16 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
 
 fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_rows().is_empty() {
+    let obj_idx = widgets.opt_history.obj_idx;
+    let obj_name = study.meta.objective_names.get(obj_idx)?;
+    let obj_col = study.view.numeric_column(obj_name)?;
+    if obj_col.is_empty() {
         return None;
     }
-    let obj_idx = widgets.opt_history.obj_idx;
     let is_minimize = !matches!(study.meta.directions.get(obj_idx), Some(Direction::Maximize));
     let mut csv = String::from("trial_index,objective_value,best_value\n");
     let mut best = if is_minimize { f64::INFINITY } else { f64::NEG_INFINITY };
-    for (i, row) in study.trial_rows().iter().enumerate() {
-        let val = row.objectives.get(obj_idx).copied().unwrap_or(f64::NAN);
+    for (i, &val) in obj_col.iter().enumerate() {
         if val.is_finite() {
             best = if is_minimize { best.min(val) } else { best.max(val) };
         }
@@ -214,11 +215,11 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
 }
 fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_rows().is_empty() {
+    if study.trial_count() == 0 {
         return None;
     }
-    let trial_rows = study.trial_rows();
-    let rows: Vec<&TrialRow> = trial_rows.iter().collect();
+    let rows_owned = study.view.to_trial_rows();
+    let rows: Vec<&TrialRow> = rows_owned.iter().collect();
     let csv = crate::io::export::build_csv_string(
         &rows,
         &study.meta.param_names,
@@ -230,22 +231,31 @@ fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
 fn build_cluster_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
     let cr = app_state.cluster_result.as_ref()?;
-    if cr.labels.len() != study.trial_rows().len() {
+    let n = study.trial_count();
+    if cr.labels.len() != n {
         return None;
     }
     let param_names = &study.meta.param_names;
     let obj_names = &study.meta.objective_names;
+    let param_cols: Vec<Option<&[f64]>> =
+        param_names.iter().map(|name| study.view.numeric_column(name)).collect();
+    let obj_cols: Vec<Option<&[f64]>> =
+        obj_names.iter().map(|name| study.view.numeric_column(name)).collect();
     let mut csv = String::from("trial_id,trial_number");
     for name in param_names { csv.push_str(&format!(",{}", name)); }
     for name in obj_names { csv.push_str(&format!(",{}", name)); }
     csv.push_str(",cluster_id\n");
-    for (i, row) in study.trial_rows().iter().enumerate() {
-        csv.push_str(&format!("{},{}", row.trial_id, row.trial_number));
-        for name in param_names {
-            let v = row.params.get(name).copied().unwrap_or(f64::NAN);
+    for i in 0..n {
+        let trial_id = study.view.trial_ids.get(i).copied().unwrap_or(i as u32);
+        csv.push_str(&format!("{},{}", trial_id, i));
+        for col in &param_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             csv.push_str(&format!(",{}", v));
         }
-        for v in &row.objectives { csv.push_str(&format!(",{}", v)); }
+        for col in &obj_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+            csv.push_str(&format!(",{}", v));
+        }
         let label = cr.labels.get(i).copied().unwrap_or(-1);
         csv.push_str(&format!(",{}\n", label));
     }
@@ -280,90 +290,102 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     let pareto_set: std::collections::HashSet<u32> = study.pareto_indices.iter().copied().collect();
     let param_names = &study.meta.param_names;
     let obj_names = &study.meta.objective_names;
+    let param_cols: Vec<Option<&[f64]>> =
+        param_names.iter().map(|name| study.view.numeric_column(name)).collect();
+    let obj_cols: Vec<Option<&[f64]>> =
+        obj_names.iter().map(|name| study.view.numeric_column(name)).collect();
     let mut csv = String::from("trial_id,trial_number");
     for name in param_names { csv.push_str(&format!(",{}", name)); }
     for name in obj_names { csv.push_str(&format!(",{}", name)); }
     csv.push_str(",pareto_rank\n");
-    for row in study.trial_rows().iter().filter(|r| pareto_set.contains(&r.trial_id)) {
-        csv.push_str(&format!("{},{}", row.trial_id, row.trial_number));
-        for name in param_names {
-            let v = row.params.get(name).copied().unwrap_or(f64::NAN);
+    for (i, &tid) in study.view.trial_ids.iter().enumerate() {
+        if !pareto_set.contains(&tid) {
+            continue;
+        }
+        let rank = study.view.pareto_rank.get(i).copied().unwrap_or(0);
+        csv.push_str(&format!("{},{}", tid, i));
+        for col in &param_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             csv.push_str(&format!(",{}", v));
         }
-        for v in &row.objectives { csv.push_str(&format!(",{}", v)); }
-        csv.push_str(&format!(",{}\n", row.pareto_rank));
+        for col in &obj_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+            csv.push_str(&format!(",{}", v));
+        }
+        csv.push_str(&format!(",{}\n", rank));
     }
     Some(csv)
 }
 fn build_mcdm_rank_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
+    let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let method_name = result.method_label();
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
     let mut csv = String::from("trial_id,rank,score,method\n");
     for (rank, &idx) in ranked.iter().enumerate() {
-        let Some(row) = trial_rows.get(idx as usize) else { continue };
-        let score = scores.get(idx as usize).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{},{}\n", row.trial_id, rank + 1, score, method_name));
+        let i = idx as usize;
+        let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
+        let score = scores.get(i).copied().unwrap_or(f64::NAN);
+        csv.push_str(&format!("{},{},{},{}\n", trial_id, rank + 1, score, method_name));
     }
     Some(csv)
 }
 
 fn build_mcdm_scatter_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
+    let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
     let mut csv = String::from("trial_id,rank,primary_score\n");
     for (rank, &idx) in ranked.iter().enumerate() {
-        let Some(row) = trial_rows.get(idx as usize) else { continue };
-        let score = scores.get(idx as usize).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{}\n", row.trial_id, rank + 1, score));
+        let i = idx as usize;
+        let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
+        let score = scores.get(i).copied().unwrap_or(f64::NAN);
+        csv.push_str(&format!("{},{},{}\n", trial_id, rank + 1, score));
     }
     Some(csv)
 }
 
 fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
+    let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
+    let tid = |idx: u32| trial_ids.get(idx as usize).copied().unwrap_or(idx as u32);
     match result {
         McdmResult::Topsis(r) => {
             let mut csv = String::from("trial_id,rank,topsis_score\n");
             for (rank, &idx) in r.ranked_indices.iter().enumerate() {
-                let Some(row) = trial_rows.get(idx as usize) else { continue };
                 let score = r.scores.get(idx as usize).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{}\n", row.trial_id, rank + 1, score));
+                csv.push_str(&format!("{},{},{}\n", tid(idx), rank + 1, score));
             }
             Some(csv)
         }
         McdmResult::Vikor(r) => {
             let mut csv = String::from("trial_id,rank,s_value,r_value,q_value\n");
             for (rank, &idx) in r.ranked_indices.iter().enumerate() {
-                let Some(row) = trial_rows.get(idx as usize) else { continue };
-                let s = r.s_values.get(idx as usize).copied().unwrap_or(f64::NAN);
-                let rv = r.r_values.get(idx as usize).copied().unwrap_or(f64::NAN);
-                let q = r.q_values.get(idx as usize).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{},{},{}\n", row.trial_id, rank + 1, s, rv, q));
+                let i = idx as usize;
+                let s = r.s_values.get(i).copied().unwrap_or(f64::NAN);
+                let rv = r.r_values.get(i).copied().unwrap_or(f64::NAN);
+                let q = r.q_values.get(i).copied().unwrap_or(f64::NAN);
+                csv.push_str(&format!("{},{},{},{},{}\n", tid(idx), rank + 1, s, rv, q));
             }
             Some(csv)
         }
         McdmResult::PrometheeI(r) => {
             let mut csv = String::from("trial_id,rank,phi_plus,phi_minus\n");
             for (rank, &idx) in r.ranked_indices_i.iter().enumerate() {
-                let Some(row) = trial_rows.get(idx as usize) else { continue };
-                let phi_plus = r.phi_plus.get(idx as usize).copied().unwrap_or(f64::NAN);
-                let phi_minus = r.phi_minus.get(idx as usize).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{},{}\n", row.trial_id, rank + 1, phi_plus, phi_minus));
+                let i = idx as usize;
+                let phi_plus = r.phi_plus.get(i).copied().unwrap_or(f64::NAN);
+                let phi_minus = r.phi_minus.get(i).copied().unwrap_or(f64::NAN);
+                csv.push_str(&format!("{},{},{},{}\n", tid(idx), rank + 1, phi_plus, phi_minus));
             }
             Some(csv)
         }
         McdmResult::PrometheeII(r) => {
             let mut csv = String::from("trial_id,rank,phi_net\n");
             for (rank, &idx) in r.ranked_indices_ii.iter().enumerate() {
-                let Some(row) = trial_rows.get(idx as usize) else { continue };
                 let phi_net = r.phi_net.get(idx as usize).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{}\n", row.trial_id, rank + 1, phi_net));
+                csv.push_str(&format!("{},{},{}\n", tid(idx), rank + 1, phi_net));
             }
             Some(csv)
         }
@@ -372,12 +394,13 @@ fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
 
 fn build_ahp_rank_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.ahp_result.as_ref()?;
-    let trial_rows = &app_state.current_study.as_ref()?.trial_rows();
+    let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let mut csv = String::from("trial_id,rank,ahp_score\n");
     for (rank, &idx) in result.ranked_indices.iter().enumerate() {
-        let Some(row) = trial_rows.get(idx as usize) else { continue };
-        let score = result.scores.get(idx as usize).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{}\n", row.trial_id, rank + 1, score));
+        let i = idx as usize;
+        let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
+        let score = result.scores.get(i).copied().unwrap_or(f64::NAN);
+        csv.push_str(&format!("{},{},{}\n", trial_id, rank + 1, score));
     }
     Some(csv)
 }
@@ -386,17 +409,18 @@ fn build_ahp_table_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.ahp_result.as_ref()?;
     let study = app_state.current_study.as_ref()?;
     let obj_names = &study.meta.objective_names;
-    let trial_rows = &study.trial_rows();
+    let obj_cols: Vec<Option<&[f64]>> =
+        obj_names.iter().map(|name| study.view.numeric_column(name)).collect();
     let mut csv = String::from("trial_id,rank,ahp_score");
-    for name in obj_names {
-        csv.push_str(&format!(",{}", name));
-    }
+    for name in obj_names { csv.push_str(&format!(",{}", name)); }
     csv.push('\n');
     for (rank, &idx) in result.ranked_indices.iter().enumerate() {
-        let Some(row) = trial_rows.get(idx as usize) else { continue };
-        let score = result.scores.get(idx as usize).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{}", row.trial_id, rank + 1, score));
-        for &v in &row.objectives {
+        let i = idx as usize;
+        let trial_id = study.view.trial_ids.get(i).copied().unwrap_or(i as u32);
+        let score = result.scores.get(i).copied().unwrap_or(f64::NAN);
+        csv.push_str(&format!("{},{},{}", trial_id, rank + 1, score));
+        for col in &obj_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             csv.push_str(&format!(",{}", v));
         }
         csv.push('\n');
@@ -405,19 +429,24 @@ fn build_ahp_table_csv(app_state: &AppState) -> Option<String> {
 }
 fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_rows().is_empty() {
+    let n = study.trial_count();
+    if n == 0 {
         return None;
     }
     let param_idx = widgets.slice_chart.selected_param_idx;
     let obj_idx = widgets.slice_chart.selected_obj_idx;
     let param_name = study.meta.param_names.get(param_idx)?;
     let obj_name = study.meta.objective_names.get(obj_idx)?;
+    let param_col = study.view.numeric_column(param_name);
+    let obj_col = study.view.numeric_column(obj_name);
+    let pareto_set: std::collections::HashSet<u32> =
+        study.pareto_indices.iter().copied().collect();
     let mut csv = format!("trial_id,{},{},is_pareto\n", param_name, obj_name);
-    for row in &study.trial_rows() {
-        let param_val = row.params.get(param_name).copied().unwrap_or(f64::NAN);
-        let obj_val = row.objectives.get(obj_idx).copied().unwrap_or(f64::NAN);
-        let is_pareto = study.pareto_indices.contains(&row.trial_id);
-        csv.push_str(&format!("{},{},{},{}\n", row.trial_id, param_val, obj_val, is_pareto));
+    for (i, &tid) in study.view.trial_ids.iter().enumerate() {
+        let param_val = param_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let obj_val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let is_pareto = pareto_set.contains(&tid);
+        csv.push_str(&format!("{},{},{},{}\n", tid, param_val, obj_val, is_pareto));
     }
     Some(csv)
 }
@@ -674,7 +703,6 @@ mod tests {
             make_trial(1, HashMap::new(), vec![2.0]),
             make_trial(2, HashMap::new(), vec![3.0]),
         ]);
-        study.trial_rows()[0].pareto_rank = 1;
         study.pareto_indices = vec![0];
         state.current_study = Some(study);
         let csv = build_pareto_csv(&state).unwrap();
