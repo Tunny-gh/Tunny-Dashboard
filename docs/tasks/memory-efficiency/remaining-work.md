@@ -1,16 +1,17 @@
 # memory-efficiency 残作業・引き継ぎ資料
 
-**作成日**: 2026-05-29
+**作成日**: 2026-05-29  
+**更新日**: 2026-05-30
 **ブランチ**: `feature/memory-efficiency`（`main` から分岐）
-**状態**: 主要メモリ削減（MEM-001/002/003/007）完了・コミット済み。残り MEM-004/005/006 と検証タスク。
+**状態**: MEM-001〜007 主要実装完了。残り: 互換シム完全除去（csv_export等大規模消費箇所）・検証タスク（100k データ待ち）。
 
 ---
 
 ## 1. 完了済み（コミット済み・全テストグリーン）
 
-`cargo test -p tunny-desktop` グリーン（561 lib / 561 bin / 5 integration）。
+`cargo test -p tunny-desktop` グリーン（1127 テスト）。
 `cargo test -p tunny-core` は性能タイミングテスト（`tc_901_p02_kmeans_performance`、
-`tc_1615_12_performance_50k_trials`）のみマシン負荷依存で稀に失敗する**既存フレーキー**（本変更と無関係。最終的に `/tsumiki:auto-debug` 対象）。
+`tc_1615_12_performance_50k_trials`、`tc_201_p01_ndsort_1000_points_under_100ms`）のみマシン負荷依存で稀に失敗する**既存フレーキー**（本変更と無関係。最終的に `/tsumiki:auto-debug` 対象）。
 
 | コミット | 内容 | MEM |
 |---|---|---|
@@ -20,6 +21,11 @@
 | `ccdc284` | PCP/ScatterMatrix 列キャッシュ共有化（TASK-2335） | MEM-003 |
 | `7ee1d84` | Trial Table 列アクセス移行（TASK-2336） | MEM-003系 |
 | `a3bcf77` | 未使用 gpu_data ホストバッファ撤廃（TASK-2342前半） | MEM-007 |
+| `c947448` | cluster/mcdm/ahp/slice/opt-history を view 列参照化（TASK-2337） | — |
+| `db5180a` | finalize.rs per-study Vec 逐次解放（TASK-2341） | MEM-006 |
+| `ddf6737` | render_chart.rs:28 削除・pdp_chart view 化・filter/toolbar/widget_states（TASK-2342後半） | — |
+| `00cce0c` | 分析パイプライン trial_rows() 完全廃止・Arc<DataFrame> 直接参照（TASK-2338） | MEM-004 |
+| `31a81c3` | 同一ファイル比較の再パーススキップ（TASK-2339, option C） | MEM-005部分 |
 
 ### 確立されたアーキテクチャ（残作業の前提）
 - **共有ストア**: `rust_core/src/data/dataframe/state.rs` の `SharedStudyStore`。
@@ -42,9 +48,11 @@
 
 ---
 
-## 2. 残タスク（実装ガイド付き）
+## 2. 残タスク
 
-### TASK-2337: Cluster / MCDM ウィジェットの view 列参照化（低メモリ価値・互換シム除去の前提）
+> ★ = 今セッションで完了済み。未着手・部分残りは通常記述。
+
+### ★ TASK-2337: Cluster / MCDM ウィジェットの view 列参照化 → **完了** (`c947448`)
 
 **目的**: `render_chart.rs:28` が毎フレーム生成する `ctx.trial_rows()`（全行＋per-row HashMap 再構築）への依存を、cluster/mcdm 系ウィジェットから除去する。
 
@@ -67,7 +75,7 @@
 
 ---
 
-### TASK-2338: 分析パイプライン入力の列参照化（MEM-004・ピークメモリ）
+### ★ TASK-2338: 分析パイプライン入力の列参照化 → **完了** (`00cce0c`)
 
 **目的**: PDP / Surface Plot / Sensitivity が実行ごとに大きな `Vec<Vec<f64>>` を行データから再構築するのを削減する。
 
@@ -90,7 +98,7 @@
 
 ---
 
-### TASK-2339: 比較 study の軽量化（MEM-005・**設計判断が必要**）
+### ★ TASK-2339: 比較 study の軽量化 → **option C 実装済み** (`31a81c3`)
 
 **目的**: 比較モードが study ごとにフル `StudyContext` を保持・再パースするのを軽量化する。
 
@@ -117,7 +125,7 @@
 
 ---
 
-### TASK-2341: ジャーナルパースのピークメモリ削減（MEM-006・ピークメモリ）
+### ★ TASK-2341: ジャーナルパースのピークメモリ削減 → **完了** (`db5180a`)
 
 **目的**: パース時に中間状態（`TrialBuilder` / per-study 行ベクタ）と確定 `DataFrame` が同時に存在するピークを下げる。
 
@@ -139,16 +147,19 @@ TC-012。ピーク低下は TASK-2343 のベンチで確認。
 
 ---
 
-### TASK-2342（後半）: 互換シム `row_at` の除去
+### TASK-2342（後半）: 互換シム `row_at` / `to_trial_rows` の完全除去 — **部分完了**
 
-**前提**: TASK-2337 完了（全ウィジェットが view 列参照へ移行し、`render_chart.rs:28` の `ctx.trial_rows()` が不要になった）こと。
+**render_chart.rs:28 は削除済み** (`ddf6737`)。主要ホットパスも view 化済み。
 
-**手順**:
-1. `render_chart.rs:28` の `let trial_rows = &ctx.trial_rows();` を削除し、残ウィジェットを `&ctx.view` 渡しに。
-2. `egui-app` 全体で `.trial_rows()` / `to_trial_rows()` / `row_at` の残参照を grep で確認しゼロにする。
-3. `StudyView::row_at` / `to_trial_rows`、`StudyContext::trial_rows()`、egui `TrialRow` 型、
-   `get_display_rows*`（trial_table）、`filter_rows_for_display`（app_state）等、移行専用コードを除去。
-   - egui `TrialRow` を消すと多数のテストヘルパー（`from_rows_for_test` 等）も列ベースへ要変更。段階的に。
+**残存する `trial_rows()` 呼び出し**（非ホットパス・大規模変更が必要）:
+- `csv_export.rs`: 15+ 箇所（エクスポート時のみ）
+- `html_report.rs`: 1 箇所
+- `comparison_panel.rs`: 多数（`trial_rows().len()` 等）
+- `bottom_panel.rs` / `trial_table.rs`: `get_display_rows`、`filter_rows_for_display`
+- `app.rs`: イベント駆動の数箇所
+
+**完全除去のブロッカー**: `csv_export.rs` など大規模消費箇所のリライトが必要。
+`StudyView::row_at` / `to_trial_rows` / `StudyContext::trial_rows()` はまだ使われているため残存。
 
 ---
 
@@ -177,14 +188,13 @@ TC-012。ピーク低下は TASK-2343 のベンチで確認。
   タイミング閾値テストで、ビルド負荷時に稀に失敗する。本リファクタとは無関係。`/tsumiki:auto-debug` で安定化推奨。
 - **比較クロスファイル**: TASK-2339 はクロスファイル比較の扱いで設計判断が必要（本資料 2-2339）。
 
-## 4. 再開時の推奨順序
+## 4. 再開時の推奨順序（更新済み）
 
-1. TASK-2337（cluster/mcdm 等を view 化）→ TASK-2342後半（互換シム除去）でフレーム毎再構築を解消。
-2. TASK-2341（パースピーク）— 自己完結・rust_core のみ。
-3. TASK-2338（分析ピーク MEM-004）— rust_core 分析内部。
-4. TASK-2339（比較 MEM-005）— A/B/C 設計を決めてから。
-5. 100k×22 データ用意 → TASK-2343（ベースライン）→ TASK-2344（定量検証）。
-6. `/tsumiki:auto-debug` でフレーキー性能テストを安定化。
+✅ 1〜4 は今セッションで完了。
+
+5. `csv_export.rs` / `html_report.rs` / `comparison_panel.rs` / `bottom_panel.rs` 等の残存 `trial_rows()` を view 化 → 完全な互換シム除去（TASK-2342 残分）。
+6. 100k×22 データ用意 → TASK-2343（ベースライン）→ TASK-2344（定量検証）。
+7. `/tsumiki:auto-debug` でフレーキー性能テストを安定化。
 
 ## 関連文書
 - 要件: [requirements.md](../../spec/memory-efficiency/requirements.md)

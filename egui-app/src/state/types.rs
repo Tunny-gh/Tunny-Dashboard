@@ -63,13 +63,6 @@ impl StudyContext {
         self.view.row_count()
     }
 
-    /// 互換アクセサ: 全試行を `TrialRow` として一時生成して返す（移行用）。
-    /// 旧 `ctx.trial_rows`（フィールド）の読み取り箇所の段階移行に用いる。
-    /// 永続保持はしない。ホットパスは後続タスクで列アクセスへ最適化する。
-    pub fn trial_rows(&self) -> Vec<TrialRow> {
-        self.view.to_trial_rows()
-    }
-
     /// パラメータのデータ範囲 [min, max] を返す（データがない場合は [0.0, 1.0]）
     pub fn param_range(&self, param_name: &str) -> (f64, f64) {
         let Some(values) = self.view.numeric_column(param_name) else {
