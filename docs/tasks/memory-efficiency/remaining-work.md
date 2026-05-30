@@ -1,9 +1,9 @@
 # memory-efficiency 残作業・引き継ぎ資料
 
 **作成日**: 2026-05-29  
-**更新日**: 2026-05-30
+**更新日**: 2026-05-31
 **ブランチ**: `feature/memory-efficiency`（`main` から分岐）
-**状態**: MEM-001〜007 主要実装完了。残り: 互換シム完全除去（csv_export等大規模消費箇所）・検証タスク（100k データ待ち）。
+**状態**: MEM-001〜007 主要実装完了 + `StudyContext::trial_rows()` 削除完了。残り: `StudyView::row_at` / `to_trial_rows` 除去・検証タスク（100k データ待ち）。
 
 ---
 
@@ -26,6 +26,8 @@
 | `ddf6737` | render_chart.rs:28 削除・pdp_chart view 化・filter/toolbar/widget_states（TASK-2342後半） | — |
 | `00cce0c` | 分析パイプライン trial_rows() 完全廃止・Arc<DataFrame> 直接参照（TASK-2338） | MEM-004 |
 | `31a81c3` | 同一ファイル比較の再パーススキップ（TASK-2339, option C） | MEM-005部分 |
+| `4af8d55` | csv_export/html_report/comparison_panel/bottom_panel の trial_rows() を view 化（TASK-2342残） | — |
+| `20bf0f4` | `StudyContext::trial_rows()` メソッド削除・from_rows_for_test 修正 | — |
 
 ### 確立されたアーキテクチャ（残作業の前提）
 - **共有ストア**: `rust_core/src/data/dataframe/state.rs` の `SharedStudyStore`。
@@ -147,19 +149,14 @@ TC-012。ピーク低下は TASK-2343 のベンチで確認。
 
 ---
 
-### TASK-2342（後半）: 互換シム `row_at` / `to_trial_rows` の完全除去 — **部分完了**
+### ★ TASK-2342（後半）: 互換シム除去 — **`trial_rows()` メソッド削除まで完了**
 
-**render_chart.rs:28 は削除済み** (`ddf6737`)。主要ホットパスも view 化済み。
+`StudyContext::trial_rows()` メソッド自体は `4af8d55` + `20bf0f4` で削除済み。
 
-**残存する `trial_rows()` 呼び出し**（非ホットパス・大規模変更が必要）:
-- `csv_export.rs`: 15+ 箇所（エクスポート時のみ）
-- `html_report.rs`: 1 箇所
-- `comparison_panel.rs`: 多数（`trial_rows().len()` 等）
-- `bottom_panel.rs` / `trial_table.rs`: `get_display_rows`、`filter_rows_for_display`
-- `app.rs`: イベント駆動の数箇所
-
-**完全除去のブロッカー**: `csv_export.rs` など大規模消費箇所のリライトが必要。
-`StudyView::row_at` / `to_trial_rows` / `StudyContext::trial_rows()` はまだ使われているため残存。
+**現在の残存互換コード**:
+- `StudyView::row_at()` / `to_trial_rows()`: `bottom_panel.rs` と `trial_table.rs` の `get_display_rows` 系が使用。これらはウィジェット向け `Vec<TrialRow>` 生成のため残す（最終的には egui TrialRow 型ごと廃止するまで保持）。
+- `compute_chart_colors()` (旧 TrialRow 版): テスト専用で残存。`compute_chart_colors_view()` が本番パス。
+- `egui TrialRow` 型: `bottom_panel`, `trial_table`, テストヘルパー群で使用。`csv_export.rs` の `build_csv_string` 経由でも必要。型ごとの廃止は egui ウィジェット全体の再設計が必要。
 
 ---
 
@@ -190,11 +187,11 @@ TC-012。ピーク低下は TASK-2343 のベンチで確認。
 
 ## 4. 再開時の推奨順序（更新済み）
 
-✅ 1〜4 は今セッションで完了。
+✅ 1〜5 は今セッションで完了（TASK-2337〜2342、trial_rows() メソッド削除まで）。
 
-5. `csv_export.rs` / `html_report.rs` / `comparison_panel.rs` / `bottom_panel.rs` 等の残存 `trial_rows()` を view 化 → 完全な互換シム除去（TASK-2342 残分）。
-6. 100k×22 データ用意 → TASK-2343（ベースライン）→ TASK-2344（定量検証）。
-7. `/tsumiki:auto-debug` でフレーキー性能テストを安定化。
+6. `StudyView::row_at` / `to_trial_rows` の完全除去 → `egui TrialRow` 型廃止（`bottom_panel`, `trial_table`, `csv_export::build_csv_string` の大規模リライトが必要）。
+7. 100k×22 データ用意 → TASK-2343（ベースライン）→ TASK-2344（定量検証）。
+8. `/tsumiki:auto-debug` でフレーキー性能テストを安定化。
 
 ## 関連文書
 - 要件: [requirements.md](../../spec/memory-efficiency/requirements.md)
