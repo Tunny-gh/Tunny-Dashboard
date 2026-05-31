@@ -1,5 +1,5 @@
-use super::{compute_ridge_from_vecs, SobolResult};
 use super::data::get_param_numeric_values;
+use super::{compute_ridge_from_vecs, SobolResult};
 use crate::math::rng::SeededRng;
 use crate::math::stats::column_mean_std;
 use rayon::prelude::*;
@@ -33,7 +33,6 @@ pub(crate) fn build_quad_features(x_std: &[f64]) -> Vec<f64> {
 
     feat
 }
-
 
 fn build_row_major_matrix(columns: &[Vec<f64>], n_rows: usize) -> Vec<Vec<f64>> {
     if columns.is_empty() || n_rows == 0 {

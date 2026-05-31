@@ -1,4 +1,5 @@
 use crate::state::app_state::TrialRow;
+use crate::state::types::StudyView;
 
 /// CSVエクスポートの対象
 #[derive(Debug, Clone, PartialEq)]
@@ -49,7 +50,12 @@ pub fn build_csv_string(
     for row in rows {
         let mut parts = vec![row.trial_id.to_string(), row.trial_number.to_string()];
         for name in param_names {
-            parts.push(row.params.get(name).map(|v| v.to_string()).unwrap_or_default());
+            parts.push(
+                row.params
+                    .get(name)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+            );
         }
         for (i, _) in objective_names.iter().enumerate() {
             parts.push(
@@ -65,6 +71,85 @@ pub fn build_csv_string(
     }
 
     lines.join("\n")
+}
+
+/// `StudyView` と行インデックスリストから CSV 文字列を生成する。
+/// `build_csv_string` と同一の列順（trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id）。
+pub fn build_csv_string_from_view(
+    view: &StudyView,
+    row_indices: &[usize],
+    param_names: &[String],
+    objective_names: &[String],
+) -> String {
+    let param_cols = view.numeric_columns(param_names);
+    let obj_cols = view.numeric_columns(objective_names);
+
+    let mut lines = Vec::with_capacity(row_indices.len() + 1);
+
+    let mut header = vec!["trial_id".to_string(), "trial_number".to_string()];
+    header.extend(param_names.iter().cloned());
+    header.extend(objective_names.iter().cloned());
+    header.push("pareto_rank".to_string());
+    header.push("cluster_id".to_string());
+    lines.push(header.join(","));
+
+    for &i in row_indices {
+        let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+        let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+        let cluster = view.cluster_id.get(i).copied().flatten();
+        let mut parts = vec![trial_id.to_string(), i.to_string()];
+        for col in &param_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+            parts.push(if v.is_finite() {
+                v.to_string()
+            } else {
+                String::new()
+            });
+        }
+        for col in &obj_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+            parts.push(if v.is_finite() {
+                v.to_string()
+            } else {
+                String::new()
+            });
+        }
+        parts.push(rank.to_string());
+        parts.push(cluster.map(|c| c.to_string()).unwrap_or_default());
+        lines.push(parts.join(","));
+    }
+
+    lines.join("\n")
+}
+
+/// `StudyView` ベースのエクスポート対象行インデックスを返す。
+pub fn select_row_indices_for_export(
+    view: &StudyView,
+    selected_indices: &[u32],
+    pareto_indices: &[u32],
+    target: &ExportTarget,
+) -> Vec<usize> {
+    let n = view.row_count();
+    match target {
+        ExportTarget::AllData => (0..n).collect(),
+        ExportTarget::SelectedOnly => {
+            let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
+            (0..n)
+                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| id_set.contains(id)))
+                .collect()
+        }
+        ExportTarget::ParetoOnly => {
+            let pareto_set: std::collections::HashSet<u32> =
+                pareto_indices.iter().copied().collect();
+            (0..n)
+                .filter(|&i| {
+                    view.trial_ids
+                        .get(i)
+                        .is_some_and(|id| pareto_set.contains(id))
+                })
+                .collect()
+        }
+    }
 }
 
 /// CSV 文字列を指定パスへ書き込む。失敗時はエラー文字列を返す。
@@ -119,7 +204,11 @@ mod tests {
         }
     }
 
-    fn make_trial_with_data(id: u32, params: HashMap<String, f64>, objectives: Vec<f64>) -> TrialRow {
+    fn make_trial_with_data(
+        id: u32,
+        params: HashMap<String, f64>,
+        objectives: Vec<f64>,
+    ) -> TrialRow {
         TrialRow {
             trial_id: id,
             trial_number: id,
@@ -167,7 +256,7 @@ mod tests {
 
     #[test]
     fn build_csv_string_includes_required_headers() {
-        let rows = vec![make_trial(0)];
+        let rows = [make_trial(0)];
         let param_names = vec!["x".to_string(), "y".to_string()];
         let obj_names = vec!["f1".to_string()];
         let csv = build_csv_string(&rows.iter().collect::<Vec<_>>(), &param_names, &obj_names);
@@ -201,12 +290,20 @@ mod tests {
         // SelectedOnly: 2 rows
         let sel = select_rows_for_export(&rows, &[0, 1], &[0], &ExportTarget::SelectedOnly);
         let csv = build_csv_string(&sel, &param_names, &obj_names);
-        assert_eq!(csv.lines().count(), 3, "SelectedOnly should produce 2 data rows");
+        assert_eq!(
+            csv.lines().count(),
+            3,
+            "SelectedOnly should produce 2 data rows"
+        );
 
         // ParetoOnly: 1 row
         let par = select_rows_for_export(&rows, &[0, 1], &[0], &ExportTarget::ParetoOnly);
         let csv = build_csv_string(&par, &param_names, &obj_names);
-        assert_eq!(csv.lines().count(), 2, "ParetoOnly should produce 1 data row");
+        assert_eq!(
+            csv.lines().count(),
+            2,
+            "ParetoOnly should produce 1 data row"
+        );
     }
 
     #[test]
@@ -225,7 +322,11 @@ mod tests {
         let csv = build_csv_string(&exported, &[], &[]);
         // 3 data rows + 1 header line
         let data_lines = csv.lines().count().saturating_sub(1);
-        assert_eq!(data_lines, selected.len(), "data line count must match selection count");
+        assert_eq!(
+            data_lines,
+            selected.len(),
+            "data line count must match selection count"
+        );
     }
 
     // ── TASK-2246: CSV export regression ────────────────────────

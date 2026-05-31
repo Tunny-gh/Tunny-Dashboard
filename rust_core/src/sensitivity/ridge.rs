@@ -1,8 +1,8 @@
-use crate::math::stats::column_mean_std;
-use crate::dataframe::DataFrame;
 use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::types::{RidgeResult, SensitivityResult};
+use crate::dataframe::DataFrame;
+use crate::math::stats::column_mean_std;
 
 fn standardize_columns_inplace(x_cols: &mut [f64], n: usize, p: usize) {
     for j in 0..p {
@@ -24,7 +24,6 @@ fn transpose_and_standardize_faer(x_matrix: &faer::Mat<f64>, n: usize, p: usize)
     standardize_columns_inplace(&mut x_cols, n, p);
     x_cols
 }
-
 
 pub(super) fn compute_ridge_from_standardized_columns(
     x_cols: &[f64],
@@ -90,7 +89,12 @@ impl SensitivityMetric for RidgeMetric {
         }
         standardize_columns_inplace(&mut x_cols_flat, n, num_params);
 
-        let ridge = vec![compute_ridge_from_standardized_columns(&x_cols_flat, n, &y, 1.0)];
+        let ridge = vec![compute_ridge_from_standardized_columns(
+            &x_cols_flat,
+            n,
+            &y,
+            1.0,
+        )];
 
         Some(SensitivityResult {
             param_names,
@@ -111,7 +115,12 @@ impl SensitivityMetric for RidgeMetric {
 
 /// X'X 行列を計算する（column-major flat 配列から、Ridge 正則化項は含まない）。
 /// 返り値は `num_params × num_params` の行優先フラット配列。
-pub(crate) fn compute_xtx_matrix(x_cols: &[f64], n: usize, num_params: usize, alpha: f64) -> Vec<f64> {
+pub(crate) fn compute_xtx_matrix(
+    x_cols: &[f64],
+    n: usize,
+    num_params: usize,
+    alpha: f64,
+) -> Vec<f64> {
     let mut xtx = vec![0.0f64; num_params * num_params];
     for i in 0..num_params {
         for j in i..num_params {
@@ -129,7 +138,12 @@ pub(crate) fn compute_xtx_matrix(x_cols: &[f64], n: usize, num_params: usize, al
 }
 
 /// X'y ベクトルを計算する（y は中心化済み）。
-pub(crate) fn compute_xty_vector(x_cols: &[f64], y_c: &[f64], n: usize, num_params: usize) -> Vec<f64> {
+pub(crate) fn compute_xty_vector(
+    x_cols: &[f64],
+    y_c: &[f64],
+    n: usize,
+    num_params: usize,
+) -> Vec<f64> {
     (0..num_params)
         .map(|j| {
             let col = &x_cols[j * n..(j + 1) * n];
@@ -156,7 +170,10 @@ pub(crate) fn compute_r_squared(x_cols: &[f64], y_c: &[f64], beta: &[f64], n: us
 
 pub fn compute_ridge(x_matrix: &faer::Mat<f64>, y: &[f64], alpha: f64) -> RidgeResult {
     let n = y.len();
-    let empty = RidgeResult { beta: vec![], r_squared: 0.0 };
+    let empty = RidgeResult {
+        beta: vec![],
+        r_squared: 0.0,
+    };
     if n < 2 || x_matrix.nrows() != n {
         return empty;
     }
@@ -171,10 +188,17 @@ pub fn compute_ridge(x_matrix: &faer::Mat<f64>, y: &[f64], alpha: f64) -> RidgeR
 /// Convenience wrapper for internal callers that have Vec<Vec<f64>>.
 pub(crate) fn compute_ridge_from_vecs(x_matrix: &[Vec<f64>], y: &[f64], alpha: f64) -> RidgeResult {
     let n = y.len();
-    let empty = RidgeResult { beta: vec![], r_squared: 0.0 };
-    if n < 2 || x_matrix.len() != n { return empty; }
+    let empty = RidgeResult {
+        beta: vec![],
+        r_squared: 0.0,
+    };
+    if n < 2 || x_matrix.len() != n {
+        return empty;
+    }
     let p = x_matrix.first().map(|r| r.len()).unwrap_or(0);
-    if p == 0 { return empty; }
+    if p == 0 {
+        return empty;
+    }
     let faer_x = faer::Mat::from_fn(n, p, |i, j| x_matrix[i][j]);
     compute_ridge(&faer_x, y, alpha)
 }
@@ -186,7 +210,7 @@ mod tests {
     fn simple_x_cols() -> (Vec<f64>, usize, usize) {
         // 4 rows × 2 params, column-major standardized:
         // col0: [-1, -0.333, 0.333, 1], col1: [1, 0.333, -0.333, -1] (approx)
-        let x = vec![-1.5, -0.5, 0.5, 1.5,  1.5, 0.5, -0.5, -1.5];
+        let x = vec![-1.5, -0.5, 0.5, 1.5, 1.5, 0.5, -0.5, -1.5];
         (x, 4, 2)
     }
 
@@ -263,13 +287,15 @@ mod tests {
     fn tc_103_01_ridge_beta_and_r2_consistent_with_linear_data() {
         // Perfect linear relationship: y = 2*x1 + x2
         let n = 20usize;
-        let x_matrix: Vec<Vec<f64>> = (0..n)
-            .map(|i| vec![i as f64, (i % 5) as f64])
-            .collect();
+        let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 5) as f64]).collect();
         let y: Vec<f64> = x_matrix.iter().map(|r| 2.0 * r[0] + r[1]).collect();
         let result = compute_ridge_from_vecs(&x_matrix, &y, 0.001);
         assert_eq!(result.beta.len(), 2);
-        assert!(result.r_squared > 0.95, "R² should be high for linear data: {}", result.r_squared);
+        assert!(
+            result.r_squared > 0.95,
+            "R² should be high for linear data: {}",
+            result.r_squared
+        );
         // First coefficient should dominate (x1 has larger scale contribution)
         assert!(result.beta[0] > 0.0, "β[0] should be positive");
     }
@@ -289,6 +315,9 @@ mod tests {
         let xty = compute_xty_vector(&x, &[-1.0f64, -0.5, 0.5, 1.0], n, p);
         let beta = solve_ridge_normal_equations(&xtx, &xty, p);
         assert_eq!(beta.len(), p);
-        assert!(beta.iter().all(|b| b.is_finite()), "all betas should be finite");
+        assert!(
+            beta.iter().all(|b| b.is_finite()),
+            "all betas should be finite"
+        );
     }
 }

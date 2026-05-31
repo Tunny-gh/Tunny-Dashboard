@@ -1,5 +1,4 @@
-use crate::state::app_state::TrialRow;
-use crate::state::types::Direction;
+use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{
     COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
 };
@@ -52,17 +51,17 @@ impl OptimizationHistoryChart {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        trial_rows: &[TrialRow],
+        view: &StudyView,
         obj_names: &[String],
         directions: &[Direction],
     ) {
-        self.show_with_history(ui, trial_rows, obj_names, directions, None);
+        self.show_with_history(ui, view, obj_names, directions, None);
     }
 
     pub fn show_with_history(
         &mut self,
         ui: &mut egui::Ui,
-        trial_rows: &[TrialRow],
+        view: &StudyView,
         obj_names: &[String],
         directions: &[Direction],
         best_history: Option<&[(u32, f64)]>,
@@ -124,10 +123,11 @@ impl OptimizationHistoryChart {
             }
         });
 
-        let values: Vec<f64> = trial_rows
-            .iter()
-            .map(|r| r.objectives.get(self.obj_idx).copied().unwrap_or(0.0))
-            .collect();
+        let values: Vec<f64> = obj_names
+            .get(self.obj_idx)
+            .and_then(|name| view.numeric_column(name))
+            .map(|col| col.to_vec())
+            .unwrap_or_default();
 
         let show_best_line = self.show_best_line;
         let log_scale = self.log_scale;
@@ -211,18 +211,20 @@ impl OptimizationHistoryChart {
     }
 }
 
-/// trial_rows から [trial_idx, value] の点列を計算する
+/// view から [trial_idx, value] の点列を計算する
 pub fn compute_history_points(
-    trial_rows: &[TrialRow],
+    view: &StudyView,
+    obj_names: &[String],
     obj_idx: usize,
     mode: &HistoryMode,
     window_size: usize,
     is_minimize: bool,
 ) -> Vec<[f64; 2]> {
-    let values: Vec<f64> = trial_rows
-        .iter()
-        .map(|r| r.objectives.get(obj_idx).copied().unwrap_or(0.0))
-        .collect();
+    let values: Vec<f64> = obj_names
+        .get(obj_idx)
+        .and_then(|name| view.numeric_column(name))
+        .map(|col| col.to_vec())
+        .unwrap_or_default();
 
     match mode {
         HistoryMode::AllTrials => values
@@ -337,7 +339,7 @@ mod tests {
 
     #[test]
     fn best_line_plot_points() {
-        let history = vec![(0u32, 1.0_f64), (3, 0.8), (7, 0.5)];
+        let history = [(0u32, 1.0_f64), (3, 0.8), (7, 0.5)];
         let points: Vec<[f64; 2]> = history
             .iter()
             .enumerate()

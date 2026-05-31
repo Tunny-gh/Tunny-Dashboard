@@ -55,13 +55,19 @@ pub fn show(
         // Render mode toggle
         ui.label("Mode:");
         if ui
-            .selectable_label(state.render_mode == SurfacePlotRenderMode::Heatmap, "Heatmap")
+            .selectable_label(
+                state.render_mode == SurfacePlotRenderMode::Heatmap,
+                "Heatmap",
+            )
             .clicked()
         {
             state.render_mode = SurfacePlotRenderMode::Heatmap;
         }
         if ui
-            .selectable_label(state.render_mode == SurfacePlotRenderMode::Contour, "Contour")
+            .selectable_label(
+                state.render_mode == SurfacePlotRenderMode::Contour,
+                "Contour",
+            )
             .clicked()
         {
             state.render_mode = SurfacePlotRenderMode::Contour;
@@ -70,7 +76,10 @@ pub fn show(
 
     // Same param warning
     if !state.selected_x.is_empty() && state.selected_x == state.selected_y {
-        ui.colored_label(egui::Color32::YELLOW, "Warning: same parameter selected for X and Y");
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            "Warning: same parameter selected for X and Y",
+        );
     }
 
     // Trial count check
@@ -138,8 +147,10 @@ fn render_result(
     }
 
     let available = ui.available_rect_before_wrap();
-    let plot_size =
-        egui::vec2((available.width() - 32.0).max(100.0), available.height().min(300.0));
+    let plot_size = egui::vec2(
+        (available.width() - 32.0).max(100.0),
+        available.height().min(300.0),
+    );
     let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
     let painter = ui.painter_at(rect);
 
@@ -169,12 +180,7 @@ fn render_result(
     }
 }
 
-fn draw_heatmap(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    values: &[Vec<f64>],
-    cmap: ColorMap,
-) {
+fn draw_heatmap(painter: &egui::Painter, rect: egui::Rect, values: &[Vec<f64>], cmap: ColorMap) {
     let n_row = values.len();
     if n_row == 0 {
         return;
@@ -308,7 +314,7 @@ mod tests {
     fn surface_plot_request_contains_selected_axes_and_objective() {
         let mut state = make_state_with_selections();
         let param_names = vec!["x1".to_string(), "x2".to_string()];
-        let obj_names = vec!["obj0".to_string()];
+        let obj_names = ["obj0".to_string()];
 
         // Simulate what "Run Surface" click does
         if !state.computing && state.selected_x != state.selected_y {

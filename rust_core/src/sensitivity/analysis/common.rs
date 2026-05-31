@@ -1,11 +1,13 @@
-use crate::math::stats::column_mean_std;
 use crate::dataframe::DataFrame;
+use crate::math::stats::column_mean_std;
 use rayon::prelude::*;
 
 use super::super::{
-    data::get_param_numeric_values, metrics::TreeMetric,
+    data::get_param_numeric_values,
+    metrics::TreeMetric,
     ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
-    tree::common::{prepare_shared_x, prepare_training_data}, RidgeResult, SensitivityResult, TreeImportanceResult,
+    tree::common::{prepare_shared_x, prepare_training_data},
+    RidgeResult, SensitivityResult, TreeImportanceResult,
 };
 
 pub(super) fn empty_result(
@@ -167,14 +169,19 @@ pub(super) fn run_tree_metric_for_all_objectives<M: TreeMetric + Send + Sync>(
     let results: Vec<(Vec<f64>, f64)> = objective_columns
         .par_iter()
         .map(|y| {
-            let data = shared_x
-                .as_ref()
-                .and_then(|sx| sx.with_y(y))
-                .or_else(|| prepare_training_data(
-                    x_matrix, y, metric.max_rows(), metric.data_seed(), metric.split_seed(),
-                ));
+            let data = shared_x.as_ref().and_then(|sx| sx.with_y(y)).or_else(|| {
+                prepare_training_data(
+                    x_matrix,
+                    y,
+                    metric.max_rows(),
+                    metric.data_seed(),
+                    metric.split_seed(),
+                )
+            });
             match data {
-                Some(d) => metric.compute_importances(&d).unwrap_or_else(|| (vec![0.0; param_count], 0.0)),
+                Some(d) => metric
+                    .compute_importances(&d)
+                    .unwrap_or_else(|| (vec![0.0; param_count], 0.0)),
                 None => (vec![0.0; param_count], 0.0),
             }
         })

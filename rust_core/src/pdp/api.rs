@@ -187,6 +187,7 @@ pub fn compute_pdp_2d(
 /// Compute a 2D response surface from raw data without using the thread-local dataframe.
 /// Suitable for calling from background threads.
 /// `model_type` accepts "ridge" (default), "kriging", "sparse_kriging".
+#[allow(clippy::too_many_arguments)]
 pub fn compute_surface_from_data(
     x_matrix: Vec<Vec<f64>>,
     y: Vec<f64>,

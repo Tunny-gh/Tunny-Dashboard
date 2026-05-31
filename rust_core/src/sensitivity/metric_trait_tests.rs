@@ -3,10 +3,10 @@
 //! テストケース定義: docs/implements/rust-core-refactoring/TASK-2259/spearman-ridge-metric-impl-testcases.md
 //! 要件定義: docs/implements/rust-core-refactoring/TASK-2259/spearman-ridge-metric-impl-requirements.md
 
-use super::metric_trait::SensitivityMetric;
-use super::spearman::SpearmanMetric;
-use super::ridge::RidgeMetric;
 use super::compute_sensitivity_single_obj;
+use super::metric_trait::SensitivityMetric;
+use super::ridge::RidgeMetric;
+use super::spearman::SpearmanMetric;
 use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
 use std::collections::HashMap;
 
@@ -106,13 +106,24 @@ fn tc_2259_03_spearman_positive_correlation() {
 
     // 【結果検証】: SensitivityResult の全フィールドを検証
     // 【期待値確認】: 要件定義書セクション2「SensitivityResult の内容（SpearmanMetric）」
-    assert!(result.is_some(), "SpearmanMetric::compute() should return Some"); // 【確認内容】: 計算が正常に完了し Some が返る 🔵
+    assert!(
+        result.is_some(),
+        "SpearmanMetric::compute() should return Some"
+    ); // 【確認内容】: 計算が正常に完了し Some が返る 🔵
     let r = result.unwrap();
     assert_eq!(r.param_names, vec!["x1", "x2"]); // 【確認内容】: パラメータ名が正しく設定される 🔵
     assert_eq!(r.objective_names, vec!["obj0"]); // 【確認内容】: 目的関数名が1要素のみ 🔵
     assert_eq!(r.spearman.len(), 2); // 【確認内容】: パラメータ数分の感度値が設定される 🔵
-    assert!(r.spearman[0][0] > 0.99, "x1-obj0 should be positively correlated: {}", r.spearman[0][0]); // 【確認内容】: x1-obj0 正相関 🔵
-    assert!(r.spearman[1][0] < -0.99, "x2-obj0 should be negatively correlated: {}", r.spearman[1][0]); // 【確認内容】: x2-obj0 負相関 🔵
+    assert!(
+        r.spearman[0][0] > 0.99,
+        "x1-obj0 should be positively correlated: {}",
+        r.spearman[0][0]
+    ); // 【確認内容】: x1-obj0 正相関 🔵
+    assert!(
+        r.spearman[1][0] < -0.99,
+        "x2-obj0 should be negatively correlated: {}",
+        r.spearman[1][0]
+    ); // 【確認内容】: x2-obj0 負相関 🔵
     assert!(r.ridge.is_empty()); // 【確認内容】: Ridge フィールドは空 🔵
     assert!(r.rf_anova.is_none()); // 【確認内容】: rf_anova は None 🔵
     assert!(r.mdi.is_none()); // 【確認内容】: mdi は None 🔵
@@ -141,7 +152,10 @@ fn tc_2259_04_ridge_linear_data() {
 
     // 【結果検証】: SensitivityResult の全フィールドを検証
     // 【期待値確認】: 要件定義書セクション2「SensitivityResult の内容（RidgeMetric）」
-    assert!(result.is_some(), "RidgeMetric::compute() should return Some"); // 【確認内容】: 計算が正常に完了 🔵
+    assert!(
+        result.is_some(),
+        "RidgeMetric::compute() should return Some"
+    ); // 【確認内容】: 計算が正常に完了 🔵
     let r = result.unwrap();
     assert_eq!(r.param_names, vec!["x1"]); // 【確認内容】: パラメータ名 🔵
     assert_eq!(r.objective_names, vec!["obj0"]); // 【確認内容】: 目的関数名1要素 🔵
@@ -153,7 +167,11 @@ fn tc_2259_04_ridge_linear_data() {
         "R² should be close to 1.0: {}",
         r.ridge[0].r_squared
     ); // 【確認内容】: R^2 が高い値 🔵
-    assert!(r.ridge[0].beta[0] > 0.0, "beta should be positive: {}", r.ridge[0].beta[0]); // 【確認内容】: beta の符号が正 🔵
+    assert!(
+        r.ridge[0].beta[0] > 0.0,
+        "beta should be positive: {}",
+        r.ridge[0].beta[0]
+    ); // 【確認内容】: beta の符号が正 🔵
     assert!(r.rf_anova.is_none()); // 【確認内容】: rf_anova は None 🔵
     assert!(r.mdi.is_none()); // 【確認内容】: mdi は None 🔵
     assert!(r.shap.is_none()); // 【確認内容】: shap は None 🔵
@@ -290,7 +308,10 @@ fn tc_2259_09_spearman_as_trait_object() {
     // 【期待値確認】: compute() が Some を返し、name() が正しい値を返す
     assert_eq!(metric.name(), "Spearman"); // 【確認内容】: name() が正しい文字列を返す 🔵
     let result = metric.compute(&df, 0);
-    assert!(result.is_some(), "trait object compute() should return Some"); // 【確認内容】: 計算結果が返る 🔵
+    assert!(
+        result.is_some(),
+        "trait object compute() should return Some"
+    ); // 【確認内容】: 計算結果が返る 🔵
 }
 
 #[test]
@@ -321,7 +342,10 @@ fn tc_2259_10_ridge_as_trait_object() {
     // 【期待値確認】: compute() が Some を返し、name() が正しい値を返す
     assert_eq!(metric.name(), "Ridge"); // 【確認内容】: name() が正しい文字列を返す 🔵
     let result = metric.compute(&df, 0);
-    assert!(result.is_some(), "trait object compute() should return Some"); // 【確認内容】: 計算結果が返る 🔵
+    assert!(
+        result.is_some(),
+        "trait object compute() should return Some"
+    ); // 【確認内容】: 計算結果が返る 🔵
 }
 
 #[test]
@@ -355,7 +379,10 @@ fn tc_2259_11_multiple_metrics_vector_dispatch() {
     assert_eq!(metrics[1].name(), "Ridge"); // 【確認内容】: 2つ目のメトリック名 🔵
 
     let spearman_result = metrics[0].compute(&df, 0);
-    assert!(spearman_result.is_some(), "SpearmanMetric should return Some"); // 【確認内容】: Spearman 計算成功 🔵
+    assert!(
+        spearman_result.is_some(),
+        "SpearmanMetric should return Some"
+    ); // 【確認内容】: Spearman 計算成功 🔵
     assert!(!spearman_result.unwrap().spearman.is_empty()); // 【確認内容】: spearman フィールドが空でない 🔵
 
     let ridge_result = metrics[1].compute(&df, 0);
@@ -453,7 +480,10 @@ fn tc_2259_14_spearman_insufficient_data_n1() {
 
     // 【結果検証】: None が返ること（パニックしないこと）
     // 【期待値確認】: n < 2 の場合は None
-    assert!(result.is_none(), "SpearmanMetric should return None when n < 2"); // 【確認内容】: データ不足で None 🔵
+    assert!(
+        result.is_none(),
+        "SpearmanMetric should return None when n < 2"
+    ); // 【確認内容】: データ不足で None 🔵
 }
 
 #[test]
@@ -475,7 +505,10 @@ fn tc_2259_15_ridge_insufficient_data_n1() {
 
     // 【結果検証】: None が返ること（パニックしないこと）
     // 【期待値確認】: n < 2 の場合は None
-    assert!(result.is_none(), "RidgeMetric should return None when n < 2"); // 【確認内容】: データ不足で None 🔵
+    assert!(
+        result.is_none(),
+        "RidgeMetric should return None when n < 2"
+    ); // 【確認内容】: データ不足で None 🔵
 }
 
 #[test]
@@ -497,7 +530,10 @@ fn tc_2259_16_spearman_empty_data_n0() {
 
     // 【結果検証】: None が返ること（パニックしないこと）
     // 【期待値確認】: n = 0 < 2 の場合は None
-    assert!(result.is_none(), "SpearmanMetric should return None when n = 0"); // 【確認内容】: 空データで None 🔵
+    assert!(
+        result.is_none(),
+        "SpearmanMetric should return None when n = 0"
+    ); // 【確認内容】: 空データで None 🔵
 }
 
 #[test]
@@ -527,7 +563,10 @@ fn tc_2259_18_spearman_invalid_obj_idx() {
 
     // 【結果検証】: None が返ること（パニックしないこと）
     // 【期待値確認】: obj_idx >= objective_names.len() の場合は None
-    assert!(result.is_none(), "SpearmanMetric should return None for out-of-range obj_idx"); // 【確認内容】: 範囲外で None 🔵
+    assert!(
+        result.is_none(),
+        "SpearmanMetric should return None for out-of-range obj_idx"
+    ); // 【確認内容】: 範囲外で None 🔵
 }
 
 #[test]
@@ -557,7 +596,10 @@ fn tc_2259_19_ridge_invalid_obj_idx() {
 
     // 【結果検証】: None が返ること（パニックしないこと）
     // 【期待値確認】: obj_idx >= objective_names.len() の場合は None
-    assert!(result.is_none(), "RidgeMetric should return None for out-of-range obj_idx"); // 【確認内容】: 範囲外で None 🔵
+    assert!(
+        result.is_none(),
+        "RidgeMetric should return None for out-of-range obj_idx"
+    ); // 【確認内容】: 範囲外で None 🔵
 }
 
 // ===========================================================================
@@ -573,7 +615,9 @@ fn tc_2259_20_spearman_empty_params() {
 
     // 【テストデータ準備】: パラメータなしの DataFrame
     // 【初期条件設定】: 10行・0パラメータ・1目的関数
-    let rows: Vec<TrialRow> = (0..10).map(|i| make_row_multi(i, &[], vec![i as f64])).collect();
+    let rows: Vec<TrialRow> = (0..10)
+        .map(|i| make_row_multi(i, &[], vec![i as f64]))
+        .collect();
     let df = setup_df(rows, &[], &["obj0"]);
 
     // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
@@ -583,7 +627,10 @@ fn tc_2259_20_spearman_empty_params() {
 
     // 【結果検証】: None が返ること
     // 【期待値確認】: param_names.is_empty() の場合は None
-    assert!(result.is_none(), "SpearmanMetric should return None when param_names is empty"); // 【確認内容】: 空パラメータで None 🔵
+    assert!(
+        result.is_none(),
+        "SpearmanMetric should return None when param_names is empty"
+    ); // 【確認内容】: 空パラメータで None 🔵
 }
 
 #[test]

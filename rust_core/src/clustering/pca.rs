@@ -55,8 +55,12 @@ pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaRe
         for j in i..p {
             let col_i = &x_cols[i * n..(i + 1) * n];
             let col_j = &x_cols[j * n..(j + 1) * n];
-            let value: f64 =
-                col_i.iter().zip(col_j.iter()).map(|(a, b)| a * b).sum::<f64>() / nf;
+            let value: f64 = col_i
+                .iter()
+                .zip(col_j.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                / nf;
             cov[(i, j)] = value;
             cov[(j, i)] = value;
         }

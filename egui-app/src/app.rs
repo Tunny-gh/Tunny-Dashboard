@@ -110,8 +110,7 @@ impl TunnyApp {
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
                 }
                 ToolbarAction::ToggleLiveUpdate => {
-                    self.app_state.live_update.enabled =
-                        !self.app_state.live_update.enabled;
+                    self.app_state.live_update.enabled = !self.app_state.live_update.enabled;
                     if self.app_state.live_update.enabled {
                         self.restart_poller();
                     } else {
@@ -169,9 +168,10 @@ impl TunnyApp {
                 }
                 ToolbarAction::ExportCsv(target) => {
                     if let Some(ctx) = &self.app_state.current_study {
-                        let csv = crate::io::export::build_csv_string(
-                            &crate::io::export::select_rows_for_export(
-                                &ctx.trial_rows,
+                        let csv = crate::io::export::build_csv_string_from_view(
+                            &ctx.view,
+                            &crate::io::export::select_row_indices_for_export(
+                                &ctx.view,
                                 &self.app_state.selected_indices,
                                 &ctx.pareto_indices,
                                 &target,
@@ -195,10 +195,18 @@ impl TunnyApp {
                             .unwrap_or_default();
                         let study_idx = self.app_state.comparison_studies.len();
                         self.app_state.comparison_mode = true;
+                        // 同一ファイルなら再パース不要: 既存メタをそのまま渡す（option C）
+                        let same_file_metas =
+                            if self.app_state.journal_path.as_deref() == Some(path.as_path()) {
+                                Some(self.app_state.all_studies.clone())
+                            } else {
+                                None
+                            };
                         crate::io::study_worker::dispatch_load_comparison_study(
                             path,
                             main_name,
                             study_idx,
+                            same_file_metas,
                             self.sender(),
                         );
                     }
@@ -226,15 +234,13 @@ impl TunnyApp {
             return;
         };
 
-        let byte_offset = std::fs::metadata(file_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let byte_offset = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
 
         let next_trial_id = self
             .app_state
             .current_study
             .as_ref()
-            .map(|s| s.trial_rows.len() as u32)
+            .map(|s| s.trial_count() as u32)
             .unwrap_or_else(|| {
                 self.app_state
                     .all_studies

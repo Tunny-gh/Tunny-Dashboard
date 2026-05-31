@@ -1,4 +1,4 @@
-use crate::state::app_state::{filter_rows_for_display, AppState, Direction};
+use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widget_states::WidgetStates;
@@ -25,7 +25,6 @@ pub(crate) fn render_chart(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
-    let trial_rows = &ctx.trial_rows;
     let obj_names = &ctx.meta.objective_names;
     let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
@@ -36,7 +35,7 @@ pub(crate) fn render_chart(
         ChartId::OptimizationHistory => {
             widgets
                 .opt_history
-                .show(ui, trial_rows, obj_names, directions);
+                .show(ui, &ctx.view, obj_names, directions);
         }
         ChartId::HvHistory => {
             widgets.hv_history.hv_history = app_state.hv_history.clone();
@@ -56,14 +55,14 @@ pub(crate) fn render_chart(
                 .show(ui, current_sensitivity, current_sobol, obj_names);
         }
         ChartId::PdpChart => {
-            // TASK-2237: pass selected ∪ pinned rows to PDP observed overlay
-            let pdp_rows: Vec<&crate::state::app_state::TrialRow> =
-                filter_rows_for_display(trial_rows, &app_state.selected_indices, &app_state.pinned_trials);
-            let pdp_rows_owned: Vec<crate::state::app_state::TrialRow> =
-                pdp_rows.into_iter().cloned().collect();
-            widgets
-                .pdp_chart
-                .show(ui, param_names, obj_names, &pdp_rows_owned);
+            widgets.pdp_chart.show(
+                ui,
+                param_names,
+                obj_names,
+                &ctx.view,
+                &app_state.selected_indices,
+                &app_state.pinned_trials,
+            );
         }
         ChartId::PdpChart2D => {
             widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
@@ -71,7 +70,7 @@ pub(crate) fn render_chart(
         ChartId::ParallelCoordinates => {
             widgets.parallel_coords.show(
                 ui,
-                trial_rows,
+                &ctx.view,
                 param_names,
                 obj_names,
                 &widgets.chart_colors,
@@ -83,7 +82,7 @@ pub(crate) fn render_chart(
         ChartId::ScatterMatrix => {
             widgets.scatter_matrix.show(
                 ui,
-                trial_rows,
+                &ctx.view,
                 param_names,
                 obj_names,
                 &widgets.chart_colors,
@@ -95,7 +94,7 @@ pub(crate) fn render_chart(
         ChartId::ClusterScatter => {
             widgets.cluster_scatter.show(
                 ui,
-                trial_rows,
+                &ctx.view,
                 app_state.cluster_result.as_ref(),
                 param_names,
                 obj_names,
@@ -105,25 +104,29 @@ pub(crate) fn render_chart(
         ChartId::McdmRankChart => {
             widgets
                 .mcdm_chart
-                .show(ui, obj_names, &app_state.mcdm_result, trial_rows);
+                .show(ui, obj_names, &app_state.mcdm_result, &ctx.view);
         }
         ChartId::McdmScatterChart => {
             widgets
                 .scatter_chart
-                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
         }
         ChartId::McdmTable => {
             widgets
                 .mcdm_table
-                .show(ui, &app_state.mcdm_result, trial_rows, obj_names);
+                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
         }
         ChartId::AhpRankChart => {
-            let objectives: Vec<f64> = trial_rows
-                .iter()
-                .flat_map(|r| r.objectives.iter().copied())
-                .collect();
-            let n_trials = trial_rows.len();
+            let n_trials = ctx.trial_count();
             let n_objectives = obj_names.len();
+            let obj_cols = ctx.view.numeric_columns(obj_names);
+            let objectives: Vec<f64> = (0..n_trials)
+                .flat_map(|i| {
+                    obj_cols
+                        .iter()
+                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                })
+                .collect();
             let is_minimize: Vec<bool> = directions
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
@@ -141,15 +144,15 @@ pub(crate) fn render_chart(
         ChartId::AhpTable => {
             widgets
                 .ahp_chart
-                .show_table(ui, obj_names, trial_rows, &app_state.ahp_result);
+                .show_table(ui, obj_names, &ctx.view, &app_state.ahp_result);
         }
         ChartId::SliceChart => {
             widgets
                 .slice_chart
-                .show(ui, trial_rows, param_names, obj_names, directions);
+                .show(ui, &ctx.view, param_names, obj_names, directions);
         }
         ChartId::SurfacePlot => {
-            let trial_count = ctx.trial_rows.len();
+            let trial_count = ctx.trial_count();
             crate::ui::widgets::surface_plot::show(
                 ui,
                 &mut widgets.surface_plot,

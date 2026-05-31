@@ -19,8 +19,14 @@ fn get_help_content_inner(item: &PanelItem) -> HelpContent {
 fn trial_table_help() -> HelpContent {
     HelpContent {
         widget_name: "trial-table",
-        html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/trial-table.html")),
-        html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/trial-table.html")),
+        html_en: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/help/en/widgets/trial-table.html"
+        )),
+        html_ja: include_str!(concat!(
+            env!("OUT_DIR"),
+            "/help/ja/widgets/trial-table.html"
+        )),
     }
 }
 
@@ -108,8 +114,14 @@ fn chart_help(id: &ChartId) -> HelpContent {
         },
         ChartId::SliceChart => HelpContent {
             widget_name: "slice-chart",
-            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/slice-chart.html")),
-            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/slice-chart.html")),
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/slice-chart.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/slice-chart.html"
+            )),
         },
         ChartId::ParetoScatter2D => HelpContent {
             widget_name: "pareto-2d",

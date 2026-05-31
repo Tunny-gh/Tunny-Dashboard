@@ -3,7 +3,7 @@ use super::types::{DataFrameInfo, GpuBufferData, TrialRow};
 
 /// Documentation.
 /// Documentation.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DataFrame {
     row_count: usize,
     /// Documentation.

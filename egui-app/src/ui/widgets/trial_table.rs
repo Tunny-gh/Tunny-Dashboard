@@ -1,4 +1,6 @@
-use crate::state::app_state::{filter_rows_for_display, AppState, StudyContext, TrialRow};
+use crate::state::app_state::AppState;
+#[cfg(test)]
+use crate::state::app_state::{StudyContext, TrialRow};
 use crate::theme::chart_colors::COLOR_LINK;
 
 /// トライアル一覧テーブルウィジェット。
@@ -19,11 +21,33 @@ impl TrialTableWidget {
 
         let study_ctx = app_state.current_study.as_ref().unwrap();
         let pinned = app_state.pinned_trials.clone();
-        let display_rows = get_display_rows_with_pins(study_ctx, &app_state.selected_indices, &pinned);
         let highlighted = app_state.highlighted_trial;
 
         let param_names = study_ctx.meta.param_names.clone();
         let obj_names = study_ctx.meta.objective_names.clone();
+
+        // 行を materialize せず、表示対象の行インデックス（選択∪ピン、元順序）を計算する
+        let view = &study_ctx.view;
+        let n = view.row_count();
+        let visible: Vec<usize> = if app_state.selected_indices.is_empty() {
+            (0..n).collect()
+        } else {
+            let set: std::collections::HashSet<u32> =
+                crate::state::app_state::merge_selected_with_pinned(
+                    &app_state.selected_indices,
+                    &pinned,
+                )
+                .into_iter()
+                .collect();
+            (0..n)
+                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| set.contains(id)))
+                .collect()
+        };
+        // 列スライスを view から借用（行クローンを持たない）
+        let param_cols = view.numeric_columns(&param_names);
+        let obj_cols = view.numeric_columns(&obj_names);
+        let trial_ids = &view.trial_ids;
+        let pareto_rank = &view.pareto_rank;
 
         use egui_extras::{Column, TableBuilder};
 
@@ -33,7 +57,7 @@ impl TrialTableWidget {
         TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
-            .column(Column::auto().at_least(30.0))  // Pin column
+            .column(Column::auto().at_least(30.0)) // Pin column
             .column(Column::auto().at_least(60.0))
             .column(Column::remainder())
             .column(Column::remainder())
@@ -56,10 +80,13 @@ impl TrialTableWidget {
                 });
             })
             .body(|body| {
-                body.rows(18.0, display_rows.len(), |mut row| {
-                    let trial = &display_rows[row.index()];
-                    let is_highlighted = highlighted == Some(trial.trial_id);
-                    let is_pinned = pinned.contains(&trial.trial_id);
+                body.rows(18.0, visible.len(), |mut row| {
+                    let idx = visible[row.index()];
+                    let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
+                    let trial_number = idx as u32;
+                    let rank = pareto_rank.get(idx).copied().unwrap_or(0);
+                    let is_highlighted = highlighted == Some(trial_id);
+                    let is_pinned = pinned.contains(&trial_id);
                     let bg_color = if is_highlighted {
                         Some(COLOR_LINK)
                     } else {
@@ -69,39 +96,40 @@ impl TrialTableWidget {
                     row.col(|ui| {
                         let pin_label = if is_pinned { "📌" } else { "·" };
                         if ui.small_button(pin_label).clicked() {
-                            pin_toggled = Some(trial.trial_id);
+                            pin_toggled = Some(trial_id);
                         }
                     });
                     row.col(|ui| {
-                        let res =
-                            ui.selectable_label(is_highlighted, trial.trial_number.to_string());
+                        let res = ui.selectable_label(is_highlighted, trial_number.to_string());
                         if res.clicked() {
-                            clicked_trial = Some(trial.trial_id);
+                            clicked_trial = Some(trial_id);
                         }
                         if let Some(color) = bg_color {
                             ui.painter().rect_filled(res.rect, 0.0, color);
                         }
                     });
                     row.col(|ui| {
-                        let params_str: Vec<String> = param_names
+                        let params_str: Vec<String> = param_cols
                             .iter()
-                            .map(|n| {
-                                let v = trial.params.get(n).copied().unwrap_or(0.0);
+                            .map(|c| {
+                                let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
                                 format!("{:.3}", v)
                             })
                             .collect();
                         ui.label(params_str.join(", "));
                     });
                     row.col(|ui| {
-                        let objs_str: Vec<String> = trial
-                            .objectives
+                        let objs_str: Vec<String> = obj_cols
                             .iter()
-                            .map(|v| format!("{:.4}", v))
+                            .map(|c| {
+                                let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
+                                format!("{:.4}", v)
+                            })
                             .collect();
                         ui.label(objs_str.join(", "));
                     });
                     row.col(|ui| {
-                        ui.label(trial.pareto_rank.to_string());
+                        ui.label(rank.to_string());
                     });
                 });
             });
@@ -116,22 +144,30 @@ impl TrialTableWidget {
     }
 }
 
-/// 表示対象の TrialRow を返す（ピン留め考慮版）。
+/// 表示対象の TrialRow を返す（ピン留め考慮版・テストのみで使用）。
 /// selected_indices が空なら全件、そうでなければ selected ∪ pinned で返す。
-pub fn get_display_rows_with_pins<'a>(
-    study_ctx: &'a StudyContext,
+#[cfg(test)]
+pub fn get_display_rows_with_pins(
+    study_ctx: &StudyContext,
     selected_indices: &[u32],
     pinned: &[u32],
-) -> Vec<&'a TrialRow> {
-    filter_rows_for_display(&study_ctx.trial_rows, selected_indices, pinned)
+) -> Vec<TrialRow> {
+    let use_filter = !selected_indices.is_empty();
+    let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
+    let pin_set: std::collections::HashSet<u32> = pinned.iter().copied().collect();
+    study_ctx
+        .view
+        .trial_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, &id)| !use_filter || id_set.contains(&id) || pin_set.contains(&id))
+        .map(|(i, _)| study_ctx.view.row_at(i))
+        .collect()
 }
 
-/// 表示対象の TrialRow を返す（後方互換ラッパー）。
-/// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
-pub fn get_display_rows<'a>(
-    study_ctx: &'a StudyContext,
-    selected_indices: &[u32],
-) -> Vec<&'a TrialRow> {
+/// 表示対象の TrialRow を返す（テストのみで使用）。
+#[cfg(test)]
+pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
     get_display_rows_with_pins(study_ctx, selected_indices, &[])
 }
 
@@ -139,7 +175,7 @@ pub fn get_display_rows<'a>(
 mod tests {
     use super::*;
     use crate::state::app_state::{
-        Direction, GpuBufferData, PinError, StudyContext, StudyMeta, TrialRow, TrialState,
+        Direction, PinError, StudyContext, StudyMeta, TrialRow, TrialState,
     };
     use std::collections::HashMap;
 
@@ -156,28 +192,18 @@ mod tests {
                 user_attrs: HashMap::new(),
             })
             .collect();
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: n,
-                total_trials: n,
-                param_names: vec![],
-                objective_names: vec!["y".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows,
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: n as u32,
-            },
-            pareto_indices: vec![],
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: n,
+            total_trials: n,
+            param_names: vec![],
+            objective_names: vec!["y".to_string()],
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        StudyContext::from_rows_for_test(meta, trial_rows)
     }
 
     #[test]

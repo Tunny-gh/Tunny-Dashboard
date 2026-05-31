@@ -40,7 +40,6 @@ pub fn compute_cluster_centroid_std(
     k: usize,
     global_mean: &[f64],
 ) -> Vec<ClusterStat> {
-
     (0..k)
         .map(|cluster_id| {
             let indices: Vec<usize> = (0..n).filter(|&i| labels[i] == cluster_id).collect();

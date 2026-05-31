@@ -1,7 +1,7 @@
 //! MCDM Scatter Chart Widget
 
-use crate::state::app_state::TrialRow;
 use crate::state::results::{McdmMethod, McdmResult};
+use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
     COLOR_EMPTY_STATE, COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
 };
@@ -147,7 +147,7 @@ impl McdmScatterChart {
         &mut self,
         ui: &mut egui::Ui,
         mcdm_result: &Option<McdmResult>,
-        trial_rows: &[TrialRow],
+        view: &StudyView,
         obj_names: &[String],
     ) {
         let Some(result) = mcdm_result else {
@@ -205,14 +205,17 @@ impl McdmScatterChart {
                 });
         });
 
+        let n_trials = view.row_count();
+
         // キャッシュが陳腐化している場合に再計算
-        if self.is_cache_stale(trial_rows.len(), result) {
-            let new_key = self.make_cache_key(trial_rows.len(), result);
+        if self.is_cache_stale(n_trials, result) {
+            let new_key = self.make_cache_key(n_trials, result);
             let start = std::time::Instant::now();
 
             match compute_scatter_points(
                 result,
-                trial_rows,
+                view,
+                obj_names,
                 &self.x_axis,
                 &self.y_axis,
                 self.color_threshold,
@@ -387,21 +390,25 @@ pub(crate) fn get_axis_options(mcdm_result: &McdmResult, obj_names: &[String]) -
 pub(crate) fn extract_axis_values(
     axis_id: &str,
     mcdm_result: &McdmResult,
-    trials: &[TrialRow],
+    view: &StudyView,
+    obj_names: &[String],
 ) -> Result<Vec<f64>, String> {
     // 目的関数 "Objective{N}" の場合
     if let Some(idx_str) = axis_id.strip_prefix("Objective") {
         let idx: usize = idx_str
             .parse()
             .map_err(|_| format!("Invalid objective index in axis: '{}'", axis_id))?;
-        let values: Vec<f64> = trials
-            .iter()
-            .map(|t| t.objectives.get(idx).copied().unwrap_or(f64::NAN))
-            .collect();
+        let obj_name = obj_names
+            .get(idx)
+            .ok_or_else(|| format!("Objective index {} out of range", idx))?;
+        let values = view
+            .numeric_column(obj_name)
+            .map(|col| col.to_vec())
+            .unwrap_or_else(|| vec![f64::NAN; view.row_count()]);
         return Ok(values);
     }
 
-    // MCDM方法別スコア
+    // MCDM方法別スコア（view に依存しない）
     match mcdm_result {
         McdmResult::Vikor(r) => {
             if axis_id == AXIS_VIKOR_Q {
@@ -513,16 +520,21 @@ fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
 // 散布図ポイント計算
 // ──────────────────────────────────────────────────────────────
 
+/// 散布図の1点: (x座標, y座標, 色)。
+type ScatterPoint = (f64, f64, Color32);
+
 /// MCDM散布図ポイントを計算する
 /// - 軸値抽出 → 色付け
 pub(crate) fn compute_scatter_points(
     mcdm_result: &McdmResult,
-    trial_rows: &[TrialRow],
+    view: &StudyView,
+    obj_names: &[String],
     x_axis: &str,
     y_axis: &str,
     color_threshold: ScatterTopN,
-) -> Result<(Vec<(f64, f64, Color32)>, ScatterMetadata), String> {
-    if trial_rows.is_empty() {
+) -> Result<(Vec<ScatterPoint>, ScatterMetadata), String> {
+    let n_trials = view.row_count();
+    if n_trials == 0 {
         return Ok((
             vec![],
             ScatterMetadata {
@@ -533,16 +545,16 @@ pub(crate) fn compute_scatter_points(
     }
 
     // 軸値を抽出
-    let x_vals = extract_axis_values(x_axis, mcdm_result, trial_rows)?;
-    let y_vals = extract_axis_values(y_axis, mcdm_result, trial_rows)?;
+    let x_vals = extract_axis_values(x_axis, mcdm_result, view, obj_names)?;
+    let y_vals = extract_axis_values(y_axis, mcdm_result, view, obj_names)?;
 
     // ランキング逆引きマップを構築
     let ranked = mcdm_result.ranked_indices();
-    let rank_map = build_rank_map(ranked, trial_rows.len());
+    let rank_map = build_rank_map(ranked, n_trials);
 
     // 有効なポイントのみを収集（NaN/Inf は除外）
-    let mut all_points = Vec::with_capacity(trial_rows.len());
-    all_points.extend((0..trial_rows.len()).filter_map(|i| {
+    let mut all_points = Vec::with_capacity(n_trials);
+    all_points.extend((0..n_trials).filter_map(|i| {
         let x = x_vals.get(i).copied()?;
         let y = y_vals.get(i).copied()?;
         if !x.is_finite() || !y.is_finite() {
@@ -576,22 +588,38 @@ pub(crate) fn compute_scatter_points(
 mod tests {
     use super::*;
     use crate::state::results::{PrometheeResult, TopsisResult, VikorResult};
-    use crate::state::types::TrialState;
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
     // ── テストヘルパー ──────────────────────────────────────────
 
-    fn make_trial(id: u32, objs: Vec<f64>) -> TrialRow {
-        TrialRow {
-            trial_id: id,
-            trial_number: id,
-            params: HashMap::new(),
-            objectives: objs,
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
+    fn make_view_with_objectives(objective_rows: &[Vec<f64>]) -> (StudyView, Vec<String>) {
+        let n = objective_rows.len();
+        if n == 0 {
+            let df = DataFrame::from_trials(&[], &[], &[], &[], &[], 0);
+            return (StudyView::new(Arc::new(df), vec![]), vec![]);
         }
+        let n_obj = objective_rows[0].len();
+        let obj_names: Vec<String> = (0..n_obj).map(|i| format!("obj{i}")).collect();
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
+                trial_id: i as u32,
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: objective_rows[i].clone(),
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &[], &obj_names, &[], &[], 0);
+        (StudyView::new(Arc::new(df), vec![0; n]), obj_names)
+    }
+
+    fn make_empty_view() -> StudyView {
+        let df = DataFrame::from_trials(&[], &[], &[], &[], &[], 0);
+        StudyView::new(Arc::new(df), vec![])
     }
 
     fn make_vikor(n: usize) -> VikorResult {
@@ -726,17 +754,17 @@ mod tests {
 
     #[test]
     fn test_extract_objective0() {
-        let trials = vec![make_trial(0, vec![1.0, 2.0]), make_trial(1, vec![3.0, 4.0])];
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
         let result = McdmResult::Vikor(make_vikor(2));
-        let vals = extract_axis_values("Objective0", &result, &trials).unwrap();
+        let vals = extract_axis_values("Objective0", &result, &view, &obj_names).unwrap();
         assert_eq!(vals, vec![1.0, 3.0]);
     }
 
     #[test]
     fn test_extract_objective1() {
-        let trials = vec![make_trial(0, vec![1.0, 2.0]), make_trial(1, vec![3.0, 4.0])];
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
         let result = McdmResult::Vikor(make_vikor(2));
-        let vals = extract_axis_values("Objective1", &result, &trials).unwrap();
+        let vals = extract_axis_values("Objective1", &result, &view, &obj_names).unwrap();
         assert_eq!(vals, vec![2.0, 4.0]);
     }
 
@@ -745,7 +773,8 @@ mod tests {
         let vikor = make_vikor(3);
         let q = vikor.q_values.clone();
         let result = McdmResult::Vikor(vikor);
-        let vals = extract_axis_values("VIKOR_Q", &result, &[]).unwrap();
+        let view = make_empty_view();
+        let vals = extract_axis_values("VIKOR_Q", &result, &view, &[]).unwrap();
         assert_eq!(vals, q);
     }
 
@@ -754,7 +783,8 @@ mod tests {
         let topsis = make_topsis(3);
         let scores = topsis.scores.clone();
         let result = McdmResult::Topsis(topsis);
-        let vals = extract_axis_values("TOPSIS_Score", &result, &[]).unwrap();
+        let view = make_empty_view();
+        let vals = extract_axis_values("TOPSIS_Score", &result, &view, &[]).unwrap();
         assert_eq!(vals, scores);
     }
 
@@ -763,23 +793,26 @@ mod tests {
         let promethee = make_promethee(3);
         let phi_plus = promethee.phi_plus.clone();
         let result = McdmResult::PrometheeI(promethee);
-        let vals = extract_axis_values("Phi+", &result, &[]).unwrap();
+        let view = make_empty_view();
+        let vals = extract_axis_values("Phi+", &result, &view, &[]).unwrap();
         assert_eq!(vals, phi_plus);
     }
 
     #[test]
     fn test_extract_unknown_axis_error() {
         let result = McdmResult::Vikor(make_vikor(3));
-        let err = extract_axis_values("NonExistent", &result, &[]);
+        let view = make_empty_view();
+        let err = extract_axis_values("NonExistent", &result, &view, &[]);
         assert!(err.is_err());
     }
 
     #[test]
     fn test_extract_out_of_range_objective() {
-        let trials = vec![make_trial(0, vec![1.0])]; // only 1 objective
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0]]);
         let result = McdmResult::Vikor(make_vikor(1));
-        let vals = extract_axis_values("Objective5", &result, &trials).unwrap();
-        assert!(vals[0].is_nan()); // out of range → NaN
+        // obj_names は ["obj0"] のみ。Objective5 は out of range → エラー
+        let err = extract_axis_values("Objective5", &result, &view, &obj_names);
+        assert!(err.is_err());
     }
 
     // ── normalize_values テスト ──────────────────────────────────
@@ -917,14 +950,14 @@ mod tests {
     #[test]
     fn test_compute_scatter_points_basic() {
         let n = 10;
-        let trials: Vec<TrialRow> = (0..n as u32)
-            .map(|i| make_trial(i, vec![i as f64, (n - i as usize) as f64]))
-            .collect();
+        let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (n - i) as f64]).collect();
+        let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
         let (points, meta) = compute_scatter_points(
             &result,
-            &trials,
+            &view,
+            &obj_names,
             "Objective0",
             "Objective1",
             ScatterTopN::Top10,
@@ -942,14 +975,14 @@ mod tests {
     #[test]
     fn test_compute_scatter_points_top5_rank0_is_red() {
         let n = 20;
-        let trials: Vec<TrialRow> = (0..n as u32)
-            .map(|i| make_trial(i, vec![i as f64, i as f64]))
-            .collect();
+        let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, i as f64]).collect();
+        let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
         let (points, _) = compute_scatter_points(
             &result,
-            &trials,
+            &view,
+            &obj_names,
             "Objective0",
             "Objective1",
             ScatterTopN::Top5,
@@ -964,9 +997,16 @@ mod tests {
     fn test_compute_scatter_points_empty_trials() {
         let vikor = make_vikor(0);
         let result = McdmResult::Vikor(vikor);
-        let (points, meta) =
-            compute_scatter_points(&result, &[], "Objective0", "Objective1", ScatterTopN::Top10)
-                .unwrap();
+        let view = make_empty_view();
+        let (points, meta) = compute_scatter_points(
+            &result,
+            &view,
+            &[],
+            "Objective0",
+            "Objective1",
+            ScatterTopN::Top10,
+        )
+        .unwrap();
         assert!(points.is_empty());
         assert_eq!(meta.total_trials, 0);
     }
@@ -974,14 +1014,19 @@ mod tests {
     #[test]
     fn test_compute_scatter_points_vikor_axis() {
         let n = 5;
-        let trials: Vec<TrialRow> = (0..n as u32)
-            .map(|i| make_trial(i, vec![i as f64]))
-            .collect();
+        let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
+        let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
-        let (points, _) =
-            compute_scatter_points(&result, &trials, "VIKOR_Q", "VIKOR_S", ScatterTopN::Top10)
-                .unwrap();
+        let (points, _) = compute_scatter_points(
+            &result,
+            &view,
+            &obj_names,
+            "VIKOR_Q",
+            "VIKOR_S",
+            ScatterTopN::Top10,
+        )
+        .unwrap();
 
         // q_values == s_values for make_vikor, both are raw i * 0.1 values
         assert_eq!(points.len(), n);

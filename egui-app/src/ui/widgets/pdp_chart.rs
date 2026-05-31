@@ -1,5 +1,5 @@
-use crate::state::app_state::TrialRow;
 use crate::state::messages::{PdpResult, PdpResult1d};
+use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
     COLOR_ICE_LINE, COLOR_PARETO, COLOR_PDP_CI, COLOR_PDP_CI_LEGEND, COLOR_PDP_LINE,
 };
@@ -87,17 +87,43 @@ pub fn compute_band_polygon(x_vals: &[f64], y_upper: &[f64], y_lower: &[f64]) ->
     upper.into_iter().chain(lower).collect()
 }
 
-/// 観測データを trial_rows から抽出する（テスト可能な純粋関数）
+/// view + 選択インデックスから観測データを抽出する（テスト可能な純粋関数）
+///
+/// `selected_indices` が空の場合は全試行を対象とする（filter_rows_for_display と同様の規則）。
+/// `selected_indices` / `pinned` のどちらかに trial_id が含まれる行のみを抽出する。
+/// NaN / Inf の値はスキップする。
 pub fn extract_observed(
-    trial_rows: &[TrialRow],
+    view: &StudyView,
+    obj_names: &[String],
     param_name: &str,
     obj_idx: usize,
+    selected_indices: &[u32],
+    pinned: &[u32],
 ) -> Vec<[f64; 2]> {
-    trial_rows
-        .iter()
-        .filter_map(|row| {
-            let x = row.params.get(param_name).copied()?;
-            let y = row.objectives.get(obj_idx).copied()?;
+    let param_col = view.numeric_column(param_name);
+    let obj_col = obj_names
+        .get(obj_idx)
+        .and_then(|name| view.numeric_column(name));
+
+    let (Some(params), Some(objs)) = (param_col, obj_col) else {
+        return vec![];
+    };
+
+    let use_filter = !selected_indices.is_empty();
+    let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
+    let pinned_set: std::collections::HashSet<u32> = pinned.iter().copied().collect();
+
+    (0..view.row_count())
+        .filter_map(|i| {
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            if use_filter && !selected_set.contains(&trial_id) && !pinned_set.contains(&trial_id) {
+                return None;
+            }
+            let x = params.get(i).copied()?;
+            let y = objs.get(i).copied()?;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
             Some([x, y])
         })
         .collect()
@@ -158,7 +184,9 @@ impl PdpChart {
         ui: &mut egui::Ui,
         param_names: &[String],
         obj_names: &[String],
-        trial_rows: &[TrialRow],
+        view: &StudyView,
+        selected_indices: &[u32],
+        pinned: &[u32],
     ) {
         // パラメータ選択
         ui.horizontal(|ui| {
@@ -247,7 +275,14 @@ impl PdpChart {
 
         // 観測データを事前計算（show_observed == false のときはゼロコスト）
         let observed = if self.show_observed {
-            extract_observed(trial_rows, &self.selected_param, self.selected_objective)
+            extract_observed(
+                view,
+                obj_names,
+                &self.selected_param,
+                self.selected_objective,
+                selected_indices,
+                pinned,
+            )
         } else {
             vec![]
         };
@@ -405,58 +440,47 @@ mod tests {
         assert!(!chart.show_observed);
     }
 
+    fn make_view_xobj(x_vals: &[f64], y_vals: &[f64]) -> (StudyView, Vec<String>) {
+        use std::sync::Arc;
+        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        let n = x_vals.len();
+        let obj_names = vec!["obj0".to_string()];
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
+                trial_id: i as u32,
+                param_display: [("x".to_string(), x_vals[i])].into(),
+                param_category_label: HashMap::new(),
+                objective_values: vec![y_vals[i]],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &["x".to_string()], &obj_names, &[], &[], 0);
+        (StudyView::new(Arc::new(df), vec![0; n]), obj_names)
+    }
+
     #[test]
     fn extract_observed_normal() {
-        use crate::state::app_state::TrialRow;
-        use crate::state::app_state::TrialState;
-        let row = TrialRow {
-            trial_id: 0,
-            trial_number: 0,
-            params: [("x".to_string(), 1.5)].into(),
-            objectives: vec![2.0],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        };
-        let pts = extract_observed(&[row], "x", 0);
+        let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
+        let pts = extract_observed(&view, &obj_names, "x", 0, &[], &[]);
         assert_eq!(pts.len(), 1);
         assert_eq!(pts[0], [1.5, 2.0]);
     }
 
     #[test]
     fn extract_observed_missing_param() {
-        use crate::state::app_state::TrialRow;
-        use crate::state::app_state::TrialState;
-        let row = TrialRow {
-            trial_id: 0,
-            trial_number: 0,
-            params: [("y".to_string(), 1.5)].into(),
-            objectives: vec![2.0],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        };
-        let pts = extract_observed(&[row], "x", 0);
+        let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
+        // "y" は view に存在しない → 空
+        let pts = extract_observed(&view, &obj_names, "y", 0, &[], &[]);
         assert!(pts.is_empty());
     }
 
     #[test]
     fn extract_observed_out_of_range_obj() {
-        use crate::state::app_state::TrialRow;
-        use crate::state::app_state::TrialState;
-        let row = TrialRow {
-            trial_id: 0,
-            trial_number: 0,
-            params: [("x".to_string(), 1.5)].into(),
-            objectives: vec![2.0],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        };
-        let pts = extract_observed(&[row], "x", 5);
+        let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
+        // obj_idx=5 は範囲外 → 空
+        let pts = extract_observed(&view, &obj_names, "x", 5, &[], &[]);
         assert!(pts.is_empty());
     }
 
@@ -485,9 +509,11 @@ mod tests {
 
     #[test]
     fn cache_hit_returns_result() {
-        let mut chart = PdpChart::default();
-        chart.selected_param = "x".to_string();
-        chart.selected_objective = 0;
+        let mut chart = PdpChart {
+            selected_param: "x".to_string(),
+            selected_objective: 0,
+            ..Default::default()
+        };
         let result = PdpResult1d {
             x_values: vec![0.0, 1.0],
             y_values: vec![0.5, 1.5],
@@ -510,53 +536,32 @@ mod tests {
 
     // ── TASK-2237: PDP observed overlay 選択連動テスト ──────────
 
-    fn make_row(id: u32, x: f64, y: f64) -> TrialRow {
-        use crate::state::app_state::TrialState;
-        TrialRow {
-            trial_id: id,
-            trial_number: id,
-            params: [("x".to_string(), x)].into(),
-            objectives: vec![y],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        }
-    }
-
     #[test]
     fn pdp_overlay_uses_filtered_rows_when_selection_exists() {
-        use crate::state::app_state::filter_rows_for_display;
-        let all_rows = vec![make_row(0, 1.0, 2.0), make_row(1, 2.0, 3.0), make_row(2, 3.0, 4.0)];
+        let (view, obj_names) = make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
         let selected = vec![0u32, 1];
-        let pinned: Vec<u32> = vec![];
-        let filtered = filter_rows_for_display(&all_rows, &selected, &pinned);
-        assert_eq!(filtered.len(), 2);
-        let ids: Vec<u32> = filtered.iter().map(|r| r.trial_id).collect();
-        assert!(ids.contains(&0));
-        assert!(ids.contains(&1));
-        assert!(!ids.contains(&2));
+        let pts = extract_observed(&view, &obj_names, "x", 0, &selected, &[]);
+        assert_eq!(pts.len(), 2);
+        let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
+        assert!(xs.contains(&1.0));
+        assert!(xs.contains(&2.0));
+        assert!(!xs.contains(&3.0));
     }
 
     #[test]
     fn pdp_overlay_falls_back_to_all_rows_without_selection() {
-        use crate::state::app_state::filter_rows_for_display;
-        let all_rows = vec![make_row(0, 1.0, 2.0), make_row(1, 2.0, 3.0)];
-        let selected: Vec<u32> = vec![];
-        let pinned: Vec<u32> = vec![];
-        let filtered = filter_rows_for_display(&all_rows, &selected, &pinned);
-        assert_eq!(filtered.len(), 2, "all rows returned when no selection");
+        let (view, obj_names) = make_view_xobj(&[1.0, 2.0], &[2.0, 3.0]);
+        let pts = extract_observed(&view, &obj_names, "x", 0, &[], &[]);
+        assert_eq!(pts.len(), 2, "all rows returned when no selection");
     }
 
     #[test]
     fn pinned_row_remains_in_observed_overlay() {
-        use crate::state::app_state::filter_rows_for_display;
-        let all_rows = vec![make_row(0, 1.0, 2.0), make_row(1, 2.0, 3.0), make_row(2, 3.0, 4.0)];
-        // selected only contains [0], pinned = [2]
-        let filtered = filter_rows_for_display(&all_rows, &[0], &[2]);
-        let ids: Vec<u32> = filtered.iter().map(|r| r.trial_id).collect();
-        assert!(ids.contains(&0), "selected row must be visible");
-        assert!(ids.contains(&2), "pinned row must remain visible");
-        assert!(!ids.contains(&1), "unselected unpin row must be hidden");
+        let (view, obj_names) = make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
+        let pts = extract_observed(&view, &obj_names, "x", 0, &[0], &[2]);
+        let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
+        assert!(xs.contains(&1.0), "selected row must be visible");
+        assert!(xs.contains(&3.0), "pinned row must remain visible");
+        assert!(!xs.contains(&2.0), "unselected unpinned row must be hidden");
     }
 }

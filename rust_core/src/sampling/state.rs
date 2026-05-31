@@ -12,7 +12,11 @@ pub fn init_sampling(
     SamplingContext {
         is_minimize,
         pareto_indices: Some(pareto_indices),
-        all_ranks: if all_ranks.is_empty() { None } else { Some(all_ranks) },
+        all_ranks: if all_ranks.is_empty() {
+            None
+        } else {
+            Some(all_ranks)
+        },
         cluster_labels: None,
     }
 }

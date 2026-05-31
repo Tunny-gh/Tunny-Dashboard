@@ -11,8 +11,8 @@ impl SamplingContext {
         if let Some(ref indices) = self.pareto_indices {
             return indices.clone();
         }
-        let n_obj = crate::dataframe::with_active_df(|df| df.objective_col_names().len())
-            .unwrap_or(1);
+        let n_obj =
+            crate::dataframe::with_active_df(|df| df.objective_col_names().len()).unwrap_or(1);
         let is_min = if self.is_minimize.is_empty() {
             vec![true; n_obj]
         } else {
@@ -25,8 +25,8 @@ impl SamplingContext {
         if let Some(ref ranks) = self.all_ranks {
             return ranks.clone();
         }
-        let n_obj = crate::dataframe::with_active_df(|df| df.objective_col_names().len())
-            .unwrap_or(1);
+        let n_obj =
+            crate::dataframe::with_active_df(|df| df.objective_col_names().len()).unwrap_or(1);
         let is_min = if self.is_minimize.is_empty() {
             vec![true; n_obj]
         } else {

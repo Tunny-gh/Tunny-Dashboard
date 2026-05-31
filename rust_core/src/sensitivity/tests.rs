@@ -442,7 +442,10 @@ fn tc_301_06_sobol_regression_after_seeded_rng_migration() {
         .collect();
     setup_df(rows, &["x1", "x2"], &["obj0"]);
     let result = compute_sobol(1024);
-    assert!(result.is_some(), "SeededRng 移行後も compute_sobol が Some を返すこと");
+    assert!(
+        result.is_some(),
+        "SeededRng 移行後も compute_sobol が Some を返すこと"
+    );
     let r = result.unwrap();
     for pi in 0..r.param_names.len() {
         for k in 0..r.objective_names.len() {
@@ -653,7 +656,13 @@ fn tc_pfi_int_02_result_shape() {
 #[test]
 fn tc_2263_01_multiple_metrics_all_returned() {
     let rows: Vec<TrialRow> = (0..20)
-        .map(|i| make_row_multi(i, &[("p0", i as f64), ("p1", (i * 2) as f64)], vec![i as f64]))
+        .map(|i| {
+            make_row_multi(
+                i,
+                &[("p0", i as f64), ("p1", (i * 2) as f64)],
+                vec![i as f64],
+            )
+        })
         .collect();
     let df = setup_df(rows, &["p0", "p1"], &["obj0"]);
     let results = compute_sensitivity_single_obj(
@@ -662,8 +671,14 @@ fn tc_2263_01_multiple_metrics_all_returned() {
         0,
     );
     assert_eq!(results.len(), 2, "both metrics should produce a result");
-    assert!(!results[0].spearman.is_empty(), "first result should have spearman");
-    assert!(!results[1].ridge.is_empty(), "second result should have ridge");
+    assert!(
+        !results[0].spearman.is_empty(),
+        "first result should have spearman"
+    );
+    assert!(
+        !results[1].ridge.is_empty(),
+        "second result should have ridge"
+    );
 }
 
 #[test]
@@ -676,7 +691,11 @@ fn tc_2263_02_none_excluded_from_results() {
         vec![Box::new(SpearmanMetric), Box::new(RidgeMetric)],
         0,
     );
-    assert!(results.is_empty(), "None results should be filtered: got {} results", results.len());
+    assert!(
+        results.is_empty(),
+        "None results should be filtered: got {} results",
+        results.len()
+    );
 }
 
 #[test]
@@ -690,7 +709,10 @@ fn tc_2263_03_invalid_obj_idx_excluded() {
         vec![Box::new(SpearmanMetric)],
         99, // invalid obj_idx
     );
-    assert!(results.is_empty(), "invalid obj_idx should produce no results");
+    assert!(
+        results.is_empty(),
+        "invalid obj_idx should produce no results"
+    );
 }
 
 #[test]

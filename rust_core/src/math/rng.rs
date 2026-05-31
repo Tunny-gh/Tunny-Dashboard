@@ -48,7 +48,7 @@ mod tests {
             let v1 = rng1.next_f64();
             let v2 = rng2.next_f64();
             assert_eq!(v1, v2, "同一シードで同一乱数列が再現されること");
-            assert!(v1 >= 0.0 && v1 < 1.0, "next_f64 は [0,1) の範囲内");
+            assert!((0.0..1.0).contains(&v1), "next_f64 は [0,1) の範囲内");
         }
     }
 
@@ -67,7 +67,7 @@ mod tests {
         let mut rng = SeededRng::from_seed(0);
         for _ in 0..1000 {
             let v = rng.next_f64();
-            assert!(v >= 0.0 && v < 1.0, "next_f64 out of [0,1): {}", v);
+            assert!((0.0..1.0).contains(&v), "next_f64 out of [0,1): {}", v);
         }
     }
 
@@ -85,7 +85,11 @@ mod tests {
     fn tc_b01_seed_zero() {
         let mut rng = SeededRng::from_seed(0);
         let v = rng.next_f64();
-        assert!(v >= 0.0 && v < 1.0, "seed=0 で next_f64 が [0,1): {}", v);
+        assert!(
+            (0.0..1.0).contains(&v),
+            "seed=0 で next_f64 が [0,1): {}",
+            v
+        );
     }
 
     #[test]

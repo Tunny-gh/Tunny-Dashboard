@@ -195,14 +195,21 @@ pub fn filter_rows_for_display<'a>(
     if selected.is_empty() {
         return rows.iter().collect();
     }
-    let visible: std::collections::HashSet<u32> =
-        merge_selected_with_pinned(selected, pinned).into_iter().collect();
-    rows.iter().filter(|r| visible.contains(&r.trial_id)).collect()
+    let visible: std::collections::HashSet<u32> = merge_selected_with_pinned(selected, pinned)
+        .into_iter()
+        .collect();
+    rows.iter()
+        .filter(|r| visible.contains(&r.trial_id))
+        .collect()
 }
 
 /// 選択フィルター適用時間を計測する（パフォーマンスプローブ用）
 /// 戻り値: (visible_count, elapsed_ms)
-pub fn measure_filter_duration(rows: &[TrialRow], selected: &[u32], pinned: &[u32]) -> (usize, f64) {
+pub fn measure_filter_duration(
+    rows: &[TrialRow],
+    selected: &[u32],
+    pinned: &[u32],
+) -> (usize, f64) {
     let start = std::time::Instant::now();
     let visible = filter_rows_for_display(rows, selected, pinned);
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -624,8 +631,8 @@ mod tests {
 
         // surface-plot spinner state: computing flag transitions
         // (SurfacePlotState lives in WidgetStates — just confirm the concept here)
-        let started = true;  // represents widget.surface_plot.computing = true
-        let done = false;    // represents widget.surface_plot.computing = false after result
+        let started = true; // represents widget.surface_plot.computing = true
+        let done = false; // represents widget.surface_plot.computing = false after result
         assert!(started);
         assert!(!done);
     }
@@ -647,7 +654,10 @@ mod tests {
         assert!(ids.contains(&0));
         assert!(ids.contains(&1));
         assert!(ids.contains(&2));
-        assert!(ids.contains(&9), "pinned trial must remain visible after brushing");
+        assert!(
+            ids.contains(&9),
+            "pinned trial must remain visible after brushing"
+        );
 
         // clear brush → all visible again
         let cleared = filter_rows_for_display(&rows, &[], &pinned);

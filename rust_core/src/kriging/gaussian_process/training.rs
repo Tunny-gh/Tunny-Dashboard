@@ -45,7 +45,11 @@ pub(super) fn train_gp(
     let alpha = compute_alpha(&l, &y_sub);
 
     Some(GpModel {
-        kernel: GpKernel { log_ls, log_sf, log_sn },
+        kernel: GpKernel {
+            log_ls,
+            log_sf,
+            log_sn,
+        },
         alpha,
         x_train: x_sub,
         l,

@@ -209,7 +209,7 @@ impl ImportanceChart {
                     ui.label("No Sobol data (start the computation first)");
                     return;
                 };
-                compute_sorted_sobol(sobol_result, 0, &self.metric)
+                compute_sorted_sobol(sobol_result, self.objective_index, &self.metric)
             }
         };
 

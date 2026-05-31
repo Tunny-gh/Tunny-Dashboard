@@ -114,7 +114,6 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
             &tx,
         );
     });
-
 }
 
 /// ヘルプ言語切替メニューを描画する。
@@ -170,7 +169,7 @@ mod tests {
 
     #[test]
     fn width_constants_are_valid() {
-        assert!(LEFT_WIDTH_MIN < LEFT_WIDTH_MAX);
-        assert!(RIGHT_WIDTH_MIN < RIGHT_WIDTH_MAX);
+        const { assert!(LEFT_WIDTH_MIN < LEFT_WIDTH_MAX) };
+        const { assert!(RIGHT_WIDTH_MIN < RIGHT_WIDTH_MAX) };
     }
 }

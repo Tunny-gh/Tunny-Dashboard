@@ -40,7 +40,10 @@ pub(super) fn optimize_hyperparams(
     let mut initial = vec![0.0; ndim + 2];
     initial[ndim + 1] = -2.0;
 
-    let problem = GpNegLml { x: x.to_vec(), y: y.to_vec() };
+    let problem = GpNegLml {
+        x: x.to_vec(),
+        y: y.to_vec(),
+    };
     let optimizer = LbfgsOptimizer::new(n_iter as u64, m_history);
     let params = optimizer.optimize(initial, problem);
     (params, n_iter)

@@ -311,7 +311,10 @@ fn tc_2269_02_independent_contexts_do_not_interfere() {
     let mut ctx_b = init_sampling(vec![true], vec![0u32], vec![]);
     ctx_b.cluster_labels = Some(vec![0i32; 200]);
     // ctx_a should still have no cluster_labels
-    assert!(ctx_a.cluster_labels.is_none(), "ctx_a must be unaffected by ctx_b mutation");
+    assert!(
+        ctx_a.cluster_labels.is_none(),
+        "ctx_a must be unaffected by ctx_b mutation"
+    );
 }
 
 #[test]
@@ -332,7 +335,11 @@ fn tc_2269_04_empty_dataset_returns_none() {
     // After store_dataframes([]) and no select_study, with_active_df returns None
     // But we can't easily clear the DF in test; just verify the context can be cloned
     let _ctx2 = ctx.clone();
-    assert!(ctx.pareto_indices.as_ref().map(|v| v.is_empty()).unwrap_or(true));
+    assert!(ctx
+        .pareto_indices
+        .as_ref()
+        .map(|v| v.is_empty())
+        .unwrap_or(true));
 }
 
 #[test]
@@ -341,5 +348,8 @@ fn tc_2269_05_sampling_context_clone_is_independent() {
     let mut ctx2 = ctx.clone();
     ctx2.cluster_labels = Some(vec![0i32, 1]);
     // Original ctx should not be affected
-    assert!(ctx.cluster_labels.is_none(), "original ctx must be unchanged after clone mutation");
+    assert!(
+        ctx.cluster_labels.is_none(),
+        "original ctx must be unchanged after clone mutation"
+    );
 }

@@ -1,6 +1,6 @@
 use crate::state::app_state::{
-    ClusterResult, GpuBufferData, McdmResult, SensitivityResult, SobolResult, StudyContext,
-    StudyMeta, TopsisResult, TrialRow,
+    ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext, StudyMeta,
+    TopsisResult,
 };
 use crate::state::results::{AhpResult, EntropyResult};
 
@@ -73,16 +73,11 @@ pub fn cluster_ui_error(
 // Surface Plot 関連型
 // ============================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SurfacePlotRenderMode {
+    #[default]
     Heatmap,
     Contour,
-}
-
-impl Default for SurfacePlotRenderMode {
-    fn default() -> Self {
-        Self::Heatmap
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -107,8 +102,10 @@ pub enum AppMessage {
     },
     StudySelected {
         meta: StudyMeta,
-        trial_rows: Vec<TrialRow>,
-        gpu_data: GpuBufferData,
+        /// 共有ストア参照キー。UI 側が snapshot(study_id) で Arc<DataFrame> を取得する。
+        study_id: u32,
+        /// Pareto ランク（行 index 順、アプリ層算出）。StudyView の並行配列へ。
+        pareto_rank: Vec<u32>,
         pareto_indices: Vec<u32>,
     },
     SensitivityDone {
@@ -256,6 +253,9 @@ mod tests {
 
     #[test]
     fn surface_plot_render_mode_default_is_heatmap() {
-        assert_eq!(SurfacePlotRenderMode::default(), SurfacePlotRenderMode::Heatmap);
+        assert_eq!(
+            SurfacePlotRenderMode::default(),
+            SurfacePlotRenderMode::Heatmap
+        );
     }
 }

@@ -1,5 +1,4 @@
 use super::app_state::AppState;
-use super::types::TrialRow;
 
 // ============================================================
 // ダウンサンプリングキャッシュ
@@ -48,7 +47,7 @@ impl AppState {
     pub fn clear_filters(&mut self) {
         self.filter_ranges.clear();
         if let Some(ctx) = &self.current_study {
-            self.selected_indices = ctx.trial_rows.iter().map(|r| r.trial_id).collect();
+            self.selected_indices = ctx.view.trial_ids.clone();
         }
     }
 
@@ -61,33 +60,26 @@ impl AppState {
     fn apply_filters(&mut self) {
         if let Some(ctx) = &self.current_study {
             if self.filter_ranges.is_empty() {
-                self.selected_indices = ctx.trial_rows.iter().map(|r| r.trial_id).collect();
+                self.selected_indices = ctx.view.trial_ids.clone();
                 return;
             }
             // filter_ranges のクローンを使ってボローを回避
             let ranges = self.filter_ranges.clone();
-            let trial_rows = &ctx.trial_rows;
-            self.selected_indices = trial_rows
-                .iter()
-                .filter(|row| {
+            // 列スライスで直接フィルタ（per-row HashMap 再構築を回避）
+            let n = ctx.view.row_count();
+            self.selected_indices = (0..n)
+                .filter(|&i| {
                     ranges.iter().all(|(param, (min, max))| {
-                        if let Some(&val) = row.params.get(param) {
-                            val >= *min && val <= *max
+                        if let Some(col) = ctx.view.numeric_column(param) {
+                            let val = col.get(i).copied().unwrap_or(f64::NAN);
+                            val.is_finite() && val >= *min && val <= *max
                         } else {
-                            true // パラメータが存在しない Trial は除外しない
+                            true // 列が存在しない場合は除外しない
                         }
                     })
                 })
-                .map(|r| r.trial_id)
+                .map(|i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
                 .collect();
-        }
-    }
-
-    /// ライブ更新で新規 Trial を追記する（フィルター・選択状態を変更しない）
-    pub fn apply_live_update(&mut self, new_trials: Vec<TrialRow>) {
-        if let Some(ctx) = &mut self.current_study {
-            ctx.trial_rows.extend(new_trials);
-            // filter_ranges, selected_indices は変更しない (REQ-134)
         }
     }
 }
@@ -102,7 +94,6 @@ mod tests {
 
     use super::*;
     use crate::state::app_state::*;
-    use crate::state::types::*;
 
     fn make_study_ctx_with_params() -> StudyContext {
         let mut params0 = HashMap::new();
@@ -143,28 +134,18 @@ mod tests {
                 user_attrs: HashMap::new(),
             },
         ];
-        StudyContext {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "test".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: 3,
-                total_trials: 3,
-                param_names: vec!["x".to_string()],
-                objective_names: vec![],
-                user_attr_names: vec![],
-                has_constraints: false,
-            },
-            trial_rows,
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 3,
-            },
-            pareto_indices: vec![],
-        }
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: 3,
+            total_trials: 3,
+            param_names: vec!["x".to_string()],
+            objective_names: vec![],
+            user_attr_names: vec![],
+            has_constraints: false,
+        };
+        StudyContext::from_rows_for_test(meta, trial_rows)
     }
 
     #[test]
@@ -229,50 +210,6 @@ mod tests {
             "filter took {}ms (expected < 10ms)",
             elapsed.as_millis()
         );
-    }
-
-    // TASK-2027 tests
-
-    #[test]
-    fn apply_live_update_increases_trial_count() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_study_ctx_with_params());
-        let initial_count = state.current_study.as_ref().unwrap().trial_rows.len();
-        let new_trial = TrialRow {
-            trial_id: 99,
-            trial_number: 99,
-            params: HashMap::new(),
-            objectives: vec![],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        };
-        state.apply_live_update(vec![new_trial]);
-        assert_eq!(
-            state.current_study.as_ref().unwrap().trial_rows.len(),
-            initial_count + 1
-        );
-    }
-
-    #[test]
-    fn apply_live_update_does_not_change_filter_ranges() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_study_ctx_with_params());
-        state.filter_ranges.insert("x".to_string(), (0.1, 0.9));
-        let new_trial = TrialRow {
-            trial_id: 99,
-            trial_number: 99,
-            params: HashMap::new(),
-            objectives: vec![],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        };
-        state.apply_live_update(vec![new_trial]);
-        // filter_ranges must be unchanged
-        assert_eq!(state.filter_ranges.get("x"), Some(&(0.1, 0.9)));
     }
 
     // TASK-2026 tests

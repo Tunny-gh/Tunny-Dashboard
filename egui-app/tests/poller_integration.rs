@@ -1,29 +1,26 @@
 use std::io::Write;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
-use tunny_desktop::io::live_update_poller::LiveUpdatePoller;
-use tunny_desktop::state::app_state::{AppState, Direction, GpuBufferData, StudyContext, StudyMeta};
-use tunny_desktop::state::message_handler::MessageHandler;
-use tunny_desktop::state::messages::AppMessage;
-use tunny_desktop::ui::widget_states::WidgetStates;
+use tunny_core::dataframe::DataFrame;
 use tunny_core::io::journal::live_update::{
     append_journal_diff, reset_live_update_state, LiveUpdateContext,
 };
+use tunny_desktop::io::live_update_poller::LiveUpdatePoller;
+use tunny_desktop::state::app_state::{AppState, Direction, StudyContext, StudyMeta, StudyView};
+use tunny_desktop::state::message_handler::MessageHandler;
+use tunny_desktop::state::messages::AppMessage;
+use tunny_desktop::ui::widget_states::WidgetStates;
+
+/// 空の StudyView（行0件）。ライブ更新テストの初期状態に用いる。
+fn empty_view() -> StudyView {
+    StudyView::new(Arc::new(DataFrame::empty()), vec![])
+}
 
 // ─────────────────────────────────────────────
 // Test helpers
 // ─────────────────────────────────────────────
-
-fn empty_gpu_data() -> GpuBufferData {
-    GpuBufferData {
-        positions: vec![],
-        positions3d: vec![],
-        colors: vec![],
-        sizes: vec![],
-        trial_count: 0,
-    }
-}
 
 fn test_study_meta(study_id: u32, n_obj: usize) -> StudyMeta {
     StudyMeta {
@@ -55,7 +52,7 @@ fn make_trial_bytes(n: usize, start_id: u32) -> Vec<u8> {
     let mut s = String::new();
     for i in 0..n {
         let tid = start_id + i as u32;
-        s.push_str(&format!("{{\"op_code\":4,\"study_id\":0}}\n"));
+        s.push_str("{\"op_code\":4,\"study_id\":0}\n");
         s.push_str(&format!(
             "{{\"op_code\":5,\"trial_id\":{},\"param_name\":\"x\",\
              \"param_value_internal\":{:.6},\
@@ -79,9 +76,8 @@ fn wait_for_live_update_done(
 ) -> Option<AppMessage> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        match rx.try_recv() {
-            Ok(msg @ AppMessage::LiveUpdateDone { .. }) => return Some(msg),
-            _ => {}
+        if let Ok(msg @ AppMessage::LiveUpdateDone { .. }) = rx.try_recv() {
+            return Some(msg);
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -105,8 +101,7 @@ fn tc_2224_01_e2e_polling_flow() {
     app_state.all_studies = vec![meta.clone()];
     app_state.current_study = Some(StudyContext {
         meta,
-        trial_rows: vec![],
-        gpu_data: empty_gpu_data(),
+        view: empty_view(),
         pareto_indices: vec![],
     });
 
@@ -116,7 +111,10 @@ fn tc_2224_01_e2e_polling_flow() {
     // Append 10 trials
     {
         let content = make_trial_bytes(10, 0);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&content).unwrap();
     }
 
@@ -142,9 +140,11 @@ fn tc_2224_01_e2e_polling_flow() {
     );
 
     let study = app_state.current_study.as_ref().unwrap();
-    assert_eq!(study.trial_rows.len(), 10, "trial_rows should have 10 entries");
-    assert!(!study.pareto_indices.is_empty(), "pareto_indices should be populated");
-    assert_eq!(study.gpu_data.trial_count, 10, "GPU buffer trial_count should be 10");
+    assert_eq!(study.trial_count(), 10, "trial_rows should have 10 entries");
+    assert!(
+        !study.pareto_indices.is_empty(),
+        "pareto_indices should be populated"
+    );
     assert!(load_error.is_none());
 }
 
@@ -225,13 +225,19 @@ fn tc_2224_03_zero_byte_file_no_errors() {
     // Append content and verify detection
     {
         let content = make_trial_bytes(3, 0);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&content).unwrap();
     }
 
     let msg = wait_for_live_update_done(&rx, Duration::from_secs(3));
     poller.stop();
-    assert!(msg.is_some(), "Expected LiveUpdateDone after appending to empty file");
+    assert!(
+        msg.is_some(),
+        "Expected LiveUpdateDone after appending to empty file"
+    );
 }
 
 // ─────────────────────────────────────────────
@@ -255,8 +261,7 @@ fn tc_2224_04_bulk_trials_performance() {
     app_state.all_studies = vec![meta.clone()];
     app_state.current_study = Some(StudyContext {
         meta,
-        trial_rows: vec![],
-        gpu_data: empty_gpu_data(),
+        view: empty_view(),
         pareto_indices: vec![],
     });
 
@@ -266,7 +271,10 @@ fn tc_2224_04_bulk_trials_performance() {
     // Write all trials at once
     {
         let content = make_trial_bytes(n, 0);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&content).unwrap();
     }
 
@@ -289,10 +297,10 @@ fn tc_2224_04_bulk_trials_performance() {
 
     let study = app_state.current_study.as_ref().unwrap();
     assert!(
-        study.trial_rows.len() >= total_rows,
+        study.trial_count() >= total_rows,
         "Expected at least {} rows, got {}",
         total_rows,
-        study.trial_rows.len()
+        study.trial_count()
     );
     assert!(
         total_rows > 0,
@@ -321,7 +329,12 @@ fn tc_2224_05_parse_performance_1000_lines() {
 
     reset_live_update_state();
 
-    assert_eq!(result.new_trial_rows.len(), n, "All {} trials should be parsed", n);
+    assert_eq!(
+        result.new_trial_rows.len(),
+        n,
+        "All {} trials should be parsed",
+        n
+    );
     assert!(
         elapsed < 100,
         "Parse of {} trials took {}ms, expected < 100ms",

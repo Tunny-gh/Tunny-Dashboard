@@ -131,10 +131,7 @@ pub fn show_toolbar(
             // ライブ更新トグル（ファイル未開封時は無効）
             let can_toggle = app_state.journal_path.is_some();
             let live_label = if app_state.live_update.enabled {
-                format!(
-                    "Live: On ({}s)",
-                    app_state.live_update.interval_ms / 1000
-                )
+                format!("Live: On ({}s)", app_state.live_update.interval_ms / 1000)
             } else {
                 "Live: Off".to_string()
             };
@@ -144,7 +141,7 @@ pub fn show_toolbar(
 
             // 試行数カウンタ
             let trial_label = if let Some(study) = &app_state.current_study {
-                format!("Trials: {}", study.trial_rows.len())
+                format!("Trials: {}", study.trial_count())
             } else {
                 "Trials: -".to_string()
             };
@@ -371,20 +368,17 @@ mod tests {
 
     #[test]
     fn loading_state_clears_on_file_open_sequence() {
-        let mut is_loading = false;
-        let mut load_error: Option<String> = Some("Previous error".to_string());
         // ファイル選択時に is_loading=true, load_error=None になることを確認
-        is_loading = true;
-        load_error = None;
+        let is_loading = true;
+        let load_error: Option<String> = None;
         assert!(is_loading);
         assert!(load_error.is_none());
     }
 
     #[test]
     fn error_cleared_on_click_simulation() {
-        let mut load_error: Option<String> = Some("Error".to_string());
         // エラーラベルクリック時のシミュレーション
-        load_error = None;
+        let load_error: Option<String> = None;
         assert!(load_error.is_none());
     }
 
@@ -418,7 +412,11 @@ mod tests {
     #[test]
     fn export_csv_action_targets_all_three_modes() {
         use crate::io::export::ExportTarget;
-        let targets = [ExportTarget::AllData, ExportTarget::SelectedOnly, ExportTarget::ParetoOnly];
+        let targets = [
+            ExportTarget::AllData,
+            ExportTarget::SelectedOnly,
+            ExportTarget::ParetoOnly,
+        ];
         for target in &targets {
             let action = ToolbarAction::ExportCsv(target.clone());
             match action {
@@ -462,9 +460,9 @@ mod tests {
 
     #[test]
     fn successful_add_switches_to_comparison_mode() {
-        use crate::state::app_state::{AppState, Direction, GpuBufferData, StudyContext, StudyMeta};
-        use crate::state::messages::AppMessage;
+        use crate::state::app_state::{AppState, Direction, StudyContext, StudyMeta};
         use crate::state::message_handler::MessageHandler;
+        use crate::state::messages::AppMessage;
         use crate::ui::widget_states::WidgetStates;
 
         let mut app_state = AppState::new();
@@ -472,8 +470,8 @@ mod tests {
         let mut is_loading = false;
         let mut load_error = None;
 
-        let context = StudyContext {
-            meta: StudyMeta {
+        let context = StudyContext::from_rows_for_test(
+            StudyMeta {
                 study_id: 10,
                 name: "compare_study".to_string(),
                 directions: vec![Direction::Minimize],
@@ -484,22 +482,17 @@ mod tests {
                 user_attr_names: vec![],
                 has_constraints: false,
             },
-            trial_rows: vec![],
-            gpu_data: GpuBufferData {
-                positions: vec![],
-                positions3d: vec![],
-                colors: vec![],
-                sizes: vec![],
-                trial_count: 0,
-            },
-            pareto_indices: vec![],
-        };
+            vec![],
+        );
 
         // Simulate setting comparison_mode before the load completes (as app.rs does)
         app_state.comparison_mode = true;
 
         MessageHandler::handle(
-            AppMessage::ComparisonStudyLoaded { study_idx: 0, context: Box::new(context) },
+            AppMessage::ComparisonStudyLoaded {
+                study_idx: 0,
+                context: Box::new(context),
+            },
             &mut app_state,
             &mut widgets,
             &mut is_loading,

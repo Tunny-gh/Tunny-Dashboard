@@ -296,25 +296,47 @@ pub fn build_and_send_report(
     selected_indices: &[u32],
     tx: std::sync::mpsc::SyncSender<crate::state::messages::AppMessage>,
 ) {
-    let trial_map: std::collections::HashMap<u32, &crate::state::types::TrialRow> =
-        ctx.trial_rows.iter().map(|r| (r.trial_id, r)).collect();
+    // 選択インデックスを trial_id → row_index マップに変換（view 直接参照）
+    let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
     let snap = HtmlReportSnapshot {
         study_name: ctx.meta.name.clone(),
         objective_names: ctx.meta.objective_names.clone(),
         param_names: ctx.meta.param_names.clone(),
-        total_trials: ctx.trial_rows.len(),
+        total_trials: ctx.trial_count(),
         pareto_count: ctx.pareto_indices.len(),
-        selected_trials: selected_indices
-            .iter()
-            .filter_map(|&id| trial_map.get(&id).copied())
-            .map(|r| HtmlTrialRow {
-                trial_id: r.trial_id,
-                trial_number: r.trial_number,
-                params: r.params.clone(),
-                objectives: r.objectives.clone(),
-                pareto_rank: r.pareto_rank,
-            })
-            .collect(),
+        selected_trials: {
+            let param_names = ctx.meta.param_names.clone();
+            let param_cols = ctx.view.numeric_columns(&param_names);
+            let obj_cols = ctx.view.numeric_columns(&ctx.meta.objective_names);
+            ctx.view
+                .trial_ids
+                .iter()
+                .enumerate()
+                .filter(|(_, &id)| selected_set.contains(&id))
+                .map(|(i, &tid)| {
+                    let params: std::collections::HashMap<String, f64> = param_names
+                        .iter()
+                        .zip(param_cols.iter())
+                        .filter_map(|(name, col)| {
+                            let v = (*col)?.get(i).copied()?;
+                            Some((name.clone(), v))
+                        })
+                        .collect();
+                    let objectives: Vec<f64> = obj_cols
+                        .iter()
+                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .collect();
+                    let rank = ctx.view.pareto_rank.get(i).copied().unwrap_or(0);
+                    HtmlTrialRow {
+                        trial_id: tid,
+                        trial_number: i as u32,
+                        params,
+                        objectives,
+                        pareto_rank: rank,
+                    }
+                })
+                .collect()
+        },
         statistics: TrialStatistics {
             objective_means: vec![0.0; ctx.meta.objective_names.len()],
             objective_variances: vec![0.0; ctx.meta.objective_names.len()],

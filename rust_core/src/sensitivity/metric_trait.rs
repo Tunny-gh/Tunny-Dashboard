@@ -4,8 +4,8 @@
 //! this trait so that `compute_sensitivity_single_obj` can iterate over a
 //! heterogeneous collection of metrics instead of using a large `match` arm.
 
-use crate::dataframe::DataFrame;
 use super::types::SensitivityResult;
+use crate::dataframe::DataFrame;
 
 /// Common interface for all sensitivity analysis metrics.
 ///

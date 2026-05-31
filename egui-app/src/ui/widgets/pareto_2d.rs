@@ -35,8 +35,6 @@ pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
     pub use_downsample: bool,
-    display_rows_cache: Option<Vec<TrialRow>>,
-    cache_key: (usize, usize), // (trial_count, downsample_count)
     // TASK-2241: rectangular brush state (plot coordinates)
     pub brush_start: Option<[f64; 2]>,
     pub brush_end: Option<[f64; 2]>,
@@ -48,8 +46,6 @@ impl Default for ParetoScatter2D {
             x_axis: "obj0".to_string(),
             y_axis: "obj1".to_string(),
             use_downsample: true,
-            display_rows_cache: None,
-            cache_key: (0, 0),
             brush_start: None,
             brush_end: None,
         }
@@ -71,18 +67,6 @@ impl ParetoScatter2D {
         } else {
             None
         };
-        let ds_len = downsample_indices.as_ref().map_or(0, |v| v.len());
-        let cache_key = (ctx.trial_rows.len(), ds_len);
-        if self.display_rows_cache.is_none() || self.cache_key != cache_key {
-            let display_rows: Vec<TrialRow> =
-                filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
-                    .into_iter()
-                    .cloned()
-                    .collect();
-            self.display_rows_cache = Some(display_rows);
-            self.cache_key = cache_key;
-        }
-        let trial_rows = self.display_rows_cache.as_ref().unwrap();
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
@@ -115,25 +99,44 @@ impl ParetoScatter2D {
             .position(|n| n == &self.y_axis)
             .unwrap_or(1);
 
+        // view の列スライスから直接点群を構築（行クローンキャッシュを持たない・MEM-002）
+        let view = &ctx.view;
+        let n = view.row_count();
+        let x_col = obj_names
+            .get(x_idx)
+            .and_then(|name| view.numeric_column(name));
+        let y_col = obj_names
+            .get(y_idx)
+            .and_then(|name| view.numeric_column(name));
+
         // パレートフロント(rank==0)と非パレートに分類
         let mut pareto_pts: Vec<[f64; 2]> = Vec::new();
         let mut pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
+        // ブラシ矩形選択用に (trial_id, 点) を保持（行クローンを持たない）
+        let mut displayed_points: Vec<(u32, [f64; 2])> = Vec::new();
 
-        for row in trial_rows {
-            let x = row.objectives.get(x_idx).copied().unwrap_or(0.0);
-            let y = row.objectives.get(y_idx).copied().unwrap_or(0.0);
+        let displayed: Vec<usize> = match downsample_indices.as_deref() {
+            Some(idx) => idx.iter().map(|&i| i as usize).filter(|&i| i < n).collect(),
+            None => (0..n).collect(),
+        };
+        for i in displayed {
+            let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+            let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let pt = [x, y];
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            displayed_points.push((trial_id, pt));
 
-            if highlighted == Some(row.trial_id) {
+            if highlighted == Some(trial_id) {
                 highlight_pt = Some(pt);
                 continue;
             }
 
-            let is_selected = compute_point_alpha(row.trial_id, &selected) == 255;
-            if row.pareto_rank == 0 {
+            let is_selected = compute_point_alpha(trial_id, &selected) == 255;
+            if rank == 0 {
                 if is_selected {
                     pareto_pts.push(pt);
                 } else {
@@ -177,16 +180,14 @@ impl ParetoScatter2D {
 
                 // Draw selection rectangle
                 if let (Some(s), Some(e)) = (current_brush_start, current_brush_end) {
-                    let rect_pts = vec![
-                        [s[0], s[1]],
-                        [e[0], s[1]],
-                        [e[0], e[1]],
-                        [s[0], e[1]],
-                    ];
+                    let rect_pts = vec![[s[0], s[1]], [e[0], s[1]], [e[0], e[1]], [s[0], e[1]]];
                     plot_ui.polygon(
                         egui_plot::Polygon::new(rect_pts)
                             .fill_color(egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40))
-                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 150, 255))),
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                egui::Color32::from_rgb(100, 150, 255),
+                            )),
                     );
                 }
 
@@ -245,8 +246,11 @@ impl ParetoScatter2D {
         }
         if drag_finished {
             if let (Some(start), Some(end)) = (self.brush_start, self.brush_end) {
-                let new_selection =
-                    select_trials_in_rect(trial_rows, start, end, x_idx, y_idx);
+                let new_selection: Vec<u32> = displayed_points
+                    .iter()
+                    .filter(|(_, pt)| point_in_rect(*pt, start, end))
+                    .map(|(id, _)| *id)
+                    .collect();
                 app_state.selected_indices = new_selection;
             }
             self.brush_start = None;
@@ -326,7 +330,7 @@ pub fn partition_points(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{Direction, TrialRow, TrialState};
+    use crate::state::app_state::{TrialRow, TrialState};
     use std::collections::HashMap;
 
     fn make_trial(id: u32, objs: Vec<f64>) -> TrialRow {

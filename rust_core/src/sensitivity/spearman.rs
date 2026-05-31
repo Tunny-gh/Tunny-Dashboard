@@ -1,8 +1,8 @@
-use crate::math::stats::pearson_correlation;
-use crate::dataframe::DataFrame;
 use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::types::SensitivityResult;
+use crate::dataframe::DataFrame;
+use crate::math::stats::pearson_correlation;
 
 pub struct SpearmanMetric;
 

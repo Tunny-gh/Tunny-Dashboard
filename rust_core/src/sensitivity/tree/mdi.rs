@@ -7,7 +7,9 @@ use crate::lgbm::{
 };
 
 /// 前処理済みデータから MDI 重要度を計算する（`metrics::MdiMetric` からも呼ばれる）。
-pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+pub(in crate::sensitivity) fn compute_from_prepared(
+    data: &PreparedData,
+) -> Option<(Vec<f64>, f64)> {
     let p = data.x_shuffled[0].len();
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let config = LgbmRfConfig {
@@ -25,7 +27,14 @@ pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Opti
 }
 
 pub fn compute_mdi_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f64) {
-    run_importances_pipeline(x_matrix, y, MDI_MAX_ROWS, MDI_SEED, MDI_SEED.wrapping_add(1), compute_from_prepared)
+    run_importances_pipeline(
+        x_matrix,
+        y,
+        MDI_MAX_ROWS,
+        MDI_SEED,
+        MDI_SEED.wrapping_add(1),
+        compute_from_prepared,
+    )
 }
 
 #[cfg(test)]

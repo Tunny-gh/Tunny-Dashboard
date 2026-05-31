@@ -2,12 +2,12 @@ use super::super::constants::{
     SHAP_MAX_ROWS, SHAP_RF_MAX_DEPTH, SHAP_RF_MIN_SAMPLES_LEAF, SHAP_RF_TREES, SHAP_SEED,
 };
 use super::common::{run_importances_pipeline, PreparedData};
-use crate::lgbm::{
-    lgbm_mse, lgbm_predict_contrib, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig,
-};
+use crate::lgbm::{lgbm_mse, lgbm_predict_contrib, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 
 /// 前処理済みデータから SHAP 重要度を計算する（`metrics::ShapMetric` からも呼ばれる）。
-pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+pub(in crate::sensitivity) fn compute_from_prepared(
+    data: &PreparedData,
+) -> Option<(Vec<f64>, f64)> {
     let p = data.x_shuffled[0].len();
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let config = LgbmRfConfig {
@@ -46,7 +46,14 @@ pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Opti
 
 /// Uses `predict_contrib` (TreeSHAP) per sample; global importance is mean |phi_j| normalised to sum = 1.
 pub fn compute_shap_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f64) {
-    run_importances_pipeline(x_matrix, y, SHAP_MAX_ROWS, SHAP_SEED, SHAP_SEED.wrapping_add(1), compute_from_prepared)
+    run_importances_pipeline(
+        x_matrix,
+        y,
+        SHAP_MAX_ROWS,
+        SHAP_SEED,
+        SHAP_SEED.wrapping_add(1),
+        compute_from_prepared,
+    )
 }
 
 #[cfg(test)]

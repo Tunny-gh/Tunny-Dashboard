@@ -1,7 +1,7 @@
-use crate::state::app_state::TrialRow;
 use crate::state::results::{
     EntropyResult, McdmMethod, McdmResult, PrometheeResult, TopsisResult, VikorResult, WeightMode,
 };
+use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
     COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY, COLOR_EMPTY_STATE,
 };
@@ -120,7 +120,7 @@ impl McdmRankChart {
         ui: &mut egui::Ui,
         obj_names: &[String],
         result: &Option<McdmResult>,
-        trial_rows: &[TrialRow],
+        view: &StudyView,
     ) {
         let obj_count = obj_names.len();
         if obj_count == 0 {
@@ -346,10 +346,7 @@ impl McdmRankChart {
                 let bar_max_width = (available_width / 2.0).max(25.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_i[rank] as usize;
-                    let trial_id = trial_rows
-                        .get(idx)
-                        .map(|r| r.trial_id)
-                        .unwrap_or(idx as u32);
+                    let trial_id = view.trial_ids.get(idx).copied().unwrap_or(idx as u32);
                     ui.horizontal(|ui| {
                         ui.add_sized(
                             [label_width, bar_height],
@@ -419,10 +416,7 @@ impl McdmRankChart {
                 let bar_max_width = available_width.max(50.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_ii[rank] as usize;
-                    let trial_id = trial_rows
-                        .get(idx)
-                        .map(|r| r.trial_id)
-                        .unwrap_or(idx as u32);
+                    let trial_id = view.trial_ids.get(idx).copied().unwrap_or(idx as u32);
                     let phi_net = r.phi_net[idx];
                     let bar_w = if max_abs > 0.0 {
                         (phi_net.abs() / max_abs * bar_max_width as f64) as f32
@@ -464,7 +458,7 @@ impl McdmRankChart {
             return;
         }
 
-        let entries = enumerate_ranked(result, trial_rows, self.top_n.value());
+        let entries = enumerate_ranked(result, &view.trial_ids, self.top_n.value());
         if entries.is_empty() {
             ui.label("No data");
             return;
@@ -518,7 +512,7 @@ impl McdmTable {
         &mut self,
         ui: &mut egui::Ui,
         result: &Option<McdmResult>,
-        trial_rows: &[TrialRow],
+        view: &StudyView,
         obj_names: &[String],
     ) {
         // Top N セレクタ
@@ -541,7 +535,7 @@ impl McdmTable {
 
         use egui_extras::{Column, TableBuilder};
 
-        let rows = build_ranking_rows(result, trial_rows, self.top_n.value());
+        let rows = build_ranking_rows(result, view, obj_names, self.top_n.value());
         if rows.is_empty() {
             ui.colored_label(COLOR_EMPTY_STATE, "No results to display");
             return;
@@ -601,11 +595,7 @@ struct RankingEntry {
 }
 
 /// McdmResultから上位N件のランキングエントリを生成する
-fn enumerate_ranked(
-    result: &McdmResult,
-    trial_rows: &[TrialRow],
-    top_n: usize,
-) -> Vec<RankingEntry> {
+fn enumerate_ranked(result: &McdmResult, trial_ids: &[u32], top_n: usize) -> Vec<RankingEntry> {
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
     let count = top_n.min(ranked.len());
@@ -613,7 +603,10 @@ fn enumerate_ranked(
     (0..count)
         .map(|rank| {
             let trial_idx = ranked[rank] as usize;
-            let trial_id = trial_rows.get(trial_idx).map(|r| r.trial_id).unwrap_or(0);
+            let trial_id = trial_ids
+                .get(trial_idx)
+                .copied()
+                .unwrap_or(trial_idx as u32);
             let score = scores.get(trial_idx).copied().unwrap_or(0.0);
             RankingEntry {
                 rank: rank + 1,
@@ -636,18 +629,23 @@ pub struct RankingRow {
 /// McdmResultから上位N件のテーブル行データを生成する
 pub fn build_ranking_rows(
     result: &McdmResult,
-    trial_rows: &[TrialRow],
+    view: &StudyView,
+    obj_names: &[String],
     top_n: usize,
 ) -> Vec<RankingRow> {
-    enumerate_ranked(result, trial_rows, top_n)
+    let obj_cols = view.numeric_columns(obj_names);
+    enumerate_ranked(result, &view.trial_ids, top_n)
         .into_iter()
         .map(|e| {
-            let trial = &trial_rows[e.trial_idx];
+            let objectives: Vec<f64> = obj_cols
+                .iter()
+                .map(|col| col.and_then(|c| c.get(e.trial_idx)).copied().unwrap_or(0.0))
+                .collect();
             RankingRow {
                 rank: e.rank,
                 trial_id: e.trial_id,
                 score: e.score,
-                objectives: trial.objectives.clone(),
+                objectives,
             }
         })
         .collect()
@@ -657,14 +655,51 @@ pub fn build_ranking_rows(
 mod tests {
     use super::*;
     use crate::state::results::TopsisResult;
+    use crate::state::types::TrialRow;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
-    fn make_trial_rows(n: usize) -> Vec<TrialRow> {
-        (0..n)
-            .map(|i| TrialRow {
+    fn make_simple_view(n: usize) -> StudyView {
+        if n == 0 {
+            let df = DataFrame::from_trials(&[], &[], &[], &[], &[], 0);
+            return StudyView::new(Arc::new(df), vec![]);
+        }
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
                 trial_id: i as u32,
-                ..Default::default()
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: vec![],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
             })
-            .collect()
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &[], &[], &[], &[], 0);
+        StudyView::new(Arc::new(df), vec![0; n])
+    }
+
+    fn make_view_with_objectives(objective_rows: &[Vec<f64>]) -> (StudyView, Vec<String>) {
+        let n = objective_rows.len();
+        if n == 0 {
+            return (make_simple_view(0), vec![]);
+        }
+        let n_obj = objective_rows[0].len();
+        let obj_names: Vec<String> = (0..n_obj).map(|i| format!("obj{i}")).collect();
+        let core_rows: Vec<CoreRow> = (0..n)
+            .map(|i| CoreRow {
+                trial_id: i as u32,
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: objective_rows[i].clone(),
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &[], &obj_names, &[], &[], 0);
+        (StudyView::new(Arc::new(df), vec![0; n]), obj_names)
     }
 
     fn make_topsis_result(scores: Vec<f64>, ranked_indices: Vec<u32>) -> McdmResult {
@@ -746,8 +781,8 @@ mod tests {
     #[test]
     fn enumerate_ranked_top5_with_5_results() {
         let result = make_topsis_result(vec![0.9, 0.7, 0.5, 0.3, 0.1], vec![0, 1, 2, 3, 4]);
-        let rows = make_trial_rows(5);
-        let ranking = build_ranking_rows(&result, &rows, 5);
+        let view = make_simple_view(5);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert_eq!(ranking.len(), 5);
         assert!((ranking[0].score - 0.9).abs() < 1e-9);
         assert!((ranking[4].score - 0.1).abs() < 1e-9);
@@ -758,24 +793,24 @@ mod tests {
         let scores: Vec<f64> = (0..20).map(|i| 1.0 - i as f64 / 20.0).collect();
         let ranked: Vec<u32> = (0..20).collect();
         let result = make_topsis_result(scores, ranked);
-        let rows = make_trial_rows(20);
-        let ranking = build_ranking_rows(&result, &rows, 10);
+        let view = make_simple_view(20);
+        let ranking = build_ranking_rows(&result, &view, &[], 10);
         assert_eq!(ranking.len(), 10);
     }
 
     #[test]
     fn enumerate_ranked_top5_with_3_results_min_applied() {
         let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![0, 1, 2]);
-        let rows = make_trial_rows(3);
-        let ranking = build_ranking_rows(&result, &rows, 5);
+        let view = make_simple_view(3);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert_eq!(ranking.len(), 3);
     }
 
     #[test]
     fn enumerate_ranked_scores_match_ranked_order() {
         let result = make_topsis_result(vec![0.1, 0.9, 0.5], vec![1, 2, 0]);
-        let rows = make_trial_rows(3);
-        let ranking = build_ranking_rows(&result, &rows, 10);
+        let view = make_simple_view(3);
+        let ranking = build_ranking_rows(&result, &view, &[], 10);
         assert_eq!(ranking.len(), 3);
         assert!((ranking[0].score - 0.9).abs() < 1e-9);
         assert!((ranking[1].score - 0.5).abs() < 1e-9);
@@ -785,7 +820,8 @@ mod tests {
     #[test]
     fn enumerate_ranked_empty_result() {
         let result = make_topsis_result(vec![], vec![]);
-        let ranking = build_ranking_rows(&result, &[], 5);
+        let view = make_simple_view(0);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert!(ranking.is_empty());
     }
 
@@ -802,8 +838,8 @@ mod tests {
     #[test]
     fn build_ranking_rows_basic() {
         let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![0, 1, 2]);
-        let rows = make_trial_rows(3);
-        let ranking = build_ranking_rows(&result, &rows, 5);
+        let view = make_simple_view(3);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert_eq!(ranking.len(), 3);
         assert_eq!(ranking[0].rank, 1);
         assert_eq!(ranking[0].trial_id, 0);
@@ -815,85 +851,64 @@ mod tests {
         let scores: Vec<f64> = (0..20).map(|i| 1.0 - i as f64 / 20.0).collect();
         let ranked: Vec<u32> = (0..20).collect();
         let result = make_topsis_result(scores, ranked);
-        let rows = make_trial_rows(20);
-        let ranking = build_ranking_rows(&result, &rows, 5);
+        let view = make_simple_view(20);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert_eq!(ranking.len(), 5);
     }
 
     #[test]
     fn build_ranking_rows_rank_starts_at_1() {
         let result = make_topsis_result(vec![0.8], vec![0]);
-        let rows = make_trial_rows(1);
-        let ranking = build_ranking_rows(&result, &rows, 5);
+        let view = make_simple_view(1);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert_eq!(ranking[0].rank, 1);
     }
 
     #[test]
     fn build_ranking_rows_empty() {
         let result = make_topsis_result(vec![], vec![]);
-        let ranking = build_ranking_rows(&result, &[], 5);
+        let view = make_simple_view(0);
+        let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert!(ranking.is_empty());
     }
 
     #[test]
     fn build_ranking_rows_objectives_included() {
         let result = make_topsis_result(vec![0.9, 0.5], vec![0, 1]);
-        let rows = vec![
-            TrialRow {
-                trial_id: 0,
-                objectives: vec![1.0, 2.0],
-                ..Default::default()
-            },
-            TrialRow {
-                trial_id: 1,
-                objectives: vec![3.0, 4.0],
-                ..Default::default()
-            },
-        ];
-        let ranking = build_ranking_rows(&result, &rows, 10);
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
+        let ranking = build_ranking_rows(&result, &view, &obj_names, 10);
         assert_eq!(ranking[0].objectives, vec![1.0, 2.0]);
         assert_eq!(ranking[1].objectives, vec![3.0, 4.0]);
     }
 
     // ── E2E / integration tests ──
 
-    fn make_multi_obj_trial_rows() -> Vec<TrialRow> {
+    fn multi_obj_data() -> Vec<Vec<f64>> {
         vec![
-            TrialRow {
-                trial_id: 0,
-                objectives: vec![0.1, 0.9],
-                ..Default::default()
-            },
-            TrialRow {
-                trial_id: 1,
-                objectives: vec![0.5, 0.5],
-                ..Default::default()
-            },
-            TrialRow {
-                trial_id: 2,
-                objectives: vec![0.9, 0.1],
-                ..Default::default()
-            },
-            TrialRow {
-                trial_id: 3,
-                objectives: vec![0.3, 0.7],
-                ..Default::default()
-            },
-            TrialRow {
-                trial_id: 4,
-                objectives: vec![0.7, 0.3],
-                ..Default::default()
-            },
+            vec![0.1, 0.9],
+            vec![0.5, 0.5],
+            vec![0.9, 0.1],
+            vec![0.3, 0.7],
+            vec![0.7, 0.3],
         ]
+    }
+
+    fn multi_obj_rows_for_topsis() -> Vec<TrialRow> {
+        multi_obj_data()
+            .into_iter()
+            .enumerate()
+            .map(|(i, objs)| TrialRow {
+                trial_id: i as u32,
+                objectives: objs,
+                ..Default::default()
+            })
+            .collect()
     }
 
     #[test]
     fn topsis_full_pipeline_equal_weights() {
-        let rows = make_multi_obj_trial_rows();
-        let objectives: Vec<f64> = rows
-            .iter()
-            .flat_map(|r| r.objectives.iter().copied())
-            .collect();
+        let data = multi_obj_data();
+        let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
         let weights = normalize_weights(&[1.0, 1.0]);
         let is_minimize = vec![true, true];
 
@@ -911,7 +926,8 @@ mod tests {
         assert_eq!(mcdm_result.primary_scores().len(), 5);
         assert!(!mcdm_result.primary_scores().iter().any(|s| s.is_nan()));
 
-        let ranking = build_ranking_rows(&mcdm_result, &rows, 5);
+        let (view, obj_names) = make_view_with_objectives(&data);
+        let ranking = build_ranking_rows(&mcdm_result, &view, &obj_names, 5);
         assert_eq!(ranking.len(), 5);
         assert_eq!(ranking[0].rank, 1);
         for i in 1..ranking.len() {
@@ -921,11 +937,8 @@ mod tests {
 
     #[test]
     fn topsis_weight_bias_changes_ranking() {
-        let rows = make_multi_obj_trial_rows();
-        let objectives: Vec<f64> = rows
-            .iter()
-            .flat_map(|r| r.objectives.iter().copied())
-            .collect();
+        let data = multi_obj_data();
+        let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
         let is_minimize = vec![true, true];
 
         let weights_obj0 = normalize_weights(&[1.0, 0.0]);
@@ -944,17 +957,7 @@ mod tests {
 
     #[test]
     fn topsis_single_objective_works() {
-        let rows: Vec<TrialRow> = (0..5)
-            .map(|i| TrialRow {
-                trial_id: i,
-                objectives: vec![i as f64 * 0.2],
-                ..Default::default()
-            })
-            .collect();
-        let objectives: Vec<f64> = rows
-            .iter()
-            .flat_map(|r| r.objectives.iter().copied())
-            .collect();
+        let objectives: Vec<f64> = (0..5).map(|i| i as f64 * 0.2).collect();
         let weights = normalize_weights(&[1.0]);
         let is_minimize = vec![true];
 
@@ -1000,7 +1003,7 @@ mod tests {
 
     #[test]
     fn mcdm_score_color_mode_integration() {
-        let rows = make_multi_obj_trial_rows();
+        let rows = multi_obj_rows_for_topsis();
         let objectives: Vec<f64> = rows
             .iter()
             .flat_map(|r| r.objectives.iter().copied())
@@ -1043,11 +1046,8 @@ mod tests {
 
     #[test]
     fn top_n_toggle_updates_display() {
-        let rows = make_multi_obj_trial_rows();
-        let objectives: Vec<f64> = rows
-            .iter()
-            .flat_map(|r| r.objectives.iter().copied())
-            .collect();
+        let data = multi_obj_data();
+        let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
         let weights = normalize_weights(&[1.0, 1.0]);
         let is_minimize = vec![true, true];
 
@@ -1061,13 +1061,15 @@ mod tests {
             duration_ms: core_result.duration_ms,
         });
 
-        let rows5 = build_ranking_rows(&mcdm, &rows, 5);
+        let (view, obj_names) = make_view_with_objectives(&data);
+
+        let rows5 = build_ranking_rows(&mcdm, &view, &obj_names, 5);
         assert_eq!(rows5.len(), 5);
 
-        let rows3 = build_ranking_rows(&mcdm, &rows, 3);
+        let rows3 = build_ranking_rows(&mcdm, &view, &obj_names, 3);
         assert_eq!(rows3.len(), 3);
 
-        let rows10 = build_ranking_rows(&mcdm, &rows, 10);
+        let rows10 = build_ranking_rows(&mcdm, &view, &obj_names, 10);
         assert_eq!(rows10.len(), 5);
     }
 }

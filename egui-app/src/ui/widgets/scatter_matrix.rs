@@ -28,8 +28,6 @@ pub struct ScatterMatrix {
     pub mode: MatrixMode,
     pub sort: AxisSort,
     pub selected_cell: Option<(usize, usize)>,
-    col_data_cache: Option<Vec<Vec<f64>>>,
-    cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
 }
 
 impl ScatterMatrix {
@@ -38,8 +36,6 @@ impl ScatterMatrix {
             mode: MatrixMode::ParamsVsParams,
             sort: AxisSort::Alphabetical,
             selected_cell: None,
-            col_data_cache: None,
-            cache_key: (0, 0, 0),
         }
     }
 
@@ -47,12 +43,13 @@ impl ScatterMatrix {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        trial_rows: &[crate::state::app_state::TrialRow],
+        view: &crate::state::app_state::StudyView,
         param_names: &[String],
         obj_names: &[String],
         chart_colors: &[egui::Color32],
     ) {
-        if trial_rows.is_empty() {
+        let trial_count = view.row_count();
+        if trial_count == 0 {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No trial data.").weak());
             });
@@ -69,31 +66,11 @@ impl ScatterMatrix {
             return;
         }
 
-        let n_params = param_names.len();
-        let cache_key = (trial_rows.len(), n_params, obj_names.len());
-        if self.col_data_cache.is_none() || self.cache_key != cache_key {
-            let col_data: Vec<Vec<f64>> = all_names
-                .iter()
-                .enumerate()
-                .map(|(idx, name)| {
-                    if idx < n_params {
-                        trial_rows
-                            .iter()
-                            .filter_map(|r| r.params.get(name).copied())
-                            .collect()
-                    } else {
-                        let obj_idx = idx - n_params;
-                        trial_rows
-                            .iter()
-                            .filter_map(|r| r.objectives.get(obj_idx).copied())
-                            .collect()
-                    }
-                })
-                .collect();
-            self.col_data_cache = Some(col_data);
-            self.cache_key = cache_key;
-        }
-        let col_data = self.col_data_cache.as_ref().unwrap();
+        // 各軸の列スライスを view から借用（コピーしない・MEM-003）
+        let cols: Vec<&[f64]> = all_names
+            .iter()
+            .map(|name| view.numeric_column(name).unwrap_or(&[]))
+            .collect();
 
         let available = ui.available_rect_before_wrap();
         let cell_w = available.width() / n as f32;
@@ -101,7 +78,7 @@ impl ScatterMatrix {
         let painter = ui.painter().clone();
         let dot_color = COLOR_SCATTER_DOT;
         let point_colors: Vec<egui::Color32> = if chart_colors.is_empty() {
-            vec![dot_color; trial_rows.len()]
+            vec![dot_color; trial_count]
         } else {
             chart_colors.to_vec()
         };
@@ -112,17 +89,17 @@ impl ScatterMatrix {
                 let cell_rect = egui::Rect::from_min_size(min, egui::vec2(cell_w, cell_h));
 
                 if row == col {
-                    draw_histogram_cell(&painter, cell_rect, &col_data[row], 10);
+                    draw_histogram_cell(&painter, cell_rect, cols[row], 10);
                 } else if col > row {
                     // 上三角: 相関係数
-                    draw_correlation_cell(&painter, cell_rect, &col_data[row], &col_data[col]);
+                    draw_correlation_cell(&painter, cell_rect, cols[row], cols[col]);
                 } else {
                     // 下三角: 散布図
                     draw_scatter_cell(
                         &painter,
                         cell_rect,
-                        &col_data[col],
-                        &col_data[row],
+                        cols[col],
+                        cols[row],
                         &point_colors,
                         None,
                     );
@@ -421,7 +398,7 @@ mod tests {
         let x = vec![1.0, 3.0, 5.0, 7.0, 9.0];
         let y = vec![2.0, 1.0, 4.0, 3.0, 5.0];
         let corr = compute_correlation(&x, &y);
-        assert!(corr >= -1.0 && corr <= 1.0);
+        assert!((-1.0..=1.0).contains(&corr));
     }
 
     #[test]

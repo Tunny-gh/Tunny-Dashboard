@@ -192,8 +192,9 @@ fn build_sigma(kzz: &[f64], kxz: &[f64], lambda_diag: &[f64], m: usize, n: usize
     let mut sigma = kzz.to_vec();
     for i in 0..m {
         for j in i..m {
-            let s: f64 =
-                (0..n).map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t]).sum();
+            let s: f64 = (0..n)
+                .map(|t| kxz[t * m + i] * kxz[t * m + j] / lambda_diag[t])
+                .sum();
             sigma[i * m + j] += s;
             if i != j {
                 sigma[j * m + i] += s;
@@ -306,9 +307,14 @@ pub(crate) fn fitc_predict_weights(
     let sigma = build_sigma(&kzz, &kxz, &lambda_diag, m, n);
     let l_sigma = cholesky_flat(&sigma, m)?;
 
-    let u: Vec<f64> = y.iter().zip(lambda_diag.iter()).map(|(&yi, &li)| yi / li).collect();
-    let t: Vec<f64> =
-        (0..m).map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum()).collect();
+    let u: Vec<f64> = y
+        .iter()
+        .zip(lambda_diag.iter())
+        .map(|(&yi, &li)| yi / li)
+        .collect();
+    let t: Vec<f64> = (0..m)
+        .map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum())
+        .collect();
 
     let fw = forward_sub_flat(&l_sigma, &t, m);
     let w = backward_sub_flat(&l_sigma, &fw, m);
@@ -317,32 +323,45 @@ pub(crate) fn fitc_predict_weights(
 }
 
 /// L-BFGS two-loop recursion: compute search direction d = −H^{-1} · grad.
-fn fitc_lbfgs_direction(
-    grad: &[f64],
-    s_hist: &[Vec<f64>],
-    y_hist: &[Vec<f64>],
-) -> Vec<f64> {
+fn fitc_lbfgs_direction(grad: &[f64], s_hist: &[Vec<f64>], y_hist: &[Vec<f64>]) -> Vec<f64> {
     let m = s_hist.len();
     let mut q = grad.to_vec();
     let mut rho = vec![0.0; m];
     let mut alpha = vec![0.0; m];
 
     for i in (0..m).rev() {
-        let sy: f64 = s_hist[i].iter().zip(y_hist[i].iter()).map(|(s, y)| s * y).sum();
+        let sy: f64 = s_hist[i]
+            .iter()
+            .zip(y_hist[i].iter())
+            .map(|(s, y)| s * y)
+            .sum();
         if sy.abs() < 1e-15 {
             continue;
         }
         rho[i] = 1.0 / sy;
-        alpha[i] = rho[i] * s_hist[i].iter().zip(q.iter()).map(|(s, qi)| s * qi).sum::<f64>();
+        alpha[i] = rho[i]
+            * s_hist[i]
+                .iter()
+                .zip(q.iter())
+                .map(|(s, qi)| s * qi)
+                .sum::<f64>();
         for (qi, yi) in q.iter_mut().zip(y_hist[i].iter()) {
             *qi -= alpha[i] * yi;
         }
     }
 
     let gamma = if m > 0 {
-        let sy: f64 = s_hist[m - 1].iter().zip(y_hist[m - 1].iter()).map(|(s, y)| s * y).sum();
+        let sy: f64 = s_hist[m - 1]
+            .iter()
+            .zip(y_hist[m - 1].iter())
+            .map(|(s, y)| s * y)
+            .sum();
         let yy: f64 = y_hist[m - 1].iter().map(|y| y * y).sum();
-        if yy > 1e-15 { sy / yy } else { 1.0 }
+        if yy > 1e-15 {
+            sy / yy
+        } else {
+            1.0
+        }
     } else {
         1.0
     };
@@ -373,7 +392,11 @@ fn fitc_armijo_line_search(
     let slope: f64 = grad.iter().zip(d.iter()).map(|(g, di)| g * di).sum();
     let mut alpha = 1.0;
     for _ in 0..max_iter {
-        let x_new: Vec<f64> = x.iter().zip(d.iter()).map(|(xi, di)| xi + alpha * di).collect();
+        let x_new: Vec<f64> = x
+            .iter()
+            .zip(d.iter())
+            .map(|(xi, di)| xi + alpha * di)
+            .collect();
         if f(&x_new) <= f_x + c1 * alpha * slope {
             return alpha;
         }
@@ -472,8 +495,7 @@ pub(crate) fn optimize_fitc_hyperparams(
             p_plus[dd] += eps;
             let mut p_minus = x_new.clone();
             p_minus[dd] -= eps;
-            grad_new[dd] = (fitc_lml(x, z, y, &p_plus, n, m)
-                - fitc_lml(x, z, y, &p_minus, n, m))
+            grad_new[dd] = (fitc_lml(x, z, y, &p_plus, n, m) - fitc_lml(x, z, y, &p_minus, n, m))
                 / (2.0 * eps);
         }
         let grad_new_neg: Vec<f64> = grad_new.iter().map(|g| -g).collect();
@@ -541,9 +563,14 @@ pub(crate) fn fitc_train(
     let sigma = build_sigma(&kzz, &kxz, &lambda_diag, m, n);
     let l_sigma = cholesky_flat(&sigma, m)?;
 
-    let u: Vec<f64> = y.iter().zip(lambda_diag.iter()).map(|(&yi, &li)| yi / li).collect();
-    let t: Vec<f64> =
-        (0..m).map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum()).collect();
+    let u: Vec<f64> = y
+        .iter()
+        .zip(lambda_diag.iter())
+        .map(|(&yi, &li)| yi / li)
+        .collect();
+    let t: Vec<f64> = (0..m)
+        .map(|j| (0..n).map(|i| kxz[i * m + j] * u[i]).sum())
+        .collect();
 
     let fw = forward_sub_flat(&l_sigma, &t, m);
     let w = backward_sub_flat(&l_sigma, &fw, m);
@@ -568,8 +595,7 @@ pub(crate) fn fitc_predict_mean(model: &SparseFitcModel, x_test: &[f64]) -> f64 
     (0..model.m)
         .map(|j| {
             let zj: Vec<f64> = (0..n_dims).map(|d| model.z[d * model.m + j]).collect();
-            let k =
-                crate::kriging::gaussian_process::matern52_ard(x_test, &zj, log_ls, log_sf);
+            let k = crate::kriging::gaussian_process::matern52_ard(x_test, &zj, log_ls, log_sf);
             k * model.w[j]
         })
         .sum()
@@ -655,7 +681,7 @@ mod tests {
 
         for &v in &result {
             assert!(
-                v >= 0.0 && v <= 1.0,
+                (0.0..=1.0).contains(&v),
                 "Inducing point value {} is out of range [0.0, 1.0]",
                 v
             );
@@ -861,7 +887,11 @@ mod tests {
         let z: Vec<f64> = (0..m * 2).map(|j| j as f64 / (m * 2) as f64).collect();
         let lml = fitc_lml(&x, &z, &y, &default_params(), n, m);
         assert!(lml.is_finite(), "FITC LML should be finite, got {}", lml);
-        assert!(lml < 0.0, "FITC LML should be negative (log prob), got {}", lml);
+        assert!(
+            lml < 0.0,
+            "FITC LML should be negative (log prob), got {}",
+            lml
+        );
     }
 
     #[test]

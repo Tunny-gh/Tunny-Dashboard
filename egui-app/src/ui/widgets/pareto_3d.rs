@@ -1,11 +1,10 @@
-use crate::state::app_state::{AppState, TrialRow};
+use crate::state::app_state::AppState;
 use crate::theme::chart_colors::{
     COLOR_3D_BG, COLOR_3D_GRID, COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_HIGHLIGHT_PT,
     COLOR_NON_PARETO, COLOR_PARETO,
 };
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::TOOLBAR_BTN_FG;
-use crate::ui::widgets::pareto_2d::filter_by_downsample_indices;
 
 /// クォータニオン積（Hamilton product）
 pub fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
@@ -96,8 +95,6 @@ pub struct Pareto3dChart {
     pub y_objective: usize,
     pub z_objective: usize,
     pub camera: ArcballCamera,
-    display_rows_cache: Option<Vec<TrialRow>>,
-    cache_key: (usize, usize),
     range_cache: [(f64, f64); 3],
     range_cache_key: (usize, usize, usize, usize), // (x_obj, y_obj, z_obj, trial_count)
 }
@@ -115,8 +112,6 @@ impl Default for Pareto3dChart {
             y_objective: 1,
             z_objective: 2,
             camera,
-            display_rows_cache: None,
-            cache_key: (0, 0),
             range_cache: [(-1.0, 1.0); 3],
             range_cache_key: (usize::MAX, usize::MAX, usize::MAX, 0),
         }
@@ -140,11 +135,12 @@ fn show_objective_combo(
         });
 }
 
-fn compute_objective_range(trial_rows: &[TrialRow], idx: usize) -> (f64, f64) {
+/// 列スライスから [min, max] を計算する（StudyView の列を直接受け取る・MEM-002）。
+fn compute_range_from_col(col: Option<&[f64]>) -> (f64, f64) {
     let mut mn = f64::INFINITY;
     let mut mx = f64::NEG_INFINITY;
-    for r in trial_rows {
-        if let Some(&v) = r.objectives.get(idx) {
+    if let Some(c) = col {
+        for &v in c {
             if v < mn {
                 mn = v;
             }
@@ -153,7 +149,9 @@ fn compute_objective_range(trial_rows: &[TrialRow], idx: usize) -> (f64, f64) {
             }
         }
     }
-    if (mx - mn).abs() < f64::EPSILON {
+    if !mn.is_finite() || !mx.is_finite() {
+        (-1.0, 1.0)
+    } else if (mx - mn).abs() < f64::EPSILON {
         (mn - 1.0, mx + 1.0)
     } else {
         (mn, mx)
@@ -178,20 +176,9 @@ impl Pareto3dChart {
         }
 
         let downsample_indices = app_state.downsample_cache.scatter.clone();
-        let ds_len = downsample_indices.as_ref().map_or(0, |v| v.len());
         let ctx = app_state.current_study.as_ref().unwrap();
-        let trial_count = ctx.trial_rows.len();
-
-        let cache_key = (trial_count, ds_len);
-        if self.display_rows_cache.is_none() || self.cache_key != cache_key {
-            let display_rows: Vec<TrialRow> =
-                filter_by_downsample_indices(&ctx.trial_rows, downsample_indices.as_deref())
-                    .into_iter()
-                    .cloned()
-                    .collect();
-            self.display_rows_cache = Some(display_rows);
-            self.cache_key = cache_key;
-        }
+        let view = &ctx.view;
+        let trial_count = view.row_count();
 
         let range_cache_key = (
             self.x_objective,
@@ -200,10 +187,11 @@ impl Pareto3dChart {
             trial_count,
         );
         if self.range_cache_key != range_cache_key {
+            let col = |idx: usize| obj_names.get(idx).and_then(|n| view.numeric_column(n));
             self.range_cache = [
-                compute_objective_range(&ctx.trial_rows, self.x_objective),
-                compute_objective_range(&ctx.trial_rows, self.y_objective),
-                compute_objective_range(&ctx.trial_rows, self.z_objective),
+                compute_range_from_col(col(self.x_objective)),
+                compute_range_from_col(col(self.y_objective)),
+                compute_range_from_col(col(self.z_objective)),
             ];
             self.range_cache_key = range_cache_key;
         }
@@ -323,33 +311,51 @@ impl Pareto3dChart {
             );
         }
 
-        // 点の収集
-        let trial_rows = self.display_rows_cache.as_ref().unwrap();
+        // 点の収集（view の列スライスから直接・行クローンキャッシュを持たない・MEM-002）
         let selected = &app_state.selected_indices;
         let highlighted = app_state.highlighted_trial;
+        let x_col = obj_names
+            .get(self.x_objective)
+            .and_then(|n| view.numeric_column(n));
+        let y_col = obj_names
+            .get(self.y_objective)
+            .and_then(|n| view.numeric_column(n));
+        let z_col = obj_names
+            .get(self.z_objective)
+            .and_then(|n| view.numeric_column(n));
 
+        let displayed: Vec<usize> = match downsample_indices.as_deref() {
+            Some(idx) => idx
+                .iter()
+                .map(|&i| i as usize)
+                .filter(|&i| i < trial_count)
+                .collect(),
+            None => (0..trial_count).collect(),
+        };
         let mut draw_calls: Vec<(egui::Pos2, f32, egui::Color32, f32)> =
-            Vec::with_capacity(trial_rows.len());
+            Vec::with_capacity(displayed.len());
         let mut highlight_call: Option<egui::Pos2> = None;
 
-        for row in trial_rows {
-            let xv = row.objectives.get(self.x_objective).copied().unwrap_or(0.0);
-            let yv = row.objectives.get(self.y_objective).copied().unwrap_or(0.0);
-            let zv = row.objectives.get(self.z_objective).copied().unwrap_or(0.0);
+        for i in displayed {
+            let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+            let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+            let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let clip = [
                 normalize_to_clip(xv, x_min, x_max),
                 normalize_to_clip(yv, y_min, y_max),
                 normalize_to_clip(zv, z_min, z_max),
             ];
             let (screen_pos, depth) = project(clip);
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
-            if highlighted == Some(row.trial_id) {
+            if highlighted == Some(trial_id) {
                 highlight_call = Some(screen_pos);
                 continue;
             }
 
-            let alpha = compute_point_alpha(row.trial_id, selected);
-            let (base_color, radius) = if row.pareto_rank == 0 {
+            let alpha = compute_point_alpha(trial_id, selected);
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            let (base_color, radius) = if rank == 0 {
                 (COLOR_PARETO, 5.0_f32)
             } else {
                 (COLOR_NON_PARETO, 3.0_f32)
@@ -407,16 +413,20 @@ mod tests {
 
     #[test]
     fn apply_zoom_clamps_to_min() {
-        let mut cam = ArcballCamera::default();
-        cam.zoom = 0.6;
+        let mut cam = ArcballCamera {
+            zoom: 0.6,
+            ..Default::default()
+        };
         cam.apply_zoom(1.0);
         assert!((cam.zoom - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]
     fn apply_zoom_clamps_to_max() {
-        let mut cam = ArcballCamera::default();
-        cam.zoom = 9.5;
+        let mut cam = ArcballCamera {
+            zoom: 9.5,
+            ..Default::default()
+        };
         cam.apply_zoom(-1.0);
         assert!((cam.zoom - 10.0).abs() < f32::EPSILON);
     }

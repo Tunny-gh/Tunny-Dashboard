@@ -210,7 +210,7 @@ mod tests {
 
         // Q values in [0,1]
         for &q in &r.q_values {
-            assert!(q >= 0.0 && q <= 1.0 + 1e-9, "Q out of range: {}", q);
+            assert!((0.0..=1.0 + 1e-9).contains(&q), "Q out of range: {}", q);
         }
     }
 
