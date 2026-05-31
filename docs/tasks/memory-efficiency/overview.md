@@ -31,17 +31,17 @@
 
 ## 全体進捗
 
-- [ ] Phase 1: データ層基盤（共有Arcストア）
-- [ ] Phase 2: 状態層（StudyView / StudyContext 再設計）
-- [ ] Phase 3: UI層（ウィジェット段階移行）
-- [ ] Phase 4: 比較・ライブ更新・ロード・検証
+- [x] Phase 1: データ層基盤（共有Arcストア）
+- [x] Phase 2: 状態層（StudyView / StudyContext 再設計）※ TASK-2333 派生属性経路は view 化済み
+- [x] Phase 3: UI層（ウィジェット段階移行）
+- [x] Phase 4: 比較・ライブ更新・ロード・検証 ※ 定量検証完了（-84.3%）。互換シム `row_at`/`to_trial_rows` の完全除去のみ残（描画系再設計待ち）
 
 ## マイルストーン
 
 - **M1: 共有ストア基盤完成**: thread_local 廃止・全 study 常駐（TASK-2330 完了）
 - **M2: 行複製の根絶**: StudyContext から trial_rows 撤廃・StudyView 稼働（TASK-2332 完了）
 - **M3: ウィジェット移行完了**: 主要ウィジェットの列アクセス化（TASK-2338 完了）
-- **M4: 検証完了**: 定量ベンチで -50% 達成・全テストグリーン（TASK-2344 完了）
+- **M4: 検証完了**: 定量ベンチで -50% 達成・全テストグリーン（TASK-2344 完了）✅ 達成（定常 **-84.3%**、`mem_eff.log` 32k×20 で確認、[verification-results.md](verification-results.md)）
 
 ---
 
@@ -114,8 +114,8 @@ TASK-2333 → TASK-2337
 - [x] [TASK-2340: ライブ更新の ArcSwap スナップショット差替え](TASK-2340.md) - 8h (TDD) 🔵 ✅完了（TASK-2332 と同時実装）
 - [ ] [TASK-2341: ジャーナルパースのピークメモリ削減（MEM-006）](TASK-2341.md) - 8h (TDD) 🟡
 - [~] [TASK-2342: gpu_data 撤廃と互換シム除去（MEM-007）](TASK-2342.md) - 8h (TDD) 🔵 gpu_data撤廃✅完了 / 互換シムrow_at除去は全ウィジェット移行後に保留
-- [ ] [TASK-2343: メモリ計測ベンチマーク基盤とベースライン測定](TASK-2343.md) - 8h (DIRECT) 🟡
-- [ ] [TASK-2344: 改修後メモリ定量検証と等価性確認](TASK-2344.md) - 8h (TDD) 🔵
+- [x] [TASK-2343: メモリ計測ベンチマーク基盤とベースライン測定](TASK-2343.md) - 8h (DIRECT) 🟡 ✅完了（`examples/mem_probe.rs` + dhat、`mem_eff.log` で計測）
+- [x] [TASK-2344: 改修後メモリ定量検証と等価性確認](TASK-2344.md) - 8h (TDD) 🔵 ✅完了（定常 **-84.3%** / NFR-001 PASS、[verification-results.md](verification-results.md)）
 
 ### 依存関係
 

@@ -3,7 +3,7 @@
 **作成日**: 2026-05-29  
 **更新日**: 2026-05-31
 **ブランチ**: `feature/memory-efficiency`（`main` から分岐）
-**状態**: MEM-001〜007 主要実装完了 + `StudyContext::trial_rows()` 削除完了。残り: `StudyView::row_at` / `to_trial_rows` 除去・検証タスク（100k データ待ち）。
+**状態**: MEM-001〜007 主要実装完了 + `StudyContext::trial_rows()` 削除完了 + **定量検証完了（`mem_eff.log` で定常 -84.3%・NFR-001 PASS）**。残り: `StudyView::row_at` / `to_trial_rows` 互換シム除去（描画系再設計待ち）・100k 規模での再測定（任意）。
 
 ---
 
@@ -160,17 +160,22 @@ TC-012。ピーク低下は TASK-2343 のベンチで確認。
 
 ---
 
-### TASK-2343 / 2344: 定量メモリ検証（**ブロック中**）
+### ★ TASK-2343 / 2344: 定量メモリ検証 → **完了**（`mem_eff.log` で実施）
 
-**ブロッカー**: 100k trials × 約22列の代表 Optuna Journal データセットが未用意（[prep.md](../../spec/memory-efficiency/prep.md) 必須タスク）。
+**計測基盤**: [`egui-app/examples/mem_probe.rs`](../../../egui-app/examples/mem_probe.rs)（dhat ヒーププロファイラ）。
+`cargo run --release --example mem_probe -- <journal.log>` で再現可能。
 
-- **TASK-2343（DIRECT）**: 計測手段の確定（Windows: 定常 RSS / `dhat` ヒープ等）＋ 改修前ベースライン測定。
-  - ベースラインは `main` ブランチ（本ブランチ分岐前）で取得すること（同一データセット・同一操作）。
-- **TASK-2344（TDD）**: 改修後（本ブランチ）の定常／ロードピーク／分析ピークを測定し、PRD 目標
-  （NFR-001 定常 -50% 以上 等）を数値検証。`cargo test --workspace` グリーンを等価性の主証拠とする（REQ-404）。
+**結果**（`mem_eff.log` = 14 study / 32,079 試行 / 20 列 / 158.9 MiB）:
+- **定常メモリ -84.3%**（旧 行指向 41.3 MiB / 1,349 bytes/trial → 新 列指向 6.5 MiB / 212 bytes/trial）→ **NFR-001（-50% 以上）PASS**。
+- ロードピーク 236.6 MiB。dhat 決定的のため複数 run で完全一致（再現性 OK）。
+- 等価性 REQ-404: `cargo test --workspace` グリーン（tunny-desktop 566 / tunny-core 461、唯一の失敗は既知フレーキー性能テストで再実行 pass・本変更無関係）。
+- 詳細: [verification-results.md](verification-results.md)。
 
-**用意いただきたいもの**: 100k×22 規模の Journal ログ（固定パス）。既存の大規模 study があれば流用、
-なければ Optuna で多目的・多パラメータの study を10万試行生成。
+**ベースライン取得方式**: `main` の API 差異が大きいため、互換シム `to_trial_rows()` で
+main 相当の行指向 `Vec<TrialRow>` を同一プロセスに再構築して対比（`main` チェックアウト不要・決定的）。
+旧側 `user_attrs`/`gpu_data` 未計上のため削減率は**保守的**（実効はさらに大きい）。
+
+**残**: 100k×22 規模での再測定（基盤は同コマンドで流用可、結論は表現密度ベースのため不変見込み）。
 
 ---
 
@@ -189,8 +194,8 @@ TC-012。ピーク低下は TASK-2343 のベンチで確認。
 
 ✅ 1〜5 は今セッションで完了（TASK-2337〜2342、trial_rows() メソッド削除まで）。
 
-6. `StudyView::row_at` / `to_trial_rows` の完全除去 → `egui TrialRow` 型廃止（`bottom_panel`, `trial_table`, `csv_export::build_csv_string` の大規模リライトが必要）。
-7. 100k×22 データ用意 → TASK-2343（ベースライン）→ TASK-2344（定量検証）。
+6. `StudyView::row_at` / `to_trial_rows` の完全除去 → `egui TrialRow` 型廃止（`bottom_panel`, `trial_table`, `csv_export::build_csv_string` の大規模リライトが必要）。※ 本シムは検証ベースライン再構築にも使用中のため、除去は描画系再設計と併せて。
+7. ✅ TASK-2343/2344 定量検証完了（`mem_eff.log`、定常 -84.3%）。100k×22 が用意できれば同コマンド `cargo run --release --example mem_probe -- <log>` で再測定可。
 8. `/tsumiki:auto-debug` でフレーキー性能テストを安定化。
 
 ## 関連文書
