@@ -52,7 +52,7 @@ fn make_trial_bytes(n: usize, start_id: u32) -> Vec<u8> {
     let mut s = String::new();
     for i in 0..n {
         let tid = start_id + i as u32;
-        s.push_str(&format!("{{\"op_code\":4,\"study_id\":0}}\n"));
+        s.push_str("{\"op_code\":4,\"study_id\":0}\n");
         s.push_str(&format!(
             "{{\"op_code\":5,\"trial_id\":{},\"param_name\":\"x\",\
              \"param_value_internal\":{:.6},\
@@ -76,9 +76,8 @@ fn wait_for_live_update_done(
 ) -> Option<AppMessage> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        match rx.try_recv() {
-            Ok(msg @ AppMessage::LiveUpdateDone { .. }) => return Some(msg),
-            _ => {}
+        if let Ok(msg @ AppMessage::LiveUpdateDone { .. }) = rx.try_recv() {
+            return Some(msg);
         }
         std::thread::sleep(Duration::from_millis(10));
     }

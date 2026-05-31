@@ -73,14 +73,12 @@ pub fn cluster_ui_error(
 // Surface Plot 関連型
 // ============================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SurfacePlotRenderMode {
     #[default]
     Heatmap,
     Contour,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct SurfacePlotResult {

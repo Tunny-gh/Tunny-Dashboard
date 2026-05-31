@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn default_scatter_capacity_is_reasonable() {
-        assert!(DEFAULT_SCATTER_CAPACITY >= 5_000);
-        assert!(DEFAULT_SCATTER_CAPACITY <= 100_000);
+        const { assert!(DEFAULT_SCATTER_CAPACITY >= 5_000) };
+        const { assert!(DEFAULT_SCATTER_CAPACITY <= 100_000) };
     }
 }

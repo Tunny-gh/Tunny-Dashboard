@@ -272,10 +272,12 @@ mod tests {
 
     #[test]
     fn live_update_state_extended_fields_update() {
-        let mut state = LiveUpdateState::default();
-        state.consecutive_errors = 3;
-        state.poller_active = true;
-        state.showing_completion_hint = true;
+        let state = LiveUpdateState {
+            consecutive_errors: 3,
+            poller_active: true,
+            showing_completion_hint: true,
+            ..Default::default()
+        };
         assert_eq!(state.consecutive_errors, 3);
         assert!(state.poller_active);
         assert!(state.showing_completion_hint);
@@ -283,10 +285,12 @@ mod tests {
 
     #[test]
     fn live_update_state_clone_resets_runtime_fields() {
-        let mut state = LiveUpdateState::default();
-        state.enabled = true;
-        state.last_change_time = Some(std::time::Instant::now());
-        state.poller_active = true;
+        let state = LiveUpdateState {
+            enabled: true,
+            last_change_time: Some(std::time::Instant::now()),
+            poller_active: true,
+            ..Default::default()
+        };
         let cloned = state.clone();
         assert!(cloned.enabled);
         assert!(cloned.last_change_time.is_none());

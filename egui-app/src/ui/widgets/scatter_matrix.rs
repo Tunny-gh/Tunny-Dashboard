@@ -398,7 +398,7 @@ mod tests {
         let x = vec![1.0, 3.0, 5.0, 7.0, 9.0];
         let y = vec![2.0, 1.0, 4.0, 3.0, 5.0];
         let corr = compute_correlation(&x, &y);
-        assert!(corr >= -1.0 && corr <= 1.0);
+        assert!((-1.0..=1.0).contains(&corr));
     }
 
     #[test]

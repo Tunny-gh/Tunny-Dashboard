@@ -29,7 +29,7 @@ mod tests {
 
     #[test]
     fn lib_compiles() {
-        assert!(true);
+        // 到達すればライブラリのコンパイルとリンクに成功している。
     }
 
     #[test]

@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn build_csv_string_includes_required_headers() {
-        let rows = vec![make_trial(0)];
+        let rows = [make_trial(0)];
         let param_names = vec!["x".to_string(), "y".to_string()];
         let obj_names = vec!["f1".to_string()];
         let csv = build_csv_string(&rows.iter().collect::<Vec<_>>(), &param_names, &obj_names);

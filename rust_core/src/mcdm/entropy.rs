@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(result.weights.len(), 2);
         let sum: f64 = result.weights.iter().sum();
         assert!((sum - 1.0).abs() < 1e-9);
-        assert!(result.entropies.iter().all(|&e| e >= 0.0 && e <= 1.0));
+        assert!(result.entropies.iter().all(|&e| (0.0..=1.0).contains(&e)));
     }
 
     #[test]

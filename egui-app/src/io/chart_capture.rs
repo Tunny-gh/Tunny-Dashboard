@@ -132,8 +132,7 @@ mod tests {
         // save_png_to_file returns Ok(None) on cancel — we test the function signature
         // (actual dialog cancel can't be tested headlessly, but we verify Ok(None) is the type)
         let result: Result<Option<()>, String> = Ok(None);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        assert!(matches!(result, Ok(None)));
     }
 
     #[test]

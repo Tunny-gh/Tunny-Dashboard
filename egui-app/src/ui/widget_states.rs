@@ -134,16 +134,17 @@ mod tests {
     // F-005: surface plot state transitions (spinner on/off, error path)
     #[test]
     fn comparison_and_surface_plot_state_transitions_are_covered() {
-        let mut state = SurfacePlotState::default();
-
         // start compute: computing = true, pending_compute set
-        state.computing = true;
-        state.pending_compute = Some(SurfacePlotComputeRequest {
-            param_x: "x".into(),
-            param_y: "y".into(),
-            objective: "f".into(),
-            n_grid: 20,
-        });
+        let mut state = SurfacePlotState {
+            computing: true,
+            pending_compute: Some(SurfacePlotComputeRequest {
+                param_x: "x".into(),
+                param_y: "y".into(),
+                objective: "f".into(),
+                n_grid: 20,
+            }),
+            ..Default::default()
+        };
         assert!(state.computing);
         assert!(state.pending_compute.is_some());
 

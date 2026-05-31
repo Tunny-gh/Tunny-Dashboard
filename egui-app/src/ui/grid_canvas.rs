@@ -453,14 +453,12 @@ fn handle_toolbar_action(
         CellToolbarAction::SaveAsPng(target) => {
             record_capture_target(&mut widgets.capture, target.clone());
         }
-        CellToolbarAction::SaveAsCsv(target) => {
-            if let PanelItem::Chart(chart_id) = target {
-                let csv = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets);
-                if let Some(csv_str) = csv {
-                    let filename = crate::io::csv_export::csv_export_filename(chart_id);
-                    if let Err(e) = crate::io::export::save_csv_to_file_named(&csv_str, &filename) {
-                        let _ = tx.try_send(AppMessage::Error(e));
-                    }
+        CellToolbarAction::SaveAsCsv(PanelItem::Chart(chart_id)) => {
+            let csv = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets);
+            if let Some(csv_str) = csv {
+                let filename = crate::io::csv_export::csv_export_filename(chart_id);
+                if let Err(e) = crate::io::export::save_csv_to_file_named(&csv_str, &filename) {
+                    let _ = tx.try_send(AppMessage::Error(e));
                 }
             }
         }

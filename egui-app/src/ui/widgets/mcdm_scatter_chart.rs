@@ -520,6 +520,9 @@ fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
 // 散布図ポイント計算
 // ──────────────────────────────────────────────────────────────
 
+/// 散布図の1点: (x座標, y座標, 色)。
+type ScatterPoint = (f64, f64, Color32);
+
 /// MCDM散布図ポイントを計算する
 /// - 軸値抽出 → 色付け
 pub(crate) fn compute_scatter_points(
@@ -529,7 +532,7 @@ pub(crate) fn compute_scatter_points(
     x_axis: &str,
     y_axis: &str,
     color_threshold: ScatterTopN,
-) -> Result<(Vec<(f64, f64, Color32)>, ScatterMetadata), String> {
+) -> Result<(Vec<ScatterPoint>, ScatterMetadata), String> {
     let n_trials = view.row_count();
     if n_trials == 0 {
         return Ok((

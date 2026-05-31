@@ -183,10 +183,10 @@ impl TreeMetric for PermutationMetric {
 // SensitivityMetric blanket implementation for all TreeMetric implementors
 // ---------------------------------------------------------------------------
 
-fn tree_extract_data(
-    df: &DataFrame,
-    obj_idx: usize,
-) -> Option<(Vec<String>, String, Vec<Vec<f64>>, Vec<f64>)> {
+/// `tree_extract_data` の戻り値: (パラメータ名, 目的名, 入力行列, 目的値ベクトル)。
+type TreeExtractedData = (Vec<String>, String, Vec<Vec<f64>>, Vec<f64>);
+
+fn tree_extract_data(df: &DataFrame, obj_idx: usize) -> Option<TreeExtractedData> {
     let param_names = df.param_col_names().to_vec();
     let objective_names = df.objective_col_names().to_vec();
     let n = df.row_count();

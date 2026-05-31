@@ -57,7 +57,7 @@ mod tests {
     fn normal_data() {
         let (mean, std) = column_mean_std(&[1.0, 2.0, 3.0, 4.0, 5.0]);
         assert!((mean - 3.0).abs() < 1e-10);
-        assert!((std - 1.4142).abs() < 0.01);
+        assert!((std - std::f64::consts::SQRT_2).abs() < 0.01);
     }
 
     #[test]

@@ -456,7 +456,7 @@ mod tests {
         visibility.insert("x1".to_string(), true);
         visibility.insert("x2".to_string(), false);
         visibility.insert("x3".to_string(), true);
-        let axis_order = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
+        let axis_order = ["x1".to_string(), "x2".to_string(), "x3".to_string()];
         let visible: Vec<_> = axis_order
             .iter()
             .filter(|name| *visibility.get(*name).unwrap_or(&true))
@@ -485,7 +485,7 @@ mod tests {
         let mut visibility: HashMap<String, bool> = HashMap::new();
         visibility.insert("x1".to_string(), false);
         visibility.insert("x2".to_string(), false);
-        let axis_order = vec!["x1".to_string(), "x2".to_string()];
+        let axis_order = ["x1".to_string(), "x2".to_string()];
         let visible: Vec<_> = axis_order
             .iter()
             .filter(|name| *visibility.get(*name).unwrap_or(&true))
@@ -497,7 +497,7 @@ mod tests {
     fn axis_visibility_default_true_for_unknown() {
         use std::collections::HashMap;
         let visibility: HashMap<String, bool> = HashMap::new();
-        let axis_order = vec!["unknown_axis".to_string()];
+        let axis_order = ["unknown_axis".to_string()];
         let visible: Vec<_> = axis_order
             .iter()
             .filter(|name| *visibility.get(*name).unwrap_or(&true))
@@ -538,7 +538,7 @@ mod tests {
         use std::collections::HashMap;
         let trial_ids = vec![0u32, 1, 2];
         // col_data: axis 0 = x, axis 1 = obj
-        let col_data = vec![
+        let col_data = [
             vec![2.0, 8.0, 2.0], // x values
             vec![5.0, 5.0, 9.0], // obj values
         ];

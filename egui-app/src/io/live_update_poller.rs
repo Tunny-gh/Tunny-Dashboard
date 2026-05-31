@@ -37,7 +37,7 @@ impl LiveUpdatePoller {
                     no_change_timeout,
                 );
             }));
-            if let Err(_) = result {
+            if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
                     "ポーリングスレッドが異常終了".to_string(),
                 ));

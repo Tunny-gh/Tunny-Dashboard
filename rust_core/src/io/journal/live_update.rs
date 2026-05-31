@@ -599,9 +599,7 @@ mod tests {
     fn tc_2218_07_categorical_param_goes_to_param_categories() {
         with_fresh_state(|| {
             let create = make_create_trial(0);
-            let set_cat = format!(
-                r#"{{"op_code":5,"trial_id":0,"param_name":"color","param_value_internal":1.0,"distribution":{{"name":"CategoricalDistribution","choices":["red","green","blue"]}}}}"#
-            );
+            let set_cat = r#"{"op_code":5,"trial_id":0,"param_name":"color","param_value_internal":1.0,"distribution":{"name":"CategoricalDistribution","choices":["red","green","blue"]}}"#.to_string();
             let complete = make_complete(0, &[0.5]);
             let data = make_diff_bytes(&[create, set_cat, complete]);
             let result = append_journal_diff(&data);

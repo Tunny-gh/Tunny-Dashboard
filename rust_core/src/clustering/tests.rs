@@ -93,9 +93,9 @@ fn tc_2264_05_compute_cluster_centroid_std_empty_cluster_uses_global_mean() {
     let stats = compute_cluster_centroid_std(&flat_data, &labels, n, p, 2, &global_mean);
     let empty = stats.iter().find(|s| s.cluster_id == 1).unwrap();
     assert_eq!(empty.size, 0);
-    for j in 0..p {
+    for (c, g) in empty.centroid.iter().zip(global_mean.iter()) {
         assert!(
-            (empty.centroid[j] - global_mean[j]).abs() < 1e-10,
+            (c - g).abs() < 1e-10,
             "empty cluster centroid should be global_mean"
         );
     }

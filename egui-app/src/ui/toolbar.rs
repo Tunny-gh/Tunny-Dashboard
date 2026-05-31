@@ -368,20 +368,17 @@ mod tests {
 
     #[test]
     fn loading_state_clears_on_file_open_sequence() {
-        let mut is_loading = false;
-        let mut load_error: Option<String> = Some("Previous error".to_string());
         // ファイル選択時に is_loading=true, load_error=None になることを確認
-        is_loading = true;
-        load_error = None;
+        let is_loading = true;
+        let load_error: Option<String> = None;
         assert!(is_loading);
         assert!(load_error.is_none());
     }
 
     #[test]
     fn error_cleared_on_click_simulation() {
-        let mut load_error: Option<String> = Some("Error".to_string());
         // エラーラベルクリック時のシミュレーション
-        load_error = None;
+        let load_error: Option<String> = None;
         assert!(load_error.is_none());
     }
 

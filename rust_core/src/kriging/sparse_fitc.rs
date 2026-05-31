@@ -681,7 +681,7 @@ mod tests {
 
         for &v in &result {
             assert!(
-                v >= 0.0 && v <= 1.0,
+                (0.0..=1.0).contains(&v),
                 "Inducing point value {} is out of range [0.0, 1.0]",
                 v
             );

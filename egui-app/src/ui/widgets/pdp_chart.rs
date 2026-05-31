@@ -509,9 +509,11 @@ mod tests {
 
     #[test]
     fn cache_hit_returns_result() {
-        let mut chart = PdpChart::default();
-        chart.selected_param = "x".to_string();
-        chart.selected_objective = 0;
+        let mut chart = PdpChart {
+            selected_param: "x".to_string(),
+            selected_objective: 0,
+            ..Default::default()
+        };
         let result = PdpResult1d {
             x_values: vec![0.0, 1.0],
             y_values: vec![0.5, 1.5],

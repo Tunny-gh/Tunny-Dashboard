@@ -3,6 +3,9 @@ use super::solvers::{backward_sub, cholesky, compute_alpha, forward_sub};
 
 /// Log marginal likelihood:
 ///   L = −½ y^T α − Σ_i log(L_ii) − n/2 log(2π)
+///
+/// 勾配版 `log_ml_with_gradient` の参照実装。テストでの突き合わせ専用。
+#[cfg(test)]
 pub(super) fn log_marginal_likelihood(
     x: &[Vec<f64>],
     y: &[f64],

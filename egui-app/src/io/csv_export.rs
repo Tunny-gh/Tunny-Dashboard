@@ -623,12 +623,14 @@ mod tests {
 
     #[test]
     fn hv_history_csv_uses_index_times_step() {
-        let mut state = AppState::default();
-        state.hv_history = Some(HvHistory {
-            trial_ids: vec![10, 20, 30],
-            hv_values: vec![0.1, 0.5, 0.8],
-            sample_step: 5,
-        });
+        let state = AppState {
+            hv_history: Some(HvHistory {
+                trial_ids: vec![10, 20, 30],
+                hv_values: vec![0.1, 0.5, 0.8],
+                sample_step: 5,
+            }),
+            ..AppState::default()
+        };
         let csv = build_hv_history_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "trial_index,hypervolume");
@@ -1043,19 +1045,21 @@ mod tests {
     #[test]
     fn ahp_table_csv_returns_none_when_no_study() {
         use crate::state::results::AhpResult;
-        let mut state = AppState::default();
         // ahp_result is Some but current_study is None
-        state.ahp_result = Some(AhpResult {
-            priority_vector: vec![],
-            scores: vec![],
-            ranked_indices: vec![],
-            lambda_max: 0.0,
-            ci: 0.0,
-            ri: 0.0,
-            cr: 0.0,
-            is_consistent: true,
-            duration_ms: 0.0,
-        });
+        let state = AppState {
+            ahp_result: Some(AhpResult {
+                priority_vector: vec![],
+                scores: vec![],
+                ranked_indices: vec![],
+                lambda_max: 0.0,
+                ci: 0.0,
+                ri: 0.0,
+                cr: 0.0,
+                is_consistent: true,
+                duration_ms: 0.0,
+            }),
+            ..AppState::default()
+        };
         assert!(build_ahp_table_csv(&state).is_none());
     }
 

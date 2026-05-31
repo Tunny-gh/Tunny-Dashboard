@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(r.scores.len(), 3);
         // English comment.
         for &s in &r.scores {
-            assert!(s >= 0.0 && s <= 1.0, "English0〜1English: {}", s);
+            assert!((0.0..=1.0).contains(&s), "English0〜1English: {}", s);
         }
         // English comment.
         for i in 0..r.ranked_indices.len() - 1 {
@@ -579,7 +579,12 @@ mod tests {
         let is_minimize = [true, true];
         let r = compute_topsis(&values, 3, 2, &weights, &is_minimize).unwrap();
         for (i, &s) in r.scores.iter().enumerate() {
-            assert!(s >= 0.0 && s <= 1.0, "score[{}]={} must be in [0,1]", i, s);
+            assert!(
+                (0.0..=1.0).contains(&s),
+                "score[{}]={} must be in [0,1]",
+                i,
+                s
+            );
         }
         assert_eq!(r.ranked_indices[0], 2, "trial2 should rank best");
     }

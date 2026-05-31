@@ -413,16 +413,20 @@ mod tests {
 
     #[test]
     fn apply_zoom_clamps_to_min() {
-        let mut cam = ArcballCamera::default();
-        cam.zoom = 0.6;
+        let mut cam = ArcballCamera {
+            zoom: 0.6,
+            ..Default::default()
+        };
         cam.apply_zoom(1.0);
         assert!((cam.zoom - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]
     fn apply_zoom_clamps_to_max() {
-        let mut cam = ArcballCamera::default();
-        cam.zoom = 9.5;
+        let mut cam = ArcballCamera {
+            zoom: 9.5,
+            ..Default::default()
+        };
         cam.apply_zoom(-1.0);
         assert!((cam.zoom - 10.0).abs() < f32::EPSILON);
     }

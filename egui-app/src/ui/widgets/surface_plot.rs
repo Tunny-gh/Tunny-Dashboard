@@ -314,7 +314,7 @@ mod tests {
     fn surface_plot_request_contains_selected_axes_and_objective() {
         let mut state = make_state_with_selections();
         let param_names = vec!["x1".to_string(), "x2".to_string()];
-        let obj_names = vec!["obj0".to_string()];
+        let obj_names = ["obj0".to_string()];
 
         // Simulate what "Run Surface" click does
         if !state.computing && state.selected_x != state.selected_y {

@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn best_line_plot_points() {
-        let history = vec![(0u32, 1.0_f64), (3, 0.8), (7, 0.5)];
+        let history = [(0u32, 1.0_f64), (3, 0.8), (7, 0.5)];
         let points: Vec<[f64; 2]> = history
             .iter()
             .enumerate()
