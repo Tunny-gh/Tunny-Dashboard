@@ -1,4 +1,6 @@
-use crate::state::app_state::{AppState, StudyContext, TrialRow};
+use crate::state::app_state::{AppState, StudyContext};
+#[cfg(test)]
+use crate::state::app_state::TrialRow;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::ui::widget_states::{BottomTab, WidgetStates};
 
@@ -66,13 +68,30 @@ pub fn show_bottom_panel(
     }
 
     let study_ctx = app_state.current_study.as_ref().unwrap();
-    let display_rows = get_display_rows(study_ctx, &app_state.selected_indices);
     let highlighted = app_state.highlighted_trial;
 
     // ヘッダーカラム名を先に取得
     let param_names = study_ctx.meta.param_names.clone();
     let obj_names = study_ctx.meta.objective_names.clone();
     let show_artifacts_col = !app_state.artifact_map.is_empty();
+
+    // 表示対象の行インデックスを計算（TrialRow を materialise しない）
+    let view = &study_ctx.view;
+    let n = view.row_count();
+    let visible: Vec<usize> = if app_state.selected_indices.is_empty() {
+        (0..n).collect()
+    } else {
+        let id_set: std::collections::HashSet<u32> =
+            app_state.selected_indices.iter().copied().collect();
+        (0..n)
+            .filter(|&i| view.trial_ids.get(i).is_some_and(|id| id_set.contains(id)))
+            .collect()
+    };
+    // 列スライスを view から借用
+    let param_cols: Vec<Option<&[f64]>> =
+        param_names.iter().map(|nme| view.numeric_column(nme)).collect();
+    let obj_cols: Vec<Option<&[f64]>> =
+        obj_names.iter().map(|nme| view.numeric_column(nme)).collect();
 
     use egui_extras::{Column, TableBuilder};
 
@@ -110,51 +129,51 @@ pub fn show_bottom_panel(
             }
         })
         .body(|body| {
-            body.rows(18.0, display_rows.len(), |mut row| {
-                let trial = &display_rows[row.index()];
-                let is_highlighted = highlighted == Some(trial.trial_id);
-                let bg_color = if is_highlighted {
-                    Some(COLOR_LINK)
-                } else {
-                    None
-                };
+            body.rows(18.0, visible.len(), |mut row| {
+                let idx = visible[row.index()];
+                let trial_id = view.trial_ids.get(idx).copied().unwrap_or(idx as u32);
+                let rank = view.pareto_rank.get(idx).copied().unwrap_or(0);
+                let is_highlighted = highlighted == Some(trial_id);
+                let bg_color = if is_highlighted { Some(COLOR_LINK) } else { None };
 
                 row.col(|ui| {
-                    let res = ui.selectable_label(is_highlighted, trial.trial_number.to_string());
+                    let res = ui.selectable_label(is_highlighted, idx.to_string());
                     if res.clicked() {
-                        clicked_trial = Some(trial.trial_id);
+                        clicked_trial = Some(trial_id);
                     }
                     if let Some(color) = bg_color {
                         ui.painter().rect_filled(res.rect, 0.0, color);
                     }
                 });
                 row.col(|ui| {
-                    let params_str: Vec<String> = param_names
+                    let params_str: Vec<String> = param_cols
                         .iter()
-                        .map(|n| {
-                            let v = trial.params.get(n).copied().unwrap_or(0.0);
+                        .map(|c| {
+                            let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
                             format!("{:.3}", v)
                         })
                         .collect();
                     ui.label(params_str.join(", "));
                 });
                 row.col(|ui| {
-                    let objs_str: Vec<String> = trial
-                        .objectives
+                    let objs_str: Vec<String> = obj_cols
                         .iter()
-                        .map(|v| format!("{:.4}", v))
+                        .map(|c| {
+                            let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
+                            format!("{:.4}", v)
+                        })
                         .collect();
                     ui.label(objs_str.join(", "));
                 });
                 row.col(|ui| {
-                    ui.label(trial.pareto_rank.to_string());
+                    ui.label(rank.to_string());
                 });
                 if show_artifacts_col {
                     row.col(|ui| {
-                        if let Some(files) = app_state.artifact_map.get(&trial.trial_id) {
+                        if let Some(files) = app_state.artifact_map.get(&trial_id) {
                             let icon = artifact_icon(files);
                             if !icon.is_empty() && ui.button(icon).clicked() {
-                                artifact_clicked = Some(trial.trial_id);
+                                artifact_clicked = Some(trial_id);
                             }
                         }
                     });
@@ -267,22 +286,30 @@ fn show_best_history_table(ui: &mut egui::Ui, app_state: &AppState, objective_na
     });
 }
 
-/// 表示対象の TrialRow を返す。
+/// 表示対象の行インデックスを返す（TrialRow を materialise しない）。
 /// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
-pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
+pub fn get_display_row_indices(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<usize> {
+    let view = &study_ctx.view;
     if selected_indices.is_empty() {
-        study_ctx.view.to_trial_rows()
+        (0..view.row_count()).collect()
     } else {
         let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
-        study_ctx
-            .view
-            .trial_ids
+        view.trial_ids
             .iter()
             .enumerate()
             .filter(|(_, &id)| id_set.contains(&id))
-            .map(|(i, _)| study_ctx.view.row_at(i))
+            .map(|(i, _)| i)
             .collect()
     }
+}
+
+/// テスト互換用: TrialRow Vec を返す（テストのみで使用）。
+#[cfg(test)]
+pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
+    get_display_row_indices(study_ctx, selected_indices)
+        .into_iter()
+        .map(|i| study_ctx.view.row_at(i))
+        .collect()
 }
 
 #[cfg(test)]

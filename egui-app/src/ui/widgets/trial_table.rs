@@ -1,4 +1,6 @@
-use crate::state::app_state::{AppState, StudyContext, TrialRow};
+use crate::state::app_state::AppState;
+#[cfg(test)]
+use crate::state::app_state::{StudyContext, TrialRow};
 use crate::theme::chart_colors::COLOR_LINK;
 
 /// トライアル一覧テーブルウィジェット。
@@ -144,8 +146,9 @@ impl TrialTableWidget {
     }
 }
 
-/// 表示対象の TrialRow を返す（ピン留め考慮版）。
+/// 表示対象の TrialRow を返す（ピン留め考慮版・テストのみで使用）。
 /// selected_indices が空なら全件、そうでなければ selected ∪ pinned で返す。
+#[cfg(test)]
 pub fn get_display_rows_with_pins(
     study_ctx: &StudyContext,
     selected_indices: &[u32],
@@ -166,8 +169,8 @@ pub fn get_display_rows_with_pins(
         .collect()
 }
 
-/// 表示対象の TrialRow を返す（後方互換ラッパー）。
-/// selected_indices が空なら全件、そうでなければ trial_id でフィルタリングする。
+/// 表示対象の TrialRow を返す（テストのみで使用）。
+#[cfg(test)]
 pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
     get_display_rows_with_pins(study_ctx, selected_indices, &[])
 }

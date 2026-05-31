@@ -169,9 +169,10 @@ impl TunnyApp {
                 }
                 ToolbarAction::ExportCsv(target) => {
                     if let Some(ctx) = &self.app_state.current_study {
-                        let csv = crate::io::export::build_csv_string(
-                            &crate::io::export::select_rows_for_export(
-                                &ctx.view.to_trial_rows(),
+                        let csv = crate::io::export::build_csv_string_from_view(
+                            &ctx.view,
+                            &crate::io::export::select_row_indices_for_export(
+                                &ctx.view,
                                 &self.app_state.selected_indices,
                                 &ctx.pareto_indices,
                                 &target,

@@ -20,7 +20,7 @@
 
 use tunny_core::dataframe::{select_study, snapshot};
 use tunny_core::io::journal::parser::parse_journal;
-use tunny_desktop::state::types::{StudyView, TrialRow};
+use tunny_desktop::state::types::{StudyView, TrialRow, TrialState};
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
@@ -105,7 +105,39 @@ fn main() {
     let before_rows = live();
     let mut legacy_rows: Vec<Vec<TrialRow>> = Vec::with_capacity(views.len());
     for v in &views {
-        legacy_rows.push(v.to_trial_rows());
+        let rows: Vec<TrialRow> = (0..v.row_count())
+            .map(|i| {
+                let mut params = std::collections::HashMap::new();
+                for name in v.df.param_col_names() {
+                    if let Some(col) = v.df.get_numeric_column(name) {
+                        if let Some(val) = col.get(i) {
+                            params.insert(name.to_string(), *val);
+                        }
+                    }
+                }
+                let objectives: Vec<f64> = v
+                    .df
+                    .objective_col_names()
+                    .iter()
+                    .map(|name| {
+                        v.df.get_numeric_column(name)
+                            .and_then(|c| c.get(i).copied())
+                            .unwrap_or(0.0)
+                    })
+                    .collect();
+                TrialRow {
+                    trial_id: v.trial_ids.get(i).copied().unwrap_or(i as u32),
+                    trial_number: i as u32,
+                    params,
+                    objectives,
+                    pareto_rank: v.pareto_rank.get(i).copied().unwrap_or(0),
+                    cluster_id: v.cluster_id.get(i).copied().flatten(),
+                    state: v.state.get(i).cloned().unwrap_or(TrialState::Complete),
+                    user_attrs: std::collections::HashMap::new(),
+                }
+            })
+            .collect();
+        legacy_rows.push(rows);
     }
     let after_rows = live();
     let legacy_resident = after_rows as i128 - before_rows as i128;

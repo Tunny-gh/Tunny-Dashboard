@@ -304,23 +304,46 @@ pub fn build_and_send_report(
         param_names: ctx.meta.param_names.clone(),
         total_trials: ctx.trial_count(),
         pareto_count: ctx.pareto_indices.len(),
-        selected_trials: ctx
-            .view
-            .trial_ids
-            .iter()
-            .enumerate()
-            .filter(|(_, &id)| selected_set.contains(&id))
-            .map(|(i, &tid)| {
-                let row = ctx.view.row_at(i);
-                HtmlTrialRow {
-                    trial_id: tid,
-                    trial_number: row.trial_number,
-                    params: row.params,
-                    objectives: row.objectives,
-                    pareto_rank: row.pareto_rank,
-                }
-            })
-            .collect(),
+        selected_trials: {
+            let param_names = ctx.meta.param_names.clone();
+            let obj_names = ctx.meta.objective_names.clone();
+            let param_cols: Vec<Option<&[f64]>> = param_names
+                .iter()
+                .map(|n| ctx.view.numeric_column(n))
+                .collect();
+            let obj_cols: Vec<Option<&[f64]>> = obj_names
+                .iter()
+                .map(|n| ctx.view.numeric_column(n))
+                .collect();
+            ctx.view
+                .trial_ids
+                .iter()
+                .enumerate()
+                .filter(|(_, &id)| selected_set.contains(&id))
+                .map(|(i, &tid)| {
+                    let params: std::collections::HashMap<String, f64> = param_names
+                        .iter()
+                        .zip(param_cols.iter())
+                        .filter_map(|(name, col)| {
+                            let v = (*col)?.get(i).copied()?;
+                            Some((name.clone(), v))
+                        })
+                        .collect();
+                    let objectives: Vec<f64> = obj_cols
+                        .iter()
+                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .collect();
+                    let rank = ctx.view.pareto_rank.get(i).copied().unwrap_or(0);
+                    HtmlTrialRow {
+                        trial_id: tid,
+                        trial_number: i as u32,
+                        params,
+                        objectives,
+                        pareto_rank: rank,
+                    }
+                })
+                .collect()
+        },
         statistics: TrialStatistics {
             objective_means: vec![0.0; ctx.meta.objective_names.len()],
             objective_variances: vec![0.0; ctx.meta.objective_names.len()],

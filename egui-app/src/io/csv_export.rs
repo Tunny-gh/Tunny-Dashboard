@@ -1,6 +1,6 @@
 use crate::state::app_state::{AppState, McdmResult};
 use crate::state::layout_state::ChartId;
-use crate::state::types::{Direction, TrialRow};
+use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
 
 pub fn build_chart_csv(
@@ -215,17 +215,17 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
 }
 fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.trial_count() == 0 {
+    let n = study.trial_count();
+    if n == 0 {
         return None;
     }
-    let rows_owned = study.view.to_trial_rows();
-    let rows: Vec<&TrialRow> = rows_owned.iter().collect();
-    let csv = crate::io::export::build_csv_string(
-        &rows,
+    let row_indices: Vec<usize> = (0..n).collect();
+    Some(crate::io::export::build_csv_string_from_view(
+        &study.view,
+        &row_indices,
         &study.meta.param_names,
         &study.meta.objective_names,
-    );
-    Some(csv)
+    ))
 }
 
 fn build_cluster_csv(app_state: &AppState) -> Option<String> {

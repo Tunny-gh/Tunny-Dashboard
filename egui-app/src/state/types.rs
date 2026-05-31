@@ -204,9 +204,9 @@ impl StudyView {
         self.df.objective_col_names()
     }
 
-    /// 互換シム: 列 + 並行配列から一時的に `TrialRow` を組み立てる（永続保持しない・移行用）。
-    /// 旧 `extract_trial_rows`（io/study.rs）と等価な値を返す。
-    pub fn row_at(&self, index: usize) -> TrialRow {
+    /// 互換シム: 列 + 並行配列から一時的に `TrialRow` を組み立てる（テストのみで使用）。
+    #[cfg(test)]
+    pub(crate) fn row_at(&self, index: usize) -> TrialRow {
         let mut params = HashMap::with_capacity(self.df.param_col_names().len());
         for name in self.df.param_col_names() {
             if let Some(col) = self.df.get_numeric_column(name) {
@@ -238,8 +238,9 @@ impl StudyView {
         }
     }
 
-    /// 全行を `TrialRow` として組み立てる（移行用・大規模では使用を避ける）。
-    pub fn to_trial_rows(&self) -> Vec<TrialRow> {
+    /// 全行を `TrialRow` として組み立てる（テストのみで使用）。
+    #[cfg(test)]
+    pub(crate) fn to_trial_rows(&self) -> Vec<TrialRow> {
         (0..self.row_count()).map(|i| self.row_at(i)).collect()
     }
 }

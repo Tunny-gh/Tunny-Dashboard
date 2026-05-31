@@ -1,4 +1,5 @@
 use crate::state::app_state::TrialRow;
+use crate::state::types::StudyView;
 
 /// CSVエクスポートの対象
 #[derive(Debug, Clone, PartialEq)]
@@ -65,6 +66,76 @@ pub fn build_csv_string(
     }
 
     lines.join("\n")
+}
+
+/// `StudyView` と行インデックスリストから CSV 文字列を生成する。
+/// `build_csv_string` と同一の列順（trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id）。
+pub fn build_csv_string_from_view(
+    view: &StudyView,
+    row_indices: &[usize],
+    param_names: &[String],
+    objective_names: &[String],
+) -> String {
+    let param_cols: Vec<Option<&[f64]>> =
+        param_names.iter().map(|n| view.numeric_column(n)).collect();
+    let obj_cols: Vec<Option<&[f64]>> =
+        objective_names.iter().map(|n| view.numeric_column(n)).collect();
+
+    let mut lines = Vec::with_capacity(row_indices.len() + 1);
+
+    let mut header = vec!["trial_id".to_string(), "trial_number".to_string()];
+    header.extend(param_names.iter().cloned());
+    header.extend(objective_names.iter().cloned());
+    header.push("pareto_rank".to_string());
+    header.push("cluster_id".to_string());
+    lines.push(header.join(","));
+
+    for &i in row_indices {
+        let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+        let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+        let cluster = view.cluster_id.get(i).copied().flatten();
+        let mut parts = vec![trial_id.to_string(), i.to_string()];
+        for col in &param_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+            parts.push(if v.is_finite() { v.to_string() } else { String::new() });
+        }
+        for col in &obj_cols {
+            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+            parts.push(if v.is_finite() { v.to_string() } else { String::new() });
+        }
+        parts.push(rank.to_string());
+        parts.push(cluster.map(|c| c.to_string()).unwrap_or_default());
+        lines.push(parts.join(","));
+    }
+
+    lines.join("\n")
+}
+
+/// `StudyView` ベースのエクスポート対象行インデックスを返す。
+pub fn select_row_indices_for_export(
+    view: &StudyView,
+    selected_indices: &[u32],
+    pareto_indices: &[u32],
+    target: &ExportTarget,
+) -> Vec<usize> {
+    let n = view.row_count();
+    match target {
+        ExportTarget::AllData => (0..n).collect(),
+        ExportTarget::SelectedOnly => {
+            let id_set: std::collections::HashSet<u32> =
+                selected_indices.iter().copied().collect();
+            (0..n)
+                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| id_set.contains(id)))
+                .collect()
+        }
+        ExportTarget::ParetoOnly => {
+            let pareto_set: std::collections::HashSet<u32> =
+                pareto_indices.iter().copied().collect();
+            (0..n)
+                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| pareto_set.contains(id)))
+                .collect()
+        }
+    }
 }
 
 /// CSV 文字列を指定パスへ書き込む。失敗時はエラー文字列を返す。
