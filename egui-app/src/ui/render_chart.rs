@@ -119,13 +119,12 @@ pub(crate) fn render_chart(
         ChartId::AhpRankChart => {
             let n_trials = ctx.trial_count();
             let n_objectives = obj_names.len();
-            let obj_cols: Vec<Option<&[f64]>> =
-                obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+            let obj_cols = ctx.view.numeric_columns(obj_names);
             let objectives: Vec<f64> = (0..n_trials)
                 .flat_map(|i| {
-                    obj_cols.iter().map(move |col| {
-                        col.and_then(|c| c.get(i)).copied().unwrap_or(0.0)
-                    })
+                    obj_cols
+                        .iter()
+                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
                 })
                 .collect();
             let is_minimize: Vec<bool> = directions

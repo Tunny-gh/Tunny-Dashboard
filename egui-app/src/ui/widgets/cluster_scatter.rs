@@ -364,8 +364,7 @@ fn build_cluster_matrix_data(
     // 列スライスを一括取得してフラットバッファへ書き込む
     let flat_data = match target_space {
         ClusterSpace::Objective => {
-            let cols: Vec<Option<&[f64]>> =
-                obj_names.iter().map(|name| view.numeric_column(name)).collect();
+            let cols = view.numeric_columns(obj_names);
             (0..n_rows)
                 .flat_map(|i| {
                     cols.iter()
@@ -374,8 +373,7 @@ fn build_cluster_matrix_data(
                 .collect()
         }
         ClusterSpace::Variable => {
-            let cols: Vec<Option<&[f64]>> =
-                param_names.iter().map(|name| view.numeric_column(name)).collect();
+            let cols = view.numeric_columns(param_names);
             (0..n_rows)
                 .flat_map(|i| {
                     cols.iter()
@@ -384,10 +382,8 @@ fn build_cluster_matrix_data(
                 .collect()
         }
         ClusterSpace::Combined => {
-            let param_cols: Vec<Option<&[f64]>> =
-                param_names.iter().map(|name| view.numeric_column(name)).collect();
-            let obj_cols: Vec<Option<&[f64]>> =
-                obj_names.iter().map(|name| view.numeric_column(name)).collect();
+            let param_cols = view.numeric_columns(param_names);
+            let obj_cols = view.numeric_columns(obj_names);
             (0..n_rows)
                 .flat_map(|i| {
                     param_cols

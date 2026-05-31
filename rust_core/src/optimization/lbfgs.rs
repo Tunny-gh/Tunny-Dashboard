@@ -9,7 +9,10 @@ pub(crate) struct LbfgsOptimizer {
 
 impl LbfgsOptimizer {
     pub(crate) fn new(max_iter: u64, m_history: usize) -> Self {
-        Self { max_iter, m_history }
+        Self {
+            max_iter,
+            m_history,
+        }
     }
 
     pub(crate) fn optimize<O>(&self, initial: Vec<f64>, problem: O) -> Vec<f64>
@@ -23,11 +26,7 @@ impl LbfgsOptimizer {
             .configure(|state| state.param(initial.clone()).max_iters(self.max_iter))
             .run()
         {
-            Ok(result) => result
-                .state()
-                .get_best_param()
-                .cloned()
-                .unwrap_or(initial),
+            Ok(result) => result.state().get_best_param().cloned().unwrap_or(initial),
             Err(_) => initial,
         }
     }
@@ -60,8 +59,16 @@ mod tests {
     fn tc_201_01_lbfgs_optimizer_minimizes_quadratic() {
         let optimizer = LbfgsOptimizer::new(100, 5);
         let result = optimizer.optimize(vec![1.0, -1.0], Quadratic);
-        assert!(result[0].abs() < 1e-4, "x[0]={} should be near 0", result[0]);
-        assert!(result[1].abs() < 1e-4, "x[1]={} should be near 0", result[1]);
+        assert!(
+            result[0].abs() < 1e-4,
+            "x[0]={} should be near 0",
+            result[0]
+        );
+        assert!(
+            result[1].abs() < 1e-4,
+            "x[1]={} should be near 0",
+            result[1]
+        );
     }
 
     #[test]

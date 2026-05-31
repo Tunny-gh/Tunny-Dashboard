@@ -223,8 +223,7 @@ impl AhpChart {
         let top_n = self.top_n.count().min(r.ranked_indices.len());
 
         // 目的列スライスを一括取得
-        let obj_cols: Vec<Option<&[f64]>> =
-            obj_names.iter().map(|name| view.numeric_column(name)).collect();
+        let obj_cols = view.numeric_columns(obj_names);
 
         egui::ScrollArea::vertical()
             .max_height(400.0)

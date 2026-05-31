@@ -589,7 +589,11 @@ mod tests {
         let values = [f64::NAN, f64::NAN, f64::NAN, f64::NAN];
         let r = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]).unwrap();
         for &s in &r.scores {
-            assert!((s - 0.5).abs() < 1e-9, "all-NaN gives uniform 0.5, got {}", s);
+            assert!(
+                (s - 0.5).abs() < 1e-9,
+                "all-NaN gives uniform 0.5, got {}",
+                s
+            );
         }
     }
 

@@ -19,11 +19,7 @@ pub struct LiveUpdatePoller {
 }
 
 impl LiveUpdatePoller {
-    pub fn start(
-        context: LiveUpdateContext,
-        tx: SyncSender<AppMessage>,
-        interval_ms: u64,
-    ) -> Self {
+    pub fn start(context: LiveUpdateContext, tx: SyncSender<AppMessage>, interval_ms: u64) -> Self {
         let stop_signal = Arc::new(AtomicBool::new(false));
         let interval = Arc::new(AtomicU64::new(interval_ms));
 
@@ -33,7 +29,13 @@ impl LiveUpdatePoller {
 
         let handle = thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                polling_loop(context, &tx, &stop_clone, &interval_clone, no_change_timeout);
+                polling_loop(
+                    context,
+                    &tx,
+                    &stop_clone,
+                    &interval_clone,
+                    no_change_timeout,
+                );
             }));
             if let Err(_) = result {
                 let _ = tx.send(AppMessage::LiveUpdateError(
@@ -282,7 +284,10 @@ mod tests {
         let has_done = messages
             .iter()
             .any(|m| matches!(m, AppMessage::LiveUpdateDone { .. }));
-        assert!(!has_done, "No LiveUpdateDone expected when file is unchanged");
+        assert!(
+            !has_done,
+            "No LiveUpdateDone expected when file is unchanged"
+        );
     }
 
     #[test]
@@ -308,8 +313,7 @@ mod tests {
         let nonexistent = dir.path().join("does_not_exist.log");
 
         let (tx, rx) = make_channel();
-        let mut poller =
-            LiveUpdatePoller::start(make_context(nonexistent, 0), tx, 50);
+        let mut poller = LiveUpdatePoller::start(make_context(nonexistent, 0), tx, 50);
 
         // Wait for auto-stop (3 errors × 50ms interval + buffer)
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -318,17 +322,16 @@ mod tests {
             if let Ok(AppMessage::LiveUpdateError(_)) = rx.try_recv() {
                 got_error = true;
             }
-            if !poller.is_running()
-                || poller
-                    .stop_signal
-                    .load(Ordering::Relaxed)
-            {
+            if !poller.is_running() || poller.stop_signal.load(Ordering::Relaxed) {
                 break;
             }
             thread::sleep(Duration::from_millis(20));
         }
         poller.stop();
-        assert!(got_error, "Expected LiveUpdateError after consecutive errors");
+        assert!(
+            got_error,
+            "Expected LiveUpdateError after consecutive errors"
+        );
     }
 
     #[test]
@@ -361,6 +364,9 @@ mod tests {
             thread::sleep(Duration::from_millis(20));
         }
         poller.stop();
-        assert!(found, "Expected LiveUpdateMaybeComplete after no-change timeout");
+        assert!(
+            found,
+            "Expected LiveUpdateMaybeComplete after no-change timeout"
+        );
     }
 }

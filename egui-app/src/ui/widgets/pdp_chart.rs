@@ -101,7 +101,9 @@ pub fn extract_observed(
     pinned: &[u32],
 ) -> Vec<[f64; 2]> {
     let param_col = view.numeric_column(param_name);
-    let obj_col = obj_names.get(obj_idx).and_then(|name| view.numeric_column(name));
+    let obj_col = obj_names
+        .get(obj_idx)
+        .and_then(|name| view.numeric_column(name));
 
     let (Some(params), Some(objs)) = (param_col, obj_col) else {
         return vec![];
@@ -114,10 +116,7 @@ pub fn extract_observed(
     (0..view.row_count())
         .filter_map(|i| {
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-            if use_filter
-                && !selected_set.contains(&trial_id)
-                && !pinned_set.contains(&trial_id)
-            {
+            if use_filter && !selected_set.contains(&trial_id) && !pinned_set.contains(&trial_id) {
                 return None;
             }
             let x = params.get(i).copied()?;
@@ -457,14 +456,7 @@ mod tests {
                 constraint_values: vec![],
             })
             .collect();
-        let df = DataFrame::from_trials(
-            &core_rows,
-            &["x".to_string()],
-            &obj_names,
-            &[],
-            &[],
-            0,
-        );
+        let df = DataFrame::from_trials(&core_rows, &["x".to_string()], &obj_names, &[], &[], 0);
         (StudyView::new(Arc::new(df), vec![0; n]), obj_names)
     }
 
@@ -544,8 +536,7 @@ mod tests {
 
     #[test]
     fn pdp_overlay_uses_filtered_rows_when_selection_exists() {
-        let (view, obj_names) =
-            make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
+        let (view, obj_names) = make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
         let selected = vec![0u32, 1];
         let pts = extract_observed(&view, &obj_names, "x", 0, &selected, &[]);
         assert_eq!(pts.len(), 2);
@@ -564,8 +555,7 @@ mod tests {
 
     #[test]
     fn pinned_row_remains_in_observed_overlay() {
-        let (view, obj_names) =
-            make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
+        let (view, obj_names) = make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
         let pts = extract_observed(&view, &obj_names, "x", 0, &[0], &[2]);
         let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
         assert!(xs.contains(&1.0), "selected row must be visible");

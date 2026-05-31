@@ -751,8 +751,7 @@ mod tests {
 
     #[test]
     fn test_extract_objective0() {
-        let (view, obj_names) =
-            make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
         let result = McdmResult::Vikor(make_vikor(2));
         let vals = extract_axis_values("Objective0", &result, &view, &obj_names).unwrap();
         assert_eq!(vals, vec![1.0, 3.0]);
@@ -760,8 +759,7 @@ mod tests {
 
     #[test]
     fn test_extract_objective1() {
-        let (view, obj_names) =
-            make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
         let result = McdmResult::Vikor(make_vikor(2));
         let vals = extract_axis_values("Objective1", &result, &view, &obj_names).unwrap();
         assert_eq!(vals, vec![2.0, 4.0]);
@@ -997,9 +995,15 @@ mod tests {
         let vikor = make_vikor(0);
         let result = McdmResult::Vikor(vikor);
         let view = make_empty_view();
-        let (points, meta) =
-            compute_scatter_points(&result, &view, &[], "Objective0", "Objective1", ScatterTopN::Top10)
-                .unwrap();
+        let (points, meta) = compute_scatter_points(
+            &result,
+            &view,
+            &[],
+            "Objective0",
+            "Objective1",
+            ScatterTopN::Top10,
+        )
+        .unwrap();
         assert!(points.is_empty());
         assert_eq!(meta.total_trials, 0);
     }
@@ -1011,9 +1015,15 @@ mod tests {
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
-        let (points, _) =
-            compute_scatter_points(&result, &view, &obj_names, "VIKOR_Q", "VIKOR_S", ScatterTopN::Top10)
-                .unwrap();
+        let (points, _) = compute_scatter_points(
+            &result,
+            &view,
+            &obj_names,
+            "VIKOR_Q",
+            "VIKOR_S",
+            ScatterTopN::Top10,
+        )
+        .unwrap();
 
         // q_values == s_values for make_vikor, both are raw i * 0.1 values
         assert_eq!(points.len(), n);

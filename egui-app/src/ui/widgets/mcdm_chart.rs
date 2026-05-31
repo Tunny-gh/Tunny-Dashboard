@@ -603,7 +603,10 @@ fn enumerate_ranked(result: &McdmResult, trial_ids: &[u32], top_n: usize) -> Vec
     (0..count)
         .map(|rank| {
             let trial_idx = ranked[rank] as usize;
-            let trial_id = trial_ids.get(trial_idx).copied().unwrap_or(trial_idx as u32);
+            let trial_id = trial_ids
+                .get(trial_idx)
+                .copied()
+                .unwrap_or(trial_idx as u32);
             let score = scores.get(trial_idx).copied().unwrap_or(0.0);
             RankingEntry {
                 rank: rank + 1,
@@ -630,8 +633,7 @@ pub fn build_ranking_rows(
     obj_names: &[String],
     top_n: usize,
 ) -> Vec<RankingRow> {
-    let obj_cols: Vec<Option<&[f64]>> =
-        obj_names.iter().map(|name| view.numeric_column(name)).collect();
+    let obj_cols = view.numeric_columns(obj_names);
     enumerate_ranked(result, &view.trial_ids, top_n)
         .into_iter()
         .map(|e| {
@@ -873,8 +875,7 @@ mod tests {
     #[test]
     fn build_ranking_rows_objectives_included() {
         let result = make_topsis_result(vec![0.9, 0.5], vec![0, 1]);
-        let (view, obj_names) =
-            make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
+        let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
         let ranking = build_ranking_rows(&result, &view, &obj_names, 10);
         assert_eq!(ranking[0].objectives, vec![1.0, 2.0]);
         assert_eq!(ranking[1].objectives, vec![3.0, 4.0]);

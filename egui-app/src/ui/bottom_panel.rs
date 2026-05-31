@@ -1,6 +1,6 @@
-use crate::state::app_state::{AppState, StudyContext};
 #[cfg(test)]
 use crate::state::app_state::TrialRow;
+use crate::state::app_state::{AppState, StudyContext};
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::ui::widget_states::{BottomTab, WidgetStates};
 
@@ -88,10 +88,8 @@ pub fn show_bottom_panel(
             .collect()
     };
     // 列スライスを view から借用
-    let param_cols: Vec<Option<&[f64]>> =
-        param_names.iter().map(|nme| view.numeric_column(nme)).collect();
-    let obj_cols: Vec<Option<&[f64]>> =
-        obj_names.iter().map(|nme| view.numeric_column(nme)).collect();
+    let param_cols = view.numeric_columns(&param_names);
+    let obj_cols = view.numeric_columns(&obj_names);
 
     use egui_extras::{Column, TableBuilder};
 
@@ -134,7 +132,11 @@ pub fn show_bottom_panel(
                 let trial_id = view.trial_ids.get(idx).copied().unwrap_or(idx as u32);
                 let rank = view.pareto_rank.get(idx).copied().unwrap_or(0);
                 let is_highlighted = highlighted == Some(trial_id);
-                let bg_color = if is_highlighted { Some(COLOR_LINK) } else { None };
+                let bg_color = if is_highlighted {
+                    Some(COLOR_LINK)
+                } else {
+                    None
+                };
 
                 row.col(|ui| {
                     let res = ui.selectable_label(is_highlighted, idx.to_string());
@@ -260,12 +262,8 @@ fn show_best_history_table(ui: &mut egui::Ui, app_state: &AppState, objective_na
                     let row_idx = app_state
                         .current_study
                         .as_ref()
-                        .and_then(|s| {
-                            s.view.trial_ids.iter().position(|&id| id == trial_id)
-                        });
-                    if let (Some(i), Some(study)) =
-                        (row_idx, app_state.current_study.as_ref())
-                    {
+                        .and_then(|s| s.view.trial_ids.iter().position(|&id| id == trial_id));
+                    if let (Some(i), Some(study)) = (row_idx, app_state.current_study.as_ref()) {
                         for name in &top_param_names {
                             let val = study
                                 .view
@@ -315,9 +313,7 @@ pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{
-        Direction, StudyContext, StudyMeta, TrialRow, TrialState,
-    };
+    use crate::state::app_state::{Direction, StudyContext, StudyMeta, TrialRow, TrialState};
     use std::collections::HashMap;
 
     fn make_study_ctx(n: usize) -> StudyContext {

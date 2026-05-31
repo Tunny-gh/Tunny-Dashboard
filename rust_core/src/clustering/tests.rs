@@ -20,8 +20,16 @@ fn tc_2264_01_compute_global_stats_mean() {
     // global mean of col0: (0+2+10+12)/4 = 6, col1: (1+3+11+13)/4 = 7
     let (mean, _std) = compute_global_stats(&flat_data, n, p);
     assert_eq!(mean.len(), p);
-    assert!((mean[0] - 6.0).abs() < 1e-10, "global_mean[0] should be 6.0, got {}", mean[0]);
-    assert!((mean[1] - 7.0).abs() < 1e-10, "global_mean[1] should be 7.0, got {}", mean[1]);
+    assert!(
+        (mean[0] - 6.0).abs() < 1e-10,
+        "global_mean[0] should be 6.0, got {}",
+        mean[0]
+    );
+    assert!(
+        (mean[1] - 7.0).abs() < 1e-10,
+        "global_mean[1] should be 7.0, got {}",
+        mean[1]
+    );
 }
 
 #[test]
@@ -31,7 +39,12 @@ fn tc_2264_02_compute_global_stats_std() {
     assert_eq!(std.len(), p);
     // var col0 = ((0-6)²+(2-6)²+(10-6)²+(12-6)²)/3 = (36+16+16+36)/3 = 104/3
     let expected_std0 = (104.0f64 / 3.0).sqrt();
-    assert!((std[0] - expected_std0).abs() < 1e-6, "global_std[0]={} expected={}", std[0], expected_std0);
+    assert!(
+        (std[0] - expected_std0).abs() < 1e-6,
+        "global_std[0]={} expected={}",
+        std[0],
+        expected_std0
+    );
 }
 
 #[test]
@@ -48,11 +61,27 @@ fn tc_2264_04_compute_cluster_centroid_std_centroids() {
     let stats = compute_cluster_centroid_std(&flat_data, &labels, n, p, k, &global_mean);
     assert_eq!(stats.len(), k);
     let s0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-    assert!((s0.centroid[0] - 1.0).abs() < 1e-10, "cluster0 centroid[0]={}", s0.centroid[0]);
-    assert!((s0.centroid[1] - 2.0).abs() < 1e-10, "cluster0 centroid[1]={}", s0.centroid[1]);
+    assert!(
+        (s0.centroid[0] - 1.0).abs() < 1e-10,
+        "cluster0 centroid[0]={}",
+        s0.centroid[0]
+    );
+    assert!(
+        (s0.centroid[1] - 2.0).abs() < 1e-10,
+        "cluster0 centroid[1]={}",
+        s0.centroid[1]
+    );
     let s1 = stats.iter().find(|s| s.cluster_id == 1).unwrap();
-    assert!((s1.centroid[0] - 11.0).abs() < 1e-10, "cluster1 centroid[0]={}", s1.centroid[0]);
-    assert!((s1.centroid[1] - 12.0).abs() < 1e-10, "cluster1 centroid[1]={}", s1.centroid[1]);
+    assert!(
+        (s1.centroid[0] - 11.0).abs() < 1e-10,
+        "cluster1 centroid[0]={}",
+        s1.centroid[0]
+    );
+    assert!(
+        (s1.centroid[1] - 12.0).abs() < 1e-10,
+        "cluster1 centroid[1]={}",
+        s1.centroid[1]
+    );
 }
 
 #[test]
@@ -65,8 +94,10 @@ fn tc_2264_05_compute_cluster_centroid_std_empty_cluster_uses_global_mean() {
     let empty = stats.iter().find(|s| s.cluster_id == 1).unwrap();
     assert_eq!(empty.size, 0);
     for j in 0..p {
-        assert!((empty.centroid[j] - global_mean[j]).abs() < 1e-10,
-            "empty cluster centroid should be global_mean");
+        assert!(
+            (empty.centroid[j] - global_mean[j]).abs() < 1e-10,
+            "empty cluster centroid should be global_mean"
+        );
     }
     assert!(empty.significant_features.iter().all(|&b| !b));
 }
@@ -95,7 +126,10 @@ fn tc_2264_06_compute_significant_features_detects_significance() {
     let stats = compute_significant_features(stats, &global_mean, &global_std, n);
     // y-feature (col 1) is -1000 vs +1000: definitely significant
     let s0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-    assert!(s0.significant_features[1], "y feature should be significant for well-separated clusters");
+    assert!(
+        s0.significant_features[1],
+        "y feature should be significant for well-separated clusters"
+    );
 }
 
 #[test]
@@ -145,7 +179,11 @@ fn tc_2262_06_deterministic_correct_clusters_after_refactor() {
     let mut cx: Vec<f64> = result.centroids.iter().map(|c| c[0]).collect();
     cx.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     assert!(cx[0] < 1.0, "first centroid x < 1.0, got {}", cx[0]);
-    assert!(cx[1] > 99.0 && cx[1] < 101.0, "second centroid x ~100, got {}", cx[1]);
+    assert!(
+        cx[1] > 99.0 && cx[1] < 101.0,
+        "second centroid x ~100, got {}",
+        cx[1]
+    );
     assert!(cx[2] > 199.0, "third centroid x > 199.0, got {}", cx[2]);
 }
 

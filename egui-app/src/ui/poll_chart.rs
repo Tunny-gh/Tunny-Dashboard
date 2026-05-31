@@ -17,8 +17,7 @@ fn build_xy_for_objective(
     let param_names = &ctx.meta.param_names;
     let n = ctx.view.row_count();
 
-    let param_cols: Vec<Option<&[f64]>> =
-        param_names.iter().map(|p| ctx.view.numeric_column(p)).collect();
+    let param_cols = ctx.view.numeric_columns(param_names);
 
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -79,8 +78,7 @@ pub(crate) fn poll_chart_work(
                 const TARGET_POINTS: usize = 50;
                 let n_trials = ctx.view.row_count();
                 let step = (n_trials / TARGET_POINTS).max(1);
-                let obj_cols: Vec<Option<&[f64]>> =
-                    obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+                let obj_cols = ctx.view.numeric_columns(obj_names);
                 let sampled_indices: Vec<usize> = (0..n_trials).step_by(step).collect();
                 let sampled_ids: Vec<u32> = sampled_indices
                     .iter()
@@ -180,9 +178,11 @@ pub(crate) fn poll_chart_work(
                                     );
                                 let r = match results.pop() {
                                     Some(r) => r,
-                                    None => return AppMessage::SensitivityError(
-                                        "Sensitivity computation failed".into(),
-                                    ),
+                                    None => {
+                                        return AppMessage::SensitivityError(
+                                            "Sensitivity computation failed".into(),
+                                        )
+                                    }
                                 };
                                 let n_params = r.spearman.len();
                                 let spearman: Vec<Vec<f64>> = if n_params > 0 {
@@ -229,7 +229,9 @@ pub(crate) fn poll_chart_work(
             }
         }
         ChartId::PdpChart => {
-            let Some(req) = widgets.pdp_chart.pending_compute.take() else { return };
+            let Some(req) = widgets.pdp_chart.pending_compute.take() else {
+                return;
+            };
             // current_study is guaranteed Some by the early return at the top of this function
             let ctx = app_state.current_study.as_ref().unwrap();
             let Some(target_param_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param)
@@ -321,8 +323,7 @@ pub(crate) fn poll_chart_work(
 
             if widgets.mcdm_chart.pending_entropy && !widgets.mcdm_chart.computing {
                 let n_trials = ctx.view.row_count();
-                let obj_cols: Vec<Option<&[f64]>> =
-                    obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+                let obj_cols = ctx.view.numeric_columns(obj_names);
                 let objectives: Vec<f64> = (0..n_trials)
                     .flat_map(|i| {
                         obj_cols
@@ -362,8 +363,7 @@ pub(crate) fn poll_chart_work(
 
                 let n_trials = ctx.view.row_count();
                 let n_objectives = obj_names.len();
-                let obj_cols_mcdm: Vec<Option<&[f64]>> =
-                    obj_names.iter().map(|name| ctx.view.numeric_column(name)).collect();
+                let obj_cols_mcdm = ctx.view.numeric_columns(obj_names);
                 let objectives: Vec<f64> = (0..n_trials)
                     .flat_map(|i| {
                         obj_cols_mcdm
@@ -511,8 +511,12 @@ pub(crate) fn poll_chart_work(
                 };
                 let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective);
                 let param_names_owned = ctx.meta.param_names.clone();
-                let (param_x, param_y, objective, n_grid) =
-                    (req.param_x.clone(), req.param_y.clone(), req.objective.clone(), req.n_grid);
+                let (param_x, param_y, objective, n_grid) = (
+                    req.param_x.clone(),
+                    req.param_y.clone(),
+                    req.objective.clone(),
+                    req.n_grid,
+                );
                 widgets.surface_plot.computing = true;
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {

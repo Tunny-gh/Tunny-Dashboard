@@ -50,7 +50,12 @@ pub fn build_csv_string(
     for row in rows {
         let mut parts = vec![row.trial_id.to_string(), row.trial_number.to_string()];
         for name in param_names {
-            parts.push(row.params.get(name).map(|v| v.to_string()).unwrap_or_default());
+            parts.push(
+                row.params
+                    .get(name)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+            );
         }
         for (i, _) in objective_names.iter().enumerate() {
             parts.push(
@@ -76,10 +81,8 @@ pub fn build_csv_string_from_view(
     param_names: &[String],
     objective_names: &[String],
 ) -> String {
-    let param_cols: Vec<Option<&[f64]>> =
-        param_names.iter().map(|n| view.numeric_column(n)).collect();
-    let obj_cols: Vec<Option<&[f64]>> =
-        objective_names.iter().map(|n| view.numeric_column(n)).collect();
+    let param_cols = view.numeric_columns(param_names);
+    let obj_cols = view.numeric_columns(objective_names);
 
     let mut lines = Vec::with_capacity(row_indices.len() + 1);
 
@@ -97,11 +100,19 @@ pub fn build_csv_string_from_view(
         let mut parts = vec![trial_id.to_string(), i.to_string()];
         for col in &param_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            parts.push(if v.is_finite() { v.to_string() } else { String::new() });
+            parts.push(if v.is_finite() {
+                v.to_string()
+            } else {
+                String::new()
+            });
         }
         for col in &obj_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            parts.push(if v.is_finite() { v.to_string() } else { String::new() });
+            parts.push(if v.is_finite() {
+                v.to_string()
+            } else {
+                String::new()
+            });
         }
         parts.push(rank.to_string());
         parts.push(cluster.map(|c| c.to_string()).unwrap_or_default());
@@ -122,8 +133,7 @@ pub fn select_row_indices_for_export(
     match target {
         ExportTarget::AllData => (0..n).collect(),
         ExportTarget::SelectedOnly => {
-            let id_set: std::collections::HashSet<u32> =
-                selected_indices.iter().copied().collect();
+            let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
             (0..n)
                 .filter(|&i| view.trial_ids.get(i).is_some_and(|id| id_set.contains(id)))
                 .collect()
@@ -132,7 +142,11 @@ pub fn select_row_indices_for_export(
             let pareto_set: std::collections::HashSet<u32> =
                 pareto_indices.iter().copied().collect();
             (0..n)
-                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| pareto_set.contains(id)))
+                .filter(|&i| {
+                    view.trial_ids
+                        .get(i)
+                        .is_some_and(|id| pareto_set.contains(id))
+                })
                 .collect()
         }
     }
@@ -190,7 +204,11 @@ mod tests {
         }
     }
 
-    fn make_trial_with_data(id: u32, params: HashMap<String, f64>, objectives: Vec<f64>) -> TrialRow {
+    fn make_trial_with_data(
+        id: u32,
+        params: HashMap<String, f64>,
+        objectives: Vec<f64>,
+    ) -> TrialRow {
         TrialRow {
             trial_id: id,
             trial_number: id,
@@ -272,12 +290,20 @@ mod tests {
         // SelectedOnly: 2 rows
         let sel = select_rows_for_export(&rows, &[0, 1], &[0], &ExportTarget::SelectedOnly);
         let csv = build_csv_string(&sel, &param_names, &obj_names);
-        assert_eq!(csv.lines().count(), 3, "SelectedOnly should produce 2 data rows");
+        assert_eq!(
+            csv.lines().count(),
+            3,
+            "SelectedOnly should produce 2 data rows"
+        );
 
         // ParetoOnly: 1 row
         let par = select_rows_for_export(&rows, &[0, 1], &[0], &ExportTarget::ParetoOnly);
         let csv = build_csv_string(&par, &param_names, &obj_names);
-        assert_eq!(csv.lines().count(), 2, "ParetoOnly should produce 1 data row");
+        assert_eq!(
+            csv.lines().count(),
+            2,
+            "ParetoOnly should produce 1 data row"
+        );
     }
 
     #[test]
@@ -296,7 +322,11 @@ mod tests {
         let csv = build_csv_string(&exported, &[], &[]);
         // 3 data rows + 1 header line
         let data_lines = csv.lines().count().saturating_sub(1);
-        assert_eq!(data_lines, selected.len(), "data line count must match selection count");
+        assert_eq!(
+            data_lines,
+            selected.len(),
+            "data line count must match selection count"
+        );
     }
 
     // ── TASK-2246: CSV export regression ────────────────────────

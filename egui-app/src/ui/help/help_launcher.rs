@@ -17,8 +17,7 @@ fn build_temp_path(item: &PanelItem, lang: HelpLanguage) -> PathBuf {
 }
 
 fn write_html_to_temp(path: &PathBuf, html: &str) -> Result<(), String> {
-    std::fs::write(path, html.as_bytes())
-        .map_err(|e| format!("一時ファイルの書き出しに失敗: {e}"))
+    std::fs::write(path, html.as_bytes()).map_err(|e| format!("一時ファイルの書き出しに失敗: {e}"))
 }
 
 fn open_in_browser(path: &PathBuf) -> Result<(), String> {

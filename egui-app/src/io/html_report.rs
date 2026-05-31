@@ -306,15 +306,8 @@ pub fn build_and_send_report(
         pareto_count: ctx.pareto_indices.len(),
         selected_trials: {
             let param_names = ctx.meta.param_names.clone();
-            let obj_names = ctx.meta.objective_names.clone();
-            let param_cols: Vec<Option<&[f64]>> = param_names
-                .iter()
-                .map(|n| ctx.view.numeric_column(n))
-                .collect();
-            let obj_cols: Vec<Option<&[f64]>> = obj_names
-                .iter()
-                .map(|n| ctx.view.numeric_column(n))
-                .collect();
+            let param_cols = ctx.view.numeric_columns(&param_names);
+            let obj_cols = ctx.view.numeric_columns(&ctx.meta.objective_names);
             ctx.view
                 .trial_ids
                 .iter()

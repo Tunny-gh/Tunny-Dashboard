@@ -131,10 +131,7 @@ pub fn show_toolbar(
             // ライブ更新トグル（ファイル未開封時は無効）
             let can_toggle = app_state.journal_path.is_some();
             let live_label = if app_state.live_update.enabled {
-                format!(
-                    "Live: On ({}s)",
-                    app_state.live_update.interval_ms / 1000
-                )
+                format!("Live: On ({}s)", app_state.live_update.interval_ms / 1000)
             } else {
                 "Live: Off".to_string()
             };
@@ -418,7 +415,11 @@ mod tests {
     #[test]
     fn export_csv_action_targets_all_three_modes() {
         use crate::io::export::ExportTarget;
-        let targets = [ExportTarget::AllData, ExportTarget::SelectedOnly, ExportTarget::ParetoOnly];
+        let targets = [
+            ExportTarget::AllData,
+            ExportTarget::SelectedOnly,
+            ExportTarget::ParetoOnly,
+        ];
         for target in &targets {
             let action = ToolbarAction::ExportCsv(target.clone());
             match action {
@@ -463,8 +464,8 @@ mod tests {
     #[test]
     fn successful_add_switches_to_comparison_mode() {
         use crate::state::app_state::{AppState, Direction, StudyContext, StudyMeta};
-        use crate::state::messages::AppMessage;
         use crate::state::message_handler::MessageHandler;
+        use crate::state::messages::AppMessage;
         use crate::ui::widget_states::WidgetStates;
 
         let mut app_state = AppState::new();
@@ -491,7 +492,10 @@ mod tests {
         app_state.comparison_mode = true;
 
         MessageHandler::handle(
-            AppMessage::ComparisonStudyLoaded { study_idx: 0, context: Box::new(context) },
+            AppMessage::ComparisonStudyLoaded {
+                study_idx: 0,
+                context: Box::new(context),
+            },
             &mut app_state,
             &mut widgets,
             &mut is_loading,

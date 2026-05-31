@@ -356,7 +356,11 @@ fn show_cell_toolbar(
     csv_available: bool,
 ) -> CellToolbarAction {
     let drag_id = egui::Id::new("cell_drag_handle").with(row).with(col);
-    let payload = DragPayload::MoveFromCell { item: item.clone(), row, col };
+    let payload = DragPayload::MoveFromCell {
+        item: item.clone(),
+        row,
+        col,
+    };
     let mut action = CellToolbarAction::None;
 
     egui::Frame::default()
@@ -383,8 +387,7 @@ fn show_cell_toolbar(
                     ui.add_space(8.0);
                     ui.strong(title);
 
-                    let spacer =
-                        (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
+                    let spacer = (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
                     ui.add_space(spacer);
 
                     let mut menu_action: Option<CellToolbarAction> = None;
@@ -395,10 +398,8 @@ fn show_cell_toolbar(
                                 menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
                                 ui.close_menu();
                             }
-                            let csv_btn = ui.add_enabled(
-                                csv_available,
-                                egui::Button::new("Save as CSV"),
-                            );
+                            let csv_btn =
+                                ui.add_enabled(csv_available, egui::Button::new("Save as CSV"));
                             if csv_btn.clicked() {
                                 menu_action = Some(CellToolbarAction::SaveAsCsv(item.clone()));
                                 ui.close_menu();
@@ -445,9 +446,7 @@ fn handle_toolbar_action(
 ) {
     match action {
         CellToolbarAction::Help(help_item) => {
-            if let Err(e) =
-                crate::ui::help::help_launcher::open_help(help_item, help_language)
-            {
+            if let Err(e) = crate::ui::help::help_launcher::open_help(help_item, help_language) {
                 let _ = tx.try_send(AppMessage::Error(e));
             }
         }
@@ -487,7 +486,13 @@ fn render_cell_content(
             let title = item.label();
             let csv_available = crate::io::csv_export::has_csv_data(&chart_id, app_state, widgets);
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title, csv_available);
-            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, app_state, tx);
+            handle_toolbar_action(
+                &toolbar_action,
+                app_state.help_language,
+                widgets,
+                app_state,
+                tx,
+            );
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
@@ -503,7 +508,13 @@ fn render_cell_content(
             let item = PanelItem::TrialTable;
             let title = item.label();
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title, false);
-            handle_toolbar_action(&toolbar_action, app_state.help_language, widgets, app_state, tx);
+            handle_toolbar_action(
+                &toolbar_action,
+                app_state.help_language,
+                widgets,
+                app_state,
+                tx,
+            );
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {

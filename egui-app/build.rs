@@ -39,7 +39,14 @@ fn generate_help_html_files() {
         }
 
         let out_lang_dir = out_dir.join("help").join(lang);
-        convert_dir(&theory_dir, &theory_dir, &out_lang_dir, &katex_css, &katex_js, &auto_render_js);
+        convert_dir(
+            &theory_dir,
+            &theory_dir,
+            &out_lang_dir,
+            &katex_css,
+            &katex_js,
+            &auto_render_js,
+        );
     }
 }
 
@@ -67,9 +74,7 @@ fn convert_dir(
             convert_dir(base, &path, out_base, katex_css, katex_js, auto_render_js);
         } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
             let relative = path.strip_prefix(base).unwrap();
-            let out_path = out_base
-                .join(relative)
-                .with_extension("html");
+            let out_path = out_base.join(relative).with_extension("html");
 
             if let Some(parent) = out_path.parent() {
                 fs::create_dir_all(parent)
@@ -78,7 +83,8 @@ fn convert_dir(
 
             let md_content = fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-            let html = markdown_to_standalone_html(&md_content, katex_css, katex_js, auto_render_js);
+            let html =
+                markdown_to_standalone_html(&md_content, katex_css, katex_js, auto_render_js);
             fs::write(&out_path, &html)
                 .unwrap_or_else(|e| panic!("failed to write {}: {e}", out_path.display()));
         }
@@ -193,4 +199,3 @@ fn build_windows_icon() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     Ok(icon_path)
 }
-

@@ -1,19 +1,17 @@
 use std::io::Write;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
-use std::sync::Arc;
-use tunny_desktop::io::live_update_poller::LiveUpdatePoller;
-use tunny_desktop::state::app_state::{
-    AppState, Direction, StudyContext, StudyMeta, StudyView,
-};
-use tunny_desktop::state::message_handler::MessageHandler;
-use tunny_desktop::state::messages::AppMessage;
-use tunny_desktop::ui::widget_states::WidgetStates;
 use tunny_core::dataframe::DataFrame;
 use tunny_core::io::journal::live_update::{
     append_journal_diff, reset_live_update_state, LiveUpdateContext,
 };
+use tunny_desktop::io::live_update_poller::LiveUpdatePoller;
+use tunny_desktop::state::app_state::{AppState, Direction, StudyContext, StudyMeta, StudyView};
+use tunny_desktop::state::message_handler::MessageHandler;
+use tunny_desktop::state::messages::AppMessage;
+use tunny_desktop::ui::widget_states::WidgetStates;
 
 /// 空の StudyView（行0件）。ライブ更新テストの初期状態に用いる。
 fn empty_view() -> StudyView {
@@ -114,7 +112,10 @@ fn tc_2224_01_e2e_polling_flow() {
     // Append 10 trials
     {
         let content = make_trial_bytes(10, 0);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&content).unwrap();
     }
 
@@ -141,7 +142,10 @@ fn tc_2224_01_e2e_polling_flow() {
 
     let study = app_state.current_study.as_ref().unwrap();
     assert_eq!(study.trial_count(), 10, "trial_rows should have 10 entries");
-    assert!(!study.pareto_indices.is_empty(), "pareto_indices should be populated");
+    assert!(
+        !study.pareto_indices.is_empty(),
+        "pareto_indices should be populated"
+    );
     assert!(load_error.is_none());
 }
 
@@ -222,13 +226,19 @@ fn tc_2224_03_zero_byte_file_no_errors() {
     // Append content and verify detection
     {
         let content = make_trial_bytes(3, 0);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&content).unwrap();
     }
 
     let msg = wait_for_live_update_done(&rx, Duration::from_secs(3));
     poller.stop();
-    assert!(msg.is_some(), "Expected LiveUpdateDone after appending to empty file");
+    assert!(
+        msg.is_some(),
+        "Expected LiveUpdateDone after appending to empty file"
+    );
 }
 
 // ─────────────────────────────────────────────
@@ -262,7 +272,10 @@ fn tc_2224_04_bulk_trials_performance() {
     // Write all trials at once
     {
         let content = make_trial_bytes(n, 0);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(&content).unwrap();
     }
 
@@ -317,7 +330,12 @@ fn tc_2224_05_parse_performance_1000_lines() {
 
     reset_live_update_state();
 
-    assert_eq!(result.new_trial_rows.len(), n, "All {} trials should be parsed", n);
+    assert_eq!(
+        result.new_trial_rows.len(),
+        n,
+        "All {} trials should be parsed",
+        n
+    );
     assert!(
         elapsed < 100,
         "Parse of {} trials took {}ms, expected < 100ms",

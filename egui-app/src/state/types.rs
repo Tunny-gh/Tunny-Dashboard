@@ -194,6 +194,11 @@ impl StudyView {
         self.df.get_numeric_column(name)
     }
 
+    /// 複数の列名をまとめて借用スライスへ解決する（None は欠損列）。
+    pub fn numeric_columns(&self, names: &[String]) -> Vec<Option<&[f64]>> {
+        names.iter().map(|name| self.numeric_column(name)).collect()
+    }
+
     /// パラメータ列名。
     pub fn param_names(&self) -> &[String] {
         self.df.param_col_names()
@@ -233,7 +238,11 @@ impl StudyView {
             objectives,
             pareto_rank: self.pareto_rank.get(index).copied().unwrap_or(0),
             cluster_id: self.cluster_id.get(index).copied().flatten(),
-            state: self.state.get(index).cloned().unwrap_or(TrialState::Complete),
+            state: self
+                .state
+                .get(index)
+                .cloned()
+                .unwrap_or(TrialState::Complete),
             user_attrs: HashMap::new(),
         }
     }

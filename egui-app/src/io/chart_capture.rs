@@ -4,11 +4,7 @@ use image::RgbaImage;
 /// Crop a viewport `ColorImage` to `crop_rect` (logical coords) using `scale`
 /// (pixels-per-point) to convert to physical pixels.
 /// Returns `None` if the rect falls entirely outside the image.
-pub fn crop_image(
-    img: &ColorImage,
-    crop_rect: egui::Rect,
-    scale: f32,
-) -> Option<RgbaImage> {
+pub fn crop_image(img: &ColorImage, crop_rect: egui::Rect, scale: f32) -> Option<RgbaImage> {
     let iw = img.size[0] as i32;
     let ih = img.size[1] as i32;
 
@@ -38,8 +34,8 @@ pub fn crop_image(
             raw.extend_from_slice(&[px.r(), px.g(), px.b(), px.a()]);
         }
     }
-    let out = RgbaImage::from_raw(cw as u32, ch as u32, raw)
-        .expect("buffer size matches dimensions");
+    let out =
+        RgbaImage::from_raw(cw as u32, ch as u32, raw).expect("buffer size matches dimensions");
     Some(out)
 }
 
@@ -89,7 +85,10 @@ mod tests {
                 Color32::from_rgb(r, 0, 0)
             })
             .collect();
-        ColorImage { size: [w, h], pixels }
+        ColorImage {
+            size: [w, h],
+            pixels,
+        }
     }
 
     #[test]

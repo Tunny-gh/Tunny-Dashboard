@@ -30,15 +30,14 @@ pub fn build_chart_csv(
     }
 }
 
-pub fn has_csv_data(
-    chart_id: &ChartId,
-    app_state: &AppState,
-    widgets: &WidgetStates,
-) -> bool {
+pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetStates) -> bool {
     match chart_id {
         ChartId::SurfacePlot => false,
         ChartId::OptimizationHistory | ChartId::ParallelCoordinates | ChartId::ScatterMatrix => {
-            app_state.current_study.as_ref().is_some_and(|s| s.trial_count() > 0)
+            app_state
+                .current_study
+                .as_ref()
+                .is_some_and(|s| s.trial_count() > 0)
         }
         ChartId::HvHistory => app_state.hv_history.is_some(),
         ChartId::ImportanceChart => {
@@ -55,9 +54,11 @@ pub fn has_csv_data(
         }
         ChartId::PdpChart => {
             use crate::state::messages::PdpResult;
-            widgets.pdp_chart.result.as_ref().is_some_and(|r| {
-                matches!(r, PdpResult::OneDim(d) if !d.x_values.is_empty())
-            })
+            widgets
+                .pdp_chart
+                .result
+                .as_ref()
+                .is_some_and(|r| matches!(r, PdpResult::OneDim(d) if !d.x_values.is_empty()))
         }
         ChartId::PdpChart2D => widgets
             .pdp_2d
@@ -69,15 +70,24 @@ pub fn has_csv_data(
             .as_ref()
             .zip(app_state.cluster_result.as_ref())
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
-        ChartId::SensitivityHeatmap => widgets.sensitivity_heatmap.result.as_ref().is_some_and(|s| {
-            !s.param_names.is_empty()
-                && !s.objective_names.is_empty()
-                && s.spearman.len() == s.param_names.len()
-                && s.spearman.iter().all(|row| row.len() == s.objective_names.len())
-        }),
-        ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => {
-            app_state.current_study.as_ref().is_some_and(|s| !s.pareto_indices.is_empty())
+        ChartId::SensitivityHeatmap => {
+            widgets
+                .sensitivity_heatmap
+                .result
+                .as_ref()
+                .is_some_and(|s| {
+                    !s.param_names.is_empty()
+                        && !s.objective_names.is_empty()
+                        && s.spearman.len() == s.param_names.len()
+                        && s.spearman
+                            .iter()
+                            .all(|row| row.len() == s.objective_names.len())
+                })
         }
+        ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => app_state
+            .current_study
+            .as_ref()
+            .is_some_and(|s| !s.pareto_indices.is_empty()),
         ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmTable => {
             app_state.mcdm_result.is_some() && app_state.current_study.is_some()
         }
@@ -86,8 +96,14 @@ pub fn has_csv_data(
         }
         ChartId::SliceChart => app_state.current_study.as_ref().is_some_and(|s| {
             s.trial_count() > 0
-                && s.meta.param_names.get(widgets.slice_chart.selected_param_idx).is_some()
-                && s.meta.objective_names.get(widgets.slice_chart.selected_obj_idx).is_some()
+                && s.meta
+                    .param_names
+                    .get(widgets.slice_chart.selected_param_idx)
+                    .is_some()
+                && s.meta
+                    .objective_names
+                    .get(widgets.slice_chart.selected_obj_idx)
+                    .is_some()
         }),
     }
 }
@@ -124,14 +140,29 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
     if obj_col.is_empty() {
         return None;
     }
-    let is_minimize = !matches!(study.meta.directions.get(obj_idx), Some(Direction::Maximize));
+    let is_minimize = !matches!(
+        study.meta.directions.get(obj_idx),
+        Some(Direction::Maximize)
+    );
     let mut csv = String::from("trial_index,objective_value,best_value\n");
-    let mut best = if is_minimize { f64::INFINITY } else { f64::NEG_INFINITY };
+    let mut best = if is_minimize {
+        f64::INFINITY
+    } else {
+        f64::NEG_INFINITY
+    };
     for (i, &val) in obj_col.iter().enumerate() {
         if val.is_finite() {
-            best = if is_minimize { best.min(val) } else { best.max(val) };
+            best = if is_minimize {
+                best.min(val)
+            } else {
+                best.max(val)
+            };
         }
-        let best_str = if best.is_finite() { format!("{}", best) } else { String::new() };
+        let best_str = if best.is_finite() {
+            format!("{}", best)
+        } else {
+            String::new()
+        };
         csv.push_str(&format!("{},{},{}\n", i, val, best_str));
     }
     Some(csv)
@@ -187,7 +218,10 @@ fn build_pdp_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<String
         let upper = r.y_upper.as_ref().and_then(|v| v.get(i)).copied();
         let lower_str = lower.map(|v| v.to_string()).unwrap_or_default();
         let upper_str = upper.map(|v| v.to_string()).unwrap_or_default();
-        csv.push_str(&format!("{},{},{},{},{}\n", r.param_name, x, y, lower_str, upper_str));
+        csv.push_str(&format!(
+            "{},{},{},{},{}\n",
+            r.param_name, x, y, lower_str, upper_str
+        ));
     }
     Some(csv)
 }
@@ -197,10 +231,12 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
     if result.x_values.is_empty() || result.y_values.is_empty() {
         return None;
     }
-    let mut csv = String::from("param1_name,param1_value,param2_name,param2_value,predicted_objective\n");
+    let mut csv =
+        String::from("param1_name,param1_value,param2_name,param2_value,predicted_objective\n");
     for (xi, &x) in result.x_values.iter().enumerate() {
         for (yi, &y) in result.y_values.iter().enumerate() {
-            let z = result.z_values
+            let z = result
+                .z_values
                 .get(xi)
                 .and_then(|row| row.get(yi))
                 .copied()
@@ -237,13 +273,15 @@ fn build_cluster_csv(app_state: &AppState) -> Option<String> {
     }
     let param_names = &study.meta.param_names;
     let obj_names = &study.meta.objective_names;
-    let param_cols: Vec<Option<&[f64]>> =
-        param_names.iter().map(|name| study.view.numeric_column(name)).collect();
-    let obj_cols: Vec<Option<&[f64]>> =
-        obj_names.iter().map(|name| study.view.numeric_column(name)).collect();
+    let param_cols = study.view.numeric_columns(param_names);
+    let obj_cols = study.view.numeric_columns(obj_names);
     let mut csv = String::from("trial_id,trial_number");
-    for name in param_names { csv.push_str(&format!(",{}", name)); }
-    for name in obj_names { csv.push_str(&format!(",{}", name)); }
+    for name in param_names {
+        csv.push_str(&format!(",{}", name));
+    }
+    for name in obj_names {
+        csv.push_str(&format!(",{}", name));
+    }
     csv.push_str(",cluster_id\n");
     for i in 0..n {
         let trial_id = study.view.trial_ids.get(i).copied().unwrap_or(i as u32);
@@ -273,11 +311,15 @@ fn build_sensitivity_csv(_app_state: &AppState, widgets: &WidgetStates) -> Optio
         return None;
     }
     let mut csv = String::from("variable");
-    for name in &sens.objective_names { csv.push_str(&format!(",{}", name)); }
+    for name in &sens.objective_names {
+        csv.push_str(&format!(",{}", name));
+    }
     csv.push('\n');
     for (i, param_name) in sens.param_names.iter().enumerate() {
         csv.push_str(param_name);
-        for &val in &sens.spearman[i] { csv.push_str(&format!(",{}", val)); }
+        for &val in &sens.spearman[i] {
+            csv.push_str(&format!(",{}", val));
+        }
         csv.push('\n');
     }
     Some(csv)
@@ -290,13 +332,15 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     let pareto_set: std::collections::HashSet<u32> = study.pareto_indices.iter().copied().collect();
     let param_names = &study.meta.param_names;
     let obj_names = &study.meta.objective_names;
-    let param_cols: Vec<Option<&[f64]>> =
-        param_names.iter().map(|name| study.view.numeric_column(name)).collect();
-    let obj_cols: Vec<Option<&[f64]>> =
-        obj_names.iter().map(|name| study.view.numeric_column(name)).collect();
+    let param_cols = study.view.numeric_columns(param_names);
+    let obj_cols = study.view.numeric_columns(obj_names);
     let mut csv = String::from("trial_id,trial_number");
-    for name in param_names { csv.push_str(&format!(",{}", name)); }
-    for name in obj_names { csv.push_str(&format!(",{}", name)); }
+    for name in param_names {
+        csv.push_str(&format!(",{}", name));
+    }
+    for name in obj_names {
+        csv.push_str(&format!(",{}", name));
+    }
     csv.push_str(",pareto_rank\n");
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
         if !pareto_set.contains(&tid) {
@@ -327,7 +371,13 @@ fn build_mcdm_rank_csv(app_state: &AppState) -> Option<String> {
         let i = idx as usize;
         let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
         let score = scores.get(i).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{},{}\n", trial_id, rank + 1, score, method_name));
+        csv.push_str(&format!(
+            "{},{},{},{}\n",
+            trial_id,
+            rank + 1,
+            score,
+            method_name
+        ));
     }
     Some(csv)
 }
@@ -350,7 +400,7 @@ fn build_mcdm_scatter_csv(app_state: &AppState) -> Option<String> {
 fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.mcdm_result.as_ref()?;
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
-    let tid = |idx: u32| trial_ids.get(idx as usize).copied().unwrap_or(idx as u32);
+    let tid = |idx: u32| trial_ids.get(idx as usize).copied().unwrap_or(idx);
     match result {
         McdmResult::Topsis(r) => {
             let mut csv = String::from("trial_id,rank,topsis_score\n");
@@ -377,7 +427,13 @@ fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
                 let i = idx as usize;
                 let phi_plus = r.phi_plus.get(i).copied().unwrap_or(f64::NAN);
                 let phi_minus = r.phi_minus.get(i).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{},{}\n", tid(idx), rank + 1, phi_plus, phi_minus));
+                csv.push_str(&format!(
+                    "{},{},{},{}\n",
+                    tid(idx),
+                    rank + 1,
+                    phi_plus,
+                    phi_minus
+                ));
             }
             Some(csv)
         }
@@ -409,10 +465,11 @@ fn build_ahp_table_csv(app_state: &AppState) -> Option<String> {
     let result = app_state.ahp_result.as_ref()?;
     let study = app_state.current_study.as_ref()?;
     let obj_names = &study.meta.objective_names;
-    let obj_cols: Vec<Option<&[f64]>> =
-        obj_names.iter().map(|name| study.view.numeric_column(name)).collect();
+    let obj_cols = study.view.numeric_columns(obj_names);
     let mut csv = String::from("trial_id,rank,ahp_score");
-    for name in obj_names { csv.push_str(&format!(",{}", name)); }
+    for name in obj_names {
+        csv.push_str(&format!(",{}", name));
+    }
     csv.push('\n');
     for (rank, &idx) in result.ranked_indices.iter().enumerate() {
         let i = idx as usize;
@@ -439,14 +496,19 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
     let obj_name = study.meta.objective_names.get(obj_idx)?;
     let param_col = study.view.numeric_column(param_name);
     let obj_col = study.view.numeric_column(obj_name);
-    let pareto_set: std::collections::HashSet<u32> =
-        study.pareto_indices.iter().copied().collect();
+    let pareto_set: std::collections::HashSet<u32> = study.pareto_indices.iter().copied().collect();
     let mut csv = format!("trial_id,{},{},is_pareto\n", param_name, obj_name);
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
-        let param_val = param_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let param_val = param_col
+            .and_then(|c| c.get(i))
+            .copied()
+            .unwrap_or(f64::NAN);
         let obj_val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
         let is_pareto = pareto_set.contains(&tid);
-        csv.push_str(&format!("{},{},{},{}\n", tid, param_val, obj_val, is_pareto));
+        csv.push_str(&format!(
+            "{},{},{},{}\n",
+            tid, param_val, obj_val, is_pareto
+        ));
     }
     Some(csv)
 }
@@ -454,13 +516,17 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::app_state::AppState;
     use crate::state::results::HvHistory;
     use crate::state::types::{Direction, StudyContext, StudyMeta, TrialRow};
-    use crate::state::app_state::AppState;
     use crate::ui::widget_states::WidgetStates;
     use std::collections::HashMap;
 
-    fn make_study(param_names: Vec<String>, obj_names: Vec<String>, directions: Vec<Direction>) -> StudyContext {
+    fn make_study(
+        param_names: Vec<String>,
+        obj_names: Vec<String>,
+        directions: Vec<Direction>,
+    ) -> StudyContext {
         let meta = StudyMeta {
             study_id: 0,
             name: "test".to_string(),
@@ -602,7 +668,10 @@ mod tests {
             param_names: vec!["x".into(), "y".into()],
             objective_names: vec!["f".into()],
             spearman: vec![vec![0.9, 0.3]],
-            ridge: vec![RidgeResult { beta: vec![0.8, 0.2], r_squared: 0.95 }],
+            ridge: vec![RidgeResult {
+                beta: vec![0.8, 0.2],
+                r_squared: 0.95,
+            }],
             rf_anova: None,
             mdi: None,
             shap: None,
@@ -649,7 +718,11 @@ mod tests {
     #[test]
     fn trial_based_csv_has_trial_id_header() {
         let mut state = AppState::default();
-        let mut study = make_study(vec!["x".into()], vec!["f".into()], vec![Direction::Minimize]);
+        let mut study = make_study(
+            vec!["x".into()],
+            vec!["f".into()],
+            vec![Direction::Minimize],
+        );
         let mut p = HashMap::new();
         p.insert("x".to_string(), 1.0_f64);
         study.set_rows_for_test(vec![make_trial(0, p, vec![0.5])]);
@@ -678,7 +751,11 @@ mod tests {
     fn cluster_csv_includes_cluster_id_column() {
         use crate::state::results::ClusterResult;
         let mut state = AppState::default();
-        let mut study = make_study(vec!["x".into()], vec!["f".into()], vec![Direction::Minimize]);
+        let mut study = make_study(
+            vec!["x".into()],
+            vec!["f".into()],
+            vec![Direction::Minimize],
+        );
         let mut p = HashMap::new();
         p.insert("x".to_string(), 1.0_f64);
         study.set_rows_for_test(vec![
@@ -686,7 +763,10 @@ mod tests {
             make_trial(1, p.clone(), vec![1.0]),
         ]);
         state.current_study = Some(study);
-        state.cluster_result = Some(ClusterResult { labels: vec![0, 1], n_clusters: 2 });
+        state.cluster_result = Some(ClusterResult {
+            labels: vec![0, 1],
+            n_clusters: 2,
+        });
         let csv = build_cluster_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].ends_with(",cluster_id"), "header: {}", lines[0]);
@@ -747,7 +827,10 @@ mod tests {
         let state = AppState::default();
         let csv = build_pdp_csv(&state, &widgets).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "variable,variable_value,predicted_objective,lower_ci,upper_ci");
+        assert_eq!(
+            lines[0],
+            "variable,variable_value,predicted_objective,lower_ci,upper_ci"
+        );
         assert_eq!(lines.len(), 3); // header + 2 points
         assert_eq!(lines[1], "x,0,0.5,0.4,0.6");
     }
@@ -795,7 +878,10 @@ mod tests {
         let state = AppState::default();
         let csv = build_pdp_2d_csv(&state, &widgets).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "param1_name,param1_value,param2_name,param2_value,predicted_objective");
+        assert_eq!(
+            lines[0],
+            "param1_name,param1_value,param2_name,param2_value,predicted_objective"
+        );
         // 2x2 grid → 4 data rows
         assert_eq!(lines.len(), 5);
         assert_eq!(lines[1], "x,0,y,2,0.1");
@@ -878,7 +964,10 @@ mod tests {
             duration_ms: 1.0,
         }));
         let csv = build_mcdm_table_csv(&state).unwrap();
-        assert_eq!(csv.lines().next().unwrap(), "trial_id,rank,s_value,r_value,q_value");
+        assert_eq!(
+            csv.lines().next().unwrap(),
+            "trial_id,rank,s_value,r_value,q_value"
+        );
     }
 
     #[test]
@@ -912,7 +1001,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "trial_id,rank,ahp_score");
         assert_eq!(lines.len(), 3); // header + 2 rows
-        // first ranked row should have trial_id=5, rank=1
+                                    // first ranked row should have trial_id=5, rank=1
         assert!(lines[1].starts_with("5,1,"), "row: {}", lines[1]);
     }
 
@@ -926,7 +1015,11 @@ mod tests {
     fn ahp_table_csv_includes_objective_columns() {
         use crate::state::results::AhpResult;
         let mut state = AppState::default();
-        let mut study = make_study(vec![], vec!["f1".into(), "f2".into()], vec![Direction::Minimize, Direction::Minimize]);
+        let mut study = make_study(
+            vec![],
+            vec!["f1".into(), "f2".into()],
+            vec![Direction::Minimize, Direction::Minimize],
+        );
         study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0, 2.0])]);
         state.current_study = Some(study);
         state.ahp_result = Some(AhpResult {

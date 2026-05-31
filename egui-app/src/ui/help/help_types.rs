@@ -1,14 +1,11 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum HelpLanguage {
+    #[default]
     En,
     Ja,
 }
 
-impl Default for HelpLanguage {
-    fn default() -> Self {
-        Self::En
-    }
-}
 
 impl HelpLanguage {
     pub fn code(&self) -> &'static str {

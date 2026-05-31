@@ -128,5 +128,4 @@ mod tests {
         let r = pearson_correlation(&[], &[]);
         assert!(r.is_nan(), "expected NaN for empty slices, got {}", r);
     }
-
 }

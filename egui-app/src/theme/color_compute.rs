@@ -147,7 +147,9 @@ pub fn compute_chart_colors_view(
         _ => None,
     };
     let obj_col: Option<&[f64]> = obj_idx.and_then(|idx| {
-        objective_names.get(idx).and_then(|name| view.numeric_column(name))
+        objective_names
+            .get(idx)
+            .and_then(|name| view.numeric_column(name))
     });
     let obj_min_max: Option<(f64, f64)> = obj_col.map(|col| {
         col.iter()
@@ -159,48 +161,46 @@ pub fn compute_chart_colors_view(
     });
 
     (0..n)
-        .map(|i| {
-            match color_mode {
-                ColorMode::ClusterId => {
-                    if let Some(id) = view.cluster_id.get(i).copied().flatten() {
-                        let t = id.unsigned_abs() as f32 / max_cluster_id.max(1) as f32;
-                        cmap.interpolate(t)
-                    } else {
-                        egui::Color32::LIGHT_GRAY
-                    }
-                }
-                ColorMode::McdmScore => {
-                    if let Some(scores) = mcdm_scores {
-                        let score = scores.get(i).copied().unwrap_or(0.0);
-                        cmap.interpolate(score as f32)
-                    } else {
-                        egui::Color32::LIGHT_GRAY
-                    }
-                }
-                ColorMode::ParetoRank => {
-                    let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-                    let mr = max_rank.max(1) as f32 + 1.0;
-                    let t = 1.0 - rank as f32 / mr;
+        .map(|i| match color_mode {
+            ColorMode::ClusterId => {
+                if let Some(id) = view.cluster_id.get(i).copied().flatten() {
+                    let t = id.unsigned_abs() as f32 / max_cluster_id.max(1) as f32;
                     cmap.interpolate(t)
+                } else {
+                    egui::Color32::LIGHT_GRAY
                 }
-                ColorMode::TrialNumber => {
-                    let t = i as f32 / n.max(1) as f32;
-                    cmap.interpolate(t)
+            }
+            ColorMode::McdmScore => {
+                if let Some(scores) = mcdm_scores {
+                    let score = scores.get(i).copied().unwrap_or(0.0);
+                    cmap.interpolate(score as f32)
+                } else {
+                    egui::Color32::LIGHT_GRAY
                 }
-                ColorMode::ObjectiveValue(_) => {
-                    let val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-                    if val.is_finite() {
-                        let (min, max) = obj_min_max.unwrap_or((0.0, 1.0));
-                        let range = max - min;
-                        let t = if range.abs() < f64::EPSILON {
-                            0.5
-                        } else {
-                            ((val - min) / range) as f32
-                        };
-                        cmap.interpolate(t)
+            }
+            ColorMode::ParetoRank => {
+                let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+                let mr = max_rank.max(1) as f32 + 1.0;
+                let t = 1.0 - rank as f32 / mr;
+                cmap.interpolate(t)
+            }
+            ColorMode::TrialNumber => {
+                let t = i as f32 / n.max(1) as f32;
+                cmap.interpolate(t)
+            }
+            ColorMode::ObjectiveValue(_) => {
+                let val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+                if val.is_finite() {
+                    let (min, max) = obj_min_max.unwrap_or((0.0, 1.0));
+                    let range = max - min;
+                    let t = if range.abs() < f64::EPSILON {
+                        0.5
                     } else {
-                        egui::Color32::LIGHT_GRAY
-                    }
+                        ((val - min) / range) as f32
+                    };
+                    cmap.interpolate(t)
+                } else {
+                    egui::Color32::LIGHT_GRAY
                 }
             }
         })

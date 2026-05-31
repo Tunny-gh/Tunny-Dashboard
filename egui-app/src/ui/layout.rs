@@ -114,7 +114,6 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
             &tx,
         );
     });
-
 }
 
 /// ヘルプ言語切替メニューを描画する。

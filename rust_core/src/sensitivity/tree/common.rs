@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use crate::sensitivity::data::{sample_index_subset, sample_rows};
 use crate::math::rng::SeededRng;
+use crate::sensitivity::data::{sample_index_subset, sample_rows};
+use std::sync::Arc;
 
 /// `PreparedData::split` の戻り値型
 type SplitData<'a> = (&'a [Vec<f64>], &'a [Vec<f64>], &'a [f64], &'a [f64]);
@@ -38,7 +38,11 @@ fn compute_split(n: usize) -> (bool, usize) {
     const MIN_EVAL: usize = 2;
     const MIN_TRAIN: usize = 2;
     let use_holdout = n >= MIN_TRAIN + MIN_EVAL;
-    let split_idx = if use_holdout { ((n * 4) / 5).max(MIN_TRAIN) } else { n };
+    let split_idx = if use_holdout {
+        ((n * 4) / 5).max(MIN_TRAIN)
+    } else {
+        n
+    };
     (use_holdout, split_idx)
 }
 

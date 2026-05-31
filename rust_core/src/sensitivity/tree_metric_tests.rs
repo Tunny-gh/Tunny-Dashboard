@@ -1,8 +1,8 @@
 //! TASK-2260: RfAnovaMetric・MdiMetric・ShapMetric・PermutationMetric の SensitivityMetric トレイト実装テスト
 
+use super::compute_sensitivity_single_obj;
 use super::metric_trait::SensitivityMetric;
 use super::metrics::{MdiMetric, PermutationMetric, RfAnovaMetric, ShapMetric};
-use super::compute_sensitivity_single_obj;
 use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
 use std::collections::HashMap;
 
@@ -72,7 +72,10 @@ fn tc_2260_04_permutation_metric_name() {
 fn tc_2260_05_rf_anova_compute_valid() {
     let df = large_df(50);
     let result = RfAnovaMetric.compute(&df, 0);
-    assert!(result.is_some(), "RfAnovaMetric should return Some for 50-row data");
+    assert!(
+        result.is_some(),
+        "RfAnovaMetric should return Some for 50-row data"
+    );
     let r = result.unwrap();
     assert_eq!(r.param_names, vec!["x1", "x2"]);
     assert_eq!(r.objective_names, vec!["obj0"]);
@@ -83,8 +86,16 @@ fn tc_2260_05_rf_anova_compute_valid() {
     assert!(r.shap.is_none());
     assert!(r.permutation.is_none());
     let rf = r.rf_anova.unwrap().0;
-    assert_eq!(rf.importances.len(), 2, "importances should have param_count entries");
-    assert_eq!(rf.importances[0].len(), 1, "each entry should have 1 objective");
+    assert_eq!(
+        rf.importances.len(),
+        2,
+        "importances should have param_count entries"
+    );
+    assert_eq!(
+        rf.importances[0].len(),
+        1,
+        "each entry should have 1 objective"
+    );
     assert_eq!(rf.r_squared.len(), 1);
 }
 
@@ -92,7 +103,10 @@ fn tc_2260_05_rf_anova_compute_valid() {
 fn tc_2260_06_mdi_compute_valid() {
     let df = large_df(50);
     let result = MdiMetric.compute(&df, 0);
-    assert!(result.is_some(), "MdiMetric should return Some for 50-row data");
+    assert!(
+        result.is_some(),
+        "MdiMetric should return Some for 50-row data"
+    );
     let r = result.unwrap();
     assert!(r.mdi.is_some(), "mdi should be Some");
     assert!(r.spearman.is_empty());
@@ -106,7 +120,10 @@ fn tc_2260_06_mdi_compute_valid() {
 fn tc_2260_07_shap_compute_valid() {
     let df = large_df(50);
     let result = ShapMetric.compute(&df, 0);
-    assert!(result.is_some(), "ShapMetric should return Some for 50-row data");
+    assert!(
+        result.is_some(),
+        "ShapMetric should return Some for 50-row data"
+    );
     let r = result.unwrap();
     assert!(r.shap.is_some(), "shap should be Some");
     assert!(r.spearman.is_empty());
@@ -120,7 +137,10 @@ fn tc_2260_07_shap_compute_valid() {
 fn tc_2260_08_permutation_compute_valid() {
     let df = large_df(50);
     let result = PermutationMetric.compute(&df, 0);
-    assert!(result.is_some(), "PermutationMetric should return Some for 50-row data");
+    assert!(
+        result.is_some(),
+        "PermutationMetric should return Some for 50-row data"
+    );
     let r = result.unwrap();
     assert!(r.permutation.is_some(), "permutation should be Some");
     assert!(r.spearman.is_empty());
@@ -138,37 +158,61 @@ fn tc_2260_08_permutation_compute_valid() {
 fn tc_2260_09_rf_anova_insufficient_data_n1() {
     let rows = vec![make_row(0, &[("x1", 1.0)], vec![1.0])];
     let df = setup_df(rows, &["x1"], &["obj0"]);
-    assert!(RfAnovaMetric.compute(&df, 0).is_none(), "should return None when n=1");
+    assert!(
+        RfAnovaMetric.compute(&df, 0).is_none(),
+        "should return None when n=1"
+    );
 }
 
 #[test]
 fn tc_2260_10_mdi_insufficient_data_n1() {
     let rows = vec![make_row(0, &[("x1", 1.0)], vec![1.0])];
     let df = setup_df(rows, &["x1"], &["obj0"]);
-    assert!(MdiMetric.compute(&df, 0).is_none(), "should return None when n=1");
+    assert!(
+        MdiMetric.compute(&df, 0).is_none(),
+        "should return None when n=1"
+    );
 }
 
 #[test]
 fn tc_2260_11_shap_insufficient_data_n1() {
     let rows = vec![make_row(0, &[("x1", 1.0)], vec![1.0])];
     let df = setup_df(rows, &["x1"], &["obj0"]);
-    assert!(ShapMetric.compute(&df, 0).is_none(), "should return None when n=1");
+    assert!(
+        ShapMetric.compute(&df, 0).is_none(),
+        "should return None when n=1"
+    );
 }
 
 #[test]
 fn tc_2260_12_permutation_insufficient_data_n1() {
     let rows = vec![make_row(0, &[("x1", 1.0)], vec![1.0])];
     let df = setup_df(rows, &["x1"], &["obj0"]);
-    assert!(PermutationMetric.compute(&df, 0).is_none(), "should return None when n=1");
+    assert!(
+        PermutationMetric.compute(&df, 0).is_none(),
+        "should return None when n=1"
+    );
 }
 
 #[test]
 fn tc_2260_13_all_metrics_invalid_obj_idx() {
     let df = large_df(20);
-    assert!(RfAnovaMetric.compute(&df, 5).is_none(), "RfAnova: out-of-range obj_idx should return None");
-    assert!(MdiMetric.compute(&df, 5).is_none(), "Mdi: out-of-range obj_idx should return None");
-    assert!(ShapMetric.compute(&df, 5).is_none(), "Shap: out-of-range obj_idx should return None");
-    assert!(PermutationMetric.compute(&df, 5).is_none(), "Permutation: out-of-range obj_idx should return None");
+    assert!(
+        RfAnovaMetric.compute(&df, 5).is_none(),
+        "RfAnova: out-of-range obj_idx should return None"
+    );
+    assert!(
+        MdiMetric.compute(&df, 5).is_none(),
+        "Mdi: out-of-range obj_idx should return None"
+    );
+    assert!(
+        ShapMetric.compute(&df, 5).is_none(),
+        "Shap: out-of-range obj_idx should return None"
+    );
+    assert!(
+        PermutationMetric.compute(&df, 5).is_none(),
+        "Permutation: out-of-range obj_idx should return None"
+    );
 }
 
 #[test]
@@ -200,11 +244,19 @@ fn tc_2260_15_rf_anova_matches_new_api() {
         assert!(
             diff < 1e-10,
             "RfAnova importances[{}][0] mismatch: {} vs {}, diff={}",
-            i, mr.importances[i][0], ar.importances[i][0], diff
+            i,
+            mr.importances[i][0],
+            ar.importances[i][0],
+            diff
         );
     }
     let r2_diff = (mr.r_squared[0] - ar.r_squared[0]).abs();
-    assert!(r2_diff < 1e-10, "RfAnova r_squared mismatch: {} vs {}", mr.r_squared[0], ar.r_squared[0]);
+    assert!(
+        r2_diff < 1e-10,
+        "RfAnova r_squared mismatch: {} vs {}",
+        mr.r_squared[0],
+        ar.r_squared[0]
+    );
 }
 
 #[test]
@@ -223,11 +275,19 @@ fn tc_2260_16_mdi_matches_new_api() {
         assert!(
             diff < 1e-10,
             "Mdi importances[{}][0] mismatch: {} vs {}, diff={}",
-            i, mr.importances[i][0], ar.importances[i][0], diff
+            i,
+            mr.importances[i][0],
+            ar.importances[i][0],
+            diff
         );
     }
     let r2_diff = (mr.r_squared[0] - ar.r_squared[0]).abs();
-    assert!(r2_diff < 1e-10, "Mdi r_squared mismatch: {} vs {}", mr.r_squared[0], ar.r_squared[0]);
+    assert!(
+        r2_diff < 1e-10,
+        "Mdi r_squared mismatch: {} vs {}",
+        mr.r_squared[0],
+        ar.r_squared[0]
+    );
 }
 
 #[test]
@@ -246,11 +306,19 @@ fn tc_2260_17_shap_matches_new_api() {
         assert!(
             diff < 1e-10,
             "Shap importances[{}][0] mismatch: {} vs {}, diff={}",
-            i, mr.importances[i][0], ar.importances[i][0], diff
+            i,
+            mr.importances[i][0],
+            ar.importances[i][0],
+            diff
         );
     }
     let r2_diff = (mr.r_squared[0] - ar.r_squared[0]).abs();
-    assert!(r2_diff < 1e-10, "Shap r_squared mismatch: {} vs {}", mr.r_squared[0], ar.r_squared[0]);
+    assert!(
+        r2_diff < 1e-10,
+        "Shap r_squared mismatch: {} vs {}",
+        mr.r_squared[0],
+        ar.r_squared[0]
+    );
 }
 
 #[test]
@@ -262,18 +330,32 @@ fn tc_2260_18_permutation_matches_new_api() {
     assert!(metric_result.is_some());
     assert!(!api_results.is_empty());
     let mr = metric_result.unwrap().permutation.unwrap().0;
-    let ar = api_results.into_iter().next().unwrap().permutation.unwrap().0;
+    let ar = api_results
+        .into_iter()
+        .next()
+        .unwrap()
+        .permutation
+        .unwrap()
+        .0;
     assert_eq!(mr.importances.len(), ar.importances.len());
     for i in 0..mr.importances.len() {
         let diff = (mr.importances[i][0] - ar.importances[i][0]).abs();
         assert!(
             diff < 1e-10,
             "Permutation importances[{}][0] mismatch: {} vs {}, diff={}",
-            i, mr.importances[i][0], ar.importances[i][0], diff
+            i,
+            mr.importances[i][0],
+            ar.importances[i][0],
+            diff
         );
     }
     let r2_diff = (mr.r_squared[0] - ar.r_squared[0]).abs();
-    assert!(r2_diff < 1e-10, "Permutation r_squared mismatch: {} vs {}", mr.r_squared[0], ar.r_squared[0]);
+    assert!(
+        r2_diff < 1e-10,
+        "Permutation r_squared mismatch: {} vs {}",
+        mr.r_squared[0],
+        ar.r_squared[0]
+    );
 }
 
 // ===========================================================================
@@ -292,7 +374,11 @@ fn tc_2260_19_all_as_trait_objects() {
     let expected_names = ["RfAnova", "Mdi", "Shap", "Permutation"];
     for (metric, &name) in metrics.iter().zip(expected_names.iter()) {
         assert_eq!(metric.name(), name);
-        assert!(metric.compute(&df, 0).is_some(), "{} should return Some via trait object", name);
+        assert!(
+            metric.compute(&df, 0).is_some(),
+            "{} should return Some via trait object",
+            name
+        );
     }
 }
 

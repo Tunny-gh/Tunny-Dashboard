@@ -124,7 +124,9 @@ pub fn compute_plot_points(
     minimize: bool,
 ) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
     let param_col = view.numeric_column(param_name);
-    let obj_col = obj_names.get(obj_idx).and_then(|name| view.numeric_column(name));
+    let obj_col = obj_names
+        .get(obj_idx)
+        .and_then(|name| view.numeric_column(name));
 
     let (Some(params), Some(objs)) = (param_col, obj_col) else {
         return (vec![], vec![]);
@@ -187,11 +189,7 @@ mod tests {
     use std::sync::Arc;
     use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
-    fn make_view(
-        param_vals: &[f64],
-        obj_vals: &[f64],
-        pareto_ranks: Vec<u32>,
-    ) -> StudyView {
+    fn make_view(param_vals: &[f64], obj_vals: &[f64], pareto_ranks: Vec<u32>) -> StudyView {
         let n = param_vals.len();
         let core_rows: Vec<CoreRow> = (0..n)
             .map(|i| CoreRow {
@@ -289,7 +287,7 @@ mod tests {
                 trial_id: 0,
                 param_display: HashMap::from([("x".to_string(), 1.0)]),
                 param_category_label: HashMap::new(),
-                objective_values: vec![],  // 目的関数なし → NaN
+                objective_values: vec![], // 目的関数なし → NaN
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
                 constraint_values: vec![],

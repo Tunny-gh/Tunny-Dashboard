@@ -8,7 +8,9 @@ pub(super) fn predict_mean(model: &GpModel, x_test: &[f64]) -> f64 {
         .x_train
         .iter()
         .zip(model.alpha.iter())
-        .map(|(x_train, alpha)| alpha * matern52_ard(x_test, x_train, &model.kernel.log_ls, model.kernel.log_sf))
+        .map(|(x_train, alpha)| {
+            alpha * matern52_ard(x_test, x_train, &model.kernel.log_ls, model.kernel.log_sf)
+        })
         .sum()
 }
 

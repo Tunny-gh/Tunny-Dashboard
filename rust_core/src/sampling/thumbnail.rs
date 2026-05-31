@@ -16,7 +16,10 @@ use super::context::SamplingContext;
 /// 6. Return Pareto + grid-selected non-Pareto.
 ///
 /// Returns `None` when no active study is loaded.
-pub fn downsample_for_thumbnail(ctx: &SamplingContext, max_points: usize) -> Option<DownsampleResult> {
+pub fn downsample_for_thumbnail(
+    ctx: &SamplingContext,
+    max_points: usize,
+) -> Option<DownsampleResult> {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 

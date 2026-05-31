@@ -127,8 +127,7 @@ impl ParallelCoordsChart {
 
         let n_params = param_names.len();
         // 各軸の列スライスを view から借用（コピーしない・MEM-003）
-        let cols: Vec<Option<&[f64]>> =
-            all_names.iter().map(|name| view.numeric_column(name)).collect();
+        let cols = view.numeric_columns(&all_names);
 
         let cache_key = (trial_count, n_params, obj_names.len());
         if self.col_ranges_cache.is_none() || self.cache_key != cache_key {
@@ -186,7 +185,11 @@ impl ParallelCoordsChart {
             let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
             let mut valid = true;
             for i in 0..n_axes {
-                let val_opt = cols.get(i).and_then(|c| c.as_ref()).and_then(|c| c.get(t_idx)).copied();
+                let val_opt = cols
+                    .get(i)
+                    .and_then(|c| c.as_ref())
+                    .and_then(|c| c.get(t_idx))
+                    .copied();
                 let Some(val) = val_opt else {
                     valid = false;
                     break;
@@ -269,7 +272,10 @@ impl ParallelCoordsChart {
                 .iter()
                 .enumerate()
                 .min_by(|(_, a), (_, b)| {
-                    (ptr.x - **a).abs().partial_cmp(&(ptr.x - **b).abs()).unwrap()
+                    (ptr.x - **a)
+                        .abs()
+                        .partial_cmp(&(ptr.x - **b).abs())
+                        .unwrap()
                 })
                 .map(|(i, _)| i);
 
@@ -501,11 +507,7 @@ mod tests {
 
     // --- TASK-2242: PCP brush tests ---
 
-    fn make_trial_with_params(
-        id: u32,
-        p: f64,
-        obj: f64,
-    ) -> crate::state::app_state::TrialRow {
+    fn make_trial_with_params(id: u32, p: f64, obj: f64) -> crate::state::app_state::TrialRow {
         use crate::state::app_state::{TrialRow, TrialState};
         use std::collections::HashMap;
         let mut params = HashMap::new();
@@ -551,7 +553,8 @@ mod tests {
         // obj in [0.0, 0.6] = values 0..6 → trial 0 passes; trial 2 (obj=9) fails
         brush_ranges.insert("obj".to_string(), Some((0.0, 0.6)));
 
-        let sel = filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
+        let sel =
+            filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
         assert_eq!(sel.len(), 1);
         assert_eq!(sel[0], 0);
     }

@@ -1,4 +1,3 @@
-use crate::dataframe::DataFrame;
 use super::constants::{
     MDI_MAX_ROWS, MDI_SEED, PFI_MAX_ROWS, PFI_SEED_BASE, PFI_SPLIT_SEED, RF_ANOVA_MAX_ROWS,
     RF_ANOVA_SEED, SHAP_MAX_ROWS, SHAP_SEED,
@@ -7,8 +6,10 @@ use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::tree::common::{prepare_training_data, PreparedData};
 use super::types::{
-    MdiResult, PermutationResult, RfAnovaResult, SensitivityResult, ShapResult, TreeImportanceResult,
+    MdiResult, PermutationResult, RfAnovaResult, SensitivityResult, ShapResult,
+    TreeImportanceResult,
 };
+use crate::dataframe::DataFrame;
 
 /// ツリーベースの感度分析メトリクス共通トレイト。
 ///
@@ -42,12 +43,34 @@ impl TreeMetric for RfAnovaMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
         super::tree::rf_anova::compute_from_prepared(data)
     }
-    fn max_rows(&self) -> usize { RF_ANOVA_MAX_ROWS }
-    fn data_seed(&self) -> u64 { RF_ANOVA_SEED }
-    fn split_seed(&self) -> u64 { RF_ANOVA_SEED.wrapping_add(1) }
-    fn metric_name(&self) -> &'static str { "RfAnova" }
-    fn wrap_result(&self, param_names: Vec<String>, objective_name: String, result: TreeImportanceResult) -> SensitivityResult {
-        SensitivityResult { param_names, objective_names: vec![objective_name], spearman: vec![], ridge: vec![], rf_anova: Some(RfAnovaResult(result)), mdi: None, shap: None, permutation: None }
+    fn max_rows(&self) -> usize {
+        RF_ANOVA_MAX_ROWS
+    }
+    fn data_seed(&self) -> u64 {
+        RF_ANOVA_SEED
+    }
+    fn split_seed(&self) -> u64 {
+        RF_ANOVA_SEED.wrapping_add(1)
+    }
+    fn metric_name(&self) -> &'static str {
+        "RfAnova"
+    }
+    fn wrap_result(
+        &self,
+        param_names: Vec<String>,
+        objective_name: String,
+        result: TreeImportanceResult,
+    ) -> SensitivityResult {
+        SensitivityResult {
+            param_names,
+            objective_names: vec![objective_name],
+            spearman: vec![],
+            ridge: vec![],
+            rf_anova: Some(RfAnovaResult(result)),
+            mdi: None,
+            shap: None,
+            permutation: None,
+        }
     }
 }
 
@@ -55,12 +78,34 @@ impl TreeMetric for MdiMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
         super::tree::mdi::compute_from_prepared(data)
     }
-    fn max_rows(&self) -> usize { MDI_MAX_ROWS }
-    fn data_seed(&self) -> u64 { MDI_SEED }
-    fn split_seed(&self) -> u64 { MDI_SEED.wrapping_add(1) }
-    fn metric_name(&self) -> &'static str { "Mdi" }
-    fn wrap_result(&self, param_names: Vec<String>, objective_name: String, result: TreeImportanceResult) -> SensitivityResult {
-        SensitivityResult { param_names, objective_names: vec![objective_name], spearman: vec![], ridge: vec![], rf_anova: None, mdi: Some(MdiResult(result)), shap: None, permutation: None }
+    fn max_rows(&self) -> usize {
+        MDI_MAX_ROWS
+    }
+    fn data_seed(&self) -> u64 {
+        MDI_SEED
+    }
+    fn split_seed(&self) -> u64 {
+        MDI_SEED.wrapping_add(1)
+    }
+    fn metric_name(&self) -> &'static str {
+        "Mdi"
+    }
+    fn wrap_result(
+        &self,
+        param_names: Vec<String>,
+        objective_name: String,
+        result: TreeImportanceResult,
+    ) -> SensitivityResult {
+        SensitivityResult {
+            param_names,
+            objective_names: vec![objective_name],
+            spearman: vec![],
+            ridge: vec![],
+            rf_anova: None,
+            mdi: Some(MdiResult(result)),
+            shap: None,
+            permutation: None,
+        }
     }
 }
 
@@ -68,12 +113,34 @@ impl TreeMetric for ShapMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
         super::tree::shap::compute_from_prepared(data)
     }
-    fn max_rows(&self) -> usize { SHAP_MAX_ROWS }
-    fn data_seed(&self) -> u64 { SHAP_SEED }
-    fn split_seed(&self) -> u64 { SHAP_SEED.wrapping_add(1) }
-    fn metric_name(&self) -> &'static str { "Shap" }
-    fn wrap_result(&self, param_names: Vec<String>, objective_name: String, result: TreeImportanceResult) -> SensitivityResult {
-        SensitivityResult { param_names, objective_names: vec![objective_name], spearman: vec![], ridge: vec![], rf_anova: None, mdi: None, shap: Some(ShapResult(result)), permutation: None }
+    fn max_rows(&self) -> usize {
+        SHAP_MAX_ROWS
+    }
+    fn data_seed(&self) -> u64 {
+        SHAP_SEED
+    }
+    fn split_seed(&self) -> u64 {
+        SHAP_SEED.wrapping_add(1)
+    }
+    fn metric_name(&self) -> &'static str {
+        "Shap"
+    }
+    fn wrap_result(
+        &self,
+        param_names: Vec<String>,
+        objective_name: String,
+        result: TreeImportanceResult,
+    ) -> SensitivityResult {
+        SensitivityResult {
+            param_names,
+            objective_names: vec![objective_name],
+            spearman: vec![],
+            ridge: vec![],
+            rf_anova: None,
+            mdi: None,
+            shap: Some(ShapResult(result)),
+            permutation: None,
+        }
     }
 }
 
@@ -81,12 +148,34 @@ impl TreeMetric for PermutationMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)> {
         super::tree::permutation::compute_from_prepared(data)
     }
-    fn max_rows(&self) -> usize { PFI_MAX_ROWS }
-    fn data_seed(&self) -> u64 { PFI_SEED_BASE }
-    fn split_seed(&self) -> u64 { PFI_SPLIT_SEED }
-    fn metric_name(&self) -> &'static str { "Permutation" }
-    fn wrap_result(&self, param_names: Vec<String>, objective_name: String, result: TreeImportanceResult) -> SensitivityResult {
-        SensitivityResult { param_names, objective_names: vec![objective_name], spearman: vec![], ridge: vec![], rf_anova: None, mdi: None, shap: None, permutation: Some(PermutationResult(result)) }
+    fn max_rows(&self) -> usize {
+        PFI_MAX_ROWS
+    }
+    fn data_seed(&self) -> u64 {
+        PFI_SEED_BASE
+    }
+    fn split_seed(&self) -> u64 {
+        PFI_SPLIT_SEED
+    }
+    fn metric_name(&self) -> &'static str {
+        "Permutation"
+    }
+    fn wrap_result(
+        &self,
+        param_names: Vec<String>,
+        objective_name: String,
+        result: TreeImportanceResult,
+    ) -> SensitivityResult {
+        SensitivityResult {
+            param_names,
+            objective_names: vec![objective_name],
+            spearman: vec![],
+            ridge: vec![],
+            rf_anova: None,
+            mdi: None,
+            shap: None,
+            permutation: Some(PermutationResult(result)),
+        }
     }
 }
 
@@ -133,10 +222,22 @@ fn to_tree_importance_result(imp: Vec<f64>, r2: f64) -> TreeImportanceResult {
 impl<M: TreeMetric + Send + Sync> SensitivityMetric for M {
     fn compute(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
         let (param_names, objective_name, x_matrix, y) = tree_extract_data(df, obj_idx)?;
-        let data = prepare_training_data(&x_matrix, &y, self.max_rows(), self.data_seed(), self.split_seed())?;
+        let data = prepare_training_data(
+            &x_matrix,
+            &y,
+            self.max_rows(),
+            self.data_seed(),
+            self.split_seed(),
+        )?;
         let p = param_names.len();
-        let (imp, r2) = self.compute_importances(&data).unwrap_or_else(|| (vec![0.0; p], 0.0));
-        Some(self.wrap_result(param_names, objective_name, to_tree_importance_result(imp, r2)))
+        let (imp, r2) = self
+            .compute_importances(&data)
+            .unwrap_or_else(|| (vec![0.0; p], 0.0));
+        Some(self.wrap_result(
+            param_names,
+            objective_name,
+            to_tree_importance_result(imp, r2),
+        ))
     }
 
     fn name(&self) -> &'static str {

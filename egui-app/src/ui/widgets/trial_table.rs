@@ -44,10 +44,8 @@ impl TrialTableWidget {
                 .collect()
         };
         // 列スライスを view から借用（行クローンを持たない）
-        let param_cols: Vec<Option<&[f64]>> =
-            param_names.iter().map(|nme| view.numeric_column(nme)).collect();
-        let obj_cols: Vec<Option<&[f64]>> =
-            obj_names.iter().map(|nme| view.numeric_column(nme)).collect();
+        let param_cols = view.numeric_columns(&param_names);
+        let obj_cols = view.numeric_columns(&obj_names);
         let trial_ids = &view.trial_ids;
         let pareto_rank = &view.pareto_rank;
 
@@ -59,7 +57,7 @@ impl TrialTableWidget {
         TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
-            .column(Column::auto().at_least(30.0))  // Pin column
+            .column(Column::auto().at_least(30.0)) // Pin column
             .column(Column::auto().at_least(60.0))
             .column(Column::remainder())
             .column(Column::remainder())
@@ -162,9 +160,7 @@ pub fn get_display_rows_with_pins(
         .trial_ids
         .iter()
         .enumerate()
-        .filter(|(_, &id)| {
-            !use_filter || id_set.contains(&id) || pin_set.contains(&id)
-        })
+        .filter(|(_, &id)| !use_filter || id_set.contains(&id) || pin_set.contains(&id))
         .map(|(i, _)| study_ctx.view.row_at(i))
         .collect()
 }

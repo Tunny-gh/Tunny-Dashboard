@@ -102,8 +102,12 @@ impl ParetoScatter2D {
         // view の列スライスから直接点群を構築（行クローンキャッシュを持たない・MEM-002）
         let view = &ctx.view;
         let n = view.row_count();
-        let x_col = obj_names.get(x_idx).and_then(|name| view.numeric_column(name));
-        let y_col = obj_names.get(y_idx).and_then(|name| view.numeric_column(name));
+        let x_col = obj_names
+            .get(x_idx)
+            .and_then(|name| view.numeric_column(name));
+        let y_col = obj_names
+            .get(y_idx)
+            .and_then(|name| view.numeric_column(name));
 
         // パレートフロント(rank==0)と非パレートに分類
         let mut pareto_pts: Vec<[f64; 2]> = Vec::new();
@@ -176,16 +180,14 @@ impl ParetoScatter2D {
 
                 // Draw selection rectangle
                 if let (Some(s), Some(e)) = (current_brush_start, current_brush_end) {
-                    let rect_pts = vec![
-                        [s[0], s[1]],
-                        [e[0], s[1]],
-                        [e[0], e[1]],
-                        [s[0], e[1]],
-                    ];
+                    let rect_pts = vec![[s[0], s[1]], [e[0], s[1]], [e[0], e[1]], [s[0], e[1]]];
                     plot_ui.polygon(
                         egui_plot::Polygon::new(rect_pts)
                             .fill_color(egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40))
-                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 150, 255))),
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                egui::Color32::from_rgb(100, 150, 255),
+                            )),
                     );
                 }
 

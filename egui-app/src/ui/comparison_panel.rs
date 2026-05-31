@@ -25,7 +25,10 @@ pub struct ComparisonDiffRow {
 
 /// 単一目的列の最小値を返す（NaN/Inf 除外）。
 fn col_min(col: &[f64]) -> Option<f64> {
-    col.iter().copied().filter(|v| v.is_finite()).reduce(f64::min)
+    col.iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .reduce(f64::min)
 }
 
 /// base Study と comparison studies の差分行を生成する pure function。
@@ -57,8 +60,7 @@ pub fn build_comparison_diff_rows(
                 };
             }
 
-            let trial_count_delta =
-                comp.trial_count() as i64 - base.trial_count() as i64;
+            let trial_count_delta = comp.trial_count() as i64 - base.trial_count() as i64;
 
             let best_value_delta = base_best.and_then(|b| {
                 comp.meta
@@ -380,28 +382,42 @@ fn show_diff_tab(ui: &mut egui::Ui, app_state: &AppState) {
         .column(Column::auto().at_least(100.0))
         .column(Column::remainder())
         .header(20.0, |mut header| {
-            header.col(|ui| { ui.strong("Study"); });
-            header.col(|ui| { ui.strong("Δ Trials"); });
-            header.col(|ui| { ui.strong("Δ Best Value"); });
-            header.col(|ui| { ui.strong("Pareto Ratio"); });
-            header.col(|ui| { ui.strong("Note"); });
+            header.col(|ui| {
+                ui.strong("Study");
+            });
+            header.col(|ui| {
+                ui.strong("Δ Trials");
+            });
+            header.col(|ui| {
+                ui.strong("Δ Best Value");
+            });
+            header.col(|ui| {
+                ui.strong("Pareto Ratio");
+            });
+            header.col(|ui| {
+                ui.strong("Note");
+            });
         })
         .body(|body| {
             body.rows(18.0, rows.len(), |mut row| {
                 let r = &rows[row.index()];
-                row.col(|ui| { ui.label(&r.study_name); });
+                row.col(|ui| {
+                    ui.label(&r.study_name);
+                });
                 row.col(|ui| {
                     let s = format!("{:+}", r.trial_count_delta);
                     ui.label(s);
                 });
                 row.col(|ui| {
-                    let s = r.best_value_delta
+                    let s = r
+                        .best_value_delta
                         .map(|v| format!("{:+.4}", v))
                         .unwrap_or_else(|| "—".to_string());
                     ui.label(s);
                 });
                 row.col(|ui| {
-                    let s = r.pareto_dominance_ratio
+                    let s = r
+                        .pareto_dominance_ratio
                         .map(|v| format!("{:.1}%", v * 100.0))
                         .unwrap_or_else(|| "—".to_string());
                     ui.label(s);
@@ -476,17 +492,26 @@ mod tests {
     use crate::state::app_state::{Direction, StudyContext, StudyMeta, TrialRow, TrialState};
     use std::collections::HashMap;
 
-    fn make_ctx(name: &str, obj_names: Vec<String>, objectives: Vec<Vec<f64>>, pareto: Vec<u32>) -> StudyContext {
-        let trial_rows = objectives.iter().enumerate().map(|(i, objs)| TrialRow {
-            trial_id: i as u32,
-            trial_number: i as u32,
-            params: HashMap::new(),
-            objectives: objs.clone(),
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        }).collect();
+    fn make_ctx(
+        name: &str,
+        obj_names: Vec<String>,
+        objectives: Vec<Vec<f64>>,
+        pareto: Vec<u32>,
+    ) -> StudyContext {
+        let trial_rows = objectives
+            .iter()
+            .enumerate()
+            .map(|(i, objs)| TrialRow {
+                trial_id: i as u32,
+                trial_number: i as u32,
+                params: HashMap::new(),
+                objectives: objs.clone(),
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            })
+            .collect();
         let meta = StudyMeta {
             study_id: 0,
             name: name.to_string(),
@@ -505,8 +530,18 @@ mod tests {
 
     #[test]
     fn diff_metrics_compute_expected_delta_values() {
-        let base = make_ctx("base", vec!["f".to_string()], vec![vec![1.0], vec![2.0], vec![0.5]], vec![2]);
-        let comp = make_ctx("comp", vec!["f".to_string()], vec![vec![0.3], vec![1.5], vec![0.3], vec![0.3], vec![0.3]], vec![0]);
+        let base = make_ctx(
+            "base",
+            vec!["f".to_string()],
+            vec![vec![1.0], vec![2.0], vec![0.5]],
+            vec![2],
+        );
+        let comp = make_ctx(
+            "comp",
+            vec!["f".to_string()],
+            vec![vec![0.3], vec![1.5], vec![0.3], vec![0.3], vec![0.3]],
+            vec![0],
+        );
         let rows = build_comparison_diff_rows(&base, &[comp]);
         assert_eq!(rows.len(), 1);
         assert!(rows[0].incompatible_reason.is_none());
@@ -520,10 +555,19 @@ mod tests {
     #[test]
     fn diff_metrics_compute_pareto_dominance_ratio() {
         let base = make_ctx("base", vec!["f".to_string()], vec![vec![1.0]], vec![0]);
-        let comp = make_ctx("comp", vec!["f".to_string()], vec![vec![0.5], vec![1.0], vec![1.5], vec![2.0]], vec![0]);
+        let comp = make_ctx(
+            "comp",
+            vec!["f".to_string()],
+            vec![vec![0.5], vec![1.0], vec![1.5], vec![2.0]],
+            vec![0],
+        );
         let rows = build_comparison_diff_rows(&base, &[comp]);
         let ratio = rows[0].pareto_dominance_ratio.unwrap();
-        assert!((ratio - 0.25).abs() < 1e-9, "expected 1/4 = 0.25, got {}", ratio);
+        assert!(
+            (ratio - 0.25).abs() < 1e-9,
+            "expected 1/4 = 0.25, got {}",
+            ratio
+        );
     }
 
     #[test]

@@ -1,11 +1,9 @@
-use crate::state::app_state::{
-    AppState, Direction, StudyContext, StudyView,
-};
+use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
 use crate::state::messages::{AppMessage, DownsampleKey};
-use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 use crate::state::results::{HvHistory, McdmResult};
 use crate::ui::widget_states::WidgetStates;
 use std::collections::HashMap;
+use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 
 /// バックグラウンドタスクからのメッセージを処理するハンドラー
 pub struct MessageHandler;
@@ -307,7 +305,8 @@ impl MessageHandler {
             let un = study.view.df.user_attr_numeric_col_names().to_vec();
             let us = study.view.df.user_attr_string_col_names().to_vec();
             let max_c = study.view.df.constraint_col_names().len();
-            let new_df = DataFrame::from_trials(&all_rows, &param_names, &obj_names, &un, &us, max_c);
+            let new_df =
+                DataFrame::from_trials(&all_rows, &param_names, &obj_names, &un, &us, max_c);
 
             // Pareto ランク再計算
             let is_minimize: Vec<bool> = study
@@ -316,8 +315,10 @@ impl MessageHandler {
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
                 .collect();
-            let objectives: Vec<Vec<f64>> =
-                all_rows.iter().map(|r| r.objective_values.clone()).collect();
+            let objectives: Vec<Vec<f64>> = all_rows
+                .iter()
+                .map(|r| r.objective_values.clone())
+                .collect();
             let ranks = tunny_core::pareto::nd_sort(&objectives, &is_minimize);
             let pareto_indices: Vec<u32> = ranks
                 .iter()

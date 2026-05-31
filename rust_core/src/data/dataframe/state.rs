@@ -273,6 +273,9 @@ mod store_tests {
         store.store_all(vec![(0, df_with_rows(4))]);
         let a = store.snapshot(0).unwrap();
         let b = store.snapshot(0).unwrap();
-        assert!(Arc::ptr_eq(&a, &b), "同一スナップショットは同じ Arc を共有する");
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "同一スナップショットは同じ Arc を共有する"
+        );
     }
 }

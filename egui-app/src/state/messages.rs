@@ -1,6 +1,6 @@
 use crate::state::app_state::{
-    ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext,
-    StudyMeta, TopsisResult,
+    ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext, StudyMeta,
+    TopsisResult,
 };
 use crate::state::results::{AhpResult, EntropyResult};
 
@@ -74,16 +74,13 @@ pub fn cluster_ui_error(
 // ============================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum SurfacePlotRenderMode {
+    #[default]
     Heatmap,
     Contour,
 }
 
-impl Default for SurfacePlotRenderMode {
-    fn default() -> Self {
-        Self::Heatmap
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct SurfacePlotResult {
@@ -258,6 +255,9 @@ mod tests {
 
     #[test]
     fn surface_plot_render_mode_default_is_heatmap() {
-        assert_eq!(SurfacePlotRenderMode::default(), SurfacePlotRenderMode::Heatmap);
+        assert_eq!(
+            SurfacePlotRenderMode::default(),
+            SurfacePlotRenderMode::Heatmap
+        );
     }
 }

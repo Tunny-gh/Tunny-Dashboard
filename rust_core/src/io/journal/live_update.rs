@@ -608,7 +608,10 @@ mod tests {
 
             assert_eq!(result.new_trial_rows.len(), 1);
             let row = &result.new_trial_rows[0];
-            assert_eq!(row.param_categories.get("color"), Some(&"green".to_string()));
+            assert_eq!(
+                row.param_categories.get("color"),
+                Some(&"green".to_string())
+            );
             assert!(!row.params.contains_key("color"));
         });
     }
@@ -629,7 +632,11 @@ mod tests {
             assert_eq!(result.new_trial_rows.len(), 1);
             let row = &result.new_trial_rows[0];
             let decoded = row.params.get("lr").copied().unwrap_or(0.0);
-            assert!((decoded - 2.0).abs() < 1e-6, "expected ~2.0, got {}", decoded);
+            assert!(
+                (decoded - 2.0).abs() < 1e-6,
+                "expected ~2.0, got {}",
+                decoded
+            );
         });
     }
 

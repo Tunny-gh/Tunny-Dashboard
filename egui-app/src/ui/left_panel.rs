@@ -207,7 +207,7 @@ fn show_colormap_selector(
 
 #[cfg(test)]
 mod tests {
-    
+
     use crate::state::app_state::{AppState, ColorMode};
     use crate::state::layout_state::ChartId;
 

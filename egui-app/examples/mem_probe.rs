@@ -115,16 +115,15 @@ fn main() {
                         }
                     }
                 }
-                let objectives: Vec<f64> = v
-                    .df
-                    .objective_col_names()
-                    .iter()
-                    .map(|name| {
-                        v.df.get_numeric_column(name)
-                            .and_then(|c| c.get(i).copied())
-                            .unwrap_or(0.0)
-                    })
-                    .collect();
+                let objectives: Vec<f64> =
+                    v.df.objective_col_names()
+                        .iter()
+                        .map(|name| {
+                            v.df.get_numeric_column(name)
+                                .and_then(|c| c.get(i).copied())
+                                .unwrap_or(0.0)
+                        })
+                        .collect();
                 TrialRow {
                     trial_id: v.trial_ids.get(i).copied().unwrap_or(i as u32),
                     trial_number: i as u32,
@@ -181,7 +180,10 @@ fn main() {
     println!(
         "columns (param+obj) : {n_cols}  (例: {} params + {} obj)",
         studies.first().map(|s| s.param_names.len()).unwrap_or(0),
-        studies.first().map(|s| s.objective_names.len()).unwrap_or(0),
+        studies
+            .first()
+            .map(|s| s.objective_names.len())
+            .unwrap_or(0),
     );
     println!("-------------------------------------------------------------------");
     println!("[load peak]");

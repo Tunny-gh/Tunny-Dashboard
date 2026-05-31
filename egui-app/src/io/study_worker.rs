@@ -142,7 +142,9 @@ fn load_comparison_study_task(
         AppMessage::Error(e) => AppMessage::ComparisonStudyLoadFailed(e),
         other => {
             let _ = other;
-            AppMessage::ComparisonStudyLoadFailed("Unexpected response from study loader.".to_string())
+            AppMessage::ComparisonStudyLoadFailed(
+                "Unexpected response from study loader.".to_string(),
+            )
         }
     }
 }
@@ -183,7 +185,11 @@ mod tests {
 
     #[test]
     fn choose_matching_study_if_name_exists() {
-        let studies = vec![make_meta("study_a"), make_meta("study_b"), make_meta("study_c")];
+        let studies = vec![
+            make_meta("study_a"),
+            make_meta("study_b"),
+            make_meta("study_c"),
+        ];
         let chosen = choose_comparison_study(&studies, "study_b").unwrap();
         assert_eq!(chosen.name, "study_b");
     }

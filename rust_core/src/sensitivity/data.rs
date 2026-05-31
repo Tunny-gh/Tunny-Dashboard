@@ -1,5 +1,5 @@
-use crate::math::rng::SeededRng;
 use crate::dataframe::DataFrame;
+use crate::math::rng::SeededRng;
 
 pub(super) fn get_param_numeric_values(
     df: &DataFrame,

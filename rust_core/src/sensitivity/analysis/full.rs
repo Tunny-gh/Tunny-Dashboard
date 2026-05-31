@@ -16,7 +16,8 @@ pub fn compute_sensitivity_single_obj(
     metrics: Vec<Box<dyn SensitivityMetric>>,
     obj_idx: usize,
 ) -> Vec<SensitivityResult> {
-    metrics.iter()
+    metrics
+        .iter()
         .filter_map(|m| m.compute(df, obj_idx))
         .collect()
 }

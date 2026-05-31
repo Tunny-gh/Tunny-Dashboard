@@ -2,11 +2,15 @@ use super::super::constants::{
     RF_ANOVA_MAX_ROWS, RF_ANOVA_RF_MAX_DEPTH, RF_ANOVA_RF_MIN_SAMPLES_LEAF, RF_ANOVA_RF_TREES,
     RF_ANOVA_SEED,
 };
-use super::common::{normalize, permute_column_inplace, restore_column, run_importances_pipeline, PreparedData};
+use super::common::{
+    normalize, permute_column_inplace, restore_column, run_importances_pipeline, PreparedData,
+};
 use crate::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 
 /// 前処理済みデータから RF-ANOVA 重要度を計算する（`metrics::RfAnovaMetric` からも呼ばれる）。
-pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+pub(in crate::sensitivity) fn compute_from_prepared(
+    data: &PreparedData,
+) -> Option<(Vec<f64>, f64)> {
     let p = data.x_shuffled[0].len();
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let config = LgbmRfConfig {
@@ -44,5 +48,12 @@ pub(in crate::sensitivity) fn compute_from_prepared(data: &PreparedData) -> Opti
 }
 
 pub fn compute_rf_anova_importances(x_matrix: &[Vec<f64>], y: &[f64]) -> (Vec<f64>, f64) {
-    run_importances_pipeline(x_matrix, y, RF_ANOVA_MAX_ROWS, RF_ANOVA_SEED, RF_ANOVA_SEED.wrapping_add(1), compute_from_prepared)
+    run_importances_pipeline(
+        x_matrix,
+        y,
+        RF_ANOVA_MAX_ROWS,
+        RF_ANOVA_SEED,
+        RF_ANOVA_SEED.wrapping_add(1),
+        compute_from_prepared,
+    )
 }

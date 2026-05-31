@@ -110,8 +110,7 @@ impl TunnyApp {
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
                 }
                 ToolbarAction::ToggleLiveUpdate => {
-                    self.app_state.live_update.enabled =
-                        !self.app_state.live_update.enabled;
+                    self.app_state.live_update.enabled = !self.app_state.live_update.enabled;
                     if self.app_state.live_update.enabled {
                         self.restart_poller();
                     } else {
@@ -235,9 +234,7 @@ impl TunnyApp {
             return;
         };
 
-        let byte_offset = std::fs::metadata(file_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let byte_offset = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
 
         let next_trial_id = self
             .app_state

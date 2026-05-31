@@ -82,7 +82,6 @@ impl AppState {
                 .collect();
         }
     }
-
 }
 
 // ============================================================
@@ -95,7 +94,6 @@ mod tests {
 
     use super::*;
     use crate::state::app_state::*;
-    
 
     fn make_study_ctx_with_params() -> StudyContext {
         let mut params0 = HashMap::new();

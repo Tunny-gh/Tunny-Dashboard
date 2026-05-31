@@ -1,10 +1,10 @@
 use std::ffi::{CStr, CString};
 
-use crate::math::grid::linspace;
 use crate::lgbm_sys::{
     self, BoosterHandle, DatasetHandle, C_API_DTYPE_FLOAT32, C_API_DTYPE_FLOAT64,
     C_API_FEATURE_IMPORTANCE_GAIN, C_API_PREDICT_CONTRIB, C_API_PREDICT_NORMAL,
 };
+use crate::math::grid::linspace;
 
 // ── Error ────────────────────────────────────────────────────────────────────
 

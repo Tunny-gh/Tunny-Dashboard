@@ -1,14 +1,14 @@
 pub mod clustering;
 pub mod convergence;
 pub mod data;
+pub mod io;
 pub(crate) mod kriging;
 pub(crate) mod lgbm;
-pub(crate) mod math;
-pub(crate) mod optimization;
-pub mod io;
 pub(crate) mod lgbm_sys;
+pub(crate) mod math;
 pub mod mcdm;
 pub mod multi_objective;
+pub(crate) mod optimization;
 pub mod pdp;
 pub mod sampling;
 pub mod sensitivity;
