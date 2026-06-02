@@ -140,3 +140,11 @@ pub const COLOR_EMPTY_STATE: Color32 = Color32::from_rgb(95, 99, 104);
 
 /// ヒートマップ・マトリクス系のグリッド線色
 pub const COLOR_GRID_STROKE: Color32 = Color32::from_rgb(218, 220, 224);
+
+// ====================================================================
+// 実行不可能解（制約違反）
+// ====================================================================
+
+/// 実行不可能解のグレーアウト色（premultiplied）
+/// premultiplied: rgb(180,180,180) × 80/255 ≈ 56,56,56; alpha = 80
+pub const COLOR_INFEASIBLE: Color32 = Color32::from_rgba_premultiplied(56, 56, 56, 80);

@@ -84,6 +84,15 @@ pub struct WidgetStates {
 }
 
 impl WidgetStates {
+    /// Study 切替時に全チャートの show_infeasible フラグを true にリセットする。
+    pub fn reset_infeasible_flags(&mut self) {
+        self.pareto_2d.show_infeasible = true;
+        self.pareto_3d.show_infeasible = true;
+        self.opt_history.show_infeasible = true;
+        self.parallel_coords.show_infeasible = true;
+        self.scatter_matrix.show_infeasible = true;
+    }
+
     /// 色モード・カラーマップ・MCDM結果の変化を描画色キャッシュへ反映する。
     /// `StudySelected` 後、色設定変更後、`McdmDone` 後に呼び出すことを想定する。
     pub fn update_chart_colors(&mut self, app_state: &AppState) {

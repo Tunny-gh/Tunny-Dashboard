@@ -127,6 +127,26 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     ranks
 }
 
+fn compute_hypervolume(
+    pareto_indices: &[u32],
+    objectives: &[Vec<f64>],
+    is_minimize: &[bool],
+    m: usize,
+) -> Option<f64> {
+    if m >= 2 && pareto_indices.len() >= 2 {
+        let pareto_objs: Vec<Vec<f64>> = pareto_indices
+            .iter()
+            .map(|&i| objectives[i as usize].clone())
+            .collect();
+        let norm_pareto = normalize_objectives(&pareto_objs, is_minimize);
+        let ref_pt = compute_ref_point(&norm_pareto, m);
+        let pts_2d: Vec<(f64, f64)> = norm_pareto.iter().map(|obj| (obj[0], obj[1])).collect();
+        Some(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]))
+    } else {
+        None
+    }
+}
+
 /// Documentation.
 ///
 /// Documentation.
@@ -157,32 +177,72 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
             })
             .collect();
 
-        let ranks = nd_sort(&objectives, is_minimize);
-        let pareto_indices: Vec<u32> = ranks
+        let is_feasible_col = df.get_numeric_column("is_feasible");
+        let constraint_sum_col = df.get_numeric_column("constraint_sum");
+
+        if is_feasible_col.is_none() {
+            // 制約なし: 従来フロー
+            let ranks = nd_sort(&objectives, is_minimize);
+            let pareto_indices: Vec<u32> = ranks
+                .iter()
+                .enumerate()
+                .filter(|(_, &r)| r == 0)
+                .map(|(i, _)| i as u32)
+                .collect();
+            let hypervolume = compute_hypervolume(&pareto_indices, &objectives, is_minimize, m);
+            return ParetoResult { ranks, pareto_indices, hypervolume };
+        }
+
+        // 制約あり: feasible/infeasible 分離フロー
+        let is_feasible_vals = is_feasible_col.unwrap();
+
+        let feasible_indices: Vec<usize> = (0..n)
+            .filter(|&i| is_feasible_vals.get(i).copied().unwrap_or(1.0) > 0.5)
+            .collect();
+        let feasible_objectives: Vec<Vec<f64>> = feasible_indices
             .iter()
-            .enumerate()
-            .filter(|(_, &r)| r == 0)
-            .map(|(i, _)| i as u32)
+            .map(|&i| objectives[i].clone())
             .collect();
 
-        let hypervolume = if m >= 2 && pareto_indices.len() >= 2 {
-            let pareto_objs: Vec<Vec<f64>> = pareto_indices
-                .iter()
-                .map(|&i| objectives[i as usize].clone())
-                .collect();
-            let norm_pareto = normalize_objectives(&pareto_objs, is_minimize);
-            let ref_pt = compute_ref_point(&norm_pareto, m);
-            let pts_2d: Vec<(f64, f64)> = norm_pareto.iter().map(|obj| (obj[0], obj[1])).collect();
-            Some(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]))
+        let mut ranks = vec![0u32; n];
+
+        let max_feasible_rank = if feasible_objectives.is_empty() {
+            0u32
         } else {
-            None
+            let feasible_ranks = nd_sort(&feasible_objectives, is_minimize);
+            let max_r = feasible_ranks.iter().max().copied().unwrap_or(0);
+            for (k, &orig_idx) in feasible_indices.iter().enumerate() {
+                ranks[orig_idx] = feasible_ranks[k];
+            }
+            max_r
         };
 
-        ParetoResult {
-            ranks,
-            pareto_indices,
-            hypervolume,
+        let mut infeasible_with_sum: Vec<(usize, f64)> = (0..n)
+            .filter(|&i| is_feasible_vals.get(i).copied().unwrap_or(1.0) <= 0.5)
+            .map(|i| {
+                let sum = constraint_sum_col
+                    .and_then(|col| col.get(i))
+                    .copied()
+                    .unwrap_or(0.0);
+                (i, sum)
+            })
+            .collect();
+        infeasible_with_sum
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        for (violation_rank, (orig_idx, _)) in infeasible_with_sum.iter().enumerate() {
+            ranks[*orig_idx] = max_feasible_rank + 1 + violation_rank as u32;
         }
+
+        let pareto_indices: Vec<u32> = feasible_indices
+            .iter()
+            .filter(|&&i| ranks[i] == 0)
+            .map(|&i| i as u32)
+            .collect();
+
+        let hypervolume = compute_hypervolume(&pareto_indices, &objectives, is_minimize, m);
+
+        ParetoResult { ranks, pareto_indices, hypervolume }
     })
     .unwrap_or(ParetoResult {
         ranks: vec![],

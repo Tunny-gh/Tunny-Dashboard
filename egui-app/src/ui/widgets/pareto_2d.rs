@@ -1,6 +1,7 @@
 use crate::state::app_state::{AppState, TrialRow};
 use crate::theme::chart_colors::{
-    COLOR_HIGHLIGHT_PT, COLOR_NON_PARETO, COLOR_NON_PARETO_DIM, COLOR_PARETO, COLOR_PARETO_DIM,
+    COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_NON_PARETO_DIM, COLOR_PARETO,
+    COLOR_PARETO_DIM,
 };
 use crate::theme::color_compute::compute_point_alpha;
 
@@ -38,6 +39,8 @@ pub struct ParetoScatter2D {
     // TASK-2241: rectangular brush state (plot coordinates)
     pub brush_start: Option<[f64; 2]>,
     pub brush_end: Option<[f64; 2]>,
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
 }
 
 impl Default for ParetoScatter2D {
@@ -48,6 +51,7 @@ impl Default for ParetoScatter2D {
             use_downsample: true,
             brush_start: None,
             brush_end: None,
+            show_infeasible: true,
         }
     }
 }
@@ -62,6 +66,7 @@ impl ParetoScatter2D {
         };
 
         let obj_names = ctx.meta.objective_names.clone();
+        let has_constraints = ctx.meta.has_constraints;
         let downsample_indices = if self.use_downsample {
             app_state.downsample_cache.scatter.clone()
         } else {
@@ -70,7 +75,7 @@ impl ParetoScatter2D {
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
-        // 軸割り当て ComboBox
+        // 軸割り当て ComboBox + Show Infeasible トグル
         ui.horizontal(|ui| {
             ui.label("X Axis:");
             egui::ComboBox::from_id_salt("x_axis_combo")
@@ -88,6 +93,10 @@ impl ParetoScatter2D {
                         ui.selectable_value(&mut self.y_axis, name.clone(), name);
                     }
                 });
+            if has_constraints {
+                ui.separator();
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            }
         });
 
         let x_idx = obj_names
@@ -114,9 +123,12 @@ impl ParetoScatter2D {
         let mut pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
+        let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
         // ブラシ矩形選択用に (trial_id, 点) を保持（行クローンを持たない）
         let mut displayed_points: Vec<(u32, [f64; 2])> = Vec::new();
+
+        let is_feasible_col = view.numeric_column("is_feasible");
 
         let displayed: Vec<usize> = match downsample_indices.as_deref() {
             Some(idx) => idx.iter().map(|&i| i as usize).filter(|&i| i < n).collect(),
@@ -127,8 +139,21 @@ impl ParetoScatter2D {
             let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let pt = [x, y];
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
             displayed_points.push((trial_id, pt));
+
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(i))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+
+            if !feasible {
+                if self.show_infeasible {
+                    infeasible_pts.push(pt);
+                }
+                continue;
+            }
+
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
 
             if highlighted == Some(trial_id) {
                 highlight_pt = Some(pt);
@@ -191,6 +216,15 @@ impl ParetoScatter2D {
                     );
                 }
 
+                // 実行不可能解（最背面: グレーアウト）
+                if !infeasible_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(infeasible_pts)
+                            .name("Infeasible")
+                            .color(COLOR_INFEASIBLE)
+                            .radius(2.5),
+                    );
+                }
                 // 非パレート（青点）
                 if !non_pareto_pts_dim.is_empty() {
                     plot_ui.points(
@@ -270,6 +304,27 @@ pub fn point_in_rect(pt: [f64; 2], corner1: [f64; 2], corner2: [f64; 2]) -> bool
     let y_min = corner1[1].min(corner2[1]);
     let y_max = corner1[1].max(corner2[1]);
     pt[0] >= x_min && pt[0] <= x_max && pt[1] >= y_min && pt[1] <= y_max
+}
+
+/// 表示インデックスを feasible / infeasible に分類する。
+/// is_feasible_col が None（制約なし Study）の場合は全件を feasible に分類する。
+pub fn classify_by_feasibility(
+    is_feasible_col: Option<&[f64]>,
+    indices: &[usize],
+) -> (Vec<usize>, Vec<usize>) {
+    let Some(col) = is_feasible_col else {
+        return (indices.to_vec(), vec![]);
+    };
+    let mut feasible = Vec::with_capacity(indices.len());
+    let mut infeasible = Vec::with_capacity(indices.len());
+    for &i in indices {
+        if col.get(i).map(|&v| v > 0.5).unwrap_or(true) {
+            feasible.push(i);
+        } else {
+            infeasible.push(i);
+        }
+    }
+    (feasible, infeasible)
 }
 
 /// 矩形内に含まれる trial の ID リストを返す（TASK-2241）
@@ -469,5 +524,49 @@ mod tests {
         let widget = ParetoScatter2D::default();
         assert!(widget.brush_start.is_none());
         assert!(widget.brush_end.is_none());
+    }
+
+    // ── constraint-aware visualization (TASK-2347) ──────────────────
+
+    #[test]
+    fn tc_cav_pareto2d_show_infeasible_default_true() {
+        let widget = ParetoScatter2D::default();
+        assert!(widget.show_infeasible, "show_infeasible must default to true");
+    }
+
+    #[test]
+    fn tc_cav_classify_no_constraint_all_feasible() {
+        let indices = vec![0usize, 1, 2];
+        let (feasible, infeasible) = classify_by_feasibility(None, &indices);
+        assert_eq!(feasible.len(), 3);
+        assert!(infeasible.is_empty());
+    }
+
+    #[test]
+    fn tc_cav_classify_mixed_feasibility() {
+        // is_feasible: [1.0, 0.0, 1.0] → idx 0,2 feasible; idx 1 infeasible
+        let col = vec![1.0f64, 0.0, 1.0];
+        let indices = vec![0usize, 1, 2];
+        let (feasible, infeasible) = classify_by_feasibility(Some(&col), &indices);
+        assert_eq!(feasible, vec![0, 2]);
+        assert_eq!(infeasible, vec![1]);
+    }
+
+    #[test]
+    fn tc_cav_classify_all_infeasible() {
+        let col = vec![0.0f64, 0.0, 0.0];
+        let indices = vec![0usize, 1, 2];
+        let (feasible, infeasible) = classify_by_feasibility(Some(&col), &indices);
+        assert!(feasible.is_empty());
+        assert_eq!(infeasible.len(), 3);
+    }
+
+    #[test]
+    fn tc_cav_classify_all_feasible_with_constraint_col() {
+        let col = vec![1.0f64, 1.0, 1.0];
+        let indices = vec![0usize, 1, 2];
+        let (feasible, infeasible) = classify_by_feasibility(Some(&col), &indices);
+        assert_eq!(feasible.len(), 3);
+        assert!(infeasible.is_empty());
     }
 }

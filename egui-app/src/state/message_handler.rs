@@ -49,6 +49,7 @@ impl MessageHandler {
                 widget_states.hv_history.computing = false;
                 widget_states.ahp_chart = Default::default();
                 widget_states.cluster_scatter = Default::default();
+                widget_states.reset_infeasible_flags();
                 *is_loading = false;
                 widget_states.update_chart_colors(app_state);
             }

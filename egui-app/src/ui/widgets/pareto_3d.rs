@@ -1,7 +1,7 @@
 use crate::state::app_state::AppState;
 use crate::theme::chart_colors::{
     COLOR_3D_BG, COLOR_3D_GRID, COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z, COLOR_HIGHLIGHT_PT,
-    COLOR_NON_PARETO, COLOR_PARETO,
+    COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO,
 };
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::TOOLBAR_BTN_FG;
@@ -97,6 +97,8 @@ pub struct Pareto3dChart {
     pub camera: ArcballCamera,
     range_cache: [(f64, f64); 3],
     range_cache_key: (usize, usize, usize, usize), // (x_obj, y_obj, z_obj, trial_count)
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
 }
 
 impl Default for Pareto3dChart {
@@ -114,6 +116,7 @@ impl Default for Pareto3dChart {
             camera,
             range_cache: [(-1.0, 1.0); 3],
             range_cache_key: (usize::MAX, usize::MAX, usize::MAX, 0),
+            show_infeasible: true,
         }
     }
 }
@@ -197,10 +200,16 @@ impl Pareto3dChart {
         }
         let [(x_min, x_max), (y_min, y_max), (z_min, z_max)] = self.range_cache;
 
+        let has_constraints = ctx.meta.has_constraints;
+
         ui.horizontal(|ui| {
             show_objective_combo(ui, "X:", "pareto3d_x", &mut self.x_objective, obj_names);
             show_objective_combo(ui, "Y:", "pareto3d_y", &mut self.y_objective, obj_names);
             show_objective_combo(ui, "Z:", "pareto3d_z", &mut self.z_objective, obj_names);
+            if has_constraints {
+                ui.separator();
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            }
         });
 
         let available = ui.available_size();
@@ -323,6 +332,7 @@ impl Pareto3dChart {
         let z_col = obj_names
             .get(self.z_objective)
             .and_then(|n| view.numeric_column(n));
+        let is_feasible_col = view.numeric_column("is_feasible");
 
         let displayed: Vec<usize> = match downsample_indices.as_deref() {
             Some(idx) => idx
@@ -332,9 +342,13 @@ impl Pareto3dChart {
                 .collect(),
             None => (0..trial_count).collect(),
         };
+        // feasible 点（奥→手前でソート）と infeasible 点（背面固定）を分けて収集する
         let mut draw_calls: Vec<(egui::Pos2, f32, egui::Color32, f32)> =
             Vec::with_capacity(displayed.len());
+        let mut infeasible_draw_calls: Vec<(egui::Pos2, f32, egui::Color32, f32)> =
+            Vec::with_capacity(32);
         let mut highlight_call: Option<egui::Pos2> = None;
+        let show_infeasible = self.show_infeasible;
 
         for i in displayed {
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
@@ -348,6 +362,18 @@ impl Pareto3dChart {
             let (screen_pos, depth) = project(clip);
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(i))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+
+            if !feasible {
+                if show_infeasible {
+                    infeasible_draw_calls.push((screen_pos, depth, COLOR_INFEASIBLE, 3.0));
+                }
+                continue;
+            }
+
             if highlighted == Some(trial_id) {
                 highlight_call = Some(screen_pos);
                 continue;
@@ -355,25 +381,18 @@ impl Pareto3dChart {
 
             let alpha = compute_point_alpha(trial_id, selected);
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            let (base_color, radius) = if rank == 0 {
-                (COLOR_PARETO, 5.0_f32)
-            } else {
-                (COLOR_NON_PARETO, 3.0_f32)
-            };
-            let color = if alpha == 255 {
-                base_color
-            } else {
-                egui::Color32::from_rgba_unmultiplied(
-                    base_color.r(),
-                    base_color.g(),
-                    base_color.b(),
-                    60,
-                )
-            };
+            let (color, radius) = determine_point_color_3d(rank, alpha);
             draw_calls.push((screen_pos, depth, color, radius));
         }
 
-        // 奥から手前の順（ペインターズアルゴリズム）
+        // infeasible 点を最背面に描画（ペインターズアルゴリズムで背景に）
+        infeasible_draw_calls
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (pos, _, color, radius) in &infeasible_draw_calls {
+            painter.circle_filled(*pos, *radius, *color);
+        }
+
+        // feasible 点を奥から手前の順（ペインターズアルゴリズム）
         draw_calls.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         for (pos, _, color, radius) in &draw_calls {
@@ -390,6 +409,22 @@ impl Pareto3dChart {
 /// ズーム値を有効範囲にクランプする
 pub fn clamp_zoom(zoom: f32, min: f32, max: f32) -> f32 {
     zoom.clamp(min, max)
+}
+
+/// Pareto ランク・選択状態から 3D 点（feasible のみ）の描画色とサイズを返す。
+/// infeasible 点の除外と COLOR_INFEASIBLE 適用は呼び出し元で行う。
+pub fn determine_point_color_3d(rank: u32, alpha: u8) -> (egui::Color32, f32) {
+    let (base_color, radius) = if rank == 0 {
+        (COLOR_PARETO, 5.0_f32)
+    } else {
+        (COLOR_NON_PARETO, 3.0_f32)
+    };
+    let color = if alpha == 255 {
+        base_color
+    } else {
+        egui::Color32::from_rgba_unmultiplied(base_color.r(), base_color.g(), base_color.b(), 60)
+    };
+    (color, radius)
 }
 
 /// 3D 正規化座標: データ範囲 [v_min, v_max] を [-1, 1] に変換する
@@ -505,6 +540,33 @@ mod tests {
         let mut cam = ArcballCamera::default();
         cam.rotate_by_drag(100.0, 0.0);
         assert!(!cam.is_identity_rotation());
+    }
+
+    // ── constraint-aware visualization (TASK-2348) ──────────────────
+
+    #[test]
+    fn tc_cav_pareto3d_show_infeasible_default_true() {
+        let chart = Pareto3dChart::default();
+        assert!(chart.show_infeasible, "show_infeasible must default to true");
+    }
+
+    #[test]
+    fn tc_cav_pareto_front_returns_pareto_color() {
+        let (color, radius) = determine_point_color_3d(0, 255);
+        assert_eq!(color, COLOR_PARETO);
+        assert!((radius - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn tc_cav_non_pareto_returns_non_pareto_color() {
+        let (color, _radius) = determine_point_color_3d(1, 255);
+        assert_eq!(color, COLOR_NON_PARETO);
+    }
+
+    #[test]
+    fn tc_cav_dimmed_point_uses_alpha_60() {
+        let (color, _) = determine_point_color_3d(0, 60);
+        assert_eq!(color.a(), 60);
     }
 
     #[test]

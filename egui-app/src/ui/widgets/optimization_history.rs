@@ -1,6 +1,6 @@
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{
-    COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
+    COLOR_INFEASIBLE, COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +31,8 @@ pub struct OptimizationHistoryChart {
     pub show_best_line: bool,
     /// REQ-008: Y 軸対数スケール切替
     pub log_scale: bool,
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
 }
 
 impl Default for OptimizationHistoryChart {
@@ -43,6 +45,7 @@ impl Default for OptimizationHistoryChart {
             obj_idx: 0,
             show_best_line: true,
             log_scale: false,
+            show_infeasible: true,
         }
     }
 }
@@ -77,6 +80,9 @@ impl OptimizationHistoryChart {
             .get(self.obj_idx)
             .map(|d| matches!(d, Direction::Minimize))
             .unwrap_or(true);
+
+        let is_feasible_col = view.numeric_column("is_feasible");
+        let has_constraints = is_feasible_col.is_some();
 
         ui.horizontal(|ui| {
             if ui.selectable_label(self.show_all, "All Trials").clicked() {
@@ -121,7 +127,15 @@ impl OptimizationHistoryChart {
             if ui.selectable_label(self.log_scale, "Log Scale").clicked() {
                 self.log_scale = !self.log_scale;
             }
+
+            // 制約あり Study のみ "Show Infeasible" トグルを表示
+            if has_constraints {
+                ui.separator();
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            }
         });
+
+        let show_infeasible = self.show_infeasible;
 
         let values: Vec<f64> = obj_names
             .get(self.obj_idx)
@@ -136,24 +150,39 @@ impl OptimizationHistoryChart {
         let show_moving_avg = self.show_moving_avg;
         let window_size = self.window_size;
 
+        // All Trials の feasible / infeasible 分割（制約あり Study のみ分岐）
+        let (feasible_vals, infeasible_vals) =
+            partition_history_by_feasibility(&values, is_feasible_col);
+
         egui_plot::Plot::new("optimization_history_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
                 if show_all && !values.is_empty() {
-                    let pts: egui_plot::PlotPoints = values
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &v)| {
-                            let y = if log_scale && v > 0.0 { v.ln() } else { v };
-                            [i as f64, y]
-                        })
-                        .collect();
-                    plot_ui.points(
-                        egui_plot::Points::new(pts)
-                            .name("All Trials")
-                            .color(COLOR_OPT_TRIAL)
-                            .radius(1.5),
-                    );
+                    let apply_log = |[x, v]: [f64; 2]| -> [f64; 2] {
+                        [x, if log_scale && v > 0.0 { v.ln() } else { v }]
+                    };
+                    // infeasible を背面に描画
+                    if show_infeasible && !infeasible_vals.is_empty() {
+                        let pts: egui_plot::PlotPoints =
+                            infeasible_vals.iter().copied().map(apply_log).collect();
+                        plot_ui.points(
+                            egui_plot::Points::new(pts)
+                                .name("Infeasible")
+                                .color(COLOR_INFEASIBLE)
+                                .radius(1.5),
+                        );
+                    }
+                    // feasible 点（制約なし Study は全点 feasible_vals に入る）
+                    if !feasible_vals.is_empty() {
+                        let pts: egui_plot::PlotPoints =
+                            feasible_vals.iter().copied().map(apply_log).collect();
+                        plot_ui.points(
+                            egui_plot::Points::new(pts)
+                                .name("All Trials")
+                                .color(COLOR_OPT_TRIAL)
+                                .radius(1.5),
+                        );
+                    }
                 }
 
                 if show_best && !values.is_empty() {
@@ -209,6 +238,29 @@ impl OptimizationHistoryChart {
                 }
             });
     }
+}
+
+/// feasibility に基づいて目的値列を feasible / infeasible 点列に分割する。
+/// `is_feasible_col` が None（制約なし Study）の場合は全点を feasible に分類する。
+/// 戻り値: (feasible_pts, infeasible_pts) いずれも [trial_idx, value] 形式。
+pub fn partition_history_by_feasibility(
+    values: &[f64],
+    is_feasible_col: Option<&[f64]>,
+) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
+    let mut feasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
+    let mut infeasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
+    for (i, &v) in values.iter().enumerate() {
+        let feas = is_feasible_col
+            .and_then(|c| c.get(i))
+            .map(|&f| f > 0.5)
+            .unwrap_or(true);
+        if feas {
+            feasible.push([i as f64, v]);
+        } else {
+            infeasible.push([i as f64, v]);
+        }
+    }
+    (feasible, infeasible)
 }
 
 /// view から [trial_idx, value] の点列を計算する
@@ -355,6 +407,42 @@ mod tests {
         let mut log_scale = false;
         log_scale = !log_scale;
         assert!(log_scale);
+    }
+
+    // ── constraint-aware visualization (TASK-2349) ──────────────────
+
+    #[test]
+    fn tc_cav_opt_history_show_infeasible_default_true() {
+        let chart = OptimizationHistoryChart::default();
+        assert!(chart.show_infeasible);
+    }
+
+    #[test]
+    fn tc_cav_partition_history_no_constraints_all_feasible() {
+        let values = vec![1.0, 2.0, 3.0];
+        let (f, inf) = partition_history_by_feasibility(&values, None);
+        assert_eq!(f.len(), 3);
+        assert!(inf.is_empty());
+    }
+
+    #[test]
+    fn tc_cav_partition_history_mixed() {
+        let values = vec![1.0, 2.0, 3.0];
+        let is_feasible = vec![1.0_f64, 0.0, 1.0]; // idx 1 = infeasible
+        let (f, inf) = partition_history_by_feasibility(&values, Some(&is_feasible));
+        assert_eq!(f.len(), 2);
+        assert_eq!(inf.len(), 1);
+        assert_eq!(inf[0][0], 1.0); // trial_idx=1
+        assert_eq!(inf[0][1], 2.0); // value=2.0
+    }
+
+    #[test]
+    fn tc_cav_partition_history_all_infeasible() {
+        let values = vec![1.0, 2.0];
+        let is_feasible = vec![0.0_f64, 0.0];
+        let (f, inf) = partition_history_by_feasibility(&values, Some(&is_feasible));
+        assert!(f.is_empty());
+        assert_eq!(inf.len(), 2);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_SCATTER_DOT};
+use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_INFEASIBLE, COLOR_SCATTER_DOT};
 use crate::theme::color_compute::correlation_color;
 
 /// Scatter Matrix の1セルタイプ
@@ -28,15 +28,24 @@ pub struct ScatterMatrix {
     pub mode: MatrixMode,
     pub sort: AxisSort,
     pub selected_cell: Option<(usize, usize)>,
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
 }
 
-impl ScatterMatrix {
-    pub fn new() -> Self {
+impl Default for ScatterMatrix {
+    fn default() -> Self {
         Self {
             mode: MatrixMode::ParamsVsParams,
             sort: AxisSort::Alphabetical,
             selected_cell: None,
+            show_infeasible: true,
         }
+    }
+}
+
+impl ScatterMatrix {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// 散布図行列を描画する
@@ -72,6 +81,20 @@ impl ScatterMatrix {
             .map(|name| view.numeric_column(name).unwrap_or(&[]))
             .collect();
 
+        let is_feasible_col = view.numeric_column("is_feasible");
+        let has_constraints = is_feasible_col.is_some();
+
+        // "Show Infeasible" トグル（制約あり Study のみ表示）
+        if has_constraints {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            });
+        }
+
+        let (feasible_indices, infeasible_indices) =
+            split_feasibility_indices(trial_count, is_feasible_col);
+        let show_infeasible = self.show_infeasible;
+
         let available = ui.available_rect_before_wrap();
         let cell_w = available.width() / n as f32;
         let cell_h = available.height() / n as f32;
@@ -82,6 +105,7 @@ impl ScatterMatrix {
         } else {
             chart_colors.to_vec()
         };
+        let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE; trial_count];
 
         for row in 0..n {
             for col in 0..n {
@@ -95,14 +119,37 @@ impl ScatterMatrix {
                     draw_correlation_cell(&painter, cell_rect, cols[row], cols[col]);
                 } else {
                     // 下三角: 散布図
-                    draw_scatter_cell(
-                        &painter,
-                        cell_rect,
-                        cols[col],
-                        cols[row],
-                        &point_colors,
-                        None,
-                    );
+                    if has_constraints {
+                        // infeasible を背面に描画（show_infeasible=true のみ）
+                        if show_infeasible && !infeasible_indices.is_empty() {
+                            draw_scatter_cell(
+                                &painter,
+                                cell_rect,
+                                cols[col],
+                                cols[row],
+                                &infeasible_colors,
+                                Some(&infeasible_indices),
+                            );
+                        }
+                        // feasible を前面に描画
+                        draw_scatter_cell(
+                            &painter,
+                            cell_rect,
+                            cols[col],
+                            cols[row],
+                            &point_colors,
+                            Some(&feasible_indices),
+                        );
+                    } else {
+                        draw_scatter_cell(
+                            &painter,
+                            cell_rect,
+                            cols[col],
+                            cols[row],
+                            &point_colors,
+                            None,
+                        );
+                    }
                 }
             }
         }
@@ -111,9 +158,29 @@ impl ScatterMatrix {
     }
 }
 
-impl Default for ScatterMatrix {
-    fn default() -> Self {
-        Self::new()
+/// is_feasible 列から infeasible / feasible インデックスリストを構築する。
+/// `is_feasible_col` が None の場合は全件を feasible 扱いとする。
+pub fn split_feasibility_indices(
+    n: usize,
+    is_feasible_col: Option<&[f64]>,
+) -> (Vec<u32>, Vec<u32>) {
+    match is_feasible_col {
+        None => {
+            let all: Vec<u32> = (0..n as u32).collect();
+            (all, vec![])
+        }
+        Some(col) => {
+            let mut feasible = Vec::with_capacity(n);
+            let mut infeasible = Vec::with_capacity(n);
+            for i in 0..n {
+                if col.get(i).map(|&v| v > 0.5).unwrap_or(true) {
+                    feasible.push(i as u32);
+                } else {
+                    infeasible.push(i as u32);
+                }
+            }
+            (feasible, infeasible)
+        }
     }
 }
 
@@ -307,6 +374,37 @@ pub fn draw_correlation_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── constraint-aware visualization (TASK-2350) ──────────────────
+
+    #[test]
+    fn tc_cav_scatter_matrix_show_infeasible_default_true() {
+        let sm = ScatterMatrix::default();
+        assert!(sm.show_infeasible);
+    }
+
+    #[test]
+    fn tc_cav_split_feasibility_no_constraints_all_feasible() {
+        let (f, inf) = split_feasibility_indices(3, None);
+        assert_eq!(f, vec![0, 1, 2]);
+        assert!(inf.is_empty());
+    }
+
+    #[test]
+    fn tc_cav_split_feasibility_mixed() {
+        let col = vec![1.0_f64, 0.0, 1.0];
+        let (f, inf) = split_feasibility_indices(3, Some(&col));
+        assert_eq!(f, vec![0, 2]);
+        assert_eq!(inf, vec![1]);
+    }
+
+    #[test]
+    fn tc_cav_split_feasibility_all_infeasible() {
+        let col = vec![0.0_f64, 0.0];
+        let (f, inf) = split_feasibility_indices(2, Some(&col));
+        assert!(f.is_empty());
+        assert_eq!(inf, vec![0, 1]);
+    }
 
     // TASK-2019 tests
 

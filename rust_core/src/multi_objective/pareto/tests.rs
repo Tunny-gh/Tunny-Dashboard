@@ -14,9 +14,28 @@ fn make_row_obj(trial_id: u32, obj: Vec<f64>) -> TrialRow {
     }
 }
 
+fn make_row_constrained(trial_id: u32, obj: Vec<f64>, constraints: Vec<f64>) -> TrialRow {
+    TrialRow {
+        trial_id,
+        param_display: HashMap::new(),
+        param_category_label: HashMap::new(),
+        objective_values: obj,
+        user_attrs_numeric: HashMap::new(),
+        user_attrs_string: HashMap::new(),
+        constraint_values: constraints,
+    }
+}
+
 fn setup_study(rows: Vec<TrialRow>, obj_names: &[&str]) {
     let names: Vec<String> = obj_names.iter().map(|s| s.to_string()).collect();
     let df = DataFrame::from_trials(&rows, &[], &names, &[], &[], 0);
+    store_dataframes(vec![df]);
+    select_study(0).unwrap();
+}
+
+fn setup_study_constrained(rows: Vec<TrialRow>, obj_names: &[&str], max_constraints: usize) {
+    let names: Vec<String> = obj_names.iter().map(|s| s.to_string()).collect();
+    let df = DataFrame::from_trials(&rows, &[], &names, &[], &[], max_constraints);
     store_dataframes(vec![df]);
     select_study(0).unwrap();
 }
@@ -240,6 +259,75 @@ fn tc_201_p01_ndsort_1000_points_under_100ms() {
         elapsed.as_millis()
     );
     assert_eq!(ranks.len(), n);
+}
+
+// ================================================================
+// TC-CAV: constraint-aware Pareto ranking tests
+// ================================================================
+
+#[test]
+fn tc_cav_01_infeasible_excluded_from_pareto_front() {
+    // feasible [1,2] and [2,1] (both on Pareto front)
+    // infeasible [0,0] (would dominate if feasible, constraint_sum=1.0)
+    let rows = vec![
+        make_row_constrained(0, vec![1.0, 2.0], vec![0.0]),
+        make_row_constrained(1, vec![2.0, 1.0], vec![0.0]),
+        make_row_constrained(2, vec![0.0, 0.0], vec![1.0]),
+    ];
+    setup_study_constrained(rows, &["obj0", "obj1"], 1);
+    let result = compute_pareto_ranks(&[true, true]);
+    assert!(!result.pareto_indices.contains(&2u32), "infeasible must not be in pareto_indices");
+    assert!(result.pareto_indices.contains(&0u32));
+    assert!(result.pareto_indices.contains(&1u32));
+    assert_eq!(result.ranks[0], 0);
+    assert_eq!(result.ranks[1], 0);
+    assert!(result.ranks[2] > 0, "infeasible must have rank > 0");
+}
+
+#[test]
+fn tc_cav_02_infeasible_ranked_by_constraint_sum_ascending() {
+    // All infeasible, ranked by constraint_sum ascending
+    let rows = vec![
+        make_row_constrained(0, vec![1.0, 2.0], vec![3.0]),
+        make_row_constrained(1, vec![2.0, 1.0], vec![1.0]),
+        make_row_constrained(2, vec![0.5, 0.5], vec![2.0]),
+    ];
+    setup_study_constrained(rows, &["obj0", "obj1"], 1);
+    let result = compute_pareto_ranks(&[true, true]);
+    assert!(result.pareto_indices.is_empty(), "no feasible → empty pareto");
+    // sum=1.0 (idx1) < sum=2.0 (idx2) < sum=3.0 (idx0)
+    assert!(result.ranks[1] < result.ranks[2], "idx1 (sum=1.0) must rank lower than idx2 (sum=2.0)");
+    assert!(result.ranks[2] < result.ranks[0], "idx2 (sum=2.0) must rank lower than idx0 (sum=3.0)");
+}
+
+#[test]
+fn tc_cav_03_all_infeasible_gives_empty_pareto_indices() {
+    let rows = vec![
+        make_row_constrained(0, vec![1.0, 2.0], vec![1.0]),
+        make_row_constrained(1, vec![2.0, 1.0], vec![2.0]),
+    ];
+    setup_study_constrained(rows, &["obj0", "obj1"], 1);
+    let result = compute_pareto_ranks(&[true, true]);
+    assert!(result.pareto_indices.is_empty());
+    assert_eq!(result.ranks.len(), 2);
+}
+
+#[test]
+fn tc_cav_04_no_constraints_unchanged_behavior() {
+    // Constraints-free study must behave identically to the original
+    let rows = vec![
+        make_row_obj(0, vec![1.0, 2.0]),
+        make_row_obj(1, vec![2.0, 1.0]),
+        make_row_obj(2, vec![3.0, 3.0]),
+    ];
+    setup_study(rows, &["obj0", "obj1"]);
+    let result = compute_pareto_ranks(&[true, true]);
+    assert!(result.pareto_indices.contains(&0u32));
+    assert!(result.pareto_indices.contains(&1u32));
+    assert!(!result.pareto_indices.contains(&2u32));
+    assert_eq!(result.ranks[0], 0);
+    assert_eq!(result.ranks[1], 0);
+    assert!(result.ranks[2] > 0);
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use crate::theme::chart_colors::{
-    COLOR_CHART_TEXT, COLOR_PARALLEL_AXIS, COLOR_PARALLEL_LINE_DEFAULT, COLOR_PARALLEL_TICK,
+    COLOR_CHART_TEXT, COLOR_INFEASIBLE, COLOR_PARALLEL_AXIS, COLOR_PARALLEL_LINE_DEFAULT,
+    COLOR_PARALLEL_TICK,
 };
 use crate::theme::CENTRAL_BG;
 
@@ -72,6 +73,8 @@ pub struct ParallelCoordsChart {
     cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
     // TASK-2242: pending selection from completed brush drag
     pub pending_selection: Option<Vec<u32>>,
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
 }
 
 impl Default for ParallelCoordsChart {
@@ -86,6 +89,7 @@ impl Default for ParallelCoordsChart {
             col_ranges_cache: None,
             cache_key: (0, 0, 0),
             pending_selection: None,
+            show_infeasible: true,
         }
     }
 }
@@ -147,6 +151,16 @@ impl ParallelCoordsChart {
         }
         let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
+        let is_feasible_col = view.numeric_column("is_feasible");
+        let has_constraints = is_feasible_col.is_some();
+
+        // "Show Infeasible" トグル（制約あり Study のみ表示）
+        if has_constraints {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            });
+        }
+
         let available = ui.available_rect_before_wrap();
         let axis_margin = 40.0_f32;
         let axis_top = available.min.y + 30.0;
@@ -169,18 +183,33 @@ impl ParallelCoordsChart {
         let tick_color = COLOR_PARALLEL_TICK;
         let tick_font = egui::FontId::proportional(9.0);
 
+        let show_infeasible = self.show_infeasible;
+
         // 各試行を折れ線で描画（半透明）
         for t_idx in 0..trial_count {
-            let base_color = chart_colors
-                .get(t_idx)
-                .copied()
-                .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
-            let color = egui::Color32::from_rgba_unmultiplied(
-                base_color.r(),
-                base_color.g(),
-                base_color.b(),
-                120,
-            );
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(t_idx))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+
+            if !feasible && !show_infeasible {
+                continue;
+            }
+
+            let color = if feasible {
+                let base_color = chart_colors
+                    .get(t_idx)
+                    .copied()
+                    .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
+                egui::Color32::from_rgba_unmultiplied(
+                    base_color.r(),
+                    base_color.g(),
+                    base_color.b(),
+                    120,
+                )
+            } else {
+                COLOR_INFEASIBLE
+            };
 
             let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
             let mut valid = true;
@@ -503,6 +532,14 @@ mod tests {
             .filter(|name| *visibility.get(*name).unwrap_or(&true))
             .collect();
         assert_eq!(visible.len(), 1);
+    }
+
+    // ── constraint-aware visualization (TASK-2349) ──────────────────
+
+    #[test]
+    fn tc_cav_parallel_coords_show_infeasible_default_true() {
+        let chart = ParallelCoordsChart::default();
+        assert!(chart.show_infeasible);
     }
 
     // --- TASK-2242: PCP brush tests ---

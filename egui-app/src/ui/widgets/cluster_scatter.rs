@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::state::types::StudyView;
+use crate::theme::chart_colors::COLOR_INFEASIBLE;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 
@@ -123,6 +124,8 @@ pub struct ClusterScatter {
     pub result: Option<ClusteringResult>,
     cached_points: Option<Vec<[f32; 2]>>,
     cache_key: (usize, usize), // (trial_count, n_clusters)
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
 }
 
 impl Default for ClusterScatter {
@@ -138,6 +141,7 @@ impl Default for ClusterScatter {
             result: None,
             cached_points: None,
             cache_key: (0, 0),
+            show_infeasible: true,
         }
     }
 }
@@ -211,15 +215,9 @@ impl ClusterScatter {
         }
         let plot_points = self.cached_points.as_ref().unwrap();
 
-        // クラスタ別に座標を集約
-        let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
-        for (i, &[x, y]) in plot_points.iter().enumerate() {
-            let label = cr.labels.get(i).copied().unwrap_or(0);
-            cluster_points
-                .entry(label)
-                .or_default()
-                .push([x as f64, y as f64]);
-        }
+        let is_feasible_col = view.numeric_column("is_feasible");
+        let has_constraints = is_feasible_col.is_some();
+        let show_infeasible = self.show_infeasible;
 
         // k 個のクラスタを [0, 1] 上に等間隔配置してカラーマップからサンプリング
         // k=2 → t=0.0, 1.0（両端）、k=3 → t=0.0, 0.5, 1.0 など
@@ -233,12 +231,49 @@ impl ClusterScatter {
             colormap.interpolate(t)
         };
 
+        // クラスタ別に座標を集約（feasible のみ）、infeasible は別収集
+        let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
+        let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
+        for (i, &[x, y]) in plot_points.iter().enumerate() {
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(i))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+            if !feasible {
+                if show_infeasible {
+                    infeasible_pts.push([x as f64, y as f64]);
+                }
+                continue;
+            }
+            let label = cr.labels.get(i).copied().unwrap_or(0);
+            cluster_points
+                .entry(label)
+                .or_default()
+                .push([x as f64, y as f64]);
+        }
+
+        // "Show Infeasible" トグル（制約あり Study のみ表示）
+        if has_constraints {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            });
+        }
+
         let x_label = obj_names.first().map(|s| s.as_str()).unwrap_or("Obj 1");
         let y_label = obj_names.get(1).map(|s| s.as_str()).unwrap_or("Obj 2");
         egui_plot::Plot::new("cluster_scatter")
             .x_axis_label(x_label)
             .y_axis_label(y_label)
             .show(ui, |plot_ui| {
+                // infeasible を最背面に描画
+                if !infeasible_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(infeasible_pts)
+                            .color(COLOR_INFEASIBLE)
+                            .radius(3.0)
+                            .name("Infeasible"),
+                    );
+                }
                 for (label, pts) in cluster_points {
                     let color = cluster_color(label);
                     let points = egui_plot::Points::new(pts)
@@ -485,6 +520,14 @@ pub fn cluster_stats_count_sum(stats: &[ClusterStats]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── constraint-aware visualization (TASK-2350) ──────────────────
+
+    #[test]
+    fn tc_cav_cluster_scatter_show_infeasible_default_true() {
+        let cs = ClusterScatter::default();
+        assert!(cs.show_infeasible);
+    }
 
     #[test]
     fn cluster_labels_valid_all_in_range() {
