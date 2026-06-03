@@ -1,23 +1,42 @@
-pub mod ahp_chart;
-pub mod artifact_modal;
-pub mod cluster_scatter;
-pub mod cluster_scatter_3d;
-pub mod convergence_card;
-pub mod hv_history;
-pub mod importance_chart;
-pub mod mcdm_chart;
-pub mod mcdm_scatter_chart;
-pub mod mcdm_scatter_chart_3d;
-pub mod optimization_history;
-pub mod parallel_coords;
-pub mod pareto_2d;
-pub mod pareto_3d;
-pub mod pdp_2d;
-pub mod pdp_chart;
-pub mod scatter_3d;
-pub mod scatter_matrix;
-pub mod sensitivity_heatmap;
-pub mod slice_chart;
-pub mod surface_plot;
-pub mod tradeoff_navigator;
-pub mod trial_table;
+// 最適化履歴
+mod history;
+pub use history::hv_history;
+pub use history::optimization_history;
+
+// パレート分析
+mod pareto;
+pub use pareto::pareto_2d;
+pub use pareto::pareto_3d;
+
+// 重要度・感度分析
+mod importance;
+pub use importance::importance_chart;
+pub use importance::sensitivity_heatmap;
+
+// 部分依存プロット・モデル可視化
+mod pdp;
+pub use pdp::pdp_2d;
+pub use pdp::pdp_chart;
+pub use pdp::slice_chart;
+pub use pdp::surface_plot;
+
+// 散布図・クラスタ探索
+mod scatter;
+pub use scatter::cluster_scatter;
+pub use scatter::cluster_scatter_3d;
+pub use scatter::parallel_coords;
+pub use scatter::scatter_3d;
+pub use scatter::scatter_matrix;
+
+// 意思決定分析 (MCDM / AHP)
+mod decision;
+pub use decision::ahp_chart;
+pub use decision::mcdm_chart;
+pub use decision::mcdm_scatter_chart;
+pub use decision::mcdm_scatter_chart_3d;
+
+// 共通 UI 部品
+mod common;
+pub use common::convergence_card;
+pub use common::tradeoff_navigator;
+pub use common::trial_table;

@@ -10,14 +10,6 @@ use crate::ui::widgets::{
 };
 use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors_view};
 
-/// Bottom Panel のタブ種別
-#[derive(Default, PartialEq, Clone)]
-pub enum BottomTab {
-    #[default]
-    Trials,
-    BestHistory,
-}
-
 // ── TASK-2239: Surface Plot 計算リクエスト ──────────────────────
 pub struct SurfacePlotComputeRequest {
     pub param_x: String,
@@ -74,11 +66,6 @@ pub struct WidgetStates {
     // TASK-1504: MCDM 散布図ウィジェット
     pub scatter_chart: McdmScatterChart,
     pub mcdm_scatter_3d: McdmScatterChart3D,
-    // TASK-2121: Artifacts modal state
-    pub artifact_modal_open: bool,
-    pub artifact_modal_trial_id: Option<u32>,
-    // TASK-2123: Bottom panel tab
-    pub bottom_tab: BottomTab,
     /// チャート描画用の色キャッシュ（UI専用）
     pub chart_colors: Vec<egui::Color32>,
     // TASK-2228: Surface Plot と capture の一時状態
