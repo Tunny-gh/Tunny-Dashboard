@@ -1,10 +1,11 @@
 //! MCDM Scatter Chart Widget
 
 use crate::state::results::{McdmMethod, McdmResult};
-use crate::state::types::StudyView;
+use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{
     COLOR_EMPTY_STATE, COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
 };
+use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use egui::Color32;
 
@@ -59,7 +60,7 @@ struct CacheKey {
     trial_count: usize,
     x_axis: String,
     y_axis: String,
-    color_threshold: ScatterTopN,
+    colormap_name: ColormapName,
     /// MCDM手法（手法切替を検知）
     result_method: McdmMethod,
     /// 先頭スコアのビット表現（重み変更を検知）
@@ -74,8 +75,6 @@ pub struct McdmScatterChart {
     pub x_axis: String,
     /// Y軸の軸識別子
     pub y_axis: String,
-    /// 色分け閾値
-    pub color_threshold: ScatterTopN,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
     // --- 内部キャッシュ状態 ---
@@ -91,7 +90,6 @@ impl Default for McdmScatterChart {
         Self {
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
-            color_threshold: ScatterTopN::Top10,
             show_infeasible: true,
             display_rows_cache: None,
             infeasible_cache: None,
@@ -117,13 +115,18 @@ impl McdmScatterChart {
     }
 
     /// 現在の設定からキャッシュキーを生成する
-    fn make_cache_key(&self, trial_count: usize, result: &McdmResult) -> CacheKey {
+    fn make_cache_key(
+        &self,
+        trial_count: usize,
+        result: &McdmResult,
+        colormap_name: &ColormapName,
+    ) -> CacheKey {
         let scores = result.primary_scores();
         CacheKey {
             trial_count,
             x_axis: self.x_axis.clone(),
             y_axis: self.y_axis.clone(),
-            color_threshold: self.color_threshold,
+            colormap_name: colormap_name.clone(),
             result_method: result.method(),
             result_score0_bits: scores.first().copied().unwrap_or(0.0).to_bits(),
             result_score_count: scores.len(),
@@ -131,7 +134,12 @@ impl McdmScatterChart {
     }
 
     /// キャッシュが陳腐化しているか確認する
-    fn is_cache_stale(&self, trial_count: usize, result: &McdmResult) -> bool {
+    fn is_cache_stale(
+        &self,
+        trial_count: usize,
+        result: &McdmResult,
+        colormap_name: &ColormapName,
+    ) -> bool {
         let scores = result.primary_scores();
         let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
         match &self.cache_key {
@@ -140,7 +148,7 @@ impl McdmScatterChart {
                 key.trial_count != trial_count
                     || key.x_axis != self.x_axis
                     || key.y_axis != self.y_axis
-                    || key.color_threshold != self.color_threshold
+                    || key.colormap_name != *colormap_name
                     || key.result_method != result.method()
                     || key.result_score0_bits != score0_bits
                     || key.result_score_count != scores.len()
@@ -155,6 +163,8 @@ impl McdmScatterChart {
         mcdm_result: &Option<McdmResult>,
         view: &StudyView,
         obj_names: &[String],
+        colormap: &ColorMap,
+        colormap_name: &ColormapName,
     ) {
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
@@ -200,23 +210,14 @@ impl McdmScatterChart {
                         ui.selectable_value(&mut self.y_axis, opt.id.clone(), &opt.label);
                     }
                 });
-
-            ui.label("Highlight:");
-            egui::ComboBox::from_id_salt("mcdm_scatter_threshold")
-                .selected_text(self.color_threshold.label())
-                .show_ui(ui, |ui| {
-                    for t in ScatterTopN::all() {
-                        ui.selectable_value(&mut self.color_threshold, *t, t.label());
-                    }
-                });
         });
 
         let n_trials = view.row_count();
         let has_constraints = view.numeric_column("is_feasible").is_some();
 
         // キャッシュが陳腐化している場合に再計算
-        if self.is_cache_stale(n_trials, result) {
-            let new_key = self.make_cache_key(n_trials, result);
+        if self.is_cache_stale(n_trials, result, colormap_name) {
+            let new_key = self.make_cache_key(n_trials, result, colormap_name);
             let start = std::time::Instant::now();
 
             match compute_scatter_points(
@@ -225,7 +226,7 @@ impl McdmScatterChart {
                 obj_names,
                 &self.x_axis,
                 &self.y_axis,
-                self.color_threshold,
+                colormap,
             ) {
                 Ok((points, infeasible, mut meta)) => {
                     meta.compute_time_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -293,32 +294,31 @@ fn render_scatter_plot(
     x_label: &str,
     y_label: &str,
 ) {
-    // 色別にグループ分け（レンダリング順: gray→yellow→orange→red）
-    let top5 = 5_usize.min(points.len());
-    let top10 = 10_usize.min(points.len());
-    let top20 = 20_usize.min(points.len());
-    let mut gray_pts: Vec<[f64; 2]> = Vec::with_capacity(points.len());
-    let mut yellow_pts: Vec<[f64; 2]> = Vec::with_capacity(top20 - top10);
-    let mut orange_pts: Vec<[f64; 2]> = Vec::with_capacity(top10 - top5);
-    let mut red_pts: Vec<[f64; 2]> = Vec::with_capacity(top5);
+    use std::collections::HashMap;
+
+    // 未ランク（COLOR_MCDM_NONE）とランク済みを分離
+    let mut none_pts: Vec<[f64; 2]> = Vec::new();
+    // 色 → 座標リスト（輝度でソートするため u32 輝度値も保持）
+    let mut color_groups: HashMap<[u8; 4], (Vec<[f64; 2]>, u32)> = HashMap::new();
 
     for &(x, y, color) in points {
-        let pt = [x, y];
-        if color == COLOR_MCDM_HIGH {
-            red_pts.push(pt);
-        } else if color == COLOR_MCDM_MID {
-            orange_pts.push(pt);
-        } else if color == COLOR_MCDM_LOW {
-            yellow_pts.push(pt);
+        if color == COLOR_MCDM_NONE {
+            none_pts.push([x, y]);
         } else {
-            gray_pts.push(pt);
+            let key = [color.r(), color.g(), color.b(), color.a()];
+            let lum = color.r() as u32 + color.g() as u32 + color.b() as u32;
+            let entry = color_groups.entry(key).or_insert((Vec::new(), lum));
+            entry.0.push([x, y]);
         }
     }
+
+    // 輝度順にソート（暗い順→明るい順で手前に描画）
+    let mut sorted: Vec<_> = color_groups.into_iter().collect();
+    sorted.sort_by_key(|(_, (_, lum))| *lum);
 
     egui_plot::Plot::new("mcdm_scatter_plot")
         .x_axis_label(x_label)
         .y_axis_label(y_label)
-        .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
             // 実行不可能解を最背面に描画
             if show_infeasible && !infeasible.is_empty() {
@@ -330,37 +330,19 @@ fn render_scatter_plot(
                         .radius(3.0),
                 );
             }
-            if !gray_pts.is_empty() {
+            // 未ランク（グレー）
+            if !none_pts.is_empty() {
                 plot_ui.points(
-                    egui_plot::Points::new(gray_pts)
-                        .name("Others")
+                    egui_plot::Points::new(none_pts)
+                        .name("Unranked")
                         .color(COLOR_MCDM_NONE)
                         .radius(3.0),
                 );
             }
-            if !yellow_pts.is_empty() {
-                plot_ui.points(
-                    egui_plot::Points::new(yellow_pts)
-                        .name("Top 20")
-                        .color(COLOR_MCDM_LOW)
-                        .radius(4.0),
-                );
-            }
-            if !orange_pts.is_empty() {
-                plot_ui.points(
-                    egui_plot::Points::new(orange_pts)
-                        .name("Top 10")
-                        .color(COLOR_MCDM_MID)
-                        .radius(4.5),
-                );
-            }
-            if !red_pts.is_empty() {
-                plot_ui.points(
-                    egui_plot::Points::new(red_pts)
-                        .name("Top 5")
-                        .color(COLOR_MCDM_HIGH)
-                        .radius(5.0),
-                );
+            // ランク済み：暗い（下位）→明るい（上位）の順
+            for ([r, g, b, a], (pts, _)) in sorted {
+                let color = Color32::from_rgba_unmultiplied(r, g, b, a);
+                plot_ui.points(egui_plot::Points::new(pts).color(color).radius(4.0));
             }
         });
 }
@@ -560,7 +542,7 @@ fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
 type ScatterPoint = (f64, f64, Color32);
 
 /// MCDM散布図ポイントを計算する
-/// - 軸値抽出 → 色付け
+/// - 軸値抽出 → カラーマップによる連続着色
 /// - 戻り値: (実行可能解ポイント, 実行不可能解ポイント, メタデータ)
 pub(crate) fn compute_scatter_points(
     mcdm_result: &McdmResult,
@@ -568,7 +550,7 @@ pub(crate) fn compute_scatter_points(
     obj_names: &[String],
     x_axis: &str,
     y_axis: &str,
-    color_threshold: ScatterTopN,
+    colormap: &ColorMap,
 ) -> Result<(Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata), String> {
     let n_trials = view.row_count();
     if n_trials == 0 {
@@ -587,6 +569,7 @@ pub(crate) fn compute_scatter_points(
     let is_feasible_col = view.numeric_column("is_feasible");
 
     let ranked = mcdm_result.ranked_indices();
+    let n_ranked = ranked.len();
     let rank_map = build_rank_map(ranked, n_trials);
 
     let mut feasible_pts: Vec<ScatterPoint> = Vec::with_capacity(n_trials);
@@ -616,7 +599,13 @@ pub(crate) fn compute_scatter_points(
         let color = if rank == usize::MAX {
             COLOR_MCDM_NONE
         } else {
-            map_rank_to_color(rank, color_threshold)
+            // rank 0（最良）→ t=1.0（カラーマップの高端）
+            let t = if n_ranked > 1 {
+                1.0 - rank as f32 / (n_ranked - 1) as f32
+            } else {
+                1.0
+            };
+            colormap.interpolate(t)
         };
         feasible_pts.push((x, y, color));
     }
@@ -721,7 +710,6 @@ mod tests {
         let chart = McdmScatterChart::new();
         assert_eq!(chart.x_axis, "Objective0");
         assert_eq!(chart.y_axis, "Objective1");
-        assert_eq!(chart.color_threshold, ScatterTopN::Top10);
         assert!(chart.display_rows_cache.is_none());
         assert!(chart.cache_key.is_none());
         assert!(chart.error_message.is_none());
@@ -729,10 +717,15 @@ mod tests {
 
     #[test]
     fn test_invalidate_cache_clears_data() {
+        use crate::state::types::ColormapName;
+        use crate::theme::colormap_name::colormap_from_name;
         let mut chart = McdmScatterChart::new();
         chart.display_rows_cache = Some(vec![(0.5, 0.5, Color32::RED)]);
         chart.error_message = Some("error".to_string());
-        chart.cache_key = Some(chart.make_cache_key(10, &McdmResult::Topsis(make_topsis(10))));
+        let cmap_name = ColormapName::Viridis;
+        let cmap = colormap_from_name(&cmap_name);
+        chart.cache_key = Some(chart.make_cache_key(10, &McdmResult::Topsis(make_topsis(10)), &cmap_name));
+        let _ = cmap; // suppress unused warning
         chart.invalidate_cache();
         assert!(chart.display_rows_cache.is_none());
         assert!(chart.cache_key.is_none());
@@ -741,24 +734,29 @@ mod tests {
 
     #[test]
     fn test_cache_stale_when_no_key() {
+        use crate::state::types::ColormapName;
         let chart = McdmScatterChart::new();
-        assert!(chart.is_cache_stale(100, &McdmResult::Topsis(make_topsis(100))));
+        assert!(chart.is_cache_stale(100, &McdmResult::Topsis(make_topsis(100)), &ColormapName::Viridis));
     }
 
     #[test]
     fn test_cache_stale_when_trial_count_changes() {
+        use crate::state::types::ColormapName;
+        let cmap_name = ColormapName::Viridis;
         let mut chart = McdmScatterChart::new();
         let result = McdmResult::Topsis(make_topsis(100));
-        chart.cache_key = Some(chart.make_cache_key(100, &result));
-        assert!(chart.is_cache_stale(150, &result)); // 150 ≠ 100
+        chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name));
+        assert!(chart.is_cache_stale(150, &result, &cmap_name)); // 150 ≠ 100
     }
 
     #[test]
     fn test_cache_not_stale_same_key() {
+        use crate::state::types::ColormapName;
+        let cmap_name = ColormapName::Viridis;
         let mut chart = McdmScatterChart::new();
         let result = McdmResult::Topsis(make_topsis(100));
-        chart.cache_key = Some(chart.make_cache_key(100, &result));
-        assert!(!chart.is_cache_stale(100, &result));
+        chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name));
+        assert!(!chart.is_cache_stale(100, &result, &cmap_name));
     }
 
     // ── get_axis_options テスト ──────────────────────────────────
@@ -1001,86 +999,75 @@ mod tests {
 
     #[test]
     fn test_compute_scatter_points_basic() {
+        use crate::state::types::ColormapName;
+        use crate::theme::colormap_name::colormap_from_name;
         let n = 10;
         let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (n - i) as f64]).collect();
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
+        let cmap = colormap_from_name(&ColormapName::Viridis);
 
         let (points, _, meta) = compute_scatter_points(
-            &result,
-            &view,
-            &obj_names,
-            "Objective0",
-            "Objective1",
-            ScatterTopN::Top10,
-        )
-        .unwrap();
+            &result, &view, &obj_names, "Objective0", "Objective1", &cmap,
+        ).unwrap();
 
         assert_eq!(points.len(), n);
         assert_eq!(meta.total_trials, n);
-        // Objective0 → [0,1,...,9]: trial 0 の生値 = 0.0
         assert!((points[0].0 - 0.0).abs() < 1e-10);
-        // Objective1 for trial 0 = 10 (n - 0): 生値そのまま
         assert!((points[0].1 - 10.0).abs() < 1e-10);
     }
 
     #[test]
-    fn test_compute_scatter_points_top5_rank0_is_red() {
+    fn test_compute_scatter_points_rank0_gets_best_color() {
+        use crate::state::types::ColormapName;
+        use crate::theme::colormap_name::colormap_from_name;
         let n = 20;
         let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, i as f64]).collect();
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
+        let cmap = colormap_from_name(&ColormapName::Viridis);
 
         let (points, _, _) = compute_scatter_points(
-            &result,
-            &view,
-            &obj_names,
-            "Objective0",
-            "Objective1",
-            ScatterTopN::Top5,
-        )
-        .unwrap();
+            &result, &view, &obj_names, "Objective0", "Objective1", &cmap,
+        ).unwrap();
 
-        // Trial 0 is rank 0 (ranked_indices[0] = 0), should be Red
-        assert_eq!(points[0].2, COLOR_MCDM_HIGH);
+        // Trial 0 (rank 0 = best) → t=1.0 → colormap の最高端の色
+        let expected = cmap.interpolate(1.0);
+        assert_eq!(points[0].2, expected);
+        // 最下位 (rank n-1) → t=0.0 → 最低端の色（best と異なる）
+        assert_ne!(points[0].2, points[n - 1].2);
     }
 
     #[test]
     fn test_compute_scatter_points_empty_trials() {
+        use crate::state::types::ColormapName;
+        use crate::theme::colormap_name::colormap_from_name;
         let vikor = make_vikor(0);
         let result = McdmResult::Vikor(vikor);
         let view = make_empty_view();
+        let cmap = colormap_from_name(&ColormapName::Viridis);
+
         let (points, _, meta) = compute_scatter_points(
-            &result,
-            &view,
-            &[],
-            "Objective0",
-            "Objective1",
-            ScatterTopN::Top10,
-        )
-        .unwrap();
+            &result, &view, &[], "Objective0", "Objective1", &cmap,
+        ).unwrap();
         assert!(points.is_empty());
         assert_eq!(meta.total_trials, 0);
     }
 
     #[test]
     fn test_compute_scatter_points_vikor_axis() {
+        use crate::state::types::ColormapName;
+        use crate::theme::colormap_name::colormap_from_name;
         let n = 5;
         let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
+        let cmap = colormap_from_name(&ColormapName::Viridis);
 
         let (points, _, _) = compute_scatter_points(
-            &result,
-            &view,
-            &obj_names,
-            "VIKOR_Q",
-            "VIKOR_S",
-            ScatterTopN::Top10,
-        )
-        .unwrap();
+            &result, &view, &obj_names, "VIKOR_Q", "VIKOR_S", &cmap,
+        ).unwrap();
 
-        // q_values == s_values for make_vikor, both are raw i * 0.1 values
         assert_eq!(points.len(), n);
     }
 }

@@ -113,14 +113,24 @@ pub(crate) fn render_chart(
                 .show(ui, obj_names, &app_state.mcdm_result);
         }
         ChartId::McdmScatterChart => {
-            widgets
-                .scatter_chart
-                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
+            widgets.scatter_chart.show(
+                ui,
+                &app_state.mcdm_result,
+                &ctx.view,
+                obj_names,
+                &cmap,
+                &app_state.selected_colormap,
+            );
         }
         ChartId::McdmScatterChart3D => {
-            widgets
-                .mcdm_scatter_3d
-                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
+            widgets.mcdm_scatter_3d.show(
+                ui,
+                &app_state.mcdm_result,
+                &ctx.view,
+                obj_names,
+                &cmap,
+                &app_state.selected_colormap,
+            );
         }
         ChartId::McdmTable => {
             widgets

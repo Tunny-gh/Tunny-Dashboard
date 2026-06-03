@@ -1,10 +1,9 @@
 use crate::state::results::{McdmMethod, McdmResult};
-use crate::state::types::StudyView;
+use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
+use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
-use crate::ui::widgets::mcdm_scatter_chart::{
-    extract_axis_values, get_axis_options, map_rank_to_color, ScatterTopN,
-};
+use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options};
 use crate::ui::widgets::scatter_3d::{
     draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas, ArcballCamera,
 };
@@ -18,7 +17,7 @@ struct CacheKey {
     x_axis: String,
     y_axis: String,
     z_axis: String,
-    color_threshold: ScatterTopN,
+    colormap_name: ColormapName,
     result_method: McdmMethod,
     result_score0_bits: u64,
     result_score_count: usize,
@@ -40,7 +39,6 @@ pub struct McdmScatterChart3D {
     pub x_axis: String,
     pub y_axis: String,
     pub z_axis: String,
-    pub color_threshold: ScatterTopN,
     pub camera: ArcballCamera,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
@@ -54,7 +52,6 @@ impl Default for McdmScatterChart3D {
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
             z_axis: "Objective2".to_string(),
-            color_threshold: ScatterTopN::Top10,
             camera: ArcballCamera {
                 rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
                 ..Default::default()
@@ -81,7 +78,12 @@ fn val_range(vals: &[f64]) -> (f64, f64) {
 }
 
 impl McdmScatterChart3D {
-    fn is_cache_stale(&self, trial_count: usize, result: &McdmResult) -> bool {
+    fn is_cache_stale(
+        &self,
+        trial_count: usize,
+        result: &McdmResult,
+        colormap_name: &ColormapName,
+    ) -> bool {
         let scores = result.primary_scores();
         let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
         match &self.cache_key {
@@ -91,7 +93,7 @@ impl McdmScatterChart3D {
                     || k.x_axis != self.x_axis
                     || k.y_axis != self.y_axis
                     || k.z_axis != self.z_axis
-                    || k.color_threshold != self.color_threshold
+                    || k.colormap_name != *colormap_name
                     || k.result_method != result.method()
                     || k.result_score0_bits != score0_bits
                     || k.result_score_count != scores.len()
@@ -104,6 +106,8 @@ impl McdmScatterChart3D {
         result: &McdmResult,
         view: &StudyView,
         obj_names: &[String],
+        colormap: &ColorMap,
+        colormap_name: &ColormapName,
     ) -> Result<(), String> {
         let n_trials = view.row_count();
         let x_vals = extract_axis_values(&self.x_axis, result, view, obj_names)?;
@@ -116,6 +120,7 @@ impl McdmScatterChart3D {
 
         // ranked_indices → rank_map
         let ranked = result.ranked_indices();
+        let n_ranked = ranked.len();
         let mut rank_map = vec![usize::MAX; n_trials];
         for (rank, &idx) in ranked.iter().enumerate() {
             let i = idx as usize;
@@ -155,10 +160,16 @@ impl McdmScatterChart3D {
                 continue;
             }
 
-            let color = if rank_map[i] == usize::MAX {
+            let rank = rank_map[i];
+            let color = if rank == usize::MAX {
                 COLOR_MCDM_NONE
             } else {
-                map_rank_to_color(rank_map[i], self.color_threshold)
+                let t = if n_ranked > 1 {
+                    1.0 - rank as f32 / (n_ranked - 1) as f32
+                } else {
+                    1.0
+                };
+                colormap.interpolate(t)
             };
             clip_pts.push(([cx, cy, cz], color));
         }
@@ -171,7 +182,7 @@ impl McdmScatterChart3D {
             x_axis: self.x_axis.clone(),
             y_axis: self.y_axis.clone(),
             z_axis: self.z_axis.clone(),
-            color_threshold: self.color_threshold,
+            colormap_name: colormap_name.clone(),
             result_method: result.method(),
             result_score0_bits: score0_bits,
             result_score_count: scores.len(),
@@ -185,6 +196,8 @@ impl McdmScatterChart3D {
         mcdm_result: &Option<McdmResult>,
         view: &StudyView,
         obj_names: &[String],
+        colormap: &ColorMap,
+        colormap_name: &ColormapName,
     ) {
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
@@ -246,22 +259,14 @@ impl McdmScatterChart3D {
                         ui.selectable_value(&mut self.z_axis, opt.id.clone(), &opt.label);
                     }
                 });
-            ui.label("Highlight:");
-            egui::ComboBox::from_id_salt("mcdm3d_threshold")
-                .selected_text(self.color_threshold.label())
-                .show_ui(ui, |ui| {
-                    for t in ScatterTopN::all() {
-                        ui.selectable_value(&mut self.color_threshold, *t, t.label());
-                    }
-                });
         });
 
         let n_trials = view.row_count();
         let has_constraints = view.numeric_column("is_feasible").is_some();
 
         // キャッシュ再構築
-        if self.is_cache_stale(n_trials, result) {
-            if let Err(e) = self.rebuild_cache(result, view, obj_names) {
+        if self.is_cache_stale(n_trials, result, colormap_name) {
+            if let Err(e) = self.rebuild_cache(result, view, obj_names, colormap, colormap_name) {
                 ui.colored_label(ERROR_COLOR, e);
                 return;
             }
@@ -328,7 +333,7 @@ mod tests {
         assert_eq!(w.x_axis, "Objective0");
         assert_eq!(w.y_axis, "Objective1");
         assert_eq!(w.z_axis, "Objective2");
-        assert_eq!(w.color_threshold, ScatterTopN::Top10);
+        assert!(w.show_infeasible);
         assert!(w.cache.is_none());
         assert!(w.cache_key.is_none());
     }
