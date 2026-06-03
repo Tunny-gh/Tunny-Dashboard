@@ -53,7 +53,7 @@ impl TunnyApp {
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
-            crate::io::study_worker::dispatch_load_journal(path, tx.clone());
+            crate::io::study_worker::dispatch_scan_journal(path, tx.clone());
         }
         Self {
             app_state: AppState::new(),
@@ -86,8 +86,16 @@ impl TunnyApp {
                 &mut self.load_error,
             );
 
-            if is_journal_parsed && self.app_state.live_update.enabled {
-                self.restart_poller();
+            if is_journal_parsed {
+                if self.app_state.live_update.enabled {
+                    self.restart_poller();
+                }
+                // Study が 1 件のみなら自動的に Phase 2 を開始する
+                if self.app_state.all_studies.len() == 1 {
+                    self.is_loading = true;
+                    let meta = self.app_state.all_studies[0].clone();
+                    crate::io::study_worker::dispatch_select_study(meta, self.sender());
+                }
             }
             if is_live_error {
                 // poller stopped itself — drop the handle
@@ -110,7 +118,7 @@ impl TunnyApp {
                     self.load_error = None;
                     self.app_state.all_studies.clear();
                     self.app_state.current_study = None;
-                    crate::io::study_worker::dispatch_load_journal(path, self.sender());
+                    crate::io::study_worker::dispatch_scan_journal(path, self.sender());
                 }
                 ToolbarAction::SetLayoutMode(mode) => {
                     self.layout.layout_mode = mode;

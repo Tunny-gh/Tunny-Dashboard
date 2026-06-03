@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::OnceLock;
@@ -6,14 +7,24 @@ use crate::state::app_state::StudyMeta;
 use crate::state::messages::AppMessage;
 
 enum StudyCommand {
-    LoadJournal {
+    /// Phase 1: ファイルをスキャンして Study 一覧のみ取得する
+    ScanJournal {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
+    /// Phase 2 兼再選択: 未ロードなら完全パース、ロード済みなら即活性化
     SelectStudy {
         meta: StudyMeta,
         tx: SyncSender<AppMessage>,
     },
+}
+
+/// ワーカースレッドのローカル状態
+struct WorkerState {
+    /// Phase 1 で読み込んだ生バイト列。Phase 2 でファイル再読み込みを避けるためキャッシュする
+    journal_data: Option<Vec<u8>>,
+    /// DataFrame をグローバルストアに登録済みの study_id セット
+    loaded_study_ids: HashSet<u32>,
 }
 
 fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
@@ -21,17 +32,32 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
     SENDER.get_or_init(|| {
         let (cmd_tx, cmd_rx) = mpsc::channel::<StudyCommand>();
         std::thread::spawn(move || {
-            let mut has_loaded_journal = false;
+            let mut state = WorkerState {
+                journal_data: None,
+                loaded_study_ids: HashSet::new(),
+            };
             while let Ok(cmd) = cmd_rx.recv() {
                 match cmd {
-                    StudyCommand::LoadJournal { path, tx } => {
-                        let msg = crate::io::journal::load_journal_task(path);
-                        has_loaded_journal = !matches!(msg, AppMessage::Error(_));
+                    StudyCommand::ScanJournal { path, tx } => {
+                        let (data, msg) = crate::io::journal::scan_journal_task(path);
+                        if !matches!(msg, AppMessage::Error(_)) {
+                            state.journal_data = Some(data);
+                            state.loaded_study_ids.clear();
+                        }
                         let _ = tx.send(msg);
                     }
                     StudyCommand::SelectStudy { meta, tx } => {
-                        let msg = if has_loaded_journal {
+                        let study_id = meta.study_id;
+                        let msg = if state.loaded_study_ids.contains(&study_id) {
+                            // DataFrame は既にストアにある → そのまま活性化
                             crate::io::study::select_study_task(meta)
+                        } else if let Some(ref data) = state.journal_data {
+                            // 未ロード → Phase 2: キャッシュ済みバイト列から対象 study を解析
+                            let m = crate::io::journal::load_single_study_task(data, meta);
+                            if matches!(m, AppMessage::StudySelected { .. }) {
+                                state.loaded_study_ids.insert(study_id);
+                            }
+                            m
                         } else {
                             AppMessage::Error(
                                 "No journal is loaded yet. Please open a journal first."
@@ -47,8 +73,8 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
     })
 }
 
-pub fn dispatch_load_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::LoadJournal { path, tx });
+pub fn dispatch_scan_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanJournal { path, tx });
 }
 
 pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {

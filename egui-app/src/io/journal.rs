@@ -27,24 +27,36 @@ pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
     }
 }
 
-/// ファイルを読み込んで parse_journal を呼び出し AppMessage を返す。
-/// スタディが1件のみの場合は同スレッドでスタディ選択まで完結させる
-/// （thread_local の GLOBAL_STATE はスレッドをまたいで共有されないため）。
-pub fn load_journal_task(path: PathBuf) -> AppMessage {
+/// Phase 1: ファイルを読み込んで op_code=0/3 のみスキャンし Study 一覧を返す。
+/// 生バイト列も返すことで Phase 2 でのファイル再読み込みを不要にする。
+pub fn scan_journal_task(path: PathBuf) -> (Vec<u8>, AppMessage) {
     match crate::io::file::read_journal_file(&path) {
-        Ok(data) => match tunny_core::io::journal::parser::parse_journal(&data) {
-            Ok(result) => {
-                let studies: Vec<StudyMeta> =
-                    result.studies.into_iter().map(convert_study_meta).collect();
-                if studies.len() == 1 {
-                    // parse 済みの thread_local データを同スレッドで即選択する
-                    crate::io::study::select_study_task(studies[0].clone())
-                } else {
-                    AppMessage::JournalParsed { studies, path }
-                }
+        Ok(data) => match parser::scan_study_list(&data) {
+            Ok(studies) => {
+                let app_studies: Vec<StudyMeta> =
+                    studies.into_iter().map(convert_study_meta).collect();
+                let msg = AppMessage::JournalParsed {
+                    studies: app_studies,
+                    path,
+                };
+                (data, msg)
             }
-            Err(e) => AppMessage::Error(e),
+            Err(e) => (vec![], AppMessage::Error(e)),
         },
+        Err(e) => (vec![], AppMessage::Error(e)),
+    }
+}
+
+/// Phase 2: Phase 1 でキャッシュ済みのバイト列から target study のみ完全パースする。
+/// ファイル再読み込みは行わない。
+pub fn load_single_study_task(data: &[u8], meta: StudyMeta) -> AppMessage {
+    let study_id = meta.study_id;
+    match parser::parse_single_study(data, study_id) {
+        Ok((full_meta_core, df)) => {
+            tunny_core::dataframe::swap_snapshot(study_id, std::sync::Arc::new(df));
+            let full_meta = convert_study_meta(full_meta_core);
+            crate::io::study::select_study_task(full_meta)
+        }
         Err(e) => AppMessage::Error(e),
     }
 }
@@ -54,9 +66,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn load_journal_nonexistent_path_returns_error() {
+    fn scan_journal_nonexistent_path_returns_error() {
         let path = PathBuf::from("/nonexistent/file.log");
-        let msg = load_journal_task(path);
+        let (_data, msg) = scan_journal_task(path);
         match msg {
             AppMessage::Error(_) => {}
             _ => panic!("Expected Error message"),

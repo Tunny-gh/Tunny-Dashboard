@@ -33,6 +33,15 @@ impl MessageHandler {
                 match tunny_core::dataframe::snapshot(study_id) {
                     Some(df) => {
                         let view = StudyView::new(df, pareto_rank);
+                        // Phase 2 の完全 meta で all_studies のエントリを同期する
+                        // （Phase 1 では completed_trials 等が 0 のため）
+                        if let Some(existing) = app_state
+                            .all_studies
+                            .iter_mut()
+                            .find(|s| s.study_id == meta.study_id)
+                        {
+                            *existing = meta.clone();
+                        }
                         app_state.current_study = Some(StudyContext {
                             meta,
                             view,

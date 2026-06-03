@@ -2,6 +2,104 @@ use super::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
+// ── parse_single_study / scan_study_list ──────────────────────────────────
+
+fn two_study_log() -> Vec<u8> {
+    // Study 0: "alpha", 2 trials, param "x"
+    // Study 1: "beta",  3 trials, param "y"
+    to_bytes(concat!(
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"alpha\",\"directions\":[1]}\n",
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"beta\",\"directions\":[2]}\n",
+        // --- alpha trials (study_id=0) ---
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
+        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x\",\"param_value_internal\":0.1,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0}}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:02.000000\"}\n",
+        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":1,\"param_name\":\"x\",\"param_value_internal\":0.2,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0}}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":1,\"state\":1,\"values\":[2.0],\"datetime_complete\":\"2024-01-01T00:00:03.000000\"}\n",
+        // --- beta trials (study_id=1) ---
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:04.000000\"}\n",
+        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":2,\"param_name\":\"y\",\"param_value_internal\":10.0,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":100.0}}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":2,\"state\":1,\"values\":[3.0],\"datetime_complete\":\"2024-01-01T00:00:05.000000\"}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:06.000000\"}\n",
+        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":3,\"param_name\":\"y\",\"param_value_internal\":20.0,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":100.0}}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":3,\"state\":1,\"values\":[4.0],\"datetime_complete\":\"2024-01-01T00:00:07.000000\"}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:08.000000\"}\n",
+        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":4,\"param_name\":\"y\",\"param_value_internal\":30.0,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":100.0}}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":4,\"state\":1,\"values\":[5.0],\"datetime_complete\":\"2024-01-01T00:00:09.000000\"}\n"
+    ))
+}
+
+#[test]
+fn scan_study_list_returns_names_only() {
+    let data = two_study_log();
+    let studies = scan_study_list(&data).unwrap();
+    assert_eq!(studies.len(), 2);
+    assert_eq!(studies[0].name, "alpha");
+    assert_eq!(studies[1].name, "beta");
+    // Phase 1 では completed_trials は未確定
+    assert_eq!(studies[0].completed_trials, 0);
+    assert_eq!(studies[1].completed_trials, 0);
+}
+
+#[test]
+fn parse_single_study_alpha_returns_correct_trials() {
+    let data = two_study_log();
+    let (meta, df) = parse_single_study(&data, 0).unwrap();
+    assert_eq!(meta.name, "alpha");
+    assert_eq!(meta.completed_trials, 2);
+    assert_eq!(meta.total_trials, 2);
+    assert!(meta.param_names.contains(&"x".to_string()));
+    assert_eq!(df.row_count(), 2);
+}
+
+#[test]
+fn parse_single_study_beta_skips_alpha_trials() {
+    let data = two_study_log();
+    let (meta, df) = parse_single_study(&data, 1).unwrap();
+    assert_eq!(meta.name, "beta");
+    assert_eq!(meta.completed_trials, 3);
+    assert_eq!(meta.total_trials, 3);
+    // beta の param は "y" のみ（alpha の "x" は含まれない）
+    assert!(meta.param_names.contains(&"y".to_string()));
+    assert!(!meta.param_names.contains(&"x".to_string()));
+    assert_eq!(df.row_count(), 3);
+}
+
+#[test]
+fn parse_single_study_objective_values_correct() {
+    let data = two_study_log();
+    let (_meta, df) = parse_single_study(&data, 0).unwrap();
+    let obj: Vec<f64> = df
+        .get_numeric_column("obj0")
+        .map(|c| c.to_vec())
+        .unwrap_or_default();
+    assert_eq!(obj, vec![1.0, 2.0]);
+}
+
+#[test]
+fn parse_single_study_nonexistent_id_returns_error() {
+    let data = two_study_log();
+    let result = parse_single_study(&data, 99);
+    assert!(result.is_err());
+}
+
+#[test]
+fn quick_extract_u32_basic() {
+    assert_eq!(
+        quick_extract_u32(r#"{"op_code":4,"study_id":2,"x":0}"#, "study_id"),
+        Some(2)
+    );
+    assert_eq!(
+        quick_extract_u32(r#"{"trial_id":  42,"state":1}"#, "trial_id"),
+        Some(42)
+    );
+    assert_eq!(
+        quick_extract_u32(r#"{"no_field":1}"#, "study_id"),
+        None
+    );
+}
+
 fn to_bytes(s: &str) -> Vec<u8> {
     s.as_bytes().to_vec()
 }

@@ -10,6 +10,8 @@ pub(super) struct ParserState {
     pub(super) studies: Vec<StudyBuilder>,
     pub(super) trial_builders: HashMap<u32, TrialBuilder>,
     pub(super) next_trial_id: u32,
+    /// Some(id) の場合、その study_id の Trial のみ TrialBuilder を生成する（Phase 2 オンデマンド解析用）。
+    pub(super) target_study_id: Option<u32>,
 }
 
 /// Documentation.
@@ -30,6 +32,16 @@ impl ParserState {
             studies: Vec::new(),
             trial_builders: HashMap::with_capacity(1024),
             next_trial_id: 0,
+            target_study_id: None,
+        }
+    }
+
+    pub(super) fn new_with_target(target_study_id: u32) -> Self {
+        ParserState {
+            studies: Vec::new(),
+            trial_builders: HashMap::with_capacity(1024),
+            next_trial_id: 0,
+            target_study_id: Some(target_study_id),
         }
     }
 
@@ -91,6 +103,15 @@ impl ParserState {
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
         self.studies[study_id as usize].total_trials += 1;
+
+        // Phase 2 オンデマンド解析: 対象 study 以外の TrialBuilder 生成をスキップ。
+        // ops 5/6/8/9 は trial_id を明示参照するため、ビルダーが存在しない trial への
+        // 更新は自然に no-op となり、不整合は生じない。
+        if let Some(target) = self.target_study_id {
+            if study_id != target {
+                return;
+            }
+        }
 
         if json.get("distributions").is_some() {
             let state = get_u64(json, "state").unwrap_or(0) as u8;
