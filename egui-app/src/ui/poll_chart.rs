@@ -361,11 +361,19 @@ pub(crate) fn poll_chart_work(
 
                 let McdmComputeRequest { method, weights, v } = req;
 
-                let n_trials = ctx.view.row_count();
+                let n_total = ctx.view.row_count();
                 let n_objectives = obj_names.len();
+
+                // パレートフロント（rank == 0）の行インデックスのみを対象とする
+                let pareto_row_indices: Vec<usize> = (0..n_total)
+                    .filter(|&i| ctx.view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
+                    .collect();
+                let n_pareto = pareto_row_indices.len();
+
                 let obj_cols_mcdm = ctx.view.numeric_columns(obj_names);
-                let objectives: Vec<f64> = (0..n_trials)
-                    .flat_map(|i| {
+                let objectives: Vec<f64> = pareto_row_indices
+                    .iter()
+                    .flat_map(|&i| {
                         obj_cols_mcdm
                             .iter()
                             .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
@@ -376,15 +384,36 @@ pub(crate) fn poll_chart_work(
                     .map(|d| matches!(d, Direction::Minimize))
                     .collect();
 
+                // subset 内のインデックスを全トライアルのインデックスに変換するヘルパー
+                let pareto_indices_for_remap = pareto_row_indices.clone();
+                let remap = move |subset_idx: u32| -> u32 {
+                    pareto_indices_for_remap.get(subset_idx as usize).copied().unwrap_or(0) as u32
+                };
+                let expand_scores = move |subset_scores: Vec<f64>| -> Vec<f64> {
+                    let mut full = vec![0.0f64; n_total];
+                    for (j, &row) in pareto_row_indices.iter().enumerate() {
+                        if let Some(&s) = subset_scores.get(j) {
+                            full[row] = s;
+                        }
+                    }
+                    full
+                };
+
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
                     let start = std::time::Instant::now();
+
+                    if n_pareto == 0 {
+                        return AppMessage::Error(
+                            "MCDM: Pareto front is empty. Run the optimizer first.".to_string(),
+                        );
+                    }
 
                     match method {
                         McdmMethod::Topsis => {
                             match tunny_core::topsis::compute_topsis(
                                 &objectives,
-                                n_trials,
+                                n_pareto,
                                 n_objectives,
                                 &weights,
                                 &is_minimize,
@@ -392,23 +421,21 @@ pub(crate) fn poll_chart_work(
                                 Ok(r) => {
                                     AppMessage::McdmDone(crate::state::results::McdmResult::Topsis(
                                         crate::state::results::TopsisResult {
-                                            scores: r.scores,
-                                            ranked_indices: r.ranked_indices,
+                                            scores: expand_scores(r.scores),
+                                            ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
                                             positive_ideal: r.positive_ideal,
                                             negative_ideal: r.negative_ideal,
                                             duration_ms: start.elapsed().as_secs_f64() * 1000.0,
                                         },
                                     ))
                                 }
-                                Err(e) => {
-                                    AppMessage::Error(format!("TOPSIS computation failed: {}", e))
-                                }
+                                Err(e) => AppMessage::Error(format!("TOPSIS computation failed: {e}")),
                             }
                         }
                         McdmMethod::Vikor => {
                             match tunny_core::vikor::compute_vikor(
                                 &objectives,
-                                n_trials,
+                                n_pareto,
                                 n_objectives,
                                 &weights,
                                 &is_minimize,
@@ -417,37 +444,35 @@ pub(crate) fn poll_chart_work(
                                 Ok(r) => {
                                     AppMessage::McdmDone(crate::state::results::McdmResult::Vikor(
                                         crate::state::results::VikorResult {
-                                            s_values: r.s_values,
-                                            r_values: r.r_values,
-                                            q_values: r.q_values,
-                                            display_scores: r.display_scores,
-                                            ranked_indices: r.ranked_indices,
+                                            s_values: expand_scores(r.s_values),
+                                            r_values: expand_scores(r.r_values),
+                                            q_values: expand_scores(r.q_values),
+                                            display_scores: expand_scores(r.display_scores),
+                                            ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
                                             best_values: r.best_values,
                                             worst_values: r.worst_values,
                                             duration_ms: start.elapsed().as_secs_f64() * 1000.0,
                                         },
                                     ))
                                 }
-                                Err(e) => {
-                                    AppMessage::Error(format!("VIKOR computation failed: {}", e))
-                                }
+                                Err(e) => AppMessage::Error(format!("VIKOR computation failed: {e}")),
                             }
                         }
                         McdmMethod::PrometheeI | McdmMethod::PrometheeII => {
                             match tunny_core::promethee::compute_promethee(
                                 &objectives,
-                                n_trials,
+                                n_pareto,
                                 n_objectives,
                                 &weights,
                                 &is_minimize,
                             ) {
                                 Ok(r) => {
                                     let result = crate::state::results::PrometheeResult {
-                                        phi_plus: r.phi_plus,
-                                        phi_minus: r.phi_minus,
-                                        phi_net: r.phi_net,
-                                        ranked_indices_i: r.ranked_indices_i,
-                                        ranked_indices_ii: r.ranked_indices_ii,
+                                        phi_plus: expand_scores(r.phi_plus),
+                                        phi_minus: expand_scores(r.phi_minus),
+                                        phi_net: expand_scores(r.phi_net),
+                                        ranked_indices_i: r.ranked_indices_i.into_iter().map(&remap).collect(),
+                                        ranked_indices_ii: r.ranked_indices_ii.into_iter().map(&remap).collect(),
                                         duration_ms: r.duration_ms,
                                     };
                                     let mcdm = if method == McdmMethod::PrometheeI {
@@ -457,9 +482,7 @@ pub(crate) fn poll_chart_work(
                                     };
                                     AppMessage::McdmDone(mcdm)
                                 }
-                                Err(e) => {
-                                    AppMessage::Error(format!("PROMETHEE computation failed: {e}"))
-                                }
+                                Err(e) => AppMessage::Error(format!("PROMETHEE computation failed: {e}")),
                             }
                         }
                     }
