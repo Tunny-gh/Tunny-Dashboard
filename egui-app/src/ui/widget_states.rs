@@ -1,11 +1,13 @@
 use crate::state::messages::{SurfacePlotRenderMode, SurfacePlotResult};
 use crate::ui::widgets::{
-    ahp_chart::AhpChart, cluster_scatter::ClusterScatter, hv_history::HvHistoryChart,
+    ahp_chart::AhpChart, cluster_scatter::ClusterScatter,
+    cluster_scatter_3d::ClusterScatter3D, hv_history::HvHistoryChart,
     importance_chart::ImportanceChart, mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
-    mcdm_scatter_chart::McdmScatterChart, optimization_history::OptimizationHistoryChart,
-    parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
-    pdp_2d::PdpChart2DState, pdp_chart::PdpChart, scatter_matrix::ScatterMatrix,
-    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart,
+    mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
+    optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
+    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
+    pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
+    slice_chart::SliceChart,
 };
 use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors_view};
 
@@ -65,12 +67,14 @@ pub struct WidgetStates {
     pub scatter_matrix: ScatterMatrix,
     pub sensitivity_heatmap: SensitivityHeatmap,
     pub cluster_scatter: ClusterScatter,
+    pub cluster_scatter_3d: ClusterScatter3D,
     pub mcdm_chart: McdmRankChart,
     pub mcdm_table: McdmTable,
     pub ahp_chart: AhpChart,
     pub slice_chart: SliceChart,
     // TASK-1504: MCDM 散布図ウィジェット
     pub scatter_chart: McdmScatterChart,
+    pub mcdm_scatter_3d: McdmScatterChart3D,
     // TASK-2121: Artifacts modal state
     pub artifact_modal_open: bool,
     pub artifact_modal_trial_id: Option<u32>,
@@ -88,6 +92,7 @@ impl WidgetStates {
     pub fn reset_infeasible_flags(&mut self) {
         self.pareto_2d.show_infeasible = true;
         self.pareto_3d.show_infeasible = true;
+        self.cluster_scatter_3d.show_infeasible = true;
         self.opt_history.show_infeasible = true;
         self.parallel_coords.show_infeasible = true;
         self.scatter_matrix.show_infeasible = true;

@@ -182,6 +182,22 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/surface-plot.html"
             )),
         },
+        ChartId::ClusterScatter3D => HelpContent {
+            widget_name: "cluster-scatter-3d",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/clustering/overview.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/clustering/overview.html"
+            )),
+        },
+        ChartId::McdmScatterChart3D => HelpContent {
+            widget_name: "mcdm-scatter-chart-3d",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
+        },
     }
 }
 

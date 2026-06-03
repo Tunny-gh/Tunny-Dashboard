@@ -23,6 +23,10 @@ pub(crate) fn render_chart(
         widgets.pareto_3d.show(ui, app_state);
         return;
     }
+    if matches!(chart_id, ChartId::ClusterScatter3D) {
+        widgets.cluster_scatter_3d.show(ui, app_state);
+        return;
+    }
 
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
@@ -31,7 +35,9 @@ pub(crate) fn render_chart(
     let cmap = colormap_from_name(&app_state.selected_colormap);
 
     match chart_id {
-        ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => unreachable!(),
+        ChartId::ParetoScatter2D | ChartId::ParetoScatter3D | ChartId::ClusterScatter3D => {
+            unreachable!()
+        }
         ChartId::OptimizationHistory => {
             widgets
                 .opt_history
@@ -109,6 +115,11 @@ pub(crate) fn render_chart(
         ChartId::McdmScatterChart => {
             widgets
                 .scatter_chart
+                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
+        }
+        ChartId::McdmScatterChart3D => {
+            widgets
+                .mcdm_scatter_3d
                 .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
         }
         ChartId::McdmTable => {

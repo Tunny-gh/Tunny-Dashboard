@@ -27,6 +27,8 @@ pub fn build_chart_csv(
         ChartId::AhpTable => build_ahp_table_csv(app_state),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::SurfacePlot => None,
+        ChartId::ClusterScatter3D => build_cluster_csv(app_state),
+        ChartId::McdmScatterChart3D => build_mcdm_scatter_csv(app_state),
     }
 }
 
@@ -105,6 +107,14 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                     .get(widgets.slice_chart.selected_obj_idx)
                     .is_some()
         }),
+        ChartId::ClusterScatter3D => app_state
+            .current_study
+            .as_ref()
+            .zip(app_state.cluster_result.as_ref())
+            .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
+        ChartId::McdmScatterChart3D => {
+            app_state.mcdm_result.is_some() && app_state.current_study.is_some()
+        }
     }
 }
 
@@ -128,6 +138,8 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::AhpTable => "ahp_table",
         ChartId::SliceChart => "slice_chart",
         ChartId::SurfacePlot => "surface_plot",
+        ChartId::ClusterScatter3D => "cluster_scatter_3d",
+        ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
     };
     format!("{}.csv", name)
 }

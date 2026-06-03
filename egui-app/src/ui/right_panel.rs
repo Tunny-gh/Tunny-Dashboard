@@ -74,12 +74,19 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                         PanelItem::Chart(ChartId::SurfacePlot),
                     ],
                 ),
-                ("Clustering", &[PanelItem::Chart(ChartId::ClusterScatter)]),
+                (
+                    "Clustering",
+                    &[
+                        PanelItem::Chart(ChartId::ClusterScatter),
+                        PanelItem::Chart(ChartId::ClusterScatter3D),
+                    ],
+                ),
                 (
                     "MCDM",
                     &[
                         PanelItem::Chart(ChartId::McdmRankChart),
                         PanelItem::Chart(ChartId::McdmScatterChart),
+                        PanelItem::Chart(ChartId::McdmScatterChart3D),
                         PanelItem::Chart(ChartId::McdmTable),
                     ],
                 ),
