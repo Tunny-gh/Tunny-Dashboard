@@ -190,7 +190,11 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
                 .map(|(i, _)| i as u32)
                 .collect();
             let hypervolume = compute_hypervolume(&pareto_indices, &objectives, is_minimize, m);
-            return ParetoResult { ranks, pareto_indices, hypervolume };
+            return ParetoResult {
+                ranks,
+                pareto_indices,
+                hypervolume,
+            };
         }
 
         // 制約あり: feasible/infeasible 分離フロー
@@ -242,7 +246,11 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
 
         let hypervolume = compute_hypervolume(&pareto_indices, &objectives, is_minimize, m);
 
-        ParetoResult { ranks, pareto_indices, hypervolume }
+        ParetoResult {
+            ranks,
+            pareto_indices,
+            hypervolume,
+        }
     })
     .unwrap_or(ParetoResult {
         ranks: vec![],

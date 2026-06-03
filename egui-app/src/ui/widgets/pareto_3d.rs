@@ -547,7 +547,10 @@ mod tests {
     #[test]
     fn tc_cav_pareto3d_show_infeasible_default_true() {
         let chart = Pareto3dChart::default();
-        assert!(chart.show_infeasible, "show_infeasible must default to true");
+        assert!(
+            chart.show_infeasible,
+            "show_infeasible must default to true"
+        );
     }
 
     #[test]

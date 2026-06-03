@@ -531,7 +531,10 @@ mod tests {
     #[test]
     fn tc_cav_pareto2d_show_infeasible_default_true() {
         let widget = ParetoScatter2D::default();
-        assert!(widget.show_infeasible, "show_infeasible must default to true");
+        assert!(
+            widget.show_infeasible,
+            "show_infeasible must default to true"
+        );
     }
 
     #[test]

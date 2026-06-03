@@ -276,7 +276,10 @@ fn tc_cav_01_infeasible_excluded_from_pareto_front() {
     ];
     setup_study_constrained(rows, &["obj0", "obj1"], 1);
     let result = compute_pareto_ranks(&[true, true]);
-    assert!(!result.pareto_indices.contains(&2u32), "infeasible must not be in pareto_indices");
+    assert!(
+        !result.pareto_indices.contains(&2u32),
+        "infeasible must not be in pareto_indices"
+    );
     assert!(result.pareto_indices.contains(&0u32));
     assert!(result.pareto_indices.contains(&1u32));
     assert_eq!(result.ranks[0], 0);
@@ -294,10 +297,19 @@ fn tc_cav_02_infeasible_ranked_by_constraint_sum_ascending() {
     ];
     setup_study_constrained(rows, &["obj0", "obj1"], 1);
     let result = compute_pareto_ranks(&[true, true]);
-    assert!(result.pareto_indices.is_empty(), "no feasible → empty pareto");
+    assert!(
+        result.pareto_indices.is_empty(),
+        "no feasible → empty pareto"
+    );
     // sum=1.0 (idx1) < sum=2.0 (idx2) < sum=3.0 (idx0)
-    assert!(result.ranks[1] < result.ranks[2], "idx1 (sum=1.0) must rank lower than idx2 (sum=2.0)");
-    assert!(result.ranks[2] < result.ranks[0], "idx2 (sum=2.0) must rank lower than idx0 (sum=3.0)");
+    assert!(
+        result.ranks[1] < result.ranks[2],
+        "idx1 (sum=1.0) must rank lower than idx2 (sum=2.0)"
+    );
+    assert!(
+        result.ranks[2] < result.ranks[0],
+        "idx2 (sum=2.0) must rank lower than idx0 (sum=3.0)"
+    );
 }
 
 #[test]
