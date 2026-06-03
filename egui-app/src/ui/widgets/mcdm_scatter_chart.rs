@@ -76,8 +76,11 @@ pub struct McdmScatterChart {
     pub y_axis: String,
     /// 色分け閾値
     pub color_threshold: ScatterTopN,
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
     // --- 内部キャッシュ状態 ---
     display_rows_cache: Option<Vec<(f64, f64, Color32)>>,
+    infeasible_cache: Option<Vec<(f64, f64)>>,
     metadata: Option<ScatterMetadata>,
     error_message: Option<String>,
     cache_key: Option<CacheKey>,
@@ -89,7 +92,9 @@ impl Default for McdmScatterChart {
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
             color_threshold: ScatterTopN::Top10,
+            show_infeasible: true,
             display_rows_cache: None,
+            infeasible_cache: None,
             metadata: None,
             error_message: None,
             cache_key: None,
@@ -106,6 +111,7 @@ impl McdmScatterChart {
     /// キャッシュを無効化する
     pub fn invalidate_cache(&mut self) {
         self.display_rows_cache = None;
+        self.infeasible_cache = None;
         self.cache_key = None;
         self.error_message = None;
     }
@@ -206,6 +212,7 @@ impl McdmScatterChart {
         });
 
         let n_trials = view.row_count();
+        let has_constraints = view.numeric_column("is_feasible").is_some();
 
         // キャッシュが陳腐化している場合に再計算
         if self.is_cache_stale(n_trials, result) {
@@ -220,9 +227,10 @@ impl McdmScatterChart {
                 &self.y_axis,
                 self.color_threshold,
             ) {
-                Ok((points, mut meta)) => {
+                Ok((points, infeasible, mut meta)) => {
                     meta.compute_time_ms = start.elapsed().as_secs_f64() * 1000.0;
                     self.display_rows_cache = Some(points);
+                    self.infeasible_cache = Some(infeasible);
                     self.cache_key = Some(new_key);
                     self.metadata = Some(meta);
                     self.error_message = None;
@@ -230,6 +238,7 @@ impl McdmScatterChart {
                 Err(e) => {
                     self.error_message = Some(e);
                     self.display_rows_cache = None;
+                    self.infeasible_cache = None;
                     self.cache_key = None;
                 }
             }
@@ -240,8 +249,23 @@ impl McdmScatterChart {
             return;
         }
 
+        if has_constraints {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            });
+        }
+
+        let empty = vec![];
+        let infeasible = self.infeasible_cache.as_deref().unwrap_or(&empty);
         if let Some(ref points) = self.display_rows_cache {
-            render_scatter_plot(ui, points, &self.x_axis, &self.y_axis);
+            render_scatter_plot(
+                ui,
+                points,
+                infeasible,
+                self.show_infeasible,
+                &self.x_axis,
+                &self.y_axis,
+            );
         }
 
         ui.separator();
@@ -264,6 +288,8 @@ impl McdmScatterChart {
 fn render_scatter_plot(
     ui: &mut egui::Ui,
     points: &[(f64, f64, Color32)],
+    infeasible: &[(f64, f64)],
+    show_infeasible: bool,
     x_label: &str,
     y_label: &str,
 ) {
@@ -294,6 +320,16 @@ fn render_scatter_plot(
         .y_axis_label(y_label)
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
+            // 実行不可能解を最背面に描画
+            if show_infeasible && !infeasible.is_empty() {
+                let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
+                plot_ui.points(
+                    egui_plot::Points::new(pts)
+                        .name("Infeasible")
+                        .color(crate::theme::chart_colors::COLOR_INFEASIBLE)
+                        .radius(3.0),
+                );
+            }
             if !gray_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new(gray_pts)
@@ -525,6 +561,7 @@ type ScatterPoint = (f64, f64, Color32);
 
 /// MCDM散布図ポイントを計算する
 /// - 軸値抽出 → 色付け
+/// - 戻り値: (実行可能解ポイント, 実行不可能解ポイント, メタデータ)
 pub(crate) fn compute_scatter_points(
     mcdm_result: &McdmResult,
     view: &StudyView,
@@ -532,10 +569,11 @@ pub(crate) fn compute_scatter_points(
     x_axis: &str,
     y_axis: &str,
     color_threshold: ScatterTopN,
-) -> Result<(Vec<ScatterPoint>, ScatterMetadata), String> {
+) -> Result<(Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata), String> {
     let n_trials = view.row_count();
     if n_trials == 0 {
         return Ok((
+            vec![],
             vec![],
             ScatterMetadata {
                 total_trials: 0,
@@ -544,38 +582,52 @@ pub(crate) fn compute_scatter_points(
         ));
     }
 
-    // 軸値を抽出
     let x_vals = extract_axis_values(x_axis, mcdm_result, view, obj_names)?;
     let y_vals = extract_axis_values(y_axis, mcdm_result, view, obj_names)?;
+    let is_feasible_col = view.numeric_column("is_feasible");
 
-    // ランキング逆引きマップを構築
     let ranked = mcdm_result.ranked_indices();
     let rank_map = build_rank_map(ranked, n_trials);
 
-    // 有効なポイントのみを収集（NaN/Inf は除外）
-    let mut all_points = Vec::with_capacity(n_trials);
-    all_points.extend((0..n_trials).filter_map(|i| {
-        let x = x_vals.get(i).copied()?;
-        let y = y_vals.get(i).copied()?;
-        if !x.is_finite() || !y.is_finite() {
-            return None;
+    let mut feasible_pts: Vec<ScatterPoint> = Vec::with_capacity(n_trials);
+    let mut infeasible_pts: Vec<(f64, f64)> = Vec::new();
+
+    for i in 0..n_trials {
+        let x = match x_vals.get(i).copied() {
+            Some(v) if v.is_finite() => v,
+            _ => continue,
+        };
+        let y = match y_vals.get(i).copied() {
+            Some(v) if v.is_finite() => v,
+            _ => continue,
+        };
+
+        let feasible = is_feasible_col
+            .and_then(|c| c.get(i))
+            .map(|&v| v > 0.5)
+            .unwrap_or(true);
+
+        if !feasible {
+            infeasible_pts.push((x, y));
+            continue;
         }
+
         let rank = rank_map[i];
         let color = if rank == usize::MAX {
-            COLOR_MCDM_NONE // ランク外
+            COLOR_MCDM_NONE
         } else {
             map_rank_to_color(rank, color_threshold)
         };
-        Some((x, y, color))
-    }));
+        feasible_pts.push((x, y, color));
+    }
 
-    let total = all_points.len();
-
+    let total = feasible_pts.len() + infeasible_pts.len();
     Ok((
-        all_points,
+        feasible_pts,
+        infeasible_pts,
         ScatterMetadata {
             total_trials: total,
-            compute_time_ms: 0.0, // 呼び出し元で設定
+            compute_time_ms: 0.0,
         },
     ))
 }
@@ -954,7 +1006,7 @@ mod tests {
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
-        let (points, meta) = compute_scatter_points(
+        let (points, _, meta) = compute_scatter_points(
             &result,
             &view,
             &obj_names,
@@ -979,7 +1031,7 @@ mod tests {
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
-        let (points, _) = compute_scatter_points(
+        let (points, _, _) = compute_scatter_points(
             &result,
             &view,
             &obj_names,
@@ -998,7 +1050,7 @@ mod tests {
         let vikor = make_vikor(0);
         let result = McdmResult::Vikor(vikor);
         let view = make_empty_view();
-        let (points, meta) = compute_scatter_points(
+        let (points, _, meta) = compute_scatter_points(
             &result,
             &view,
             &[],
@@ -1018,7 +1070,7 @@ mod tests {
         let (view, obj_names) = make_view_with_objectives(&data);
         let result = make_vikor_result(n);
 
-        let (points, _) = compute_scatter_points(
+        let (points, _, _) = compute_scatter_points(
             &result,
             &view,
             &obj_names,

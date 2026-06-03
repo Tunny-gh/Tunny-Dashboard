@@ -96,8 +96,13 @@ pub struct ClusterComputeRequest {
 #[derive(Debug, Clone)]
 pub struct ClusterMatrix {
     pub flat_data: Vec<f64>,
+    /// 実行可能解の行数（k-means に渡す行数）
     pub n_rows: usize,
     pub n_cols: usize,
+    /// 全トライアル数（実行不可能解を含む）
+    pub total_trials: usize,
+    /// matrix の行 index → 元の trial index のマッピング
+    pub feasible_indices: Vec<usize>,
 }
 
 impl ClusterMatrix {
@@ -393,15 +398,29 @@ fn build_cluster_matrix_data(
     obj_names: &[String],
     target_space: ClusterSpace,
 ) -> ClusterMatrix {
-    let n_rows = view.row_count();
+    let total_trials = view.row_count();
     let n_cols = target_space.feature_count(param_names.len(), obj_names.len());
+    let is_feasible_col = view.numeric_column("is_feasible");
 
-    // 列スライスを一括取得してフラットバッファへ書き込む
+    // 実行可能解のインデックスを収集（is_feasible 列がなければ全行を対象とする）
+    let feasible_indices: Vec<usize> = (0..total_trials)
+        .filter(|&i| {
+            is_feasible_col
+                .and_then(|c| c.get(i))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let n_rows = feasible_indices.len();
+
+    // 実行可能解のみで特徴量行列を構築
     let flat_data = match target_space {
         ClusterSpace::Objective => {
             let cols = view.numeric_columns(obj_names);
-            (0..n_rows)
-                .flat_map(|i| {
+            feasible_indices
+                .iter()
+                .flat_map(|&i| {
                     cols.iter()
                         .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
                 })
@@ -409,8 +428,9 @@ fn build_cluster_matrix_data(
         }
         ClusterSpace::Variable => {
             let cols = view.numeric_columns(param_names);
-            (0..n_rows)
-                .flat_map(|i| {
+            feasible_indices
+                .iter()
+                .flat_map(|&i| {
                     cols.iter()
                         .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
                 })
@@ -419,8 +439,9 @@ fn build_cluster_matrix_data(
         ClusterSpace::Combined => {
             let param_cols = view.numeric_columns(param_names);
             let obj_cols = view.numeric_columns(obj_names);
-            (0..n_rows)
-                .flat_map(|i| {
+            feasible_indices
+                .iter()
+                .flat_map(|&i| {
                     param_cols
                         .iter()
                         .chain(obj_cols.iter())
@@ -434,6 +455,8 @@ fn build_cluster_matrix_data(
         flat_data,
         n_rows,
         n_cols,
+        total_trials,
+        feasible_indices,
     }
 }
 

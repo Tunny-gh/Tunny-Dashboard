@@ -1,6 +1,6 @@
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::StudyView;
-use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_MCDM_NONE};
+use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::mcdm_scatter_chart::{
     extract_axis_values, get_axis_options, map_rank_to_color, ScatterTopN,
@@ -27,6 +27,7 @@ struct CacheKey {
 /// clip 空間座標 [-1,1] と色に変換済みのポイントキャッシュ
 struct PointsCache {
     clip_pts: Vec<([f32; 3], Color32)>,
+    infeasible_clip_pts: Vec<[f32; 3]>,
     x_range: (f64, f64),
     y_range: (f64, f64),
     z_range: (f64, f64),
@@ -41,6 +42,8 @@ pub struct McdmScatterChart3D {
     pub z_axis: String,
     pub color_threshold: ScatterTopN,
     pub camera: ArcballCamera,
+    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    pub show_infeasible: bool,
     cache: Option<PointsCache>,
     cache_key: Option<CacheKey>,
 }
@@ -56,6 +59,7 @@ impl Default for McdmScatterChart3D {
                 rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
                 ..Default::default()
             },
+            show_infeasible: true,
             cache: None,
             cache_key: None,
         }
@@ -120,29 +124,48 @@ impl McdmScatterChart3D {
             }
         }
 
-        let clip_pts = (0..n_trials)
-            .filter_map(|i| {
-                let x = *x_vals.get(i)?;
-                let y = *y_vals.get(i)?;
-                let z = *z_vals.get(i)?;
-                if !x.is_finite() || !y.is_finite() || !z.is_finite() {
-                    return None;
-                }
-                let cx = normalize_to_clip(x, x_range.0, x_range.1);
-                let cy = normalize_to_clip(y, y_range.0, y_range.1);
-                let cz = normalize_to_clip(z, z_range.0, z_range.1);
-                let color = if rank_map[i] == usize::MAX {
-                    COLOR_MCDM_NONE
-                } else {
-                    map_rank_to_color(rank_map[i], self.color_threshold)
-                };
-                Some(([cx, cy, cz], color))
-            })
-            .collect();
+        let is_feasible_col = view.numeric_column("is_feasible");
+        let mut clip_pts: Vec<([f32; 3], Color32)> = Vec::with_capacity(n_trials);
+        let mut infeasible_clip_pts: Vec<[f32; 3]> = Vec::new();
+
+        for i in 0..n_trials {
+            let x = match x_vals.get(i).copied() {
+                Some(v) if v.is_finite() => v,
+                _ => continue,
+            };
+            let y = match y_vals.get(i).copied() {
+                Some(v) if v.is_finite() => v,
+                _ => continue,
+            };
+            let z = match z_vals.get(i).copied() {
+                Some(v) if v.is_finite() => v,
+                _ => continue,
+            };
+            let cx = normalize_to_clip(x, x_range.0, x_range.1);
+            let cy = normalize_to_clip(y, y_range.0, y_range.1);
+            let cz = normalize_to_clip(z, z_range.0, z_range.1);
+
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(i))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+
+            if !feasible {
+                infeasible_clip_pts.push([cx, cy, cz]);
+                continue;
+            }
+
+            let color = if rank_map[i] == usize::MAX {
+                COLOR_MCDM_NONE
+            } else {
+                map_rank_to_color(rank_map[i], self.color_threshold)
+            };
+            clip_pts.push(([cx, cy, cz], color));
+        }
 
         let scores = result.primary_scores();
         let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
-        self.cache = Some(PointsCache { clip_pts, x_range, y_range, z_range });
+        self.cache = Some(PointsCache { clip_pts, infeasible_clip_pts, x_range, y_range, z_range });
         self.cache_key = Some(CacheKey {
             trial_count: n_trials,
             x_axis: self.x_axis.clone(),
@@ -234,6 +257,7 @@ impl McdmScatterChart3D {
         });
 
         let n_trials = view.row_count();
+        let has_constraints = view.numeric_column("is_feasible").is_some();
 
         // キャッシュ再構築
         if self.is_cache_stale(n_trials, result) {
@@ -243,6 +267,12 @@ impl McdmScatterChart3D {
             }
         }
 
+        if has_constraints {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            });
+        }
+
         // カメラ操作はキャッシュ借用前に完了させる
         let (painter, _rect, project) = setup_3d_canvas(ui, &mut self.camera);
 
@@ -250,6 +280,7 @@ impl McdmScatterChart3D {
         let (x_min, x_max) = pc.x_range;
         let (y_min, y_max) = pc.y_range;
         let (z_min, z_max) = pc.z_range;
+        let show_infeasible = self.show_infeasible;
 
         draw_3d_grid(&painter, &project);
         draw_3d_axes(
@@ -258,7 +289,20 @@ impl McdmScatterChart3D {
             x_min, x_max, y_min, y_max, z_min, z_max,
         );
 
-        // ポイント描画（ペインターズアルゴリズム）
+        // 実行不可能解を最背面に描画
+        if show_infeasible && !pc.infeasible_clip_pts.is_empty() {
+            let mut inf_pts: Vec<(egui::Pos2, f32)> = pc
+                .infeasible_clip_pts
+                .iter()
+                .map(|&clip| project(clip))
+                .collect();
+            inf_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (pos, _) in &inf_pts {
+                painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
+            }
+        }
+
+        // 実行可能解を奥から手前の順（ペインターズアルゴリズム）
         let mut pts: Vec<(egui::Pos2, f32, Color32)> = pc
             .clip_pts
             .iter()
