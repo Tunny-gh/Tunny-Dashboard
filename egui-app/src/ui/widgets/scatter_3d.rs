@@ -155,7 +155,8 @@ pub fn show_objective_combo(
 /// カメラ操作を処理し、描画準備済みの painter・rect と project クロージャを返す。
 /// - 左ドラッグ → 回転、スクロール → ズーム
 /// - 背景塗りつぶし済み
-/// project はスクリーン座標と深度 (Pos2, depth) を返す純粋関数（Copy キャプチャのみ）
+///
+/// `project` はスクリーン座標と深度 (Pos2, depth) を返す純粋関数（Copy キャプチャのみ）
 pub fn setup_3d_canvas(
     ui: &mut egui::Ui,
     camera: &mut ArcballCamera,
@@ -218,56 +219,30 @@ pub fn draw_3d_grid(painter: &egui::Painter, project: &impl Fn([f32; 3]) -> (egu
     }
 }
 
-/// 軸線（-1→+1）と名前・値ラベルを描画する
+/// 軸線（-1→+1）と名前・値ラベルを描画する。
+///
+/// `names` は `[x_name, y_name, z_name]`、`ranges` は `[(x_min, x_max), ...]`。
 pub fn draw_3d_axes(
     painter: &egui::Painter,
     project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
-    x_name: &str,
-    y_name: &str,
-    z_name: &str,
-    x_min: f64,
-    x_max: f64,
-    y_min: f64,
-    y_max: f64,
-    z_min: f64,
-    z_max: f64,
+    names: [&str; 3],
+    ranges: [(f64, f64); 3],
 ) {
-    let axes: [([f32; 3], [f32; 3], egui::Color32, &str, f64, f64); 3] = [
-        (
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            COLOR_AXIS_X,
-            x_name,
-            x_min,
-            x_max,
-        ),
-        (
-            [0.0, -1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            COLOR_AXIS_Y,
-            y_name,
-            y_min,
-            y_max,
-        ),
-        (
-            [0.0, 0.0, -1.0],
-            [0.0, 0.0, 1.0],
-            COLOR_AXIS_Z,
-            z_name,
-            z_min,
-            z_max,
-        ),
-    ];
-    for (neg_ep, pos_ep, color, name, val_min, val_max) in &axes {
-        let (neg_pos, _) = project(*neg_ep);
-        let (pos_pos, _) = project(*pos_ep);
-        painter.line_segment([neg_pos, pos_pos], egui::Stroke::new(1.5, *color));
+    let neg_eps: [[f32; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
+    let pos_eps: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let colors = [COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z];
+    for i in 0..3 {
+        let (neg_pos, _) = project(neg_eps[i]);
+        let (pos_pos, _) = project(pos_eps[i]);
+        let color = colors[i];
+        let (val_min, val_max) = ranges[i];
+        painter.line_segment([neg_pos, pos_pos], egui::Stroke::new(1.5, color));
         painter.text(
             pos_pos + egui::vec2(4.0, -4.0),
             egui::Align2::LEFT_BOTTOM,
-            format!("{} ({:.3})", name, val_max),
+            format!("{} ({:.3})", names[i], val_max),
             egui::FontId::proportional(11.0),
-            *color,
+            color,
         );
         painter.text(
             neg_pos + egui::vec2(-4.0, 4.0),

@@ -125,9 +125,7 @@ impl ClusterScatter3D {
         let (painter, rect, project) = setup_3d_canvas(ui, &mut self.camera);
 
         draw_3d_grid(&painter, &project);
-        draw_3d_axes(
-            &painter, &project, &x_name, &y_name, &z_name, x_min, x_max, y_min, y_max, z_min, z_max,
-        );
+        draw_3d_axes(&painter, &project, [&x_name, &y_name, &z_name], [(x_min, x_max), (y_min, y_max), (z_min, z_max)]);
 
         // Collect points
         let show_infeasible = self.show_infeasible;

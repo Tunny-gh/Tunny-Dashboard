@@ -487,12 +487,12 @@ pub(crate) fn poll_chart_work(
                                         ranked_indices_i: r
                                             .ranked_indices_i
                                             .into_iter()
-                                            .map(|i| remap(i))
+                                            .map(&remap)
                                             .collect(),
                                         ranked_indices_ii: r
                                             .ranked_indices_ii
                                             .into_iter()
-                                            .map(|i| remap(i))
+                                            .map(remap)
                                             .collect(),
                                         duration_ms: r.duration_ms,
                                     };

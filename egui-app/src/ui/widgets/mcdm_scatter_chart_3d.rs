@@ -145,7 +145,7 @@ impl McdmScatterChart3D {
         let mut clip_pts: Vec<([f32; 3], Color32)> = Vec::with_capacity(n_trials);
         let mut infeasible_clip_pts: Vec<[f32; 3]> = Vec::new();
 
-        for i in 0..n_trials {
+        for (i, &rank) in rank_map.iter().enumerate() {
             let x = match x_vals.get(i).copied() {
                 Some(v) if v.is_finite() => v,
                 _ => continue,
@@ -172,7 +172,6 @@ impl McdmScatterChart3D {
                 continue;
             }
 
-            let rank = rank_map[i];
             let color = if rank == usize::MAX || rank >= colored_range {
                 COLOR_MCDM_NONE
             } else {
@@ -209,6 +208,7 @@ impl McdmScatterChart3D {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -312,19 +312,7 @@ impl McdmScatterChart3D {
         let show_infeasible = self.show_infeasible;
 
         draw_3d_grid(&painter, &project);
-        draw_3d_axes(
-            &painter,
-            &project,
-            &self.x_axis,
-            &self.y_axis,
-            &self.z_axis,
-            x_min,
-            x_max,
-            y_min,
-            y_max,
-            z_min,
-            z_max,
-        );
+        draw_3d_axes(&painter, &project, [&self.x_axis, &self.y_axis, &self.z_axis], [(x_min, x_max), (y_min, y_max), (z_min, z_max)]);
 
         // 実行不可能解を最背面に描画
         if show_infeasible && !pc.infeasible_clip_pts.is_empty() {

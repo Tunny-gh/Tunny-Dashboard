@@ -162,6 +162,7 @@ impl McdmScatterChart {
     }
 
     /// ウィジェットを描画する
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -295,6 +296,7 @@ impl McdmScatterChart {
 // 散布図レンダリング
 // ──────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn render_scatter_plot(
     ui: &mut egui::Ui,
     points: &[(f64, f64, Color32)],
@@ -576,6 +578,8 @@ fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
 
 /// 散布図の1点: (x座標, y座標, 色)。
 type ScatterPoint = (f64, f64, Color32);
+/// `compute_scatter_points` の戻り値型エイリアス。
+type ScatterPointsResult = (Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata);
 
 /// MCDM散布図ポイントを計算する
 /// - 軸値抽出 → カラーマップによる連続着色
@@ -588,7 +592,7 @@ pub(crate) fn compute_scatter_points(
     y_axis: &str,
     colormap: &ColorMap,
     top_n: usize,
-) -> Result<(Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata), String> {
+) -> Result<ScatterPointsResult, String> {
     let n_trials = view.row_count();
     if n_trials == 0 {
         return Ok((
@@ -613,7 +617,7 @@ pub(crate) fn compute_scatter_points(
     let mut feasible_pts: Vec<ScatterPoint> = Vec::with_capacity(n_trials);
     let mut infeasible_pts: Vec<(f64, f64)> = Vec::new();
 
-    for i in 0..n_trials {
+    for (i, &rank) in rank_map.iter().enumerate() {
         let x = match x_vals.get(i).copied() {
             Some(v) if v.is_finite() => v,
             _ => continue,
@@ -632,8 +636,6 @@ pub(crate) fn compute_scatter_points(
             infeasible_pts.push((x, y));
             continue;
         }
-
-        let rank = rank_map[i];
         let color = if rank == usize::MAX || rank >= colored_range {
             // ランク外または top_n 外は灰色
             COLOR_MCDM_NONE
