@@ -20,8 +20,10 @@ struct CacheKey {
     colormap_name: ColormapName,
     top_n: usize,
     result_method: McdmMethod,
-    result_score0_bits: u64,
-    result_score_count: usize,
+    /// ranked_indices の FNV ライクなハッシュ。
+    /// 旧実装は scores[0] を使っていたが、パレートフロント外の試行は
+    /// expand_scores により常に 0.0 になり、ウェイト変更を検知できなかった。
+    ranked_indices_hash: u64,
 }
 
 /// clip 空間座標 [-1,1] と色に変換済みのポイントキャッシュ
@@ -87,6 +89,13 @@ fn val_range(vals: &[f64]) -> (f64, f64) {
 }
 
 impl McdmScatterChart3D {
+    fn ranked_hash(result: &McdmResult) -> u64 {
+        result.ranked_indices().iter().fold(0u64, |acc, &x| {
+            acc.wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(x as u64 + 1)
+        })
+    }
+
     fn is_cache_stale(
         &self,
         trial_count: usize,
@@ -94,8 +103,6 @@ impl McdmScatterChart3D {
         colormap_name: &ColormapName,
         top_n: usize,
     ) -> bool {
-        let scores = result.primary_scores();
-        let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
         match &self.cache_key {
             None => true,
             Some(k) => {
@@ -106,8 +113,7 @@ impl McdmScatterChart3D {
                     || k.colormap_name != *colormap_name
                     || k.top_n != top_n
                     || k.result_method != result.method()
-                    || k.result_score0_bits != score0_bits
-                    || k.result_score_count != scores.len()
+                    || k.ranked_indices_hash != Self::ranked_hash(result)
             }
         }
     }
@@ -185,8 +191,6 @@ impl McdmScatterChart3D {
             clip_pts.push(([cx, cy, cz], color));
         }
 
-        let scores = result.primary_scores();
-        let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
         self.cache = Some(PointsCache {
             clip_pts,
             infeasible_clip_pts,
@@ -202,8 +206,7 @@ impl McdmScatterChart3D {
             colormap_name: colormap_name.clone(),
             top_n,
             result_method: result.method(),
-            result_score0_bits: score0_bits,
-            result_score_count: scores.len(),
+            ranked_indices_hash: Self::ranked_hash(result),
         });
         Ok(())
     }
@@ -456,6 +459,80 @@ fn draw_colorbar_legend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::results::{McdmResult, TopsisResult};
+
+    fn make_topsis(ranked: Vec<u32>) -> McdmResult {
+        McdmResult::Topsis(TopsisResult {
+            scores: vec![0.0; ranked.len().max(1)],
+            ranked_indices: ranked,
+            positive_ideal: vec![],
+            negative_ideal: vec![],
+            duration_ms: 0.0,
+        })
+    }
+
+    #[test]
+    fn ranked_hash_changes_when_order_changes() {
+        let r1 = make_topsis(vec![5, 2, 8]);
+        let r2 = make_topsis(vec![2, 5, 8]);
+        assert_ne!(
+            McdmScatterChart3D::ranked_hash(&r1),
+            McdmScatterChart3D::ranked_hash(&r2),
+            "ランキング順序が変わればハッシュが変わる"
+        );
+    }
+
+    #[test]
+    fn ranked_hash_stable_for_same_order() {
+        let r1 = make_topsis(vec![5, 2, 8]);
+        let r2 = make_topsis(vec![5, 2, 8]);
+        assert_eq!(
+            McdmScatterChart3D::ranked_hash(&r1),
+            McdmScatterChart3D::ranked_hash(&r2)
+        );
+    }
+
+    #[test]
+    fn cache_stale_after_ranking_change() {
+        let mut w = McdmScatterChart3D::default();
+        // 擬似的に cache_key をセットして "旧ランキング" 状態を作る
+        w.cache_key = Some(CacheKey {
+            trial_count: 10,
+            x_axis: w.x_axis.clone(),
+            y_axis: w.y_axis.clone(),
+            z_axis: w.z_axis.clone(),
+            colormap_name: crate::state::types::ColormapName::Viridis,
+            top_n: 10,
+            result_method: crate::state::results::McdmMethod::Topsis,
+            ranked_indices_hash: McdmScatterChart3D::ranked_hash(&make_topsis(vec![5, 2, 8])),
+        });
+        // ランキングが変わった新結果
+        let new_result = make_topsis(vec![2, 5, 8]);
+        assert!(
+            w.is_cache_stale(10, &new_result, &crate::state::types::ColormapName::Viridis, 10),
+            "ランキング変更でキャッシュが無効化される"
+        );
+    }
+
+    #[test]
+    fn cache_not_stale_for_same_ranking() {
+        let mut w = McdmScatterChart3D::default();
+        let result = make_topsis(vec![5, 2, 8]);
+        w.cache_key = Some(CacheKey {
+            trial_count: 10,
+            x_axis: w.x_axis.clone(),
+            y_axis: w.y_axis.clone(),
+            z_axis: w.z_axis.clone(),
+            colormap_name: crate::state::types::ColormapName::Viridis,
+            top_n: 10,
+            result_method: crate::state::results::McdmMethod::Topsis,
+            ranked_indices_hash: McdmScatterChart3D::ranked_hash(&result),
+        });
+        assert!(
+            !w.is_cache_stale(10, &result, &crate::state::types::ColormapName::Viridis, 10),
+            "同じランキングならキャッシュは有効"
+        );
+    }
 
     #[test]
     fn mcdm_scatter_3d_default_axes() {
