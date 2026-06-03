@@ -24,17 +24,25 @@ impl TunnyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
 
-        // Inter フォントを設定
+        // Inter + Noto Sans JP フォントを設定（日本語グリフは JP フォントにフォールバック）
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
             "Inter".to_owned(),
             egui::FontData::from_static(include_bytes!("../assets/Inter-VariableFont.ttf")).into(),
         );
-        fonts
+        fonts.font_data.insert(
+            "NotoSansJP".to_owned(),
+            egui::FontData::from_static(include_bytes!(
+                "../assets/NotoSansJP-VariableFont_wght.ttf"
+            ))
+            .into(),
+        );
+        let proportional = fonts
             .families
             .get_mut(&egui::FontFamily::Proportional)
-            .unwrap()
-            .insert(0, "Inter".to_owned());
+            .unwrap();
+        proportional.insert(0, "Inter".to_owned());
+        proportional.push("NotoSansJP".to_owned());
         fonts
             .families
             .get_mut(&egui::FontFamily::Monospace)
