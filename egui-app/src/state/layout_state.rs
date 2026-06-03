@@ -431,7 +431,7 @@ pub struct RightPanelState {
 impl Default for RightPanelState {
     fn default() -> Self {
         Self {
-            is_open: true,
+            is_open: false,
             width: 200.0,
         }
     }
@@ -455,6 +455,9 @@ pub struct LayoutState {
     pub grid: GridLayout,
     /// 右パネルの状態
     pub right_panel: RightPanelState,
+    /// 左パネルの開閉状態（ホバーで自動制御）
+    #[serde(default)]
+    pub left_panel_open: bool,
 }
 
 impl Default for LayoutState {
@@ -464,6 +467,7 @@ impl Default for LayoutState {
             layout_mode: LayoutMode::MultiObjective,
             grid: GridLayout::default(),
             right_panel: RightPanelState::default(),
+            left_panel_open: false,
         }
     }
 }
@@ -873,14 +877,14 @@ mod tests {
         assert_eq!(layout.layout_mode, LayoutMode::MultiObjective);
         assert_eq!(layout.grid.rows, 2);
         assert_eq!(layout.grid.cols, 2);
-        assert!(layout.right_panel.is_open);
+        assert!(layout.right_panel.is_open == false); // hover-reveal: default closed
         assert_eq!(layout.right_panel.width, 200.0);
     }
 
     #[test]
     fn right_panel_state_default() {
         let rp = RightPanelState::default();
-        assert!(rp.is_open);
+        assert!(!rp.is_open); // hover-reveal: default closed
         assert_eq!(rp.width, 200.0);
     }
 
