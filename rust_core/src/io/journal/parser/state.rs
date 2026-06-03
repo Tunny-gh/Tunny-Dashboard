@@ -48,6 +48,11 @@ impl ParserState {
 
     fn process_create_study(&mut self, json: &Value) {
         let name = get_str(json, "study_name").unwrap_or("").to_string();
+        // A journal file may contain multiple create_study entries for the same study
+        // (e.g. from parallel workers). Skip if the name is already registered.
+        if self.studies.iter().any(|s| s.name == name) {
+            return;
+        }
         let directions = json
             .get("directions")
             .and_then(|value| value.as_array())

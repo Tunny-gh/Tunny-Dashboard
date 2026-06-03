@@ -100,6 +100,8 @@ impl TunnyApp {
                     }
                     self.is_loading = true;
                     self.load_error = None;
+                    self.app_state.all_studies.clear();
+                    self.app_state.current_study = None;
                     crate::io::study_worker::dispatch_load_journal(path, self.sender());
                 }
                 ToolbarAction::SetLayoutMode(mode) => {
