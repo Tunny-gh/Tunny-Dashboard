@@ -115,16 +115,20 @@ impl Pareto3dChart {
         let y_name = obj_names.get(self.y_objective).cloned().unwrap_or_default();
         let z_name = obj_names.get(self.z_objective).cloned().unwrap_or_default();
         draw_3d_axes(
-            &painter, &project,
-            &x_name, &y_name, &z_name,
-            x_min, x_max, y_min, y_max, z_min, z_max,
+            &painter, &project, &x_name, &y_name, &z_name, x_min, x_max, y_min, y_max, z_min, z_max,
         );
 
         let selected = &app_state.selected_indices;
         let highlighted = app_state.highlighted_trial;
-        let x_col = obj_names.get(self.x_objective).and_then(|n| view.numeric_column(n));
-        let y_col = obj_names.get(self.y_objective).and_then(|n| view.numeric_column(n));
-        let z_col = obj_names.get(self.z_objective).and_then(|n| view.numeric_column(n));
+        let x_col = obj_names
+            .get(self.x_objective)
+            .and_then(|n| view.numeric_column(n));
+        let y_col = obj_names
+            .get(self.y_objective)
+            .and_then(|n| view.numeric_column(n));
+        let z_col = obj_names
+            .get(self.z_objective)
+            .and_then(|n| view.numeric_column(n));
         let is_feasible_col = view.numeric_column("is_feasible");
 
         let displayed: Vec<usize> = match downsample_indices.as_deref() {

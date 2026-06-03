@@ -1,13 +1,12 @@
 use crate::state::messages::{SurfacePlotRenderMode, SurfacePlotResult};
 use crate::ui::widgets::{
-    ahp_chart::AhpChart, cluster_scatter::ClusterScatter,
-    cluster_scatter_3d::ClusterScatter3D, hv_history::HvHistoryChart,
-    importance_chart::ImportanceChart, mcdm_chart::McdmRankChart, mcdm_chart::McdmTable,
-    mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
-    optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
-    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
-    pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
-    slice_chart::SliceChart,
+    ahp_chart::AhpChart, cluster_scatter::ClusterScatter, cluster_scatter_3d::ClusterScatter3D,
+    hv_history::HvHistoryChart, importance_chart::ImportanceChart, mcdm_chart::McdmRankChart,
+    mcdm_chart::McdmTable, mcdm_scatter_chart::McdmScatterChart,
+    mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
+    parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
+    pdp_2d::PdpChart2DState, pdp_chart::PdpChart, scatter_matrix::ScatterMatrix,
+    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart,
 };
 use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors_view};
 

@@ -2,8 +2,8 @@ use crate::state::app_state::AppState;
 use crate::theme::chart_colors::COLOR_INFEASIBLE;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip,
-    setup_3d_canvas, show_objective_combo, ArcballCamera,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
+    show_objective_combo, ArcballCamera,
 };
 
 /// クラスタ 3D 散布図ウィジェット
@@ -57,7 +57,12 @@ impl ClusterScatter3D {
         let has_constraints = ctx.meta.has_constraints;
 
         // Range cache
-        let cache_key = (self.x_objective, self.y_objective, self.z_objective, trial_count);
+        let cache_key = (
+            self.x_objective,
+            self.y_objective,
+            self.z_objective,
+            trial_count,
+        );
         if self.range_cache_key != cache_key {
             let col = |idx: usize| obj_names.get(idx).and_then(|n| view.numeric_column(n));
             self.range_cache = [
@@ -74,9 +79,15 @@ impl ClusterScatter3D {
         let z_name = obj_names.get(self.z_objective).cloned().unwrap_or_default();
 
         // Column data
-        let x_col = obj_names.get(self.x_objective).and_then(|n| view.numeric_column(n));
-        let y_col = obj_names.get(self.y_objective).and_then(|n| view.numeric_column(n));
-        let z_col = obj_names.get(self.z_objective).and_then(|n| view.numeric_column(n));
+        let x_col = obj_names
+            .get(self.x_objective)
+            .and_then(|n| view.numeric_column(n));
+        let y_col = obj_names
+            .get(self.y_objective)
+            .and_then(|n| view.numeric_column(n));
+        let z_col = obj_names
+            .get(self.z_objective)
+            .and_then(|n| view.numeric_column(n));
         let is_feasible_col = view.numeric_column("is_feasible");
 
         // Axis selectors
@@ -115,9 +126,7 @@ impl ClusterScatter3D {
 
         draw_3d_grid(&painter, &project);
         draw_3d_axes(
-            &painter, &project,
-            &x_name, &y_name, &z_name,
-            x_min, x_max, y_min, y_max, z_min, z_max,
+            &painter, &project, &x_name, &y_name, &z_name, x_min, x_max, y_min, y_max, z_min, z_max,
         );
 
         // Collect points
@@ -157,13 +166,11 @@ impl ClusterScatter3D {
             feasible_pts.push((pos, depth, cluster_color(label)));
         }
 
-        infeasible_pts
-            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        infeasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _) in &infeasible_pts {
             painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
         }
-        feasible_pts
-            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        feasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _, color) in &feasible_pts {
             painter.circle_filled(*pos, 3.5, *color);
         }

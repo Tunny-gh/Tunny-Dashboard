@@ -69,13 +69,21 @@ fn val_range(vals: &[f64]) -> (f64, f64) {
     let mut mx = f64::NEG_INFINITY;
     for &v in vals {
         if v.is_finite() {
-            if v < mn { mn = v; }
-            if v > mx { mx = v; }
+            if v < mn {
+                mn = v;
+            }
+            if v > mx {
+                mx = v;
+            }
         }
     }
-    if !mn.is_finite() || !mx.is_finite() { (-1.0, 1.0) }
-    else if (mx - mn).abs() < f64::EPSILON { (mn - 1.0, mx + 1.0) }
-    else { (mn, mx) }
+    if !mn.is_finite() || !mx.is_finite() {
+        (-1.0, 1.0)
+    } else if (mx - mn).abs() < f64::EPSILON {
+        (mn - 1.0, mx + 1.0)
+    } else {
+        (mn, mx)
+    }
 }
 
 impl McdmScatterChart3D {
@@ -180,7 +188,13 @@ impl McdmScatterChart3D {
 
         let scores = result.primary_scores();
         let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
-        self.cache = Some(PointsCache { clip_pts, infeasible_clip_pts, x_range, y_range, z_range });
+        self.cache = Some(PointsCache {
+            clip_pts,
+            infeasible_clip_pts,
+            x_range,
+            y_range,
+            z_range,
+        });
         self.cache_key = Some(CacheKey {
             trial_count: n_trials,
             x_axis: self.x_axis.clone(),
@@ -272,7 +286,9 @@ impl McdmScatterChart3D {
 
         // キャッシュ再構築
         if self.is_cache_stale(n_trials, result, colormap_name, top_n) {
-            if let Err(e) = self.rebuild_cache(result, view, obj_names, colormap, colormap_name, top_n) {
+            if let Err(e) =
+                self.rebuild_cache(result, view, obj_names, colormap, colormap_name, top_n)
+            {
                 ui.colored_label(ERROR_COLOR, e);
                 return;
             }
@@ -287,7 +303,9 @@ impl McdmScatterChart3D {
         // カメラ操作はキャッシュ借用前に完了させる
         let (painter, rect, project) = setup_3d_canvas(ui, &mut self.camera);
 
-        let Some(pc) = &self.cache else { return; };
+        let Some(pc) = &self.cache else {
+            return;
+        };
         let (x_min, x_max) = pc.x_range;
         let (y_min, y_max) = pc.y_range;
         let (z_min, z_max) = pc.z_range;
@@ -295,9 +313,17 @@ impl McdmScatterChart3D {
 
         draw_3d_grid(&painter, &project);
         draw_3d_axes(
-            &painter, &project,
-            &self.x_axis, &self.y_axis, &self.z_axis,
-            x_min, x_max, y_min, y_max, z_min, z_max,
+            &painter,
+            &project,
+            &self.x_axis,
+            &self.y_axis,
+            &self.z_axis,
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+            z_min,
+            z_max,
         );
 
         // 実行不可能解を最背面に描画
@@ -328,7 +354,13 @@ impl McdmScatterChart3D {
         }
 
         // ── 右上カラーバー判例 ────────────────────────────────────
-        draw_colorbar_legend(&painter, rect, colormap, top_n, show_infeasible && !pc.infeasible_clip_pts.is_empty());
+        draw_colorbar_legend(
+            &painter,
+            rect,
+            colormap,
+            top_n,
+            show_infeasible && !pc.infeasible_clip_pts.is_empty(),
+        );
     }
 }
 

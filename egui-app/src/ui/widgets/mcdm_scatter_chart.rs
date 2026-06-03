@@ -763,7 +763,8 @@ mod tests {
         chart.error_message = Some("error".to_string());
         let cmap_name = ColormapName::Viridis;
         let cmap = colormap_from_name(&cmap_name);
-        chart.cache_key = Some(chart.make_cache_key(10, &McdmResult::Topsis(make_topsis(10)), &cmap_name, 10));
+        chart.cache_key =
+            Some(chart.make_cache_key(10, &McdmResult::Topsis(make_topsis(10)), &cmap_name, 10));
         let _ = cmap; // suppress unused warning
         chart.invalidate_cache();
         assert!(chart.display_rows_cache.is_none());
@@ -775,7 +776,12 @@ mod tests {
     fn test_cache_stale_when_no_key() {
         use crate::state::types::ColormapName;
         let chart = McdmScatterChart::new();
-        assert!(chart.is_cache_stale(100, &McdmResult::Topsis(make_topsis(100)), &ColormapName::Viridis, 10));
+        assert!(chart.is_cache_stale(
+            100,
+            &McdmResult::Topsis(make_topsis(100)),
+            &ColormapName::Viridis,
+            10
+        ));
     }
 
     #[test]
@@ -1047,8 +1053,15 @@ mod tests {
         let cmap = colormap_from_name(&ColormapName::Viridis);
 
         let (points, _, meta) = compute_scatter_points(
-            &result, &view, &obj_names, "Objective0", "Objective1", &cmap, n,
-        ).unwrap();
+            &result,
+            &view,
+            &obj_names,
+            "Objective0",
+            "Objective1",
+            &cmap,
+            n,
+        )
+        .unwrap();
 
         assert_eq!(points.len(), n);
         assert_eq!(meta.total_trials, n);
@@ -1068,8 +1081,15 @@ mod tests {
         let cmap = colormap_from_name(&ColormapName::Viridis);
 
         let (points, _, _) = compute_scatter_points(
-            &result, &view, &obj_names, "Objective0", "Objective1", &cmap, top_n,
-        ).unwrap();
+            &result,
+            &view,
+            &obj_names,
+            "Objective0",
+            "Objective1",
+            &cmap,
+            top_n,
+        )
+        .unwrap();
 
         // rank 0（best）→ t=1.0 → colormap の最高端
         let expected = cmap.interpolate(1.0);
@@ -1087,9 +1107,9 @@ mod tests {
         let view = make_empty_view();
         let cmap = colormap_from_name(&ColormapName::Viridis);
 
-        let (points, _, meta) = compute_scatter_points(
-            &result, &view, &[], "Objective0", "Objective1", &cmap, 10,
-        ).unwrap();
+        let (points, _, meta) =
+            compute_scatter_points(&result, &view, &[], "Objective0", "Objective1", &cmap, 10)
+                .unwrap();
         assert!(points.is_empty());
         assert_eq!(meta.total_trials, 0);
     }
@@ -1104,9 +1124,9 @@ mod tests {
         let result = make_vikor_result(n);
         let cmap = colormap_from_name(&ColormapName::Viridis);
 
-        let (points, _, _) = compute_scatter_points(
-            &result, &view, &obj_names, "VIKOR_Q", "VIKOR_S", &cmap, n,
-        ).unwrap();
+        let (points, _, _) =
+            compute_scatter_points(&result, &view, &obj_names, "VIKOR_Q", "VIKOR_S", &cmap, n)
+                .unwrap();
 
         assert_eq!(points.len(), n);
     }

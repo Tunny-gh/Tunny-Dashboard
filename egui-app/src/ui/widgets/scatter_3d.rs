@@ -100,8 +100,12 @@ pub fn compute_range_from_col(col: Option<&[f64]>) -> (f64, f64) {
     let mut mx = f64::NEG_INFINITY;
     if let Some(c) = col {
         for &v in c {
-            if v < mn { mn = v; }
-            if v > mx { mx = v; }
+            if v < mn {
+                mn = v;
+            }
+            if v > mx {
+                mx = v;
+            }
         }
     }
     if !mn.is_finite() || !mx.is_finite() {
@@ -177,7 +181,10 @@ pub fn setup_3d_canvas(
     let cam_rot = camera.rotation;
     let project = move |p: [f32; 3]| -> (egui::Pos2, f32) {
         let r = rotate_by_quaternion(p, cam_rot);
-        (egui::pos2(center.x + r[0] * scale, center.y - r[1] * scale), r[2])
+        (
+            egui::pos2(center.x + r[0] * scale, center.y - r[1] * scale),
+            r[2],
+        )
     };
     (painter, rect, project)
 }
@@ -185,10 +192,7 @@ pub fn setup_3d_canvas(
 // ── グリッド・軸描画 ──────────────────────────────────────────────
 
 /// 3Dグリッド（XY/XZ/YZ の 3 面）を描画する
-pub fn draw_3d_grid(
-    painter: &egui::Painter,
-    project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
-) {
+pub fn draw_3d_grid(painter: &egui::Painter, project: &impl Fn([f32; 3]) -> (egui::Pos2, f32)) {
     let stroke = egui::Stroke::new(0.5, COLOR_3D_GRID);
     const N: i32 = 4;
     for i in 0..=N {
@@ -229,9 +233,30 @@ pub fn draw_3d_axes(
     z_max: f64,
 ) {
     let axes: [([f32; 3], [f32; 3], egui::Color32, &str, f64, f64); 3] = [
-        ([-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], COLOR_AXIS_X, x_name, x_min, x_max),
-        ([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], COLOR_AXIS_Y, y_name, y_min, y_max),
-        ([0.0, 0.0, -1.0], [0.0, 0.0, 1.0], COLOR_AXIS_Z, z_name, z_min, z_max),
+        (
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            COLOR_AXIS_X,
+            x_name,
+            x_min,
+            x_max,
+        ),
+        (
+            [0.0, -1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            COLOR_AXIS_Y,
+            y_name,
+            y_min,
+            y_max,
+        ),
+        (
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0, 1.0],
+            COLOR_AXIS_Z,
+            z_name,
+            z_min,
+            z_max,
+        ),
     ];
     for (neg_ep, pos_ep, color, name, val_min, val_max) in &axes {
         let (neg_pos, _) = project(*neg_ep);
@@ -269,14 +294,20 @@ mod tests {
 
     #[test]
     fn apply_zoom_clamps_to_min() {
-        let mut cam = ArcballCamera { zoom: 0.6, ..Default::default() };
+        let mut cam = ArcballCamera {
+            zoom: 0.6,
+            ..Default::default()
+        };
         cam.apply_zoom(1.0);
         assert!((cam.zoom - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]
     fn apply_zoom_clamps_to_max() {
-        let mut cam = ArcballCamera { zoom: 9.5, ..Default::default() };
+        let mut cam = ArcballCamera {
+            zoom: 9.5,
+            ..Default::default()
+        };
         cam.apply_zoom(-1.0);
         assert!((cam.zoom - 10.0).abs() < f32::EPSILON);
     }

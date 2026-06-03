@@ -384,21 +384,6 @@ pub(crate) fn poll_chart_work(
                     .map(|d| matches!(d, Direction::Minimize))
                     .collect();
 
-                // subset 内のインデックスを全トライアルのインデックスに変換するヘルパー
-                let pareto_indices_for_remap = pareto_row_indices.clone();
-                let remap = move |subset_idx: u32| -> u32 {
-                    pareto_indices_for_remap.get(subset_idx as usize).copied().unwrap_or(0) as u32
-                };
-                let expand_scores = move |subset_scores: Vec<f64>| -> Vec<f64> {
-                    let mut full = vec![0.0f64; n_total];
-                    for (j, &row) in pareto_row_indices.iter().enumerate() {
-                        if let Some(&s) = subset_scores.get(j) {
-                            full[row] = s;
-                        }
-                    }
-                    full
-                };
-
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
                     let start = std::time::Instant::now();
@@ -408,6 +393,22 @@ pub(crate) fn poll_chart_work(
                             "MCDM: Pareto front is empty. Run the optimizer first.".to_string(),
                         );
                     }
+
+                    // subset 内のインデックスを全トライアルのインデックスに変換するヘルパー
+                    // （spawned closure 内に置くことで pareto_row_indices の clone が不要）
+                    let remap = |subset_idx: u32| -> u32 {
+                        pareto_row_indices
+                            .get(subset_idx as usize)
+                            .copied()
+                            .unwrap_or(0) as u32
+                    };
+                    let expand_scores = |subset_scores: Vec<f64>| -> Vec<f64> {
+                        let mut full = vec![0.0f64; n_total];
+                        for (j, &row) in pareto_row_indices.iter().enumerate() {
+                            full[row] = subset_scores[j];
+                        }
+                        full
+                    };
 
                     match method {
                         McdmMethod::Topsis => {
@@ -422,14 +423,20 @@ pub(crate) fn poll_chart_work(
                                     AppMessage::McdmDone(crate::state::results::McdmResult::Topsis(
                                         crate::state::results::TopsisResult {
                                             scores: expand_scores(r.scores),
-                                            ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
+                                            ranked_indices: r
+                                                .ranked_indices
+                                                .into_iter()
+                                                .map(remap)
+                                                .collect(),
                                             positive_ideal: r.positive_ideal,
                                             negative_ideal: r.negative_ideal,
                                             duration_ms: start.elapsed().as_secs_f64() * 1000.0,
                                         },
                                     ))
                                 }
-                                Err(e) => AppMessage::Error(format!("TOPSIS computation failed: {e}")),
+                                Err(e) => {
+                                    AppMessage::Error(format!("TOPSIS computation failed: {e}"))
+                                }
                             }
                         }
                         McdmMethod::Vikor => {
@@ -448,14 +455,20 @@ pub(crate) fn poll_chart_work(
                                             r_values: expand_scores(r.r_values),
                                             q_values: expand_scores(r.q_values),
                                             display_scores: expand_scores(r.display_scores),
-                                            ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
+                                            ranked_indices: r
+                                                .ranked_indices
+                                                .into_iter()
+                                                .map(remap)
+                                                .collect(),
                                             best_values: r.best_values,
                                             worst_values: r.worst_values,
                                             duration_ms: start.elapsed().as_secs_f64() * 1000.0,
                                         },
                                     ))
                                 }
-                                Err(e) => AppMessage::Error(format!("VIKOR computation failed: {e}")),
+                                Err(e) => {
+                                    AppMessage::Error(format!("VIKOR computation failed: {e}"))
+                                }
                             }
                         }
                         McdmMethod::PrometheeI | McdmMethod::PrometheeII => {
@@ -471,8 +484,16 @@ pub(crate) fn poll_chart_work(
                                         phi_plus: expand_scores(r.phi_plus),
                                         phi_minus: expand_scores(r.phi_minus),
                                         phi_net: expand_scores(r.phi_net),
-                                        ranked_indices_i: r.ranked_indices_i.into_iter().map(&remap).collect(),
-                                        ranked_indices_ii: r.ranked_indices_ii.into_iter().map(&remap).collect(),
+                                        ranked_indices_i: r
+                                            .ranked_indices_i
+                                            .into_iter()
+                                            .map(|i| remap(i))
+                                            .collect(),
+                                        ranked_indices_ii: r
+                                            .ranked_indices_ii
+                                            .into_iter()
+                                            .map(|i| remap(i))
+                                            .collect(),
                                         duration_ms: r.duration_ms,
                                     };
                                     let mcdm = if method == McdmMethod::PrometheeI {
@@ -482,7 +503,9 @@ pub(crate) fn poll_chart_work(
                                     };
                                     AppMessage::McdmDone(mcdm)
                                 }
-                                Err(e) => AppMessage::Error(format!("PROMETHEE computation failed: {e}")),
+                                Err(e) => {
+                                    AppMessage::Error(format!("PROMETHEE computation failed: {e}"))
+                                }
                             }
                         }
                     }
