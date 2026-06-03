@@ -273,6 +273,8 @@ impl McdmScatterChart {
                 self.show_infeasible,
                 &self.x_axis,
                 &self.y_axis,
+                colormap,
+                top_n,
             );
         }
 
@@ -300,6 +302,8 @@ fn render_scatter_plot(
     show_infeasible: bool,
     x_label: &str,
     y_label: &str,
+    colormap: &ColorMap,
+    top_n: usize,
 ) {
     use std::collections::HashMap;
 
@@ -323,12 +327,22 @@ fn render_scatter_plot(
     let mut sorted: Vec<_> = color_groups.into_iter().collect();
     sorted.sort_by_key(|(_, (_, lum))| *lum);
 
+    // 判例用の代表色
+    let best_color = colormap.interpolate(1.0);
+    let worst_color = if top_n > 1 {
+        colormap.interpolate(0.0)
+    } else {
+        best_color
+    };
+    let has_infeasible = show_infeasible && !infeasible.is_empty();
+
     egui_plot::Plot::new("mcdm_scatter_plot")
         .x_axis_label(x_label)
         .y_axis_label(y_label)
+        .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
             // 実行不可能解を最背面に描画
-            if show_infeasible && !infeasible.is_empty() {
+            if has_infeasible {
                 let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
                 plot_ui.points(
                     egui_plot::Points::new(pts)
@@ -341,7 +355,7 @@ fn render_scatter_plot(
             if !none_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new(none_pts)
-                        .name("Unranked")
+                        .name("Others")
                         .color(COLOR_MCDM_NONE)
                         .radius(3.0),
                 );
@@ -350,6 +364,21 @@ fn render_scatter_plot(
             for ([r, g, b, a], (pts, _)) in sorted {
                 let color = Color32::from_rgba_unmultiplied(r, g, b, a);
                 plot_ui.points(egui_plot::Points::new(pts).color(color).radius(4.0));
+            }
+            // 判例専用エントリ（データなし・名前のみ）
+            plot_ui.points(
+                egui_plot::Points::new(Vec::<[f64; 2]>::new())
+                    .name("Rank 1 (Best)")
+                    .color(best_color)
+                    .radius(5.0),
+            );
+            if top_n > 1 {
+                plot_ui.points(
+                    egui_plot::Points::new(Vec::<[f64; 2]>::new())
+                        .name(format!("Rank {top_n}"))
+                        .color(worst_color)
+                        .radius(5.0),
+                );
             }
         });
 }

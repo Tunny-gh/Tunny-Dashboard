@@ -285,7 +285,7 @@ impl McdmScatterChart3D {
         }
 
         // カメラ操作はキャッシュ借用前に完了させる
-        let (painter, _rect, project) = setup_3d_canvas(ui, &mut self.camera);
+        let (painter, rect, project) = setup_3d_canvas(ui, &mut self.camera);
 
         let Some(pc) = &self.cache else { return; };
         let (x_min, x_max) = pc.x_range;
@@ -326,6 +326,110 @@ impl McdmScatterChart3D {
         for (pos, _, color) in &pts {
             painter.circle_filled(*pos, 3.5, *color);
         }
+
+        // ── 右上カラーバー判例 ────────────────────────────────────
+        draw_colorbar_legend(&painter, rect, colormap, top_n, show_infeasible && !pc.infeasible_clip_pts.is_empty());
+    }
+}
+
+/// 3D キャンバスの右上にカラーバー判例を描画する
+fn draw_colorbar_legend(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    colormap: &ColorMap,
+    top_n: usize,
+    has_infeasible: bool,
+) {
+    const BAR_W: f32 = 12.0;
+    const BAR_H: f32 = 90.0;
+    const PADDING: f32 = 8.0;
+    const TEXT_X: f32 = BAR_W + 4.0;
+    const FONT_SZ: f32 = 10.0;
+    const N_SEGS: i32 = 24;
+
+    // 判例全体の高さ（カラーバー＋Others＋オプションのInfeasible）
+    let row_h = 16.0_f32;
+    let extra_rows = 1 + if has_infeasible { 1 } else { 0 };
+    let legend_h = BAR_H + row_h * extra_rows as f32 + PADDING * 2.0;
+    let legend_w = 100.0_f32;
+
+    let origin = egui::pos2(rect.right() - legend_w - PADDING, rect.top() + PADDING);
+
+    // 半透明背景
+    painter.rect_filled(
+        egui::Rect::from_min_size(origin, egui::vec2(legend_w, legend_h)),
+        4.0,
+        egui::Color32::from_rgba_unmultiplied(20, 20, 20, 160),
+    );
+
+    let bar_x = origin.x + PADDING;
+    let bar_y = origin.y + PADDING;
+
+    // カラーバー（上 = Rank 1 = t=1.0、下 = Rank top_n = t=0.0）
+    for seg in 0..N_SEGS {
+        let t = 1.0 - seg as f32 / (N_SEGS - 1) as f32;
+        let color = colormap.interpolate(t);
+        let seg_h = BAR_H / N_SEGS as f32;
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(bar_x, bar_y + seg as f32 * seg_h),
+                egui::vec2(BAR_W, seg_h + 0.5),
+            ),
+            0.0,
+            color,
+        );
+    }
+
+    let text_color = egui::Color32::from_rgb(220, 220, 220);
+    let font = egui::FontId::proportional(FONT_SZ);
+
+    // 上ラベル（最良）
+    painter.text(
+        egui::pos2(bar_x + TEXT_X, bar_y),
+        egui::Align2::LEFT_TOP,
+        "Rank 1 (Best)",
+        font.clone(),
+        text_color,
+    );
+    // 下ラベル（最下位着色）
+    painter.text(
+        egui::pos2(bar_x + TEXT_X, bar_y + BAR_H),
+        egui::Align2::LEFT_BOTTOM,
+        format!("Rank {top_n}"),
+        font.clone(),
+        text_color,
+    );
+
+    // Others 行
+    let others_y = bar_y + BAR_H + 4.0;
+    painter.circle_filled(
+        egui::pos2(bar_x + BAR_W * 0.5, others_y + row_h * 0.5),
+        4.0,
+        COLOR_MCDM_NONE,
+    );
+    painter.text(
+        egui::pos2(bar_x + TEXT_X, others_y + row_h * 0.5),
+        egui::Align2::LEFT_CENTER,
+        "Others",
+        font.clone(),
+        text_color,
+    );
+
+    // Infeasible 行
+    if has_infeasible {
+        let inf_y = others_y + row_h;
+        painter.circle_filled(
+            egui::pos2(bar_x + BAR_W * 0.5, inf_y + row_h * 0.5),
+            4.0,
+            crate::theme::chart_colors::COLOR_INFEASIBLE,
+        );
+        painter.text(
+            egui::pos2(bar_x + TEXT_X, inf_y + row_h * 0.5),
+            egui::Align2::LEFT_CENTER,
+            "Infeasible",
+            font,
+            text_color,
+        );
     }
 }
 
