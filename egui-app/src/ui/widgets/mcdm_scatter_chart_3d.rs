@@ -18,6 +18,7 @@ struct CacheKey {
     y_axis: String,
     z_axis: String,
     colormap_name: ColormapName,
+    top_n: usize,
     result_method: McdmMethod,
     result_score0_bits: u64,
     result_score_count: usize,
@@ -83,6 +84,7 @@ impl McdmScatterChart3D {
         trial_count: usize,
         result: &McdmResult,
         colormap_name: &ColormapName,
+        top_n: usize,
     ) -> bool {
         let scores = result.primary_scores();
         let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
@@ -94,6 +96,7 @@ impl McdmScatterChart3D {
                     || k.y_axis != self.y_axis
                     || k.z_axis != self.z_axis
                     || k.colormap_name != *colormap_name
+                    || k.top_n != top_n
                     || k.result_method != result.method()
                     || k.result_score0_bits != score0_bits
                     || k.result_score_count != scores.len()
@@ -108,6 +111,7 @@ impl McdmScatterChart3D {
         obj_names: &[String],
         colormap: &ColorMap,
         colormap_name: &ColormapName,
+        top_n: usize,
     ) -> Result<(), String> {
         let n_trials = view.row_count();
         let x_vals = extract_axis_values(&self.x_axis, result, view, obj_names)?;
@@ -120,7 +124,6 @@ impl McdmScatterChart3D {
 
         // ranked_indices → rank_map
         let ranked = result.ranked_indices();
-        let n_ranked = ranked.len();
         let mut rank_map = vec![usize::MAX; n_trials];
         for (rank, &idx) in ranked.iter().enumerate() {
             let i = idx as usize;
@@ -128,6 +131,7 @@ impl McdmScatterChart3D {
                 rank_map[i] = rank;
             }
         }
+        let colored_range = top_n.max(1);
 
         let is_feasible_col = view.numeric_column("is_feasible");
         let mut clip_pts: Vec<([f32; 3], Color32)> = Vec::with_capacity(n_trials);
@@ -161,11 +165,11 @@ impl McdmScatterChart3D {
             }
 
             let rank = rank_map[i];
-            let color = if rank == usize::MAX {
+            let color = if rank == usize::MAX || rank >= colored_range {
                 COLOR_MCDM_NONE
             } else {
-                let t = if n_ranked > 1 {
-                    1.0 - rank as f32 / (n_ranked - 1) as f32
+                let t = if colored_range > 1 {
+                    1.0 - rank as f32 / (colored_range - 1) as f32
                 } else {
                     1.0
                 };
@@ -183,6 +187,7 @@ impl McdmScatterChart3D {
             y_axis: self.y_axis.clone(),
             z_axis: self.z_axis.clone(),
             colormap_name: colormap_name.clone(),
+            top_n,
             result_method: result.method(),
             result_score0_bits: score0_bits,
             result_score_count: scores.len(),
@@ -198,6 +203,7 @@ impl McdmScatterChart3D {
         obj_names: &[String],
         colormap: &ColorMap,
         colormap_name: &ColormapName,
+        top_n: usize,
     ) {
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
@@ -265,8 +271,8 @@ impl McdmScatterChart3D {
         let has_constraints = view.numeric_column("is_feasible").is_some();
 
         // キャッシュ再構築
-        if self.is_cache_stale(n_trials, result, colormap_name) {
-            if let Err(e) = self.rebuild_cache(result, view, obj_names, colormap, colormap_name) {
+        if self.is_cache_stale(n_trials, result, colormap_name, top_n) {
+            if let Err(e) = self.rebuild_cache(result, view, obj_names, colormap, colormap_name, top_n) {
                 ui.colored_label(ERROR_COLOR, e);
                 return;
             }

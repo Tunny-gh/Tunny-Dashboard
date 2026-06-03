@@ -113,6 +113,7 @@ pub(crate) fn render_chart(
                 .show(ui, obj_names, &app_state.mcdm_result);
         }
         ChartId::McdmScatterChart => {
+            let top_n = widgets.mcdm_chart.top_n.value();
             widgets.scatter_chart.show(
                 ui,
                 &app_state.mcdm_result,
@@ -120,9 +121,11 @@ pub(crate) fn render_chart(
                 obj_names,
                 &cmap,
                 &app_state.selected_colormap,
+                top_n,
             );
         }
         ChartId::McdmScatterChart3D => {
+            let top_n = widgets.mcdm_chart.top_n.value();
             widgets.mcdm_scatter_3d.show(
                 ui,
                 &app_state.mcdm_result,
@@ -130,6 +133,7 @@ pub(crate) fn render_chart(
                 obj_names,
                 &cmap,
                 &app_state.selected_colormap,
+                top_n,
             );
         }
         ChartId::McdmTable => {
