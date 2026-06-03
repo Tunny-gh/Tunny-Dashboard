@@ -114,7 +114,12 @@ impl Pareto3dChart {
         let x_name = obj_names.get(self.x_objective).cloned().unwrap_or_default();
         let y_name = obj_names.get(self.y_objective).cloned().unwrap_or_default();
         let z_name = obj_names.get(self.z_objective).cloned().unwrap_or_default();
-        draw_3d_axes(&painter, &project, [&x_name, &y_name, &z_name], [(x_min, x_max), (y_min, y_max), (z_min, z_max)]);
+        draw_3d_axes(
+            &painter,
+            &project,
+            [&x_name, &y_name, &z_name],
+            [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
+        );
 
         let selected = &app_state.selected_indices;
         let highlighted = app_state.highlighted_trial;

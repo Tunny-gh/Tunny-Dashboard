@@ -157,9 +157,8 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
                     continue;
                 }
                 if let Some(attrs) = json.get("system_attr").and_then(|v| v.as_object()) {
-                    if let Some(names_arr) = attrs
-                        .get("study:metric_names")
-                        .and_then(|v| v.as_array())
+                    if let Some(names_arr) =
+                        attrs.get("study:metric_names").and_then(|v| v.as_array())
                     {
                         let names: Vec<String> = names_arr
                             .iter()

@@ -94,10 +94,7 @@ fn quick_extract_u32_basic() {
         quick_extract_u32(r#"{"trial_id":  42,"state":1}"#, "trial_id"),
         Some(42)
     );
-    assert_eq!(
-        quick_extract_u32(r#"{"no_field":1}"#, "study_id"),
-        None
-    );
+    assert_eq!(quick_extract_u32(r#"{"no_field":1}"#, "study_id"), None);
 }
 
 fn to_bytes(s: &str) -> Vec<u8> {

@@ -315,7 +315,12 @@ impl McdmScatterChart3D {
         let show_infeasible = self.show_infeasible;
 
         draw_3d_grid(&painter, &project);
-        draw_3d_axes(&painter, &project, [&self.x_axis, &self.y_axis, &self.z_axis], [(x_min, x_max), (y_min, y_max), (z_min, z_max)]);
+        draw_3d_axes(
+            &painter,
+            &project,
+            [&self.x_axis, &self.y_axis, &self.z_axis],
+            [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
+        );
 
         // 実行不可能解を最背面に描画
         if show_infeasible && !pc.infeasible_clip_pts.is_empty() {
@@ -509,7 +514,12 @@ mod tests {
         // ランキングが変わった新結果
         let new_result = make_topsis(vec![2, 5, 8]);
         assert!(
-            w.is_cache_stale(10, &new_result, &crate::state::types::ColormapName::Viridis, 10),
+            w.is_cache_stale(
+                10,
+                &new_result,
+                &crate::state::types::ColormapName::Viridis,
+                10
+            ),
             "ランキング変更でキャッシュが無効化される"
         );
     }
