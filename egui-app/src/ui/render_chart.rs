@@ -104,7 +104,7 @@ pub(crate) fn render_chart(
         ChartId::McdmRankChart => {
             widgets
                 .mcdm_chart
-                .show(ui, obj_names, &app_state.mcdm_result, &ctx.view);
+                .show(ui, obj_names, &app_state.mcdm_result);
         }
         ChartId::McdmScatterChart => {
             widgets

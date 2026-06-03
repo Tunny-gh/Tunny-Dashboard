@@ -115,13 +115,7 @@ pub fn normalize_weights(weights: &[f64]) -> Vec<f64> {
 }
 
 impl McdmRankChart {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        obj_names: &[String],
-        result: &Option<McdmResult>,
-        view: &StudyView,
-    ) {
+    pub fn show(&mut self, ui: &mut egui::Ui, obj_names: &[String], result: &Option<McdmResult>) {
         let obj_count = obj_names.len();
         if obj_count == 0 {
             ui.vertical_centered(|ui| {
@@ -346,12 +340,11 @@ impl McdmRankChart {
                 let bar_max_width = (available_width / 2.0).max(25.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_i[rank] as usize;
-                    let trial_id = view.trial_ids.get(idx).copied().unwrap_or(idx as u32);
                     ui.horizontal(|ui| {
                         ui.add_sized(
                             [label_width, bar_height],
                             egui::Label::new(
-                                egui::RichText::new(format!("Trial {trial_id}"))
+                                egui::RichText::new(format!("Trial {idx}"))
                                     .text_style(egui::TextStyle::Body),
                             )
                             .truncate(),
@@ -416,7 +409,6 @@ impl McdmRankChart {
                 let bar_max_width = available_width.max(50.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_ii[rank] as usize;
-                    let trial_id = view.trial_ids.get(idx).copied().unwrap_or(idx as u32);
                     let phi_net = r.phi_net[idx];
                     let bar_w = if max_abs > 0.0 {
                         (phi_net.abs() / max_abs * bar_max_width as f64) as f32
@@ -432,7 +424,7 @@ impl McdmRankChart {
                         ui.add_sized(
                             [label_width, bar_height],
                             egui::Label::new(
-                                egui::RichText::new(format!("Trial {trial_id}"))
+                                egui::RichText::new(format!("Trial {idx}"))
                                     .text_style(egui::TextStyle::Body),
                             )
                             .truncate(),
@@ -458,7 +450,7 @@ impl McdmRankChart {
             return;
         }
 
-        let entries = enumerate_ranked(result, &view.trial_ids, self.top_n.value());
+        let entries = enumerate_ranked(result, self.top_n.value());
         if entries.is_empty() {
             ui.label("No data");
             return;
@@ -476,7 +468,7 @@ impl McdmRankChart {
                     ui.add_sized(
                         [label_width, bar_height],
                         egui::Label::new(
-                            egui::RichText::new(format!("Trial {}", entry.trial_id))
+                            egui::RichText::new(format!("Trial {}", entry.trial_idx))
                                 .text_style(egui::TextStyle::Body),
                         )
                         .truncate(),
@@ -570,7 +562,7 @@ impl McdmTable {
                             ui.label(format!("{}", row_data.rank));
                         });
                         row.col(|ui| {
-                            ui.label(format!("{}", row_data.trial_id));
+                            ui.label(format!("{}", row_data.trial_number));
                         });
                         row.col(|ui| {
                             ui.label(format!("{:.4}", row_data.score));
@@ -590,12 +582,11 @@ impl McdmTable {
 struct RankingEntry {
     rank: usize,
     trial_idx: usize,
-    trial_id: u32,
     score: f64,
 }
 
 /// McdmResultから上位N件のランキングエントリを生成する
-fn enumerate_ranked(result: &McdmResult, trial_ids: &[u32], top_n: usize) -> Vec<RankingEntry> {
+fn enumerate_ranked(result: &McdmResult, top_n: usize) -> Vec<RankingEntry> {
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
     let count = top_n.min(ranked.len());
@@ -603,15 +594,10 @@ fn enumerate_ranked(result: &McdmResult, trial_ids: &[u32], top_n: usize) -> Vec
     (0..count)
         .map(|rank| {
             let trial_idx = ranked[rank] as usize;
-            let trial_id = trial_ids
-                .get(trial_idx)
-                .copied()
-                .unwrap_or(trial_idx as u32);
             let score = scores.get(trial_idx).copied().unwrap_or(0.0);
             RankingEntry {
                 rank: rank + 1,
                 trial_idx,
-                trial_id,
                 score,
             }
         })
@@ -621,7 +607,7 @@ fn enumerate_ranked(result: &McdmResult, trial_ids: &[u32], top_n: usize) -> Vec
 /// テーブル行データ
 pub struct RankingRow {
     pub rank: usize,
-    pub trial_id: u32,
+    pub trial_number: u32,
     pub score: f64,
     pub objectives: Vec<f64>,
 }
@@ -634,7 +620,7 @@ pub fn build_ranking_rows(
     top_n: usize,
 ) -> Vec<RankingRow> {
     let obj_cols = view.numeric_columns(obj_names);
-    enumerate_ranked(result, &view.trial_ids, top_n)
+    enumerate_ranked(result, top_n)
         .into_iter()
         .map(|e| {
             let objectives: Vec<f64> = obj_cols
@@ -643,7 +629,7 @@ pub fn build_ranking_rows(
                 .collect();
             RankingRow {
                 rank: e.rank,
-                trial_id: e.trial_id,
+                trial_number: e.trial_idx as u32,
                 score: e.score,
                 objectives,
             }
@@ -842,7 +828,7 @@ mod tests {
         let ranking = build_ranking_rows(&result, &view, &[], 5);
         assert_eq!(ranking.len(), 3);
         assert_eq!(ranking[0].rank, 1);
-        assert_eq!(ranking[0].trial_id, 0);
+        assert_eq!(ranking[0].trial_number, 0);
         assert!((ranking[0].score - 0.9).abs() < 1e-9);
     }
 
