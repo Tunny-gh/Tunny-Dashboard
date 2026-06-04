@@ -1,6 +1,11 @@
 use crate::state::app_state::AppState;
 use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap_name::colormap_from_name;
+use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::cluster_scatter::{
+    validate_cluster_request, ClusterComputeRequest, ClusterSpace, KMeansInitStrategy,
+    KSelectionMode,
+};
 use crate::ui::widgets::scatter_3d::{
     compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     show_objective_combo, ArcballCamera,
@@ -13,6 +18,14 @@ pub struct ClusterScatter3D {
     pub z_objective: usize,
     pub camera: ArcballCamera,
     pub show_infeasible: bool,
+    // クラスタリング設定（2D の ClusterScatter と同じ操作を 3D からも可能にする）
+    pub k: usize,
+    pub target_space: ClusterSpace,
+    pub k_mode: KSelectionMode,
+    pub init_strategy: KMeansInitStrategy,
+    pub computing: bool,
+    pub pending_compute: Option<ClusterComputeRequest>,
+    pub last_error: Option<crate::state::messages::ClusterUiError>,
     range_cache: [(f64, f64); 3],
     range_cache_key: (usize, usize, usize, usize),
 }
@@ -28,6 +41,13 @@ impl Default for ClusterScatter3D {
                 ..Default::default()
             },
             show_infeasible: true,
+            k: 3,
+            target_space: ClusterSpace::Objective,
+            k_mode: KSelectionMode::ElbowDefault,
+            init_strategy: KMeansInitStrategy::KMeansPlusPlus,
+            computing: false,
+            pending_compute: None,
+            last_error: None,
             range_cache: [(-1.0, 1.0); 3],
             range_cache_key: (usize::MAX, usize::MAX, usize::MAX, 0),
         }
@@ -55,6 +75,20 @@ impl ClusterScatter3D {
         let view = &ctx.view;
         let trial_count = view.row_count();
         let has_constraints = ctx.meta.has_constraints;
+        // クラスタリング対象はパレートフロント（pareto_rank == 0）の解数で判定する。
+        let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
+
+        // クラスタリング設定 + Run（2D と同じ操作）
+        self.show_cluster_controls(ui, pareto_count);
+        if let Some(err) = self.last_error.clone() {
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
+            if let Some(detail) = &err.detail_for_dev {
+                ui.label(egui::RichText::new(detail).small().weak());
+            }
+            if err.retryable && ui.button("Retry").clicked() {
+                self.try_queue_compute(pareto_count);
+            }
+        }
 
         // Range cache
         let cache_key = (
@@ -190,15 +224,123 @@ impl ClusterScatter3D {
             painter.circle_filled(*pos, 3.5, *color);
         }
 
-        if !has_cluster {
+        if !has_cluster && !self.computing {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "Run clustering first (Cluster tab → Run button)",
+                "Click Run to compute clusters",
                 egui::FontId::proportional(13.0),
                 egui::Color32::from_rgb(180, 180, 180),
             );
         }
+    }
+
+    /// クラスタリング設定 UI（k / モード / 空間 / Init / Run）を描画する。
+    /// 2D の ClusterScatter::show_header と同じ操作感。
+    fn show_cluster_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
+        ui.horizontal(|ui| {
+            let k_editable = !self.computing && self.k_mode == KSelectionMode::Manual;
+            ui.label("k:");
+            ui.add_enabled(
+                k_editable,
+                egui::DragValue::new(&mut self.k).range(2..=pareto_count.max(2)),
+            );
+
+            egui::ComboBox::from_id_salt("cluster_scatter_3d_k_mode")
+                .selected_text(self.k_mode.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.k_mode,
+                        KSelectionMode::ElbowDefault,
+                        KSelectionMode::ElbowDefault.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.k_mode,
+                        KSelectionMode::Manual,
+                        KSelectionMode::Manual.label(),
+                    );
+                });
+
+            egui::ComboBox::from_id_salt("cluster_scatter_3d_space")
+                .selected_text(self.target_space.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.target_space,
+                        ClusterSpace::Objective,
+                        ClusterSpace::Objective.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.target_space,
+                        ClusterSpace::Variable,
+                        ClusterSpace::Variable.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.target_space,
+                        ClusterSpace::Combined,
+                        ClusterSpace::Combined.label(),
+                    );
+                });
+
+            ui.label("Init:");
+            egui::ComboBox::from_id_salt("cluster_scatter_3d_init")
+                .selected_text(self.init_strategy.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.init_strategy,
+                        KMeansInitStrategy::KMeansPlusPlus,
+                        KMeansInitStrategy::KMeansPlusPlus.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.init_strategy,
+                        KMeansInitStrategy::Deterministic,
+                        KMeansInitStrategy::Deterministic.label(),
+                    );
+                });
+
+            if ui
+                .add_enabled(!self.computing, egui::Button::new("Run"))
+                .clicked()
+            {
+                self.try_queue_compute(pareto_count);
+            }
+
+            if self.computing {
+                ui.spinner();
+                ui.label("Running clustering...");
+            }
+        });
+    }
+
+    fn try_queue_compute(&mut self, pareto_count: usize) {
+        let request = ClusterComputeRequest {
+            k: self.k,
+            target_space: self.target_space,
+            k_mode: self.k_mode,
+            init_strategy: self.init_strategy,
+        };
+
+        match validate_cluster_request(&request, pareto_count) {
+            Ok(()) => {
+                self.pending_compute = Some(request);
+                self.computing = true;
+                self.last_error = None;
+            }
+            Err(err) => {
+                self.pending_compute = None;
+                self.last_error = Some(err);
+            }
+        }
+    }
+
+    pub fn set_error(&mut self, err: crate::state::messages::ClusterUiError) {
+        self.computing = false;
+        self.last_error = Some(err);
+    }
+
+    pub fn clear_runtime_state(&mut self) {
+        self.computing = false;
+        self.pending_compute = None;
+        self.last_error = None;
     }
 }
 

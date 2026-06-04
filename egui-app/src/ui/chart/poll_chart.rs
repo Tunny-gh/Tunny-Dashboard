@@ -316,6 +316,20 @@ pub(crate) fn poll_chart_work(
                 }
             }
         }
+        ChartId::ClusterScatter3D => {
+            if let Some(req) = widgets.cluster_scatter_3d.pending_compute.take() {
+                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
+                    Ok(matrix) => {
+                        let tx = tx.clone();
+                        app_state.cluster_result = None;
+                        crate::app::spawn_task(tx, move || run_cluster_compute(req, matrix));
+                    }
+                    Err(err) => {
+                        widgets.cluster_scatter_3d.set_error(err);
+                    }
+                }
+            }
+        }
         ChartId::McdmRankChart => {
             if let Some(cached) = widgets.mcdm_chart.pending_restore.take() {
                 app_state.mcdm_result = Some(cached);
