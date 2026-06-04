@@ -21,8 +21,6 @@ pub enum ToolbarAction {
     SetPollInterval(u64),
     GenerateHtmlReport,
     ScanArtifacts(std::path::PathBuf),
-    LoadSession,
-    SaveSession,
     ClearLoadError,
 
     // TASK-2228: 新規アクション
@@ -219,15 +217,6 @@ pub fn show_toolbar(
             push_comparison_selector(ui, app_state, &mut actions);
 
             ui.separator();
-
-            // ── REQ-004: セッション ──────────────────────────────────────────
-            if toolbar_button(ui, "Load Session", true).clicked() {
-                actions.push(ToolbarAction::LoadSession);
-            }
-
-            if toolbar_button(ui, "Save Session", app_state.current_study.is_some()).clicked() {
-                actions.push(ToolbarAction::SaveSession);
-            }
 
             // ローディングインジケーター
             if is_loading {

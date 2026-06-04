@@ -159,31 +159,6 @@ impl TunnyApp {
                 ToolbarAction::ScanArtifacts(base_dir) => {
                     crate::io::artifacts::scan_artifacts_dir(base_dir, self.sender());
                 }
-                ToolbarAction::LoadSession => {
-                    use crate::io::session;
-                    if let Some(snap) = session::load_session() {
-                        self.app_state.filter_ranges = snap.filter_ranges;
-                        self.app_state.selected_indices = snap.selected_indices;
-                        self.app_state.tradeoff_weights = snap.tradeoff_weights;
-                        self.app_state.pinned_trials = snap.pinned_trials;
-                    }
-                }
-                ToolbarAction::SaveSession => {
-                    use crate::io::session;
-                    let name = self
-                        .app_state
-                        .current_study
-                        .as_ref()
-                        .map(|c| c.meta.name.clone())
-                        .unwrap_or_default();
-                    let mut snap = session::SessionSnapshot::new(
-                        name,
-                        self.app_state.filter_ranges.clone(),
-                        self.app_state.selected_indices.clone(),
-                    );
-                    snap.pinned_trials = self.app_state.pinned_trials.clone();
-                    session::save_session(&snap);
-                }
                 ToolbarAction::ClearLoadError => {
                     self.load_error = None;
                 }

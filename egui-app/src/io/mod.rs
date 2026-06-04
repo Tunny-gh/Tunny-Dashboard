@@ -6,6 +6,5 @@ pub mod file;
 pub mod html_report;
 pub mod journal;
 pub mod live_update_poller;
-pub mod session;
 pub mod study;
 pub mod study_worker;
