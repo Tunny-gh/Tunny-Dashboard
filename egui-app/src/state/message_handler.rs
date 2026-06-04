@@ -517,20 +517,22 @@ impl MessageHandler {
             .unwrap_or(0);
         if result.labels.len() == trial_count {
             app_state.cluster_result = Some(result);
+            // 2D / 3D いずれから実行されても結果は共有されるため両方の実行状態を解除する
             widget_states.cluster_scatter.clear_runtime_state();
+            widget_states.cluster_scatter_3d.clear_runtime_state();
         } else {
             app_state.cluster_result = None;
-            widget_states
-                .cluster_scatter
-                .set_error(crate::state::messages::cluster_ui_error(
-                    "Cluster result is inconsistent. Please run again.",
-                    Some(format!(
-                        "validation: labels_len({}) != trial_count({})",
-                        result.labels.len(),
-                        trial_count
-                    )),
-                    true,
-                ));
+            let err = crate::state::messages::cluster_ui_error(
+                "Cluster result is inconsistent. Please run again.",
+                Some(format!(
+                    "validation: labels_len({}) != trial_count({})",
+                    result.labels.len(),
+                    trial_count
+                )),
+                true,
+            );
+            widget_states.cluster_scatter.set_error(err.clone());
+            widget_states.cluster_scatter_3d.set_error(err);
         }
     }
 
@@ -540,7 +542,8 @@ impl MessageHandler {
         widget_states: &mut WidgetStates,
     ) {
         app_state.cluster_result = None;
-        widget_states.cluster_scatter.set_error(err);
+        widget_states.cluster_scatter.set_error(err.clone());
+        widget_states.cluster_scatter_3d.set_error(err);
     }
 }
 
