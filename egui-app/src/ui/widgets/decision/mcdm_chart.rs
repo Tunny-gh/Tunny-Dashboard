@@ -505,6 +505,7 @@ impl McdmTable {
         ui: &mut egui::Ui,
         result: &Option<McdmResult>,
         view: &StudyView,
+        param_names: &[String],
         obj_names: &[String],
     ) {
         // Top N セレクタ
@@ -527,54 +528,70 @@ impl McdmTable {
 
         use egui_extras::{Column, TableBuilder};
 
-        let rows = build_ranking_rows(result, view, obj_names, self.top_n.value());
+        let rows = build_ranking_rows(result, view, param_names, obj_names, self.top_n.value());
         if rows.is_empty() {
             ui.colored_label(COLOR_EMPTY_STATE, "No results to display");
             return;
         }
 
-        TableBuilder::new(ui)
-            .striped(true)
-            .column(Column::exact(50.0))
-            .column(Column::exact(80.0))
-            .column(Column::exact(80.0))
-            .columns(Column::remainder(), obj_names.len())
-            .header(20.0, |mut header| {
-                header.col(|ui| {
-                    ui.strong("Rank");
-                });
-                header.col(|ui| {
-                    ui.strong("Trial");
-                });
-                header.col(|ui| {
-                    ui.strong("Score");
-                });
-                for name in obj_names {
+        // 各変数・目的を 1 列ずつに展開し、横スクロール可能にする
+        // （Cluster Table と同形式）。
+        egui::ScrollArea::horizontal().show(ui, |ui| {
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .column(Column::initial(50.0).at_least(40.0)) // Rank
+                .column(Column::initial(70.0).at_least(50.0)) // Trial
+                .column(Column::initial(80.0).at_least(50.0)) // Score
+                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
+                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
+                .header(20.0, |mut header| {
                     header.col(|ui| {
-                        ui.strong(name);
+                        ui.strong("Rank");
                     });
-                }
-            })
-            .body(|mut body| {
-                for row_data in &rows {
-                    body.row(18.0, |mut row| {
-                        row.col(|ui| {
-                            ui.label(format!("{}", row_data.rank));
+                    header.col(|ui| {
+                        ui.strong("Trial");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Score");
+                    });
+                    for name in obj_names {
+                        header.col(|ui| {
+                            ui.strong(name);
                         });
-                        row.col(|ui| {
-                            ui.label(format!("{}", row_data.trial_number));
+                    }
+                    for name in param_names {
+                        header.col(|ui| {
+                            ui.strong(name);
                         });
-                        row.col(|ui| {
-                            ui.label(format!("{:.4}", row_data.score));
-                        });
-                        for &val in &row_data.objectives {
+                    }
+                })
+                .body(|mut body| {
+                    for row_data in &rows {
+                        body.row(18.0, |mut row| {
                             row.col(|ui| {
-                                ui.label(format!("{:.4}", val));
+                                ui.label(format!("{}", row_data.rank));
                             });
-                        }
-                    });
-                }
-            });
+                            row.col(|ui| {
+                                ui.label(format!("{}", row_data.trial_number));
+                            });
+                            row.col(|ui| {
+                                ui.label(format!("{:.4}", row_data.score));
+                            });
+                            for &val in &row_data.objectives {
+                                row.col(|ui| {
+                                    ui.label(format!("{:.4}", val));
+                                });
+                            }
+                            for &val in &row_data.parameters {
+                                row.col(|ui| {
+                                    ui.label(format!("{:.3}", val));
+                                });
+                            }
+                        });
+                    }
+                });
+        });
     }
 }
 
@@ -609,6 +626,7 @@ pub struct RankingRow {
     pub rank: usize,
     pub trial_number: u32,
     pub score: f64,
+    pub parameters: Vec<f64>,
     pub objectives: Vec<f64>,
 }
 
@@ -616,13 +634,19 @@ pub struct RankingRow {
 pub fn build_ranking_rows(
     result: &McdmResult,
     view: &StudyView,
+    param_names: &[String],
     obj_names: &[String],
     top_n: usize,
 ) -> Vec<RankingRow> {
+    let param_cols = view.numeric_columns(param_names);
     let obj_cols = view.numeric_columns(obj_names);
     enumerate_ranked(result, top_n)
         .into_iter()
         .map(|e| {
+            let parameters: Vec<f64> = param_cols
+                .iter()
+                .map(|col| col.and_then(|c| c.get(e.trial_idx)).copied().unwrap_or(0.0))
+                .collect();
             let objectives: Vec<f64> = obj_cols
                 .iter()
                 .map(|col| col.and_then(|c| c.get(e.trial_idx)).copied().unwrap_or(0.0))
@@ -631,6 +655,7 @@ pub fn build_ranking_rows(
                 rank: e.rank,
                 trial_number: e.trial_idx as u32,
                 score: e.score,
+                parameters,
                 objectives,
             }
         })
@@ -768,7 +793,7 @@ mod tests {
     fn enumerate_ranked_top5_with_5_results() {
         let result = make_topsis_result(vec![0.9, 0.7, 0.5, 0.3, 0.1], vec![0, 1, 2, 3, 4]);
         let view = make_simple_view(5);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert_eq!(ranking.len(), 5);
         assert!((ranking[0].score - 0.9).abs() < 1e-9);
         assert!((ranking[4].score - 0.1).abs() < 1e-9);
@@ -780,7 +805,7 @@ mod tests {
         let ranked: Vec<u32> = (0..20).collect();
         let result = make_topsis_result(scores, ranked);
         let view = make_simple_view(20);
-        let ranking = build_ranking_rows(&result, &view, &[], 10);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 10);
         assert_eq!(ranking.len(), 10);
     }
 
@@ -788,7 +813,7 @@ mod tests {
     fn enumerate_ranked_top5_with_3_results_min_applied() {
         let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![0, 1, 2]);
         let view = make_simple_view(3);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert_eq!(ranking.len(), 3);
     }
 
@@ -796,7 +821,7 @@ mod tests {
     fn enumerate_ranked_scores_match_ranked_order() {
         let result = make_topsis_result(vec![0.1, 0.9, 0.5], vec![1, 2, 0]);
         let view = make_simple_view(3);
-        let ranking = build_ranking_rows(&result, &view, &[], 10);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 10);
         assert_eq!(ranking.len(), 3);
         assert!((ranking[0].score - 0.9).abs() < 1e-9);
         assert!((ranking[1].score - 0.5).abs() < 1e-9);
@@ -807,7 +832,7 @@ mod tests {
     fn enumerate_ranked_empty_result() {
         let result = make_topsis_result(vec![], vec![]);
         let view = make_simple_view(0);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert!(ranking.is_empty());
     }
 
@@ -825,7 +850,7 @@ mod tests {
     fn build_ranking_rows_basic() {
         let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![0, 1, 2]);
         let view = make_simple_view(3);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert_eq!(ranking.len(), 3);
         assert_eq!(ranking[0].rank, 1);
         assert_eq!(ranking[0].trial_number, 0);
@@ -838,7 +863,7 @@ mod tests {
         let ranked: Vec<u32> = (0..20).collect();
         let result = make_topsis_result(scores, ranked);
         let view = make_simple_view(20);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert_eq!(ranking.len(), 5);
     }
 
@@ -846,7 +871,7 @@ mod tests {
     fn build_ranking_rows_rank_starts_at_1() {
         let result = make_topsis_result(vec![0.8], vec![0]);
         let view = make_simple_view(1);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert_eq!(ranking[0].rank, 1);
     }
 
@@ -854,7 +879,7 @@ mod tests {
     fn build_ranking_rows_empty() {
         let result = make_topsis_result(vec![], vec![]);
         let view = make_simple_view(0);
-        let ranking = build_ranking_rows(&result, &view, &[], 5);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert!(ranking.is_empty());
     }
 
@@ -862,7 +887,7 @@ mod tests {
     fn build_ranking_rows_objectives_included() {
         let result = make_topsis_result(vec![0.9, 0.5], vec![0, 1]);
         let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
-        let ranking = build_ranking_rows(&result, &view, &obj_names, 10);
+        let ranking = build_ranking_rows(&result, &view, &[], &obj_names, 10);
         assert_eq!(ranking[0].objectives, vec![1.0, 2.0]);
         assert_eq!(ranking[1].objectives, vec![3.0, 4.0]);
     }
@@ -913,7 +938,7 @@ mod tests {
         assert!(!mcdm_result.primary_scores().iter().any(|s| s.is_nan()));
 
         let (view, obj_names) = make_view_with_objectives(&data);
-        let ranking = build_ranking_rows(&mcdm_result, &view, &obj_names, 5);
+        let ranking = build_ranking_rows(&mcdm_result, &view, &[], &obj_names, 5);
         assert_eq!(ranking.len(), 5);
         assert_eq!(ranking[0].rank, 1);
         for i in 1..ranking.len() {
@@ -1049,13 +1074,13 @@ mod tests {
 
         let (view, obj_names) = make_view_with_objectives(&data);
 
-        let rows5 = build_ranking_rows(&mcdm, &view, &obj_names, 5);
+        let rows5 = build_ranking_rows(&mcdm, &view, &[], &obj_names, 5);
         assert_eq!(rows5.len(), 5);
 
-        let rows3 = build_ranking_rows(&mcdm, &view, &obj_names, 3);
+        let rows3 = build_ranking_rows(&mcdm, &view, &[], &obj_names, 3);
         assert_eq!(rows3.len(), 3);
 
-        let rows10 = build_ranking_rows(&mcdm, &view, &obj_names, 10);
+        let rows10 = build_ranking_rows(&mcdm, &view, &[], &obj_names, 10);
         assert_eq!(rows10.len(), 5);
     }
 }

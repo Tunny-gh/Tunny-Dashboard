@@ -28,6 +28,7 @@ pub fn build_chart_csv(
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::SurfacePlot => None,
         ChartId::ClusterScatter3D => build_cluster_csv(app_state),
+        ChartId::ClusterTable => build_cluster_csv(app_state),
         ChartId::McdmScatterChart3D => build_mcdm_scatter_csv(app_state),
     }
 }
@@ -107,7 +108,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                     .get(widgets.slice_chart.selected_obj_idx)
                     .is_some()
         }),
-        ChartId::ClusterScatter3D => app_state
+        ChartId::ClusterScatter3D | ChartId::ClusterTable => app_state
             .current_study
             .as_ref()
             .zip(app_state.cluster_result.as_ref())
@@ -139,6 +140,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::SliceChart => "slice_chart",
         ChartId::SurfacePlot => "surface_plot",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
+        ChartId::ClusterTable => "cluster_table",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
     };
     format!("{}.csv", name)

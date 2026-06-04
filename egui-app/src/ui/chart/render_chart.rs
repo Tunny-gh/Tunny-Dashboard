@@ -27,6 +27,11 @@ pub(crate) fn render_chart(
         widgets.cluster_scatter_3d.show(ui, app_state);
         return;
     }
+    if matches!(chart_id, ChartId::ClusterTable) {
+        let cmap = colormap_from_name(&app_state.selected_colormap);
+        widgets.cluster_table.show(ui, app_state, &cmap);
+        return;
+    }
 
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
@@ -35,7 +40,10 @@ pub(crate) fn render_chart(
     let cmap = colormap_from_name(&app_state.selected_colormap);
 
     match chart_id {
-        ChartId::ParetoScatter2D | ChartId::ParetoScatter3D | ChartId::ClusterScatter3D => {
+        ChartId::ParetoScatter2D
+        | ChartId::ParetoScatter3D
+        | ChartId::ClusterScatter3D
+        | ChartId::ClusterTable => {
             unreachable!()
         }
         ChartId::OptimizationHistory => {
@@ -208,7 +216,7 @@ pub(crate) fn render_chart(
         ChartId::McdmTable => {
             widgets
                 .mcdm_table
-                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
+                .show(ui, &app_state.mcdm_result, &ctx.view, param_names, obj_names);
         }
         ChartId::AhpRankChart => {
             let n_trials = ctx.trial_count();

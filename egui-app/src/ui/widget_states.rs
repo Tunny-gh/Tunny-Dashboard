@@ -1,7 +1,8 @@
 use crate::state::messages::{SurfacePlotRenderMode, SurfacePlotResult};
 use crate::ui::widgets::{
     ahp_chart::AhpChart, cluster_scatter::ClusterScatter, cluster_scatter_3d::ClusterScatter3D,
-    hv_history::HvHistoryChart, importance_chart::ImportanceChart, mcdm_chart::McdmRankChart,
+    cluster_table::ClusterTable, hv_history::HvHistoryChart, importance_chart::ImportanceChart,
+    mcdm_chart::McdmRankChart,
     mcdm_chart::McdmTable, mcdm_scatter_chart::McdmScatterChart,
     mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
     parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
@@ -59,6 +60,7 @@ pub struct WidgetStates {
     pub sensitivity_heatmap: SensitivityHeatmap,
     pub cluster_scatter: ClusterScatter,
     pub cluster_scatter_3d: ClusterScatter3D,
+    pub cluster_table: ClusterTable,
     pub mcdm_chart: McdmRankChart,
     pub mcdm_table: McdmTable,
     pub ahp_chart: AhpChart,
