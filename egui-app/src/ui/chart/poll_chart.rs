@@ -594,7 +594,7 @@ pub(crate) fn poll_chart_work(
 }
 
 fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> AppMessage {
-    let trial_count = matrix.n_rows; // 実行可能解の数（k-means に渡す行数）
+    let trial_count = matrix.n_rows; // パレートフロントの解数（k-means に渡す行数）
     let n_cols = matrix.n_cols;
 
     if !matrix.is_valid_for_clustering() {
@@ -643,9 +643,9 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
         );
     }
 
-    // 実行可能解のラベルを全トライアル分に展開（実行不可能解は -1）
+    // パレートフロントのラベルを全トライアル分に展開（対象外の解は -1）
     let mut full_labels = vec![-1i32; matrix.total_trials];
-    for (matrix_row, &trial_idx) in matrix.feasible_indices.iter().enumerate() {
+    for (matrix_row, &trial_idx) in matrix.target_indices.iter().enumerate() {
         if let Some(&label) = result.labels.get(matrix_row) {
             full_labels[trial_idx] = label as i32;
         }

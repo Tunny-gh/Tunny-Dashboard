@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::state::types::StudyView;
-use crate::theme::chart_colors::COLOR_INFEASIBLE;
+use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 
@@ -96,13 +96,13 @@ pub struct ClusterComputeRequest {
 #[derive(Debug, Clone)]
 pub struct ClusterMatrix {
     pub flat_data: Vec<f64>,
-    /// 実行可能解の行数（k-means に渡す行数）
+    /// クラスタリング対象（パレートフロント）の行数（k-means に渡す行数）
     pub n_rows: usize,
     pub n_cols: usize,
-    /// 全トライアル数（実行不可能解を含む）
+    /// 全トライアル数（非対象の解を含む）
     pub total_trials: usize,
-    /// matrix の行 index → 元の trial index のマッピング
-    pub feasible_indices: Vec<usize>,
+    /// matrix の行 index → 元の trial index のマッピング（パレートフロントの行）
+    pub target_indices: Vec<usize>,
 }
 
 impl ClusterMatrix {
@@ -167,14 +167,19 @@ impl ClusterScatter {
         colormap: &ColorMap,
     ) {
         let n_trials = view.row_count();
-        if n_trials < 2 {
+        // クラスタリング対象はパレートフロント（pareto_rank == 0）。
+        // k の上限・実行可否はフロント点数で判定する。
+        let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
+        if pareto_count < 2 {
             ui.centered_and_justified(|ui| {
-                ui.label(egui::RichText::new("At least 2 trials are required.").weak());
+                ui.label(
+                    egui::RichText::new("At least 2 Pareto-front solutions are required.").weak(),
+                );
             });
             return;
         }
 
-        self.show_header(ui, n_trials);
+        self.show_header(ui, pareto_count);
 
         if self.computing {
             ui.horizontal(|ui| {
@@ -190,7 +195,7 @@ impl ClusterScatter {
                 ui.label(egui::RichText::new(detail).small().weak());
             }
             if err.retryable && ui.button("Retry").clicked() {
-                self.try_queue_compute(n_trials);
+                self.try_queue_compute(pareto_count);
             }
             ui.separator();
         }
@@ -236,9 +241,11 @@ impl ClusterScatter {
             colormap.interpolate(t)
         };
 
-        // クラスタ別に座標を集約（feasible のみ）、infeasible は別収集
+        // クラスタリング対象はパレートフロントのみ。クラスタ別に座標を集約し、
+        // 対象外（label < 0）の解は "Others"、infeasible は別途収集する。
         let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
+        let mut other_pts: Vec<[f64; 2]> = Vec::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
             let feasible = is_feasible_col
                 .and_then(|c| c.get(i))
@@ -250,11 +257,16 @@ impl ClusterScatter {
                 }
                 continue;
             }
-            let label = cr.labels.get(i).copied().unwrap_or(0);
-            cluster_points
-                .entry(label)
-                .or_default()
-                .push([x as f64, y as f64]);
+            let label = cr.labels.get(i).copied().unwrap_or(-1);
+            if label < 0 {
+                // パレートフロント以外の解（クラスタリング対象外）
+                other_pts.push([x as f64, y as f64]);
+            } else {
+                cluster_points
+                    .entry(label)
+                    .or_default()
+                    .push([x as f64, y as f64]);
+            }
         }
 
         // "Show Infeasible" トグル（制約あり Study のみ表示）
@@ -277,6 +289,15 @@ impl ClusterScatter {
                             .color(COLOR_INFEASIBLE)
                             .radius(3.0)
                             .name("Infeasible"),
+                    );
+                }
+                // パレートフロント以外（クラスタリング対象外）を淡色で背面に描画
+                if !other_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(other_pts)
+                            .color(COLOR_NON_PARETO_DIM)
+                            .radius(2.0)
+                            .name("Others"),
                     );
                 }
                 for (label, pts) in cluster_points {
@@ -400,25 +421,20 @@ fn build_cluster_matrix_data(
 ) -> ClusterMatrix {
     let total_trials = view.row_count();
     let n_cols = target_space.feature_count(param_names.len(), obj_names.len());
-    let is_feasible_col = view.numeric_column("is_feasible");
 
-    // 実行可能解のインデックスを収集（is_feasible 列がなければ全行を対象とする）
-    let feasible_indices: Vec<usize> = (0..total_trials)
-        .filter(|&i| {
-            is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true)
-        })
+    // クラスタリング対象はパレートフロント（pareto_rank == 0）の解に限定する。
+    // 制約あり Study では rank 0 は feasible 非劣解のみなので feasible 判定は不要。
+    let target_indices: Vec<usize> = (0..total_trials)
+        .filter(|&i| view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
         .collect();
 
-    let n_rows = feasible_indices.len();
+    let n_rows = target_indices.len();
 
-    // 実行可能解のみで特徴量行列を構築
+    // パレートフロントの解のみで特徴量行列を構築
     let flat_data = match target_space {
         ClusterSpace::Objective => {
             let cols = view.numeric_columns(obj_names);
-            feasible_indices
+            target_indices
                 .iter()
                 .flat_map(|&i| {
                     cols.iter()
@@ -428,7 +444,7 @@ fn build_cluster_matrix_data(
         }
         ClusterSpace::Variable => {
             let cols = view.numeric_columns(param_names);
-            feasible_indices
+            target_indices
                 .iter()
                 .flat_map(|&i| {
                     cols.iter()
@@ -439,7 +455,7 @@ fn build_cluster_matrix_data(
         ClusterSpace::Combined => {
             let param_cols = view.numeric_columns(param_names);
             let obj_cols = view.numeric_columns(obj_names);
-            feasible_indices
+            target_indices
                 .iter()
                 .flat_map(|&i| {
                     param_cols
@@ -456,7 +472,7 @@ fn build_cluster_matrix_data(
         n_rows,
         n_cols,
         total_trials,
-        feasible_indices,
+        target_indices,
     }
 }
 
