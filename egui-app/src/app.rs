@@ -77,6 +77,10 @@ impl TunnyApp {
         while let Ok(msg) = self.rx.try_recv() {
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
             let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
+            // ストリーミングロードのバッチは 1 フレーム 1 件に絞り、各バッチの
+            // DataFrame 再構築コストを 1 フレームに集中させない（描画フリーズ回避）。
+            // 残りのバッチはチャネルに残し、次フレームで処理する。
+            let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
 
             MessageHandler::handle(
                 msg,
@@ -102,6 +106,16 @@ impl TunnyApp {
                 self.poller = None;
             }
 
+            ctx.request_repaint();
+
+            if is_study_chunk {
+                break;
+            }
+        }
+
+        // ストリーミングロード中は入力が無くても継続描画して次バッチを取り込む
+        // （bounded channel への送信は UI 描画に追いつくまで自然にブロックされる）。
+        if self.is_loading {
             ctx.request_repaint();
         }
     }

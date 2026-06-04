@@ -85,6 +85,59 @@ fn parse_single_study_nonexistent_id_returns_error() {
 }
 
 #[test]
+fn streaming_beta_matches_single_study_and_batches() {
+    let data = two_study_log();
+    // batch_size=2 → beta は 3 件なので [2件] + [1件(final)] の 2 バッチ
+    let mut batches: Vec<StudyStreamBatch> = Vec::new();
+    parse_single_study_streaming(&data, 1, 2, |b| batches.push(b)).unwrap();
+
+    assert_eq!(batches.len(), 2);
+    assert!(batches[0].is_first && !batches[0].is_final);
+    assert!(!batches[1].is_first && batches[1].is_final);
+    assert_eq!(batches[0].new_rows.len(), 2);
+    assert_eq!(batches[1].new_rows.len(), 1);
+
+    // 全行を結合すると parse_single_study と一致する
+    let all_ids: Vec<u32> = batches
+        .iter()
+        .flat_map(|b| b.new_rows.iter().map(|r| r.trial_id))
+        .collect();
+    assert_eq!(all_ids, vec![2, 3, 4]);
+
+    // 最終メタは beta・3 件・param "y" のみ（alpha の "x" は混入しない）
+    let final_meta = &batches.last().unwrap().meta;
+    assert_eq!(final_meta.name, "beta");
+    assert_eq!(final_meta.completed_trials, 3);
+    assert!(final_meta.param_names.contains(&"y".to_string()));
+    assert!(!final_meta.param_names.contains(&"x".to_string()));
+
+    // 目的値が正しい順序で揃う
+    let objs: Vec<f64> = batches
+        .iter()
+        .flat_map(|b| b.new_rows.iter().map(|r| r.objective_values[0]))
+        .collect();
+    assert_eq!(objs, vec![3.0, 4.0, 5.0]);
+}
+
+#[test]
+fn streaming_single_batch_when_batch_size_large() {
+    let data = two_study_log();
+    let mut batches: Vec<StudyStreamBatch> = Vec::new();
+    parse_single_study_streaming(&data, 0, 1000, |b| batches.push(b)).unwrap();
+    // alpha 2 件 → 1 バッチ（is_first かつ is_final）
+    assert_eq!(batches.len(), 1);
+    assert!(batches[0].is_first && batches[0].is_final);
+    assert_eq!(batches[0].new_rows.len(), 2);
+    assert_eq!(batches[0].objective_names, vec!["obj0".to_string()]);
+}
+
+#[test]
+fn streaming_nonexistent_id_returns_error() {
+    let data = two_study_log();
+    assert!(parse_single_study_streaming(&data, 99, 100, |_| {}).is_err());
+}
+
+#[test]
 fn quick_extract_u32_basic() {
     assert_eq!(
         quick_extract_u32(r#"{"op_code":4,"study_id":2,"x":0}"#, "study_id"),

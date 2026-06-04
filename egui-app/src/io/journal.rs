@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::mpsc::SyncSender;
 
 use crate::state::app_state::{Direction, StudyMeta};
 use crate::state::messages::AppMessage;
@@ -47,17 +48,37 @@ pub fn scan_journal_task(path: PathBuf) -> (Vec<u8>, AppMessage) {
     }
 }
 
-/// Phase 2: Phase 1 でキャッシュ済みのバイト列から target study のみ完全パースする。
-/// ファイル再読み込みは行わない。
-pub fn load_single_study_task(data: &[u8], meta: StudyMeta) -> AppMessage {
+/// Phase 2（ストリーミング）: キャッシュ済みバイト列から target study を前方 1 パスで解析し、
+/// 完了 Trial を `BATCH_SIZE` 件ごとに `StudyChunkLoaded` として逐次送信する。
+///
+/// ファイル再読み込みは行わない。`tx` は bounded channel のため、UI が描画に追いつくまで
+/// 自然にバックプレッシャーがかかる。成功時 `true`（呼び出し側が loaded 登録に使う）。
+pub fn stream_single_study_task(data: &[u8], meta: StudyMeta, tx: &SyncSender<AppMessage>) -> bool {
+    /// グラフへ反映する 1 バッチあたりの完了 Trial 数。
+    const BATCH_SIZE: usize = 1000;
+
     let study_id = meta.study_id;
-    match parser::parse_single_study(data, study_id) {
-        Ok((full_meta_core, df)) => {
-            tunny_core::dataframe::swap_snapshot(study_id, std::sync::Arc::new(df));
-            let full_meta = convert_study_meta(full_meta_core);
-            crate::io::study::select_study_task(full_meta)
+    let result = parser::parse_single_study_streaming(data, study_id, BATCH_SIZE, |batch| {
+        let _ = tx.send(AppMessage::StudyChunkLoaded {
+            study_id,
+            meta: convert_study_meta(batch.meta),
+            new_rows: batch.new_rows,
+            param_names: batch.param_names,
+            objective_names: batch.objective_names,
+            user_attr_numeric_names: batch.user_attr_numeric_names,
+            user_attr_string_names: batch.user_attr_string_names,
+            max_constraints: batch.max_constraints,
+            is_first: batch.is_first,
+            is_final: batch.is_final,
+        });
+    });
+
+    match result {
+        Ok(()) => true,
+        Err(e) => {
+            let _ = tx.send(AppMessage::Error(e));
+            false
         }
-        Err(e) => AppMessage::Error(e),
     }
 }
 

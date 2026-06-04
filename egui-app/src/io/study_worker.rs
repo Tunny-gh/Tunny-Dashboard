@@ -48,23 +48,22 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                     }
                     StudyCommand::SelectStudy { meta, tx } => {
                         let study_id = meta.study_id;
-                        let msg = if state.loaded_study_ids.contains(&study_id) {
-                            // DataFrame は既にストアにある → そのまま活性化
-                            crate::io::study::select_study_task(meta)
+                        if state.loaded_study_ids.contains(&study_id) {
+                            // DataFrame は既にストアにある → そのまま活性化（即時 1 通）
+                            let _ = tx.send(crate::io::study::select_study_task(meta));
                         } else if let Some(ref data) = state.journal_data {
-                            // 未ロード → Phase 2: キャッシュ済みバイト列から対象 study を解析
-                            let m = crate::io::journal::load_single_study_task(data, meta);
-                            if matches!(m, AppMessage::StudySelected { .. }) {
+                            // 未ロード → Phase 2: ストリーミング解析。完了 Trial を 1000 件ごとに
+                            // StudyChunkLoaded として tx へ逐次送信する（複数通）。
+                            let ok = crate::io::journal::stream_single_study_task(data, meta, &tx);
+                            if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
-                            m
                         } else {
-                            AppMessage::Error(
+                            let _ = tx.send(AppMessage::Error(
                                 "No journal is loaded yet. Please open a journal first."
                                     .to_string(),
-                            )
-                        };
-                        let _ = tx.send(msg);
+                            ));
+                        }
                     }
                 }
             }
