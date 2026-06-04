@@ -543,8 +543,8 @@ impl McdmTable {
                 .column(Column::initial(50.0).at_least(40.0)) // Rank
                 .column(Column::initial(70.0).at_least(50.0)) // Trial
                 .column(Column::initial(80.0).at_least(50.0)) // Score
-                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
                 .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
+                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
                 .header(20.0, |mut header| {
                     header.col(|ui| {
                         ui.strong("Rank");
@@ -555,12 +555,12 @@ impl McdmTable {
                     header.col(|ui| {
                         ui.strong("Score");
                     });
-                    for name in param_names {
+                    for name in obj_names {
                         header.col(|ui| {
                             ui.strong(name);
                         });
                     }
-                    for name in obj_names {
+                    for name in param_names {
                         header.col(|ui| {
                             ui.strong(name);
                         });
@@ -578,14 +578,14 @@ impl McdmTable {
                             row.col(|ui| {
                                 ui.label(format!("{:.4}", row_data.score));
                             });
-                            for &val in &row_data.parameters {
-                                row.col(|ui| {
-                                    ui.label(format!("{:.3}", val));
-                                });
-                            }
                             for &val in &row_data.objectives {
                                 row.col(|ui| {
                                     ui.label(format!("{:.4}", val));
+                                });
+                            }
+                            for &val in &row_data.parameters {
+                                row.col(|ui| {
+                                    ui.label(format!("{:.3}", val));
                                 });
                             }
                         });
