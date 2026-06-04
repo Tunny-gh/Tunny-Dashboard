@@ -39,12 +39,81 @@ pub(crate) fn render_chart(
             unreachable!()
         }
         ChartId::OptimizationHistory => {
-            widgets
+            use crate::theme::color_compute::rgba_to_color32;
+            use crate::ui::widgets::optimization_history::OptHistoryComparison;
+            // 選択中の目的名を基準に、比較 Study から同名の目的値列を集める。
+            let sel_idx = widgets
                 .opt_history
-                .show(ui, &ctx.view, obj_names, directions);
+                .obj_idx
+                .min(obj_names.len().saturating_sub(1));
+            let comparisons: Vec<OptHistoryComparison> = match obj_names.get(sel_idx) {
+                Some(sel_name) => app_state
+                    .comparison_studies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, study)| {
+                        let pos = study
+                            .view
+                            .objective_names()
+                            .iter()
+                            .position(|n| n == sel_name)?;
+                        let values = study.view.numeric_column(sel_name)?.to_vec();
+                        let is_minimize = study
+                            .meta
+                            .directions
+                            .get(pos)
+                            .map(|d| matches!(d, Direction::Minimize))
+                            .unwrap_or(true);
+                        let color = app_state
+                            .comparison_colors
+                            .get(i)
+                            .copied()
+                            .unwrap_or([66, 133, 244, 255]);
+                        Some(OptHistoryComparison {
+                            name: study.meta.name.clone(),
+                            color: rgba_to_color32(color),
+                            values,
+                            is_minimize,
+                        })
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
+            let base_name = ctx.meta.name.clone();
+            widgets.opt_history.show_with_comparisons(
+                ui,
+                &ctx.view,
+                obj_names,
+                directions,
+                None,
+                &base_name,
+                &comparisons,
+            );
         }
         ChartId::HvHistory => {
+            use crate::theme::color_compute::rgba_to_color32;
+            use crate::ui::widgets::hv_history::HvSeries;
             widgets.hv_history.hv_history = app_state.hv_history.clone();
+            widgets.hv_history.base_name = ctx.meta.name.clone();
+            // 比較 Study の HV 履歴を色付き系列として渡し、同一グラフに重ねる。
+            widgets.hv_history.comparisons = app_state
+                .comparison_studies
+                .iter()
+                .enumerate()
+                .filter_map(|(i, study)| {
+                    let hv = app_state.comparison_hv_histories.get(i)?.clone();
+                    let color = app_state
+                        .comparison_colors
+                        .get(i)
+                        .copied()
+                        .unwrap_or([66, 133, 244, 255]);
+                    Some(HvSeries {
+                        name: study.meta.name.clone(),
+                        color: rgba_to_color32(color),
+                        history: hv,
+                    })
+                })
+                .collect();
             widgets.hv_history.show(ui);
         }
         ChartId::ImportanceChart => {

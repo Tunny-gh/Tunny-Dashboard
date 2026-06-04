@@ -3,6 +3,15 @@ use crate::theme::chart_colors::{
     COLOR_INFEASIBLE, COLOR_OPT_BEST, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
 };
 
+/// 比較 Study 1 件分の最適化履歴系列（選択中の目的に対する値列 + 色 + 凡例名）。
+pub struct OptHistoryComparison {
+    pub name: String,
+    pub color: egui::Color32,
+    /// 選択中の目的に対応する目的値列（行順）。
+    pub values: Vec<f64>,
+    pub is_minimize: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HistoryMode {
     BestValue,
@@ -68,6 +77,22 @@ impl OptimizationHistoryChart {
         obj_names: &[String],
         directions: &[Direction],
         best_history: Option<&[(u32, f64)]>,
+    ) {
+        self.show_with_comparisons(ui, view, obj_names, directions, best_history, "", &[]);
+    }
+
+    /// 基準 Study に加えて、比較 Study の累積ベスト値ラインを同一グラフに重ねて描画する。
+    /// 比較ラインは「Best Value」表示が有効なときに各 Study の色で描かれる。
+    #[allow(clippy::too_many_arguments)]
+    pub fn show_with_comparisons(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &StudyView,
+        obj_names: &[String],
+        directions: &[Direction],
+        best_history: Option<&[(u32, f64)]>,
+        base_name: &str,
+        comparisons: &[OptHistoryComparison],
     ) {
         // 目的関数インデックスを有効範囲に収める
         if obj_names.is_empty() {
@@ -185,20 +210,45 @@ impl OptimizationHistoryChart {
                     }
                 }
 
-                if show_best && !values.is_empty() {
-                    let pts: egui_plot::PlotPoints = compute_best_values(&values, is_minimize)
-                        .into_iter()
-                        .map(|[x, y]| {
-                            let y2 = if log_scale && y > 0.0 { y.ln() } else { y };
-                            [x, y2]
-                        })
-                        .collect();
-                    plot_ui.line(
-                        egui_plot::Line::new(pts)
-                            .name("Best Value")
-                            .color(COLOR_OPT_PRUNED)
-                            .width(1.5),
-                    );
+                if show_best {
+                    let apply_log_y = |[x, y]: [f64; 2]| -> [f64; 2] {
+                        [x, if log_scale && y > 0.0 { y.ln() } else { y }]
+                    };
+                    if !values.is_empty() {
+                        // 比較時は基準 Study も名前で区別できるようラベルを切り替える。
+                        let base_label = if comparisons.is_empty() || base_name.is_empty() {
+                            "Best Value"
+                        } else {
+                            base_name
+                        };
+                        let pts: egui_plot::PlotPoints = compute_best_values(&values, is_minimize)
+                            .into_iter()
+                            .map(apply_log_y)
+                            .collect();
+                        plot_ui.line(
+                            egui_plot::Line::new(pts)
+                                .name(base_label)
+                                .color(COLOR_OPT_PRUNED)
+                                .width(1.5),
+                        );
+                    }
+                    // 比較 Study の累積ベスト値ラインを各色で重ね描きする。
+                    for comp in comparisons {
+                        if comp.values.is_empty() {
+                            continue;
+                        }
+                        let pts: egui_plot::PlotPoints =
+                            compute_best_values(&comp.values, comp.is_minimize)
+                                .into_iter()
+                                .map(apply_log_y)
+                                .collect();
+                        plot_ui.line(
+                            egui_plot::Line::new(pts)
+                                .name(&comp.name)
+                                .color(comp.color)
+                                .width(1.5),
+                        );
+                    }
                 }
 
                 if show_moving_avg && !values.is_empty() {

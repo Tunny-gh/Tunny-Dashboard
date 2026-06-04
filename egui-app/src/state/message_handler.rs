@@ -200,8 +200,24 @@ impl MessageHandler {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: _, // studies arrive in dispatch order; sequential append is correct
                 context,
+                hv_history,
             } => {
+                // 3 つの並行 Vec（studies / colors / hv_histories）を同じ順序で揃える。
+                let idx = app_state.comparison_studies.len();
                 app_state.comparison_studies.push(*context);
+                app_state
+                    .comparison_colors
+                    .push(crate::theme::color_compute::comparison_color_at(idx));
+                if let Some(hv) = hv_history {
+                    app_state.comparison_hv_histories.push(hv);
+                } else {
+                    // HV を計算できない Study でも色・studies と添字を揃えるため空履歴を入れる。
+                    app_state.comparison_hv_histories.push(HvHistory {
+                        trial_ids: Vec::new(),
+                        hv_values: Vec::new(),
+                        sample_step: 1,
+                    });
+                }
             }
             AppMessage::ArtifactsDirScanned {
                 trial_artifacts,
@@ -945,6 +961,7 @@ mod tests {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: 0,
                 context: Box::new(context),
+                hv_history: None,
             },
             &mut app_state,
             &mut widgets,
@@ -954,6 +971,9 @@ mod tests {
 
         assert_eq!(app_state.comparison_studies.len(), 1);
         assert_eq!(app_state.comparison_studies[0].meta.study_id, 99);
+        // 並行 Vec が同じ長さに揃うこと
+        assert_eq!(app_state.comparison_colors.len(), 1);
+        assert_eq!(app_state.comparison_hv_histories.len(), 1);
     }
 
     #[test]
