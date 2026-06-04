@@ -108,6 +108,30 @@ pub enum AppMessage {
         pareto_rank: Vec<u32>,
         pareto_indices: Vec<u32>,
     },
+    /// Study 選択時の逐次（ストリーミング）ロード。完了 Trial を 1000 件ごとに送り、
+    /// UI 側はバッチごとに DataFrame を追記再構築して描画を更新する（読み込み中フリーズ回避）。
+    /// Pareto ランクは `is_final` のバッチで一度だけ確定計算する。
+    StudyChunkLoaded {
+        study_id: u32,
+        /// その時点までの累積 StudyMeta。
+        meta: StudyMeta,
+        /// 今回のバッチで新たに完了した Trial 行（core 表現）。
+        new_rows: Vec<tunny_core::dataframe::TrialRow>,
+        /// 累積パラメータ列名（ソート済み）。
+        param_names: Vec<String>,
+        /// 目的列名。
+        objective_names: Vec<String>,
+        /// 累積 user_attr 数値列名。
+        user_attr_numeric_names: Vec<String>,
+        /// 累積 user_attr 文字列列名。
+        user_attr_string_names: Vec<String>,
+        /// 観測した制約数の最大値。
+        max_constraints: usize,
+        /// 最初のバッチか（StudyContext を新規生成する）。
+        is_first: bool,
+        /// 最終バッチか（Pareto 確定・ローディング終了）。
+        is_final: bool,
+    },
     SensitivityDone {
         key: (u8, usize),
         result: SensitivityResult,

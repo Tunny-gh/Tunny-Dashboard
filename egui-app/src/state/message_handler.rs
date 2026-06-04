@@ -62,6 +62,34 @@ impl MessageHandler {
                 *is_loading = false;
                 widget_states.update_chart_colors(app_state);
             }
+            AppMessage::StudyChunkLoaded {
+                study_id,
+                meta,
+                new_rows,
+                param_names,
+                objective_names,
+                user_attr_numeric_names,
+                user_attr_string_names,
+                max_constraints,
+                is_first,
+                is_final,
+            } => {
+                Self::handle_study_chunk(
+                    study_id,
+                    meta,
+                    new_rows,
+                    param_names,
+                    objective_names,
+                    user_attr_numeric_names,
+                    user_attr_string_names,
+                    max_constraints,
+                    is_first,
+                    is_final,
+                    app_state,
+                    widget_states,
+                    is_loading,
+                );
+            }
             AppMessage::SensitivityDone { key, result } => {
                 app_state.importance_cache.insert(key, result);
                 widget_states.importance.computing = false;
@@ -286,6 +314,112 @@ impl MessageHandler {
                 }
             })
             .collect()
+    }
+
+    /// Study 選択時のストリーミングロード 1 バッチを適用する。
+    ///
+    /// - 最初のバッチ（`is_first`）: 既存状態をクリアし StudyContext を新規生成。
+    /// - 以降: 既存 DataFrame から行を再構築 → 新規行を追記 → 列を含め DataFrame を作り直す。
+    /// - Pareto は重い（多目的 nd_sort が O(N²)）ため**ストリーミング中は計算せず**、
+    ///   `is_final` のバッチで一度だけ確定計算する（読み込み中は rank 0 表示）。
+    #[allow(clippy::too_many_arguments)]
+    fn handle_study_chunk(
+        study_id: u32,
+        meta: crate::state::app_state::StudyMeta,
+        new_rows: Vec<CoreTrialRow>,
+        param_names: Vec<String>,
+        objective_names: Vec<String>,
+        user_attr_numeric_names: Vec<String>,
+        user_attr_string_names: Vec<String>,
+        max_constraints: usize,
+        is_first: bool,
+        is_final: bool,
+        app_state: &mut AppState,
+        widget_states: &mut WidgetStates,
+        is_loading: &mut bool,
+    ) {
+        // 最初のバッチは Study 切り替えとして既存状態をリセットする。
+        let start_fresh = is_first || app_state.current_study.is_none();
+        let mut all_rows: Vec<CoreTrialRow> = if start_fresh {
+            app_state.clear();
+            Vec::with_capacity(new_rows.len())
+        } else {
+            app_state
+                .current_study
+                .as_ref()
+                .map(|s| Self::core_rows_from_df(&s.view.df))
+                .unwrap_or_default()
+        };
+        // 既存スナップショットの制約列数も考慮（streaming 中に制約列が増えても保持）。
+        let max_c = max_constraints.max(
+            app_state
+                .current_study
+                .as_ref()
+                .map(|s| s.view.df.constraint_col_names().len())
+                .unwrap_or(0),
+        );
+        all_rows.extend(new_rows);
+
+        let new_df = DataFrame::from_trials(
+            &all_rows,
+            &param_names,
+            &objective_names,
+            &user_attr_numeric_names,
+            &user_attr_string_names,
+            max_c,
+        );
+        let arc = std::sync::Arc::new(new_df);
+        tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
+
+        // Pareto は最終バッチでのみ確定。アクティブ DataFrame を読むため select_study で活性化する。
+        let (ranks, pareto_indices) = if is_final {
+            let _ = tunny_core::dataframe::select_study(study_id);
+            let is_minimize: Vec<bool> = meta
+                .directions
+                .iter()
+                .map(|d| matches!(d, Direction::Minimize))
+                .collect();
+            let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
+            (pareto.ranks, pareto.pareto_indices)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
+        let view = StudyView::new(arc, ranks);
+        if let Some(study) = &mut app_state.current_study {
+            study.meta = meta.clone();
+            study.view = view;
+            study.pareto_indices = pareto_indices;
+        } else {
+            app_state.current_study = Some(StudyContext {
+                meta: meta.clone(),
+                view,
+                pareto_indices,
+            });
+        }
+
+        // Phase 2 の累積 meta で all_studies のエントリを同期する。
+        if let Some(existing) = app_state
+            .all_studies
+            .iter_mut()
+            .find(|s| s.study_id == study_id)
+        {
+            *existing = meta;
+        }
+
+        if start_fresh {
+            // 後続機能がアクティブ DataFrame を参照できるよう早期に活性化する。
+            let _ = tunny_core::dataframe::select_study(study_id);
+            widget_states.hv_history.computing = false;
+            widget_states.ahp_chart = Default::default();
+            widget_states.cluster_scatter = Default::default();
+            widget_states.reset_infeasible_flags();
+        }
+
+        if is_final {
+            *is_loading = false;
+            widget_states.update_chart_colors(app_state);
+        }
     }
 
     fn handle_live_update_done(
@@ -529,6 +663,89 @@ mod tests {
             constraint_values: vec![],
             study_id,
         }
+    }
+
+    fn make_chunk_row(trial_id: u32, x: f64, obj: f64) -> CoreTrialRow {
+        CoreTrialRow {
+            trial_id,
+            param_display: std::collections::HashMap::from([("x".to_string(), x)]),
+            param_category_label: std::collections::HashMap::new(),
+            objective_values: vec![obj],
+            user_attrs_numeric: std::collections::HashMap::new(),
+            user_attrs_string: std::collections::HashMap::new(),
+            constraint_values: vec![],
+        }
+    }
+
+    fn chunk_message(rows: Vec<CoreTrialRow>, is_first: bool, is_final: bool) -> AppMessage {
+        AppMessage::StudyChunkLoaded {
+            study_id: 0,
+            meta: StudyMeta {
+                study_id: 0,
+                name: "s".to_string(),
+                directions: vec![Direction::Minimize],
+                completed_trials: 0,
+                total_trials: 0,
+                param_names: vec!["x".to_string()],
+                objective_names: vec!["y".to_string()],
+                user_attr_names: vec![],
+                has_constraints: false,
+            },
+            new_rows: rows,
+            param_names: vec!["x".to_string()],
+            objective_names: vec!["y".to_string()],
+            user_attr_numeric_names: vec![],
+            user_attr_string_names: vec![],
+            max_constraints: 0,
+            is_first,
+            is_final,
+        }
+    }
+
+    #[test]
+    fn study_chunks_accumulate_rows_across_batches() {
+        let _g = test_store_guard();
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = true;
+        let mut load_error = None;
+
+        // 1st batch: establishes study, still loading.
+        MessageHandler::handle(
+            chunk_message(
+                vec![make_chunk_row(0, 0.1, 1.0), make_chunk_row(1, 0.2, 2.0)],
+                true,
+                false,
+            ),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+        assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 2);
+        assert!(is_loading, "still loading mid-stream");
+
+        // 2nd (final) batch: appends and finalizes.
+        MessageHandler::handle(
+            chunk_message(vec![make_chunk_row(2, 0.3, 3.0)], false, true),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+        assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 3);
+        assert!(!is_loading, "loading cleared on final batch");
+
+        // 列データが結合されている
+        let xs = app_state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .view
+            .numeric_column("x")
+            .unwrap()
+            .to_vec();
+        assert_eq!(xs, vec![0.1, 0.2, 0.3]);
     }
 
     #[test]

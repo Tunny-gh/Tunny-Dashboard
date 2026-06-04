@@ -344,5 +344,283 @@ pub fn parse_single_study(
     Ok((meta, df))
 }
 
+/// `parse_single_study_streaming` が逐次コールバックへ渡すバッチ。
+///
+/// 完了 Trial を `batch_size` 件ずつ前方ストリーミングで送出する。各バッチには
+/// その時点までの累積メタ（列名集合・件数）を同梱するため、UI 側は新規列の追加も
+/// 含めて DataFrame を再構築できる。最終バッチは `is_final = true`（残り 0 件でも送出）。
+pub struct StudyStreamBatch {
+    /// その時点までの累積 StudyMeta（user_attr_names はマージ済みソート）。
+    pub meta: StudyMeta,
+    /// 今回のバッチで新たに完了した Trial 行。
+    pub new_rows: Vec<crate::dataframe::TrialRow>,
+    /// 累積パラメータ列名（ソート済み、DataFrame 構築用）。
+    pub param_names: Vec<String>,
+    /// 目的列名。
+    pub objective_names: Vec<String>,
+    /// 累積 user_attr 数値列名（ソート済み）。
+    pub user_attr_numeric_names: Vec<String>,
+    /// 累積 user_attr 文字列列名（ソート済み）。
+    pub user_attr_string_names: Vec<String>,
+    /// これまでに観測した制約数の最大値。
+    pub max_constraints: usize,
+    /// 最初のバッチか（UI 側で StudyContext を新規生成する判定に使う）。
+    pub is_first: bool,
+    /// 最終バッチか（UI 側で Pareto を確定計算しローディングを終える）。
+    pub is_final: bool,
+}
+
+/// 累積集合から StudyMeta スナップショットを生成する。
+#[allow(clippy::too_many_arguments)]
+fn stream_build_meta(
+    state: &ParserState,
+    target: u32,
+    param_set: &std::collections::BTreeSet<String>,
+    uan_set: &std::collections::BTreeSet<String>,
+    uas_set: &std::collections::BTreeSet<String>,
+    derived_objective_names: &[String],
+    has_constraints: bool,
+    completed: u32,
+) -> StudyMeta {
+    let builder = &state.studies[target as usize];
+    let objective_names = if builder.objective_names.is_empty() {
+        derived_objective_names.to_vec()
+    } else {
+        builder.objective_names.clone()
+    };
+    // user_attr_names は数値・文字列をマージしソート（既存 finalize と同等）。
+    let mut user_attr_names: Vec<String> = uan_set.iter().chain(uas_set.iter()).cloned().collect();
+    user_attr_names.sort();
+    user_attr_names.dedup();
+    StudyMeta {
+        study_id: target,
+        name: builder.name.clone(),
+        directions: builder.directions.clone(),
+        completed_trials: completed,
+        total_trials: builder.total_trials,
+        param_names: param_set.iter().cloned().collect(),
+        objective_names,
+        user_attr_names,
+        has_constraints,
+    }
+}
+
+/// 対象 study の完了 Trial を前方 1 パスで解析し、`batch_size` 件ごとに `on_batch` へ送出する。
+///
+/// `parse_single_study` と異なり、全件パース完了を待たずに完了 Trial を逐次出力するため、
+/// UI 側で「読み込みながら描画」できる。完了は op_code=6 / state==1 の時点で確定し、
+/// それまでに設定された params/attrs/constraints を取り込む（live_update と同じ逐次セマンティクス）。
+///
+/// 列名集合（param/user_attr）は Trial をまたいで累積され、各バッチへ同梱する。
+pub fn parse_single_study_streaming<F>(
+    data: &[u8],
+    target_study_id: u32,
+    batch_size: usize,
+    mut on_batch: F,
+) -> Result<(), String>
+where
+    F: FnMut(StudyStreamBatch),
+{
+    use crate::dataframe::TrialRow;
+    use std::collections::BTreeSet;
+
+    if data.is_empty() {
+        return Err("Empty journal data".to_string());
+    }
+    let text = String::from_utf8_lossy(data);
+    let mut state = ParserState::new_with_target(target_study_id);
+
+    let batch_size = batch_size.max(1);
+    let mut batch: Vec<TrialRow> = Vec::with_capacity(batch_size);
+
+    let mut param_set: BTreeSet<String> = BTreeSet::new();
+    let mut uan_set: BTreeSet<String> = BTreeSet::new();
+    let mut uas_set: BTreeSet<String> = BTreeSet::new();
+    let mut derived_objective_names: Vec<String> = Vec::new();
+    let mut has_constraints = false;
+    let mut max_constraints = 0usize;
+    let mut completed = 0u32;
+    let mut any_valid = false;
+    let mut first_sent = false;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let op = match quick_extract_u32(line, "op_code") {
+            #[allow(clippy::cast_possible_truncation)]
+            Some(op) => op as u8,
+            None => continue,
+        };
+
+        match op {
+            0 => {
+                if let Ok(json) = serde_json::from_str::<Value>(line) {
+                    any_valid = true;
+                    state.process_op(0, &json);
+                }
+            }
+            3 => {
+                any_valid = true;
+                if line.contains("study:metric_names") {
+                    if let Ok(json) = serde_json::from_str::<Value>(line) {
+                        state.process_op(3, &json);
+                    }
+                }
+            }
+            4 => {
+                any_valid = true;
+                match quick_extract_u32(line, "study_id") {
+                    Some(sid) if sid == target_study_id => {
+                        if let Ok(json) = serde_json::from_str::<Value>(line) {
+                            state.process_op(4, &json);
+                        }
+                    }
+                    Some(sid) => {
+                        // 他 study: trial_id カウンタの整合のみ維持（JSON 不要）。
+                        state.next_trial_id += 1;
+                        if (sid as usize) < state.studies.len() {
+                            state.studies[sid as usize].total_trials += 1;
+                        }
+                    }
+                    None => {
+                        if let Ok(json) = serde_json::from_str::<Value>(line) {
+                            state.process_op(4, &json);
+                        }
+                    }
+                }
+            }
+            5 | 6 | 8 | 9 => {
+                any_valid = true;
+                let Some(tid) = quick_extract_u32(line, "trial_id") else {
+                    continue;
+                };
+                if !state.trial_builders.contains_key(&tid) {
+                    continue; // 対象 study 以外の trial → 無視
+                }
+                let Ok(json) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                state.process_op(op, &json);
+
+                if op != 6 {
+                    continue;
+                }
+                // op6 完了判定: state==1 で確定行を送出、2/3（prune/fail）は破棄。
+                let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
+                if trial_state == 1 {
+                    let b = state.trial_builders.remove(&tid).unwrap();
+                    for name in b.param_display.keys() {
+                        param_set.insert(name.clone());
+                    }
+                    for name in b.param_category_label.keys() {
+                        param_set.insert(name.clone());
+                    }
+                    for name in b.user_attrs_numeric.keys() {
+                        uan_set.insert(name.clone());
+                    }
+                    for name in b.user_attrs_string.keys() {
+                        uas_set.insert(name.clone());
+                    }
+                    if b.has_constraints {
+                        has_constraints = true;
+                    }
+                    max_constraints = max_constraints.max(b.constraint_values.len());
+                    if derived_objective_names.is_empty() {
+                        if let Some(values) = &b.values {
+                            derived_objective_names =
+                                (0..values.len()).map(|i| format!("obj{i}")).collect();
+                        }
+                    }
+                    completed += 1;
+                    batch.push(TrialRow {
+                        trial_id: tid,
+                        param_display: b.param_display,
+                        param_category_label: b.param_category_label,
+                        objective_values: b.values.unwrap_or_default(),
+                        user_attrs_numeric: b.user_attrs_numeric,
+                        user_attrs_string: b.user_attrs_string,
+                        constraint_values: b.constraint_values,
+                    });
+
+                    if batch.len() >= batch_size {
+                        let meta = stream_build_meta(
+                            &state,
+                            target_study_id,
+                            &param_set,
+                            &uan_set,
+                            &uas_set,
+                            &derived_objective_names,
+                            has_constraints,
+                            completed,
+                        );
+                        on_batch(StudyStreamBatch {
+                            meta,
+                            new_rows: std::mem::take(&mut batch),
+                            param_names: param_set.iter().cloned().collect(),
+                            objective_names: if derived_objective_names.is_empty() {
+                                state.studies[target_study_id as usize]
+                                    .objective_names
+                                    .clone()
+                            } else {
+                                derived_objective_names.clone()
+                            },
+                            user_attr_numeric_names: uan_set.iter().cloned().collect(),
+                            user_attr_string_names: uas_set.iter().cloned().collect(),
+                            max_constraints,
+                            is_first: !first_sent,
+                            is_final: false,
+                        });
+                        first_sent = true;
+                    }
+                } else if trial_state == 2 || trial_state == 3 {
+                    state.trial_builders.remove(&tid);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !any_valid {
+        return Err("No valid JSON lines found in journal".to_string());
+    }
+    if (target_study_id as usize) >= state.studies.len() {
+        return Err(format!("study_id {target_study_id} not found in journal"));
+    }
+
+    // 最終バッチ（残り）を送出。完了 0 件でも is_final を通知する。
+    let objective_names = if derived_objective_names.is_empty() {
+        state.studies[target_study_id as usize]
+            .objective_names
+            .clone()
+    } else {
+        derived_objective_names.clone()
+    };
+    let meta = stream_build_meta(
+        &state,
+        target_study_id,
+        &param_set,
+        &uan_set,
+        &uas_set,
+        &derived_objective_names,
+        has_constraints,
+        completed,
+    );
+    on_batch(StudyStreamBatch {
+        meta,
+        new_rows: std::mem::take(&mut batch),
+        param_names: param_set.iter().cloned().collect(),
+        objective_names,
+        user_attr_numeric_names: uan_set.iter().cloned().collect(),
+        user_attr_string_names: uas_set.iter().cloned().collect(),
+        max_constraints,
+        is_first: !first_sent,
+        is_final: true,
+    });
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;
