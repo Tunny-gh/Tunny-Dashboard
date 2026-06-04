@@ -100,23 +100,22 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         if line.is_empty() {
             continue;
         }
-        // Trial 行（op_code 4/5/6/8/9）は全体の99%以上を占める。
-        // JSON パースより桁違いに速い文字列検索でまず除外する。
-        // op_code フィールドの直後に空白なし・あり両パターンを考慮する。
-        let is_create_study = line.contains("\"op_code\":0")
-            || line.contains("\"op_code\": 0,")
-            || line.contains("\"op_code\": 0}");
-        let is_metric_names = !is_create_study
-            && (line.contains("\"op_code\":3")
-                || line.contains("\"op_code\": 3,")
-                || line.contains("\"op_code\": 3}"));
-        if !is_create_study && !is_metric_names {
+        // op_code は Optuna journal の各行で必ず先頭フィールド (`{"op_code":N,...`)。
+        // 1 回だけ抽出して分岐し、行全体を何度も走査する contains を排除する。
+        // Trial 行（op_code 4/5/6/8/9）は全体の 99% 以上を占めるため、ここで即除外する。
+        let op = match quick_extract_u32(line, "op_code") {
+            Some(op) => u64::from(op),
+            None => continue,
+        };
+        if op != 0 && op != 3 {
+            continue;
+        }
+        // op3 の大半は巨大な sampler 属性配列。必要なのは metric_names を持つ行だけなので、
+        // それ以外は JSON パースを完全に回避する。
+        if op == 3 && !line.contains("study:metric_names") {
             continue;
         }
         let Ok(json) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        let Some(op) = get_u64(&json, "op_code") else {
             continue;
         };
         match op {
@@ -206,21 +205,6 @@ fn quick_extract_u32(line: &str, field: &str) -> Option<u32> {
     digits[..end].parse().ok()
 }
 
-/// op_code が 5/6/8/9 であれば値を返す（試行更新系コマンドの判定用）。
-fn detect_trial_update_op(line: &str) -> u8 {
-    for (op, pats) in [
-        (5u8, ["\"op_code\":5", "\"op_code\": 5,", "\"op_code\": 5}"]),
-        (6u8, ["\"op_code\":6", "\"op_code\": 6,", "\"op_code\": 6}"]),
-        (8u8, ["\"op_code\":8", "\"op_code\": 8,", "\"op_code\": 8}"]),
-        (9u8, ["\"op_code\":9", "\"op_code\": 9,", "\"op_code\": 9}"]),
-    ] {
-        if pats.iter().any(|p| line.contains(p)) {
-            return op;
-        }
-    }
-    0
-}
-
 /// Phase 2: 指定 study_id の Trial データのみパースして (StudyMeta, DataFrame) を返す。
 ///
 /// 3-pass 設計で高速化する:
@@ -248,63 +232,68 @@ pub fn parse_single_study(
     let mut any_valid = false;
 
     // ── Pass 1: sequential string scan ──────────────────────────────────
+    // op_code は各行の先頭フィールド。1 回だけ抽出して match で分岐する。
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
 
-        let is_op0 = line.contains("\"op_code\":0")
-            || line.contains("\"op_code\": 0,")
-            || line.contains("\"op_code\": 0}");
-        let is_op3 = !is_op0
-            && (line.contains("\"op_code\":3")
-                || line.contains("\"op_code\": 3,")
-                || line.contains("\"op_code\": 3}"));
-        let is_op4 = !is_op0
-            && !is_op3
-            && (line.contains("\"op_code\":4")
-                || line.contains("\"op_code\": 4,")
-                || line.contains("\"op_code\": 4}"));
+        let op = match quick_extract_u32(line, "op_code") {
+            #[allow(clippy::cast_possible_truncation)]
+            Some(op) => op as u8,
+            None => continue,
+        };
 
-        if is_op0 || is_op3 {
-            // CREATE_STUDY / SET_STUDY_SYSTEM_ATTR: 数が少ないので即パース
-            if let Ok(json) = serde_json::from_str::<Value>(line) {
-                any_valid = true;
-                state.process_op(if is_op0 { 0 } else { 3 }, &json);
-            }
-        } else if is_op4 {
-            any_valid = true;
-            let pre_trial_id = state.next_trial_id;
-            match quick_extract_u32(line, "study_id") {
-                Some(sid) if sid == target_study_id => {
-                    // 対象 Study → Pass 2 へ回す（カウンタは先に進める）
-                    state.next_trial_id += 1;
-                    target_trial_ids.insert(pre_trial_id);
-                    deferred.push((line, 4, Some(pre_trial_id)));
+        match op {
+            0 => {
+                // CREATE_STUDY: 数が少ないので即パース
+                if let Ok(json) = serde_json::from_str::<Value>(line) {
+                    any_valid = true;
+                    state.process_op(0, &json);
                 }
-                Some(sid) => {
-                    // 他 Study → JSON 不要、カウンタのみ更新
-                    state.next_trial_id += 1;
-                    if (sid as usize) < state.studies.len() {
-                        state.studies[sid as usize].total_trials += 1;
+            }
+            3 => {
+                // SET_STUDY_SYSTEM_ATTR: 必要なのは metric_names を持つ行のみ。
+                // 巨大な sampler 属性行の JSON パースを回避する。
+                any_valid = true;
+                if line.contains("study:metric_names") {
+                    if let Ok(json) = serde_json::from_str::<Value>(line) {
+                        state.process_op(3, &json);
                     }
                 }
-                None => {
-                    // 抽出失敗 → 安全のためフルパースにフォールバック
-                    let tid = state.next_trial_id;
-                    if let Ok(json) = serde_json::from_str::<Value>(line) {
-                        state.process_op(4, &json);
-                        if state.trial_builders.contains_key(&tid) {
-                            target_trial_ids.insert(tid);
+            }
+            4 => {
+                any_valid = true;
+                let pre_trial_id = state.next_trial_id;
+                match quick_extract_u32(line, "study_id") {
+                    Some(sid) if sid == target_study_id => {
+                        // 対象 Study → Pass 2 へ回す（カウンタは先に進める）
+                        state.next_trial_id += 1;
+                        target_trial_ids.insert(pre_trial_id);
+                        deferred.push((line, 4, Some(pre_trial_id)));
+                    }
+                    Some(sid) => {
+                        // 他 Study → JSON 不要、カウンタのみ更新
+                        state.next_trial_id += 1;
+                        if (sid as usize) < state.studies.len() {
+                            state.studies[sid as usize].total_trials += 1;
+                        }
+                    }
+                    None => {
+                        // 抽出失敗 → 安全のためフルパースにフォールバック
+                        let tid = state.next_trial_id;
+                        if let Ok(json) = serde_json::from_str::<Value>(line) {
+                            state.process_op(4, &json);
+                            if state.trial_builders.contains_key(&tid) {
+                                target_trial_ids.insert(tid);
+                            }
                         }
                     }
                 }
             }
-        } else {
-            // op_code 5/6/8/9: 対象 trial_id の行のみ Pass 2 へ
-            let op = detect_trial_update_op(line);
-            if op != 0 {
+            5 | 6 | 8 | 9 => {
+                // 試行更新系: 対象 trial_id の行のみ Pass 2 へ
                 any_valid = true;
                 if let Some(tid) = quick_extract_u32(line, "trial_id") {
                     if target_trial_ids.contains(&tid) {
@@ -312,6 +301,7 @@ pub fn parse_single_study(
                     }
                 }
             }
+            _ => {}
         }
     }
 
