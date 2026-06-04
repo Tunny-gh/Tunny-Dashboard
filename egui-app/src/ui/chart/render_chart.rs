@@ -216,7 +216,7 @@ pub(crate) fn render_chart(
         ChartId::McdmTable => {
             widgets
                 .mcdm_table
-                .show(ui, &app_state.mcdm_result, &ctx.view, obj_names);
+                .show(ui, &app_state.mcdm_result, &ctx.view, param_names, obj_names);
         }
         ChartId::AhpRankChart => {
             let n_trials = ctx.trial_count();
