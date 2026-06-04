@@ -137,6 +137,26 @@ fn streaming_nonexistent_id_returns_error() {
     assert!(parse_single_study_streaming(&data, 99, 100, |_| {}).is_err());
 }
 
+/// op_code=3 で study:metric_names が設定されている場合、ストリーミングバッチの
+/// objective_names がメタ名称（"Obj" 等）と一致することを確認するリグレッションテスト。
+/// 以前は derived_objective_names ("obj0") が優先されてしまい、チャートが空になっていた。
+#[test]
+fn streaming_objective_names_prefer_metric_names_over_derived() {
+    let data = to_bytes(concat!(
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
+        "{\"op_code\":3,\"worker_id\":\"w\",\"study_id\":0,\"system_attr\":{\"study:metric_names\":[\"MyObj\"]}}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
+        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.5],\"datetime_complete\":\"2024-01-01T00:00:01\"}\n",
+    ));
+    let mut batches: Vec<StudyStreamBatch> = Vec::new();
+    parse_single_study_streaming(&data, 0, 1000, |b| batches.push(b)).unwrap();
+    assert_eq!(batches.len(), 1);
+    // バッチの objective_names は derived ("obj0") ではなく metric_names ("MyObj") を使うべき
+    assert_eq!(batches[0].objective_names, vec!["MyObj".to_string()]);
+    // meta の objective_names とも一致するべき
+    assert_eq!(batches[0].meta.objective_names, vec!["MyObj".to_string()]);
+}
+
 #[test]
 fn quick_extract_u32_basic() {
     assert_eq!(

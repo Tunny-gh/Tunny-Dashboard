@@ -559,7 +559,10 @@ where
                             meta,
                             new_rows: std::mem::take(&mut batch),
                             param_names: param_set.iter().cloned().collect(),
-                            objective_names: if derived_objective_names.is_empty() {
+                            objective_names: if !state.studies[target_study_id as usize]
+                                .objective_names
+                                .is_empty()
+                            {
                                 state.studies[target_study_id as usize]
                                     .objective_names
                                     .clone()
@@ -590,7 +593,10 @@ where
     }
 
     // 最終バッチ（残り）を送出。完了 0 件でも is_final を通知する。
-    let objective_names = if derived_objective_names.is_empty() {
+    let objective_names = if !state.studies[target_study_id as usize]
+        .objective_names
+        .is_empty()
+    {
         state.studies[target_study_id as usize]
             .objective_names
             .clone()
