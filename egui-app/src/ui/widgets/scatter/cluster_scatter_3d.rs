@@ -1,5 +1,5 @@
 use crate::state::app_state::AppState;
-use crate::theme::chart_colors::COLOR_INFEASIBLE;
+use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widgets::scatter_3d::{
     compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
@@ -137,6 +137,8 @@ impl ClusterScatter3D {
         let mut feasible_pts: Vec<(egui::Pos2, f32, egui::Color32)> =
             Vec::with_capacity(trial_count);
         let mut infeasible_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
+        let mut other_pts: Vec<(egui::Pos2, f32)> = Vec::new();
 
         for i in 0..trial_count {
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
@@ -166,12 +168,22 @@ impl ClusterScatter3D {
                 .as_ref()
                 .and_then(|r| r.labels.get(i).copied())
                 .unwrap_or(0);
-            feasible_pts.push((pos, depth, cluster_color(label)));
+
+            if has_cluster && label < 0 {
+                // クラスタリング済みだが非パレートフロント → 半透明で描画
+                other_pts.push((pos, depth));
+            } else {
+                feasible_pts.push((pos, depth, cluster_color(label)));
+            }
         }
 
         infeasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _) in &infeasible_pts {
             painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
+        }
+        other_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (pos, _) in &other_pts {
+            painter.circle_filled(*pos, 2.5, COLOR_NON_PARETO_DIM);
         }
         feasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _, color) in &feasible_pts {
