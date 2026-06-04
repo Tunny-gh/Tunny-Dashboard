@@ -27,7 +27,8 @@ pub enum ToolbarAction {
 
     // TASK-2228: 新規アクション
     ExportCsv(ExportTarget),
-    AddComparisonStudy,
+    /// 同一ファイル内の指定 Study を比較対象として追加する。
+    AddComparisonStudy(StudyMeta),
     RemoveComparisonStudy(usize),
 }
 
@@ -212,15 +213,10 @@ pub fn show_toolbar(
                 });
             }
 
-            for (idx, study) in app_state.comparison_studies.iter().enumerate() {
-                let label = format!("× {}", &study.meta.name);
-                if toolbar_button(ui, &label, true).clicked() {
-                    actions.push(ToolbarAction::RemoveComparisonStudy(idx));
-                }
-            }
-            if toolbar_button(ui, "+ Compare", app_state.current_study.is_some()).clicked() {
-                actions.push(ToolbarAction::AddComparisonStudy);
-            }
+            // 比較対象はバーにチップを並べず、1 つのドロップダウン内の
+            // チェックボックス一覧で管理する（バーの横幅崩れを防ぐ）。
+            // チェックで比較対象に追加、外すと解除する。基準 Study 自身は一覧に出さない。
+            push_comparison_selector(ui, app_state, &mut actions);
 
             ui.separator();
 
@@ -250,6 +246,57 @@ pub fn show_toolbar(
         });
     });
     actions
+}
+
+/// 比較 Study 選択ドロップダウンを描画する。
+/// バーには「Compare (件数)」のラベルだけを置き、開くと同一ファイルの
+/// Study がチェックボックスで並ぶ。チェック状態の変化に応じて追加/解除アクションを積む。
+fn push_comparison_selector(
+    ui: &mut egui::Ui,
+    app_state: &AppState,
+    actions: &mut Vec<ToolbarAction>,
+) {
+    let base_id = app_state.current_study.as_ref().map(|c| c.meta.study_id);
+    let n_comp = app_state.comparison_studies.len();
+    let has_others = app_state
+        .all_studies
+        .iter()
+        .any(|s| base_id != Some(s.study_id));
+    let enabled = app_state.current_study.is_some() && has_others;
+
+    let label = if n_comp > 0 {
+        format!("Compare ({})", n_comp)
+    } else {
+        "Compare".to_string()
+    };
+
+    ui.scope(|ui| {
+        apply_combo_visuals(ui.visuals_mut());
+        ui.add_enabled_ui(enabled, |ui| {
+            egui::ComboBox::from_id_salt("compare_select_combo")
+                .selected_text(egui::RichText::new(label).color(crate::theme::TOOLBAR_TEXT))
+                .width(130.0)
+                .show_ui(ui, |ui| {
+                    for s in &app_state.all_studies {
+                        if base_id == Some(s.study_id) {
+                            continue;
+                        }
+                        let existing_idx = app_state
+                            .comparison_studies
+                            .iter()
+                            .position(|c| c.meta.study_id == s.study_id);
+                        let mut checked = existing_idx.is_some();
+                        if ui.checkbox(&mut checked, &s.name).changed() {
+                            if checked {
+                                actions.push(ToolbarAction::AddComparisonStudy(s.clone()));
+                            } else if let Some(idx) = existing_idx {
+                                actions.push(ToolbarAction::RemoveComparisonStudy(idx));
+                            }
+                        }
+                    }
+                });
+        });
+    });
 }
 
 fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
@@ -382,6 +429,20 @@ mod tests {
         assert!(load_error.is_none());
     }
 
+    fn make_test_meta(id: u32, name: &str) -> StudyMeta {
+        StudyMeta {
+            study_id: id,
+            name: name.to_string(),
+            directions: vec![],
+            completed_trials: 0,
+            total_trials: 0,
+            param_names: vec![],
+            objective_names: vec![],
+            user_attr_names: vec![],
+            has_constraints: false,
+        }
+    }
+
     // TASK-2228: 新規 ToolbarAction variants のテスト
     #[test]
     fn toolbar_action_variants_compile_and_match() {
@@ -389,7 +450,7 @@ mod tests {
             ToolbarAction::ExportCsv(crate::io::export::ExportTarget::AllData),
             ToolbarAction::ExportCsv(crate::io::export::ExportTarget::SelectedOnly),
             ToolbarAction::ExportCsv(crate::io::export::ExportTarget::ParetoOnly),
-            ToolbarAction::AddComparisonStudy,
+            ToolbarAction::AddComparisonStudy(make_test_meta(1, "s")),
             ToolbarAction::RemoveComparisonStudy(0),
         ];
         for action in &actions {
@@ -397,7 +458,9 @@ mod tests {
                 ToolbarAction::ExportCsv(t) => {
                     let _t = t;
                 }
-                ToolbarAction::AddComparisonStudy => {}
+                ToolbarAction::AddComparisonStudy(m) => {
+                    let _ = m;
+                }
                 ToolbarAction::RemoveComparisonStudy(idx) => {
                     let _ = idx;
                 }
@@ -442,9 +505,9 @@ mod tests {
 
     #[test]
     fn toolbar_emits_add_comparison_action() {
-        let action = ToolbarAction::AddComparisonStudy;
+        let action = ToolbarAction::AddComparisonStudy(make_test_meta(2, "other"));
         match action {
-            ToolbarAction::AddComparisonStudy => {}
+            ToolbarAction::AddComparisonStudy(m) => assert_eq!(m.study_id, 2),
             _ => panic!("Expected AddComparisonStudy"),
         }
     }
@@ -492,6 +555,7 @@ mod tests {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: 0,
                 context: Box::new(context),
+                hv_history: None,
             },
             &mut app_state,
             &mut widgets,

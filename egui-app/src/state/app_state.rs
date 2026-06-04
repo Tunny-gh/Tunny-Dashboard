@@ -45,6 +45,9 @@ pub struct AppState {
     /// state 層から egui 依存を排除するため UI 型ではなく生配列で保持する。
     /// 描画時は `crate::theme::color_compute::rgba_to_color32` で Color32 へ変換する。
     pub comparison_colors: Vec<[u8; 4]>,
+    /// 比較スタディの Hypervolume 推移（`comparison_studies` と同じ順序・要素数）。
+    /// HV 履歴チャートで基準 Study と同一グラフに重ね描きするために保持する。
+    pub comparison_hv_histories: Vec<HvHistory>,
 
     // ── REQ-007: Artifacts ────────────────────────────────────
     /// スキャン済みの artifacts ベースディレクトリ
@@ -92,6 +95,7 @@ impl AppState {
             comparison_mode: false,
             comparison_studies: Vec::new(),
             comparison_colors: Vec::new(),
+            comparison_hv_histories: Vec::new(),
             artifacts_dir: None,
             artifact_map: HashMap::new(),
             best_trial_history: None,
@@ -129,6 +133,7 @@ impl AppState {
         self.comparison_mode = false;
         self.comparison_studies.clear();
         self.comparison_colors.clear();
+        self.comparison_hv_histories.clear();
         self.comparison_base_study = None;
     }
 

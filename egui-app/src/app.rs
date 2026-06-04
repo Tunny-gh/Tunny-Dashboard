@@ -118,6 +118,9 @@ impl TunnyApp {
                     self.load_error = None;
                     self.app_state.all_studies.clear();
                     self.app_state.current_study = None;
+                    // 別ファイルを開くと study_id 空間が変わるため、
+                    // 同一ファイル前提の比較セッションは破棄する。
+                    self.app_state.reset_comparison_session();
                     crate::io::study_worker::dispatch_scan_journal(path, self.sender());
                 }
                 ToolbarAction::SetLayoutMode(mode) => {
@@ -200,31 +203,25 @@ impl TunnyApp {
                         let _ = crate::io::export::save_csv_to_file(&csv);
                     }
                 }
-                ToolbarAction::AddComparisonStudy => {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Journal", &["log"])
-                        .pick_file()
-                    {
-                        let main_name = self
-                            .app_state
-                            .current_study
-                            .as_ref()
-                            .map(|c| c.meta.name.clone())
-                            .unwrap_or_default();
+                ToolbarAction::AddComparisonStudy(meta) => {
+                    // 同一ファイル内の別 Study を比較対象として追加する。
+                    // 既に追加済み、または基準 Study 自身は無視する。
+                    let base_id = self
+                        .app_state
+                        .current_study
+                        .as_ref()
+                        .map(|c| c.meta.study_id);
+                    let already = self
+                        .app_state
+                        .comparison_studies
+                        .iter()
+                        .any(|s| s.meta.study_id == meta.study_id);
+                    if base_id != Some(meta.study_id) && !already {
                         let study_idx = self.app_state.comparison_studies.len();
                         self.app_state.comparison_mode = true;
-                        // 同一ファイルなら再パース不要: 既存メタをそのまま渡す（option C）
-                        let same_file_metas =
-                            if self.app_state.journal_path.as_deref() == Some(path.as_path()) {
-                                Some(self.app_state.all_studies.clone())
-                            } else {
-                                None
-                            };
                         crate::io::study_worker::dispatch_load_comparison_study(
-                            path,
-                            main_name,
+                            meta,
                             study_idx,
-                            same_file_metas,
                             self.sender(),
                         );
                     }
@@ -234,6 +231,9 @@ impl TunnyApp {
                         self.app_state.comparison_studies.remove(idx);
                         if idx < self.app_state.comparison_colors.len() {
                             self.app_state.comparison_colors.remove(idx);
+                        }
+                        if idx < self.app_state.comparison_hv_histories.len() {
+                            self.app_state.comparison_hv_histories.remove(idx);
                         }
                     }
                 }

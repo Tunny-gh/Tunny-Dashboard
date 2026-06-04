@@ -44,7 +44,29 @@ pub(crate) fn render_chart(
                 .show(ui, &ctx.view, obj_names, directions);
         }
         ChartId::HvHistory => {
+            use crate::theme::color_compute::rgba_to_color32;
+            use crate::ui::widgets::hv_history::HvSeries;
             widgets.hv_history.hv_history = app_state.hv_history.clone();
+            widgets.hv_history.base_name = ctx.meta.name.clone();
+            // 比較 Study の HV 履歴を色付き系列として渡し、同一グラフに重ねる。
+            widgets.hv_history.comparisons = app_state
+                .comparison_studies
+                .iter()
+                .enumerate()
+                .filter_map(|(i, study)| {
+                    let hv = app_state.comparison_hv_histories.get(i)?.clone();
+                    let color = app_state
+                        .comparison_colors
+                        .get(i)
+                        .copied()
+                        .unwrap_or([66, 133, 244, 255]);
+                    Some(HvSeries {
+                        name: study.meta.name.clone(),
+                        color: rgba_to_color32(color),
+                        history: hv,
+                    })
+                })
+                .collect();
             widgets.hv_history.show(ui);
         }
         ChartId::ImportanceChart => {

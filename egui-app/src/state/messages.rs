@@ -2,7 +2,7 @@ use crate::state::app_state::{
     ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext, StudyMeta,
     TopsisResult,
 };
-use crate::state::results::{AhpResult, EntropyResult};
+use crate::state::results::{AhpResult, EntropyResult, HvHistory};
 
 // ============================================================
 // PDP Result types (placeholder for TASK-2025)
@@ -158,6 +158,9 @@ pub enum AppMessage {
     ComparisonStudyLoaded {
         study_idx: usize,
         context: Box<StudyContext>,
+        /// 比較 Study の Hypervolume 推移（同一グラフ重ね描き用）。
+        /// 単目的など HV を計算できない場合は `None`。
+        hv_history: Option<HvHistory>,
     },
     /// REQ-007: Artifacts ディレクトリスキャン完了
     ArtifactsDirScanned {

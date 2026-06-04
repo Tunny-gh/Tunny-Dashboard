@@ -9,6 +9,22 @@ pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
+/// 比較 Study に割り当てる代表色のパレット（基準 Study の緑系とは別の色相）。
+/// 各要素は `[R, G, B, A]` の非プリマルチプライドアルファ。
+const COMPARISON_PALETTE: [[u8; 4]; 6] = [
+    [66, 133, 244, 255],  // 青
+    [234, 67, 53, 255],   // 赤
+    [251, 188, 4, 255],   // 黄
+    [171, 71, 188, 255],  // 紫
+    [255, 112, 67, 255],  // オレンジ
+    [0, 172, 193, 255],   // シアン
+];
+
+/// `idx` 番目の比較 Study に割り当てる色を返す（パレットを循環）。
+pub fn comparison_color_at(idx: usize) -> [u8; 4] {
+    COMPARISON_PALETTE[idx % COMPARISON_PALETTE.len()]
+}
+
 /// trial_id が selected_indices に含まれるかでアルファ値を計算する。
 /// selected_indices が空の場合は全点が不透明（255）を返す。
 pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
