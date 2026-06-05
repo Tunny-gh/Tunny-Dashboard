@@ -343,7 +343,10 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     if study.pareto_indices.is_empty() {
         return None;
     }
-    let pareto_set: std::collections::HashSet<u32> = study.pareto_indices.iter().copied().collect();
+    // The Pareto front is identified by per-row rank == 0 in the view.
+    // `StudyView::new` guarantees `pareto_rank` is row-aligned (length == row
+    // count), so this avoids the row-index-vs-trial-id mismatch that occurs
+    // when matching against `pareto_indices`.
     let param_names = &study.meta.param_names;
     let obj_names = &study.meta.objective_names;
     let param_cols = study.view.numeric_columns(param_names);
@@ -357,10 +360,10 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     }
     csv.push_str(",pareto_rank\n");
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
-        if !pareto_set.contains(&tid) {
+        let rank = study.view.pareto_rank.get(i).copied().unwrap_or(u32::MAX);
+        if rank != 0 {
             continue;
         }
-        let rank = study.view.pareto_rank.get(i).copied().unwrap_or(0);
         csv.push_str(&format!("{},{}", tid, i));
         for col in &param_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
@@ -510,7 +513,7 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
     let obj_name = study.meta.objective_names.get(obj_idx)?;
     let param_col = study.view.numeric_column(param_name);
     let obj_col = study.view.numeric_column(obj_name);
-    let pareto_set: std::collections::HashSet<u32> = study.pareto_indices.iter().copied().collect();
+    // Pareto membership is the per-row rank == 0 in the view (row-aligned).
     let mut csv = format!("trial_id,{},{},is_pareto\n", param_name, obj_name);
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
         let param_val = param_col
@@ -518,7 +521,7 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
             .copied()
             .unwrap_or(f64::NAN);
         let obj_val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-        let is_pareto = pareto_set.contains(&tid);
+        let is_pareto = study.view.pareto_rank.get(i).copied() == Some(0);
         csv.push_str(&format!(
             "{},{},{},{}\n",
             tid, param_val, obj_val, is_pareto
@@ -561,6 +564,22 @@ mod tests {
             trial_number: id,
             params,
             objectives,
+            ..Default::default()
+        }
+    }
+
+    fn make_trial_ranked(
+        id: u32,
+        params: HashMap<String, f64>,
+        objectives: Vec<f64>,
+        pareto_rank: u32,
+    ) -> TrialRow {
+        TrialRow {
+            trial_id: id,
+            trial_number: id,
+            params,
+            objectives,
+            pareto_rank,
             ..Default::default()
         }
     }
@@ -794,10 +813,11 @@ mod tests {
     fn pareto_csv_only_includes_pareto_trials() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
+        // Only the first row is on the Pareto front (rank 0).
         study.set_rows_for_test(vec![
-            make_trial(0, HashMap::new(), vec![1.0]),
-            make_trial(1, HashMap::new(), vec![2.0]),
-            make_trial(2, HashMap::new(), vec![3.0]),
+            make_trial_ranked(0, HashMap::new(), vec![1.0], 0),
+            make_trial_ranked(1, HashMap::new(), vec![2.0], 1),
+            make_trial_ranked(2, HashMap::new(), vec![3.0], 2),
         ]);
         study.pareto_indices = vec![0];
         state.current_study = Some(study);
@@ -805,6 +825,28 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 2, "header + 1 pareto row: {:?}", lines);
         assert!(lines[0].contains("pareto_rank"));
+    }
+
+    #[test]
+    fn pareto_csv_uses_row_rank_not_trial_id() {
+        // Regression: the Pareto front is identified by per-row rank, not by
+        // matching trial ids against pareto_indices. When trial ids differ
+        // from row positions (e.g. 100/200/300), rank-0 rows must still be
+        // emitted instead of being skipped entirely (header-only output bug).
+        let mut state = AppState::default();
+        let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
+        study.set_rows_for_test(vec![
+            make_trial_ranked(100, HashMap::new(), vec![1.0], 0),
+            make_trial_ranked(200, HashMap::new(), vec![2.0], 1),
+            make_trial_ranked(300, HashMap::new(), vec![3.0], 2),
+        ]);
+        study.pareto_indices = vec![0];
+        state.current_study = Some(study);
+        let csv = build_pareto_csv(&state).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 2, "header + 1 pareto row: {:?}", lines);
+        // The emitted data row must be the trial with id 100, value 1.
+        assert!(lines[1].starts_with("100,0,"), "row: {}", lines[1]);
     }
 
     #[test]
