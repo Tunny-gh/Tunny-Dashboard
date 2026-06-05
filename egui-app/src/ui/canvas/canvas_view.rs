@@ -29,7 +29,8 @@ const RESIZE_HANDLE: f32 = 14.0;
 /// アイテムごとのフレーム結果（借用解放後に一括適用するためのアクション）
 enum CanvasAction {
     Move(u64, egui::Vec2),
-    Resize(u64, egui::Vec2),
+    /// 左上を固定したまま絶対サイズ (w, h) を設定する
+    Resize(u64, f32, f32),
     Remove(u64),
 }
 
@@ -42,7 +43,8 @@ struct ItemToolbarResult {
 /// Area クロージャから返すアイテムの操作結果
 struct CanvasItemOutput {
     move_delta: egui::Vec2,
-    resize_delta: egui::Vec2,
+    /// 左上固定でのリサイズ後の絶対サイズ (w, h)
+    resize_to: Option<(f32, f32)>,
     close: bool,
 }
 
@@ -213,14 +215,30 @@ pub fn show_canvas_view(
                     item_rect.max - egui::vec2(RESIZE_HANDLE, RESIZE_HANDLE),
                     egui::vec2(RESIZE_HANDLE, RESIZE_HANDLE),
                 );
-                let rh = ui.interact(
-                    handle_rect,
-                    egui::Id::new("canvas_resize").with(item.id),
-                    egui::Sense::drag(),
-                );
+                let handle_id = egui::Id::new("canvas_resize").with(item.id);
+                let rh = ui.interact(handle_rect, handle_id, egui::Sense::click_and_drag());
                 let active = rh.hovered() || rh.dragged();
                 if active {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+                }
+                // 左上 (item_rect.min) を固定し、ポインタ位置（ワールド座標）から絶対サイズを算出する。
+                // ドラッグ開始時にハンドル内のつかみ位置オフセットを記録し、開始時の飛びを防ぐ。
+                let mut resize_to: Option<(f32, f32)> = None;
+                if rh.drag_started() {
+                    if let Some(p) = rh.interact_pointer_pos() {
+                        let grab = p - item_rect.max; // 角からのオフセット
+                        ui.ctx().data_mut(|d| d.insert_temp(handle_id, grab));
+                    }
+                }
+                if rh.dragged() {
+                    if let Some(p) = rh.interact_pointer_pos() {
+                        let grab: egui::Vec2 =
+                            ui.ctx().data(|d| d.get_temp(handle_id)).unwrap_or_default();
+                        let corner = p - grab;
+                        let new_w = (corner.x - item_rect.min.x).max(MIN_W);
+                        let new_h = (corner.y - item_rect.min.y).max(MIN_H);
+                        resize_to = Some((new_w, new_h));
+                    }
                 }
                 // 右下隅にグリップ（斜線）を常時描画し、リサイズ可能だと一目で分かるようにする。
                 // ホバー/ドラッグ時はアクセント色で強調する。
@@ -240,14 +258,9 @@ pub fn show_canvas_view(
                         egui::Stroke::new(1.5, grip_color),
                     );
                 }
-                let mut resize_delta = egui::Vec2::ZERO;
-                if rh.dragged() {
-                    resize_delta = rh.drag_delta();
-                }
-
                 CanvasItemOutput {
                     move_delta: tb.move_delta,
-                    resize_delta,
+                    resize_to,
                     close: matches!(tb.action, CellToolbarAction::Close),
                 }
             });
@@ -260,8 +273,8 @@ pub fn show_canvas_view(
         if out.move_delta != egui::Vec2::ZERO {
             actions.push(CanvasAction::Move(item.id, out.move_delta));
         }
-        if out.resize_delta != egui::Vec2::ZERO {
-            actions.push(CanvasAction::Resize(item.id, out.resize_delta));
+        if let Some((w, h)) = out.resize_to {
+            actions.push(CanvasAction::Resize(item.id, w, h));
         }
         if out.close {
             actions.push(CanvasAction::Remove(item.id));
@@ -295,10 +308,11 @@ pub fn show_canvas_view(
                     it.y += d.y;
                 }
             }
-            CanvasAction::Resize(id, d) => {
+            CanvasAction::Resize(id, w, h) => {
                 if let Some(it) = layout.canvas.items.iter_mut().find(|i| i.id == id) {
-                    it.w = (it.w + d.x).max(MIN_W);
-                    it.h = (it.h + d.y).max(MIN_H);
+                    // 左上 (x, y) は変更せず、サイズのみ更新する。
+                    it.w = w;
+                    it.h = h;
                 }
             }
             CanvasAction::Remove(id) => layout.canvas.remove(id),
