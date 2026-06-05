@@ -343,10 +343,10 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     if study.pareto_indices.is_empty() {
         return None;
     }
-    // The Pareto front is identified by per-row rank == 0 in the view.
+    // Export every individual with its Pareto rank (rank 0 = Pareto front).
+    // This matches the chart, which plots all trials and colors the front.
     // `StudyView::new` guarantees `pareto_rank` is row-aligned (length == row
-    // count), so this avoids the row-index-vs-trial-id mismatch that occurs
-    // when matching against `pareto_indices`.
+    // count), so rank lookups never go out of bounds.
     let param_names = &study.meta.param_names;
     let obj_names = &study.meta.objective_names;
     let param_cols = study.view.numeric_columns(param_names);
@@ -360,10 +360,7 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     }
     csv.push_str(",pareto_rank\n");
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
-        let rank = study.view.pareto_rank.get(i).copied().unwrap_or(u32::MAX);
-        if rank != 0 {
-            continue;
-        }
+        let rank = study.view.pareto_rank.get(i).copied().unwrap_or(0);
         csv.push_str(&format!("{},{}", tid, i));
         for col in &param_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
@@ -810,10 +807,9 @@ mod tests {
     }
 
     #[test]
-    fn pareto_csv_only_includes_pareto_trials() {
+    fn pareto_csv_includes_all_trials_with_rank() {
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        // Only the first row is on the Pareto front (rank 0).
         study.set_rows_for_test(vec![
             make_trial_ranked(0, HashMap::new(), vec![1.0], 0),
             make_trial_ranked(1, HashMap::new(), vec![2.0], 1),
@@ -823,16 +819,19 @@ mod tests {
         state.current_study = Some(study);
         let csv = build_pareto_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines.len(), 2, "header + 1 pareto row: {:?}", lines);
+        // Header + every trial, each tagged with its Pareto rank.
+        assert_eq!(lines.len(), 4, "header + 3 rows: {:?}", lines);
         assert!(lines[0].contains("pareto_rank"));
+        assert!(lines[1].ends_with(",0"), "row0 rank: {}", lines[1]);
+        assert!(lines[2].ends_with(",1"), "row1 rank: {}", lines[2]);
+        assert!(lines[3].ends_with(",2"), "row2 rank: {}", lines[3]);
     }
 
     #[test]
     fn pareto_csv_uses_row_rank_not_trial_id() {
-        // Regression: the Pareto front is identified by per-row rank, not by
-        // matching trial ids against pareto_indices. When trial ids differ
-        // from row positions (e.g. 100/200/300), rank-0 rows must still be
-        // emitted instead of being skipped entirely (header-only output bug).
+        // Regression: rank must be read per row, not by matching trial ids
+        // against pareto_indices. With non-contiguous trial ids (100/200/300)
+        // the per-row rank must still be emitted correctly for every row.
         let mut state = AppState::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
         study.set_rows_for_test(vec![
@@ -844,9 +843,12 @@ mod tests {
         state.current_study = Some(study);
         let csv = build_pareto_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines.len(), 2, "header + 1 pareto row: {:?}", lines);
-        // The emitted data row must be the trial with id 100, value 1.
+        assert_eq!(lines.len(), 4, "header + 3 rows: {:?}", lines);
+        // First data row: trial id 100, row index 0, rank 0.
         assert!(lines[1].starts_with("100,0,"), "row: {}", lines[1]);
+        assert!(lines[1].ends_with(",0"), "row0 rank: {}", lines[1]);
+        assert!(lines[3].starts_with("300,2,"), "row: {}", lines[3]);
+        assert!(lines[3].ends_with(",2"), "row2 rank: {}", lines[3]);
     }
 
     #[test]
