@@ -135,6 +135,10 @@ pub fn show_canvas_view(
         let ir = egui::Area::new(egui::Id::new("canvas_item").with(item.id))
             .order(egui::Order::Middle)
             .fixed_pos(egui::pos2(item.x, item.y))
+            // 画面矩形へのクランプを無効化（無限キャンバス上のどこにでも配置可能にする）。
+            // constrain が true だと、レイヤー変換適用前の world 座標が画面外のアイテムが
+            // 画面内へクランプされ、一定範囲より外へ移動できなくなる。
+            .constrain(false)
             .show(ui.ctx(), |ui| {
                 // レイヤー（ワールド）座標系でキャンバス可視域にクリップ
                 ui.set_clip_rect(to_screen.inverse().mul_rect(area));
