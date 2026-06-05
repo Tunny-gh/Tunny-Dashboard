@@ -82,8 +82,11 @@ pub fn show_canvas_view(
     if bg.double_clicked() {
         to_screen = offset; // pan=0, zoom=1 にリセット
     }
-    if let Some(ptr) = ui.ctx().input(|i| i.pointer.hover_pos()) {
-        if area.contains(ptr) {
+    // スクロール/ズームは「背景（空白部分）をホバーしているとき」のみキャンバスへ適用する。
+    // bg.hovered() はアイテム（Area）に遮蔽されると false になるため、チャート上での
+    // スクロール/ズームはチャート側だけに効き、キャンバスは動かない。
+    if bg.hovered() {
+        if let Some(ptr) = ui.ctx().input(|i| i.pointer.hover_pos()) {
             // 通常スクロール → パン
             let scroll = ui.ctx().input(|i| i.smooth_scroll_delta);
             if scroll != egui::Vec2::ZERO {
