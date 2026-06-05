@@ -5,7 +5,7 @@ use egui::emath::TSTransform;
 use crate::state::app_state::AppState;
 use crate::state::layout_state::{DragPayload, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
-use crate::theme::chart_colors::{COLOR_CELL_HIGHLIGHT, COLOR_SELECTION_HIGHLIGHT};
+use crate::theme::chart_colors::COLOR_SELECTION_HIGHLIGHT;
 use crate::ui::grid_canvas::{handle_toolbar_action, render_panel_item_body, CellToolbarAction};
 use crate::ui::widget_states::WidgetStates;
 
@@ -218,12 +218,29 @@ pub fn show_canvas_view(
                     egui::Id::new("canvas_resize").with(item.id),
                     egui::Sense::drag(),
                 );
-                let mut resize_delta = egui::Vec2::ZERO;
-                if rh.hovered() || rh.dragged() {
+                let active = rh.hovered() || rh.dragged();
+                if active {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
-                    ui.painter()
-                        .rect_filled(handle_rect, 0.0, COLOR_CELL_HIGHLIGHT);
                 }
+                // 右下隅にグリップ（斜線）を常時描画し、リサイズ可能だと一目で分かるようにする。
+                // ホバー/ドラッグ時はアクセント色で強調する。
+                let grip_color = if active {
+                    crate::theme::ACCENT_BLUE
+                } else {
+                    egui::Color32::from_gray(160)
+                };
+                let br = item_rect.max;
+                for i in 0..3 {
+                    let off = 3.0 + i as f32 * 4.0;
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(br.x - off, br.y - 2.0),
+                            egui::pos2(br.x - 2.0, br.y - off),
+                        ],
+                        egui::Stroke::new(1.5, grip_color),
+                    );
+                }
+                let mut resize_delta = egui::Vec2::ZERO;
                 if rh.dragged() {
                     resize_delta = rh.drag_delta();
                 }
