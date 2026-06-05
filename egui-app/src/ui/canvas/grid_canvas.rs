@@ -8,9 +8,9 @@ use crate::theme::{CENTRAL_BG, CLOSE_BTN_TEXT};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::trial_table::TrialTableWidget;
 
-const CLOSE_BUTTON_SIZE: f32 = 16.0;
+pub(crate) const CLOSE_BUTTON_SIZE: f32 = 16.0;
 const HANDLE_THICKNESS: f32 = 6.0;
-const DRAG_HANDLE_HEIGHT: f32 = 24.0;
+pub(crate) const DRAG_HANDLE_HEIGHT: f32 = 24.0;
 
 /// Action returned by the cell toolbar.
 pub enum CellToolbarAction {

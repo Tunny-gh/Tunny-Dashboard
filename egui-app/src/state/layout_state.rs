@@ -524,14 +524,6 @@ impl CanvasLayout {
     pub fn remove(&mut self, id: u64) {
         self.items.retain(|it| it.id != id);
     }
-
-    /// 指定 ID のアイテムを Vec 末尾（最前面）へ移動する。
-    pub fn bring_to_front(&mut self, id: u64) {
-        if let Some(pos) = self.items.iter().position(|it| it.id == id) {
-            let item = self.items.remove(pos);
-            self.items.push(item);
-        }
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1045,16 +1037,6 @@ mod tests {
         c.remove(id0);
         assert_eq!(c.items.len(), 1);
         assert_eq!(c.items[0].id, id1);
-    }
-
-    #[test]
-    fn canvas_layout_bring_to_front_moves_to_end() {
-        let mut c = CanvasLayout::default();
-        let id0 = c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
-        let id1 = c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
-        c.bring_to_front(id0);
-        assert_eq!(c.items.last().unwrap().id, id0);
-        assert_eq!(c.items.first().unwrap().id, id1);
     }
 
     #[test]

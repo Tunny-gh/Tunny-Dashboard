@@ -6,7 +6,10 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::{DragPayload, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
 use crate::theme::chart_colors::COLOR_SELECTION_HIGHLIGHT;
-use crate::ui::grid_canvas::{handle_toolbar_action, render_panel_item_body, CellToolbarAction};
+use crate::ui::grid_canvas::{
+    handle_toolbar_action, render_panel_item_body, CellToolbarAction, CLOSE_BUTTON_SIZE,
+    DRAG_HANDLE_HEIGHT,
+};
 use crate::ui::widget_states::WidgetStates;
 
 /// ワールド座標でのドットグリッド間隔
@@ -20,9 +23,6 @@ const DEFAULT_H: f32 = 280.0;
 /// リサイズ時の最小サイズ
 const MIN_W: f32 = 160.0;
 const MIN_H: f32 = 120.0;
-/// ツールバー要素サイズ
-const CLOSE_BUTTON_SIZE: f32 = 16.0;
-const DRAG_HANDLE_HEIGHT: f32 = 24.0;
 /// リサイズハンドルの一辺
 const RESIZE_HANDLE: f32 = 14.0;
 
@@ -32,20 +32,6 @@ enum CanvasAction {
     /// 左上を固定したまま絶対サイズ (w, h) を設定する
     Resize(u64, f32, f32),
     Remove(u64),
-}
-
-/// アイテムツールバーの結果
-struct ItemToolbarResult {
-    move_delta: egui::Vec2,
-    action: CellToolbarAction,
-}
-
-/// Area クロージャから返すアイテムの操作結果
-struct CanvasItemOutput {
-    move_delta: egui::Vec2,
-    /// 左上固定でのリサイズ後の絶対サイズ (w, h)
-    resize_to: Option<(f32, f32)>,
-    close: bool,
 }
 
 /// 自由配置キャンバスを描画する。
@@ -179,7 +165,7 @@ pub fn show_canvas_view(
                     }
                     PanelItem::TrialTable => false,
                 };
-                let tb = show_canvas_item_toolbar(
+                let (move_delta, tb_action) = show_canvas_item_toolbar(
                     &mut content_ui,
                     &item.content,
                     item.content.label(),
@@ -191,7 +177,7 @@ pub fn show_canvas_view(
                 let ctx = content_ui.ctx().clone();
                 handle_toolbar_action(
                     &ctx,
-                    &tb.action,
+                    &tb_action,
                     app_state.help_language,
                     widgets,
                     app_state,
@@ -258,27 +244,22 @@ pub fn show_canvas_view(
                         egui::Stroke::new(1.5, grip_color),
                     );
                 }
-                CanvasItemOutput {
-                    move_delta: tb.move_delta,
-                    resize_to,
-                    close: matches!(tb.action, CellToolbarAction::Close),
+
+                // 操作結果を直接アクションへ積む（借用解放後にまとめて適用）。
+                if move_delta != egui::Vec2::ZERO {
+                    actions.push(CanvasAction::Move(item.id, move_delta));
+                }
+                if let Some((w, h)) = resize_to {
+                    actions.push(CanvasAction::Resize(item.id, w, h));
+                }
+                if matches!(tb_action, CellToolbarAction::Close) {
+                    actions.push(CanvasAction::Remove(item.id));
                 }
             });
 
         // このアイテムのレイヤーに変換を適用（テキストごと拡大縮小）
         ui.ctx()
             .set_transform_layer(ir.response.layer_id, to_screen);
-
-        let out = ir.inner;
-        if out.move_delta != egui::Vec2::ZERO {
-            actions.push(CanvasAction::Move(item.id, out.move_delta));
-        }
-        if let Some((w, h)) = out.resize_to {
-            actions.push(CanvasAction::Resize(item.id, w, h));
-        }
-        if out.close {
-            actions.push(CanvasAction::Remove(item.id));
-        }
     }
 
     // ── 右パネルからの新規ドロップ（レイヤーに依らず area で判定） ──────────
@@ -352,11 +333,9 @@ fn show_canvas_item_toolbar(
     item: &PanelItem,
     title: &str,
     csv_available: bool,
-) -> ItemToolbarResult {
-    let mut result = ItemToolbarResult {
-        move_delta: egui::Vec2::ZERO,
-        action: CellToolbarAction::None,
-    };
+) -> (egui::Vec2, CellToolbarAction) {
+    let mut move_delta = egui::Vec2::ZERO;
+    let mut action = CellToolbarAction::None;
 
     // バー矩形（内側マージン 6x4 を含めた高さ）。
     let bar_h = DRAG_HANDLE_HEIGHT + 8.0;
@@ -380,7 +359,7 @@ fn show_canvas_item_toolbar(
         egui::Sense::click_and_drag(),
     );
     if drag_resp.dragged() {
-        result.move_delta = drag_resp.drag_delta();
+        move_delta = drag_resp.drag_delta();
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if drag_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -411,15 +390,15 @@ fn show_canvas_item_toolbar(
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if close_resp.clicked() {
-            result.action = CellToolbarAction::Close;
+            action = CellToolbarAction::Close;
         }
 
         ui.add_space(4.0);
 
         if let Some(a) = crate::ui::grid_canvas::show_chart_menu_button(ui, item, csv_available) {
-            result.action = a;
+            action = a;
         }
     });
 
-    result
+    (move_delta, action)
 }
