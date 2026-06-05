@@ -437,6 +437,7 @@ fn show_cell_toolbar(
                             if !csv_available {
                                 copy_btn.on_hover_text("No data available");
                             }
+                            ui.separator();
                             if ui.button("Help").clicked() {
                                 menu_action = Some(CellToolbarAction::Help(item.clone()));
                                 ui.close_menu();
