@@ -34,6 +34,53 @@ pub fn chart_cell_menu_items() -> &'static [&'static str] {
     ]
 }
 
+/// チャートセルの「⋯」メニューボタンを描画し、選択されたアクションを返す。
+/// grid・canvas の両ツールバーから共有する。
+pub(crate) fn show_chart_menu_button(
+    ui: &mut egui::Ui,
+    item: &PanelItem,
+    csv_available: bool,
+) -> Option<CellToolbarAction> {
+    let mut menu_action: Option<CellToolbarAction> = None;
+    ui.menu_button(
+        egui::RichText::new("⋯").small().color(CLOSE_BTN_TEXT),
+        |ui| {
+            if ui.button("Save as PNG").clicked() {
+                menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
+                ui.close_menu();
+            }
+            if ui.button("Copy image to clipboard").clicked() {
+                menu_action = Some(CellToolbarAction::CopyImage(item.clone()));
+                ui.close_menu();
+            }
+            ui.separator();
+            let csv_btn = ui.add_enabled(csv_available, egui::Button::new("Save as CSV"));
+            if csv_btn.clicked() {
+                menu_action = Some(CellToolbarAction::SaveAsCsv(item.clone()));
+                ui.close_menu();
+            }
+            if !csv_available {
+                csv_btn.on_hover_text("No data available");
+            }
+            let copy_btn =
+                ui.add_enabled(csv_available, egui::Button::new("Copy data to clipboard"));
+            if copy_btn.clicked() {
+                menu_action = Some(CellToolbarAction::CopyCsv(item.clone()));
+                ui.close_menu();
+            }
+            if !csv_available {
+                copy_btn.on_hover_text("No data available");
+            }
+            ui.separator();
+            if ui.button("Help").clicked() {
+                menu_action = Some(CellToolbarAction::Help(item.clone()));
+                ui.close_menu();
+            }
+        },
+    );
+    menu_action
+}
+
 /// Records a PNG capture request into `ChartCaptureState`.
 pub fn record_capture_target(
     state: &mut crate::ui::widget_states::ChartCaptureState,
@@ -404,47 +451,7 @@ fn show_cell_toolbar(
                     let spacer = (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
                     ui.add_space(spacer);
 
-                    let mut menu_action: Option<CellToolbarAction> = None;
-                    ui.menu_button(
-                        egui::RichText::new("⋯").small().color(CLOSE_BTN_TEXT),
-                        |ui| {
-                            if ui.button("Save as PNG").clicked() {
-                                menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
-                                ui.close_menu();
-                            }
-                            if ui.button("Copy image to clipboard").clicked() {
-                                menu_action = Some(CellToolbarAction::CopyImage(item.clone()));
-                                ui.close_menu();
-                            }
-                            ui.separator();
-                            let csv_btn =
-                                ui.add_enabled(csv_available, egui::Button::new("Save as CSV"));
-                            if csv_btn.clicked() {
-                                menu_action = Some(CellToolbarAction::SaveAsCsv(item.clone()));
-                                ui.close_menu();
-                            }
-                            if !csv_available {
-                                csv_btn.on_hover_text("No data available");
-                            }
-                            let copy_btn = ui.add_enabled(
-                                csv_available,
-                                egui::Button::new("Copy data to clipboard"),
-                            );
-                            if copy_btn.clicked() {
-                                menu_action = Some(CellToolbarAction::CopyCsv(item.clone()));
-                                ui.close_menu();
-                            }
-                            if !csv_available {
-                                copy_btn.on_hover_text("No data available");
-                            }
-                            ui.separator();
-                            if ui.button("Help").clicked() {
-                                menu_action = Some(CellToolbarAction::Help(item.clone()));
-                                ui.close_menu();
-                            }
-                        },
-                    );
-                    if let Some(a) = menu_action {
+                    if let Some(a) = show_chart_menu_button(ui, &item, csv_available) {
                         action = a;
                     }
 
@@ -468,7 +475,7 @@ fn show_cell_toolbar(
     action
 }
 
-fn handle_toolbar_action(
+pub(crate) fn handle_toolbar_action(
     ctx: &egui::Context,
     action: &CellToolbarAction,
     help_language: crate::ui::help::help_types::HelpLanguage,
@@ -499,7 +506,8 @@ fn handle_toolbar_action(
             }
         }
         CellToolbarAction::CopyCsv(PanelItem::Chart(chart_id)) => {
-            if let Some(csv_str) = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets)
+            if let Some(csv_str) =
+                crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets)
             {
                 ctx.copy_text(csv_str);
             }
@@ -523,12 +531,17 @@ fn render_cell_content(
     tx: &mpsc::SyncSender<AppMessage>,
 ) -> (bool, Option<egui::Rect>) {
     match &cell.content {
-        Some(PanelItem::Chart(id)) => {
-            let chart_id = id.clone();
-            let item = PanelItem::Chart(chart_id.clone());
+        Some(item) => {
+            let item = item.clone();
             let title = item.label();
-            let csv_available = crate::io::csv_export::has_csv_data(&chart_id, app_state, widgets);
-            let toolbar_action = show_cell_toolbar(ui, row, col, item, title, csv_available);
+            let csv_available = match &item {
+                PanelItem::Chart(chart_id) => {
+                    crate::io::csv_export::has_csv_data(chart_id, app_state, widgets)
+                }
+                PanelItem::TrialTable => false,
+            };
+            let toolbar_action =
+                show_cell_toolbar(ui, row, col, item.clone(), title, csv_available);
             let ctx = ui.ctx().clone();
             handle_toolbar_action(
                 &ctx,
@@ -538,45 +551,11 @@ fn render_cell_content(
                 app_state,
                 tx,
             );
-            // Frame の Response.rect がチャート本体（ツールバーを除く）の描画領域。
-            // これをキャプチャ矩形に使うことで Move/タイトル/⋯ バーを写し込まない。
-            let chart_resp = egui::Frame::default()
-                .inner_margin(egui::Margin::same(8.0))
-                .show(ui, |ui| {
-                    ui.push_id((row, col), |ui| {
-                        crate::ui::chart_registry::show_chart(
-                            ui, app_state, widgets, &chart_id, tx,
-                        );
-                    });
-                });
+            // チャート本体（ツールバーを除く）の描画領域をキャプチャ矩形に使う。
+            let chart_rect = render_panel_item_body(ui, app_state, widgets, &item, (row, col), tx);
             (
                 matches!(toolbar_action, CellToolbarAction::Close),
-                Some(chart_resp.response.rect),
-            )
-        }
-        Some(PanelItem::TrialTable) => {
-            let item = PanelItem::TrialTable;
-            let title = item.label();
-            let toolbar_action = show_cell_toolbar(ui, row, col, item, title, false);
-            let ctx = ui.ctx().clone();
-            handle_toolbar_action(
-                &ctx,
-                &toolbar_action,
-                app_state.help_language,
-                widgets,
-                app_state,
-                tx,
-            );
-            let table_resp = egui::Frame::default()
-                .inner_margin(egui::Margin::same(8.0))
-                .show(ui, |ui| {
-                    ui.push_id((row, col), |ui| {
-                        TrialTableWidget.show(ui, app_state);
-                    });
-                });
-            (
-                matches!(toolbar_action, CellToolbarAction::Close),
-                Some(table_resp.response.rect),
+                Some(chart_rect),
             )
         }
         None => {
@@ -587,6 +566,33 @@ fn render_cell_content(
             (false, None)
         }
     }
+}
+
+/// PanelItem の本体（チャート/テーブル）を描画する共有関数。
+/// grid・canvas の両ビューから呼ばれる。`id_salt` はインスタンスごとの egui ID 衝突回避用
+/// （grid は (row, col)、canvas は item.id を渡す）。
+/// 戻り値はツールバーを含まない本体の描画矩形で、PNG/画像キャプチャのクロップに使う。
+pub(crate) fn render_panel_item_body(
+    ui: &mut egui::Ui,
+    app_state: &mut AppState,
+    widgets: &mut WidgetStates,
+    item: &PanelItem,
+    id_salt: impl std::hash::Hash,
+    tx: &mpsc::SyncSender<AppMessage>,
+) -> egui::Rect {
+    let body_resp = egui::Frame::default()
+        .inner_margin(egui::Margin::same(8.0))
+        .show(ui, |ui| {
+            ui.push_id(id_salt, |ui| match item {
+                PanelItem::Chart(chart_id) => {
+                    crate::ui::chart_registry::show_chart(ui, app_state, widgets, chart_id, tx);
+                }
+                PanelItem::TrialTable => {
+                    TrialTableWidget.show(ui, app_state);
+                }
+            });
+        });
+    body_resp.response.rect
 }
 
 #[cfg(test)]

@@ -137,8 +137,8 @@ impl TunnyApp {
                     self.app_state.reset_comparison_session();
                     crate::io::study_worker::dispatch_scan_journal(path, self.sender());
                 }
-                ToolbarAction::SetLayoutMode(mode) => {
-                    self.layout.layout_mode = mode;
+                ToolbarAction::SetViewMode(mode) => {
+                    self.layout.view_mode = mode;
                 }
                 ToolbarAction::SelectStudy(meta) => {
                     self.is_loading = true;

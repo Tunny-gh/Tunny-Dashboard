@@ -38,6 +38,12 @@ pub const CENTRAL_BG: Color32 = Color32::WHITE; // #FFFFFF
 /// チャートセルのツールバー背景色: gray-100
 pub const CELL_TOOLBAR_BG: Color32 = Color32::from_rgb(243, 244, 246); // #F3F4F6
 
+/// 自由配置キャンバスの背景色: white
+pub const CANVAS_BG: Color32 = Color32::WHITE; // #FFFFFF
+
+/// 自由配置キャンバスのドットグリッド色: gray-300
+pub const CANVAS_DOT: Color32 = Color32::from_rgb(209, 213, 219); // #D1D5DB
+
 // ====================================================================
 // ウィジェット系
 // ====================================================================

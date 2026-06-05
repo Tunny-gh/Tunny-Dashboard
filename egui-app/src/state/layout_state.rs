@@ -440,22 +440,111 @@ impl Default for RightPanelState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum LayoutMode {
-    MultiObjective,
-    VariableSpace,
-    ConvergenceAnalysis,
-    FreeLayout,
-    /// REQ-006: Multi-study 比較モード
-    Comparison,
+// ----------------------------------------
+// ViewMode — 中央エリアの表示モード（左上コンボボックスで切替）
+// ----------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ViewMode {
+    /// 行×列のグリッド配置（従来）
+    Grid,
+    /// 自由配置キャンバス（パン/ズーム対応）
+    Canvas,
+}
+
+impl Default for ViewMode {
+    fn default() -> Self {
+        ViewMode::Grid
+    }
+}
+
+// ----------------------------------------
+// CanvasItem — キャンバス上に自由配置された1ウィジェット
+// 同じウィジェットを複数配置できるよう固有 ID を持つ。
+// 座標・サイズはワールド座標（無限平面上の値）。
+// ----------------------------------------
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CanvasItem {
+    /// 固有インスタンス ID（複数配置対応）
+    pub id: u64,
+    /// 配置されたウィジェット
+    pub content: PanelItem,
+    /// ワールド座標の左上位置
+    pub x: f32,
+    pub y: f32,
+    /// ワールド座標でのサイズ
+    pub w: f32,
+    pub h: f32,
+}
+
+// ----------------------------------------
+// CanvasLayout — 自由配置キャンバスの状態
+// items の順序が z-order（末尾が最前面）。pan/zoom はビューポート変換。
+// ----------------------------------------
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CanvasLayout {
+    pub items: Vec<CanvasItem>,
+    /// 次に採番する ID
+    pub next_id: u64,
+    /// ビューポート変換の平行移動（画面座標オフセット）
+    pub pan_x: f32,
+    pub pan_y: f32,
+    /// ビューポート変換のスケール（既定 1.0）
+    pub zoom: f32,
+}
+
+impl Default for CanvasLayout {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            next_id: 0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            zoom: 1.0,
+        }
+    }
+}
+
+impl CanvasLayout {
+    /// 新規アイテムをワールド座標 `(x, y)` に追加する。固有 ID を採番して返す。
+    pub fn add(&mut self, content: PanelItem, x: f32, y: f32, w: f32, h: f32) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.items.push(CanvasItem {
+            id,
+            content,
+            x,
+            y,
+            w,
+            h,
+        });
+        id
+    }
+
+    /// 指定 ID のアイテムを削除する。
+    pub fn remove(&mut self, id: u64) {
+        self.items.retain(|it| it.id != id);
+    }
+
+    /// 指定 ID のアイテムを Vec 末尾（最前面）へ移動する。
+    pub fn bring_to_front(&mut self, id: u64) {
+        if let Some(pos) = self.items.iter().position(|it| it.id == id) {
+            let item = self.items.remove(pos);
+            self.items.push(item);
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LayoutState {
     pub left_panel_width: f32,
-    pub layout_mode: LayoutMode,
+    /// 中央エリアの表示モード（Grid / Canvas）
+    #[serde(default)]
+    pub view_mode: ViewMode,
     /// フリーグリッドレイアウト（visible_charts の置き換え）
     pub grid: GridLayout,
+    /// 自由配置キャンバスのレイアウト
+    #[serde(default)]
+    pub canvas: CanvasLayout,
     /// 右パネルの状態
     pub right_panel: RightPanelState,
     /// 左パネルの開閉状態（ホバーで自動制御）
@@ -467,10 +556,22 @@ impl Default for LayoutState {
     fn default() -> Self {
         Self {
             left_panel_width: 240.0,
-            layout_mode: LayoutMode::MultiObjective,
+            view_mode: ViewMode::Grid,
             grid: GridLayout::default(),
+            canvas: CanvasLayout::default(),
             right_panel: RightPanelState::default(),
             left_panel_open: false,
+        }
+    }
+}
+
+impl LayoutState {
+    /// 現在のビューに配置済みのアイテム一覧（右パネルのグレーアウト判定用）。
+    /// Canvas は複数配置可のため何もグレーアウトしない（空を返す）。
+    pub fn placed_items(&self) -> Vec<&PanelItem> {
+        match self.view_mode {
+            ViewMode::Grid => self.grid.placed_items(),
+            ViewMode::Canvas => Vec::new(),
         }
     }
 }
@@ -877,7 +978,7 @@ mod tests {
     fn layout_state_default_has_grid_and_right_panel() {
         let layout = LayoutState::default();
         assert_eq!(layout.left_panel_width, 240.0);
-        assert_eq!(layout.layout_mode, LayoutMode::MultiObjective);
+        assert_eq!(layout.view_mode, ViewMode::Grid);
         assert_eq!(layout.grid.rows, 2);
         assert_eq!(layout.grid.cols, 2);
         assert!(layout.right_panel.is_open == false); // hover-reveal: default closed
@@ -892,9 +993,86 @@ mod tests {
     }
 
     #[test]
-    fn layout_mode_variants() {
-        let mode = LayoutMode::FreeLayout;
-        assert_ne!(mode, LayoutMode::MultiObjective);
-        assert_ne!(mode, LayoutMode::VariableSpace);
+    fn view_mode_default_is_grid() {
+        assert_eq!(ViewMode::default(), ViewMode::Grid);
+        assert_ne!(ViewMode::Grid, ViewMode::Canvas);
+    }
+
+    // --- CanvasLayout tests ---
+
+    #[test]
+    fn canvas_layout_default_is_empty_and_identity() {
+        let c = CanvasLayout::default();
+        assert!(c.items.is_empty());
+        assert_eq!(c.next_id, 0);
+        assert_eq!(c.pan_x, 0.0);
+        assert_eq!(c.pan_y, 0.0);
+        assert_eq!(c.zoom, 1.0);
+    }
+
+    #[test]
+    fn canvas_layout_add_assigns_incrementing_ids() {
+        let mut c = CanvasLayout::default();
+        let id0 = c.add(PanelItem::TrialTable, 10.0, 20.0, 360.0, 280.0);
+        let id1 = c.add(
+            PanelItem::Chart(ChartId::ParetoScatter2D),
+            30.0,
+            40.0,
+            360.0,
+            280.0,
+        );
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+        assert_eq!(c.items.len(), 2);
+        assert_eq!(c.items[0].x, 10.0);
+        assert_eq!(c.items[0].y, 20.0);
+    }
+
+    #[test]
+    fn canvas_layout_allows_duplicate_content() {
+        let mut c = CanvasLayout::default();
+        c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
+        c.add(PanelItem::TrialTable, 50.0, 50.0, 100.0, 100.0);
+        assert_eq!(c.items.len(), 2);
+        assert_ne!(c.items[0].id, c.items[1].id);
+    }
+
+    #[test]
+    fn canvas_layout_remove_by_id() {
+        let mut c = CanvasLayout::default();
+        let id0 = c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
+        let id1 = c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
+        c.remove(id0);
+        assert_eq!(c.items.len(), 1);
+        assert_eq!(c.items[0].id, id1);
+    }
+
+    #[test]
+    fn canvas_layout_bring_to_front_moves_to_end() {
+        let mut c = CanvasLayout::default();
+        let id0 = c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
+        let id1 = c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
+        c.bring_to_front(id0);
+        assert_eq!(c.items.last().unwrap().id, id0);
+        assert_eq!(c.items.first().unwrap().id, id1);
+    }
+
+    #[test]
+    fn layout_state_canvas_placed_items_is_empty() {
+        let mut layout = LayoutState::default();
+        layout.view_mode = ViewMode::Canvas;
+        layout
+            .canvas
+            .add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
+        // Canvas は複数配置可のためグレーアウト用一覧は空
+        assert!(layout.placed_items().is_empty());
+    }
+
+    #[test]
+    fn layout_state_grid_placed_items_reflects_grid() {
+        let mut layout = LayoutState::default();
+        layout.view_mode = ViewMode::Grid;
+        layout.grid.place(0, 0, PanelItem::TrialTable);
+        assert_eq!(layout.placed_items().len(), 1);
     }
 }

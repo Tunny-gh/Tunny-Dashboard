@@ -1,21 +1,18 @@
 use crate::io::export::ExportTarget;
 use crate::state::app_state::{AppState, StudyMeta};
-use crate::state::layout_state::{LayoutMode, LayoutState};
+use crate::state::layout_state::{LayoutState, ViewMode};
 use crate::theme::{ERROR_COLOR, TOOLBAR_BTN_FG};
 
-/// レイアウトモードボタンのラベル定義
-pub const LAYOUT_MODE_BUTTONS: &[(LayoutMode, &str)] = &[
-    (LayoutMode::MultiObjective, "Multi-Objective"),
-    (LayoutMode::VariableSpace, "Variable Space"),
-    (LayoutMode::ConvergenceAnalysis, "Convergence"),
-    (LayoutMode::FreeLayout, "Free Layout"),
-    (LayoutMode::Comparison, "Comparison"),
+/// ビューモードボタンのラベル定義
+pub const VIEW_MODE_BUTTONS: &[(ViewMode, &str)] = &[
+    (ViewMode::Grid, "Grid View"),
+    (ViewMode::Canvas, "Canvas View"),
 ];
 
 #[derive(Debug, Clone)]
 pub enum ToolbarAction {
     OpenJournal(std::path::PathBuf),
-    SetLayoutMode(LayoutMode),
+    SetViewMode(ViewMode),
     SelectStudy(StudyMeta),
     ToggleLiveUpdate,
     SetPollInterval(u64),
@@ -50,25 +47,25 @@ pub fn show_toolbar(
 
         ui.separator();
 
-        // レイアウトモード ComboBox
+        // ビューモード ComboBox（Grid View / Canvas View）
         {
-            let current_label = LAYOUT_MODE_BUTTONS
+            let current_label = VIEW_MODE_BUTTONS
                 .iter()
-                .find(|(m, _)| *m == layout.layout_mode)
+                .find(|(m, _)| *m == layout.view_mode)
                 .map(|(_, l)| *l)
-                .unwrap_or("Layout");
+                .unwrap_or("View");
             ui.scope(|ui| {
                 apply_combo_visuals(ui.visuals_mut());
-                egui::ComboBox::from_id_salt("layout_mode_combo")
+                egui::ComboBox::from_id_salt("view_mode_combo")
                     .selected_text(
                         egui::RichText::new(current_label).color(crate::theme::TOOLBAR_TEXT),
                     )
                     .width(140.0)
                     .show_ui(ui, |ui| {
-                        for (mode, label) in LAYOUT_MODE_BUTTONS {
-                            let selected = layout.layout_mode == *mode;
+                        for (mode, label) in VIEW_MODE_BUTTONS {
+                            let selected = layout.view_mode == *mode;
                             if ui.selectable_label(selected, *label).clicked() {
-                                actions.push(ToolbarAction::SetLayoutMode(mode.clone()));
+                                actions.push(ToolbarAction::SetViewMode(*mode));
                             }
                         }
                     });
@@ -352,9 +349,9 @@ fn apply_combo_visuals(vis: &mut egui::Visuals) {
     vis.widgets.active.fg_stroke = fg_white;
 }
 
-/// LayoutMode を文字列から解決する（テスト用ユーティリティ）
-pub fn layout_mode_label(mode: LayoutMode) -> &'static str {
-    LAYOUT_MODE_BUTTONS
+/// ViewMode を文字列から解決する（テスト用ユーティリティ）
+pub fn view_mode_label(mode: ViewMode) -> &'static str {
+    VIEW_MODE_BUTTONS
         .iter()
         .find(|(m, _)| *m == mode)
         .map(|(_, label)| *label)
@@ -364,42 +361,28 @@ pub fn layout_mode_label(mode: LayoutMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::layout_state::LayoutMode;
+    use crate::state::layout_state::ViewMode;
 
     #[test]
-    fn layout_mode_buttons_cover_all_modes() {
-        let modes: Vec<LayoutMode> = LAYOUT_MODE_BUTTONS.iter().map(|(m, _)| m.clone()).collect();
-        assert!(modes.contains(&LayoutMode::MultiObjective));
-        assert!(modes.contains(&LayoutMode::VariableSpace));
-        assert!(modes.contains(&LayoutMode::ConvergenceAnalysis));
-        assert!(modes.contains(&LayoutMode::FreeLayout));
-        assert!(modes.contains(&LayoutMode::Comparison));
-        assert_eq!(modes.len(), 5);
+    fn view_mode_buttons_cover_all_modes() {
+        let modes: Vec<ViewMode> = VIEW_MODE_BUTTONS.iter().map(|(m, _)| *m).collect();
+        assert!(modes.contains(&ViewMode::Grid));
+        assert!(modes.contains(&ViewMode::Canvas));
+        assert_eq!(modes.len(), 2);
     }
 
     #[test]
-    fn layout_mode_label_returns_correct_label() {
-        assert_eq!(
-            layout_mode_label(LayoutMode::MultiObjective),
-            "Multi-Objective"
-        );
-        assert_eq!(
-            layout_mode_label(LayoutMode::VariableSpace),
-            "Variable Space"
-        );
-        assert_eq!(
-            layout_mode_label(LayoutMode::ConvergenceAnalysis),
-            "Convergence"
-        );
-        assert_eq!(layout_mode_label(LayoutMode::FreeLayout), "Free Layout");
+    fn view_mode_label_returns_correct_label() {
+        assert_eq!(view_mode_label(ViewMode::Grid), "Grid View");
+        assert_eq!(view_mode_label(ViewMode::Canvas), "Canvas View");
     }
 
     #[test]
-    fn layout_mode_switch_updates_state() {
+    fn view_mode_switch_updates_state() {
         let mut layout = LayoutState::default();
-        assert_eq!(layout.layout_mode, LayoutMode::MultiObjective);
-        layout.layout_mode = LayoutMode::ConvergenceAnalysis;
-        assert_eq!(layout.layout_mode, LayoutMode::ConvergenceAnalysis);
+        assert_eq!(layout.view_mode, ViewMode::Grid);
+        layout.view_mode = ViewMode::Canvas;
+        assert_eq!(layout.view_mode, ViewMode::Canvas);
     }
 
     #[test]
