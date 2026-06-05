@@ -121,6 +121,10 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         ctx.request_repaint();
     }
 
+    // キャプチャ中はエッジストリップを描画しない（チャート画像への写り込み防止）。
+    // クロージャが app を可変借用する前にフラグを読んでおく。
+    let app_state_screenshot_requested = app.widget_states.capture.screenshot_requested;
+
     // ─── 中央パネル（常にフル幅） ──────────────────────────────────────
     egui::CentralPanel::default()
         .frame(egui::Frame::default().fill(crate::theme::CENTRAL_BG))
@@ -167,8 +171,13 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 )
             };
 
+            // PNG/画像キャプチャ中はエッジストリップ（› ‹ インジケーター）を写し込まない。
+            // スクリーンショットは画面全体を撮りチャート矩形でクロップするため、
+            // チャートに重なる前面ストリップを描画しないことで除外する。
+            let capturing = app_state_screenshot_requested;
+
             // パネルが閉じているときのみ strip を表示（スライドアウトに合わせてフェード）
-            if left_t < 0.995 {
+            if left_t < 0.995 && !capturing {
                 let alpha = ((1.0 - left_t) * 255.0) as u8;
                 let color = lerp_color(base_color, hover_color, left_hover_factor);
                 let color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
@@ -188,7 +197,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                     egui::Color32::WHITE,
                 );
             }
-            if right_t < 0.995 {
+            if right_t < 0.995 && !capturing {
                 let alpha = ((1.0 - right_t) * 255.0) as u8;
                 let color = lerp_color(base_color, hover_color, right_hover_factor);
                 let color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);

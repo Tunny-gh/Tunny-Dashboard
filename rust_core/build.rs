@@ -3,10 +3,17 @@ fn main() {
     let libs_dir = manifest_dir.parent().unwrap().join("libs");
     // Link directly to the pre-built LightGBM shared library.
     // On Windows (MSVC): links lib_lightgbm.lib (import library generated from lib_lightgbm.dll).
-    // On macOS: rustc-link-lib flags are emitted before rustc-link-search by the
-    // linker driver, so ld never resolves the search path in time. The final
-    // binary's build.rs (egui-app) handles macOS linking via rustc-link-arg instead.
-    if !cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") {
+        // On macOS, rustc-link-lib flags are placed *before* rustc-link-search by
+        // the linker driver, so Apple ld never sees the search path in time and
+        // reports "library not found". Emit -L and -l together via link-arg so
+        // the search path always precedes the library. This applies to every
+        // binary that links this crate, including `cargo test -p tunny-core`.
+        // -rpath lets the produced binary find the dylib at runtime.
+        println!("cargo:rustc-link-arg=-Wl,-L{}", libs_dir.display());
+        println!("cargo:rustc-link-arg=-Wl,-l_lightgbm");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", libs_dir.display());
+    } else {
         println!("cargo:rustc-link-search=native={}", libs_dir.display());
         println!("cargo:rustc-link-lib=dylib=lib_lightgbm");
     }

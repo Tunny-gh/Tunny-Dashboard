@@ -33,6 +33,16 @@ pub struct SurfacePlotState {
 }
 
 // ── TASK-2228/2245: チャートキャプチャ状態 ───────────────────────
+/// キャプチャした PNG の出力先。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CaptureDest {
+    /// ファイルダイアログを開いて保存する。
+    #[default]
+    File,
+    /// クリップボードへコピーする。
+    Clipboard,
+}
+
 #[derive(Default)]
 pub struct ChartCaptureState {
     pub last_error: Option<String>,
@@ -42,6 +52,8 @@ pub struct ChartCaptureState {
     pub pending_capture_rect: Option<egui::Rect>,
     /// Screenshot コマンド発行済みフラグ（次フレームで `Event::Screenshot` を待つ）
     pub screenshot_requested: bool,
+    /// キャプチャ結果の出力先（ファイル保存 or クリップボード）
+    pub pending_capture_dest: CaptureDest,
 }
 
 /// 各チャートウィジェットの UI 状態をまとめて保持する

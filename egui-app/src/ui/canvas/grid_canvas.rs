@@ -19,19 +19,29 @@ pub enum CellToolbarAction {
     Help(PanelItem),
     SaveAsPng(PanelItem),
     SaveAsCsv(PanelItem),
+    CopyCsv(PanelItem),
+    CopyImage(PanelItem),
 }
 
 /// Returns the static list of items shown in the ⋯ popup menu.
 pub fn chart_cell_menu_items() -> &'static [&'static str] {
-    &["Save as PNG", "Save as CSV", "Help"]
+    &[
+        "Save as PNG",
+        "Copy image to clipboard",
+        "Save as CSV",
+        "Copy data to clipboard",
+        "Help",
+    ]
 }
 
 /// Records a PNG capture request into `ChartCaptureState`.
 pub fn record_capture_target(
     state: &mut crate::ui::widget_states::ChartCaptureState,
     item: crate::state::layout_state::PanelItem,
+    dest: crate::ui::widget_states::CaptureDest,
 ) {
     state.pending_capture = Some(item);
+    state.pending_capture_dest = dest;
 }
 
 /// セルの幅を計算する（テスト可能な純粋関数）
@@ -134,13 +144,17 @@ pub fn show_grid_canvas(
                 // D&D ドロップゾーンとしてラップ（DragPayload 型に変更）
                 let frame = egui::Frame::default();
                 let mut should_clear = false;
+                let mut chart_rect = None;
                 let had_no_capture = widgets.capture.pending_capture.is_none();
                 let (inner_resp, payload) = child_ui.dnd_drop_zone::<DragPayload, _>(frame, |ui| {
-                    should_clear = render_cell_content(ui, app_state, widgets, cell, r, c, tx);
+                    let (clear, rect) = render_cell_content(ui, app_state, widgets, cell, r, c, tx);
+                    should_clear = clear;
+                    chart_rect = rect;
                 });
-                // SaveAsPng が新たにセットされた場合、そのセルの rect を記録する
+                // SaveAsPng/CopyImage が新たにセットされた場合、チャート本体の rect を記録する。
+                // ツールバー（Move/タイトル/⋯）を除くため cell_rect ではなく chart_rect を使う。
                 if had_no_capture && widgets.capture.pending_capture.is_some() {
-                    widgets.capture.pending_capture_rect = Some(cell_rect);
+                    widgets.capture.pending_capture_rect = Some(chart_rect.unwrap_or(cell_rect));
                 }
 
                 // ホバー中はハイライト
@@ -398,6 +412,11 @@ fn show_cell_toolbar(
                                 menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
                                 ui.close_menu();
                             }
+                            if ui.button("Copy image to clipboard").clicked() {
+                                menu_action = Some(CellToolbarAction::CopyImage(item.clone()));
+                                ui.close_menu();
+                            }
+                            ui.separator();
                             let csv_btn =
                                 ui.add_enabled(csv_available, egui::Button::new("Save as CSV"));
                             if csv_btn.clicked() {
@@ -406,6 +425,17 @@ fn show_cell_toolbar(
                             }
                             if !csv_available {
                                 csv_btn.on_hover_text("No data available");
+                            }
+                            let copy_btn = ui.add_enabled(
+                                csv_available,
+                                egui::Button::new("Copy data to clipboard"),
+                            );
+                            if copy_btn.clicked() {
+                                menu_action = Some(CellToolbarAction::CopyCsv(item.clone()));
+                                ui.close_menu();
+                            }
+                            if !csv_available {
+                                copy_btn.on_hover_text("No data available");
                             }
                             if ui.button("Help").clicked() {
                                 menu_action = Some(CellToolbarAction::Help(item.clone()));
@@ -438,12 +468,14 @@ fn show_cell_toolbar(
 }
 
 fn handle_toolbar_action(
+    ctx: &egui::Context,
     action: &CellToolbarAction,
     help_language: crate::ui::help::help_types::HelpLanguage,
     widgets: &mut WidgetStates,
     app_state: &AppState,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
+    use crate::ui::widget_states::CaptureDest;
     match action {
         CellToolbarAction::Help(help_item) => {
             if let Err(e) = crate::ui::help::help_launcher::open_help(help_item, help_language) {
@@ -451,7 +483,10 @@ fn handle_toolbar_action(
             }
         }
         CellToolbarAction::SaveAsPng(target) => {
-            record_capture_target(&mut widgets.capture, target.clone());
+            record_capture_target(&mut widgets.capture, target.clone(), CaptureDest::File);
+        }
+        CellToolbarAction::CopyImage(target) => {
+            record_capture_target(&mut widgets.capture, target.clone(), CaptureDest::Clipboard);
         }
         CellToolbarAction::SaveAsCsv(PanelItem::Chart(chart_id)) => {
             let csv = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets);
@@ -462,12 +497,21 @@ fn handle_toolbar_action(
                 }
             }
         }
+        CellToolbarAction::CopyCsv(PanelItem::Chart(chart_id)) => {
+            if let Some(csv_str) = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets)
+            {
+                ctx.copy_text(csv_str);
+            }
+        }
         _ => {}
     }
 }
 
 /// セルのコンテンツを描画する。
 /// コンテンツがある場合は上部ハンドルのみを dnd_drag_source として扱い、内部UI操作と競合しないようにする。
+///
+/// 戻り値は `(クリア要求, チャート本体の矩形)`。チャート本体の矩形はツールバーを
+/// 含まない描画領域で、PNG/画像クリップボードのクロップに使う。
 fn render_cell_content(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -476,7 +520,7 @@ fn render_cell_content(
     row: usize,
     col: usize,
     tx: &mpsc::SyncSender<AppMessage>,
-) -> bool {
+) -> (bool, Option<egui::Rect>) {
     match &cell.content {
         Some(PanelItem::Chart(id)) => {
             let chart_id = id.clone();
@@ -484,14 +528,18 @@ fn render_cell_content(
             let title = item.label();
             let csv_available = crate::io::csv_export::has_csv_data(&chart_id, app_state, widgets);
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title, csv_available);
+            let ctx = ui.ctx().clone();
             handle_toolbar_action(
+                &ctx,
                 &toolbar_action,
                 app_state.help_language,
                 widgets,
                 app_state,
                 tx,
             );
-            egui::Frame::default()
+            // Frame の Response.rect がチャート本体（ツールバーを除く）の描画領域。
+            // これをキャプチャ矩形に使うことで Move/タイトル/⋯ バーを写し込まない。
+            let chart_resp = egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
                     ui.push_id((row, col), |ui| {
@@ -500,34 +548,42 @@ fn render_cell_content(
                         );
                     });
                 });
-            matches!(toolbar_action, CellToolbarAction::Close)
+            (
+                matches!(toolbar_action, CellToolbarAction::Close),
+                Some(chart_resp.response.rect),
+            )
         }
         Some(PanelItem::TrialTable) => {
             let item = PanelItem::TrialTable;
             let title = item.label();
             let toolbar_action = show_cell_toolbar(ui, row, col, item, title, false);
+            let ctx = ui.ctx().clone();
             handle_toolbar_action(
+                &ctx,
                 &toolbar_action,
                 app_state.help_language,
                 widgets,
                 app_state,
                 tx,
             );
-            egui::Frame::default()
+            let table_resp = egui::Frame::default()
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
                     ui.push_id((row, col), |ui| {
                         TrialTableWidget.show(ui, app_state);
                     });
                 });
-            matches!(toolbar_action, CellToolbarAction::Close)
+            (
+                matches!(toolbar_action, CellToolbarAction::Close),
+                Some(table_resp.response.rect),
+            )
         }
         None => {
             let _ = (row, col);
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("— No chart selected —").weak());
             });
-            false
+            (false, None)
         }
     }
 }
@@ -593,17 +649,31 @@ mod tests {
     fn menu_contains_save_as_png_and_help() {
         let items = chart_cell_menu_items();
         assert!(items.contains(&"Save as PNG"));
+        assert!(items.contains(&"Copy image to clipboard"));
         assert!(items.contains(&"Save as CSV"));
+        assert!(items.contains(&"Copy data to clipboard"));
         assert!(items.contains(&"Help"));
     }
 
     #[test]
     fn save_as_png_action_records_target_cell() {
         use crate::state::layout_state::{ChartId, PanelItem};
-        use crate::ui::widget_states::ChartCaptureState;
+        use crate::ui::widget_states::{CaptureDest, ChartCaptureState};
         let mut state = ChartCaptureState::default();
         let item = PanelItem::Chart(ChartId::ParallelCoordinates);
-        record_capture_target(&mut state, item.clone());
+        record_capture_target(&mut state, item.clone(), CaptureDest::File);
         assert_eq!(state.pending_capture, Some(item));
+        assert_eq!(state.pending_capture_dest, CaptureDest::File);
+    }
+
+    #[test]
+    fn copy_image_action_records_clipboard_dest() {
+        use crate::state::layout_state::{ChartId, PanelItem};
+        use crate::ui::widget_states::{CaptureDest, ChartCaptureState};
+        let mut state = ChartCaptureState::default();
+        let item = PanelItem::Chart(ChartId::ParallelCoordinates);
+        record_capture_target(&mut state, item.clone(), CaptureDest::Clipboard);
+        assert_eq!(state.pending_capture, Some(item));
+        assert_eq!(state.pending_capture_dest, CaptureDest::Clipboard);
     }
 }

@@ -56,12 +56,16 @@ install_name_tool -change \
   "@rpath/libomp.dylib" \
   "$(brew --prefix libomp)/lib/libomp.dylib" \
   libs/lib_lightgbm.dylib
+
+# install_name_tool invalidates the code signature; re-sign ad-hoc so macOS
+# will load the dylib (otherwise binaries linking it are killed with SIGKILL).
+codesign -s - libs/lib_lightgbm.dylib
 ```
 
-Alternatively, download from [LightGBM GitHub Releases](https://github.com/microsoft/LightGBM/releases) — make sure to pick the **arm64** asset (e.g. `LightGBM-*-macos-arm64.tar.gz`) and apply the same `install_name_tool` commands above.
+Alternatively, download from [LightGBM GitHub Releases](https://github.com/microsoft/LightGBM/releases) — make sure to pick the **arm64** asset (e.g. `LightGBM-*-macos-arm64.tar.gz`) and apply the same commands above.
 
-> **Why is `install_name_tool` needed?**
-> The Homebrew-installed dylib embeds its Homebrew install path as its install name. The build system looks for the library via `@rpath`, so the name must be rewritten once after copying into `libs/`.
+> **Why are these commands needed?**
+> The Homebrew-installed dylib embeds its Homebrew install path as its install name; the build system looks for the library via `@rpath`, so the name must be rewritten once after copying into `libs/`. Rewriting the binary invalidates its code signature, and macOS refuses to load (and SIGKILLs) a process that links an improperly signed dylib — `codesign -s -` re-signs it ad-hoc to fix this.
 
 > The `lib_lightgbm.def` and `lib_lightgbm.exp` files sometimes bundled in LightGBM releases are not required.
 

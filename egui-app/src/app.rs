@@ -305,16 +305,26 @@ impl eframe::App for TunnyApp {
             });
 
             if let Some(image) = event {
+                use crate::ui::widget_states::CaptureDest;
                 cap.screenshot_requested = false;
                 cap.pending_capture = None;
                 cap.pending_capture_rect = None;
+                let dest = cap.pending_capture_dest;
 
                 let result = (|| -> Result<Option<()>, String> {
                     let rect = crop_rect.ok_or_else(|| "No capture rect".to_string())?;
                     let cropped = crate::io::chart_capture::crop_image(&image, rect, scale)
                         .ok_or_else(|| "Crop rect outside image bounds".to_string())?;
-                    let png_bytes = crate::io::chart_capture::encode_png(cropped)?;
-                    crate::io::chart_capture::save_png_to_file(&png_bytes)
+                    match dest {
+                        CaptureDest::File => {
+                            let png_bytes = crate::io::chart_capture::encode_png(cropped)?;
+                            crate::io::chart_capture::save_png_to_file(&png_bytes)
+                        }
+                        CaptureDest::Clipboard => {
+                            crate::io::chart_capture::copy_image_to_clipboard(cropped)?;
+                            Ok(Some(()))
+                        }
+                    }
                 })();
 
                 match result {

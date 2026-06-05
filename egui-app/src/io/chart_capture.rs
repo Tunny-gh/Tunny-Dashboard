@@ -55,6 +55,23 @@ pub fn encode_png(img: RgbaImage) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// Copy an `RgbaImage` to the system clipboard as a raw image.
+pub fn copy_image_to_clipboard(img: RgbaImage) -> Result<(), String> {
+    let width = img.width() as usize;
+    let height = img.height() as usize;
+    let bytes = img.into_raw();
+    let img_data = arboard::ImageData {
+        width,
+        height,
+        bytes: bytes.into(),
+    };
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+    clipboard
+        .set_image(img_data)
+        .map_err(|e| format!("Clipboard image error: {e}"))?;
+    Ok(())
+}
+
 /// Open a Save dialog and write `data` to the chosen file.
 /// Returns `Some(())` on success, `None` if the user cancelled.
 /// On write error, returns `Err(message)`.
