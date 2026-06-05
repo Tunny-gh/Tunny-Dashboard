@@ -140,68 +140,74 @@ pub fn show_canvas_view(
             // 画面内へクランプされ、一定範囲より外へ移動できなくなる。
             .constrain(false)
             .show(ui.ctx(), |ui| {
-                // レイヤー（ワールド）座標系でキャンバス可視域にクリップ
-                ui.set_clip_rect(to_screen.inverse().mul_rect(area));
-
-                let content = ui.allocate_ui_with_layout(
+                // アイテムの枠（ワールド座標）。fixed_pos によりレイヤー原点が (item.x, item.y)。
+                let item_rect = egui::Rect::from_min_size(
+                    egui::pos2(item.x, item.y),
                     egui::vec2(item.w, item.h),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        let full = ui.max_rect();
-                        ui.painter()
-                            .rect_filled(full, 4.0, crate::theme::CENTRAL_BG);
-                        ui.painter().rect_stroke(
-                            full,
-                            4.0,
-                            egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
-                        );
-
-                        let csv_available = match &item.content {
-                            PanelItem::Chart(chart_id) => {
-                                crate::io::csv_export::has_csv_data(chart_id, app_state, widgets)
-                            }
-                            PanelItem::TrialTable => false,
-                        };
-                        let tb = show_canvas_item_toolbar(
-                            ui,
-                            &item.content,
-                            item.content.label(),
-                            csv_available,
-                        );
-
-                        // grid と同じ順序: handle_toolbar_action(キャプチャ要求の登録) → body 描画。
-                        let had_no_capture = widgets.capture.pending_capture.is_none();
-                        let ctx = ui.ctx().clone();
-                        handle_toolbar_action(
-                            &ctx,
-                            &tb.action,
-                            app_state.help_language,
-                            widgets,
-                            app_state,
-                            tx,
-                        );
-                        let body_rect = render_panel_item_body(
-                            ui,
-                            app_state,
-                            widgets,
-                            &item.content,
-                            item.id,
-                            tx,
-                        );
-                        // キャプチャ矩形は画面座標で記録する（レイヤー変換を適用）。
-                        if had_no_capture && widgets.capture.pending_capture.is_some() {
-                            widgets.capture.pending_capture_rect =
-                                Some(to_screen.mul_rect(body_rect));
-                        }
-                        tb
-                    },
                 );
-                let tb = content.inner;
-                let alloc_rect = content.response.rect;
+                // 枠とビューポートの交差でクリップ。これにより内部コンテンツ（チャート/
+                // ツールバー）が枠外へはみ出して描画されない。
+                let viewport = to_screen.inverse().mul_rect(area);
+                ui.set_clip_rect(item_rect.intersect(viewport));
 
-                // リサイズハンドル（右下）。同レイヤーで body の後に登録して最前面に。
+                // 枠領域を確保（Area のサイズ・応答領域＝クリックで最前面化、背景パンの遮蔽）
+                ui.allocate_rect(item_rect, egui::Sense::click());
+                // 背景・枠線
+                ui.painter()
+                    .rect_filled(item_rect, 4.0, crate::theme::CENTRAL_BG);
+                ui.painter().rect_stroke(
+                    item_rect,
+                    4.0,
+                    egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+                );
+
+                // item_rect に収まる子 UI（grid と同じ new_child 方式でサイズを拘束）
+                let mut content_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(item_rect)
+                        .layout(egui::Layout::top_down(egui::Align::LEFT)),
+                );
+
+                let csv_available = match &item.content {
+                    PanelItem::Chart(chart_id) => {
+                        crate::io::csv_export::has_csv_data(chart_id, app_state, widgets)
+                    }
+                    PanelItem::TrialTable => false,
+                };
+                let tb = show_canvas_item_toolbar(
+                    &mut content_ui,
+                    &item.content,
+                    item.content.label(),
+                    csv_available,
+                );
+
+                // grid と同じ順序: handle_toolbar_action(キャプチャ要求の登録) → body 描画。
+                let had_no_capture = widgets.capture.pending_capture.is_none();
+                let ctx = content_ui.ctx().clone();
+                handle_toolbar_action(
+                    &ctx,
+                    &tb.action,
+                    app_state.help_language,
+                    widgets,
+                    app_state,
+                    tx,
+                );
+                let body_rect = render_panel_item_body(
+                    &mut content_ui,
+                    app_state,
+                    widgets,
+                    &item.content,
+                    item.id,
+                    tx,
+                );
+                // キャプチャ矩形は画面座標で記録する（レイヤー変換を適用）。
+                if had_no_capture && widgets.capture.pending_capture.is_some() {
+                    widgets.capture.pending_capture_rect = Some(to_screen.mul_rect(body_rect));
+                }
+
+                // リサイズハンドル（item_rect 右下）。content の後に外側 ui へ登録して最前面に。
                 let handle_rect = egui::Rect::from_min_size(
-                    alloc_rect.max - egui::vec2(RESIZE_HANDLE, RESIZE_HANDLE),
+                    item_rect.max - egui::vec2(RESIZE_HANDLE, RESIZE_HANDLE),
                     egui::vec2(RESIZE_HANDLE, RESIZE_HANDLE),
                 );
                 let rh = ui.interact(
