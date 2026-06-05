@@ -41,8 +41,27 @@ Download the pre-built binaries from the [LightGBM GitHub Releases](https://gith
 
 **macOS**
 
-1. From the release assets, download the macOS archive (e.g. `LightGBM-macos.zip`)
-2. Extract and copy `lib_lightgbm.dylib` into `libs/`
+The recommended way is to install via Homebrew, which provides the correct arm64 binary:
+
+```bash
+brew install lightgbm
+cp $(brew --prefix lightgbm)/lib/lib_lightgbm.dylib libs/
+```
+
+After copying, fix the install name so the dynamic linker can find the library relative to the binary (this step is required once per copy):
+
+```bash
+install_name_tool -id "@rpath/lib_lightgbm.dylib" libs/lib_lightgbm.dylib
+install_name_tool -change \
+  "@rpath/libomp.dylib" \
+  "$(brew --prefix libomp)/lib/libomp.dylib" \
+  libs/lib_lightgbm.dylib
+```
+
+Alternatively, download from [LightGBM GitHub Releases](https://github.com/microsoft/LightGBM/releases) — make sure to pick the **arm64** asset (e.g. `LightGBM-*-macos-arm64.tar.gz`) and apply the same `install_name_tool` commands above.
+
+> **Why is `install_name_tool` needed?**
+> The Homebrew-installed dylib embeds its Homebrew install path as its install name. The build system looks for the library via `@rpath`, so the name must be rewritten once after copying into `libs/`.
 
 > The `lib_lightgbm.def` and `lib_lightgbm.exp` files sometimes bundled in LightGBM releases are not required.
 

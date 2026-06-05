@@ -6,6 +6,23 @@ fn main() {
     println!("cargo:rerun-if-changed=theory/");
     println!("cargo:rerun-if-changed=help-assets/");
 
+    // Propagate LightGBM link settings to the final binary.
+    // rust_core's build.rs emits these for the rlib, but the linker flags
+    // must also be visible when linking the top-level binary.
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let libs_dir = manifest_dir.parent().unwrap().join("libs");
+    if cfg!(target_os = "macos") {
+        // On macOS, rustc-link-lib flags are placed before rustc-link-search by
+        // the linker driver, so ld never sees the search path in time. Instead,
+        // emit everything via link-arg to guarantee -L precedes -l.
+        println!("cargo:rustc-link-arg=-Wl,-L{}", libs_dir.display());
+        println!("cargo:rustc-link-arg=-Wl,-l_lightgbm");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", libs_dir.display());
+    } else {
+        println!("cargo:rustc-link-search=native={}", libs_dir.display());
+        println!("cargo:rustc-link-lib=dylib=lib_lightgbm");
+    }
+
     generate_help_html_files();
 
     #[cfg(windows)]
