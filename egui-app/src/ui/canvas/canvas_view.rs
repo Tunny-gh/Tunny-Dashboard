@@ -299,8 +299,23 @@ pub fn show_canvas_view(
     layout.canvas.zoom = logical.scaling.clamp(ZOOM_MIN, ZOOM_MAX);
 }
 
-/// キャンバスアイテム上部のツールバーを描画する。
-/// 左の Move ハンドルはドラッグ移動量を返し、`⋯`/`x` は grid と同じ `CellToolbarAction` を返す。
+/// アイテム上部バーのボタン（⋯ / ✕）にトップバーと同じ水色スタイルを適用する。
+fn apply_item_button_visuals(vis: &mut egui::Visuals) {
+    use crate::theme::{TOOLBAR_BG, TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_HOVER, TOOLBAR_TEXT};
+    vis.override_text_color = Some(TOOLBAR_TEXT);
+    for w in [&mut vis.widgets.inactive, &mut vis.widgets.open] {
+        w.weak_bg_fill = TOOLBAR_BG;
+        w.bg_fill = TOOLBAR_BG;
+    }
+    vis.widgets.hovered.weak_bg_fill = TOOLBAR_BTN_HOVER;
+    vis.widgets.hovered.bg_fill = TOOLBAR_BTN_HOVER;
+    vis.widgets.active.weak_bg_fill = TOOLBAR_BTN_ACTIVE;
+    vis.widgets.active.bg_fill = TOOLBAR_BTN_ACTIVE;
+}
+
+/// キャンバスアイテム上部のバーを描画する。
+/// バー自体のドラッグで移動量を返し、`⋯`/`✕` は grid と同じ `CellToolbarAction` を返す。
+/// ボタンはトップバーと同じ水色で表示してバー背景と区別できるようにする。
 fn show_canvas_item_toolbar(
     ui: &mut egui::Ui,
     item: &PanelItem,
@@ -312,60 +327,68 @@ fn show_canvas_item_toolbar(
         action: CellToolbarAction::None,
     };
 
-    egui::Frame::default()
-        .fill(crate::theme::CELL_TOOLBAR_BG)
-        .stroke(egui::Stroke::new(1.0, crate::theme::BORDER_COLOR))
-        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
-        .show(ui, |ui| {
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), DRAG_HANDLE_HEIGHT),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    let move_resp = ui
-                        .add_sized(
-                            egui::vec2(56.0, DRAG_HANDLE_HEIGHT),
-                            egui::Button::new(egui::RichText::new("Move").small()),
-                        )
-                        .interact(egui::Sense::click_and_drag());
-                    if move_resp.dragged() {
-                        result.move_delta = move_resp.drag_delta();
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                    } else if move_resp.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                    }
+    // バー矩形（内側マージン 6x4 を含めた高さ）。
+    let bar_h = DRAG_HANDLE_HEIGHT + 8.0;
+    let bar_rect =
+        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), bar_h));
 
-                    ui.add_space(8.0);
-                    ui.strong(title);
+    // バー領域を確保（body をバーの下へ配置）し、背景・枠線を描画。
+    ui.allocate_rect(bar_rect, egui::Sense::hover());
+    ui.painter()
+        .rect_filled(bar_rect, 0.0, crate::theme::CELL_TOOLBAR_BG);
+    ui.painter().rect_stroke(
+        bar_rect,
+        0.0,
+        egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+    );
 
-                    let spacer = (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
-                    ui.add_space(spacer);
+    // バーのドラッグで移動（ボタンより先に登録 → ボタンのクリックが優先される）。
+    let drag_resp = ui.interact(
+        bar_rect,
+        egui::Id::new("canvas_item_bar"),
+        egui::Sense::click_and_drag(),
+    );
+    if drag_resp.dragged() {
+        result.move_delta = drag_resp.drag_delta();
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if drag_resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
 
-                    if let Some(a) =
-                        crate::ui::grid_canvas::show_chart_menu_button(ui, item, csv_available)
-                    {
-                        result.action = a;
-                    }
+    // バー内コンテンツ（タイトル＋ボタン）をバーの上に描画。
+    let inner_rect = bar_rect.shrink2(egui::vec2(6.0, 4.0));
+    let mut bar_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    bar_ui.strong(title);
 
-                    ui.add_space(4.0);
+    // 右寄せでボタン群（✕ / ⋯）を水色で配置。
+    bar_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        apply_item_button_visuals(ui.visuals_mut());
 
-                    let close_resp = ui.add_sized(
-                        egui::vec2(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
-                        egui::Button::new(
-                            egui::RichText::new("x")
-                                .small()
-                                .color(crate::theme::CLOSE_BTN_TEXT),
-                        )
-                        .frame(false),
-                    );
-                    if close_resp.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                    }
-                    if close_resp.clicked() {
-                        result.action = CellToolbarAction::Close;
-                    }
-                },
-            );
-        });
+        let close_resp = ui.add_sized(
+            egui::vec2(CLOSE_BUTTON_SIZE + 8.0, DRAG_HANDLE_HEIGHT),
+            egui::Button::new(
+                egui::RichText::new("✕")
+                    .small()
+                    .color(crate::theme::TOOLBAR_TEXT),
+            ),
+        );
+        if close_resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if close_resp.clicked() {
+            result.action = CellToolbarAction::Close;
+        }
+
+        ui.add_space(4.0);
+
+        if let Some(a) = crate::ui::grid_canvas::show_chart_menu_button(ui, item, csv_available) {
+            result.action = a;
+        }
+    });
 
     result
 }
