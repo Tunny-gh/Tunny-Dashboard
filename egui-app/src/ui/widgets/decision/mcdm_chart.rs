@@ -695,16 +695,18 @@ mod tests {
             v_param: 0.7,
             ..Default::default()
         };
-        let mut global = McdmRankChart::default();
-        global.computing = false;
-        global.weights = vec![0.25, 0.75];
-        global.cached_topsis = Some(TopsisResult {
-            scores: vec![1.0],
-            ranked_indices: vec![0],
-            positive_ideal: vec![],
-            negative_ideal: vec![],
-            duration_ms: 0.0,
-        });
+        let global = McdmRankChart {
+            computing: false,
+            weights: vec![0.25, 0.75],
+            cached_topsis: Some(TopsisResult {
+                scores: vec![1.0],
+                ranked_indices: vec![0],
+                positive_ideal: vec![],
+                negative_ideal: vec![],
+                duration_ms: 0.0,
+            }),
+            ..Default::default()
+        };
 
         item.adopt_compute_state(&global);
 

@@ -397,8 +397,10 @@ mod tests {
             selected_objective: 2,
             ..Default::default()
         };
-        let mut global = PdpChart::default();
-        global.computing = false;
+        let mut global = PdpChart {
+            computing: false,
+            ..Default::default()
+        };
         global.insert_cache(
             "x0",
             "obj0",
