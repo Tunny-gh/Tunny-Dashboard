@@ -169,6 +169,7 @@ pub fn show_canvas_view(
                 };
                 let (move_delta, tb_action) = show_canvas_item_toolbar(
                     &mut content_ui,
+                    item.id,
                     &item.content,
                     item.content.label(),
                     csv_available,
@@ -332,6 +333,7 @@ fn apply_item_button_visuals(vis: &mut egui::Visuals) {
 /// ボタンはトップバーと同じ水色で表示してバー背景と区別できるようにする。
 fn show_canvas_item_toolbar(
     ui: &mut egui::Ui,
+    id: u64,
     item: &PanelItem,
     title: &str,
     csv_available: bool,
@@ -357,7 +359,7 @@ fn show_canvas_item_toolbar(
     // バーのドラッグで移動（ボタンより先に登録 → ボタンのクリックが優先される）。
     let drag_resp = ui.interact(
         bar_rect,
-        egui::Id::new("canvas_item_bar"),
+        egui::Id::new("canvas_item_bar").with(id),
         egui::Sense::click_and_drag(),
     );
     if drag_resp.dragged() {
