@@ -17,7 +17,7 @@ rayon = "1"
 argmin = "0.11"
 argmin-math = { version = "0.5", features = ["vec"] }
 rand = "0.9"
-rand_chacha = "0.9"
+rand_chacha = "0.10"
 rand_xoshiro = "0.6"
 linfa = "0.8"
 linfa-clustering = "0.8"
