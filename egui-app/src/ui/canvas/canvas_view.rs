@@ -190,14 +190,23 @@ pub fn show_canvas_view(
                 let had_no_capture = iw.capture.pending_capture.is_none();
                 let ctx = content_ui.ctx().clone();
                 handle_toolbar_action(&ctx, &tb_action, app_state.help_language, iw, app_state, tx);
-                let body_rect =
-                    render_panel_item_body(&mut content_ui, app_state, iw, &item.content, item.id, tx);
+                let body_rect = render_panel_item_body(
+                    &mut content_ui,
+                    app_state,
+                    iw,
+                    &item.content,
+                    item.id,
+                    tx,
+                );
                 // キャプチャ要求が新たに立った場合、画面座標の矩形を記録して
                 // グローバル側へ受け渡す（アイテム専用 iw からは取り出してクリアする）。
                 if had_no_capture && iw.capture.pending_capture.is_some() {
                     if let Some(pc) = iw.capture.pending_capture.take() {
-                        item_capture =
-                            Some((pc, to_screen.mul_rect(body_rect), iw.capture.pending_capture_dest));
+                        item_capture = Some((
+                            pc,
+                            to_screen.mul_rect(body_rect),
+                            iw.capture.pending_capture_dest,
+                        ));
                     }
                 }
 
