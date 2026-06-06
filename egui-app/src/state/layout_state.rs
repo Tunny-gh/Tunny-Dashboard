@@ -443,18 +443,13 @@ impl Default for RightPanelState {
 // ----------------------------------------
 // ViewMode — 中央エリアの表示モード（左上コンボボックスで切替）
 // ----------------------------------------
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ViewMode {
     /// 行×列のグリッド配置（従来）
     Grid,
     /// 自由配置キャンバス（パン/ズーム対応）
+    #[default]
     Canvas,
-}
-
-impl Default for ViewMode {
-    fn default() -> Self {
-        ViewMode::Canvas
-    }
 }
 
 // ----------------------------------------
@@ -973,7 +968,7 @@ mod tests {
         assert_eq!(layout.view_mode, ViewMode::Canvas);
         assert_eq!(layout.grid.rows, 2);
         assert_eq!(layout.grid.cols, 2);
-        assert!(layout.right_panel.is_open == false); // hover-reveal: default closed
+        assert!(!layout.right_panel.is_open); // hover-reveal: default closed
         assert_eq!(layout.right_panel.width, 200.0);
     }
 
@@ -1041,8 +1036,10 @@ mod tests {
 
     #[test]
     fn layout_state_canvas_placed_items_is_empty() {
-        let mut layout = LayoutState::default();
-        layout.view_mode = ViewMode::Canvas;
+        let mut layout = LayoutState {
+            view_mode: ViewMode::Canvas,
+            ..Default::default()
+        };
         layout
             .canvas
             .add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
@@ -1052,8 +1049,10 @@ mod tests {
 
     #[test]
     fn layout_state_grid_placed_items_reflects_grid() {
-        let mut layout = LayoutState::default();
-        layout.view_mode = ViewMode::Grid;
+        let mut layout = LayoutState {
+            view_mode: ViewMode::Grid,
+            ..Default::default()
+        };
         layout.grid.place(0, 0, PanelItem::TrialTable);
         assert_eq!(layout.placed_items().len(), 1);
     }

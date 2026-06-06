@@ -31,7 +31,7 @@ pub(super) fn compute_ridge_from_standardized_columns(
     y: &[f64],
     alpha: f64,
 ) -> RidgeResult {
-    let num_params = if n == 0 { 0 } else { x_cols.len() / n };
+    let num_params = x_cols.len().checked_div(n).unwrap_or(0);
     let y_mean = y.iter().sum::<f64>() / n as f64;
     let y_c: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();
 

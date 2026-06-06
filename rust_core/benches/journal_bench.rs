@@ -16,9 +16,10 @@ fn build_n_results(n_trials: u32, n_params: u32) -> Vec<u8> {
             .to_string(),
     );
     for t in 0..n_trials {
-        lines.push(format!(
-            r#"{{"op_code":4,"worker_id":"w","study_id":0,"datetime_start":"2026-03-28T11:58:48.485367"}}"#
-        ));
+        lines.push(
+            r#"{"op_code":4,"worker_id":"w","study_id":0,"datetime_start":"2026-03-28T11:58:48.485367"}"#
+                .to_string(),
+        );
         for p in 0..n_params {
             let val = f64::from(t * n_params + p) * 0.001;
             lines.push(format!(

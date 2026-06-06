@@ -38,7 +38,9 @@ impl ComputeSyncKind {
             AppMessage::McdmDone(_) | AppMessage::EntropyDone(_) => Some(Self::Mcdm),
             AppMessage::PdpDone { .. } => Some(Self::Pdp),
             AppMessage::Pdp2dDone(_) => Some(Self::Pdp2d),
-            AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => Some(Self::Surface),
+            AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => {
+                Some(Self::Surface)
+            }
             _ => None,
         }
     }
