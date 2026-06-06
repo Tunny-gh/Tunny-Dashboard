@@ -47,6 +47,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Cache LightGBM native library
         id: lgbm-cache
         uses: actions/cache@v4
@@ -88,8 +91,8 @@ jobs:
           # ad-hoc signed, so --force is required to re-sign.
           codesign --force -s - libs/lib_lightgbm.dylib
 
-      - name: Build egui-app
-        run: cargo build --release -p tunny-desktop
-
-      - name: Run Rust tests
-        run: cargo test
+      # `cargo test` compiles every target (incl. the binary), so this both
+      # verifies the build and runs the tests in a single debug pass — no
+      # redundant cross-profile recompile of the heavy dependency graph.
+      - name: Build & Test
+        run: cargo test --workspace
