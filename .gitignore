@@ -39,7 +39,8 @@ frontend/src/wasm/pkg/
 rust_core/target/
 rust_core/Cargo.lock
 target/
-Cargo.lock
+# Workspace Cargo.lock IS tracked: this is a binary application, so the lock
+# file pins exact dependency versions for reproducible CI and `--locked` builds.
 
 # Pre-built LightGBM library binaries (not tracked — see CONTRIBUTING.md).
 # The .def (export name list, plain text) IS tracked: CI uses it to generate

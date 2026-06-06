@@ -4,6 +4,14 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
+
+# Cancel superseded runs for the same ref (e.g. new pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # LightGBM native library version provisioned for build/test.
@@ -36,7 +44,23 @@ jobs:
         run: cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit dependencies
+        run: cargo audit
 
   build-test:
     name: Build & Test
@@ -103,4 +127,4 @@ jobs:
       # verifies the build and runs the tests in a single debug pass — no
       # redundant cross-profile recompile of the heavy dependency graph.
       - name: Build & Test
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
