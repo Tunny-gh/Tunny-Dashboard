@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+env:
+  # LightGBM native library version provisioned for build/test.
+  # Bump together with libs/lib_lightgbm.def when upgrading LightGBM.
+  LIGHTGBM_VERSION: v4.6.0
+
 jobs:
   format:
     name: Format Check
@@ -25,9 +30,15 @@ jobs:
       - name: Check Rust formatting (egui-app)
         run: cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
+  build-test:
+    name: Build & Test
+    # The app links against a pre-built LightGBM native library and only
+    # targets Windows/macOS (see CONTRIBUTING.md), so CI runs on those.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -35,20 +46,43 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache LightGBM native library
+        id: lgbm-cache
+        uses: actions/cache@v4
+        with:
+          path: libs
+          key: lgbm-${{ matrix.os }}-${{ env.LIGHTGBM_VERSION }}-${{ hashFiles('libs/lib_lightgbm.def') }}
+
+      # --- Windows: download the DLL and generate the MSVC import library ---
+      - name: Setup MSVC environment (Windows)
+        if: runner.os == 'Windows' && steps.lgbm-cache.outputs.cache-hit != 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Provision LightGBM (Windows)
+        if: runner.os == 'Windows' && steps.lgbm-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force libs | Out-Null
+          $url = "https://github.com/microsoft/LightGBM/releases/download/$env:LIGHTGBM_VERSION/lib_lightgbm.dll"
+          Invoke-WebRequest -Uri $url -OutFile libs/lib_lightgbm.dll
+          # Generate the import library from the tracked .def + downloaded DLL.
+          lib /def:libs/lib_lightgbm.def /machine:x64 /out:libs/lib_lightgbm.lib
+
+      # --- macOS: install via Homebrew (matches CONTRIBUTING.md) ---
+      - name: Provision LightGBM (macOS)
+        if: runner.os == 'macOS' && steps.lgbm-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install lightgbm
+          mkdir -p libs
+          cp "$(brew --prefix lightgbm)/lib/lib_lightgbm.dylib" libs/
+          # build.rs looks the dylib up via @rpath; re-sign after rewriting the
+          # install name so macOS will load it.
+          install_name_tool -id "@rpath/lib_lightgbm.dylib" libs/lib_lightgbm.dylib
+          codesign -s - libs/lib_lightgbm.dylib
 
       - name: Build egui-app
         run: cargo build --release -p tunny-desktop
-
-  test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Run Rust tests
         run: cargo test

@@ -41,8 +41,11 @@ rust_core/Cargo.lock
 target/
 Cargo.lock
 
-# Pre-built LightGBM library binaries (not tracked — see CONTRIBUTING.md)
-libs/
+# Pre-built LightGBM library binaries (not tracked — see CONTRIBUTING.md).
+# The .def (export name list, plain text) IS tracked: CI uses it to generate
+# the Windows import library (lib_lightgbm.lib) from the downloaded DLL.
+libs/*
+!libs/lib_lightgbm.def
 
 
 # Test fixtures (allow *.log under rust_core for CI)
