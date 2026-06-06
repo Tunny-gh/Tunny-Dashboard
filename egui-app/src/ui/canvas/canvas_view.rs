@@ -19,10 +19,9 @@ const GRID_WORLD: f32 = 40.0;
 const ZOOM_MIN: f32 = 0.3;
 const ZOOM_MAX: f32 = 3.0;
 /// 新規ウィジェットのデフォルトサイズ（ワールド座標）。
-/// チャート上部のツールバー（All Trials〜Show Infeasible 等）がすべて収まるよう、
-/// ツールバーの自然幅に余裕を持たせた幅にする。
-const DEFAULT_W: f32 = 960.0;
-const DEFAULT_H: f32 = 560.0;
+/// チャート上部のツールバーが収まりつつ、配置時に大きすぎない大きさにする。
+const DEFAULT_W: f32 = 640.0;
+const DEFAULT_H: f32 = 376.0;
 /// リサイズ時の最小サイズ
 const MIN_W: f32 = 160.0;
 const MIN_H: f32 = 120.0;
