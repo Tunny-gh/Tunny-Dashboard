@@ -31,6 +31,17 @@ pub struct SurfacePlotState {
     pub pending_compute: Option<SurfacePlotComputeRequest>,
 }
 
+impl SurfacePlotState {
+    /// グローバル widget の計算実行状態・結果・エラーを取り込む。
+    /// Surface 結果は widget 側（result）に保持されるため、キャンバスの各アイテム
+    /// （独立した WidgetStates）にも反映する。X/Y/目的・描画モードの選択は維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.result = src.result.clone();
+        self.error_message = src.error_message.clone();
+    }
+}
+
 // ── TASK-2228/2245: チャートキャプチャ状態 ───────────────────────
 /// キャプチャした PNG の出力先。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

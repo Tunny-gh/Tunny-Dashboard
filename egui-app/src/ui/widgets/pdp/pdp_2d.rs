@@ -38,6 +38,14 @@ impl Default for PdpChart2DState {
 }
 
 impl PdpChart2DState {
+    /// グローバル widget の計算実行状態・結果を取り込む。
+    /// 2D PDP 結果は widget 側（result）に保持されるため、キャンバスの各アイテム
+    /// （独立した WidgetStates）にも反映する。パラメータ・目的関数・モデルの選択は維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.result = src.result.clone();
+    }
+
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,

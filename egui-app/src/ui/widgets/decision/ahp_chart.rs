@@ -79,6 +79,13 @@ impl AhpChart {
         tunny_core::ahp::upper_tri_index(n, i, j)
     }
 
+    /// グローバル widget の計算実行状態（computing）を取り込む。
+    /// 結果は `app_state.ahp_result` に集約されるため、キャンバスの各アイテムには
+    /// 実行状態のみ反映する。一対比較行列などの設定はアイテム固有なので維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+    }
+
     pub fn show_rank_chart(
         &mut self,
         ui: &mut egui::Ui,

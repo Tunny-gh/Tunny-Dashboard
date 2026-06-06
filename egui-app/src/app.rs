@@ -10,6 +10,62 @@ use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::io::journal::live_update::LiveUpdateContext;
 
+/// 非同期計算の完了メッセージごとに、キャンバスの各アイテム（独立した WidgetStates）へ
+/// どのウィジェットの完了状態を伝播するかを表す。
+///
+/// 計算の発行（`pending_compute`）はアイテム固有の WidgetStates から行われるが、
+/// 完了メッセージ（`MessageHandler::handle`）はグローバルな `widget_states` のみを更新する。
+/// そのため、伝播しないとキャンバスのアイテムは `computing` フラグが立ったままになり、
+/// スピナーが消えず結果が描画されない（commit 73883d8 のアイテム別状態化に伴う回帰）。
+enum ComputeSyncKind {
+    Cluster,
+    Importance,
+    Ahp,
+    Mcdm,
+    Pdp,
+    Pdp2d,
+    Surface,
+}
+
+impl ComputeSyncKind {
+    fn from_message(msg: &AppMessage) -> Option<Self> {
+        match msg {
+            AppMessage::ClusteringDone(_) | AppMessage::ClusterFailed(_) => Some(Self::Cluster),
+            AppMessage::SensitivityDone { .. }
+            | AppMessage::SobolDone { .. }
+            | AppMessage::SensitivityError(_) => Some(Self::Importance),
+            AppMessage::AhpDone(_) => Some(Self::Ahp),
+            AppMessage::McdmDone(_) | AppMessage::EntropyDone(_) => Some(Self::Mcdm),
+            AppMessage::PdpDone { .. } => Some(Self::Pdp),
+            AppMessage::Pdp2dDone(_) => Some(Self::Pdp2d),
+            AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => Some(Self::Surface),
+            _ => None,
+        }
+    }
+
+    /// グローバル widget（処理済みの正状態）から、キャンバスの全アイテムへ完了状態を反映する。
+    /// 各 `adopt_*` はアイテム固有の UI 選択（パラメータ・目的関数など）を維持し、
+    /// 計算の出力・実行フラグのみを取り込む。
+    fn propagate(self, global: &WidgetStates, canvas: &mut HashMap<u64, WidgetStates>) {
+        for w in canvas.values_mut() {
+            match self {
+                Self::Cluster => {
+                    w.cluster_scatter
+                        .adopt_runtime_state(&global.cluster_scatter);
+                    w.cluster_scatter_3d
+                        .adopt_runtime_state(&global.cluster_scatter_3d);
+                }
+                Self::Importance => w.importance.adopt_compute_state(&global.importance),
+                Self::Ahp => w.ahp_chart.adopt_compute_state(&global.ahp_chart),
+                Self::Mcdm => w.mcdm_chart.adopt_compute_state(&global.mcdm_chart),
+                Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
+                Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
+                Self::Surface => w.surface_plot.adopt_compute_state(&global.surface_plot),
+            }
+        }
+    }
+}
+
 pub struct TunnyApp {
     pub app_state: AppState,
     pub layout: LayoutState,
@@ -86,6 +142,11 @@ impl TunnyApp {
             // DataFrame 再構築コストを 1 フレームに集中させない（描画フリーズ回避）。
             // 残りのバッチはチャネルに残し、次フレームで処理する。
             let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
+            // 非同期計算の完了/失敗メッセージはグローバルな widget_states のみ更新する。
+            // キャンバスの各アイテムは独立した WidgetStates を持つため（commit 73883d8）、
+            // 処理後に完了状態（computing/結果/キャッシュ）を各アイテムへ伝播する必要がある。
+            // どのウィジェットへ伝播すべきかを msg 消費前に判定しておく。
+            let sync = ComputeSyncKind::from_message(&msg);
 
             MessageHandler::handle(
                 msg,
@@ -94,6 +155,11 @@ impl TunnyApp {
                 &mut self.is_loading,
                 &mut self.load_error,
             );
+
+            // 完了状態をキャンバスの全アイテムへ反映する（グローバル widget が処理済みの正状態）。
+            if let Some(sync) = sync {
+                sync.propagate(&self.widget_states, &mut self.canvas_widgets);
+            }
 
             if is_journal_parsed {
                 if self.app_state.live_update.enabled {
