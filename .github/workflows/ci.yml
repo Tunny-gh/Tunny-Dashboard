@@ -11,24 +11,32 @@ env:
   LIGHTGBM_VERSION: v4.6.0
 
 jobs:
-  format:
-    name: Format Check
+  lint:
+    name: Format & Clippy
+    # clippy is check-only (no final link), so it runs on Linux without the
+    # native LightGBM library.
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust (rustfmt)
+      - name: Setup Rust (rustfmt, clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
+
+      - name: Cache Cargo build artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Check Rust formatting (rust_core)
         run: cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
 
       - name: Check Rust formatting (egui-app)
         run: cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   build-test:
     name: Build & Test
