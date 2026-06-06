@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use egui::emath::TSTransform;
@@ -10,7 +11,7 @@ use crate::ui::grid_canvas::{
     handle_toolbar_action, render_panel_item_body, CellToolbarAction, CLOSE_BUTTON_SIZE,
     DRAG_HANDLE_HEIGHT,
 };
-use crate::ui::widget_states::WidgetStates;
+use crate::ui::widget_states::{CaptureDest, WidgetStates};
 
 /// ワールド座標でのドットグリッド間隔
 const GRID_WORLD: f32 = 40.0;
@@ -41,11 +42,15 @@ enum CanvasAction {
 /// 無限平面上にウィジェットを自由配置し、空白ドラッグでパン、スクロール/ピンチでズームできる。
 /// 各ウィジェットは `egui::Area` として描画し、レイヤーに `TSTransform` を適用することで
 /// チャート・テキストまで一様に拡大縮小する（egui 公式 pan_zoom デモと同手法）。
+/// `widgets` はキャンバス全体で共有する状態（色キャッシュ・キャプチャ）に使う。
+/// `item_widgets` は各アイテム（item.id 単位）に独立したチャート UI 状態を保持し、
+/// 同じウィジェットを複数置いても設定（目的関数選択・トグル等）が混ざらないようにする。
 pub fn show_canvas_view(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
     layout: &mut LayoutState,
     widgets: &mut WidgetStates,
+    item_widgets: &mut HashMap<u64, WidgetStates>,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
     let area = ui.available_rect_before_wrap();
@@ -125,6 +130,13 @@ pub fn show_canvas_view(
     let mut actions: Vec<CanvasAction> = Vec::new();
 
     for item in &layout.canvas.items {
+        // 各アイテム専用の WidgetStates（独立した UI 状態）。色キャッシュは共有側から注入する。
+        let iw = item_widgets.entry(item.id).or_default();
+        iw.chart_colors.clone_from(&widgets.chart_colors);
+        // キャプチャ要求はグローバル側（スクリーンショット処理）で消費するため、
+        // クロージャ内で受け取り、show 後にグローバルへ伝播する。
+        let mut item_capture: Option<(PanelItem, egui::Rect, CaptureDest)> = None;
+
         let ir = egui::Area::new(egui::Id::new("canvas_item").with(item.id))
             .order(egui::Order::Middle)
             .fixed_pos(egui::pos2(item.x, item.y))
@@ -163,7 +175,7 @@ pub fn show_canvas_view(
 
                 let csv_available = match &item.content {
                     PanelItem::Chart(chart_id) => {
-                        crate::io::csv_export::has_csv_data(chart_id, app_state, widgets)
+                        crate::io::csv_export::has_csv_data(chart_id, app_state, iw)
                     }
                     PanelItem::TrialTable => false,
                 };
@@ -176,27 +188,18 @@ pub fn show_canvas_view(
                 );
 
                 // grid と同じ順序: handle_toolbar_action(キャプチャ要求の登録) → body 描画。
-                let had_no_capture = widgets.capture.pending_capture.is_none();
+                let had_no_capture = iw.capture.pending_capture.is_none();
                 let ctx = content_ui.ctx().clone();
-                handle_toolbar_action(
-                    &ctx,
-                    &tb_action,
-                    app_state.help_language,
-                    widgets,
-                    app_state,
-                    tx,
-                );
-                let body_rect = render_panel_item_body(
-                    &mut content_ui,
-                    app_state,
-                    widgets,
-                    &item.content,
-                    item.id,
-                    tx,
-                );
-                // キャプチャ矩形は画面座標で記録する（レイヤー変換を適用）。
-                if had_no_capture && widgets.capture.pending_capture.is_some() {
-                    widgets.capture.pending_capture_rect = Some(to_screen.mul_rect(body_rect));
+                handle_toolbar_action(&ctx, &tb_action, app_state.help_language, iw, app_state, tx);
+                let body_rect =
+                    render_panel_item_body(&mut content_ui, app_state, iw, &item.content, item.id, tx);
+                // キャプチャ要求が新たに立った場合、画面座標の矩形を記録して
+                // グローバル側へ受け渡す（アイテム専用 iw からは取り出してクリアする）。
+                if had_no_capture && iw.capture.pending_capture.is_some() {
+                    if let Some(pc) = iw.capture.pending_capture.take() {
+                        item_capture =
+                            Some((pc, to_screen.mul_rect(body_rect), iw.capture.pending_capture_dest));
+                    }
                 }
 
                 // リサイズハンドル（item_rect 右下）。content の後に外側 ui へ登録して最前面に。
@@ -263,6 +266,14 @@ pub fn show_canvas_view(
         // このアイテムのレイヤーに変換を適用（テキストごと拡大縮小）
         ui.ctx()
             .set_transform_layer(ir.response.layer_id, to_screen);
+
+        // アイテムで発生したキャプチャ要求をグローバル側へ伝播する
+        //（スクリーンショット処理は app.widget_states.capture を参照するため）。
+        if let Some((pc, rect, dest)) = item_capture {
+            widgets.capture.pending_capture = Some(pc);
+            widgets.capture.pending_capture_rect = Some(rect);
+            widgets.capture.pending_capture_dest = dest;
+        }
     }
 
     // ── 右パネルからの新規ドロップ（レイヤーに依らず area で判定） ──────────
@@ -306,6 +317,9 @@ pub fn show_canvas_view(
         layout.canvas.add(it, wp.x, wp.y, DEFAULT_W, DEFAULT_H);
         egui::DragAndDrop::clear_payload(ui.ctx());
     }
+
+    // 削除されたアイテムの専用 WidgetStates を破棄してメモリリークを防ぐ。
+    item_widgets.retain(|id, _| layout.canvas.items.iter().any(|it| it.id == *id));
 
     // ── ビューポート変換を書き戻す（pan は無制限＝無限キャンバス、zoom はクランプ） ──
     let logical = offset.inverse() * to_screen;

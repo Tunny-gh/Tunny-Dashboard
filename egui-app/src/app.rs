@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use crate::io::live_update_poller::LiveUpdatePoller;
@@ -13,6 +14,9 @@ pub struct TunnyApp {
     pub app_state: AppState,
     pub layout: LayoutState,
     pub widget_states: WidgetStates,
+    /// キャンバスビューの各アイテム（item.id 単位）に独立した UI 状態を保持する。
+    /// 同じウィジェットを複数置いても設定が共有されないようにするため。
+    pub canvas_widgets: HashMap<u64, WidgetStates>,
     pub is_loading: bool,
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
@@ -59,6 +63,7 @@ impl TunnyApp {
             app_state: AppState::new(),
             layout: LayoutState::default(),
             widget_states: WidgetStates::default(),
+            canvas_widgets: HashMap::new(),
             is_loading,
             load_error: None,
             tx,

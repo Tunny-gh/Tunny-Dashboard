@@ -135,6 +135,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 &mut app.app_state,
                 &mut app.layout,
                 &mut app.widget_states,
+                &mut app.canvas_widgets,
                 &tx,
             );
 
