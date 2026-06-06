@@ -18,7 +18,7 @@ egui = "0.30"
 egui_extras = "0.30"
 egui_plot = "0.30"
 egui-wgpu = "0.30"
-wgpu = "24"
+wgpu = "29"
 bytemuck = { version = "1", features = ["derive"] }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
