@@ -59,7 +59,8 @@ install_name_tool -change \
 
 # install_name_tool invalidates the code signature; re-sign ad-hoc so macOS
 # will load the dylib (otherwise binaries linking it are killed with SIGKILL).
-codesign -s - libs/lib_lightgbm.dylib
+# The Homebrew bottle is already signed, so --force is needed to re-sign.
+codesign --force -s - libs/lib_lightgbm.dylib
 ```
 
 Alternatively, download from [LightGBM GitHub Releases](https://github.com/microsoft/LightGBM/releases) — make sure to pick the **arm64** asset (e.g. `LightGBM-*-macos-arm64.tar.gz`) and apply the same commands above.
