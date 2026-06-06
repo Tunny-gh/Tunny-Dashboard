@@ -23,7 +23,7 @@ pub enum CellToolbarAction {
     CopyImage(PanelItem),
 }
 
-/// Returns the static list of items shown in the ⋯ popup menu.
+/// Returns the static list of items shown in the … (options) popup menu.
 pub fn chart_cell_menu_items() -> &'static [&'static str] {
     &[
         "Save as PNG",
@@ -34,7 +34,7 @@ pub fn chart_cell_menu_items() -> &'static [&'static str] {
     ]
 }
 
-/// チャートセルの「⋯」メニューボタンを描画し、選択されたアクションを返す。
+/// チャートセルの「…」(オプション) メニューボタンを描画し、選択されたアクションを返す。
 /// grid・canvas の両ツールバーから共有する。
 pub(crate) fn show_chart_menu_button(
     ui: &mut egui::Ui,
@@ -42,8 +42,8 @@ pub(crate) fn show_chart_menu_button(
     csv_available: bool,
 ) -> Option<CellToolbarAction> {
     let mut menu_action: Option<CellToolbarAction> = None;
-    ui.menu_button(
-        egui::RichText::new("⋯").small().color(CLOSE_BTN_TEXT),
+    let menu_resp = ui.menu_button(
+        egui::RichText::new("…").small().color(CLOSE_BTN_TEXT),
         |ui| {
             if ui.button("Save as PNG").clicked() {
                 menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
@@ -78,6 +78,7 @@ pub(crate) fn show_chart_menu_button(
             }
         },
     );
+    menu_resp.response.on_hover_text("Options");
     menu_action
 }
 

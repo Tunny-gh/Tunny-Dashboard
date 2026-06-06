@@ -327,7 +327,7 @@ pub fn show_canvas_view(
     layout.canvas.zoom = logical.scaling.clamp(ZOOM_MIN, ZOOM_MAX);
 }
 
-/// アイテム上部バーのボタン（⋯ / ✕）にトップバーと同じ水色スタイルを適用する。
+/// アイテム上部バーのボタン（… / ×）にトップバーと同じ水色スタイルを適用する。
 fn apply_item_button_visuals(vis: &mut egui::Visuals) {
     use crate::theme::{TOOLBAR_BG, TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_HOVER, TOOLBAR_TEXT};
     vis.override_text_color = Some(TOOLBAR_TEXT);
@@ -342,7 +342,7 @@ fn apply_item_button_visuals(vis: &mut egui::Visuals) {
 }
 
 /// キャンバスアイテム上部のバーを描画する。
-/// バー自体のドラッグで移動量を返し、`⋯`/`✕` は grid と同じ `CellToolbarAction` を返す。
+/// バー自体のドラッグで移動量を返し、`…`/`×` は grid と同じ `CellToolbarAction` を返す。
 /// ボタンはトップバーと同じ水色で表示してバー背景と区別できるようにする。
 fn show_canvas_item_toolbar(
     ui: &mut egui::Ui,
@@ -391,18 +391,20 @@ fn show_canvas_item_toolbar(
     );
     bar_ui.strong(title);
 
-    // 右寄せでボタン群（✕ / ⋯）を水色で配置。
+    // 右寄せでボタン群（× / …）を水色で配置。
     bar_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         apply_item_button_visuals(ui.visuals_mut());
 
-        let close_resp = ui.add_sized(
-            egui::vec2(CLOSE_BUTTON_SIZE + 8.0, DRAG_HANDLE_HEIGHT),
-            egui::Button::new(
-                egui::RichText::new("✕")
-                    .small()
-                    .color(crate::theme::TOOLBAR_TEXT),
-            ),
-        );
+        let close_resp = ui
+            .add_sized(
+                egui::vec2(CLOSE_BUTTON_SIZE + 8.0, DRAG_HANDLE_HEIGHT),
+                egui::Button::new(
+                    egui::RichText::new("×")
+                        .small()
+                        .color(crate::theme::TOOLBAR_TEXT),
+                ),
+            )
+            .on_hover_text("Close");
         if close_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
