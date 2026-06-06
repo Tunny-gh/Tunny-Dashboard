@@ -718,11 +718,7 @@ mod tests {
             ..Default::default()
         };
         let mut global = ClusterScatter::default();
-        global.set_error(crate::state::messages::cluster_ui_error(
-            "boom",
-            None,
-            true,
-        ));
+        global.set_error(crate::state::messages::cluster_ui_error("boom", None, true));
         item.adopt_runtime_state(&global);
         assert!(!item.computing);
         assert!(item.last_error.is_some());
