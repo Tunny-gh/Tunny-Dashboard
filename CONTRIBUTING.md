@@ -46,20 +46,26 @@ The recommended way is to install via Homebrew, which provides the correct arm64
 ```bash
 brew install lightgbm
 cp $(brew --prefix lightgbm)/lib/lib_lightgbm.dylib libs/
+# Bundle libomp (a LightGBM runtime dependency) alongside it so libs/ is
+# self-contained and does not depend on Homebrew staying installed.
+cp $(brew --prefix libomp)/lib/libomp.dylib libs/
+chmod u+w libs/lib_lightgbm.dylib libs/libomp.dylib
 ```
 
 After copying, fix the install name so the dynamic linker can find the library relative to the binary (this step is required once per copy):
 
 ```bash
 install_name_tool -id "@rpath/lib_lightgbm.dylib" libs/lib_lightgbm.dylib
+# Point the libomp dependency at the sibling copy via @loader_path.
 install_name_tool -change \
   "@rpath/libomp.dylib" \
-  "$(brew --prefix libomp)/lib/libomp.dylib" \
+  "@loader_path/libomp.dylib" \
   libs/lib_lightgbm.dylib
 
 # install_name_tool invalidates the code signature; re-sign ad-hoc so macOS
-# will load the dylib (otherwise binaries linking it are killed with SIGKILL).
-# The Homebrew bottle is already signed, so --force is needed to re-sign.
+# will load the dylibs (otherwise binaries linking them are killed with SIGKILL).
+# The Homebrew bottles are already signed, so --force is needed to re-sign.
+codesign --force -s - libs/libomp.dylib
 codesign --force -s - libs/lib_lightgbm.dylib
 ```
 

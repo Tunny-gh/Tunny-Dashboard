@@ -87,7 +87,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: libs
-          key: lgbm-${{ matrix.os }}-${{ env.LIGHTGBM_VERSION }}-${{ hashFiles('libs/lib_lightgbm.def') }}
+          key: lgbm-v2-${{ matrix.os }}-${{ env.LIGHTGBM_VERSION }}-${{ hashFiles('libs/lib_lightgbm.def') }}
 
       # --- Windows: download the DLL and generate the MSVC import library ---
       - name: Setup MSVC environment (Windows)
@@ -111,16 +111,21 @@ jobs:
           brew install lightgbm
           mkdir -p libs
           cp "$(brew --prefix lightgbm)/lib/lib_lightgbm.dylib" libs/
-          # build.rs looks the dylib up via @rpath; rewrite the install name and
-          # point the libomp dependency at the Homebrew copy so it resolves at
-          # runtime (mirrors CONTRIBUTING.md).
+          # Bundle libomp next to it so the cached libs/ is fully self-contained:
+          # on a cache hit this provision step is skipped (no brew install), so
+          # the dylib must not depend on a Homebrew path that may be absent.
+          cp "$(brew --prefix libomp)/lib/libomp.dylib" libs/
+          chmod u+w libs/lib_lightgbm.dylib libs/libomp.dylib
+          # build.rs looks lib_lightgbm up via @rpath; point its libomp
+          # dependency at the sibling copy via @loader_path (mirrors CONTRIBUTING.md).
           install_name_tool -id "@rpath/lib_lightgbm.dylib" libs/lib_lightgbm.dylib
           install_name_tool -change \
             "@rpath/libomp.dylib" \
-            "$(brew --prefix libomp)/lib/libomp.dylib" \
+            "@loader_path/libomp.dylib" \
             libs/lib_lightgbm.dylib
-          # install_name_tool invalidates the signature; the bottle is already
+          # install_name_tool invalidates the signature; the bottles are already
           # ad-hoc signed, so --force is required to re-sign.
+          codesign --force -s - libs/libomp.dylib
           codesign --force -s - libs/lib_lightgbm.dylib
 
       # `cargo test` compiles every target (incl. the binary), so this both
