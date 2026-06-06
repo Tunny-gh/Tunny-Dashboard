@@ -95,7 +95,6 @@ impl WidgetStates {
         self.cluster_scatter_3d.show_infeasible = true;
         self.scatter_chart.show_infeasible = true;
         self.mcdm_scatter_3d.show_infeasible = true;
-        self.opt_history.show_infeasible = true;
         self.parallel_coords.show_infeasible = true;
         self.scatter_matrix.show_infeasible = true;
     }
