@@ -453,7 +453,7 @@ pub enum ViewMode {
 
 impl Default for ViewMode {
     fn default() -> Self {
-        ViewMode::Grid
+        ViewMode::Canvas
     }
 }
 
@@ -548,7 +548,7 @@ impl Default for LayoutState {
     fn default() -> Self {
         Self {
             left_panel_width: 240.0,
-            view_mode: ViewMode::Grid,
+            view_mode: ViewMode::Canvas,
             grid: GridLayout::default(),
             canvas: CanvasLayout::default(),
             right_panel: RightPanelState::default(),
@@ -970,7 +970,7 @@ mod tests {
     fn layout_state_default_has_grid_and_right_panel() {
         let layout = LayoutState::default();
         assert_eq!(layout.left_panel_width, 240.0);
-        assert_eq!(layout.view_mode, ViewMode::Grid);
+        assert_eq!(layout.view_mode, ViewMode::Canvas);
         assert_eq!(layout.grid.rows, 2);
         assert_eq!(layout.grid.cols, 2);
         assert!(layout.right_panel.is_open == false); // hover-reveal: default closed
@@ -985,8 +985,8 @@ mod tests {
     }
 
     #[test]
-    fn view_mode_default_is_grid() {
-        assert_eq!(ViewMode::default(), ViewMode::Grid);
+    fn view_mode_default_is_canvas() {
+        assert_eq!(ViewMode::default(), ViewMode::Canvas);
         assert_ne!(ViewMode::Grid, ViewMode::Canvas);
     }
 

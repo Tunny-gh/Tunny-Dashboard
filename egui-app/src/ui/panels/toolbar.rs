@@ -380,9 +380,9 @@ mod tests {
     #[test]
     fn view_mode_switch_updates_state() {
         let mut layout = LayoutState::default();
-        assert_eq!(layout.view_mode, ViewMode::Grid);
-        layout.view_mode = ViewMode::Canvas;
         assert_eq!(layout.view_mode, ViewMode::Canvas);
+        layout.view_mode = ViewMode::Grid;
+        assert_eq!(layout.view_mode, ViewMode::Grid);
     }
 
     #[test]
