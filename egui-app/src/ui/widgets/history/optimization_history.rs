@@ -31,8 +31,6 @@ impl HistoryMode {
 
 /// 最適化履歴チャートウィジェット
 pub struct OptimizationHistoryChart {
-    pub show_all: bool,
-    pub show_best: bool,
     pub show_moving_avg: bool,
     pub window_size: usize,
     pub obj_idx: usize,
@@ -40,21 +38,16 @@ pub struct OptimizationHistoryChart {
     pub show_best_line: bool,
     /// REQ-008: Y 軸対数スケール切替
     pub log_scale: bool,
-    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
-    pub show_infeasible: bool,
 }
 
 impl Default for OptimizationHistoryChart {
     fn default() -> Self {
         Self {
-            show_all: false,
-            show_best: true,
             show_moving_avg: false,
             window_size: 10,
             obj_idx: 0,
             show_best_line: true,
             log_scale: false,
-            show_infeasible: true,
         }
     }
 }
@@ -107,15 +100,11 @@ impl OptimizationHistoryChart {
             .unwrap_or(true);
 
         let is_feasible_col = view.numeric_column("is_feasible");
-        let has_constraints = is_feasible_col.is_some();
 
+        // All Trials / Best Value / Infeasible は常に描画する（表示のオン/オフは
+        // チャート凡例のクリックで切り替えられる）。トグルは Moving Average / Best Line /
+        // Log Scale と目的選択のみ残す。
         ui.horizontal(|ui| {
-            if ui.selectable_label(self.show_all, "All Trials").clicked() {
-                self.show_all = !self.show_all;
-            }
-            if ui.selectable_label(self.show_best, "Best Value").clicked() {
-                self.show_best = !self.show_best;
-            }
             if ui
                 .selectable_label(self.show_moving_avg, "Moving Average")
                 .clicked()
@@ -152,15 +141,7 @@ impl OptimizationHistoryChart {
             if ui.selectable_label(self.log_scale, "Log Scale").clicked() {
                 self.log_scale = !self.log_scale;
             }
-
-            // 制約あり Study のみ "Show Infeasible" トグルを表示
-            if has_constraints {
-                ui.separator();
-                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
-            }
         });
-
-        let show_infeasible = self.show_infeasible;
 
         let values: Vec<f64> = obj_names
             .get(self.obj_idx)
@@ -170,8 +151,6 @@ impl OptimizationHistoryChart {
 
         let show_best_line = self.show_best_line;
         let log_scale = self.log_scale;
-        let show_all = self.show_all;
-        let show_best = self.show_best;
         let show_moving_avg = self.show_moving_avg;
         let window_size = self.window_size;
 
@@ -182,12 +161,13 @@ impl OptimizationHistoryChart {
         egui_plot::Plot::new("optimization_history_plot")
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
-                if show_all && !values.is_empty() {
+                // All Trials は常に描画（凡例クリックで表示切替可能）。
+                if !values.is_empty() {
                     let apply_log = |[x, v]: [f64; 2]| -> [f64; 2] {
                         [x, if log_scale && v > 0.0 { v.ln() } else { v }]
                     };
-                    // infeasible を背面に描画
-                    if show_infeasible && !infeasible_vals.is_empty() {
+                    // infeasible を背面に常時描画（凡例クリックで表示切替可能）
+                    if !infeasible_vals.is_empty() {
                         let pts: egui_plot::PlotPoints =
                             infeasible_vals.iter().copied().map(apply_log).collect();
                         plot_ui.points(
@@ -210,7 +190,8 @@ impl OptimizationHistoryChart {
                     }
                 }
 
-                if show_best {
+                // Best Value は常に描画（凡例クリックで表示切替可能）。
+                {
                     let apply_log_y = |[x, y]: [f64; 2]| -> [f64; 2] {
                         [x, if log_scale && y > 0.0 { y.ln() } else { y }]
                     };
@@ -460,12 +441,6 @@ mod tests {
     }
 
     // ── constraint-aware visualization (TASK-2349) ──────────────────
-
-    #[test]
-    fn tc_cav_opt_history_show_infeasible_default_true() {
-        let chart = OptimizationHistoryChart::default();
-        assert!(chart.show_infeasible);
-    }
 
     #[test]
     fn tc_cav_partition_history_no_constraints_all_feasible() {

@@ -342,6 +342,15 @@ impl ClusterScatter3D {
         self.pending_compute = None;
         self.last_error = None;
     }
+
+    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
+    /// クラスタリング結果は `app_state.cluster_result` に集約されるため、
+    /// キャンバスの各アイテム（独立した WidgetStates）にも完了状態を反映する必要がある。
+    pub fn adopt_runtime_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.pending_compute = src.pending_compute.clone();
+        self.last_error = src.last_error.clone();
+    }
 }
 
 #[cfg(test)]

@@ -87,17 +87,22 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         let df = match tunny_core::dataframe::snapshot(study_id) {
                             Some(df) => Some(df),
                             None => match state.journal_data.as_ref() {
-                                Some(data) => match tunny_core::io::journal::parser::parse_single_study(
-                                    data, study_id,
-                                ) {
-                                    Ok((_full_meta, df)) => {
-                                        let arc = Arc::new(df);
-                                        tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
-                                        state.loaded_study_ids.insert(study_id);
-                                        Some(arc)
+                                Some(data) => {
+                                    match tunny_core::io::journal::parser::parse_single_study(
+                                        data, study_id,
+                                    ) {
+                                        Ok((_full_meta, df)) => {
+                                            let arc = Arc::new(df);
+                                            tunny_core::dataframe::swap_snapshot(
+                                                study_id,
+                                                arc.clone(),
+                                            );
+                                            state.loaded_study_ids.insert(study_id);
+                                            Some(arc)
+                                        }
+                                        Err(_) => None,
                                     }
-                                    Err(_) => None,
-                                },
+                                }
                                 None => None,
                             },
                         };
@@ -222,7 +227,11 @@ mod tests {
 
     #[test]
     fn directions_to_is_minimize_truncates() {
-        let dirs = vec![Direction::Minimize, Direction::Maximize, Direction::Minimize];
+        let dirs = vec![
+            Direction::Minimize,
+            Direction::Maximize,
+            Direction::Minimize,
+        ];
         let im = directions_to_is_minimize(&dirs, 2);
         assert_eq!(im, vec![true, false]);
     }

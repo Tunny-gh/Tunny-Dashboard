@@ -71,6 +71,14 @@ impl Default for ImportanceChart {
 }
 
 impl ImportanceChart {
+    /// グローバル widget の計算実行状態（computing/pending）を取り込む。
+    /// 結果は `app_state.importance_cache` / `sobol_cache` に集約されるため、
+    /// キャンバスの各アイテム（独立した WidgetStates）には実行状態のみ反映すればよい。
+    /// メトリクス・目的関数の選択はアイテム固有なので維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+    }
+
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -369,6 +377,22 @@ pub fn compute_sorted_sobol(
 mod tests {
     use super::*;
     use crate::state::app_state::{MdiResult, RfAnovaResult, RidgeResult, SensitivityResult};
+
+    #[test]
+    fn adopt_compute_state_clears_computing_and_preserves_selection() {
+        let mut item = ImportanceChart {
+            computing: true,
+            metric: ImportanceMetric::Shap,
+            objective_index: 3,
+            ..Default::default()
+        };
+        let global = ImportanceChart::default(); // computing=false
+        item.adopt_compute_state(&global);
+        assert!(!item.computing);
+        // 結果は app_state 側に集約されるため、選択はアイテム固有で維持される。
+        assert_eq!(item.metric, ImportanceMetric::Shap);
+        assert_eq!(item.objective_index, 3);
+    }
 
     fn make_result(params: &[&str], scores: Vec<f64>) -> SensitivityResult {
         SensitivityResult {

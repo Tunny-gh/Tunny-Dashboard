@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use crate::state::app_state::AppState;
-use crate::state::layout_state::LayoutState;
+use crate::state::layout_state::{LayoutState, ViewMode};
 use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
 
@@ -12,6 +13,7 @@ pub fn show_main_canvas(
     app_state: &mut AppState,
     layout: &mut LayoutState,
     widgets: &mut WidgetStates,
+    canvas_widgets: &mut HashMap<u64, WidgetStates>,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
     // スタディ未選択時はガイダンスを表示
@@ -26,5 +28,19 @@ pub fn show_main_canvas(
         return;
     }
 
-    crate::ui::grid_canvas::show_grid_canvas(ui, app_state, layout, widgets, tx);
+    match layout.view_mode {
+        ViewMode::Grid => {
+            crate::ui::grid_canvas::show_grid_canvas(ui, app_state, layout, widgets, tx);
+        }
+        ViewMode::Canvas => {
+            crate::ui::canvas_view::show_canvas_view(
+                ui,
+                app_state,
+                layout,
+                widgets,
+                canvas_widgets,
+                tx,
+            );
+        }
+    }
 }

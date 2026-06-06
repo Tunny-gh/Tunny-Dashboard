@@ -6,6 +6,7 @@ pub use panels::toolbar;
 
 // 中央描画エリア
 mod canvas;
+pub use canvas::canvas_view;
 pub use canvas::grid_canvas;
 pub use canvas::main_canvas;
 

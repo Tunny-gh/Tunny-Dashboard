@@ -8,7 +8,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
         ui.heading("Widgets");
         ui.add_space(4.0);
 
-        let placed: Vec<&PanelItem> = layout.grid.placed_items();
+        let placed: Vec<&PanelItem> = layout.placed_items();
 
         let groups: &[(&str, &[PanelItem])] = &[
             (

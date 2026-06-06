@@ -411,6 +411,16 @@ impl ClusterScatter {
         self.pending_compute = None;
         self.last_error = None;
     }
+
+    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
+    /// クラスタリング結果は `app_state.cluster_result` に集約されるため、
+    /// キャンバスの各アイテム（独立した WidgetStates）にも完了状態を反映する必要がある。
+    /// 表示用キャッシュ（cached_points 等）はアイテム固有なので維持する。
+    pub fn adopt_runtime_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.pending_compute = src.pending_compute.clone();
+        self.last_error = src.last_error.clone();
+    }
 }
 
 fn build_cluster_matrix_data(
@@ -670,6 +680,52 @@ mod tests {
         let cs = ClusterScatter::default();
         assert_eq!(cs.cache_key, (0, 0));
         assert!(cs.cached_points.is_none());
+    }
+
+    #[test]
+    fn adopt_runtime_state_clears_stuck_computing() {
+        // キャンバスのアイテムが Run で computing=true になったまま、
+        // グローバル側の完了状態を取り込むと spinner が解除される（描画されない不具合の回帰防止）。
+        let mut item = ClusterScatter {
+            computing: true,
+            ..Default::default()
+        };
+        let global = ClusterScatter::default(); // 完了後（computing=false, error=None）
+        item.adopt_runtime_state(&global);
+        assert!(!item.computing);
+        assert!(item.pending_compute.is_none());
+        assert!(item.last_error.is_none());
+    }
+
+    #[test]
+    fn adopt_runtime_state_preserves_display_cache() {
+        // 表示用キャッシュ（cached_points / cache_key）はアイテム固有なので維持される。
+        let mut item = ClusterScatter {
+            computing: true,
+            cached_points: Some(vec![[1.0, 2.0]]),
+            cache_key: (5, 3),
+            ..Default::default()
+        };
+        item.adopt_runtime_state(&ClusterScatter::default());
+        assert_eq!(item.cached_points, Some(vec![[1.0, 2.0]]));
+        assert_eq!(item.cache_key, (5, 3));
+    }
+
+    #[test]
+    fn adopt_runtime_state_propagates_error() {
+        let mut item = ClusterScatter {
+            computing: true,
+            ..Default::default()
+        };
+        let mut global = ClusterScatter::default();
+        global.set_error(crate::state::messages::cluster_ui_error(
+            "boom",
+            None,
+            true,
+        ));
+        item.adopt_runtime_state(&global);
+        assert!(!item.computing);
+        assert!(item.last_error.is_some());
     }
 
     #[test]

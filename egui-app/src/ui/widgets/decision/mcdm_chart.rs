@@ -115,6 +115,21 @@ pub fn normalize_weights(weights: &[f64]) -> Vec<f64> {
 }
 
 impl McdmRankChart {
+    /// グローバル widget の計算実行状態と共有出力を取り込む。
+    /// ランキング結果自体は `app_state.mcdm_result` に集約されるが、
+    /// computing フラグ・エントロピー重み・手法別キャッシュは widget 側に保持されるため、
+    /// キャンバスの各アイテム（独立した WidgetStates）にも反映する。
+    /// 手法・WeightMode・Top N・v 値などの UI 設定はアイテム固有なので維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.pending_entropy = src.pending_entropy;
+        self.weights = src.weights.clone();
+        self.entropy_result = src.entropy_result.clone();
+        self.cached_topsis = src.cached_topsis.clone();
+        self.cached_vikor = src.cached_vikor.clone();
+        self.cached_promethee = src.cached_promethee.clone();
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, obj_names: &[String], result: &Option<McdmResult>) {
         let obj_count = obj_names.len();
         if obj_count == 0 {
@@ -670,6 +685,38 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+
+    #[test]
+    fn adopt_compute_state_syncs_runtime_and_preserves_ui_settings() {
+        let mut item = McdmRankChart {
+            computing: true,
+            method: McdmMethod::Vikor,
+            top_n: McdmTopN::Top20,
+            v_param: 0.7,
+            ..Default::default()
+        };
+        let mut global = McdmRankChart::default();
+        global.computing = false;
+        global.weights = vec![0.25, 0.75];
+        global.cached_topsis = Some(TopsisResult {
+            scores: vec![1.0],
+            ranked_indices: vec![0],
+            positive_ideal: vec![],
+            negative_ideal: vec![],
+            duration_ms: 0.0,
+        });
+
+        item.adopt_compute_state(&global);
+
+        // 実行状態・共有出力は取り込まれる。
+        assert!(!item.computing);
+        assert_eq!(item.weights, vec![0.25, 0.75]);
+        assert!(item.cached_topsis.is_some());
+        // UI 設定はアイテム固有で維持される。
+        assert_eq!(item.method, McdmMethod::Vikor);
+        assert_eq!(item.top_n, McdmTopN::Top20);
+        assert_eq!(item.v_param, 0.7);
+    }
 
     fn make_simple_view(n: usize) -> StudyView {
         if n == 0 {

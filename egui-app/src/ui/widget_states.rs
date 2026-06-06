@@ -2,8 +2,7 @@ use crate::state::messages::{SurfacePlotRenderMode, SurfacePlotResult};
 use crate::ui::widgets::{
     ahp_chart::AhpChart, cluster_scatter::ClusterScatter, cluster_scatter_3d::ClusterScatter3D,
     cluster_table::ClusterTable, hv_history::HvHistoryChart, importance_chart::ImportanceChart,
-    mcdm_chart::McdmRankChart,
-    mcdm_chart::McdmTable, mcdm_scatter_chart::McdmScatterChart,
+    mcdm_chart::McdmRankChart, mcdm_chart::McdmTable, mcdm_scatter_chart::McdmScatterChart,
     mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
     parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
     pdp_2d::PdpChart2DState, pdp_chart::PdpChart, scatter_matrix::ScatterMatrix,
@@ -30,6 +29,17 @@ pub struct SurfacePlotState {
     pub result: Option<SurfacePlotResult>,
     pub error_message: Option<String>,
     pub pending_compute: Option<SurfacePlotComputeRequest>,
+}
+
+impl SurfacePlotState {
+    /// グローバル widget の計算実行状態・結果・エラーを取り込む。
+    /// Surface 結果は widget 側（result）に保持されるため、キャンバスの各アイテム
+    /// （独立した WidgetStates）にも反映する。X/Y/目的・描画モードの選択は維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.result = src.result.clone();
+        self.error_message = src.error_message.clone();
+    }
 }
 
 // ── TASK-2228/2245: チャートキャプチャ状態 ───────────────────────
@@ -95,7 +105,6 @@ impl WidgetStates {
         self.cluster_scatter_3d.show_infeasible = true;
         self.scatter_chart.show_infeasible = true;
         self.mcdm_scatter_3d.show_infeasible = true;
-        self.opt_history.show_infeasible = true;
         self.parallel_coords.show_infeasible = true;
         self.scatter_matrix.show_infeasible = true;
     }

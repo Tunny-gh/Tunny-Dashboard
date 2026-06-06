@@ -135,6 +135,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 &mut app.app_state,
                 &mut app.layout,
                 &mut app.widget_states,
+                &mut app.canvas_widgets,
                 &tx,
             );
 
@@ -180,7 +181,8 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
             if left_t < 0.995 && !capturing {
                 let alpha = ((1.0 - left_t) * 255.0) as u8;
                 let color = lerp_color(base_color, hover_color, left_hover_factor);
-                let color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+                let color =
+                    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
 
                 let strip_center_y = panel_area.center().y;
                 let left_strip = egui::Rect::from_center_size(
@@ -200,7 +202,8 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
             if right_t < 0.995 && !capturing {
                 let alpha = ((1.0 - right_t) * 255.0) as u8;
                 let color = lerp_color(base_color, hover_color, right_hover_factor);
-                let color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+                let color =
+                    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
 
                 let strip_center_y = panel_area.center().y;
                 let right_strip = egui::Rect::from_center_size(

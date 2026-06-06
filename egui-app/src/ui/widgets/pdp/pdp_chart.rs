@@ -165,6 +165,16 @@ impl PdpChart {
         self.cache.get(&key)
     }
 
+    /// グローバル widget の計算実行状態・結果・キャッシュを取り込む。
+    /// PDP 結果は widget 側（result/cache）に保持されるため、キャンバスの各アイテム
+    /// （独立した WidgetStates）にも反映しないと完了後も "No PDP data" のままになる。
+    /// パラメータ・目的関数・モデルなどの選択はアイテム固有なので維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.result = src.result.clone();
+        self.cache = src.cache.clone();
+    }
+
     /// キャッシュに結果を挿入する
     pub fn insert_cache(
         &mut self,
@@ -376,6 +386,47 @@ impl PdpChart {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adopt_compute_state_propagates_result_and_clears_computing() {
+        // キャンバスのアイテムが Run で computing=true のまま、グローバル側の完了結果を
+        // 取り込むと spinner が解除され結果が描画される（描画されない不具合の回帰防止）。
+        let mut item = PdpChart {
+            computing: true,
+            selected_param: "x1".to_string(),
+            selected_objective: 2,
+            ..Default::default()
+        };
+        let mut global = PdpChart::default();
+        global.computing = false;
+        global.insert_cache(
+            "x0",
+            "obj0",
+            ModelType::Ridge.to_str(),
+            PdpResult1d {
+                x_values: vec![0.0, 1.0],
+                y_values: vec![1.0, 2.0],
+                y_upper: None,
+                y_lower: None,
+                ice_lines: vec![],
+                r2: Some(0.9),
+                param_name: "x0".to_string(),
+                objective_name: "obj0".to_string(),
+            },
+        );
+        global.result = Some(PdpResult::OneDim(
+            global.cache.values().next().unwrap().clone(),
+        ));
+
+        item.adopt_compute_state(&global);
+
+        assert!(!item.computing);
+        assert!(item.result.is_some());
+        assert_eq!(item.cache.len(), 1);
+        // アイテム固有の選択は維持される。
+        assert_eq!(item.selected_param, "x1");
+        assert_eq!(item.selected_objective, 2);
+    }
 
     #[test]
     fn r2_quality_good_above_0_8() {

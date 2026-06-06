@@ -34,10 +34,7 @@ impl ClusterTable {
 
         let Some(cr) = app_state.cluster_result.as_ref() else {
             ui.centered_and_justified(|ui| {
-                ui.label(
-                    egui::RichText::new("Clustering has not been run yet.")
-                        .weak(),
-                );
+                ui.label(egui::RichText::new("Clustering has not been run yet.").weak());
             });
             return;
         };
@@ -45,8 +42,10 @@ impl ClusterTable {
         if cr.labels.len() != n {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("Cluster result is inconsistent. Please run clustering again.")
-                        .color(ERROR_COLOR),
+                    egui::RichText::new(
+                        "Cluster result is inconsistent. Please run clustering again.",
+                    )
+                    .color(ERROR_COLOR),
                 );
             });
             return;
