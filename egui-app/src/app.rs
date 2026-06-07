@@ -20,7 +20,6 @@ use tunny_core::io::journal::live_update::LiveUpdateContext;
 enum ComputeSyncKind {
     Cluster,
     Importance,
-    Ahp,
     Mcdm,
     Pdp,
     Pdp2d,
@@ -36,7 +35,6 @@ impl ComputeSyncKind {
             AppMessage::SensitivityDone { .. }
             | AppMessage::SobolDone { .. }
             | AppMessage::SensitivityError(_) => Some(Self::Importance),
-            AppMessage::AhpDone(_) => Some(Self::Ahp),
             AppMessage::McdmDone { .. }
             | AppMessage::McdmFailed { .. }
             | AppMessage::EntropyDone { .. } => Some(Self::Mcdm),
@@ -63,7 +61,6 @@ impl ComputeSyncKind {
                     w.cluster_table.adopt_runtime_state(&global.cluster_table);
                 }
                 Self::Importance => w.importance.adopt_compute_state(&global.importance),
-                Self::Ahp => w.ahp_chart.adopt_compute_state(&global.ahp_chart),
                 Self::Mcdm => {
                     w.mcdm_chart.adopt_compute_state(&global.mcdm_chart);
                     w.scatter_chart.adopt_compute_state(&global.scatter_chart);

@@ -1,4 +1,3 @@
-pub mod ahp;
 pub mod entropy;
 pub mod promethee;
 pub mod topsis;

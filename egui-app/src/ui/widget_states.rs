@@ -1,6 +1,6 @@
 use crate::state::messages::{SurfacePlotRenderMode, SurfacePlotResult};
 use crate::ui::widgets::{
-    ahp_chart::AhpChart, cluster_scatter::ClusterScatter, cluster_scatter_3d::ClusterScatter3D,
+    cluster_scatter::ClusterScatter, cluster_scatter_3d::ClusterScatter3D,
     cluster_table::ClusterTable, hv_history::HvHistoryChart, importance_chart::ImportanceChart,
     mcdm_chart::McdmRankChart, mcdm_chart::McdmTable, mcdm_scatter_chart::McdmScatterChart,
     mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
@@ -85,7 +85,6 @@ pub struct WidgetStates {
     pub cluster_table: ClusterTable,
     pub mcdm_chart: McdmRankChart,
     pub mcdm_table: McdmTable,
-    pub ahp_chart: AhpChart,
     pub slice_chart: SliceChart,
     // TASK-1504: MCDM 散布図ウィジェット
     pub scatter_chart: McdmScatterChart,

@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use crate::state::app_state::{AppState, Direction, StudyContext};
 use crate::state::layout_state::ChartId;
 use crate::state::messages::{AppMessage, ClusterChartSource, McdmChartSource};
-use crate::state::results::{AhpResult, EntropyResult, McdmMethod, McdmResult};
+use crate::state::results::{EntropyResult, McdmMethod, McdmResult};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::cluster_scatter::{
     build_cluster_matrix, ClusterCacheKey, ClusterComputeRequest, ClusterMatrix, KSelectionMode,
@@ -54,7 +54,6 @@ pub(crate) fn poll_chart_work(
         | ChartId::ParallelCoordinates
         | ChartId::ScatterMatrix
         | ChartId::SensitivityHeatmap
-        | ChartId::AhpTable
         | ChartId::SliceChart => return,
         _ => {}
     }
@@ -365,34 +364,6 @@ pub(crate) fn poll_chart_work(
             };
             dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
             dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
-        }
-        ChartId::AhpRankChart => {
-            if let Some(req) = widgets.ahp_chart.pending_compute.take() {
-                widgets.ahp_chart.computing = true;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    match tunny_core::ahp::compute_ahp(
-                        &req.objectives,
-                        req.n_trials,
-                        req.n_objectives,
-                        &req.pairwise_matrix,
-                        &req.is_minimize,
-                    ) {
-                        Ok(r) => AppMessage::AhpDone(AhpResult {
-                            priority_vector: r.priority_vector,
-                            scores: r.scores,
-                            ranked_indices: r.ranked_indices,
-                            lambda_max: r.lambda_max,
-                            ci: r.ci,
-                            ri: r.ri,
-                            cr: r.cr,
-                            is_consistent: r.is_consistent,
-                            duration_ms: r.duration_ms,
-                        }),
-                        Err(e) => AppMessage::Error(format!("AHP computation failed: {}", e)),
-                    }
-                });
-            }
         }
         ChartId::SurfacePlot => {
             if let Some(req) = widgets.surface_plot.pending_compute.take() {

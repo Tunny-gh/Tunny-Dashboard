@@ -69,16 +69,6 @@ fn chart_help(id: &ChartId) -> HelpContent {
             html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
             html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
         },
-        ChartId::AhpRankChart => HelpContent {
-            widget_name: "ahp-rank-chart",
-            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/ahp.html")),
-            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/ahp.html")),
-        },
-        ChartId::AhpTable => HelpContent {
-            widget_name: "ahp-table",
-            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/ahp.html")),
-            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/ahp.html")),
-        },
         ChartId::ClusterScatter => HelpContent {
             widget_name: "cluster-scatter",
             html_en: include_str!(concat!(
