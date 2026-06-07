@@ -66,7 +66,7 @@ impl ChartId {
             ChartId::ClusterScatter3D => "Cluster Scatter 3D",
             ChartId::ClusterTable => "Cluster Table",
             ChartId::McdmRankChart => "MCDM Ranking",
-            ChartId::McdmScatterChart => "MCDM Scatter Chart",
+            ChartId::McdmScatterChart => "MCDM Scatter Chart 2D",
             ChartId::McdmScatterChart3D => "MCDM Scatter Chart 3D",
             ChartId::McdmTable => "MCDM Table",
             ChartId::AhpRankChart => "AHP Ranking",
