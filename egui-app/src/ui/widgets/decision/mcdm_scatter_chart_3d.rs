@@ -3,6 +3,7 @@ use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options};
 use crate::ui::widgets::scatter_3d::{
     draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas, ArcballCamera,
@@ -39,6 +40,8 @@ struct PointsCache {
 
 /// MCDM 3D 散布図ウィジェット
 pub struct McdmScatterChart3D {
+    /// MCDM 設定・実行状態（手法 / 重み / Run など）
+    pub controls: McdmControls,
     pub x_axis: String,
     pub y_axis: String,
     pub z_axis: String,
@@ -52,6 +55,7 @@ pub struct McdmScatterChart3D {
 impl Default for McdmScatterChart3D {
     fn default() -> Self {
         Self {
+            controls: McdmControls::default(),
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
             z_axis: "Objective2".to_string(),
@@ -89,6 +93,11 @@ fn val_range(vals: &[f64]) -> (f64, f64) {
 }
 
 impl McdmScatterChart3D {
+    /// グローバル widget の MCDM 実行状態を取り込む（キャンバスの各アイテム用）。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.controls.adopt_compute_state(&src.controls);
+    }
+
     fn ranked_hash(result: &McdmResult) -> u64 {
         result.ranked_indices().iter().fold(0u64, |acc, &x| {
             acc.wrapping_mul(6_364_136_223_846_793_005)
@@ -215,19 +224,23 @@ impl McdmScatterChart3D {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mcdm_result: &Option<McdmResult>,
+        mcdm_result: Option<&McdmResult>,
         view: &StudyView,
         obj_names: &[String],
         colormap: &ColorMap,
         colormap_name: &ColormapName,
-        top_n: usize,
     ) {
+        if !self.controls.show_controls(ui, obj_names, "mcdm_scatter3d") {
+            return;
+        }
+        if self.controls.computing {
+            return;
+        }
+        let top_n = self.controls.top_n.value();
+
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
-                ui.colored_label(
-                    COLOR_EMPTY_STATE,
-                    "Run MCDM analysis first (Ranking tab → Run button)",
-                );
+                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute the MCDM ranking");
             });
             return;
         };

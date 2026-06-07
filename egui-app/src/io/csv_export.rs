@@ -20,6 +20,22 @@ fn cluster_result_for_chart<'a>(
     app_state.cluster_cache.get(&key)
 }
 
+/// チャート固有の MCDM 設定キーで、キャッシュから結果を解決する。
+fn mcdm_result_for_chart<'a>(
+    chart_id: &ChartId,
+    app_state: &'a AppState,
+    widgets: &WidgetStates,
+) -> Option<&'a McdmResult> {
+    let key = match chart_id {
+        ChartId::McdmRankChart => widgets.mcdm_chart.controls.cache_key(),
+        ChartId::McdmScatterChart => widgets.scatter_chart.controls.cache_key(),
+        ChartId::McdmScatterChart3D => widgets.mcdm_scatter_3d.controls.cache_key(),
+        ChartId::McdmTable => widgets.mcdm_table.controls.cache_key(),
+        _ => return None,
+    };
+    app_state.mcdm_cache.get(&key)
+}
+
 pub fn build_chart_csv(
     chart_id: &ChartId,
     app_state: &AppState,
@@ -37,16 +53,20 @@ pub fn build_chart_csv(
         ChartId::SensitivityHeatmap => build_sensitivity_csv(app_state, widgets),
         ChartId::ParetoScatter2D => build_pareto_csv(app_state),
         ChartId::ParetoScatter3D => build_pareto_csv(app_state),
-        ChartId::McdmRankChart => build_mcdm_rank_csv(app_state),
-        ChartId::McdmScatterChart => build_mcdm_scatter_csv(app_state),
-        ChartId::McdmTable => build_mcdm_table_csv(app_state),
+        ChartId::McdmRankChart => mcdm_result_for_chart(chart_id, app_state, widgets)
+            .and_then(|r| build_mcdm_rank_csv(r, app_state)),
+        ChartId::McdmScatterChart => mcdm_result_for_chart(chart_id, app_state, widgets)
+            .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
+        ChartId::McdmTable => mcdm_result_for_chart(chart_id, app_state, widgets)
+            .and_then(|r| build_mcdm_table_csv(r, app_state)),
         ChartId::AhpRankChart => build_ahp_rank_csv(app_state),
         ChartId::AhpTable => build_ahp_table_csv(app_state),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::SurfacePlot => None,
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::ClusterTable => build_cluster_csv(chart_id, app_state, widgets),
-        ChartId::McdmScatterChart3D => build_mcdm_scatter_csv(app_state),
+        ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
+            .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
     }
 }
 
@@ -109,7 +129,8 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .as_ref()
             .is_some_and(|s| !s.pareto_indices.is_empty()),
         ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmTable => {
-            app_state.mcdm_result.is_some() && app_state.current_study.is_some()
+            app_state.current_study.is_some()
+                && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
         ChartId::AhpRankChart | ChartId::AhpTable => {
             app_state.ahp_result.is_some() && app_state.current_study.is_some()
@@ -131,7 +152,8 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .zip(cluster_result_for_chart(chart_id, app_state, widgets))
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
         ChartId::McdmScatterChart3D => {
-            app_state.mcdm_result.is_some() && app_state.current_study.is_some()
+            app_state.current_study.is_some()
+                && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
     }
 }
@@ -395,8 +417,7 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     }
     Some(csv)
 }
-fn build_mcdm_rank_csv(app_state: &AppState) -> Option<String> {
-    let result = app_state.mcdm_result.as_ref()?;
+fn build_mcdm_rank_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let method_name = result.method_label();
     let scores = result.primary_scores();
@@ -417,8 +438,7 @@ fn build_mcdm_rank_csv(app_state: &AppState) -> Option<String> {
     Some(csv)
 }
 
-fn build_mcdm_scatter_csv(app_state: &AppState) -> Option<String> {
-    let result = app_state.mcdm_result.as_ref()?;
+fn build_mcdm_scatter_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
@@ -432,8 +452,7 @@ fn build_mcdm_scatter_csv(app_state: &AppState) -> Option<String> {
     Some(csv)
 }
 
-fn build_mcdm_table_csv(app_state: &AppState) -> Option<String> {
-    let result = app_state.mcdm_result.as_ref()?;
+fn build_mcdm_table_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let tid = |idx: u32| trial_ids.get(idx as usize).copied().unwrap_or(idx);
     match result {
@@ -998,8 +1017,8 @@ mod tests {
             make_trial(11, HashMap::new(), vec![2.0]),
         ]);
         state.current_study = Some(study);
-        state.mcdm_result = Some(make_topsis_mcdm(2));
-        let csv = build_mcdm_rank_csv(&state).unwrap();
+        let result = make_topsis_mcdm(2);
+        let csv = build_mcdm_rank_csv(&result, &state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "trial_id,rank,score,method");
         assert!(lines[1].ends_with(",TOPSIS"), "method column: {}", lines[1]);
@@ -1007,9 +1026,11 @@ mod tests {
     }
 
     #[test]
-    fn mcdm_rank_csv_returns_none_when_no_result() {
+    fn mcdm_rank_csv_returns_none_when_no_study() {
         let state = AppState::default();
-        assert!(build_mcdm_rank_csv(&state).is_none());
+        let result = make_topsis_mcdm(1);
+        // current_study が無い場合は None
+        assert!(build_mcdm_rank_csv(&result, &state).is_none());
     }
 
     #[test]
@@ -1018,8 +1039,8 @@ mod tests {
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
         study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
-        state.mcdm_result = Some(make_topsis_mcdm(1));
-        let csv = build_mcdm_scatter_csv(&state).unwrap();
+        let result = make_topsis_mcdm(1);
+        let csv = build_mcdm_scatter_csv(&result, &state).unwrap();
         assert_eq!(csv.lines().next().unwrap(), "trial_id,rank,primary_score");
     }
 
@@ -1029,8 +1050,8 @@ mod tests {
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
         study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
-        state.mcdm_result = Some(make_topsis_mcdm(1));
-        let csv = build_mcdm_table_csv(&state).unwrap();
+        let result = make_topsis_mcdm(1);
+        let csv = build_mcdm_table_csv(&result, &state).unwrap();
         assert_eq!(csv.lines().next().unwrap(), "trial_id,rank,topsis_score");
     }
 
@@ -1041,7 +1062,7 @@ mod tests {
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
         study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
-        state.mcdm_result = Some(McdmResult::Vikor(VikorResult {
+        let result = McdmResult::Vikor(VikorResult {
             s_values: vec![0.3],
             r_values: vec![0.2],
             q_values: vec![0.1],
@@ -1050,8 +1071,8 @@ mod tests {
             best_values: vec![],
             worst_values: vec![],
             duration_ms: 1.0,
-        }));
-        let csv = build_mcdm_table_csv(&state).unwrap();
+        });
+        let csv = build_mcdm_table_csv(&result, &state).unwrap();
         assert_eq!(
             csv.lines().next().unwrap(),
             "trial_id,rank,s_value,r_value,q_value"
@@ -1059,9 +1080,10 @@ mod tests {
     }
 
     #[test]
-    fn mcdm_table_csv_returns_none_when_no_result() {
+    fn mcdm_table_csv_returns_none_when_no_study() {
         let state = AppState::default();
-        assert!(build_mcdm_table_csv(&state).is_none());
+        let result = make_topsis_mcdm(1);
+        assert!(build_mcdm_table_csv(&result, &state).is_none());
     }
 
     #[test]

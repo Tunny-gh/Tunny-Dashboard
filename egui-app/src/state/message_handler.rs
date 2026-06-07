@@ -1,6 +1,6 @@
 use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
 use crate::state::messages::{AppMessage, DownsampleKey};
-use crate::state::results::{HvHistory, McdmResult};
+use crate::state::results::HvHistory;
 use crate::ui::widget_states::WidgetStates;
 use std::collections::HashMap;
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
@@ -111,27 +111,31 @@ impl MessageHandler {
             AppMessage::TopsisDone(result) => {
                 app_state.topsis_result = Some(result);
             }
-            AppMessage::McdmDone(result) => {
-                match &result {
-                    McdmResult::Topsis(r) => {
-                        widget_states.mcdm_chart.cached_topsis = Some(r.clone());
-                    }
-                    McdmResult::Vikor(r) => {
-                        widget_states.mcdm_chart.cached_vikor = Some(r.clone());
-                    }
-                    McdmResult::PrometheeI(r) | McdmResult::PrometheeII(r) => {
-                        widget_states.mcdm_chart.cached_promethee = Some(r.clone());
-                    }
-                }
+            AppMessage::McdmDone {
+                source,
+                key,
+                result,
+            } => {
+                // 設定キーごとにキャッシュし、同じ設定の他チャートと共有する。
+                app_state.mcdm_cache.insert(key, result.clone());
+                // 最後に計算した結果は McdmScore カラーモードの基準として保持する。
                 app_state.mcdm_result = Some(result);
-                widget_states.mcdm_chart.computing = false;
+                // 計算を開始したチャートの実行状態のみ解除する。
+                Self::mcdm_controls_mut(source, widget_states).computing = false;
                 widget_states.update_chart_colors(app_state);
             }
-            AppMessage::EntropyDone(result) => {
-                widget_states.mcdm_chart.weights = result.weights.clone();
-                widget_states.mcdm_chart.entropy_result = Some(result);
-                widget_states.mcdm_chart.pending_entropy = false;
-                widget_states.mcdm_chart.computing = false;
+            AppMessage::McdmFailed { source, message } => {
+                let controls = Self::mcdm_controls_mut(source, widget_states);
+                controls.computing = false;
+                controls.pending_entropy = false;
+                *load_error = Some(message);
+            }
+            AppMessage::EntropyDone { source, result } => {
+                let controls = Self::mcdm_controls_mut(source, widget_states);
+                controls.weights = result.weights.clone();
+                controls.entropy_result = Some(result);
+                controls.pending_entropy = false;
+                controls.computing = false;
             }
             AppMessage::AhpDone(result) => {
                 widget_states.ahp_chart.computing = false;
@@ -418,6 +422,8 @@ impl MessageHandler {
             widget_states.cluster_scatter_3d.clear_runtime_state();
             widget_states.cluster_table.clear_runtime_state();
             app_state.cluster_cache.clear();
+            app_state.mcdm_cache.clear();
+            app_state.mcdm_result = None;
             widget_states.reset_infeasible_flags();
         }
 
@@ -482,8 +488,10 @@ impl MessageHandler {
             study.pareto_indices = pareto_indices;
         }
 
-        // トライアル数が変わるとキャッシュ済みラベルの行数が合わなくなるため破棄する。
+        // トライアル数が変わるとキャッシュ済み結果の行数が合わなくなるため破棄する。
         app_state.cluster_cache.clear();
+        app_state.mcdm_cache.clear();
+        app_state.mcdm_result = None;
 
         // Update all_studies completed_trials
         for (study_id, new_count) in updated_study_counts {
@@ -546,6 +554,20 @@ impl MessageHandler {
             ClusterChartSource::Scatter2D => widget_states.cluster_scatter.clear_runtime_state(),
             ClusterChartSource::Scatter3D => widget_states.cluster_scatter_3d.clear_runtime_state(),
             ClusterChartSource::Table => widget_states.cluster_table.clear_runtime_state(),
+        }
+    }
+
+    /// MCDM 計算開始元チャートの controls への可変参照を返す。
+    fn mcdm_controls_mut(
+        source: crate::state::messages::McdmChartSource,
+        widget_states: &mut WidgetStates,
+    ) -> &mut crate::ui::widgets::mcdm_chart::McdmControls {
+        use crate::state::messages::McdmChartSource;
+        match source {
+            McdmChartSource::Rank => &mut widget_states.mcdm_chart.controls,
+            McdmChartSource::Scatter2D => &mut widget_states.scatter_chart.controls,
+            McdmChartSource::Scatter3D => &mut widget_states.mcdm_scatter_3d.controls,
+            McdmChartSource::Table => &mut widget_states.mcdm_table.controls,
         }
     }
 
