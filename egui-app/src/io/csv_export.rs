@@ -1,7 +1,24 @@
 use crate::state::app_state::{AppState, McdmResult};
 use crate::state::layout_state::ChartId;
+use crate::state::results::ClusterResult;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
+
+/// チャート固有のクラスタリング設定キーで、キャッシュからクラスタ結果を解決する。
+/// 2D / 3D / Table はそれぞれ独立した設定を持つため、エクスポート対象も各自のキーで引く。
+fn cluster_result_for_chart<'a>(
+    chart_id: &ChartId,
+    app_state: &'a AppState,
+    widgets: &WidgetStates,
+) -> Option<&'a ClusterResult> {
+    let key = match chart_id {
+        ChartId::ClusterScatter => widgets.cluster_scatter.cache_key(),
+        ChartId::ClusterScatter3D => widgets.cluster_scatter_3d.cache_key(),
+        ChartId::ClusterTable => widgets.cluster_table.cache_key(),
+        _ => return None,
+    };
+    app_state.cluster_cache.get(&key)
+}
 
 pub fn build_chart_csv(
     chart_id: &ChartId,
@@ -16,7 +33,7 @@ pub fn build_chart_csv(
         ChartId::PdpChart2D => build_pdp_2d_csv(app_state, widgets),
         ChartId::ParallelCoordinates => build_trial_based_csv(app_state),
         ChartId::ScatterMatrix => build_trial_based_csv(app_state),
-        ChartId::ClusterScatter => build_cluster_csv(app_state),
+        ChartId::ClusterScatter => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::SensitivityHeatmap => build_sensitivity_csv(app_state, widgets),
         ChartId::ParetoScatter2D => build_pareto_csv(app_state),
         ChartId::ParetoScatter3D => build_pareto_csv(app_state),
@@ -27,8 +44,8 @@ pub fn build_chart_csv(
         ChartId::AhpTable => build_ahp_table_csv(app_state),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::SurfacePlot => None,
-        ChartId::ClusterScatter3D => build_cluster_csv(app_state),
-        ChartId::ClusterTable => build_cluster_csv(app_state),
+        ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
+        ChartId::ClusterTable => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => build_mcdm_scatter_csv(app_state),
     }
 }
@@ -71,7 +88,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
         ChartId::ClusterScatter => app_state
             .current_study
             .as_ref()
-            .zip(app_state.cluster_result.as_ref())
+            .zip(cluster_result_for_chart(chart_id, app_state, widgets))
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
         ChartId::SensitivityHeatmap => {
             widgets
@@ -111,7 +128,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
         ChartId::ClusterScatter3D | ChartId::ClusterTable => app_state
             .current_study
             .as_ref()
-            .zip(app_state.cluster_result.as_ref())
+            .zip(cluster_result_for_chart(chart_id, app_state, widgets))
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
         ChartId::McdmScatterChart3D => {
             app_state.mcdm_result.is_some() && app_state.current_study.is_some()
@@ -278,9 +295,13 @@ fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
     ))
 }
 
-fn build_cluster_csv(app_state: &AppState) -> Option<String> {
+fn build_cluster_csv(
+    chart_id: &ChartId,
+    app_state: &AppState,
+    widgets: &WidgetStates,
+) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    let cr = app_state.cluster_result.as_ref()?;
+    let cr = cluster_result_for_chart(chart_id, app_state, widgets)?;
     let n = study.trial_count();
     if cr.labels.len() != n {
         return None;
@@ -772,17 +793,19 @@ mod tests {
     #[test]
     fn cluster_csv_returns_none_when_no_cluster_result() {
         let mut state = AppState::default();
+        let widgets = WidgetStates::default();
         let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
         study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
         state.current_study = Some(study);
-        // no cluster_result set
-        assert!(build_cluster_csv(&state).is_none());
+        // no cluster result cached
+        assert!(build_cluster_csv(&ChartId::ClusterScatter, &state, &widgets).is_none());
     }
 
     #[test]
     fn cluster_csv_includes_cluster_id_column() {
         use crate::state::results::ClusterResult;
         let mut state = AppState::default();
+        let widgets = WidgetStates::default();
         let mut study = make_study(
             vec!["x".into()],
             vec!["f".into()],
@@ -795,11 +818,16 @@ mod tests {
             make_trial(1, p.clone(), vec![1.0]),
         ]);
         state.current_study = Some(study);
-        state.cluster_result = Some(ClusterResult {
-            labels: vec![0, 1],
-            n_clusters: 2,
-        });
-        let csv = build_cluster_csv(&state).unwrap();
+        // 2D チャートの設定キーで結果をキャッシュに登録する。
+        let key = widgets.cluster_scatter.cache_key();
+        state.cluster_cache.insert(
+            key,
+            ClusterResult {
+                labels: vec![0, 1],
+                n_clusters: 2,
+            },
+        );
+        let csv = build_cluster_csv(&ChartId::ClusterScatter, &state, &widgets).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].ends_with(",cluster_id"), "header: {}", lines[0]);
         assert!(lines[1].ends_with(",0"), "row0: {}", lines[1]);

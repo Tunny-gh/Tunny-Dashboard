@@ -175,10 +175,11 @@ pub(crate) fn render_chart(
             widgets.sensitivity_heatmap.show(ui);
         }
         ChartId::ClusterScatter => {
+            let key = widgets.cluster_scatter.cache_key();
             widgets.cluster_scatter.show(
                 ui,
                 &ctx.view,
-                app_state.cluster_result.as_ref(),
+                app_state.cluster_cache.get(&key),
                 param_names,
                 obj_names,
                 &cmap,

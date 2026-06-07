@@ -3,6 +3,17 @@ use crate::state::app_state::{
     TopsisResult,
 };
 use crate::state::results::{AhpResult, EntropyResult, HvHistory};
+use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
+
+/// クラスタリングを開始したチャート。結果は設定キーで共有されるが、
+/// 実行状態（spinner / エラー）は開始元のウィジェットに反映する必要があるため、
+/// 完了・失敗メッセージにどのチャート発の計算かを持たせる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClusterChartSource {
+    Scatter2D,
+    Scatter3D,
+    Table,
+}
 
 // ============================================================
 // PDP Result types (placeholder for TASK-2025)
@@ -140,8 +151,15 @@ pub enum AppMessage {
         obj_idx: usize,
         result: SobolResult,
     },
-    ClusteringDone(ClusterResult),
-    ClusterFailed(ClusterUiError),
+    ClusteringDone {
+        source: ClusterChartSource,
+        key: ClusterCacheKey,
+        result: ClusterResult,
+    },
+    ClusterFailed {
+        source: ClusterChartSource,
+        err: ClusterUiError,
+    },
     TopsisDone(TopsisResult),
     McdmDone(McdmResult),
     AhpDone(AhpResult),

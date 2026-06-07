@@ -2,11 +2,11 @@ use std::sync::mpsc;
 
 use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
-use crate::state::messages::AppMessage;
+use crate::state::messages::{AppMessage, ClusterChartSource};
 use crate::state::results::{AhpResult, EntropyResult, McdmMethod};
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::cluster_scatter::{
-    build_cluster_matrix, ClusterComputeRequest, ClusterMatrix, KSelectionMode,
+    build_cluster_matrix, ClusterCacheKey, ClusterComputeRequest, ClusterMatrix, KSelectionMode,
 };
 use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
 
@@ -307,8 +307,9 @@ pub(crate) fn poll_chart_work(
                 match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
                     Ok(matrix) => {
                         let tx = tx.clone();
-                        app_state.cluster_result = None;
-                        crate::app::spawn_task(tx, move || run_cluster_compute(req, matrix));
+                        crate::app::spawn_task(tx, move || {
+                            run_cluster_compute(ClusterChartSource::Scatter2D, req, matrix)
+                        });
                     }
                     Err(err) => {
                         widgets.cluster_scatter.set_error(err);
@@ -321,11 +322,27 @@ pub(crate) fn poll_chart_work(
                 match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
                     Ok(matrix) => {
                         let tx = tx.clone();
-                        app_state.cluster_result = None;
-                        crate::app::spawn_task(tx, move || run_cluster_compute(req, matrix));
+                        crate::app::spawn_task(tx, move || {
+                            run_cluster_compute(ClusterChartSource::Scatter3D, req, matrix)
+                        });
                     }
                     Err(err) => {
                         widgets.cluster_scatter_3d.set_error(err);
+                    }
+                }
+            }
+        }
+        ChartId::ClusterTable => {
+            if let Some(req) = widgets.cluster_table.pending_compute.take() {
+                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
+                    Ok(matrix) => {
+                        let tx = tx.clone();
+                        crate::app::spawn_task(tx, move || {
+                            run_cluster_compute(ClusterChartSource::Table, req, matrix)
+                        });
+                    }
+                    Err(err) => {
+                        widgets.cluster_table.set_error(err);
                     }
                 }
             }
@@ -607,12 +624,18 @@ pub(crate) fn poll_chart_work(
     }
 }
 
-fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> AppMessage {
+fn run_cluster_compute(
+    source: ClusterChartSource,
+    req: ClusterComputeRequest,
+    matrix: ClusterMatrix,
+) -> AppMessage {
+    let key = ClusterCacheKey::from_request(&req);
     let trial_count = matrix.n_rows; // パレートフロントの解数（k-means に渡す行数）
     let n_cols = matrix.n_cols;
 
     if !matrix.is_valid_for_clustering() {
         return cluster_failed(
+            source,
             "At least 2 trials and one feature are required.",
             Some(format!(
                 "validation: trial_count({trial_count}), n_cols({n_cols})"
@@ -636,6 +659,7 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
 
     if selected_k < 2 || selected_k > trial_count {
         return cluster_failed(
+            source,
             "k must be in [2, trial_count].",
             Some(format!(
                 "validation: k({selected_k}) outside [2, {trial_count}]"
@@ -648,6 +672,7 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
         tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols, init_strategy);
     if result.labels.len() != trial_count {
         return cluster_failed(
+            source,
             "Cluster result is inconsistent. Please run again.",
             Some(format!(
                 "validation: labels_len({}) != trial_count({trial_count})",
@@ -665,14 +690,24 @@ fn run_cluster_compute(req: ClusterComputeRequest, matrix: ClusterMatrix) -> App
         }
     }
 
-    AppMessage::ClusteringDone(crate::state::results::ClusterResult {
-        labels: full_labels,
-        n_clusters: selected_k,
-    })
+    AppMessage::ClusteringDone {
+        source,
+        key,
+        result: crate::state::results::ClusterResult {
+            labels: full_labels,
+            n_clusters: selected_k,
+        },
+    }
 }
 
-fn cluster_failed(message: &str, detail: Option<String>, retryable: bool) -> AppMessage {
-    AppMessage::ClusterFailed(crate::state::messages::cluster_ui_error(
-        message, detail, retryable,
-    ))
+fn cluster_failed(
+    source: ClusterChartSource,
+    message: &str,
+    detail: Option<String>,
+    retryable: bool,
+) -> AppMessage {
+    AppMessage::ClusterFailed {
+        source,
+        err: crate::state::messages::cluster_ui_error(message, detail, retryable),
+    }
 }

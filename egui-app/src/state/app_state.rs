@@ -4,6 +4,7 @@ pub use super::results::*;
 pub use super::types::*;
 
 use crate::ui::help::help_types::HelpLanguage;
+use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use std::collections::HashMap;
 
 // ============================================================
@@ -21,7 +22,9 @@ pub struct AppState {
     pub color_mode: ColorMode,
     pub importance_cache: HashMap<(u8, usize), SensitivityResult>,
     pub sobol_cache: HashMap<usize, SobolResult>,
-    pub cluster_result: Option<ClusterResult>,
+    /// クラスタリング結果のキャッシュ。設定キー（対象空間 / k / モード / Init）ごとに
+    /// 計算結果を保持し、2D / 3D / Table が各自の設定で参照・共有する。
+    pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
     pub downsample_cache: DownsampleCache,
     pub live_update: LiveUpdateState,
     pub topsis_result: Option<TopsisResult>,
@@ -76,7 +79,7 @@ impl AppState {
             color_mode: ColorMode::ParetoRank,
             importance_cache: HashMap::new(),
             sobol_cache: HashMap::new(),
-            cluster_result: None,
+            cluster_cache: HashMap::new(),
             downsample_cache: DownsampleCache::default(),
             live_update: LiveUpdateState::default(),
             topsis_result: None,
@@ -136,7 +139,7 @@ impl AppState {
         self.highlighted_trial = None;
         self.importance_cache.clear();
         self.sobol_cache.clear();
-        self.cluster_result = None;
+        self.cluster_cache.clear();
         self.topsis_result = None;
         self.mcdm_result = None;
         self.ahp_result = None;
@@ -243,7 +246,7 @@ mod tests {
         assert!(state.highlighted_trial.is_none());
         assert_eq!(state.color_mode, ColorMode::ParetoRank);
         assert!(state.importance_cache.is_empty());
-        assert!(state.cluster_result.is_none());
+        assert!(state.cluster_cache.is_empty());
     }
 
     #[test]

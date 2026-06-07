@@ -5,19 +5,52 @@ use crate::state::results::ClusterResult;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::cluster_scatter::{
+    validate_cluster_request, ClusterCacheKey, ClusterComputeRequest, ClusterSpace,
+    KMeansInitStrategy, KSelectionMode,
+};
 
 /// クラスタ割当テーブルウィジェット。
 /// クラスタリング結果（各トライアルがどのクラスタに属するか）を一覧表示する。
 /// 行クリックでハイライト、📌 でピン留めが可能（TrialTable と同じ操作感）。
-#[derive(Default)]
+///
+/// 2D / 3D と同様に独自のクラスタリング設定（k / 対象空間 / モード / Init）を持ち、
+/// 結果は設定キーごとに `app_state.cluster_cache` で共有・キャッシュされる。
 pub struct ClusterTable {
     /// クラスタリング対象外（パレートフロント以外）の解も表示するか
     pub show_unclustered: bool,
+    pub k: usize,
+    pub target_space: ClusterSpace,
+    pub k_mode: KSelectionMode,
+    pub init_strategy: KMeansInitStrategy,
+    pub computing: bool,
+    pub pending_compute: Option<ClusterComputeRequest>,
+    pub last_error: Option<crate::state::messages::ClusterUiError>,
+}
+
+impl Default for ClusterTable {
+    fn default() -> Self {
+        Self {
+            show_unclustered: false,
+            k: 3,
+            target_space: ClusterSpace::Objective,
+            k_mode: KSelectionMode::ElbowDefault,
+            init_strategy: KMeansInitStrategy::KMeansPlusPlus,
+            computing: false,
+            pending_compute: None,
+            last_error: None,
+        }
+    }
 }
 
 impl ClusterTable {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 現在の設定に対応するキャッシュキーを返す。
+    pub fn cache_key(&self) -> ClusterCacheKey {
+        ClusterCacheKey::new(self.target_space, self.k_mode, self.k, self.init_strategy)
     }
 
     /// テーブルを描画する
@@ -31,8 +64,28 @@ impl ClusterTable {
 
         let view = &study_ctx.view;
         let n = view.row_count();
+        // クラスタリング対象はパレートフロント（pareto_rank == 0）の解数で判定する。
+        let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
 
-        let Some(cr) = app_state.cluster_result.as_ref() else {
+        self.show_controls(ui, pareto_count);
+
+        if let Some(err) = self.last_error.clone() {
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
+            if let Some(detail) = &err.detail_for_dev {
+                ui.label(egui::RichText::new(detail).small().weak());
+            }
+            if err.retryable && ui.button("Retry").clicked() {
+                self.try_queue_compute(pareto_count);
+            }
+            ui.separator();
+        }
+
+        if self.computing {
+            return;
+        }
+
+        let key = self.cache_key();
+        let Some(cr) = app_state.cluster_cache.get(&key) else {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("Clustering has not been run yet.").weak());
             });
@@ -223,6 +276,123 @@ impl ClusterTable {
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.show_unclustered, "Show Unclustered");
         });
+    }
+
+    /// クラスタリング設定 UI（k / モード / 空間 / Init / Run）を描画する。
+    /// 2D の ClusterScatter::show_header と同じ操作感。
+    fn show_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
+        ui.horizontal(|ui| {
+            let k_editable = !self.computing && self.k_mode == KSelectionMode::Manual;
+            ui.label("k:");
+            ui.add_enabled(
+                k_editable,
+                egui::DragValue::new(&mut self.k).range(2..=pareto_count.max(2)),
+            );
+
+            egui::ComboBox::from_id_salt("cluster_table_k_mode")
+                .selected_text(self.k_mode.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.k_mode,
+                        KSelectionMode::ElbowDefault,
+                        KSelectionMode::ElbowDefault.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.k_mode,
+                        KSelectionMode::Manual,
+                        KSelectionMode::Manual.label(),
+                    );
+                });
+
+            egui::ComboBox::from_id_salt("cluster_table_space")
+                .selected_text(self.target_space.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.target_space,
+                        ClusterSpace::Objective,
+                        ClusterSpace::Objective.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.target_space,
+                        ClusterSpace::Variable,
+                        ClusterSpace::Variable.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.target_space,
+                        ClusterSpace::Combined,
+                        ClusterSpace::Combined.label(),
+                    );
+                });
+
+            ui.label("Init:");
+            egui::ComboBox::from_id_salt("cluster_table_init")
+                .selected_text(self.init_strategy.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.init_strategy,
+                        KMeansInitStrategy::KMeansPlusPlus,
+                        KMeansInitStrategy::KMeansPlusPlus.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.init_strategy,
+                        KMeansInitStrategy::Deterministic,
+                        KMeansInitStrategy::Deterministic.label(),
+                    );
+                });
+
+            if ui
+                .add_enabled(!self.computing, egui::Button::new("Run"))
+                .clicked()
+            {
+                self.try_queue_compute(pareto_count);
+            }
+
+            if self.computing {
+                ui.spinner();
+                ui.label("Running clustering...");
+            }
+        });
+    }
+
+    fn try_queue_compute(&mut self, pareto_count: usize) {
+        let request = ClusterComputeRequest {
+            k: self.k,
+            target_space: self.target_space,
+            k_mode: self.k_mode,
+            init_strategy: self.init_strategy,
+        };
+
+        match validate_cluster_request(&request, pareto_count) {
+            Ok(()) => {
+                self.pending_compute = Some(request);
+                self.computing = true;
+                self.last_error = None;
+            }
+            Err(err) => {
+                self.pending_compute = None;
+                self.last_error = Some(err);
+            }
+        }
+    }
+
+    pub fn set_error(&mut self, err: crate::state::messages::ClusterUiError) {
+        self.computing = false;
+        self.last_error = Some(err);
+    }
+
+    pub fn clear_runtime_state(&mut self) {
+        self.computing = false;
+        self.pending_compute = None;
+        self.last_error = None;
+    }
+
+    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
+    /// 計算結果は `app_state.cluster_cache` に集約されるため、キャンバスの各アイテム
+    /// （独立した WidgetStates）にも完了状態を反映する。表示用設定は維持する。
+    pub fn adopt_runtime_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.pending_compute = src.pending_compute.clone();
+        self.last_error = src.last_error.clone();
     }
 }
 
