@@ -76,8 +76,6 @@ pub struct McdmScatterChart {
     pub x_axis: String,
     /// Y軸の軸識別子
     pub y_axis: String,
-    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
-    pub show_infeasible: bool,
     // --- 内部キャッシュ状態 ---
     display_rows_cache: Option<Vec<(f64, f64, Color32)>>,
     infeasible_cache: Option<Vec<(f64, f64)>>,
@@ -91,7 +89,6 @@ impl Default for McdmScatterChart {
         Self {
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
-            show_infeasible: true,
             display_rows_cache: None,
             infeasible_cache: None,
             metadata: None,
@@ -220,7 +217,6 @@ impl McdmScatterChart {
         });
 
         let n_trials = view.row_count();
-        let has_constraints = view.numeric_column("is_feasible").is_some();
 
         // キャッシュが陳腐化している場合に再計算
         if self.is_cache_stale(n_trials, result, colormap_name, top_n) {
@@ -258,12 +254,6 @@ impl McdmScatterChart {
             return;
         }
 
-        if has_constraints {
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
-            });
-        }
-
         let empty = vec![];
         let infeasible = self.infeasible_cache.as_deref().unwrap_or(&empty);
         if let Some(ref points) = self.display_rows_cache {
@@ -271,7 +261,6 @@ impl McdmScatterChart {
                 ui,
                 points,
                 infeasible,
-                self.show_infeasible,
                 &self.x_axis,
                 &self.y_axis,
                 colormap,
@@ -301,7 +290,6 @@ fn render_scatter_plot(
     ui: &mut egui::Ui,
     points: &[(f64, f64, Color32)],
     infeasible: &[(f64, f64)],
-    show_infeasible: bool,
     x_label: &str,
     y_label: &str,
     colormap: &ColorMap,
@@ -336,7 +324,8 @@ fn render_scatter_plot(
     } else {
         best_color
     };
-    let has_infeasible = show_infeasible && !infeasible.is_empty();
+    // 凡例から表示/非表示を切り替えられるため、常に描画する
+    let has_infeasible = !infeasible.is_empty();
 
     egui_plot::Plot::new("mcdm_scatter_plot")
         .x_axis_label(x_label)
