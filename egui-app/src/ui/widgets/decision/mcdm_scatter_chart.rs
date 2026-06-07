@@ -7,6 +7,7 @@ use crate::theme::chart_colors::{
 };
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::mcdm_chart::McdmControls;
 use egui::Color32;
 
 /// 軸識別子定数（get_axis_options と extract_axis_values で共有）
@@ -72,6 +73,8 @@ struct CacheKey {
 
 /// MCDM 散布図ウィジェット
 pub struct McdmScatterChart {
+    /// MCDM 設定・実行状態（手法 / 重み / Run など）
+    pub controls: McdmControls,
     /// X軸の軸識別子
     pub x_axis: String,
     /// Y軸の軸識別子
@@ -87,6 +90,7 @@ pub struct McdmScatterChart {
 impl Default for McdmScatterChart {
     fn default() -> Self {
         Self {
+            controls: McdmControls::default(),
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
             display_rows_cache: None,
@@ -102,6 +106,11 @@ impl McdmScatterChart {
     /// 新規インスタンスを生成する
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// グローバル widget の MCDM 実行状態を取り込む（キャンバスの各アイテム用）。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.controls.adopt_compute_state(&src.controls);
     }
 
     /// キャッシュを無効化する
@@ -163,19 +172,23 @@ impl McdmScatterChart {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mcdm_result: &Option<McdmResult>,
+        mcdm_result: Option<&McdmResult>,
         view: &StudyView,
         obj_names: &[String],
         colormap: &ColorMap,
         colormap_name: &ColormapName,
-        top_n: usize,
     ) {
+        if !self.controls.show_controls(ui, obj_names, "mcdm_scatter") {
+            return;
+        }
+        if self.controls.computing {
+            return;
+        }
+        let top_n = self.controls.top_n.value();
+
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
-                ui.colored_label(
-                    COLOR_EMPTY_STATE,
-                    "Run MCDM analysis first (Ranking tab → Run button)",
-                );
+                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute the MCDM ranking");
             });
             return;
         };

@@ -37,7 +37,9 @@ impl ComputeSyncKind {
             | AppMessage::SobolDone { .. }
             | AppMessage::SensitivityError(_) => Some(Self::Importance),
             AppMessage::AhpDone(_) => Some(Self::Ahp),
-            AppMessage::McdmDone(_) | AppMessage::EntropyDone(_) => Some(Self::Mcdm),
+            AppMessage::McdmDone { .. }
+            | AppMessage::McdmFailed { .. }
+            | AppMessage::EntropyDone { .. } => Some(Self::Mcdm),
             AppMessage::PdpDone { .. } => Some(Self::Pdp),
             AppMessage::Pdp2dDone(_) => Some(Self::Pdp2d),
             AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => {
@@ -62,7 +64,13 @@ impl ComputeSyncKind {
                 }
                 Self::Importance => w.importance.adopt_compute_state(&global.importance),
                 Self::Ahp => w.ahp_chart.adopt_compute_state(&global.ahp_chart),
-                Self::Mcdm => w.mcdm_chart.adopt_compute_state(&global.mcdm_chart),
+                Self::Mcdm => {
+                    w.mcdm_chart.adopt_compute_state(&global.mcdm_chart);
+                    w.scatter_chart.adopt_compute_state(&global.scatter_chart);
+                    w.mcdm_scatter_3d
+                        .adopt_compute_state(&global.mcdm_scatter_3d);
+                    w.mcdm_table.adopt_compute_state(&global.mcdm_table);
+                }
                 Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
                 Self::Surface => w.surface_plot.adopt_compute_state(&global.surface_plot),

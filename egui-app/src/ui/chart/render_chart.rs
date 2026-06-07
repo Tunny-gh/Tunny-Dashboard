@@ -186,38 +186,38 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::McdmRankChart => {
+            let key = widgets.mcdm_chart.controls.cache_key();
             widgets
                 .mcdm_chart
-                .show(ui, obj_names, &app_state.mcdm_result);
+                .show(ui, obj_names, app_state.mcdm_cache.get(&key));
         }
         ChartId::McdmScatterChart => {
-            let top_n = widgets.mcdm_chart.top_n.value();
+            let key = widgets.scatter_chart.controls.cache_key();
             widgets.scatter_chart.show(
                 ui,
-                &app_state.mcdm_result,
+                app_state.mcdm_cache.get(&key),
                 &ctx.view,
                 obj_names,
                 &cmap,
                 &app_state.selected_colormap,
-                top_n,
             );
         }
         ChartId::McdmScatterChart3D => {
-            let top_n = widgets.mcdm_chart.top_n.value();
+            let key = widgets.mcdm_scatter_3d.controls.cache_key();
             widgets.mcdm_scatter_3d.show(
                 ui,
-                &app_state.mcdm_result,
+                app_state.mcdm_cache.get(&key),
                 &ctx.view,
                 obj_names,
                 &cmap,
                 &app_state.selected_colormap,
-                top_n,
             );
         }
         ChartId::McdmTable => {
+            let key = widgets.mcdm_table.controls.cache_key();
             widgets.mcdm_table.show(
                 ui,
-                &app_state.mcdm_result,
+                app_state.mcdm_cache.get(&key),
                 &ctx.view,
                 param_names,
                 obj_names,

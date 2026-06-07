@@ -77,7 +77,7 @@ pub struct PrometheeResult {
     pub duration_ms: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum McdmMethod {
     Topsis,
     Vikor,
@@ -85,7 +85,7 @@ pub enum McdmMethod {
     PrometheeII,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WeightMode {
     Manual,
     Entropy,

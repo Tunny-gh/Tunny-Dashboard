@@ -4,12 +4,22 @@ use crate::state::app_state::{
 };
 use crate::state::results::{AhpResult, EntropyResult, HvHistory};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
+use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 
 /// クラスタリングを開始したチャート。結果は設定キーで共有されるが、
 /// 実行状態（spinner / エラー）は開始元のウィジェットに反映する必要があるため、
 /// 完了・失敗メッセージにどのチャート発の計算かを持たせる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClusterChartSource {
+    Scatter2D,
+    Scatter3D,
+    Table,
+}
+
+/// MCDM 計算を開始したチャート。クラスタと同じく実行状態を開始元へ反映するために持たせる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McdmChartSource {
+    Rank,
     Scatter2D,
     Scatter3D,
     Table,
@@ -161,9 +171,20 @@ pub enum AppMessage {
         err: ClusterUiError,
     },
     TopsisDone(TopsisResult),
-    McdmDone(McdmResult),
+    McdmDone {
+        source: McdmChartSource,
+        key: McdmCacheKey,
+        result: McdmResult,
+    },
+    McdmFailed {
+        source: McdmChartSource,
+        message: String,
+    },
     AhpDone(AhpResult),
-    EntropyDone(EntropyResult),
+    EntropyDone {
+        source: McdmChartSource,
+        result: EntropyResult,
+    },
     PdpDone {
         param: String,
         objective: String,
