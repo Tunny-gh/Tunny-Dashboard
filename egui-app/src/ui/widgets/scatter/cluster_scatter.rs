@@ -13,7 +13,7 @@ pub struct ClusterStats {
 }
 
 /// クラスタリング対象空間
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClusterSpace {
     Objective,
     Variable,
@@ -46,7 +46,7 @@ impl ClusterSpace {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KSelectionMode {
     ElbowDefault,
     Manual,
@@ -61,7 +61,7 @@ impl KSelectionMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KMeansInitStrategy {
     KMeansPlusPlus,
     Deterministic,
@@ -91,6 +91,44 @@ pub struct ClusterComputeRequest {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+}
+
+/// クラスタリング結果のキャッシュキー。
+/// 同じ設定（対象空間・k 選択モード・k・Init 戦略）で計算した結果を共有するため、
+/// 各チャート（2D / 3D / Table）はこのキーで `app_state.cluster_cache` を参照する。
+///
+/// Elbow（自動）モードでは k はアルゴリズムが決めるため、入力 k はキーに含めず 0 に正規化する。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ClusterCacheKey {
+    pub target_space: ClusterSpace,
+    pub k_mode: KSelectionMode,
+    pub k: usize,
+    pub init_strategy: KMeansInitStrategy,
+}
+
+impl ClusterCacheKey {
+    pub fn new(
+        target_space: ClusterSpace,
+        k_mode: KSelectionMode,
+        k: usize,
+        init_strategy: KMeansInitStrategy,
+    ) -> Self {
+        // Elbow モードでは入力 k は無視されるため、キャッシュヒット判定がブレないよう 0 に正規化する。
+        let k = match k_mode {
+            KSelectionMode::Manual => k,
+            KSelectionMode::ElbowDefault => 0,
+        };
+        Self {
+            target_space,
+            k_mode,
+            k,
+            init_strategy,
+        }
+    }
+
+    pub fn from_request(req: &ClusterComputeRequest) -> Self {
+        Self::new(req.target_space, req.k_mode, req.k, req.init_strategy)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +189,11 @@ impl Default for ClusterScatter {
 impl ClusterScatter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 現在の設定に対応するキャッシュキーを返す。
+    pub fn cache_key(&self) -> ClusterCacheKey {
+        ClusterCacheKey::new(self.target_space, self.k_mode, self.k, self.init_strategy)
     }
 
     /// クラスタ散布図を描画する
@@ -400,7 +443,7 @@ impl ClusterScatter {
     }
 
     /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
-    /// クラスタリング結果は `app_state.cluster_result` に集約されるため、
+    /// クラスタリング結果は `app_state.cluster_cache` に集約されるため、
     /// キャンバスの各アイテム（独立した WidgetStates）にも完了状態を反映する必要がある。
     /// 表示用キャッシュ（cached_points 等）はアイテム固有なので維持する。
     pub fn adopt_runtime_state(&mut self, src: &Self) {

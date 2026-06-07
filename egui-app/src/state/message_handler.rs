@@ -98,11 +98,15 @@ impl MessageHandler {
                 app_state.sobol_cache.insert(obj_idx, result);
                 widget_states.importance.computing = false;
             }
-            AppMessage::ClusteringDone(result) => {
-                Self::handle_clustering_done(result, app_state, widget_states);
+            AppMessage::ClusteringDone {
+                source,
+                key,
+                result,
+            } => {
+                Self::handle_clustering_done(source, key, result, app_state, widget_states);
             }
-            AppMessage::ClusterFailed(err) => {
-                Self::handle_cluster_failed(err, app_state, widget_states);
+            AppMessage::ClusterFailed { source, err } => {
+                Self::handle_cluster_failed(source, err, widget_states);
             }
             AppMessage::TopsisDone(result) => {
                 app_state.topsis_result = Some(result);
@@ -411,6 +415,9 @@ impl MessageHandler {
             widget_states.hv_history.computing = false;
             widget_states.ahp_chart = Default::default();
             widget_states.cluster_scatter = Default::default();
+            widget_states.cluster_scatter_3d.clear_runtime_state();
+            widget_states.cluster_table.clear_runtime_state();
+            app_state.cluster_cache.clear();
             widget_states.reset_infeasible_flags();
         }
 
@@ -475,6 +482,9 @@ impl MessageHandler {
             study.pareto_indices = pareto_indices;
         }
 
+        // トライアル数が変わるとキャッシュ済みラベルの行数が合わなくなるため破棄する。
+        app_state.cluster_cache.clear();
+
         // Update all_studies completed_trials
         for (study_id, new_count) in updated_study_counts {
             if let Some(meta) = app_state
@@ -488,6 +498,8 @@ impl MessageHandler {
     }
 
     fn handle_clustering_done(
+        source: crate::state::messages::ClusterChartSource,
+        key: crate::ui::widgets::cluster_scatter::ClusterCacheKey,
         result: crate::state::results::ClusterResult,
         app_state: &mut AppState,
         widget_states: &mut WidgetStates,
@@ -498,12 +510,11 @@ impl MessageHandler {
             .map(|c| c.trial_count())
             .unwrap_or(0);
         if result.labels.len() == trial_count {
-            app_state.cluster_result = Some(result);
-            // 2D / 3D いずれから実行されても結果は共有されるため両方の実行状態を解除する
-            widget_states.cluster_scatter.clear_runtime_state();
-            widget_states.cluster_scatter_3d.clear_runtime_state();
+            // 結果は設定キーごとにキャッシュし、同じ設定の他チャートと共有する。
+            app_state.cluster_cache.insert(key, result);
+            // 実行を開始したチャートの spinner / pending を解除する。
+            Self::clear_cluster_runtime(source, widget_states);
         } else {
-            app_state.cluster_result = None;
             let err = crate::state::messages::cluster_ui_error(
                 "Cluster result is inconsistent. Please run again.",
                 Some(format!(
@@ -513,19 +524,43 @@ impl MessageHandler {
                 )),
                 true,
             );
-            widget_states.cluster_scatter.set_error(err.clone());
-            widget_states.cluster_scatter_3d.set_error(err);
+            Self::set_cluster_error(source, err, widget_states);
         }
     }
 
     fn handle_cluster_failed(
+        source: crate::state::messages::ClusterChartSource,
         err: crate::state::messages::ClusterUiError,
-        app_state: &mut AppState,
         widget_states: &mut WidgetStates,
     ) {
-        app_state.cluster_result = None;
-        widget_states.cluster_scatter.set_error(err.clone());
-        widget_states.cluster_scatter_3d.set_error(err);
+        Self::set_cluster_error(source, err, widget_states);
+    }
+
+    /// クラスタリング開始元のウィジェットの実行状態を解除する。
+    fn clear_cluster_runtime(
+        source: crate::state::messages::ClusterChartSource,
+        widget_states: &mut WidgetStates,
+    ) {
+        use crate::state::messages::ClusterChartSource;
+        match source {
+            ClusterChartSource::Scatter2D => widget_states.cluster_scatter.clear_runtime_state(),
+            ClusterChartSource::Scatter3D => widget_states.cluster_scatter_3d.clear_runtime_state(),
+            ClusterChartSource::Table => widget_states.cluster_table.clear_runtime_state(),
+        }
+    }
+
+    /// クラスタリング開始元のウィジェットにエラーを設定する。
+    fn set_cluster_error(
+        source: crate::state::messages::ClusterChartSource,
+        err: crate::state::messages::ClusterUiError,
+        widget_states: &mut WidgetStates,
+    ) {
+        use crate::state::messages::ClusterChartSource;
+        match source {
+            ClusterChartSource::Scatter2D => widget_states.cluster_scatter.set_error(err),
+            ClusterChartSource::Scatter3D => widget_states.cluster_scatter_3d.set_error(err),
+            ClusterChartSource::Table => widget_states.cluster_table.set_error(err),
+        }
     }
 }
 
@@ -601,18 +636,23 @@ mod tests {
         );
 
         widgets.cluster_scatter.computing = true;
+        let key = widgets.cluster_scatter.cache_key();
         MessageHandler::handle(
-            AppMessage::ClusteringDone(crate::state::results::ClusterResult {
-                labels: vec![0, 1, 0],
-                n_clusters: 2,
-            }),
+            AppMessage::ClusteringDone {
+                source: crate::state::messages::ClusterChartSource::Scatter2D,
+                key: key.clone(),
+                result: crate::state::results::ClusterResult {
+                    labels: vec![0, 1, 0],
+                    n_clusters: 2,
+                },
+            },
             &mut app_state,
             &mut widgets,
             &mut is_loading,
             &mut load_error,
         );
 
-        assert!(app_state.cluster_result.is_some());
+        assert!(app_state.cluster_cache.contains_key(&key));
         assert!(!widgets.cluster_scatter.computing);
         assert!(widgets.cluster_scatter.last_error.is_none());
     }
@@ -633,18 +673,23 @@ mod tests {
             &mut load_error,
         );
 
+        let key = widgets.cluster_scatter.cache_key();
         MessageHandler::handle(
-            AppMessage::ClusteringDone(crate::state::results::ClusterResult {
-                labels: vec![0, 1],
-                n_clusters: 2,
-            }),
+            AppMessage::ClusteringDone {
+                source: crate::state::messages::ClusterChartSource::Scatter2D,
+                key: key.clone(),
+                result: crate::state::results::ClusterResult {
+                    labels: vec![0, 1],
+                    n_clusters: 2,
+                },
+            },
             &mut app_state,
             &mut widgets,
             &mut is_loading,
             &mut load_error,
         );
 
-        assert!(app_state.cluster_result.is_none());
+        assert!(app_state.cluster_cache.is_empty());
         assert!(widgets.cluster_scatter.last_error.is_some());
     }
 

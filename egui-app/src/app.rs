@@ -30,7 +30,9 @@ enum ComputeSyncKind {
 impl ComputeSyncKind {
     fn from_message(msg: &AppMessage) -> Option<Self> {
         match msg {
-            AppMessage::ClusteringDone(_) | AppMessage::ClusterFailed(_) => Some(Self::Cluster),
+            AppMessage::ClusteringDone { .. } | AppMessage::ClusterFailed { .. } => {
+                Some(Self::Cluster)
+            }
             AppMessage::SensitivityDone { .. }
             | AppMessage::SobolDone { .. }
             | AppMessage::SensitivityError(_) => Some(Self::Importance),
@@ -56,6 +58,7 @@ impl ComputeSyncKind {
                         .adopt_runtime_state(&global.cluster_scatter);
                     w.cluster_scatter_3d
                         .adopt_runtime_state(&global.cluster_scatter_3d);
+                    w.cluster_table.adopt_runtime_state(&global.cluster_table);
                 }
                 Self::Importance => w.importance.adopt_compute_state(&global.importance),
                 Self::Ahp => w.ahp_chart.adopt_compute_state(&global.ahp_chart),

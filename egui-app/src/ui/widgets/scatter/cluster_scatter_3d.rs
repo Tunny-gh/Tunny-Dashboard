@@ -3,8 +3,8 @@ use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap_name::colormap_from_name;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::cluster_scatter::{
-    validate_cluster_request, ClusterComputeRequest, ClusterSpace, KMeansInitStrategy,
-    KSelectionMode,
+    validate_cluster_request, ClusterCacheKey, ClusterComputeRequest, ClusterSpace,
+    KMeansInitStrategy, KSelectionMode,
 };
 use crate::ui::widgets::scatter_3d::{
     compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
@@ -55,6 +55,11 @@ impl Default for ClusterScatter3D {
 }
 
 impl ClusterScatter3D {
+    /// 現在の設定に対応するキャッシュキーを返す。
+    pub fn cache_key(&self) -> ClusterCacheKey {
+        ClusterCacheKey::new(self.target_space, self.k_mode, self.k, self.init_strategy)
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         let Some(ctx) = &app_state.current_study else {
             ui.centered_and_justified(|ui| {
@@ -135,14 +140,11 @@ impl ClusterScatter3D {
             }
         });
 
-        // Cluster coloring
-        let n_clusters = app_state
-            .cluster_result
-            .as_ref()
-            .map(|r| r.n_clusters)
-            .unwrap_or(1)
-            .max(1);
-        let has_cluster = app_state.cluster_result.is_some();
+        // Cluster coloring（このチャート固有の設定キーでキャッシュを参照する）
+        let cluster_key = self.cache_key();
+        let cluster = app_state.cluster_cache.get(&cluster_key);
+        let n_clusters = cluster.map(|r| r.n_clusters).unwrap_or(1).max(1);
+        let has_cluster = cluster.is_some();
         let colormap = colormap_from_name(&app_state.selected_colormap);
         let cluster_color = |label: i32| -> egui::Color32 {
             if label < 0 {
@@ -197,11 +199,7 @@ impl ClusterScatter3D {
                 continue;
             }
 
-            let label = app_state
-                .cluster_result
-                .as_ref()
-                .and_then(|r| r.labels.get(i).copied())
-                .unwrap_or(0);
+            let label = cluster.and_then(|r| r.labels.get(i).copied()).unwrap_or(0);
 
             if has_cluster && label < 0 {
                 // クラスタリング済みだが非パレートフロント → 半透明で描画
@@ -344,7 +342,7 @@ impl ClusterScatter3D {
     }
 
     /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
-    /// クラスタリング結果は `app_state.cluster_result` に集約されるため、
+    /// クラスタリング結果は `app_state.cluster_cache` に集約されるため、
     /// キャンバスの各アイテム（独立した WidgetStates）にも完了状態を反映する必要がある。
     pub fn adopt_runtime_state(&mut self, src: &Self) {
         self.computing = src.computing;
