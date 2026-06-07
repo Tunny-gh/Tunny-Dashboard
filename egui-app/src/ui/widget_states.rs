@@ -103,7 +103,6 @@ impl WidgetStates {
         self.pareto_2d.show_infeasible = true;
         self.pareto_3d.show_infeasible = true;
         self.cluster_scatter_3d.show_infeasible = true;
-        self.scatter_chart.show_infeasible = true;
         self.mcdm_scatter_3d.show_infeasible = true;
         self.parallel_coords.show_infeasible = true;
         self.scatter_matrix.show_infeasible = true;
