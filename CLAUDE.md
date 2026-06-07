@@ -25,6 +25,16 @@ cargo test -p tunny-core
 cargo test -p tunny-desktop
 ```
 
+### 静的解析
+
+コミット前には必ず確認すること。
+
+```bash
+cargo clippy --workspace
+
+cargo fmt --check --workspace
+```
+
 ### アプリケーション実行
 ```bash
 cargo run -p tunny-desktop
