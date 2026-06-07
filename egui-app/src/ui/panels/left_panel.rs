@@ -1,4 +1,4 @@
-use crate::state::app_state::{AppState, ColorMode, ColormapName};
+use crate::state::app_state::{AppState, ColormapName};
 use crate::state::layout_state::LayoutState;
 use crate::ui::widget_states::WidgetStates;
 
@@ -14,7 +14,6 @@ pub fn show_left_panel(
         ui.separator();
         show_filter_sliders(ui, app_state);
         ui.separator();
-        show_color_mode(ui, app_state, widget_states);
         show_colormap_selector(ui, app_state, widget_states);
 
         // REQ-008: Convergence Card（単目的のみ）
@@ -102,64 +101,6 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
     });
 }
 
-/// カラーモード選択
-fn show_color_mode(ui: &mut egui::Ui, app_state: &mut AppState, widget_states: &mut WidgetStates) {
-    ui.label("Color Mode:");
-    let current_label = app_state.color_mode.label().to_string();
-    let mut changed = false;
-    egui::ComboBox::from_id_salt("left_panel_color_mode_combo")
-        .selected_text(current_label)
-        .show_ui(ui, |ui| {
-            changed |= ui
-                .selectable_value(
-                    &mut app_state.color_mode,
-                    ColorMode::ParetoRank,
-                    "Pareto Rank",
-                )
-                .changed();
-            changed |= ui
-                .selectable_value(
-                    &mut app_state.color_mode,
-                    ColorMode::TrialNumber,
-                    "Trial Number",
-                )
-                .changed();
-            if let Some(ctx) = &app_state.current_study {
-                for obj_name in &ctx.meta.objective_names {
-                    let mode = ColorMode::ObjectiveValue(obj_name.clone());
-                    changed |= ui
-                        .selectable_value(
-                            &mut app_state.color_mode,
-                            mode,
-                            format!("Objective: {}", obj_name),
-                        )
-                        .changed();
-                }
-            }
-            if app_state.cluster_result.is_some() {
-                changed |= ui
-                    .selectable_value(
-                        &mut app_state.color_mode,
-                        ColorMode::ClusterId,
-                        "Cluster ID",
-                    )
-                    .changed();
-            }
-            if app_state.mcdm_result.is_some() {
-                changed |= ui
-                    .selectable_value(
-                        &mut app_state.color_mode,
-                        ColorMode::McdmScore,
-                        "MCDM Score",
-                    )
-                    .changed();
-            }
-        });
-    if changed {
-        widget_states.update_chart_colors(app_state);
-    }
-}
-
 /// カラーマップ選択セレクタ
 fn show_colormap_selector(
     ui: &mut egui::Ui,
@@ -190,7 +131,7 @@ fn show_colormap_selector(
 #[cfg(test)]
 mod tests {
 
-    use crate::state::app_state::{AppState, ColorMode};
+    use crate::state::app_state::AppState;
     use crate::state::layout_state::ChartId;
 
     #[test]
@@ -208,26 +149,6 @@ mod tests {
         state.set_filter("x", 0.2, 0.8);
         let range = state.filter_ranges.get("x").copied();
         assert_eq!(range, Some((0.2, 0.8)));
-    }
-
-    #[test]
-    fn color_mode_label_variants() {
-        assert_eq!(ColorMode::ParetoRank.label(), "Pareto Rank");
-        assert_eq!(ColorMode::TrialNumber.label(), "Trial Number");
-        assert_eq!(ColorMode::ClusterId.label(), "Cluster ID");
-        assert_eq!(ColorMode::McdmScore.label(), "MCDM Score");
-        assert_eq!(
-            ColorMode::ObjectiveValue("y".to_string()).label(),
-            "Objective"
-        );
-    }
-
-    #[test]
-    fn color_mode_switch_updates_state() {
-        let mut state = AppState::new();
-        assert_eq!(state.color_mode, ColorMode::ParetoRank);
-        state.color_mode = ColorMode::TrialNumber;
-        assert_eq!(state.color_mode, ColorMode::TrialNumber);
     }
 
     #[test]
