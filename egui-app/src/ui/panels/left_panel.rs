@@ -1,20 +1,13 @@
-use crate::state::app_state::{AppState, ColormapName};
+use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
-use crate::ui::widget_states::WidgetStates;
 
 /// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
-pub fn show_left_panel(
-    ui: &mut egui::Ui,
-    app_state: &mut AppState,
-    widget_states: &mut WidgetStates,
-    _layout: &mut LayoutState,
-) {
+pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mut LayoutState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         show_study_info(ui, app_state);
         ui.separator();
         show_filter_sliders(ui, app_state);
         ui.separator();
-        show_colormap_selector(ui, app_state, widget_states);
 
         // REQ-008: Convergence Card（単目的のみ）
         let obj_count = app_state
@@ -99,33 +92,6 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
             }
         }
     });
-}
-
-/// カラーマップ選択セレクタ
-fn show_colormap_selector(
-    ui: &mut egui::Ui,
-    app_state: &mut AppState,
-    widget_states: &mut WidgetStates,
-) {
-    ui.label("Colormap:");
-    let current_label = app_state.selected_colormap.label().to_string();
-    let mut changed = false;
-    egui::ComboBox::from_id_salt("left_panel_colormap_combo")
-        .selected_text(current_label)
-        .show_ui(ui, |ui| {
-            for cmap in ColormapName::all() {
-                if ui
-                    .selectable_label(app_state.selected_colormap == *cmap, cmap.label())
-                    .clicked()
-                {
-                    app_state.selected_colormap = cmap.clone();
-                    changed = true;
-                }
-            }
-        });
-    if changed {
-        widget_states.update_chart_colors(app_state);
-    }
 }
 
 #[cfg(test)]
