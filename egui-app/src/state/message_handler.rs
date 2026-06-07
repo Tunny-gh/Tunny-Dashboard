@@ -56,7 +56,6 @@ impl MessageHandler {
                     }
                 }
                 widget_states.hv_history.computing = false;
-                widget_states.ahp_chart = Default::default();
                 widget_states.cluster_scatter = Default::default();
                 widget_states.reset_infeasible_flags();
                 *is_loading = false;
@@ -136,10 +135,6 @@ impl MessageHandler {
                 controls.entropy_result = Some(result);
                 controls.pending_entropy = false;
                 controls.computing = false;
-            }
-            AppMessage::AhpDone(result) => {
-                widget_states.ahp_chart.computing = false;
-                app_state.ahp_result = Some(result);
             }
             AppMessage::DownsampleDone { key, indices } => match key {
                 DownsampleKey::Scatter => app_state.downsample_cache.scatter = Some(indices),
@@ -417,7 +412,6 @@ impl MessageHandler {
             // 後続機能がアクティブ DataFrame を参照できるよう早期に活性化する。
             let _ = tunny_core::dataframe::select_study(study_id);
             widget_states.hv_history.computing = false;
-            widget_states.ahp_chart = Default::default();
             widget_states.cluster_scatter = Default::default();
             widget_states.cluster_scatter_3d.clear_runtime_state();
             widget_states.cluster_table.clear_runtime_state();

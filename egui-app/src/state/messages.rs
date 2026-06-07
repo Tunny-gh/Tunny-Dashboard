@@ -2,7 +2,7 @@ use crate::state::app_state::{
     ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext, StudyMeta,
     TopsisResult,
 };
-use crate::state::results::{AhpResult, EntropyResult, HvHistory};
+use crate::state::results::{EntropyResult, HvHistory};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 
@@ -180,7 +180,6 @@ pub enum AppMessage {
         source: McdmChartSource,
         message: String,
     },
-    AhpDone(AhpResult),
     EntropyDone {
         source: McdmChartSource,
         result: EntropyResult,

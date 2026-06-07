@@ -17,8 +17,6 @@ pub enum ChartId {
     McdmScatterChart,
     McdmScatterChart3D,
     McdmTable,
-    AhpRankChart,
-    AhpTable,
     SliceChart,
     SurfacePlot,
 }
@@ -43,8 +41,6 @@ impl ChartId {
             ChartId::McdmScatterChart,
             ChartId::McdmScatterChart3D,
             ChartId::McdmTable,
-            ChartId::AhpRankChart,
-            ChartId::AhpTable,
             ChartId::SliceChart,
             ChartId::SurfacePlot,
         ]
@@ -69,8 +65,6 @@ impl ChartId {
             ChartId::McdmScatterChart => "MCDM Scatter Chart 2D",
             ChartId::McdmScatterChart3D => "MCDM Scatter Chart 3D",
             ChartId::McdmTable => "MCDM Table",
-            ChartId::AhpRankChart => "AHP Ranking",
-            ChartId::AhpTable => "AHP Table",
             ChartId::SliceChart => "Slice Chart",
             ChartId::SurfacePlot => "Surface Plot",
         }

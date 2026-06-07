@@ -59,8 +59,6 @@ pub fn build_chart_csv(
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
         ChartId::McdmTable => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_table_csv(r, app_state)),
-        ChartId::AhpRankChart => build_ahp_rank_csv(app_state),
-        ChartId::AhpTable => build_ahp_table_csv(app_state),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::SurfacePlot => None,
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
@@ -132,9 +130,6 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             app_state.current_study.is_some()
                 && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
-        ChartId::AhpRankChart | ChartId::AhpTable => {
-            app_state.ahp_result.is_some() && app_state.current_study.is_some()
-        }
         ChartId::SliceChart => app_state.current_study.as_ref().is_some_and(|s| {
             s.trial_count() > 0
                 && s.meta
@@ -174,8 +169,6 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::McdmRankChart => "mcdm_rank_chart",
         ChartId::McdmScatterChart => "mcdm_scatter_chart",
         ChartId::McdmTable => "mcdm_table",
-        ChartId::AhpRankChart => "ahp_rank_chart",
-        ChartId::AhpTable => "ahp_table",
         ChartId::SliceChart => "slice_chart",
         ChartId::SurfacePlot => "surface_plot",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
@@ -502,42 +495,6 @@ fn build_mcdm_table_csv(result: &McdmResult, app_state: &AppState) -> Option<Str
     }
 }
 
-fn build_ahp_rank_csv(app_state: &AppState) -> Option<String> {
-    let result = app_state.ahp_result.as_ref()?;
-    let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
-    let mut csv = String::from("trial_id,rank,ahp_score\n");
-    for (rank, &idx) in result.ranked_indices.iter().enumerate() {
-        let i = idx as usize;
-        let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
-        let score = result.scores.get(i).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{}\n", trial_id, rank + 1, score));
-    }
-    Some(csv)
-}
-
-fn build_ahp_table_csv(app_state: &AppState) -> Option<String> {
-    let result = app_state.ahp_result.as_ref()?;
-    let study = app_state.current_study.as_ref()?;
-    let obj_names = &study.meta.objective_names;
-    let obj_cols = study.view.numeric_columns(obj_names);
-    let mut csv = String::from("trial_id,rank,ahp_score");
-    for name in obj_names {
-        csv.push_str(&format!(",{}", name));
-    }
-    csv.push('\n');
-    for (rank, &idx) in result.ranked_indices.iter().enumerate() {
-        let i = idx as usize;
-        let trial_id = study.view.trial_ids.get(i).copied().unwrap_or(i as u32);
-        let score = result.scores.get(i).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{}", trial_id, rank + 1, score));
-        for col in &obj_cols {
-            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            csv.push_str(&format!(",{}", v));
-        }
-        csv.push('\n');
-    }
-    Some(csv)
-}
 fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
     let n = study.trial_count();
@@ -646,8 +603,6 @@ mod tests {
             ChartId::McdmRankChart,
             ChartId::McdmScatterChart,
             ChartId::McdmTable,
-            ChartId::AhpRankChart,
-            ChartId::AhpTable,
             ChartId::SliceChart,
             ChartId::SurfacePlot,
         ];
@@ -1084,91 +1039,6 @@ mod tests {
         let state = AppState::default();
         let result = make_topsis_mcdm(1);
         assert!(build_mcdm_table_csv(&result, &state).is_none());
-    }
-
-    #[test]
-    fn ahp_rank_csv_has_correct_header() {
-        use crate::state::results::AhpResult;
-        let mut state = AppState::default();
-        let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-        study.set_rows_for_test(vec![
-            make_trial(5, HashMap::new(), vec![1.0]),
-            make_trial(6, HashMap::new(), vec![2.0]),
-        ]);
-        state.current_study = Some(study);
-        state.ahp_result = Some(AhpResult {
-            priority_vector: vec![1.0],
-            scores: vec![0.7, 0.3],
-            ranked_indices: vec![0, 1],
-            lambda_max: 1.0,
-            ci: 0.0,
-            ri: 0.0,
-            cr: 0.0,
-            is_consistent: true,
-            duration_ms: 1.0,
-        });
-        let csv = build_ahp_rank_csv(&state).unwrap();
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "trial_id,rank,ahp_score");
-        assert_eq!(lines.len(), 3); // header + 2 rows
-                                    // first ranked row should have trial_id=5, rank=1
-        assert!(lines[1].starts_with("5,1,"), "row: {}", lines[1]);
-    }
-
-    #[test]
-    fn ahp_rank_csv_returns_none_when_no_result() {
-        let state = AppState::default();
-        assert!(build_ahp_rank_csv(&state).is_none());
-    }
-
-    #[test]
-    fn ahp_table_csv_includes_objective_columns() {
-        use crate::state::results::AhpResult;
-        let mut state = AppState::default();
-        let mut study = make_study(
-            vec![],
-            vec!["f1".into(), "f2".into()],
-            vec![Direction::Minimize, Direction::Minimize],
-        );
-        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0, 2.0])]);
-        state.current_study = Some(study);
-        state.ahp_result = Some(AhpResult {
-            priority_vector: vec![0.5, 0.5],
-            scores: vec![0.9],
-            ranked_indices: vec![0],
-            lambda_max: 2.0,
-            ci: 0.0,
-            ri: 0.0,
-            cr: 0.0,
-            is_consistent: true,
-            duration_ms: 1.0,
-        });
-        let csv = build_ahp_table_csv(&state).unwrap();
-        let header = csv.lines().next().unwrap();
-        assert_eq!(header, "trial_id,rank,ahp_score,f1,f2");
-        let data = csv.lines().nth(1).unwrap();
-        assert_eq!(data, "0,1,0.9,1,2");
-    }
-
-    #[test]
-    fn ahp_table_csv_returns_none_when_no_study() {
-        use crate::state::results::AhpResult;
-        // ahp_result is Some but current_study is None
-        let state = AppState {
-            ahp_result: Some(AhpResult {
-                priority_vector: vec![],
-                scores: vec![],
-                ranked_indices: vec![],
-                lambda_max: 0.0,
-                ci: 0.0,
-                ri: 0.0,
-                cr: 0.0,
-                is_consistent: true,
-                duration_ms: 0.0,
-            }),
-            ..AppState::default()
-        };
-        assert!(build_ahp_table_csv(&state).is_none());
     }
 
     #[test]

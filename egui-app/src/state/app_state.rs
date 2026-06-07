@@ -1,5 +1,4 @@
 pub use super::filter::*;
-pub use super::results::AhpResult;
 pub use super::results::*;
 pub use super::types::*;
 
@@ -34,7 +33,6 @@ pub struct AppState {
     /// MCDM 結果のキャッシュ。設定キー（手法 / 重みモード / 重み / v）ごとに保持し、
     /// 各チャート（Ranking / Scatter / Scatter3D / Table）が各自の設定で参照・共有する。
     pub mcdm_cache: HashMap<McdmCacheKey, McdmResult>,
-    pub ahp_result: Option<AhpResult>,
     pub hv_history: Option<HvHistory>,
     pub selected_colormap: ColormapName,
 
@@ -90,7 +88,6 @@ impl AppState {
             topsis_result: None,
             mcdm_result: None,
             mcdm_cache: HashMap::new(),
-            ahp_result: None,
             hv_history: None,
             selected_colormap: ColormapName::Viridis,
             comparison_mode: false,
@@ -149,7 +146,6 @@ impl AppState {
         self.topsis_result = None;
         self.mcdm_result = None;
         self.mcdm_cache.clear();
-        self.ahp_result = None;
         self.hv_history = None;
         self.downsample_cache.clear();
         // selected_colormap はユーザー設定を維持

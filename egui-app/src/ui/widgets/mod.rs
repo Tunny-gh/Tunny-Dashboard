@@ -28,9 +28,8 @@ pub use scatter::parallel_coords;
 pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;
 
-// 意思決定分析 (MCDM / AHP)
+// 意思決定分析 (MCDM)
 mod decision;
-pub use decision::ahp_chart;
 pub use decision::mcdm_chart;
 pub use decision::mcdm_scatter_chart;
 pub use decision::mcdm_scatter_chart_3d;

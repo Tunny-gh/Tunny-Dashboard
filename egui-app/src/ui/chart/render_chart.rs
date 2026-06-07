@@ -2,7 +2,6 @@ use crate::state::app_state::{AppState, Direction};
 use crate::state::layout_state::ChartId;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widget_states::WidgetStates;
-use crate::ui::widgets::ahp_chart::AhpDataContext;
 
 pub(crate) fn render_chart(
     ui: &mut egui::Ui,
@@ -222,36 +221,6 @@ pub(crate) fn render_chart(
                 param_names,
                 obj_names,
             );
-        }
-        ChartId::AhpRankChart => {
-            let n_trials = ctx.trial_count();
-            let n_objectives = obj_names.len();
-            let obj_cols = ctx.view.numeric_columns(obj_names);
-            let objectives: Vec<f64> = (0..n_trials)
-                .flat_map(|i| {
-                    obj_cols
-                        .iter()
-                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                })
-                .collect();
-            let is_minimize: Vec<bool> = directions
-                .iter()
-                .map(|d| matches!(d, Direction::Minimize))
-                .collect();
-            let ahp_ctx = AhpDataContext {
-                values: &objectives,
-                n_trials,
-                n_objectives,
-                is_minimize: &is_minimize,
-            };
-            widgets
-                .ahp_chart
-                .show_rank_chart(ui, obj_names, &app_state.ahp_result, &ahp_ctx);
-        }
-        ChartId::AhpTable => {
-            widgets
-                .ahp_chart
-                .show_table(ui, obj_names, &ctx.view, &app_state.ahp_result);
         }
         ChartId::SliceChart => {
             widgets
