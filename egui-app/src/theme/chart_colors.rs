@@ -26,7 +26,8 @@ pub const COLOR_AXIS_Z: Color32 = Color32::from_rgb(100, 100, 200);
 pub const COLOR_MCDM_HIGH: Color32 = Color32::from_rgb(234, 67, 53);
 pub const COLOR_MCDM_MID: Color32 = Color32::from_rgb(251, 188, 4);
 pub const COLOR_MCDM_LOW: Color32 = Color32::from_rgb(52, 168, 83);
-pub const COLOR_MCDM_NONE: Color32 = Color32::from_rgb(200, 200, 200);
+/// 劣解（ランク外）はクラスター図の非パレート色と揃えて淡い水色で表示する
+pub const COLOR_MCDM_NONE: Color32 = COLOR_NON_PARETO_DIM;
 
 // ====================================================================
 // バー・チャート系
