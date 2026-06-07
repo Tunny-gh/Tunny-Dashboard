@@ -100,7 +100,6 @@ pub struct WidgetStates {
 impl WidgetStates {
     /// Study 切替時に全チャートの show_infeasible フラグを true にリセットする。
     pub fn reset_infeasible_flags(&mut self) {
-        self.pareto_2d.show_infeasible = true;
         self.pareto_3d.show_infeasible = true;
         self.cluster_scatter_3d.show_infeasible = true;
         self.scatter_chart.show_infeasible = true;
