@@ -39,8 +39,6 @@ pub struct ParetoScatter2D {
     // TASK-2241: rectangular brush state (plot coordinates)
     pub brush_start: Option<[f64; 2]>,
     pub brush_end: Option<[f64; 2]>,
-    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
-    pub show_infeasible: bool,
 }
 
 impl Default for ParetoScatter2D {
@@ -51,7 +49,6 @@ impl Default for ParetoScatter2D {
             use_downsample: true,
             brush_start: None,
             brush_end: None,
-            show_infeasible: true,
         }
     }
 }
@@ -66,7 +63,6 @@ impl ParetoScatter2D {
         };
 
         let obj_names = ctx.meta.objective_names.clone();
-        let has_constraints = ctx.meta.has_constraints;
         let downsample_indices = if self.use_downsample {
             app_state.downsample_cache.scatter.clone()
         } else {
@@ -75,7 +71,7 @@ impl ParetoScatter2D {
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
-        // 軸割り当て ComboBox + Show Infeasible トグル
+        // 軸割り当て ComboBox
         ui.horizontal(|ui| {
             ui.label("X Axis:");
             egui::ComboBox::from_id_salt("x_axis_combo")
@@ -93,10 +89,6 @@ impl ParetoScatter2D {
                         ui.selectable_value(&mut self.y_axis, name.clone(), name);
                     }
                 });
-            if has_constraints {
-                ui.separator();
-                ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
-            }
         });
 
         let x_idx = obj_names
@@ -147,9 +139,7 @@ impl ParetoScatter2D {
                 .unwrap_or(true);
 
             if !feasible {
-                if self.show_infeasible {
-                    infeasible_pts.push(pt);
-                }
+                infeasible_pts.push(pt);
                 continue;
             }
 
@@ -527,15 +517,6 @@ mod tests {
     }
 
     // ── constraint-aware visualization (TASK-2347) ──────────────────
-
-    #[test]
-    fn tc_cav_pareto2d_show_infeasible_default_true() {
-        let widget = ParetoScatter2D::default();
-        assert!(
-            widget.show_infeasible,
-            "show_infeasible must default to true"
-        );
-    }
 
     #[test]
     fn tc_cav_classify_no_constraint_all_feasible() {
