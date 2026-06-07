@@ -341,4 +341,3 @@ fn tc_cav_04_no_constraints_unchanged_behavior() {
     assert_eq!(result.ranks[1], 0);
     assert!(result.ranks[2] > 0);
 }
-
