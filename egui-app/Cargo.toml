@@ -44,6 +44,6 @@ path = "examples/mem_probe.rs"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [target.'cfg(windows)'.build-dependencies]
-ico = "0.3"
+ico = "0.5"
 image = { version = "0.25", default-features = false, features = ["png"] }
 winres = "0.1"
