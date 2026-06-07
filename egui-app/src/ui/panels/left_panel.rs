@@ -1,6 +1,5 @@
 use crate::state::app_state::{AppState, ColorMode, ColormapName};
 use crate::state::layout_state::LayoutState;
-use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
 
 /// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
@@ -9,7 +8,6 @@ pub fn show_left_panel(
     app_state: &mut AppState,
     widget_states: &mut WidgetStates,
     _layout: &mut LayoutState,
-    tx: &std::sync::mpsc::SyncSender<AppMessage>,
 ) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         show_study_info(ui, app_state);
@@ -19,29 +17,13 @@ pub fn show_left_panel(
         show_color_mode(ui, app_state, widget_states);
         show_colormap_selector(ui, app_state, widget_states);
 
-        // REQ-001: Trade-off Navigator（多目的 Study 時のみ）
-        let (obj_names, is_minimize) = if let Some(ctx) = &app_state.current_study {
-            let names = ctx.meta.objective_names.clone();
-            let minimize: Vec<bool> = ctx
-                .meta
-                .directions
-                .iter()
-                .map(|d| matches!(d, crate::state::types::Direction::Minimize))
-                .collect();
-            (names, minimize)
-        } else {
-            (vec![], vec![])
-        };
-        if obj_names.len() >= 2 {
-            crate::ui::widgets::tradeoff_navigator::show_tradeoff_navigator(
-                ui,
-                app_state,
-                &obj_names,
-                &is_minimize,
-                tx,
-            );
-        } else if obj_names.len() == 1 {
-            // REQ-008: Convergence Card（単目的）
+        // REQ-008: Convergence Card（単目的のみ）
+        let obj_count = app_state
+            .current_study
+            .as_ref()
+            .map(|ctx| ctx.meta.objective_names.len())
+            .unwrap_or(0);
+        if obj_count == 1 {
             crate::ui::widgets::convergence_card::show_convergence_card(ui, app_state);
         }
     });

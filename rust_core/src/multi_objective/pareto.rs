@@ -16,7 +16,7 @@ pub use hypervolume::{
     compute_hv_history_from_data, compute_hypervolume_history, hypervolume_2d, hypervolume_nd,
 };
 pub use ranking::{compute_pareto_ranks, nd_sort};
-pub use tradeoff::{chebyshev_sort, score_tradeoff_navigator};
+pub use tradeoff::chebyshev_sort;
 pub use types::{HvHistoryResult, ParetoResult};
 
 #[cfg(test)]
