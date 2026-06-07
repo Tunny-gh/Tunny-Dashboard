@@ -30,12 +30,6 @@ pub struct AppState {
     pub hv_history: Option<HvHistory>,
     pub selected_colormap: ColormapName,
 
-    // ── REQ-001: Trade-off Navigator ──────────────────────────
-    /// 目的関数ごとの重みベクトル（スライダー値）
-    pub tradeoff_weights: Vec<f64>,
-    /// score_tradeoff_navigator() の結果（ソート済みインデックス）
-    pub tradeoff_sorted_indices: Option<Vec<u32>>,
-
     // ── REQ-006: Multi-study 比較 ──────────────────────────────
     /// 比較モードが有効か
     pub comparison_mode: bool,
@@ -90,8 +84,6 @@ impl AppState {
             ahp_result: None,
             hv_history: None,
             selected_colormap: ColormapName::Viridis,
-            tradeoff_weights: Vec::new(),
-            tradeoff_sorted_indices: None,
             comparison_mode: false,
             comparison_studies: Vec::new(),
             comparison_colors: Vec::new(),
@@ -151,10 +143,6 @@ impl AppState {
         self.hv_history = None;
         self.downsample_cache.clear();
         // selected_colormap はユーザー設定を維持
-
-        // REQ-001: Trade-off 結果はリセット（Study 切り替え時に再計算が必要）
-        self.tradeoff_weights.clear();
-        self.tradeoff_sorted_indices = None;
 
         // REQ-006: comparison_mode/studies/colors は Study 切り替えでも維持
         // （ユーザーが明示的にリセットするまで比較セッションを保持）
@@ -318,14 +306,6 @@ mod tests {
     // ============================================================
 
     #[test]
-    fn task2110_tradeoff_fields_default() {
-        // TC-001, TC-002
-        let state = AppState::new();
-        assert!(state.tradeoff_weights.is_empty());
-        assert!(state.tradeoff_sorted_indices.is_none());
-    }
-
-    #[test]
     fn task2110_comparison_fields_default() {
         // TC-003, TC-004, TC-005
         let state = AppState::new();
@@ -358,16 +338,12 @@ mod tests {
             .insert(0, vec![std::path::PathBuf::from("/tmp/a.png")]);
         state.artifacts_dir = Some(std::path::PathBuf::from("/tmp"));
         state.best_trial_history = Some(vec![(0, 1.0)]);
-        state.tradeoff_weights = vec![0.5, 0.5];
-        state.tradeoff_sorted_indices = Some(vec![0, 1]);
 
         state.clear();
 
         assert!(state.artifact_map.is_empty());
         assert!(state.artifacts_dir.is_none());
         assert!(state.best_trial_history.is_none());
-        assert!(state.tradeoff_weights.is_empty());
-        assert!(state.tradeoff_sorted_indices.is_none());
     }
 
     #[test]
@@ -382,14 +358,6 @@ mod tests {
         // comparison_mode と comparison_colors は維持される
         assert!(state.comparison_mode);
         assert_eq!(state.comparison_colors.len(), 1);
-    }
-
-    #[test]
-    fn task2110_tradeoff_weights_writable() {
-        // TC-011
-        let mut state = AppState::new();
-        state.tradeoff_weights = vec![0.5, 0.5];
-        assert_eq!(state.tradeoff_weights, vec![0.5, 0.5]);
     }
 
     // ── TASK-2228: 新規フィールドのテスト ──────────────────────

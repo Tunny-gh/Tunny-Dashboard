@@ -39,5 +39,4 @@ pub use decision::mcdm_scatter_chart_3d;
 mod common;
 pub use common::cluster_table;
 pub use common::convergence_card;
-pub use common::tradeoff_navigator;
 pub use common::trial_table;

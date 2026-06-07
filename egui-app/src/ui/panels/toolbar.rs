@@ -1,7 +1,8 @@
 use crate::io::export::ExportTarget;
-use crate::state::app_state::{AppState, StudyMeta};
+use crate::state::app_state::{AppState, ColormapName, StudyMeta};
 use crate::state::layout_state::{LayoutState, ViewMode};
 use crate::theme::{ERROR_COLOR, TOOLBAR_BTN_FG};
+use crate::ui::widget_states::WidgetStates;
 
 /// ビューモードボタンのラベル定義
 pub const VIEW_MODE_BUTTONS: &[(ViewMode, &str)] = &[
@@ -232,6 +233,42 @@ pub fn show_toolbar(
         });
     });
     actions
+}
+
+/// カラーマップ選択セレクタ（ツールバー 2 段目・左端、常時表示）。
+/// 変更時は全チャートの色を再計算する。
+pub fn show_colormap_selector(
+    ui: &mut egui::Ui,
+    app_state: &mut AppState,
+    widget_states: &mut WidgetStates,
+) {
+    ui.label(
+        egui::RichText::new("Colormap:")
+            .color(crate::theme::TOOLBAR_TEXT)
+            .size(12.0),
+    );
+    let current_label = app_state.selected_colormap.label().to_string();
+    let mut changed = false;
+    ui.scope(|ui| {
+        apply_combo_visuals(ui.visuals_mut());
+        egui::ComboBox::from_id_salt("toolbar_colormap_combo")
+            .selected_text(egui::RichText::new(current_label).color(crate::theme::TOOLBAR_TEXT))
+            .width(120.0)
+            .show_ui(ui, |ui| {
+                for cmap in ColormapName::all() {
+                    if ui
+                        .selectable_label(app_state.selected_colormap == *cmap, cmap.label())
+                        .clicked()
+                    {
+                        app_state.selected_colormap = cmap.clone();
+                        changed = true;
+                    }
+                }
+            });
+    });
+    if changed {
+        widget_states.update_chart_colors(app_state);
+    }
 }
 
 /// 比較 Study 選択ドロップダウンを描画する。

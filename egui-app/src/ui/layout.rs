@@ -27,8 +27,10 @@ pub fn clamp_left_width(left_width: f32) -> f32 {
 /// TunnyApp のレイアウトを描画する（Toolbar + OverlayPanels + CentralPanel）
 pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
     use crate::ui::{
-        left_panel::show_left_panel, main_canvas::show_main_canvas, right_panel::show_right_panel,
-        toolbar::show_toolbar,
+        left_panel::show_left_panel,
+        main_canvas::show_main_canvas,
+        right_panel::show_right_panel,
+        toolbar::{show_colormap_selector, show_toolbar},
     };
 
     let tx = app.sender();
@@ -63,7 +65,14 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 app.load_error.as_deref(),
             );
             app.apply_toolbar_actions(toolbar_actions);
-            show_language_menu(ui, &mut app.app_state);
+
+            // ツールバー 2 段目: 左端にカラーマップ（常時表示）、右端に Help Language
+            ui.horizontal(|ui| {
+                show_colormap_selector(ui, &mut app.app_state, &mut app.widget_states);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    show_language_menu(ui, &mut app.app_state);
+                });
+            });
         });
 
     // ツールバー下の有効エリア（オーバーレイパネルの配置基準）
@@ -245,13 +254,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                     let inner_w = (panel_w - 16.0).max(0.0);
                     let inner_h = (panel_area.height() - 16.0).max(0.0);
                     ui.set_min_size(egui::vec2(inner_w, inner_h));
-                    show_left_panel(
-                        ui,
-                        &mut app.app_state,
-                        &mut app.widget_states,
-                        &mut app.layout,
-                        &tx,
-                    );
+                    show_left_panel(ui, &mut app.app_state, &mut app.layout);
                 });
             });
     }

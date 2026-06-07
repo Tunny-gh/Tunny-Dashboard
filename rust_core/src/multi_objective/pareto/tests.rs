@@ -341,36 +341,3 @@ fn tc_cav_04_no_constraints_unchanged_behavior() {
     assert_eq!(result.ranks[1], 0);
     assert!(result.ranks[2] > 0);
 }
-
-#[test]
-fn tc_201_p02_tradeoff_50000_points_under_1ms() {
-    #[cfg(debug_assertions)]
-    let n = 5_000usize;
-    #[cfg(not(debug_assertions))]
-    let n = 50_000usize;
-
-    let rows: Vec<TrialRow> = (0..n)
-        .map(|i| make_row_obj(i as u32, vec![(i % 100) as f64, (n - i) as f64]))
-        .collect();
-    setup_study(rows, &["obj0", "obj1"]);
-
-    let weights = [0.5, 0.5];
-    let is_min = [true, true];
-    let start = std::time::Instant::now();
-    let result = score_tradeoff_navigator(&weights, &is_min);
-    let elapsed = start.elapsed();
-
-    #[cfg(debug_assertions)]
-    assert!(
-        elapsed.as_millis() <= 50,
-        "Trade-off Navigator translated {}ms translated（translated: ≤50ms）",
-        elapsed.as_millis()
-    );
-    #[cfg(not(debug_assertions))]
-    assert!(
-        elapsed.as_millis() <= 1,
-        "Trade-off Navigator translated {}ms translated（translated: ≤1ms）",
-        elapsed.as_millis()
-    );
-    assert_eq!(result.len(), n);
-}
