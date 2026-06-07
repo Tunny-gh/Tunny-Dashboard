@@ -174,10 +174,6 @@ pub enum AppMessage {
     SensitivityError(String),
 
     // ── TASK-2112: 新規バリアント ────────────────────────────────────
-    /// REQ-001: Trade-off Navigator 計算完了
-    TradeoffDone {
-        sorted_indices: Vec<u32>,
-    },
     /// REQ-006: 比較 Study のロード完了
     ComparisonStudyLoaded {
         study_idx: usize,

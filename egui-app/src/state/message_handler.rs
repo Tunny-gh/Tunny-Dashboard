@@ -194,9 +194,6 @@ impl MessageHandler {
                 widget_states.pdp_chart.computing = false;
             }
 
-            AppMessage::TradeoffDone { sorted_indices } => {
-                app_state.tradeoff_sorted_indices = Some(sorted_indices);
-            }
             AppMessage::ComparisonStudyLoaded {
                 study_idx: _, // studies arrive in dispatch order; sequential append is correct
                 context,
@@ -254,21 +251,6 @@ impl MessageHandler {
                 widget_states.capture.last_error = Some(err);
             }
         }
-    }
-
-    /// REQ-001: Trade-off Navigator — Chebyshev スコアを非同期計算して TradeoffDone を送信する
-    pub fn trigger_tradeoff_computation(
-        weights: Vec<f64>,
-        is_minimize: Vec<bool>,
-        tx: std::sync::mpsc::SyncSender<AppMessage>,
-    ) {
-        crate::app::spawn_task(tx, move || {
-            let sorted_indices = tunny_core::multi_objective::pareto::score_tradeoff_navigator(
-                &weights,
-                &is_minimize,
-            );
-            AppMessage::TradeoffDone { sorted_indices }
-        });
     }
 
     /// 現在の DataFrame スナップショットから core TrialRow 群を再構築する。
