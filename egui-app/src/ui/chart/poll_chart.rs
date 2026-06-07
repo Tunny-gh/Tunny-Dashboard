@@ -345,73 +345,26 @@ pub(crate) fn poll_chart_work(
                 }
             }
         }
-        ChartId::McdmRankChart => {
-            dispatch_mcdm_entropy(
-                &mut widgets.mcdm_chart.controls,
-                ctx,
-                obj_names,
-                McdmChartSource::Rank,
-                tx,
-            );
-            dispatch_mcdm_compute(
-                &mut widgets.mcdm_chart.controls,
-                ctx,
-                obj_names,
-                directions,
-                McdmChartSource::Rank,
-                tx,
-            );
-        }
-        ChartId::McdmScatterChart => {
-            dispatch_mcdm_entropy(
-                &mut widgets.scatter_chart.controls,
-                ctx,
-                obj_names,
-                McdmChartSource::Scatter2D,
-                tx,
-            );
-            dispatch_mcdm_compute(
-                &mut widgets.scatter_chart.controls,
-                ctx,
-                obj_names,
-                directions,
-                McdmChartSource::Scatter2D,
-                tx,
-            );
-        }
-        ChartId::McdmScatterChart3D => {
-            dispatch_mcdm_entropy(
-                &mut widgets.mcdm_scatter_3d.controls,
-                ctx,
-                obj_names,
-                McdmChartSource::Scatter3D,
-                tx,
-            );
-            dispatch_mcdm_compute(
-                &mut widgets.mcdm_scatter_3d.controls,
-                ctx,
-                obj_names,
-                directions,
-                McdmChartSource::Scatter3D,
-                tx,
-            );
-        }
-        ChartId::McdmTable => {
-            dispatch_mcdm_entropy(
-                &mut widgets.mcdm_table.controls,
-                ctx,
-                obj_names,
-                McdmChartSource::Table,
-                tx,
-            );
-            dispatch_mcdm_compute(
-                &mut widgets.mcdm_table.controls,
-                ctx,
-                obj_names,
-                directions,
-                McdmChartSource::Table,
-                tx,
-            );
+        ChartId::McdmRankChart
+        | ChartId::McdmScatterChart
+        | ChartId::McdmScatterChart3D
+        | ChartId::McdmTable => {
+            // 各 MCDM チャートは独自の controls を持つが、ディスパッチ処理は共通。
+            // 対象チャートの controls と source だけを選び、同じ 2 ステップを実行する。
+            let (controls, source) = match chart_id {
+                ChartId::McdmRankChart => (&mut widgets.mcdm_chart.controls, McdmChartSource::Rank),
+                ChartId::McdmScatterChart => (
+                    &mut widgets.scatter_chart.controls,
+                    McdmChartSource::Scatter2D,
+                ),
+                ChartId::McdmScatterChart3D => (
+                    &mut widgets.mcdm_scatter_3d.controls,
+                    McdmChartSource::Scatter3D,
+                ),
+                _ => (&mut widgets.mcdm_table.controls, McdmChartSource::Table),
+            };
+            dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
+            dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
         }
         ChartId::AhpRankChart => {
             if let Some(req) = widgets.ahp_chart.pending_compute.take() {
