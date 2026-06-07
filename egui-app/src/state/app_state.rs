@@ -27,7 +27,6 @@ pub struct AppState {
     pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
     pub downsample_cache: DownsampleCache,
     pub live_update: LiveUpdateState,
-    pub topsis_result: Option<TopsisResult>,
     /// 最後に計算した MCDM 結果。McdmScore カラーモードの色付け基準として保持する。
     pub mcdm_result: Option<McdmResult>,
     /// MCDM 結果のキャッシュ。設定キー（手法 / 重みモード / 重み / v）ごとに保持し、
@@ -85,7 +84,6 @@ impl AppState {
             cluster_cache: HashMap::new(),
             downsample_cache: DownsampleCache::default(),
             live_update: LiveUpdateState::default(),
-            topsis_result: None,
             mcdm_result: None,
             mcdm_cache: HashMap::new(),
             hv_history: None,
@@ -143,7 +141,6 @@ impl AppState {
         self.importance_cache.clear();
         self.sobol_cache.clear();
         self.cluster_cache.clear();
-        self.topsis_result = None;
         self.mcdm_result = None;
         self.mcdm_cache.clear();
         self.hv_history = None;

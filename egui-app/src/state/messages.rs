@@ -1,6 +1,5 @@
 use crate::state::app_state::{
     ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext, StudyMeta,
-    TopsisResult,
 };
 use crate::state::results::{EntropyResult, HvHistory};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
@@ -170,7 +169,6 @@ pub enum AppMessage {
         source: ClusterChartSource,
         err: ClusterUiError,
     },
-    TopsisDone(TopsisResult),
     McdmDone {
         source: McdmChartSource,
         key: McdmCacheKey,
@@ -230,15 +228,6 @@ pub enum AppMessage {
         html: String,
         suggested_filename: String,
     },
-    /// TASK-1505: MCDM散布図計算完了
-    McdmScatterComputed {
-        /// 表示ポイント (x_norm, y_norm, r, g, b)
-        points: Vec<(f64, f64, u8, u8, u8)>,
-        total_trials: usize,
-    },
-    /// TASK-1505: MCDM散布図計算失敗
-    McdmScatterComputeFailed(String),
-
     ComparisonStudyLoadFailed(String),
     SurfacePlotDone(SurfacePlotResult),
     SurfacePlotFailed(String),
