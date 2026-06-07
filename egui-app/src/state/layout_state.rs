@@ -62,7 +62,7 @@ impl ChartId {
             ChartId::OptimizationHistory => "Optimization History",
             ChartId::HvHistory => "Hypervolume History",
             ChartId::SensitivityHeatmap => "Sensitivity Heatmap",
-            ChartId::ClusterScatter => "Cluster Scatter",
+            ChartId::ClusterScatter => "Cluster Scatter 2D",
             ChartId::ClusterScatter3D => "Cluster Scatter 3D",
             ChartId::ClusterTable => "Cluster Table",
             ChartId::McdmRankChart => "MCDM Ranking",
