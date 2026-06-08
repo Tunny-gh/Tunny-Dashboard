@@ -60,6 +60,35 @@ pub fn ordered_brush_range(start: f32, end: f32) -> (f32, f32) {
     (start.min(end), start.max(end))
 }
 
+/// 色付け用の正規化レンジを実行可能解のみから算出する。
+/// 実行不可能解の外れ値でカラーマップが圧縮されないよう、軸の座標レンジとは別に求める。
+/// `is_feasible` が `None`（制約なし）の場合は全件、有効な値が一つも無い場合は `fallback` を返す。
+pub fn feasible_color_range(
+    col: &[f64],
+    is_feasible: Option<&[f64]>,
+    fallback: (f64, f64),
+) -> (f64, f64) {
+    let (mn, mx) = col
+        .iter()
+        .enumerate()
+        .filter(|(idx, v)| {
+            v.is_finite()
+                && is_feasible
+                    .and_then(|f| f.get(*idx))
+                    .map(|&fv| fv > 0.5)
+                    .unwrap_or(true)
+        })
+        .map(|(_, &v)| v)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), v| {
+            (mn.min(v), mx.max(v))
+        });
+    if mn <= mx {
+        (mn, mx)
+    } else {
+        fallback
+    }
+}
+
 /// 平行座標図ウィジェット
 pub struct ParallelCoordsChart {
     pub axis_order: Vec<String>,
@@ -239,6 +268,12 @@ impl ParallelCoordsChart {
 
         let show_infeasible = self.show_infeasible;
 
+        // 色付けの正規化レンジは実行可能解のみから算出する（軸の座標レンジとは別）。
+        let color_range: (f64, f64) = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
+            Some(col) => feasible_color_range(col, is_feasible_col, col_ranges[color_axis_idx]),
+            None => col_ranges[color_axis_idx],
+        };
+
         // 各試行を折れ線で描画（半透明）
         for t_idx in 0..trial_count {
             let feasible = is_feasible_col
@@ -258,7 +293,7 @@ impl ParallelCoordsChart {
                     .and_then(|c| c.get(t_idx))
                     .copied()
                     .map(|v| {
-                        let (mn, mx) = col_ranges[color_axis_idx];
+                        let (mn, mx) = color_range;
                         cmap.interpolate(normalize_value(v, mn, mx))
                     })
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
@@ -680,6 +715,41 @@ mod tests {
             filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
         assert_eq!(sel.len(), 1);
         assert_eq!(sel[0], 0);
+    }
+
+    #[test]
+    fn feasible_color_range_excludes_infeasible_outliers() {
+        // 実行不可能解 (idx 3) が外れ値 1000.0 を持つが、レンジは実行可能解のみから算出する
+        let col = [1.0, 2.0, 3.0, 1000.0];
+        let feas = [1.0, 1.0, 1.0, 0.0];
+        let (mn, mx) = feasible_color_range(&col, Some(&feas), (0.0, 9999.0));
+        assert_eq!(mn, 1.0);
+        assert_eq!(mx, 3.0);
+    }
+
+    #[test]
+    fn feasible_color_range_no_constraints_uses_all() {
+        let col = [1.0, 2.0, 3.0, 1000.0];
+        let (mn, mx) = feasible_color_range(&col, None, (0.0, 9999.0));
+        assert_eq!(mn, 1.0);
+        assert_eq!(mx, 1000.0);
+    }
+
+    #[test]
+    fn feasible_color_range_all_infeasible_falls_back() {
+        let col = [1.0, 2.0, 3.0];
+        let feas = [0.0, 0.0, 0.0];
+        let range = feasible_color_range(&col, Some(&feas), (-5.0, 5.0));
+        assert_eq!(range, (-5.0, 5.0));
+    }
+
+    #[test]
+    fn feasible_color_range_skips_non_finite() {
+        let col = [1.0, f64::NAN, f64::INFINITY, 4.0];
+        let feas = [1.0, 1.0, 1.0, 1.0];
+        let (mn, mx) = feasible_color_range(&col, Some(&feas), (0.0, 0.0));
+        assert_eq!(mn, 1.0);
+        assert_eq!(mx, 4.0);
     }
 
     #[test]
