@@ -3,6 +3,7 @@ use crate::state::layout_state::ChartId;
 use crate::state::results::ClusterResult;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
+use crate::ui::widgets::trial_table::TrialTableMode;
 
 /// チャート固有のクラスタリング設定キーで、キャッシュからクラスタ結果を解決する。
 /// 2D / 3D / Table はそれぞれ独立した設定を持つため、エクスポート対象も各自のキーで引く。
@@ -67,7 +68,6 @@ pub fn build_chart_csv(
 /// 統合トライアルテーブル（`PanelItem::TrialTable`）の CSV を、現在のモードに応じて組み立てる。
 /// All はトライアル一覧、Cluster はクラスタ割当、MCDM はランキングを出力する。
 pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    use crate::ui::widgets::trial_table::TrialTableMode;
     match widgets.trial_table.mode {
         TrialTableMode::All => build_trial_based_csv(app_state),
         TrialTableMode::Cluster => {
@@ -85,7 +85,6 @@ pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Op
 
 /// 統合トライアルテーブルに、現在のモードでエクスポート可能なデータがあるか判定する。
 pub fn has_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> bool {
-    use crate::ui::widgets::trial_table::TrialTableMode;
     match widgets.trial_table.mode {
         TrialTableMode::All => app_state
             .current_study
@@ -108,7 +107,6 @@ pub fn has_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> bool
 
 /// 統合トライアルテーブルの CSV ファイル名を、現在のモードに応じて返す。
 pub fn trial_table_csv_filename(widgets: &WidgetStates) -> String {
-    use crate::ui::widgets::trial_table::TrialTableMode;
     let name = match widgets.trial_table.mode {
         TrialTableMode::All => "trial_table",
         TrialTableMode::Cluster => "cluster_table",
