@@ -34,6 +34,8 @@ enum CanvasAction {
     /// 左上を固定したまま絶対サイズ (w, h) を設定する
     Resize(u64, f32, f32),
     Remove(u64),
+    /// バーのダブルクリックでウィジェットを最大化表示する
+    Maximize(PanelItem),
 }
 
 /// 自由配置キャンバスを描画する。
@@ -271,6 +273,9 @@ pub fn show_canvas_view(
                 if matches!(tb_action, CellToolbarAction::Close) {
                     actions.push(CanvasAction::Remove(item.id));
                 }
+                if let CellToolbarAction::Maximize(target) = &tb_action {
+                    actions.push(CanvasAction::Maximize(target.clone()));
+                }
             });
 
         // このアイテムのレイヤーに変換を適用（テキストごと拡大縮小）
@@ -321,6 +326,7 @@ pub fn show_canvas_view(
                 }
             }
             CanvasAction::Remove(id) => layout.canvas.remove(id),
+            CanvasAction::Maximize(target) => widgets.maximized_item = Some(target),
         }
     }
     if let Some((it, wp)) = pending_add {
@@ -391,6 +397,10 @@ fn show_canvas_item_toolbar(
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if drag_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+    // バーのダブルクリックで最大化（ボタン以外。ボタンは後から登録され z 上位）。
+    if drag_resp.double_clicked() {
+        action = CellToolbarAction::Maximize(item.clone());
     }
 
     // バー内コンテンツ（タイトル＋ボタン）をバーの上に描画。

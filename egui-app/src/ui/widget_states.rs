@@ -96,6 +96,8 @@ pub struct WidgetStates {
     // TASK-2228: Surface Plot と capture の一時状態
     pub surface_plot: SurfacePlotState,
     pub capture: ChartCaptureState,
+    /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
+    pub maximized_item: Option<crate::state::layout_state::PanelItem>,
 }
 
 impl WidgetStates {

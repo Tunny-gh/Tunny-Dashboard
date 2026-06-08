@@ -286,6 +286,14 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 });
             });
     }
+
+    // ─── 最大化モーダル（すべての最前面に重ねる） ──────────────────────
+    crate::ui::grid_canvas::show_maximized_modal(
+        ctx,
+        &mut app.app_state,
+        &mut app.widget_states,
+        &tx,
+    );
 }
 
 /// ヘルプ言語切替メニューを描画する。
