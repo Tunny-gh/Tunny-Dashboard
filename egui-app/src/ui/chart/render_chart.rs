@@ -31,6 +31,10 @@ pub(crate) fn render_chart(
         widgets.cluster_table.show(ui, app_state, &cmap);
         return;
     }
+    if matches!(chart_id, ChartId::ArtifactGallery) {
+        widgets.artifact_gallery.show(ui, app_state);
+        return;
+    }
 
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
@@ -42,7 +46,8 @@ pub(crate) fn render_chart(
         ChartId::ParetoScatter2D
         | ChartId::ParetoScatter3D
         | ChartId::ClusterScatter3D
-        | ChartId::ClusterTable => {
+        | ChartId::ClusterTable
+        | ChartId::ArtifactGallery => {
             unreachable!()
         }
         ChartId::OptimizationHistory => {

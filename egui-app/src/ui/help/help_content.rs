@@ -199,6 +199,17 @@ fn chart_help(id: &ChartId) -> HelpContent {
             html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
             html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
         },
+        ChartId::ArtifactGallery => HelpContent {
+            widget_name: "artifact-gallery",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/artifact-gallery.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/artifact-gallery.html"
+            )),
+        },
     }
 }
 

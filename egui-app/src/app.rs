@@ -61,6 +61,8 @@ impl ComputeSyncKind {
                     w.cluster_scatter_3d
                         .adopt_runtime_state(&global.cluster_scatter_3d);
                     w.cluster_table.adopt_runtime_state(&global.cluster_table);
+                    w.artifact_gallery
+                        .adopt_cluster_runtime(&global.artifact_gallery);
                 }
                 Self::Importance => w.importance.adopt_compute_state(&global.importance),
                 Self::Mcdm => {
@@ -69,6 +71,9 @@ impl ComputeSyncKind {
                     w.mcdm_scatter_3d
                         .adopt_compute_state(&global.mcdm_scatter_3d);
                     w.mcdm_table.adopt_compute_state(&global.mcdm_table);
+                    w.artifact_gallery
+                        .mcdm
+                        .adopt_compute_state(&global.artifact_gallery.mcdm);
                 }
                 Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
@@ -96,6 +101,8 @@ pub struct TunnyApp {
 impl TunnyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
+        // artifact ギャラリーで file:// 画像を表示するためのローダを登録する。
+        egui_extras::install_image_loaders(&cc.egui_ctx);
 
         // Inter + Noto Sans JP フォントを設定（日本語グリフは JP フォントにフォールバック）
         let mut fonts = egui::FontDefinitions::default();
@@ -255,7 +262,11 @@ impl TunnyApp {
                     }
                 }
                 ToolbarAction::ScanArtifacts(base_dir) => {
-                    crate::io::artifacts::scan_artifacts_dir(base_dir, self.sender());
+                    crate::io::artifacts::scan_artifacts_dir(
+                        base_dir,
+                        self.app_state.journal_path.clone(),
+                        self.sender(),
+                    );
                 }
                 ToolbarAction::ClearLoadError => {
                     self.load_error = None;

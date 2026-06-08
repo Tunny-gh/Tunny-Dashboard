@@ -380,6 +380,54 @@ pub(crate) fn poll_chart_work(
             dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
             dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
         }
+        ChartId::ArtifactGallery => {
+            use crate::ui::widgets::artifact_gallery::ArtifactViewMode;
+            match widgets.artifact_gallery.mode {
+                ArtifactViewMode::Cluster => {
+                    if let Some(req) = widgets.artifact_gallery.cluster_pending.take() {
+                        match build_cluster_matrix(
+                            &ctx.view,
+                            param_names,
+                            obj_names,
+                            req.target_space,
+                        ) {
+                            Ok(matrix) => {
+                                let tx = tx.clone();
+                                crate::app::spawn_task(tx, move || {
+                                    run_cluster_compute(
+                                        ClusterChartSource::ArtifactGallery,
+                                        req,
+                                        matrix,
+                                    )
+                                });
+                            }
+                            Err(err) => {
+                                widgets.artifact_gallery.set_cluster_error(err);
+                            }
+                        }
+                    }
+                }
+                ArtifactViewMode::Mcdm => {
+                    let controls = &mut widgets.artifact_gallery.mcdm;
+                    dispatch_mcdm_entropy(
+                        controls,
+                        ctx,
+                        obj_names,
+                        McdmChartSource::ArtifactGallery,
+                        tx,
+                    );
+                    dispatch_mcdm_compute(
+                        controls,
+                        ctx,
+                        obj_names,
+                        directions,
+                        McdmChartSource::ArtifactGallery,
+                        tx,
+                    );
+                }
+                ArtifactViewMode::All => {}
+            }
+        }
         ChartId::SurfacePlot => {
             if let Some(req) = widgets.surface_plot.pending_compute.take() {
                 let ctx = app_state.current_study.as_ref().unwrap();

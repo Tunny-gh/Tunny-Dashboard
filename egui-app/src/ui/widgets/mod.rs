@@ -36,6 +36,7 @@ pub use decision::mcdm_scatter_chart_3d;
 
 // 共通 UI 部品
 mod common;
+pub use common::artifact_gallery;
 pub use common::cluster_table;
 pub use common::convergence_card;
 pub use common::trial_table;
