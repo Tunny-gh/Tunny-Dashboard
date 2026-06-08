@@ -187,23 +187,25 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
         };
         let trial_id = trial_id as u32;
         // op_code 9 は "system_attr"、op_code 4 のインラインは "system_attrs"。
-        for key in ["system_attr", "system_attrs"] {
-            let Some(obj) = json.get(key).and_then(|v| v.as_object()) else {
+        let Some(obj) = json
+            .get("system_attr")
+            .or_else(|| json.get("system_attrs"))
+            .and_then(|v| v.as_object())
+        else {
+            continue;
+        };
+        for (attr_key, attr_val) in obj {
+            let Some(artifact_id) = attr_key.strip_prefix("artifacts:") else {
                 continue;
             };
-            for (attr_key, attr_val) in obj {
-                let Some(artifact_id) = attr_key.strip_prefix("artifacts:") else {
-                    continue;
-                };
-                let Some(s) = attr_val.as_str() else {
-                    continue;
-                };
-                if let Ok(mut meta) = serde_json::from_str::<ArtifactMeta>(s) {
-                    if meta.artifact_id.is_empty() {
-                        meta.artifact_id = artifact_id.to_string();
-                    }
-                    map.entry(trial_id).or_default().push(meta);
+            let Some(s) = attr_val.as_str() else {
+                continue;
+            };
+            if let Ok(mut meta) = serde_json::from_str::<ArtifactMeta>(s) {
+                if meta.artifact_id.is_empty() {
+                    meta.artifact_id = artifact_id.to_string();
                 }
+                map.entry(trial_id).or_default().push(meta);
             }
         }
     }

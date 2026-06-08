@@ -249,7 +249,7 @@ impl ArtifactGallery {
 
     /// 画像の拡大プレビューをモーダルで表示する。背景クリック / Esc / Close で閉じる。
     fn show_preview_modal(&mut self, ui: &egui::Ui) {
-        let Some(preview) = self.preview.clone() else {
+        let Some(preview) = self.preview.as_ref() else {
             return;
         };
         let ctx = ui.ctx().clone();
@@ -279,13 +279,29 @@ impl ArtifactGallery {
             // 画像本体。画面の大半に収まるよう上限を設けつつ縦横比を維持する。
             egui::ScrollArea::both().max_height(image_h).show(ui, |ui| {
                 ui.add(
-                    egui::Image::from_uri(preview.uri.clone()).max_size(egui::vec2(max_w, image_h)),
+                    egui::Image::from_uri(preview.uri.as_str())
+                        .max_size(egui::vec2(max_w, image_h)),
                 );
             });
         });
 
         if close || modal.should_close() {
             self.preview = None;
+        }
+    }
+
+    /// カードグリッド描画後の結果（ハイライト要求 / プレビュー要求）を適用する。
+    fn apply_card_outcome(
+        &mut self,
+        app_state: &mut AppState,
+        clicked: Option<u32>,
+        preview: Option<PreviewState>,
+    ) {
+        if let Some(trial_id) = clicked {
+            app_state.set_highlight(trial_id);
+        }
+        if preview.is_some() {
+            self.preview = preview;
         }
     }
 
@@ -344,12 +360,7 @@ impl ArtifactGallery {
                 clicked = h;
                 preview = p;
             });
-        if let Some(trial_id) = clicked {
-            app_state.set_highlight(trial_id);
-        }
-        if preview.is_some() {
-            self.preview = preview;
-        }
+        self.apply_card_outcome(app_state, clicked, preview);
     }
 
     /// Cluster モード: 設定 UI + クラスタ別セクション表示。
@@ -382,7 +393,7 @@ impl ArtifactGallery {
         }
 
         let key = self.cluster_cache_key();
-        let Some(cr) = app_state.cluster_cache.get(&key).cloned() else {
+        let Some(cr) = app_state.cluster_cache.get(&key) else {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("No clustering result for this setting. Press Run.").weak(),
@@ -392,12 +403,12 @@ impl ArtifactGallery {
         };
 
         let cmap = colormap_from_name(&app_state.selected_colormap);
-        let trial_ids = app_state
+        let trial_ids: &[u32] = app_state
             .current_study
             .as_ref()
-            .map(|c| c.view.trial_ids.clone())
-            .unwrap_or_default();
-        let sections = cluster_sections(&cr, &trial_ids, &app_state.artifact_map, artifact_index);
+            .map(|c| c.view.trial_ids.as_slice())
+            .unwrap_or(&[]);
+        let sections = cluster_sections(cr, trial_ids, &app_state.artifact_map, artifact_index);
         if sections.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No clustered trials have artifacts.").weak());
@@ -446,12 +457,7 @@ impl ArtifactGallery {
                         });
                 }
             });
-        if let Some(trial_id) = clicked {
-            app_state.set_highlight(trial_id);
-        }
-        if preview.is_some() {
-            self.preview = preview;
-        }
+        self.apply_card_outcome(app_state, clicked, preview);
     }
 
     /// MCDM モード: 設定 UI + ランキング順表示。
@@ -480,21 +486,21 @@ impl ArtifactGallery {
         }
 
         let key = self.mcdm.cache_key();
-        let Some(result) = app_state.mcdm_cache.get(&key).cloned() else {
+        let Some(result) = app_state.mcdm_cache.get(&key) else {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No MCDM result for this setting. Press Run.").weak());
             });
             return;
         };
 
-        let trial_ids = app_state
+        let trial_ids: &[u32] = app_state
             .current_study
             .as_ref()
-            .map(|c| c.view.trial_ids.clone())
-            .unwrap_or_default();
+            .map(|c| c.view.trial_ids.as_slice())
+            .unwrap_or(&[]);
         let ordered = mcdm_ordered(
-            &result,
-            &trial_ids,
+            result,
+            trial_ids,
             &app_state.artifact_map,
             artifact_index,
             self.mcdm.top_n.value(),
@@ -522,12 +528,7 @@ impl ArtifactGallery {
                 clicked = h;
                 preview = p;
             });
-        if let Some(trial_id) = clicked {
-            app_state.set_highlight(trial_id);
-        }
-        if preview.is_some() {
-            self.preview = preview;
-        }
+        self.apply_card_outcome(app_state, clicked, preview);
     }
 
     /// クラスタリング設定 UI（ClusterTable の show_controls と同操作感）。
@@ -672,7 +673,12 @@ fn build_objective_labels(app_state: &AppState) -> HashMap<u32, String> {
     }
     let view = &ctx.view;
     let cols = view.numeric_columns(obj_names);
+    // 表示され得るのは artifact を持つ trial のみ。文字列整形をそれらに限定する。
+    let artifact_map = &app_state.artifact_map;
     for (idx, &trial_id) in view.trial_ids.iter().enumerate() {
+        if !artifact_map.contains_key(&trial_id) {
+            continue;
+        }
         let text = obj_names
             .iter()
             .zip(cols.iter())
