@@ -33,6 +33,10 @@ pub struct AppState {
     /// 各チャート（Ranking / Scatter / Scatter3D / Table）が各自の設定で参照・共有する。
     pub mcdm_cache: HashMap<McdmCacheKey, McdmResult>,
     pub hv_history: Option<HvHistory>,
+    /// HV 参照点のユーザー指定（元の目的値の単位・目的ごと）。
+    /// `None` のときは観測点から自動算出する（nadir + 10% マージン）。
+    /// 変更時は `hv_history` を None にして再計算をトリガーする。
+    pub hv_ref_point_override: Option<Vec<f64>>,
     pub selected_colormap: ColormapName,
 
     // ── REQ-006: Multi-study 比較 ──────────────────────────────
@@ -87,6 +91,7 @@ impl AppState {
             mcdm_result: None,
             mcdm_cache: HashMap::new(),
             hv_history: None,
+            hv_ref_point_override: None,
             selected_colormap: ColormapName::Viridis,
             comparison_mode: false,
             comparison_studies: Vec::new(),
@@ -144,6 +149,8 @@ impl AppState {
         self.mcdm_result = None;
         self.mcdm_cache.clear();
         self.hv_history = None;
+        // 参照点は目的のスケールに依存するため Study 切り替えでリセットする。
+        self.hv_ref_point_override = None;
         self.downsample_cache.clear();
         // selected_colormap はユーザー設定を維持
 

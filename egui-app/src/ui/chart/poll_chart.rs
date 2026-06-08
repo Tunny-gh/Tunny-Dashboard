@@ -91,18 +91,33 @@ pub(crate) fn poll_chart_work(
                     })
                     .collect();
 
+                // ユーザー指定の参照点（元の目的値）を正規化空間へ変換して渡す。
+                // 次元が目的数と一致しない指定は無視（None 扱い）して自動算出に委ねる。
+                let ref_override_norm: Option<Vec<f64>> = app_state
+                    .hv_ref_point_override
+                    .as_ref()
+                    .filter(|r| r.len() == obj_names.len())
+                    .map(|r| crate::state::ref_point_to_normalized(r, &is_minimize));
+                let is_minimize_for_back = is_minimize.clone();
+
                 widgets.hv_history.computing = true;
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
-                    let result = tunny_core::pareto::compute_hv_history_from_data(
+                    let result = tunny_core::pareto::compute_hv_history_with_ref(
                         &sampled_ids,
                         &sampled_objs,
                         &is_minimize,
+                        ref_override_norm.as_deref(),
                     );
                     AppMessage::HvHistoryDone {
                         trial_ids: result.trial_ids,
                         hv_values: result.hv_values,
                         sample_step: step,
+                        // 表示用に参照点を元の目的値の単位へ戻す。
+                        ref_point: crate::state::ref_point_to_original(
+                            &result.ref_point,
+                            &is_minimize_for_back,
+                        ),
                     }
                 });
             }

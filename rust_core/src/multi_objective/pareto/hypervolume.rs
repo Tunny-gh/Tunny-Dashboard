@@ -103,14 +103,32 @@ pub fn compute_hv_history_from_data(
     objectives: &[Vec<f64>],
     is_minimize: &[bool],
 ) -> HvHistoryResult {
+    compute_hv_history_with_ref(trial_ids, objectives, is_minimize, None)
+}
+
+/// 参照点を任意指定できる HV 推移計算。
+///
+/// `ref_point_override` は正規化空間の参照点（最大化目的は符号反転済み）。
+/// `None` の場合は観測点の nadir + 10% マージンから自動算出する。
+/// 戻り値の `ref_point` には実際に使用した参照点（正規化空間）を入れる。
+pub fn compute_hv_history_with_ref(
+    trial_ids: &[u32],
+    objectives: &[Vec<f64>],
+    is_minimize: &[bool],
+    ref_point_override: Option<&[f64]>,
+) -> HvHistoryResult {
     let n = objectives.len();
     let m = if n > 0 { objectives[0].len() } else { 0 };
 
+    // HV を計算しないケース（単目的・有効点なし）の空結果。
+    let empty = || HvHistoryResult {
+        trial_ids: trial_ids.to_vec(),
+        hv_values: vec![0.0; n],
+        ref_point: Vec::new(),
+    };
+
     if m < 2 {
-        return HvHistoryResult {
-            trial_ids: trial_ids.to_vec(),
-            hv_values: vec![0.0; n],
-        };
+        return empty();
     }
 
     let norm_all = normalize_objectives(objectives, is_minimize);
@@ -120,12 +138,13 @@ pub fn compute_hv_history_from_data(
         .cloned()
         .collect();
     if valid_objs.is_empty() {
-        return HvHistoryResult {
-            trial_ids: trial_ids.to_vec(),
-            hv_values: vec![0.0; n],
-        };
+        return empty();
     }
-    let ref_pt = compute_ref_point(&valid_objs, m);
+    // 指定があり次元が一致し全要素有限ならそれを使う。さもなくば自動算出。
+    let ref_pt = match ref_point_override {
+        Some(r) if r.len() == m && r.iter().all(|v| v.is_finite()) => r.to_vec(),
+        _ => compute_ref_point(&valid_objs, m),
+    };
 
     let mut current_pareto: Vec<Vec<f64>> = Vec::new();
     let mut hv_values = Vec::with_capacity(n);
@@ -142,6 +161,7 @@ pub fn compute_hv_history_from_data(
     HvHistoryResult {
         trial_ids: trial_ids.to_vec(),
         hv_values,
+        ref_point: ref_pt,
     }
 }
 
@@ -169,5 +189,6 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
     .unwrap_or(HvHistoryResult {
         trial_ids: vec![],
         hv_values: vec![],
+        ref_point: vec![],
     })
 }

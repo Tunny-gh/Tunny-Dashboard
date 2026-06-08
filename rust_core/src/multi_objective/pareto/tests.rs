@@ -223,6 +223,42 @@ fn tc_hv_nd_3d_known_value() {
 }
 
 #[test]
+fn hv_history_with_ref_returns_used_ref_point() {
+    let objs = vec![vec![1.0, 1.0], vec![0.5, 2.0]];
+    let ids: Vec<u32> = vec![0, 1];
+    let is_min = [true, true];
+    // 指定なし: 自動算出された参照点が返る（全要素が観測の nadir 超）。
+    let auto = compute_hv_history_with_ref(&ids, &objs, &is_min, None);
+    assert_eq!(auto.ref_point.len(), 2);
+    assert!(auto.ref_point[0] > 1.0 && auto.ref_point[1] > 2.0);
+}
+
+#[test]
+fn hv_history_with_ref_honors_override() {
+    let objs = vec![vec![1.0, 1.0], vec![2.0, 0.5]];
+    let ids: Vec<u32> = vec![0, 1];
+    let is_min = [true, true];
+    let custom = vec![10.0, 10.0];
+    let r = compute_hv_history_with_ref(&ids, &objs, &is_min, Some(&custom));
+    assert_eq!(r.ref_point, custom);
+    // 参照点を広げると HV は自動算出時より大きくなる。
+    let auto = compute_hv_history_with_ref(&ids, &objs, &is_min, None);
+    assert!(r.hv_values.last().unwrap() > auto.hv_values.last().unwrap());
+}
+
+#[test]
+fn hv_history_with_ref_ignores_wrong_dim_override() {
+    let objs = vec![vec![1.0, 1.0], vec![2.0, 0.5]];
+    let ids: Vec<u32> = vec![0, 1];
+    let is_min = [true, true];
+    // 次元不一致の指定は無視して自動算出にフォールバックする。
+    let bad = vec![10.0, 10.0, 10.0];
+    let r = compute_hv_history_with_ref(&ids, &objs, &is_min, Some(&bad));
+    assert_eq!(r.ref_point.len(), 2);
+    assert_ne!(r.ref_point, bad);
+}
+
+#[test]
 fn tc_201_p01_ndsort_1000_points_under_100ms() {
     // Debug builds are unoptimised; use fewer points so the assertion
     // remains meaningful without requiring a release build.
