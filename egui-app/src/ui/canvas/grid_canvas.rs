@@ -15,6 +15,8 @@ pub(crate) const DRAG_HANDLE_HEIGHT: f32 = 24.0;
 pub enum CellToolbarAction {
     None,
     Close,
+    /// タイトルバーのダブルクリックでウィジェットを最大化表示する。
+    Maximize(PanelItem),
     Help(PanelItem),
     SaveAsPng(PanelItem),
     SaveAsCsv(PanelItem),
@@ -424,6 +426,17 @@ fn show_cell_toolbar(
     };
     let mut action = CellToolbarAction::None;
 
+    // バー全体をダブルクリックで最大化。ボタン（Move/⋯/×）より先に登録し、
+    // それらのクリックが優先されるようにする（後から登録したウィジェットが z 上位）。
+    let bar_h = DRAG_HANDLE_HEIGHT + 8.0; // inner_margin(_, 4) の上下を含む
+    let bar_rect =
+        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), bar_h));
+    let bar_resp = ui.interact(
+        bar_rect,
+        egui::Id::new("cell_toolbar_bar").with(row).with(col),
+        egui::Sense::click(),
+    );
+
     egui::Frame::default()
         .fill(crate::theme::CELL_TOOLBAR_BG)
         .stroke(egui::Stroke::new(1.0, crate::theme::BORDER_COLOR))
@@ -471,6 +484,11 @@ fn show_cell_toolbar(
                 },
             );
         });
+
+    // タイトルバーのダブルクリック（ボタン以外）で最大化。ボタン操作を優先する。
+    if bar_resp.double_clicked() && matches!(action, CellToolbarAction::None) {
+        action = CellToolbarAction::Maximize(item);
+    }
 
     action
 }
@@ -559,6 +577,9 @@ fn render_cell_content(
             };
             let toolbar_action =
                 show_cell_toolbar(ui, row, col, item.clone(), title, csv_available);
+            if let CellToolbarAction::Maximize(target) = &toolbar_action {
+                widgets.maximized_item = Some(target.clone());
+            }
             let ctx = ui.ctx().clone();
             handle_toolbar_action(
                 &ctx,
@@ -611,6 +632,56 @@ pub(crate) fn render_panel_item_body(
             });
         });
     body_resp.response.rect
+}
+
+/// 最大化モーダルを描画する。
+/// `widgets.maximized_item` が `Some` のとき、画面を暗転させて対象ウィジェットを
+/// 大きく表示する。Esc キー・背景クリック・× ボタンで閉じる。
+/// `show_layout` の最後（各パネルより後）に呼び出し、すべての上に重ねる。
+pub(crate) fn show_maximized_modal(
+    ctx: &egui::Context,
+    app_state: &mut AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let Some(item) = widgets.maximized_item.clone() else {
+        return;
+    };
+
+    let screen = ctx.screen_rect();
+    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+
+    // 背景の暗転（クリックで閉じる）。ウィンドウより先に生成して背面へ。
+    egui::Area::new(egui::Id::new("maximized_modal_dim"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let resp = ui.allocate_rect(screen, egui::Sense::click());
+            ui.painter()
+                .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(160));
+            if resp.clicked() {
+                close = true;
+            }
+        });
+
+    // 中央の最大化ウィンドウ（タイトルバーの × で閉じる）。
+    let win_rect = screen.shrink(40.0);
+    let mut open = true;
+    egui::Window::new(item.label())
+        .id(egui::Id::new("maximized_modal_window"))
+        .order(egui::Order::Foreground)
+        .collapsible(false)
+        .resizable(false)
+        .movable(false)
+        .open(&mut open)
+        .fixed_rect(win_rect)
+        .show(ctx, |ui| {
+            render_panel_item_body(ui, app_state, widgets, &item, "maximized_modal", tx);
+        });
+
+    if close || !open {
+        widgets.maximized_item = None;
+    }
 }
 
 #[cfg(test)]
