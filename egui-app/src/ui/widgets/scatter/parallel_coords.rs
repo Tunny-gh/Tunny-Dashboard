@@ -75,6 +75,8 @@ pub struct ParallelCoordsChart {
     pub pending_selection: Option<Vec<u32>>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
+    /// 線の色付けに使う軸名（None の場合は最後の軸 = 末尾の目的にフォールバック）
+    pub color_axis: Option<String>,
 }
 
 impl Default for ParallelCoordsChart {
@@ -90,6 +92,7 @@ impl Default for ParallelCoordsChart {
             cache_key: (0, 0, 0),
             pending_selection: None,
             show_infeasible: true,
+            color_axis: None,
         }
     }
 }
@@ -113,7 +116,7 @@ impl ParallelCoordsChart {
         view: &crate::state::app_state::StudyView,
         param_names: &[String],
         obj_names: &[String],
-        chart_colors: &[egui::Color32],
+        cmap: &crate::theme::colormap::ColorMap,
     ) {
         let trial_count = view.row_count();
         if trial_count == 0 {
@@ -154,17 +157,41 @@ impl ParallelCoordsChart {
         let is_feasible_col = view.numeric_column("is_feasible");
         let has_constraints = is_feasible_col.is_some();
 
-        // "Show Infeasible" トグル（制約あり Study のみ表示）
-        if has_constraints {
-            ui.horizontal(|ui| {
+        // 線の色付け対象軸を選ぶドロップダウン + "Show Infeasible" トグル
+        ui.horizontal(|ui| {
+            // 現在の選択軸（未設定なら末尾の軸 = 末尾の目的）を解決する
+            let current_axis = self
+                .color_axis
+                .clone()
+                .filter(|name| all_names.iter().any(|n| n == name))
+                .unwrap_or_else(|| all_names[n_axes - 1].clone());
+            ui.label("Color by:");
+            egui::ComboBox::from_id_salt("pcp_color_axis")
+                .selected_text(current_axis.clone())
+                .show_ui(ui, |ui| {
+                    for name in &all_names {
+                        if ui
+                            .selectable_label(*name == current_axis, name.as_str())
+                            .clicked()
+                        {
+                            self.color_axis = Some(name.clone());
+                        }
+                    }
+                });
+            if has_constraints {
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
-            });
-        }
+            }
+        });
+
+        // 描画に使う色付け対象軸のインデックス（ドロップダウン反映後に解決）
+        let color_axis_idx = self
+            .color_axis
+            .as_ref()
+            .and_then(|name| all_names.iter().position(|n| n == name))
+            .unwrap_or(n_axes - 1);
 
         let available = ui.available_rect_before_wrap();
         let axis_margin = 40.0_f32;
-        let axis_top = available.min.y + 30.0;
-        let axis_bottom = available.max.y - 10.0;
         let axis_x: Vec<f32> = (0..n_axes)
             .map(|i| {
                 available.min.x
@@ -174,10 +201,37 @@ impl ParallelCoordsChart {
             .collect();
 
         let painter = ui.painter().clone();
+        let text_color = COLOR_CHART_TEXT;
+        let label_font = egui::FontId::proportional(10.0);
+
+        // 軸ラベルを事前レイアウトし、隣接軸より幅が広ければ斜めに回転させて重なりを防ぐ
+        let label_galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
+            .iter()
+            .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), text_color))
+            .collect();
+        let max_label_w = label_galleys
+            .iter()
+            .map(|g| g.size().x)
+            .fold(0.0_f32, f32::max);
+        let label_h = label_galleys.first().map(|g| g.size().y).unwrap_or(12.0);
+        let axis_spacing = (available.width() - 2.0 * axis_margin) / (n_axes - 1) as f32;
+        let rotate_labels = max_label_w > axis_spacing - 4.0;
+        let label_angle = if rotate_labels {
+            std::f32::consts::FRAC_PI_4 // 45° 回転（右肩上がり）
+        } else {
+            0.0
+        };
+        // ラベルが占有する上端の高さ（回転時は対角方向の高さ）
+        let label_area = if rotate_labels {
+            (max_label_w * label_angle.sin() + label_h * label_angle.cos()).min(110.0) + 8.0
+        } else {
+            label_h + 8.0
+        };
+        let axis_top = available.min.y + label_area;
+        let axis_bottom = available.max.y - 10.0;
 
         painter.rect_filled(available, 0.0, CENTRAL_BG);
 
-        let text_color = COLOR_CHART_TEXT;
         const N_TICKS: usize = 5;
         let tick_len = 4.0_f32;
         let tick_color = COLOR_PARALLEL_TICK;
@@ -197,9 +251,16 @@ impl ParallelCoordsChart {
             }
 
             let color = if feasible {
-                let base_color = chart_colors
-                    .get(t_idx)
+                // 選択軸の値を [0,1] に正規化し、カラーマップで色を決める
+                let base_color = cols
+                    .get(color_axis_idx)
+                    .and_then(|c| c.as_ref())
+                    .and_then(|c| c.get(t_idx))
                     .copied()
+                    .map(|v| {
+                        let (mn, mx) = col_ranges[color_axis_idx];
+                        cmap.interpolate(normalize_value(v, mn, mx))
+                    })
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
                 egui::Color32::from_rgba_unmultiplied(
                     base_color.r(),
@@ -236,19 +297,43 @@ impl ParallelCoordsChart {
         }
 
         // 縦軸・ラベル・目盛りを最前面に描画
-        for (i, name) in all_names.iter().enumerate() {
+        for i in 0..n_axes {
             let x = axis_x[i];
             painter.line_segment(
                 [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
                 egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS),
             );
-            painter.text(
-                egui::pos2(x, available.min.y + 15.0),
-                egui::Align2::CENTER_CENTER,
-                name.as_str(),
-                egui::FontId::proportional(10.0),
-                text_color,
-            );
+            let galley = label_galleys[i].clone();
+            if rotate_labels {
+                // -label_angle（反時計回り）で回転させた "/" 形ラベルの最下端
+                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる。
+                let size = galley.size();
+                let applied = -label_angle;
+                let (sa, ca) = (applied.sin(), applied.cos());
+                // 4 隅を回転させ、画面上で最も下（最大 y）になる点を探す
+                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
+                let mut lowest = (0.0_f32, f32::MIN); // pos からの相対オフセット (rx, ry)
+                for (px, py) in corners {
+                    let rx = px * ca - py * sa;
+                    let ry = px * sa + py * ca;
+                    if ry > lowest.1 {
+                        lowest = (rx, ry);
+                    }
+                }
+                // 最下端が軸上端のすぐ上に来るよう pos を決める
+                let gap = 2.0_f32;
+                let anchor = egui::pos2(x, axis_top - gap);
+                let pos = anchor - egui::vec2(lowest.0, lowest.1);
+                painter
+                    .add(egui::epaint::TextShape::new(pos, galley, text_color).with_angle(applied));
+            } else {
+                let size = galley.size();
+                painter.galley(
+                    egui::pos2(x - size.x * 0.5, available.min.y + 4.0),
+                    galley,
+                    text_color,
+                );
+            }
 
             let (mn, mx) = col_ranges[i];
             for t in 0..N_TICKS {
@@ -434,6 +519,7 @@ mod tests {
         assert!(chart.show_objectives);
         assert!(chart.brush_ranges.is_empty());
         assert!(chart.drag_start.is_none());
+        assert!(chart.color_axis.is_none());
     }
 
     // TASK-2022 tests
