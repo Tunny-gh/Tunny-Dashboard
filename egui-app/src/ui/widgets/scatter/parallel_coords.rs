@@ -60,6 +60,17 @@ pub fn ordered_brush_range(start: f32, end: f32) -> (f32, f32) {
     (start.min(end), start.max(end))
 }
 
+/// `axis_visibility` に基づき、描画対象（可視）軸の元インデックス一覧を返す。
+/// 未登録の軸は表示扱い（`unwrap_or(true)`）とし、デフォルトでは全軸が可視になる。
+pub fn visible_axis_indices(
+    all_names: &[String],
+    axis_visibility: &std::collections::HashMap<String, bool>,
+) -> Vec<usize> {
+    (0..all_names.len())
+        .filter(|&i| axis_visibility.get(&all_names[i]).copied().unwrap_or(true))
+        .collect()
+}
+
 /// 色付け用の正規化レンジを実行可能解のみから算出する。
 /// 実行不可能解の外れ値でカラーマップが圧縮されないよう、軸の座標レンジとは別に求める。
 /// `is_feasible` が `None`（制約なし）の場合は全件、有効な値が一つも無い場合は `fallback` を返す。
@@ -186,9 +197,39 @@ impl ParallelCoordsChart {
         let is_feasible_col = view.numeric_column("is_feasible");
         let has_constraints = is_feasible_col.is_some();
 
-        // 線の色付け対象軸を選ぶドロップダウン + "Show Infeasible" トグル
+        // コントロール行: 描画軸の選択 + 色付け対象軸 + "Show Infeasible"
         ui.horizontal(|ui| {
-            // 現在の選択軸（未設定なら末尾の軸 = 末尾の目的）を解決する
+            // 描画する軸を選ぶチェックボックス付きドロップダウン（デフォルト全表示）
+            let visible_count = all_names
+                .iter()
+                .filter(|n| self.axis_visibility.get(*n).copied().unwrap_or(true))
+                .count();
+            ui.label("Axes:");
+            egui::ComboBox::from_id_salt("pcp_visible_axes")
+                .selected_text(format!("{visible_count}/{n_axes}"))
+                .show_ui(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("All").clicked() {
+                            for name in &all_names {
+                                self.axis_visibility.insert(name.clone(), true);
+                            }
+                        }
+                        if ui.button("None").clicked() {
+                            for name in &all_names {
+                                self.axis_visibility.insert(name.clone(), false);
+                            }
+                        }
+                    });
+                    ui.separator();
+                    for name in &all_names {
+                        let mut vis = self.axis_visibility.get(name).copied().unwrap_or(true);
+                        if ui.checkbox(&mut vis, name.as_str()).changed() {
+                            self.axis_visibility.insert(name.clone(), vis);
+                        }
+                    }
+                });
+
+            // 線の色付け対象軸（未設定なら末尾の軸 = 末尾の目的）を解決する
             let current_axis = self
                 .color_axis
                 .clone()
@@ -212,6 +253,16 @@ impl ParallelCoordsChart {
             }
         });
 
+        // 描画対象（可視）軸の元インデックス一覧（未登録 = 表示）。
+        let visible = visible_axis_indices(&all_names, &self.axis_visibility);
+        let n_visible = visible.len();
+        if n_visible < 2 {
+            ui.centered_and_justified(|ui| {
+                ui.label(egui::RichText::new("Select at least 2 axes to display.").weak());
+            });
+            return;
+        }
+
         // 描画に使う色付け対象軸のインデックス（ドロップダウン反映後に解決）
         let color_axis_idx = self
             .color_axis
@@ -221,11 +272,11 @@ impl ParallelCoordsChart {
 
         let available = ui.available_rect_before_wrap();
         let axis_margin = 40.0_f32;
-        let axis_x: Vec<f32> = (0..n_axes)
+        let axis_x: Vec<f32> = (0..n_visible)
             .map(|i| {
                 available.min.x
                     + axis_margin
-                    + (available.width() - 2.0 * axis_margin) * i as f32 / (n_axes - 1) as f32
+                    + (available.width() - 2.0 * axis_margin) * i as f32 / (n_visible - 1) as f32
             })
             .collect();
 
@@ -238,12 +289,12 @@ impl ParallelCoordsChart {
             .iter()
             .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), text_color))
             .collect();
-        let max_label_w = label_galleys
+        let max_label_w = visible
             .iter()
-            .map(|g| g.size().x)
+            .map(|&i| label_galleys[i].size().x)
             .fold(0.0_f32, f32::max);
         let label_h = label_galleys.first().map(|g| g.size().y).unwrap_or(12.0);
-        let axis_spacing = (available.width() - 2.0 * axis_margin) / (n_axes - 1) as f32;
+        let axis_spacing = (available.width() - 2.0 * axis_margin) / (n_visible - 1) as f32;
         let rotate_labels = max_label_w > axis_spacing - 4.0;
         let label_angle = if rotate_labels {
             std::f32::consts::FRAC_PI_4 // 45° 回転（右肩上がり）
@@ -307,11 +358,11 @@ impl ParallelCoordsChart {
                 COLOR_INFEASIBLE
             };
 
-            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
+            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_visible);
             let mut valid = true;
-            for i in 0..n_axes {
+            for (disp, &orig) in visible.iter().enumerate() {
                 let val_opt = cols
-                    .get(i)
+                    .get(orig)
                     .and_then(|c| c.as_ref())
                     .and_then(|c| c.get(t_idx))
                     .copied();
@@ -319,10 +370,10 @@ impl ParallelCoordsChart {
                     valid = false;
                     break;
                 };
-                let (mn, mx) = col_ranges[i];
+                let (mn, mx) = col_ranges[orig];
                 let norm = normalize_value(val, mn, mx);
                 let y = normalized_to_screen_y(norm, axis_top, axis_bottom);
-                points.push(egui::pos2(axis_x[i], y));
+                points.push(egui::pos2(axis_x[disp], y));
             }
             if valid && points.len() >= 2 {
                 for pair in points.windows(2) {
@@ -332,13 +383,13 @@ impl ParallelCoordsChart {
         }
 
         // 縦軸・ラベル・目盛りを最前面に描画
-        for i in 0..n_axes {
-            let x = axis_x[i];
+        for (disp, &orig) in visible.iter().enumerate() {
+            let x = axis_x[disp];
             painter.line_segment(
                 [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
                 egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS),
             );
-            let galley = label_galleys[i].clone();
+            let galley = label_galleys[orig].clone();
             if rotate_labels {
                 // -label_angle（反時計回り）で回転させた "/" 形ラベルの最下端
                 // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる。
@@ -370,7 +421,7 @@ impl ParallelCoordsChart {
                 );
             }
 
-            let (mn, mx) = col_ranges[i];
+            let (mn, mx) = col_ranges[orig];
             for t in 0..N_TICKS {
                 let frac = t as f32 / (N_TICKS - 1) as f32;
                 let y = normalized_to_screen_y(frac, axis_top, axis_bottom);
@@ -389,10 +440,11 @@ impl ParallelCoordsChart {
             }
         }
 
-        // Draw brush range overlays
-        for (i, name) in all_names.iter().enumerate() {
+        // Draw brush range overlays（可視軸のみ）
+        for (disp, &orig) in visible.iter().enumerate() {
+            let name = &all_names[orig];
             if let Some(Some((y_lo, y_hi))) = self.brush_ranges.get(name.as_str()) {
-                let x = axis_x[i];
+                let x = axis_x[disp];
                 let screen_hi = normalized_to_screen_y(*y_hi, axis_top, axis_bottom);
                 let screen_lo = normalized_to_screen_y(*y_lo, axis_top, axis_bottom);
                 let brush_rect = egui::Rect::from_min_max(
@@ -428,8 +480,8 @@ impl ParallelCoordsChart {
                 })
                 .map(|(i, _)| i);
 
-            if let Some(axis_idx) = closest_axis_idx {
-                let axis_name = all_names[axis_idx].clone();
+            if let Some(disp_idx) = closest_axis_idx {
+                let axis_name = all_names[visible[disp_idx]].clone();
                 // Normalize pointer Y to [0, 1]
                 let norm_y = ((axis_bottom - ptr.y) / (axis_bottom - axis_top)).clamp(0.0, 1.0);
 
@@ -715,6 +767,33 @@ mod tests {
             filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
         assert_eq!(sel.len(), 1);
         assert_eq!(sel[0], 0);
+    }
+
+    #[test]
+    fn visible_axis_indices_default_all_visible() {
+        use std::collections::HashMap;
+        let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let vis = HashMap::new(); // 未登録 = 全表示
+        assert_eq!(visible_axis_indices(&names, &vis), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn visible_axis_indices_filters_hidden_and_preserves_order() {
+        use std::collections::HashMap;
+        let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut vis = HashMap::new();
+        vis.insert("b".to_string(), false);
+        assert_eq!(visible_axis_indices(&names, &vis), vec![0, 2]);
+    }
+
+    #[test]
+    fn visible_axis_indices_all_hidden_is_empty() {
+        use std::collections::HashMap;
+        let names = vec!["a".to_string(), "b".to_string()];
+        let mut vis = HashMap::new();
+        vis.insert("a".to_string(), false);
+        vis.insert("b".to_string(), false);
+        assert!(visible_axis_indices(&names, &vis).is_empty());
     }
 
     #[test]
