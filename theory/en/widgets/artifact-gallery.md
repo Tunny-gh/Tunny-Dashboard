@@ -18,7 +18,9 @@ When a trial has multiple artifacts, the **Artifact #** selector chooses which
 one (0-based) is shown per trial, so each trial contributes a single card.
 Trials that don't have an artifact at the selected index are skipped.
 
-Image files (PNG / JPEG / GIF / WEBP) are shown as thumbnails. Other files
+Image files (PNG / JPEG / GIF / WEBP) are shown as thumbnails; clicking a
+thumbnail opens a large preview in a modal (close with the button, Esc, or by
+clicking outside). Other files
 (CSV, etc.) show an icon and an **Open** button that opens the file with the
 system default application. Clicking a card highlights the corresponding trial
 across the other widgets. Each card also shows the trial's objective values so

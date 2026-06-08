@@ -40,6 +40,26 @@ impl ArtifactViewMode {
     }
 }
 
+/// 画像プレビューモーダルの表示内容。
+#[derive(Debug, Clone)]
+pub struct PreviewState {
+    /// `file://` URI（画像ローダ用）。
+    pub uri: String,
+    /// 見出し（元ファイル名）。
+    pub title: String,
+    /// 補助情報（trial 番号・目的関数値など）。
+    pub info: String,
+}
+
+/// 1 枚のカードクリックで要求されたアクション。
+#[derive(Default)]
+struct CardClick {
+    /// タイトルクリック → trial をハイライト。
+    highlight: bool,
+    /// 画像クリック → 拡大プレビューを開く。
+    preview: bool,
+}
+
 /// Artifact ギャラリーウィジェット。
 ///
 /// `app_state.artifact_map`（trial_id → ファイルパス）を、クラスタリング / MCDM の結果と
@@ -55,6 +75,8 @@ pub struct ArtifactGallery {
     pub thumb_size: f32,
     /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
     pub artifact_index: usize,
+    /// 画像拡大プレビュー（モーダル）。`None` のとき非表示。
+    pub preview: Option<PreviewState>,
     // ── Cluster 設定（ClusterTable と同一構成）──────────────────
     pub k: usize,
     pub target_space: ClusterSpace,
@@ -74,6 +96,7 @@ impl Default for ArtifactGallery {
             page: 0,
             thumb_size: DEFAULT_THUMB,
             artifact_index: 0,
+            preview: None,
             k: 3,
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::ElbowDefault,
@@ -220,6 +243,47 @@ impl ArtifactGallery {
                 self.show_mcdm(ui, app_state, content_w, artifact_index, &obj_by_trial)
             }
         }
+
+        self.show_preview_modal(ui);
+    }
+
+    /// 画像の拡大プレビューをモーダルで表示する。背景クリック / Esc / Close で閉じる。
+    fn show_preview_modal(&mut self, ui: &egui::Ui) {
+        let Some(preview) = self.preview.clone() else {
+            return;
+        };
+        let ctx = ui.ctx().clone();
+        let screen = ctx.screen_rect();
+        let max_w = (screen.width() * 0.9).max(200.0);
+        let max_h = (screen.height() * 0.9).max(200.0);
+
+        let mut close = false;
+        let modal = egui::Modal::new(egui::Id::new("artifact_preview_modal")).show(&ctx, |ui| {
+            ui.set_max_width(max_w);
+            ui.horizontal(|ui| {
+                ui.heading(&preview.title);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("✕ Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+            if !preview.info.is_empty() {
+                ui.label(egui::RichText::new(&preview.info).color(crate::theme::TEXT_SECONDARY));
+            }
+            ui.separator();
+            // 画像本体。画面の大半に収まるよう上限を設けつつ縦横比を維持する。
+            egui::ScrollArea::both().show(ui, |ui| {
+                ui.add(
+                    egui::Image::from_uri(preview.uri.clone())
+                        .max_size(egui::vec2(max_w, max_h - 80.0)),
+                );
+            });
+        });
+
+        if close || modal.should_close() {
+            self.preview = None;
+        }
     }
 
     /// All モード: artifact を持つ全 trial をページネーション表示（各 trial は選択番号の 1 枚）。
@@ -268,13 +332,20 @@ impl ArtifactGallery {
             }
         }
         let mut clicked: Option<u32> = None;
+        let mut preview: Option<PreviewState> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
+                let (h, p) =
+                    render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
+                clicked = h;
+                preview = p;
             });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
+        }
+        if preview.is_some() {
+            self.preview = preview;
         }
     }
 
@@ -334,6 +405,7 @@ impl ArtifactGallery {
         let thumb = self.thumb_size;
         let n_clusters = cr.n_clusters.max(1);
         let mut clicked: Option<u32> = None;
+        let mut preview: Option<PreviewState> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -360,16 +432,22 @@ impl ArtifactGallery {
                         .show(ui, |ui| {
                             // ヘッダーのインデント分を差し引いた幅で列数を決める。
                             let w = (content_w - 24.0).max(thumb);
-                            if let Some(t) =
-                                render_card_grid(ui, app_state, w, thumb, &cards, obj_by_trial)
-                            {
-                                clicked = Some(t);
+                            let (h, p) =
+                                render_card_grid(ui, app_state, w, thumb, &cards, obj_by_trial);
+                            if h.is_some() {
+                                clicked = h;
+                            }
+                            if p.is_some() {
+                                preview = p;
                             }
                         });
                 }
             });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
+        }
+        if preview.is_some() {
+            self.preview = preview;
         }
     }
 
@@ -432,13 +510,20 @@ impl ArtifactGallery {
             cards.push((entry.trial_id, badge, entry.entry));
         }
         let mut clicked: Option<u32> = None;
+        let mut preview: Option<PreviewState> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
+                let (h, p) =
+                    render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
+                clicked = h;
+                preview = p;
             });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
+        }
+        if preview.is_some() {
+            self.preview = preview;
         }
     }
 
@@ -541,20 +626,35 @@ fn render_card_grid(
     thumb: f32,
     cards: &[(u32, String, &ArtifactEntry)],
     obj_by_trial: &HashMap<u32, String>,
-) -> Option<u32> {
+) -> (Option<u32>, Option<PreviewState>) {
     let columns = card_columns(content_w, thumb);
-    let mut clicked: Option<u32> = None;
+    let mut highlight: Option<u32> = None;
+    let mut preview: Option<PreviewState> = None;
     for row in cards.chunks(columns) {
         ui.horizontal_top(|ui| {
             for (trial_id, badge, entry) in row {
                 let obj_text = obj_by_trial.get(trial_id).map(String::as_str).unwrap_or("");
-                if show_artifact_card(ui, app_state, *trial_id, entry, badge, obj_text, thumb) {
-                    clicked = Some(*trial_id);
+                let click =
+                    show_artifact_card(ui, app_state, *trial_id, entry, badge, obj_text, thumb);
+                if click.highlight {
+                    highlight = Some(*trial_id);
+                }
+                if click.preview {
+                    let mut info = format!("Trial {trial_id}");
+                    if !obj_text.is_empty() {
+                        info.push('\n');
+                        info.push_str(obj_text);
+                    }
+                    preview = Some(PreviewState {
+                        uri: format!("file://{}", entry.path.to_string_lossy()),
+                        title: entry.filename.clone(),
+                        info,
+                    });
                 }
             }
         });
     }
-    clicked
+    (highlight, preview)
 }
 
 /// 各 trial の目的関数値を `name: value` 改行区切りで整形したマップを返す。
@@ -597,7 +697,8 @@ fn cluster_color(label: i32, n_clusters: usize, colormap: &ColorMap) -> egui::Co
     colormap.interpolate(t)
 }
 
-/// 1 枚の artifact カードを描画する。クリックされたら true。
+/// 1 枚の artifact カードを描画する。
+/// 画像クリックで拡大プレビュー、タイトルクリックで trial ハイライトを要求する。
 #[allow(clippy::too_many_arguments)]
 fn show_artifact_card(
     ui: &mut egui::Ui,
@@ -607,8 +708,8 @@ fn show_artifact_card(
     badge: &str,
     obj_text: &str,
     thumb: f32,
-) -> bool {
-    let mut clicked = false;
+) -> CardClick {
+    let mut click = CardClick::default();
     let is_highlighted = app_state.highlighted_trial == Some(trial_id);
     let stroke = if is_highlighted {
         egui::Stroke::new(2.0, COLOR_LINK)
@@ -630,9 +731,10 @@ fn show_artifact_card(
                                 egui::Image::from_uri(uri)
                                     .fit_to_exact_size(egui::vec2(thumb, thumb)),
                             )
-                            .interact(egui::Sense::click());
+                            .interact(egui::Sense::click())
+                            .on_hover_text("Click to enlarge");
                         if resp.clicked() {
-                            clicked = true;
+                            click.preview = true;
                         }
                     }
                     other => {
@@ -663,7 +765,7 @@ fn show_artifact_card(
                         .sense(egui::Sense::click()),
                 );
                 if label_resp.clicked() {
-                    clicked = true;
+                    click.highlight = true;
                 }
                 ui.add(egui::Label::new(egui::RichText::new(fname).small().weak()).truncate());
                 // 目的関数値（良し悪し判断の材料）。カード幅に合わせて折り返す。
@@ -676,7 +778,7 @@ fn show_artifact_card(
                 }
             });
         });
-    clicked
+    click
 }
 
 /// 指定インデックスのアーティファクトを持つ trial_id を昇順で返す。
