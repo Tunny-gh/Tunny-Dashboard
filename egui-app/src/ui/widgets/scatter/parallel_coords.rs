@@ -60,6 +60,46 @@ pub fn ordered_brush_range(start: f32, end: f32) -> (f32, f32) {
     (start.min(end), start.max(end))
 }
 
+/// `axis_visibility` に基づき、描画対象（可視）軸の元インデックス一覧を返す。
+/// 未登録の軸は表示扱い（`unwrap_or(true)`）とし、デフォルトでは全軸が可視になる。
+pub fn visible_axis_indices(
+    all_names: &[String],
+    axis_visibility: &std::collections::HashMap<String, bool>,
+) -> Vec<usize> {
+    (0..all_names.len())
+        .filter(|&i| axis_visibility.get(&all_names[i]).copied().unwrap_or(true))
+        .collect()
+}
+
+/// 色付け用の正規化レンジを実行可能解のみから算出する。
+/// 実行不可能解の外れ値でカラーマップが圧縮されないよう、軸の座標レンジとは別に求める。
+/// `is_feasible` が `None`（制約なし）の場合は全件、有効な値が一つも無い場合は `fallback` を返す。
+pub fn feasible_color_range(
+    col: &[f64],
+    is_feasible: Option<&[f64]>,
+    fallback: (f64, f64),
+) -> (f64, f64) {
+    let (mn, mx) = col
+        .iter()
+        .enumerate()
+        .filter(|(idx, v)| {
+            v.is_finite()
+                && is_feasible
+                    .and_then(|f| f.get(*idx))
+                    .map(|&fv| fv > 0.5)
+                    .unwrap_or(true)
+        })
+        .map(|(_, &v)| v)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), v| {
+            (mn.min(v), mx.max(v))
+        });
+    if mn <= mx {
+        (mn, mx)
+    } else {
+        fallback
+    }
+}
+
 /// 平行座標図ウィジェット
 pub struct ParallelCoordsChart {
     pub axis_order: Vec<String>,
@@ -75,6 +115,8 @@ pub struct ParallelCoordsChart {
     pub pending_selection: Option<Vec<u32>>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
+    /// 線の色付けに使う軸名（None の場合は最後の軸 = 末尾の目的にフォールバック）
+    pub color_axis: Option<String>,
 }
 
 impl Default for ParallelCoordsChart {
@@ -90,6 +132,7 @@ impl Default for ParallelCoordsChart {
             cache_key: (0, 0, 0),
             pending_selection: None,
             show_infeasible: true,
+            color_axis: None,
         }
     }
 }
@@ -113,7 +156,7 @@ impl ParallelCoordsChart {
         view: &crate::state::app_state::StudyView,
         param_names: &[String],
         obj_names: &[String],
-        chart_colors: &[egui::Color32],
+        cmap: &crate::theme::colormap::ColorMap,
     ) {
         let trial_count = view.row_count();
         if trial_count == 0 {
@@ -154,36 +197,133 @@ impl ParallelCoordsChart {
         let is_feasible_col = view.numeric_column("is_feasible");
         let has_constraints = is_feasible_col.is_some();
 
-        // "Show Infeasible" トグル（制約あり Study のみ表示）
-        if has_constraints {
-            ui.horizontal(|ui| {
+        // コントロール行: 描画軸の選択 + 色付け対象軸 + "Show Infeasible"
+        ui.horizontal(|ui| {
+            // 描画する軸を選ぶチェックボックス付きドロップダウン（デフォルト全表示）
+            let visible_count = all_names
+                .iter()
+                .filter(|n| self.axis_visibility.get(*n).copied().unwrap_or(true))
+                .count();
+            ui.label("Axes:");
+            egui::ComboBox::from_id_salt("pcp_visible_axes")
+                .selected_text(format!("{visible_count}/{n_axes}"))
+                .show_ui(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("All").clicked() {
+                            for name in &all_names {
+                                self.axis_visibility.insert(name.clone(), true);
+                            }
+                        }
+                        if ui.button("None").clicked() {
+                            for name in &all_names {
+                                self.axis_visibility.insert(name.clone(), false);
+                            }
+                        }
+                    });
+                    ui.separator();
+                    for name in &all_names {
+                        let mut vis = self.axis_visibility.get(name).copied().unwrap_or(true);
+                        if ui.checkbox(&mut vis, name.as_str()).changed() {
+                            self.axis_visibility.insert(name.clone(), vis);
+                        }
+                    }
+                });
+
+            // 線の色付け対象軸（未設定なら末尾の軸 = 末尾の目的）を解決する
+            let current_axis = self
+                .color_axis
+                .clone()
+                .filter(|name| all_names.iter().any(|n| n == name))
+                .unwrap_or_else(|| all_names[n_axes - 1].clone());
+            ui.label("Color by:");
+            egui::ComboBox::from_id_salt("pcp_color_axis")
+                .selected_text(current_axis.clone())
+                .show_ui(ui, |ui| {
+                    for name in &all_names {
+                        if ui
+                            .selectable_label(*name == current_axis, name.as_str())
+                            .clicked()
+                        {
+                            self.color_axis = Some(name.clone());
+                        }
+                    }
+                });
+            if has_constraints {
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+            }
+        });
+
+        // 描画対象（可視）軸の元インデックス一覧（未登録 = 表示）。
+        let visible = visible_axis_indices(&all_names, &self.axis_visibility);
+        let n_visible = visible.len();
+        if n_visible < 2 {
+            ui.centered_and_justified(|ui| {
+                ui.label(egui::RichText::new("Select at least 2 axes to display.").weak());
             });
+            return;
         }
+
+        // 描画に使う色付け対象軸のインデックス（ドロップダウン反映後に解決）
+        let color_axis_idx = self
+            .color_axis
+            .as_ref()
+            .and_then(|name| all_names.iter().position(|n| n == name))
+            .unwrap_or(n_axes - 1);
 
         let available = ui.available_rect_before_wrap();
         let axis_margin = 40.0_f32;
-        let axis_top = available.min.y + 30.0;
-        let axis_bottom = available.max.y - 10.0;
-        let axis_x: Vec<f32> = (0..n_axes)
+        let axis_x: Vec<f32> = (0..n_visible)
             .map(|i| {
                 available.min.x
                     + axis_margin
-                    + (available.width() - 2.0 * axis_margin) * i as f32 / (n_axes - 1) as f32
+                    + (available.width() - 2.0 * axis_margin) * i as f32 / (n_visible - 1) as f32
             })
             .collect();
 
         let painter = ui.painter().clone();
+        let text_color = COLOR_CHART_TEXT;
+        let label_font = egui::FontId::proportional(10.0);
+
+        // 軸ラベルを事前レイアウトし、隣接軸より幅が広ければ斜めに回転させて重なりを防ぐ
+        let label_galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
+            .iter()
+            .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), text_color))
+            .collect();
+        let max_label_w = visible
+            .iter()
+            .map(|&i| label_galleys[i].size().x)
+            .fold(0.0_f32, f32::max);
+        let label_h = label_galleys.first().map(|g| g.size().y).unwrap_or(12.0);
+        let axis_spacing = (available.width() - 2.0 * axis_margin) / (n_visible - 1) as f32;
+        let rotate_labels = max_label_w > axis_spacing - 4.0;
+        let label_angle = if rotate_labels {
+            std::f32::consts::FRAC_PI_4 // 45° 回転（右肩上がり）
+        } else {
+            0.0
+        };
+        // ラベルが占有する上端の高さ（回転時は対角方向の高さ）
+        let label_area = if rotate_labels {
+            (max_label_w * label_angle.sin() + label_h * label_angle.cos()).min(110.0) + 8.0
+        } else {
+            label_h + 8.0
+        };
+        let axis_top = available.min.y + label_area;
+        let axis_bottom = available.max.y - 10.0;
 
         painter.rect_filled(available, 0.0, CENTRAL_BG);
 
-        let text_color = COLOR_CHART_TEXT;
         const N_TICKS: usize = 5;
         let tick_len = 4.0_f32;
         let tick_color = COLOR_PARALLEL_TICK;
         let tick_font = egui::FontId::proportional(9.0);
 
         let show_infeasible = self.show_infeasible;
+
+        // 色付けの正規化レンジは実行可能解のみから算出する（軸の座標レンジとは別）。
+        let color_range: (f64, f64) = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
+            Some(col) => feasible_color_range(col, is_feasible_col, col_ranges[color_axis_idx]),
+            None => col_ranges[color_axis_idx],
+        };
 
         // 各試行を折れ線で描画（半透明）
         for t_idx in 0..trial_count {
@@ -197,9 +337,16 @@ impl ParallelCoordsChart {
             }
 
             let color = if feasible {
-                let base_color = chart_colors
-                    .get(t_idx)
+                // 選択軸の値を [0,1] に正規化し、カラーマップで色を決める
+                let base_color = cols
+                    .get(color_axis_idx)
+                    .and_then(|c| c.as_ref())
+                    .and_then(|c| c.get(t_idx))
                     .copied()
+                    .map(|v| {
+                        let (mn, mx) = color_range;
+                        cmap.interpolate(normalize_value(v, mn, mx))
+                    })
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
                 egui::Color32::from_rgba_unmultiplied(
                     base_color.r(),
@@ -211,11 +358,11 @@ impl ParallelCoordsChart {
                 COLOR_INFEASIBLE
             };
 
-            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_axes);
+            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_visible);
             let mut valid = true;
-            for i in 0..n_axes {
+            for (disp, &orig) in visible.iter().enumerate() {
                 let val_opt = cols
-                    .get(i)
+                    .get(orig)
                     .and_then(|c| c.as_ref())
                     .and_then(|c| c.get(t_idx))
                     .copied();
@@ -223,10 +370,10 @@ impl ParallelCoordsChart {
                     valid = false;
                     break;
                 };
-                let (mn, mx) = col_ranges[i];
+                let (mn, mx) = col_ranges[orig];
                 let norm = normalize_value(val, mn, mx);
                 let y = normalized_to_screen_y(norm, axis_top, axis_bottom);
-                points.push(egui::pos2(axis_x[i], y));
+                points.push(egui::pos2(axis_x[disp], y));
             }
             if valid && points.len() >= 2 {
                 for pair in points.windows(2) {
@@ -236,21 +383,45 @@ impl ParallelCoordsChart {
         }
 
         // 縦軸・ラベル・目盛りを最前面に描画
-        for (i, name) in all_names.iter().enumerate() {
-            let x = axis_x[i];
+        for (disp, &orig) in visible.iter().enumerate() {
+            let x = axis_x[disp];
             painter.line_segment(
                 [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
                 egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS),
             );
-            painter.text(
-                egui::pos2(x, available.min.y + 15.0),
-                egui::Align2::CENTER_CENTER,
-                name.as_str(),
-                egui::FontId::proportional(10.0),
-                text_color,
-            );
+            let galley = label_galleys[orig].clone();
+            if rotate_labels {
+                // -label_angle（反時計回り）で回転させた "/" 形ラベルの最下端
+                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる。
+                let size = galley.size();
+                let applied = -label_angle;
+                let (sa, ca) = (applied.sin(), applied.cos());
+                // 4 隅を回転させ、画面上で最も下（最大 y）になる点を探す
+                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
+                let mut lowest = (0.0_f32, f32::MIN); // pos からの相対オフセット (rx, ry)
+                for (px, py) in corners {
+                    let rx = px * ca - py * sa;
+                    let ry = px * sa + py * ca;
+                    if ry > lowest.1 {
+                        lowest = (rx, ry);
+                    }
+                }
+                // 最下端が軸上端のすぐ上に来るよう pos を決める
+                let gap = 2.0_f32;
+                let anchor = egui::pos2(x, axis_top - gap);
+                let pos = anchor - egui::vec2(lowest.0, lowest.1);
+                painter
+                    .add(egui::epaint::TextShape::new(pos, galley, text_color).with_angle(applied));
+            } else {
+                let size = galley.size();
+                painter.galley(
+                    egui::pos2(x - size.x * 0.5, available.min.y + 4.0),
+                    galley,
+                    text_color,
+                );
+            }
 
-            let (mn, mx) = col_ranges[i];
+            let (mn, mx) = col_ranges[orig];
             for t in 0..N_TICKS {
                 let frac = t as f32 / (N_TICKS - 1) as f32;
                 let y = normalized_to_screen_y(frac, axis_top, axis_bottom);
@@ -269,10 +440,11 @@ impl ParallelCoordsChart {
             }
         }
 
-        // Draw brush range overlays
-        for (i, name) in all_names.iter().enumerate() {
+        // Draw brush range overlays（可視軸のみ）
+        for (disp, &orig) in visible.iter().enumerate() {
+            let name = &all_names[orig];
             if let Some(Some((y_lo, y_hi))) = self.brush_ranges.get(name.as_str()) {
-                let x = axis_x[i];
+                let x = axis_x[disp];
                 let screen_hi = normalized_to_screen_y(*y_hi, axis_top, axis_bottom);
                 let screen_lo = normalized_to_screen_y(*y_lo, axis_top, axis_bottom);
                 let brush_rect = egui::Rect::from_min_max(
@@ -308,8 +480,8 @@ impl ParallelCoordsChart {
                 })
                 .map(|(i, _)| i);
 
-            if let Some(axis_idx) = closest_axis_idx {
-                let axis_name = all_names[axis_idx].clone();
+            if let Some(disp_idx) = closest_axis_idx {
+                let axis_name = all_names[visible[disp_idx]].clone();
                 // Normalize pointer Y to [0, 1]
                 let norm_y = ((axis_bottom - ptr.y) / (axis_bottom - axis_top)).clamp(0.0, 1.0);
 
@@ -434,6 +606,7 @@ mod tests {
         assert!(chart.show_objectives);
         assert!(chart.brush_ranges.is_empty());
         assert!(chart.drag_start.is_none());
+        assert!(chart.color_axis.is_none());
     }
 
     // TASK-2022 tests
@@ -594,6 +767,68 @@ mod tests {
             filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
         assert_eq!(sel.len(), 1);
         assert_eq!(sel[0], 0);
+    }
+
+    #[test]
+    fn visible_axis_indices_default_all_visible() {
+        use std::collections::HashMap;
+        let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let vis = HashMap::new(); // 未登録 = 全表示
+        assert_eq!(visible_axis_indices(&names, &vis), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn visible_axis_indices_filters_hidden_and_preserves_order() {
+        use std::collections::HashMap;
+        let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut vis = HashMap::new();
+        vis.insert("b".to_string(), false);
+        assert_eq!(visible_axis_indices(&names, &vis), vec![0, 2]);
+    }
+
+    #[test]
+    fn visible_axis_indices_all_hidden_is_empty() {
+        use std::collections::HashMap;
+        let names = vec!["a".to_string(), "b".to_string()];
+        let mut vis = HashMap::new();
+        vis.insert("a".to_string(), false);
+        vis.insert("b".to_string(), false);
+        assert!(visible_axis_indices(&names, &vis).is_empty());
+    }
+
+    #[test]
+    fn feasible_color_range_excludes_infeasible_outliers() {
+        // 実行不可能解 (idx 3) が外れ値 1000.0 を持つが、レンジは実行可能解のみから算出する
+        let col = [1.0, 2.0, 3.0, 1000.0];
+        let feas = [1.0, 1.0, 1.0, 0.0];
+        let (mn, mx) = feasible_color_range(&col, Some(&feas), (0.0, 9999.0));
+        assert_eq!(mn, 1.0);
+        assert_eq!(mx, 3.0);
+    }
+
+    #[test]
+    fn feasible_color_range_no_constraints_uses_all() {
+        let col = [1.0, 2.0, 3.0, 1000.0];
+        let (mn, mx) = feasible_color_range(&col, None, (0.0, 9999.0));
+        assert_eq!(mn, 1.0);
+        assert_eq!(mx, 1000.0);
+    }
+
+    #[test]
+    fn feasible_color_range_all_infeasible_falls_back() {
+        let col = [1.0, 2.0, 3.0];
+        let feas = [0.0, 0.0, 0.0];
+        let range = feasible_color_range(&col, Some(&feas), (-5.0, 5.0));
+        assert_eq!(range, (-5.0, 5.0));
+    }
+
+    #[test]
+    fn feasible_color_range_skips_non_finite() {
+        let col = [1.0, f64::NAN, f64::INFINITY, 4.0];
+        let feas = [1.0, 1.0, 1.0, 1.0];
+        let (mn, mx) = feasible_color_range(&col, Some(&feas), (0.0, 0.0));
+        assert_eq!(mn, 1.0);
+        assert_eq!(mx, 4.0);
     }
 
     #[test]

@@ -163,13 +163,9 @@ pub(crate) fn render_chart(
             widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
         }
         ChartId::ParallelCoordinates => {
-            widgets.parallel_coords.show(
-                ui,
-                &ctx.view,
-                param_names,
-                obj_names,
-                &widgets.chart_colors,
-            );
+            widgets
+                .parallel_coords
+                .show(ui, &ctx.view, param_names, obj_names, &cmap);
             if let Some(sel) = widgets.parallel_coords.pending_selection.take() {
                 app_state.selected_indices = sel;
             }
