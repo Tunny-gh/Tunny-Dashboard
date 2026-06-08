@@ -64,11 +64,6 @@ fn chart_help(id: &ChartId) -> HelpContent {
             html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
             html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
         },
-        ChartId::McdmTable => HelpContent {
-            widget_name: "mcdm-table",
-            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/mcdm/overview.html")),
-            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/mcdm/overview.html")),
-        },
         ChartId::ClusterScatter => HelpContent {
             widget_name: "cluster-scatter",
             html_en: include_str!(concat!(
@@ -174,17 +169,6 @@ fn chart_help(id: &ChartId) -> HelpContent {
         },
         ChartId::ClusterScatter3D => HelpContent {
             widget_name: "cluster-scatter-3d",
-            html_en: include_str!(concat!(
-                env!("OUT_DIR"),
-                "/help/en/clustering/overview.html"
-            )),
-            html_ja: include_str!(concat!(
-                env!("OUT_DIR"),
-                "/help/ja/clustering/overview.html"
-            )),
-        },
-        ChartId::ClusterTable => HelpContent {
-            widget_name: "cluster-table",
             html_en: include_str!(concat!(
                 env!("OUT_DIR"),
                 "/help/en/clustering/overview.html"

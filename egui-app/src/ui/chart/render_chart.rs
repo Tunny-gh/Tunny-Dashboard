@@ -26,11 +26,6 @@ pub(crate) fn render_chart(
         widgets.cluster_scatter_3d.show(ui, app_state);
         return;
     }
-    if matches!(chart_id, ChartId::ClusterTable) {
-        let cmap = colormap_from_name(&app_state.selected_colormap);
-        widgets.cluster_table.show(ui, app_state, &cmap);
-        return;
-    }
     if matches!(chart_id, ChartId::ArtifactGallery) {
         widgets.artifact_gallery.show(ui, app_state);
         return;
@@ -46,7 +41,6 @@ pub(crate) fn render_chart(
         ChartId::ParetoScatter2D
         | ChartId::ParetoScatter3D
         | ChartId::ClusterScatter3D
-        | ChartId::ClusterTable
         | ChartId::ArtifactGallery => {
             unreachable!()
         }
@@ -229,16 +223,6 @@ pub(crate) fn render_chart(
                 obj_names,
                 &cmap,
                 &app_state.selected_colormap,
-            );
-        }
-        ChartId::McdmTable => {
-            let key = widgets.mcdm_table.controls.cache_key();
-            widgets.mcdm_table.show(
-                ui,
-                app_state.mcdm_cache.get(&key),
-                &ctx.view,
-                param_names,
-                obj_names,
             );
         }
         ChartId::SliceChart => {

@@ -404,7 +404,7 @@ impl MessageHandler {
             widget_states.hv_history.computing = false;
             widget_states.cluster_scatter = Default::default();
             widget_states.cluster_scatter_3d.clear_runtime_state();
-            widget_states.cluster_table.clear_runtime_state();
+            widget_states.trial_table.cluster.clear_runtime_state();
             app_state.cluster_cache.clear();
             app_state.mcdm_cache.clear();
             app_state.mcdm_result = None;
@@ -537,7 +537,7 @@ impl MessageHandler {
         match source {
             ClusterChartSource::Scatter2D => widget_states.cluster_scatter.clear_runtime_state(),
             ClusterChartSource::Scatter3D => widget_states.cluster_scatter_3d.clear_runtime_state(),
-            ClusterChartSource::Table => widget_states.cluster_table.clear_runtime_state(),
+            ClusterChartSource::Table => widget_states.trial_table.cluster.clear_runtime_state(),
             ClusterChartSource::ArtifactGallery => {
                 widget_states.artifact_gallery.clear_cluster_runtime()
             }
@@ -554,7 +554,7 @@ impl MessageHandler {
             McdmChartSource::Rank => &mut widget_states.mcdm_chart.controls,
             McdmChartSource::Scatter2D => &mut widget_states.scatter_chart.controls,
             McdmChartSource::Scatter3D => &mut widget_states.mcdm_scatter_3d.controls,
-            McdmChartSource::Table => &mut widget_states.mcdm_table.controls,
+            McdmChartSource::Table => &mut widget_states.trial_table.mcdm.controls,
             McdmChartSource::ArtifactGallery => &mut widget_states.artifact_gallery.mcdm,
         }
     }
@@ -569,7 +569,7 @@ impl MessageHandler {
         match source {
             ClusterChartSource::Scatter2D => widget_states.cluster_scatter.set_error(err),
             ClusterChartSource::Scatter3D => widget_states.cluster_scatter_3d.set_error(err),
-            ClusterChartSource::Table => widget_states.cluster_table.set_error(err),
+            ClusterChartSource::Table => widget_states.trial_table.cluster.set_error(err),
             ClusterChartSource::ArtifactGallery => {
                 widget_states.artifact_gallery.set_cluster_error(err)
             }

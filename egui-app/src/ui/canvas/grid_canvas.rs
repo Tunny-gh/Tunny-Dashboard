@@ -6,7 +6,6 @@ use crate::state::messages::AppMessage;
 use crate::theme::chart_colors::{COLOR_CELL_HIGHLIGHT, COLOR_SELECTION_HIGHLIGHT};
 use crate::theme::{CENTRAL_BG, CLOSE_BTN_TEXT};
 use crate::ui::widget_states::WidgetStates;
-use crate::ui::widgets::trial_table::TrialTableWidget;
 
 pub(crate) const CLOSE_BUTTON_SIZE: f32 = 16.0;
 const HANDLE_THICKNESS: f32 = 6.0;
@@ -513,6 +512,21 @@ pub(crate) fn handle_toolbar_action(
                 ctx.copy_text(csv_str);
             }
         }
+        CellToolbarAction::SaveAsCsv(PanelItem::TrialTable) => {
+            if let Some(csv_str) = crate::io::csv_export::build_trial_table_csv(app_state, widgets)
+            {
+                let filename = crate::io::csv_export::trial_table_csv_filename(widgets);
+                if let Err(e) = crate::io::export::save_csv_to_file_named(&csv_str, &filename) {
+                    let _ = tx.try_send(AppMessage::Error(e));
+                }
+            }
+        }
+        CellToolbarAction::CopyCsv(PanelItem::TrialTable) => {
+            if let Some(csv_str) = crate::io::csv_export::build_trial_table_csv(app_state, widgets)
+            {
+                ctx.copy_text(csv_str);
+            }
+        }
         _ => {}
     }
 }
@@ -539,7 +553,9 @@ fn render_cell_content(
                 PanelItem::Chart(chart_id) => {
                     crate::io::csv_export::has_csv_data(chart_id, app_state, widgets)
                 }
-                PanelItem::TrialTable => false,
+                PanelItem::TrialTable => {
+                    crate::io::csv_export::has_trial_table_csv(app_state, widgets)
+                }
             };
             let toolbar_action =
                 show_cell_toolbar(ui, row, col, item.clone(), title, csv_available);
@@ -589,7 +605,8 @@ pub(crate) fn render_panel_item_body(
                     crate::ui::chart_registry::show_chart(ui, app_state, widgets, chart_id, tx);
                 }
                 PanelItem::TrialTable => {
-                    TrialTableWidget.show(ui, app_state);
+                    widgets.trial_table.show(ui, app_state);
+                    crate::ui::poll_chart::poll_trial_table_work(app_state, widgets, tx);
                 }
             });
         });
