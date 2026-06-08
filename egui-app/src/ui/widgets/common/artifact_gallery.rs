@@ -174,15 +174,19 @@ impl ArtifactGallery {
         });
         ui.separator();
 
+        // キャンバスの Area 内では available_width が実質無制限になり horizontal_wrapped が
+        // 折り返さないため、ウィジェット本体の幅をここで確定して列数計算に使う。
+        let content_w = ui.available_width();
+
         match self.mode {
-            ArtifactViewMode::All => self.show_all(ui, app_state),
-            ArtifactViewMode::Cluster => self.show_cluster(ui, app_state),
-            ArtifactViewMode::Mcdm => self.show_mcdm(ui, app_state),
+            ArtifactViewMode::All => self.show_all(ui, app_state, content_w),
+            ArtifactViewMode::Cluster => self.show_cluster(ui, app_state, content_w),
+            ArtifactViewMode::Mcdm => self.show_mcdm(ui, app_state, content_w),
         }
     }
 
     /// All モード: artifact を持つ全 trial をページネーション表示。
-    fn show_all(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
+    fn show_all(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, content_w: f32) {
         let trials = artifact_trials_sorted(&app_state.artifact_map);
         let total_pages = trials.len().div_ceil(PAGE_SIZE).max(1);
         if self.page >= total_pages {
@@ -209,27 +213,27 @@ impl ArtifactGallery {
 
         let page_trials = paginate(&trials, self.page, PAGE_SIZE);
         let thumb = self.thumb_size;
-        let mut clicked: Option<u32> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for &trial_id in page_trials {
-                    if let Some(paths) = app_state.artifact_map.get(&trial_id) {
-                        for path in paths {
-                            if show_artifact_card(ui, app_state, trial_id, path, "", thumb) {
-                                clicked = Some(trial_id);
-                            }
-                        }
-                    }
+        let mut cards: Vec<(u32, String, &Path)> = Vec::new();
+        for &trial_id in page_trials {
+            if let Some(paths) = app_state.artifact_map.get(&trial_id) {
+                for path in paths {
+                    cards.push((trial_id, String::new(), path.as_path()));
                 }
+            }
+        }
+        let mut clicked: Option<u32> = None;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards);
             });
-        });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
         }
     }
 
     /// Cluster モード: 設定 UI + クラスタ別セクション表示。
-    fn show_cluster(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
+    fn show_cluster(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, content_w: f32) {
         let pareto_count = app_state
             .current_study
             .as_ref()
@@ -277,45 +281,47 @@ impl ArtifactGallery {
         let thumb = self.thumb_size;
         let n_clusters = cr.n_clusters.max(1);
         let mut clicked: Option<u32> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (label, members) in &sections {
-                let count: usize = members.iter().map(|(_, p)| p.len()).sum();
-                let title = if *label < 0 {
-                    format!("Unclustered ({count})")
-                } else {
-                    format!("Cluster {label} ({count})")
-                };
-                let color = cluster_color(*label, n_clusters, &cmap);
-                egui::CollapsingHeader::new(egui::RichText::new(title).color(color))
-                    .id_salt(("artifact_cluster_section", *label))
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for (trial_id, paths) in members {
-                                for path in *paths {
-                                    let badge = if *label < 0 {
-                                        "·".to_string()
-                                    } else {
-                                        format!("C{label}")
-                                    };
-                                    if show_artifact_card(
-                                        ui, app_state, *trial_id, path, &badge, thumb,
-                                    ) {
-                                        clicked = Some(*trial_id);
-                                    }
-                                }
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (label, members) in &sections {
+                    let count: usize = members.iter().map(|(_, p)| p.len()).sum();
+                    let title = if *label < 0 {
+                        format!("Unclustered ({count})")
+                    } else {
+                        format!("Cluster {label} ({count})")
+                    };
+                    let color = cluster_color(*label, n_clusters, &cmap);
+                    let badge = if *label < 0 {
+                        "·".to_string()
+                    } else {
+                        format!("C{label}")
+                    };
+                    let mut cards: Vec<(u32, String, &Path)> = Vec::new();
+                    for (trial_id, paths) in members {
+                        for p in *paths {
+                            cards.push((*trial_id, badge.clone(), p.as_path()));
+                        }
+                    }
+                    egui::CollapsingHeader::new(egui::RichText::new(title).color(color))
+                        .id_salt(("artifact_cluster_section", *label))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            // ヘッダーのインデント分を差し引いた幅で列数を決める。
+                            let w = (content_w - 24.0).max(thumb);
+                            if let Some(t) = render_card_grid(ui, app_state, w, thumb, &cards) {
+                                clicked = Some(t);
                             }
                         });
-                    });
-            }
-        });
+                }
+            });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
         }
     }
 
     /// MCDM モード: 設定 UI + ランキング順表示。
-    fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
+    fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, content_w: f32) {
         let obj_names = app_state
             .current_study
             .as_ref()
@@ -359,19 +365,19 @@ impl ArtifactGallery {
         }
 
         let thumb = self.thumb_size;
+        let mut cards: Vec<(u32, String, &Path)> = Vec::new();
+        for entry in &ordered {
+            let badge = format!("#{} ({:.3})", entry.rank, entry.score);
+            for path in entry.paths {
+                cards.push((entry.trial_id, badge.clone(), path.as_path()));
+            }
+        }
         let mut clicked: Option<u32> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for entry in &ordered {
-                    let badge = format!("#{} ({:.3})", entry.rank, entry.score);
-                    for path in entry.paths {
-                        if show_artifact_card(ui, app_state, entry.trial_id, path, &badge, thumb) {
-                            clicked = Some(entry.trial_id);
-                        }
-                    }
-                }
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards);
             });
-        });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
         }
@@ -452,6 +458,42 @@ impl ArtifactGallery {
         });
         ui.separator();
     }
+}
+
+/// 1 枚のカードが占める概算幅（サムネ + 枠線・内側余白・カード間隔）。
+const CARD_PADDING: f32 = 24.0;
+
+/// `content_w` に収まるカード列数を返す（最低 1 列）。
+pub fn card_columns(content_w: f32, thumb: f32) -> usize {
+    let col_w = thumb + CARD_PADDING;
+    if col_w <= 0.0 {
+        return 1;
+    }
+    ((content_w / col_w).floor() as usize).max(1)
+}
+
+/// カード群を `content_w` に収まる列数で折り返して描画する。
+/// キャンバスの Area 内では `horizontal_wrapped` が折り返さないため、列数を明示計算して
+/// 行ごとに `horizontal` で並べる。クリックされたカードの trial_id を返す。
+fn render_card_grid(
+    ui: &mut egui::Ui,
+    app_state: &AppState,
+    content_w: f32,
+    thumb: f32,
+    cards: &[(u32, String, &Path)],
+) -> Option<u32> {
+    let columns = card_columns(content_w, thumb);
+    let mut clicked: Option<u32> = None;
+    for row in cards.chunks(columns) {
+        ui.horizontal_top(|ui| {
+            for (trial_id, badge, path) in row {
+                if show_artifact_card(ui, app_state, *trial_id, path, badge, thumb) {
+                    clicked = Some(*trial_id);
+                }
+            }
+        });
+    }
+    clicked
 }
 
 /// クラスタラベルから色を求める（ClusterTable と同じ規則）。
@@ -739,6 +781,14 @@ mod tests {
         assert_eq!(ordered.len(), 1);
         assert_eq!(ordered[0].trial_id, 12);
         assert_eq!(ordered[0].rank, 2); // 全体ランクは 2 位
+    }
+
+    #[test]
+    fn card_columns_fits_width_and_min_one() {
+        // thumb=140 → 列幅 164。
+        assert_eq!(card_columns(700.0, 140.0), 4); // 700/164 = 4.26 → 4
+        assert_eq!(card_columns(164.0, 140.0), 1);
+        assert_eq!(card_columns(10.0, 140.0), 1); // 最低 1 列
     }
 
     #[test]
