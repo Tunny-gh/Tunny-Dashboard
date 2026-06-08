@@ -254,16 +254,20 @@ impl ArtifactGallery {
         };
         let ctx = ui.ctx().clone();
         let screen = ctx.screen_rect();
-        let max_w = (screen.width() * 0.9).max(200.0);
-        let max_h = (screen.height() * 0.9).max(200.0);
+        let max_w = (screen.width() * 0.95).max(200.0);
+        let max_h = (screen.height() * 0.95).max(200.0);
+        // ヘッダー・情報・余白を除いた画像表示領域の高さ。
+        let image_h = (max_h - 100.0).max(120.0);
 
         let mut close = false;
         let modal = egui::Modal::new(egui::Id::new("artifact_preview_modal")).show(&ctx, |ui| {
             ui.set_max_width(max_w);
+            // 画像のアスペクト比に依らずモーダルを縦に大きく確保する。
+            ui.set_min_height(max_h);
             ui.horizontal(|ui| {
                 ui.heading(&preview.title);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("✕ Close").clicked() {
+                    if ui.button("× Close").clicked() {
                         close = true;
                     }
                 });
@@ -273,10 +277,9 @@ impl ArtifactGallery {
             }
             ui.separator();
             // 画像本体。画面の大半に収まるよう上限を設けつつ縦横比を維持する。
-            egui::ScrollArea::both().show(ui, |ui| {
+            egui::ScrollArea::both().max_height(image_h).show(ui, |ui| {
                 ui.add(
-                    egui::Image::from_uri(preview.uri.clone())
-                        .max_size(egui::vec2(max_w, max_h - 80.0)),
+                    egui::Image::from_uri(preview.uri.clone()).max_size(egui::vec2(max_w, image_h)),
                 );
             });
         });
