@@ -150,6 +150,8 @@ impl ClusterTable {
         // egui_extras の Table は横スクロールを内蔵しないため、固定幅カラムを
         // 水平 ScrollArea でラップして全列を 1 セルにまとめず個別表示する。
         egui::ScrollArea::horizontal().show(ui, |ui| {
+            // ストライプの色を強調して偶数/奇数行を見分けやすくする。
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)

@@ -612,6 +612,8 @@ impl McdmTable {
         // 各変数・目的を 1 列ずつに展開し、横スクロール可能にする
         // （Cluster Table と同形式）。
         egui::ScrollArea::horizontal().show(ui, |ui| {
+            // ストライプの色を強調して偶数/奇数行を見分けやすくする。
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
