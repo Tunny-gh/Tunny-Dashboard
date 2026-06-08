@@ -2,15 +2,56 @@ use crate::state::app_state::AppState;
 #[cfg(test)]
 use crate::state::app_state::{StudyContext, TrialRow};
 use crate::theme::chart_colors::COLOR_LINK;
+use crate::theme::colormap_name::colormap_from_name;
+use crate::ui::widgets::cluster_table::ClusterTable;
+use crate::ui::widgets::mcdm_chart::McdmTable;
 
-/// トライアル一覧テーブルウィジェット。
-/// 旧 BottomPanel の描画ロジックを PanelItem として独立させたもの。
+/// トライアルテーブルの表示モード。
+/// Artifact ギャラリーと同様に、関連する複数のテーブルを 1 つのウィジェットへ統合し、
+/// モードセレクタで切り替える。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrialTableMode {
+    /// 全トライアル一覧（選択 ∪ ピン留め）。設定不要。
+    #[default]
+    All,
+    /// クラスタリング結果（各トライアルのクラスタ割当）を表示。
+    Cluster,
+    /// MCDM ランキング順に表示。
+    Mcdm,
+}
+
+impl TrialTableMode {
+    fn label(&self) -> &'static str {
+        match self {
+            TrialTableMode::All => "All Trials",
+            TrialTableMode::Cluster => "By Cluster",
+            TrialTableMode::Mcdm => "By MCDM Rank",
+        }
+    }
+}
+
+/// トライアルテーブルウィジェット。
+/// 旧 BottomPanel の一覧に加え、クラスタ割当テーブル（Cluster）と MCDM ランキング
+/// テーブル（MCDM）をモードセレクタで切り替える統合ウィジェット。
+/// クラスタ / MCDM の設定・実行状態は埋め込んだ各サブウィジェットが保持し、
+/// 計算結果は設定キーごとに `cluster_cache` / `mcdm_cache` で共有・キャッシュされる
+/// （Artifact ギャラリーと同じ統合スタイル）。
 /// グリッドキャンバスの任意のセルに D&D で配置できる。
 #[derive(Default)]
-pub struct TrialTableWidget;
+pub struct TrialTable {
+    pub mode: TrialTableMode,
+    /// Cluster モードの設定・描画を担うサブウィジェット。
+    pub cluster: ClusterTable,
+    /// MCDM モードの設定・描画を担うサブウィジェット。
+    pub mcdm: McdmTable,
+}
 
-impl TrialTableWidget {
-    /// テーブルを描画する
+impl TrialTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// テーブルを描画する。モードセレクタを表示し、選択モードに応じて切り替える。
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         if app_state.current_study.is_none() {
             ui.centered_and_justified(|ui| {
@@ -19,6 +60,51 @@ impl TrialTableWidget {
             return;
         }
 
+        // モードセレクタ（Artifact ギャラリーと同じ操作感）。
+        ui.horizontal(|ui| {
+            ui.label("View:");
+            egui::ComboBox::from_id_salt("trial_table_mode")
+                .selected_text(self.mode.label())
+                .show_ui(ui, |ui| {
+                    for m in [
+                        TrialTableMode::All,
+                        TrialTableMode::Cluster,
+                        TrialTableMode::Mcdm,
+                    ] {
+                        ui.selectable_value(&mut self.mode, m, m.label());
+                    }
+                });
+        });
+        ui.separator();
+
+        match self.mode {
+            TrialTableMode::All => self.show_all(ui, app_state),
+            TrialTableMode::Cluster => {
+                let cmap = colormap_from_name(&app_state.selected_colormap);
+                self.cluster.show(ui, app_state, &cmap);
+            }
+            TrialTableMode::Mcdm => self.show_mcdm(ui, app_state),
+        }
+    }
+
+    /// MCDM モード: 設定 UI + ランキング順テーブル（McdmTable へ委譲）。
+    fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &AppState) {
+        let Some(ctx) = app_state.current_study.as_ref() else {
+            return;
+        };
+        let key = self.mcdm.controls.cache_key();
+        let result = app_state.mcdm_cache.get(&key);
+        self.mcdm.show(
+            ui,
+            result,
+            &ctx.view,
+            &ctx.meta.param_names,
+            &ctx.meta.objective_names,
+        );
+    }
+
+    /// All モード: 全トライアル一覧（選択 ∪ ピン留め）を描画する。
+    fn show_all(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         let study_ctx = app_state.current_study.as_ref().unwrap();
         let pinned = app_state.pinned_trials.clone();
         let highlighted = app_state.highlighted_trial;

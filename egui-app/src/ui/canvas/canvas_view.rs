@@ -176,7 +176,9 @@ pub fn show_canvas_view(
                     PanelItem::Chart(chart_id) => {
                         crate::io::csv_export::has_csv_data(chart_id, app_state, iw)
                     }
-                    PanelItem::TrialTable => false,
+                    PanelItem::TrialTable => {
+                        crate::io::csv_export::has_trial_table_csv(app_state, iw)
+                    }
                 };
                 let (move_delta, tb_action) = show_canvas_item_toolbar(
                     &mut content_ui,

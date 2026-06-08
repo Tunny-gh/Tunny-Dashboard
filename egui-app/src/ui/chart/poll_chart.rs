@@ -344,25 +344,7 @@ pub(crate) fn poll_chart_work(
                 }
             }
         }
-        ChartId::ClusterTable => {
-            if let Some(req) = widgets.cluster_table.pending_compute.take() {
-                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
-                    Ok(matrix) => {
-                        let tx = tx.clone();
-                        crate::app::spawn_task(tx, move || {
-                            run_cluster_compute(ClusterChartSource::Table, req, matrix)
-                        });
-                    }
-                    Err(err) => {
-                        widgets.cluster_table.set_error(err);
-                    }
-                }
-            }
-        }
-        ChartId::McdmRankChart
-        | ChartId::McdmScatterChart
-        | ChartId::McdmScatterChart3D
-        | ChartId::McdmTable => {
+        ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmScatterChart3D => {
             // 各 MCDM チャートは独自の controls を持つが、ディスパッチ処理は共通。
             // 対象チャートの controls と source だけを選び、同じ 2 ステップを実行する。
             let (controls, source) = match chart_id {
@@ -371,11 +353,10 @@ pub(crate) fn poll_chart_work(
                     &mut widgets.scatter_chart.controls,
                     McdmChartSource::Scatter2D,
                 ),
-                ChartId::McdmScatterChart3D => (
+                _ => (
                     &mut widgets.mcdm_scatter_3d.controls,
                     McdmChartSource::Scatter3D,
                 ),
-                _ => (&mut widgets.mcdm_table.controls, McdmChartSource::Table),
             };
             dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
             dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
@@ -478,6 +459,57 @@ pub(crate) fn poll_chart_work(
             }
         }
         _ => {}
+    }
+}
+
+/// 統合トライアルテーブル（`PanelItem::TrialTable`）の非同期計算をディスパッチする。
+/// 現在のモードに応じて、Cluster なら クラスタリング、MCDM なら MCDM 計算を起動する。
+/// 計算結果は Cluster/MCDM テーブルと同じ `ClusterChartSource::Table` /
+/// `McdmChartSource::Table` で共有・キャッシュされる。
+pub(crate) fn poll_trial_table_work(
+    app_state: &mut AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    use crate::ui::widgets::trial_table::TrialTableMode;
+
+    if app_state.current_study.is_none() {
+        return;
+    }
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let param_names = &ctx.meta.param_names;
+    let directions = &ctx.meta.directions;
+
+    match widgets.trial_table.mode {
+        TrialTableMode::Cluster => {
+            if let Some(req) = widgets.trial_table.cluster.pending_compute.take() {
+                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
+                    Ok(matrix) => {
+                        let tx = tx.clone();
+                        crate::app::spawn_task(tx, move || {
+                            run_cluster_compute(ClusterChartSource::Table, req, matrix)
+                        });
+                    }
+                    Err(err) => {
+                        widgets.trial_table.cluster.set_error(err);
+                    }
+                }
+            }
+        }
+        TrialTableMode::Mcdm => {
+            let controls = &mut widgets.trial_table.mcdm.controls;
+            dispatch_mcdm_entropy(controls, ctx, obj_names, McdmChartSource::Table, tx);
+            dispatch_mcdm_compute(
+                controls,
+                ctx,
+                obj_names,
+                directions,
+                McdmChartSource::Table,
+                tx,
+            );
+        }
+        TrialTableMode::All => {}
     }
 }
 

@@ -60,7 +60,9 @@ impl ComputeSyncKind {
                         .adopt_runtime_state(&global.cluster_scatter);
                     w.cluster_scatter_3d
                         .adopt_runtime_state(&global.cluster_scatter_3d);
-                    w.cluster_table.adopt_runtime_state(&global.cluster_table);
+                    w.trial_table
+                        .cluster
+                        .adopt_runtime_state(&global.trial_table.cluster);
                     w.artifact_gallery
                         .adopt_cluster_runtime(&global.artifact_gallery);
                 }
@@ -70,7 +72,9 @@ impl ComputeSyncKind {
                     w.scatter_chart.adopt_compute_state(&global.scatter_chart);
                     w.mcdm_scatter_3d
                         .adopt_compute_state(&global.mcdm_scatter_3d);
-                    w.mcdm_table.adopt_compute_state(&global.mcdm_table);
+                    w.trial_table
+                        .mcdm
+                        .adopt_compute_state(&global.trial_table.mcdm);
                     w.artifact_gallery
                         .mcdm
                         .adopt_compute_state(&global.artifact_gallery.mcdm);

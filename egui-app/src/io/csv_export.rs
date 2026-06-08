@@ -3,6 +3,7 @@ use crate::state::layout_state::ChartId;
 use crate::state::results::ClusterResult;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
+use crate::ui::widgets::trial_table::TrialTableMode;
 
 /// チャート固有のクラスタリング設定キーで、キャッシュからクラスタ結果を解決する。
 /// 2D / 3D / Table はそれぞれ独立した設定を持つため、エクスポート対象も各自のキーで引く。
@@ -14,7 +15,6 @@ fn cluster_result_for_chart<'a>(
     let key = match chart_id {
         ChartId::ClusterScatter => widgets.cluster_scatter.cache_key(),
         ChartId::ClusterScatter3D => widgets.cluster_scatter_3d.cache_key(),
-        ChartId::ClusterTable => widgets.cluster_table.cache_key(),
         _ => return None,
     };
     app_state.cluster_cache.get(&key)
@@ -30,7 +30,6 @@ fn mcdm_result_for_chart<'a>(
         ChartId::McdmRankChart => widgets.mcdm_chart.controls.cache_key(),
         ChartId::McdmScatterChart => widgets.scatter_chart.controls.cache_key(),
         ChartId::McdmScatterChart3D => widgets.mcdm_scatter_3d.controls.cache_key(),
-        ChartId::McdmTable => widgets.mcdm_table.controls.cache_key(),
         _ => return None,
     };
     app_state.mcdm_cache.get(&key)
@@ -57,16 +56,63 @@ pub fn build_chart_csv(
             .and_then(|r| build_mcdm_rank_csv(r, app_state)),
         ChartId::McdmScatterChart => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
-        ChartId::McdmTable => mcdm_result_for_chart(chart_id, app_state, widgets)
-            .and_then(|r| build_mcdm_table_csv(r, app_state)),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::SurfacePlot => None,
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
-        ChartId::ClusterTable => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
         ChartId::ArtifactGallery => None,
     }
+}
+
+/// 統合トライアルテーブル（`PanelItem::TrialTable`）の CSV を、現在のモードに応じて組み立てる。
+/// All はトライアル一覧、Cluster はクラスタ割当、MCDM はランキングを出力する。
+pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    match widgets.trial_table.mode {
+        TrialTableMode::All => build_trial_based_csv(app_state),
+        TrialTableMode::Cluster => {
+            let key = widgets.trial_table.cluster.cache_key();
+            let cr = app_state.cluster_cache.get(&key)?;
+            build_cluster_csv_from_result(cr, app_state)
+        }
+        TrialTableMode::Mcdm => {
+            let key = widgets.trial_table.mcdm.controls.cache_key();
+            let result = app_state.mcdm_cache.get(&key)?;
+            build_mcdm_table_csv(result, app_state)
+        }
+    }
+}
+
+/// 統合トライアルテーブルに、現在のモードでエクスポート可能なデータがあるか判定する。
+pub fn has_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> bool {
+    match widgets.trial_table.mode {
+        TrialTableMode::All => app_state
+            .current_study
+            .as_ref()
+            .is_some_and(|s| s.trial_count() > 0),
+        TrialTableMode::Cluster => {
+            let key = widgets.trial_table.cluster.cache_key();
+            app_state
+                .current_study
+                .as_ref()
+                .zip(app_state.cluster_cache.get(&key))
+                .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count())
+        }
+        TrialTableMode::Mcdm => {
+            let key = widgets.trial_table.mcdm.controls.cache_key();
+            app_state.current_study.is_some() && app_state.mcdm_cache.contains_key(&key)
+        }
+    }
+}
+
+/// 統合トライアルテーブルの CSV ファイル名を、現在のモードに応じて返す。
+pub fn trial_table_csv_filename(widgets: &WidgetStates) -> String {
+    let name = match widgets.trial_table.mode {
+        TrialTableMode::All => "trial_table",
+        TrialTableMode::Cluster => "cluster_table",
+        TrialTableMode::Mcdm => "mcdm_table",
+    };
+    format!("{}.csv", name)
 }
 
 pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetStates) -> bool {
@@ -127,7 +173,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .current_study
             .as_ref()
             .is_some_and(|s| !s.pareto_indices.is_empty()),
-        ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmTable => {
+        ChartId::McdmRankChart | ChartId::McdmScatterChart => {
             app_state.current_study.is_some()
                 && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
@@ -142,7 +188,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                     .get(widgets.slice_chart.selected_obj_idx)
                     .is_some()
         }),
-        ChartId::ClusterScatter3D | ChartId::ClusterTable => app_state
+        ChartId::ClusterScatter3D => app_state
             .current_study
             .as_ref()
             .zip(cluster_result_for_chart(chart_id, app_state, widgets))
@@ -170,11 +216,9 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::ParetoScatter3D => "pareto_scatter_3d",
         ChartId::McdmRankChart => "mcdm_rank_chart",
         ChartId::McdmScatterChart => "mcdm_scatter_chart",
-        ChartId::McdmTable => "mcdm_table",
         ChartId::SliceChart => "slice_chart",
         ChartId::SurfacePlot => "surface_plot",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
-        ChartId::ClusterTable => "cluster_table",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
         ChartId::ArtifactGallery => "artifact_gallery",
     };
@@ -318,8 +362,14 @@ fn build_cluster_csv(
     app_state: &AppState,
     widgets: &WidgetStates,
 ) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
     let cr = cluster_result_for_chart(chart_id, app_state, widgets)?;
+    build_cluster_csv_from_result(cr, app_state)
+}
+
+/// クラスタ結果を直接受け取って CSV を組み立てる（チャート ID 非依存）。
+/// 統合トライアルテーブルなど、ChartId を持たない呼び出し元から使う。
+fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
     let n = study.trial_count();
     if cr.labels.len() != n {
         return None;
@@ -605,7 +655,6 @@ mod tests {
             ChartId::ParetoScatter3D,
             ChartId::McdmRankChart,
             ChartId::McdmScatterChart,
-            ChartId::McdmTable,
             ChartId::SliceChart,
             ChartId::SurfacePlot,
         ];
