@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
-use crate::io::artifacts::ArtifactFileType;
+use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
 use crate::state::app_state::AppState;
 use crate::state::results::{ClusterResult, McdmResult};
 use crate::theme::chart_colors::COLOR_LINK;
@@ -213,11 +212,11 @@ impl ArtifactGallery {
 
         let page_trials = paginate(&trials, self.page, PAGE_SIZE);
         let thumb = self.thumb_size;
-        let mut cards: Vec<(u32, String, &Path)> = Vec::new();
+        let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for &trial_id in page_trials {
-            if let Some(paths) = app_state.artifact_map.get(&trial_id) {
-                for path in paths {
-                    cards.push((trial_id, String::new(), path.as_path()));
+            if let Some(entries) = app_state.artifact_map.get(&trial_id) {
+                for entry in entries {
+                    cards.push((trial_id, String::new(), entry));
                 }
             }
         }
@@ -297,10 +296,10 @@ impl ArtifactGallery {
                     } else {
                         format!("C{label}")
                     };
-                    let mut cards: Vec<(u32, String, &Path)> = Vec::new();
-                    for (trial_id, paths) in members {
-                        for p in *paths {
-                            cards.push((*trial_id, badge.clone(), p.as_path()));
+                    let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
+                    for (trial_id, entries) in members {
+                        for e in *entries {
+                            cards.push((*trial_id, badge.clone(), e));
                         }
                     }
                     egui::CollapsingHeader::new(egui::RichText::new(title).color(color))
@@ -365,11 +364,11 @@ impl ArtifactGallery {
         }
 
         let thumb = self.thumb_size;
-        let mut cards: Vec<(u32, String, &Path)> = Vec::new();
+        let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for entry in &ordered {
             let badge = format!("#{} ({:.3})", entry.rank, entry.score);
-            for path in entry.paths {
-                cards.push((entry.trial_id, badge.clone(), path.as_path()));
+            for e in entry.entries {
+                cards.push((entry.trial_id, badge.clone(), e));
             }
         }
         let mut clicked: Option<u32> = None;
@@ -480,14 +479,14 @@ fn render_card_grid(
     app_state: &AppState,
     content_w: f32,
     thumb: f32,
-    cards: &[(u32, String, &Path)],
+    cards: &[(u32, String, &ArtifactEntry)],
 ) -> Option<u32> {
     let columns = card_columns(content_w, thumb);
     let mut clicked: Option<u32> = None;
     for row in cards.chunks(columns) {
         ui.horizontal_top(|ui| {
-            for (trial_id, badge, path) in row {
-                if show_artifact_card(ui, app_state, *trial_id, path, badge, thumb) {
+            for (trial_id, badge, entry) in row {
+                if show_artifact_card(ui, app_state, *trial_id, entry, badge, thumb) {
                     clicked = Some(*trial_id);
                 }
             }
@@ -514,7 +513,7 @@ fn show_artifact_card(
     ui: &mut egui::Ui,
     app_state: &AppState,
     trial_id: u32,
-    path: &Path,
+    entry: &ArtifactEntry,
     badge: &str,
     thumb: f32,
 ) -> bool {
@@ -532,9 +531,9 @@ fn show_artifact_card(
         .show(ui, |ui| {
             ui.set_width(thumb);
             ui.vertical(|ui| {
-                match ArtifactFileType::from_path(path) {
+                match entry.file_type() {
                     ArtifactFileType::Image => {
-                        let uri = format!("file://{}", path.to_string_lossy());
+                        let uri = format!("file://{}", entry.path.to_string_lossy());
                         let resp = ui
                             .add(
                                 egui::Image::from_uri(uri)
@@ -556,16 +555,12 @@ fn show_artifact_card(
                             ui.label(egui::RichText::new(icon).size(thumb * 0.4));
                             ui.add_space(thumb * 0.2);
                             if ui.small_button("Open").clicked() {
-                                let _ = open::that(path);
+                                let _ = open::that(&entry.path);
                             }
                         });
                     }
                 }
-                let fname = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
+                let fname = entry.filename.clone();
                 let header = if badge.is_empty() {
                     format!("Trial {trial_id}")
                 } else {
@@ -587,11 +582,11 @@ fn show_artifact_card(
 
 /// artifact を持つ trial_id を昇順で返す。
 pub fn artifact_trials_sorted(
-    artifact_map: &std::collections::HashMap<u32, Vec<PathBuf>>,
+    artifact_map: &std::collections::HashMap<u32, Vec<ArtifactEntry>>,
 ) -> Vec<u32> {
     let mut ids: Vec<u32> = artifact_map
         .iter()
-        .filter(|(_, paths)| !paths.is_empty())
+        .filter(|(_, entries)| !entries.is_empty())
         .map(|(&id, _)| id)
         .collect();
     ids.sort_unstable();
@@ -615,24 +610,24 @@ pub fn paginate<T>(items: &[T], page: usize, per_page: usize) -> &[T] {
 pub fn cluster_sections<'a>(
     cluster_result: &ClusterResult,
     trial_ids: &[u32],
-    artifact_map: &'a std::collections::HashMap<u32, Vec<PathBuf>>,
-) -> Vec<(i32, Vec<(u32, &'a Vec<PathBuf>)>)> {
-    let mut by_label: BTreeMap<i32, Vec<(u32, &Vec<PathBuf>)>> = BTreeMap::new();
+    artifact_map: &'a std::collections::HashMap<u32, Vec<ArtifactEntry>>,
+) -> Vec<(i32, Vec<(u32, &'a Vec<ArtifactEntry>)>)> {
+    let mut by_label: BTreeMap<i32, Vec<(u32, &Vec<ArtifactEntry>)>> = BTreeMap::new();
     for (idx, &label) in cluster_result.labels.iter().enumerate() {
         let Some(&trial_id) = trial_ids.get(idx) else {
             continue;
         };
-        let Some(paths) = artifact_map.get(&trial_id) else {
+        let Some(entries) = artifact_map.get(&trial_id) else {
             continue;
         };
-        if paths.is_empty() {
+        if entries.is_empty() {
             continue;
         }
-        by_label.entry(label).or_default().push((trial_id, paths));
+        by_label.entry(label).or_default().push((trial_id, entries));
     }
     // BTreeMap は昇順。未クラスタ(-1)を末尾へ移す。
-    let mut sections: Vec<(i32, Vec<(u32, &Vec<PathBuf>)>)> = Vec::new();
-    let mut unclustered: Option<(i32, Vec<(u32, &Vec<PathBuf>)>)> = None;
+    let mut sections: Vec<(i32, Vec<(u32, &Vec<ArtifactEntry>)>)> = Vec::new();
+    let mut unclustered: Option<(i32, Vec<(u32, &Vec<ArtifactEntry>)>)> = None;
     for (label, members) in by_label {
         if label < 0 {
             unclustered = Some((label, members));
@@ -651,14 +646,14 @@ pub struct McdmArtifactEntry<'a> {
     pub rank: usize,
     pub score: f64,
     pub trial_id: u32,
-    pub paths: &'a Vec<PathBuf>,
+    pub entries: &'a Vec<ArtifactEntry>,
 }
 
 /// MCDM 結果をランク順に並べ、artifact を持つ trial を最大 `top_n` 件返す。
 pub fn mcdm_ordered<'a>(
     result: &McdmResult,
     trial_ids: &[u32],
-    artifact_map: &'a std::collections::HashMap<u32, Vec<PathBuf>>,
+    artifact_map: &'a std::collections::HashMap<u32, Vec<ArtifactEntry>>,
     top_n: usize,
 ) -> Vec<McdmArtifactEntry<'a>> {
     let scores = result.primary_scores();
@@ -669,17 +664,17 @@ pub fn mcdm_ordered<'a>(
         let Some(&trial_id) = trial_ids.get(idx) else {
             continue;
         };
-        let Some(paths) = artifact_map.get(&trial_id) else {
+        let Some(entries) = artifact_map.get(&trial_id) else {
             continue;
         };
-        if paths.is_empty() {
+        if entries.is_empty() {
             continue;
         }
         out.push(McdmArtifactEntry {
             rank: rank0 + 1,
             score: scores.get(idx).copied().unwrap_or(0.0),
             trial_id,
-            paths,
+            entries,
         });
         if out.len() >= top_n {
             break;
@@ -693,10 +688,20 @@ mod tests {
     use super::*;
     use crate::state::results::TopsisResult;
     use std::collections::HashMap;
+    use std::path::PathBuf;
 
-    fn map_with(ids: &[u32]) -> HashMap<u32, Vec<PathBuf>> {
+    fn map_with(ids: &[u32]) -> HashMap<u32, Vec<ArtifactEntry>> {
         ids.iter()
-            .map(|&id| (id, vec![PathBuf::from(format!("{id}.png"))]))
+            .map(|&id| {
+                (
+                    id,
+                    vec![ArtifactEntry {
+                        path: PathBuf::from(format!("{id}")),
+                        filename: format!("{id}.png"),
+                        mimetype: "image/png".into(),
+                    }],
+                )
+            })
             .collect()
     }
 

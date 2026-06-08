@@ -224,7 +224,7 @@ pub enum AppMessage {
     },
     /// REQ-007: Artifacts ディレクトリスキャン完了
     ArtifactsDirScanned {
-        trial_artifacts: std::collections::HashMap<u32, Vec<std::path::PathBuf>>,
+        trial_artifacts: std::collections::HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
         artifacts_dir: std::path::PathBuf,
     },
     /// REQ-005: HTML レポート生成完了

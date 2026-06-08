@@ -262,7 +262,11 @@ impl TunnyApp {
                     }
                 }
                 ToolbarAction::ScanArtifacts(base_dir) => {
-                    crate::io::artifacts::scan_artifacts_dir(base_dir, self.sender());
+                    crate::io::artifacts::scan_artifacts_dir(
+                        base_dir,
+                        self.app_state.journal_path.clone(),
+                        self.sender(),
+                    );
                 }
                 ToolbarAction::ClearLoadError => {
                     self.load_error = None;

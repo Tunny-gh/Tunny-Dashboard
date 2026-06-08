@@ -55,8 +55,8 @@ pub struct AppState {
     // ── REQ-007: Artifacts ────────────────────────────────────
     /// スキャン済みの artifacts ベースディレクトリ
     pub artifacts_dir: Option<std::path::PathBuf>,
-    /// trial_id → ファイルパスリストのマップ
-    pub artifact_map: HashMap<u32, Vec<std::path::PathBuf>>,
+    /// trial_id → アーティファクト（実体パス + 元ファイル名 + MIME）のマップ
+    pub artifact_map: HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
 
     // ── REQ-008: 収束診断 ──────────────────────────────────────
     /// (trial_id, cumulative_best_value) の履歴（単目的 Study のみ）
@@ -343,9 +343,14 @@ mod tests {
     fn task2110_clear_resets_artifact_and_history_fields() {
         // TC-009, TC-010
         let mut state = AppState::new();
-        state
-            .artifact_map
-            .insert(0, vec![std::path::PathBuf::from("/tmp/a.png")]);
+        state.artifact_map.insert(
+            0,
+            vec![crate::io::artifacts::ArtifactEntry {
+                path: std::path::PathBuf::from("/tmp/abc123"),
+                filename: "a.png".into(),
+                mimetype: "image/png".into(),
+            }],
+        );
         state.artifacts_dir = Some(std::path::PathBuf::from("/tmp"));
         state.best_trial_history = Some(vec![(0, 1.0)]);
 
