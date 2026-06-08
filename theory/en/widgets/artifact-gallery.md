@@ -14,6 +14,10 @@ with its trial and with analysis results.
 - **By MCDM Rank** — runs the selected MCDM method and lists the artifacts in
   ranking order (top-N), with the rank and score shown on each card.
 
+When a trial has multiple artifacts, the **Artifact #** selector chooses which
+one (0-based) is shown per trial, so each trial contributes a single card.
+Trials that don't have an artifact at the selected index are skipped.
+
 Image files (PNG / JPEG / GIF / WEBP) are shown as thumbnails. Other files
 (CSV, etc.) show an icon and an **Open** button that opens the file with the
 system default application. Clicking a card highlights the corresponding trial

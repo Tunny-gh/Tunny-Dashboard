@@ -53,6 +53,8 @@ pub struct ArtifactGallery {
     pub mode: ArtifactViewMode,
     pub page: usize,
     pub thumb_size: f32,
+    /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
+    pub artifact_index: usize,
     // ── Cluster 設定（ClusterTable と同一構成）──────────────────
     pub k: usize,
     pub target_space: ClusterSpace,
@@ -71,6 +73,7 @@ impl Default for ArtifactGallery {
             mode: ArtifactViewMode::All,
             page: 0,
             thumb_size: DEFAULT_THUMB,
+            artifact_index: 0,
             k: 3,
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::ElbowDefault,
@@ -154,7 +157,19 @@ impl ArtifactGallery {
             return;
         }
 
-        // モードセレクタ。
+        // 1 トライアルあたりの最大アーティファクト数（インデックスセレクタの範囲に使う）。
+        let max_artifacts = app_state
+            .artifact_map
+            .values()
+            .map(|v| v.len())
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        if self.artifact_index >= max_artifacts {
+            self.artifact_index = max_artifacts - 1;
+        }
+
+        // モードセレクタ + アーティファクト番号セレクタ。
         ui.horizontal(|ui| {
             ui.label("View:");
             egui::ComboBox::from_id_salt("artifact_gallery_mode")
@@ -170,23 +185,45 @@ impl ArtifactGallery {
                         }
                     }
                 });
+
+            // 1 トライアルに複数アーティファクトがある場合のみ表示する。
+            if max_artifacts > 1 {
+                ui.separator();
+                ui.label("Artifact #:");
+                ui.add(egui::DragValue::new(&mut self.artifact_index).range(0..=max_artifacts - 1))
+                    .on_hover_text(
+                        "Which artifact to show per trial (0-based). \
+                     Trials without this index are skipped.",
+                    );
+                ui.label(format!("of up to {max_artifacts}"));
+            }
         });
         ui.separator();
+
+        let artifact_index = self.artifact_index;
 
         // キャンバスの Area 内では available_width が実質無制限になり horizontal_wrapped が
         // 折り返さないため、ウィジェット本体の幅をここで確定して列数計算に使う。
         let content_w = ui.available_width();
 
         match self.mode {
-            ArtifactViewMode::All => self.show_all(ui, app_state, content_w),
-            ArtifactViewMode::Cluster => self.show_cluster(ui, app_state, content_w),
-            ArtifactViewMode::Mcdm => self.show_mcdm(ui, app_state, content_w),
+            ArtifactViewMode::All => self.show_all(ui, app_state, content_w, artifact_index),
+            ArtifactViewMode::Cluster => {
+                self.show_cluster(ui, app_state, content_w, artifact_index)
+            }
+            ArtifactViewMode::Mcdm => self.show_mcdm(ui, app_state, content_w, artifact_index),
         }
     }
 
-    /// All モード: artifact を持つ全 trial をページネーション表示。
-    fn show_all(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, content_w: f32) {
-        let trials = artifact_trials_sorted(&app_state.artifact_map);
+    /// All モード: artifact を持つ全 trial をページネーション表示（各 trial は選択番号の 1 枚）。
+    fn show_all(
+        &mut self,
+        ui: &mut egui::Ui,
+        app_state: &mut AppState,
+        content_w: f32,
+        artifact_index: usize,
+    ) {
+        let trials = artifact_trials_with_index(&app_state.artifact_map, artifact_index);
         let total_pages = trials.len().div_ceil(PAGE_SIZE).max(1);
         if self.page >= total_pages {
             self.page = total_pages - 1;
@@ -214,10 +251,12 @@ impl ArtifactGallery {
         let thumb = self.thumb_size;
         let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for &trial_id in page_trials {
-            if let Some(entries) = app_state.artifact_map.get(&trial_id) {
-                for entry in entries {
-                    cards.push((trial_id, String::new(), entry));
-                }
+            if let Some(entry) = app_state
+                .artifact_map
+                .get(&trial_id)
+                .and_then(|entries| entries.get(artifact_index))
+            {
+                cards.push((trial_id, String::new(), entry));
             }
         }
         let mut clicked: Option<u32> = None;
@@ -232,7 +271,13 @@ impl ArtifactGallery {
     }
 
     /// Cluster モード: 設定 UI + クラスタ別セクション表示。
-    fn show_cluster(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, content_w: f32) {
+    fn show_cluster(
+        &mut self,
+        ui: &mut egui::Ui,
+        app_state: &mut AppState,
+        content_w: f32,
+        artifact_index: usize,
+    ) {
         let pareto_count = app_state
             .current_study
             .as_ref()
@@ -269,7 +314,7 @@ impl ArtifactGallery {
             .as_ref()
             .map(|c| c.view.trial_ids.clone())
             .unwrap_or_default();
-        let sections = cluster_sections(&cr, &trial_ids, &app_state.artifact_map);
+        let sections = cluster_sections(&cr, &trial_ids, &app_state.artifact_map, artifact_index);
         if sections.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No clustered trials have artifacts.").weak());
@@ -284,7 +329,7 @@ impl ArtifactGallery {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (label, members) in &sections {
-                    let count: usize = members.iter().map(|(_, p)| p.len()).sum();
+                    let count = members.len();
                     let title = if *label < 0 {
                         format!("Unclustered ({count})")
                     } else {
@@ -296,12 +341,10 @@ impl ArtifactGallery {
                     } else {
                         format!("C{label}")
                     };
-                    let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
-                    for (trial_id, entries) in members {
-                        for e in *entries {
-                            cards.push((*trial_id, badge.clone(), e));
-                        }
-                    }
+                    let cards: Vec<(u32, String, &ArtifactEntry)> = members
+                        .iter()
+                        .map(|(trial_id, entry)| (*trial_id, badge.clone(), *entry))
+                        .collect();
                     egui::CollapsingHeader::new(egui::RichText::new(title).color(color))
                         .id_salt(("artifact_cluster_section", *label))
                         .default_open(true)
@@ -320,7 +363,13 @@ impl ArtifactGallery {
     }
 
     /// MCDM モード: 設定 UI + ランキング順表示。
-    fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, content_w: f32) {
+    fn show_mcdm(
+        &mut self,
+        ui: &mut egui::Ui,
+        app_state: &mut AppState,
+        content_w: f32,
+        artifact_index: usize,
+    ) {
         let obj_names = app_state
             .current_study
             .as_ref()
@@ -354,6 +403,7 @@ impl ArtifactGallery {
             &result,
             &trial_ids,
             &app_state.artifact_map,
+            artifact_index,
             self.mcdm.top_n.value(),
         );
         if ordered.is_empty() {
@@ -367,9 +417,7 @@ impl ArtifactGallery {
         let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for entry in &ordered {
             let badge = format!("#{} ({:.3})", entry.rank, entry.score);
-            for e in entry.entries {
-                cards.push((entry.trial_id, badge.clone(), e));
-            }
+            cards.push((entry.trial_id, badge, entry.entry));
         }
         let mut clicked: Option<u32> = None;
         egui::ScrollArea::vertical()
@@ -580,13 +628,14 @@ fn show_artifact_card(
     clicked
 }
 
-/// artifact を持つ trial_id を昇順で返す。
-pub fn artifact_trials_sorted(
+/// 指定インデックスのアーティファクトを持つ trial_id を昇順で返す。
+pub fn artifact_trials_with_index(
     artifact_map: &std::collections::HashMap<u32, Vec<ArtifactEntry>>,
+    index: usize,
 ) -> Vec<u32> {
     let mut ids: Vec<u32> = artifact_map
         .iter()
-        .filter(|(_, entries)| !entries.is_empty())
+        .filter(|(_, entries)| entries.len() > index)
         .map(|(&id, _)| id)
         .collect();
     ids.sort_unstable();
@@ -606,28 +655,30 @@ pub fn paginate<T>(items: &[T], page: usize, per_page: usize) -> &[T] {
 /// クラスタ別に artifact を振り分ける。
 /// 戻り値は (ラベル, [(trial_id, &paths)]) をラベル昇順（未クラスタ -1 は末尾）で並べたもの。
 /// artifact を持たない trial は除外する。
+/// `artifact_index` 番目のアーティファクトを持たない trial は除外する。
 #[allow(clippy::type_complexity)]
 pub fn cluster_sections<'a>(
     cluster_result: &ClusterResult,
     trial_ids: &[u32],
     artifact_map: &'a std::collections::HashMap<u32, Vec<ArtifactEntry>>,
-) -> Vec<(i32, Vec<(u32, &'a Vec<ArtifactEntry>)>)> {
-    let mut by_label: BTreeMap<i32, Vec<(u32, &Vec<ArtifactEntry>)>> = BTreeMap::new();
+    artifact_index: usize,
+) -> Vec<(i32, Vec<(u32, &'a ArtifactEntry)>)> {
+    let mut by_label: BTreeMap<i32, Vec<(u32, &ArtifactEntry)>> = BTreeMap::new();
     for (idx, &label) in cluster_result.labels.iter().enumerate() {
         let Some(&trial_id) = trial_ids.get(idx) else {
             continue;
         };
-        let Some(entries) = artifact_map.get(&trial_id) else {
+        let Some(entry) = artifact_map
+            .get(&trial_id)
+            .and_then(|entries| entries.get(artifact_index))
+        else {
             continue;
         };
-        if entries.is_empty() {
-            continue;
-        }
-        by_label.entry(label).or_default().push((trial_id, entries));
+        by_label.entry(label).or_default().push((trial_id, entry));
     }
     // BTreeMap は昇順。未クラスタ(-1)を末尾へ移す。
-    let mut sections: Vec<(i32, Vec<(u32, &Vec<ArtifactEntry>)>)> = Vec::new();
-    let mut unclustered: Option<(i32, Vec<(u32, &Vec<ArtifactEntry>)>)> = None;
+    let mut sections: Vec<(i32, Vec<(u32, &ArtifactEntry)>)> = Vec::new();
+    let mut unclustered: Option<(i32, Vec<(u32, &ArtifactEntry)>)> = None;
     for (label, members) in by_label {
         if label < 0 {
             unclustered = Some((label, members));
@@ -646,14 +697,16 @@ pub struct McdmArtifactEntry<'a> {
     pub rank: usize,
     pub score: f64,
     pub trial_id: u32,
-    pub entries: &'a Vec<ArtifactEntry>,
+    pub entry: &'a ArtifactEntry,
 }
 
-/// MCDM 結果をランク順に並べ、artifact を持つ trial を最大 `top_n` 件返す。
+/// MCDM 結果をランク順に並べ、`artifact_index` 番目のアーティファクトを持つ trial を
+/// 最大 `top_n` 件返す。
 pub fn mcdm_ordered<'a>(
     result: &McdmResult,
     trial_ids: &[u32],
     artifact_map: &'a std::collections::HashMap<u32, Vec<ArtifactEntry>>,
+    artifact_index: usize,
     top_n: usize,
 ) -> Vec<McdmArtifactEntry<'a>> {
     let scores = result.primary_scores();
@@ -664,17 +717,17 @@ pub fn mcdm_ordered<'a>(
         let Some(&trial_id) = trial_ids.get(idx) else {
             continue;
         };
-        let Some(entries) = artifact_map.get(&trial_id) else {
+        let Some(entry) = artifact_map
+            .get(&trial_id)
+            .and_then(|entries| entries.get(artifact_index))
+        else {
             continue;
         };
-        if entries.is_empty() {
-            continue;
-        }
         out.push(McdmArtifactEntry {
             rank: rank0 + 1,
             score: scores.get(idx).copied().unwrap_or(0.0),
             trial_id,
-            entries,
+            entry,
         });
         if out.len() >= top_n {
             break;
@@ -690,26 +743,28 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
+    fn entry(name: &str) -> ArtifactEntry {
+        ArtifactEntry {
+            path: PathBuf::from(name),
+            filename: format!("{name}.png"),
+            mimetype: "image/png".into(),
+        }
+    }
+
     fn map_with(ids: &[u32]) -> HashMap<u32, Vec<ArtifactEntry>> {
         ids.iter()
-            .map(|&id| {
-                (
-                    id,
-                    vec![ArtifactEntry {
-                        path: PathBuf::from(format!("{id}")),
-                        filename: format!("{id}.png"),
-                        mimetype: "image/png".into(),
-                    }],
-                )
-            })
+            .map(|&id| (id, vec![entry(&format!("{id}"))]))
             .collect()
     }
 
     #[test]
-    fn artifact_trials_sorted_filters_empty_and_sorts() {
+    fn artifact_trials_with_index_filters_and_sorts() {
         let mut m = map_with(&[5, 2, 9]);
         m.insert(3, vec![]); // 空は除外
-        assert_eq!(artifact_trials_sorted(&m), vec![2, 5, 9]);
+        assert_eq!(artifact_trials_with_index(&m, 0), vec![2, 5, 9]);
+        // index 1 を持つ trial のみ。
+        m.insert(7, vec![entry("a"), entry("b")]);
+        assert_eq!(artifact_trials_with_index(&m, 1), vec![7]);
     }
 
     #[test]
@@ -730,7 +785,7 @@ mod tests {
             n_clusters: 2,
         };
         let m = map_with(&[10, 11, 12, 13]);
-        let sections = cluster_sections(&cr, &trial_ids, &m);
+        let sections = cluster_sections(&cr, &trial_ids, &m, 0);
         let labels: Vec<i32> = sections.iter().map(|(l, _)| *l).collect();
         assert_eq!(labels, vec![0, 1, -1]); // 未クラスタ末尾
                                             // cluster 0 は trial 11, 13
@@ -746,9 +801,26 @@ mod tests {
             n_clusters: 2,
         };
         let m = map_with(&[10]); // 11, 12 は artifact 無し
-        let sections = cluster_sections(&cr, &trial_ids, &m);
+        let sections = cluster_sections(&cr, &trial_ids, &m, 0);
         let total: usize = sections.iter().map(|(_, v)| v.len()).sum();
         assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn cluster_sections_selects_requested_artifact_index() {
+        let trial_ids = vec![10, 11];
+        let cr = ClusterResult {
+            labels: vec![0, 0],
+            n_clusters: 1,
+        };
+        let mut m = HashMap::new();
+        m.insert(10, vec![entry("a"), entry("b")]); // index 1 あり
+        m.insert(11, vec![entry("c")]); // index 1 なし → 除外
+        let sections = cluster_sections(&cr, &trial_ids, &m, 1);
+        let members = &sections[0].1;
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].0, 10);
+        assert_eq!(members[0].1.filename, "b.png"); // 2 番目を選択
     }
 
     #[test]
@@ -763,7 +835,7 @@ mod tests {
             duration_ms: 0.0,
         });
         let m = map_with(&[10, 11, 12]);
-        let ordered = mcdm_ordered(&result, &trial_ids, &m, 2);
+        let ordered = mcdm_ordered(&result, &trial_ids, &m, 0, 2);
         assert_eq!(ordered.len(), 2);
         assert_eq!(ordered[0].rank, 1);
         assert_eq!(ordered[0].trial_id, 11); // 行 index 1 -> trial 11
@@ -782,7 +854,7 @@ mod tests {
             duration_ms: 0.0,
         });
         let m = map_with(&[12]); // 行 index 2 -> trial 12 のみ
-        let ordered = mcdm_ordered(&result, &trial_ids, &m, 10);
+        let ordered = mcdm_ordered(&result, &trial_ids, &m, 0, 10);
         assert_eq!(ordered.len(), 1);
         assert_eq!(ordered[0].trial_id, 12);
         assert_eq!(ordered[0].rank, 2); // 全体ランクは 2 位
