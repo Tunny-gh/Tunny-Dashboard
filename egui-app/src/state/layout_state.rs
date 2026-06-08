@@ -19,6 +19,7 @@ pub enum ChartId {
     McdmTable,
     SliceChart,
     SurfacePlot,
+    ArtifactGallery,
 }
 
 impl ChartId {
@@ -43,6 +44,7 @@ impl ChartId {
             ChartId::McdmTable,
             ChartId::SliceChart,
             ChartId::SurfacePlot,
+            ChartId::ArtifactGallery,
         ]
     }
 
@@ -67,6 +69,7 @@ impl ChartId {
             ChartId::McdmTable => "MCDM Table",
             ChartId::SliceChart => "Slice Chart",
             ChartId::SurfacePlot => "Surface Plot",
+            ChartId::ArtifactGallery => "Artifact Gallery",
         }
     }
 }

@@ -13,6 +13,7 @@ pub enum ClusterChartSource {
     Scatter2D,
     Scatter3D,
     Table,
+    ArtifactGallery,
 }
 
 /// MCDM 計算を開始したチャート。クラスタと同じく実行状態を開始元へ反映するために持たせる。
@@ -22,6 +23,7 @@ pub enum McdmChartSource {
     Scatter2D,
     Scatter3D,
     Table,
+    ArtifactGallery,
 }
 
 // ============================================================

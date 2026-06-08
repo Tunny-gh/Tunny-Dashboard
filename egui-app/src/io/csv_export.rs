@@ -65,6 +65,7 @@ pub fn build_chart_csv(
         ChartId::ClusterTable => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
+        ChartId::ArtifactGallery => None,
     }
 }
 
@@ -150,6 +151,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             app_state.current_study.is_some()
                 && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
+        ChartId::ArtifactGallery => false,
     }
 }
 
@@ -174,6 +176,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
         ChartId::ClusterTable => "cluster_table",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
+        ChartId::ArtifactGallery => "artifact_gallery",
     };
     format!("{}.csv", name)
 }

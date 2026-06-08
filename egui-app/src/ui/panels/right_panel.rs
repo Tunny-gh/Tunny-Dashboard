@@ -55,6 +55,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                     PanelItem::Chart(ChartId::McdmTable),
                 ],
             ),
+            ("Artifacts", &[PanelItem::Chart(ChartId::ArtifactGallery)]),
             ("Data", &[PanelItem::TrialTable]),
         ];
 
