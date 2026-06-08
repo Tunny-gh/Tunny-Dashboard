@@ -181,6 +181,38 @@ impl McdmResult {
     }
 }
 
+/// 参照点を正規化空間と元の目的値空間の間で変換する。
+///
+/// 正規化は「最小化目的はそのまま、最大化目的は符号反転」。この写像は成分ごとに
+/// 自身が逆写像になっているため、`original→normalized` と `normalized→original` の
+/// 双方に同じ関数を使える。`is_minimize` が足りない成分は最小化として扱う。
+///
+/// 呼び出し側は方向を明示するため `ref_point_to_normalized` /
+/// `ref_point_to_original` を使う（こちらは内部実装）。
+fn convert_ref_point(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
+    ref_point
+        .iter()
+        .enumerate()
+        .map(|(j, &v)| {
+            if is_minimize.get(j).copied().unwrap_or(true) {
+                v
+            } else {
+                -v
+            }
+        })
+        .collect()
+}
+
+/// 正規化空間の参照点を元の目的値の単位へ戻す（表示用）。
+pub fn ref_point_to_original(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
+    convert_ref_point(ref_point, is_minimize)
+}
+
+/// 元の目的値の参照点を正規化空間へ変換する（計算入力用）。
+pub fn ref_point_to_normalized(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
+    convert_ref_point(ref_point, is_minimize)
+}
+
 /// Hypervolume 推移データ
 #[derive(Debug, Clone)]
 pub struct HvHistory {
@@ -188,6 +220,9 @@ pub struct HvHistory {
     pub hv_values: Vec<f64>,
     /// ダウンサンプリングのステップ幅（1 = 全点）
     pub sample_step: usize,
+    /// HV 計算に使用した参照点（元の目的値の単位。目的ごと）。
+    /// 単目的など HV を計算しない場合は空。
+    pub ref_point: Vec<f64>,
 }
 
 // ============================================================
@@ -243,6 +278,24 @@ impl Default for LiveUpdateState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn convert_ref_point_is_self_inverse_per_component() {
+        // 最小化はそのまま、最大化は符号反転。往復で元に戻る。
+        let original = vec![3.0, 7.0];
+        let is_min = vec![true, false];
+        let norm = ref_point_to_normalized(&original, &is_min);
+        assert_eq!(norm, vec![3.0, -7.0]);
+        let back = ref_point_to_original(&norm, &is_min);
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn convert_ref_point_defaults_missing_dirs_to_minimize() {
+        let v = vec![1.0, 2.0];
+        let is_min: Vec<bool> = vec![]; // 不足 → 最小化扱い（符号維持）
+        assert_eq!(ref_point_to_normalized(&v, &is_min), v);
+    }
 
     #[test]
     fn live_update_state_defaults() {

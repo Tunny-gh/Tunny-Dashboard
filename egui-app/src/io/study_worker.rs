@@ -210,6 +210,7 @@ fn compute_downsampled_hv(df: &DataFrame, is_minimize: &[bool]) -> Option<HvHist
         trial_ids: result.trial_ids,
         hv_values: result.hv_values,
         sample_step: step,
+        ref_point: crate::state::ref_point_to_original(&result.ref_point, is_minimize),
     })
 }
 

@@ -24,6 +24,7 @@ enum ComputeSyncKind {
     Pdp,
     Pdp2d,
     Surface,
+    HvHistory,
 }
 
 impl ComputeSyncKind {
@@ -43,6 +44,7 @@ impl ComputeSyncKind {
             AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => {
                 Some(Self::Surface)
             }
+            AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
             _ => None,
         }
     }
@@ -71,6 +73,7 @@ impl ComputeSyncKind {
                 Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
                 Self::Surface => w.surface_plot.adopt_compute_state(&global.surface_plot),
+                Self::HvHistory => w.hv_history.adopt_compute_state(&global.hv_history),
             }
         }
     }
@@ -469,6 +472,22 @@ mod tests {
     fn channel_try_recv_empty_returns_error() {
         let (_tx, rx) = make_channel();
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn hv_history_done_maps_to_compute_sync() {
+        // 回帰防止: HvHistoryDone が sync 対象から漏れると、計算完了後も
+        // キャンバスアイテムの computing が下りず spinner が回り続ける。
+        let msg = AppMessage::HvHistoryDone {
+            trial_ids: vec![0, 1],
+            hv_values: vec![1.0, 2.0],
+            sample_step: 1,
+            ref_point: vec![],
+        };
+        assert!(matches!(
+            ComputeSyncKind::from_message(&msg),
+            Some(ComputeSyncKind::HvHistory)
+        ));
     }
 
     #[test]

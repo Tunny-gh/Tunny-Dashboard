@@ -205,6 +205,8 @@ pub enum AppMessage {
         trial_ids: Vec<u32>,
         hv_values: Vec<f64>,
         sample_step: usize,
+        /// HV 計算に使用した参照点（元の目的値の単位）。
+        ref_point: Vec<f64>,
     },
     Error(String),
     SensitivityError(String),

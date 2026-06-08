@@ -653,6 +653,7 @@ mod tests {
                 trial_ids: vec![10, 20, 30],
                 hv_values: vec![0.1, 0.5, 0.8],
                 sample_step: 5,
+                ref_point: vec![],
             }),
             ..AppState::default()
         };

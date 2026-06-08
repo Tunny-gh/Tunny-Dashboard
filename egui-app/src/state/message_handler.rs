@@ -143,11 +143,13 @@ impl MessageHandler {
                 trial_ids,
                 hv_values,
                 sample_step,
+                ref_point,
             } => {
                 app_state.hv_history = Some(HvHistory {
                     trial_ids,
                     hv_values,
                     sample_step,
+                    ref_point,
                 });
                 widget_states.hv_history.computing = false;
             }
@@ -213,6 +215,7 @@ impl MessageHandler {
                         trial_ids: Vec::new(),
                         hv_values: Vec::new(),
                         sample_step: 1,
+                        ref_point: Vec::new(),
                     });
                 }
             }

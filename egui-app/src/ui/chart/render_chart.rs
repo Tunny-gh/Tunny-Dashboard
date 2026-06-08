@@ -101,6 +101,8 @@ pub(crate) fn render_chart(
             use crate::ui::widgets::hv_history::HvSeries;
             widgets.hv_history.hv_history = app_state.hv_history.clone();
             widgets.hv_history.base_name = ctx.meta.name.clone();
+            widgets.hv_history.objective_names = obj_names.clone();
+            widgets.hv_history.ref_point_override = app_state.hv_ref_point_override.clone();
             // 比較 Study の HV 履歴を色付き系列として渡し、同一グラフに重ねる。
             widgets.hv_history.comparisons = app_state
                 .comparison_studies
@@ -121,6 +123,19 @@ pub(crate) fn render_chart(
                 })
                 .collect();
             widgets.hv_history.show(ui);
+            // 参照点の変更要求を app_state へ反映し、HV を再計算させる。
+            // 値が変わらない場合は再計算しない（DragValue の確定連発を吸収）。
+            if let Some(change) = widgets.hv_history.pending_ref_point.take() {
+                use crate::ui::widgets::hv_history::RefPointChange;
+                let new_override = match change {
+                    RefPointChange::Auto => None,
+                    RefPointChange::Manual(v) => Some(v),
+                };
+                if app_state.hv_ref_point_override != new_override {
+                    app_state.hv_ref_point_override = new_override;
+                    app_state.hv_history = None;
+                }
+            }
         }
         ChartId::ImportanceChart => {
             let imp_key = (
