@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
 use crate::state::app_state::AppState;
@@ -202,16 +202,23 @@ impl ArtifactGallery {
 
         let artifact_index = self.artifact_index;
 
+        // 各 trial の目的関数値ラベルを事前計算する（カードに良し悪し判断材料として表示）。
+        let obj_by_trial = build_objective_labels(app_state);
+
         // キャンバスの Area 内では available_width が実質無制限になり horizontal_wrapped が
         // 折り返さないため、ウィジェット本体の幅をここで確定して列数計算に使う。
         let content_w = ui.available_width();
 
         match self.mode {
-            ArtifactViewMode::All => self.show_all(ui, app_state, content_w, artifact_index),
-            ArtifactViewMode::Cluster => {
-                self.show_cluster(ui, app_state, content_w, artifact_index)
+            ArtifactViewMode::All => {
+                self.show_all(ui, app_state, content_w, artifact_index, &obj_by_trial)
             }
-            ArtifactViewMode::Mcdm => self.show_mcdm(ui, app_state, content_w, artifact_index),
+            ArtifactViewMode::Cluster => {
+                self.show_cluster(ui, app_state, content_w, artifact_index, &obj_by_trial)
+            }
+            ArtifactViewMode::Mcdm => {
+                self.show_mcdm(ui, app_state, content_w, artifact_index, &obj_by_trial)
+            }
         }
     }
 
@@ -222,6 +229,7 @@ impl ArtifactGallery {
         app_state: &mut AppState,
         content_w: f32,
         artifact_index: usize,
+        obj_by_trial: &HashMap<u32, String>,
     ) {
         let trials = artifact_trials_with_index(&app_state.artifact_map, artifact_index);
         let total_pages = trials.len().div_ceil(PAGE_SIZE).max(1);
@@ -263,7 +271,7 @@ impl ArtifactGallery {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards);
+                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
             });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
@@ -277,6 +285,7 @@ impl ArtifactGallery {
         app_state: &mut AppState,
         content_w: f32,
         artifact_index: usize,
+        obj_by_trial: &HashMap<u32, String>,
     ) {
         let pareto_count = app_state
             .current_study
@@ -351,7 +360,9 @@ impl ArtifactGallery {
                         .show(ui, |ui| {
                             // ヘッダーのインデント分を差し引いた幅で列数を決める。
                             let w = (content_w - 24.0).max(thumb);
-                            if let Some(t) = render_card_grid(ui, app_state, w, thumb, &cards) {
+                            if let Some(t) =
+                                render_card_grid(ui, app_state, w, thumb, &cards, obj_by_trial)
+                            {
                                 clicked = Some(t);
                             }
                         });
@@ -369,6 +380,7 @@ impl ArtifactGallery {
         app_state: &mut AppState,
         content_w: f32,
         artifact_index: usize,
+        obj_by_trial: &HashMap<u32, String>,
     ) {
         let obj_names = app_state
             .current_study
@@ -423,7 +435,7 @@ impl ArtifactGallery {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards);
+                clicked = render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
             });
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
@@ -528,19 +540,48 @@ fn render_card_grid(
     content_w: f32,
     thumb: f32,
     cards: &[(u32, String, &ArtifactEntry)],
+    obj_by_trial: &HashMap<u32, String>,
 ) -> Option<u32> {
     let columns = card_columns(content_w, thumb);
     let mut clicked: Option<u32> = None;
     for row in cards.chunks(columns) {
         ui.horizontal_top(|ui| {
             for (trial_id, badge, entry) in row {
-                if show_artifact_card(ui, app_state, *trial_id, entry, badge, thumb) {
+                let obj_text = obj_by_trial.get(trial_id).map(String::as_str).unwrap_or("");
+                if show_artifact_card(ui, app_state, *trial_id, entry, badge, obj_text, thumb) {
                     clicked = Some(*trial_id);
                 }
             }
         });
     }
     clicked
+}
+
+/// 各 trial の目的関数値を `name: value` 改行区切りで整形したマップを返す。
+fn build_objective_labels(app_state: &AppState) -> HashMap<u32, String> {
+    let mut out: HashMap<u32, String> = HashMap::new();
+    let Some(ctx) = app_state.current_study.as_ref() else {
+        return out;
+    };
+    let obj_names = &ctx.meta.objective_names;
+    if obj_names.is_empty() {
+        return out;
+    }
+    let view = &ctx.view;
+    let cols = view.numeric_columns(obj_names);
+    for (idx, &trial_id) in view.trial_ids.iter().enumerate() {
+        let text = obj_names
+            .iter()
+            .zip(cols.iter())
+            .map(|(name, col)| {
+                let v = col.and_then(|c| c.get(idx)).copied().unwrap_or(f64::NAN);
+                format!("{name}: {v:.4}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        out.insert(trial_id, text);
+    }
+    out
 }
 
 /// クラスタラベルから色を求める（ClusterTable と同じ規則）。
@@ -557,12 +598,14 @@ fn cluster_color(label: i32, n_clusters: usize, colormap: &ColorMap) -> egui::Co
 }
 
 /// 1 枚の artifact カードを描画する。クリックされたら true。
+#[allow(clippy::too_many_arguments)]
 fn show_artifact_card(
     ui: &mut egui::Ui,
     app_state: &AppState,
     trial_id: u32,
     entry: &ArtifactEntry,
     badge: &str,
+    obj_text: &str,
     thumb: f32,
 ) -> bool {
     let mut clicked = false;
@@ -623,6 +666,14 @@ fn show_artifact_card(
                     clicked = true;
                 }
                 ui.add(egui::Label::new(egui::RichText::new(fname).small().weak()).truncate());
+                // 目的関数値（良し悪し判断の材料）。カード幅に合わせて折り返す。
+                if !obj_text.is_empty() {
+                    ui.add(egui::Label::new(
+                        egui::RichText::new(obj_text)
+                            .small()
+                            .color(crate::theme::TEXT_SECONDARY),
+                    ));
+                }
             });
         });
     clicked

@@ -21,7 +21,8 @@ Trials that don't have an artifact at the selected index are skipped.
 Image files (PNG / JPEG / GIF / WEBP) are shown as thumbnails. Other files
 (CSV, etc.) show an icon and an **Open** button that opens the file with the
 system default application. Clicking a card highlights the corresponding trial
-across the other widgets.
+across the other widgets. Each card also shows the trial's objective values so
+you can judge the result without opening the file.
 
 ## Comparing settings (A vs B)
 
