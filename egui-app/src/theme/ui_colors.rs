@@ -38,6 +38,11 @@ pub const CENTRAL_BG: Color32 = Color32::WHITE; // #FFFFFF
 /// チャートセルのツールバー背景色: gray-100
 pub const CELL_TOOLBAR_BG: Color32 = Color32::from_rgb(243, 244, 246); // #F3F4F6
 
+/// テーブルのストライプ（奇数行）背景色: gray-200
+/// egui のデフォルト faint_bg_color は白背景上でほぼ見えないため、
+/// 視認性を上げる目的でテーブル描画前にこの色へ上書きする。
+pub const TABLE_STRIPE_BG: Color32 = Color32::from_rgb(229, 231, 235); // #E5E7EB
+
 /// 自由配置キャンバスの背景色: white
 pub const CANVAS_BG: Color32 = Color32::WHITE; // #FFFFFF
 

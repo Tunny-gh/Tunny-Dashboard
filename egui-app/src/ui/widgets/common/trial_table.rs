@@ -140,85 +140,82 @@ impl TrialTable {
         let mut clicked_trial: Option<u32> = None;
         let mut pin_toggled: Option<u32> = None;
 
-        TableBuilder::new(ui)
-            .striped(true)
-            .resizable(true)
-            .column(Column::auto().at_least(30.0)) // Pin column
-            .column(Column::auto().at_least(60.0))
-            .column(Column::remainder())
-            .column(Column::remainder())
-            .column(Column::auto().at_least(80.0))
-            .header(20.0, |mut header| {
-                header.col(|ui| {
-                    ui.strong("📌");
-                });
-                header.col(|ui| {
-                    ui.strong("Trial ID");
-                });
-                header.col(|ui| {
-                    ui.strong(format!("Parameters ({})", param_names.len()));
-                });
-                header.col(|ui| {
-                    ui.strong(format!("Objectives ({})", obj_names.len()));
-                });
-                header.col(|ui| {
-                    ui.strong("Pareto Rank");
-                });
-            })
-            .body(|body| {
-                body.rows(18.0, visible.len(), |mut row| {
-                    let idx = visible[row.index()];
-                    let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
-                    let trial_number = idx as u32;
-                    let rank = pareto_rank.get(idx).copied().unwrap_or(0);
-                    let is_highlighted = highlighted == Some(trial_id);
-                    let is_pinned = pinned.contains(&trial_id);
-                    let bg_color = if is_highlighted {
-                        Some(COLOR_LINK)
-                    } else {
-                        None
-                    };
+        // パラメータ・目的を 1 列ずつに展開し、横スクロール可能にする
+        // （Cluster / MCDM モードと同じ表示スタイル）。
+        egui::ScrollArea::horizontal().show(ui, |ui| {
+            // ストライプの色を強調して偶数/奇数行を見分けやすくする。
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .column(Column::exact(30.0)) // Pin column
+                .column(Column::initial(70.0).at_least(50.0)) // Trial ID
+                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
+                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
+                .column(Column::initial(90.0).at_least(50.0)) // Pareto Rank
+                .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("📌");
+                    });
+                    header.col(|ui| {
+                        ui.strong("Trial ID");
+                    });
+                    for name in &param_names {
+                        header.col(|ui| {
+                            ui.strong(name);
+                        });
+                    }
+                    for name in &obj_names {
+                        header.col(|ui| {
+                            ui.strong(name);
+                        });
+                    }
+                    header.col(|ui| {
+                        ui.strong("Pareto Rank");
+                    });
+                })
+                .body(|body| {
+                    body.rows(18.0, visible.len(), |mut row| {
+                        let idx = visible[row.index()];
+                        let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
+                        let trial_number = idx as u32;
+                        let rank = pareto_rank.get(idx).copied().unwrap_or(0);
+                        let is_highlighted = highlighted == Some(trial_id);
+                        let is_pinned = pinned.contains(&trial_id);
 
-                    row.col(|ui| {
-                        let pin_label = if is_pinned { "📌" } else { "·" };
-                        if ui.small_button(pin_label).clicked() {
-                            pin_toggled = Some(trial_id);
+                        row.col(|ui| {
+                            let pin_label = if is_pinned { "📌" } else { "·" };
+                            if ui.small_button(pin_label).clicked() {
+                                pin_toggled = Some(trial_id);
+                            }
+                        });
+                        row.col(|ui| {
+                            let res = ui.selectable_label(is_highlighted, trial_number.to_string());
+                            if res.clicked() {
+                                clicked_trial = Some(trial_id);
+                            }
+                            if is_highlighted {
+                                ui.painter().rect_filled(res.rect, 0.0, COLOR_LINK);
+                            }
+                        });
+                        for col in &param_cols {
+                            row.col(|ui| {
+                                let v = col.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
+                                ui.label(format!("{:.3}", v));
+                            });
                         }
-                    });
-                    row.col(|ui| {
-                        let res = ui.selectable_label(is_highlighted, trial_number.to_string());
-                        if res.clicked() {
-                            clicked_trial = Some(trial_id);
+                        for col in &obj_cols {
+                            row.col(|ui| {
+                                let v = col.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
+                                ui.label(format!("{:.4}", v));
+                            });
                         }
-                        if let Some(color) = bg_color {
-                            ui.painter().rect_filled(res.rect, 0.0, color);
-                        }
-                    });
-                    row.col(|ui| {
-                        let params_str: Vec<String> = param_cols
-                            .iter()
-                            .map(|c| {
-                                let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
-                                format!("{:.3}", v)
-                            })
-                            .collect();
-                        ui.label(params_str.join(", "));
-                    });
-                    row.col(|ui| {
-                        let objs_str: Vec<String> = obj_cols
-                            .iter()
-                            .map(|c| {
-                                let v = c.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
-                                format!("{:.4}", v)
-                            })
-                            .collect();
-                        ui.label(objs_str.join(", "));
-                    });
-                    row.col(|ui| {
-                        ui.label(rank.to_string());
+                        row.col(|ui| {
+                            ui.label(rank.to_string());
+                        });
                     });
                 });
-            });
+        });
 
         if let Some(trial_id) = clicked_trial {
             app_state.set_highlight(trial_id);
