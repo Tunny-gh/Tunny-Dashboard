@@ -92,7 +92,6 @@ pub(crate) fn render_chart(
                 &ctx.view,
                 obj_names,
                 directions,
-                None,
                 &base_name,
                 &comparisons,
             );
