@@ -77,8 +77,10 @@ impl TrialDetailModal {
         let max_h = (screen.height() * 0.95).max(240.0);
         // ヘッダー・区切り・余白を除いた本文スクロール領域の高さ。
         let body_max_h = (max_h - 80.0).max(160.0);
-        // 左カラム（テキスト情報）の幅。残りを右カラム（レーダー＋アーティファクト）に充てる。
-        let left_w = (max_w * 0.3).clamp(300.0, 480.0);
+        // 3 段組: 左=テキスト情報 / 中央=レーダー / 右=アーティファクト。
+        // 左・中央は固定幅、残りを右（アーティファクト）に充てる。
+        let left_w = (max_w * 0.26).clamp(280.0, 460.0);
+        let radar_w = (max_w * 0.3).clamp(300.0, 500.0);
 
         let mut close = false;
         let modal = egui::Modal::new(egui::Id::new("trial_detail_modal")).show(&egui_ctx, |ui| {
@@ -100,9 +102,9 @@ impl TrialDetailModal {
                 .max_height(body_max_h)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    // 左: テキスト情報（Chart Info / Objectives / Variables）。
-                    // 右: 上にレーダーチャート、その下にアーティファクト。
+                    // 3 段組: 左=テキスト情報 / 中央=レーダー / 右=アーティファクト。
                     ui.horizontal_top(|ui| {
+                        // 左: テキスト情報（Chart Info / Objectives / Variables）。
                         ui.allocate_ui_with_layout(
                             egui::vec2(left_w, body_max_h),
                             egui::Layout::top_down(egui::Align::Min),
@@ -134,22 +136,33 @@ impl TrialDetailModal {
 
                         ui.separator();
 
-                        ui.vertical(|ui| {
-                            // レーダーチャート（目的＋変数）。各軸の最小〜最大は
-                            // パレートフロントの範囲を帯で示し、外周＝フロント最大（包絡）。
-                            let radar_axes = radar_chart::build_axes(
-                                view,
-                                obj_names,
-                                param_names,
-                                target.row_index,
-                            );
-                            if radar_axes.len() >= 3 {
-                                section_label(ui, "Comparison (Radar)");
-                                radar_chart::show(ui, &radar_axes);
-                                ui.add_space(12.0);
-                            }
+                        // 中央: レーダーチャート（目的＋変数）。パレートフロント各個体を
+                        // 薄い線で重ね、外周＝フロント最大（包絡）。選択トライアルを赤で重ねる。
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(radar_w, body_max_h),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                let radar_data = radar_chart::build(
+                                    view,
+                                    obj_names,
+                                    param_names,
+                                    target.row_index,
+                                );
+                                if radar_data.axes.len() >= 3 {
+                                    section_label(ui, "Comparison (Radar)");
+                                    radar_chart::show(ui, &radar_data);
+                                } else {
+                                    ui.label(
+                                        egui::RichText::new("Radar chart unavailable.").weak(),
+                                    );
+                                }
+                            },
+                        );
 
-                            // アーティファクト（サムネイル＋ファイル名）。
+                        ui.separator();
+
+                        // 右: アーティファクト（サムネイル＋ファイル名）。
+                        ui.vertical(|ui| {
                             section_label(ui, "Artifacts");
                             match artifact_map.get(&target.trial_id) {
                                 Some(entries) if !entries.is_empty() => {

@@ -2,12 +2,12 @@
 //!
 //! 軸（頂点）は目的関数 → 変数の順に並べる。各軸の半径スケールは
 //! パレートフロント（`pareto_rank == 0`）個体の値域に合わせ、外周（radius = 1.0）が
-//! パレートフロント最大値（= 包絡上限）に対応する。フロントの最小〜最大は帯として
-//! 塗り、選択トライアルをその上に重ねることで「他の個体との違い」を可視化する。
+//! パレートフロント最大値（= 包絡上限）に対応する。比較のため、パレートフロントの
+//! 各個体を薄い線で重ね描きし、選択トライアルをその上に濃い赤で重ねる。
 //!
 //! `egui_plot` には極座標チャートが無いため、`egui::Painter` で自前描画する。
-//! 軸スケール計算（[`axis_scale`] / [`value_fraction`]）は純粋関数として切り出し、
-//! 描画ロジックと独立にテストする。
+//! 軸スケール計算（[`axis_scale`] / [`value_fraction`]）と軸構築（[`build`]）は
+//! 純粋関数として切り出し、描画ロジックと独立にテストする。
 
 use std::f32::consts::PI;
 
@@ -16,10 +16,10 @@ use egui::Color32;
 use crate::state::types::StudyView;
 use crate::theme::{ACCENT_BLUE, ERROR_COLOR, TEXT_SECONDARY};
 
-/// パレートフロント帯の塗り色（アクセントブルーの半透明）。
-const BAND_FILL: Color32 = Color32::from_rgba_premultiplied(40, 88, 166, 70);
-/// パレートフロント最大（包絡）多角形の枠線色。
-const BAND_STROKE: Color32 = Color32::from_rgb(59, 130, 246);
+/// パレートフロント各個体の線色（アクセントブルー #3B82F6 を alpha≈48 で薄く）。
+/// 重なるほど色が濃くなり、分布の密度が見える。`from_rgba_premultiplied` は const
+/// のため、(59,130,246) を alpha 48 で事前乗算した値を直接指定する。
+const FRONT_LINE: Color32 = Color32::from_rgba_premultiplied(11, 24, 46, 48);
 /// 選択トライアル多角形の色（赤系で強調）。
 const SELECTED: Color32 = ERROR_COLOR;
 /// 選択トライアル多角形の塗り（半透明）。
@@ -27,7 +27,7 @@ const SELECTED_FILL: Color32 = Color32::from_rgba_premultiplied(120, 34, 27, 50)
 /// グリッド（同心多角形・スポーク）の色。
 const GRID: Color32 = Color32::from_gray(214);
 
-/// レーダー 1 軸ぶんのデータ。
+/// レーダー 1 軸ぶんのメタ情報。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RadarAxis {
     /// 軸名（目的関数名 または 変数名）。
@@ -36,26 +36,39 @@ pub struct RadarAxis {
     pub is_objective: bool,
     /// 選択トライアルの値（欠損・非有限のとき None）。
     pub selected: Option<f64>,
-    /// パレートフロント個体での最小値。
+    /// パレートフロント個体での最小値（半径スケールの下限算出に使う）。
     pub front_min: f64,
     /// パレートフロント個体での最大値（= 軸の包絡上限）。
     pub front_max: f64,
 }
 
-/// `StudyView` から目的関数 → 変数の順でレーダー軸データを構築する。
+/// レーダーチャートの描画データ。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RadarData {
+    /// 軸メタ情報（目的 → 変数の順）。
+    pub axes: Vec<RadarAxis>,
+    /// パレートフロント各個体の値。外側 = 個体、内側 = `axes` と同じ並びの軸値。
+    /// 欠損・非有限は None。
+    pub front: Vec<Vec<Option<f64>>>,
+}
+
+/// `StudyView` から目的関数 → 変数の順でレーダー描画データを構築する。
 ///
 /// パレートフロント（`pareto_rank == 0`）に有限値が無い軸はスキップする。
-pub fn build_axes(
+/// `front` には各パレートフロント個体の（スキップ後の）軸値を整列して格納する。
+pub fn build(
     view: &StudyView,
     obj_names: &[String],
     param_names: &[String],
     selected_row: usize,
-) -> Vec<RadarAxis> {
+) -> RadarData {
     let front_rows: Vec<usize> = (0..view.row_count())
         .filter(|&i| view.pareto_rank.get(i).copied() == Some(0))
         .collect();
 
-    let mut axes = Vec::with_capacity(obj_names.len() + param_names.len());
+    // 採用する軸の (列スライス, メタ) を順に収集する。
+    let mut axes: Vec<RadarAxis> = Vec::with_capacity(obj_names.len() + param_names.len());
+    let mut cols: Vec<&[f64]> = Vec::with_capacity(axes.capacity());
     for (names, is_objective) in [(obj_names, true), (param_names, false)] {
         for name in names {
             let Some(col) = view.numeric_column(name) else {
@@ -82,15 +95,27 @@ pub fn build_axes(
                 front_min: lo,
                 front_max: hi,
             });
+            cols.push(col);
         }
     }
-    axes
+
+    // 各フロント個体の値を採用軸ぶんだけ整列して取り出す。
+    let front: Vec<Vec<Option<f64>>> = front_rows
+        .iter()
+        .map(|&r| {
+            cols.iter()
+                .map(|col| col.get(r).copied().filter(|v| v.is_finite()))
+                .collect()
+        })
+        .collect();
+
+    RadarData { axes, front }
 }
 
 /// 軸の半径スケール `(lo, hi)` を返す。
 ///
 /// `hi` はパレートフロント最大値（外周＝包絡上限）。`lo` はフロント最小値より下に
-/// マージンを取り、最小〜最大の帯が中心から離れて見えるようにする。フロントが 1 点
+/// マージンを取り、フロント個体が中心から離れて見えるようにする。フロントが 1 点
 /// （`front_min == front_max`）の場合は、その値が半径中央に来るよう対称に広げる。
 pub fn axis_scale(front_min: f64, front_max: f64) -> (f64, f64) {
     let span = front_max - front_min;
@@ -112,7 +137,8 @@ pub fn value_fraction(value: f64, lo: f64, hi: f64) -> f32 {
 }
 
 /// レーダーチャートを描画する。軸が 3 未満ならレーダーにならないため注記のみ表示。
-pub fn show(ui: &mut egui::Ui, axes: &[RadarAxis]) {
+pub fn show(ui: &mut egui::Ui, data: &RadarData) {
+    let axes = &data.axes;
     if axes.len() < 3 {
         ui.label(
             egui::RichText::new("Radar chart needs at least 3 axes (objectives + variables).")
@@ -142,6 +168,17 @@ pub fn show(ui: &mut egui::Ui, axes: &[RadarAxis]) {
         let r = frac.clamp(0.0, 1.12) * radius;
         center + egui::vec2(a.cos() * r, a.sin() * r)
     };
+    // 軸値の系列（欠損は None）をスクリーン座標へ写像する。
+    let to_points = |values: &[Option<f64>]| -> Vec<Option<egui::Pos2>> {
+        (0..n)
+            .map(|i| {
+                values.get(i).copied().flatten().map(|v| {
+                    let (lo, hi) = scales[i];
+                    point_at(i, value_fraction(v, lo, hi))
+                })
+            })
+            .collect()
+    };
 
     // ── グリッド（同心多角形 + スポーク）──────────────────────────
     for ring in [0.25_f32, 0.5, 0.75, 1.0] {
@@ -152,49 +189,16 @@ pub fn show(ui: &mut egui::Ui, axes: &[RadarAxis]) {
         painter.line_segment([center, point_at(i, 1.0)], egui::Stroke::new(1.0, GRID));
     }
 
-    // ── パレートフロント帯（min 多角形 ↔ max 多角形の間を塗る）────
-    let inner: Vec<egui::Pos2> = (0..n)
-        .map(|i| {
-            let (lo, hi) = scales[i];
-            point_at(i, value_fraction(axes[i].front_min, lo, hi))
-        })
-        .collect();
-    let outer: Vec<egui::Pos2> = (0..n)
-        .map(|i| {
-            let (lo, hi) = scales[i];
-            point_at(i, value_fraction(axes[i].front_max, lo, hi))
-        })
-        .collect();
-
-    let mut band = egui::Mesh::default();
-    for i in 0..n {
-        let j = (i + 1) % n;
-        let base = band.vertices.len() as u32;
-        for &p in &[outer[i], outer[j], inner[i], inner[j]] {
-            band.colored_vertex(p, BAND_FILL);
-        }
-        band.add_triangle(base, base + 1, base + 2);
-        band.add_triangle(base + 1, base + 3, base + 2);
+    // ── パレートフロント各個体（薄い線で重ね描き）────────────────
+    let front_stroke = egui::Stroke::new(1.0, FRONT_LINE);
+    for individual in &data.front {
+        let pts = to_points(individual);
+        draw_ring_polyline(&painter, &pts, front_stroke);
     }
-    painter.add(egui::Shape::mesh(band));
-    painter.add(egui::Shape::closed_line(
-        outer.clone(),
-        egui::Stroke::new(1.5, BAND_STROKE),
-    ));
-    painter.add(egui::Shape::closed_line(
-        inner.clone(),
-        egui::Stroke::new(1.0, BAND_STROKE.gamma_multiply(0.6)),
-    ));
 
     // ── 選択トライアル ──────────────────────────────────────────
-    let sel_pts: Vec<Option<egui::Pos2>> = (0..n)
-        .map(|i| {
-            axes[i].selected.map(|v| {
-                let (lo, hi) = scales[i];
-                point_at(i, value_fraction(v, lo, hi))
-            })
-        })
-        .collect();
+    let sel_values: Vec<Option<f64>> = axes.iter().map(|a| a.selected).collect();
+    let sel_pts = to_points(&sel_values);
 
     if sel_pts.iter().all(|p| p.is_some()) {
         // 全軸そろっていれば中心からの扇状メッシュで塗る（中心に対し星形なので妥当）。
@@ -216,12 +220,7 @@ pub fn show(ui: &mut egui::Ui, axes: &[RadarAxis]) {
         ));
     } else {
         // 欠損軸があれば隣接する有効頂点どうしだけ線で結ぶ。
-        for i in 0..n {
-            let j = (i + 1) % n;
-            if let (Some(a), Some(b)) = (sel_pts[i], sel_pts[j]) {
-                painter.line_segment([a, b], egui::Stroke::new(2.0, SELECTED));
-            }
-        }
+        draw_ring_polyline(&painter, &sel_pts, egui::Stroke::new(2.0, SELECTED));
     }
     for p in sel_pts.iter().flatten() {
         painter.circle_filled(*p, 3.0, SELECTED);
@@ -255,8 +254,10 @@ pub fn show(ui: &mut egui::Ui, axes: &[RadarAxis]) {
     // ── 凡例 ────────────────────────────────────────────────────
     ui.add_space(4.0);
     ui.horizontal(|ui| {
-        swatch(ui, BAND_STROKE);
-        ui.label(egui::RichText::new("Pareto front range (min–max)").small());
+        swatch(ui, ACCENT_BLUE);
+        ui.label(
+            egui::RichText::new(format!("Pareto front individuals ({})", data.front.len())).small(),
+        );
         ui.add_space(12.0);
         swatch(ui, SELECTED);
         ui.label(egui::RichText::new("This trial").small());
@@ -268,6 +269,18 @@ pub fn show(ui: &mut egui::Ui, axes: &[RadarAxis]) {
         .small()
         .weak(),
     );
+}
+
+/// 軸順の点列（欠損は None）を閉じた折れ線として描く。
+/// 隣り合う有効頂点どうしのみ線分で結び、欠損があればその区間を飛ばす。
+fn draw_ring_polyline(painter: &egui::Painter, pts: &[Option<egui::Pos2>], stroke: egui::Stroke) {
+    let n = pts.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        if let (Some(a), Some(b)) = (pts[i], pts[j]) {
+            painter.line_segment([a, b], stroke);
+        }
+    }
 }
 
 /// 凡例用の小さな色見本を描く。
@@ -307,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn build_axes_objectives_first_then_params_and_skips_missing() {
+    fn build_objectives_first_then_params_and_collects_front() {
         use crate::state::types::TrialState;
         use std::collections::HashMap;
         use std::sync::Arc;
@@ -331,23 +344,28 @@ mod tests {
         let mut view = StudyView::new(Arc::new(df), vec![0, 0, 1]);
         view.state = vec![TrialState::Complete; 3];
 
-        let axes = build_axes(&view, &obj_names, &param_names, 0);
+        let data = build(&view, &obj_names, &param_names, 0);
         // 目的 2 + 変数 1 = 3 軸、順序は目的→変数。
-        assert_eq!(axes.len(), 3);
-        assert_eq!(axes[0].name, "o0");
-        assert!(axes[0].is_objective);
-        assert_eq!(axes[2].name, "x");
-        assert!(!axes[2].is_objective);
+        assert_eq!(data.axes.len(), 3);
+        assert_eq!(data.axes[0].name, "o0");
+        assert!(data.axes[0].is_objective);
+        assert_eq!(data.axes[2].name, "x");
+        assert!(!data.axes[2].is_objective);
 
         // フロント（trial0,1）のみで min/max を取る: o0 = {0,2} → [0,2]。
-        assert!((axes[0].front_min - 0.0).abs() < 1e-9);
-        assert!((axes[0].front_max - 2.0).abs() < 1e-9);
+        assert!((data.axes[0].front_min - 0.0).abs() < 1e-9);
+        assert!((data.axes[0].front_max - 2.0).abs() < 1e-9);
         // 選択 = row 0 の o0 = 0.0。
-        assert_eq!(axes[0].selected, Some(0.0));
+        assert_eq!(data.axes[0].selected, Some(0.0));
+
+        // フロント個体は 2 行、各 3 軸ぶん。trial1 の o0=2, o1=9, x=1。
+        assert_eq!(data.front.len(), 2);
+        assert_eq!(data.front[0].len(), 3);
+        assert_eq!(data.front[1], vec![Some(2.0), Some(9.0), Some(1.0)]);
     }
 
     #[test]
-    fn build_axes_skips_axis_without_front_values() {
+    fn build_skips_axis_without_front_values() {
         use std::collections::HashMap;
         use std::sync::Arc;
         use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
@@ -365,11 +383,12 @@ mod tests {
             .collect();
         let obj_names = vec!["o0".to_string()];
         let df = DataFrame::from_trials(&core_rows, &[], &obj_names, &[], &[], 0);
-        // フロント個体（rank 0）が 1 つも無い → o0 にもフロント値はあるはず…
-        // ここでは存在しない列名を要求してスキップを確認する。
         let view = StudyView::new(Arc::new(df), vec![0, 0]);
+        // 存在しない列名を要求してスキップを確認する。
         let missing = vec!["nope".to_string()];
-        let axes = build_axes(&view, &missing, &[], 0);
-        assert!(axes.is_empty());
+        let data = build(&view, &missing, &[], 0);
+        assert!(data.axes.is_empty());
+        // 軸が無ければフロント各行も空。
+        assert!(data.front.iter().all(|r| r.is_empty()));
     }
 }
