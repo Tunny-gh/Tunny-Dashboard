@@ -2,15 +2,19 @@ use crate::state::app_state::HeatmapMatrix;
 use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_GRID_STROKE};
 use crate::theme::color_compute::{diverging_colormap, sequential_colormap};
 
-/// Sensitivity Heatmap で選択できる手法。
-/// ImportanceChart の各系統から 1 つずつ採用したサブセット:
-/// 相関(Spearman) / 線形(Ridge) / 木(RF-Anova) / 大域感度(Sobol Total)。
+/// Sensitivity Heatmap で選択できる手法。ImportanceChart の `ImportanceMetric` と同じ
+/// ラインナップ: 相関/線形（Spearman・Ridge）、木ベース（RF-Anova・MDI・SHAP・
+/// Permutation）、大域感度（Sobol First・Sobol Total）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum HeatmapMetric {
     #[default]
     Spearman,
     Ridge,
     RfAnova,
+    Mdi,
+    Shap,
+    Permutation,
+    SobolFirst,
     SobolTotal,
 }
 
@@ -20,27 +24,31 @@ impl HeatmapMetric {
             HeatmapMetric::Spearman => "Spearman",
             HeatmapMetric::Ridge => "Ridge",
             HeatmapMetric::RfAnova => "RF-Anova",
+            HeatmapMetric::Mdi => "MDI",
+            HeatmapMetric::Shap => "SHAP",
+            HeatmapMetric::Permutation => "Permutation",
+            HeatmapMetric::SobolFirst => "Sobol First",
             HeatmapMetric::SobolTotal => "Sobol Total",
         }
     }
 
-    pub fn all() -> &'static [HeatmapMetric] {
-        &[
-            HeatmapMetric::Spearman,
-            HeatmapMetric::Ridge,
-            HeatmapMetric::RfAnova,
-            HeatmapMetric::SobolTotal,
-        ]
-    }
-
     /// `AppState::sensitivity_heatmap_cache` のキー。表示ラベルから切り離した安定な数値 id。
+    /// 値は `ImportanceMetric::cache_id` と揃える。
     pub fn id(&self) -> u8 {
         match self {
             HeatmapMetric::Spearman => 0,
             HeatmapMetric::Ridge => 1,
             HeatmapMetric::RfAnova => 2,
-            HeatmapMetric::SobolTotal => 3,
+            HeatmapMetric::Mdi => 3,
+            HeatmapMetric::SobolFirst => 4,
+            HeatmapMetric::SobolTotal => 5,
+            HeatmapMetric::Shap => 6,
+            HeatmapMetric::Permutation => 7,
         }
+    }
+
+    pub fn is_sobol(&self) -> bool {
+        matches!(self, HeatmapMetric::SobolFirst | HeatmapMetric::SobolTotal)
     }
 
     /// 値が符号を持つ（負の相関・負の係数があり得る）か。
@@ -49,10 +57,11 @@ impl HeatmapMetric {
         matches!(self, HeatmapMetric::Spearman | HeatmapMetric::Ridge)
     }
 
-    /// 木モデル訓練や Sobol サンプリングを伴い、計算コストが高いか。
+    /// モデル訓練（木ベース）や Sobol サンプリングを伴い、計算コストが高いか。
     /// 高コストな手法は自動計算せず Run ボタンを必須とする。
+    /// 低コストなのは相関/線形（Spearman・Ridge）のみ。
     pub fn is_expensive(&self) -> bool {
-        matches!(self, HeatmapMetric::RfAnova | HeatmapMetric::SobolTotal)
+        !matches!(self, HeatmapMetric::Spearman | HeatmapMetric::Ridge)
     }
 }
 
@@ -94,32 +103,26 @@ impl SensitivityHeatmap {
                 .show_ui(ui, |ui| {
                     // ImportanceChart と同じ系統別グループ分け。手法の性格が分かるようにする。
                     ui.label(group_header("── Correlation / Linear ──"));
-                    ui.selectable_value(
-                        &mut self.metric,
-                        HeatmapMetric::Spearman,
-                        HeatmapMetric::Spearman.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.metric,
-                        HeatmapMetric::Ridge,
-                        HeatmapMetric::Ridge.label(),
-                    );
+                    for m in [HeatmapMetric::Spearman, HeatmapMetric::Ridge] {
+                        ui.selectable_value(&mut self.metric, m, m.label());
+                    }
 
                     ui.separator();
                     ui.label(group_header("── Tree-based ──"));
-                    ui.selectable_value(
-                        &mut self.metric,
+                    for m in [
                         HeatmapMetric::RfAnova,
-                        HeatmapMetric::RfAnova.label(),
-                    );
+                        HeatmapMetric::Mdi,
+                        HeatmapMetric::Shap,
+                        HeatmapMetric::Permutation,
+                    ] {
+                        ui.selectable_value(&mut self.metric, m, m.label());
+                    }
 
                     ui.separator();
                     ui.label(group_header("── Global Sensitivity ──"));
-                    ui.selectable_value(
-                        &mut self.metric,
-                        HeatmapMetric::SobolTotal,
-                        HeatmapMetric::SobolTotal.label(),
-                    );
+                    for m in [HeatmapMetric::SobolFirst, HeatmapMetric::SobolTotal] {
+                        ui.selectable_value(&mut self.metric, m, m.label());
+                    }
                 });
 
             if self.computing {
@@ -261,7 +264,17 @@ mod tests {
 
     #[test]
     fn heatmap_metric_ids_are_distinct() {
-        let ids: Vec<u8> = HeatmapMetric::all().iter().map(|m| m.id()).collect();
+        let metrics = [
+            HeatmapMetric::Spearman,
+            HeatmapMetric::Ridge,
+            HeatmapMetric::RfAnova,
+            HeatmapMetric::Mdi,
+            HeatmapMetric::Shap,
+            HeatmapMetric::Permutation,
+            HeatmapMetric::SobolFirst,
+            HeatmapMetric::SobolTotal,
+        ];
+        let ids: Vec<u8> = metrics.iter().map(|m| m.id()).collect();
         let mut sorted = ids.clone();
         sorted.sort_unstable();
         sorted.dedup();

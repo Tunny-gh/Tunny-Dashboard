@@ -38,8 +38,8 @@ fn build_xy_for_objective(
 }
 
 /// 選択手法について、全パラメータ × 全目的の感度行列 `values[param][obj]` を計算する。
-/// Spearman/Ridge/RF-Anova は目的ごとに単一目的メトリクスを評価して列を埋め、
-/// Sobol Total は一度の全目的計算から全効果指数を取り出す。
+/// Sobol（First/Total）は一度の全目的計算から指数を取り出し、その他は目的ごとに
+/// 単一目的メトリクスを評価して列を埋める。
 fn compute_sensitivity_heatmap(
     metric: crate::ui::widgets::sensitivity_heatmap::HeatmapMetric,
     df: &tunny_core::dataframe::DataFrame,
@@ -47,7 +47,8 @@ fn compute_sensitivity_heatmap(
     use crate::state::results::HeatmapMatrix;
     use crate::ui::widgets::sensitivity_heatmap::HeatmapMetric;
     use tunny_core::sensitivity::{
-        compute_sobol_from_df, RfAnovaMetric, RidgeMetric, SensitivityMetric, SpearmanMetric,
+        compute_sobol_from_df, MdiMetric, PermutationMetric, RfAnovaMetric, RidgeMetric,
+        SensitivityMetric, ShapMetric, SpearmanMetric,
     };
 
     let param_names = df.param_col_names().to_vec();
@@ -58,10 +59,15 @@ fn compute_sensitivity_heatmap(
 
     let mut values = vec![vec![0.0f64; n_objs]; n_params];
 
-    if metric == HeatmapMetric::SobolTotal {
-        // total_effect[param][obj]
+    if metric.is_sobol() {
+        // first_order / total_effect はともに [param][obj] 形状で全目的を一括で返す。
         if let Some(sobol) = compute_sobol_from_df(df, 1024) {
-            for (param_idx, row) in sobol.total_effect.iter().enumerate() {
+            let data = if metric == HeatmapMetric::SobolFirst {
+                &sobol.first_order
+            } else {
+                &sobol.total_effect
+            };
+            for (param_idx, row) in data.iter().enumerate() {
                 if let Some(dst) = values.get_mut(param_idx) {
                     for (obj_idx, &v) in row.iter().take(n_objs).enumerate() {
                         dst[obj_idx] = v;
@@ -75,12 +81,25 @@ fn compute_sensitivity_heatmap(
                 HeatmapMetric::Spearman => SpearmanMetric.compute(df, obj_idx),
                 HeatmapMetric::Ridge => RidgeMetric.compute(df, obj_idx),
                 HeatmapMetric::RfAnova => RfAnovaMetric.compute(df, obj_idx),
-                HeatmapMetric::SobolTotal => unreachable!(),
+                HeatmapMetric::Mdi => MdiMetric.compute(df, obj_idx),
+                HeatmapMetric::Shap => ShapMetric.compute(df, obj_idx),
+                HeatmapMetric::Permutation => PermutationMetric.compute(df, obj_idx),
+                HeatmapMetric::SobolFirst | HeatmapMetric::SobolTotal => unreachable!(),
             };
             let Some(r) = result else { continue };
+
+            // 単一目的計算の結果から、パラメータ順の列ベクトルを取り出す。
+            // 木ベース（RF-Anova/MDI/SHAP/Permutation）は importances[param][0]。
+            let tree = match metric {
+                HeatmapMetric::RfAnova => r.rf_anova.as_ref().map(|x| &x.0),
+                HeatmapMetric::Mdi => r.mdi.as_ref().map(|x| &x.0),
+                HeatmapMetric::Shap => r.shap.as_ref().map(|x| &x.0),
+                HeatmapMetric::Permutation => r.permutation.as_ref().map(|x| &x.0),
+                _ => None,
+            };
+
             for param_idx in 0..n_params {
                 let v = match metric {
-                    // 単一目的計算なので各フィールドの列インデックスは 0。
                     HeatmapMetric::Spearman => r
                         .spearman
                         .get(param_idx)
@@ -93,14 +112,15 @@ fn compute_sensitivity_heatmap(
                         .and_then(|rg| rg.beta.get(param_idx))
                         .copied()
                         .unwrap_or(0.0),
-                    HeatmapMetric::RfAnova => r
-                        .rf_anova
-                        .as_ref()
-                        .and_then(|rf| rf.0.importances.get(param_idx))
+                    HeatmapMetric::RfAnova
+                    | HeatmapMetric::Mdi
+                    | HeatmapMetric::Shap
+                    | HeatmapMetric::Permutation => tree
+                        .and_then(|t| t.importances.get(param_idx))
                         .and_then(|row| row.first())
                         .copied()
                         .unwrap_or(0.0),
-                    HeatmapMetric::SobolTotal => unreachable!(),
+                    HeatmapMetric::SobolFirst | HeatmapMetric::SobolTotal => unreachable!(),
                 };
                 if let Some(dst) = values.get_mut(param_idx) {
                     dst[obj_idx] = v;
