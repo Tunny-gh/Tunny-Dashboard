@@ -17,6 +17,7 @@ pub enum ChartId {
     McdmScatterChart3D,
     SliceChart,
     SurfacePlot,
+    SurrogateOpt,
     ArtifactGallery,
 }
 
@@ -40,6 +41,7 @@ impl ChartId {
             ChartId::McdmScatterChart3D,
             ChartId::SliceChart,
             ChartId::SurfacePlot,
+            ChartId::SurrogateOpt,
             ChartId::ArtifactGallery,
         ]
     }
@@ -63,6 +65,7 @@ impl ChartId {
             ChartId::McdmScatterChart3D => "MCDM Scatter Chart 3D",
             ChartId::SliceChart => "Slice Chart",
             ChartId::SurfacePlot => "Surface Plot",
+            ChartId::SurrogateOpt => "Surrogate Optimizer",
             ChartId::ArtifactGallery => "Artifact Gallery",
         }
     }
@@ -589,6 +592,19 @@ mod tests {
     #[test]
     fn surface_plot_label_is_correct() {
         assert_eq!(ChartId::SurfacePlot.label(), "Surface Plot");
+    }
+
+    // --- ChartId::SurrogateOpt tests ---
+
+    #[test]
+    fn chart_id_all_contains_surrogate_opt() {
+        let all = ChartId::all();
+        assert!(all.contains(&ChartId::SurrogateOpt));
+    }
+
+    #[test]
+    fn surrogate_opt_label_is_correct() {
+        assert_eq!(ChartId::SurrogateOpt.label(), "Surrogate Optimizer");
     }
 
     // --- PanelItem tests ---

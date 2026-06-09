@@ -20,6 +20,10 @@ pub use pdp::pdp_chart;
 pub use pdp::slice_chart;
 pub use pdp::surface_plot;
 
+// サロゲート最適化（応答曲面作成＋曲面上の最適化）
+mod surrogate;
+pub use surrogate::surrogate_opt;
+
 // 散布図・クラスタ探索
 mod scatter;
 pub use scatter::cluster_scatter;

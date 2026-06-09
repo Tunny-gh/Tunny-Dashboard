@@ -249,5 +249,22 @@ pub(crate) fn render_chart(
                 trial_count,
             );
         }
+        ChartId::SurrogateOpt => {
+            let trial_count = ctx.trial_count();
+            // カテゴリカル列（数値化できない列）は最適化対象から除外する。
+            let numeric_params: Vec<String> = param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            crate::ui::widgets::surrogate_opt::show(
+                ui,
+                &mut widgets.surrogate_opt,
+                &numeric_params,
+                obj_names,
+                cmap,
+                trial_count,
+            );
+        }
     }
 }

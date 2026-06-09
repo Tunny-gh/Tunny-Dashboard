@@ -38,6 +38,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                     PanelItem::Chart(ChartId::SurfacePlot),
                 ],
             ),
+            ("Optimization", &[PanelItem::Chart(ChartId::SurrogateOpt)]),
             (
                 "Clustering",
                 &[

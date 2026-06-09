@@ -167,6 +167,17 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/surface-plot.html"
             )),
         },
+        ChartId::SurrogateOpt => HelpContent {
+            widget_name: "surrogate-optimizer",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/surrogate-optimizer.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/surrogate-optimizer.html"
+            )),
+        },
         ChartId::ClusterScatter3D => HelpContent {
             widget_name: "cluster-scatter-3d",
             html_en: include_str!(concat!(

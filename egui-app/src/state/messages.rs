@@ -115,6 +115,30 @@ pub struct SurfacePlotResult {
 }
 
 // ============================================================
+// Surrogate Optimizer 関連型
+// ============================================================
+
+/// サロゲート最適化の UI 表示用結果。
+/// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
+/// パラメータ名と値の対応・方向（minimize/maximize）を付与してここへ詰め替える。
+#[derive(Debug, Clone)]
+pub struct SurrogateOptUiResult {
+    /// 推定最適点（パラメータ名, 値）。
+    pub best_params: Vec<(String, f64)>,
+    /// 推定最適点でのサロゲート予測値（元の単位）。
+    pub best_value: f64,
+    /// 予測標準偏差（Kriging 系のみ）。
+    pub predicted_std: Option<f64>,
+    /// 訓練データに対するサロゲートの決定係数。
+    pub r_squared: f64,
+    pub objective_name: String,
+    /// true = 最小化問題として最適化した。
+    pub minimize: bool,
+    /// 最適点を通る応答曲面の 2D スライス（ヒートマップ表示用）。
+    pub slice: Option<tunny_core::surrogate_opt::SurfaceSlice>,
+}
+
+// ============================================================
 // AppMessage
 // ============================================================
 
@@ -241,6 +265,8 @@ pub enum AppMessage {
     ComparisonStudyLoadFailed(String),
     SurfacePlotDone(SurfacePlotResult),
     SurfacePlotFailed(String),
+    SurrogateOptDone(SurrogateOptUiResult),
+    SurrogateOptFailed(String),
     ChartCaptureFailed(String),
 }
 

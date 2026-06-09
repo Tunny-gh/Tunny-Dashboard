@@ -43,6 +43,56 @@ impl SurfacePlotState {
     }
 }
 
+// ── Surrogate Optimizer 計算リクエスト ──────────────────────────
+pub struct SurrogateOptComputeRequest {
+    pub objective: String,
+    pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
+    /// 応答曲面スライスの表示軸（パラメータ名）。
+    pub slice_x: String,
+    pub slice_y: String,
+}
+
+// ── Surrogate Optimizer UI 状態 ─────────────────────────────────
+pub struct SurrogateOptState {
+    pub selected_objective: usize,
+    pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
+    pub slice_x: String,
+    pub slice_y: String,
+    pub computing: bool,
+    pub result: Option<crate::state::messages::SurrogateOptUiResult>,
+    pub error_message: Option<String>,
+    pub pending_compute: Option<SurrogateOptComputeRequest>,
+}
+
+impl Default for SurrogateOptState {
+    fn default() -> Self {
+        Self {
+            selected_objective: 0,
+            model: tunny_core::surrogate_opt::SurrogateModelKind::Kriging,
+            optimizer: tunny_core::surrogate_opt::OptimizerKind::MultiStartLbfgs,
+            slice_x: String::new(),
+            slice_y: String::new(),
+            computing: false,
+            result: None,
+            error_message: None,
+            pending_compute: None,
+        }
+    }
+}
+
+impl SurrogateOptState {
+    /// グローバル widget の計算実行状態・結果・エラーを取り込む。
+    /// キャンバスのアイテム別 WidgetStates へ完了状態を伝播するために使う
+    /// （目的・モデル・最適化手法・スライス軸の選択は維持する）。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.result = src.result.clone();
+        self.error_message = src.error_message.clone();
+    }
+}
+
 // ── TASK-2228/2245: チャートキャプチャ状態 ───────────────────────
 /// キャプチャした PNG の出力先。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -95,6 +145,8 @@ pub struct WidgetStates {
     pub chart_colors: Vec<egui::Color32>,
     // TASK-2228: Surface Plot と capture の一時状態
     pub surface_plot: SurfacePlotState,
+    /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
+    pub surrogate_opt: SurrogateOptState,
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,

@@ -571,6 +571,80 @@ pub(crate) fn poll_chart_work(
                 });
             }
         }
+        ChartId::SurrogateOpt => {
+            if let Some(req) = widgets.surrogate_opt.pending_compute.take() {
+                let ctx = app_state.current_study.as_ref().unwrap();
+                // カテゴリカル列を除いた数値パラメータのみで X 行列を作る
+                //（render_chart 側のコンボに出す一覧と同じ絞り込み）。
+                let numeric_params: Vec<String> = ctx
+                    .meta
+                    .param_names
+                    .iter()
+                    .filter(|p| ctx.view.numeric_column(p).is_some())
+                    .cloned()
+                    .collect();
+                if numeric_params.is_empty() {
+                    widgets.surrogate_opt.error_message =
+                        Some("No numeric parameters available".to_string());
+                    return;
+                }
+                let n = ctx.view.row_count();
+                let param_cols = ctx.view.numeric_columns(&numeric_params);
+                let x_matrix: Vec<Vec<f64>> = (0..n)
+                    .map(|i| {
+                        param_cols
+                            .iter()
+                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                            .collect()
+                    })
+                    .collect();
+                let y: Vec<f64> = ctx
+                    .view
+                    .numeric_column(&req.objective)
+                    .map(|col| col.to_vec())
+                    .unwrap_or_else(|| vec![0.0; n]);
+
+                let obj_idx = obj_names.iter().position(|o| o == &req.objective);
+                let minimize = obj_idx
+                    .and_then(|i| directions.get(i))
+                    .map(|d| matches!(d, Direction::Minimize))
+                    .unwrap_or(true);
+                let slice_params = numeric_params
+                    .iter()
+                    .position(|p| p == &req.slice_x)
+                    .zip(numeric_params.iter().position(|p| p == &req.slice_y))
+                    .filter(|(a, b)| a != b);
+
+                widgets.surrogate_opt.computing = true;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::SurrogateOptUiResult;
+                    let core_req = tunny_core::surrogate_opt::SurrogateOptRequest {
+                        x_matrix,
+                        y,
+                        param_names: numeric_params.clone(),
+                        objective_name: req.objective.clone(),
+                        minimize,
+                        model: req.model,
+                        optimizer: req.optimizer,
+                        slice_params,
+                        n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
+                    };
+                    match tunny_core::surrogate_opt::run_surrogate_optimization(&core_req) {
+                        Ok(r) => AppMessage::SurrogateOptDone(SurrogateOptUiResult {
+                            best_params: numeric_params.into_iter().zip(r.best_params).collect(),
+                            best_value: r.best_value,
+                            predicted_std: r.predicted_std,
+                            r_squared: r.r_squared,
+                            objective_name: req.objective,
+                            minimize,
+                            slice: r.slice,
+                        }),
+                        Err(e) => AppMessage::SurrogateOptFailed(e),
+                    }
+                });
+            }
+        }
         _ => {}
     }
 }
