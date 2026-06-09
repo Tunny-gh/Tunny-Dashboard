@@ -17,6 +17,8 @@ The surrogate optimizer fits a response surface (surrogate model) to the sampled
 ## Optimization methods
 
 - **Multi-start L-BFGS** — Gradient-based local search (numerical gradients) started from the best observed trial and several random points; the best converged point is reported.
+- **NSGA-II** — Genetic algorithm with SBX crossover, polynomial mutation and binary tournament selection (crowded comparison). Population-based and derivative-free, robust on multimodal surfaces. Currently applied to the single selected objective; the implementation supports multiple objectives for future Pareto-front optimization.
+- **CMA-ES** — Covariance Matrix Adaptation Evolution Strategy. Derivative-free search that adapts the sampling distribution to the local curvature of the surface; a strong default for continuous problems.
 - **Random Search** — Evaluates the surrogate at thousands of random points and picks the best. A robust baseline.
 
 ## Notes

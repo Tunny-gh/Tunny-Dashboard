@@ -18,8 +18,12 @@ const MODEL_CHOICES: [SurrogateModelKind; 3] = [
 ];
 
 /// 最適化手法の選択肢（コンボ表示順）。
-const OPTIMIZER_CHOICES: [OptimizerKind; 2] =
-    [OptimizerKind::MultiStartLbfgs, OptimizerKind::RandomSearch];
+const OPTIMIZER_CHOICES: [OptimizerKind; 4] = [
+    OptimizerKind::MultiStartLbfgs,
+    OptimizerKind::Nsga2,
+    OptimizerKind::CmaEs,
+    OptimizerKind::RandomSearch,
+];
 
 pub(crate) fn model_label(kind: SurrogateModelKind) -> &'static str {
     match kind {
@@ -32,6 +36,8 @@ pub(crate) fn model_label(kind: SurrogateModelKind) -> &'static str {
 pub(crate) fn optimizer_label(kind: OptimizerKind) -> &'static str {
     match kind {
         OptimizerKind::MultiStartLbfgs => "Multi-start L-BFGS",
+        OptimizerKind::Nsga2 => "NSGA-II",
+        OptimizerKind::CmaEs => "CMA-ES",
         OptimizerKind::RandomSearch => "Random Search",
     }
 }

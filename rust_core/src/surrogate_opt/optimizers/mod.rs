@@ -1,7 +1,10 @@
 //! サロゲート曲面上の最適化手法。
 //!
 //! 正規化空間 [0,1]^d 内での最小化として実装する（maximize は符号反転）。
-//! 新しい手法（例: Nelder-Mead / DE）はここへバリアントを追加する。
+//! 新しい手法はここへバリアントを追加する。
+
+mod cma_es;
+mod nsga2;
 
 use argmin::core::{CostFunction, Error, Gradient};
 
@@ -16,6 +19,10 @@ pub enum OptimizerKind {
     MultiStartLbfgs,
     /// 固定シードのランダムサーチ（常に動くベースライン）。
     RandomSearch,
+    /// NSGA-II（SBX 交叉・Polynomial Mutation・二項トーナメント選択）。
+    Nsga2,
+    /// CMA-ES（共分散行列適応進化戦略）。
+    CmaEs,
 }
 
 /// マルチスタートのスタート点数（観測ベスト点 1 + 乱数 7）。
@@ -41,6 +48,8 @@ pub(crate) fn minimize_on_surrogate(
     let t = match optimizer {
         OptimizerKind::MultiStartLbfgs => multi_start_lbfgs(surrogate, sign, start_norm),
         OptimizerKind::RandomSearch => random_search(surrogate, sign, start_norm),
+        OptimizerKind::Nsga2 => run_nsga2(surrogate, sign, start_norm),
+        OptimizerKind::CmaEs => run_cma_es(surrogate, sign, start_norm),
     };
     t.iter().map(|v| v.clamp(0.0, 1.0)).collect()
 }
@@ -143,4 +152,31 @@ fn random_search(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> 
         }
     }
     best
+}
+
+/// NSGA-II をサロゲート単一目的の最小化として実行する。
+/// 適応度は長さ 1 のベクトル（将来の多目的サロゲート対応に備えた汎用実装を使う）。
+fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
+    let cfg = nsga2::Nsga2Config::default();
+    let front = nsga2::nsga2_minimize(
+        |t| vec![penalized_cost(surrogate, sign, t)],
+        start_norm.len(),
+        std::slice::from_ref(&start_norm.to_vec()),
+        &cfg,
+    );
+    front
+        .into_iter()
+        .min_by(|a, b| {
+            a.1[0]
+                .partial_cmp(&b.1[0])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(genome, _)| genome)
+        .unwrap_or_else(|| start_norm.to_vec())
+}
+
+/// CMA-ES を観測ベスト点を初期平均として実行する。
+fn run_cma_es(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
+    let cfg = cma_es::CmaEsConfig::default();
+    cma_es::cma_es_minimize(|t| penalized_cost(surrogate, sign, t), start_norm, &cfg)
 }

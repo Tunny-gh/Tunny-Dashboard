@@ -70,6 +70,65 @@ fn random_search_finds_quadratic_minimum_loosely() {
 }
 
 #[test]
+fn nsga2_finds_quadratic_minimum() {
+    let (x_matrix, y) = quadratic_samples(50);
+    let mut req = base_request(x_matrix, y);
+    req.optimizer = OptimizerKind::Nsga2;
+    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
+
+    assert!(
+        (result.best_params[0] - 0.3).abs() < 0.1,
+        "x ≈ 0.3, got {}",
+        result.best_params[0]
+    );
+    assert!(
+        (result.best_params[1] - 0.7).abs() < 0.1,
+        "y ≈ 0.7, got {}",
+        result.best_params[1]
+    );
+}
+
+#[test]
+fn cma_es_finds_quadratic_minimum() {
+    let (x_matrix, y) = quadratic_samples(50);
+    let mut req = base_request(x_matrix, y);
+    req.optimizer = OptimizerKind::CmaEs;
+    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
+
+    assert!(
+        (result.best_params[0] - 0.3).abs() < 0.1,
+        "x ≈ 0.3, got {}",
+        result.best_params[0]
+    );
+    assert!(
+        (result.best_params[1] - 0.7).abs() < 0.1,
+        "y ≈ 0.7, got {}",
+        result.best_params[1]
+    );
+}
+
+#[test]
+fn cma_es_maximize_finds_quadratic_maximum_corner() {
+    // f は (0.3, 0.7) から最遠の角 (1, 0) で最大になる。
+    let (x_matrix, y) = quadratic_samples(60);
+    let mut req = base_request(x_matrix, y);
+    req.minimize = false;
+    req.optimizer = OptimizerKind::CmaEs;
+    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
+
+    assert!(
+        result.best_params[0] > 0.7,
+        "x should approach 1, got {}",
+        result.best_params[0]
+    );
+    assert!(
+        result.best_params[1] < 0.4,
+        "y should approach 0, got {}",
+        result.best_params[1]
+    );
+}
+
+#[test]
 fn maximize_direction_finds_quadratic_maximum_corner() {
     // f は (0.3, 0.7) から遠い角で最大になる。x=1,y=0 の角が最遠。
     let (x_matrix, y) = quadratic_samples(60);
