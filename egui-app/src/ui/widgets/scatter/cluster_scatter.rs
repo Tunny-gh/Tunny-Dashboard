@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
+use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::trial_detail_modal::{
@@ -215,6 +216,7 @@ impl ClusterScatter {
         obj_names: &[String],
         colormap: &ColorMap,
         artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
+        selected_indices: &[u32],
     ) {
         let n_trials = view.row_count();
         // クラスタリング対象はパレートフロント（pareto_rank == 0）。
@@ -230,6 +232,17 @@ impl ClusterScatter {
         }
 
         self.show_header(ui, pareto_count);
+
+        // 選択フィルタ中は、クラスタがフロント全体で計算されている旨を明示する。
+        if !selected_indices.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "Highlighting selection. Clusters are computed over the full Pareto front.",
+                )
+                .small()
+                .weak(),
+            );
+        }
 
         if self.computing {
             ui.horizontal(|ui| {
@@ -301,7 +314,10 @@ impl ClusterScatter {
 
         // クラスタリング対象はパレートフロントのみ。クラスタ別に座標を集約し、
         // 対象外（label < 0）の解は "Others"、infeasible は別途収集する。
+        // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外はクラスタ色を淡色にして背面に描く。
+        // クラスタ計算自体はフロント全体のままで、ここでの分岐は表示上の強調に限る。
         let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
+        let mut cluster_points_dim: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut other_pts: Vec<[f64; 2]> = Vec::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
@@ -318,10 +334,19 @@ impl ClusterScatter {
                 // パレートフロント以外の解（クラスタリング対象外）
                 other_pts.push([x as f64, y as f64]);
             } else {
-                cluster_points
-                    .entry(label)
-                    .or_default()
-                    .push([x as f64, y as f64]);
+                let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+                let selected = compute_point_alpha(trial_id, selected_indices) == 255;
+                if selected {
+                    cluster_points
+                        .entry(label)
+                        .or_default()
+                        .push([x as f64, y as f64]);
+                } else {
+                    cluster_points_dim
+                        .entry(label)
+                        .or_default()
+                        .push([x as f64, y as f64]);
+                }
             }
         }
 
@@ -356,6 +381,16 @@ impl ClusterScatter {
                             .color(COLOR_NON_PARETO_DIM)
                             .radius(2.0)
                             .name("Others"),
+                    );
+                }
+                // 選択外のクラスタ点を淡色で先に描画（凡例には出さない）
+                for (label, pts) in cluster_points_dim {
+                    let color = cluster_color(label).linear_multiply(0.2);
+                    plot_ui.points(
+                        egui_plot::Points::new(pts)
+                            .color(color)
+                            .radius(2.0)
+                            .name(format!("Cluster {}", label)),
                     );
                 }
                 for (label, pts) in cluster_points {

@@ -314,7 +314,11 @@ impl ArtifactGallery {
         artifact_index: usize,
         obj_by_trial: &HashMap<u32, String>,
     ) {
-        let trials = artifact_trials_with_index(&app_state.artifact_map, artifact_index);
+        // 選択フィルタ（PCP ブラシ等）が有効なら、その trial に絞り込む（空 = 全件）。
+        let trials = filter_ids_by_selection(
+            artifact_trials_with_index(&app_state.artifact_map, artifact_index),
+            &app_state.selected_indices,
+        );
         let total_pages = trials.len().div_ceil(PAGE_SIZE).max(1);
         if self.page >= total_pages {
             self.page = total_pages - 1;
@@ -336,6 +340,10 @@ impl ArtifactGallery {
             }
             ui.separator();
             ui.label(format!("{} trials with artifacts", trials.len()));
+            if !app_state.selected_indices.is_empty() {
+                ui.separator();
+                ui.label(egui::RichText::new("filtered by selection").small().weak());
+            }
         });
 
         let page_trials = paginate(&trials, self.page, PAGE_SIZE);
@@ -804,6 +812,16 @@ pub fn artifact_trials_with_index(
     ids
 }
 
+/// 選択フィルタ（PCP ブラシ等）に基づき trial_id リストを絞り込む。
+/// `selected_indices` が空の場合は全件を返す（テーブル等と同じ「空 = 全件」規約）。
+pub fn filter_ids_by_selection(ids: Vec<u32>, selected_indices: &[u32]) -> Vec<u32> {
+    if selected_indices.is_empty() {
+        return ids;
+    }
+    let set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
+    ids.into_iter().filter(|id| set.contains(id)).collect()
+}
+
 /// `items` のうち `page` ページ目（0 始まり, `per_page` 件）のスライスを返す。
 pub fn paginate<T>(items: &[T], page: usize, per_page: usize) -> &[T] {
     if per_page == 0 || items.is_empty() {
@@ -927,6 +945,18 @@ mod tests {
         // index 1 を持つ trial のみ。
         m.insert(7, vec![entry("a"), entry("b")]);
         assert_eq!(artifact_trials_with_index(&m, 1), vec![7]);
+    }
+
+    #[test]
+    fn filter_ids_by_selection_empty_returns_all() {
+        let ids = vec![2u32, 5, 9];
+        assert_eq!(filter_ids_by_selection(ids.clone(), &[]), ids);
+    }
+
+    #[test]
+    fn filter_ids_by_selection_keeps_only_selected() {
+        let ids = vec![2u32, 5, 9, 11];
+        assert_eq!(filter_ids_by_selection(ids, &[5, 11, 99]), vec![5, 11]);
     }
 
     #[test]

@@ -8,6 +8,7 @@ use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{
     COLOR_EMPTY_STATE, COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
 };
+use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::mcdm_chart::McdmControls;
@@ -88,7 +89,7 @@ pub struct McdmScatterChart {
     /// 点クリックで開くトライアル詳細モーダル。
     pub detail_modal: TrialDetailModal,
     // --- 内部キャッシュ状態 ---
-    display_rows_cache: Option<Vec<(f64, f64, Color32)>>,
+    display_rows_cache: Option<Vec<(f64, f64, Color32, u32)>>,
     infeasible_cache: Option<Vec<(f64, f64)>>,
     /// 点クリック判定用の候補（trial_id, 行 index, 座標）。display_rows_cache と同じキーで更新する。
     hit_candidates: Option<Vec<(u32, usize, [f64; 2])>>,
@@ -192,6 +193,7 @@ impl McdmScatterChart {
         colormap: &ColorMap,
         colormap_name: &ColormapName,
         artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
+        selected_indices: &[u32],
     ) {
         if !self.controls.show_controls(ui, obj_names, "mcdm_scatter") {
             return;
@@ -305,6 +307,7 @@ impl McdmScatterChart {
                 &self.y_axis,
                 colormap,
                 top_n,
+                selected_indices,
             );
         }
 
@@ -335,6 +338,16 @@ impl McdmScatterChart {
             .show(ui, view, param_names, obj_names, artifact_map);
 
         ui.separator();
+        // 選択フィルタ中は、スコアがフロント全体基準である旨を明示する。
+        if !selected_indices.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "Highlighting selection. Scores are computed over the full Pareto front.",
+                )
+                .small()
+                .weak(),
+            );
+        }
         if let Some(ref meta) = self.metadata {
             ui.label(
                 egui::RichText::new(format!(
@@ -355,22 +368,30 @@ impl McdmScatterChart {
 #[allow(clippy::too_many_arguments)]
 fn render_scatter_plot(
     ui: &mut egui::Ui,
-    points: &[(f64, f64, Color32)],
+    points: &[(f64, f64, Color32, u32)],
     infeasible: &[(f64, f64)],
     hit_candidates: &[(u32, usize, [f64; 2])],
     x_label: &str,
     y_label: &str,
     colormap: &ColorMap,
     top_n: usize,
+    selected_indices: &[u32],
 ) -> Option<(u32, usize)> {
     use std::collections::HashMap;
 
-    // 未ランク（COLOR_MCDM_NONE）とランク済みを分離
+    // 未ランク（COLOR_MCDM_NONE）とランク済みを分離。
+    // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外は淡色にまとめて背面に描く。
+    // スコア・色はフロント全体基準のまま。ここでの分岐は表示上の強調に限る。
     let mut none_pts: Vec<[f64; 2]> = Vec::new();
+    let mut dim_pts: Vec<[f64; 2]> = Vec::new();
     // 色 → 座標リスト（輝度でソートするため u32 輝度値も保持）
     let mut color_groups: HashMap<[u8; 4], (Vec<[f64; 2]>, u32)> = HashMap::new();
 
-    for &(x, y, color) in points {
+    for &(x, y, color, trial_id) in points {
+        if compute_point_alpha(trial_id, selected_indices) != 255 {
+            dim_pts.push([x, y]);
+            continue;
+        }
         if color == COLOR_MCDM_NONE {
             none_pts.push([x, y]);
         } else {
@@ -416,6 +437,15 @@ fn render_scatter_plot(
                         .name("Infeasible")
                         .color(crate::theme::chart_colors::COLOR_INFEASIBLE)
                         .radius(3.0),
+                );
+            }
+            // 選択フィルタ外（淡色・最背面、凡例は "Others" に集約）
+            if !dim_pts.is_empty() {
+                plot_ui.points(
+                    egui_plot::Points::new(dim_pts)
+                        .name("Others")
+                        .color(COLOR_MCDM_NONE.linear_multiply(0.4))
+                        .radius(2.5),
                 );
             }
             // 未ランク（グレー）
@@ -670,8 +700,9 @@ fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
 // 散布図ポイント計算
 // ──────────────────────────────────────────────────────────────
 
-/// 散布図の1点: (x座標, y座標, 色)。
-type ScatterPoint = (f64, f64, Color32);
+/// 散布図の1点: (x座標, y座標, 色, trial_id)。
+/// trial_id は選択フィルタ（PCP ブラシ等）でのグレーアウト判定に使う。
+type ScatterPoint = (f64, f64, Color32, u32);
 /// `compute_scatter_points` の戻り値型エイリアス。
 type ScatterPointsResult = (Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata);
 
@@ -742,7 +773,8 @@ pub(crate) fn compute_scatter_points(
             };
             colormap.interpolate(t)
         };
-        feasible_pts.push((x, y, color));
+        let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+        feasible_pts.push((x, y, color, trial_id));
     }
 
     let total = feasible_pts.len() + infeasible_pts.len();
@@ -855,7 +887,7 @@ mod tests {
         use crate::state::types::ColormapName;
         use crate::theme::colormap_name::colormap_from_name;
         let mut chart = McdmScatterChart::new();
-        chart.display_rows_cache = Some(vec![(0.5, 0.5, Color32::RED)]);
+        chart.display_rows_cache = Some(vec![(0.5, 0.5, Color32::RED, 0)]);
         chart.error_message = Some("error".to_string());
         let cmap_name = ColormapName::Viridis;
         let cmap = colormap_from_name(&cmap_name);
