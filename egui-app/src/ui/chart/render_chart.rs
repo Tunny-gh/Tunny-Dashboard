@@ -192,6 +192,7 @@ pub(crate) fn render_chart(
                 obj_names,
                 &cmap,
                 &app_state.artifact_map,
+                &app_state.selected_indices,
             );
         }
         ChartId::McdmRankChart => {
@@ -211,6 +212,7 @@ pub(crate) fn render_chart(
                 &cmap,
                 &app_state.selected_colormap,
                 &app_state.artifact_map,
+                &app_state.selected_indices,
             );
         }
         ChartId::McdmScatterChart3D => {
