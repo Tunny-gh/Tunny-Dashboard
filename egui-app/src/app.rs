@@ -25,6 +25,7 @@ enum ComputeSyncKind {
     Pdp2d,
     Surface,
     HvHistory,
+    SensitivityHeatmap,
 }
 
 impl ComputeSyncKind {
@@ -45,6 +46,7 @@ impl ComputeSyncKind {
                 Some(Self::Surface)
             }
             AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
+            AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
             _ => None,
         }
     }
@@ -83,6 +85,9 @@ impl ComputeSyncKind {
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
                 Self::Surface => w.surface_plot.adopt_compute_state(&global.surface_plot),
                 Self::HvHistory => w.hv_history.adopt_compute_state(&global.hv_history),
+                Self::SensitivityHeatmap => w
+                    .sensitivity_heatmap
+                    .adopt_compute_state(&global.sensitivity_heatmap),
             }
         }
     }

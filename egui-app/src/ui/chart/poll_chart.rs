@@ -37,6 +37,106 @@ fn build_xy_for_objective(
     (x_matrix, y)
 }
 
+/// 選択手法について、全パラメータ × 全目的の感度行列 `values[param][obj]` を計算する。
+/// Sobol（First/Total）は一度の全目的計算から指数を取り出し、その他は目的ごとに
+/// 単一目的メトリクスを評価して列を埋める。手法→コアメトリクスの対応は
+/// `core_sensitivity_metric` を ImportanceChart と共有する。
+fn compute_sensitivity_heatmap(
+    metric: crate::ui::widgets::importance_chart::ImportanceMetric,
+    df: &tunny_core::dataframe::DataFrame,
+) -> AppMessage {
+    use crate::state::results::HeatmapMatrix;
+    use crate::ui::widgets::importance_chart::{core_sensitivity_metric, SOBOL_SAMPLE_COUNT};
+
+    let param_names = df.param_col_names().to_vec();
+    let objective_names = df.objective_col_names().to_vec();
+    let n_params = param_names.len();
+    let n_objs = objective_names.len();
+    let signed = metric.is_signed();
+
+    let mut values = vec![vec![0.0f64; n_objs]; n_params];
+
+    if metric.is_sobol() {
+        // first_order / total_effect はともに [param][obj] 形状で全目的を一括で返す。
+        if let Some(sobol) = tunny_core::sensitivity::compute_sobol_from_df(df, SOBOL_SAMPLE_COUNT)
+        {
+            use crate::ui::widgets::importance_chart::ImportanceMetric;
+            let data = if metric == ImportanceMetric::SobolFirst {
+                &sobol.first_order
+            } else {
+                &sobol.total_effect
+            };
+            for (param_idx, row) in data.iter().enumerate() {
+                if let Some(dst) = values.get_mut(param_idx) {
+                    for (obj_idx, &v) in row.iter().take(n_objs).enumerate() {
+                        dst[obj_idx] = v;
+                    }
+                }
+            }
+        }
+    } else if let Some(core) = core_sensitivity_metric(metric) {
+        for obj_idx in 0..n_objs {
+            let Some(r) = core.compute(df, obj_idx) else {
+                continue;
+            };
+            for (param_idx, dst) in values.iter_mut().enumerate() {
+                dst[obj_idx] = single_obj_param_score(&r, metric, param_idx);
+            }
+        }
+    }
+
+    AppMessage::SensitivityHeatmapDone {
+        metric,
+        result: HeatmapMatrix {
+            param_names,
+            objective_names,
+            values,
+            signed,
+        },
+    }
+}
+
+/// 単一目的の計算結果（コア `SensitivityResult`）から、指定パラメータのスコアを取り出す。
+/// 木ベース（RF-Anova/MDI/SHAP/Permutation）は `importances[param][0]`、Spearman は
+/// `spearman[param][0]`、Ridge は `ridge[0].beta[param]`。Sobol はこの経路を通らない。
+fn single_obj_param_score(
+    r: &tunny_core::sensitivity::SensitivityResult,
+    metric: crate::ui::widgets::importance_chart::ImportanceMetric,
+    param_idx: usize,
+) -> f64 {
+    use crate::ui::widgets::importance_chart::ImportanceMetric;
+    let tree = match metric {
+        ImportanceMetric::RfAnova => r.rf_anova.as_ref().map(|x| &x.0),
+        ImportanceMetric::Mdi => r.mdi.as_ref().map(|x| &x.0),
+        ImportanceMetric::Shap => r.shap.as_ref().map(|x| &x.0),
+        ImportanceMetric::Permutation => r.permutation.as_ref().map(|x| &x.0),
+        _ => None,
+    };
+    match metric {
+        ImportanceMetric::Spearman => r
+            .spearman
+            .get(param_idx)
+            .and_then(|row| row.first())
+            .copied()
+            .unwrap_or(0.0),
+        ImportanceMetric::Ridge => r
+            .ridge
+            .first()
+            .and_then(|rg| rg.beta.get(param_idx))
+            .copied()
+            .unwrap_or(0.0),
+        ImportanceMetric::RfAnova
+        | ImportanceMetric::Mdi
+        | ImportanceMetric::Shap
+        | ImportanceMetric::Permutation => tree
+            .and_then(|t| t.importances.get(param_idx))
+            .and_then(|row| row.first())
+            .copied()
+            .unwrap_or(0.0),
+        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => 0.0,
+    }
+}
+
 pub(crate) fn poll_chart_work(
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
@@ -53,7 +153,6 @@ pub(crate) fn poll_chart_work(
         | ChartId::OptimizationHistory
         | ChartId::ParallelCoordinates
         | ChartId::ScatterMatrix
-        | ChartId::SensitivityHeatmap
         | ChartId::SliceChart => return,
         _ => {}
     }
@@ -128,7 +227,9 @@ pub(crate) fn poll_chart_work(
                     MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult,
                     ShapResult, SobolResult,
                 };
-                use crate::ui::widgets::importance_chart::ImportanceMetric;
+                use crate::ui::widgets::importance_chart::{
+                    core_sensitivity_metric, ImportanceMetric, SOBOL_SAMPLE_COUNT,
+                };
 
                 let already_cached = if metric.is_sobol() {
                     app_state.sobol_cache.contains_key(&obj_idx)
@@ -148,7 +249,10 @@ pub(crate) fn poll_chart_work(
                     match metric {
                         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                             crate::app::spawn_task(tx, move || {
-                                match tunny_core::sensitivity::compute_sobol_from_df(&df, 1024) {
+                                match tunny_core::sensitivity::compute_sobol_from_df(
+                                    &df,
+                                    SOBOL_SAMPLE_COUNT,
+                                ) {
                                     Some(r) => AppMessage::SobolDone {
                                         obj_idx,
                                         result: SobolResult {
@@ -166,20 +270,9 @@ pub(crate) fn poll_chart_work(
                             });
                         }
                         _ => {
-                            use tunny_core::sensitivity::{
-                                MdiMetric, PermutationMetric, RfAnovaMetric, RidgeMetric,
-                                ShapMetric, SpearmanMetric,
+                            let Some(core_metric) = core_sensitivity_metric(metric) else {
+                                return;
                             };
-                            let core_metric: Box<dyn tunny_core::sensitivity::SensitivityMetric> =
-                                match metric {
-                                    ImportanceMetric::Spearman => Box::new(SpearmanMetric),
-                                    ImportanceMetric::Ridge => Box::new(RidgeMetric),
-                                    ImportanceMetric::RfAnova => Box::new(RfAnovaMetric),
-                                    ImportanceMetric::Mdi => Box::new(MdiMetric),
-                                    ImportanceMetric::Shap => Box::new(ShapMetric),
-                                    ImportanceMetric::Permutation => Box::new(PermutationMetric),
-                                    _ => unreachable!(),
-                                };
                             let key = (metric.cache_id(), obj_idx);
                             crate::app::spawn_task(tx, move || {
                                 let mut results =
@@ -237,6 +330,26 @@ pub(crate) fn poll_chart_work(
                             });
                         }
                     }
+                }
+            }
+        }
+        ChartId::SensitivityHeatmap => {
+            // 選択手法の全パラメータ × 全目的の感度行列を非同期計算する。
+            // 計算要求は widgets.sensitivity_heatmap.pending_compute に積まれ
+            // （Run ボタン、または低コスト手法の自動トリガー）、結果は手法ごとに
+            // app_state.sensitivity_heatmap_cache へ集約される。
+            if let Some(metric) = widgets.sensitivity_heatmap.pending_compute.take() {
+                if app_state
+                    .sensitivity_heatmap_cache
+                    .contains_key(&metric.cache_id())
+                {
+                    widgets.sensitivity_heatmap.computing = false;
+                } else {
+                    let ctx = app_state.current_study.as_ref().unwrap();
+                    let df = std::sync::Arc::clone(&ctx.view.df);
+                    widgets.sensitivity_heatmap.computing = true;
+                    let tx = tx.clone();
+                    crate::app::spawn_task(tx, move || compute_sensitivity_heatmap(metric, &df));
                 }
             }
         }

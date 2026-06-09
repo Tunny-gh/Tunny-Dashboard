@@ -3,8 +3,9 @@ use crate::theme::chart_colors::{
     COLOR_FIT_HIGH, COLOR_FIT_LOW, COLOR_FIT_MID, COLOR_IMPORTANCE_BAR,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ImportanceMetric {
+    #[default]
     Spearman,
     Ridge,
     RfAnova,
@@ -49,6 +50,41 @@ impl ImportanceMetric {
             ImportanceMetric::Permutation => 7,
         }
     }
+
+    /// 値が符号を持つ（負の相関・負の係数があり得る）か。Spearman / Ridge のみ符号付きで、
+    /// 木ベース・Sobol は非負。Sensitivity Heatmap の発散/逐次カラーマップ切替に使う。
+    pub fn is_signed(&self) -> bool {
+        matches!(self, ImportanceMetric::Spearman | ImportanceMetric::Ridge)
+    }
+
+    /// モデル訓練（木ベース）や Sobol サンプリングを伴い計算コストが高いか。
+    /// 低コストなのは相関/線形（Spearman・Ridge）のみ。
+    pub fn is_expensive(&self) -> bool {
+        !matches!(self, ImportanceMetric::Spearman | ImportanceMetric::Ridge)
+    }
+}
+
+/// Sobol 指数推定のサンプル数（ImportanceChart / Sensitivity Heatmap 共通）。
+pub const SOBOL_SAMPLE_COUNT: usize = 1024;
+
+/// `ImportanceMetric` から対応するコア感度メトリクスを生成する。
+/// Sobol は専用の `compute_sobol_from_df` 経路を使うため `None` を返す。
+/// ImportanceChart と Sensitivity Heatmap が同じ対応表を共有するためのヘルパー。
+pub fn core_sensitivity_metric(
+    metric: ImportanceMetric,
+) -> Option<Box<dyn tunny_core::sensitivity::SensitivityMetric>> {
+    use tunny_core::sensitivity::{
+        MdiMetric, PermutationMetric, RfAnovaMetric, RidgeMetric, ShapMetric, SpearmanMetric,
+    };
+    Some(match metric {
+        ImportanceMetric::Spearman => Box::new(SpearmanMetric),
+        ImportanceMetric::Ridge => Box::new(RidgeMetric),
+        ImportanceMetric::RfAnova => Box::new(RfAnovaMetric),
+        ImportanceMetric::Mdi => Box::new(MdiMetric),
+        ImportanceMetric::Shap => Box::new(ShapMetric),
+        ImportanceMetric::Permutation => Box::new(PermutationMetric),
+        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return None,
+    })
 }
 
 /// 感度分析バーチャートウィジェット
@@ -89,7 +125,7 @@ impl ImportanceChart {
         // Run ボタン + メトリクスコンボボックス + 目的関数コンボボックス + spinner + R²（右端）
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
-                self.pending_compute = Some((self.metric.clone(), self.objective_index));
+                self.pending_compute = Some((self.metric, self.objective_index));
                 self.computing = true;
             }
 
@@ -377,6 +413,58 @@ pub fn compute_sorted_sobol(
 mod tests {
     use super::*;
     use crate::state::app_state::{MdiResult, RfAnovaResult, RidgeResult, SensitivityResult};
+
+    #[test]
+    fn cache_ids_are_distinct() {
+        let metrics = [
+            ImportanceMetric::Spearman,
+            ImportanceMetric::Ridge,
+            ImportanceMetric::RfAnova,
+            ImportanceMetric::Mdi,
+            ImportanceMetric::Shap,
+            ImportanceMetric::Permutation,
+            ImportanceMetric::SobolFirst,
+            ImportanceMetric::SobolTotal,
+        ];
+        let ids: Vec<u8> = metrics.iter().map(|m| m.cache_id()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(ids.len(), sorted.len(), "cache ids must be unique");
+    }
+
+    #[test]
+    fn metric_signedness() {
+        assert!(ImportanceMetric::Spearman.is_signed());
+        assert!(ImportanceMetric::Ridge.is_signed());
+        assert!(!ImportanceMetric::RfAnova.is_signed());
+        assert!(!ImportanceMetric::SobolTotal.is_signed());
+    }
+
+    #[test]
+    fn metric_expensiveness() {
+        // 低コストは相関/線形のみ。
+        assert!(!ImportanceMetric::Spearman.is_expensive());
+        assert!(!ImportanceMetric::Ridge.is_expensive());
+        assert!(ImportanceMetric::RfAnova.is_expensive());
+        assert!(ImportanceMetric::Mdi.is_expensive());
+        assert!(ImportanceMetric::Shap.is_expensive());
+        assert!(ImportanceMetric::Permutation.is_expensive());
+        assert!(ImportanceMetric::SobolFirst.is_expensive());
+        assert!(ImportanceMetric::SobolTotal.is_expensive());
+    }
+
+    #[test]
+    fn core_metric_none_only_for_sobol() {
+        assert!(core_sensitivity_metric(ImportanceMetric::Spearman).is_some());
+        assert!(core_sensitivity_metric(ImportanceMetric::Ridge).is_some());
+        assert!(core_sensitivity_metric(ImportanceMetric::RfAnova).is_some());
+        assert!(core_sensitivity_metric(ImportanceMetric::Mdi).is_some());
+        assert!(core_sensitivity_metric(ImportanceMetric::Shap).is_some());
+        assert!(core_sensitivity_metric(ImportanceMetric::Permutation).is_some());
+        assert!(core_sensitivity_metric(ImportanceMetric::SobolFirst).is_none());
+        assert!(core_sensitivity_metric(ImportanceMetric::SobolTotal).is_none());
+    }
 
     #[test]
     fn adopt_compute_state_clears_computing_and_preserves_selection() {

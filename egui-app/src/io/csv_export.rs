@@ -155,20 +155,10 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .as_ref()
             .zip(cluster_result_for_chart(chart_id, app_state, widgets))
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
-        ChartId::SensitivityHeatmap => {
-            widgets
-                .sensitivity_heatmap
-                .result
-                .as_ref()
-                .is_some_and(|s| {
-                    !s.param_names.is_empty()
-                        && !s.objective_names.is_empty()
-                        && s.spearman.len() == s.param_names.len()
-                        && s.spearman
-                            .iter()
-                            .all(|row| row.len() == s.objective_names.len())
-                })
-        }
+        ChartId::SensitivityHeatmap => app_state
+            .sensitivity_heatmap_cache
+            .get(&widgets.sensitivity_heatmap.metric.cache_id())
+            .is_some_and(|m| m.is_well_formed()),
         ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => app_state
             .current_study
             .as_ref()
@@ -402,25 +392,21 @@ fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Op
     }
     Some(csv)
 }
-fn build_sensitivity_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let sens = widgets.sensitivity_heatmap.result.as_ref()?;
-    if sens.param_names.is_empty() || sens.objective_names.is_empty() {
-        return None;
-    }
-    let n_obj = sens.objective_names.len();
-    if sens.spearman.len() != sens.param_names.len()
-        || sens.spearman.iter().any(|row| row.len() != n_obj)
-    {
+fn build_sensitivity_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let m = app_state
+        .sensitivity_heatmap_cache
+        .get(&widgets.sensitivity_heatmap.metric.cache_id())?;
+    if !m.is_well_formed() {
         return None;
     }
     let mut csv = String::from("variable");
-    for name in &sens.objective_names {
+    for name in &m.objective_names {
         csv.push_str(&format!(",{}", name));
     }
     csv.push('\n');
-    for (i, param_name) in sens.param_names.iter().enumerate() {
+    for (i, param_name) in m.param_names.iter().enumerate() {
         csv.push_str(param_name);
-        for &val in &sens.spearman[i] {
+        for &val in &m.values[i] {
             csv.push_str(&format!(",{}", val));
         }
         csv.push('\n');
@@ -769,19 +755,18 @@ mod tests {
 
     #[test]
     fn sensitivity_csv_has_objective_columns_in_header() {
-        use crate::state::app_state::SensitivityResult;
-        let mut widgets = WidgetStates::default();
-        widgets.sensitivity_heatmap.result = Some(SensitivityResult {
-            param_names: vec!["x".into(), "y".into()],
-            objective_names: vec!["f1".into(), "f2".into()],
-            spearman: vec![vec![0.9, 0.3], vec![0.5, 0.7]],
-            ridge: vec![],
-            rf_anova: None,
-            mdi: None,
-            shap: None,
-            permutation: None,
-        });
-        let state = AppState::default();
+        use crate::state::app_state::HeatmapMatrix;
+        let widgets = WidgetStates::default(); // default metric = Spearman (id 0)
+        let mut state = AppState::default();
+        state.sensitivity_heatmap_cache.insert(
+            widgets.sensitivity_heatmap.metric.cache_id(),
+            HeatmapMatrix {
+                param_names: vec!["x".into(), "y".into()],
+                objective_names: vec!["f1".into(), "f2".into()],
+                values: vec![vec![0.9, 0.3], vec![0.5, 0.7]],
+                signed: true,
+            },
+        );
         let csv = build_sensitivity_csv(&state, &widgets).unwrap();
         let header = csv.lines().next().unwrap();
         assert_eq!(header, "variable,f1,f2");
@@ -790,8 +775,8 @@ mod tests {
 
     #[test]
     fn sensitivity_csv_returns_none_when_no_result() {
-        let state = AppState::default();
-        let widgets = WidgetStates::default(); // sensitivity_heatmap.result = None
+        let state = AppState::default(); // sensitivity_heatmap_cache is empty
+        let widgets = WidgetStates::default();
         assert!(build_sensitivity_csv(&state, &widgets).is_none());
     }
 
