@@ -7,6 +7,7 @@ use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{
     COLOR_EMPTY_STATE, COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
+    COLOR_UNSELECTED_POINT,
 };
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
@@ -439,12 +440,12 @@ fn render_scatter_plot(
                         .radius(3.0),
                 );
             }
-            // 選択フィルタ外（淡色・最背面、凡例は "Others" に集約）
+            // 選択フィルタ外（灰色・最背面、凡例は "Others (unselected)" に集約）
             if !dim_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new(dim_pts)
-                        .name("Others")
-                        .color(COLOR_MCDM_NONE.linear_multiply(0.4))
+                        .name("Others (unselected)")
+                        .color(COLOR_UNSELECTED_POINT)
                         .radius(2.5),
                 );
             }

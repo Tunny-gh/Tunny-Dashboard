@@ -87,6 +87,10 @@ pub const COLOR_SCATTER_DOT: Color32 = Color32::from_rgb(66, 133, 244);
 pub const COLOR_SELECTION_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(10, 21, 38, 40);
 /// premultiplied: r=66*80/255≈21, g=133*80/255≈42, b=244*80/255≈77
 pub const COLOR_CELL_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(21, 42, 77, 80);
+/// 選択フィルタ外の散布図点を表す中間灰色（元の色相を残さず、選択点と明確に区別する）。
+/// 半透明にして選択点を引き立てつつ、灰色であることが分かる程度の不透明度を保つ。
+/// premultiplied: rgb(150,150,150) × 90/255 ≈ 53,53,53; alpha = 90
+pub const COLOR_UNSELECTED_POINT: Color32 = Color32::from_rgba_premultiplied(53, 53, 53, 90);
 
 // ====================================================================
 // リンク色

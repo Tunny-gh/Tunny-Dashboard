@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::StudyView;
-use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
+use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM, COLOR_UNSELECTED_POINT};
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
@@ -314,10 +314,10 @@ impl ClusterScatter {
 
         // クラスタリング対象はパレートフロントのみ。クラスタ別に座標を集約し、
         // 対象外（label < 0）の解は "Others"、infeasible は別途収集する。
-        // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外はクラスタ色を淡色にして背面に描く。
+        // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外は灰色でまとめて背面に描く。
         // クラスタ計算自体はフロント全体のままで、ここでの分岐は表示上の強調に限る。
         let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
-        let mut cluster_points_dim: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
+        let mut unselected_pts: Vec<[f64; 2]> = Vec::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut other_pts: Vec<[f64; 2]> = Vec::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
@@ -342,10 +342,7 @@ impl ClusterScatter {
                         .or_default()
                         .push([x as f64, y as f64]);
                 } else {
-                    cluster_points_dim
-                        .entry(label)
-                        .or_default()
-                        .push([x as f64, y as f64]);
+                    unselected_pts.push([x as f64, y as f64]);
                 }
             }
         }
@@ -383,14 +380,14 @@ impl ClusterScatter {
                             .name("Others"),
                     );
                 }
-                // 選択外のクラスタ点を淡色で先に描画（凡例には出さない）
-                for (label, pts) in cluster_points_dim {
-                    let color = cluster_color(label).linear_multiply(0.2);
+                // 選択外のクラスタ点は灰色で先に描画し、選択点と明確に区別する。
+                // クラスタ色は残さず（色相が紛らわしいため）"Others (unselected)" に集約する。
+                if !unselected_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(pts)
-                            .color(color)
+                        egui_plot::Points::new(unselected_pts)
+                            .color(COLOR_UNSELECTED_POINT)
                             .radius(2.0)
-                            .name(format!("Cluster {}", label)),
+                            .name("Others (unselected)"),
                     );
                 }
                 for (label, pts) in cluster_points {
