@@ -329,21 +329,22 @@ impl ClusterScatter {
                 infeasible_pts.push([x as f64, y as f64]);
                 continue;
             }
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            let selected = compute_point_alpha(trial_id, selected_indices) == 255;
+            // 選択フィルタ外は、クラスタ点・劣解（label < 0）を問わず灰色へまとめる。
+            if !selected {
+                unselected_pts.push([x as f64, y as f64]);
+                continue;
+            }
             let label = cr.labels.get(i).copied().unwrap_or(-1);
             if label < 0 {
                 // パレートフロント以外の解（クラスタリング対象外）
                 other_pts.push([x as f64, y as f64]);
             } else {
-                let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-                let selected = compute_point_alpha(trial_id, selected_indices) == 255;
-                if selected {
-                    cluster_points
-                        .entry(label)
-                        .or_default()
-                        .push([x as f64, y as f64]);
-                } else {
-                    unselected_pts.push([x as f64, y as f64]);
-                }
+                cluster_points
+                    .entry(label)
+                    .or_default()
+                    .push([x as f64, y as f64]);
             }
         }
 
