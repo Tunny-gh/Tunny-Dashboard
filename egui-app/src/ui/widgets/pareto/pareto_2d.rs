@@ -4,6 +4,9 @@ use crate::theme::chart_colors::{
     COLOR_PARETO_DIM,
 };
 use crate::theme::color_compute::compute_point_alpha;
+use crate::ui::widgets::trial_detail_modal::{
+    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+};
 
 type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
 
@@ -39,6 +42,8 @@ pub struct ParetoScatter2D {
     // TASK-2241: rectangular brush state (plot coordinates)
     pub brush_start: Option<[f64; 2]>,
     pub brush_end: Option<[f64; 2]>,
+    /// 点クリックで開くトライアル詳細モーダル。
+    pub detail_modal: TrialDetailModal,
 }
 
 impl Default for ParetoScatter2D {
@@ -49,6 +54,7 @@ impl Default for ParetoScatter2D {
             use_downsample: true,
             brush_start: None,
             brush_end: None,
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
@@ -63,6 +69,7 @@ impl ParetoScatter2D {
         };
 
         let obj_names = ctx.meta.objective_names.clone();
+        let param_names = ctx.meta.param_names.clone();
         let downsample_indices = if self.use_downsample {
             app_state.downsample_cache.scatter.clone()
         } else {
@@ -117,8 +124,8 @@ impl ParetoScatter2D {
         let mut non_pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
-        // ブラシ矩形選択用に (trial_id, 点) を保持（行クローンを持たない）
-        let mut displayed_points: Vec<(u32, [f64; 2])> = Vec::new();
+        // ブラシ矩形選択・点クリック判定用に (trial_id, 行 index, 点) を保持（行クローンを持たない）
+        let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
 
         let is_feasible_col = view.numeric_column("is_feasible");
 
@@ -131,7 +138,7 @@ impl ParetoScatter2D {
             let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let pt = [x, y];
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-            displayed_points.push((trial_id, pt));
+            displayed_points.push((trial_id, i, pt));
 
             let feasible = is_feasible_col
                 .and_then(|c| c.get(i))
@@ -169,6 +176,8 @@ impl ParetoScatter2D {
         let mut new_brush_end: Option<[f64; 2]> = None;
         let mut drag_finished = false;
         let mut blank_clicked = false;
+        // 点クリックで開く詳細モーダルの対象（trial_id, 行 index）。
+        let mut clicked_detail: Option<(u32, usize)> = None;
         let current_brush_start = self.brush_start;
         let current_brush_end = self.brush_end;
 
@@ -190,7 +199,11 @@ impl ParetoScatter2D {
                     drag_finished = true;
                 }
                 if resp.clicked_by(egui::PointerButton::Primary) {
-                    blank_clicked = true;
+                    // 点の近傍をクリックしたら詳細モーダル、空白なら選択クリア。
+                    clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
+                        hit_test_nearest(plot_ui, &displayed_points, pos, HIT_THRESHOLD)
+                    });
+                    blank_clicked = clicked_detail.is_none();
                 }
 
                 // Draw selection rectangle
@@ -260,6 +273,28 @@ impl ParetoScatter2D {
                 }
             });
 
+        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
+        // app_state を可変借用する前に view / is_feasible_col の不変借用を使い切る。
+        if let Some((trial_id, row)) = clicked_detail {
+            let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(row))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+            let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
+            if is_feasible_col.is_some() {
+                context.push((
+                    "Feasible".to_string(),
+                    if feasible { "Yes" } else { "No" }.to_string(),
+                ));
+            }
+            self.detail_modal.open(TrialDetailTarget {
+                trial_id,
+                row_index: row,
+                context,
+            });
+        }
+
         // Update brush state and selection after closure
         if let Some(start) = new_brush_start {
             self.brush_start = Some(start);
@@ -272,8 +307,8 @@ impl ParetoScatter2D {
             if let (Some(start), Some(end)) = (self.brush_start, self.brush_end) {
                 let new_selection: Vec<u32> = displayed_points
                     .iter()
-                    .filter(|(_, pt)| point_in_rect(*pt, start, end))
-                    .map(|(id, _)| *id)
+                    .filter(|(_, _, pt)| point_in_rect(*pt, start, end))
+                    .map(|(id, _, _)| *id)
                     .collect();
                 app_state.selected_indices = new_selection;
             }
@@ -283,6 +318,19 @@ impl ParetoScatter2D {
         if blank_clicked && self.brush_start.is_none() {
             // Empty click outside drag = clear selection
             app_state.selected_indices.clear();
+        }
+
+        // 詳細モーダルを描画する（current_study / artifact_map を再借用）。
+        if self.detail_modal.is_open() {
+            if let Some(ctx) = app_state.current_study.as_ref() {
+                self.detail_modal.show(
+                    ui,
+                    &ctx.view,
+                    &param_names,
+                    &obj_names,
+                    &app_state.artifact_map,
+                );
+            }
         }
     }
 }

@@ -1,9 +1,14 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::trial_detail_modal::{
+    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+};
 
 /// クラスタ統計
 pub struct ClusterStats {
@@ -165,6 +170,8 @@ pub struct ClusterScatter {
     pub pending_compute: Option<ClusterComputeRequest>,
     pub last_error: Option<crate::state::messages::ClusterUiError>,
     pub result: Option<ClusteringResult>,
+    /// 点クリックで開くトライアル詳細モーダル。
+    pub detail_modal: TrialDetailModal,
     cached_points: Option<Vec<[f32; 2]>>,
     cache_key: (usize, usize), // (trial_count, n_clusters)
 }
@@ -180,6 +187,7 @@ impl Default for ClusterScatter {
             pending_compute: None,
             last_error: None,
             result: None,
+            detail_modal: TrialDetailModal::new(),
             cached_points: None,
             cache_key: (0, 0),
         }
@@ -197,14 +205,16 @@ impl ClusterScatter {
     }
 
     /// クラスタ散布図を描画する
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         view: &StudyView,
         cluster_result: Option<&crate::state::app_state::ClusterResult>,
-        _param_names: &[String],
+        param_names: &[String],
         obj_names: &[String],
         colormap: &ColorMap,
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         let n_trials = view.row_count();
         // クラスタリング対象はパレートフロント（pareto_rank == 0）。
@@ -267,6 +277,16 @@ impl ClusterScatter {
 
         let is_feasible_col = view.numeric_column("is_feasible");
 
+        // 点クリック判定用の候補（trial_id, 行 index, 座標）。
+        let hit_candidates: Vec<(u32, usize, [f64; 2])> = plot_points
+            .iter()
+            .enumerate()
+            .map(|(i, &[x, y])| {
+                let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+                (trial_id, i, [x as f64, y as f64])
+            })
+            .collect();
+
         // k 個のクラスタを [0, 1] 上に等間隔配置してカラーマップからサンプリング
         // k=2 → t=0.0, 1.0（両端）、k=3 → t=0.0, 0.5, 1.0 など
         let n_clusters = cr.n_clusters.max(1);
@@ -307,11 +327,19 @@ impl ClusterScatter {
 
         let x_label = obj_names.first().map(|s| s.as_str()).unwrap_or("Obj 1");
         let y_label = obj_names.get(1).map(|s| s.as_str()).unwrap_or("Obj 2");
+        let mut clicked_detail: Option<(u32, usize)> = None;
         egui_plot::Plot::new("cluster_scatter")
             .x_axis_label(x_label)
             .y_axis_label(y_label)
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
+                // 点クリックで詳細モーダルを開く対象を検出する。
+                let resp = plot_ui.response();
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
+                        hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD)
+                    });
+                }
                 // infeasible を最背面に描画
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
@@ -339,6 +367,27 @@ impl ClusterScatter {
                     plot_ui.points(points);
                 }
             });
+
+        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = クラスタ番号）。
+        if let Some((trial_id, row)) = clicked_detail {
+            let label = cr.labels.get(row).copied().unwrap_or(-1);
+            let cluster_str = if label < 0 {
+                "Unclustered".to_string()
+            } else {
+                label.to_string()
+            };
+            let mut context = vec![("Cluster".to_string(), cluster_str)];
+            let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            context.push(("Pareto Rank".to_string(), rank.to_string()));
+            self.detail_modal.open(TrialDetailTarget {
+                trial_id,
+                row_index: row,
+                context,
+            });
+        }
+
+        self.detail_modal
+            .show(ui, view, param_names, obj_names, artifact_map);
     }
 
     fn show_header(&mut self, ui: &mut egui::Ui, trial_count: usize) {
