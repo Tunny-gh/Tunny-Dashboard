@@ -7,13 +7,18 @@
 
 use crate::math::rng::SeededRng;
 
+/// 単目的最適化での SBX 分布指数 η_c（局所探索寄り）。
+const SBX_ETA_SINGLE_OBJECTIVE: f64 = 20.0;
+/// 多目的最適化での SBX 分布指数 η_c（フロント全域へ広く探索）。
+const SBX_ETA_MULTI_OBJECTIVE: f64 = 2.0;
+
 pub(crate) struct Nsga2Config {
     /// 個体数（偶数に切り上げて使う）。
     pub pop_size: usize,
     pub generations: usize,
-    /// SBX 交叉確率。
+    /// SBX を行うか（ペア単位の交叉確率）。行わない場合、子は親のコピーになる。
     pub crossover_prob: f64,
-    /// SBX 分布指数 η_c。
+    /// SBX 分布指数 η_c（単目的 20 / 多目的 2 を推奨。`for_objectives` 参照）。
     pub crossover_eta: f64,
     /// Polynomial Mutation 分布指数 η_m（遺伝子ごとの変異確率は 1/d）。
     pub mutation_eta: f64,
@@ -26,9 +31,25 @@ impl Default for Nsga2Config {
             pop_size: 64,
             generations: 120,
             crossover_prob: 0.9,
-            crossover_eta: 15.0,
+            crossover_eta: SBX_ETA_SINGLE_OBJECTIVE,
             mutation_eta: 20.0,
             seed: 42,
+        }
+    }
+}
+
+impl Nsga2Config {
+    /// 目的数に応じた推奨設定。
+    /// η_c は単目的では 20（最良解近傍の局所改善を優先）、多目的では 2
+    /// （親から離れた子を作りやすくしフロント全域をカバー）とする。
+    pub fn for_objectives(n_obj: usize) -> Self {
+        Self {
+            crossover_eta: if n_obj <= 1 {
+                SBX_ETA_SINGLE_OBJECTIVE
+            } else {
+                SBX_ETA_MULTI_OBJECTIVE
+            },
+            ..Default::default()
         }
     }
 }
@@ -354,13 +375,20 @@ mod tests {
     }
 
     #[test]
+    fn config_selects_eta_by_objective_count() {
+        assert_eq!(Nsga2Config::for_objectives(1).crossover_eta, 20.0);
+        assert_eq!(Nsga2Config::for_objectives(2).crossover_eta, 2.0);
+        assert_eq!(Nsga2Config::for_objectives(3).crossover_eta, 2.0);
+    }
+
+    #[test]
     fn nsga2_two_objective_front_spans_tradeoff() {
         // Schaffer N.1 相当: f1 = x², f2 = (x−1)²（x ∈ [0,1]）。
-        // 第一フロントはトレードオフ全域に広がるはず。
+        // 第一フロントはトレードオフ全域に広がるはず（多目的設定 η_c = 2）。
         let cfg = Nsga2Config {
             pop_size: 32,
             generations: 60,
-            ..Default::default()
+            ..Nsga2Config::for_objectives(2)
         };
         let front = nsga2_minimize(|x| vec![x[0].powi(2), (x[0] - 1.0).powi(2)], 1, &[], &cfg);
         assert!(front.len() > 5, "front too small: {}", front.len());

@@ -157,7 +157,8 @@ fn random_search(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> 
 /// NSGA-II をサロゲート単一目的の最小化として実行する。
 /// 適応度は長さ 1 のベクトル（将来の多目的サロゲート対応に備えた汎用実装を使う）。
 fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
-    let cfg = nsga2::Nsga2Config::default();
+    // 現状は単一目的サロゲートのため η_c = 20 の設定を使う。
+    let cfg = nsga2::Nsga2Config::for_objectives(1);
     let front = nsga2::nsga2_minimize(
         |t| vec![penalized_cost(surrogate, sign, t)],
         start_norm.len(),
