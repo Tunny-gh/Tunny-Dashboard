@@ -1,7 +1,8 @@
 //! NSGA-II（Deb et al., 2002）。
 //!
 //! 遺伝子は正規化空間 [0,1]^d の実数ベクトル。遺伝オペレータは
-//! SBX 交叉・Polynomial Mutation・二項トーナメント選択（crowded comparison）。
+//! SBX 交叉（原論文どおり交叉ペアの全変数へ適用）・Polynomial Mutation・
+//! 二項トーナメント選択（crowded comparison）。
 //! 適応度は `Vec<f64>`（全目的を最小化）で扱う汎用実装のため、現在の
 //! 単一目的サロゲートでは長さ 1 で呼び、将来の多目的化にもそのまま使える。
 
@@ -244,7 +245,9 @@ fn tournament(rng: &mut SeededRng, n: usize, ranks: &[usize], crowd: &[f64]) -> 
     }
 }
 
-/// SBX（Simulated Binary Crossover）。子は [0,1] にクランプする。
+/// SBX（Simulated Binary Crossover、Deb & Agrawal 1995）。
+/// 交叉確率 `prob` を満たしたペアでは全変数に β 混合を適用する
+/// （β は変数ごとに独立にサンプリング）。子は [0,1] にクランプする。
 fn sbx_crossover(
     rng: &mut SeededRng,
     p1: &[f64],
@@ -258,9 +261,6 @@ fn sbx_crossover(
         return (c1, c2);
     }
     for d in 0..p1.len() {
-        if rng.next_f64() > 0.5 {
-            continue;
-        }
         let (x1, x2) = (p1[d], p2[d]);
         if (x1 - x2).abs() <= 1e-12 {
             continue;
