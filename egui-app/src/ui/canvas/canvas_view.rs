@@ -187,6 +187,7 @@ pub fn show_canvas_view(
                     item.id,
                     &item.content,
                     item.content.label(),
+                    item.content.subtitle(),
                     csv_available,
                 );
 
@@ -366,6 +367,7 @@ fn show_canvas_item_toolbar(
     id: u64,
     item: &PanelItem,
     title: &str,
+    subtitle: Option<&'static str>,
     csv_available: bool,
 ) -> (egui::Vec2, CellToolbarAction) {
     let mut move_delta = egui::Vec2::ZERO;
@@ -411,6 +413,11 @@ fn show_canvas_item_toolbar(
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
     bar_ui.strong(title);
+    // チャート固有の補足説明（凡例）をタイトルの隣に薄字で表示する
+    if let Some(subtitle) = subtitle {
+        bar_ui.add_space(8.0);
+        bar_ui.label(egui::RichText::new(subtitle).weak().size(11.0));
+    }
 
     // 右寄せでボタン群（× / …）を水色で配置。
     bar_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

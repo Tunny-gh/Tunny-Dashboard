@@ -416,6 +416,7 @@ fn show_cell_toolbar(
     col: usize,
     item: PanelItem,
     title: &'static str,
+    subtitle: Option<&'static str>,
     csv_available: bool,
 ) -> CellToolbarAction {
     let drag_id = egui::Id::new("cell_drag_handle").with(row).with(col);
@@ -460,6 +461,11 @@ fn show_cell_toolbar(
 
                     ui.add_space(8.0);
                     ui.strong(title);
+                    // チャート固有の補足説明（凡例）をタイトルの隣に薄字で表示する
+                    if let Some(subtitle) = subtitle {
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new(subtitle).weak().size(11.0));
+                    }
 
                     let spacer = (ui.available_width() - CLOSE_BUTTON_SIZE * 2.0 - 4.0).max(0.0);
                     ui.add_space(spacer);
@@ -567,6 +573,7 @@ fn render_cell_content(
         Some(item) => {
             let item = item.clone();
             let title = item.label();
+            let subtitle = item.subtitle();
             let csv_available = match &item {
                 PanelItem::Chart(chart_id) => {
                     crate::io::csv_export::has_csv_data(chart_id, app_state, widgets)
@@ -576,7 +583,7 @@ fn render_cell_content(
                 }
             };
             let toolbar_action =
-                show_cell_toolbar(ui, row, col, item.clone(), title, csv_available);
+                show_cell_toolbar(ui, row, col, item.clone(), title, subtitle, csv_available);
             if let CellToolbarAction::Maximize(target) = &toolbar_action {
                 widgets.maximized_item = Some(target.clone());
             }
@@ -665,9 +672,14 @@ pub(crate) fn show_maximized_modal(
         });
 
     // 中央の最大化ウィンドウ（タイトルバーの × で閉じる）。
+    // チャート固有の補足説明（凡例）があればタイトルに連結して表示する。
+    let win_title = match item.subtitle() {
+        Some(subtitle) => format!("{}    —    {}", item.label(), subtitle),
+        None => item.label().to_string(),
+    };
     let win_rect = screen.shrink(40.0);
     let mut open = true;
-    egui::Window::new(item.label())
+    egui::Window::new(win_title)
         .id(egui::Id::new("maximized_modal_window"))
         .order(egui::Order::Foreground)
         .collapsible(false)

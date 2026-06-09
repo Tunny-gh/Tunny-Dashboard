@@ -3,6 +3,10 @@ use crate::theme::chart_colors::{
 };
 use crate::theme::color_compute::correlation_color;
 
+/// 散布図セルあたりに描画する最大点数。これを超える試行は均等間引きで描画する。
+/// セル数（下三角）×点数で描画コストが効くため、点数を抑えて応答性を保つ。
+pub const MAX_SCATTER_POINTS: usize = 1500;
+
 /// Scatter Matrix の1セルタイプ
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellType {
@@ -96,6 +100,11 @@ impl ScatterMatrix {
         let (feasible_indices, infeasible_indices) =
             split_feasibility_indices(trial_count, is_feasible_col);
         let show_infeasible = self.show_infeasible;
+
+        // 描画パフォーマンス対策: セルあたりの表示点数に上限を設ける。
+        // 全散布図セルで同じ間引きインデックスを使い回す（毎セル再計算しない）。
+        let feasible_draw = downsample_indices_to_cap(&feasible_indices, MAX_SCATTER_POINTS);
+        let infeasible_draw = downsample_indices_to_cap(&infeasible_indices, MAX_SCATTER_POINTS);
 
         // 行・列ラベルを事前レイアウトしてサイズを測る
         let outer = ui.available_rect_before_wrap();
@@ -225,43 +234,32 @@ impl ScatterMatrix {
                     // 上三角: 相関係数
                     draw_correlation_cell(&painter, cell_rect, cols[row], cols[col]);
                 } else {
-                    // 下三角: 散布図
-                    if has_constraints {
-                        // infeasible を背面に描画（show_infeasible=true のみ）
-                        if show_infeasible && !infeasible_indices.is_empty() {
-                            draw_scatter_cell(
-                                &painter,
-                                cell_rect,
-                                cols[col],
-                                cols[row],
-                                &infeasible_colors,
-                                Some(&infeasible_indices),
-                            );
-                        }
-                        // feasible を前面に描画
+                    // 下三角: 散布図（間引き済みインデックスで描画）
+                    if has_constraints && show_infeasible && !infeasible_draw.is_empty() {
+                        // infeasible を背面に描画
                         draw_scatter_cell(
                             &painter,
                             cell_rect,
                             cols[col],
                             cols[row],
-                            &point_colors,
-                            Some(&feasible_indices),
-                        );
-                    } else {
-                        draw_scatter_cell(
-                            &painter,
-                            cell_rect,
-                            cols[col],
-                            cols[row],
-                            &point_colors,
-                            None,
+                            &infeasible_colors,
+                            Some(&infeasible_draw),
                         );
                     }
+                    // feasible（制約なし時は全点）を前面に描画
+                    draw_scatter_cell(
+                        &painter,
+                        cell_rect,
+                        cols[col],
+                        cols[row],
+                        &point_colors,
+                        Some(&feasible_draw),
+                    );
                 }
 
                 // 各セルに枠線を描画してセル境界を明示する
                 // （高密度の散布図でも図の範囲が分かるように）
-                painter.rect_stroke(cell_rect, 0.0, egui::Stroke::new(0.5, COLOR_GRID_STROKE));
+                painter.rect_stroke(cell_rect, 0.0, egui::Stroke::new(1.0, COLOR_GRID_STROKE));
             }
         }
 
@@ -293,6 +291,21 @@ pub fn split_feasibility_indices(
             (feasible, infeasible)
         }
     }
+}
+
+/// インデックス列を最大 `cap` 件まで均等間引きする。
+/// `cap` 以下ならそのまま複製、超える場合は等間隔ストライドで間引いて
+/// 全体の分布形状を保ったまま点数を減らす。
+pub fn downsample_indices_to_cap(indices: &[u32], cap: usize) -> Vec<u32> {
+    if cap == 0 {
+        return Vec::new();
+    }
+    if indices.len() <= cap {
+        return indices.to_vec();
+    }
+    // ストライドは切り上げ気味に取り、結果が cap を超えないようにする
+    let step = indices.len().div_ceil(cap);
+    indices.iter().step_by(step).copied().collect()
 }
 
 /// モードに基づいてセルの行数・列数を計算する
@@ -435,7 +448,7 @@ pub fn draw_scatter_cell(
             cell_rect,
         );
         let color = colors.get(i).copied().unwrap_or(COLOR_SCATTER_DOT);
-        painter.circle_filled(pos, 1.3, color);
+        painter.circle_filled(pos, 1.6, color);
     }
 }
 
@@ -560,6 +573,30 @@ mod tests {
         assert_eq!(sm.mode, MatrixMode::ParamsVsParams);
         assert_eq!(sm.sort, AxisSort::Alphabetical);
         assert!(sm.selected_cell.is_none());
+    }
+
+    #[test]
+    fn downsample_cap_keeps_all_when_under_cap() {
+        let idx: Vec<u32> = (0..100).collect();
+        let out = downsample_indices_to_cap(&idx, 4000);
+        assert_eq!(out, idx);
+    }
+
+    #[test]
+    fn downsample_cap_limits_when_over_cap() {
+        let idx: Vec<u32> = (0..100_000).collect();
+        let out = downsample_indices_to_cap(&idx, 4000);
+        assert!(out.len() <= 4000, "got {}", out.len());
+        assert!(!out.is_empty());
+        // 先頭は保持され、間引きは昇順を維持する
+        assert_eq!(out[0], 0);
+        assert!(out.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn downsample_cap_zero_is_empty() {
+        let idx: Vec<u32> = (0..10).collect();
+        assert!(downsample_indices_to_cap(&idx, 0).is_empty());
     }
 
     #[test]
