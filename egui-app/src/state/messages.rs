@@ -1,5 +1,6 @@
 use crate::state::app_state::{
-    ClusterResult, McdmResult, SensitivityResult, SobolResult, StudyContext, StudyMeta,
+    ClusterResult, HeatmapMatrix, McdmResult, SensitivityResult, SobolResult, StudyContext,
+    StudyMeta,
 };
 use crate::state::results::{EntropyResult, HvHistory};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
@@ -157,6 +158,11 @@ pub enum AppMessage {
     SensitivityDone {
         key: (u8, usize),
         result: SensitivityResult,
+    },
+    /// Sensitivity Heatmap 用：選択手法の全パラメータ × 全目的の感度行列。
+    SensitivityHeatmapDone {
+        metric: crate::ui::widgets::sensitivity_heatmap::HeatmapMetric,
+        result: HeatmapMatrix,
     },
     SobolDone {
         obj_idx: usize,

@@ -31,6 +31,30 @@ pub type MdiResult = TreeImportanceResult;
 pub type ShapResult = TreeImportanceResult;
 pub type PermutationResult = TreeImportanceResult;
 
+/// Sensitivity Heatmap 用の感度行列（1 手法分）。`values[param][objective]`。
+/// 手法ごとに `AppState::sensitivity_heatmap_cache` へ保持する。
+#[derive(Debug, Clone)]
+pub struct HeatmapMatrix {
+    pub param_names: Vec<String>,
+    pub objective_names: Vec<String>,
+    pub values: Vec<Vec<f64>>,
+    /// 符号付き（発散表示）か非負（逐次表示・列正規化）か。
+    pub signed: bool,
+}
+
+impl HeatmapMatrix {
+    /// 行列の次元が param_names / objective_names と整合しているか。
+    pub fn is_well_formed(&self) -> bool {
+        !self.param_names.is_empty()
+            && !self.objective_names.is_empty()
+            && self.values.len() == self.param_names.len()
+            && self
+                .values
+                .iter()
+                .all(|row| row.len() == self.objective_names.len())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SobolResult {
     pub param_names: Vec<String>,

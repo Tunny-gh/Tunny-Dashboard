@@ -22,6 +22,9 @@ pub struct AppState {
     pub color_mode: ColorMode,
     pub importance_cache: HashMap<(u8, usize), SensitivityResult>,
     pub sobol_cache: HashMap<usize, SobolResult>,
+    /// Sensitivity Heatmap の結果キャッシュ。手法 id（`HeatmapMetric::id`）ごとに
+    /// 全パラメータ × 全目的の行列を保持し、キャンバスの各アイテムが共有する。
+    pub sensitivity_heatmap_cache: HashMap<u8, HeatmapMatrix>,
     /// クラスタリング結果のキャッシュ。設定キー（対象空間 / k / モード / Init）ごとに
     /// 計算結果を保持し、2D / 3D / Table が各自の設定で参照・共有する。
     pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
@@ -85,6 +88,7 @@ impl AppState {
             color_mode: ColorMode::ParetoRank,
             importance_cache: HashMap::new(),
             sobol_cache: HashMap::new(),
+            sensitivity_heatmap_cache: HashMap::new(),
             cluster_cache: HashMap::new(),
             downsample_cache: DownsampleCache::default(),
             live_update: LiveUpdateState::default(),
@@ -145,6 +149,7 @@ impl AppState {
         self.highlighted_trial = None;
         self.importance_cache.clear();
         self.sobol_cache.clear();
+        self.sensitivity_heatmap_cache.clear();
         self.cluster_cache.clear();
         self.mcdm_result = None;
         self.mcdm_cache.clear();

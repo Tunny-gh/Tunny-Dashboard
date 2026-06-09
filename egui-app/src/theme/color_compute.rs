@@ -255,6 +255,13 @@ pub fn correlation_color(corr: f64) -> egui::Color32 {
     signed_to_diverging_color(corr, egui::Color32::RED, egui::Color32::BLUE)
 }
 
+/// 逐次型カラーマップ: 非負の正規化値 t∈[0,1] を白(0) → 赤(1) のグラデーションに変換する。
+/// 重要度のように符号を持たない量（木ベース・Sobol など）の表示に用いる。
+pub fn sequential_colormap(t: f64) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0) as f32;
+    lerp_color(egui::Color32::WHITE, egui::Color32::RED, t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

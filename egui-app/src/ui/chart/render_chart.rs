@@ -180,7 +180,9 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::SensitivityHeatmap => {
-            widgets.sensitivity_heatmap.show(ui);
+            let metric_id = widgets.sensitivity_heatmap.metric.id();
+            let matrix = app_state.sensitivity_heatmap_cache.get(&metric_id);
+            widgets.sensitivity_heatmap.show(ui, matrix);
         }
         ChartId::ClusterScatter => {
             let key = widgets.cluster_scatter.cache_key();

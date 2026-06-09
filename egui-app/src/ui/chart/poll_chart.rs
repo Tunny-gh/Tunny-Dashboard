@@ -37,6 +37,89 @@ fn build_xy_for_objective(
     (x_matrix, y)
 }
 
+/// 選択手法について、全パラメータ × 全目的の感度行列 `values[param][obj]` を計算する。
+/// Spearman/Ridge/RF-Anova は目的ごとに単一目的メトリクスを評価して列を埋め、
+/// Sobol Total は一度の全目的計算から全効果指数を取り出す。
+fn compute_sensitivity_heatmap(
+    metric: crate::ui::widgets::sensitivity_heatmap::HeatmapMetric,
+    df: &tunny_core::dataframe::DataFrame,
+) -> AppMessage {
+    use crate::state::results::HeatmapMatrix;
+    use crate::ui::widgets::sensitivity_heatmap::HeatmapMetric;
+    use tunny_core::sensitivity::{
+        compute_sobol_from_df, RfAnovaMetric, RidgeMetric, SensitivityMetric, SpearmanMetric,
+    };
+
+    let param_names = df.param_col_names().to_vec();
+    let objective_names = df.objective_col_names().to_vec();
+    let n_params = param_names.len();
+    let n_objs = objective_names.len();
+    let signed = metric.is_signed();
+
+    let mut values = vec![vec![0.0f64; n_objs]; n_params];
+
+    if metric == HeatmapMetric::SobolTotal {
+        // total_effect[param][obj]
+        if let Some(sobol) = compute_sobol_from_df(df, 1024) {
+            for (param_idx, row) in sobol.total_effect.iter().enumerate() {
+                if let Some(dst) = values.get_mut(param_idx) {
+                    for (obj_idx, &v) in row.iter().take(n_objs).enumerate() {
+                        dst[obj_idx] = v;
+                    }
+                }
+            }
+        }
+    } else {
+        for obj_idx in 0..n_objs {
+            let result = match metric {
+                HeatmapMetric::Spearman => SpearmanMetric.compute(df, obj_idx),
+                HeatmapMetric::Ridge => RidgeMetric.compute(df, obj_idx),
+                HeatmapMetric::RfAnova => RfAnovaMetric.compute(df, obj_idx),
+                HeatmapMetric::SobolTotal => unreachable!(),
+            };
+            let Some(r) = result else { continue };
+            for param_idx in 0..n_params {
+                let v = match metric {
+                    // 単一目的計算なので各フィールドの列インデックスは 0。
+                    HeatmapMetric::Spearman => r
+                        .spearman
+                        .get(param_idx)
+                        .and_then(|row| row.first())
+                        .copied()
+                        .unwrap_or(0.0),
+                    HeatmapMetric::Ridge => r
+                        .ridge
+                        .first()
+                        .and_then(|rg| rg.beta.get(param_idx))
+                        .copied()
+                        .unwrap_or(0.0),
+                    HeatmapMetric::RfAnova => r
+                        .rf_anova
+                        .as_ref()
+                        .and_then(|rf| rf.0.importances.get(param_idx))
+                        .and_then(|row| row.first())
+                        .copied()
+                        .unwrap_or(0.0),
+                    HeatmapMetric::SobolTotal => unreachable!(),
+                };
+                if let Some(dst) = values.get_mut(param_idx) {
+                    dst[obj_idx] = v;
+                }
+            }
+        }
+    }
+
+    AppMessage::SensitivityHeatmapDone {
+        metric,
+        result: HeatmapMatrix {
+            param_names,
+            objective_names,
+            values,
+            signed,
+        },
+    }
+}
+
 pub(crate) fn poll_chart_work(
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
@@ -53,7 +136,6 @@ pub(crate) fn poll_chart_work(
         | ChartId::OptimizationHistory
         | ChartId::ParallelCoordinates
         | ChartId::ScatterMatrix
-        | ChartId::SensitivityHeatmap
         | ChartId::SliceChart => return,
         _ => {}
     }
@@ -237,6 +319,26 @@ pub(crate) fn poll_chart_work(
                             });
                         }
                     }
+                }
+            }
+        }
+        ChartId::SensitivityHeatmap => {
+            // 選択手法の全パラメータ × 全目的の感度行列を非同期計算する。
+            // 計算要求は widgets.sensitivity_heatmap.pending_compute に積まれ
+            // （Run ボタン、または低コスト手法の自動トリガー）、結果は手法ごとに
+            // app_state.sensitivity_heatmap_cache へ集約される。
+            if let Some(metric) = widgets.sensitivity_heatmap.pending_compute.take() {
+                if app_state
+                    .sensitivity_heatmap_cache
+                    .contains_key(&metric.id())
+                {
+                    widgets.sensitivity_heatmap.computing = false;
+                } else {
+                    let ctx = app_state.current_study.as_ref().unwrap();
+                    let df = std::sync::Arc::clone(&ctx.view.df);
+                    widgets.sensitivity_heatmap.computing = true;
+                    let tx = tx.clone();
+                    crate::app::spawn_task(tx, move || compute_sensitivity_heatmap(metric, &df));
                 }
             }
         }
