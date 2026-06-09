@@ -405,6 +405,103 @@ fn stream_build_meta(
     }
 }
 
+/// 完了 Trial（state==1）の builder をバッチへ取り込み、列名集合・カウンタを更新する。
+/// バッチが満杯になったら `on_batch` で送出する。
+///
+/// in-memory ストレージは op_code=4 にすべての Trial データ（state / values / params）を
+/// インラインで持ち、後続の op_code=6 が来ない。一方ファイルストレージは op_code=6 で完了する。
+/// 両者の完了処理を共通化するためのヘルパー。
+#[allow(clippy::too_many_arguments)]
+fn stream_emit_completed_trial<F>(
+    tid: u32,
+    builder: builders::TrialBuilder,
+    state: &ParserState,
+    target_study_id: u32,
+    batch: &mut Vec<crate::dataframe::TrialRow>,
+    batch_size: usize,
+    param_set: &mut std::collections::BTreeSet<String>,
+    uan_set: &mut std::collections::BTreeSet<String>,
+    uas_set: &mut std::collections::BTreeSet<String>,
+    derived_objective_names: &mut Vec<String>,
+    has_constraints: &mut bool,
+    max_constraints: &mut usize,
+    completed: &mut u32,
+    first_sent: &mut bool,
+    on_batch: &mut F,
+) where
+    F: FnMut(StudyStreamBatch),
+{
+    use crate::dataframe::TrialRow;
+
+    let b = builder;
+    for name in b.param_display.keys() {
+        param_set.insert(name.clone());
+    }
+    for name in b.param_category_label.keys() {
+        param_set.insert(name.clone());
+    }
+    for name in b.user_attrs_numeric.keys() {
+        uan_set.insert(name.clone());
+    }
+    for name in b.user_attrs_string.keys() {
+        uas_set.insert(name.clone());
+    }
+    if b.has_constraints {
+        *has_constraints = true;
+    }
+    *max_constraints = (*max_constraints).max(b.constraint_values.len());
+    if derived_objective_names.is_empty() {
+        if let Some(values) = &b.values {
+            *derived_objective_names = (0..values.len()).map(|i| format!("obj{i}")).collect();
+        }
+    }
+    *completed += 1;
+    batch.push(TrialRow {
+        trial_id: tid,
+        param_display: b.param_display,
+        param_category_label: b.param_category_label,
+        objective_values: b.values.unwrap_or_default(),
+        user_attrs_numeric: b.user_attrs_numeric,
+        user_attrs_string: b.user_attrs_string,
+        constraint_values: b.constraint_values,
+    });
+
+    if batch.len() >= batch_size {
+        let meta = stream_build_meta(
+            state,
+            target_study_id,
+            param_set,
+            uan_set,
+            uas_set,
+            derived_objective_names,
+            *has_constraints,
+            *completed,
+        );
+        let objective_names = if !state.studies[target_study_id as usize]
+            .objective_names
+            .is_empty()
+        {
+            state.studies[target_study_id as usize]
+                .objective_names
+                .clone()
+        } else {
+            derived_objective_names.clone()
+        };
+        on_batch(StudyStreamBatch {
+            meta,
+            new_rows: std::mem::take(batch),
+            param_names: param_set.iter().cloned().collect(),
+            objective_names,
+            user_attr_numeric_names: uan_set.iter().cloned().collect(),
+            user_attr_string_names: uas_set.iter().cloned().collect(),
+            max_constraints: *max_constraints,
+            is_first: !*first_sent,
+            is_final: false,
+        });
+        *first_sent = true;
+    }
+}
+
 /// 対象 study の完了 Trial を前方 1 パスで解析し、`batch_size` 件ごとに `on_batch` へ送出する。
 ///
 /// `parse_single_study` と異なり、全件パース完了を待たずに完了 Trial を逐次出力するため、
@@ -471,10 +568,12 @@ where
             }
             4 => {
                 any_valid = true;
+                let mut parsed_target = false;
                 match quick_extract_u32(line, "study_id") {
                     Some(sid) if sid == target_study_id => {
                         if let Ok(json) = serde_json::from_str::<Value>(line) {
                             state.process_op(4, &json);
+                            parsed_target = true;
                         }
                     }
                     Some(sid) => {
@@ -487,7 +586,37 @@ where
                     None => {
                         if let Ok(json) = serde_json::from_str::<Value>(line) {
                             state.process_op(4, &json);
+                            parsed_target = true;
                         }
+                    }
+                }
+                // in-memory ストレージは op_code=4 に state/values/params をインラインで持ち、
+                // 後続の op_code=6 が来ない。ここで完了 Trial（state==1）を確定・送出する。
+                // ファイルストレージの op_code=4 は state==0 のため builder を残して 5/6 を待つ。
+                if parsed_target {
+                    let tid = state.next_trial_id.wrapping_sub(1);
+                    let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
+                    if trial_state == 1 {
+                        let b = state.trial_builders.remove(&tid).unwrap();
+                        stream_emit_completed_trial(
+                            tid,
+                            b,
+                            &state,
+                            target_study_id,
+                            &mut batch,
+                            batch_size,
+                            &mut param_set,
+                            &mut uan_set,
+                            &mut uas_set,
+                            &mut derived_objective_names,
+                            &mut has_constraints,
+                            &mut max_constraints,
+                            &mut completed,
+                            &mut first_sent,
+                            &mut on_batch,
+                        );
+                    } else if trial_state == 2 || trial_state == 3 {
+                        state.trial_builders.remove(&tid);
                     }
                 }
             }
@@ -511,72 +640,23 @@ where
                 let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
                 if trial_state == 1 {
                     let b = state.trial_builders.remove(&tid).unwrap();
-                    for name in b.param_display.keys() {
-                        param_set.insert(name.clone());
-                    }
-                    for name in b.param_category_label.keys() {
-                        param_set.insert(name.clone());
-                    }
-                    for name in b.user_attrs_numeric.keys() {
-                        uan_set.insert(name.clone());
-                    }
-                    for name in b.user_attrs_string.keys() {
-                        uas_set.insert(name.clone());
-                    }
-                    if b.has_constraints {
-                        has_constraints = true;
-                    }
-                    max_constraints = max_constraints.max(b.constraint_values.len());
-                    if derived_objective_names.is_empty() {
-                        if let Some(values) = &b.values {
-                            derived_objective_names =
-                                (0..values.len()).map(|i| format!("obj{i}")).collect();
-                        }
-                    }
-                    completed += 1;
-                    batch.push(TrialRow {
-                        trial_id: tid,
-                        param_display: b.param_display,
-                        param_category_label: b.param_category_label,
-                        objective_values: b.values.unwrap_or_default(),
-                        user_attrs_numeric: b.user_attrs_numeric,
-                        user_attrs_string: b.user_attrs_string,
-                        constraint_values: b.constraint_values,
-                    });
-
-                    if batch.len() >= batch_size {
-                        let meta = stream_build_meta(
-                            &state,
-                            target_study_id,
-                            &param_set,
-                            &uan_set,
-                            &uas_set,
-                            &derived_objective_names,
-                            has_constraints,
-                            completed,
-                        );
-                        on_batch(StudyStreamBatch {
-                            meta,
-                            new_rows: std::mem::take(&mut batch),
-                            param_names: param_set.iter().cloned().collect(),
-                            objective_names: if !state.studies[target_study_id as usize]
-                                .objective_names
-                                .is_empty()
-                            {
-                                state.studies[target_study_id as usize]
-                                    .objective_names
-                                    .clone()
-                            } else {
-                                derived_objective_names.clone()
-                            },
-                            user_attr_numeric_names: uan_set.iter().cloned().collect(),
-                            user_attr_string_names: uas_set.iter().cloned().collect(),
-                            max_constraints,
-                            is_first: !first_sent,
-                            is_final: false,
-                        });
-                        first_sent = true;
-                    }
+                    stream_emit_completed_trial(
+                        tid,
+                        b,
+                        &state,
+                        target_study_id,
+                        &mut batch,
+                        batch_size,
+                        &mut param_set,
+                        &mut uan_set,
+                        &mut uas_set,
+                        &mut derived_objective_names,
+                        &mut has_constraints,
+                        &mut max_constraints,
+                        &mut completed,
+                        &mut first_sent,
+                        &mut on_batch,
+                    );
                 } else if trial_state == 2 || trial_state == 3 {
                     state.trial_builders.remove(&tid);
                 }

@@ -120,6 +120,39 @@ fn streaming_beta_matches_single_study_and_batches() {
 }
 
 #[test]
+fn streaming_emits_inline_completed_trials_inmem() {
+    // in-memory ストレージ形式: op_code=4 に state/values/params をインラインで持ち、
+    // 後続の op_code=5/6 が来ない。streaming パス（UI が使う経路）でも完了 Trial を
+    // 送出できることを検証する（回帰防止: 以前は 0 件になり Trial 数が表示されなかった）。
+    let data = to_bytes(concat!(
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"dtlz\",\"directions\":[1,1]}\n",
+        "{\"op_code\":3,\"worker_id\":\"w\",\"study_id\":0,\"system_attr\":{\"study:metric_names\":[\"Obj1\",\"Obj2\"]}}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"state\":1,\"value\":null,\"values\":[1.0,2.0],\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.5},\"user_attrs\":{},\"system_attrs\":{}}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"state\":3,\"value\":null,\"values\":null,\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.2},\"user_attrs\":{},\"system_attrs\":{}}\n",
+        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"state\":1,\"value\":null,\"values\":[3.0,0.5],\"distributions\":{\"x\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": 0.0, \\\"high\\\": 1.0, \\\"log\\\": false}}\"},\"params\":{\"x\":0.7},\"user_attrs\":{},\"system_attrs\":{}}\n"
+    ));
+    let mut batches: Vec<StudyStreamBatch> = Vec::new();
+    parse_single_study_streaming(&data, 0, 1000, |b| batches.push(b)).unwrap();
+
+    // 完了 Trial は 2 件（state==1）。state==3（fail）は除外される。
+    let total: usize = batches.iter().map(|b| b.new_rows.len()).sum();
+    assert_eq!(total, 2, "inline-completed trials should be emitted");
+
+    let last = batches.last().expect("at least one batch");
+    assert!(last.is_final);
+    assert_eq!(last.meta.completed_trials, 2);
+    assert_eq!(last.objective_names, vec!["Obj1", "Obj2"]);
+    assert!(last.param_names.contains(&"x".to_string()));
+
+    // 目的値が正しい順序で揃う。
+    let objs: Vec<f64> = batches
+        .iter()
+        .flat_map(|b| b.new_rows.iter().map(|r| r.objective_values[0]))
+        .collect();
+    assert_eq!(objs, vec![1.0, 3.0]);
+}
+
+#[test]
 fn streaming_single_batch_when_batch_size_large() {
     let data = two_study_log();
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
