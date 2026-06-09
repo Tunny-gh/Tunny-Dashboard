@@ -180,7 +180,12 @@ fn render_result(
     }
 }
 
-fn draw_heatmap(painter: &egui::Painter, rect: egui::Rect, values: &[Vec<f64>], cmap: ColorMap) {
+pub(crate) fn draw_heatmap(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    values: &[Vec<f64>],
+    cmap: ColorMap,
+) {
     let n_row = values.len();
     if n_row == 0 {
         return;
@@ -247,7 +252,7 @@ fn draw_contour_overlay(painter: &egui::Painter, rect: egui::Rect, values: &[Vec
     }
 }
 
-fn draw_colorbar_simple(
+pub(crate) fn draw_colorbar_simple(
     ui: &mut egui::Ui,
     bar_rect: egui::Rect,
     v_min: f64,
@@ -270,7 +275,7 @@ fn draw_colorbar_simple(
     ui.label(format!("{:.2}", v_min));
 }
 
-fn value_range(values: &[Vec<f64>]) -> (f64, f64) {
+pub(crate) fn value_range(values: &[Vec<f64>]) -> (f64, f64) {
     let flat: Vec<f64> = values.iter().flatten().copied().collect();
     if flat.is_empty() {
         return (0.0, 1.0);
@@ -284,7 +289,7 @@ fn value_range(values: &[Vec<f64>]) -> (f64, f64) {
     }
 }
 
-fn normalize(v: f64, v_min: f64, v_max: f64) -> f32 {
+pub(crate) fn normalize(v: f64, v_min: f64, v_max: f64) -> f32 {
     if (v_max - v_min).abs() < f64::EPSILON {
         return 0.5;
     }

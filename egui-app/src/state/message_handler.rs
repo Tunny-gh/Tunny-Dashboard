@@ -246,6 +246,15 @@ impl MessageHandler {
                 widget_states.surface_plot.error_message = Some(err);
                 widget_states.surface_plot.computing = false;
             }
+            AppMessage::SurrogateOptDone(result) => {
+                widget_states.surrogate_opt.result = Some(result);
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.computing = false;
+            }
+            AppMessage::SurrogateOptFailed(err) => {
+                widget_states.surrogate_opt.error_message = Some(err);
+                widget_states.surrogate_opt.computing = false;
+            }
             AppMessage::ChartCaptureFailed(err) => {
                 widget_states.capture.last_error = Some(err);
             }

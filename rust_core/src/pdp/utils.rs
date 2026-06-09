@@ -1,13 +1,13 @@
 use crate::math::stats::column_mean_std;
 
-pub(super) fn col_mean_std(data: &[f64]) -> (f64, f64) {
+pub(crate) fn col_mean_std(data: &[f64]) -> (f64, f64) {
     column_mean_std(data)
 }
 
 /// Compute min and max of a slice in a single pass.
 ///
 /// Returns `(min, max)`. Returns `(INFINITY, NEG_INFINITY)` for an empty slice.
-pub(super) fn col_min_max(data: &[f64]) -> (f64, f64) {
+pub(crate) fn col_min_max(data: &[f64]) -> (f64, f64) {
     data.iter()
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &v| {
             (mn.min(v), mx.max(v))
@@ -21,7 +21,7 @@ pub(super) fn col_min_max(data: &[f64]) -> (f64, f64) {
 /// - x_norm: Normalized matrix where each value is in [0, 1]
 ///
 /// Constant columns (range == 0) are clamped with EPSILON to prevent NaN.
-pub(super) fn normalize_x_minmax(x_matrix: &[Vec<f64>]) -> (Vec<(f64, f64)>, Vec<Vec<f64>>) {
+pub(crate) fn normalize_x_minmax(x_matrix: &[Vec<f64>]) -> (Vec<(f64, f64)>, Vec<Vec<f64>>) {
     let n_dims = x_matrix.first().map(|r| r.len()).unwrap_or(0);
     let col_stats: Vec<(f64, f64)> = (0..n_dims)
         .map(|d| {
@@ -53,7 +53,7 @@ pub(super) fn normalize_x_minmax(x_matrix: &[Vec<f64>]) -> (Vec<(f64, f64)>, Vec
 /// # Returns
 /// (y_mean, y_std, y_norm)
 /// - y_std minimum value: f64::EPSILON (zero division guard)
-pub(super) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
+pub(crate) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
     let n = y.len();
     if n == 0 {
         return (0.0, f64::EPSILON, vec![]);
@@ -68,7 +68,7 @@ pub(super) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
 /// Calculate R² coefficient of determination.
 ///
 /// If ss_tot < EPSILON (constant y), returns 1.0.
-pub(super) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
+pub(crate) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
     let n = y_actual.len();
     if n == 0 {
         return 1.0;
@@ -89,7 +89,7 @@ pub(super) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
 /// Extract feature matrix and objective variable from DataFrame.
 ///
 /// Missing values (non-existent column or index out of bounds) fallback to 0.0.
-pub(super) fn extract_xy(
+pub(crate) fn extract_xy(
     df: &crate::dataframe::DataFrame,
     param_names: &[String],
     objective_name: &str,

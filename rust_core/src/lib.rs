@@ -12,6 +12,7 @@ pub(crate) mod optimization;
 pub mod pdp;
 pub mod sampling;
 pub mod sensitivity;
+pub mod surrogate_opt;
 
 pub use data::{dataframe, filter};
 pub use io::journal::{live_update, parser as journal_parser};
