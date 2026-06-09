@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
 use crate::state::types::StudyView;
 
+use super::radar_chart;
+
 /// サムネイル一辺のサイズ（px）。
 const THUMB_SIZE: f32 = 220.0;
 
@@ -75,6 +77,8 @@ impl TrialDetailModal {
         let max_h = (screen.height() * 0.95).max(240.0);
         // ヘッダー・区切り・余白を除いた本文スクロール領域の高さ。
         let body_max_h = (max_h - 80.0).max(160.0);
+        // 左カラム（テキスト情報）の幅。残りを右カラム（レーダー＋アーティファクト）に充てる。
+        let left_w = (max_w * 0.3).clamp(300.0, 480.0);
 
         let mut close = false;
         let modal = egui::Modal::new(egui::Id::new("trial_detail_modal")).show(&egui_ctx, |ui| {
@@ -96,37 +100,69 @@ impl TrialDetailModal {
                 .max_height(body_max_h)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    // 散布図固有の情報（ランク・クラスタ番号など）。
-                    if !target.context.is_empty() {
-                        section_label(ui, "Chart Info");
-                        kv_grid(ui, "trial_detail_context", &target.context);
-                        ui.add_space(8.0);
-                    }
+                    // 左: テキスト情報（Chart Info / Objectives / Variables）。
+                    // 右: 上にレーダーチャート、その下にアーティファクト。
+                    ui.horizontal_top(|ui| {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(left_w, body_max_h),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                // 散布図固有の情報（ランク・クラスタ番号など）。
+                                if !target.context.is_empty() {
+                                    section_label(ui, "Chart Info");
+                                    kv_grid(ui, "trial_detail_context", &target.context);
+                                    ui.add_space(8.0);
+                                }
 
-                    // 目的関数値。
-                    if !obj_names.is_empty() {
-                        section_label(ui, "Objectives");
-                        let rows = value_rows(view, obj_names, target.row_index, 4);
-                        kv_grid(ui, "trial_detail_objectives", &rows);
-                        ui.add_space(8.0);
-                    }
+                                // 目的関数値。
+                                if !obj_names.is_empty() {
+                                    section_label(ui, "Objectives");
+                                    let rows = value_rows(view, obj_names, target.row_index, 4);
+                                    kv_grid(ui, "trial_detail_objectives", &rows);
+                                    ui.add_space(8.0);
+                                }
 
-                    // 変数値。
-                    if !param_names.is_empty() {
-                        section_label(ui, "Variables");
-                        let rows = value_rows(view, param_names, target.row_index, 4);
-                        kv_grid(ui, "trial_detail_params", &rows);
-                        ui.add_space(8.0);
-                    }
+                                // 変数値。
+                                if !param_names.is_empty() {
+                                    section_label(ui, "Variables");
+                                    let rows = value_rows(view, param_names, target.row_index, 4);
+                                    kv_grid(ui, "trial_detail_params", &rows);
+                                    ui.add_space(8.0);
+                                }
+                            },
+                        );
 
-                    // アーティファクト（サムネイル＋ファイル名）。
-                    section_label(ui, "Artifacts");
-                    match artifact_map.get(&target.trial_id) {
-                        Some(entries) if !entries.is_empty() => render_artifacts(ui, entries),
-                        _ => {
-                            ui.label(egui::RichText::new("No artifacts for this trial.").weak());
-                        }
-                    }
+                        ui.separator();
+
+                        ui.vertical(|ui| {
+                            // レーダーチャート（目的＋変数）。各軸の最小〜最大は
+                            // パレートフロントの範囲を帯で示し、外周＝フロント最大（包絡）。
+                            let radar_axes = radar_chart::build_axes(
+                                view,
+                                obj_names,
+                                param_names,
+                                target.row_index,
+                            );
+                            if radar_axes.len() >= 3 {
+                                section_label(ui, "Comparison (Radar)");
+                                radar_chart::show(ui, &radar_axes);
+                                ui.add_space(12.0);
+                            }
+
+                            // アーティファクト（サムネイル＋ファイル名）。
+                            section_label(ui, "Artifacts");
+                            match artifact_map.get(&target.trial_id) {
+                                Some(entries) if !entries.is_empty() => {
+                                    render_artifacts(ui, entries)
+                                }
+                                _ => {
+                                    ui.label(
+                                        egui::RichText::new("No artifacts for this trial.").weak(),
+                                    );
+                                }
+                            }
+                        });
+                    });
                 });
         });
 
