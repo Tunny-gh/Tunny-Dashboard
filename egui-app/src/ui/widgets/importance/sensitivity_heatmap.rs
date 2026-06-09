@@ -1,79 +1,17 @@
 use crate::state::app_state::HeatmapMatrix;
 use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_GRID_STROKE};
 use crate::theme::color_compute::{diverging_colormap, sequential_colormap};
+use crate::ui::widgets::importance_chart::ImportanceMetric;
 
-/// Sensitivity Heatmap で選択できる手法。ImportanceChart の `ImportanceMetric` と同じ
-/// ラインナップ: 相関/線形（Spearman・Ridge）、木ベース（RF-Anova・MDI・SHAP・
-/// Permutation）、大域感度（Sobol First・Sobol Total）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum HeatmapMetric {
-    #[default]
-    Spearman,
-    Ridge,
-    RfAnova,
-    Mdi,
-    Shap,
-    Permutation,
-    SobolFirst,
-    SobolTotal,
-}
-
-impl HeatmapMetric {
-    pub fn label(&self) -> &'static str {
-        match self {
-            HeatmapMetric::Spearman => "Spearman",
-            HeatmapMetric::Ridge => "Ridge",
-            HeatmapMetric::RfAnova => "RF-Anova",
-            HeatmapMetric::Mdi => "MDI",
-            HeatmapMetric::Shap => "SHAP",
-            HeatmapMetric::Permutation => "Permutation",
-            HeatmapMetric::SobolFirst => "Sobol First",
-            HeatmapMetric::SobolTotal => "Sobol Total",
-        }
-    }
-
-    /// `AppState::sensitivity_heatmap_cache` のキー。表示ラベルから切り離した安定な数値 id。
-    /// 値は `ImportanceMetric::cache_id` と揃える。
-    pub fn id(&self) -> u8 {
-        match self {
-            HeatmapMetric::Spearman => 0,
-            HeatmapMetric::Ridge => 1,
-            HeatmapMetric::RfAnova => 2,
-            HeatmapMetric::Mdi => 3,
-            HeatmapMetric::SobolFirst => 4,
-            HeatmapMetric::SobolTotal => 5,
-            HeatmapMetric::Shap => 6,
-            HeatmapMetric::Permutation => 7,
-        }
-    }
-
-    pub fn is_sobol(&self) -> bool {
-        matches!(self, HeatmapMetric::SobolFirst | HeatmapMetric::SobolTotal)
-    }
-
-    /// 値が符号を持つ（負の相関・負の係数があり得る）か。
-    /// 符号ありは発散カラーマップ、符号なしは逐次カラーマップで表示する。
-    pub fn is_signed(&self) -> bool {
-        matches!(self, HeatmapMetric::Spearman | HeatmapMetric::Ridge)
-    }
-
-    /// モデル訓練（木ベース）や Sobol サンプリングを伴い、計算コストが高いか。
-    /// 高コストな手法は自動計算せず Run ボタンを必須とする。
-    /// 低コストなのは相関/線形（Spearman・Ridge）のみ。
-    pub fn is_expensive(&self) -> bool {
-        !matches!(self, HeatmapMetric::Spearman | HeatmapMetric::Ridge)
-    }
-}
-
-/// 感度ヒートマップウィジェット。
+/// 感度ヒートマップウィジェット。手法は ImportanceChart と同じ `ImportanceMetric` を共有する。
 /// 計算結果は `AppState::sensitivity_heatmap_cache` に集約されるため、ここでは
 /// アイテム固有の UI 状態（選択手法・計算実行フラグ・計算要求）のみを持つ。
 #[derive(Default)]
 pub struct SensitivityHeatmap {
-    pub metric: HeatmapMetric,
+    pub metric: ImportanceMetric,
     pub computing: bool,
     /// poll_chart が消費する計算要求（対象手法）。
-    pub pending_compute: Option<HeatmapMetric>,
+    pub pending_compute: Option<ImportanceMetric>,
 }
 
 impl SensitivityHeatmap {
@@ -103,24 +41,24 @@ impl SensitivityHeatmap {
                 .show_ui(ui, |ui| {
                     // ImportanceChart と同じ系統別グループ分け。手法の性格が分かるようにする。
                     ui.label(group_header("── Correlation / Linear ──"));
-                    for m in [HeatmapMetric::Spearman, HeatmapMetric::Ridge] {
+                    for m in [ImportanceMetric::Spearman, ImportanceMetric::Ridge] {
                         ui.selectable_value(&mut self.metric, m, m.label());
                     }
 
                     ui.separator();
                     ui.label(group_header("── Tree-based ──"));
                     for m in [
-                        HeatmapMetric::RfAnova,
-                        HeatmapMetric::Mdi,
-                        HeatmapMetric::Shap,
-                        HeatmapMetric::Permutation,
+                        ImportanceMetric::RfAnova,
+                        ImportanceMetric::Mdi,
+                        ImportanceMetric::Shap,
+                        ImportanceMetric::Permutation,
                     ] {
                         ui.selectable_value(&mut self.metric, m, m.label());
                     }
 
                     ui.separator();
                     ui.label(group_header("── Global Sensitivity ──"));
-                    for m in [HeatmapMetric::SobolFirst, HeatmapMetric::SobolTotal] {
+                    for m in [ImportanceMetric::SobolFirst, ImportanceMetric::SobolTotal] {
                         ui.selectable_value(&mut self.metric, m, m.label());
                     }
                 });
@@ -258,43 +196,8 @@ mod tests {
     fn sensitivity_heatmap_default() {
         let hm = SensitivityHeatmap::default();
         assert!(!hm.computing);
-        assert_eq!(hm.metric, HeatmapMetric::Spearman);
+        assert_eq!(hm.metric, ImportanceMetric::Spearman);
         assert!(hm.pending_compute.is_none());
-    }
-
-    #[test]
-    fn heatmap_metric_ids_are_distinct() {
-        let metrics = [
-            HeatmapMetric::Spearman,
-            HeatmapMetric::Ridge,
-            HeatmapMetric::RfAnova,
-            HeatmapMetric::Mdi,
-            HeatmapMetric::Shap,
-            HeatmapMetric::Permutation,
-            HeatmapMetric::SobolFirst,
-            HeatmapMetric::SobolTotal,
-        ];
-        let ids: Vec<u8> = metrics.iter().map(|m| m.id()).collect();
-        let mut sorted = ids.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(ids.len(), sorted.len(), "metric ids must be unique");
-    }
-
-    #[test]
-    fn heatmap_metric_signedness() {
-        assert!(HeatmapMetric::Spearman.is_signed());
-        assert!(HeatmapMetric::Ridge.is_signed());
-        assert!(!HeatmapMetric::RfAnova.is_signed());
-        assert!(!HeatmapMetric::SobolTotal.is_signed());
-    }
-
-    #[test]
-    fn heatmap_metric_expensiveness() {
-        assert!(!HeatmapMetric::Spearman.is_expensive());
-        assert!(!HeatmapMetric::Ridge.is_expensive());
-        assert!(HeatmapMetric::RfAnova.is_expensive());
-        assert!(HeatmapMetric::SobolTotal.is_expensive());
     }
 
     #[test]
@@ -302,9 +205,9 @@ mod tests {
         let mut global = SensitivityHeatmap::new();
         global.computing = true;
         let mut item = SensitivityHeatmap::new();
-        item.metric = HeatmapMetric::Ridge; // アイテム固有の選択は維持される
+        item.metric = ImportanceMetric::Ridge; // アイテム固有の選択は維持される
         item.adopt_compute_state(&global);
         assert!(item.computing);
-        assert_eq!(item.metric, HeatmapMetric::Ridge);
+        assert_eq!(item.metric, ImportanceMetric::Ridge);
     }
 }

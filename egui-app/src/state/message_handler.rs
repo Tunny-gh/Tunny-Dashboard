@@ -96,7 +96,7 @@ impl MessageHandler {
             AppMessage::SensitivityHeatmapDone { metric, result } => {
                 app_state
                     .sensitivity_heatmap_cache
-                    .insert(metric.id(), result);
+                    .insert(metric.cache_id(), result);
                 widget_states.sensitivity_heatmap.computing = false;
             }
             AppMessage::SobolDone { obj_idx, result } => {

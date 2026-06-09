@@ -157,7 +157,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
         ChartId::SensitivityHeatmap => app_state
             .sensitivity_heatmap_cache
-            .get(&widgets.sensitivity_heatmap.metric.id())
+            .get(&widgets.sensitivity_heatmap.metric.cache_id())
             .is_some_and(|m| m.is_well_formed()),
         ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => app_state
             .current_study
@@ -395,7 +395,7 @@ fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Op
 fn build_sensitivity_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let m = app_state
         .sensitivity_heatmap_cache
-        .get(&widgets.sensitivity_heatmap.metric.id())?;
+        .get(&widgets.sensitivity_heatmap.metric.cache_id())?;
     if !m.is_well_formed() {
         return None;
     }
@@ -759,7 +759,7 @@ mod tests {
         let widgets = WidgetStates::default(); // default metric = Spearman (id 0)
         let mut state = AppState::default();
         state.sensitivity_heatmap_cache.insert(
-            widgets.sensitivity_heatmap.metric.id(),
+            widgets.sensitivity_heatmap.metric.cache_id(),
             HeatmapMatrix {
                 param_names: vec!["x".into(), "y".into()],
                 objective_names: vec!["f1".into(), "f2".into()],

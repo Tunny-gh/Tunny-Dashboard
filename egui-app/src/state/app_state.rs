@@ -22,7 +22,7 @@ pub struct AppState {
     pub color_mode: ColorMode,
     pub importance_cache: HashMap<(u8, usize), SensitivityResult>,
     pub sobol_cache: HashMap<usize, SobolResult>,
-    /// Sensitivity Heatmap の結果キャッシュ。手法 id（`HeatmapMetric::id`）ごとに
+    /// Sensitivity Heatmap の結果キャッシュ。手法 id（`ImportanceMetric::cache_id`）ごとに
     /// 全パラメータ × 全目的の行列を保持し、キャンバスの各アイテムが共有する。
     pub sensitivity_heatmap_cache: HashMap<u8, HeatmapMatrix>,
     /// クラスタリング結果のキャッシュ。設定キー（対象空間 / k / モード / Init）ごとに

@@ -161,7 +161,7 @@ pub enum AppMessage {
     },
     /// Sensitivity Heatmap 用：選択手法の全パラメータ × 全目的の感度行列。
     SensitivityHeatmapDone {
-        metric: crate::ui::widgets::sensitivity_heatmap::HeatmapMetric,
+        metric: crate::ui::widgets::importance_chart::ImportanceMetric,
         result: HeatmapMatrix,
     },
     SobolDone {
