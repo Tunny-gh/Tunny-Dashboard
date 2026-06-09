@@ -92,9 +92,34 @@ impl SensitivityHeatmap {
             egui::ComboBox::from_id_salt("sensitivity_heatmap_metric")
                 .selected_text(self.metric.label())
                 .show_ui(ui, |ui| {
-                    for m in HeatmapMetric::all() {
-                        ui.selectable_value(&mut self.metric, *m, m.label());
-                    }
+                    // ImportanceChart と同じ系統別グループ分け。手法の性格が分かるようにする。
+                    ui.label(group_header("── Correlation / Linear ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
+                        HeatmapMetric::Spearman,
+                        HeatmapMetric::Spearman.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.metric,
+                        HeatmapMetric::Ridge,
+                        HeatmapMetric::Ridge.label(),
+                    );
+
+                    ui.separator();
+                    ui.label(group_header("── Tree-based ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
+                        HeatmapMetric::RfAnova,
+                        HeatmapMetric::RfAnova.label(),
+                    );
+
+                    ui.separator();
+                    ui.label(group_header("── Global Sensitivity ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
+                        HeatmapMetric::SobolTotal,
+                        HeatmapMetric::SobolTotal.label(),
+                    );
                 });
 
             if self.computing {
@@ -136,6 +161,11 @@ impl SensitivityHeatmap {
 
         draw_matrix(ui, matrix);
     }
+}
+
+/// コンボボックスの系統見出し（ImportanceChart と同じ弱色・小サイズ）。
+fn group_header(text: &str) -> egui::RichText {
+    egui::RichText::new(text).weak().small()
 }
 
 fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
