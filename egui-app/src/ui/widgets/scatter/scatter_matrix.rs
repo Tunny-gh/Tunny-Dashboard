@@ -1,5 +1,11 @@
-use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_INFEASIBLE, COLOR_SCATTER_DOT};
+use crate::theme::chart_colors::{
+    COLOR_CHART_TEXT, COLOR_GRID_STROKE, COLOR_INFEASIBLE, COLOR_SCATTER_DOT,
+};
 use crate::theme::color_compute::correlation_color;
+
+/// 散布図セルあたりに描画する最大点数。これを超える試行は均等間引きで描画する。
+/// セル数（下三角）×点数で描画コストが効くため、点数を抑えて応答性を保つ。
+pub const MAX_SCATTER_POINTS: usize = 1500;
 
 /// Scatter Matrix の1セルタイプ
 #[derive(Debug, Clone, PartialEq)]
@@ -95,10 +101,120 @@ impl ScatterMatrix {
             split_feasibility_indices(trial_count, is_feasible_col);
         let show_infeasible = self.show_infeasible;
 
-        let available = ui.available_rect_before_wrap();
+        // 描画パフォーマンス対策: セルあたりの表示点数に上限を設ける。
+        // 全散布図セルで同じ間引きインデックスを使い回す（毎セル再計算しない）。
+        let feasible_draw = downsample_indices_to_cap(&feasible_indices, MAX_SCATTER_POINTS);
+        let infeasible_draw = downsample_indices_to_cap(&infeasible_indices, MAX_SCATTER_POINTS);
+
+        // 行・列ラベルを事前レイアウトしてサイズを測る
+        let outer = ui.available_rect_before_wrap();
+        let painter = ui.painter().clone();
+        let label_color = ui.visuals().text_color();
+        let label_font = egui::FontId::proportional(10.0);
+        let label_galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
+            .iter()
+            .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), label_color))
+            .collect();
+        let max_label_w = label_galleys
+            .iter()
+            .map(|g| g.size().x)
+            .fold(0.0_f32, f32::max);
+        let label_h = label_galleys.first().map(|g| g.size().y).unwrap_or(12.0);
+
+        let label_angle = std::f32::consts::FRAC_PI_4; // 45°
+
+        // 1セルの高さを見積もり、ラベルが行に収まらなければ行ラベルを 45° 回転
+        let cell_h_est = outer.height() / n as f32;
+        let rotate_rows = label_h > cell_h_est - 2.0 || max_label_w > outer.width() * 0.25;
+        // 行ラベル（左端）の確保幅。回転時は対角方向の幅（最大110px）
+        let row_label_w = if rotate_rows {
+            (max_label_w * label_angle.cos() + label_h * label_angle.sin()).min(110.0) + 6.0
+        } else {
+            (max_label_w + 8.0).min(outer.width() * 0.25)
+        };
+        // グリッド幅から1セル幅を見積もり、ラベルが収まらなければ列ラベルを 45° 回転
+        let grid_w_est = outer.width() - row_label_w;
+        let cell_w_est = grid_w_est / n as f32;
+        let rotate_cols = max_label_w > cell_w_est - 4.0;
+        let col_label_h = if rotate_cols {
+            (max_label_w * label_angle.sin() + label_h * label_angle.cos()).min(110.0) + 6.0
+        } else {
+            label_h + 6.0
+        };
+
+        let available = egui::Rect::from_min_max(
+            egui::pos2(outer.min.x + row_label_w, outer.min.y + col_label_h),
+            outer.max,
+        );
         let cell_w = available.width() / n as f32;
         let cell_h = available.height() / n as f32;
-        let painter = ui.painter().clone();
+
+        // 列ヘッダ（上端）と行ヘッダ（左端）に軸名を描画する
+        for (idx, galley) in label_galleys.iter().enumerate() {
+            let col_center_x = available.min.x + (idx as f32 + 0.5) * cell_w;
+            let size = galley.size();
+            if rotate_cols {
+                // -45°（反時計回り）で回転させた "/" 形ラベルの最下端を
+                // 各列中心・グリッド上端のすぐ上に合わせる（PCP と同じ手法）
+                let applied = -label_angle;
+                let (sa, ca) = (applied.sin(), applied.cos());
+                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
+                let mut lowest = (0.0_f32, f32::MIN);
+                for (px, py) in corners {
+                    let rx = px * ca - py * sa;
+                    let ry = px * sa + py * ca;
+                    if ry > lowest.1 {
+                        lowest = (rx, ry);
+                    }
+                }
+                let anchor = egui::pos2(col_center_x, available.min.y - 2.0);
+                let pos = anchor - egui::vec2(lowest.0, lowest.1);
+                painter.add(
+                    egui::epaint::TextShape::new(pos, galley.clone(), label_color)
+                        .with_angle(applied),
+                );
+            } else {
+                painter.galley(
+                    egui::pos2(col_center_x - size.x * 0.5, available.min.y - label_h - 2.0),
+                    galley.clone(),
+                    label_color,
+                );
+            }
+
+            let row_center_y = available.min.y + (idx as f32 + 0.5) * cell_h;
+            if rotate_rows {
+                // -45° で回転させたラベルの右端（最大 rx の隅）を、
+                // 各行中心・グリッド左端のすぐ左に合わせる。
+                let applied = -label_angle;
+                let (sa, ca) = (applied.sin(), applied.cos());
+                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
+                let mut right = (f32::MIN, 0.0); // (rx, ry) で rx 最大の隅
+                let (mut min_ry, mut max_ry) = (f32::MAX, f32::MIN);
+                for (px, py) in corners {
+                    let rx = px * ca - py * sa;
+                    let ry = px * sa + py * ca;
+                    if rx > right.0 {
+                        right = (rx, ry);
+                    }
+                    min_ry = min_ry.min(ry);
+                    max_ry = max_ry.max(ry);
+                }
+                // 右端を (available.min.x - gap) に、回転後の縦中心を row_center_y に合わせる
+                let anchor = egui::pos2(available.min.x - 4.0, row_center_y);
+                let center_ry = (min_ry + max_ry) * 0.5;
+                let pos = anchor - egui::vec2(right.0, center_ry);
+                painter.add(
+                    egui::epaint::TextShape::new(pos, galley.clone(), label_color)
+                        .with_angle(applied),
+                );
+            } else {
+                painter.galley(
+                    egui::pos2(available.min.x - size.x - 4.0, row_center_y - size.y * 0.5),
+                    galley.clone(),
+                    label_color,
+                );
+            }
+        }
         let dot_color = COLOR_SCATTER_DOT;
         let point_colors: Vec<egui::Color32> = if chart_colors.is_empty() {
             vec![dot_color; trial_count]
@@ -118,43 +234,36 @@ impl ScatterMatrix {
                     // 上三角: 相関係数
                     draw_correlation_cell(&painter, cell_rect, cols[row], cols[col]);
                 } else {
-                    // 下三角: 散布図
-                    if has_constraints {
-                        // infeasible を背面に描画（show_infeasible=true のみ）
-                        if show_infeasible && !infeasible_indices.is_empty() {
-                            draw_scatter_cell(
-                                &painter,
-                                cell_rect,
-                                cols[col],
-                                cols[row],
-                                &infeasible_colors,
-                                Some(&infeasible_indices),
-                            );
-                        }
-                        // feasible を前面に描画
+                    // 下三角: 散布図（間引き済みインデックスで描画）
+                    if has_constraints && show_infeasible && !infeasible_draw.is_empty() {
+                        // infeasible を背面に描画
                         draw_scatter_cell(
                             &painter,
                             cell_rect,
                             cols[col],
                             cols[row],
-                            &point_colors,
-                            Some(&feasible_indices),
-                        );
-                    } else {
-                        draw_scatter_cell(
-                            &painter,
-                            cell_rect,
-                            cols[col],
-                            cols[row],
-                            &point_colors,
-                            None,
+                            &infeasible_colors,
+                            Some(&infeasible_draw),
                         );
                     }
+                    // feasible（制約なし時は全点）を前面に描画
+                    draw_scatter_cell(
+                        &painter,
+                        cell_rect,
+                        cols[col],
+                        cols[row],
+                        &point_colors,
+                        Some(&feasible_draw),
+                    );
                 }
+
+                // 各セルに枠線を描画してセル境界を明示する
+                // （高密度の散布図でも図の範囲が分かるように）
+                painter.rect_stroke(cell_rect, 0.0, egui::Stroke::new(1.0, COLOR_GRID_STROKE));
             }
         }
 
-        ui.allocate_rect(available, egui::Sense::hover());
+        ui.allocate_rect(outer, egui::Sense::hover());
     }
 }
 
@@ -182,6 +291,21 @@ pub fn split_feasibility_indices(
             (feasible, infeasible)
         }
     }
+}
+
+/// インデックス列を最大 `cap` 件まで均等間引きする。
+/// `cap` 以下ならそのまま複製、超える場合は等間隔ストライドで間引いて
+/// 全体の分布形状を保ったまま点数を減らす。
+pub fn downsample_indices_to_cap(indices: &[u32], cap: usize) -> Vec<u32> {
+    if cap == 0 {
+        return Vec::new();
+    }
+    if indices.len() <= cap {
+        return indices.to_vec();
+    }
+    // ストライドは切り上げ気味に取り、結果が cap を超えないようにする
+    let step = indices.len().div_ceil(cap);
+    indices.iter().step_by(step).copied().collect()
 }
 
 /// モードに基づいてセルの行数・列数を計算する
@@ -324,7 +448,7 @@ pub fn draw_scatter_cell(
             cell_rect,
         );
         let color = colors.get(i).copied().unwrap_or(COLOR_SCATTER_DOT);
-        painter.circle_filled(pos, 2.0, color);
+        painter.circle_filled(pos, 1.6, color);
     }
 }
 
@@ -449,6 +573,30 @@ mod tests {
         assert_eq!(sm.mode, MatrixMode::ParamsVsParams);
         assert_eq!(sm.sort, AxisSort::Alphabetical);
         assert!(sm.selected_cell.is_none());
+    }
+
+    #[test]
+    fn downsample_cap_keeps_all_when_under_cap() {
+        let idx: Vec<u32> = (0..100).collect();
+        let out = downsample_indices_to_cap(&idx, 4000);
+        assert_eq!(out, idx);
+    }
+
+    #[test]
+    fn downsample_cap_limits_when_over_cap() {
+        let idx: Vec<u32> = (0..100_000).collect();
+        let out = downsample_indices_to_cap(&idx, 4000);
+        assert!(out.len() <= 4000, "got {}", out.len());
+        assert!(!out.is_empty());
+        // 先頭は保持され、間引きは昇順を維持する
+        assert_eq!(out[0], 0);
+        assert!(out.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn downsample_cap_zero_is_empty() {
+        let idx: Vec<u32> = (0..10).collect();
+        assert!(downsample_indices_to_cap(&idx, 0).is_empty());
     }
 
     #[test]

@@ -147,7 +147,7 @@ pub const COLOR_CHART_TEXT: Color32 = Color32::from_rgb(32, 33, 36);
 pub const COLOR_EMPTY_STATE: Color32 = Color32::from_rgb(95, 99, 104);
 
 /// ヒートマップ・マトリクス系のグリッド線色
-pub const COLOR_GRID_STROKE: Color32 = Color32::from_rgb(218, 220, 224);
+pub const COLOR_GRID_STROKE: Color32 = Color32::from_rgb(154, 160, 166);
 
 // ====================================================================
 // 実行不可能解（制約違反）

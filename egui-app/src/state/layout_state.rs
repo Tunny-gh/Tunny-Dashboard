@@ -66,6 +66,16 @@ impl ChartId {
             ChartId::ArtifactGallery => "Artifact Gallery",
         }
     }
+
+    /// チャートタイトルの隣に表示する補足説明（凡例）。なければ None。
+    pub fn subtitle(&self) -> Option<&'static str> {
+        match self {
+            ChartId::ScatterMatrix => Some(
+                "Lower-left: scatter plots / Upper-right: Pearson correlation / Diagonal: histograms",
+            ),
+            _ => None,
+        }
+    }
 }
 
 // ----------------------------------------
@@ -86,6 +96,14 @@ impl PanelItem {
         match self {
             PanelItem::Chart(id) => id.label(),
             PanelItem::TrialTable => "Trial Table",
+        }
+    }
+
+    /// セルタイトルの隣に表示する補足説明（凡例）。なければ None。
+    pub fn subtitle(&self) -> Option<&'static str> {
+        match self {
+            PanelItem::Chart(id) => id.subtitle(),
+            PanelItem::TrialTable => None,
         }
     }
 
