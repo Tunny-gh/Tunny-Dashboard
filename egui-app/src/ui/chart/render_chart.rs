@@ -227,9 +227,14 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::SliceChart => {
-            widgets
-                .slice_chart
-                .show(ui, &ctx.view, param_names, obj_names, directions);
+            widgets.slice_chart.show(
+                ui,
+                &ctx.view,
+                param_names,
+                obj_names,
+                directions,
+                &app_state.artifact_map,
+            );
         }
         ChartId::SurfacePlot => {
             let trial_count = ctx.trial_count();

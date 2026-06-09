@@ -1,5 +1,11 @@
+use std::collections::HashMap;
+
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
+use crate::ui::widgets::trial_detail_modal::{
+    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+};
 
 /// パラメータ vs 目的関数の Slice 散布図ウィジェット
 ///
@@ -9,6 +15,10 @@ use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
 pub struct SliceChart {
     pub selected_param_idx: usize,
     pub selected_obj_idx: usize,
+    /// Y 軸（目的関数）対数スケール切替
+    pub log_scale: bool,
+    /// 点クリックで開くトライアル詳細モーダル。
+    pub detail_modal: TrialDetailModal,
 }
 
 impl SliceChart {
@@ -23,6 +33,7 @@ impl SliceChart {
         param_names: &[String],
         obj_names: &[String],
         directions: &[Direction],
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         if view.row_count() == 0 {
             ui.centered_and_justified(|ui| {
@@ -68,6 +79,12 @@ impl SliceChart {
                         ui.selectable_value(&mut self.selected_obj_idx, i, name);
                     }
                 });
+
+            // Y 軸対数スケールトグル（最適化履歴チャートと同じ挙動）
+            ui.separator();
+            if ui.selectable_label(self.log_scale, "Log Scale").clicked() {
+                self.log_scale = !self.log_scale;
+            }
         });
 
         let param_name = &param_names[self.selected_param_idx];
@@ -84,27 +101,99 @@ impl SliceChart {
             ("Pareto", "Non-Pareto")
         };
 
-        egui_plot::Plot::new("slice_chart_plot")
-            .legend(egui_plot::Legend::default())
-            .show(ui, |plot_ui| {
-                if !normal_pts.is_empty() {
-                    plot_ui.points(
-                        egui_plot::Points::new(normal_pts)
-                            .name(normal_label)
-                            .color(COLOR_NON_PARETO)
-                            .radius(1.5),
-                    );
-                }
-                if !highlighted_pts.is_empty() {
-                    plot_ui.points(
-                        egui_plot::Points::new(highlighted_pts)
-                            .name(highlight_label)
-                            .color(COLOR_PARETO)
-                            .radius(3.0),
-                    );
-                }
+        // 対数スケール時は Y 値を log10 変換して描画する。正値のみ変換し、
+        // 0 以下の値はそのまま渡す（log10 不能なため）。
+        let log_scale = self.log_scale;
+        let apply_log = |[x, y]: [f64; 2]| -> [f64; 2] {
+            [x, if log_scale && y > 0.0 { y.log10() } else { y }]
+        };
+
+        // 点クリック判定用の候補（trial_id, 行 index, プロット座標）。
+        // プロット座標は描画と一致させるため対数変換後の Y を使う。
+        let hit_candidates =
+            compute_hit_candidates(view, param_name, obj_names, obj_idx, log_scale);
+
+        let mut plot =
+            egui_plot::Plot::new("slice_chart_plot").legend(egui_plot::Legend::default());
+        if log_scale {
+            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot);
+        }
+
+        let mut clicked_detail: Option<(u32, usize)> = None;
+        plot.show(ui, |plot_ui| {
+            // 点クリックで詳細モーダルを開く対象を検出する。
+            let resp = plot_ui.response();
+            if resp.clicked_by(egui::PointerButton::Primary) {
+                clicked_detail = resp
+                    .interact_pointer_pos()
+                    .and_then(|pos| hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD));
+            }
+            if !normal_pts.is_empty() {
+                let pts: egui_plot::PlotPoints = normal_pts.into_iter().map(apply_log).collect();
+                plot_ui.points(
+                    egui_plot::Points::new(pts)
+                        .name(normal_label)
+                        .color(COLOR_NON_PARETO)
+                        .radius(1.5),
+                );
+            }
+            if !highlighted_pts.is_empty() {
+                let pts: egui_plot::PlotPoints =
+                    highlighted_pts.into_iter().map(apply_log).collect();
+                plot_ui.points(
+                    egui_plot::Points::new(pts)
+                        .name(highlight_label)
+                        .color(COLOR_PARETO)
+                        .radius(3.0),
+                );
+            }
+        });
+
+        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
+        if let Some((trial_id, row)) = clicked_detail {
+            let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            let context = vec![("Pareto Rank".to_string(), rank.to_string())];
+            self.detail_modal.open(TrialDetailTarget {
+                trial_id,
+                row_index: row,
+                context,
             });
+        }
+
+        self.detail_modal
+            .show(ui, view, param_names, obj_names, artifact_map);
     }
+}
+
+/// 点クリック判定用の候補（trial_id, 行 index, プロット座標 [x, y]）を返す。
+/// `log_scale` が有効なときは Y を log10 変換し、描画位置と一致させる。
+/// NaN/Inf の点はスキップする。
+fn compute_hit_candidates(
+    view: &StudyView,
+    param_name: &str,
+    obj_names: &[String],
+    obj_idx: usize,
+    log_scale: bool,
+) -> Vec<(u32, usize, [f64; 2])> {
+    let param_col = view.numeric_column(param_name);
+    let obj_col = obj_names
+        .get(obj_idx)
+        .and_then(|name| view.numeric_column(name));
+    let (Some(params), Some(objs)) = (param_col, obj_col) else {
+        return Vec::new();
+    };
+    (0..view.row_count())
+        .filter_map(|i| {
+            let x = params.get(i).copied()?;
+            let y = objs.get(i).copied()?;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            let y_plot = if log_scale && y > 0.0 { y.log10() } else { y };
+            Some((trial_id, i, [x, y_plot]))
+        })
+        .collect()
 }
 
 /// view から Slice チャートの描画点を計算する（テスト可能な純粋関数）
