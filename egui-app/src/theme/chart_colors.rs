@@ -115,6 +115,9 @@ pub const COLOR_HIGHLIGHT_PT: Color32 = Color32::from_rgb(124, 77, 255);
 pub const COLOR_PARALLEL_TICK: Color32 = Color32::from_rgb(95, 99, 104);
 pub const COLOR_PARALLEL_LINE_DEFAULT: Color32 = Color32::from_rgb(66, 133, 244);
 pub const COLOR_PARALLEL_AXIS: Color32 = Color32::from_rgb(218, 220, 224);
+/// ブラシ選択範囲外の線を薄い灰色にグレーアウトする色（premultiplied）
+/// premultiplied: rgb(170,170,170) × 14/255 ≈ 9,9,9; alpha = 14
+pub const COLOR_PARALLEL_LINE_UNSELECTED: Color32 = Color32::from_rgba_premultiplied(9, 9, 9, 14);
 
 // ====================================================================
 // PDP CI バンド凡例マーカー（egui_plot 用、non-premultiplied 相当）

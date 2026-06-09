@@ -1,6 +1,6 @@
 use crate::theme::chart_colors::{
     COLOR_CHART_TEXT, COLOR_INFEASIBLE, COLOR_PARALLEL_AXIS, COLOR_PARALLEL_LINE_DEFAULT,
-    COLOR_PARALLEL_TICK,
+    COLOR_PARALLEL_LINE_UNSELECTED, COLOR_PARALLEL_TICK,
 };
 use crate::theme::CENTRAL_BG;
 
@@ -100,6 +100,29 @@ pub fn feasible_color_range(
     }
 }
 
+/// PCP ブラシ操作のドラッグ種別。
+enum BrushDrag {
+    /// 新規範囲の作成（従来挙動）。`drag_start` のアンカーから現在位置まで範囲を引く。
+    Create,
+    /// 既存範囲の平行移動。`grab_norm_y` はドラッグ開始時のポインタ正規化 Y、
+    /// `orig_range` は移動前の `(lo, hi)`。差分を加算して範囲全体をスライドする。
+    Move {
+        grab_norm_y: f32,
+        orig_range: (f32, f32),
+    },
+}
+
+/// 既存ブラシ範囲を `delta`（正規化）だけ平行移動する。
+/// 幅を保ったまま [0, 1] に収まるよう端でクランプする。
+pub fn shifted_brush_range(orig: (f32, f32), delta: f32) -> (f32, f32) {
+    let (lo, hi) = orig;
+    let width = hi - lo;
+    // 下端・上端のどちらが先に境界へ達するかで delta を制限する
+    let clamped_delta = delta.clamp(-lo, 1.0 - hi);
+    let new_lo = lo + clamped_delta;
+    (new_lo, new_lo + width)
+}
+
 /// 平行座標図ウィジェット
 pub struct ParallelCoordsChart {
     pub axis_order: Vec<String>,
@@ -107,6 +130,8 @@ pub struct ParallelCoordsChart {
     pub show_objectives: bool,
     pub brush_ranges: std::collections::HashMap<String, Option<(f32, f32)>>,
     pub drag_start: Option<(String, f32)>,
+    /// 進行中のドラッグ種別（新規作成 or 既存範囲の移動）。drag_start と併用する。
+    brush_drag: Option<BrushDrag>,
     /// REQ-004: 軸ごとの表示/非表示フラグ（true = 表示）
     pub axis_visibility: std::collections::HashMap<String, bool>,
     col_ranges_cache: Option<Vec<(f64, f64)>>,
@@ -127,6 +152,7 @@ impl Default for ParallelCoordsChart {
             show_objectives: true,
             brush_ranges: std::collections::HashMap::new(),
             drag_start: None,
+            brush_drag: None,
             axis_visibility: std::collections::HashMap::new(),
             col_ranges_cache: None,
             cache_key: (0, 0, 0),
@@ -146,6 +172,7 @@ impl ParallelCoordsChart {
     pub fn clear_brushes(&mut self) {
         self.brush_ranges.clear();
         self.drag_start = None;
+        self.brush_drag = None;
         self.pending_selection = None;
     }
 
@@ -325,7 +352,13 @@ impl ParallelCoordsChart {
             None => col_ranges[color_axis_idx],
         };
 
-        // 各試行を折れ線で描画（半透明）
+        // アクティブなブラシが一つでもあれば、選択範囲外の線をグレーアウトする。
+        // ドラッグ中も `brush_ranges` が更新されるためリアルタイムに反映される。
+        let has_active_brush = self.brush_ranges.values().any(|range| range.is_some());
+
+        // 各試行を折れ線で描画（半透明）。
+        // 選択外（グレーアウト）の線を先に描き、選択内の線を最前面に重ねる。
+        let mut selected_polylines: Vec<(Vec<egui::Pos2>, egui::Color32)> = Vec::new();
         for t_idx in 0..trial_count {
             let feasible = is_feasible_col
                 .and_then(|c| c.get(t_idx))
@@ -336,7 +369,13 @@ impl ParallelCoordsChart {
                 continue;
             }
 
-            let color = if feasible {
+            // ブラシがある場合、この試行が全アクティブブラシ範囲を満たすか判定する。
+            let in_selection = !has_active_brush
+                || trial_passes_brushes(t_idx, &self.brush_ranges, &cols, col_ranges, &all_names);
+
+            let color = if !in_selection {
+                COLOR_PARALLEL_LINE_UNSELECTED
+            } else if feasible {
                 // 選択軸の値を [0,1] に正規化し、カラーマップで色を決める
                 let base_color = cols
                     .get(color_axis_idx)
@@ -376,9 +415,20 @@ impl ParallelCoordsChart {
                 points.push(egui::pos2(axis_x[disp], y));
             }
             if valid && points.len() >= 2 {
-                for pair in points.windows(2) {
-                    painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, color));
+                if in_selection && has_active_brush {
+                    // 選択内の線は後でまとめて最前面に描画する
+                    selected_polylines.push((points, color));
+                } else {
+                    for pair in points.windows(2) {
+                        painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, color));
+                    }
                 }
+            }
+        }
+        // 選択内の線を最前面に重ねる
+        for (points, color) in &selected_polylines {
+            for pair in points.windows(2) {
+                painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, *color));
             }
         }
 
@@ -486,16 +536,36 @@ impl ParallelCoordsChart {
                 let norm_y = ((axis_bottom - ptr.y) / (axis_bottom - axis_top)).clamp(0.0, 1.0);
 
                 if response.drag_started() {
+                    // 既存ブラシの内側をつかんだら移動モード、それ以外は新規作成モード。
+                    let existing = self
+                        .brush_ranges
+                        .get(axis_name.as_str())
+                        .and_then(|r| *r)
+                        .filter(|(lo, hi)| norm_y >= *lo && norm_y <= *hi);
+                    self.brush_drag = Some(match existing {
+                        Some(orig_range) => BrushDrag::Move {
+                            grab_norm_y: norm_y,
+                            orig_range,
+                        },
+                        None => BrushDrag::Create,
+                    });
                     self.drag_start = Some((axis_name, norm_y));
                 } else if response.dragged() {
                     if let Some((ref start_name, start_y)) = self.drag_start.clone() {
                         if *start_name == axis_name {
-                            let (lo, hi) = ordered_brush_range(start_y, norm_y);
-                            self.brush_ranges.insert(axis_name, Some((lo, hi)));
+                            let new_range = match self.brush_drag {
+                                Some(BrushDrag::Move {
+                                    grab_norm_y,
+                                    orig_range,
+                                }) => shifted_brush_range(orig_range, norm_y - grab_norm_y),
+                                _ => ordered_brush_range(start_y, norm_y),
+                            };
+                            self.brush_ranges.insert(axis_name, Some(new_range));
                         }
                     }
                 } else if response.drag_stopped() {
                     self.drag_start = None;
+                    self.brush_drag = None;
                     // Compute selection from all active brush ranges
                     let new_sel = filter_trials_by_brushes(
                         &view.trial_ids,
@@ -509,12 +579,72 @@ impl ParallelCoordsChart {
             }
         }
 
+        // 既存ブラシの矩形内をホバー中は「つかんで移動できる」ことを grab カーソルで示す
+        if let Some(ptr) = response.hover_pos() {
+            let hovering_brush = visible.iter().enumerate().any(|(disp, &orig)| {
+                // ブラシ矩形は軸を中心に幅 ±6px（描画時と同じ）
+                if (ptr.x - axis_x[disp]).abs() > 6.0 {
+                    return false;
+                }
+                let name = &all_names[orig];
+                self.brush_ranges
+                    .get(name.as_str())
+                    .and_then(|r| *r)
+                    .map(|(lo, hi)| {
+                        let norm_y =
+                            ((axis_bottom - ptr.y) / (axis_bottom - axis_top)).clamp(0.0, 1.0);
+                        norm_y >= lo && norm_y <= hi
+                    })
+                    .unwrap_or(false)
+            });
+            if hovering_brush {
+                ui.ctx().set_cursor_icon(if response.dragged() {
+                    egui::CursorIcon::Grabbing
+                } else {
+                    egui::CursorIcon::Grab
+                });
+            }
+        }
+
         // Clear brushes on right-click or double-click
         if response.secondary_clicked() || response.double_clicked() {
             self.brush_ranges.clear();
+            self.brush_drag = None;
             self.pending_selection = Some(vec![]); // empty = no selection filter
         }
     }
+}
+
+/// 単一トライアル（行インデックス `t_idx`）が全アクティブブラシ範囲を AND 条件で満たすか判定する。
+/// 値が欠損している軸にアクティブブラシがある場合は不通過（false）とする。
+pub fn trial_passes_brushes(
+    t_idx: usize,
+    brush_ranges: &std::collections::HashMap<String, Option<(f32, f32)>>,
+    cols: &[Option<&[f64]>],
+    col_ranges: &[(f64, f64)],
+    all_names: &[String],
+) -> bool {
+    for (axis_idx, axis_name) in all_names.iter().enumerate() {
+        let Some(Some((lo, hi))) = brush_ranges.get(axis_name.as_str()) else {
+            continue; // no active brush on this axis
+        };
+        let Some(val) = cols
+            .get(axis_idx)
+            .and_then(|c| c.as_ref())
+            .and_then(|c| c.get(t_idx))
+            .copied()
+        else {
+            return false; // missing value but brush is active → excluded
+        };
+        let Some((mn, mx)) = col_ranges.get(axis_idx).copied() else {
+            return false;
+        };
+        let norm = normalize_value(val, mn, mx);
+        if norm < *lo || norm > *hi {
+            return false; // outside brush range
+        }
+    }
+    true
 }
 
 /// 全ブラシ範囲に対して AND 条件でトライアルをフィルタリングし trial_id リストを返す（TASK-2242）
@@ -528,22 +658,11 @@ pub fn filter_trials_by_brushes(
 ) -> Vec<u32> {
     (0..trial_ids.len())
         .filter_map(|t_idx| {
-            for (axis_idx, axis_name) in all_names.iter().enumerate() {
-                let Some(Some((lo, hi))) = brush_ranges.get(axis_name.as_str()) else {
-                    continue; // no active brush on this axis
-                };
-                let val = cols
-                    .get(axis_idx)
-                    .and_then(|c| c.as_ref())
-                    .and_then(|c| c.get(t_idx))
-                    .copied()?;
-                let (mn, mx) = col_ranges.get(axis_idx).copied()?;
-                let norm = normalize_value(val, mn, mx);
-                if norm < *lo || norm > *hi {
-                    return None; // outside brush range
-                }
+            if trial_passes_brushes(t_idx, brush_ranges, cols, col_ranges, all_names) {
+                trial_ids.get(t_idx).copied()
+            } else {
+                None
             }
-            trial_ids.get(t_idx).copied()
         })
         .collect()
 }
@@ -767,6 +886,78 @@ mod tests {
             filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
         assert_eq!(sel.len(), 1);
         assert_eq!(sel[0], 0);
+    }
+
+    #[test]
+    fn shifted_brush_range_moves_within_bounds() {
+        let (lo, hi) = shifted_brush_range((0.2, 0.5), 0.1);
+        assert!((lo - 0.3).abs() < 1e-6);
+        assert!((hi - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn shifted_brush_range_clamps_at_top() {
+        // width 0.3, shift up by 0.4 → would exceed 1.0, clamp so hi == 1.0
+        let (lo, hi) = shifted_brush_range((0.5, 0.8), 0.4);
+        assert!((hi - 1.0).abs() < 1e-6);
+        assert!((lo - 0.7).abs() < 1e-6); // width preserved
+    }
+
+    #[test]
+    fn shifted_brush_range_clamps_at_bottom() {
+        // shift down past 0 → clamp so lo == 0.0, width preserved
+        let (lo, hi) = shifted_brush_range((0.2, 0.5), -0.4);
+        assert!((lo - 0.0).abs() < 1e-6);
+        assert!((hi - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn shifted_brush_range_preserves_width() {
+        let orig = (0.1_f32, 0.6_f32);
+        let (lo, hi) = shifted_brush_range(orig, 0.25);
+        assert!(((hi - lo) - (orig.1 - orig.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn trial_passes_brushes_no_active_brush_passes() {
+        use std::collections::HashMap;
+        let col_data = [vec![2.0, 8.0], vec![5.0, 9.0]];
+        let cols: Vec<Option<&[f64]>> =
+            vec![Some(col_data[0].as_slice()), Some(col_data[1].as_slice())];
+        let col_ranges = vec![(0.0_f64, 10.0_f64), (0.0_f64, 10.0_f64)];
+        let all_names = vec!["x".to_string(), "obj".to_string()];
+        // ブラシ未設定（None のみ）→ 全件通過
+        let mut brush_ranges: HashMap<String, Option<(f32, f32)>> = HashMap::new();
+        brush_ranges.insert("x".to_string(), None);
+        assert!(trial_passes_brushes(
+            0,
+            &brush_ranges,
+            &cols,
+            &col_ranges,
+            &all_names
+        ));
+    }
+
+    #[test]
+    fn trial_passes_brushes_missing_value_with_active_brush_excluded() {
+        use std::collections::HashMap;
+        // axis 1 は値が 1 件しかなく、t_idx=1 は欠損
+        let col_data_x = vec![2.0, 8.0];
+        let col_data_obj = vec![5.0];
+        let cols: Vec<Option<&[f64]>> =
+            vec![Some(col_data_x.as_slice()), Some(col_data_obj.as_slice())];
+        let col_ranges = vec![(0.0_f64, 10.0_f64), (0.0_f64, 10.0_f64)];
+        let all_names = vec!["x".to_string(), "obj".to_string()];
+        let mut brush_ranges: HashMap<String, Option<(f32, f32)>> = HashMap::new();
+        brush_ranges.insert("obj".to_string(), Some((0.0, 1.0)));
+        // t_idx=1 は obj 値が欠損 → ブラシがアクティブなので不通過
+        assert!(!trial_passes_brushes(
+            1,
+            &brush_ranges,
+            &cols,
+            &col_ranges,
+            &all_names
+        ));
     }
 
     #[test]
