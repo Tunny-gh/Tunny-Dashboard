@@ -1,5 +1,8 @@
 //! MCDM Scatter Chart Widget
 
+use std::collections::HashMap;
+
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{
@@ -8,6 +11,9 @@ use crate::theme::chart_colors::{
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::mcdm_chart::McdmControls;
+use crate::ui::widgets::trial_detail_modal::{
+    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+};
 use egui::Color32;
 
 /// 軸識別子定数（get_axis_options と extract_axis_values で共有）
@@ -79,9 +85,13 @@ pub struct McdmScatterChart {
     pub x_axis: String,
     /// Y軸の軸識別子
     pub y_axis: String,
+    /// 点クリックで開くトライアル詳細モーダル。
+    pub detail_modal: TrialDetailModal,
     // --- 内部キャッシュ状態 ---
     display_rows_cache: Option<Vec<(f64, f64, Color32)>>,
     infeasible_cache: Option<Vec<(f64, f64)>>,
+    /// 点クリック判定用の候補（trial_id, 行 index, 座標）。display_rows_cache と同じキーで更新する。
+    hit_candidates: Option<Vec<(u32, usize, [f64; 2])>>,
     metadata: Option<ScatterMetadata>,
     error_message: Option<String>,
     cache_key: Option<CacheKey>,
@@ -93,8 +103,10 @@ impl Default for McdmScatterChart {
             controls: McdmControls::default(),
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
+            detail_modal: TrialDetailModal::new(),
             display_rows_cache: None,
             infeasible_cache: None,
+            hit_candidates: None,
             metadata: None,
             error_message: None,
             cache_key: None,
@@ -117,6 +129,7 @@ impl McdmScatterChart {
     pub fn invalidate_cache(&mut self) {
         self.display_rows_cache = None;
         self.infeasible_cache = None;
+        self.hit_candidates = None;
         self.cache_key = None;
         self.error_message = None;
     }
@@ -174,9 +187,11 @@ impl McdmScatterChart {
         ui: &mut egui::Ui,
         mcdm_result: Option<&McdmResult>,
         view: &StudyView,
+        param_names: &[String],
         obj_names: &[String],
         colormap: &ColorMap,
         colormap_name: &ColormapName,
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         if !self.controls.show_controls(ui, obj_names, "mcdm_scatter") {
             return;
@@ -249,6 +264,13 @@ impl McdmScatterChart {
                     meta.compute_time_ms = start.elapsed().as_secs_f64() * 1000.0;
                     self.display_rows_cache = Some(points);
                     self.infeasible_cache = Some(infeasible);
+                    self.hit_candidates = Some(compute_hit_candidates(
+                        result,
+                        view,
+                        obj_names,
+                        &self.x_axis,
+                        &self.y_axis,
+                    ));
                     self.cache_key = Some(new_key);
                     self.metadata = Some(meta);
                     self.error_message = None;
@@ -257,6 +279,7 @@ impl McdmScatterChart {
                     self.error_message = Some(e);
                     self.display_rows_cache = None;
                     self.infeasible_cache = None;
+                    self.hit_candidates = None;
                     self.cache_key = None;
                 }
             }
@@ -269,17 +292,47 @@ impl McdmScatterChart {
 
         let empty = vec![];
         let infeasible = self.infeasible_cache.as_deref().unwrap_or(&empty);
+        let no_candidates = vec![];
+        let candidates = self.hit_candidates.as_deref().unwrap_or(&no_candidates);
+        let mut clicked_detail: Option<(u32, usize)> = None;
         if let Some(ref points) = self.display_rows_cache {
-            render_scatter_plot(
+            clicked_detail = render_scatter_plot(
                 ui,
                 points,
                 infeasible,
+                candidates,
                 &self.x_axis,
                 &self.y_axis,
                 colormap,
                 top_n,
             );
         }
+
+        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = MCDM ランク・スコア）。
+        if let Some((trial_id, row)) = clicked_detail {
+            let rank_map = build_rank_map(result.ranked_indices(), view.row_count());
+            let rank = rank_map.get(row).copied().unwrap_or(usize::MAX);
+            let rank_str = if rank == usize::MAX {
+                "—".to_string()
+            } else {
+                (rank + 1).to_string()
+            };
+            let score = result.primary_scores().get(row).copied();
+            let mut context = vec![("MCDM Rank".to_string(), rank_str)];
+            context.push((
+                "Score".to_string(),
+                score
+                    .map(|s| format!("{s:.4}"))
+                    .unwrap_or_else(|| "—".to_string()),
+            ));
+            self.detail_modal.open(TrialDetailTarget {
+                trial_id,
+                row_index: row,
+                context,
+            });
+        }
+        self.detail_modal
+            .show(ui, view, param_names, obj_names, artifact_map);
 
         ui.separator();
         if let Some(ref meta) = self.metadata {
@@ -298,16 +351,18 @@ impl McdmScatterChart {
 // 散布図レンダリング
 // ──────────────────────────────────────────────────────────────
 
+/// 散布図を描画し、点がクリックされた場合は `(trial_id, 行 index)` を返す。
 #[allow(clippy::too_many_arguments)]
 fn render_scatter_plot(
     ui: &mut egui::Ui,
     points: &[(f64, f64, Color32)],
     infeasible: &[(f64, f64)],
+    hit_candidates: &[(u32, usize, [f64; 2])],
     x_label: &str,
     y_label: &str,
     colormap: &ColorMap,
     top_n: usize,
-) {
+) -> Option<(u32, usize)> {
     use std::collections::HashMap;
 
     // 未ランク（COLOR_MCDM_NONE）とランク済みを分離
@@ -340,11 +395,19 @@ fn render_scatter_plot(
     // 凡例から表示/非表示を切り替えられるため、常に描画する
     let has_infeasible = !infeasible.is_empty();
 
+    let mut clicked_detail: Option<(u32, usize)> = None;
     egui_plot::Plot::new("mcdm_scatter_plot")
         .x_axis_label(x_label)
         .y_axis_label(y_label)
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
+            // 点クリックで詳細モーダルを開く対象を検出する。
+            let resp = plot_ui.response();
+            if resp.clicked_by(egui::PointerButton::Primary) {
+                clicked_detail = resp
+                    .interact_pointer_pos()
+                    .and_then(|pos| hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD));
+            }
             // 実行不可能解を最背面に描画
             if has_infeasible {
                 let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
@@ -385,6 +448,35 @@ fn render_scatter_plot(
                 );
             }
         });
+    clicked_detail
+}
+
+/// クリック判定用の候補（trial_id, 行 index, 座標）を計算する。
+/// 散布図に描画される有限値の点のみを対象にする（feasible / infeasible を問わない）。
+fn compute_hit_candidates(
+    mcdm_result: &McdmResult,
+    view: &StudyView,
+    obj_names: &[String],
+    x_axis: &str,
+    y_axis: &str,
+) -> Vec<(u32, usize, [f64; 2])> {
+    let (Ok(x_vals), Ok(y_vals)) = (
+        extract_axis_values(x_axis, mcdm_result, view, obj_names),
+        extract_axis_values(y_axis, mcdm_result, view, obj_names),
+    ) else {
+        return Vec::new();
+    };
+    (0..view.row_count())
+        .filter_map(|i| {
+            let x = x_vals.get(i).copied()?;
+            let y = y_vals.get(i).copied()?;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            Some((trial_id, i, [x, y]))
+        })
+        .collect()
 }
 
 // ──────────────────────────────────────────────────────────────
