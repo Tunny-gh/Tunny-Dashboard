@@ -1,7 +1,6 @@
 use crate::state::app_state::{AppState, TrialRow};
 use crate::theme::chart_colors::{
-    COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_NON_PARETO_DIM, COLOR_PARETO,
-    COLOR_PARETO_DIM,
+    COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_UNSELECTED_POINT,
 };
 use crate::theme::color_compute::compute_point_alpha;
 use crate::ui::widgets::trial_detail_modal::{
@@ -117,11 +116,12 @@ impl ParetoScatter2D {
             .get(y_idx)
             .and_then(|name| view.numeric_column(name));
 
-        // パレートフロント(rank==0)と非パレートに分類
+        // パレートフロント(rank==0)と非パレートに分類。
+        // 選択フィルタが有効な場合、選択外は Pareto/非 Pareto を問わず灰色でまとめる
+        // （色相を残すと選択点と紛らわしいため）。
         let mut pareto_pts: Vec<[f64; 2]> = Vec::new();
-        let mut pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts: Vec<[f64; 2]> = Vec::new();
-        let mut non_pareto_pts_dim: Vec<[f64; 2]> = Vec::new();
+        let mut unselected_pts: Vec<[f64; 2]> = Vec::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
         // ブラシ矩形選択・点クリック判定用に (trial_id, 行 index, 点) を保持（行クローンを持たない）
@@ -158,16 +158,13 @@ impl ParetoScatter2D {
             }
 
             let is_selected = compute_point_alpha(trial_id, &selected) == 255;
-            if rank == 0 {
-                if is_selected {
-                    pareto_pts.push(pt);
-                } else {
-                    pareto_pts_dim.push(pt);
-                }
-            } else if is_selected {
-                non_pareto_pts.push(pt);
+            if !is_selected {
+                // 選択外は Pareto/非 Pareto を問わず灰色グループへ
+                unselected_pts.push(pt);
+            } else if rank == 0 {
+                pareto_pts.push(pt);
             } else {
-                non_pareto_pts_dim.push(pt);
+                non_pareto_pts.push(pt);
             }
         }
 
@@ -228,15 +225,16 @@ impl ParetoScatter2D {
                             .radius(2.5),
                     );
                 }
-                // 非パレート（青点）
-                if !non_pareto_pts_dim.is_empty() {
+                // 選択フィルタ外（灰色・背面、Pareto/非 Pareto をまとめる）
+                if !unselected_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(non_pareto_pts_dim)
-                            .name("Others")
-                            .color(COLOR_NON_PARETO_DIM)
+                        egui_plot::Points::new(unselected_pts)
+                            .name("Others (unselected)")
+                            .color(COLOR_UNSELECTED_POINT)
                             .radius(2.5),
                     );
                 }
+                // 非パレート（青点）
                 if !non_pareto_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new(non_pareto_pts)
@@ -246,14 +244,6 @@ impl ParetoScatter2D {
                     );
                 }
                 // パレートフロント（赤丸 + 赤線）
-                if !pareto_pts_dim.is_empty() {
-                    plot_ui.points(
-                        egui_plot::Points::new(pareto_pts_dim)
-                            .name("Pareto Front")
-                            .color(COLOR_PARETO_DIM)
-                            .radius(4.0),
-                    );
-                }
                 if !pareto_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new(pareto_pts)
