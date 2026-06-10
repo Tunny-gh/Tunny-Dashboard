@@ -104,7 +104,7 @@ pub fn compute_pdp(
         let target_idx = param_names.iter().position(|p| p == param_name)?;
         let _ = objective_names.iter().position(|o| o == objective_name)?;
 
-        let (x_matrix, y) = extract_xy(df, &param_names, objective_name);
+        let (x_matrix, y) = extract_xy(df, &param_names, objective_name, false);
 
         Some(compute_pdp_from_matrix(
             &x_matrix,
@@ -124,6 +124,7 @@ pub fn compute_pdp_2d(
     objective_name: &str,
     n_grid: usize,
     model_type: &str,
+    feasible_only: bool,
 ) -> Option<PdpResult2d> {
     crate::dataframe::with_active_df(|df| {
         let param_names = df.param_col_names().to_vec();
@@ -133,7 +134,7 @@ pub fn compute_pdp_2d(
         let p2_idx = param_names.iter().position(|p| p == param2_name)?;
         let _ = objective_names.iter().position(|o| o == objective_name)?;
 
-        let (x_matrix, y) = extract_xy(df, &param_names, objective_name);
+        let (x_matrix, y) = extract_xy(df, &param_names, objective_name, feasible_only);
 
         match model_type {
             "random_forest" => {

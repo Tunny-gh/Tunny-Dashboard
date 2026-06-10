@@ -84,7 +84,7 @@ impl OptimizationHistoryChart {
             .map(|d| matches!(d, Direction::Minimize))
             .unwrap_or(true);
 
-        let is_feasible_col = view.numeric_column("is_feasible");
+        let feas = view.feasibility();
 
         // All Trials / Best Value / Infeasible は常に描画する（表示のオン/オフは
         // チャート凡例のクリックで切り替えられる）。トグルは Moving Average /
@@ -131,8 +131,7 @@ impl OptimizationHistoryChart {
         let window_size = self.window_size;
 
         // All Trials の feasible / infeasible 分割（制約あり Study のみ分岐）
-        let (feasible_vals, infeasible_vals) =
-            partition_history_by_feasibility(&values, is_feasible_col);
+        let (feasible_vals, infeasible_vals) = partition_history_by_feasibility(&values, feas);
 
         let mut plot =
             egui_plot::Plot::new("optimization_history_plot").legend(egui_plot::Legend::default());
@@ -236,20 +235,16 @@ impl OptimizationHistoryChart {
 }
 
 /// feasibility に基づいて目的値列を feasible / infeasible 点列に分割する。
-/// `is_feasible_col` が None（制約なし Study）の場合は全点を feasible に分類する。
+/// 制約なし Study（feas.has_constraints() == false）の場合は全点を feasible に分類する。
 /// 戻り値: (feasible_pts, infeasible_pts) いずれも [trial_idx, value] 形式。
 pub fn partition_history_by_feasibility(
     values: &[f64],
-    is_feasible_col: Option<&[f64]>,
+    feas: tunny_core::dataframe::Feasibility<'_>,
 ) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
     let mut feasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
     let mut infeasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
     for (i, &v) in values.iter().enumerate() {
-        let feas = is_feasible_col
-            .and_then(|c| c.get(i))
-            .map(|&f| f > 0.5)
-            .unwrap_or(true);
-        if feas {
+        if feas.is_feasible(i) {
             feasible.push([i as f64, v]);
         } else {
             infeasible.push([i as f64, v]);
@@ -386,17 +381,21 @@ mod tests {
 
     #[test]
     fn tc_cav_partition_history_no_constraints_all_feasible() {
+        use tunny_core::dataframe::Feasibility;
         let values = vec![1.0, 2.0, 3.0];
-        let (f, inf) = partition_history_by_feasibility(&values, None);
+        let feas = Feasibility::from_column(None);
+        let (f, inf) = partition_history_by_feasibility(&values, feas);
         assert_eq!(f.len(), 3);
         assert!(inf.is_empty());
     }
 
     #[test]
     fn tc_cav_partition_history_mixed() {
+        use tunny_core::dataframe::Feasibility;
         let values = vec![1.0, 2.0, 3.0];
         let is_feasible = vec![1.0_f64, 0.0, 1.0]; // idx 1 = infeasible
-        let (f, inf) = partition_history_by_feasibility(&values, Some(&is_feasible));
+        let feas = Feasibility::from_column(Some(&is_feasible));
+        let (f, inf) = partition_history_by_feasibility(&values, feas);
         assert_eq!(f.len(), 2);
         assert_eq!(inf.len(), 1);
         assert_eq!(inf[0][0], 1.0); // trial_idx=1
@@ -405,9 +404,11 @@ mod tests {
 
     #[test]
     fn tc_cav_partition_history_all_infeasible() {
+        use tunny_core::dataframe::Feasibility;
         let values = vec![1.0, 2.0];
         let is_feasible = vec![0.0_f64, 0.0];
-        let (f, inf) = partition_history_by_feasibility(&values, Some(&is_feasible));
+        let feas = Feasibility::from_column(Some(&is_feasible));
+        let (f, inf) = partition_history_by_feasibility(&values, feas);
         assert!(f.is_empty());
         assert_eq!(inf.len(), 2);
     }

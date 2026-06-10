@@ -87,8 +87,8 @@ impl ScatterMatrix {
             .map(|name| view.numeric_column(name).unwrap_or(&[]))
             .collect();
 
-        let is_feasible_col = view.numeric_column("is_feasible");
-        let has_constraints = is_feasible_col.is_some();
+        let feas = view.feasibility();
+        let has_constraints = feas.has_constraints();
 
         // "Show Infeasible" トグル（制約あり Study のみ表示）
         if has_constraints {
@@ -97,8 +97,7 @@ impl ScatterMatrix {
             });
         }
 
-        let (feasible_indices, infeasible_indices) =
-            split_feasibility_indices(trial_count, is_feasible_col);
+        let (feasible_indices, infeasible_indices) = split_feasibility_indices(trial_count, feas);
         let show_infeasible = self.show_infeasible;
 
         // 描画パフォーマンス対策: セルあたりの表示点数に上限を設ける。
@@ -267,30 +266,16 @@ impl ScatterMatrix {
     }
 }
 
-/// is_feasible 列から infeasible / feasible インデックスリストを構築する。
-/// `is_feasible_col` が None の場合は全件を feasible 扱いとする。
+/// feasibility から feasible / infeasible インデックスリストを構築する。
+/// 制約なし Study（feas.has_constraints() == false）の場合は全件を feasible 扱いとする。
 pub fn split_feasibility_indices(
     n: usize,
-    is_feasible_col: Option<&[f64]>,
+    feas: tunny_core::dataframe::Feasibility<'_>,
 ) -> (Vec<u32>, Vec<u32>) {
-    match is_feasible_col {
-        None => {
-            let all: Vec<u32> = (0..n as u32).collect();
-            (all, vec![])
-        }
-        Some(col) => {
-            let mut feasible = Vec::with_capacity(n);
-            let mut infeasible = Vec::with_capacity(n);
-            for i in 0..n {
-                if col.get(i).map(|&v| v > 0.5).unwrap_or(true) {
-                    feasible.push(i as u32);
-                } else {
-                    infeasible.push(i as u32);
-                }
-            }
-            (feasible, infeasible)
-        }
-    }
+    let (f_idx, inf_idx) = feas.partition_indices(n);
+    let feasible: Vec<u32> = f_idx.into_iter().map(|i| i as u32).collect();
+    let infeasible: Vec<u32> = inf_idx.into_iter().map(|i| i as u32).collect();
+    (feasible, infeasible)
 }
 
 /// インデックス列を最大 `cap` 件まで均等間引きする。
@@ -509,23 +494,29 @@ mod tests {
 
     #[test]
     fn tc_cav_split_feasibility_no_constraints_all_feasible() {
-        let (f, inf) = split_feasibility_indices(3, None);
+        use tunny_core::dataframe::Feasibility;
+        let feas = Feasibility::from_column(None);
+        let (f, inf) = split_feasibility_indices(3, feas);
         assert_eq!(f, vec![0, 1, 2]);
         assert!(inf.is_empty());
     }
 
     #[test]
     fn tc_cav_split_feasibility_mixed() {
+        use tunny_core::dataframe::Feasibility;
         let col = vec![1.0_f64, 0.0, 1.0];
-        let (f, inf) = split_feasibility_indices(3, Some(&col));
+        let feas = Feasibility::from_column(Some(&col));
+        let (f, inf) = split_feasibility_indices(3, feas);
         assert_eq!(f, vec![0, 2]);
         assert_eq!(inf, vec![1]);
     }
 
     #[test]
     fn tc_cav_split_feasibility_all_infeasible() {
+        use tunny_core::dataframe::Feasibility;
         let col = vec![0.0_f64, 0.0];
-        let (f, inf) = split_feasibility_indices(2, Some(&col));
+        let feas = Feasibility::from_column(Some(&col));
+        let (f, inf) = split_feasibility_indices(2, feas);
         assert!(f.is_empty());
         assert_eq!(inf, vec![0, 1]);
     }

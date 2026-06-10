@@ -4,6 +4,7 @@ use crate::ui::widget_states::{SurfacePlotComputeRequest, SurfacePlotState};
 
 const MIN_TRIALS_FOR_SURFACE: usize = 10;
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut SurfacePlotState,
@@ -11,6 +12,7 @@ pub fn show(
     obj_names: &[String],
     cmap: ColorMap,
     trial_count: usize,
+    has_constraints: bool,
 ) {
     // Parameter X selector
     ui.horizontal(|ui| {
@@ -72,6 +74,13 @@ pub fn show(
         {
             state.render_mode = SurfacePlotRenderMode::Contour;
         }
+
+        // 実行可能解フィルタ（制約付きスタディのみ）
+        if has_constraints {
+            ui.separator();
+            ui.toggle_value(&mut state.feasible_only, "Feasible only")
+                .on_hover_text("Fit the model using feasible trials only");
+        }
     });
 
     // Same param warning
@@ -111,6 +120,7 @@ pub fn show(
                 param_y: state.selected_y.clone(),
                 objective: obj_name.clone(),
                 n_grid: 20,
+                feasible_only: state.feasible_only,
             });
         }
     }
@@ -311,6 +321,7 @@ mod tests {
             computing: false,
             result: None,
             error_message: None,
+            feasible_only: false,
             pending_compute: None,
         }
     }
@@ -329,6 +340,7 @@ mod tests {
                     param_y: state.selected_y.clone(),
                     objective: obj_name.clone(),
                     n_grid: 20,
+                    feasible_only: state.feasible_only,
                 });
             }
         }
@@ -356,6 +368,7 @@ mod tests {
                 param_y: "x2".to_string(),
                 objective: "obj0".to_string(),
                 n_grid: 20,
+                feasible_only: false,
             });
         }
         assert!(state.pending_compute.is_none());

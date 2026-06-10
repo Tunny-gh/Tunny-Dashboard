@@ -127,7 +127,7 @@ impl ParetoScatter2D {
         // ブラシ矩形選択・点クリック判定用に (trial_id, 行 index, 点) を保持（行クローンを持たない）
         let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
 
-        let is_feasible_col = view.numeric_column("is_feasible");
+        let feas = view.feasibility();
 
         let displayed: Vec<usize> = match downsample_indices.as_deref() {
             Some(idx) => idx.iter().map(|&i| i as usize).filter(|&i| i < n).collect(),
@@ -140,10 +140,7 @@ impl ParetoScatter2D {
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
             displayed_points.push((trial_id, i, pt));
 
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
+            let feasible = feas.is_feasible(i);
 
             if !feasible {
                 infeasible_pts.push(pt);
@@ -264,15 +261,12 @@ impl ParetoScatter2D {
             });
 
         // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
-        // app_state を可変借用する前に view / is_feasible_col の不変借用を使い切る。
+        // app_state を可変借用する前に view / feas の不変借用を使い切る。
         if let Some((trial_id, row)) = clicked_detail {
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(row))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
+            let feasible = feas.is_feasible(row);
             let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
-            if is_feasible_col.is_some() {
+            if feas.has_constraints() {
                 context.push((
                     "Feasible".to_string(),
                     if feasible { "Yes" } else { "No" }.to_string(),
@@ -335,18 +329,18 @@ pub fn point_in_rect(pt: [f64; 2], corner1: [f64; 2], corner2: [f64; 2]) -> bool
 }
 
 /// 表示インデックスを feasible / infeasible に分類する。
-/// is_feasible_col が None（制約なし Study）の場合は全件を feasible に分類する。
+/// 制約なし Study（feas.has_constraints() == false）の場合は全件を feasible に分類する。
 pub fn classify_by_feasibility(
-    is_feasible_col: Option<&[f64]>,
+    feas: tunny_core::dataframe::Feasibility<'_>,
     indices: &[usize],
 ) -> (Vec<usize>, Vec<usize>) {
-    let Some(col) = is_feasible_col else {
+    if !feas.has_constraints() {
         return (indices.to_vec(), vec![]);
-    };
+    }
     let mut feasible = Vec::with_capacity(indices.len());
     let mut infeasible = Vec::with_capacity(indices.len());
     for &i in indices {
-        if col.get(i).map(|&v| v > 0.5).unwrap_or(true) {
+        if feas.is_feasible(i) {
             feasible.push(i);
         } else {
             infeasible.push(i);
@@ -558,36 +552,44 @@ mod tests {
 
     #[test]
     fn tc_cav_classify_no_constraint_all_feasible() {
+        use tunny_core::dataframe::Feasibility;
         let indices = vec![0usize, 1, 2];
-        let (feasible, infeasible) = classify_by_feasibility(None, &indices);
+        let feas = Feasibility::from_column(None);
+        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
         assert_eq!(feasible.len(), 3);
         assert!(infeasible.is_empty());
     }
 
     #[test]
     fn tc_cav_classify_mixed_feasibility() {
+        use tunny_core::dataframe::Feasibility;
         // is_feasible: [1.0, 0.0, 1.0] → idx 0,2 feasible; idx 1 infeasible
         let col = vec![1.0f64, 0.0, 1.0];
         let indices = vec![0usize, 1, 2];
-        let (feasible, infeasible) = classify_by_feasibility(Some(&col), &indices);
+        let feas = Feasibility::from_column(Some(&col));
+        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
         assert_eq!(feasible, vec![0, 2]);
         assert_eq!(infeasible, vec![1]);
     }
 
     #[test]
     fn tc_cav_classify_all_infeasible() {
+        use tunny_core::dataframe::Feasibility;
         let col = vec![0.0f64, 0.0, 0.0];
         let indices = vec![0usize, 1, 2];
-        let (feasible, infeasible) = classify_by_feasibility(Some(&col), &indices);
+        let feas = Feasibility::from_column(Some(&col));
+        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
         assert!(feasible.is_empty());
         assert_eq!(infeasible.len(), 3);
     }
 
     #[test]
     fn tc_cav_classify_all_feasible_with_constraint_col() {
+        use tunny_core::dataframe::Feasibility;
         let col = vec![1.0f64, 1.0, 1.0];
         let indices = vec![0usize, 1, 2];
-        let (feasible, infeasible) = classify_by_feasibility(Some(&col), &indices);
+        let feas = Feasibility::from_column(Some(&col));
+        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
         assert_eq!(feasible.len(), 3);
         assert!(infeasible.is_empty());
     }

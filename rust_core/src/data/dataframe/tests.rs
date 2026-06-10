@@ -108,6 +108,80 @@ fn tc_102_06_constraint_columns() {
 }
 
 #[test]
+fn filter_feasible_keeps_only_feasible_rows() {
+    // c <= 0 が実行可能（Optuna 規約）。row0/row2 が実行可能。
+    let mut rows = vec![
+        make_trial(&[("x", 1.0)], vec![10.0]),
+        make_trial(&[("x", 2.0)], vec![20.0]),
+        make_trial(&[("x", 3.0)], vec![30.0]),
+    ];
+    rows[0].constraint_values = vec![-1.0];
+    rows[1].constraint_values = vec![0.5];
+    rows[2].constraint_values = vec![0.0];
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.trial_id = i as u32;
+    }
+    let df = DataFrame::from_trials(
+        &rows,
+        &["x".to_string()],
+        &["obj0".to_string()],
+        &[],
+        &[],
+        1,
+    );
+
+    let filtered = df.filter_feasible();
+    assert_eq!(filtered.row_count(), 2);
+    assert_eq!(filtered.get_trial_id(0), Some(0));
+    assert_eq!(filtered.get_trial_id(1), Some(2));
+    let x = filtered.get_numeric_column("x").expect("x column");
+    assert_eq!(x, &vec![1.0, 3.0]);
+    let obj = filtered.get_numeric_column("obj0").expect("obj0 column");
+    assert_eq!(obj, &vec![10.0, 30.0]);
+    // 列名リストは維持される
+    assert_eq!(filtered.param_col_names(), df.param_col_names());
+    assert_eq!(filtered.objective_col_names(), df.objective_col_names());
+}
+
+#[test]
+fn filter_feasible_without_constraints_returns_all_rows() {
+    let rows = vec![
+        make_trial(&[("x", 1.0)], vec![10.0]),
+        make_trial(&[("x", 2.0)], vec![20.0]),
+    ];
+    let df = DataFrame::from_trials(
+        &rows,
+        &["x".to_string()],
+        &["obj0".to_string()],
+        &[],
+        &[],
+        0,
+    );
+    let filtered = df.filter_feasible();
+    assert_eq!(filtered.row_count(), 2);
+}
+
+#[test]
+fn filter_feasible_all_infeasible_returns_empty() {
+    let mut rows = vec![make_trial(&[("x", 1.0)], vec![10.0])];
+    rows[0].constraint_values = vec![1.0];
+    let df = DataFrame::from_trials(
+        &rows,
+        &["x".to_string()],
+        &["obj0".to_string()],
+        &[],
+        &[],
+        1,
+    );
+    let filtered = df.filter_feasible();
+    assert_eq!(filtered.row_count(), 0);
+    assert!(filtered
+        .get_numeric_column("x")
+        .expect("x column")
+        .is_empty());
+}
+
+#[test]
 fn tc_102_07_positions_buffer_size() {
     let rows = vec![
         make_trial(&[], vec![1.0, 2.0]),

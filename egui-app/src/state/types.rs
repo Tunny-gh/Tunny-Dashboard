@@ -194,6 +194,12 @@ impl StudyView {
         self.df.get_numeric_column(name)
     }
 
+    /// 実行可能性ビュー。`is_feasible` 列の有無・閾値・
+    /// 「列なし = 全行実行可能」のフォールバック判定を一元化する。
+    pub fn feasibility(&self) -> tunny_core::dataframe::Feasibility<'_> {
+        self.df.feasibility()
+    }
+
     /// 複数の列名をまとめて借用スライスへ解決する（None は欠損列）。
     pub fn numeric_columns(&self, names: &[String]) -> Vec<Option<&[f64]>> {
         names.iter().map(|name| self.numeric_column(name)).collect()

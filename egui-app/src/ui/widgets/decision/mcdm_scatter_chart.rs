@@ -733,7 +733,7 @@ pub(crate) fn compute_scatter_points(
 
     let x_vals = extract_axis_values(x_axis, mcdm_result, view, obj_names)?;
     let y_vals = extract_axis_values(y_axis, mcdm_result, view, obj_names)?;
-    let is_feasible_col = view.numeric_column("is_feasible");
+    let feas = view.feasibility();
 
     let ranked = mcdm_result.ranked_indices();
     let rank_map = build_rank_map(ranked, n_trials);
@@ -753,12 +753,7 @@ pub(crate) fn compute_scatter_points(
             _ => continue,
         };
 
-        let feasible = is_feasible_col
-            .and_then(|c| c.get(i))
-            .map(|&v| v > 0.5)
-            .unwrap_or(true);
-
-        if !feasible {
+        if !feas.is_feasible(i) {
             infeasible_pts.push((x, y));
             continue;
         }

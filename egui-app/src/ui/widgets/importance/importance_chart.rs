@@ -92,7 +92,10 @@ pub struct ImportanceChart {
     pub metric: ImportanceMetric,
     pub computing: bool,
     pub objective_index: usize,
-    pub pending_compute: Option<(ImportanceMetric, usize)>,
+    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    pub feasible_only: bool,
+    /// 計算要求 (手法, 目的 idx, feasible_only)。poll_chart が消費する。
+    pub pending_compute: Option<(ImportanceMetric, usize, bool)>,
 }
 
 impl Default for ImportanceChart {
@@ -101,6 +104,7 @@ impl Default for ImportanceChart {
             metric: ImportanceMetric::Spearman,
             computing: false,
             objective_index: 0,
+            feasible_only: false,
             pending_compute: None,
         }
     }
@@ -121,11 +125,13 @@ impl ImportanceChart {
         sensitivity: Option<&SensitivityResult>,
         sobol: Option<&SobolResult>,
         obj_names: &[String],
+        has_constraints: bool,
     ) {
         // Run ボタン + メトリクスコンボボックス + 目的関数コンボボックス + spinner + R²（右端）
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
-                self.pending_compute = Some((self.metric, self.objective_index));
+                self.pending_compute =
+                    Some((self.metric, self.objective_index, self.feasible_only));
                 self.computing = true;
             }
 
@@ -194,6 +200,12 @@ impl ImportanceChart {
                             ui.selectable_value(&mut self.objective_index, i, name);
                         }
                     });
+            }
+
+            // 実行可能解フィルタ（制約付きスタディのみ）
+            if has_constraints {
+                ui.toggle_value(&mut self.feasible_only, "Feasible only")
+                    .on_hover_text("Fit the model using feasible trials only");
             }
 
             if self.computing {
@@ -583,6 +595,7 @@ mod tests {
         assert_eq!(chart.metric, ImportanceMetric::Spearman);
         assert!(!chart.computing);
         assert_eq!(chart.objective_index, 0);
+        assert!(!chart.feasible_only);
         assert!(chart.pending_compute.is_none());
     }
 

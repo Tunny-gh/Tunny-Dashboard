@@ -140,14 +140,20 @@ pub(crate) fn render_chart(
             let imp_key = (
                 widgets.importance.metric.cache_id(),
                 widgets.importance.objective_index,
+                widgets.importance.feasible_only,
             );
             let current_sensitivity = app_state.importance_cache.get(&imp_key);
-            let current_sobol = app_state
-                .sobol_cache
-                .get(&widgets.importance.objective_index);
-            widgets
-                .importance
-                .show(ui, current_sensitivity, current_sobol, obj_names);
+            let current_sobol = app_state.sobol_cache.get(&(
+                widgets.importance.objective_index,
+                widgets.importance.feasible_only,
+            ));
+            widgets.importance.show(
+                ui,
+                current_sensitivity,
+                current_sobol,
+                obj_names,
+                ctx.view.feasibility().has_constraints(),
+            );
         }
         ChartId::PdpChart => {
             widgets.pdp_chart.show(
@@ -188,9 +194,14 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::SensitivityHeatmap => {
-            let metric_id = widgets.sensitivity_heatmap.metric.cache_id();
-            let matrix = app_state.sensitivity_heatmap_cache.get(&metric_id);
-            widgets.sensitivity_heatmap.show(ui, matrix);
+            let key = (
+                widgets.sensitivity_heatmap.metric.cache_id(),
+                widgets.sensitivity_heatmap.feasible_only,
+            );
+            let matrix = app_state.sensitivity_heatmap_cache.get(&key);
+            widgets
+                .sensitivity_heatmap
+                .show(ui, matrix, ctx.view.feasibility().has_constraints());
         }
         ChartId::ClusterScatter => {
             let key = widgets.cluster_scatter.cache_key();
@@ -255,6 +266,7 @@ pub(crate) fn render_chart(
                 obj_names,
                 cmap,
                 trial_count,
+                ctx.view.feasibility().has_constraints(),
             );
         }
         ChartId::SurrogateOpt => {

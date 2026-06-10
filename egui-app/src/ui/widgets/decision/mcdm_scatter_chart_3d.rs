@@ -156,7 +156,7 @@ impl McdmScatterChart3D {
         }
         let colored_range = top_n.max(1);
 
-        let is_feasible_col = view.numeric_column("is_feasible");
+        let feas = view.feasibility();
         let mut clip_pts: Vec<([f32; 3], Color32)> = Vec::with_capacity(n_trials);
         let mut infeasible_clip_pts: Vec<[f32; 3]> = Vec::new();
 
@@ -177,12 +177,7 @@ impl McdmScatterChart3D {
             let cy = normalize_to_clip(y, y_range.0, y_range.1);
             let cz = normalize_to_clip(z, z_range.0, z_range.1);
 
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
-
-            if !feasible {
+            if !feas.is_feasible(i) {
                 infeasible_clip_pts.push([cx, cy, cz]);
                 continue;
             }
@@ -298,7 +293,7 @@ impl McdmScatterChart3D {
         });
 
         let n_trials = view.row_count();
-        let has_constraints = view.numeric_column("is_feasible").is_some();
+        let has_constraints = view.feasibility().has_constraints();
 
         // キャッシュ再構築
         if self.is_cache_stale(n_trials, result, colormap_name, top_n) {

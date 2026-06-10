@@ -93,14 +93,18 @@ impl MessageHandler {
                 app_state.importance_cache.insert(key, result);
                 widget_states.importance.computing = false;
             }
-            AppMessage::SensitivityHeatmapDone { metric, result } => {
+            AppMessage::SensitivityHeatmapDone {
+                metric,
+                feasible_only,
+                result,
+            } => {
                 app_state
                     .sensitivity_heatmap_cache
-                    .insert(metric.cache_id(), result);
+                    .insert((metric.cache_id(), feasible_only), result);
                 widget_states.sensitivity_heatmap.computing = false;
             }
-            AppMessage::SobolDone { obj_idx, result } => {
-                app_state.sobol_cache.insert(obj_idx, result);
+            AppMessage::SobolDone { key, result } => {
+                app_state.sobol_cache.insert(key, result);
                 widget_states.importance.computing = false;
             }
             AppMessage::ClusteringDone {
@@ -187,6 +191,7 @@ impl MessageHandler {
                 param,
                 objective,
                 model_type,
+                feasible_only,
                 result,
             } => {
                 // キャッシュに挿入してから result を設定
@@ -195,6 +200,7 @@ impl MessageHandler {
                         &param,
                         &objective,
                         &model_type,
+                        feasible_only,
                         r1d.clone(),
                     );
                 }

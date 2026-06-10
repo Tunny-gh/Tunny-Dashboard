@@ -59,6 +59,8 @@ pub struct PdpComputeRequest {
     pub objective: String,
     pub n_grid: usize,
     pub model_type: String,
+    /// 実行可能解（is_feasible > 0.5）のみでモデルをフィットするか
+    pub feasible_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,8 +105,16 @@ impl ModelType {
 }
 
 /// PDP キャッシュキーを生成する
-pub fn cache_key(param: &str, objective: &str, model_type_str: &str) -> String {
-    format!("{}:{}:{}", param, objective, model_type_str)
+pub fn cache_key(
+    param: &str,
+    objective: &str,
+    model_type_str: &str,
+    feasible_only: bool,
+) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        param, objective, model_type_str, feasible_only
+    )
 }
 
 /// R² 値の品質分類を返す
@@ -158,7 +168,7 @@ pub fn extract_observed(
     let (Some(params), Some(objs)) = (param_col, obj_col) else {
         return vec![];
     };
-    let is_feasible_col = view.numeric_column("is_feasible");
+    let feas = view.feasibility();
 
     let use_filter = !selected_indices.is_empty();
     let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
@@ -175,12 +185,8 @@ pub fn extract_observed(
             if !x.is_finite() || !y.is_finite() {
                 return None;
             }
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            Some(([x, y], classify_observed(feasible, rank)))
+            Some(([x, y], classify_observed(feas.is_feasible(i), rank)))
         })
         .collect()
 }
@@ -195,6 +201,8 @@ pub struct PdpChart {
     pub computing: bool,
     pub cache: HashMap<String, PdpResult1d>,
     pub show_observed: bool,
+    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    pub feasible_only: bool,
     pub pending_compute: Option<PdpComputeRequest>,
 }
 
@@ -209,6 +217,7 @@ impl Default for PdpChart {
             computing: false,
             cache: HashMap::new(),
             show_observed: false,
+            feasible_only: false,
             pending_compute: None,
         }
     }
@@ -217,7 +226,12 @@ impl Default for PdpChart {
 impl PdpChart {
     /// キャッシュを確認して結果を返す。キャッシュミスの場合は None を返す
     pub fn try_cache(&self, objective: &str) -> Option<&PdpResult1d> {
-        let key = cache_key(&self.selected_param, objective, self.model_type.to_str());
+        let key = cache_key(
+            &self.selected_param,
+            objective,
+            self.model_type.to_str(),
+            self.feasible_only,
+        );
         self.cache.get(&key)
     }
 
@@ -237,9 +251,10 @@ impl PdpChart {
         param: &str,
         objective: &str,
         model_type_str: &str,
+        feasible_only: bool,
         result: PdpResult1d,
     ) {
-        let key = cache_key(param, objective, model_type_str);
+        let key = cache_key(param, objective, model_type_str, feasible_only);
         self.cache.insert(key, result);
     }
 }
@@ -295,6 +310,12 @@ impl PdpChart {
             ui.separator();
             ui.toggle_value(&mut self.show_observed, "Show data");
 
+            // 実行可能解フィルタ（制約付きスタディのみ）
+            if view.feasibility().has_constraints() {
+                ui.toggle_value(&mut self.feasible_only, "Feasible only")
+                    .on_hover_text("Fit the model using feasible trials only");
+            }
+
             // Run ボタン
             ui.separator();
             let can_run =
@@ -305,8 +326,12 @@ impl PdpChart {
             {
                 if let Some(obj_name) = obj_names.get(self.selected_objective) {
                     // キャッシュヒットの場合は再計算せずにキャッシュから結果を取得
-                    let cache_key_str =
-                        cache_key(&self.selected_param, obj_name, self.model_type.to_str());
+                    let cache_key_str = cache_key(
+                        &self.selected_param,
+                        obj_name,
+                        self.model_type.to_str(),
+                        self.feasible_only,
+                    );
                     if let Some(cached) = self.cache.get(&cache_key_str) {
                         self.result = Some(PdpResult::OneDim(cached.clone()));
                     } else {
@@ -320,6 +345,7 @@ impl PdpChart {
                             objective: obj_name.clone(),
                             n_grid,
                             model_type: self.model_type.to_str().to_string(),
+                            feasible_only: self.feasible_only,
                         });
                     }
                 }
@@ -476,6 +502,7 @@ mod tests {
             "x0",
             "obj0",
             ModelType::Ridge.to_str(),
+            false,
             PdpResult1d {
                 x_values: vec![0.0, 1.0],
                 y_values: vec![1.0, 2.0],
@@ -554,6 +581,7 @@ mod tests {
         assert!(!chart.computing);
         assert!(chart.result.is_none());
         assert!(chart.cache.is_empty());
+        assert!(!chart.feasible_only);
     }
 
     // TASK-2062 tests
@@ -628,22 +656,30 @@ mod tests {
 
     #[test]
     fn cache_key_same_inputs_produce_same_key() {
-        let k1 = cache_key("x", "obj0", "Ridge");
-        let k2 = cache_key("x", "obj0", "Ridge");
+        let k1 = cache_key("x", "obj0", "Ridge", false);
+        let k2 = cache_key("x", "obj0", "Ridge", false);
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn cache_key_different_model_produces_different_key() {
-        let k1 = cache_key("x", "obj0", "Ridge");
-        let k2 = cache_key("x", "obj0", "Kriging");
+        let k1 = cache_key("x", "obj0", "Ridge", false);
+        let k2 = cache_key("x", "obj0", "Kriging", false);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn cache_key_different_param_produces_different_key() {
-        let k1 = cache_key("x", "obj0", "Ridge");
-        let k2 = cache_key("y", "obj0", "Ridge");
+        let k1 = cache_key("x", "obj0", "Ridge", false);
+        let k2 = cache_key("y", "obj0", "Ridge", false);
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn cache_key_different_feasible_flag_produces_different_key() {
+        // feasible_only の切替で別キャッシュエントリになる（stale ヒット防止）
+        let k1 = cache_key("x", "obj0", "Ridge", false);
+        let k2 = cache_key("x", "obj0", "Ridge", true);
         assert_ne!(k1, k2);
     }
 
@@ -664,7 +700,7 @@ mod tests {
             param_name: "x".to_string(),
             objective_name: "obj0".to_string(),
         };
-        chart.insert_cache("x", "obj0", "ridge", result);
+        chart.insert_cache("x", "obj0", "ridge", false, result);
         assert!(chart.try_cache("obj0").is_some());
     }
 

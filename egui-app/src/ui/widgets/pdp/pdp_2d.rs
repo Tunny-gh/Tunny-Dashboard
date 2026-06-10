@@ -20,6 +20,8 @@ pub struct Pdp2dComputeRequest {
     pub objective: String,
     pub n_grid: usize,
     pub model_type: String,
+    /// 実行可能解（is_feasible > 0.5）のみでモデルをフィットするか
+    pub feasible_only: bool,
 }
 
 /// PDP 2D ウィジェット状態
@@ -36,6 +38,8 @@ pub struct PdpChart2DState {
     pub show_uncertainty: bool,
     /// 観測データ（サンプリング点）をサーフェスに重ねて表示するか
     pub show_observed: bool,
+    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    pub feasible_only: bool,
 }
 
 impl Default for PdpChart2DState {
@@ -54,6 +58,7 @@ impl Default for PdpChart2DState {
             },
             show_uncertainty: true,
             show_observed: false,
+            feasible_only: false,
         }
     }
 }
@@ -133,6 +138,12 @@ impl PdpChart2DState {
             // 観測データ表示トグル（1D PDP と同じ操作感）
             ui.separator();
             ui.toggle_value(&mut self.show_observed, "Show data");
+
+            // 実行可能解フィルタ（制約付きスタディのみ）
+            if view.feasibility().has_constraints() {
+                ui.toggle_value(&mut self.feasible_only, "Feasible only")
+                    .on_hover_text("Fit the model using feasible trials only");
+            }
         });
 
         // 同一パラメータ警告
@@ -159,6 +170,7 @@ impl PdpChart2DState {
                     objective: obj_name.clone(),
                     n_grid,
                     model_type: self.selected_model.to_str().to_string(),
+                    feasible_only: self.feasible_only,
                 });
             }
         }
@@ -330,7 +342,7 @@ pub fn extract_observed_3d(
     ) else {
         return vec![];
     };
-    let is_feasible_col = view.numeric_column("is_feasible");
+    let feas = view.feasibility();
 
     let use_filter = !selected_indices.is_empty();
     let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
@@ -348,12 +360,8 @@ pub fn extract_observed_3d(
             if !p1.is_finite() || !p2.is_finite() || !ov.is_finite() {
                 return None;
             }
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            Some(([p1, p2, ov], classify_observed(feasible, rank)))
+            Some(([p1, p2, ov], classify_observed(feas.is_feasible(i), rank)))
         })
         .collect()
 }
@@ -756,6 +764,7 @@ mod tests {
         assert!(!s.camera.is_identity_rotation());
         assert!(s.show_uncertainty);
         assert!(!s.show_observed);
+        assert!(!s.feasible_only);
     }
 
     #[test]

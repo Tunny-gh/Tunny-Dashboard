@@ -79,7 +79,7 @@ impl ClusterScatter3D {
         let obj_names = &ctx.meta.objective_names;
         let view = &ctx.view;
         let trial_count = view.row_count();
-        let has_constraints = ctx.meta.has_constraints;
+        let has_constraints = view.feasibility().has_constraints();
         // クラスタリング対象はパレートフロント（pareto_rank == 0）の解数で判定する。
         let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
 
@@ -127,7 +127,7 @@ impl ClusterScatter3D {
         let z_col = obj_names
             .get(self.z_objective)
             .and_then(|n| view.numeric_column(n));
-        let is_feasible_col = view.numeric_column("is_feasible");
+        let feas = view.feasibility();
 
         // Axis selectors
         ui.horizontal(|ui| {
@@ -187,12 +187,7 @@ impl ClusterScatter3D {
             ];
             let (pos, depth) = project(clip);
 
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
-
-            if !feasible {
+            if !feas.is_feasible(i) {
                 if show_infeasible {
                     infeasible_pts.push((pos, depth));
                 }
