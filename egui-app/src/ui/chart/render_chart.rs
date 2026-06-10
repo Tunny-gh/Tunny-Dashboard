@@ -152,7 +152,7 @@ pub(crate) fn render_chart(
                 current_sensitivity,
                 current_sobol,
                 obj_names,
-                ctx.meta.has_constraints,
+                ctx.view.feasibility().has_constraints(),
             );
         }
         ChartId::PdpChart => {
@@ -201,7 +201,7 @@ pub(crate) fn render_chart(
             let matrix = app_state.sensitivity_heatmap_cache.get(&key);
             widgets
                 .sensitivity_heatmap
-                .show(ui, matrix, ctx.meta.has_constraints);
+                .show(ui, matrix, ctx.view.feasibility().has_constraints());
         }
         ChartId::ClusterScatter => {
             let key = widgets.cluster_scatter.cache_key();
@@ -266,7 +266,7 @@ pub(crate) fn render_chart(
                 obj_names,
                 cmap,
                 trial_count,
-                ctx.meta.has_constraints,
+                ctx.view.feasibility().has_constraints(),
             );
         }
         ChartId::SurrogateOpt => {

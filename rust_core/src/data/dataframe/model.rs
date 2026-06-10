@@ -269,10 +269,8 @@ impl DataFrame {
     /// If the `is_feasible` column does not exist (unconstrained study), all
     /// rows are retained unchanged.
     pub fn filter_feasible(&self) -> DataFrame {
-        let mask: Vec<bool> = match self.get_numeric_column("is_feasible") {
-            Some(col) => col.iter().map(|&v| v > 0.5).collect(),
-            None => vec![true; self.row_count],
-        };
+        let feas = self.feasibility();
+        let mask: Vec<bool> = (0..self.row_count).map(|i| feas.is_feasible(i)).collect();
         self.filter_rows(&mask)
     }
 

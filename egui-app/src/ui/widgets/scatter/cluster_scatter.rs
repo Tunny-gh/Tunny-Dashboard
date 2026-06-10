@@ -288,7 +288,7 @@ impl ClusterScatter {
         }
         let plot_points = self.cached_points.as_ref().unwrap();
 
-        let is_feasible_col = view.numeric_column("is_feasible");
+        let feas = view.feasibility();
 
         // 点クリック判定用の候補（trial_id, 行 index, 座標）。
         let hit_candidates: Vec<(u32, usize, [f64; 2])> = plot_points
@@ -321,11 +321,7 @@ impl ClusterScatter {
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut other_pts: Vec<[f64; 2]> = Vec::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
-            if !feasible {
+            if !feas.is_feasible(i) {
                 infeasible_pts.push([x as f64, y as f64]);
                 continue;
             }

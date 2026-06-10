@@ -140,7 +140,7 @@ impl PdpChart2DState {
             ui.toggle_value(&mut self.show_observed, "Show data");
 
             // 実行可能解フィルタ（制約付きスタディのみ）
-            if view.numeric_column("is_feasible").is_some() {
+            if view.feasibility().has_constraints() {
                 ui.toggle_value(&mut self.feasible_only, "Feasible only")
                     .on_hover_text("Fit the model using feasible trials only");
             }
@@ -342,7 +342,7 @@ pub fn extract_observed_3d(
     ) else {
         return vec![];
     };
-    let is_feasible_col = view.numeric_column("is_feasible");
+    let feas = view.feasibility();
 
     let use_filter = !selected_indices.is_empty();
     let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
@@ -360,12 +360,8 @@ pub fn extract_observed_3d(
             if !p1.is_finite() || !p2.is_finite() || !ov.is_finite() {
                 return None;
             }
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            Some(([p1, p2, ov], classify_observed(feasible, rank)))
+            Some(([p1, p2, ov], classify_observed(feas.is_feasible(i), rank)))
         })
         .collect()
 }

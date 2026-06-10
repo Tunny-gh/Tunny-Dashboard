@@ -21,20 +21,12 @@ fn build_xy_for_objective(
     let param_cols = ctx.view.numeric_columns(param_names);
     let obj_col = ctx.view.numeric_column(objective);
     // 実行可能解フィルタ。is_feasible 列が無い（制約なし）場合は全行を対象とする。
-    let is_feasible_col = if feasible_only {
-        ctx.view.numeric_column("is_feasible")
-    } else {
-        None
-    };
+    let feas = ctx.view.feasibility();
 
     let mut x_matrix: Vec<Vec<f64>> = Vec::with_capacity(n);
     let mut y: Vec<f64> = Vec::with_capacity(n);
     for i in 0..n {
-        let feasible = is_feasible_col
-            .and_then(|c| c.get(i))
-            .map(|&v| v > 0.5)
-            .unwrap_or(true);
-        if !feasible {
+        if feasible_only && !feas.is_feasible(i) {
             continue;
         }
         x_matrix.push(

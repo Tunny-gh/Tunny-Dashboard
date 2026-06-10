@@ -73,22 +73,16 @@ pub fn visible_axis_indices(
 
 /// 色付け用の正規化レンジを実行可能解のみから算出する。
 /// 実行不可能解の外れ値でカラーマップが圧縮されないよう、軸の座標レンジとは別に求める。
-/// `is_feasible` が `None`（制約なし）の場合は全件、有効な値が一つも無い場合は `fallback` を返す。
+/// 制約なし（feas.has_constraints() == false）の場合は全件、有効な値が一つも無い場合は `fallback` を返す。
 pub fn feasible_color_range(
     col: &[f64],
-    is_feasible: Option<&[f64]>,
+    feas: tunny_core::dataframe::Feasibility<'_>,
     fallback: (f64, f64),
 ) -> (f64, f64) {
     let (mn, mx) = col
         .iter()
         .enumerate()
-        .filter(|(idx, v)| {
-            v.is_finite()
-                && is_feasible
-                    .and_then(|f| f.get(*idx))
-                    .map(|&fv| fv > 0.5)
-                    .unwrap_or(true)
-        })
+        .filter(|(idx, v)| v.is_finite() && feas.is_feasible(*idx))
         .map(|(_, &v)| v)
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), v| {
             (mn.min(v), mx.max(v))
@@ -221,8 +215,8 @@ impl ParallelCoordsChart {
         }
         let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
-        let is_feasible_col = view.numeric_column("is_feasible");
-        let has_constraints = is_feasible_col.is_some();
+        let feas = view.feasibility();
+        let has_constraints = feas.has_constraints();
 
         // コントロール行: 描画軸の選択 + 色付け対象軸 + "Show Infeasible"
         ui.horizontal(|ui| {
@@ -348,7 +342,7 @@ impl ParallelCoordsChart {
 
         // 色付けの正規化レンジは実行可能解のみから算出する（軸の座標レンジとは別）。
         let color_range: (f64, f64) = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
-            Some(col) => feasible_color_range(col, is_feasible_col, col_ranges[color_axis_idx]),
+            Some(col) => feasible_color_range(col, feas, col_ranges[color_axis_idx]),
             None => col_ranges[color_axis_idx],
         };
 
@@ -360,10 +354,7 @@ impl ParallelCoordsChart {
         // 選択外（グレーアウト）の線を先に描き、選択内の線を最前面に重ねる。
         let mut selected_polylines: Vec<(Vec<egui::Pos2>, egui::Color32)> = Vec::new();
         for t_idx in 0..trial_count {
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(t_idx))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
+            let feasible = feas.is_feasible(t_idx);
 
             if !feasible && !show_infeasible {
                 continue;
@@ -989,35 +980,43 @@ mod tests {
 
     #[test]
     fn feasible_color_range_excludes_infeasible_outliers() {
+        use tunny_core::dataframe::Feasibility;
         // 実行不可能解 (idx 3) が外れ値 1000.0 を持つが、レンジは実行可能解のみから算出する
         let col = [1.0, 2.0, 3.0, 1000.0];
-        let feas = [1.0, 1.0, 1.0, 0.0];
-        let (mn, mx) = feasible_color_range(&col, Some(&feas), (0.0, 9999.0));
+        let feas_col = [1.0, 1.0, 1.0, 0.0];
+        let feas = Feasibility::from_column(Some(&feas_col));
+        let (mn, mx) = feasible_color_range(&col, feas, (0.0, 9999.0));
         assert_eq!(mn, 1.0);
         assert_eq!(mx, 3.0);
     }
 
     #[test]
     fn feasible_color_range_no_constraints_uses_all() {
+        use tunny_core::dataframe::Feasibility;
         let col = [1.0, 2.0, 3.0, 1000.0];
-        let (mn, mx) = feasible_color_range(&col, None, (0.0, 9999.0));
+        let feas = Feasibility::from_column(None);
+        let (mn, mx) = feasible_color_range(&col, feas, (0.0, 9999.0));
         assert_eq!(mn, 1.0);
         assert_eq!(mx, 1000.0);
     }
 
     #[test]
     fn feasible_color_range_all_infeasible_falls_back() {
+        use tunny_core::dataframe::Feasibility;
         let col = [1.0, 2.0, 3.0];
-        let feas = [0.0, 0.0, 0.0];
-        let range = feasible_color_range(&col, Some(&feas), (-5.0, 5.0));
+        let feas_col = [0.0, 0.0, 0.0];
+        let feas = Feasibility::from_column(Some(&feas_col));
+        let range = feasible_color_range(&col, feas, (-5.0, 5.0));
         assert_eq!(range, (-5.0, 5.0));
     }
 
     #[test]
     fn feasible_color_range_skips_non_finite() {
+        use tunny_core::dataframe::Feasibility;
         let col = [1.0, f64::NAN, f64::INFINITY, 4.0];
-        let feas = [1.0, 1.0, 1.0, 1.0];
-        let (mn, mx) = feasible_color_range(&col, Some(&feas), (0.0, 0.0));
+        let feas_col = [1.0, 1.0, 1.0, 1.0];
+        let feas = Feasibility::from_column(Some(&feas_col));
+        let (mn, mx) = feasible_color_range(&col, feas, (0.0, 0.0));
         assert_eq!(mn, 1.0);
         assert_eq!(mx, 4.0);
     }

@@ -177,10 +177,10 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
             })
             .collect();
 
-        let is_feasible_col = df.get_numeric_column("is_feasible");
+        let feas = df.feasibility();
         let constraint_sum_col = df.get_numeric_column("constraint_sum");
 
-        if is_feasible_col.is_none() {
+        if !feas.has_constraints() {
             // 制約なし: 従来フロー
             let ranks = nd_sort(&objectives, is_minimize);
             let pareto_indices: Vec<u32> = ranks
@@ -198,11 +198,7 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
         }
 
         // 制約あり: feasible/infeasible 分離フロー
-        let is_feasible_vals = is_feasible_col.unwrap();
-
-        let feasible_indices: Vec<usize> = (0..n)
-            .filter(|&i| is_feasible_vals.get(i).copied().unwrap_or(1.0) > 0.5)
-            .collect();
+        let (feasible_indices, infeasible_indices) = feas.partition_indices(n);
         let feasible_objectives: Vec<Vec<f64>> = feasible_indices
             .iter()
             .map(|&i| objectives[i].clone())
@@ -221,8 +217,8 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
             max_r
         };
 
-        let mut infeasible_with_sum: Vec<(usize, f64)> = (0..n)
-            .filter(|&i| is_feasible_vals.get(i).copied().unwrap_or(1.0) <= 0.5)
+        let mut infeasible_with_sum: Vec<(usize, f64)> = infeasible_indices
+            .into_iter()
             .map(|i| {
                 let sum = constraint_sum_col
                     .and_then(|col| col.get(i))

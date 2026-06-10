@@ -95,7 +95,7 @@ impl Pareto3dChart {
         }
         let [(x_min, x_max), (y_min, y_max), (z_min, z_max)] = self.range_cache;
 
-        let has_constraints = ctx.meta.has_constraints;
+        let has_constraints = view.feasibility().has_constraints();
 
         ui.horizontal(|ui| {
             show_objective_combo(ui, "X:", "pareto3d_x", &mut self.x_objective, obj_names);
@@ -132,7 +132,7 @@ impl Pareto3dChart {
         let z_col = obj_names
             .get(self.z_objective)
             .and_then(|n| view.numeric_column(n));
-        let is_feasible_col = view.numeric_column("is_feasible");
+        let feas = view.feasibility();
 
         let displayed: Vec<usize> = match downsample_indices.as_deref() {
             Some(idx) => idx
@@ -162,12 +162,7 @@ impl Pareto3dChart {
             let (screen_pos, depth) = project(clip);
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
-            let feasible = is_feasible_col
-                .and_then(|c| c.get(i))
-                .map(|&v| v > 0.5)
-                .unwrap_or(true);
-
-            if !feasible {
+            if !feas.is_feasible(i) {
                 if show_infeasible {
                     infeasible_draw_calls.push((screen_pos, depth, COLOR_INFEASIBLE, 3.0));
                 }

@@ -167,9 +167,8 @@ pub fn build_trial_data(df: &crate::dataframe::DataFrame, row: usize) -> Option<
         .collect();
 
     // Documentation.
-    let is_feasible = df
-        .get_numeric_column("is_feasible")
-        .map(|col| col[row] == 1.0);
+    let feas = df.feasibility();
+    let is_feasible = feas.has_constraints().then(|| feas.is_feasible(row));
 
     // Documentation.
     let user_attrs_numeric: Vec<(String, f64)> = df
