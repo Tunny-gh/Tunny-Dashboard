@@ -17,6 +17,8 @@ pub struct SurfacePlotComputeRequest {
     pub param_y: String,
     pub objective: String,
     pub n_grid: usize,
+    /// 実行可能解（is_feasible > 0.5）のみでモデルをフィットするか
+    pub feasible_only: bool,
 }
 
 // ── TASK-2228: Surface Plot UI 状態 ─────────────────────────────
@@ -29,6 +31,8 @@ pub struct SurfacePlotState {
     pub computing: bool,
     pub result: Option<SurfacePlotResult>,
     pub error_message: Option<String>,
+    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    pub feasible_only: bool,
     pub pending_compute: Option<SurfacePlotComputeRequest>,
 }
 
@@ -220,6 +224,7 @@ mod tests {
                 param_y: "y".into(),
                 objective: "f".into(),
                 n_grid: 20,
+                feasible_only: false,
             }),
             ..Default::default()
         };

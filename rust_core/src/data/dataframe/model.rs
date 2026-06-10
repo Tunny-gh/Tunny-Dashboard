@@ -263,4 +263,83 @@ impl DataFrame {
             trial_count: n,
         }
     }
+
+    /// Return a new `DataFrame` containing only rows where `is_feasible > 0.5`.
+    ///
+    /// If the `is_feasible` column does not exist (unconstrained study), all
+    /// rows are retained unchanged.
+    pub fn filter_feasible(&self) -> DataFrame {
+        let mask: Vec<bool> = match self.get_numeric_column("is_feasible") {
+            Some(col) => col.iter().map(|&v| v > 0.5).collect(),
+            None => vec![true; self.row_count],
+        };
+        self.filter_rows(&mask)
+    }
+
+    /// Return a new `DataFrame` keeping only the rows for which `mask[i]` is `true`.
+    fn filter_rows(&self, mask: &[bool]) -> DataFrame {
+        let trial_ids: Vec<u32> = self
+            .trial_ids
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &id)| {
+                if mask.get(i).copied().unwrap_or(false) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let numeric_cols: Vec<(String, Vec<f64>)> = self
+            .numeric_cols
+            .iter()
+            .map(|(name, vals)| {
+                let filtered: Vec<f64> = vals
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &v)| {
+                        if mask.get(i).copied().unwrap_or(false) {
+                            Some(v)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                (name.clone(), filtered)
+            })
+            .collect();
+
+        let string_cols: Vec<(String, Vec<String>)> = self
+            .string_cols
+            .iter()
+            .map(|(name, vals)| {
+                let filtered: Vec<String> = vals
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, v)| {
+                        if mask.get(i).copied().unwrap_or(false) {
+                            Some(v.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                (name.clone(), filtered)
+            })
+            .collect();
+
+        DataFrame {
+            row_count: trial_ids.len(),
+            trial_ids,
+            numeric_cols,
+            string_cols,
+            param_col_names: self.param_col_names.clone(),
+            objective_col_names: self.objective_col_names.clone(),
+            user_attr_numeric_col_names: self.user_attr_numeric_col_names.clone(),
+            user_attr_string_col_names: self.user_attr_string_col_names.clone(),
+            constraint_col_names: self.constraint_col_names.clone(),
+            derived_col_names: self.derived_col_names.clone(),
+        }
+    }
 }

@@ -20,11 +20,13 @@ pub struct AppState {
     pub filter_ranges: HashMap<String, (f64, f64)>,
     pub highlighted_trial: Option<u32>,
     pub color_mode: ColorMode,
-    pub importance_cache: HashMap<(u8, usize), SensitivityResult>,
-    pub sobol_cache: HashMap<usize, SobolResult>,
-    /// Sensitivity Heatmap の結果キャッシュ。手法 id（`ImportanceMetric::cache_id`）ごとに
-    /// 全パラメータ × 全目的の行列を保持し、キャンバスの各アイテムが共有する。
-    pub sensitivity_heatmap_cache: HashMap<u8, HeatmapMatrix>,
+    /// 感度分析（単一目的）の結果キャッシュ。キーは (手法 id, 目的 idx, feasible_only)。
+    pub importance_cache: HashMap<(u8, usize, bool), SensitivityResult>,
+    /// Sobol 指数の結果キャッシュ。キーは (目的 idx, feasible_only)。
+    pub sobol_cache: HashMap<(usize, bool), SobolResult>,
+    /// Sensitivity Heatmap の結果キャッシュ。手法 id（`ImportanceMetric::cache_id`）と
+    /// feasible_only ごとに全パラメータ × 全目的の行列を保持し、各アイテムが共有する。
+    pub sensitivity_heatmap_cache: HashMap<(u8, bool), HeatmapMatrix>,
     /// クラスタリング結果のキャッシュ。設定キー（対象空間 / k / モード / Init）ごとに
     /// 計算結果を保持し、2D / 3D / Table が各自の設定で参照・共有する。
     pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
@@ -268,7 +270,7 @@ mod tests {
         state.filter_ranges.insert("x".to_string(), (0.0, 1.0));
         state.highlighted_trial = Some(5);
         state.importance_cache.insert(
-            (0u8, 0),
+            (0u8, 0, false),
             SensitivityResult {
                 param_names: vec!["x".to_string()],
                 objective_names: vec!["y".to_string()],

@@ -132,10 +132,13 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                 return false;
             }
             let obj_idx = widgets.importance.objective_index;
+            let feasible_only = widgets.importance.feasible_only;
             if widgets.importance.metric.is_sobol() {
-                app_state.sobol_cache.contains_key(&obj_idx)
+                app_state
+                    .sobol_cache
+                    .contains_key(&(obj_idx, feasible_only))
             } else {
-                let key = (widgets.importance.metric.cache_id(), obj_idx);
+                let key = (widgets.importance.metric.cache_id(), obj_idx, feasible_only);
                 app_state.importance_cache.contains_key(&key)
             }
         }
@@ -159,7 +162,10 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .is_some_and(|(s, cr)| cr.labels.len() == s.trial_count()),
         ChartId::SensitivityHeatmap => app_state
             .sensitivity_heatmap_cache
-            .get(&widgets.sensitivity_heatmap.metric.cache_id())
+            .get(&(
+                widgets.sensitivity_heatmap.metric.cache_id(),
+                widgets.sensitivity_heatmap.feasible_only,
+            ))
             .is_some_and(|m| m.is_well_formed()),
         ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => app_state
             .current_study
@@ -270,12 +276,13 @@ fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<
     use crate::ui::widgets::importance_chart::{compute_sorted_importance, compute_sorted_sobol};
     let metric = &widgets.importance.metric;
     let obj_idx = widgets.importance.objective_index;
+    let feasible_only = widgets.importance.feasible_only;
     let method_name = metric.label();
     let pairs: Vec<(String, f64)> = if metric.is_sobol() {
-        let sobol = app_state.sobol_cache.get(&obj_idx)?;
+        let sobol = app_state.sobol_cache.get(&(obj_idx, feasible_only))?;
         compute_sorted_sobol(sobol, obj_idx, metric)
     } else {
-        let key = (metric.cache_id(), obj_idx);
+        let key = (metric.cache_id(), obj_idx, feasible_only);
         let sensitivity = app_state.importance_cache.get(&key)?;
         compute_sorted_importance(sensitivity, metric, obj_idx)
     };
@@ -396,9 +403,10 @@ fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Op
     Some(csv)
 }
 fn build_sensitivity_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let m = app_state
-        .sensitivity_heatmap_cache
-        .get(&widgets.sensitivity_heatmap.metric.cache_id())?;
+    let m = app_state.sensitivity_heatmap_cache.get(&(
+        widgets.sensitivity_heatmap.metric.cache_id(),
+        widgets.sensitivity_heatmap.feasible_only,
+    ))?;
     if !m.is_well_formed() {
         return None;
     }
@@ -772,7 +780,7 @@ mod tests {
             permutation: None,
         };
         // Spearman is cache_id=0
-        state.importance_cache.insert((0u8, 0), result);
+        state.importance_cache.insert((0u8, 0, false), result);
         let widgets = WidgetStates::default(); // metric=Spearman, obj_idx=0
         let csv = build_importance_csv(&state, &widgets).unwrap();
         let header = csv.lines().next().unwrap();
@@ -787,7 +795,7 @@ mod tests {
         let widgets = WidgetStates::default(); // default metric = Spearman (id 0)
         let mut state = AppState::default();
         state.sensitivity_heatmap_cache.insert(
-            widgets.sensitivity_heatmap.metric.cache_id(),
+            (widgets.sensitivity_heatmap.metric.cache_id(), false),
             HeatmapMatrix {
                 param_names: vec!["x".into(), "y".into()],
                 objective_names: vec!["f1".into(), "f2".into()],

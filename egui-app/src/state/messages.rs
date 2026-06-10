@@ -180,16 +180,19 @@ pub enum AppMessage {
         is_final: bool,
     },
     SensitivityDone {
-        key: (u8, usize),
+        /// (metric cache_id, objective idx, feasible_only)
+        key: (u8, usize, bool),
         result: SensitivityResult,
     },
     /// Sensitivity Heatmap 用：選択手法の全パラメータ × 全目的の感度行列。
     SensitivityHeatmapDone {
         metric: crate::ui::widgets::importance_chart::ImportanceMetric,
+        feasible_only: bool,
         result: HeatmapMatrix,
     },
     SobolDone {
-        obj_idx: usize,
+        /// (objective idx, feasible_only)
+        key: (usize, bool),
         result: SobolResult,
     },
     ClusteringDone {
@@ -218,6 +221,7 @@ pub enum AppMessage {
         param: String,
         objective: String,
         model_type: String,
+        feasible_only: bool,
         result: PdpResult,
     },
     Pdp2dDone(PdpResult2d),

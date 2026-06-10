@@ -13,28 +13,53 @@ use crate::ui::widgets::mcdm_chart::{McdmCacheKey, McdmComputeRequest, McdmContr
 fn build_xy_for_objective(
     ctx: &crate::state::app_state::StudyContext,
     objective: &str,
+    feasible_only: bool,
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
     let param_names = &ctx.meta.param_names;
     let n = ctx.view.row_count();
 
     let param_cols = ctx.view.numeric_columns(param_names);
+    let obj_col = ctx.view.numeric_column(objective);
+    // 実行可能解フィルタ。is_feasible 列が無い（制約なし）場合は全行を対象とする。
+    let is_feasible_col = if feasible_only {
+        ctx.view.numeric_column("is_feasible")
+    } else {
+        None
+    };
 
-    let x_matrix: Vec<Vec<f64>> = (0..n)
-        .map(|i| {
+    let mut x_matrix: Vec<Vec<f64>> = Vec::with_capacity(n);
+    let mut y: Vec<f64> = Vec::with_capacity(n);
+    for i in 0..n {
+        let feasible = is_feasible_col
+            .and_then(|c| c.get(i))
+            .map(|&v| v > 0.5)
+            .unwrap_or(true);
+        if !feasible {
+            continue;
+        }
+        x_matrix.push(
             param_cols
                 .iter()
                 .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                .collect()
-        })
-        .collect();
-
-    let y: Vec<f64> = ctx
-        .view
-        .numeric_column(objective)
-        .map(|col| col.to_vec())
-        .unwrap_or_else(|| vec![0.0; n]);
+                .collect(),
+        );
+        y.push(obj_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0));
+    }
 
     (x_matrix, y)
+}
+
+/// 感度分析用の DataFrame を返す。feasible_only の場合は実行可能解のみの
+/// コピーを作る（コア関数は DataFrame を直接受け取るため）。
+fn sensitivity_df(
+    ctx: &crate::state::app_state::StudyContext,
+    feasible_only: bool,
+) -> std::sync::Arc<tunny_core::dataframe::DataFrame> {
+    if feasible_only {
+        std::sync::Arc::new(ctx.view.df.filter_feasible())
+    } else {
+        std::sync::Arc::clone(&ctx.view.df)
+    }
 }
 
 /// 選択手法について、全パラメータ × 全目的の感度行列 `values[param][obj]` を計算する。
@@ -43,6 +68,7 @@ fn build_xy_for_objective(
 /// `core_sensitivity_metric` を ImportanceChart と共有する。
 fn compute_sensitivity_heatmap(
     metric: crate::ui::widgets::importance_chart::ImportanceMetric,
+    feasible_only: bool,
     df: &tunny_core::dataframe::DataFrame,
 ) -> AppMessage {
     use crate::state::results::HeatmapMatrix;
@@ -87,6 +113,7 @@ fn compute_sensitivity_heatmap(
 
     AppMessage::SensitivityHeatmapDone {
         metric,
+        feasible_only,
         result: HeatmapMatrix {
             param_names,
             objective_names,
@@ -222,7 +249,9 @@ pub(crate) fn poll_chart_work(
             }
         }
         ChartId::ImportanceChart => {
-            if let Some((metric, obj_idx)) = widgets.importance.pending_compute.take() {
+            if let Some((metric, obj_idx, feasible_only)) =
+                widgets.importance.pending_compute.take()
+            {
                 use crate::state::results::{
                     MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult,
                     ShapResult, SobolResult,
@@ -232,19 +261,24 @@ pub(crate) fn poll_chart_work(
                 };
 
                 let already_cached = if metric.is_sobol() {
-                    app_state.sobol_cache.contains_key(&obj_idx)
-                } else {
                     app_state
-                        .importance_cache
-                        .contains_key(&(metric.cache_id(), obj_idx))
+                        .sobol_cache
+                        .contains_key(&(obj_idx, feasible_only))
+                } else {
+                    app_state.importance_cache.contains_key(&(
+                        metric.cache_id(),
+                        obj_idx,
+                        feasible_only,
+                    ))
                 };
 
                 if already_cached {
                     widgets.importance.computing = false;
                 } else {
                     let ctx = app_state.current_study.as_ref().unwrap();
-                    // 共有ストアの DataFrame を Arc::clone して直接利用（trial_rows 再構築不要）
-                    let df = std::sync::Arc::clone(&ctx.view.df);
+                    // 共有ストアの DataFrame を Arc::clone して直接利用（trial_rows 再構築不要）。
+                    // feasible_only の場合は実行可能解のみのコピーを使う。
+                    let df = sensitivity_df(ctx, feasible_only);
                     let tx = tx.clone();
                     match metric {
                         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
@@ -254,7 +288,7 @@ pub(crate) fn poll_chart_work(
                                     SOBOL_SAMPLE_COUNT,
                                 ) {
                                     Some(r) => AppMessage::SobolDone {
-                                        obj_idx,
+                                        key: (obj_idx, feasible_only),
                                         result: SobolResult {
                                             param_names: r.param_names,
                                             objective_names: r.objective_names,
@@ -273,7 +307,7 @@ pub(crate) fn poll_chart_work(
                             let Some(core_metric) = core_sensitivity_metric(metric) else {
                                 return;
                             };
-                            let key = (metric.cache_id(), obj_idx);
+                            let key = (metric.cache_id(), obj_idx, feasible_only);
                             crate::app::spawn_task(tx, move || {
                                 let mut results =
                                     tunny_core::sensitivity::compute_sensitivity_single_obj(
@@ -338,18 +372,22 @@ pub(crate) fn poll_chart_work(
             // 計算要求は widgets.sensitivity_heatmap.pending_compute に積まれ
             // （Run ボタン、または低コスト手法の自動トリガー）、結果は手法ごとに
             // app_state.sensitivity_heatmap_cache へ集約される。
-            if let Some(metric) = widgets.sensitivity_heatmap.pending_compute.take() {
+            if let Some((metric, feasible_only)) =
+                widgets.sensitivity_heatmap.pending_compute.take()
+            {
                 if app_state
                     .sensitivity_heatmap_cache
-                    .contains_key(&metric.cache_id())
+                    .contains_key(&(metric.cache_id(), feasible_only))
                 {
                     widgets.sensitivity_heatmap.computing = false;
                 } else {
                     let ctx = app_state.current_study.as_ref().unwrap();
-                    let df = std::sync::Arc::clone(&ctx.view.df);
+                    let df = sensitivity_df(ctx, feasible_only);
                     widgets.sensitivity_heatmap.computing = true;
                     let tx = tx.clone();
-                    crate::app::spawn_task(tx, move || compute_sensitivity_heatmap(metric, &df));
+                    crate::app::spawn_task(tx, move || {
+                        compute_sensitivity_heatmap(metric, feasible_only, &df)
+                    });
                 }
             }
         }
@@ -363,10 +401,10 @@ pub(crate) fn poll_chart_work(
             else {
                 return;
             };
-            let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective);
+            let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective, req.feasible_only);
             let param_names_owned = ctx.meta.param_names.clone();
             let (param, objective, model_type) = (req.param, req.objective, req.model_type);
-            let n_grid = req.n_grid;
+            let (n_grid, feasible_only) = (req.n_grid, req.feasible_only);
             widgets.pdp_chart.computing = true;
             let tx = tx.clone();
             crate::app::spawn_task(tx, move || {
@@ -384,6 +422,7 @@ pub(crate) fn poll_chart_work(
                     param,
                     objective,
                     model_type,
+                    feasible_only,
                     result: PdpResult::OneDim(PdpResult1d {
                         x_values: r.grid,
                         y_values: r.values,
@@ -408,6 +447,7 @@ pub(crate) fn poll_chart_work(
                         &req.objective,
                         req.n_grid,
                         &req.model_type,
+                        req.feasible_only,
                     );
                     match result {
                         Some(r) => {
@@ -537,7 +577,7 @@ pub(crate) fn poll_chart_work(
                         Some(format!("Parameter '{}' not found", req.param_y));
                     return;
                 };
-                let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective);
+                let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective, req.feasible_only);
                 let param_names_owned = ctx.meta.param_names.clone();
                 let (param_x, param_y, objective, n_grid) = (
                     req.param_x.clone(),

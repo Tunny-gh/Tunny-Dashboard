@@ -10,8 +10,10 @@ use crate::ui::widgets::importance_chart::ImportanceMetric;
 pub struct SensitivityHeatmap {
     pub metric: ImportanceMetric,
     pub computing: bool,
-    /// poll_chart が消費する計算要求（対象手法）。
-    pub pending_compute: Option<ImportanceMetric>,
+    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    pub feasible_only: bool,
+    /// poll_chart が消費する計算要求（対象手法, feasible_only）。
+    pub pending_compute: Option<(ImportanceMetric, bool)>,
 }
 
 impl SensitivityHeatmap {
@@ -28,11 +30,16 @@ impl SensitivityHeatmap {
     }
 
     /// 感度ヒートマップを描画する。`current` は選択中の手法の計算済み行列（あれば）。
-    pub fn show(&mut self, ui: &mut egui::Ui, current: Option<&HeatmapMatrix>) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        current: Option<&HeatmapMatrix>,
+        has_constraints: bool,
+    ) {
         // コントロール行: Run ボタン + 手法選択 + spinner
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
-                self.pending_compute = Some(self.metric);
+                self.pending_compute = Some((self.metric, self.feasible_only));
                 self.computing = true;
             }
 
@@ -63,6 +70,12 @@ impl SensitivityHeatmap {
                     }
                 });
 
+            // 実行可能解フィルタ（制約付きスタディのみ）
+            if has_constraints {
+                ui.toggle_value(&mut self.feasible_only, "Feasible only")
+                    .on_hover_text("Fit the model using feasible trials only");
+            }
+
             if self.computing {
                 ui.spinner();
                 ui.label("Computing...");
@@ -76,7 +89,7 @@ impl SensitivityHeatmap {
             && self.pending_compute.is_none()
             && !self.metric.is_expensive()
         {
-            self.pending_compute = Some(self.metric);
+            self.pending_compute = Some((self.metric, self.feasible_only));
             self.computing = true;
         }
 
@@ -197,6 +210,7 @@ mod tests {
         let hm = SensitivityHeatmap::default();
         assert!(!hm.computing);
         assert_eq!(hm.metric, ImportanceMetric::Spearman);
+        assert!(!hm.feasible_only);
         assert!(hm.pending_compute.is_none());
     }
 

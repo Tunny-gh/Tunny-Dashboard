@@ -89,11 +89,21 @@ pub(crate) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
 /// Extract feature matrix and objective variable from DataFrame.
 ///
 /// Missing values (non-existent column or index out of bounds) fallback to 0.0.
+/// When `feasible_only` is `true`, only rows where `is_feasible > 0.5` are
+/// included.  If the `is_feasible` column is absent (unconstrained study) all
+/// rows are included regardless of the flag.
 pub(crate) fn extract_xy(
     df: &crate::dataframe::DataFrame,
     param_names: &[String],
     objective_name: &str,
+    feasible_only: bool,
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let source: std::borrow::Cow<crate::dataframe::DataFrame> = if feasible_only {
+        std::borrow::Cow::Owned(df.filter_feasible())
+    } else {
+        std::borrow::Cow::Borrowed(df)
+    };
+    let df = source.as_ref();
     let n = df.row_count();
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -283,7 +293,7 @@ mod tests {
         );
 
         // When: extract_xy is called
-        let (x_matrix, y) = extract_xy(&df, &["x".to_string(), "y".to_string()], "obj0");
+        let (x_matrix, y) = extract_xy(&df, &["x".to_string(), "y".to_string()], "obj0", false);
 
         // Then: Check extracted values
         assert_eq!(x_matrix.len(), 2);
@@ -325,12 +335,78 @@ mod tests {
         );
 
         // When: extract_xy requests non-existent column "z"
-        let (x_matrix, _y) = extract_xy(&df, &["x".to_string(), "z".to_string()], "obj0");
+        let (x_matrix, _y) = extract_xy(&df, &["x".to_string(), "z".to_string()], "obj0", false);
 
         // Then: Should fallback to 0.0 for missing column
         assert_eq!(x_matrix.len(), 1);
         assert_eq!(x_matrix[0].len(), 2);
         assert!((x_matrix[0][0] - 0.5).abs() < 1e-9);
         assert_eq!(x_matrix[0][1], 0.0); // z doesn't exist, so 0.0
+    }
+
+    /// 制約付き（is_feasible 列あり）の DataFrame を作る。
+    /// constraint <= 0 が実行可能（Optuna 規約）。
+    fn make_constrained_df(constraints: &[f64]) -> crate::dataframe::DataFrame {
+        use crate::dataframe::{DataFrame, TrialRow};
+        use std::collections::HashMap;
+        let rows: Vec<TrialRow> = constraints
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| TrialRow {
+                trial_id: i as u32,
+                param_display: vec![("x".to_string(), i as f64)].into_iter().collect(),
+                param_category_label: HashMap::new(),
+                objective_values: vec![i as f64 * 10.0],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![c],
+            })
+            .collect();
+        DataFrame::from_trials(
+            &rows,
+            &["x".to_string()],
+            &["obj0".to_string()],
+            &[],
+            &[],
+            1,
+        )
+    }
+
+    #[test]
+    fn extract_xy_feasible_only_filters_infeasible_rows() {
+        // row0: feasible (c=-1), row1: infeasible (c=1), row2: feasible (c=0)
+        let df = make_constrained_df(&[-1.0, 1.0, 0.0]);
+        let (x_matrix, y) = extract_xy(&df, &["x".to_string()], "obj0", true);
+        assert_eq!(x_matrix.len(), 2);
+        assert_eq!(y, vec![0.0, 20.0]);
+        assert!((x_matrix[0][0] - 0.0).abs() < 1e-9);
+        assert!((x_matrix[1][0] - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn extract_xy_feasible_only_keeps_all_rows_without_constraint_column() {
+        // 制約なし（is_feasible 列が存在しない）→ フラグに関わらず全行
+        use crate::dataframe::{DataFrame, TrialRow};
+        use std::collections::HashMap;
+        let rows = vec![TrialRow {
+            trial_id: 0,
+            param_display: vec![("x".to_string(), 0.5)].into_iter().collect(),
+            param_category_label: HashMap::new(),
+            objective_values: vec![1.0],
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
+            constraint_values: vec![],
+        }];
+        let df = DataFrame::from_trials(
+            &rows,
+            &["x".to_string()],
+            &["obj0".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        let (x_matrix, y) = extract_xy(&df, &["x".to_string()], "obj0", true);
+        assert_eq!(x_matrix.len(), 1);
+        assert_eq!(y.len(), 1);
     }
 }
