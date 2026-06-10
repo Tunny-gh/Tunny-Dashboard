@@ -59,7 +59,6 @@ impl MessageHandler {
                 widget_states.cluster_scatter = Default::default();
                 widget_states.reset_infeasible_flags();
                 *is_loading = false;
-                widget_states.update_chart_colors(app_state);
             }
             AppMessage::StudyChunkLoaded {
                 study_id,
@@ -128,7 +127,6 @@ impl MessageHandler {
                 app_state.mcdm_result = Some(result);
                 // 計算を開始したチャートの実行状態のみ解除する。
                 Self::mcdm_controls_mut(source, widget_states).computing = false;
-                widget_states.update_chart_colors(app_state);
             }
             AppMessage::McdmFailed { source, message } => {
                 let controls = Self::mcdm_controls_mut(source, widget_states);
@@ -434,7 +432,6 @@ impl MessageHandler {
 
         if is_final {
             *is_loading = false;
-            widget_states.update_chart_colors(app_state);
         }
     }
 

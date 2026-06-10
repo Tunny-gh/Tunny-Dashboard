@@ -131,9 +131,8 @@ pub fn show_canvas_view(
     let mut actions: Vec<CanvasAction> = Vec::new();
 
     for item in &layout.canvas.items {
-        // 各アイテム専用の WidgetStates（独立した UI 状態）。色キャッシュは共有側から注入する。
+        // 各アイテム専用の WidgetStates（独立した UI 状態）。
         let iw = item_widgets.entry(item.id).or_default();
-        iw.chart_colors.clone_from(&widgets.chart_colors);
         // キャプチャ要求はグローバル側（スクリーンショット処理）で消費するため、
         // クロージャ内で受け取り、show 後にグローバルへ伝播する。
         let mut item_capture: Option<(PanelItem, egui::Rect, CaptureDest)> = None;

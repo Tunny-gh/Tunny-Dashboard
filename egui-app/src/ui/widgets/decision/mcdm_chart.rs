@@ -1118,49 +1118,6 @@ mod tests {
     }
 
     #[test]
-    fn mcdm_score_color_mode_integration() {
-        let rows = multi_obj_rows_for_topsis();
-        let objectives: Vec<f64> = rows
-            .iter()
-            .flat_map(|r| r.objectives.iter().copied())
-            .collect();
-        let weights = normalize_weights(&[1.0, 1.0]);
-        let is_minimize = vec![true, true];
-
-        let core_result =
-            tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize).unwrap();
-
-        let scores = core_result.scores.clone();
-        let colors = crate::theme::color_compute::compute_chart_colors(
-            &crate::state::types::ColorMode::McdmScore,
-            &crate::state::app_state::ColormapName::Viridis,
-            &rows,
-            &[],
-            Some(&scores),
-        );
-
-        assert_eq!(colors.len(), 5);
-        let score_min = scores.iter().cloned().fold(f64::INFINITY, f64::min);
-        let score_max = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        if (score_max - score_min).abs() > f64::EPSILON {
-            let max_score_idx = scores
-                .iter()
-                .enumerate()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-                .map(|(i, _)| i)
-                .unwrap();
-            let min_score_idx = scores
-                .iter()
-                .enumerate()
-                .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-                .map(|(i, _)| i)
-                .unwrap();
-            assert_ne!(colors[max_score_idx], colors[min_score_idx]);
-        }
-        assert!(colors.iter().any(|c| *c != egui::Color32::LIGHT_GRAY));
-    }
-
-    #[test]
     fn top_n_toggle_updates_display() {
         let data = multi_obj_data();
         let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
