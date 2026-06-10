@@ -234,9 +234,27 @@ pub fn draw_3d_axes(
     for i in 0..3 {
         let (neg_pos, _) = project(neg_eps[i]);
         let (pos_pos, _) = project(pos_eps[i]);
+        painter.line_segment([neg_pos, pos_pos], egui::Stroke::new(1.5, colors[i]));
+    }
+    draw_3d_axis_labels(painter, project, names, ranges);
+}
+
+/// 軸の名前・値ラベルのみを描画する（軸線は描かない）。
+/// 軸線を深度ソートに混ぜて描く場合に、ラベルだけ最前面へ出す用途。
+pub fn draw_3d_axis_labels(
+    painter: &egui::Painter,
+    project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
+    names: [&str; 3],
+    ranges: [(f64, f64); 3],
+) {
+    let neg_eps: [[f32; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
+    let pos_eps: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let colors = [COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z];
+    for i in 0..3 {
+        let (neg_pos, _) = project(neg_eps[i]);
+        let (pos_pos, _) = project(pos_eps[i]);
         let color = colors[i];
         let (val_min, val_max) = ranges[i];
-        painter.line_segment([neg_pos, pos_pos], egui::Stroke::new(1.5, color));
         painter.text(
             pos_pos + egui::vec2(4.0, -4.0),
             egui::Align2::LEFT_BOTTOM,
@@ -252,6 +270,27 @@ pub fn draw_3d_axes(
             color.gamma_multiply(0.7),
         );
     }
+}
+
+/// 軸線（-1→+1）を細分化し、クリップ空間の線分 (始点, 終点, 色) として返す。
+/// サーフェスなどの深度ソート描画に混ぜることで、面との前後関係を正しく表現できる
+/// （`draw_3d_axes` は前後関係を持たない一本線として描く）。
+pub fn axis_segments_3d(subdivisions: usize) -> Vec<([f32; 3], [f32; 3], egui::Color32)> {
+    let colors = [COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z];
+    let n = subdivisions.max(1);
+    let mut segments = Vec::with_capacity(3 * n);
+    for (axis, color) in colors.into_iter().enumerate() {
+        for k in 0..n {
+            let t0 = -1.0 + 2.0 * k as f32 / n as f32;
+            let t1 = -1.0 + 2.0 * (k + 1) as f32 / n as f32;
+            let mut a = [0.0_f32; 3];
+            let mut b = [0.0_f32; 3];
+            a[axis] = t0;
+            b[axis] = t1;
+            segments.push((a, b, color));
+        }
+    }
+    segments
 }
 
 // ── テスト ────────────────────────────────────────────────────────
@@ -344,6 +383,32 @@ mod tests {
         assert!((r[0] - 0.0).abs() < 1e-5, "x={}", r[0]);
         assert!((r[1] - 1.0).abs() < 1e-5, "y={}", r[1]);
         assert!((r[2] - 0.0).abs() < 1e-5, "z={}", r[2]);
+    }
+
+    #[test]
+    fn axis_segments_3d_returns_three_axes_subdivided() {
+        let segs = axis_segments_3d(8);
+        assert_eq!(segs.len(), 3 * 8);
+        // 各軸の最初の線分は -1 から、最後の線分は +1 で終わる
+        for axis in 0..3 {
+            let first = &segs[axis * 8];
+            let last = &segs[axis * 8 + 7];
+            assert!((first.0[axis] - (-1.0)).abs() < 1e-6);
+            assert!((last.1[axis] - 1.0).abs() < 1e-6);
+            // 他の成分は 0（軸は原点を通る）
+            for c in 0..3 {
+                if c != axis {
+                    assert_eq!(first.0[c], 0.0);
+                    assert_eq!(last.1[c], 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn axis_segments_3d_clamps_zero_subdivisions_to_one() {
+        let segs = axis_segments_3d(0);
+        assert_eq!(segs.len(), 3);
     }
 
     #[test]

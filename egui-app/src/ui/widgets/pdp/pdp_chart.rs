@@ -1,9 +1,57 @@
 use crate::state::messages::{PdpResult, PdpResult1d};
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
-    COLOR_ICE_LINE, COLOR_PARETO, COLOR_PDP_CI, COLOR_PDP_CI_LEGEND, COLOR_PDP_LINE,
+    COLOR_ICE_LINE, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_PDP_CI,
+    COLOR_PDP_CI_LEGEND, COLOR_PDP_LINE,
 };
 use std::collections::HashMap;
+
+/// 観測点の分類（散布図系チャートと同じ配色規則で塗り分けるため）。
+/// 1D / 2D PDP の観測データオーバーレイで共用する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservedKind {
+    /// パレートフロント（pareto_rank == 0）→ 赤
+    Pareto,
+    /// 非パレートの実行可能解 → 青
+    NonPareto,
+    /// 実行不可能解 → グレー
+    Infeasible,
+}
+
+impl ObservedKind {
+    pub fn color(self) -> egui::Color32 {
+        match self {
+            ObservedKind::Pareto => COLOR_PARETO,
+            ObservedKind::NonPareto => COLOR_NON_PARETO,
+            ObservedKind::Infeasible => COLOR_INFEASIBLE,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ObservedKind::Pareto => "Pareto",
+            ObservedKind::NonPareto => "Non-Pareto",
+            ObservedKind::Infeasible => "Infeasible",
+        }
+    }
+
+    pub const ALL: [ObservedKind; 3] = [
+        ObservedKind::Pareto,
+        ObservedKind::NonPareto,
+        ObservedKind::Infeasible,
+    ];
+}
+
+/// 実行可能性とパレートランクから観測点の分類を返す（他の散布図と同じ規則）
+pub fn classify_observed(feasible: bool, pareto_rank: u32) -> ObservedKind {
+    if !feasible {
+        ObservedKind::Infeasible
+    } else if pareto_rank == 0 {
+        ObservedKind::Pareto
+    } else {
+        ObservedKind::NonPareto
+    }
+}
 
 /// 1D PDP 計算リクエスト（show() がセットし chart_registry が消費する）
 pub struct PdpComputeRequest {
@@ -87,11 +135,13 @@ pub fn compute_band_polygon(x_vals: &[f64], y_upper: &[f64], y_lower: &[f64]) ->
     upper.into_iter().chain(lower).collect()
 }
 
-/// view + 選択インデックスから観測データを抽出する（テスト可能な純粋関数）
+/// view + 選択インデックスから観測データ ([param, objective], 分類) を抽出する
+/// （テスト可能な純粋関数）
 ///
 /// `selected_indices` が空の場合は全試行を対象とする（filter_rows_for_display と同様の規則）。
 /// `selected_indices` / `pinned` のどちらかに trial_id が含まれる行のみを抽出する。
 /// NaN / Inf の値はスキップする。
+/// 分類は他の散布図と同じ規則（pareto_rank == 0 → Pareto、is_feasible <= 0.5 → Infeasible）。
 pub fn extract_observed(
     view: &StudyView,
     obj_names: &[String],
@@ -99,7 +149,7 @@ pub fn extract_observed(
     obj_idx: usize,
     selected_indices: &[u32],
     pinned: &[u32],
-) -> Vec<[f64; 2]> {
+) -> Vec<([f64; 2], ObservedKind)> {
     let param_col = view.numeric_column(param_name);
     let obj_col = obj_names
         .get(obj_idx)
@@ -108,6 +158,7 @@ pub fn extract_observed(
     let (Some(params), Some(objs)) = (param_col, obj_col) else {
         return vec![];
     };
+    let is_feasible_col = view.numeric_column("is_feasible");
 
     let use_filter = !selected_indices.is_empty();
     let selected_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
@@ -124,7 +175,12 @@ pub fn extract_observed(
             if !x.is_finite() || !y.is_finite() {
                 return None;
             }
-            Some([x, y])
+            let feasible = is_feasible_col
+                .and_then(|c| c.get(i))
+                .map(|&v| v > 0.5)
+                .unwrap_or(true);
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            Some(([x, y], classify_observed(feasible, rank)))
         })
         .collect()
 }
@@ -305,7 +361,12 @@ impl PdpChart {
         }
     }
 
-    fn show_1d(&self, ui: &mut egui::Ui, result: &PdpResult1d, observed: &[[f64; 2]]) {
+    fn show_1d(
+        &self,
+        ui: &mut egui::Ui,
+        result: &PdpResult1d,
+        observed: &[([f64; 2], ObservedKind)],
+    ) {
         // R² 表示
         if let Some(r2) = result.r2 {
             ui.label(format!("R²: {:.2} ({})", r2, r2_quality(r2)));
@@ -370,14 +431,24 @@ impl PdpChart {
                         .color(COLOR_PDP_LINE),
                 );
 
-                // 観測データ散布図（最前面）
+                // 観測データ散布図（最前面）。他の散布図と同じ配色で分類別に描く
                 if self.show_observed && !observed.is_empty() {
-                    plot_ui.points(
-                        egui_plot::Points::new(observed.to_vec())
-                            .name("Observed")
-                            .color(COLOR_PARETO)
-                            .radius(4.0),
-                    );
+                    for kind in ObservedKind::ALL {
+                        let pts: Vec<[f64; 2]> = observed
+                            .iter()
+                            .filter(|(_, k)| *k == kind)
+                            .map(|(p, _)| *p)
+                            .collect();
+                        if pts.is_empty() {
+                            continue;
+                        }
+                        plot_ui.points(
+                            egui_plot::Points::new(pts)
+                                .name(kind.label())
+                                .color(kind.color())
+                                .radius(4.0),
+                        );
+                    }
                 }
             });
     }
@@ -518,7 +589,7 @@ mod tests {
         let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
         let pts = extract_observed(&view, &obj_names, "x", 0, &[], &[]);
         assert_eq!(pts.len(), 1);
-        assert_eq!(pts[0], [1.5, 2.0]);
+        assert_eq!(pts[0].0, [1.5, 2.0]);
     }
 
     #[test]
@@ -535,6 +606,22 @@ mod tests {
         // obj_idx=5 は範囲外 → 空
         let pts = extract_observed(&view, &obj_names, "x", 5, &[], &[]);
         assert!(pts.is_empty());
+    }
+
+    #[test]
+    fn classify_observed_matches_scatter_rules() {
+        assert_eq!(classify_observed(true, 0), ObservedKind::Pareto);
+        assert_eq!(classify_observed(true, 1), ObservedKind::NonPareto);
+        // 実行不可能はランクに関わらず Infeasible
+        assert_eq!(classify_observed(false, 0), ObservedKind::Infeasible);
+        assert_eq!(classify_observed(false, 3), ObservedKind::Infeasible);
+    }
+
+    #[test]
+    fn observed_kind_colors_match_scatter_palette() {
+        assert_eq!(ObservedKind::Pareto.color(), COLOR_PARETO);
+        assert_eq!(ObservedKind::NonPareto.color(), COLOR_NON_PARETO);
+        assert_eq!(ObservedKind::Infeasible.color(), COLOR_INFEASIBLE);
     }
 
     // TASK-2025 tests
@@ -595,7 +682,7 @@ mod tests {
         let selected = vec![0u32, 1];
         let pts = extract_observed(&view, &obj_names, "x", 0, &selected, &[]);
         assert_eq!(pts.len(), 2);
-        let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
+        let xs: Vec<f64> = pts.iter().map(|(p, _)| p[0]).collect();
         assert!(xs.contains(&1.0));
         assert!(xs.contains(&2.0));
         assert!(!xs.contains(&3.0));
@@ -612,7 +699,7 @@ mod tests {
     fn pinned_row_remains_in_observed_overlay() {
         let (view, obj_names) = make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
         let pts = extract_observed(&view, &obj_names, "x", 0, &[0], &[2]);
-        let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
+        let xs: Vec<f64> = pts.iter().map(|(p, _)| p[0]).collect();
         assert!(xs.contains(&1.0), "selected row must be visible");
         assert!(xs.contains(&3.0), "pinned row must remain visible");
         assert!(!xs.contains(&2.0), "unselected unpinned row must be hidden");
