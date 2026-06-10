@@ -160,7 +160,15 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::PdpChart2D => {
-            widgets.pdp_2d.show(ui, param_names, obj_names, cmap);
+            widgets.pdp_2d.show(
+                ui,
+                param_names,
+                obj_names,
+                cmap,
+                &ctx.view,
+                &app_state.selected_indices,
+                &app_state.pinned_trials,
+            );
         }
         ChartId::ParallelCoordinates => {
             widgets
