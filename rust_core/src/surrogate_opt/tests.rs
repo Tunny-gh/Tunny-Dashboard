@@ -32,7 +32,7 @@ fn base_request(x_matrix: Vec<Vec<f64>>, y: Vec<f64>) -> SurrogateOptRequest {
 #[test]
 fn kriging_lbfgs_finds_quadratic_minimum() {
     let (x_matrix, y) = quadratic_samples(50);
-    let req = base_request(x_matrix, y);
+    let req = base_request(x_matrix.clone(), y.clone());
     let result = run_surrogate_optimization(&req).expect("optimization should succeed");
 
     assert!(
@@ -56,6 +56,14 @@ fn kriging_lbfgs_finds_quadratic_minimum() {
         result.r_squared
     );
     assert!(result.predicted_std.is_some(), "Kriging has posterior std");
+
+    // 最小化時 best_observed_value == y.iter().cloned().fold(f64::INFINITY, f64::min)
+    let expected_best_obs = y.iter().cloned().fold(f64::INFINITY, f64::min);
+    assert_eq!(
+        result.best_observed_value.to_bits(),
+        expected_best_obs.to_bits(),
+        "best_observed_value は観測最小値と等しい"
+    );
 }
 
 #[test]

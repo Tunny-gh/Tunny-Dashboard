@@ -273,6 +273,13 @@ pub(crate) fn render_chart(
                 .filter(|p| ctx.view.numeric_column(p).is_some())
                 .cloned()
                 .collect();
+            // 現在の結果が参照する目的列を取得する（結果が無い場合は None）。
+            let obj_history: Option<Vec<f64>> = widgets
+                .surrogate_opt
+                .result
+                .as_ref()
+                .and_then(|r| ctx.view.numeric_column(&r.objective_name))
+                .map(|col| col.to_vec());
             crate::ui::widgets::surrogate_opt::show(
                 ui,
                 &mut widgets.surrogate_opt,
@@ -280,6 +287,7 @@ pub(crate) fn render_chart(
                 obj_names,
                 cmap,
                 trial_count,
+                obj_history.as_deref(),
             );
         }
     }

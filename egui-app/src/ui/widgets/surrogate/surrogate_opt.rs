@@ -94,6 +94,7 @@ fn trained_matches(
 }
 
 /// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
+/// `obj_history` は現在の結果が参照する目的列の全値（trial 順）。プロット用。
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -101,6 +102,7 @@ pub fn show(
     obj_names: &[String],
     cmap: ColorMap,
     trial_count: usize,
+    obj_history: Option<&[f64]>,
 ) {
     // ── 全幅前段: 数値パラメータ無し ──────────────────────────────
     if param_names.is_empty() {
@@ -171,7 +173,15 @@ pub fn show(
             egui::vec2(col_w, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                render_optimize_column(ui, state, param_names, busy, has_matching_trained, cmap);
+                render_optimize_column(
+                    ui,
+                    state,
+                    param_names,
+                    busy,
+                    has_matching_trained,
+                    cmap,
+                    obj_history,
+                );
             },
         );
     });
@@ -260,6 +270,7 @@ fn render_optimize_column(
     busy: bool,
     has_matching_trained: bool,
     cmap: ColorMap,
+    obj_history: Option<&[f64]>,
 ) {
     // ── Optimizer コンボ ─────────────────────────────────────────
     ui.horizontal(|ui| {
@@ -323,7 +334,7 @@ fn render_optimize_column(
         return;
     };
 
-    render_result(ui, result, cmap);
+    render_result(ui, result, cmap, obj_history);
 }
 
 /// 検証指標セクションをレンダリングする。
@@ -430,24 +441,93 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport) {
         });
 }
 
-fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, cmap: ColorMap) {
+/// 改善量（正 = 改善あり）を方向を考慮して返す純粋関数。
+///
+/// - minimize: `best_observed - predicted`（小さいほど良いので observed > predicted なら正）
+/// - maximize: `predicted - best_observed`（大きいほど良いので predicted > observed なら正）
+pub(crate) fn improvement_delta(minimize: bool, best_observed: f64, predicted: f64) -> f64 {
+    if minimize {
+        best_observed - predicted
+    } else {
+        predicted - best_observed
+    }
+}
+
+fn render_result(
+    ui: &mut egui::Ui,
+    result: &SurrogateOptUiResult,
+    cmap: ColorMap,
+    obj_history: Option<&[f64]>,
+) {
     let direction = if result.minimize {
         "minimize"
     } else {
         "maximize"
     };
+
+    // ── (a) 改善サマリー ─────────────────────────────────────────────
+    ui.strong(format!("Optimization results ({}):", direction));
+    ui.label(format!("Surrogate R² = {:.3}", result.r_squared));
+    ui.add_space(4.0);
+
+    // Best observed
+    ui.horizontal(|ui| {
+        ui.label("Best observed:");
+        ui.monospace(format!("{:.6}", result.best_observed_value));
+    });
+
+    // Predicted optimum (with ± 1.96σ if available)
     let value_text = match result.predicted_std {
-        Some(std) => format!("{:.6} ± {:.6}", result.best_value, 1.96 * std),
+        Some(std) => format!("{:.6} ± {:.6} (±1.96σ)", result.best_value, 1.96 * std),
         None => format!("{:.6}", result.best_value),
     };
     ui.horizontal(|ui| {
-        ui.strong(format!(
+        ui.label(format!(
             "Predicted optimum of {} ({}):",
             result.objective_name, direction
         ));
         ui.monospace(value_text);
     });
-    ui.label(format!("Surrogate R² = {:.3}", result.r_squared));
+
+    // Improvement line
+    let delta = improvement_delta(
+        result.minimize,
+        result.best_observed_value,
+        result.best_value,
+    );
+    let abs_obs = result.best_observed_value.abs();
+    if delta > 0.0 {
+        let improvement_color = egui::Color32::from_rgb(22, 163, 74); // green-600
+        let pct_text = if abs_obs > 1e-12 {
+            format!(" ({:.1}%)", delta / abs_obs * 100.0)
+        } else {
+            String::new()
+        };
+        let uncertainty_note = match result.predicted_std {
+            Some(std) if delta < 1.96 * std => " — within model uncertainty (±1.96σ)",
+            _ => "",
+        };
+        ui.colored_label(
+            improvement_color,
+            format!(
+                "Predicted improvement: {:.6}{}{}",
+                delta, pct_text, uncertainty_note
+            ),
+        );
+    } else {
+        ui.colored_label(
+            egui::Color32::from_rgb(107, 114, 128), // gray-500
+            "No predicted improvement — observed best is already at or near the surface optimum.",
+        );
+    }
+
+    // ── (b) 最適化履歴プロット（予測最適値のオーバーレイ付き） ──────────
+    let non_empty_history = obj_history.filter(|h| !h.is_empty());
+    if let Some(history) = non_empty_history {
+        ui.add_space(6.0);
+        render_history_plot(ui, history, result);
+        ui.add_space(6.0);
+    }
 
     // ── 推定最適点のパラメータ値テーブル ────────────────────────────
     ui.add_space(4.0);
@@ -524,6 +604,87 @@ fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, cmap: ColorMa
     draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap);
 }
 
+/// 最適化履歴プロット（全 trial 点 + 累積ベスト線 + 予測最適値の水平線）。
+fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOptUiResult) {
+    use crate::theme::chart_colors::{COLOR_OPT_PRUNED, COLOR_OPT_TRIAL};
+    use crate::ui::widgets::history::optimization_history::compute_best_values;
+
+    let delta = improvement_delta(
+        result.minimize,
+        result.best_observed_value,
+        result.best_value,
+    );
+    let predicted_line_color = if delta > 0.0 {
+        egui::Color32::from_rgb(22, 163, 74) // green-600
+    } else {
+        egui::Color32::from_rgb(107, 114, 128) // gray-500
+    };
+
+    // 全 trial の散布点。
+    let all_pts: egui_plot::PlotPoints = history
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| [i as f64, v])
+        .collect();
+    let scatter = egui_plot::Points::new(all_pts)
+        .name("All Trials")
+        .color(COLOR_OPT_TRIAL)
+        .radius(2.0);
+
+    // 累積ベスト線。
+    let best_pts: egui_plot::PlotPoints = compute_best_values(history, result.minimize)
+        .into_iter()
+        .collect();
+    let best_line = egui_plot::Line::new(best_pts)
+        .name("Best so far")
+        .color(COLOR_OPT_PRUNED)
+        .width(1.5);
+
+    // 予測最適値の水平線。
+    let n = history.len() as f64;
+    let hline_pts: egui_plot::PlotPoints = vec![
+        [0.0, result.best_value],
+        [n.max(1.0) - 1.0, result.best_value],
+    ]
+    .into();
+    let hline = egui_plot::Line::new(hline_pts)
+        .name("Predicted optimum")
+        .color(predicted_line_color)
+        .width(1.5)
+        .style(egui_plot::LineStyle::Dashed { length: 8.0 });
+
+    egui_plot::Plot::new("surrogate_history_plot")
+        .height(200.0)
+        .x_axis_label("Trial")
+        .y_axis_label(&result.objective_name)
+        .legend(egui_plot::Legend::default())
+        .show(ui, |plot_ui| {
+            plot_ui.points(scatter);
+            plot_ui.line(best_line);
+            plot_ui.line(hline);
+
+            // 予測標準偏差の ±1.96σ 帯（薄いグレーの破線）。
+            if let Some(std) = result.predicted_std {
+                let sigma = 1.96 * std;
+                for (offset, name) in [
+                    (sigma, "Predicted optimum +1.96σ"),
+                    (-sigma, "Predicted optimum −1.96σ"),
+                ] {
+                    let y_band = result.best_value + offset;
+                    let band_pts: egui_plot::PlotPoints =
+                        vec![[0.0, y_band], [n.max(1.0) - 1.0, y_band]].into();
+                    plot_ui.line(
+                        egui_plot::Line::new(band_pts)
+                            .name(name)
+                            .color(egui::Color32::from_rgb(156, 163, 175)) // gray-400
+                            .width(1.0)
+                            .style(egui_plot::LineStyle::Dashed { length: 4.0 }),
+                    );
+                }
+            }
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,7 +699,45 @@ mod tests {
             objective_name: "obj0".to_string(),
             minimize: true,
             slice,
+            best_observed_value: 0.05,
         }
+    }
+
+    // ── improvement_delta のユニットテスト ────────────────────────────
+
+    #[test]
+    fn improvement_delta_minimize_positive() {
+        // 観測 0.5、予測 0.1 → 改善量 = 0.5 - 0.1 = 0.4（正）
+        let d = improvement_delta(true, 0.5, 0.1);
+        assert!((d - 0.4).abs() < 1e-12, "delta = {d}");
+    }
+
+    #[test]
+    fn improvement_delta_minimize_no_improvement() {
+        // 予測が観測より悪い場合は負または 0
+        let d = improvement_delta(true, 0.1, 0.5);
+        assert!(d < 0.0, "delta = {d}");
+    }
+
+    #[test]
+    fn improvement_delta_maximize_positive() {
+        // 観測 0.8、予測 1.2 → 改善量 = 1.2 - 0.8 = 0.4（正）
+        let d = improvement_delta(false, 0.8, 1.2);
+        assert!((d - 0.4).abs() < 1e-12, "delta = {d}");
+    }
+
+    #[test]
+    fn improvement_delta_maximize_no_improvement() {
+        // 予測が観測より悪い場合は負または 0
+        let d = improvement_delta(false, 1.2, 0.8);
+        assert!(d < 0.0, "delta = {d}");
+    }
+
+    #[test]
+    fn improvement_delta_exact_zero() {
+        // 観測と予測が等しければ改善なし
+        assert_eq!(improvement_delta(true, 0.5, 0.5), 0.0);
+        assert_eq!(improvement_delta(false, 0.5, 0.5), 0.0);
     }
 
     #[test]

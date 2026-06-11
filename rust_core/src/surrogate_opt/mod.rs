@@ -98,6 +98,8 @@ pub struct SurrogateOptResult {
     pub r_squared: f64,
     /// 最適点を通る応答曲面スライス（`slice_params` 指定時のみ）。
     pub slice: Option<SurfaceSlice>,
+    /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
+    pub best_observed_value: f64,
 }
 
 /// 入力の共通バリデーションを行う（成功時は (n, n_dims) を返す）。
@@ -157,12 +159,15 @@ fn run_optimize(
     let slice = slice_params
         .and_then(|(px, py)| build_slice(surrogate, &t_best, px, py, n_grid.max(2), n_dims));
 
+    let best_observed_value = y[best_observed_idx];
+
     SurrogateOptResult {
         best_params: surrogate.to_original_x(&t_best),
         best_value,
         predicted_std,
         r_squared: surrogate.r_squared,
         slice,
+        best_observed_value,
     }
 }
 

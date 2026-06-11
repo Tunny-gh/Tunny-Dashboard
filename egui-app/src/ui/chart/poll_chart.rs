@@ -705,6 +705,7 @@ pub(crate) fn poll_chart_work(
                         objective_name: obj_name,
                         minimize,
                         slice: r.slice,
+                        best_observed_value: r.best_observed_value,
                     })
                 });
             }
