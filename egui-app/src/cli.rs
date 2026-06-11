@@ -46,7 +46,10 @@ mod tests {
 
     #[test]
     fn parses_no_args_as_app_launch() {
-        assert_eq!(parse_args([] as [&str; 0]), Ok(CliAction::Run { initial_path: None }));
+        assert_eq!(
+            parse_args([] as [&str; 0]),
+            Ok(CliAction::Run { initial_path: None })
+        );
     }
 
     #[test]
