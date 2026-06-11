@@ -185,13 +185,9 @@ pub(crate) fn render_chart(
             }
         }
         ChartId::ScatterMatrix => {
-            widgets.scatter_matrix.show(
-                ui,
-                &ctx.view,
-                param_names,
-                obj_names,
-                &widgets.chart_colors,
-            );
+            widgets
+                .scatter_matrix
+                .show(ui, &ctx.view, param_names, obj_names, &cmap);
         }
         ChartId::SensitivityHeatmap => {
             let key = (

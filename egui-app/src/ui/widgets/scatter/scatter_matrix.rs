@@ -36,6 +36,8 @@ pub struct ScatterMatrix {
     pub selected_cell: Option<(usize, usize)>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
+    /// 点の色付けに使う目的関数名（None は先頭の目的関数にフォールバック）
+    pub color_objective: Option<String>,
 }
 
 impl Default for ScatterMatrix {
@@ -45,6 +47,7 @@ impl Default for ScatterMatrix {
             sort: AxisSort::Alphabetical,
             selected_cell: None,
             show_infeasible: true,
+            color_objective: None,
         }
     }
 }
@@ -61,7 +64,7 @@ impl ScatterMatrix {
         view: &crate::state::app_state::StudyView,
         param_names: &[String],
         obj_names: &[String],
-        chart_colors: &[egui::Color32],
+        cmap: &crate::theme::colormap::ColorMap,
     ) {
         let trial_count = view.row_count();
         if trial_count == 0 {
@@ -90,12 +93,30 @@ impl ScatterMatrix {
         let feas = view.feasibility();
         let has_constraints = feas.has_constraints();
 
-        // "Show Infeasible" トグル（制約あり Study のみ表示）
-        if has_constraints {
-            ui.horizontal(|ui| {
+        // コントロール行: "Show Infeasible" トグル（制約あり Study のみ）と "Color by" ドロップダウン
+        ui.horizontal(|ui| {
+            if has_constraints {
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
-            });
-        }
+            }
+            if !obj_names.is_empty() {
+                // 解決済みの色付け対象目的関数名
+                let current_obj =
+                    resolve_color_objective(&self.color_objective, obj_names).unwrap_or("");
+                ui.label("Color by:");
+                egui::ComboBox::from_id_salt("scatter_matrix_color_obj")
+                    .selected_text(current_obj)
+                    .show_ui(ui, |ui| {
+                        for name in obj_names {
+                            if ui
+                                .selectable_label(*name == current_obj, name.as_str())
+                                .clicked()
+                            {
+                                self.color_objective = Some(name.clone());
+                            }
+                        }
+                    });
+            }
+        });
 
         let (feasible_indices, infeasible_indices) = split_feasibility_indices(trial_count, feas);
         let show_infeasible = self.show_infeasible;
@@ -214,11 +235,32 @@ impl ScatterMatrix {
                 );
             }
         }
-        let dot_color = COLOR_SCATTER_DOT;
-        let point_colors: Vec<egui::Color32> = if chart_colors.is_empty() {
-            vec![dot_color; trial_count]
-        } else {
-            chart_colors.to_vec()
+        // 選択した目的関数の値でカラーマップ色を計算する。
+        // 目的関数がない・列が取れない場合は全点 COLOR_SCATTER_DOT。
+        let point_colors: Vec<egui::Color32> = {
+            use super::parallel_coords::{feasible_color_range, normalize_value};
+            let color_obj_name = resolve_color_objective(&self.color_objective, obj_names);
+            if let Some(name) = color_obj_name {
+                if let Some(col) = view.numeric_column(name) {
+                    let col_min = col.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let col_max = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let (mn, mx) = feasible_color_range(col, feas, (col_min, col_max));
+                    (0..trial_count)
+                        .map(|i| {
+                            let v = col.get(i).copied().unwrap_or(f64::NAN);
+                            if v.is_finite() {
+                                cmap.interpolate(normalize_value(v, mn, mx))
+                            } else {
+                                COLOR_SCATTER_DOT
+                            }
+                        })
+                        .collect()
+                } else {
+                    vec![COLOR_SCATTER_DOT; trial_count]
+                }
+            } else {
+                vec![COLOR_SCATTER_DOT; trial_count]
+            }
         };
         let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE; trial_count];
 
@@ -264,6 +306,25 @@ impl ScatterMatrix {
 
         ui.allocate_rect(outer, egui::Sense::hover());
     }
+}
+
+/// 色付け対象の目的関数名を解決する純関数。
+/// - `selected` が `obj_names` に含まれる場合はその名前を返す。
+/// - None または存在しない名前の場合は先頭要素（`obj_names[0]`）を返す。
+/// - `obj_names` が空の場合は `None` を返す。
+pub fn resolve_color_objective<'a>(
+    selected: &Option<String>,
+    obj_names: &'a [String],
+) -> Option<&'a str> {
+    if obj_names.is_empty() {
+        return None;
+    }
+    if let Some(name) = selected {
+        if let Some(found) = obj_names.iter().find(|n| *n == name) {
+            return Some(found.as_str());
+        }
+    }
+    Some(obj_names[0].as_str())
 }
 
 /// feasibility から feasible / infeasible インデックスリストを構築する。
@@ -483,6 +544,41 @@ pub fn draw_correlation_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── resolve_color_objective ──────────────────────────────────────
+
+    #[test]
+    fn resolve_color_objective_none_returns_first() {
+        let names = vec!["obj0".to_string(), "obj1".to_string()];
+        assert_eq!(resolve_color_objective(&None, &names), Some("obj0"));
+    }
+
+    #[test]
+    fn resolve_color_objective_existing_name_returns_it() {
+        let names = vec!["obj0".to_string(), "obj1".to_string()];
+        assert_eq!(
+            resolve_color_objective(&Some("obj1".to_string()), &names),
+            Some("obj1")
+        );
+    }
+
+    #[test]
+    fn resolve_color_objective_unknown_name_falls_back_to_first() {
+        let names = vec!["obj0".to_string(), "obj1".to_string()];
+        assert_eq!(
+            resolve_color_objective(&Some("unknown".to_string()), &names),
+            Some("obj0")
+        );
+    }
+
+    #[test]
+    fn resolve_color_objective_empty_names_returns_none() {
+        assert_eq!(resolve_color_objective(&None, &[]), None);
+        assert_eq!(
+            resolve_color_objective(&Some("obj0".to_string()), &[]),
+            None
+        );
+    }
 
     // ── constraint-aware visualization (TASK-2350) ──────────────────
 

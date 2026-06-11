@@ -240,7 +240,7 @@ pub fn show_toolbar(
 pub fn show_colormap_selector(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
-    widget_states: &mut WidgetStates,
+    _widget_states: &mut WidgetStates,
 ) {
     ui.label(
         egui::RichText::new("Colormap:")
@@ -248,7 +248,6 @@ pub fn show_colormap_selector(
             .size(12.0),
     );
     let current_label = app_state.selected_colormap.label().to_string();
-    let mut changed = false;
     ui.scope(|ui| {
         apply_combo_visuals(ui.visuals_mut());
         egui::ComboBox::from_id_salt("toolbar_colormap_combo")
@@ -261,14 +260,10 @@ pub fn show_colormap_selector(
                         .clicked()
                     {
                         app_state.selected_colormap = cmap.clone();
-                        changed = true;
                     }
                 }
             });
     });
-    if changed {
-        widget_states.update_chart_colors(app_state);
-    }
 }
 
 /// 比較 Study 選択ドロップダウンを描画する。

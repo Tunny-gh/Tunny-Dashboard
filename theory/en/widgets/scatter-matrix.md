@@ -11,6 +11,7 @@ The Scatter Matrix (also called a pairplot) shows pairwise scatter plots for eve
 - **Select**: Click a point in any cell to highlight that trial across all widgets.
 - **Hover**: Hover over a point to see trial details in a tooltip.
 - **Axis labels**: Row and column labels identify the variable for each cell. The diagonal cells show the variable name.
+- **Color by**: Use the "Color by" dropdown in the control row to choose which objective function is used to color the scatter points. Points are colored according to the selected objective's value using the active colormap.
 
 ## How to Read
 

@@ -9,7 +9,6 @@ use crate::ui::widgets::{
     pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
     slice_chart::SliceChart, trial_table::TrialTable,
 };
-use crate::{state::app_state::AppState, theme::color_compute::compute_chart_colors_view};
 
 // ── TASK-2239: Surface Plot 計算リクエスト ──────────────────────
 pub struct SurfacePlotComputeRequest {
@@ -145,8 +144,6 @@ pub struct WidgetStates {
     // TASK-1504: MCDM 散布図ウィジェット
     pub scatter_chart: McdmScatterChart,
     pub mcdm_scatter_3d: McdmScatterChart3D,
-    /// チャート描画用の色キャッシュ（UI専用）
-    pub chart_colors: Vec<egui::Color32>,
     // TASK-2228: Surface Plot と capture の一時状態
     pub surface_plot: SurfacePlotState,
     /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
@@ -164,26 +161,6 @@ impl WidgetStates {
         self.mcdm_scatter_3d.show_infeasible = true;
         self.parallel_coords.show_infeasible = true;
         self.scatter_matrix.show_infeasible = true;
-    }
-
-    /// 色モード・カラーマップ・MCDM結果の変化を描画色キャッシュへ反映する。
-    /// `StudySelected` 後、色設定変更後、`McdmDone` 後に呼び出すことを想定する。
-    pub fn update_chart_colors(&mut self, app_state: &AppState) {
-        if let Some(ctx) = &app_state.current_study {
-            let color_mode = app_state.color_mode.clone();
-            let colormap_name = app_state.selected_colormap.clone();
-            let objective_names = &ctx.meta.objective_names;
-            let mcdm_scores = app_state.mcdm_result.as_ref().map(|r| r.primary_scores());
-            self.chart_colors = compute_chart_colors_view(
-                &color_mode,
-                &colormap_name,
-                &ctx.view,
-                objective_names,
-                mcdm_scores,
-            );
-        } else {
-            self.chart_colors.clear();
-        }
     }
 }
 

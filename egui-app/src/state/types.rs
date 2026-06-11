@@ -260,27 +260,6 @@ impl StudyView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ColorMode {
-    ParetoRank,
-    ObjectiveValue(String),
-    TrialNumber,
-    ClusterId,
-    McdmScore,
-}
-
-impl ColorMode {
-    pub fn label(&self) -> &str {
-        match self {
-            ColorMode::ParetoRank => "Pareto Rank",
-            ColorMode::ObjectiveValue(_) => "Objective",
-            ColorMode::TrialNumber => "Trial Number",
-            ColorMode::ClusterId => "Cluster ID",
-            ColorMode::McdmScore => "MCDM Score",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ColormapName {
     Viridis,
@@ -327,13 +306,6 @@ impl ColormapName {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn color_mode_variants() {
-        let mode = ColorMode::ObjectiveValue("obj0".to_string());
-        assert_ne!(mode, ColorMode::ParetoRank);
-        assert_ne!(mode, ColorMode::TrialNumber);
-    }
 
     #[test]
     fn colormap_name_all_has_nine_variants() {

@@ -19,7 +19,6 @@ pub struct AppState {
     pub selected_indices: Vec<u32>,
     pub filter_ranges: HashMap<String, (f64, f64)>,
     pub highlighted_trial: Option<u32>,
-    pub color_mode: ColorMode,
     /// 感度分析（単一目的）の結果キャッシュ。キーは (手法 id, 目的 idx, feasible_only)。
     pub importance_cache: HashMap<(u8, usize, bool), SensitivityResult>,
     /// Sobol 指数の結果キャッシュ。キーは (目的 idx, feasible_only)。
@@ -87,7 +86,6 @@ impl AppState {
             selected_indices: Vec::new(),
             filter_ranges: HashMap::new(),
             highlighted_trial: None,
-            color_mode: ColorMode::ParetoRank,
             importance_cache: HashMap::new(),
             sobol_cache: HashMap::new(),
             sensitivity_heatmap_cache: HashMap::new(),
@@ -258,7 +256,6 @@ mod tests {
         assert!(state.selected_indices.is_empty());
         assert!(state.filter_ranges.is_empty());
         assert!(state.highlighted_trial.is_none());
-        assert_eq!(state.color_mode, ColorMode::ParetoRank);
         assert!(state.importance_cache.is_empty());
         assert!(state.cluster_cache.is_empty());
     }
