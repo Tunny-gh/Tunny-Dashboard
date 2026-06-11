@@ -269,6 +269,9 @@ pub enum AppMessage {
     ComparisonStudyLoadFailed(String),
     SurfacePlotDone(SurfacePlotResult),
     SurfacePlotFailed(String),
+    /// サロゲートのフィット＋検証が完了した（最適化段階は別メッセージ）。
+    SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    SurrogateFitFailed(String),
     SurrogateOptDone(SurrogateOptUiResult),
     SurrogateOptFailed(String),
     ChartCaptureFailed(String),

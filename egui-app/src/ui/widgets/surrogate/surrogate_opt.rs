@@ -3,12 +3,23 @@
 //! サンプリング結果（trial 群）から応答曲面（サロゲートモデル）を学習し、
 //! その曲面上で最適化を実行して推定最適点を表示する。計算は
 //! `tunny_core::surrogate_opt` がバックグラウンドで行う（poll_chart.rs 参照）。
+//!
+//! 2 段階フロー:
+//!   1. Fit & Validate: ホールドアウト + 5-fold CV で検証指標を表示。
+//!   2. Run Optimization: 学習済みモデル上で最適化を実行。
+
+use std::sync::Arc;
 
 use crate::state::messages::SurrogateOptUiResult;
 use crate::theme::colormap::ColorMap;
-use crate::ui::widget_states::{SurrogateOptComputeRequest, SurrogateOptState};
+use crate::ui::widget_states::{
+    SurrogateFitComputeRequest, SurrogateOptState, SurrogateOptimizeComputeRequest,
+};
 use crate::ui::widgets::surface_plot::{draw_colorbar_simple, draw_heatmap, value_range};
-use tunny_core::surrogate_opt::{OptimizerKind, SurrogateModelKind, MIN_TRIALS_FOR_SURROGATE_OPT};
+use tunny_core::surrogate_opt::{
+    OptimizerKind, SurrogateModelKind, SurrogateValidationReport, TrainedSurrogate,
+    MIN_TRIALS_FOR_SURROGATE_OPT,
+};
 
 /// モデル選択肢（コンボ表示順）。新モデル追加時はここへ並べる。
 const MODEL_CHOICES: [SurrogateModelKind; 3] = [
@@ -42,6 +53,39 @@ pub(crate) fn optimizer_label(kind: OptimizerKind) -> &'static str {
     }
 }
 
+/// CV R² 平均値から品質判定文字列と色を返す純粋関数。
+pub(crate) fn verdict(cv_r2_mean: f64) -> (&'static str, egui::Color32) {
+    if cv_r2_mean >= 0.9 {
+        (
+            "Good — surrogate is reliable",
+            egui::Color32::from_rgb(22, 163, 74), // green-600
+        )
+    } else if cv_r2_mean >= 0.7 {
+        (
+            "Fair — use with caution",
+            egui::Color32::from_rgb(202, 138, 4), // amber-600
+        )
+    } else {
+        (
+            "Poor — consider more trials or a different model",
+            egui::Color32::RED,
+        )
+    }
+}
+
+/// 学習済みモデルが現在の UI 選択（目的・モデル種別）と一致するか判定する。
+fn trained_matches(
+    trained: &TrainedSurrogate,
+    state: &SurrogateOptState,
+    obj_names: &[String],
+) -> bool {
+    let selected_obj = obj_names
+        .get(state.selected_objective)
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    trained.objective_name == selected_obj && trained.model_kind == state.model
+}
+
 /// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
 pub fn show(
     ui: &mut egui::Ui,
@@ -56,7 +100,7 @@ pub fn show(
         return;
     }
 
-    // ── 1段目: 目的・モデル・最適化手法 ─────────────────────────────
+    // ── 1段目: 目的・モデル ──────────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Objective:");
         let obj_text = obj_names
@@ -84,17 +128,67 @@ pub fn show(
                     ui.selectable_value(&mut state.model, kind, model_label(kind));
                 }
             });
-
-        ui.label("Optimizer:");
-        egui::ComboBox::from_id_salt("surrogate_optimizer")
-            .selected_text(optimizer_label(state.optimizer))
-            .show_ui(ui, |ui| {
-                for kind in OPTIMIZER_CHOICES {
-                    ui.selectable_value(&mut state.optimizer, kind, optimizer_label(kind));
-                }
-            });
     });
 
+    // trial 数不足の場合は早期リターン。
+    if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
+        ui.colored_label(
+            egui::Color32::RED,
+            format!(
+                "At least {} trials required (current: {})",
+                MIN_TRIALS_FOR_SURROGATE_OPT, trial_count
+            ),
+        );
+        return;
+    }
+
+    let busy = state.fitting
+        || state.optimizing
+        || state.pending_fit.is_some()
+        || state.pending_optimize.is_some();
+
+    // ── 2段目: Fit & Validate ────────────────────────────────────
+    let can_fit = !busy && !obj_names.is_empty();
+    if ui
+        .add_enabled(can_fit, egui::Button::new("Fit & Validate"))
+        .clicked()
+    {
+        if let Some(obj_name) = obj_names.get(state.selected_objective) {
+            state.error_message = None;
+            state.pending_fit = Some(SurrogateFitComputeRequest {
+                objective: obj_name.clone(),
+                model: state.model,
+            });
+        }
+    }
+
+    // フィット中スピナー。
+    if state.fitting {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Fitting and validating surrogate (holdout + 5-fold CV)…");
+        });
+        return;
+    }
+
+    // エラー表示。
+    if let Some(ref err) = state.error_message.clone() {
+        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+    }
+
+    // ── 検証セクション ───────────────────────────────────────────
+    if let Some(ref trained) = state.trained.clone() {
+        if trained_matches(trained, state, obj_names) {
+            render_validation(ui, trained);
+        } else {
+            ui.colored_label(
+                egui::Color32::from_rgb(107, 114, 128), // gray-500
+                "Model/objective changed — run Fit & Validate again.",
+            );
+        }
+    }
+
+    // ── 3段目: 最適化 ────────────────────────────────────────────
     // スライス軸のデフォルト（先頭 2 パラメータ）。Study 切替で消えた名前もリセットする。
     if !param_names.contains(&state.slice_x) {
         state.slice_x = param_names.first().cloned().unwrap_or_default();
@@ -107,8 +201,25 @@ pub fn show(
             .unwrap_or_default();
     }
 
-    // ── 2段目: スライス表示軸 + 実行ボタン ──────────────────────────
+    ui.separator();
+
+    // 学習済みモデルが一致しているときのみ最適化段を有効化する。
+    let has_matching_trained = state
+        .trained
+        .as_deref()
+        .map(|t| trained_matches(t, state, obj_names))
+        .unwrap_or(false);
+
     ui.horizontal(|ui| {
+        ui.label("Optimizer:");
+        egui::ComboBox::from_id_salt("surrogate_optimizer")
+            .selected_text(optimizer_label(state.optimizer))
+            .show_ui(ui, |ui| {
+                for kind in OPTIMIZER_CHOICES {
+                    ui.selectable_value(&mut state.optimizer, kind, optimizer_label(kind));
+                }
+            });
+
         ui.label("Surface X:");
         egui::ComboBox::from_id_salt("surrogate_slice_x")
             .selected_text(&state.slice_x)
@@ -126,56 +237,137 @@ pub fn show(
                 }
             });
 
-        let can_run = !obj_names.is_empty()
-            && trial_count >= MIN_TRIALS_FOR_SURROGATE_OPT
-            && !state.computing
-            && state.pending_compute.is_none();
+        let can_optimize = has_matching_trained && !busy;
         if ui
-            .add_enabled(can_run, egui::Button::new("Run Optimization"))
+            .add_enabled(can_optimize, egui::Button::new("Run Optimization"))
             .clicked()
         {
-            if let Some(obj_name) = obj_names.get(state.selected_objective) {
-                state.error_message = None;
-                state.pending_compute = Some(SurrogateOptComputeRequest {
-                    objective: obj_name.clone(),
-                    model: state.model,
-                    optimizer: state.optimizer,
-                    slice_x: state.slice_x.clone(),
-                    slice_y: state.slice_y.clone(),
-                });
-            }
+            state.error_message = None;
+            state.pending_optimize = Some(SurrogateOptimizeComputeRequest {
+                optimizer: state.optimizer,
+                slice_x: state.slice_x.clone(),
+                slice_y: state.slice_y.clone(),
+            });
         }
     });
 
-    if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
-        ui.colored_label(
-            egui::Color32::RED,
-            format!(
-                "At least {} trials required (current: {})",
-                MIN_TRIALS_FOR_SURROGATE_OPT, trial_count
-            ),
-        );
-        return;
-    }
-
-    if state.computing {
+    // 最適化中スピナー。
+    if state.optimizing {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label("Fitting surrogate and optimizing…");
+            ui.label("Optimizing on the response surface…");
         });
         return;
     }
 
-    if let Some(ref err) = state.error_message.clone() {
-        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
-    }
-
     let Some(result) = &state.result else {
-        ui.label("No result. Choose a model and click Run Optimization.");
+        if !has_matching_trained {
+            ui.label("Fit a surrogate model first, then click Run Optimization.");
+        }
         return;
     };
 
     render_result(ui, result, cmap);
+}
+
+/// 検証指標セクションをレンダリングする。
+fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
+    let v = &trained.validation;
+    ui.add_space(4.0);
+    ui.strong(format!(
+        "Model validation — {} on {}",
+        model_label(trained.model_kind),
+        trained.objective_name
+    ));
+
+    egui::Grid::new("surrogate_validation_metrics")
+        .striped(true)
+        .min_col_width(160.0)
+        .show(ui, |ui| {
+            ui.label("Train R²");
+            ui.monospace(format!("{:.3}", v.train_r2));
+            ui.end_row();
+
+            ui.label("Holdout R² (80/20)");
+            ui.monospace(format!("{:.3}", v.holdout_r2));
+            ui.end_row();
+
+            ui.label("Holdout RMSE");
+            ui.monospace(format!("{:.6}", v.holdout_rmse));
+            ui.end_row();
+
+            ui.label(format!("CV R² ({} folds, mean ± std)", v.cv_folds));
+            ui.monospace(format!("{:.3} ± {:.3}", v.cv_r2_mean, v.cv_r2_std));
+            ui.end_row();
+
+            ui.label("CV RMSE (mean ± std)");
+            ui.monospace(format!("{:.6} ± {:.6}", v.cv_rmse_mean, v.cv_rmse_std));
+            ui.end_row();
+
+            ui.label("Samples (train/test)");
+            ui.monospace(format!("{}/{}", v.n_train, v.n_test));
+            ui.end_row();
+        });
+
+    // 品質判定。
+    let (verdict_text, verdict_color) = verdict(v.cv_r2_mean);
+    ui.colored_label(verdict_color, verdict_text);
+
+    // predicted-vs-actual 散布図。
+    render_oof_plot(ui, v);
+}
+
+/// OOF (out-of-fold) の predicted-vs-actual 散布図をレンダリングする。
+fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport) {
+    if v.oof_pairs.is_empty() {
+        return;
+    }
+
+    // データ範囲を求める（y=x 参照線のスパン）。
+    let (mut min_val, mut max_val) = (f64::INFINITY, f64::NEG_INFINITY);
+    for &(actual, pred) in &v.oof_pairs {
+        if actual.is_finite() {
+            min_val = min_val.min(actual);
+            max_val = max_val.max(actual);
+        }
+        if pred.is_finite() {
+            min_val = min_val.min(pred);
+            max_val = max_val.max(pred);
+        }
+    }
+    if !min_val.is_finite() || !max_val.is_finite() || min_val >= max_val {
+        // データが縮退している場合は余白を加えて最低限表示する。
+        let center = if min_val.is_finite() { min_val } else { 0.0 };
+        min_val = center - 1.0;
+        max_val = center + 1.0;
+    }
+
+    let points: egui_plot::PlotPoints = v
+        .oof_pairs
+        .iter()
+        .map(|&(actual, pred)| [actual, pred])
+        .collect();
+    let scatter = egui_plot::Points::new(points)
+        .name("Out-of-fold predictions")
+        .color(egui::Color32::from_rgb(59, 130, 246)) // blue-500
+        .radius(3.0);
+
+    let ref_line: egui_plot::PlotPoints = vec![[min_val, min_val], [max_val, max_val]].into();
+    let ref_seg = egui_plot::Line::new(ref_line)
+        .name("y = x")
+        .color(egui::Color32::from_gray(160))
+        .style(egui_plot::LineStyle::Dashed { length: 6.0 });
+
+    egui_plot::Plot::new("surrogate_oof_plot")
+        .height(200.0)
+        .data_aspect(1.0)
+        .x_axis_label("Actual")
+        .y_axis_label("Predicted (out-of-fold)")
+        .legend(egui_plot::Legend::default())
+        .show(ui, |plot_ui| {
+            plot_ui.points(scatter);
+            plot_ui.line(ref_seg);
+        });
 }
 
 fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, cmap: ColorMap) {
@@ -290,50 +482,61 @@ mod tests {
     }
 
     #[test]
-    fn run_click_builds_request_from_selections() {
+    fn fit_click_builds_pending_fit_from_selections() {
         let mut state = SurrogateOptState {
-            slice_x: "x".to_string(),
-            slice_y: "y".to_string(),
+            model: SurrogateModelKind::Ridge,
+            selected_objective: 0,
             ..Default::default()
         };
         let obj_names = ["obj0".to_string()];
 
-        // show() の Run ボタン押下と同じロジック
+        // Fit & Validate ボタン押下と同じロジック。
         if let Some(obj_name) = obj_names.get(state.selected_objective) {
-            state.pending_compute = Some(SurrogateOptComputeRequest {
+            state.error_message = None;
+            state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
-                optimizer: state.optimizer,
-                slice_x: state.slice_x.clone(),
-                slice_y: state.slice_y.clone(),
             });
         }
 
-        let req = state.pending_compute.as_ref().unwrap();
+        let req = state.pending_fit.as_ref().unwrap();
         assert_eq!(req.objective, "obj0");
-        assert_eq!(req.model, SurrogateModelKind::Kriging);
-        assert_eq!(req.optimizer, OptimizerKind::MultiStartLbfgs);
-        assert_eq!(req.slice_x, "x");
-        assert_eq!(req.slice_y, "y");
+        assert_eq!(req.model, SurrogateModelKind::Ridge);
+    }
+
+    #[test]
+    fn optimize_click_requires_matching_trained() {
+        let state = SurrogateOptState::default();
+        let obj_names = ["obj0".to_string()];
+        // trained が None のため has_matching_trained は false。
+        let has_matching = state
+            .trained
+            .as_deref()
+            .map(|t| trained_matches(t, &state, &obj_names))
+            .unwrap_or(false);
+        assert!(!has_matching);
     }
 
     #[test]
     fn result_arrival_switches_spinner_off() {
         let mut state = SurrogateOptState {
-            computing: true,
+            optimizing: true,
             ..Default::default()
         };
         state.result = Some(ui_result(None));
-        state.computing = false;
-        assert!(!state.computing);
+        state.optimizing = false;
+        assert!(!state.optimizing);
         assert!(state.result.is_some());
     }
 
     #[test]
     fn adopt_compute_state_keeps_selections() {
+        use std::sync::Arc;
+
         let global = SurrogateOptState {
             result: Some(ui_result(None)),
-            computing: false,
+            fitting: false,
+            optimizing: false,
             error_message: Some("err".to_string()),
             ..Default::default()
         };
@@ -342,18 +545,38 @@ mod tests {
             model: SurrogateModelKind::Ridge,
             optimizer: OptimizerKind::RandomSearch,
             selected_objective: 1,
-            computing: true,
+            fitting: true,
+            optimizing: true,
             ..Default::default()
         };
         item.adopt_compute_state(&global);
 
-        assert!(!item.computing);
+        assert!(!item.fitting);
+        assert!(!item.optimizing);
         assert!(item.result.is_some());
         assert_eq!(item.error_message.as_deref(), Some("err"));
         // 選択は維持される
         assert_eq!(item.model, SurrogateModelKind::Ridge);
         assert_eq!(item.optimizer, OptimizerKind::RandomSearch);
         assert_eq!(item.selected_objective, 1);
+
+        // Arc<TrainedSurrogate> も伝播される（ここでは None）。
+        assert!(item.trained.is_none());
+        drop(Arc::<u8>::new(0)); // Arc が使えることを確認する（コンパイルチェック）。
+    }
+
+    #[test]
+    fn verdict_returns_correct_category() {
+        let (text, color) = verdict(0.95);
+        assert!(text.contains("Good"));
+        assert_eq!(color, egui::Color32::from_rgb(22, 163, 74));
+
+        let (text, _) = verdict(0.75);
+        assert!(text.contains("Fair"));
+
+        let (text, color) = verdict(0.5);
+        assert!(text.contains("Poor"));
+        assert_eq!(color, egui::Color32::RED);
     }
 
     #[test]
