@@ -387,3 +387,347 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
     assert!(result.r_squared > 0.8);
     assert!(result.slice.is_some(), "スライスが要求されている");
 }
+// ────────────────────────────────────────────────────────────
+// 多目的サロゲート最適化のテスト
+// ────────────────────────────────────────────────────────────
+
+/// Schaffer N.1 相当のトレードオフデータを生成する。
+/// f1 = x0², f2 = (x0 − 1)²、x0 ∈ [0,1]、x1 はダミー次元。
+fn schaffer_samples(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+    let mut rng = SeededRng::from_seed(42);
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|_| vec![rng.next_f64(), rng.next_f64()])
+        .collect();
+    let f1: Vec<f64> = x_matrix.iter().map(|r| r[0].powi(2)).collect();
+    let f2: Vec<f64> = x_matrix.iter().map(|r| (r[0] - 1.0).powi(2)).collect();
+    (x_matrix, f1, f2)
+}
+
+fn base_multi_request(
+    x_matrix: Vec<Vec<f64>>,
+    f1: Vec<f64>,
+    f2: Vec<f64>,
+) -> SurrogateMultiOptRequest {
+    SurrogateMultiOptRequest {
+        x_matrix,
+        ys: vec![f1, f2],
+        param_names: vec!["x0".to_string(), "x1".to_string()],
+        objective_names: vec!["f1".to_string(), "f2".to_string()],
+        minimize: vec![true, true],
+        model: SurrogateModelKind::Kriging,
+        slice_params: Some((0, 1)),
+        n_grid: 10,
+    }
+}
+
+#[test]
+fn multi_opt_front_spans_full_tradeoff() {
+    // 2 目的トレードオフ問題: フロントが 5 点以上、全域に広がること。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let req = base_multi_request(x_matrix, f1, f2);
+    let result = run_surrogate_multi_optimization(&req)
+        .expect("multi-objective optimization should succeed");
+
+    assert!(
+        result.front.len() >= 5,
+        "front should have ≥5 points, got {}",
+        result.front.len()
+    );
+
+    // f1 側端: x0 < 0.2 の点（f1 が小さく f2 が大きい側）が存在する。
+    let has_f1_side = result
+        .front
+        .iter()
+        .any(|p| p.params[0] < 0.2 || p.values[0] < 0.05);
+    assert!(has_f1_side, "front should reach f1-dominated region");
+
+    // f2 側端: x0 > 0.8 の点（f2 が小さく f1 が大きい側）が存在する。
+    let has_f2_side = result
+        .front
+        .iter()
+        .any(|p| p.params[0] > 0.8 || p.values[1] < 0.05);
+    assert!(has_f2_side, "front should reach f2-dominated region");
+}
+
+#[test]
+fn multi_opt_front_sorted_by_first_objective() {
+    // フロントが第 1 目的で昇順ソートされていること。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let req = base_multi_request(x_matrix, f1, f2);
+    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+
+    for w in result.front.windows(2) {
+        assert!(
+            w[0].values[0] <= w[1].values[0],
+            "front not sorted: {} > {}",
+            w[0].values[0],
+            w[1].values[0]
+        );
+    }
+}
+
+#[test]
+fn multi_opt_point_dimensions_match() {
+    // 各 ParetoFrontPoint の params/values 長が param_names/objective_names と一致。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let req = base_multi_request(x_matrix, f1, f2);
+    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+
+    for (i, p) in result.front.iter().enumerate() {
+        assert_eq!(
+            p.params.len(),
+            2,
+            "point[{}] params len mismatch: {}",
+            i,
+            p.params.len()
+        );
+        assert_eq!(
+            p.values.len(),
+            2,
+            "point[{}] values len mismatch: {}",
+            i,
+            p.values.len()
+        );
+    }
+    assert_eq!(result.r_squared.len(), 2, "r_squared should have 2 entries");
+}
+
+#[test]
+fn multi_opt_maximize_objective_direction() {
+    // f2 を最大化（minimize=false）する場合、結果の f2 値が正の方向で分布すること。
+    // f2 = (x0 − 1)² は x0=0 で最大値 1、x0=1 で最小値 0。
+    // maximize 側のフロント端に f2 が大きい点が存在すること。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let mut req = base_multi_request(x_matrix, f1, f2);
+    req.minimize = vec![true, false]; // f2 を最大化
+
+    let result = run_surrogate_multi_optimization(&req).expect("should succeed with maximize");
+
+    // 最大化目的 f2 の最大値が 0.5 以上の点がフロントに存在すること。
+    let has_large_f2 = result.front.iter().any(|p| p.values[1] > 0.5);
+    assert!(
+        has_large_f2,
+        "front should include high-f2 point when maximizing f2, max f2 = {}",
+        result
+            .front
+            .iter()
+            .map(|p| p.values[1])
+            .fold(f64::NEG_INFINITY, f64::max)
+    );
+}
+
+#[test]
+fn multi_opt_slices_returned_for_each_objective() {
+    // slice_params 指定時に目的数ぶんのスライスが返ること。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let req = base_multi_request(x_matrix, f1, f2);
+    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+
+    assert_eq!(
+        result.slices.len(),
+        2,
+        "should return 2 slices (one per objective)"
+    );
+    for (k, slice) in result.slices.iter().enumerate() {
+        assert_eq!(slice.x_values.len(), 10, "slice[{}] x_values len", k);
+        assert_eq!(slice.y_values.len(), 10, "slice[{}] y_values len", k);
+        assert_eq!(slice.z_values.len(), 10, "slice[{}] z_values rows", k);
+    }
+}
+
+#[test]
+fn multi_opt_no_slices_without_slice_params() {
+    // slice_params = None のとき slices が空。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let mut req = base_multi_request(x_matrix, f1, f2);
+    req.slice_params = None;
+    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+    assert!(
+        result.slices.is_empty(),
+        "slices should be empty when slice_params is None"
+    );
+}
+
+#[test]
+fn multi_opt_error_on_single_objective() {
+    // 目的数 1 はエラー。
+    let (x_matrix, f1, _) = schaffer_samples(30);
+    let req = SurrogateMultiOptRequest {
+        x_matrix,
+        ys: vec![f1],
+        param_names: vec!["x0".to_string(), "x1".to_string()],
+        objective_names: vec!["f1".to_string()],
+        minimize: vec![true],
+        model: SurrogateModelKind::Kriging,
+        slice_params: None,
+        n_grid: 10,
+    };
+    let err = run_surrogate_multi_optimization(&req).unwrap_err();
+    assert!(
+        err.contains("At least 2 objectives"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn multi_opt_error_on_ys_length_mismatch() {
+    // ys と objective_names の長さが異なる場合はエラー。
+    let (x_matrix, f1, f2) = schaffer_samples(30);
+    let req = SurrogateMultiOptRequest {
+        x_matrix,
+        ys: vec![f1, f2],
+        param_names: vec!["x0".to_string(), "x1".to_string()],
+        objective_names: vec!["f1".to_string()], // 長さ不一致
+        minimize: vec![true, true],
+        model: SurrogateModelKind::Kriging,
+        slice_params: None,
+        n_grid: 10,
+    };
+    let err = run_surrogate_multi_optimization(&req).unwrap_err();
+    assert!(
+        err.contains("objective_names length mismatch"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn multi_opt_error_on_too_few_trials() {
+    // trial 不足はエラー。
+    let (x_matrix, f1, f2) = schaffer_samples(5);
+    let req = base_multi_request(x_matrix, f1, f2);
+    let err = run_surrogate_multi_optimization(&req).unwrap_err();
+    assert!(err.contains("At least"), "unexpected error: {err}");
+}
+
+// ────────────────────────────────────────────────────────────
+// 2 段階フロー（fit → optimize_multi_on_trained）のテスト
+// ────────────────────────────────────────────────────────────
+
+/// schaffer_samples の 2 目的を fit_surrogate_with_validation で学習する。
+fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
+    let (x_matrix, f1, f2) = schaffer_samples(n);
+    let names = vec!["x0".to_string(), "x1".to_string()];
+    let t1 = fit_surrogate_with_validation(&SurrogateFitRequest {
+        x_matrix: x_matrix.clone(),
+        y: f1,
+        param_names: names.clone(),
+        objective_name: "f1".to_string(),
+        model: SurrogateModelKind::Kriging,
+    })
+    .expect("fit f1 should succeed");
+    let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
+        x_matrix,
+        y: f2,
+        param_names: names,
+        objective_name: "f2".to_string(),
+        model: SurrogateModelKind::Kriging,
+    })
+    .expect("fit f2 should succeed");
+    (t1, t2)
+}
+
+#[test]
+fn staged_multi_opt_front_spans_full_tradeoff() {
+    // fit & validate → optimize の 2 段階でフロントがトレードオフ全域に広がること。
+    let (t1, t2) = fit_schaffer_trained(50);
+    let spec = SurrogateMultiOptimizeSpec {
+        minimize: vec![true, true],
+        slice_params: Some((0, 1)),
+        n_grid: 10,
+    };
+    let result = optimize_multi_on_trained(&[&t1, &t2], &spec)
+        .expect("staged multi-objective optimization should succeed");
+
+    assert!(
+        result.front.len() >= 5,
+        "front should have ≥5 points, got {}",
+        result.front.len()
+    );
+    let has_f1_side = result
+        .front
+        .iter()
+        .any(|p| p.params[0] < 0.2 || p.values[0] < 0.05);
+    assert!(has_f1_side, "front should reach f1-dominated region");
+    let has_f2_side = result
+        .front
+        .iter()
+        .any(|p| p.params[0] > 0.8 || p.values[1] < 0.05);
+    assert!(has_f2_side, "front should reach f2-dominated region");
+
+    // スライスは目的数ぶん返る。r_squared も目的数ぶん。
+    assert_eq!(result.slices.len(), 2);
+    assert_eq!(result.r_squared.len(), 2);
+}
+
+#[test]
+fn staged_multi_opt_error_on_single_trained() {
+    // trained 1 件のみはエラー。
+    let (t1, _) = fit_schaffer_trained(30);
+    let spec = SurrogateMultiOptimizeSpec {
+        minimize: vec![true],
+        slice_params: None,
+        n_grid: 10,
+    };
+    let err = optimize_multi_on_trained(&[&t1], &spec).unwrap_err();
+    assert!(
+        err.contains("At least 2 objectives"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn staged_multi_opt_error_on_minimize_length_mismatch() {
+    // minimize の長さが trained と異なる場合はエラー。
+    let (t1, t2) = fit_schaffer_trained(30);
+    let spec = SurrogateMultiOptimizeSpec {
+        minimize: vec![true], // 長さ不一致
+        slice_params: None,
+        n_grid: 10,
+    };
+    let err = optimize_multi_on_trained(&[&t1, &t2], &spec).unwrap_err();
+    assert!(
+        err.contains("minimize length mismatch"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn staged_multi_opt_matches_one_shot_result() {
+    // 同一データ・決定的シードなら one-shot 版と staged 版で同等のフロントが得られること。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let req = base_multi_request(x_matrix, f1.clone(), f2.clone());
+    let one_shot = run_surrogate_multi_optimization(&req).expect("one-shot should succeed");
+
+    let (t1, t2) = fit_schaffer_trained(50);
+    let spec = SurrogateMultiOptimizeSpec {
+        minimize: vec![true, true],
+        slice_params: Some((0, 1)),
+        n_grid: 10,
+    };
+    let staged = optimize_multi_on_trained(&[&t1, &t2], &spec).expect("staged should succeed");
+
+    // 最終モデルは同じ全データ学習・NSGA-II は同一シードなので、フロントは一致するはず。
+    assert_eq!(
+        one_shot.front.len(),
+        staged.front.len(),
+        "front sizes should match"
+    );
+    for (a, b) in one_shot.front.iter().zip(staged.front.iter()) {
+        for (va, vb) in a.values.iter().zip(b.values.iter()) {
+            assert!(
+                (va - vb).abs() < 1e-9,
+                "front values should match: {va} vs {vb}"
+            );
+        }
+        for (pa, pb) in a.params.iter().zip(b.params.iter()) {
+            assert!(
+                (pa - pb).abs() < 1e-9,
+                "front params should match: {pa} vs {pb}"
+            );
+        }
+    }
+    // r_squared も一致する（同じ全データ学習）。
+    for (ra, rb) in one_shot.r_squared.iter().zip(staged.r_squared.iter()) {
+        assert!((ra - rb).abs() < 1e-12);
+    }
+}

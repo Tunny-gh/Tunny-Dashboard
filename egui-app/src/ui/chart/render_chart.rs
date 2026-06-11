@@ -15,7 +15,13 @@ pub(crate) fn render_chart(
 
     // pareto_2d/3d は &mut AppState を要求するため先に処理する
     if matches!(chart_id, ChartId::ParetoScatter2D) {
-        widgets.pareto_2d.show(ui, app_state);
+        // surrogate_opt との分割借用: pareto_2d と surrogate_opt を同時に可変借用する。
+        let crate::ui::widget_states::WidgetStates {
+            ref mut pareto_2d,
+            ref surrogate_opt,
+            ..
+        } = *widgets;
+        pareto_2d.show(ui, app_state, surrogate_opt.multi_result.as_ref());
         return;
     }
     if matches!(chart_id, ChartId::ParetoScatter3D) {

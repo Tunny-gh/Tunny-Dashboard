@@ -146,6 +146,13 @@ pub const COLOR_CHART_TEXT: Color32 = Color32::from_rgb(32, 33, 36);
 /// データなし・空状態の表示色
 pub const COLOR_EMPTY_STATE: Color32 = Color32::from_rgb(95, 99, 104);
 
+// ====================================================================
+// サロゲート多目的フロント（pareto_2d オーバーレイ）
+// ====================================================================
+
+/// サロゲート予測パレートフロント点の色（金色系。既存の赤・青と被らない）。
+pub const COLOR_SURROGATE_FRONT: Color32 = Color32::from_rgb(255, 193, 7);
+
 /// ヒートマップ・マトリクス系のグリッド線色
 pub const COLOR_GRID_STROKE: Color32 = Color32::from_rgb(154, 160, 166);
 

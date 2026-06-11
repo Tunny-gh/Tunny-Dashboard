@@ -1,6 +1,8 @@
 use crate::state::app_state::{AppState, TrialRow};
+use crate::state::messages::SurrogateMultiOptUiResult;
 use crate::theme::chart_colors::{
-    COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_UNSELECTED_POINT,
+    COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_SURROGATE_FRONT,
+    COLOR_UNSELECTED_POINT,
 };
 use crate::theme::color_compute::compute_point_alpha;
 use crate::ui::widgets::trial_detail_modal::{
@@ -43,6 +45,8 @@ pub struct ParetoScatter2D {
     pub brush_end: Option<[f64; 2]>,
     /// 点クリックで開くトライアル詳細モーダル。
     pub detail_modal: TrialDetailModal,
+    /// サロゲート予測フロント点をオーバーレイ表示するか。
+    pub show_surrogate_front: bool,
 }
 
 impl Default for ParetoScatter2D {
@@ -54,12 +58,41 @@ impl Default for ParetoScatter2D {
             brush_start: None,
             brush_end: None,
             detail_modal: TrialDetailModal::new(),
+            show_surrogate_front: true,
         }
     }
 }
 
+/// 目的軸名から `SurrogateMultiOptUiResult` のフロント点列を解決する純粋関数。
+/// どちらかの軸名が結果に含まれない場合は空 Vec を返す。
+pub fn surrogate_front_points(
+    result: &SurrogateMultiOptUiResult,
+    x_axis: &str,
+    y_axis: &str,
+) -> Vec<[f64; 2]> {
+    let x_idx = result.objective_names.iter().position(|n| n == x_axis);
+    let y_idx = result.objective_names.iter().position(|n| n == y_axis);
+    match (x_idx, y_idx) {
+        (Some(xi), Some(yi)) => result
+            .front
+            .iter()
+            .filter_map(|pt| {
+                let x = pt.values.get(xi).copied()?;
+                let y = pt.values.get(yi).copied()?;
+                Some([x, y])
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 impl ParetoScatter2D {
-    pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        app_state: &mut AppState,
+        surrogate_front: Option<&SurrogateMultiOptUiResult>,
+    ) {
         let Some(ctx) = &app_state.current_study else {
             ui.centered_and_justified(|ui| {
                 ui.label("Select a study");
@@ -77,7 +110,7 @@ impl ParetoScatter2D {
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
-        // 軸割り当て ComboBox
+        // 軸割り当て ComboBox + サロゲートフロントチェックボックス
         ui.horizontal(|ui| {
             ui.label("X Axis:");
             egui::ComboBox::from_id_salt("x_axis_combo")
@@ -95,6 +128,10 @@ impl ParetoScatter2D {
                         ui.selectable_value(&mut self.y_axis, name.clone(), name);
                     }
                 });
+            // サロゲートフロントが利用可能な場合のみチェックボックスを表示する。
+            if surrogate_front.is_some() {
+                ui.checkbox(&mut self.show_surrogate_front, "Surrogate front");
+            }
         });
 
         let x_idx = obj_names
@@ -164,6 +201,15 @@ impl ParetoScatter2D {
                 non_pareto_pts.push(pt);
             }
         }
+
+        // サロゲートフロント点を事前に計算する（クロージャ内で借用衝突を避けるため）。
+        let surrogate_pts: Vec<[f64; 2]> = if self.show_surrogate_front {
+            surrogate_front
+                .map(|r| surrogate_front_points(r, &self.x_axis, &self.y_axis))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         // Capture brush events inside the closure using mutable local vars
         let mut new_brush_start: Option<[f64; 2]> = None;
@@ -247,6 +293,16 @@ impl ParetoScatter2D {
                             .name("Pareto Front")
                             .color(COLOR_PARETO)
                             .radius(4.0),
+                    );
+                }
+                // サロゲート予測フロント（金色ダイヤモンド）
+                if !surrogate_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(surrogate_pts)
+                            .name("Surrogate Pareto Front")
+                            .shape(egui_plot::MarkerShape::Diamond)
+                            .radius(4.5)
+                            .color(COLOR_SURROGATE_FRONT),
                     );
                 }
                 // ハイライト点
@@ -592,5 +648,60 @@ mod tests {
         let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
         assert_eq!(feasible.len(), 3);
         assert!(infeasible.is_empty());
+    }
+
+    // ── surrogate_front_points のユニットテスト ───────────────────────
+
+    fn make_ui_result() -> crate::state::messages::SurrogateMultiOptUiResult {
+        use tunny_core::surrogate_opt::ParetoFrontPoint;
+        crate::state::messages::SurrogateMultiOptUiResult {
+            param_names: vec!["x".to_string()],
+            objective_names: vec!["f0".to_string(), "f1".to_string()],
+            minimize: vec![true, true],
+            front: vec![
+                ParetoFrontPoint {
+                    params: vec![0.1],
+                    values: vec![1.0, 4.0],
+                },
+                ParetoFrontPoint {
+                    params: vec![0.2],
+                    values: vec![2.0, 3.0],
+                },
+            ],
+            r_squared: vec![0.9, 0.85],
+            slices: vec![],
+        }
+    }
+
+    #[test]
+    fn surrogate_front_points_normal_order() {
+        let result = make_ui_result();
+        let pts = surrogate_front_points(&result, "f0", "f1");
+        assert_eq!(pts.len(), 2);
+        assert_eq!(pts[0], [1.0, 4.0]);
+        assert_eq!(pts[1], [2.0, 3.0]);
+    }
+
+    #[test]
+    fn surrogate_front_points_swapped_axes() {
+        let result = make_ui_result();
+        let pts = surrogate_front_points(&result, "f1", "f0");
+        assert_eq!(pts.len(), 2);
+        assert_eq!(pts[0], [4.0, 1.0]);
+        assert_eq!(pts[1], [3.0, 2.0]);
+    }
+
+    #[test]
+    fn surrogate_front_points_unknown_axis_returns_empty() {
+        let result = make_ui_result();
+        // 存在しない軸名 → 空
+        let pts = surrogate_front_points(&result, "f0", "unknown");
+        assert!(pts.is_empty());
+    }
+
+    #[test]
+    fn pareto_scatter_2d_show_surrogate_front_default_true() {
+        let widget = ParetoScatter2D::default();
+        assert!(widget.show_surrogate_front);
     }
 }

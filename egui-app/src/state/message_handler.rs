@@ -268,6 +268,24 @@ impl MessageHandler {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.optimizing = false;
             }
+            AppMessage::SurrogateMultiFitDone(trained) => {
+                widget_states.surrogate_opt.multi_trained = Some(trained);
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.fitting = false;
+            }
+            AppMessage::SurrogateMultiFitFailed(err) => {
+                widget_states.surrogate_opt.error_message = Some(err);
+                widget_states.surrogate_opt.fitting = false;
+            }
+            AppMessage::SurrogateMultiOptDone(result) => {
+                widget_states.surrogate_opt.multi_result = Some(result);
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.optimizing = false;
+            }
+            AppMessage::SurrogateMultiOptFailed(err) => {
+                widget_states.surrogate_opt.error_message = Some(err);
+                widget_states.surrogate_opt.optimizing = false;
+            }
             AppMessage::ChartCaptureFailed(err) => {
                 widget_states.capture.last_error = Some(err);
             }

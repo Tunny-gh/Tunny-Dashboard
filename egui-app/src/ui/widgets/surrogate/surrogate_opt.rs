@@ -17,12 +17,13 @@
 
 use std::sync::Arc;
 
-use crate::state::messages::SurrogateOptUiResult;
+use crate::state::messages::{SurrogateMultiOptUiResult, SurrogateOptUiResult};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{
-    SurrogateFitComputeRequest, SurrogateOptState, SurrogateOptimizeComputeRequest,
+    SurrogateFitComputeRequest, SurrogateMultiFitComputeRequest,
+    SurrogateMultiOptimizeComputeRequest, SurrogateOptState, SurrogateOptimizeComputeRequest,
 };
-use crate::ui::widgets::surface_plot::{draw_colorbar_simple, draw_heatmap, value_range};
+use crate::ui::widgets::pdp::surface_plot::{draw_colorbar_simple, draw_heatmap, value_range};
 use tunny_core::surrogate_opt::{
     OptimizerKind, SurrogateModelKind, SurrogateValidationReport, TrainedSurrogate,
     MIN_TRIALS_FOR_SURROGATE_OPT,
@@ -93,6 +94,23 @@ fn trained_matches(
     trained.objective_name == selected_obj && trained.model_kind == state.model
 }
 
+/// 多目的学習済みモデル群が現在の UI 選択（モデル・目的集合）と一致するか判定する。
+pub(crate) fn multi_trained_matches(
+    trained: &[TrainedSurrogate],
+    state: &SurrogateOptState,
+    obj_names: &[String],
+) -> bool {
+    if trained.len() != obj_names.len() {
+        return false;
+    }
+    let trained_obj_names: Vec<&str> = trained.iter().map(|t| t.objective_name.as_str()).collect();
+    let expected_obj_names: Vec<&str> = obj_names.iter().map(|s| s.as_str()).collect();
+    if trained_obj_names != expected_obj_names {
+        return false;
+    }
+    trained.iter().all(|t| t.model_kind == state.model)
+}
+
 /// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
 /// `obj_history` は現在の結果が参照する目的列の全値（trial 順）。プロット用。
 pub fn show(
@@ -134,15 +152,36 @@ pub fn show(
             .unwrap_or_default();
     }
 
+    // ── 多目的モード切替チェックボックス（目的が 2 つ以上の時のみ表示） ──
+    if obj_names.len() >= 2 {
+        let prev_multi = state.multi_objective;
+        ui.checkbox(
+            &mut state.multi_objective,
+            "Multi-objective (all objectives)",
+        );
+        if state.multi_objective != prev_multi {
+            // モード切替時にエラーをクリアする。
+            state.error_message = None;
+        }
+    }
+
     let busy = state.fitting
         || state.optimizing
         || state.pending_fit.is_some()
-        || state.pending_optimize.is_some();
+        || state.pending_optimize.is_some()
+        || state.pending_multi_fit.is_some()
+        || state.pending_multi_optimize.is_some();
 
     let has_matching_trained = state
         .trained
         .as_deref()
         .map(|t| trained_matches(t, state, obj_names))
+        .unwrap_or(false);
+
+    let has_matching_multi_trained = state
+        .multi_trained
+        .as_deref()
+        .map(|v| multi_trained_matches(v, state, obj_names))
         .unwrap_or(false);
 
     // ── 2 列レイアウト ─────────────────────────────────────────────
@@ -162,7 +201,11 @@ pub fn show(
             egui::vec2(col_w, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                render_fit_column(ui, state, obj_names, busy);
+                if state.multi_objective {
+                    render_fit_column_multi(ui, state, obj_names, busy);
+                } else {
+                    render_fit_column(ui, state, obj_names, busy);
+                }
             },
         );
 
@@ -173,21 +216,32 @@ pub fn show(
             egui::vec2(col_w, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                render_optimize_column(
-                    ui,
-                    state,
-                    param_names,
-                    busy,
-                    has_matching_trained,
-                    cmap,
-                    obj_history,
-                );
+                if state.multi_objective {
+                    render_optimize_column_multi(
+                        ui,
+                        state,
+                        param_names,
+                        busy,
+                        has_matching_multi_trained,
+                        cmap,
+                    );
+                } else {
+                    render_optimize_column(
+                        ui,
+                        state,
+                        param_names,
+                        busy,
+                        has_matching_trained,
+                        cmap,
+                        obj_history,
+                    );
+                }
             },
         );
     });
 }
 
-/// 左列: Objective / Model コンボ、Fit & Validate ボタン、検証結果。
+/// 左列（単目的）: Objective / Model コンボ、Fit & Validate ボタン、検証結果。
 fn render_fit_column(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -262,7 +316,59 @@ fn render_fit_column(
     }
 }
 
-/// 右列: Optimizer / Surface X・Y コンボ、Run Optimization ボタン、結果。
+/// 左列（多目的）: 全目的固定ラベル + Model コンボ、Fit & Validate ボタン、検証結果。
+fn render_fit_column_multi(
+    ui: &mut egui::Ui,
+    state: &mut SurrogateOptState,
+    obj_names: &[String],
+    busy: bool,
+) {
+    // ── 1段目: 目的（固定ラベル）・モデル ───────────────────────
+    ui.label(format!("Objectives: all {} objectives", obj_names.len()));
+    ui.horizontal(|ui| {
+        ui.label("Model:");
+        egui::ComboBox::from_id_salt("surrogate_model_multi")
+            .selected_text(model_label(state.model))
+            .show_ui(ui, |ui| {
+                for kind in MODEL_CHOICES {
+                    ui.selectable_value(&mut state.model, kind, model_label(kind));
+                }
+            });
+    });
+
+    // ── 2段目: Fit & Validate ────────────────────────────────────
+    let can_fit = !busy && obj_names.len() >= 2;
+    if ui
+        .add_enabled(can_fit, egui::Button::new("Fit & Validate"))
+        .clicked()
+    {
+        state.error_message = None;
+        state.pending_multi_fit = Some(SurrogateMultiFitComputeRequest { model: state.model });
+    }
+
+    // フィット中スピナー。
+    if state.fitting {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Fitting and validating surrogates (all objectives)…");
+        });
+        return;
+    }
+
+    // ── 検証セクション（目的ごとのコンパクトサマリ） ────────────
+    if let Some(ref multi_trained) = state.multi_trained.clone() {
+        if multi_trained_matches(multi_trained, state, obj_names) {
+            render_multi_validation(ui, state, multi_trained);
+        } else {
+            ui.colored_label(
+                egui::Color32::from_rgb(107, 114, 128), // gray-500
+                "Model changed — run Fit & Validate again.",
+            );
+        }
+    }
+}
+
+/// 右列（単目的）: Optimizer / Surface X・Y コンボ、Run Optimization ボタン、結果。
 fn render_optimize_column(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -337,6 +443,70 @@ fn render_optimize_column(
     render_result(ui, result, cmap, obj_history);
 }
 
+/// 右列（多目的）: 固定 NSGA-II ラベル + Surface X・Y コンボ、Run Optimization ボタン、結果。
+fn render_optimize_column_multi(
+    ui: &mut egui::Ui,
+    state: &mut SurrogateOptState,
+    param_names: &[String],
+    busy: bool,
+    has_matching_multi_trained: bool,
+    cmap: ColorMap,
+) {
+    // ── Optimizer（固定ラベル） ───────────────────────────────────
+    ui.label("Optimizer: NSGA-II");
+
+    // Surface X / Y コンボ。
+    ui.horizontal(|ui| {
+        ui.label("Surface X:");
+        egui::ComboBox::from_id_salt("surrogate_slice_x_multi")
+            .selected_text(&state.slice_x)
+            .show_ui(ui, |ui| {
+                for name in param_names {
+                    ui.selectable_value(&mut state.slice_x, name.clone(), name);
+                }
+            });
+        ui.label("Y:");
+        egui::ComboBox::from_id_salt("surrogate_slice_y_multi")
+            .selected_text(&state.slice_y)
+            .show_ui(ui, |ui| {
+                for name in param_names {
+                    ui.selectable_value(&mut state.slice_y, name.clone(), name);
+                }
+            });
+    });
+
+    // ── Run Optimization ボタン ──────────────────────────────────
+    let can_optimize = has_matching_multi_trained && !busy;
+    if ui
+        .add_enabled(can_optimize, egui::Button::new("Run Optimization"))
+        .clicked()
+    {
+        state.error_message = None;
+        state.pending_multi_optimize = Some(SurrogateMultiOptimizeComputeRequest {
+            slice_x: state.slice_x.clone(),
+            slice_y: state.slice_y.clone(),
+        });
+    }
+
+    // 最適化中スピナー。
+    if state.optimizing {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Running NSGA-II on the response surfaces…");
+        });
+        return;
+    }
+
+    let Some(result) = &state.multi_result.clone() else {
+        if !has_matching_multi_trained {
+            ui.label("Fit surrogate models first, then click Run Optimization.");
+        }
+        return;
+    };
+
+    render_multi_result(ui, result, state, cmap);
+}
+
 /// 検証指標セクションをレンダリングする。
 fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let v = &trained.validation;
@@ -382,6 +552,76 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
 
     // predicted-vs-actual 散布図。
     render_oof_plot(ui, v);
+}
+
+/// 多目的検証サマリをコンパクトに表示する（目的ごとに 1 行）。
+/// グリッドの下に、選択した目的の OOF 予測 vs 実測プロットを表示する。
+fn render_multi_validation(
+    ui: &mut egui::Ui,
+    state: &mut SurrogateOptState,
+    trained: &[TrainedSurrogate],
+) {
+    if trained.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.strong(format!(
+        "Model validation — {} (all objectives)",
+        model_label(trained[0].model_kind)
+    ));
+
+    egui::Grid::new("surrogate_multi_validation_metrics")
+        .striped(true)
+        .min_col_width(60.0)
+        .show(ui, |ui| {
+            // ヘッダ行
+            ui.strong("Objective");
+            ui.strong("Holdout R²");
+            ui.strong("CV R² mean±std");
+            ui.strong("Quality");
+            ui.end_row();
+
+            for t in trained {
+                let v = &t.validation;
+                ui.label(&t.objective_name);
+                ui.monospace(format!("{:.3}", v.holdout_r2));
+                ui.monospace(format!("{:.3}±{:.3}", v.cv_r2_mean, v.cv_r2_std));
+                let (verdict_text, verdict_color) = verdict(v.cv_r2_mean);
+                ui.colored_label(verdict_color, verdict_text);
+                ui.end_row();
+            }
+        });
+
+    // ── OOF プロット対象の目的選択 ───────────────────────────────
+    // インデックス範囲クランプ（目的数が減った場合など）。
+    if state.multi_validation_objective >= trained.len() {
+        state.multi_validation_objective = 0;
+    }
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("Validation plot:");
+        let current_name = trained
+            .get(state.multi_validation_objective)
+            .map(|t| t.objective_name.as_str())
+            .unwrap_or("—");
+        egui::ComboBox::from_id_salt("surrogate_multi_validation_obj")
+            .selected_text(current_name)
+            .show_ui(ui, |ui| {
+                for (i, t) in trained.iter().enumerate() {
+                    if ui
+                        .selectable_label(state.multi_validation_objective == i, &t.objective_name)
+                        .clicked()
+                    {
+                        state.multi_validation_objective = i;
+                    }
+                }
+            });
+    });
+
+    // 選択された目的の predicted-vs-actual 散布図。
+    if let Some(t) = trained.get(state.multi_validation_objective) {
+        render_oof_plot(ui, &t.validation);
+    }
 }
 
 /// OOF (out-of-fold) の predicted-vs-actual 散布図をレンダリングする。
@@ -565,6 +805,30 @@ fn render_result(
         px_name.0, py_name.0
     ));
 
+    let best_x_val = px_name.1;
+    let best_y_val = py_name.1;
+    let marker_params = vec![
+        (slice.param_x_idx, best_x_val),
+        (slice.param_y_idx, best_y_val),
+    ];
+    draw_slice_heatmap(ui, slice, &marker_params, cmap);
+}
+
+/// ヒートマップスライスの描画ヘルパー（単目的・多目的で共通）。
+/// `marker_params` は (param_x_idx_in_slice, value), (param_y_idx_in_slice, value)
+/// を含む vec。最初の 2 要素の x/y 値でマーカーを射影する。
+fn draw_slice_heatmap(
+    ui: &mut egui::Ui,
+    slice: &tunny_core::surrogate_opt::SurfaceSlice,
+    marker_points: &[(usize, f64)],
+    cmap: ColorMap,
+) {
+    let nx = slice.x_values.len();
+    let ny = slice.y_values.len();
+    if nx == 0 || ny == 0 {
+        return;
+    }
+
     let available = ui.available_rect_before_wrap();
     let plot_size = egui::vec2(
         (available.width() - 32.0).max(100.0),
@@ -575,25 +839,198 @@ fn render_result(
 
     // 表示用に向きを揃える: 横 = param_x（左→右で増加）、縦 = param_y（上 = 最大）。
     // core の slice は z[i][j] = f(x_i, y_j) なので disp[r][c] = z[c][ny-1-r]。
-    let nx = slice.x_values.len();
-    let ny = slice.y_values.len();
     let display: Vec<Vec<f64>> = (0..ny)
         .map(|r| (0..nx).map(|c| slice.z_values[c][ny - 1 - r]).collect())
         .collect();
     draw_heatmap(&painter, rect, &display, cmap.clone());
 
-    // 最適点マーカー（白丸＋黒縁）。
+    // マーカー描画: marker_points から x/y 値を取り出して射影する。
     let (x_min, x_max) = (slice.x_values[0], slice.x_values[nx - 1]);
     let (y_min, y_max) = (slice.y_values[0], slice.y_values[ny - 1]);
     if x_max > x_min && y_max > y_min {
-        let fx = ((px_name.1 - x_min) / (x_max - x_min)).clamp(0.0, 1.0) as f32;
-        let fy = ((py_name.1 - y_min) / (y_max - y_min)).clamp(0.0, 1.0) as f32;
-        let marker = egui::pos2(
-            rect.left() + fx * rect.width(),
-            rect.bottom() - fy * rect.height(),
-        );
-        painter.circle_filled(marker, 5.0, egui::Color32::WHITE);
-        painter.circle_stroke(marker, 5.0, egui::Stroke::new(1.5, egui::Color32::BLACK));
+        for (px_val, py_val) in marker_points
+            .iter()
+            .zip(marker_points.iter().skip(1))
+            .map(|(a, b)| (a.1, b.1))
+            .take(1)
+        {
+            let fx = ((px_val - x_min) / (x_max - x_min)).clamp(0.0, 1.0) as f32;
+            let fy = ((py_val - y_min) / (y_max - y_min)).clamp(0.0, 1.0) as f32;
+            let marker = egui::pos2(
+                rect.left() + fx * rect.width(),
+                rect.bottom() - fy * rect.height(),
+            );
+            painter.circle_filled(marker, 5.0, egui::Color32::WHITE);
+            painter.circle_stroke(marker, 5.0, egui::Stroke::new(1.5, egui::Color32::BLACK));
+        }
+    }
+
+    let (v_min, v_max) = value_range(&display);
+    let bar_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.right() + 4.0, rect.top()),
+        egui::vec2(16.0, rect.height()),
+    );
+    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap);
+}
+
+/// 多目的最適化の結果を表示する。
+fn render_multi_result(
+    ui: &mut egui::Ui,
+    result: &SurrogateMultiOptUiResult,
+    state: &mut SurrogateOptState,
+    cmap: ColorMap,
+) {
+    // ── 見出し ────────────────────────────────────────────────────
+    ui.strong(format!(
+        "Predicted Pareto Front: {} points",
+        result.front.len()
+    ));
+
+    // ── 目的ごとの R²（訓練） ─────────────────────────────────────
+    ui.add_space(2.0);
+    ui.horizontal_wrapped(|ui| {
+        for (i, r2) in result.r_squared.iter().enumerate() {
+            let name = result
+                .objective_names
+                .get(i)
+                .map(|s| s.as_str())
+                .unwrap_or("?");
+            ui.label(format!("{}: R²={:.3}", name, r2));
+        }
+    });
+    ui.add_space(4.0);
+
+    // ── フロント点テーブル ────────────────────────────────────────
+    if !result.front.is_empty() {
+        egui::ScrollArea::vertical()
+            .max_height(150.0)
+            .id_salt("surrogate_multi_front_scroll")
+            .show(ui, |ui| {
+                egui::Grid::new("surrogate_multi_front_table")
+                    .striped(true)
+                    .min_col_width(60.0)
+                    .show(ui, |ui| {
+                        // ヘッダ行
+                        for name in &result.objective_names {
+                            ui.strong(name);
+                        }
+                        for name in &result.param_names {
+                            ui.strong(name);
+                        }
+                        ui.end_row();
+
+                        // データ行
+                        for pt in &result.front {
+                            for v in &pt.values {
+                                ui.monospace(format!("{:.6}", v));
+                            }
+                            for p in &pt.params {
+                                ui.monospace(format!("{:.6}", p));
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        ui.add_space(4.0);
+    }
+
+    // ── 応答曲面スライス（目的選択コンボ + ヒートマップ） ─────────
+    if result.slices.is_empty() {
+        return;
+    }
+
+    // 目的選択コンボ。
+    ui.horizontal(|ui| {
+        ui.label("Surface for:");
+        let current_name = result
+            .objective_names
+            .get(state.multi_slice_objective)
+            .map(|s| s.as_str())
+            .unwrap_or("—");
+        egui::ComboBox::from_id_salt("surrogate_multi_slice_obj")
+            .selected_text(current_name)
+            .show_ui(ui, |ui| {
+                for (i, name) in result.objective_names.iter().enumerate() {
+                    if ui
+                        .selectable_label(state.multi_slice_objective == i, name)
+                        .clicked()
+                    {
+                        state.multi_slice_objective = i;
+                    }
+                }
+            });
+    });
+
+    // インデックス範囲クランプ（目的数が減った場合など）。
+    let n_slices = result.slices.len();
+    if state.multi_slice_objective >= n_slices {
+        state.multi_slice_objective = 0;
+    }
+
+    let Some(slice) = result.slices.get(state.multi_slice_objective) else {
+        return;
+    };
+    if slice.z_values.is_empty() {
+        return;
+    }
+
+    let obj_name = result
+        .objective_names
+        .get(state.multi_slice_objective)
+        .map(|s| s.as_str())
+        .unwrap_or("?");
+    let px_label = result
+        .param_names
+        .get(slice.param_x_idx)
+        .map(|s| s.as_str())
+        .unwrap_or("?");
+    let py_label = result
+        .param_names
+        .get(slice.param_y_idx)
+        .map(|s| s.as_str())
+        .unwrap_or("?");
+
+    ui.label(format!(
+        "Response surface ({}) — X: {} (→), Y: {} (↑)",
+        obj_name, px_label, py_label
+    ));
+
+    // ヒートマップ描画。
+    let nx = slice.x_values.len();
+    let ny = slice.y_values.len();
+    if nx == 0 || ny == 0 {
+        return;
+    }
+
+    let available = ui.available_rect_before_wrap();
+    let plot_size = egui::vec2(
+        (available.width() - 32.0).max(100.0),
+        available.height().clamp(60.0, 300.0),
+    );
+    let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    let display: Vec<Vec<f64>> = (0..ny)
+        .map(|r| (0..nx).map(|c| slice.z_values[c][ny - 1 - r]).collect())
+        .collect();
+    draw_heatmap(&painter, rect, &display, cmap.clone());
+
+    // パレートフロント全点をオーバーレイ（白丸、黒縁）。
+    let (x_min, x_max) = (slice.x_values[0], slice.x_values[nx - 1]);
+    let (y_min, y_max) = (slice.y_values[0], slice.y_values[ny - 1]);
+    if x_max > x_min && y_max > y_min {
+        for pt in &result.front {
+            let px_val = pt.params.get(slice.param_x_idx).copied().unwrap_or(0.0);
+            let py_val = pt.params.get(slice.param_y_idx).copied().unwrap_or(0.0);
+            let fx = ((px_val - x_min) / (x_max - x_min)).clamp(0.0, 1.0) as f32;
+            let fy = ((py_val - y_min) / (y_max - y_min)).clamp(0.0, 1.0) as f32;
+            let marker = egui::pos2(
+                rect.left() + fx * rect.width(),
+                rect.bottom() - fy * rect.height(),
+            );
+            painter.circle_filled(marker, 2.5, egui::Color32::WHITE);
+            painter.circle_stroke(marker, 2.5, egui::Stroke::new(1.0, egui::Color32::BLACK));
+        }
     }
 
     let (v_min, v_max) = value_range(&display);
@@ -764,6 +1201,25 @@ mod tests {
     }
 
     #[test]
+    fn multi_fit_click_builds_pending_multi_fit() {
+        let mut state = SurrogateOptState {
+            model: SurrogateModelKind::Kriging,
+            multi_objective: true,
+            ..Default::default()
+        };
+        let obj_names = ["obj0".to_string(), "obj1".to_string()];
+
+        // 多目的 Fit & Validate ボタン押下と同じロジック。
+        if obj_names.len() >= 2 {
+            state.error_message = None;
+            state.pending_multi_fit = Some(SurrogateMultiFitComputeRequest { model: state.model });
+        }
+
+        let req = state.pending_multi_fit.as_ref().unwrap();
+        assert_eq!(req.model, SurrogateModelKind::Kriging);
+    }
+
+    #[test]
     fn optimize_click_requires_matching_trained() {
         let state = SurrogateOptState::default();
         let obj_names = ["obj0".to_string()];
@@ -821,6 +1277,8 @@ mod tests {
 
         // Arc<TrainedSurrogate> も伝播される（ここでは None）。
         assert!(item.trained.is_none());
+        // multi_trained も伝播される（ここでは None）。
+        assert!(item.multi_trained.is_none());
         drop(Arc::<u8>::new(0)); // Arc が使えることを確認する（コンパイルチェック）。
     }
 
@@ -846,5 +1304,112 @@ mod tests {
         for kind in OPTIMIZER_CHOICES {
             assert!(!optimizer_label(kind).is_empty());
         }
+    }
+
+    // ── multi_trained_matches のユニットテスト ────────────────────────
+
+    fn make_dummy_trained(
+        obj_name: &str,
+        model: SurrogateModelKind,
+    ) -> tunny_core::surrogate_opt::TrainedSurrogate {
+        // 最低限のフィールドだけ埋めた TrainedSurrogate をフィットして作る。
+        let xs: Vec<Vec<f64>> = (0..12)
+            .map(|i| vec![i as f64 / 12.0, (i as f64 / 12.0) * 0.5])
+            .collect();
+        let ys: Vec<f64> = (0..12).map(|i| i as f64).collect();
+        let req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            x_matrix: xs,
+            y: ys,
+            param_names: vec!["x".to_string(), "y".to_string()],
+            objective_name: obj_name.to_string(),
+            model,
+        };
+        tunny_core::surrogate_opt::fit_surrogate_with_validation(&req)
+            .expect("dummy fit should succeed")
+    }
+
+    #[test]
+    fn multi_trained_matches_correct() {
+        let obj_names = vec!["f0".to_string(), "f1".to_string()];
+        let trained = vec![
+            make_dummy_trained("f0", SurrogateModelKind::Kriging),
+            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+        ];
+        let state = SurrogateOptState {
+            model: SurrogateModelKind::Kriging,
+            ..Default::default()
+        };
+        assert!(multi_trained_matches(&trained, &state, &obj_names));
+    }
+
+    #[test]
+    fn multi_trained_matches_wrong_model() {
+        let obj_names = vec!["f0".to_string(), "f1".to_string()];
+        let trained = vec![
+            make_dummy_trained("f0", SurrogateModelKind::Kriging),
+            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+        ];
+        // モデルが Ridge に変わった場合
+        let state = SurrogateOptState {
+            model: SurrogateModelKind::Ridge,
+            ..Default::default()
+        };
+        assert!(!multi_trained_matches(&trained, &state, &obj_names));
+    }
+
+    #[test]
+    fn multi_trained_matches_wrong_objectives() {
+        let obj_names = vec!["f0".to_string(), "f2".to_string()]; // f2 が違う
+        let trained = vec![
+            make_dummy_trained("f0", SurrogateModelKind::Kriging),
+            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+        ];
+        let state = SurrogateOptState {
+            model: SurrogateModelKind::Kriging,
+            ..Default::default()
+        };
+        assert!(!multi_trained_matches(&trained, &state, &obj_names));
+    }
+
+    #[test]
+    fn multi_trained_matches_wrong_length() {
+        let obj_names = vec!["f0".to_string()]; // 目的数が 1
+        let trained = vec![
+            make_dummy_trained("f0", SurrogateModelKind::Kriging),
+            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+        ];
+        let state = SurrogateOptState {
+            model: SurrogateModelKind::Kriging,
+            ..Default::default()
+        };
+        assert!(!multi_trained_matches(&trained, &state, &obj_names));
+    }
+
+    #[test]
+    fn adopt_compute_state_propagates_multi_trained() {
+        use std::sync::Arc;
+
+        let trained_vec = vec![
+            make_dummy_trained("f0", SurrogateModelKind::Kriging),
+            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+        ];
+        let arc = Arc::new(trained_vec);
+
+        let global = SurrogateOptState {
+            fitting: false,
+            optimizing: false,
+            multi_trained: Some(arc.clone()),
+            ..Default::default()
+        };
+
+        let mut item = SurrogateOptState {
+            fitting: true,
+            ..Default::default()
+        };
+        item.adopt_compute_state(&global);
+
+        assert!(!item.fitting);
+        assert!(item.multi_trained.is_some());
+        assert_eq!(item.multi_trained.as_ref().unwrap().len(), 2);
     }
 }

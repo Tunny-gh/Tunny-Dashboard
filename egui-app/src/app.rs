@@ -47,12 +47,14 @@ impl ComputeSyncKind {
             AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => {
                 Some(Self::Surface)
             }
-            AppMessage::SurrogateFitDone(_) | AppMessage::SurrogateFitFailed(_) => {
-                Some(Self::SurrogateFit)
-            }
-            AppMessage::SurrogateOptDone(_) | AppMessage::SurrogateOptFailed(_) => {
-                Some(Self::SurrogateOpt)
-            }
+            AppMessage::SurrogateFitDone(_)
+            | AppMessage::SurrogateFitFailed(_)
+            | AppMessage::SurrogateMultiFitDone(_)
+            | AppMessage::SurrogateMultiFitFailed(_) => Some(Self::SurrogateFit),
+            AppMessage::SurrogateOptDone(_)
+            | AppMessage::SurrogateOptFailed(_)
+            | AppMessage::SurrogateMultiOptDone(_)
+            | AppMessage::SurrogateMultiOptFailed(_) => Some(Self::SurrogateOpt),
             AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
             _ => None,
@@ -540,6 +542,38 @@ mod tests {
         assert!(matches!(
             ComputeSyncKind::from_message(&msg),
             Some(ComputeSyncKind::HvHistory)
+        ));
+    }
+
+    #[test]
+    fn surrogate_multi_messages_map_to_compute_sync() {
+        // 回帰防止: 多目的サロゲートの完了/失敗が sync 対象から漏れると、
+        // キャンバスアイテムの fitting/optimizing が下りず spinner が回り続ける。
+        assert!(matches!(
+            ComputeSyncKind::from_message(&AppMessage::SurrogateMultiFitFailed("e".into())),
+            Some(ComputeSyncKind::SurrogateFit)
+        ));
+        assert!(matches!(
+            ComputeSyncKind::from_message(&AppMessage::SurrogateMultiOptFailed("e".into())),
+            Some(ComputeSyncKind::SurrogateOpt)
+        ));
+        let done =
+            AppMessage::SurrogateMultiOptDone(crate::state::messages::SurrogateMultiOptUiResult {
+                param_names: vec![],
+                objective_names: vec![],
+                minimize: vec![],
+                front: vec![],
+                r_squared: vec![],
+                slices: vec![],
+            });
+        assert!(matches!(
+            ComputeSyncKind::from_message(&done),
+            Some(ComputeSyncKind::SurrogateOpt)
+        ));
+        let fit_done = AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(vec![]));
+        assert!(matches!(
+            ComputeSyncKind::from_message(&fit_done),
+            Some(ComputeSyncKind::SurrogateFit)
         ));
     }
 
