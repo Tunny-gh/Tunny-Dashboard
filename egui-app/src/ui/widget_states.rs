@@ -218,10 +218,12 @@ mod tests {
 
     #[test]
     fn surrogate_opt_adopt_compute_state_propagates_new_fields() {
-        let mut src = SurrogateOptState::default();
-        src.fitting = false;
-        src.optimizing = false;
-        src.error_message = Some("err".into());
+        let src = SurrogateOptState {
+            fitting: false,
+            optimizing: false,
+            error_message: Some("err".into()),
+            ..Default::default()
+        };
 
         let mut dst = SurrogateOptState {
             fitting: true,
