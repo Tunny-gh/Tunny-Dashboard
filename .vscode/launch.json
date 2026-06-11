@@ -4,19 +4,19 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug tunny-desktop",
+            "name": "Debug TunnyDashboard",
             "cargo": {
                 "args": [
                     "build",
                     "--manifest-path=${workspaceFolder}/egui-app/Cargo.toml",
-                    "--bin=tunny-desktop"
+                    "--bin=TunnyDashboard"
                 ],
                 "filter": {
-                    "name": "tunny-desktop",
+                    "name": "TunnyDashboard",
                     "kind": "bin"
                 }
             },
-            "args": ["${workspaceFolder}/test.log"],
+            "args": ["-i", "${workspaceFolder}/test.log"],
             "cwd": "${workspaceFolder}",
             "env": {
                 "RUST_LOG": "debug",
