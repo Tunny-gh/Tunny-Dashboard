@@ -60,6 +60,18 @@ pub struct SurrogateOptimizeComputeRequest {
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
 }
 
+/// 多目的サロゲート最適化のフィット段階リクエスト。
+pub struct SurrogateMultiFitComputeRequest {
+    pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+}
+
+/// 多目的サロゲート最適化の最適化段階リクエスト。
+pub struct SurrogateMultiOptimizeComputeRequest {
+    /// 応答曲面スライスの表示軸（パラメータ名）。
+    pub slice_x: String,
+    pub slice_y: String,
+}
+
 // ── Surrogate Optimizer UI 状態 ─────────────────────────────────
 pub struct SurrogateOptState {
     pub selected_objective: usize,
@@ -77,6 +89,20 @@ pub struct SurrogateOptState {
     pub error_message: Option<String>,
     pub pending_fit: Option<SurrogateFitComputeRequest>,
     pub pending_optimize: Option<SurrogateOptimizeComputeRequest>,
+    /// true のとき多目的モード（全目的を NSGA-II で同時最適化）。
+    pub multi_objective: bool,
+    /// 多目的フィット段階の計算リクエスト（未消化）。
+    pub pending_multi_fit: Option<SurrogateMultiFitComputeRequest>,
+    /// 多目的最適化段階の計算リクエスト（未消化）。
+    pub pending_multi_optimize: Option<SurrogateMultiOptimizeComputeRequest>,
+    /// 多目的フィット完了後の学習済みサロゲート群（目的順）。
+    pub multi_trained: Option<std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>>,
+    /// 多目的最適化の完了結果。
+    pub multi_result: Option<crate::state::messages::SurrogateMultiOptUiResult>,
+    /// 多目的結果表示で選択中の目的インデックス（スライスヒートマップ対象）。
+    pub multi_slice_objective: usize,
+    /// 多目的検証表示で選択中の目的インデックス（OOF プロット対象）。
+    pub multi_validation_objective: usize,
 }
 
 impl Default for SurrogateOptState {
@@ -94,6 +120,13 @@ impl Default for SurrogateOptState {
             error_message: None,
             pending_fit: None,
             pending_optimize: None,
+            multi_objective: false,
+            pending_multi_fit: None,
+            pending_multi_optimize: None,
+            multi_trained: None,
+            multi_result: None,
+            multi_slice_objective: 0,
+            multi_validation_objective: 0,
         }
     }
 }
@@ -107,6 +140,8 @@ impl SurrogateOptState {
         self.optimizing = src.optimizing;
         self.trained = src.trained.clone();
         self.result = src.result.clone();
+        self.multi_trained = src.multi_trained.clone();
+        self.multi_result = src.multi_result.clone();
         self.error_message = src.error_message.clone();
     }
 }
@@ -214,6 +249,14 @@ mod tests {
         assert!(state.pending_fit.is_none());
         assert!(state.pending_optimize.is_none());
         assert!(state.result.is_none());
+        // 多目的フィールドの初期値確認
+        assert!(!state.multi_objective);
+        assert!(state.pending_multi_fit.is_none());
+        assert!(state.pending_multi_optimize.is_none());
+        assert!(state.multi_trained.is_none());
+        assert!(state.multi_result.is_none());
+        assert_eq!(state.multi_slice_objective, 0);
+        assert_eq!(state.multi_validation_objective, 0);
     }
 
     #[test]
@@ -230,6 +273,7 @@ mod tests {
             optimizing: true,
             model: tunny_core::surrogate_opt::SurrogateModelKind::Ridge,
             selected_objective: 2,
+            multi_validation_objective: 1,
             ..Default::default()
         };
         dst.adopt_compute_state(&src);
@@ -244,6 +288,11 @@ mod tests {
             tunny_core::surrogate_opt::SurrogateModelKind::Ridge
         );
         assert_eq!(dst.selected_objective, 2);
+        // UI 選択（OOF プロット対象）は伝播されず維持される
+        assert_eq!(dst.multi_validation_objective, 1);
+        // multi_trained / multi_result も伝播される
+        assert!(dst.multi_trained.is_none());
+        assert!(dst.multi_result.is_none());
     }
 
     // ── TASK-2246: 回帰テスト ──────────────────────────────────────

@@ -118,6 +118,23 @@ pub struct SurfacePlotResult {
 // Surrogate Optimizer 関連型
 // ============================================================
 
+/// 多目的サロゲート最適化の UI 表示用結果。
+/// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
+/// パラメータ名・目的名・方向を付与してここへ詰め替える。
+#[derive(Debug, Clone)]
+pub struct SurrogateMultiOptUiResult {
+    pub param_names: Vec<String>,
+    pub objective_names: Vec<String>,
+    /// 目的ごとに true = 最小化。
+    pub minimize: Vec<bool>,
+    /// 予測パレートフロント（第 1 目的昇順ソート済み）。
+    pub front: Vec<tunny_core::surrogate_opt::ParetoFrontPoint>,
+    /// 目的ごとの訓練データ決定係数。
+    pub r_squared: Vec<f64>,
+    /// 目的ごとの応答曲面スライス（slice_params 無効時は空）。
+    pub slices: Vec<tunny_core::surrogate_opt::SurfaceSlice>,
+}
+
 /// サロゲート最適化の UI 表示用結果。
 /// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
 /// パラメータ名と値の対応・方向（minimize/maximize）を付与してここへ詰め替える。
@@ -276,6 +293,11 @@ pub enum AppMessage {
     SurrogateFitFailed(String),
     SurrogateOptDone(SurrogateOptUiResult),
     SurrogateOptFailed(String),
+    /// 多目的サロゲートのフィット＋検証が完了した（全目的分の学習結果を保持）。
+    SurrogateMultiFitDone(std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>),
+    SurrogateMultiFitFailed(String),
+    SurrogateMultiOptDone(SurrogateMultiOptUiResult),
+    SurrogateMultiOptFailed(String),
     ChartCaptureFailed(String),
 }
 

@@ -119,7 +119,9 @@ pub fn trial_table_csv_filename(widgets: &WidgetStates) -> String {
 pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetStates) -> bool {
     match chart_id {
         ChartId::SurfacePlot => false,
-        ChartId::SurrogateOpt => widgets.surrogate_opt.result.is_some(),
+        ChartId::SurrogateOpt => {
+            widgets.surrogate_opt.result.is_some() || widgets.surrogate_opt.multi_result.is_some()
+        }
         ChartId::OptimizationHistory | ChartId::ParallelCoordinates | ChartId::ScatterMatrix => {
             app_state
                 .current_study
@@ -575,9 +577,14 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
 }
 
 /// サロゲート最適化の推定最適点を CSV にする。
-/// パラメータ行に続けて、予測目的値・予測標準偏差・R² のサマリ行を出力する。
-/// 学習済みモデルが存在する場合は検証指標行も追記する。
+/// 多目的結果がある場合はフロント点テーブルを優先出力する。
+/// 単目的の場合はパラメータ行＋予測値サマリ行を出力する。
 fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
+    // 多目的結果を優先する。
+    if let Some(ref multi) = widgets.surrogate_opt.multi_result {
+        return Some(build_surrogate_multi_opt_csv(multi));
+    }
+
     let result = widgets.surrogate_opt.result.as_ref()?;
     let mut csv = String::from("name,value\n");
     for (name, value) in &result.best_params {
@@ -610,6 +617,35 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
     }
 
     Some(csv)
+}
+
+/// 多目的サロゲート最適化のフロント点テーブルを CSV にする。
+/// ヘッダ行 = 目的名 + パラメータ名、1 行 = 1 フロント点。
+fn build_surrogate_multi_opt_csv(
+    result: &crate::state::messages::SurrogateMultiOptUiResult,
+) -> String {
+    let mut csv = String::new();
+    // ヘッダ行
+    let headers: Vec<&str> = result
+        .objective_names
+        .iter()
+        .map(|s| s.as_str())
+        .chain(result.param_names.iter().map(|s| s.as_str()))
+        .collect();
+    csv.push_str(&headers.join(","));
+    csv.push('\n');
+    // データ行（1 フロント点 = 1 行）
+    for pt in &result.front {
+        let values: Vec<String> = pt
+            .values
+            .iter()
+            .map(|v| v.to_string())
+            .chain(pt.params.iter().map(|p| p.to_string()))
+            .collect();
+        csv.push_str(&values.join(","));
+        csv.push('\n');
+    }
+    csv
 }
 
 #[cfg(test)]
@@ -1148,5 +1184,78 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "trial_id,x,f,is_pareto");
         assert_eq!(lines[1], "0,1.5,0.5,true");
+    }
+
+    // ── 多目的サロゲート最適化の CSV テスト ──────────────────────
+
+    fn make_multi_opt_result() -> crate::state::messages::SurrogateMultiOptUiResult {
+        use tunny_core::surrogate_opt::ParetoFrontPoint;
+        crate::state::messages::SurrogateMultiOptUiResult {
+            param_names: vec!["x".to_string(), "y".to_string()],
+            objective_names: vec!["f0".to_string(), "f1".to_string()],
+            minimize: vec![true, true],
+            front: vec![
+                ParetoFrontPoint {
+                    params: vec![0.1, 0.2],
+                    values: vec![1.0, 4.0],
+                },
+                ParetoFrontPoint {
+                    params: vec![0.3, 0.4],
+                    values: vec![2.0, 3.0],
+                },
+            ],
+            r_squared: vec![0.9, 0.85],
+            slices: vec![],
+        }
+    }
+
+    #[test]
+    fn multi_opt_csv_header_is_objectives_then_params() {
+        let result = make_multi_opt_result();
+        let csv = build_surrogate_multi_opt_csv(&result);
+        let header = csv.lines().next().unwrap();
+        assert_eq!(header, "f0,f1,x,y");
+    }
+
+    #[test]
+    fn multi_opt_csv_row_count_equals_front_size() {
+        let result = make_multi_opt_result();
+        let csv = build_surrogate_multi_opt_csv(&result);
+        // ヘッダ 1 行 + フロント点 2 行 = 合計 3 行
+        assert_eq!(csv.lines().count(), 3);
+    }
+
+    #[test]
+    fn has_csv_data_true_when_multi_result_present() {
+        let mut widgets = WidgetStates::default();
+        let state = AppState::default();
+        widgets.surrogate_opt.multi_result = Some(make_multi_opt_result());
+        assert!(has_csv_data(&ChartId::SurrogateOpt, &state, &widgets));
+    }
+
+    #[test]
+    fn build_surrogate_opt_csv_prefers_multi_result() {
+        let mut widgets = WidgetStates::default();
+        widgets.surrogate_opt.multi_result = Some(make_multi_opt_result());
+        // 単目的結果も入れておく（多目的が優先されること）。
+        widgets.surrogate_opt.result = Some(crate::state::messages::SurrogateOptUiResult {
+            best_params: vec![("x".to_string(), 0.5)],
+            best_value: 1.0,
+            predicted_std: None,
+            r_squared: 0.9,
+            objective_name: "f".to_string(),
+            minimize: true,
+            slice: None,
+            best_observed_value: 1.5,
+        });
+        let state = AppState::default();
+        let csv = build_chart_csv(&ChartId::SurrogateOpt, &state, &widgets).unwrap();
+        // 多目的 CSV のヘッダには目的名が含まれる
+        let header = csv.lines().next().unwrap();
+        assert!(
+            header.contains("f0") && header.contains("f1"),
+            "header: {}",
+            header
+        );
     }
 }

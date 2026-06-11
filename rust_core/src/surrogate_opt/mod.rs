@@ -287,5 +287,307 @@ fn build_slice(
     })
 }
 
+/// 多目的サロゲート最適化の入力。
+pub struct SurrogateMultiOptRequest {
+    /// 訓練データ（行 = trial、列 = パラメータ）。元の単位。
+    pub x_matrix: Vec<Vec<f64>>,
+    /// 目的ごとの値列。`ys[k][i]` = trial i の目的 k の値。
+    pub ys: Vec<Vec<f64>>,
+    /// 各パラメータ列の名前。
+    pub param_names: Vec<String>,
+    /// `ys` と同順の目的名。
+    pub objective_names: Vec<String>,
+    /// 目的ごとに true = 最小化。`ys` と同じ長さ。
+    pub minimize: Vec<bool>,
+    /// 使用するサロゲートモデル。
+    pub model: SurrogateModelKind,
+    /// 応答曲面スライスの 2 パラメータ列 index（表示用）。
+    pub slice_params: Option<(usize, usize)>,
+    /// スライス格子の一辺の点数。
+    pub n_grid: usize,
+}
+
+/// 予測パレートフロント上の 1 点。
+#[derive(Debug, Clone)]
+pub struct ParetoFrontPoint {
+    /// パラメータ値（元の単位、`param_names` と同順）。
+    pub params: Vec<f64>,
+    /// 各目的のサロゲート予測値（元の単位、`objective_names` と同順）。
+    pub values: Vec<f64>,
+}
+
+/// 多目的サロゲート最適化の結果。
+#[derive(Debug, Clone)]
+pub struct SurrogateMultiOptResult {
+    /// 予測パレートフロント（第 1 目的の値で昇順ソート済み）。
+    pub front: Vec<ParetoFrontPoint>,
+    /// 目的ごとの訓練データ決定係数（`objective_names` と同順）。
+    pub r_squared: Vec<f64>,
+    /// 目的ごとの応答曲面スライス（`slice_params` 指定時のみ、`objective_names` と同順。指定なし/無効時は空）。
+    pub slices: Vec<SurfaceSlice>,
+}
+
+/// 多目的最適化ステージの設定（学習済みモデル群に対して実行する）。
+pub struct SurrogateMultiOptimizeSpec {
+    /// 目的ごとに true = 最小化。`trained` と同じ長さ。
+    pub minimize: Vec<bool>,
+    pub slice_params: Option<(usize, usize)>,
+    pub n_grid: usize,
+}
+
+/// 多目的最適化の共通入力（目的 1 件ぶん）。
+struct MultiObjectiveEntry<'a> {
+    surrogate: &'a models::FittedSurrogate,
+    /// 観測ベスト点（初期シード）の探索に使う学習データ。
+    x_matrix: &'a [Vec<f64>],
+    y: &'a [f64],
+}
+
+/// 学習済みサロゲート群に対する NSGA-II 実行＋フロント後処理の共通ロジック。
+///
+/// 全 entry のサロゲートは同一の正規化変換（col_stats）を持つ前提
+/// （同じパラメータ空間の x_matrix から学習されていること）。
+fn run_multi_optimize(
+    entries: &[MultiObjectiveEntry<'_>],
+    minimize: &[bool],
+    slice_params: Option<(usize, usize)>,
+    n_grid: usize,
+) -> SurrogateMultiOptResult {
+    let n_obj = entries.len();
+    let surrogates: Vec<&models::FittedSurrogate> = entries.iter().map(|e| e.surrogate).collect();
+    let ref_surrogate = surrogates[0];
+    let n_dims = ref_surrogate.col_stats.len();
+
+    let r_squared: Vec<f64> = surrogates.iter().map(|s| s.r_squared).collect();
+
+    // ── 初期シード: 目的ごとの観測ベスト点を正規化 ─────────────────
+    // col_stats は全サロゲートで共通のため、先頭サロゲートの to_norm_x を使う。
+    let seeds: Vec<Vec<f64>> = entries
+        .iter()
+        .zip(minimize.iter())
+        .map(|(e, &min_k)| {
+            let best_idx = best_observed_index(e.y, min_k);
+            ref_surrogate.to_norm_x(&e.x_matrix[best_idx])
+        })
+        .collect();
+
+    // ── NSGA-II 実行 ─────────────────────────────────────────────────
+    let signs: Vec<f64> = minimize
+        .iter()
+        .map(|&m| if m { 1.0 } else { -1.0 })
+        .collect();
+    let raw_front = optimizers::multi_objective_nsga2(&surrogates, &signs, &seeds);
+
+    // ── フロント点の後処理 ──────────────────────────────────────────
+    // 重複遺伝子の除去（全次元 1e-9 以内）。
+    let mut deduped: Vec<(Vec<f64>, Vec<f64>)> = Vec::new();
+    'outer: for (genome, fitness) in raw_front {
+        for (existing, _) in &deduped {
+            if genome
+                .iter()
+                .zip(existing.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-9)
+            {
+                continue 'outer;
+            }
+        }
+        deduped.push((genome, fitness));
+    }
+
+    // 各点の遺伝子を [0,1] にクランプし、全目的のサロゲート予測値（元の単位）を計算。
+    let mut front_points: Vec<ParetoFrontPoint> = deduped
+        .into_iter()
+        .map(|(genome, _)| {
+            let clamped: Vec<f64> = genome.iter().map(|v| v.clamp(0.0, 1.0)).collect();
+            let params = ref_surrogate.to_original_x(&clamped);
+            let values: Vec<f64> = surrogates
+                .iter()
+                .map(|s| s.to_original_y(s.predict_norm(&clamped)))
+                .collect();
+            ParetoFrontPoint { params, values }
+        })
+        .collect();
+
+    // 第 1 目的の値で昇順ソート。
+    front_points.sort_by(|a, b| {
+        a.values[0]
+            .partial_cmp(&b.values[0])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // ── スライス ─────────────────────────────────────────────────────
+    let slices = if let Some((px, py)) = slice_params {
+        // バランス点: 正規化目的空間で理想点に最も近い点を選ぶ。
+        // 理想点 = 各目的の sign 調整済み最小値（NSGA-II の最小化方向）。
+        if front_points.is_empty() || px >= n_dims || py >= n_dims || px == py {
+            Vec::new()
+        } else {
+            // 正規化目的空間での理想点。
+            let ideal: Vec<f64> = (0..n_obj)
+                .map(|k| {
+                    front_points
+                        .iter()
+                        .map(|p| signs[k] * p.values[k])
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .collect();
+
+            // バランス点（理想点に最近の点）の正規化パラメータを求める。
+            let ideal_dist = |p: &ParetoFrontPoint| -> f64 {
+                (0..n_obj)
+                    .map(|k| (signs[k] * p.values[k] - ideal[k]).powi(2))
+                    .sum()
+            };
+            let balance_norm = front_points
+                .iter()
+                .min_by(|a, b| {
+                    ideal_dist(a)
+                        .partial_cmp(&ideal_dist(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|p| ref_surrogate.to_norm_x(&p.params))
+                .unwrap_or_else(|| vec![0.5; n_dims]);
+
+            // 目的ごとにスライスを構築。
+            surrogates
+                .iter()
+                .filter_map(|s| build_slice(s, &balance_norm, px, py, n_grid.max(2), n_dims))
+                .collect()
+        }
+    } else {
+        Vec::new()
+    };
+
+    SurrogateMultiOptResult {
+        front: front_points,
+        r_squared,
+        slices,
+    }
+}
+
+/// 検証済みの学習結果群に対して NSGA-II でパレートフロントを推定する。
+/// `trained[k]` は目的 k のサロゲート。全要素が同一の param_names / 学習データ次元を持つこと。
+pub fn optimize_multi_on_trained(
+    trained: &[&TrainedSurrogate],
+    spec: &SurrogateMultiOptimizeSpec,
+) -> Result<SurrogateMultiOptResult, String> {
+    let n_obj = trained.len();
+    if n_obj < 2 {
+        return Err(format!(
+            "At least 2 objectives required (current: {})",
+            n_obj
+        ));
+    }
+    if spec.minimize.len() != n_obj {
+        return Err("trained and minimize length mismatch".to_string());
+    }
+    let first = trained[0];
+    if trained.iter().any(|t| t.param_names != first.param_names) {
+        return Err("trained surrogates have inconsistent param_names".to_string());
+    }
+    let n_dims = first.surrogate.col_stats.len();
+    if trained
+        .iter()
+        .any(|t| t.surrogate.col_stats.len() != n_dims)
+    {
+        return Err("trained surrogates have inconsistent dimensions".to_string());
+    }
+
+    let entries: Vec<MultiObjectiveEntry<'_>> = trained
+        .iter()
+        .map(|t| MultiObjectiveEntry {
+            surrogate: &t.surrogate,
+            x_matrix: &t.x_matrix,
+            y: &t.y,
+        })
+        .collect();
+
+    Ok(run_multi_optimize(
+        &entries,
+        &spec.minimize,
+        spec.slice_params,
+        spec.n_grid,
+    ))
+}
+
+/// 多目的サロゲートモデルを学習し、NSGA-II でパレートフロントを推定する。
+///
+/// バックグラウンドスレッドから呼べるよう、スレッドローカルの DataFrame には依存しない。
+pub fn run_surrogate_multi_optimization(
+    req: &SurrogateMultiOptRequest,
+) -> Result<SurrogateMultiOptResult, String> {
+    // ── バリデーション ────────────────────────────────────────────────
+    let n_obj = req.ys.len();
+    if n_obj < 2 {
+        return Err(format!(
+            "At least 2 objectives required (current: {})",
+            n_obj
+        ));
+    }
+    if req.objective_names.len() != n_obj {
+        return Err("ys and objective_names length mismatch".to_string());
+    }
+    if req.minimize.len() != n_obj {
+        return Err("ys and minimize length mismatch".to_string());
+    }
+
+    let n = req.ys[0].len();
+    if n < MIN_TRIALS_FOR_SURROGATE_OPT {
+        return Err(format!(
+            "At least {} trials required (current: {})",
+            MIN_TRIALS_FOR_SURROGATE_OPT, n
+        ));
+    }
+    for (k, yk) in req.ys.iter().enumerate() {
+        if yk.len() != n {
+            return Err(format!(
+                "ys[{}] length {} does not match ys[0] length {}",
+                k,
+                yk.len(),
+                n
+            ));
+        }
+    }
+    if req.x_matrix.len() != n {
+        return Err("x_matrix and y length mismatch".to_string());
+    }
+    let n_dims = req.x_matrix.first().map(|r| r.len()).unwrap_or(0);
+    if n_dims == 0 {
+        return Err("No numeric parameters available".to_string());
+    }
+    if req.x_matrix.iter().any(|row| row.len() != n_dims) {
+        return Err("x_matrix rows have inconsistent dimensions".to_string());
+    }
+    if req.x_matrix.iter().flatten().any(|v| !v.is_finite())
+        || req.ys.iter().flatten().any(|v| !v.is_finite())
+    {
+        return Err("Input contains non-finite values".to_string());
+    }
+
+    // ── 目的ごとにサロゲートを学習 ──────────────────────────────────
+    let surrogates: Vec<models::FittedSurrogate> = req
+        .ys
+        .iter()
+        .map(|yk| models::fit_surrogate(req.model, &req.x_matrix, yk))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let entries: Vec<MultiObjectiveEntry<'_>> = surrogates
+        .iter()
+        .zip(req.ys.iter())
+        .map(|(surrogate, yk)| MultiObjectiveEntry {
+            surrogate,
+            x_matrix: &req.x_matrix,
+            y: yk,
+        })
+        .collect();
+
+    Ok(run_multi_optimize(
+        &entries,
+        &req.minimize,
+        req.slice_params,
+        req.n_grid,
+    ))
+}
+
 #[cfg(test)]
 mod tests;

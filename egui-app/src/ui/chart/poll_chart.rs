@@ -657,6 +657,73 @@ pub(crate) fn poll_chart_work(
                         Err(e) => AppMessage::SurrogateFitFailed(e),
                     }
                 });
+            } else if let Some(multi_fit_req) = widgets.surrogate_opt.pending_multi_fit.take() {
+                // 多目的フィット段階: 全目的に対してサロゲートを学習する。
+                let ctx = app_state.current_study.as_ref().unwrap();
+                let numeric_params: Vec<String> = ctx
+                    .meta
+                    .param_names
+                    .iter()
+                    .filter(|p| ctx.view.numeric_column(p).is_some())
+                    .cloned()
+                    .collect();
+                if numeric_params.is_empty() {
+                    widgets.surrogate_opt.error_message =
+                        Some("No numeric parameters available".to_string());
+                    return;
+                }
+                let n = ctx.view.row_count();
+                let param_cols = ctx.view.numeric_columns(&numeric_params);
+                let x_matrix: Vec<Vec<f64>> = (0..n)
+                    .map(|i| {
+                        param_cols
+                            .iter()
+                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                            .collect()
+                    })
+                    .collect();
+                // 全目的の y 列を収集する。
+                let ys: Vec<(String, Vec<f64>)> = obj_names
+                    .iter()
+                    .map(|name| {
+                        let col = ctx
+                            .view
+                            .numeric_column(name)
+                            .map(|c| c.to_vec())
+                            .unwrap_or_else(|| vec![0.0; n]);
+                        (name.clone(), col)
+                    })
+                    .collect();
+
+                // フィット開始前に前の多目的結果をクリアする。
+                widgets.surrogate_opt.fitting = true;
+                widgets.surrogate_opt.multi_trained = None;
+                widgets.surrogate_opt.multi_result = None;
+                widgets.surrogate_opt.error_message = None;
+
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    let mut trained_vec = Vec::with_capacity(ys.len());
+                    for (obj_name, y) in ys {
+                        let fit_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+                            x_matrix: x_matrix.clone(),
+                            y,
+                            param_names: numeric_params.clone(),
+                            objective_name: obj_name.clone(),
+                            model: multi_fit_req.model,
+                        };
+                        match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_req) {
+                            Ok(t) => trained_vec.push(t),
+                            Err(e) => {
+                                return AppMessage::SurrogateMultiFitFailed(format!(
+                                    "Fitting failed for objective '{}': {}",
+                                    obj_name, e
+                                ));
+                            }
+                        }
+                    }
+                    AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(trained_vec))
+                });
             } else if let Some(opt_req) = widgets.surrogate_opt.pending_optimize.take() {
                 // 最適化段階は学習済みモデルが必要。
                 let Some(trained) = widgets.surrogate_opt.trained.clone() else {
@@ -707,6 +774,71 @@ pub(crate) fn poll_chart_work(
                         slice: r.slice,
                         best_observed_value: r.best_observed_value,
                     })
+                });
+            } else if let Some(multi_opt_req) = widgets.surrogate_opt.pending_multi_optimize.take()
+            {
+                // 多目的最適化段階: 学習済みサロゲート群が必要。
+                let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
+                    widgets.surrogate_opt.error_message = Some(
+                        "No trained multi-objective model. Run Fit & Validate first.".to_string(),
+                    );
+                    return;
+                };
+
+                // 目的ごとの minimize フラグを directions から解決する。
+                let minimize_flags: Vec<bool> = (0..obj_names.len())
+                    .map(|i| {
+                        directions
+                            .get(i)
+                            .map(|d| matches!(d, Direction::Minimize))
+                            .unwrap_or(true)
+                    })
+                    .collect();
+
+                // スライス軸インデックスは trained[0].param_names から解決する。
+                let first_param_names = multi_trained
+                    .first()
+                    .map(|t| t.param_names.clone())
+                    .unwrap_or_default();
+                let slice_params = first_param_names
+                    .iter()
+                    .position(|p| p == &multi_opt_req.slice_x)
+                    .zip(
+                        first_param_names
+                            .iter()
+                            .position(|p| p == &multi_opt_req.slice_y),
+                    )
+                    .filter(|(a, b)| a != b);
+
+                let objective_names_owned = obj_names.to_vec();
+                widgets.surrogate_opt.optimizing = true;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::SurrogateMultiOptUiResult;
+                    let refs: Vec<&tunny_core::surrogate_opt::TrainedSurrogate> =
+                        multi_trained.iter().collect();
+                    let spec = tunny_core::surrogate_opt::SurrogateMultiOptimizeSpec {
+                        minimize: minimize_flags.clone(),
+                        slice_params,
+                        n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
+                    };
+                    match tunny_core::surrogate_opt::optimize_multi_on_trained(&refs, &spec) {
+                        Ok(r) => {
+                            let param_names = refs
+                                .first()
+                                .map(|t| t.param_names.clone())
+                                .unwrap_or_default();
+                            AppMessage::SurrogateMultiOptDone(SurrogateMultiOptUiResult {
+                                param_names,
+                                objective_names: objective_names_owned,
+                                minimize: minimize_flags,
+                                front: r.front,
+                                r_squared: r.r_squared,
+                                slices: r.slices,
+                            })
+                        }
+                        Err(e) => AppMessage::SurrogateMultiOptFailed(e),
+                    }
                 });
             }
         }

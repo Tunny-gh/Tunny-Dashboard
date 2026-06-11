@@ -181,3 +181,31 @@ fn run_cma_es(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec
     let cfg = cma_es::CmaEsConfig::default();
     cma_es::cma_es_minimize(|t| penalized_cost(surrogate, sign, t), start_norm, &cfg)
 }
+
+/// 多目的サロゲート曲面上で NSGA-II を実行し、第一パレートフロントを返す。
+///
+/// - `surrogates`: 目的ごとの学習済みサロゲート（`signs[k]` が 1.0 なら最小化、-1.0 なら最大化）。
+/// - `signs`: 目的ごとの符号（最小化 = 1.0、最大化 = −1.0）。
+/// - `initial_seeds`: 初期集団にシードする正規化空間の点。
+///
+/// 戻り値は `(遺伝子, 適応度ベクトル)` のリスト（第一フロントのみ）。
+pub(crate) fn multi_objective_nsga2(
+    surrogates: &[&super::models::FittedSurrogate],
+    signs: &[f64],
+    initial_seeds: &[Vec<f64>],
+) -> Vec<(Vec<f64>, Vec<f64>)> {
+    let n_obj = surrogates.len();
+    let cfg = nsga2::Nsga2Config::for_objectives(n_obj);
+    nsga2::nsga2_minimize(
+        |t| {
+            signs
+                .iter()
+                .zip(surrogates.iter())
+                .map(|(&sign, &surrogate)| penalized_cost(surrogate, sign, t))
+                .collect()
+        },
+        surrogates[0].col_stats.len(),
+        initial_seeds,
+        &cfg,
+    )
+}
