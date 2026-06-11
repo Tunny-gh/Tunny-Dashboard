@@ -30,10 +30,11 @@ use tunny_core::surrogate_opt::{
 };
 
 /// モデル選択肢（コンボ表示順）。新モデル追加時はここへ並べる。
-const MODEL_CHOICES: [SurrogateModelKind; 3] = [
+const MODEL_CHOICES: [SurrogateModelKind; 4] = [
     SurrogateModelKind::Kriging,
     SurrogateModelKind::SparseKriging,
     SurrogateModelKind::Ridge,
+    SurrogateModelKind::Lgbm,
 ];
 
 /// 最適化手法の選択肢（コンボ表示順）。
@@ -49,6 +50,7 @@ pub(crate) fn model_label(kind: SurrogateModelKind) -> &'static str {
         SurrogateModelKind::Ridge => "Ridge",
         SurrogateModelKind::Kriging => "Kriging",
         SurrogateModelKind::SparseKriging => "Sparse Kriging",
+        SurrogateModelKind::Lgbm => "LightGBM",
     }
 }
 
