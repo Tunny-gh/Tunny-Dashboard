@@ -7,6 +7,13 @@
 //! 2 段階フロー:
 //!   1. Fit & Validate: ホールドアウト + 5-fold CV で検証指標を表示。
 //!   2. Run Optimization: 学習済みモデル上で最適化を実行。
+//!
+//! レイアウト:
+//!   全幅前段: 数値パラメータ無し / trial 数不足 の早期リターン。
+//!   左列 (Fit & Validate): Objective + Model コンボ → Fit & Validate ボタン →
+//!       フィット中スピナー → 検証指標グリッド + 品質判定 + OOF 散布図。
+//!   右列 (Optimization): Optimizer / Surface X / Y コンボ →
+//!       Run Optimization ボタン → 最適化中スピナー → 結果。
 
 use std::sync::Arc;
 
@@ -95,11 +102,88 @@ pub fn show(
     cmap: ColorMap,
     trial_count: usize,
 ) {
+    // ── 全幅前段: 数値パラメータ無し ──────────────────────────────
     if param_names.is_empty() {
         ui.label("No numeric parameters available for surrogate optimization.");
         return;
     }
 
+    // ── 全幅前段: trial 数不足 ─────────────────────────────────────
+    if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
+        ui.colored_label(
+            egui::Color32::RED,
+            format!(
+                "At least {} trials required (current: {})",
+                MIN_TRIALS_FOR_SURROGATE_OPT, trial_count
+            ),
+        );
+        return;
+    }
+
+    // スライス軸のデフォルト（先頭 2 パラメータ）。Study 切替で消えた名前もリセットする。
+    if !param_names.contains(&state.slice_x) {
+        state.slice_x = param_names.first().cloned().unwrap_or_default();
+    }
+    if !param_names.contains(&state.slice_y) || state.slice_y == state.slice_x {
+        state.slice_y = param_names
+            .iter()
+            .find(|p| **p != state.slice_x)
+            .cloned()
+            .unwrap_or_default();
+    }
+
+    let busy = state.fitting
+        || state.optimizing
+        || state.pending_fit.is_some()
+        || state.pending_optimize.is_some();
+
+    let has_matching_trained = state
+        .trained
+        .as_deref()
+        .map(|t| trained_matches(t, state, obj_names))
+        .unwrap_or(false);
+
+    // ── 2 列レイアウト ─────────────────────────────────────────────
+    // trial_detail_modal と同じ慣用: horizontal_top + allocate_ui_with_layout で
+    // 各列を等幅に区切る。
+    let available_w = ui.available_width();
+    let col_w = (available_w / 2.0).max(200.0);
+
+    // エラー表示（フィット・最適化どちらの失敗も全幅で出す）。
+    if let Some(ref err) = state.error_message.clone() {
+        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+    }
+
+    ui.horizontal_top(|ui| {
+        // ── 左列: Fit & Validate ──────────────────────────────────
+        ui.allocate_ui_with_layout(
+            egui::vec2(col_w, ui.available_height()),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                render_fit_column(ui, state, obj_names, busy);
+            },
+        );
+
+        ui.separator();
+
+        // ── 右列: Optimization ───────────────────────────────────
+        ui.allocate_ui_with_layout(
+            egui::vec2(col_w, ui.available_height()),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                render_optimize_column(ui, state, param_names, busy, has_matching_trained, cmap);
+            },
+        );
+    });
+}
+
+/// 左列: Objective / Model コンボ、Fit & Validate ボタン、検証結果。
+fn render_fit_column(
+    ui: &mut egui::Ui,
+    state: &mut SurrogateOptState,
+    obj_names: &[String],
+    busy: bool,
+) {
     // ── 1段目: 目的・モデル ──────────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Objective:");
@@ -119,7 +203,8 @@ pub fn show(
                     }
                 }
             });
-
+    });
+    ui.horizontal(|ui| {
         ui.label("Model:");
         egui::ComboBox::from_id_salt("surrogate_model")
             .selected_text(model_label(state.model))
@@ -129,23 +214,6 @@ pub fn show(
                 }
             });
     });
-
-    // trial 数不足の場合は早期リターン。
-    if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
-        ui.colored_label(
-            egui::Color32::RED,
-            format!(
-                "At least {} trials required (current: {})",
-                MIN_TRIALS_FOR_SURROGATE_OPT, trial_count
-            ),
-        );
-        return;
-    }
-
-    let busy = state.fitting
-        || state.optimizing
-        || state.pending_fit.is_some()
-        || state.pending_optimize.is_some();
 
     // ── 2段目: Fit & Validate ────────────────────────────────────
     let can_fit = !busy && !obj_names.is_empty();
@@ -171,11 +239,6 @@ pub fn show(
         return;
     }
 
-    // エラー表示。
-    if let Some(ref err) = state.error_message.clone() {
-        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
-    }
-
     // ── 検証セクション ───────────────────────────────────────────
     if let Some(ref trained) = state.trained.clone() {
         if trained_matches(trained, state, obj_names) {
@@ -187,29 +250,18 @@ pub fn show(
             );
         }
     }
+}
 
-    // ── 3段目: 最適化 ────────────────────────────────────────────
-    // スライス軸のデフォルト（先頭 2 パラメータ）。Study 切替で消えた名前もリセットする。
-    if !param_names.contains(&state.slice_x) {
-        state.slice_x = param_names.first().cloned().unwrap_or_default();
-    }
-    if !param_names.contains(&state.slice_y) || state.slice_y == state.slice_x {
-        state.slice_y = param_names
-            .iter()
-            .find(|p| **p != state.slice_x)
-            .cloned()
-            .unwrap_or_default();
-    }
-
-    ui.separator();
-
-    // 学習済みモデルが一致しているときのみ最適化段を有効化する。
-    let has_matching_trained = state
-        .trained
-        .as_deref()
-        .map(|t| trained_matches(t, state, obj_names))
-        .unwrap_or(false);
-
+/// 右列: Optimizer / Surface X・Y コンボ、Run Optimization ボタン、結果。
+fn render_optimize_column(
+    ui: &mut egui::Ui,
+    state: &mut SurrogateOptState,
+    param_names: &[String],
+    busy: bool,
+    has_matching_trained: bool,
+    cmap: ColorMap,
+) {
+    // ── Optimizer コンボ ─────────────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Optimizer:");
         egui::ComboBox::from_id_salt("surrogate_optimizer")
@@ -219,7 +271,10 @@ pub fn show(
                     ui.selectable_value(&mut state.optimizer, kind, optimizer_label(kind));
                 }
             });
+    });
 
+    // Surface X / Y は 2 行目に並べる（列幅が半分のため 3 コンボを 1 行に並べない）。
+    ui.horizontal(|ui| {
         ui.label("Surface X:");
         egui::ComboBox::from_id_salt("surrogate_slice_x")
             .selected_text(&state.slice_x)
@@ -236,20 +291,21 @@ pub fn show(
                     ui.selectable_value(&mut state.slice_y, name.clone(), name);
                 }
             });
-
-        let can_optimize = has_matching_trained && !busy;
-        if ui
-            .add_enabled(can_optimize, egui::Button::new("Run Optimization"))
-            .clicked()
-        {
-            state.error_message = None;
-            state.pending_optimize = Some(SurrogateOptimizeComputeRequest {
-                optimizer: state.optimizer,
-                slice_x: state.slice_x.clone(),
-                slice_y: state.slice_y.clone(),
-            });
-        }
     });
+
+    // ── Run Optimization ボタン ──────────────────────────────────
+    let can_optimize = has_matching_trained && !busy;
+    if ui
+        .add_enabled(can_optimize, egui::Button::new("Run Optimization"))
+        .clicked()
+    {
+        state.error_message = None;
+        state.pending_optimize = Some(SurrogateOptimizeComputeRequest {
+            optimizer: state.optimizer,
+            slice_x: state.slice_x.clone(),
+            slice_y: state.slice_y.clone(),
+        });
+    }
 
     // 最適化中スピナー。
     if state.optimizing {
@@ -260,7 +316,7 @@ pub fn show(
         return;
     }
 
-    let Some(result) = &state.result else {
+    let Some(result) = &state.result.clone() else {
         if !has_matching_trained {
             ui.label("Fit a surrogate model first, then click Run Optimization.");
         }
@@ -318,6 +374,7 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
 }
 
 /// OOF (out-of-fold) の predicted-vs-actual 散布図をレンダリングする。
+/// 列幅に合わせて利用可能な高さを使い、最低 180 px・最大 400 px に収める。
 fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport) {
     if v.oof_pairs.is_empty() {
         return;
@@ -358,8 +415,11 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport) {
         .color(egui::Color32::from_gray(160))
         .style(egui_plot::LineStyle::Dashed { length: 6.0 });
 
+    // 列幅いっぱいを使い、高さは 180 px 〜 400 px に収める。
+    let plot_h = ui.available_height().clamp(180.0, 400.0);
+
     egui_plot::Plot::new("surrogate_oof_plot")
-        .height(200.0)
+        .height(plot_h)
         .data_aspect(1.0)
         .x_axis_label("Actual")
         .y_axis_label("Predicted (out-of-fold)")
