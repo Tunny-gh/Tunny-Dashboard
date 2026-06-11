@@ -27,7 +27,7 @@ where
             }
             _ => {
                 return Err(format!(
-                    "unknown argument: {arg}\nusage: tunny-desktop [version|--version|-V] [-i|--input <path>]"
+                    "unknown argument: {arg}\nusage: TunnyDashboard [version|--version|-V] [-i|--input <path>]"
                 ));
             }
         }
@@ -37,7 +37,7 @@ where
 }
 
 pub fn version_text() -> String {
-    format!("tunny-desktop {}", env!("CARGO_PKG_VERSION"))
+    format!("TunnyDashboard {}", env!("CARGO_PKG_VERSION"))
 }
 
 #[cfg(test)]

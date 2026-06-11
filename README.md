@@ -128,8 +128,8 @@ cargo build --release
 
 Builds an optimized release binary. The executable will be at:
 
-- Windows: `target/release/tunny-desktop.exe`
-- Linux/macOS: `target/release/tunny-desktop`
+- Windows: `target/release/TunnyDashboard.exe`
+- Linux/macOS: `target/release/TunnyDashboard`
 
 ### Build specific workspace members
 

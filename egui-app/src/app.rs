@@ -110,6 +110,8 @@ pub struct TunnyApp {
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
     poller: Option<LiveUpdatePoller>,
+    /// 現在ウィンドウタイトルバーに設定済みの文字列。変化時のみ更新コマンドを送るために保持する。
+    current_window_title: Option<String>,
 }
 
 impl TunnyApp {
@@ -159,6 +161,26 @@ impl TunnyApp {
             tx,
             rx,
             poller: None,
+            current_window_title: None,
+        }
+    }
+
+    /// 開いているファイルのフルパスをウィンドウタイトルバーに反映する。
+    /// ファイル未読み込み時は "Tunny Dashboard"、読み込み時は "Tunny Dashboard - <フルパス>"。
+    fn sync_window_title(&mut self, ctx: &egui::Context) {
+        const BASE_TITLE: &str = "Tunny Dashboard";
+        let title = match self
+            .app_state
+            .journal_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+        {
+            Some(full_path) => format!("{BASE_TITLE} - {full_path}"),
+            None => BASE_TITLE.to_owned(),
+        };
+        if self.current_window_title.as_deref() != Some(title.as_str()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.current_window_title = Some(title);
         }
     }
 
@@ -391,6 +413,7 @@ impl Drop for TunnyApp {
 impl eframe::App for TunnyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_messages(ctx);
+        self.sync_window_title(ctx);
         crate::ui::layout::show_layout(self, ctx);
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
