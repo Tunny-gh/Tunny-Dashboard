@@ -551,7 +551,7 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     ui.colored_label(verdict_color, verdict_text);
 
     // predicted-vs-actual 散布図。
-    render_oof_plot(ui, v);
+    render_oof_plot(ui, v, "single", false);
 }
 
 /// 多目的検証サマリをコンパクトに表示する（目的ごとに 1 行）。
@@ -598,6 +598,7 @@ fn render_multi_validation(
         state.multi_validation_objective = 0;
     }
     ui.add_space(4.0);
+    let prev_objective = state.multi_validation_objective;
     ui.horizontal(|ui| {
         ui.label("Validation plot:");
         let current_name = trained
@@ -618,15 +619,21 @@ fn render_multi_validation(
             });
     });
 
-    // 選択された目的の predicted-vs-actual 散布図。
+    // 選択された目的の predicted-vs-actual 散布図。目的ごとに値域が異なるため
+    // プロット ID を目的別に分け、切替時は表示範囲をリセットして再フィットさせる。
     if let Some(t) = trained.get(state.multi_validation_objective) {
-        render_oof_plot(ui, &t.validation);
+        let switched = state.multi_validation_objective != prev_objective;
+        render_oof_plot(ui, &t.validation, &t.objective_name, switched);
     }
 }
 
 /// OOF (out-of-fold) の predicted-vs-actual 散布図をレンダリングする。
 /// 列幅に合わせて利用可能な高さを使い、最低 180 px・最大 400 px に収める。
-fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport) {
+///
+/// `id_salt` でプロットメモリ（ズーム・表示範囲）を呼び出し元ごとに分離する。
+/// `data_aspect` 指定時は初回フレーム以降の自動フィットが効かないため、
+/// 表示データが切り替わったフレームでは `reset = true` で範囲を再計算させる。
+fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &str, reset: bool) {
     if v.oof_pairs.is_empty() {
         return;
     }
@@ -669,16 +676,19 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport) {
     // 列幅いっぱいを使い、高さは 180 px 〜 400 px に収める。
     let plot_h = ui.available_height().clamp(180.0, 400.0);
 
-    egui_plot::Plot::new("surrogate_oof_plot")
+    let mut plot = egui_plot::Plot::new(("surrogate_oof_plot", id_salt))
         .height(plot_h)
         .data_aspect(1.0)
         .x_axis_label("Actual")
         .y_axis_label("Predicted (out-of-fold)")
-        .legend(egui_plot::Legend::default())
-        .show(ui, |plot_ui| {
-            plot_ui.points(scatter);
-            plot_ui.line(ref_seg);
-        });
+        .legend(egui_plot::Legend::default());
+    if reset {
+        plot = plot.reset();
+    }
+    plot.show(ui, |plot_ui| {
+        plot_ui.points(scatter);
+        plot_ui.line(ref_seg);
+    });
 }
 
 /// 改善量（正 = 改善あり）を方向を考慮して返す純粋関数。
