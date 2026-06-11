@@ -45,6 +45,12 @@ impl Drop for LgbmDataset {
 
 pub struct LgbmBooster(pub(crate) BoosterHandle);
 
+// SAFETY: LightGBM の Booster ハンドルはスレッド固有状態（TLS 等）を持たないため、
+// 所有権ごと別スレッドへ移動するのは安全。
+// Sync は実装しない: 同一ハンドルへの並行 predict は LightGBM C API では
+// 非スレッドセーフのため、共有が必要な場合は呼び出し側で Mutex 等により直列化する。
+unsafe impl Send for LgbmBooster {}
+
 impl Drop for LgbmBooster {
     fn drop(&mut self) {
         if !self.0.is_null() {

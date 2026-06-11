@@ -731,3 +731,73 @@ fn staged_multi_opt_matches_one_shot_result() {
         assert!((ra - rb).abs() < 1e-12);
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// LightGBM サロゲートのテスト
+// ────────────────────────────────────────────────────────────
+
+#[test]
+fn lgbm_fit_validate_and_optimize_finds_minimum_region() {
+    // LGBM は区分定数の予測のため L-BFGS が機能しない。RandomSearch を使い、
+    // 最小値近傍（緩い許容）に到達することを確認する。
+    let (x_matrix, y) = quadratic_samples(50);
+    let trained = fit_surrogate_with_validation(&SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "obj0".to_string(),
+        model: SurrogateModelKind::Lgbm,
+    })
+    .expect("LGBM fit & validation should succeed");
+
+    assert!(
+        trained.validation.train_r2 > 0.5,
+        "LGBM train R² should be reasonable: {}",
+        trained.validation.train_r2
+    );
+
+    let result = optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize: true,
+            optimizer: OptimizerKind::RandomSearch,
+            slice_params: Some((0, 1)),
+            n_grid: 10,
+        },
+    );
+
+    assert!(
+        (result.best_params[0] - 0.3).abs() < 0.2,
+        "x ≈ 0.3, got {}",
+        result.best_params[0]
+    );
+    assert!(
+        (result.best_params[1] - 0.7).abs() < 0.2,
+        "y ≈ 0.7, got {}",
+        result.best_params[1]
+    );
+    assert!(result.predicted_std.is_none(), "LGBM has no posterior std");
+    assert!(result.slice.is_some(), "スライスが要求されている");
+}
+
+#[test]
+fn lgbm_multi_opt_returns_front() {
+    // LGBM で多目的サロゲート最適化が動き、フロントが返ること（緩い検証）。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let mut req = base_multi_request(x_matrix, f1, f2);
+    req.model = SurrogateModelKind::Lgbm;
+    let result =
+        run_surrogate_multi_optimization(&req).expect("LGBM multi-objective should succeed");
+
+    assert!(
+        result.front.len() >= 3,
+        "front should have ≥3 points, got {}",
+        result.front.len()
+    );
+    assert_eq!(result.r_squared.len(), 2);
+    for p in &result.front {
+        assert_eq!(p.params.len(), 2);
+        assert_eq!(p.values.len(), 2);
+        assert!(p.values.iter().all(|v| v.is_finite()));
+    }
+}

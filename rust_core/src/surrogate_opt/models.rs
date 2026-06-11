@@ -4,12 +4,15 @@
 //! 統一インターフェースで包む。予測は正規化空間（X: min-max [0,1]、y: z-score）で行い、
 //! 元の単位との変換は [`FittedSurrogate`] が担う。
 
+use std::sync::Mutex;
+
 use crate::kriging::{gaussian_process, sparse_fitc};
+use crate::lgbm::{lgbm_predict, train_lgbm_rf, LgbmBooster, LgbmRfConfig};
 use crate::pdp::utils::{normalize_x_minmax, normalize_y, r_squared};
 use crate::sensitivity::compute_ridge_from_vecs;
 
 /// 応答曲面の作成に使うサロゲートモデル種別。
-/// 新しいモデル（例: Random Forest / LightGBM）はここへバリアントを追加する。
+/// 新しいモデルはここへバリアントを追加する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurrogateModelKind {
     /// Ridge 回帰（線形）。高速だが曲面は平面。
@@ -18,6 +21,9 @@ pub enum SurrogateModelKind {
     Kriging,
     /// FITC 近似によるスパースガウス過程回帰。大規模データ向け。
     SparseKriging,
+    /// LightGBM（RandomForest モード）。非線形・非平滑な応答に強いが、
+    /// 予測は区分定数のため勾配法（L-BFGS）とは相性が悪い。
+    Lgbm,
 }
 
 /// 学習済みモデル本体（正規化空間で予測する）。
@@ -31,6 +37,11 @@ pub(crate) enum FittedModel {
     },
     Gp(gaussian_process::GpModel),
     Fitc(sparse_fitc::SparseFitcModel),
+    /// LightGBM RandomForest の Booster。
+    /// FittedSurrogate / TrainedSurrogate は Arc 経由で複数スレッドから共有されうるが、
+    /// LightGBM の predict は同一ハンドルに対して非スレッドセーフのため、
+    /// Mutex で直列化して Sync を満たす（`LgbmBooster` は Send のみ実装）。
+    Lgbm(Mutex<LgbmBooster>),
 }
 
 /// 学習済みサロゲートと正規化統計量。
@@ -62,13 +73,22 @@ impl FittedSurrogate {
             }
             FittedModel::Gp(model) => gaussian_process::predict_mean(model, x_norm),
             FittedModel::Fitc(model) => sparse_fitc::fitc_predict_mean(model, x_norm),
+            FittedModel::Lgbm(booster) => {
+                // poisoned lock は panic 連鎖を避けて内部値をそのまま使う
+                // （Booster は predict で内部状態を変更しないため安全）。
+                let booster = booster.lock().unwrap_or_else(|e| e.into_inner());
+                lgbm_predict(&booster, &[x_norm.to_vec()])
+                    .first()
+                    .copied()
+                    .unwrap_or(0.0)
+            }
         }
     }
 
     /// 正規化空間での予測分散（事後分散を持つモデルのみ）。
     pub(crate) fn predict_var_norm(&self, x_norm: &[f64]) -> Option<f64> {
         match &self.model {
-            FittedModel::Ridge { .. } => None,
+            FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => None,
             FittedModel::Gp(model) => {
                 Some(gaussian_process::predict_variance(model, x_norm).max(0.0))
             }
@@ -118,6 +138,10 @@ pub(crate) fn fit_surrogate(
                 .ok_or("Kriging training failed")?,
         ),
         SurrogateModelKind::SparseKriging => fit_sparse_kriging(&x_norm, &y_norm)?,
+        SurrogateModelKind::Lgbm => FittedModel::Lgbm(Mutex::new(
+            train_lgbm_rf(&x_norm, &y_norm, &LgbmRfConfig::default())
+                .ok_or("LightGBM training failed")?,
+        )),
     };
 
     let mut surrogate = FittedSurrogate {
