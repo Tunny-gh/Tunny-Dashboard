@@ -136,6 +136,8 @@ pub struct SurrogateOptUiResult {
     pub minimize: bool,
     /// 最適点を通る応答曲面の 2D スライス（ヒートマップ表示用）。
     pub slice: Option<tunny_core::surrogate_opt::SurfaceSlice>,
+    /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
+    pub best_observed_value: f64,
 }
 
 // ============================================================
@@ -269,6 +271,9 @@ pub enum AppMessage {
     ComparisonStudyLoadFailed(String),
     SurfacePlotDone(SurfacePlotResult),
     SurfacePlotFailed(String),
+    /// サロゲートのフィット＋検証が完了した（最適化段階は別メッセージ）。
+    SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    SurrogateFitFailed(String),
     SurrogateOptDone(SurrogateOptUiResult),
     SurrogateOptFailed(String),
     ChartCaptureFailed(String),

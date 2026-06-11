@@ -46,14 +46,18 @@ impl SurfacePlotState {
     }
 }
 
-// ── Surrogate Optimizer 計算リクエスト ──────────────────────────
-pub struct SurrogateOptComputeRequest {
+// ── Surrogate Optimizer 計算リクエスト（フィット段階） ──────────
+pub struct SurrogateFitComputeRequest {
     pub objective: String,
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
-    pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
+}
+
+// ── Surrogate Optimizer 計算リクエスト（最適化段階） ────────────
+pub struct SurrogateOptimizeComputeRequest {
     /// 応答曲面スライスの表示軸（パラメータ名）。
     pub slice_x: String,
     pub slice_y: String,
+    pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
 }
 
 // ── Surrogate Optimizer UI 状態 ─────────────────────────────────
@@ -63,10 +67,16 @@ pub struct SurrogateOptState {
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
     pub slice_x: String,
     pub slice_y: String,
-    pub computing: bool,
+    /// フィット段階のスピナーフラグ。
+    pub fitting: bool,
+    /// 最適化段階のスピナーフラグ。
+    pub optimizing: bool,
+    /// 検証済みの学習結果（フィット完了後に保持）。
+    pub trained: Option<std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>>,
     pub result: Option<crate::state::messages::SurrogateOptUiResult>,
     pub error_message: Option<String>,
-    pub pending_compute: Option<SurrogateOptComputeRequest>,
+    pub pending_fit: Option<SurrogateFitComputeRequest>,
+    pub pending_optimize: Option<SurrogateOptimizeComputeRequest>,
 }
 
 impl Default for SurrogateOptState {
@@ -77,10 +87,13 @@ impl Default for SurrogateOptState {
             optimizer: tunny_core::surrogate_opt::OptimizerKind::MultiStartLbfgs,
             slice_x: String::new(),
             slice_y: String::new(),
-            computing: false,
+            fitting: false,
+            optimizing: false,
+            trained: None,
             result: None,
             error_message: None,
-            pending_compute: None,
+            pending_fit: None,
+            pending_optimize: None,
         }
     }
 }
@@ -90,7 +103,9 @@ impl SurrogateOptState {
     /// キャンバスのアイテム別 WidgetStates へ完了状態を伝播するために使う
     /// （目的・モデル・最適化手法・スライス軸の選択は維持する）。
     pub fn adopt_compute_state(&mut self, src: &Self) {
-        self.computing = src.computing;
+        self.fitting = src.fitting;
+        self.optimizing = src.optimizing;
+        self.trained = src.trained.clone();
         self.result = src.result.clone();
         self.error_message = src.error_message.clone();
     }
@@ -186,6 +201,49 @@ mod tests {
         assert!(!state.computing);
         assert!(state.selected_x.is_empty());
         assert!(state.selected_y.is_empty());
+    }
+
+    // ── SurrogateOptState の新 2 段階フィールドに対する回帰テスト ──
+
+    #[test]
+    fn surrogate_opt_state_default_has_expected_flags() {
+        let state = SurrogateOptState::default();
+        assert!(!state.fitting);
+        assert!(!state.optimizing);
+        assert!(state.trained.is_none());
+        assert!(state.pending_fit.is_none());
+        assert!(state.pending_optimize.is_none());
+        assert!(state.result.is_none());
+    }
+
+    #[test]
+    fn surrogate_opt_adopt_compute_state_propagates_new_fields() {
+        let src = SurrogateOptState {
+            fitting: false,
+            optimizing: false,
+            error_message: Some("err".into()),
+            ..Default::default()
+        };
+
+        let mut dst = SurrogateOptState {
+            fitting: true,
+            optimizing: true,
+            model: tunny_core::surrogate_opt::SurrogateModelKind::Ridge,
+            selected_objective: 2,
+            ..Default::default()
+        };
+        dst.adopt_compute_state(&src);
+
+        // 伝播されるフィールド
+        assert!(!dst.fitting);
+        assert!(!dst.optimizing);
+        assert_eq!(dst.error_message.as_deref(), Some("err"));
+        // 選択は維持される
+        assert_eq!(
+            dst.model,
+            tunny_core::surrogate_opt::SurrogateModelKind::Ridge
+        );
+        assert_eq!(dst.selected_objective, 2);
     }
 
     // ── TASK-2246: 回帰テスト ──────────────────────────────────────

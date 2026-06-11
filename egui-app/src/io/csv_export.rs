@@ -576,6 +576,7 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
 
 /// サロゲート最適化の推定最適点を CSV にする。
 /// パラメータ行に続けて、予測目的値・予測標準偏差・R² のサマリ行を出力する。
+/// 学習済みモデルが存在する場合は検証指標行も追記する。
 fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
     let result = widgets.surrogate_opt.result.as_ref()?;
     let mut csv = String::from("name,value\n");
@@ -595,6 +596,19 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
         csv.push_str(&format!("predicted_std,{}\n", std));
     }
     csv.push_str(&format!("r_squared,{}\n", result.r_squared));
+
+    // 検証指標を追記する（学習済みモデルが保持されている場合）。
+    if let Some(ref trained) = widgets.surrogate_opt.trained {
+        let v = &trained.validation;
+        csv.push_str(&format!("train_r2,{}\n", v.train_r2));
+        csv.push_str(&format!("holdout_r2,{}\n", v.holdout_r2));
+        csv.push_str(&format!("holdout_rmse,{}\n", v.holdout_rmse));
+        csv.push_str(&format!("cv_r2_mean,{}\n", v.cv_r2_mean));
+        csv.push_str(&format!("cv_r2_std,{}\n", v.cv_r2_std));
+        csv.push_str(&format!("cv_rmse_mean,{}\n", v.cv_rmse_mean));
+        csv.push_str(&format!("cv_rmse_std,{}\n", v.cv_rmse_std));
+    }
+
     Some(csv)
 }
 

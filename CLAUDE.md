@@ -27,12 +27,13 @@ cargo test -p tunny-desktop
 
 ### 静的解析
 
-コミット前には必ず確認すること。
+コミット前には必ず確認すること。CI と同条件で実行する（`--all-targets` がないとテストコードが clippy の対象外になる）。
 
 ```bash
-cargo clippy --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
 
-cargo fmt --check --workspace
+cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
+cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 ```
 
 ### アプリケーション実行

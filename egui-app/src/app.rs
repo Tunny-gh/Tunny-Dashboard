@@ -24,6 +24,7 @@ enum ComputeSyncKind {
     Pdp,
     Pdp2d,
     Surface,
+    SurrogateFit,
     SurrogateOpt,
     HvHistory,
     SensitivityHeatmap,
@@ -45,6 +46,9 @@ impl ComputeSyncKind {
             AppMessage::Pdp2dDone(_) => Some(Self::Pdp2d),
             AppMessage::SurfacePlotDone(_) | AppMessage::SurfacePlotFailed(_) => {
                 Some(Self::Surface)
+            }
+            AppMessage::SurrogateFitDone(_) | AppMessage::SurrogateFitFailed(_) => {
+                Some(Self::SurrogateFit)
             }
             AppMessage::SurrogateOptDone(_) | AppMessage::SurrogateOptFailed(_) => {
                 Some(Self::SurrogateOpt)
@@ -88,6 +92,7 @@ impl ComputeSyncKind {
                 Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
                 Self::Surface => w.surface_plot.adopt_compute_state(&global.surface_plot),
+                Self::SurrogateFit => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::SurrogateOpt => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::HvHistory => w.hv_history.adopt_compute_state(&global.hv_history),
                 Self::SensitivityHeatmap => w
