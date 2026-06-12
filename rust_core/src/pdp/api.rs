@@ -1,6 +1,6 @@
-use super::kriging::{
-    compute_pdp_1d_kriging_raw, compute_pdp_1d_sparse_kriging_raw, compute_pdp_2d_kriging,
-    compute_pdp_2d_sparse_kriging,
+use super::gaussian_process::{
+    compute_pdp_1d_gaussian_process_raw, compute_pdp_1d_sparse_gaussian_process_raw,
+    compute_pdp_2d_gaussian_process, compute_pdp_2d_sparse_gaussian_process,
 };
 use super::ridge::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
 use super::types::{PdpResult1d, PdpResult2d};
@@ -8,7 +8,7 @@ use super::utils::extract_xy;
 
 /// メインスレッド側で事前に抽出したデータを直接受け取って PDP を計算する。
 /// `with_active_df` を使わないため、バックグラウンドスレッドから安全に呼べる。
-/// `model_type` には "ridge", "kriging", "sparse_kriging" のいずれかを指定する。
+/// `model_type` には "ridge", "gaussian_process", "sparse_gaussian_process" のいずれかを指定する。
 pub fn compute_pdp_from_data(
     x_matrix: Vec<Vec<f64>>,
     y: Vec<f64>,
@@ -44,7 +44,7 @@ pub fn compute_pdp_from_data(
                 ),
             }
         }
-        "kriging" => compute_pdp_1d_kriging_raw(
+        "gaussian_process" => compute_pdp_1d_gaussian_process_raw(
             &x_matrix,
             &y,
             &param_names,
@@ -62,7 +62,7 @@ pub fn compute_pdp_from_data(
                 n_grid,
             )
         }),
-        "sparse_kriging" => compute_pdp_1d_sparse_kriging_raw(
+        "sparse_gaussian_process" => compute_pdp_1d_sparse_gaussian_process_raw(
             &x_matrix,
             &y,
             &param_names,
@@ -153,7 +153,7 @@ pub fn compute_pdp_2d(
                     uncertainties: None,
                 })
             }
-            "kriging" => Some(compute_pdp_2d_kriging(
+            "gaussian_process" => Some(compute_pdp_2d_gaussian_process(
                 &x_matrix,
                 &y,
                 &param_names,
@@ -162,7 +162,7 @@ pub fn compute_pdp_2d(
                 p2_idx,
                 n_grid,
             )),
-            "sparse_kriging" => Some(compute_pdp_2d_sparse_kriging(
+            "sparse_gaussian_process" => Some(compute_pdp_2d_sparse_gaussian_process(
                 &x_matrix,
                 &y,
                 &param_names,
@@ -187,7 +187,7 @@ pub fn compute_pdp_2d(
 
 /// Compute a 2D response surface from raw data without using the thread-local dataframe.
 /// Suitable for calling from background threads.
-/// `model_type` accepts "ridge" (default), "kriging", "sparse_kriging".
+/// `model_type` accepts "ridge" (default), "gaussian_process", "sparse_gaussian_process".
 #[allow(clippy::too_many_arguments)]
 pub fn compute_surface_from_data(
     x_matrix: Vec<Vec<f64>>,
@@ -200,7 +200,7 @@ pub fn compute_surface_from_data(
     model_type: &str,
 ) -> PdpResult2d {
     match model_type {
-        "kriging" => compute_pdp_2d_kriging(
+        "gaussian_process" => compute_pdp_2d_gaussian_process(
             &x_matrix,
             &y,
             &param_names,
@@ -209,7 +209,7 @@ pub fn compute_surface_from_data(
             param2_idx,
             n_grid,
         ),
-        "sparse_kriging" => compute_pdp_2d_sparse_kriging(
+        "sparse_gaussian_process" => compute_pdp_2d_sparse_gaussian_process(
             &x_matrix,
             &y,
             &param_names,

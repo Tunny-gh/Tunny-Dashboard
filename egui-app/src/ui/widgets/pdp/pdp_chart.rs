@@ -72,24 +72,24 @@ pub enum PdpMode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelType {
     Ridge,
-    Kriging,
-    SparseKriging,
+    GaussianProcess,
+    SparseGaussianProcess,
     RandomForest,
 }
 
 impl ModelType {
     pub const ALL: [ModelType; 4] = [
         ModelType::Ridge,
-        ModelType::Kriging,
-        ModelType::SparseKriging,
+        ModelType::GaussianProcess,
+        ModelType::SparseGaussianProcess,
         ModelType::RandomForest,
     ];
 
     pub fn label(&self) -> &'static str {
         match self {
             ModelType::Ridge => "Ridge",
-            ModelType::Kriging => "Kriging",
-            ModelType::SparseKriging => "Sparse Kriging",
+            ModelType::GaussianProcess => "Gaussian Process",
+            ModelType::SparseGaussianProcess => "Sparse Gaussian Process",
             ModelType::RandomForest => "Random Forest (LightGBM)",
         }
     }
@@ -97,8 +97,8 @@ impl ModelType {
     pub fn to_str(&self) -> &'static str {
         match self {
             ModelType::Ridge => "ridge",
-            ModelType::Kriging => "kriging",
-            ModelType::SparseKriging => "sparse_kriging",
+            ModelType::GaussianProcess => "gaussian_process",
+            ModelType::SparseGaussianProcess => "sparse_gaussian_process",
             ModelType::RandomForest => "random_forest",
         }
     }
@@ -338,7 +338,7 @@ impl PdpChart {
                         let n_grid = match self.model_type {
                             ModelType::Ridge => 50,
                             ModelType::RandomForest => 30,
-                            _ => 30, // Kriging is O(N²×grid); 30 keeps debug builds fast
+                            _ => 30, // Gaussian Process is O(N²×grid); 30 keeps debug builds fast
                         };
                         self.pending_compute = Some(PdpComputeRequest {
                             param: self.selected_param.clone(),
@@ -664,7 +664,7 @@ mod tests {
     #[test]
     fn cache_key_different_model_produces_different_key() {
         let k1 = cache_key("x", "obj0", "Ridge", false);
-        let k2 = cache_key("x", "obj0", "Kriging", false);
+        let k2 = cache_key("x", "obj0", "Gaussian Process", false);
         assert_ne!(k1, k2);
     }
 

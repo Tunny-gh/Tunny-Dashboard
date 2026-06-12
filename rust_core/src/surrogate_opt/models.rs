@@ -1,6 +1,6 @@
 //! サロゲートモデルの学習・予測ラッパ。
 //!
-//! Ridge（`sensitivity::ridge`）、Kriging / Sparse Kriging（egobox-gp FITC バックエンド）、
+//! Ridge（`sensitivity::ridge`）、ガウス過程 / スパースガウス過程（egobox-gp FITC バックエンド）、
 //! LightGBM を統一インターフェースで包む。予測は正規化空間（X: min-max [0,1]、y: z-score）で行い、
 //! 元の単位との変換は [`FittedSurrogate`] が担う。
 
@@ -18,9 +18,9 @@ pub enum SurrogateModelKind {
     /// Ridge 回帰（線形）。高速だが曲面は平面。
     Ridge,
     /// ガウス過程回帰（ARD Matérn 5/2）。100 点誘導点で学習。
-    Kriging,
+    GaussianProcess,
     /// FITC 近似によるスパースガウス過程回帰。大規模データ向け。
-    SparseKriging,
+    SparseGaussianProcess,
     /// LightGBM（RandomForest モード）。非線形・非平滑な応答に強いが、
     /// 予測は区分定数のため勾配法（L-BFGS）とは相性が悪い。
     Lgbm,
@@ -127,11 +127,12 @@ pub(crate) fn fit_surrogate(
 
     let model = match kind {
         SurrogateModelKind::Ridge => fit_ridge(&x_norm, &y_norm)?,
-        SurrogateModelKind::Kriging => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, 100, 42).ok_or("Kriging training failed")?,
+        SurrogateModelKind::GaussianProcess => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, 100, 42).ok_or("Gaussian Process training failed")?,
         )),
-        SurrogateModelKind::SparseKriging => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, 20, 42).ok_or("Sparse Kriging training failed")?,
+        SurrogateModelKind::SparseGaussianProcess => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, 20, 42)
+                .ok_or("Sparse Gaussian Process training failed")?,
         )),
         SurrogateModelKind::Lgbm => FittedModel::Lgbm(Mutex::new(
             train_lgbm_rf(&x_norm, &y_norm, &LgbmRfConfig::default())

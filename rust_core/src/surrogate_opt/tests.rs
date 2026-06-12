@@ -22,7 +22,7 @@ fn base_request(x_matrix: Vec<Vec<f64>>, y: Vec<f64>) -> SurrogateOptRequest {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         minimize: true,
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
         optimizer: OptimizerKind::MultiStartLbfgs,
         slice_params: Some((0, 1)),
         n_grid: 10,
@@ -30,7 +30,7 @@ fn base_request(x_matrix: Vec<Vec<f64>>, y: Vec<f64>) -> SurrogateOptRequest {
 }
 
 #[test]
-fn kriging_lbfgs_finds_quadratic_minimum() {
+fn gaussian_process_lbfgs_finds_quadratic_minimum() {
     let (x_matrix, y) = quadratic_samples(50);
     let req = base_request(x_matrix.clone(), y.clone());
     let result = run_surrogate_optimization(&req).expect("optimization should succeed");
@@ -55,7 +55,10 @@ fn kriging_lbfgs_finds_quadratic_minimum() {
         "GP should fit well: {}",
         result.r_squared
     );
-    assert!(result.predicted_std.is_some(), "Kriging has posterior std");
+    assert!(
+        result.predicted_std.is_some(),
+        "Gaussian Process has posterior std"
+    );
 
     // 最小化時 best_observed_value == y.iter().cloned().fold(f64::INFINITY, f64::min)
     let expected_best_obs = y.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -183,10 +186,10 @@ fn ridge_model_reaches_box_corner() {
 }
 
 #[test]
-fn sparse_kriging_runs_and_finds_minimum_region() {
+fn sparse_gaussian_process_runs_and_finds_minimum_region() {
     let (x_matrix, y) = quadratic_samples(80);
     let mut req = base_request(x_matrix, y);
-    req.model = SurrogateModelKind::SparseKriging;
+    req.model = SurrogateModelKind::SparseGaussianProcess;
     let result = run_surrogate_optimization(&req).expect("optimization should succeed");
 
     assert!((result.best_params[0] - 0.3).abs() < 0.2);
@@ -261,11 +264,12 @@ fn trained_surrogate_is_send_sync() {
 // ============================================================================
 
 #[test]
-fn validate_surrogate_kriging_high_r2_on_smooth_function() {
+fn validate_surrogate_gaussian_process_high_r2_on_smooth_function() {
     // 決定論的な滑らかな関数で学習・検証し、CV R² とホールドアウト R² が高いことを確認する。
     let (x_matrix, y) = quadratic_samples(50);
-    let report = validation::validate_surrogate(SurrogateModelKind::Kriging, &x_matrix, &y, 42)
-        .expect("validate_surrogate should succeed");
+    let report =
+        validation::validate_surrogate(SurrogateModelKind::GaussianProcess, &x_matrix, &y, 42)
+            .expect("validate_surrogate should succeed");
 
     assert_eq!(report.n_samples, 50);
     assert!(report.n_test >= 1, "n_test >= 1");
@@ -297,9 +301,9 @@ fn validate_surrogate_kriging_high_r2_on_smooth_function() {
 fn validate_surrogate_deterministic_with_same_seed() {
     // 同一シードで呼び出した結果が完全に一致することを確認する。
     let (x_matrix, y) = quadratic_samples(30);
-    let r1 = validation::validate_surrogate(SurrogateModelKind::Kriging, &x_matrix, &y, 42)
+    let r1 = validation::validate_surrogate(SurrogateModelKind::GaussianProcess, &x_matrix, &y, 42)
         .expect("first call should succeed");
-    let r2 = validation::validate_surrogate(SurrogateModelKind::Kriging, &x_matrix, &y, 42)
+    let r2 = validation::validate_surrogate(SurrogateModelKind::GaussianProcess, &x_matrix, &y, 42)
         .expect("second call should succeed");
 
     assert_eq!(r1.n_train, r2.n_train);
@@ -322,8 +326,9 @@ fn validate_surrogate_deterministic_with_same_seed() {
 fn validate_surrogate_minimum_size_dataset() {
     // n = 10 の最小データセットで検証が成功し、期待されるフィールドを持つことを確認する。
     let (x_matrix, y) = quadratic_samples(10);
-    let report = validation::validate_surrogate(SurrogateModelKind::Kriging, &x_matrix, &y, 42)
-        .expect("minimum-size validate_surrogate should succeed");
+    let report =
+        validation::validate_surrogate(SurrogateModelKind::GaussianProcess, &x_matrix, &y, 42)
+            .expect("minimum-size validate_surrogate should succeed");
 
     assert_eq!(report.n_samples, 10);
     assert!(report.n_test >= 1, "n_test >= 1");
@@ -346,7 +351,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
         y,
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
     };
     let trained = fit_surrogate_with_validation(&fit_req)
         .expect("fit_surrogate_with_validation should succeed");
@@ -414,7 +419,7 @@ fn base_multi_request(
         param_names: vec!["x0".to_string(), "x1".to_string()],
         objective_names: vec!["f1".to_string(), "f2".to_string()],
         minimize: vec![true, true],
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
         slice_params: Some((0, 1)),
         n_grid: 10,
     }
@@ -558,7 +563,7 @@ fn multi_opt_error_on_single_objective() {
         param_names: vec!["x0".to_string(), "x1".to_string()],
         objective_names: vec!["f1".to_string()],
         minimize: vec![true],
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
         slice_params: None,
         n_grid: 10,
     };
@@ -579,7 +584,7 @@ fn multi_opt_error_on_ys_length_mismatch() {
         param_names: vec!["x0".to_string(), "x1".to_string()],
         objective_names: vec!["f1".to_string()], // 長さ不一致
         minimize: vec![true, true],
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
         slice_params: None,
         n_grid: 10,
     };
@@ -612,7 +617,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         y: f1,
         param_names: names.clone(),
         objective_name: "f1".to_string(),
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
     })
     .expect("fit f1 should succeed");
     let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
@@ -620,7 +625,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         y: f2,
         param_names: names,
         objective_name: "f2".to_string(),
-        model: SurrogateModelKind::Kriging,
+        model: SurrogateModelKind::GaussianProcess,
     })
     .expect("fit f2 should succeed");
     (t1, t2)

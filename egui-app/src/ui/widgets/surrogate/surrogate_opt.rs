@@ -31,8 +31,8 @@ use tunny_core::surrogate_opt::{
 
 /// モデル選択肢（コンボ表示順）。新モデル追加時はここへ並べる。
 const MODEL_CHOICES: [SurrogateModelKind; 4] = [
-    SurrogateModelKind::Kriging,
-    SurrogateModelKind::SparseKriging,
+    SurrogateModelKind::GaussianProcess,
+    SurrogateModelKind::SparseGaussianProcess,
     SurrogateModelKind::Ridge,
     SurrogateModelKind::Lgbm,
 ];
@@ -48,8 +48,8 @@ const OPTIMIZER_CHOICES: [OptimizerKind; 4] = [
 pub(crate) fn model_label(kind: SurrogateModelKind) -> &'static str {
     match kind {
         SurrogateModelKind::Ridge => "Ridge",
-        SurrogateModelKind::Kriging => "Kriging",
-        SurrogateModelKind::SparseKriging => "Sparse Kriging",
+        SurrogateModelKind::GaussianProcess => "Gaussian Process",
+        SurrogateModelKind::SparseGaussianProcess => "Sparse Gaussian Process",
         SurrogateModelKind::Lgbm => "LightGBM",
     }
 }
@@ -1215,7 +1215,7 @@ mod tests {
     #[test]
     fn multi_fit_click_builds_pending_multi_fit() {
         let mut state = SurrogateOptState {
-            model: SurrogateModelKind::Kriging,
+            model: SurrogateModelKind::GaussianProcess,
             multi_objective: true,
             ..Default::default()
         };
@@ -1228,7 +1228,7 @@ mod tests {
         }
 
         let req = state.pending_multi_fit.as_ref().unwrap();
-        assert_eq!(req.model, SurrogateModelKind::Kriging);
+        assert_eq!(req.model, SurrogateModelKind::GaussianProcess);
     }
 
     #[test]
@@ -1344,11 +1344,11 @@ mod tests {
     fn multi_trained_matches_correct() {
         let obj_names = vec!["f0".to_string(), "f1".to_string()];
         let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::Kriging),
-            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+            make_dummy_trained("f0", SurrogateModelKind::GaussianProcess),
+            make_dummy_trained("f1", SurrogateModelKind::GaussianProcess),
         ];
         let state = SurrogateOptState {
-            model: SurrogateModelKind::Kriging,
+            model: SurrogateModelKind::GaussianProcess,
             ..Default::default()
         };
         assert!(multi_trained_matches(&trained, &state, &obj_names));
@@ -1358,8 +1358,8 @@ mod tests {
     fn multi_trained_matches_wrong_model() {
         let obj_names = vec!["f0".to_string(), "f1".to_string()];
         let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::Kriging),
-            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+            make_dummy_trained("f0", SurrogateModelKind::GaussianProcess),
+            make_dummy_trained("f1", SurrogateModelKind::GaussianProcess),
         ];
         // モデルが Ridge に変わった場合
         let state = SurrogateOptState {
@@ -1373,11 +1373,11 @@ mod tests {
     fn multi_trained_matches_wrong_objectives() {
         let obj_names = vec!["f0".to_string(), "f2".to_string()]; // f2 が違う
         let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::Kriging),
-            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+            make_dummy_trained("f0", SurrogateModelKind::GaussianProcess),
+            make_dummy_trained("f1", SurrogateModelKind::GaussianProcess),
         ];
         let state = SurrogateOptState {
-            model: SurrogateModelKind::Kriging,
+            model: SurrogateModelKind::GaussianProcess,
             ..Default::default()
         };
         assert!(!multi_trained_matches(&trained, &state, &obj_names));
@@ -1387,11 +1387,11 @@ mod tests {
     fn multi_trained_matches_wrong_length() {
         let obj_names = vec!["f0".to_string()]; // 目的数が 1
         let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::Kriging),
-            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+            make_dummy_trained("f0", SurrogateModelKind::GaussianProcess),
+            make_dummy_trained("f1", SurrogateModelKind::GaussianProcess),
         ];
         let state = SurrogateOptState {
-            model: SurrogateModelKind::Kriging,
+            model: SurrogateModelKind::GaussianProcess,
             ..Default::default()
         };
         assert!(!multi_trained_matches(&trained, &state, &obj_names));
@@ -1402,8 +1402,8 @@ mod tests {
         use std::sync::Arc;
 
         let trained_vec = vec![
-            make_dummy_trained("f0", SurrogateModelKind::Kriging),
-            make_dummy_trained("f1", SurrogateModelKind::Kriging),
+            make_dummy_trained("f0", SurrogateModelKind::GaussianProcess),
+            make_dummy_trained("f1", SurrogateModelKind::GaussianProcess),
         ];
         let arc = Arc::new(trained_vec);
 

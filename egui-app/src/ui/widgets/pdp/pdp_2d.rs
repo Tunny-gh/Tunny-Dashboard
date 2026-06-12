@@ -34,7 +34,7 @@ pub struct PdpChart2DState {
     pub computing: bool,
     pub pending_compute: Option<Pdp2dComputeRequest>,
     pub camera: ArcballCamera,
-    /// Kriging 系で不確実性（±1.96σ = 95% CI）を半透明バンドとして重ねるか
+    /// ガウス過程系で不確実性（±1.96σ = 95% CI）を半透明バンドとして重ねるか
     pub show_uncertainty: bool,
     /// 観測データ（サンプリング点）をサーフェスに重ねて表示するか
     pub show_observed: bool,
@@ -188,7 +188,7 @@ impl PdpChart2DState {
             return;
         }
 
-        // 不確実性バンド表示トグル（Kriging 系のみ。result の不変借用前に self を可変借用する）
+        // 不確実性バンド表示トグル（ガウス過程系のみ。result の不変借用前に self を可変借用する）
         let has_uncertainty = self
             .result
             .as_ref()
@@ -782,7 +782,7 @@ mod tests {
 
     #[test]
     fn band_grids_negative_variance_does_not_produce_nan() {
-        // Kriging の事後分散は数値誤差で僅かに負になり得る
+        // ガウス過程の事後分散は数値誤差で僅かに負になり得る
         let z = vec![vec![5.0]];
         let var = vec![vec![-1e-12]];
         let (lower, upper) = band_grids(&z, &var);

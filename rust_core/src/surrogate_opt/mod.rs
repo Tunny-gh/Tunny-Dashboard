@@ -92,7 +92,7 @@ pub struct SurrogateOptResult {
     pub best_params: Vec<f64>,
     /// 推定最適点でのサロゲート予測値（元の単位）。
     pub best_value: f64,
-    /// 予測標準偏差（Kriging 系のみ。Ridge は None）。
+    /// 予測標準偏差（ガウス過程系のみ。Ridge は None）。
     pub predicted_std: Option<f64>,
     /// 訓練データに対するサロゲートの決定係数。
     pub r_squared: f64,

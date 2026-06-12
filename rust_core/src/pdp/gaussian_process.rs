@@ -5,14 +5,14 @@ use super::types::{PdpResult1d, PdpResult2d};
 use super::utils::{normalize_x_minmax, normalize_y, r_squared};
 use crate::math::grid::linspace;
 
-/// 1D PDP with Kriging (GP regression on all feature dimensions).
+/// 1D PDP with Gaussian Process (GP regression on all feature dimensions).
 ///
 /// Trains a GP on the full `x_matrix` vs `y`. For each grid point `v` of the
 /// target parameter, replaces that column with `v` for every training row,
 /// predicts mean via `predict_mean_batch`, and averages them to obtain the PDP
 /// value. Variance uses the centroid approximation (single point per grid
 /// position) for speed.
-pub(crate) fn compute_pdp_1d_kriging_raw(
+pub(crate) fn compute_pdp_1d_gaussian_process_raw(
     x_matrix: &[Vec<f64>],
     y: &[f64],
     param_names: &[String],
@@ -125,7 +125,7 @@ pub(crate) fn compute_pdp_1d_kriging_raw(
     })
 }
 
-/// 1D PDP using Sparse Kriging (FITC approximation) on all feature dimensions.
+/// 1D PDP using Sparse Gaussian Process (FITC approximation) on all feature dimensions.
 ///
 /// Trains an egobox FITC sparse GP (M=20 inducing points, Matérn 5/2 ARD) on
 /// all N training points. Hyperparameter optimisation is handled directly by
@@ -135,8 +135,8 @@ pub(crate) fn compute_pdp_1d_kriging_raw(
 /// batch predictions over all N training rows (mean and variance are both
 /// marginalised over the data distribution), giving a spatially varying CI band.
 ///
-/// Falls back to `compute_pdp_1d_kriging_raw` if training fails.
-pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
+/// Falls back to `compute_pdp_1d_gaussian_process_raw` if training fails.
+pub(crate) fn compute_pdp_1d_sparse_gaussian_process_raw(
     x_matrix: &[Vec<f64>],
     y: &[f64],
     param_names: &[String],
@@ -166,7 +166,7 @@ pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
     let model = match GpModel::fit(&x_norm, &y_norm, 20, 42) {
         Some(m) => m,
         None => {
-            return compute_pdp_1d_kriging_raw(
+            return compute_pdp_1d_gaussian_process_raw(
                 x_matrix,
                 y,
                 param_names,
@@ -250,7 +250,7 @@ pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
     })
 }
 
-/// Core Kriging computation without global state.
+/// Core Gaussian Process computation without global state.
 ///
 /// Takes pre-extracted 2D input where `x_2d[i] = [param1_val, param2_val]`.
 /// Trains on ALL points with at most 100 inducing points (validated to match
@@ -258,7 +258,7 @@ pub(crate) fn compute_pdp_1d_sparse_kriging_raw(
 /// approach). Returns `None` if training fails or input is insufficient.
 /// The `param1_name`, `param2_name`, `objective_name` fields in the result are
 /// empty strings - callers should set them as needed.
-pub(crate) fn compute_pdp_2d_kriging_raw(
+pub(crate) fn compute_pdp_2d_gaussian_process_raw(
     x_2d: &[Vec<f64>],
     y: &[f64],
     n_grid: usize,
@@ -323,14 +323,14 @@ pub(crate) fn compute_pdp_2d_kriging_raw(
     })
 }
 
-/// Core Sparse Kriging (FITC) computation without global state.
+/// Core Sparse Gaussian Process (FITC) computation without global state.
 ///
-/// Same interface as `compute_pdp_2d_kriging_raw`. Uses egobox FITC with M=50
+/// Same interface as `compute_pdp_2d_gaussian_process_raw`. Uses egobox FITC with M=50
 /// inducing points. When N <= 50, the wrapper automatically uses Z=X (exact GP
 /// equivalent), so an explicit small-N fallback is not needed. Falls back to
-/// `compute_pdp_2d_kriging_raw` only when fitting fails entirely.
+/// `compute_pdp_2d_gaussian_process_raw` only when fitting fails entirely.
 /// Name fields in the result are empty strings - callers should set them.
-pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
+pub(crate) fn compute_pdp_2d_sparse_gaussian_process_raw(
     x_2d: &[Vec<f64>],
     y: &[f64],
     n_grid: usize,
@@ -351,7 +351,7 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
     // egobox uses Z=X automatically when N <= 50.
     let model = match GpModel::fit(&x_2d_norm, &y_norm, 50, 42) {
         Some(m) => m,
-        None => return compute_pdp_2d_kriging_raw(x_2d, y, n_grid),
+        None => return compute_pdp_2d_gaussian_process_raw(x_2d, y, n_grid),
     };
 
     let x_values = linspace(min1, min1 + range1, n_grid);
@@ -400,8 +400,8 @@ pub(crate) fn compute_pdp_2d_sparse_kriging_raw(
     })
 }
 
-/// Compute 2D PDP surface using Kriging (GP with ARD Matern 5/2 kernel).
-pub(crate) fn compute_pdp_2d_kriging(
+/// Compute 2D PDP surface using Gaussian Process (GP with ARD Matern 5/2 kernel).
+pub(crate) fn compute_pdp_2d_gaussian_process(
     x_matrix: &[Vec<f64>],
     y: &[f64],
     param_names: &[String],
@@ -437,7 +437,7 @@ pub(crate) fn compute_pdp_2d_kriging(
         .map(|row| vec![row[param1_idx], row[param2_idx]])
         .collect();
 
-    match compute_pdp_2d_kriging_raw(&x_2d, y, n_grid) {
+    match compute_pdp_2d_gaussian_process_raw(&x_2d, y, n_grid) {
         Some(mut result) => {
             result.param1_name = p1_name;
             result.param2_name = p2_name;
@@ -448,12 +448,12 @@ pub(crate) fn compute_pdp_2d_kriging(
     }
 }
 
-/// Compute 2D PDP surface using Sparse Kriging (FITC) with automatic fallback.
+/// Compute 2D PDP surface using Sparse Gaussian Process (FITC) with automatic fallback.
 ///
 /// Extracts the two relevant parameter columns from `x_matrix` and delegates
-/// to [`compute_pdp_2d_sparse_kriging_raw`]. Falls back to standard Kriging
+/// to [`compute_pdp_2d_sparse_gaussian_process_raw`]. Falls back to standard Gaussian Process
 /// when fitting fails (egobox uses Z=X automatically for small N).
-pub(crate) fn compute_pdp_2d_sparse_kriging(
+pub(crate) fn compute_pdp_2d_sparse_gaussian_process(
     x_matrix: &[Vec<f64>],
     y: &[f64],
     param_names: &[String],
@@ -489,7 +489,7 @@ pub(crate) fn compute_pdp_2d_sparse_kriging(
         .map(|row| vec![row[param1_idx], row[param2_idx]])
         .collect();
 
-    match compute_pdp_2d_sparse_kriging_raw(&x_2d, y, n_grid) {
+    match compute_pdp_2d_sparse_gaussian_process_raw(&x_2d, y, n_grid) {
         Some(mut result) => {
             result.param1_name = p1_name;
             result.param2_name = p2_name;

@@ -109,7 +109,7 @@ impl Default for SurrogateOptState {
     fn default() -> Self {
         Self {
             selected_objective: 0,
-            model: tunny_core::surrogate_opt::SurrogateModelKind::Kriging,
+            model: tunny_core::surrogate_opt::SurrogateModelKind::GaussianProcess,
             optimizer: tunny_core::surrogate_opt::OptimizerKind::MultiStartLbfgs,
             slice_x: String::new(),
             slice_y: String::new(),
