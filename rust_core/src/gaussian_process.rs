@@ -13,14 +13,21 @@
 //! 学習は決定論的（k-means は固定シード、egobox の θ 多点スタートは固定格子、
 //! SGP の乱数シードは明示指定）。
 
-// TODO: pdp / surrogate_opt の配線コミットで削除する
-#![allow(dead_code)]
-
-use egobox_gp::{correlation_models::Matern52Corr, Inducings, SparseGaussianProcess, SparseMethod};
+use egobox_gp::{
+    correlation_models::Matern52Corr, Inducings, ParamTuning, SparseGaussianProcess, SparseMethod,
+};
 use linfa::prelude::*;
 use ndarray::{Array1, Array2};
 
 use crate::clustering::{run_kmeans, InitStrategy};
+
+/// ノイズ分散の探索下限の候補（y は z-score 正規化済み＝分散 1 が前提）。
+///
+/// egobox のデフォルト下限（~1e-14）ではノイズゼロの滑らかな関数で共分散行列が
+/// 正定値性を失い学習がパニックする。1e-6 は分散 1 に対して -120dB で予測バイアスは
+/// 実質ゼロのまま行列の条件数を改善する。それでも失敗した場合は 1e-3 まで持ち上げて
+/// 再試行する（わずかに平滑化されるが、学習失敗で何も表示できないよりよい）。
+const NOISE_FLOORS: [f64; 2] = [1e-6, 1e-3];
 
 /// 学習済みガウス過程モデル（FITC）。
 pub(crate) struct GpModel {
@@ -64,12 +71,28 @@ impl GpModel {
         };
 
         let dataset = Dataset::new(x_arr, y_arr);
-        let sgp =
-            SparseGaussianProcess::<f64, Matern52Corr>::params(Matern52Corr::default(), inducings)
+        // egobox-gp may panic (e.g. NotPositiveDefinite in COBYLA loop) instead of
+        // returning Err for ill-conditioned data.  Catch such panics and treat them
+        // as a training failure, then retry with a higher noise floor before
+        // giving up (→ None), so callers can fall back gracefully.
+        let sgp = NOISE_FLOORS.iter().find_map(|&floor| {
+            let inducings = inducings.clone();
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                SparseGaussianProcess::<f64, Matern52Corr>::params(
+                    Matern52Corr::default(),
+                    inducings,
+                )
                 .sparse_method(SparseMethod::Fitc)
+                .noise_variance(ParamTuning::Optimized {
+                    init: 1e-2_f64.max(floor),
+                    bounds: (floor, 1e2),
+                })
                 .seed(Some(seed))
                 .fit(&dataset)
-                .ok()?;
+            }))
+            .ok()
+            .and_then(|r| r.ok())
+        })?;
 
         // 数値的破綻の検出: 訓練点での予測が有限であること
         let model = GpModel { sgp, n_dims };
