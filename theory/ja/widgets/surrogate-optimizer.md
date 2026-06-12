@@ -10,8 +10,8 @@
 
 ## サロゲートモデル
 
-- **Kriging** — ARD Matérn 5/2 カーネルによるガウス過程回帰。予測平均に加えて不確実性（$\pm 1.96\sigma$）を提供します。最大 100 trial のサブサンプルで学習します。
-- **Sparse Kriging** — 誘導点を用いたガウス過程の FITC 近似。大規模 Study でも高速で、不確実性の推定も保持します。
+- **Gaussian Process** — ARD Matérn 5/2 カーネルによるガウス過程回帰（別名 Kriging）。egobox-gp バックエンド。予測平均に加えて不確実性（$\pm 1.96\sigma$）を提供します。M = min(N, 100) の誘導点を使い、全 trial で学習します。
+- **Sparse Gaussian Process** — 誘導点 M=20 によるガウス過程の FITC 近似（別名 Sparse Kriging）。大規模 Study でも高速で、不確実性の推定も保持します。
 - **Ridge** — 線形リッジ回帰。高速なベースラインですが、曲面は平面のため最適点は常にサンプリング範囲の境界上になります。
 
 ## 最適化手法

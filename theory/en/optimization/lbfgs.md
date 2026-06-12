@@ -2,7 +2,7 @@
 
 ## Overview
 
-L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton optimizer that approximates the inverse Hessian from the last m gradient/parameter difference pairs rather than storing the full matrix. In Tunny Dashboard it is used for Kriging hyperparameter optimization.
+L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton optimizer that approximates the inverse Hessian from the last m gradient/parameter difference pairs rather than storing the full matrix. In Tunny Dashboard it is used in the **surrogate optimizer** stage (searching the fitted GP surface for the optimal parameter values).
 
 | Method        | Memory  | Convergence        | Hessian info               |
 | ------------- | ------- | ------------------ | -------------------------- |
@@ -66,17 +66,13 @@ $$
 
 Start with α = 1.0; halve until satisfied (max 20 halvings).
 
-## Application in Kriging
+## Application in the Surrogate Optimizer
 
-Optimizes θ = [log l₁, …, log l_D, log σ_f, log σ_n] by maximizing the log marginal likelihood:
+L-BFGS is used in the **surrogate optimizer** stage: it searches the fitted response surface (Gaussian Process, Sparse Gaussian Process, or Ridge) for the parameter values that minimize or maximize the predicted objective. Numerical gradients are used (central finite differences) so the same optimizer works for any surrogate model.
 
-$$
-\text{LML}(\theta) = -\frac{1}{2} y^\top \alpha - \sum_i \log L_{ii} - \frac{N}{2} \log(2\pi)
-$$
+Note: GP hyperparameter optimization (fitting σ_f, l_d, σ_n) is handled internally by egobox-gp using COBYLA, not L-BFGS.
 
-Optimized in log space so all parameters remain positive without explicit constraints.
-
-**Convergence**: ||∇LML||₂ < 1e-5 or max iterations (50 release / 5 debug).
+**Convergence**: gradient norm < 1e-5 or max iterations reached.
 
 **Safeguards:**
 - Skip update if y_kᵀ s_k ≤ 0 (curvature condition violated)

@@ -85,15 +85,15 @@ ParetoFront チャートを併用する
 | ------ | --------------- | ---------- | ------------ | ----------- |
 | Ridge 回帰 | < 100ms | ✗（線形のみ） | ○ | 全規模 |
 | Random Forest | < 2,000ms | ✓（不連続も可） | △ | 全規模 |
-| Kriging | < 10,000ms | ✓（滑らか） | ◎ | N ≤ 500（サブサンプリング） |
-| Sparse Kriging | < 5,000ms | ✓（FITC 近似） | ○ | N ≤ 5000 |
+| Gaussian Process | < 10,000ms | ✓（滑らか） | ◎ | 全規模（全 N 点で学習） |
+| Sparse Gaussian Process | < 5,000ms | ✓（FITC 近似） | ○ | 大規模 N（低 M で高速） |
 
 ### 各手法の詳細
 
 - [部分依存プロット（PDP）による応答曲面](pdp.md)
 - [Random Forest サロゲートモデル](random-forest.md)
-- [Kriging（ガウス過程回帰）サロゲートモデル](kriging.md)
-- [Sparse Kriging（FITC 近似）サロゲートモデル](sparse-kriging.md)
+- [Gaussian Process（ガウス過程回帰）サロゲートモデル](gaussian-process.md)
+- [Sparse Gaussian Process（FITC 近似）サロゲートモデル](sparse-gaussian-process.md)
 
 ### 手法の選び方
 
@@ -106,17 +106,17 @@ ParetoFront チャートを併用する
 サロゲートモデルの選択:
   高速に確認したい              → Ridge 回帰
   非線形・不連続な目的関数      → Random Forest
-  滑らかな補間・少数サンプル    → Kriging（N ≤ 500）
-  滑らかな補間・大規模データ    → Sparse Kriging（N ≤ 5000）
+  滑らかな補間・最高品質        → Gaussian Process（全 N 点で学習）
+  滑らかな補間・大規模で高速化  → Sparse Gaussian Process（低 M）
 
-$R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest / Kriging / Sobol で確認
+$R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest / Gaussian Process / Sobol で確認
 ```
 
 **実装ファイル:**
 - `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、モデルディスパッチ）
 - `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
-- `rust_core/src/kriging.rs` — Kriging（ARD Matérn 5/2 + L-BFGS）
-- `rust_core/src/sparse_kriging.rs` — Sparse Kriging（FITC 近似 + K-means）
+- `rust_core/src/gaussian_process.rs` — Gaussian Process（ARD Matérn 5/2、egobox-gp バックエンド）
+- `rust_core/src/sparse_gaussian_process.rs` — Sparse Gaussian Process（FITC 近似 + K-means、egobox-gp バックエンド）
 - `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
 - `frontend/src/stores/analysisStore.ts` — 同期 WASM 呼び出し・キャッシュ（`surface3dCache`）
 - `frontend/src/components/charts/SurfacePlot3D.tsx` / `PDPChart.tsx` — UI
@@ -152,6 +152,6 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
        └── 2 パラメータ → 2D PDP（SurfacePlot3D）
             ├── 高速・線形             → Ridge 回帰
             ├── 非線形・不連続         → Random Forest
-            ├── 滑らか・少数サンプル   → Kriging（N ≤ 500）
-            └── 滑らか・大規模データ   → Sparse Kriging（N ≤ 5000）
+            ├── 滑らか・最高品質       → Gaussian Process（全 N 点で学習）
+            └── 滑らか・大規模で高速   → Sparse Gaussian Process（低 M）
 ```

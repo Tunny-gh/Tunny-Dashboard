@@ -39,7 +39,7 @@ The system is solved via Gaussian elimination with partial pivoting.
 | R²    | Meaning                                        |
 | ----- | ---------------------------------------------- |
 | ≈ 1.0 | Linear model fits well. Surface is reliable.   |
-| < 0.5 | Nonlinear relationship — use Random Forest or Kriging. |
+| < 0.5 | Nonlinear relationship — use Random Forest or Gaussian Process. |
 
 ## Strengths and Limitations
 
@@ -51,12 +51,12 @@ The system is solved via Gaussian elimination with partial pivoting.
 **Limitations**
 - Assumes linearity — underestimates nonlinear effects
 - No interaction terms (cannot capture parameter interaction)
-- May miss important nonlinear structure visible in Random Forest / Kriging
+- May miss important nonlinear structure visible in Random Forest / Gaussian Process
 
 ## When to Use
 
 ```
 Objective looks roughly linear?              → Ridge (fastest)
 Need a quick first approximation?            → Ridge, then upgrade if R² < 0.5
-Need nonlinear / interaction effects?        → Random Forest or Kriging
+Need nonlinear / interaction effects?        → Random Forest or Gaussian Process
 ```

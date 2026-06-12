@@ -47,7 +47,7 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 | R²    | Action                                           |
 | ----- | ------------------------------------------------ |
 | > 0.7 | Surface trend is broadly trustworthy             |
-| < 0.5 | Consider Kriging for smoother fit                |
+| < 0.5 | Consider Gaussian Process for smoother fit       |
 
 ## Performance
 
@@ -66,7 +66,7 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 
 **Limitations**
 - Poor extrapolation — constant prediction outside training range
-- Stepped / staircase surface compared to Kriging's smooth surface
+- Stepped / staircase surface compared to Gaussian Process's smooth surface
 - Higher cost than Ridge
 
 ## When to Use
@@ -74,5 +74,5 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 ```
 Nonlinear, discontinuous, or noisy objective?  → Random Forest
 Linear objective?                               → Ridge (faster)
-Smooth nonlinear with N ≤ 500?                  → Kriging (higher quality)
+Smooth nonlinear?                               → Gaussian Process (higher quality)
 ```

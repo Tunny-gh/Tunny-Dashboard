@@ -4,22 +4,22 @@ Surrogate models fit a function to the trial data, then predict the objective ac
 
 ## Model Comparison
 
-| Model         | Speed       | Nonlinear | Best for                   |
-| ------------- | ----------- | --------- | -------------------------- |
-| Ridge         | < 100 ms    | No        | Linear responses, any N    |
-| Random Forest | < 2,000 ms  | Yes       | Nonlinear / discontinuous  |
-| Kriging       | < 10,000 ms | Yes       | Smooth, N ≤ 500            |
-| Sparse Kriging| < 5,000 ms  | Yes       | Smooth, N ≤ 5,000          |
+| Model                  | Speed       | Nonlinear | Best for                        |
+| ---------------------- | ----------- | --------- | ------------------------------- |
+| Ridge                  | < 100 ms    | No        | Linear responses, any N         |
+| Random Forest          | < 2,000 ms  | Yes       | Nonlinear / discontinuous       |
+| Gaussian Process       | < 10,000 ms | Yes       | Smooth, any N (trains on all)   |
+| Sparse Gaussian Process| < 5,000 ms  | Yes       | Smooth, large N (lower M)       |
 
 ## How to Choose
 
 ```
 Response shape?
-  ├─ Linear          → Ridge (fastest)
-  ├─ Nonlinear / noisy / outliers → Random Forest
+  ├─ Linear                    → Ridge (fastest)
+  ├─ Nonlinear / noisy         → Random Forest
   └─ Smooth nonlinear
-       ├─ N ≤ 500    → Kriging (highest quality)
-       └─ N ≤ 5,000  → Sparse Kriging (fast + quality balance)
+       ├─ Best quality         → Gaussian Process (M = min(N, 100))
+       └─ Faster / large N     → Sparse Gaussian Process (M = 20 or 50)
 ```
 
 ## R² Interpretation

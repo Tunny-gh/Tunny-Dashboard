@@ -10,8 +10,8 @@ The surrogate optimizer fits a response surface (surrogate model) to the sampled
 
 ## Surrogate models
 
-- **Kriging** — Gaussian process regression with an ARD Matérn 5/2 kernel. Provides a predictive uncertainty ($\pm 1.96\sigma$) alongside the mean. Trained on a subsample of up to 100 trials.
-- **Sparse Kriging** — FITC approximation of the Gaussian process using inducing points. Faster for large studies while retaining uncertainty estimates.
+- **Gaussian Process** — Gaussian process regression (also known as Kriging) with an ARD Matérn 5/2 kernel backed by egobox-gp. Provides a predictive uncertainty ($\pm 1.96\sigma$) alongside the mean. Uses M = min(N, 100) inducing points; trains on all available trials.
+- **Sparse Gaussian Process** — FITC approximation of the Gaussian process (also known as Sparse Kriging) with M = 20 inducing points. Faster for large studies while retaining uncertainty estimates.
 - **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the sampled ranges.
 
 ## Optimization methods

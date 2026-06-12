@@ -18,12 +18,12 @@ By marginalizing (averaging) $x_C$, we isolate the pure effect of $x_S$.
 
 ## Surrogate Models for 2D PDP
 
-| Model | Speed | Quality | Best for |
-| --- | --- | --- | --- |
-| Ridge | < 100ms | Linear only | Any size |
-| Random Forest | < 2,000ms | Nonlinear | Any size |
-| Kriging | < 10,000ms | Smooth, highest quality | N ≤ 500 |
-| Sparse Kriging | < 5,000ms | Near-Kriging via FITC | N ≤ 5,000 |
+| Model                  | Speed      | Quality                        | Best for       |
+| ---------------------- | ---------- | ------------------------------ | -------------- |
+| Ridge                  | < 100ms    | Linear only                    | Any size       |
+| Random Forest          | < 2,000ms  | Nonlinear                      | Any size       |
+| Gaussian Process       | < 10,000ms | Smooth, highest quality        | Any N          |
+| Sparse Gaussian Process| < 5,000ms  | Near-GP via FITC               | Large N        |
 
 ## Interpreting the Plot
 
@@ -31,7 +31,7 @@ By marginalizing (averaging) $x_C$, we isolate the pure effect of $x_S$.
 - **2D PDP**: shows the joint response surface for two parameters as a 3D surface plot.
 - **Flat line / surface**: the parameter has little effect.
 - **Steep slope**: the parameter strongly influences the objective.
-- **Curved/non-monotonic shape**: nonlinear relationship — consider Kriging or Random Forest for accuracy.
+- **Curved/non-monotonic shape**: nonlinear relationship — consider Gaussian Process or Random Forest for accuracy.
 
 ## R² and Model Selection
 
@@ -40,13 +40,13 @@ Each surrogate reports R² (fit to training data):
 | R² | Action |
 | --- | --- |
 | ≈ 1.0 | Surrogate is accurate. PDP is reliable. |
-| < 0.5 | Switch to a more expressive model (Kriging / Sparse Kriging). |
+| < 0.5 | Switch to a more expressive model (Gaussian Process / Sparse Gaussian Process). |
 
 ## Limitations
 
 - When features are correlated, the PDP may show extrapolated (unrealistic) regions.
 - Only numerical parameters are supported.
-- Ridge PDP is linear; use Random Forest or Kriging for nonlinear responses.
+- Ridge PDP is linear; use Random Forest or Gaussian Process for nonlinear responses.
 
 ## When to Use
 

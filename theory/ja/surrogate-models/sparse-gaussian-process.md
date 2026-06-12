@@ -1,10 +1,15 @@
-# Sparse Kriging（FITC 近似）によるサロゲートモデル
+# Sparse Gaussian Process（FITC 近似）によるサロゲートモデル
 
 ## 概要
 
-Sparse Kriging は、標準的なガウス過程（GP / Kriging）の **O(N³)** という計算コストを **O(N × M²)** に削減する近似手法。**FITC（Fully Independent Training Conditional）** 近似と **M 個の誘導点（Inducing Points）** を使い、N=5000 規模のデータセットでも高速に滑らかな応答曲面を計算できる。
+Sparse Gaussian Process（別名 Sparse Kriging）は、標準的なガウス過程（GP）の **O(N³)** という計算コストを **O(N × M²)** に削減する近似手法。**FITC（Fully Independent Training Conditional）** 近似と **M 個の誘導点（Inducing Points）** を使い、N=5000 規模のデータセットでも高速に滑らかな応答曲面を計算できる。本実装は **egobox-gp** クレート（v0.36、Apache-2.0）を使用している。
 
-標準 Kriging が N ≤ 500 のサブサンプリングに頼るのに対し、Sparse Kriging は **全 N 点の情報を近似的に活用**するため、大規模データで精度が上回る。
+**Gaussian Process** オプションと **Sparse Gaussian Process** オプションは同じ egobox の FITC 機構を使用する。Sparse Gaussian Process は誘導点数 M を少なくすることで計算量を削減する:
+
+- 1D PDP・サロゲートオプティマイザ: M = **20**
+- 2D PDP: M = **50**
+
+誘導点は k-means（決定論的シード）で選択。**全 N 点**で学習し、サブサンプリングは行わない。ハイパーパラメータは FITC 周辺尤度を直接最大化することで最適化される（標準 GP からのハイパーパラメータ流用は行わない）。
 
 ---
 
@@ -28,7 +33,7 @@ $$
 p(f(X)\mid u) \approx \prod_i p(f(x_i)\mid u)
 $$
 
-これにより対角近似が成立し、行列演算をO(N×M²)に削減できる。
+これにより対角近似が成立し、行列演算を O(N×M²) に削減できる。
 
 ---
 
@@ -62,7 +67,8 @@ $$
 $$
 
 - `σ_f² - Q_diag[i]`：訓練点 i の分散のうち誘導点で説明されない残差分散
-- `σ_n² I`：観測ノイズ
+- `σ_n² I`：等分散の観測ノイズ（推定値）
+- ノイズ分散 $\sigma_n^2$ の下限は正規化 y 単位で 1e-6（数値失敗時は 1e-3 で再試行）
 - すべての要素が正になるよう clamp（数値安定性）
 
 ---
@@ -92,7 +98,7 @@ $$
 6. LML = −½ y^T (Q+Λ)^{-1} y − ½ log|Q+Λ| − N/2 log(2π)
 ```
 
-主要コスト: O(N×M²)（M=50, N=5000 → 12.5×10⁶ ops）
+主要コスト: O(N×M²)
 
 ---
 
@@ -105,13 +111,11 @@ $$
 ### Lloyd's アルゴリズム
 
 ```
-1. M 個のセントロイドをランダム初期化（シード 42 で再現性確保）
+1. M 個のセントロイドをランダム初期化（決定論的シードで再現性確保）
 2. 各点を最近傍セントロイドに割り当て
 3. セントロイドを割り当て点の平均で更新
 4. 収束（セントロイドの移動 < ε）または最大 100 回繰り返す
 ```
-
-データ: 正規化済み x_flat（列優先フラット配列、サイズ: n_dims × N）
 
 ---
 
@@ -120,34 +124,16 @@ $$
 ### パラメータ
 
 $$
-\theta = [\log l_1,\, \log l_2,\, \log \sigma_f,\, \log \sigma_n]
+\theta = [\log l_1,\, \ldots,\, \log l_D,\, \log \sigma_f,\, \log \sigma_n]
 $$
 
-### 数値勾配 L-BFGS
-
-FITC-LML の解析勾配は複雑なため、**有限差分による数値勾配**を使う:
-
-$$
-\frac{\partial \mathrm{LML}}{\partial \theta_j}
-\approx
-\frac{\mathrm{LML}(\theta+\varepsilon e_j)-\mathrm{LML}(\theta-\varepsilon e_j)}{2\varepsilon},\quad \varepsilon=10^{-5}
-$$
-
-パラメータのクランプ: `[-6, 6]`（数値安定性）
-
-### 反復回数の適応制御
-
-N が大きいほど各イテレーションのコストが増大するため、反復数を自動調整:
-
-| N | max_iter |
-| - | -------- |
-| N ≥ 2000 | 3 |
-| N ≥ 500 | 10 |
-| N < 500 | 20 |
+egobox は勾配不要の **COBYLA** オプティマイザと **10 点マルチスタート**（決定論的: 固定グリッド・固定シード）を用いて FITC 周辺尤度を直接最大化する。標準 GP でハイパーパラメータを先に推定してから固定する、という旧来の 2 段階設計は使用しない。
 
 ---
 
 ## 事後予測
+
+予測（平均・分散）はバッチで計算される。95% 信頼帯 = 平均 ± 1.96·σ。
 
 ### 事後重みベクトル w
 
@@ -165,25 +151,13 @@ $$
 \mu(x^*) = K_{x^*,Z}w = \sum_{j=1}^{M} k(x^*, z_j)w_j
 $$
 
-1 点あたり O(M) の計算（M=50）。50×50=2500 グリッド点で 125,000 カーネル評価。
-
----
-
-## フォールバック戦略
-
-| 状況 | 動作 |
-| ---- | ---- |
-| N < M=50 | 標準 Kriging にフォールバック |
-| Cholesky が失敗（数値不安定） | 標準 Kriging にフォールバック |
-| 重みベクトル w に NaN/Inf | 標準 Kriging にフォールバック |
-
-フォールバック先の標準 Kriging にも x/y 正規化が適用される。
+1 点あたり O(M) の計算。50×50=2500 グリッド点で 50,000（M=20）または 125,000（M=50）カーネル評価。
 
 ---
 
 ## データ正規化
 
-標準 Kriging と同じ正規化を適用（詳細は [kriging.md](kriging.md) 参照）:
+Gaussian Process と同じ正規化を適用（詳細は [gaussian-process.md](gaussian-process.md) 参照）:
 
 - X: 各次元を [0,1] にスケーリング（min/max 正規化）
 - Y: Z スコア正規化（平均 0、標準偏差 1）
@@ -196,10 +170,10 @@ $$
 | 手法 | 訓練コスト | N=5000, M=50 の概算 |
 | ---- | ---------- | ------------------- |
 | 標準 GP | O(N³) | 1.25×10¹¹ ops（不可能） |
-| Kriging（サブサンプリング 500 点） | O(500³) | 1.25×10⁸ ops |
-| **Sparse Kriging** | **O(N×M²)** | **1.25×10⁷ ops** |
+| Gaussian Process（M=100 k-means） | O(N·M²) | 2.5×10⁹ ops |
+| **Sparse Gaussian Process（M=50）** | **O(N×M²)** | **1.25×10⁹ ops** |
 
-Sparse Kriging は全 N 点の情報を使いながら、標準 Kriging のサブサンプリングより 1 桁速い。
+Sparse Gaussian Process は全 N 点の情報を使いながら、高速に応答曲面を計算できる。
 
 ---
 
@@ -208,19 +182,22 @@ Sparse Kriging は全 N 点の情報を使いながら、標準 Kriging のサ�
 **強み:**
 - 滑らかな応答曲面（Matérn 5/2 カーネル）
 - 全 N 点の情報を活用（サブサンプリング不要）
-- N=5000 規模で < 5,000ms（release ビルド）
+- 少ない誘導点数 M で大規模データにも対応
+- egobox-gp バックエンドによる FITC ハイパーパラメータ直接最適化
 
 **弱み:**
-- 誘導点 M=50 による近似誤差（標準 Kriging より若干精度が落ちることがある）
-- 数値勾配のため最適化が標準 Kriging より粗い
-- M の選択（現在 50 固定）がパフォーマンスと精度のトレードオフ
+- 誘導点数 M が少ないことによる近似誤差（M を増やすほど精度向上・コスト増）
+- M の選択（1D=20、2D=50）がパフォーマンスと精度のトレードオフ
 
 ---
 
-## 実装ファイル
+## 使用場面の目安
 
-- `rust_core/src/sparse_kriging.rs` — `select_inducing_points_kmeans()`, `build_kzz()`, `build_kxz()`, `build_fitc_matrix()`, `fitc_lml()`, `fitc_predict_weights()`, `optimize_fitc_hyperparams()`
-- `rust_core/src/pdp.rs` — `compute_pdp_2d_sparse_kriging_raw()`, `"sparse_kriging"` ディスパッチ
-- `rust_core/src/kriging.rs` — `matern52_ard()`, `predict_mean()`（グリッド予測で再利用）
-- `rust_core/src/lib.rs` — WASM バインディング（`surrogateModelType = "sparse_kriging"`）
-- `frontend/src/components/charts/SurfacePlot3D.tsx` — UI（`{ value: 'sparse_kriging', label: 'Sparse Kriging' }`）
+```
+目的関数の形が...
+
+  線形に近い ──────────────────────────────────→ Ridge（最速）
+  非線形・不連続 ──────────────────────────────→ Random Forest
+  滑らかな非線形・最高品質 ────────────────────→ Gaussian Process
+  滑らかな非線形・大規模で高速化したい ────────→ Sparse Gaussian Process
+```
