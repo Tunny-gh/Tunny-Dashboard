@@ -8,9 +8,7 @@ pub use api::{compute_pdp, compute_pdp_2d, compute_pdp_from_data, compute_surfac
 pub use types::{PdpResult1d, PdpResult2d};
 
 #[cfg(test)]
-pub(crate) use gaussian_process::{
-    compute_pdp_2d_gaussian_process_raw, compute_pdp_2d_sparse_gaussian_process_raw,
-};
+pub(crate) use gaussian_process::compute_pdp_2d_gp_raw;
 #[cfg(test)]
 pub(crate) use ridge::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
 

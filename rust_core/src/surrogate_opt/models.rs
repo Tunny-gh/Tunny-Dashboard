@@ -1,12 +1,12 @@
 //! サロゲートモデルの学習・予測ラッパ。
 //!
-//! Ridge（`sensitivity::ridge`）、ガウス過程 / スパースガウス過程（egobox-gp FITC バックエンド）、
+//! Ridge（`sensitivity::ridge`）、ガウス過程 3 方式（FITC / VFE / 混合エキスパート）、
 //! LightGBM を統一インターフェースで包む。予測は正規化空間（X: min-max [0,1]、y: z-score）で行い、
 //! 元の単位との変換は [`FittedSurrogate`] が担う。
 
 use std::sync::Mutex;
 
-use crate::gaussian_process::GpModel;
+use crate::gaussian_process::{GpMethod, GpModel};
 use crate::lgbm::{lgbm_predict, train_lgbm_rf, LgbmBooster, LgbmRfConfig};
 use crate::pdp::utils::{normalize_x_minmax, normalize_y, r_squared};
 use crate::sensitivity::compute_ridge_from_vecs;
@@ -17,10 +17,15 @@ use crate::sensitivity::compute_ridge_from_vecs;
 pub enum SurrogateModelKind {
     /// Ridge 回帰（線形）。高速だが曲面は平面。
     Ridge,
-    /// ガウス過程回帰（ARD Matérn 5/2）。100 点誘導点で学習。
-    GaussianProcess,
-    /// FITC 近似によるスパースガウス過程回帰。大規模データ向け。
-    SparseGaussianProcess,
+    /// FITC 近似（Fully Independent Training Conditional）によるスパースガウス過程回帰。
+    /// M = min(N, 100) 誘導点を使用。N ≤ 100 では厳密 GP と等価。
+    GpFitc,
+    /// VFE 近似（Variational Free Energy）によるスパースガウス過程回帰。
+    /// FITC よりノイズを保守的に見積もる傾向がある。M = min(N, 100)。
+    GpVfe,
+    /// 混合エキスパート（クラスタごとの FITC GP を滑らかに再結合）。
+    /// 不連続・多峰応答向け。クラスタ数は交差検証で自動選択（最大 3）。
+    GpMoe,
     /// LightGBM（RandomForest モード）。非線形・非平滑な応答に強いが、
     /// 予測は区分定数のため勾配法（L-BFGS）とは相性が悪い。
     Lgbm,
@@ -35,7 +40,7 @@ pub(crate) enum FittedModel {
         col_std: Vec<f64>,
         y_norm_mean: f64,
     },
-    /// egobox-gp FITC バックエンドによるガウス過程（通常 GP / スパース GP 共通）。
+    /// egobox-gp バックエンドによるガウス過程（FITC / VFE / MoE 共通）。
     Gp(Box<GpModel>),
     /// LightGBM RandomForest の Booster。
     /// FittedSurrogate / TrainedSurrogate は Arc 経由で複数スレッドから共有されうるが、
@@ -85,6 +90,7 @@ impl FittedSurrogate {
     }
 
     /// 正規化空間での予測分散（事後分散を持つモデルのみ）。
+    /// ガウス過程 3 方式（FITC / VFE / MoE）はすべて Some を返す。
     pub(crate) fn predict_var_norm(&self, x_norm: &[f64]) -> Option<f64> {
         match &self.model {
             FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => None,
@@ -127,12 +133,17 @@ pub(crate) fn fit_surrogate(
 
     let model = match kind {
         SurrogateModelKind::Ridge => fit_ridge(&x_norm, &y_norm)?,
-        SurrogateModelKind::GaussianProcess => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, 100, 42).ok_or("Gaussian Process training failed")?,
+        SurrogateModelKind::GpFitc => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, GpMethod::Fitc, 100, 42)
+                .ok_or("GP-FITC training failed")?,
         )),
-        SurrogateModelKind::SparseGaussianProcess => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, 20, 42)
-                .ok_or("Sparse Gaussian Process training failed")?,
+        SurrogateModelKind::GpVfe => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, GpMethod::Vfe, 100, 42)
+                .ok_or("GP-VFE training failed")?,
+        )),
+        SurrogateModelKind::GpMoe => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, GpMethod::Moe, 100, 42)
+                .ok_or("GP-MOE training failed")?,
         )),
         SurrogateModelKind::Lgbm => FittedModel::Lgbm(Mutex::new(
             train_lgbm_rf(&x_norm, &y_norm, &LgbmRfConfig::default())

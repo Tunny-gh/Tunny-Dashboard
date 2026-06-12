@@ -51,7 +51,7 @@ pub struct PdpResult2d {
     pub param1_name: String,
     pub param2_name: String,
     pub objective_name: String,
-    /// Posterior variance grid (Gaussian Process / Sparse Gaussian Process only).
+    /// Posterior variance grid (GP methods only).
     pub uncertainties: Option<Vec<Vec<f64>>>,
 }
 

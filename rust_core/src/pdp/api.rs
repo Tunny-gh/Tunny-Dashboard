@@ -1,14 +1,13 @@
-use super::gaussian_process::{
-    compute_pdp_1d_gaussian_process_raw, compute_pdp_1d_sparse_gaussian_process_raw,
-    compute_pdp_2d_gaussian_process, compute_pdp_2d_sparse_gaussian_process,
-};
+use super::gaussian_process::{compute_pdp_1d_gp_raw, compute_pdp_2d_gp};
 use super::ridge::{compute_pdp_2d_from_matrix, compute_pdp_from_matrix};
 use super::types::{PdpResult1d, PdpResult2d};
 use super::utils::extract_xy;
+use crate::gaussian_process::GpMethod;
 
 /// メインスレッド側で事前に抽出したデータを直接受け取って PDP を計算する。
 /// `with_active_df` を使わないため、バックグラウンドスレッドから安全に呼べる。
-/// `model_type` には "ridge", "gaussian_process", "sparse_gaussian_process" のいずれかを指定する。
+/// `model_type` には "ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest"
+/// のいずれかを指定する。
 pub fn compute_pdp_from_data(
     x_matrix: Vec<Vec<f64>>,
     y: Vec<f64>,
@@ -44,13 +43,14 @@ pub fn compute_pdp_from_data(
                 ),
             }
         }
-        "gaussian_process" => compute_pdp_1d_gaussian_process_raw(
+        "gp_fitc" => compute_pdp_1d_gp_raw(
             &x_matrix,
             &y,
             &param_names,
             objective_name,
             target_param_idx,
             n_grid,
+            GpMethod::Fitc,
         )
         .unwrap_or_else(|| {
             compute_pdp_from_matrix(
@@ -62,13 +62,33 @@ pub fn compute_pdp_from_data(
                 n_grid,
             )
         }),
-        "sparse_gaussian_process" => compute_pdp_1d_sparse_gaussian_process_raw(
+        "gp_vfe" => compute_pdp_1d_gp_raw(
             &x_matrix,
             &y,
             &param_names,
             objective_name,
             target_param_idx,
             n_grid,
+            GpMethod::Vfe,
+        )
+        .unwrap_or_else(|| {
+            compute_pdp_from_matrix(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                target_param_idx,
+                n_grid,
+            )
+        }),
+        "gp_moe" => compute_pdp_1d_gp_raw(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+            GpMethod::Moe,
         )
         .unwrap_or_else(|| {
             compute_pdp_from_matrix(
@@ -153,7 +173,7 @@ pub fn compute_pdp_2d(
                     uncertainties: None,
                 })
             }
-            "gaussian_process" => Some(compute_pdp_2d_gaussian_process(
+            "gp_fitc" => Some(compute_pdp_2d_gp(
                 &x_matrix,
                 &y,
                 &param_names,
@@ -161,8 +181,9 @@ pub fn compute_pdp_2d(
                 p1_idx,
                 p2_idx,
                 n_grid,
+                GpMethod::Fitc,
             )),
-            "sparse_gaussian_process" => Some(compute_pdp_2d_sparse_gaussian_process(
+            "gp_vfe" => Some(compute_pdp_2d_gp(
                 &x_matrix,
                 &y,
                 &param_names,
@@ -170,6 +191,17 @@ pub fn compute_pdp_2d(
                 p1_idx,
                 p2_idx,
                 n_grid,
+                GpMethod::Vfe,
+            )),
+            "gp_moe" => Some(compute_pdp_2d_gp(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                p1_idx,
+                p2_idx,
+                n_grid,
+                GpMethod::Moe,
             )),
             _ => Some(compute_pdp_2d_from_matrix(
                 &x_matrix,
@@ -187,7 +219,7 @@ pub fn compute_pdp_2d(
 
 /// Compute a 2D response surface from raw data without using the thread-local dataframe.
 /// Suitable for calling from background threads.
-/// `model_type` accepts "ridge" (default), "gaussian_process", "sparse_gaussian_process".
+/// `model_type` accepts "ridge" (default), "gp_fitc", "gp_vfe", "gp_moe".
 #[allow(clippy::too_many_arguments)]
 pub fn compute_surface_from_data(
     x_matrix: Vec<Vec<f64>>,
@@ -200,7 +232,7 @@ pub fn compute_surface_from_data(
     model_type: &str,
 ) -> PdpResult2d {
     match model_type {
-        "gaussian_process" => compute_pdp_2d_gaussian_process(
+        "gp_fitc" => compute_pdp_2d_gp(
             &x_matrix,
             &y,
             &param_names,
@@ -208,8 +240,9 @@ pub fn compute_surface_from_data(
             param1_idx,
             param2_idx,
             n_grid,
+            GpMethod::Fitc,
         ),
-        "sparse_gaussian_process" => compute_pdp_2d_sparse_gaussian_process(
+        "gp_vfe" => compute_pdp_2d_gp(
             &x_matrix,
             &y,
             &param_names,
@@ -217,6 +250,17 @@ pub fn compute_surface_from_data(
             param1_idx,
             param2_idx,
             n_grid,
+            GpMethod::Vfe,
+        ),
+        "gp_moe" => compute_pdp_2d_gp(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            param1_idx,
+            param2_idx,
+            n_grid,
+            GpMethod::Moe,
         ),
         _ => compute_pdp_2d_from_matrix(
             &x_matrix,
