@@ -1,6 +1,7 @@
 pub mod clustering;
 pub mod convergence;
 pub mod data;
+pub(crate) mod gaussian_process;
 pub mod io;
 pub(crate) mod kriging;
 pub(crate) mod lgbm;
