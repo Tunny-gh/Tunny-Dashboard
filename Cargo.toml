@@ -5,3 +5,11 @@ resolver = "2"
 [profile.release]
 opt-level = "s"
 lto = true
+
+# GP 学習（egobox の COBYLA 多点スタート・MoE の交差検証）は数値計算が重く、
+# 未最適化だとテストが 10 倍以上遅くなる。依存クレート側だけ最適化することで
+# 自クレート（ワークスペースメンバー）のデバッグ性と差分ビルド速度を保ったまま
+# テストを高速化する（profile.dev は cargo test のデフォルトプロファイルにも
+# 適用される。依存のコンパイル増加分は一度きりでキャッシュされる）。
+[profile.dev.package."*"]
+opt-level = 2
