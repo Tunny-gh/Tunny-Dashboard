@@ -39,7 +39,7 @@ The system is solved via Gaussian elimination with partial pivoting.
 | R²    | Meaning                                        |
 | ----- | ---------------------------------------------- |
 | ≈ 1.0 | Linear model fits well. Surface is reliable.   |
-| < 0.5 | Nonlinear relationship — use Random Forest or Gaussian Process. |
+| < 0.5 | Nonlinear relationship — use Random Forest, LightGBM, or GP-FITC. |
 
 ## Strengths and Limitations
 
@@ -58,5 +58,6 @@ The system is solved via Gaussian elimination with partial pivoting.
 ```
 Objective looks roughly linear?              → Ridge (fastest)
 Need a quick first approximation?            → Ridge, then upgrade if R² < 0.5
-Need nonlinear / interaction effects?        → Random Forest or Gaussian Process
+Nonlinear / noisy / tabular?                 → LightGBM or Random Forest
+Smooth nonlinear?                            → GP-FITC (or GP-VFE / GP-MOE)
 ```

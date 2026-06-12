@@ -47,7 +47,7 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 | R²    | Action                                           |
 | ----- | ------------------------------------------------ |
 | > 0.7 | Surface trend is broadly trustworthy             |
-| < 0.5 | Consider Gaussian Process for smoother fit       |
+| < 0.5 | Consider GP-FITC for smoother fit                |
 
 ## Performance
 
@@ -72,7 +72,8 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 ## When to Use
 
 ```
-Nonlinear, discontinuous, or noisy objective?  → Random Forest
+Nonlinear, discontinuous, or noisy objective?  → Random Forest (or LightGBM)
 Linear objective?                               → Ridge (faster)
-Smooth nonlinear?                               → Gaussian Process (higher quality)
+Smooth nonlinear?                               → GP-FITC (higher quality)
+Discontinuous / regime-switching?               → GP-MOE
 ```

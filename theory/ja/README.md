@@ -81,19 +81,22 @@ ParetoFront チャートを併用する
 
 ### サロゲートモデルの選択肢
 
-| モデル | 速度（release） | 非線形対応 | 少数サンプル | 適用 N 規模 |
-| ------ | --------------- | ---------- | ------------ | ----------- |
-| Ridge 回帰 | < 100ms | ✗（線形のみ） | ○ | 全規模 |
-| Random Forest | < 2,000ms | ✓（不連続も可） | △ | 全規模 |
-| Gaussian Process | < 10,000ms | ✓（滑らか） | ◎ | 全規模（全 N 点で学習） |
-| Sparse Gaussian Process | < 5,000ms | ✓（FITC 近似） | ○ | 大規模 N（低 M で高速） |
+| モデル | 速度（release） | 非線形対応 | 少数サンプル | 適用場面 |
+| ------ | --------------- | ---------- | ------------ | -------- |
+| Ridge 回帰 | < 100ms | ✗（線形のみ） | ○ | 線形応答 |
+| Random Forest | < 2,000ms | ✓（不連続も可） | △ | 非線形・ノイジー |
+| GP-FITC | < 10,000ms | ✓（滑らか） | ◎ | 滑らかな非線形・デフォルト GP |
+| GP-VFE | < 10,000ms | ✓（滑らか） | ◎ | 滑らかな非線形・GP-FITC が過学習の場合 |
+| GP-MOE | < 30,000ms | ✓（不連続・多領域） | ○ | 不連続・レジームスイッチ |
+
+GP バリアント（GP-FITC・GP-VFE・GP-MOE）はすべて egobox-gp / egobox-moe（Apache-2.0）バックエンドを使用し、M = min(N, 100) 誘導点を用いる。
 
 ### 各手法の詳細
 
 - [部分依存プロット（PDP）による応答曲面](pdp.md)
 - [Random Forest サロゲートモデル](random-forest.md)
-- [Gaussian Process（ガウス過程回帰）サロゲートモデル](gaussian-process.md)
-- [Sparse Gaussian Process（FITC 近似）サロゲートモデル](sparse-gaussian-process.md)
+- [Gaussian Process（GP-FITC / GP-VFE）サロゲートモデル](gaussian-process.md)
+- [Gaussian Process 混合エキスパート（GP-MOE）サロゲートモデル](gaussian-process-moe.md)
 
 ### 手法の選び方
 
@@ -105,18 +108,19 @@ ParetoFront チャートを併用する
   ↓
 サロゲートモデルの選択:
   高速に確認したい              → Ridge 回帰
-  非線形・不連続な目的関数      → Random Forest
-  滑らかな補間・最高品質        → Gaussian Process（全 N 点で学習）
-  滑らかな補間・大規模で高速化  → Sparse Gaussian Process（低 M）
+  非線形・不連続・ノイジー      → Random Forest または LightGBM
+  滑らかな補間・デフォルト      → GP-FITC（全 N 点で学習）
+  GP-FITC が過学習気味           → GP-VFE（より滑らか・保守的）
+  不連続・多領域の応答曲面      → GP-MOE
 
-$R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest / Gaussian Process / Sobol で確認
+$R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest / GP-FITC / Sobol で確認
 ```
 
 **実装ファイル:**
 - `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、モデルディスパッチ）
 - `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
-- `rust_core/src/gaussian_process.rs` — Gaussian Process（ARD Matérn 5/2、egobox-gp バックエンド）
-- `rust_core/src/sparse_gaussian_process.rs` — Sparse Gaussian Process（FITC 近似 + K-means、egobox-gp バックエンド）
+- `rust_core/src/gaussian_process.rs` — GP-FITC / GP-VFE（ARD Matérn 5/2、egobox-gp バックエンド）
+- `rust_core/src/gaussian_process_moe.rs` — GP-MOE（egobox-moe バックエンド）
 - `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
 - `frontend/src/stores/analysisStore.ts` — 同期 WASM 呼び出し・キャッシュ（`surface3dCache`）
 - `frontend/src/components/charts/SurfacePlot3D.tsx` / `PDPChart.tsx` — UI
@@ -151,7 +155,8 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
        ├── 1 パラメータ → 1D PDP（PDPChart）
        └── 2 パラメータ → 2D PDP（SurfacePlot3D）
             ├── 高速・線形             → Ridge 回帰
-            ├── 非線形・不連続         → Random Forest
-            ├── 滑らか・最高品質       → Gaussian Process（全 N 点で学習）
-            └── 滑らか・大規模で高速   → Sparse Gaussian Process（低 M）
+            ├── 非線形・不連続・ノイジー→ Random Forest または LightGBM
+            ├── 滑らか・デフォルト     → GP-FITC（全 N 点で学習）
+            ├── 滑らか・過学習気味     → GP-VFE（保守的フィット）
+            └── 不連続・多領域         → GP-MOE
 ```

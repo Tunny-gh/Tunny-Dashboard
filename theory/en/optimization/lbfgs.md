@@ -68,7 +68,7 @@ Start with α = 1.0; halve until satisfied (max 20 halvings).
 
 ## Application in the Surrogate Optimizer
 
-L-BFGS is used in the **surrogate optimizer** stage: it searches the fitted response surface (Gaussian Process, Sparse Gaussian Process, or Ridge) for the parameter values that minimize or maximize the predicted objective. Numerical gradients are used (central finite differences) so the same optimizer works for any surrogate model.
+L-BFGS is used in the **surrogate optimizer** stage: it searches the fitted response surface (GP-FITC, GP-VFE, GP-MOE, or Ridge) for the parameter values that minimize or maximize the predicted objective. Numerical gradients are used (central finite differences) so the same optimizer works for any surrogate model.
 
 Note: GP hyperparameter optimization (fitting σ_f, l_d, σ_n) is handled internally by egobox-gp using COBYLA, not L-BFGS.
 

@@ -10,8 +10,9 @@ The surrogate optimizer fits a response surface (surrogate model) to the sampled
 
 ## Surrogate models
 
-- **Gaussian Process** — Gaussian process regression (also known as Kriging) with an ARD Matérn 5/2 kernel backed by egobox-gp. Provides a predictive uncertainty ($\pm 1.96\sigma$) alongside the mean. Uses M = min(N, 100) inducing points; trains on all available trials.
-- **Sparse Gaussian Process** — FITC approximation of the Gaussian process (also known as Sparse Kriging) with M = 20 inducing points. Faster for large studies while retaining uncertainty estimates.
+- **GP-FITC** — Gaussian process regression (Kriging) with ARD Matérn 5/2 kernel backed by egobox-gp. FITC sparse approximation with M = min(N, 100) inducing points; trains on all trials. Provides predictive uncertainty ($\pm 1.96\sigma$). Default GP choice.
+- **GP-VFE** — Same architecture as GP-FITC but uses the Variational Free Energy bound instead of FITC likelihood. Produces a slightly smoother, more conservative fit; recommended when GP-FITC surface looks overfit or spiky.
+- **GP-MOE** — Mixture-of-experts GP via egobox-moe. Clusters the input space with a Gaussian Mixture Model and trains one FITC expert per cluster (up to 3, selected by cross-validation on ≤ 500 points). Best for discontinuous or regime-switching objectives. If training fails, an error is reported rather than silently falling back.
 - **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the sampled ranges.
 
 ## Optimization methods

@@ -17,8 +17,11 @@ Tunny Dashboard では複数のサロゲートモデルで 1D PDP・2D PDP を�
 | ------ | ---- | ---- | ----------- |
 | Ridge 回帰 | < 100ms | 線形のみ | 全規模 |
 | Random Forest | < 2,000ms | 非線形・不連続 | 全規模 |
-| Gaussian Process | < 10,000ms | 滑らか・最高品質 | 全規模（全 N 点で学習） |
-| Sparse Gaussian Process | < 5,000ms | FITC 近似 | 大規模 N（低 M で高速） |
+| GP-FITC | < 10,000ms | 滑らか・最高品質（デフォルト GP） | 全規模（全 N 点で学習） |
+| GP-VFE | < 10,000ms | 滑らか・保守的フィット | 全規模（GP-FITC が過学習の場合） |
+| GP-MOE | < 30,000ms | 滑らか・多領域対応 | 不連続・レジームスイッチ |
+
+すべての GP バリアントは egobox-gp / egobox-moe（Apache-2.0）バックエンドを使用し、M = min(N, 100) 誘導点を用いる。N ≤ 100 のとき、FITC/VFE はノイズ推定付き厳密 GP と等価になる。
 
 ---
 
@@ -73,8 +76,9 @@ $$
 | ------ | -------- |
 | Ridge | 2変数線形平面: `y_mean + β₁(v1−mean₁)/std₁ + β₂(v2−mean₂)/std₂` |
 | Random Forest | CART+Bagging でグリッド各点を予測 |
-| Gaussian Process | ARD Matérn 5/2 GP（egobox-gp、FITC M=min(N,100)、全 N 点で学習） |
-| Sparse Gaussian Process | FITC 近似（K-means 誘導点 M=50、Woodbury 恒等式、egobox-gp） |
+| GP-FITC | ARD Matérn 5/2 GP（egobox-gp、FITC M=min(N,100)、全 N 点で学習） |
+| GP-VFE | ARD Matérn 5/2 GP（egobox-gp、VFE 下界、M=min(N,100)、全 N 点で学習） |
+| GP-MOE | 混合エキスパート GP（egobox-moe、GMM クラスタリング、最大 K=3 FITC エキスパート） |
 
 すべてのモデルで `model_type` 引数を `wasm.computePdp2d()` に渡すことでバックエンドのディスパッチが切り替わる。
 
@@ -142,7 +146,7 @@ $$
 
 - **R² ≈ 1.0**: サロゲートモデルがデータをよく説明しており、PDP の信頼度が高い
 - **R² < 0.5**: モデルの説明力が低く、PDP は目安程度にとどめる
-- R² が低い場合は、より表現力の高いモデル（Gaussian Process / Sparse Gaussian Process）への切り替え、または Spearman / Sobol による感度分析を推奨
+- R² が低い場合は、より表現力の高いモデル（GP-FITC / GP-MOE（滑らかな場合）、Random Forest / LightGBM（ノイジーな場合））への切り替え、または Spearman / Sobol による感度分析を推奨
 
 ---
 
@@ -160,17 +164,23 @@ $$
 
 **弱み:** 決定木境界のアーティファクト（段差）が現れやすい。少数サンプルでは不安定。
 
-### Gaussian Process（ガウス過程回帰）
+### GP-FITC（ガウス過程回帰、FITC 近似）
 
-**強み:** 滑らかな補間。少数サンプル（N < 50）でも高品質。ARD で次元重要度を自動推定。全 N 点で学習（サブサンプリング不要）。egobox-gp バックエンド（COBYLA 10 点マルチスタート）。
+**強み:** 滑らかな補間。少数サンプル（N < 50）でも高品質。ARD で次元重要度を自動推定。全 N 点で学習（サブサンプリング不要）。egobox-gp バックエンド（COBYLA 10 点マルチスタート）。デフォルト GP。
 
-**弱み:** N > 100 では M = 100 の誘導点上限によりコストを抑えるが近似誤差が生じる。局所最適解に収束することがある。
+**弱み:** N > 100 では M = 100 の誘導点上限によりコストを抑えるが近似誤差が生じる。ノイジーデータで過学習することがある。
 
-### Sparse Gaussian Process（FITC 近似）
+### GP-VFE（Variational Free Energy 近似）
 
-**強み:** Gaussian Process と同等の滑らかさを低 M で実現（2D PDP: M=50、1D: M=20）。egobox-gp が FITC ハイパーパラメータを直接最適化。
+**強み:** GP-FITC と同じアーキテクチャ。VFE 下界によりやや保守的なノイズ推定 → より滑らかなフィット。GP-FITC 曲面が過学習気味の場合に推奨。
 
-**弱み:** 誘導点数 M が少ないことによる近似誤差（M を増やすほど精度向上・コスト増）。
+**弱み:** GP-FITC よりわずかにフィットが緩い（ノイズなしベンチマークで R² ≈ 0.76 vs 0.88）。
+
+### GP-MOE（混合エキスパート GP）
+
+**強み:** 不連続・レジームスイッチング・多峰性の応答曲面に対応。クラスタ数を自動選択。滑らかな再結合で継ぎ目なし。GP の不確実性推定を保持。
+
+**弱み:** GP-FITC / GP-VFE より学習コストが高い（おおよそ K 倍）。学習失敗時は GP-FITC にフォールバック（PDP 時）。
 
 ---
 
@@ -185,9 +195,10 @@ ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
 
 サロゲートモデルの選択:
   まず高速確認したい              → Ridge（デフォルト）
-  R² < 0.5 で非線形が疑われる    → Random Forest
-  滑らかな補間・最高品質          → Gaussian Process（全 N 点で学習）
-  滑らかな補間・大規模で高速化    → Sparse Gaussian Process（低 M）
+  R² < 0.5 で非線形・ノイジー    → Random Forest または LightGBM
+  滑らかな補間・最高品質          → GP-FITC（全 N 点で学習、デフォルト GP）
+  GP-FITC が過学習気味            → GP-VFE（より滑らか・保守的）
+  不連続・多領域の応答曲面        → GP-MOE
 ```
 
 ---
@@ -199,7 +210,7 @@ ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
 | 着目変数   | パラメータ 1 つ           | パラメータ 2 つ                       |
 | 可視化形式 | 折れ線グラフ（ECharts）   | echarts-gl 3D サーフェスプロット      |
 | 出力       | `grid[k]`, `values[k]`   | `grid1[i]`, `grid2[j]`, `values[i][j]` |
-| サロゲート | Ridge（固定）             | Ridge / Random Forest / Gaussian Process / Sparse Gaussian Process（選択可） |
+| サロゲート | Ridge（固定）             | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可） |
 | 用途       | 単一パラメータの傾向確認  | 2変数複合効果・最適領域の把握         |
 
 ---
@@ -207,8 +218,8 @@ ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
 ## 実装ファイル
 
 - `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、`compute_pdp_2d` モデルディスパッチ）
-- `rust_core/src/gaussian_process.rs` — GP サロゲートモデル（ARD Matérn 5/2、egobox-gp バックエンド）
-- `rust_core/src/sparse_gaussian_process.rs` — Sparse GP（FITC 近似、K-means 誘導点、egobox-gp バックエンド）
+- `rust_core/src/gaussian_process.rs` — GP-FITC / GP-VFE サロゲートモデル（ARD Matérn 5/2、egobox-gp バックエンド）
+- `rust_core/src/gaussian_process_moe.rs` — GP-MOE サロゲートモデル（egobox-moe バックエンド）
 - `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
 - `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
 - `frontend/src/wasm/wasmLoader.ts` — JS ブリッジ（`Pdp2dWasmResult` 型）
