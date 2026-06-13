@@ -25,6 +25,16 @@ When a GP surrogate is used, the 2D response-surface slice can also show the mod
 - **GP-MOE** — Mixture-of-experts GP via egobox-moe. Clusters the input space with a Gaussian Mixture Model and trains one FITC expert per cluster (up to 3, selected by cross-validation on ≤ 500 points). Best for discontinuous or regime-switching objectives. If training fails, an error is reported rather than silently falling back.
 - **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the sampled ranges.
 
+## Automatic model selection
+
+Choosing **Auto (cross-validated)** in the model selector lets the tool pick the surrogate for you. Each candidate is cross-validated and the one with the highest mean CV R² is trained.
+
+- **Candidates**: Ridge, GP-FITC, GP-VFE, LightGBM. GP-MOE is *excluded* from Auto — its cross-validated cluster search is expensive and it degenerates to a single GP on smooth or linear data, giving a poor cost/benefit ratio. Pick GP-MOE manually when you know the response is discontinuous or multi-modal.
+- **Criterion**: mean k-fold CV R² (the same metric shown in the validation panel), which rewards generalization rather than in-sample fit.
+- **Tie-break**: candidates whose CV R² is within 1e-3 of the best are treated as tied, and the *earlier* (simpler, cheaper) candidate in the order above is chosen. On perfectly linear data, where both Ridge and a GP reach R² ≈ 1, this keeps the simpler Ridge.
+
+After an Auto fit, the widget shows which model was chosen and the ranked candidate CV R² scores. The chosen concrete model is used for everything downstream (ARD importance, acquisition suggestions, constraints).
+
 ## Optimization methods
 
 - **Multi-start L-BFGS** — Gradient-based local search (numerical gradients) started from the best observed trial and several random points; the best converged point is reported.
@@ -51,15 +61,15 @@ When the study has constraint columns (Optuna convention: value ≤ 0 means feas
 
 Enabling this checkbox makes the optimizer:
 
-1. Fit a Ridge surrogate for each constraint alongside the objective model.
+1. Fit a surrogate for each constraint using the **same model kind as the objective** (a GP yields a smooth feasibility probability; only a perfectly linear, noise-free constraint whose GP fit degenerates falls back to Ridge for that constraint).
 2. Add a constraint penalty to the cost function during optimization:
    $$\text{cost}(x) = \text{sign} \cdot \hat{\mu}_y(x) + 100 \cdot \sum_i \max(0, \hat{c}_i(x) - z_{0,i})$$
    where $z_{0,i}$ is the feasibility boundary in the normalized constraint space and $\text{sign} = 1$ for minimization, $-1$ for maximization.
 3. Display the **P(feasible)** percentage and per-constraint predicted values in the results.
 
-The feasibility probability shown is the product over all constraints of whether each predicted constraint value is ≤ 0 (hard indicator for Ridge models):
+The feasibility probability shown is the product over all constraints of $P(c_i \le 0)$ (a smooth $\Phi$-based probability for GP constraints, or a hard indicator when a constraint fell back to Ridge):
 
-$$P_\text{feas}(x) = \prod_i \mathbf{1}[\hat{c}_i(x) \le 0]$$
+$$P_\text{feas}(x) = \prod_i P(c_i \le 0 \mid x)$$
 
 In the **Suggest next trials** section, the **P(feas)** column in the candidate table shows the feasibility probability for each suggested candidate; values below 0.5 are highlighted in orange/red as a warning.
 

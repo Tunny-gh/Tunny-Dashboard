@@ -21,6 +21,79 @@ use validation::validate_surrogate;
 /// サロゲート学習に必要な最小 trial 数。
 pub const MIN_TRIALS_FOR_SURROGATE_OPT: usize = 10;
 
+/// 自動モデル選択（Auto）の候補モデル。CV R² が最も高い候補を選ぶ。
+///
+/// 並び順は「単純・低コストなモデルを先頭」に揃えてある（Ridge → GP-FITC → GP-VFE →
+/// LightGBM）。同点時はこの並びで先に来る候補を優先する（タイブレーク）。
+///
+/// GpMoe は候補から除外している:
+///   - クラスタ数を CV で探索するため、候補ごとの検証コストが他より大幅に高い。
+///   - 滑らか／線形なデータでは単一 GP に劣化し（クラスタが退化する）、Auto の
+///     コスト対効果が悪い。MoE は不連続・多峰応答が分かっているときに手動で選ぶ想定。
+pub const AUTO_CANDIDATES: [SurrogateModelKind; 4] = [
+    SurrogateModelKind::Ridge,
+    SurrogateModelKind::GpFitc,
+    SurrogateModelKind::GpVfe,
+    SurrogateModelKind::Lgbm,
+];
+
+/// 自動モデル選択（Auto）の結果。選ばれたモデルと候補ごとの CV R² を持つ。
+#[derive(Debug, Clone)]
+pub struct ModelSelectionReport {
+    /// 選択されたモデル種別（最も高い CV R²、同点は AUTO_CANDIDATES の先頭優先）。
+    pub chosen: SurrogateModelKind,
+    /// 候補ごとの (モデル種別, スコア = cv_r2_mean)。`AUTO_CANDIDATES` と同順。
+    /// フィット／検証に失敗した候補は f64::NEG_INFINITY を記録し、選択対象から外す。
+    pub scores: Vec<(SurrogateModelKind, f64)>,
+}
+
+/// `AUTO_CANDIDATES` を交差検証し、CV R² が最も高いモデルを選ぶ。
+///
+/// 各候補について [`validate_surrogate`] を実行し、`cv_r2_mean` をスコアとする。
+/// スコア差が 1e-3 未満の候補は「同点」とみなし、`AUTO_CANDIDATES` で先に来る候補
+/// （より単純・低コスト）を優先する。全候補が失敗した場合のみ `Err` を返す。
+pub fn select_best_model(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    seed: u64,
+) -> Result<ModelSelectionReport, String> {
+    validate_inputs(x_matrix, y)?;
+
+    let mut scores: Vec<(SurrogateModelKind, f64)> = Vec::with_capacity(AUTO_CANDIDATES.len());
+    for &kind in &AUTO_CANDIDATES {
+        // フィット／検証に失敗した候補は NEG_INFINITY を記録し、選択対象から外す。
+        let score = match validate_surrogate(kind, x_matrix, y, seed) {
+            Ok(report) => report.cv_r2_mean,
+            Err(_) => f64::NEG_INFINITY,
+        };
+        scores.push((kind, score));
+    }
+
+    // CV R² の差がこの値未満の候補は「同点」とみなし、AUTO_CANDIDATES で先に来る
+    // （より単純・低コストな）候補を優先する。完全に線形なデータでは GP も Ridge も
+    // ほぼ完璧に当てはまる（R² ≈ 1）ため、わずかな差で複雑な GP を選ばないようにする。
+    const TIE_TOLERANCE: f64 = 1e-3;
+
+    // 最大スコアの候補を選ぶ。AUTO_CANDIDATES の先頭から走査し、許容差を超えて
+    // 大きいものだけ採用することで、同点は先（より単純）に来る候補が残る。
+    let mut chosen: Option<(SurrogateModelKind, f64)> = None;
+    for &(kind, score) in &scores {
+        if !score.is_finite() {
+            continue;
+        }
+        match chosen {
+            Some((_, best)) if score <= best + TIE_TOLERANCE => {}
+            _ => chosen = Some((kind, score)),
+        }
+    }
+
+    let chosen = chosen
+        .map(|(kind, _)| kind)
+        .ok_or_else(|| "All candidate models failed validation".to_string())?;
+
+    Ok(ModelSelectionReport { chosen, scores })
+}
+
 /// スライス格子のデフォルト解像度。
 pub const DEFAULT_SLICE_GRID: usize = 20;
 
@@ -65,6 +138,9 @@ pub struct SurrogateFitRequest {
     pub param_names: Vec<String>,
     pub objective_name: String,
     pub model: SurrogateModelKind,
+    /// true のとき `model` を無視して `AUTO_CANDIDATES` を交差検証し、最良モデルを
+    /// 自動選択して学習する（`TrainedSurrogate.model_selection` に経緯を残す）。
+    pub auto_select: bool,
     /// 制約データ（空 = 制約なし）。各要素が 1 制約を表す。
     pub constraints: Vec<ConstraintData>,
 }
@@ -92,6 +168,9 @@ pub struct TrainedSurrogate {
     /// 各 trial の制約値（行 = trial、列 = 制約; `constraint_names` と同順）。
     /// 実行可能インカンバントの計算に使う。
     pub(crate) constraint_values: Vec<Vec<f64>>,
+    /// 自動モデル選択（`auto_select = true`）の経緯。手動指定時は None。
+    /// `model_kind` には選ばれた具体的なモデル種別が入る。
+    pub model_selection: Option<ModelSelectionReport>,
 }
 
 /// 最適化ステージの設定（学習済みモデルに対して実行する）。
@@ -241,11 +320,22 @@ pub fn fit_surrogate_with_validation(
 ) -> Result<TrainedSurrogate, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
 
+    // Auto 選択時は AUTO_CANDIDATES を交差検証して最良モデルを決める。
+    // 以降の学習・検証・制約モデルは選ばれた具体的なモデル種別で行う
+    //（SurrogateModelKind に "Auto" バリアントはないため、自動的に整合する）。
+    let (model_kind, model_selection) = if req.auto_select {
+        let report = select_best_model(&req.x_matrix, &req.y, 42)?;
+        let chosen = report.chosen;
+        (chosen, Some(report))
+    } else {
+        (req.model, None)
+    };
+
     // CV・ホールドアウト検証を実施する。
-    let mut report = validate_surrogate(req.model, &req.x_matrix, &req.y, 42)?;
+    let mut report = validate_surrogate(model_kind, &req.x_matrix, &req.y, 42)?;
 
     // 全データで最終モデルを学習する。
-    let surrogate = models::fit_surrogate(req.model, &req.x_matrix, &req.y)?;
+    let surrogate = models::fit_surrogate(model_kind, &req.x_matrix, &req.y)?;
 
     // 全データ訓練 R² を最終モデルから設定する。
     report.train_r2 = surrogate.r_squared;
@@ -266,7 +356,8 @@ pub fn fit_surrogate_with_validation(
         // 平滑な実行可能性確率 P(c ≤ 0) が得られ（制約境界付近の不確実性を考慮した
         // 探索ができる）、Ridge / LightGBM ならハード指標へフォールバックする
         // （feasibility::single_prob 参照）。
-        let cm = models::fit_constraint_surrogate(req.model, &req.x_matrix, &cd.values)
+        // Auto 選択時も目的モデルと同じ「選ばれた」種別を制約モデルに使う。
+        let cm = models::fit_constraint_surrogate(model_kind, &req.x_matrix, &cd.values)
             .map_err(|e| format!("Constraint '{}' fit failed: {}", cd.name, e))?;
         constraint_names.push(cd.name.clone());
         constraint_models.push(cm);
@@ -279,7 +370,7 @@ pub fn fit_surrogate_with_validation(
 
     Ok(TrainedSurrogate {
         surrogate,
-        model_kind: req.model,
+        model_kind,
         param_names: req.param_names.clone(),
         objective_name: req.objective_name.clone(),
         x_matrix: req.x_matrix.clone(),
@@ -289,6 +380,7 @@ pub fn fit_surrogate_with_validation(
         constraint_names,
         constraint_models,
         constraint_values,
+        model_selection,
     })
 }
 

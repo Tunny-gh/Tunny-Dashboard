@@ -397,6 +397,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         model: SurrogateModelKind::GpFitc,
+        auto_select: false,
         constraints: vec![],
     };
     let trained = fit_surrogate_with_validation(&fit_req)
@@ -459,6 +460,7 @@ fn param_importance_reflects_ard_for_gp_and_none_for_others() {
             param_names: vec!["x0".to_string(), "x1".to_string()],
             objective_name: "obj0".to_string(),
             model,
+            auto_select: false,
             constraints: vec![],
         };
         fit_surrogate_with_validation(&req).expect("fit should succeed")
@@ -786,6 +788,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         param_names: names.clone(),
         objective_name: "f1".to_string(),
         model: SurrogateModelKind::GpFitc,
+        auto_select: false,
         constraints: vec![],
     })
     .expect("fit f1 should succeed");
@@ -795,6 +798,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         param_names: names,
         objective_name: "f2".to_string(),
         model: SurrogateModelKind::GpFitc,
+        auto_select: false,
         constraints: vec![],
     })
     .expect("fit f2 should succeed");
@@ -922,6 +926,7 @@ fn lgbm_fit_validate_and_optimize_finds_minimum_region() {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         model: SurrogateModelKind::Lgbm,
+        auto_select: false,
         constraints: vec![],
     })
     .expect("LGBM fit & validation should succeed");
@@ -990,6 +995,7 @@ fn constrained_fit_req(x_matrix: Vec<Vec<f64>>, y: Vec<f64>, c: Vec<f64>) -> Sur
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         model: SurrogateModelKind::GpFitc,
+        auto_select: false,
         constraints: vec![ConstraintData {
             name: "c1".to_string(),
             values: c,
@@ -1148,6 +1154,7 @@ fn suggest_candidates_unconstrained_p_feas_none() {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         model: SurrogateModelKind::GpFitc,
+        auto_select: false,
         constraints: vec![],
     };
     let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
@@ -1157,4 +1164,149 @@ fn suggest_candidates_unconstrained_p_feas_none() {
     assert_eq!(candidates.len(), 1);
     assert!(candidates[0].feasibility_probability.is_none());
     assert!(candidates[0].predicted_constraints.is_empty());
+}
+
+// ────────────────────────────────────────────────────────────
+// 自動モデル選択（Auto）
+// ────────────────────────────────────────────────────────────
+
+/// 明確に非線形・滑らかな関数 y = sin(3·x0) + x1² のサンプル。
+/// GP が Ridge を CV R² で上回ることを期待する。
+fn nonlinear_smooth_samples(n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut rng = SeededRng::from_seed(11);
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|_| vec![rng.next_f64(), rng.next_f64()])
+        .collect();
+    let y: Vec<f64> = x_matrix
+        .iter()
+        .map(|r| (3.0 * r[0]).sin() + r[1].powi(2))
+        .collect();
+    (x_matrix, y)
+}
+
+/// 明確に線形な関数 y = 2·x0 − x1 + 微小ノイズ のサンプル。
+/// Ridge が勝つ、または同点で Ridge にタイブレークされることを期待する。
+fn linear_samples(n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut rng = SeededRng::from_seed(17);
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|_| vec![rng.next_f64(), rng.next_f64()])
+        .collect();
+    let y: Vec<f64> = x_matrix
+        .iter()
+        // 微小ノイズ（[-0.005, 0.005]）を加える。
+        .map(|r| 2.0 * r[0] - r[1] + (rng.next_f64() - 0.5) * 0.01)
+        .collect();
+    (x_matrix, y)
+}
+
+/// `scores` から指定モデルのスコアを取り出すヘルパー。
+fn score_of(report: &ModelSelectionReport, kind: SurrogateModelKind) -> f64 {
+    report
+        .scores
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, s)| *s)
+        .expect("candidate must be present in scores")
+}
+
+#[test]
+fn select_best_model_picks_gp_on_nonlinear_smooth() {
+    let (x_matrix, y) = nonlinear_smooth_samples(80);
+    let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
+
+    // 候補は AUTO_CANDIDATES の 4 つ。
+    assert_eq!(report.scores.len(), 4);
+
+    // 非線形・滑らかな関数では GP が選ばれる（Ridge ではない）。
+    assert!(
+        matches!(
+            report.chosen,
+            SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe
+        ),
+        "expected a GP, got {:?}",
+        report.chosen
+    );
+
+    // GP の CV R² は Ridge を上回る。
+    let ridge = score_of(&report, SurrogateModelKind::Ridge);
+    let gp = score_of(&report, SurrogateModelKind::GpFitc)
+        .max(score_of(&report, SurrogateModelKind::GpVfe));
+    assert!(gp > ridge, "GP cv_r2 {gp} should exceed Ridge {ridge}");
+}
+
+#[test]
+fn select_best_model_picks_ridge_on_linear() {
+    let (x_matrix, y) = linear_samples(80);
+    let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
+
+    assert_eq!(report.scores.len(), 4);
+
+    // 線形関数では Ridge が選ばれる。同点なら AUTO_CANDIDATES 先頭の Ridge が残る。
+    let ridge = score_of(&report, SurrogateModelKind::Ridge);
+    let best = report
+        .scores
+        .iter()
+        .map(|(_, s)| *s)
+        .fold(f64::NEG_INFINITY, f64::max);
+    // Ridge は最良スコアと 1e-3 以内（タイブレークで Ridge が選ばれる条件）。
+    assert!(
+        best - ridge < 1e-3,
+        "Ridge cv_r2 {ridge} should be within 1e-3 of best {best}"
+    );
+    assert_eq!(
+        report.chosen,
+        SurrogateModelKind::Ridge,
+        "linear data should choose Ridge (tie-break to simpler), got {:?}",
+        report.chosen
+    );
+}
+
+#[test]
+fn fit_surrogate_with_validation_auto_select_end_to_end() {
+    let (x_matrix, y) = nonlinear_smooth_samples(80);
+    let req = SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x0".to_string(), "x1".to_string()],
+        objective_name: "obj0".to_string(),
+        // Auto: model フィールドは無視される（プレースホルダ）。
+        model: SurrogateModelKind::Ridge,
+        auto_select: true,
+        constraints: vec![],
+    };
+    let trained = fit_surrogate_with_validation(&req).expect("auto fit should succeed");
+
+    // 選択経緯が付与され、4 候補のスコアを持つ。
+    let selection = trained
+        .model_selection
+        .as_ref()
+        .expect("auto fit must attach a model_selection report");
+    assert_eq!(selection.scores.len(), 4);
+
+    // model_kind は選ばれた具体的なモデル種別（Ridge プレースホルダではない）。
+    assert_eq!(trained.model_kind, selection.chosen);
+    assert!(
+        matches!(
+            trained.model_kind,
+            SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe
+        ),
+        "expected a concrete GP kind, got {:?}",
+        trained.model_kind
+    );
+}
+
+#[test]
+fn select_best_model_is_deterministic() {
+    let (x_matrix, y) = nonlinear_smooth_samples(80);
+    let r1 = select_best_model(&x_matrix, &y, 42).expect("run 1");
+    let r2 = select_best_model(&x_matrix, &y, 42).expect("run 2");
+
+    // 選択モデルが一致する。
+    assert_eq!(r1.chosen, r2.chosen);
+    // スコアが（順序・値とも）完全一致する。
+    assert_eq!(r1.scores.len(), r2.scores.len());
+    for ((k1, s1), (k2, s2)) in r1.scores.iter().zip(r2.scores.iter()) {
+        assert_eq!(k1, k2);
+        assert_eq!(s1.to_bits(), s2.to_bits(), "scores must be bit-identical");
+    }
 }
