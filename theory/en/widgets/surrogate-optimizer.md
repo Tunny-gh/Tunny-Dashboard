@@ -22,6 +22,19 @@ The surrogate optimizer fits a response surface (surrogate model) to the sampled
 - **CMA-ES** — Covariance Matrix Adaptation Evolution Strategy. Derivative-free search that adapts the sampling distribution to the local curvature of the surface; a strong default for continuous problems.
 - **Random Search** — Evaluates the surrogate at thousands of random points and picks the best. A robust baseline.
 
+## Suggesting next trials (acquisition functions)
+
+After fitting a GP surrogate, the **Suggest next trials** section appears below the optimization results. It uses an acquisition function to recommend parameter settings for the next real evaluations.
+
+- **EI (Expected Improvement)** — balances predicted improvement and uncertainty (default).
+- **LCB (Lower Confidence Bound)** — selects points where the lower bound on the objective is smallest.
+
+Batch candidates (up to 10) are generated with the **Constant Liar** strategy: each selected candidate is temporarily added as a "lie" observation before refitting and selecting the next one.
+
+The **Copy enqueue JSON** button copies the suggested parameters as a JSON array for use with Optuna's `study.enqueue_trial()`.
+
+See [Acquisition Functions](../optimization/acquisition-functions.md) for the full mathematical description.
+
 ## Notes
 
 - The search is constrained to the hyper-box spanned by the sampled parameter values; the surrogate is not trusted to extrapolate beyond the data.
