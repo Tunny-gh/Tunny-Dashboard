@@ -7,6 +7,7 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::{DragPayload, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
 use crate::theme::chart_colors::COLOR_SELECTION_HIGHLIGHT;
+use crate::ui::canvas::viewport::{fit_view, items_bbox, ZOOM_MAX, ZOOM_MIN};
 use crate::ui::grid_canvas::{
     handle_toolbar_action, render_panel_item_body, CellToolbarAction, CLOSE_BUTTON_SIZE,
     DRAG_HANDLE_HEIGHT,
@@ -15,9 +16,6 @@ use crate::ui::widget_states::{CaptureDest, WidgetStates};
 
 /// ワールド座標でのドットグリッド間隔
 const GRID_WORLD: f32 = 40.0;
-/// ズーム下限・上限
-const ZOOM_MIN: f32 = 0.3;
-const ZOOM_MAX: f32 = 3.0;
 /// 新規ウィジェットのデフォルトサイズ（ワールド座標）。
 /// チャート上部のツールバーが収まりつつ、配置時に大きすぎない大きさにする。
 const DEFAULT_W: f32 = 640.0;
@@ -76,7 +74,13 @@ pub fn show_canvas_view(
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     if bg.double_clicked() {
-        to_screen = offset; // pan=0, zoom=1 にリセット
+        // アイテムがある場合はフィット、ない場合はデフォルト（pan=0, zoom=1）にリセット
+        if let Some(bbox) = items_bbox(&layout.canvas.items) {
+            let (zoom, pan) = fit_view(area, bbox);
+            to_screen = offset * TSTransform::new(pan, zoom);
+        } else {
+            to_screen = offset; // pan=0, zoom=1 にリセット
+        }
     }
     // スクロール/ズームは「背景（空白部分）をホバーしているとき」のみキャンバスへ適用する。
     // bg.hovered() はアイテム（Area）に遮蔽されると false になるため、チャート上での
@@ -336,6 +340,40 @@ pub fn show_canvas_view(
 
     // 削除されたアイテムの専用 WidgetStates を破棄してメモリリークを防ぐ。
     item_widgets.retain(|id, _| layout.canvas.items.iter().any(|it| it.id == *id));
+
+    // ── フィットボタン（右下オーバーレイ）────────────────────────────────────
+    // アイテムループの後に描画することで、常にチャートの手前に表示される。
+    // 将来ミニマップを追加する場合は、この Area 内でボタンの上に配置するとよい。
+    const BTN_SIZE: f32 = 28.0;
+    const BTN_MARGIN: f32 = 12.0;
+    let btn_pos = egui::pos2(
+        area.right() - BTN_MARGIN - BTN_SIZE,
+        area.bottom() - BTN_MARGIN - BTN_SIZE,
+    );
+    let fit_clicked = egui::Area::new(egui::Id::new("canvas_fit_overlay"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(btn_pos)
+        .show(ui.ctx(), |ui| {
+            apply_item_button_visuals(ui.visuals_mut());
+            let resp = ui
+                .add_sized(
+                    egui::vec2(BTN_SIZE, BTN_SIZE),
+                    egui::Button::new(egui::RichText::new("⛶").color(crate::theme::TOOLBAR_TEXT)),
+                )
+                .on_hover_text("Fit view to charts");
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            resp.clicked()
+        })
+        .inner;
+
+    if fit_clicked {
+        if let Some(bbox) = items_bbox(&layout.canvas.items) {
+            let (zoom, pan) = fit_view(area, bbox);
+            to_screen = offset * TSTransform::new(pan, zoom);
+        }
+    }
 
     // ── ビューポート変換を書き戻す（pan は無制限＝無限キャンバス、zoom はクランプ） ──
     let logical = offset.inverse() * to_screen;
