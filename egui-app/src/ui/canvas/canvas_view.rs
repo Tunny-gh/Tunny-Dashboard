@@ -7,6 +7,7 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::{DragPayload, LayoutState, PanelItem};
 use crate::state::messages::AppMessage;
 use crate::theme::chart_colors::COLOR_SELECTION_HIGHLIGHT;
+use crate::ui::canvas::minimap::{show_minimap, BTN_MARGIN, BTN_SIZE};
 use crate::ui::canvas::viewport::{fit_view, items_bbox, ZOOM_MAX, ZOOM_MIN};
 use crate::ui::grid_canvas::{
     handle_toolbar_action, render_panel_item_body, CellToolbarAction, CLOSE_BUTTON_SIZE,
@@ -341,11 +342,15 @@ pub fn show_canvas_view(
     // 削除されたアイテムの専用 WidgetStates を破棄してメモリリークを防ぐ。
     item_widgets.retain(|id, _| layout.canvas.items.iter().any(|it| it.id == *id));
 
+    // ── ミニマップオーバーレイ（フィットボタンの上）──────────────────────────
+    // Foreground Area が背景クリックを遮蔽するため、show_minimap は
+    // アイテムループ後・書き戻し前に呼び出す。
+    show_minimap(ui, area, &mut to_screen, offset, &layout.canvas.items);
+
     // ── フィットボタン（右下オーバーレイ）────────────────────────────────────
     // アイテムループの後に描画することで、常にチャートの手前に表示される。
-    // 将来ミニマップを追加する場合は、この Area 内でボタンの上に配置するとよい。
-    const BTN_SIZE: f32 = 28.0;
-    const BTN_MARGIN: f32 = 12.0;
+    // BTN_SIZE / BTN_MARGIN は minimap モジュールで pub(crate) 定数として定義し、
+    // ミニマップの配置計算でも参照している。
     let btn_pos = egui::pos2(
         area.right() - BTN_MARGIN - BTN_SIZE,
         area.bottom() - BTN_MARGIN - BTN_SIZE,
