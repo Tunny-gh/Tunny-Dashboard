@@ -120,6 +120,28 @@ impl FittedSurrogate {
     pub(crate) fn to_original_y(&self, y_norm: f64) -> f64 {
         y_norm * self.y_std + self.y_mean
     }
+
+    /// ARD 長さスケールから算出した相対パラメータ重要度（入力次元ごと、合計 1.0）。
+    ///
+    /// GP（単一 SGP）のみ Some を返す。各次元の θ_d を θ の総和で割って正規化する
+    /// （egobox / SMT 規約では θ_d が大きいほど次元 d に敏感）。総和 ≤ 0 や非有限値が
+    /// あれば None。MoE は θ が一意でないため、Ridge / LightGBM は ARD を持たないため None。
+    /// 並びは学習時の入力列順（= `param_names` / `x_matrix` の列順）に一致する。
+    pub(crate) fn param_importance(&self) -> Option<Vec<f64>> {
+        let theta = match &self.model {
+            FittedModel::Gp(model) => model.ard_theta()?,
+            FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => return None,
+        };
+        if theta.is_empty() || theta.iter().any(|t| !t.is_finite()) {
+            return None;
+        }
+        let sum: f64 = theta.iter().sum();
+        // theta は上で有限性を確認済みなので sum も有限。正でなければ正規化できない。
+        if sum <= 0.0 {
+            return None;
+        }
+        Some(theta.iter().map(|t| t / sum).collect())
+    }
 }
 
 /// 指定モデルでサロゲートを学習する。

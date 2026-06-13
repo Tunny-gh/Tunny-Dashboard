@@ -8,6 +8,16 @@ The surrogate optimizer fits a response surface (surrogate model) to the sampled
 2. Click **Run Optimization**. The surrogate is trained on all completed trials and the optimizer searches the surface within the sampled parameter ranges.
 3. The estimated optimum is shown as a parameter table together with the predicted objective value, and is marked on a 2D slice of the response surface through the optimum.
 
+## Parameter importance (ARD)
+
+After fitting a GP surrogate (GP-FITC / GP-VFE), the validation panel shows a **Parameter importance (ARD)** bar list. Each bar is proportional to the normalized GP length-scale relevance of that parameter (the scores sum to 100%): a larger value means the response surface is more sensitive to that parameter. This is a free, global, smoothness-based sensitivity available straight from the fitted kernel. It is shown for GP models only (GP-MOE, Ridge and LightGBM do not report it).
+
+See [ARD Parameter Importance](../sensitivity-analysis/ard-importance.md) for the full description and the larger-θ-means-more-sensitive convention.
+
+## Slice uncertainty overlay
+
+When a GP surrogate is used, the 2D response-surface slice can also show the model's predictive uncertainty. A **Show uncertainty (±σ)** toggle (off by default) appears below the slice; enabling it overlays a translucent grey tint that grows darker where the predicted standard deviation is high, fading out regions the surrogate is unsure about. Non-GP models have no posterior variance, so the toggle does not appear.
+
 ## Surrogate models
 
 - **GP-FITC** — Gaussian process regression (Kriging) with ARD Matérn 5/2 kernel backed by egobox-gp. FITC sparse approximation with M = min(N, 100) inducing points; trains on all trials. Provides predictive uncertainty ($\pm 1.96\sigma$). Default GP choice.

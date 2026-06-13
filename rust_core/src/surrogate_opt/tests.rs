@@ -440,6 +440,60 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
 }
 
 // ────────────────────────────────────────────────────────────
+// ARD パラメータ重要度（param_importance）
+// ────────────────────────────────────────────────────────────
+
+#[test]
+fn param_importance_reflects_ard_for_gp_and_none_for_others() {
+    // x0 に強く依存し x1 にほぼ依存しない関数 y = 3*x0 + 0.05*x1（ノイズなし）。
+    let mut rng = SeededRng::from_seed(7);
+    let x_matrix: Vec<Vec<f64>> = (0..60)
+        .map(|_| vec![rng.next_f64(), rng.next_f64()])
+        .collect();
+    let y: Vec<f64> = x_matrix.iter().map(|r| 3.0 * r[0] + 0.05 * r[1]).collect();
+
+    let make = |model: SurrogateModelKind| {
+        let req = SurrogateFitRequest {
+            x_matrix: x_matrix.clone(),
+            y: y.clone(),
+            param_names: vec!["x0".to_string(), "x1".to_string()],
+            objective_name: "obj0".to_string(),
+            model,
+            constraints: vec![],
+        };
+        fit_surrogate_with_validation(&req).expect("fit should succeed")
+    };
+
+    // GP-FITC: Some、長さ 2、合計 ≈ 1.0、importance[0] > importance[1]。
+    let gp = make(SurrogateModelKind::GpFitc);
+    let imp = gp
+        .param_importance
+        .as_ref()
+        .expect("GP should expose param_importance");
+    assert_eq!(imp.len(), 2);
+    let sum: f64 = imp.iter().sum();
+    assert!(
+        (sum - 1.0).abs() < 1e-9,
+        "importance should sum to 1: {sum}"
+    );
+    assert!(
+        imp[0] > imp[1],
+        "x0 should be more important than x1: {imp:?}"
+    );
+
+    // Ridge / LightGBM は ARD を持たないため None。
+    assert!(make(SurrogateModelKind::Ridge).param_importance.is_none());
+    assert!(make(SurrogateModelKind::Lgbm).param_importance.is_none());
+
+    // MoE は θ がエキスパートごとに分かれ集約が一意でないため None。
+    // この純線形・ノイズなしデータは MoE の CV 学習が退化しうるため、CV を経由しない
+    // models::fit_surrogate で直接 MoE モデルを学習して param_importance を確認する。
+    if let Ok(moe) = models::fit_surrogate(SurrogateModelKind::GpMoe, &x_matrix, &y) {
+        assert!(moe.param_importance().is_none());
+    }
+}
+
+// ────────────────────────────────────────────────────────────
 // GpVfe / GpMoe の追加カバレッジ
 // ────────────────────────────────────────────────────────────
 

@@ -266,6 +266,18 @@ impl GpModel {
             .map(|v| v[0].max(0.0))
             .unwrap_or(f64::NAN)
     }
+
+    /// ARD 相関パラメータ θ（正規化 [0,1] 入力上、入力次元ごとに 1 個）を返す。
+    ///
+    /// egobox / SMT の規約では θ_d が大きいほど次元 d の長さスケールが短く、
+    /// サロゲートはその次元に敏感になる。単一 SGP（FITC / VFE）のみ Some を返す。
+    /// MoE はエキスパートごとに θ を持ち、集約が一意でないため None を返す。
+    pub(crate) fn ard_theta(&self) -> Option<Vec<f64>> {
+        match &self.inner {
+            GpInner::Sgp(sgp) => Some(sgp.theta().to_vec()),
+            GpInner::Moe(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -456,6 +468,33 @@ mod tests {
             assert!(pred.iter().all(|v| v.is_finite()));
         }
         // None でもパニックしないことが要件
+    }
+
+    #[test]
+    fn ard_theta_is_some_for_sgp_none_for_moe() {
+        // x0 に強く依存し x1 にほぼ依存しない関数 → θ_0 > θ_1 を期待する。
+        let mut state = 12345u64;
+        let mut next = move || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        let x: Vec<Vec<f64>> = (0..60).map(|_| vec![next(), next()]).collect();
+        let y: Vec<f64> = x.iter().map(|r| 3.0 * r[0] + 0.05 * r[1]).collect();
+
+        for method in [GpMethod::Fitc, GpMethod::Vfe] {
+            let model = GpModel::fit(&x, &y, method, 100, 42).expect("fit");
+            let theta = model.ard_theta().expect("SGP should expose theta");
+            assert_eq!(theta.len(), 2);
+            assert!(theta.iter().all(|t| t.is_finite() && *t > 0.0));
+            // x0 に敏感 ⇒ θ_0 が大きい（長さスケールが短い）
+            assert!(theta[0] > theta[1], "{method:?}: theta={theta:?}");
+        }
+
+        // MoE は None
+        let moe = GpModel::fit(&x, &y, GpMethod::Moe, 100, 42).expect("MoE fit");
+        assert!(moe.ard_theta().is_none());
     }
 
     #[test]

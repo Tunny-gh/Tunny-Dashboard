@@ -470,7 +470,13 @@ fn render_optimize_column(
         return;
     };
 
-    render_result(ui, result, cmap, obj_history);
+    render_result(
+        ui,
+        result,
+        cmap,
+        obj_history,
+        &mut state.show_slice_uncertainty,
+    );
 
     // ── Suggest next trials セクション ──────────────────────────────
     // 単目的・GP 系モデルのみ表示する。
@@ -663,8 +669,64 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let (verdict_text, verdict_color) = verdict(v.cv_r2_mean);
     ui.colored_label(verdict_color, verdict_text);
 
+    // ── パラメータ重要度（ARD）─ GP 系のみ ────────────────────────
+    if let Some(importance) = trained.param_importance.as_ref() {
+        render_param_importance(ui, &trained.param_names, importance);
+    }
+
     // predicted-vs-actual 散布図。
     render_oof_plot(ui, v, "single", false);
+}
+
+/// ARD 長さスケール由来のパラメータ重要度を水平バーリストで表示する。
+/// `importance[i]` は `param_names[i]` に対応し、合計 1.0（0..1 の相対感度）。
+fn render_param_importance(ui: &mut egui::Ui, param_names: &[String], importance: &[f64]) {
+    if importance.is_empty() {
+        return;
+    }
+    ui.add_space(6.0);
+    ui.strong("Parameter importance (ARD)")
+        .on_hover_text(
+            "正規化入力 [0,1] 上での GP 長さスケールから算出した相対感度。値が大きいほどその変数に曲面が敏感。",
+        );
+
+    // バーの最大幅。最大重要度を満幅に揃えると差が見やすい。
+    let max_imp = importance
+        .iter()
+        .cloned()
+        .filter(|v| v.is_finite())
+        .fold(0.0_f64, f64::max)
+        .max(f64::EPSILON);
+    let bar_color = egui::Color32::from_rgb(59, 130, 246); // blue-500
+
+    egui::Grid::new("surrogate_param_importance")
+        .striped(true)
+        .min_col_width(80.0)
+        .show(ui, |ui| {
+            for (i, &imp) in importance.iter().enumerate() {
+                let name = param_names.get(i).map(|s| s.as_str()).unwrap_or("?");
+                ui.label(name);
+
+                // バー（重要度に比例した幅）。
+                let frac = if imp.is_finite() {
+                    (imp / max_imp).clamp(0.0, 1.0) as f32
+                } else {
+                    0.0
+                };
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(100.0, 12.0), egui::Sense::hover());
+                let painter = ui.painter_at(rect);
+                painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+                let fill = egui::Rect::from_min_size(
+                    rect.min,
+                    egui::vec2(rect.width() * frac, rect.height()),
+                );
+                painter.rect_filled(fill, 2.0, bar_color);
+
+                ui.monospace(format!("{:.1}%", imp * 100.0));
+                ui.end_row();
+            }
+        });
 }
 
 /// 多目的検証サマリをコンパクトに表示する（目的ごとに 1 行）。
@@ -821,6 +883,7 @@ fn render_result(
     result: &SurrogateOptUiResult,
     cmap: ColorMap,
     obj_history: Option<&[f64]>,
+    show_slice_uncertainty: &mut bool,
 ) {
     let direction = if result.minimize {
         "minimize"
@@ -964,13 +1027,24 @@ fn render_result(
         px_name.0, py_name.0
     ));
 
+    // 予測標準偏差オーバーレイのトグル（GP 系で z_std が利用可能なときのみ）。
+    // PDP 2D の "95% CI" トグルと同じ操作感。既定は off。
+    let has_std = slice.z_std.as_ref().is_some_and(|g| !g.is_empty());
+    if has_std {
+        ui.checkbox(show_slice_uncertainty, "Show uncertainty (±σ)")
+            .on_hover_text(
+                "予測標準偏差が大きい領域を半透明グレーで重ね、サロゲートが不確実な箇所を示します。",
+            );
+    }
+    let overlay_std = has_std && *show_slice_uncertainty;
+
     let best_x_val = px_name.1;
     let best_y_val = py_name.1;
     let marker_params = vec![
         (slice.param_x_idx, best_x_val),
         (slice.param_y_idx, best_y_val),
     ];
-    draw_slice_heatmap(ui, slice, &marker_params, cmap);
+    draw_slice_heatmap(ui, slice, &marker_params, cmap, overlay_std);
 }
 
 /// ヒートマップスライスの描画ヘルパー（単目的・多目的で共通）。
@@ -981,6 +1055,7 @@ fn draw_slice_heatmap(
     slice: &tunny_core::surrogate_opt::SurfaceSlice,
     marker_points: &[(usize, f64)],
     cmap: ColorMap,
+    overlay_std: bool,
 ) {
     let nx = slice.x_values.len();
     let ny = slice.y_values.len();
@@ -1002,6 +1077,14 @@ fn draw_slice_heatmap(
         .map(|r| (0..nx).map(|c| slice.z_values[c][ny - 1 - r]).collect())
         .collect();
     draw_heatmap(&painter, rect, &display, cmap.clone());
+
+    // 予測標準偏差オーバーレイ: σ が大きいセルほど半透明グレーを濃く重ねて、
+    // サロゲートが不確実な領域を「色あせ」させる（最も軽量な可視化）。
+    if overlay_std {
+        if let Some(std_grid) = slice.z_std.as_ref() {
+            draw_std_overlay(&painter, rect, std_grid, ny, nx);
+        }
+    }
 
     // マーカー描画: marker_points から x/y 値を取り出して射影する。
     let (x_min, x_max) = (slice.x_values[0], slice.x_values[nx - 1]);
@@ -1030,6 +1113,70 @@ fn draw_slice_heatmap(
         egui::vec2(16.0, rect.height()),
     );
     draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap);
+}
+
+/// 予測標準偏差グリッドを、ヒートマップ上に半透明グレーのセルとして重ねる。
+///
+/// `std_grid[i][j]` は core 規約（z[i][j] = f(x_i, y_j)）と同形状なので、表示向きは
+/// `draw_slice_heatmap` と同じく disp[r][c] = std[c][ny-1-r] に並べ替える。各セルの
+/// 不透明度はグリッド内の最大 σ で正規化した相対値（最大 ~0.55）で、σ が大きいほど
+/// 元の色を覆い隠して不確実さを表す。`alpha_cell` はその領域の正規化 σ を返す純粋関数。
+fn draw_std_overlay(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    std_grid: &[Vec<f64>],
+    ny: usize,
+    nx: usize,
+) {
+    // グリッド内の最大 σ（有限・正のもの）を求める。すべて 0/非有限なら描画しない。
+    let max_std = std_grid
+        .iter()
+        .flatten()
+        .filter(|v| v.is_finite())
+        .cloned()
+        .fold(0.0_f64, f64::max);
+    // 全セルが 0 / 非有限なら（fold の初期値 0 のまま）重ねる意味がない。
+    if max_std <= 0.0 {
+        return;
+    }
+
+    let cell_w = rect.width() / nx as f32;
+    let cell_h = rect.height() / ny as f32;
+    for r in 0..ny {
+        for c in 0..nx {
+            // 表示向き（上 = param_y 最大）に合わせて core グリッドから取り出す。
+            let std = std_grid
+                .get(c)
+                .and_then(|col| col.get(ny - 1 - r))
+                .copied()
+                .unwrap_or(0.0);
+            let alpha = std_overlay_alpha(std, max_std);
+            if alpha == 0 {
+                continue;
+            }
+            let cell_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.left() + c as f32 * cell_w,
+                    rect.top() + r as f32 * cell_h,
+                ),
+                egui::vec2(cell_w + 1.0, cell_h + 1.0),
+            );
+            painter.rect_filled(
+                cell_rect,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(128, 128, 128, alpha),
+            );
+        }
+    }
+}
+
+/// 正規化 σ（std / max_std）から半透明グレーのアルファ値（0..=140）を返す純粋関数。
+fn std_overlay_alpha(std: f64, max_std: f64) -> u8 {
+    if !std.is_finite() || max_std <= 0.0 {
+        return 0;
+    }
+    let t = (std / max_std).clamp(0.0, 1.0);
+    (t * 140.0).round() as u8
 }
 
 /// 多目的最適化の結果を表示する。
@@ -1405,6 +1552,21 @@ mod tests {
     }
 
     // ── improvement_delta のユニットテスト ────────────────────────────
+
+    #[test]
+    fn std_overlay_alpha_scales_with_normalized_std() {
+        // σ = 0 → 完全透明
+        assert_eq!(std_overlay_alpha(0.0, 2.0), 0);
+        // σ = max → 最大アルファ（140）
+        assert_eq!(std_overlay_alpha(2.0, 2.0), 140);
+        // σ = max/2 → 約半分
+        assert_eq!(std_overlay_alpha(1.0, 2.0), 70);
+        // max_std <= 0 や非有限 → 0（描画しない）
+        assert_eq!(std_overlay_alpha(1.0, 0.0), 0);
+        assert_eq!(std_overlay_alpha(f64::NAN, 2.0), 0);
+        // σ > max でもクランプされる
+        assert_eq!(std_overlay_alpha(5.0, 2.0), 140);
+    }
 
     #[test]
     fn improvement_delta_minimize_positive() {

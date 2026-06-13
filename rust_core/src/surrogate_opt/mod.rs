@@ -79,6 +79,12 @@ pub struct TrainedSurrogate {
     pub(crate) x_matrix: Vec<Vec<f64>>,
     pub(crate) y: Vec<f64>,
     pub validation: SurrogateValidationReport,
+    /// ARD 長さスケールから算出した相対パラメータ重要度（`param_names` と同順、合計 1.0）。
+    ///
+    /// GP（単一 SGP: FITC / VFE）のみ Some。MoE / Ridge / LightGBM は None。
+    /// 重要度はモデルの入力次元（= `x_matrix` の列）に対応し、その列順は `param_names`
+    /// と一致する（`fit_surrogate` は列順を入れ替えないため）。
+    pub param_importance: Option<Vec<f64>>,
     /// 制約名（`constraint_models` と同順。空 = 制約なし）。
     pub constraint_names: Vec<String>,
     /// 制約ごとの学習済みサロゲート（`constraint_names` と同順）。
@@ -107,6 +113,9 @@ pub struct SurfaceSlice {
     pub y_values: Vec<f64>,
     /// 予測値格子。`z_values[i][j] = f(x_values[i], y_values[j])`。
     pub z_values: Vec<Vec<f64>>,
+    /// 予測標準偏差の格子（元の単位、`z_values` と同形状）。
+    /// 事後分散を持つモデル（GP 系）のみ Some。Ridge / LightGBM は None。
+    pub z_std: Option<Vec<Vec<f64>>>,
 }
 
 /// サロゲート最適化の結果。
@@ -241,6 +250,9 @@ pub fn fit_surrogate_with_validation(
     // 全データ訓練 R² を最終モデルから設定する。
     report.train_r2 = surrogate.r_squared;
 
+    // ARD 長さスケールによるパラメータ重要度（GP のみ Some、param_names と同順）。
+    let param_importance = surrogate.param_importance();
+
     // 制約ごとにサロゲートを学習する（CV なし、全データ）。
     let mut constraint_names = Vec::with_capacity(req.constraints.len());
     let mut constraint_models = Vec::with_capacity(req.constraints.len());
@@ -273,6 +285,7 @@ pub fn fit_surrogate_with_validation(
         x_matrix: req.x_matrix.clone(),
         y: req.y.clone(),
         validation: report,
+        param_importance,
         constraint_names,
         constraint_models,
         constraint_values,
@@ -356,20 +369,29 @@ fn build_slice(
     let x_values = linspace(min_x, min_x + range_x, n_grid);
     let y_values = linspace(min_y, min_y + range_y, n_grid);
 
-    let z_values: Vec<Vec<f64>> = x_values
-        .iter()
-        .map(|&vx| {
-            y_values
-                .iter()
-                .map(|&vy| {
-                    let mut pt = t_best.to_vec();
-                    pt[param_x_idx] = (vx - min_x) / range_x;
-                    pt[param_y_idx] = (vy - min_y) / range_y;
-                    surrogate.to_original_y(surrogate.predict_norm(&pt))
-                })
-                .collect()
-        })
-        .collect();
+    // 各格子点で平均（元の単位）と、可能なら事後分散から元単位の標準偏差を評価する。
+    // z_std はモデルが事後分散を持つ（GP 系）ときのみ Some を保持する。
+    let mut z_values: Vec<Vec<f64>> = Vec::with_capacity(x_values.len());
+    let mut z_std_grid: Vec<Vec<f64>> = Vec::with_capacity(x_values.len());
+    let mut has_std = true;
+    for &vx in &x_values {
+        let mut z_row = Vec::with_capacity(y_values.len());
+        let mut std_row = Vec::with_capacity(y_values.len());
+        for &vy in &y_values {
+            let mut pt = t_best.to_vec();
+            pt[param_x_idx] = (vx - min_x) / range_x;
+            pt[param_y_idx] = (vy - min_y) / range_y;
+            z_row.push(surrogate.to_original_y(surrogate.predict_norm(&pt)));
+            match surrogate.predict_var_norm(&pt) {
+                // 正規化空間の分散 → 元の単位の標準偏差（y_std 倍）。
+                Some(var) => std_row.push(var.max(0.0).sqrt() * surrogate.y_std),
+                None => has_std = false,
+            }
+        }
+        z_values.push(z_row);
+        z_std_grid.push(std_row);
+    }
+    let z_std = has_std.then_some(z_std_grid);
 
     Some(SurfaceSlice {
         param_x_idx,
@@ -377,6 +399,7 @@ fn build_slice(
         x_values,
         y_values,
         z_values,
+        z_std,
     })
 }
 
