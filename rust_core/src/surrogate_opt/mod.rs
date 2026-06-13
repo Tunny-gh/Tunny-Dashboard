@@ -145,6 +145,10 @@ pub struct SurrogateFitRequest {
     pub auto_select: bool,
     /// 制約データ（空 = 制約なし）。各要素が 1 制約を表す。
     pub constraints: Vec<ConstraintData>,
+    /// 誘導点として優先する行 index（`x_matrix` への index）。空 = 一様（既定）。
+    /// 多目的でパレートフロント上の trial に GP の誘導点を集中させるために使う。
+    /// N が GP の誘導点上限（100）以下のときは効果がない（Z = X で全点を使う）。
+    pub priority_rows: Vec<usize>,
 }
 
 /// 検証済みの学習結果。最適化で再利用する。
@@ -336,8 +340,11 @@ pub fn fit_surrogate_with_validation(
     // CV・ホールドアウト検証を実施する。
     let mut report = validate_surrogate(model_kind, &req.x_matrix, &req.y, 42)?;
 
-    // 全データで最終モデルを学習する。
-    let surrogate = models::fit_surrogate(model_kind, &req.x_matrix, &req.y)?;
+    // 全データで最終モデルを学習する。優先行（パレートフロント等）があれば GP の
+    // 誘導点をそこに集中させる。CV/ホールドアウト検証側は汎化性能の推定のため一様
+    // 誘導点のままにする（validate_surrogate は priority を受け取らない）。
+    let surrogate =
+        models::fit_surrogate_with_priority(model_kind, &req.x_matrix, &req.y, &req.priority_rows)?;
 
     // 全データ訓練 R² を最終モデルから設定する。
     report.train_r2 = surrogate.r_squared;
@@ -797,6 +804,78 @@ pub fn run_surrogate_multi_optimization(
         req.slice_params,
         req.n_grid,
     ))
+}
+
+/// 多目的サロゲートを目的ごとに学習する（パレートフロント集中つき）。
+///
+/// `objective_values[k]` は目的 k の列（長さ N）、`minimize[k]` はその最適化方向。
+/// 全目的を行ベクトルに組み替えて `nd_sort` で非劣（rank == 0）trial を求め、それらを
+/// 各 GP の誘導点として優先する（`SurrogateFitRequest.priority_rows`）。
+///
+/// フロント集中は N が GP の誘導点上限（100）を超えるときのみモデルを変える。
+/// N ≤ 100 では各 GP が Z = X（全点）を使うため、優先指定は結果に影響しない。
+pub fn fit_multi_surrogates(
+    x_matrix: &[Vec<f64>],
+    objective_values: &[Vec<f64>],
+    param_names: &[String],
+    objective_names: &[String],
+    model: SurrogateModelKind,
+    minimize: &[bool],
+) -> Result<Vec<TrainedSurrogate>, String> {
+    let n_obj = objective_values.len();
+    if n_obj != objective_names.len() || n_obj != minimize.len() {
+        return Err(
+            "objective_values, objective_names and minimize must have equal length".to_string(),
+        );
+    }
+    if n_obj == 0 {
+        return Err("At least 1 objective required".to_string());
+    }
+    let n = x_matrix.len();
+    for (k, col) in objective_values.iter().enumerate() {
+        if col.len() != n {
+            return Err(format!(
+                "objective_values[{}] length {} does not match x_matrix rows {}",
+                k,
+                col.len(),
+                n
+            ));
+        }
+    }
+
+    // 行ごとの目的ベクトル rows[i][k] を組み、非劣 trial（rank == 0）を優先行にする。
+    let rows: Vec<Vec<f64>> = (0..n)
+        .map(|i| objective_values.iter().map(|col| col[i]).collect())
+        .collect();
+    let ranks = crate::multi_objective::pareto::nd_sort(&rows, minimize);
+    let priority: Vec<usize> = ranks
+        .iter()
+        .enumerate()
+        .filter(|(_, &r)| r == 0)
+        .map(|(i, _)| i)
+        .collect();
+
+    let mut trained = Vec::with_capacity(n_obj);
+    for k in 0..n_obj {
+        let req = SurrogateFitRequest {
+            x_matrix: x_matrix.to_vec(),
+            y: objective_values[k].clone(),
+            param_names: param_names.to_vec(),
+            objective_name: objective_names[k].clone(),
+            model,
+            auto_select: false,
+            constraints: vec![],
+            priority_rows: priority.clone(),
+        };
+        let t = fit_surrogate_with_validation(&req).map_err(|e| {
+            format!(
+                "Fitting failed for objective '{}': {}",
+                objective_names[k], e
+            )
+        })?;
+        trained.push(t);
+    }
+    Ok(trained)
 }
 
 #[cfg(test)]

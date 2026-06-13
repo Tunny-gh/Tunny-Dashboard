@@ -673,6 +673,7 @@ pub(crate) fn poll_chart_work(
                         model: fit_req.model,
                         auto_select: fit_req.auto_select,
                         constraints,
+                        priority_rows: vec![],
                     };
                     match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
                         Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
@@ -704,16 +705,25 @@ pub(crate) fn poll_chart_work(
                             .collect()
                     })
                     .collect();
-                // 全目的の y 列を収集する。
-                let ys: Vec<(String, Vec<f64>)> = obj_names
+                // 全目的の名前と y 列を収集する。
+                let objective_names: Vec<String> = obj_names.to_vec();
+                let objective_values: Vec<Vec<f64>> = obj_names
                     .iter()
                     .map(|name| {
-                        let col = ctx
-                            .view
+                        ctx.view
                             .numeric_column(name)
                             .map(|c| c.to_vec())
-                            .unwrap_or_else(|| vec![0.0; n]);
-                        (name.clone(), col)
+                            .unwrap_or_else(|| vec![0.0; n])
+                    })
+                    .collect();
+                // 目的ごとの minimize フラグを directions から解決する
+                //（多目的最適化パスと同じ方法）。
+                let minimize_flags: Vec<bool> = (0..obj_names.len())
+                    .map(|i| {
+                        directions
+                            .get(i)
+                            .map(|d| matches!(d, Direction::Minimize))
+                            .unwrap_or(true)
                     })
                     .collect();
 
@@ -725,28 +735,21 @@ pub(crate) fn poll_chart_work(
 
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
-                    let mut trained_vec = Vec::with_capacity(ys.len());
-                    for (obj_name, y) in ys {
-                        let fit_req = tunny_core::surrogate_opt::SurrogateFitRequest {
-                            x_matrix: x_matrix.clone(),
-                            y,
-                            param_names: numeric_params.clone(),
-                            objective_name: obj_name.clone(),
-                            model: multi_fit_req.model,
-                            auto_select: false,  // 多目的は Auto 非対応
-                            constraints: vec![], // 多目的は制約対象外
-                        };
-                        match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_req) {
-                            Ok(t) => trained_vec.push(t),
-                            Err(e) => {
-                                return AppMessage::SurrogateMultiFitFailed(format!(
-                                    "Fitting failed for objective '{}': {}",
-                                    obj_name, e
-                                ));
-                            }
+                    // パレートフロント集中つきで全目的を学習する
+                    //（N > GP 誘導点上限のとき非劣 trial に誘導点を集中）。
+                    match tunny_core::surrogate_opt::fit_multi_surrogates(
+                        &x_matrix,
+                        &objective_values,
+                        &numeric_params,
+                        &objective_names,
+                        multi_fit_req.model,
+                        &minimize_flags,
+                    ) {
+                        Ok(trained_vec) => {
+                            AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(trained_vec))
                         }
+                        Err(e) => AppMessage::SurrogateMultiFitFailed(e),
                     }
-                    AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(trained_vec))
                 });
             } else if let Some(opt_req) = widgets.surrogate_opt.pending_optimize.take() {
                 // 最適化段階は学習済みモデルが必要。

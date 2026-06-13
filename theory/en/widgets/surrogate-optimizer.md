@@ -94,3 +94,7 @@ See [Acquisition Functions — Constraint-aware acquisition functions](../optimi
 - The predicted optimum is a model estimate — validate it with a real evaluation before relying on it.
 - Categorical parameters are excluded; only numeric parameters are optimized.
 - The constraint checkbox is only shown for the single-objective path. Multi-objective mode does not currently incorporate constraints.
+
+### Pareto-front-focused surrogates
+
+For multi-objective fits, when there are more trials than the GP inducing budget (100), the inducing points are concentrated on the non-dominated (Pareto-front) trials so the surrogate is most accurate near the Pareto front, where improvements matter. With 100 trials or fewer, all points are used as inducing points (Z = X) and this focusing has no effect.

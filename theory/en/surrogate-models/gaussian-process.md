@@ -13,7 +13,7 @@ Both GP-FITC and GP-VFE use egobox's sparse GP (FITC or VFE approximation) inter
 | GP-FITC  | FITC          | min(N, 100) — see below      |
 | GP-VFE   | VFE           | min(N, 100) — see below      |
 
-**Inducing points:** when N ≤ 100, Z = X (training points themselves); FITC/VFE then becomes mathematically equivalent to an exact GP with homoscedastic noise estimation. When N > 100, M = 100 inducing points are selected by k-means centroids (deterministic seed). The model trains on **all N points** — no subsampling.
+**Inducing points:** when N ≤ 100, Z = X (training points themselves); FITC/VFE then becomes mathematically equivalent to an exact GP with homoscedastic noise estimation. When N > 100, M = 100 inducing points are selected by k-means centroids (deterministic seed). The model trains on **all N points** — no subsampling. In the multi-objective surrogate optimizer the inducing points can be biased toward the Pareto front, concentrating them on the non-dominated trials so the surrogate is most accurate where it improves the front.
 
 Measured training times at N = 10,000: GP-FITC ≈ 2.4 s, GP-VFE ≈ 2.0 s (release build).
 
