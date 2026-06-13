@@ -21,8 +21,8 @@ use crate::state::messages::{SurrogateMultiOptUiResult, SurrogateOptUiResult};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{
     SurrogateFitComputeRequest, SurrogateMultiFitComputeRequest,
-    SurrogateMultiOptimizeComputeRequest, SurrogateOptState, SurrogateOptimizeComputeRequest,
-    SurrogateSuggestComputeRequest,
+    SurrogateMultiOptimizeComputeRequest, SurrogateMultiSuggestComputeRequest, SurrogateOptState,
+    SurrogateOptimizeComputeRequest, SurrogateSuggestComputeRequest,
 };
 use crate::ui::widgets::pdp::surface_plot::{draw_colorbar_simple, draw_heatmap, value_range};
 use tunny_core::surrogate_opt::{
@@ -195,11 +195,13 @@ pub fn show(
     let busy = state.fitting
         || state.optimizing
         || state.suggesting
+        || state.multi_suggesting
         || state.pending_fit.is_some()
         || state.pending_optimize.is_some()
         || state.pending_multi_fit.is_some()
         || state.pending_multi_optimize.is_some()
-        || state.pending_suggest.is_some();
+        || state.pending_suggest.is_some()
+        || state.pending_multi_suggest.is_some();
 
     let has_matching_trained = state
         .trained
@@ -654,6 +656,67 @@ fn render_optimize_column_multi(
     };
 
     render_multi_result(ui, result, state, cmap);
+
+    // ── Suggest next trials (EHVI) セクション ────────────────────────
+    // 多目的・GP 系モデルのみ EHVI を提供する。
+    let is_gp = matches!(
+        state.model,
+        SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe | SurrogateModelKind::GpMoe
+    );
+    if has_matching_multi_trained && is_gp {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+        ui.strong("Suggest next trials (EHVI)");
+
+        // 候補数 DragValue（1〜10、デフォルト 3）。
+        ui.horizontal(|ui| {
+            ui.label("Candidates:");
+            ui.add(egui::DragValue::new(&mut state.n_multi_suggest_candidates).range(1..=10));
+        });
+
+        // Suggest ボタン。
+        let can_suggest = has_matching_multi_trained && !busy;
+        let disabled_hint = if !can_suggest && !has_matching_multi_trained {
+            "Fit GP surrogates for all objectives first (GP-FITC, GP-VFE, or GP-MOE)."
+        } else if !can_suggest {
+            "A computation is already running."
+        } else {
+            ""
+        };
+        let suggest_response =
+            ui.add_enabled(can_suggest, egui::Button::new("Suggest next trials (EHVI)"));
+        if !disabled_hint.is_empty() {
+            suggest_response.on_disabled_hover_text(disabled_hint);
+        } else if suggest_response.clicked() {
+            state.multi_suggest_result = None;
+            state.error_message = None;
+            state.pending_multi_suggest = Some(SurrogateMultiSuggestComputeRequest {
+                n_candidates: state.n_multi_suggest_candidates,
+            });
+        }
+
+        // 提案中スピナー。
+        if state.multi_suggesting {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Computing EHVI candidates…");
+            });
+        }
+
+        // 結果テーブル。
+        if let Some(ref suggest) = state.multi_suggest_result.clone() {
+            render_multi_suggest_result(ui, suggest);
+        }
+    } else if has_matching_multi_trained && !is_gp {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+        ui.colored_label(
+            egui::Color32::from_rgb(107, 114, 128), // gray-500
+            "Suggest next trials (EHVI) requires Gaussian Process models (GP-FITC, GP-VFE, or GP-MOE).",
+        );
+    }
 }
 
 /// 検証指標セクションをレンダリングする。
@@ -1586,6 +1649,82 @@ fn render_suggest_result(
 
     // ── "Copy enqueue JSON" ボタン ──────────────────────────────
     // Optuna の study.enqueue_trial(params) に渡せる JSON 配列を生成する。
+    if ui
+        .button("Copy enqueue JSON")
+        .on_hover_text(
+            "Optuna の study.enqueue_trial(params) に渡せる形式でクリップボードへコピーします。",
+        )
+        .clicked()
+    {
+        let json_items: Vec<serde_json::Value> = result
+            .candidates
+            .iter()
+            .map(|c| {
+                let obj: serde_json::Map<String, serde_json::Value> = result
+                    .param_names
+                    .iter()
+                    .zip(c.params.iter())
+                    .map(|(name, &val)| (name.clone(), serde_json::Value::from(val)))
+                    .collect();
+                serde_json::Value::Object(obj)
+            })
+            .collect();
+        let json_str = serde_json::to_string_pretty(&json_items).unwrap_or_default();
+        ui.ctx().copy_text(json_str);
+    }
+}
+
+/// EHVI による多目的候補提案の結果テーブルと "Copy enqueue JSON" ボタンを描画する。
+fn render_multi_suggest_result(
+    ui: &mut egui::Ui,
+    result: &crate::state::messages::SurrogateMultiSuggestUiResult,
+) {
+    if result.candidates.is_empty() {
+        return;
+    }
+
+    ui.add_space(4.0);
+    ui.strong("Suggested candidates (EHVI):");
+
+    egui::ScrollArea::vertical()
+        .max_height(200.0)
+        .id_salt("surrogate_multi_suggest_scroll")
+        .show(ui, |ui| {
+            egui::Grid::new("surrogate_multi_suggest_table")
+                .striped(true)
+                .min_col_width(60.0)
+                .show(ui, |ui| {
+                    // ── ヘッダ行 ──────────────────────────────────────
+                    for name in &result.param_names {
+                        ui.strong(name);
+                    }
+                    // 目的ごとに「予測値 ± std」列を 1 つにまとめる。
+                    for name in &result.objective_names {
+                        ui.strong(name);
+                    }
+                    ui.strong("EHVI");
+                    ui.end_row();
+
+                    // ── データ行 ──────────────────────────────────────
+                    for c in &result.candidates {
+                        for v in &c.params {
+                            ui.monospace(format!("{:.6}", v));
+                        }
+                        for (k, val) in c.predicted_values.iter().enumerate() {
+                            match c.predicted_stds.get(k).and_then(|s| *s) {
+                                Some(std) => ui.monospace(format!("{:.4} ± {:.4}", val, std)),
+                                None => ui.monospace(format!("{:.4}", val)),
+                            };
+                        }
+                        ui.monospace(format!("{:.4e}", c.ehvi_score));
+                        ui.end_row();
+                    }
+                });
+        });
+
+    ui.add_space(4.0);
+
+    // ── "Copy enqueue JSON" ボタン（params のみのオブジェクト配列） ──
     if ui
         .button("Copy enqueue JSON")
         .on_hover_text(
