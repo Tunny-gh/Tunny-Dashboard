@@ -418,6 +418,7 @@ mod tests {
             model: SurrogateModelKind::GpFitc,
             auto_select: false,
             constraints: vec![],
+            priority_rows: vec![],
         })
         .expect("fit f1 should succeed");
         let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
@@ -428,6 +429,7 @@ mod tests {
             model: SurrogateModelKind::GpFitc,
             auto_select: false,
             constraints: vec![],
+            priority_rows: vec![],
         })
         .expect("fit f2 should succeed");
         vec![t1, t2]
@@ -565,6 +567,7 @@ mod tests {
                 model: SurrogateModelKind::Ridge,
                 auto_select: false,
                 constraints: vec![],
+                priority_rows: vec![],
             })
             .expect("ridge fit should succeed")
         };
