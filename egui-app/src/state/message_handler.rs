@@ -298,6 +298,15 @@ impl MessageHandler {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.suggesting = false;
             }
+            AppMessage::SurrogateMultiSuggestDone(result) => {
+                widget_states.surrogate_opt.multi_suggest_result = Some(result);
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.multi_suggesting = false;
+            }
+            AppMessage::SurrogateMultiSuggestFailed(err) => {
+                widget_states.surrogate_opt.error_message = Some(err);
+                widget_states.surrogate_opt.multi_suggesting = false;
+            }
         }
     }
 

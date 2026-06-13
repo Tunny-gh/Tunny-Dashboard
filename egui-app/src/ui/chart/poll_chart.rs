@@ -902,6 +902,52 @@ pub(crate) fn poll_chart_work(
                         Err(e) => AppMessage::SurrogateSuggestFailed(e),
                     }
                 });
+            } else if let Some(multi_suggest_req) =
+                widgets.surrogate_opt.pending_multi_suggest.take()
+            {
+                // 多目的候補提案段階（EHVI）: 学習済み GP サロゲート群が必要。
+                let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
+                    widgets.surrogate_opt.error_message = Some(
+                        "No trained multi-objective model. Run Fit & Validate first.".to_string(),
+                    );
+                    return;
+                };
+
+                // 目的ごとの minimize フラグを directions から解決する。
+                let minimize_flags: Vec<bool> = (0..obj_names.len())
+                    .map(|i| {
+                        directions
+                            .get(i)
+                            .map(|d| matches!(d, Direction::Minimize))
+                            .unwrap_or(true)
+                    })
+                    .collect();
+
+                let param_names = multi_trained
+                    .first()
+                    .map(|t| t.param_names.clone())
+                    .unwrap_or_default();
+                let objective_names = obj_names.to_vec();
+                widgets.surrogate_opt.multi_suggesting = true;
+                widgets.surrogate_opt.error_message = None;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::SurrogateMultiSuggestUiResult;
+                    match tunny_core::surrogate_opt::suggest_candidates_multi(
+                        &multi_trained,
+                        &minimize_flags,
+                        multi_suggest_req.n_candidates,
+                    ) {
+                        Ok(candidates) => {
+                            AppMessage::SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult {
+                                candidates,
+                                param_names,
+                                objective_names,
+                            })
+                        }
+                        Err(e) => AppMessage::SurrogateMultiSuggestFailed(e),
+                    }
+                });
             }
         }
         _ => {}
