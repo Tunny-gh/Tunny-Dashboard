@@ -471,6 +471,7 @@ mod tests {
             param_names: vec!["x".to_string(), "y".to_string()],
             objective_name: "obj".to_string(),
             model: SurrogateModelKind::GpFitc,
+            auto_select: false,
             constraints: vec![],
         })
         .expect("fit should succeed")
@@ -575,6 +576,7 @@ mod tests {
             param_names: vec!["x".to_string(), "y".to_string()],
             objective_name: "obj".to_string(),
             model: SurrogateModelKind::Ridge,
+            auto_select: false,
             constraints: vec![],
         })
         .expect("ridge fit should succeed");

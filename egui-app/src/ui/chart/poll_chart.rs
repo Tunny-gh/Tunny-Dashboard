@@ -671,6 +671,7 @@ pub(crate) fn poll_chart_work(
                         param_names: numeric_params,
                         objective_name: fit_req.objective,
                         model: fit_req.model,
+                        auto_select: fit_req.auto_select,
                         constraints,
                     };
                     match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
@@ -732,6 +733,7 @@ pub(crate) fn poll_chart_work(
                             param_names: numeric_params.clone(),
                             objective_name: obj_name.clone(),
                             model: multi_fit_req.model,
+                            auto_select: false,  // 多目的は Auto 非対応
                             constraints: vec![], // 多目的は制約対象外
                         };
                         match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_req) {

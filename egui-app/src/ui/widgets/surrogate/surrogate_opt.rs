@@ -39,6 +39,9 @@ const MODEL_CHOICES: [SurrogateModelKind; 5] = [
     SurrogateModelKind::Lgbm,
 ];
 
+/// Model コンボの "Auto" エントリのラベル。
+const AUTO_MODEL_LABEL: &str = "Auto (cross-validated)";
+
 /// 最適化手法の選択肢（コンボ表示順）。
 const OPTIMIZER_CHOICES: [OptimizerKind; 4] = [
     OptimizerKind::MultiStartLbfgs,
@@ -103,7 +106,16 @@ fn trained_matches(
         .get(state.selected_objective)
         .map(|s| s.as_str())
         .unwrap_or("");
-    trained.objective_name == selected_obj && trained.model_kind == state.model
+    if trained.objective_name != selected_obj {
+        return false;
+    }
+    // Auto モードでは具体的なモデル種別は core が選ぶため、model_kind ではなく
+    // 「Auto で学習されたか（model_selection が Some）」で一致を判定する。
+    if state.auto_select {
+        trained.model_selection.is_some()
+    } else {
+        trained.model_selection.is_none() && trained.model_kind == state.model
+    }
 }
 
 /// 多目的学習済みモデル群が現在の UI 選択（モデル・目的集合）と一致するか判定する。
@@ -288,11 +300,28 @@ fn render_fit_column(
     });
     ui.horizontal(|ui| {
         ui.label("Model:");
+        let selected_text = if state.auto_select {
+            AUTO_MODEL_LABEL
+        } else {
+            model_label(state.model)
+        };
         egui::ComboBox::from_id_salt("surrogate_model")
-            .selected_text(model_label(state.model))
+            .selected_text(selected_text)
             .show_ui(ui, |ui| {
+                // 先頭に Auto（交差検証で自動選択）。選ぶと auto_select = true。
+                if ui
+                    .selectable_label(state.auto_select, AUTO_MODEL_LABEL)
+                    .clicked()
+                {
+                    state.auto_select = true;
+                }
+                // 具体的なモデルを選ぶと auto_select = false かつその kind に設定。
                 for kind in MODEL_CHOICES {
-                    ui.selectable_value(&mut state.model, kind, model_label(kind));
+                    let selected = !state.auto_select && state.model == kind;
+                    if ui.selectable_label(selected, model_label(kind)).clicked() {
+                        state.auto_select = false;
+                        state.model = kind;
+                    }
                 }
             });
     });
@@ -319,6 +348,7 @@ fn render_fit_column(
             state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
+                auto_select: state.auto_select,
                 use_constraints: n_constraints > 0 && state.use_constraints,
             });
         }
@@ -630,6 +660,12 @@ fn render_optimize_column_multi(
 fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let v = &trained.validation;
     ui.add_space(4.0);
+
+    // ── Auto 選択の経緯（Auto フィット時のみ表示） ────────────────
+    if let Some(selection) = trained.model_selection.as_ref() {
+        render_model_selection(ui, selection);
+    }
+
     ui.strong(format!(
         "Model validation — {} on {}",
         model_label(trained.model_kind),
@@ -676,6 +712,50 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
 
     // predicted-vs-actual 散布図。
     render_oof_plot(ui, v, "single", false);
+}
+
+/// Auto モデル選択の経緯を表示する。「Auto selected: <chosen>」見出しと、候補ごとの
+/// CV R² を降順に並べたコンパクトな表を出す（フィット／検証に失敗した候補は "—"）。
+fn render_model_selection(
+    ui: &mut egui::Ui,
+    selection: &tunny_core::surrogate_opt::ModelSelectionReport,
+) {
+    ui.strong(format!(
+        "Auto selected: {}",
+        model_label(selection.chosen)
+    ))
+    .on_hover_text(
+        "候補モデルを交差検証し、CV R² が最も高いものを自動選択しました（同点は単純なモデルを優先）。",
+    );
+
+    // 候補を CV R² の降順に並べる（失敗候補 = NEG_INFINITY は末尾）。
+    let mut rows: Vec<(SurrogateModelKind, f64)> = selection.scores.clone();
+    rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    egui::Grid::new("surrogate_model_selection")
+        .striped(true)
+        .min_col_width(80.0)
+        .show(ui, |ui| {
+            ui.strong("Candidate");
+            ui.strong("CV R²");
+            ui.end_row();
+            for (kind, score) in rows {
+                // 選ばれた候補を強調する。
+                if kind == selection.chosen {
+                    ui.strong(model_label(kind));
+                } else {
+                    ui.label(model_label(kind));
+                }
+                if score.is_finite() {
+                    ui.monospace(format!("{:.3}", score));
+                } else {
+                    // フィット／検証に失敗した候補。
+                    ui.monospace("—");
+                }
+                ui.end_row();
+            }
+        });
+    ui.add_space(4.0);
 }
 
 /// ARD 長さスケール由来のパラメータ重要度を水平バーリストで表示する。
@@ -1618,6 +1698,7 @@ mod tests {
             state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
+                auto_select: state.auto_select,
                 use_constraints: false,
             });
         }
@@ -1750,6 +1831,7 @@ mod tests {
             param_names: vec!["x".to_string(), "y".to_string()],
             objective_name: obj_name.to_string(),
             model,
+            auto_select: false,
             constraints: vec![],
         };
         tunny_core::surrogate_opt::fit_surrogate_with_validation(&req)
