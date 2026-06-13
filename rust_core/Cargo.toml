@@ -18,7 +18,7 @@ argmin = "0.11"
 argmin-math = { version = "0.5", features = ["vec"] }
 rand = "0.9"
 rand_chacha = "0.9"
-rand_xoshiro = "0.6"
+rand_xoshiro = "0.7"
 egobox-gp = "0.36"
 egobox-moe = "0.35"
 linfa = "0.8"
