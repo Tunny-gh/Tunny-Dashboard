@@ -4,10 +4,12 @@
 //! 最適化を実行して推定最適点を返す。モデル・最適化手法はそれぞれ
 //! [`SurrogateModelKind`] / [`OptimizerKind`] へバリアントを追加することで拡張する。
 
+mod acquisition;
 mod models;
 mod optimizers;
 pub(crate) mod validation;
 
+pub use acquisition::{suggest_candidates, AcquisitionKind, SuggestedCandidate};
 pub use models::SurrogateModelKind;
 pub use optimizers::OptimizerKind;
 pub use validation::SurrogateValidationReport;

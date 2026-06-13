@@ -26,6 +26,7 @@ enum ComputeSyncKind {
     Surface,
     SurrogateFit,
     SurrogateOpt,
+    SurrogateSuggest,
     HvHistory,
     SensitivityHeatmap,
 }
@@ -55,6 +56,9 @@ impl ComputeSyncKind {
             | AppMessage::SurrogateOptFailed(_)
             | AppMessage::SurrogateMultiOptDone(_)
             | AppMessage::SurrogateMultiOptFailed(_) => Some(Self::SurrogateOpt),
+            AppMessage::SurrogateSuggestDone(_) | AppMessage::SurrogateSuggestFailed(_) => {
+                Some(Self::SurrogateSuggest)
+            }
             AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
             _ => None,
@@ -96,6 +100,9 @@ impl ComputeSyncKind {
                 Self::Surface => w.surface_plot.adopt_compute_state(&global.surface_plot),
                 Self::SurrogateFit => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::SurrogateOpt => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
+                Self::SurrogateSuggest => {
+                    w.surrogate_opt.adopt_compute_state(&global.surrogate_opt)
+                }
                 Self::HvHistory => w.hv_history.adopt_compute_state(&global.hv_history),
                 Self::SensitivityHeatmap => w
                     .sensitivity_heatmap
