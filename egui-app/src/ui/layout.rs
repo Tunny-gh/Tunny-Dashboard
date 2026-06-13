@@ -3,6 +3,9 @@ use crate::state::app_state::AppState;
 use crate::theme::TOOLBAR_BTN_FG;
 use crate::ui::help::help_types::HelpLanguage;
 
+/// 左右パネルの開閉アニメーション所要時間（秒）
+pub const PANEL_ANIM_TIME: f32 = 0.20;
+
 /// パネルサイズの定数
 pub const LEFT_WIDTH_MIN: f32 = 120.0;
 pub const LEFT_WIDTH_MAX: f32 = 600.0;
@@ -86,22 +89,45 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         let mouse = ctx.input(|i| i.pointer.hover_pos());
         match mouse {
             Some(m) if m.y >= panel_area.top() => {
-                // 左パネル: HOVER_TRIGGER_PX 以内に入ると開く
-                // パネル幅 + HOVER_TRIGGER_PX を超えると閉じる
-                let left_close_x = app.layout.left_panel_width + HOVER_TRIGGER_PX;
-                if m.x < HOVER_TRIGGER_PX {
-                    app.layout.left_panel_open = true;
-                } else if m.x > left_close_x {
-                    app.layout.left_panel_open = false;
+                // 左パネル: HOVER_TRIGGER_PX 以内に入ると開く。
+                // パネル幅 + HOVER_TRIGGER_PX を超えると閉じる。
+                // ただし左下のミニマップ操作領域にカーソルがある間は開閉を変更しない。
+                // これにより、隅のミニマップへ近づくだけで左パネルが開いて操作を妨げるのを防ぐ。
+                let minimap_fp = crate::ui::canvas::minimap::minimap_footprint();
+                let minimap_zone = egui::Rect::from_min_max(
+                    egui::pos2(panel_area.left(), panel_area.bottom() - minimap_fp.y),
+                    egui::pos2(panel_area.left() + minimap_fp.x, panel_area.bottom()),
+                );
+                if !minimap_zone.contains(m) {
+                    let left_close_x = app.layout.left_panel_width + HOVER_TRIGGER_PX;
+                    if m.x < HOVER_TRIGGER_PX {
+                        app.layout.left_panel_open = true;
+                    } else if m.x > left_close_x {
+                        app.layout.left_panel_open = false;
+                    }
                 }
 
-                // 右パネル: 右端から HOVER_TRIGGER_PX 以内に入ると開く
-                let right_close_x =
-                    panel_area.right() - app.layout.right_panel.width - HOVER_TRIGGER_PX;
-                if m.x > panel_area.right() - HOVER_TRIGGER_PX {
-                    app.layout.right_panel.is_open = true;
-                } else if m.x < right_close_x {
-                    app.layout.right_panel.is_open = false;
+                // 右パネル: 右端から HOVER_TRIGGER_PX 以内に入ると開く。
+                // ただし右下のフィットボタン操作領域にカーソルがある間は開閉を変更しない。
+                // これにより、隅のボタンへ近づくだけでパネルが開いて操作を妨げるのを防ぐ。
+                // パネルが既に開いているときはボタンが隠れるが、その状態ではフィット操作を
+                // 行わない想定。
+                let fit_fp = crate::ui::canvas::minimap::fit_button_footprint();
+                let fit_zone = egui::Rect::from_min_max(
+                    egui::pos2(
+                        panel_area.right() - fit_fp.x,
+                        panel_area.bottom() - fit_fp.y,
+                    ),
+                    egui::pos2(panel_area.right(), panel_area.bottom()),
+                );
+                if !fit_zone.contains(m) {
+                    let right_close_x =
+                        panel_area.right() - app.layout.right_panel.width - HOVER_TRIGGER_PX;
+                    if m.x > panel_area.right() - HOVER_TRIGGER_PX {
+                        app.layout.right_panel.is_open = true;
+                    } else if m.x < right_close_x {
+                        app.layout.right_panel.is_open = false;
+                    }
                 }
             }
             None => {
@@ -117,12 +143,12 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
     let left_t = ctx.animate_bool_with_time(
         egui::Id::new("left_panel_anim"),
         app.layout.left_panel_open,
-        0.20,
+        PANEL_ANIM_TIME,
     );
     let right_t = ctx.animate_bool_with_time(
         egui::Id::new("right_panel_anim"),
         app.layout.right_panel.is_open,
-        0.20,
+        PANEL_ANIM_TIME,
     );
 
     // アニメーション中は継続して再描画
