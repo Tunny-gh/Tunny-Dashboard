@@ -166,6 +166,10 @@ pub struct SurrogateOptUiResult {
     pub slice: Option<tunny_core::surrogate_opt::SurfaceSlice>,
     /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
     pub best_observed_value: f64,
+    /// 推定最適点での制約サロゲート予測値（元の単位、制約名と同順）。制約なしなら空。
+    pub predicted_constraints: Vec<(String, f64)>,
+    /// 実行可能性確率（0.0〜1.0）。制約なしなら None。
+    pub feasibility_probability: Option<f64>,
 }
 
 // ============================================================

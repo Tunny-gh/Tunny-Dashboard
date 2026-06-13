@@ -50,6 +50,8 @@ impl SurfacePlotState {
 pub struct SurrogateFitComputeRequest {
     pub objective: String,
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    /// 制約を使用するか（true のとき制約列を ConstraintData に詰めて渡す）。
+    pub use_constraints: bool,
 }
 
 // ── Surrogate Optimizer 計算リクエスト（最適化段階） ────────────
@@ -113,6 +115,8 @@ pub struct SurrogateOptState {
     pub multi_slice_objective: usize,
     /// 多目的検証表示で選択中の目的インデックス（OOF プロット対象）。
     pub multi_validation_objective: usize,
+    /// 制約を使用するか（制約付き Study のみ UI に表示; true = 制約を渡す）。
+    pub use_constraints: bool,
     // ── 獲得関数による候補提案 ──────────────────────────────────
     /// 選択中の獲得関数。
     pub acq_kind: tunny_core::surrogate_opt::AcquisitionKind,
@@ -148,6 +152,7 @@ impl Default for SurrogateOptState {
             multi_result: None,
             multi_slice_objective: 0,
             multi_validation_objective: 0,
+            use_constraints: true,
             acq_kind: tunny_core::surrogate_opt::AcquisitionKind::ExpectedImprovement,
             n_suggest_candidates: 3,
             suggesting: false,

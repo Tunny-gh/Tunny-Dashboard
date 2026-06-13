@@ -1,6 +1,26 @@
 use super::*;
 use crate::math::rng::SeededRng;
 
+// ────────────────────────────────────────────────────────────
+// ヘルパー関数
+// ────────────────────────────────────────────────────────────
+
+/// 制約付き二次関数のデータを生成する。
+/// f = (x - 0.3)^2 + (y - 0.7)^2、c = 0.5 - x （c ≤ 0 ⟺ x ≥ 0.5）。
+fn constrained_quadratic_samples(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+    let mut rng = SeededRng::from_seed(7);
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|_| vec![rng.next_f64(), rng.next_f64()])
+        .collect();
+    let y: Vec<f64> = x_matrix
+        .iter()
+        .map(|r| (r[0] - 0.3).powi(2) + (r[1] - 0.7).powi(2))
+        .collect();
+    // c = 0.5 - x: 実行可能 ⟺ x >= 0.5
+    let c: Vec<f64> = x_matrix.iter().map(|r| 0.5 - r[0]).collect();
+    (x_matrix, y, c)
+}
+
 /// 既知関数 f(x, y) = (x − 0.3)² + (y − 0.7)² を [0,1]² 内のサンプル点で評価した
 /// テストデータを作る（最小値 0 at (0.3, 0.7)）。
 fn quadratic_samples(n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
@@ -51,6 +71,7 @@ fn base_request(x_matrix: Vec<Vec<f64>>, y: Vec<f64>) -> SurrogateOptRequest {
         optimizer: OptimizerKind::MultiStartLbfgs,
         slice_params: Some((0, 1)),
         n_grid: 10,
+        constraints: vec![],
     }
 }
 
@@ -376,6 +397,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         model: SurrogateModelKind::GpFitc,
+        constraints: vec![],
     };
     let trained = fit_surrogate_with_validation(&fit_req)
         .expect("fit_surrogate_with_validation should succeed");
@@ -436,6 +458,7 @@ fn gp_vfe_trains_and_predicts_finite_with_std() {
         optimizer: OptimizerKind::MultiStartLbfgs,
         slice_params: None,
         n_grid: 10,
+        constraints: vec![],
     };
     let result = run_surrogate_optimization(&req).expect("GP-VFE optimization should succeed");
 
@@ -467,6 +490,7 @@ fn gp_moe_trains_and_predicts_finite_with_std() {
         optimizer: OptimizerKind::MultiStartLbfgs,
         slice_params: None,
         n_grid: 10,
+        constraints: vec![],
     };
     let result = run_surrogate_optimization(&req).expect("GP-MOE optimization should succeed");
 
@@ -708,6 +732,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         param_names: names.clone(),
         objective_name: "f1".to_string(),
         model: SurrogateModelKind::GpFitc,
+        constraints: vec![],
     })
     .expect("fit f1 should succeed");
     let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
@@ -716,6 +741,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         param_names: names,
         objective_name: "f2".to_string(),
         model: SurrogateModelKind::GpFitc,
+        constraints: vec![],
     })
     .expect("fit f2 should succeed");
     (t1, t2)
@@ -842,6 +868,7 @@ fn lgbm_fit_validate_and_optimize_finds_minimum_region() {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_name: "obj0".to_string(),
         model: SurrogateModelKind::Lgbm,
+        constraints: vec![],
     })
     .expect("LGBM fit & validation should succeed");
 
@@ -895,4 +922,185 @@ fn lgbm_multi_opt_returns_front() {
         assert_eq!(p.values.len(), 2);
         assert!(p.values.iter().all(|v| v.is_finite()));
     }
+}
+
+// ============================================================================
+// 制約付きサロゲート最適化のテスト
+// ============================================================================
+
+/// 制約付き SurrogateFitRequest を作るヘルパー。
+fn constrained_fit_req(x_matrix: Vec<Vec<f64>>, y: Vec<f64>, c: Vec<f64>) -> SurrogateFitRequest {
+    SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "obj0".to_string(),
+        model: SurrogateModelKind::GpFitc,
+        constraints: vec![ConstraintData {
+            name: "c1".to_string(),
+            values: c,
+        }],
+    }
+}
+
+#[test]
+fn constrained_opt_pushes_x_toward_feasible_region() {
+    // c = 0.5 - x (x >= 0.5 で実行可能): ペナルティが x >= 0.4 付近へ誘導する。
+    let (x_matrix, y, c) = constrained_quadratic_samples(80);
+    let req = SurrogateOptRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "obj0".to_string(),
+        minimize: true,
+        model: SurrogateModelKind::GpFitc,
+        optimizer: OptimizerKind::MultiStartLbfgs,
+        slice_params: None,
+        n_grid: 10,
+        constraints: vec![ConstraintData {
+            name: "c1".to_string(),
+            values: c,
+        }],
+    };
+    let result = run_surrogate_optimization(&req).expect("constrained optimization should succeed");
+
+    assert!(
+        result.best_params[0] >= 0.4,
+        "制約ペナルティにより x >= 0.4 が期待される, got x = {}",
+        result.best_params[0]
+    );
+    assert_eq!(result.predicted_constraints.len(), 1);
+    assert!(
+        result.feasibility_probability.is_some(),
+        "制約ありのとき feasibility_probability は Some"
+    );
+    let p_feas = result.feasibility_probability.unwrap();
+    assert!(
+        p_feas > 0.4,
+        "実行可能側に引き寄せられているはずなので P_feas > 0.4 を期待, got {}",
+        p_feas
+    );
+}
+
+#[test]
+fn unconstrained_opt_finds_true_minimum_near_0_3() {
+    // 制約なし: 最小点 (0.3, 0.7) を発見する（既存の動作が変わらないことを確認）。
+    let (x_matrix, y, _) = constrained_quadratic_samples(80);
+    let req = base_request(x_matrix, y);
+    let result = run_surrogate_optimization(&req).expect("unconstrained should succeed");
+
+    assert!(
+        (result.best_params[0] - 0.3).abs() < 0.15,
+        "x ≈ 0.3 (unconstrained), got {}",
+        result.best_params[0]
+    );
+    assert!(
+        result.feasibility_probability.is_none(),
+        "制約なしのとき feasibility_probability は None"
+    );
+    assert!(
+        result.predicted_constraints.is_empty(),
+        "制約なしのとき predicted_constraints は空"
+    );
+}
+
+#[test]
+fn constrained_fit_validation_succeeds() {
+    // fit_surrogate_with_validation が制約ありで成功し、constraint_names が設定される。
+    let (x_matrix, y, c) = constrained_quadratic_samples(50);
+    let req = constrained_fit_req(x_matrix, y, c);
+    let trained = fit_surrogate_with_validation(&req).expect("constrained fit should succeed");
+
+    assert_eq!(trained.constraint_names, vec!["c1".to_string()]);
+    assert_eq!(trained.constraint_models.len(), 1);
+    assert_eq!(trained.constraint_values.len(), 50);
+    assert!(trained.constraint_values.iter().all(|row| row.len() == 1));
+}
+
+#[test]
+fn constrained_opt_result_has_constraint_fields() {
+    // optimize_on_trained が制約ありで predicted_constraints / feasibility_probability を返す。
+    let (x_matrix, y, c) = constrained_quadratic_samples(50);
+    let req = constrained_fit_req(x_matrix, y, c);
+    let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
+
+    let spec = SurrogateOptimizeSpec {
+        minimize: true,
+        optimizer: OptimizerKind::MultiStartLbfgs,
+        slice_params: None,
+        n_grid: 10,
+    };
+    let result = optimize_on_trained(&trained, &spec);
+
+    assert_eq!(result.predicted_constraints.len(), 1);
+    assert!(result.feasibility_probability.is_some());
+    let p = result.feasibility_probability.unwrap();
+    assert!((0.0..=1.0).contains(&p), "P_feas must be in [0,1], got {p}");
+}
+
+#[test]
+fn suggest_candidates_constrained_p_feas_present() {
+    // 制約付き suggest_candidates: 全候補が feasibility_probability Some を持つ。
+    // mean P_feas > 0.3。
+    let (x_matrix, y, c) = constrained_quadratic_samples(50);
+    let req = constrained_fit_req(x_matrix, y, c);
+    let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
+
+    let candidates = suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
+        .expect("constrained suggest should succeed");
+
+    assert_eq!(candidates.len(), 3);
+    for c in &candidates {
+        assert!(
+            c.feasibility_probability.is_some(),
+            "constrained candidate must have feasibility_probability"
+        );
+        assert_eq!(c.predicted_constraints.len(), 1);
+        let p = c.feasibility_probability.unwrap();
+        assert!((0.0..=1.0).contains(&p), "P_feas must be [0,1], got {p}");
+    }
+
+    let mean_p: f64 = candidates
+        .iter()
+        .map(|c| c.feasibility_probability.unwrap())
+        .sum::<f64>()
+        / 3.0;
+    assert!(
+        mean_p > 0.3,
+        "制約付きサジェストで mean P_feas > 0.3 を期待, got {mean_p}"
+    );
+
+    // 決定性: 同じ trained で 2 回呼ぶと同じ結果。
+    let candidates2 = suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
+        .expect("second run");
+    for (a, b) in candidates.iter().zip(candidates2.iter()) {
+        for (pa, pb) in a.params.iter().zip(b.params.iter()) {
+            assert!(
+                (pa - pb).abs() < 1e-9,
+                "constrained suggest must be deterministic: {pa} vs {pb}"
+            );
+        }
+    }
+}
+
+#[test]
+fn suggest_candidates_unconstrained_p_feas_none() {
+    // 制約なし suggest_candidates: feasibility_probability は None、
+    // predicted_constraints は空。
+    let (x_matrix, y, _) = constrained_quadratic_samples(50);
+    let req = SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "obj0".to_string(),
+        model: SurrogateModelKind::GpFitc,
+        constraints: vec![],
+    };
+    let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
+    let candidates = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
+        .expect("unconstrained suggest should succeed");
+
+    assert_eq!(candidates.len(), 1);
+    assert!(candidates[0].feasibility_probability.is_none());
+    assert!(candidates[0].predicted_constraints.is_empty());
 }
