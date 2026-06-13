@@ -5,6 +5,7 @@
 //! [`SurrogateModelKind`] / [`OptimizerKind`] へバリアントを追加することで拡張する。
 
 mod acquisition;
+pub(crate) mod feasibility;
 mod models;
 mod optimizers;
 pub(crate) mod validation;
@@ -19,6 +20,79 @@ use validation::validate_surrogate;
 
 /// サロゲート学習に必要な最小 trial 数。
 pub const MIN_TRIALS_FOR_SURROGATE_OPT: usize = 10;
+
+/// 自動モデル選択（Auto）の候補モデル。CV R² が最も高い候補を選ぶ。
+///
+/// 並び順は「単純・低コストなモデルを先頭」に揃えてある（Ridge → GP-FITC → GP-VFE →
+/// LightGBM）。同点時はこの並びで先に来る候補を優先する（タイブレーク）。
+///
+/// GpMoe は候補から除外している:
+///   - クラスタ数を CV で探索するため、候補ごとの検証コストが他より大幅に高い。
+///   - 滑らか／線形なデータでは単一 GP に劣化し（クラスタが退化する）、Auto の
+///     コスト対効果が悪い。MoE は不連続・多峰応答が分かっているときに手動で選ぶ想定。
+pub const AUTO_CANDIDATES: [SurrogateModelKind; 4] = [
+    SurrogateModelKind::Ridge,
+    SurrogateModelKind::GpFitc,
+    SurrogateModelKind::GpVfe,
+    SurrogateModelKind::Lgbm,
+];
+
+/// 自動モデル選択（Auto）の結果。選ばれたモデルと候補ごとの CV R² を持つ。
+#[derive(Debug, Clone)]
+pub struct ModelSelectionReport {
+    /// 選択されたモデル種別（最も高い CV R²、同点は AUTO_CANDIDATES の先頭優先）。
+    pub chosen: SurrogateModelKind,
+    /// 候補ごとの (モデル種別, スコア = cv_r2_mean)。`AUTO_CANDIDATES` と同順。
+    /// フィット／検証に失敗した候補は f64::NEG_INFINITY を記録し、選択対象から外す。
+    pub scores: Vec<(SurrogateModelKind, f64)>,
+}
+
+/// `AUTO_CANDIDATES` を交差検証し、CV R² が最も高いモデルを選ぶ。
+///
+/// 各候補について [`validate_surrogate`] を実行し、`cv_r2_mean` をスコアとする。
+/// スコア差が 1e-3 未満の候補は「同点」とみなし、`AUTO_CANDIDATES` で先に来る候補
+/// （より単純・低コスト）を優先する。全候補が失敗した場合のみ `Err` を返す。
+pub fn select_best_model(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    seed: u64,
+) -> Result<ModelSelectionReport, String> {
+    validate_inputs(x_matrix, y)?;
+
+    let mut scores: Vec<(SurrogateModelKind, f64)> = Vec::with_capacity(AUTO_CANDIDATES.len());
+    for &kind in &AUTO_CANDIDATES {
+        // フィット／検証に失敗した候補は NEG_INFINITY を記録し、選択対象から外す。
+        let score = match validate_surrogate(kind, x_matrix, y, seed) {
+            Ok(report) => report.cv_r2_mean,
+            Err(_) => f64::NEG_INFINITY,
+        };
+        scores.push((kind, score));
+    }
+
+    // CV R² の差がこの値未満の候補は「同点」とみなし、AUTO_CANDIDATES で先に来る
+    // （より単純・低コストな）候補を優先する。完全に線形なデータでは GP も Ridge も
+    // ほぼ完璧に当てはまる（R² ≈ 1）ため、わずかな差で複雑な GP を選ばないようにする。
+    const TIE_TOLERANCE: f64 = 1e-3;
+
+    // 最大スコアの候補を選ぶ。AUTO_CANDIDATES の先頭から走査し、許容差を超えて
+    // 大きいものだけ採用することで、同点は先（より単純）に来る候補が残る。
+    let mut chosen: Option<(SurrogateModelKind, f64)> = None;
+    for &(kind, score) in &scores {
+        if !score.is_finite() {
+            continue;
+        }
+        match chosen {
+            Some((_, best)) if score <= best + TIE_TOLERANCE => {}
+            _ => chosen = Some((kind, score)),
+        }
+    }
+
+    let chosen = chosen
+        .map(|(kind, _)| kind)
+        .ok_or_else(|| "All candidate models failed validation".to_string())?;
+
+    Ok(ModelSelectionReport { chosen, scores })
+}
 
 /// スライス格子のデフォルト解像度。
 pub const DEFAULT_SLICE_GRID: usize = 20;
@@ -43,6 +117,18 @@ pub struct SurrogateOptRequest {
     pub slice_params: Option<(usize, usize)>,
     /// スライス格子の一辺の点数。
     pub n_grid: usize,
+    /// 制約データ（空 = 制約なし）。
+    pub constraints: Vec<ConstraintData>,
+}
+
+/// サロゲート学習に渡す 1 制約のデータ。
+///
+/// Optuna の制約規約: 値 ≤ 0 が実行可能（feasible）。
+pub struct ConstraintData {
+    /// 制約の名前（表示・ログ用）。
+    pub name: String,
+    /// 各 trial の制約値（`x_matrix` と同じ行順）。
+    pub values: Vec<f64>,
 }
 
 /// サロゲートの学習＋検証の入力。
@@ -52,6 +138,11 @@ pub struct SurrogateFitRequest {
     pub param_names: Vec<String>,
     pub objective_name: String,
     pub model: SurrogateModelKind,
+    /// true のとき `model` を無視して `AUTO_CANDIDATES` を交差検証し、最良モデルを
+    /// 自動選択して学習する（`TrainedSurrogate.model_selection` に経緯を残す）。
+    pub auto_select: bool,
+    /// 制約データ（空 = 制約なし）。各要素が 1 制約を表す。
+    pub constraints: Vec<ConstraintData>,
 }
 
 /// 検証済みの学習結果。最適化で再利用する。
@@ -64,6 +155,22 @@ pub struct TrainedSurrogate {
     pub(crate) x_matrix: Vec<Vec<f64>>,
     pub(crate) y: Vec<f64>,
     pub validation: SurrogateValidationReport,
+    /// ARD 長さスケールから算出した相対パラメータ重要度（`param_names` と同順、合計 1.0）。
+    ///
+    /// GP（単一 SGP: FITC / VFE）のみ Some。MoE / Ridge / LightGBM は None。
+    /// 重要度はモデルの入力次元（= `x_matrix` の列）に対応し、その列順は `param_names`
+    /// と一致する（`fit_surrogate` は列順を入れ替えないため）。
+    pub param_importance: Option<Vec<f64>>,
+    /// 制約名（`constraint_models` と同順。空 = 制約なし）。
+    pub constraint_names: Vec<String>,
+    /// 制約ごとの学習済みサロゲート（`constraint_names` と同順）。
+    pub(crate) constraint_models: Vec<models::FittedSurrogate>,
+    /// 各 trial の制約値（行 = trial、列 = 制約; `constraint_names` と同順）。
+    /// 実行可能インカンバントの計算に使う。
+    pub(crate) constraint_values: Vec<Vec<f64>>,
+    /// 自動モデル選択（`auto_select = true`）の経緯。手動指定時は None。
+    /// `model_kind` には選ばれた具体的なモデル種別が入る。
+    pub model_selection: Option<ModelSelectionReport>,
 }
 
 /// 最適化ステージの設定（学習済みモデルに対して実行する）。
@@ -85,6 +192,9 @@ pub struct SurfaceSlice {
     pub y_values: Vec<f64>,
     /// 予測値格子。`z_values[i][j] = f(x_values[i], y_values[j])`。
     pub z_values: Vec<Vec<f64>>,
+    /// 予測標準偏差の格子（元の単位、`z_values` と同形状）。
+    /// 事後分散を持つモデル（GP 系）のみ Some。Ridge / LightGBM は None。
+    pub z_std: Option<Vec<Vec<f64>>>,
 }
 
 /// サロゲート最適化の結果。
@@ -102,6 +212,11 @@ pub struct SurrogateOptResult {
     pub slice: Option<SurfaceSlice>,
     /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
     pub best_observed_value: f64,
+    /// 推定最適点での各制約サロゲートの予測値（元の単位、`constraint_names` と同順）。
+    /// 制約なし（`constraint_names` が空）のときは空。
+    pub predicted_constraints: Vec<f64>,
+    /// 推定最適点での実行可能性確率（0.0〜1.0）。制約なしのときは None。
+    pub feasibility_probability: Option<f64>,
 }
 
 /// 入力の共通バリデーションを行う（成功時は (n, n_dims) を返す）。
@@ -136,6 +251,9 @@ fn validate_inputs(x_matrix: &[Vec<f64>], y: &[f64]) -> Result<(usize, usize), S
 }
 
 /// 学習済みサロゲートに対して最適化を実行し、結果を返す共通ロジック。
+///
+/// `constraint_models` が空でないとき、コスト関数に制約ペナルティを加えて探索する。
+#[allow(clippy::too_many_arguments)]
 fn run_optimize(
     surrogate: &models::FittedSurrogate,
     x_matrix: &[Vec<f64>],
@@ -144,6 +262,7 @@ fn run_optimize(
     optimizer: OptimizerKind,
     slice_params: Option<(usize, usize)>,
     n_grid: usize,
+    constraint_models: &[models::FittedSurrogate],
 ) -> SurrogateOptResult {
     let n_dims = x_matrix.first().map(|r| r.len()).unwrap_or(0);
 
@@ -151,7 +270,13 @@ fn run_optimize(
     let best_observed_idx = best_observed_index(y, minimize);
     let start_norm = surrogate.to_norm_x(&x_matrix[best_observed_idx]);
 
-    let t_best = optimizers::minimize_on_surrogate(surrogate, minimize, optimizer, &start_norm);
+    let t_best = optimizers::minimize_on_surrogate(
+        surrogate,
+        minimize,
+        optimizer,
+        &start_norm,
+        constraint_models,
+    );
 
     let best_value = surrogate.to_original_y(surrogate.predict_norm(&t_best));
     let predicted_std = surrogate
@@ -163,6 +288,18 @@ fn run_optimize(
 
     let best_observed_value = y[best_observed_idx];
 
+    // 制約の予測値と実行可能性確率を計算する。
+    let (predicted_constraints, feasibility_probability) = if constraint_models.is_empty() {
+        (vec![], None)
+    } else {
+        let preds: Vec<f64> = constraint_models
+            .iter()
+            .map(|cm| cm.to_original_y(cm.predict_norm(&t_best)))
+            .collect();
+        let p_feas = feasibility::feasibility_probability(constraint_models, &t_best);
+        (preds, Some(p_feas))
+    };
+
     SurrogateOptResult {
         best_params: surrogate.to_original_x(&t_best),
         best_value,
@@ -170,34 +307,80 @@ fn run_optimize(
         r_squared: surrogate.r_squared,
         slice,
         best_observed_value,
+        predicted_constraints,
+        feasibility_probability,
     }
 }
 
 /// サロゲートを学習し、ホールドアウト＋k-fold CV で検証した結果を返す。
 ///
-/// 検証シードは 42 を使用する。
+/// 検証シードは 42 を使用する。制約モデルは CV なしで全データ学習する。
 pub fn fit_surrogate_with_validation(
     req: &SurrogateFitRequest,
 ) -> Result<TrainedSurrogate, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
 
+    // Auto 選択時は AUTO_CANDIDATES を交差検証して最良モデルを決める。
+    // 以降の学習・検証・制約モデルは選ばれた具体的なモデル種別で行う
+    //（SurrogateModelKind に "Auto" バリアントはないため、自動的に整合する）。
+    let (model_kind, model_selection) = if req.auto_select {
+        let report = select_best_model(&req.x_matrix, &req.y, 42)?;
+        let chosen = report.chosen;
+        (chosen, Some(report))
+    } else {
+        (req.model, None)
+    };
+
     // CV・ホールドアウト検証を実施する。
-    let mut report = validate_surrogate(req.model, &req.x_matrix, &req.y, 42)?;
+    let mut report = validate_surrogate(model_kind, &req.x_matrix, &req.y, 42)?;
 
     // 全データで最終モデルを学習する。
-    let surrogate = models::fit_surrogate(req.model, &req.x_matrix, &req.y)?;
+    let surrogate = models::fit_surrogate(model_kind, &req.x_matrix, &req.y)?;
 
     // 全データ訓練 R² を最終モデルから設定する。
     report.train_r2 = surrogate.r_squared;
 
+    // ARD 長さスケールによるパラメータ重要度（GP のみ Some、param_names と同順）。
+    let param_importance = surrogate.param_importance();
+
+    // 制約ごとにサロゲートを学習する（CV なし、全データ）。
+    let mut constraint_names = Vec::with_capacity(req.constraints.len());
+    let mut constraint_models = Vec::with_capacity(req.constraints.len());
+    let mut constraint_values: Vec<Vec<f64>> = Vec::with_capacity(req.x_matrix.len());
+    for _ in 0..req.x_matrix.len() {
+        constraint_values.push(Vec::with_capacity(req.constraints.len()));
+    }
+
+    for cd in &req.constraints {
+        // 制約モデルは目的関数と同じモデル種別で学習する。GP 系なら事後分散から
+        // 平滑な実行可能性確率 P(c ≤ 0) が得られ（制約境界付近の不確実性を考慮した
+        // 探索ができる）、Ridge / LightGBM ならハード指標へフォールバックする
+        // （feasibility::single_prob 参照）。
+        // Auto 選択時も目的モデルと同じ「選ばれた」種別を制約モデルに使う。
+        let cm = models::fit_constraint_surrogate(model_kind, &req.x_matrix, &cd.values)
+            .map_err(|e| format!("Constraint '{}' fit failed: {}", cd.name, e))?;
+        constraint_names.push(cd.name.clone());
+        constraint_models.push(cm);
+        for (i, &v) in cd.values.iter().enumerate() {
+            if let Some(row) = constraint_values.get_mut(i) {
+                row.push(v);
+            }
+        }
+    }
+
     Ok(TrainedSurrogate {
         surrogate,
-        model_kind: req.model,
+        model_kind,
         param_names: req.param_names.clone(),
         objective_name: req.objective_name.clone(),
         x_matrix: req.x_matrix.clone(),
         y: req.y.clone(),
         validation: report,
+        param_importance,
+        constraint_names,
+        constraint_models,
+        constraint_values,
+        model_selection,
     })
 }
 
@@ -214,6 +397,7 @@ pub fn optimize_on_trained(
         spec.optimizer,
         spec.slice_params,
         spec.n_grid,
+        &trained.constraint_models,
     )
 }
 
@@ -225,6 +409,17 @@ pub fn run_surrogate_optimization(req: &SurrogateOptRequest) -> Result<Surrogate
 
     let surrogate = models::fit_surrogate(req.model, &req.x_matrix, &req.y)?;
 
+    // 制約サロゲートを学習する（制約なしの場合は空 vec）。目的関数と同じモデル種別を使い、
+    // GP 系なら平滑な実行可能性確率を、Ridge / LightGBM ならハード指標を用いる。
+    let constraint_models: Vec<models::FittedSurrogate> = req
+        .constraints
+        .iter()
+        .map(|cd| {
+            models::fit_constraint_surrogate(req.model, &req.x_matrix, &cd.values)
+                .map_err(|e| format!("Constraint '{}' fit failed: {}", cd.name, e))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(run_optimize(
         &surrogate,
         &req.x_matrix,
@@ -233,6 +428,7 @@ pub fn run_surrogate_optimization(req: &SurrogateOptRequest) -> Result<Surrogate
         req.optimizer,
         req.slice_params,
         req.n_grid,
+        &constraint_models,
     ))
 }
 
@@ -265,20 +461,29 @@ fn build_slice(
     let x_values = linspace(min_x, min_x + range_x, n_grid);
     let y_values = linspace(min_y, min_y + range_y, n_grid);
 
-    let z_values: Vec<Vec<f64>> = x_values
-        .iter()
-        .map(|&vx| {
-            y_values
-                .iter()
-                .map(|&vy| {
-                    let mut pt = t_best.to_vec();
-                    pt[param_x_idx] = (vx - min_x) / range_x;
-                    pt[param_y_idx] = (vy - min_y) / range_y;
-                    surrogate.to_original_y(surrogate.predict_norm(&pt))
-                })
-                .collect()
-        })
-        .collect();
+    // 各格子点で平均（元の単位）と、可能なら事後分散から元単位の標準偏差を評価する。
+    // z_std はモデルが事後分散を持つ（GP 系）ときのみ Some を保持する。
+    let mut z_values: Vec<Vec<f64>> = Vec::with_capacity(x_values.len());
+    let mut z_std_grid: Vec<Vec<f64>> = Vec::with_capacity(x_values.len());
+    let mut has_std = true;
+    for &vx in &x_values {
+        let mut z_row = Vec::with_capacity(y_values.len());
+        let mut std_row = Vec::with_capacity(y_values.len());
+        for &vy in &y_values {
+            let mut pt = t_best.to_vec();
+            pt[param_x_idx] = (vx - min_x) / range_x;
+            pt[param_y_idx] = (vy - min_y) / range_y;
+            z_row.push(surrogate.to_original_y(surrogate.predict_norm(&pt)));
+            match surrogate.predict_var_norm(&pt) {
+                // 正規化空間の分散 → 元の単位の標準偏差（y_std 倍）。
+                Some(var) => std_row.push(var.max(0.0).sqrt() * surrogate.y_std),
+                None => has_std = false,
+            }
+        }
+        z_values.push(z_row);
+        z_std_grid.push(std_row);
+    }
+    let z_std = has_std.then_some(z_std_grid);
 
     Some(SurfaceSlice {
         param_x_idx,
@@ -286,6 +491,7 @@ fn build_slice(
         x_values,
         y_values,
         z_values,
+        z_std,
     })
 }
 

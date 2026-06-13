@@ -14,6 +14,7 @@ This guide summarizes the available sensitivity analysis methods and helps you c
 | SHAP | Shapley value decomposition of predictions | Theoretically consistent, local and global interpretability | Heavier computation | Medium–High |
 | Sobol | Variance decomposition (first-order and total-effect indices) | Captures interactions, global sensitivity | Depends on surrogate quality and sample size | Medium–High |
 | PDP (1D/2D) | Response shape of the objective function | Visualizes how the objective changes with parameters | May extrapolate when features are correlated | Low–High (model-dependent) |
+| ARD importance | GP length-scale relevance per parameter | Free after fitting a GP; global smoothness-based sensitivity | GP models only; not a variance decomposition | Low (free with GP) |
 
 ## How to Choose
 
@@ -35,6 +36,9 @@ This guide summarizes the available sensitivity analysis methods and helps you c
 
 ### Response shape visualization
 - **First choice: PDP** — 1D/2D response curves.
+
+### Free sensitivity from a fitted GP surrogate
+- **ARD importance** — see [ard-importance.md](./ard-importance.md). When you already fit a GP in the Surrogate Optimizer, read its per-parameter relevance at no extra cost.
 
 ## Recommended Workflow
 

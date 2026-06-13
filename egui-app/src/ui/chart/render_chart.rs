@@ -286,6 +286,7 @@ pub(crate) fn render_chart(
                 .as_ref()
                 .and_then(|r| ctx.view.numeric_column(&r.objective_name))
                 .map(|col| col.to_vec());
+            let constraint_col_names = ctx.view.df.constraint_col_names().to_vec();
             crate::ui::widgets::surrogate_opt::show(
                 ui,
                 &mut widgets.surrogate_opt,
@@ -294,6 +295,7 @@ pub(crate) fn render_chart(
                 cmap,
                 trial_count,
                 obj_history.as_deref(),
+                &constraint_col_names,
             );
         }
     }

@@ -643,6 +643,26 @@ pub(crate) fn poll_chart_work(
                 widgets.surrogate_opt.result = None;
                 widgets.surrogate_opt.error_message = None;
 
+                // 制約列を抽出する（use_constraints かつ制約列がある場合）。
+                let constraints: Vec<tunny_core::surrogate_opt::ConstraintData> =
+                    if fit_req.use_constraints {
+                        ctx.view
+                            .df
+                            .constraint_col_names()
+                            .iter()
+                            .filter_map(|col_name| {
+                                ctx.view.df.get_numeric_column(col_name).map(|col| {
+                                    tunny_core::surrogate_opt::ConstraintData {
+                                        name: col_name.clone(),
+                                        values: col.to_vec(),
+                                    }
+                                })
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
                     let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
@@ -651,6 +671,8 @@ pub(crate) fn poll_chart_work(
                         param_names: numeric_params,
                         objective_name: fit_req.objective,
                         model: fit_req.model,
+                        auto_select: fit_req.auto_select,
+                        constraints,
                     };
                     match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
                         Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
@@ -711,6 +733,8 @@ pub(crate) fn poll_chart_work(
                             param_names: numeric_params.clone(),
                             objective_name: obj_name.clone(),
                             model: multi_fit_req.model,
+                            auto_select: false,  // 多目的は Auto 非対応
+                            constraints: vec![], // 多目的は制約対象外
                         };
                         match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_req) {
                             Ok(t) => trained_vec.push(t),
@@ -763,7 +787,12 @@ pub(crate) fn poll_chart_work(
                         slice_params,
                         n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
                     };
+                    let constraint_names = trained.constraint_names.clone();
                     let r = tunny_core::surrogate_opt::optimize_on_trained(&trained, &spec);
+                    let predicted_constraints: Vec<(String, f64)> = constraint_names
+                        .into_iter()
+                        .zip(r.predicted_constraints)
+                        .collect();
                     AppMessage::SurrogateOptDone(SurrogateOptUiResult {
                         best_params: param_names_owned.into_iter().zip(r.best_params).collect(),
                         best_value: r.best_value,
@@ -773,6 +802,8 @@ pub(crate) fn poll_chart_work(
                         minimize,
                         slice: r.slice,
                         best_observed_value: r.best_observed_value,
+                        predicted_constraints,
+                        feasibility_probability: r.feasibility_probability,
                     })
                 });
             } else if let Some(multi_opt_req) = widgets.surrogate_opt.pending_multi_optimize.take()

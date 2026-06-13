@@ -39,6 +39,9 @@ const MODEL_CHOICES: [SurrogateModelKind; 5] = [
     SurrogateModelKind::Lgbm,
 ];
 
+/// Model コンボの "Auto" エントリのラベル。
+const AUTO_MODEL_LABEL: &str = "Auto (cross-validated)";
+
 /// 最適化手法の選択肢（コンボ表示順）。
 const OPTIMIZER_CHOICES: [OptimizerKind; 4] = [
     OptimizerKind::MultiStartLbfgs,
@@ -103,7 +106,16 @@ fn trained_matches(
         .get(state.selected_objective)
         .map(|s| s.as_str())
         .unwrap_or("");
-    trained.objective_name == selected_obj && trained.model_kind == state.model
+    if trained.objective_name != selected_obj {
+        return false;
+    }
+    // Auto モードでは具体的なモデル種別は core が選ぶため、model_kind ではなく
+    // 「Auto で学習されたか（model_selection が Some）」で一致を判定する。
+    if state.auto_select {
+        trained.model_selection.is_some()
+    } else {
+        trained.model_selection.is_none() && trained.model_kind == state.model
+    }
 }
 
 /// 多目的学習済みモデル群が現在の UI 選択（モデル・目的集合）と一致するか判定する。
@@ -125,6 +137,8 @@ pub(crate) fn multi_trained_matches(
 
 /// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
 /// `obj_history` は現在の結果が参照する目的列の全値（trial 順）。プロット用。
+/// `constraint_col_names` は制約列名（制約付き Study のみ非空）。
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -133,6 +147,7 @@ pub fn show(
     cmap: ColorMap,
     trial_count: usize,
     obj_history: Option<&[f64]>,
+    constraint_col_names: &[String],
 ) {
     // ── 全幅前段: 数値パラメータ無し ──────────────────────────────
     if param_names.is_empty() {
@@ -218,7 +233,7 @@ pub fn show(
                 if state.multi_objective {
                     render_fit_column_multi(ui, state, obj_names, busy);
                 } else {
-                    render_fit_column(ui, state, obj_names, busy);
+                    render_fit_column(ui, state, obj_names, busy, constraint_col_names);
                 }
             },
         );
@@ -261,6 +276,7 @@ fn render_fit_column(
     state: &mut SurrogateOptState,
     obj_names: &[String],
     busy: bool,
+    constraint_col_names: &[String],
 ) {
     // ── 1段目: 目的・モデル ──────────────────────────────────────
     ui.horizontal(|ui| {
@@ -284,14 +300,42 @@ fn render_fit_column(
     });
     ui.horizontal(|ui| {
         ui.label("Model:");
+        let selected_text = if state.auto_select {
+            AUTO_MODEL_LABEL
+        } else {
+            model_label(state.model)
+        };
         egui::ComboBox::from_id_salt("surrogate_model")
-            .selected_text(model_label(state.model))
+            .selected_text(selected_text)
             .show_ui(ui, |ui| {
+                // 先頭に Auto（交差検証で自動選択）。選ぶと auto_select = true。
+                if ui
+                    .selectable_label(state.auto_select, AUTO_MODEL_LABEL)
+                    .clicked()
+                {
+                    state.auto_select = true;
+                }
+                // 具体的なモデルを選ぶと auto_select = false かつその kind に設定。
                 for kind in MODEL_CHOICES {
-                    ui.selectable_value(&mut state.model, kind, model_label(kind));
+                    let selected = !state.auto_select && state.model == kind;
+                    if ui.selectable_label(selected, model_label(kind)).clicked() {
+                        state.auto_select = false;
+                        state.model = kind;
+                    }
                 }
             });
     });
+
+    // ── 制約チェックボックス（制約付き Study のみ表示） ──────────
+    let n_constraints = constraint_col_names.len();
+    if n_constraints > 0 {
+        ui.horizontal(|ui| {
+            ui.checkbox(
+                &mut state.use_constraints,
+                format!("Use constraints ({})", n_constraints),
+            );
+        });
+    }
 
     // ── 2段目: Fit & Validate ────────────────────────────────────
     let can_fit = !busy && !obj_names.is_empty();
@@ -304,6 +348,8 @@ fn render_fit_column(
             state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
+                auto_select: state.auto_select,
+                use_constraints: n_constraints > 0 && state.use_constraints,
             });
         }
     }
@@ -454,7 +500,13 @@ fn render_optimize_column(
         return;
     };
 
-    render_result(ui, result, cmap, obj_history);
+    render_result(
+        ui,
+        result,
+        cmap,
+        obj_history,
+        &mut state.show_slice_uncertainty,
+    );
 
     // ── Suggest next trials セクション ──────────────────────────────
     // 単目的・GP 系モデルのみ表示する。
@@ -608,6 +660,12 @@ fn render_optimize_column_multi(
 fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let v = &trained.validation;
     ui.add_space(4.0);
+
+    // ── Auto 選択の経緯（Auto フィット時のみ表示） ────────────────
+    if let Some(selection) = trained.model_selection.as_ref() {
+        render_model_selection(ui, selection);
+    }
+
     ui.strong(format!(
         "Model validation — {} on {}",
         model_label(trained.model_kind),
@@ -647,8 +705,108 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let (verdict_text, verdict_color) = verdict(v.cv_r2_mean);
     ui.colored_label(verdict_color, verdict_text);
 
+    // ── パラメータ重要度（ARD）─ GP 系のみ ────────────────────────
+    if let Some(importance) = trained.param_importance.as_ref() {
+        render_param_importance(ui, &trained.param_names, importance);
+    }
+
     // predicted-vs-actual 散布図。
     render_oof_plot(ui, v, "single", false);
+}
+
+/// Auto モデル選択の経緯を表示する。「Auto selected: <chosen>」見出しと、候補ごとの
+/// CV R² を降順に並べたコンパクトな表を出す（フィット／検証に失敗した候補は "—"）。
+fn render_model_selection(
+    ui: &mut egui::Ui,
+    selection: &tunny_core::surrogate_opt::ModelSelectionReport,
+) {
+    ui.strong(format!(
+        "Auto selected: {}",
+        model_label(selection.chosen)
+    ))
+    .on_hover_text(
+        "候補モデルを交差検証し、CV R² が最も高いものを自動選択しました（同点は単純なモデルを優先）。",
+    );
+
+    // 候補を CV R² の降順に並べる（失敗候補 = NEG_INFINITY は末尾）。
+    let mut rows: Vec<(SurrogateModelKind, f64)> = selection.scores.clone();
+    rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    egui::Grid::new("surrogate_model_selection")
+        .striped(true)
+        .min_col_width(80.0)
+        .show(ui, |ui| {
+            ui.strong("Candidate");
+            ui.strong("CV R²");
+            ui.end_row();
+            for (kind, score) in rows {
+                // 選ばれた候補を強調する。
+                if kind == selection.chosen {
+                    ui.strong(model_label(kind));
+                } else {
+                    ui.label(model_label(kind));
+                }
+                if score.is_finite() {
+                    ui.monospace(format!("{:.3}", score));
+                } else {
+                    // フィット／検証に失敗した候補。
+                    ui.monospace("—");
+                }
+                ui.end_row();
+            }
+        });
+    ui.add_space(4.0);
+}
+
+/// ARD 長さスケール由来のパラメータ重要度を水平バーリストで表示する。
+/// `importance[i]` は `param_names[i]` に対応し、合計 1.0（0..1 の相対感度）。
+fn render_param_importance(ui: &mut egui::Ui, param_names: &[String], importance: &[f64]) {
+    if importance.is_empty() {
+        return;
+    }
+    ui.add_space(6.0);
+    ui.strong("Parameter importance (ARD)")
+        .on_hover_text(
+            "正規化入力 [0,1] 上での GP 長さスケールから算出した相対感度。値が大きいほどその変数に曲面が敏感。",
+        );
+
+    // バーの最大幅。最大重要度を満幅に揃えると差が見やすい。
+    let max_imp = importance
+        .iter()
+        .cloned()
+        .filter(|v| v.is_finite())
+        .fold(0.0_f64, f64::max)
+        .max(f64::EPSILON);
+    let bar_color = egui::Color32::from_rgb(59, 130, 246); // blue-500
+
+    egui::Grid::new("surrogate_param_importance")
+        .striped(true)
+        .min_col_width(80.0)
+        .show(ui, |ui| {
+            for (i, &imp) in importance.iter().enumerate() {
+                let name = param_names.get(i).map(|s| s.as_str()).unwrap_or("?");
+                ui.label(name);
+
+                // バー（重要度に比例した幅）。
+                let frac = if imp.is_finite() {
+                    (imp / max_imp).clamp(0.0, 1.0) as f32
+                } else {
+                    0.0
+                };
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(100.0, 12.0), egui::Sense::hover());
+                let painter = ui.painter_at(rect);
+                painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+                let fill = egui::Rect::from_min_size(
+                    rect.min,
+                    egui::vec2(rect.width() * frac, rect.height()),
+                );
+                painter.rect_filled(fill, 2.0, bar_color);
+
+                ui.monospace(format!("{:.1}%", imp * 100.0));
+                ui.end_row();
+            }
+        });
 }
 
 /// 多目的検証サマリをコンパクトに表示する（目的ごとに 1 行）。
@@ -805,6 +963,7 @@ fn render_result(
     result: &SurrogateOptUiResult,
     cmap: ColorMap,
     obj_history: Option<&[f64]>,
+    show_slice_uncertainty: &mut bool,
 ) {
     let direction = if result.minimize {
         "minimize"
@@ -876,6 +1035,42 @@ fn render_result(
         ui.add_space(6.0);
     }
 
+    // ── 実行可能性（制約ありのとき表示） ─────────────────────────────
+    if let Some(p_feas) = result.feasibility_probability {
+        ui.add_space(4.0);
+        let pct = (p_feas * 100.0).round() as u32;
+        let color = if p_feas >= 0.8 {
+            egui::Color32::from_rgb(22, 163, 74) // green-600
+        } else if p_feas >= 0.5 {
+            egui::Color32::from_rgb(202, 138, 4) // amber-600
+        } else {
+            egui::Color32::RED
+        };
+        ui.colored_label(color, format!("P(feasible): {}%", pct));
+
+        if !result.predicted_constraints.is_empty() {
+            egui::Grid::new("surrogate_predicted_constraints")
+                .striped(true)
+                .min_col_width(80.0)
+                .show(ui, |ui| {
+                    ui.strong("Constraint");
+                    ui.strong("Predicted");
+                    ui.end_row();
+                    for (name, val) in &result.predicted_constraints {
+                        ui.label(name);
+                        let feasible = *val <= 0.0;
+                        let cell_color = if feasible {
+                            egui::Color32::from_rgb(22, 163, 74)
+                        } else {
+                            egui::Color32::RED
+                        };
+                        ui.colored_label(cell_color, format!("{:.6}", val));
+                        ui.end_row();
+                    }
+                });
+        }
+    }
+
     // ── 推定最適点のパラメータ値テーブル ────────────────────────────
     ui.add_space(4.0);
     egui::Grid::new("surrogate_best_params")
@@ -912,13 +1107,24 @@ fn render_result(
         px_name.0, py_name.0
     ));
 
+    // 予測標準偏差オーバーレイのトグル（GP 系で z_std が利用可能なときのみ）。
+    // PDP 2D の "95% CI" トグルと同じ操作感。既定は off。
+    let has_std = slice.z_std.as_ref().is_some_and(|g| !g.is_empty());
+    if has_std {
+        ui.checkbox(show_slice_uncertainty, "Show uncertainty (±σ)")
+            .on_hover_text(
+                "予測標準偏差が大きい領域を半透明グレーで重ね、サロゲートが不確実な箇所を示します。",
+            );
+    }
+    let overlay_std = has_std && *show_slice_uncertainty;
+
     let best_x_val = px_name.1;
     let best_y_val = py_name.1;
     let marker_params = vec![
         (slice.param_x_idx, best_x_val),
         (slice.param_y_idx, best_y_val),
     ];
-    draw_slice_heatmap(ui, slice, &marker_params, cmap);
+    draw_slice_heatmap(ui, slice, &marker_params, cmap, overlay_std);
 }
 
 /// ヒートマップスライスの描画ヘルパー（単目的・多目的で共通）。
@@ -929,6 +1135,7 @@ fn draw_slice_heatmap(
     slice: &tunny_core::surrogate_opt::SurfaceSlice,
     marker_points: &[(usize, f64)],
     cmap: ColorMap,
+    overlay_std: bool,
 ) {
     let nx = slice.x_values.len();
     let ny = slice.y_values.len();
@@ -950,6 +1157,14 @@ fn draw_slice_heatmap(
         .map(|r| (0..nx).map(|c| slice.z_values[c][ny - 1 - r]).collect())
         .collect();
     draw_heatmap(&painter, rect, &display, cmap.clone());
+
+    // 予測標準偏差オーバーレイ: σ が大きいセルほど半透明グレーを濃く重ねて、
+    // サロゲートが不確実な領域を「色あせ」させる（最も軽量な可視化）。
+    if overlay_std {
+        if let Some(std_grid) = slice.z_std.as_ref() {
+            draw_std_overlay(&painter, rect, std_grid, ny, nx);
+        }
+    }
 
     // マーカー描画: marker_points から x/y 値を取り出して射影する。
     let (x_min, x_max) = (slice.x_values[0], slice.x_values[nx - 1]);
@@ -978,6 +1193,70 @@ fn draw_slice_heatmap(
         egui::vec2(16.0, rect.height()),
     );
     draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap);
+}
+
+/// 予測標準偏差グリッドを、ヒートマップ上に半透明グレーのセルとして重ねる。
+///
+/// `std_grid[i][j]` は core 規約（z[i][j] = f(x_i, y_j)）と同形状なので、表示向きは
+/// `draw_slice_heatmap` と同じく disp[r][c] = std[c][ny-1-r] に並べ替える。各セルの
+/// 不透明度はグリッド内の最大 σ で正規化した相対値（最大 ~0.55）で、σ が大きいほど
+/// 元の色を覆い隠して不確実さを表す。`alpha_cell` はその領域の正規化 σ を返す純粋関数。
+fn draw_std_overlay(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    std_grid: &[Vec<f64>],
+    ny: usize,
+    nx: usize,
+) {
+    // グリッド内の最大 σ（有限・正のもの）を求める。すべて 0/非有限なら描画しない。
+    let max_std = std_grid
+        .iter()
+        .flatten()
+        .filter(|v| v.is_finite())
+        .cloned()
+        .fold(0.0_f64, f64::max);
+    // 全セルが 0 / 非有限なら（fold の初期値 0 のまま）重ねる意味がない。
+    if max_std <= 0.0 {
+        return;
+    }
+
+    let cell_w = rect.width() / nx as f32;
+    let cell_h = rect.height() / ny as f32;
+    for r in 0..ny {
+        for c in 0..nx {
+            // 表示向き（上 = param_y 最大）に合わせて core グリッドから取り出す。
+            let std = std_grid
+                .get(c)
+                .and_then(|col| col.get(ny - 1 - r))
+                .copied()
+                .unwrap_or(0.0);
+            let alpha = std_overlay_alpha(std, max_std);
+            if alpha == 0 {
+                continue;
+            }
+            let cell_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.left() + c as f32 * cell_w,
+                    rect.top() + r as f32 * cell_h,
+                ),
+                egui::vec2(cell_w + 1.0, cell_h + 1.0),
+            );
+            painter.rect_filled(
+                cell_rect,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(128, 128, 128, alpha),
+            );
+        }
+    }
+}
+
+/// 正規化 σ（std / max_std）から半透明グレーのアルファ値（0..=140）を返す純粋関数。
+fn std_overlay_alpha(std: f64, max_std: f64) -> u8 {
+    if !std.is_finite() || max_std <= 0.0 {
+        return 0;
+    }
+    let t = (std / max_std).clamp(0.0, 1.0);
+    (t * 140.0).round() as u8
 }
 
 /// 多目的最適化の結果を表示する。
@@ -1253,11 +1532,19 @@ fn render_suggest_result(
                 .min_col_width(60.0)
                 .show(ui, |ui| {
                     // ── ヘッダ行 ──────────────────────────────────────
+                    let has_feas = result
+                        .candidates
+                        .first()
+                        .map(|c| c.feasibility_probability.is_some())
+                        .unwrap_or(false);
                     for name in &result.param_names {
                         ui.strong(name);
                     }
                     ui.strong("Predicted");
                     ui.strong("Std");
+                    if has_feas {
+                        ui.strong("P(feas)");
+                    }
                     ui.strong("Acq. score");
                     ui.end_row();
 
@@ -1271,6 +1558,24 @@ fn render_suggest_result(
                             Some(std) => ui.monospace(format!("±{:.6}", std)),
                             None => ui.label("—"),
                         };
+                        if has_feas {
+                            match c.feasibility_probability {
+                                Some(p) => {
+                                    let pct = (p * 100.0).round() as u32;
+                                    let color = if p >= 0.8 {
+                                        egui::Color32::from_rgb(22, 163, 74)
+                                    } else if p >= 0.5 {
+                                        egui::Color32::from_rgb(202, 138, 4)
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.colored_label(color, format!("{}%", pct));
+                                }
+                                None => {
+                                    ui.label("—");
+                                }
+                            };
+                        }
                         ui.monospace(format!("{:.4e}", c.acq_score));
                         ui.end_row();
                     }
@@ -1321,10 +1626,27 @@ mod tests {
             minimize: true,
             slice,
             best_observed_value: 0.05,
+            predicted_constraints: vec![],
+            feasibility_probability: None,
         }
     }
 
     // ── improvement_delta のユニットテスト ────────────────────────────
+
+    #[test]
+    fn std_overlay_alpha_scales_with_normalized_std() {
+        // σ = 0 → 完全透明
+        assert_eq!(std_overlay_alpha(0.0, 2.0), 0);
+        // σ = max → 最大アルファ（140）
+        assert_eq!(std_overlay_alpha(2.0, 2.0), 140);
+        // σ = max/2 → 約半分
+        assert_eq!(std_overlay_alpha(1.0, 2.0), 70);
+        // max_std <= 0 や非有限 → 0（描画しない）
+        assert_eq!(std_overlay_alpha(1.0, 0.0), 0);
+        assert_eq!(std_overlay_alpha(f64::NAN, 2.0), 0);
+        // σ > max でもクランプされる
+        assert_eq!(std_overlay_alpha(5.0, 2.0), 140);
+    }
 
     #[test]
     fn improvement_delta_minimize_positive() {
@@ -1376,6 +1698,8 @@ mod tests {
             state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
+                auto_select: state.auto_select,
+                use_constraints: false,
             });
         }
 
@@ -1507,6 +1831,8 @@ mod tests {
             param_names: vec!["x".to_string(), "y".to_string()],
             objective_name: obj_name.to_string(),
             model,
+            auto_select: false,
+            constraints: vec![],
         };
         tunny_core::surrogate_opt::fit_surrogate_with_validation(&req)
             .expect("dummy fit should succeed")

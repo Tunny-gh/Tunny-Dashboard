@@ -49,7 +49,13 @@ impl SurfacePlotState {
 // ── Surrogate Optimizer 計算リクエスト（フィット段階） ──────────
 pub struct SurrogateFitComputeRequest {
     pub objective: String,
+    /// `auto_select = false` のときに使う具体的なモデル種別。Auto のときは無視される
+    /// プレースホルダ（core 側が CV で選び直す）。
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    /// true のとき core が `AUTO_CANDIDATES` を交差検証して最良モデルを自動選択する。
+    pub auto_select: bool,
+    /// 制約を使用するか（true のとき制約列を ConstraintData に詰めて渡す）。
+    pub use_constraints: bool,
 }
 
 // ── Surrogate Optimizer 計算リクエスト（最適化段階） ────────────
@@ -86,6 +92,9 @@ pub struct SurrogateMultiOptimizeComputeRequest {
 pub struct SurrogateOptState {
     pub selected_objective: usize,
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    /// true のとき Model コンボで "Auto (cross-validated)" が選択されている。
+    /// この場合 `model` はプレースホルダ扱いとなり、core が CV で最良モデルを選ぶ。
+    pub auto_select: bool,
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
     pub slice_x: String,
     pub slice_y: String,
@@ -113,6 +122,8 @@ pub struct SurrogateOptState {
     pub multi_slice_objective: usize,
     /// 多目的検証表示で選択中の目的インデックス（OOF プロット対象）。
     pub multi_validation_objective: usize,
+    /// 制約を使用するか（制約付き Study のみ UI に表示; true = 制約を渡す）。
+    pub use_constraints: bool,
     // ── 獲得関数による候補提案 ──────────────────────────────────
     /// 選択中の獲得関数。
     pub acq_kind: tunny_core::surrogate_opt::AcquisitionKind,
@@ -124,6 +135,8 @@ pub struct SurrogateOptState {
     pub pending_suggest: Option<SurrogateSuggestComputeRequest>,
     /// 候補提案の結果。
     pub suggest_result: Option<crate::state::messages::SurrogateSuggestUiResult>,
+    /// 応答曲面スライスに予測標準偏差（±σ）を重ねて表示するか（GP 系のみ。既定 off）。
+    pub show_slice_uncertainty: bool,
 }
 
 impl Default for SurrogateOptState {
@@ -131,6 +144,7 @@ impl Default for SurrogateOptState {
         Self {
             selected_objective: 0,
             model: tunny_core::surrogate_opt::SurrogateModelKind::GpFitc,
+            auto_select: false,
             optimizer: tunny_core::surrogate_opt::OptimizerKind::MultiStartLbfgs,
             slice_x: String::new(),
             slice_y: String::new(),
@@ -148,11 +162,13 @@ impl Default for SurrogateOptState {
             multi_result: None,
             multi_slice_objective: 0,
             multi_validation_objective: 0,
+            use_constraints: true,
             acq_kind: tunny_core::surrogate_opt::AcquisitionKind::ExpectedImprovement,
             n_suggest_candidates: 3,
             suggesting: false,
             pending_suggest: None,
             suggest_result: None,
+            show_slice_uncertainty: false,
         }
     }
 }
