@@ -399,6 +399,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
         model: SurrogateModelKind::GpFitc,
         auto_select: false,
         constraints: vec![],
+        priority_rows: vec![],
     };
     let trained = fit_surrogate_with_validation(&fit_req)
         .expect("fit_surrogate_with_validation should succeed");
@@ -462,6 +463,7 @@ fn param_importance_reflects_ard_for_gp_and_none_for_others() {
             model,
             auto_select: false,
             constraints: vec![],
+            priority_rows: vec![],
         };
         fit_surrogate_with_validation(&req).expect("fit should succeed")
     };
@@ -790,6 +792,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         model: SurrogateModelKind::GpFitc,
         auto_select: false,
         constraints: vec![],
+        priority_rows: vec![],
     })
     .expect("fit f1 should succeed");
     let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
@@ -800,6 +803,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         model: SurrogateModelKind::GpFitc,
         auto_select: false,
         constraints: vec![],
+        priority_rows: vec![],
     })
     .expect("fit f2 should succeed");
     (t1, t2)
@@ -912,6 +916,115 @@ fn staged_multi_opt_matches_one_shot_result() {
 }
 
 // ────────────────────────────────────────────────────────────
+// fit_multi_surrogates（パレートフロント集中）
+// ────────────────────────────────────────────────────────────
+
+#[test]
+fn fit_multi_surrogates_runs_end_to_end_and_is_deterministic() {
+    // N=160 (> 100 で誘導点選択が走る) の 2 目的トレードオフ問題。
+    // GpFitc で 2 モデルを学習 → 予測が有限 → NSGA-II でフロントが非空 → 決定論的。
+    let (x_matrix, f1, f2) = schaffer_samples(160);
+    let param_names = vec!["x0".to_string(), "x1".to_string()];
+    let objective_names = vec!["f1".to_string(), "f2".to_string()];
+    let minimize = vec![true, true];
+    let objective_values = vec![f1, f2];
+
+    let trained = fit_multi_surrogates(
+        &x_matrix,
+        &objective_values,
+        &param_names,
+        &objective_names,
+        SurrogateModelKind::GpFitc,
+        &minimize,
+    )
+    .expect("fit_multi_surrogates should succeed");
+    assert_eq!(trained.len(), 2, "should return 2 trained models");
+    for t in &trained {
+        assert!(t.validation.train_r2.is_finite());
+        // 学習データ点で予測が有限。
+        let pred: Vec<f64> = t
+            .x_matrix
+            .iter()
+            .map(|row| {
+                let norm = t.surrogate.to_norm_x(row);
+                t.surrogate.to_original_y(t.surrogate.predict_norm(&norm))
+            })
+            .collect();
+        assert!(pred.iter().all(|v| v.is_finite()));
+    }
+
+    // optimize_multi_on_trained で非空フロントが得られる。
+    let refs: Vec<&TrainedSurrogate> = trained.iter().collect();
+    let spec = SurrogateMultiOptimizeSpec {
+        minimize: minimize.clone(),
+        slice_params: None,
+        n_grid: 10,
+    };
+    let result = optimize_multi_on_trained(&refs, &spec).expect("multi optimize should succeed");
+    assert!(!result.front.is_empty(), "front should be non-empty");
+    assert!(result
+        .front
+        .iter()
+        .all(|p| p.values.iter().all(|v| v.is_finite())));
+
+    // 決定論的: 2 回学習して同一フロントが得られる。
+    let trained2 = fit_multi_surrogates(
+        &x_matrix,
+        &objective_values,
+        &param_names,
+        &objective_names,
+        SurrogateModelKind::GpFitc,
+        &minimize,
+    )
+    .expect("second fit should succeed");
+    let refs2: Vec<&TrainedSurrogate> = trained2.iter().collect();
+    let result2 = optimize_multi_on_trained(&refs2, &spec).expect("second optimize");
+    assert_eq!(
+        result.front.len(),
+        result2.front.len(),
+        "front sizes should match across runs"
+    );
+    for (a, b) in result.front.iter().zip(result2.front.iter()) {
+        for (va, vb) in a.values.iter().zip(b.values.iter()) {
+            assert!((va - vb).abs() < 1e-9, "front should be deterministic");
+        }
+    }
+}
+
+#[test]
+fn fit_multi_surrogates_validates_lengths() {
+    let (x_matrix, f1, f2) = schaffer_samples(20);
+    // objective_names の長さ不一致。
+    // TrainedSurrogate は Debug 非実装のため unwrap_err は使えない。match で取り出す。
+    let err = match fit_multi_surrogates(
+        &x_matrix,
+        &[f1.clone(), f2.clone()],
+        &["x0".to_string(), "x1".to_string()],
+        &["f1".to_string()], // 不一致
+        SurrogateModelKind::GpFitc,
+        &[true, true],
+    ) {
+        Ok(_) => panic!("expected length-mismatch error"),
+        Err(e) => e,
+    };
+    assert!(err.contains("equal length"), "unexpected error: {err}");
+
+    // 目的列の長さが x_matrix 行数と不一致。
+    let err2 = match fit_multi_surrogates(
+        &x_matrix,
+        &[f1, vec![0.0; 5]],
+        &["x0".to_string(), "x1".to_string()],
+        &["f1".to_string(), "f2".to_string()],
+        SurrogateModelKind::GpFitc,
+        &[true, true],
+    ) {
+        Ok(_) => panic!("expected length-mismatch error"),
+        Err(e) => e,
+    };
+    assert!(err2.contains("does not match"), "unexpected error: {err2}");
+}
+
+// ────────────────────────────────────────────────────────────
 // LightGBM サロゲートのテスト
 // ────────────────────────────────────────────────────────────
 
@@ -928,6 +1041,7 @@ fn lgbm_fit_validate_and_optimize_finds_minimum_region() {
         model: SurrogateModelKind::Lgbm,
         auto_select: false,
         constraints: vec![],
+        priority_rows: vec![],
     })
     .expect("LGBM fit & validation should succeed");
 
@@ -1000,6 +1114,7 @@ fn constrained_fit_req(x_matrix: Vec<Vec<f64>>, y: Vec<f64>, c: Vec<f64>) -> Sur
             name: "c1".to_string(),
             values: c,
         }],
+        priority_rows: vec![],
     }
 }
 
@@ -1156,6 +1271,7 @@ fn suggest_candidates_unconstrained_p_feas_none() {
         model: SurrogateModelKind::GpFitc,
         auto_select: false,
         constraints: vec![],
+        priority_rows: vec![],
     };
     let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
     let candidates = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
@@ -1273,6 +1389,7 @@ fn fit_surrogate_with_validation_auto_select_end_to_end() {
         model: SurrogateModelKind::Ridge,
         auto_select: true,
         constraints: vec![],
+        priority_rows: vec![],
     };
     let trained = fit_surrogate_with_validation(&req).expect("auto fit should succeed");
 

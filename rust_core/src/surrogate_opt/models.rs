@@ -150,21 +150,34 @@ pub(crate) fn fit_surrogate(
     x_matrix: &[Vec<f64>],
     y: &[f64],
 ) -> Result<FittedSurrogate, String> {
+    // 優先行なしで一様誘導点（従来動作）にデリゲートする。
+    fit_surrogate_with_priority(kind, x_matrix, y, &[])
+}
+
+/// `fit_surrogate` と同じだが、GP 系では `priority`（誘導点として優先する行 index）を
+/// パレートフロント等に集中させて学習する。N > GP の誘導点上限のときのみ効果がある。
+/// Ridge / LightGBM は `priority` を無視する。
+pub(crate) fn fit_surrogate_with_priority(
+    kind: SurrogateModelKind,
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    priority: &[usize],
+) -> Result<FittedSurrogate, String> {
     let (col_stats, x_norm) = normalize_x_minmax(x_matrix);
     let (y_mean, y_std, y_norm) = normalize_y(y);
 
     let model = match kind {
         SurrogateModelKind::Ridge => fit_ridge(&x_norm, &y_norm)?,
         SurrogateModelKind::GpFitc => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, GpMethod::Fitc, 100, 42)
+            GpModel::fit_front_focused(&x_norm, &y_norm, GpMethod::Fitc, 100, 42, priority)
                 .ok_or("GP-FITC training failed")?,
         )),
         SurrogateModelKind::GpVfe => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, GpMethod::Vfe, 100, 42)
+            GpModel::fit_front_focused(&x_norm, &y_norm, GpMethod::Vfe, 100, 42, priority)
                 .ok_or("GP-VFE training failed")?,
         )),
         SurrogateModelKind::GpMoe => FittedModel::Gp(Box::new(
-            GpModel::fit(&x_norm, &y_norm, GpMethod::Moe, 100, 42)
+            GpModel::fit_front_focused(&x_norm, &y_norm, GpMethod::Moe, 100, 42, priority)
                 .ok_or("GP-MOE training failed")?,
         )),
         SurrogateModelKind::Lgbm => FittedModel::Lgbm(Mutex::new(

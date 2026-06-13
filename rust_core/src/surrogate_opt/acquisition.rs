@@ -473,6 +473,7 @@ mod tests {
             model: SurrogateModelKind::GpFitc,
             auto_select: false,
             constraints: vec![],
+            priority_rows: vec![],
         })
         .expect("fit should succeed")
     }
@@ -578,6 +579,7 @@ mod tests {
             model: SurrogateModelKind::Ridge,
             auto_select: false,
             constraints: vec![],
+            priority_rows: vec![],
         })
         .expect("ridge fit should succeed");
 

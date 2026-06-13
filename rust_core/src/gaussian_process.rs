@@ -91,6 +91,34 @@ impl GpModel {
         max_inducing: usize,
         seed: u64,
     ) -> Option<Self> {
+        // 優先行なし（priority = &[]）で従来どおりの一様誘導点選択にデリゲートする。
+        Self::fit_impl(x, y, method, max_inducing, seed, &[])
+    }
+
+    /// パレートフロント等の優先行に誘導点を集中させて学習する。
+    ///
+    /// `priority` は誘導点として優先する行 index（`x` への index）。N > max_inducing の
+    /// ときのみ効果がある（N ≤ max_inducing では Z = X で全点を使うため変化しない）。
+    pub(crate) fn fit_front_focused(
+        x: &[Vec<f64>],
+        y: &[f64],
+        method: GpMethod,
+        max_inducing: usize,
+        seed: u64,
+        priority: &[usize],
+    ) -> Option<Self> {
+        Self::fit_impl(x, y, method, max_inducing, seed, priority)
+    }
+
+    /// `fit` / `fit_front_focused` の共通実装。`priority` を誘導点選択に通す。
+    fn fit_impl(
+        x: &[Vec<f64>],
+        y: &[f64],
+        method: GpMethod,
+        max_inducing: usize,
+        seed: u64,
+        priority: &[usize],
+    ) -> Option<Self> {
         let n = y.len();
         let n_dims = x.first()?.len();
         if n < 3 || x.len() != n || n_dims == 0 || max_inducing == 0 {
@@ -103,18 +131,11 @@ impl GpModel {
         let x_arr = Array2::from_shape_fn((n, n_dims), |(i, d)| x[i][d]);
         let y_arr = Array1::from_iter(y.iter().copied());
 
-        // 誘導点: N ≤ M なら訓練点そのもの（Z = X）、それ以外は k-means 中心。
+        // 誘導点: N ≤ M なら訓練点そのもの（Z = X）、それ以外は priority を考慮して選ぶ。
         let z = if n <= max_inducing {
             x_arr.clone()
         } else {
-            let flat: Vec<f64> = x.iter().flatten().copied().collect();
-            let result = run_kmeans(max_inducing, &flat, n_dims, InitStrategy::KMeansPlusPlus);
-            if result.centroids.is_empty() {
-                return None;
-            }
-            Array2::from_shape_fn((result.centroids.len(), n_dims), |(j, d)| {
-                result.centroids[j][d]
-            })
+            select_inducing_points(x, n_dims, max_inducing, priority, seed)?
         };
 
         let inner = match method {
@@ -278,6 +299,91 @@ impl GpModel {
             GpInner::Moe(_) => None,
         }
     }
+}
+
+/// 2 点が全次元で一致するか（誘導点の重複判定用、厳密一致）。
+fn rows_equal(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x == y)
+}
+
+/// N > max_inducing のときの誘導点を構築する（純粋・テスト可能）。
+///
+/// `priority` はパレートフロント等で優先する行 index。重複・範囲外は除去する。
+/// 三つの場合に分かれる:
+/// - P が空: 全行に対する k-means(max_inducing)（従来動作）。
+/// - |P| ≥ max_inducing: 優先行のみに対する k-means(max_inducing)（フロントに完全集中）。
+/// - 0 < |P| < max_inducing: 優先行を全て誘導点に採用し、残り枠を非優先行の
+///   k-means で埋める（空間を粗くカバー）。非優先 centroid が優先点と一致する
+///   場合は重複除去するため、最終個数が max_inducing をわずかに下回ることがある。
+///
+/// 戻り値は (誘導点数, n_dims) の column-major 互換 `Array2`。失敗時は `None`。
+fn select_inducing_points(
+    x: &[Vec<f64>],
+    n_dims: usize,
+    max_inducing: usize,
+    priority: &[usize],
+    seed: u64,
+) -> Option<Array2<f64>> {
+    let n = x.len();
+    let _ = seed; // k-means は固定シード相当（決定論的）。署名統一のため受け取る。
+
+    // 優先行を重複・範囲外除去して一意な点として取り出す。
+    let mut priority_rows: Vec<usize> = Vec::new();
+    let mut seen = vec![false; n];
+    for &idx in priority {
+        if idx < n && !seen[idx] {
+            seen[idx] = true;
+            priority_rows.push(idx);
+        }
+    }
+
+    // 全行 k-means のヘルパ（従来動作）。
+    let kmeans_over = |rows: &[Vec<f64>], k: usize| -> Option<Vec<Vec<f64>>> {
+        if rows.is_empty() || k == 0 {
+            return None;
+        }
+        let flat: Vec<f64> = rows.iter().flatten().copied().collect();
+        let result = run_kmeans(k, &flat, n_dims, InitStrategy::KMeansPlusPlus);
+        if result.centroids.is_empty() {
+            None
+        } else {
+            Some(result.centroids)
+        }
+    };
+
+    let centroids: Vec<Vec<f64>> = if priority_rows.is_empty() {
+        // P が空: 従来動作（全行 k-means）。
+        kmeans_over(x, max_inducing)?
+    } else if priority_rows.len() >= max_inducing {
+        // |P| ≥ M: 優先行のみに対する k-means でフロントに完全集中。
+        let p_points: Vec<Vec<f64>> = priority_rows.iter().map(|&i| x[i].clone()).collect();
+        kmeans_over(&p_points, max_inducing)?
+    } else {
+        // 0 < |P| < M: 優先行を全採用し、残りを非優先行の k-means で補う。
+        let mut points: Vec<Vec<f64>> = priority_rows.iter().map(|&i| x[i].clone()).collect();
+        let remaining = max_inducing - points.len();
+        let non_priority: Vec<Vec<f64>> =
+            (0..n).filter(|i| !seen[*i]).map(|i| x[i].clone()).collect();
+        if remaining > 0 {
+            if let Some(fill) = kmeans_over(&non_priority, remaining) {
+                // 優先点と一致する centroid は重複除去する（二重計上を避ける）。
+                for c in fill {
+                    if !points.iter().any(|p| rows_equal(p, &c)) {
+                        points.push(c);
+                    }
+                }
+            }
+        }
+        points
+    };
+
+    if centroids.is_empty() {
+        return None;
+    }
+    Some(Array2::from_shape_fn(
+        (centroids.len(), n_dims),
+        |(j, d)| centroids[j][d],
+    ))
 }
 
 #[cfg(test)]
@@ -501,5 +607,91 @@ mod tests {
     fn model_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<GpModel>();
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // 誘導点のフロント集中（select_inducing_points / fit_front_focused）
+    // ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn select_inducing_points_includes_priority_rows() {
+        // N=200, M=50, 優先 10 行 → 優先 10 点を含み、総数 ≤ 50。
+        let (x, _) = make_data(200, 2, 5);
+        let priority: Vec<usize> = vec![0, 3, 7, 11, 20, 33, 55, 88, 120, 199];
+        let z = select_inducing_points(&x, 2, 50, &priority, 42).expect("should select");
+        assert!(z.nrows() <= 50, "count {} should be ≤ 50", z.nrows());
+        // 優先各点が誘導点の行として（厳密一致で）存在する。
+        for &p in &priority {
+            let found = (0..z.nrows()).any(|r| (0..2).all(|d| z[[r, d]] == x[p][d]));
+            assert!(found, "priority row {p} should be an inducing point");
+        }
+        assert!(z.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn select_inducing_points_priority_exceeds_budget() {
+        // 優先 80 行 (> M=50) → 結果 ≤ 50 行、全て優先行集合の凸範囲内（k-means 制限）。
+        let (x, _) = make_data(200, 2, 9);
+        let priority: Vec<usize> = (0..80).collect();
+        let z = select_inducing_points(&x, 2, 50, &priority, 42).expect("should select");
+        assert!(z.nrows() <= 50, "count {} should be ≤ 50", z.nrows());
+        assert!(z.iter().all(|v| v.is_finite()));
+        // 各 centroid は優先行のみの k-means なので、各次元が優先行の範囲内にある。
+        for d in 0..2 {
+            let lo = priority
+                .iter()
+                .map(|&i| x[i][d])
+                .fold(f64::INFINITY, f64::min);
+            let hi = priority
+                .iter()
+                .map(|&i| x[i][d])
+                .fold(f64::NEG_INFINITY, f64::max);
+            for r in 0..z.nrows() {
+                assert!(
+                    z[[r, d]] >= lo - 1e-9 && z[[r, d]] <= hi + 1e-9,
+                    "centroid out of priority range"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn select_inducing_points_empty_priority_behaves_as_before() {
+        // 優先なし → 従来動作（全行 k-means、≤ M 行）。
+        let (x, _) = make_data(200, 2, 13);
+        let z = select_inducing_points(&x, 2, 50, &[], 42).expect("should select");
+        assert!(z.nrows() <= 50);
+        assert!(z.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn fit_front_focused_trains_and_is_deterministic() {
+        // N=150, M=50, 少数の優先行で学習・予測が有限、2 回で決定論的。
+        let (x, y) = make_data(150, 2, 21);
+        let priority: Vec<usize> = vec![0, 5, 10, 17, 42];
+        let m1 =
+            GpModel::fit_front_focused(&x, &y, GpMethod::Fitc, 50, 42, &priority).expect("fit 1");
+        let m2 =
+            GpModel::fit_front_focused(&x, &y, GpMethod::Fitc, 50, 42, &priority).expect("fit 2");
+        let probe = vec![vec![0.3, 0.7], vec![0.9, 0.1]];
+        let p1 = m1.predict_mean_batch(&probe);
+        let p2 = m2.predict_mean_batch(&probe);
+        assert!(p1.iter().all(|v| v.is_finite()));
+        assert_eq!(p1, p2, "front-focused fit should be deterministic");
+    }
+
+    #[test]
+    fn fit_front_focused_equals_fit_when_n_le_max_inducing() {
+        // N ≤ M では Z = X となり priority は無視される（fit と同一）。
+        let (x, y) = make_data(40, 2, 3);
+        let with_priority =
+            GpModel::fit_front_focused(&x, &y, GpMethod::Fitc, 100, 42, &[0, 1, 2]).expect("fit");
+        let plain = GpModel::fit(&x, &y, GpMethod::Fitc, 100, 42).expect("fit");
+        let probe = vec![vec![0.4, 0.6]];
+        assert_eq!(
+            with_priority.predict_mean_batch(&probe),
+            plain.predict_mean_batch(&probe),
+            "priority must not change result when N ≤ max_inducing"
+        );
     }
 }
