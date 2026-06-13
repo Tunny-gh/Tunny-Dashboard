@@ -14,9 +14,9 @@ use crate::ui::canvas::viewport::{items_bbox, pan_to_center};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// ミニマップの最大幅（スクリーンピクセル）
-const MAX_W: f32 = 200.0;
+const MAX_W: f32 = 100.0;
 /// ミニマップの最大高さ（スクリーンピクセル）
-const MAX_H: f32 = 150.0;
+const MAX_H: f32 = 75.0;
 /// エリア端からのマージン（スクリーンピクセル）
 const MARGIN: f32 = 12.0;
 
@@ -25,8 +25,18 @@ pub(crate) const BTN_SIZE: f32 = 28.0;
 /// フィットボタンのマージン（canvas_view.rs の BTN_MARGIN と同じ値）
 pub(crate) const BTN_MARGIN: f32 = 12.0;
 
-/// ミニマップ下端からフィットボタン上端まで離す追加隙間
-const BTN_GAP: f32 = 8.0;
+/// フィットボタン（右下）が占有する領域サイズ（スクリーンpx）。
+/// レイアウト側で右パネルのホバー開閉判定からこの隅を除外するために参照する。
+pub(crate) fn fit_button_footprint() -> egui::Vec2 {
+    let s = BTN_SIZE + BTN_MARGIN * 2.0;
+    egui::vec2(s, s)
+}
+
+/// ミニマップ（左下）が占有しうる最大領域サイズ（スクリーンpx）。
+/// レイアウト側で左パネルのホバー開閉判定からこの隅を除外するために参照する。
+pub(crate) fn minimap_footprint() -> egui::Vec2 {
+    egui::vec2(MAX_W + MARGIN * 2.0, MAX_H + MARGIN * 2.0)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 純粋計算 — ユニットテスト可能
@@ -51,7 +61,7 @@ pub(crate) struct MinimapLayout {
 /// - `world_bounds` : ミニマップが表すワールド矩形（アイテム bbox ∪ ビューポートを 5% 拡張したもの）
 ///
 /// # 配置
-/// 右下隅に配置し、フィットボタンの上に `BTN_GAP` の間隔を空ける。
+/// 左下隅に配置する（フィットボタンは右下隅のため干渉しない）。
 ///
 /// # 縮退ガード
 /// `world_bounds` の幅/高さが 0 以下の場合は scale = 1.0 / マップサイズ = MAX として扱う。
@@ -77,12 +87,11 @@ pub(crate) fn compute_minimap_layout(area: egui::Rect, world_bounds: egui::Rect)
         MAX_H
     };
 
-    // フィットボタン上端 = area.bottom() - BTN_MARGIN - BTN_SIZE
-    // ミニマップ下端 = フィットボタン上端 - BTN_GAP
-    let map_bottom = area.bottom() - BTN_MARGIN - BTN_SIZE - BTN_GAP;
-    let map_right = area.right() - MARGIN;
+    // 左下隅に配置する。
+    let map_bottom = area.bottom() - MARGIN;
+    let map_left = area.left() + MARGIN;
 
-    let map_min = egui::pos2(map_right - map_w, map_bottom - map_h);
+    let map_min = egui::pos2(map_left, map_bottom - map_h);
     let map_rect = egui::Rect::from_min_size(map_min, egui::vec2(map_w, map_h));
 
     MinimapLayout {
@@ -289,19 +298,23 @@ mod tests {
         );
     }
 
-    /// ミニマップはフィットボタンより上に配置される
+    /// ミニマップは左下隅に配置される（フィットボタンの右下とは別の隅）
     #[test]
-    fn layout_above_fit_button() {
+    fn layout_anchored_bottom_left() {
         let area = make_area();
         let wb = make_world_bounds(500.0, 300.0);
         let layout = compute_minimap_layout(area, wb);
-        let btn_top = area.bottom() - BTN_MARGIN - BTN_SIZE;
         assert!(
-            layout.map_rect.bottom() <= btn_top - BTN_GAP + f32::EPSILON,
-            "minimap bottom={} should be above btn_top={} - gap={}",
+            (layout.map_rect.left() - (area.left() + MARGIN)).abs() < f32::EPSILON,
+            "minimap left={} should be area.left()+MARGIN={}",
+            layout.map_rect.left(),
+            area.left() + MARGIN
+        );
+        assert!(
+            (layout.map_rect.bottom() - (area.bottom() - MARGIN)).abs() < f32::EPSILON,
+            "minimap bottom={} should be area.bottom()-MARGIN={}",
             layout.map_rect.bottom(),
-            btn_top,
-            BTN_GAP
+            area.bottom() - MARGIN
         );
     }
 
