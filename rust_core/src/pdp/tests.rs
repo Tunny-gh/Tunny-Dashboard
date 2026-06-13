@@ -272,7 +272,8 @@ fn tc_803_p02_pdp_2d_performance() {
 }
 
 #[test]
-fn tc_1645_01_kriging_raw_grid_shape() {
+fn tc_1645_01_gp_fitc_raw_grid_shape() {
+    use crate::gaussian_process::GpMethod;
     let n = 30;
     let x_2d: Vec<Vec<f64>> = (0..n)
         .map(|i| vec![i as f64 / n as f64, (i as f64 * 0.3).sin()])
@@ -280,8 +281,8 @@ fn tc_1645_01_kriging_raw_grid_shape() {
     let y: Vec<f64> = x_2d.iter().map(|xi| xi[0] + xi[1]).collect();
     let n_grid = 10;
 
-    let result = compute_pdp_2d_kriging_raw(&x_2d, &y, n_grid)
-        .expect("compute_pdp_2d_kriging_raw should succeed");
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Fitc)
+        .expect("compute_pdp_2d_gp_raw (FITC) should succeed");
 
     assert_eq!(
         result.x_values.len(),
@@ -307,15 +308,17 @@ fn tc_1645_01_kriging_raw_grid_shape() {
 
 #[test]
 fn tc_1645_e01_insufficient_data_returns_none() {
+    use crate::gaussian_process::GpMethod;
     let x_2d = vec![vec![0.0, 0.0], vec![0.5, 0.5]];
     let y = vec![0.0, 1.0];
 
-    let result = compute_pdp_2d_kriging_raw(&x_2d, &y, 10);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 10, GpMethod::Fitc);
     assert!(result.is_none(), "n < 3 should return None");
 }
 
 #[test]
-fn tc_1652_tc_005_02_sparse_kriging_n100_grid_shape() {
+fn tc_1652_tc_005_02_gp_fitc_n100_grid_shape() {
+    use crate::gaussian_process::GpMethod;
     let n = 100;
     let x_2d: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -326,8 +329,8 @@ fn tc_1652_tc_005_02_sparse_kriging_n100_grid_shape() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] + 0.3 * r[1]).collect();
     let n_grid = 10;
 
-    let result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, n_grid);
-    assert!(result.is_some(), "Should succeed for N=100");
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Fitc);
+    assert!(result.is_some(), "Should succeed for N=100 with FITC");
     let r = result.unwrap();
     assert_eq!(r.x_values.len(), n_grid, "x_values.len() should be n_grid");
     assert_eq!(r.y_values.len(), n_grid, "y_values.len() should be n_grid");
@@ -340,7 +343,8 @@ fn tc_1652_tc_005_02_sparse_kriging_n100_grid_shape() {
 }
 
 #[test]
-fn tc_1652_tc_005_03_fallback_when_n_lt_m() {
+fn tc_1652_tc_005_03_gp_vfe_small_n() {
+    use crate::gaussian_process::GpMethod;
     let n = 30;
     let x_2d: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -351,8 +355,8 @@ fn tc_1652_tc_005_03_fallback_when_n_lt_m() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 2.0).collect();
     let n_grid = 5;
 
-    let result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, n_grid);
-    assert!(result.is_some(), "Fallback should succeed for N=30");
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Vfe);
+    assert!(result.is_some(), "VFE should succeed for N=30");
     let r = result.unwrap();
     for row in &r.z_values {
         for &v in row {
@@ -363,7 +367,8 @@ fn tc_1652_tc_005_03_fallback_when_n_lt_m() {
 
 #[test]
 #[ignore]
-fn tc_nfr_001_01_kriging_n1000_under_10s() {
+fn tc_nfr_001_01_gp_fitc_n1000_under_10s() {
+    use crate::gaussian_process::GpMethod;
     let n = 1000;
     let x_2d: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -374,10 +379,10 @@ fn tc_nfr_001_01_kriging_n1000_under_10s() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] + 0.3 * r[1]).collect();
 
     let start = std::time::Instant::now();
-    let result = compute_pdp_2d_kriging_raw(&x_2d, &y, 50);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 50, GpMethod::Fitc);
     let elapsed = start.elapsed().as_millis();
 
-    println!("Kriging N=1000: {}ms", elapsed);
+    println!("GP-FITC N=1000: {}ms", elapsed);
     assert!(result.is_some(), "Should return Some for N=1000");
     #[cfg(not(debug_assertions))]
     assert!(
@@ -389,7 +394,8 @@ fn tc_nfr_001_01_kriging_n1000_under_10s() {
 
 #[test]
 #[ignore]
-fn tc_nfr_002_01_sparse_kriging_n5000_under_5s() {
+fn tc_nfr_002_01_gp_fitc_n5000_under_5s() {
+    use crate::gaussian_process::GpMethod;
     let n = 5000;
     let x_2d: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -400,10 +406,10 @@ fn tc_nfr_002_01_sparse_kriging_n5000_under_5s() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 2.0 + r[1] * 0.5).collect();
 
     let start = std::time::Instant::now();
-    let result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, 50);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 50, GpMethod::Fitc);
     let elapsed = start.elapsed().as_millis();
 
-    println!("Sparse Kriging N=5000: {}ms", elapsed);
+    println!("GP-FITC N=5000: {}ms", elapsed);
     assert!(result.is_some(), "Should return Some for N=5000");
     #[cfg(not(debug_assertions))]
     assert!(
@@ -414,7 +420,8 @@ fn tc_nfr_002_01_sparse_kriging_n5000_under_5s() {
 }
 
 #[test]
-fn tc_1653_01_sparse_kriging_dispatch_returns_finite_results() {
+fn tc_1653_01_gp_fitc_dispatch_returns_finite_results() {
+    use crate::gaussian_process::GpMethod;
     let n = 60;
     let x_2d: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -425,11 +432,8 @@ fn tc_1653_01_sparse_kriging_dispatch_returns_finite_results() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 1.5 + r[1] * 0.5).collect();
     let n_grid = 5;
 
-    let result = compute_pdp_2d_sparse_kriging_raw(&x_2d, &y, n_grid);
-    assert!(
-        result.is_some(),
-        "sparse_kriging dispatch should succeed for N=60"
-    );
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Fitc);
+    assert!(result.is_some(), "GP-FITC dispatch should succeed for N=60");
     let r = result.unwrap();
     assert_eq!(r.x_values.len(), n_grid);
     assert_eq!(r.y_values.len(), n_grid);

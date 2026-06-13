@@ -72,33 +72,39 @@ pub enum PdpMode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelType {
     Ridge,
-    Kriging,
-    SparseKriging,
+    GpFitc,
+    GpVfe,
+    GpMoe,
     RandomForest,
 }
 
 impl ModelType {
-    pub const ALL: [ModelType; 4] = [
+    pub const ALL: [ModelType; 5] = [
         ModelType::Ridge,
-        ModelType::Kriging,
-        ModelType::SparseKriging,
+        ModelType::GpFitc,
+        ModelType::GpVfe,
+        ModelType::GpMoe,
         ModelType::RandomForest,
     ];
 
     pub fn label(&self) -> &'static str {
         match self {
             ModelType::Ridge => "Ridge",
-            ModelType::Kriging => "Kriging",
-            ModelType::SparseKriging => "Sparse Kriging",
+            ModelType::GpFitc => "GP-FITC",
+            ModelType::GpVfe => "GP-VFE",
+            ModelType::GpMoe => "GP-MOE",
             ModelType::RandomForest => "Random Forest (LightGBM)",
         }
     }
 
+    /// Cache key string — must match the `model_type` strings accepted by
+    /// `pdp/api.rs`: "ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest".
     pub fn to_str(&self) -> &'static str {
         match self {
             ModelType::Ridge => "ridge",
-            ModelType::Kriging => "kriging",
-            ModelType::SparseKriging => "sparse_kriging",
+            ModelType::GpFitc => "gp_fitc",
+            ModelType::GpVfe => "gp_vfe",
+            ModelType::GpMoe => "gp_moe",
             ModelType::RandomForest => "random_forest",
         }
     }
@@ -338,7 +344,7 @@ impl PdpChart {
                         let n_grid = match self.model_type {
                             ModelType::Ridge => 50,
                             ModelType::RandomForest => 30,
-                            _ => 30, // Kriging is O(N²×grid); 30 keeps debug builds fast
+                            _ => 30, // GP methods are O(N²×grid); 30 keeps debug builds fast
                         };
                         self.pending_compute = Some(PdpComputeRequest {
                             param: self.selected_param.clone(),
@@ -663,8 +669,8 @@ mod tests {
 
     #[test]
     fn cache_key_different_model_produces_different_key() {
-        let k1 = cache_key("x", "obj0", "Ridge", false);
-        let k2 = cache_key("x", "obj0", "Kriging", false);
+        let k1 = cache_key("x", "obj0", "ridge", false);
+        let k2 = cache_key("x", "obj0", "gp_fitc", false);
         assert_ne!(k1, k2);
     }
 

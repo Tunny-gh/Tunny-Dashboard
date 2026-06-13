@@ -4,22 +4,27 @@ Surrogate models fit a function to the trial data, then predict the objective ac
 
 ## Model Comparison
 
-| Model         | Speed       | Nonlinear | Best for                   |
-| ------------- | ----------- | --------- | -------------------------- |
-| Ridge         | < 100 ms    | No        | Linear responses, any N    |
-| Random Forest | < 2,000 ms  | Yes       | Nonlinear / discontinuous  |
-| Kriging       | < 10,000 ms | Yes       | Smooth, N ≤ 500            |
-| Sparse Kriging| < 5,000 ms  | Yes       | Smooth, N ≤ 5,000          |
+| Model       | Speed        | Nonlinear | Best for                                        |
+| ----------- | ------------ | --------- | ----------------------------------------------- |
+| Ridge       | < 100 ms     | No        | Linear responses, any N                         |
+| Random Forest | < 2,000 ms | Yes       | Nonlinear / discontinuous                       |
+| LightGBM    | < 2,000 ms   | Yes       | Nonlinear / noisy / large N                     |
+| GP-FITC     | < 10,000 ms  | Yes       | Smooth, any N — default GP                      |
+| GP-VFE      | < 10,000 ms  | Yes       | Smooth, any N — conservative/smoother fit       |
+| GP-MOE      | < 30,000 ms  | Yes       | Discontinuous / regime-switching / multi-modal  |
+
+All GP variants (GP-FITC, GP-VFE, GP-MOE) are backed by egobox-gp / egobox-moe (Apache-2.0) and use M = min(N, 100) inducing points. When N ≤ 100 this is mathematically equivalent to an exact GP with noise estimation.
 
 ## How to Choose
 
 ```
 Response shape?
-  ├─ Linear          → Ridge (fastest)
-  ├─ Nonlinear / noisy / outliers → Random Forest
+  ├─ Linear                              → Ridge (fastest)
+  ├─ Nonlinear / noisy / tabular         → LightGBM or Random Forest
   └─ Smooth nonlinear
-       ├─ N ≤ 500    → Kriging (highest quality)
-       └─ N ≤ 5,000  → Sparse Kriging (fast + quality balance)
+       ├─ Default                        → GP-FITC
+       ├─ Surface looks overfit/spiky    → GP-VFE (smoother, more conservative)
+       └─ Discontinuous / multi-regime   → GP-MOE
 ```
 
 ## R² Interpretation

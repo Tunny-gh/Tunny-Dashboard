@@ -1,12 +1,12 @@
 //! サロゲートモデルの学習・予測ラッパ。
 //!
-//! 既存の Ridge（`sensitivity::ridge`）と Kriging / Sparse Kriging（`kriging`）を
-//! 統一インターフェースで包む。予測は正規化空間（X: min-max [0,1]、y: z-score）で行い、
+//! Ridge（`sensitivity::ridge`）、ガウス過程 3 方式（FITC / VFE / 混合エキスパート）、
+//! LightGBM を統一インターフェースで包む。予測は正規化空間（X: min-max [0,1]、y: z-score）で行い、
 //! 元の単位との変換は [`FittedSurrogate`] が担う。
 
 use std::sync::Mutex;
 
-use crate::kriging::{gaussian_process, sparse_fitc};
+use crate::gaussian_process::{GpMethod, GpModel};
 use crate::lgbm::{lgbm_predict, train_lgbm_rf, LgbmBooster, LgbmRfConfig};
 use crate::pdp::utils::{normalize_x_minmax, normalize_y, r_squared};
 use crate::sensitivity::compute_ridge_from_vecs;
@@ -17,10 +17,15 @@ use crate::sensitivity::compute_ridge_from_vecs;
 pub enum SurrogateModelKind {
     /// Ridge 回帰（線形）。高速だが曲面は平面。
     Ridge,
-    /// ガウス過程回帰（ARD Matérn 5/2）。100 点サブサンプルで学習。
-    Kriging,
-    /// FITC 近似によるスパースガウス過程回帰。大規模データ向け。
-    SparseKriging,
+    /// FITC 近似（Fully Independent Training Conditional）によるスパースガウス過程回帰。
+    /// M = min(N, 100) 誘導点を使用。N ≤ 100 では厳密 GP と等価。
+    GpFitc,
+    /// VFE 近似（Variational Free Energy）によるスパースガウス過程回帰。
+    /// FITC よりノイズを保守的に見積もる傾向がある。M = min(N, 100)。
+    GpVfe,
+    /// 混合エキスパート（クラスタごとの FITC GP を滑らかに再結合）。
+    /// 不連続・多峰応答向け。クラスタ数は交差検証で自動選択（最大 3）。
+    GpMoe,
     /// LightGBM（RandomForest モード）。非線形・非平滑な応答に強いが、
     /// 予測は区分定数のため勾配法（L-BFGS）とは相性が悪い。
     Lgbm,
@@ -35,8 +40,8 @@ pub(crate) enum FittedModel {
         col_std: Vec<f64>,
         y_norm_mean: f64,
     },
-    Gp(gaussian_process::GpModel),
-    Fitc(sparse_fitc::SparseFitcModel),
+    /// egobox-gp バックエンドによるガウス過程（FITC / VFE / MoE 共通）。
+    Gp(Box<GpModel>),
     /// LightGBM RandomForest の Booster。
     /// FittedSurrogate / TrainedSurrogate は Arc 経由で複数スレッドから共有されうるが、
     /// LightGBM の predict は同一ハンドルに対して非スレッドセーフのため、
@@ -71,8 +76,7 @@ impl FittedSurrogate {
                 }
                 acc
             }
-            FittedModel::Gp(model) => gaussian_process::predict_mean(model, x_norm),
-            FittedModel::Fitc(model) => sparse_fitc::fitc_predict_mean(model, x_norm),
+            FittedModel::Gp(model) => model.predict_mean(x_norm),
             FittedModel::Lgbm(booster) => {
                 // poisoned lock は panic 連鎖を避けて内部値をそのまま使う
                 // （Booster は predict で内部状態を変更しないため安全）。
@@ -86,15 +90,11 @@ impl FittedSurrogate {
     }
 
     /// 正規化空間での予測分散（事後分散を持つモデルのみ）。
+    /// ガウス過程 3 方式（FITC / VFE / MoE）はすべて Some を返す。
     pub(crate) fn predict_var_norm(&self, x_norm: &[f64]) -> Option<f64> {
         match &self.model {
             FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => None,
-            FittedModel::Gp(model) => {
-                Some(gaussian_process::predict_variance(model, x_norm).max(0.0))
-            }
-            FittedModel::Fitc(model) => {
-                Some(sparse_fitc::fitc_predict_variance(model, x_norm).max(0.0))
-            }
+            FittedModel::Gp(model) => Some(model.predict_variance(x_norm)),
         }
     }
 
@@ -133,11 +133,18 @@ pub(crate) fn fit_surrogate(
 
     let model = match kind {
         SurrogateModelKind::Ridge => fit_ridge(&x_norm, &y_norm)?,
-        SurrogateModelKind::Kriging => FittedModel::Gp(
-            gaussian_process::train_gp(x_norm.clone(), y_norm.clone(), 100, 42)
-                .ok_or("Kriging training failed")?,
-        ),
-        SurrogateModelKind::SparseKriging => fit_sparse_kriging(&x_norm, &y_norm)?,
+        SurrogateModelKind::GpFitc => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, GpMethod::Fitc, 100, 42)
+                .ok_or("GP-FITC training failed")?,
+        )),
+        SurrogateModelKind::GpVfe => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, GpMethod::Vfe, 100, 42)
+                .ok_or("GP-VFE training failed")?,
+        )),
+        SurrogateModelKind::GpMoe => FittedModel::Gp(Box::new(
+            GpModel::fit(&x_norm, &y_norm, GpMethod::Moe, 100, 42)
+                .ok_or("GP-MOE training failed")?,
+        )),
         SurrogateModelKind::Lgbm => FittedModel::Lgbm(Mutex::new(
             train_lgbm_rf(&x_norm, &y_norm, &LgbmRfConfig::default())
                 .ok_or("LightGBM training failed")?,
@@ -186,45 +193,4 @@ fn fit_ridge(x_norm: &[Vec<f64>], y_norm: &[f64]) -> Result<FittedModel, String>
         col_std,
         y_norm_mean,
     })
-}
-
-/// FITC スパース Kriging を学習する。
-/// `pdp::kriging` の sparse 経路と同じく、100 点サブサンプルの標準 GP から
-/// ハイパーパラメータを借り、誘導点は GP サブサンプルの k-means で選ぶ。
-/// FITC 学習が数値的に失敗した場合は標準 GP へフォールバックする。
-fn fit_sparse_kriging(x_norm: &[Vec<f64>], y_norm: &[f64]) -> Result<FittedModel, String> {
-    let n = y_norm.len();
-    let n_dims = x_norm[0].len();
-
-    let gp_model = gaussian_process::train_gp(x_norm.to_vec(), y_norm.to_vec(), 100, 42)
-        .ok_or("Sparse Kriging training failed (hyperparameter GP)")?;
-
-    let mut fitc_params: Vec<f64> = gp_model.kernel.log_ls.clone();
-    fitc_params.push(gp_model.kernel.log_sf);
-    fitc_params.push(gp_model.kernel.log_sn);
-
-    const M: usize = 20;
-    let gp_n = gp_model.x_train.len();
-    let m = M.min(gp_n);
-
-    // GP サブサンプル（正規化済み）から column-major flat 配列を作る。
-    let mut gp_x_flat = vec![0.0_f64; n_dims * gp_n];
-    for i in 0..gp_n {
-        for d in 0..n_dims {
-            gp_x_flat[d * gp_n + i] = gp_model.x_train[i][d];
-        }
-    }
-    let z = sparse_fitc::select_inducing_points_kmeans(&gp_x_flat, gp_n, n_dims, m, 42);
-
-    let mut x_flat = vec![0.0_f64; n_dims * n];
-    for (i, row) in x_norm.iter().enumerate() {
-        for d in 0..n_dims {
-            x_flat[d * n + i] = row[d];
-        }
-    }
-
-    match sparse_fitc::fitc_train(&x_flat, &z, y_norm, &fitc_params, n, m) {
-        Some(model) if model.w.iter().all(|v| v.is_finite()) => Ok(FittedModel::Fitc(model)),
-        _ => Ok(FittedModel::Gp(gp_model)),
-    }
 }

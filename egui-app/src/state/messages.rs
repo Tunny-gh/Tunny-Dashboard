@@ -51,7 +51,7 @@ pub struct PdpResult2d {
     pub param1_name: String,
     pub param2_name: String,
     pub objective_name: String,
-    /// Posterior variance grid (Kriging / Sparse Kriging only).
+    /// Posterior variance grid (GP methods only).
     pub uncertainties: Option<Vec<Vec<f64>>>,
 }
 
@@ -144,7 +144,7 @@ pub struct SurrogateOptUiResult {
     pub best_params: Vec<(String, f64)>,
     /// 推定最適点でのサロゲート予測値（元の単位）。
     pub best_value: f64,
-    /// 予測標準偏差（Kriging 系のみ）。
+    /// 予測標準偏差（ガウス過程系のみ）。
     pub predicted_std: Option<f64>,
     /// 訓練データに対するサロゲートの決定係数。
     pub r_squared: f64,

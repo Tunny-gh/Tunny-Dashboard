@@ -13,9 +13,9 @@ pub struct PdpResult1d {
     pub values: Vec<f64>,
     /// Documentation.
     pub r_squared: f64,
-    /// 95% confidence upper bound (Kriging/Sparse Kriging only).
+    /// 95% confidence upper bound (GP methods only).
     pub y_upper: Option<Vec<f64>>,
-    /// 95% confidence lower bound (Kriging/Sparse Kriging only).
+    /// 95% confidence lower bound (GP methods only).
     pub y_lower: Option<Vec<f64>>,
 }
 
@@ -39,6 +39,6 @@ pub struct PdpResult2d {
     pub z_values: Vec<Vec<f64>>,
     /// Documentation.
     pub r_squared: f64,
-    /// Posterior variance grid (Kriging / Sparse Kriging only). Same layout as z_values.
+    /// Posterior variance grid (GP methods only). Same layout as z_values.
     pub uncertainties: Option<Vec<Vec<f64>>>,
 }
