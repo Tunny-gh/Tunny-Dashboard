@@ -1247,6 +1247,8 @@ mod tests {
             minimize: true,
             slice: None,
             best_observed_value: 1.5,
+            predicted_constraints: vec![],
+            feasibility_probability: None,
         });
         let state = AppState::default();
         let csv = build_chart_csv(&ChartId::SurrogateOpt, &state, &widgets).unwrap();

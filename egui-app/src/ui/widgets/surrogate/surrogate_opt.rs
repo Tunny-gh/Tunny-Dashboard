@@ -125,6 +125,8 @@ pub(crate) fn multi_trained_matches(
 
 /// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
 /// `obj_history` は現在の結果が参照する目的列の全値（trial 順）。プロット用。
+/// `constraint_col_names` は制約列名（制約付き Study のみ非空）。
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -133,6 +135,7 @@ pub fn show(
     cmap: ColorMap,
     trial_count: usize,
     obj_history: Option<&[f64]>,
+    constraint_col_names: &[String],
 ) {
     // ── 全幅前段: 数値パラメータ無し ──────────────────────────────
     if param_names.is_empty() {
@@ -218,7 +221,7 @@ pub fn show(
                 if state.multi_objective {
                     render_fit_column_multi(ui, state, obj_names, busy);
                 } else {
-                    render_fit_column(ui, state, obj_names, busy);
+                    render_fit_column(ui, state, obj_names, busy, constraint_col_names);
                 }
             },
         );
@@ -261,6 +264,7 @@ fn render_fit_column(
     state: &mut SurrogateOptState,
     obj_names: &[String],
     busy: bool,
+    constraint_col_names: &[String],
 ) {
     // ── 1段目: 目的・モデル ──────────────────────────────────────
     ui.horizontal(|ui| {
@@ -293,6 +297,17 @@ fn render_fit_column(
             });
     });
 
+    // ── 制約チェックボックス（制約付き Study のみ表示） ──────────
+    let n_constraints = constraint_col_names.len();
+    if n_constraints > 0 {
+        ui.horizontal(|ui| {
+            ui.checkbox(
+                &mut state.use_constraints,
+                format!("Use constraints ({})", n_constraints),
+            );
+        });
+    }
+
     // ── 2段目: Fit & Validate ────────────────────────────────────
     let can_fit = !busy && !obj_names.is_empty();
     if ui
@@ -304,6 +319,7 @@ fn render_fit_column(
             state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
+                use_constraints: n_constraints > 0 && state.use_constraints,
             });
         }
     }
@@ -876,6 +892,42 @@ fn render_result(
         ui.add_space(6.0);
     }
 
+    // ── 実行可能性（制約ありのとき表示） ─────────────────────────────
+    if let Some(p_feas) = result.feasibility_probability {
+        ui.add_space(4.0);
+        let pct = (p_feas * 100.0).round() as u32;
+        let color = if p_feas >= 0.8 {
+            egui::Color32::from_rgb(22, 163, 74) // green-600
+        } else if p_feas >= 0.5 {
+            egui::Color32::from_rgb(202, 138, 4) // amber-600
+        } else {
+            egui::Color32::RED
+        };
+        ui.colored_label(color, format!("P(feasible): {}%", pct));
+
+        if !result.predicted_constraints.is_empty() {
+            egui::Grid::new("surrogate_predicted_constraints")
+                .striped(true)
+                .min_col_width(80.0)
+                .show(ui, |ui| {
+                    ui.strong("Constraint");
+                    ui.strong("Predicted");
+                    ui.end_row();
+                    for (name, val) in &result.predicted_constraints {
+                        ui.label(name);
+                        let feasible = *val <= 0.0;
+                        let cell_color = if feasible {
+                            egui::Color32::from_rgb(22, 163, 74)
+                        } else {
+                            egui::Color32::RED
+                        };
+                        ui.colored_label(cell_color, format!("{:.6}", val));
+                        ui.end_row();
+                    }
+                });
+        }
+    }
+
     // ── 推定最適点のパラメータ値テーブル ────────────────────────────
     ui.add_space(4.0);
     egui::Grid::new("surrogate_best_params")
@@ -1253,11 +1305,19 @@ fn render_suggest_result(
                 .min_col_width(60.0)
                 .show(ui, |ui| {
                     // ── ヘッダ行 ──────────────────────────────────────
+                    let has_feas = result
+                        .candidates
+                        .first()
+                        .map(|c| c.feasibility_probability.is_some())
+                        .unwrap_or(false);
                     for name in &result.param_names {
                         ui.strong(name);
                     }
                     ui.strong("Predicted");
                     ui.strong("Std");
+                    if has_feas {
+                        ui.strong("P(feas)");
+                    }
                     ui.strong("Acq. score");
                     ui.end_row();
 
@@ -1271,6 +1331,24 @@ fn render_suggest_result(
                             Some(std) => ui.monospace(format!("±{:.6}", std)),
                             None => ui.label("—"),
                         };
+                        if has_feas {
+                            match c.feasibility_probability {
+                                Some(p) => {
+                                    let pct = (p * 100.0).round() as u32;
+                                    let color = if p >= 0.8 {
+                                        egui::Color32::from_rgb(22, 163, 74)
+                                    } else if p >= 0.5 {
+                                        egui::Color32::from_rgb(202, 138, 4)
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.colored_label(color, format!("{}%", pct));
+                                }
+                                None => {
+                                    ui.label("—");
+                                }
+                            };
+                        }
                         ui.monospace(format!("{:.4e}", c.acq_score));
                         ui.end_row();
                     }
@@ -1321,6 +1399,8 @@ mod tests {
             minimize: true,
             slice,
             best_observed_value: 0.05,
+            predicted_constraints: vec![],
+            feasibility_probability: None,
         }
     }
 
@@ -1376,6 +1456,7 @@ mod tests {
             state.pending_fit = Some(SurrogateFitComputeRequest {
                 objective: obj_name.clone(),
                 model: state.model,
+                use_constraints: false,
             });
         }
 
@@ -1507,6 +1588,7 @@ mod tests {
             param_names: vec!["x".to_string(), "y".to_string()],
             objective_name: obj_name.to_string(),
             model,
+            constraints: vec![],
         };
         tunny_core::surrogate_opt::fit_surrogate_with_validation(&req)
             .expect("dummy fit should succeed")

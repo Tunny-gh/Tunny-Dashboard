@@ -166,6 +166,29 @@ pub(crate) fn fit_surrogate(
     Ok(surrogate)
 }
 
+/// 制約サロゲートを学習する。基本は目的関数と同じ `kind` を使うが、GP 系の学習が
+/// 失敗した場合は Ridge へフォールバックする。
+///
+/// 完全に線形・ノイズゼロな制約（例: `c = 0.5 - x`）では GP のハイパーパラメータ
+/// 最適化が退化し（最適 lengthscale → ∞）学習に失敗しうる。その制約だけ Ridge に
+/// 落とせば（実行可能性確率はハード指標になるが）機能全体は継続でき、他の制約は
+/// GP の平滑な P(c ≤ 0) を保てる。
+pub(crate) fn fit_constraint_surrogate(
+    kind: SurrogateModelKind,
+    x_matrix: &[Vec<f64>],
+    values: &[f64],
+) -> Result<FittedSurrogate, String> {
+    match fit_surrogate(kind, x_matrix, values) {
+        Ok(m) => Ok(m),
+        Err(e) if kind != SurrogateModelKind::Ridge => {
+            fit_surrogate(SurrogateModelKind::Ridge, x_matrix, values).map_err(|ridge_err| {
+                format!("{kind:?} failed ({e}); Ridge fallback also failed ({ridge_err})")
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn fit_ridge(x_norm: &[Vec<f64>], y_norm: &[f64]) -> Result<FittedModel, String> {
     let ridge = compute_ridge_from_vecs(x_norm, y_norm, 1.0);
     if ridge.beta.is_empty() {

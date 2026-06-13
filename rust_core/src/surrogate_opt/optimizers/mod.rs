@@ -36,21 +36,76 @@ pub(crate) const BOUND_PENALTY: f64 = 1e3;
 /// 乱数シード（再現性のため固定）。
 pub(crate) const SEED: u64 = 42;
 
+/// 制約ペナルティの重み（z-score 単位）。
+/// 制約違反量（正規化 z-score 超過分）に乗じるスカラー。
+const CONSTRAINT_PENALTY: f64 = 100.0;
+
 /// サロゲート曲面上で最適化し、正規化空間 [0,1]^d の最適点を返す。
 /// `minimize=false`（最大化）は符号反転した曲面の最小化として扱う。
+///
+/// `constraint_models` が空でないとき、コスト関数に制約ペナルティを加える:
+///
+/// ```text
+/// cost = sign * mu_y_norm(x) + CONSTRAINT_PENALTY * Σ max(0, mu_ci_norm(x) - z0_i)
+/// ```
+///
+/// z0_i = (0 - c_mean_i) / c_std_i は実行可能境界（正規化 z-score 単位）。
 pub(crate) fn minimize_on_surrogate(
     surrogate: &FittedSurrogate,
     minimize: bool,
     optimizer: OptimizerKind,
     start_norm: &[f64],
+    constraint_models: &[FittedSurrogate],
 ) -> Vec<f64> {
     let sign = if minimize { 1.0 } else { -1.0 };
-    let t = match optimizer {
-        OptimizerKind::MultiStartLbfgs => multi_start_lbfgs(surrogate, sign, start_norm),
-        OptimizerKind::RandomSearch => random_search(surrogate, sign, start_norm),
-        OptimizerKind::Nsga2 => run_nsga2(surrogate, sign, start_norm),
-        OptimizerKind::CmaEs => run_cma_es(surrogate, sign, start_norm),
+
+    if constraint_models.is_empty() {
+        // 制約なし: 従来どおり surrogate のコストのみ最小化する。
+        let t = match optimizer {
+            OptimizerKind::MultiStartLbfgs => multi_start_lbfgs(surrogate, sign, start_norm),
+            OptimizerKind::RandomSearch => random_search(surrogate, sign, start_norm),
+            OptimizerKind::Nsga2 => run_nsga2(surrogate, sign, start_norm),
+            OptimizerKind::CmaEs => run_cma_es(surrogate, sign, start_norm),
+        };
+        return t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
+    }
+
+    // 制約あり: 汎用コスト関数 minimize_scalar_fn で最適化する。
+    // z0_i = (0 - c_mean_i) / c_std_i
+    let z0s: Vec<f64> = constraint_models
+        .iter()
+        .map(|cm| {
+            if cm.y_std > 1e-12 {
+                (0.0 - cm.y_mean) / cm.y_std
+            } else if cm.y_mean <= 0.0 {
+                f64::INFINITY // 常に実行可能
+            } else {
+                f64::NEG_INFINITY // 常に違反
+            }
+        })
+        .collect();
+
+    let constrained_cost = |t: &[f64]| -> f64 {
+        let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
+        let bound_pen: f64 = t
+            .iter()
+            .map(|&v| {
+                let over = (v - 1.0).max(0.0);
+                let under = (-v).max(0.0);
+                over * over + under * under
+            })
+            .sum();
+        let obj = sign * surrogate.predict_norm(&clamped);
+        let con_pen: f64 = constraint_models
+            .iter()
+            .zip(z0s.iter())
+            .map(|(cm, &z0)| CONSTRAINT_PENALTY * (cm.predict_norm(&clamped) - z0).max(0.0))
+            .sum();
+        obj + con_pen + BOUND_PENALTY * bound_pen
     };
+
+    let n_dims = start_norm.len();
+    let t = minimize_scalar_fn(&constrained_cost, n_dims, start_norm);
     t.iter().map(|v| v.clamp(0.0, 1.0)).collect()
 }
 
