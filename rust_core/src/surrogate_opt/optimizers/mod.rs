@@ -26,15 +26,15 @@ pub enum OptimizerKind {
 }
 
 /// マルチスタートのスタート点数（観測ベスト点 1 + 乱数 7）。
-const N_RANDOM_STARTS: usize = 7;
+pub(crate) const N_RANDOM_STARTS: usize = 7;
 /// ランダムサーチの評価点数。
 const N_RANDOM_SEARCH: usize = 4096;
 /// 数値勾配（中心差分）のステップ幅。
-const FD_STEP: f64 = 1e-4;
+pub(crate) const FD_STEP: f64 = 1e-4;
 /// 箱外ペナルティの重み。
-const BOUND_PENALTY: f64 = 1e3;
+pub(crate) const BOUND_PENALTY: f64 = 1e3;
 /// 乱数シード（再現性のため固定）。
-const SEED: u64 = 42;
+pub(crate) const SEED: u64 = 42;
 
 /// サロゲート曲面上で最適化し、正規化空間 [0,1]^d の最適点を返す。
 /// `minimize=false`（最大化）は符号反転した曲面の最小化として扱う。
@@ -55,7 +55,7 @@ pub(crate) fn minimize_on_surrogate(
 }
 
 /// 箱内にクランプした点でサロゲートを評価し、箱外には二次ペナルティを課す。
-fn penalized_cost(surrogate: &FittedSurrogate, sign: f64, t: &[f64]) -> f64 {
+pub(crate) fn penalized_cost(surrogate: &FittedSurrogate, sign: f64, t: &[f64]) -> f64 {
     let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
     let penalty: f64 = t
         .iter()
@@ -68,71 +68,11 @@ fn penalized_cost(surrogate: &FittedSurrogate, sign: f64, t: &[f64]) -> f64 {
     sign * surrogate.predict_norm(&clamped) + BOUND_PENALTY * penalty
 }
 
-/// argmin 用のコスト関数（中心差分による数値勾配付き）。
-struct SurrogateProblem<'a> {
-    surrogate: &'a FittedSurrogate,
-    sign: f64,
-}
-
-impl CostFunction for SurrogateProblem<'_> {
-    type Param = Vec<f64>;
-    type Output = f64;
-    fn cost(&self, p: &Vec<f64>) -> Result<f64, Error> {
-        Ok(penalized_cost(self.surrogate, self.sign, p))
-    }
-}
-
-impl Gradient for SurrogateProblem<'_> {
-    type Param = Vec<f64>;
-    type Gradient = Vec<f64>;
-    fn gradient(&self, p: &Vec<f64>) -> Result<Vec<f64>, Error> {
-        let mut grad = vec![0.0; p.len()];
-        let mut pt = p.clone();
-        for d in 0..p.len() {
-            pt[d] = p[d] + FD_STEP;
-            let plus = penalized_cost(self.surrogate, self.sign, &pt);
-            pt[d] = p[d] - FD_STEP;
-            let minus = penalized_cost(self.surrogate, self.sign, &pt);
-            pt[d] = p[d];
-            grad[d] = (plus - minus) / (2.0 * FD_STEP);
-        }
-        Ok(grad)
-    }
-}
-
 /// 観測ベスト点＋乱数点からのマルチスタート L-BFGS。
-/// 各スタートの収束点と、スタート点自体も候補に含めて最良を返す
-/// （線探索が失敗してもスタート点より悪化しないことを保証する）。
+/// 汎用化した `minimize_scalar_fn` を介してサロゲートを最小化する。
 fn multi_start_lbfgs(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
     let n_dims = start_norm.len();
-    let mut rng = SeededRng::from_seed(SEED);
-
-    let mut starts: Vec<Vec<f64>> = vec![start_norm.to_vec()];
-    for _ in 0..N_RANDOM_STARTS {
-        starts.push((0..n_dims).map(|_| rng.next_f64()).collect());
-    }
-
-    let lbfgs = LbfgsOptimizer::new(100, 5);
-    let mut best = start_norm.to_vec();
-    let mut best_cost = penalized_cost(surrogate, sign, &best);
-
-    for start in starts {
-        let start_cost = penalized_cost(surrogate, sign, &start);
-        if start_cost < best_cost {
-            best_cost = start_cost;
-            best = start.clone();
-        }
-        let problem = SurrogateProblem { surrogate, sign };
-        let candidate = lbfgs.optimize(start, problem);
-        if candidate.iter().all(|v| v.is_finite()) {
-            let cost = penalized_cost(surrogate, sign, &candidate);
-            if cost < best_cost {
-                best_cost = cost;
-                best = candidate;
-            }
-        }
-    }
-    best
+    minimize_scalar_fn(&|t| penalized_cost(surrogate, sign, t), n_dims, start_norm)
 }
 
 /// 固定シードのランダムサーチ。観測ベスト点も候補に含める。
@@ -180,6 +120,94 @@ fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<
 fn run_cma_es(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
     let cfg = cma_es::CmaEsConfig::default();
     cma_es::cma_es_minimize(|t| penalized_cost(surrogate, sign, t), start_norm, &cfg)
+}
+
+/// 任意のスカラー関数 `f: [0,1]^d → f64` をマルチスタート L-BFGS で最小化する。
+///
+/// - `start_norm`: 提供済みの初期点（[0,1]^d 内の正規化座標）。
+/// - `n_dims`: 次元数。
+/// - 戻り値: `[0,1]^d` にクランプした最良点。
+///
+/// 内部的に `start_norm` + `N_RANDOM_STARTS` 個の固定シード乱数点からマルチスタートする。
+pub(crate) fn minimize_scalar_fn(
+    f: &(dyn Fn(&[f64]) -> f64 + Sync),
+    n_dims: usize,
+    start_norm: &[f64],
+) -> Vec<f64> {
+    let mut rng = SeededRng::from_seed(SEED);
+
+    let mut starts: Vec<Vec<f64>> = vec![start_norm.to_vec()];
+    for _ in 0..N_RANDOM_STARTS {
+        starts.push((0..n_dims).map(|_| rng.next_f64()).collect());
+    }
+
+    /// argmin 用コスト関数（任意のクロージャをラップする）。
+    struct ScalarProblem<'a> {
+        f: &'a (dyn Fn(&[f64]) -> f64 + Sync),
+    }
+
+    impl CostFunction for ScalarProblem<'_> {
+        type Param = Vec<f64>;
+        type Output = f64;
+        fn cost(&self, p: &Vec<f64>) -> Result<f64, Error> {
+            Ok(penalized_fn(self.f, p))
+        }
+    }
+
+    impl Gradient for ScalarProblem<'_> {
+        type Param = Vec<f64>;
+        type Gradient = Vec<f64>;
+        fn gradient(&self, p: &Vec<f64>) -> Result<Vec<f64>, Error> {
+            let mut grad = vec![0.0; p.len()];
+            let mut pt = p.clone();
+            for d in 0..p.len() {
+                pt[d] = p[d] + FD_STEP;
+                let plus = penalized_fn(self.f, &pt);
+                pt[d] = p[d] - FD_STEP;
+                let minus = penalized_fn(self.f, &pt);
+                pt[d] = p[d];
+                grad[d] = (plus - minus) / (2.0 * FD_STEP);
+            }
+            Ok(grad)
+        }
+    }
+
+    let lbfgs = LbfgsOptimizer::new(100, 5);
+    let mut best = start_norm.to_vec();
+    let mut best_cost = penalized_fn(f, &best);
+
+    for start in starts {
+        let start_cost = penalized_fn(f, &start);
+        if start_cost < best_cost {
+            best_cost = start_cost;
+            best = start.clone();
+        }
+        let problem = ScalarProblem { f };
+        let candidate = lbfgs.optimize(start, problem);
+        if candidate.iter().all(|v| v.is_finite()) {
+            let cost = penalized_fn(f, &candidate);
+            if cost < best_cost {
+                best_cost = cost;
+                best = candidate;
+            }
+        }
+    }
+
+    best.iter().map(|v| v.clamp(0.0, 1.0)).collect()
+}
+
+/// 箱内にクランプした点で任意関数を評価し、箱外に二次ペナルティを課す。
+fn penalized_fn(f: &(dyn Fn(&[f64]) -> f64 + Sync), t: &[f64]) -> f64 {
+    let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
+    let penalty: f64 = t
+        .iter()
+        .map(|&v| {
+            let over = (v - 1.0).max(0.0);
+            let under = (-v).max(0.0);
+            over * over + under * under
+        })
+        .sum();
+    f(&clamped) + BOUND_PENALTY * penalty
 }
 
 /// 多目的サロゲート曲面上で NSGA-II を実行し、第一パレートフロントを返す。

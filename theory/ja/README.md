@@ -127,6 +127,15 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 
 ---
 
+## 最適化手法
+
+サロゲートモデル上での最適化に使用されるアルゴリズム。
+
+- [L-BFGS（制限付きメモリ BFGS）](optimization/lbfgs.md)
+- [**獲得関数（Expected Improvement / Lower Confidence Bound）**](optimization/acquisition-functions.md)
+
+---
+
 ## クラスタリング手法
 
 `ClusterScatter` ウィジェットで使用されるクラスタリング関連手法。

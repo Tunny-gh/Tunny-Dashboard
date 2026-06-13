@@ -289,6 +289,15 @@ impl MessageHandler {
             AppMessage::ChartCaptureFailed(err) => {
                 widget_states.capture.last_error = Some(err);
             }
+            AppMessage::SurrogateSuggestDone(result) => {
+                widget_states.surrogate_opt.suggest_result = Some(result);
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.suggesting = false;
+            }
+            AppMessage::SurrogateSuggestFailed(err) => {
+                widget_states.surrogate_opt.error_message = Some(err);
+                widget_states.surrogate_opt.suggesting = false;
+            }
         }
     }
 

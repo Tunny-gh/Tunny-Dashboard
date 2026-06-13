@@ -22,11 +22,12 @@ use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{
     SurrogateFitComputeRequest, SurrogateMultiFitComputeRequest,
     SurrogateMultiOptimizeComputeRequest, SurrogateOptState, SurrogateOptimizeComputeRequest,
+    SurrogateSuggestComputeRequest,
 };
 use crate::ui::widgets::pdp::surface_plot::{draw_colorbar_simple, draw_heatmap, value_range};
 use tunny_core::surrogate_opt::{
-    OptimizerKind, SurrogateModelKind, SurrogateValidationReport, TrainedSurrogate,
-    MIN_TRIALS_FOR_SURROGATE_OPT,
+    AcquisitionKind, OptimizerKind, SurrogateModelKind, SurrogateValidationReport,
+    TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
 /// モデル選択肢（コンボ表示順）。新モデル追加時はここへ並べる。
@@ -53,6 +54,13 @@ pub(crate) fn model_label(kind: SurrogateModelKind) -> &'static str {
         SurrogateModelKind::GpVfe => "GP-VFE",
         SurrogateModelKind::GpMoe => "GP-MOE",
         SurrogateModelKind::Lgbm => "LightGBM",
+    }
+}
+
+pub(crate) fn acq_label(kind: AcquisitionKind) -> &'static str {
+    match kind {
+        AcquisitionKind::ExpectedImprovement => "EI (Expected Improvement)",
+        AcquisitionKind::LowerConfidenceBound => "LCB (Lower Confidence Bound)",
     }
 }
 
@@ -171,10 +179,12 @@ pub fn show(
 
     let busy = state.fitting
         || state.optimizing
+        || state.suggesting
         || state.pending_fit.is_some()
         || state.pending_optimize.is_some()
         || state.pending_multi_fit.is_some()
-        || state.pending_multi_optimize.is_some();
+        || state.pending_multi_optimize.is_some()
+        || state.pending_suggest.is_some();
 
     let has_matching_trained = state
         .trained
@@ -445,6 +455,89 @@ fn render_optimize_column(
     };
 
     render_result(ui, result, cmap, obj_history);
+
+    // ── Suggest next trials セクション ──────────────────────────────
+    // 単目的・GP 系モデルのみ表示する。
+    let is_gp = matches!(
+        state.model,
+        SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe | SurrogateModelKind::GpMoe
+    );
+    if has_matching_trained && is_gp {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+        ui.strong("Suggest next trials");
+
+        // 獲得関数コンボ。
+        ui.horizontal(|ui| {
+            ui.label("Acquisition:");
+            egui::ComboBox::from_id_salt("surrogate_acquisition")
+                .selected_text(acq_label(state.acq_kind))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut state.acq_kind,
+                        AcquisitionKind::ExpectedImprovement,
+                        acq_label(AcquisitionKind::ExpectedImprovement),
+                    );
+                    ui.selectable_value(
+                        &mut state.acq_kind,
+                        AcquisitionKind::LowerConfidenceBound,
+                        acq_label(AcquisitionKind::LowerConfidenceBound),
+                    );
+                });
+        });
+
+        // 候補数 DragValue（1〜10、デフォルト 3）。
+        ui.horizontal(|ui| {
+            ui.label("Candidates:");
+            ui.add(egui::DragValue::new(&mut state.n_suggest_candidates).range(1..=10));
+        });
+
+        // Suggest ボタン。
+        let can_suggest = has_matching_trained && !busy;
+        let disabled_hint = if !can_suggest && !has_matching_trained {
+            "Fit a GP surrogate model first (GP-FITC, GP-VFE, or GP-MOE)."
+        } else if !can_suggest {
+            "A computation is already running."
+        } else {
+            ""
+        };
+        let suggest_response =
+            ui.add_enabled(can_suggest, egui::Button::new("Suggest next trials"));
+        if !disabled_hint.is_empty() {
+            suggest_response.on_disabled_hover_text(disabled_hint);
+        } else if suggest_response.clicked() {
+            let minimize = result.minimize;
+            state.suggest_result = None;
+            state.error_message = None;
+            state.pending_suggest = Some(SurrogateSuggestComputeRequest {
+                acquisition: state.acq_kind,
+                n_candidates: state.n_suggest_candidates,
+                minimize,
+            });
+        }
+
+        // 提案中スピナー。
+        if state.suggesting {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Computing acquisition candidates…");
+            });
+        }
+
+        // 結果テーブル。
+        if let Some(ref suggest) = state.suggest_result.clone() {
+            render_suggest_result(ui, suggest);
+        }
+    } else if has_matching_trained && !is_gp {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+        ui.colored_label(
+            egui::Color32::from_rgb(107, 114, 128), // gray-500
+            "Suggest next trials requires a Gaussian Process model (GP-FITC, GP-VFE, or GP-MOE).",
+        );
+    }
 }
 
 /// 右列（多目的）: 固定 NSGA-II ラベル + Surface X・Y コンボ、Run Optimization ボタン、結果。
@@ -1134,6 +1227,83 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
                 }
             }
         });
+}
+
+/// 獲得関数による候補提案の結果テーブルと "Copy enqueue JSON" ボタンを描画する。
+fn render_suggest_result(
+    ui: &mut egui::Ui,
+    result: &crate::state::messages::SurrogateSuggestUiResult,
+) {
+    if result.candidates.is_empty() {
+        return;
+    }
+
+    ui.add_space(4.0);
+    ui.strong(format!(
+        "Suggested candidates for '{}':",
+        result.objective_name
+    ));
+
+    egui::ScrollArea::vertical()
+        .max_height(200.0)
+        .id_salt("surrogate_suggest_scroll")
+        .show(ui, |ui| {
+            egui::Grid::new("surrogate_suggest_table")
+                .striped(true)
+                .min_col_width(60.0)
+                .show(ui, |ui| {
+                    // ── ヘッダ行 ──────────────────────────────────────
+                    for name in &result.param_names {
+                        ui.strong(name);
+                    }
+                    ui.strong("Predicted");
+                    ui.strong("Std");
+                    ui.strong("Acq. score");
+                    ui.end_row();
+
+                    // ── データ行 ──────────────────────────────────────
+                    for c in &result.candidates {
+                        for v in &c.params {
+                            ui.monospace(format!("{:.6}", v));
+                        }
+                        ui.monospace(format!("{:.6}", c.predicted_value));
+                        match c.predicted_std {
+                            Some(std) => ui.monospace(format!("±{:.6}", std)),
+                            None => ui.label("—"),
+                        };
+                        ui.monospace(format!("{:.4e}", c.acq_score));
+                        ui.end_row();
+                    }
+                });
+        });
+
+    ui.add_space(4.0);
+
+    // ── "Copy enqueue JSON" ボタン ──────────────────────────────
+    // Optuna の study.enqueue_trial(params) に渡せる JSON 配列を生成する。
+    if ui
+        .button("Copy enqueue JSON")
+        .on_hover_text(
+            "Optuna の study.enqueue_trial(params) に渡せる形式でクリップボードへコピーします。",
+        )
+        .clicked()
+    {
+        let json_items: Vec<serde_json::Value> = result
+            .candidates
+            .iter()
+            .map(|c| {
+                let obj: serde_json::Map<String, serde_json::Value> = result
+                    .param_names
+                    .iter()
+                    .zip(c.params.iter())
+                    .map(|(name, &val)| (name.clone(), serde_json::Value::from(val)))
+                    .collect();
+                serde_json::Value::Object(obj)
+            })
+            .collect();
+        let json_str = serde_json::to_string_pretty(&json_items).unwrap_or_default();
+        ui.ctx().copy_text(json_str);
+    }
 }
 
 #[cfg(test)]

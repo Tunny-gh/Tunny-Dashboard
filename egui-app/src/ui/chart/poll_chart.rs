@@ -840,6 +840,37 @@ pub(crate) fn poll_chart_work(
                         Err(e) => AppMessage::SurrogateMultiOptFailed(e),
                     }
                 });
+            } else if let Some(suggest_req) = widgets.surrogate_opt.pending_suggest.take() {
+                // 候補提案段階: 学習済み GP サロゲートが必要。
+                let Some(trained) = widgets.surrogate_opt.trained.clone() else {
+                    widgets.surrogate_opt.error_message =
+                        Some("No trained model available. Run Fit & Validate first.".to_string());
+                    return;
+                };
+
+                let param_names = trained.param_names.clone();
+                let objective_name = trained.objective_name.clone();
+                widgets.surrogate_opt.suggesting = true;
+                widgets.surrogate_opt.error_message = None;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::SurrogateSuggestUiResult;
+                    match tunny_core::surrogate_opt::suggest_candidates(
+                        &trained,
+                        suggest_req.n_candidates,
+                        suggest_req.acquisition,
+                        suggest_req.minimize,
+                    ) {
+                        Ok(candidates) => {
+                            AppMessage::SurrogateSuggestDone(SurrogateSuggestUiResult {
+                                candidates,
+                                param_names,
+                                objective_name,
+                            })
+                        }
+                        Err(e) => AppMessage::SurrogateSuggestFailed(e),
+                    }
+                });
             }
         }
         _ => {}

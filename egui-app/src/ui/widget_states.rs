@@ -60,6 +60,16 @@ pub struct SurrogateOptimizeComputeRequest {
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
 }
 
+// ── Surrogate Optimizer 計算リクエスト（候補提案段階） ──────────
+pub struct SurrogateSuggestComputeRequest {
+    /// 使用する獲得関数。
+    pub acquisition: tunny_core::surrogate_opt::AcquisitionKind,
+    /// 提案する候補数。
+    pub n_candidates: usize,
+    /// true = 最小化問題として提案する。
+    pub minimize: bool,
+}
+
 /// 多目的サロゲート最適化のフィット段階リクエスト。
 pub struct SurrogateMultiFitComputeRequest {
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
@@ -103,6 +113,17 @@ pub struct SurrogateOptState {
     pub multi_slice_objective: usize,
     /// 多目的検証表示で選択中の目的インデックス（OOF プロット対象）。
     pub multi_validation_objective: usize,
+    // ── 獲得関数による候補提案 ──────────────────────────────────
+    /// 選択中の獲得関数。
+    pub acq_kind: tunny_core::surrogate_opt::AcquisitionKind,
+    /// 提案する候補数（1〜10）。
+    pub n_suggest_candidates: usize,
+    /// 候補提案の計算中フラグ。
+    pub suggesting: bool,
+    /// 候補提案の未消化リクエスト。
+    pub pending_suggest: Option<SurrogateSuggestComputeRequest>,
+    /// 候補提案の結果。
+    pub suggest_result: Option<crate::state::messages::SurrogateSuggestUiResult>,
 }
 
 impl Default for SurrogateOptState {
@@ -127,6 +148,11 @@ impl Default for SurrogateOptState {
             multi_result: None,
             multi_slice_objective: 0,
             multi_validation_objective: 0,
+            acq_kind: tunny_core::surrogate_opt::AcquisitionKind::ExpectedImprovement,
+            n_suggest_candidates: 3,
+            suggesting: false,
+            pending_suggest: None,
+            suggest_result: None,
         }
     }
 }
@@ -143,6 +169,8 @@ impl SurrogateOptState {
         self.multi_trained = src.multi_trained.clone();
         self.multi_result = src.multi_result.clone();
         self.error_message = src.error_message.clone();
+        self.suggesting = src.suggesting;
+        self.suggest_result = src.suggest_result.clone();
     }
 }
 

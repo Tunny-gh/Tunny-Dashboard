@@ -118,6 +118,17 @@ pub struct SurfacePlotResult {
 // Surrogate Optimizer 関連型
 // ============================================================
 
+/// 獲得関数提案の UI 表示用結果。
+#[derive(Debug, Clone)]
+pub struct SurrogateSuggestUiResult {
+    /// 提案候補（獲得関数の最適化結果）。
+    pub candidates: Vec<tunny_core::surrogate_opt::SuggestedCandidate>,
+    /// パラメータ名（`candidates[*].params` と同順）。
+    pub param_names: Vec<String>,
+    /// 目的名（表示用）。
+    pub objective_name: String,
+}
+
 /// 多目的サロゲート最適化の UI 表示用結果。
 /// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
 /// パラメータ名・目的名・方向を付与してここへ詰め替える。
@@ -299,6 +310,10 @@ pub enum AppMessage {
     SurrogateMultiOptDone(SurrogateMultiOptUiResult),
     SurrogateMultiOptFailed(String),
     ChartCaptureFailed(String),
+    /// 獲得関数による候補提案が完了した。
+    SurrogateSuggestDone(SurrogateSuggestUiResult),
+    /// 獲得関数による候補提案が失敗した。
+    SurrogateSuggestFailed(String),
 }
 
 #[cfg(test)]
