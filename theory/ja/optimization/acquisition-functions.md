@@ -101,8 +101,65 @@ for params in candidates:
 
 ---
 
+## 制約を考慮した獲得関数
+
+Study に制約列が存在し、**Use constraints** が有効な場合、獲得関数は実行可能性を考慮するように変更されます。
+
+### 実行可能性確率 P_feas(x)
+
+各制約モデルは候補点 x で制約信号を予測します。モデルがガウス過程の場合（正規化空間の事後平均 μᵢ・標準偏差 σᵢ）、実行可能性確率は平滑になります：
+
+$$
+P(c_i \le 0 \mid x) = \Phi\!\left(\frac{z_{0,i} - \mu_i(x)}{\sigma_i(x)}\right), \qquad z_{0,i} = \frac{0 - \bar{c}_i}{s_{c_i}}
+$$
+
+ここで z₀ は実行可能境界（cᵢ = 0）を制約の z-score 空間で表したものです（c̄ᵢ, s_cᵢ はその平均・標準偏差）。事後分散を持たない決定論的モデル（Ridge、または下記のフォールバックで Ridge になった GP）の場合は、代わりにハード指標を用います：
+
+$$
+P(c_i \le 0 \mid x) = \begin{cases} 1 & \tilde{c}_i(x) \le 0 \text{ のとき} \\ 0 & \text{それ以外} \end{cases}
+$$
+
+制約が独立であると仮定し、積で全体の実行可能性確率を計算します：
+
+$$
+P_\text{feas}(x) = \prod_i P(c_i \le 0 \mid x)
+$$
+
+### 制約付き EI（Constrained EI）
+
+$$
+\text{EI}_c(x) = \text{EI}(x) \cdot P_\text{feas}(x)
+$$
+
+インカンバント f* は**最良の実行可能 trial**（全制約値 ≤ 0）から選択します。実行可能な trial が存在しない場合は全体の最良値を使います（Gardner et al., 2014）。
+
+### 制約付き LCB（Constrained LCB）
+
+$$
+\text{LCB}_c(x) = \text{LCB}(x) + \lambda \cdot (1 - P_\text{feas}(x))
+$$
+
+λ = **10.0** は実行不可能性ペナルティです。このペナルティにより、実行不可能と予測される領域から離れるよう誘導します。
+
+### 制約付き Constant Liar
+
+バッチ獲得では、各 Constant Liar 反復で制約モデルも再フィットします。制約列の「嘘」値には、直前の候補点での制約予測平均値を使用します：
+
+$$
+c_i^\text{lie} = \tilde{c}_i(\mathbf{x}_\text{prev})
+$$
+
+これにより、拡張訓練データに制約情報が保持されます。
+
+### 制約モデルについて
+
+制約サロゲートは**目的関数と同じモデル種別**を使用します。これにより、GP 目的では制約境界付近の不確実性を考慮した平滑な実行可能性確率が得られます。完全に線形・ノイズゼロな制約（例: `c = 0.5 − x`）は GP のハイパーパラメータ最適化にとって退化ケースであり（最適 lengthscale が無限大に発散）、学習に失敗することがあります。その場合、当該制約のみ **Ridge 回帰へフォールバック**して上記のハード指標を用い、他の制約は GP の平滑な実行可能性確率を保ちます。事後分散を持たない目的モデル（Ridge・LightGBM）はハード指標を直接使用します。
+
+---
+
 ## 参考文献
 
 - Jones, D. R., Schonlau, M., & Welch, W. J. (1998). Efficient global optimization of expensive black-box functions. *Journal of Global Optimization*, 13, 455–492.
 - Srinivas, N., Krause, A., Kakade, S. M., & Seeger, M. (2010). Gaussian process optimization in the bandit setting: No regret and experimental design. *ICML*.
 - Ginsbourger, D., Le Riche, R., & Carraro, L. (2010). Kriging is well-suited to parallelize optimization. *Computational Intelligence in Expensive Optimization Problems*, 131–162.
+- Gardner, J. R., Kusner, M. J., Xu, Z. E., Weinberger, K. Q., & Cunningham, J. P. (2014). Bayesian optimization with inequality constraints. *ICML*.
