@@ -128,6 +128,8 @@ pub struct SurrogateOptState {
     pub pending_suggest: Option<SurrogateSuggestComputeRequest>,
     /// 候補提案の結果。
     pub suggest_result: Option<crate::state::messages::SurrogateSuggestUiResult>,
+    /// 応答曲面スライスに予測標準偏差（±σ）を重ねて表示するか（GP 系のみ。既定 off）。
+    pub show_slice_uncertainty: bool,
 }
 
 impl Default for SurrogateOptState {
@@ -158,6 +160,7 @@ impl Default for SurrogateOptState {
             suggesting: false,
             pending_suggest: None,
             suggest_result: None,
+            show_slice_uncertainty: false,
         }
     }
 }
