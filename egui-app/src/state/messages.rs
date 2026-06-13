@@ -129,6 +129,17 @@ pub struct SurrogateSuggestUiResult {
     pub objective_name: String,
 }
 
+/// EHVI による多目的次候補提案の UI 表示用結果。
+#[derive(Debug, Clone)]
+pub struct SurrogateMultiSuggestUiResult {
+    /// 提案候補（EHVI の最適化結果）。
+    pub candidates: Vec<tunny_core::surrogate_opt::MultiSuggestedCandidate>,
+    /// パラメータ名（`candidates[*].params` と同順）。
+    pub param_names: Vec<String>,
+    /// 目的名（`candidates[*].predicted_values` と同順）。
+    pub objective_names: Vec<String>,
+}
+
 /// 多目的サロゲート最適化の UI 表示用結果。
 /// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
 /// パラメータ名・目的名・方向を付与してここへ詰め替える。
@@ -318,6 +329,10 @@ pub enum AppMessage {
     SurrogateSuggestDone(SurrogateSuggestUiResult),
     /// 獲得関数による候補提案が失敗した。
     SurrogateSuggestFailed(String),
+    /// EHVI による多目的候補提案が完了した。
+    SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult),
+    /// EHVI による多目的候補提案が失敗した。
+    SurrogateMultiSuggestFailed(String),
 }
 
 #[cfg(test)]

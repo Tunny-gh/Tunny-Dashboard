@@ -56,9 +56,10 @@ impl ComputeSyncKind {
             | AppMessage::SurrogateOptFailed(_)
             | AppMessage::SurrogateMultiOptDone(_)
             | AppMessage::SurrogateMultiOptFailed(_) => Some(Self::SurrogateOpt),
-            AppMessage::SurrogateSuggestDone(_) | AppMessage::SurrogateSuggestFailed(_) => {
-                Some(Self::SurrogateSuggest)
-            }
+            AppMessage::SurrogateSuggestDone(_)
+            | AppMessage::SurrogateSuggestFailed(_)
+            | AppMessage::SurrogateMultiSuggestDone(_)
+            | AppMessage::SurrogateMultiSuggestFailed(_) => Some(Self::SurrogateSuggest),
             AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
             _ => None,

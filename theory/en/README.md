@@ -4,6 +4,7 @@
 
 - [L-BFGS (Limited-memory BFGS)](optimization/lbfgs.md)
 - [**Acquisition Functions (EI / LCB)**](optimization/acquisition-functions.md)
+- [**Expected Hypervolume Improvement (EHVI)**](optimization/ehvi.md)
 
 ## Surrogate Models
 

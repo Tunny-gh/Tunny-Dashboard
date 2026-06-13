@@ -55,6 +55,17 @@ The **Copy enqueue JSON** button copies the suggested parameters as a JSON array
 
 See [Acquisition Functions](../optimization/acquisition-functions.md) for the full mathematical description.
 
+## Suggesting next trials (multi-objective)
+
+In multi-objective mode, after the predicted Pareto front a **Suggest next trials (EHVI)** section appears (GP surrogates only). It recommends parameter settings whose evaluation is expected to grow the dominated hypervolume of the Pareto front the most.
+
+- Set the number of candidates (1–10, default 3) and click **Suggest next trials (EHVI)**.
+- The results table lists, per candidate, the parameter values, each objective's predicted value ± standard deviation, and the EHVI score.
+- The button is disabled (with a hint) when any objective uses a non-GP model or while a computation is running.
+- Batch candidates use the same **Constant Liar** strategy as the single-objective path, and the **Copy enqueue JSON** button copies the suggested parameters for Optuna's `study.enqueue_trial()`.
+
+EHVI is estimated by Monte-Carlo with a fixed common-random-numbers sample matrix, which makes the suggestions deterministic and the acquisition surface smooth enough for gradient-based optimization. See [Expected Hypervolume Improvement (EHVI)](../optimization/ehvi.md) for the full mathematical description.
+
 ## Constraint-aware optimization
 
 When the study has constraint columns (Optuna convention: value ≤ 0 means feasible), a **Use constraints (N)** checkbox appears in the Fit section, where N is the number of constraint columns.

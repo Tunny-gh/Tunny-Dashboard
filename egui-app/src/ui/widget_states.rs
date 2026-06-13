@@ -88,6 +88,12 @@ pub struct SurrogateMultiOptimizeComputeRequest {
     pub slice_y: String,
 }
 
+/// EHVI による多目的候補提案リクエスト。
+pub struct SurrogateMultiSuggestComputeRequest {
+    /// 提案する候補数。
+    pub n_candidates: usize,
+}
+
 // ── Surrogate Optimizer UI 状態 ─────────────────────────────────
 pub struct SurrogateOptState {
     pub selected_objective: usize,
@@ -137,6 +143,15 @@ pub struct SurrogateOptState {
     pub suggest_result: Option<crate::state::messages::SurrogateSuggestUiResult>,
     /// 応答曲面スライスに予測標準偏差（±σ）を重ねて表示するか（GP 系のみ。既定 off）。
     pub show_slice_uncertainty: bool,
+    // ── EHVI による多目的候補提案 ──────────────────────────────────
+    /// 多目的提案の候補数（1〜10）。
+    pub n_multi_suggest_candidates: usize,
+    /// 多目的候補提案の計算中フラグ。
+    pub multi_suggesting: bool,
+    /// 多目的候補提案の未消化リクエスト。
+    pub pending_multi_suggest: Option<SurrogateMultiSuggestComputeRequest>,
+    /// 多目的候補提案の結果。
+    pub multi_suggest_result: Option<crate::state::messages::SurrogateMultiSuggestUiResult>,
 }
 
 impl Default for SurrogateOptState {
@@ -169,6 +184,10 @@ impl Default for SurrogateOptState {
             pending_suggest: None,
             suggest_result: None,
             show_slice_uncertainty: false,
+            n_multi_suggest_candidates: 3,
+            multi_suggesting: false,
+            pending_multi_suggest: None,
+            multi_suggest_result: None,
         }
     }
 }
@@ -187,6 +206,8 @@ impl SurrogateOptState {
         self.error_message = src.error_message.clone();
         self.suggesting = src.suggesting;
         self.suggest_result = src.suggest_result.clone();
+        self.multi_suggesting = src.multi_suggesting;
+        self.multi_suggest_result = src.multi_suggest_result.clone();
     }
 }
 
