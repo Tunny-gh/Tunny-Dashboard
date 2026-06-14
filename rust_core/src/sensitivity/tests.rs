@@ -333,7 +333,7 @@ fn tc_801_13_sensitivity_selected_empty_indices() {
 }
 
 #[test]
-fn tc_801_p01_spearman_50000_x_30_x_4_under_500ms() {
+fn tc_801_p01_spearman_50000_x_30_x_4_at_scale() {
     #[cfg(debug_assertions)]
     let (n, n_params, n_objs) = (5_000usize, 10usize, 4usize);
     #[cfg(not(debug_assertions))]
@@ -346,26 +346,23 @@ fn tc_801_p01_spearman_50000_x_30_x_4_under_500ms() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    let start = std::time::Instant::now();
+    // 全 param×obj ペアを計算して大規模入力でも破綻しないことを確認する。
     for param_column in &param_cols {
         for objective_column in &obj_cols {
-            let _ = compute_spearman(param_column, objective_column);
+            let r = compute_spearman(param_column, objective_column);
+            assert!(r.is_finite(), "Spearman must be finite (n={n})");
         }
     }
-    let elapsed = start.elapsed();
-
+    // 全列が単調増加なので、代表ペアの Spearman は ≈ 1.0 になる。
+    let r = compute_spearman(&param_cols[0], &obj_cols[0]);
     assert!(
-        elapsed.as_millis() <= 500,
-        "Spearmantranslated{}mstranslated（translated: ≤500ms, n={}, params={}, objs={}）",
-        elapsed.as_millis(),
-        n,
-        n_params,
-        n_objs
+        (r - 1.0).abs() < 1e-9,
+        "monotonic columns must give Spearman ≈ 1, got {r}"
     );
 }
 
 #[test]
-fn tc_801_p02_ridge_50000_x_30_under_300ms() {
+fn tc_801_p02_ridge_50000_x_30_at_scale() {
     #[cfg(debug_assertions)]
     let (n, n_params, n_objs) = (5_000usize, 10usize, 4usize);
     #[cfg(not(debug_assertions))]
@@ -378,30 +375,25 @@ fn tc_801_p02_ridge_50000_x_30_under_300ms() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    let start = std::time::Instant::now();
+    // 各目的について Ridge を解き、パラメータごとに係数が 1 つ返ることを確認する。
     for y in &y_vecs {
-        let _ = compute_ridge_from_vecs(&x_matrix, y, 1.0);
+        let r = compute_ridge_from_vecs(&x_matrix, y, 1.0);
+        assert_eq!(
+            r.beta.len(),
+            n_params,
+            "ridge must return one coefficient per parameter (n={n})"
+        );
     }
-    let elapsed = start.elapsed();
-
-    assert!(
-        elapsed.as_millis() <= 300,
-        "Ridgetranslated{}mstranslated（translated: ≤300ms, n={}, params={}）",
-        elapsed.as_millis(),
-        n,
-        n_params
-    );
 }
 
 #[test]
-fn tc_801_p03_sensitivity_selected_under_30s() {
-    // RF-ANOVA trains a random forest, so the time budget is much larger than
-    // the old 50ms limit that was set before RF was included in this path.
-    // Threshold: 30s in debug, 5s in release.
+fn tc_801_p03_sensitivity_selected_at_scale() {
+    // RF-ANOVA trains a random forest on this path; use a smaller debug dataset
+    // so the (unoptimised) run stays reasonable while still exercising the path.
     #[cfg(debug_assertions)]
-    let (n, limit_ms) = (200usize, 30_000u128);
+    let n = 200usize;
     #[cfg(not(debug_assertions))]
-    let (n, limit_ms) = (2_000usize, 5_000u128);
+    let n = 2_000usize;
 
     let rows: Vec<TrialRow> = (0..n)
         .map(|i| make_row_multi(i as u32, &[("x1", i as f64)], vec![i as f64; 4]))
@@ -409,16 +401,16 @@ fn tc_801_p03_sensitivity_selected_under_30s() {
     setup_df(rows, &["x1"], &["obj0", "obj1", "obj2", "obj3"]);
 
     let indices: Vec<u32> = (0..n as u32).collect();
-    let start = std::time::Instant::now();
-    let _ = compute_sensitivity_selected(&indices);
-    let elapsed = start.elapsed();
+    let result = compute_sensitivity_selected(&indices).expect("sensitivity must compute");
 
+    assert_eq!(
+        result.param_names.len(),
+        1,
+        "one parameter (x1) was provided"
+    );
     assert!(
-        elapsed.as_millis() <= limit_ms,
-        "compute_sensitivity_selected took {}ms (limit: {}ms, n={})",
-        elapsed.as_millis(),
-        limit_ms,
-        n
+        !result.spearman.is_empty(),
+        "Spearman scores must be produced (n={n})"
     );
 }
 

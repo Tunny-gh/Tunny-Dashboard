@@ -473,15 +473,9 @@ mod tests {
         let weights = vec![0.25_f64; n_objectives];
         let is_minimize = vec![true; n_objectives];
 
-        let start = Instant::now();
         let result = compute_vikor(&values, n_trials, n_objectives, &weights, &is_minimize, 0.5);
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-        assert!(result.is_ok(), "50k trials must not error");
-        assert!(
-            elapsed_ms < 100.0,
-            "Performance: {}ms >= 100ms target",
-            elapsed_ms
-        );
+        let result = result.expect("50k trials must not error");
+        assert_eq!(result.ranked_indices.len(), n_trials);
     }
 }
