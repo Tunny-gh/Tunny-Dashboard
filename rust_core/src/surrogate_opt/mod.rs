@@ -9,17 +9,20 @@ mod ehvi;
 pub(crate) mod feasibility;
 mod models;
 mod optimizers;
+pub(crate) mod progress;
 pub(crate) mod validation;
 
 pub use acquisition::{suggest_candidates, AcquisitionKind, SuggestedCandidate};
 pub use ehvi::{suggest_candidates_multi, MultiSuggestedCandidate};
 pub use models::SurrogateModelKind;
 pub use optimizers::OptimizerKind;
+pub use progress::{FitProgress, FitProgressSnapshot};
 pub use validation::SurrogateValidationReport;
 
 use crate::math::grid::linspace;
 use crate::math::rng::SeededRng;
-use validation::validate_surrogate;
+use progress::FIT_CANCELLED;
+use validation::validate_surrogate_tracked;
 
 /// サロゲート学習に必要な最小 trial 数。
 pub const MIN_TRIALS_FOR_SURROGATE_OPT: usize = 10;
@@ -67,13 +70,36 @@ pub fn select_best_model(
     y: &[f64],
     seed: u64,
 ) -> Result<ModelSelectionReport, String> {
+    select_best_model_tracked(x_matrix, y, seed, &FitProgress::default(), "")
+}
+
+/// [`select_best_model`] と同じだが、進捗更新とキャンセルに対応する。
+///
+/// `stage_prefix` は段階ラベルの接頭辞（多目的で「Objective k/N: 」を付けるため）。
+/// キャンセル要求があれば（候補の検証失敗に紛れず）[`FIT_CANCELLED`] を返す。
+fn select_best_model_tracked(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    seed: u64,
+    progress: &FitProgress,
+    stage_prefix: &str,
+) -> Result<ModelSelectionReport, String> {
     validate_inputs(x_matrix, y)?;
 
     let mut scores: Vec<(SurrogateModelKind, f64)> = Vec::with_capacity(AUTO_CANDIDATES.len());
-    for &kind in &AUTO_CANDIDATES {
+    for (i, &kind) in AUTO_CANDIDATES.iter().enumerate() {
+        progress.check()?;
+        progress.set_stage(format!(
+            "{stage_prefix}Evaluating candidate {} ({}/{})",
+            model_display_name(kind),
+            i + 1,
+            AUTO_CANDIDATES.len()
+        ));
         // フィット／検証に失敗した候補は NEG_INFINITY を記録し、選択対象から外す。
-        let score = match validate_surrogate(kind, x_matrix, y, seed) {
+        // ただしキャンセル由来の失敗は握りつぶさず伝播する。
+        let score = match validate_surrogate_tracked(kind, x_matrix, y, seed, progress) {
             Ok(report) => report.cv_r2_mean,
+            Err(_) if progress.is_cancelled() => return Err(FIT_CANCELLED.to_string()),
             Err(_) => f64::NEG_INFINITY,
         };
         scores.push((kind, score));
@@ -433,25 +459,72 @@ fn run_optimize(
     }
 }
 
+/// サロゲートモデル種別の表示名（進捗ラベル用）。
+fn model_display_name(kind: SurrogateModelKind) -> &'static str {
+    match kind {
+        SurrogateModelKind::Ridge => "Ridge",
+        SurrogateModelKind::GpFitc => "GP-FITC",
+        SurrogateModelKind::GpVfe => "GP-VFE",
+        SurrogateModelKind::GpMoe => "GP-MOE",
+        SurrogateModelKind::Lgbm => "LightGBM",
+    }
+}
+
+/// 学習に予定しているモデル学習回数を見積もる（進捗バーの分母）。
+/// [`fit_validated_inner`] が `inc_done` を呼ぶ回数と一致させる: auto 時は候補ごとの
+/// 検証（ホールドアウト 1 + CV k）×候補数、検証本体（1 + k）、最終モデル 1、制約数。
+fn estimate_fit_count(req: &SurrogateFitRequest) -> usize {
+    let k = req.y.len().min(5);
+    let validate = 1 + k;
+    let auto = if req.auto_select {
+        AUTO_CANDIDATES.len() * validate
+    } else {
+        0
+    };
+    auto + validate + 1 + req.constraints.len()
+}
+
 /// サロゲートを学習し、ホールドアウト＋k-fold CV で検証した結果を返す。
 ///
 /// 検証シードは 42 を使用する。制約モデルは CV なしで全データ学習する。
 pub fn fit_surrogate_with_validation(
     req: &SurrogateFitRequest,
 ) -> Result<TrainedSurrogate, String> {
+    fit_surrogate_with_validation_tracked(req, &FitProgress::default())
+}
+
+/// [`fit_surrogate_with_validation`] と同じだが、`progress` で進捗報告とキャンセルに
+/// 対応する（UI のバックグラウンド学習から使う）。
+pub fn fit_surrogate_with_validation_tracked(
+    req: &SurrogateFitRequest,
+    progress: &FitProgress,
+) -> Result<TrainedSurrogate, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
 
-    // 大規模データは学習前に間引く（検証で同一モデルを 7 回学習するコストは N に
+    // 大規模データは学習前に間引く（検証で同一モデルを複数回学習するコストは N に
     // ほぼ線形）。間引いた集合を以降すべて（CV・最終モデル・制約）に使うため、検証
     // スコアと実際にデプロイするモデルが同一データを見て整合する。
     let subsampled = subsample_fit_request(req);
     let req = subsampled.as_ref().unwrap_or(req);
 
+    progress.set_total(estimate_fit_count(req));
+    fit_validated_inner(req, progress, "")
+}
+
+/// 検証＋全データ学習の本体（入力検証・間引きは呼び出し側が済ませている前提）。
+///
+/// 各モデル学習の境界で `progress` を更新し、キャンセル要求があれば早期に `Err` を
+/// 返す。`stage_prefix` は段階ラベルの接頭辞（多目的の目的識別に使う）。
+fn fit_validated_inner(
+    req: &SurrogateFitRequest,
+    progress: &FitProgress,
+    stage_prefix: &str,
+) -> Result<TrainedSurrogate, String> {
     // Auto 選択時は AUTO_CANDIDATES を交差検証して最良モデルを決める。
     // 以降の学習・検証・制約モデルは選ばれた具体的なモデル種別で行う
     //（SurrogateModelKind に "Auto" バリアントはないため、自動的に整合する）。
     let (model_kind, model_selection) = if req.auto_select {
-        let report = select_best_model(&req.x_matrix, &req.y, 42)?;
+        let report = select_best_model_tracked(&req.x_matrix, &req.y, 42, progress, stage_prefix)?;
         let chosen = report.chosen;
         (chosen, Some(report))
     } else {
@@ -459,13 +532,20 @@ pub fn fit_surrogate_with_validation(
     };
 
     // CV・ホールドアウト検証を実施する。
-    let mut report = validate_surrogate(model_kind, &req.x_matrix, &req.y, 42)?;
+    progress.set_stage(format!(
+        "{stage_prefix}Cross-validating {}",
+        model_display_name(model_kind)
+    ));
+    let mut report = validate_surrogate_tracked(model_kind, &req.x_matrix, &req.y, 42, progress)?;
 
     // 全データで最終モデルを学習する。優先行（パレートフロント等）があれば GP の
     // 誘導点をそこに集中させる。CV/ホールドアウト検証側は汎化性能の推定のため一様
     // 誘導点のままにする（validate_surrogate は priority を受け取らない）。
+    progress.check()?;
+    progress.set_stage(format!("{stage_prefix}Fitting final model"));
     let surrogate =
         models::fit_surrogate_with_priority(model_kind, &req.x_matrix, &req.y, &req.priority_rows)?;
+    progress.inc_done();
 
     // 全データ訓練 R² を最終モデルから設定する。
     report.train_r2 = surrogate.r_squared;
@@ -487,8 +567,11 @@ pub fn fit_surrogate_with_validation(
         // 探索ができる）、Ridge / LightGBM ならハード指標へフォールバックする
         // （feasibility::single_prob 参照）。
         // Auto 選択時も目的モデルと同じ「選ばれた」種別を制約モデルに使う。
+        progress.check()?;
+        progress.set_stage(format!("{stage_prefix}Fitting constraint '{}'", cd.name));
         let cm = models::fit_constraint_surrogate(model_kind, &req.x_matrix, &cd.values)
             .map_err(|e| format!("Constraint '{}' fit failed: {}", cd.name, e))?;
+        progress.inc_done();
         constraint_names.push(cd.name.clone());
         constraint_models.push(cm);
         for (i, &v) in cd.values.iter().enumerate() {
@@ -943,6 +1026,30 @@ pub fn fit_multi_surrogates(
     model: SurrogateModelKind,
     minimize: &[bool],
 ) -> Result<Vec<TrainedSurrogate>, String> {
+    fit_multi_surrogates_tracked(
+        x_matrix,
+        objective_values,
+        param_names,
+        objective_names,
+        model,
+        minimize,
+        &FitProgress::default(),
+    )
+}
+
+/// [`fit_multi_surrogates`] と同じだが、`progress` で進捗報告とキャンセルに対応する
+/// （UI のバックグラウンド学習から使う）。進捗は全目的を通した総学習回数で表し、
+/// 目的 k の学習中はラベルに目的名を出す。
+#[allow(clippy::too_many_arguments)]
+pub fn fit_multi_surrogates_tracked(
+    x_matrix: &[Vec<f64>],
+    objective_values: &[Vec<f64>],
+    param_names: &[String],
+    objective_names: &[String],
+    model: SurrogateModelKind,
+    minimize: &[bool],
+    progress: &FitProgress,
+) -> Result<Vec<TrainedSurrogate>, String> {
     let n_obj = objective_values.len();
     if n_obj != objective_names.len() || n_obj != minimize.len() {
         return Err(
@@ -993,6 +1100,11 @@ pub fn fit_multi_surrogates(
         .map(|(i, _)| i)
         .collect();
 
+    // 進捗の総数: 各目的が (ホールドアウト 1 + CV k) + 最終モデル 1 を学習する。
+    // 各目的の req は auto_select=false・制約なしなので estimate_fit_count と一致する。
+    let per_obj = (1 + n.min(5)) + 1;
+    progress.set_total(n_obj * per_obj);
+
     let mut trained = Vec::with_capacity(n_obj);
     for k in 0..n_obj {
         let req = SurrogateFitRequest {
@@ -1005,7 +1117,10 @@ pub fn fit_multi_surrogates(
             constraints: vec![],
             priority_rows: priority.clone(),
         };
-        let t = fit_surrogate_with_validation(&req).map_err(|e| {
+        // 学習データは間引き済み（N ≤ cap）なので、間引き・set_total を行わない
+        // 本体を直接呼ぶ（各目的の inc_done が共有ハンドルに積み上がる）。
+        let prefix = format!("Objective {}/{} ({}): ", k + 1, n_obj, objective_names[k]);
+        let t = fit_validated_inner(&req, progress, &prefix).map_err(|e| {
             format!(
                 "Fitting failed for objective '{}': {}",
                 objective_names[k], e

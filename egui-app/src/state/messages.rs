@@ -317,11 +317,15 @@ pub enum AppMessage {
     /// サロゲートのフィット＋検証が完了した（最適化段階は別メッセージ）。
     SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     SurrogateFitFailed(String),
+    /// サロゲートのフィットがユーザー操作でキャンセルされた。
+    SurrogateFitCancelled,
     SurrogateOptDone(SurrogateOptUiResult),
     SurrogateOptFailed(String),
     /// 多目的サロゲートのフィット＋検証が完了した（全目的分の学習結果を保持）。
     SurrogateMultiFitDone(std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>),
     SurrogateMultiFitFailed(String),
+    /// 多目的サロゲートのフィットがユーザー操作でキャンセルされた。
+    SurrogateMultiFitCancelled,
     SurrogateMultiOptDone(SurrogateMultiOptUiResult),
     SurrogateMultiOptFailed(String),
     ChartCaptureFailed(String),

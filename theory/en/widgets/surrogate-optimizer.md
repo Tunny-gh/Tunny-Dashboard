@@ -94,6 +94,7 @@ See [Acquisition Functions — Constraint-aware acquisition functions](../optimi
 - The predicted optimum is a model estimate — validate it with a real evaluation before relying on it.
 - Categorical parameters are excluded; only numeric parameters are optimized.
 - The constraint checkbox is only shown for the single-objective path. Multi-objective mode does not currently incorporate constraints.
+- While fitting, a progress bar and the current stage (model selection, cross-validation, final fit, …) are shown, and a **Cancel** button aborts the run. Cancellation takes effect at the next fit-step boundary.
 
 ### Pareto-front-focused surrogates
 

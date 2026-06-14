@@ -1488,6 +1488,76 @@ fn subsample_multi_keeps_pareto_front() {
     );
 }
 
+// ────────────────────────────────────────────────────────────
+// 進捗報告とキャンセル（FitProgress / *_tracked）
+// ────────────────────────────────────────────────────────────
+
+#[test]
+fn fit_tracked_reports_progress_to_completion() {
+    let (x_matrix, y) = quadratic_samples(60);
+    let req = SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "f".to_string(),
+        model: SurrogateModelKind::Ridge,
+        auto_select: false,
+        constraints: vec![],
+        priority_rows: vec![],
+    };
+    let progress = FitProgress::new();
+    let _ = fit_surrogate_with_validation_tracked(&req, &progress).expect("fit should succeed");
+    let s = progress.snapshot();
+    // 単目的・制約なし・手動: total = (ホールドアウト 1 + CV 5) + 最終 1 = 7。
+    assert_eq!(s.total, 7, "total fit count");
+    assert_eq!(s.done, s.total, "progress should reach 100%");
+    assert!(!s.stage.is_empty(), "stage label should be set");
+}
+
+#[test]
+fn fit_tracked_cancel_before_start_returns_err() {
+    let (x_matrix, y) = quadratic_samples(60);
+    let req = SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "f".to_string(),
+        model: SurrogateModelKind::Ridge,
+        auto_select: false,
+        constraints: vec![],
+        priority_rows: vec![],
+    };
+    let progress = FitProgress::new();
+    progress.request_cancel();
+    let res = fit_surrogate_with_validation_tracked(&req, &progress);
+    assert!(res.is_err(), "cancelled fit should return Err");
+    assert!(progress.is_cancelled());
+    // キャンセルは最初の学習前に検知されるので進捗は進まない。
+    assert_eq!(progress.snapshot().done, 0);
+}
+
+#[test]
+fn fit_multi_tracked_cancel_returns_err() {
+    let (x_matrix, y) = quadratic_samples(40);
+    // 2 目的（同一データを流用; キャンセルは学習前に返るため値は問わない）。
+    let objective_values = vec![y.clone(), y];
+    let names = vec!["x".to_string(), "y".to_string()];
+    let obj_names = vec!["f0".to_string(), "f1".to_string()];
+    let progress = FitProgress::new();
+    progress.request_cancel();
+    let res = fit_multi_surrogates_tracked(
+        &x_matrix,
+        &objective_values,
+        &names,
+        &obj_names,
+        SurrogateModelKind::Ridge,
+        &[true, true],
+        &progress,
+    );
+    assert!(res.is_err(), "cancelled multi fit should return Err");
+    assert!(progress.is_cancelled());
+}
+
 #[test]
 fn fit_with_validation_subsamples_large_data() {
     // N > cap でも学習が成功し、訓練データが cap 以下に間引かれること。

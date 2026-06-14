@@ -50,8 +50,10 @@ impl ComputeSyncKind {
             }
             AppMessage::SurrogateFitDone(_)
             | AppMessage::SurrogateFitFailed(_)
+            | AppMessage::SurrogateFitCancelled
             | AppMessage::SurrogateMultiFitDone(_)
-            | AppMessage::SurrogateMultiFitFailed(_) => Some(Self::SurrogateFit),
+            | AppMessage::SurrogateMultiFitFailed(_)
+            | AppMessage::SurrogateMultiFitCancelled => Some(Self::SurrogateFit),
             AppMessage::SurrogateOptDone(_)
             | AppMessage::SurrogateOptFailed(_)
             | AppMessage::SurrogateMultiOptDone(_)

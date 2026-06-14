@@ -254,10 +254,18 @@ impl MessageHandler {
                 widget_states.surrogate_opt.trained = Some(trained);
                 widget_states.surrogate_opt.error_message = None;
                 widget_states.surrogate_opt.fitting = false;
+                widget_states.surrogate_opt.fit_progress = None;
             }
             AppMessage::SurrogateFitFailed(err) => {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.fitting = false;
+                widget_states.surrogate_opt.fit_progress = None;
+            }
+            AppMessage::SurrogateFitCancelled => {
+                // ユーザーがキャンセルした。エラー表示はせず状態だけ戻す。
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.fitting = false;
+                widget_states.surrogate_opt.fit_progress = None;
             }
             AppMessage::SurrogateOptDone(result) => {
                 widget_states.surrogate_opt.result = Some(result);
@@ -272,10 +280,17 @@ impl MessageHandler {
                 widget_states.surrogate_opt.multi_trained = Some(trained);
                 widget_states.surrogate_opt.error_message = None;
                 widget_states.surrogate_opt.fitting = false;
+                widget_states.surrogate_opt.fit_progress = None;
             }
             AppMessage::SurrogateMultiFitFailed(err) => {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.fitting = false;
+                widget_states.surrogate_opt.fit_progress = None;
+            }
+            AppMessage::SurrogateMultiFitCancelled => {
+                widget_states.surrogate_opt.error_message = None;
+                widget_states.surrogate_opt.fitting = false;
+                widget_states.surrogate_opt.fit_progress = None;
             }
             AppMessage::SurrogateMultiOptDone(result) => {
                 widget_states.surrogate_opt.multi_result = Some(result);

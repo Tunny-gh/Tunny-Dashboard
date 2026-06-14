@@ -663,6 +663,10 @@ pub(crate) fn poll_chart_work(
                         vec![]
                     };
 
+                // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
+                let progress = tunny_core::surrogate_opt::FitProgress::new();
+                widgets.surrogate_opt.fit_progress = Some(progress.clone());
+
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
                     let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
@@ -675,9 +679,19 @@ pub(crate) fn poll_chart_work(
                         constraints,
                         priority_rows: vec![],
                     };
-                    match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+                    match tunny_core::surrogate_opt::fit_surrogate_with_validation_tracked(
+                        &fit_core_req,
+                        &progress,
+                    ) {
                         Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
-                        Err(e) => AppMessage::SurrogateFitFailed(e),
+                        Err(e) => {
+                            // キャンセル由来の失敗はエラー表示しない。
+                            if progress.is_cancelled() {
+                                AppMessage::SurrogateFitCancelled
+                            } else {
+                                AppMessage::SurrogateFitFailed(e)
+                            }
+                        }
                     }
                 });
             } else if let Some(multi_fit_req) = widgets.surrogate_opt.pending_multi_fit.take() {
@@ -733,22 +747,33 @@ pub(crate) fn poll_chart_work(
                 widgets.surrogate_opt.multi_result = None;
                 widgets.surrogate_opt.error_message = None;
 
+                // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
+                let progress = tunny_core::surrogate_opt::FitProgress::new();
+                widgets.surrogate_opt.fit_progress = Some(progress.clone());
+
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
                     // パレートフロント集中つきで全目的を学習する
                     //（N > GP 誘導点上限のとき非劣 trial に誘導点を集中）。
-                    match tunny_core::surrogate_opt::fit_multi_surrogates(
+                    match tunny_core::surrogate_opt::fit_multi_surrogates_tracked(
                         &x_matrix,
                         &objective_values,
                         &numeric_params,
                         &objective_names,
                         multi_fit_req.model,
                         &minimize_flags,
+                        &progress,
                     ) {
                         Ok(trained_vec) => {
                             AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(trained_vec))
                         }
-                        Err(e) => AppMessage::SurrogateMultiFitFailed(e),
+                        Err(e) => {
+                            if progress.is_cancelled() {
+                                AppMessage::SurrogateMultiFitCancelled
+                            } else {
+                                AppMessage::SurrogateMultiFitFailed(e)
+                            }
+                        }
                     }
                 });
             } else if let Some(opt_req) = widgets.surrogate_opt.pending_optimize.take() {
