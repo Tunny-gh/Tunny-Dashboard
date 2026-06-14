@@ -106,6 +106,9 @@ pub struct SurrogateOptState {
     pub slice_y: String,
     /// フィット段階のスピナーフラグ。
     pub fitting: bool,
+    /// フィット中の進捗・キャンセル共有ハンドル（学習スレッドと共有）。
+    /// `fitting` が true の間だけ `Some`。Cancel ボタンと進捗バーが参照する。
+    pub fit_progress: Option<tunny_core::surrogate_opt::FitProgress>,
     /// 最適化段階のスピナーフラグ。
     pub optimizing: bool,
     /// 検証済みの学習結果（フィット完了後に保持）。
@@ -164,6 +167,7 @@ impl Default for SurrogateOptState {
             slice_x: String::new(),
             slice_y: String::new(),
             fitting: false,
+            fit_progress: None,
             optimizing: false,
             trained: None,
             result: None,
@@ -198,6 +202,7 @@ impl SurrogateOptState {
     /// （目的・モデル・最適化手法・スライス軸の選択は維持する）。
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.fitting = src.fitting;
+        self.fit_progress = src.fit_progress.clone();
         self.optimizing = src.optimizing;
         self.trained = src.trained.clone();
         self.result = src.result.clone();

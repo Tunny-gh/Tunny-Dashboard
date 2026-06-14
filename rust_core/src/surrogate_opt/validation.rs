@@ -3,6 +3,7 @@
 use crate::pdp::utils::r_squared;
 
 use super::models::{fit_surrogate, SurrogateModelKind};
+use super::progress::FitProgress;
 use crate::math::rng::SeededRng;
 
 /// ホールドアウト + k-fold CV によるサロゲートモデルの検証レポート。
@@ -67,11 +68,25 @@ fn population_std(values: &[f64]) -> f64 {
 ///
 /// `train_r2` は呼び出し元（`fit_surrogate_with_validation`）が全データモデルの
 /// 値で上書きするため、ここでは 0.0 を返す。
+#[cfg(test)]
 pub(crate) fn validate_surrogate(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
     y: &[f64],
     seed: u64,
+) -> Result<SurrogateValidationReport, String> {
+    validate_surrogate_tracked(kind, x_matrix, y, seed, &FitProgress::default())
+}
+
+/// [`validate_surrogate`] と同じだが、各モデル学習の境界で `progress` を更新し、
+/// キャンセル要求があれば早期に `Err` を返す。学習回数（ホールドアウト 1 + CV k 回）
+/// だけ [`FitProgress::inc_done`] を呼ぶ。段階ラベルは呼び出し側が設定する。
+pub(crate) fn validate_surrogate_tracked(
+    kind: SurrogateModelKind,
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    seed: u64,
+    progress: &FitProgress,
 ) -> Result<SurrogateValidationReport, String> {
     let n = y.len();
 
@@ -92,8 +107,10 @@ pub(crate) fn validate_surrogate(
     let test_x: Vec<Vec<f64>> = test_indices.iter().map(|&i| x_matrix[i].clone()).collect();
     let test_y: Vec<f64> = test_indices.iter().map(|&i| y[i]).collect();
 
+    progress.check()?;
     let holdout_model = fit_surrogate(kind, &train_x, &train_y)
         .map_err(|e| format!("ホールドアウト訓練失敗: {e}"))?;
+    progress.inc_done();
 
     let holdout_pred: Vec<f64> = test_x
         .iter()
@@ -138,8 +155,10 @@ pub(crate) fn validate_surrogate(
             .collect();
         let cv_val_y: Vec<f64> = cv_val_indices.iter().map(|&i| y[i]).collect();
 
+        progress.check()?;
         let cv_model = fit_surrogate(kind, &cv_train_x, &cv_train_y)
             .map_err(|e| format!("CV fold {fold} 訓練失敗: {e}"))?;
+        progress.inc_done();
 
         let cv_pred: Vec<f64> = cv_val_x
             .iter()

@@ -356,12 +356,9 @@ fn render_fit_column(
         }
     }
 
-    // フィット中スピナー。
+    // フィット中: 進捗バー＋キャンセルボタン。
     if state.fitting {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label("Fitting and validating surrogate (holdout + 5-fold CV)…");
-        });
+        render_fit_progress(ui, state);
         return;
     }
 
@@ -374,6 +371,54 @@ fn render_fit_column(
                 egui::Color32::from_rgb(107, 114, 128), // gray-500
                 "Model/objective changed — run Fit & Validate again.",
             );
+        }
+    }
+}
+
+/// フィット中の進捗（段階ラベル・進捗バー）とキャンセルボタンを描画する。
+///
+/// 進捗ハンドルは学習スレッドと共有しており、Cancel ボタンは内部のキャンセルフラグを
+/// 立てる（学習側は段階の境界で検知して中止する）。学習中は毎フレーム再描画して
+/// 進捗バーを更新する。
+fn render_fit_progress(ui: &mut egui::Ui, state: &SurrogateOptState) {
+    // 進捗を滑らかに更新するため再描画を要求する。
+    ui.ctx().request_repaint();
+
+    let snapshot = state.fit_progress.as_ref().map(|p| p.snapshot());
+
+    ui.horizontal(|ui| {
+        ui.spinner();
+        let label = snapshot
+            .as_ref()
+            .filter(|s| !s.stage.is_empty())
+            .map(|s| s.stage.clone())
+            .unwrap_or_else(|| "Fitting and validating surrogate…".to_string());
+        ui.label(label);
+    });
+
+    // 進捗バー（総ステップ数が分かっているとき）。
+    if let Some(s) = snapshot.as_ref().filter(|s| s.total > 0) {
+        let frac = (s.done as f32 / s.total as f32).clamp(0.0, 1.0);
+        ui.add(
+            egui::ProgressBar::new(frac)
+                .show_percentage()
+                .desired_width(240.0),
+        );
+    }
+
+    // キャンセルボタン。
+    if let Some(progress) = &state.fit_progress {
+        let cancelling = progress.is_cancelled();
+        let label = if cancelling {
+            "Cancelling…"
+        } else {
+            "Cancel"
+        };
+        if ui
+            .add_enabled(!cancelling, egui::Button::new(label))
+            .clicked()
+        {
+            progress.request_cancel();
         }
     }
 }
@@ -408,12 +453,9 @@ fn render_fit_column_multi(
         state.pending_multi_fit = Some(SurrogateMultiFitComputeRequest { model: state.model });
     }
 
-    // フィット中スピナー。
+    // フィット中: 進捗バー＋キャンセルボタン。
     if state.fitting {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label("Fitting and validating surrogates (all objectives)…");
-        });
+        render_fit_progress(ui, state);
         return;
     }
 
