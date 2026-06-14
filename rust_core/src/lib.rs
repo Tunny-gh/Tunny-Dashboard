@@ -5,7 +5,7 @@ pub(crate) mod gaussian_process;
 pub mod io;
 pub(crate) mod lgbm;
 pub(crate) mod lgbm_sys;
-pub(crate) mod math;
+pub mod math;
 pub mod mcdm;
 pub mod multi_objective;
 pub(crate) mod optimization;
