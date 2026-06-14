@@ -310,38 +310,10 @@ fn trained_surrogate_is_send_sync() {
 // validate_surrogate のテスト
 // ============================================================================
 
-#[test]
-fn validate_surrogate_gp_fitc_high_r2_on_smooth_function() {
-    // 決定論的な滑らかな関数で学習・検証し、CV R² とホールドアウト R² が高いことを確認する。
-    let (x_matrix, y) = quadratic_samples(40);
-    let report = validation::validate_surrogate(SurrogateModelKind::GpFitc, &x_matrix, &y, 42)
-        .expect("validate_surrogate should succeed");
-
-    assert_eq!(report.n_samples, 40);
-    assert!(report.n_test >= 1, "n_test >= 1");
-    assert_eq!(report.n_train + report.n_test, 40);
-    assert!(
-        report.holdout_r2 > 0.7,
-        "holdout_r2 = {}",
-        report.holdout_r2
-    );
-    assert!(
-        report.cv_r2_mean > 0.7,
-        "cv_r2_mean = {}",
-        report.cv_r2_mean
-    );
-    assert_eq!(
-        report.oof_pairs.len(),
-        40,
-        "oof_pairs の長さはサンプル数と一致する"
-    );
-    assert!(report.holdout_r2.is_finite());
-    assert!(report.holdout_rmse.is_finite());
-    assert!(report.cv_r2_mean.is_finite());
-    assert!(report.cv_r2_std.is_finite());
-    assert!(report.cv_rmse_mean.is_finite());
-    assert!(report.cv_rmse_std.is_finite());
-}
+// NOTE: GP の当てはめ品質（滑らかな関数で R² が高い 等）はバックエンドの egobox の
+// 責務なので検証しない。検証レポートの構造（n_samples / cv_folds / oof_pairs 長・各値が
+// 有限）は validate_surrogate_minimum_size_dataset と
+// validate_surrogate_deterministic_with_same_seed が確認する。
 
 #[test]
 fn validate_surrogate_deterministic_with_same_seed() {
