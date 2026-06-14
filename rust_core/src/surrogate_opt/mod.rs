@@ -18,10 +18,18 @@ pub use optimizers::OptimizerKind;
 pub use validation::SurrogateValidationReport;
 
 use crate::math::grid::linspace;
+use crate::math::rng::SeededRng;
 use validation::validate_surrogate;
 
 /// サロゲート学習に必要な最小 trial 数。
 pub const MIN_TRIALS_FOR_SURROGATE_OPT: usize = 10;
+
+/// 学習に使う trial 数の上限。これを超えるとエリート帯＋ランダムで間引く。
+///
+/// GP-FITC は誘導点 M=100 に情報を圧縮するため、N をこの程度まで間引いても応答
+/// 曲面の質はほとんど落ちない。一方コストは N にほぼ線形（検証で同一モデルを 7 回
+/// 学習する）なので、大規模 study での待ち時間を大幅に短縮できる。
+pub const MAX_TRAIN_FOR_FIT: usize = 2000;
 
 /// 自動モデル選択（Auto）の候補モデル。CV R² が最も高い候補を選ぶ。
 ///
@@ -256,6 +264,113 @@ fn validate_inputs(x_matrix: &[Vec<f64>], y: &[f64]) -> Result<(usize, usize), S
     Ok((n, n_dims))
 }
 
+/// `idx` で指定した行だけを取り出した新しい Vec を返す。
+fn take_rows<T: Clone>(rows: &[T], idx: &[usize]) -> Vec<T> {
+    idx.iter().map(|&i| rows[i].clone()).collect()
+}
+
+/// 大規模学習データを `cap` 点へ間引くインデックス（昇順）を返す。`N ≤ cap` のときは
+/// `None`（間引き不要）。
+///
+/// 方針: エリート（最適化で重要な領域）を必ず残し、残り枠を非エリートからランダム
+/// （固定シード）で補う。Optuna の trial は良い領域に密集するため、ランダム補充は
+/// その密度分布を保ったまま空間を粗く覆う（空間充填だと密度を均して良い領域が薄まる
+/// ため使わない）。エリートは予算の半分（`cap/2`）まで:
+/// - 単目的: 目的値の両端（best/worst 各 1/4 ずつ）。`fit` は最適化方向に非依存なので、
+///   両端を残せば最大化・最小化どちらでも最適点側が保持される。
+/// - 多目的: 非劣ランク昇順。rank 0 から、`cap/2` に満たなければ rank 1, 2, … と対象を
+///   広げる（`nd_sort` は単目的では全 rank 0 を返すため、単目的経路では使わない）。
+fn subsample_indices(
+    objective_cols: &[&[f64]],
+    minimize: &[bool],
+    cap: usize,
+    seed: u64,
+) -> Option<Vec<usize>> {
+    let n = objective_cols.first().map_or(0, |c| c.len());
+    if n <= cap {
+        return None;
+    }
+    let elite_target = (cap / 2).min(n);
+    let mut is_elite = vec![false; n];
+
+    if objective_cols.len() <= 1 {
+        // 単目的: 値で昇順ソートし両端をエリートにする（最適化方向に非依存）。
+        let col = objective_cols[0];
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| {
+            col[a]
+                .partial_cmp(&col[b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let low = elite_target / 2;
+        let high = elite_target - low;
+        for &i in order.iter().take(low) {
+            is_elite[i] = true;
+        }
+        for &i in order.iter().rev().take(high) {
+            is_elite[i] = true;
+        }
+    } else {
+        // 多目的: 非劣ランク昇順で先頭 elite_target 点（rank 0 → 1 → 2 … と広がる）。
+        let rows: Vec<Vec<f64>> = (0..n)
+            .map(|i| objective_cols.iter().map(|c| c[i]).collect())
+            .collect();
+        let ranks = crate::multi_objective::pareto::nd_sort(&rows, minimize);
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by_key(|&i| ranks[i]); // 安定ソート: 同ランク内は index 順
+        for &i in order.iter().take(elite_target) {
+            is_elite[i] = true;
+        }
+    }
+
+    let mut chosen: Vec<usize> = (0..n).filter(|&i| is_elite[i]).collect();
+    let mut rest: Vec<usize> = (0..n).filter(|&i| !is_elite[i]).collect();
+    let mut rng = SeededRng::from_seed(seed);
+    rng.shuffle(&mut rest);
+    let fill = cap.saturating_sub(chosen.len());
+    chosen.extend(rest.into_iter().take(fill));
+    chosen.sort_unstable();
+    Some(chosen)
+}
+
+/// 単目的フィット要求が大きすぎる場合に間引いた要求を返す（`N ≤ cap` なら `None`）。
+/// 制約値・優先行も同じインデックスで整合的に間引く。
+fn subsample_fit_request(req: &SurrogateFitRequest) -> Option<SurrogateFitRequest> {
+    let idx = subsample_indices(&[&req.y], &[], MAX_TRAIN_FOR_FIT, 42)?;
+
+    // 旧 index → 新位置の対応（優先行の remap 用）。
+    let mut remap = vec![usize::MAX; req.y.len()];
+    for (new_pos, &old) in idx.iter().enumerate() {
+        remap[old] = new_pos;
+    }
+    let priority_rows = req
+        .priority_rows
+        .iter()
+        .filter_map(|&o| {
+            let p = remap.get(o).copied().unwrap_or(usize::MAX);
+            (p != usize::MAX).then_some(p)
+        })
+        .collect();
+
+    Some(SurrogateFitRequest {
+        x_matrix: take_rows(&req.x_matrix, &idx),
+        y: take_rows(&req.y, &idx),
+        param_names: req.param_names.clone(),
+        objective_name: req.objective_name.clone(),
+        model: req.model,
+        auto_select: req.auto_select,
+        constraints: req
+            .constraints
+            .iter()
+            .map(|c| ConstraintData {
+                name: c.name.clone(),
+                values: take_rows(&c.values, &idx),
+            })
+            .collect(),
+        priority_rows,
+    })
+}
+
 /// 学習済みサロゲートに対して最適化を実行し、結果を返す共通ロジック。
 ///
 /// `constraint_models` が空でないとき、コスト関数に制約ペナルティを加えて探索する。
@@ -325,6 +440,12 @@ pub fn fit_surrogate_with_validation(
     req: &SurrogateFitRequest,
 ) -> Result<TrainedSurrogate, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
+
+    // 大規模データは学習前に間引く（検証で同一モデルを 7 回学習するコストは N に
+    // ほぼ線形）。間引いた集合を以降すべて（CV・最終モデル・制約）に使うため、検証
+    // スコアと実際にデプロイするモデルが同一データを見て整合する。
+    let subsampled = subsample_fit_request(req);
+    let req = subsampled.as_ref().unwrap_or(req);
 
     // Auto 選択時は AUTO_CANDIDATES を交差検証して最良モデルを決める。
     // 以降の学習・検証・制約モデルは選ばれた具体的なモデル種別で行う
@@ -842,6 +963,23 @@ pub fn fit_multi_surrogates(
             ));
         }
     }
+
+    // 大規模データは全目的で共有する 1 つの部分集合に間引く（目的ごとに別集合だと
+    // パレートフロントが不整合になるため）。間引き後は各目的の fit が N ≤ cap となり
+    // 二重に間引かれない。優先行（rank 0）も間引き後の集合で計算し直す。
+    let obj_cols: Vec<&[f64]> = objective_values.iter().map(Vec::as_slice).collect();
+    let subset = subsample_indices(&obj_cols, minimize, MAX_TRAIN_FOR_FIT, 42);
+    let x_subset: Vec<Vec<f64>>;
+    let obj_subset: Vec<Vec<f64>>;
+    let (x_matrix, objective_values): (&[Vec<f64>], &[Vec<f64>]) = match &subset {
+        Some(idx) => {
+            x_subset = take_rows(x_matrix, idx);
+            obj_subset = objective_values.iter().map(|c| take_rows(c, idx)).collect();
+            (&x_subset, &obj_subset)
+        }
+        None => (x_matrix, objective_values),
+    };
+    let n = x_matrix.len();
 
     // 行ごとの目的ベクトル rows[i][k] を組み、非劣 trial（rank == 0）を優先行にする。
     let rows: Vec<Vec<f64>> = (0..n)
