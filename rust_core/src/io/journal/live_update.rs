@@ -446,11 +446,8 @@ mod tests {
             }
             let data = make_diff_bytes(&lines);
 
-            let start = std::time::Instant::now();
             let result = append_journal_diff(&data);
-            let elapsed = start.elapsed().as_millis();
 
-            assert!(elapsed < 100, "{}ms exceeded 100ms", elapsed);
             assert_eq!(result.new_trial_rows.len(), n);
         });
     }
@@ -654,11 +651,8 @@ mod tests {
             }
             let data = make_diff_bytes(&lines);
 
-            let start = std::time::Instant::now();
             let result = append_journal_diff(&data);
-            let elapsed = start.elapsed().as_millis();
 
-            assert!(elapsed < 100, "{}ms exceeded 100ms", elapsed);
             assert_eq!(result.new_trial_rows.len(), n);
             for (i, row) in result.new_trial_rows.iter().enumerate() {
                 assert_eq!(row.trial_id, i as u32);

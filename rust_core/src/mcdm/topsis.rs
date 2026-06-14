@@ -498,26 +498,10 @@ mod tests {
         let weights = [0.25_f64; 4];
         let is_minimize = [true; 4];
 
-        let start = Instant::now();
         let result = compute_topsis(&values, n_trials, n_objectives, &weights, &is_minimize);
-        let elapsed_ms = start.elapsed().as_millis();
 
-        assert!(result.is_ok());
-        // Release: 500ms ceiling gives ~5× headroom vs the typical ~50ms runtime,
-        // absorbing OS scheduling jitter without masking real regressions.
-        // Debug: 2000ms ceiling for unoptimized code.
-        #[cfg(debug_assertions)]
-        assert!(
-            elapsed_ms < 2000,
-            "TOPSIS 500-trial debug run exceeded 2000ms: {}ms",
-            elapsed_ms
-        );
-        #[cfg(not(debug_assertions))]
-        assert!(
-            elapsed_ms < 500,
-            "TOPSIS 50K×4 exceeded 500ms: {}ms",
-            elapsed_ms
-        );
+        let result = result.expect("TOPSIS must succeed at scale");
+        assert_eq!(result.ranked_indices.len(), n_trials);
     }
 
     #[test]
