@@ -346,19 +346,17 @@ fn tc_801_p01_spearman_50000_x_30_x_4_at_scale() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    // 全 param×obj ペアを計算して大規模入力でも破綻しないことを確認する。
+    // 全列が単調増加なので、どの param×obj ペアでも Spearman は厳密に 1.0 になる。
+    // 全ペアを計算することで大規模入力でも破綻しないこと（スケール時のスモーク）も兼ねる。
     for param_column in &param_cols {
         for objective_column in &obj_cols {
             let r = compute_spearman(param_column, objective_column);
-            assert!(r.is_finite(), "Spearman must be finite (n={n})");
+            assert!(
+                (r - 1.0).abs() < 1e-9,
+                "monotonic columns must give Spearman ≈ 1, got {r} (n={n})"
+            );
         }
     }
-    // 全列が単調増加なので、代表ペアの Spearman は ≈ 1.0 になる。
-    let r = compute_spearman(&param_cols[0], &obj_cols[0]);
-    assert!(
-        (r - 1.0).abs() < 1e-9,
-        "monotonic columns must give Spearman ≈ 1, got {r}"
-    );
 }
 
 #[test]

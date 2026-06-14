@@ -260,11 +260,6 @@ fn hv_history_with_ref_ignores_wrong_dim_override() {
 
 #[test]
 fn tc_201_p01_ndsort_1000_points_under_100ms() {
-    // Debug builds are unoptimised; use fewer points so the assertion
-    // remains meaningful without requiring a release build.
-    #[cfg(debug_assertions)]
-    let n = 200usize;
-    #[cfg(not(debug_assertions))]
     let n = 1_000usize;
 
     let objs: Vec<Vec<f64>> = (0..n)
