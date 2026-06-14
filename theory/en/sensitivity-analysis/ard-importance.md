@@ -2,11 +2,13 @@
 
 ## Overview
 
-When a Gaussian Process (GP) surrogate is fitted with an **ARD** (Automatic Relevance Determination) kernel, it learns one length-scale hyperparameter per input dimension. The relative magnitude of these hyperparameters is a cheap, global measure of how sensitive the response surface is to each parameter — available for free after fitting a GP, with no extra computation.
+When a Gaussian Process (GP) surrogate is fitted with an **ARD** (Automatic Relevance Determination) kernel, it learns one length-scale hyperparameter per input dimension. The relative magnitude of these hyperparameters is a cheap, global measure of how sensitive the response surface is to each parameter.
+
+In the dashboard this is exposed as the **ARD** metric in the Importance chart: selecting it fits a GP-FITC surrogate to the chosen objective and reports the per-parameter relevance (the validation R² of that GP is shown alongside, so you can judge how much to trust the scores).
 
 This complements PDP (which shows *how* the response changes with a parameter) by giving a single scalar *smoothness-based sensitivity* per parameter.
 
-- **GP models only** (GP-FITC / GP-VFE). Mixture-of-experts (GP-MOE) has per-expert length scales whose aggregation is ambiguous, so importance is not reported. Ridge and LightGBM have no length scales.
+- Backed by a **GP-FITC** fit. Mixture-of-experts (GP-MOE) has per-expert length scales whose aggregation is ambiguous, and Ridge / LightGBM have no length scales, so those models cannot produce ARD importance.
 
 ## ARD length scales and the θ convention
 
@@ -37,4 +39,4 @@ If the sum is non-positive or any $\theta_d$ is non-finite, no importance is rep
 - It is computed on normalized $[0,1]$ inputs, so it reflects sensitivity per *unit of normalized range*, not per physical unit.
 - Use it as a quick screen and confirm the shape with PDP or a variance-based method (Sobol) when interactions matter.
 
-See also: [PDP](./pdp.md), [Sobol](./sobol.md), and the [Surrogate Optimizer widget](../widgets/surrogate-optimizer.md).
+See also: [PDP](./pdp.md), [Sobol](./sobol.md), and the [Surrogate Optimizer widget](../widgets/surrogate-optimizer.md) (which fits the same GP family for response-surface optimization).

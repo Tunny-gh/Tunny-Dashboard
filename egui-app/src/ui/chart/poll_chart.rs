@@ -152,7 +152,7 @@ fn single_obj_param_score(
             .and_then(|row| row.first())
             .copied()
             .unwrap_or(0.0),
-        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => 0.0,
+        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal | ImportanceMetric::Ard => 0.0,
     }
 }
 
@@ -245,8 +245,8 @@ pub(crate) fn poll_chart_work(
                 widgets.importance.pending_compute.take()
             {
                 use crate::state::results::{
-                    MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult,
-                    ShapResult, SobolResult,
+                    ArdResult, MdiResult, PermutationResult, RfAnovaResult, RidgeResult,
+                    SensitivityResult, ShapResult, SobolResult,
                 };
                 use crate::ui::widgets::importance_chart::{
                     core_sensitivity_metric, ImportanceMetric, SOBOL_SAMPLE_COUNT,
@@ -291,6 +291,38 @@ pub(crate) fn poll_chart_work(
                                     },
                                     None => AppMessage::SensitivityError(
                                         "Sobol computation failed".into(),
+                                    ),
+                                }
+                            });
+                        }
+                        ImportanceMetric::Ard => {
+                            // ARD は GP-FITC を学習してその長さスケールから重要度を得る
+                            //（DataFrame メトリクスではないため Sobol 同様の専用経路）。
+                            let key = (metric.cache_id(), obj_idx, feasible_only);
+                            crate::app::spawn_task(tx, move || {
+                                match tunny_core::surrogate_opt::compute_ard_importance_from_df(
+                                    &df, obj_idx,
+                                ) {
+                                    Some(r) => AppMessage::SensitivityDone {
+                                        key,
+                                        result: SensitivityResult {
+                                            param_names: r.param_names,
+                                            objective_names: vec![],
+                                            spearman: vec![],
+                                            ridge: vec![],
+                                            rf_anova: None,
+                                            mdi: None,
+                                            shap: None,
+                                            permutation: None,
+                                            ard: Some(ArdResult {
+                                                importances: r.importances,
+                                                r_squared: r.r_squared,
+                                            }),
+                                        },
+                                    },
+                                    None => AppMessage::SensitivityError(
+                                        "ARD importance requires a GP fit (need more trials)"
+                                            .into(),
                                     ),
                                 }
                             });
@@ -351,6 +383,7 @@ pub(crate) fn poll_chart_work(
                                             importances: x.0.importances,
                                             r_squared: x.0.r_squared,
                                         }),
+                                        ard: None,
                                     },
                                 }
                             });

@@ -277,6 +277,7 @@ mod tests {
                 mdi: None,
                 shap: None,
                 permutation: None,
+                ard: None,
             },
         );
 

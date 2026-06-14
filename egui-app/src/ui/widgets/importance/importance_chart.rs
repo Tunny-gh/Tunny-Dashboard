@@ -14,6 +14,7 @@ pub enum ImportanceMetric {
     SobolTotal,
     Shap,
     Permutation,
+    Ard,
 }
 
 impl ImportanceMetric {
@@ -27,6 +28,7 @@ impl ImportanceMetric {
             ImportanceMetric::SobolTotal => "Sobol Total",
             ImportanceMetric::Shap => "SHAP",
             ImportanceMetric::Permutation => "Permutation",
+            ImportanceMetric::Ard => "ARD",
         }
     }
 
@@ -48,6 +50,7 @@ impl ImportanceMetric {
             ImportanceMetric::SobolTotal => 5,
             ImportanceMetric::Shap => 6,
             ImportanceMetric::Permutation => 7,
+            ImportanceMetric::Ard => 8,
         }
     }
 
@@ -83,7 +86,9 @@ pub fn core_sensitivity_metric(
         ImportanceMetric::Mdi => Box::new(MdiMetric),
         ImportanceMetric::Shap => Box::new(ShapMetric),
         ImportanceMetric::Permutation => Box::new(PermutationMetric),
-        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return None,
+        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal | ImportanceMetric::Ard => {
+            return None
+        }
     })
 }
 
@@ -185,6 +190,14 @@ impl ImportanceChart {
                         ImportanceMetric::SobolTotal,
                         ImportanceMetric::SobolTotal.label(),
                     );
+
+                    ui.separator();
+                    ui.label(group_header("── Surrogate (GP) ──"));
+                    ui.selectable_value(
+                        &mut self.metric,
+                        ImportanceMetric::Ard,
+                        ImportanceMetric::Ard.label(),
+                    );
                 });
 
             if obj_names.len() > 1 {
@@ -228,6 +241,9 @@ impl ImportanceChart {
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
                     sobol.and_then(|s| s.r_squared.first()).copied()
                 }
+                ImportanceMetric::Ard => sensitivity
+                    .and_then(|r| r.ard.as_ref())
+                    .map(|a| a.r_squared),
             };
             if let Some(r2) = r2_opt {
                 let (color, warning) = if r2 < 0.5 {
@@ -253,7 +269,8 @@ impl ImportanceChart {
             | ImportanceMetric::RfAnova
             | ImportanceMetric::Mdi
             | ImportanceMetric::Shap
-            | ImportanceMetric::Permutation => {
+            | ImportanceMetric::Permutation
+            | ImportanceMetric::Ard => {
                 let Some(result) = sensitivity else {
                     ui.label("No sensitivity data (start the computation first)");
                     return;
@@ -380,6 +397,11 @@ pub fn compute_sorted_importance(
         | ImportanceMetric::Permutation => {
             extract_tree_importance(result, metric, obj_idx).unwrap_or_default()
         }
+        ImportanceMetric::Ard => result
+            .ard
+            .as_ref()
+            .map(|a| a.importances.clone())
+            .unwrap_or_default(),
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return vec![],
     };
 
@@ -437,6 +459,7 @@ mod tests {
             ImportanceMetric::Permutation,
             ImportanceMetric::SobolFirst,
             ImportanceMetric::SobolTotal,
+            ImportanceMetric::Ard,
         ];
         let ids: Vec<u8> = metrics.iter().map(|m| m.cache_id()).collect();
         let mut sorted = ids.clone();
@@ -504,6 +527,7 @@ mod tests {
             mdi: None,
             shap: None,
             permutation: None,
+            ard: None,
         }
     }
 
@@ -520,6 +544,7 @@ mod tests {
             mdi: None,
             shap: None,
             permutation: None,
+            ard: None,
         }
     }
 
@@ -536,6 +561,7 @@ mod tests {
             mdi: None,
             shap: None,
             permutation: None,
+            ard: None,
         }
     }
 
@@ -552,6 +578,7 @@ mod tests {
             }),
             shap: None,
             permutation: None,
+            ard: None,
         }
     }
 
@@ -701,6 +728,7 @@ mod tests {
                 importances: vec![vec![0.2], vec![0.8]],
                 r_squared: vec![0.85],
             }),
+            ard: None,
         };
         let sorted = compute_sorted_importance(&result, &ImportanceMetric::Permutation, 0);
         assert_eq!(sorted.len(), 2);
