@@ -1427,3 +1427,86 @@ fn select_best_model_is_deterministic() {
         assert_eq!(s1.to_bits(), s2.to_bits(), "scores must be bit-identical");
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// 大規模データの間引き（subsample_indices）
+// ────────────────────────────────────────────────────────────
+
+#[test]
+fn subsample_returns_none_when_within_cap() {
+    let y: Vec<f64> = (0..MAX_TRAIN_FOR_FIT).map(|i| i as f64).collect();
+    assert!(subsample_indices(&[&y], &[], MAX_TRAIN_FOR_FIT, 42).is_none());
+}
+
+#[test]
+fn subsample_single_keeps_both_extremes_and_caps_size() {
+    let n = MAX_TRAIN_FOR_FIT * 3;
+    let y: Vec<f64> = (0..n).map(|i| i as f64).collect(); // 最小=0, 最大=n-1
+    let idx = subsample_indices(&[&y], &[], MAX_TRAIN_FOR_FIT, 42).expect("should subsample");
+
+    assert_eq!(idx.len(), MAX_TRAIN_FOR_FIT, "間引き後は cap 点ちょうど");
+    // インデックスは昇順かつ一意。
+    assert!(idx.windows(2).all(|w| w[0] < w[1]), "昇順かつ重複なし");
+    // 範囲内。
+    assert!(idx.iter().all(|&i| i < n));
+    // best（最小値=index 0）と worst（最大値=index n-1）が両方残る。
+    assert!(idx.contains(&0), "best 点が保持されること");
+    assert!(idx.contains(&(n - 1)), "worst 点が保持されること");
+}
+
+#[test]
+fn subsample_is_deterministic() {
+    let n = MAX_TRAIN_FOR_FIT * 2;
+    let y: Vec<f64> = (0..n).map(|i| ((i * 7) % 13) as f64).collect();
+    let a = subsample_indices(&[&y], &[], MAX_TRAIN_FOR_FIT, 42).expect("a");
+    let b = subsample_indices(&[&y], &[], MAX_TRAIN_FOR_FIT, 42).expect("b");
+    assert_eq!(a, b, "同一シードで同一の部分集合");
+}
+
+#[test]
+fn subsample_multi_keeps_pareto_front() {
+    // 2 目的、両方最小化。明確な非劣点（rank 0）を仕込み、保持されることを確認する。
+    let n = MAX_TRAIN_FOR_FIT * 2;
+    // obj0 = i, obj1 = n - i の単調トレードオフ → 全点が rank 0（強パレート）。
+    // ここでは「rank 0 集合の代表」が確実に残ることだけ確認する。
+    let mut rng = SeededRng::from_seed(3);
+    let obj0: Vec<f64> = (0..n).map(|_| rng.next_f64()).collect();
+    let obj1: Vec<f64> = (0..n).map(|_| rng.next_f64()).collect();
+    let minimize = [true, true];
+    let idx = subsample_indices(&[&obj0, &obj1], &minimize, MAX_TRAIN_FOR_FIT, 42)
+        .expect("should subsample");
+    assert_eq!(idx.len(), MAX_TRAIN_FOR_FIT);
+    assert!(idx.windows(2).all(|w| w[0] < w[1]));
+
+    // 真の非劣点（rank 0）の少なくとも 1 つは保持される。
+    let rows: Vec<Vec<f64>> = (0..n).map(|i| vec![obj0[i], obj1[i]]).collect();
+    let ranks = crate::multi_objective::pareto::nd_sort(&rows, &minimize);
+    let front: Vec<usize> = (0..n).filter(|&i| ranks[i] == 0).collect();
+    assert!(
+        front.iter().any(|f| idx.contains(f)),
+        "パレートフロント上の点が保持されること"
+    );
+}
+
+#[test]
+fn fit_with_validation_subsamples_large_data() {
+    // N > cap でも学習が成功し、訓練データが cap 以下に間引かれること。
+    let (x_matrix, y) = quadratic_samples(MAX_TRAIN_FOR_FIT + 500);
+    let req = SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "f".to_string(),
+        model: SurrogateModelKind::Ridge, // 高速なモデルでパスを検証する
+        auto_select: false,
+        constraints: vec![],
+        priority_rows: vec![],
+    };
+    let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
+    assert!(
+        trained.x_matrix.len() <= MAX_TRAIN_FOR_FIT,
+        "学習データが cap 以下に間引かれること: {}",
+        trained.x_matrix.len()
+    );
+    assert_eq!(trained.x_matrix.len(), trained.y.len());
+}
