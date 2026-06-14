@@ -10,6 +10,23 @@ This complements PDP (which shows *how* the response changes with a parameter) b
 
 - Backed by a **GP-FITC** fit. Mixture-of-experts (GP-MOE) has per-expert length scales whose aggregation is ambiguous, and Ridge / LightGBM have no length scales, so those models cannot produce ARD importance.
 
+## How it is computed
+
+ARD importance is a by-product of the standard GP fit — there is no separate sensitivity pass:
+
+1. **Assemble the data.** The numeric (and label-encoded categorical) parameter columns form the input matrix $X$; the selected objective is the target $y$. Inputs are min–max scaled to $[0,1]^d$ so the per-dimension hyperparameters are comparable across parameters with different physical units.
+2. **Fit a GP-FITC surrogate** with the ARD Matérn 5/2 kernel:
+
+   $$
+   k(x_1, x_2) = \sigma_f^2 \left(1 + \sqrt{5}\,r + \frac{5r^2}{3}\right) \exp(-\sqrt{5}\,r), \qquad r^2 = \sum_{d} \left(\frac{x_{1,d} - x_{2,d}}{\ell_d}\right)^2
+   $$
+
+   The kernel has **one length scale $\ell_d$ per input dimension** — this per-dimension freedom is exactly what "ARD" means. The length scales $\{\ell_d\}$, together with the signal variance $\sigma_f^2$ and the noise variance $\sigma_n^2$, are fitted by **maximizing the FITC marginal-likelihood bound** (egobox-gp, gradient-free COBYLA with multistart). This is the same training step the Surrogate Optimizer runs — see [Gaussian Process](../surrogate-models/gaussian-process.md) for the inducing points, the FITC bound and the optimizer. The key point is that the length scales are *not* chosen by hand: they are whatever values let the surrogate explain $y$ best. That is why they double as a relevance measure — a parameter the objective barely responds to is driven to a long (nearly flat) length scale, while an influential one is driven to a short length scale.
+3. **Read the ARD parameters.** After training, egobox exposes the per-dimension correlation parameters $\theta = (\theta_1, \dots, \theta_d)$ straight off the fitted kernel, at no extra computation. The θ-to-length-scale convention is detailed in the next section.
+4. **Normalize to importances** so the scores sum to 1 (see [Importance formula](#importance-formula) below).
+
+The dashboard also reports the fitted GP's cross-validated $R^2$ next to the scores: ARD relevance is only meaningful when the surrogate actually fits the data, so a low $R^2$ means the ranking should be treated with caution.
+
 ## ARD length scales and the θ convention
 
 This dashboard uses egobox-gp with a Matérn 5/2 ARD kernel. The kernel exposes the ARD correlation parameters $\theta = (\theta_1, \dots, \theta_d)$, one per input dimension, fitted on the **normalized inputs** (each parameter min-max scaled to $[0,1]$). Normalizing the inputs is what makes the $\theta_d$ comparable across parameters with different physical units.
