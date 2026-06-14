@@ -236,15 +236,6 @@ $$
 
 ---
 
-## 実装ファイル
-
-- [rust_core/src/mcdm/entropy.rs](../rust_core/src/mcdm/entropy.rs) — エントロピー重み計算本体
-- [rust_core/src/mcdm/mod.rs](../rust_core/src/mcdm/mod.rs) — 共通ユーティリティ（`filter_valid_indices`）
-- [rust_core/src/lib.rs](../rust_core/src/lib.rs) — `entropy` モジュールの再エクスポート
-- [egui-app/src/ui/widgets/mcdm_chart.rs](../egui-app/src/ui/widgets/mcdm_chart.rs) — UI ウィジェット（`WeightMode::Entropy`、結果テーブル表示）
-- [egui-app/src/ui/chart_registry.rs](../egui-app/src/ui/chart_registry.rs) — バックグラウンド計算ディスパッチ
-- [egui-app/src/state/message_handler.rs](../egui-app/src/state/message_handler.rs) — 計算結果の受け取りと状態更新
-
 ## 参考文献
 
 - Shannon, C. E. (1948). A mathematical theory of communication. _Bell System Technical Journal_, 27(3), 379–423.

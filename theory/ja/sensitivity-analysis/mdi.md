@@ -138,13 +138,3 @@ MDI は連続値パラメータや取りうる値が多いカテゴリ特徴量�
 | 2,000+   | < 1,000ms（2,000 行にダウンサンプリング） |
 
 MDI は木を 2 回構築する（MDI 用の MdiNode 木 + R² 用の RandomForest）ため、RF-ANOVA よりも計算量が約 2 倍になる。いずれもバックグラウンドスレッドで実行されるため UI はブロックされない。
-
----
-
-## 実装ファイル
-
-- `rust_core/src/sensitivity/mdi.rs` — `compute_mdi_importances()` の実装（MdiNode 木・ゲイン集計・正規化）
-- `rust_core/src/sensitivity/types.rs` — `MdiResult` 構造体
-- `rust_core/src/sensitivity/analysis/full.rs` — 全データに対する MDI 計算
-- `rust_core/src/sensitivity/analysis/selected.rs` — 選択行に対する MDI 計算
-- `egui-app/src/ui/widgets/importance_chart.rs` — UI（ImportanceMetric::Mdi）

@@ -118,7 +118,7 @@ if valid_indices.is_empty() {
 
 内部では正規化前の重みをそのまま使うため、`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる（ベクトル正規化後の乗算なので比率のみが影響する）。
 
-### `compute_topsis()` の処理フロー（`rust_core/src/topsis.rs`）
+### `compute_topsis()` の処理フロー
 
 ```
 1. validate_inputs()         → 入力サイズの整合性チェック
@@ -184,13 +184,3 @@ TopsisRankingChart のスライダーで感度確認するのが有効。
 - **重みスライダー**: 各目的関数の重み（0〜1）をリアルタイム変更→スコア再計算
 - **上位 N 件表示**: 5 / 10 / 20 件を切り替え
 - **バークリック**: 選択されたトライアルをハイライト（selectionStore 経由）
-
----
-
-## 実装ファイル
-
-- `rust_core/src/topsis.rs` — TOPSIS アルゴリズム本体
-- `rust_core/src/lib.rs` — WASM バインディング（`computeTopsis`）
-- `frontend/src/wasm/wasmLoader.ts` — JS ブリッジ（`TopsisWasmResult` 型）
-- `frontend/src/stores/mcdmStore.ts` — 状態管理・重み正規化・キャッシュなし（毎回計算）
-- `frontend/src/components/charts/TopsisRankingChart.tsx` — UI コンポーネント

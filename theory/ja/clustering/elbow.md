@@ -125,12 +125,3 @@ $\Delta^2 W_0$ が最大のため、推奨 $k = 0 + 3 = 3$。
 WCSS が急激に下がる k の直後を手動で選ぶ
 クラスタ数を増やしても解釈性が下がる場合は小さい k を優先する
 ```
-
----
-
-## 実装ファイル
-
-- [rust_core/src/clustering/kmeans.rs](../../rust_core/src/clustering/kmeans.rs) — `estimate_k_elbow_on_data()`・`estimate_k_elbow()`
-- [rust_core/src/clustering/types.rs](../../rust_core/src/clustering/types.rs) — `ElbowResult`（`wcss_per_k`, `recommended_k`）
-- [egui-app/src/ui/widgets/cluster_scatter.rs](../../egui-app/src/ui/widgets/cluster_scatter.rs) — `KSelectionMode`（`ElbowDefault` / `Manual`）
-- [egui-app/src/ui/chart_registry.rs](../../egui-app/src/ui/chart_registry.rs) — エルボー推定呼び出し箇所（`estimate_k_elbow`）

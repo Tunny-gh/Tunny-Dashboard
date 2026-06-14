@@ -217,12 +217,3 @@ TreeSHAP は $f(S) = \mathbb{E}[\hat{f}(x) \mid x_S]$ を訓練サンプルの�
 
 - Lundberg, S.M. & Lee, S.-I. (2017). "A Unified Approach to Interpreting Model Predictions." *NeurIPS 2017*.
 - Lundberg, S.M. et al. (2020). "From local explanations to global understanding with explainable AI for trees." *Nature Machine Intelligence*.
-
----
-
-## 実装ファイル
-
-- `rust_core/src/sensitivity/shap.rs` — `compute_shap_importances()`、`tree_shap_recurse()`、`extend_path()`、`unwind_path()`、`unwound_sum()`
-- `rust_core/src/sensitivity/types.rs` — `ShapResult` 構造体
-- `rust_core/src/sensitivity/analysis/full.rs` — `SensitivityMetric::Shap` の計算
-- `egui-app/src/ui/widgets/importance_chart.rs` — UI（`ImportanceMetric::Shap`）

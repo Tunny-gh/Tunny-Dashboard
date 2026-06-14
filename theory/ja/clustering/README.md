@@ -58,11 +58,3 @@ Init 戦略（k-means の初期化のみ異なる）
 | Objective Space | 目的関数値のみ        | 性能が似たトライアルを見つけたい |
 | Variable Space  | パラメータ値のみ      | 設計変数のパターンを把握したい   |
 | Combined        | 目的関数 + パラメータ | 両空間の関係を統合的に見たい     |
-
----
-
-## 実装ファイル
-
-- [rust_core/src/clustering/](../../rust_core/src/clustering/) — アルゴリズム本体
-- [egui-app/src/ui/widgets/cluster_scatter.rs](../../egui-app/src/ui/widgets/cluster_scatter.rs) — ウィジェット UI
-- [egui-app/src/ui/chart_registry.rs](../../egui-app/src/ui/chart_registry.rs) — 実行ディスパッチ

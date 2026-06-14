@@ -137,13 +137,3 @@ $$
 | 2,000+   | < 1,000ms（2,000 行にダウンサンプリング） |
 
 MDI は木を 2 回構築するのに対し、RF-ANOVA は 1 回の木構築 + P 回のパーミュテーション評価のため、P が小さい場合は MDI と同程度の計算コスト。いずれもバックグラウンドスレッドで実行されるため UI はブロックされない。
-
----
-
-## 実装ファイル
-
-- `rust_core/src/sensitivity/rf_anova.rs` — `compute_rf_anova_importances()` の実装（学習・パーミュテーション・正規化）
-- `rust_core/src/sensitivity/types.rs` — `RfAnovaResult` 構造体
-- `rust_core/src/sensitivity/analysis/full.rs` — 全データに対する RF-ANOVA 計算
-- `rust_core/src/sensitivity/analysis/selected.rs` — 選択行に対する RF-ANOVA 計算
-- `egui-app/src/ui/widgets/importance_chart.rs` — UI（ImportanceMetric::RfAnova）

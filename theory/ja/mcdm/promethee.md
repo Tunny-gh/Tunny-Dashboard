@@ -306,14 +306,3 @@ Entropy 重みと組み合わせることで客観的な重み設定が可能。
 
 - Brans, J.-P. (1986). L'ingénierie de la décision: élaboration d'instruments d'aide à la décision. _La méthode PROMETHEE_. Université Laval.
 - Brans, J.-P., & Mareschal, B. (2005). PROMETHEE methods. In _Multiple Criteria Decision Analysis: State of the Art Surveys_ (pp. 163–186). Springer.
-
----
-
-## 実装ファイル
-
-- `rust_core/src/mcdm/promethee.rs` — PROMETHEE I/II アルゴリズム本体
-- `rust_core/src/mcdm/mod.rs` — モジュール登録
-- `egui-app/src/state/results.rs` — PrometheeResult 型、McdmMethod/McdmResult 拡張
-- `egui-app/src/state/message_handler.rs` — McdmDone Promethee 分岐
-- `egui-app/src/ui/chart_registry.rs` — spawn_task Promethee 分岐
-- `egui-app/src/ui/widgets/mcdm_chart.rs` — PROMETHEE I/II バーチャート UI
