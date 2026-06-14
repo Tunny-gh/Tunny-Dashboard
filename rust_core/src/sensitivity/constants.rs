@@ -1,6 +1,8 @@
 // --- MDI (Mean Decrease Impurity) ---
 pub(crate) const MDI_RF_TREES: usize = 64;
-pub(crate) const MDI_RF_MAX_DEPTH: usize = 64;
+// Capped to match RF-ANOVA/SHAP/PFI. Unbounded depth amplifies the
+// high-cardinality bias that gain-based MDI already suffers from.
+pub(crate) const MDI_RF_MAX_DEPTH: usize = 10;
 pub(crate) const MDI_RF_MIN_SAMPLES_LEAF: usize = 2;
 pub(crate) const MDI_SEED: u64 = 42;
 // LightGBM gain calculation is expensive → 1000 rows max
