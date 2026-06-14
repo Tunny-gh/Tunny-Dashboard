@@ -6,6 +6,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Ignore major version bumps: they tend to break API compatibility and
+    # fail CI. Security updates are unaffected by this ignore rule and still
+    # surface as PRs.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
     groups:
       cargo-minor-patch:
         update-types:
