@@ -1132,4 +1132,55 @@ pub fn fit_multi_surrogates_tracked(
 }
 
 #[cfg(test)]
+impl TrainedSurrogate {
+    /// テスト用: 解析的モックサロゲートから `TrainedSurrogate` を組み立てる。
+    ///
+    /// GP フィットを一切行わずに「曲面を使う処理」（最適化・スライス・多目的フロント・
+    /// 獲得関数・実行可能性）を検証するための入口。`surrogate` は
+    /// [`models::FittedSurrogate::analytic`] で作った既知曲面を渡す。`x_matrix` / `y` は
+    /// 最適化の開始点（観測ベスト）の算出にのみ使われ、曲面そのものは `surrogate` が定義する。
+    pub(crate) fn analytic_mock(
+        x_matrix: Vec<Vec<f64>>,
+        y: Vec<f64>,
+        surrogate: models::FittedSurrogate,
+    ) -> Self {
+        let n_dims = surrogate.col_stats.len();
+        TrainedSurrogate {
+            surrogate,
+            model_kind: SurrogateModelKind::GpFitc,
+            param_names: (0..n_dims).map(|d| format!("x{d}")).collect(),
+            objective_name: "obj".to_string(),
+            x_matrix,
+            y,
+            validation: SurrogateValidationReport::placeholder(),
+            param_importance: None,
+            constraint_names: vec![],
+            constraint_models: vec![],
+            constraint_values: vec![],
+            model_selection: None,
+        }
+    }
+
+    /// 解析的モックに制約サロゲートを 1 本追加する（[`analytic_mock`] と組み合わせて使う）。
+    /// `values` は各 trial の制約値（`x_matrix` と同じ行順）。
+    pub(crate) fn with_analytic_constraint(
+        mut self,
+        name: &str,
+        values: Vec<f64>,
+        model: models::FittedSurrogate,
+    ) -> Self {
+        self.constraint_names.push(name.to_string());
+        self.constraint_models.push(model);
+        if self.constraint_values.len() != values.len() {
+            self.constraint_values = values.iter().map(|&v| vec![v]).collect();
+        } else {
+            for (row, &v) in self.constraint_values.iter_mut().zip(values.iter()) {
+                row.push(v);
+            }
+        }
+        self
+    }
+}
+
+#[cfg(test)]
 mod tests;

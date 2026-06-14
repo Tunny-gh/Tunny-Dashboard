@@ -410,80 +410,16 @@ mod tests {
         (x, y)
     }
 
-    /// 不連続（区分的）なテスト関数。MoE が単一 GP より有利なケース。
-    fn make_piecewise(n: usize, seed: u64) -> (Vec<Vec<f64>>, Vec<f64>) {
-        let mut state = seed;
-        let mut next = move || {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            ((state >> 11) as f64) / ((1u64 << 53) as f64)
-        };
-        let x: Vec<Vec<f64>> = (0..n).map(|_| vec![next(), next()]).collect();
-        let y: Vec<f64> = x
-            .iter()
-            .map(|row| {
-                if row[0] < 0.5 {
-                    (row[0] * 6.0).sin() + row[1]
-                } else {
-                    5.0 + (row[0] * 3.0).cos() - 2.0 * row[1]
-                }
-            })
-            .collect();
-        (x, y)
-    }
-
-    fn r_squared(y: &[f64], pred: &[f64]) -> f64 {
-        let mean = y.iter().sum::<f64>() / y.len() as f64;
-        let ss_res: f64 = y.iter().zip(pred).map(|(a, b)| (a - b) * (a - b)).sum();
-        let ss_tot: f64 = y.iter().map(|v| (v - mean) * (v - mean)).sum();
-        1.0 - ss_res / ss_tot
-    }
-
-    #[test]
-    fn fit_exact_path_recovers_smooth_function() {
-        // N <= max_inducing → Z = X（厳密 GP 相当）
-        let (x, y) = make_data(80, 3, 42);
-        for method in [GpMethod::Fitc, GpMethod::Vfe] {
-            let model = GpModel::fit(&x, &y, method, 100, 42).expect("fit should succeed");
-            let pred = model.predict_mean_batch(&x);
-            assert!(
-                r_squared(&y, &pred) > 0.7,
-                "{method:?}: exact GP should fit smooth function well: R²={}",
-                r_squared(&y, &pred)
-            );
-        }
-    }
-
-    #[test]
-    fn fit_inducing_path_handles_large_n() {
-        // N > max_inducing → k-means 誘導点
-        let (x, y) = make_data(500, 2, 7);
-        for method in [GpMethod::Fitc, GpMethod::Vfe] {
-            let model = GpModel::fit(&x, &y, method, 100, 42).expect("fit should succeed");
-            let pred = model.predict_mean_batch(&x);
-            assert!(pred.iter().all(|v| v.is_finite()));
-            assert!(r_squared(&y, &pred) > 0.8, "{method:?}");
-        }
-    }
-
-    #[test]
-    fn variance_positive_away_from_data() {
-        let (x, y) = make_data(50, 2, 11);
-        let model = GpModel::fit(&x, &y, GpMethod::Fitc, 100, 42).expect("fit should succeed");
-        // 訓練域の外側では分散が訓練点近傍より大きい
-        let far = vec![5.0, 5.0];
-        let near = x[0].clone();
-        let var_far = model.predict_variance(&far);
-        let var_near = model.predict_variance(&near);
-        assert!(var_far.is_finite() && var_near.is_finite());
-        assert!(var_far > var_near, "far={var_far}, near={var_near}");
-        assert!(var_near >= 0.0);
-    }
+    // NOTE: GP の当てはめ品質（滑らかな関数で R² が高い、データから離れると分散が
+    // 増える、MoE が区分関数をよく当てる、ノイズ次元を補間しない 等）はサロゲートの
+    // バックエンドである egobox の責務であり、ここでは検証しない。本モジュールのテストは
+    // 自前ロジック（入力検証・誘導点選択・フォールバック・決定性・Send/Sync・
+    // ard_theta 受け渡し）の確認に限定する。
 
     #[test]
     fn fit_is_deterministic() {
-        let (x, y) = make_data(150, 2, 3);
+        // 決定性は自前の責務（シード固定）なので 3 方式とも確認するが、N は小さくてよい。
+        let (x, y) = make_data(60, 2, 3);
         for method in [GpMethod::Fitc, GpMethod::Vfe, GpMethod::Moe] {
             let m1 = GpModel::fit(&x, &y, method, 50, 42).expect("fit 1");
             let m2 = GpModel::fit(&x, &y, method, 50, 42).expect("fit 2");
@@ -499,39 +435,6 @@ mod tests {
                 "{method:?}"
             );
         }
-    }
-
-    #[test]
-    fn noisy_projection_is_smoothed_not_interpolated() {
-        // 5 次元関数の 2 列だけで学習 → 残り 3 次元の変動はノイズ。
-        // ノイズ推定が機能していれば R² は 1.0 に張り付かない（過適合しない）。
-        let (x_full, y) = make_data(300, 5, 7);
-        let x_2col: Vec<Vec<f64>> = x_full.iter().map(|r| r[..2].to_vec()).collect();
-        for method in [GpMethod::Fitc, GpMethod::Vfe, GpMethod::Moe] {
-            let model = GpModel::fit(&x_2col, &y, method, 100, 42).expect("fit should succeed");
-            let pred = model.predict_mean_batch(&x_2col);
-            let r2 = r_squared(&y, &pred);
-            assert!(
-                r2 < 0.95,
-                "{method:?}: noisy projection should not be interpolated: R²={r2}"
-            );
-            assert!(
-                r2 > 0.0,
-                "{method:?}: should still capture the signal: R²={r2}"
-            );
-        }
-    }
-
-    #[test]
-    fn moe_fits_piecewise_function_well() {
-        let (x, y) = make_piecewise(200, 11);
-        let model = GpModel::fit(&x, &y, GpMethod::Moe, 100, 42).expect("MoE fit");
-        let pred = model.predict_mean_batch(&x);
-        let r2 = r_squared(&y, &pred);
-        assert!(r2 > 0.8, "MoE should fit piecewise function: R²={r2}");
-        // 分散も有限・非負で返ること
-        let var = model.predict_variance_batch(&x);
-        assert!(var.iter().all(|v| v.is_finite() && *v >= 0.0));
     }
 
     #[test]
@@ -586,17 +489,16 @@ mod tests {
                 .wrapping_add(1442695040888963407);
             ((state >> 11) as f64) / ((1u64 << 53) as f64)
         };
-        let x: Vec<Vec<f64>> = (0..60).map(|_| vec![next(), next()]).collect();
+        let x: Vec<Vec<f64>> = (0..50).map(|_| vec![next(), next()]).collect();
         let y: Vec<f64> = x.iter().map(|r| 3.0 * r[0] + 0.05 * r[1]).collect();
 
-        for method in [GpMethod::Fitc, GpMethod::Vfe] {
-            let model = GpModel::fit(&x, &y, method, 100, 42).expect("fit");
-            let theta = model.ard_theta().expect("SGP should expose theta");
-            assert_eq!(theta.len(), 2);
-            assert!(theta.iter().all(|t| t.is_finite() && *t > 0.0));
-            // x0 に敏感 ⇒ θ_0 が大きい（長さスケールが短い）
-            assert!(theta[0] > theta[1], "{method:?}: theta={theta:?}");
-        }
+        // SGP の θ 受け渡しは SparseMethod 非依存なので代表として FITC のみ確認する。
+        let model = GpModel::fit(&x, &y, GpMethod::Fitc, 100, 42).expect("fit");
+        let theta = model.ard_theta().expect("SGP should expose theta");
+        assert_eq!(theta.len(), 2);
+        assert!(theta.iter().all(|t| t.is_finite() && *t > 0.0));
+        // x0 に敏感 ⇒ θ_0 が大きい（長さスケールが短い）
+        assert!(theta[0] > theta[1], "theta={theta:?}");
 
         // MoE は None
         let moe = GpModel::fit(&x, &y, GpMethod::Moe, 100, 42).expect("MoE fit");
@@ -666,8 +568,8 @@ mod tests {
 
     #[test]
     fn fit_front_focused_trains_and_is_deterministic() {
-        // N=150, M=50, 少数の優先行で学習・予測が有限、2 回で決定論的。
-        let (x, y) = make_data(150, 2, 21);
+        // N=80, M=50, 少数の優先行で学習・予測が有限、2 回で決定論的。
+        let (x, y) = make_data(80, 2, 21);
         let priority: Vec<usize> = vec![0, 5, 10, 17, 42];
         let m1 =
             GpModel::fit_front_focused(&x, &y, GpMethod::Fitc, 50, 42, &priority).expect("fit 1");

@@ -92,94 +92,89 @@ fn single_prob(cm: &FittedSurrogate, x_norm: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::math::rng::SeededRng;
-    use crate::surrogate_opt::models::{fit_surrogate, SurrogateModelKind};
+    use crate::surrogate_opt::models::FittedSurrogate;
 
-    /// 制約値がすべて正（常に違反）→ P_feas は訓練点付近で 0 に近い。
+    // 実行可能性確率の計算は GP の当てはめ品質に依存しない純粋な数式なので、既知の
+    // 制約曲面 c(x) と一定分散 σ² を持つ解析的モックを注入して厳密に検証する
+    // （恒等正規化のため z0 = 0、すなわち実行可能境界 c(x) ≤ 0 がそのまま使われる）。
+    // GP / Ridge 制約サロゲートの「フィット」自体は surrogate_opt::tests
+    // （constrained_fit_validation_succeeds 等）が確認する。
+
+    /// 既知の制約曲面 c とその一定分散 σ²（None なら事後分散なし=ハード指標）から
+    /// 解析的モック制約サロゲートを作る。
+    fn analytic_constraint(c: fn(&[f64]) -> f64, var: Option<f64>) -> FittedSurrogate {
+        let v: Option<crate::surrogate_opt::models::AnalyticFn> = var
+            .map(|s2| Box::new(move |_x: &[f64]| s2) as crate::surrogate_opt::models::AnalyticFn);
+        FittedSurrogate::analytic(1, c, v)
+    }
+
+    /// GP（事後分散あり）の P(c ≤ 0 | x) が Φ((0 − c)/σ) に厳密一致すること。
     #[test]
-    fn all_positive_constraints_p_feas_near_zero() {
-        // c = 0.5 - x + 1  (c > 0 for all x in [0,1] since min = 0.5)
-        let mut rng = SeededRng::from_seed(17);
-        let n = 30usize;
-        let x_matrix: Vec<Vec<f64>> = (0..n).map(|_| vec![rng.next_f64()]).collect();
-        let c: Vec<f64> = x_matrix.iter().map(|r| 0.5 + r[0]).collect(); // always > 0
-        let cm =
-            fit_surrogate(SurrogateModelKind::GpFitc, &x_matrix, &c).expect("fit should succeed");
-
-        // 訓練点での P_feas が 0.2 未満（違反側に引き寄せられる）。
-        let mut count_low = 0usize;
-        for row in &x_matrix {
-            let x_norm = cm.to_norm_x(row);
-            let p = feasibility_probability(std::slice::from_ref(&cm), &x_norm);
-            if p < 0.2 {
-                count_low += 1;
-            }
+    fn gp_feasibility_matches_normal_cdf_exactly() {
+        // c(x) = x0 − 0.5、σ = 0.1。
+        let cm = analytic_constraint(|x| x[0] - 0.5, Some(0.01));
+        for &x0 in &[0.0_f64, 0.3, 0.5, 0.7, 1.0] {
+            let p = feasibility_probability(std::slice::from_ref(&cm), &[x0]);
+            let expected = normal_cdf((0.0 - (x0 - 0.5)) / 0.1);
+            assert!(
+                (p - expected).abs() < 1e-12,
+                "x0={x0}: P_feas {p} should equal Φ {expected}"
+            );
         }
+    }
+
+    /// すべて違反（c > 0）の領域では P_feas が 0 に、すべて実行可能（c < 0）では
+    /// 1 に厳密に近づくこと。
+    #[test]
+    fn p_feas_saturates_at_extremes() {
+        // c = 5（強く違反）→ Φ(−50) ≈ 0。
+        let infeasible = analytic_constraint(|_x| 5.0, Some(0.01));
+        let p_low = feasibility_probability(std::slice::from_ref(&infeasible), &[0.5]);
         assert!(
-            count_low > n / 2,
-            "Most training points should have P_feas < 0.2 when all constraints are positive: {}/{} were low",
-            count_low, n
+            p_low < 1e-9,
+            "strongly infeasible should give P≈0, got {p_low}"
         );
-    }
 
-    /// 制約値がすべて負（常に実行可能）→ P_feas は訓練点付近で 0.8 以上。
-    #[test]
-    fn all_negative_constraints_p_feas_near_one() {
-        let mut rng = SeededRng::from_seed(19);
-        let n = 30usize;
-        let x_matrix: Vec<Vec<f64>> = (0..n).map(|_| vec![rng.next_f64()]).collect();
-        let c: Vec<f64> = x_matrix.iter().map(|r| r[0] - 1.5).collect(); // always < 0
-        let cm =
-            fit_surrogate(SurrogateModelKind::GpFitc, &x_matrix, &c).expect("fit should succeed");
-
-        let mut count_high = 0usize;
-        for row in &x_matrix {
-            let x_norm = cm.to_norm_x(row);
-            let p = feasibility_probability(std::slice::from_ref(&cm), &x_norm);
-            if p > 0.8 {
-                count_high += 1;
-            }
-        }
+        // c = −5（強く実行可能）→ Φ(50) ≈ 1。
+        let feasible = analytic_constraint(|_x| -5.0, Some(0.01));
+        let p_high = feasibility_probability(std::slice::from_ref(&feasible), &[0.5]);
         assert!(
-            count_high > n / 2,
-            "Most training points should have P_feas > 0.8 when all constraints are negative: {}/{} were high",
-            count_high, n
+            p_high > 1.0 - 1e-9,
+            "strongly feasible should give P≈1, got {p_high}"
         );
     }
 
-    /// ハード指標パス: Ridge モデルで違反側 → P_feas = 0.0。
+    /// 複数制約は独立と仮定して積になること。
     #[test]
-    fn ridge_hard_indicator_infeasible() {
-        let x_matrix: Vec<Vec<f64>> = (0..20).map(|i| vec![i as f64 / 20.0]).collect();
-        // c = x + 0.5  → すべての訓練点で c > 0（常に違反）。
-        let c: Vec<f64> = x_matrix.iter().map(|r| r[0] + 0.5).collect();
-        let cm = fit_surrogate(SurrogateModelKind::Ridge, &x_matrix, &c)
-            .expect("ridge fit should succeed");
-
-        // x=1.0 （範囲外端）: 予測値 = 1.5 > 0 → 違反 → P=0。
-        let x_norm = cm.to_norm_x(&[1.0]);
-        let p = feasibility_probability(std::slice::from_ref(&cm), &x_norm);
-        assert_eq!(
-            p, 0.0,
-            "Ridge hard indicator should return 0 for infeasible point"
+    fn multiple_constraints_multiply() {
+        let c1 = analytic_constraint(|x| x[0] - 0.5, Some(0.01)); // σ = 0.1
+        let c2 = analytic_constraint(|x| 0.3 - x[0], Some(0.04)); // σ = 0.2
+        let x = [0.4_f64];
+        let p = feasibility_probability(&[c1, c2], &x);
+        let e1 = normal_cdf((0.0 - (0.4 - 0.5)) / 0.1);
+        let e2 = normal_cdf((0.0 - (0.3 - 0.4)) / 0.2);
+        assert!(
+            (p - e1 * e2).abs() < 1e-12,
+            "joint P_feas {p} should equal product {}",
+            e1 * e2
         );
     }
 
-    /// ハード指標パス: Ridge モデルで実行可能側 → P_feas = 1.0。
+    /// ハード指標パス（事後分散なし）: 違反側 → 0.0、実行可能側 → 1.0。
     #[test]
-    fn ridge_hard_indicator_feasible() {
-        let x_matrix: Vec<Vec<f64>> = (0..20).map(|i| vec![i as f64 / 20.0]).collect();
-        // c = x - 2.0  → すべての訓練点で c < 0（常に実行可能）。
-        let c: Vec<f64> = x_matrix.iter().map(|r| r[0] - 2.0).collect();
-        let cm = fit_surrogate(SurrogateModelKind::Ridge, &x_matrix, &c)
-            .expect("ridge fit should succeed");
-
-        // x=0.0: 予測値 ≈ -2 < 0 → 実行可能 → P=1。
-        let x_norm = cm.to_norm_x(&[0.0]);
-        let p = feasibility_probability(std::slice::from_ref(&cm), &x_norm);
+    fn no_variance_uses_hard_indicator() {
+        let cm = analytic_constraint(|x| x[0] - 0.5, None);
+        // x0=0.4 → c = −0.1 ≤ 0 → 実行可能 → 1.0。
         assert_eq!(
-            p, 1.0,
-            "Ridge hard indicator should return 1 for feasible point"
+            feasibility_probability(std::slice::from_ref(&cm), &[0.4]),
+            1.0,
+            "feasible point → 1.0"
+        );
+        // x0=0.7 → c = 0.2 > 0 → 違反 → 0.0。
+        assert_eq!(
+            feasibility_probability(std::slice::from_ref(&cm), &[0.7]),
+            0.0,
+            "infeasible point → 0.0"
         );
     }
 

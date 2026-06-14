@@ -403,7 +403,41 @@ mod tests {
         (x_matrix, f1, f2)
     }
 
-    /// 2 目的の GP-FITC サロゲートを学習する。
+    // ── 解析的モックによる EHVI 処理の検証（再フィットなし: n=1） ──────
+    // 2 目的の競合曲面 f1 = x0²+x1²、f2 = (x0−1)²+(x1−1)² と一定分散 σ²=0.05 を注入し、
+    // GP フィットなしで EHVI の最適化・決定性・参照点/フロント構築を検証する。
+
+    fn ehvi_f1(x: &[f64]) -> f64 {
+        x[0].powi(2) + x[1].powi(2)
+    }
+    fn ehvi_f2(x: &[f64]) -> f64 {
+        (x[0] - 1.0).powi(2) + (x[1] - 1.0).powi(2)
+    }
+
+    /// 2 目的の解析的モック TrainedSurrogate 群。`with_variance=false` で事後分散なし。
+    fn analytic_two_objectives(with_variance: bool) -> Vec<TrainedSurrogate> {
+        let x_matrix = vec![
+            vec![0.1, 0.1],
+            vec![0.9, 0.9],
+            vec![0.5, 0.5],
+            vec![0.2, 0.8],
+            vec![0.8, 0.2],
+        ];
+        let mk = |surface: fn(&[f64]) -> f64| {
+            let var: Option<crate::surrogate_opt::models::AnalyticFn> = if with_variance {
+                Some(Box::new(|_x: &[f64]| 0.05))
+            } else {
+                None
+            };
+            let s = FittedSurrogate::analytic(2, surface, var);
+            let y: Vec<f64> = x_matrix.iter().map(|r| surface(r)).collect();
+            TrainedSurrogate::analytic_mock(x_matrix.clone(), y, s)
+        };
+        vec![mk(ehvi_f1), mk(ehvi_f2)]
+    }
+
+    /// 2 目的の GP-FITC サロゲートを学習する（Constant Liar の再フィットを伴う
+    /// バッチテスト用。n=1 のテストは解析的モックを使う）。
     fn fit_two_objectives(
         x_matrix: Vec<Vec<f64>>,
         f1: Vec<f64>,
@@ -437,8 +471,7 @@ mod tests {
 
     #[test]
     fn single_candidate_in_box_with_stds() {
-        let (x, f1, f2) = conflicting_samples(60);
-        let trained = fit_two_objectives(x, f1, f2);
+        let trained = analytic_two_objectives(true);
         let candidates = suggest_candidates_multi(&trained, &[true, true], 1)
             .expect("EHVI suggest should succeed");
 
@@ -456,16 +489,19 @@ mod tests {
         );
         assert_eq!(c.predicted_values.len(), 2);
         assert_eq!(c.predicted_stds.len(), 2);
-        assert!(
-            c.predicted_stds.iter().all(|s| s.is_some()),
-            "all GP stds should be Some"
-        );
+        // 事後分散一定のモックなので全 std が √0.05 で Some。
+        assert!(c
+            .predicted_stds
+            .iter()
+            .all(|s| s.is_some_and(|v| (v - 0.05_f64.sqrt()).abs() < 1e-9)));
+        // 既知曲面なので予測値は f(params) に厳密一致。
+        assert!((c.predicted_values[0] - ehvi_f1(&c.params)).abs() < 1e-9);
+        assert!((c.predicted_values[1] - ehvi_f2(&c.params)).abs() < 1e-9);
     }
 
     #[test]
     fn deterministic_across_two_runs() {
-        let (x, f1, f2) = conflicting_samples(60);
-        let trained = fit_two_objectives(x, f1, f2);
+        let trained = analytic_two_objectives(true);
         let c1 = suggest_candidates_multi(&trained, &[true, true], 1).expect("run 1");
         let c2 = suggest_candidates_multi(&trained, &[true, true], 1).expect("run 2");
         assert_eq!(c1.len(), c2.len());
@@ -482,7 +518,7 @@ mod tests {
 
     #[test]
     fn batch_3_candidates_pairwise_diverse() {
-        let (x, f1, f2) = conflicting_samples(60);
+        let (x, f1, f2) = conflicting_samples(40);
         let trained = fit_two_objectives(x, f1, f2);
         let candidates = suggest_candidates_multi(&trained, &[true, true], 3)
             .expect("batch EHVI suggest should succeed");
@@ -511,8 +547,7 @@ mod tests {
     fn suggested_beats_worst_observed_point() {
         // 提案候補の EHVI が、最悪観測点（z-score 最小化フレームで nadir に近い点）の
         // EHVI 以上であること（オプティマイザが改善していることのサニティチェック）。
-        let (x, f1, f2) = conflicting_samples(60);
-        let trained = fit_two_objectives(x, f1, f2);
+        let trained = analytic_two_objectives(true);
         let candidates = suggest_candidates_multi(&trained, &[true, true], 1).expect("suggest");
         let suggested = &candidates[0];
 
@@ -555,23 +590,9 @@ mod tests {
     }
 
     #[test]
-    fn ridge_models_return_error() {
-        let (x, f1, f2) = conflicting_samples(40);
-        let names = vec!["x0".to_string(), "x1".to_string()];
-        let make = |y: Vec<f64>, name: &str| {
-            fit_surrogate_with_validation(&SurrogateFitRequest {
-                x_matrix: x.clone(),
-                y,
-                param_names: names.clone(),
-                objective_name: name.to_string(),
-                model: SurrogateModelKind::Ridge,
-                auto_select: false,
-                constraints: vec![],
-                priority_rows: vec![],
-            })
-            .expect("ridge fit should succeed")
-        };
-        let trained = vec![make(f1, "f1"), make(f2, "f2")];
+    fn non_gp_models_return_error() {
+        // 事後分散を持たないモデル（Ridge 相当）では EHVI を使えずエラーを返す。
+        let trained = analytic_two_objectives(false);
         let err = suggest_candidates_multi(&trained, &[true, true], 1).unwrap_err();
         assert!(
             err.contains("Gaussian Process"),
@@ -581,8 +602,9 @@ mod tests {
 
     #[test]
     fn mixed_min_max_valid() {
-        // f2 を最大化する混合方向でも候補が有効（EHVI 有限、箱内）。
-        let (x, f1, f2) = conflicting_samples(60);
+        // f2 を最大化する混合方向でも候補が有効（EHVI 有限、箱内）。Constant Liar の
+        // 再フィットを伴う n=2 バッチのため実フィットを使う。
+        let (x, f1, f2) = conflicting_samples(40);
         let trained = fit_two_objectives(x, f1, f2);
         let candidates = suggest_candidates_multi(&trained, &[true, false], 2)
             .expect("mixed min/max suggest should succeed");
@@ -602,8 +624,7 @@ mod tests {
     fn errors_on_empty_and_mismatch() {
         assert!(suggest_candidates_multi(&[], &[], 1).is_err());
 
-        let (x, f1, f2) = conflicting_samples(40);
-        let trained = fit_two_objectives(x, f1, f2);
+        let trained = analytic_two_objectives(true);
         // n_candidates == 0
         assert!(suggest_candidates_multi(&trained, &[true, true], 0).is_err());
         // length mismatch

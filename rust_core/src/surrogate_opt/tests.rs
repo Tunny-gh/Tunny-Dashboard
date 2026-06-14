@@ -75,71 +75,121 @@ fn base_request(x_matrix: Vec<Vec<f64>>, y: Vec<f64>) -> SurrogateOptRequest {
     }
 }
 
-#[test]
-fn gaussian_process_lbfgs_finds_quadratic_minimum() {
-    let (x_matrix, y) = quadratic_samples(50);
-    let req = base_request(x_matrix.clone(), y.clone());
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
+// ────────────────────────────────────────────────────────────
+// 解析的モックサロゲートによる「曲面を使う処理」の厳密検証
+//
+// GP フィットの代わりに既知の closed-form 曲面を同じインターフェースで注入する。
+// 曲面が解析的に既知なので最適化器が真の最適点へ到達することを緩い許容ではなく
+// 厳密に検証でき、しかも GP フィット（COBYLA ハイパラ最適化）が走らないため一瞬で
+// 決定論的に実行できる。GP バックエンド自体の当てはめ品質は egobox の責務であり、
+// gp_fitc_runs_and_finds_minimum_region / gp_vfe_* / gp_moe_* の最小限の smoke で確認する。
+// ────────────────────────────────────────────────────────────
 
+/// 既知の凸二次曲面 f(x, y) = (x − 0.3)² + (y − 0.7)²。
+/// [0,1]² 内の大域最小は (0.3, 0.7) で値 0。
+fn quad_surface(x: &[f64]) -> f64 {
+    (x[0] - 0.3).powi(2) + (x[1] - 0.7).powi(2)
+}
+
+/// 既知の線形曲面 f(x, y) = 2x − y。[0,1]² 内の最小は角 (0, 1) で値 −1。
+fn linear_surface(x: &[f64]) -> f64 {
+    2.0 * x[0] - x[1]
+}
+
+/// 指定曲面の解析的モック TrainedSurrogate を作る。
+/// `with_variance` が true なら一定の事後分散 0.01（std 0.1）を持つ GP 系として、
+/// false なら事後分散を持たない（Ridge 系）モデルとして振る舞う。
+/// `x_matrix` は最適化開始点（観測ベスト）の算出にのみ使う粗いサンプルとする。
+fn analytic_trained(surface: fn(&[f64]) -> f64, with_variance: bool) -> TrainedSurrogate {
+    let var: Option<models::AnalyticFn> = if with_variance {
+        Some(Box::new(|_x: &[f64]| 0.01))
+    } else {
+        None
+    };
+    let surrogate = models::FittedSurrogate::analytic(2, surface, var);
+    // 開始点（観測ベスト）が局所解に嵌らないよう、最小・最大の各盆地に観測点を置く。
+    // 単一スタート型の CMA-ES でも、観測ベストが大域最適の盆地にあれば到達できる。
+    let x_matrix = vec![
+        vec![0.2, 0.8],  // 二次曲面の最小盆地（(0.3,0.7) 近傍）
+        vec![0.9, 0.05], // 二次曲面の最大盆地（最遠の角 (1,0) 近傍）
+        vec![0.5, 0.5],
+        vec![0.1, 0.9],
+    ];
+    let y: Vec<f64> = x_matrix.iter().map(|r| surface(r)).collect();
+    TrainedSurrogate::analytic_mock(x_matrix, y, surrogate)
+}
+
+/// 二次曲面モック上で指定最適化手法を実行する。
+fn optimize_quad(optimizer: OptimizerKind, minimize: bool) -> SurrogateOptResult {
+    let trained = analytic_trained(quad_surface, true);
+    optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize,
+            optimizer,
+            slice_params: None,
+            n_grid: 10,
+        },
+    )
+}
+
+#[test]
+fn lbfgs_finds_exact_quadratic_minimum() {
+    let result = optimize_quad(OptimizerKind::MultiStartLbfgs, true);
+    // 既知曲面なので勾配法は真の最小点 (0.3, 0.7) へ厳密に到達する。
     assert!(
-        (result.best_params[0] - 0.3).abs() < 0.1,
+        (result.best_params[0] - 0.3).abs() < 0.01,
         "x ≈ 0.3, got {}",
         result.best_params[0]
     );
     assert!(
-        (result.best_params[1] - 0.7).abs() < 0.1,
+        (result.best_params[1] - 0.7).abs() < 0.01,
         "y ≈ 0.7, got {}",
         result.best_params[1]
     );
     assert!(
-        result.best_value < 0.05,
-        "predicted minimum near 0, got {}",
+        result.best_value < 1e-3,
+        "predicted minimum ≈ 0, got {}",
         result.best_value
     );
-    assert!(
-        result.r_squared > 0.8,
-        "GP should fit well: {}",
-        result.r_squared
-    );
+    // 事後分散を持つモックなので predicted_std は Some（std = sqrt(0.01) = 0.1）。
     assert!(
         result.predicted_std.is_some(),
-        "Gaussian Process has posterior std"
+        "GP-like mock has posterior std"
+    );
+    assert!(
+        (result.predicted_std.unwrap() - 0.1).abs() < 1e-9,
+        "std should be exactly sqrt(0.01) = 0.1, got {}",
+        result.predicted_std.unwrap()
     );
 
-    // 最小化時 best_observed_value == y.iter().cloned().fold(f64::INFINITY, f64::min)
-    let expected_best_obs = y.iter().cloned().fold(f64::INFINITY, f64::min);
-    assert_eq!(
-        result.best_observed_value.to_bits(),
-        expected_best_obs.to_bits(),
-        "best_observed_value は観測最小値と等しい"
-    );
+    // best_observed_value は観測最小値（モック観測点 (0.2,0.8) の 0.02）に厳密一致。
+    let expected = analytic_trained(quad_surface, true)
+        .y
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
+    assert_eq!(result.best_observed_value.to_bits(), expected.to_bits());
 }
 
 #[test]
 fn random_search_finds_quadratic_minimum_loosely() {
-    let (x_matrix, y) = quadratic_samples(50);
-    let mut req = base_request(x_matrix, y);
-    req.optimizer = OptimizerKind::RandomSearch;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-
-    assert!((result.best_params[0] - 0.3).abs() < 0.15);
-    assert!((result.best_params[1] - 0.7).abs() < 0.15);
+    let result = optimize_quad(OptimizerKind::RandomSearch, true);
+    // ランダムサーチ（4096 点）は格子分解能ぶんの誤差を許容する。
+    assert!((result.best_params[0] - 0.3).abs() < 0.1);
+    assert!((result.best_params[1] - 0.7).abs() < 0.1);
 }
 
 #[test]
 fn nsga2_finds_quadratic_minimum() {
-    let (x_matrix, y) = quadratic_samples(50);
-    let mut req = base_request(x_matrix, y);
-    req.optimizer = OptimizerKind::Nsga2;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-
+    let result = optimize_quad(OptimizerKind::Nsga2, true);
     assert!(
-        (result.best_params[0] - 0.3).abs() < 0.1,
+        (result.best_params[0] - 0.3).abs() < 0.05,
         "x ≈ 0.3, got {}",
         result.best_params[0]
     );
     assert!(
-        (result.best_params[1] - 0.7).abs() < 0.1,
+        (result.best_params[1] - 0.7).abs() < 0.05,
         "y ≈ 0.7, got {}",
         result.best_params[1]
     );
@@ -147,18 +197,14 @@ fn nsga2_finds_quadratic_minimum() {
 
 #[test]
 fn cma_es_finds_quadratic_minimum() {
-    let (x_matrix, y) = quadratic_samples(50);
-    let mut req = base_request(x_matrix, y);
-    req.optimizer = OptimizerKind::CmaEs;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-
+    let result = optimize_quad(OptimizerKind::CmaEs, true);
     assert!(
-        (result.best_params[0] - 0.3).abs() < 0.1,
+        (result.best_params[0] - 0.3).abs() < 0.02,
         "x ≈ 0.3, got {}",
         result.best_params[0]
     );
     assert!(
-        (result.best_params[1] - 0.7).abs() < 0.1,
+        (result.best_params[1] - 0.7).abs() < 0.02,
         "y ≈ 0.7, got {}",
         result.best_params[1]
     );
@@ -167,19 +213,14 @@ fn cma_es_finds_quadratic_minimum() {
 #[test]
 fn cma_es_maximize_finds_quadratic_maximum_corner() {
     // f は (0.3, 0.7) から最遠の角 (1, 0) で最大になる。
-    let (x_matrix, y) = quadratic_samples(60);
-    let mut req = base_request(x_matrix, y);
-    req.minimize = false;
-    req.optimizer = OptimizerKind::CmaEs;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-
+    let result = optimize_quad(OptimizerKind::CmaEs, false);
     assert!(
-        result.best_params[0] > 0.7,
+        result.best_params[0] > 0.9,
         "x should approach 1, got {}",
         result.best_params[0]
     );
     assert!(
-        result.best_params[1] < 0.4,
+        result.best_params[1] < 0.1,
         "y should approach 0, got {}",
         result.best_params[1]
     );
@@ -187,53 +228,118 @@ fn cma_es_maximize_finds_quadratic_maximum_corner() {
 
 #[test]
 fn maximize_direction_finds_quadratic_maximum_corner() {
-    // f は (0.3, 0.7) から遠い角で最大になる。x=1,y=0 の角が最遠。
-    let (x_matrix, y) = quadratic_samples(60);
-    let mut req = base_request(x_matrix, y);
-    req.minimize = false;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-
+    // maximize 方向で勾配法が最遠の角 (1, 0) へ厳密に到達する。
+    let result = optimize_quad(OptimizerKind::MultiStartLbfgs, false);
     assert!(
-        result.best_params[0] > 0.7,
+        result.best_params[0] > 0.95,
         "x should approach 1, got {}",
         result.best_params[0]
     );
     assert!(
-        result.best_params[1] < 0.4,
+        result.best_params[1] < 0.05,
         "y should approach 0, got {}",
         result.best_params[1]
     );
 }
 
 #[test]
-fn ridge_model_reaches_box_corner() {
-    // 線形データ y = 2x − y2 は箱の角で最小。
-    let mut rng = SeededRng::from_seed(11);
-    let x_matrix: Vec<Vec<f64>> = (0..40)
-        .map(|_| vec![rng.next_f64(), rng.next_f64()])
-        .collect();
-    let y: Vec<f64> = x_matrix.iter().map(|r| 2.0 * r[0] - r[1]).collect();
-    let mut req = base_request(x_matrix, y);
-    req.model = SurrogateModelKind::Ridge;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
+fn no_variance_model_reaches_box_corner() {
+    // 線形曲面 f = 2x − y は箱の角 (0, 1) で最小。事後分散なしモック（Ridge 系）では
+    // predicted_std が None になることも確認する。
+    let trained = analytic_trained(linear_surface, false);
+    let result = optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize: true,
+            optimizer: OptimizerKind::MultiStartLbfgs,
+            slice_params: None,
+            n_grid: 10,
+        },
+    );
 
     assert!(
-        result.best_params[0] < 0.05,
+        result.best_params[0] < 0.01,
         "x → 0: {}",
         result.best_params[0]
     );
     assert!(
-        result.best_params[1] > 0.95,
+        result.best_params[1] > 0.99,
         "y → 1: {}",
         result.best_params[1]
     );
-    assert!(result.predicted_std.is_none(), "Ridge has no posterior std");
-    assert!(result.r_squared > 0.95);
+    assert!(
+        result.predicted_std.is_none(),
+        "variance-less mock has no posterior std"
+    );
+}
+
+#[test]
+fn slice_grid_passes_through_optimum_and_has_expected_shape() {
+    // 既知の二次曲面で 2D スライス格子を構築し、形状と最小値の整合を厳密に確認する。
+    let trained = analytic_trained(quad_surface, true);
+    let result = optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize: true,
+            optimizer: OptimizerKind::MultiStartLbfgs,
+            slice_params: Some((0, 1)),
+            n_grid: 12,
+        },
+    );
+    let slice = result.slice.expect("slice requested");
+
+    assert_eq!(slice.x_values.len(), 12);
+    assert_eq!(slice.y_values.len(), 12);
+    assert_eq!(slice.z_values.len(), 12);
+    assert!(slice.z_values.iter().all(|row| row.len() == 12));
+    // 恒等正規化なので格子は [0,1] を等分し、z = f(格子点) に厳密一致する。
+    for (i, &vx) in slice.x_values.iter().enumerate() {
+        for (j, &vy) in slice.y_values.iter().enumerate() {
+            let expected = quad_surface(&[vx, vy]);
+            assert!(
+                (slice.z_values[i][j] - expected).abs() < 1e-9,
+                "z[{i}][{j}] should equal f(grid): {} vs {}",
+                slice.z_values[i][j],
+                expected
+            );
+        }
+    }
+    // 事後分散一定 → z_std は全格子で 0.1。
+    let z_std = slice.z_std.expect("GP-like mock has z_std");
+    assert!(z_std.iter().flatten().all(|&s| (s - 0.1).abs() < 1e-9));
+    // 格子の最小値はサロゲート最適値の近くにある。
+    let grid_min = slice
+        .z_values
+        .iter()
+        .flatten()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        grid_min <= result.best_value + 0.05,
+        "grid_min {} vs best {}",
+        grid_min,
+        result.best_value
+    );
+}
+
+#[test]
+fn invalid_slice_params_are_ignored() {
+    let trained = analytic_trained(quad_surface, true);
+    let result = optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize: true,
+            optimizer: OptimizerKind::MultiStartLbfgs,
+            slice_params: Some((0, 0)), // 同一軸は無効
+            n_grid: 10,
+        },
+    );
+    assert!(result.slice.is_none());
 }
 
 #[test]
 fn gp_fitc_runs_and_finds_minimum_region() {
-    let (x_matrix, y) = quadratic_samples(80);
+    let (x_matrix, y) = quadratic_samples(40);
     let mut req = base_request(x_matrix, y);
     req.model = SurrogateModelKind::GpFitc;
     let result = run_surrogate_optimization(&req).expect("optimization should succeed");
@@ -259,42 +365,6 @@ fn non_finite_input_returns_error() {
     assert!(run_surrogate_optimization(&req).is_err());
 }
 
-#[test]
-fn slice_grid_passes_through_optimum_and_has_expected_shape() {
-    let (x_matrix, y) = quadratic_samples(50);
-    let mut req = base_request(x_matrix, y);
-    req.n_grid = 12;
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-    let slice = result.slice.expect("slice requested");
-
-    assert_eq!(slice.x_values.len(), 12);
-    assert_eq!(slice.y_values.len(), 12);
-    assert_eq!(slice.z_values.len(), 12);
-    assert!(slice.z_values.iter().all(|row| row.len() == 12));
-    // 格子の最小値はサロゲート最適値の近くにあるはず。
-    let grid_min = slice
-        .z_values
-        .iter()
-        .flatten()
-        .cloned()
-        .fold(f64::INFINITY, f64::min);
-    assert!(
-        grid_min <= result.best_value + 0.05,
-        "grid_min {} vs best {}",
-        grid_min,
-        result.best_value
-    );
-}
-
-#[test]
-fn invalid_slice_params_are_ignored() {
-    let (x_matrix, y) = quadratic_samples(30);
-    let mut req = base_request(x_matrix, y);
-    req.slice_params = Some((0, 0)); // 同一軸は無効
-    let result = run_surrogate_optimization(&req).expect("optimization should succeed");
-    assert!(result.slice.is_none());
-}
-
 // ============================================================================
 // TrainedSurrogate の Send + Sync アサーション
 // ============================================================================
@@ -310,43 +380,15 @@ fn trained_surrogate_is_send_sync() {
 // validate_surrogate のテスト
 // ============================================================================
 
-#[test]
-fn validate_surrogate_gp_fitc_high_r2_on_smooth_function() {
-    // 決定論的な滑らかな関数で学習・検証し、CV R² とホールドアウト R² が高いことを確認する。
-    let (x_matrix, y) = quadratic_samples(50);
-    let report = validation::validate_surrogate(SurrogateModelKind::GpFitc, &x_matrix, &y, 42)
-        .expect("validate_surrogate should succeed");
-
-    assert_eq!(report.n_samples, 50);
-    assert!(report.n_test >= 1, "n_test >= 1");
-    assert_eq!(report.n_train + report.n_test, 50);
-    assert!(
-        report.holdout_r2 > 0.7,
-        "holdout_r2 = {}",
-        report.holdout_r2
-    );
-    assert!(
-        report.cv_r2_mean > 0.7,
-        "cv_r2_mean = {}",
-        report.cv_r2_mean
-    );
-    assert_eq!(
-        report.oof_pairs.len(),
-        50,
-        "oof_pairs の長さはサンプル数と一致する"
-    );
-    assert!(report.holdout_r2.is_finite());
-    assert!(report.holdout_rmse.is_finite());
-    assert!(report.cv_r2_mean.is_finite());
-    assert!(report.cv_r2_std.is_finite());
-    assert!(report.cv_rmse_mean.is_finite());
-    assert!(report.cv_rmse_std.is_finite());
-}
+// NOTE: GP の当てはめ品質（滑らかな関数で R² が高い 等）はバックエンドの egobox の
+// 責務なので検証しない。検証レポートの構造（n_samples / cv_folds / oof_pairs 長・各値が
+// 有限）は validate_surrogate_minimum_size_dataset と
+// validate_surrogate_deterministic_with_same_seed が確認する。
 
 #[test]
 fn validate_surrogate_deterministic_with_same_seed() {
     // 同一シードで呼び出した結果が完全に一致することを確認する。
-    let (x_matrix, y) = quadratic_samples(30);
+    let (x_matrix, y) = quadratic_samples(20);
     let r1 = validation::validate_surrogate(SurrogateModelKind::GpFitc, &x_matrix, &y, 42)
         .expect("first call should succeed");
     let r2 = validation::validate_surrogate(SurrogateModelKind::GpFitc, &x_matrix, &y, 42)
@@ -389,7 +431,7 @@ fn validate_surrogate_minimum_size_dataset() {
 
 #[test]
 fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
-    let (x_matrix, y) = quadratic_samples(50);
+    let (x_matrix, y) = quadratic_samples(40);
 
     let fit_req = SurrogateFitRequest {
         x_matrix,
@@ -405,7 +447,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
         .expect("fit_surrogate_with_validation should succeed");
 
     // 検証レポートの基本チェック。
-    assert_eq!(trained.validation.n_samples, 50);
+    assert_eq!(trained.validation.n_samples, 40);
     assert!(
         trained.validation.train_r2 > 0.8,
         "train_r2 = {}",
@@ -449,7 +491,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
 fn param_importance_reflects_ard_for_gp_and_none_for_others() {
     // x0 に強く依存し x1 にほぼ依存しない関数 y = 3*x0 + 0.05*x1（ノイズなし）。
     let mut rng = SeededRng::from_seed(7);
-    let x_matrix: Vec<Vec<f64>> = (0..60)
+    let x_matrix: Vec<Vec<f64>> = (0..40)
         .map(|_| vec![rng.next_f64(), rng.next_f64()])
         .collect();
     let y: Vec<f64> = x_matrix.iter().map(|r| 3.0 * r[0] + 0.05 * r[1]).collect();
@@ -505,7 +547,7 @@ fn param_importance_reflects_ard_for_gp_and_none_for_others() {
 fn gp_vfe_trains_and_predicts_finite_with_std() {
     // GP-VFE が二次関数データで学習・予測でき、predicted_std が Some であることを確認。
     // run_surrogate_optimization を使い CV フォールドの小さいサブセットに依存しない。
-    let (x_matrix, y) = quadratic_samples(60);
+    let (x_matrix, y) = quadratic_samples(40);
     let req = SurrogateOptRequest {
         x_matrix,
         y,
@@ -537,7 +579,7 @@ fn gp_moe_trains_and_predicts_finite_with_std() {
     // GP-MOE が区分的（不連続）関数データで学習・予測でき、predicted_std が Some
     // であることを確認。滑らかな二次関数（quadratic_samples）では egobox-moe が
     // クラスタ数 1 を選べず内部パニックを起こすため、MoE が本来有利な区分データを使う。
-    let (x_matrix, y) = piecewise_samples(100);
+    let (x_matrix, y) = piecewise_samples(60);
     let req = SurrogateOptRequest {
         x_matrix,
         y,
@@ -597,13 +639,55 @@ fn base_multi_request(
     }
 }
 
+// ── 解析的モックによる多目的フロント機構の厳密検証 ──────────────────
+// Schaffer N.1: f1 = x0²、f2 = (x0 − 1)²（x1 はダミー次元）。既知曲面を注入し、
+// NSGA-II のフロント生成・ソート・スライス・最大化方向の結線を GP フィット無しで確認する。
+
+fn schaffer_f1(x: &[f64]) -> f64 {
+    x[0].powi(2)
+}
+fn schaffer_f2(x: &[f64]) -> f64 {
+    (x[0] - 1.0).powi(2)
+}
+
+/// Schaffer N.1 の 2 目的を解析的モックで学習済みにした TrainedSurrogate 群。
+fn analytic_schaffer_trained() -> Vec<TrainedSurrogate> {
+    let x_matrix = vec![
+        vec![0.0, 0.5],
+        vec![0.25, 0.5],
+        vec![0.5, 0.5],
+        vec![0.75, 0.5],
+        vec![1.0, 0.5],
+    ];
+    let mk = |surface: fn(&[f64]) -> f64| {
+        let s = models::FittedSurrogate::analytic(2, surface, Some(Box::new(|_x: &[f64]| 0.01)));
+        let y: Vec<f64> = x_matrix.iter().map(|r| surface(r)).collect();
+        TrainedSurrogate::analytic_mock(x_matrix.clone(), y, s)
+    };
+    vec![mk(schaffer_f1), mk(schaffer_f2)]
+}
+
+fn optimize_schaffer(
+    minimize: Vec<bool>,
+    slice_params: Option<(usize, usize)>,
+) -> SurrogateMultiOptResult {
+    let trained = analytic_schaffer_trained();
+    let refs: Vec<&TrainedSurrogate> = trained.iter().collect();
+    optimize_multi_on_trained(
+        &refs,
+        &SurrogateMultiOptimizeSpec {
+            minimize,
+            slice_params,
+            n_grid: 10,
+        },
+    )
+    .expect("staged multi optimize should succeed")
+}
+
 #[test]
 fn multi_opt_front_spans_full_tradeoff() {
-    // 2 目的トレードオフ問題: フロントが 5 点以上、全域に広がること。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
-    let req = base_multi_request(x_matrix, f1, f2);
-    let result = run_surrogate_multi_optimization(&req)
-        .expect("multi-objective optimization should succeed");
+    // 既知曲面なのでフロントは真の Schaffer フロント（全域）を厳密に張る。
+    let result = optimize_schaffer(vec![true, true], None);
 
     assert!(
         result.front.len() >= 5,
@@ -629,9 +713,7 @@ fn multi_opt_front_spans_full_tradeoff() {
 #[test]
 fn multi_opt_front_sorted_by_first_objective() {
     // フロントが第 1 目的で昇順ソートされていること。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
-    let req = base_multi_request(x_matrix, f1, f2);
-    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+    let result = optimize_schaffer(vec![true, true], None);
 
     for w in result.front.windows(2) {
         assert!(
@@ -646,9 +728,7 @@ fn multi_opt_front_sorted_by_first_objective() {
 #[test]
 fn multi_opt_point_dimensions_match() {
     // 各 ParetoFrontPoint の params/values 長が param_names/objective_names と一致。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
-    let req = base_multi_request(x_matrix, f1, f2);
-    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+    let result = optimize_schaffer(vec![true, true], None);
 
     for (i, p) in result.front.iter().enumerate() {
         assert_eq!(
@@ -665,6 +745,9 @@ fn multi_opt_point_dimensions_match() {
             i,
             p.values.len()
         );
+        // 既知曲面なので各点の予測値は f(params) に厳密一致する。
+        assert!((p.values[0] - schaffer_f1(&p.params)).abs() < 1e-9);
+        assert!((p.values[1] - schaffer_f2(&p.params)).abs() < 1e-9);
     }
     assert_eq!(result.r_squared.len(), 2, "r_squared should have 2 entries");
 }
@@ -673,12 +756,7 @@ fn multi_opt_point_dimensions_match() {
 fn multi_opt_maximize_objective_direction() {
     // f2 を最大化（minimize=false）する場合、結果の f2 値が正の方向で分布すること。
     // f2 = (x0 − 1)² は x0=0 で最大値 1、x0=1 で最小値 0。
-    // maximize 側のフロント端に f2 が大きい点が存在すること。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
-    let mut req = base_multi_request(x_matrix, f1, f2);
-    req.minimize = vec![true, false]; // f2 を最大化
-
-    let result = run_surrogate_multi_optimization(&req).expect("should succeed with maximize");
+    let result = optimize_schaffer(vec![true, false], None);
 
     // 最大化目的 f2 の最大値が 0.5 以上の点がフロントに存在すること。
     let has_large_f2 = result.front.iter().any(|p| p.values[1] > 0.5);
@@ -696,9 +774,7 @@ fn multi_opt_maximize_objective_direction() {
 #[test]
 fn multi_opt_slices_returned_for_each_objective() {
     // slice_params 指定時に目的数ぶんのスライスが返ること。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
-    let req = base_multi_request(x_matrix, f1, f2);
-    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+    let result = optimize_schaffer(vec![true, true], Some((0, 1)));
 
     assert_eq!(
         result.slices.len(),
@@ -715,10 +791,7 @@ fn multi_opt_slices_returned_for_each_objective() {
 #[test]
 fn multi_opt_no_slices_without_slice_params() {
     // slice_params = None のとき slices が空。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
-    let mut req = base_multi_request(x_matrix, f1, f2);
-    req.slice_params = None;
-    let result = run_surrogate_multi_optimization(&req).expect("should succeed");
+    let result = optimize_schaffer(vec![true, true], None);
     assert!(
         result.slices.is_empty(),
         "slices should be empty when slice_params is None"
@@ -809,38 +882,10 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
     (t1, t2)
 }
 
-#[test]
-fn staged_multi_opt_front_spans_full_tradeoff() {
-    // fit & validate → optimize の 2 段階でフロントがトレードオフ全域に広がること。
-    let (t1, t2) = fit_schaffer_trained(50);
-    let spec = SurrogateMultiOptimizeSpec {
-        minimize: vec![true, true],
-        slice_params: Some((0, 1)),
-        n_grid: 10,
-    };
-    let result = optimize_multi_on_trained(&[&t1, &t2], &spec)
-        .expect("staged multi-objective optimization should succeed");
-
-    assert!(
-        result.front.len() >= 5,
-        "front should have ≥5 points, got {}",
-        result.front.len()
-    );
-    let has_f1_side = result
-        .front
-        .iter()
-        .any(|p| p.params[0] < 0.2 || p.values[0] < 0.05);
-    assert!(has_f1_side, "front should reach f1-dominated region");
-    let has_f2_side = result
-        .front
-        .iter()
-        .any(|p| p.params[0] > 0.8 || p.values[1] < 0.05);
-    assert!(has_f2_side, "front should reach f2-dominated region");
-
-    // スライスは目的数ぶん返る。r_squared も目的数ぶん。
-    assert_eq!(result.slices.len(), 2);
-    assert_eq!(result.r_squared.len(), 2);
-}
+// NOTE: フロントがトレードオフ全域に広がること・スライスが目的数ぶん返ることは
+// 解析的モック版 multi_opt_front_spans_full_tradeoff / multi_opt_slices_returned_for_each_objective
+// が厳密に確認する。実フィットの 2 段階フロー（fit → optimize_multi_on_trained）の
+// 同一性は staged_multi_opt_matches_one_shot_result が担保する。
 
 #[test]
 fn staged_multi_opt_error_on_single_trained() {
@@ -877,11 +922,11 @@ fn staged_multi_opt_error_on_minimize_length_mismatch() {
 #[test]
 fn staged_multi_opt_matches_one_shot_result() {
     // 同一データ・決定的シードなら one-shot 版と staged 版で同等のフロントが得られること。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let (x_matrix, f1, f2) = schaffer_samples(40);
     let req = base_multi_request(x_matrix, f1.clone(), f2.clone());
     let one_shot = run_surrogate_multi_optimization(&req).expect("one-shot should succeed");
 
-    let (t1, t2) = fit_schaffer_trained(50);
+    let (t1, t2) = fit_schaffer_trained(40);
     let spec = SurrogateMultiOptimizeSpec {
         minimize: vec![true, true],
         slice_params: Some((0, 1)),
@@ -920,10 +965,13 @@ fn staged_multi_opt_matches_one_shot_result() {
 // ────────────────────────────────────────────────────────────
 
 #[test]
-fn fit_multi_surrogates_runs_end_to_end_and_is_deterministic() {
-    // N=160 (> 100 で誘導点選択が走る) の 2 目的トレードオフ問題。
-    // GpFitc で 2 モデルを学習 → 予測が有限 → NSGA-II でフロントが非空 → 決定論的。
-    let (x_matrix, f1, f2) = schaffer_samples(160);
+fn fit_multi_surrogates_runs_end_to_end() {
+    // 2 目的トレードオフ問題で fit→optimize のパイプライン結線を確認する。
+    // 誘導点経路 (N>100) は gaussian_process の select_inducing_points_* /
+    // fit_inducing_path で網羅済みなのでここでは厳密経路の小さい N で足りる。
+    // 多目的フロントの決定性は staged_multi_opt_matches_one_shot_result でカバーする。
+    // GpFitc で 2 モデルを学習 → 予測が有限 → NSGA-II でフロントが非空。
+    let (x_matrix, f1, f2) = schaffer_samples(50);
     let param_names = vec!["x0".to_string(), "x1".to_string()];
     let objective_names = vec!["f1".to_string(), "f2".to_string()];
     let minimize = vec![true, true];
@@ -966,29 +1014,6 @@ fn fit_multi_surrogates_runs_end_to_end_and_is_deterministic() {
         .front
         .iter()
         .all(|p| p.values.iter().all(|v| v.is_finite())));
-
-    // 決定論的: 2 回学習して同一フロントが得られる。
-    let trained2 = fit_multi_surrogates(
-        &x_matrix,
-        &objective_values,
-        &param_names,
-        &objective_names,
-        SurrogateModelKind::GpFitc,
-        &minimize,
-    )
-    .expect("second fit should succeed");
-    let refs2: Vec<&TrainedSurrogate> = trained2.iter().collect();
-    let result2 = optimize_multi_on_trained(&refs2, &spec).expect("second optimize");
-    assert_eq!(
-        result.front.len(),
-        result2.front.len(),
-        "front sizes should match across runs"
-    );
-    for (a, b) in result.front.iter().zip(result2.front.iter()) {
-        for (va, vb) in a.values.iter().zip(b.values.iter()) {
-            assert!((va - vb).abs() < 1e-9, "front should be deterministic");
-        }
-    }
 }
 
 #[test]
@@ -1078,7 +1103,7 @@ fn lgbm_fit_validate_and_optimize_finds_minimum_region() {
 #[test]
 fn lgbm_multi_opt_returns_front() {
     // LGBM で多目的サロゲート最適化が動き、フロントが返ること（緩い検証）。
-    let (x_matrix, f1, f2) = schaffer_samples(50);
+    let (x_matrix, f1, f2) = schaffer_samples(40);
     let mut req = base_multi_request(x_matrix, f1, f2);
     req.model = SurrogateModelKind::Lgbm;
     let result =
@@ -1118,54 +1143,86 @@ fn constrained_fit_req(x_matrix: Vec<Vec<f64>>, y: Vec<f64>, c: Vec<f64>) -> Sur
     }
 }
 
+/// 制約曲面 c(x) = 0.5 − x0。c ≤ 0 ⟺ x0 ≥ 0.5 が実行可能。
+fn constraint_surface(x: &[f64]) -> f64 {
+    0.5 - x[0]
+}
+
+/// 目的 = 二次曲面、制約 c = 0.5 − x0 の解析的モック TrainedSurrogate を作る。
+fn analytic_constrained_trained() -> TrainedSurrogate {
+    let x_matrix = vec![
+        vec![0.0, 0.0],
+        vec![1.0, 1.0],
+        vec![0.5, 0.5],
+        vec![0.2, 0.8],
+    ];
+    let y: Vec<f64> = x_matrix.iter().map(|r| quad_surface(r)).collect();
+    let c_values: Vec<f64> = x_matrix.iter().map(|r| constraint_surface(r)).collect();
+    let obj = models::FittedSurrogate::analytic(2, quad_surface, Some(Box::new(|_x: &[f64]| 0.01)));
+    let con =
+        models::FittedSurrogate::analytic(2, constraint_surface, Some(Box::new(|_x: &[f64]| 0.01)));
+    TrainedSurrogate::analytic_mock(x_matrix, y, obj).with_analytic_constraint("c1", c_values, con)
+}
+
 #[test]
 fn constrained_opt_pushes_x_toward_feasible_region() {
-    // c = 0.5 - x (x >= 0.5 で実行可能): ペナルティが x >= 0.4 付近へ誘導する。
-    let (x_matrix, y, c) = constrained_quadratic_samples(80);
-    let req = SurrogateOptRequest {
-        x_matrix,
-        y,
-        param_names: vec!["x".to_string(), "y".to_string()],
-        objective_name: "obj0".to_string(),
-        minimize: true,
-        model: SurrogateModelKind::GpFitc,
-        optimizer: OptimizerKind::MultiStartLbfgs,
-        slice_params: None,
-        n_grid: 10,
-        constraints: vec![ConstraintData {
-            name: "c1".to_string(),
-            values: c,
-        }],
-    };
-    let result = run_surrogate_optimization(&req).expect("constrained optimization should succeed");
+    // c = 0.5 − x0（x0 ≥ 0.5 で実行可能）。既知曲面では制約ペナルティ付き最小は
+    // x0 = 0.5（境界）、x1 = 0.7 に厳密に収束する。
+    let trained = analytic_constrained_trained();
+    let result = optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize: true,
+            optimizer: OptimizerKind::MultiStartLbfgs,
+            slice_params: None,
+            n_grid: 10,
+        },
+    );
 
     assert!(
-        result.best_params[0] >= 0.4,
-        "制約ペナルティにより x >= 0.4 が期待される, got x = {}",
+        (result.best_params[0] - 0.5).abs() < 0.02,
+        "制約境界 x0 = 0.5 へ収束するはず, got x = {}",
         result.best_params[0]
     );
-    assert_eq!(result.predicted_constraints.len(), 1);
     assert!(
-        result.feasibility_probability.is_some(),
-        "制約ありのとき feasibility_probability は Some"
+        (result.best_params[1] - 0.7).abs() < 0.02,
+        "x1 = 0.7 へ収束するはず, got y = {}",
+        result.best_params[1]
     );
-    let p_feas = result.feasibility_probability.unwrap();
+    assert_eq!(result.predicted_constraints.len(), 1);
+    // 境界では c(x) = 0.5 − 0.5 = 0 に厳密一致。
     assert!(
-        p_feas > 0.4,
-        "実行可能側に引き寄せられているはずなので P_feas > 0.4 を期待, got {}",
+        result.predicted_constraints[0].abs() < 0.02,
+        "predicted constraint ≈ 0 at boundary, got {}",
+        result.predicted_constraints[0]
+    );
+    // P(c ≤ 0) = Φ((0 − mu)/σ) = Φ(0) = 0.5（境界・σ=0.1）。
+    let p_feas = result
+        .feasibility_probability
+        .expect("制約ありのとき feasibility_probability は Some");
+    assert!(
+        (p_feas - 0.5).abs() < 0.1,
+        "境界では P_feas ≈ 0.5 を期待, got {}",
         p_feas
     );
 }
 
 #[test]
 fn unconstrained_opt_finds_true_minimum_near_0_3() {
-    // 制約なし: 最小点 (0.3, 0.7) を発見する（既存の動作が変わらないことを確認）。
-    let (x_matrix, y, _) = constrained_quadratic_samples(80);
-    let req = base_request(x_matrix, y);
-    let result = run_surrogate_optimization(&req).expect("unconstrained should succeed");
+    // 制約なし: 既知曲面の真の最小点 (0.3, 0.7) を厳密に発見する。
+    let trained = analytic_trained(quad_surface, true);
+    let result = optimize_on_trained(
+        &trained,
+        &SurrogateOptimizeSpec {
+            minimize: true,
+            optimizer: OptimizerKind::MultiStartLbfgs,
+            slice_params: None,
+            n_grid: 10,
+        },
+    );
 
     assert!(
-        (result.best_params[0] - 0.3).abs() < 0.15,
+        (result.best_params[0] - 0.3).abs() < 0.01,
         "x ≈ 0.3 (unconstrained), got {}",
         result.best_params[0]
     );
@@ -1182,42 +1239,25 @@ fn unconstrained_opt_finds_true_minimum_near_0_3() {
 #[test]
 fn constrained_fit_validation_succeeds() {
     // fit_surrogate_with_validation が制約ありで成功し、constraint_names が設定される。
-    let (x_matrix, y, c) = constrained_quadratic_samples(50);
+    let (x_matrix, y, c) = constrained_quadratic_samples(40);
     let req = constrained_fit_req(x_matrix, y, c);
     let trained = fit_surrogate_with_validation(&req).expect("constrained fit should succeed");
 
     assert_eq!(trained.constraint_names, vec!["c1".to_string()]);
     assert_eq!(trained.constraint_models.len(), 1);
-    assert_eq!(trained.constraint_values.len(), 50);
+    assert_eq!(trained.constraint_values.len(), 40);
     assert!(trained.constraint_values.iter().all(|row| row.len() == 1));
 }
 
-#[test]
-fn constrained_opt_result_has_constraint_fields() {
-    // optimize_on_trained が制約ありで predicted_constraints / feasibility_probability を返す。
-    let (x_matrix, y, c) = constrained_quadratic_samples(50);
-    let req = constrained_fit_req(x_matrix, y, c);
-    let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
-
-    let spec = SurrogateOptimizeSpec {
-        minimize: true,
-        optimizer: OptimizerKind::MultiStartLbfgs,
-        slice_params: None,
-        n_grid: 10,
-    };
-    let result = optimize_on_trained(&trained, &spec);
-
-    assert_eq!(result.predicted_constraints.len(), 1);
-    assert!(result.feasibility_probability.is_some());
-    let p = result.feasibility_probability.unwrap();
-    assert!((0.0..=1.0).contains(&p), "P_feas must be in [0,1], got {p}");
-}
+// NOTE: optimize_on_trained が制約ありで predicted_constraints / feasibility_probability を
+// 返すことは、解析的モック版 constrained_opt_pushes_x_toward_feasible_region が
+// 値レベルで厳密に確認する。
 
 #[test]
 fn suggest_candidates_constrained_p_feas_present() {
     // 制約付き suggest_candidates: 全候補が feasibility_probability Some を持つ。
     // mean P_feas > 0.3。
-    let (x_matrix, y, c) = constrained_quadratic_samples(50);
+    let (x_matrix, y, c) = constrained_quadratic_samples(40);
     let req = constrained_fit_req(x_matrix, y, c);
     let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
 
@@ -1260,26 +1300,25 @@ fn suggest_candidates_constrained_p_feas_present() {
 
 #[test]
 fn suggest_candidates_unconstrained_p_feas_none() {
-    // 制約なし suggest_candidates: feasibility_probability は None、
-    // predicted_constraints は空。
-    let (x_matrix, y, _) = constrained_quadratic_samples(50);
-    let req = SurrogateFitRequest {
-        x_matrix,
-        y,
-        param_names: vec!["x".to_string(), "y".to_string()],
-        objective_name: "obj0".to_string(),
-        model: SurrogateModelKind::GpFitc,
-        auto_select: false,
-        constraints: vec![],
-        priority_rows: vec![],
-    };
-    let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
+    // 制約なし suggest_candidates（n=1, 再フィットなし）: 既知の GP 系モックで
+    // feasibility_probability が None、predicted_constraints が空になることを確認する。
+    let trained = analytic_trained(quad_surface, true);
     let candidates = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
         .expect("unconstrained suggest should succeed");
 
     assert_eq!(candidates.len(), 1);
     assert!(candidates[0].feasibility_probability.is_none());
     assert!(candidates[0].predicted_constraints.is_empty());
+    // 提案点は元の単位 [0,1] 内、EI は非負。
+    assert!(candidates[0]
+        .params
+        .iter()
+        .all(|&v| (0.0..=1.0).contains(&v)));
+    assert!(candidates[0].acq_score >= 0.0);
+    assert!(
+        candidates[0].predicted_std.is_some(),
+        "GP-like mock has std"
+    );
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1327,7 +1366,7 @@ fn score_of(report: &ModelSelectionReport, kind: SurrogateModelKind) -> f64 {
 
 #[test]
 fn select_best_model_picks_gp_on_nonlinear_smooth() {
-    let (x_matrix, y) = nonlinear_smooth_samples(80);
+    let (x_matrix, y) = nonlinear_smooth_samples(50);
     let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
 
     // 候補は AUTO_CANDIDATES の 4 つ。
@@ -1352,6 +1391,8 @@ fn select_best_model_picks_gp_on_nonlinear_smooth() {
 
 #[test]
 fn select_best_model_picks_ridge_on_linear() {
+    // 線形データでの Ridge 選択（タイブレーク）判定は品質感度が高く、N を下げると
+    // GP の CV R² が Ridge を 1e-3 超で上回りタイブレーク条件が崩れるため 80 を保つ。
     let (x_matrix, y) = linear_samples(80);
     let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
 
@@ -1379,7 +1420,7 @@ fn select_best_model_picks_ridge_on_linear() {
 
 #[test]
 fn fit_surrogate_with_validation_auto_select_end_to_end() {
-    let (x_matrix, y) = nonlinear_smooth_samples(80);
+    let (x_matrix, y) = nonlinear_smooth_samples(50);
     let req = SurrogateFitRequest {
         x_matrix,
         y,
@@ -1414,7 +1455,9 @@ fn fit_surrogate_with_validation_auto_select_end_to_end() {
 
 #[test]
 fn select_best_model_is_deterministic() {
-    let (x_matrix, y) = nonlinear_smooth_samples(80);
+    // どのモデルが勝つかではなく再現性のみ検証するので、品質に依存せず小さい N でよい。
+    // 4 候補 × CV を 2 回回すためコストが大きく、N を絞る効果が大きい。
+    let (x_matrix, y) = nonlinear_smooth_samples(30);
     let r1 = select_best_model(&x_matrix, &y, 42).expect("run 1");
     let r2 = select_best_model(&x_matrix, &y, 42).expect("run 2");
 

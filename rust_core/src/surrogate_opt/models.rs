@@ -31,6 +31,10 @@ pub enum SurrogateModelKind {
     Lgbm,
 }
 
+/// テスト用解析的モックサロゲートが保持する closed-form クロージャ型（平均・分散共通）。
+#[cfg(test)]
+pub(crate) type AnalyticFn = Box<dyn Fn(&[f64]) -> f64 + Send + Sync>;
+
 /// 学習済みモデル本体（正規化空間で予測する）。
 pub(crate) enum FittedModel {
     /// z-score 標準化済み列に対する Ridge 係数（`sensitivity::ridge` と同じ規約）。
@@ -47,6 +51,17 @@ pub(crate) enum FittedModel {
     /// LightGBM の predict は同一ハンドルに対して非スレッドセーフのため、
     /// Mutex で直列化して Sync を満たす（`LgbmBooster` は Send のみ実装）。
     Lgbm(Mutex<LgbmBooster>),
+    /// テスト専用: 既知の closed-form 関数を返す解析的モック。
+    ///
+    /// GP フィットの代わりに同じインターフェースで応答曲面を注入するためのもの。
+    /// 曲面が解析的に既知なので、最適化・獲得関数・実行可能性などの「曲面を使う処理」を
+    /// 緩い許容ではなく厳密に検証できる。`var` が Some なら GP 系（事後分散あり）として
+    /// 振る舞い、None なら Ridge / LightGBM 同様に事後分散を持たないモデルを表す。
+    #[cfg(test)]
+    Analytic {
+        mean: AnalyticFn,
+        var: Option<AnalyticFn>,
+    },
 }
 
 /// 学習済みサロゲートと正規化統計量。
@@ -86,6 +101,8 @@ impl FittedSurrogate {
                     .copied()
                     .unwrap_or(0.0)
             }
+            #[cfg(test)]
+            FittedModel::Analytic { mean, .. } => mean(x_norm),
         }
     }
 
@@ -95,6 +112,8 @@ impl FittedSurrogate {
         match &self.model {
             FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => None,
             FittedModel::Gp(model) => Some(model.predict_variance(x_norm)),
+            #[cfg(test)]
+            FittedModel::Analytic { var, .. } => var.as_ref().map(|f| f(x_norm)),
         }
     }
 
@@ -131,6 +150,8 @@ impl FittedSurrogate {
         let theta = match &self.model {
             FittedModel::Gp(model) => model.ard_theta()?,
             FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => return None,
+            #[cfg(test)]
+            FittedModel::Analytic { .. } => return None,
         };
         if theta.is_empty() || theta.iter().any(|t| !t.is_finite()) {
             return None;
@@ -251,4 +272,31 @@ fn fit_ridge(x_norm: &[Vec<f64>], y_norm: &[f64]) -> Result<FittedModel, String>
         col_std,
         y_norm_mean,
     })
+}
+
+#[cfg(test)]
+impl FittedSurrogate {
+    /// テスト用の解析的モックサロゲートを作る。
+    ///
+    /// 正規化を恒等（`col_stats = (0, 1)`、`y_mean = 0`、`y_std = 1`）に固定するため、
+    /// 正規化空間 [0,1]^d がそのまま元の単位空間に一致する。したがって `mean` / `var`
+    /// クロージャの出力がそのまま元単位の予測平均・予測分散となり、既知の closed-form
+    /// 応答曲面を GP フィットなしで注入できる。`var` が `Some` なら GP 系（事後分散あり）
+    /// として、`None` なら Ridge / LightGBM 同様に事後分散を持たないモデルとして振る舞う。
+    pub(crate) fn analytic(
+        n_dims: usize,
+        mean: impl Fn(&[f64]) -> f64 + Send + Sync + 'static,
+        var: Option<AnalyticFn>,
+    ) -> Self {
+        FittedSurrogate {
+            model: FittedModel::Analytic {
+                mean: Box::new(mean),
+                var,
+            },
+            col_stats: vec![(0.0, 1.0); n_dims],
+            y_mean: 0.0,
+            y_std: 1.0,
+            r_squared: 1.0,
+        }
+    }
 }
