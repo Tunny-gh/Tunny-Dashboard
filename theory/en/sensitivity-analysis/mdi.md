@@ -42,11 +42,11 @@ $$
 
 | Parameter | Value |
 | --- | --- |
-| Trees | 100 |
+| Trees | 64 |
 | Max depth | 10 |
 | Min leaf samples | 2 |
 | Random seed | 42 |
-| Max rows | 2,000 |
+| Max rows | 1,000 |
 
 ## R² Interpretation
 

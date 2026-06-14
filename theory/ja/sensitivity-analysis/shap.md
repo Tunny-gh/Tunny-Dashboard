@@ -6,6 +6,7 @@ SHAP（SHapley Additive exPlanations）は、ゲーム理論の **Shapley 値** 
 各パラメータが予測値にどれだけ寄与したかを、**すべての特徴量の組み合わせ順序の平均**として厳密に定義する。
 
 ImportanceChart では **TreeSHAP**（Lundberg & Lee, 2018）を使用し、Random Forest の各木で Shapley 値を厳密かつ効率的に計算する。
+本実装では TreeSHAP を自前で実装せず、**LightGBM の `predict_contrib`** に委譲している（後述）。
 グローバル重要度は各サンプルの $|\phi_j(x)|$ を全サンプル・全木にわたって平均し、合計が 1 になるよう正規化する。
 
 ### 他手法との違い
@@ -55,78 +56,17 @@ $$
 
 ---
 
-## TreeSHAP アルゴリズム（Lundberg & Lee 2018）
+## TreeSHAP（LightGBM の `predict_contrib`）
 
-Tree モデルに対して Shapley 値を **厳密に** 計算する多項式時間アルゴリズム。
-単一の木に対して $O(L \cdot D^2)$ で動作する（$L$: 葉の数、$D$: 木の深さ）。
+本実装では Shapley 値を自前で計算せず、**LightGBM の `predict_contrib`（C API: `C_API_PREDICT_CONTRIB`）** を利用する。
+LightGBM は内部で TreeSHAP（Lundberg et al. 2018）を実装しており、木モデルに対する Shapley 値を厳密かつ多項式時間（単一の木で $O(L \cdot D^2)$、$L$: 葉数、$D$: 深さ）で計算する。
 
-### 核心的アイデア
+`predict_contrib` はサンプルごとに長さ $P+1$ のベクトルを返す。先頭 $P$ 要素が各特徴量の寄与 $\phi_j(x)$、末尾 1 要素がバイアス項（期待値 $\mathbb{E}[\hat{f}]$）であり、**バイアス項はグローバル重要度の集計から除外する**。
 
-決定木では特徴量が「存在する（hot）」か「存在しない（cold）」かで 2 つの経路がある。
-$f(S)$ を訓練サンプルの分岐比率（`n_child / n_parent`）で近似することで、
-すべての $2^{|F|}$ 部分集合を列挙せずに Shapley 値を計算できる。
+### TreeSHAP の考え方
 
-### PathElement による多項式重み管理
-
-根からリーフまでの経路を以下の構造で管理する：
-
-$$
-\text{PathElement}_k = \{\text{feature}, \; z_k, \; o_k, \; w_k\}
-$$
-
-- $z_k$：特徴量 $k$ が**存在しない**場合の分岐比率（`n_cold / n_parent`）
-- $o_k$：特徴量 $k$ が**存在する**場合の分岐比率（`n_hot / n_parent`）
-- $w_k$：多項式係数（Shapley 重みの計算に使用）
-
-**パス拡張 `extend_path`**（深さ $m$ の位置に新要素を追加）：
-
-$$
-w_{m} \leftarrow 0, \quad w_0 \leftarrow 1 \text{ (初回のみ)}
-$$
-$$
-\text{for } i = m-1, \ldots, 0: \quad
-w_{i+1} \mathrel{+}= o \cdot w_i \cdot \frac{i+1}{m+1}, \quad
-w_i \mathrel{\times}= z \cdot \frac{m-i}{m+1}
-$$
-
-**Shapley 重みの計算 `unwound_sum`**（位置 $k$ の要素を取り除いた場合の重み総和）：
-
-$$
-W_k = \frac{1}{d+1} \sum_{i=0}^{d-1} \hat{w}_i
-$$
-
-ここで $\hat{w}_i$ は `unwind_path` によって位置 $k$ の要素を除いたときの再構成重み。
-
-### 再帰的計算 `tree_shap_recurse`
-
-```
-tree_shap_recurse(node, x, depth, path, parent_z, parent_o, parent_feat, phi):
-  extend_path(path, depth, parent_z, parent_o, parent_feat)
-
-  if leaf:
-    for k in 1..depth:
-      w = unwound_sum(path, depth, k)
-      phi[path[k].feature] += w * (path[k].o - path[k].z) * leaf_value
-    return
-
-  hot_child  = left if x[feat] <= threshold else right   # x が自然に進む方
-  cold_child = the other child
-
-  hot_z  = n_hot  / n_node
-  cold_z = n_cold / n_node
-
-  if feat already in path at index idx:
-    # 同一特徴量が経路上に既存 → unwind してから再追加
-    iz, io = path[idx].z, path[idx].o
-    unwind_path(path, depth, idx)
-    recurse(hot_child,  depth,   path, hot_z*iz,  io,  feat)
-    recurse(cold_child, depth,   path, cold_z*iz, 0.0, feat)
-  else:
-    recurse(hot_child,  depth+1, path, hot_z,  1.0, feat)
-    recurse(cold_child, depth+1, path, cold_z, 0.0, feat)
-```
-
-`path` は `Copy` 型の固定長配列として実装されており、各再帰ブランチは独立したコピーを受け取る。
+決定木では、ある特徴量が経路の分岐に「使われる（hot）」か「使われない（cold）」かで予測が変わる。
+TreeSHAP は欠損特徴量の期待値 $f(S) = \mathbb{E}[\hat{f}(x) \mid x_S]$ を、各ノードの訓練サンプルの分岐比率（`n_child / n_parent`）で近似することにより、$2^{|F|}$ 個の部分集合を列挙せずに Shapley 値を厳密計算する（path-dependent TreeSHAP）。
 
 ---
 
@@ -139,40 +79,40 @@ tree_shap_recurse(node, x, depth, path, parent_z, parent_o, parent_feat, phi):
    ├── NaN/Inf 行を除外
    └── N > 1,000 の場合はランダムサンプリングで 1,000 行に削減
 
-2. 80/20 ホールドアウト分割（R² 計算用）
+2. 80/20 ホールドアウト分割
 
-3. TreeSHAP 重要度の集計（T=64 本の木）
-   各木 b について:
-     3a. 訓練データから N_train 点を復元抽出（ブートストラップ）
-     3b. CART 回帰木を構築（ShapNode: feature, threshold, value, n_samples を保持）
-     3c. 訓練データの各サンプル x について tree_shap_recurse を実行
-     3d. 各特徴量 j の |φ_j(x)| を累積
+3. LightGBM RandomForest の学習（訓練データ）
+   └── boosting_type=rf、T=64 本の回帰木を一括学習
+       （行・特徴量サブサンプリング bagging_fraction=0.8 / feature_fraction=0.8）
 
-4. 正規化
-   ├── サンプル数 × 木数で割って平均化
+4. SHAP 寄与量の取得 — Importance を出すツリー
+   ├── 学習済み booster の predict_contrib を訓練データ全サンプルに適用し φ_j(x_i) を取得
+   ├── 各特徴量について mean |φ_j(x)| を集計（バイアス列は除外）
    └── 総和=1 になるよう正規化
 
-5. R² の計算
-   ├── 同じ訓練データで RandomForest を学習（MDI と同一ロジック）
-   ├── 評価データで MSE を計算
+5. R² の計算 — 4 と同一の booster を使用
+   ├── 同じ booster を評価データで予測し MSE を計算
    └── R² = 1 - MSE_eval × N_eval / SS_total
 ```
 
+> **重要**: 重要度（手順 4）と R²（手順 5）は MDI 同様、**同一の LightGBM RandomForest** から算出される。
+> R² は「その重要度を出したモデルがどれだけ目的関数を説明できているか」を表す信頼度指標である。
+
 ### ハイパーパラメータ
 
-| パラメータ         | 値    | 備考                                       |
-| ------------------ | ----- | ------------------------------------------ |
-| 木の本数           | 64    | MDI と同じ                                 |
-| 最大深さ           | 10    | TreeSHAP の計算量 O(2^D) を考慮して設定    |
-| 最小リーフサンプル | 2     | MDI/RF-ANOVA と同じ                        |
-| 乱数シード         | 42    | 再現性確保                                 |
-| 最大行数           | 1,000 | MDI より少なめ（TreeSHAP は N 倍計算量）   |
+| パラメータ         | 値    | 備考                                          |
+| ------------------ | ----- | --------------------------------------------- |
+| 木の本数           | 64    | MDI と同じ                                    |
+| 最大深さ           | 10    | TreeSHAP の計算量 $O(L \cdot D^2)$ を考慮して設定 |
+| 最小リーフサンプル | 2     | MDI/RF-ANOVA と同じ                           |
+| 乱数シード         | 42    | 再現性確保                                    |
+| 最大行数           | 1,000 | MDI と同じ（TreeSHAP は N 倍計算量のため抑制） |
 
 ---
 
 ## R² の解釈
 
-R² はホールドアウトデータ上のランダムフォレストの決定係数：
+R² は重要度を算出したランダムフォレスト（同一 booster）のホールドアウトデータ上の決定係数：
 
 $$
 R^2 = 1 - \frac{\sum_i (y_i - \hat{y}_i)^2}{\sum_i (y_i - \bar{y})^2}

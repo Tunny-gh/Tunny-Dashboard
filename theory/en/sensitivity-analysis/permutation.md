@@ -30,7 +30,7 @@ $$
 | --- | --- | --- |
 | Repeats per feature | 5 | 1 |
 | Variance | ~1/5 of RF-ANOVA | Higher |
-| Speed | ~5× slower | Baseline |
+| Speed | ~5× more permutation evals (training done once, shared) | Baseline |
 | Holdout split seed | Same (43) | Same (43) |
 
 Because both methods use the same holdout split, running them on the same dataset gives directly comparable results.
