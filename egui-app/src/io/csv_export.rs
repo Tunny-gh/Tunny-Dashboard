@@ -828,6 +828,7 @@ mod tests {
             mdi: None,
             shap: None,
             permutation: None,
+            ard: None,
         };
         // Spearman is cache_id=0
         state.importance_cache.insert((0u8, 0, false), result);

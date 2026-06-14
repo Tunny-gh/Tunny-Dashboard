@@ -5,6 +5,7 @@
 //! [`SurrogateModelKind`] / [`OptimizerKind`] へバリアントを追加することで拡張する。
 
 mod acquisition;
+mod ard;
 mod ehvi;
 pub(crate) mod feasibility;
 mod models;
@@ -13,6 +14,7 @@ pub(crate) mod progress;
 pub(crate) mod validation;
 
 pub use acquisition::{suggest_candidates, AcquisitionKind, SuggestedCandidate};
+pub use ard::{compute_ard_importance_from_df, ArdImportanceResult};
 pub use ehvi::{suggest_candidates_multi, MultiSuggestedCandidate};
 pub use models::SurrogateModelKind;
 pub use optimizers::OptimizerKind;

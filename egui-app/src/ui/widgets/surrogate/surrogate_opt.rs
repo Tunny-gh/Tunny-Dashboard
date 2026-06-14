@@ -810,11 +810,6 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let (verdict_text, verdict_color) = verdict(v.cv_r2_mean);
     ui.colored_label(verdict_color, verdict_text);
 
-    // ── パラメータ重要度（ARD）─ GP 系のみ ────────────────────────
-    if let Some(importance) = trained.param_importance.as_ref() {
-        render_param_importance(ui, &trained.param_names, importance);
-    }
-
     // predicted-vs-actual 散布図。
     render_oof_plot(ui, v, "single", false);
 }
@@ -861,57 +856,6 @@ fn render_model_selection(
             }
         });
     ui.add_space(4.0);
-}
-
-/// ARD 長さスケール由来のパラメータ重要度を水平バーリストで表示する。
-/// `importance[i]` は `param_names[i]` に対応し、合計 1.0（0..1 の相対感度）。
-fn render_param_importance(ui: &mut egui::Ui, param_names: &[String], importance: &[f64]) {
-    if importance.is_empty() {
-        return;
-    }
-    ui.add_space(6.0);
-    ui.strong("Parameter importance (ARD)")
-        .on_hover_text(
-            "正規化入力 [0,1] 上での GP 長さスケールから算出した相対感度。値が大きいほどその変数に曲面が敏感。",
-        );
-
-    // バーの最大幅。最大重要度を満幅に揃えると差が見やすい。
-    let max_imp = importance
-        .iter()
-        .cloned()
-        .filter(|v| v.is_finite())
-        .fold(0.0_f64, f64::max)
-        .max(f64::EPSILON);
-    let bar_color = egui::Color32::from_rgb(59, 130, 246); // blue-500
-
-    egui::Grid::new("surrogate_param_importance")
-        .striped(true)
-        .min_col_width(80.0)
-        .show(ui, |ui| {
-            for (i, &imp) in importance.iter().enumerate() {
-                let name = param_names.get(i).map(|s| s.as_str()).unwrap_or("?");
-                ui.label(name);
-
-                // バー（重要度に比例した幅）。
-                let frac = if imp.is_finite() {
-                    (imp / max_imp).clamp(0.0, 1.0) as f32
-                } else {
-                    0.0
-                };
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(100.0, 12.0), egui::Sense::hover());
-                let painter = ui.painter_at(rect);
-                painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
-                let fill = egui::Rect::from_min_size(
-                    rect.min,
-                    egui::vec2(rect.width() * frac, rect.height()),
-                );
-                painter.rect_filled(fill, 2.0, bar_color);
-
-                ui.monospace(format!("{:.1}%", imp * 100.0));
-                ui.end_row();
-            }
-        });
 }
 
 /// 多目的検証サマリをコンパクトに表示する（目的ごとに 1 行）。

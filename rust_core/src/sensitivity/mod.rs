@@ -13,6 +13,7 @@ pub use analysis::{
     compute_sensitivity, compute_sensitivity_all, compute_sensitivity_selected,
     compute_sensitivity_single_obj, compute_sensitivity_without_mdi,
 };
+pub(crate) use data::get_param_numeric_values;
 pub use metric_trait::SensitivityMetric;
 pub use metrics::{MdiMetric, PermutationMetric, RfAnovaMetric, ShapMetric};
 pub use ridge::compute_ridge;

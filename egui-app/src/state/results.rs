@@ -12,6 +12,15 @@ pub struct SensitivityResult {
     pub mdi: Option<MdiResult>,
     pub shap: Option<ShapResult>,
     pub permutation: Option<PermutationResult>,
+    pub ard: Option<ArdResult>,
+}
+
+/// ARD（GP 長さスケール）由来のパラメータ重要度（1 目的分）。
+/// `importances[param]` は `param_names` と同順で、合計 1.0。
+#[derive(Debug, Clone)]
+pub struct ArdResult {
+    pub importances: Vec<f64>,
+    pub r_squared: f64,
 }
 
 #[derive(Debug, Clone)]

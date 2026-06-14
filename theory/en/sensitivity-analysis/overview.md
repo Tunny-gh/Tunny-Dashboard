@@ -37,8 +37,8 @@ This guide summarizes the available sensitivity analysis methods and helps you c
 ### Response shape visualization
 - **First choice: PDP** — 1D/2D response curves.
 
-### Free sensitivity from a fitted GP surrogate
-- **ARD importance** — see [ard-importance.md](./ard-importance.md). When you already fit a GP in the Surrogate Optimizer, read its per-parameter relevance at no extra cost.
+### GP length-scale sensitivity
+- **ARD importance** — see [ard-importance.md](./ard-importance.md). Fits a GP-FITC surrogate and reads its per-parameter length-scale relevance; a global, smoothness-based screen.
 
 ## Recommended Workflow
 
