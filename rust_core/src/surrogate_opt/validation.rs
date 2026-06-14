@@ -32,6 +32,28 @@ pub struct SurrogateValidationReport {
     pub oof_pairs: Vec<(f64, f64)>,
 }
 
+#[cfg(test)]
+impl SurrogateValidationReport {
+    /// テスト用のプレースホルダ検証レポート（解析的モックサロゲートに添える）。
+    /// 検証は行わない（曲面が既知のため）ので、R² 系は完全フィットを表す 1.0 を入れる。
+    pub(crate) fn placeholder() -> Self {
+        SurrogateValidationReport {
+            n_samples: 0,
+            n_train: 0,
+            n_test: 0,
+            train_r2: 1.0,
+            holdout_r2: 1.0,
+            holdout_rmse: 0.0,
+            cv_folds: 0,
+            cv_r2_mean: 1.0,
+            cv_r2_std: 0.0,
+            cv_rmse_mean: 0.0,
+            cv_rmse_std: 0.0,
+            oof_pairs: vec![],
+        }
+    }
+}
+
 /// RMSE を計算する（元の単位）。
 fn rmse(actual: &[f64], pred: &[f64]) -> f64 {
     let n = actual.len();

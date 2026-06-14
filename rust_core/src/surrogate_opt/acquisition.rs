@@ -454,17 +454,42 @@ mod tests {
         );
     }
 
-    // ── GP-FITC 2D 二次関数上の候補提案テスト ─────────────────────
+    // ── 解析的モック上の候補提案テスト（再フィットなし: n=1） ─────────
+    // 既知の凸二次曲面 f(x,y) = (x−0.3)² + (y−0.7)² と一定分散 σ²=0.05 を注入する。
+    // GP フィットなしで獲得関数の最適化を一瞬・決定論的に検証でき、曲面が既知なので
+    // 提案点が真の最小近傍に来ることまで確認できる。
 
+    fn quad2(x: &[f64]) -> f64 {
+        (x[0] - 0.3).powi(2) + (x[1] - 0.7).powi(2)
+    }
+
+    /// 二次曲面の解析的モック TrainedSurrogate。`with_variance=false` で事後分散なし
+    /// （非 GP 相当）のモデルを表す。
+    fn analytic_quadratic_mock(with_variance: bool) -> TrainedSurrogate {
+        let var: Option<crate::surrogate_opt::models::AnalyticFn> = if with_variance {
+            Some(Box::new(|_x: &[f64]| 0.05))
+        } else {
+            None
+        };
+        let surrogate = FittedSurrogate::analytic(2, quad2, var);
+        let x_matrix = vec![
+            vec![0.2, 0.8],
+            vec![0.9, 0.05],
+            vec![0.5, 0.5],
+            vec![0.1, 0.9],
+        ];
+        let y: Vec<f64> = x_matrix.iter().map(|r| quad2(r)).collect();
+        TrainedSurrogate::analytic_mock(x_matrix, y, surrogate)
+    }
+
+    /// GP-FITC を実際に学習したバッチ用 trained（Constant Liar の再フィットを伴う
+    /// バッチテストはモック化できないため実フィットを使う）。
     fn quadratic_trained_fitc(n: usize) -> TrainedSurrogate {
         let mut rng = SeededRng::from_seed(7);
         let x_matrix: Vec<Vec<f64>> = (0..n)
             .map(|_| vec![rng.next_f64(), rng.next_f64()])
             .collect();
-        let y: Vec<f64> = x_matrix
-            .iter()
-            .map(|r| (r[0] - 0.3).powi(2) + (r[1] - 0.7).powi(2))
-            .collect();
+        let y: Vec<f64> = x_matrix.iter().map(|r| quad2(r)).collect();
         fit_surrogate_with_validation(&SurrogateFitRequest {
             x_matrix,
             y,
@@ -479,8 +504,8 @@ mod tests {
     }
 
     #[test]
-    fn single_ei_candidate_in_unit_box_with_std() {
-        let trained = quadratic_trained_fitc(50);
+    fn single_ei_candidate_targets_known_minimum_with_std() {
+        let trained = analytic_quadratic_mock(true);
         let candidates =
             suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
                 .expect("suggest should succeed");
@@ -492,15 +517,26 @@ mod tests {
             "params out of [0,1]: {:?}",
             c.params
         );
+        // 分散一定なら EI は予測平均が最小の点で最大 → 真の最小 (0.3, 0.7) 近傍を狙う。
+        assert!(
+            (c.params[0] - 0.3).abs() < 0.1 && (c.params[1] - 0.7).abs() < 0.1,
+            "EI with constant σ should target the minimum (0.3, 0.7), got {:?}",
+            c.params
+        );
         // acq_score >= 0（EI は非負）。
         assert!(c.acq_score >= 0.0, "EI should be ≥ 0, got {}", c.acq_score);
-        // GP なので predicted_std は Some。
-        assert!(c.predicted_std.is_some(), "GP should have predicted_std");
+        // 事後分散ありモックなので predicted_std は Some（√0.05）。
+        assert!(c.predicted_std.is_some(), "GP-like mock has predicted_std");
+        assert!(
+            (c.predicted_std.unwrap() - 0.05_f64.sqrt()).abs() < 1e-9,
+            "std should equal √0.05, got {}",
+            c.predicted_std.unwrap()
+        );
     }
 
     #[test]
     fn batch_3_candidates_pairwise_diverse() {
-        let trained = quadratic_trained_fitc(50);
+        let trained = quadratic_trained_fitc(40);
         let candidates =
             suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
                 .expect("batch suggest should succeed");
@@ -528,7 +564,7 @@ mod tests {
 
     #[test]
     fn batch_3_deterministic_across_two_runs() {
-        let trained = quadratic_trained_fitc(50);
+        let trained = quadratic_trained_fitc(40);
         let c1 = suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
             .expect("first run");
         let c2 = suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
@@ -546,8 +582,8 @@ mod tests {
 
     #[test]
     fn maximize_steers_away_from_minimum() {
-        // maximize=true では、二次関数の最大値（隅）に向かうはず。
-        let trained = quadratic_trained_fitc(50);
+        // maximize=true（n=1, 再フィットなし）では二次関数の最大値（最遠の角）へ向かう。
+        let trained = analytic_quadratic_mock(true);
         let y_median = {
             let mut ys = trained.y.clone();
             ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -565,24 +601,10 @@ mod tests {
     }
 
     #[test]
-    fn ridge_model_returns_error() {
-        let mut rng = SeededRng::from_seed(7);
-        let x_matrix: Vec<Vec<f64>> = (0..20)
-            .map(|_| vec![rng.next_f64(), rng.next_f64()])
-            .collect();
-        let y: Vec<f64> = x_matrix.iter().map(|r| r[0] + r[1]).collect();
-        let trained = fit_surrogate_with_validation(&SurrogateFitRequest {
-            x_matrix,
-            y,
-            param_names: vec!["x".to_string(), "y".to_string()],
-            objective_name: "obj".to_string(),
-            model: SurrogateModelKind::Ridge,
-            auto_select: false,
-            constraints: vec![],
-            priority_rows: vec![],
-        })
-        .expect("ridge fit should succeed");
-
+    fn non_gp_model_returns_error() {
+        // 事後分散を持たないモデル（Ridge / LightGBM 相当）では獲得関数を使えず、
+        // GP を要求するエラーを返す。
+        let trained = analytic_quadratic_mock(false);
         let err = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
             .unwrap_err();
         assert!(
