@@ -34,12 +34,6 @@ Tunny Dashboard が提供する統計・多基準意思決定手法の理論リ�
 
 パラメータ数 $p$ が多い場合（$p \ge 20$）は Sobol の計算コストが増加するため、まず Spearman/Ridge でスクリーニングし、その後 Sobol を使うと効率的。
 
-**実装ファイル:**
-- `rust_core/src/sensitivity.rs` — すべての計算ロジック
-- `rust_core/src/lib.rs` — WASM バインディング（`computeSensitivity`, `computeSobol`）
-- `frontend/src/stores/analysisStore.ts` — 状態管理・キャッシュ
-- `frontend/src/components/charts/ImportanceChart.tsx` / `SensitivityHeatmap.tsx` — UI
-
 ---
 
 ## 多基準意思決定手法
@@ -66,12 +60,6 @@ TOPSIS ランキング
 パレートフロント上の解を全て把握したい場合は
 ParetoFront チャートを併用する
 ```
-
-**実装ファイル:**
-- `rust_core/src/topsis.rs` — TOPSIS アルゴリズム本体
-- `rust_core/src/lib.rs` — WASM バインディング（`computeTopsis`）
-- `frontend/src/stores/mcdmStore.ts` — 状態管理・重み正規化
-- `frontend/src/components/charts/TopsisRankingChart.tsx` — UI
 
 ---
 
@@ -115,15 +103,6 @@ GP バリアント（GP-FITC・GP-VFE・GP-MOE）はすべて egobox-gp / egobox
 
 $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest / GP-FITC / Sobol で確認
 ```
-
-**実装ファイル:**
-- `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、モデルディスパッチ）
-- `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
-- `rust_core/src/gaussian_process.rs` — GP-FITC / GP-VFE（ARD Matérn 5/2、egobox-gp バックエンド）
-- `rust_core/src/gaussian_process_moe.rs` — GP-MOE（egobox-moe バックエンド）
-- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
-- `frontend/src/stores/analysisStore.ts` — 同期 WASM 呼び出し・キャッシュ（`surface3dCache`）
-- `frontend/src/components/charts/SurfacePlot3D.tsx` / `PDPChart.tsx` — UI
 
 ---
 

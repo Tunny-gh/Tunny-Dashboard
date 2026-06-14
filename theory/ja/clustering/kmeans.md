@@ -170,12 +170,3 @@ Tunny Dashboard では 3 種類の入力空間を選択できる：
 | Objective Space | 目的関数値のみ        | 性能空間でのクラスタ分析     |
 | Variable Space  | パラメータ値のみ      | 設計変数空間でのクラスタ分析 |
 | Combined        | 目的関数 + パラメータ | 両空間を統合した分析         |
-
----
-
-## 実装ファイル
-
-- [rust_core/src/clustering/kmeans.rs](../../rust_core/src/clustering/kmeans.rs) — `run_kmeans_on_data()`・`run_kmeans()`・`compute_wcss()`
-- [rust_core/src/clustering/types.rs](../../rust_core/src/clustering/types.rs) — `KmeansResult`・`ElbowResult`
-- [egui-app/src/ui/widgets/cluster_scatter.rs](../../egui-app/src/ui/widgets/cluster_scatter.rs) — ウィジェット UI・`ClusterComputeRequest`
-- [egui-app/src/ui/chart_registry.rs](../../egui-app/src/ui/chart_registry.rs) — クラスタリング実行ディスパッチ

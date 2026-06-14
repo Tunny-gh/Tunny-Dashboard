@@ -169,7 +169,7 @@ $$
 
 いずれかの目的関数値が `NaN` のトライアルは正規化時に除外され、スコアは `0.0`、ランキング末尾に配置される。
 
-### `compute_ahp()` の処理フロー（`rust_core/src/mcdm/ahp.rs`）
+### `compute_ahp()` の処理フロー
 
 ```
 1. validate_inputs()          → 入力サイズの整合性チェック
@@ -244,14 +244,3 @@ AHP ランキング
 
 - Saaty, T. L. (1977). A scaling method for priorities in hierarchical structures. *Journal of Mathematical Psychology*, 15(3), 234-281.
 - Saaty, T. L. (1980). *The Analytic Hierarchy Process*. McGraw-Hill.
-
----
-
-## 実装ファイル
-
-- `rust_core/src/mcdm/ahp.rs` — AHP アルゴリズム本体
-- `egui-app/src/state/results.rs` — `AhpResult` 型定義
-- `egui-app/src/state/messages.rs` — `AppMessage::AhpDone` メッセージ
-- `egui-app/src/state/message_handler.rs` — AhpDone ハンドリング
-- `egui-app/src/ui/widgets/ahp_chart.rs` — AhpRankChart / AhpTable UI
-- `egui-app/src/ui/chart_registry.rs` — ChartId::AhpRankChart / AhpTable ディスパッチ

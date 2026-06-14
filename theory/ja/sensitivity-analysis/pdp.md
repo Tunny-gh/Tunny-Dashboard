@@ -111,7 +111,7 @@ $$
 
 `std_k ≈ 0`（定数列）の場合は `std_k = 1.0` でゼロ除算を回避。
 
-### `compute_pdp_2d_from_matrix()` の処理フロー（`rust_core/src/pdp.rs`）
+### `compute_pdp_2d_from_matrix()` の処理フロー
 
 1. `compute_ridge(x_matrix, y, α=1.0)` で $\beta, r_{\mathrm{squared}}$ を算出
 2. `col_mean_std(col1), col_mean_std(col2)` で $(\mathrm{mean}_1,\mathrm{std}_1),(\mathrm{mean}_2,\mathrm{std}_2)$ を算出
@@ -212,17 +212,3 @@ ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
 | 出力       | `grid[k]`, `values[k]`   | `grid1[i]`, `grid2[j]`, `values[i][j]` |
 | サロゲート | Ridge（固定）             | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可） |
 | 用途       | 単一パラメータの傾向確認  | 2変数複合効果・最適領域の把握         |
-
----
-
-## 実装ファイル
-
-- `rust_core/src/pdp.rs` — PDP 計算ロジック（1D / 2D、`compute_pdp_2d` モデルディスパッチ）
-- `rust_core/src/gaussian_process.rs` — GP-FITC / GP-VFE サロゲートモデル（ARD Matérn 5/2、egobox-gp バックエンド）
-- `rust_core/src/gaussian_process_moe.rs` — GP-MOE サロゲートモデル（egobox-moe バックエンド）
-- `rust_core/src/rf.rs` — Random Forest（CART + Bagging）
-- `rust_core/src/lib.rs` — WASM バインディング（`computePdp2d` + `surrogateModelType`）
-- `frontend/src/wasm/wasmLoader.ts` — JS ブリッジ（`Pdp2dWasmResult` 型）
-- `frontend/src/stores/analysisStore.ts` — 同期 WASM 呼び出し・キャッシュ（`surface3dCache`）
-- `frontend/src/components/charts/SurfacePlot3D.tsx` — echarts-gl 3D サーフェス UI
-- `frontend/src/components/charts/PDPChart.tsx` — 1D PDP UI（ECharts 折れ線）

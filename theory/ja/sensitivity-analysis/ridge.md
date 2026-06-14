@@ -86,10 +86,3 @@ $$
 
 実務では、Ridge で一次スクリーニングし、非線形が疑われる場合に RF-ANOVA / SHAP / Sobol へ進む運用が扱いやすい。
 
-## 実装ファイル
-
-- `rust_core/src/sensitivity/ridge.rs` - Ridge の係数計算本体（標準化、法方程式、ガウス消去）
-- `rust_core/src/sensitivity/analysis/common.rs` - 標準化済み列データの構築
-- `rust_core/src/sensitivity/analysis/full.rs` - 感度分析全体の Ridge 分岐
-- `rust_core/src/sensitivity/analysis/selected.rs` - 選択行に対する Ridge 計算
-- `egui-app/src/ui/widgets/importance_chart.rs` - `|beta|` による Ridge 重要度表示
