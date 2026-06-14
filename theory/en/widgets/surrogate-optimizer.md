@@ -20,7 +20,7 @@ When a GP surrogate is used, the 2D response-surface slice can also show the mod
 
 ## Surrogate models
 
-- **GP-FITC** — Gaussian process regression (Kriging) with ARD Matérn 5/2 kernel backed by egobox-gp. FITC sparse approximation with M = min(N, 100) inducing points; trains on all trials. Provides predictive uncertainty ($\pm 1.96\sigma$). Default GP choice.
+- **GP-FITC** — Gaussian process regression (Kriging) with ARD Matérn 5/2 kernel backed by egobox-gp. FITC sparse approximation with M = min(N, 100) inducing points; trains on up to 2000 trials (larger sets are subsampled, see below). Provides predictive uncertainty ($\pm 1.96\sigma$). Default GP choice.
 - **GP-VFE** — Same architecture as GP-FITC but uses the Variational Free Energy bound instead of FITC likelihood. Produces a slightly smoother, more conservative fit; recommended when GP-FITC surface looks overfit or spiky.
 - **GP-MOE** — Mixture-of-experts GP via egobox-moe. Clusters the input space with a Gaussian Mixture Model and trains one FITC expert per cluster (up to 3, selected by cross-validation on ≤ 500 points). Best for discontinuous or regime-switching objectives. If training fails, an error is reported rather than silently falling back.
 - **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the sampled ranges.
@@ -98,3 +98,16 @@ See [Acquisition Functions — Constraint-aware acquisition functions](../optimi
 ### Pareto-front-focused surrogates
 
 For multi-objective fits, when there are more trials than the GP inducing budget (100), the inducing points are concentrated on the non-dominated (Pareto-front) trials so the surrogate is most accurate near the Pareto front, where improvements matter. With 100 trials or fewer, all points are used as inducing points (Z = X) and this focusing has no effect.
+
+### Large-data subsampling
+
+When the number of training trials exceeds the cap (2000), the data is subsampled to a representative subset before fitting. GP-FITC training cost scales roughly linearly with the number of trials $N$, and **Fit & Validate** trains the same model 7 times (one 8:2 holdout + 5-fold CV + one final fit on all data), so an $N$ around ten thousand takes over a minute. Because FITC compresses the data into 100 inducing points, training on a representative subset loses almost no response-surface fidelity.
+
+Subsampling keeps an **elite** band (half the budget) that always survives, then fills the rest randomly from the non-elite trials (seed-fixed, deterministic).
+
+- **Single objective**: both value extremes (best and worst) are kept as elites. The fit itself is direction-agnostic, so retaining both tails preserves the optimum region whether the objective is minimized or maximized.
+- **Multi objective**: elites are taken in ascending non-dominated rank — starting from rank 0 (the Pareto front) and expanding into rank 1, 2, … when the budget is not yet filled. The same subset is shared across all objectives so the predicted Pareto front stays consistent.
+
+Random fill is used instead of space-filling because Optuna trials concentrate in good regions, and random sampling preserves that density; space-filling would flatten it and dilute the good region that matters for optimization.
+
+With 2000 trials or fewer, no subsampling is performed and all trials are used for training.
