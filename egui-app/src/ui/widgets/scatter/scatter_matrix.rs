@@ -438,28 +438,19 @@ pub fn compute_histogram(data: &[f64], n_bins: usize) -> Vec<usize> {
     bins
 }
 
-/// Pearson 相関係数を計算する
+/// Pearson 相関係数を計算する。
+///
+/// 計算ロジックは `tunny_core::math::stats::pearson_correlation` に委譲する。
+/// ただしセル表示用に、退化ケース（要素数 < 2 や分散がほぼ 0）では NaN では
+/// なく 0.0 を返し、浮動小数点誤差に備えて結果を [-1, 1] にクランプする。
 pub fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len().min(y.len());
-    if n < 2 {
-        return 0.0;
+    let r = tunny_core::math::stats::pearson_correlation(&x[..n], &y[..n]);
+    if r.is_nan() {
+        0.0
+    } else {
+        r.clamp(-1.0, 1.0)
     }
-    let mean_x = x[..n].iter().sum::<f64>() / n as f64;
-    let mean_y = y[..n].iter().sum::<f64>() / n as f64;
-    let cov: f64 = x[..n]
-        .iter()
-        .zip(y[..n].iter())
-        .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
-        .sum::<f64>()
-        / n as f64;
-    let std_x: f64 =
-        (x[..n].iter().map(|&xi| (xi - mean_x).powi(2)).sum::<f64>() / n as f64).sqrt();
-    let std_y: f64 =
-        (y[..n].iter().map(|&yi| (yi - mean_y).powi(2)).sum::<f64>() / n as f64).sqrt();
-    if std_x < f64::EPSILON || std_y < f64::EPSILON {
-        return 0.0;
-    }
-    (cov / (std_x * std_y)).clamp(-1.0, 1.0)
 }
 
 /// 散布図セルを painter で描画する

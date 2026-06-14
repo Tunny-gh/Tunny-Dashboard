@@ -13,6 +13,12 @@ The Scatter Matrix (also called a pairplot) shows pairwise scatter plots for eve
 - **Axis labels**: Row and column labels identify the variable for each cell. The diagonal cells show the variable name.
 - **Color by**: Use the "Color by" dropdown in the control row to choose which objective function is used to color the scatter points. Points are colored according to the selected objective's value using the active colormap.
 
+## Correlation Coefficient Cells (Upper Triangle)
+
+The correlation coefficient shown in the upper-triangle cells is the [Pearson product-moment correlation](../statistics/pearson-correlation.md) of the two variables' **raw values**. It ranges from $-1$ (negative linear correlation) through $0$ (no correlation) to $+1$ (positive linear correlation); a larger absolute value means a stronger linear co-movement. The cell is shaded according to the magnitude.
+
+Because Pearson correlation measures linear co-movement, note that a curved (non-linear) relationship can yield a small coefficient even when the relationship is strong.
+
 ## How to Read
 
 - **Linear pattern**: points forming a clear diagonal line indicate a strong linear correlation between the two variables.

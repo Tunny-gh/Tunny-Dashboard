@@ -14,6 +14,10 @@
 - [Ridge](surrogate-models/ridge.md)
 - [Random Forest](surrogate-models/random-forest.md)
 
+## Foundational Statistics
+
+- [Pearson Product-Moment Correlation](statistics/pearson-correlation.md)
+
 ## Widgets
 
 - [Surrogate Optimizer](widgets/surrogate-optimizer.md)
