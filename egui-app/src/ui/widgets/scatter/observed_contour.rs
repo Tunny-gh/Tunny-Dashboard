@@ -14,7 +14,10 @@ use crate::state::types::StudyView;
 use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{ObservedContourComputeRequest, ObservedContourState};
 use crate::ui::widgets::common::heatmap::{
-    draw_colorbar_simple, draw_heatmap_masked, value_range_masked,
+    draw_colorbar_simple, draw_heatmap_masked, normalize, value_range_masked,
+};
+use crate::ui::widgets::scatter_3d::{
+    draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas, ArcballCamera,
 };
 use crate::ui::widgets::trial_detail_modal::{TrialDetailTarget, HIT_THRESHOLD};
 
@@ -91,9 +94,12 @@ pub fn show(
 
         ui.separator();
         ui.checkbox(&mut state.show_points, "Show points");
-        ui.checkbox(&mut state.show_contour_lines, "Contours");
-        ui.checkbox(&mut state.log_scale, "Log color")
-            .on_hover_text("正の値のときのみ有効");
+        ui.checkbox(&mut state.view_3d, "3D");
+        if !state.view_3d {
+            ui.checkbox(&mut state.show_contour_lines, "Contours");
+            ui.checkbox(&mut state.log_scale, "Log color")
+                .on_hover_text("正の値のときのみ有効");
+        }
         if has_constraints {
             ui.checkbox(&mut state.feasible_only, "Feasible only");
         }
@@ -150,19 +156,32 @@ pub fn show(
     }
 
     // result の不変借用をブロックに閉じ込め、クリック対象だけ取り出す。
+    // state.result / state.camera は別フィールドなので分割借用できる。
+    let view_3d = state.view_3d;
+    let show_points = state.show_points;
+    let show_contour_lines = state.show_contour_lines;
+    let log_scale = state.log_scale;
     let clicked: Option<TrialDetailTarget> = {
         let Some(result) = state.result.as_ref() else {
             ui.label("Select columns to see the observed contour.");
             return;
         };
-        let opts = RenderOpts {
-            show_points: state.show_points,
-            show_contour_lines: state.show_contour_lines,
-            log_scale: state.log_scale,
-        };
-        let clicked = render_2d(ui, result, &cmap, &opts, view);
-        ui.label("Interpolated from observed trials; blank = no data (not extrapolated).");
-        clicked
+        if view_3d {
+            render_3d(ui, result, &cmap, &mut state.camera, show_points);
+            ui.label(
+                "3D surface interpolated from observed trials; gaps = no data (not extrapolated).",
+            );
+            None
+        } else {
+            let opts = RenderOpts {
+                show_points,
+                show_contour_lines,
+                log_scale,
+            };
+            let clicked = render_2d(ui, result, &cmap, &opts, view);
+            ui.label("Interpolated from observed trials; blank = no data (not extrapolated).");
+            clicked
+        }
     };
 
     if let Some(target) = clicked {
@@ -306,6 +325,162 @@ fn render_2d(
         }
     }
     None
+}
+
+/// 3D サーフェス表示。角に `None` を含むセル（マスク）は描かない＝外挿を見せない。
+/// 軸: X=selected_x、Z=selected_y、縦 Y=value。深度ソートで奥から塗る（painter's algorithm）。
+fn render_3d(
+    ui: &mut egui::Ui,
+    result: &ObservedContourResult,
+    cmap: &ColorMap,
+    camera: &mut ArcballCamera,
+    show_points: bool,
+) {
+    let surf = &result.surface;
+    let nx = surf.x_values.len();
+    let ny = surf.y_values.len();
+    if nx < 2 || ny < 2 {
+        ui.label("Not enough data to render a 3D surface.");
+        return;
+    }
+    let (x_min, x_max) = (surf.x_values[0], surf.x_values[nx - 1]);
+    let (y_min, y_max) = (surf.y_values[0], surf.y_values[ny - 1]);
+
+    // value 範囲（マスクを除いた z セルから）。
+    let (v_min, v_max) = {
+        let mut mn = f64::INFINITY;
+        let mut mx = f64::NEG_INFINITY;
+        for col in &surf.z {
+            for c in col.iter().flatten() {
+                if *c < mn {
+                    mn = *c;
+                }
+                if *c > mx {
+                    mx = *c;
+                }
+            }
+        }
+        (mn, mx)
+    };
+    if !v_min.is_finite() || !v_max.is_finite() {
+        ui.label("No data to render.");
+        return;
+    }
+
+    let (painter, _rect, project) = setup_3d_canvas(ui, camera);
+    draw_3d_grid(&painter, &project);
+
+    // クリップ空間 [-1,1]^3 への写像。surf.z[i][j]=f(x_i,y_j)。
+    let clip_at = |i: usize, j: usize, v: f64| -> [f32; 3] {
+        let x = 2.0 * i as f32 / (nx - 1) as f32 - 1.0;
+        let z = 2.0 * j as f32 / (ny - 1) as f32 - 1.0;
+        let y = normalize_to_clip(v, v_min, v_max);
+        [x, y, z]
+    };
+
+    enum Prim {
+        Cell([egui::Pos2; 4], egui::Color32),
+        Point(egui::Pos2, egui::Color32),
+    }
+    let mut items: Vec<(f32, Prim)> = Vec::new();
+
+    // 4 隅とも Some のセルのみ面を張る（マスクは穴のまま）。
+    for i in 0..nx - 1 {
+        for j in 0..ny - 1 {
+            let (Some(v00), Some(v10), Some(v11), Some(v01)) = (
+                surf.z[i][j],
+                surf.z[i + 1][j],
+                surf.z[i + 1][j + 1],
+                surf.z[i][j + 1],
+            ) else {
+                continue;
+            };
+            let corners = [
+                clip_at(i, j, v00),
+                clip_at(i + 1, j, v10),
+                clip_at(i + 1, j + 1, v11),
+                clip_at(i, j + 1, v01),
+            ];
+            let mut pts = [egui::Pos2::ZERO; 4];
+            let mut depth = 0.0;
+            let mut finite = true;
+            for (k, c) in corners.iter().enumerate() {
+                let (p, d) = project(*c);
+                finite &= p.x.is_finite() && p.y.is_finite();
+                pts[k] = p;
+                depth += d;
+            }
+            if !finite {
+                continue;
+            }
+            let mean = (v00 + v10 + v11 + v01) / 4.0;
+            let color = cmap.interpolate(normalize(mean, v_min, v_max));
+            items.push((depth * 0.25, Prim::Cell(pts, color)));
+        }
+    }
+
+    // 観測点の重畳。
+    if show_points && x_max > x_min && y_max > y_min {
+        for p in &result.points {
+            let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
+            let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
+            let clip = [
+                (2.0 * fx - 1.0) as f32,
+                normalize_to_clip(p[2], v_min, v_max),
+                (2.0 * fy - 1.0) as f32,
+            ];
+            let (pos, depth) = project(clip);
+            if pos.x.is_finite() && pos.y.is_finite() {
+                let color = cmap.interpolate(normalize(p[2], v_min, v_max));
+                items.push((depth, Prim::Point(pos, color)));
+            }
+        }
+    }
+
+    items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // 奥から手前へ描く。面は生メッシュ、点は円 Shape を挟むためメッシュを確定する。
+    let mut mesh = egui::Mesh::default();
+    for (_, prim) in &items {
+        match prim {
+            Prim::Cell(corners, color) => {
+                let [p0, p1, p2, p3] = *corners;
+                push_tri(&mut mesh, [p0, p1, p2], *color);
+                push_tri(&mut mesh, [p0, p2, p3], *color);
+            }
+            Prim::Point(pos, color) => {
+                if !mesh.is_empty() {
+                    painter.add(egui::Shape::mesh(std::mem::take(&mut mesh)));
+                }
+                painter.circle_filled(*pos, 3.0, *color);
+                painter.circle_stroke(*pos, 3.0, egui::Stroke::new(0.6, egui::Color32::BLACK));
+            }
+        }
+    }
+    if !mesh.is_empty() {
+        painter.add(egui::Shape::mesh(mesh));
+    }
+
+    // 軸名・値ラベル（最前面）。X=selected_x, 縦 Y=value, Z=selected_y。
+    draw_3d_axis_labels(
+        &painter,
+        &project,
+        [&result.x_name, &result.value_name, &result.y_name],
+        [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
+    );
+}
+
+/// 三角形を生メッシュに追加する（投影後の退化形状でも安全なよう法線計算なし）。
+fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
+    let base = mesh.vertices.len() as u32;
+    for p in pts {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: p,
+            uv: egui::epaint::WHITE_UV,
+            color,
+        });
+    }
+    mesh.indices.extend([base, base + 1, base + 2]);
 }
 
 /// `screen_points`（位置, インデックス）の中で `click` に最も近く閾値内の点のインデックスを返す。

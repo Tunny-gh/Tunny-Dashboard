@@ -13,6 +13,10 @@ a model's extrapolation into regions with no data. **Regions without data are le
 - The **Coverage** slider drops large triangles that would bridge far-apart points
   (smaller = mask more aggressively / less extrapolation, larger = fill more).
 - Observed trial points are overlaid in color (Show points).
+- Toggle **Contours** (iso-lines) and a **Log color** scale (positive ranges only).
+- The **3D** view draws a surface with the value as height. Masked regions stay as holes — no
+  extrapolation here either.
+- In the 2D view, click an observed point to inspect that trial's details.
 
 ## How to read it
 
