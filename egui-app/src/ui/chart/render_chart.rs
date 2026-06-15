@@ -260,19 +260,15 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::ObservedContour => {
-            // 数値パラメータのみ（カテゴリカル列は補間軸にしない）。目的関数は全て数値。
-            let numeric_params: Vec<String> = param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
+            // 軸候補の数値フィルタはウィジェット側で行う（モーダル表示には全変数名が要る）。
             crate::ui::widgets::observed_contour::show(
                 ui,
                 &mut widgets.observed_contour,
-                &numeric_params,
+                param_names,
                 obj_names,
                 cmap,
                 &ctx.view,
+                &app_state.artifact_map,
                 ctx.view.feasibility().has_constraints(),
             );
         }
