@@ -23,7 +23,6 @@ enum ComputeSyncKind {
     Mcdm,
     Pdp,
     Pdp2d,
-    Surface,
     SurrogateFit,
     SurrogateOpt,
     SurrogateSuggest,
@@ -45,9 +44,6 @@ impl ComputeSyncKind {
             | AppMessage::EntropyDone { .. } => Some(Self::Mcdm),
             AppMessage::PdpDone { .. } => Some(Self::Pdp),
             AppMessage::Pdp2dDone(_) => Some(Self::Pdp2d),
-            AppMessage::ResponseSurfaceDone(_) | AppMessage::ResponseSurfaceFailed(_) => {
-                Some(Self::Surface)
-            }
             AppMessage::SurrogateFitDone(_)
             | AppMessage::SurrogateFitFailed(_)
             | AppMessage::SurrogateFitCancelled
@@ -100,19 +96,7 @@ impl ComputeSyncKind {
                 }
                 Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
-                Self::Surface => {
-                    w.response_surface
-                        .adopt_compute_state(&global.response_surface);
-                    // 学習済みサロゲートの共有キャッシュも各アイテムへ配る。
-                    w.surrogate_cache = global.surrogate_cache.clone();
-                }
-                Self::SurrogateFit => {
-                    w.surrogate_opt.adopt_compute_state(&global.surrogate_opt);
-                    // フィット結果はキャッシュ経由で ResponseSurfacePlot へも共有する。
-                    w.response_surface
-                        .adopt_compute_state(&global.response_surface);
-                    w.surrogate_cache = global.surrogate_cache.clone();
-                }
+                Self::SurrogateFit => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::SurrogateOpt => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::SurrogateSuggest => {
                     w.surrogate_opt.adopt_compute_state(&global.surrogate_opt)

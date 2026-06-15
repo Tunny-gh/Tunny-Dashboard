@@ -242,42 +242,22 @@ impl MessageHandler {
             AppMessage::ComparisonStudyLoadFailed(err) => {
                 *load_error = Some(err);
             }
-            AppMessage::ResponseSurfaceDone(result) => {
-                widget_states.response_surface.result = Some(result);
-                widget_states.response_surface.computing_slice = false;
-                widget_states.response_surface.error_message = None;
-            }
-            AppMessage::ResponseSurfaceFailed(err) => {
-                widget_states.response_surface.error_message = Some(err);
-                widget_states.response_surface.computing_slice = false;
-                widget_states.response_surface.fitting = false;
-            }
             AppMessage::SurrogateFitDone(trained) => {
-                // 共有キャッシュへ登録する（ResponseSurfacePlot と Optimizer が再利用）。
-                widget_states.surrogate_cache.insert(
-                    crate::ui::widget_states::SurrogateKey::from_trained(&trained),
-                    std::sync::Arc::clone(&trained),
-                );
                 widget_states.surrogate_opt.trained = Some(trained);
                 widget_states.surrogate_opt.error_message = None;
                 widget_states.surrogate_opt.fitting = false;
                 widget_states.surrogate_opt.fit_progress = None;
-                // ResponseSurfacePlot 由来のフィットだった場合に備えてフラグを戻す。
-                widget_states.response_surface.fitting = false;
             }
             AppMessage::SurrogateFitFailed(err) => {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.fitting = false;
                 widget_states.surrogate_opt.fit_progress = None;
-                // ResponseSurfacePlot 由来のフィットでもスピナーは止める。
-                widget_states.response_surface.fitting = false;
             }
             AppMessage::SurrogateFitCancelled => {
                 // ユーザーがキャンセルした。エラー表示はせず状態だけ戻す。
                 widget_states.surrogate_opt.error_message = None;
                 widget_states.surrogate_opt.fitting = false;
                 widget_states.surrogate_opt.fit_progress = None;
-                widget_states.response_surface.fitting = false;
             }
             AppMessage::SurrogateOptDone(result) => {
                 widget_states.surrogate_opt.result = Some(result);
