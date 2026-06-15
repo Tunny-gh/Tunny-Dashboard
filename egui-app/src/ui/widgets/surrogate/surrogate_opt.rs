@@ -24,7 +24,7 @@ use crate::ui::widget_states::{
     SurrogateMultiOptimizeComputeRequest, SurrogateMultiSuggestComputeRequest, SurrogateOptState,
     SurrogateOptimizeComputeRequest, SurrogateSuggestComputeRequest,
 };
-use crate::ui::widgets::pdp::surface_plot::{draw_colorbar_simple, draw_heatmap, value_range};
+use crate::ui::widgets::common::heatmap::{draw_colorbar_simple, draw_heatmap, value_range};
 use tunny_core::surrogate_opt::{
     AcquisitionKind, OptimizerKind, SurrogateModelKind, SurrogateValidationReport,
     TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,

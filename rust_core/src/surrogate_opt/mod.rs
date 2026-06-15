@@ -616,6 +616,47 @@ pub fn optimize_on_trained(
     )
 }
 
+/// 学習済みサロゲートから、ベスト観測点を通る応答曲面スライスを生成する。
+///
+/// 最適化は実行せず、`optimize_on_trained` と同じ `build_slice` を使って
+/// 応答曲面（`目的関数 = f(全パラメータ)` の 2 パラメータスライス）を作る。
+/// 他のパラメータはベスト観測点（`minimize` に応じた最良の trial）に固定する。
+/// これにより ResponseSurfacePlot は Optimizer と同一エンジンの曲面を、学習済み
+/// モデルを共有したまま（再フィットせずに）描画できる。
+pub fn response_surface_slice(
+    trained: &TrainedSurrogate,
+    param_x_idx: usize,
+    param_y_idx: usize,
+    n_grid: usize,
+    minimize: bool,
+) -> Option<SurfaceSlice> {
+    let n_dims = trained.surrogate.col_stats.len();
+    if n_dims < 2 || trained.y.is_empty() {
+        return None;
+    }
+    // 参照点 = ベスト観測点。固定次元はこの点の正規化座標に置く。
+    let best_i = best_observed_index(&trained.y, minimize);
+    let row = trained.x_matrix.get(best_i)?;
+    let t_best: Vec<f64> = (0..n_dims)
+        .map(|d| {
+            let (min_d, range_d) = trained.surrogate.col_stats[d];
+            if range_d.abs() < f64::EPSILON {
+                0.0
+            } else {
+                (row[d] - min_d) / range_d
+            }
+        })
+        .collect();
+    build_slice(
+        &trained.surrogate,
+        &t_best,
+        param_x_idx,
+        param_y_idx,
+        n_grid,
+        n_dims,
+    )
+}
+
 /// サロゲートモデルを学習し、その曲面上で最適化を実行する。
 ///
 /// バックグラウンドスレッドから呼べるよう、スレッドローカルの DataFrame には依存しない。

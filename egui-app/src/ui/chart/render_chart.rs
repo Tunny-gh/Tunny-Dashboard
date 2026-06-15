@@ -259,13 +259,25 @@ pub(crate) fn render_chart(
                 &app_state.artifact_map,
             );
         }
-        ChartId::SurfacePlot => {
+        ChartId::ResponseSurfacePlot => {
             let trial_count = ctx.trial_count();
-            crate::ui::widgets::surface_plot::show(
+            // カテゴリカル列（数値化できない列）はサロゲートの入力にしない。
+            let numeric_params: Vec<String> = param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            let minimize_for_obj: Vec<bool> = directions
+                .iter()
+                .map(|d| matches!(d, Direction::Minimize))
+                .collect();
+            crate::ui::widgets::response_surface::show(
                 ui,
-                &mut widgets.surface_plot,
-                param_names,
+                &mut widgets.response_surface,
+                &widgets.surrogate_cache,
+                &numeric_params,
                 obj_names,
+                &minimize_for_obj,
                 cmap,
                 trial_count,
                 ctx.view.feasibility().has_constraints(),

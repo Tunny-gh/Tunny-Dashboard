@@ -156,7 +156,7 @@ fn chart_help(id: &ChartId) -> HelpContent {
             html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/hv-history.html")),
             html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/hv-history.html")),
         },
-        ChartId::SurfacePlot => HelpContent {
+        ChartId::ResponseSurfacePlot => HelpContent {
             widget_name: "surface-plot",
             html_en: include_str!(concat!(
                 env!("OUT_DIR"),

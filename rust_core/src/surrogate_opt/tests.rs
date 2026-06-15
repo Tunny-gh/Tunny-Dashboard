@@ -483,6 +483,60 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
     assert!(result.slice.is_some(), "スライスが要求されている");
 }
 
+#[test]
+fn response_surface_slice_builds_grid_without_optimizing() {
+    let (x_matrix, y) = quadratic_samples(40);
+
+    let trained = fit_surrogate_with_validation(&SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "obj0".to_string(),
+        model: SurrogateModelKind::GpFitc,
+        auto_select: false,
+        constraints: vec![],
+        priority_rows: vec![],
+    })
+    .expect("fit should succeed");
+
+    let n_grid = 12;
+    let slice = response_surface_slice(&trained, 0, 1, n_grid, true)
+        .expect("slice should be produced for a 2D surrogate");
+
+    // グリッド形状: x_values/y_values は n_grid、z_values は n_grid × n_grid。
+    assert_eq!(slice.x_values.len(), n_grid);
+    assert_eq!(slice.y_values.len(), n_grid);
+    assert_eq!(slice.z_values.len(), n_grid);
+    assert!(slice.z_values.iter().all(|row| row.len() == n_grid));
+    assert!(slice.z_values.iter().flatten().all(|v| v.is_finite()));
+    // GP 系は事後分散を持つため z_std が付く。
+    assert!(slice.z_std.is_some(), "GP surrogate should expose z_std");
+    assert_eq!((slice.param_x_idx, slice.param_y_idx), (0, 1));
+}
+
+#[test]
+fn response_surface_slice_rejects_invalid_axes() {
+    let (x_matrix, y) = quadratic_samples(20);
+    let trained = fit_surrogate_with_validation(&SurrogateFitRequest {
+        x_matrix,
+        y,
+        param_names: vec!["x".to_string(), "y".to_string()],
+        objective_name: "obj0".to_string(),
+        model: SurrogateModelKind::Ridge,
+        auto_select: false,
+        constraints: vec![],
+        priority_rows: vec![],
+    })
+    .expect("fit should succeed");
+
+    // 同一軸 / 範囲外の軸は None（build_slice のガードに委譲）。
+    assert!(response_surface_slice(&trained, 0, 0, 8, true).is_none());
+    assert!(response_surface_slice(&trained, 0, 5, 8, true).is_none());
+    // Ridge は事後分散を持たないため z_std は None。
+    let slice = response_surface_slice(&trained, 0, 1, 8, true).expect("valid axes");
+    assert!(slice.z_std.is_none(), "Ridge should not expose z_std");
+}
+
 // ────────────────────────────────────────────────────────────
 // ARD パラメータ重要度（param_importance）
 // ────────────────────────────────────────────────────────────
