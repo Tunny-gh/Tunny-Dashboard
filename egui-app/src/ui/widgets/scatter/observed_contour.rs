@@ -257,9 +257,9 @@ fn render_2d(
     let (cv_min, cv_max) = value_range_masked(&color_display);
 
     let available = ui.available_rect_before_wrap();
-    // 図の下に出すラベル2行（X/Y/Value 行＋サブタイトル）ぶんを確保してから割り当てる。
+    // 図の下に出るラベル（カラーバーの max/min 値2行＋サブタイトル）ぶんを確保してから割り当てる。
     // 確保しないとパネル高がギリギリのとき下のキャプションが見切れる。
-    const CAPTION_RESERVE: f32 = 44.0;
+    const CAPTION_RESERVE: f32 = 60.0;
     let plot_size = egui::vec2(
         (available.width() - 40.0).max(120.0),
         (available.height() - CAPTION_RESERVE).clamp(120.0, 360.0),
@@ -315,13 +315,24 @@ fn render_2d(
     );
     draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap.clone());
 
-    ui.label(format!(
-        "X: {}   Y: {}   Value: {}{}",
-        result.x_name,
-        result.y_name,
-        result.value_name,
-        if use_log { " (log color)" } else { "" }
-    ));
+    // 凡例の意味（色 = どの列の値か）をバー脇に縦書きで添える。
+    let title = if use_log {
+        format!("{} (log)", result.value_name)
+    } else {
+        result.value_name.clone()
+    };
+    let text_color = egui::Color32::from_gray(160);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(title, egui::FontId::proportional(11.0), text_color);
+    let title_pos = egui::pos2(
+        bar_rect.right() + 3.0,
+        bar_rect.center().y + galley.size().x / 2.0,
+    );
+    ui.painter().add(
+        egui::epaint::TextShape::new(title_pos, galley, text_color)
+            .with_angle(-std::f32::consts::FRAC_PI_2),
+    );
 
     // クリック → 最近傍の観測点を詳細表示。
     if response.clicked() {
