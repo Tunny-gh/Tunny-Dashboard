@@ -31,11 +31,18 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                 &[
                     PanelItem::Chart(ChartId::ImportanceChart),
                     PanelItem::Chart(ChartId::SensitivityHeatmap),
-                    PanelItem::Chart(ChartId::PdpChart),
-                    PanelItem::Chart(ChartId::PdpChart2D),
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
                     PanelItem::Chart(ChartId::ObservedContour),
+                ],
+            ),
+            // PDP はサロゲートを学習し他変数を周辺化した予測（外挿あり）。データ由来の
+            // 分析と取り違えないよう、モデルベースであることを群として明示する。
+            (
+                "Response Surface (model-based)",
+                &[
+                    PanelItem::Chart(ChartId::PdpChart),
+                    PanelItem::Chart(ChartId::PdpChart2D),
                 ],
             ),
             ("Optimization", &[PanelItem::Chart(ChartId::SurrogateOpt)]),
