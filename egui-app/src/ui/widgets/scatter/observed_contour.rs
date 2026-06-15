@@ -95,7 +95,10 @@ pub fn show(
         ui.separator();
         ui.checkbox(&mut state.show_points, "Show points");
         ui.checkbox(&mut state.view_3d, "3D");
-        if !state.view_3d {
+        if state.view_3d {
+            ui.checkbox(&mut state.density_shade, "Density shade")
+                .on_hover_text("観測が薄いセルを暗くして 3D の過信を抑える");
+        } else {
             ui.checkbox(&mut state.show_contour_lines, "Contours");
             ui.checkbox(&mut state.log_scale, "Log color")
                 .on_hover_text("正の値のときのみ有効");
@@ -167,7 +170,11 @@ pub fn show(
             return;
         };
         if view_3d {
-            render_3d(ui, result, &cmap, &mut state.camera, show_points);
+            let opts3d = Render3dOpts {
+                show_points,
+                density_shade: state.density_shade,
+            };
+            render_3d(ui, result, &cmap, &mut state.camera, &opts3d);
             ui.label(
                 "3D surface interpolated from observed trials; gaps = no data (not extrapolated).",
             );
@@ -327,6 +334,11 @@ fn render_2d(
     None
 }
 
+struct Render3dOpts {
+    show_points: bool,
+    density_shade: bool,
+}
+
 /// 3D サーフェス表示。角に `None` を含むセル（マスク）は描かない＝外挿を見せない。
 /// 軸: X=selected_x、Z=selected_y、縦 Y=value。深度ソートで奥から塗る（painter's algorithm）。
 fn render_3d(
@@ -334,7 +346,7 @@ fn render_3d(
     result: &ObservedContourResult,
     cmap: &ColorMap,
     camera: &mut ArcballCamera,
-    show_points: bool,
+    opts: &Render3dOpts,
 ) {
     let surf = &result.surface;
     let nx = surf.x_values.len();
@@ -369,6 +381,19 @@ fn render_3d(
 
     let (painter, _rect, project) = setup_3d_canvas(ui, camera);
     draw_3d_grid(&painter, &project);
+
+    // 点密度シェーディング: 各セルに落ちる観測点数を正規化（薄いセルを暗くする）。
+    let density = if opts.density_shade {
+        Some(cell_density_grid(
+            &result.points,
+            (x_min, x_max),
+            (y_min, y_max),
+            nx,
+            ny,
+        ))
+    } else {
+        None
+    };
 
     // クリップ空間 [-1,1]^3 への写像。surf.z[i][j]=f(x_i,y_j)。
     let clip_at = |i: usize, j: usize, v: f64| -> [f32; 3] {
@@ -414,13 +439,18 @@ fn render_3d(
                 continue;
             }
             let mean = (v00 + v10 + v11 + v01) / 4.0;
-            let color = cmap.interpolate(normalize(mean, v_min, v_max));
+            let mut color = cmap.interpolate(normalize(mean, v_min, v_max));
+            // 観測の薄いセルを暗くする（0 点でも床 0.35 まで）。
+            if let Some(d) = &density {
+                let f = 0.35 + 0.65 * d[i][j].sqrt();
+                color = color.gamma_multiply(f);
+            }
             items.push((depth * 0.25, Prim::Cell(pts, color)));
         }
     }
 
     // 観測点の重畳。
-    if show_points && x_max > x_min && y_max > y_min {
+    if opts.show_points && x_max > x_min && y_max > y_min {
         for p in &result.points {
             let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
             let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
@@ -481,6 +511,34 @@ fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
         });
     }
     mesh.indices.extend([base, base + 1, base + 2]);
+}
+
+/// 観測点を (nx-1)×(ny-1) のセルにビニングし、各セルの正規化密度 (0..1) を返す。
+/// セル (i,j) は x∈[x_i,x_{i+1}]、y∈[y_j,y_{j+1}] に対応する。最大カウントで割って正規化する。
+fn cell_density_grid(
+    points: &[[f64; 3]],
+    (x_min, x_max): (f64, f64),
+    (y_min, y_max): (f64, f64),
+    nx: usize,
+    ny: usize,
+) -> Vec<Vec<f32>> {
+    let (cx, cy) = (nx.saturating_sub(1).max(1), ny.saturating_sub(1).max(1));
+    let mut counts = vec![vec![0u32; cy]; cx];
+    if x_max > x_min && y_max > y_min {
+        for p in points {
+            let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
+            let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
+            let i = ((fx * cx as f64) as usize).min(cx - 1);
+            let j = ((fy * cy as f64) as usize).min(cy - 1);
+            counts[i][j] += 1;
+        }
+    }
+    let max = counts.iter().flatten().copied().max().unwrap_or(0);
+    let denom = max.max(1) as f32;
+    counts
+        .iter()
+        .map(|col| col.iter().map(|&c| c as f32 / denom).collect())
+        .collect()
 }
 
 /// `screen_points`（位置, インデックス）の中で `click` に最も近く閾値内の点のインデックスを返す。
@@ -594,6 +652,27 @@ mod tests {
         // 同符号は None。
         assert!(edge_cross(0.0, 0.5, 1.0).is_none());
         assert!(edge_cross(2.0, 3.0, 1.0).is_none());
+    }
+
+    #[test]
+    fn cell_density_grid_bins_and_normalizes() {
+        // 3x3 グリッド → 2x2 セル。左下セルに 2 点、右上セルに 1 点。
+        let pts = vec![
+            [0.1, 0.1, 0.0],
+            [0.2, 0.2, 0.0],
+            [0.9, 0.9, 0.0],
+            [1.0, 1.0, 0.0], // 端は最終セルにクランプ
+        ];
+        let d = cell_density_grid(&pts, (0.0, 1.0), (0.0, 1.0), 3, 3);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].len(), 2);
+        // 左下 (i=0,j=0) が最大カウント 2 → 1.0。
+        assert!((d[0][0] - 1.0).abs() < 1e-6);
+        // 右上 (i=1,j=1) はカウント 2（0.9 と 1.0）→ 1.0。
+        assert!((d[1][1] - 1.0).abs() < 1e-6);
+        // 空セルは 0。
+        assert!(d[0][1].abs() < 1e-6);
+        assert!(d[1][0].abs() < 1e-6);
     }
 
     #[test]

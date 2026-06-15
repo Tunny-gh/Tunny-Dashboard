@@ -39,6 +39,8 @@ pub struct ObservedContourState {
     pub show_contour_lines: bool,
     /// 3D 表示（Phase 3）。
     pub view_3d: bool,
+    /// 点密度シェーディング: 観測が薄いセルを暗くして過信を抑える（3D、Phase 3）。
+    pub density_shade: bool,
     pub camera: crate::ui::widgets::scatter_3d::ArcballCamera,
     pub computing: bool,
     pub result: Option<crate::state::messages::ObservedContourResult>,
@@ -63,6 +65,7 @@ impl Default for ObservedContourState {
             log_scale: false,
             show_contour_lines: false,
             view_3d: false,
+            density_shade: true,
             camera: crate::ui::widgets::scatter_3d::ArcballCamera {
                 rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
                 ..Default::default()

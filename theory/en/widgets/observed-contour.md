@@ -15,7 +15,8 @@ a model's extrapolation into regions with no data. **Regions without data are le
 - Observed trial points are overlaid in color (Show points).
 - Toggle **Contours** (iso-lines) and a **Log color** scale (positive ranges only).
 - The **3D** view draws a surface with the value as height. Masked regions stay as holes — no
-  extrapolation here either.
+  extrapolation here either. Turn on **Density shade** to darken cells with few observed points,
+  countering the false confidence a glossy 3D surface can invite.
 - In the 2D view, click an observed point to inspect that trial's details.
 
 ## How to read it
