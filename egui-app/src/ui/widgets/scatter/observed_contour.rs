@@ -173,14 +173,15 @@ pub fn show(
             return;
         };
         if view_3d {
+            // 3D キャンバスは残り領域を全部使うので、キャプションは先（上）に描く。
+            ui.label(
+                "3D surface interpolated from observed trials; gaps = no data (not extrapolated).",
+            );
             let opts3d = Render3dOpts {
                 show_points,
                 density_shade: state.density_shade,
             };
             render_3d(ui, result, &cmap, &mut state.camera, &opts3d);
-            ui.label(
-                "3D surface interpolated from observed trials; gaps = no data (not extrapolated).",
-            );
             None
         } else {
             let opts = RenderOpts {
