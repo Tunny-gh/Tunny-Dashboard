@@ -89,7 +89,7 @@ pub fn show(
                     .fixed_decimals(2),
             )
             .on_hover_text(
-                "小さいほどデータの薄い領域を厳しくマスク（外挿を見せない）、大きいほど広く塗る",
+                "Smaller masks sparse regions more strictly (no extrapolation); larger fills wider",
             );
         slider_dragging = resp.dragged();
 
@@ -98,11 +98,13 @@ pub fn show(
         ui.checkbox(&mut state.view_3d, "3D");
         if state.view_3d {
             ui.checkbox(&mut state.density_shade, "Density shade")
-                .on_hover_text("観測が薄いセルを暗くして 3D の過信を抑える");
+                .on_hover_text(
+                    "Darken cells with few observed points to counter 3D overconfidence",
+                );
         } else {
             ui.checkbox(&mut state.show_contour_lines, "Contours");
             ui.checkbox(&mut state.log_scale, "Log color")
-                .on_hover_text("正の値のときのみ有効");
+                .on_hover_text("Only effective when all values are positive");
         }
         if has_constraints {
             ui.checkbox(&mut state.feasible_only, "Feasible only");
