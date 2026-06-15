@@ -454,7 +454,7 @@ fn push_edge(
 /// バンド（半透明・メッシュ線なし）・観測点・3D 線分（軸線）も同じ深度リストに
 /// 混ぜることで、重なりのブレンドや面の裏に隠れる前後関係が正しくなる。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn draw_surface_mesh(
+fn draw_surface_mesh(
     painter: &egui::Painter,
     project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
     values: &[Vec<f64>],
@@ -574,7 +574,7 @@ pub(crate) fn draw_surface_mesh(
 }
 
 /// 軸グリッド値（昇順 linspace）から値域 [min, max] を返す
-pub(crate) fn axis_range_of(values: &[f64]) -> (f64, f64) {
+fn axis_range_of(values: &[f64]) -> (f64, f64) {
     let mn = values.iter().cloned().fold(f64::INFINITY, f64::min);
     let mx = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     if !mn.is_finite() || !mx.is_finite() {
@@ -585,13 +585,7 @@ pub(crate) fn axis_range_of(values: &[f64]) -> (f64, f64) {
 }
 
 /// カラーバーを描画する（値ラベルもバー脇に painter で直接描く）
-pub(crate) fn draw_colorbar(
-    ui: &mut egui::Ui,
-    bar_rect: egui::Rect,
-    v_min: f64,
-    v_max: f64,
-    cmap: ColorMap,
-) {
+fn draw_colorbar(ui: &mut egui::Ui, bar_rect: egui::Rect, v_min: f64, v_max: f64, cmap: ColorMap) {
     let label_w = 44.0;
     let paint_rect = egui::Rect::from_min_size(
         bar_rect.min,

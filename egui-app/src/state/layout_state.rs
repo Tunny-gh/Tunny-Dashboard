@@ -16,7 +16,6 @@ pub enum ChartId {
     McdmScatterChart,
     McdmScatterChart3D,
     SliceChart,
-    ResponseSurfacePlot,
     SurrogateOpt,
     ArtifactGallery,
 }
@@ -40,7 +39,6 @@ impl ChartId {
             ChartId::McdmScatterChart,
             ChartId::McdmScatterChart3D,
             ChartId::SliceChart,
-            ChartId::ResponseSurfacePlot,
             ChartId::SurrogateOpt,
             ChartId::ArtifactGallery,
         ]
@@ -64,7 +62,6 @@ impl ChartId {
             ChartId::McdmScatterChart => "MCDM Scatter Chart 2D",
             ChartId::McdmScatterChart3D => "MCDM Scatter Chart 3D",
             ChartId::SliceChart => "Slice Chart",
-            ChartId::ResponseSurfacePlot => "Response Surface",
             ChartId::SurrogateOpt => "Surrogate Optimizer",
             ChartId::ArtifactGallery => "Artifact Gallery",
         }
@@ -580,19 +577,6 @@ mod tests {
     use super::*;
 
     // --- PanelItem tests ---
-
-    // --- ChartId::ResponseSurfacePlot tests ---
-
-    #[test]
-    fn chart_id_all_contains_response_surface() {
-        let all = ChartId::all();
-        assert!(all.contains(&ChartId::ResponseSurfacePlot));
-    }
-
-    #[test]
-    fn response_surface_label_is_correct() {
-        assert_eq!(ChartId::ResponseSurfacePlot.label(), "Response Surface");
-    }
 
     // --- ChartId::SurrogateOpt tests ---
 

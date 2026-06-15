@@ -1,8 +1,7 @@
 //! 2D ヒートマップ描画の共有ヘルパー。
 //!
 //! Optimizer（`surrogate_opt`）の応答曲面スライス（真上から見た 2D ヒートマップ）で
-//! 使う。ResponseSurfacePlot は 3D 描画なのでこれらは使わないが、Optimizer 側の
-//! スライス描画が依存しているため共有モジュールとして切り出している。
+//! 使う共有モジュール。
 
 use crate::theme::colormap::ColorMap;
 

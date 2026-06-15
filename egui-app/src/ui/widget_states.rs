@@ -1,9 +1,3 @@
-use std::sync::Arc;
-
-use tunny_core::surrogate_opt::{SurrogateModelKind, TrainedSurrogate};
-
-use crate::state::messages::ResponseSurfaceResult;
-use crate::ui::widgets::scatter_3d::ArcballCamera;
 use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, cluster_scatter::ClusterScatter,
     cluster_scatter_3d::ClusterScatter3D, hv_history::HvHistoryChart,
@@ -14,126 +8,6 @@ use crate::ui::widgets::{
     pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
     slice_chart::SliceChart, trial_table::TrialTable,
 };
-
-// ── ResponseSurfacePlot 共有サロゲートキャッシュ ────────────────
-
-/// 学習済みサロゲートの共有キャッシュキー。Auto は `model = None`。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SurrogateKey {
-    pub objective: String,
-    /// None = Auto（CV で自動選択）。Some(kind) = 手動指定モデル。
-    pub model: Option<SurrogateModelKind>,
-    pub use_constraints: bool,
-}
-
-impl SurrogateKey {
-    pub fn from_trained(t: &TrainedSurrogate) -> Self {
-        Self {
-            objective: t.objective_name.clone(),
-            model: if t.model_selection.is_some() {
-                None
-            } else {
-                Some(t.model_kind)
-            },
-            use_constraints: !t.constraint_names.is_empty(),
-        }
-    }
-}
-
-/// ResponseSurfacePlot と Optimizer が共有する学習済みサロゲートのキャッシュ。
-/// どちらでフィットしても相互に再利用される（再フィット不要）。
-/// `TrainedSurrogate` は `Arc` 越しに保持するため Clone は安価（キャンバス各アイテムへ伝播する）。
-#[derive(Default, Clone)]
-pub struct SurrogateCache {
-    entries: Vec<(SurrogateKey, Arc<TrainedSurrogate>)>,
-}
-
-impl SurrogateCache {
-    pub fn get(&self, key: &SurrogateKey) -> Option<Arc<TrainedSurrogate>> {
-        self.entries
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, t)| Arc::clone(t))
-    }
-
-    pub fn insert(&mut self, key: SurrogateKey, trained: Arc<TrainedSurrogate>) {
-        self.entries.retain(|(k, _)| k != &key);
-        self.entries.push((key, trained));
-        // 上限を超えたら古いものから捨てる。
-        while self.entries.len() > 8 {
-            self.entries.remove(0);
-        }
-    }
-}
-
-/// ResponseSurfacePlot のスライス生成リクエスト。
-/// poll_chart が消費し、`key` で共有キャッシュを参照して曲面を生成する。
-pub struct ResponseSurfaceSliceRequest {
-    pub key: SurrogateKey,
-    pub param_x: String,
-    pub param_y: String,
-    pub objective: String,
-    pub model_label: String,
-    pub minimize: bool,
-    pub n_grid: usize,
-}
-
-// ── ResponseSurfacePlot UI 状態 ─────────────────────────────────
-pub struct ResponseSurfacePlotState {
-    pub selected_x: String,
-    pub selected_y: String,
-    pub selected_objective: usize,
-    pub model: SurrogateModelKind,
-    /// true のとき Auto（CV で自動選択）。
-    pub auto_select: bool,
-    pub use_constraints: bool,
-    /// GP 系の事後標準偏差を 95% CI バンドとして重ねるか。
-    pub show_uncertainty: bool,
-    pub camera: ArcballCamera,
-    /// サロゲート学習中。
-    pub fitting: bool,
-    /// 応答曲面スライス生成中。
-    pub computing_slice: bool,
-    pub result: Option<ResponseSurfaceResult>,
-    pub error_message: Option<String>,
-    pub pending_fit: Option<SurrogateFitComputeRequest>,
-    pub pending_slice: Option<ResponseSurfaceSliceRequest>,
-}
-
-impl Default for ResponseSurfacePlotState {
-    fn default() -> Self {
-        Self {
-            selected_x: String::new(),
-            selected_y: String::new(),
-            selected_objective: 0,
-            model: SurrogateModelKind::Lgbm,
-            auto_select: false,
-            use_constraints: false,
-            show_uncertainty: true,
-            camera: ArcballCamera {
-                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
-                ..Default::default()
-            },
-            fitting: false,
-            computing_slice: false,
-            result: None,
-            error_message: None,
-            pending_fit: None,
-            pending_slice: None,
-        }
-    }
-}
-
-impl ResponseSurfacePlotState {
-    /// グローバル widget の計算実行状態・結果・エラーを取り込む（最大化表示用）。
-    /// 選択（X/Y/目的・モデル）は各アイテム側を維持する。
-    pub fn adopt_compute_state(&mut self, src: &Self) {
-        self.fitting = src.fitting;
-        self.computing_slice = src.computing_slice;
-        self.result = src.result.clone();
-        self.error_message = src.error_message.clone();
-    }
-}
 
 // ── Surrogate Optimizer 計算リクエスト（フィット段階） ──────────
 pub struct SurrogateFitComputeRequest {
@@ -353,12 +227,8 @@ pub struct WidgetStates {
     // TASK-1504: MCDM 散布図ウィジェット
     pub scatter_chart: McdmScatterChart,
     pub mcdm_scatter_3d: McdmScatterChart3D,
-    /// ResponseSurfacePlot（学習済みサロゲートから生成する3D応答曲面）の UI 状態
-    pub response_surface: ResponseSurfacePlotState,
     /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
     pub surrogate_opt: SurrogateOptState,
-    /// ResponseSurfacePlot と Optimizer が共有する学習済みサロゲートのキャッシュ
-    pub surrogate_cache: SurrogateCache,
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,
@@ -380,48 +250,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn widget_states_default_has_response_surface_and_capture_slots() {
+    fn widget_states_default_has_capture_slot() {
         let ws = WidgetStates::default();
-        assert!(ws.response_surface.result.is_none());
-        assert!(!ws.response_surface.fitting);
-        assert!(!ws.response_surface.computing_slice);
-        assert!(ws.response_surface.error_message.is_none());
         assert!(ws.capture.last_error.is_none());
-    }
-
-    #[test]
-    fn response_surface_placeholder_without_result() {
-        // Verify default state with no result does not panic when accessed.
-        let state = ResponseSurfacePlotState::default();
-        assert!(state.result.is_none());
-        assert!(!state.fitting);
-        assert!(!state.computing_slice);
-        assert!(state.selected_x.is_empty());
-        assert!(state.selected_y.is_empty());
-        assert!(state.show_uncertainty);
-    }
-
-    #[test]
-    fn surrogate_cache_empty_get_and_key_distinguishes_auto() {
-        let cache = SurrogateCache::default();
-        let key = SurrogateKey {
-            objective: "f".into(),
-            model: Some(SurrogateModelKind::Ridge),
-            use_constraints: false,
-        };
-        assert!(cache.get(&key).is_none());
-        // Auto キー（model=None）は手動指定キーと別物として扱われる。
-        let auto_key = SurrogateKey {
-            model: None,
-            ..key.clone()
-        };
-        assert_ne!(key, auto_key);
-        // 制約フラグもキーの一部。
-        let constrained = SurrogateKey {
-            use_constraints: true,
-            ..key.clone()
-        };
-        assert_ne!(key, constrained);
     }
 
     // ── SurrogateOptState の新 2 段階フィールドに対する回帰テスト ──
@@ -479,71 +310,6 @@ mod tests {
         // multi_trained / multi_result も伝播される
         assert!(dst.multi_trained.is_none());
         assert!(dst.multi_result.is_none());
-    }
-
-    // ── ResponseSurfacePlot 状態遷移の回帰テスト ──────────────────
-
-    // フィット → スライス生成 → 結果/エラーの状態遷移を確認する。
-    #[test]
-    fn response_surface_state_transitions_are_covered() {
-        // フィット開始: fitting = true, pending_fit set
-        let mut state = ResponseSurfacePlotState {
-            fitting: true,
-            pending_fit: Some(SurrogateFitComputeRequest {
-                objective: "f".into(),
-                model: SurrogateModelKind::Lgbm,
-                auto_select: false,
-                use_constraints: false,
-            }),
-            ..Default::default()
-        };
-        assert!(state.fitting);
-        assert!(state.pending_fit.is_some());
-
-        // フィット完了 → スライス生成へ
-        state.fitting = false;
-        state.pending_fit = None;
-        state.computing_slice = true;
-        state.pending_slice = Some(ResponseSurfaceSliceRequest {
-            key: SurrogateKey {
-                objective: "f".into(),
-                model: Some(SurrogateModelKind::Lgbm),
-                use_constraints: false,
-            },
-            param_x: "x".into(),
-            param_y: "y".into(),
-            objective: "f".into(),
-            model_label: "LightGBM".into(),
-            minimize: true,
-            n_grid: 24,
-        });
-        assert!(state.computing_slice);
-
-        // スライス完了: result arrives, spinner off
-        state.computing_slice = false;
-        state.pending_slice = None;
-        state.result = Some(crate::state::messages::ResponseSurfaceResult {
-            slice: tunny_core::surrogate_opt::SurfaceSlice {
-                param_x_idx: 0,
-                param_y_idx: 1,
-                x_values: vec![0.0, 1.0],
-                y_values: vec![0.0, 1.0],
-                z_values: vec![vec![0.0, 1.0], vec![1.0, 2.0]],
-                z_std: None,
-            },
-            param_x_name: "x".into(),
-            param_y_name: "y".into(),
-            objective_name: "f".into(),
-            model_label: "LightGBM".into(),
-            cv_r2_mean: 0.9,
-        });
-        assert!(!state.computing_slice);
-        assert!(state.result.is_some());
-
-        // 失敗: error message set, spinner off
-        state.result = None;
-        state.error_message = Some("compute failed".into());
-        assert!(state.error_message.is_some());
     }
 
     // F-008: PNG capture state transitions

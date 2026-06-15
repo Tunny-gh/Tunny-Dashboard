@@ -608,7 +608,7 @@ mod tests {
 
     // F-002: comparison state transitions (load-start → success → reset)
     #[test]
-    fn comparison_and_surface_plot_state_transitions_are_covered() {
+    fn comparison_state_transitions_are_covered() {
         let mut state = AppState::new();
 
         // comparison load-start
@@ -622,10 +622,9 @@ mod tests {
         assert!(state.comparison_base_study.is_none());
         assert!(state.comparison_studies.is_empty());
 
-        // response-surface spinner state: fitting/computing flag transitions
-        // (ResponseSurfacePlotState lives in WidgetStates — just confirm the concept here)
-        let started = true; // represents widget.response_surface.fitting = true
-        let done = false; // represents widget.response_surface.computing_slice = false after result
+        // compute spinner state: a generic computing flag transitions on→off
+        let started = true; // represents widget.computing = true
+        let done = false; // represents widget.computing = false after result
         assert!(started);
         assert!(!done);
     }

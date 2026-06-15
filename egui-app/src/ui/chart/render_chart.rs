@@ -259,30 +259,6 @@ pub(crate) fn render_chart(
                 &app_state.artifact_map,
             );
         }
-        ChartId::ResponseSurfacePlot => {
-            let trial_count = ctx.trial_count();
-            // カテゴリカル列（数値化できない列）はサロゲートの入力にしない。
-            let numeric_params: Vec<String> = param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
-            let minimize_for_obj: Vec<bool> = directions
-                .iter()
-                .map(|d| matches!(d, Direction::Minimize))
-                .collect();
-            crate::ui::widgets::response_surface::show(
-                ui,
-                &mut widgets.response_surface,
-                &widgets.surrogate_cache,
-                &numeric_params,
-                obj_names,
-                &minimize_for_obj,
-                cmap,
-                trial_count,
-                ctx.view.feasibility().has_constraints(),
-            );
-        }
         ChartId::SurrogateOpt => {
             let trial_count = ctx.trial_count();
             // カテゴリカル列（数値化できない列）は最適化対象から除外する。
