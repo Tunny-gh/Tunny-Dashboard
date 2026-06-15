@@ -13,9 +13,7 @@ use crate::state::messages::ObservedContourResult;
 use crate::state::types::StudyView;
 use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{ObservedContourComputeRequest, ObservedContourState};
-use crate::ui::widgets::common::heatmap::{
-    draw_colorbar_simple, draw_heatmap_masked, normalize, value_range_masked,
-};
+use crate::ui::widgets::common::heatmap::{draw_heatmap_masked, normalize, value_range_masked};
 use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     ArcballCamera,
@@ -257,11 +255,11 @@ fn render_2d(
     let (cv_min, cv_max) = value_range_masked(&color_display);
 
     let available = ui.available_rect_before_wrap();
-    // 図の下に出るラベル（カラーバーの max/min 値2行＋サブタイトル）ぶんを確保してから割り当てる。
-    // 確保しないとパネル高がギリギリのとき下のキャプションが見切れる。
-    const CAPTION_RESERVE: f32 = 60.0;
+    // 右にラベル付きカラーバー（バー＋数値目盛＋縦書きの値名）、下にサブタイトル1行ぶんを確保する。
+    const COLORBAR_RESERVE: f32 = 96.0;
+    const CAPTION_RESERVE: f32 = 28.0;
     let plot_size = egui::vec2(
-        (available.width() - 40.0).max(120.0),
+        (available.width() - COLORBAR_RESERVE).max(120.0),
         (available.height() - CAPTION_RESERVE).clamp(120.0, 360.0),
     );
     let (rect, response) = ui.allocate_exact_size(plot_size, egui::Sense::click());
@@ -308,31 +306,18 @@ fn render_2d(
         }
     }
 
-    // カラーバー（ラベルは元の値域。対数時も実値を表示）。
+    // ラベル付きカラーバー（バー＋数値目盛 max/mid/min ＋縦書きの値名）。
+    // 数値は元の値域（対数色でも実値）。flow に label を出さないので図の下に数字は残らない。
     let bar_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.right() + 4.0, rect.top()),
-        egui::vec2(16.0, rect.height()),
+        egui::pos2(rect.right() + 6.0, rect.top()),
+        egui::vec2(14.0, rect.height()),
     );
-    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap.clone());
-
-    // 凡例の意味（色 = どの列の値か）をバー脇に縦書きで添える。
     let title = if use_log {
         format!("{} (log)", result.value_name)
     } else {
         result.value_name.clone()
     };
-    let text_color = egui::Color32::from_gray(160);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(title, egui::FontId::proportional(11.0), text_color);
-    let title_pos = egui::pos2(
-        bar_rect.right() + 3.0,
-        bar_rect.center().y + galley.size().x / 2.0,
-    );
-    ui.painter().add(
-        egui::epaint::TextShape::new(title_pos, galley, text_color)
-            .with_angle(-std::f32::consts::FRAC_PI_2),
-    );
+    draw_value_colorbar(ui.painter(), bar_rect, v_min, v_max, &title, cmap);
 
     // クリック → 最近傍の観測点を詳細表示。
     if response.clicked() {
@@ -350,6 +335,68 @@ fn render_2d(
         }
     }
     None
+}
+
+/// 値の意味が分かるカラーバーを painter で描く（flow に label を出さない）。
+/// バー本体・数値目盛（max/中央/min を脇に）・縦書きの値名タイトルを添える。
+fn draw_value_colorbar(
+    painter: &egui::Painter,
+    bar_rect: egui::Rect,
+    v_min: f64,
+    v_max: f64,
+    title: &str,
+    cmap: &ColorMap,
+) {
+    // グラデーション帯（上 = max）。
+    let n = 48;
+    let step_h = bar_rect.height() / n as f32;
+    for i in 0..n {
+        let t = 1.0 - i as f32 / (n - 1).max(1) as f32;
+        let seg = egui::Rect::from_min_size(
+            egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
+            egui::vec2(bar_rect.width(), step_h + 1.0),
+        );
+        painter.rect_filled(seg, 0.0, cmap.interpolate(t));
+    }
+    painter.rect_stroke(
+        bar_rect,
+        0.0,
+        egui::Stroke::new(0.5, egui::Color32::from_gray(90)),
+    );
+
+    // 数値目盛（max / 中央 / min）をバー右脇に置く。
+    let text_color = egui::Color32::from_gray(180);
+    let tick_font = egui::FontId::proportional(10.0);
+    let mid = (v_min + v_max) * 0.5;
+    let ticks = [
+        (bar_rect.top(), egui::Align2::LEFT_TOP, v_max),
+        (bar_rect.center().y, egui::Align2::LEFT_CENTER, mid),
+        (bar_rect.bottom(), egui::Align2::LEFT_BOTTOM, v_min),
+    ];
+    let mut tick_w = 0.0_f32;
+    for (y, align, val) in ticks {
+        let g = painter.text(
+            egui::pos2(bar_rect.right() + 3.0, y),
+            align,
+            format!("{:.3}", val),
+            tick_font.clone(),
+            text_color,
+        );
+        tick_w = tick_w.max(g.width());
+    }
+
+    // 値名タイトルを数値目盛の右に縦書きで添える。
+    let galley = painter.layout_no_wrap(
+        title.to_owned(),
+        egui::FontId::proportional(11.0),
+        text_color,
+    );
+    let title_x = bar_rect.right() + 3.0 + tick_w + 6.0;
+    let title_pos = egui::pos2(title_x, bar_rect.center().y + galley.size().x * 0.5);
+    painter.add(
+        egui::epaint::TextShape::new(title_pos, galley, text_color)
+            .with_angle(-std::f32::consts::FRAC_PI_2),
+    );
 }
 
 struct Render3dOpts {
