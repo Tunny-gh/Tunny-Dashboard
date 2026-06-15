@@ -622,10 +622,10 @@ mod tests {
         assert!(state.comparison_base_study.is_none());
         assert!(state.comparison_studies.is_empty());
 
-        // surface-plot spinner state: computing flag transitions
-        // (SurfacePlotState lives in WidgetStates — just confirm the concept here)
-        let started = true; // represents widget.surface_plot.computing = true
-        let done = false; // represents widget.surface_plot.computing = false after result
+        // response-surface spinner state: fitting/computing flag transitions
+        // (ResponseSurfacePlotState lives in WidgetStates — just confirm the concept here)
+        let started = true; // represents widget.response_surface.fitting = true
+        let done = false; // represents widget.response_surface.computing_slice = false after result
         assert!(started);
         assert!(!done);
     }

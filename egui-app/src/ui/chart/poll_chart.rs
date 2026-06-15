@@ -587,52 +587,125 @@ pub(crate) fn poll_chart_work(
                 ArtifactViewMode::All => {}
             }
         }
-        ChartId::SurfacePlot => {
-            if let Some(req) = widgets.surface_plot.pending_compute.take() {
+        ChartId::ResponseSurfacePlot => {
+            // ① フィット段階: Optimizer と同じサロゲート学習パスを使い、結果は
+            //    SurrogateFitDone 経由で共有キャッシュへ入る（message_handler 参照）。
+            if let Some(fit_req) = widgets.response_surface.pending_fit.take() {
                 let ctx = app_state.current_study.as_ref().unwrap();
-                let Some(px_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param_x)
-                else {
-                    widgets.surface_plot.error_message =
-                        Some(format!("Parameter '{}' not found", req.param_x));
+                let numeric_params: Vec<String> = ctx
+                    .meta
+                    .param_names
+                    .iter()
+                    .filter(|p| ctx.view.numeric_column(p).is_some())
+                    .cloned()
+                    .collect();
+                if numeric_params.is_empty() {
+                    widgets.response_surface.error_message =
+                        Some("No numeric parameters available".to_string());
+                    widgets.response_surface.fitting = false;
                     return;
-                };
-                let Some(py_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param_y)
-                else {
-                    widgets.surface_plot.error_message =
-                        Some(format!("Parameter '{}' not found", req.param_y));
-                    return;
-                };
-                let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective, req.feasible_only);
-                let param_names_owned = ctx.meta.param_names.clone();
-                let (param_x, param_y, objective, n_grid) = (
-                    req.param_x.clone(),
-                    req.param_y.clone(),
-                    req.objective.clone(),
-                    req.n_grid,
-                );
-                widgets.surface_plot.computing = true;
+                }
+                let n = ctx.view.row_count();
+                let param_cols = ctx.view.numeric_columns(&numeric_params);
+                let x_matrix: Vec<Vec<f64>> = (0..n)
+                    .map(|i| {
+                        param_cols
+                            .iter()
+                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                            .collect()
+                    })
+                    .collect();
+                let y: Vec<f64> = ctx
+                    .view
+                    .numeric_column(&fit_req.objective)
+                    .map(|col| col.to_vec())
+                    .unwrap_or_else(|| vec![0.0; n]);
+                let constraints: Vec<tunny_core::surrogate_opt::ConstraintData> =
+                    if fit_req.use_constraints {
+                        ctx.view
+                            .df
+                            .constraint_col_names()
+                            .iter()
+                            .filter_map(|col_name| {
+                                ctx.view.df.get_numeric_column(col_name).map(|col| {
+                                    tunny_core::surrogate_opt::ConstraintData {
+                                        name: col_name.clone(),
+                                        values: col.to_vec(),
+                                    }
+                                })
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
+                widgets.response_surface.fitting = true;
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
-                    use crate::state::messages::SurfacePlotResult;
-                    let r = tunny_core::pdp::compute_surface_from_data(
+                    let core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
                         x_matrix,
                         y,
-                        param_names_owned,
-                        &objective,
-                        px_idx,
-                        py_idx,
-                        n_grid,
-                        "ridge",
-                    );
-                    AppMessage::SurfacePlotDone(SurfacePlotResult {
-                        x_values: r.x_values,
-                        y_values: r.y_values,
-                        z_values: r.z_values,
-                        param_x_name: param_x,
-                        param_y_name: param_y,
-                        objective_name: objective,
-                        r2: Some(r.r_squared),
-                    })
+                        param_names: numeric_params,
+                        objective_name: fit_req.objective,
+                        model: fit_req.model,
+                        auto_select: fit_req.auto_select,
+                        constraints,
+                        priority_rows: vec![],
+                    };
+                    match tunny_core::surrogate_opt::fit_surrogate_with_validation(&core_req) {
+                        Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
+                        Err(e) => AppMessage::SurrogateFitFailed(e),
+                    }
+                });
+                return;
+            }
+
+            // ② スライス段階: 共有キャッシュの学習済みモデルから応答曲面を生成する
+            //    （最適化は実行しない）。
+            if let Some(req) = widgets.response_surface.pending_slice.take() {
+                let Some(trained) = widgets.surrogate_cache.get(&req.key) else {
+                    widgets.response_surface.error_message =
+                        Some("Surrogate not found; fit first".to_string());
+                    widgets.response_surface.computing_slice = false;
+                    return;
+                };
+                let (Some(px_idx), Some(py_idx)) = (
+                    trained.param_names.iter().position(|p| p == &req.param_x),
+                    trained.param_names.iter().position(|p| p == &req.param_y),
+                ) else {
+                    widgets.response_surface.error_message =
+                        Some("Selected parameter not in surrogate".to_string());
+                    widgets.response_surface.computing_slice = false;
+                    return;
+                };
+                let cv_r2_mean = trained.validation.cv_r2_mean;
+                let (param_x, param_y, objective, model_label, minimize, n_grid) = (
+                    req.param_x,
+                    req.param_y,
+                    req.objective,
+                    req.model_label,
+                    req.minimize,
+                    req.n_grid,
+                );
+                widgets.response_surface.computing_slice = true;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::ResponseSurfaceResult;
+                    match tunny_core::surrogate_opt::response_surface_slice(
+                        &trained, px_idx, py_idx, n_grid, minimize,
+                    ) {
+                        Some(slice) => AppMessage::ResponseSurfaceDone(ResponseSurfaceResult {
+                            slice,
+                            param_x_name: param_x,
+                            param_y_name: param_y,
+                            objective_name: objective,
+                            model_label,
+                            cv_r2_mean,
+                        }),
+                        None => AppMessage::ResponseSurfaceFailed(
+                            "Could not build response surface slice".to_string(),
+                        ),
+                    }
                 });
             }
         }

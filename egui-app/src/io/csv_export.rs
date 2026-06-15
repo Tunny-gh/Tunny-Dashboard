@@ -57,7 +57,7 @@ pub fn build_chart_csv(
         ChartId::McdmScatterChart => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
-        ChartId::SurfacePlot => None,
+        ChartId::ResponseSurfacePlot => None,
         ChartId::SurrogateOpt => build_surrogate_opt_csv(widgets),
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
@@ -118,7 +118,7 @@ pub fn trial_table_csv_filename(widgets: &WidgetStates) -> String {
 
 pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetStates) -> bool {
     match chart_id {
-        ChartId::SurfacePlot => false,
+        ChartId::ResponseSurfacePlot => false,
         ChartId::SurrogateOpt => {
             widgets.surrogate_opt.result.is_some() || widgets.surrogate_opt.multi_result.is_some()
         }
@@ -217,7 +217,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::McdmRankChart => "mcdm_rank_chart",
         ChartId::McdmScatterChart => "mcdm_scatter_chart",
         ChartId::SliceChart => "slice_chart",
-        ChartId::SurfacePlot => "surface_plot",
+        ChartId::ResponseSurfacePlot => "response_surface",
         ChartId::SurrogateOpt => "surrogate_optimizer",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
@@ -727,7 +727,7 @@ mod tests {
             ChartId::McdmRankChart,
             ChartId::McdmScatterChart,
             ChartId::SliceChart,
-            ChartId::SurfacePlot,
+            ChartId::ResponseSurfacePlot,
             ChartId::SurrogateOpt,
         ];
         for id in &ids {

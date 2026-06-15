@@ -35,7 +35,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                     PanelItem::Chart(ChartId::PdpChart2D),
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
-                    PanelItem::Chart(ChartId::SurfacePlot),
+                    PanelItem::Chart(ChartId::ResponseSurfacePlot),
                 ],
             ),
             ("Optimization", &[PanelItem::Chart(ChartId::SurrogateOpt)]),
@@ -121,13 +121,13 @@ mod tests {
     }
 
     #[test]
-    fn right_panel_lists_surface_plot_under_variable_analysis() {
-        // Verify SurfacePlot appears with the correct label in the Variable Analysis group
-        let sp = ChartId::SurfacePlot;
-        assert_eq!(sp.label(), "Surface Plot");
+    fn right_panel_lists_response_surface_under_variable_analysis() {
+        // Verify ResponseSurfacePlot appears with the correct label in the Variable Analysis group
+        let sp = ChartId::ResponseSurfacePlot;
+        assert_eq!(sp.label(), "Response Surface");
         let all = ChartId::all();
-        assert!(all.contains(&ChartId::SurfacePlot));
-        let item = PanelItem::Chart(ChartId::SurfacePlot);
-        assert_eq!(item.label(), "Surface Plot");
+        assert!(all.contains(&ChartId::ResponseSurfacePlot));
+        let item = PanelItem::Chart(ChartId::ResponseSurfacePlot);
+        assert_eq!(item.label(), "Response Surface");
     }
 }

@@ -93,25 +93,24 @@ pub fn cluster_ui_error(
 }
 
 // ============================================================
-// Surface Plot 関連型
+// Response Surface Plot 関連型
 // ============================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SurfacePlotRenderMode {
-    #[default]
-    Heatmap,
-    Contour,
-}
-
+/// ResponseSurfacePlot の描画結果。
+///
+/// 応答曲面は Optimizer と同じサロゲートエンジンが生成する `SurfaceSlice`
+/// （`目的関数 = f(全パラメータ)` の 2 パラメータスライス、他次元はベスト観測点に固定）。
+/// 軸名・モデルラベル・検証 R² は表示用に付随させる。
 #[derive(Debug, Clone)]
-pub struct SurfacePlotResult {
-    pub x_values: Vec<f64>,
-    pub y_values: Vec<f64>,
-    pub z_values: Vec<Vec<f64>>,
+pub struct ResponseSurfaceResult {
+    pub slice: tunny_core::surrogate_opt::SurfaceSlice,
     pub param_x_name: String,
     pub param_y_name: String,
     pub objective_name: String,
-    pub r2: Option<f64>,
+    /// 表示用モデル名（例: "GP-FITC"）。
+    pub model_label: String,
+    /// 学習済みサロゲートの検証 CV R²（平均）。表示用。
+    pub cv_r2_mean: f64,
 }
 
 // ============================================================
@@ -312,8 +311,9 @@ pub enum AppMessage {
         suggested_filename: String,
     },
     ComparisonStudyLoadFailed(String),
-    SurfacePlotDone(SurfacePlotResult),
-    SurfacePlotFailed(String),
+    /// ResponseSurfacePlot のスライス生成が完了した（学習済みサロゲートから生成）。
+    ResponseSurfaceDone(ResponseSurfaceResult),
+    ResponseSurfaceFailed(String),
     /// サロゲートのフィット＋検証が完了した（最適化段階は別メッセージ）。
     SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     SurrogateFitFailed(String),
@@ -376,41 +376,40 @@ mod tests {
         }
     }
 
-    // ── TASK-2228: 新規バリアントとSurfacePlotResultのテスト ────────
+    // ── ResponseSurface 新規バリアントのテスト ────────
 
     #[test]
     fn message_handler_accepts_new_message_family() {
+        let slice = tunny_core::surrogate_opt::SurfaceSlice {
+            param_x_idx: 0,
+            param_y_idx: 1,
+            x_values: vec![0.0, 1.0],
+            y_values: vec![0.0, 1.0],
+            z_values: vec![vec![0.0, 1.0], vec![1.0, 2.0]],
+            z_std: None,
+        };
         let msgs: Vec<AppMessage> = vec![
             AppMessage::ComparisonStudyLoadFailed("err".to_string()),
-            AppMessage::SurfacePlotDone(SurfacePlotResult {
-                x_values: vec![0.0],
-                y_values: vec![0.0],
-                z_values: vec![vec![0.0]],
+            AppMessage::ResponseSurfaceDone(ResponseSurfaceResult {
+                slice,
                 param_x_name: "x".to_string(),
                 param_y_name: "y".to_string(),
                 objective_name: "f".to_string(),
-                r2: None,
+                model_label: "Ridge".to_string(),
+                cv_r2_mean: 0.5,
             }),
-            AppMessage::SurfacePlotFailed("compute error".to_string()),
+            AppMessage::ResponseSurfaceFailed("compute error".to_string()),
             AppMessage::ChartCaptureFailed("capture error".to_string()),
         ];
         // all variants should be matchable without panic
         for msg in msgs {
             match msg {
                 AppMessage::ComparisonStudyLoadFailed(e) => assert!(!e.is_empty()),
-                AppMessage::SurfacePlotDone(r) => assert_eq!(r.x_values.len(), 1),
-                AppMessage::SurfacePlotFailed(e) => assert!(!e.is_empty()),
+                AppMessage::ResponseSurfaceDone(r) => assert_eq!(r.slice.x_values.len(), 2),
+                AppMessage::ResponseSurfaceFailed(e) => assert!(!e.is_empty()),
                 AppMessage::ChartCaptureFailed(e) => assert!(!e.is_empty()),
                 _ => {}
             }
         }
-    }
-
-    #[test]
-    fn surface_plot_render_mode_default_is_heatmap() {
-        assert_eq!(
-            SurfacePlotRenderMode::default(),
-            SurfacePlotRenderMode::Heatmap
-        );
     }
 }
