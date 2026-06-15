@@ -17,7 +17,8 @@ use crate::ui::widgets::common::heatmap::{
     draw_colorbar_simple, draw_heatmap_masked, normalize, value_range_masked,
 };
 use crate::ui::widgets::scatter_3d::{
-    draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas, ArcballCamera,
+    axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
+    ArcballCamera,
 };
 use crate::ui::widgets::trial_detail_modal::{TrialDetailTarget, HIT_THRESHOLD};
 
@@ -406,6 +407,7 @@ fn render_3d(
     enum Prim {
         Cell([egui::Pos2; 4], egui::Color32),
         Point(egui::Pos2, egui::Color32),
+        Line(egui::Pos2, egui::Pos2, egui::Color32),
     }
     let mut items: Vec<(f32, Prim)> = Vec::new();
 
@@ -467,9 +469,19 @@ fn render_3d(
         }
     }
 
+    // 軸線を細分化してサーフェスと一緒に深度ソートし、面との前後関係を反映する。
+    for (a, b, color) in axis_segments_3d(24) {
+        let (pos_a, depth_a) = project(a);
+        let (pos_b, depth_b) = project(b);
+        if pos_a.x.is_finite() && pos_a.y.is_finite() && pos_b.x.is_finite() && pos_b.y.is_finite()
+        {
+            items.push(((depth_a + depth_b) * 0.5, Prim::Line(pos_a, pos_b, color)));
+        }
+    }
+
     items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // 奥から手前へ描く。面は生メッシュ、点は円 Shape を挟むためメッシュを確定する。
+    // 奥から手前へ描く。面・軸線は生メッシュ、点は円 Shape を挟むためメッシュを確定する。
     let mut mesh = egui::Mesh::default();
     for (_, prim) in &items {
         match prim {
@@ -477,6 +489,9 @@ fn render_3d(
                 let [p0, p1, p2, p3] = *corners;
                 push_tri(&mut mesh, [p0, p1, p2], *color);
                 push_tri(&mut mesh, [p0, p2, p3], *color);
+            }
+            Prim::Line(a, b, color) => {
+                push_edge(&mut mesh, *a, *b, *color, 0.75);
             }
             Prim::Point(pos, color) => {
                 if !mesh.is_empty() {
@@ -511,6 +526,18 @@ fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
         });
     }
     mesh.indices.extend([base, base + 1, base + 2]);
+}
+
+/// 線分を細いクアッド（三角形 2 枚）として生メッシュに追加する（深度ソートに混ぜる用途）。
+fn push_edge(mesh: &mut egui::Mesh, a: egui::Pos2, b: egui::Pos2, color: egui::Color32, hw: f32) {
+    let v = b - a;
+    let len = v.length();
+    if len < f32::EPSILON {
+        return;
+    }
+    let n = egui::vec2(-v.y, v.x) * (hw / len);
+    push_tri(mesh, [a + n, b + n, b - n], color);
+    push_tri(mesh, [a + n, b - n, a - n], color);
 }
 
 /// 観測点を (nx-1)×(ny-1) のセルにビニングし、各セルの正規化密度 (0..1) を返す。
