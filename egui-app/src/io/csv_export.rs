@@ -57,6 +57,7 @@ pub fn build_chart_csv(
         ChartId::McdmScatterChart => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
+        ChartId::ObservedContour => None,
         ChartId::SurrogateOpt => build_surrogate_opt_csv(widgets),
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
@@ -186,6 +187,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                     .get(widgets.slice_chart.selected_obj_idx)
                     .is_some()
         }),
+        ChartId::ObservedContour => false,
         ChartId::ClusterScatter3D => app_state
             .current_study
             .as_ref()
@@ -215,6 +217,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::McdmRankChart => "mcdm_rank_chart",
         ChartId::McdmScatterChart => "mcdm_scatter_chart",
         ChartId::SliceChart => "slice_chart",
+        ChartId::ObservedContour => "observed_contour",
         ChartId::SurrogateOpt => "surrogate_optimizer",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",

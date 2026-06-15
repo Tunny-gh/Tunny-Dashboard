@@ -259,6 +259,23 @@ pub(crate) fn render_chart(
                 &app_state.artifact_map,
             );
         }
+        ChartId::ObservedContour => {
+            // 数値パラメータのみ（カテゴリカル列は補間軸にしない）。目的関数は全て数値。
+            let numeric_params: Vec<String> = param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            crate::ui::widgets::observed_contour::show(
+                ui,
+                &mut widgets.observed_contour,
+                &numeric_params,
+                obj_names,
+                cmap,
+                &ctx.view,
+                ctx.view.feasibility().has_constraints(),
+            );
+        }
         ChartId::SurrogateOpt => {
             let trial_count = ctx.trial_count();
             // カテゴリカル列（数値化できない列）は最適化対象から除外する。

@@ -16,6 +16,7 @@ pub enum ChartId {
     McdmScatterChart,
     McdmScatterChart3D,
     SliceChart,
+    ObservedContour,
     SurrogateOpt,
     ArtifactGallery,
 }
@@ -39,6 +40,7 @@ impl ChartId {
             ChartId::McdmScatterChart,
             ChartId::McdmScatterChart3D,
             ChartId::SliceChart,
+            ChartId::ObservedContour,
             ChartId::SurrogateOpt,
             ChartId::ArtifactGallery,
         ]
@@ -62,6 +64,7 @@ impl ChartId {
             ChartId::McdmScatterChart => "MCDM Scatter Chart 2D",
             ChartId::McdmScatterChart3D => "MCDM Scatter Chart 3D",
             ChartId::SliceChart => "Slice Chart",
+            ChartId::ObservedContour => "Observed Contour",
             ChartId::SurrogateOpt => "Surrogate Optimizer",
             ChartId::ArtifactGallery => "Artifact Gallery",
         }

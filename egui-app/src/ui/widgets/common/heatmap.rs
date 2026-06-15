@@ -40,6 +40,64 @@ pub fn draw_heatmap(
     }
 }
 
+/// マスク対応ヒートマップ。`None` のセルは塗らない（パネル背景のまま＝データなし）。
+/// `v_min` / `v_max` は呼び出し側で `Some` セルだけから求めた値域を渡す。
+pub fn draw_heatmap_masked(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    values: &[Vec<Option<f64>>],
+    v_min: f64,
+    v_max: f64,
+    cmap: ColorMap,
+) {
+    let n_row = values.len();
+    if n_row == 0 {
+        return;
+    }
+    let n_col = values[0].len();
+    if n_col == 0 {
+        return;
+    }
+    let cell_w = rect.width() / n_col as f32;
+    let cell_h = rect.height() / n_row as f32;
+
+    for (row, row_vals) in values.iter().enumerate() {
+        for (col, cell) in row_vals.iter().enumerate() {
+            let Some(val) = cell else {
+                continue; // データなし → 塗らない。
+            };
+            let t = normalize(*val, v_min, v_max);
+            let color = cmap.interpolate(t);
+            let cell_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.left() + col as f32 * cell_w,
+                    rect.top() + row as f32 * cell_h,
+                ),
+                egui::vec2(cell_w + 1.0, cell_h + 1.0),
+            );
+            painter.rect_filled(cell_rect, 0.0, color);
+        }
+    }
+}
+
+/// マスク対応グリッドの値域 [min, max] を `Some` セルだけから求める。空なら (0,1)。
+pub fn value_range_masked(values: &[Vec<Option<f64>>]) -> (f64, f64) {
+    let mut v_min = f64::INFINITY;
+    let mut v_max = f64::NEG_INFINITY;
+    for v in values.iter().flatten().flatten() {
+        v_min = v_min.min(*v);
+        v_max = v_max.max(*v);
+    }
+    if !v_min.is_finite() || !v_max.is_finite() {
+        return (0.0, 1.0);
+    }
+    if (v_max - v_min).abs() < f64::EPSILON {
+        (v_min - 1.0, v_max + 1.0)
+    } else {
+        (v_min, v_max)
+    }
+}
+
 /// ヒートマップ脇の縦カラーバー（上 = max / 下 = min）を描く。
 pub fn draw_colorbar_simple(
     ui: &mut egui::Ui,

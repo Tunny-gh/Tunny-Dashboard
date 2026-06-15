@@ -1,4 +1,5 @@
 pub mod clustering;
+pub mod contour;
 pub mod convergence;
 pub mod data;
 pub(crate) mod gaussian_process;

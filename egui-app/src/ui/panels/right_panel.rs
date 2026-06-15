@@ -35,6 +35,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                     PanelItem::Chart(ChartId::PdpChart2D),
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
+                    PanelItem::Chart(ChartId::ObservedContour),
                 ],
             ),
             ("Optimization", &[PanelItem::Chart(ChartId::SurrogateOpt)]),

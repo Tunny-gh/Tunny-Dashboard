@@ -242,6 +242,15 @@ impl MessageHandler {
             AppMessage::ComparisonStudyLoadFailed(err) => {
                 *load_error = Some(err);
             }
+            AppMessage::ObservedContourDone(result) => {
+                widget_states.observed_contour.result = Some(result);
+                widget_states.observed_contour.computing = false;
+                widget_states.observed_contour.error_message = None;
+            }
+            AppMessage::ObservedContourFailed(err) => {
+                widget_states.observed_contour.error_message = Some(err);
+                widget_states.observed_contour.computing = false;
+            }
             AppMessage::SurrogateFitDone(trained) => {
                 widget_states.surrogate_opt.trained = Some(trained);
                 widget_states.surrogate_opt.error_message = None;

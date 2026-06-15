@@ -23,6 +23,7 @@ enum ComputeSyncKind {
     Mcdm,
     Pdp,
     Pdp2d,
+    ObservedContour,
     SurrogateFit,
     SurrogateOpt,
     SurrogateSuggest,
@@ -44,6 +45,9 @@ impl ComputeSyncKind {
             | AppMessage::EntropyDone { .. } => Some(Self::Mcdm),
             AppMessage::PdpDone { .. } => Some(Self::Pdp),
             AppMessage::Pdp2dDone(_) => Some(Self::Pdp2d),
+            AppMessage::ObservedContourDone(_) | AppMessage::ObservedContourFailed(_) => {
+                Some(Self::ObservedContour)
+            }
             AppMessage::SurrogateFitDone(_)
             | AppMessage::SurrogateFitFailed(_)
             | AppMessage::SurrogateFitCancelled
@@ -96,6 +100,9 @@ impl ComputeSyncKind {
                 }
                 Self::Pdp => w.pdp_chart.adopt_compute_state(&global.pdp_chart),
                 Self::Pdp2d => w.pdp_2d.adopt_compute_state(&global.pdp_2d),
+                Self::ObservedContour => w
+                    .observed_contour
+                    .adopt_compute_state(&global.observed_contour),
                 Self::SurrogateFit => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::SurrogateOpt => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
                 Self::SurrogateSuggest => {
