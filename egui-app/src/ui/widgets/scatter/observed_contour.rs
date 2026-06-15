@@ -257,9 +257,12 @@ fn render_2d(
     let (cv_min, cv_max) = value_range_masked(&color_display);
 
     let available = ui.available_rect_before_wrap();
+    // 図の下に出すラベル2行（X/Y/Value 行＋サブタイトル）ぶんを確保してから割り当てる。
+    // 確保しないとパネル高がギリギリのとき下のキャプションが見切れる。
+    const CAPTION_RESERVE: f32 = 44.0;
     let plot_size = egui::vec2(
         (available.width() - 40.0).max(120.0),
-        available.height().clamp(120.0, 360.0),
+        (available.height() - CAPTION_RESERVE).clamp(120.0, 360.0),
     );
     let (rect, response) = ui.allocate_exact_size(plot_size, egui::Sense::click());
     let painter = ui.painter_at(rect);
