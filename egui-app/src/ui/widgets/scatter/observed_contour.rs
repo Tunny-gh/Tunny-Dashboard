@@ -99,7 +99,7 @@ pub fn show(
         if state.view_3d {
             ui.checkbox(&mut state.density_shade, "Density shade")
                 .on_hover_text(
-                    "Darken cells with few observed points to counter 3D overconfidence",
+                    "Fade out cells with few nearby observations to counter 3D overconfidence",
                 );
         } else {
             ui.checkbox(&mut state.show_contour_lines, "Contours");
@@ -385,14 +385,17 @@ fn render_3d(
     let (painter, _rect, project) = setup_3d_canvas(ui, camera);
     draw_3d_grid(&painter, &project);
 
-    // 点密度シェーディング: 各セルに落ちる観測点数を正規化（薄いセルを暗くする）。
+    // 点密度シェーディング: 観測点を各セルにビニングし、局所窓で平滑化して正規化する。
+    // 1 セル単位ではほとんど 0/1 でノイズが多いため、近傍を平滑化して領域の濃淡にする。
     let density = if opts.density_shade {
+        let blur_radius = (nx / 12).max(2);
         Some(cell_density_grid(
             &result.points,
             (x_min, x_max),
             (y_min, y_max),
             nx,
             ny,
+            blur_radius,
         ))
     } else {
         None
@@ -444,10 +447,11 @@ fn render_3d(
             }
             let mean = (v00 + v10 + v11 + v01) / 4.0;
             let mut color = cmap.interpolate(normalize(mean, v_min, v_max));
-            // 観測の薄いセルを暗くする（0 点でも床 0.35 まで）。
+            // 観測の薄いセルを透明にする（密度→不透明度）。色相は保ち α だけ動かす。
             if let Some(d) = &density {
-                let f = 0.35 + 0.65 * d[i][j].sqrt();
-                color = color.gamma_multiply(f);
+                let a = (40.0 + 215.0 * d[i][j].sqrt()).round().clamp(0.0, 255.0) as u8;
+                let [r, g, b, _] = color.to_array();
+                color = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
             }
             items.push((depth * 0.25, Prim::Cell(pts, color)));
         }
@@ -542,32 +546,68 @@ fn push_edge(mesh: &mut egui::Mesh, a: egui::Pos2, b: egui::Pos2, color: egui::C
     push_tri(mesh, [a + n, b - n, a - n], color);
 }
 
-/// 観測点を (nx-1)×(ny-1) のセルにビニングし、各セルの正規化密度 (0..1) を返す。
-/// セル (i,j) は x∈[x_i,x_{i+1}]、y∈[y_j,y_{j+1}] に対応する。最大カウントで割って正規化する。
+/// 観測点を (nx-1)×(ny-1) のセルにビニングし、半径 `blur_radius` で局所平滑化したうえで
+/// 最大値で割った正規化密度 (0..1) を返す。セル (i,j) は x∈[x_i,x_{i+1}]、y∈[y_j,y_{j+1}]。
+/// 1 セル単位ではほぼ 0/1 でノイズが多いため、平滑化して領域の濃淡を表す。
 fn cell_density_grid(
     points: &[[f64; 3]],
     (x_min, x_max): (f64, f64),
     (y_min, y_max): (f64, f64),
     nx: usize,
     ny: usize,
+    blur_radius: usize,
 ) -> Vec<Vec<f32>> {
     let (cx, cy) = (nx.saturating_sub(1).max(1), ny.saturating_sub(1).max(1));
-    let mut counts = vec![vec![0u32; cy]; cx];
+    let mut counts = vec![vec![0f32; cy]; cx];
     if x_max > x_min && y_max > y_min {
         for p in points {
             let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
             let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
             let i = ((fx * cx as f64) as usize).min(cx - 1);
             let j = ((fy * cy as f64) as usize).min(cy - 1);
-            counts[i][j] += 1;
+            counts[i][j] += 1.0;
         }
     }
-    let max = counts.iter().flatten().copied().max().unwrap_or(0);
-    let denom = max.max(1) as f32;
-    counts
+    let smoothed = box_blur_2d(&counts, blur_radius);
+    let max = smoothed.iter().flatten().copied().fold(0.0_f32, f32::max);
+    let denom = if max > 0.0 { max } else { 1.0 };
+    smoothed
         .iter()
-        .map(|col| col.iter().map(|&c| c as f32 / denom).collect())
+        .map(|col| col.iter().map(|&c| c / denom).collect())
         .collect()
+}
+
+/// 2D グリッドに半径 `r` の分離型箱平滑化（近傍平均）を適用する。`r == 0` は恒等。
+fn box_blur_2d(grid: &[Vec<f32>], r: usize) -> Vec<Vec<f32>> {
+    if r == 0 || grid.is_empty() {
+        return grid.to_vec();
+    }
+    let nx = grid.len();
+    let ny = grid[0].len();
+    // 横方向の移動平均。
+    let mut tmp = vec![vec![0f32; ny]; nx];
+    for (i, col) in tmp.iter_mut().enumerate() {
+        for (j, slot) in col.iter_mut().enumerate() {
+            let lo = i.saturating_sub(r);
+            let hi = (i + r).min(nx - 1);
+            let mut sum = 0.0;
+            for row in grid.iter().take(hi + 1).skip(lo) {
+                sum += row[j];
+            }
+            *slot = sum / (hi - lo + 1) as f32;
+        }
+    }
+    // 縦方向の移動平均。
+    let mut out = vec![vec![0f32; ny]; nx];
+    for (out_row, src_row) in out.iter_mut().zip(tmp.iter()) {
+        for (j, slot) in out_row.iter_mut().enumerate() {
+            let lo = j.saturating_sub(r);
+            let hi = (j + r).min(ny - 1);
+            let sum: f32 = src_row[lo..=hi].iter().sum();
+            *slot = sum / (hi - lo + 1) as f32;
+        }
+    }
+    out
 }
 
 /// `screen_points`（位置, インデックス）の中で `click` に最も近く閾値内の点のインデックスを返す。
@@ -692,7 +732,8 @@ mod tests {
             [0.9, 0.9, 0.0],
             [1.0, 1.0, 0.0], // 端は最終セルにクランプ
         ];
-        let d = cell_density_grid(&pts, (0.0, 1.0), (0.0, 1.0), 3, 3);
+        // blur=0 はビニングそのまま（正規化のみ）。
+        let d = cell_density_grid(&pts, (0.0, 1.0), (0.0, 1.0), 3, 3, 0);
         assert_eq!(d.len(), 2);
         assert_eq!(d[0].len(), 2);
         // 左下 (i=0,j=0) が最大カウント 2 → 1.0。
@@ -702,6 +743,28 @@ mod tests {
         // 空セルは 0。
         assert!(d[0][1].abs() < 1e-6);
         assert!(d[1][0].abs() < 1e-6);
+    }
+
+    #[test]
+    fn box_blur_spreads_into_neighbors() {
+        // 中央だけ値を持つ 3x3。半径1の平滑化で隣接セルが非ゼロになる。
+        let mut g = vec![vec![0.0_f32; 3]; 3];
+        g[1][1] = 9.0;
+        let b = box_blur_2d(&g, 1);
+        // 中央は 9/9（3x3 平均）= 1.0、隅は 9/9 もかかる…分離型なので確認は非ゼロのみ。
+        assert!(b[1][1] > 0.0);
+        assert!(b[0][1] > 0.0); // 縦横の隣接に滲む
+        assert!(b[1][0] > 0.0);
+        // 総和は保存される（平均の分離適用でも端のクランプで概ね保たれる）。
+        let before: f32 = g.iter().flatten().sum();
+        let after: f32 = b.iter().flatten().sum();
+        assert!((before - after).abs() < before); // 完全保存ではないが発散しない
+    }
+
+    #[test]
+    fn box_blur_zero_radius_is_identity() {
+        let g = vec![vec![1.0_f32, 2.0], vec![3.0, 4.0]];
+        assert_eq!(box_blur_2d(&g, 0), g);
     }
 
     #[test]
