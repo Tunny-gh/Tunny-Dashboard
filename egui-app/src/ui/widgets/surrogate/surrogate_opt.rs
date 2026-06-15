@@ -1194,7 +1194,8 @@ fn draw_slice_heatmap(
 
     let available = ui.available_rect_before_wrap();
     let plot_size = egui::vec2(
-        (available.width() - 32.0).max(100.0),
+        // 右にカラーバー＋数値目盛ぶんの余白を確保する。
+        (available.width() - 72.0).max(100.0),
         available.height().clamp(60.0, 300.0),
     );
     let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
@@ -1241,7 +1242,7 @@ fn draw_slice_heatmap(
         egui::pos2(rect.right() + 4.0, rect.top()),
         egui::vec2(16.0, rect.height()),
     );
-    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap);
+    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap, None);
 }
 
 /// 予測標準偏差グリッドを、ヒートマップ上に半透明グレーのセルとして重ねる。
@@ -1439,7 +1440,8 @@ fn render_multi_result(
 
     let available = ui.available_rect_before_wrap();
     let plot_size = egui::vec2(
-        (available.width() - 32.0).max(100.0),
+        // 右にカラーバー＋数値目盛ぶんの余白を確保する。
+        (available.width() - 72.0).max(100.0),
         available.height().clamp(60.0, 300.0),
     );
     let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
@@ -1473,7 +1475,7 @@ fn render_multi_result(
         egui::pos2(rect.right() + 4.0, rect.top()),
         egui::vec2(16.0, rect.height()),
     );
-    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap);
+    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap, None);
 }
 
 /// 最適化履歴プロット（全 trial 点 + 累積ベスト線 + 予測最適値の水平線）。
