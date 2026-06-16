@@ -1,0 +1,64 @@
+// Zed タスク定義。コマンドパレット → "task: spawn" から起動できる。
+// cwd は既定でワークツリー直下 ($ZED_WORKTREE_ROOT)。
+[
+  {
+    "label": "Run TunnyDashboard",
+    "command": "cargo",
+    "args": ["run", "-p", "tunny-desktop"],
+    "env": { "RUST_LOG": "info", "RUST_BACKTRACE": "1" },
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    // 多目的 Study を含むサンプルログを読み込んで起動する（収束指標の確認用）。
+    "label": "Run TunnyDashboard (sample log)",
+    "command": "cargo",
+    "args": [
+      "run",
+      "-p",
+      "tunny-desktop",
+      "--",
+      "-i",
+      "$ZED_WORKTREE_ROOT/rust_core/fixtures/test.log"
+    ],
+    "env": { "RUST_LOG": "debug", "RUST_BACKTRACE": "1" },
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always"
+  },
+  {
+    "label": "Test (workspace)",
+    "command": "cargo",
+    "args": ["test", "--workspace"],
+    "reveal": "always"
+  },
+  {
+    // CI と同条件（--all-targets でテストコードも対象に含める）。
+    "label": "Clippy (CI gate)",
+    "command": "cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--locked",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "reveal": "always"
+  },
+  {
+    "label": "Format check (egui-app)",
+    "command": "cargo",
+    "args": [
+      "fmt",
+      "--manifest-path",
+      "egui-app/Cargo.toml",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "reveal": "always"
+  }
+]

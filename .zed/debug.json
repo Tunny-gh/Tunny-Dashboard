@@ -1,0 +1,32 @@
+// Zed デバッグ設定（CodeLLDB）。デバッグパネル → 構成を選択して起動する。
+// 起動前に build タスクでバイナリをビルドし、target/debug の実行ファイルを起動する。
+// LightGBM の動的ライブラリ (lib_lightgbm.dll) は target/debug にコピー済みのため
+// 実行ファイルと同じディレクトリから解決される。
+[
+  {
+    "label": "Debug TunnyDashboard (sample log)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/target/debug/TunnyDashboard.exe",
+    "args": ["-i", "$ZED_WORKTREE_ROOT/rust_core/fixtures/test.log"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": { "RUST_LOG": "debug", "RUST_BACKTRACE": "1" },
+    "build": {
+      "command": "cargo",
+      "args": ["build", "-p", "tunny-desktop", "--bin", "TunnyDashboard"]
+    }
+  },
+  {
+    "label": "Debug TunnyDashboard (empty)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/target/debug/TunnyDashboard.exe",
+    "args": [],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": { "RUST_LOG": "debug", "RUST_BACKTRACE": "1" },
+    "build": {
+      "command": "cargo",
+      "args": ["build", "-p", "tunny-desktop", "--bin", "TunnyDashboard"]
+    }
+  }
+]

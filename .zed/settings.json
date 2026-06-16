@@ -1,0 +1,19 @@
+// プロジェクト固有の Zed 設定。
+// rust-analyzer の保存時チェックを clippy にし、CI ゲートと挙動を揃える。
+{
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "check": {
+          "command": "clippy",
+          "extraArgs": ["--all-targets"]
+        }
+      }
+    }
+  },
+  "languages": {
+    "Rust": {
+      "format_on_save": "on"
+    }
+  }
+}
