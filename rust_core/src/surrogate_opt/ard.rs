@@ -59,6 +59,7 @@ pub fn compute_ard_importance_from_df(
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     };
     // 入力検証（最小 trial 数等）は fit_surrogate_with_validation が行う。
     let trained = fit_surrogate_with_validation(&req).ok()?;

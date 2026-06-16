@@ -523,6 +523,7 @@ mod tests {
             objective_names: vec!["y".to_string()],
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         }];
         tx.send(AppMessage::JournalParsed {
             studies,

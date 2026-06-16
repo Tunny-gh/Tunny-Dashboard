@@ -91,6 +91,7 @@ impl ParserState {
             objective_names: Vec::new(),
             user_attr_names: HashSet::new(),
             has_constraints: false,
+            param_bounds: HashMap::new(),
         });
     }
 
@@ -178,6 +179,18 @@ impl ParserState {
                 }
             }
 
+            // 数値パラメータの宣言レンジ (low, high) を study に記録する（初出のみ）。
+            if let Some(distributions) = dist_obj {
+                for (name, distribution_value) in distributions {
+                    if let Some(bounds) = Distribution::from_json(distribution_value).bounds() {
+                        self.studies[study_id as usize]
+                            .param_bounds
+                            .entry(name.clone())
+                            .or_insert(bounds);
+                    }
+                }
+            }
+
             let mut user_attrs_numeric: HashMap<String, f64> = HashMap::new();
             let mut user_attrs_string: HashMap<String, String> = HashMap::new();
             if let Some(attrs) = json.get("user_attrs").and_then(|value| value.as_object()) {
@@ -251,6 +264,19 @@ impl ParserState {
             .get("distribution")
             .map(Distribution::from_json)
             .unwrap_or(Distribution::Uniform);
+
+        // 数値パラメータの宣言レンジを study に記録する（初出のみ）。
+        // trial の study_id を読んでから studies を更新する（借用の重複を避ける）。
+        if let Some(bounds) = distribution.bounds() {
+            if let Some(study_id) = self.trial_builders.get(&trial_id).map(|t| t.study_id) {
+                if let Some(study) = self.studies.get_mut(study_id as usize) {
+                    study
+                        .param_bounds
+                        .entry(param_name.clone())
+                        .or_insert(bounds);
+                }
+            }
+        }
 
         if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
             trial

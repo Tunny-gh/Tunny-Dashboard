@@ -2071,6 +2071,7 @@ mod tests {
             auto_select: false,
             constraints: vec![],
             priority_rows: vec![],
+            param_bounds: None,
         };
         tunny_core::surrogate_opt::fit_surrogate_with_validation(&req)
             .expect("dummy fit should succeed")

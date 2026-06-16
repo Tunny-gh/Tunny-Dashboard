@@ -90,6 +90,7 @@ pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFra
             objective_names: objective_names.clone(),
             user_attr_names,
             has_constraints: builder.has_constraints,
+            param_bounds: builder.param_bounds,
         });
 
         let mut unn: Vec<String> = std::mem::take(&mut per_study_unn[index])

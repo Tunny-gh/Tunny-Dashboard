@@ -185,6 +185,11 @@ pub struct SurrogateFitRequest {
     /// 多目的でパレートフロント上の trial に GP の誘導点を集中させるために使う。
     /// N が GP の誘導点上限（100）以下のときは効果がない（Z = X で全点を使う）。
     pub priority_rows: Vec<usize>,
+    /// 各パラメータ列の宣言レンジ (low, high)（log 由来。`param_names` と同順）。
+    /// `Some(vec)` のとき、各列を観測 min/max ではなくこの範囲で正規化し、最適化の
+    /// 探索箱（正規化空間 [0,1]^d）を真の変数範囲に一致させる。列が `None` の場合や
+    /// 全体が `None` の場合は観測レンジにフォールバックする。
+    pub param_bounds: Option<Vec<Option<(f64, f64)>>>,
 }
 
 /// 検証済みの学習結果。最適化で再利用する。
@@ -396,6 +401,7 @@ fn subsample_fit_request(req: &SurrogateFitRequest) -> Option<SurrogateFitReques
             })
             .collect(),
         priority_rows,
+        param_bounds: req.param_bounds.clone(),
     })
 }
 
@@ -545,8 +551,13 @@ fn fit_validated_inner(
     // 誘導点のままにする（validate_surrogate は priority を受け取らない）。
     progress.check()?;
     progress.set_stage(format!("{stage_prefix}Fitting final model"));
-    let surrogate =
-        models::fit_surrogate_with_priority(model_kind, &req.x_matrix, &req.y, &req.priority_rows)?;
+    let surrogate = models::fit_surrogate_with_priority_bounds(
+        model_kind,
+        &req.x_matrix,
+        &req.y,
+        &req.priority_rows,
+        req.param_bounds.as_deref(),
+    )?;
     progress.inc_done();
 
     // 全データ訓練 R² を最終モデルから設定する。
@@ -571,8 +582,13 @@ fn fit_validated_inner(
         // Auto 選択時も目的モデルと同じ「選ばれた」種別を制約モデルに使う。
         progress.check()?;
         progress.set_stage(format!("{stage_prefix}Fitting constraint '{}'", cd.name));
-        let cm = models::fit_constraint_surrogate(model_kind, &req.x_matrix, &cd.values)
-            .map_err(|e| format!("Constraint '{}' fit failed: {}", cd.name, e))?;
+        let cm = models::fit_constraint_surrogate_bounds(
+            model_kind,
+            &req.x_matrix,
+            &cd.values,
+            req.param_bounds.as_deref(),
+        )
+        .map_err(|e| format!("Constraint '{}' fit failed: {}", cd.name, e))?;
         progress.inc_done();
         constraint_names.push(cd.name.clone());
         constraint_models.push(cm);
@@ -1035,6 +1051,7 @@ pub fn fit_multi_surrogates(
         objective_names,
         model,
         minimize,
+        None,
         &FitProgress::default(),
     )
 }
@@ -1050,6 +1067,7 @@ pub fn fit_multi_surrogates_tracked(
     objective_names: &[String],
     model: SurrogateModelKind,
     minimize: &[bool],
+    param_bounds: Option<&[Option<(f64, f64)>]>,
     progress: &FitProgress,
 ) -> Result<Vec<TrainedSurrogate>, String> {
     let n_obj = objective_values.len();
@@ -1118,6 +1136,7 @@ pub fn fit_multi_surrogates_tracked(
             auto_select: false,
             constraints: vec![],
             priority_rows: priority.clone(),
+            param_bounds: param_bounds.map(|b| b.to_vec()),
         };
         // 学習データは間引き済み（N ≤ cap）なので、間引き・set_total を行わない
         // 本体を直接呼ぶ（各目的の inc_done が共有ハンドルに積み上がる）。

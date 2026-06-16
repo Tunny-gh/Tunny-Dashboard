@@ -148,6 +148,7 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
                     objective_names: vec![],
                     user_attr_names: vec![],
                     has_constraints: false,
+                    param_bounds: std::collections::HashMap::new(),
                 });
             }
             3 => {
@@ -402,6 +403,7 @@ fn stream_build_meta(
         objective_names,
         user_attr_names,
         has_constraints,
+        param_bounds: builder.param_bounds.clone(),
     }
 }
 

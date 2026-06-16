@@ -442,6 +442,7 @@ fn fit_and_optimize_on_trained_finds_quadratic_minimum() {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     };
     let trained = fit_surrogate_with_validation(&fit_req)
         .expect("fit_surrogate_with_validation should succeed");
@@ -506,6 +507,7 @@ fn param_importance_reflects_ard_for_gp_and_none_for_others() {
             auto_select: false,
             constraints: vec![],
             priority_rows: vec![],
+            param_bounds: None,
         };
         fit_surrogate_with_validation(&req).expect("fit should succeed")
     };
@@ -866,6 +868,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     })
     .expect("fit f1 should succeed");
     let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
@@ -877,6 +880,7 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     })
     .expect("fit f2 should succeed");
     (t1, t2)
@@ -1067,6 +1071,7 @@ fn lgbm_fit_validate_and_optimize_finds_minimum_region() {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     })
     .expect("LGBM fit & validation should succeed");
 
@@ -1140,6 +1145,7 @@ fn constrained_fit_req(x_matrix: Vec<Vec<f64>>, y: Vec<f64>, c: Vec<f64>) -> Sur
             values: c,
         }],
         priority_rows: vec![],
+        param_bounds: None,
     }
 }
 
@@ -1431,6 +1437,7 @@ fn fit_surrogate_with_validation_auto_select_end_to_end() {
         auto_select: true,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     };
     let trained = fit_surrogate_with_validation(&req).expect("auto fit should succeed");
 
@@ -1547,6 +1554,7 @@ fn fit_tracked_reports_progress_to_completion() {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     };
     let progress = FitProgress::new();
     let _ = fit_surrogate_with_validation_tracked(&req, &progress).expect("fit should succeed");
@@ -1569,6 +1577,7 @@ fn fit_tracked_cancel_before_start_returns_err() {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     };
     let progress = FitProgress::new();
     progress.request_cancel();
@@ -1595,6 +1604,7 @@ fn fit_multi_tracked_cancel_returns_err() {
         &obj_names,
         SurrogateModelKind::Ridge,
         &[true, true],
+        None,
         &progress,
     );
     assert!(res.is_err(), "cancelled multi fit should return Err");
@@ -1614,6 +1624,7 @@ fn fit_with_validation_subsamples_large_data() {
         auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
+        param_bounds: None,
     };
     let trained = fit_surrogate_with_validation(&req).expect("fit should succeed");
     assert!(

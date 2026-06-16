@@ -499,6 +499,7 @@ mod tests {
             auto_select: false,
             constraints: vec![],
             priority_rows: vec![],
+            param_bounds: None,
         })
         .expect("fit should succeed")
     }

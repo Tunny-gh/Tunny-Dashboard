@@ -144,6 +144,7 @@ mod tests {
             objective_names: vec![],
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, trial_rows)
     }

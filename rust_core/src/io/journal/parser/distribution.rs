@@ -3,9 +3,20 @@ use serde_json::Value;
 /// Documentation.
 #[derive(Debug)]
 pub(super) enum Distribution {
-    Float { log: bool },
-    Int { low: i64, step: i64, log: bool },
-    Categorical { choices: Vec<Value> },
+    Float {
+        low: f64,
+        high: f64,
+        log: bool,
+    },
+    Int {
+        low: i64,
+        high: i64,
+        step: i64,
+        log: bool,
+    },
+    Categorical {
+        choices: Vec<Value>,
+    },
     Uniform,
 }
 
@@ -27,6 +38,14 @@ impl Distribution {
             .unwrap_or("")
         {
             "FloatDistribution" => Distribution::Float {
+                low: attrs
+                    .get("low")
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(f64::NAN),
+                high: attrs
+                    .get("high")
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(f64::NAN),
                 log: attrs
                     .get("log")
                     .and_then(|value| value.as_bool())
@@ -37,6 +56,10 @@ impl Distribution {
                     .get("low")
                     .and_then(|value| value.as_i64())
                     .unwrap_or(0),
+                high: attrs
+                    .get("high")
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(i64::MIN),
                 step: attrs
                     .get("step")
                     .and_then(|value| value.as_i64())
@@ -59,16 +82,41 @@ impl Distribution {
     }
 
     /// Documentation.
+    /// 宣言レンジ (low, high) を表示単位で返す（Float / Int のみ）。
+    /// サロゲート最適化の探索範囲を真の変数範囲に一致させるために使う。
+    /// log スケールの low/high も表示（実数）空間の値なのでそのまま返す。
+    /// Categorical / Uniform、または値が欠落・退化（high ≤ low）の場合は None。
+    pub(super) fn bounds(&self) -> Option<(f64, f64)> {
+        match self {
+            Distribution::Float { low, high, .. } => {
+                if low.is_finite() && high.is_finite() && high > low {
+                    Some((*low, *high))
+                } else {
+                    None
+                }
+            }
+            Distribution::Int { low, high, .. } => {
+                if *high > *low {
+                    Some((*low as f64, *high as f64))
+                } else {
+                    None
+                }
+            }
+            Distribution::Categorical { .. } | Distribution::Uniform => None,
+        }
+    }
+
+    /// Documentation.
     pub(super) fn to_display_f64(&self, internal: f64) -> f64 {
         match self {
-            Distribution::Float { log } => {
+            Distribution::Float { log, .. } => {
                 if *log {
                     internal.exp()
                 } else {
                     internal
                 }
             }
-            Distribution::Int { low, step, log } => {
+            Distribution::Int { low, step, log, .. } => {
                 let rounded = if *log {
                     internal.exp().round() as i64
                 } else {

@@ -789,6 +789,13 @@ pub(crate) fn poll_chart_work(
                         vec![]
                     };
 
+                // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
+                // 宣言レンジがある列はそれを探索範囲とし、無い列は観測レンジにフォールバック。
+                let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
+                    .iter()
+                    .map(|p| ctx.meta.param_bounds.get(p).copied())
+                    .collect();
+
                 // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
                 let progress = tunny_core::surrogate_opt::FitProgress::new();
                 widgets.surrogate_opt.fit_progress = Some(progress.clone());
@@ -804,6 +811,7 @@ pub(crate) fn poll_chart_work(
                         auto_select: fit_req.auto_select,
                         constraints,
                         priority_rows: vec![],
+                        param_bounds: Some(param_bounds),
                     };
                     match tunny_core::surrogate_opt::fit_surrogate_with_validation_tracked(
                         &fit_core_req,
@@ -867,6 +875,12 @@ pub(crate) fn poll_chart_work(
                     })
                     .collect();
 
+                // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
+                let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
+                    .iter()
+                    .map(|p| ctx.meta.param_bounds.get(p).copied())
+                    .collect();
+
                 // フィット開始前に前の多目的結果をクリアする。
                 widgets.surrogate_opt.fitting = true;
                 widgets.surrogate_opt.multi_trained = None;
@@ -888,6 +902,7 @@ pub(crate) fn poll_chart_work(
                         &objective_names,
                         multi_fit_req.model,
                         &minimize_flags,
+                        Some(&param_bounds),
                         &progress,
                     ) {
                         Ok(trained_vec) => {

@@ -33,6 +33,7 @@ fn test_study_meta(study_id: u32, n_obj: usize) -> StudyMeta {
         objective_names: (0..n_obj).map(|i| format!("obj{}", i)).collect(),
         user_attr_names: vec![],
         has_constraints: false,
+        param_bounds: Default::default(),
     }
 }
 

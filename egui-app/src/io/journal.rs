@@ -25,6 +25,7 @@ pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
         objective_names: meta.objective_names,
         user_attr_names: meta.user_attr_names,
         has_constraints: meta.has_constraints,
+        param_bounds: meta.param_bounds,
     }
 }
 
@@ -111,6 +112,7 @@ mod tests {
             objective_names: vec!["y".to_string()],
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         };
         let app_meta = convert_study_meta(core_meta);
         assert_eq!(app_meta.directions[0], Direction::Minimize);
