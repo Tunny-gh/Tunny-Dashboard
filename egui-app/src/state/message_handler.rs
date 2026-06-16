@@ -147,18 +147,14 @@ impl MessageHandler {
                 DownsampleKey::Thumbnail => app_state.downsample_cache.thumbnail = Some(indices),
                 DownsampleKey::Hover => app_state.downsample_cache.hover = Some(indices),
             },
-            AppMessage::HvHistoryDone {
-                trial_ids,
-                hv_values,
-                sample_step,
-                ref_point,
+            AppMessage::IndicatorHistoryDone {
+                indicator,
+                base,
+                comparisons,
             } => {
-                app_state.hv_history = Some(HvHistory {
-                    trial_ids,
-                    hv_values,
-                    sample_step,
-                    ref_point,
-                });
+                app_state.convergence_indicator = indicator;
+                app_state.hv_history = Some(base);
+                app_state.comparison_hv_histories = comparisons;
                 widget_states.hv_history.computing = false;
             }
             AppMessage::Pdp2dDone(result) => {
@@ -209,7 +205,6 @@ impl MessageHandler {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: _, // studies arrive in dispatch order; sequential append is correct
                 context,
-                hv_history,
             } => {
                 // 3 つの並行 Vec（studies / colors / hv_histories）を同じ順序で揃える。
                 let idx = app_state.comparison_studies.len();
@@ -217,17 +212,16 @@ impl MessageHandler {
                 app_state
                     .comparison_colors
                     .push(crate::theme::color_compute::comparison_color_at(idx));
-                if let Some(hv) = hv_history {
-                    app_state.comparison_hv_histories.push(hv);
-                } else {
-                    // HV を計算できない Study でも色・studies と添字を揃えるため空履歴を入れる。
-                    app_state.comparison_hv_histories.push(HvHistory {
-                        trial_ids: Vec::new(),
-                        hv_values: Vec::new(),
-                        sample_step: 1,
-                        ref_point: Vec::new(),
-                    });
-                }
+                // プレースホルダーを追加して並行 Vec の添字を揃える。
+                // 実際の指標値は次回 poll_chart が base+全比較を一括再計算して上書きする。
+                app_state.comparison_hv_histories.push(HvHistory {
+                    trial_ids: Vec::new(),
+                    hv_values: Vec::new(),
+                    sample_step: 1,
+                    ref_point: Vec::new(),
+                });
+                // 基準 Study の指標を None にして統合再計算をトリガーする。
+                app_state.hv_history = None;
             }
             AppMessage::ArtifactsDirScanned {
                 trial_artifacts,
@@ -1094,7 +1088,6 @@ mod tests {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: 0,
                 context: Box::new(context),
-                hv_history: None,
             },
             &mut app_state,
             &mut widgets,

@@ -108,7 +108,9 @@ pub(crate) fn render_chart(
             widgets.hv_history.base_name = ctx.meta.name.clone();
             widgets.hv_history.objective_names = obj_names.clone();
             widgets.hv_history.ref_point_override = app_state.hv_ref_point_override.clone();
-            // 比較 Study の HV 履歴を色付き系列として渡し、同一グラフに重ねる。
+            // 現在選択中の収束指標をウィジェットへ伝達する。
+            widgets.hv_history.indicator = app_state.convergence_indicator;
+            // 比較 Study の指標推移を色付き系列として渡し、同一グラフに重ねる。
             widgets.hv_history.comparisons = app_state
                 .comparison_studies
                 .iter()
@@ -128,7 +130,14 @@ pub(crate) fn render_chart(
                 })
                 .collect();
             widgets.hv_history.show(ui);
-            // 参照点の変更要求を app_state へ反映し、HV を再計算させる。
+            // 指標変更要求を app_state へ反映し、再計算をトリガーする。
+            if let Some(new_ind) = widgets.hv_history.pending_indicator.take() {
+                if new_ind != app_state.convergence_indicator {
+                    app_state.convergence_indicator = new_ind;
+                    app_state.hv_history = None;
+                }
+            }
+            // 参照点の変更要求を app_state へ反映し、再計算させる。
             // 値が変わらない場合は再計算しない（DragValue の確定連発を吸収）。
             if let Some(change) = widgets.hv_history.pending_ref_point.take() {
                 use crate::ui::widgets::hv_history::RefPointChange;

@@ -189,7 +189,7 @@ pub(crate) fn poll_chart_work(
                     .map(|d| matches!(d, Direction::Minimize))
                     .collect();
 
-                // HV computation is expensive; downsample so each dispatch stays fast
+                // 計算コストを抑えるためダウンサンプリングする（最大 50 点）。
                 const TARGET_POINTS: usize = 50;
                 let n_trials = ctx.view.row_count();
                 let step = (n_trials / TARGET_POINTS).max(1);
@@ -209,6 +209,34 @@ pub(crate) fn poll_chart_work(
                     })
                     .collect();
 
+                // 比較 Study ごとに独立してダウンサンプリングする。
+                let mut comp_ids: Vec<Vec<u32>> = Vec::new();
+                let mut comp_objs: Vec<Vec<Vec<f64>>> = Vec::new();
+                let mut comp_steps: Vec<usize> = Vec::new();
+                for study in &app_state.comparison_studies {
+                    let comp_obj_names = &study.meta.objective_names;
+                    let cn = study.view.row_count();
+                    let cs = (cn / TARGET_POINTS).max(1);
+                    let comp_obj_cols = study.view.numeric_columns(comp_obj_names);
+                    let cidxs: Vec<usize> = (0..cn).step_by(cs).collect();
+                    let cids: Vec<u32> = cidxs
+                        .iter()
+                        .map(|&i| study.view.trial_ids.get(i).copied().unwrap_or(i as u32))
+                        .collect();
+                    let cobjs: Vec<Vec<f64>> = cidxs
+                        .iter()
+                        .map(|&i| {
+                            comp_obj_cols
+                                .iter()
+                                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                                .collect()
+                        })
+                        .collect();
+                    comp_ids.push(cids);
+                    comp_objs.push(cobjs);
+                    comp_steps.push(cs);
+                }
+
                 // ユーザー指定の参照点（元の目的値）を正規化空間へ変換して渡す。
                 // 次元が目的数と一致しない指定は無視（None 扱い）して自動算出に委ねる。
                 let ref_override_norm: Option<Vec<f64>> = app_state
@@ -217,25 +245,78 @@ pub(crate) fn poll_chart_work(
                     .filter(|r| r.len() == obj_names.len())
                     .map(|r| crate::state::ref_point_to_normalized(r, &is_minimize));
                 let is_minimize_for_back = is_minimize.clone();
+                let indicator = app_state.convergence_indicator;
 
                 widgets.hv_history.computing = true;
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
-                    let result = tunny_core::pareto::compute_hv_history_with_ref(
-                        &sampled_ids,
-                        &sampled_objs,
+                    use crate::state::results::HvHistory;
+                    use tunny_core::indicators::SeriesInput;
+
+                    // 全系列（基準 + 比較）を一括計算して共通参照セットで正規化する。
+                    let mut series = vec![SeriesInput {
+                        trial_ids: &sampled_ids,
+                        objectives: &sampled_objs,
+                    }];
+                    for i in 0..comp_ids.len() {
+                        series.push(SeriesInput {
+                            trial_ids: &comp_ids[i],
+                            objectives: &comp_objs[i],
+                        });
+                    }
+                    let hist = tunny_core::indicators::compute_indicator_histories(
+                        &series,
                         &is_minimize,
+                        indicator,
                         ref_override_norm.as_deref(),
                     );
-                    AppMessage::HvHistoryDone {
-                        trial_ids: result.trial_ids,
-                        hv_values: result.hv_values,
-                        sample_step: step,
-                        // 表示用に参照点を元の目的値の単位へ戻す。
-                        ref_point: crate::state::ref_point_to_original(
-                            &result.ref_point,
-                            &is_minimize_for_back,
-                        ),
+
+                    let base = if let Some(h) = hist.first() {
+                        HvHistory {
+                            trial_ids: h.trial_ids.clone(),
+                            hv_values: h.values.clone(),
+                            sample_step: step,
+                            // 表示用に参照点を元の目的値の単位へ戻す。
+                            ref_point: crate::state::ref_point_to_original(
+                                &h.ref_point,
+                                &is_minimize_for_back,
+                            ),
+                        }
+                    } else {
+                        HvHistory {
+                            trial_ids: Vec::new(),
+                            hv_values: Vec::new(),
+                            sample_step: step,
+                            ref_point: Vec::new(),
+                        }
+                    };
+
+                    let comparisons: Vec<HvHistory> = comp_steps
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &cs)| {
+                            if let Some(h) = hist.get(i + 1) {
+                                HvHistory {
+                                    trial_ids: h.trial_ids.clone(),
+                                    hv_values: h.values.clone(),
+                                    sample_step: cs,
+                                    ref_point: Vec::new(),
+                                }
+                            } else {
+                                HvHistory {
+                                    trial_ids: Vec::new(),
+                                    hv_values: Vec::new(),
+                                    sample_step: cs,
+                                    ref_point: Vec::new(),
+                                }
+                            }
+                        })
+                        .collect();
+
+                    AppMessage::IndicatorHistoryDone {
+                        indicator,
+                        base,
+                        comparisons,
                     }
                 });
             }

@@ -204,7 +204,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
 pub fn csv_export_filename(chart_id: &ChartId) -> String {
     let name = match chart_id {
         ChartId::OptimizationHistory => "optimization_history",
-        ChartId::HvHistory => "hv_history",
+        ChartId::HvHistory => "convergence_indicators",
         ChartId::ImportanceChart => "importance_chart",
         ChartId::PdpChart => "pdp_chart",
         ChartId::PdpChart2D => "pdp_chart_2d",
@@ -264,7 +264,8 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
 
 fn build_hv_history_csv(app_state: &AppState) -> Option<String> {
     let hv = app_state.hv_history.as_ref()?;
-    let mut csv = String::from("trial_index,hypervolume\n");
+    let label = app_state.convergence_indicator.label();
+    let mut csv = format!("trial_index,{}\n", label);
     for (i, &hv_val) in hv.hv_values.iter().enumerate() {
         let trial_idx = i * hv.sample_step;
         csv.push_str(&format!("{},{}\n", trial_idx, hv_val));
@@ -779,11 +780,12 @@ mod tests {
                 sample_step: 5,
                 ref_point: vec![],
             }),
+            // convergence_indicator は AppState::default() で Hypervolume に初期化される。
             ..AppState::default()
         };
         let csv = build_hv_history_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "trial_index,hypervolume");
+        assert_eq!(lines[0], "trial_index,Hypervolume");
         assert_eq!(lines[1], "0,0.1");
         assert_eq!(lines[2], "5,0.5");
         assert_eq!(lines[3], "10,0.8");

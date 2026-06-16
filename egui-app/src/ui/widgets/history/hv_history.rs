@@ -1,7 +1,8 @@
 use crate::state::app_state::HvHistory;
 use crate::theme::chart_colors::COLOR_HV_LINE;
+use tunny_core::indicators::MoIndicator;
 
-/// 1 本の HV 推移系列（凡例名 + 色 + データ）。
+/// 1 本の指標推移系列（凡例名 + 色 + データ）。
 pub struct HvSeries {
     pub name: String,
     pub color: egui::Color32,
@@ -17,8 +18,7 @@ pub enum RefPointChange {
     Manual(Vec<f64>),
 }
 
-/// Hypervolume 推移チャートウィジェット
-#[derive(Default)]
+/// 多目的収束指標チャートウィジェット（HV / IGD+ / ε-indicator / R2）
 pub struct HvHistoryChart {
     pub hv_history: Option<HvHistory>,
     pub computing: bool,
@@ -33,20 +33,41 @@ pub struct HvHistoryChart {
     pub ref_point_override: Option<Vec<f64>>,
     /// 参照点指定の変更要求（render_chart が `.take()` して app_state へ反映する）。
     pub pending_ref_point: Option<RefPointChange>,
+    /// 現在表示中の収束指標（render_chart が毎フレーム app_state からセットする）。
+    pub indicator: MoIndicator,
+    /// 指標変更要求（render_chart が `.take()` して app_state へ反映する）。
+    pub pending_indicator: Option<MoIndicator>,
     /// 目的ごとの入力バッファ（Manual 編集中の値を確定まで保持）。
     ref_point_buf: Vec<f64>,
 }
 
+impl Default for HvHistoryChart {
+    fn default() -> Self {
+        Self {
+            hv_history: None,
+            computing: false,
+            base_name: String::new(),
+            objective_names: Vec::new(),
+            comparisons: Vec::new(),
+            ref_point_override: None,
+            pending_ref_point: None,
+            indicator: MoIndicator::Hypervolume,
+            pending_indicator: None,
+            ref_point_buf: Vec::new(),
+        }
+    }
+}
+
 impl HvHistoryChart {
     /// グローバル widget（処理済みの正状態）から実行フラグのみを取り込む。
-    /// HV データは `app_state.hv_history` に集約され描画時に毎フレーム反映されるため、
+    /// 指標データは `app_state.hv_history` に集約され描画時に毎フレーム反映されるため、
     /// キャンバスの各アイテム（独立した WidgetStates）には computing のみ同期すればよい。
     /// これを行わないと計算完了後もアイテム側の computing が下りず spinner が回り続ける。
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
     }
 
-    /// `history` のサンプリングステップを使って (x=連番×step, y=hv) の点列を作る。
+    /// `history` のサンプリングステップを使って (x=連番×step, y=値) の点列を作る。
     /// X 軸はサンプリング順の連番 × ステップ (0, step, 2*step, …)。
     /// trial_id は途中試行から始まる場合があり 0 スタートにならないため使わない。
     fn to_points(history: &HvHistory) -> Vec<[f64; 2]> {
@@ -59,7 +80,7 @@ impl HvHistoryChart {
             .collect()
     }
 
-    /// 参照点コントロールを描画する（多目的のときのみ）。
+    /// 参照点コントロールを描画する（多目的 + HV 選択時のみ）。
     /// Auto チェックで自動算出に戻し、外すと目的ごとの数値フィールドで入力できる。
     /// 値の確定（フォーカスアウト / ドラッグ終了）時のみ `pending_ref_point` を立てて
     /// 再計算をトリガーし、入力途中の連続再計算を防ぐ。
@@ -134,26 +155,59 @@ impl HvHistoryChart {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        // 参照点コントロールは spinner / データ無しでも常に操作できるよう先に描画する。
-        self.show_ref_point_controls(ui);
+        // 単目的（または目的数未確定）の場合は収束指標を描画しない。
+        if self.objective_names.len() < 2 {
+            ui.label("Convergence indicators are defined only for multi-objective studies (≥2 objectives).");
+            return;
+        }
+
+        // 指標セレクタ
+        let mut new_indicator = self.indicator;
+        egui::ComboBox::from_id_salt("convergence_indicator")
+            .selected_text(self.indicator.label())
+            .show_ui(ui, |ui| {
+                for ind in MoIndicator::all() {
+                    ui.selectable_value(&mut new_indicator, ind, ind.label());
+                }
+            });
+        if new_indicator != self.indicator {
+            self.pending_indicator = Some(new_indicator);
+        }
+
+        // 方向キャプション
+        let direction_text = if self.indicator.higher_is_better() {
+            "Higher is better"
+        } else {
+            "Lower is better"
+        };
+        ui.label(
+            egui::RichText::new(direction_text)
+                .small()
+                .color(crate::theme::TEXT_SECONDARY),
+        );
+
+        // 参照点コントロールは HV 選択時のみ表示する。
+        if self.indicator == MoIndicator::Hypervolume {
+            self.show_ref_point_controls(ui);
+        }
 
         if self.computing {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Computing hypervolume...");
+                ui.label(format!("Computing {}...", self.indicator.label()));
             });
             return;
         }
 
         let Some(history) = &self.hv_history else {
-            ui.label("No hypervolume data");
+            ui.label(format!("No {} data", self.indicator.label()));
             return;
         };
 
         let step = history.sample_step;
         let base_points = Self::to_points(history);
         let base_label = if self.base_name.is_empty() {
-            "Hypervolume".to_string()
+            self.indicator.label().to_string()
         } else {
             self.base_name.clone()
         };
@@ -180,7 +234,7 @@ impl HvHistoryChart {
         egui_plot::Plot::new("hv_history_plot")
             .legend(egui_plot::Legend::default())
             .x_axis_label("Trial")
-            .y_axis_label("Hypervolume")
+            .y_axis_label(self.indicator.label())
             .include_x(0.0)
             .show(ui, |plot_ui| {
                 // 基準 Study
@@ -230,6 +284,9 @@ mod tests {
         // 既定は Auto（override なし）・変更要求なし。
         assert!(chart.ref_point_override.is_none());
         assert!(chart.pending_ref_point.is_none());
+        // 既定の指標は Hypervolume。
+        assert_eq!(chart.indicator, MoIndicator::Hypervolume);
+        assert!(chart.pending_indicator.is_none());
     }
 
     #[test]
@@ -273,5 +330,24 @@ mod tests {
         assert_eq!(points[0][0], 0.0);
         assert_eq!(points[1][0], 50.0);
         assert_eq!(points[2][0], 100.0);
+    }
+
+    #[test]
+    fn indicator_variants_accessible() {
+        // 全 4 指標が列挙可能であることを確認する。
+        let all = MoIndicator::all();
+        assert_eq!(all.len(), 4);
+        assert!(all.contains(&MoIndicator::Hypervolume));
+        assert!(all.contains(&MoIndicator::IgdPlus));
+        assert!(all.contains(&MoIndicator::Epsilon));
+        assert!(all.contains(&MoIndicator::R2));
+    }
+
+    #[test]
+    fn indicator_higher_is_better_only_for_hv() {
+        assert!(MoIndicator::Hypervolume.higher_is_better());
+        assert!(!MoIndicator::IgdPlus.higher_is_better());
+        assert!(!MoIndicator::Epsilon.higher_is_better());
+        assert!(!MoIndicator::R2.higher_is_better());
     }
 }

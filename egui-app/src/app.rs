@@ -62,7 +62,7 @@ impl ComputeSyncKind {
             | AppMessage::SurrogateSuggestFailed(_)
             | AppMessage::SurrogateMultiSuggestDone(_)
             | AppMessage::SurrogateMultiSuggestFailed(_) => Some(Self::SurrogateSuggest),
-            AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
+            AppMessage::IndicatorHistoryDone { .. } => Some(Self::HvHistory),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
             _ => None,
         }
@@ -552,13 +552,18 @@ mod tests {
 
     #[test]
     fn hv_history_done_maps_to_compute_sync() {
-        // 回帰防止: HvHistoryDone が sync 対象から漏れると、計算完了後も
+        // 回帰防止: IndicatorHistoryDone が sync 対象から漏れると、計算完了後も
         // キャンバスアイテムの computing が下りず spinner が回り続ける。
-        let msg = AppMessage::HvHistoryDone {
-            trial_ids: vec![0, 1],
-            hv_values: vec![1.0, 2.0],
-            sample_step: 1,
-            ref_point: vec![],
+        use crate::state::app_state::HvHistory;
+        let msg = AppMessage::IndicatorHistoryDone {
+            indicator: tunny_core::indicators::MoIndicator::Hypervolume,
+            base: HvHistory {
+                trial_ids: vec![],
+                hv_values: vec![],
+                sample_step: 1,
+                ref_point: vec![],
+            },
+            comparisons: vec![],
         };
         assert!(matches!(
             ComputeSyncKind::from_message(&msg),

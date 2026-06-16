@@ -1,22 +1,32 @@
-# Hypervolume History
+# Convergence Indicators
 
 ## Overview
 
-The Hypervolume History chart tracks the **hypervolume indicator (HV)** — a scalar measure of how well the current Pareto front covers the objective space — as trials accumulate. A higher hypervolume means a better-spread and higher-quality Pareto front.
+The Convergence Indicators widget tracks how well the current Pareto front covers the objective space as trials accumulate. A dropdown lets you switch among four multi-objective convergence indicators:
 
-Hypervolume is the volume of the objective space dominated by the current Pareto front and bounded by a reference point.
+| Indicator | Direction | Description |
+|-----------|-----------|-------------|
+| **Hypervolume (HV)** | Higher is better | Volume of objective space dominated by the Pareto front and bounded by a reference point. |
+| **IGD+** | Lower is better | Modified Inverted Generational Distance — average distance from a reference set to the nearest Pareto-front point. |
+| **ε-indicator** | Lower is better | Smallest ε such that every reference-set point is ε-dominated by some Pareto-front point. |
+| **R2** | Lower is better | Utility-based indicator measuring expected gap from an ideal reference set. |
+
+> **Note:** These indicators are defined only for multi-objective studies with ≥ 2 objectives.
+
+## Comparison Studies
+
+When comparison studies are added, all series are evaluated against a **shared reference set** (computed from the union of all studies) and normalized to [0, 1] so they are directly comparable on the same chart.
 
 ## Operations
 
+- **Indicator selector**: Use the dropdown at the top to switch indicators. The chart recomputes automatically.
 - **Zoom**: Scroll the mouse wheel to zoom into a range of trials.
 - **Pan**: Click and drag to pan along the trial axis.
-- **Hover**: Hover over a data point to see the trial number and current hypervolume value.
-- **Reference point**: the reference point used for HV calculation is set from the study configuration.
+- **Reference point** (Hypervolume only): Override the auto-computed nadir + 10 % margin reference point per objective.
 
 ## How to Read
 
-- **Monotonically increasing curve**: each new trial either adds a non-dominated solution (increasing HV) or is dominated (HV unchanged). A correctly implemented multi-objective optimizer always shows non-decreasing HV.
-- **Steep early rise, then flattening**: the optimizer found good solutions quickly but is now struggling to improve — typical near convergence.
-- **Sudden jump**: a new trial significantly extended the Pareto front — a breakthrough solution was found.
-- **Plateau (flat line)**: no improvement in Pareto front quality. The optimizer may have converged or needs more trials / a different sampler.
-- **Compare across studies**: use HV history to compare the convergence speed of different samplers or parameter settings on the same problem.
+- **Monotonically improving curve**: each new trial either extends the Pareto front (improving the indicator) or is dominated (indicator unchanged).
+- **Steep early rise / fall, then flattening**: the optimizer found good solutions quickly but is now struggling to improve — typical near convergence.
+- **Sudden jump / drop**: a breakthrough solution significantly extended the Pareto front.
+- **Plateau**: no improvement in Pareto front quality. The optimizer may have converged or need more trials.

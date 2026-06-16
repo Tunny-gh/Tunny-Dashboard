@@ -56,7 +56,7 @@ impl ChartId {
             ChartId::PdpChart => "PDP Chart",
             ChartId::PdpChart2D => "PDP Chart 2D",
             ChartId::OptimizationHistory => "Optimization History",
-            ChartId::HvHistory => "Hypervolume History",
+            ChartId::HvHistory => "Convergence Indicators",
             ChartId::SensitivityHeatmap => "Sensitivity Heatmap",
             ChartId::ClusterScatter => "Cluster Scatter 2D",
             ChartId::ClusterScatter3D => "Cluster Scatter 3D",

@@ -6,6 +6,7 @@ use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 use std::collections::HashMap;
+use tunny_core::indicators::MoIndicator;
 
 // ============================================================
 // AppState
@@ -75,6 +76,10 @@ pub struct AppState {
     // ── HTML Help Browser ──────────────────────────────────────
     /// ヘルプ表示言語（selected_colormap と同じパターンで clear() でリセットしない）
     pub help_language: HelpLanguage,
+
+    // ── 収束指標選択 ───────────────────────────────────────────
+    /// 収束指標チャートで表示中の指標（ビュー設定として clear() でリセットしない）
+    pub convergence_indicator: MoIndicator,
 }
 
 impl AppState {
@@ -107,6 +112,7 @@ impl AppState {
             pinned_trials: Vec::new(),
             comparison_base_study: None,
             help_language: HelpLanguage::default(),
+            convergence_indicator: MoIndicator::Hypervolume,
         }
     }
 
