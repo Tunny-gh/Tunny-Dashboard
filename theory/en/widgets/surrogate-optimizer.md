@@ -5,19 +5,24 @@ The surrogate optimizer fits a response surface (surrogate model) to the sampled
 ## Workflow
 
 1. Select the objective, the surrogate model, and the optimization method.
-2. Click **Run Optimization**. The surrogate is trained on all completed trials and the optimizer searches the surface within the sampled parameter ranges.
-3. The estimated optimum is shown as a parameter table together with the predicted objective value, and is marked on a 2D slice of the response surface through the optimum.
+2. Click **Run Optimization**. The surrogate is trained on all completed trials and the optimizer searches within each parameter's declared range from the log (falling back to the sampled parameter ranges when the declared range is unavailable).
+3. The estimated optimum is shown in a TrialTable-style table with the predicted objective value. In multi-objective mode the predicted Pareto front is shown as a scatter plot inside the widget, and observed trials can be overlaid (see "Results display" below).
 
-## Slice uncertainty overlay
+## Results display
 
-When a GP surrogate is used, the 2D response-surface slice can also show the model's predictive uncertainty. A **Show uncertainty (±σ)** toggle (off by default) appears below the slice; enabling it overlays a translucent grey tint that grows darker where the predicted standard deviation is high, fading out regions the surrogate is unsure about. Non-GP models have no posterior variance, so the toggle does not appear.
+- **Optimal variable combination** — the estimated optimum (in multi-objective mode, each predicted Pareto-front point) is shown in a TrialTable-style table with striped rows, resizable columns, and horizontal scroll, listing parameter values alongside the predicted objective value(s).
+- **Predicted Pareto front scatter (multi-objective)** — the predicted front is displayed as an objective-space scatter plot inside the widget. For two objectives it is a fixed 2D (obj0 × obj1) plot; for three or more a **3D view** toggle switches between 2D and 3D, with X/Y (and Z in 3D) axis selectors. The front is also overlaid in gold on the ParetoScatter widget.
+- **Observed-point overlay** — existing trials can be overlaid on the scatter so you can compare the predicted front against real results. Points are classified using the same convention as the other scatter charts: **observed Pareto front (red) / dominated (blue) / infeasible (grey)**, each with an individual on/off toggle. The axis scale encompasses both front and observed points.
+- **Optimization-history plot (single-objective)** — the objective-value history across all trials, with the predicted optimum highlighted via a horizontal line and a star marker.
+
+The response-surface (heatmap) slice display has been removed. Surrogate fit can be assessed via the validation plot, and optimization improvement via the predicted front or history plot.
 
 ## Surrogate models
 
 - **GP-FITC** — Gaussian process regression (Kriging) with ARD Matérn 5/2 kernel backed by egobox-gp. FITC sparse approximation with M = min(N, 100) inducing points; trains on up to 2000 trials (larger sets are subsampled, see below). Provides predictive uncertainty ($\pm 1.96\sigma$). Default GP choice.
 - **GP-VFE** — Same architecture as GP-FITC but uses the Variational Free Energy bound instead of FITC likelihood. Produces a slightly smoother, more conservative fit; recommended when GP-FITC surface looks overfit or spiky.
 - **GP-MOE** — Mixture-of-experts GP via egobox-moe. Clusters the input space with a Gaussian Mixture Model and trains one FITC expert per cluster (up to 3, selected by cross-validation on ≤ 500 points). Best for discontinuous or regime-switching objectives. If training fails, an error is reported rather than silently falling back.
-- **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the sampled ranges.
+- **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the declared range (search range).
 
 ## Automatic model selection
 
@@ -28,6 +33,12 @@ Choosing **Auto (cross-validated)** in the model selector lets the tool pick the
 - **Tie-break**: candidates whose CV R² is within 1e-3 of the best are treated as tied, and the *earlier* (simpler, cheaper) candidate in the order above is chosen. On perfectly linear data, where both Ridge and a GP reach R² ≈ 1, this keeps the simpler Ridge.
 
 After an Auto fit, the widget shows which model was chosen and the ranked candidate CV R² scores. The chosen concrete model is used for everything downstream (acquisition suggestions, constraints).
+
+## Validation plot (predicted vs actual)
+
+After **Fit & Validate**, an out-of-fold predicted-vs-actual scatter is shown. The closer the points cluster along the $y = x$ diagonal, the better the surrogate generalizes to unseen data.
+
+For multi-objective fits, **Pareto-front (non-dominated, rank 0) trials are highlighted in red** (all others in blue), and the out-of-fold $R^2$ / RMSE computed on front points only is shown above the plot. Even when the overall fit looks good, the front region that actually drives optimization can still be systematically off; this breakdown lets you judge approximation accuracy specifically near the front. Single-objective fits have no front concept, so all points remain blue.
 
 ## Optimization methods
 
@@ -82,7 +93,7 @@ See [Acquisition Functions — Constraint-aware acquisition functions](../optimi
 
 ## Notes
 
-- The search is constrained to the hyper-box spanned by the sampled parameter values; the surrogate is not trusted to extrapolate beyond the data.
+- The search is bounded by each parameter's declared range recorded in the log (the search space). The optimizer can explore unobserved-but-valid regions within that range but never leaves it. Parameters without a declared numeric range (categorical variables or legacy Uniform-format parameters) fall back to the sampled range. GP predictions grow increasingly uncertain away from the data, so check the validation plot and predictive uncertainty alongside the results.
 - The objective direction (minimize / maximize) is taken from the study metadata.
 - $R^2$ reports how well the surrogate fits the training data. A low $R^2$ means the estimated optimum should not be trusted.
 - The predicted optimum is a model estimate — validate it with a real evaluation before relying on it.
