@@ -1,6 +1,6 @@
 use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
 use crate::state::messages::{AppMessage, DownsampleKey};
-use crate::state::results::HvHistory;
+use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
 use std::collections::HashMap;
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
@@ -55,7 +55,7 @@ impl MessageHandler {
                         return;
                     }
                 }
-                widget_states.hv_history.computing = false;
+                widget_states.convergence.computing = false;
                 widget_states.cluster_scatter = Default::default();
                 widget_states.reset_infeasible_flags();
                 *is_loading = false;
@@ -147,19 +147,15 @@ impl MessageHandler {
                 DownsampleKey::Thumbnail => app_state.downsample_cache.thumbnail = Some(indices),
                 DownsampleKey::Hover => app_state.downsample_cache.hover = Some(indices),
             },
-            AppMessage::HvHistoryDone {
-                trial_ids,
-                hv_values,
-                sample_step,
-                ref_point,
+            AppMessage::IndicatorHistoryDone {
+                indicator,
+                base,
+                comparisons,
             } => {
-                app_state.hv_history = Some(HvHistory {
-                    trial_ids,
-                    hv_values,
-                    sample_step,
-                    ref_point,
-                });
-                widget_states.hv_history.computing = false;
+                app_state.convergence_indicator = indicator;
+                app_state.convergence_history = Some(base);
+                app_state.comparison_convergence_histories = comparisons;
+                widget_states.convergence.computing = false;
             }
             AppMessage::Pdp2dDone(result) => {
                 widget_states.pdp_2d.result = Some(result);
@@ -209,7 +205,6 @@ impl MessageHandler {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: _, // studies arrive in dispatch order; sequential append is correct
                 context,
-                hv_history,
             } => {
                 // 3 つの並行 Vec（studies / colors / hv_histories）を同じ順序で揃える。
                 let idx = app_state.comparison_studies.len();
@@ -217,17 +212,18 @@ impl MessageHandler {
                 app_state
                     .comparison_colors
                     .push(crate::theme::color_compute::comparison_color_at(idx));
-                if let Some(hv) = hv_history {
-                    app_state.comparison_hv_histories.push(hv);
-                } else {
-                    // HV を計算できない Study でも色・studies と添字を揃えるため空履歴を入れる。
-                    app_state.comparison_hv_histories.push(HvHistory {
+                // プレースホルダーを追加して並行 Vec の添字を揃える。
+                // 実際の指標値は次回 poll_chart が base+全比較を一括再計算して上書きする。
+                app_state
+                    .comparison_convergence_histories
+                    .push(ConvergenceHistory {
                         trial_ids: Vec::new(),
-                        hv_values: Vec::new(),
+                        values: Vec::new(),
                         sample_step: 1,
                         ref_point: Vec::new(),
                     });
-                }
+                // 基準 Study の指標を None にして統合再計算をトリガーする。
+                app_state.convergence_history = None;
             }
             AppMessage::ArtifactsDirScanned {
                 trial_artifacts,
@@ -481,7 +477,7 @@ impl MessageHandler {
         if start_fresh {
             // 後続機能がアクティブ DataFrame を参照できるよう早期に活性化する。
             let _ = tunny_core::dataframe::select_study(study_id);
-            widget_states.hv_history.computing = false;
+            widget_states.convergence.computing = false;
             widget_states.cluster_scatter = Default::default();
             widget_states.cluster_scatter_3d.clear_runtime_state();
             widget_states.trial_table.cluster.clear_runtime_state();
@@ -1083,7 +1079,6 @@ mod tests {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: 0,
                 context: Box::new(context),
-                hv_history: None,
             },
             &mut app_state,
             &mut widgets,
@@ -1095,7 +1090,7 @@ mod tests {
         assert_eq!(app_state.comparison_studies[0].meta.study_id, 99);
         // 並行 Vec が同じ長さに揃うこと
         assert_eq!(app_state.comparison_colors.len(), 1);
-        assert_eq!(app_state.comparison_hv_histories.len(), 1);
+        assert_eq!(app_state.comparison_convergence_histories.len(), 1);
     }
 
     #[test]

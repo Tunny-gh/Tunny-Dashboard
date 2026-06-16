@@ -6,6 +6,7 @@ use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 use std::collections::HashMap;
+use tunny_core::indicators::MoIndicator;
 
 // ============================================================
 // AppState
@@ -36,10 +37,10 @@ pub struct AppState {
     /// MCDM 結果のキャッシュ。設定キー（手法 / 重みモード / 重み / v）ごとに保持し、
     /// 各チャート（Ranking / Scatter / Scatter3D / Table）が各自の設定で参照・共有する。
     pub mcdm_cache: HashMap<McdmCacheKey, McdmResult>,
-    pub hv_history: Option<HvHistory>,
+    pub convergence_history: Option<ConvergenceHistory>,
     /// HV 参照点のユーザー指定（元の目的値の単位・目的ごと）。
     /// `None` のときは観測点から自動算出する（nadir + 10% マージン）。
-    /// 変更時は `hv_history` を None にして再計算をトリガーする。
+    /// 変更時は `convergence_history` を None にして再計算をトリガーする。
     pub hv_ref_point_override: Option<Vec<f64>>,
     pub selected_colormap: ColormapName,
 
@@ -52,9 +53,9 @@ pub struct AppState {
     /// state 層から egui 依存を排除するため UI 型ではなく生配列で保持する。
     /// 描画時は `crate::theme::color_compute::rgba_to_color32` で Color32 へ変換する。
     pub comparison_colors: Vec<[u8; 4]>,
-    /// 比較スタディの Hypervolume 推移（`comparison_studies` と同じ順序・要素数）。
-    /// HV 履歴チャートで基準 Study と同一グラフに重ね描きするために保持する。
-    pub comparison_hv_histories: Vec<HvHistory>,
+    /// 比較スタディの収束指標推移（`comparison_studies` と同じ順序・要素数）。
+    /// 収束指標チャートで基準 Study と同一グラフに重ね描きするために保持する。
+    pub comparison_convergence_histories: Vec<ConvergenceHistory>,
 
     // ── REQ-007: Artifacts ────────────────────────────────────
     /// スキャン済みの artifacts ベースディレクトリ
@@ -75,6 +76,10 @@ pub struct AppState {
     // ── HTML Help Browser ──────────────────────────────────────
     /// ヘルプ表示言語（selected_colormap と同じパターンで clear() でリセットしない）
     pub help_language: HelpLanguage,
+
+    // ── 収束指標選択 ───────────────────────────────────────────
+    /// 収束指標チャートで表示中の指標（ビュー設定として clear() でリセットしない）
+    pub convergence_indicator: MoIndicator,
 }
 
 impl AppState {
@@ -94,19 +99,20 @@ impl AppState {
             live_update: LiveUpdateState::default(),
             mcdm_result: None,
             mcdm_cache: HashMap::new(),
-            hv_history: None,
+            convergence_history: None,
             hv_ref_point_override: None,
             selected_colormap: ColormapName::Viridis,
             comparison_mode: false,
             comparison_studies: Vec::new(),
             comparison_colors: Vec::new(),
-            comparison_hv_histories: Vec::new(),
+            comparison_convergence_histories: Vec::new(),
             artifacts_dir: None,
             artifact_map: HashMap::new(),
             best_trial_history: None,
             pinned_trials: Vec::new(),
             comparison_base_study: None,
             help_language: HelpLanguage::default(),
+            convergence_indicator: MoIndicator::Hypervolume,
         }
     }
 
@@ -138,7 +144,7 @@ impl AppState {
         self.comparison_mode = false;
         self.comparison_studies.clear();
         self.comparison_colors.clear();
-        self.comparison_hv_histories.clear();
+        self.comparison_convergence_histories.clear();
         self.comparison_base_study = None;
     }
 
@@ -153,7 +159,7 @@ impl AppState {
         self.cluster_cache.clear();
         self.mcdm_result = None;
         self.mcdm_cache.clear();
-        self.hv_history = None;
+        self.convergence_history = None;
         // 参照点は目的のスケールに依存するため Study 切り替えでリセットする。
         self.hv_ref_point_override = None;
         self.downsample_cache.clear();

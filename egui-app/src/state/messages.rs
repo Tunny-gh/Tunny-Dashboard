@@ -2,7 +2,7 @@ use crate::state::app_state::{
     ClusterResult, HeatmapMatrix, McdmResult, SensitivityResult, SobolResult, StudyContext,
     StudyMeta,
 };
-use crate::state::results::{EntropyResult, HvHistory};
+use crate::state::results::{ConvergenceHistory, EntropyResult};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 
@@ -278,12 +278,14 @@ pub enum AppMessage {
     LiveUpdateError(String),
     /// 60秒間ファイル変化がなく最適化完了の可能性を検出した
     LiveUpdateMaybeComplete,
-    HvHistoryDone {
-        trial_ids: Vec<u32>,
-        hv_values: Vec<f64>,
-        sample_step: usize,
-        /// HV 計算に使用した参照点（元の目的値の単位）。
-        ref_point: Vec<f64>,
+    /// 収束指標（HV / IGD+ / ε / R2）の推移計算が完了した。
+    /// 基準 Study と比較 Study の全系列を一括計算し、共通参照セットで正規化する。
+    IndicatorHistoryDone {
+        indicator: tunny_core::indicators::MoIndicator,
+        /// 基準 Study の指標推移。
+        base: ConvergenceHistory,
+        /// 比較 Study の指標推移（comparison_studies と同じ順序）。
+        comparisons: Vec<ConvergenceHistory>,
     },
     Error(String),
     SensitivityError(String),
@@ -293,9 +295,6 @@ pub enum AppMessage {
     ComparisonStudyLoaded {
         study_idx: usize,
         context: Box<StudyContext>,
-        /// 比較 Study の Hypervolume 推移（同一グラフ重ね描き用）。
-        /// 単目的など HV を計算できない場合は `None`。
-        hv_history: Option<HvHistory>,
     },
     /// REQ-007: Artifacts ディレクトリスキャン完了
     ArtifactsDirScanned {

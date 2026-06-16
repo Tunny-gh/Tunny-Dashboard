@@ -17,7 +17,7 @@ pub(super) fn dominates_minimized(a: &[f64], b: &[f64]) -> bool {
 /// Documentation.
 ///
 /// Documentation.
-pub(super) fn normalize_objectives(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<Vec<f64>> {
+pub(crate) fn normalize_objectives(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<Vec<f64>> {
     objectives
         .iter()
         .map(|obj| {
@@ -36,7 +36,7 @@ pub(super) fn normalize_objectives(objectives: &[Vec<f64>], is_minimize: &[bool]
 }
 
 /// 点をパレートフロントに追加する。支配されていれば何もしない。
-pub(super) fn add_to_pareto_front(front: &mut Vec<Vec<f64>>, point: Vec<f64>) {
+pub(crate) fn add_to_pareto_front(front: &mut Vec<Vec<f64>>, point: Vec<f64>) {
     if front.iter().any(|f| dominates_minimized(f, &point)) {
         return;
     }
@@ -47,7 +47,7 @@ pub(super) fn add_to_pareto_front(front: &mut Vec<Vec<f64>>, point: Vec<f64>) {
 /// Documentation.
 ///
 /// Documentation.
-pub(super) fn compute_ref_point(pareto_objs: &[Vec<f64>], m: usize) -> Vec<f64> {
+pub(crate) fn compute_ref_point(pareto_objs: &[Vec<f64>], m: usize) -> Vec<f64> {
     let mut nadir = vec![f64::NEG_INFINITY; m];
     let mut ideal = vec![f64::INFINITY; m];
     for obj in pareto_objs {

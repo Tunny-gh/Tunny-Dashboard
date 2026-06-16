@@ -22,6 +22,7 @@ pub use mcdm::entropy;
 pub use mcdm::promethee;
 pub use mcdm::topsis;
 pub use mcdm::vikor;
+pub use multi_objective::indicators;
 pub use multi_objective::pareto;
 
 #[cfg(test)]

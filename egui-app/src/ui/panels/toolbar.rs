@@ -559,7 +559,6 @@ mod tests {
             AppMessage::ComparisonStudyLoaded {
                 study_idx: 0,
                 context: Box::new(context),
-                hv_history: None,
             },
             &mut app_state,
             &mut widgets,

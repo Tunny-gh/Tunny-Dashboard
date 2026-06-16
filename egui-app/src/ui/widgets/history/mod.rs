@@ -1,2 +1,2 @@
-pub mod hv_history;
+pub mod convergence;
 pub mod optimization_history;

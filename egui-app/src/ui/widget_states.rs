@@ -1,7 +1,7 @@
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, cluster_scatter::ClusterScatter,
-    cluster_scatter_3d::ClusterScatter3D, hv_history::HvHistoryChart,
+    cluster_scatter_3d::ClusterScatter3D, convergence::ConvergenceChart,
     importance_chart::ImportanceChart, mcdm_chart::McdmRankChart,
     mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
@@ -291,7 +291,7 @@ pub struct WidgetStates {
     pub pareto_2d: ParetoScatter2D,
     pub pareto_3d: Pareto3dChart,
     pub opt_history: OptimizationHistoryChart,
-    pub hv_history: HvHistoryChart,
+    pub convergence: ConvergenceChart,
     pub importance: ImportanceChart,
     pub pdp_chart: PdpChart,
     pub pdp_2d: PdpChart2DState,

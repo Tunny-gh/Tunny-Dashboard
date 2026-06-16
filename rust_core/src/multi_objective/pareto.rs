@@ -12,6 +12,7 @@ mod ranking;
 mod tradeoff;
 mod types;
 
+pub(crate) use helpers::{add_to_pareto_front, compute_ref_point, normalize_objectives};
 pub use hypervolume::{
     compute_hv_history_from_data, compute_hv_history_with_ref, compute_hypervolume_history,
     hypervolume_2d, hypervolume_nd,

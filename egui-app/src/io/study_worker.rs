@@ -3,9 +3,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, OnceLock};
 
-use crate::state::app_state::{Direction, StudyMeta};
+use crate::state::app_state::StudyMeta;
 use crate::state::messages::AppMessage;
-use crate::state::results::HvHistory;
 
 use tunny_core::dataframe::DataFrame;
 
@@ -145,14 +144,12 @@ pub fn dispatch_load_comparison_study(
     });
 }
 
-/// 比較 Study の DataFrame スナップショットから `StudyContext` と HV 履歴を構築する。
-/// Pareto ランクはこの用途（HV 重ね描き）では不要なため計算せず 0 埋めする
+/// 比較 Study の DataFrame スナップショットから `StudyContext` を構築する。
+/// Pareto ランクはこの用途では不要なため計算せず空で初期化する
 /// （`StudyView::new` が空ベクタを行数分の 0 に補完する）。
+/// 指標値の計算は `poll_chart` が base+全比較を一括で行う。
 fn build_comparison_loaded(meta: StudyMeta, study_idx: usize, df: &Arc<DataFrame>) -> AppMessage {
     use crate::state::app_state::{StudyContext, StudyView};
-
-    let is_minimize = directions_to_is_minimize(&meta.directions, df.objective_col_names().len());
-    let hv_history = compute_downsampled_hv(df, &is_minimize);
 
     let view = StudyView::new(Arc::clone(df), Vec::new());
     AppMessage::ComparisonStudyLoaded {
@@ -162,78 +159,5 @@ fn build_comparison_loaded(meta: StudyMeta, study_idx: usize, df: &Arc<DataFrame
             view,
             pareto_indices: Vec::new(),
         }),
-        hv_history,
-    }
-}
-
-/// `directions` を目的数 `n_obj` に合わせた `is_minimize` ベクタへ変換する。
-/// 不足分は Minimize(true) で補い、超過分は切り詰める。
-fn directions_to_is_minimize(directions: &[Direction], n_obj: usize) -> Vec<bool> {
-    (0..n_obj)
-        .map(|i| !matches!(directions.get(i), Some(Direction::Maximize)))
-        .collect()
-}
-
-/// DataFrame からダウンサンプリング済みの Hypervolume 推移を計算する。
-/// 基準 Study のチャート（`poll_chart`）と同じく最大 50 点までサンプリングする。
-/// 目的が 0 件、または試行が 0 件のときは `None` を返す。
-fn compute_downsampled_hv(df: &DataFrame, is_minimize: &[bool]) -> Option<HvHistory> {
-    const TARGET_POINTS: usize = 50;
-    let n = df.row_count();
-    let obj_names = df.objective_col_names();
-    if n == 0 || obj_names.is_empty() {
-        return None;
-    }
-    let step = (n / TARGET_POINTS).max(1);
-    let obj_cols: Vec<Option<&[f64]>> = obj_names
-        .iter()
-        .map(|name| df.get_numeric_column(name))
-        .collect();
-    let sampled_indices: Vec<usize> = (0..n).step_by(step).collect();
-    let sampled_ids: Vec<u32> = sampled_indices
-        .iter()
-        .map(|&i| df.get_trial_id(i).unwrap_or(i as u32))
-        .collect();
-    let sampled_objs: Vec<Vec<f64>> = sampled_indices
-        .iter()
-        .map(|&i| {
-            obj_cols
-                .iter()
-                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                .collect()
-        })
-        .collect();
-
-    let result =
-        tunny_core::pareto::compute_hv_history_from_data(&sampled_ids, &sampled_objs, is_minimize);
-    Some(HvHistory {
-        trial_ids: result.trial_ids,
-        hv_values: result.hv_values,
-        sample_step: step,
-        ref_point: crate::state::ref_point_to_original(&result.ref_point, is_minimize),
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn directions_to_is_minimize_pads_and_maps() {
-        let dirs = vec![Direction::Maximize];
-        // 目的が 2 件: 1 件目は Maximize(false)、2 件目は不足分なので Minimize(true)
-        let im = directions_to_is_minimize(&dirs, 2);
-        assert_eq!(im, vec![false, true]);
-    }
-
-    #[test]
-    fn directions_to_is_minimize_truncates() {
-        let dirs = vec![
-            Direction::Minimize,
-            Direction::Maximize,
-            Direction::Minimize,
-        ];
-        let im = directions_to_is_minimize(&dirs, 2);
-        assert_eq!(im, vec![true, false]);
     }
 }

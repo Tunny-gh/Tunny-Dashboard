@@ -27,7 +27,7 @@ enum ComputeSyncKind {
     SurrogateFit,
     SurrogateOpt,
     SurrogateSuggest,
-    HvHistory,
+    Convergence,
     SensitivityHeatmap,
 }
 
@@ -62,7 +62,7 @@ impl ComputeSyncKind {
             | AppMessage::SurrogateSuggestFailed(_)
             | AppMessage::SurrogateMultiSuggestDone(_)
             | AppMessage::SurrogateMultiSuggestFailed(_) => Some(Self::SurrogateSuggest),
-            AppMessage::HvHistoryDone { .. } => Some(Self::HvHistory),
+            AppMessage::IndicatorHistoryDone { .. } => Some(Self::Convergence),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
             _ => None,
         }
@@ -108,7 +108,7 @@ impl ComputeSyncKind {
                 Self::SurrogateSuggest => {
                     w.surrogate_opt.adopt_compute_state(&global.surrogate_opt)
                 }
-                Self::HvHistory => w.hv_history.adopt_compute_state(&global.hv_history),
+                Self::Convergence => w.convergence.adopt_compute_state(&global.convergence),
                 Self::SensitivityHeatmap => w
                     .sensitivity_heatmap
                     .adopt_compute_state(&global.sensitivity_heatmap),
@@ -371,8 +371,8 @@ impl TunnyApp {
                         if idx < self.app_state.comparison_colors.len() {
                             self.app_state.comparison_colors.remove(idx);
                         }
-                        if idx < self.app_state.comparison_hv_histories.len() {
-                            self.app_state.comparison_hv_histories.remove(idx);
+                        if idx < self.app_state.comparison_convergence_histories.len() {
+                            self.app_state.comparison_convergence_histories.remove(idx);
                         }
                     }
                 }
@@ -542,18 +542,23 @@ mod tests {
     }
 
     #[test]
-    fn hv_history_done_maps_to_compute_sync() {
-        // 回帰防止: HvHistoryDone が sync 対象から漏れると、計算完了後も
+    fn convergence_done_maps_to_compute_sync() {
+        // 回帰防止: IndicatorHistoryDone が sync 対象から漏れると、計算完了後も
         // キャンバスアイテムの computing が下りず spinner が回り続ける。
-        let msg = AppMessage::HvHistoryDone {
-            trial_ids: vec![0, 1],
-            hv_values: vec![1.0, 2.0],
-            sample_step: 1,
-            ref_point: vec![],
+        use crate::state::app_state::ConvergenceHistory;
+        let msg = AppMessage::IndicatorHistoryDone {
+            indicator: tunny_core::indicators::MoIndicator::Hypervolume,
+            base: ConvergenceHistory {
+                trial_ids: vec![],
+                values: vec![],
+                sample_step: 1,
+                ref_point: vec![],
+            },
+            comparisons: vec![],
         };
         assert!(matches!(
             ComputeSyncKind::from_message(&msg),
-            Some(ComputeSyncKind::HvHistory)
+            Some(ComputeSyncKind::Convergence)
         ));
     }
 

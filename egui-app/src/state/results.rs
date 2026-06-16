@@ -246,11 +246,11 @@ pub fn ref_point_to_normalized(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f
     convert_ref_point(ref_point, is_minimize)
 }
 
-/// Hypervolume 推移データ
+/// 収束指標推移データ（HV / IGD+ / ε / R2 共通）
 #[derive(Debug, Clone)]
-pub struct HvHistory {
+pub struct ConvergenceHistory {
     pub trial_ids: Vec<u32>,
-    pub hv_values: Vec<f64>,
+    pub values: Vec<f64>,
     /// ダウンサンプリングのステップ幅（1 = 全点）
     pub sample_step: usize,
     /// HV 計算に使用した参照点（元の目的値の単位。目的ごと）。
