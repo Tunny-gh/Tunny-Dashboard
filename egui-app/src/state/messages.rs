@@ -2,7 +2,7 @@ use crate::state::app_state::{
     ClusterResult, HeatmapMatrix, McdmResult, SensitivityResult, SobolResult, StudyContext,
     StudyMeta,
 };
-use crate::state::results::{EntropyResult, HvHistory};
+use crate::state::results::{ConvergenceHistory, EntropyResult};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 
@@ -286,9 +286,9 @@ pub enum AppMessage {
     IndicatorHistoryDone {
         indicator: tunny_core::indicators::MoIndicator,
         /// 基準 Study の指標推移。
-        base: HvHistory,
+        base: ConvergenceHistory,
         /// 比較 Study の指標推移（comparison_studies と同じ順序）。
-        comparisons: Vec<HvHistory>,
+        comparisons: Vec<ConvergenceHistory>,
     },
     Error(String),
     SensitivityError(String),

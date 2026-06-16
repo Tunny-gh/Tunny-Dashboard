@@ -15,7 +15,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
                 "Convergence",
                 &[
                     PanelItem::Chart(ChartId::OptimizationHistory),
-                    PanelItem::Chart(ChartId::HvHistory),
+                    PanelItem::Chart(ChartId::ConvergenceIndicators),
                 ],
             ),
             (

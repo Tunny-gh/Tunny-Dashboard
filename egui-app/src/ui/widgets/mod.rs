@@ -1,6 +1,6 @@
 // 最適化履歴
 mod history;
-pub use history::hv_history;
+pub use history::convergence;
 pub use history::optimization_history;
 
 // パレート分析

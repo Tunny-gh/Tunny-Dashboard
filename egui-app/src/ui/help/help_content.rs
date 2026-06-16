@@ -151,10 +151,16 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/optimization-history.html"
             )),
         },
-        ChartId::HvHistory => HelpContent {
-            widget_name: "hv-history",
-            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/hv-history.html")),
-            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/hv-history.html")),
+        ChartId::ConvergenceIndicators => HelpContent {
+            widget_name: "convergence",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/convergence.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/convergence.html"
+            )),
         },
         ChartId::ResponseSurfacePlot => HelpContent {
             widget_name: "surface-plot",

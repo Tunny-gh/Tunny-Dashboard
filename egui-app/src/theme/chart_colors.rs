@@ -49,10 +49,10 @@ pub const COLOR_OPT_RUNNING: Color32 = Color32::from_rgb(52, 168, 83);
 pub const COLOR_OPT_BEST: Color32 = Color32::from_rgb(251, 188, 4);
 
 // ====================================================================
-// HV 履歴系
+// 収束指標チャート系
 // ====================================================================
 
-pub const COLOR_HV_LINE: Color32 = Color32::from_rgb(52, 168, 83);
+pub const COLOR_CONVERGENCE_LINE: Color32 = Color32::from_rgb(52, 168, 83);
 
 // ====================================================================
 // フィット品質系

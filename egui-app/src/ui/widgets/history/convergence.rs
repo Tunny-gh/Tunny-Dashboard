@@ -1,12 +1,12 @@
-use crate::state::app_state::HvHistory;
-use crate::theme::chart_colors::COLOR_HV_LINE;
+use crate::state::app_state::ConvergenceHistory;
+use crate::theme::chart_colors::COLOR_CONVERGENCE_LINE;
 use tunny_core::indicators::MoIndicator;
 
 /// 1 本の指標推移系列（凡例名 + 色 + データ）。
-pub struct HvSeries {
+pub struct ConvergenceSeries {
     pub name: String,
     pub color: egui::Color32,
-    pub history: HvHistory,
+    pub history: ConvergenceHistory,
 }
 
 /// 参照点指定の変更要求。`render_chart` が app_state へ反映する。
@@ -19,15 +19,15 @@ pub enum RefPointChange {
 }
 
 /// 多目的収束指標チャートウィジェット（HV / IGD+ / ε-indicator / R2）
-pub struct HvHistoryChart {
-    pub hv_history: Option<HvHistory>,
+pub struct ConvergenceChart {
+    pub history: Option<ConvergenceHistory>,
     pub computing: bool,
     /// 基準 Study の凡例名（比較系列と区別するために表示する）。
     pub base_name: String,
     /// 目的名（参照点ラベルの目的ごとの見出しに使う）。
     pub objective_names: Vec<String>,
     /// 同一グラフに重ね描きする比較 Study の系列。
-    pub comparisons: Vec<HvSeries>,
+    pub comparisons: Vec<ConvergenceSeries>,
     /// 現在の参照点指定（元の目的値の単位）。`None` で自動算出。
     /// app_state からミラーされ、UI 操作の起点になる。
     pub ref_point_override: Option<Vec<f64>>,
@@ -41,10 +41,10 @@ pub struct HvHistoryChart {
     ref_point_buf: Vec<f64>,
 }
 
-impl Default for HvHistoryChart {
+impl Default for ConvergenceChart {
     fn default() -> Self {
         Self {
-            hv_history: None,
+            history: None,
             computing: false,
             base_name: String::new(),
             objective_names: Vec::new(),
@@ -58,9 +58,9 @@ impl Default for HvHistoryChart {
     }
 }
 
-impl HvHistoryChart {
+impl ConvergenceChart {
     /// グローバル widget（処理済みの正状態）から実行フラグのみを取り込む。
-    /// 指標データは `app_state.hv_history` に集約され描画時に毎フレーム反映されるため、
+    /// 指標データは `app_state.convergence_history` に集約され描画時に毎フレーム反映されるため、
     /// キャンバスの各アイテム（独立した WidgetStates）には computing のみ同期すればよい。
     /// これを行わないと計算完了後もアイテム側の computing が下りず spinner が回り続ける。
     pub fn adopt_compute_state(&mut self, src: &Self) {
@@ -70,13 +70,13 @@ impl HvHistoryChart {
     /// `history` のサンプリングステップを使って (x=連番×step, y=値) の点列を作る。
     /// X 軸はサンプリング順の連番 × ステップ (0, step, 2*step, …)。
     /// trial_id は途中試行から始まる場合があり 0 スタートにならないため使わない。
-    fn to_points(history: &HvHistory) -> Vec<[f64; 2]> {
+    fn to_points(history: &ConvergenceHistory) -> Vec<[f64; 2]> {
         let step = history.sample_step.max(1);
         history
-            .hv_values
+            .values
             .iter()
             .enumerate()
-            .map(|(i, &hv)| [(i * step) as f64, hv])
+            .map(|(i, &v)| [(i * step) as f64, v])
             .collect()
     }
 
@@ -100,7 +100,7 @@ impl HvHistoryChart {
             v.resize(n_obj, 0.0);
             v
         } else {
-            match &self.hv_history {
+            match &self.history {
                 Some(h) if h.ref_point.len() == n_obj => h.ref_point.clone(),
                 _ => vec![0.0; n_obj],
             }
@@ -199,7 +199,7 @@ impl HvHistoryChart {
             return;
         }
 
-        let Some(history) = &self.hv_history else {
+        let Some(history) = &self.history else {
             ui.label(format!("No {} data", self.indicator.label()));
             return;
         };
@@ -216,7 +216,7 @@ impl HvHistoryChart {
         let comparison_series: Vec<(&str, egui::Color32, Vec<[f64; 2]>)> = self
             .comparisons
             .iter()
-            .filter(|s| !s.history.hv_values.is_empty())
+            .filter(|s| !s.history.values.is_empty())
             .map(|s| (s.name.as_str(), s.color, Self::to_points(&s.history)))
             .collect();
 
@@ -231,7 +231,7 @@ impl HvHistoryChart {
                 .color(crate::theme::TEXT_SECONDARY),
         );
 
-        egui_plot::Plot::new("hv_history_plot")
+        egui_plot::Plot::new("convergence_plot")
             .legend(egui_plot::Legend::default())
             .x_axis_label("Trial")
             .y_axis_label(self.indicator.label())
@@ -239,7 +239,7 @@ impl HvHistoryChart {
             .show(ui, |plot_ui| {
                 // 基準 Study
                 if !base_points.is_empty() {
-                    let color = COLOR_HV_LINE;
+                    let color = COLOR_CONVERGENCE_LINE;
                     let line_pts: egui_plot::PlotPoints = base_points.iter().copied().collect();
                     plot_ui.line(
                         egui_plot::Line::new(line_pts)
@@ -274,12 +274,12 @@ impl HvHistoryChart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::HvHistory;
+    use crate::state::app_state::ConvergenceHistory;
 
     #[test]
-    fn hv_history_chart_default() {
-        let chart = HvHistoryChart::default();
-        assert!(chart.hv_history.is_none());
+    fn convergence_chart_default() {
+        let chart = ConvergenceChart::default();
+        assert!(chart.history.is_none());
         assert!(!chart.computing);
         // 既定は Auto（override なし）・変更要求なし。
         assert!(chart.ref_point_override.is_none());
@@ -302,30 +302,30 @@ mod tests {
     fn adopt_compute_state_clears_stuck_computing() {
         // 計算完了後にグローバル側の computing=false を取り込むと、
         // spinner で固まっていたアイテム側の computing が下りる。
-        let mut item = HvHistoryChart {
+        let mut item = ConvergenceChart {
             computing: true,
             ..Default::default()
         };
-        let global = HvHistoryChart::default(); // computing=false
+        let global = ConvergenceChart::default(); // computing=false
         item.adopt_compute_state(&global);
         assert!(!item.computing);
     }
 
     #[test]
-    fn hv_history_show_uses_index_times_step() {
-        let history = HvHistory {
+    fn convergence_show_uses_index_times_step() {
+        let history = ConvergenceHistory {
             trial_ids: vec![10000, 10050, 10100],
-            hv_values: vec![0.1, 0.5, 0.8],
+            values: vec![0.1, 0.5, 0.8],
             sample_step: 50,
             ref_point: vec![],
         };
         // x values should be 0, 50, 100 — not 10000, 10050, 10100
         let step = history.sample_step;
         let points: Vec<[f64; 2]> = history
-            .hv_values
+            .values
             .iter()
             .enumerate()
-            .map(|(i, &hv)| [(i * step) as f64, hv])
+            .map(|(i, &v)| [(i * step) as f64, v])
             .collect();
         assert_eq!(points[0][0], 0.0);
         assert_eq!(points[1][0], 50.0);

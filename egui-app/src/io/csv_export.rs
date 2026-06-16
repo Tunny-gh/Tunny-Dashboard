@@ -42,7 +42,7 @@ pub fn build_chart_csv(
 ) -> Option<String> {
     match chart_id {
         ChartId::OptimizationHistory => build_optimization_history_csv(app_state, widgets),
-        ChartId::HvHistory => build_hv_history_csv(app_state),
+        ChartId::ConvergenceIndicators => build_convergence_csv(app_state),
         ChartId::ImportanceChart => build_importance_csv(app_state, widgets),
         ChartId::PdpChart => build_pdp_csv(app_state, widgets),
         ChartId::PdpChart2D => build_pdp_2d_csv(app_state, widgets),
@@ -128,7 +128,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                 .as_ref()
                 .is_some_and(|s| s.trial_count() > 0)
         }
-        ChartId::HvHistory => app_state.hv_history.is_some(),
+        ChartId::ConvergenceIndicators => app_state.convergence_history.is_some(),
         ChartId::ImportanceChart => {
             if widgets.importance.computing {
                 return false;
@@ -204,7 +204,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
 pub fn csv_export_filename(chart_id: &ChartId) -> String {
     let name = match chart_id {
         ChartId::OptimizationHistory => "optimization_history",
-        ChartId::HvHistory => "convergence_indicators",
+        ChartId::ConvergenceIndicators => "convergence_indicators",
         ChartId::ImportanceChart => "importance_chart",
         ChartId::PdpChart => "pdp_chart",
         ChartId::PdpChart2D => "pdp_chart_2d",
@@ -262,13 +262,13 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
     Some(csv)
 }
 
-fn build_hv_history_csv(app_state: &AppState) -> Option<String> {
-    let hv = app_state.hv_history.as_ref()?;
+fn build_convergence_csv(app_state: &AppState) -> Option<String> {
+    let history = app_state.convergence_history.as_ref()?;
     let label = app_state.convergence_indicator.label();
     let mut csv = format!("trial_index,{}\n", label);
-    for (i, &hv_val) in hv.hv_values.iter().enumerate() {
-        let trial_idx = i * hv.sample_step;
-        csv.push_str(&format!("{},{}\n", trial_idx, hv_val));
+    for (i, &val) in history.values.iter().enumerate() {
+        let trial_idx = i * history.sample_step;
+        csv.push_str(&format!("{},{}\n", trial_idx, val));
     }
     Some(csv)
 }
@@ -653,7 +653,7 @@ fn build_surrogate_multi_opt_csv(
 mod tests {
     use super::*;
     use crate::state::app_state::AppState;
-    use crate::state::results::HvHistory;
+    use crate::state::results::ConvergenceHistory;
     use crate::state::types::{Direction, StudyContext, StudyMeta, TrialRow};
     use crate::ui::widget_states::WidgetStates;
     use std::collections::HashMap;
@@ -715,7 +715,7 @@ mod tests {
     fn csv_export_filename_all_end_with_csv() {
         let ids = vec![
             ChartId::OptimizationHistory,
-            ChartId::HvHistory,
+            ChartId::ConvergenceIndicators,
             ChartId::ImportanceChart,
             ChartId::PdpChart,
             ChartId::PdpChart2D,
@@ -772,18 +772,18 @@ mod tests {
     }
 
     #[test]
-    fn hv_history_csv_uses_index_times_step() {
+    fn convergence_csv_uses_index_times_step() {
         let state = AppState {
-            hv_history: Some(HvHistory {
+            convergence_history: Some(ConvergenceHistory {
                 trial_ids: vec![10, 20, 30],
-                hv_values: vec![0.1, 0.5, 0.8],
+                values: vec![0.1, 0.5, 0.8],
                 sample_step: 5,
                 ref_point: vec![],
             }),
             // convergence_indicator は AppState::default() で Hypervolume に初期化される。
             ..AppState::default()
         };
-        let csv = build_hv_history_csv(&state).unwrap();
+        let csv = build_convergence_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "trial_index,Hypervolume");
         assert_eq!(lines[1], "0,0.1");
@@ -792,9 +792,9 @@ mod tests {
     }
 
     #[test]
-    fn hv_history_csv_returns_none_when_missing() {
+    fn convergence_csv_returns_none_when_missing() {
         let state = AppState::default();
-        assert!(build_hv_history_csv(&state).is_none());
+        assert!(build_convergence_csv(&state).is_none());
     }
 
     #[test]

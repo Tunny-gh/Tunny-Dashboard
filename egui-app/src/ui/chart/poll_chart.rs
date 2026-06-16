@@ -182,8 +182,8 @@ pub(crate) fn poll_chart_work(
     let directions = &ctx.meta.directions;
 
     match chart_id {
-        ChartId::HvHistory => {
-            if app_state.hv_history.is_none() && !widgets.hv_history.computing {
+        ChartId::ConvergenceIndicators => {
+            if app_state.convergence_history.is_none() && !widgets.convergence.computing {
                 let is_minimize: Vec<bool> = directions
                     .iter()
                     .map(|d| matches!(d, Direction::Minimize))
@@ -247,10 +247,10 @@ pub(crate) fn poll_chart_work(
                 let is_minimize_for_back = is_minimize.clone();
                 let indicator = app_state.convergence_indicator;
 
-                widgets.hv_history.computing = true;
+                widgets.convergence.computing = true;
                 let tx = tx.clone();
                 crate::app::spawn_task(tx, move || {
-                    use crate::state::results::HvHistory;
+                    use crate::state::results::ConvergenceHistory;
                     use tunny_core::indicators::SeriesInput;
 
                     // 全系列（基準 + 比較）を一括計算して共通参照セットで正規化する。
@@ -272,9 +272,9 @@ pub(crate) fn poll_chart_work(
                     );
 
                     let base = if let Some(h) = hist.first() {
-                        HvHistory {
+                        ConvergenceHistory {
                             trial_ids: h.trial_ids.clone(),
-                            hv_values: h.values.clone(),
+                            values: h.values.clone(),
                             sample_step: step,
                             // 表示用に参照点を元の目的値の単位へ戻す。
                             ref_point: crate::state::ref_point_to_original(
@@ -283,29 +283,29 @@ pub(crate) fn poll_chart_work(
                             ),
                         }
                     } else {
-                        HvHistory {
+                        ConvergenceHistory {
                             trial_ids: Vec::new(),
-                            hv_values: Vec::new(),
+                            values: Vec::new(),
                             sample_step: step,
                             ref_point: Vec::new(),
                         }
                     };
 
-                    let comparisons: Vec<HvHistory> = comp_steps
+                    let comparisons: Vec<ConvergenceHistory> = comp_steps
                         .iter()
                         .enumerate()
                         .map(|(i, &cs)| {
                             if let Some(h) = hist.get(i + 1) {
-                                HvHistory {
+                                ConvergenceHistory {
                                     trial_ids: h.trial_ids.clone(),
-                                    hv_values: h.values.clone(),
+                                    values: h.values.clone(),
                                     sample_step: cs,
                                     ref_point: Vec::new(),
                                 }
                             } else {
-                                HvHistory {
+                                ConvergenceHistory {
                                     trial_ids: Vec::new(),
-                                    hv_values: Vec::new(),
+                                    values: Vec::new(),
                                     sample_step: cs,
                                     ref_point: Vec::new(),
                                 }
