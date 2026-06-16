@@ -8,7 +8,6 @@ pub enum ChartId {
     PdpChart,
     PdpChart2D,
     OptimizationHistory,
-    #[serde(alias = "HvHistory")]
     ConvergenceIndicators,
     SensitivityHeatmap,
     ClusterScatter,
