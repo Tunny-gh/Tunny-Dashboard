@@ -97,8 +97,10 @@ pub(crate) fn render_chart(
                 &ctx.view,
                 obj_names,
                 directions,
+                param_names,
                 &base_name,
                 &comparisons,
+                &app_state.artifact_map,
             );
         }
         ChartId::ConvergenceIndicators => {

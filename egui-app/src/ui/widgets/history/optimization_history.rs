@@ -1,6 +1,12 @@
+use std::collections::HashMap;
+
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{
     COLOR_INFEASIBLE, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
+};
+use crate::ui::widgets::trial_detail_modal::{
+    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
 /// 比較 Study 1 件分の最適化履歴系列（選択中の目的に対する値列 + 色 + 凡例名）。
@@ -36,6 +42,8 @@ pub struct OptimizationHistoryChart {
     pub obj_idx: usize,
     /// REQ-008: Y 軸対数スケール切替
     pub log_scale: bool,
+    /// 点クリックで開くトライアル詳細モーダル（散布図と共有）。
+    detail_modal: TrialDetailModal,
 }
 
 impl Default for OptimizationHistoryChart {
@@ -45,23 +53,39 @@ impl Default for OptimizationHistoryChart {
             window_size: 10,
             obj_idx: 0,
             log_scale: false,
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
 
 impl OptimizationHistoryChart {
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         view: &StudyView,
         obj_names: &[String],
         directions: &[Direction],
+        param_names: &[String],
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
-        self.show_with_comparisons(ui, view, obj_names, directions, "", &[]);
+        self.show_with_comparisons(
+            ui,
+            view,
+            obj_names,
+            directions,
+            param_names,
+            "",
+            &[],
+            artifact_map,
+        );
     }
 
     /// 基準 Study に加えて、比較 Study の累積ベスト値ラインを同一グラフに重ねて描画する。
     /// 比較ラインは「Best Value」表示が有効なときに各 Study の色で描かれる。
+    ///
+    /// 「All Trials」の点をクリックすると、散布図と共有のトライアル詳細モーダルを開く。
+    /// 基準 Study の点のみ対象（比較 Study の試行は基準 Study の `view` に存在しない）。
     #[allow(clippy::too_many_arguments)]
     pub fn show_with_comparisons(
         &mut self,
@@ -69,8 +93,10 @@ impl OptimizationHistoryChart {
         view: &StudyView,
         obj_names: &[String],
         directions: &[Direction],
+        param_names: &[String],
         base_name: &str,
         comparisons: &[OptHistoryComparison],
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         // 目的関数インデックスを有効範囲に収める
         if obj_names.is_empty() {
@@ -133,6 +159,20 @@ impl OptimizationHistoryChart {
         // All Trials の feasible / infeasible 分割（制約あり Study のみ分岐）
         let (feasible_vals, infeasible_vals) = partition_history_by_feasibility(&values, feas);
 
+        // クリック判定用に各試行の点を (trial_id, 行 index, [x, y]) で構築する。
+        // x は行 index、y は描画と一致させるため log スケール時のみ log10 変換する。
+        let base_hit_points: Vec<(u32, usize, [f64; 2])> = values
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &v)| {
+                let tid = *view.trial_ids.get(i)?;
+                let y = if log_scale && v > 0.0 { v.log10() } else { v };
+                Some((tid, i, [i as f64, y]))
+            })
+            .collect();
+        // クリックされた点（trial_id, 行 index）。
+        let mut clicked_detail: Option<(u32, usize)> = None;
+
         let mut plot =
             egui_plot::Plot::new("optimization_history_plot").legend(egui_plot::Legend::default());
 
@@ -144,6 +184,15 @@ impl OptimizationHistoryChart {
         }
 
         plot.show(ui, |plot_ui| {
+            // 点クリックでトライアル詳細モーダルを開く（基準 Study の試行のみ）。
+            let resp = plot_ui.response();
+            if resp.clicked_by(egui::PointerButton::Primary) {
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    clicked_detail =
+                        hit_test_nearest(plot_ui, &base_hit_points, pos, HIT_THRESHOLD);
+                }
+            }
+
             // All Trials は常に描画（凡例クリックで表示切替可能）。
             if !values.is_empty() {
                 let apply_log = |[x, v]: [f64; 2]| -> [f64; 2] {
@@ -231,6 +280,32 @@ impl OptimizationHistoryChart {
                 );
             }
         });
+
+        // クリックされた点があれば、選択中の目的値（と feasibility）を付加情報として
+        // モーダルを開く。
+        if let Some((trial_id, row)) = clicked_detail {
+            let mut context = Vec::new();
+            if let (Some(name), Some(v)) = (obj_names.get(self.obj_idx), values.get(row)) {
+                context.push((name.clone(), format!("{v:.6}")));
+            }
+            if feas.has_constraints() {
+                context.push((
+                    "Feasible".to_string(),
+                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                ));
+            }
+            self.detail_modal.open(TrialDetailTarget {
+                trial_id,
+                row_index: row,
+                context,
+            });
+        }
+
+        // 詳細モーダルを描画する（散布図と同じ共有実装）。
+        if self.detail_modal.is_open() {
+            self.detail_modal
+                .show(ui, view, param_names, obj_names, artifact_map);
+        }
     }
 }
 
