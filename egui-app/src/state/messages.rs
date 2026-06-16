@@ -93,6 +93,24 @@ pub fn cluster_ui_error(
 }
 
 // ============================================================
+// Observed Contour 関連型
+// ============================================================
+
+/// Observed Contour の描画結果。観測トライアル点だけから補間した格子
+/// （`tunny_core::contour::ObservedSurface`）と、重畳表示用の観測点を持つ。
+#[derive(Debug, Clone)]
+pub struct ObservedContourResult {
+    pub x_name: String,
+    pub y_name: String,
+    pub value_name: String,
+    pub surface: tunny_core::contour::ObservedSurface,
+    /// 重畳表示用の観測点（feasible フィルタ適用済み）。`[x, y, value]`。
+    pub points: Vec<[f64; 3]>,
+    /// `points` と同順の trial_id（点クリック→詳細表示用）。
+    pub point_trial_ids: Vec<u32>,
+}
+
+// ============================================================
 // Surrogate Optimizer 関連型
 // ============================================================
 
@@ -290,6 +308,9 @@ pub enum AppMessage {
         suggested_filename: String,
     },
     ComparisonStudyLoadFailed(String),
+    /// Observed Contour の格子生成が完了した（観測点の補間）。
+    ObservedContourDone(ObservedContourResult),
+    ObservedContourFailed(String),
     /// サロゲートのフィット＋検証が完了した（最適化段階は別メッセージ）。
     SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     SurrogateFitFailed(String),

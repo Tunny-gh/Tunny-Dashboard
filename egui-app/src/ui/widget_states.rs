@@ -1,3 +1,4 @@
+use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, cluster_scatter::ClusterScatter,
     cluster_scatter_3d::ClusterScatter3D, hv_history::HvHistoryChart,
@@ -8,6 +9,86 @@ use crate::ui::widgets::{
     pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
     slice_chart::SliceChart, trial_table::TrialTable,
 };
+
+// ── Observed Contour（観測点補間の等高線）────────────────────────
+
+/// Observed Contour の計算リクエスト。poll_chart が消費する。
+pub struct ObservedContourComputeRequest {
+    pub x: String,
+    pub y: String,
+    pub value: String,
+    pub n_grid: usize,
+    /// 疎ガード（正規化空間の最長辺閾値）。0.0 で無効。
+    pub max_edge_ratio: f64,
+    pub feasible_only: bool,
+}
+
+/// Observed Contour ウィジェットの UI 状態。
+pub struct ObservedContourState {
+    pub selected_x: String,
+    pub selected_y: String,
+    /// 値（色）に使う列名（params∪objectives）。
+    pub selected_value: String,
+    /// Coverage スライダー（疎ガード閾値）。
+    pub max_edge_ratio: f64,
+    pub show_points: bool,
+    pub feasible_only: bool,
+    /// 色の対数スケール（Phase 2）。
+    pub log_scale: bool,
+    /// 等高線の重ね描き（Phase 2）。
+    pub show_contour_lines: bool,
+    /// 3D 表示（Phase 3）。
+    pub view_3d: bool,
+    /// 点密度シェーディング: 観測が薄いセルを暗くして過信を抑える（3D、Phase 3）。
+    pub density_shade: bool,
+    pub camera: crate::ui::widgets::scatter_3d::ArcballCamera,
+    pub computing: bool,
+    pub result: Option<crate::state::messages::ObservedContourResult>,
+    pub error_message: Option<String>,
+    pub pending_compute: Option<ObservedContourComputeRequest>,
+    /// 最後に計算を発行した署名 (x, y, value, max_edge_ratio, feasible_only)。
+    /// 選択が変わったかを検知して自動再計算するために使う。
+    pub applied_sig: Option<(String, String, String, f64, bool)>,
+    /// 点クリックで開くトライアル詳細モーダル（Phase 2）。
+    pub detail_modal: TrialDetailModal,
+}
+
+impl Default for ObservedContourState {
+    fn default() -> Self {
+        Self {
+            selected_x: String::new(),
+            selected_y: String::new(),
+            selected_value: String::new(),
+            max_edge_ratio: 0.15,
+            show_points: true,
+            feasible_only: false,
+            log_scale: false,
+            show_contour_lines: false,
+            view_3d: false,
+            density_shade: true,
+            camera: crate::ui::widgets::scatter_3d::ArcballCamera {
+                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
+                ..Default::default()
+            },
+            computing: false,
+            result: None,
+            error_message: None,
+            pending_compute: None,
+            applied_sig: None,
+            detail_modal: TrialDetailModal::default(),
+        }
+    }
+}
+
+impl ObservedContourState {
+    /// グローバル widget の計算実行状態・結果・エラーを取り込む（キャンバス各アイテム伝播用）。
+    /// 軸・値・スライダー等の UI 選択は各アイテム側を維持する。
+    pub fn adopt_compute_state(&mut self, src: &Self) {
+        self.computing = src.computing;
+        self.result = src.result.clone();
+        self.error_message = src.error_message.clone();
+    }
+}
 
 // ── Surrogate Optimizer 計算リクエスト（フィット段階） ──────────
 pub struct SurrogateFitComputeRequest {
@@ -227,6 +308,8 @@ pub struct WidgetStates {
     // TASK-1504: MCDM 散布図ウィジェット
     pub scatter_chart: McdmScatterChart,
     pub mcdm_scatter_3d: McdmScatterChart3D,
+    /// Observed Contour（観測トライアル点の補間による等高線）の UI 状態
+    pub observed_contour: ObservedContourState,
     /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
     pub surrogate_opt: SurrogateOptState,
     pub capture: ChartCaptureState,

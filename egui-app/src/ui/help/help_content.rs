@@ -156,6 +156,17 @@ fn chart_help(id: &ChartId) -> HelpContent {
             html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/hv-history.html")),
             html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/hv-history.html")),
         },
+        ChartId::ObservedContour => HelpContent {
+            widget_name: "observed-contour",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/observed-contour.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/observed-contour.html"
+            )),
+        },
         ChartId::SurrogateOpt => HelpContent {
             widget_name: "surrogate-optimizer",
             html_en: include_str!(concat!(

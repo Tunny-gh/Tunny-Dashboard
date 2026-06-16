@@ -587,6 +587,67 @@ pub(crate) fn poll_chart_work(
                 ArtifactViewMode::All => {}
             }
         }
+        ChartId::ObservedContour => {
+            if let Some(req) = widgets.observed_contour.pending_compute.take() {
+                let ctx = app_state.current_study.as_ref().unwrap();
+                let (Some(x_col), Some(y_col), Some(v_col)) = (
+                    ctx.view.numeric_column(&req.x),
+                    ctx.view.numeric_column(&req.y),
+                    ctx.view.numeric_column(&req.value),
+                ) else {
+                    widgets.observed_contour.error_message =
+                        Some("Selected column not found".to_string());
+                    widgets.observed_contour.computing = false;
+                    return;
+                };
+                let feas = ctx.view.feasibility();
+                let n = ctx.view.row_count();
+                let mut points: Vec<[f64; 3]> = Vec::with_capacity(n);
+                let mut point_trial_ids: Vec<u32> = Vec::with_capacity(n);
+                for i in 0..n {
+                    if req.feasible_only && !feas.is_feasible(i) {
+                        continue;
+                    }
+                    let (Some(&px), Some(&py), Some(&pv)) =
+                        (x_col.get(i), y_col.get(i), v_col.get(i))
+                    else {
+                        continue;
+                    };
+                    if !px.is_finite() || !py.is_finite() || !pv.is_finite() {
+                        continue;
+                    }
+                    points.push([px, py, pv]);
+                    point_trial_ids.push(ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32));
+                }
+                let (x_name, y_name, value_name) = (req.x, req.y, req.value);
+                let n_grid = req.n_grid;
+                let max_edge_ratio = req.max_edge_ratio;
+                let tx = tx.clone();
+                crate::app::spawn_task(tx, move || {
+                    use crate::state::messages::ObservedContourResult;
+                    if points.len() < 3 {
+                        return AppMessage::ObservedContourFailed(
+                            "Not enough finite points to interpolate (need >= 3).".to_string(),
+                        );
+                    }
+                    let surface =
+                        tunny_core::contour::observed_surface(&points, n_grid, max_edge_ratio);
+                    if surface.x_values.is_empty() {
+                        return AppMessage::ObservedContourFailed(
+                            "Points are collinear or degenerate; cannot interpolate.".to_string(),
+                        );
+                    }
+                    AppMessage::ObservedContourDone(ObservedContourResult {
+                        x_name,
+                        y_name,
+                        value_name,
+                        surface,
+                        points,
+                        point_trial_ids,
+                    })
+                });
+            }
+        }
         ChartId::SurrogateOpt => {
             // フィット段階を最優先で処理する（optimize より先に take する）。
             if let Some(fit_req) = widgets.surrogate_opt.pending_fit.take() {

@@ -40,28 +40,130 @@ pub fn draw_heatmap(
     }
 }
 
-/// ヒートマップ脇の縦カラーバー（上 = max / 下 = min）を描く。
+/// マスク対応ヒートマップ。`None` のセルは塗らない（パネル背景のまま＝データなし）。
+/// `v_min` / `v_max` は呼び出し側で `Some` セルだけから求めた値域を渡す。
+pub fn draw_heatmap_masked(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    values: &[Vec<Option<f64>>],
+    v_min: f64,
+    v_max: f64,
+    cmap: ColorMap,
+) {
+    let n_row = values.len();
+    if n_row == 0 {
+        return;
+    }
+    let n_col = values[0].len();
+    if n_col == 0 {
+        return;
+    }
+    let cell_w = rect.width() / n_col as f32;
+    let cell_h = rect.height() / n_row as f32;
+
+    for (row, row_vals) in values.iter().enumerate() {
+        for (col, cell) in row_vals.iter().enumerate() {
+            let Some(val) = cell else {
+                continue; // データなし → 塗らない。
+            };
+            let t = normalize(*val, v_min, v_max);
+            let color = cmap.interpolate(t);
+            let cell_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.left() + col as f32 * cell_w,
+                    rect.top() + row as f32 * cell_h,
+                ),
+                egui::vec2(cell_w + 1.0, cell_h + 1.0),
+            );
+            painter.rect_filled(cell_rect, 0.0, color);
+        }
+    }
+}
+
+/// マスク対応グリッドの値域 [min, max] を `Some` セルだけから求める。空なら (0,1)。
+pub fn value_range_masked(values: &[Vec<Option<f64>>]) -> (f64, f64) {
+    let mut v_min = f64::INFINITY;
+    let mut v_max = f64::NEG_INFINITY;
+    for v in values.iter().flatten().flatten() {
+        v_min = v_min.min(*v);
+        v_max = v_max.max(*v);
+    }
+    if !v_min.is_finite() || !v_max.is_finite() {
+        return (0.0, 1.0);
+    }
+    if (v_max - v_min).abs() < f64::EPSILON {
+        (v_min - 1.0, v_max + 1.0)
+    } else {
+        (v_min, v_max)
+    }
+}
+
+/// ヒートマップ脇の縦カラーバーを描く。
+///
+/// バー本体（上 = max / 下 = min）に加え、**数値目盛**（max / 中央 / min）をバー右脇に、
+/// `title` が `Some` なら凡例が表す値の名前を縦書きでさらに右に添える。目盛・タイトルは
+/// バー右側にはみ出すため `ui.painter()`（bar_rect にクリップしない）で描く。呼び出し側は
+/// bar_rect の右に目盛（＋タイトル）ぶんの余白を確保すること（目盛のみ ~50px、タイトル込み ~80px）。
 pub fn draw_colorbar_simple(
     ui: &mut egui::Ui,
     bar_rect: egui::Rect,
     v_min: f64,
     v_max: f64,
     cmap: ColorMap,
+    title: Option<&str>,
 ) {
-    let painter = ui.painter_at(bar_rect);
-    let n_steps = 32;
+    let painter = ui.painter();
+    let n_steps = 48;
     let step_h = bar_rect.height() / n_steps as f32;
     for i in 0..n_steps {
-        let t = 1.0 - (i as f32 / n_steps as f32);
-        let color = cmap.interpolate(t);
+        let t = 1.0 - (i as f32 / (n_steps - 1).max(1) as f32);
         let step_rect = egui::Rect::from_min_size(
             egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
             egui::vec2(bar_rect.width(), step_h + 1.0),
         );
-        painter.rect_filled(step_rect, 0.0, color);
+        painter.rect_filled(step_rect, 0.0, cmap.interpolate(t));
     }
-    ui.label(format!("{:.2}", v_max));
-    ui.label(format!("{:.2}", v_min));
+    painter.rect_stroke(
+        bar_rect,
+        0.0,
+        egui::Stroke::new(0.5, egui::Color32::from_gray(90)),
+    );
+
+    // 数値目盛（max / 中央 / min）をバー右脇に置く。最大幅を測ってタイトル位置に使う。
+    let text_color = egui::Color32::from_gray(180);
+    let tick_font = egui::FontId::proportional(10.0);
+    let mid = (v_min + v_max) * 0.5;
+    let ticks = [
+        (bar_rect.top(), egui::Align2::LEFT_TOP, v_max),
+        (bar_rect.center().y, egui::Align2::LEFT_CENTER, mid),
+        (bar_rect.bottom(), egui::Align2::LEFT_BOTTOM, v_min),
+    ];
+    let mut tick_w = 0.0_f32;
+    for (y, align, val) in ticks {
+        let r = painter.text(
+            egui::pos2(bar_rect.right() + 3.0, y),
+            align,
+            format!("{:.3}", val),
+            tick_font.clone(),
+            text_color,
+        );
+        tick_w = tick_w.max(r.width());
+    }
+
+    // 凡例が表す値の名前を縦書きで添える（数値目盛の右）。
+    if let Some(title) = title.filter(|t| !t.is_empty()) {
+        let galley = painter.layout_no_wrap(
+            title.to_owned(),
+            egui::FontId::proportional(11.0),
+            text_color,
+        );
+        let title_x = bar_rect.right() + 3.0 + tick_w + 6.0;
+        let title_pos = egui::pos2(title_x, bar_rect.center().y + galley.size().x * 0.5);
+        painter.add(
+            egui::epaint::TextShape::new(title_pos, galley, text_color)
+                .with_angle(-std::f32::consts::FRAC_PI_2),
+        );
+    }
 }
 
 /// 値グリッドの [min, max] を返す。空・退化時はフォールバック範囲を返す。

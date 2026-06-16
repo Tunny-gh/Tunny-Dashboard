@@ -27,6 +27,7 @@ pub use surrogate::surrogate_opt;
 mod scatter;
 pub use scatter::cluster_scatter;
 pub use scatter::cluster_scatter_3d;
+pub use scatter::observed_contour;
 pub use scatter::parallel_coords;
 pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;

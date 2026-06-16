@@ -259,6 +259,19 @@ pub(crate) fn render_chart(
                 &app_state.artifact_map,
             );
         }
+        ChartId::ObservedContour => {
+            // 軸候補の数値フィルタはウィジェット側で行う（モーダル表示には全変数名が要る）。
+            crate::ui::widgets::observed_contour::show(
+                ui,
+                &mut widgets.observed_contour,
+                param_names,
+                obj_names,
+                cmap,
+                &ctx.view,
+                &app_state.artifact_map,
+                ctx.view.feasibility().has_constraints(),
+            );
+        }
         ChartId::SurrogateOpt => {
             let trial_count = ctx.trial_count();
             // カテゴリカル列（数値化できない列）は最適化対象から除外する。
