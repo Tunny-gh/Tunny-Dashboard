@@ -129,7 +129,13 @@ pub(crate) fn render_chart(
                     })
                 })
                 .collect();
-            widgets.convergence.show(ui);
+            widgets.convergence.show(
+                ui,
+                &ctx.view,
+                param_names,
+                obj_names,
+                &app_state.artifact_map,
+            );
             // 指標変更要求を app_state へ反映し、再計算をトリガーする。
             if let Some(new_ind) = widgets.convergence.pending_indicator.take() {
                 if new_ind != app_state.convergence_indicator {
