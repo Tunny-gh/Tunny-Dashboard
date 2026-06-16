@@ -695,6 +695,7 @@ mod tests {
             objective_names: obj_names,
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, vec![])
     }

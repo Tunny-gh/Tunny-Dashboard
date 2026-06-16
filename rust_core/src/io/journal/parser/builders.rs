@@ -13,6 +13,9 @@ pub(super) struct StudyBuilder {
     pub(super) objective_names: Vec<String>,
     pub(super) user_attr_names: HashSet<String>,
     pub(super) has_constraints: bool,
+    /// パラメータごとの宣言レンジ (low, high)（表示単位、初出の分布から記録）。
+    /// 数値パラメータ（Float / Int）のみ。サロゲート最適化の探索範囲に使う。
+    pub(super) param_bounds: HashMap<String, (f64, f64)>,
 }
 
 /// Documentation.

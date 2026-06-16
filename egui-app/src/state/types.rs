@@ -34,6 +34,9 @@ pub struct StudyMeta {
     pub objective_names: Vec<String>,
     pub user_attr_names: Vec<String>,
     pub has_constraints: bool,
+    /// パラメータごとの宣言レンジ (low, high)（表示単位、数値パラメータのみ）。
+    /// log 由来の探索空間範囲。サロゲート最適化の探索箱に使う。空 = 範囲不明。
+    pub param_bounds: HashMap<String, (f64, f64)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -446,6 +449,7 @@ mod tests {
             objective_names: vec![],
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, trial_rows)
     }

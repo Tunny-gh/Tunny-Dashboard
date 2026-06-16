@@ -453,6 +453,7 @@ mod tests {
             auto_select: false,
             constraints: vec![],
             priority_rows: vec![],
+            param_bounds: None,
         })
         .expect("fit f1 should succeed");
         let t2 = fit_surrogate_with_validation(&SurrogateFitRequest {
@@ -464,6 +465,7 @@ mod tests {
             auto_select: false,
             constraints: vec![],
             priority_rows: vec![],
+            param_bounds: None,
         })
         .expect("fit f2 should succeed");
         vec![t1, t2]

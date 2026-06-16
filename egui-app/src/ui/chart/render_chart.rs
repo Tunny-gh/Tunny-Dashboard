@@ -304,15 +304,44 @@ pub(crate) fn render_chart(
                 .as_ref()
                 .and_then(|r| ctx.view.numeric_column(&r.objective_name))
                 .map(|col| col.to_vec());
+            // 多目的フロント散布図に重ねる観測点。result の目的順に整列した各目的の全 trial 値に
+            // 加え、Pareto ランクと実行可能性を渡し、ParetoScatter と同様に分類表示する。
+            let observed_cols: Option<Vec<Vec<f64>>> =
+                widgets.surrogate_opt.multi_result.as_ref().map(|r| {
+                    r.objective_names
+                        .iter()
+                        .map(|name| {
+                            ctx.view
+                                .numeric_column(name)
+                                .map(|c| c.to_vec())
+                                .unwrap_or_default()
+                        })
+                        .collect()
+                });
+            let observed_feasible: Vec<bool> = if observed_cols.is_some() {
+                let feas = ctx.view.feasibility();
+                (0..ctx.view.row_count())
+                    .map(|i| feas.is_feasible(i))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let observed = observed_cols.as_ref().map(|cols| {
+                crate::ui::widgets::surrogate_opt::ObservedData {
+                    objective_cols: cols,
+                    pareto_rank: &ctx.view.pareto_rank,
+                    feasible: &observed_feasible,
+                }
+            });
             let constraint_col_names = ctx.view.df.constraint_col_names().to_vec();
             crate::ui::widgets::surrogate_opt::show(
                 ui,
                 &mut widgets.surrogate_opt,
                 &numeric_params,
                 obj_names,
-                cmap,
                 trial_count,
                 obj_history.as_deref(),
+                observed.as_ref(),
                 &constraint_col_names,
             );
         }

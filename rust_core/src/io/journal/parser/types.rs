@@ -17,6 +17,9 @@ pub struct StudyMeta {
     pub objective_names: Vec<String>,
     pub user_attr_names: Vec<String>,
     pub has_constraints: bool,
+    /// パラメータごとの宣言レンジ (low, high)（表示単位、数値パラメータのみ）。
+    /// log に記載された探索空間の範囲。サロゲート最適化の探索箱に使う。
+    pub param_bounds: std::collections::HashMap<String, (f64, f64)>,
 }
 
 /// Documentation.

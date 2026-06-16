@@ -165,13 +165,49 @@ impl FittedSurrogate {
     }
 }
 
+/// 各列を [0,1] へ正規化する。`bounds[d] = Some((lo, hi))`（lo<hi・有限）の列は宣言
+/// レンジで、それ以外は観測 min/max で正規化する。宣言レンジを使うと最適化の探索箱
+/// （正規化空間 [0,1]^d）が log 由来の真の変数範囲に一致し、観測データの外（未観測だが
+/// 有効な領域）も探索できる一方、`to_original_x` のクランプで範囲外へは出ない。
+fn normalize_x_box(
+    x_matrix: &[Vec<f64>],
+    bounds: Option<&[Option<(f64, f64)>]>,
+) -> (Vec<(f64, f64)>, Vec<Vec<f64>>) {
+    let (observed_stats, _) = normalize_x_minmax(x_matrix);
+    let col_stats: Vec<(f64, f64)> = observed_stats
+        .iter()
+        .enumerate()
+        .map(
+            |(d, &obs)| match bounds.and_then(|b| b.get(d)).copied().flatten() {
+                Some((lo, hi)) if lo.is_finite() && hi.is_finite() && hi > lo => {
+                    (lo, (hi - lo).max(f64::EPSILON))
+                }
+                _ => obs,
+            },
+        )
+        .collect();
+    let x_norm = x_matrix
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(d, &v)| {
+                    let (min, range) = col_stats[d];
+                    (v - min) / range
+                })
+                .collect()
+        })
+        .collect();
+    (col_stats, x_norm)
+}
+
 /// 指定モデルでサロゲートを学習する。
 pub(crate) fn fit_surrogate(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
     y: &[f64],
 ) -> Result<FittedSurrogate, String> {
-    // 優先行なしで一様誘導点（従来動作）にデリゲートする。
+    // 優先行なし・観測レンジ正規化（従来動作）にデリゲートする。
     fit_surrogate_with_priority(kind, x_matrix, y, &[])
 }
 
@@ -184,7 +220,20 @@ pub(crate) fn fit_surrogate_with_priority(
     y: &[f64],
     priority: &[usize],
 ) -> Result<FittedSurrogate, String> {
-    let (col_stats, x_norm) = normalize_x_minmax(x_matrix);
+    fit_surrogate_with_priority_bounds(kind, x_matrix, y, priority, None)
+}
+
+/// [`fit_surrogate_with_priority`] と同じだが、`bounds` で各列の宣言レンジを指定できる。
+/// 与えた列はその範囲で正規化し（= 探索箱が真の変数範囲に一致）、無い列は観測レンジに
+/// フォールバックする。
+pub(crate) fn fit_surrogate_with_priority_bounds(
+    kind: SurrogateModelKind,
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    priority: &[usize],
+    bounds: Option<&[Option<(f64, f64)>]>,
+) -> Result<FittedSurrogate, String> {
+    let (col_stats, x_norm) = normalize_x_box(x_matrix, bounds);
     let (y_mean, y_std, y_norm) = normalize_y(y);
 
     let model = match kind {
@@ -234,13 +283,30 @@ pub(crate) fn fit_constraint_surrogate(
     x_matrix: &[Vec<f64>],
     values: &[f64],
 ) -> Result<FittedSurrogate, String> {
-    match fit_surrogate(kind, x_matrix, values) {
+    fit_constraint_surrogate_bounds(kind, x_matrix, values, None)
+}
+
+/// [`fit_constraint_surrogate`] と同じだが、`bounds` で各列の宣言レンジを指定できる。
+/// 制約サロゲートは最適化中に目的サロゲートと同じ正規化空間で評価されるため、目的と
+/// 同一の `bounds` を渡して正規化箱を一致させる必要がある。
+pub(crate) fn fit_constraint_surrogate_bounds(
+    kind: SurrogateModelKind,
+    x_matrix: &[Vec<f64>],
+    values: &[f64],
+    bounds: Option<&[Option<(f64, f64)>]>,
+) -> Result<FittedSurrogate, String> {
+    match fit_surrogate_with_priority_bounds(kind, x_matrix, values, &[], bounds) {
         Ok(m) => Ok(m),
-        Err(e) if kind != SurrogateModelKind::Ridge => {
-            fit_surrogate(SurrogateModelKind::Ridge, x_matrix, values).map_err(|ridge_err| {
-                format!("{kind:?} failed ({e}); Ridge fallback also failed ({ridge_err})")
-            })
-        }
+        Err(e) if kind != SurrogateModelKind::Ridge => fit_surrogate_with_priority_bounds(
+            SurrogateModelKind::Ridge,
+            x_matrix,
+            values,
+            &[],
+            bounds,
+        )
+        .map_err(|ridge_err| {
+            format!("{kind:?} failed ({e}); Ridge fallback also failed ({ridge_err})")
+        }),
         Err(e) => Err(e),
     }
 }

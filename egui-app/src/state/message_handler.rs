@@ -692,6 +692,7 @@ mod tests {
                 objective_names: vec!["y".to_string()],
                 user_attr_names: vec![],
                 has_constraints: false,
+                param_bounds: Default::default(),
             },
             study_id: 0,
             pareto_rank: vec![0; trial_count],
@@ -824,6 +825,7 @@ mod tests {
                 objective_names: vec!["y".to_string()],
                 user_attr_names: vec![],
                 has_constraints: false,
+                param_bounds: Default::default(),
             },
             new_rows: rows,
             param_names: vec!["x".to_string()],
@@ -929,6 +931,7 @@ mod tests {
             objective_names: vec![],
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         }];
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -1071,6 +1074,7 @@ mod tests {
                 objective_names: vec![],
                 user_attr_names: vec![],
                 has_constraints: false,
+                param_bounds: Default::default(),
             },
             vec![],
         );

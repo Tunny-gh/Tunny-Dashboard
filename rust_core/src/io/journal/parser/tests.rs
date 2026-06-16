@@ -527,13 +527,21 @@ fn tc_101_p01_performance_50000_lines() {
 
 #[test]
 fn distribution_float_log_false_identity() {
-    let dist = Distribution::Float { log: false };
+    let dist = Distribution::Float {
+        low: 0.0,
+        high: 1.0,
+        log: false,
+    };
     assert!((dist.to_display_f64(0.5) - 0.5).abs() < 1e-10);
 }
 
 #[test]
 fn distribution_float_log_true_exp() {
-    let dist = Distribution::Float { log: true };
+    let dist = Distribution::Float {
+        low: 0.0,
+        high: 1.0,
+        log: true,
+    };
     let expected = std::f64::consts::LN_2.exp();
     assert!((dist.to_display_f64(std::f64::consts::LN_2) - expected).abs() < 1e-10);
 }
@@ -542,6 +550,7 @@ fn distribution_float_log_true_exp() {
 fn distribution_int_step1() {
     let dist = Distribution::Int {
         low: 0,
+        high: 10,
         step: 1,
         log: false,
     };
@@ -552,6 +561,7 @@ fn distribution_int_step1() {
 fn distribution_int_step2() {
     let dist = Distribution::Int {
         low: 0,
+        high: 10,
         step: 2,
         log: false,
     };
@@ -596,7 +606,7 @@ fn distribution_from_json_string_with_attributes() {
     let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.01, \"low\": -32.77, \"high\": 32.77, \"log\": false}}""#;
     let val: Value = serde_json::from_str(json_str).unwrap();
     let dist = Distribution::from_json(&val);
-    assert!(matches!(dist, Distribution::Float { log: false }));
+    assert!(matches!(dist, Distribution::Float { log: false, .. }));
     assert!((dist.to_display_f64(7.4) - 7.4).abs() < 1e-10);
 }
 
@@ -605,7 +615,7 @@ fn distribution_from_json_string_log_true() {
     let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.0, \"low\": 1e-5, \"high\": 1.0, \"log\": true}}""#;
     let val: Value = serde_json::from_str(json_str).unwrap();
     let dist = Distribution::from_json(&val);
-    assert!(matches!(dist, Distribution::Float { log: true }));
+    assert!(matches!(dist, Distribution::Float { log: true, .. }));
     let ln2 = std::f64::consts::LN_2;
     assert!((dist.to_display_f64(ln2) - 2.0).abs() < 1e-10);
 }
@@ -622,7 +632,8 @@ fn distribution_from_json_object_with_attributes() {
         Distribution::Int {
             low: 0,
             step: 2,
-            log: false
+            log: false,
+            ..
         }
     ));
     assert!((dist.to_display_f64(3.0) - 6.0).abs() < 1e-10);

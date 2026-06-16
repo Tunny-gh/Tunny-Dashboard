@@ -444,6 +444,7 @@ mod tests {
             objective_names: vec![],
             user_attr_names: vec![],
             has_constraints: false,
+            param_bounds: Default::default(),
         }
     }
 
@@ -548,6 +549,7 @@ mod tests {
                 objective_names: vec![],
                 user_attr_names: vec![],
                 has_constraints: false,
+                param_bounds: Default::default(),
             },
             vec![],
         );
