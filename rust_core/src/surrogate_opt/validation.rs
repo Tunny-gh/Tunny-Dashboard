@@ -30,6 +30,14 @@ pub struct SurrogateValidationReport {
     pub cv_rmse_std: f64,
     /// out-of-fold の (実測値, 予測値) ペア（元の単位、予測 vs 実測プロット用）。
     pub oof_pairs: Vec<(f64, f64)>,
+    /// `oof_pairs` と同順で、その点がパレートフロント（多目的 rank 0）の trial か。
+    /// 多目的フィットのみ非空（単目的フィットや Auto 選択時の検証では全要素なし）。
+    /// フロント近傍の近似度を散布図で色分けするために使う。
+    pub oof_is_front: Vec<bool>,
+    /// パレートフロント点のみで算出した OOF R²（フロント点が 2 点未満／分散ゼロなら None）。
+    pub front_r2: Option<f64>,
+    /// パレートフロント点のみで算出した OOF RMSE（フロント点が無ければ None）。
+    pub front_rmse: Option<f64>,
 }
 
 #[cfg(test)]
@@ -50,6 +58,9 @@ impl SurrogateValidationReport {
             cv_rmse_mean: 0.0,
             cv_rmse_std: 0.0,
             oof_pairs: vec![],
+            oof_is_front: vec![],
+            front_r2: None,
+            front_rmse: None,
         }
     }
 }
@@ -110,6 +121,22 @@ pub(crate) fn validate_surrogate_tracked(
     seed: u64,
     progress: &FitProgress,
 ) -> Result<SurrogateValidationReport, String> {
+    validate_surrogate_tracked_front(kind, x_matrix, y, seed, &[], progress)
+}
+
+/// [`validate_surrogate_tracked`] と同じだが、`front_rows`（パレートフロント = rank 0 の
+/// 行 index、`x_matrix` への index）を受け取り、各 OOF 点がフロントかを記録して
+/// フロント点のみの R²/RMSE も算出する。多目的フィットでフロント近傍の近似度を示すため。
+pub(crate) fn validate_surrogate_tracked_front(
+    kind: SurrogateModelKind,
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    seed: u64,
+    front_rows: &[usize],
+    progress: &FitProgress,
+) -> Result<SurrogateValidationReport, String> {
+    use std::collections::HashSet;
+    let front_set: HashSet<usize> = front_rows.iter().copied().collect();
     let n = y.len();
 
     // シャッフル済みインデックスを生成する。
@@ -155,6 +182,7 @@ pub(crate) fn validate_surrogate_tracked(
     }
 
     let mut oof_pairs: Vec<(f64, f64)> = Vec::with_capacity(n);
+    let mut oof_is_front: Vec<bool> = Vec::with_capacity(n);
     let mut cv_r2_values: Vec<f64> = Vec::with_capacity(k);
     let mut cv_rmse_values: Vec<f64> = Vec::with_capacity(k);
 
@@ -190,9 +218,14 @@ pub(crate) fn validate_surrogate_tracked(
             })
             .collect();
 
-        // OOF ペアを収集する。
-        for (&actual, &predicted) in cv_val_y.iter().zip(cv_pred.iter()) {
+        // OOF ペアを収集する（元の行 index でフロント所属も記録）。
+        for ((&idx, &actual), &predicted) in cv_val_indices
+            .iter()
+            .zip(cv_val_y.iter())
+            .zip(cv_pred.iter())
+        {
             oof_pairs.push((actual, predicted));
+            oof_is_front.push(front_set.contains(&idx));
         }
 
         // fold RMSE（縮退 fold でも含める）。
@@ -226,6 +259,36 @@ pub(crate) fn validate_surrogate_tracked(
     };
     let cv_rmse_std = population_std(&cv_rmse_values);
 
+    // パレートフロント点のみの OOF R²/RMSE（フロント近傍の近似度）。
+    let front_actual: Vec<f64> = oof_pairs
+        .iter()
+        .zip(oof_is_front.iter())
+        .filter(|(_, &f)| f)
+        .map(|(&(a, _), _)| a)
+        .collect();
+    let front_pred: Vec<f64> = oof_pairs
+        .iter()
+        .zip(oof_is_front.iter())
+        .filter(|(_, &f)| f)
+        .map(|(&(_, p), _)| p)
+        .collect();
+    let front_rmse = if front_actual.is_empty() {
+        None
+    } else {
+        Some(rmse(&front_actual, &front_pred))
+    };
+    let front_r2 = if front_actual.len() < 2 {
+        None
+    } else {
+        let mean = front_actual.iter().sum::<f64>() / front_actual.len() as f64;
+        let ss_tot: f64 = front_actual.iter().map(|&v| (v - mean).powi(2)).sum();
+        if ss_tot < f64::EPSILON {
+            None
+        } else {
+            Some(r_squared(&front_actual, &front_pred))
+        }
+    };
+
     Ok(SurrogateValidationReport {
         n_samples: n,
         n_train,
@@ -239,5 +302,8 @@ pub(crate) fn validate_surrogate_tracked(
         cv_rmse_mean,
         cv_rmse_std,
         oof_pairs,
+        oof_is_front,
+        front_r2,
+        front_rmse,
     })
 }

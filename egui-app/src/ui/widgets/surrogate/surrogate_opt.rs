@@ -897,15 +897,51 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         max_val = center + 1.0;
     }
 
-    let points: egui_plot::PlotPoints = v
-        .oof_pairs
-        .iter()
-        .map(|&(actual, pred)| [actual, pred])
-        .collect();
-    let scatter = egui_plot::Points::new(points)
-        .name("Out-of-fold predictions")
-        .color(egui::Color32::from_rgb(59, 130, 246)) // blue-500
-        .radius(3.0);
+    // パレートフロント所属フラグが揃っていれば、フロント点を分けて強調する。
+    // フロント所属が分かるのは多目的フィットのときのみ（単目的では全点を青で描く）。
+    let has_front_flags =
+        v.oof_is_front.len() == v.oof_pairs.len() && v.oof_is_front.iter().any(|&f| f);
+    let n_front = v.oof_is_front.iter().filter(|&&f| f).count();
+
+    // フロント点のみの近似度を数値で先に示す（散布図で埋もれがちなため）。
+    if has_front_flags && (v.front_r2.is_some() || v.front_rmse.is_some()) {
+        let r2_text = v
+            .front_r2
+            .map(|r| format!("R² = {:.3}", r))
+            .unwrap_or_else(|| "R² = —".to_string());
+        let rmse_text = v
+            .front_rmse
+            .map(|r| format!("RMSE = {:.6}", r))
+            .unwrap_or_default();
+        ui.colored_label(
+            crate::theme::chart_colors::COLOR_PARETO,
+            format!(
+                "Pareto-front fit — {}{} ({} front pts)",
+                r2_text,
+                if rmse_text.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", rmse_text)
+                },
+                n_front
+            ),
+        )
+        .on_hover_text(
+            "パレートフロント（rank 0）の trial だけで算出した out-of-fold の近似精度。\
+             最適化で実際に使うフロント近傍をサロゲートがどれだけ正しく予測できているかを示す。",
+        );
+    }
+
+    // フロント点（赤）とそれ以外（青）に分ける。
+    let mut front_pts: Vec<[f64; 2]> = Vec::new();
+    let mut other_pts: Vec<[f64; 2]> = Vec::new();
+    for (i, &(actual, pred)) in v.oof_pairs.iter().enumerate() {
+        if has_front_flags && v.oof_is_front.get(i).copied().unwrap_or(false) {
+            front_pts.push([actual, pred]);
+        } else {
+            other_pts.push([actual, pred]);
+        }
+    }
 
     let ref_line: egui_plot::PlotPoints = vec![[min_val, min_val], [max_val, max_val]].into();
     let ref_seg = egui_plot::Line::new(ref_line)
@@ -926,8 +962,23 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         plot = plot.reset();
     }
     plot.show(ui, |plot_ui| {
-        plot_ui.points(scatter);
+        // 非フロント点（青）を背面に。
+        plot_ui.points(
+            egui_plot::Points::new(other_pts)
+                .name("Out-of-fold predictions")
+                .color(egui::Color32::from_rgb(59, 130, 246)) // blue-500
+                .radius(3.0),
+        );
         plot_ui.line(ref_seg);
+        // フロント点（赤・大きめ）を前面に。
+        if !front_pts.is_empty() {
+            plot_ui.points(
+                egui_plot::Points::new(front_pts)
+                    .name("Pareto front")
+                    .color(crate::theme::chart_colors::COLOR_PARETO)
+                    .radius(4.0),
+            );
+        }
     });
 }
 

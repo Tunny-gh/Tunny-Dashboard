@@ -544,7 +544,14 @@ fn fit_validated_inner(
         "{stage_prefix}Cross-validating {}",
         model_display_name(model_kind)
     ));
-    let mut report = validate_surrogate_tracked(model_kind, &req.x_matrix, &req.y, 42, progress)?;
+    let mut report = validation::validate_surrogate_tracked_front(
+        model_kind,
+        &req.x_matrix,
+        &req.y,
+        42,
+        &req.priority_rows,
+        progress,
+    )?;
 
     // 全データで最終モデルを学習する。優先行（パレートフロント等）があれば GP の
     // 誘導点をそこに集中させる。CV/ホールドアウト検証側は汎化性能の推定のため一様
