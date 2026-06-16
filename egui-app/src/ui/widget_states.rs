@@ -104,9 +104,6 @@ pub struct SurrogateFitComputeRequest {
 
 // ── Surrogate Optimizer 計算リクエスト（最適化段階） ────────────
 pub struct SurrogateOptimizeComputeRequest {
-    /// 応答曲面スライスの表示軸（パラメータ名）。
-    pub slice_x: String,
-    pub slice_y: String,
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
 }
 
@@ -125,12 +122,8 @@ pub struct SurrogateMultiFitComputeRequest {
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
 }
 
-/// 多目的サロゲート最適化の最適化段階リクエスト。
-pub struct SurrogateMultiOptimizeComputeRequest {
-    /// 応答曲面スライスの表示軸（パラメータ名）。
-    pub slice_x: String,
-    pub slice_y: String,
-}
+/// 多目的サロゲート最適化の最適化段階リクエスト（実行シグナルのみ）。
+pub struct SurrogateMultiOptimizeComputeRequest;
 
 /// EHVI による多目的候補提案リクエスト。
 pub struct SurrogateMultiSuggestComputeRequest {
@@ -146,8 +139,6 @@ pub struct SurrogateOptState {
     /// この場合 `model` はプレースホルダ扱いとなり、core が CV で最良モデルを選ぶ。
     pub auto_select: bool,
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
-    pub slice_x: String,
-    pub slice_y: String,
     /// フィット段階のスピナーフラグ。
     pub fitting: bool,
     /// フィット中の進捗・キャンセル共有ハンドル（学習スレッドと共有）。
@@ -171,8 +162,22 @@ pub struct SurrogateOptState {
     pub multi_trained: Option<std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>>,
     /// 多目的最適化の完了結果。
     pub multi_result: Option<crate::state::messages::SurrogateMultiOptUiResult>,
-    /// 多目的結果表示で選択中の目的インデックス（スライスヒートマップ対象）。
-    pub multi_slice_objective: usize,
+    /// 予測パレートフロント散布図の X 軸目的インデックス。
+    pub multi_front_x_obj: usize,
+    /// 予測パレートフロント散布図の Y 軸目的インデックス。
+    pub multi_front_y_obj: usize,
+    /// 予測パレートフロント散布図の Z 軸目的インデックス（3D 表示時）。
+    pub multi_front_z_obj: usize,
+    /// 予測パレートフロントを 3D 散布図で表示するか（目的が 3 つ以上のときのみ有効）。
+    pub multi_front_3d: bool,
+    /// 予測パレートフロント 3D 散布図のカメラ状態。
+    pub multi_front_camera: crate::ui::widgets::scatter_3d::ArcballCamera,
+    /// フロント散布図で観測パレートフロント（rank 0・feasible）を表示するか。
+    pub show_observed_front: bool,
+    /// フロント散布図で観測の被支配点（rank>0・feasible）を表示するか。
+    pub show_observed_dominated: bool,
+    /// フロント散布図で観測の実行不可能解を表示するか。
+    pub show_observed_infeasible: bool,
     /// 多目的検証表示で選択中の目的インデックス（OOF プロット対象）。
     pub multi_validation_objective: usize,
     /// 制約を使用するか（制約付き Study のみ UI に表示; true = 制約を渡す）。
@@ -208,8 +213,6 @@ impl Default for SurrogateOptState {
             model: tunny_core::surrogate_opt::SurrogateModelKind::GpFitc,
             auto_select: false,
             optimizer: tunny_core::surrogate_opt::OptimizerKind::MultiStartLbfgs,
-            slice_x: String::new(),
-            slice_y: String::new(),
             fitting: false,
             fit_progress: None,
             optimizing: false,
@@ -223,7 +226,18 @@ impl Default for SurrogateOptState {
             pending_multi_optimize: None,
             multi_trained: None,
             multi_result: None,
-            multi_slice_objective: 0,
+            multi_front_x_obj: 0,
+            multi_front_y_obj: 1,
+            multi_front_z_obj: 2,
+            multi_front_3d: true,
+            // Y軸45° + X軸-30° のアイソメトリック初期視点（Pareto 3D と同じ）。
+            multi_front_camera: crate::ui::widgets::scatter_3d::ArcballCamera {
+                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
+                ..Default::default()
+            },
+            show_observed_front: true,
+            show_observed_dominated: true,
+            show_observed_infeasible: true,
             multi_validation_objective: 0,
             use_constraints: true,
             acq_kind: tunny_core::surrogate_opt::AcquisitionKind::ExpectedImprovement,
@@ -355,7 +369,8 @@ mod tests {
         assert!(state.pending_multi_optimize.is_none());
         assert!(state.multi_trained.is_none());
         assert!(state.multi_result.is_none());
-        assert_eq!(state.multi_slice_objective, 0);
+        assert_eq!(state.multi_front_x_obj, 0);
+        assert_eq!(state.multi_front_y_obj, 1);
         assert_eq!(state.multi_validation_objective, 0);
     }
 

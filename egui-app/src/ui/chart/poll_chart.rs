@@ -917,18 +917,8 @@ pub(crate) fn poll_chart_work(
                     .map(|d| matches!(d, Direction::Minimize))
                     .unwrap_or(true);
 
-                // スライス軸インデックスは訓練済みモデルの param_names から解決する。
-                let slice_params = trained
-                    .param_names
-                    .iter()
-                    .position(|p| p == &opt_req.slice_x)
-                    .zip(
-                        trained
-                            .param_names
-                            .iter()
-                            .position(|p| p == &opt_req.slice_y),
-                    )
-                    .filter(|(a, b)| a != b);
+                // 応答曲面スライスは廃止したため生成しない。
+                let slice_params: Option<(usize, usize)> = None;
 
                 widgets.surrogate_opt.optimizing = true;
                 let tx = tx.clone();
@@ -960,7 +950,11 @@ pub(crate) fn poll_chart_work(
                         feasibility_probability: r.feasibility_probability,
                     })
                 });
-            } else if let Some(multi_opt_req) = widgets.surrogate_opt.pending_multi_optimize.take()
+            } else if widgets
+                .surrogate_opt
+                .pending_multi_optimize
+                .take()
+                .is_some()
             {
                 // 多目的最適化段階: 学習済みサロゲート群が必要。
                 let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
@@ -980,20 +974,8 @@ pub(crate) fn poll_chart_work(
                     })
                     .collect();
 
-                // スライス軸インデックスは trained[0].param_names から解決する。
-                let first_param_names = multi_trained
-                    .first()
-                    .map(|t| t.param_names.clone())
-                    .unwrap_or_default();
-                let slice_params = first_param_names
-                    .iter()
-                    .position(|p| p == &multi_opt_req.slice_x)
-                    .zip(
-                        first_param_names
-                            .iter()
-                            .position(|p| p == &multi_opt_req.slice_y),
-                    )
-                    .filter(|(a, b)| a != b);
+                // 応答曲面スライスは廃止したため生成しない。
+                let slice_params: Option<(usize, usize)> = None;
 
                 let objective_names_owned = obj_names.to_vec();
                 widgets.surrogate_opt.optimizing = true;

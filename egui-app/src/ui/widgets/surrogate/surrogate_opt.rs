@@ -18,13 +18,11 @@
 use std::sync::Arc;
 
 use crate::state::messages::{SurrogateMultiOptUiResult, SurrogateOptUiResult};
-use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{
     SurrogateFitComputeRequest, SurrogateMultiFitComputeRequest,
     SurrogateMultiOptimizeComputeRequest, SurrogateMultiSuggestComputeRequest, SurrogateOptState,
     SurrogateOptimizeComputeRequest, SurrogateSuggestComputeRequest,
 };
-use crate::ui::widgets::common::heatmap::{draw_colorbar_simple, draw_heatmap, value_range};
 use tunny_core::surrogate_opt::{
     AcquisitionKind, OptimizerKind, SurrogateModelKind, SurrogateValidationReport,
     TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
@@ -135,8 +133,21 @@ pub(crate) fn multi_trained_matches(
     trained.iter().all(|t| t.model_kind == state.model)
 }
 
+/// 多目的フロント散布図に重ねる観測（既存 trial）データ。
+/// すべて trial 行順に整列し、`objective_cols` は `multi_result` の目的順に並ぶ。
+/// 観測点を ParetoScatter と同様にパレートフロント / 被支配 / 実行不可能へ分類するために使う。
+pub struct ObservedData<'a> {
+    /// 目的ごとの全 trial 観測値（`multi_result.objective_names` の順）。
+    pub objective_cols: &'a [Vec<f64>],
+    /// 各 trial の Pareto ランク（0 = 観測フロント）。
+    pub pareto_rank: &'a [u32],
+    /// 各 trial が feasible か。
+    pub feasible: &'a [bool],
+}
+
 /// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
 /// `obj_history` は現在の結果が参照する目的列の全値（trial 順）。プロット用。
+/// `observed` は多目的フロント散布図に重ねる観測点（結果が無いときは None）。
 /// `constraint_col_names` は制約列名（制約付き Study のみ非空）。
 #[allow(clippy::too_many_arguments)]
 pub fn show(
@@ -144,9 +155,9 @@ pub fn show(
     state: &mut SurrogateOptState,
     param_names: &[String],
     obj_names: &[String],
-    cmap: ColorMap,
     trial_count: usize,
     obj_history: Option<&[f64]>,
+    observed: Option<&ObservedData>,
     constraint_col_names: &[String],
 ) {
     // ── 全幅前段: 数値パラメータ無し ──────────────────────────────
@@ -165,18 +176,6 @@ pub fn show(
             ),
         );
         return;
-    }
-
-    // スライス軸のデフォルト（先頭 2 パラメータ）。Study 切替で消えた名前もリセットする。
-    if !param_names.contains(&state.slice_x) {
-        state.slice_x = param_names.first().cloned().unwrap_or_default();
-    }
-    if !param_names.contains(&state.slice_y) || state.slice_y == state.slice_x {
-        state.slice_y = param_names
-            .iter()
-            .find(|p| **p != state.slice_x)
-            .cloned()
-            .unwrap_or_default();
     }
 
     // ── 多目的モード切替チェックボックス（目的が 2 つ以上の時のみ表示） ──
@@ -251,21 +250,12 @@ pub fn show(
                     render_optimize_column_multi(
                         ui,
                         state,
-                        param_names,
                         busy,
                         has_matching_multi_trained,
-                        cmap,
+                        observed,
                     );
                 } else {
-                    render_optimize_column(
-                        ui,
-                        state,
-                        param_names,
-                        busy,
-                        has_matching_trained,
-                        cmap,
-                        obj_history,
-                    );
+                    render_optimize_column(ui, state, busy, has_matching_trained, obj_history);
                 }
             },
         );
@@ -476,10 +466,8 @@ fn render_fit_column_multi(
 fn render_optimize_column(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
-    param_names: &[String],
     busy: bool,
     has_matching_trained: bool,
-    cmap: ColorMap,
     obj_history: Option<&[f64]>,
 ) {
     // ── Optimizer コンボ ─────────────────────────────────────────
@@ -494,26 +482,6 @@ fn render_optimize_column(
             });
     });
 
-    // Surface X / Y は 2 行目に並べる（列幅が半分のため 3 コンボを 1 行に並べない）。
-    ui.horizontal(|ui| {
-        ui.label("Surface X:");
-        egui::ComboBox::from_id_salt("surrogate_slice_x")
-            .selected_text(&state.slice_x)
-            .show_ui(ui, |ui| {
-                for name in param_names {
-                    ui.selectable_value(&mut state.slice_x, name.clone(), name);
-                }
-            });
-        ui.label("Y:");
-        egui::ComboBox::from_id_salt("surrogate_slice_y")
-            .selected_text(&state.slice_y)
-            .show_ui(ui, |ui| {
-                for name in param_names {
-                    ui.selectable_value(&mut state.slice_y, name.clone(), name);
-                }
-            });
-    });
-
     // ── Run Optimization ボタン ──────────────────────────────────
     let can_optimize = has_matching_trained && !busy;
     if ui
@@ -523,8 +491,6 @@ fn render_optimize_column(
         state.error_message = None;
         state.pending_optimize = Some(SurrogateOptimizeComputeRequest {
             optimizer: state.optimizer,
-            slice_x: state.slice_x.clone(),
-            slice_y: state.slice_y.clone(),
         });
     }
 
@@ -544,13 +510,7 @@ fn render_optimize_column(
         return;
     };
 
-    render_result(
-        ui,
-        result,
-        cmap,
-        obj_history,
-        &mut state.show_slice_uncertainty,
-    );
+    render_result(ui, result, obj_history);
 
     // ── Suggest next trials セクション ──────────────────────────────
     // 単目的・GP 系モデルのみ表示する。
@@ -636,37 +596,16 @@ fn render_optimize_column(
     }
 }
 
-/// 右列（多目的）: 固定 NSGA-II ラベル + Surface X・Y コンボ、Run Optimization ボタン、結果。
+/// 右列（多目的）: 固定 NSGA-II ラベル + Run Optimization ボタン、結果。
 fn render_optimize_column_multi(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
-    param_names: &[String],
     busy: bool,
     has_matching_multi_trained: bool,
-    cmap: ColorMap,
+    observed: Option<&ObservedData>,
 ) {
     // ── Optimizer（固定ラベル） ───────────────────────────────────
     ui.label("Optimizer: NSGA-II");
-
-    // Surface X / Y コンボ。
-    ui.horizontal(|ui| {
-        ui.label("Surface X:");
-        egui::ComboBox::from_id_salt("surrogate_slice_x_multi")
-            .selected_text(&state.slice_x)
-            .show_ui(ui, |ui| {
-                for name in param_names {
-                    ui.selectable_value(&mut state.slice_x, name.clone(), name);
-                }
-            });
-        ui.label("Y:");
-        egui::ComboBox::from_id_salt("surrogate_slice_y_multi")
-            .selected_text(&state.slice_y)
-            .show_ui(ui, |ui| {
-                for name in param_names {
-                    ui.selectable_value(&mut state.slice_y, name.clone(), name);
-                }
-            });
-    });
 
     // ── Run Optimization ボタン ──────────────────────────────────
     let can_optimize = has_matching_multi_trained && !busy;
@@ -675,10 +614,7 @@ fn render_optimize_column_multi(
         .clicked()
     {
         state.error_message = None;
-        state.pending_multi_optimize = Some(SurrogateMultiOptimizeComputeRequest {
-            slice_x: state.slice_x.clone(),
-            slice_y: state.slice_y.clone(),
-        });
+        state.pending_multi_optimize = Some(SurrogateMultiOptimizeComputeRequest);
     }
 
     // 最適化中スピナー。
@@ -697,7 +633,7 @@ fn render_optimize_column_multi(
         return;
     };
 
-    render_multi_result(ui, result, state, cmap);
+    render_multi_result(ui, result, state, observed);
 
     // ── Suggest next trials (EHVI) セクション ────────────────────────
     // 多目的・GP 系モデルのみ EHVI を提供する。
@@ -1007,13 +943,7 @@ pub(crate) fn improvement_delta(minimize: bool, best_observed: f64, predicted: f
     }
 }
 
-fn render_result(
-    ui: &mut egui::Ui,
-    result: &SurrogateOptUiResult,
-    cmap: ColorMap,
-    obj_history: Option<&[f64]>,
-    show_slice_uncertainty: &mut bool,
-) {
+fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, obj_history: Option<&[f64]>) {
     let direction = if result.minimize {
         "minimize"
     } else {
@@ -1120,201 +1050,61 @@ fn render_result(
         }
     }
 
-    // ── 推定最適点のパラメータ値テーブル ────────────────────────────
-    ui.add_space(4.0);
-    egui::Grid::new("surrogate_best_params")
-        .striped(true)
-        .min_col_width(80.0)
-        .show(ui, |ui| {
-            ui.strong("Parameter");
-            ui.strong("Best value");
-            ui.end_row();
-            for (name, value) in &result.best_params {
-                ui.label(name);
-                ui.monospace(format!("{:.6}", value));
-                ui.end_row();
-            }
-        });
-
-    // ── 最適点を通る応答曲面スライス（ヒートマップ＋最適点マーカー） ──
-    let Some(slice) = &result.slice else {
-        return;
-    };
-    if slice.z_values.is_empty() {
-        return;
-    }
-    let (Some(px_name), Some(py_name)) = (
-        result.best_params.get(slice.param_x_idx),
-        result.best_params.get(slice.param_y_idx),
-    ) else {
-        return;
-    };
-
+    // ── 推定最適点の変数組み合わせ（TrialTable 形式） ────────────────
+    // パラメータ列 + 予測目的値列を 1 行で示す（TrialTable と同じ表スタイル）。
     ui.add_space(6.0);
-    ui.label(format!(
-        "Response surface through the optimum — X: {} (→), Y: {} (↑)",
-        px_name.0, py_name.0
-    ));
-
-    // 予測標準偏差オーバーレイのトグル（GP 系で z_std が利用可能なときのみ）。
-    // PDP 2D の "95% CI" トグルと同じ操作感。既定は off。
-    let has_std = slice.z_std.as_ref().is_some_and(|g| !g.is_empty());
-    if has_std {
-        ui.checkbox(show_slice_uncertainty, "Show uncertainty (±σ)")
-            .on_hover_text(
-                "予測標準偏差が大きい領域を半透明グレーで重ね、サロゲートが不確実な箇所を示します。",
-            );
-    }
-    let overlay_std = has_std && *show_slice_uncertainty;
-
-    let best_x_val = px_name.1;
-    let best_y_val = py_name.1;
-    let marker_params = vec![
-        (slice.param_x_idx, best_x_val),
-        (slice.param_y_idx, best_y_val),
-    ];
-    draw_slice_heatmap(ui, slice, &marker_params, cmap, overlay_std);
+    ui.label("Optimal variable combination:");
+    render_best_point_table(ui, result);
 }
 
-/// ヒートマップスライスの描画ヘルパー（単目的・多目的で共通）。
-/// `marker_params` は (param_x_idx_in_slice, value), (param_y_idx_in_slice, value)
-/// を含む vec。最初の 2 要素の x/y 値でマーカーを射影する。
-fn draw_slice_heatmap(
-    ui: &mut egui::Ui,
-    slice: &tunny_core::surrogate_opt::SurfaceSlice,
-    marker_points: &[(usize, f64)],
-    cmap: ColorMap,
-    overlay_std: bool,
-) {
-    let nx = slice.x_values.len();
-    let ny = slice.y_values.len();
-    if nx == 0 || ny == 0 {
-        return;
-    }
+/// 推定最適点を TrialTable と同じ表形式（各パラメータ列 + 予測目的値列、1 行）で表示する。
+fn render_best_point_table(ui: &mut egui::Ui, result: &SurrogateOptUiResult) {
+    use egui_extras::{Column, TableBuilder};
 
-    let available = ui.available_rect_before_wrap();
-    let plot_size = egui::vec2(
-        // 右にカラーバー＋数値目盛ぶんの余白を確保する。
-        (available.width() - 72.0).max(100.0),
-        available.height().clamp(60.0, 300.0),
-    );
-    let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-
-    // 表示用に向きを揃える: 横 = param_x（左→右で増加）、縦 = param_y（上 = 最大）。
-    // core の slice は z[i][j] = f(x_i, y_j) なので disp[r][c] = z[c][ny-1-r]。
-    let display: Vec<Vec<f64>> = (0..ny)
-        .map(|r| (0..nx).map(|c| slice.z_values[c][ny - 1 - r]).collect())
-        .collect();
-    draw_heatmap(&painter, rect, &display, cmap.clone());
-
-    // 予測標準偏差オーバーレイ: σ が大きいセルほど半透明グレーを濃く重ねて、
-    // サロゲートが不確実な領域を「色あせ」させる（最も軽量な可視化）。
-    if overlay_std {
-        if let Some(std_grid) = slice.z_std.as_ref() {
-            draw_std_overlay(&painter, rect, std_grid, ny, nx);
-        }
-    }
-
-    // マーカー描画: marker_points から x/y 値を取り出して射影する。
-    let (x_min, x_max) = (slice.x_values[0], slice.x_values[nx - 1]);
-    let (y_min, y_max) = (slice.y_values[0], slice.y_values[ny - 1]);
-    if x_max > x_min && y_max > y_min {
-        for (px_val, py_val) in marker_points
-            .iter()
-            .zip(marker_points.iter().skip(1))
-            .map(|(a, b)| (a.1, b.1))
-            .take(1)
-        {
-            let fx = ((px_val - x_min) / (x_max - x_min)).clamp(0.0, 1.0) as f32;
-            let fy = ((py_val - y_min) / (y_max - y_min)).clamp(0.0, 1.0) as f32;
-            let marker = egui::pos2(
-                rect.left() + fx * rect.width(),
-                rect.bottom() - fy * rect.height(),
-            );
-            painter.circle_filled(marker, 5.0, egui::Color32::WHITE);
-            painter.circle_stroke(marker, 5.0, egui::Stroke::new(1.5, egui::Color32::BLACK));
-        }
-    }
-
-    let (v_min, v_max) = value_range(&display);
-    let bar_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.right() + 4.0, rect.top()),
-        egui::vec2(16.0, rect.height()),
-    );
-    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap, None);
-}
-
-/// 予測標準偏差グリッドを、ヒートマップ上に半透明グレーのセルとして重ねる。
-///
-/// `std_grid[i][j]` は core 規約（z[i][j] = f(x_i, y_j)）と同形状なので、表示向きは
-/// `draw_slice_heatmap` と同じく disp[r][c] = std[c][ny-1-r] に並べ替える。各セルの
-/// 不透明度はグリッド内の最大 σ で正規化した相対値（最大 ~0.55）で、σ が大きいほど
-/// 元の色を覆い隠して不確実さを表す。`alpha_cell` はその領域の正規化 σ を返す純粋関数。
-fn draw_std_overlay(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    std_grid: &[Vec<f64>],
-    ny: usize,
-    nx: usize,
-) {
-    // グリッド内の最大 σ（有限・正のもの）を求める。すべて 0/非有限なら描画しない。
-    let max_std = std_grid
-        .iter()
-        .flatten()
-        .filter(|v| v.is_finite())
-        .cloned()
-        .fold(0.0_f64, f64::max);
-    // 全セルが 0 / 非有限なら（fold の初期値 0 のまま）重ねる意味がない。
-    if max_std <= 0.0 {
-        return;
-    }
-
-    let cell_w = rect.width() / nx as f32;
-    let cell_h = rect.height() / ny as f32;
-    for r in 0..ny {
-        for c in 0..nx {
-            // 表示向き（上 = param_y 最大）に合わせて core グリッドから取り出す。
-            let std = std_grid
-                .get(c)
-                .and_then(|col| col.get(ny - 1 - r))
-                .copied()
-                .unwrap_or(0.0);
-            let alpha = std_overlay_alpha(std, max_std);
-            if alpha == 0 {
-                continue;
-            }
-            let cell_rect = egui::Rect::from_min_size(
-                egui::pos2(
-                    rect.left() + c as f32 * cell_w,
-                    rect.top() + r as f32 * cell_h,
-                ),
-                egui::vec2(cell_w + 1.0, cell_h + 1.0),
-            );
-            painter.rect_filled(
-                cell_rect,
-                0.0,
-                egui::Color32::from_rgba_unmultiplied(128, 128, 128, alpha),
-            );
-        }
-    }
-}
-
-/// 正規化 σ（std / max_std）から半透明グレーのアルファ値（0..=140）を返す純粋関数。
-fn std_overlay_alpha(std: f64, max_std: f64) -> u8 {
-    if !std.is_finite() || max_std <= 0.0 {
-        return 0;
-    }
-    let t = (std / max_std).clamp(0.0, 1.0);
-    (t * 140.0).round() as u8
+    let n_params = result.best_params.len();
+    egui::ScrollArea::horizontal()
+        .id_salt("surrogate_best_point_scroll")
+        .show(ui, |ui| {
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .columns(Column::initial(90.0).at_least(50.0), n_params) // 各パラメータ
+                .column(Column::initial(110.0).at_least(60.0)) // 予測目的値
+                .header(20.0, |mut header| {
+                    for (name, _) in &result.best_params {
+                        header.col(|ui| {
+                            ui.strong(name);
+                        });
+                    }
+                    header.col(|ui| {
+                        ui.strong(&result.objective_name);
+                    });
+                })
+                .body(|mut body| {
+                    body.row(18.0, |mut row| {
+                        for (_, value) in &result.best_params {
+                            row.col(|ui| {
+                                ui.label(format!("{:.4}", value));
+                            });
+                        }
+                        row.col(|ui| {
+                            ui.monospace(format!("{:.6}", result.best_value));
+                        });
+                    });
+                });
+        });
 }
 
 /// 多目的最適化の結果を表示する。
+/// 予測パレートフロントを目的空間の散布図で示し（ウィジェット内）、続けて
+/// フロント点の変数組み合わせを TrialTable 形式の表で示す。フロントは
+/// ParetoScatter ウィジェットにも金色ダイヤで重畳表示される。
 fn render_multi_result(
     ui: &mut egui::Ui,
     result: &SurrogateMultiOptUiResult,
     state: &mut SurrogateOptState,
-    cmap: ColorMap,
+    observed: Option<&ObservedData>,
 ) {
     // ── 見出し ────────────────────────────────────────────────────
     ui.strong(format!(
@@ -1336,146 +1126,470 @@ fn render_multi_result(
     });
     ui.add_space(4.0);
 
-    // ── フロント点テーブル ────────────────────────────────────────
-    if !result.front.is_empty() {
-        egui::ScrollArea::vertical()
-            .max_height(150.0)
-            .id_salt("surrogate_multi_front_scroll")
-            .show(ui, |ui| {
-                egui::Grid::new("surrogate_multi_front_table")
-                    .striped(true)
-                    .min_col_width(60.0)
-                    .show(ui, |ui| {
-                        // ヘッダ行
-                        for name in &result.objective_names {
-                            ui.strong(name);
-                        }
-                        for name in &result.param_names {
-                            ui.strong(name);
-                        }
-                        ui.end_row();
+    // ── 予測パレートフロント散布図（目的空間） ───────────────────────
+    render_front_scatter(ui, result, state, observed);
 
-                        // データ行
-                        for pt in &result.front {
-                            for v in &pt.values {
-                                ui.monospace(format!("{:.6}", v));
-                            }
-                            for p in &pt.params {
-                                ui.monospace(format!("{:.6}", p));
-                            }
-                            ui.end_row();
-                        }
-                    });
-            });
-        ui.add_space(4.0);
-    }
+    // ── フロント点テーブル（TrialTable 形式: 各目的列 + 各パラメータ列） ──
+    ui.add_space(6.0);
+    ui.label("Predicted front variable combinations:");
+    render_front_table(ui, result);
+}
 
-    // ── 応答曲面スライス（目的選択コンボ + ヒートマップ） ─────────
-    if result.slices.is_empty() {
+/// 予測パレートフロントを目的空間の 2D 散布図として描画する。
+/// 目的が 3 つ以上のときは X/Y 軸の目的を選択できる。フロント点は
+/// X 軸目的でソートして折れ線で結び、`COLOR_SURROGATE_FRONT`（金色）で示す。
+fn render_front_scatter(
+    ui: &mut egui::Ui,
+    result: &SurrogateMultiOptUiResult,
+    state: &mut SurrogateOptState,
+    observed: Option<&ObservedData>,
+) {
+    use crate::ui::widgets::scatter_3d::show_objective_combo;
+
+    let n_obj = result.objective_names.len();
+    if n_obj < 2 || result.front.is_empty() {
         return;
     }
 
-    // 目的選択コンボ。
+    // インデックスのクランプ（目的数が変わった場合など）。
+    if state.multi_front_x_obj >= n_obj {
+        state.multi_front_x_obj = 0;
+    }
+    if state.multi_front_y_obj >= n_obj {
+        state.multi_front_y_obj = 1.min(n_obj - 1);
+    }
+    if state.multi_front_z_obj >= n_obj {
+        state.multi_front_z_obj = 2.min(n_obj - 1);
+    }
+
+    // ── 観測点の表示トグル（ParetoScatter と同様: フロント / 被支配 / 実行不可能） ──
+    let any_infeasible = observed
+        .map(|o| o.feasible.iter().any(|&f| !f))
+        .unwrap_or(false);
+    if observed.is_some() {
+        ui.horizontal(|ui| {
+            ui.label("Observed:");
+            ui.checkbox(&mut state.show_observed_front, "Pareto front");
+            ui.checkbox(&mut state.show_observed_dominated, "Others");
+            if any_infeasible {
+                ui.checkbox(&mut state.show_observed_infeasible, "Infeasible");
+            }
+        });
+    }
+    let toggles = ObservedToggles {
+        front: state.show_observed_front,
+        dominated: state.show_observed_dominated,
+        infeasible: state.show_observed_infeasible,
+    };
+
+    // ── 目的が 2 つ: 固定軸の 2D 散布図のみ ─────────────────────────
+    if n_obj == 2 {
+        render_front_scatter_2d(ui, result, 0, 1, observed, toggles);
+        return;
+    }
+
+    // ── 目的が 3 つ以上: 2D / 3D 切替 + 軸セレクタ ──────────────────
     ui.horizontal(|ui| {
-        ui.label("Surface for:");
-        let current_name = result
-            .objective_names
-            .get(state.multi_slice_objective)
-            .map(|s| s.as_str())
-            .unwrap_or("—");
-        egui::ComboBox::from_id_salt("surrogate_multi_slice_obj")
-            .selected_text(current_name)
-            .show_ui(ui, |ui| {
-                for (i, name) in result.objective_names.iter().enumerate() {
-                    if ui
-                        .selectable_label(state.multi_slice_objective == i, name)
-                        .clicked()
-                    {
-                        state.multi_slice_objective = i;
-                    }
-                }
-            });
+        ui.checkbox(&mut state.multi_front_3d, "3D view");
+        ui.separator();
+        if state.multi_front_3d {
+            show_objective_combo(
+                ui,
+                "X:",
+                "surrogate_front_x",
+                &mut state.multi_front_x_obj,
+                &result.objective_names,
+            );
+            show_objective_combo(
+                ui,
+                "Y:",
+                "surrogate_front_y",
+                &mut state.multi_front_y_obj,
+                &result.objective_names,
+            );
+            show_objective_combo(
+                ui,
+                "Z:",
+                "surrogate_front_z",
+                &mut state.multi_front_z_obj,
+                &result.objective_names,
+            );
+        } else {
+            show_objective_combo(
+                ui,
+                "X:",
+                "surrogate_front_x",
+                &mut state.multi_front_x_obj,
+                &result.objective_names,
+            );
+            show_objective_combo(
+                ui,
+                "Y:",
+                "surrogate_front_y",
+                &mut state.multi_front_y_obj,
+                &result.objective_names,
+            );
+        }
     });
 
-    // インデックス範囲クランプ（目的数が減った場合など）。
-    let n_slices = result.slices.len();
-    if state.multi_slice_objective >= n_slices {
-        state.multi_slice_objective = 0;
+    if state.multi_front_3d {
+        render_front_scatter_3d(ui, result, state, observed, toggles);
+    } else {
+        render_front_scatter_2d(
+            ui,
+            result,
+            state.multi_front_x_obj,
+            state.multi_front_y_obj,
+            observed,
+            toggles,
+        );
     }
+}
 
-    let Some(slice) = result.slices.get(state.multi_slice_objective) else {
-        return;
+/// 観測点の分類別表示トグル（ParetoScatter と同じ 3 分類）。
+#[derive(Clone, Copy)]
+struct ObservedToggles {
+    /// 観測パレートフロント（rank 0・feasible）を表示するか。
+    front: bool,
+    /// 観測の被支配点（rank>0・feasible）を表示するか。
+    dominated: bool,
+    /// 観測の実行不可能解を表示するか。
+    infeasible: bool,
+}
+
+/// 観測点を目的 (xi, yi) で (パレートフロント, 被支配, 実行不可能) の 3 群に分類する。
+#[allow(clippy::type_complexity)]
+fn classify_observed_2d(
+    obs: &ObservedData,
+    xi: usize,
+    yi: usize,
+) -> (Vec<[f64; 2]>, Vec<[f64; 2]>, Vec<[f64; 2]>) {
+    let (Some(xc), Some(yc)) = (obs.objective_cols.get(xi), obs.objective_cols.get(yi)) else {
+        return (Vec::new(), Vec::new(), Vec::new());
     };
-    if slice.z_values.is_empty() {
-        return;
-    }
-
-    let obj_name = result
-        .objective_names
-        .get(state.multi_slice_objective)
-        .map(|s| s.as_str())
-        .unwrap_or("?");
-    let px_label = result
-        .param_names
-        .get(slice.param_x_idx)
-        .map(|s| s.as_str())
-        .unwrap_or("?");
-    let py_label = result
-        .param_names
-        .get(slice.param_y_idx)
-        .map(|s| s.as_str())
-        .unwrap_or("?");
-
-    ui.label(format!(
-        "Response surface ({}) — X: {} (→), Y: {} (↑)",
-        obj_name, px_label, py_label
-    ));
-
-    // ヒートマップ描画。
-    let nx = slice.x_values.len();
-    let ny = slice.y_values.len();
-    if nx == 0 || ny == 0 {
-        return;
-    }
-
-    let available = ui.available_rect_before_wrap();
-    let plot_size = egui::vec2(
-        // 右にカラーバー＋数値目盛ぶんの余白を確保する。
-        (available.width() - 72.0).max(100.0),
-        available.height().clamp(60.0, 300.0),
-    );
-    let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-
-    let display: Vec<Vec<f64>> = (0..ny)
-        .map(|r| (0..nx).map(|c| slice.z_values[c][ny - 1 - r]).collect())
-        .collect();
-    draw_heatmap(&painter, rect, &display, cmap.clone());
-
-    // パレートフロント全点をオーバーレイ（白丸、黒縁）。
-    let (x_min, x_max) = (slice.x_values[0], slice.x_values[nx - 1]);
-    let (y_min, y_max) = (slice.y_values[0], slice.y_values[ny - 1]);
-    if x_max > x_min && y_max > y_min {
-        for pt in &result.front {
-            let px_val = pt.params.get(slice.param_x_idx).copied().unwrap_or(0.0);
-            let py_val = pt.params.get(slice.param_y_idx).copied().unwrap_or(0.0);
-            let fx = ((px_val - x_min) / (x_max - x_min)).clamp(0.0, 1.0) as f32;
-            let fy = ((py_val - y_min) / (y_max - y_min)).clamp(0.0, 1.0) as f32;
-            let marker = egui::pos2(
-                rect.left() + fx * rect.width(),
-                rect.bottom() - fy * rect.height(),
-            );
-            painter.circle_filled(marker, 2.5, egui::Color32::WHITE);
-            painter.circle_stroke(marker, 2.5, egui::Stroke::new(1.0, egui::Color32::BLACK));
+    let n = xc
+        .len()
+        .min(yc.len())
+        .min(obs.pareto_rank.len())
+        .min(obs.feasible.len());
+    let mut front = Vec::new();
+    let mut dominated = Vec::new();
+    let mut infeasible = Vec::new();
+    for i in 0..n {
+        let pt = [xc[i], yc[i]];
+        if !obs.feasible[i] {
+            infeasible.push(pt);
+        } else if obs.pareto_rank[i] == 0 {
+            front.push(pt);
+        } else {
+            dominated.push(pt);
         }
     }
+    (front, dominated, infeasible)
+}
 
-    let (v_min, v_max) = value_range(&display);
-    let bar_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.right() + 4.0, rect.top()),
-        egui::vec2(16.0, rect.height()),
-    );
-    draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap, None);
+/// 観測点を目的 (xi, yi, zi) で (パレートフロント, 被支配, 実行不可能) の 3 群に分類する。
+#[allow(clippy::type_complexity)]
+fn classify_observed_3d(
+    obs: &ObservedData,
+    xi: usize,
+    yi: usize,
+    zi: usize,
+) -> (Vec<[f64; 3]>, Vec<[f64; 3]>, Vec<[f64; 3]>) {
+    let (Some(xc), Some(yc), Some(zc)) = (
+        obs.objective_cols.get(xi),
+        obs.objective_cols.get(yi),
+        obs.objective_cols.get(zi),
+    ) else {
+        return (Vec::new(), Vec::new(), Vec::new());
+    };
+    let n = xc
+        .len()
+        .min(yc.len())
+        .min(zc.len())
+        .min(obs.pareto_rank.len())
+        .min(obs.feasible.len());
+    let mut front = Vec::new();
+    let mut dominated = Vec::new();
+    let mut infeasible = Vec::new();
+    for i in 0..n {
+        let pt = [xc[i], yc[i], zc[i]];
+        if !obs.feasible[i] {
+            infeasible.push(pt);
+        } else if obs.pareto_rank[i] == 0 {
+            front.push(pt);
+        } else {
+            dominated.push(pt);
+        }
+    }
+    (front, dominated, infeasible)
+}
+
+/// 予測パレートフロントを 2D 散布図（目的 xi × yi）で描画する。
+/// 点は X 軸でソートして折れ線で結び、`COLOR_SURROGATE_FRONT`（金色ダイヤ）で示す。
+fn render_front_scatter_2d(
+    ui: &mut egui::Ui,
+    result: &SurrogateMultiOptUiResult,
+    xi: usize,
+    yi: usize,
+    observed: Option<&ObservedData>,
+    toggles: ObservedToggles,
+) {
+    use crate::theme::chart_colors::{
+        COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_SURROGATE_FRONT,
+    };
+
+    let mut pts: Vec<[f64; 2]> = result
+        .front
+        .iter()
+        .filter_map(|p| Some([*p.values.get(xi)?, *p.values.get(yi)?]))
+        .collect();
+    if pts.is_empty() {
+        return;
+    }
+    pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+
+    // 既存（観測）点を ParetoScatter と同じ 3 分類で射影する。
+    let (obs_front, obs_dominated, obs_infeasible) = match observed {
+        Some(obs) => classify_observed_2d(obs, xi, yi),
+        None => (Vec::new(), Vec::new(), Vec::new()),
+    };
+
+    let x_label = result.objective_names.get(xi).cloned().unwrap_or_default();
+    let y_label = result.objective_names.get(yi).cloned().unwrap_or_default();
+
+    egui_plot::Plot::new("surrogate_front_scatter_2d")
+        .height(220.0)
+        .x_axis_label(&x_label)
+        .y_axis_label(&y_label)
+        .legend(egui_plot::Legend::default())
+        .show(ui, |plot_ui| {
+            // 観測点を背面に描く（実行不可能 → 被支配 → 観測フロントの順）。
+            if toggles.infeasible && !obs_infeasible.is_empty() {
+                plot_ui.points(
+                    egui_plot::Points::new(obs_infeasible)
+                        .name("Infeasible")
+                        .shape(egui_plot::MarkerShape::Circle)
+                        .radius(2.5)
+                        .color(COLOR_INFEASIBLE),
+                );
+            }
+            if toggles.dominated && !obs_dominated.is_empty() {
+                plot_ui.points(
+                    egui_plot::Points::new(obs_dominated)
+                        .name("Observed (others)")
+                        .shape(egui_plot::MarkerShape::Circle)
+                        .radius(2.5)
+                        .color(COLOR_NON_PARETO),
+                );
+            }
+            if toggles.front && !obs_front.is_empty() {
+                plot_ui.points(
+                    egui_plot::Points::new(obs_front)
+                        .name("Observed Pareto front")
+                        .shape(egui_plot::MarkerShape::Circle)
+                        .radius(3.5)
+                        .color(COLOR_PARETO),
+                );
+            }
+            // フロントを結ぶ折れ線（点が 2 つ以上のとき）。
+            if pts.len() >= 2 {
+                plot_ui.line(
+                    egui_plot::Line::new(pts.clone())
+                        .name("Predicted Pareto front")
+                        .color(COLOR_SURROGATE_FRONT)
+                        .width(1.5),
+                );
+            }
+            // 予測フロント点（金色ダイヤ）。
+            plot_ui.points(
+                egui_plot::Points::new(pts)
+                    .name("Predicted Pareto front")
+                    .shape(egui_plot::MarkerShape::Diamond)
+                    .radius(4.5)
+                    .color(COLOR_SURROGATE_FRONT),
+            );
+        });
+}
+
+/// 予測パレートフロントを 3D 散布図（目的 X × Y × Z）で描画する。
+/// `scatter_3d` の共有インフラ（アークボールカメラ・投影・グリッド・軸）を再利用する。
+fn render_front_scatter_3d(
+    ui: &mut egui::Ui,
+    result: &SurrogateMultiOptUiResult,
+    state: &mut SurrogateOptState,
+    observed: Option<&ObservedData>,
+    toggles: ObservedToggles,
+) {
+    use crate::theme::chart_colors::{
+        COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_SURROGATE_FRONT,
+    };
+    use crate::ui::widgets::scatter_3d::{
+        compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
+    };
+
+    let xi = state.multi_front_x_obj;
+    let yi = state.multi_front_y_obj;
+    let zi = state.multi_front_z_obj;
+
+    // フロント点の各軸値。
+    let axis_vals = |idx: usize| -> Vec<f64> {
+        result
+            .front
+            .iter()
+            .filter_map(|p| p.values.get(idx).copied())
+            .collect()
+    };
+    let x_vals = axis_vals(xi);
+    let y_vals = axis_vals(yi);
+    let z_vals = axis_vals(zi);
+    if x_vals.is_empty() || y_vals.is_empty() || z_vals.is_empty() {
+        return;
+    }
+
+    // 観測（既存）点の各軸列。改善を見比べるための背景クラウド。
+    let obs_col = |idx: usize| -> &[f64] {
+        observed
+            .and_then(|o| o.objective_cols.get(idx))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    };
+    let obs_x = obs_col(xi);
+    let obs_y = obs_col(yi);
+    let obs_z = obs_col(zi);
+
+    // 範囲はフロント点と全観測点を含むようにする（観測点がクリップで潰れず、
+    // トグルで表示を切り替えても軸スケールが変わらないように）。
+    let range_for = |front_vals: &[f64], obs: &[f64]| -> (f64, f64) {
+        let combined: Vec<f64> = front_vals.iter().chain(obs.iter()).copied().collect();
+        compute_range_from_col(Some(&combined))
+    };
+    let (x_min, x_max) = range_for(&x_vals, obs_x);
+    let (y_min, y_max) = range_for(&y_vals, obs_y);
+    let (z_min, z_max) = range_for(&z_vals, obs_z);
+
+    // 観測点を 3 分類に分ける。
+    let (obs_front, obs_dominated, obs_infeasible) = match observed {
+        Some(obs) => classify_observed_3d(obs, xi, yi, zi),
+        None => (Vec::new(), Vec::new(), Vec::new()),
+    };
+
+    // 予測フロント点。
+    let front_pts: Vec<[f64; 3]> = result
+        .front
+        .iter()
+        .map(|p| {
+            [
+                p.values.get(xi).copied().unwrap_or(0.0),
+                p.values.get(yi).copied().unwrap_or(0.0),
+                p.values.get(zi).copied().unwrap_or(0.0),
+            ]
+        })
+        .collect();
+
+    let x_name = result.objective_names.get(xi).cloned().unwrap_or_default();
+    let y_name = result.objective_names.get(yi).cloned().unwrap_or_default();
+    let z_name = result.objective_names.get(zi).cloned().unwrap_or_default();
+
+    // 高さを固定した領域内にキャンバスを確保する（setup_3d_canvas は available_size を使うため）。
+    let width = ui.available_width();
+    ui.allocate_ui(egui::vec2(width, 280.0), |ui| {
+        let (painter, _rect, project) = setup_3d_canvas(ui, &mut state.multi_front_camera);
+        draw_3d_grid(&painter, &project);
+        draw_3d_axes(
+            &painter,
+            &project,
+            [&x_name, &y_name, &z_name],
+            [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
+        );
+
+        // 1 群を投影・深度ソートして描画するヘルパー。
+        let draw_group = |group: &[[f64; 3]], color: egui::Color32, radius: f32, stroke: bool| {
+            let mut calls: Vec<(egui::Pos2, f32)> = group
+                .iter()
+                .map(|p| {
+                    project([
+                        normalize_to_clip(p[0], x_min, x_max),
+                        normalize_to_clip(p[1], y_min, y_max),
+                        normalize_to_clip(p[2], z_min, z_max),
+                    ])
+                })
+                .collect();
+            calls.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (pos, _) in &calls {
+                painter.circle_filled(*pos, radius, color);
+                if stroke {
+                    painter.circle_stroke(
+                        *pos,
+                        radius,
+                        egui::Stroke::new(1.0, egui::Color32::BLACK),
+                    );
+                }
+            }
+        };
+
+        // 観測点（背面）→ 予測フロント（手前）の順に描画する。
+        if toggles.infeasible {
+            draw_group(&obs_infeasible, COLOR_INFEASIBLE, 2.5, false);
+        }
+        if toggles.dominated {
+            draw_group(&obs_dominated, COLOR_NON_PARETO, 2.5, false);
+        }
+        if toggles.front {
+            draw_group(&obs_front, COLOR_PARETO, 3.5, false);
+        }
+        draw_group(&front_pts, COLOR_SURROGATE_FRONT, 4.0, true);
+    });
+}
+
+/// 予測パレートフロントの各点を TrialTable と同じ表形式（目的列 + パラメータ列）で表示する。
+fn render_front_table(ui: &mut egui::Ui, result: &SurrogateMultiOptUiResult) {
+    use egui_extras::{Column, TableBuilder};
+
+    if result.front.is_empty() {
+        return;
+    }
+    let n_obj = result.objective_names.len();
+    let n_param = result.param_names.len();
+
+    egui::ScrollArea::both()
+        .max_height(200.0)
+        .id_salt("surrogate_multi_front_scroll")
+        .show(ui, |ui| {
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .columns(Column::initial(80.0).at_least(50.0), n_obj) // 各目的
+                .columns(Column::initial(80.0).at_least(50.0), n_param) // 各パラメータ
+                .header(20.0, |mut header| {
+                    for name in &result.objective_names {
+                        header.col(|ui| {
+                            ui.strong(name);
+                        });
+                    }
+                    for name in &result.param_names {
+                        header.col(|ui| {
+                            ui.strong(name);
+                        });
+                    }
+                })
+                .body(|body| {
+                    body.rows(18.0, result.front.len(), |mut row| {
+                        let pt = &result.front[row.index()];
+                        for v in &pt.values {
+                            row.col(|ui| {
+                                ui.monospace(format!("{:.6}", v));
+                            });
+                        }
+                        for p in &pt.params {
+                            row.col(|ui| {
+                                ui.monospace(format!("{:.6}", p));
+                            });
+                        }
+                    });
+                });
+        });
 }
 
 /// 最適化履歴プロット（全 trial 点 + 累積ベスト線 + 予測最適値の水平線）。
@@ -1536,6 +1650,17 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
             plot_ui.points(scatter);
             plot_ui.line(best_line);
             plot_ui.line(hline);
+
+            // 予測最適点を大きな星マーカーで強調する（右端 = 最新 trial 位置に配置）。
+            let opt_marker: egui_plot::PlotPoints =
+                vec![[n.max(1.0) - 1.0, result.best_value]].into();
+            plot_ui.points(
+                egui_plot::Points::new(opt_marker)
+                    .name("Predicted optimum")
+                    .shape(egui_plot::MarkerShape::Asterisk)
+                    .radius(9.0)
+                    .color(predicted_line_color),
+            );
 
             // 予測標準偏差の ±1.96σ 帯（薄いグレーの破線）。
             if let Some(std) = result.predicted_std {
@@ -1759,21 +1884,6 @@ mod tests {
     }
 
     // ── improvement_delta のユニットテスト ────────────────────────────
-
-    #[test]
-    fn std_overlay_alpha_scales_with_normalized_std() {
-        // σ = 0 → 完全透明
-        assert_eq!(std_overlay_alpha(0.0, 2.0), 0);
-        // σ = max → 最大アルファ（140）
-        assert_eq!(std_overlay_alpha(2.0, 2.0), 140);
-        // σ = max/2 → 約半分
-        assert_eq!(std_overlay_alpha(1.0, 2.0), 70);
-        // max_std <= 0 や非有限 → 0（描画しない）
-        assert_eq!(std_overlay_alpha(1.0, 0.0), 0);
-        assert_eq!(std_overlay_alpha(f64::NAN, 2.0), 0);
-        // σ > max でもクランプされる
-        assert_eq!(std_overlay_alpha(5.0, 2.0), 140);
-    }
 
     #[test]
     fn improvement_delta_minimize_positive() {
