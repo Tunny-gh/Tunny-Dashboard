@@ -161,30 +161,51 @@ impl ConvergenceChart {
             return;
         }
 
-        // 指標セレクタ
+        // 指標セレクタと補足情報（方向・サンプリング間隔）を 1 行に並べる。
+        // コンボボックス右の余白を活用し、縦方向のスペースを節約する。
         let mut new_indicator = self.indicator;
-        egui::ComboBox::from_id_salt("convergence_indicator")
-            .selected_text(self.indicator.label())
-            .show_ui(ui, |ui| {
-                for ind in MoIndicator::all() {
-                    ui.selectable_value(&mut new_indicator, ind, ind.label());
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("convergence_indicator")
+                .selected_text(self.indicator.label())
+                .show_ui(ui, |ui| {
+                    for ind in MoIndicator::all() {
+                        ui.selectable_value(&mut new_indicator, ind, ind.label());
+                    }
+                });
+
+            // 方向（大小どちらが良いか）
+            let direction_text = if self.indicator.higher_is_better() {
+                "Higher is better"
+            } else {
+                "Lower is better"
+            };
+            ui.label(
+                egui::RichText::new(direction_text)
+                    .small()
+                    .color(crate::theme::TEXT_SECONDARY),
+            );
+
+            // サンプリング間隔（データがあるときのみ）
+            if !self.computing {
+                if let Some(history) = &self.history {
+                    let step = history.sample_step;
+                    let sampling_label = if step <= 1 {
+                        "Sampling: Every trial".to_string()
+                    } else {
+                        format!("Sampling: Every {step} trials")
+                    };
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(sampling_label)
+                            .small()
+                            .color(crate::theme::TEXT_SECONDARY),
+                    );
                 }
-            });
+            }
+        });
         if new_indicator != self.indicator {
             self.pending_indicator = Some(new_indicator);
         }
-
-        // 方向キャプション
-        let direction_text = if self.indicator.higher_is_better() {
-            "Higher is better"
-        } else {
-            "Lower is better"
-        };
-        ui.label(
-            egui::RichText::new(direction_text)
-                .small()
-                .color(crate::theme::TEXT_SECONDARY),
-        );
 
         // 参照点コントロールは HV 選択時のみ表示する。
         if self.indicator == MoIndicator::Hypervolume {
@@ -204,7 +225,6 @@ impl ConvergenceChart {
             return;
         };
 
-        let step = history.sample_step;
         let base_points = Self::to_points(history);
         let base_label = if self.base_name.is_empty() {
             self.indicator.label().to_string()
@@ -219,17 +239,6 @@ impl ConvergenceChart {
             .filter(|s| !s.history.values.is_empty())
             .map(|s| (s.name.as_str(), s.color, Self::to_points(&s.history)))
             .collect();
-
-        let sampling_label = if step <= 1 {
-            "Sampling: Every trial".to_string()
-        } else {
-            format!("Sampling: Every {} trials", step)
-        };
-        ui.label(
-            egui::RichText::new(sampling_label)
-                .small()
-                .color(crate::theme::TEXT_SECONDARY),
-        );
 
         egui_plot::Plot::new("convergence_plot")
             .legend(egui_plot::Legend::default())
