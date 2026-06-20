@@ -168,7 +168,11 @@ impl TunnyApp {
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
-            crate::io::study_worker::dispatch_scan_journal(path, tx.clone());
+            if crate::io::flat_csv::is_csv_path(&path) {
+                crate::io::study_worker::dispatch_scan_csv(path, tx.clone());
+            } else {
+                crate::io::study_worker::dispatch_scan_journal(path, tx.clone());
+            }
         }
         Self {
             app_state: AppState::new(),
@@ -281,7 +285,11 @@ impl TunnyApp {
                     // 別ファイルを開くと study_id 空間が変わるため、
                     // 同一ファイル前提の比較セッションは破棄する。
                     self.app_state.reset_comparison_session();
-                    crate::io::study_worker::dispatch_scan_journal(path, self.sender());
+                    if crate::io::flat_csv::is_csv_path(&path) {
+                        crate::io::study_worker::dispatch_scan_csv(path, self.sender());
+                    } else {
+                        crate::io::study_worker::dispatch_scan_journal(path, self.sender());
+                    }
                 }
                 ToolbarAction::SetViewMode(mode) => {
                     self.layout.view_mode = mode;
