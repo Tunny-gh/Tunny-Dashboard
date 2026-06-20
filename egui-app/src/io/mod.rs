@@ -3,6 +3,7 @@ pub mod chart_capture;
 pub mod csv_export;
 pub mod export;
 pub mod file;
+pub mod flat_csv;
 pub mod html_report;
 pub mod journal;
 pub mod live_update_poller;

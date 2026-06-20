@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, OnceLock};
 
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::app_state::StudyMeta;
 use crate::state::messages::AppMessage;
 
@@ -11,6 +12,11 @@ use tunny_core::dataframe::DataFrame;
 enum StudyCommand {
     /// Phase 1: ファイルをスキャンして Study 一覧のみ取得する
     ScanJournal {
+        path: PathBuf,
+        tx: SyncSender<AppMessage>,
+    },
+    /// フラット CSV（1 行 = 1 トライアル）形式を読み込み、単一 Study を登録する。
+    ScanCsv {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
@@ -35,6 +41,10 @@ struct WorkerState {
     journal_data: Option<Vec<u8>>,
     /// DataFrame をグローバルストアに登録済みの study_id セット
     loaded_study_ids: HashSet<u32>,
+    /// フラット CSV インポート時の `img` 列由来アーティファクト。
+    /// `(artifacts_dir, trial_id → entries)`。Study 選択（StudySelected が `clear()` で
+    /// アーティファクトを破棄する）後に毎回再送するため保持する。Journal を開くと None に戻す。
+    csv_artifacts: Option<(PathBuf, HashMap<u32, Vec<ArtifactEntry>>)>,
 }
 
 fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
@@ -45,6 +55,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
             let mut state = WorkerState {
                 journal_data: None,
                 loaded_study_ids: HashSet::new(),
+                csv_artifacts: None,
             };
             while let Ok(cmd) = cmd_rx.recv() {
                 match cmd {
@@ -53,14 +64,42 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         if !matches!(msg, AppMessage::Error(_)) {
                             state.journal_data = Some(data);
                             state.loaded_study_ids.clear();
+                            state.csv_artifacts = None;
                         }
                         let _ = tx.send(msg);
+                    }
+                    StudyCommand::ScanCsv { path, tx } => {
+                        match crate::io::flat_csv::load_csv(&path) {
+                            Ok((meta, artifacts_dir, artifacts)) => {
+                                // CSV は単一 Study を即時ストア登録済み。Journal の
+                                // ストリーミング経路は使わず、loaded 扱いにする。
+                                state.journal_data = None;
+                                state.loaded_study_ids.clear();
+                                state.loaded_study_ids.insert(meta.study_id);
+                                state.csv_artifacts = Some((artifacts_dir, artifacts));
+                                let _ = tx.send(AppMessage::JournalParsed {
+                                    studies: vec![meta],
+                                    path,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppMessage::Error(e));
+                            }
+                        }
                     }
                     StudyCommand::SelectStudy { meta, tx } => {
                         let study_id = meta.study_id;
                         if state.loaded_study_ids.contains(&study_id) {
                             // DataFrame は既にストアにある → そのまま活性化（即時 1 通）
                             let _ = tx.send(crate::io::study::select_study_task(meta));
+                            // CSV インポート時は StudySelected の clear() でアーティファクトが
+                            // 破棄されるため、選択のたびに再送する。
+                            if let Some((dir, artifacts)) = &state.csv_artifacts {
+                                let _ = tx.send(AppMessage::ArtifactsDirScanned {
+                                    trial_artifacts: artifacts.clone(),
+                                    artifacts_dir: dir.clone(),
+                                });
+                            }
                         } else if let Some(ref data) = state.journal_data {
                             // 未ロード → Phase 2: ストリーミング解析。完了 Trial を 1000 件ごとに
                             // StudyChunkLoaded として tx へ逐次送信する（複数通）。
@@ -123,6 +162,11 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
 
 pub fn dispatch_scan_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanJournal { path, tx });
+}
+
+/// フラット CSV を読み込み単一 Study として登録する。
+pub fn dispatch_scan_csv(path: PathBuf, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanCsv { path, tx });
 }
 
 pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
