@@ -313,8 +313,12 @@ type Pdp2dResult = Option<(Vec<f64>, Vec<f64>, Vec<Vec<f64>>, f64)>;
 
 /// Compute a 2D partial dependence surface using a LightGBM RandomForest.
 ///
+/// Trains on the full feature matrix. For each grid cell `(g1, g2)` the two
+/// target columns are fixed to those values in every row; the average prediction
+/// gives the PDP value, marginalising out all non-target dimensions.
+///
 /// Returns `(grid1, grid2, z_values, r_squared)` where `z_values` has shape
-/// `[n_grid][n_grid]` and grid axes span the data range of each column.
+/// `[n_grid][n_grid]` and grid axes span the data range of each target column.
 pub fn compute_pdp_2d_lgbm(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -331,37 +335,62 @@ pub fn compute_pdp_2d_lgbm(
         return None;
     }
 
-    let x2d: Vec<Vec<f64>> = x_matrix
-        .iter()
-        .map(|row| vec![row[param1_idx], row[param2_idx]])
-        .collect();
-
     let config = LgbmRfConfig {
         num_iterations: 100,
         ..Default::default()
     };
-    let booster = train_lgbm_rf(&x2d, y, &config)?;
+    let booster = train_lgbm_rf(x_matrix, y, &config)?;
 
-    let min1 = x2d.iter().map(|r| r[0]).fold(f64::INFINITY, f64::min);
-    let max1 = x2d.iter().map(|r| r[0]).fold(f64::NEG_INFINITY, f64::max);
-    let min2 = x2d.iter().map(|r| r[1]).fold(f64::INFINITY, f64::min);
-    let max2 = x2d.iter().map(|r| r[1]).fold(f64::NEG_INFINITY, f64::max);
+    let min1 = x_matrix
+        .iter()
+        .map(|r| r[param1_idx])
+        .fold(f64::INFINITY, f64::min);
+    let max1 = x_matrix
+        .iter()
+        .map(|r| r[param1_idx])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min2 = x_matrix
+        .iter()
+        .map(|r| r[param2_idx])
+        .fold(f64::INFINITY, f64::min);
+    let max2 = x_matrix
+        .iter()
+        .map(|r| r[param2_idx])
+        .fold(f64::NEG_INFINITY, f64::max);
 
     let grid1 = linspace(min1, max1, n_grid);
     let grid2 = linspace(min2, max2, n_grid);
+    let n_rows = x_matrix.len();
 
-    let grid_points: Vec<Vec<f64>> = grid1
+    // For each grid cell, fix the two target columns in every row and average the
+    // predictions (marginalising over the remaining dimensions). Build one big
+    // batch — n_grid×n_grid cells × n_rows rows — and predict once.
+    let all_rows: Vec<Vec<f64>> = grid1
         .iter()
-        .flat_map(|&g1| grid2.iter().map(move |&g2| vec![g1, g2]))
+        .flat_map(|&g1| {
+            grid2.iter().flat_map(move |&g2| {
+                x_matrix.iter().map(move |r| {
+                    let mut row = r.clone();
+                    row[param1_idx] = g1;
+                    row[param2_idx] = g2;
+                    row
+                })
+            })
+        })
         .collect();
-    let flat_z = lgbm_predict(&booster, &grid_points);
-
-    if flat_z.len() != n_grid * n_grid {
+    let flat_preds = lgbm_predict(&booster, &all_rows);
+    if flat_preds.len() != n_grid * n_grid * n_rows {
         return None;
     }
-    let z_values: Vec<Vec<f64>> = flat_z.chunks(n_grid).map(|c| c.to_vec()).collect();
 
-    let mse = lgbm_mse(&booster, &x2d, y)?;
+    // Average each block of n_rows into one PDP value, then chunk into rows.
+    let averaged: Vec<f64> = flat_preds
+        .chunks(n_rows)
+        .map(|chunk| chunk.iter().sum::<f64>() / chunk.len() as f64)
+        .collect();
+    let z_values: Vec<Vec<f64>> = averaged.chunks(n_grid).map(|c| c.to_vec()).collect();
+
+    let mse = lgbm_mse(&booster, x_matrix, y)?;
     let r_squared = mse_to_r_squared(mse, y);
 
     Some((grid1, grid2, z_values, r_squared))

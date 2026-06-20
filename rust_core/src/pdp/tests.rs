@@ -267,7 +267,7 @@ fn tc_1645_01_gp_fitc_raw_grid_shape() {
     let y: Vec<f64> = x_2d.iter().map(|xi| xi[0] + xi[1]).collect();
     let n_grid = 10;
 
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Fitc)
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, n_grid, GpMethod::Fitc)
         .expect("compute_pdp_2d_gp_raw (FITC) should succeed");
 
     assert_eq!(
@@ -298,7 +298,7 @@ fn tc_1645_e01_insufficient_data_returns_none() {
     let x_2d = vec![vec![0.0, 0.0], vec![0.5, 0.5]];
     let y = vec![0.0, 1.0];
 
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 10, GpMethod::Fitc);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, 10, GpMethod::Fitc);
     assert!(result.is_none(), "n < 3 should return None");
 }
 
@@ -315,7 +315,7 @@ fn tc_1652_tc_005_02_gp_fitc_n100_grid_shape() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] + 0.3 * r[1]).collect();
     let n_grid = 10;
 
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Fitc);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, n_grid, GpMethod::Fitc);
     assert!(result.is_some(), "Should succeed for N=100 with FITC");
     let r = result.unwrap();
     assert_eq!(r.x_values.len(), n_grid, "x_values.len() should be n_grid");
@@ -341,7 +341,7 @@ fn tc_1652_tc_005_03_gp_vfe_small_n() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 2.0).collect();
     let n_grid = 5;
 
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Vfe);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, n_grid, GpMethod::Vfe);
     assert!(result.is_some(), "VFE should succeed for N=30");
     let r = result.unwrap();
     for row in &r.z_values {
@@ -365,7 +365,7 @@ fn tc_nfr_001_01_gp_fitc_n1000_under_10s() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] + 0.3 * r[1]).collect();
 
     let start = std::time::Instant::now();
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 50, GpMethod::Fitc);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, 50, GpMethod::Fitc);
     let elapsed = start.elapsed().as_millis();
 
     println!("GP-FITC N=1000: {}ms", elapsed);
@@ -392,7 +392,7 @@ fn tc_nfr_002_01_gp_fitc_n5000_under_5s() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 2.0 + r[1] * 0.5).collect();
 
     let start = std::time::Instant::now();
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 50, GpMethod::Fitc);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, 50, GpMethod::Fitc);
     let elapsed = start.elapsed().as_millis();
 
     println!("GP-FITC N=5000: {}ms", elapsed);
@@ -402,6 +402,59 @@ fn tc_nfr_002_01_gp_fitc_n5000_under_5s() {
         elapsed < 5_000,
         "NFR-002 target missed: {}ms > 5,000ms",
         elapsed
+    );
+}
+
+#[test]
+fn gp_2d_pdp_marginalises_third_dimension() {
+    // y = 2*x0 + 0.5*x1 + 5*x2, where x2 varies independently of (x0, x1).
+    // A true 2D PDP over (x0, x1) must marginalise x2 and therefore depend
+    // only weakly (through the GP fit) on it — the surface should be close to
+    // the additive trend 2*x0 + 0.5*x1 + 5*mean(x2), NOT a function that tracks
+    // individual x2 values. We check the surface increases along the x0 axis.
+    use crate::gaussian_process::GpMethod;
+    let n = 120;
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            let t = i as f64 / n as f64;
+            let x0 = t;
+            let x1 = 1.0 - t;
+            // x2 alternates to be (largely) decorrelated from x0/x1.
+            let x2 = if i % 2 == 0 { 0.2 } else { 0.8 };
+            vec![x0, x1, x2]
+        })
+        .collect();
+    let y: Vec<f64> = x_matrix
+        .iter()
+        .map(|r| 2.0 * r[0] + 0.5 * r[1] + 5.0 * r[2])
+        .collect();
+    let n_grid = 6;
+
+    let result = compute_pdp_2d_gp_raw(&x_matrix, &y, 0, 1, n_grid, GpMethod::Fitc)
+        .expect("2D PDP over a 3-dim dataset should succeed");
+
+    assert_eq!(result.x_values.len(), n_grid);
+    assert_eq!(result.y_values.len(), n_grid);
+    assert_eq!(result.z_values.len(), n_grid);
+    for row in &result.z_values {
+        assert_eq!(row.len(), n_grid);
+        for &v in row {
+            assert!(v.is_finite(), "grid value must be finite: {v}");
+        }
+    }
+    assert!(
+        result.uncertainties.is_some(),
+        "GP path provides uncertainty"
+    );
+
+    // The marginalised surface must increase as x0 (first axis / outer index)
+    // grows, for a fixed x1 column — reflecting the +2*x0 term.
+    let col = 0;
+    let first = result.z_values[0][col];
+    let last = result.z_values[n_grid - 1][col];
+    assert!(
+        last > first,
+        "surface should increase along x0: first={first}, last={last}"
     );
 }
 
@@ -418,7 +471,7 @@ fn tc_1653_01_gp_fitc_dispatch_returns_finite_results() {
     let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 1.5 + r[1] * 0.5).collect();
     let n_grid = 5;
 
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, n_grid, GpMethod::Fitc);
+    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, n_grid, GpMethod::Fitc);
     assert!(result.is_some(), "GP-FITC dispatch should succeed for N=60");
     let r = result.unwrap();
     assert_eq!(r.x_values.len(), n_grid);

@@ -128,30 +128,43 @@ pub(crate) fn compute_pdp_1d_gp_raw(
     })
 }
 
-/// Core GP computation for 2D PDP without global state.
+/// Core 2D PDP computation with a GP model, marginalising over all other params.
 ///
-/// Takes pre-extracted 2D input where `x_2d[i] = [param1_val, param2_val]`.
-/// Trains on ALL points with M = min(N, 100) inducing points. For
-/// [`GpMethod::Moe`], retries once with [`GpMethod::Fitc`] on training failure.
-/// For FITC / VFE a `None` is final.
+/// Trains on the FULL feature matrix (M = min(N, 100) inducing points) so the
+/// surface is a genuine partial dependence plot: for each grid cell `(v1, v2)`
+/// the two target columns are fixed to those values in every training row, the
+/// mean is predicted for all rows via `predict_mean_batch`, and those means are
+/// averaged — this marginalises out every non-target dimension. Without this
+/// step the GP would only see the two selected features and report the other
+/// parameters' variation as (spuriously large) predictive uncertainty.
+///
+/// Variance uses the same centroid approximation as the 1D path (evaluate once
+/// per grid cell at a point where every non-target dimension is fixed to its
+/// training-data mean) for speed, with rayon parallelism over the first axis.
+///
+/// For [`GpMethod::Moe`], retries once with [`GpMethod::Fitc`] on training
+/// failure. For FITC / VFE a `None` is final.
 ///
 /// The `param1_name`, `param2_name`, `objective_name` fields in the result are
 /// empty strings — callers should set them as needed.
 pub(crate) fn compute_pdp_2d_gp_raw(
-    x_2d: &[Vec<f64>],
+    x_matrix: &[Vec<f64>],
     y: &[f64],
+    param1_idx: usize,
+    param2_idx: usize,
     n_grid: usize,
     method: GpMethod,
 ) -> Option<PdpResult2d> {
     let n = y.len();
-    if n < 3 || n_grid == 0 || x_2d.is_empty() {
+    let n_dims = x_matrix.first()?.len();
+    if n < 3 || n_grid == 0 || param1_idx >= n_dims || param2_idx >= n_dims {
         return None;
     }
 
     // Normalize data ranges for stable hyperparameter optimisation.
-    let (col_stats, x_norm) = normalize_x_minmax(x_2d);
-    let (min1, range1) = col_stats[0];
-    let (min2, range2) = col_stats[1];
+    let (col_stats, x_norm) = normalize_x_minmax(x_matrix);
+    let (min1, range1) = col_stats[param1_idx];
+    let (min2, range2) = col_stats[param2_idx];
     let (y_mean, y_std, y_norm) = normalize_y(y);
 
     // Train GP model; MoE falls back to FITC on training failure.
@@ -160,29 +173,60 @@ pub(crate) fn compute_pdp_2d_gp_raw(
     let x_values = linspace(min1, min1 + range1, n_grid);
     let y_values = linspace(min2, min2 + range2, n_grid);
 
-    // Build all n_grid×n_grid grid rows, then predict in one batch.
-    let grid_rows: Vec<Vec<f64>> = x_values
-        .iter()
-        .flat_map(|&v1| {
-            let v1n = (v1 - min1) / range1;
-            y_values.iter().map(move |&v2| {
-                let v2n = (v2 - min2) / range2;
-                vec![v1n, v2n]
-            })
+    // ── Centroid approximation for variance ─────────────────────────────────
+    // Non-target dimensions are fixed to the training-data mean; the two target
+    // dimensions are replaced per grid cell below.
+    let centroid_norm: Vec<f64> = (0..n_dims)
+        .map(|d| {
+            if d == param1_idx || d == param2_idx {
+                0.0 // replaced per grid cell
+            } else {
+                x_norm.iter().map(|r| r[d]).sum::<f64>() / n as f64
+            }
         })
         .collect();
 
-    let means = model.predict_mean_batch(&grid_rows);
-    let vars = model.predict_variance_batch(&grid_rows);
+    // Each first-axis value (v1) yields one row of (z, variance) pairs.
+    let rows: Vec<(Vec<f64>, Vec<f64>)> = x_values
+        .par_iter()
+        .map(|&v1| {
+            let v1n = (v1 - min1) / range1;
+            let mut z_row = Vec::with_capacity(n_grid);
+            let mut var_row = Vec::with_capacity(n_grid);
+            for &v2 in &y_values {
+                let v2n = (v2 - min2) / range2;
 
-    let z_values: Vec<Vec<f64>> = means
-        .chunks(n_grid)
-        .map(|chunk| chunk.iter().map(|&m| m * y_std + y_mean).collect())
+                // ── Mean: marginalise over all training rows ──
+                let pred_rows: Vec<Vec<f64>> = x_norm
+                    .iter()
+                    .map(|row_norm| {
+                        let mut pt = row_norm.clone();
+                        pt[param1_idx] = v1n;
+                        pt[param2_idx] = v2n;
+                        pt
+                    })
+                    .collect();
+                let preds = model.predict_mean_batch(&pred_rows);
+                let mean_avg = preds.iter().sum::<f64>() / n as f64;
+                z_row.push(mean_avg * y_std + y_mean);
+
+                // ── Variance: evaluate once at the centroid ──
+                let mut centroid_pt = centroid_norm.clone();
+                centroid_pt[param1_idx] = v1n;
+                centroid_pt[param2_idx] = v2n;
+                let var_centroid = model.predict_variance(&centroid_pt).max(0.0);
+                var_row.push(var_centroid * y_std * y_std);
+            }
+            (z_row, var_row)
+        })
         .collect();
-    let uncertainties: Vec<Vec<f64>> = vars
-        .chunks(n_grid)
-        .map(|chunk| chunk.iter().map(|&v| v * y_std * y_std).collect())
-        .collect();
+
+    let mut z_values = Vec::with_capacity(n_grid);
+    let mut uncertainties = Vec::with_capacity(n_grid);
+    for (z_row, var_row) in rows {
+        z_values.push(z_row);
+        uncertainties.push(var_row);
+    }
 
     let y_pred_2d: Vec<f64> = model
         .predict_mean_batch(&x_norm)
@@ -206,8 +250,10 @@ pub(crate) fn compute_pdp_2d_gp_raw(
 /// Compute 2D PDP surface using a GP model (FITC / VFE / mixture-of-experts).
 ///
 /// All three methods use M = min(N, 100) inducing points. MoE falls back to FITC
-/// on training failure (degenerate cluster structure). Extracts the two parameter
-/// columns and delegates to [`compute_pdp_2d_gp_raw`].
+/// on training failure (degenerate cluster structure). Delegates to
+/// [`compute_pdp_2d_gp_raw`], which trains on the full feature matrix and
+/// marginalises over every non-target dimension (a genuine partial dependence
+/// plot).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_pdp_2d_gp(
     x_matrix: &[Vec<f64>],
@@ -241,12 +287,7 @@ pub(crate) fn compute_pdp_2d_gp(
         return empty;
     }
 
-    let x_2d: Vec<Vec<f64>> = x_matrix
-        .iter()
-        .map(|row| vec![row[param1_idx], row[param2_idx]])
-        .collect();
-
-    match compute_pdp_2d_gp_raw(&x_2d, y, n_grid, method) {
+    match compute_pdp_2d_gp_raw(x_matrix, y, param1_idx, param2_idx, n_grid, method) {
         Some(mut result) => {
             result.param1_name = p1_name;
             result.param2_name = p2_name;
