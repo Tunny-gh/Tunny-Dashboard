@@ -4,14 +4,14 @@
 
 The Pareto Scatter 3D chart extends the 2D Pareto view to three objective functions simultaneously, displaying non-dominated trials as a 3D Pareto surface. This is useful for multi-objective optimization with three competing objectives.
 
+## Controls
+
+- **Show Infeasible** (constrained studies only): Toggle display of infeasible trials.
+
 ## Operations
 
 - **Rotate**: Click and drag to rotate the 3D view (arcball rotation).
 - **Zoom**: Scroll the mouse wheel to zoom in and out.
-- **Pan**: Hold Shift and drag to pan.
-- **Hover**: Hover over a point to see trial number and all three objective values.
-- **Select**: Click a point to highlight that trial across all widgets.
-- **Reset view**: Double-click to reset the camera to the default perspective.
 
 ## How to Read
 

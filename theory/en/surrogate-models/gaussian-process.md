@@ -157,7 +157,7 @@ Target: under 10,000 ms (release build). Measured at N = 10,000: GP-FITC ≈ 2.4
 - Highest-quality smooth surface (C² continuity)
 - Works well with small N (as few as 20 points)
 - ARD automatically identifies important dimensions
-- Trains on all data up to 2000 points (larger sets are subsampled to a representative subset); backed by egobox-gp
+- Trains on all N points (no data subsampling); backed by egobox-gp
 - Principled uncertainty estimates (95% CI band)
 
 **Limitations**

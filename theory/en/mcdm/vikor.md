@@ -4,12 +4,15 @@
 
 VIKOR (VIseKriterijumska Optimizacija I Kompromisno Resenje) finds the compromise solution closest to the ideal by combining L1 (Manhattan) and L∞ (Chebyshev) distance measures. A lower Q score means a better compromise.
 
-| Return value    | Description                                           |
-| --------------- | ----------------------------------------------------- |
-| `s[i]`          | Utility measure (L1 gap from ideal, smaller = better) |
-| `r[i]`          | Regret measure (L∞ gap, worst-case objective)         |
-| `q[i]`          | Compromise score (linear combination of S and R)      |
-| `rankedIndices` | Trial indices sorted by Q ascending                   |
+| Return value       | Description                                                        |
+| ------------------ | ------------------------------------------------------------------ |
+| `s_values[i]`      | Utility measure (L1 gap from ideal, smaller = better)              |
+| `r_values[i]`      | Regret measure (L∞ gap, worst-case objective)                      |
+| `q_values[i]`      | Compromise score (linear combination of S and R); NaN trials → 1.0 |
+| `display_scores[i]`| Display score = 1 − Q (higher is better; used for UI rendering)    |
+| `ranked_indices`   | Trial indices sorted by Q ascending (lower Q = better)             |
+| `best_values[j]`   | Best value for objective j across valid trials                     |
+| `worst_values[j]`  | Worst value for objective j across valid trials                    |
 
 ## Algorithm
 

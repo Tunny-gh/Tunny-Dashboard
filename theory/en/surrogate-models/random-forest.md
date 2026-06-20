@@ -2,47 +2,36 @@
 
 ## Overview
 
-Random Forest is an ensemble of CART regression trees trained on bootstrap samples. Each tree learns a different subset of the data; their average prediction reduces variance and handles nonlinear, discontinuous objectives that Ridge cannot model.
+The Random Forest surrogate uses **LightGBM** (`boosting_type=rf`, Rust FFI via `lgbm.rs`) to build an ensemble of regression trees and predict the response surface. It handles nonlinear, discontinuous, and noisy objectives that Ridge cannot model.
 
-## CART Decision Tree
+## LightGBM Random Forest Mode
 
-Each tree uses Mean Squared Error (MSE) splitting:
+LightGBM's RF mode (`boosting_type=rf`) trains an ensemble of gradient-boosted decision trees, each on an independent bootstrap sample of the data. Predictions are averaged across all trees.
 
-$$
-\text{Gain}(j, t) = \text{MSE}(y) - \left[\frac{n_L}{n} \cdot \text{MSE}(y_L) + \frac{n_R}{n} \cdot \text{MSE}(y_R)\right]
-$$
+**Default configuration (`LgbmRfConfig`):**
 
-Pick the split (j, t) that maximizes Gain. Leaf nodes return the mean of their samples.
+| Parameter           | Value | Notes                                    |
+| ------------------- | ----- | ---------------------------------------- |
+| `num_iterations`    | 100   | Number of trees in the ensemble          |
+| `max_depth`         | 10    | Maximum tree depth                       |
+| `min_data_in_leaf`  | 2     | Minimum samples per leaf node            |
+| `bagging_fraction`  | 0.8   | Fraction of data sampled per tree        |
+| `feature_fraction`  | 0.8   | Fraction of features used per tree       |
+| `seed`              | 42    | Fixed seed for reproducibility           |
 
-**Stopping conditions:**
+## PDP Computation
 
-| Condition               | Meaning                          |
-| ----------------------- | -------------------------------- |
-| depth ≥ max_depth (10)  | Reached maximum tree depth       |
-| n ≤ min_samples_leaf (2)| Too few samples to split further |
-| No valid split          | All thresholds violate min-leaf  |
-
-## Bagging
-
-$$
-\hat{y}(x) = \frac{1}{B} \sum_{b=1}^{B} T_b(x) \quad (B = 100 \text{ trees})
-$$
-
-Bootstrap sampling uses LCG pseudo-random numbers (Knuth's constants — no external crate). Each tree's independent variance contributes 1/100 of a single tree's variance in the ensemble.
-
-## 2D Projection for PDP
-
-Projects all trials onto 2 selected parameters, fits a 2D Random Forest, then predicts on a 50×50 grid:
+For 1D and 2D partial dependence plots the surrogate **marginalises over all non-target dimensions**: for each grid point the target column(s) are fixed to the grid value in every training row, the model predicts for all those rows, and the average is the PDP value. This is a proper PDP, not a 2D projection.
 
 $$
-\text{values}[i][j] = \text{RF.predict}([g_1[i], g_2[j]])
+\hat{y}_\text{PDP}(v) = \frac{1}{N} \sum_{i=1}^{N} \hat{f}(x_i \text{ with target column} = v)
 $$
 
-Total grid predictions: 2,500 × 100 trees × depth 10 ≈ 2.5M operations.
+**2D grid predictions:** 50×50 grid × N training rows batched into a single prediction call.
 
 ## R² Interpretation
 
-R² is computed on training data (may be inflated due to overfitting). Use it directionally: if R² < 0.7, the surface trend may not be reliable.
+R² is computed on training data using the MSE from predictions on the original training set. It may be optimistic due to overfitting.
 
 | R²    | Action                                           |
 | ----- | ------------------------------------------------ |
@@ -63,6 +52,7 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 - Handles nonlinear and discontinuous objectives
 - Robust to outliers (ensemble averaging dilutes their effect)
 - No feature scaling required (tree splits are threshold comparisons)
+- LightGBM's histogram-based splits are fast on large N
 
 **Limitations**
 - Poor extrapolation — constant prediction outside training range
@@ -72,7 +62,7 @@ R² is computed on training data (may be inflated due to overfitting). Use it di
 ## When to Use
 
 ```
-Nonlinear, discontinuous, or noisy objective?  → Random Forest (or LightGBM)
+Nonlinear, discontinuous, or noisy objective?  → Random Forest (LightGBM RF backend)
 Linear objective?                               → Ridge (faster)
 Smooth nonlinear?                               → GP-FITC (higher quality)
 Discontinuous / regime-switching?               → GP-MOE

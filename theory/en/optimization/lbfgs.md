@@ -56,15 +56,19 @@ d = −r
 
 Cost: O(mp) vs O(p²) for full BFGS.
 
-## Line Search: Armijo Backtracking
+## Line Search: Moré-Thuente (Strong Wolfe)
 
-Find step size α satisfying the sufficient decrease condition:
+Find step size α satisfying both the sufficient decrease (Armijo) condition and the curvature condition (strong Wolfe conditions):
 
 $$
 f(x_k + \alpha \cdot d_k) \leq f(x_k) + c_1 \cdot \alpha \cdot \nabla f_k^\top \cdot d_k \quad (c_1 = 10^{-4})
 $$
 
-Start with α = 1.0; halve until satisfied (max 20 halvings).
+$$
+|\nabla f(x_k + \alpha \cdot d_k)^\top d_k| \leq c_2 \cdot |\nabla f_k^\top d_k|
+$$
+
+The argmin library uses the Moré-Thuente algorithm, which satisfies both conditions via a cubic interpolation bracket-and-zoom scheme rather than simple backtracking.
 
 ## Application in the Surrogate Optimizer
 
@@ -72,11 +76,9 @@ L-BFGS is used in the **surrogate optimizer** stage: it searches the fitted resp
 
 Note: GP hyperparameter optimization (fitting σ_f, l_d, σ_n) is handled internally by egobox-gp using COBYLA, not L-BFGS.
 
-**Convergence**: gradient norm < 1e-5 or max iterations reached.
+**Convergence**: gradient norm < 1e-5 or max iterations reached (max_iters = 100).
 
-**Safeguards:**
-- Skip update if y_kᵀ s_k ≤ 0 (curvature condition violated)
-- Clamp γ to ≥ 1e-10 (avoids division by near-zero)
+**Bounds handling**: box constraints [0,1]^d are enforced via a quadratic exterior penalty added to the cost function (weight = 1e3), not via projection. Numerical gradients (central finite differences, step = 1e-4) are used since the surrogate is a black box.
 
 ## References
 

@@ -4,14 +4,18 @@
 
 Parallel Coordinates displays each trial as a polyline crossing vertical axes — one axis per parameter or objective. This allows simultaneous visualization of high-dimensional data, making it easy to see patterns, correlations, and clusters across many variables at once.
 
+## Controls
+
+- **Color by**: Use the "Color by" dropdown to select which axis value is used to colour the polylines, according to the active colormap.
+- **Axes**: Use the "Axes" dropdown to show or hide individual axes. "All" and "None" buttons toggle all axes at once.
+- **Show Infeasible** (constrained studies only): Toggle display of infeasible trials (shown in a distinct colour).
+
 ## Operations
 
-- **Axis highlight**: Click on an axis label to highlight it and see which trials span that axis range.
 - **Brush / filter**: Click and drag on an axis to create a range filter — only trials passing through the selected range are highlighted.
+- **Move brush**: Click and drag an existing brush range to slide it along the axis.
 - **Multi-brush**: Create brushes on multiple axes simultaneously to narrow down trials.
-- **Clear brush**: Click outside the brushed region on an axis to remove that filter.
-- **Reorder axes**: Drag axis labels to reorder the columns.
-- **Select trial**: Click a line to select that trial and highlight it across all widgets.
+- **Clear all brushes**: Double-click or right-click anywhere on the chart to clear all active brushes.
 
 ## How to Read
 

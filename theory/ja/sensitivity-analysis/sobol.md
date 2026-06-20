@@ -115,16 +115,16 @@ $$
 
 ### Step 2: Saltelli サンプリング
 
-#### 疑似乱数生成: LCG64（`lcg_next()`）
+#### 疑似乱数生成: ChaCha8（`SeededRng`）
 
-外部クレート（`rand` 等）を使わず、Linear Congruential Generator で一様乱数を生成:
+`SeededRng`（内部: `ChaCha8Rng`、`rand_chacha` クレート）でシードベースの決定論的一様乱数を生成:
 
 ```rust
-state = state * 6364136223846793005 + 1442695040888963407  (mod 2^64)
-u = (state >> 11) as f64 / 2^53
+let mut rng = SeededRng::from_seed(0xDEAD_BEEF_1234_5678);
+// rng.next_f64() → [0, 1) の f64
 ```
 
-初期シード: `0xDEADBEEF12345678`（固定再現性）
+初期シード: `0xDEAD_BEEF_1234_5678`（固定再現性）
 
 #### 行列 A, B の生成
 
@@ -210,11 +210,11 @@ $$
 
 ## パラメータ設定
 
-| 設定項目            | 値                 | 変更箇所                                      |
-| ------------------- | ------------------ | --------------------------------------------- |
-| Saltelli サンプル数 | 1024               | `analysisStore.computeSobol(nSamples = 1024)` |
-| Ridge 正則化強度 α  | 1.0                | `build_sobol_surrogate(..., alpha: f64)`      |
-| 乱数シード          | 0xDEADBEEF12345678 | `compute_sobol()` 内 `rng_state`              |
+| 設定項目            | 値                   | 変更箇所                                       |
+| ------------------- | -------------------- | ---------------------------------------------- |
+| Saltelli サンプル数 | 1024                 | `egui-app`: `SOBOL_SAMPLE_COUNT = 1024`        |
+| Ridge 正則化強度 α  | 1.0                  | `build_sobol_surrogate(..., alpha: f64)`       |
+| 乱数シード          | 0xDEAD_BEEF_1234_5678 | `compute_sobol_from_df()` 内 `SeededRng::from_seed` |
 
 ---
 
@@ -223,17 +223,18 @@ $$
 - 最低 2 トライアル（n ≥ 2）、p ≥ 1、目的関数 ≥ 1 が必要
 - サロゲートの精度は n とともに向上する。目安として n ≥ 10 × p(p+3)/2 を推奨
 
-## 実装上の前提（重要）
+## 実装上の前提
 
-現在の `compute_sobol()` 実装は、`DataFrame` から**数値パラメータ列のみ**を直接参照している。
+現在の `compute_sobol_from_df()` 実装は、`get_param_numeric_values()` を通じてパラメータ列を取得する。数値列はそのまま使用し、カテゴリ列は文字列ラベルを出現順の整数 ID（0.0, 1.0, …）へラベル符号化して使用する。
 
 ```
-df.get_numeric_column(name)
-    .and_then(|col| col.get(row).copied())
-    .unwrap_or(0.0)
+get_param_numeric_values(df, name, n)
+    // 数値列 → そのまま取得
+    // カテゴリ列 → ラベルを出現順の整数 ID に変換（0.0, 1.0, ...）
+    .unwrap_or_else(|| vec![0.0; n])
 ```
 
-このためカテゴリパラメータは Sobol 計算時に 0.0 として扱われ、感度は実質的に評価されない。Sobol 指数の解釈対象は連続値（または事前に数値化済み）のパラメータに限定される。
+カテゴリパラメータはラベル符号化済みの数値として扱われるため Sobol 計算の対象となるが、整数 ID は順序/距離情報を持たないため、Sobol 指数の解釈はカテゴリ変数に対して近似的なものとなる。
 
 ---
 

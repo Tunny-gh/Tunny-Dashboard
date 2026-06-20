@@ -55,7 +55,7 @@ Because Monte Carlo integration is impractical for real trial data, a **quadrati
 **Limitations:**
 - Results depend on surrogate model quality (quadratic Ridge).
 - Accuracy decreases when the true function is highly nonlinear.
-- Categorical parameters are treated as 0 (numerical features only).
+- Categorical parameters are label-encoded (string labels → integer IDs 0.0, 1.0, …); Sobol indices for categoricals are approximate because integer IDs carry no ordinal/distance information.
 
 ## When to Use
 

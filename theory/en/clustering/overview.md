@@ -16,7 +16,7 @@ Both use Lloyd's algorithm (assign → update → converge). Only the initial ce
 | Strategy      | Method                                      | Best for                        |
 | ------------- | ------------------------------------------- | ------------------------------- |
 | k-means++     | D²-proportional probabilistic sampling      | Default — avoids local optima   |
-| Deterministic | Cumulative-distance threshold spread        | Fully reproducible results      |
+| Deterministic | Xoshiro256Plus with fixed seed (42)         | Fully reproducible results      |
 
 ## Workflow
 
