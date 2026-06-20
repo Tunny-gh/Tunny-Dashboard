@@ -170,9 +170,12 @@ pub fn compute_indicator_histories(
         |p: &[f64]| -> Vec<f64> { (0..m).map(|j| (p[j] - ideal[j]) / scale[j]).collect() };
 
     // HV 用参照点（共有 nadir + 10% マージン、または指定値）。
+    // nadir は全有効点 `union_valid` の最悪点から算出する。参照前面（非支配集合）の
+    // nadir を使うと参照点ボックスが良い解の境界に張り付き、序盤の劣った試行が
+    // `p[j] < ref[j]` を満たせず HV 寄与 0 になる（推移が終端で突然立ち上がる）。
     let hv_ref_point: Vec<f64> = match hv_ref_point_override {
         Some(r) if r.len() == m && r.iter().all(|v| v.is_finite()) => r.to_vec(),
-        _ => compute_ref_point(&reference_front, m),
+        _ => compute_ref_point(&union_valid, m),
     };
 
     // 参照集合を [0,1] へスケール（IGD+ / ε で使用）。
@@ -525,6 +528,31 @@ mod tests {
         let hist = compute_indicator_histories(&series, &[true], MoIndicator::Hypervolume, None);
         assert_eq!(hist.len(), 1);
         assert!(hist[0].values.is_empty());
+    }
+
+    #[test]
+    fn hypervolume_ref_point_bounds_all_observed_points() {
+        // 回帰防止: 序盤の劣った試行も参照点ボックス内に収まり HV > 0 になること。
+        // 参照点を非支配集合の nadir から算出すると、劣点（[10,10]）はボックス外になり
+        // 序盤の HV が 0 に潰れて推移が終端で突然立ち上がる。参照点は全観測点の
+        // 最悪点（[10,10]）+ マージンを基準にすべき。
+        let objs = vec![vec![10.0, 10.0], vec![1.0, 1.0]];
+        let ids = vec![0u32, 1];
+        let series = vec![SeriesInput {
+            trial_ids: &ids,
+            objectives: &objs,
+        }];
+        let hist =
+            compute_indicator_histories(&series, &[true, true], MoIndicator::Hypervolume, None);
+        let v = &hist[0].values;
+        assert_eq!(v.len(), 2);
+        // 1 点目（劣点のみ）でも参照点に内包され HV > 0。
+        assert!(
+            v[0] > 0.0,
+            "early dominated point should yield HV > 0, got {}",
+            v[0]
+        );
+        assert!(v[1] > v[0]);
     }
 
     #[test]
