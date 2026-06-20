@@ -1,12 +1,16 @@
 use std::path::PathBuf;
 
-/// ネイティブファイルダイアログで Optuna Journal (.log) または
-/// フラット CSV (.csv) を選択する
+/// ネイティブファイルダイアログで最適化結果ファイルを選択する。
+/// `.log` は Optuna の結果ファイル、`.csv` は DesignExplorer 向け形式であることが
+/// フィルタ名から分かるようにする。
 pub fn open_file_dialog() -> Option<PathBuf> {
     rfd::FileDialog::new()
-        .add_filter("Optimization Result", &["log", "csv"])
-        .add_filter("Optuna Journal", &["log"])
-        .add_filter("Flat CSV", &["csv"])
+        .add_filter(
+            "Optimization Result (Optuna .log / DesignExplorer .csv)",
+            &["log", "csv"],
+        )
+        .add_filter("Optuna Result (*.log)", &["log"])
+        .add_filter("DesignExplorer (*.csv)", &["csv"])
         .pick_file()
 }
 
