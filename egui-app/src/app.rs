@@ -244,8 +244,20 @@ impl TunnyApp {
                 if self.app_state.live_update.enabled {
                     self.restart_poller();
                 }
-                // Study が 1 件のみなら自動的に Phase 2 を開始する
-                if self.app_state.all_studies.len() == 1 {
+                // フラット CSV は最適化方向・変数レンジの情報を持たないため、自動活性化せず
+                // 確認ダイアログを開く。確定時に編集値を反映した meta で select_study を発行する。
+                let is_csv = self
+                    .app_state
+                    .journal_path
+                    .as_deref()
+                    .is_some_and(crate::io::flat_csv::is_csv_path);
+                if is_csv {
+                    if let Some(meta) = self.app_state.all_studies.first() {
+                        self.app_state.csv_import_settings =
+                            Some(crate::state::app_state::CsvImportSettings::from_meta(meta));
+                    }
+                } else if self.app_state.all_studies.len() == 1 {
+                    // Study が 1 件のみなら自動的に Phase 2 を開始する
                     self.is_loading = true;
                     let meta = self.app_state.all_studies[0].clone();
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
@@ -388,6 +400,43 @@ impl TunnyApp {
         }
     }
 
+    /// CSV インポート確認ダイアログを描画し、確定時に編集値を Study へ反映して活性化する。
+    fn show_csv_import_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::csv_import_modal::{self, CsvImportAction};
+
+        let Some(mut settings) = self.app_state.csv_import_settings.take() else {
+            return;
+        };
+        match csv_import_modal::show(ctx, &mut settings) {
+            Some(CsvImportAction::Apply) => {
+                // 編集値を all_studies のエントリへ反映してから select_study を発行する。
+                if let Some(slot) = self
+                    .app_state
+                    .all_studies
+                    .iter_mut()
+                    .find(|s| s.study_id == settings.study_id)
+                {
+                    settings.apply_to(slot);
+                }
+                if let Some(meta) = self
+                    .app_state
+                    .all_studies
+                    .iter()
+                    .find(|s| s.study_id == settings.study_id)
+                    .cloned()
+                {
+                    self.is_loading = true;
+                    crate::io::study_worker::dispatch_select_study(meta, self.tx.clone());
+                }
+                // settings は drop してダイアログを閉じる。
+            }
+            None => {
+                // 未確定。次フレームも表示を続ける。
+                self.app_state.csv_import_settings = Some(settings);
+            }
+        }
+    }
+
     /// ポーラーを現在のファイルで（再）起動する
     fn restart_poller(&mut self) {
         // Stop any existing poller
@@ -442,6 +491,7 @@ impl eframe::App for TunnyApp {
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
         crate::ui::layout::show_layout(self, ctx);
+        self.show_csv_import_dialog(ctx);
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
         let cap = &mut self.widget_states.capture;

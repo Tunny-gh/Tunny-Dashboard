@@ -39,6 +39,86 @@ pub struct StudyMeta {
     pub param_bounds: HashMap<String, (f64, f64)>,
 }
 
+/// CSV インポート確認ダイアログの編集状態。
+///
+/// フラット CSV には最適化方向（最大化/最小化）や変数の宣言レンジが含まれないため、
+/// 読み込み直後にこのダイアログでユーザーが確認・修正できるようにする。
+/// `AppState::csv_import_settings` が `Some` のときダイアログを表示する。
+#[derive(Debug, Clone)]
+pub struct CsvImportSettings {
+    /// 対象 Study（CSV は単一 Study なので常に 1 件）。
+    pub study_id: u32,
+    pub study_name: String,
+    /// 目的名（`maximize` と同順・同長）。
+    pub objective_names: Vec<String>,
+    /// 目的ごとの最大化フラグ（true=Maximize, false=Minimize）。
+    pub maximize: Vec<bool>,
+    /// 数値パラメータのレンジ編集（パラメータ名昇順）。
+    pub param_bounds: Vec<ParamBoundEdit>,
+}
+
+/// 数値パラメータ 1 件のレンジ編集行。
+#[derive(Debug, Clone)]
+pub struct ParamBoundEdit {
+    pub name: String,
+    pub low: f64,
+    pub high: f64,
+}
+
+impl CsvImportSettings {
+    /// パース直後の `StudyMeta`（方向は既定 Minimize、レンジは観測 min/max）から
+    /// 編集状態を構築する。
+    pub fn from_meta(meta: &StudyMeta) -> Self {
+        let maximize: Vec<bool> = meta
+            .directions
+            .iter()
+            .map(|d| matches!(d, Direction::Maximize))
+            .collect();
+        let mut param_bounds: Vec<ParamBoundEdit> = meta
+            .param_bounds
+            .iter()
+            .map(|(name, &(low, high))| ParamBoundEdit {
+                name: name.clone(),
+                low,
+                high,
+            })
+            .collect();
+        param_bounds.sort_by(|a, b| a.name.cmp(&b.name));
+        Self {
+            study_id: meta.study_id,
+            study_name: meta.name.clone(),
+            objective_names: meta.objective_names.clone(),
+            maximize,
+            param_bounds,
+        }
+    }
+
+    /// 編集値を `meta` へ反映する（`directions` と `param_bounds` を上書き）。
+    pub fn apply_to(&self, meta: &mut StudyMeta) {
+        meta.directions = self
+            .maximize
+            .iter()
+            .map(|&m| {
+                if m {
+                    Direction::Maximize
+                } else {
+                    Direction::Minimize
+                }
+            })
+            .collect();
+        for pb in &self.param_bounds {
+            meta.param_bounds.insert(pb.name.clone(), (pb.low, pb.high));
+        }
+    }
+
+    /// 全レンジが有効（min < max かつ有限）か。無効なら読み込みを抑止する。
+    pub fn bounds_valid(&self) -> bool {
+        self.param_bounds
+            .iter()
+            .all(|p| p.low.is_finite() && p.high.is_finite() && p.low < p.high)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TrialRow {
     pub trial_id: u32,
