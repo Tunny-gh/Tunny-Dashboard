@@ -43,5 +43,6 @@ mod common;
 pub use common::artifact_gallery;
 pub use common::cluster_table;
 pub use common::convergence_card;
+pub use common::csv_import_modal;
 pub use common::trial_detail_modal;
 pub use common::trial_table;

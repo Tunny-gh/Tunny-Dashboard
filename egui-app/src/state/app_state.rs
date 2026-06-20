@@ -80,6 +80,11 @@ pub struct AppState {
     // ── 収束指標選択 ───────────────────────────────────────────
     /// 収束指標チャートで表示中の指標（ビュー設定として clear() でリセットしない）
     pub convergence_indicator: MoIndicator,
+
+    // ── CSV インポート確認ダイアログ ───────────────────────────
+    /// フラット CSV 読み込み直後に表示する方向・レンジ確認ダイアログの編集状態。
+    /// `Some` の間はダイアログを表示し、確定するまで Study を活性化しない。
+    pub csv_import_settings: Option<CsvImportSettings>,
 }
 
 impl AppState {
@@ -113,6 +118,7 @@ impl AppState {
             comparison_base_study: None,
             help_language: HelpLanguage::default(),
             convergence_indicator: MoIndicator::Hypervolume,
+            csv_import_settings: None,
         }
     }
 
