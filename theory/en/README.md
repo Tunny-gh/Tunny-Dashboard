@@ -71,8 +71,6 @@ MCDM methods that aggregate multiple objectives into a single score to rank tria
 - [Entropy Weight](mcdm/entropy-weight.md)
 - [MCDM overview](mcdm/overview.md)
 
-> Note: [AHP](mcdm/ahp.md) is documented for reference only and is **not implemented** in the current build.
-
 ### How to choose
 
 ```

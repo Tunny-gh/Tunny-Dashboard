@@ -72,8 +72,6 @@ MCDM（Multi-Criteria Decision Making）手法。複数の目的関数を一つ�
 - [エントロピー重み法](mcdm/entropy-weight.md)
 - [MCDM 概要](mcdm/overview.md)
 
-> 注: [AHP](mcdm/ahp.md) は参照用の理論解説のみで、現在のビルドには **未実装** です。
-
 ### 手法の選び方
 
 ```
