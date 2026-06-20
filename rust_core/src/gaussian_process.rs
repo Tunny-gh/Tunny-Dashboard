@@ -265,15 +265,6 @@ impl GpModel {
         }
     }
 
-    /// 複数点の事後分散を一括予測する（負値は 0 にクランプ）。
-    pub(crate) fn predict_variance_batch(&self, rows: &[Vec<f64>]) -> Vec<f64> {
-        let x = Array2::from_shape_fn((rows.len(), self.n_dims), |(i, d)| rows[i][d]);
-        match self.predict_var_raw(&x) {
-            Some(var) => var.iter().map(|v| v.max(0.0)).collect(),
-            None => vec![f64::NAN; rows.len()],
-        }
-    }
-
     /// 1 点の事後平均を予測する。
     pub(crate) fn predict_mean(&self, x: &[f64]) -> f64 {
         let arr = Array2::from_shape_fn((1, self.n_dims), |(_, d)| x[d]);
@@ -429,11 +420,9 @@ mod tests {
                 m2.predict_mean_batch(&p),
                 "{method:?}"
             );
-            assert_eq!(
-                m1.predict_variance_batch(&p),
-                m2.predict_variance_batch(&p),
-                "{method:?}"
-            );
+            let v1: Vec<f64> = p.iter().map(|pt| m1.predict_variance(pt)).collect();
+            let v2: Vec<f64> = p.iter().map(|pt| m2.predict_variance(pt)).collect();
+            assert_eq!(v1, v2, "{method:?}");
         }
     }
 
