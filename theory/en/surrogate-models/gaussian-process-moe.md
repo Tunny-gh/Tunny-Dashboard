@@ -51,7 +51,7 @@ where w_k(x) are smooth, non-negative weights that sum to one and are derived fr
 
 The number of clusters K is selected automatically by cross-validation:
 
-1. A subsample of up to **500 points** is drawn from the training data (deterministic: no random draw, just the first 500).
+1. A subsample of up to **500 points** is drawn from the training data (deterministic: evenly-spaced stride, no random draw).
 2. For each candidate K ∈ {1, 2, 3} a GpMixture is fitted and cross-validated on the subsample.
 3. The K with the best cross-validation score is selected — **capped at K = 3** (the CV search is expensive; larger K rarely improves real engineering data).
 4. The chosen K is used to fit the full model on all N points.

@@ -17,7 +17,7 @@ $$
 1. **Initialize** — select k starting centroids using the chosen strategy
 2. **Assign** — assign each point to the nearest centroid
 3. **Update** — recompute each centroid as the mean of its points
-4. **Converge** — stop when no point changes cluster (max 300 iterations)
+4. **Converge** — stop when WCSS change between iterations is below tolerance 1e-5 (max 300 iterations)
 
 ## Initialization Strategies
 
@@ -31,25 +31,25 @@ $$
 
 D(x_i) = distance from x_i to the nearest existing centroid.
 
-Starting point: the ⌊N/2⌋-th point (fixed). Subsequent centroids sampled via xorshift64 PRNG with a seed derived from n and k (reproducible).
+Initialization is delegated to `linfa_clustering::KMeans` using a **Xoshiro256Plus** PRNG (`rand_xoshiro` crate) with a seed derived from n and k:
+
+$$\text{seed} = (n \times \texttt{0x9e3779b97f4a7c15}) \oplus (k \times \texttt{0x6c62272e07bb0142})$$
+
+Same data and k always produce the same result.
 
 **Theoretical guarantee**: expected WCSS ≤ 8(ln k + 2) × WCSS_opt.
 
 ### Deterministic
 
-No randomness — selects centroids by equal spacing via cumulative-distance threshold:
+Uses `linfa_clustering::KMeans` with a **fixed seed (42)** via Xoshiro256Plus PRNG. The centroid selection algorithm is the same as k-means++ (delegated to linfa), but the constant seed guarantees fully reproducible results on every run.
 
-$$
-\theta = \frac{\sum_i d_i}{\text{remaining\_selections} + 1}
-$$
-
-Scans points in order; picks the first point where cumulative distance ≥ θ. Always produces identical results regardless of seed.
+Used internally by the Elbow method for auto-k estimation.
 
 | Aspect          | k-means++                 | Deterministic              |
 | --------------- | ------------------------- | -------------------------- |
-| Selection       | D²-proportional sampling  | Cumulative-distance spread |
-| Randomness      | xorshift64 (fixed seed)   | None                       |
-| Reproducibility | Same seed → same result   | Always identical           |
+| Selection       | D²-proportional sampling (linfa) | D²-proportional sampling (linfa, fixed seed) |
+| Randomness      | Xoshiro256Plus (seed from n,k) | Xoshiro256Plus (seed=42) |
+| Reproducibility | Same data+k → same result | Always identical (seed=42) |
 | Theory          | O(log k) approximation    | None                       |
 | Local optima    | Low risk                  | Moderate risk              |
 

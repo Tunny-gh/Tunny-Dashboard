@@ -4,14 +4,15 @@
 
 The Scatter Matrix (also called a pairplot) shows pairwise scatter plots for every combination of selected parameters and objectives. It provides a compact overview of correlations and interactions across all variable pairs simultaneously.
 
-## Operations
+## Controls
 
-- **Zoom**: Scroll inside a cell to zoom into that pair's scatter plot.
-- **Pan**: Click and drag inside a cell to pan.
-- **Select**: Click a point in any cell to highlight that trial across all widgets.
-- **Hover**: Hover over a point to see trial details in a tooltip.
-- **Axis labels**: Row and column labels identify the variable for each cell. The diagonal cells show the variable name.
-- **Color by**: Use the "Color by" dropdown in the control row to choose which objective function is used to color the scatter points. Points are colored according to the selected objective's value using the active colormap.
+- **Color by**: Use the "Color by" dropdown to choose which objective function is used to color the scatter points. Points are colored according to the selected objective's value using the active colormap.
+- **Show Infeasible** (constrained studies only): Toggle display of infeasible trials.
+
+## How to Read
+
+- **Axis labels**: Row and column labels identify the variable for each cell. The diagonal cells show a histogram of that variable's distribution.
+- **Cross-widget selection**: the scatter matrix is a read-only consumer of selections. When another widget (e.g. Parallel Coordinates or Trial Table) makes a selection, the corresponding points are highlighted here. Clicking inside the scatter matrix does not generate cross-widget selections.
 
 ## Correlation Coefficient Cells (Upper Triangle)
 
@@ -19,7 +20,7 @@ The correlation coefficient shown in the upper-triangle cells is the [Pearson pr
 
 Because Pearson correlation measures linear co-movement, note that a curved (non-linear) relationship can yield a small coefficient even when the relationship is strong.
 
-## How to Read
+## Interpreting Cells
 
 - **Linear pattern**: points forming a clear diagonal line indicate a strong linear correlation between the two variables.
 - **Curved or nonlinear pattern**: a curved cloud of points indicates a nonlinear relationship — use PDP Chart 2D for a detailed view.

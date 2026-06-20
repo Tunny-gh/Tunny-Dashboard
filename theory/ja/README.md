@@ -6,56 +6,87 @@ Tunny Dashboard が提供する統計・多基準意思決定手法の理論リ�
 
 ## パラメータ重要度の計算手法
 
-`ImportanceChart` で使用される 4 種類のパラメータ感度指標。
+`ImportanceChart` / Sensitivity Heatmap で使用される 9 種類のパラメータ感度指標。
 
-| 表示名 | 手法 | 値域 | 特徴 |
-| -------------- | ------------------ | ------ | ------------------------------------ |
-| Spearman $|\rho|$ | スピアマン順位相関 | $[0,1]$ | ノンパラメトリック・単調非線形に対応 |
-| Ridge $|\beta|$ | Ridge 回帰係数 | $\ge 0$ | 線形関係を仮定・解釈が直感的 |
-| Sobol $S_i$ | 一次 Sobol 指数 | $[0,1]$ | 単独効果のみ・非線形・相互作用なし |
-| Sobol $ST_i$ | 全効果 Sobol 指数 | $[0,1]$ | 相互作用を含む総合的な影響度 |
+| 表示名 | 手法 | 符号 | 特徴 |
+| ------ | ---- | ---- | ---- |
+| Spearman | スピアマン順位相関 | 符号付き | ノンパラメトリック・単調非線形に対応 |
+| Ridge | Ridge 回帰係数 | 符号付き | 線形関係を仮定・解釈が直感的 |
+| RF-Anova | Random Forest のホールドアウト精度低下 | 非負 | 実運用に近い寄与・相関特徴では不安定になり得る |
+| MDI | 不純度減少（Mean Decrease in Impurity） | 非負 | 学習中の分岐寄与・高カーディナリティを過大評価しやすい |
+| Sobol First $S_i$ | 一次 Sobol 指数 | 非負 | 単独効果のみ・相互作用を含まない |
+| Sobol Total $ST_i$ | 全効果 Sobol 指数 | 非負 | 相互作用を含む総合的な影響度 |
+| SHAP | Shapley 値による寄与分解 | 非負（平均絶対値） | 理論的に一貫・説明可能性が高い |
+| Permutation | RF-ANOVA の複数回平均（PFI） | 非負 | RF-ANOVA より分散が小さく安定・計算コスト高 |
+| ARD | GP 長さスケール関連度 | 非負 | 学習済み GP サロゲートの長さスケールに基づく大域感度 |
+
+> 符号付き（負値あり）は Spearman / Ridge のみ。木ベース・Sobol・SHAP・Permutation・ARD は非負。計算コストが低いのは Spearman / Ridge のみで、それ以外はモデル学習または Sobol サンプリングを伴う。
 
 ### 各手法の詳細
 
-- [Spearman 順位相関](spearman.md)
-- [Ridge 回帰係数](ridge.md)
-- [Sobol 感度指数](sobol.md)
+早見ガイド: [感度分析手法の選び方](sensitivity-analysis/README.md)
+
+- [Spearman 順位相関](sensitivity-analysis/spearman.md)
+- [Ridge 回帰係数](sensitivity-analysis/ridge.md)
+- [RF-ANOVA](sensitivity-analysis/rfanova.md)
+- [MDI（不純度減少）](sensitivity-analysis/mdi.md)
+- [Sobol 感度指数](sensitivity-analysis/sobol.md)
+- [SHAP](sensitivity-analysis/shap.md)
+- [Permutation 重要度](sensitivity-analysis/permutation.md)
+- [ARD 重要度](sensitivity-analysis/ard-importance.md)
 
 ### 手法の選び方
 
 ```
 目的関数との関係が...
 
-  線形に近い ──────────────────────→ Ridge |β|
-  単調だが非線形 ─────────────────→ Spearman |ρ|
-  非線形・交互作用あり（疑い） ────→ Sobol ST_i
-  交互作用を除いた純粋な単独効果 ──→ Sobol S_i
+  線形に近い ────────────────────→ Ridge
+  単調だが非線形 ─────────────────→ Spearman
+  木モデル上の特徴重要度 ─────────→ MDI（軽量）/ RF-ANOVA / Permutation（安定）
+  説明責任を重視したい ───────────→ SHAP
+  非線形・交互作用あり（疑い） ───→ Sobol ST_i
+  交互作用を除いた純粋な単独効果 ─→ Sobol S_i
+  学習済み GP から追加計算なしで ─→ ARD
 ```
 
-パラメータ数 $p$ が多い場合（$p \ge 20$）は Sobol の計算コストが増加するため、まず Spearman/Ridge でスクリーニングし、その後 Sobol を使うと効率的。
+パラメータ数 $p$ が多い場合（$p \ge 20$）は Sobol や木ベース手法の計算コストが増加するため、まず Spearman/Ridge でスクリーニングし、その後重い手法を使うと効率的。
 
 ---
 
 ## 多基準意思決定手法
 
-`TopsisRankingChart` で使用される MCDM（Multi-Criteria Decision Making）手法。
+MCDM（Multi-Criteria Decision Making）手法。複数の目的関数を一つの総合スコアに集約してトライアルをランキングする。
 
 | 手法 | 値域 | 特徴 |
-| ------ | ------ | ---------------------------------------------------------- |
-| TOPSIS | $[0,1]$ | 理想解・反理想解への距離比でトライアルを総合ランキング |
+| ----------------------------------- | -------------- | -------------------------------------------------------------------- |
+| [TOPSIS](mcdm/topsis.md)            | $[0,1]$        | 理想解・反理想解への距離比でトライアルを総合ランキング               |
+| [VIKOR](mcdm/vikor.md)              | $[0,1]$ （Q 値） | 効用と後悔のバランスによる妥協解。Q 値昇順がランキング順             |
+| [PROMETHEE I/II](mcdm/promethee.md) | Φnet ∈ [-1, 1] | ペアワイズ選好比較。I: 部分ランキング、II: Φnet 降順の完全ランキング |
+| [Entropy Weight](mcdm/entropy-weight.md) | —         | データの分散から目的関数の重みを客観的に自動算出                     |
 
 ### 各手法の詳細
 
-- [TOPSIS（多基準意思決定法）](topsis.md)
+- [TOPSIS（多基準意思決定法）](mcdm/topsis.md)
+- [VIKOR 法](mcdm/vikor.md)
+- [PROMETHEE I / II](mcdm/promethee.md)
+- [エントロピー重み法](mcdm/entropy-weight.md)
+- [MCDM 概要](mcdm/overview.md)
+
+> 注: [AHP](mcdm/ahp.md) は参照用の理論解説のみで、現在のビルドには **未実装** です。
 
 ### 手法の選び方
 
 ```
 多目的最適化でトライアルを総合的にランキングしたい
   ↓
-目的関数ごとの重要度（重み）をユーザが指定できる
-  ↓
-TOPSIS ランキング
+重みをどう決めるか？
+├─ 客観的に決めたい → エントロピー重み法で重みを自動算出
+└─ 自分で調整したい → 手動スライダーで重みを設定
+
+ランキング手法は？
+├─ 速くて直感的なスコアが欲しい → TOPSIS（[0,1] スコア）
+├─ 全体バランスと最悪ケースの両方を考慮したい → VIKOR（v パラメータで調整）
+└─ ペアワイズの優劣関係を詳細に知りたい → PROMETHEE I/II
 
 パレートフロント上の解を全て把握したい場合は
 ParetoFront チャートを併用する
@@ -65,7 +96,7 @@ ParetoFront チャートを併用する
 
 ## 応答曲面・部分依存プロット
 
-`SurfacePlot3D`（2D PDP）・`PDPChart`（1D PDP）で使用されるサロゲートモデルベースの可視化手法。
+`PdpChart2DState`（2D PDP）・`PdpChart`（1D PDP）で使用されるサロゲートモデルベースの可視化手法。
 
 ### サロゲートモデルの選択肢
 
@@ -77,26 +108,28 @@ ParetoFront チャートを併用する
 | GP-VFE | < 10,000ms | ✓（滑らか） | ◎ | 滑らかな非線形・GP-FITC が過学習の場合 |
 | GP-MOE | < 30,000ms | ✓（不連続・多領域） | ○ | 不連続・レジームスイッチ |
 
-GP バリアント（GP-FITC・GP-VFE・GP-MOE）はすべて egobox-gp / egobox-moe（Apache-2.0）バックエンドを使用し、M = min(N, 100) 誘導点を用いる。
+Random Forest は LightGBM の RF モード（`boosting_type=rf`）をバックエンドに使用する（別モデルではない）。GP バリアント（GP-FITC・GP-VFE・GP-MOE）はすべて egobox-gp / egobox-moe（Apache-2.0）バックエンドを使用し、M = min(N, 100) 誘導点を用いる。全 N 点で学習し、データのサブサンプリングは行わない。
 
 ### 各手法の詳細
 
-- [部分依存プロット（PDP）による応答曲面](pdp.md)
-- [Random Forest サロゲートモデル](random-forest.md)
-- [Gaussian Process（GP-FITC / GP-VFE）サロゲートモデル](gaussian-process.md)
-- [Gaussian Process 混合エキスパート（GP-MOE）サロゲートモデル](gaussian-process-moe.md)
+- [サロゲートモデル概要](surrogate-models/overview.md)
+- [部分依存プロット（PDP）による応答曲面](sensitivity-analysis/pdp.md)
+- [Ridge サロゲートモデル](surrogate-models/ridge.md)
+- [Random Forest サロゲートモデル（LightGBM RF）](surrogate-models/random-forest.md)
+- [Gaussian Process（GP-FITC / GP-VFE）サロゲートモデル](surrogate-models/gaussian-process.md)
+- [Gaussian Process 混合エキスパート（GP-MOE）サロゲートモデル](surrogate-models/gaussian-process-moe.md)
 
 ### 手法の選び方
 
 ```
 特定パラメータが目的関数に与える影響の「形」を見たい
   ↓
-着目パラメータが 1 つ → PDPChart（1D）
-着目パラメータが 2 つ → SurfacePlot3D（2D）
+着目パラメータが 1 つ → PdpChart（1D）
+着目パラメータが 2 つ → PdpChart2DState（2D）
   ↓
 サロゲートモデルの選択:
   高速に確認したい              → Ridge 回帰
-  非線形・不連続・ノイジー      → Random Forest または LightGBM
+  非線形・不連続・ノイジー      → Random Forest（LightGBM RF）
   滑らかな補間・デフォルト      → GP-FITC（全 N 点で学習）
   GP-FITC が過学習気味           → GP-VFE（より滑らか・保守的）
   不連続・多領域の応答曲面      → GP-MOE
@@ -147,14 +180,14 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
   │    └── 精度よく確認 → Sobol（ImportanceChart、計算コスト高）
   │
   ├── 良いトライアルを選びたい
-  │    ├── 多目的で総合評価 → TOPSIS（TopsisRankingChart）
+  │    ├── 多目的で総合評価 → TOPSIS / VIKOR / PROMETHEE（MCDM チャート）
   │    └── トレードオフ全体 → Pareto Front（ParetoFront チャート）
   │
   └── パラメータと目的関数の関係を可視化したい
-       ├── 1 パラメータ → 1D PDP（PDPChart）
-       └── 2 パラメータ → 2D PDP（SurfacePlot3D）
+       ├── 1 パラメータ → 1D PDP（PdpChart）
+       └── 2 パラメータ → 2D PDP（PdpChart2DState）
             ├── 高速・線形             → Ridge 回帰
-            ├── 非線形・不連続・ノイジー→ Random Forest または LightGBM
+            ├── 非線形・不連続・ノイジー→ Random Forest（LightGBM RF）
             ├── 滑らか・デフォルト     → GP-FITC（全 N 点で学習）
             ├── 滑らか・過学習気味     → GP-VFE（保守的フィット）
             └── 不連続・多領域         → GP-MOE

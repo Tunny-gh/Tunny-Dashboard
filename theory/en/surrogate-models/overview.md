@@ -7,8 +7,7 @@ Surrogate models fit a function to the trial data, then predict the objective ac
 | Model       | Speed        | Nonlinear | Best for                                        |
 | ----------- | ------------ | --------- | ----------------------------------------------- |
 | Ridge       | < 100 ms     | No        | Linear responses, any N                         |
-| Random Forest | < 2,000 ms | Yes       | Nonlinear / discontinuous                       |
-| LightGBM    | < 2,000 ms   | Yes       | Nonlinear / noisy / large N                     |
+| Random Forest | < 2,000 ms | Yes       | Nonlinear / discontinuous / noisy               |
 | GP-FITC     | < 10,000 ms  | Yes       | Smooth, any N — default GP                      |
 | GP-VFE      | < 10,000 ms  | Yes       | Smooth, any N — conservative/smoother fit       |
 | GP-MOE      | < 30,000 ms  | Yes       | Discontinuous / regime-switching / multi-modal  |
@@ -20,7 +19,7 @@ All GP variants (GP-FITC, GP-VFE, GP-MOE) are backed by egobox-gp / egobox-moe (
 ```
 Response shape?
   ├─ Linear                              → Ridge (fastest)
-  ├─ Nonlinear / noisy / tabular         → LightGBM or Random Forest
+  ├─ Nonlinear / noisy / tabular         → Random Forest (LightGBM RF backend)
   └─ Smooth nonlinear
        ├─ Default                        → GP-FITC
        ├─ Surface looks overfit/spiky    → GP-VFE (smoother, more conservative)

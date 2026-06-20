@@ -1,5 +1,7 @@
 # AHP — Analytic Hierarchy Process
 
+> **Not implemented.** AHP is not yet available in Tunny Dashboard — there is no `ahp.rs` and no UI component for it. This page describes the algorithm for reference; it is a candidate for a future release.
+
 ## Overview
 
 AHP derives objective weights from a **pairwise comparison matrix** entered by the user, then ranks trials using a weighted sum score. The method also reports a Consistency Ratio (CR) to flag contradictory comparisons.

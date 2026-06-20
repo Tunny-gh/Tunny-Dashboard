@@ -4,7 +4,7 @@
 
 部分依存プロット（Partial Dependence Plot; PDP）は、**特定のパラメータが目的関数に与える限界効果**を可視化する手法。他のパラメータの影響を平均化することで、着目パラメータと目的関数の関係を分離して把握できる。
 
-Tunny Dashboard では複数のサロゲートモデルで 1D PDP・2D PDP を計算し、echarts-gl による 3D 応答曲面プロット（`SurfacePlot3D`）として表示する。
+Tunny Dashboard では複数のサロゲートモデルで 1D PDP・2D PDP を計算し、egui のカスタム 3D 描画による応答曲面プロット（`PdpChart2D`）として表示する。
 
 | 種別   | 入力                        | 出力                          |
 | ------ | --------------------------- | ----------------------------- |
@@ -80,7 +80,7 @@ $$
 | GP-VFE | ARD Matérn 5/2 GP（egobox-gp、VFE 下界、M=min(N,100)、全 N 点で学習） |
 | GP-MOE | 混合エキスパート GP（egobox-moe、GMM クラスタリング、最大 K=3 FITC エキスパート） |
 
-すべてのモデルで `model_type` 引数を `wasm.computePdp2d()` に渡すことでバックエンドのディスパッチが切り替わる。
+すべてのモデルで `model_type` 引数を `compute_pdp_2d()` / `compute_surface_from_data()` に渡すことでバックエンドのディスパッチが切り替わる。
 
 ---
 
@@ -124,15 +124,15 @@ $$
 + \beta_2\frac{\mathrm{grid}_2[j]-\mathrm{mean}_2}{\mathrm{std}_2}
 $$
 
-5. `PdpResult2d { grid1, grid2, values, r_squared }` を返す
+5. `PdpResult2d { x_values, y_values, z_values, r_squared }` を返す
 
 ### 出力形式
 
-`values[i][j]` は `grid1[i]`（X 軸）× `grid2[j]`（Y 軸）のグリッド点における予測目的関数値。フロントエンドでは `[[x, y, z], ...]` の形に展開して echarts-gl `surface` シリーズに渡す。
+`z_values[i][j]` は `x_values[i]`（X 軸）× `y_values[j]`（Y 軸）のグリッド点における予測目的関数値。egui-app 側で各グリッド点を 3D 頂点として展開し、カスタム 3D サーフェス描画に渡す。
 
 ### キャッシュ戦略
 
-`analysisStore.ts` で `surrogateModelType_param1_param2_objective_nGrid` をキーとしてキャッシュ。同一パラメータ組み合わせへの再アクセスは WASM 呼び出しをスキップ。Study が変わると自動でキャッシュクリア。
+PDP の呼び出し元（egui-app 側）でモデル種別・パラメータ組み合わせ・目的・グリッド数をキーとしてキャッシュする。同一条件への再アクセスは再計算をスキップする。Study が変わると自動でキャッシュクリアされる。
 
 ---
 
@@ -205,10 +205,10 @@ ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
 
 ## 1D PDP と 2D PDP の比較
 
-| 項目       | 1D PDP (`PDPChart`)       | 2D PDP (`SurfacePlot3D`)              |
+| 項目       | 1D PDP (`PdpChart`)       | 2D PDP (`PdpChart2DState`)            |
 | ---------- | ------------------------- | ------------------------------------- |
 | 着目変数   | パラメータ 1 つ           | パラメータ 2 つ                       |
-| 可視化形式 | 折れ線グラフ（ECharts）   | echarts-gl 3D サーフェスプロット      |
-| 出力       | `grid[k]`, `values[k]`   | `grid1[i]`, `grid2[j]`, `values[i][j]` |
-| サロゲート | Ridge（固定）             | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可） |
+| 可視化形式 | 折れ線グラフ（egui）       | egui カスタム 3D サーフェスプロット   |
+| 出力       | `grid[k]`, `values[k]`   | `x_values[i]`, `y_values[j]`, `z_values[i][j]` |
+| サロゲート | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可、デフォルト Ridge） | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可） |
 | 用途       | 単一パラメータの傾向確認  | 2変数複合効果・最適領域の把握         |
