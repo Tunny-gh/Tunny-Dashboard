@@ -492,6 +492,7 @@ impl eframe::App for TunnyApp {
         self.sync_window_title(ctx);
         crate::ui::layout::show_layout(self, ctx);
         self.show_csv_import_dialog(ctx);
+        crate::ui::widgets::license_modal::show(ctx, &mut self.widget_states.license_modal);
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
         let cap = &mut self.widget_states.capture;

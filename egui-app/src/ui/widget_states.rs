@@ -1,3 +1,4 @@
+use crate::ui::widgets::license_modal::LicenseModalState;
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, cluster_scatter::ClusterScatter,
@@ -329,6 +330,8 @@ pub struct WidgetStates {
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,
+    /// オープンソースライセンス表示モーダルの状態
+    pub license_modal: LicenseModalState,
 }
 
 impl WidgetStates {

@@ -5,6 +5,7 @@
 mod app;
 mod cli;
 mod io;
+mod licenses;
 mod render;
 mod state;
 mod theme;
