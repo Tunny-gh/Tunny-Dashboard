@@ -454,14 +454,23 @@ impl TunnyApp {
         // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
         // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
         // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
-        let (byte_offset, next_trial_id) = match std::fs::read(file_path) {
-            Ok(bytes) => (
-                bytes.len() as u64,
-                tunny_core::io::journal::live_update::count_created_trials(&bytes),
-            ),
+        // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
+        // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
+        let (byte_offset, next_trial_id, study_trial_number_seeds) = match std::fs::read(file_path)
+        {
+            Ok(bytes) => {
+                let per_study =
+                    tunny_core::io::journal::live_update::count_created_trials_per_study(&bytes);
+                (
+                    bytes.len() as u64,
+                    tunny_core::io::journal::live_update::count_created_trials(&bytes),
+                    per_study,
+                )
+            }
             Err(_) => (
                 std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
                 0,
+                std::collections::HashMap::new(),
             ),
         };
 
@@ -469,6 +478,7 @@ impl TunnyApp {
             file_path: file_path.clone(),
             initial_byte_offset: byte_offset,
             next_trial_id,
+            study_trial_number_seeds,
             study_distributions: vec![],
             no_change_timeout_ms: 60_000,
         };

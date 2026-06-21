@@ -5,6 +5,7 @@ use std::collections::HashMap;
 fn make_row_obj(trial_id: u32, obj: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id,
+        trial_number: trial_id,
         param_display: HashMap::new(),
         param_category_label: HashMap::new(),
         objective_values: obj,
@@ -17,6 +18,7 @@ fn make_row_obj(trial_id: u32, obj: Vec<f64>) -> TrialRow {
 fn make_row_constrained(trial_id: u32, obj: Vec<f64>, constraints: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id,
+        trial_number: trial_id,
         param_display: HashMap::new(),
         param_category_label: HashMap::new(),
         objective_values: obj,

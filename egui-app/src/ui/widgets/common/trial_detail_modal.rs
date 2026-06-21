@@ -22,9 +22,10 @@ pub const HIT_THRESHOLD: f32 = 12.0;
 /// モーダルが表示する対象 trial と、散布図固有の付加情報。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrialDetailTarget {
-    /// 対象トライアル ID（アーティファクト参照に使う）。
+    /// 対象トライアルのグローバル ID（アーティファクト参照に使う。表示はしない）。
     pub trial_id: u32,
-    /// `StudyView` 上の行 index（目的関数値・変数値の参照に使う）。
+    /// `StudyView` 上の行 index。目的関数値・変数値の参照に加え、
+    /// Study 内 0 始まり番号としてヘッダー表示にも使う。
     pub row_index: usize,
     /// 散布図固有の情報（例: `[("Pareto Rank", "0")]`）。表示は配列順。
     pub context: Vec<(String, String)>,
@@ -89,7 +90,15 @@ impl TrialDetailModal {
             ui.set_min_width(max_w);
             ui.set_min_height(max_h);
             ui.horizontal(|ui| {
-                ui.heading(format!("Trial {}", target.trial_id));
+                // ヘッダーは Optuna の `trial.number`（Study 内 0 始まりの作成順番号）を表示する。
+                // `trial_id` はストレージ横断のグローバル ID で、他 study や
+                // pruned/failed トライアルの分だけ番号がずれるため表示に使わない
+                // （アーティファクト参照には引き続き `trial_id` を使う）。
+                let trial_number = view
+                    .df
+                    .get_trial_number(target.row_index)
+                    .unwrap_or(target.row_index as u32);
+                ui.heading(format!("Trial {trial_number}"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("× Close").clicked() {
                         close = true;

@@ -413,7 +413,8 @@ fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Op
     csv.push_str(",cluster_id\n");
     for i in 0..n {
         let trial_id = study.view.trial_ids.get(i).copied().unwrap_or(i as u32);
-        csv.push_str(&format!("{},{}", trial_id, i));
+        let trial_number = study.view.df.get_trial_number(i).unwrap_or(i as u32);
+        csv.push_str(&format!("{},{}", trial_id, trial_number));
         for col in &param_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             csv.push_str(&format!(",{}", v));
@@ -472,7 +473,8 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     csv.push_str(",pareto_rank\n");
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
         let rank = study.view.pareto_rank.get(i).copied().unwrap_or(0);
-        csv.push_str(&format!("{},{}", tid, i));
+        let trial_number = study.view.df.get_trial_number(i).unwrap_or(i as u32);
+        csv.push_str(&format!("{},{}", tid, trial_number));
         for col in &param_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             csv.push_str(&format!(",{}", v));
@@ -995,10 +997,10 @@ mod tests {
         let csv = build_pareto_csv(&state).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 4, "header + 3 rows: {:?}", lines);
-        // First data row: trial id 100, row index 0, rank 0.
-        assert!(lines[1].starts_with("100,0,"), "row: {}", lines[1]);
+        // First data row: trial id 100, trial.number 100 (= test trial_number), rank 0.
+        assert!(lines[1].starts_with("100,100,"), "row: {}", lines[1]);
         assert!(lines[1].ends_with(",0"), "row0 rank: {}", lines[1]);
-        assert!(lines[3].starts_with("300,2,"), "row: {}", lines[3]);
+        assert!(lines[3].starts_with("300,300,"), "row: {}", lines[3]);
         assert!(lines[3].ends_with(",2"), "row2 rank: {}", lines[3]);
     }
 

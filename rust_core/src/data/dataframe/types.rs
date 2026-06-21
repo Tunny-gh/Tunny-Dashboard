@@ -4,8 +4,10 @@ use std::collections::HashMap;
 /// Documentation.
 #[derive(Clone)]
 pub struct TrialRow {
-    /// Documentation.
+    /// ストレージ横断のグローバル trial_id（op_code=4 出現順）。
     pub trial_id: u32,
+    /// Study 内 0 始まりの trial.number（Optuna の `trial.number`、作成順）。
+    pub trial_number: u32,
     /// Documentation.
     pub param_display: HashMap<String, f64>,
     /// Documentation.

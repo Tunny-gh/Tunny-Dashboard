@@ -329,7 +329,7 @@ pub fn build_and_send_report(
                     let rank = ctx.view.pareto_rank.get(i).copied().unwrap_or(0);
                     HtmlTrialRow {
                         trial_id: tid,
-                        trial_number: i as u32,
+                        trial_number: ctx.view.df.get_trial_number(i).unwrap_or(i as u32),
                         params,
                         objectives,
                         pareto_rank: rank,

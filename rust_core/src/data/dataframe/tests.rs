@@ -4,6 +4,7 @@ use std::collections::HashMap;
 fn make_trial(params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id: 0,
+        trial_number: 0,
         param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
         param_category_label: HashMap::new(),
         objective_values,

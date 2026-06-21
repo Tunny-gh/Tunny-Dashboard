@@ -40,6 +40,8 @@ pub struct TrialRow {
 #[derive(Debug, Default)]
 struct PendingTrial {
     study_idx: u32,
+    /// Study 内 0 始まりの trial.number（作成時に確定）。
+    trial_number: u32,
     values: Option<Vec<f64>>,
     param_display: HashMap<String, f64>,
     param_category_label: HashMap<String, String>,
@@ -51,6 +53,9 @@ struct PendingTrial {
 #[derive(Debug, Default)]
 struct LiveUpdateState {
     next_trial_id: u32,
+    /// study_id → これまでに作成された Trial 数（次の trial.number）。
+    /// ライブ開始時に既存ファイルの per-study 作成数で seed する。
+    next_trial_number: HashMap<u32, u32>,
     pending: HashMap<u32, PendingTrial>,
 }
 
@@ -64,6 +69,8 @@ pub struct LiveUpdateContext {
     pub file_path: PathBuf,
     pub initial_byte_offset: u64,
     pub next_trial_id: u32,
+    /// 既存ファイルの per-study 作成数（study_id → 件数）。各 Study の次の trial.number を seed する。
+    pub study_trial_number_seeds: HashMap<u32, u32>,
     pub study_distributions: Vec<StudyDistributionInfo>,
     /// Milliseconds of no file change before sending completion hint (default: 60_000)
     pub no_change_timeout_ms: u64,
@@ -135,10 +142,15 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         json.get("study_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                     let trial_id = s.next_trial_id;
                     s.next_trial_id += 1;
+                    // Study 内 0 始まりの trial.number を per-study カウンタから採番する。
+                    let counter = s.next_trial_number.entry(study_idx).or_insert(0);
+                    let trial_number = *counter;
+                    *counter += 1;
                     s.pending.insert(
                         trial_id,
                         PendingTrial {
                             study_idx,
+                            trial_number,
                             ..Default::default()
                         },
                     );
@@ -178,7 +190,7 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                             }
                             let row = TrialRow {
                                 trial_id,
-                                trial_number: trial_id,
+                                trial_number: pending.trial_number,
                                 params: pending.param_display,
                                 param_categories: pending.param_category_label,
                                 objectives: pending.values.unwrap_or_default(),
@@ -234,6 +246,28 @@ pub fn set_next_trial_id(id: u32) {
     STATE.with(|s| s.borrow_mut().next_trial_id = id);
 }
 
+/// per-study の「次の trial.number」カウンタを seed する。
+/// 既存ファイルの per-study 作成数（[`count_created_trials_per_study`]）を渡すと、
+/// ライブ中に作られる Trial が Study 内で連続した trial.number を持つようになる。
+pub fn set_study_trial_number_seeds(seeds: HashMap<u32, u32>) {
+    STATE.with(|s| s.borrow_mut().next_trial_number = seeds);
+}
+
+/// 既存ファイル中の op_code=4（CREATE_TRIAL）レコードを study_id ごとに数える。
+/// 返り値の `study_id → 件数` は各 Study 内で次に作られる Trial の trial.number に等しい。
+pub fn count_created_trials_per_study(data: &[u8]) -> HashMap<u32, u32> {
+    let text = String::from_utf8_lossy(data);
+    let mut counts: HashMap<u32, u32> = HashMap::new();
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if line_u32_field(trimmed, "op_code") == Some(4) {
+            let study_id = line_u32_field(trimmed, "study_id").unwrap_or(0);
+            *counts.entry(study_id).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
 /// Optuna が次の CREATE_TRIAL に割り当てる global trial_id を求める。
 ///
 /// Optuna の Journal storage は op_code=4（CREATE_TRIAL）の出現順に trial_id を
@@ -254,8 +288,14 @@ pub fn count_created_trials(data: &[u8]) -> u32 {
 
 /// 行から op_code 値を抽出する（JSON パース不要の軽量版）。
 fn line_op_code(line: &str) -> Option<u8> {
-    let key = line.find("\"op_code\"")?;
-    let after = line.get(key + "\"op_code\"".len()..)?;
+    line_u32_field(line, "op_code").map(|v| v as u8)
+}
+
+/// 行から `"key": <非負整数>` の値を抽出する（JSON パース不要の軽量版）。
+fn line_u32_field(line: &str, key: &str) -> Option<u32> {
+    let needle = format!("\"{key}\"");
+    let key_pos = line.find(&needle)?;
+    let after = line.get(key_pos + needle.len()..)?;
     let colon = after.find(':')?;
     let digits = after[colon + 1..].trim_start();
     let end = digits
@@ -385,6 +425,39 @@ mod tests {
         let data = make_diff_bytes(&lines);
         // op_code=4 は 4 件 → 次の trial_id は 4。
         assert_eq!(count_created_trials(&data), 4);
+    }
+
+    #[test]
+    fn count_created_trials_per_study_counts_op4_per_study() {
+        // study 0 に 2 件・study 1 に 2 件の op_code=4（状態は問わない）。
+        let lines = vec![
+            r#"{"op_code":0,"study_name":"a","directions":[1]}"#.to_string(),
+            r#"{"op_code":0,"study_name":"b","directions":[1]}"#.to_string(),
+            make_create_trial(0),
+            make_create_trial(1),
+            make_create_trial(0),
+            make_create_trial(1),
+        ];
+        let data = make_diff_bytes(&lines);
+        let per_study = count_created_trials_per_study(&data);
+        assert_eq!(per_study.get(&0), Some(&2));
+        assert_eq!(per_study.get(&1), Some(&2));
+    }
+
+    #[test]
+    fn live_trial_number_continues_from_seed() {
+        with_fresh_state(|| {
+            // 既存ファイルで study 0 に 5 件作成済み（trial.number 0..4）。次のライブ Trial の
+            // trial.number は 5 でなければならない（グローバル trial_id とは別系統）。
+            set_next_trial_id(5);
+            set_study_trial_number_seeds(HashMap::from([(0, 5)]));
+            let data = make_diff_bytes(&[make_create_trial(0), make_complete(5, &[1.0])]);
+            let result = append_journal_diff(&data);
+            assert_eq!(result.new_trial_rows.len(), 1);
+            let row = &result.new_trial_rows[0];
+            assert_eq!(row.trial_id, 5);
+            assert_eq!(row.trial_number, 5);
+        });
     }
 
     #[test]
@@ -533,6 +606,7 @@ mod tests {
             file_path: PathBuf::from("test.log"),
             initial_byte_offset: 1024,
             next_trial_id: 42,
+            study_trial_number_seeds: std::collections::HashMap::new(),
             study_distributions: vec![],
             no_change_timeout_ms: 60_000,
         };

@@ -231,6 +231,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         }
         trial_rows.push(TrialRow {
             trial_id: row as u32,
+            trial_number: row as u32,
             param_display,
             param_category_label,
             objective_values,

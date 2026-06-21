@@ -19,6 +19,7 @@ fn setup_df(n: usize) -> SamplingContext {
             let fi = i as f64;
             TrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: {
                     let mut m = HashMap::new();
                     m.insert("x1".to_string(), fi * 0.001);

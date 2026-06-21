@@ -372,6 +372,7 @@ impl MessageHandler {
                     .collect();
                 CoreTrialRow {
                     trial_id: df.get_trial_id(i).unwrap_or(i as u32),
+                    trial_number: df.get_trial_number(i).unwrap_or(i as u32),
                     param_display,
                     param_category_label,
                     objective_values,
@@ -505,6 +506,7 @@ impl MessageHandler {
             for core_row in &new_core_rows {
                 all_rows.push(CoreTrialRow {
                     trial_id: core_row.trial_id,
+                    trial_number: core_row.trial_number,
                     param_display: core_row.params.clone(),
                     param_category_label: core_row.param_categories.clone(),
                     objective_values: core_row.objectives.clone(),
@@ -657,6 +659,7 @@ mod tests {
         let core_rows: Vec<CoreTrialRow> = (0..trial_count)
             .map(|i| CoreTrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
                 param_category_label: std::collections::HashMap::new(),
                 objective_values: vec![i as f64],
@@ -797,6 +800,7 @@ mod tests {
     fn make_chunk_row(trial_id: u32, x: f64, obj: f64) -> CoreTrialRow {
         CoreTrialRow {
             trial_id,
+            trial_number: trial_id,
             param_display: std::collections::HashMap::from([("x".to_string(), x)]),
             param_category_label: std::collections::HashMap::new(),
             objective_values: vec![obj],
@@ -927,6 +931,7 @@ mod tests {
         let core_rows: Vec<CoreTrialRow> = (0..3)
             .map(|i| CoreTrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
                 param_category_label: std::collections::HashMap::new(),
                 objective_values: vec![i as f64, (i as f64) * 2.0],

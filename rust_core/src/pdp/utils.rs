@@ -261,6 +261,7 @@ mod tests {
         let rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 param_display: vec![("x".to_string(), 0.5), ("y".to_string(), 2.0)]
                     .into_iter()
                     .collect(),
@@ -272,6 +273,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 param_display: vec![("x".to_string(), 1.5), ("y".to_string(), 3.0)]
                     .into_iter()
                     .collect(),
@@ -317,6 +319,7 @@ mod tests {
 
         let rows = vec![TrialRow {
             trial_id: 0,
+            trial_number: 0,
             param_display: vec![("x".to_string(), 0.5)].into_iter().collect(),
             param_category_label: HashMap::new(),
             objective_values: vec![1.0],
@@ -354,6 +357,7 @@ mod tests {
             .enumerate()
             .map(|(i, &c)| TrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: vec![("x".to_string(), i as f64)].into_iter().collect(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![i as f64 * 10.0],
@@ -390,6 +394,7 @@ mod tests {
         use std::collections::HashMap;
         let rows = vec![TrialRow {
             trial_id: 0,
+            trial_number: 0,
             param_display: vec![("x".to_string(), 0.5)].into_iter().collect(),
             param_category_label: HashMap::new(),
             objective_values: vec![1.0],

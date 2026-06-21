@@ -6,6 +6,7 @@ use std::collections::HashMap;
 fn make_row_multi(trial_id: u32, params: &[(&str, f64)], objectives: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id,
+        trial_number: trial_id,
         param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
         param_category_label: HashMap::new(),
         objective_values: objectives,
@@ -218,6 +219,7 @@ fn tc_801_11b_sensitivity_all_categorical_param_non_zero() {
 
             TrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display,
                 param_category_label,
                 objective_values: vec![y_vals[i]],

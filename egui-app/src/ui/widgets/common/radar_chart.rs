@@ -330,6 +330,7 @@ mod tests {
         let core_rows: Vec<CoreRow> = (0..3)
             .map(|i| CoreRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: HashMap::from([("x".to_string(), i as f64)]),
                 param_category_label: HashMap::new(),
                 objective_values: vec![i as f64 * 2.0, 10.0 - i as f64],
@@ -373,6 +374,7 @@ mod tests {
         let core_rows: Vec<CoreRow> = (0..2)
             .map(|i| CoreRow {
                 trial_id: i,
+                trial_number: i,
                 param_display: HashMap::new(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![i as f64],

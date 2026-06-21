@@ -6,6 +6,7 @@ fn make_test_df() -> DataFrame {
     let rows = vec![
         TrialRow {
             trial_id: 0,
+            trial_number: 0,
             param_display: {
                 let mut m = HashMap::new();
                 m.insert("x1".to_string(), 1.5);
@@ -20,6 +21,7 @@ fn make_test_df() -> DataFrame {
         },
         TrialRow {
             trial_id: 5,
+            trial_number: 5,
             param_display: {
                 let mut m = HashMap::new();
                 m.insert("x1".to_string(), 3.0);
