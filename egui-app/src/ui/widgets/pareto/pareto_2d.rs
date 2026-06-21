@@ -354,51 +354,29 @@ impl ParetoScatter2D {
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-            let x_val = x_col.and_then(|c| c.get(row)).copied();
-            let y_val = y_col.and_then(|c| c.get(row)).copied();
-            let has_constraints = feas.has_constraints();
-            let feasible = feas.is_feasible(row);
-            egui::show_tooltip_at_pointer(
-                ui.ctx(),
-                ui.layer_id(),
-                egui::Id::new("pareto2d_hover_tooltip"),
-                |ui| {
-                    ui.strong(format!("Trial {trial_number}"));
-                    egui::Grid::new("pareto2d_hover_grid")
-                        .num_columns(2)
-                        .spacing([12.0, 2.0])
-                        .show(ui, |ui| {
-                            let fmt = |v: Option<f64>| {
-                                v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into())
-                            };
-                            ui.label(
-                                egui::RichText::new(&self.x_axis)
-                                    .color(crate::theme::TEXT_SECONDARY),
-                            );
-                            ui.label(fmt(x_val));
-                            ui.end_row();
-                            ui.label(
-                                egui::RichText::new(&self.y_axis)
-                                    .color(crate::theme::TEXT_SECONDARY),
-                            );
-                            ui.label(fmt(y_val));
-                            ui.end_row();
-                            ui.label(
-                                egui::RichText::new("Pareto Rank")
-                                    .color(crate::theme::TEXT_SECONDARY),
-                            );
-                            ui.label(rank.to_string());
-                            ui.end_row();
-                            if has_constraints {
-                                ui.label(
-                                    egui::RichText::new("Feasible")
-                                        .color(crate::theme::TEXT_SECONDARY),
-                                );
-                                ui.label(if feasible { "Yes" } else { "No" });
-                                ui.end_row();
-                            }
-                        });
-                },
+            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+            let mut rows = vec![
+                (
+                    self.x_axis.clone(),
+                    fmt(x_col.and_then(|c| c.get(row)).copied()),
+                ),
+                (
+                    self.y_axis.clone(),
+                    fmt(y_col.and_then(|c| c.get(row)).copied()),
+                ),
+                ("Pareto Rank".to_string(), rank.to_string()),
+            ];
+            if feas.has_constraints() {
+                rows.push((
+                    "Feasible".to_string(),
+                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                ));
+            }
+            crate::ui::widgets::trial_detail_modal::show_hover_tooltip(
+                ui,
+                "pareto2d_hover_tooltip",
+                trial_number,
+                &rows,
             );
         }
 
