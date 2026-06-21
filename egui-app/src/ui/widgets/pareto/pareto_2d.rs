@@ -246,8 +246,13 @@ impl ParetoScatter2D {
                     blank_clicked = clicked_detail.is_none();
                 }
 
-                // Draw selection rectangle
-                if let (Some(s), Some(e)) = (current_brush_start, current_brush_end) {
+                // Draw selection rectangle.
+                // ドラッグ中はその場で取得した最新のポインタ座標を優先して描画し、
+                // 前フレームの状態（self.brush_*）を使うことによる 1 フレーム遅れ
+                // （矩形がカーソルから取り残されるズレ）を防ぐ。
+                let draw_start = new_brush_start.or(current_brush_start);
+                let draw_end = new_brush_end.or(current_brush_end);
+                if let (Some(s), Some(e)) = (draw_start, draw_end) {
                     let rect_pts = vec![[s[0], s[1]], [e[0], s[1]], [e[0], e[1]], [s[0], e[1]]];
                     plot_ui.polygon(
                         egui_plot::Polygon::new(rect_pts)
