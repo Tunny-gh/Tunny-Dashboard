@@ -74,6 +74,9 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                 show_colormap_selector(ui, &mut app.app_state, &mut app.widget_states);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     show_language_menu(ui, &mut app.app_state);
+                    if ui.button("📄 Licenses").clicked() {
+                        app.widget_states.license_modal.open = true;
+                    }
                 });
             });
         });
