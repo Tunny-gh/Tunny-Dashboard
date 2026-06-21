@@ -40,9 +40,12 @@ pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
     pub use_downsample: bool,
-    // TASK-2241: rectangular brush state (plot coordinates)
-    pub brush_start: Option<[f64; 2]>,
-    pub brush_end: Option<[f64; 2]>,
+    // TASK-2241: rectangular brush state (screen coordinates).
+    // egui_plot のクロスヘアは生のスクリーン座標へ最終変換を適用して描かれる。
+    // 矩形もスクリーン座標で保持し、描画・選択判定ともに `PlotResponse.transform`
+    // （点描画と同一の最終変換）で扱うことで、変換のフレーム遅延によるズレを避ける。
+    pub brush_start: Option<egui::Pos2>,
+    pub brush_end: Option<egui::Pos2>,
     /// 点クリックで開くトライアル詳細モーダル。
     pub detail_modal: TrialDetailModal,
     /// サロゲート予測フロント点をオーバーレイ表示するか。
@@ -211,29 +214,46 @@ impl ParetoScatter2D {
             Vec::new()
         };
 
-        // Capture brush events inside the closure using mutable local vars
-        let mut new_brush_start: Option<[f64; 2]> = None;
-        let mut new_brush_end: Option<[f64; 2]> = None;
+        // Capture brush events inside the closure using mutable local vars (screen coords)
+        let mut new_brush_start: Option<egui::Pos2> = None;
+        let mut new_brush_end: Option<egui::Pos2> = None;
         let mut drag_finished = false;
         let mut blank_clicked = false;
         // 点クリックで開く詳細モーダルの対象（trial_id, 行 index）。
         let mut clicked_detail: Option<(u32, usize)> = None;
+        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        let mut hovered_detail: Option<(u32, usize)> = None;
         let current_brush_start = self.brush_start;
         let current_brush_end = self.brush_end;
 
-        egui_plot::Plot::new("pareto_2d_plot")
+        let plot_response = egui_plot::Plot::new("pareto_2d_plot")
             .legend(egui_plot::Legend::default())
             .allow_drag(false)
             .show(ui, |plot_ui| {
-                // Brush interaction detection
-                let ptr = plot_ui.pointer_coordinate();
+                // Brush interaction detection.
+                // 矩形はスクリーン座標で保持する。egui_plot のクロスヘアは生のスクリーン
+                // ポインタ位置に最終変換を適用して描かれるため、こちらもスクリーン座標で
+                // 扱えば、描画・選択ともにクロージャ後の最終 transform で一貫処理でき、
+                // 変換のフレーム遅延に起因するズレを完全に避けられる。
                 let resp = plot_ui.response();
+                // クロスヘア（ルーラー）と同じ `hover_pos()` を基準にし、ドラッグ中に
+                // None になり得る場合は interact / latest にフォールバックする。
+                let ptr = resp
+                    .hover_pos()
+                    .or_else(|| resp.interact_pointer_pos())
+                    .or_else(|| resp.ctx.input(|i| i.pointer.latest_pos()));
 
                 if resp.drag_started_by(egui::PointerButton::Primary) {
-                    new_brush_start = ptr.map(|p| [p.x, p.y]);
+                    new_brush_start = ptr;
                 }
-                if resp.dragged_by(egui::PointerButton::Primary) {
-                    new_brush_end = ptr.map(|p| [p.x, p.y]);
+                // ブラシ操作中はプライマリボタンが押されている限り毎フレーム
+                // ライブのポインタ座標で終端を更新する。`dragged_by()` はポインタが
+                // 動いたフレームでしか発火しないため、それに頼ると終端が前フレームの
+                // 古い座標に取り残され、矩形がカーソルからずれて見える。
+                let brush_active = current_brush_start.is_some() || new_brush_start.is_some();
+                let primary_down = resp.ctx.input(|i| i.pointer.primary_down());
+                if brush_active && primary_down {
+                    new_brush_end = ptr;
                 }
                 if resp.drag_stopped() {
                     drag_finished = true;
@@ -246,18 +266,14 @@ impl ParetoScatter2D {
                     blank_clicked = clicked_detail.is_none();
                 }
 
-                // Draw selection rectangle
-                if let (Some(s), Some(e)) = (current_brush_start, current_brush_end) {
-                    let rect_pts = vec![[s[0], s[1]], [e[0], s[1]], [e[0], e[1]], [s[0], e[1]]];
-                    plot_ui.polygon(
-                        egui_plot::Polygon::new(rect_pts)
-                            .fill_color(egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40))
-                            .stroke(egui::Stroke::new(
-                                1.0,
-                                egui::Color32::from_rgb(100, 150, 255),
-                            )),
-                    );
+                // ホバー中の点を検出（矩形ブラシ操作中は抑止）。
+                if current_brush_start.is_none() && !resp.dragged_by(egui::PointerButton::Primary) {
+                    hovered_detail = resp.hover_pos().and_then(|pos| {
+                        hit_test_nearest(plot_ui, &displayed_points, pos, HIT_THRESHOLD)
+                    });
                 }
+
+                // 選択矩形は Plot 描画後にスクリーン座標で重ね描きする（下記参照）。
 
                 // 実行不可能解（最背面: グレーアウト）
                 if !infeasible_pts.is_empty() {
@@ -316,6 +332,76 @@ impl ParetoScatter2D {
                 }
             });
 
+        let plot_transform = plot_response.transform;
+
+        // 選択矩形をスクリーン座標で重ね描きする。点描画と同じ最終 transform の
+        // 描画領域（frame）にクリップするため、矩形は常に実カーソルへ正確に追従する。
+        let draw_start = new_brush_start.or(current_brush_start);
+        let draw_end = new_brush_end.or(current_brush_end);
+        if let (Some(s), Some(e)) = (draw_start, draw_end) {
+            let rect = egui::Rect::from_two_pos(s, e);
+            let painter = ui.painter().with_clip_rect(*plot_transform.frame());
+            painter.rect(
+                rect,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40),
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 150, 255)),
+            );
+        }
+
+        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        // view / feas の不変借用のみで完結させ、app_state の可変借用前に処理する。
+        if let Some((_, row)) = hovered_detail {
+            let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+            let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            let x_val = x_col.and_then(|c| c.get(row)).copied();
+            let y_val = y_col.and_then(|c| c.get(row)).copied();
+            let has_constraints = feas.has_constraints();
+            let feasible = feas.is_feasible(row);
+            egui::show_tooltip_at_pointer(
+                ui.ctx(),
+                ui.layer_id(),
+                egui::Id::new("pareto2d_hover_tooltip"),
+                |ui| {
+                    ui.strong(format!("Trial {trial_number}"));
+                    egui::Grid::new("pareto2d_hover_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 2.0])
+                        .show(ui, |ui| {
+                            let fmt = |v: Option<f64>| {
+                                v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into())
+                            };
+                            ui.label(
+                                egui::RichText::new(&self.x_axis)
+                                    .color(crate::theme::TEXT_SECONDARY),
+                            );
+                            ui.label(fmt(x_val));
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new(&self.y_axis)
+                                    .color(crate::theme::TEXT_SECONDARY),
+                            );
+                            ui.label(fmt(y_val));
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new("Pareto Rank")
+                                    .color(crate::theme::TEXT_SECONDARY),
+                            );
+                            ui.label(rank.to_string());
+                            ui.end_row();
+                            if has_constraints {
+                                ui.label(
+                                    egui::RichText::new("Feasible")
+                                        .color(crate::theme::TEXT_SECONDARY),
+                                );
+                                ui.label(if feasible { "Yes" } else { "No" });
+                                ui.end_row();
+                            }
+                        });
+                },
+            );
+        }
+
         // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
         // app_state を可変借用する前に view / feas の不変借用を使い切る。
         if let Some((trial_id, row)) = clicked_detail {
@@ -345,9 +431,16 @@ impl ParetoScatter2D {
         }
         if drag_finished {
             if let (Some(start), Some(end)) = (self.brush_start, self.brush_end) {
+                // 各点を描画と同じ最終 transform でスクリーン座標へ変換し、矩形（スクリーン）
+                // に含まれるかで判定する。見た目の矩形と選択結果が必ず一致する。
+                let rect = egui::Rect::from_two_pos(start, end);
                 let new_selection: Vec<u32> = displayed_points
                     .iter()
-                    .filter(|(_, _, pt)| point_in_rect(*pt, start, end))
+                    .filter(|(_, _, pt)| {
+                        let screen = plot_transform
+                            .position_from_point(&egui_plot::PlotPoint::new(pt[0], pt[1]));
+                        rect.contains(screen)
+                    })
                     .map(|(id, _, _)| *id)
                     .collect();
                 app_state.selected_indices = new_selection;
