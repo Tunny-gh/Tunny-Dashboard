@@ -218,6 +218,8 @@ impl ParetoScatter2D {
         let mut blank_clicked = false;
         // 点クリックで開く詳細モーダルの対象（trial_id, 行 index）。
         let mut clicked_detail: Option<(u32, usize)> = None;
+        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        let mut hovered_detail: Option<(u32, usize)> = None;
         let current_brush_start = self.brush_start;
         let current_brush_end = self.brush_end;
 
@@ -244,6 +246,13 @@ impl ParetoScatter2D {
                         hit_test_nearest(plot_ui, &displayed_points, pos, HIT_THRESHOLD)
                     });
                     blank_clicked = clicked_detail.is_none();
+                }
+
+                // ホバー中の点を検出（矩形ブラシ操作中は抑止）。
+                if current_brush_start.is_none() && !resp.dragged_by(egui::PointerButton::Primary) {
+                    hovered_detail = resp.hover_pos().and_then(|pos| {
+                        hit_test_nearest(plot_ui, &displayed_points, pos, HIT_THRESHOLD)
+                    });
                 }
 
                 // Draw selection rectangle.
@@ -320,6 +329,59 @@ impl ParetoScatter2D {
                     );
                 }
             });
+
+        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        // view / feas の不変借用のみで完結させ、app_state の可変借用前に処理する。
+        if let Some((_, row)) = hovered_detail {
+            let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+            let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            let x_val = x_col.and_then(|c| c.get(row)).copied();
+            let y_val = y_col.and_then(|c| c.get(row)).copied();
+            let has_constraints = feas.has_constraints();
+            let feasible = feas.is_feasible(row);
+            egui::show_tooltip_at_pointer(
+                ui.ctx(),
+                ui.layer_id(),
+                egui::Id::new("pareto2d_hover_tooltip"),
+                |ui| {
+                    ui.strong(format!("Trial {trial_number}"));
+                    egui::Grid::new("pareto2d_hover_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 2.0])
+                        .show(ui, |ui| {
+                            let fmt = |v: Option<f64>| {
+                                v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into())
+                            };
+                            ui.label(
+                                egui::RichText::new(&self.x_axis)
+                                    .color(crate::theme::TEXT_SECONDARY),
+                            );
+                            ui.label(fmt(x_val));
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new(&self.y_axis)
+                                    .color(crate::theme::TEXT_SECONDARY),
+                            );
+                            ui.label(fmt(y_val));
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new("Pareto Rank")
+                                    .color(crate::theme::TEXT_SECONDARY),
+                            );
+                            ui.label(rank.to_string());
+                            ui.end_row();
+                            if has_constraints {
+                                ui.label(
+                                    egui::RichText::new("Feasible")
+                                        .color(crate::theme::TEXT_SECONDARY),
+                                );
+                                ui.label(if feasible { "Yes" } else { "No" });
+                                ui.end_row();
+                            }
+                        });
+                },
+            );
+        }
 
         // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
         // app_state を可変借用する前に view / feas の不変借用を使い切る。
