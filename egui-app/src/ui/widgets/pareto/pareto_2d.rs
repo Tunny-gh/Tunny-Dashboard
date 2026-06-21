@@ -234,7 +234,13 @@ impl ParetoScatter2D {
                 if resp.drag_started_by(egui::PointerButton::Primary) {
                     new_brush_start = ptr.map(|p| [p.x, p.y]);
                 }
-                if resp.dragged_by(egui::PointerButton::Primary) {
+                // ブラシ操作中はプライマリボタンが押されている限り毎フレーム
+                // ライブのポインタ座標で終端を更新する。`dragged_by()` はポインタが
+                // 動いたフレームでしか発火しないため、それに頼ると終端が前フレームの
+                // 古い座標に取り残され、矩形がカーソルからずれて見える。
+                let brush_active = current_brush_start.is_some() || new_brush_start.is_some();
+                let primary_down = resp.ctx.input(|i| i.pointer.primary_down());
+                if brush_active && primary_down {
                     new_brush_end = ptr.map(|p| [p.x, p.y]);
                 }
                 if resp.drag_stopped() {
