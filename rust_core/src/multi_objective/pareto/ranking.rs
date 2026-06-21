@@ -21,9 +21,11 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
         return vec![0u32; n];
     }
 
+    // 目的本数が m に満たない行（不揃い入力）は NaN 行として扱い、支配判定から除外する。
+    // これがないと下流で norm_flat[i*m..(i+1)*m] がスライス範囲外になり panic する。
     let nan_mask: Vec<bool> = objectives
         .iter()
-        .map(|obj| obj.iter().any(|v| v.is_nan()))
+        .map(|obj| obj.len() < m || obj.iter().any(|v| v.is_nan()))
         .collect();
 
     let signs: Vec<f64> = (0..m)
@@ -35,10 +37,12 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
             }
         })
         .collect();
+    // 各行を必ず m 要素にそろえてフラット化する（不足分は NaN で埋める）。
     let mut norm_flat: Vec<f64> = Vec::with_capacity(n * m);
     for obj in objectives {
-        for (j, &v) in obj.iter().enumerate() {
-            norm_flat.push(signs[j] * v);
+        for (j, &sign) in signs.iter().enumerate() {
+            let v = obj.get(j).copied().unwrap_or(f64::NAN);
+            norm_flat.push(sign * v);
         }
     }
 
