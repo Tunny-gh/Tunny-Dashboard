@@ -227,9 +227,18 @@ impl ParetoScatter2D {
             .legend(egui_plot::Legend::default())
             .allow_drag(false)
             .show(ui, |plot_ui| {
-                // Brush interaction detection
-                let ptr = plot_ui.pointer_coordinate();
+                // Brush interaction detection.
+                // 注意: `pointer_coordinate()` はプロットのパン（ドラッグスクロール）に
+                // よる 1 フレーム遅延を補正するため `response.drag_delta()` を減算する。
+                // しかし本プロットは `allow_drag(false)` でパンせず、範囲選択のために
+                // ドラッグするので drag_delta が非ゼロになり、その分だけ座標が実カーソル
+                // からずれてしまう（ドラッグ方向の軸にずれが出る）。パンしない以上
+                // 変換に遅延はないため、生のポインタ座標を直接プロット座標へ変換する。
                 let resp = plot_ui.response();
+                let ptr = resp
+                    .ctx
+                    .input(|i| i.pointer.latest_pos())
+                    .map(|pos| plot_ui.plot_from_screen(pos));
 
                 if resp.drag_started_by(egui::PointerButton::Primary) {
                     new_brush_start = ptr.map(|p| [p.x, p.y]);
