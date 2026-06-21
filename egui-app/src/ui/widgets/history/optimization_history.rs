@@ -6,7 +6,7 @@ use crate::theme::chart_colors::{
     COLOR_INFEASIBLE, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
 };
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
 /// 比較 Study 1 件分の最適化履歴系列（選択中の目的に対する値列 + 色 + 凡例名）。
@@ -172,6 +172,8 @@ impl OptimizationHistoryChart {
             .collect();
         // クリックされた点（trial_id, 行 index）。
         let mut clicked_detail: Option<(u32, usize)> = None;
+        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        let mut hovered_detail: Option<(u32, usize)> = None;
 
         let mut plot =
             egui_plot::Plot::new("optimization_history_plot").legend(egui_plot::Legend::default());
@@ -191,6 +193,10 @@ impl OptimizationHistoryChart {
                     clicked_detail =
                         hit_test_nearest(plot_ui, &base_hit_points, pos, HIT_THRESHOLD);
                 }
+            }
+            // ホバー中の点を検出する（基準 Study の試行のみ）。
+            if let Some(pos) = resp.hover_pos() {
+                hovered_detail = hit_test_nearest(plot_ui, &base_hit_points, pos, HIT_THRESHOLD);
             }
 
             // All Trials は常に描画（凡例クリックで表示切替可能）。
@@ -280,6 +286,22 @@ impl OptimizationHistoryChart {
                 );
             }
         });
+
+        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        if let Some((_, row)) = hovered_detail {
+            let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+            let mut rows = Vec::new();
+            if let (Some(name), Some(v)) = (obj_names.get(self.obj_idx), values.get(row)) {
+                rows.push((name.clone(), format!("{v:.6}")));
+            }
+            if feas.has_constraints() {
+                rows.push((
+                    "Feasible".to_string(),
+                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                ));
+            }
+            show_hover_tooltip(ui, "opt_history_hover_tooltip", trial_number, &rows);
+        }
 
         // クリックされた点があれば、選択中の目的値（と feasibility）を付加情報として
         // モーダルを開く。

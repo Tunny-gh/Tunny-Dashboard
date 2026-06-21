@@ -4,7 +4,7 @@ use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
 /// パラメータ vs 目的関数の Slice 散布図ウィジェット
@@ -120,6 +120,8 @@ impl SliceChart {
         }
 
         let mut clicked_detail: Option<(u32, usize)> = None;
+        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        let mut hovered_detail: Option<(u32, usize)> = None;
         plot.show(ui, |plot_ui| {
             // 点クリックで詳細モーダルを開く対象を検出する。
             let resp = plot_ui.response();
@@ -127,6 +129,10 @@ impl SliceChart {
                 clicked_detail = resp
                     .interact_pointer_pos()
                     .and_then(|pos| hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD));
+            }
+            // ホバー中の点を検出する。
+            if let Some(pos) = resp.hover_pos() {
+                hovered_detail = hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD);
             }
             if !normal_pts.is_empty() {
                 let pts: egui_plot::PlotPoints = normal_pts.into_iter().map(apply_log).collect();
@@ -148,6 +154,29 @@ impl SliceChart {
                 );
             }
         });
+
+        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        if let Some((_, row)) = hovered_detail {
+            let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+            let param_val = view
+                .numeric_column(param_name)
+                .and_then(|c| c.get(row).copied());
+            let obj_val = obj_names
+                .get(obj_idx)
+                .and_then(|name| view.numeric_column(name))
+                .and_then(|c| c.get(row).copied());
+            let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            let rows = vec![
+                (param_name.clone(), fmt(param_val)),
+                (
+                    obj_names.get(obj_idx).cloned().unwrap_or_default(),
+                    fmt(obj_val),
+                ),
+                ("Pareto Rank".to_string(), rank.to_string()),
+            ];
+            show_hover_tooltip(ui, "slice_hover_tooltip", trial_number, &rows);
+        }
 
         // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
         if let Some((trial_id, row)) = clicked_detail {

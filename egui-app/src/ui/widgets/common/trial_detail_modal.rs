@@ -297,6 +297,32 @@ pub fn nearest_within(
     best.map(|(_, i)| i)
 }
 
+/// ホバー中のトライアル概要を、ポインタ位置のツールチップとして表示する共通ヘルパー。
+///
+/// 散布図系（Scatter 2D / History / Slice）が共有する。`trial_number` を見出しに、
+/// `rows`（ラベル, 値）を 2 列グリッドで並べる。`id_salt` はツールチップとグリッドの
+/// Id 衝突を避けるためチャートごとに一意な文字列を渡す。
+pub fn show_hover_tooltip(
+    ui: &egui::Ui,
+    id_salt: &str,
+    trial_number: u32,
+    rows: &[(String, String)],
+) {
+    egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), egui::Id::new(id_salt), |ui| {
+        ui.strong(format!("Trial {trial_number}"));
+        egui::Grid::new(format!("{id_salt}_grid"))
+            .num_columns(2)
+            .spacing([12.0, 2.0])
+            .show(ui, |ui| {
+                for (k, v) in rows {
+                    ui.label(egui::RichText::new(k).color(crate::theme::TEXT_SECONDARY));
+                    ui.label(v);
+                    ui.end_row();
+                }
+            });
+    });
+}
+
 /// 候補点（trial_id, row_index, plot 座標）から、クリック位置（スクリーン座標）に
 /// 最も近くかつ `threshold` px 以内の点を `(trial_id, row_index)` で返す。
 pub fn hit_test_nearest(
