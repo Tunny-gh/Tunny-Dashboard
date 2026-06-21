@@ -448,20 +448,22 @@ impl TunnyApp {
             return;
         };
 
-        let byte_offset = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
-
-        let next_trial_id = self
-            .app_state
-            .current_study
-            .as_ref()
-            .map(|s| s.trial_count() as u32)
-            .unwrap_or_else(|| {
-                self.app_state
-                    .all_studies
-                    .iter()
-                    .map(|s| s.completed_trials as u32)
-                    .sum()
-            });
+        // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
+        // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
+        // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
+        // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
+        // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
+        // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
+        let (byte_offset, next_trial_id) = match std::fs::read(file_path) {
+            Ok(bytes) => (
+                bytes.len() as u64,
+                tunny_core::io::journal::live_update::count_created_trials(&bytes),
+            ),
+            Err(_) => (
+                std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
+                0,
+            ),
+        };
 
         let ctx = LiveUpdateContext {
             file_path: file_path.clone(),

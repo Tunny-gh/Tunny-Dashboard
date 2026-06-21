@@ -234,6 +234,39 @@ pub fn set_next_trial_id(id: u32) {
     STATE.with(|s| s.borrow_mut().next_trial_id = id);
 }
 
+/// Optuna が次の CREATE_TRIAL に割り当てる global trial_id を求める。
+///
+/// Optuna の Journal storage は op_code=4（CREATE_TRIAL）の出現順に trial_id を
+/// **全 study・全状態（running/failed/pruned 含む）横断**で連番付与する。
+/// そのためファイル中の op_code=4 レコード総数が、次に作られる Trial の trial_id に等しい。
+/// ライブ更新開始時の `next_trial_id` はこの値でなければ op_code=5/6 の trial_id と
+/// 照合できず、Trial が正しく構築されない。
+pub fn count_created_trials(data: &[u8]) -> u32 {
+    let text = String::from_utf8_lossy(data);
+    let mut count = 0u32;
+    for line in text.lines() {
+        if line_op_code(line.trim_start()) == Some(4) {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// 行から op_code 値を抽出する（JSON パース不要の軽量版）。
+fn line_op_code(line: &str) -> Option<u8> {
+    let key = line.find("\"op_code\"")?;
+    let after = line.get(key + "\"op_code\"".len()..)?;
+    let colon = after.find(':')?;
+    let digits = after[colon + 1..].trim_start();
+    let end = digits
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(digits.len());
+    if end == 0 {
+        return None;
+    }
+    digits[..end].parse().ok()
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -333,6 +366,46 @@ mod tests {
     }
 
     // ── Original tests (TASK-1201) ──────────────────────────────────────
+
+    #[test]
+    fn count_created_trials_counts_all_op4_across_studies_and_states() {
+        // 2 study・running/pruned/failed 混在でも op_code=4 の総数を数える。
+        let lines = vec![
+            r#"{"op_code":0,"study_name":"a","directions":[1]}"#.to_string(),
+            r#"{"op_code":0,"study_name":"b","directions":[1]}"#.to_string(),
+            make_create_trial(0), // tid 0 (completed)
+            make_complete(0, &[1.0]),
+            make_create_trial(0), // tid 1 (pruned)
+            r#"{"op_code":6,"trial_id":1,"state":2}"#.to_string(),
+            make_create_trial(1), // tid 2 (running, no op6)
+            make_set_param(2, "x", 0.3),
+            make_create_trial(1), // tid 3 (failed)
+            r#"{"op_code":6,"trial_id":3,"state":3}"#.to_string(),
+        ];
+        let data = make_diff_bytes(&lines);
+        // op_code=4 は 4 件 → 次の trial_id は 4。
+        assert_eq!(count_created_trials(&data), 4);
+    }
+
+    #[test]
+    fn live_update_with_correct_next_trial_id_builds_full_row() {
+        with_fresh_state(|| {
+            // 既存ファイルに 10 個の op_code=4 があり、ライブ開始時に正しく next_trial_id=10
+            // を設定した場合、新規 Trial の param/objective が欠落せず構築される（回帰）。
+            set_next_trial_id(10);
+            let create = make_create_trial(0);
+            let set_param = make_set_param(10, "x1", 0.5);
+            let complete = make_complete(10, &[1.23]);
+            let data = make_diff_bytes(&[create, set_param, complete]);
+
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.new_trial_rows.len(), 1);
+            let row = &result.new_trial_rows[0];
+            assert_eq!(row.params.get("x1"), Some(&0.5));
+            assert_eq!(row.objectives, vec![1.23]);
+        });
+    }
 
     #[test]
     fn tc_1201_01_complete_trial_counted() {

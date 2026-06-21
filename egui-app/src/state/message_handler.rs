@@ -522,29 +522,23 @@ impl MessageHandler {
             let new_df =
                 DataFrame::from_trials(&all_rows, &param_names, &obj_names, &un, &us, max_c);
 
-            // Pareto ランク再計算
             let is_minimize: Vec<bool> = study
                 .meta
                 .directions
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
                 .collect();
-            let objectives: Vec<Vec<f64>> = all_rows
-                .iter()
-                .map(|r| r.objective_values.clone())
-                .collect();
-            let ranks = tunny_core::pareto::nd_sort(&objectives, &is_minimize);
-            let pareto_indices: Vec<u32> = ranks
-                .iter()
-                .enumerate()
-                .filter_map(|(i, &r)| if r == 0 { Some(i as u32) } else { None })
-                .collect();
 
-            // ArcSwap で共有ストアのスナップショットを差し替え、view を作り直す。
+            // 先に共有ストアを差し替えてアクティブ化し、列がそろった DataFrame から
+            // Pareto を計算する（handle_study_chunk と同じ方式）。all_rows を直接 nd_sort へ
+            // 渡すと、ライブ差分が目的本数の異なる行を含む場合にスライス範囲外で panic する。
+            // from_trials / compute_pareto_ranks は不足目的を NaN で埋め形状を必ずそろえる。
             let arc = std::sync::Arc::new(new_df);
             tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
-            study.view = StudyView::new(arc, ranks);
-            study.pareto_indices = pareto_indices;
+            let _ = tunny_core::dataframe::select_study(study_id);
+            let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
+            study.view = StudyView::new(arc, pareto.ranks);
+            study.pareto_indices = pareto.pareto_indices;
         }
 
         // トライアル数が変わるとキャッシュ済み結果の行数が合わなくなるため破棄する。
@@ -915,6 +909,80 @@ mod tests {
             &mut load_error,
         );
 
+        assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
+    }
+
+    /// 回帰: ライブ差分が目的本数の異なる行（空の objectives）を含んでも、
+    /// 多目的 Pareto 計算がスライス範囲外で panic しないこと。
+    /// （次の create/complete 境界をまたぐ Trial が空 objectives 行を生むケースを再現）
+    #[test]
+    fn live_update_done_handles_ragged_objectives_without_panic() {
+        let _g = test_store_guard();
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        // 2 目的の study を構築する。
+        let core_rows: Vec<CoreTrialRow> = (0..3)
+            .map(|i| CoreTrialRow {
+                trial_id: i as u32,
+                param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
+                param_category_label: std::collections::HashMap::new(),
+                objective_values: vec![i as f64, (i as f64) * 2.0],
+                user_attrs_numeric: std::collections::HashMap::new(),
+                user_attrs_string: std::collections::HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["o1".to_string(), "o2".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        tunny_core::dataframe::store_dataframes(vec![df]);
+        MessageHandler::handle(
+            AppMessage::StudySelected {
+                meta: StudyMeta {
+                    study_id: 0,
+                    name: "s".to_string(),
+                    directions: vec![Direction::Minimize, Direction::Minimize],
+                    completed_trials: 3,
+                    total_trials: 3,
+                    param_names: vec!["x".to_string()],
+                    objective_names: vec!["o1".to_string(), "o2".to_string()],
+                    user_attr_names: vec![],
+                    has_constraints: false,
+                    param_bounds: Default::default(),
+                },
+                study_id: 0,
+                pareto_rank: vec![0; 3],
+                pareto_indices: vec![],
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        // 完全な行 1 件 + 目的が空のゴミ行 1 件を混ぜて送る（旧実装ではここで panic）。
+        let mut empty_obj_row = make_core_trial_row(4, 0, vec![]);
+        empty_obj_row.objectives = vec![];
+        MessageHandler::handle(
+            AppMessage::LiveUpdateDone {
+                new_trial_rows: vec![make_core_trial_row(3, 0, vec![1.0, 2.0]), empty_obj_row],
+                updated_study_counts: vec![],
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        // panic せず 5 行になっていること。
         assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
     }
 
