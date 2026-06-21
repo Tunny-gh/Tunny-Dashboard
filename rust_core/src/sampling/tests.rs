@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 fn make_row(trial_id: u32, obj_values: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id,
+        trial_number: trial_id,
         param_display: HashMap::new(),
         param_category_label: HashMap::new(),
         objective_values: obj_values,

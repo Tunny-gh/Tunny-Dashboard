@@ -254,6 +254,7 @@ mod tests {
     fn make_row(trial_id: u32, params: &[(&str, f64)], obj: Vec<f64>) -> TrialRow {
         TrialRow {
             trial_id,
+            trial_number: trial_id,
             param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
             param_category_label: HashMap::new(),
             objective_values: obj,
@@ -667,6 +668,7 @@ mod tests {
                 let y = (i % 50) as f64 / 50.0;
                 TrialRow {
                     trial_id: i as u32,
+                    trial_number: i as u32,
                     param_display: [("x".to_string(), x), ("y".to_string(), y)]
                         .into_iter()
                         .collect(),

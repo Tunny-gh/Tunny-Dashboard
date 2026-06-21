@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 
 use tunny_core::io::journal::live_update::{
-    append_journal_diff, set_next_trial_id, LiveUpdateContext,
+    append_journal_diff, set_next_trial_id, set_study_trial_number_seeds, LiveUpdateContext,
 };
 
 use crate::state::messages::AppMessage;
@@ -93,6 +93,7 @@ fn polling_loop(
     no_change_timeout: Duration,
 ) {
     set_next_trial_id(context.next_trial_id);
+    set_study_trial_number_seeds(context.study_trial_number_seeds.clone());
     let mut byte_offset = context.initial_byte_offset;
     let mut error_count: u32 = 0;
     let mut last_changed = SystemTime::now();
@@ -194,6 +195,7 @@ mod tests {
             file_path: path,
             initial_byte_offset: offset,
             next_trial_id: 0,
+            study_trial_number_seeds: std::collections::HashMap::new(),
             study_distributions: vec![],
             no_change_timeout_ms: 200, // short timeout for tests
         }
@@ -346,6 +348,7 @@ mod tests {
             file_path: path,
             initial_byte_offset: size,
             next_trial_id: 0,
+            study_trial_number_seeds: std::collections::HashMap::new(),
             study_distributions: vec![],
             no_change_timeout_ms: 200,
         };

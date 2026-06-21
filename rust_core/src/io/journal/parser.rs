@@ -460,6 +460,7 @@ fn stream_emit_completed_trial<F>(
     *completed += 1;
     batch.push(TrialRow {
         trial_id: tid,
+        trial_number: b.trial_number,
         param_display: b.param_display,
         param_category_label: b.param_category_label,
         objective_values: b.values.unwrap_or_default(),

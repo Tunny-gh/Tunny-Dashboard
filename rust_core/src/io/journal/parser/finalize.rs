@@ -61,6 +61,7 @@ pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFra
 
         per_study_rows[study_idx].push(TrialRow {
             trial_id,
+            trial_number: trial.trial_number,
             param_display: trial.param_display,
             param_category_label: trial.param_category_label,
             objective_values: trial.values.unwrap_or_default(),

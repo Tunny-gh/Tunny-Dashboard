@@ -178,7 +178,8 @@ impl TrialTable {
                     body.rows(18.0, visible.len(), |mut row| {
                         let idx = visible[row.index()];
                         let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
-                        let trial_number = idx as u32;
+                        // 表示は Optuna の trial.number（Study 内 0 始まりの作成順番号）。
+                        let trial_number = view.df.get_trial_number(idx).unwrap_or(idx as u32);
                         let rank = pareto_rank.get(idx).copied().unwrap_or(0);
                         let is_highlighted = highlighted == Some(trial_id);
                         let is_pinned = pinned.contains(&trial_id);

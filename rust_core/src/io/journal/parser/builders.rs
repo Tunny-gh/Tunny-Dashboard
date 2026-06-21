@@ -21,6 +21,8 @@ pub(super) struct StudyBuilder {
 /// Documentation.
 pub(super) struct TrialBuilder {
     pub(super) study_id: u32,
+    /// Study 内 0 始まりの trial.number（作成順 = op_code=4 の study 内出現順）。
+    pub(super) trial_number: u32,
     pub(super) state: u8,
     pub(super) values: Option<Vec<f64>>,
     pub(super) param_display: HashMap<String, f64>,

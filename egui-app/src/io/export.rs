@@ -95,9 +95,10 @@ pub fn build_csv_string_from_view(
 
     for &i in row_indices {
         let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+        let trial_number = view.df.get_trial_number(i).unwrap_or(i as u32);
         let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
         let cluster = view.cluster_id.get(i).copied().flatten();
-        let mut parts = vec![trial_id.to_string(), i.to_string()];
+        let mut parts = vec![trial_id.to_string(), trial_number.to_string()];
         for col in &param_cols {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             parts.push(if v.is_finite() {

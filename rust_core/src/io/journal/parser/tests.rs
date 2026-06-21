@@ -67,6 +67,40 @@ fn parse_single_study_beta_skips_alpha_trials() {
 }
 
 #[test]
+fn parse_single_study_beta_trial_number_is_in_study_index() {
+    // beta(study_id=1) のグローバル trial_id は 2,3,4 だが、Study 内の trial.number は
+    // 0,1,2 でなければならない（Optuna の trial.number = study 内作成順）。
+    let data = two_study_log();
+    let (_meta, df) = parse_single_study(&data, 1).unwrap();
+    let ids: Vec<u32> = (0..df.row_count())
+        .map(|r| df.get_trial_id(r).unwrap())
+        .collect();
+    let numbers: Vec<u32> = (0..df.row_count())
+        .map(|r| df.get_trial_number(r).unwrap())
+        .collect();
+    assert_eq!(ids, vec![2, 3, 4]);
+    assert_eq!(numbers, vec![0, 1, 2]);
+}
+
+#[test]
+fn streaming_beta_trial_number_is_in_study_index() {
+    // streaming パス（UI が使う経路）でも trial.number が Study 内連番になる。
+    let data = two_study_log();
+    let mut batches: Vec<StudyStreamBatch> = Vec::new();
+    parse_single_study_streaming(&data, 1, 2, |b| batches.push(b)).unwrap();
+    let ids: Vec<u32> = batches
+        .iter()
+        .flat_map(|b| b.new_rows.iter().map(|r| r.trial_id))
+        .collect();
+    let numbers: Vec<u32> = batches
+        .iter()
+        .flat_map(|b| b.new_rows.iter().map(|r| r.trial_number))
+        .collect();
+    assert_eq!(ids, vec![2, 3, 4]);
+    assert_eq!(numbers, vec![0, 1, 2]);
+}
+
+#[test]
 fn parse_single_study_objective_values_correct() {
     let data = two_study_log();
     let (_meta, df) = parse_single_study(&data, 0).unwrap();
@@ -586,6 +620,7 @@ fn distribution_categorical_label() {
 fn trial_builder_constraint_values_stored() {
     let trial = TrialBuilder {
         study_id: 0,
+        trial_number: 0,
         state: 1,
         values: None,
         param_display: HashMap::new(),

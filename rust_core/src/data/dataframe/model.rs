@@ -8,6 +8,8 @@ pub struct DataFrame {
     row_count: usize,
     /// Documentation.
     trial_ids: Vec<u32>,
+    /// Study 内 0 始まりの trial.number（行 index 順）。
+    trial_numbers: Vec<u32>,
     /// Documentation.
     numeric_cols: Vec<(String, Vec<f64>)>,
     /// Documentation.
@@ -28,6 +30,7 @@ impl DataFrame {
         DataFrame {
             row_count: 0,
             trial_ids: vec![],
+            trial_numbers: vec![],
             numeric_cols: vec![],
             string_cols: vec![],
             param_col_names: vec![],
@@ -63,6 +66,7 @@ impl DataFrame {
         }
 
         let trial_ids: Vec<u32> = trial_rows.iter().map(|r| r.trial_id).collect();
+        let trial_numbers: Vec<u32> = trial_rows.iter().map(|r| r.trial_number).collect();
 
         let mut numeric_cols: Vec<(String, Vec<f64>)> = Vec::new();
         let mut string_cols: Vec<(String, Vec<String>)> = Vec::new();
@@ -160,6 +164,7 @@ impl DataFrame {
         DataFrame {
             row_count: n,
             trial_ids,
+            trial_numbers,
             numeric_cols,
             string_cols,
             param_col_names,
@@ -176,13 +181,13 @@ impl DataFrame {
         self.trial_ids.get(row).copied()
     }
 
-    /// Documentation.
+    /// Study 内 0 始まりの trial.number（Optuna の `trial.number`）を返す。
+    /// 値が未設定の行は行 index にフォールバックする。
     pub fn get_trial_number(&self, row: usize) -> Option<u32> {
-        if row < self.row_count {
-            Some(row as u32)
-        } else {
-            None
+        if row >= self.row_count {
+            return None;
         }
+        Some(self.trial_numbers.get(row).copied().unwrap_or(row as u32))
     }
 
     /// Documentation.
@@ -289,6 +294,19 @@ impl DataFrame {
             })
             .collect();
 
+        let trial_numbers: Vec<u32> = self
+            .trial_numbers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &num)| {
+                if mask.get(i).copied().unwrap_or(false) {
+                    Some(num)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let numeric_cols: Vec<(String, Vec<f64>)> = self
             .numeric_cols
             .iter()
@@ -330,6 +348,7 @@ impl DataFrame {
         DataFrame {
             row_count: trial_ids.len(),
             trial_ids,
+            trial_numbers,
             numeric_cols,
             string_cols,
             param_col_names: self.param_col_names.clone(),

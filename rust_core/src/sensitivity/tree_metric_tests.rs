@@ -9,6 +9,7 @@ use std::collections::HashMap;
 fn make_row(trial_id: u32, params: &[(&str, f64)], objectives: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id,
+        trial_number: trial_id,
         param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
         param_category_label: HashMap::new(),
         objective_values: objectives,

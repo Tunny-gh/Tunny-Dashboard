@@ -606,6 +606,7 @@ mod tests {
         let core_rows: Vec<CoreRow> = (0..n)
             .map(|i| CoreRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: [("x".to_string(), x_vals[i])].into(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![y_vals[i]],

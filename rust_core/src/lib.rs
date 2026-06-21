@@ -53,6 +53,7 @@ mod tests {
         let rows = vec![
             TrialRow {
                 trial_id: 0,
+                trial_number: 0,
                 param_display: [("x".to_string(), 1.5)].iter().cloned().collect(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![10.0],
@@ -62,6 +63,7 @@ mod tests {
             },
             TrialRow {
                 trial_id: 1,
+                trial_number: 1,
                 param_display: [("x".to_string(), 2.5)].iter().cloned().collect(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![5.0],

@@ -21,6 +21,7 @@ fn setup_sobol_df(n: usize, n_params: usize, n_objectives: usize) {
 
             TrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display,
                 param_category_label: HashMap::new(),
                 objective_values,

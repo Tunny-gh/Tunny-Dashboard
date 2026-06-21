@@ -213,6 +213,7 @@ mod store_tests {
         let rows: Vec<TrialRow> = (0..n)
             .map(|i| TrialRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: std::collections::HashMap::new(),
                 param_category_label: std::collections::HashMap::new(),
                 objective_values: vec![i as f64],

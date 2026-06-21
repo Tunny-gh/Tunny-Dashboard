@@ -283,6 +283,7 @@ mod tests {
         let core_rows: Vec<CoreRow> = (0..n)
             .map(|i| CoreRow {
                 trial_id: i as u32,
+                trial_number: i as u32,
                 param_display: HashMap::from([("x".to_string(), param_vals[i])]),
                 param_category_label: HashMap::new(),
                 objective_values: vec![obj_vals[i]],
@@ -374,6 +375,7 @@ mod tests {
         let core_rows: Vec<CoreRow> = vec![
             CoreRow {
                 trial_id: 0,
+                trial_number: 0,
                 param_display: HashMap::from([("x".to_string(), 1.0)]),
                 param_category_label: HashMap::new(),
                 objective_values: vec![], // 目的関数なし → NaN
@@ -383,6 +385,7 @@ mod tests {
             },
             CoreRow {
                 trial_id: 1,
+                trial_number: 1,
                 param_display: HashMap::from([("x".to_string(), 3.0)]),
                 param_category_label: HashMap::new(),
                 objective_values: vec![4.0],

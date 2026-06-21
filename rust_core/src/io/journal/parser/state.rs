@@ -103,6 +103,9 @@ impl ParserState {
 
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
+        // Optuna の trial.number は study 内の作成順（0 始まり）。total_trials を
+        // インクリメントする前の値がそのトライアルの number になる。
+        let trial_number = self.studies[study_id as usize].total_trials;
         self.studies[study_id as usize].total_trials += 1;
 
         // Phase 2 オンデマンド解析: 対象 study 以外の TrialBuilder 生成をスキップ。
@@ -222,6 +225,7 @@ impl ParserState {
                 trial_id,
                 TrialBuilder {
                     study_id,
+                    trial_number,
                     state,
                     values,
                     param_display,
@@ -237,6 +241,7 @@ impl ParserState {
                 trial_id,
                 TrialBuilder {
                     study_id,
+                    trial_number,
                     state: 0,
                     values: None,
                     param_display: HashMap::new(),

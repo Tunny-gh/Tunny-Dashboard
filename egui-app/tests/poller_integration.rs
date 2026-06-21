@@ -42,6 +42,7 @@ fn poller_context(path: std::path::PathBuf, offset: u64) -> LiveUpdateContext {
         file_path: path,
         initial_byte_offset: offset,
         next_trial_id: 0,
+        study_trial_number_seeds: std::collections::HashMap::new(),
         study_distributions: vec![],
         no_change_timeout_ms: 10_000,
     }
@@ -164,6 +165,7 @@ fn tc_2224_02_file_deleted_auto_stop() {
         file_path: path.clone(),
         initial_byte_offset: std::fs::metadata(&path).unwrap().len(),
         next_trial_id: 0,
+        study_trial_number_seeds: std::collections::HashMap::new(),
         study_distributions: vec![],
         no_change_timeout_ms: 60_000,
     };
@@ -209,6 +211,7 @@ fn tc_2224_03_zero_byte_file_no_errors() {
         file_path: path.clone(),
         initial_byte_offset: 0,
         next_trial_id: 0,
+        study_trial_number_seeds: std::collections::HashMap::new(),
         study_distributions: vec![],
         no_change_timeout_ms: 60_000,
     };
