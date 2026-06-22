@@ -1,0 +1,163 @@
+name: Release
+
+# Build a self-contained, ready-to-run package for each supported OS and
+# bundle every file an end user needs into a single folder, then zip it.
+#
+# The app embeds its in-app help/theory docs, third-party licenses, icon and
+# fonts into the binary at build time (see egui-app/build.rs), so the only
+# external runtime dependency that must travel next to the executable is the
+# pre-built LightGBM native library. README.md and LICENSE are bundled as
+# user-facing documentation.
+on:
+  push:
+    tags:
+      - "v*"
+  # Allow building a package on demand (e.g. to test the release pipeline).
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep in sync with ci.yml and libs/lib_lightgbm.def.
+  LIGHTGBM_VERSION: v4.6.0
+
+permissions:
+  contents: write # required to create/update the GitHub Release
+
+jobs:
+  package:
+    name: Package (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+          - os: macos-latest
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # --- Provision the LightGBM native library (mirrors ci.yml) ---
+      - name: Cache LightGBM native library
+        id: lgbm-cache
+        uses: actions/cache@v5
+        with:
+          path: libs
+          key: lgbm-v2-${{ matrix.os }}-${{ env.LIGHTGBM_VERSION }}-${{ hashFiles('libs/lib_lightgbm.def') }}
+
+      - name: Setup MSVC environment (Windows)
+        if: runner.os == 'Windows' && steps.lgbm-cache.outputs.cache-hit != 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Provision LightGBM (Windows)
+        if: runner.os == 'Windows' && steps.lgbm-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force libs | Out-Null
+          $url = "https://github.com/microsoft/LightGBM/releases/download/$env:LIGHTGBM_VERSION/lib_lightgbm.dll"
+          Invoke-WebRequest -Uri $url -OutFile libs/lib_lightgbm.dll
+          lib /def:libs/lib_lightgbm.def /machine:x64 /out:libs/lib_lightgbm.lib
+
+      - name: Provision LightGBM (macOS)
+        if: runner.os == 'macOS' && steps.lgbm-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install lightgbm
+          mkdir -p libs
+          cp "$(brew --prefix lightgbm)/lib/lib_lightgbm.dylib" libs/
+          cp "$(brew --prefix libomp)/lib/libomp.dylib" libs/
+          chmod u+w libs/lib_lightgbm.dylib libs/libomp.dylib
+          install_name_tool -id "@rpath/lib_lightgbm.dylib" libs/lib_lightgbm.dylib
+          install_name_tool -change \
+            "@rpath/libomp.dylib" \
+            "@loader_path/libomp.dylib" \
+            libs/lib_lightgbm.dylib
+          codesign --force -s - libs/libomp.dylib
+          codesign --force -s - libs/lib_lightgbm.dylib
+
+      - name: Build release binary
+        run: cargo build --release --locked -p tunny-desktop
+
+      # --- Assemble the distributable folder ---
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PKG: TunnyDashboard-${{ steps.ver.outputs.version }}-${{ matrix.label }}
+        run: |
+          New-Item -ItemType Directory -Force $env:PKG | Out-Null
+          Copy-Item target/release/TunnyDashboard.exe $env:PKG/
+          # LightGBM DLL must sit next to the executable to be found at runtime.
+          Copy-Item libs/lib_lightgbm.dll $env:PKG/
+          Copy-Item README.md $env:PKG/
+          Copy-Item LICENSE $env:PKG/
+          Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
+          echo "PKG=$env:PKG" >> $env:GITHUB_ENV
+
+      - name: Assemble package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PKG: TunnyDashboard-${{ steps.ver.outputs.version }}-${{ matrix.label }}
+        run: |
+          mkdir -p "$PKG"
+          cp target/release/TunnyDashboard "$PKG/"
+          # Bundle the dylibs next to the binary. The binary loads
+          # @rpath/lib_lightgbm.dylib; add an @executable_path rpath so it
+          # resolves the sibling copy instead of the build-time libs/ path.
+          # lib_lightgbm in turn finds libomp via @loader_path (same folder).
+          cp libs/lib_lightgbm.dylib "$PKG/"
+          cp libs/libomp.dylib "$PKG/"
+          install_name_tool -add_rpath @executable_path "$PKG/TunnyDashboard"
+          # add_rpath invalidates the signature; re-sign ad-hoc so macOS loads it.
+          codesign --force -s - "$PKG/TunnyDashboard"
+          cp README.md "$PKG/"
+          cp LICENSE "$PKG/"
+          zip -r "$PKG.zip" "$PKG"
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG }}
+          path: ${{ env.PKG }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: package
+    # Only attach assets to a Release when triggered by a version tag.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*.zip
+          generate_release_notes: true
