@@ -113,6 +113,21 @@ impl ParetoScatter2D {
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
+        // 既定の軸名（"obj0"/"obj1"）は読み込んだ目的関数名と一致しないため、
+        // 現在の選択が目的関数名に無ければ実際の名前へ寄せる（MCDM 散布図と同じ挙動）。
+        if !obj_names.iter().any(|n| n == &self.x_axis) {
+            if let Some(first) = obj_names.first() {
+                self.x_axis = first.clone();
+            }
+        }
+        if !obj_names.iter().any(|n| n == &self.y_axis) {
+            if obj_names.len() > 1 {
+                self.y_axis = obj_names[1].clone();
+            } else if let Some(first) = obj_names.first() {
+                self.y_axis = first.clone();
+            }
+        }
+
         // 軸割り当て ComboBox + サロゲートフロントチェックボックス
         ui.horizontal(|ui| {
             ui.label("X Axis:");
