@@ -12,6 +12,7 @@ use crate::ui::widgets::cluster_scatter::{
     KMeansInitStrategy, KSelectionMode,
 };
 use crate::ui::widgets::mcdm_chart::McdmControls;
+use crate::ui::widgets::trial_detail_modal::{TrialDetailModal, TrialDetailTarget};
 
 /// 1 ページに表示する artifact カード数（All モード）。
 /// 一度に生成する egui::Image を絞り、テクスチャ生成コストを抑える。
@@ -40,24 +41,13 @@ impl ArtifactViewMode {
     }
 }
 
-/// 画像プレビューモーダルの表示内容。
-#[derive(Debug, Clone)]
-pub struct PreviewState {
-    /// `file://` URI（画像ローダ用）。
-    pub uri: String,
-    /// 見出し（元ファイル名）。
-    pub title: String,
-    /// 補助情報（trial 番号・目的関数値など）。
-    pub info: String,
-}
-
 /// 1 枚のカードクリックで要求されたアクション。
 #[derive(Default)]
 struct CardClick {
     /// タイトルクリック → trial をハイライト。
     highlight: bool,
-    /// 画像クリック → 拡大プレビューを開く。
-    preview: bool,
+    /// 画像クリック → トライアル詳細モーダルを開く。
+    detail: bool,
 }
 
 /// Artifact ギャラリーウィジェット。
@@ -75,8 +65,8 @@ pub struct ArtifactGallery {
     pub thumb_size: f32,
     /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
     pub artifact_index: usize,
-    /// 画像拡大プレビュー（モーダル）。`None` のとき非表示。
-    pub preview: Option<PreviewState>,
+    /// カードクリックで開くトライアル詳細モーダル（散布図等と共有）。
+    pub detail_modal: TrialDetailModal,
     // ── Cluster 設定（ClusterTable と同一構成）──────────────────
     pub k: usize,
     pub target_space: ClusterSpace,
@@ -96,7 +86,7 @@ impl Default for ArtifactGallery {
             page: 0,
             thumb_size: DEFAULT_THUMB,
             artifact_index: 0,
-            preview: None,
+            detail_modal: TrialDetailModal::new(),
             k: 3,
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::ElbowDefault,
@@ -244,64 +234,32 @@ impl ArtifactGallery {
             }
         }
 
-        self.show_preview_modal(ui);
-    }
-
-    /// 画像の拡大プレビューをモーダルで表示する。背景クリック / Esc / Close で閉じる。
-    fn show_preview_modal(&mut self, ui: &egui::Ui) {
-        let Some(preview) = self.preview.as_ref() else {
-            return;
-        };
-        let ctx = ui.ctx().clone();
-        let screen = ctx.screen_rect();
-        let max_w = (screen.width() * 0.95).max(200.0);
-        let max_h = (screen.height() * 0.95).max(200.0);
-        // ヘッダー・情報・余白を除いた画像表示領域の高さ。
-        let image_h = (max_h - 100.0).max(120.0);
-
-        let mut close = false;
-        let modal = egui::Modal::new(egui::Id::new("artifact_preview_modal")).show(&ctx, |ui| {
-            ui.set_max_width(max_w);
-            // 画像のアスペクト比に依らずモーダルを縦に大きく確保する。
-            ui.set_min_height(max_h);
-            ui.horizontal(|ui| {
-                ui.heading(&preview.title);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("× Close").clicked() {
-                        close = true;
-                    }
-                });
-            });
-            if !preview.info.is_empty() {
-                ui.label(egui::RichText::new(&preview.info).color(crate::theme::TEXT_SECONDARY));
-            }
-            ui.separator();
-            // 画像本体。画面の大半に収まるよう上限を設けつつ縦横比を維持する。
-            egui::ScrollArea::both().max_height(image_h).show(ui, |ui| {
-                ui.add(
-                    egui::Image::from_uri(preview.uri.as_str())
-                        .max_size(egui::vec2(max_w, image_h)),
+        // カードクリックで開いたトライアル詳細モーダルを描画する（散布図等と同一内容）。
+        if self.detail_modal.is_open() {
+            if let Some(ctx) = app_state.current_study.as_ref() {
+                self.detail_modal.show(
+                    ui,
+                    &ctx.view,
+                    ctx.view.param_names(),
+                    ctx.view.objective_names(),
+                    &app_state.artifact_map,
                 );
-            });
-        });
-
-        if close || modal.should_close() {
-            self.preview = None;
+            }
         }
     }
 
-    /// カードグリッド描画後の結果（ハイライト要求 / プレビュー要求）を適用する。
+    /// カードグリッド描画後の結果（ハイライト要求 / 詳細モーダル要求）を適用する。
     fn apply_card_outcome(
         &mut self,
         app_state: &mut AppState,
         clicked: Option<u32>,
-        preview: Option<PreviewState>,
+        detail: Option<TrialDetailTarget>,
     ) {
         if let Some(trial_id) = clicked {
             app_state.set_highlight(trial_id);
         }
-        if preview.is_some() {
-            self.preview = preview;
+        if let Some(target) = detail {
+            self.detail_modal.open(target);
         }
     }
 
@@ -359,16 +317,16 @@ impl ArtifactGallery {
             }
         }
         let mut clicked: Option<u32> = None;
-        let mut preview: Option<PreviewState> = None;
+        let mut detail: Option<TrialDetailTarget> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let (h, p) =
                     render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
                 clicked = h;
-                preview = p;
+                detail = p;
             });
-        self.apply_card_outcome(app_state, clicked, preview);
+        self.apply_card_outcome(app_state, clicked, detail);
     }
 
     /// Cluster モード: 設定 UI + クラスタ別セクション表示。
@@ -427,7 +385,7 @@ impl ArtifactGallery {
         let thumb = self.thumb_size;
         let n_clusters = cr.n_clusters.max(1);
         let mut clicked: Option<u32> = None;
-        let mut preview: Option<PreviewState> = None;
+        let mut detail: Option<TrialDetailTarget> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -460,12 +418,12 @@ impl ArtifactGallery {
                                 clicked = h;
                             }
                             if p.is_some() {
-                                preview = p;
+                                detail = p;
                             }
                         });
                 }
             });
-        self.apply_card_outcome(app_state, clicked, preview);
+        self.apply_card_outcome(app_state, clicked, detail);
     }
 
     /// MCDM モード: 設定 UI + ランキング順表示。
@@ -527,16 +485,16 @@ impl ArtifactGallery {
             cards.push((entry.trial_id, badge, entry.entry));
         }
         let mut clicked: Option<u32> = None;
-        let mut preview: Option<PreviewState> = None;
+        let mut detail: Option<TrialDetailTarget> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let (h, p) =
                     render_card_grid(ui, app_state, content_w, thumb, &cards, obj_by_trial);
                 clicked = h;
-                preview = p;
+                detail = p;
             });
-        self.apply_card_outcome(app_state, clicked, preview);
+        self.apply_card_outcome(app_state, clicked, detail);
     }
 
     /// クラスタリング設定 UI（ClusterTable の show_controls と同操作感）。
@@ -638,10 +596,10 @@ fn render_card_grid(
     thumb: f32,
     cards: &[(u32, String, &ArtifactEntry)],
     obj_by_trial: &HashMap<u32, String>,
-) -> (Option<u32>, Option<PreviewState>) {
+) -> (Option<u32>, Option<TrialDetailTarget>) {
     let columns = card_columns(content_w, thumb);
     let mut highlight: Option<u32> = None;
-    let mut preview: Option<PreviewState> = None;
+    let mut detail: Option<TrialDetailTarget> = None;
     for row in cards.chunks(columns) {
         ui.horizontal_top(|ui| {
             for (trial_id, badge, entry) in row {
@@ -651,22 +609,37 @@ fn render_card_grid(
                 if click.highlight {
                     highlight = Some(*trial_id);
                 }
-                if click.preview {
-                    let mut info = format!("Trial {trial_id}");
-                    if !obj_text.is_empty() {
-                        info.push('\n');
-                        info.push_str(obj_text);
+                if click.detail {
+                    if let Some(target) = detail_target_for(app_state, *trial_id, badge) {
+                        detail = Some(target);
                     }
-                    preview = Some(PreviewState {
-                        uri: format!("file://{}", entry.path.to_string_lossy()),
-                        title: entry.filename.clone(),
-                        info,
-                    });
                 }
             }
         });
     }
-    (highlight, preview)
+    (highlight, detail)
+}
+
+/// `trial_id` から散布図共有の詳細モーダル用ターゲットを組み立てる。
+/// `StudyView` 上の行 index を逆引きし、カードのバッジ（クラスタ番号 / MCDM ランク等）が
+/// あれば Chart Info として付加する。
+fn detail_target_for(
+    app_state: &AppState,
+    trial_id: u32,
+    badge: &str,
+) -> Option<TrialDetailTarget> {
+    let ctx = app_state.current_study.as_ref()?;
+    let row_index = ctx.view.trial_ids.iter().position(|&id| id == trial_id)?;
+    let context = if badge.is_empty() {
+        Vec::new()
+    } else {
+        vec![("Group".to_string(), badge.to_string())]
+    };
+    Some(TrialDetailTarget {
+        trial_id,
+        row_index,
+        context,
+    })
 }
 
 /// 各 trial の目的関数値を `name: value` 改行区切りで整形したマップを返す。
@@ -749,9 +722,9 @@ fn show_artifact_card(
                                     .fit_to_exact_size(egui::vec2(thumb, thumb)),
                             )
                             .interact(egui::Sense::click())
-                            .on_hover_text("Click to enlarge");
+                            .on_hover_text("Click for trial details");
                         if resp.clicked() {
-                            click.preview = true;
+                            click.detail = true;
                         }
                     }
                     other => {
