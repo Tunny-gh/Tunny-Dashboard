@@ -35,6 +35,8 @@ where $X_{\sim i}$ means "all parameters except $x_i$."
 
 $ST_i \geq S_i$ always holds. A large gap $(ST_i - S_i)$ indicates strong interactions.
 
+> **Note on finite-sample estimates:** the Saltelli first-order estimator and the Jansen total-effect estimator are computed independently, so raw estimates can violate $\hat{ST}_i \geq \hat{S}_i$ in finite samples. The implementation enforces the property after estimation by taking $\hat{ST}_i \leftarrow \max(\hat{ST}_i, \hat{S}_i)$ before clamping both values to $[0, 1]$.
+
 ## Implementation
 
 Because Monte Carlo integration is impractical for real trial data, a **quadratic Ridge surrogate** is fitted on the trials, and Saltelli sampling is run on that surrogate using the Jansen estimator.

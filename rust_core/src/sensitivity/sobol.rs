@@ -193,6 +193,9 @@ pub(crate) fn compute_sobol_index_pair(fa_k: &[f64], fb_k: &[f64], fab_k: &[f64]
         .sum::<f64>()
         / (2.0 * n_f * var_y);
 
+    // 有限サンプル推定では ST_i < S_i になり得る。
+    // 理論的に保証される ST_i >= S_i を出力値に強制してから [0,1] にクランプする。
+    let st_i = st_i.max(s_i);
     (s_i.clamp(0.0, 1.0), st_i.clamp(0.0, 1.0))
 }
 

@@ -500,9 +500,10 @@ fn tc_1610_06_compute_sobol_index_pair_known_values() {
     let fab = vec![1.5, 3.5];
     let (fo, te) = compute_sobol_index_pair(&fa, &fb, &fab);
 
-    // var_y = 1, unclamped first-order = 1.5 -> clamped 1.0, total-effect = 0.125
+    // var_y = 1, unclamped s_i = 1.5 → clamped 1.0, raw st_i = 0.125
+    // ST_i >= S_i を強制するため max(0.125, 1.5) = 1.5 → clamp → 1.0
     assert!((fo - 1.0).abs() < 1e-12, "first-order mismatch: {fo}");
-    assert!((te - 0.125).abs() < 1e-12, "total-effect mismatch: {te}");
+    assert!((te - 1.0).abs() < 1e-12, "total-effect mismatch: {te}");
 }
 
 #[test]

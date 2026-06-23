@@ -4,6 +4,8 @@
 
 Permutation Feature Importance (PFI) follows the same principle as RF-ANOVA — measuring the accuracy drop when a parameter is shuffled on a holdout set — but **averages 5 independent shuffles** per feature to reduce estimation variance.
 
+> **Edge case:** when the dataset is very small (fewer than 4 samples after filtering), the holdout split is disabled and evaluation falls back to the training data. Importance scores are less reliable in this regime.
+
 ## Formula
 
 For each parameter $j$, repeat $r = 1 \ldots 5$:

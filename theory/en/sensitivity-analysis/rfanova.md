@@ -24,6 +24,8 @@ $$
 
 Permutation is performed on holdout data (20% split), **not** training data. Using training data would give near-zero importance for all features because the model has memorized them.
 
+> **Edge case:** when the dataset is very small (fewer than 4 samples after filtering), the holdout split is disabled and evaluation falls back to the training data. Importance scores are less reliable in this regime.
+
 ## Hyperparameters
 
 | Parameter | Value |
