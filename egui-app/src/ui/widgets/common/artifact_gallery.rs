@@ -17,8 +17,36 @@ use crate::ui::widgets::trial_detail_modal::{TrialDetailModal, TrialDetailTarget
 /// 1 ページに表示する artifact カード数（All モード）。
 /// 一度に生成する egui::Image を絞り、テクスチャ生成コストを抑える。
 const PAGE_SIZE: usize = 12;
-/// サムネイル一辺の既定サイズ（ワールド座標）。
-const DEFAULT_THUMB: f32 = 140.0;
+
+/// サムネイルの表示サイズ（大中小）。一辺のワールド座標長を持つ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbSize {
+    /// 小（既定）。
+    Small,
+    /// 中。
+    Medium,
+    /// 大。
+    Large,
+}
+
+impl ThumbSize {
+    fn label(&self) -> &'static str {
+        match self {
+            ThumbSize::Small => "Small",
+            ThumbSize::Medium => "Medium",
+            ThumbSize::Large => "Large",
+        }
+    }
+
+    /// サムネイル一辺のサイズ（ワールド座標）。
+    fn size(&self) -> f32 {
+        match self {
+            ThumbSize::Small => 140.0,
+            ThumbSize::Medium => 220.0,
+            ThumbSize::Large => 320.0,
+        }
+    }
+}
 
 /// Artifact ギャラリーの表示モード。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +90,7 @@ struct CardClick {
 pub struct ArtifactGallery {
     pub mode: ArtifactViewMode,
     pub page: usize,
-    pub thumb_size: f32,
+    pub thumb_size: ThumbSize,
     /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
     pub artifact_index: usize,
     /// カードクリックで開くトライアル詳細モーダル（散布図等と共有）。
@@ -84,7 +112,7 @@ impl Default for ArtifactGallery {
         Self {
             mode: ArtifactViewMode::All,
             page: 0,
-            thumb_size: DEFAULT_THUMB,
+            thumb_size: ThumbSize::Small,
             artifact_index: 0,
             detail_modal: TrialDetailModal::new(),
             k: 3,
@@ -199,6 +227,16 @@ impl ArtifactGallery {
                     }
                 });
 
+            ui.separator();
+            ui.label("Size:");
+            egui::ComboBox::from_id_salt("artifact_gallery_thumb_size")
+                .selected_text(self.thumb_size.label())
+                .show_ui(ui, |ui| {
+                    for s in [ThumbSize::Small, ThumbSize::Medium, ThumbSize::Large] {
+                        ui.selectable_value(&mut self.thumb_size, s, s.label());
+                    }
+                });
+
             // 1 トライアルに複数アーティファクトがある場合のみ表示する。
             if max_artifacts > 1 {
                 ui.separator();
@@ -308,7 +346,7 @@ impl ArtifactGallery {
         });
 
         let page_trials = paginate(&trials, self.page, PAGE_SIZE);
-        let thumb = self.thumb_size;
+        let thumb = self.thumb_size.size();
         let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for &trial_id in page_trials {
             if let Some(entry) = app_state
@@ -385,7 +423,7 @@ impl ArtifactGallery {
             return;
         }
 
-        let thumb = self.thumb_size;
+        let thumb = self.thumb_size.size();
         let n_clusters = cr.n_clusters.max(1);
         let mut clicked: Option<u32> = None;
         let mut detail: Option<TrialDetailTarget> = None;
@@ -481,7 +519,7 @@ impl ArtifactGallery {
             return;
         }
 
-        let thumb = self.thumb_size;
+        let thumb = self.thumb_size.size();
         let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for entry in &ordered {
             let badge = format!("#{} ({:.3})", entry.rank, entry.score);
