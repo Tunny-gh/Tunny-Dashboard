@@ -17,8 +17,36 @@ use crate::ui::widgets::trial_detail_modal::{TrialDetailModal, TrialDetailTarget
 /// 1 ページに表示する artifact カード数（All モード）。
 /// 一度に生成する egui::Image を絞り、テクスチャ生成コストを抑える。
 const PAGE_SIZE: usize = 12;
-/// サムネイル一辺の既定サイズ（ワールド座標）。
-const DEFAULT_THUMB: f32 = 140.0;
+
+/// サムネイルの表示サイズ（大中小）。一辺のワールド座標長を持つ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThumbSize {
+    /// 小（既定）。
+    Small,
+    /// 中。
+    Medium,
+    /// 大。
+    Large,
+}
+
+impl ThumbSize {
+    fn label(&self) -> &'static str {
+        match self {
+            ThumbSize::Small => "Small",
+            ThumbSize::Medium => "Medium",
+            ThumbSize::Large => "Large",
+        }
+    }
+
+    /// サムネイル一辺のサイズ（ワールド座標）。
+    fn size(&self) -> f32 {
+        match self {
+            ThumbSize::Small => 140.0,
+            ThumbSize::Medium => 220.0,
+            ThumbSize::Large => 320.0,
+        }
+    }
+}
 
 /// Artifact ギャラリーの表示モード。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +90,7 @@ struct CardClick {
 pub struct ArtifactGallery {
     pub mode: ArtifactViewMode,
     pub page: usize,
-    pub thumb_size: f32,
+    pub thumb_size: ThumbSize,
     /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
     pub artifact_index: usize,
     /// カードクリックで開くトライアル詳細モーダル（散布図等と共有）。
@@ -84,7 +112,7 @@ impl Default for ArtifactGallery {
         Self {
             mode: ArtifactViewMode::All,
             page: 0,
-            thumb_size: DEFAULT_THUMB,
+            thumb_size: ThumbSize::Small,
             artifact_index: 0,
             detail_modal: TrialDetailModal::new(),
             k: 3,
@@ -199,6 +227,16 @@ impl ArtifactGallery {
                     }
                 });
 
+            ui.separator();
+            ui.label("Size:");
+            egui::ComboBox::from_id_salt("artifact_gallery_thumb_size")
+                .selected_text(self.thumb_size.label())
+                .show_ui(ui, |ui| {
+                    for s in [ThumbSize::Small, ThumbSize::Medium, ThumbSize::Large] {
+                        ui.selectable_value(&mut self.thumb_size, s, s.label());
+                    }
+                });
+
             // 1 トライアルに複数アーティファクトがある場合のみ表示する。
             if max_artifacts > 1 {
                 ui.separator();
@@ -272,11 +310,14 @@ impl ArtifactGallery {
         artifact_index: usize,
         obj_by_trial: &HashMap<u32, String>,
     ) {
-        // 選択フィルタ（PCP ブラシ等）が有効なら、その trial に絞り込む（空 = 全件）。
-        let trials = filter_ids_by_selection(
+        // artifact_map は Journal 全体（全 Study）の trial を含むため、まず現在の Study に
+        // 属する trial へ絞り込む（trial_id は Journal 全体で一意なので他 Study の artifact が
+        // 混在しうる）。その上で選択フィルタ（PCP ブラシ等）を適用する（空 = 全件）。
+        let study_trials = restrict_to_current_study(
             artifact_trials_with_index(&app_state.artifact_map, artifact_index),
-            &app_state.selected_indices,
+            app_state,
         );
+        let trials = filter_ids_by_selection(study_trials, &app_state.selected_indices);
         let total_pages = trials.len().div_ceil(PAGE_SIZE).max(1);
         if self.page >= total_pages {
             self.page = total_pages - 1;
@@ -305,7 +346,7 @@ impl ArtifactGallery {
         });
 
         let page_trials = paginate(&trials, self.page, PAGE_SIZE);
-        let thumb = self.thumb_size;
+        let thumb = self.thumb_size.size();
         let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for &trial_id in page_trials {
             if let Some(entry) = app_state
@@ -382,7 +423,7 @@ impl ArtifactGallery {
             return;
         }
 
-        let thumb = self.thumb_size;
+        let thumb = self.thumb_size.size();
         let n_clusters = cr.n_clusters.max(1);
         let mut clicked: Option<u32> = None;
         let mut detail: Option<TrialDetailTarget> = None;
@@ -478,7 +519,7 @@ impl ArtifactGallery {
             return;
         }
 
-        let thumb = self.thumb_size;
+        let thumb = self.thumb_size.size();
         let mut cards: Vec<(u32, String, &ArtifactEntry)> = Vec::new();
         for entry in &ordered {
             let badge = format!("#{} ({:.3})", entry.rank, entry.score);
@@ -785,6 +826,17 @@ pub fn artifact_trials_with_index(
     ids
 }
 
+/// `ids` を現在の Study に属する trial_id だけに絞り込む。
+/// `artifact_map` は Journal 全体（全 Study）の trial を含むため、対象 Study の
+/// `view.trial_ids` に含まれるものだけを残す。Study 未選択時は空を返す。
+pub fn restrict_to_current_study(ids: Vec<u32>, app_state: &AppState) -> Vec<u32> {
+    let Some(ctx) = app_state.current_study.as_ref() else {
+        return Vec::new();
+    };
+    let set: std::collections::HashSet<u32> = ctx.view.trial_ids.iter().copied().collect();
+    ids.into_iter().filter(|id| set.contains(id)).collect()
+}
+
 /// 選択フィルタ（PCP ブラシ等）に基づき trial_id リストを絞り込む。
 /// `selected_indices` が空の場合は全件を返す（テーブル等と同じ「空 = 全件」規約）。
 pub fn filter_ids_by_selection(ids: Vec<u32>, selected_indices: &[u32]) -> Vec<u32> {
@@ -918,6 +970,57 @@ mod tests {
         // index 1 を持つ trial のみ。
         m.insert(7, vec![entry("a"), entry("b")]);
         assert_eq!(artifact_trials_with_index(&m, 1), vec![7]);
+    }
+
+    fn study_ctx_with_trial_ids(ids: &[u32]) -> crate::state::types::StudyContext {
+        use crate::state::types::{StudyContext, StudyMeta, TrialRow as UiRow, TrialState};
+        let rows: Vec<UiRow> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| UiRow {
+                trial_id: id,
+                trial_number: i as u32,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: None,
+                state: TrialState::Complete,
+                user_attrs: HashMap::new(),
+            })
+            .collect();
+        let meta = StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![],
+            completed_trials: ids.len(),
+            total_trials: ids.len(),
+            param_names: vec![],
+            objective_names: vec![],
+            user_attr_names: vec![],
+            has_constraints: false,
+            param_bounds: Default::default(),
+        };
+        StudyContext::from_rows_for_test(meta, rows)
+    }
+
+    #[test]
+    fn restrict_to_current_study_keeps_only_study_trials() {
+        // artifact_map は Journal 全体（study A: 0,1 / study B: 100,101）を含む。
+        let mut state = AppState::new();
+        state.artifact_map = map_with(&[0, 1, 100, 101]);
+        // 現在の Study は trial 0,1 のみを持つ。
+        state.current_study = Some(study_ctx_with_trial_ids(&[0, 1]));
+
+        let ids = artifact_trials_with_index(&state.artifact_map, 0);
+        assert_eq!(restrict_to_current_study(ids, &state), vec![0, 1]);
+    }
+
+    #[test]
+    fn restrict_to_current_study_empty_without_study() {
+        let mut state = AppState::new();
+        state.artifact_map = map_with(&[0, 1]);
+        let ids = artifact_trials_with_index(&state.artifact_map, 0);
+        assert!(restrict_to_current_study(ids, &state).is_empty());
     }
 
     #[test]
