@@ -85,7 +85,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
     let panel_area = ctx.available_rect();
 
     // ─── ホバー検知 ───────────────────────────────────────────────────
-    // ドラッグ中はパネル開閉を維持（DnD 中断防止）
+    // ドラッグ中はパネル開閉を維持し、DnD の中断を防ぐ。
     let is_using_pointer = ctx.is_using_pointer();
 
     if !is_using_pointer {
@@ -124,8 +124,15 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                     egui::pos2(panel_area.right(), panel_area.bottom()),
                 );
                 if !fit_zone.contains(m) {
-                    let right_close_x =
-                        panel_area.right() - app.layout.right_panel.width - HOVER_TRIGGER_PX;
+                    // 閉じ境界は設定幅ではなく直近に描画された実際の左端を基準にする。
+                    // アイコンタイルが設定幅を超えて描画され左へシフトしても、
+                    // タイル上をホバーしただけで閉じてしまわないようにするため。
+                    let panel_left = app
+                        .layout
+                        .right_panel
+                        .last_rendered_left_x
+                        .unwrap_or(panel_area.right() - app.layout.right_panel.width);
+                    let right_close_x = panel_left - HOVER_TRIGGER_PX;
                     if m.x > panel_area.right() - HOVER_TRIGGER_PX {
                         app.layout.right_panel.is_open = true;
                     } else if m.x < right_close_x {
@@ -294,7 +301,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         // 右端からスライドイン: t=0 で画面右端、t=1 で右端に密着
         let right_x = panel_area.right() - panel_w * right_t;
 
-        egui::Area::new(egui::Id::new("right_panel_overlay"))
+        let area_resp = egui::Area::new(egui::Id::new("right_panel_overlay"))
             .fixed_pos(egui::pos2(right_x, panel_area.top()))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
@@ -314,6 +321,12 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
                     show_right_panel(ui, &app.app_state, &mut app.layout);
                 });
             });
+        // アイコンタイルが設定幅より広く描画され egui の constrain により左へ
+        // シフトされても、次フレームのホバー閉じ判定が実際の左端を使えるよう記録する。
+        app.layout.right_panel.last_rendered_left_x = Some(area_resp.response.rect.left());
+    } else {
+        // パネルが閉じている間は実測値を破棄し、次に開くときは設定幅ベースに戻す。
+        app.layout.right_panel.last_rendered_left_x = None;
     }
 
     // ─── 最大化モーダル（すべての最前面に重ねる） ──────────────────────

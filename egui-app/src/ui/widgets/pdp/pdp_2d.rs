@@ -268,7 +268,7 @@ impl PdpChart2DState {
         let canvas_size = egui::vec2((avail.x - 72.0).max(120.0), avail.y.max(160.0));
         ui.allocate_ui(canvas_size, |ui| {
             ui.set_min_size(canvas_size);
-            let (painter, rect, project) = setup_3d_canvas(ui, camera);
+            let (painter, rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);
             draw_3d_grid(&painter, &project);
             // 軸線は細分化してサーフェスと一緒に深度ソートし、面との前後関係を反映する
             draw_surface_mesh(

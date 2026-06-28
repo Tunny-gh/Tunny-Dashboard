@@ -5,8 +5,11 @@ use crate::theme::chart_colors::{
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::TOOLBAR_BTN_FG;
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    show_objective_combo, ArcballCamera,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, pick_nearest_3d,
+    setup_3d_canvas, show_objective_combo, ArcballCamera,
+};
+use crate::ui::widgets::trial_detail_modal::{
+    show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
 /// Pareto 3D チャートウィジェット
@@ -19,6 +22,8 @@ pub struct Pareto3dChart {
     range_cache_key: (usize, usize, usize, usize),
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
+    /// 点クリックで開くトライアル詳細モーダル
+    pub detail_modal: TrialDetailModal,
 }
 
 impl Default for Pareto3dChart {
@@ -36,6 +41,7 @@ impl Default for Pareto3dChart {
             range_cache: [(-1.0, 1.0); 3],
             range_cache_key: (usize::MAX, usize::MAX, usize::MAX, 0),
             show_infeasible: true,
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
@@ -107,7 +113,7 @@ impl Pareto3dChart {
             }
         });
 
-        let (painter, _rect, project) = setup_3d_canvas(ui, &mut self.camera);
+        let (painter, _rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, &mut self.camera);
 
         draw_3d_grid(&painter, &project);
 
@@ -149,6 +155,8 @@ impl Pareto3dChart {
             Vec::with_capacity(32);
         let mut highlight_call: Option<egui::Pos2> = None;
         let show_infeasible = self.show_infeasible;
+        // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
 
         for i in displayed {
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
@@ -165,9 +173,12 @@ impl Pareto3dChart {
             if !feas.is_feasible(i) {
                 if show_infeasible {
                     infeasible_draw_calls.push((screen_pos, depth, COLOR_INFEASIBLE, 3.0));
+                    candidates.push((trial_id, i, screen_pos));
                 }
                 continue;
             }
+
+            candidates.push((trial_id, i, screen_pos));
 
             if highlighted == Some(trial_id) {
                 highlight_call = Some(screen_pos);
@@ -194,6 +205,61 @@ impl Pareto3dChart {
         if let Some(pos) = highlight_call {
             painter.circle_filled(pos, 8.0, COLOR_HIGHLIGHT_PT);
             painter.circle_stroke(pos, 9.5, egui::Stroke::new(1.5, TOOLBAR_BTN_FG));
+        }
+
+        // マウスホバーで点の概要をツールチップ表示（モーダル表示中・ドラッグ中は抑止）。
+        if !self.detail_modal.is_open() {
+            if let Some(hover) = hover_pos {
+                if let Some((_, row)) = pick_nearest_3d(&candidates, hover) {
+                    let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+                    let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+                    let fmt =
+                        |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+                    let mut rows = vec![
+                        (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
+                        (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
+                        (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
+                        ("Pareto Rank".to_string(), rank.to_string()),
+                    ];
+                    if feas.has_constraints() {
+                        rows.push((
+                            "Feasible".to_string(),
+                            if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                        ));
+                    }
+                    show_hover_tooltip(ui, "pareto3d_hover_tooltip", trial_number, &rows);
+                }
+            }
+        }
+
+        // 左クリックで点に当たれば詳細モーダルを開く（散布図情報 = Pareto ランク）。
+        if let Some(click) = click_pos {
+            if let Some((trial_id, row)) = pick_nearest_3d(&candidates, click) {
+                let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+                let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
+                if feas.has_constraints() {
+                    context.push((
+                        "Feasible".to_string(),
+                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                    ));
+                }
+                self.detail_modal.open(TrialDetailTarget {
+                    trial_id,
+                    row_index: row,
+                    context,
+                });
+            }
+        }
+
+        // 詳細モーダルを描画する。
+        if self.detail_modal.is_open() {
+            self.detail_modal.show(
+                ui,
+                view,
+                &ctx.meta.param_names,
+                obj_names,
+                &app_state.artifact_map,
+            );
         }
     }
 }

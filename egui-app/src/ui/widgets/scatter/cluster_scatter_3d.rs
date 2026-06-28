@@ -7,8 +7,11 @@ use crate::ui::widgets::cluster_scatter::{
     KMeansInitStrategy, KSelectionMode,
 };
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    show_objective_combo, ArcballCamera,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, pick_nearest_3d,
+    setup_3d_canvas, show_objective_combo, ArcballCamera,
+};
+use crate::ui::widgets::trial_detail_modal::{
+    show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
 /// クラスタ 3D 散布図ウィジェット
@@ -28,6 +31,8 @@ pub struct ClusterScatter3D {
     pub last_error: Option<crate::state::messages::ClusterUiError>,
     range_cache: [(f64, f64); 3],
     range_cache_key: (usize, usize, usize, usize),
+    /// 点クリックで開くトライアル詳細モーダル
+    pub detail_modal: TrialDetailModal,
 }
 
 impl Default for ClusterScatter3D {
@@ -50,6 +55,7 @@ impl Default for ClusterScatter3D {
             last_error: None,
             range_cache: [(-1.0, 1.0); 3],
             range_cache_key: (usize::MAX, usize::MAX, usize::MAX, 0),
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
@@ -158,7 +164,7 @@ impl ClusterScatter3D {
             colormap.interpolate(t)
         };
 
-        let (painter, rect, project) = setup_3d_canvas(ui, &mut self.camera);
+        let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, &mut self.camera);
 
         draw_3d_grid(&painter, &project);
         draw_3d_axes(
@@ -175,6 +181,8 @@ impl ClusterScatter3D {
         let mut infeasible_pts: Vec<(egui::Pos2, f32)> = Vec::new();
         // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
         let mut other_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(trial_count);
 
         for i in 0..trial_count {
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
@@ -186,13 +194,17 @@ impl ClusterScatter3D {
                 normalize_to_clip(zv, z_min, z_max),
             ];
             let (pos, depth) = project(clip);
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
             if !feas.is_feasible(i) {
                 if show_infeasible {
                     infeasible_pts.push((pos, depth));
+                    candidates.push((trial_id, i, pos));
                 }
                 continue;
             }
+
+            candidates.push((trial_id, i, pos));
 
             let label = cluster.and_then(|r| r.labels.get(i).copied()).unwrap_or(0);
 
@@ -224,6 +236,75 @@ impl ClusterScatter3D {
                 "Click Run to compute clusters",
                 egui::FontId::proportional(13.0),
                 egui::Color32::from_rgb(180, 180, 180),
+            );
+        }
+
+        // マウスホバーで点の概要をツールチップ表示（モーダル表示中・ドラッグ中は抑止）。
+        if !self.detail_modal.is_open() {
+            if let Some(hover) = hover_pos {
+                if let Some((_, row)) = pick_nearest_3d(&candidates, hover) {
+                    let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+                    let label = cluster
+                        .and_then(|r| r.labels.get(row).copied())
+                        .unwrap_or(-1);
+                    let cluster_str = if has_cluster && label >= 0 {
+                        label.to_string()
+                    } else {
+                        "—".to_string()
+                    };
+                    let fmt =
+                        |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+                    let mut rows = vec![
+                        (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
+                        (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
+                        (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
+                        ("Cluster".to_string(), cluster_str),
+                    ];
+                    if feas.has_constraints() {
+                        rows.push((
+                            "Feasible".to_string(),
+                            if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                        ));
+                    }
+                    show_hover_tooltip(ui, "cluster3d_hover_tooltip", trial_number, &rows);
+                }
+            }
+        }
+
+        // 左クリックで点に当たれば詳細モーダルを開く（散布図情報 = クラスタ番号）。
+        if let Some(click) = click_pos {
+            if let Some((trial_id, row)) = pick_nearest_3d(&candidates, click) {
+                let label = cluster
+                    .and_then(|r| r.labels.get(row).copied())
+                    .unwrap_or(-1);
+                let cluster_str = if has_cluster && label >= 0 {
+                    label.to_string()
+                } else {
+                    "—".to_string()
+                };
+                let mut context = vec![("Cluster".to_string(), cluster_str)];
+                if feas.has_constraints() {
+                    context.push((
+                        "Feasible".to_string(),
+                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                    ));
+                }
+                self.detail_modal.open(TrialDetailTarget {
+                    trial_id,
+                    row_index: row,
+                    context,
+                });
+            }
+        }
+
+        // 詳細モーダルを描画する。
+        if self.detail_modal.is_open() {
+            self.detail_modal.show(
+                ui,
+                view,
+                &ctx.meta.param_names,
+                obj_names,
+                &app_state.artifact_map,
             );
         }
     }

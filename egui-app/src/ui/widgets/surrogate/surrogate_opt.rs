@@ -1545,7 +1545,8 @@ fn render_front_scatter_3d(
     // 高さを固定した領域内にキャンバスを確保する（setup_3d_canvas は available_size を使うため）。
     let width = ui.available_width();
     ui.allocate_ui(egui::vec2(width, 280.0), |ui| {
-        let (painter, _rect, project) = setup_3d_canvas(ui, &mut state.multi_front_camera);
+        let (painter, _rect, project, _click_pos, _hover_pos) =
+            setup_3d_canvas(ui, &mut state.multi_front_camera);
         draw_3d_grid(&painter, &project);
         draw_3d_axes(
             &painter,
