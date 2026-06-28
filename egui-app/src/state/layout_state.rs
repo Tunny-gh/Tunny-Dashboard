@@ -441,6 +441,12 @@ pub struct RightPanelState {
     pub is_open: bool,
     /// パネル幅（ドラッグでリサイズ可）
     pub width: f32,
+    /// 直近フレームで実際に描画されたパネル左端の X 座標。
+    /// アイコンタイルが `width` より広く描画され egui の constrain により
+    /// 左へシフトされることがあるため、ホバー閉じ判定には設定値ではなく
+    /// この実測値を用いる。描画前（未設定）は None。
+    #[serde(skip)]
+    pub last_rendered_left_x: Option<f32>,
 }
 
 impl Default for RightPanelState {
@@ -448,6 +454,7 @@ impl Default for RightPanelState {
         Self {
             is_open: false,
             width: 200.0,
+            last_rendered_left_x: None,
         }
     }
 }

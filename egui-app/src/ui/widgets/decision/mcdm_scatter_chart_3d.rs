@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
@@ -6,7 +9,10 @@ use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options};
 use crate::ui::widgets::scatter_3d::{
-    draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas, ArcballCamera,
+    draw_3d_axes, draw_3d_grid, normalize_to_clip, pick_nearest_3d, setup_3d_canvas, ArcballCamera,
+};
+use crate::ui::widgets::trial_detail_modal::{
+    show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 use egui::Color32;
 
@@ -27,10 +33,11 @@ struct CacheKey {
     ranked_indices_hash: u64,
 }
 
-/// clip 空間座標 [-1,1] と色に変換済みのポイントキャッシュ
+/// clip 空間座標 [-1,1]・色・行 index に変換済みのポイントキャッシュ。
+/// 行 index は点クリック時にトライアルを特定するため保持する。
 struct PointsCache {
-    clip_pts: Vec<([f32; 3], Color32)>,
-    infeasible_clip_pts: Vec<[f32; 3]>,
+    clip_pts: Vec<([f32; 3], Color32, usize)>,
+    infeasible_clip_pts: Vec<([f32; 3], usize)>,
     x_range: (f64, f64),
     y_range: (f64, f64),
     z_range: (f64, f64),
@@ -50,6 +57,8 @@ pub struct McdmScatterChart3D {
     pub show_infeasible: bool,
     cache: Option<PointsCache>,
     cache_key: Option<CacheKey>,
+    /// 点クリックで開くトライアル詳細モーダル
+    pub detail_modal: TrialDetailModal,
 }
 
 impl Default for McdmScatterChart3D {
@@ -66,6 +75,7 @@ impl Default for McdmScatterChart3D {
             show_infeasible: true,
             cache: None,
             cache_key: None,
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
@@ -157,8 +167,8 @@ impl McdmScatterChart3D {
         let colored_range = top_n.max(1);
 
         let feas = view.feasibility();
-        let mut clip_pts: Vec<([f32; 3], Color32)> = Vec::with_capacity(n_trials);
-        let mut infeasible_clip_pts: Vec<[f32; 3]> = Vec::new();
+        let mut clip_pts: Vec<([f32; 3], Color32, usize)> = Vec::with_capacity(n_trials);
+        let mut infeasible_clip_pts: Vec<([f32; 3], usize)> = Vec::new();
 
         for (i, &rank) in rank_map.iter().enumerate() {
             let x = match x_vals.get(i).copied() {
@@ -178,7 +188,7 @@ impl McdmScatterChart3D {
             let cz = normalize_to_clip(z, z_range.0, z_range.1);
 
             if !feas.is_feasible(i) {
-                infeasible_clip_pts.push([cx, cy, cz]);
+                infeasible_clip_pts.push(([cx, cy, cz], i));
                 continue;
             }
 
@@ -192,7 +202,7 @@ impl McdmScatterChart3D {
                 };
                 colormap.interpolate(t)
             };
-            clip_pts.push(([cx, cy, cz], color));
+            clip_pts.push(([cx, cy, cz], color, i));
         }
 
         self.cache = Some(PointsCache {
@@ -221,9 +231,11 @@ impl McdmScatterChart3D {
         ui: &mut egui::Ui,
         mcdm_result: Option<&McdmResult>,
         view: &StudyView,
+        param_names: &[String],
         obj_names: &[String],
         colormap: &ColorMap,
         colormap_name: &ColormapName,
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         if !self.controls.show_controls(ui, obj_names, "mcdm_scatter3d") {
             return;
@@ -312,59 +324,124 @@ impl McdmScatterChart3D {
         }
 
         // カメラ操作はキャッシュ借用前に完了させる
-        let (painter, rect, project) = setup_3d_canvas(ui, &mut self.camera);
+        let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, &mut self.camera);
 
-        let Some(pc) = &self.cache else {
-            return;
-        };
-        let (x_min, x_max) = pc.x_range;
-        let (y_min, y_max) = pc.y_range;
-        let (z_min, z_max) = pc.z_range;
-        let show_infeasible = self.show_infeasible;
+        // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::new();
+        let has_infeasible;
+        {
+            let Some(pc) = &self.cache else {
+                return;
+            };
+            let (x_min, x_max) = pc.x_range;
+            let (y_min, y_max) = pc.y_range;
+            let (z_min, z_max) = pc.z_range;
+            let show_infeasible = self.show_infeasible;
+            has_infeasible = show_infeasible && !pc.infeasible_clip_pts.is_empty();
 
-        draw_3d_grid(&painter, &project);
-        draw_3d_axes(
-            &painter,
-            &project,
-            [&self.x_axis, &self.y_axis, &self.z_axis],
-            [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
-        );
+            draw_3d_grid(&painter, &project);
+            draw_3d_axes(
+                &painter,
+                &project,
+                [&self.x_axis, &self.y_axis, &self.z_axis],
+                [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
+            );
 
-        // 実行不可能解を最背面に描画
-        if show_infeasible && !pc.infeasible_clip_pts.is_empty() {
-            let mut inf_pts: Vec<(egui::Pos2, f32)> = pc
-                .infeasible_clip_pts
-                .iter()
-                .map(|&clip| project(clip))
-                .collect();
-            inf_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (pos, _) in &inf_pts {
-                painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
+            candidates.reserve(pc.clip_pts.len() + pc.infeasible_clip_pts.len());
+
+            // 実行不可能解を最背面に描画
+            if has_infeasible {
+                let mut inf_pts: Vec<(egui::Pos2, f32)> =
+                    Vec::with_capacity(pc.infeasible_clip_pts.len());
+                for &(clip, row) in &pc.infeasible_clip_pts {
+                    let (pos, depth) = project(clip);
+                    let trial_id = view.trial_ids.get(row).copied().unwrap_or(row as u32);
+                    candidates.push((trial_id, row, pos));
+                    inf_pts.push((pos, depth));
+                }
+                inf_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                for (pos, _) in &inf_pts {
+                    painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
+                }
+            }
+
+            // 実行可能解を奥から手前の順（ペインターズアルゴリズム）
+            let mut pts: Vec<(egui::Pos2, f32, Color32)> = Vec::with_capacity(pc.clip_pts.len());
+            for &(clip, color, row) in &pc.clip_pts {
+                let (pos, depth) = project(clip);
+                let trial_id = view.trial_ids.get(row).copied().unwrap_or(row as u32);
+                candidates.push((trial_id, row, pos));
+                pts.push((pos, depth, color));
+            }
+            pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (pos, _, color) in &pts {
+                painter.circle_filled(*pos, 3.5, *color);
             }
         }
 
-        // 実行可能解を奥から手前の順（ペインターズアルゴリズム）
-        let mut pts: Vec<(egui::Pos2, f32, Color32)> = pc
-            .clip_pts
-            .iter()
-            .map(|&(clip, color)| {
-                let (pos, depth) = project(clip);
-                (pos, depth, color)
-            })
-            .collect();
-        pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _, color) in &pts {
-            painter.circle_filled(*pos, 3.5, *color);
+        // ── 右上カラーバー判例 ────────────────────────────────────
+        draw_colorbar_legend(&painter, rect, colormap, top_n, has_infeasible);
+
+        // マウスホバーで点の概要をツールチップ表示（モーダル表示中・ドラッグ中は抑止）。
+        if !self.detail_modal.is_open() {
+            if let Some(hover) = hover_pos {
+                if let Some((_, row)) = pick_nearest_3d(&candidates, hover) {
+                    let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+                    let rank = result
+                        .ranked_indices()
+                        .iter()
+                        .position(|&x| x as usize == row);
+                    let rank_str = rank
+                        .map(|r| (r + 1).to_string())
+                        .unwrap_or_else(|| "—".to_string());
+                    let score = result.primary_scores().get(row).copied();
+                    let rows = vec![
+                        ("MCDM Rank".to_string(), rank_str),
+                        (
+                            "Score".to_string(),
+                            score
+                                .map(|s| format!("{s:.4}"))
+                                .unwrap_or_else(|| "—".to_string()),
+                        ),
+                    ];
+                    show_hover_tooltip(ui, "mcdm3d_hover_tooltip", trial_number, &rows);
+                }
+            }
         }
 
-        // ── 右上カラーバー判例 ────────────────────────────────────
-        draw_colorbar_legend(
-            &painter,
-            rect,
-            colormap,
-            top_n,
-            show_infeasible && !pc.infeasible_clip_pts.is_empty(),
-        );
+        // 左クリックで点に当たれば詳細モーダルを開く（散布図情報 = MCDM ランク・スコア）。
+        if let Some(click) = click_pos {
+            if let Some((trial_id, row)) = pick_nearest_3d(&candidates, click) {
+                let rank = result
+                    .ranked_indices()
+                    .iter()
+                    .position(|&x| x as usize == row);
+                let rank_str = rank
+                    .map(|r| (r + 1).to_string())
+                    .unwrap_or_else(|| "—".to_string());
+                let score = result.primary_scores().get(row).copied();
+                let context = vec![
+                    ("MCDM Rank".to_string(), rank_str),
+                    (
+                        "Score".to_string(),
+                        score
+                            .map(|s| format!("{s:.4}"))
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                ];
+                self.detail_modal.open(TrialDetailTarget {
+                    trial_id,
+                    row_index: row,
+                    context,
+                });
+            }
+        }
+
+        // 詳細モーダルを描画する。
+        if self.detail_modal.is_open() {
+            self.detail_modal
+                .show(ui, view, param_names, obj_names, artifact_map);
+        }
     }
 }
 

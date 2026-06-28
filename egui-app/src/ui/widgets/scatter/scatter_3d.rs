@@ -4,6 +4,7 @@
 use crate::theme::chart_colors::{
     COLOR_3D_BG, COLOR_3D_GRID, COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z,
 };
+use crate::ui::widgets::trial_detail_modal::{nearest_within, HIT_THRESHOLD};
 
 // ── クォータニオン計算 ────────────────────────────────────────────
 
@@ -79,6 +80,12 @@ impl ArcballCamera {
             && (w - 1.0).abs() < 1e-6
     }
 
+    /// ドラッグ量（ピクセル）を画面パン（平行移動）として累積する
+    pub fn pan_by_drag(&mut self, dx: f32, dy: f32) {
+        self.pan[0] += dx;
+        self.pan[1] += dy;
+    }
+
     /// ドラッグ量（ピクセル）をアークボール回転に変換して累積する
     pub fn rotate_by_drag(&mut self, dx: f32, dy: f32) {
         const SENSITIVITY: f32 = 0.005;
@@ -152,11 +159,18 @@ pub fn show_objective_combo(
 
 // ── キャンバス初期化 ──────────────────────────────────────────────
 
-/// カメラ操作を処理し、描画準備済みの painter・rect と project クロージャを返す。
-/// - 左ドラッグ → 回転、スクロール → ズーム
+/// カメラ操作を処理し、描画準備済みの painter・rect・project クロージャと
+/// 左クリック位置・ホバー位置を返す。
+/// - 右ドラッグ → 回転
+/// - 中ドラッグ / Shift+右ドラッグ → パン（平行移動）
+/// - スクロール → ズーム
+/// - 左クリック → 戻り値の `click_pos` にクリック位置を返す（点クリック判定用）
+/// - ホバー → 戻り値の `hover_pos` にポインタ位置を返す（ドラッグ中は `None`。点ホバー
+///   ツールチップ判定用）
 /// - 背景塗りつぶし済み
 ///
 /// `project` はスクリーン座標と深度 (Pos2, depth) を返す純粋関数（Copy キャプチャのみ）
+#[allow(clippy::type_complexity)]
 pub fn setup_3d_canvas(
     ui: &mut egui::Ui,
     camera: &mut ArcballCamera,
@@ -164,10 +178,20 @@ pub fn setup_3d_canvas(
     egui::Painter,
     egui::Rect,
     impl Fn([f32; 3]) -> (egui::Pos2, f32),
+    Option<egui::Pos2>,
+    Option<egui::Pos2>,
 ) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
-    if response.dragged_by(egui::PointerButton::Primary) {
+    let shift = ui.input(|i| i.modifiers.shift);
+    if response.dragged_by(egui::PointerButton::Middle)
+        || (shift && response.dragged_by(egui::PointerButton::Secondary))
+    {
+        // 中ドラッグ、または Shift を押しながらの右ドラッグでパン
+        let d = response.drag_delta();
+        camera.pan_by_drag(d.x, d.y);
+    } else if response.dragged_by(egui::PointerButton::Secondary) {
+        // 右ドラッグで回転
         let d = response.drag_delta();
         camera.rotate_by_drag(d.x, d.y);
     }
@@ -175,19 +199,46 @@ pub fn setup_3d_canvas(
     if scroll.abs() > f32::EPSILON {
         camera.apply_zoom(scroll * 0.01);
     }
+    // 左クリック位置（点クリックでの詳細モーダル表示用）
+    let click_pos = if response.clicked_by(egui::PointerButton::Primary) {
+        response.interact_pointer_pos()
+    } else {
+        None
+    };
+    // ホバー位置（点ホバーツールチップ用）。回転・パン中のドラッグは抑止する。
+    let hover_pos = if response.dragged() {
+        None
+    } else {
+        response.hover_pos()
+    };
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, COLOR_3D_BG);
     let center = rect.center();
     let scale = rect.size().min_elem() * 0.5 * (camera.zoom / 3.0) * 0.7;
     let cam_rot = camera.rotation;
+    let pan = camera.pan;
     let project = move |p: [f32; 3]| -> (egui::Pos2, f32) {
         let r = rotate_by_quaternion(p, cam_rot);
         (
-            egui::pos2(center.x + r[0] * scale, center.y - r[1] * scale),
+            egui::pos2(
+                center.x + r[0] * scale + pan[0],
+                center.y - r[1] * scale + pan[1],
+            ),
             r[2],
         )
     };
-    (painter, rect, project)
+    (painter, rect, project, click_pos, hover_pos)
+}
+
+/// 指定座標に最も近い 3D 点を `(trial_id, row_index)` で返す（クリック・ホバー共用）。
+/// `candidates` は描画した各点の `(trial_id, row_index, スクリーン座標)`。
+/// `HIT_THRESHOLD` px 以内に点がなければ `None`。
+pub fn pick_nearest_3d(
+    candidates: &[(u32, usize, egui::Pos2)],
+    pos: egui::Pos2,
+) -> Option<(u32, usize)> {
+    let pts: Vec<egui::Pos2> = candidates.iter().map(|c| c.2).collect();
+    nearest_within(&pts, pos, HIT_THRESHOLD).map(|i| (candidates[i].0, candidates[i].1))
 }
 
 // ── グリッド・軸描画 ──────────────────────────────────────────────
@@ -409,6 +460,28 @@ mod tests {
     fn axis_segments_3d_clamps_zero_subdivisions_to_one() {
         let segs = axis_segments_3d(0);
         assert_eq!(segs.len(), 3);
+    }
+
+    #[test]
+    fn pan_by_drag_accumulates_offset() {
+        let mut cam = ArcballCamera::default();
+        cam.pan_by_drag(10.0, -5.0);
+        cam.pan_by_drag(2.0, 3.0);
+        assert!((cam.pan[0] - 12.0).abs() < f32::EPSILON);
+        assert!((cam.pan[1] - (-2.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pick_nearest_3d_returns_id_within_threshold() {
+        let candidates = vec![
+            (10u32, 0usize, egui::pos2(0.0, 0.0)),
+            (20u32, 1usize, egui::pos2(50.0, 50.0)),
+        ];
+        assert_eq!(
+            pick_nearest_3d(&candidates, egui::pos2(2.0, 2.0)),
+            Some((10, 0))
+        );
+        assert_eq!(pick_nearest_3d(&candidates, egui::pos2(200.0, 200.0)), None);
     }
 
     #[test]

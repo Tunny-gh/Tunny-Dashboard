@@ -10,8 +10,11 @@ The Pareto Scatter 3D chart extends the 2D Pareto view to three objective functi
 
 ## Operations
 
-- **Rotate**: Click and drag to rotate the 3D view (arcball rotation).
+- **Rotate**: Right-click and drag to rotate the 3D view (arcball rotation).
+- **Pan**: Middle-click drag, or Shift + right-click drag, to pan the view.
 - **Zoom**: Scroll the mouse wheel to zoom in and out.
+- **Hover**: Hover over a point to show a tooltip with its objective values and Pareto rank.
+- **Trial details**: Left-click a point to open its detail modal (objective/variable values, artifacts).
 
 ## How to Read
 

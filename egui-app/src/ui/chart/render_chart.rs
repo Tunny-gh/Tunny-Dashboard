@@ -261,9 +261,11 @@ pub(crate) fn render_chart(
                 ui,
                 app_state.mcdm_cache.get(&key),
                 &ctx.view,
+                param_names,
                 obj_names,
                 &cmap,
                 &app_state.selected_colormap,
+                &app_state.artifact_map,
             );
         }
         ChartId::SliceChart => {

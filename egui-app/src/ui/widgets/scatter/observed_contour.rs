@@ -383,7 +383,7 @@ fn render_3d(
         return;
     }
 
-    let (painter, _rect, project) = setup_3d_canvas(ui, camera);
+    let (painter, _rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);
     draw_3d_grid(&painter, &project);
 
     // 点密度シェーディング: 観測点を各セルにビニングし、局所窓で平滑化して正規化する。
