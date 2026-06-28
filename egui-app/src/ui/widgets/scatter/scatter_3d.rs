@@ -195,7 +195,19 @@ pub fn setup_3d_canvas(
         let d = response.drag_delta();
         camera.rotate_by_drag(d.x, d.y);
     }
-    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+    // スクロールズームはこのウィジェットにマウスがあるときだけ適用する。
+    // smooth_scroll_delta はグローバル入力のため、ホバー判定でゲートしないと
+    // キャンバス上の全 3D ウィジェットが同時にズームしてしまう。
+    // 適用したスクロール量は消費し、他のウィジェット／キャンバスへ伝播させない。
+    let scroll = if response.hovered() {
+        ui.input_mut(|i| {
+            let s = i.smooth_scroll_delta.y;
+            i.smooth_scroll_delta.y = 0.0;
+            s
+        })
+    } else {
+        0.0
+    };
     if scroll.abs() > f32::EPSILON {
         camera.apply_zoom(scroll * 0.01);
     }
