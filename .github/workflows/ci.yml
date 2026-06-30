@@ -129,7 +129,12 @@ jobs:
           codesign --force -s - libs/lib_lightgbm.dylib
 
       # `cargo test` compiles every target (incl. the binary), so this both
-      # verifies the build and runs the tests in a single debug pass — no
-      # redundant cross-profile recompile of the heavy dependency graph.
+      # verifies the build and runs the tests in a single pass — no redundant
+      # cross-profile recompile of the heavy dependency graph.
+      # Uses the `ci-test` profile (see root Cargo.toml): it's `dev` plus
+      # opt-level=1 for our own crates, which cuts the surrogate-opt test
+      # suite (real GP fits / CV loops) from ~270s to ~20s. Kept as a
+      # separate profile (rather than raising profile.dev) so local
+      # `cargo build`/`cargo test` incremental compiles stay fast.
       - name: Build & Test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --profile ci-test
