@@ -16,8 +16,11 @@ pub(crate) const SHAP_SEED: u64 = 42;
 // TreeSHAP node traversal cost → 1000 rows max
 pub(crate) const SHAP_MAX_ROWS: usize = 1_000;
 
-// --- RF-ANOVA (Random Forest ANOVA) ---
-pub(crate) const RF_ANOVA_RF_TREES: usize = 100;
+// --- RF-ANOVA (fANOVA: Hutter et al. 2014 functional ANOVA) ---
+// Matches Optuna's fanova default n_trees=64 (optuna.importance.FanovaImportanceEvaluator).
+pub(crate) const RF_ANOVA_RF_TREES: usize = 64;
+// Optuna's fanova uses max_depth=64 (effectively unbounded); depth 10 is kept here as a
+// deliberate compute/accuracy trade-off (fANOVA decomposition cost grows with leaf count).
 pub(crate) const RF_ANOVA_RF_MAX_DEPTH: usize = 10;
 pub(crate) const RF_ANOVA_RF_MIN_SAMPLES_LEAF: usize = 2;
 pub(crate) const RF_ANOVA_SEED: u64 = 42;
