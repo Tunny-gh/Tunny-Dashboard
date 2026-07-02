@@ -143,6 +143,7 @@ Algorithms used to optimize on the surrogate model.
 - [L-BFGS (Limited-memory BFGS)](optimization/lbfgs.md)
 - [**Acquisition functions (Expected Improvement / Lower Confidence Bound)**](optimization/acquisition-functions.md)
 - [**Expected Hypervolume Improvement (EHVI)**](optimization/ehvi.md)
+- [**Hypervolume (WFG algorithm)**](optimization/hypervolume.md)
 
 ---
 
