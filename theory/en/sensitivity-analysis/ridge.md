@@ -23,11 +23,36 @@ $$
 R^2 = 1 - \frac{\sum (y_{c,i} - \hat{y}_{c,i})^2}{\sum y_{c,i}^2}
 $$
 
+Clipped at 0 for numerical stability.
+
 Importance score for parameter j:
 
 $$
 \operatorname{score}_j = |\beta_j|
 $$
+
+## Preprocessing and holdout evaluation
+
+Ridge is unified with the same convention as RF-ANOVA / MDI / SHAP / PFI (previously Ridge
+reported an in-sample R² computed on the training data itself, which overstated fit quality
+when its R² badge was shown next to the other methods' holdout R²).
+
+```
+Trial data (X ∈ R^{N×P}, y ∈ R^N)
+    ↓
+Step 1: Drop rows with any non-finite value in x or y (before fitting or scoring)
+  └── Fewer than 2 valid rows → return zero importances, R² = 0.0
+Step 2: 80/20 holdout split (Fisher-Yates shuffle, seeds 42/43)
+  ├── ≥ 4 valid rows: first 80% train, remaining 20% eval
+  └── < 4 valid rows: fall back to using all data for both train and eval
+Step 3: Standardize/center using TRAIN statistics only
+  └── EVAL data is transformed with the same TRAIN-derived mean/std before scoring
+Step 4: Solve (X_train^T X_train + αI)β = X_train^T y_{c,train}
+Step 5: R² is computed on EVAL only (data the fit never saw)
+```
+
+Because the closed-form solve is cheap (O(n·p²)), Ridge does not apply the row cap
+(e.g. 2,000 rows) used by the tree-ensemble methods.
 
 ## Interpreting R²
 

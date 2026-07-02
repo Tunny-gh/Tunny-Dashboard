@@ -37,3 +37,10 @@ pub(crate) const PFI_SPLIT_SEED: u64 = 43;
 pub(crate) const PFI_MAX_ROWS: usize = 2_000;
 // Number of permutation repeats for stability
 pub(crate) const PFI_N_REPEATS: usize = 5;
+
+// --- Ridge (L2-regularized linear regression) ---
+pub(crate) const RIDGE_ALPHA: f64 = 1.0;
+pub(crate) const RIDGE_SEED: u64 = 42;
+// Closed-form Cholesky solve is O(n·p²), far cheaper than the tree ensembles above,
+// so unlike them Ridge does not need a row cap for performance.
+pub(crate) const RIDGE_MAX_ROWS: usize = usize::MAX;

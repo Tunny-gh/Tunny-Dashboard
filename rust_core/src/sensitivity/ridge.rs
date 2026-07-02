@@ -1,5 +1,7 @@
+use super::constants::{RIDGE_ALPHA, RIDGE_MAX_ROWS, RIDGE_SEED};
 use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
+use super::tree::common::{run_importances_pipeline, PreparedData};
 use super::types::{RidgeResult, SensitivityResult};
 use crate::dataframe::DataFrame;
 use crate::math::stats::column_mean_std;
@@ -60,6 +62,71 @@ fn solve_ridge_normal_equations(xtx_flat: &[f64], xty: &[f64], p: usize) -> Vec<
     }
 }
 
+/// Standardizes row-major data into a column-major flat array using externally supplied
+/// mean/std. This lets the EVAL split be scored with the TRAIN split's statistics,
+/// matching how a fitted model would be applied to unseen data.
+fn standardize_rows_with_stats(rows: &[Vec<f64>], means: &[f64], stds: &[f64]) -> Vec<f64> {
+    let n = rows.len();
+    let p = means.len();
+    let mut cols = vec![0.0f64; n * p];
+    for j in 0..p {
+        for i in 0..n {
+            cols[j * n + i] = (rows[i][j] - means[j]) / stds[j];
+        }
+    }
+    cols
+}
+
+/// Fits Ridge on the TRAIN split only (standardized/centered using TRAIN statistics) and
+/// reports R² on the EVAL split, matching the holdout convention used by
+/// RF-ANOVA/MDI/SHAP/PFI (`tree::common::run_importances_pipeline`). When the dataset is too
+/// small for a holdout split, `PreparedData` falls back to using all data for both.
+fn compute_ridge_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+    let (x_train, x_eval, y_train, y_eval) = data.split();
+    let p = x_train.first()?.len();
+    let n_train = x_train.len();
+
+    let mut means = vec![0.0f64; p];
+    let mut stds = vec![1.0f64; p];
+    for j in 0..p {
+        let col: Vec<f64> = x_train.iter().map(|row| row[j]).collect();
+        let (mean, std_dev) = column_mean_std(&col);
+        means[j] = mean;
+        stds[j] = std_dev;
+    }
+
+    let x_train_cols = standardize_rows_with_stats(x_train, &means, &stds);
+    let x_eval_cols = standardize_rows_with_stats(x_eval, &means, &stds);
+
+    let y_mean = y_train.iter().sum::<f64>() / n_train as f64;
+    let y_train_c: Vec<f64> = y_train.iter().map(|&v| v - y_mean).collect();
+    let y_eval_c: Vec<f64> = y_eval.iter().map(|&v| v - y_mean).collect();
+
+    let xtx = compute_xtx_matrix(&x_train_cols, n_train, p, RIDGE_ALPHA);
+    let xty = compute_xty_vector(&x_train_cols, &y_train_c, n_train, p);
+    let beta = solve_ridge_normal_equations(&xtx, &xty, p);
+
+    let r_squared = compute_r_squared(&x_eval_cols, &y_eval_c, &beta, x_eval.len());
+    Some((beta, r_squared))
+}
+
+/// Sensitivity-analysis entry point for Ridge: NaN/Inf row filtering, 80/20 holdout split,
+/// and holdout R², unified with the tree-based metrics (RF-ANOVA/MDI/SHAP/PFI). Kept
+/// separate from `compute_ridge`/`compute_ridge_from_vecs`, which are generic in-sample
+/// primitives still used by PDP, Sobol, and surrogate-model fitting where a holdout split
+/// would be inappropriate (e.g. Sobol quadrature needs every sample point).
+pub(super) fn compute_ridge_result(x_matrix: &[Vec<f64>], y: &[f64]) -> RidgeResult {
+    let (beta, r_squared) = run_importances_pipeline(
+        x_matrix,
+        y,
+        RIDGE_MAX_ROWS,
+        RIDGE_SEED,
+        RIDGE_SEED.wrapping_add(1),
+        compute_ridge_from_prepared,
+    );
+    RidgeResult { beta, r_squared }
+}
+
 pub struct RidgeMetric;
 
 impl SensitivityMetric for RidgeMetric {
@@ -78,23 +145,20 @@ impl SensitivityMetric for RidgeMetric {
             .map(|col| col[..n].to_vec())
             .unwrap_or_else(|| vec![0.0; n]);
 
-        let num_params = param_names.len();
-        let mut x_cols_flat = vec![0.0f64; n * num_params];
-        for (j, param_name) in param_names.iter().enumerate() {
-            if let Some(col) = get_param_numeric_values(df, param_name, n) {
-                for (i, &value) in col.iter().enumerate().take(n) {
-                    x_cols_flat[j * n + i] = value;
-                }
-            }
-        }
-        standardize_columns_inplace(&mut x_cols_flat, n, num_params);
+        let param_cols: Vec<Vec<f64>> = param_names
+            .iter()
+            .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
+            .collect();
+        let x_matrix: Vec<Vec<f64>> = (0..n)
+            .map(|row_index| {
+                param_cols
+                    .iter()
+                    .map(|col| col.get(row_index).copied().unwrap_or(0.0))
+                    .collect()
+            })
+            .collect();
 
-        let ridge = vec![compute_ridge_from_standardized_columns(
-            &x_cols_flat,
-            n,
-            &y,
-            1.0,
-        )];
+        let ridge = vec![compute_ridge_result(&x_matrix, &y)];
 
         Some(SensitivityResult {
             param_names,
@@ -319,5 +383,81 @@ mod tests {
             beta.iter().all(|b| b.is_finite()),
             "all betas should be finite"
         );
+    }
+
+    // ---- Ridge holdout R² + NaN/Inf row filtering (rust_core audit 2026-07) ----
+
+    fn linear_xy(n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+        (
+            (0..n).map(|i| vec![i as f64, (i % 5) as f64]).collect(),
+            (0..n).map(|i| 2.0 * i as f64 + (i % 5) as f64).collect(),
+        )
+    }
+
+    #[test]
+    fn tc_ridge_holdout_01_nan_row_matches_clean_subset() {
+        let (mut x, mut y) = linear_xy(10);
+        x.insert(5, vec![f64::NAN, 1.0]);
+        y.insert(5, 42.0);
+
+        let (clean_x, clean_y) = linear_xy(10);
+
+        let contaminated = compute_ridge_result(&x, &y);
+        let clean = compute_ridge_result(&clean_x, &clean_y);
+
+        assert_eq!(contaminated.beta, clean.beta, "beta should ignore NaN row");
+        assert_eq!(
+            contaminated.r_squared, clean.r_squared,
+            "R² should ignore NaN row"
+        );
+    }
+
+    #[test]
+    fn tc_ridge_holdout_02_inf_row_matches_clean_subset() {
+        let (mut x, mut y) = linear_xy(10);
+        x.insert(3, vec![1.0, f64::INFINITY]);
+        y.insert(3, 7.0);
+
+        let (clean_x, clean_y) = linear_xy(10);
+
+        let contaminated = compute_ridge_result(&x, &y);
+        let clean = compute_ridge_result(&clean_x, &clean_y);
+
+        assert_eq!(contaminated.beta, clean.beta, "beta should ignore Inf row");
+        assert_eq!(
+            contaminated.r_squared, clean.r_squared,
+            "R² should ignore Inf row"
+        );
+    }
+
+    #[test]
+    fn tc_ridge_holdout_03_deterministic_across_calls() {
+        let (x, y) = linear_xy(30);
+
+        let first = compute_ridge_result(&x, &y);
+        let second = compute_ridge_result(&x, &y);
+
+        assert_eq!(
+            first.beta, second.beta,
+            "beta must be bit-identical across calls"
+        );
+        assert_eq!(
+            first.r_squared, second.r_squared,
+            "R² must be bit-identical across calls"
+        );
+    }
+
+    #[test]
+    fn tc_ridge_holdout_04_r_squared_is_out_of_sample() {
+        // With enough rows to trigger the 80/20 split, holdout R² must be computed
+        // by evaluating on data the fit never saw.
+        let (x, y) = linear_xy(50);
+        let result = compute_ridge_result(&x, &y);
+        assert!(
+            (0.0..=1.0).contains(&result.r_squared),
+            "R² should be a valid holdout score: {}",
+            result.r_squared
+        );
+        assert!(!result.beta.is_empty());
     }
 }

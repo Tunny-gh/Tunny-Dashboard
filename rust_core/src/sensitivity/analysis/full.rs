@@ -2,12 +2,10 @@ use crate::dataframe::DataFrame;
 
 use super::super::{
     compute_spearman, data::get_param_numeric_values, metric_trait::SensitivityMetric,
-    metrics::MdiMetric, metrics::RfAnovaMetric, MdiResult, RfAnovaResult, SensitivityResult,
+    metrics::MdiMetric, metrics::RfAnovaMetric, ridge::compute_ridge_result, MdiResult,
+    RfAnovaResult, SensitivityResult,
 };
-use super::common::{
-    build_standardized_param_columns, compute_ridge_from_standardized_columns, empty_result,
-    run_tree_metric_for_all_objectives,
-};
+use super::common::{empty_result, run_tree_metric_for_all_objectives};
 
 /// Computes sensitivity for a single objective using each provided metric.
 /// Metrics that return `None` (insufficient data, etc.) are silently excluded.
@@ -60,8 +58,6 @@ fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityRes
         })
         .collect();
 
-    let x_cols_flat = build_standardized_param_columns(df, &param_names, n);
-
     // Use get_param_numeric_values so categorical string params are ordinal-encoded (0,1,2,…)
     // instead of always returning 0.0 from get_numeric_column.
     let param_cols: Vec<Vec<f64>> = param_names
@@ -84,7 +80,7 @@ fn compute_sensitivity_impl(df: &DataFrame, include_mdi: bool) -> SensitivityRes
                 .get_numeric_column(objective_name)
                 .map(|col| col[..n].to_vec())
                 .unwrap_or_else(|| vec![0.0; n]);
-            compute_ridge_from_standardized_columns(&x_cols_flat, n, &y)
+            compute_ridge_result(&x_matrix, &y)
         })
         .collect();
 
