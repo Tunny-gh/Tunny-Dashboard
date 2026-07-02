@@ -7,8 +7,8 @@ A desktop analytics dashboard for [Optuna](https://optuna.org/) optimization res
 ## Overview
 
 Tunny Dashboard parses Optuna Journal log files locally on your desktop — no server, no Python installation required.
+<img width="800" height="516" alt="1782045917513" src="https://github.com/user-attachments/assets/ab008af2-0556-4c10-9ff7-1bc50f0a595f" />
 
-![Tunny-Dashboard](https://github.com/user-attachments/assets/d85a722f-ee7c-4217-a3a9-75ab2a20734c)
 
 ### Key Features
 
