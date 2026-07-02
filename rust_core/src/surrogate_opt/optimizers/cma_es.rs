@@ -50,7 +50,7 @@ where
     let mu_eff = 1.0 / weights.iter().map(|w| w * w).sum::<f64>();
 
     let c_sigma = (mu_eff + 2.0) / (nf + mu_eff + 5.0);
-    let d_sigma = 1.0 + 2.0 * ((mu_eff - 1.0) / (nf + 1.0)).sqrt().max(0.0) + c_sigma;
+    let d_sigma = 1.0 + 2.0 * (((mu_eff - 1.0) / (nf + 1.0)).sqrt() - 1.0).max(0.0) + c_sigma;
     let c_c = (4.0 + mu_eff / nf) / (nf + 4.0 + 2.0 * mu_eff / nf);
     let c_1 = 2.0 / ((nf + 1.3).powi(2) + mu_eff);
     let c_mu = (2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((nf + 2.0).powi(2) + mu_eff)).min(1.0 - c_1);
