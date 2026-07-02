@@ -303,6 +303,14 @@ fn predict_internal(booster: &LgbmBooster, x: &[Vec<f64>], predict_type: i32) ->
     if rc != 0 {
         return None;
     }
+    // LGBM_BoosterPredictForMat's contract is that actual_len never exceeds the
+    // out_len computed by LGBM_BoosterCalcNumPredict for the same inputs. If it
+    // did, the C call would already have written past the end of `out`, so this
+    // is a best-effort UB detector rather than a preventable condition.
+    assert!(
+        actual_len <= out_len,
+        "LightGBM wrote {actual_len} predictions but the buffer was only sized for {out_len}"
+    );
     out.truncate(actual_len as usize);
     Some(out)
 }

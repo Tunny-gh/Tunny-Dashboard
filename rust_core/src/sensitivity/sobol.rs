@@ -213,7 +213,7 @@ pub fn compute_sobol_from_df(
     let n_params = param_names.len();
     let n_objectives = objective_names.len();
 
-    if n < 2 || n_params == 0 || n_objectives == 0 {
+    if n < 2 || n_params == 0 || n_objectives == 0 || n_samples == 0 {
         return None;
     }
 
