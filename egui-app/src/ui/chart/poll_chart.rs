@@ -1341,6 +1341,11 @@ fn compute_mcdm_result(
                 ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
                 best_values: r.best_values,
                 worst_values: r.worst_values,
+                compromise_indices: r
+                    .compromise_indices
+                    .into_iter()
+                    .map(|i| remap(i as u32) as usize)
+                    .collect(),
                 duration_ms: start.elapsed().as_secs_f64() * 1000.0,
             })
         })

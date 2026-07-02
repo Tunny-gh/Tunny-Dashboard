@@ -1,13 +1,11 @@
 use crate::dataframe::DataFrame;
-use crate::math::stats::column_mean_std;
 use rayon::prelude::*;
 
 use super::super::{
     data::get_param_numeric_values,
     metrics::TreeMetric,
-    ridge::compute_ridge_from_standardized_columns as ridge_from_standardized_columns_core,
     tree::common::{prepare_shared_x, prepare_training_data},
-    RidgeResult, SensitivityResult, TreeImportanceResult,
+    SensitivityResult, TreeImportanceResult,
 };
 
 pub(super) fn empty_result(
@@ -24,42 +22,6 @@ pub(super) fn empty_result(
         shap: None,
         permutation: None,
     }
-}
-
-pub(super) fn build_standardized_param_columns(
-    df: &DataFrame,
-    param_names: &[String],
-    n: usize,
-) -> Vec<f64> {
-    let num_params = param_names.len();
-    let mut x_cols_flat = vec![0.0f64; n * num_params];
-
-    for (j, param_name) in param_names.iter().enumerate() {
-        if let Some(col) = get_param_numeric_values(df, param_name, n) {
-            for (i, &value) in col.iter().enumerate().take(n) {
-                x_cols_flat[j * n + i] = value;
-            }
-        }
-    }
-
-    for j in 0..num_params {
-        let col = &mut x_cols_flat[j * n..(j + 1) * n];
-        let vals: Vec<f64> = col.to_vec();
-        let (mean, std_dev) = column_mean_std(&vals);
-        for value in col.iter_mut() {
-            *value = (*value - mean) / std_dev;
-        }
-    }
-
-    x_cols_flat
-}
-
-pub(super) fn compute_ridge_from_standardized_columns(
-    x_cols_flat: &[f64],
-    n: usize,
-    y: &[f64],
-) -> RidgeResult {
-    ridge_from_standardized_columns_core(x_cols_flat, n, y, 1.0)
 }
 
 pub(super) fn collect_valid_indices(indices: &[u32], n_rows: usize) -> Vec<usize> {

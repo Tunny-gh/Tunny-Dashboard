@@ -19,7 +19,9 @@ Entropy requires non-negative values. For any objective column j that contains n
 
 $$x'_{ij} = \frac{x_{ij} - \min_i x_{ij}}{\max_i x_{ij} - \min_i x_{ij}}$$
 
-Columns with no negative values keep their original values. Zero-division guard: if max = min, set x'_ij = 0.
+Columns with no negative values keep their original values.
+
+**Zero-division guard (constant column)**: if max = min (range = 0), set x'_ij = **1.0**, not 0. Setting it to 0 would make every row's proportional weight p_ij = 0 in Step 2, which yields e_j = 0 (diversity d_j = 1) in Step 3 — an information-free constant column would then win the *largest* weight, the opposite of the intended behavior. Setting it to 1.0 instead makes p_ij = 1/m (uniform) after Step 2, giving e_j = 1.0, d_j = 0, and w_j = 0, consistent with how a positive constant column (never Min-Max normalized) is already handled.
 
 ### Step 2: Proportional Normalization
 

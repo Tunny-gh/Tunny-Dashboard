@@ -47,6 +47,7 @@ impl MessageHandler {
                             view,
                             pareto_indices,
                         });
+                        Self::refresh_best_trial_history(app_state);
                     }
                     None => {
                         *load_error =
@@ -322,6 +323,34 @@ impl MessageHandler {
         }
     }
 
+    /// 単目的 Study の best-so-far 履歴（trial_number, cumulative best）を構築し
+    /// `app_state.best_trial_history` へ格納する。多目的 Study では None のまま
+    /// （収束カードは非表示となり、HV 履歴が代わりに多目的の推移を担う）。
+    fn refresh_best_trial_history(app_state: &mut AppState) {
+        let Some(ctx) = app_state.current_study.as_ref() else {
+            app_state.best_trial_history = None;
+            return;
+        };
+        if ctx.meta.directions.len() != 1 || ctx.meta.objective_names.len() != 1 {
+            app_state.best_trial_history = None;
+            return;
+        }
+        let Some(values) = ctx.view.numeric_column(&ctx.meta.objective_names[0]) else {
+            app_state.best_trial_history = None;
+            return;
+        };
+        let is_minimize = matches!(ctx.meta.directions[0], Direction::Minimize);
+        let n = ctx.view.row_count();
+        let trial_numbers: Vec<u32> = (0..n)
+            .map(|i| ctx.view.df.get_trial_number(i).unwrap_or(i as u32))
+            .collect();
+        app_state.best_trial_history = Some(tunny_core::convergence::build_best_trial_history(
+            &trial_numbers,
+            values,
+            is_minimize,
+        ));
+    }
+
     /// 現在の DataFrame スナップショットから core TrialRow 群を再構築する。
     /// ライブ更新で新試行を加えた DataFrame を作り直すための入力に用いる。
     fn core_rows_from_df(df: &DataFrame) -> Vec<CoreTrialRow> {
@@ -489,6 +518,7 @@ impl MessageHandler {
         }
 
         if is_final {
+            Self::refresh_best_trial_history(app_state);
             *is_loading = false;
         }
     }
@@ -542,6 +572,8 @@ impl MessageHandler {
             study.view = StudyView::new(arc, pareto.ranks);
             study.pareto_indices = pareto.pareto_indices;
         }
+        // ライブ更新で trial 数・best 値が変わるため収束履歴も作り直す。
+        Self::refresh_best_trial_history(app_state);
 
         // トライアル数が変わるとキャッシュ済み結果の行数が合わなくなるため破棄する。
         app_state.cluster_cache.clear();
@@ -703,6 +735,160 @@ mod tests {
     fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// テスト用: 単目的 Study の StudySelected を、任意の目的値・方向で構築する
+    /// （best_trial_history の配線検証用）。
+    fn make_study_message_single_objective(values: &[f64], direction: Direction) -> AppMessage {
+        let trial_count = values.len();
+        let core_rows: Vec<CoreTrialRow> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| CoreTrialRow {
+                trial_id: i as u32,
+                trial_number: i as u32,
+                param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
+                param_category_label: std::collections::HashMap::new(),
+                objective_values: vec![v],
+                user_attrs_numeric: std::collections::HashMap::new(),
+                user_attrs_string: std::collections::HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["y".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        tunny_core::dataframe::store_dataframes(vec![df]);
+
+        AppMessage::StudySelected {
+            meta: StudyMeta {
+                study_id: 0,
+                name: "s".to_string(),
+                directions: vec![direction],
+                completed_trials: trial_count,
+                total_trials: trial_count,
+                param_names: vec!["x".to_string()],
+                objective_names: vec!["y".to_string()],
+                user_attr_names: vec![],
+                has_constraints: false,
+                param_bounds: Default::default(),
+            },
+            study_id: 0,
+            pareto_rank: vec![0; trial_count],
+            pareto_indices: vec![],
+        }
+    }
+
+    /// テスト用: 2 目的 Study の StudySelected を構築する（best_trial_history が
+    /// 多目的では None のままであることの検証用）。
+    fn make_study_message_multi_objective(trial_count: usize) -> AppMessage {
+        let core_rows: Vec<CoreTrialRow> = (0..trial_count)
+            .map(|i| CoreTrialRow {
+                trial_id: i as u32,
+                trial_number: i as u32,
+                param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
+                param_category_label: std::collections::HashMap::new(),
+                objective_values: vec![i as f64, (trial_count - i) as f64],
+                user_attrs_numeric: std::collections::HashMap::new(),
+                user_attrs_string: std::collections::HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &core_rows,
+            &["x".to_string()],
+            &["y1".to_string(), "y2".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        tunny_core::dataframe::store_dataframes(vec![df]);
+
+        AppMessage::StudySelected {
+            meta: StudyMeta {
+                study_id: 0,
+                name: "s".to_string(),
+                directions: vec![Direction::Minimize, Direction::Minimize],
+                completed_trials: trial_count,
+                total_trials: trial_count,
+                param_names: vec!["x".to_string()],
+                objective_names: vec!["y1".to_string(), "y2".to_string()],
+                user_attr_names: vec![],
+                has_constraints: false,
+                param_bounds: Default::default(),
+            },
+            study_id: 0,
+            pareto_rank: vec![0; trial_count],
+            pareto_indices: vec![],
+        }
+    }
+
+    #[test]
+    fn best_trial_history_set_for_single_objective_minimize() {
+        let _g = test_store_guard();
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        MessageHandler::handle(
+            make_study_message_single_objective(&[3.0, 1.0, 2.0], Direction::Minimize),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert_eq!(
+            app_state.best_trial_history,
+            Some(vec![(0, 3.0), (1, 1.0), (2, 1.0)])
+        );
+    }
+
+    #[test]
+    fn best_trial_history_set_for_single_objective_maximize() {
+        let _g = test_store_guard();
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        MessageHandler::handle(
+            make_study_message_single_objective(&[1.0, 3.0, 2.0], Direction::Maximize),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert_eq!(
+            app_state.best_trial_history,
+            Some(vec![(0, 1.0), (1, 3.0), (2, 3.0)])
+        );
+    }
+
+    #[test]
+    fn best_trial_history_none_for_multi_objective() {
+        let _g = test_store_guard();
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        MessageHandler::handle(
+            make_study_message_multi_objective(3),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.best_trial_history.is_none());
     }
 
     #[test]

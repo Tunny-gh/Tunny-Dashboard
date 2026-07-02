@@ -1,6 +1,6 @@
 use super::super::{
-    compute_ridge_from_vecs, compute_spearman, data::get_param_numeric_values,
-    metrics::RfAnovaMetric, RfAnovaResult, SensitivityResult,
+    compute_spearman, data::get_param_numeric_values, metrics::RfAnovaMetric,
+    ridge::compute_ridge_result, RfAnovaResult, SensitivityResult,
 };
 use super::common::{
     build_param_columns, build_param_matrix_from_columns, collect_objective_subset,
@@ -58,7 +58,7 @@ pub fn compute_sensitivity_selected(indices: &[u32]) -> Option<SensitivityResult
             .iter()
             .map(|objective_name| {
                 let y_subset = collect_objective_subset(df, objective_name, &valid_idx);
-                compute_ridge_from_vecs(&x_matrix, &y_subset, 1.0)
+                compute_ridge_result(&x_matrix, &y_subset)
             })
             .collect();
 

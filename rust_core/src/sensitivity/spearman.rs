@@ -98,8 +98,23 @@ pub fn compute_spearman(x: &[f64], y: &[f64]) -> f64 {
         return 0.0;
     }
 
-    let rx = rank(&x[..n]);
-    let ry = rank(&y[..n]);
+    // Pairwise deletion: drop any (x_i, y_i) pair where either side is
+    // non-finite (NaN/Inf) before ranking, matching scipy's nan_policy='omit'.
+    // Without this, rank() treats NaN as a tied trailing rank, silently
+    // contaminating the correlation with values derived from missing data.
+    let (fx, fy): (Vec<f64>, Vec<f64>) = x[..n]
+        .iter()
+        .zip(&y[..n])
+        .filter(|&(&xi, &yi)| xi.is_finite() && yi.is_finite())
+        .map(|(&xi, &yi)| (xi, yi))
+        .unzip();
+
+    if fx.len() < 2 {
+        return f64::NAN;
+    }
+
+    let rx = rank(&fx);
+    let ry = rank(&fy);
 
     pearson_correlation(&rx, &ry)
 }

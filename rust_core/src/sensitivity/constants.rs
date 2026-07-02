@@ -16,8 +16,11 @@ pub(crate) const SHAP_SEED: u64 = 42;
 // TreeSHAP node traversal cost → 1000 rows max
 pub(crate) const SHAP_MAX_ROWS: usize = 1_000;
 
-// --- RF-ANOVA (Random Forest ANOVA) ---
-pub(crate) const RF_ANOVA_RF_TREES: usize = 100;
+// --- RF-ANOVA (fANOVA: Hutter et al. 2014 functional ANOVA) ---
+// Matches Optuna's fanova default n_trees=64 (optuna.importance.FanovaImportanceEvaluator).
+pub(crate) const RF_ANOVA_RF_TREES: usize = 64;
+// Optuna's fanova uses max_depth=64 (effectively unbounded); depth 10 is kept here as a
+// deliberate compute/accuracy trade-off (fANOVA decomposition cost grows with leaf count).
 pub(crate) const RF_ANOVA_RF_MAX_DEPTH: usize = 10;
 pub(crate) const RF_ANOVA_RF_MIN_SAMPLES_LEAF: usize = 2;
 pub(crate) const RF_ANOVA_SEED: u64 = 42;
@@ -34,3 +37,10 @@ pub(crate) const PFI_SPLIT_SEED: u64 = 43;
 pub(crate) const PFI_MAX_ROWS: usize = 2_000;
 // Number of permutation repeats for stability
 pub(crate) const PFI_N_REPEATS: usize = 5;
+
+// --- Ridge (L2-regularized linear regression) ---
+pub(crate) const RIDGE_ALPHA: f64 = 1.0;
+pub(crate) const RIDGE_SEED: u64 = 42;
+// Closed-form Cholesky solve is O(n·p²), far cheaper than the tree ensembles above,
+// so unlike them Ridge does not need a row cap for performance.
+pub(crate) const RIDGE_MAX_ROWS: usize = usize::MAX;

@@ -97,6 +97,8 @@ pub struct VikorResult {
     pub ranked_indices: Vec<u32>,
     pub best_values: Vec<f64>,
     pub worst_values: Vec<f64>,
+    /// 妥協解集合（C1/C2, Opricovic & Tzeng 2004）。Q昇順の元トライアルインデックス。
+    pub compromise_indices: Vec<usize>,
     pub duration_ms: f64,
 }
 
@@ -479,6 +481,7 @@ mod tests {
             ranked_indices: vec![0, 1, 2],
             best_values: vec![1.0, 2.0],
             worst_values: vec![5.0, 8.0],
+            compromise_indices: vec![0],
             duration_ms: 5.0,
         })
     }

@@ -537,6 +537,23 @@ mod tests {
     }
 
     #[test]
+    fn tc_1615_15_inf_trial_excluded_and_ranked_last() {
+        // trial1 has +Inf in an objective -> must be excluded from computation
+        // (same treatment as NaN) and ranked last without contaminating other scores.
+        let values = [1.0_f64, 1.0, f64::INFINITY, 1.0];
+        let result = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]);
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.scores[1], 0.0, "Inf trial score must be 0.0");
+        assert_eq!(
+            *r.ranked_indices.last().unwrap(),
+            1u32,
+            "Inf trial must be ranked last"
+        );
+    }
+
+    #[test]
     fn tc_1616_01_two_trials_ranking() {
         // English comment.
         // English comment.

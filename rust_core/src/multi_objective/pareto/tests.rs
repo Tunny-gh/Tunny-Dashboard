@@ -225,6 +225,25 @@ fn tc_hv_nd_3d_known_value() {
 }
 
 #[test]
+fn tc_hv_201_11_compute_pareto_ranks_3obj_two_points_overlap() {
+    // 2点 (0,1,1), (1,0,0) は互いに非支配で、3次元目の値も両点で異なる
+    // （3次元目を無視する旧実装のバグでは値が変わらない座標を避けるため）。
+    // nadir=(1,1,1), ideal=(0,0,0) -> ref = nadir + 0.1*range = (1.1,1.1,1.1)。
+    // 包除原理で手計算: Vol(p1)=1.1*0.1*0.1=0.011, Vol(p2)=0.1*1.1*1.1=0.121,
+    // 重複=(1.1-1)^3=0.001 -> HV=0.011+0.121-0.001=0.131
+    let rows = vec![
+        make_row_obj(0, vec![0.0, 1.0, 1.0]),
+        make_row_obj(1, vec![1.0, 0.0, 0.0]),
+    ];
+    setup_study(rows, &["obj0", "obj1", "obj2"]);
+    let result = compute_pareto_ranks(&[true, true, true]);
+    let hv = result
+        .hypervolume
+        .expect("hypervolume should be Some for m=3");
+    assert!((hv - 0.131).abs() < 1e-9, "HV = {}, expected 0.131", hv);
+}
+
+#[test]
 fn hv_history_with_ref_returns_used_ref_point() {
     let objs = vec![vec![1.0, 1.0], vec![0.5, 2.0]];
     let ids: Vec<u32> = vec![0, 1];

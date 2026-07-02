@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 
 use super::helpers::{compute_ref_point, normalize_objectives};
-use super::hypervolume::hypervolume_2d;
+use super::hypervolume::hypervolume_nd;
 use super::types::ParetoResult;
 
 /// Non-dominated Sorting（FNDS: Fast Non-dominated Sort）🟢
@@ -144,8 +144,7 @@ fn compute_hypervolume(
             .collect();
         let norm_pareto = normalize_objectives(&pareto_objs, is_minimize);
         let ref_pt = compute_ref_point(&norm_pareto, m);
-        let pts_2d: Vec<(f64, f64)> = norm_pareto.iter().map(|obj| (obj[0], obj[1])).collect();
-        Some(hypervolume_2d(&pts_2d, ref_pt[0], ref_pt[1]))
+        Some(hypervolume_nd(&norm_pareto, &ref_pt))
     } else {
         None
     }

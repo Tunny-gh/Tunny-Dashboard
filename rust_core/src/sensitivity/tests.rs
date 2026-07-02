@@ -89,6 +89,69 @@ fn tc_801_05_spearman_n_less_than_2_returns_zero() {
 }
 
 #[test]
+fn tc_801_16_spearman_nan_pairs_filtered_pairwise() {
+    // Rows at index 2 and 4 contain a NaN on one side; they must be dropped
+    // before ranking rather than corrupting the tie structure.
+    let x = vec![1.0, 2.0, f64::NAN, 4.0, 5.0, 3.0];
+    let y = vec![2.0, 4.0, 6.0, f64::NAN, 10.0, 6.0];
+
+    let r = compute_spearman(&x, &y);
+
+    let x_clean = vec![1.0, 2.0, 5.0, 3.0];
+    let y_clean = vec![2.0, 4.0, 10.0, 6.0];
+    let expected = compute_spearman(&x_clean, &y_clean);
+
+    assert!(
+        r.is_finite(),
+        "NaN-contaminated pairs must not leak NaN into result"
+    );
+    assert!(
+        (r - expected).abs() < 1e-9,
+        "expected pairwise-deleted result {expected}, got {r}"
+    );
+}
+
+#[test]
+fn tc_801_17_spearman_inf_pairs_filtered_pairwise() {
+    // Rows at index 1 and 3 contain an infinity on one side; they must be
+    // dropped before ranking rather than corrupting the tie structure.
+    let x = vec![1.0, f64::INFINITY, 3.0, 4.0, 5.0];
+    let y = vec![2.0, 4.0, 6.0, f64::NEG_INFINITY, 10.0];
+
+    let r = compute_spearman(&x, &y);
+
+    let x_clean = vec![1.0, 3.0, 5.0];
+    let y_clean = vec![2.0, 6.0, 10.0];
+    let expected = compute_spearman(&x_clean, &y_clean);
+
+    assert!(
+        r.is_finite(),
+        "Inf-contaminated pairs must not leak NaN/Inf into result"
+    );
+    assert!(
+        (r - expected).abs() < 1e-9,
+        "expected pairwise-deleted result {expected}, got {r}"
+    );
+}
+
+#[test]
+fn tc_801_18_spearman_fewer_than_two_valid_pairs_returns_nan() {
+    // Total length is >= 2, but pairwise deletion leaves fewer than 2 valid
+    // pairs; this must be distinguished from the "n < 2 -> 0.0" raw-input
+    // sentinel and instead signal via NaN, matching pearson_correlation's
+    // convention for degenerate input.
+    let x = vec![1.0, f64::NAN];
+    let y = vec![f64::NAN, 2.0];
+
+    let r = compute_spearman(&x, &y);
+
+    assert!(
+        r.is_nan(),
+        "expected NaN for fewer than 2 valid pairs, got {r}"
+    );
+}
+
+#[test]
 fn tc_801_06_ridge_perfect_linear_r_squared_near_1() {
     let n = 50;
     let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
@@ -459,6 +522,22 @@ fn tc_1610_03_compute_sobol_insufficient_data_returns_none() {
     setup_df(rows, &["x1", "x2"], &["obj0"]);
     let result = compute_sobol(1024);
     assert!(result.is_none(), "n<2 の場合 None を返すこと");
+}
+
+#[test]
+fn tc_1610_03b_compute_sobol_zero_n_samples_returns_none() {
+    // n_samples=0 は 0/0=NaN が clamp をすり抜けて NaN 汚染された結果を返してはならない。
+    let rows: Vec<TrialRow> = (0..50)
+        .map(|i| {
+            let x1 = i as f64;
+            let x2 = (i * 2) as f64;
+            let y = x1 * 2.0;
+            make_row_multi(i as u32, &[("x1", x1), ("x2", x2)], vec![y])
+        })
+        .collect();
+    setup_df(rows, &["x1", "x2"], &["obj0"]);
+    let result = compute_sobol(0);
+    assert!(result.is_none(), "n_samples=0 の場合 None を返すこと");
 }
 
 #[test]

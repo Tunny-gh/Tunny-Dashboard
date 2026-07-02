@@ -44,9 +44,12 @@ pub(crate) fn add_to_pareto_front(front: &mut Vec<Vec<f64>>, point: Vec<f64>) {
     front.push(point);
 }
 
-/// Documentation.
+/// HV 用参照点の自動算出: nadir + 0.1·(nadir − ideal)。
 ///
-/// Documentation.
+/// マージンを観測範囲に比例させることで目的値のスケールに対して不変になる
+/// （旧実装の定数 +1.0 はスケールの小さい study で HV を歪めていた）。
+/// 範囲が退化している次元は、値自身の大きさに比例したマージン
+/// （|nadir|·0.1、それも 0 なら 1.0）でフォールバックする。
 pub(crate) fn compute_ref_point(pareto_objs: &[Vec<f64>], m: usize) -> Vec<f64> {
     let mut nadir = vec![f64::NEG_INFINITY; m];
     let mut ideal = vec![f64::INFINITY; m];
@@ -61,6 +64,16 @@ pub(crate) fn compute_ref_point(pareto_objs: &[Vec<f64>], m: usize) -> Vec<f64> 
         }
     }
     (0..m)
-        .map(|j| nadir[j] + (nadir[j] - ideal[j]).abs() * 0.1 + 1.0)
+        .map(|j| {
+            let range = nadir[j] - ideal[j];
+            let offset = if range > 1e-12 {
+                0.1 * range
+            } else if nadir[j].abs() > 1e-12 {
+                0.1 * nadir[j].abs()
+            } else {
+                1.0
+            };
+            nadir[j] + offset
+        })
         .collect()
 }
