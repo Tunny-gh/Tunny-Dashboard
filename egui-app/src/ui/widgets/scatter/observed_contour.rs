@@ -271,6 +271,7 @@ fn render_2d(
         rect,
         0.0,
         egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+        egui::StrokeKind::Inside,
     );
     draw_heatmap_masked(&painter, rect, &color_display, cv_min, cv_max, cmap.clone());
 

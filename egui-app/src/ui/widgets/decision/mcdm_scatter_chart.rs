@@ -464,8 +464,7 @@ fn render_scatter_plot(
             if has_infeasible {
                 let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
                 plot_ui.points(
-                    egui_plot::Points::new(pts)
-                        .name("Infeasible")
+                    egui_plot::Points::new("Infeasible", pts)
                         .color(crate::theme::chart_colors::COLOR_INFEASIBLE)
                         .radius(3.0),
                 );
@@ -473,8 +472,7 @@ fn render_scatter_plot(
             // 選択フィルタ外（灰色・最背面、凡例は "Others (unselected)" に集約）
             if !dim_pts.is_empty() {
                 plot_ui.points(
-                    egui_plot::Points::new(dim_pts)
-                        .name("Others (unselected)")
+                    egui_plot::Points::new("Others (unselected)", dim_pts)
                         .color(COLOR_UNSELECTED_POINT)
                         .radius(2.5),
                 );
@@ -482,8 +480,7 @@ fn render_scatter_plot(
             // 未ランク（グレー）
             if !none_pts.is_empty() {
                 plot_ui.points(
-                    egui_plot::Points::new(none_pts)
-                        .name("Others")
+                    egui_plot::Points::new("Others", none_pts)
                         .color(COLOR_MCDM_NONE)
                         .radius(3.0),
                 );
@@ -491,19 +488,17 @@ fn render_scatter_plot(
             // ランク済み：暗い（下位）→明るい（上位）の順
             for ([r, g, b, a], (pts, _)) in sorted {
                 let color = Color32::from_rgba_unmultiplied(r, g, b, a);
-                plot_ui.points(egui_plot::Points::new(pts).color(color).radius(4.0));
+                plot_ui.points(egui_plot::Points::new("", pts).color(color).radius(4.0));
             }
             // 判例専用エントリ（データなし・名前のみ）
             plot_ui.points(
-                egui_plot::Points::new(Vec::<[f64; 2]>::new())
-                    .name("Rank 1 (Best)")
+                egui_plot::Points::new("Rank 1 (Best)", Vec::<[f64; 2]>::new())
                     .color(best_color)
                     .radius(5.0),
             );
             if top_n > 1 {
                 plot_ui.points(
-                    egui_plot::Points::new(Vec::<[f64; 2]>::new())
-                        .name(format!("Rank {top_n}"))
+                    egui_plot::Points::new(format!("Rank {top_n}"), Vec::<[f64; 2]>::new())
                         .color(worst_color)
                         .radius(5.0),
                 );

@@ -187,7 +187,12 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
                 sequential_colormap(t)
             };
             painter.rect_filled(cell_rect, 0.0, color);
-            painter.rect_stroke(cell_rect, 0.0, egui::Stroke::new(0.5, COLOR_GRID_STROKE));
+            painter.rect_stroke(
+                cell_rect,
+                0.0,
+                egui::Stroke::new(0.5, COLOR_GRID_STROKE),
+                egui::StrokeKind::Inside,
+            );
             painter.text(
                 cell_rect.center(),
                 egui::Align2::CENTER_CENTER,

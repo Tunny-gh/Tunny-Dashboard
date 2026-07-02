@@ -48,17 +48,14 @@ pub(crate) fn show_chart_menu_button(
         |ui| {
             if ui.button("Save as PNG").clicked() {
                 menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));
-                ui.close_menu();
             }
             if ui.button("Copy image to clipboard").clicked() {
                 menu_action = Some(CellToolbarAction::CopyImage(item.clone()));
-                ui.close_menu();
             }
             ui.separator();
             let csv_btn = ui.add_enabled(csv_available, egui::Button::new("Save as CSV"));
             if csv_btn.clicked() {
                 menu_action = Some(CellToolbarAction::SaveAsCsv(item.clone()));
-                ui.close_menu();
             }
             if !csv_available {
                 csv_btn.on_hover_text("No data available");
@@ -67,7 +64,6 @@ pub(crate) fn show_chart_menu_button(
                 ui.add_enabled(csv_available, egui::Button::new("Copy data to clipboard"));
             if copy_btn.clicked() {
                 menu_action = Some(CellToolbarAction::CopyCsv(item.clone()));
-                ui.close_menu();
             }
             if !csv_available {
                 copy_btn.on_hover_text("No data available");
@@ -75,7 +71,6 @@ pub(crate) fn show_chart_menu_button(
             ui.separator();
             if ui.button("Help").clicked() {
                 menu_action = Some(CellToolbarAction::Help(item.clone()));
-                ui.close_menu();
             }
         },
     );
@@ -176,6 +171,7 @@ pub fn show_grid_canvas(
                     cell_rect,
                     0.0,
                     egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+                    egui::StrokeKind::Inside,
                 );
 
                 // セル内の子 UI を作成
@@ -314,33 +310,28 @@ pub fn show_grid_canvas(
                     ui.add_enabled_ui(can_expand_right, |ui| {
                         if ui.button("Expand Right").clicked() {
                             pending_actions.push(CellAction::ExpandRight(r, c));
-                            ui.close_menu();
                         }
                     });
                     ui.add_enabled_ui(can_expand_down, |ui| {
                         if ui.button("Expand Down").clicked() {
                             pending_actions.push(CellAction::ExpandDown(r, c));
-                            ui.close_menu();
                         }
                     });
                     ui.separator();
                     ui.add_enabled_ui(can_shrink_right, |ui| {
                         if ui.button("Shrink Right").clicked() {
                             pending_actions.push(CellAction::ShrinkRight(r, c));
-                            ui.close_menu();
                         }
                     });
                     ui.add_enabled_ui(can_shrink_down, |ui| {
                         if ui.button("Shrink Down").clicked() {
                             pending_actions.push(CellAction::ShrinkDown(r, c));
-                            ui.close_menu();
                         }
                     });
                     ui.separator();
                     ui.add_enabled_ui(has_content, |ui| {
                         if ui.button("Clear").clicked() {
                             pending_actions.push(CellAction::Clear(r, c));
-                            ui.close_menu();
                         }
                     });
                 });
@@ -441,7 +432,7 @@ fn show_cell_toolbar(
     egui::Frame::default()
         .fill(crate::theme::CELL_TOOLBAR_BG)
         .stroke(egui::Stroke::new(1.0, crate::theme::BORDER_COLOR))
-        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+        .inner_margin(egui::Margin::symmetric(6, 4))
         .show(ui, |ui| {
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), DRAG_HANDLE_HEIGHT),
@@ -622,11 +613,11 @@ pub(crate) fn render_panel_item_body(
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
     item: &PanelItem,
-    id_salt: impl std::hash::Hash,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
     tx: &mpsc::SyncSender<AppMessage>,
 ) -> egui::Rect {
     let body_resp = egui::Frame::default()
-        .inner_margin(egui::Margin::same(8.0))
+        .inner_margin(egui::Margin::same(8))
         .show(ui, |ui| {
             ui.push_id(id_salt, |ui| match item {
                 PanelItem::Chart(chart_id) => {
@@ -655,7 +646,7 @@ pub(crate) fn show_maximized_modal(
         return;
     };
 
-    let screen = ctx.screen_rect();
+    let screen = ctx.content_rect();
     let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
     // 背景の暗転（クリックで閉じる）。ウィンドウより先に生成して背面へ。

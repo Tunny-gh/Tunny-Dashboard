@@ -362,7 +362,7 @@ impl ClusterScatter {
                 // infeasible を最背面に描画
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(infeasible_pts)
+                        egui_plot::Points::new("", infeasible_pts)
                             .color(COLOR_INFEASIBLE)
                             .radius(3.0)
                             .name("Infeasible"),
@@ -371,7 +371,7 @@ impl ClusterScatter {
                 // パレートフロント以外（クラスタリング対象外）を淡色で背面に描画
                 if !other_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(other_pts)
+                        egui_plot::Points::new("", other_pts)
                             .color(COLOR_NON_PARETO_DIM)
                             .radius(2.0)
                             .name("Others"),
@@ -381,7 +381,7 @@ impl ClusterScatter {
                 // クラスタ色は残さず（色相が紛らわしいため）"Others (unselected)" に集約する。
                 if !unselected_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(unselected_pts)
+                        egui_plot::Points::new("", unselected_pts)
                             .color(COLOR_UNSELECTED_POINT)
                             .radius(2.0)
                             .name("Others (unselected)"),
@@ -389,7 +389,7 @@ impl ClusterScatter {
                 }
                 for (label, pts) in cluster_points {
                     let color = cluster_color(label);
-                    let points = egui_plot::Points::new(pts)
+                    let points = egui_plot::Points::new("", pts)
                         .color(color)
                         .radius(3.0)
                         .name(format!("Cluster {}", label));

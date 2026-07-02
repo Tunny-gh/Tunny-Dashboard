@@ -324,7 +324,7 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Respon
     } else {
         crate::theme::TOOLBAR_TEXT.gamma_multiply(0.4)
     };
-    let galley = ui.fonts(|f| {
+    let galley = ui.fonts_mut(|f| {
         f.layout_no_wrap(
             label.to_string(),
             egui::FontId::proportional(13.0),

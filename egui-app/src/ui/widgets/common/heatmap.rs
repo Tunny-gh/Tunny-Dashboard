@@ -127,6 +127,7 @@ pub fn draw_colorbar_simple(
         bar_rect,
         0.0,
         egui::Stroke::new(0.5, egui::Color32::from_gray(90)),
+        egui::StrokeKind::Inside,
     );
 
     // 数値目盛（max / 中央 / min）をバー右脇に置く。最大幅を測ってタイトル位置に使う。

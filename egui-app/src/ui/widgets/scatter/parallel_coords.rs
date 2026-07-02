@@ -501,6 +501,7 @@ impl ParallelCoordsChart {
                     brush_rect,
                     2.0,
                     egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 150, 255)),
+                    egui::StrokeKind::Inside,
                 );
             }
         }

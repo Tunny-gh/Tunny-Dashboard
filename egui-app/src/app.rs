@@ -499,12 +499,11 @@ impl Drop for TunnyApp {
 }
 
 impl eframe::App for TunnyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    // logic() は描画を行わないフェーズ（メッセージポンプ・状態更新・スクリーンショット取得）を担当する。
+    // egui 0.35 の eframe::App は update() が ui()/logic() に分割された。
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
-        crate::ui::layout::show_layout(self, ctx);
-        self.show_csv_import_dialog(ctx);
-        crate::ui::widgets::license_modal::show(ctx, &mut self.widget_states.license_modal);
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
         let cap = &mut self.widget_states.capture;
@@ -558,6 +557,13 @@ impl eframe::App for TunnyApp {
                 }
             }
         }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        crate::ui::layout::show_layout(self, ui);
+        self.show_csv_import_dialog(&ctx);
+        crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);
     }
 }
 

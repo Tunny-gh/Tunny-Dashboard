@@ -293,8 +293,7 @@ impl ParetoScatter2D {
                 // 実行不可能解（最背面: グレーアウト）
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(infeasible_pts)
-                            .name("Infeasible")
+                        egui_plot::Points::new("Infeasible", infeasible_pts)
                             .color(COLOR_INFEASIBLE)
                             .radius(2.5),
                     );
@@ -302,8 +301,7 @@ impl ParetoScatter2D {
                 // 選択フィルタ外（灰色・背面、Pareto/非 Pareto をまとめる）
                 if !unselected_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(unselected_pts)
-                            .name("Others (unselected)")
+                        egui_plot::Points::new("Others (unselected)", unselected_pts)
                             .color(COLOR_UNSELECTED_POINT)
                             .radius(2.5),
                     );
@@ -311,8 +309,7 @@ impl ParetoScatter2D {
                 // 非パレート（青点）
                 if !non_pareto_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(non_pareto_pts)
-                            .name("Others")
+                        egui_plot::Points::new("Others", non_pareto_pts)
                             .color(COLOR_NON_PARETO)
                             .radius(2.5),
                     );
@@ -320,8 +317,7 @@ impl ParetoScatter2D {
                 // パレートフロント（赤丸 + 赤線）
                 if !pareto_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(pareto_pts)
-                            .name("Pareto Front")
+                        egui_plot::Points::new("Pareto Front", pareto_pts)
                             .color(COLOR_PARETO)
                             .radius(4.0),
                     );
@@ -329,8 +325,7 @@ impl ParetoScatter2D {
                 // サロゲート予測フロント（金色ダイヤモンド）
                 if !surrogate_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new(surrogate_pts)
-                            .name("Surrogate Pareto Front")
+                        egui_plot::Points::new("Surrogate Pareto Front", surrogate_pts)
                             .shape(egui_plot::MarkerShape::Diamond)
                             .radius(4.5)
                             .color(COLOR_SURROGATE_FRONT),
@@ -339,8 +334,7 @@ impl ParetoScatter2D {
                 // ハイライト点
                 if let Some(pt) = highlight_pt {
                     plot_ui.points(
-                        egui_plot::Points::new(vec![pt])
-                            .name("Highlighted")
+                        egui_plot::Points::new("Highlighted", vec![pt])
                             .color(COLOR_HIGHLIGHT_PT)
                             .radius(8.0),
                     );
@@ -361,6 +355,7 @@ impl ParetoScatter2D {
                 0.0,
                 egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40),
                 egui::Stroke::new(1.0, egui::Color32::from_rgb(100, 150, 255)),
+                egui::StrokeKind::Inside,
             );
         }
 

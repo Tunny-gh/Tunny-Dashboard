@@ -53,7 +53,7 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
             .collect();
 
         // モーダル高をビューポートに対して抑え、長大なリストはスクロールさせる。
-        let max_h = ctx.screen_rect().height() * 0.6;
+        let max_h = ctx.content_rect().height() * 0.6;
         egui::ScrollArea::vertical()
             .max_height(max_h)
             .auto_shrink([false, false])
