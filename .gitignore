@@ -57,3 +57,4 @@ node_modules/
 .github/skills/*
 .cargo/*
 .claude/*
+docs/*
