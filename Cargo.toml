@@ -13,3 +13,11 @@ lto = true
 # 適用される。依存のコンパイル増加分は一度きりでキャッシュされる）。
 [profile.dev.package."*"]
 opt-level = 2
+
+# CI 専用プロファイル。surrogate_opt のテストは自クレート側の数値計算
+# （多点スタートの局所探索・交差検証ループ等）が opt-level=0 のままだと
+# 重く、ローカルの差分ビルド速度を犠牲にせずに CI のテスト実行時間だけを
+# 縮める（実測: opt-level=1 でテスト実行時間が約 1/14 に短縮）。
+[profile.ci-test]
+inherits = "dev"
+opt-level = 1
