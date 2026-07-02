@@ -61,7 +61,9 @@ pub fn compute_entropy_weights(
                     result[row * n_objectives + j] = if range > 0.0 {
                         (values[i * n_objectives + j] - min_v) / range
                     } else {
-                        0.0
+                        // 定数列は全行 1.0 とする。0.0 だと比率正規化で p=0 -> e_j=0 -> d_j=1 となり、
+                        // 情報量ゼロの列が最大重みを得てしまう（正の定数列は 1.0 のまま同じ結果になる）。
+                        1.0
                     };
                 }
             } else {
@@ -267,6 +269,24 @@ mod tests {
         let result = compute_entropy_weights(&values, 4, 2).unwrap();
         let sum: f64 = result.weights.iter().sum();
         assert!((sum - 1.0).abs() < 1e-9, "weights sum = {}", sum);
+    }
+
+    #[test]
+    fn tc_entropy_11_negative_constant_column() {
+        // obj0 is a negative constant column (no information), obj1 varies.
+        // The constant column must get weight ~= 0 and the varying column ~= 1.
+        let values = [-3.0, 1.0, -3.0, 2.0, -3.0, 3.0];
+        let result = compute_entropy_weights(&values, 3, 2).unwrap();
+        assert!(
+            result.weights[0].abs() < 1e-9,
+            "constant negative column should have weight ~0: w0={}",
+            result.weights[0]
+        );
+        assert!(
+            (result.weights[1] - 1.0).abs() < 1e-9,
+            "varying column should have weight ~1: w1={}",
+            result.weights[1]
+        );
     }
 
     #[test]
