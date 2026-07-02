@@ -209,8 +209,7 @@ impl OptimizationHistoryChart {
                     let pts: egui_plot::PlotPoints =
                         infeasible_vals.iter().copied().map(apply_log).collect();
                     plot_ui.points(
-                        egui_plot::Points::new(pts)
-                            .name("Infeasible")
+                        egui_plot::Points::new("Infeasible", pts)
                             .color(COLOR_INFEASIBLE)
                             .radius(1.5),
                     );
@@ -220,8 +219,7 @@ impl OptimizationHistoryChart {
                     let pts: egui_plot::PlotPoints =
                         feasible_vals.iter().copied().map(apply_log).collect();
                     plot_ui.points(
-                        egui_plot::Points::new(pts)
-                            .name("All Trials")
+                        egui_plot::Points::new("All Trials", pts)
                             .color(COLOR_OPT_TRIAL)
                             .radius(1.5),
                     );
@@ -245,8 +243,7 @@ impl OptimizationHistoryChart {
                         .map(apply_log_y)
                         .collect();
                     plot_ui.line(
-                        egui_plot::Line::new(pts)
-                            .name(base_label)
+                        egui_plot::Line::new(base_label, pts)
                             .color(COLOR_OPT_PRUNED)
                             .width(1.5),
                     );
@@ -262,8 +259,7 @@ impl OptimizationHistoryChart {
                             .map(apply_log_y)
                             .collect();
                     plot_ui.line(
-                        egui_plot::Line::new(pts)
-                            .name(&comp.name)
+                        egui_plot::Line::new(&comp.name, pts)
                             .color(comp.color)
                             .width(1.5),
                     );
@@ -279,8 +275,7 @@ impl OptimizationHistoryChart {
                     })
                     .collect();
                 plot_ui.line(
-                    egui_plot::Line::new(pts)
-                        .name("Moving Average")
+                    egui_plot::Line::new("Moving Average", pts)
                         .color(COLOR_OPT_RUNNING)
                         .width(1.5),
                 );

@@ -60,11 +60,12 @@ jobs:
           tool: cargo-audit
 
       - name: Audit dependencies
-        # RUSTSEC-2026-0194/0195 (quick-xml DoS via crafted XML) come from Linux-only
-        # transitive deps of eframe 0.30: zbus_xml (accesskit AT-SPI backend) and
-        # wayland-scanner. The app only ships Windows/macOS builds, and no compatible
-        # update exists short of an eframe upgrade. Remove these ignores once eframe
-        # pulls quick-xml >= 0.41.
+        # RUSTSEC-2026-0194/0195 (quick-xml DoS via crafted XML): the eframe 0.35
+        # upgrade removed the zbus_xml path, but wayland-scanner (a Linux-only
+        # build-time proc-macro that parses trusted local Wayland protocol XML)
+        # still pins quick-xml < 0.41 even at its latest release. The app only
+        # ships Windows/macOS builds. Remove these ignores once wayland-scanner
+        # moves to quick-xml >= 0.41.
         run: cargo audit --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
 
   build-test:

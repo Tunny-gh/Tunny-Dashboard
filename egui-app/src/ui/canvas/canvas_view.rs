@@ -169,6 +169,7 @@ pub fn show_canvas_view(
                     item_rect,
                     4.0,
                     egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+                    egui::StrokeKind::Inside,
                 );
 
                 // item_rect に収まる子 UI（grid と同じ new_child 方式でサイズを拘束）
@@ -301,8 +302,12 @@ pub fn show_canvas_view(
     if let Some(payload) = egui::DragAndDrop::payload::<DragPayload>(ui.ctx()) {
         if let DragPayload::NewWidget(new_item) = &*payload {
             // ドロップ可能であることを示すハイライト
-            ui.painter()
-                .rect_stroke(area, 0.0, egui::Stroke::new(2.0, COLOR_SELECTION_HIGHLIGHT));
+            ui.painter().rect_stroke(
+                area,
+                0.0,
+                egui::Stroke::new(2.0, COLOR_SELECTION_HIGHLIGHT),
+                egui::StrokeKind::Inside,
+            );
             if ui.input(|i| i.pointer.any_released()) {
                 if let Some(sp) = ui.ctx().pointer_interact_pos() {
                     if area.contains(sp) {
@@ -428,6 +433,7 @@ fn show_canvas_item_toolbar(
         bar_rect,
         0.0,
         egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+        egui::StrokeKind::Inside,
     );
 
     // バーのドラッグで移動（ボタンより先に登録 → ボタンのクリックが優先される）。

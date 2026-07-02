@@ -28,7 +28,7 @@ pub fn clamp_left_width(left_width: f32) -> f32 {
 }
 
 /// TunnyApp のレイアウトを描画する（Toolbar + OverlayPanels + CentralPanel）
-pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
+pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
     use crate::ui::{
         left_panel::show_left_panel,
         main_canvas::show_main_canvas,
@@ -36,17 +36,19 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         toolbar::{show_colormap_selector, show_toolbar},
     };
 
+    // egui 0.35 では Panel 系は &mut Ui を要求するため、Context 経由の呼び出し (Area 等) 用に複製しておく。
+    let ctx = ui.ctx().clone();
     let tx = app.sender();
 
     // ─── ツールバー ───────────────────────────────────────────────────
-    egui::TopBottomPanel::top("toolbar")
-        .min_height(32.0)
+    egui::Panel::top("toolbar")
+        .min_size(32.0)
         .frame(
             egui::Frame::default()
                 .fill(crate::theme::TOOLBAR_BG)
-                .inner_margin(egui::Margin::symmetric(8.0, 4.0)),
+                .inner_margin(egui::Margin::symmetric(8, 4)),
         )
-        .show(ctx, |ui| {
+        .show(ui, |ui| {
             ui.visuals_mut().override_text_color = Some(crate::theme::TOOLBAR_TEXT);
             {
                 let vis = ui.visuals_mut();
@@ -82,11 +84,13 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         });
 
     // ツールバー下の有効エリア（オーバーレイパネルの配置基準）
-    let panel_area = ctx.available_rect();
+    // egui 0.35: Context::available_rect() は廃止。Panel::show 後は親 Ui の
+    // available_rect_before_wrap() がツールバー分だけ縮んだ領域を返す。
+    let panel_area = ui.available_rect_before_wrap();
 
     // ─── ホバー検知 ───────────────────────────────────────────────────
     // ドラッグ中はパネル開閉を維持し、DnD の中断を防ぐ。
-    let is_using_pointer = ctx.is_using_pointer();
+    let is_using_pointer = ctx.egui_is_using_pointer();
 
     if !is_using_pointer {
         let mouse = ctx.input(|i| i.pointer.hover_pos());
@@ -173,7 +177,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
     // ─── 中央パネル（常にフル幅） ──────────────────────────────────────
     egui::CentralPanel::default()
         .frame(egui::Frame::default().fill(crate::theme::CENTRAL_BG))
-        .show(ctx, |ui| {
+        .show(ui, |ui| {
             // グリッドを先に描画し、インジケーターは後で上に重ねる
             show_main_canvas(
                 ui,
@@ -276,14 +280,14 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         egui::Area::new(egui::Id::new("left_panel_overlay"))
             .fixed_pos(egui::pos2(left_x, panel_area.top()))
             .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 let frame = egui::Frame::default()
                     .fill(crate::theme::PANEL_BG)
-                    .inner_margin(egui::Margin::same(8.0))
+                    .inner_margin(egui::Margin::same(8))
                     .shadow(egui::Shadow {
-                        offset: egui::vec2(4.0, 0.0),
-                        blur: 12.0,
-                        spread: 0.0,
+                        offset: [4, 0],
+                        blur: 12,
+                        spread: 0,
                         color: egui::Color32::from_black_alpha(50),
                     });
                 frame.show(ui, |ui| {
@@ -304,14 +308,14 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
         let area_resp = egui::Area::new(egui::Id::new("right_panel_overlay"))
             .fixed_pos(egui::pos2(right_x, panel_area.top()))
             .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 let frame = egui::Frame::default()
                     .fill(crate::theme::PANEL_BG)
-                    .inner_margin(egui::Margin::same(8.0))
+                    .inner_margin(egui::Margin::same(8))
                     .shadow(egui::Shadow {
-                        offset: egui::vec2(-4.0, 0.0),
-                        blur: 12.0,
-                        spread: 0.0,
+                        offset: [-4, 0],
+                        blur: 12,
+                        spread: 0,
                         color: egui::Color32::from_black_alpha(50),
                     });
                 frame.show(ui, |ui| {
@@ -331,7 +335,7 @@ pub fn show_layout(app: &mut TunnyApp, ctx: &egui::Context) {
 
     // ─── 最大化モーダル（すべての最前面に重ねる） ──────────────────────
     crate::ui::grid_canvas::show_maximized_modal(
-        ctx,
+        &ctx,
         &mut app.app_state,
         &mut app.widget_states,
         &tx,
@@ -348,14 +352,12 @@ pub fn show_language_menu(ui: &mut egui::Ui, app_state: &mut AppState) {
             .clicked()
         {
             app_state.help_language = HelpLanguage::En;
-            ui.close_menu();
         }
         if ui
             .selectable_label(current == HelpLanguage::Ja, "日本語")
             .clicked()
         {
             app_state.help_language = HelpLanguage::Ja;
-            ui.close_menu();
         }
     });
 }

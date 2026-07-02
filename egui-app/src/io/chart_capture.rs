@@ -102,10 +102,7 @@ mod tests {
                 Color32::from_rgb(r, 0, 0)
             })
             .collect();
-        ColorImage {
-            size: [w, h],
-            pixels,
-        }
+        ColorImage::new([w, h], pixels)
     }
 
     #[test]

@@ -166,6 +166,7 @@ pub(crate) fn show_minimap(
                 4.0,
                 egui::Color32::from_black_alpha(170),
                 egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+                egui::StrokeKind::Inside,
             );
 
             // ── アイテム矩形 ─────────────────────────────────────────
@@ -190,6 +191,7 @@ pub(crate) fn show_minimap(
                         1.0,
                         egui::Color32::from_rgba_unmultiplied(120, 120, 120, 180),
                         egui::Stroke::new(0.5, egui::Color32::from_gray(160)),
+                        egui::StrokeKind::Inside,
                     );
                 }
             }
@@ -209,6 +211,7 @@ pub(crate) fn show_minimap(
                     1.0,
                     egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 20),
                     egui::Stroke::new(1.5, accent),
+                    egui::StrokeKind::Inside,
                 );
             }
 

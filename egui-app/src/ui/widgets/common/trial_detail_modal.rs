@@ -72,7 +72,7 @@ impl TrialDetailModal {
             return;
         };
         let egui_ctx = ui.ctx().clone();
-        let screen = egui_ctx.screen_rect();
+        let screen = egui_ctx.content_rect();
         // Artifact プレビューモーダルと同等に画面の大半を占めるサイズにする。
         let max_w = (screen.width() * 0.95).max(320.0);
         let max_h = (screen.height() * 0.95).max(240.0);
@@ -308,7 +308,14 @@ pub fn show_hover_tooltip(
     trial_number: u32,
     rows: &[(String, String)],
 ) {
-    egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), egui::Id::new(id_salt), |ui| {
+    // egui 0.35: show_tooltip_at_pointer は廃止。Tooltip::always_open + PopupAnchor::Pointer で代替する。
+    egui::Tooltip::always_open(
+        ui.ctx().clone(),
+        ui.layer_id(),
+        egui::Id::new(id_salt),
+        egui::PopupAnchor::Pointer,
+    )
+    .show(|ui| {
         ui.strong(format!("Trial {trial_number}"));
         egui::Grid::new(format!("{id_salt}_grid"))
             .num_columns(2)

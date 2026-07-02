@@ -750,7 +750,7 @@ fn show_artifact_card(
 
     egui::Frame::group(ui.style())
         .stroke(stroke)
-        .inner_margin(egui::Margin::same(4.0))
+        .inner_margin(egui::Margin::same(4))
         .show(ui, |ui| {
             ui.set_width(thumb);
             ui.vertical(|ui| {

@@ -944,8 +944,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
     }
 
     let ref_line: egui_plot::PlotPoints = vec![[min_val, min_val], [max_val, max_val]].into();
-    let ref_seg = egui_plot::Line::new(ref_line)
-        .name("y = x")
+    let ref_seg = egui_plot::Line::new("y = x", ref_line)
         .color(egui::Color32::from_gray(160))
         .style(egui_plot::LineStyle::Dashed { length: 6.0 });
 
@@ -964,8 +963,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
     plot.show(ui, |plot_ui| {
         // 非フロント点（青）を背面に。
         plot_ui.points(
-            egui_plot::Points::new(other_pts)
-                .name("Out-of-fold predictions")
+            egui_plot::Points::new("Out-of-fold predictions", other_pts)
                 .color(egui::Color32::from_rgb(59, 130, 246)) // blue-500
                 .radius(3.0),
         );
@@ -973,8 +971,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         // フロント点（赤・大きめ）を前面に。
         if !front_pts.is_empty() {
             plot_ui.points(
-                egui_plot::Points::new(front_pts)
-                    .name("Pareto front")
+                egui_plot::Points::new("Pareto front", front_pts)
                     .color(crate::theme::chart_colors::COLOR_PARETO)
                     .radius(4.0),
             );
@@ -1418,8 +1415,7 @@ fn render_front_scatter_2d(
             // 観測点を背面に描く（実行不可能 → 被支配 → 観測フロントの順）。
             if toggles.infeasible && !obs_infeasible.is_empty() {
                 plot_ui.points(
-                    egui_plot::Points::new(obs_infeasible)
-                        .name("Infeasible")
+                    egui_plot::Points::new("Infeasible", obs_infeasible)
                         .shape(egui_plot::MarkerShape::Circle)
                         .radius(2.5)
                         .color(COLOR_INFEASIBLE),
@@ -1427,8 +1423,7 @@ fn render_front_scatter_2d(
             }
             if toggles.dominated && !obs_dominated.is_empty() {
                 plot_ui.points(
-                    egui_plot::Points::new(obs_dominated)
-                        .name("Observed (others)")
+                    egui_plot::Points::new("Observed (others)", obs_dominated)
                         .shape(egui_plot::MarkerShape::Circle)
                         .radius(2.5)
                         .color(COLOR_NON_PARETO),
@@ -1436,8 +1431,7 @@ fn render_front_scatter_2d(
             }
             if toggles.front && !obs_front.is_empty() {
                 plot_ui.points(
-                    egui_plot::Points::new(obs_front)
-                        .name("Observed Pareto front")
+                    egui_plot::Points::new("Observed Pareto front", obs_front)
                         .shape(egui_plot::MarkerShape::Circle)
                         .radius(3.5)
                         .color(COLOR_PARETO),
@@ -1446,16 +1440,14 @@ fn render_front_scatter_2d(
             // フロントを結ぶ折れ線（点が 2 つ以上のとき）。
             if pts.len() >= 2 {
                 plot_ui.line(
-                    egui_plot::Line::new(pts.clone())
-                        .name("Predicted Pareto front")
+                    egui_plot::Line::new("Predicted Pareto front", pts.clone())
                         .color(COLOR_SURROGATE_FRONT)
                         .width(1.5),
                 );
             }
             // 予測フロント点（金色ダイヤ）。
             plot_ui.points(
-                egui_plot::Points::new(pts)
-                    .name("Predicted Pareto front")
+                egui_plot::Points::new("Predicted Pareto front", pts)
                     .shape(egui_plot::MarkerShape::Diamond)
                     .radius(4.5)
                     .color(COLOR_SURROGATE_FRONT),
@@ -1666,8 +1658,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         .enumerate()
         .map(|(i, &v)| [i as f64, v])
         .collect();
-    let scatter = egui_plot::Points::new(all_pts)
-        .name("All Trials")
+    let scatter = egui_plot::Points::new("All Trials", all_pts)
         .color(COLOR_OPT_TRIAL)
         .radius(2.0);
 
@@ -1675,8 +1666,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
     let best_pts: egui_plot::PlotPoints = compute_best_values(history, result.minimize)
         .into_iter()
         .collect();
-    let best_line = egui_plot::Line::new(best_pts)
-        .name("Best so far")
+    let best_line = egui_plot::Line::new("Best so far", best_pts)
         .color(COLOR_OPT_PRUNED)
         .width(1.5);
 
@@ -1687,8 +1677,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         [n.max(1.0) - 1.0, result.best_value],
     ]
     .into();
-    let hline = egui_plot::Line::new(hline_pts)
-        .name("Predicted optimum")
+    let hline = egui_plot::Line::new("Predicted optimum", hline_pts)
         .color(predicted_line_color)
         .width(1.5)
         .style(egui_plot::LineStyle::Dashed { length: 8.0 });
@@ -1707,8 +1696,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
             let opt_marker: egui_plot::PlotPoints =
                 vec![[n.max(1.0) - 1.0, result.best_value]].into();
             plot_ui.points(
-                egui_plot::Points::new(opt_marker)
-                    .name("Predicted optimum")
+                egui_plot::Points::new("Predicted optimum", opt_marker)
                     .shape(egui_plot::MarkerShape::Asterisk)
                     .radius(9.0)
                     .color(predicted_line_color),
@@ -1725,8 +1713,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
                     let band_pts: egui_plot::PlotPoints =
                         vec![[0.0, y_band], [n.max(1.0) - 1.0, y_band]].into();
                     plot_ui.line(
-                        egui_plot::Line::new(band_pts)
-                            .name(name)
+                        egui_plot::Line::new(name, band_pts)
                             .color(egui::Color32::from_rgb(156, 163, 175)) // gray-400
                             .width(1.0)
                             .style(egui_plot::LineStyle::Dashed { length: 4.0 }),

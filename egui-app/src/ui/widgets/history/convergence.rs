@@ -305,15 +305,10 @@ impl ConvergenceChart {
                 if !base_points.is_empty() {
                     let color = COLOR_CONVERGENCE_LINE;
                     let line_pts: egui_plot::PlotPoints = base_points.iter().copied().collect();
-                    plot_ui.line(
-                        egui_plot::Line::new(line_pts)
-                            .name(&base_label)
-                            .color(color),
-                    );
+                    plot_ui.line(egui_plot::Line::new(&base_label, line_pts).color(color));
                     let scatter: egui_plot::PlotPoints = base_points.iter().copied().collect();
                     plot_ui.points(
-                        egui_plot::Points::new(scatter)
-                            .name(&base_label)
+                        egui_plot::Points::new(&base_label, scatter)
                             .color(color)
                             .radius(3.0),
                     );
@@ -322,11 +317,10 @@ impl ConvergenceChart {
                 // 比較 Study を色分けして重ね描きする
                 for (name, color, points) in &comparison_series {
                     let line_pts: egui_plot::PlotPoints = points.iter().copied().collect();
-                    plot_ui.line(egui_plot::Line::new(line_pts).name(*name).color(*color));
+                    plot_ui.line(egui_plot::Line::new(*name, line_pts).color(*color));
                     let scatter: egui_plot::PlotPoints = points.iter().copied().collect();
                     plot_ui.points(
-                        egui_plot::Points::new(scatter)
-                            .name(*name)
+                        egui_plot::Points::new(*name, scatter)
                             .color(*color)
                             .radius(3.0),
                     );

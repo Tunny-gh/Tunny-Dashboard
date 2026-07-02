@@ -422,7 +422,7 @@ impl PdpChart {
                             [xs[i], lower[i]],
                         ];
                         plot_ui.polygon(
-                            egui_plot::Polygon::new(egui_plot::PlotPoints::new(quad))
+                            egui_plot::Polygon::new("", egui_plot::PlotPoints::new(quad))
                                 .fill_color(fill)
                                 .stroke(egui::Stroke::NONE),
                         );
@@ -431,8 +431,7 @@ impl PdpChart {
                 // 凡例エントリ（透明な点でラベルのみ表示）
                 if result.y_upper.is_some() {
                     plot_ui.points(
-                        egui_plot::Points::new(vec![[f64::NAN, f64::NAN]])
-                            .name("95% CI")
+                        egui_plot::Points::new("95% CI", vec![[f64::NAN, f64::NAN]])
                             .color(COLOR_PDP_CI_LEGEND)
                             .radius(6.0),
                     );
@@ -446,7 +445,11 @@ impl PdpChart {
                         .zip(ice.iter())
                         .map(|(&x, &y)| [x, y])
                         .collect();
-                    plot_ui.line(egui_plot::Line::new(pts).width(0.5).color(COLOR_ICE_LINE));
+                    plot_ui.line(
+                        egui_plot::Line::new("", pts)
+                            .width(0.5)
+                            .color(COLOR_ICE_LINE),
+                    );
                 }
 
                 // PDP 平均曲線
@@ -457,8 +460,7 @@ impl PdpChart {
                     .map(|(&x, &y)| [x, y])
                     .collect();
                 plot_ui.line(
-                    egui_plot::Line::new(main_pts)
-                        .name("PDP")
+                    egui_plot::Line::new("PDP", main_pts)
                         .width(2.0)
                         .color(COLOR_PDP_LINE),
                 );
@@ -475,8 +477,7 @@ impl PdpChart {
                             continue;
                         }
                         plot_ui.points(
-                            egui_plot::Points::new(pts)
-                                .name(kind.label())
+                            egui_plot::Points::new(kind.label(), pts)
                                 .color(kind.color())
                                 .radius(4.0),
                         );

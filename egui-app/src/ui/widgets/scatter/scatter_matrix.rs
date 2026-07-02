@@ -300,7 +300,12 @@ impl ScatterMatrix {
 
                 // 各セルに枠線を描画してセル境界を明示する
                 // （高密度の散布図でも図の範囲が分かるように）
-                painter.rect_stroke(cell_rect, 0.0, egui::Stroke::new(1.0, COLOR_GRID_STROKE));
+                painter.rect_stroke(
+                    cell_rect,
+                    0.0,
+                    egui::Stroke::new(1.0, COLOR_GRID_STROKE),
+                    egui::StrokeKind::Inside,
+                );
             }
         }
 

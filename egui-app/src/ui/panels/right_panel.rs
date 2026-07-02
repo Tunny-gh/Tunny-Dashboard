@@ -113,8 +113,8 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
 fn widget_tile(ui: &mut egui::Ui, item: &PanelItem, is_placed: bool) {
     let frame = egui::Frame::default()
         .fill(crate::theme::WIDGET_BG)
-        .rounding(6.0)
-        .inner_margin(egui::Margin::same(2.0));
+        .corner_radius(6)
+        .inner_margin(egui::Margin::same(2));
 
     if is_placed {
         frame.show(ui, |ui| tile_contents(ui, item, false));

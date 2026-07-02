@@ -137,8 +137,7 @@ impl SliceChart {
             if !normal_pts.is_empty() {
                 let pts: egui_plot::PlotPoints = normal_pts.into_iter().map(apply_log).collect();
                 plot_ui.points(
-                    egui_plot::Points::new(pts)
-                        .name(normal_label)
+                    egui_plot::Points::new(normal_label, pts)
                         .color(COLOR_NON_PARETO)
                         .radius(1.5),
                 );
@@ -147,8 +146,7 @@ impl SliceChart {
                 let pts: egui_plot::PlotPoints =
                     highlighted_pts.into_iter().map(apply_log).collect();
                 plot_ui.points(
-                    egui_plot::Points::new(pts)
-                        .name(highlight_label)
+                    egui_plot::Points::new(highlight_label, pts)
                         .color(COLOR_PARETO)
                         .radius(3.0),
                 );
