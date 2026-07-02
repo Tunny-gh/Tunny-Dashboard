@@ -1176,6 +1176,7 @@ mod tests {
             ranked_indices: vec![0],
             best_values: vec![],
             worst_values: vec![],
+            compromise_indices: vec![0],
             duration_ms: 1.0,
         });
         let csv = build_mcdm_table_csv(&result, &state).unwrap();

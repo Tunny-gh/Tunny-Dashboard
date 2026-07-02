@@ -329,6 +329,12 @@ impl McdmScatterChart {
                     .map(|s| format!("{s:.4}"))
                     .unwrap_or_else(|| "—".to_string()),
             ));
+            // VIKOR: 妥協解集合（C1/C2）に属する点はモーダルでも明示する。
+            if let McdmResult::Vikor(vr) = result {
+                if vr.compromise_indices.contains(&row) {
+                    context.push(("VIKOR Compromise".to_string(), "★ Yes (C1/C2)".to_string()));
+                }
+            }
             self.detail_modal.open(TrialDetailTarget {
                 trial_id,
                 row_index: row,
@@ -348,6 +354,30 @@ impl McdmScatterChart {
                 .small()
                 .weak(),
             );
+        }
+        // VIKOR: 妥協解集合（Opricovic & Tzeng の受容条件 C1/C2 を満たす解）を明示する。
+        // C1 が不成立の場合は複数解になるため、trial 番号のリストで表示する。
+        if let McdmResult::Vikor(vr) = result {
+            if !vr.compromise_indices.is_empty() {
+                let labels: Vec<String> = vr
+                    .compromise_indices
+                    .iter()
+                    .map(|&row| {
+                        view.df
+                            .get_trial_number(row)
+                            .map(|n| format!("#{n}"))
+                            .unwrap_or_else(|| format!("row {row}"))
+                    })
+                    .collect();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "★ VIKOR compromise set (C1/C2): {}",
+                        labels.join(", ")
+                    ))
+                    .small()
+                    .strong(),
+                );
+            }
         }
         if let Some(ref meta) = self.metadata {
             ui.label(
@@ -837,6 +867,7 @@ mod tests {
             ranked_indices: (0..n as u32).collect(),
             best_values: vec![0.0; 2],
             worst_values: vec![1.0; 2],
+            compromise_indices: if n > 0 { vec![0] } else { vec![] },
             duration_ms: 1.0,
         }
     }

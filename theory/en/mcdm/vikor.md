@@ -13,6 +13,7 @@ VIKOR (VIseKriterijumska Optimizacija I Kompromisno Resenje) finds the compromis
 | `ranked_indices`   | Trial indices sorted by Q ascending (lower Q = better)             |
 | `best_values[j]`   | Best value for objective j across valid trials                     |
 | `worst_values[j]`  | Worst value for objective j across valid trials                    |
+| `compromise_indices` | Compromise solution set (acceptance conditions C1/C2), original trial indices sorted by Q ascending |
 
 ## Algorithm
 
@@ -23,6 +24,8 @@ VIKOR (VIseKriterijumska Optimizacija I Kompromisno Resenje) finds the compromis
 | f_ij     | Value of trial i for objective j            |
 | w_j      | Weight for objective j (normalized, Σ = 1)  |
 | v        | Strategy weight (default 0.5)               |
+
+**Defensive weight normalization**: if the provided weights do not sum to 1, they are divided by their sum when it is positive and finite; otherwise (zero, negative, or NaN sum) uniform weights are used instead.
 
 ### Step 1: Best and Worst Values
 
@@ -64,6 +67,30 @@ Zero-division guard: if S- = S*, the first term is 0; if R- = R*, the second ter
 ### Step 5: Ranking
 
 Sort trials by Q ascending — lower Q is the better compromise solution.
+
+### Step 6: Compromise Acceptance Conditions (C1/C2)
+
+Whether the top-ranked solution $A^{(1)}$ can be accepted as the single compromise solution is decided by the two conditions of Opricovic & Tzeng (2004):
+
+**C1 (acceptable advantage)**:
+
+$$Q(A^{(2)}) - Q(A^{(1)}) \geq DQ, \qquad DQ = \frac{1}{J - 1}$$
+
+where $J$ is the number of valid trials (all objectives finite).
+
+**C2 (acceptable stability in decision making)**:
+
+$A^{(1)}$ is also ranked first (ties allowed) by S or by R.
+
+**Compromise set**:
+
+- C1 and C2 both hold → $A^{(1)}$ is the single compromise solution
+- Only C2 fails → $A^{(1)}$ and $A^{(2)}$
+- C1 fails → all $A^{(1)}, \dots, A^{(k)}$ with $Q(A^{(k)}) - Q(A^{(1)}) < DQ$
+
+Edge cases: $J = 1$ yields the single valid trial; $J = 0$ yields an empty set.
+
+**In this implementation**: the compromise set is returned as `compromise_indices` (original trial indices sorted by Q ascending) and shown with a ★ marker in the MCDM scatter widget (and in the click-detail modal).
 
 ## Comparison with TOPSIS
 
