@@ -46,6 +46,7 @@ pub(crate) fn run_kmeans_on_data(
     let model = match KMeans::params_with_rng(k, rng)
         .max_n_iterations(300)
         .tolerance(1e-5)
+        .n_runs(10)
         .fit(&dataset)
     {
         Ok(m) => m,
@@ -62,6 +63,8 @@ pub(crate) fn run_kmeans_on_data(
         labels,
         centroids,
         wcss: model.inertia(),
+        // Not the actual number of iterations run; linfa does not expose that.
+        // This mirrors the `max_n_iterations(300)` setting above.
         iterations: 300,
     }
 }

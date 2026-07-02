@@ -32,6 +32,10 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
 }
 
 /// Column mean and standard deviation.
+/// The std is the population standard deviation (denominator = n, no Bessel's
+/// correction), matching the usual convention for feature standardization
+/// (e.g. sklearn's StandardScaler). Cluster dispersion statistics in
+/// `clustering::stats` intentionally use the sample std (n-1) instead.
 /// - Empty slice: returns (0.0, 1.0)
 /// - std < EPSILON: std is fixed to 1.0 (zero-division guard)
 pub(crate) fn column_mean_std(vals: &[f64]) -> (f64, f64) {

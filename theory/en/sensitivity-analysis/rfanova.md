@@ -6,6 +6,8 @@ RF-ANOVA measures how much prediction accuracy drops on a **holdout set** when a
 
 This approach avoids MDI's high-cardinality bias because it evaluates real prediction performance, not tree structure.
 
+> **Naming note:** despite the name, "RF-ANOVA" is **not** the functional ANOVA (fANOVA) method of Hutter et al. (2014), which decomposes objective variance by marginalizing over tree leaf intervals. This implementation is instead a **permutation importance** (single shuffle, one pass) evaluated on a holdout split of a trained model. Because the underlying computation differs, **its values do not match Optuna's `fANOVA importance`**. Both aim to rank parameter importance, but they are distinct statistical methods.
+
 ## Formula
 
 Importance of parameter $j$:
