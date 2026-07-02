@@ -459,6 +459,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tc_vikor_b05_neg_inf_trial() {
+        // trial1 has -Inf -> excluded from computation (same treatment as NaN) -> q=1.0, ranked last
+        let values = vec![1.0_f64, 1.0, f64::NEG_INFINITY, 1.0];
+        let result = compute_vikor(&values, 2, 2, &[0.5, 0.5], &[true, true], 0.5);
+        assert!(result.is_ok(), "Inf trial must not error");
+        let r = result.unwrap();
+        assert_eq!(
+            r.q_values[1], 1.0,
+            "Inf trial q must be 1.0, got {}",
+            r.q_values[1]
+        );
+        assert_eq!(
+            r.display_scores[1], 0.0,
+            "Inf trial display_score must be 0.0"
+        );
+        assert_eq!(
+            *r.ranked_indices.last().unwrap(),
+            1u32,
+            "Inf trial must be ranked last"
+        );
+    }
+
     // -------------------------------------------------------------------------
     // Performance
     // -------------------------------------------------------------------------

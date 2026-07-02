@@ -41,13 +41,13 @@ pub(crate) fn validate_inputs(
     Ok(())
 }
 
-/// Return indices of trials that have no NaN objectives.
+/// Return indices of trials whose objectives are all finite (excludes NaN and ±Inf).
 pub(crate) fn filter_valid_indices(
     values: &[f64],
     n_trials: usize,
     n_objectives: usize,
 ) -> Vec<usize> {
     (0..n_trials)
-        .filter(|&i| !(0..n_objectives).any(|j| values[i * n_objectives + j].is_nan()))
+        .filter(|&i| (0..n_objectives).all(|j| values[i * n_objectives + j].is_finite()))
         .collect()
 }
