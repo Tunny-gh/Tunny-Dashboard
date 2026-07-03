@@ -67,10 +67,7 @@ impl Default for ObservedContourState {
             show_contour_lines: false,
             view_3d: false,
             density_shade: true,
-            camera: crate::ui::widgets::scatter_3d::ArcballCamera {
-                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
-                ..Default::default()
-            },
+            camera: crate::ui::widgets::scatter_3d::ArcballCamera::isometric_default(),
             computing: false,
             result: None,
             error_message: None,
@@ -232,10 +229,7 @@ impl Default for SurrogateOptState {
             multi_front_z_obj: 2,
             multi_front_3d: true,
             // Y軸45° + X軸-30° のアイソメトリック初期視点（Pareto 3D と同じ）。
-            multi_front_camera: crate::ui::widgets::scatter_3d::ArcballCamera {
-                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
-                ..Default::default()
-            },
+            multi_front_camera: crate::ui::widgets::scatter_3d::ArcballCamera::isometric_default(),
             show_observed_front: true,
             show_observed_dominated: true,
             show_observed_infeasible: true,

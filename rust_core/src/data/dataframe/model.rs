@@ -176,6 +176,231 @@ impl DataFrame {
         }
     }
 
+    /// 既存 DataFrame へ新規 trial 行を追記する（ストリーミングロード・ライブ更新用）。
+    ///
+    /// 列内容は「既存行の元データと `new_rows` を連結して `from_trials` を呼んだ場合」と
+    /// 一致する（内部の列格納順のみ異なりうるが、参照は名前引きのため影響しない）。
+    /// 行を行指向に復元して全体を作り直す O(全行数) の再構築を避け、列を in-place で
+    /// 伸長するため、コストは O(new_rows × 列数) で済む。
+    ///
+    /// 名前リストは累積（既存列を含む全体）を渡すこと。ストリーミング途中で初出現した
+    /// 列は既存行ぶんをデフォルト値でバックフィルする（param 数値: 0.0 /
+    /// objective・user 数値: NaN / 文字列: "" / 制約: 0.0 / is_feasible: 1.0）。
+    /// 数値 param 列にカテゴリラベルが初出現した場合は `from_trials` と同様に
+    /// 列全体を文字列列へ置き換える（既存行は ""）。
+    pub fn append_trials(
+        &mut self,
+        new_rows: &[TrialRow],
+        param_names: &[String],
+        objective_names: &[String],
+        user_attr_numeric_names: &[String],
+        user_attr_string_names: &[String],
+        max_constraints: usize,
+    ) {
+        if new_rows.is_empty() {
+            return;
+        }
+        let old_n = self.row_count;
+
+        self.trial_ids.extend(new_rows.iter().map(|r| r.trial_id));
+        self.trial_numbers
+            .extend(new_rows.iter().map(|r| r.trial_number));
+
+        // 同名列が複数カテゴリに存在しうるため、「まだ伸長していない（長さ old_n の）
+        // 最初の同名列」を選ぶ。from_trials の列生成順（param → objective → user →
+        // constraint）と本メソッドの処理順が同じなので、対応関係が保たれる。
+        fn extend_numeric(
+            cols: &mut [(String, Vec<f64>)],
+            name: &str,
+            old_n: usize,
+            values: impl Iterator<Item = f64>,
+        ) {
+            if let Some((_, col)) = cols
+                .iter_mut()
+                .find(|(n, col)| n == name && col.len() == old_n)
+            {
+                col.extend(values);
+            }
+        }
+        fn extend_string(
+            cols: &mut [(String, Vec<String>)],
+            name: &str,
+            old_n: usize,
+            values: impl Iterator<Item = String>,
+        ) {
+            if let Some((_, col)) = cols
+                .iter_mut()
+                .find(|(n, col)| n == name && col.len() == old_n)
+            {
+                col.extend(values);
+            }
+        }
+
+        for name in param_names {
+            let new_has_label = new_rows
+                .iter()
+                .any(|r| r.param_category_label.contains_key(name));
+            let label_values = || {
+                new_rows.iter().map(|r| {
+                    r.param_category_label
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+            };
+            if !self.param_col_names.iter().any(|n| n == name) {
+                // ストリーミング途中で初出現した param 列。既存行はデフォルトで埋める。
+                if new_has_label {
+                    let mut vals = vec![String::new(); old_n];
+                    vals.extend(label_values());
+                    self.string_cols.push((name.clone(), vals));
+                } else {
+                    let mut vals = vec![0.0; old_n];
+                    vals.extend(
+                        new_rows
+                            .iter()
+                            .map(|r| *r.param_display.get(name).unwrap_or(&0.0)),
+                    );
+                    self.numeric_cols.push((name.clone(), vals));
+                }
+                self.param_col_names.push(name.clone());
+            } else if self
+                .string_cols
+                .iter()
+                .any(|(n, col)| n == name && col.len() == old_n)
+            {
+                extend_string(&mut self.string_cols, name, old_n, label_values());
+            } else if new_has_label {
+                // 数値列にカテゴリラベルが初出現。from_trials は「1 行でもラベルがあれば
+                // 列全体を文字列」とするため、列を置き換える（既存の数値行は ""）。
+                if let Some(idx) = self
+                    .numeric_cols
+                    .iter()
+                    .position(|(n, col)| n == name && col.len() == old_n)
+                {
+                    self.numeric_cols.remove(idx);
+                }
+                let mut vals = vec![String::new(); old_n];
+                vals.extend(label_values());
+                self.string_cols.push((name.clone(), vals));
+            } else {
+                extend_numeric(
+                    &mut self.numeric_cols,
+                    name,
+                    old_n,
+                    new_rows
+                        .iter()
+                        .map(|r| *r.param_display.get(name).unwrap_or(&0.0)),
+                );
+            }
+        }
+
+        for (i, name) in objective_names.iter().enumerate() {
+            let values = new_rows
+                .iter()
+                .map(move |r| r.objective_values.get(i).copied().unwrap_or(f64::NAN));
+            if self.objective_col_names.iter().any(|n| n == name) {
+                extend_numeric(&mut self.numeric_cols, name, old_n, values);
+            } else {
+                let mut vals = vec![f64::NAN; old_n];
+                vals.extend(values);
+                self.numeric_cols.push((name.clone(), vals));
+                self.objective_col_names.push(name.clone());
+            }
+        }
+
+        for name in user_attr_numeric_names {
+            let values = new_rows
+                .iter()
+                .map(|r| *r.user_attrs_numeric.get(name).unwrap_or(&f64::NAN));
+            if self.user_attr_numeric_col_names.iter().any(|n| n == name) {
+                extend_numeric(&mut self.numeric_cols, name, old_n, values);
+            } else {
+                let mut vals = vec![f64::NAN; old_n];
+                vals.extend(values);
+                self.numeric_cols.push((name.clone(), vals));
+                self.user_attr_numeric_col_names.push(name.clone());
+            }
+        }
+
+        for name in user_attr_string_names {
+            let values = new_rows
+                .iter()
+                .map(|r| r.user_attrs_string.get(name).cloned().unwrap_or_default());
+            if self.user_attr_string_col_names.iter().any(|n| n == name) {
+                extend_string(&mut self.string_cols, name, old_n, values);
+            } else {
+                let mut vals = vec![String::new(); old_n];
+                vals.extend(values);
+                self.string_cols.push((name.clone(), vals));
+                self.user_attr_string_col_names.push(name.clone());
+            }
+        }
+
+        // 制約列数は縮まない（ストリーミング中に増えることはある）。
+        let max_c = max_constraints.max(self.constraint_col_names.len());
+        if max_c > 0 {
+            for ci in 0..max_c {
+                let col_name = format!("c{}", ci + 1);
+                let values = new_rows
+                    .iter()
+                    .map(move |r| r.constraint_values.get(ci).copied().unwrap_or(0.0));
+                if ci < self.constraint_col_names.len() {
+                    extend_numeric(&mut self.numeric_cols, &col_name, old_n, values);
+                } else {
+                    let mut vals = vec![0.0; old_n];
+                    vals.extend(values);
+                    self.numeric_cols.push((col_name.clone(), vals));
+                    self.constraint_col_names.push(col_name);
+                }
+            }
+
+            // 派生列。制約が途中から現れた場合、既存行は「制約なし」= feasible / 合計 0。
+            let feasible_values = new_rows.iter().map(|r| {
+                if r.constraint_values.iter().all(|&c| c <= 0.0) {
+                    1.0
+                } else {
+                    0.0
+                }
+            });
+            if self.derived_col_names.iter().any(|n| n == "is_feasible") {
+                extend_numeric(
+                    &mut self.numeric_cols,
+                    "is_feasible",
+                    old_n,
+                    feasible_values,
+                );
+            } else {
+                let mut vals = vec![1.0; old_n];
+                vals.extend(feasible_values);
+                self.numeric_cols.push(("is_feasible".to_string(), vals));
+                self.derived_col_names.push("is_feasible".to_string());
+            }
+
+            let sum_values = new_rows.iter().map(|r| r.constraint_values.iter().sum());
+            if self.derived_col_names.iter().any(|n| n == "constraint_sum") {
+                extend_numeric(&mut self.numeric_cols, "constraint_sum", old_n, sum_values);
+            } else {
+                let mut vals = vec![0.0; old_n];
+                vals.extend(sum_values);
+                self.numeric_cols.push(("constraint_sum".to_string(), vals));
+                self.derived_col_names.push("constraint_sum".to_string());
+            }
+        }
+
+        self.row_count = old_n + new_rows.len();
+        debug_assert!(
+            self.numeric_cols
+                .iter()
+                .all(|(_, c)| c.len() == self.row_count)
+                && self
+                    .string_cols
+                    .iter()
+                    .all(|(_, c)| c.len() == self.row_count),
+            "append_trials: column length mismatch after append"
+        );
+    }
+
     /// Documentation.
     pub fn get_trial_id(&self, row: usize) -> Option<u32> {
         self.trial_ids.get(row).copied()

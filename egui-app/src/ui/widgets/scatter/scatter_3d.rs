@@ -1,10 +1,14 @@
 //! 3D 散布図描画の共有インフラ。
 //! Pareto・Clustering・MCDM の各 3D ウィジェットが参照する。
 
+use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
     COLOR_3D_BG, COLOR_3D_GRID, COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z,
 };
-use crate::ui::widgets::trial_detail_modal::{nearest_within, HIT_THRESHOLD};
+use crate::ui::widgets::common::range_math;
+use crate::ui::widgets::trial_detail_modal::{
+    nearest_within, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+};
 
 // ── クォータニオン計算 ────────────────────────────────────────────
 
@@ -68,6 +72,15 @@ impl Default for ArcballCamera {
 }
 
 impl ArcballCamera {
+    /// アイソメトリック初期視点（Y軸45° + X軸-30°相当）のカメラを返す。
+    /// Pareto/Cluster/MCDM/PDP の各 3D ウィジェットが既定カメラ姿勢として使う。
+    pub fn isometric_default() -> Self {
+        Self {
+            rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
+            ..Default::default()
+        }
+    }
+
     pub fn apply_zoom(&mut self, delta: f32) {
         self.zoom = (self.zoom - delta).clamp(0.5, 10.0);
     }
@@ -103,24 +116,42 @@ impl ArcballCamera {
 
 /// 列スライスから [min, max] を計算する（StudyView の列を直接受け取る・MEM-002）。
 pub fn compute_range_from_col(col: Option<&[f64]>) -> (f64, f64) {
-    let mut mn = f64::INFINITY;
-    let mut mx = f64::NEG_INFINITY;
-    if let Some(c) = col {
-        for &v in c {
-            if v < mn {
-                mn = v;
-            }
-            if v > mx {
-                mx = v;
-            }
+    match col.and_then(|c| range_math::value_range(c.iter().copied())) {
+        Some((mn, mx)) if mn.is_finite() && mx.is_finite() => range_math::expand_degenerate(mn, mx),
+        _ => (-1.0, 1.0),
+    }
+}
+
+/// x/y/z 軸のデータ範囲キャッシュ。
+/// `key`（通常は軸インデックス3つ + 行数のタプル）が前回と変わらない限り、
+/// `compute_range_from_col` による再計算を省略する。
+#[derive(Debug, Clone)]
+pub struct Range3DCache<K> {
+    key: Option<K>,
+    ranges: [(f64, f64); 3],
+}
+
+impl<K> Default for Range3DCache<K> {
+    fn default() -> Self {
+        Self {
+            key: None,
+            ranges: [(-1.0, 1.0); 3],
         }
     }
-    if !mn.is_finite() || !mx.is_finite() {
-        (-1.0, 1.0)
-    } else if (mx - mn).abs() < f64::EPSILON {
-        (mn - 1.0, mx + 1.0)
-    } else {
-        (mn, mx)
+}
+
+impl<K: PartialEq> Range3DCache<K> {
+    /// `key` が前回のキャッシュキーと異なる場合のみ `compute` で x/y/z 範囲を再計算する。
+    pub fn get_or_compute(
+        &mut self,
+        key: K,
+        compute: impl FnOnce() -> [(f64, f64); 3],
+    ) -> [(f64, f64); 3] {
+        if self.key.as_ref() != Some(&key) {
+            self.ranges = compute();
+            self.key = Some(key);
+        }
+        self.ranges
     }
 }
 
@@ -251,6 +282,44 @@ pub fn pick_nearest_3d(
 ) -> Option<(u32, usize)> {
     let pts: Vec<egui::Pos2> = candidates.iter().map(|c| c.2).collect();
     nearest_within(&pts, pos, HIT_THRESHOLD).map(|i| (candidates[i].0, candidates[i].1))
+}
+
+/// 3D 散布図共通の「ホバーでツールチップ・クリックで詳細モーダル」フロー。
+/// - モーダル表示中はホバーのツールチップ表示を抑止する。
+/// - `hover_rows`/`click_context` はヒットした行 index から表示行を組み立てるクロージャ
+///   （ウィジェットによってホバーとクリックで見せる内容が異なるため分離している）。
+#[allow(clippy::too_many_arguments)]
+pub fn show_hover_and_click_detail(
+    ui: &mut egui::Ui,
+    view: &StudyView,
+    candidates: &[(u32, usize, egui::Pos2)],
+    hover_pos: Option<egui::Pos2>,
+    click_pos: Option<egui::Pos2>,
+    tooltip_id: &str,
+    detail_modal: &mut TrialDetailModal,
+    hover_rows: impl Fn(usize) -> Vec<(String, String)>,
+    click_context: impl Fn(usize) -> Vec<(String, String)>,
+) {
+    if !detail_modal.is_open() {
+        if let Some(hover) = hover_pos {
+            if let Some((_, row)) = pick_nearest_3d(candidates, hover) {
+                let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
+                let rows = hover_rows(row);
+                show_hover_tooltip(ui, tooltip_id, trial_number, &rows);
+            }
+        }
+    }
+
+    if let Some(click) = click_pos {
+        if let Some((trial_id, row)) = pick_nearest_3d(candidates, click) {
+            let context = click_context(row);
+            detail_modal.open(TrialDetailTarget {
+                trial_id,
+                row_index: row,
+                context,
+            });
+        }
+    }
 }
 
 // ── グリッド・軸描画 ──────────────────────────────────────────────

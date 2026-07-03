@@ -44,6 +44,10 @@ pub struct TrialTable {
     pub cluster: ClusterTable,
     /// MCDM モードの設定・描画を担うサブウィジェット。
     pub mcdm: McdmTable,
+    /// 表示対象の行インデックス（選択∪ピン）のキャッシュ。
+    /// `selected_indices` / `pinned` の中身か行数が変わらない限り再計算しない。
+    visible_cache: Option<Vec<usize>>,
+    visible_cache_key: Option<(Vec<u32>, Vec<u32>, usize)>, // (selected_indices, pinned, row_count)
 }
 
 impl TrialTable {
@@ -112,23 +116,30 @@ impl TrialTable {
         let param_names = study_ctx.meta.param_names.clone();
         let obj_names = study_ctx.meta.objective_names.clone();
 
-        // 行を materialize せず、表示対象の行インデックス（選択∪ピン、元順序）を計算する
+        // 行を materialize せず、表示対象の行インデックス（選択∪ピン、元順序）を計算する。
+        // selected_indices / pinned の中身と行数が変わらない限り再計算しない。
         let view = &study_ctx.view;
         let n = view.row_count();
-        let visible: Vec<usize> = if app_state.selected_indices.is_empty() {
-            (0..n).collect()
-        } else {
-            let set: std::collections::HashSet<u32> =
-                crate::state::app_state::merge_selected_with_pinned(
-                    &app_state.selected_indices,
-                    &pinned,
-                )
-                .into_iter()
-                .collect();
-            (0..n)
-                .filter(|&i| view.trial_ids.get(i).is_some_and(|id| set.contains(id)))
-                .collect()
-        };
+        let cache_key = (app_state.selected_indices.clone(), pinned.clone(), n);
+        if self.visible_cache.is_none() || self.visible_cache_key.as_ref() != Some(&cache_key) {
+            let visible: Vec<usize> = if app_state.selected_indices.is_empty() {
+                (0..n).collect()
+            } else {
+                let set: std::collections::HashSet<u32> =
+                    crate::state::app_state::merge_selected_with_pinned(
+                        &app_state.selected_indices,
+                        &pinned,
+                    )
+                    .into_iter()
+                    .collect();
+                (0..n)
+                    .filter(|&i| view.trial_ids.get(i).is_some_and(|id| set.contains(id)))
+                    .collect()
+            };
+            self.visible_cache = Some(visible);
+            self.visible_cache_key = Some(cache_key);
+        }
+        let visible = self.visible_cache.as_ref().unwrap();
         // 列スライスを view から借用（行クローンを持たない）
         let param_cols = view.numeric_columns(&param_names);
         let obj_cols = view.numeric_columns(&obj_names);

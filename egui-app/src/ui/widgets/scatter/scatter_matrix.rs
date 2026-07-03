@@ -38,6 +38,12 @@ pub struct ScatterMatrix {
     pub show_infeasible: bool,
     /// 点の色付けに使う目的関数名（None は先頭の目的関数にフォールバック）
     pub color_objective: Option<String>,
+    /// feasible/infeasible 分割＋間引き済みインデックスのキャッシュ（(feasible, infeasible)）
+    downsample_cache: Option<(Vec<u32>, Vec<u32>)>,
+    downsample_cache_key: Option<(usize, bool)>, // (trial_count, has_constraints)
+    /// 行・列ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
+    label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
+    label_galleys_cache_key: Option<Vec<String>>,
 }
 
 impl Default for ScatterMatrix {
@@ -48,6 +54,10 @@ impl Default for ScatterMatrix {
             selected_cell: None,
             show_infeasible: true,
             color_objective: None,
+            downsample_cache: None,
+            downsample_cache_key: None,
+            label_galleys_cache: None,
+            label_galleys_cache_key: None,
         }
     }
 }
@@ -118,23 +128,40 @@ impl ScatterMatrix {
             }
         });
 
-        let (feasible_indices, infeasible_indices) = split_feasibility_indices(trial_count, feas);
         let show_infeasible = self.show_infeasible;
 
         // 描画パフォーマンス対策: セルあたりの表示点数に上限を設ける。
         // 全散布図セルで同じ間引きインデックスを使い回す（毎セル再計算しない）。
-        let feasible_draw = downsample_indices_to_cap(&feasible_indices, MAX_SCATTER_POINTS);
-        let infeasible_draw = downsample_indices_to_cap(&infeasible_indices, MAX_SCATTER_POINTS);
+        // feasible/infeasible 分割＋間引きは trial_count・制約有無が変わらない限り再計算しない。
+        let ds_key = (trial_count, has_constraints);
+        if self.downsample_cache.is_none() || self.downsample_cache_key != Some(ds_key) {
+            let (feasible_indices, infeasible_indices) =
+                split_feasibility_indices(trial_count, feas);
+            let feasible_draw = downsample_indices_to_cap(&feasible_indices, MAX_SCATTER_POINTS);
+            let infeasible_draw =
+                downsample_indices_to_cap(&infeasible_indices, MAX_SCATTER_POINTS);
+            self.downsample_cache = Some((feasible_draw, infeasible_draw));
+            self.downsample_cache_key = Some(ds_key);
+        }
+        let (feasible_draw, infeasible_draw) = self.downsample_cache.as_ref().unwrap();
 
-        // 行・列ラベルを事前レイアウトしてサイズを測る
+        // 行・列ラベルを事前レイアウトしてサイズを測る。
+        // レイアウトは軸名リストが変わらない限り毎フレーム再計算しない。
         let outer = ui.available_rect_before_wrap();
         let painter = ui.painter().clone();
         let label_color = ui.visuals().text_color();
         let label_font = egui::FontId::proportional(10.0);
-        let label_galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
-            .iter()
-            .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), label_color))
-            .collect();
+        if self.label_galleys_cache.is_none()
+            || self.label_galleys_cache_key.as_deref() != Some(&all_names[..])
+        {
+            let galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
+                .iter()
+                .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), label_color))
+                .collect();
+            self.label_galleys_cache = Some(galleys);
+            self.label_galleys_cache_key = Some(all_names.clone());
+        }
+        let label_galleys = self.label_galleys_cache.as_ref().unwrap();
         let max_label_w = label_galleys
             .iter()
             .map(|g| g.size().x)
@@ -237,6 +264,9 @@ impl ScatterMatrix {
         }
         // 選択した目的関数の値でカラーマップ色を計算する。
         // 目的関数がない・列が取れない場合は全点 COLOR_SCATTER_DOT。
+        // 実際に描画するのは間引き後の feasible_draw/infeasible_draw のみのため、
+        // 色配列も全トライアル分ではなく間引き後の点数分だけ計算する
+        // （draw_scatter_cell は colors を downsample_indices と同じ並び順で参照する）。
         let point_colors: Vec<egui::Color32> = {
             use super::parallel_coords::{feasible_color_range, normalize_value};
             let color_obj_name = resolve_color_objective(&self.color_objective, obj_names);
@@ -245,9 +275,10 @@ impl ScatterMatrix {
                     let col_min = col.iter().cloned().fold(f64::INFINITY, f64::min);
                     let col_max = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
                     let (mn, mx) = feasible_color_range(col, feas, (col_min, col_max));
-                    (0..trial_count)
-                        .map(|i| {
-                            let v = col.get(i).copied().unwrap_or(f64::NAN);
+                    feasible_draw
+                        .iter()
+                        .map(|&i| {
+                            let v = col.get(i as usize).copied().unwrap_or(f64::NAN);
                             if v.is_finite() {
                                 cmap.interpolate(normalize_value(v, mn, mx))
                             } else {
@@ -256,13 +287,13 @@ impl ScatterMatrix {
                         })
                         .collect()
                 } else {
-                    vec![COLOR_SCATTER_DOT; trial_count]
+                    vec![COLOR_SCATTER_DOT; feasible_draw.len()]
                 }
             } else {
-                vec![COLOR_SCATTER_DOT; trial_count]
+                vec![COLOR_SCATTER_DOT; feasible_draw.len()]
             }
         };
-        let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE; trial_count];
+        let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE; infeasible_draw.len()];
 
         for row in 0..n {
             for col in 0..n {
@@ -284,7 +315,7 @@ impl ScatterMatrix {
                             cols[col],
                             cols[row],
                             &infeasible_colors,
-                            Some(&infeasible_draw),
+                            Some(infeasible_draw),
                         );
                     }
                     // feasible（制約なし時は全点）を前面に描画
@@ -294,7 +325,7 @@ impl ScatterMatrix {
                         cols[col],
                         cols[row],
                         &point_colors,
-                        Some(&feasible_draw),
+                        Some(feasible_draw),
                     );
                 }
 
@@ -458,7 +489,10 @@ pub fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
     }
 }
 
-/// 散布図セルを painter で描画する
+/// 散布図セルを painter で描画する。
+/// `colors` はトライアル全体分ではなく、実際に描画するインデックス列（`downsample_indices`
+/// があればその並び順、無ければ 0..x_data.len()）に対応する分だけ渡せばよい
+/// （呼び出し側で間引き後の点数分だけ計算することでフレームごとの計算量を抑える）。
 pub fn draw_scatter_cell(
     painter: &egui::Painter,
     cell_rect: egui::Rect,
@@ -478,7 +512,7 @@ pub fn draw_scatter_cell(
         Box::new(0..x_data.len())
     };
 
-    for i in indices {
+    for (k, i) in indices.enumerate() {
         if i >= x_data.len() || i >= y_data.len() {
             continue;
         }
@@ -489,7 +523,7 @@ pub fn draw_scatter_cell(
             (y_min, y_max),
             cell_rect,
         );
-        let color = colors.get(i).copied().unwrap_or(COLOR_SCATTER_DOT);
+        let color = colors.get(k).copied().unwrap_or(COLOR_SCATTER_DOT);
         painter.circle_filled(pos, 1.6, color);
     }
 }

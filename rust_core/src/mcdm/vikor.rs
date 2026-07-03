@@ -16,18 +16,6 @@ pub struct VikorResult {
     pub duration_ms: f64,
 }
 
-/// Defensively normalize weights so they sum to 1.
-/// If the sum is not finite/positive (e.g. all zero, NaN, negative), fall back
-/// to uniform weights instead of dividing by a degenerate sum.
-fn normalize_weights_defensive(weights: &[f64]) -> Vec<f64> {
-    let sum: f64 = weights.iter().sum();
-    if !sum.is_finite() || sum <= 0.0 {
-        let n = weights.len().max(1);
-        return vec![1.0 / n as f64; weights.len()];
-    }
-    weights.iter().map(|&w| w / sum).collect()
-}
-
 pub fn compute_vikor(
     values: &[f64],
     n_trials: usize,
@@ -42,7 +30,7 @@ pub fn compute_vikor(
 
     // Weights are expected to sum to 1, but defend against callers that pass
     // unnormalized weights (or a degenerate sum) instead of erroring out.
-    let weights = normalize_weights_defensive(weights);
+    let weights = super::normalize_weights(weights);
     let weights = weights.as_slice();
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);
@@ -583,22 +571,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tc_vikor_013_weight_normalization_fallback_on_degenerate_sum() {
-        // Zero, negative, or NaN weight sums fall back to uniform weights
-        // instead of dividing by a degenerate value.
-        assert_eq!(normalize_weights_defensive(&[0.0, 0.0]), vec![0.5, 0.5]);
-        assert_eq!(normalize_weights_defensive(&[-1.0, -1.0]), vec![0.5, 0.5]);
-        let nan_result = normalize_weights_defensive(&[f64::NAN, 1.0]);
-        assert_eq!(nan_result, vec![0.5, 0.5]);
-    }
-
-    #[test]
-    fn tc_vikor_014_weight_normalization_divides_by_sum() {
-        let result = normalize_weights_defensive(&[1.0, 3.0]);
-        assert!((result[0] - 0.25).abs() < 1e-9);
-        assert!((result[1] - 0.75).abs() < 1e-9);
-    }
+    // Weight normalization itself (empty/zero/negative/NaN fallback, division by
+    // sum) is tested in `crate::mcdm::tests`; `tc_vikor_012` above covers that
+    // compute_vikor's own normalization step produces consistent results.
 
     // -------------------------------------------------------------------------
     // Error cases

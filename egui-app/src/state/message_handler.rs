@@ -2,7 +2,6 @@ use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
 use crate::state::messages::{AppMessage, DownsampleKey};
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
-use std::collections::HashMap;
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 
 /// バックグラウンドタスクからのメッセージを処理するハンドラー
@@ -351,72 +350,12 @@ impl MessageHandler {
         ));
     }
 
-    /// 現在の DataFrame スナップショットから core TrialRow 群を再構築する。
-    /// ライブ更新で新試行を加えた DataFrame を作り直すための入力に用いる。
-    fn core_rows_from_df(df: &DataFrame) -> Vec<CoreTrialRow> {
-        let n = df.row_count();
-        let param_names = df.param_col_names().to_vec();
-        let obj_names = df.objective_col_names().to_vec();
-        let un = df.user_attr_numeric_col_names().to_vec();
-        let us = df.user_attr_string_col_names().to_vec();
-        let cn = df.constraint_col_names().to_vec();
-        (0..n)
-            .map(|i| {
-                let mut param_display = HashMap::new();
-                let mut param_category_label = HashMap::new();
-                for name in &param_names {
-                    if let Some(col) = df.get_numeric_column(name) {
-                        if let Some(v) = col.get(i) {
-                            param_display.insert(name.clone(), *v);
-                        }
-                    } else if let Some(col) = df.get_string_column(name) {
-                        if let Some(v) = col.get(i) {
-                            param_category_label.insert(name.clone(), v.clone());
-                        }
-                    }
-                }
-                let objective_values = obj_names
-                    .iter()
-                    .filter_map(|o| df.get_numeric_column(o).and_then(|c| c.get(i).copied()))
-                    .collect();
-                let mut user_attrs_numeric = HashMap::new();
-                for name in &un {
-                    if let Some(c) = df.get_numeric_column(name) {
-                        if let Some(v) = c.get(i) {
-                            user_attrs_numeric.insert(name.clone(), *v);
-                        }
-                    }
-                }
-                let mut user_attrs_string = HashMap::new();
-                for name in &us {
-                    if let Some(c) = df.get_string_column(name) {
-                        if let Some(v) = c.get(i) {
-                            user_attrs_string.insert(name.clone(), v.clone());
-                        }
-                    }
-                }
-                let constraint_values = cn
-                    .iter()
-                    .filter_map(|c| df.get_numeric_column(c).and_then(|col| col.get(i).copied()))
-                    .collect();
-                CoreTrialRow {
-                    trial_id: df.get_trial_id(i).unwrap_or(i as u32),
-                    trial_number: df.get_trial_number(i).unwrap_or(i as u32),
-                    param_display,
-                    param_category_label,
-                    objective_values,
-                    user_attrs_numeric,
-                    user_attrs_string,
-                    constraint_values,
-                }
-            })
-            .collect()
-    }
-
     /// Study 選択時のストリーミングロード 1 バッチを適用する。
     ///
     /// - 最初のバッチ（`is_first`）: 既存状態をクリアし StudyContext を新規生成。
-    /// - 以降: 既存 DataFrame から行を再構築 → 新規行を追記 → 列を含め DataFrame を作り直す。
+    /// - 以降: 既存 DataFrame の列クローンへ `append_trials` で新規行を追記する。
+    ///   行指向への再構築（旧 core_rows_from_df 方式）はチャンクごとに O(ロード済み行数) の
+    ///   HashMap/String 生成を伴いロード全体で O(n²) になるため廃止した。
     /// - Pareto は重い（多目的 nd_sort が O(N²)）ため**ストリーミング中は計算せず**、
     ///   `is_final` のバッチで一度だけ確定計算する（読み込み中は rank 0 表示）。
     #[allow(clippy::too_many_arguments)]
@@ -436,34 +375,26 @@ impl MessageHandler {
         is_loading: &mut bool,
     ) {
         // 最初のバッチは Study 切り替えとして既存状態をリセットする。
+        // 以降のバッチは列クローン（memcpy 相当）+ in-place 追記。制約列数の増加は
+        // append_trials 側が既存列数と max を取って吸収する。
         let start_fresh = is_first || app_state.current_study.is_none();
-        let mut all_rows: Vec<CoreTrialRow> = if start_fresh {
+        let mut new_df = if start_fresh {
             app_state.clear();
-            Vec::with_capacity(new_rows.len())
+            DataFrame::empty()
         } else {
             app_state
                 .current_study
                 .as_ref()
-                .map(|s| Self::core_rows_from_df(&s.view.df))
-                .unwrap_or_default()
+                .map(|s| (*s.view.df).clone())
+                .unwrap_or_else(DataFrame::empty)
         };
-        // 既存スナップショットの制約列数も考慮（streaming 中に制約列が増えても保持）。
-        let max_c = max_constraints.max(
-            app_state
-                .current_study
-                .as_ref()
-                .map(|s| s.view.df.constraint_col_names().len())
-                .unwrap_or(0),
-        );
-        all_rows.extend(new_rows);
-
-        let new_df = DataFrame::from_trials(
-            &all_rows,
+        new_df.append_trials(
+            &new_rows,
             &param_names,
             &objective_names,
             &user_attr_numeric_names,
             &user_attr_string_names,
-            max_c,
+            max_constraints,
         );
         let arc = std::sync::Arc::new(new_df);
         tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
@@ -531,10 +462,11 @@ impl MessageHandler {
         if let Some(study) = &mut app_state.current_study {
             let study_id = study.meta.study_id;
 
-            // 既存 DataFrame から core 行を再構築し、新試行を追加して DataFrame を作り直す。
-            let mut all_rows = Self::core_rows_from_df(&study.view.df);
-            for core_row in &new_core_rows {
-                all_rows.push(CoreTrialRow {
+            // 既存 DataFrame の列クローンへライブ差分の新試行のみを追記する
+            // （全行の行指向再構築は行わない）。
+            let added_rows: Vec<CoreTrialRow> = new_core_rows
+                .iter()
+                .map(|core_row| CoreTrialRow {
                     trial_id: core_row.trial_id,
                     trial_number: core_row.trial_number,
                     param_display: core_row.params.clone(),
@@ -543,16 +475,16 @@ impl MessageHandler {
                     user_attrs_numeric: core_row.user_attrs_numeric.clone(),
                     user_attrs_string: core_row.user_attrs_string.clone(),
                     constraint_values: core_row.constraint_values.clone(),
-                });
-            }
+                })
+                .collect();
 
             let param_names = study.meta.param_names.clone();
             let obj_names = study.meta.objective_names.clone();
             let un = study.view.df.user_attr_numeric_col_names().to_vec();
             let us = study.view.df.user_attr_string_col_names().to_vec();
             let max_c = study.view.df.constraint_col_names().len();
-            let new_df =
-                DataFrame::from_trials(&all_rows, &param_names, &obj_names, &un, &us, max_c);
+            let mut new_df = (*study.view.df).clone();
+            new_df.append_trials(&added_rows, &param_names, &obj_names, &un, &us, max_c);
 
             let is_minimize: Vec<bool> = study
                 .meta

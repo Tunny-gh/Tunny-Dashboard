@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::app_state::AppState;
 
 // ============================================================
@@ -57,29 +59,33 @@ impl AppState {
     }
 
     /// filter_ranges に基づいて selected_indices を再計算する
+    ///
+    /// 実際の行フィルタは `tunny_core::filter::filter_rows_permissive` に委譲する
+    /// （列が存在しない場合は除外しない「素通し」挙動）。
     fn apply_filters(&mut self) {
         if let Some(ctx) = &self.current_study {
             if self.filter_ranges.is_empty() {
                 self.selected_indices = ctx.view.trial_ids.clone();
                 return;
             }
-            // filter_ranges のクローンを使ってボローを回避
-            let ranges = self.filter_ranges.clone();
-            // 列スライスで直接フィルタ（per-row HashMap 再構築を回避）
-            let n = ctx.view.row_count();
-            self.selected_indices = (0..n)
-                .filter(|&i| {
-                    ranges.iter().all(|(param, (min, max))| {
-                        if let Some(col) = ctx.view.numeric_column(param) {
-                            let val = col.get(i).copied().unwrap_or(f64::NAN);
-                            val.is_finite() && val >= *min && val <= *max
-                        } else {
-                            true // 列が存在しない場合は除外しない
-                        }
-                    })
+            let ranges: HashMap<String, tunny_core::filter::Range> = self
+                .filter_ranges
+                .iter()
+                .map(|(param, &(min, max))| {
+                    (
+                        param.clone(),
+                        tunny_core::filter::Range {
+                            min: Some(min),
+                            max: Some(max),
+                        },
+                    )
                 })
-                .map(|i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
                 .collect();
+            self.selected_indices =
+                tunny_core::filter::filter_rows_permissive(&ctx.view.df, &ranges)
+                    .into_iter()
+                    .map(|i| ctx.view.trial_ids.get(i as usize).copied().unwrap_or(i))
+                    .collect();
         }
     }
 }

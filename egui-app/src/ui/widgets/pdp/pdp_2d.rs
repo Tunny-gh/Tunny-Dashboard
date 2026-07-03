@@ -2,6 +2,8 @@ use crate::state::messages::PdpResult2d;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_CONTOUR, COLOR_PDP_CI};
 use crate::theme::colormap::ColorMap;
+use crate::ui::widgets::common::heatmap::draw_colorbar_simple;
+use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::pdp_chart::{classify_observed, ModelType, ObservedKind};
 use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
@@ -52,10 +54,7 @@ impl Default for PdpChart2DState {
             result: None,
             computing: false,
             pending_compute: None,
-            camera: ArcballCamera {
-                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
-                ..Default::default()
-            },
+            camera: ArcballCamera::isometric_default(),
             show_uncertainty: true,
             show_observed: false,
             feasible_only: false,
@@ -263,9 +262,10 @@ impl PdpChart2DState {
             })
             .collect();
 
-        // キャンバス（右側にカラーバー分の余白を確保）
+        // キャンバス（右側にカラーバー分の余白を確保。バー＋数値目盛＋縦書きタイトル分。
+        // observed_contour.rs の COLORBAR_RESERVE と同じ幅を確保する）
         let avail = ui.available_size();
-        let canvas_size = egui::vec2((avail.x - 72.0).max(120.0), avail.y.max(160.0));
+        let canvas_size = egui::vec2((avail.x - 96.0).max(120.0), avail.y.max(160.0));
         ui.allocate_ui(canvas_size, |ui| {
             ui.set_min_size(canvas_size);
             let (painter, rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);
@@ -291,12 +291,13 @@ impl PdpChart2DState {
                 [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
             );
 
-            // カラーバーはキャンバス右脇に重ねて描画する（色 = Mean の値域）
+            // カラーバーはキャンバス右脇に重ねて描画する（色 = Mean の値域）。
+            // ヒートマップ・contour と同じ共有描画（observed_contour.rs）を使う。
             let bar_rect = egui::Rect::from_min_size(
-                egui::pos2(rect.right() + 4.0, rect.top()),
-                egui::vec2(16.0, rect.height()),
+                egui::pos2(rect.right() + 6.0, rect.top()),
+                egui::vec2(14.0, rect.height()),
             );
-            draw_colorbar(ui, bar_rect, c_min, c_max, cmap.clone());
+            draw_colorbar_simple(ui, bar_rect, c_min, c_max, cmap.clone(), Some(&value_label));
         });
     }
 }
@@ -575,76 +576,22 @@ fn draw_surface_mesh(
 
 /// 軸グリッド値（昇順 linspace）から値域 [min, max] を返す
 fn axis_range_of(values: &[f64]) -> (f64, f64) {
-    let mn = values.iter().cloned().fold(f64::INFINITY, f64::min);
-    let mx = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    if !mn.is_finite() || !mx.is_finite() {
-        (-1.0, 1.0)
-    } else {
-        (mn, mx)
-    }
-}
-
-/// カラーバーを描画する（値ラベルもバー脇に painter で直接描く）
-fn draw_colorbar(ui: &mut egui::Ui, bar_rect: egui::Rect, v_min: f64, v_max: f64, cmap: ColorMap) {
-    let label_w = 44.0;
-    let paint_rect = egui::Rect::from_min_size(
-        bar_rect.min,
-        egui::vec2(bar_rect.width() + label_w, bar_rect.height()),
-    );
-    let painter = ui.painter_at(paint_rect);
-    let n_steps = 64;
-    let step_h = bar_rect.height() / n_steps as f32;
-
-    for i in 0..n_steps {
-        let t = 1.0 - (i as f32 / n_steps as f32); // top = max
-        let color = cmap.interpolate(t);
-        let step_rect = egui::Rect::from_min_size(
-            egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
-            egui::vec2(bar_rect.width(), step_h + 1.0),
-        );
-        painter.rect_filled(step_rect, 0.0, color);
-    }
-
-    // 値テキスト（上 = max / 中央 / 下 = min）
-    let text_color = ui.visuals().text_color();
-    let font = egui::FontId::proportional(10.0);
-    let text_x = bar_rect.right() + 2.0;
-    for (y, align, v) in [
-        (bar_rect.top(), egui::Align2::LEFT_TOP, v_max),
-        (
-            bar_rect.center().y,
-            egui::Align2::LEFT_CENTER,
-            (v_min + v_max) / 2.0,
-        ),
-        (bar_rect.bottom(), egui::Align2::LEFT_BOTTOM, v_min),
-    ] {
-        painter.text(
-            egui::pos2(text_x, y),
-            align,
-            format!("{:.2}", v),
-            font.clone(),
-            text_color,
-        );
+    match range_math::value_range(values.iter().copied()) {
+        Some((mn, mx)) if mn.is_finite() && mx.is_finite() => (mn, mx),
+        _ => (-1.0, 1.0),
     }
 }
 
 /// 値を [0.0, 1.0] に正規化する
 pub fn normalize_value(v: f64, v_min: f64, v_max: f64) -> f32 {
-    if (v_max - v_min).abs() < f64::EPSILON {
-        return 0.5;
-    }
-    ((v - v_min) / (v_max - v_min)).clamp(0.0, 1.0) as f32
+    range_math::normalize01(v, v_min, v_max)
 }
 
-/// 値グリッドの値域 [min, max] を返す
+/// 値グリッドの値域 [min, max] を返す。
+/// `value_range_of` は退化範囲（min==max）を拡張しない点が heatmap 側の
+/// `value_range` と異なるため、共有ヘルパーの degenerate 拡張は使わない。
 pub fn value_range_of(values: &[Vec<f64>]) -> (f64, f64) {
-    let flat: Vec<f64> = values.iter().flatten().copied().collect();
-    if flat.is_empty() {
-        return (0.0, 1.0);
-    }
-    let v_min = flat.iter().cloned().fold(f64::INFINITY, f64::min);
-    let v_max = flat.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    (v_min, v_max)
+    range_math::value_range(values.iter().flatten().copied()).unwrap_or((0.0, 1.0))
 }
 
 /// param1 と param2 が異なることを確認する（同一の場合 false）
