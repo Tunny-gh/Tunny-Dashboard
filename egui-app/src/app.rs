@@ -189,9 +189,9 @@ impl TunnyApp {
     }
 
     /// 開いているファイルのフルパスをウィンドウタイトルバーに反映する。
-    /// ファイル未読み込み時は "Tunny Dashboard"、読み込み時は "Tunny Dashboard - <フルパス>"。
+    /// ファイル未読み込み時は "Tunny Dashboard (Beta)"、読み込み時は "Tunny Dashboard (Beta) - <フルパス>"。
     fn sync_window_title(&mut self, ctx: &egui::Context) {
-        const BASE_TITLE: &str = "Tunny Dashboard";
+        const BASE_TITLE: &str = "Tunny Dashboard (Beta)";
         let title = match self
             .app_state
             .journal_path

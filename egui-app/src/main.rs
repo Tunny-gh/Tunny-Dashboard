@@ -60,6 +60,7 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_title("Tunny Dashboard (Beta)")
             .with_inner_size([1280.0, 800.0])
             .with_icon(load_app_icon()),
         ..Default::default()
