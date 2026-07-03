@@ -29,6 +29,7 @@ arc-swap = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"
 
 [[bench]]
 name = "sampling_bench"

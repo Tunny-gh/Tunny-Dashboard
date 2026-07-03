@@ -1,5 +1,6 @@
 use crate::state::app_state::TrialRow;
 use crate::state::types::StudyView;
+use tunny_core::export::{CsvField, CsvWriter};
 
 /// CSVエクスポートの対象
 #[derive(Debug, Clone, PartialEq)]
@@ -29,48 +30,59 @@ pub fn select_rows_for_export<'a>(
     }
 }
 
+/// trial エクスポート共通のヘッダ列
+/// （trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id）を書き込む。
+fn write_trial_header(w: &mut CsvWriter, param_names: &[String], objective_names: &[String]) {
+    let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
+    header.extend(param_names.iter().map(String::as_str));
+    header.extend(objective_names.iter().map(String::as_str));
+    header.push("pareto_rank");
+    header.push("cluster_id");
+    w.header(header);
+}
+
 /// `TrialRow` のスライスから CSV 文字列を生成する純粋関数。
 /// 列順: trial_id, trial_number, <params...>, <objectives...>, pareto_rank, cluster_id
+/// エスケープ・数式ガードは tunny_core の `CsvWriter` に委譲する。
 pub fn build_csv_string(
     rows: &[&TrialRow],
     param_names: &[String],
     objective_names: &[String],
 ) -> String {
-    let mut lines = Vec::with_capacity(rows.len() + 1);
+    let mut w = CsvWriter::new();
+    write_trial_header(&mut w, param_names, objective_names);
 
-    // Header
-    let mut header = vec!["trial_id".to_string(), "trial_number".to_string()];
-    header.extend(param_names.iter().cloned());
-    header.extend(objective_names.iter().cloned());
-    header.push("pareto_rank".to_string());
-    header.push("cluster_id".to_string());
-    lines.push(header.join(","));
-
-    // Data rows
     for row in rows {
-        let mut parts = vec![row.trial_id.to_string(), row.trial_number.to_string()];
+        let mut fields = vec![
+            CsvField::UInt(row.trial_id as u64),
+            CsvField::UInt(row.trial_number as u64),
+        ];
         for name in param_names {
-            parts.push(
+            fields.push(
                 row.params
                     .get(name)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default(),
+                    .map(|v| CsvField::Num(*v))
+                    .unwrap_or(CsvField::Empty),
             );
         }
-        for (i, _) in objective_names.iter().enumerate() {
-            parts.push(
+        for i in 0..objective_names.len() {
+            fields.push(
                 row.objectives
                     .get(i)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default(),
+                    .map(|v| CsvField::Num(*v))
+                    .unwrap_or(CsvField::Empty),
             );
         }
-        parts.push(row.pareto_rank.to_string());
-        parts.push(row.cluster_id.map(|c| c.to_string()).unwrap_or_default());
-        lines.push(parts.join(","));
+        fields.push(CsvField::UInt(row.pareto_rank as u64));
+        fields.push(
+            row.cluster_id
+                .map(|c| CsvField::Int(c as i64))
+                .unwrap_or(CsvField::Empty),
+        );
+        w.row(fields);
     }
 
-    lines.join("\n")
+    w.finish()
 }
 
 /// `StudyView` と行インデックスリストから CSV 文字列を生成する。
@@ -84,43 +96,32 @@ pub fn build_csv_string_from_view(
     let param_cols = view.numeric_columns(param_names);
     let obj_cols = view.numeric_columns(objective_names);
 
-    let mut lines = Vec::with_capacity(row_indices.len() + 1);
-
-    let mut header = vec!["trial_id".to_string(), "trial_number".to_string()];
-    header.extend(param_names.iter().cloned());
-    header.extend(objective_names.iter().cloned());
-    header.push("pareto_rank".to_string());
-    header.push("cluster_id".to_string());
-    lines.push(header.join(","));
+    let mut w = CsvWriter::new();
+    write_trial_header(&mut w, param_names, objective_names);
 
     for &i in row_indices {
         let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
         let trial_number = view.df.get_trial_number(i).unwrap_or(i as u32);
         let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
         let cluster = view.cluster_id.get(i).copied().flatten();
-        let mut parts = vec![trial_id.to_string(), trial_number.to_string()];
-        for col in &param_cols {
+        let mut fields = vec![
+            CsvField::UInt(trial_id as u64),
+            CsvField::UInt(trial_number as u64),
+        ];
+        for col in param_cols.iter().chain(&obj_cols) {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            parts.push(if v.is_finite() {
-                v.to_string()
-            } else {
-                String::new()
-            });
+            fields.push(CsvField::Num(v));
         }
-        for col in &obj_cols {
-            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            parts.push(if v.is_finite() {
-                v.to_string()
-            } else {
-                String::new()
-            });
-        }
-        parts.push(rank.to_string());
-        parts.push(cluster.map(|c| c.to_string()).unwrap_or_default());
-        lines.push(parts.join(","));
+        fields.push(CsvField::UInt(rank as u64));
+        fields.push(
+            cluster
+                .map(|c| CsvField::Int(c as i64))
+                .unwrap_or(CsvField::Empty),
+        );
+        w.row(fields);
     }
 
-    lines.join("\n")
+    w.finish()
 }
 
 /// `StudyView` ベースのエクスポート対象行インデックスを返す。

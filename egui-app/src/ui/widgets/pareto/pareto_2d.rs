@@ -106,7 +106,7 @@ impl ParetoScatter2D {
         let obj_names = ctx.meta.objective_names.clone();
         let param_names = ctx.meta.param_names.clone();
         let downsample_indices = if self.use_downsample {
-            app_state.downsample_cache.scatter.clone()
+            app_state.downsample_cache.scatter.as_deref()
         } else {
             None
         };
@@ -184,7 +184,7 @@ impl ParetoScatter2D {
 
         let feas = view.feasibility();
 
-        let displayed: Vec<usize> = match downsample_indices.as_deref() {
+        let displayed: Vec<usize> = match downsample_indices {
             Some(idx) => idx.iter().map(|&i| i as usize).filter(|&i| i < n).collect(),
             None => (0..n).collect(),
         };

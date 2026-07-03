@@ -35,6 +35,19 @@ impl HistoryMode {
     }
 }
 
+/// 基準 Study の値列から導出する O(n) 計算結果をまとめたキャッシュ。
+/// `key` が前回と変わらない限り毎フレームの再計算を避ける。
+/// Moving Average は表示トグルが有効なときのみ計算する（無効時は無駄な計算をしない）。
+struct HistoryCache {
+    key: (usize, usize, bool, usize, bool), // (row_count, obj_idx, log_scale, window_size, is_minimize)
+    values: Vec<f64>,
+    feasible_vals: Vec<[f64; 2]>,
+    infeasible_vals: Vec<[f64; 2]>,
+    base_hit_points: Vec<(u32, usize, [f64; 2])>,
+    best_values: Vec<[f64; 2]>,
+    moving_avg: Option<Vec<[f64; 2]>>,
+}
+
 /// 最適化履歴チャートウィジェット
 pub struct OptimizationHistoryChart {
     pub show_moving_avg: bool,
@@ -44,6 +57,8 @@ pub struct OptimizationHistoryChart {
     pub log_scale: bool,
     /// 点クリックで開くトライアル詳細モーダル（散布図と共有）。
     detail_modal: TrialDetailModal,
+    /// 基準 Study の O(n) 計算結果キャッシュ。
+    history_cache: Option<HistoryCache>,
 }
 
 impl Default for OptimizationHistoryChart {
@@ -54,6 +69,7 @@ impl Default for OptimizationHistoryChart {
             obj_idx: 0,
             log_scale: false,
             detail_modal: TrialDetailModal::new(),
+            history_cache: None,
         }
     }
 }
@@ -146,30 +162,60 @@ impl OptimizationHistoryChart {
             }
         });
 
-        let values: Vec<f64> = obj_names
-            .get(self.obj_idx)
-            .and_then(|name| view.numeric_column(name))
-            .map(|col| col.to_vec())
-            .unwrap_or_default();
-
         let log_scale = self.log_scale;
         let show_moving_avg = self.show_moving_avg;
         let window_size = self.window_size;
+        let row_count = view.row_count();
 
-        // All Trials の feasible / infeasible 分割（制約あり Study のみ分岐）
-        let (feasible_vals, infeasible_vals) = partition_history_by_feasibility(&values, feas);
+        // 基準 Study の O(n) 計算（values / feasible 分割 / hit-test 点 / 累積ベスト値）は
+        // 行数・目的選択・log/最小最大化フラグ・移動平均ウィンドウが変わらない限り
+        // 再計算しない（Moving Average は表示トグルが有効なときのみ遅延計算する）。
+        let cache_key = (row_count, self.obj_idx, log_scale, window_size, is_minimize);
+        if self.history_cache.as_ref().map(|c| c.key) != Some(cache_key) {
+            let values: Vec<f64> = obj_names
+                .get(self.obj_idx)
+                .and_then(|name| view.numeric_column(name))
+                .map(|col| col.to_vec())
+                .unwrap_or_default();
 
-        // クリック判定用に各試行の点を (trial_id, 行 index, [x, y]) で構築する。
-        // x は行 index、y は描画と一致させるため log スケール時のみ log10 変換する。
-        let base_hit_points: Vec<(u32, usize, [f64; 2])> = values
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &v)| {
-                let tid = *view.trial_ids.get(i)?;
-                let y = if log_scale && v > 0.0 { v.log10() } else { v };
-                Some((tid, i, [i as f64, y]))
-            })
-            .collect();
+            // All Trials の feasible / infeasible 分割（制約あり Study のみ分岐）
+            let (feasible_vals, infeasible_vals) = partition_history_by_feasibility(&values, feas);
+
+            // クリック判定用に各試行の点を (trial_id, 行 index, [x, y]) で構築する。
+            // x は行 index、y は描画と一致させるため log スケール時のみ log10 変換する。
+            let base_hit_points: Vec<(u32, usize, [f64; 2])> = values
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &v)| {
+                    let tid = *view.trial_ids.get(i)?;
+                    let y = if log_scale && v > 0.0 { v.log10() } else { v };
+                    Some((tid, i, [i as f64, y]))
+                })
+                .collect();
+
+            let best_values = compute_best_values(&values, is_minimize);
+
+            self.history_cache = Some(HistoryCache {
+                key: cache_key,
+                values,
+                feasible_vals,
+                infeasible_vals,
+                base_hit_points,
+                best_values,
+                moving_avg: None,
+            });
+        }
+        let cache = self.history_cache.as_mut().unwrap();
+        if show_moving_avg && cache.moving_avg.is_none() {
+            cache.moving_avg = Some(compute_moving_average(&cache.values, window_size));
+        }
+        let values = &cache.values;
+        let feasible_vals = &cache.feasible_vals;
+        let infeasible_vals = &cache.infeasible_vals;
+        let base_hit_points = &cache.base_hit_points;
+        let best_values = &cache.best_values;
+        let moving_avg = cache.moving_avg.as_ref();
+
         // クリックされた点（trial_id, 行 index）。
         let mut clicked_detail: Option<(u32, usize)> = None;
         // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
@@ -190,13 +236,12 @@ impl OptimizationHistoryChart {
             let resp = plot_ui.response();
             if resp.clicked_by(egui::PointerButton::Primary) {
                 if let Some(pos) = resp.interact_pointer_pos() {
-                    clicked_detail =
-                        hit_test_nearest(plot_ui, &base_hit_points, pos, HIT_THRESHOLD);
+                    clicked_detail = hit_test_nearest(plot_ui, base_hit_points, pos, HIT_THRESHOLD);
                 }
             }
             // ホバー中の点を検出する（基準 Study の試行のみ）。
             if let Some(pos) = resp.hover_pos() {
-                hovered_detail = hit_test_nearest(plot_ui, &base_hit_points, pos, HIT_THRESHOLD);
+                hovered_detail = hit_test_nearest(plot_ui, base_hit_points, pos, HIT_THRESHOLD);
             }
 
             // All Trials は常に描画（凡例クリックで表示切替可能）。
@@ -238,10 +283,8 @@ impl OptimizationHistoryChart {
                     } else {
                         base_name
                     };
-                    let pts: egui_plot::PlotPoints = compute_best_values(&values, is_minimize)
-                        .into_iter()
-                        .map(apply_log_y)
-                        .collect();
+                    let pts: egui_plot::PlotPoints =
+                        best_values.iter().copied().map(apply_log_y).collect();
                     plot_ui.line(
                         egui_plot::Line::new(base_label, pts)
                             .color(COLOR_OPT_PRUNED)
@@ -266,10 +309,10 @@ impl OptimizationHistoryChart {
                 }
             }
 
-            if show_moving_avg && !values.is_empty() {
-                let pts: egui_plot::PlotPoints = compute_moving_average(&values, window_size)
-                    .into_iter()
-                    .map(|[x, y]| {
+            if let Some(avg) = moving_avg.filter(|a| show_moving_avg && !a.is_empty()) {
+                let pts: egui_plot::PlotPoints = avg
+                    .iter()
+                    .map(|&[x, y]| {
                         let y2 = if log_scale && y > 0.0 { y.log10() } else { y };
                         [x, y2]
                     })

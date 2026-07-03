@@ -391,7 +391,7 @@ fn render_3d(
     // 1 セル単位ではほとんど 0/1 でノイズが多いため、近傍を平滑化して領域の濃淡にする。
     let density = if opts.density_shade {
         let blur_radius = (nx / 12).max(2);
-        Some(cell_density_grid(
+        Some(tunny_core::contour::cell_density_grid(
             &result.points,
             (x_min, x_max),
             (y_min, y_max),
@@ -548,70 +548,6 @@ fn push_edge(mesh: &mut egui::Mesh, a: egui::Pos2, b: egui::Pos2, color: egui::C
     push_tri(mesh, [a + n, b - n, a - n], color);
 }
 
-/// 観測点を (nx-1)×(ny-1) のセルにビニングし、半径 `blur_radius` で局所平滑化したうえで
-/// 最大値で割った正規化密度 (0..1) を返す。セル (i,j) は x∈[x_i,x_{i+1}]、y∈[y_j,y_{j+1}]。
-/// 1 セル単位ではほぼ 0/1 でノイズが多いため、平滑化して領域の濃淡を表す。
-fn cell_density_grid(
-    points: &[[f64; 3]],
-    (x_min, x_max): (f64, f64),
-    (y_min, y_max): (f64, f64),
-    nx: usize,
-    ny: usize,
-    blur_radius: usize,
-) -> Vec<Vec<f32>> {
-    let (cx, cy) = (nx.saturating_sub(1).max(1), ny.saturating_sub(1).max(1));
-    let mut counts = vec![vec![0f32; cy]; cx];
-    if x_max > x_min && y_max > y_min {
-        for p in points {
-            let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
-            let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
-            let i = ((fx * cx as f64) as usize).min(cx - 1);
-            let j = ((fy * cy as f64) as usize).min(cy - 1);
-            counts[i][j] += 1.0;
-        }
-    }
-    let smoothed = box_blur_2d(&counts, blur_radius);
-    let max = smoothed.iter().flatten().copied().fold(0.0_f32, f32::max);
-    let denom = if max > 0.0 { max } else { 1.0 };
-    smoothed
-        .iter()
-        .map(|col| col.iter().map(|&c| c / denom).collect())
-        .collect()
-}
-
-/// 2D グリッドに半径 `r` の分離型箱平滑化（近傍平均）を適用する。`r == 0` は恒等。
-fn box_blur_2d(grid: &[Vec<f32>], r: usize) -> Vec<Vec<f32>> {
-    if r == 0 || grid.is_empty() {
-        return grid.to_vec();
-    }
-    let nx = grid.len();
-    let ny = grid[0].len();
-    // 横方向の移動平均。
-    let mut tmp = vec![vec![0f32; ny]; nx];
-    for (i, col) in tmp.iter_mut().enumerate() {
-        for (j, slot) in col.iter_mut().enumerate() {
-            let lo = i.saturating_sub(r);
-            let hi = (i + r).min(nx - 1);
-            let mut sum = 0.0;
-            for row in grid.iter().take(hi + 1).skip(lo) {
-                sum += row[j];
-            }
-            *slot = sum / (hi - lo + 1) as f32;
-        }
-    }
-    // 縦方向の移動平均。
-    let mut out = vec![vec![0f32; ny]; nx];
-    for (out_row, src_row) in out.iter_mut().zip(tmp.iter()) {
-        for (j, slot) in out_row.iter_mut().enumerate() {
-            let lo = j.saturating_sub(r);
-            let hi = (j + r).min(ny - 1);
-            let sum: f32 = src_row[lo..=hi].iter().sum();
-            *slot = sum / (hi - lo + 1) as f32;
-        }
-    }
-    out
-}
-
 /// `screen_points`（位置, インデックス）の中で `click` に最も近く閾値内の点のインデックスを返す。
 fn nearest_point(
     screen_points: &[(egui::Pos2, usize)],
@@ -628,7 +564,8 @@ fn nearest_point(
     best.map(|(_, idx)| idx)
 }
 
-/// マスク対応の等高線（marching squares）。4 隅とも `Some` のセルのみ描く。
+/// マスク対応の等高線（marching squares）。セグメント抽出は tunny_core に委譲し、
+/// ここではグリッドのサンプル index 空間 → スクリーン座標の写像と描画のみ行う。
 fn draw_contour_lines(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -637,137 +574,37 @@ fn draw_contour_lines(
     v_max: f64,
 ) {
     let ny = display.len();
-    if ny < 2 {
+    if ny == 0 {
         return;
     }
     let nx = display[0].len();
-    if nx < 2 || (v_max - v_min).abs() < f64::EPSILON {
+    if nx == 0 {
         return;
     }
     let cw = rect.width() / nx as f32;
     let ch = rect.height() / ny as f32;
     // セル中心をサンプル位置とする。
-    let sx = |c: usize| rect.left() + (c as f32 + 0.5) * cw;
-    let sy = |r: usize| rect.top() + (r as f32 + 0.5) * ch;
+    let to_screen = |p: [f64; 2]| {
+        egui::pos2(
+            rect.left() + (p[0] as f32 + 0.5) * cw,
+            rect.top() + (p[1] as f32 + 0.5) * ch,
+        )
+    };
     let stroke = egui::Stroke::new(0.8, egui::Color32::from_white_alpha(150));
 
-    for li in 1..=N_CONTOUR_LEVELS {
-        let level = v_min + (v_max - v_min) * li as f64 / (N_CONTOUR_LEVELS + 1) as f64;
-        for r in 0..ny - 1 {
-            for c in 0..nx - 1 {
-                let (Some(tl), Some(tr), Some(br), Some(bl)) = (
-                    display[r][c],
-                    display[r][c + 1],
-                    display[r + 1][c + 1],
-                    display[r + 1][c],
-                ) else {
-                    continue; // 不完全セルは等高線を描かない。
-                };
-                // 4 辺（上・右・下・左）の交点を集める。
-                let mut pts: Vec<egui::Pos2> = Vec::with_capacity(4);
-                let (x0, x1) = (sx(c), sx(c + 1));
-                let (y0, y1) = (sy(r), sy(r + 1));
-                if let Some(t) = edge_cross(tl, tr, level) {
-                    pts.push(egui::pos2(lerp(x0, x1, t), y0));
-                }
-                if let Some(t) = edge_cross(tr, br, level) {
-                    pts.push(egui::pos2(x1, lerp(y0, y1, t)));
-                }
-                if let Some(t) = edge_cross(bl, br, level) {
-                    pts.push(egui::pos2(lerp(x0, x1, t), y1));
-                }
-                if let Some(t) = edge_cross(tl, bl, level) {
-                    pts.push(egui::pos2(x0, lerp(y0, y1, t)));
-                }
-                match pts.len() {
-                    2 => {
-                        painter.line_segment([pts[0], pts[1]], stroke);
-                    }
-                    4 => {
-                        painter.line_segment([pts[0], pts[1]], stroke);
-                        painter.line_segment([pts[2], pts[3]], stroke);
-                    }
-                    _ => {}
-                }
-            }
-        }
+    for (a, b) in
+        tunny_core::contour::contour_line_segments(display, v_min, v_max, N_CONTOUR_LEVELS)
+    {
+        painter.line_segment([to_screen(a), to_screen(b)], stroke);
     }
-}
-
-/// 辺の 2 端点 `a`,`b` が `level` を挟むなら、a→b 上の交点比率 `t`(0..1) を返す。
-fn edge_cross(a: f64, b: f64, level: f64) -> Option<f64> {
-    let above_a = a >= level;
-    let above_b = b >= level;
-    if above_a == above_b {
-        return None;
-    }
-    let denom = b - a;
-    if denom.abs() < f64::EPSILON {
-        return None;
-    }
-    Some(((level - a) / denom).clamp(0.0, 1.0))
-}
-
-fn lerp(a: f32, b: f32, t: f64) -> f32 {
-    a + (b - a) * t as f32
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn edge_cross_detects_straddle() {
-        // 0 と 2 が level=1 を挟む → 中点 t=0.5。
-        assert_eq!(edge_cross(0.0, 2.0, 1.0), Some(0.5));
-        // 同符号は None。
-        assert!(edge_cross(0.0, 0.5, 1.0).is_none());
-        assert!(edge_cross(2.0, 3.0, 1.0).is_none());
-    }
-
-    #[test]
-    fn cell_density_grid_bins_and_normalizes() {
-        // 3x3 グリッド → 2x2 セル。左下セルに 2 点、右上セルに 1 点。
-        let pts = vec![
-            [0.1, 0.1, 0.0],
-            [0.2, 0.2, 0.0],
-            [0.9, 0.9, 0.0],
-            [1.0, 1.0, 0.0], // 端は最終セルにクランプ
-        ];
-        // blur=0 はビニングそのまま（正規化のみ）。
-        let d = cell_density_grid(&pts, (0.0, 1.0), (0.0, 1.0), 3, 3, 0);
-        assert_eq!(d.len(), 2);
-        assert_eq!(d[0].len(), 2);
-        // 左下 (i=0,j=0) が最大カウント 2 → 1.0。
-        assert!((d[0][0] - 1.0).abs() < 1e-6);
-        // 右上 (i=1,j=1) はカウント 2（0.9 と 1.0）→ 1.0。
-        assert!((d[1][1] - 1.0).abs() < 1e-6);
-        // 空セルは 0。
-        assert!(d[0][1].abs() < 1e-6);
-        assert!(d[1][0].abs() < 1e-6);
-    }
-
-    #[test]
-    fn box_blur_spreads_into_neighbors() {
-        // 中央だけ値を持つ 3x3。半径1の平滑化で隣接セルが非ゼロになる。
-        let mut g = vec![vec![0.0_f32; 3]; 3];
-        g[1][1] = 9.0;
-        let b = box_blur_2d(&g, 1);
-        // 中央は 9/9（3x3 平均）= 1.0、隅は 9/9 もかかる…分離型なので確認は非ゼロのみ。
-        assert!(b[1][1] > 0.0);
-        assert!(b[0][1] > 0.0); // 縦横の隣接に滲む
-        assert!(b[1][0] > 0.0);
-        // 総和は保存される（平均の分離適用でも端のクランプで概ね保たれる）。
-        let before: f32 = g.iter().flatten().sum();
-        let after: f32 = b.iter().flatten().sum();
-        assert!((before - after).abs() < before); // 完全保存ではないが発散しない
-    }
-
-    #[test]
-    fn box_blur_zero_radius_is_identity() {
-        let g = vec![vec![1.0_f32, 2.0], vec![3.0, 4.0]];
-        assert_eq!(box_blur_2d(&g, 0), g);
-    }
+    // edge_cross / cell_density_grid / box_blur_2d のテストは
+    // rust_core/src/contour/mod.rs へ移設した（数値処理の移行に伴う）。
 
     #[test]
     fn nearest_point_within_threshold() {

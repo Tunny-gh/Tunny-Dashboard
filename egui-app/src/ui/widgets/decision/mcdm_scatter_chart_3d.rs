@@ -6,14 +6,14 @@ use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options};
 use crate::ui::widgets::scatter_3d::{
-    draw_3d_axes, draw_3d_grid, normalize_to_clip, pick_nearest_3d, setup_3d_canvas, ArcballCamera,
+    draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas, show_hover_and_click_detail,
+    ArcballCamera,
 };
-use crate::ui::widgets::trial_detail_modal::{
-    show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
-};
+use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use egui::Color32;
 
 // ── キャッシュ ────────────────────────────────────────────────────
@@ -68,10 +68,7 @@ impl Default for McdmScatterChart3D {
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
             z_axis: "Objective2".to_string(),
-            camera: ArcballCamera {
-                rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
-                ..Default::default()
-            },
+            camera: ArcballCamera::isometric_default(),
             show_infeasible: true,
             cache: None,
             cache_key: None,
@@ -81,24 +78,10 @@ impl Default for McdmScatterChart3D {
 }
 
 fn val_range(vals: &[f64]) -> (f64, f64) {
-    let mut mn = f64::INFINITY;
-    let mut mx = f64::NEG_INFINITY;
-    for &v in vals {
-        if v.is_finite() {
-            if v < mn {
-                mn = v;
-            }
-            if v > mx {
-                mx = v;
-            }
-        }
-    }
-    if !mn.is_finite() || !mx.is_finite() {
-        (-1.0, 1.0)
-    } else if (mx - mn).abs() < f64::EPSILON {
-        (mn - 1.0, mx + 1.0)
-    } else {
-        (mn, mx)
+    let finite = vals.iter().copied().filter(|v| v.is_finite());
+    match range_math::value_range(finite) {
+        Some((mn, mx)) => range_math::expand_degenerate(mn, mx),
+        None => (-1.0, 1.0),
     }
 }
 
@@ -382,60 +365,37 @@ impl McdmScatterChart3D {
         // ── 右上カラーバー判例 ────────────────────────────────────
         draw_colorbar_legend(&painter, rect, colormap, top_n, has_infeasible);
 
-        // マウスホバーで点の概要をツールチップ表示（モーダル表示中・ドラッグ中は抑止）。
-        if !self.detail_modal.is_open() {
-            if let Some(hover) = hover_pos {
-                if let Some((_, row)) = pick_nearest_3d(&candidates, hover) {
-                    let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
-                    let rank = result
-                        .ranked_indices()
-                        .iter()
-                        .position(|&x| x as usize == row);
-                    let rank_str = rank
-                        .map(|r| (r + 1).to_string())
-                        .unwrap_or_else(|| "—".to_string());
-                    let score = result.primary_scores().get(row).copied();
-                    let rows = vec![
-                        ("MCDM Rank".to_string(), rank_str),
-                        (
-                            "Score".to_string(),
-                            score
-                                .map(|s| format!("{s:.4}"))
-                                .unwrap_or_else(|| "—".to_string()),
-                        ),
-                    ];
-                    show_hover_tooltip(ui, "mcdm3d_hover_tooltip", trial_number, &rows);
-                }
-            }
-        }
-
-        // 左クリックで点に当たれば詳細モーダルを開く（散布図情報 = MCDM ランク・スコア）。
-        if let Some(click) = click_pos {
-            if let Some((trial_id, row)) = pick_nearest_3d(&candidates, click) {
-                let rank = result
-                    .ranked_indices()
-                    .iter()
-                    .position(|&x| x as usize == row);
-                let rank_str = rank
-                    .map(|r| (r + 1).to_string())
-                    .unwrap_or_else(|| "—".to_string());
-                let score = result.primary_scores().get(row).copied();
-                let context = vec![
-                    ("MCDM Rank".to_string(), rank_str),
-                    (
-                        "Score".to_string(),
-                        score
-                            .map(|s| format!("{s:.4}"))
-                            .unwrap_or_else(|| "—".to_string()),
-                    ),
-                ];
-                self.detail_modal.open(TrialDetailTarget {
-                    trial_id,
-                    row_index: row,
-                    context,
-                });
-            }
-        }
+        // MCDM ランク・スコア行を組み立てる（ホバーとクリックで同じ内容を表示する）。
+        let rank_score_rows = |row: usize| -> Vec<(String, String)> {
+            let rank = result
+                .ranked_indices()
+                .iter()
+                .position(|&x| x as usize == row);
+            let rank_str = rank
+                .map(|r| (r + 1).to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let score = result.primary_scores().get(row).copied();
+            vec![
+                ("MCDM Rank".to_string(), rank_str),
+                (
+                    "Score".to_string(),
+                    score
+                        .map(|s| format!("{s:.4}"))
+                        .unwrap_or_else(|| "—".to_string()),
+                ),
+            ]
+        };
+        show_hover_and_click_detail(
+            ui,
+            view,
+            &candidates,
+            hover_pos,
+            click_pos,
+            "mcdm3d_hover_tooltip",
+            &mut self.detail_modal,
+            rank_score_rows,
+            rank_score_rows,
+        );
 
         // 詳細モーダルを描画する。
         if self.detail_modal.is_open() {

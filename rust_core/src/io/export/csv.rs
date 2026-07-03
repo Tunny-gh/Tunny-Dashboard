@@ -1,4 +1,4 @@
-use super::formatting::{escape_csv_field, format_f64, CSV_DELIMITER};
+use super::formatting::{escape_csv_field, format_f64, sanitize_csv_text, CSV_DELIMITER};
 
 /// Documentation.
 ///
@@ -35,7 +35,8 @@ pub(crate) fn serialize_csv_from_df(
     let n = df.row_count();
     let mut out = String::with_capacity(indices.len() * columns.len() * 10);
 
-    let header_fields: Vec<String> = columns.iter().map(|c| escape_csv_field(c)).collect();
+    // ヘッダ（列名）はジャーナル由来のテキストなので数式ガードも適用する。
+    let header_fields: Vec<String> = columns.iter().map(|c| sanitize_csv_text(c)).collect();
     out.push_str(&header_fields.join(&CSV_DELIMITER.to_string()));
     out.push('\n');
 
@@ -47,8 +48,13 @@ pub(crate) fn serialize_csv_from_df(
 
         let mut fields = Vec::with_capacity(columns.len());
         for col in columns {
-            let field = get_cell_value(df, row, col);
-            fields.push(escape_csv_field(&field));
+            // 文字列セル（カテゴリラベル・user attr）はテキストとして数式ガード、
+            // 数値セルは format_f64 済みの安全な文字列なので構造クオートのみ。
+            if df.get_numeric_column(col).is_some() || col == "trial_id" {
+                fields.push(escape_csv_field(&get_cell_value(df, row, col)));
+            } else {
+                fields.push(sanitize_csv_text(&get_cell_value(df, row, col)));
+            }
         }
         out.push_str(&fields.join(&CSV_DELIMITER.to_string()));
         out.push('\n');

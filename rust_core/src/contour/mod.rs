@@ -218,6 +218,157 @@ fn clean_points(pts: &[[f64; 3]]) -> Vec<[f64; 3]> {
         .collect()
 }
 
+// ============================================================
+// 観測点の密度グリッド（散布オーバーレイのシェーディング用）
+// ============================================================
+
+/// 観測点を (nx-1)×(ny-1) のセルにビニングし、半径 `blur_radius` で局所平滑化したうえで
+/// 最大値で割った正規化密度 (0..1) を返す。セル (i,j) は x∈[x_i,x_{i+1}]、y∈[y_j,y_{j+1}]。
+/// 1 セル単位ではほぼ 0/1 でノイズが多いため、平滑化して領域の濃淡を表す。
+pub fn cell_density_grid(
+    points: &[[f64; 3]],
+    (x_min, x_max): (f64, f64),
+    (y_min, y_max): (f64, f64),
+    nx: usize,
+    ny: usize,
+    blur_radius: usize,
+) -> Vec<Vec<f32>> {
+    let (cx, cy) = (nx.saturating_sub(1).max(1), ny.saturating_sub(1).max(1));
+    let mut counts = vec![vec![0f32; cy]; cx];
+    if x_max > x_min && y_max > y_min {
+        for p in points {
+            let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
+            let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
+            let i = ((fx * cx as f64) as usize).min(cx - 1);
+            let j = ((fy * cy as f64) as usize).min(cy - 1);
+            counts[i][j] += 1.0;
+        }
+    }
+    let smoothed = box_blur_2d(&counts, blur_radius);
+    let max = smoothed.iter().flatten().copied().fold(0.0_f32, f32::max);
+    let denom = if max > 0.0 { max } else { 1.0 };
+    smoothed
+        .iter()
+        .map(|col| col.iter().map(|&c| c / denom).collect())
+        .collect()
+}
+
+/// 2D グリッドに半径 `r` の分離型箱平滑化（近傍平均）を適用する。`r == 0` は恒等。
+pub fn box_blur_2d(grid: &[Vec<f32>], r: usize) -> Vec<Vec<f32>> {
+    if r == 0 || grid.is_empty() {
+        return grid.to_vec();
+    }
+    let nx = grid.len();
+    let ny = grid[0].len();
+    // 横方向の移動平均。
+    let mut tmp = vec![vec![0f32; ny]; nx];
+    for (i, col) in tmp.iter_mut().enumerate() {
+        for (j, slot) in col.iter_mut().enumerate() {
+            let lo = i.saturating_sub(r);
+            let hi = (i + r).min(nx - 1);
+            let mut sum = 0.0;
+            for row in grid.iter().take(hi + 1).skip(lo) {
+                sum += row[j];
+            }
+            *slot = sum / (hi - lo + 1) as f32;
+        }
+    }
+    // 縦方向の移動平均。
+    let mut out = vec![vec![0f32; ny]; nx];
+    for (out_row, src_row) in out.iter_mut().zip(tmp.iter()) {
+        for (j, slot) in out_row.iter_mut().enumerate() {
+            let lo = j.saturating_sub(r);
+            let hi = (j + r).min(ny - 1);
+            let sum: f32 = src_row[lo..=hi].iter().sum();
+            *slot = sum / (hi - lo + 1) as f32;
+        }
+    }
+    out
+}
+
+// ============================================================
+// マスク対応の等高線セグメント抽出（marching squares）
+// ============================================================
+
+/// マスク付き値グリッドから等高線の線分を抽出する（marching squares）。
+/// 4 隅とも `Some` のセルのみ対象。`n_levels` 本の等値線を
+/// `v_min..v_max` を等分した内部レベルに引く。
+///
+/// 返す座標はグリッドのサンプル index 空間（`display[r][c]` のサンプルが
+/// `[c as f64, r as f64]`）。描画側はセル中心をサンプル位置として
+/// スクリーン座標へ写像する。
+pub fn contour_line_segments(
+    display: &[Vec<Option<f64>>],
+    v_min: f64,
+    v_max: f64,
+    n_levels: usize,
+) -> Vec<([f64; 2], [f64; 2])> {
+    let mut segments = Vec::new();
+    let ny = display.len();
+    if ny < 2 {
+        return segments;
+    }
+    let nx = display[0].len();
+    if nx < 2 || (v_max - v_min).abs() < f64::EPSILON {
+        return segments;
+    }
+
+    for li in 1..=n_levels {
+        let level = v_min + (v_max - v_min) * li as f64 / (n_levels + 1) as f64;
+        for r in 0..ny - 1 {
+            for c in 0..nx - 1 {
+                let (Some(tl), Some(tr), Some(br), Some(bl)) = (
+                    display[r][c],
+                    display[r][c + 1],
+                    display[r + 1][c + 1],
+                    display[r + 1][c],
+                ) else {
+                    continue; // 不完全セルは等高線を描かない。
+                };
+                // 4 辺（上・右・下・左）の交点を集める。
+                let mut pts: Vec<[f64; 2]> = Vec::with_capacity(4);
+                let (x0, x1) = (c as f64, (c + 1) as f64);
+                let (y0, y1) = (r as f64, (r + 1) as f64);
+                if let Some(t) = edge_cross(tl, tr, level) {
+                    pts.push([x0 + t, y0]);
+                }
+                if let Some(t) = edge_cross(tr, br, level) {
+                    pts.push([x1, y0 + t]);
+                }
+                if let Some(t) = edge_cross(bl, br, level) {
+                    pts.push([x0 + t, y1]);
+                }
+                if let Some(t) = edge_cross(tl, bl, level) {
+                    pts.push([x0, y0 + t]);
+                }
+                match pts.len() {
+                    2 => segments.push((pts[0], pts[1])),
+                    4 => {
+                        segments.push((pts[0], pts[1]));
+                        segments.push((pts[2], pts[3]));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    segments
+}
+
+/// 辺の 2 端点 `a`,`b` が `level` を挟むなら、a→b 上の交点比率 `t`(0..1) を返す。
+fn edge_cross(a: f64, b: f64, level: f64) -> Option<f64> {
+    let above_a = a >= level;
+    let above_b = b >= level;
+    if above_a == above_b {
+        return None;
+    }
+    let denom = b - a;
+    if denom.abs() < f64::EPSILON {
+        return None;
+    }
+    Some(((level - a) / denom).clamp(0.0, 1.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +444,81 @@ mod tests {
         let s = observed_surface(&pts, 9, 0.0);
         assert_eq!(s.x_values.len(), 9);
         assert!(count_some(&s) > 0);
+    }
+
+    // ── 密度グリッド / 等高線セグメント（Observed Contour オーバーレイ用） ──
+
+    #[test]
+    fn edge_cross_detects_straddle() {
+        // 0 と 2 が level=1 を挟む → 中点 t=0.5。
+        assert_eq!(edge_cross(0.0, 2.0, 1.0), Some(0.5));
+        // 同符号は None。
+        assert!(edge_cross(0.0, 0.5, 1.0).is_none());
+        assert!(edge_cross(2.0, 3.0, 1.0).is_none());
+    }
+
+    #[test]
+    fn cell_density_grid_bins_and_normalizes() {
+        // 3x3 グリッド → 2x2 セル。左下セルに 2 点、右上セルに 2 点。
+        let pts = vec![
+            [0.1, 0.1, 0.0],
+            [0.2, 0.2, 0.0],
+            [0.9, 0.9, 0.0],
+            [1.0, 1.0, 0.0], // 端は最終セルにクランプ
+        ];
+        // blur=0 はビニングそのまま（正規化のみ）。
+        let d = cell_density_grid(&pts, (0.0, 1.0), (0.0, 1.0), 3, 3, 0);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].len(), 2);
+        // 左下 (i=0,j=0) が最大カウント 2 → 1.0。
+        assert!((d[0][0] - 1.0).abs() < 1e-6);
+        // 右上 (i=1,j=1) はカウント 2（0.9 と 1.0）→ 1.0。
+        assert!((d[1][1] - 1.0).abs() < 1e-6);
+        // 空セルは 0。
+        assert!(d[0][1].abs() < 1e-6);
+        assert!(d[1][0].abs() < 1e-6);
+    }
+
+    #[test]
+    fn box_blur_spreads_into_neighbors() {
+        // 中央だけ値を持つ 3x3。半径1の平滑化で隣接セルが非ゼロになる。
+        let mut g = vec![vec![0.0_f32; 3]; 3];
+        g[1][1] = 9.0;
+        let b = box_blur_2d(&g, 1);
+        assert!(b[1][1] > 0.0);
+        assert!(b[0][1] > 0.0); // 縦横の隣接に滲む
+        assert!(b[1][0] > 0.0);
+        // 総和は発散しない（端クランプの平均なので完全保存ではない）。
+        let before: f32 = g.iter().flatten().sum();
+        let after: f32 = b.iter().flatten().sum();
+        assert!((before - after).abs() < before);
+    }
+
+    #[test]
+    fn box_blur_zero_radius_is_identity() {
+        let g = vec![vec![1.0_f32, 2.0], vec![3.0, 4.0]];
+        assert_eq!(box_blur_2d(&g, 0), g);
+    }
+
+    #[test]
+    fn contour_segments_cross_simple_gradient() {
+        // 2x2 グリッド、値 0..3。level は内部等分なので必ず横切る線分が出る。
+        let g = vec![vec![Some(0.0), Some(1.0)], vec![Some(2.0), Some(3.0)]];
+        let segs = contour_line_segments(&g, 0.0, 3.0, 2);
+        assert!(!segs.is_empty());
+        // 座標はサンプル index 空間 [0,1]x[0,1] に収まる。
+        for (a, b) in &segs {
+            for p in [a, b] {
+                assert!(p[0] >= 0.0 && p[0] <= 1.0);
+                assert!(p[1] >= 0.0 && p[1] <= 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn contour_segments_skip_masked_cells() {
+        // 1 隅が None のセルは線分を出さない。
+        let g = vec![vec![Some(0.0), None], vec![Some(2.0), Some(3.0)]];
+        assert!(contour_line_segments(&g, 0.0, 3.0, 3).is_empty());
     }
 }

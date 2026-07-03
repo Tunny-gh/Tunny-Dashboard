@@ -17,9 +17,11 @@
 mod csv;
 mod formatting;
 mod report;
+mod writer;
 
 pub use csv::serialize_csv;
 pub use report::compute_report_stats;
+pub use writer::{CsvField, CsvWriter};
 
 #[cfg(test)]
 use csv::{parse_columns_json, serialize_csv_from_df};

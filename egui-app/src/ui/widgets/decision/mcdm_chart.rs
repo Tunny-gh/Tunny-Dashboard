@@ -148,17 +148,9 @@ pub struct McdmTable {
     pub controls: McdmControls,
 }
 
+/// 正規化済み重みを返す（`tunny_core::mcdm::normalize_weights` に委譲）。
 pub fn normalize_weights(weights: &[f64]) -> Vec<f64> {
-    if weights.is_empty() {
-        return vec![];
-    }
-    let sum: f64 = weights.iter().sum();
-    if sum == 0.0 {
-        let n = weights.len() as f64;
-        vec![1.0 / n; weights.len()]
-    } else {
-        weights.iter().map(|&w| w / sum).collect()
-    }
+    tunny_core::mcdm::normalize_weights(weights)
 }
 
 impl McdmControls {

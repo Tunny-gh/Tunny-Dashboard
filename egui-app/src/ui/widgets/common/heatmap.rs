@@ -4,6 +4,7 @@
 //! 使う共有モジュール。
 
 use crate::theme::colormap::ColorMap;
+use crate::ui::widgets::common::range_math;
 
 /// 値グリッド（行 = Y、列 = X）をカラーマップで塗ったヒートマップを描く。
 pub fn draw_heatmap(
@@ -82,19 +83,10 @@ pub fn draw_heatmap_masked(
 
 /// マスク対応グリッドの値域 [min, max] を `Some` セルだけから求める。空なら (0,1)。
 pub fn value_range_masked(values: &[Vec<Option<f64>>]) -> (f64, f64) {
-    let mut v_min = f64::INFINITY;
-    let mut v_max = f64::NEG_INFINITY;
-    for v in values.iter().flatten().flatten() {
-        v_min = v_min.min(*v);
-        v_max = v_max.max(*v);
-    }
-    if !v_min.is_finite() || !v_max.is_finite() {
-        return (0.0, 1.0);
-    }
-    if (v_max - v_min).abs() < f64::EPSILON {
-        (v_min - 1.0, v_max + 1.0)
-    } else {
-        (v_min, v_max)
+    let flat = values.iter().flatten().flatten().copied();
+    match range_math::value_range(flat) {
+        Some((mn, mx)) if mn.is_finite() && mx.is_finite() => range_math::expand_degenerate(mn, mx),
+        _ => (0.0, 1.0),
     }
 }
 
@@ -169,25 +161,15 @@ pub fn draw_colorbar_simple(
 
 /// 値グリッドの [min, max] を返す。空・退化時はフォールバック範囲を返す。
 pub fn value_range(values: &[Vec<f64>]) -> (f64, f64) {
-    let flat: Vec<f64> = values.iter().flatten().copied().collect();
-    if flat.is_empty() {
-        return (0.0, 1.0);
-    }
-    let v_min = flat.iter().cloned().fold(f64::INFINITY, f64::min);
-    let v_max = flat.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    if (v_max - v_min).abs() < f64::EPSILON {
-        (v_min - 1.0, v_max + 1.0)
-    } else {
-        (v_min, v_max)
+    match range_math::value_range(values.iter().flatten().copied()) {
+        Some((mn, mx)) => range_math::expand_degenerate(mn, mx),
+        None => (0.0, 1.0),
     }
 }
 
 /// 値を [0.0, 1.0] に正規化する（退化範囲は 0.5）。
 pub fn normalize(v: f64, v_min: f64, v_max: f64) -> f32 {
-    if (v_max - v_min).abs() < f64::EPSILON {
-        return 0.5;
-    }
-    ((v - v_min) / (v_max - v_min)).clamp(0.0, 1.0) as f32
+    range_math::normalize01(v, v_min, v_max)
 }
 
 #[cfg(test)]

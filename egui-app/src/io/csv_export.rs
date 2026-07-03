@@ -4,6 +4,7 @@ use crate::state::results::ClusterResult;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::trial_table::TrialTableMode;
+use tunny_core::export::{CsvField, CsvWriter};
 
 /// チャート固有のクラスタリング設定キーで、キャッシュからクラスタ結果を解決する。
 /// 2D / 3D / Table はそれぞれ独立した設定を持つため、エクスポート対象も各自のキーで引く。
@@ -237,15 +238,16 @@ fn build_observed_contour_csv(widgets: &WidgetStates) -> Option<String> {
     if surf.x_values.is_empty() || surf.y_values.is_empty() {
         return None;
     }
-    let mut csv = format!("{},{},{}\n", r.x_name, r.y_name, r.value_name);
+    let mut w = CsvWriter::new();
+    w.header([r.x_name.as_str(), r.y_name.as_str(), r.value_name.as_str()]);
     for (i, &x) in surf.x_values.iter().enumerate() {
         for (j, &y) in surf.y_values.iter().enumerate() {
             if let Some(Some(v)) = surf.z.get(i).map(|col| col[j]) {
-                csv.push_str(&format!("{},{},{}\n", x, y, v));
+                w.row([CsvField::Num(x), CsvField::Num(y), CsvField::Num(v)]);
             }
         }
     }
-    Some(csv)
+    Some(w.finish())
 }
 
 fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
@@ -260,7 +262,8 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
         study.meta.directions.get(obj_idx),
         Some(Direction::Maximize)
     );
-    let mut csv = String::from("trial_index,objective_value,best_value\n");
+    let mut w = CsvWriter::new();
+    w.header(["trial_index", "objective_value", "best_value"]);
     let mut best = if is_minimize {
         f64::INFINITY
     } else {
@@ -274,25 +277,25 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
                 best.max(val)
             };
         }
-        let best_str = if best.is_finite() {
-            format!("{}", best)
-        } else {
-            String::new()
-        };
-        csv.push_str(&format!("{},{},{}\n", i, val, best_str));
+        w.row([
+            CsvField::UInt(i as u64),
+            CsvField::Num(val),
+            CsvField::Num(best),
+        ]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 
 fn build_convergence_csv(app_state: &AppState) -> Option<String> {
     let history = app_state.convergence_history.as_ref()?;
     let label = app_state.convergence_indicator.label();
-    let mut csv = format!("trial_index,{}\n", label);
+    let mut w = CsvWriter::new();
+    w.header(["trial_index", label]);
     for (i, &val) in history.values.iter().enumerate() {
         let trial_idx = i * history.sample_step;
-        csv.push_str(&format!("{},{}\n", trial_idx, val));
+        w.row([CsvField::UInt(trial_idx as u64), CsvField::Num(val)]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     if widgets.importance.computing {
@@ -314,11 +317,16 @@ fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<
     if pairs.is_empty() {
         return None;
     }
-    let mut csv = String::from("variable,importance_score,method\n");
+    let mut w = CsvWriter::new();
+    w.header(["variable", "importance_score", "method"]);
     for (name, score) in &pairs {
-        csv.push_str(&format!("{},{},{}\n", name, score, method_name));
+        w.row([
+            CsvField::Text(name),
+            CsvField::Num(*score),
+            CsvField::Text(method_name),
+        ]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 fn build_pdp_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     use crate::state::messages::PdpResult;
@@ -330,18 +338,26 @@ fn build_pdp_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<String
     if r.x_values.is_empty() {
         return None;
     }
-    let mut csv = String::from("variable,variable_value,predicted_objective,lower_ci,upper_ci\n");
+    let mut w = CsvWriter::new();
+    w.header([
+        "variable",
+        "variable_value",
+        "predicted_objective",
+        "lower_ci",
+        "upper_ci",
+    ]);
     for (i, (&x, &y)) in r.x_values.iter().zip(r.y_values.iter()).enumerate() {
         let lower = r.y_lower.as_ref().and_then(|v| v.get(i)).copied();
         let upper = r.y_upper.as_ref().and_then(|v| v.get(i)).copied();
-        let lower_str = lower.map(|v| v.to_string()).unwrap_or_default();
-        let upper_str = upper.map(|v| v.to_string()).unwrap_or_default();
-        csv.push_str(&format!(
-            "{},{},{},{},{}\n",
-            r.param_name, x, y, lower_str, upper_str
-        ));
+        w.row([
+            CsvField::Text(&r.param_name),
+            CsvField::Num(x),
+            CsvField::Num(y),
+            lower.map(CsvField::Num).unwrap_or(CsvField::Empty),
+            upper.map(CsvField::Num).unwrap_or(CsvField::Empty),
+        ]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 
 fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
@@ -349,8 +365,14 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
     if result.x_values.is_empty() || result.y_values.is_empty() {
         return None;
     }
-    let mut csv =
-        String::from("param1_name,param1_value,param2_name,param2_value,predicted_objective\n");
+    let mut w = CsvWriter::new();
+    w.header([
+        "param1_name",
+        "param1_value",
+        "param2_name",
+        "param2_value",
+        "predicted_objective",
+    ]);
     for (xi, &x) in result.x_values.iter().enumerate() {
         for (yi, &y) in result.y_values.iter().enumerate() {
             let z = result
@@ -359,13 +381,16 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
                 .and_then(|row| row.get(yi))
                 .copied()
                 .unwrap_or(f64::NAN);
-            csv.push_str(&format!(
-                "{},{},{},{},{}\n",
-                result.param1_name, x, result.param2_name, y, z
-            ));
+            w.row([
+                CsvField::Text(&result.param1_name),
+                CsvField::Num(x),
+                CsvField::Text(&result.param2_name),
+                CsvField::Num(y),
+                CsvField::Num(z),
+            ]);
         }
     }
-    Some(csv)
+    Some(w.finish())
 }
 fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
@@ -403,30 +428,28 @@ fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Op
     let obj_names = &study.meta.objective_names;
     let param_cols = study.view.numeric_columns(param_names);
     let obj_cols = study.view.numeric_columns(obj_names);
-    let mut csv = String::from("trial_id,trial_number");
-    for name in param_names {
-        csv.push_str(&format!(",{}", name));
-    }
-    for name in obj_names {
-        csv.push_str(&format!(",{}", name));
-    }
-    csv.push_str(",cluster_id\n");
+    let mut w = CsvWriter::new();
+    let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
+    header.extend(param_names.iter().map(String::as_str));
+    header.extend(obj_names.iter().map(String::as_str));
+    header.push("cluster_id");
+    w.header(header);
     for i in 0..n {
         let trial_id = study.view.trial_ids.get(i).copied().unwrap_or(i as u32);
         let trial_number = study.view.df.get_trial_number(i).unwrap_or(i as u32);
-        csv.push_str(&format!("{},{}", trial_id, trial_number));
-        for col in &param_cols {
+        let mut fields = vec![
+            CsvField::UInt(trial_id as u64),
+            CsvField::UInt(trial_number as u64),
+        ];
+        for col in param_cols.iter().chain(&obj_cols) {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            csv.push_str(&format!(",{}", v));
-        }
-        for col in &obj_cols {
-            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            csv.push_str(&format!(",{}", v));
+            fields.push(CsvField::Num(v));
         }
         let label = cr.labels.get(i).copied().unwrap_or(-1);
-        csv.push_str(&format!(",{}\n", label));
+        fields.push(CsvField::Int(label as i64));
+        w.row(fields);
     }
-    Some(csv)
+    Some(w.finish())
 }
 fn build_sensitivity_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let m = app_state.sensitivity_heatmap_cache.get(&(
@@ -436,19 +459,18 @@ fn build_sensitivity_csv(app_state: &AppState, widgets: &WidgetStates) -> Option
     if !m.is_well_formed() {
         return None;
     }
-    let mut csv = String::from("variable");
-    for name in &m.objective_names {
-        csv.push_str(&format!(",{}", name));
-    }
-    csv.push('\n');
+    let mut w = CsvWriter::new();
+    let mut header: Vec<&str> = vec!["variable"];
+    header.extend(m.objective_names.iter().map(String::as_str));
+    w.header(header);
     for (i, param_name) in m.param_names.iter().enumerate() {
-        csv.push_str(param_name);
+        let mut fields = vec![CsvField::Text(param_name)];
         for &val in &m.values[i] {
-            csv.push_str(&format!(",{}", val));
+            fields.push(CsvField::Num(val));
         }
-        csv.push('\n');
+        w.row(fields);
     }
-    Some(csv)
+    Some(w.finish())
 }
 fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
@@ -463,63 +485,66 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     let obj_names = &study.meta.objective_names;
     let param_cols = study.view.numeric_columns(param_names);
     let obj_cols = study.view.numeric_columns(obj_names);
-    let mut csv = String::from("trial_id,trial_number");
-    for name in param_names {
-        csv.push_str(&format!(",{}", name));
-    }
-    for name in obj_names {
-        csv.push_str(&format!(",{}", name));
-    }
-    csv.push_str(",pareto_rank\n");
+    let mut w = CsvWriter::new();
+    let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
+    header.extend(param_names.iter().map(String::as_str));
+    header.extend(obj_names.iter().map(String::as_str));
+    header.push("pareto_rank");
+    w.header(header);
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
         let rank = study.view.pareto_rank.get(i).copied().unwrap_or(0);
         let trial_number = study.view.df.get_trial_number(i).unwrap_or(i as u32);
-        csv.push_str(&format!("{},{}", tid, trial_number));
-        for col in &param_cols {
+        let mut fields = vec![
+            CsvField::UInt(tid as u64),
+            CsvField::UInt(trial_number as u64),
+        ];
+        for col in param_cols.iter().chain(&obj_cols) {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            csv.push_str(&format!(",{}", v));
+            fields.push(CsvField::Num(v));
         }
-        for col in &obj_cols {
-            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            csv.push_str(&format!(",{}", v));
-        }
-        csv.push_str(&format!(",{}\n", rank));
+        fields.push(CsvField::UInt(rank as u64));
+        w.row(fields);
     }
-    Some(csv)
+    Some(w.finish())
 }
 fn build_mcdm_rank_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let method_name = result.method_label();
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
-    let mut csv = String::from("trial_id,rank,score,method\n");
+    let mut w = CsvWriter::new();
+    w.header(["trial_id", "rank", "score", "method"]);
     for (rank, &idx) in ranked.iter().enumerate() {
         let i = idx as usize;
         let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
         let score = scores.get(i).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!(
-            "{},{},{},{}\n",
-            trial_id,
-            rank + 1,
-            score,
-            method_name
-        ));
+        w.row([
+            CsvField::UInt(trial_id as u64),
+            CsvField::UInt((rank + 1) as u64),
+            CsvField::Num(score),
+            CsvField::Text(method_name),
+        ]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 
 fn build_mcdm_scatter_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
-    let mut csv = String::from("trial_id,rank,primary_score\n");
+    let mut w = CsvWriter::new();
+    w.header(["trial_id", "rank", "primary_score"]);
     for (rank, &idx) in ranked.iter().enumerate() {
         let i = idx as usize;
         let trial_id = trial_ids.get(i).copied().unwrap_or(i as u32);
         let score = scores.get(i).copied().unwrap_or(f64::NAN);
-        csv.push_str(&format!("{},{},{}\n", trial_id, rank + 1, score));
+        w.row([
+            CsvField::UInt(trial_id as u64),
+            CsvField::UInt((rank + 1) as u64),
+            CsvField::Num(score),
+        ]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 
 fn build_mcdm_table_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
@@ -527,47 +552,64 @@ fn build_mcdm_table_csv(result: &McdmResult, app_state: &AppState) -> Option<Str
     let tid = |idx: u32| trial_ids.get(idx as usize).copied().unwrap_or(idx);
     match result {
         McdmResult::Topsis(r) => {
-            let mut csv = String::from("trial_id,rank,topsis_score\n");
+            let mut w = CsvWriter::new();
+            w.header(["trial_id", "rank", "topsis_score"]);
             for (rank, &idx) in r.ranked_indices.iter().enumerate() {
                 let score = r.scores.get(idx as usize).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{}\n", tid(idx), rank + 1, score));
+                w.row([
+                    CsvField::UInt(tid(idx) as u64),
+                    CsvField::UInt((rank + 1) as u64),
+                    CsvField::Num(score),
+                ]);
             }
-            Some(csv)
+            Some(w.finish())
         }
         McdmResult::Vikor(r) => {
-            let mut csv = String::from("trial_id,rank,s_value,r_value,q_value\n");
+            let mut w = CsvWriter::new();
+            w.header(["trial_id", "rank", "s_value", "r_value", "q_value"]);
             for (rank, &idx) in r.ranked_indices.iter().enumerate() {
                 let i = idx as usize;
                 let s = r.s_values.get(i).copied().unwrap_or(f64::NAN);
                 let rv = r.r_values.get(i).copied().unwrap_or(f64::NAN);
                 let q = r.q_values.get(i).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{},{},{}\n", tid(idx), rank + 1, s, rv, q));
+                w.row([
+                    CsvField::UInt(tid(idx) as u64),
+                    CsvField::UInt((rank + 1) as u64),
+                    CsvField::Num(s),
+                    CsvField::Num(rv),
+                    CsvField::Num(q),
+                ]);
             }
-            Some(csv)
+            Some(w.finish())
         }
         McdmResult::PrometheeI(r) => {
-            let mut csv = String::from("trial_id,rank,phi_plus,phi_minus\n");
+            let mut w = CsvWriter::new();
+            w.header(["trial_id", "rank", "phi_plus", "phi_minus"]);
             for (rank, &idx) in r.ranked_indices_i.iter().enumerate() {
                 let i = idx as usize;
                 let phi_plus = r.phi_plus.get(i).copied().unwrap_or(f64::NAN);
                 let phi_minus = r.phi_minus.get(i).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!(
-                    "{},{},{},{}\n",
-                    tid(idx),
-                    rank + 1,
-                    phi_plus,
-                    phi_minus
-                ));
+                w.row([
+                    CsvField::UInt(tid(idx) as u64),
+                    CsvField::UInt((rank + 1) as u64),
+                    CsvField::Num(phi_plus),
+                    CsvField::Num(phi_minus),
+                ]);
             }
-            Some(csv)
+            Some(w.finish())
         }
         McdmResult::PrometheeII(r) => {
-            let mut csv = String::from("trial_id,rank,phi_net\n");
+            let mut w = CsvWriter::new();
+            w.header(["trial_id", "rank", "phi_net"]);
             for (rank, &idx) in r.ranked_indices_ii.iter().enumerate() {
                 let phi_net = r.phi_net.get(idx as usize).copied().unwrap_or(f64::NAN);
-                csv.push_str(&format!("{},{},{}\n", tid(idx), rank + 1, phi_net));
+                w.row([
+                    CsvField::UInt(tid(idx) as u64),
+                    CsvField::UInt((rank + 1) as u64),
+                    CsvField::Num(phi_net),
+                ]);
             }
-            Some(csv)
+            Some(w.finish())
         }
     }
 }
@@ -585,7 +627,8 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
     let param_col = study.view.numeric_column(param_name);
     let obj_col = study.view.numeric_column(obj_name);
     // Pareto membership is the per-row rank == 0 in the view (row-aligned).
-    let mut csv = format!("trial_id,{},{},is_pareto\n", param_name, obj_name);
+    let mut w = CsvWriter::new();
+    w.header(["trial_id", param_name, obj_name, "is_pareto"]);
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
         let param_val = param_col
             .and_then(|c| c.get(i))
@@ -593,12 +636,14 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
             .unwrap_or(f64::NAN);
         let obj_val = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
         let is_pareto = study.view.pareto_rank.get(i).copied() == Some(0);
-        csv.push_str(&format!(
-            "{},{},{},{}\n",
-            tid, param_val, obj_val, is_pareto
-        ));
+        w.row([
+            CsvField::UInt(tid as u64),
+            CsvField::Num(param_val),
+            CsvField::Num(obj_val),
+            CsvField::Text(if is_pareto { "true" } else { "false" }),
+        ]);
     }
-    Some(csv)
+    Some(w.finish())
 }
 
 /// サロゲート最適化の推定最適点を CSV にする。
@@ -611,37 +656,45 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
     }
 
     let result = widgets.surrogate_opt.result.as_ref()?;
-    let mut csv = String::from("name,value\n");
+    let mut w = CsvWriter::new();
+    w.header(["name", "value"]);
     for (name, value) in &result.best_params {
-        csv.push_str(&format!("{},{}\n", name, value));
+        w.row([CsvField::Text(name), CsvField::Num(*value)]);
     }
     let direction = if result.minimize {
         "minimize"
     } else {
         "maximize"
     };
-    csv.push_str(&format!(
-        "predicted_{}({}),{}\n",
-        direction, result.objective_name, result.best_value
-    ));
+    let predicted_label = format!("predicted_{}({})", direction, result.objective_name);
+    w.row([
+        CsvField::Text(&predicted_label),
+        CsvField::Num(result.best_value),
+    ]);
     if let Some(std) = result.predicted_std {
-        csv.push_str(&format!("predicted_std,{}\n", std));
+        w.row([CsvField::Text("predicted_std"), CsvField::Num(std)]);
     }
-    csv.push_str(&format!("r_squared,{}\n", result.r_squared));
+    w.row([CsvField::Text("r_squared"), CsvField::Num(result.r_squared)]);
 
     // 検証指標を追記する（学習済みモデルが保持されている場合）。
     if let Some(ref trained) = widgets.surrogate_opt.trained {
         let v = &trained.validation;
-        csv.push_str(&format!("train_r2,{}\n", v.train_r2));
-        csv.push_str(&format!("holdout_r2,{}\n", v.holdout_r2));
-        csv.push_str(&format!("holdout_rmse,{}\n", v.holdout_rmse));
-        csv.push_str(&format!("cv_r2_mean,{}\n", v.cv_r2_mean));
-        csv.push_str(&format!("cv_r2_std,{}\n", v.cv_r2_std));
-        csv.push_str(&format!("cv_rmse_mean,{}\n", v.cv_rmse_mean));
-        csv.push_str(&format!("cv_rmse_std,{}\n", v.cv_rmse_std));
+        w.row([CsvField::Text("train_r2"), CsvField::Num(v.train_r2)]);
+        w.row([CsvField::Text("holdout_r2"), CsvField::Num(v.holdout_r2)]);
+        w.row([
+            CsvField::Text("holdout_rmse"),
+            CsvField::Num(v.holdout_rmse),
+        ]);
+        w.row([CsvField::Text("cv_r2_mean"), CsvField::Num(v.cv_r2_mean)]);
+        w.row([CsvField::Text("cv_r2_std"), CsvField::Num(v.cv_r2_std)]);
+        w.row([
+            CsvField::Text("cv_rmse_mean"),
+            CsvField::Num(v.cv_rmse_mean),
+        ]);
+        w.row([CsvField::Text("cv_rmse_std"), CsvField::Num(v.cv_rmse_std)]);
     }
 
-    Some(csv)
+    Some(w.finish())
 }
 
 /// 多目的サロゲート最適化のフロント点テーブルを CSV にする。
@@ -649,7 +702,7 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
 fn build_surrogate_multi_opt_csv(
     result: &crate::state::messages::SurrogateMultiOptUiResult,
 ) -> String {
-    let mut csv = String::new();
+    let mut w = CsvWriter::new();
     // ヘッダ行
     let headers: Vec<&str> = result
         .objective_names
@@ -657,20 +710,18 @@ fn build_surrogate_multi_opt_csv(
         .map(|s| s.as_str())
         .chain(result.param_names.iter().map(|s| s.as_str()))
         .collect();
-    csv.push_str(&headers.join(","));
-    csv.push('\n');
+    w.header(headers);
     // データ行（1 フロント点 = 1 行）
     for pt in &result.front {
-        let values: Vec<String> = pt
+        let fields: Vec<CsvField> = pt
             .values
             .iter()
-            .map(|v| v.to_string())
-            .chain(pt.params.iter().map(|p| p.to_string()))
+            .chain(pt.params.iter())
+            .map(|&v| CsvField::Num(v))
             .collect();
-        csv.push_str(&values.join(","));
-        csv.push('\n');
+        w.row(fields);
     }
-    csv
+    w.finish()
 }
 
 #[cfg(test)]
@@ -789,6 +840,24 @@ mod tests {
     }
 
     #[test]
+    fn opt_history_csv_nan_objective_becomes_empty_field() {
+        let mut state = AppState::default();
+        let mut study = make_study(
+            vec!["x".into()],
+            vec!["f".into()],
+            vec![Direction::Minimize],
+        );
+        study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![f64::NAN])]);
+        state.current_study = Some(study);
+        let widgets = WidgetStates::default();
+
+        let csv = build_optimization_history_csv(&state, &widgets).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        // NaN objective and the still-infinite running best both serialize as empty fields.
+        assert_eq!(lines[1], "0,,");
+    }
+
+    #[test]
     fn opt_history_csv_returns_none_when_no_study() {
         let state = AppState::default();
         let widgets = WidgetStates::default();
@@ -864,6 +933,56 @@ mod tests {
         assert_eq!(header, "variable,importance_score,method");
         // 2 params → 2 data rows + header
         assert_eq!(csv.lines().count(), 3);
+    }
+
+    #[test]
+    fn importance_csv_quotes_param_name_with_comma() {
+        use crate::state::app_state::SensitivityResult;
+        use crate::state::results::RidgeResult;
+        let mut state = AppState::default();
+        let result = SensitivityResult {
+            param_names: vec!["x,y".into()],
+            objective_names: vec!["f".into()],
+            spearman: vec![vec![0.9]],
+            ridge: vec![RidgeResult {
+                beta: vec![0.8],
+                r_squared: 0.95,
+            }],
+            rf_anova: None,
+            mdi: None,
+            shap: None,
+            permutation: None,
+            ard: None,
+        };
+        state.importance_cache.insert((0u8, 0, false), result);
+        let widgets = WidgetStates::default();
+        let csv = build_importance_csv(&state, &widgets).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "\"x,y\",0.9,Spearman");
+    }
+
+    #[test]
+    fn importance_csv_guards_param_name_starting_with_equals() {
+        use crate::state::app_state::SensitivityResult;
+        use crate::state::results::RidgeResult;
+        let mut state = AppState::default();
+        let result = SensitivityResult {
+            param_names: vec!["=SUM(A1)".into()],
+            objective_names: vec!["f".into()],
+            spearman: vec![vec![0.9]],
+            ridge: vec![RidgeResult {
+                beta: vec![0.8],
+                r_squared: 0.95,
+            }],
+            rf_anova: None,
+            mdi: None,
+            shap: None,
+            permutation: None,
+            ard: None,
+        };
+        state.importance_cache.insert((0u8, 0, false), result);
+        let widgets = WidgetStates::default();
+        let csv = build_importance_csv(&state, &widgets).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "'=SUM(A1),0.9,Spearman");
     }
 
     #[test]

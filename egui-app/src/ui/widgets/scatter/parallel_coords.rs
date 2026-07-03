@@ -3,6 +3,13 @@ use crate::theme::chart_colors::{
     COLOR_PARALLEL_LINE_UNSELECTED, COLOR_PARALLEL_TICK,
 };
 use crate::theme::CENTRAL_BG;
+use crate::ui::widgets::common::range_math;
+use crate::ui::widgets::scatter_matrix::downsample_indices_to_cap;
+
+/// PCP 折れ線の最大描画数。1 試行あたり線分 (n_visible-1) 本を描くため
+/// 散布図の点よりも描画コストが高く、scatter_matrix の `MAX_SCATTER_POINTS` と
+/// 同じ上限を採用する（ブラシで選択中のトライアルは間引き対象外・常に描画する）。
+const MAX_PCP_POLYLINES: usize = 1500;
 
 /// 値の範囲に応じた精度で軸目盛り値をフォーマットする
 pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
@@ -22,10 +29,7 @@ pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
 
 /// 値を [0, 1] に正規化する（min==max の場合は 0.5 を返す）
 pub fn normalize_value(v: f64, v_min: f64, v_max: f64) -> f32 {
-    if (v_max - v_min).abs() < f64::EPSILON {
-        return 0.5;
-    }
-    ((v - v_min) / (v_max - v_min)).clamp(0.0, 1.0) as f32
+    range_math::normalize01(v, v_min, v_max)
 }
 
 /// 正規化値 [0,1] を画面の Y 座標に変換する（0 = bottom, 1 = top）
@@ -130,6 +134,12 @@ pub struct ParallelCoordsChart {
     pub axis_visibility: std::collections::HashMap<String, bool>,
     col_ranges_cache: Option<Vec<(f64, f64)>>,
     cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
+    /// 折れ線描画の間引きインデックスキャッシュ（trial_count が変わらない限り再計算しない）
+    polyline_indices_cache: Option<Vec<u32>>,
+    polyline_indices_cache_key: Option<usize>, // trial_count
+    /// 軸ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
+    label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
+    label_galleys_cache_key: Option<Vec<String>>,
     // TASK-2242: pending selection from completed brush drag
     pub pending_selection: Option<Vec<u32>>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
@@ -150,6 +160,10 @@ impl Default for ParallelCoordsChart {
             axis_visibility: std::collections::HashMap::new(),
             col_ranges_cache: None,
             cache_key: (0, 0, 0),
+            polyline_indices_cache: None,
+            polyline_indices_cache_key: None,
+            label_galleys_cache: None,
+            label_galleys_cache_key: None,
             pending_selection: None,
             show_infeasible: true,
             color_axis: None,
@@ -305,11 +319,20 @@ impl ParallelCoordsChart {
         let text_color = COLOR_CHART_TEXT;
         let label_font = egui::FontId::proportional(10.0);
 
-        // 軸ラベルを事前レイアウトし、隣接軸より幅が広ければ斜めに回転させて重なりを防ぐ
-        let label_galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
-            .iter()
-            .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), text_color))
-            .collect();
+        // 軸ラベルを事前レイアウトし、隣接軸より幅が広ければ斜めに回転させて重なりを防ぐ。
+        // レイアウト（layout_no_wrap）はテキスト整形コストがあるため、軸名リストが
+        // 変わらない限り毎フレーム再計算しない。
+        if self.label_galleys_cache.is_none()
+            || self.label_galleys_cache_key.as_deref() != Some(&all_names[..])
+        {
+            let galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
+                .iter()
+                .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), text_color))
+                .collect();
+            self.label_galleys_cache = Some(galleys);
+            self.label_galleys_cache_key = Some(all_names.clone());
+        }
+        let label_galleys = self.label_galleys_cache.as_ref().unwrap();
         let max_label_w = visible
             .iter()
             .map(|&i| label_galleys[i].size().x)
@@ -350,19 +373,48 @@ impl ParallelCoordsChart {
         // ドラッグ中も `brush_ranges` が更新されるためリアルタイムに反映される。
         let has_active_brush = self.brush_ranges.values().any(|range| range.is_some());
 
+        // 描画対象トライアルの間引き: 全件描画は重いため MAX_PCP_POLYLINES 件に制限する。
+        // trial_count が変わらない限り再計算しない。
+        if self.polyline_indices_cache_key != Some(trial_count) {
+            let all: Vec<u32> = (0..trial_count as u32).collect();
+            self.polyline_indices_cache = Some(downsample_indices_to_cap(&all, MAX_PCP_POLYLINES));
+            self.polyline_indices_cache_key = Some(trial_count);
+        }
+        let downsampled = self.polyline_indices_cache.as_ref().unwrap();
+
+        // 描画対象 (t_idx, in_selection) の一覧。ブラシ選択中のトライアルは間引きの
+        // 影響を受けず必ず描画する（間引き対象 ∪ ブラシ通過トライアルの和集合）。
+        let draw_targets: Vec<(usize, bool)> = if has_active_brush {
+            let downsampled_set: std::collections::HashSet<usize> =
+                downsampled.iter().map(|&i| i as usize).collect();
+            (0..trial_count)
+                .filter_map(|t_idx| {
+                    let passes = trial_passes_brushes(
+                        t_idx,
+                        &self.brush_ranges,
+                        &cols,
+                        col_ranges,
+                        &all_names,
+                    );
+                    (downsampled_set.contains(&t_idx) || passes).then_some((t_idx, passes))
+                })
+                .collect()
+        } else {
+            downsampled.iter().map(|&i| (i as usize, true)).collect()
+        };
+
         // 各試行を折れ線で描画（半透明）。
         // 選択外（グレーアウト）の線を先に描き、選択内の線を最前面に重ねる。
+        // スクラッチバッファは即時描画分（非選択）で使い回し、per-trial のアロケーションを避ける。
+        // 最前面に重ねる選択内の線だけは、後段でまとめて描くために個別に複製する。
         let mut selected_polylines: Vec<(Vec<egui::Pos2>, egui::Color32)> = Vec::new();
-        for t_idx in 0..trial_count {
+        let mut point_scratch: Vec<egui::Pos2> = Vec::with_capacity(n_visible);
+        for (t_idx, in_selection) in draw_targets {
             let feasible = feas.is_feasible(t_idx);
 
             if !feasible && !show_infeasible {
                 continue;
             }
-
-            // ブラシがある場合、この試行が全アクティブブラシ範囲を満たすか判定する。
-            let in_selection = !has_active_brush
-                || trial_passes_brushes(t_idx, &self.brush_ranges, &cols, col_ranges, &all_names);
 
             let color = if !in_selection {
                 COLOR_PARALLEL_LINE_UNSELECTED
@@ -388,7 +440,7 @@ impl ParallelCoordsChart {
                 COLOR_INFEASIBLE
             };
 
-            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_visible);
+            point_scratch.clear();
             let mut valid = true;
             for (disp, &orig) in visible.iter().enumerate() {
                 let val_opt = cols
@@ -403,14 +455,14 @@ impl ParallelCoordsChart {
                 let (mn, mx) = col_ranges[orig];
                 let norm = normalize_value(val, mn, mx);
                 let y = normalized_to_screen_y(norm, axis_top, axis_bottom);
-                points.push(egui::pos2(axis_x[disp], y));
+                point_scratch.push(egui::pos2(axis_x[disp], y));
             }
-            if valid && points.len() >= 2 {
+            if valid && point_scratch.len() >= 2 {
                 if in_selection && has_active_brush {
                     // 選択内の線は後でまとめて最前面に描画する
-                    selected_polylines.push((points, color));
+                    selected_polylines.push((point_scratch.clone(), color));
                 } else {
-                    for pair in points.windows(2) {
+                    for pair in point_scratch.windows(2) {
                         painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, color));
                     }
                 }
@@ -518,7 +570,7 @@ impl ParallelCoordsChart {
                     (ptr.x - **a)
                         .abs()
                         .partial_cmp(&(ptr.x - **b).abs())
-                        .unwrap()
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|(i, _)| i);
 

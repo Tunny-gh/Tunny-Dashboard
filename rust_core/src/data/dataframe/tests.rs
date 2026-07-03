@@ -399,3 +399,200 @@ fn tc_102_p01_load_50000_trials_at_scale() {
 
     assert_eq!(result.data_frame_info.row_count, 50_000);
 }
+
+// ============================================================
+// append_trials: from_trials(全行) との等価性
+// ============================================================
+
+/// 列内容が名前引きで一致するか（内部格納順は問わない）。
+fn assert_df_equivalent(appended: &DataFrame, rebuilt: &DataFrame) {
+    assert_eq!(appended.row_count(), rebuilt.row_count());
+    for i in 0..appended.row_count() {
+        assert_eq!(appended.get_trial_id(i), rebuilt.get_trial_id(i));
+        assert_eq!(appended.get_trial_number(i), rebuilt.get_trial_number(i));
+    }
+    assert_eq!(appended.param_col_names(), rebuilt.param_col_names());
+    assert_eq!(
+        appended.objective_col_names(),
+        rebuilt.objective_col_names()
+    );
+    assert_eq!(
+        appended.user_attr_numeric_col_names(),
+        rebuilt.user_attr_numeric_col_names()
+    );
+    assert_eq!(
+        appended.user_attr_string_col_names(),
+        rebuilt.user_attr_string_col_names()
+    );
+    assert_eq!(
+        appended.constraint_col_names(),
+        rebuilt.constraint_col_names()
+    );
+    let mut names_a = appended.column_names();
+    let mut names_b = rebuilt.column_names();
+    names_a.sort();
+    names_b.sort();
+    assert_eq!(names_a, names_b);
+    for name in &names_b {
+        match (
+            appended.get_numeric_column(name),
+            rebuilt.get_numeric_column(name),
+        ) {
+            (Some(a), Some(b)) => {
+                assert_eq!(a.len(), b.len(), "len mismatch: {name}");
+                for (x, y) in a.iter().zip(b) {
+                    assert!(
+                        (x.is_nan() && y.is_nan()) || (x - y).abs() < 1e-12,
+                        "column {name}: {x} != {y}"
+                    );
+                }
+            }
+            (None, None) => {
+                assert_eq!(
+                    appended.get_string_column(name),
+                    rebuilt.get_string_column(name),
+                    "string column mismatch: {name}"
+                );
+            }
+            _ => panic!("column {name}: numeric/string type mismatch"),
+        }
+    }
+}
+
+fn make_trial_n(id: u32, params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {
+    let mut t = make_trial(params, objective_values);
+    t.trial_id = id;
+    t.trial_number = id;
+    t
+}
+
+#[test]
+fn append_trials_equals_from_trials_basic() {
+    let p = vec!["x".to_string(), "y".to_string()];
+    let o = vec!["obj0".to_string()];
+    let chunk1 = vec![
+        make_trial_n(0, &[("x", 0.5), ("y", 2.0)], vec![1.0]),
+        make_trial_n(1, &[("x", 1.5), ("y", 3.0)], vec![2.0]),
+    ];
+    let chunk2 = vec![make_trial_n(2, &[("x", 2.5), ("y", 4.0)], vec![3.0])];
+
+    let mut df = DataFrame::from_trials(&chunk1, &p, &o, &[], &[], 0);
+    df.append_trials(&chunk2, &p, &o, &[], &[], 0);
+
+    let all: Vec<TrialRow> = chunk1.into_iter().chain(chunk2).collect();
+    let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 0);
+    assert_df_equivalent(&df, &rebuilt);
+}
+
+#[test]
+fn append_trials_backfills_new_param_column() {
+    let o = vec!["obj0".to_string()];
+    let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
+    // 2 チャンク目で param "z"（数値）と user attr が初出現する。
+    let mut t = make_trial_n(1, &[("x", 1.5), ("z", 9.0)], vec![2.0]);
+    t.user_attrs_numeric.insert("loss".into(), 0.5);
+    t.user_attrs_string.insert("tag".into(), "b".into());
+    let chunk2 = vec![t.clone()];
+
+    let p1 = vec!["x".to_string()];
+    let p2 = vec!["x".to_string(), "z".to_string()];
+    let mut df = DataFrame::from_trials(&chunk1, &p1, &o, &[], &[], 0);
+    df.append_trials(
+        &chunk2,
+        &p2,
+        &o,
+        &["loss".to_string()],
+        &["tag".to_string()],
+        0,
+    );
+
+    let all = vec![chunk1[0].clone(), t];
+    let rebuilt = DataFrame::from_trials(
+        &all,
+        &p2,
+        &o,
+        &["loss".to_string()],
+        &["tag".to_string()],
+        0,
+    );
+    assert_df_equivalent(&df, &rebuilt);
+}
+
+#[test]
+fn append_trials_flips_numeric_param_to_categorical() {
+    let p = vec!["opt".to_string()];
+    let o = vec!["obj0".to_string()];
+    let chunk1 = vec![make_trial_n(0, &[("opt", 1.0)], vec![1.0])];
+    let mut t = make_trial_n(1, &[], vec![2.0]);
+    t.param_category_label.insert("opt".into(), "adam".into());
+    let chunk2 = vec![t.clone()];
+
+    let mut df = DataFrame::from_trials(&chunk1, &p, &o, &[], &[], 0);
+    df.append_trials(&chunk2, &p, &o, &[], &[], 0);
+
+    let all = vec![chunk1[0].clone(), t];
+    let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 0);
+    assert_df_equivalent(&df, &rebuilt);
+    // 既存数値行はラベル無しとして "" になる（from_trials と同じ規則）。
+    assert_eq!(df.get_string_column("opt").unwrap()[0], "");
+}
+
+#[test]
+fn append_trials_constraints_appear_mid_stream() {
+    let p = vec!["x".to_string()];
+    let o = vec!["obj0".to_string()];
+    let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
+    let mut t = make_trial_n(1, &[("x", 1.5)], vec![2.0]);
+    t.constraint_values = vec![-1.0, 0.5];
+    let chunk2 = vec![t.clone()];
+
+    let mut df = DataFrame::from_trials(&chunk1, &p, &o, &[], &[], 0);
+    df.append_trials(&chunk2, &p, &o, &[], &[], 2);
+
+    let all = vec![chunk1[0].clone(), t];
+    let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 2);
+    assert_df_equivalent(&df, &rebuilt);
+    // 制約を持たない既存行は feasible 扱い。
+    assert!((df.get_numeric_column("is_feasible").unwrap()[0] - 1.0).abs() < 1e-12);
+    assert!((df.get_numeric_column("is_feasible").unwrap()[1] - 0.0).abs() < 1e-12);
+}
+
+#[test]
+fn append_trials_objective_added_mid_stream_backfills_nan() {
+    let p = vec!["x".to_string()];
+    let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
+    let chunk2 = vec![make_trial_n(1, &[("x", 1.5)], vec![2.0, 5.0])];
+
+    let o1 = vec!["obj0".to_string()];
+    let o2 = vec!["obj0".to_string(), "obj1".to_string()];
+    let mut df = DataFrame::from_trials(&chunk1, &p, &o1, &[], &[], 0);
+    df.append_trials(&chunk2, &p, &o2, &[], &[], 0);
+
+    let all = vec![chunk1[0].clone(), chunk2[0].clone()];
+    let rebuilt = DataFrame::from_trials(&all, &p, &o2, &[], &[], 0);
+    assert_df_equivalent(&df, &rebuilt);
+    assert!(df.get_numeric_column("obj1").unwrap()[0].is_nan());
+}
+
+#[test]
+fn append_trials_to_empty_dataframe() {
+    let p = vec!["x".to_string()];
+    let o = vec!["obj0".to_string()];
+    let rows = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
+
+    let mut df = DataFrame::empty();
+    df.append_trials(&rows, &p, &o, &[], &[], 0);
+
+    let rebuilt = DataFrame::from_trials(&rows, &p, &o, &[], &[], 0);
+    assert_df_equivalent(&df, &rebuilt);
+}
+
+#[test]
+fn append_trials_empty_rows_is_noop() {
+    let p = vec!["x".to_string()];
+    let o = vec!["obj0".to_string()];
+    let rows = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
+    let mut df = DataFrame::from_trials(&rows, &p, &o, &[], &[], 0);
+    df.append_trials(&[], &p, &o, &[], &[], 0);
+    assert_eq!(df.row_count(), 1);
+}

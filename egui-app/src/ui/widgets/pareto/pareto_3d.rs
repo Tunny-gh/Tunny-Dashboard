@@ -5,12 +5,10 @@ use crate::theme::chart_colors::{
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::TOOLBAR_BTN_FG;
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, pick_nearest_3d,
-    setup_3d_canvas, show_objective_combo, ArcballCamera,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
+    show_hover_and_click_detail, show_objective_combo, ArcballCamera, Range3DCache,
 };
-use crate::ui::widgets::trial_detail_modal::{
-    show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
-};
+use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
 /// Pareto 3D チャートウィジェット
 pub struct Pareto3dChart {
@@ -18,8 +16,7 @@ pub struct Pareto3dChart {
     pub y_objective: usize,
     pub z_objective: usize,
     pub camera: ArcballCamera,
-    range_cache: [(f64, f64); 3],
-    range_cache_key: (usize, usize, usize, usize),
+    range_cache: Range3DCache<(usize, usize, usize, usize)>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
     /// 点クリックで開くトライアル詳細モーダル
@@ -28,18 +25,12 @@ pub struct Pareto3dChart {
 
 impl Default for Pareto3dChart {
     fn default() -> Self {
-        // Y軸45° + X軸-30° のアイソメトリック初期視点
-        let camera = ArcballCamera {
-            rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
-            ..Default::default()
-        };
         Self {
             x_objective: 0,
             y_objective: 1,
             z_objective: 2,
-            camera,
-            range_cache: [(-1.0, 1.0); 3],
-            range_cache_key: (usize::MAX, usize::MAX, usize::MAX, 0),
+            camera: ArcballCamera::isometric_default(),
+            range_cache: Range3DCache::default(),
             show_infeasible: true,
             detail_modal: TrialDetailModal::new(),
         }
@@ -79,7 +70,7 @@ impl Pareto3dChart {
             return;
         }
 
-        let downsample_indices = app_state.downsample_cache.scatter.clone();
+        let downsample_indices = app_state.downsample_cache.scatter.as_deref();
         let ctx = app_state.current_study.as_ref().unwrap();
         let view = &ctx.view;
         let trial_count = view.row_count();
@@ -90,16 +81,15 @@ impl Pareto3dChart {
             self.z_objective,
             trial_count,
         );
-        if self.range_cache_key != range_cache_key {
-            let col = |idx: usize| obj_names.get(idx).and_then(|n| view.numeric_column(n));
-            self.range_cache = [
+        let col = |idx: usize| obj_names.get(idx).and_then(|n| view.numeric_column(n));
+        let ranges = self.range_cache.get_or_compute(range_cache_key, || {
+            [
                 compute_range_from_col(col(self.x_objective)),
                 compute_range_from_col(col(self.y_objective)),
                 compute_range_from_col(col(self.z_objective)),
-            ];
-            self.range_cache_key = range_cache_key;
-        }
-        let [(x_min, x_max), (y_min, y_max), (z_min, z_max)] = self.range_cache;
+            ]
+        });
+        let [(x_min, x_max), (y_min, y_max), (z_min, z_max)] = ranges;
 
         let has_constraints = view.feasibility().has_constraints();
 
@@ -140,7 +130,7 @@ impl Pareto3dChart {
             .and_then(|n| view.numeric_column(n));
         let feas = view.feasibility();
 
-        let displayed: Vec<usize> = match downsample_indices.as_deref() {
+        let displayed: Vec<usize> = match downsample_indices {
             Some(idx) => idx
                 .iter()
                 .map(|&i| i as usize)
@@ -207,34 +197,33 @@ impl Pareto3dChart {
             painter.circle_stroke(pos, 9.5, egui::Stroke::new(1.5, TOOLBAR_BTN_FG));
         }
 
-        // マウスホバーで点の概要をツールチップ表示（モーダル表示中・ドラッグ中は抑止）。
-        if !self.detail_modal.is_open() {
-            if let Some(hover) = hover_pos {
-                if let Some((_, row)) = pick_nearest_3d(&candidates, hover) {
-                    let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
-                    let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-                    let fmt =
-                        |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
-                    let mut rows = vec![
-                        (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
-                        (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
-                        (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
-                        ("Pareto Rank".to_string(), rank.to_string()),
-                    ];
-                    if feas.has_constraints() {
-                        rows.push((
-                            "Feasible".to_string(),
-                            if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                        ));
-                    }
-                    show_hover_tooltip(ui, "pareto3d_hover_tooltip", trial_number, &rows);
+        show_hover_and_click_detail(
+            ui,
+            view,
+            &candidates,
+            hover_pos,
+            click_pos,
+            "pareto3d_hover_tooltip",
+            &mut self.detail_modal,
+            |row| {
+                let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+                let fmt =
+                    |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+                let mut rows = vec![
+                    (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
+                    (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
+                    (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
+                    ("Pareto Rank".to_string(), rank.to_string()),
+                ];
+                if feas.has_constraints() {
+                    rows.push((
+                        "Feasible".to_string(),
+                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+                    ));
                 }
-            }
-        }
-
-        // 左クリックで点に当たれば詳細モーダルを開く（散布図情報 = Pareto ランク）。
-        if let Some(click) = click_pos {
-            if let Some((trial_id, row)) = pick_nearest_3d(&candidates, click) {
+                rows
+            },
+            |row| {
                 let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
                 let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
                 if feas.has_constraints() {
@@ -243,13 +232,9 @@ impl Pareto3dChart {
                         if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
                     ));
                 }
-                self.detail_modal.open(TrialDetailTarget {
-                    trial_id,
-                    row_index: row,
-                    context,
-                });
-            }
-        }
+                context
+            },
+        );
 
         // 詳細モーダルを描画する。
         if self.detail_modal.is_open() {
