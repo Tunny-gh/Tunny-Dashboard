@@ -48,7 +48,7 @@ i.e. the fraction of perturbed designs that remain feasible — a Monte Carlo co
 - The analysis is only as good as the surrogate. Check the surrogate's cross-validation quality first; a poorly fitted model produces confident-looking but meaningless distributions.
 - Clipping at the declared bounds truncates the noise distribution for candidates near a bound; the reported spread is then conditional on staying inside the box.
 - Independent Gaussian noise per dimension is an assumption. Correlated tolerances or non-Gaussian scatter are not modeled.
-- Deterministic seeding makes the sample set reproducible: the same candidate, noise level, and sample count always produce the same statistics.
+- Gaussian samples are generated with the [Box-Muller transform](../statistics/box-muller.md) on a seeded RNG. Deterministic seeding makes the sample set reproducible: the same candidate, noise level, and sample count always produce the same statistics.
 - Comparing the distributions of two candidates (e.g. two pinned trials) is the intended workflow: a slightly worse nominal value with a much tighter distribution is often the better engineering choice.
 
 ---
