@@ -347,5 +347,20 @@ pub(crate) fn render_chart(
                 &constraint_col_names,
             );
         }
+        ChartId::Histogram => {
+            widgets
+                .histogram
+                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+        }
+        ChartId::BoxPlot => {
+            widgets
+                .box_plot
+                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+        }
+        ChartId::CorrelationMatrix => {
+            widgets
+                .correlation_matrix
+                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+        }
     }
 }

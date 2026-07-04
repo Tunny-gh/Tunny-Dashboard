@@ -38,6 +38,12 @@ pub use decision::mcdm_chart;
 pub use decision::mcdm_scatter_chart;
 pub use decision::mcdm_scatter_chart_3d;
 
+// 統計ウィジェット (ヒストグラム・箱ひげ図・相関行列)
+mod stats;
+pub use stats::box_plot;
+pub use stats::correlation_matrix;
+pub use stats::histogram;
+
 // 共通 UI 部品
 mod common;
 pub use common::artifact_gallery;

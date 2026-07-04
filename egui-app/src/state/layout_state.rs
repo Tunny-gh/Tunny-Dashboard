@@ -18,6 +18,9 @@ pub enum ChartId {
     SliceChart,
     ObservedContour,
     SurrogateOpt,
+    Histogram,
+    BoxPlot,
+    CorrelationMatrix,
     ArtifactGallery,
 }
 
@@ -42,6 +45,9 @@ impl ChartId {
             ChartId::SliceChart,
             ChartId::ObservedContour,
             ChartId::SurrogateOpt,
+            ChartId::Histogram,
+            ChartId::BoxPlot,
+            ChartId::CorrelationMatrix,
             ChartId::ArtifactGallery,
         ]
     }
@@ -66,6 +72,9 @@ impl ChartId {
             ChartId::SliceChart => "Slice Chart",
             ChartId::ObservedContour => "Observed Contour",
             ChartId::SurrogateOpt => "Surrogate Optimizer",
+            ChartId::Histogram => "Histogram",
+            ChartId::BoxPlot => "Box Plot",
+            ChartId::CorrelationMatrix => "Correlation Matrix",
             ChartId::ArtifactGallery => "Artifact Gallery",
         }
     }

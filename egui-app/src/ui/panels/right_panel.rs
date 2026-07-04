@@ -75,6 +75,15 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::McdmScatterChart3D => {
             egui::include_image!("../../../assets/widget_icons/mcdm_scatter_chart_3d.svg")
         }
+        ChartId::Histogram => {
+            egui::include_image!("../../../assets/widget_icons/histogram.svg")
+        }
+        ChartId::BoxPlot => {
+            egui::include_image!("../../../assets/widget_icons/box_plot.svg")
+        }
+        ChartId::CorrelationMatrix => {
+            egui::include_image!("../../../assets/widget_icons/correlation_matrix.svg")
+        }
         ChartId::ArtifactGallery => {
             egui::include_image!("../../../assets/widget_icons/artifact_gallery.svg")
         }
@@ -157,6 +166,14 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
                     PanelItem::Chart(ChartId::ObservedContour),
+                ],
+            ),
+            (
+                "Statistics",
+                &[
+                    PanelItem::Chart(ChartId::Histogram),
+                    PanelItem::Chart(ChartId::BoxPlot),
+                    PanelItem::Chart(ChartId::CorrelationMatrix),
                 ],
             ),
             // PDP はサロゲートを学習し他変数を周辺化した予測（外挿あり）。データ由来の

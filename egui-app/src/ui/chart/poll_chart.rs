@@ -172,7 +172,10 @@ pub(crate) fn poll_chart_work(
         | ChartId::OptimizationHistory
         | ChartId::ParallelCoordinates
         | ChartId::ScatterMatrix
-        | ChartId::SliceChart => return,
+        | ChartId::SliceChart
+        | ChartId::Histogram
+        | ChartId::BoxPlot
+        | ChartId::CorrelationMatrix => return,
         _ => {}
     }
 

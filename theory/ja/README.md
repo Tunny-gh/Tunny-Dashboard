@@ -166,6 +166,9 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 | 手法 | 役割 | 詳細 |
 |------|------|------|
 | ピアソン積率相関 | 2 変数の線形相関を測る（散布図行列の相関係数・Spearman の内部計算） | [statistics/pearson-correlation.md](statistics/pearson-correlation.md) |
+| ヒストグラム | ビン分割による単変量分布の要約（歪み・多峰性・外れ値） | [statistics/histogram.md](statistics/histogram.md) |
+| 箱ひげ図 | 五数要約による変数間/クラスタ間の分布比較 | [statistics/box-plot.md](statistics/box-plot.md) |
+| 相関行列 | 全変数のペアワイズ相関を俯瞰するヒートマップ | [statistics/correlation-matrix.md](statistics/correlation-matrix.md) |
 
 ---
 

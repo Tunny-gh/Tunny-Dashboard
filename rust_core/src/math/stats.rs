@@ -31,6 +31,69 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
     cov / denom
 }
 
+/// Rank values with average ranks for ties.
+///
+/// NaN values are sorted to the end and receive the average of the trailing
+/// ranks (they are treated as a single tied group). Ties among finite values
+/// receive the average of the ranks they span.
+pub fn rank(values: &[f64]) -> Vec<f64> {
+    let n = values.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    let mut indices: Vec<usize> = (0..n).collect();
+    indices.sort_by(|&a, &b| {
+        let va = values[a];
+        let vb = values[b];
+        match (va.is_nan(), vb.is_nan()) {
+            (true, _) => std::cmp::Ordering::Greater,
+            (_, true) => std::cmp::Ordering::Less,
+            _ => va.partial_cmp(&vb).unwrap(),
+        }
+    });
+
+    let mut ranks = vec![0.0f64; n];
+    let mut i = 0;
+
+    while i < n {
+        let val = values[indices[i]];
+        if val.is_nan() {
+            let avg = (i as f64 + 1.0 + n as f64) / 2.0;
+            for k in i..n {
+                ranks[indices[k]] = avg;
+            }
+            break;
+        }
+
+        let mut j = i + 1;
+        while j < n && values[indices[j]] == val {
+            j += 1;
+        }
+
+        let avg_rank = (i as f64 + 1.0 + j as f64) / 2.0;
+        for k in i..j {
+            ranks[indices[k]] = avg_rank;
+        }
+        i = j;
+    }
+
+    ranks
+}
+
+/// Spearman rank correlation coefficient of x and y.
+///
+/// Computed as the Pearson correlation of the ranks of x and y (via [`rank`]).
+/// Slice-length mismatch is only checked in debug builds, matching
+/// [`pearson_correlation`].
+pub fn spearman_correlation(x: &[f64], y: &[f64]) -> f64 {
+    debug_assert_eq!(x.len(), y.len());
+    let n = x.len().min(y.len());
+    let rx = rank(&x[..n]);
+    let ry = rank(&y[..n]);
+    pearson_correlation(&rx, &ry)
+}
+
 /// Column mean and standard deviation.
 /// The std is the population standard deviation (denominator = n, no Bessel's
 /// correction), matching the usual convention for feature standardization
