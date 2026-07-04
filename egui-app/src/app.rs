@@ -303,9 +303,6 @@ impl TunnyApp {
                         crate::io::study_worker::dispatch_scan_journal(path, self.sender());
                     }
                 }
-                ToolbarAction::SetViewMode(mode) => {
-                    self.layout.view_mode = mode;
-                }
                 ToolbarAction::SelectStudy(meta) => {
                     self.is_loading = true;
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
@@ -325,15 +322,6 @@ impl TunnyApp {
                     self.app_state.live_update.interval_ms = ms;
                     if let Some(ref poller) = self.poller {
                         poller.update_interval(ms);
-                    }
-                }
-                ToolbarAction::GenerateHtmlReport => {
-                    if let Some(ctx) = &self.app_state.current_study {
-                        crate::io::html_report::build_and_send_report(
-                            ctx,
-                            &self.app_state.selected_indices,
-                            self.sender(),
-                        );
                     }
                 }
                 ToolbarAction::ScanArtifacts(base_dir) => {

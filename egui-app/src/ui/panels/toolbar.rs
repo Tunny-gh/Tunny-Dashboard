@@ -1,23 +1,14 @@
 use crate::io::export::ExportTarget;
 use crate::state::app_state::{AppState, ColormapName, StudyMeta};
-use crate::state::layout_state::{LayoutState, ViewMode};
 use crate::theme::{ERROR_COLOR, TOOLBAR_BTN_FG};
 use crate::ui::widget_states::WidgetStates;
-
-/// ビューモードボタンのラベル定義
-pub const VIEW_MODE_BUTTONS: &[(ViewMode, &str)] = &[
-    (ViewMode::Grid, "Grid View"),
-    (ViewMode::Canvas, "Canvas View"),
-];
 
 #[derive(Debug, Clone)]
 pub enum ToolbarAction {
     OpenJournal(std::path::PathBuf),
-    SetViewMode(ViewMode),
     SelectStudy(StudyMeta),
     ToggleLiveUpdate,
     SetPollInterval(u64),
-    GenerateHtmlReport,
     ScanArtifacts(std::path::PathBuf),
     ClearLoadError,
 
@@ -32,7 +23,6 @@ pub enum ToolbarAction {
 pub fn show_toolbar(
     ui: &mut egui::Ui,
     app_state: &AppState,
-    layout: &LayoutState,
     is_loading: bool,
     load_error: Option<&str>,
 ) -> Vec<ToolbarAction> {
@@ -44,33 +34,6 @@ pub fn show_toolbar(
             if let Some(path) = crate::io::file::open_file_dialog() {
                 actions.push(ToolbarAction::OpenJournal(path));
             }
-        }
-
-        ui.separator();
-
-        // ビューモード ComboBox（Grid View / Canvas View）
-        {
-            let current_label = VIEW_MODE_BUTTONS
-                .iter()
-                .find(|(m, _)| *m == layout.view_mode)
-                .map(|(_, l)| *l)
-                .unwrap_or("View");
-            ui.scope(|ui| {
-                apply_combo_visuals(ui.visuals_mut());
-                egui::ComboBox::from_id_salt("view_mode_combo")
-                    .selected_text(
-                        egui::RichText::new(current_label).color(crate::theme::TOOLBAR_TEXT),
-                    )
-                    .width(140.0)
-                    .show_ui(ui, |ui| {
-                        for (mode, label) in VIEW_MODE_BUTTONS {
-                            let selected = layout.view_mode == *mode;
-                            if ui.selectable_label(selected, *label).clicked() {
-                                actions.push(ToolbarAction::SetViewMode(*mode));
-                            }
-                        }
-                    });
-            });
         }
 
         ui.separator();
@@ -165,11 +128,6 @@ pub fn show_toolbar(
             }
 
             ui.separator();
-
-            // ── REQ-005: HTML レポート出力 ──────────────────────────────────
-            if toolbar_button(ui, "HTML", app_state.current_study.is_some()).clicked() {
-                actions.push(ToolbarAction::GenerateHtmlReport);
-            }
 
             // ── REQ-007: Artifacts フォルダ選択 ───────────────────────────────
             if toolbar_button(ui, "Artifacts", true).clicked() {
@@ -381,41 +339,9 @@ fn apply_combo_visuals(vis: &mut egui::Visuals) {
     vis.widgets.active.fg_stroke = fg_white;
 }
 
-/// ViewMode を文字列から解決する（テスト用ユーティリティ）
-pub fn view_mode_label(mode: ViewMode) -> &'static str {
-    VIEW_MODE_BUTTONS
-        .iter()
-        .find(|(m, _)| *m == mode)
-        .map(|(_, label)| *label)
-        .unwrap_or("Unknown")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::layout_state::ViewMode;
-
-    #[test]
-    fn view_mode_buttons_cover_all_modes() {
-        let modes: Vec<ViewMode> = VIEW_MODE_BUTTONS.iter().map(|(m, _)| *m).collect();
-        assert!(modes.contains(&ViewMode::Grid));
-        assert!(modes.contains(&ViewMode::Canvas));
-        assert_eq!(modes.len(), 2);
-    }
-
-    #[test]
-    fn view_mode_label_returns_correct_label() {
-        assert_eq!(view_mode_label(ViewMode::Grid), "Grid View");
-        assert_eq!(view_mode_label(ViewMode::Canvas), "Canvas View");
-    }
-
-    #[test]
-    fn view_mode_switch_updates_state() {
-        let mut layout = LayoutState::default();
-        assert_eq!(layout.view_mode, ViewMode::Canvas);
-        layout.view_mode = ViewMode::Grid;
-        assert_eq!(layout.view_mode, ViewMode::Grid);
-    }
 
     #[test]
     fn loading_state_clears_on_file_open_sequence() {

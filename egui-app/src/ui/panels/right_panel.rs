@@ -109,34 +109,29 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
     );
 }
 
-/// アイコンタイルを枠付きで描画する。未配置ならドラッグ元にする。
-fn widget_tile(ui: &mut egui::Ui, item: &PanelItem, is_placed: bool) {
+/// アイコンタイルを枠付きで描画する。ウィジェットは常にドラッグ元にする
+/// （Canvas ビューは同じウィジェットの複数配置を許すため、常に配置可能）。
+fn widget_tile(ui: &mut egui::Ui, item: &PanelItem) {
     let frame = egui::Frame::default()
         .fill(crate::theme::WIDGET_BG)
         .corner_radius(6)
         .inner_margin(egui::Margin::same(2));
 
-    if is_placed {
-        frame.show(ui, |ui| tile_contents(ui, item, false));
-    } else {
-        let drag_id = egui::Id::new("right_panel_item").with(item.label());
-        let resp = ui
-            .dnd_drag_source(drag_id, DragPayload::NewWidget(item.clone()), |ui| {
-                frame.show(ui, |ui| tile_contents(ui, item, true));
-            })
-            .response;
-        resp.on_hover_text(item.label());
-    }
+    let drag_id = egui::Id::new("right_panel_item").with(item.label());
+    let resp = ui
+        .dnd_drag_source(drag_id, DragPayload::NewWidget(item.clone()), |ui| {
+            frame.show(ui, |ui| tile_contents(ui, item, true));
+        })
+        .response;
+    resp.on_hover_text(item.label());
 }
 
 /// 右パネルを描画する（ウィジェット一覧）。
 /// パネルの開閉はホバーで自動制御されるため、トグルボタンは不要。
-pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut LayoutState) {
+pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading("Widgets");
         ui.add_space(4.0);
-
-        let placed: Vec<&PanelItem> = layout.placed_items();
 
         let groups: &[(&str, &[PanelItem])] = &[
             (
@@ -209,8 +204,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState, layout: &mut L
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
                 for item in *items {
-                    let is_placed = placed.contains(&item);
-                    widget_tile(ui, item, is_placed);
+                    widget_tile(ui, item);
                 }
             });
         }

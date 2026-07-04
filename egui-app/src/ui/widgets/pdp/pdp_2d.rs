@@ -15,7 +15,7 @@ pub(crate) type Grid = Vec<Vec<f64>>;
 /// 95% CI バンドの (下限, 上限) グリッド
 pub(crate) type BandGrids = (Grid, Grid);
 
-/// Pending 2D PDP computation request, placed by show() and consumed by grid_canvas.
+/// Pending 2D PDP computation request, placed by show() and consumed by the chart cell body.
 pub struct Pdp2dComputeRequest {
     pub param1: String,
     pub param2: String,
