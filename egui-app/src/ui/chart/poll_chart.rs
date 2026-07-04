@@ -1104,6 +1104,88 @@ pub(crate) fn poll_chart_work(
                 });
             }
         }
+        ChartId::Robustness => {
+            let Some(fit_req) = widgets.robustness.pending_fit.take() else {
+                return;
+            };
+            let ctx = app_state.current_study.as_ref().unwrap();
+            let numeric_params: Vec<String> = ctx
+                .meta
+                .param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            if numeric_params.is_empty() {
+                widgets.robustness.fit_error = Some("No numeric parameters available".to_string());
+                widgets.robustness.fitting = false;
+                return;
+            }
+            let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
+                widgets.robustness.fit_error = Some("Invalid objective selection".to_string());
+                widgets.robustness.fitting = false;
+                return;
+            };
+
+            let n = ctx.view.row_count();
+            let param_cols = ctx.view.numeric_columns(&numeric_params);
+            let x_matrix: Vec<Vec<f64>> = (0..n)
+                .map(|i| {
+                    param_cols
+                        .iter()
+                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .collect()
+                })
+                .collect();
+            let y: Vec<f64> = ctx
+                .view
+                .numeric_column(&objective)
+                .map(|col| col.to_vec())
+                .unwrap_or_else(|| vec![0.0; n]);
+
+            // ロバスト性解析は制約の実行可能率も欲しいので、あれば常に渡す。
+            let constraints: Vec<tunny_core::surrogate_opt::ConstraintData> = ctx
+                .view
+                .df
+                .constraint_col_names()
+                .iter()
+                .filter_map(|col_name| {
+                    ctx.view.df.get_numeric_column(col_name).map(|col| {
+                        tunny_core::surrogate_opt::ConstraintData {
+                            name: col_name.clone(),
+                            values: col.to_vec(),
+                        }
+                    })
+                })
+                .collect();
+
+            let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
+                .iter()
+                .map(|p| ctx.meta.param_bounds.get(p).copied())
+                .collect();
+
+            widgets.robustness.trained = None;
+            widgets.robustness.fit_error = None;
+
+            let tx = tx.clone();
+            crate::app::spawn_task(tx, move || {
+                let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+                    x_matrix,
+                    y,
+                    param_names: numeric_params,
+                    objective_name: objective,
+                    model: fit_req.model,
+                    auto_select: false,
+                    constraints,
+                    priority_rows: vec![],
+                    param_bounds: Some(param_bounds),
+                };
+                match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+                    Ok(t) => AppMessage::RobustnessFitDone(std::sync::Arc::new(t)),
+                    Err(e) => AppMessage::RobustnessFitFailed(e),
+                }
+            });
+        }
         _ => {}
     }
 }

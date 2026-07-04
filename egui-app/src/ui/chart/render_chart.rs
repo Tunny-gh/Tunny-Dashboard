@@ -347,6 +347,17 @@ pub(crate) fn render_chart(
                 &constraint_col_names,
             );
         }
+        ChartId::Robustness => {
+            crate::ui::widgets::robustness::show(
+                ui,
+                &mut widgets.robustness,
+                &ctx.view,
+                obj_names,
+                directions,
+                ctx.trial_count(),
+                &app_state.pinned_trials,
+            );
+        }
         ChartId::Histogram => {
             widgets
                 .histogram

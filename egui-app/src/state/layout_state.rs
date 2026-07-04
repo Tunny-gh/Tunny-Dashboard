@@ -18,6 +18,7 @@ pub enum ChartId {
     SliceChart,
     ObservedContour,
     SurrogateOpt,
+    Robustness,
     Histogram,
     BoxPlot,
     CorrelationMatrix,
@@ -45,6 +46,7 @@ impl ChartId {
             ChartId::SliceChart,
             ChartId::ObservedContour,
             ChartId::SurrogateOpt,
+            ChartId::Robustness,
             ChartId::Histogram,
             ChartId::BoxPlot,
             ChartId::CorrelationMatrix,
@@ -72,6 +74,7 @@ impl ChartId {
             ChartId::SliceChart => "Slice Chart",
             ChartId::ObservedContour => "Observed Contour",
             ChartId::SurrogateOpt => "Surrogate Optimizer",
+            ChartId::Robustness => "Robustness",
             ChartId::Histogram => "Histogram",
             ChartId::BoxPlot => "Box Plot",
             ChartId::CorrelationMatrix => "Correlation Matrix",
@@ -85,6 +88,7 @@ impl ChartId {
             ChartId::ScatterMatrix => Some(
                 "Lower-left: scatter plots / Upper-right: Pearson correlation / Diagonal: histograms",
             ),
+            ChartId::Robustness => Some("MC noise propagation"),
             _ => None,
         }
     }

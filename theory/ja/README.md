@@ -145,6 +145,7 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 - [**獲得関数（Expected Improvement / Lower Confidence Bound）**](optimization/acquisition-functions.md)
 - [**期待ハイパーボリューム改善（EHVI: Expected Hypervolume Improvement）**](optimization/ehvi.md)
 - [**ハイパーボリューム（WFG アルゴリズム）**](optimization/hypervolume.md)
+- [**ロバスト性解析（モンテカルロによるノイズ伝播）**](optimization/robustness-analysis.md)
 
 ---
 

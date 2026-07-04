@@ -316,6 +316,15 @@ impl MessageHandler {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.multi_suggesting = false;
             }
+            AppMessage::RobustnessFitDone(trained) => {
+                widget_states.robustness.trained = Some(trained);
+                widget_states.robustness.fit_error = None;
+                widget_states.robustness.fitting = false;
+            }
+            AppMessage::RobustnessFitFailed(err) => {
+                widget_states.robustness.fit_error = Some(err);
+                widget_states.robustness.fitting = false;
+            }
         }
     }
 

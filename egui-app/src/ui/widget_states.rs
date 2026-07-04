@@ -8,8 +8,8 @@ use crate::ui::widgets::{
     mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
     pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
-    pdp_chart::PdpChart, scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
-    slice_chart::SliceChart, trial_table::TrialTable,
+    pdp_chart::PdpChart, robustness::RobustnessChart, scatter_matrix::ScatterMatrix,
+    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart, trial_table::TrialTable,
 };
 
 // ── Observed Contour（観測点補間の等高線）────────────────────────
@@ -351,6 +351,8 @@ pub struct WidgetStates {
     pub observed_contour: ObservedContourState,
     /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
     pub surrogate_opt: SurrogateOptState,
+    /// ロバスト性解析（学習済みサロゲート上の入力ノイズ MC 伝播）の UI 状態
+    pub robustness: RobustnessChart,
     pub histogram: HistogramChart,
     pub box_plot: BoxPlotChart,
     pub correlation_matrix: CorrelationMatrixChart,

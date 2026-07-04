@@ -328,6 +328,10 @@ pub enum AppMessage {
     SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult),
     /// EHVI による多目的候補提案が失敗した。
     SurrogateMultiSuggestFailed(String),
+    /// ロバスト性解析用サロゲートのフィットが完了した。
+    RobustnessFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    /// ロバスト性解析用サロゲートのフィットが失敗した。
+    RobustnessFitFailed(String),
 }
 
 #[cfg(test)]

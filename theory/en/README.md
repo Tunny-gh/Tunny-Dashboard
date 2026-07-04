@@ -144,6 +144,7 @@ Algorithms used to optimize on the surrogate model.
 - [**Acquisition functions (Expected Improvement / Lower Confidence Bound)**](optimization/acquisition-functions.md)
 - [**Expected Hypervolume Improvement (EHVI)**](optimization/ehvi.md)
 - [**Hypervolume (WFG algorithm)**](optimization/hypervolume.md)
+- [**Robustness analysis (Monte Carlo noise propagation)**](optimization/robustness-analysis.md)
 
 ---
 
