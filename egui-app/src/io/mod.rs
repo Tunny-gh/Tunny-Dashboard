@@ -6,5 +6,6 @@ pub mod file;
 pub mod flat_csv;
 pub mod journal;
 pub mod live_update_poller;
+pub mod sqlite;
 pub mod study;
 pub mod study_worker;

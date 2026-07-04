@@ -172,6 +172,16 @@ Basic statistical measures referenced in common by several widgets and analysis 
 
 ---
 
+## Data I/O
+
+Optuna storage formats this app can read and how it interprets them.
+
+| Topic | Role | Details |
+|--------|------|---------|
+| Optuna storage formats | Journal / RDB (SQLite) storage structure and this app's schema-interpretation rules | [io/optuna-storages.md](io/optuna-storages.md) |
+
+---
+
 ## Widgets
 
 UI charts/panels and the quantities they display.

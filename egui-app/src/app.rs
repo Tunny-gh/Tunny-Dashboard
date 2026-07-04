@@ -170,6 +170,8 @@ impl TunnyApp {
         if let Some(path) = initial_path {
             if crate::io::flat_csv::is_csv_path(&path) {
                 crate::io::study_worker::dispatch_scan_csv(path, tx.clone());
+            } else if crate::io::sqlite::is_sqlite_path(&path) {
+                crate::io::study_worker::dispatch_scan_sqlite(path, tx.clone());
             } else {
                 crate::io::study_worker::dispatch_scan_journal(path, tx.clone());
             }
@@ -241,9 +243,6 @@ impl TunnyApp {
             }
 
             if is_journal_parsed {
-                if self.app_state.live_update.enabled {
-                    self.restart_poller();
-                }
                 // フラット CSV は最適化方向・変数レンジの情報を持たないため、自動活性化せず
                 // 確認ダイアログを開く。確定時に編集値を反映した meta で select_study を発行する。
                 let is_csv = self
@@ -251,6 +250,19 @@ impl TunnyApp {
                     .journal_path
                     .as_deref()
                     .is_some_and(crate::io::flat_csv::is_csv_path);
+                let is_sqlite = self
+                    .app_state
+                    .journal_path
+                    .as_deref()
+                    .is_some_and(crate::io::sqlite::is_sqlite_path);
+                if is_csv || is_sqlite {
+                    // Live Update は journal 専用。journal で有効化したまま CSV/SQLite を
+                    // 開いた場合、poller が非 journal ファイルを追跡しないよう強制オフにする。
+                    self.app_state.live_update.enabled = false;
+                    self.app_state.live_update.poller_active = false;
+                } else if self.app_state.live_update.enabled {
+                    self.restart_poller();
+                }
                 if is_csv {
                     if let Some(meta) = self.app_state.all_studies.first() {
                         self.app_state.csv_import_settings =
@@ -299,6 +311,8 @@ impl TunnyApp {
                     self.app_state.reset_comparison_session();
                     if crate::io::flat_csv::is_csv_path(&path) {
                         crate::io::study_worker::dispatch_scan_csv(path, self.sender());
+                    } else if crate::io::sqlite::is_sqlite_path(&path) {
+                        crate::io::study_worker::dispatch_scan_sqlite(path, self.sender());
                     } else {
                         crate::io::study_worker::dispatch_scan_journal(path, self.sender());
                     }

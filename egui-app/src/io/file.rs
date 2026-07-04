@@ -1,16 +1,21 @@
 use std::path::PathBuf;
 
 /// ネイティブファイルダイアログで最適化結果ファイルを選択する。
-/// `.log` は Optuna の結果ファイル、`.csv` は DesignExplorer 向け形式であることが
+/// `.log` は Optuna の Journal ストレージ、`.csv` は DesignExplorer 向け形式、
+/// `.db`/`.sqlite`/`.sqlite3` は Optuna の RDB（SQLite）ストレージであることが
 /// フィルタ名から分かるようにする。
 pub fn open_file_dialog() -> Option<PathBuf> {
     rfd::FileDialog::new()
         .add_filter(
-            "Optimization Result (Optuna .log / DesignExplorer .csv)",
-            &["log", "csv"],
+            "Optimization Result (Optuna .log / DesignExplorer .csv / Optuna SQLite .db/.sqlite/.sqlite3)",
+            &["log", "csv", "db", "sqlite", "sqlite3"],
         )
         .add_filter("Optuna Result (*.log)", &["log"])
         .add_filter("DesignExplorer (*.csv)", &["csv"])
+        .add_filter(
+            "Optuna SQLite (.db/.sqlite/.sqlite3)",
+            &["db", "sqlite", "sqlite3"],
+        )
         .pick_file()
 }
 

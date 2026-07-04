@@ -20,6 +20,11 @@ enum StudyCommand {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
+    /// Optuna SQLite（RDBStorage）を開いて Study 一覧のみ取得する。
+    ScanSqlite {
+        path: PathBuf,
+        tx: SyncSender<AppMessage>,
+    },
     /// Phase 2 兼再選択: 未ロードなら完全パース、ロード済みなら即活性化
     SelectStudy {
         meta: StudyMeta,
@@ -39,6 +44,9 @@ enum StudyCommand {
 struct WorkerState {
     /// Phase 1 で読み込んだ生バイト列。Phase 2 でファイル再読み込みを避けるためキャッシュする
     journal_data: Option<Vec<u8>>,
+    /// 開いている Optuna SQLite ストレージのパス。journal と異なりバイト列はキャッシュせず、
+    /// Phase 2 はこのパスから直接再クエリする。journal/CSV とは相互排他。
+    sqlite_path: Option<PathBuf>,
     /// DataFrame をグローバルストアに登録済みの study_id セット
     loaded_study_ids: HashSet<u32>,
     /// フラット CSV インポート時の `img` 列由来アーティファクト。
@@ -54,6 +62,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
         std::thread::spawn(move || {
             let mut state = WorkerState {
                 journal_data: None,
+                sqlite_path: None,
                 loaded_study_ids: HashSet::new(),
                 csv_artifacts: None,
             };
@@ -63,6 +72,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         let (data, msg) = crate::io::journal::scan_journal_task(path);
                         if !matches!(msg, AppMessage::Error(_)) {
                             state.journal_data = Some(data);
+                            state.sqlite_path = None;
                             state.loaded_study_ids.clear();
                             state.csv_artifacts = None;
                         }
@@ -74,6 +84,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 // CSV は単一 Study を即時ストア登録済み。Journal の
                                 // ストリーミング経路は使わず、loaded 扱いにする。
                                 state.journal_data = None;
+                                state.sqlite_path = None;
                                 state.loaded_study_ids.clear();
                                 state.loaded_study_ids.insert(meta.study_id);
                                 state.csv_artifacts = Some((artifacts_dir, artifacts));
@@ -86,6 +97,16 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 let _ = tx.send(AppMessage::Error(e));
                             }
                         }
+                    }
+                    StudyCommand::ScanSqlite { path, tx } => {
+                        let msg = crate::io::sqlite::scan_sqlite_task(path.clone());
+                        if !matches!(msg, AppMessage::Error(_)) {
+                            state.journal_data = None;
+                            state.sqlite_path = Some(path);
+                            state.loaded_study_ids.clear();
+                            state.csv_artifacts = None;
+                        }
+                        let _ = tx.send(msg);
                     }
                     StudyCommand::SelectStudy { meta, tx } => {
                         let study_id = meta.study_id;
@@ -104,6 +125,12 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             // 未ロード → Phase 2: ストリーミング解析。完了 Trial を 1000 件ごとに
                             // StudyChunkLoaded として tx へ逐次送信する（複数通）。
                             let ok = crate::io::journal::stream_single_study_task(data, meta, &tx);
+                            if ok {
+                                state.loaded_study_ids.insert(study_id);
+                            }
+                        } else if let Some(ref path) = state.sqlite_path {
+                            // 未ロード → SQLite から全行を単一チャンクとして読み込む（1 通）。
+                            let ok = crate::io::sqlite::load_single_study_task(path, study_id, &tx);
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
@@ -141,7 +168,24 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                         Err(_) => None,
                                     }
                                 }
-                                None => None,
+                                None => match state.sqlite_path.as_ref() {
+                                    Some(path) => {
+                                        match tunny_core::sqlite::parse_single_study(path, study_id)
+                                        {
+                                            Ok((_full_meta, df)) => {
+                                                let arc = Arc::new(df);
+                                                tunny_core::dataframe::swap_snapshot(
+                                                    study_id,
+                                                    arc.clone(),
+                                                );
+                                                state.loaded_study_ids.insert(study_id);
+                                                Some(arc)
+                                            }
+                                            Err(_) => None,
+                                        }
+                                    }
+                                    None => None,
+                                },
                             },
                         };
                         let msg = match df {
@@ -167,6 +211,11 @@ pub fn dispatch_scan_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
 /// フラット CSV を読み込み単一 Study として登録する。
 pub fn dispatch_scan_csv(path: PathBuf, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanCsv { path, tx });
+}
+
+/// Optuna SQLite ストレージを開いて Study 一覧を取得する。
+pub fn dispatch_scan_sqlite(path: PathBuf, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanSqlite { path, tx });
 }
 
 pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {

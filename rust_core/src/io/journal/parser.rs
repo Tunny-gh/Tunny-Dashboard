@@ -4,7 +4,7 @@
 //! Reference: docs/implements/TASK-101/journal-parser-requirements.md
 
 mod builders;
-mod distribution;
+pub(crate) mod distribution;
 mod finalize;
 mod state;
 mod types;

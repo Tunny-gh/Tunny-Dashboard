@@ -560,46 +560,25 @@ fn tc_101_p01_performance_50000_lines() {
 }
 
 #[test]
-fn distribution_float_log_false_identity() {
+fn distribution_float_display_is_identity() {
     let dist = Distribution::Float {
         low: 0.0,
         high: 1.0,
-        log: false,
     };
     assert!((dist.to_display_f64(0.5) - 0.5).abs() < 1e-10);
 }
 
 #[test]
-fn distribution_float_log_true_exp() {
-    let dist = Distribution::Float {
-        low: 0.0,
-        high: 1.0,
-        log: true,
-    };
-    let expected = std::f64::consts::LN_2.exp();
-    assert!((dist.to_display_f64(std::f64::consts::LN_2) - expected).abs() < 1e-10);
-}
-
-#[test]
-fn distribution_int_step1() {
-    let dist = Distribution::Int {
-        low: 0,
-        high: 10,
-        step: 1,
-        log: false,
-    };
+fn distribution_int_display_is_stored_value() {
+    // Optuna は low/step に関係なく実値を格納する（low=1 でもオフセットしない）
+    let dist = Distribution::Int { low: 1, high: 10 };
     assert!((dist.to_display_f64(3.0) - 3.0).abs() < 1e-10);
 }
 
 #[test]
-fn distribution_int_step2() {
-    let dist = Distribution::Int {
-        low: 0,
-        high: 10,
-        step: 2,
-        log: false,
-    };
-    assert!((dist.to_display_f64(2.0) - 4.0).abs() < 1e-10);
+fn distribution_int_display_rounds_float_noise() {
+    let dist = Distribution::Int { low: 0, high: 10 };
+    assert!((dist.to_display_f64(4.000000001) - 4.0).abs() < 1e-10);
 }
 
 #[test]
@@ -641,18 +620,19 @@ fn distribution_from_json_string_with_attributes() {
     let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.01, \"low\": -32.77, \"high\": 32.77, \"log\": false}}""#;
     let val: Value = serde_json::from_str(json_str).unwrap();
     let dist = Distribution::from_json(&val);
-    assert!(matches!(dist, Distribution::Float { log: false, .. }));
+    assert!(matches!(dist, Distribution::Float { .. }));
     assert!((dist.to_display_f64(7.4) - 7.4).abs() < 1e-10);
 }
 
 #[test]
 fn distribution_from_json_string_log_true() {
+    // log 分布でも格納値は外部表現（実値）なので表示変換は恒等
     let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.0, \"low\": 1e-5, \"high\": 1.0, \"log\": true}}""#;
     let val: Value = serde_json::from_str(json_str).unwrap();
     let dist = Distribution::from_json(&val);
-    assert!(matches!(dist, Distribution::Float { log: true, .. }));
-    let ln2 = std::f64::consts::LN_2;
-    assert!((dist.to_display_f64(ln2) - 2.0).abs() < 1e-10);
+    assert!(matches!(dist, Distribution::Float { .. }));
+    let x = 0.125;
+    assert!((dist.to_display_f64(x) - x).abs() < 1e-10);
 }
 
 #[test]
@@ -662,16 +642,9 @@ fn distribution_from_json_object_with_attributes() {
     )
     .unwrap();
     let dist = Distribution::from_json(&val);
-    assert!(matches!(
-        dist,
-        Distribution::Int {
-            low: 0,
-            step: 2,
-            log: false,
-            ..
-        }
-    ));
-    assert!((dist.to_display_f64(3.0) - 6.0).abs() < 1e-10);
+    assert!(matches!(dist, Distribution::Int { low: 0, high: 10 }));
+    // step 付きでも格納値は実値（外部表現）そのもの
+    assert!((dist.to_display_f64(6.0) - 6.0).abs() < 1e-10);
 }
 
 #[test]
