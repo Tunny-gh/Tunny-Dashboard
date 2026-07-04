@@ -157,6 +157,9 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 |------|------|------|
 | k-means | データを $k$ クラスタに分割（Lloyd's アルゴリズム） | [clustering/kmeans.md](clustering/kmeans.md) |
 | エルボー法 | 最適クラスタ数 $k$ の自動推定（WCSS 二次差分） | [clustering/elbow.md](clustering/elbow.md) |
+| 階層クラスタリング（Ward 法） | 併合木（デンドログラム）を構築し、構造を見た後で $k$ をカット | [clustering/hierarchical.md](clustering/hierarchical.md) |
+| PCA バイプロット | 標準化 PCA 平面上に trial スコアと変数のローディング矢印を表示 | [clustering/pca-biplot.md](clustering/pca-biplot.md) |
+| SOM（自己組織化マップ） | 設計空間のトポロジー保存 2D 地図（U-matrix・成分プレーン） | [clustering/som.md](clustering/som.md) |
 
 ---
 
@@ -171,6 +174,7 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 | 箱ひげ図 | 五数要約による変数間/クラスタ間の分布比較 | [statistics/box-plot.md](statistics/box-plot.md) |
 | 相関行列 | 全変数のペアワイズ相関を俯瞰するヒートマップ | [statistics/correlation-matrix.md](statistics/correlation-matrix.md) |
 | Box-Muller 変換 | 一様乱数からの厳密な標準正規サンプリング（ロバスト性解析のガウスノイズ生成） | [statistics/box-muller.md](statistics/box-muller.md) |
+| 分布フィッティング | 正規 / 対数正規 / ワイブルの MLE と AIC 比較。ヒストグラムに重ね描き | [statistics/distribution-fitting.md](statistics/distribution-fitting.md) |
 
 ---
 
@@ -201,6 +205,9 @@ UI チャート/パネルと、それらが表示する量。
 - [アーティファクトギャラリー](widgets/artifact-gallery.md)
 - [サロゲート最適化](widgets/surrogate-optimizer.md)
 - [Robustness](widgets/robustness.md)
+- [レーダー比較](widgets/radar-comparison.md)
+- [比較テーブル](widgets/comparison-table.md)
+- [Response Surface 3D](widgets/response-surface-3d.md)
 
 ---
 
@@ -222,11 +229,19 @@ UI チャート/パネルと、それらが表示する量。
   ├── 良いトライアルを選びたい
   │    ├── 多目的で総合評価 → TOPSIS / VIKOR / PROMETHEE（MCDM チャート）
   │    ├── トレードオフ全体 → Pareto Front（ParetoFront チャート）
+  │    ├── 絞り込んだ候補同士を並べて比較 → レーダー比較（ピン留め trial・形状）
+  │    │    └── その形状の裏付けとなる正確な数値を見たい → 比較テーブル（ピン留め trial・生の値）
   │    └── 候補の入力ばらつきに対する安定性を確認
   │                        → Robustness（サロゲート上の MC ノイズ伝播）
   │
+  ├── 設計・目的関数空間の構造を俯瞰したい（k を固定しない）
+  │    ├── トポロジー保存 2D 地図 → SOM（U-matrix・成分プレーン）
+  │    ├── 変数方向を伴う分散平面 → PCA バイプロット（標準化 PCA）
+  │    └── 入れ子構造・木を見てから k を選びたい → 階層クラスタリング（デンドログラム）
+  │
   └── パラメータと目的関数の関係を可視化したい
        ├── 1 パラメータ → 1D PDP（PdpChart）
+       ├── 候補設計の周りの局所地形 → Response Surface 3D（サロゲート断面）
        └── 2 パラメータ → 2D PDP（PdpChart2DState）
             ├── 高速・線形             → Ridge 回帰
             ├── 非線形・不連続・ノイジー→ Random Forest（LightGBM RF）

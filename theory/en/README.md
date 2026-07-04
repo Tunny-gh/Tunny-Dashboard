@@ -156,6 +156,9 @@ Clustering-related methods used by the `ClusterScatter` widget.
 |--------|------|---------|
 | k-means | Partitions data into $k$ clusters (Lloyd's algorithm) | [clustering/kmeans.md](clustering/kmeans.md) |
 | Elbow method | Auto-estimates the optimal cluster count $k$ (WCSS second difference) | [clustering/elbow.md](clustering/elbow.md) |
+| Hierarchical clustering (Ward) | Builds a merge tree (dendrogram); cut at $k$ after seeing the structure | [clustering/hierarchical.md](clustering/hierarchical.md) |
+| PCA Biplot | Standardized PCA plane with trial scores and variable loading arrows | [clustering/pca-biplot.md](clustering/pca-biplot.md) |
+| SOM (Self-Organizing Map) | Topology-preserving 2D map of the design space (U-matrix, component planes) | [clustering/som.md](clustering/som.md) |
 | [Overview](clustering/overview.md) | Clustering pipeline summary | [clustering/overview.md](clustering/overview.md) |
 
 ---
@@ -171,6 +174,7 @@ Basic statistical measures referenced in common by several widgets and analysis 
 | Box Plot | Five-number-summary distribution comparison across variables/clusters | [statistics/box-plot.md](statistics/box-plot.md) |
 | Correlation Matrix | Heatmap overview of pairwise correlation across all variables | [statistics/correlation-matrix.md](statistics/correlation-matrix.md) |
 | Box-Muller transform | Exact standard-normal sampling from uniform variates (Gaussian noise in robustness analysis) | [statistics/box-muller.md](statistics/box-muller.md) |
+| Distribution fitting | Normal / Log-normal / Weibull MLE with AIC comparison, overlaid on the histogram | [statistics/distribution-fitting.md](statistics/distribution-fitting.md) |
 
 ---
 
@@ -201,6 +205,9 @@ UI charts/panels and the quantities they display.
 - [Artifact gallery](widgets/artifact-gallery.md)
 - [Surrogate optimizer](widgets/surrogate-optimizer.md)
 - [Robustness](widgets/robustness.md)
+- [Radar comparison](widgets/radar-comparison.md)
+- [Comparison table](widgets/comparison-table.md)
+- [Response surface 3D](widgets/response-surface-3d.md)
 
 ---
 
@@ -222,11 +229,19 @@ I want to analyze optimization results
   ├── Pick good trials
   │    ├── holistic multi-objective score → TOPSIS / VIKOR / PROMETHEE (MCDM chart)
   │    ├── full trade-off                 → Pareto Front (ParetoFront chart)
+  │    ├── compare the picked few side by side → Radar Comparison (pinned trials, shape)
+  │    │    └── check the exact numbers behind that shape → Comparison Table (pinned trials, raw values)
   │    └── check a candidate's stability under input scatter
   │                                       → Robustness (MC noise propagation on a surrogate)
   │
+  ├── Survey structure in the design/objective space (no fixed k)
+  │    ├── topology-preserving 2D map → SOM (U-matrix, component planes)
+  │    ├── variance plane with variable directions → PCA Biplot (standardized PCA)
+  │    └── nested grouping, choose k after seeing the tree → Hierarchical Clustering (dendrogram)
+  │
   └── Visualize parameter–objective relationships
        ├── 1 parameter → 1D PDP (PdpChart)
+       ├── local landscape around a candidate → Response Surface 3D (surrogate slice)
        └── 2 parameters → 2D PDP (PdpChart2DState)
             ├── fast / linear              → Ridge regression
             ├── non-linear / discontinuous → Random Forest (LightGBM RF)

@@ -257,6 +257,21 @@ mod tests {
     }
 
     #[test]
+    fn surface_slice_at_returns_expected_grid() {
+        // train_simple を再利用するためここに置く（surface_slice_at の結線確認）。
+        let trained = train_simple(false);
+        let slice =
+            crate::surrogate_opt::surface_slice_at(&trained, &[5.0, 0.0], 0, 1, 10).unwrap();
+        assert_eq!(slice.x_values.len(), 10);
+        assert_eq!(slice.y_values.len(), 10);
+        assert_eq!(slice.z_values.len(), 10);
+        assert!(slice.z_values.iter().all(|row| row.len() == 10));
+        // 次元不一致・同一軸は None
+        assert!(crate::surrogate_opt::surface_slice_at(&trained, &[5.0], 0, 1, 10).is_none());
+        assert!(crate::surrogate_opt::surface_slice_at(&trained, &[5.0, 0.0], 0, 0, 10).is_none());
+    }
+
+    #[test]
     fn percentile_linear_interpolation() {
         let sorted = vec![0.0, 1.0, 2.0, 3.0];
         assert_eq!(percentile(&sorted, 0.5), 1.5);

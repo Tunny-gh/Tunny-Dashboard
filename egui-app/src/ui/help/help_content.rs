@@ -249,6 +249,66 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/statistics/correlation-matrix.html"
             )),
         },
+        ChartId::RadarComparison => HelpContent {
+            widget_name: "radar-comparison",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/radar-comparison.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/radar-comparison.html"
+            )),
+        },
+        ChartId::ComparisonTable => HelpContent {
+            widget_name: "comparison-table",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/comparison-table.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/comparison-table.html"
+            )),
+        },
+        ChartId::PcaBiplot => HelpContent {
+            widget_name: "pca-biplot",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/clustering/pca-biplot.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/clustering/pca-biplot.html"
+            )),
+        },
+        ChartId::SomMap => HelpContent {
+            widget_name: "som-map",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/clustering/som.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/clustering/som.html")),
+        },
+        ChartId::Dendrogram => HelpContent {
+            widget_name: "dendrogram",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/clustering/hierarchical.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/clustering/hierarchical.html"
+            )),
+        },
+        ChartId::ResponseSurface3D => HelpContent {
+            widget_name: "response-surface-3d",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/response-surface-3d.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/response-surface-3d.html"
+            )),
+        },
     }
 }
 

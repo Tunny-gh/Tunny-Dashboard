@@ -304,6 +304,46 @@ fn tc_901_03_pca_empty_data() {
 }
 
 #[test]
+fn pca_explained_ratio_sums_to_at_most_one() {
+    let data = make_dominant_axis_data(100);
+    let result = run_pca_on_matrix(&data, 2);
+    assert_eq!(result.explained_ratio.len(), 2);
+    let sum: f64 = result.explained_ratio.iter().sum();
+    assert!(sum > 0.0 && sum <= 1.0 + 1e-9, "ratio sum = {sum}");
+    assert!(result.explained_ratio[0] >= result.explained_ratio[1]);
+}
+
+#[test]
+fn pca_standardized_is_column_scale_invariant() {
+    // 標準化 PCA では、ある列を 1000 倍しても寄与率は変わらない（相関行列 PCA）。
+    let data = make_dominant_axis_data(100);
+    let scaled: Vec<Vec<f64>> = data
+        .iter()
+        .map(|row| {
+            let mut r = row.clone();
+            r[1] *= 1000.0;
+            r
+        })
+        .collect();
+    let a = super::pca::run_pca_on_matrix_opts(&data, 2, true);
+    let b = super::pca::run_pca_on_matrix_opts(&scaled, 2, true);
+    for (ra, rb) in a.explained_ratio.iter().zip(&b.explained_ratio) {
+        assert!((ra - rb).abs() < 1e-9, "{ra} vs {rb}");
+    }
+}
+
+#[test]
+fn pca_standardized_zero_variance_column_is_inert() {
+    // 分散ゼロ列は標準化後 0 となり、loadings の整列は保たれつつ寄与しない。
+    let data: Vec<Vec<f64>> = (0..50)
+        .map(|i| vec![i as f64, 7.0, (i as f64 * 0.5).sin()])
+        .collect();
+    let result = super::pca::run_pca_on_matrix_opts(&data, 2, true);
+    assert_eq!(result.loadings[0].len(), 3, "3 features stay aligned");
+    assert!(result.projections.iter().all(|p| p.len() == 2));
+}
+
+#[test]
 fn tc_901_04_kmeans_convergence() {
     let k = 3;
     let n_per_cluster = 50;

@@ -332,6 +332,10 @@ pub enum AppMessage {
     RobustnessFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     /// ロバスト性解析用サロゲートのフィットが失敗した。
     RobustnessFitFailed(String),
+    /// 応答曲面 3D ビューア用サロゲートのフィットが完了した。
+    ResponseSurfaceFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    /// 応答曲面 3D ビューア用サロゲートのフィットが失敗した。
+    ResponseSurfaceFitFailed(String),
 }
 
 #[cfg(test)]

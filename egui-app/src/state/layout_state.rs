@@ -23,6 +23,12 @@ pub enum ChartId {
     BoxPlot,
     CorrelationMatrix,
     ArtifactGallery,
+    RadarComparison,
+    ComparisonTable,
+    PcaBiplot,
+    SomMap,
+    Dendrogram,
+    ResponseSurface3D,
 }
 
 impl ChartId {
@@ -51,6 +57,12 @@ impl ChartId {
             ChartId::BoxPlot,
             ChartId::CorrelationMatrix,
             ChartId::ArtifactGallery,
+            ChartId::RadarComparison,
+            ChartId::ComparisonTable,
+            ChartId::PcaBiplot,
+            ChartId::SomMap,
+            ChartId::Dendrogram,
+            ChartId::ResponseSurface3D,
         ]
     }
 
@@ -79,6 +91,12 @@ impl ChartId {
             ChartId::BoxPlot => "Box Plot",
             ChartId::CorrelationMatrix => "Correlation Matrix",
             ChartId::ArtifactGallery => "Artifact Gallery",
+            ChartId::RadarComparison => "Radar Comparison",
+            ChartId::ComparisonTable => "Comparison Table",
+            ChartId::PcaBiplot => "PCA Biplot",
+            ChartId::SomMap => "SOM Map",
+            ChartId::Dendrogram => "Dendrogram",
+            ChartId::ResponseSurface3D => "Response Surface 3D",
         }
     }
 
@@ -89,6 +107,11 @@ impl ChartId {
                 "Lower-left: scatter plots / Upper-right: Pearson correlation / Diagonal: histograms",
             ),
             ChartId::Robustness => Some("MC noise propagation"),
+            ChartId::RadarComparison => Some("Pinned-trial profiles"),
+            ChartId::ComparisonTable => Some("Pinned trials side by side"),
+            ChartId::PcaBiplot => Some("Scores + loadings"),
+            ChartId::SomMap => Some("Topology-preserving map"),
+            ChartId::ResponseSurface3D => Some("Surrogate slice viewer"),
             _ => None,
         }
     }

@@ -373,5 +373,60 @@ pub(crate) fn render_chart(
                 .correlation_matrix
                 .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
         }
+        ChartId::RadarComparison => {
+            widgets.radar_comparison.show(
+                ui,
+                &ctx.view,
+                param_names,
+                obj_names,
+                directions,
+                &app_state.pinned_trials,
+            );
+        }
+        ChartId::ComparisonTable => {
+            widgets.comparison_table.show(
+                ui,
+                &ctx.view,
+                param_names,
+                obj_names,
+                directions,
+                &app_state.pinned_trials,
+            );
+        }
+        ChartId::PcaBiplot => {
+            let study_name = ctx.meta.name.clone();
+            widgets
+                .pca_biplot
+                .show(ui, &ctx.view, obj_names, &cmap, &study_name);
+        }
+        ChartId::SomMap => {
+            widgets
+                .som_map
+                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name, &cmap);
+        }
+        ChartId::Dendrogram => {
+            widgets
+                .dendrogram
+                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+        }
+        ChartId::ResponseSurface3D => {
+            // カテゴリカル列（数値化できない列）は応答曲面の対象から除外する
+            // （Robustness / SurrogateOpt と同じ絞り込み）。
+            let numeric_params: Vec<String> = param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            widgets.response_surface.show(
+                ui,
+                &ctx.view,
+                &numeric_params,
+                obj_names,
+                directions,
+                ctx.trial_count(),
+                &app_state.pinned_trials,
+                &cmap,
+            );
+        }
     }
 }

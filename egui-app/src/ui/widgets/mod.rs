@@ -21,6 +21,7 @@ pub use pdp::slice_chart;
 
 // サロゲート最適化（応答曲面作成＋曲面上の最適化）
 mod surrogate;
+pub use surrogate::response_surface;
 pub use surrogate::robustness;
 pub use surrogate::surrogate_opt;
 
@@ -28,16 +29,21 @@ pub use surrogate::surrogate_opt;
 mod scatter;
 pub use scatter::cluster_scatter;
 pub use scatter::cluster_scatter_3d;
+pub use scatter::dendrogram;
 pub use scatter::observed_contour;
 pub use scatter::parallel_coords;
+pub use scatter::pca_biplot;
 pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;
+pub use scatter::som_map;
 
 // 意思決定分析 (MCDM)
 mod decision;
+pub use decision::comparison_table;
 pub use decision::mcdm_chart;
 pub use decision::mcdm_scatter_chart;
 pub use decision::mcdm_scatter_chart_3d;
+pub use decision::radar_comparison;
 
 // 統計ウィジェット (ヒストグラム・箱ひげ図・相関行列)
 mod stats;

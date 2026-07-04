@@ -28,6 +28,7 @@ enum ComputeSyncKind {
     SurrogateOpt,
     SurrogateSuggest,
     RobustnessFit,
+    ResponseSurfaceFit,
     Convergence,
     SensitivityHeatmap,
 }
@@ -65,6 +66,9 @@ impl ComputeSyncKind {
             | AppMessage::SurrogateMultiSuggestFailed(_) => Some(Self::SurrogateSuggest),
             AppMessage::RobustnessFitDone(_) | AppMessage::RobustnessFitFailed(_) => {
                 Some(Self::RobustnessFit)
+            }
+            AppMessage::ResponseSurfaceFitDone(_) | AppMessage::ResponseSurfaceFitFailed(_) => {
+                Some(Self::ResponseSurfaceFit)
             }
             AppMessage::IndicatorHistoryDone { .. } => Some(Self::Convergence),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
@@ -113,6 +117,9 @@ impl ComputeSyncKind {
                     w.surrogate_opt.adopt_compute_state(&global.surrogate_opt)
                 }
                 Self::RobustnessFit => w.robustness.adopt_compute_state(&global.robustness),
+                Self::ResponseSurfaceFit => w
+                    .response_surface
+                    .adopt_compute_state(&global.response_surface),
                 Self::Convergence => w.convergence.adopt_compute_state(&global.convergence),
                 Self::SensitivityHeatmap => w
                     .sensitivity_heatmap

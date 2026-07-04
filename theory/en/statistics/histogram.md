@@ -45,4 +45,4 @@ Since the IQR is a robust spread measure unaffected by extreme values, this rule
 
 ## Where It Is Used in the App
 
-- **Histogram widget**: shows the distribution of a selected parameter or objective's values, helping identify skewness, multimodality, and where the optimizer's search has concentrated its exploration.
+- **Histogram widget**: shows the distribution of a selected parameter or objective's values, helping identify skewness, multimodality, and where the optimizer's search has concentrated its exploration. The **Fit** selector overlays a maximum-likelihood parametric density — see [Distribution fitting](distribution-fitting.md).

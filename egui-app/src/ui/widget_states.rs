@@ -2,14 +2,17 @@ use crate::ui::widgets::license_modal::LicenseModalState;
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, box_plot::BoxPlotChart, cluster_scatter::ClusterScatter,
-    cluster_scatter_3d::ClusterScatter3D, convergence::ConvergenceChart,
-    correlation_matrix::CorrelationMatrixChart, histogram::HistogramChart,
-    importance_chart::ImportanceChart, mcdm_chart::McdmRankChart,
-    mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
-    optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
-    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pdp_2d::PdpChart2DState,
-    pdp_chart::PdpChart, robustness::RobustnessChart, scatter_matrix::ScatterMatrix,
-    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart, trial_table::TrialTable,
+    cluster_scatter_3d::ClusterScatter3D, comparison_table::ComparisonTableChart,
+    convergence::ConvergenceChart, correlation_matrix::CorrelationMatrixChart,
+    dendrogram::DendrogramChart, histogram::HistogramChart, importance_chart::ImportanceChart,
+    mcdm_chart::McdmRankChart, mcdm_scatter_chart::McdmScatterChart,
+    mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
+    parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
+    pca_biplot::PcaBiplotChart, pdp_2d::PdpChart2DState, pdp_chart::PdpChart,
+    radar_comparison::RadarComparisonChart, response_surface::ResponseSurfaceChart,
+    robustness::RobustnessChart, scatter_matrix::ScatterMatrix,
+    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart, som_map::SomMapChart,
+    trial_table::TrialTable,
 };
 
 // ── Observed Contour（観測点補間の等高線）────────────────────────
@@ -356,6 +359,18 @@ pub struct WidgetStates {
     pub histogram: HistogramChart,
     pub box_plot: BoxPlotChart,
     pub correlation_matrix: CorrelationMatrixChart,
+    /// ピン留めトライアルのレーダー比較（意思決定フェーズ）の UI 状態
+    pub radar_comparison: RadarComparisonChart,
+    /// ピン留めトライアルの比較表（意思決定フェーズ）の UI 状態
+    pub comparison_table: ComparisonTableChart,
+    /// PCA バイプロット（スコア + ローディング）の UI 状態
+    pub pca_biplot: PcaBiplotChart,
+    /// SOM（自己組織化マップ）の UI 状態
+    pub som_map: SomMapChart,
+    /// 階層クラスタリング（デンドログラム）の UI 状態
+    pub dendrogram: DendrogramChart,
+    /// 応答曲面 3D ビューアの UI 状態
+    pub response_surface: ResponseSurfaceChart,
     #[serde(skip)]
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）

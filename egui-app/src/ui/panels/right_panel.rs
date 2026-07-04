@@ -90,6 +90,24 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::ArtifactGallery => {
             egui::include_image!("../../../assets/widget_icons/artifact_gallery.svg")
         }
+        ChartId::RadarComparison => {
+            egui::include_image!("../../../assets/widget_icons/radar_comparison.svg")
+        }
+        ChartId::ComparisonTable => {
+            egui::include_image!("../../../assets/widget_icons/comparison_table.svg")
+        }
+        ChartId::PcaBiplot => {
+            egui::include_image!("../../../assets/widget_icons/pca_biplot.svg")
+        }
+        ChartId::SomMap => {
+            egui::include_image!("../../../assets/widget_icons/som_map.svg")
+        }
+        ChartId::Dendrogram => {
+            egui::include_image!("../../../assets/widget_icons/dendrogram.svg")
+        }
+        ChartId::ResponseSurface3D => {
+            egui::include_image!("../../../assets/widget_icons/response_surface.svg")
+        }
     }
 }
 
@@ -186,6 +204,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                 &[
                     PanelItem::Chart(ChartId::PdpChart),
                     PanelItem::Chart(ChartId::PdpChart2D),
+                    PanelItem::Chart(ChartId::ResponseSurface3D),
                 ],
             ),
             (
@@ -200,6 +219,9 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                 &[
                     PanelItem::Chart(ChartId::ClusterScatter),
                     PanelItem::Chart(ChartId::ClusterScatter3D),
+                    PanelItem::Chart(ChartId::PcaBiplot),
+                    PanelItem::Chart(ChartId::SomMap),
+                    PanelItem::Chart(ChartId::Dendrogram),
                 ],
             ),
             (
@@ -208,6 +230,8 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::McdmRankChart),
                     PanelItem::Chart(ChartId::McdmScatterChart),
                     PanelItem::Chart(ChartId::McdmScatterChart3D),
+                    PanelItem::Chart(ChartId::RadarComparison),
+                    PanelItem::Chart(ChartId::ComparisonTable),
                 ],
             ),
             (

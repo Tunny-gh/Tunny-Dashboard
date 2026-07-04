@@ -672,6 +672,34 @@ pub fn run_surrogate_optimization(req: &SurrogateOptRequest) -> Result<Surrogate
     ))
 }
 
+/// 学習済みサロゲートの応答曲面スライスを評価する（3D 応答曲面ビューア用）。
+///
+/// `anchor_orig`（元単位、`param_names` と同順）を通り、`param_x_idx` ×
+/// `param_y_idx` 平面で宣言レンジ全域を `n_grid` × `n_grid` 格子評価する。
+/// PDP と異なり他パラメータを周辺化せず、アンカー点に固定した「生の断面」を返す。
+pub fn surface_slice_at(
+    trained: &TrainedSurrogate,
+    anchor_orig: &[f64],
+    param_x_idx: usize,
+    param_y_idx: usize,
+    n_grid: usize,
+) -> Option<SurfaceSlice> {
+    let surrogate = &trained.surrogate;
+    let n_dims = surrogate.col_stats.len();
+    if anchor_orig.len() != n_dims {
+        return None;
+    }
+    let anchor_norm = surrogate.to_norm_x(anchor_orig);
+    build_slice(
+        surrogate,
+        &anchor_norm,
+        param_x_idx,
+        param_y_idx,
+        n_grid.max(2),
+        n_dims,
+    )
+}
+
 /// 観測値ベストの行 index（minimize なら最小、maximize なら最大）。
 fn best_observed_index(y: &[f64], minimize: bool) -> usize {
     let mut best = 0usize;

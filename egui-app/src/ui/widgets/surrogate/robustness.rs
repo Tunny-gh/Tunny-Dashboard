@@ -16,6 +16,7 @@ use tunny_core::surrogate_opt::{
     MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
+use super::anchor::{center_label, resolve_center, CenterChoice};
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 
@@ -30,16 +31,6 @@ const MODEL_CHOICES: [SurrogateModelKind; 5] = [
 
 /// サンプル数の選択肢。
 const SAMPLE_CHOICES: [usize; 3] = [256, 1024, 4096];
-
-/// ロバスト性解析の中心点（候補設計点）の選び方。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum CenterChoice {
-    /// 選択目的のベスト観測 trial。
-    #[default]
-    BestTrial,
-    /// pin 留めした trial（trial_id）。消えている場合は BestTrial にフォールバックする。
-    Pinned(u32),
-}
 
 /// フィット段階の計算リクエスト。poll_chart が消費する。
 pub struct RobustnessFitRequest {
@@ -272,79 +263,6 @@ pub fn show(
     if let Some((_, result)) = &state.cache {
         render_result(ui, result);
     }
-}
-
-/// Center コンボのラベル。Pinned が指す trial が既に存在しない場合は番号を出さず、
-/// 実際に使われる中心点（フォールバック後）と食い違わないよう素直に "Best trial" と表示する。
-fn center_label(choice: CenterChoice, view: &StudyView) -> String {
-    match choice {
-        CenterChoice::BestTrial => "Best trial".to_string(),
-        CenterChoice::Pinned(id) => match view.trial_ids.iter().position(|&t| t == id) {
-            Some(row) => {
-                let number = view.df.get_trial_number(row).unwrap_or(id);
-                format!("Trial #{number}")
-            }
-            None => "Best trial".to_string(),
-        },
-    }
-}
-
-/// 選択目的の観測ベスト行（方向を考慮した argmin/argmax）を返す。
-fn best_trial_row(
-    view: &StudyView,
-    obj_names: &[String],
-    directions: &[Direction],
-    objective_name: &str,
-) -> Option<usize> {
-    let obj_idx = obj_names.iter().position(|n| n == objective_name)?;
-    let col = view.numeric_column(objective_name)?;
-    let minimize = directions
-        .get(obj_idx)
-        .map(|d| matches!(d, Direction::Minimize))
-        .unwrap_or(true);
-
-    let mut best_row = None;
-    let mut best_val = if minimize {
-        f64::INFINITY
-    } else {
-        f64::NEG_INFINITY
-    };
-    for i in 0..view.row_count() {
-        let Some(v) = col.get(i).copied() else {
-            continue;
-        };
-        if !v.is_finite() {
-            continue;
-        }
-        let better = if minimize { v < best_val } else { v > best_val };
-        if better {
-            best_val = v;
-            best_row = Some(i);
-        }
-    }
-    best_row
-}
-
-/// 中心点を元単位のベクトル（`trained.param_names` と同順）として解決する。
-/// Pinned trial が消えている場合は Best trial にフォールバックする。
-fn resolve_center(
-    trained: &TrainedSurrogate,
-    choice: CenterChoice,
-    view: &StudyView,
-    obj_names: &[String],
-    directions: &[Direction],
-) -> Option<Vec<f64>> {
-    let row = match choice {
-        CenterChoice::Pinned(id) => view.trial_ids.iter().position(|&t| t == id),
-        CenterChoice::BestTrial => None,
-    }
-    .or_else(|| best_trial_row(view, obj_names, directions, &trained.objective_name))?;
-
-    trained
-        .param_names
-        .iter()
-        .map(|name| view.numeric_column(name)?.get(row).copied())
-        .collect()
 }
 
 fn cache_key(

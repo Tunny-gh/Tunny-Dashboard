@@ -68,6 +68,12 @@ pub fn build_chart_csv(
         ChartId::BoxPlot => build_box_plot_csv(app_state, widgets),
         ChartId::CorrelationMatrix => build_correlation_matrix_csv(app_state, widgets),
         ChartId::ArtifactGallery => None,
+        ChartId::RadarComparison => build_radar_comparison_csv(app_state, widgets),
+        ChartId::ComparisonTable => build_comparison_table_csv(app_state, widgets),
+        ChartId::PcaBiplot => build_pca_biplot_csv(widgets),
+        ChartId::SomMap => build_som_csv(app_state, widgets),
+        ChartId::Dendrogram => build_dendrogram_csv(widgets),
+        ChartId::ResponseSurface3D => build_response_surface_csv(widgets),
     }
 }
 
@@ -220,6 +226,49 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                     || widgets.correlation_matrix.include_objectives)
         }
         ChartId::ArtifactGallery => false,
+        ChartId::RadarComparison => app_state.current_study.as_ref().is_some_and(|s| {
+            !app_state.pinned_trials.is_empty()
+                && !crate::ui::widgets::radar_comparison::build_axes(
+                    &s.view,
+                    &s.meta.param_names,
+                    &s.meta.objective_names,
+                    widgets.radar_comparison.include_params,
+                )
+                .is_empty()
+        }),
+        ChartId::ComparisonTable => app_state.current_study.as_ref().is_some_and(|s| {
+            !crate::ui::widgets::comparison_table::resolve_pinned_rows(
+                &s.view,
+                &app_state.pinned_trials,
+            )
+            .is_empty()
+                && !crate::ui::widgets::comparison_table::build_rows(
+                    &s.view,
+                    &s.meta.param_names,
+                    &s.meta.objective_names,
+                    widgets.comparison_table.show_params,
+                    widgets.comparison_table.show_user_attrs,
+                )
+                .is_empty()
+        }),
+        ChartId::PcaBiplot => widgets
+            .pca_biplot
+            .cached_result()
+            .is_some_and(|r| !r.projections.is_empty()),
+        ChartId::SomMap => app_state.current_study.as_ref().is_some_and(|s| {
+            widgets
+                .som_map
+                .current_grid(&s.meta.param_names, &s.meta.objective_names)
+                .is_some()
+        }),
+        ChartId::Dendrogram => widgets
+            .dendrogram
+            .leaf_assignments()
+            .is_some_and(|a| !a.is_empty()),
+        ChartId::ResponseSurface3D => widgets
+            .response_surface
+            .cached_slice()
+            .is_some_and(|s| !s.x_values.is_empty() && !s.y_values.is_empty()),
     }
 }
 
@@ -248,6 +297,12 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::BoxPlot => "box_plot",
         ChartId::CorrelationMatrix => "correlation_matrix",
         ChartId::ArtifactGallery => "artifact_gallery",
+        ChartId::RadarComparison => "radar_comparison",
+        ChartId::ComparisonTable => "comparison_table",
+        ChartId::PcaBiplot => "pca_biplot",
+        ChartId::SomMap => "som_map",
+        ChartId::Dendrogram => "dendrogram",
+        ChartId::ResponseSurface3D => "response_surface_3d",
     };
     format!("{}.csv", name)
 }
@@ -414,6 +469,207 @@ fn build_correlation_matrix_csv(app_state: &AppState, widgets: &WidgetStates) ->
                 CsvField::Empty
             } else {
                 CsvField::Num(val)
+            });
+        }
+        w.row(fields);
+    }
+    Some(w.finish())
+}
+
+/// レーダー比較の現在の軸設定（Include parameters）でピン留めトライアルの生値を
+/// ワイド形式（1 軸 1 行、列 = ピン留めトライアル）で CSV にする。正規化前の生値を出力する。
+fn build_radar_comparison_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    if study.trial_count() == 0 || app_state.pinned_trials.is_empty() {
+        return None;
+    }
+    let axes = crate::ui::widgets::radar_comparison::build_axes(
+        &study.view,
+        &study.meta.param_names,
+        &study.meta.objective_names,
+        widgets.radar_comparison.include_params,
+    );
+    if axes.is_empty() {
+        return None;
+    }
+    let pinned_rows: Vec<(u32, usize)> = app_state
+        .pinned_trials
+        .iter()
+        .filter_map(|&trial_id| {
+            study
+                .view
+                .trial_ids
+                .iter()
+                .position(|&t| t == trial_id)
+                .map(|row| (trial_id, row))
+        })
+        .collect();
+    if pinned_rows.is_empty() {
+        return None;
+    }
+
+    let column_labels: Vec<String> = pinned_rows
+        .iter()
+        .map(|&(trial_id, row)| {
+            let number = study.view.df.get_trial_number(row).unwrap_or(trial_id);
+            format!("Trial #{number}")
+        })
+        .collect();
+    let mut header: Vec<&str> = vec!["axis"];
+    header.extend(column_labels.iter().map(String::as_str));
+
+    let mut w = CsvWriter::new();
+    w.header(header);
+    for axis in &axes {
+        let mut fields = vec![CsvField::Text(axis.name)];
+        for &(_, row) in &pinned_rows {
+            fields.push(match axis.col.get(row) {
+                Some(&v) if v.is_finite() => CsvField::Num(v),
+                _ => CsvField::Empty,
+            });
+        }
+        w.row(fields);
+    }
+    Some(w.finish())
+}
+
+/// 比較表の現在の行設定（Parameters / User attrs）でピン留めトライアルの生値を
+/// ワイド形式（1 行 1 行、列 = ピン留めトライアル）で CSV にする。
+fn build_comparison_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    if study.trial_count() == 0 || app_state.pinned_trials.is_empty() {
+        return None;
+    }
+    let pinned_rows = crate::ui::widgets::comparison_table::resolve_pinned_rows(
+        &study.view,
+        &app_state.pinned_trials,
+    );
+    if pinned_rows.is_empty() {
+        return None;
+    }
+    let rows = crate::ui::widgets::comparison_table::build_rows(
+        &study.view,
+        &study.meta.param_names,
+        &study.meta.objective_names,
+        widgets.comparison_table.show_params,
+        widgets.comparison_table.show_user_attrs,
+    );
+    if rows.is_empty() {
+        return None;
+    }
+
+    let column_labels: Vec<String> = pinned_rows
+        .iter()
+        .map(|&(trial_id, row)| {
+            let number = study.view.df.get_trial_number(row).unwrap_or(trial_id);
+            format!("Trial #{number}")
+        })
+        .collect();
+    let mut header: Vec<&str> = vec![""];
+    header.extend(column_labels.iter().map(String::as_str));
+
+    let mut w = CsvWriter::new();
+    w.header(header);
+    for info in &rows {
+        let mut fields = vec![CsvField::Text(info.label)];
+        for &(_, row) in &pinned_rows {
+            fields.push(match info.col.get(row) {
+                Some(&v) if v.is_finite() => CsvField::Num(v),
+                _ => CsvField::Empty,
+            });
+        }
+        w.row(fields);
+    }
+    Some(w.finish())
+}
+
+/// キャッシュ済みの PCA 結果を `pc1,pc2` の 2 列 CSV にする。
+fn build_pca_biplot_csv(widgets: &WidgetStates) -> Option<String> {
+    let result = widgets.pca_biplot.cached_result()?;
+    if result.projections.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header(["pc1", "pc2"]);
+    for row in &result.projections {
+        let pc1 = row.first().copied().unwrap_or(0.0);
+        let pc2 = row.get(1).copied().unwrap_or(0.0);
+        w.row([CsvField::Num(pc1), CsvField::Num(pc2)]);
+    }
+    Some(w.finish())
+}
+
+/// SOM の現在の表示モード（U-matrix / Component Plane / Hits）に対応するノード値
+/// グリッドを、行 = y・列 = x のワイド形式で CSV にする。
+fn build_som_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    let (grid_w, grid_h, values, _label) = widgets
+        .som_map
+        .current_grid(&study.meta.param_names, &study.meta.objective_names)?;
+    if grid_w == 0 || grid_h == 0 || values.len() != grid_w * grid_h {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    let mut header: Vec<String> = vec!["y".to_string()];
+    header.extend((0..grid_w).map(|x| format!("x{x}")));
+    w.header(header.iter().map(String::as_str));
+    for y in 0..grid_h {
+        let mut fields = vec![CsvField::UInt(y as u64)];
+        for x in 0..grid_w {
+            let v = values[y * grid_w + x];
+            fields.push(if v.is_finite() {
+                CsvField::Num(v)
+            } else {
+                CsvField::Empty
+            });
+        }
+        w.row(fields);
+    }
+    Some(w.finish())
+}
+
+/// デンドログラムの葉順に (元 view の行インデックス, カット後クラスタラベル) を CSV にする。
+fn build_dendrogram_csv(widgets: &WidgetStates) -> Option<String> {
+    let assignments = widgets.dendrogram.leaf_assignments()?;
+    if assignments.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header(["row_index", "cluster"]);
+    for (row_index, cluster) in assignments {
+        w.row([
+            CsvField::UInt(row_index as u64),
+            CsvField::UInt(cluster as u64),
+        ]);
+    }
+    Some(w.finish())
+}
+
+/// 応答曲面スライスの z グリッドを CSV にする（列ヘッダーに x 値、各行の先頭に y 値）。
+fn build_response_surface_csv(widgets: &WidgetStates) -> Option<String> {
+    let slice = widgets.response_surface.cached_slice()?;
+    let nx = slice.x_values.len();
+    let ny = slice.y_values.len();
+    if nx == 0 || ny == 0 {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    let mut header: Vec<String> = vec!["y\\x".to_string()];
+    header.extend(slice.x_values.iter().map(|x| x.to_string()));
+    w.header(header.iter().map(String::as_str));
+    for yi in 0..ny {
+        let mut fields = vec![CsvField::Num(slice.y_values[yi])];
+        for xi in 0..nx {
+            let z = slice
+                .z_values
+                .get(xi)
+                .and_then(|row| row.get(yi))
+                .copied()
+                .unwrap_or(f64::NAN);
+            fields.push(if z.is_finite() {
+                CsvField::Num(z)
+            } else {
+                CsvField::Empty
             });
         }
         w.row(fields);
