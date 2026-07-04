@@ -65,7 +65,6 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
             let toolbar_actions = show_toolbar(
                 ui,
                 &app.app_state,
-                &app.layout,
                 app.is_loading,
                 app.load_error.as_deref(),
             );
@@ -322,7 +321,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
                     let inner_w = (panel_w - 16.0).max(0.0);
                     let inner_h = (panel_area.height() - 16.0).max(0.0);
                     ui.set_min_size(egui::vec2(inner_w, inner_h));
-                    show_right_panel(ui, &app.app_state, &mut app.layout);
+                    show_right_panel(ui, &app.app_state);
                 });
             });
         // アイコンタイルが設定幅より広く描画され egui の constrain により左へ
@@ -334,7 +333,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
     }
 
     // ─── 最大化モーダル（すべての最前面に重ねる） ──────────────────────
-    crate::ui::grid_canvas::show_maximized_modal(
+    crate::ui::chart_cell::show_maximized_modal(
         &ctx,
         &mut app.app_state,
         &mut app.widget_states,

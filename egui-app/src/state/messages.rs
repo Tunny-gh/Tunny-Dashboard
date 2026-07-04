@@ -301,11 +301,6 @@ pub enum AppMessage {
         trial_artifacts: std::collections::HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
         artifacts_dir: std::path::PathBuf,
     },
-    /// REQ-005: HTML レポート生成完了
-    HtmlReportDone {
-        html: String,
-        suggested_filename: String,
-    },
     ComparisonStudyLoadFailed(String),
     /// Observed Contour の格子生成が完了した（観測点の補間）。
     ObservedContourDone(ObservedContourResult),

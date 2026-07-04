@@ -232,9 +232,6 @@ impl MessageHandler {
                 app_state.artifact_map = trial_artifacts;
                 app_state.artifacts_dir = Some(artifacts_dir);
             }
-            AppMessage::HtmlReportDone { .. } => {
-                // TASK-2117/2123 で実装
-            }
             AppMessage::ComparisonStudyLoadFailed(err) => {
                 *load_error = Some(err);
             }

@@ -9,7 +9,7 @@ use crate::state::messages::AppMessage;
 use crate::theme::chart_colors::COLOR_SELECTION_HIGHLIGHT;
 use crate::ui::canvas::minimap::{show_minimap, BTN_MARGIN, BTN_SIZE};
 use crate::ui::canvas::viewport::{fit_view, items_bbox, ZOOM_MAX, ZOOM_MIN};
-use crate::ui::grid_canvas::{
+use crate::ui::chart_cell::{
     handle_toolbar_action, render_panel_item_body, CellToolbarAction, CLOSE_BUTTON_SIZE,
     DRAG_HANDLE_HEIGHT,
 };
@@ -300,20 +300,19 @@ pub fn show_canvas_view(
     // ── 右パネルからの新規ドロップ（レイヤーに依らず area で判定） ──────────
     let mut pending_add: Option<(PanelItem, egui::Pos2)> = None;
     if let Some(payload) = egui::DragAndDrop::payload::<DragPayload>(ui.ctx()) {
-        if let DragPayload::NewWidget(new_item) = &*payload {
-            // ドロップ可能であることを示すハイライト
-            ui.painter().rect_stroke(
-                area,
-                0.0,
-                egui::Stroke::new(2.0, COLOR_SELECTION_HIGHLIGHT),
-                egui::StrokeKind::Inside,
-            );
-            if ui.input(|i| i.pointer.any_released()) {
-                if let Some(sp) = ui.ctx().pointer_interact_pos() {
-                    if area.contains(sp) {
-                        let wp = to_screen.inverse() * sp;
-                        pending_add = Some((new_item.clone(), wp));
-                    }
+        let new_item = payload.item();
+        // ドロップ可能であることを示すハイライト
+        ui.painter().rect_stroke(
+            area,
+            0.0,
+            egui::Stroke::new(2.0, COLOR_SELECTION_HIGHLIGHT),
+            egui::StrokeKind::Inside,
+        );
+        if ui.input(|i| i.pointer.any_released()) {
+            if let Some(sp) = ui.ctx().pointer_interact_pos() {
+                if area.contains(sp) {
+                    let wp = to_screen.inverse() * sp;
+                    pending_add = Some((new_item.clone(), wp));
                 }
             }
         }
@@ -490,7 +489,7 @@ fn show_canvas_item_toolbar(
 
         ui.add_space(4.0);
 
-        if let Some(a) = crate::ui::grid_canvas::show_chart_menu_button(ui, item, csv_available) {
+        if let Some(a) = crate::ui::chart_cell::show_chart_menu_button(ui, item, csv_available) {
             action = a;
         }
     });
