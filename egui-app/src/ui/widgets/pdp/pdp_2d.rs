@@ -27,13 +27,18 @@ pub struct Pdp2dComputeRequest {
 }
 
 /// PDP 2D ウィジェット状態
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PdpChart2DState {
     pub selected_param1: String,
     pub selected_param2: String,
     pub selected_objective: usize,
     pub selected_model: ModelType,
+    #[serde(skip)]
     pub result: Option<PdpResult2d>,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub pending_compute: Option<Pdp2dComputeRequest>,
     pub camera: ArcballCamera,
     /// ガウス過程系で不確実性（±1.96σ = 95% CI）を半透明バンドとして重ねるか

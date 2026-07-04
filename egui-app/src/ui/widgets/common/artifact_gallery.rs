@@ -19,7 +19,7 @@ use crate::ui::widgets::trial_detail_modal::{TrialDetailModal, TrialDetailTarget
 const PAGE_SIZE: usize = 12;
 
 /// サムネイルの表示サイズ（大中小）。一辺のワールド座標長を持つ。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThumbSize {
     /// 小（既定）。
     Small,
@@ -49,7 +49,7 @@ impl ThumbSize {
 }
 
 /// Artifact ギャラリーの表示モード。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ArtifactViewMode {
     /// 全 artifact をページネーション表示（設定不要）。
     All,
@@ -87,6 +87,8 @@ struct CardClick {
 /// これにより、設定を切り替えれば対応する結果が表示され、ギャラリーを複数配置して
 /// それぞれ別設定にすれば「設定 A vs 設定 B」の比較ができる（他の Cluster/MCDM
 /// ウィジェットと同じ比較スタイル）。
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ArtifactGallery {
     pub mode: ArtifactViewMode,
     pub page: usize,
@@ -94,14 +96,18 @@ pub struct ArtifactGallery {
     /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
     pub artifact_index: usize,
     /// カードクリックで開くトライアル詳細モーダル（散布図等と共有）。
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
     // ── Cluster 設定（ClusterTable と同一構成）──────────────────
     pub k: usize,
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    #[serde(skip)]
     pub cluster_computing: bool,
+    #[serde(skip)]
     pub cluster_pending: Option<ClusterComputeRequest>,
+    #[serde(skip)]
     pub cluster_error: Option<crate::state::messages::ClusterUiError>,
     // ── MCDM 設定（既存 McdmControls を再利用）──────────────────
     pub mcdm: McdmControls,

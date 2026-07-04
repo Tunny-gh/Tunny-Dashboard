@@ -122,25 +122,36 @@ pub fn shifted_brush_range(orig: (f32, f32), delta: f32) -> (f32, f32) {
 }
 
 /// 平行座標図ウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ParallelCoordsChart {
     pub axis_order: Vec<String>,
     pub show_params: bool,
     pub show_objectives: bool,
     pub brush_ranges: std::collections::HashMap<String, Option<(f32, f32)>>,
+    #[serde(skip)]
     pub drag_start: Option<(String, f32)>,
     /// 進行中のドラッグ種別（新規作成 or 既存範囲の移動）。drag_start と併用する。
+    #[serde(skip)]
     brush_drag: Option<BrushDrag>,
     /// REQ-004: 軸ごとの表示/非表示フラグ（true = 表示）
     pub axis_visibility: std::collections::HashMap<String, bool>,
+    #[serde(skip)]
     col_ranges_cache: Option<Vec<(f64, f64)>>,
+    #[serde(skip)]
     cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
     /// 折れ線描画の間引きインデックスキャッシュ（trial_count が変わらない限り再計算しない）
+    #[serde(skip)]
     polyline_indices_cache: Option<Vec<u32>>,
+    #[serde(skip)]
     polyline_indices_cache_key: Option<usize>, // trial_count
     /// 軸ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
+    #[serde(skip)]
     label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
+    #[serde(skip)]
     label_galleys_cache_key: Option<Vec<String>>,
     // TASK-2242: pending selection from completed brush drag
+    #[serde(skip)]
     pub pending_selection: Option<Vec<u32>>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,

@@ -69,7 +69,7 @@ impl McdmCacheKey {
 }
 
 /// 上位N件表示切替
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McdmTopN {
     Top5,
     Top10,
@@ -108,15 +108,21 @@ impl McdmTopN {
 /// 手法 / 重みモード / 重み / v 値 / Top N と、計算の実行状態（computing / pending）を持つ。
 /// Ranking / Scatter2D / Scatter3D / Table の各チャートがそれぞれ 1 つ保持し、
 /// `cache_key()` で `app_state.mcdm_cache` を参照することで独立した結果を表示する。
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct McdmControls {
     pub method: McdmMethod,
     pub weight_mode: WeightMode,
     pub weights: Vec<f64>,
     pub v_param: f64,
     pub top_n: McdmTopN,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub pending_compute: Option<McdmComputeRequest>,
+    #[serde(skip)]
     pub pending_entropy: bool,
+    #[serde(skip)]
     pub entropy_result: Option<EntropyResult>,
 }
 
@@ -137,13 +143,15 @@ impl Default for McdmControls {
 }
 
 /// MCDMランキングバーチャートのUI状態
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct McdmRankChart {
     pub controls: McdmControls,
 }
 
 /// MCDMランキングテーブルのUI状態
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct McdmTable {
     pub controls: McdmControls,
 }

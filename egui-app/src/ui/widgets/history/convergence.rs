@@ -26,27 +26,38 @@ pub enum RefPointChange {
 }
 
 /// 多目的収束指標チャートウィジェット（HV / IGD+ / ε-indicator / R2）
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ConvergenceChart {
+    #[serde(skip)]
     pub history: Option<ConvergenceHistory>,
+    #[serde(skip)]
     pub computing: bool,
     /// 基準 Study の凡例名（比較系列と区別するために表示する）。
+    #[serde(skip)]
     pub base_name: String,
     /// 目的名（参照点ラベルの目的ごとの見出しに使う）。
+    #[serde(skip)]
     pub objective_names: Vec<String>,
     /// 同一グラフに重ね描きする比較 Study の系列。
+    #[serde(skip)]
     pub comparisons: Vec<ConvergenceSeries>,
     /// 現在の参照点指定（元の目的値の単位）。`None` で自動算出。
     /// app_state からミラーされ、UI 操作の起点になる。
     pub ref_point_override: Option<Vec<f64>>,
     /// 参照点指定の変更要求（render_chart が `.take()` して app_state へ反映する）。
+    #[serde(skip)]
     pub pending_ref_point: Option<RefPointChange>,
     /// 現在表示中の収束指標（render_chart が毎フレーム app_state からセットする）。
     pub indicator: MoIndicator,
     /// 指標変更要求（render_chart が `.take()` して app_state へ反映する）。
+    #[serde(skip)]
     pub pending_indicator: Option<MoIndicator>,
     /// 目的ごとの入力バッファ（Manual 編集中の値を確定まで保持）。
+    #[serde(skip)]
     ref_point_buf: Vec<f64>,
     /// 点クリックで開くトライアル詳細モーダル（散布図と共有）。
+    #[serde(skip)]
     detail_modal: TrialDetailModal,
 }
 

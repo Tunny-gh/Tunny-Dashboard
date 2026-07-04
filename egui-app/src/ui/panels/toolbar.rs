@@ -17,6 +17,11 @@ pub enum ToolbarAction {
     /// 同一ファイル内の指定 Study を比較対象として追加する。
     AddComparisonStudy(StudyMeta),
     RemoveComparisonStudy(usize),
+
+    /// 現在のレイアウト・ウィジェット設定・表示設定をセッションファイルへ保存する。
+    SaveSession,
+    /// 指定パスのセッションファイルを復元する。
+    LoadSession(std::path::PathBuf),
 }
 
 /// ToolBar を描画する
@@ -33,6 +38,23 @@ pub fn show_toolbar(
         if toolbar_button(ui, "Open", open_enabled).clicked() {
             if let Some(path) = crate::io::file::open_file_dialog() {
                 actions.push(ToolbarAction::OpenJournal(path));
+            }
+        }
+
+        // セッション（レイアウト + ウィジェット設定 + 表示設定）の保存・復元。
+        // データ本体は保存しないため、データ未読み込みでも常に押せる。
+        if toolbar_button(ui, "Save Session", true)
+            .on_hover_text("Save the canvas layout, widget settings, and view settings")
+            .clicked()
+        {
+            actions.push(ToolbarAction::SaveSession);
+        }
+        if toolbar_button(ui, "Load Session", !is_loading)
+            .on_hover_text("Restore a saved session (keeps the currently loaded data)")
+            .clicked()
+        {
+            if let Some(path) = crate::io::session::pick_session_file_dialog() {
+                actions.push(ToolbarAction::LoadSession(path));
             }
         }
 

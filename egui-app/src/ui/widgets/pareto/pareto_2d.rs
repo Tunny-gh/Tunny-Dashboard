@@ -36,6 +36,8 @@ pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
 }
 
 /// 2D Pareto 散布図ウィジェット（egui_plot ベース）
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
@@ -44,9 +46,12 @@ pub struct ParetoScatter2D {
     // egui_plot のクロスヘアは生のスクリーン座標へ最終変換を適用して描かれる。
     // 矩形もスクリーン座標で保持し、描画・選択判定ともに `PlotResponse.transform`
     // （点描画と同一の最終変換）で扱うことで、変換のフレーム遅延によるズレを避ける。
+    #[serde(skip)]
     pub brush_start: Option<egui::Pos2>,
+    #[serde(skip)]
     pub brush_end: Option<egui::Pos2>,
     /// 点クリックで開くトライアル詳細モーダル。
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
     /// サロゲート予測フロント点をオーバーレイ表示するか。
     pub show_surrogate_front: bool,

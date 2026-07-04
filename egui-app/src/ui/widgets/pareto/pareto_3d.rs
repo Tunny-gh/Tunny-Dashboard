@@ -11,15 +11,19 @@ use crate::ui::widgets::scatter_3d::{
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
 /// Pareto 3D チャートウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Pareto3dChart {
     pub x_objective: usize,
     pub y_objective: usize,
     pub z_objective: usize,
     pub camera: ArcballCamera,
+    #[serde(skip)]
     range_cache: Range3DCache<(usize, usize, usize, usize)>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
     /// 点クリックで開くトライアル詳細モーダル
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
 

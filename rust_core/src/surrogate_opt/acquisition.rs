@@ -11,7 +11,7 @@ use super::optimizers::minimize_scalar_fn;
 use super::{best_observed_index, TrainedSurrogate};
 
 /// 獲得関数の種別。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AcquisitionKind {
     /// Expected Improvement（期待改善量）。
     ExpectedImprovement,

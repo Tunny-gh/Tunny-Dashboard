@@ -1,7 +1,7 @@
 use crate::math::stats::{pearson_correlation, spearman_correlation};
 
 /// Correlation coefficient to use when building a [`CorrelationMatrix`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CorrelationMethod {
     Pearson,
     Spearman,

@@ -13,6 +13,8 @@ use crate::ui::widgets::scatter_3d::{
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
 /// クラスタ 3D 散布図ウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ClusterScatter3D {
     pub x_objective: usize,
     pub y_objective: usize,
@@ -24,11 +26,16 @@ pub struct ClusterScatter3D {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub pending_compute: Option<ClusterComputeRequest>,
+    #[serde(skip)]
     pub last_error: Option<crate::state::messages::ClusterUiError>,
+    #[serde(skip)]
     range_cache: Range3DCache<(usize, usize, usize, usize)>,
     /// 点クリックで開くトライアル詳細モーダル
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
 

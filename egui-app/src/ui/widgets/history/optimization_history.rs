@@ -49,6 +49,8 @@ struct HistoryCache {
 }
 
 /// 最適化履歴チャートウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct OptimizationHistoryChart {
     pub show_moving_avg: bool,
     pub window_size: usize,
@@ -56,8 +58,10 @@ pub struct OptimizationHistoryChart {
     /// REQ-008: Y 軸対数スケール切替
     pub log_scale: bool,
     /// 点クリックで開くトライアル詳細モーダル（散布図と共有）。
+    #[serde(skip)]
     detail_modal: TrialDetailModal,
     /// 基準 Study の O(n) 計算結果キャッシュ。
+    #[serde(skip)]
     history_cache: Option<HistoryCache>,
 }
 

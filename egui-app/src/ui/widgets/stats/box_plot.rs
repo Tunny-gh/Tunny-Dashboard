@@ -3,7 +3,7 @@ use crate::theme::chart_colors::{COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use tunny_core::statistics::{compute_boxplot, BoxPlotStats};
 
 /// 箱ひげ図の対象列グループ。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum BoxPlotSource {
     #[default]
     Objectives,
@@ -30,11 +30,13 @@ impl BoxPlotSource {
 type BoxCacheKey = (String, u8, bool, usize);
 
 /// 複数列の箱ひげ図を並べて表示するウィジェット。
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct BoxPlotChart {
     pub source: BoxPlotSource,
     /// 表示用に各列を min-max 正規化するか（[0,1]。統計値そのものは変更しない）。
     pub normalize: bool,
+    #[serde(skip)]
     cache: Option<(BoxCacheKey, Vec<(String, BoxPlotStats)>)>,
 }
 

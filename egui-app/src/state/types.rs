@@ -344,7 +344,7 @@ impl StudyView {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ColormapName {
     Viridis,
     Plasma,

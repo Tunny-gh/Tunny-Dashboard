@@ -53,7 +53,8 @@ pub fn rotate_by_quaternion(p: [f32; 3], q: [f32; 4]) -> [f32; 3] {
 // ── ArcballCamera ─────────────────────────────────────────────────
 
 /// Arcball カメラ状態
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ArcballCamera {
     /// クォータニオン [x, y, z, w]
     pub rotation: [f32; 4],

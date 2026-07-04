@@ -398,6 +398,29 @@ impl TunnyApp {
                         }
                     }
                 }
+                ToolbarAction::SaveSession => {
+                    let view = crate::io::session::ViewSettings::capture(&self.app_state);
+                    if let Err(e) = crate::io::session::save_session_dialog(
+                        &self.layout,
+                        &self.canvas_widgets,
+                        &view,
+                    ) {
+                        self.load_error = Some(e);
+                    }
+                }
+                ToolbarAction::LoadSession(path) => {
+                    match crate::io::session::read_session_from_path(&path) {
+                        Ok(session) => {
+                            // データ（study / 比較セッション）はそのまま。レイアウトと
+                            // 設定だけ差し替え、計算結果は次フレームの各ウィジェットの
+                            // ポーリングで復元後の設定に基づいて再計算される。
+                            self.layout = session.layout;
+                            self.canvas_widgets = session.widgets;
+                            session.view.apply(&mut self.app_state);
+                        }
+                        Err(e) => self.load_error = Some(e),
+                    }
+                }
             }
         }
     }

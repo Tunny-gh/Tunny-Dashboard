@@ -80,6 +80,8 @@ struct CacheKey {
 }
 
 /// MCDM 散布図ウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct McdmScatterChart {
     /// MCDM 設定・実行状態（手法 / 重み / Run など）
     pub controls: McdmControls,
@@ -88,14 +90,21 @@ pub struct McdmScatterChart {
     /// Y軸の軸識別子
     pub y_axis: String,
     /// 点クリックで開くトライアル詳細モーダル。
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
     // --- 内部キャッシュ状態 ---
+    #[serde(skip)]
     display_rows_cache: Option<Vec<(f64, f64, Color32, u32)>>,
+    #[serde(skip)]
     infeasible_cache: Option<Vec<(f64, f64)>>,
     /// 点クリック判定用の候補（trial_id, 行 index, 座標）。display_rows_cache と同じキーで更新する。
+    #[serde(skip)]
     hit_candidates: Option<Vec<(u32, usize, [f64; 2])>>,
+    #[serde(skip)]
     metadata: Option<ScatterMetadata>,
+    #[serde(skip)]
     error_message: Option<String>,
+    #[serde(skip)]
     cache_key: Option<CacheKey>,
 }
 

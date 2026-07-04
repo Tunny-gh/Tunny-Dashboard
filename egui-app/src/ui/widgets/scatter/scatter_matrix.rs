@@ -16,33 +16,40 @@ pub enum CellType {
 }
 
 /// Scatter Matrix の表示モード
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MatrixMode {
     ParamsVsParams,
     ParamsVsObjectives,
 }
 
 /// Scatter Matrix の軸ソート
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AxisSort {
     Alphabetical,
     Correlation,
 }
 
 /// Scatter Matrix の全体状態
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ScatterMatrix {
     pub mode: MatrixMode,
     pub sort: AxisSort,
+    #[serde(skip)]
     pub selected_cell: Option<(usize, usize)>,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
     /// 点の色付けに使う目的関数名（None は先頭の目的関数にフォールバック）
     pub color_objective: Option<String>,
     /// feasible/infeasible 分割＋間引き済みインデックスのキャッシュ（(feasible, infeasible)）
+    #[serde(skip)]
     downsample_cache: Option<(Vec<u32>, Vec<u32>)>,
+    #[serde(skip)]
     downsample_cache_key: Option<(usize, bool)>, // (trial_count, has_constraints)
     /// 行・列ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
+    #[serde(skip)]
     label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
+    #[serde(skip)]
     label_galleys_cache_key: Option<Vec<String>>,
 }
 
