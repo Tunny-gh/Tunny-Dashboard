@@ -33,6 +33,15 @@ impl SeededRng {
             slice.swap(i, j);
         }
     }
+
+    /// 標準正規分布 N(0, 1) からのサンプルを返す（Box-Muller 法）。
+    ///
+    /// `next_f64()` は 0 を返し得るため、対数の引数には `1 - u`（(0, 1] の範囲）を使う。
+    pub(crate) fn next_gaussian(&mut self) -> f64 {
+        let u1 = 1.0 - self.next_f64();
+        let u2 = self.next_f64();
+        (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+    }
 }
 
 #[cfg(test)]

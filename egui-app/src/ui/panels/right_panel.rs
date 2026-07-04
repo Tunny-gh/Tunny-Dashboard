@@ -60,6 +60,9 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::SurrogateOpt => {
             egui::include_image!("../../../assets/widget_icons/surrogate_opt.svg")
         }
+        ChartId::Robustness => {
+            egui::include_image!("../../../assets/widget_icons/robustness.svg")
+        }
         ChartId::ClusterScatter => {
             egui::include_image!("../../../assets/widget_icons/cluster_scatter.svg")
         }
@@ -185,7 +188,13 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::PdpChart2D),
                 ],
             ),
-            ("Optimization", &[PanelItem::Chart(ChartId::SurrogateOpt)]),
+            (
+                "Optimization",
+                &[
+                    PanelItem::Chart(ChartId::SurrogateOpt),
+                    PanelItem::Chart(ChartId::Robustness),
+                ],
+            ),
             (
                 "Clustering",
                 &[

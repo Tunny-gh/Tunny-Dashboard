@@ -184,6 +184,11 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/surrogate-optimizer.html"
             )),
         },
+        ChartId::Robustness => HelpContent {
+            widget_name: "robustness",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/robustness.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/robustness.html")),
+        },
         ChartId::ClusterScatter3D => HelpContent {
             widget_name: "cluster-scatter-3d",
             html_en: include_str!(concat!(

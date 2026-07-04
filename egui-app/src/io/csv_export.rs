@@ -60,6 +60,7 @@ pub fn build_chart_csv(
         ChartId::SliceChart => build_slice_csv(app_state, widgets),
         ChartId::ObservedContour => build_observed_contour_csv(widgets),
         ChartId::SurrogateOpt => build_surrogate_opt_csv(widgets),
+        ChartId::Robustness => build_robustness_csv(widgets),
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
@@ -125,6 +126,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
         ChartId::SurrogateOpt => {
             widgets.surrogate_opt.result.is_some() || widgets.surrogate_opt.multi_result.is_some()
         }
+        ChartId::Robustness => widgets.robustness.cached_result().is_some(),
         ChartId::OptimizationHistory | ChartId::ParallelCoordinates | ChartId::ScatterMatrix => {
             app_state
                 .current_study
@@ -239,6 +241,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::SliceChart => "slice_chart",
         ChartId::ObservedContour => "observed_contour",
         ChartId::SurrogateOpt => "surrogate_optimizer",
+        ChartId::Robustness => "robustness",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
         ChartId::Histogram => "histogram",
@@ -862,6 +865,18 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
         w.row([CsvField::Text("cv_rmse_std"), CsvField::Num(v.cv_rmse_std)]);
     }
 
+    Some(w.finish())
+}
+
+/// ロバスト性解析の出力サンプルを 1 列 CSV にする。キャッシュが無ければヘッダのみ返す。
+fn build_robustness_csv(widgets: &WidgetStates) -> Option<String> {
+    let mut w = CsvWriter::new();
+    w.header(["sample"]);
+    if let Some(result) = widgets.robustness.cached_result() {
+        for &v in &result.samples {
+            w.row([CsvField::Num(v)]);
+        }
+    }
     Some(w.finish())
 }
 

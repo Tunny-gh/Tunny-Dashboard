@@ -11,6 +11,7 @@ pub(crate) mod feasibility;
 mod models;
 mod optimizers;
 pub(crate) mod progress;
+mod robustness;
 pub(crate) mod validation;
 
 pub use acquisition::{suggest_candidates, AcquisitionKind, SuggestedCandidate};
@@ -19,6 +20,7 @@ pub use ehvi::{suggest_candidates_multi, MultiSuggestedCandidate};
 pub use models::SurrogateModelKind;
 pub use optimizers::OptimizerKind;
 pub use progress::{FitProgress, FitProgressSnapshot};
+pub use robustness::{robustness_analysis, RobustnessResult, RobustnessSpec};
 pub use validation::SurrogateValidationReport;
 
 use crate::math::grid::linspace;

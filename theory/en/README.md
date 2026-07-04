@@ -144,6 +144,7 @@ Algorithms used to optimize on the surrogate model.
 - [**Acquisition functions (Expected Improvement / Lower Confidence Bound)**](optimization/acquisition-functions.md)
 - [**Expected Hypervolume Improvement (EHVI)**](optimization/ehvi.md)
 - [**Hypervolume (WFG algorithm)**](optimization/hypervolume.md)
+- [**Robustness analysis (Monte Carlo noise propagation)**](optimization/robustness-analysis.md)
 
 ---
 
@@ -169,6 +170,7 @@ Basic statistical measures referenced in common by several widgets and analysis 
 | Histogram | Univariate distribution summary via binning (skewness, multimodality, outliers) | [statistics/histogram.md](statistics/histogram.md) |
 | Box Plot | Five-number-summary distribution comparison across variables/clusters | [statistics/box-plot.md](statistics/box-plot.md) |
 | Correlation Matrix | Heatmap overview of pairwise correlation across all variables | [statistics/correlation-matrix.md](statistics/correlation-matrix.md) |
+| Box-Muller transform | Exact standard-normal sampling from uniform variates (Gaussian noise in robustness analysis) | [statistics/box-muller.md](statistics/box-muller.md) |
 
 ---
 
@@ -198,6 +200,7 @@ UI charts/panels and the quantities they display.
 - [Slice chart](widgets/slice-chart.md)
 - [Artifact gallery](widgets/artifact-gallery.md)
 - [Surrogate optimizer](widgets/surrogate-optimizer.md)
+- [Robustness](widgets/robustness.md)
 
 ---
 
@@ -210,9 +213,17 @@ I want to analyze optimization results
   │    ├── quick check    → Spearman / Ridge (ImportanceChart)
   │    └── accurate check → Sobol / tree-based / SHAP (ImportanceChart, higher cost)
   │
+  ├── Understand distributions and relationships
+  │    ├── one variable's distribution      → Histogram (bin rules, skew, multimodality)
+  │    ├── compare distributions side by side→ Box Plot (five-number summary, normalization)
+  │    └── survey all pairwise correlations → Correlation Matrix (Pearson / Spearman)
+  │         └── inspect interesting pairs   → Scatter Matrix (actual shapes, clusters)
+  │
   ├── Pick good trials
   │    ├── holistic multi-objective score → TOPSIS / VIKOR / PROMETHEE (MCDM chart)
-  │    └── full trade-off                 → Pareto Front (ParetoFront chart)
+  │    ├── full trade-off                 → Pareto Front (ParetoFront chart)
+  │    └── check a candidate's stability under input scatter
+  │                                       → Robustness (MC noise propagation on a surrogate)
   │
   └── Visualize parameter–objective relationships
        ├── 1 parameter → 1D PDP (PdpChart)
