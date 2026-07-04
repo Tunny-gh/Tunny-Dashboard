@@ -1,6 +1,8 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
-use tunny_core::statistics::{compute_histogram, quantile, BinRule, Histogram};
+use tunny_core::statistics::{
+    compute_histogram, fit_all, quantile, BinRule, FitDistribution, FittedDistribution, Histogram,
+};
 
 /// ヒストグラムのビン分割ルール（UI 用。`Manual` は本数を別フィールドで保持する）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -43,15 +45,41 @@ impl HistBinRule {
     }
 }
 
+/// ヒストグラムに重ね描きする分布フィットの選択。
+/// `Auto` は適用可能な分布のうち AIC 最小のものを選ぶ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum HistFit {
+    #[default]
+    None,
+    Auto,
+    Normal,
+    LogNormal,
+    Weibull,
+}
+
+impl HistFit {
+    fn label(self) -> &'static str {
+        match self {
+            HistFit::None => "No fit",
+            HistFit::Auto => "Auto (AIC)",
+            HistFit::Normal => "Normal",
+            HistFit::LogNormal => "Log-normal",
+            HistFit::Weibull => "Weibull",
+        }
+    }
+}
+
 /// (study_name, col, rule_disc, manual_bins, row_count)
 type HistCacheKey = (String, String, u8, usize, usize);
 
 /// キャッシュ済みの計算結果一式。mean/median はソートを伴うため
 /// ヒストグラムと一緒にキャッシュし、毎フレームの再計算を避ける。
+/// `fits` は適用可能な分布フィット（AIC 昇順）。
 struct HistComputed {
     hist: Histogram,
     mean: f64,
     median: f64,
+    fits: Vec<FittedDistribution>,
 }
 
 /// ヒストグラムウィジェット。単一列の分布を表示する。
@@ -62,6 +90,7 @@ pub struct HistogramChart {
     pub selected_col: String,
     pub rule: HistBinRule,
     pub manual_bins: usize,
+    pub fit: HistFit,
     #[serde(skip)]
     cache: Option<(HistCacheKey, HistComputed)>,
 }
@@ -72,6 +101,7 @@ impl Default for HistogramChart {
             selected_col: String::new(),
             rule: HistBinRule::default(),
             manual_bins: 20,
+            fit: HistFit::default(),
             cache: None,
         }
     }
@@ -129,6 +159,20 @@ impl HistogramChart {
             if self.rule == HistBinRule::Manual {
                 ui.add(egui::Slider::new(&mut self.manual_bins, 2..=100).text("Bins"));
             }
+
+            egui::ComboBox::from_id_salt("histogram_fit_combo")
+                .selected_text(self.fit.label())
+                .show_ui(ui, |ui| {
+                    for fit in [
+                        HistFit::None,
+                        HistFit::Auto,
+                        HistFit::Normal,
+                        HistFit::LogNormal,
+                        HistFit::Weibull,
+                    ] {
+                        ui.selectable_value(&mut self.fit, fit, fit.label());
+                    }
+                });
         });
 
         let Some(values) = view.numeric_column(&self.selected_col) else {
@@ -153,7 +197,16 @@ impl HistogramChart {
                 sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
                 let median = quantile(&sorted, 0.5);
-                (key, HistComputed { hist, mean, median })
+                let fits = fit_all(&sorted);
+                (
+                    key,
+                    HistComputed {
+                        hist,
+                        mean,
+                        median,
+                        fits,
+                    },
+                )
             });
         }
 
@@ -164,6 +217,48 @@ impl HistogramChart {
             return;
         };
         let (hist, mean, median) = (&computed.hist, computed.mean, computed.median);
+
+        // 選択された分布フィット（Auto は AIC 最小 = fits の先頭）。
+        let selected_fit: Option<&FittedDistribution> = match self.fit {
+            HistFit::None => None,
+            HistFit::Auto => computed.fits.first(),
+            HistFit::Normal => computed
+                .fits
+                .iter()
+                .find(|f| f.dist == FitDistribution::Normal),
+            HistFit::LogNormal => computed
+                .fits
+                .iter()
+                .find(|f| f.dist == FitDistribution::LogNormal),
+            HistFit::Weibull => computed
+                .fits
+                .iter()
+                .find(|f| f.dist == FitDistribution::Weibull),
+        };
+
+        // PDF をカウント尺度（n × ビン幅）へ変換した重ね描き曲線。
+        let fit_line = selected_fit.map(|f| {
+            let n_total: f64 = hist.counts.iter().map(|&c| c as f64).sum();
+            let (first, last) = (
+                *hist.bin_edges.first().unwrap_or(&0.0),
+                *hist.bin_edges.last().unwrap_or(&1.0),
+            );
+            let bin_w = if hist.counts.is_empty() {
+                1.0
+            } else {
+                (last - first) / hist.counts.len() as f64
+            };
+            const CURVE_POINTS: usize = 200;
+            let pts: Vec<[f64; 2]> = (0..=CURVE_POINTS)
+                .map(|i| {
+                    let x = first + (last - first) * i as f64 / CURVE_POINTS as f64;
+                    [x, f.pdf(x) * n_total * bin_w]
+                })
+                .collect();
+            egui_plot::Line::new(format!("{} fit", f.dist.label()), pts)
+                .color(egui::Color32::from_rgb(147, 51, 234))
+                .width(2.0)
+        });
 
         let bars: Vec<egui_plot::Bar> = hist
             .bin_edges
@@ -197,7 +292,42 @@ impl HistogramChart {
                         .color(COLOR_BAR_ACCENT)
                         .style(egui_plot::LineStyle::Dashed { length: 6.0 }),
                 );
+                if let Some(line) = fit_line {
+                    plot_ui.line(line);
+                }
             });
+
+        // フィットのパラメータ表示、または適用不能の注記。
+        match (self.fit, selected_fit) {
+            (HistFit::None, _) => {}
+            (_, Some(f)) => {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}: {}   AIC {:.1}",
+                        f.dist.label(),
+                        f.param_text(),
+                        f.aic
+                    ))
+                    .small(),
+                );
+            }
+            (HistFit::Auto, None) => {
+                ui.label(
+                    egui::RichText::new("No distribution could be fitted.")
+                        .small()
+                        .weak(),
+                );
+            }
+            (_, None) => {
+                ui.label(
+                    egui::RichText::new(
+                        "Selected fit is not applicable (needs ≥3 finite, positive values).",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-//! トライアル詳細モーダル内に描画するレーダーチャート。
+//! トライアル詳細モーダル内に描画するレーダーチャート、および汎用レーダー描画関数。
 //!
 //! 軸（頂点）は目的関数 → 変数の順に並べる。各軸の半径スケールは
 //! パレートフロント（`pareto_rank == 0`）個体の値域に合わせ、外周（radius = 1.0）が
@@ -8,6 +8,9 @@
 //! `egui_plot` には極座標チャートが無いため、`egui::Painter` で自前描画する。
 //! 軸スケール計算（[`axis_scale`] / [`value_fraction`]）と軸構築（[`build`]）は
 //! 純粋関数として切り出し、描画ロジックと独立にテストする。
+//!
+//! 描画そのものは [`draw_radar`] に切り出しており、モーダル以外（例:
+//! Radar Comparison ウィジェット）からも軸ラベルと系列群さえ渡せば再利用できる。
 
 use std::f32::consts::PI;
 
@@ -22,10 +25,12 @@ use crate::theme::{ACCENT_BLUE, ERROR_COLOR, TEXT_SECONDARY};
 const FRONT_LINE: Color32 = Color32::from_rgba_premultiplied(11, 24, 46, 48);
 /// 選択トライアル多角形の色（赤系で強調）。
 const SELECTED: Color32 = ERROR_COLOR;
-/// 選択トライアル多角形の塗り（半透明）。
-const SELECTED_FILL: Color32 = Color32::from_rgba_premultiplied(120, 34, 27, 50);
 /// グリッド（同心多角形・スポーク）の色。
 const GRID: Color32 = Color32::from_gray(214);
+/// 強調系列（[`RadarSeries::emphasized`]）の扇形メッシュ塗りに使う不透明度。
+/// 旧 `SELECTED_FILL`（ERROR_COLOR を premultiplied (120,34,27) で薄めた値）と
+/// 見た目を一致させるため、`from_rgba_unmultiplied(color, 131)` で同じ結果になる値を使う。
+const EMPHASIZED_FILL_ALPHA: u8 = 131;
 
 /// レーダー 1 軸ぶんのメタ情報。
 #[derive(Debug, Clone, PartialEq)]
@@ -136,29 +141,44 @@ pub fn value_fraction(value: f64, lo: f64, hi: f64) -> f32 {
     ((value - lo) / span) as f32
 }
 
-/// レーダーチャートを描画する。軸が 3 未満ならレーダーにならないため注記のみ表示。
-pub fn show(ui: &mut egui::Ui, data: &RadarData) {
-    let axes = &data.axes;
-    if axes.len() < 3 {
-        ui.label(
-            egui::RichText::new("Radar chart needs at least 3 axes (objectives + variables).")
-                .weak(),
-        );
-        return;
+/// [`draw_radar`] に渡す 1 系列（1 トライアル・1 個体ぶんの多角形）。
+pub struct RadarSeries {
+    /// 凡例・デバッグ用のラベル（`draw_radar` 自体は描かない。呼び出し側が凡例に使う）。
+    pub label: String,
+    /// 線色（塗りもこの色から導出する）。
+    pub color: Color32,
+    /// 軸ごとの半径割合 `[0,1]`（欠損・非有限は None。その軸は隣接頂点とのみ線を結ぶ）。
+    pub fractions: Vec<Option<f32>>,
+    /// 線の太さ。
+    pub width: f32,
+    /// true なら太線に加えて中心からの扇形メッシュ塗り + 頂点ドットを描く
+    /// （トライアル詳細モーダルの「選択トライアル」相当の強調表示）。
+    /// false なら細い輪郭線のみ（パレートフロント個体、あるいは複数トライアルの
+    /// 重ね描き比較のように「強調しすぎない」系列に使う）。
+    pub emphasized: bool,
+}
+
+/// 軸ラベル一覧（軸名, 目的関数なら true）と系列群から汎用レーダーチャートを描画する。
+///
+/// 軸が 3 未満の場合は何も描画せず `false` を返す（メッセージ表示は呼び出し側の責務。
+/// モーダルと Radar Comparison ウィジェットで文言が異なるため、ここでは持たない）。
+/// 軸が 3 以上なら描画して `true` を返す。
+pub fn draw_radar(
+    ui: &mut egui::Ui,
+    axis_labels: &[(String, bool)],
+    series: &[RadarSeries],
+) -> bool {
+    let n = axis_labels.len();
+    if n < 3 {
+        return false;
     }
 
-    let n = axes.len();
     let side = ui.available_width().clamp(240.0, 460.0);
     let (rect, _resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let center = rect.center();
     // ラベルぶんの余白を引いた半径。
     let radius = side * 0.5 - 64.0;
-
-    let scales: Vec<(f64, f64)> = axes
-        .iter()
-        .map(|a| axis_scale(a.front_min, a.front_max))
-        .collect();
 
     // 頂点 i の角度（上方向起点・時計回り）。
     let angle = |i: usize| -> f32 { -PI / 2.0 + (i as f32) * 2.0 * PI / (n as f32) };
@@ -169,14 +189,9 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
         center + egui::vec2(a.cos() * r, a.sin() * r)
     };
     // 軸値の系列（欠損は None）をスクリーン座標へ写像する。
-    let to_points = |values: &[Option<f64>]| -> Vec<Option<egui::Pos2>> {
+    let to_points = |values: &[Option<f32>]| -> Vec<Option<egui::Pos2>> {
         (0..n)
-            .map(|i| {
-                values.get(i).copied().flatten().map(|v| {
-                    let (lo, hi) = scales[i];
-                    point_at(i, value_fraction(v, lo, hi))
-                })
-            })
+            .map(|i| values.get(i).copied().flatten().map(|f| point_at(i, f)))
             .collect()
     };
 
@@ -189,45 +204,45 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
         painter.line_segment([center, point_at(i, 1.0)], egui::Stroke::new(1.0, GRID));
     }
 
-    // ── パレートフロント各個体（薄い線で重ね描き）────────────────
-    let front_stroke = egui::Stroke::new(1.0, FRONT_LINE);
-    for individual in &data.front {
-        let pts = to_points(individual);
-        draw_ring_polyline(&painter, &pts, front_stroke);
-    }
+    // ── 系列（フロント個体・選択トライアル・ピン留めトライアル等）───
+    for s in series {
+        let pts = to_points(&s.fractions);
+        let stroke = egui::Stroke::new(s.width, s.color);
 
-    // ── 選択トライアル ──────────────────────────────────────────
-    let sel_values: Vec<Option<f64>> = axes.iter().map(|a| a.selected).collect();
-    let sel_pts = to_points(&sel_values);
-
-    if sel_pts.iter().all(|p| p.is_some()) {
-        // 全軸そろっていれば中心からの扇状メッシュで塗る（中心に対し星形なので妥当）。
-        let pts: Vec<egui::Pos2> = sel_pts.iter().map(|p| p.unwrap()).collect();
-        let mut fill = egui::Mesh::default();
-        fill.colored_vertex(center, SELECTED_FILL);
-        for &p in &pts {
-            fill.colored_vertex(p, SELECTED_FILL);
+        if s.emphasized && pts.iter().all(|p| p.is_some()) {
+            // 全軸そろっていれば中心からの扇状メッシュで塗る（中心に対し星形なので妥当）。
+            let poly: Vec<egui::Pos2> = pts.iter().map(|p| p.unwrap()).collect();
+            let fill_color = Color32::from_rgba_unmultiplied(
+                s.color.r(),
+                s.color.g(),
+                s.color.b(),
+                EMPHASIZED_FILL_ALPHA,
+            );
+            let mut fill = egui::Mesh::default();
+            fill.colored_vertex(center, fill_color);
+            for &p in &poly {
+                fill.colored_vertex(p, fill_color);
+            }
+            for i in 0..n {
+                let a = 1 + i as u32;
+                let b = 1 + ((i + 1) % n) as u32;
+                fill.add_triangle(0, a, b);
+            }
+            painter.add(egui::Shape::mesh(fill));
+            painter.add(egui::Shape::closed_line(poly, stroke));
+        } else {
+            // 欠損軸があれば隣接する有効頂点どうしだけ線で結ぶ（強調系列でなくても同様）。
+            draw_ring_polyline(&painter, &pts, stroke);
         }
-        for i in 0..n {
-            let a = 1 + i as u32;
-            let b = 1 + ((i + 1) % n) as u32;
-            fill.add_triangle(0, a, b);
+        if s.emphasized {
+            for p in pts.iter().flatten() {
+                painter.circle_filled(*p, 3.0, s.color);
+            }
         }
-        painter.add(egui::Shape::mesh(fill));
-        painter.add(egui::Shape::closed_line(
-            pts,
-            egui::Stroke::new(2.0, SELECTED),
-        ));
-    } else {
-        // 欠損軸があれば隣接する有効頂点どうしだけ線で結ぶ。
-        draw_ring_polyline(&painter, &sel_pts, egui::Stroke::new(2.0, SELECTED));
-    }
-    for p in sel_pts.iter().flatten() {
-        painter.circle_filled(*p, 3.0, SELECTED);
     }
 
     // ── 軸ラベル ────────────────────────────────────────────────
-    for (i, axis) in axes.iter().enumerate() {
+    for (i, (name, is_objective)) in axis_labels.iter().enumerate() {
         let a = angle(i);
         let lp = center + egui::vec2(a.cos() * (radius + 12.0), a.sin() * (radius + 12.0));
         let align = if a.cos().abs() < 0.3 {
@@ -237,19 +252,70 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
         } else {
             egui::Align2::RIGHT_CENTER
         };
-        let color = if axis.is_objective {
+        let color = if *is_objective {
             ACCENT_BLUE
         } else {
             TEXT_SECONDARY
         };
-        painter.text(
-            lp,
-            align,
-            &axis.name,
-            egui::FontId::proportional(11.0),
-            color,
-        );
+        painter.text(lp, align, name, egui::FontId::proportional(11.0), color);
     }
+
+    true
+}
+
+/// レーダーチャートを描画する。軸が 3 未満ならレーダーにならないため注記のみ表示。
+pub fn show(ui: &mut egui::Ui, data: &RadarData) {
+    let axes = &data.axes;
+    let axis_labels: Vec<(String, bool)> = axes
+        .iter()
+        .map(|a| (a.name.clone(), a.is_objective))
+        .collect();
+
+    if axis_labels.len() < 3 {
+        ui.label(
+            egui::RichText::new("Radar chart needs at least 3 axes (objectives + variables).")
+                .weak(),
+        );
+        return;
+    }
+
+    let scales: Vec<(f64, f64)> = axes
+        .iter()
+        .map(|a| axis_scale(a.front_min, a.front_max))
+        .collect();
+    let to_fractions = |values: &[Option<f64>]| -> Vec<Option<f32>> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                v.map(|v| {
+                    let (lo, hi) = scales[i];
+                    value_fraction(v, lo, hi)
+                })
+            })
+            .collect()
+    };
+
+    let mut series: Vec<RadarSeries> = Vec::with_capacity(data.front.len() + 1);
+    for individual in &data.front {
+        series.push(RadarSeries {
+            label: String::new(),
+            color: FRONT_LINE,
+            fractions: to_fractions(individual),
+            width: 1.0,
+            emphasized: false,
+        });
+    }
+    let sel_values: Vec<Option<f64>> = axes.iter().map(|a| a.selected).collect();
+    series.push(RadarSeries {
+        label: "This trial".to_string(),
+        color: SELECTED,
+        fractions: to_fractions(&sel_values),
+        width: 2.0,
+        emphasized: true,
+    });
+
+    draw_radar(ui, &axis_labels, &series);
 
     // ── 凡例 ────────────────────────────────────────────────────
     ui.add_space(4.0);
@@ -283,8 +349,9 @@ fn draw_ring_polyline(painter: &egui::Painter, pts: &[Option<egui::Pos2>], strok
     }
 }
 
-/// 凡例用の小さな色見本を描く。
-fn swatch(ui: &mut egui::Ui, color: Color32) {
+/// 凡例用の小さな色見本を描く。他ウィジェット（Radar Comparison 等）からも
+/// 凡例行を揃えるために再利用できるよう `pub(crate)` にする。
+pub(crate) fn swatch(ui: &mut egui::Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
     ui.painter().rect_filled(rect, 2.0, color);
 }

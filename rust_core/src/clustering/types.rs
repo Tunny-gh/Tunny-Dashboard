@@ -35,6 +35,8 @@ pub struct PcaResult {
     pub loadings: Vec<Vec<f64>>,
     /// Documentation.
     pub explained_variance: Vec<f64>,
+    /// 各成分の寄与率（固有値 / 全固有値の和）。`explained_variance` と同長。
+    pub explained_ratio: Vec<f64>,
     /// Documentation.
     pub feature_names: Vec<String>,
 }

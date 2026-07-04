@@ -459,8 +459,11 @@ fn push_edge(
 /// メッシュ線も細いクアッドとして同じメッシュに入れ、描画順を保つ。
 /// バンド（半透明・メッシュ線なし）・観測点・3D 線分（軸線）も同じ深度リストに
 /// 混ぜることで、重なりのブレンドや面の裏に隠れる前後関係が正しくなる。
+///
+/// `pub(crate)`: `response_surface.rs`（応答曲面 3D ビューア）が同じメッシュ描画を
+/// 再利用するため、モジュール外へ公開している。
 #[allow(clippy::too_many_arguments)]
-fn draw_surface_mesh(
+pub(crate) fn draw_surface_mesh(
     painter: &egui::Painter,
     project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
     values: &[Vec<f64>],

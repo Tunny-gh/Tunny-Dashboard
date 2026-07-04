@@ -325,6 +325,15 @@ impl MessageHandler {
                 widget_states.robustness.fit_error = Some(err);
                 widget_states.robustness.fitting = false;
             }
+            AppMessage::ResponseSurfaceFitDone(trained) => {
+                widget_states.response_surface.trained = Some(trained);
+                widget_states.response_surface.fit_error = None;
+                widget_states.response_surface.fitting = false;
+            }
+            AppMessage::ResponseSurfaceFitFailed(err) => {
+                widget_states.response_surface.fit_error = Some(err);
+                widget_states.response_surface.fitting = false;
+            }
         }
     }
 
