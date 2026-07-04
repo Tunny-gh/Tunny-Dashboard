@@ -231,8 +231,19 @@ impl DendrogramChart {
         };
         const ABOVE_CUT_COLOR: egui::Color32 = egui::Color32::from_gray(140);
 
+        // サブサンプル時は下にキャプション行が続くため、その高さぶんを
+        // 先に差し引いてからプロット領域を確保する（キャプションの見切れ防止）。
+        let subsampled = result.row_indices.len() < view.row_count();
+        let caption_h = if subsampled {
+            ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y
+        } else {
+            0.0
+        };
         let avail = ui.available_size();
-        let size = egui::vec2(avail.x.max(240.0), avail.y.clamp(200.0, 420.0));
+        let size = egui::vec2(
+            avail.x.max(240.0),
+            (avail.y - caption_h).clamp(160.0, 420.0),
+        );
         let (rect, _resp) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
@@ -265,7 +276,7 @@ impl DendrogramChart {
             }
         }
 
-        if result.row_indices.len() < view.row_count() {
+        if subsampled {
             ui.label(
                 egui::RichText::new(format!(
                     "{} leaves (subsampled from {})",

@@ -129,33 +129,84 @@ impl CorrelationMatrixChart {
 }
 
 /// k×k の相関行列ヒートマップを painter で直接描画する（sensitivity_heatmap と同じ流儀）。
+/// 列ヘッダはセル幅に収まらない場合、ScatterMatrix と同じ 45° 回転で重なりを防ぐ。
 fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
     let n = matrix.labels.len();
     if n == 0 {
         return;
     }
 
-    let header_w = 80.0_f32;
-    let header_h = 20.0_f32;
+    let text_color = ui.visuals().text_color();
+    let font = egui::FontId::proportional(10.0);
+
+    // ラベルを先にレイアウトして最大幅を測る（回転判定・ヘッダ寸法に使う）。
+    let label_galleys: Vec<std::sync::Arc<egui::Galley>> = matrix
+        .labels
+        .iter()
+        .map(|l| {
+            ui.painter()
+                .layout_no_wrap(l.clone(), font.clone(), text_color)
+        })
+        .collect();
+    let max_label_w = label_galleys
+        .iter()
+        .map(|g| g.size().x)
+        .fold(0.0_f32, f32::max);
+    let label_h = label_galleys.first().map(|g| g.size().y).unwrap_or(12.0);
+
     let available = ui.available_rect_before_wrap();
+
+    // 行ヘッダ幅はラベル実幅に合わせる（従来の固定 80px では長い名前が重なった）。
+    let header_w = (max_label_w + 8.0).clamp(60.0, available.width() * 0.3);
+
+    // 列ラベルがセル幅に収まらなければ 45° 回転（ScatterMatrix と同じ判定・寸法）。
+    let label_angle = std::f32::consts::FRAC_PI_4;
+    let cell_w_est = (available.width() - header_w) / n as f32;
+    let rotate_cols = max_label_w > cell_w_est - 4.0;
+    let header_h = if rotate_cols {
+        (max_label_w * label_angle.sin() + label_h * label_angle.cos()).min(110.0) + 6.0
+    } else {
+        label_h + 6.0
+    };
+
     let cell_w = (available.width() - header_w) / n as f32;
     let cell_h = (available.height() - header_h) / n as f32;
 
     let painter = ui.painter();
-    let text_color = ui.visuals().text_color();
 
     // 列ヘッダ
-    for (j, label) in matrix.labels.iter().enumerate() {
-        let x = available.min.x + header_w + j as f32 * cell_w;
-        let rect =
-            egui::Rect::from_min_size(egui::pos2(x, available.min.y), egui::vec2(cell_w, header_h));
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            label,
-            egui::FontId::proportional(10.0),
-            text_color,
-        );
+    for (j, galley) in label_galleys.iter().enumerate() {
+        let col_center_x = available.min.x + header_w + (j as f32 + 0.5) * cell_w;
+        let size = galley.size();
+        if rotate_cols {
+            // -45°（反時計回り）で回転させた "/" 形ラベルの最下端を
+            // 各列中心・グリッド上端のすぐ上に合わせる（ScatterMatrix と同じ手法）。
+            let applied = -label_angle;
+            let (sa, ca) = (applied.sin(), applied.cos());
+            let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
+            let mut lowest = (0.0_f32, f32::MIN);
+            for (px, py) in corners {
+                let rx = px * ca - py * sa;
+                let ry = px * sa + py * ca;
+                if ry > lowest.1 {
+                    lowest = (rx, ry);
+                }
+            }
+            let anchor = egui::pos2(col_center_x, available.min.y + header_h - 2.0);
+            let pos = anchor - egui::vec2(lowest.0, lowest.1);
+            painter.add(
+                egui::epaint::TextShape::new(pos, galley.clone(), text_color).with_angle(applied),
+            );
+        } else {
+            painter.galley(
+                egui::pos2(
+                    col_center_x - size.x * 0.5,
+                    available.min.y + (header_h - label_h) * 0.5,
+                ),
+                galley.clone(),
+                text_color,
+            );
+        }
     }
 
     // 行ヘッダ + セルグリッド

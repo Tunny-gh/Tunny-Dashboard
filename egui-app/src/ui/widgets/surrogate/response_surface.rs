@@ -379,8 +379,14 @@ impl ResponseSurfaceChart {
             })
             .collect();
 
+        // 下に続くアンカー説明キャプション 1 行ぶんを先に差し引いてから
+        // 3D キャンバスを確保する（キャプションの見切れ防止）。
+        let caption_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
         let avail = ui.available_size();
-        let canvas_size = egui::vec2((avail.x - 16.0).max(120.0), avail.y.max(160.0));
+        let canvas_size = egui::vec2(
+            (avail.x - 16.0).max(120.0),
+            (avail.y - caption_h).max(160.0),
+        );
         ui.allocate_ui(canvas_size, |ui| {
             ui.set_min_size(canvas_size);
             let (painter, _rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);

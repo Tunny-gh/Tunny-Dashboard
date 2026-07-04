@@ -173,7 +173,15 @@ pub fn draw_radar(
         return false;
     }
 
-    let side = ui.available_width().clamp(240.0, 460.0);
+    // 両呼び出し元（詳細モーダル / Radar Comparison）とも下に凡例・キャプション行を
+    // 描くため 2 行ぶんを予約し、幅だけでなく利用可能な高さも尊重する
+    // （高さの低いキャンバスセルで凡例が見切れないように）。
+    let bottom_reserve =
+        2.0 * (ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y);
+    let side = ui
+        .available_width()
+        .clamp(240.0, 460.0)
+        .min((ui.available_height() - bottom_reserve).max(200.0));
     let (rect, _resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let center = rect.center();
