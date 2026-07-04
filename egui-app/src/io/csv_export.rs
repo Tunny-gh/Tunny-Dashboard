@@ -63,6 +63,9 @@ pub fn build_chart_csv(
         ChartId::ClusterScatter3D => build_cluster_csv(chart_id, app_state, widgets),
         ChartId::McdmScatterChart3D => mcdm_result_for_chart(chart_id, app_state, widgets)
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
+        ChartId::Histogram => build_histogram_csv(app_state, widgets),
+        ChartId::BoxPlot => build_box_plot_csv(app_state, widgets),
+        ChartId::CorrelationMatrix => build_correlation_matrix_csv(app_state, widgets),
         ChartId::ArtifactGallery => None,
     }
 }
@@ -202,6 +205,18 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             app_state.current_study.is_some()
                 && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
+        ChartId::Histogram | ChartId::BoxPlot => app_state
+            .current_study
+            .as_ref()
+            .is_some_and(|s| s.trial_count() > 0),
+        ChartId::CorrelationMatrix => {
+            app_state
+                .current_study
+                .as_ref()
+                .is_some_and(|s| s.trial_count() > 0)
+                && (widgets.correlation_matrix.include_params
+                    || widgets.correlation_matrix.include_objectives)
+        }
         ChartId::ArtifactGallery => false,
     }
 }
@@ -226,6 +241,9 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::SurrogateOpt => "surrogate_optimizer",
         ChartId::ClusterScatter3D => "cluster_scatter_3d",
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
+        ChartId::Histogram => "histogram",
+        ChartId::BoxPlot => "box_plot",
+        ChartId::CorrelationMatrix => "correlation_matrix",
         ChartId::ArtifactGallery => "artifact_gallery",
     };
     format!("{}.csv", name)
@@ -246,6 +264,156 @@ fn build_observed_contour_csv(widgets: &WidgetStates) -> Option<String> {
                 w.row([CsvField::Num(x), CsvField::Num(y), CsvField::Num(v)]);
             }
         }
+    }
+    Some(w.finish())
+}
+
+/// 現在の列選択・ビン設定でヒストグラムを再計算して CSV にする。
+/// ウィジェット表示時と同じフォールバック（目的関数→パラメータの最初の数値列）を適用する。
+fn build_histogram_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    if study.trial_count() == 0 {
+        return None;
+    }
+    let obj_names = &study.meta.objective_names;
+    let param_names = &study.meta.param_names;
+    let candidates: Vec<&String> = obj_names
+        .iter()
+        .chain(param_names.iter())
+        .filter(|n| study.view.numeric_column(n).is_some())
+        .collect();
+    let selected = widgets.histogram.selected_col.as_str();
+    let col = if candidates.iter().any(|c| c.as_str() == selected) {
+        selected
+    } else {
+        candidates.first()?.as_str()
+    };
+    let values = study.view.numeric_column(col)?;
+    let rule = widgets
+        .histogram
+        .rule
+        .to_core(widgets.histogram.manual_bins);
+    let hist = tunny_core::statistics::compute_histogram(values, rule)?;
+
+    let mut w = CsvWriter::new();
+    w.header(["bin_start", "bin_end", "count"]);
+    for (edge, &count) in hist.bin_edges.windows(2).zip(&hist.counts) {
+        w.row([
+            CsvField::Num(edge[0]),
+            CsvField::Num(edge[1]),
+            CsvField::UInt(count as u64),
+        ]);
+    }
+    Some(w.finish())
+}
+
+/// 現在の Source/Normalize 設定で各列の箱ひげ統計を再計算して CSV にする（1列1行）。
+fn build_box_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    use crate::ui::widgets::box_plot::{normalize_minmax, BoxPlotSource};
+
+    let study = app_state.current_study.as_ref()?;
+    if study.trial_count() == 0 {
+        return None;
+    }
+    let names: &[String] = match widgets.box_plot.source {
+        BoxPlotSource::Objectives => &study.meta.objective_names,
+        BoxPlotSource::Parameters => &study.meta.param_names,
+    };
+    let normalize = widgets.box_plot.normalize;
+    let mut w = CsvWriter::new();
+    w.header([
+        "column",
+        "n",
+        "mean",
+        "min",
+        "q1",
+        "median",
+        "q3",
+        "max",
+        "whisker_low",
+        "whisker_high",
+        "n_outliers",
+    ]);
+    let mut any = false;
+    for name in names {
+        let Some(raw) = study.view.numeric_column(name) else {
+            continue;
+        };
+        let values = if normalize {
+            normalize_minmax(raw)
+        } else {
+            raw.to_vec()
+        };
+        let Some(s) = tunny_core::statistics::compute_boxplot(&values) else {
+            continue;
+        };
+        any = true;
+        w.row([
+            CsvField::Text(name),
+            CsvField::UInt(s.n as u64),
+            CsvField::Num(s.mean),
+            CsvField::Num(s.min),
+            CsvField::Num(s.q1),
+            CsvField::Num(s.median),
+            CsvField::Num(s.q3),
+            CsvField::Num(s.max),
+            CsvField::Num(s.whisker_low),
+            CsvField::Num(s.whisker_high),
+            CsvField::UInt(s.outliers.len() as u64),
+        ]);
+    }
+    any.then(|| w.finish())
+}
+
+/// 現在の Method/列グループ設定で相関行列を再計算し、ワイド形式で CSV にする。
+/// NaN セルは空文字として出力する。
+fn build_correlation_matrix_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    if study.trial_count() == 0 {
+        return None;
+    }
+    if !widgets.correlation_matrix.include_params && !widgets.correlation_matrix.include_objectives
+    {
+        return None;
+    }
+    let mut names: Vec<&String> = Vec::new();
+    if widgets.correlation_matrix.include_params {
+        names.extend(study.meta.param_names.iter());
+    }
+    if widgets.correlation_matrix.include_objectives {
+        names.extend(study.meta.objective_names.iter());
+    }
+    let columns: Vec<(String, Vec<f64>)> = names
+        .into_iter()
+        .filter_map(|name| {
+            study
+                .view
+                .numeric_column(name)
+                .map(|c| (name.clone(), c.to_vec()))
+        })
+        .collect();
+    if columns.is_empty() {
+        return None;
+    }
+    let matrix = tunny_core::statistics::compute_correlation_matrix(
+        &columns,
+        widgets.correlation_matrix.method,
+    )?;
+
+    let mut w = CsvWriter::new();
+    let mut header: Vec<&str> = vec![""];
+    header.extend(matrix.labels.iter().map(String::as_str));
+    w.header(header);
+    for (i, label) in matrix.labels.iter().enumerate() {
+        let mut fields = vec![CsvField::Text(label)];
+        for &val in &matrix.values[i] {
+            fields.push(if val.is_nan() {
+                CsvField::Empty
+            } else {
+                CsvField::Num(val)
+            });
+        }
+        w.row(fields);
     }
     Some(w.finish())
 }

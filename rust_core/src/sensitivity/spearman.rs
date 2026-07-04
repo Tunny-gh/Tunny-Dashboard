@@ -2,7 +2,7 @@ use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::types::SensitivityResult;
 use crate::dataframe::DataFrame;
-use crate::math::stats::pearson_correlation;
+use crate::math::stats::spearman_correlation;
 
 pub struct SpearmanMetric;
 
@@ -47,51 +47,6 @@ impl SensitivityMetric for SpearmanMetric {
     }
 }
 
-fn rank(values: &[f64]) -> Vec<f64> {
-    let n = values.len();
-    if n == 0 {
-        return vec![];
-    }
-
-    let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_by(|&a, &b| {
-        let va = values[a];
-        let vb = values[b];
-        match (va.is_nan(), vb.is_nan()) {
-            (true, _) => std::cmp::Ordering::Greater,
-            (_, true) => std::cmp::Ordering::Less,
-            _ => va.partial_cmp(&vb).unwrap(),
-        }
-    });
-
-    let mut ranks = vec![0.0f64; n];
-    let mut i = 0;
-
-    while i < n {
-        let val = values[indices[i]];
-        if val.is_nan() {
-            let avg = (i as f64 + 1.0 + n as f64) / 2.0;
-            for k in i..n {
-                ranks[indices[k]] = avg;
-            }
-            break;
-        }
-
-        let mut j = i + 1;
-        while j < n && values[indices[j]] == val {
-            j += 1;
-        }
-
-        let avg_rank = (i as f64 + 1.0 + j as f64) / 2.0;
-        for k in i..j {
-            ranks[indices[k]] = avg_rank;
-        }
-        i = j;
-    }
-
-    ranks
-}
-
 pub fn compute_spearman(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len().min(y.len());
     if n < 2 {
@@ -113,8 +68,5 @@ pub fn compute_spearman(x: &[f64], y: &[f64]) -> f64 {
         return f64::NAN;
     }
 
-    let rx = rank(&fx);
-    let ry = rank(&fy);
-
-    pearson_correlation(&rx, &ry)
+    spearman_correlation(&fx, &fy)
 }

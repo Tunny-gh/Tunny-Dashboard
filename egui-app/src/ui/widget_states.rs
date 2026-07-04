@@ -1,8 +1,9 @@
 use crate::ui::widgets::license_modal::LicenseModalState;
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use crate::ui::widgets::{
-    artifact_gallery::ArtifactGallery, cluster_scatter::ClusterScatter,
+    artifact_gallery::ArtifactGallery, box_plot::BoxPlotChart, cluster_scatter::ClusterScatter,
     cluster_scatter_3d::ClusterScatter3D, convergence::ConvergenceChart,
+    correlation_matrix::CorrelationMatrixChart, histogram::HistogramChart,
     importance_chart::ImportanceChart, mcdm_chart::McdmRankChart,
     mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
@@ -321,6 +322,9 @@ pub struct WidgetStates {
     pub observed_contour: ObservedContourState,
     /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
     pub surrogate_opt: SurrogateOptState,
+    pub histogram: HistogramChart,
+    pub box_plot: BoxPlotChart,
+    pub correlation_matrix: CorrelationMatrixChart,
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,

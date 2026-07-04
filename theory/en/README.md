@@ -166,6 +166,9 @@ Basic statistical measures referenced in common by several widgets and analysis 
 | Method | Role | Details |
 |--------|------|---------|
 | Pearson product-moment correlation | Linear correlation of two variables (scatter-matrix correlation; internal to Spearman) | [statistics/pearson-correlation.md](statistics/pearson-correlation.md) |
+| Histogram | Univariate distribution summary via binning (skewness, multimodality, outliers) | [statistics/histogram.md](statistics/histogram.md) |
+| Box Plot | Five-number-summary distribution comparison across variables/clusters | [statistics/box-plot.md](statistics/box-plot.md) |
+| Correlation Matrix | Heatmap overview of pairwise correlation across all variables | [statistics/correlation-matrix.md](statistics/correlation-matrix.md) |
 
 ---
 

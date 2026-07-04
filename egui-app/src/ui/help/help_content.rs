@@ -211,6 +211,39 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/artifact-gallery.html"
             )),
         },
+        ChartId::Histogram => HelpContent {
+            widget_name: "histogram",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/statistics/histogram.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/statistics/histogram.html"
+            )),
+        },
+        ChartId::BoxPlot => HelpContent {
+            widget_name: "box-plot",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/statistics/box-plot.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/statistics/box-plot.html"
+            )),
+        },
+        ChartId::CorrelationMatrix => HelpContent {
+            widget_name: "correlation-matrix",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/statistics/correlation-matrix.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/statistics/correlation-matrix.html"
+            )),
+        },
     }
 }
 
