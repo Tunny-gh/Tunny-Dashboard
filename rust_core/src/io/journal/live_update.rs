@@ -2,6 +2,7 @@
 //!
 //! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-1201
 
+use super::parser::distribution::Distribution;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -165,8 +166,11 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                             json.get("param_name").and_then(|v| v.as_str()),
                             json.get("param_value_internal").and_then(|v| v.as_f64()),
                         ) {
-                            let display_val = decode_param_value(val, json.get("distribution"));
-                            let label = extract_categorical_label(val, json.get("distribution"));
+                            // journal の distribution フィールドは JSON 文字列。from_json が
+                            // 文字列の再パースと attributes ネストの両方を処理する。
+                            let dist = json.get("distribution").map(Distribution::from_json);
+                            let display_val = dist.as_ref().map_or(val, |d| d.to_display_f64(val));
+                            let label = dist.as_ref().and_then(|d| d.categorical_label(val));
                             if let Some(lbl) = label {
                                 pending.param_category_label.insert(name.to_string(), lbl);
                             } else {
@@ -316,50 +320,6 @@ fn find_consumed_bytes(data: &[u8]) -> usize {
         Some(pos) => pos + 1,
         None => 0,
     }
-}
-
-fn decode_param_value(internal: f64, dist: Option<&Value>) -> f64 {
-    let Some(dist) = dist else { return internal };
-    match dist.get("name").and_then(|v| v.as_str()).unwrap_or("") {
-        "FloatDistribution" => {
-            if dist.get("log").and_then(|v| v.as_bool()).unwrap_or(false) {
-                internal.exp()
-            } else {
-                internal
-            }
-        }
-        "IntDistribution" => {
-            let low = dist.get("low").and_then(|v| v.as_i64()).unwrap_or(0);
-            let step = dist
-                .get("step")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(1)
-                .max(1);
-            let log = dist.get("log").and_then(|v| v.as_bool()).unwrap_or(false);
-            let rounded = if log {
-                internal.exp().round() as i64
-            } else {
-                internal.round() as i64
-            };
-            (low + rounded * step) as f64
-        }
-        _ => internal,
-    }
-}
-
-fn extract_categorical_label(internal: f64, dist: Option<&Value>) -> Option<String> {
-    let dist = dist?;
-    if dist.get("name").and_then(|v| v.as_str())? != "CategoricalDistribution" {
-        return None;
-    }
-    let choices = dist.get("choices")?.as_array()?;
-    let idx = internal.round() as usize;
-    choices.get(idx).map(|v| match v {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        other => other.to_string(),
-    })
 }
 
 // =============================================================================
@@ -759,13 +719,15 @@ mod tests {
     }
 
     #[test]
-    fn tc_2218_08_log_param_is_exp_decoded() {
+    fn tc_2218_08_log_param_is_stored_as_external_value() {
+        // Optuna は log 分布でも param_value_internal に外部表現（実値）を
+        // そのまま格納するため、表示値は格納値と一致しなければならない。
         with_fresh_state(|| {
             let create = make_create_trial(0);
-            let internal = std::f64::consts::LN_2; // ln(2.0)
+            let stored = 0.125;
             let set_log = format!(
                 r#"{{"op_code":5,"trial_id":0,"param_name":"lr","param_value_internal":{},"distribution":{{"name":"FloatDistribution","low":0.0001,"high":1.0,"log":true}}}}"#,
-                internal
+                stored
             );
             let complete = make_complete(0, &[1.0]);
             let data = make_diff_bytes(&[create, set_log, complete]);
@@ -775,8 +737,9 @@ mod tests {
             let row = &result.new_trial_rows[0];
             let decoded = row.params.get("lr").copied().unwrap_or(0.0);
             assert!(
-                (decoded - 2.0).abs() < 1e-6,
-                "expected ~2.0, got {}",
+                (decoded - stored).abs() < 1e-12,
+                "expected {}, got {}",
+                stored,
                 decoded
             );
         });
