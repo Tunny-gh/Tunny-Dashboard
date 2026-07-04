@@ -95,19 +95,25 @@ impl TrialTable {
     }
 
     /// MCDM モード: 設定 UI + ランキング順テーブル（McdmTable へ委譲）。
-    fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &AppState) {
+    /// ピン留めトグルは McdmTable から返され、ここで AppState へ適用する。
+    fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         let Some(ctx) = app_state.current_study.as_ref() else {
             return;
         };
         let key = self.mcdm.controls.cache_key();
         let result = app_state.mcdm_cache.get(&key);
-        self.mcdm.show(
+        let pinned = app_state.pinned_trials.clone();
+        let pin_toggled = self.mcdm.show(
             ui,
             result,
             &ctx.view,
             &ctx.meta.param_names,
             &ctx.meta.objective_names,
+            &pinned,
         );
+        if let Some(trial_id) = pin_toggled {
+            let _ = app_state.toggle_pinned_trial(trial_id);
+        }
     }
 
     /// All モード: 全トライアル一覧（選択 ∪ ピン留め）を描画する。

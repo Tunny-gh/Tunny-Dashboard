@@ -572,6 +572,9 @@ impl McdmTable {
         self.controls.adopt_compute_state(&src.controls);
     }
 
+    /// MCDM ランキングテーブルを描画する。
+    /// `pinned` は現在のピン留め trial_id。ピンボタンが押された行の trial_id を返す
+    /// （呼び出し側が `AppState::toggle_pinned_trial` を適用する）。
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -579,20 +582,21 @@ impl McdmTable {
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
-    ) {
+        pinned: &[u32],
+    ) -> Option<u32> {
         if !self.controls.show_controls(ui, obj_names, "mcdm_table") {
-            return;
+            return None;
         }
 
         if self.controls.computing {
-            return;
+            return None;
         }
 
         let Some(result) = result else {
             ui.vertical_centered(|ui| {
                 ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute the MCDM ranking");
             });
-            return;
+            return None;
         };
 
         use egui_extras::{Column, TableBuilder};
@@ -606,8 +610,10 @@ impl McdmTable {
         );
         if rows.is_empty() {
             ui.colored_label(COLOR_EMPTY_STATE, "No results to display");
-            return;
+            return None;
         }
+
+        let mut pin_toggled: Option<u32> = None;
 
         // 各変数・目的を 1 列ずつに展開し、横スクロール可能にする
         // （Cluster Table と同形式）。
@@ -617,12 +623,16 @@ impl McdmTable {
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
+                .column(Column::exact(30.0)) // Pin
                 .column(Column::initial(50.0).at_least(40.0)) // Rank
                 .column(Column::initial(70.0).at_least(50.0)) // Trial
                 .column(Column::initial(80.0).at_least(50.0)) // Score
                 .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
                 .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
                 .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("📌");
+                    });
                     header.col(|ui| {
                         ui.strong("Rank");
                     });
@@ -646,6 +656,13 @@ impl McdmTable {
                 .body(|mut body| {
                     for row_data in &rows {
                         body.row(18.0, |mut row| {
+                            let is_pinned = pinned.contains(&row_data.trial_id);
+                            row.col(|ui| {
+                                let pin_label = if is_pinned { "📌" } else { "·" };
+                                if ui.small_button(pin_label).clicked() {
+                                    pin_toggled = Some(row_data.trial_id);
+                                }
+                            });
                             row.col(|ui| {
                                 ui.label(format!("{}", row_data.rank));
                             });
@@ -669,6 +686,8 @@ impl McdmTable {
                     }
                 });
         });
+
+        pin_toggled
     }
 }
 
@@ -701,6 +720,9 @@ fn enumerate_ranked(result: &McdmResult, top_n: usize) -> Vec<RankingEntry> {
 /// テーブル行データ
 pub struct RankingRow {
     pub rank: usize,
+    /// ピン留め・ハイライト用のグローバル trial_id。
+    pub trial_id: u32,
+    /// 表示用の Optuna trial.number（Study 内 0 始まりの作成順番号）。
     pub trial_number: u32,
     pub score: f64,
     pub parameters: Vec<f64>,
@@ -730,7 +752,17 @@ pub fn build_ranking_rows(
                 .collect();
             RankingRow {
                 rank: e.rank,
-                trial_number: e.trial_idx as u32,
+                trial_id: view
+                    .trial_ids
+                    .get(e.trial_idx)
+                    .copied()
+                    .unwrap_or(e.trial_idx as u32),
+                // 行インデックスではなく Optuna の trial.number を表示する
+                // （pruned/failed を含む Study では両者がずれる）。
+                trial_number: view
+                    .df
+                    .get_trial_number(e.trial_idx)
+                    .unwrap_or(e.trial_idx as u32),
                 score: e.score,
                 parameters,
                 objectives,
@@ -980,6 +1012,32 @@ mod tests {
         let view = make_simple_view(1);
         let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
         assert_eq!(ranking[0].rank, 1);
+    }
+
+    #[test]
+    fn build_ranking_rows_distinguishes_trial_id_and_number() {
+        // trial_id（グローバル、ピン留め用）と trial.number（表示用）がずれる
+        // Study（pruned/failed を含む場合など）で両方が正しく引かれること。
+        let core_rows: Vec<CoreRow> = (0..3)
+            .map(|i| CoreRow {
+                trial_id: i as u32 + 10,
+                trial_number: i as u32 + 100,
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: vec![],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&core_rows, &[], &[], &[], &[], 0);
+        let view = StudyView::new(Arc::new(df), vec![0; 3]);
+
+        let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![2, 0, 1]);
+        let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
+        // rank 1 は trial_idx 2 → trial_id 12 / number 102
+        assert_eq!(ranking[0].trial_id, 12);
+        assert_eq!(ranking[0].trial_number, 102);
     }
 
     #[test]
