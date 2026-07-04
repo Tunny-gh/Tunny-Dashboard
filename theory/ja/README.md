@@ -185,6 +185,25 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 
 ---
 
+## ウィジェット
+
+UI チャート/パネルと、それらが表示する量。
+
+- [Pareto 2D](widgets/pareto-2d.md)
+- [Pareto 3D](widgets/pareto-3d.md)
+- [平行座標](widgets/parallel-coords.md)
+- [最適化履歴](widgets/optimization-history.md)
+- [収束指標](widgets/convergence.md)
+- [トライアルテーブル](widgets/trial-table.md)
+- [散布図行列](widgets/scatter-matrix.md)
+- [観測等高線](widgets/observed-contour.md)
+- [スライスチャート](widgets/slice-chart.md)
+- [アーティファクトギャラリー](widgets/artifact-gallery.md)
+- [サロゲート最適化](widgets/surrogate-optimizer.md)
+- [Robustness](widgets/robustness.md)
+
+---
+
 ## 手法の全体マップ
 
 ```
@@ -194,9 +213,17 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
   │    ├── 素早く確認 → Spearman / Ridge（ImportanceChart）
   │    └── 精度よく確認 → Sobol（ImportanceChart、計算コスト高）
   │
+  ├── 分布・変数間の関係を把握したい
+  │    ├── 1 変数の分布を見る       → Histogram（ビン規則・歪み・多峰性）
+  │    ├── 複数変数の分布を並べて比較 → Box Plot（五数要約・正規化）
+  │    └── 全ペアの相関を一望する    → Correlation Matrix（Pearson / Spearman）
+  │         └── 気になるペアの形を確認 → Scatter Matrix（実際の形状・クラスタ）
+  │
   ├── 良いトライアルを選びたい
   │    ├── 多目的で総合評価 → TOPSIS / VIKOR / PROMETHEE（MCDM チャート）
-  │    └── トレードオフ全体 → Pareto Front（ParetoFront チャート）
+  │    ├── トレードオフ全体 → Pareto Front（ParetoFront チャート）
+  │    └── 候補の入力ばらつきに対する安定性を確認
+  │                        → Robustness（サロゲート上の MC ノイズ伝播）
   │
   └── パラメータと目的関数の関係を可視化したい
        ├── 1 パラメータ → 1D PDP（PdpChart）

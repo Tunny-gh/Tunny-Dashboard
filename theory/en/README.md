@@ -213,9 +213,17 @@ I want to analyze optimization results
   │    ├── quick check    → Spearman / Ridge (ImportanceChart)
   │    └── accurate check → Sobol / tree-based / SHAP (ImportanceChart, higher cost)
   │
+  ├── Understand distributions and relationships
+  │    ├── one variable's distribution      → Histogram (bin rules, skew, multimodality)
+  │    ├── compare distributions side by side→ Box Plot (five-number summary, normalization)
+  │    └── survey all pairwise correlations → Correlation Matrix (Pearson / Spearman)
+  │         └── inspect interesting pairs   → Scatter Matrix (actual shapes, clusters)
+  │
   ├── Pick good trials
   │    ├── holistic multi-objective score → TOPSIS / VIKOR / PROMETHEE (MCDM chart)
-  │    └── full trade-off                 → Pareto Front (ParetoFront chart)
+  │    ├── full trade-off                 → Pareto Front (ParetoFront chart)
+  │    └── check a candidate's stability under input scatter
+  │                                       → Robustness (MC noise propagation on a surrogate)
   │
   └── Visualize parameter–objective relationships
        ├── 1 parameter → 1D PDP (PdpChart)
