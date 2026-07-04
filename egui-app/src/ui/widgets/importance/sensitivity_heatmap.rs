@@ -6,13 +6,16 @@ use crate::ui::widgets::importance_chart::ImportanceMetric;
 /// 感度ヒートマップウィジェット。手法は ImportanceChart と同じ `ImportanceMetric` を共有する。
 /// 計算結果は `AppState::sensitivity_heatmap_cache` に集約されるため、ここでは
 /// アイテム固有の UI 状態（選択手法・計算実行フラグ・計算要求）のみを持つ。
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SensitivityHeatmap {
     pub metric: ImportanceMetric,
+    #[serde(skip)]
     pub computing: bool,
     /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
     pub feasible_only: bool,
     /// poll_chart が消費する計算要求（対象手法, feasible_only）。
+    #[serde(skip)]
     pub pending_compute: Option<(ImportanceMetric, bool)>,
 }
 

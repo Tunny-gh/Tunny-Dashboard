@@ -13,7 +13,7 @@ use crate::sensitivity::compute_ridge_from_vecs;
 
 /// 応答曲面の作成に使うサロゲートモデル種別。
 /// 新しいモデルはここへバリアントを追加する。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SurrogateModelKind {
     /// Ridge 回帰（線形）。高速だが曲面は平面。
     Ridge,

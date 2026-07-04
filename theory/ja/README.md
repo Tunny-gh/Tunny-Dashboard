@@ -179,6 +179,7 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 | トピック | 役割 | 詳細 |
 |------|------|------|
 | Optuna ストレージ形式 | Journal / RDB (SQLite) ストレージの構造と本アプリのスキーマ解釈規約 | [io/optuna-storages.md](io/optuna-storages.md) |
+| セッションファイル | `.tunny` セッションが保存するもの（ビュー状態）・除外するもの（データ/導出状態）とスキーマ進化の方針 | [io/session-files.md](io/session-files.md) |
 
 ---
 

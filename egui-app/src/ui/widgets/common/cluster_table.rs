@@ -16,6 +16,8 @@ use crate::ui::widgets::cluster_scatter::{
 ///
 /// 2D / 3D と同様に独自のクラスタリング設定（k / 対象空間 / モード / Init）を持ち、
 /// 結果は設定キーごとに `app_state.cluster_cache` で共有・キャッシュされる。
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ClusterTable {
     /// クラスタリング対象外（パレートフロント以外）の解も表示するか
     pub show_unclustered: bool,
@@ -23,8 +25,11 @@ pub struct ClusterTable {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub pending_compute: Option<ClusterComputeRequest>,
+    #[serde(skip)]
     pub last_error: Option<crate::state::messages::ClusterUiError>,
 }
 

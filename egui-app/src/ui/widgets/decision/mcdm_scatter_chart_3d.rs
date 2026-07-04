@@ -46,6 +46,8 @@ struct PointsCache {
 // ── ウィジェット ──────────────────────────────────────────────────
 
 /// MCDM 3D 散布図ウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct McdmScatterChart3D {
     /// MCDM 設定・実行状態（手法 / 重み / Run など）
     pub controls: McdmControls,
@@ -55,9 +57,12 @@ pub struct McdmScatterChart3D {
     pub camera: ArcballCamera,
     /// 実行不可能解を表示するか（制約あり Study でのみ有効）
     pub show_infeasible: bool,
+    #[serde(skip)]
     cache: Option<PointsCache>,
+    #[serde(skip)]
     cache_key: Option<CacheKey>,
     /// 点クリックで開くトライアル詳細モーダル
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
 

@@ -19,7 +19,7 @@ pub struct ClusterStats {
 }
 
 /// クラスタリング対象空間
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ClusterSpace {
     Objective,
     Variable,
@@ -52,7 +52,7 @@ impl ClusterSpace {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum KSelectionMode {
     ElbowDefault,
     Manual,
@@ -67,7 +67,7 @@ impl KSelectionMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum KMeansInitStrategy {
     KMeansPlusPlus,
     Deterministic,
@@ -162,18 +162,27 @@ pub struct ClusteringResult {
 }
 
 /// クラスタ散布図ウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ClusterScatter {
     pub k: usize,
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub pending_compute: Option<ClusterComputeRequest>,
+    #[serde(skip)]
     pub last_error: Option<crate::state::messages::ClusterUiError>,
+    #[serde(skip)]
     pub result: Option<ClusteringResult>,
     /// 点クリックで開くトライアル詳細モーダル。
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
+    #[serde(skip)]
     cached_points: Option<Vec<[f32; 2]>>,
+    #[serde(skip)]
     cache_key: (usize, usize), // (trial_count, n_clusters)
 }
 

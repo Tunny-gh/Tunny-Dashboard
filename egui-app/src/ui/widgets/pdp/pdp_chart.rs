@@ -63,13 +63,13 @@ pub struct PdpComputeRequest {
     pub feasible_only: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PdpMode {
     OneDim,
     TwoDim,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ModelType {
     Ridge,
     GpFitc,
@@ -198,17 +198,23 @@ pub fn extract_observed(
 }
 
 /// PDP チャートウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PdpChart {
     pub mode: PdpMode,
     pub selected_param: String,
     pub selected_objective: usize,
     pub model_type: ModelType,
+    #[serde(skip)]
     pub result: Option<PdpResult>,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub cache: HashMap<String, PdpResult1d>,
     pub show_observed: bool,
     /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
     pub feasible_only: bool,
+    #[serde(skip)]
     pub pending_compute: Option<PdpComputeRequest>,
 }
 

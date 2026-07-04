@@ -9,7 +9,7 @@ use crate::ui::widgets::mcdm_chart::McdmTable;
 /// トライアルテーブルの表示モード。
 /// Artifact ギャラリーと同様に、関連する複数のテーブルを 1 つのウィジェットへ統合し、
 /// モードセレクタで切り替える。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum TrialTableMode {
     /// 全トライアル一覧（選択 ∪ ピン留め）。設定不要。
     #[default]
@@ -37,7 +37,8 @@ impl TrialTableMode {
 /// 計算結果は設定キーごとに `cluster_cache` / `mcdm_cache` で共有・キャッシュされる
 /// （Artifact ギャラリーと同じ統合スタイル）。
 /// グリッドキャンバスの任意のセルに D&D で配置できる。
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct TrialTable {
     pub mode: TrialTableMode,
     /// Cluster モードの設定・描画を担うサブウィジェット。
@@ -46,7 +47,9 @@ pub struct TrialTable {
     pub mcdm: McdmTable,
     /// 表示対象の行インデックス（選択∪ピン）のキャッシュ。
     /// `selected_indices` / `pinned` の中身か行数が変わらない限り再計算しない。
+    #[serde(skip)]
     visible_cache: Option<Vec<usize>>,
+    #[serde(skip)]
     visible_cache_key: Option<(Vec<u32>, Vec<u32>, usize)>, // (selected_indices, pinned, row_count)
 }
 

@@ -13,7 +13,7 @@ use crate::math::rng::SeededRng;
 use crate::optimization::LbfgsOptimizer;
 
 /// サロゲート曲面上の最適化手法種別。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum OptimizerKind {
     /// 観測ベスト点＋乱数点からのマルチスタート L-BFGS（数値勾配）。
     MultiStartLbfgs,

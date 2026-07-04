@@ -11,13 +11,15 @@ use crate::ui::widgets::trial_detail_modal::{
 ///
 /// X 軸に選択したパラメータ値、Y 軸に選択した目的関数値をプロットし、
 /// パレート最適（pareto_rank == 0）のトライアルをアクセントカラーで強調する。
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SliceChart {
     pub selected_param_idx: usize,
     pub selected_obj_idx: usize,
     /// Y 軸（目的関数）対数スケール切替
     pub log_scale: bool,
     /// 点クリックで開くトライアル詳細モーダル。
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
 

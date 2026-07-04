@@ -3,7 +3,9 @@ use crate::theme::chart_colors::{
     COLOR_FIT_HIGH, COLOR_FIT_LOW, COLOR_FIT_MID, COLOR_IMPORTANCE_BAR,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum ImportanceMetric {
     #[default]
     Spearman,
@@ -93,13 +95,17 @@ pub fn core_sensitivity_metric(
 }
 
 /// 感度分析バーチャートウィジェット
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ImportanceChart {
     pub metric: ImportanceMetric,
+    #[serde(skip)]
     pub computing: bool,
     pub objective_index: usize,
     /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
     pub feasible_only: bool,
     /// 計算要求 (手法, 目的 idx, feasible_only)。poll_chart が消費する。
+    #[serde(skip)]
     pub pending_compute: Option<(ImportanceMetric, usize, bool)>,
 }
 

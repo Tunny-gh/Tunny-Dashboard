@@ -26,6 +26,8 @@ pub struct ObservedContourComputeRequest {
 }
 
 /// Observed Contour ウィジェットの UI 状態。
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ObservedContourState {
     pub selected_x: String,
     pub selected_y: String,
@@ -44,14 +46,20 @@ pub struct ObservedContourState {
     /// 点密度シェーディング: 観測が薄いセルを暗くして過信を抑える（3D、Phase 3）。
     pub density_shade: bool,
     pub camera: crate::ui::widgets::scatter_3d::ArcballCamera,
+    #[serde(skip)]
     pub computing: bool,
+    #[serde(skip)]
     pub result: Option<crate::state::messages::ObservedContourResult>,
+    #[serde(skip)]
     pub error_message: Option<String>,
+    #[serde(skip)]
     pub pending_compute: Option<ObservedContourComputeRequest>,
     /// 最後に計算を発行した署名 (x, y, value, max_edge_ratio, feasible_only)。
     /// 選択が変わったかを検知して自動再計算するために使う。
+    #[serde(skip)]
     pub applied_sig: Option<(String, String, String, f64, bool)>,
     /// 点クリックで開くトライアル詳細モーダル（Phase 2）。
+    #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
 
@@ -131,6 +139,8 @@ pub struct SurrogateMultiSuggestComputeRequest {
 }
 
 // ── Surrogate Optimizer UI 状態 ─────────────────────────────────
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SurrogateOptState {
     pub selected_objective: usize,
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
@@ -139,27 +149,39 @@ pub struct SurrogateOptState {
     pub auto_select: bool,
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
     /// フィット段階のスピナーフラグ。
+    #[serde(skip)]
     pub fitting: bool,
     /// フィット中の進捗・キャンセル共有ハンドル（学習スレッドと共有）。
     /// `fitting` が true の間だけ `Some`。Cancel ボタンと進捗バーが参照する。
+    #[serde(skip)]
     pub fit_progress: Option<tunny_core::surrogate_opt::FitProgress>,
     /// 最適化段階のスピナーフラグ。
+    #[serde(skip)]
     pub optimizing: bool,
     /// 検証済みの学習結果（フィット完了後に保持）。
+    #[serde(skip)]
     pub trained: Option<std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>>,
+    #[serde(skip)]
     pub result: Option<crate::state::messages::SurrogateOptUiResult>,
+    #[serde(skip)]
     pub error_message: Option<String>,
+    #[serde(skip)]
     pub pending_fit: Option<SurrogateFitComputeRequest>,
+    #[serde(skip)]
     pub pending_optimize: Option<SurrogateOptimizeComputeRequest>,
     /// true のとき多目的モード（全目的を NSGA-II で同時最適化）。
     pub multi_objective: bool,
     /// 多目的フィット段階の計算リクエスト（未消化）。
+    #[serde(skip)]
     pub pending_multi_fit: Option<SurrogateMultiFitComputeRequest>,
     /// 多目的最適化段階の計算リクエスト（未消化）。
+    #[serde(skip)]
     pub pending_multi_optimize: Option<SurrogateMultiOptimizeComputeRequest>,
     /// 多目的フィット完了後の学習済みサロゲート群（目的順）。
+    #[serde(skip)]
     pub multi_trained: Option<std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>>,
     /// 多目的最適化の完了結果。
+    #[serde(skip)]
     pub multi_result: Option<crate::state::messages::SurrogateMultiOptUiResult>,
     /// 予測パレートフロント散布図の X 軸目的インデックス。
     pub multi_front_x_obj: usize,
@@ -187,10 +209,13 @@ pub struct SurrogateOptState {
     /// 提案する候補数（1〜10）。
     pub n_suggest_candidates: usize,
     /// 候補提案の計算中フラグ。
+    #[serde(skip)]
     pub suggesting: bool,
     /// 候補提案の未消化リクエスト。
+    #[serde(skip)]
     pub pending_suggest: Option<SurrogateSuggestComputeRequest>,
     /// 候補提案の結果。
+    #[serde(skip)]
     pub suggest_result: Option<crate::state::messages::SurrogateSuggestUiResult>,
     /// 応答曲面スライスに予測標準偏差（±σ）を重ねて表示するか（GP 系のみ。既定 off）。
     pub show_slice_uncertainty: bool,
@@ -198,10 +223,13 @@ pub struct SurrogateOptState {
     /// 多目的提案の候補数（1〜10）。
     pub n_multi_suggest_candidates: usize,
     /// 多目的候補提案の計算中フラグ。
+    #[serde(skip)]
     pub multi_suggesting: bool,
     /// 多目的候補提案の未消化リクエスト。
+    #[serde(skip)]
     pub pending_multi_suggest: Option<SurrogateMultiSuggestComputeRequest>,
     /// 多目的候補提案の結果。
+    #[serde(skip)]
     pub multi_suggest_result: Option<crate::state::messages::SurrogateMultiSuggestUiResult>,
 }
 
@@ -296,7 +324,8 @@ pub struct ChartCaptureState {
 
 /// 各チャートウィジェットの UI 状態をまとめて保持する
 /// AppState（データ）とは分離した純粋な UI 状態
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct WidgetStates {
     pub pareto_2d: ParetoScatter2D,
     pub pareto_3d: Pareto3dChart,
@@ -325,10 +354,13 @@ pub struct WidgetStates {
     pub histogram: HistogramChart,
     pub box_plot: BoxPlotChart,
     pub correlation_matrix: CorrelationMatrixChart,
+    #[serde(skip)]
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
+    #[serde(skip)]
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,
     /// オープンソースライセンス表示モーダルの状態
+    #[serde(skip)]
     pub license_modal: LicenseModalState,
 }
 

@@ -3,7 +3,7 @@ use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR
 use tunny_core::statistics::{compute_histogram, quantile, BinRule, Histogram};
 
 /// ヒストグラムのビン分割ルール（UI 用。`Manual` は本数を別フィールドで保持する）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum HistBinRule {
     #[default]
     Sturges,
@@ -55,11 +55,14 @@ struct HistComputed {
 }
 
 /// ヒストグラムウィジェット。単一列の分布を表示する。
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct HistogramChart {
     /// 空文字、または現在の Study に存在しない列名なら最初の目的関数へフォールバックする。
     pub selected_col: String,
     pub rule: HistBinRule,
     pub manual_bins: usize,
+    #[serde(skip)]
     cache: Option<(HistCacheKey, HistComputed)>,
 }
 

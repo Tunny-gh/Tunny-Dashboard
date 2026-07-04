@@ -22,10 +22,13 @@ fn method_disc(method: CorrelationMethod) -> u8 {
 type CorrCacheKey = (String, u8, bool, bool, usize);
 
 /// パラメータ・目的関数の相関行列ヒートマップウィジェット。
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct CorrelationMatrixChart {
     pub method: CorrelationMethod,
     pub include_params: bool,
     pub include_objectives: bool,
+    #[serde(skip)]
     cache: Option<(CorrCacheKey, CorrelationMatrix)>,
 }
 

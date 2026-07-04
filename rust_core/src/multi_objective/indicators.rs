@@ -22,7 +22,7 @@
 use super::pareto::{add_to_pareto_front, compute_ref_point, hypervolume_nd, normalize_objectives};
 
 /// 全体評価指標の種類。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MoIndicator {
     /// Hypervolume（大きいほど良い）。
     Hypervolume,
