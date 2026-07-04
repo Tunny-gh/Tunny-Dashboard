@@ -277,6 +277,13 @@ impl SomMapChart {
             }
         };
 
+        // U-matrix モードは下にキャプション行が続くため、その高さぶんを
+        // グリッド確保前に予約する（キャプションの見切れ防止）。
+        let caption_reserve = if self.view_mode == SomViewMode::UMatrix {
+            ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y
+        } else {
+            0.0
+        };
         render_grid(
             ui,
             result.grid_w,
@@ -284,6 +291,7 @@ impl SomMapChart {
             &values,
             cmap,
             &value_label,
+            caption_reserve,
         );
 
         if self.view_mode == SomViewMode::UMatrix {
@@ -293,6 +301,7 @@ impl SomMapChart {
 }
 
 /// ノードグリッドをセル塗り + カラーバーで描画する（heatmap.rs の共有描画を利用）。
+/// `bottom_reserve` は呼び出し側が下に描くキャプション等のため確保しない高さ。
 fn render_grid(
     ui: &mut egui::Ui,
     grid_w: usize,
@@ -300,6 +309,7 @@ fn render_grid(
     values: &[f64],
     cmap: &ColorMap,
     label: &str,
+    bottom_reserve: f32,
 ) {
     let (v_min, v_max) = value_range(values.iter().copied())
         .map(|(mn, mx)| expand_degenerate(mn, mx))
@@ -308,7 +318,7 @@ fn render_grid(
     let avail = ui.available_size();
     let side = (avail.x - 96.0)
         .max(120.0)
-        .min(avail.y.max(160.0))
+        .min((avail.y - bottom_reserve).max(160.0))
         .min(420.0);
     let canvas_size = egui::vec2(side + 96.0, side.max(160.0));
     ui.allocate_ui(canvas_size, |ui| {
