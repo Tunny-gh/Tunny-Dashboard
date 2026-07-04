@@ -4,7 +4,7 @@
 //! 両方が、Best trial または pin 留めした trial を中心点として使う。元は
 //! `robustness.rs` にあった `CenterChoice` をここへ移し、両ウィジェットで共有する。
 //!
-//! `CenterChoice` はセッションファイル（`.tunny`）に永続化される設定のため、
+//! `CenterChoice` はセッションファイル（JSON）に永続化される設定のため、
 //! variant 名（`BestTrial` / `Pinned`）は変更しない（型パスが変わっても serde の
 //! シリアライズ形式は variant 名ベースなので互換性は保たれる）。
 

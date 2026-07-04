@@ -2,7 +2,7 @@
 
 ## Overview
 
-A session file (`.tunny`, JSON) captures **how the data is being viewed**, not the data itself. It persists three layers:
+A session file (plain JSON, saved as `*-session.json`) captures **how the data is being viewed**, not the data itself. It persists three layers:
 
 - **Canvas layout** — which widgets are placed, their positions/sizes, z-order, pan/zoom, and panel state.
 - **Per-widget settings** — every user-adjustable knob of every placed widget (selected axes/columns, cluster count, MCDM weights, histogram bin rule, normalization and log-scale toggles, feasibility filters, 3D camera poses, …). Each canvas item keeps its own independent copy.
@@ -56,4 +56,4 @@ Runtime-only fields (compute results, caches, trained models, modal state) are e
 
 ## Where It Is Used in the App
 
-- **Save Session / Load Session toolbar buttons**: save the current dashboard to a `.tunny` file, or restore one while keeping the currently loaded data.
+- **Save Session / Load Session toolbar buttons**: save the current dashboard to a session JSON file, or restore one while keeping the currently loaded data.

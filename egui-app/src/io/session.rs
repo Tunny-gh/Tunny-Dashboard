@@ -20,8 +20,10 @@ use tunny_core::indicators::MoIndicator;
 /// 互換性が壊れる変更時のみ上げる。
 pub const SESSION_VERSION: u32 = 1;
 
-/// セッションファイルの拡張子。
-pub const SESSION_EXTENSION: &str = "tunny";
+/// セッションファイルの拡張子。中身は素の JSON なので、独自拡張子ではなく
+/// `.json` を使う（何のファイルか一目で分かり、エディタでも開ける）。
+/// ファイル名の慣例は `*-session.json`。
+pub const SESSION_EXTENSION: &str = "json";
 
 /// AppState のうち「どう見せるか」を表すグローバル表示設定。
 /// 「どのデータを見るか」（journal_path / study 選択 / 比較セッション）は
@@ -160,8 +162,8 @@ pub fn save_session_dialog(
     view: &ViewSettings,
 ) -> Result<Option<PathBuf>, String> {
     let Some(path) = rfd::FileDialog::new()
-        .add_filter("Tunny Session (*.tunny)", &[SESSION_EXTENSION])
-        .set_file_name("session.tunny")
+        .add_filter("Tunny Dashboard Session (*.json)", &[SESSION_EXTENSION])
+        .set_file_name("tunny-session.json")
         .save_file()
     else {
         return Ok(None);
@@ -174,7 +176,7 @@ pub fn save_session_dialog(
 /// 読み込み・適用は呼び出し側（`apply_toolbar_actions`）が行う。
 pub fn pick_session_file_dialog() -> Option<PathBuf> {
     rfd::FileDialog::new()
-        .add_filter("Tunny Session (*.tunny)", &[SESSION_EXTENSION])
+        .add_filter("Tunny Dashboard Session (*.json)", &[SESSION_EXTENSION])
         .pick_file()
 }
 
@@ -280,7 +282,7 @@ mod tests {
     fn write_and_read_roundtrip_via_file() {
         let dir = std::env::temp_dir().join("tunny_session_test");
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("roundtrip.tunny");
+        let path = dir.join("roundtrip-session.json");
         write_session_to_path(
             &LayoutState::default(),
             &HashMap::new(),
