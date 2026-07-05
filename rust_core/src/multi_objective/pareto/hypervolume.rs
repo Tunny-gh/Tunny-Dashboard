@@ -88,10 +88,11 @@ fn exclhv(front: &[Vec<f64>], i: usize, ref_point: &[f64]) -> f64 {
     inclhv(p, ref_point) - wfg(&limit, ref_point)
 }
 
-/// Documentation.
+/// 2次元ハイパーボリューム（最小化前提・厳密値）。
 ///
-/// Documentation.
-/// Documentation.
+/// ref 点より両次元で厳密に小さい点のみ有効とする。入力に支配される点や
+/// 重複点が含まれていてもよい（内部で非支配フロントへ縮約してから
+/// x 昇順の区間和で計算する）。
 pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f64 {
     if pareto_points.is_empty() {
         return 0.0;
@@ -104,17 +105,31 @@ pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f
     if pts.is_empty() {
         return 0.0;
     }
-    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    pts.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    // 区間和は「x 昇順で y が厳密に減少する非支配フロント」を前提とするため、
+    // 支配される点・重複点をここで除去する。縮約しないと支配点の帯が
+    // 二重にカウントされ HV が過大になる。
+    let mut front: Vec<(f64, f64)> = Vec::with_capacity(pts.len());
+    for &(x, y) in &pts {
+        if front.last().is_none_or(|&(_, last_y)| y < last_y) {
+            front.push((x, y));
+        }
+    }
 
     let mut hv = 0.0f64;
-    for i in 0..pts.len() {
-        let next_x = if i + 1 < pts.len() {
-            pts[i + 1].0
+    for i in 0..front.len() {
+        let next_x = if i + 1 < front.len() {
+            front[i + 1].0
         } else {
             ref_x
         };
-        let width = next_x - pts[i].0;
-        let height = ref_y - pts[i].1;
+        let width = next_x - front[i].0;
+        let height = ref_y - front[i].1;
         if width > 0.0 && height > 0.0 {
             hv += width * height;
         }

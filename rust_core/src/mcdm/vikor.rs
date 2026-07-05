@@ -39,9 +39,31 @@ pub fn compute_vikor(
         return Ok(uniform_vikor_result(n_trials, n_objectives, &start));
     }
 
-    // 1. Find best/worst for each objective in a single pass
-    let mut best_values = vec![f64::INFINITY; n_objectives];
-    let mut worst_values = vec![f64::NEG_INFINITY; n_objectives];
+    // 1. Find best/worst for each objective in a single pass.
+    // Initial values must match the accumulation direction: maximize
+    // objectives accumulate best via f64::max (start at -inf) and worst via
+    // f64::min (start at +inf), otherwise they never leave the initial value
+    // and the ideal-distance below degenerates to inf/inf = NaN.
+    let mut best_values: Vec<f64> = is_minimize
+        .iter()
+        .map(|&min| {
+            if min {
+                f64::INFINITY
+            } else {
+                f64::NEG_INFINITY
+            }
+        })
+        .collect();
+    let mut worst_values: Vec<f64> = is_minimize
+        .iter()
+        .map(|&min| {
+            if min {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            }
+        })
+        .collect();
     for &i in &valid_indices {
         let base = i * n_objectives;
         for j in 0..n_objectives {
@@ -324,6 +346,72 @@ mod tests {
             "trial0 Q < trial1 Q: {:?}",
             r.q_values
         );
+    }
+
+    #[test]
+    fn tc_vikor_013_single_maximize_objective_discriminates() {
+        // 回帰テスト: best/worst の初期値が minimize 専用で、maximize 目的では
+        // 初期値 (+inf/-inf) から更新されず inf/inf = NaN が S を汚染していた。
+        // best=5, worst=1, range=4:
+        // trial0: contrib=1.0*|5-1|/4=1.0 -> S=R=1.0 / trial1: S=R=0.0
+        // -> Q=[1.0, 0.0](pymcdm と一致することを確認済み)
+        let values = [1.0_f64, 5.0];
+        let weights = [1.0_f64];
+        let is_minimize = [false];
+
+        let r = compute_vikor(&values, 2, 1, &weights, &is_minimize, 0.5).unwrap();
+
+        assert!(
+            r.s_values.iter().all(|s| s.is_finite()),
+            "S must be finite: {:?}",
+            r.s_values
+        );
+        assert!(
+            (r.q_values[0] - 1.0).abs() < 1e-12 && r.q_values[1].abs() < 1e-12,
+            "Q = {:?}",
+            r.q_values
+        );
+        assert_eq!(
+            r.ranked_indices[0], 1u32,
+            "trial1 (5.0, maximize) should rank first: {:?}",
+            r.ranked_indices
+        );
+    }
+
+    #[test]
+    fn tc_vikor_014_mixed_direction_exact_s_r_q() {
+        // 方向混在時の S/R/Q の実値検証(手計算)。
+        // obj0 minimize: best=1, worst=3, range=2
+        // obj1 maximize: best=5, worst=1, range=4
+        // t0=(1,5): S=0, R=0 / t1=(3,1): S=1, R=0.5
+        // t2=(2,3): contrib=[0.25, 0.25] -> S=0.5, R=0.25
+        // s_range=1, r_range=0.5 -> Q=[0, 1, 0.5]
+        let values = [1.0_f64, 5.0, 3.0, 1.0, 2.0, 3.0];
+        let weights = [0.5_f64, 0.5];
+        let is_minimize = [true, false];
+
+        let r = compute_vikor(&values, 3, 2, &weights, &is_minimize, 0.5).unwrap();
+
+        let expect_s = [0.0, 1.0, 0.5];
+        let expect_r = [0.0, 0.5, 0.25];
+        let expect_q = [0.0, 1.0, 0.5];
+        for i in 0..3 {
+            assert!(
+                (r.s_values[i] - expect_s[i]).abs() < 1e-12,
+                "S[{i}] = {}",
+                r.s_values[i]
+            );
+            assert!(
+                (r.r_values[i] - expect_r[i]).abs() < 1e-12,
+                "R[{i}] = {}",
+                r.r_values[i]
+            );
+            assert!(
+                (r.q_values[i] - expect_q[i]).abs() < 1e-12,
+                "Q[{i}] = {}",
+                r.q_values[i]
+            );
+        }
     }
 
     #[test]

@@ -108,6 +108,36 @@ fn tc_201_06_hypervolume_2d_known_value() {
 }
 
 #[test]
+fn tc_201_06b_hypervolume_2d_ignores_dominated_and_duplicate_points() {
+    // 回帰テスト: 区間和が非支配フロント前提のまま縮約しておらず、支配される
+    // 点 (0.7,0.9) が混入するとその区間の帯が低い高さで計上され HV が過小
+    // (0.28 -> 0.27) になっていた。
+    // 非支配フロント {(0.2,0.8),(0.8,0.2)}, ref=(1,1) の HV は 0.28
+    // (pymoo と一致確認済み)。支配点・重複点を混ぜても不変であること。
+    let front = vec![(0.2, 0.8), (0.8, 0.2)];
+    let mixed = vec![(0.2, 0.8), (0.8, 0.2), (0.7, 0.9), (0.2, 0.8)];
+    let hv_front = hypervolume_2d(&front, 1.0, 1.0);
+    let hv_mixed = hypervolume_2d(&mixed, 1.0, 1.0);
+    assert!((hv_front - 0.28).abs() < 1e-12, "HV = {hv_front}");
+    assert!((hv_mixed - 0.28).abs() < 1e-12, "HV = {hv_mixed}");
+}
+
+#[test]
+fn tc_201_06c_hypervolume_nd_m2_ignores_dominated_points() {
+    // hypervolume_nd の m=2 経路(EHVI が支配候補点込みで呼ぶ)でも
+    // doc コメントの契約「支配点を含んでよい」が守られること。
+    let pts = vec![vec![0.2, 0.8], vec![0.8, 0.2], vec![0.7, 0.9]];
+    let hv = hypervolume_nd(&pts, &[1.0, 1.0]);
+    assert!((hv - 0.28).abs() < 1e-12, "HV = {hv}");
+
+    // 3点とも非支配のケースは縮約後も3点残り、HV が増えるのが正しい
+    // (pymoo: 0.32)。
+    let pts_nd = vec![vec![0.2, 0.8], vec![0.8, 0.2], vec![0.6, 0.6]];
+    let hv_nd = hypervolume_nd(&pts_nd, &[1.0, 1.0]);
+    assert!((hv_nd - 0.32).abs() < 1e-12, "HV = {hv_nd}");
+}
+
+#[test]
 fn tc_201_07_hypervolume_single_objective_none() {
     let rows = vec![
         make_row_obj(0, vec![1.0]),
