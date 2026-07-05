@@ -12,6 +12,8 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 
 use crate::data::dataframe::{DataFrame, TrialRow};
+use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
+use crate::io::datetime::parse_naive_datetime;
 use crate::io::journal::parser::distribution::Distribution;
 use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
 
@@ -213,6 +215,8 @@ pub struct SqliteStudyRows {
     pub user_attr_string_names: Vec<String>,
     /// 観測した制約数の最大値。
     pub max_constraints: usize,
+    /// 全 trial（全 state）の付帯情報（state / 日時 / 中間値）。trial_id 昇順。
+    pub extras: StudyExtras,
 }
 
 /// Phase 2: 指定 study の COMPLETE trial を全件読み、確定メタと行データを返す。
@@ -243,6 +247,9 @@ pub fn parse_single_study_rows(path: &Path, study_id: u32) -> Result<SqliteStudy
             |row| row.get(0),
         )
         .map_err(|e| format!("Failed to count trials: {e}"))?;
+
+    // ── extras: 全 trial（全 state）の付帯情報（state / 日時 / 中間値） ──────
+    let extras = fetch_study_extras(&conn, sid)?;
 
     // ── trials (COMPLETE のみ、trial_id 昇順) ────────────────────────────
     let mut trial_order: Vec<u32> = Vec::new();
@@ -487,12 +494,121 @@ pub fn parse_single_study_rows(path: &Path, study_id: u32) -> Result<SqliteStudy
         user_attr_numeric_names,
         user_attr_string_names,
         max_constraints,
+        extras,
     })
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、(確定メタ, `DataFrame`) を返す
+/// 指定 study の全 trial（全 state）の付帯情報を読む。
+///
+/// - `trials` から trial_id / number / state / datetime_start / datetime_complete を trial_id 昇順で読む。
+///   日時は TEXT（nullable）で `parse_naive_datetime` により naive unix 秒へ変換する。
+/// - `trial_intermediate_values` から中間値を読み、各 trial に step 昇順で紐付ける。
+///   このテーブルは古い DB では存在しない場合があるため sqlite_master で存在を確認し、
+///   無ければ中間値は空とする。value_type は trial_values と同じ意味論
+///   (FINITE/INF_POS/INF_NEG/NAN) で解釈する。
+fn fetch_study_extras(conn: &Connection, sid: i64) -> Result<StudyExtras, String> {
+    use std::collections::HashMap;
+
+    // trial_id → extras 内の index。中間値の紐付けに使う。
+    let mut index_of: HashMap<u32, usize> = HashMap::new();
+    let mut trials: Vec<TrialExtra> = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT trial_id, number, state, datetime_start, datetime_complete \
+                 FROM trials WHERE study_id = ?1 ORDER BY trial_id",
+            )
+            .map_err(|e| format!("Failed to query trials for extras: {e}"))?;
+        #[allow(clippy::cast_sign_loss)]
+        let rows = stmt
+            .query_map([sid], |row| {
+                let trial_id: i64 = row.get(0)?;
+                let number: i64 = row.get(1)?;
+                let state: String = row.get(2)?;
+                let datetime_start: Option<String> = row.get(3)?;
+                let datetime_complete: Option<String> = row.get(4)?;
+                Ok((
+                    trial_id as u32,
+                    number as u32,
+                    state,
+                    datetime_start,
+                    datetime_complete,
+                ))
+            })
+            .map_err(|e| format!("Failed to query trials for extras: {e}"))?;
+        for row in rows {
+            let (trial_id, number, state, dt_start, dt_complete) =
+                row.map_err(|e| format!("Failed to read trials for extras: {e}"))?;
+            index_of.insert(trial_id, trials.len());
+            trials.push(TrialExtra {
+                trial_id,
+                trial_number: number,
+                state: TrialState::from_rdb_str(&state),
+                datetime_start: dt_start.as_deref().and_then(parse_naive_datetime),
+                datetime_complete: dt_complete.as_deref().and_then(parse_naive_datetime),
+                intermediate_values: Vec::new(),
+            });
+        }
+    }
+
+    // trial_intermediate_values テーブルの存在確認（古い DB では欠落しうる）。
+    let has_intermediate_table: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+             WHERE type='table' AND name='trial_intermediate_values')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to inspect intermediate values table: {e}"))?;
+
+    if has_intermediate_table {
+        let mut stmt = conn
+            .prepare(
+                "SELECT tiv.trial_id, tiv.step, tiv.intermediate_value, tiv.intermediate_value_type \
+                 FROM trial_intermediate_values tiv \
+                 JOIN trials t ON tiv.trial_id = t.trial_id \
+                 WHERE t.study_id = ?1 ORDER BY tiv.trial_id, tiv.step",
+            )
+            .map_err(|e| format!("Failed to query trial_intermediate_values: {e}"))?;
+        #[allow(clippy::cast_sign_loss)]
+        let rows = stmt
+            .query_map([sid], |row| {
+                let trial_id: i64 = row.get(0)?;
+                let step: i64 = row.get(1)?;
+                let value: Option<f64> = row.get(2)?;
+                let value_type: String = row.get(3)?;
+                Ok((trial_id as u32, step as u64, value, value_type))
+            })
+            .map_err(|e| format!("Failed to query trial_intermediate_values: {e}"))?;
+        for row in rows {
+            let (trial_id, step, value, value_type) =
+                row.map_err(|e| format!("Failed to read trial_intermediate_values: {e}"))?;
+            let v = match value_type.as_str() {
+                "INF_POS" => f64::INFINITY,
+                "INF_NEG" => f64::NEG_INFINITY,
+                "NAN" => f64::NAN,
+                _ => value.unwrap_or(f64::NAN),
+            };
+            if let Some(&idx) = index_of.get(&trial_id) {
+                trials[idx].intermediate_values.push((step, v));
+            }
+        }
+    }
+
+    // 保険として step 昇順にそろえる（SQL の ORDER BY を信頼するが冪等）。
+    for trial in &mut trials {
+        trial.intermediate_values.sort_by_key(|(step, _)| *step);
+    }
+
+    Ok(StudyExtras { trials })
+}
+
+/// Phase 2: 指定 study の COMPLETE trial を全件読み、(確定メタ, `DataFrame`, `StudyExtras`) を返す
 /// （journal の `parse_single_study` と同じ出力契約）。
-pub fn parse_single_study(path: &Path, study_id: u32) -> Result<(StudyMeta, DataFrame), String> {
+pub fn parse_single_study(
+    path: &Path,
+    study_id: u32,
+) -> Result<(StudyMeta, DataFrame, StudyExtras), String> {
     let SqliteStudyRows {
         meta,
         rows,
@@ -501,6 +617,7 @@ pub fn parse_single_study(path: &Path, study_id: u32) -> Result<(StudyMeta, Data
         user_attr_numeric_names,
         user_attr_string_names,
         max_constraints,
+        extras,
     } = parse_single_study_rows(path, study_id)?;
 
     let df = DataFrame::from_trials(
@@ -512,5 +629,5 @@ pub fn parse_single_study(path: &Path, study_id: u32) -> Result<(StudyMeta, Data
         max_constraints,
     );
 
-    Ok((meta, df))
+    Ok((meta, df, extras))
 }

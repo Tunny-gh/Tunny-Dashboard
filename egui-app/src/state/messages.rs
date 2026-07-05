@@ -244,6 +244,8 @@ pub enum AppMessage {
     LiveUpdateDone {
         new_trial_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
+        /// 全 trial（全 state）の付帯情報へ反映する extras 差分イベント。
+        extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
     },
     /// 連続エラー（ファイルアクセス失敗など）をポーラーが検出した
     LiveUpdateError(String),

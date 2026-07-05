@@ -85,14 +85,15 @@ fn seed_basic(conn: &Connection) {
     )
     .unwrap();
 
-    // study 1: trials 1..=4 (1,2,3 complete; 4 pruned)
+    // study 1: trials 1..=4 (1,2,3 complete; 4 pruned)。datetime_start/complete も付与し
+    // extras（全 trial の付帯情報）の日時パースを検証できるようにする。
     conn.execute_batch(
         "
-        INSERT INTO trials (trial_id, number, study_id, state) VALUES
-            (1, 0, 1, 'COMPLETE'),
-            (2, 1, 1, 'COMPLETE'),
-            (3, 2, 1, 'COMPLETE'),
-            (4, 3, 1, 'PRUNED');
+        INSERT INTO trials (trial_id, number, study_id, state, datetime_start, datetime_complete) VALUES
+            (1, 0, 1, 'COMPLETE', '2024-01-01 00:00:00', '2024-01-01 00:00:10'),
+            (2, 1, 1, 'COMPLETE', '2024-01-01 00:00:11', '2024-01-01 00:00:20'),
+            (3, 2, 1, 'COMPLETE', '2024-01-01 00:00:21', '2024-01-01 00:00:30'),
+            (4, 3, 1, 'PRUNED', '2024-01-01 00:00:31', '2024-01-01 00:00:35');
         ",
     )
     .unwrap();
@@ -165,6 +166,38 @@ fn seed_basic(conn: &Connection) {
     .unwrap();
 }
 
+/// `trial_intermediate_values` テーブルを追加する。古い Optuna DB には存在しないため、
+/// `create_schema` には含めず、中間値を検証するテストでのみ明示的に追加する
+/// （`create_schema` のみのテストは「テーブル欠落時は空」というフォールバックの検証を兼ねる）。
+fn add_intermediate_values_table(conn: &Connection) {
+    conn.execute_batch(
+        "
+        CREATE TABLE trial_intermediate_values (
+            trial_intermediate_value_id INTEGER PRIMARY KEY,
+            trial_id INTEGER,
+            step INTEGER,
+            intermediate_value REAL,
+            intermediate_value_type VARCHAR(7)
+        );
+        ",
+    )
+    .unwrap();
+}
+
+/// study_id=1 の trial 1（COMPLETE）と trial 4（PRUNED）に中間値を積む。
+/// trial 1 は step 昇順チェック用に逆順で INSERT し、trial 4 に INF_POS を混ぜる。
+fn seed_intermediate_values(conn: &Connection) {
+    conn.execute_batch(
+        "
+        INSERT INTO trial_intermediate_values (trial_id, step, intermediate_value, intermediate_value_type) VALUES
+            (1, 1, 0.2, 'FINITE'),
+            (1, 0, 0.1, 'FINITE'),
+            (4, 0, 0.0, 'INF_POS');
+        ",
+    )
+    .unwrap();
+}
+
 #[test]
 fn scan_study_list_reads_names_directions_and_metric_names() {
     let file = tempfile::NamedTempFile::new().unwrap();
@@ -209,9 +242,14 @@ fn parse_single_study_reads_params_and_excludes_non_complete_trials() {
     seed_basic(&conn);
     drop(conn);
 
-    let (meta, df) = parse_single_study(file.path(), 1).unwrap();
+    let (meta, df, extras) = parse_single_study(file.path(), 1).unwrap();
     assert_eq!(meta.name, "study-a");
     assert_eq!(df.row_count(), 3, "PRUNED trial must be excluded");
+    assert_eq!(
+        extras.trials.len(),
+        4,
+        "extras must include the PRUNED trial too (all states)"
+    );
 
     let mut param_names = df.param_col_names().to_vec();
     param_names.sort();
@@ -253,7 +291,7 @@ fn parse_single_study_converts_infinite_objective_values() {
     seed_basic(&conn);
     drop(conn);
 
-    let (meta, df) = parse_single_study(file.path(), 2).unwrap();
+    let (meta, df, _extras) = parse_single_study(file.path(), 2).unwrap();
     assert_eq!(
         meta.objective_names,
         vec!["Cost".to_string(), "Quality".to_string()]
@@ -276,7 +314,7 @@ fn parse_single_study_extracts_constraints() {
     seed_basic(&conn);
     drop(conn);
 
-    let (meta, df) = parse_single_study(file.path(), 2).unwrap();
+    let (meta, df, _extras) = parse_single_study(file.path(), 2).unwrap();
     assert!(meta.has_constraints);
     let c1 = df.get_numeric_column("c1").unwrap();
     let c2 = df.get_numeric_column("c2").unwrap();
@@ -285,6 +323,70 @@ fn parse_single_study_extracts_constraints() {
     // trial 6 has no constraints row -> defaults to 0.0
     assert_eq!(c1[1], 0.0);
     assert_eq!(c2[1], 0.0);
+}
+
+#[test]
+fn parse_single_study_extras_without_intermediate_table_are_empty() {
+    // trial_intermediate_values テーブルが存在しない古い DB でもエラーにならず、
+    // 中間値は空で返る（フォールバック）。
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let (_meta, _df, extras) = parse_single_study(file.path(), 1).unwrap();
+    assert_eq!(extras.trials.len(), 4);
+    assert!(extras
+        .trials
+        .iter()
+        .all(|t| t.intermediate_values.is_empty()));
+    assert!(!extras.has_intermediate());
+}
+
+#[test]
+fn parse_single_study_extras_include_all_states_datetimes_and_intermediate_values() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    add_intermediate_values_table(&conn);
+    seed_basic(&conn);
+    seed_intermediate_values(&conn);
+    drop(conn);
+
+    let (_meta, df, extras) = parse_single_study(file.path(), 1).unwrap();
+    // DataFrame は COMPLETE のみ（PRUNED は含まれない）。
+    assert_eq!(
+        df.row_count(),
+        3,
+        "PRUNED trial must stay excluded from the DataFrame"
+    );
+
+    // extras は全 state（4 trial）を trial_id 昇順で保持する。
+    assert_eq!(extras.trials.len(), 4);
+    assert!(extras.has_intermediate());
+    assert!(extras.has_datetimes());
+    let ids: Vec<u32> = extras.trials.iter().map(|t| t.trial_id).collect();
+    assert_eq!(ids, vec![1, 2, 3, 4]);
+
+    // trial 4 は PRUNED として state が反映される。
+    let pruned = extras.trials.iter().find(|t| t.trial_id == 4).unwrap();
+    assert_eq!(pruned.state, TrialState::Pruned);
+    // trial 4 の中間値には INF_POS → f64::INFINITY へのマッピングが含まれる。
+    assert_eq!(pruned.intermediate_values, vec![(0, f64::INFINITY)]);
+
+    // trial 1 は COMPLETE。中間値は挿入順に関わらず step 昇順に整列される。
+    let t1 = extras.trials.iter().find(|t| t.trial_id == 1).unwrap();
+    assert_eq!(t1.state, TrialState::Complete);
+    assert_eq!(t1.intermediate_values, vec![(0, 0.1), (1, 0.2)]);
+
+    // datetime は naive unix 秒へパースされる（2024-01-01 00:00:00 == 1704067200）。
+    assert_eq!(t1.datetime_start, Some(1_704_067_200.0));
+    assert_eq!(t1.datetime_complete, Some(1_704_067_210.0));
+
+    // 中間値を持たない trial（2, 3）は空のまま。
+    let t2 = extras.trials.iter().find(|t| t.trial_id == 2).unwrap();
+    assert!(t2.intermediate_values.is_empty());
 }
 
 #[test]

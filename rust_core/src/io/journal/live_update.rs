@@ -3,6 +3,7 @@
 //! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-1201
 
 use super::parser::distribution::Distribution;
+use crate::io::datetime::parse_naive_datetime;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -18,6 +19,22 @@ pub struct AppendDiffResult {
     pub pending_running: usize,
     pub new_trial_rows: Vec<TrialRow>,
     pub updated_study_counts: Vec<(u32, usize)>,
+    /// 全 trial（全 state）の付帯情報（extras）へ反映すべき差分イベント。
+    pub extras_events: ExtrasDiff,
+}
+
+/// ライブ差分から抽出した extras（state / 日時 / 中間値）更新イベント。
+///
+/// `new_trial_rows` が COMPLETE のみを扱うのに対し、こちらは全 state のイベントを収集する。
+/// 消費側（egui-app）が study の [`crate::extras::StudyExtras`] へマージする。
+#[derive(Debug, Clone, Default)]
+pub struct ExtrasDiff {
+    /// op_code=4 (CREATE_TRIAL): (trial_id, study_id, trial_number, datetime_start)。
+    pub new_trials: Vec<(u32, u32, u32, Option<f64>)>,
+    /// op_code=7 (SET_TRIAL_INTERMEDIATE_VALUE): (trial_id, step, value)。
+    pub intermediate_values: Vec<(u32, u64, f64)>,
+    /// op_code=6 (SET_TRIAL_STATE_VALUES): (trial_id, state, datetime_complete)。全 state を記録する。
+    pub state_changes: Vec<(u32, u8, Option<f64>)>,
 }
 
 /// Trial row data built from incremental diff parsing.
@@ -108,11 +125,13 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
             pending_running,
             new_trial_rows: vec![],
             updated_study_counts: vec![],
+            extras_events: ExtrasDiff::default(),
         };
     }
 
     let complete_data = &data[..consumed];
     let mut new_trial_rows: Vec<TrialRow> = Vec::new();
+    let mut extras = ExtrasDiff::default();
 
     STATE.with(|state| {
         let mut s = state.borrow_mut();
@@ -147,6 +166,13 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                     let counter = s.next_trial_number.entry(study_idx).or_insert(0);
                     let trial_number = *counter;
                     *counter += 1;
+                    let datetime_start = json
+                        .get("datetime_start")
+                        .and_then(|v| v.as_str())
+                        .and_then(parse_naive_datetime);
+                    extras
+                        .new_trials
+                        .push((trial_id, study_idx, trial_number, datetime_start));
                     s.pending.insert(
                         trial_id,
                         PendingTrial {
@@ -179,12 +205,30 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         }
                     }
                 }
+                7 => {
+                    let trial_id = json
+                        .get("trial_id")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(u64::MAX) as u32;
+                    let step = json.get("step").and_then(|v| v.as_u64()).unwrap_or(0);
+                    if let Some(value) = json.get("intermediate_value").and_then(|v| v.as_f64()) {
+                        extras.intermediate_values.push((trial_id, step, value));
+                    }
+                }
                 6 => {
                     let trial_id = json
                         .get("trial_id")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(u64::MAX) as u32;
                     let state_val = json.get("state").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
+                    let datetime_complete = json
+                        .get("datetime_complete")
+                        .and_then(|v| v.as_str())
+                        .and_then(parse_naive_datetime);
+                    // state を問わず（COMPLETE/PRUNED/FAIL 含む）全 state 変化を記録する。
+                    extras
+                        .state_changes
+                        .push((trial_id, state_val, datetime_complete));
 
                     if state_val == 1 {
                         if let Some(mut pending) = s.pending.remove(&trial_id) {
@@ -239,6 +283,7 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
         pending_running,
         new_trial_rows,
         updated_study_counts,
+        extras_events: extras,
     }
 }
 
@@ -768,6 +813,148 @@ mod tests {
                 assert_eq!(row.trial_id, i as u32);
                 assert!((row.objectives[0] - i as f64 * 0.01).abs() < 1e-9);
             }
+        });
+    }
+
+    // ── extras_events (ExtrasDiff): op4/op7/op6 の付帯情報差分 ───────────
+
+    #[test]
+    fn extras_op4_records_new_trial_with_datetime_start() {
+        with_fresh_state(|| {
+            let line =
+                r#"{"op_code":4,"study_id":0,"datetime_start":"2024-01-01T00:00:00"}"#.to_string();
+            let data = make_diff_bytes(&[line]);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(
+                result.extras_events.new_trials,
+                vec![(0u32, 0u32, 0u32, Some(1_704_067_200.0))]
+            );
+            assert!(result.extras_events.intermediate_values.is_empty());
+            assert!(result.extras_events.state_changes.is_empty());
+        });
+    }
+
+    #[test]
+    fn extras_op4_without_datetime_start_records_none() {
+        with_fresh_state(|| {
+            let data = make_diff_bytes(&[make_create_trial(0)]);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.extras_events.new_trials, vec![(0, 0, 0, None)]);
+        });
+    }
+
+    #[test]
+    fn extras_op7_records_intermediate_value_without_affecting_pending() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":7,"trial_id":0,"step":0,"intermediate_value":0.5}"#.to_string(),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(
+                result.extras_events.intermediate_values,
+                vec![(0u32, 0u64, 0.5)]
+            );
+            // op7 は completion ロジック（pending の解決）に影響しない。
+            assert_eq!(result.new_trial_rows.len(), 0);
+            assert_eq!(result.pending_running, 1);
+        });
+    }
+
+    #[test]
+    fn extras_op7_multiple_steps_preserve_insertion_order() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":7,"trial_id":0,"step":0,"intermediate_value":0.1}"#.to_string(),
+                r#"{"op_code":7,"trial_id":0,"step":1,"intermediate_value":0.2}"#.to_string(),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(
+                result.extras_events.intermediate_values,
+                vec![(0u32, 0u64, 0.1), (0u32, 1u64, 0.2)]
+            );
+        });
+    }
+
+    #[test]
+    fn extras_op6_state1_records_state_change_and_datetime_complete() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":6,"trial_id":0,"state":1,"values":[1.0],"datetime_complete":"2024-01-01T00:00:01"}"#.to_string(),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(
+                result.extras_events.state_changes,
+                vec![(0u32, 1u8, Some(1_704_067_201.0))]
+            );
+            // 通常の完了行構築は従来どおり動作する。
+            assert_eq!(result.new_trial_rows.len(), 1);
+            assert_eq!(result.new_trial_rows[0].objectives, vec![1.0]);
+        });
+    }
+
+    #[test]
+    fn extras_op6_state2_pruned_records_state_change_without_new_row() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":6,"trial_id":0,"state":2}"#.to_string(),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.extras_events.state_changes, vec![(0u32, 2u8, None)]);
+            assert_eq!(result.new_trial_rows.len(), 0);
+            assert_eq!(
+                result.pending_running, 0,
+                "pruned trial must not stay pending"
+            );
+        });
+    }
+
+    #[test]
+    fn extras_full_lifecycle_populates_all_three_diffs() {
+        with_fresh_state(|| {
+            let lines = vec![
+                r#"{"op_code":4,"study_id":0,"datetime_start":"2024-01-01T00:00:00"}"#.to_string(),
+                r#"{"op_code":7,"trial_id":0,"step":0,"intermediate_value":0.5}"#.to_string(),
+                r#"{"op_code":6,"trial_id":0,"state":1,"values":[2.0],"datetime_complete":"2024-01-01T00:00:02"}"#.to_string(),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(
+                result.extras_events.new_trials,
+                vec![(0, 0, 0, Some(1_704_067_200.0))]
+            );
+            assert_eq!(result.extras_events.intermediate_values, vec![(0, 0, 0.5)]);
+            assert_eq!(
+                result.extras_events.state_changes,
+                vec![(0, 1, Some(1_704_067_202.0))]
+            );
+            assert_eq!(result.new_trial_rows.len(), 1);
+        });
+    }
+
+    #[test]
+    fn extras_events_default_when_no_complete_line() {
+        with_fresh_state(|| {
+            // 改行なしで何も消費されない場合、extras_events も空のまま。
+            let result = append_journal_diff(b"incomplete line without newline");
+            assert_eq!(result.consumed_bytes, 0);
+            assert!(result.extras_events.new_trials.is_empty());
+            assert!(result.extras_events.intermediate_values.is_empty());
+            assert!(result.extras_events.state_changes.is_empty());
         });
     }
 }

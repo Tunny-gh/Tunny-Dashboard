@@ -15,7 +15,7 @@ pub mod sensitivity;
 pub mod statistics;
 pub mod surrogate_opt;
 
-pub use data::{dataframe, filter};
+pub use data::{dataframe, extras, filter};
 pub use io::journal::{live_update, parser as journal_parser};
 pub use io::{artifacts, export, flat_csv, journal, sqlite};
 pub use mcdm::entropy;

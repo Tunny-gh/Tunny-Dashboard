@@ -151,11 +151,14 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                     match tunny_core::io::journal::parser::parse_single_study(
                                         data, study_id,
                                     ) {
-                                        Ok((_full_meta, df)) => {
+                                        Ok((_full_meta, df, extras)) => {
                                             let arc = Arc::new(df);
                                             tunny_core::dataframe::swap_snapshot(
                                                 study_id,
                                                 arc.clone(),
+                                            );
+                                            tunny_core::dataframe::store_extras_for(
+                                                study_id, extras,
                                             );
                                             state.loaded_study_ids.insert(study_id);
                                             Some(arc)
@@ -167,11 +170,14 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                     Some(path) => {
                                         match tunny_core::sqlite::parse_single_study(path, study_id)
                                         {
-                                            Ok((_full_meta, df)) => {
+                                            Ok((_full_meta, df, extras)) => {
                                                 let arc = Arc::new(df);
                                                 tunny_core::dataframe::swap_snapshot(
                                                     study_id,
                                                     arc.clone(),
+                                                );
+                                                tunny_core::dataframe::store_extras_for(
+                                                    study_id, extras,
                                                 );
                                                 state.loaded_study_ids.insert(study_id);
                                                 Some(arc)

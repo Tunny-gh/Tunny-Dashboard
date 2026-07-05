@@ -168,12 +168,18 @@ fn polling_loop(
         let result = append_journal_diff(&buf);
         byte_offset += result.consumed_bytes as u64;
 
-        if !result.new_trial_rows.is_empty() {
+        let extras = &result.extras_events;
+        let has_extras = !extras.new_trials.is_empty()
+            || !extras.intermediate_values.is_empty()
+            || !extras.state_changes.is_empty();
+
+        if !result.new_trial_rows.is_empty() || has_extras {
             last_changed = SystemTime::now();
             completion_hint_sent = false;
             let _ = tx.send(AppMessage::LiveUpdateDone {
                 new_trial_rows: result.new_trial_rows,
                 updated_study_counts: result.updated_study_counts,
+                extras_events: result.extras_events,
             });
         }
     }

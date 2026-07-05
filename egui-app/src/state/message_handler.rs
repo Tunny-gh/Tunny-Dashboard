@@ -165,8 +165,14 @@ impl MessageHandler {
             AppMessage::LiveUpdateDone {
                 new_trial_rows,
                 updated_study_counts,
+                extras_events,
             } => {
-                Self::handle_live_update_done(new_trial_rows, updated_study_counts, app_state);
+                Self::handle_live_update_done(
+                    new_trial_rows,
+                    updated_study_counts,
+                    extras_events,
+                    app_state,
+                );
             }
             AppMessage::LiveUpdateError(msg) => {
                 app_state.live_update.poller_active = false;
@@ -454,10 +460,14 @@ impl MessageHandler {
     fn handle_live_update_done(
         new_core_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
+        extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
         app_state: &mut AppState,
     ) {
         if let Some(study) = &mut app_state.current_study {
             let study_id = study.meta.study_id;
+
+            // 全 trial（全 state）の付帯情報（extras）へライブ差分をマージする。
+            Self::merge_extras_diff(study_id, &extras_events);
 
             // 既存 DataFrame の列クローンへライブ差分の新試行のみを追記する
             // （全行の行指向再構築は行わない）。
@@ -519,6 +529,96 @@ impl MessageHandler {
                 meta.completed_trials = new_count;
             }
         }
+    }
+
+    /// ライブ差分の [`ExtrasDiff`] を対象 study の [`StudyExtras`] へマージし、
+    /// 共有ストアへ原子的に差し替える。trial_id 昇順を維持する。
+    ///
+    /// - new_trials: state=Running の [`TrialExtra`] を追加する（既存 trial_id は据え置き）。
+    /// - intermediate_values: 対応 trial へ (step, value) を追記する（未知なら placeholder 生成）。
+    /// - state_changes: state と datetime_complete を更新する（未知なら placeholder 生成）。
+    fn merge_extras_diff(study_id: u32, diff: &tunny_core::io::journal::live_update::ExtrasDiff) {
+        use std::collections::HashMap;
+        use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
+
+        if diff.new_trials.is_empty()
+            && diff.intermediate_values.is_empty()
+            && diff.state_changes.is_empty()
+        {
+            return;
+        }
+
+        // 現行スナップショットを基点に可変コピーを作る（無ければ空）。
+        let mut extras: StudyExtras = tunny_core::dataframe::extras_snapshot(study_id)
+            .map(|arc| (*arc).clone())
+            .unwrap_or_default();
+
+        let mut index_of: HashMap<u32, usize> = extras
+            .trials
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.trial_id, i))
+            .collect();
+
+        // trial_id に対応する index を返す。無ければ Running の placeholder を生成する。
+        // （trial_number 不明時は trial_id を暫定採用する。live_update と同じフォールバック。）
+        fn ensure_trial(
+            extras: &mut StudyExtras,
+            index_of: &mut HashMap<u32, usize>,
+            trial_id: u32,
+            trial_number: u32,
+            datetime_start: Option<f64>,
+        ) -> usize {
+            if let Some(&idx) = index_of.get(&trial_id) {
+                return idx;
+            }
+            let idx = extras.trials.len();
+            extras.trials.push(TrialExtra {
+                trial_id,
+                trial_number,
+                state: TrialState::Running,
+                datetime_start,
+                datetime_complete: None,
+                intermediate_values: Vec::new(),
+            });
+            index_of.insert(trial_id, idx);
+            idx
+        }
+
+        for &(trial_id, _study, trial_number, datetime_start) in &diff.new_trials {
+            let idx = ensure_trial(
+                &mut extras,
+                &mut index_of,
+                trial_id,
+                trial_number,
+                datetime_start,
+            );
+            // 既存 trial なら datetime_start のみ補完する。
+            if extras.trials[idx].datetime_start.is_none() {
+                extras.trials[idx].datetime_start = datetime_start;
+            }
+        }
+
+        for &(trial_id, step, value) in &diff.intermediate_values {
+            let idx = ensure_trial(&mut extras, &mut index_of, trial_id, trial_id, None);
+            extras.trials[idx].intermediate_values.push((step, value));
+        }
+
+        for &(trial_id, state, datetime_complete) in &diff.state_changes {
+            let idx = ensure_trial(&mut extras, &mut index_of, trial_id, trial_id, None);
+            extras.trials[idx].state = TrialState::from_journal(state);
+            if datetime_complete.is_some() {
+                extras.trials[idx].datetime_complete = datetime_complete;
+            }
+        }
+
+        // trial_id 昇順を維持し、各 trial の中間値を step 昇順にそろえる。
+        extras.trials.sort_by_key(|t| t.trial_id);
+        for trial in &mut extras.trials {
+            trial.intermediate_values.sort_by_key(|(step, _)| *step);
+        }
+
+        tunny_core::dataframe::swap_extras(study_id, std::sync::Arc::new(extras));
     }
 
     fn handle_clustering_done(
@@ -1009,6 +1109,7 @@ mod tests {
                     make_core_trial_row(4, 1, vec![2.0]),
                 ],
                 updated_study_counts: vec![(1, 5)],
+                extras_events: Default::default(),
             },
             &mut app_state,
             &mut widgets,
@@ -1080,6 +1181,7 @@ mod tests {
             AppMessage::LiveUpdateDone {
                 new_trial_rows: vec![make_core_trial_row(3, 0, vec![1.0, 2.0]), empty_obj_row],
                 updated_study_counts: vec![],
+                extras_events: Default::default(),
             },
             &mut app_state,
             &mut widgets,
@@ -1111,6 +1213,7 @@ mod tests {
             AppMessage::LiveUpdateDone {
                 new_trial_rows: vec![],
                 updated_study_counts: vec![(1, 105)],
+                extras_events: Default::default(),
             },
             &mut app_state,
             &mut widgets,
@@ -1143,6 +1246,7 @@ mod tests {
             AppMessage::LiveUpdateDone {
                 new_trial_rows: vec![make_core_trial_row(3, 1, vec![1.0])],
                 updated_study_counts: vec![],
+                extras_events: Default::default(),
             },
             &mut app_state,
             &mut widgets,

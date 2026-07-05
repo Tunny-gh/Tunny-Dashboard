@@ -42,6 +42,8 @@ pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
 pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::sqlite::parse_single_study_rows(path, study_id) {
         Ok(rows) => {
+            // 全 trial（全 state）の付帯情報を実 study_id キーで共有ストアへ格納する。
+            tunny_core::dataframe::store_extras_for(study_id, rows.extras);
             let _ = tx.send(AppMessage::StudyChunkLoaded {
                 study_id,
                 meta: crate::io::journal::convert_study_meta(rows.meta),
