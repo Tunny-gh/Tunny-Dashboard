@@ -142,10 +142,23 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 サロゲートモデル上での最適化に使用されるアルゴリズム。
 
 - [L-BFGS（制限付きメモリ BFGS）](optimization/lbfgs.md)
+- [NSGA-II（高速非劣ソート遺伝的アルゴリズム）](optimization/nsga2.md)
+- [CMA-ES（共分散行列適応進化戦略）](optimization/cma-es.md)
 - [**獲得関数（Expected Improvement / Lower Confidence Bound）**](optimization/acquisition-functions.md)
 - [**期待ハイパーボリューム改善（EHVI: Expected Hypervolume Improvement）**](optimization/ehvi.md)
 - [**ハイパーボリューム（WFG アルゴリズム）**](optimization/hypervolume.md)
 - [**ロバスト性解析（モンテカルロによるノイズ伝播）**](optimization/robustness-analysis.md)
+
+### 多目的収束指標
+
+収束指標（Convergence）チャートで、パレートフロントの収束品質をトライアルの積み重ねとともに追跡する 4 指標。参照集合・スケールを全系列で共有するため複数 Study を同一グラフで比較できる。
+
+| 指標 | 方向 | 特徴 | 詳細 |
+|------|------|------|------|
+| Hypervolume | 大きいほど良い | 参照点との間の支配体積。参照集合は不要 | [optimization/hypervolume.md](optimization/hypervolume.md) |
+| IGD+ | 小さいほど良い | 参照集合への平均修正距離。弱パレート整合 | [optimization/igd-plus.md](optimization/igd-plus.md) |
+| additive ε | 小さいほど良い | 参照集合を弱支配するための最小平行移動量（最悪ケース型） | [optimization/epsilon-indicator.md](optimization/epsilon-indicator.md) |
+| R2 | 小さいほど良い | 重み付き Tchebycheff 効用の平均（Das–Dennis 重み） | [optimization/r2-indicator.md](optimization/r2-indicator.md) |
 
 ---
 
@@ -161,6 +174,17 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 | PCA バイプロット | 標準化 PCA 平面上に trial スコアと変数のローディング矢印を表示 | [clustering/pca-biplot.md](clustering/pca-biplot.md) |
 | SOM（自己組織化マップ） | 設計空間のトポロジー保存 2D 地図（U-matrix・成分プレーン） | [clustering/som.md](clustering/som.md) |
 | [概要](clustering/overview.md) | クラスタリングパイプラインの要約 | [clustering/overview.md](clustering/overview.md) |
+
+---
+
+## 計算幾何（等高線・補間）
+
+Observed Contour ウィジェットの値グリッド生成・等高線抽出に使用されるアルゴリズム。
+
+| 手法 | 役割 | 詳細 |
+|------|------|------|
+| Delaunay 三角形分割による補間 | 観測点のみから凸包内を区分線形補間（外挿なし・疎ガード付き） | [geometry/delaunay-interpolation.md](geometry/delaunay-interpolation.md) |
+| マーチングスクエア法 | マスク付き値グリッドからの等値線抽出 | [geometry/marching-squares.md](geometry/marching-squares.md) |
 
 ---
 
@@ -227,6 +251,10 @@ UI チャート/パネルと、それらが表示する量。
   │    └── 全ペアの相関を一望する    → Correlation Matrix（Pearson / Spearman）
   │         └── 気になるペアの形を確認 → Scatter Matrix（実際の形状・クラスタ）
   │
+  ├── 多目的最適化の収束を確認したい
+  │    └── 収束指標チャート → HV / IGD+ / ε-indicator / R2
+  │         （複数 Study を共有参照集合で比較可能）
+  │
   ├── 良いトライアルを選びたい
   │    ├── 多目的で総合評価 → TOPSIS / VIKOR / PROMETHEE（MCDM チャート）
   │    ├── トレードオフ全体 → Pareto Front（ParetoFront チャート）
@@ -242,6 +270,7 @@ UI チャート/パネルと、それらが表示する量。
   │
   └── パラメータと目的関数の関係を可視化したい
        ├── 1 パラメータ → 1D PDP（PdpChart）
+       ├── モデルなしで実測値だけを見たい → Observed Contour（Delaunay 補間・外挿なし）
        ├── 候補設計の周りの局所地形 → Response Surface 3D（サロゲート断面）
        └── 2 パラメータ → 2D PDP（PdpChart2DState）
             ├── 高速・線形             → Ridge 回帰

@@ -56,3 +56,18 @@ parameters, objective values, and so on).
   marginalized out. It assumes a model and **extrapolates** into regions with no data.
 - **Observed Contour**: uses no model, interpolates observed points only, and **does not
   extrapolate** — for checking what was actually observed.
+
+## Internal algorithm
+
+- **Value grid interpolation**: builds the value grid from observed points alone, using Delaunay
+  triangulation plus barycentric-coordinate interpolation. It does not extrapolate outside the
+  convex hull — those regions are left blank (masked). See
+  [Delaunay Triangulation Interpolation](../geometry/delaunay-interpolation.md) for details.
+- **Contour extraction**: finds iso-line segments from that value grid using marching squares,
+  cutting the contour lines at masked cells. See
+  [Marching Squares Contour Extraction](../geometry/marching-squares.md) for details.
+- **Density shade**: bins the observed points into an $(n-1) \times (n-1)$ cell grid, smooths it
+  with a separable box blur of radius $r$ (a neighborhood average applied horizontally, then
+  vertically), and normalizes by the maximum to get a density value in 0..1. Binning at the
+  single-cell level alone would be noisy and nearly 0/1, so the smoothing turns it into a
+  gradual measure of local observation density.

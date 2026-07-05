@@ -6,10 +6,12 @@ The Convergence Indicators widget tracks how well the current Pareto front cover
 
 | Indicator | Direction | Description |
 |-----------|-----------|-------------|
-| **Hypervolume (HV)** | Higher is better | Volume of objective space dominated by the Pareto front and bounded by a reference point. |
-| **IGD+** | Lower is better | Modified Inverted Generational Distance — average distance from a reference set to the nearest Pareto-front point. |
-| **ε-indicator** | Lower is better | Smallest ε such that every reference-set point is ε-dominated by some Pareto-front point. |
-| **R2** | Lower is better | Utility-based indicator measuring expected gap from an ideal reference set. |
+| **[Hypervolume (HV)](../optimization/hypervolume.md)** | Higher is better | Volume of objective space dominated by the Pareto front and bounded by a reference point. |
+| **[IGD+](../optimization/igd-plus.md)** | Lower is better | Modified Inverted Generational Distance — average distance from a reference set to the nearest Pareto-front point. |
+| **[ε-indicator](../optimization/epsilon-indicator.md)** | Lower is better | Smallest ε such that every reference-set point is ε-dominated by some Pareto-front point. |
+| **[R2](../optimization/r2-indicator.md)** | Lower is better | Utility-based indicator measuring expected gap from an ideal reference set. |
+
+For each indicator's formula, algorithm, and how the reference set is constructed, follow the links in the table above.
 
 > **Note:** These indicators are defined only for multi-objective studies with ≥ 2 objectives.
 

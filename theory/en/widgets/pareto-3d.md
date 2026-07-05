@@ -23,3 +23,5 @@ The Pareto Scatter 3D chart extends the 2D Pareto view to three objective functi
 - **3D trade-off surface**: the Pareto front forms a surface (rather than a curve in 2D). Points on this surface represent optimal trade-offs among all three objectives.
 - **Perspective matters**: rotate to different angles to fully understand the shape of the Pareto surface. Some regions may only be visible from certain viewpoints.
 - **Sparse surfaces**: fewer trials means larger gaps on the front — add more trials to fill in the trade-off space.
+
+> The Pareto rank shown in the tooltip (rank 0 = Pareto front, rank 1 = non-dominated among the rest, and so on) is computed with fast non-dominated sort (Deb et al. 2002). See [NSGA-II — Fast Non-dominated Sort](../optimization/nsga2.md) for the algorithm.
