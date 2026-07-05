@@ -3,32 +3,6 @@ use std::collections::HashMap;
 use super::app_state::AppState;
 
 // ============================================================
-// ダウンサンプリングキャッシュ
-// ============================================================
-
-#[derive(Debug, Clone, Default)]
-pub struct DownsampleCache {
-    pub scatter: Option<Vec<u32>>,
-    pub pcp: Option<Vec<u32>>,
-    pub thumbnail: Option<Vec<u32>>,
-    pub hover: Option<Vec<u32>>,
-}
-
-impl DownsampleCache {
-    pub fn clear(&mut self) {
-        self.scatter = None;
-        self.pcp = None;
-        self.thumbnail = None;
-        self.hover = None;
-    }
-}
-
-/// 選択率の変化が再サンプリングをトリガーすべきか判定する
-pub fn should_resample(current_rate: f64, last_rate: f64) -> bool {
-    (current_rate - last_rate).abs() > 0.20
-}
-
-// ============================================================
 // AppState フィルターメソッド
 // ============================================================
 
@@ -98,7 +72,6 @@ impl AppState {
 mod tests {
     use std::collections::HashMap;
 
-    use super::*;
     use crate::state::app_state::*;
 
     fn make_study_ctx_with_params() -> StudyContext {
@@ -155,21 +128,6 @@ mod tests {
         StudyContext::from_rows_for_test(meta, trial_rows)
     }
 
-    #[test]
-    fn downsample_cache_clear() {
-        let mut cache = DownsampleCache {
-            scatter: Some(vec![0, 1, 2]),
-            pcp: Some(vec![3, 4]),
-            thumbnail: Some(vec![5]),
-            hover: Some(vec![6]),
-        };
-        cache.clear();
-        assert!(cache.scatter.is_none());
-        assert!(cache.pcp.is_none());
-        assert!(cache.thumbnail.is_none());
-        assert!(cache.hover.is_none());
-    }
-
     // TASK-2032 performance tests
 
     #[test]
@@ -218,32 +176,6 @@ mod tests {
             "filter kept all rows ({}), expected some to be excluded",
             selected.len()
         );
-    }
-
-    // TASK-2026 tests
-
-    #[test]
-    fn should_resample_small_change_no_trigger() {
-        // 10% change -> no trigger
-        assert!(!should_resample(0.6, 0.7));
-    }
-
-    #[test]
-    fn should_resample_large_change_triggers() {
-        // 25% change -> triggers
-        assert!(should_resample(0.5, 0.75));
-    }
-
-    #[test]
-    fn should_resample_exactly_20_percent_no_trigger() {
-        // exactly 20% is not > 0.20
-        assert!(!should_resample(0.5, 0.7));
-    }
-
-    #[test]
-    fn should_resample_negative_direction_triggers() {
-        // selection drops by 25%
-        assert!(should_resample(0.75, 0.5));
     }
 
     #[test]

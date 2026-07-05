@@ -11,21 +11,6 @@ use crate::ui::widgets::trial_detail_modal::{
 
 type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
 
-/// ダウンサンプリングインデックスでトライアルをフィルタリングする
-/// indices が Some の場合はそのインデックスのトライアルのみ、None の場合は全件を返す
-pub fn filter_by_downsample_indices<'a>(
-    trial_rows: &'a [TrialRow],
-    indices: Option<&[u32]>,
-) -> Vec<&'a TrialRow> {
-    match indices {
-        Some(idx) => idx
-            .iter()
-            .filter_map(|&i| trial_rows.get(i as usize))
-            .collect(),
-        None => trial_rows.iter().collect(),
-    }
-}
-
 /// Pareto ランクに応じたマーカー半径を返す（ランク0が最大）
 pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
     if pareto_rank == 0 {
@@ -41,7 +26,6 @@ pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
 pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
-    pub use_downsample: bool,
     // TASK-2241: rectangular brush state (screen coordinates).
     // egui_plot のクロスヘアは生のスクリーン座標へ最終変換を適用して描かれる。
     // 矩形もスクリーン座標で保持し、描画・選択判定ともに `PlotResponse.transform`
@@ -62,7 +46,6 @@ impl Default for ParetoScatter2D {
         Self {
             x_axis: "obj0".to_string(),
             y_axis: "obj1".to_string(),
-            use_downsample: true,
             brush_start: None,
             brush_end: None,
             detail_modal: TrialDetailModal::new(),
@@ -110,11 +93,6 @@ impl ParetoScatter2D {
 
         let obj_names = ctx.meta.objective_names.clone();
         let param_names = ctx.meta.param_names.clone();
-        let downsample_indices = if self.use_downsample {
-            app_state.downsample_cache.scatter.as_deref()
-        } else {
-            None
-        };
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
@@ -189,11 +167,7 @@ impl ParetoScatter2D {
 
         let feas = view.feasibility();
 
-        let displayed: Vec<usize> = match downsample_indices {
-            Some(idx) => idx.iter().map(|&i| i as usize).filter(|&i| i < n).collect(),
-            None => (0..n).collect(),
-        };
-        for i in displayed {
+        for i in 0..n {
             let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let pt = [x, y];
@@ -603,34 +577,6 @@ mod tests {
         let widget = ParetoScatter2D::default();
         assert_eq!(widget.x_axis, "obj0");
         assert_eq!(widget.y_axis, "obj1");
-        assert!(widget.use_downsample);
-    }
-
-    // TASK-2020 tests
-
-    #[test]
-    fn filter_by_downsample_none_returns_all() {
-        let rows = vec![
-            make_trial(0, vec![]),
-            make_trial(1, vec![]),
-            make_trial(2, vec![]),
-        ];
-        let result = filter_by_downsample_indices(&rows, None);
-        assert_eq!(result.len(), 3);
-    }
-
-    #[test]
-    fn filter_by_downsample_some_returns_subset() {
-        let rows = vec![
-            make_trial(0, vec![]),
-            make_trial(1, vec![]),
-            make_trial(2, vec![]),
-        ];
-        let indices = vec![0u32, 2u32];
-        let result = filter_by_downsample_indices(&rows, Some(&indices));
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].trial_id, 0);
-        assert_eq!(result[1].trial_id, 2);
     }
 
     #[test]

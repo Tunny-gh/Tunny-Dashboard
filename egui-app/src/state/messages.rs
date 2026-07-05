@@ -61,18 +61,6 @@ pub enum PdpResult {
     TwoDim(PdpResult2d),
 }
 
-// ============================================================
-// DownsampleKey
-// ============================================================
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DownsampleKey {
-    Scatter,
-    Pcp,
-    Thumbnail,
-    Hover,
-}
-
 #[derive(Debug, Clone)]
 pub struct ClusterUiError {
     pub user_message: String,
@@ -266,10 +254,6 @@ pub enum AppMessage {
         result: PdpResult,
     },
     Pdp2dDone(PdpResult2d),
-    DownsampleDone {
-        key: DownsampleKey,
-        indices: Vec<u32>,
-    },
     LiveUpdateDone {
         new_trial_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
@@ -349,12 +333,6 @@ mod tests {
             AppMessage::Error(e) => assert_eq!(e, "test error"),
             _ => panic!("Expected Error variant"),
         }
-    }
-
-    #[test]
-    fn downsample_key_equality() {
-        assert_eq!(DownsampleKey::Scatter, DownsampleKey::Scatter);
-        assert_ne!(DownsampleKey::Scatter, DownsampleKey::Pcp);
     }
 
     #[test]

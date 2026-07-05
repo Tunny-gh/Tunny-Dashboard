@@ -1,5 +1,5 @@
 use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
-use crate::state::messages::{AppMessage, DownsampleKey};
+use crate::state::messages::AppMessage;
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
@@ -141,12 +141,6 @@ impl MessageHandler {
                 controls.pending_entropy = false;
                 controls.computing = false;
             }
-            AppMessage::DownsampleDone { key, indices } => match key {
-                DownsampleKey::Scatter => app_state.downsample_cache.scatter = Some(indices),
-                DownsampleKey::Pcp => app_state.downsample_cache.pcp = Some(indices),
-                DownsampleKey::Thumbnail => app_state.downsample_cache.thumbnail = Some(indices),
-                DownsampleKey::Hover => app_state.downsample_cache.hover = Some(indices),
-            },
             AppMessage::IndicatorHistoryDone {
                 indicator,
                 base,

@@ -64,19 +64,3 @@ pub struct ElbowResult {
     /// Documentation.
     pub recommended_k: usize,
 }
-
-/// Documentation.
-#[derive(Debug, Clone)]
-pub struct ClusterStat {
-    /// Documentation.
-    pub cluster_id: usize,
-    /// Documentation.
-    pub size: usize,
-    /// Documentation.
-    pub centroid: Vec<f64>,
-    /// Documentation.
-    pub std_dev: Vec<f64>,
-    /// Documentation.
-    /// Documentation.
-    pub significant_features: Vec<bool>,
-}

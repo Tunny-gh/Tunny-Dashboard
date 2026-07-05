@@ -33,10 +33,6 @@ criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3"
 
 [[bench]]
-name = "sampling_bench"
-harness = false
-
-[[bench]]
 name = "sensitivity_bench"
 harness = false
 

@@ -150,15 +150,6 @@ fn tc_201_07_hypervolume_single_objective_none() {
 }
 
 #[test]
-fn tc_201_08_tradeoff_navigator_order() {
-    let objs = vec![vec![1.0, 4.0], vec![2.0, 2.0], vec![4.0, 1.0]];
-    let is_min = [true, true];
-    let weights = [0.5, 0.5];
-    let result = chebyshev_sort(&objs, &weights, &is_min);
-    assert_eq!(result[0], 1);
-}
-
-#[test]
 fn tc_201_09_hypervolume_history_single_obj() {
     let rows = vec![
         make_row_obj(0, vec![2.0]),
@@ -169,15 +160,6 @@ fn tc_201_09_hypervolume_history_single_obj() {
     let result = compute_hypervolume_history(&[true]);
     assert!(result.hv_values.iter().all(|&v| v == 0.0));
     assert_eq!(result.trial_ids.len(), 3);
-}
-
-#[test]
-fn tc_201_e01_zero_weights_fallback() {
-    let objs = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
-    let is_min = [true, true];
-    let weights = [0.0, 0.0];
-    let result = chebyshev_sort(&objs, &weights, &is_min);
-    assert_eq!(result.len(), 2);
 }
 
 #[test]
