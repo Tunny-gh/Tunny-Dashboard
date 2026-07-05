@@ -2,9 +2,9 @@
 
 ## Overview
 
-The Trial Table shows optimization trials in a sortable table. Each row represents one trial with columns for trial number, parameters, objective values, and Pareto rank.
+The Trial Table shows optimization trials in a table. Each row represents one trial with columns for trial number, parameters, objective values, and Pareto rank.
 
-Use this table to inspect individual trial results, sort by objective values to find top performers, and pin important trials for easy reference.
+Use this table to inspect individual trial results, switch views to see trials grouped by cluster or ordered by MCDM rank, and pin important trials for easy reference.
 
 ## Controls
 
@@ -16,7 +16,7 @@ Use this table to inspect individual trial results, sort by objective values to 
 ## Operations
 
 - **Select trial**: Click a row to select that trial and highlight it across all other widgets (scatter plots, parallel coordinates, etc.).
-- **Pin / Unpin**: Click the pin button on a row to pin that trial to the top of the table so it remains visible regardless of sort order.
+- **Pin / Unpin**: Click the pin button on a row to pin that trial so it remains visible in the table.
 - **Column resize**: Drag the column dividers in the header to resize columns.
 
 ## How to Read
