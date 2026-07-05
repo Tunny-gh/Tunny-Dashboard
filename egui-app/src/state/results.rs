@@ -570,6 +570,7 @@ mod tests {
             phi_net: vec![0.6, 0.0, -0.6],
             ranked_indices_i: vec![0, 1, 2],
             ranked_indices_ii: vec![0, 1, 2],
+            incomparable_counts: vec![0, 0, 0],
             duration_ms: 3.0,
         }
     }
