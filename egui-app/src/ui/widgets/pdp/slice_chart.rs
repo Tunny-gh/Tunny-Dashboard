@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
@@ -111,8 +112,9 @@ impl SliceChart {
         let hit_candidates =
             compute_hit_candidates(view, param_name, obj_names, obj_idx, log_scale);
 
-        let mut plot =
-            egui_plot::Plot::new("slice_chart_plot").legend(egui_plot::Legend::default());
+        let mut plot = egui_plot::Plot::new("slice_chart_plot")
+            .unified_nav()
+            .legend(egui_plot::Legend::default());
         if log_scale {
             plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot);
         }
@@ -121,6 +123,7 @@ impl SliceChart {
         // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
         let mut hovered_detail: Option<(u32, usize)> = None;
         plot.show(ui, |plot_ui| {
+            apply_wheel_zoom(plot_ui);
             // 点クリックで詳細モーダルを開く対象を検出する。
             let resp = plot_ui.response();
             if resp.clicked_by(egui::PointerButton::Primary) {

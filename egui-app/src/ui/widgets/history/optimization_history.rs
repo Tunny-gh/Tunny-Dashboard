@@ -5,6 +5,7 @@ use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{
     COLOR_INFEASIBLE, COLOR_OPT_PRUNED, COLOR_OPT_RUNNING, COLOR_OPT_TRIAL,
 };
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
@@ -186,8 +187,9 @@ impl OptimizationHistoryChart {
         // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
         let mut hovered_detail: Option<(u32, usize)> = None;
 
-        let mut plot =
-            egui_plot::Plot::new("optimization_history_plot").legend(egui_plot::Legend::default());
+        let mut plot = egui_plot::Plot::new("optimization_history_plot")
+            .unified_nav()
+            .legend(egui_plot::Legend::default());
 
         // 対数スケール時は値を log10 変換して描画しているため、Y 軸ラベルは
         // 変換前の元の値（10^mark で復元）を表示する。目盛りは 10 の累乗
@@ -197,6 +199,7 @@ impl OptimizationHistoryChart {
         }
 
         plot.show(ui, |plot_ui| {
+            apply_wheel_zoom(plot_ui);
             // 点クリックでトライアル詳細モーダルを開く（基準 Study の試行のみ）。
             let resp = plot_ui.response();
             if resp.clicked_by(egui::PointerButton::Primary) {

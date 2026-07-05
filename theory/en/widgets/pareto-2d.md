@@ -14,11 +14,12 @@ Use this chart to explore trade-offs between two objectives and identify the bes
 
 ## Operations
 
-- **Zoom**: Scroll the mouse wheel inside the chart area to zoom in and out.
-- **Pan**: Click and drag on blank space to pan across the plot.
+- **Zoom**: Scroll the mouse wheel, or drag with the left button to zoom into the selected rectangle.
+- **Pan**: Drag with the right mouse button to pan across the plot.
+- **Reset view**: Double-click with the left button to restore the default view.
 - **Hover**: Hover over a point to see the trial number and objective values in a tooltip.
 - **Select (single)**: Click a point to open the trial detail modal for that trial.
-- **Select (region)**: Drag to draw a rectangular selection region and highlight all enclosed points.
+- **Select (region)**: Hold Shift and drag with the left button to draw a rectangular selection region and highlight all enclosed points.
 - **Clear selection**: Click blank space to clear the current selection.
 
 ## How to Read

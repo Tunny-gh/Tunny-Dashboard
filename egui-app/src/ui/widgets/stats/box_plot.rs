@@ -1,5 +1,6 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use tunny_core::statistics::{compute_boxplot, BoxPlotStats};
 
 /// 箱ひげ図の対象列グループ。
@@ -136,6 +137,7 @@ impl BoxPlotChart {
         let box_plot = egui_plot::BoxPlot::new("Box Plot", boxes).color(COLOR_BAR_PRIMARY);
 
         egui_plot::Plot::new("box_plot_plot")
+            .unified_nav()
             .legend(egui_plot::Legend::default())
             .x_axis_formatter(move |mark, _range| {
                 let idx = mark.value.round();
@@ -146,6 +148,7 @@ impl BoxPlotChart {
                 }
             })
             .show(ui, |plot_ui| {
+                apply_wheel_zoom(plot_ui);
                 plot_ui.box_plot(box_plot);
                 if !outlier_pts.is_empty() {
                     let pts: egui_plot::PlotPoints = outlier_pts.into();
