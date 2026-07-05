@@ -43,9 +43,9 @@ For multi-objective fits, **Pareto-front (non-dominated, rank 0) trials are high
 
 ## Optimization methods
 
-- **Multi-start L-BFGS** — Gradient-based local search (numerical gradients) started from the best observed trial and several random points; the best converged point is reported.
-- **NSGA-II** — Genetic algorithm with SBX crossover, polynomial mutation and binary tournament selection (crowded comparison). Population-based and derivative-free, robust on multimodal surfaces. Selectable here as the single-objective optimizer; in multi-objective mode NSGA-II is also used automatically to compute the predicted Pareto front (see "Predicted Pareto front scatter" above).
-- **CMA-ES** — Covariance Matrix Adaptation Evolution Strategy. Derivative-free search that adapts the sampling distribution to the local curvature of the surface; a strong default for continuous problems.
+- **Multi-start L-BFGS** — Gradient-based local search (numerical gradients) started from the best observed trial and several random points; the best converged point is reported. See [L-BFGS](../optimization/lbfgs.md) for the math.
+- **NSGA-II** — Genetic algorithm with SBX crossover, polynomial mutation and binary tournament selection (crowded comparison). Population-based and derivative-free, robust on multimodal surfaces. Selectable here as the single-objective optimizer; in multi-objective mode NSGA-II is also used automatically to compute the predicted Pareto front (see "Predicted Pareto front scatter" above). See [NSGA-II](../optimization/nsga2.md) for the math.
+- **CMA-ES** — Covariance Matrix Adaptation Evolution Strategy. Derivative-free search that adapts the sampling distribution to the local curvature of the surface; a strong default for continuous problems. See [CMA-ES](../optimization/cma-es.md) for the math.
 - **Random Search** — Evaluates the surrogate at thousands of random points and picks the best. A robust baseline.
 
 ## Suggesting next trials (acquisition functions)

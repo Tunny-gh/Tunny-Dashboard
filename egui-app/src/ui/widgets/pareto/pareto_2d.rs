@@ -15,7 +15,6 @@ use crate::ui::widgets::trial_detail_modal::{
 pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
-    pub use_downsample: bool,
     // TASK-2241: rectangular brush state (screen coordinates).
     // egui_plot のクロスヘアは生のスクリーン座標へ最終変換を適用して描かれる。
     // 矩形もスクリーン座標で保持し、描画・選択判定ともに `PlotResponse.transform`
@@ -36,7 +35,6 @@ impl Default for ParetoScatter2D {
         Self {
             x_axis: "obj0".to_string(),
             y_axis: "obj1".to_string(),
-            use_downsample: true,
             brush_start: None,
             brush_end: None,
             detail_modal: TrialDetailModal::new(),
@@ -84,11 +82,6 @@ impl ParetoScatter2D {
 
         let obj_names = ctx.meta.objective_names.clone();
         let param_names = ctx.meta.param_names.clone();
-        let downsample_indices = if self.use_downsample {
-            app_state.downsample_cache.scatter.as_deref()
-        } else {
-            None
-        };
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
@@ -163,11 +156,7 @@ impl ParetoScatter2D {
 
         let feas = view.feasibility();
 
-        let displayed: Vec<usize> = match downsample_indices {
-            Some(idx) => idx.iter().map(|&i| i as usize).filter(|&i| i < n).collect(),
-            None => (0..n).collect(),
-        };
-        for i in displayed {
+        for i in 0..n {
             let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let pt = [x, y];
@@ -444,7 +433,6 @@ mod tests {
         let widget = ParetoScatter2D::default();
         assert_eq!(widget.x_axis, "obj0");
         assert_eq!(widget.y_axis, "obj1");
-        assert!(widget.use_downsample);
     }
 
     #[test]

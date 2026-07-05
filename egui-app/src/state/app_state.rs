@@ -1,4 +1,3 @@
-pub use super::filter::*;
 pub use super::results::*;
 pub use super::types::*;
 
@@ -30,7 +29,6 @@ pub struct AppState {
     /// クラスタリング結果のキャッシュ。設定キー（対象空間 / k / モード / Init）ごとに
     /// 計算結果を保持し、2D / 3D / Table が各自の設定で参照・共有する。
     pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
-    pub downsample_cache: DownsampleCache,
     pub live_update: LiveUpdateState,
     /// 最後に計算した MCDM 結果。McdmScore カラーモードの色付け基準として保持する。
     pub mcdm_result: Option<McdmResult>,
@@ -100,7 +98,6 @@ impl AppState {
             sobol_cache: HashMap::new(),
             sensitivity_heatmap_cache: HashMap::new(),
             cluster_cache: HashMap::new(),
-            downsample_cache: DownsampleCache::default(),
             live_update: LiveUpdateState::default(),
             mcdm_result: None,
             mcdm_cache: HashMap::new(),
@@ -168,7 +165,6 @@ impl AppState {
         self.convergence_history = None;
         // 参照点は目的のスケールに依存するため Study 切り替えでリセットする。
         self.hv_ref_point_override = None;
-        self.downsample_cache.clear();
         // selected_colormap はユーザー設定を維持
 
         // REQ-006: comparison_mode/studies/colors は Study 切り替えでも維持

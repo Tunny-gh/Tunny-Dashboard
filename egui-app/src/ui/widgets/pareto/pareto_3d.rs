@@ -74,7 +74,6 @@ impl Pareto3dChart {
             return;
         }
 
-        let downsample_indices = app_state.downsample_cache.scatter.as_deref();
         let ctx = app_state.current_study.as_ref().unwrap();
         let view = &ctx.view;
         let trial_count = view.row_count();
@@ -134,14 +133,7 @@ impl Pareto3dChart {
             .and_then(|n| view.numeric_column(n));
         let feas = view.feasibility();
 
-        let displayed: Vec<usize> = match downsample_indices {
-            Some(idx) => idx
-                .iter()
-                .map(|&i| i as usize)
-                .filter(|&i| i < trial_count)
-                .collect(),
-            None => (0..trial_count).collect(),
-        };
+        let displayed: Vec<usize> = (0..trial_count).collect();
 
         let mut draw_calls: Vec<(egui::Pos2, f32, egui::Color32, f32)> =
             Vec::with_capacity(displayed.len());
