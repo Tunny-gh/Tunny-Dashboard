@@ -97,3 +97,7 @@ Want a fast, intuitive overall ranking?    → TOPSIS
 Need to balance utility vs. worst-case?   → VIKOR
 Want pairwise preference detail?           → PROMETHEE
 ```
+
+## References
+
+- Hwang, C.-L., & Yoon, K. (1981). _Multiple Attribute Decision Making: Methods and Applications_. Springer.

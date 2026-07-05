@@ -88,3 +88,7 @@ Want data-driven weights for TOPSIS / VIKOR?      → Entropy Weight + any metho
 Have strong preferences about objective priority? → Manual weight sliders
 Comparing both approaches?                        → toggle Entropy ↔ Manual in the UI
 ```
+
+## References
+
+- Shannon, C. E. (1948). A Mathematical Theory of Communication. _Bell System Technical Journal_, 27, 379–423.

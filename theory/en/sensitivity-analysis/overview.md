@@ -9,12 +9,12 @@ This guide summarizes the available sensitivity analysis methods and helps you c
 | Spearman | Monotonic relationship strength (rank correlation) | Fast, robust, works with small datasets | Cannot detect non-monotonic (U-shaped) or interaction effects | Low |
 | Ridge | Linear contribution strength (regression coefficients) | Fast, interpretable, handles multicollinearity | Cannot capture nonlinearity or strong interactions | Low |
 | MDI | Feature importance from tree splits during training | Fast, intuitive | Tends to overestimate high-cardinality features | Low–Medium |
-| RF-ANOVA | Accuracy drop when a feature is permuted (holdout) | Closer to real predictive contribution | Affected by correlated features | Medium |
-| Permutation | Average of 5 independent RF-ANOVA runs | Lower variance than RF-ANOVA | ~5x slower than RF-ANOVA | Medium–High |
+| RF-ANOVA | fANOVA: variance decomposition over Random Forest leaf boxes (main-effect importance, Hutter et al. 2014) | Exact decomposition over the trained forest; no extra evaluation pass needed | Does not attribute interaction effects to a single parameter; depends on the tree's leaf partition | Medium |
+| Permutation | Holdout MSE increase when a feature is shuffled (5 repeats, averaged) | Directly measures predictive contribution; lower variance than a single shuffle | ~5x more evaluation passes; affected by correlated features | Medium–High |
 | SHAP | Shapley value decomposition of predictions | Theoretically consistent, local and global interpretability | Heavier computation | Medium–High |
 | Sobol | Variance decomposition (first-order and total-effect indices) | Captures interactions, global sensitivity | Depends on surrogate quality and sample size | Medium–High |
 | PDP (1D/2D) | Response shape of the objective function | Visualizes how the objective changes with parameters | May extrapolate when features are correlated | Low–High (model-dependent) |
-| ARD importance | GP length-scale relevance per parameter | Free after fitting a GP; global smoothness-based sensitivity | GP models only; not a variance decomposition | Low (free with GP) |
+| ARD importance | GP length-scale relevance per parameter | Global smoothness-based sensitivity | GP models only; not a variance decomposition | Medium–High (trains a GP surrogate on demand) |
 
 ## How to Choose
 

@@ -12,12 +12,12 @@ Tunny Dashboard が提供する統計・多基準意思決定手法の理論リ�
 | ------ | ---- | ---- | ---- |
 | Spearman | スピアマン順位相関 | 符号付き | ノンパラメトリック・単調非線形に対応 |
 | Ridge | Ridge 回帰係数 | 符号付き | 線形関係を仮定・解釈が直感的 |
-| RF-Anova | Random Forest のホールドアウト精度低下 | 非負 | 実運用に近い寄与・相関特徴では不安定になり得る |
+| RF-Anova | fANOVA: Random Forest の葉ボックス上の分散分解による主効果重要度（Hutter et al. 2014） | 非負 | 交互作用を単一パラメータの主効果には帰属しない・木の葉分割に依存する |
 | MDI | 不純度減少（Mean Decrease in Impurity） | 非負 | 学習中の分岐寄与・高カーディナリティを過大評価しやすい |
 | Sobol First $S_i$ | 一次 Sobol 指数 | 非負 | 単独効果のみ・相互作用を含まない |
 | Sobol Total $ST_i$ | 全効果 Sobol 指数 | 非負 | 相互作用を含む総合的な影響度 |
 | SHAP | Shapley 値による寄与分解 | 非負（平均絶対値） | 理論的に一貫・説明可能性が高い |
-| Permutation | RF-ANOVA の複数回平均（PFI） | 非負 | RF-ANOVA より分散が小さく安定・計算コスト高 |
+| Permutation | Permutation Feature Importance: LightGBM RF を1回学習し、特徴量ごとに5回シャッフルしたホールドアウト MSE 増加の平均 | 非負 | RF-ANOVA（fANOVA）より計算コストが高い |
 | ARD | GP 長さスケール関連度 | 非負 | 学習済み GP サロゲートの長さスケールに基づく大域感度 |
 
 > 符号付き（負値あり）は Spearman / Ridge のみ。木ベース・Sobol・SHAP・Permutation・ARD は非負。計算コストが低いのは Spearman / Ridge のみで、それ以外はモデル学習または Sobol サンプリングを伴う。
@@ -160,6 +160,7 @@ $R^2$ が低い（$< 0.5$）場合は非線形関係が強い → Random Forest 
 | 階層クラスタリング（Ward 法） | 併合木（デンドログラム）を構築し、構造を見た後で $k$ をカット | [clustering/hierarchical.md](clustering/hierarchical.md) |
 | PCA バイプロット | 標準化 PCA 平面上に trial スコアと変数のローディング矢印を表示 | [clustering/pca-biplot.md](clustering/pca-biplot.md) |
 | SOM（自己組織化マップ） | 設計空間のトポロジー保存 2D 地図（U-matrix・成分プレーン） | [clustering/som.md](clustering/som.md) |
+| [概要](clustering/overview.md) | クラスタリングパイプラインの要約 | [clustering/overview.md](clustering/overview.md) |
 
 ---
 

@@ -70,7 +70,7 @@ $$\Phi^{\text{net}}(i) = \Phi^+(i) - \Phi^-(i)$$
 
 ## Edge Cases
 
-**NaN trials**: excluded from pairwise computation; flows set to 0.0, placed last in ranking.
+**NaN/Inf trials**: any trial with a non-finite objective value is excluded from pairwise computation; flows set to 0.0, placed last in ranking.
 
 **Single trial**: m = 1, denominator max(m−1, 1) = 1, all flows = 0.0.
 

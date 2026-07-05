@@ -2,7 +2,7 @@
 
 ## Overview
 
-Permutation Feature Importance (PFI) follows the same principle as RF-ANOVA — measuring the accuracy drop when a parameter is shuffled on a holdout set — but **averages 5 independent shuffles** per feature to reduce estimation variance.
+Permutation Feature Importance (PFI) measures the **accuracy drop when a parameter is shuffled on a holdout set**, averaging **5 independent shuffles** per feature to reduce estimation variance. Unlike RF-ANOVA (fANOVA), which decomposes the trained forest's variance over its leaf boxes without shuffling anything, PFI's importance signal comes entirely from the shuffle-induced accuracy drop.
 
 > **Edge case:** when the dataset is very small (fewer than 4 samples after filtering), the holdout split is disabled and evaluation falls back to the training data. Importance scores are less reliable in this regime.
 
@@ -28,14 +28,14 @@ $$
 
 ## Comparison with RF-ANOVA
 
-| Aspect | Permutation (this method) | RF-ANOVA |
+| Aspect | Permutation (this method) | RF-ANOVA (fANOVA) |
 | --- | --- | --- |
-| Repeats per feature | 5 | 1 |
-| Variance | ~1/5 of RF-ANOVA | Higher |
-| Speed | ~5× more permutation evals (training done once, shared) | Baseline |
+| Shuffling | Shuffles each feature 5 times on holdout data | Does not shuffle anything — decomposes the trained forest's variance over its leaf boxes instead |
+| Trees | 100 (trained once) | 64 |
+| Speed | Training once + 5× permutation evals per feature | Baseline (training + per-tree variance decomposition, no extra evals) |
 | Holdout split seed | Same (43) | Same (43) |
 
-Because both methods use the same holdout split, running them on the same dataset gives directly comparable results.
+Both methods use the same holdout split seed, but RF-ANOVA's importance itself is computed from the trained forest (not from the holdout split — the holdout split there is only used for its R²), so the two scores are not a shuffle-vs-shuffle comparison.
 
 ## Hyperparameters
 
@@ -67,3 +67,8 @@ Like RF-ANOVA, correlated features can be underestimated because the model subst
 - When you want the most stable importance estimates.
 - When RF-ANOVA results show high variance across runs.
 - When datasets are small or noisy.
+
+## References
+
+- Breiman, L. (2001). Random Forests. _Machine Learning_, 45(1), 5–32.
+- Fisher, A., Rudin, C., & Dominici, F. (2019). All Models are Wrong, but Many are Useful. _JMLR_, 20(177), 1–81.

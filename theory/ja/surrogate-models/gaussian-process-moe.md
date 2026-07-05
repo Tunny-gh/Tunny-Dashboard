@@ -14,7 +14,7 @@ GP-MOE は、入力空間を複数の領域に分割し、各領域に 1 つの 
 
 を持つ場合、単一 GP は片方の領域を過学習したり、もう一方の変動を過小評価してしまう。GP-MOE は各領域に独立なハイパーパラメータを持つ GP を割り当てることでこれを解決する。
 
-**ベンチマーク**（区分不連続関数）: GP-MOE R² ≈ 0.97 vs 滑らかに混合した単一 GP R² ≈ 0.89。滑らかまたはノイジーなデータでは GP-MOE はクラスタ数 k = 1 を選択し、GP-FITC と同等になる。
+**ベンチマーク**（区分不連続関数；開発環境での計測による参考値であり、環境やデータによって変動する）: GP-MOE R² ≈ 0.97 vs 滑らかに混合した単一 GP R² ≈ 0.89。滑らかまたはノイジーなデータでは GP-MOE はクラスタ数 k = 1 を選択し、GP-FITC と同等になる。
 
 ---
 
@@ -137,3 +137,10 @@ GP-MOE の学習が失敗した場合（例: クラスタの点数が少なす�
 ```
 
 関連: [GP-FITC / GP-VFE](gaussian-process.md)
+
+---
+
+## 参考文献
+
+- Jacobs, R. A., Jordan, M. I., Nowlan, S. J., & Hinton, G. E. (1991). Adaptive Mixtures of Local Experts. *Neural Computation*, 3(1), 79–87.
+- Bettebghor, D. et al. (2011). Surrogate modeling approximation using a mixture of experts based on EM joint estimation. *Structural and Multidisciplinary Optimization*, 43(2), 243–259.

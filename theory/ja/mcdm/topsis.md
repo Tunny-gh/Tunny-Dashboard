@@ -109,7 +109,7 @@ pub(crate) fn filter_valid_indices(
 }
 ```
 
-補足: すべてのトライアルが `NaN` の場合は `valid_indices.is_empty()` となり、実装は縮退ケースとして**全トライアルに `0.5`** を割り当てる（`uniform_score_result(..., score=0.5)`）。
+補足: すべてのトライアルが非有限値の場合は `valid_indices.is_empty()` となり、実装は縮退ケースとして**全トライアルに `0.5`** を割り当てる（`uniform_score_result(..., score=0.5)`）。
 
 ```
 if valid_indices.is_empty() {
@@ -123,17 +123,17 @@ if valid_indices.is_empty() {
 
 ### 重みのスケール不変性
 
-内部では正規化前の重みをそのまま使うため、`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる（ベクトル正規化後の乗算なので比率のみが影響する）。
+`compute_topsis()` は渡された重みを正規化せずそのまま使うため、`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる（ベクトル正規化後の乗算なので、重みベクトルの定数倍はスコアに影響せず比率のみが効く）。
 
 ### `compute_topsis()` の処理フロー
 
 ```
 1. validate_inputs()         → 入力サイズの整合性チェック
-2. NaN フィルタリング         → valid_indices を構築
+2. NaN/Inf フィルタリング     → valid_indices を構築
 3. build_weighted_matrix()   → 列ノルム計算 → r_ij → w_ij
 4. find_ideal_solutions()    → is_minimize に応じて A+/A- を決定
 5. compute_scores()          → D+, D- → score_i
-6. NaN トライアルにスコア 0.0 を割り当て
+6. NaN/Inf トライアルにスコア 0.0 を割り当て
 7. スコア降順ソートで ranked_indices を生成
 ```
 
@@ -191,3 +191,9 @@ TopsisRankingChart のスライダーで感度確認するのが有効。
 - **重みスライダー**: 各目的関数の重み（0〜1）をリアルタイム変更→スコア再計算
 - **上位 N 件表示**: 5 / 10 / 20 件を切り替え
 - **バークリック**: 選択されたトライアルをハイライト（selectionStore 経由）
+
+---
+
+## 参考文献
+
+- Hwang, C.-L., & Yoon, K. (1981). _Multiple Attribute Decision Making: Methods and Applications_. Springer.

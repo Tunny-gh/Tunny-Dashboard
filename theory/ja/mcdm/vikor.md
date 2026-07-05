@@ -2,7 +2,7 @@
 
 ## 概要
 
-VIKOR 法は、1998年に Serafim Opricovic と Gwang-Huyng Tzeng によって提案された多基準意思決定（MCDM: Multi-Criteria Decision Making）手法である。セルビア語で「複数基準最適化と妥協解」を意味する名称であり、複数の評価基準（目的関数）が競合する問題において、理想解に最も近い妥協解（compromise solution）を選択する。
+VIKOR 法は、1998年に Serafim Opricovic によって提案され、Opricovic & Tzeng (2004) の比較研究で広く知られるようになった多基準意思決定（MCDM: Multi-Criteria Decision Making）手法である。セルビア語で「複数基準最適化と妥協解」を意味する名称であり、複数の評価基準（目的関数）が競合する問題において、理想解に最も近い妥協解（compromise solution）を選択する。
 
 Tunny Dashboard では以下の値を返す:
 

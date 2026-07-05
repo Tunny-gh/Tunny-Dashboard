@@ -214,17 +214,24 @@ $$\Phi^{\text{net}} = [1.0, 0.0, -1.0]$$
 
 ## 実装の詳細
 
-### NaN トライアルの扱い（`promethee.rs`）
+### NaN / Inf トライアルの扱い（`mod.rs` の `filter_valid_indices`）
 
-いずれかの目的関数値が `NaN` のトライアルは有効トライアルから除外され、フローは `0.0`、ランキング末尾に配置される。
+いずれかの目的関数値が非有限（`NaN` または `±Inf`）のトライアルは有効トライアルから除外され、フローは `0.0`、ランキング末尾に配置される。
 
 ```rust
-let valid_indices: Vec<usize> = (0..n_trials)
-    .filter(|&i| !(0..n_objectives).any(|j| values[i * n_objectives + j].is_nan()))
-    .collect();
+/// Return indices of trials whose objectives are all finite (excludes NaN and ±Inf).
+pub(crate) fn filter_valid_indices(
+    values: &[f64],
+    n_trials: usize,
+    n_objectives: usize,
+) -> Vec<usize> {
+    (0..n_trials)
+        .filter(|&i| (0..n_objectives).all(|j| values[i * n_objectives + j].is_finite()))
+        .collect()
+}
 ```
 
-すべてのトライアルが NaN の場合は `zero_result()` を返す（全フロー 0.0、ランキングはインデックス順）。
+すべてのトライアルが非有限値の場合は `zero_result()` を返す（全フロー 0.0、ランキングはインデックス順）。
 
 ### 単一トライアルの場合
 

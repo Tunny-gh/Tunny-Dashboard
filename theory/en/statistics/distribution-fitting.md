@@ -53,3 +53,9 @@ To overlay the density on a count histogram, the PDF is scaled by $n \cdot w$ (s
 ## Where It Is Used in the App
 
 - **Histogram widget → Fit selector**: overlays the selected family (or the best-AIC family with *Auto*) on the histogram, and prints the fitted parameters and AIC for each applicable family.
+
+---
+
+## References
+
+- Akaike, H. (1974). A new look at the statistical model identification. _IEEE Transactions on Automatic Control_, 19(6), 716–723.

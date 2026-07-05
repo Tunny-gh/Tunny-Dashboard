@@ -45,3 +45,9 @@ $$
 
 - **散布図行列**: 各変数ペアの相関係数（上三角セル）を生の値に対するピアソン相関で計算する → [散布図行列](../widgets/scatter-matrix.md)
 - **スピアマン順位相関**: ピアソン相関を**順位列**に適用したものが Spearman である → [スピアマン順位相関](../sensitivity-analysis/spearman.md)
+
+---
+
+## 参考文献
+
+- Pearson, K. (1895). Notes on regression and inheritance in the case of two parents. _Proceedings of the Royal Society of London_, 58, 240–242.

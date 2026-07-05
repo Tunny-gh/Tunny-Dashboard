@@ -113,3 +113,8 @@ Minimize worst-case objective (max-regret)?   → VIKOR with v < 0.5
 Maximize overall consensus across objectives? → VIKOR with v > 0.5
 Want a parameter-free intuitive [0,1] score?  → TOPSIS
 ```
+
+## References
+
+- Opricovic, S. (1998). _Multicriteria Optimization of Civil Engineering Systems_. Faculty of Civil Engineering, Belgrade.
+- Opricovic, S., & Tzeng, G.-H. (2004). Compromise solution by MCDM methods: A comparative analysis of VIKOR and TOPSIS. _European Journal of Operational Research_, 156(2), 445–455.
