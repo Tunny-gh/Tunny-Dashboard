@@ -11,6 +11,7 @@ pub mod mcdm;
 pub mod multi_objective;
 pub(crate) mod optimization;
 pub mod pdp;
+pub mod report;
 pub mod sensitivity;
 pub mod statistics;
 pub mod surrogate_opt;
@@ -24,6 +25,7 @@ pub use mcdm::topsis;
 pub use mcdm::vikor;
 pub use multi_objective::indicators;
 pub use multi_objective::pareto;
+pub use report::{build_study_report, render_markdown, ReportLang, ReportOptions, ReportSource};
 
 #[cfg(test)]
 mod tests {
