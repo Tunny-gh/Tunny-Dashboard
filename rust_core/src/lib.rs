@@ -11,7 +11,6 @@ pub mod mcdm;
 pub mod multi_objective;
 pub(crate) mod optimization;
 pub mod pdp;
-pub mod sampling;
 pub mod sensitivity;
 pub mod statistics;
 pub mod surrogate_opt;
