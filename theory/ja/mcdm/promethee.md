@@ -4,7 +4,7 @@
 
 PROMETHEE（Preference Ranking Organisation METHod for Enrichment Evaluations）は、1982年に J.-P. Brans が提案し、Brans & Vincke (1985) らにより発展した多基準意思決定（MCDM）手法。トライアル間の**ペアワイズ比較**に基づいて選好度を計算し、正のフロー（Φ+）と負のフロー（Φ-）からランキングを導出する。
 
-PROMETHEE I は部分ランキング（Partial Ranking）、PROMETHEE II は完全ランキング（Complete Ranking）を提供する。
+PROMETHEE I は理論上は部分ランキング（Partial Ranking、比較不能なペアを許容）だが、本実装では Φ+ 降順・Φ- 昇順のタイブレークによる単一の全順序として返す（比較不能ペアの明示はしない）。PROMETHEE II は完全ランキング（Complete Ranking）を提供する。
 
 Tunny Dashboard では以下の値を返す:
 
