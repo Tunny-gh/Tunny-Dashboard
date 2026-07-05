@@ -60,7 +60,7 @@ $ST_i \ge S_i$ は常に成立する。差 $ST_i - S_i$ が大きいほど、$x_
     ↓
 Step 1: 二次 Ridge サロゲート構築
     ↓
-Step 2: Saltelli 行列 A, B を LCG64 で生成
+Step 2: Saltelli 行列 A, B を ChaCha8 で生成
     ↓
 Step 3: A, B, AB_i でサロゲートを評価
     ↓

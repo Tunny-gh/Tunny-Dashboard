@@ -18,7 +18,7 @@ $$
 \sigma_j = \delta \cdot (u_j - l_j)
 $$
 
-where $[l_j, u_j]$ is the declared range of parameter $j$ and $\delta$ is the user-chosen noise level (a fraction of each range, e.g. $\delta = 0.02$ for ±2 %-of-range scatter at 1σ). Samples are clipped to the declared bounds, mirroring the physical constraint that the variable cannot leave its feasible box.
+where $[l_j, u_j]$ is the declared range of parameter $j$ and $\delta$ is the user-chosen noise level (a fraction of each range, e.g. $\delta = 0.02$ for ±2 %-of-range scatter at 1σ). If a parameter has no declared range (no lower/upper bound on its distribution), $[l_j, u_j]$ falls back to the observed range of that parameter in the trial data. Samples are clipped to these bounds, mirroring the physical constraint that the variable cannot leave its feasible box.
 
 For $N$ Monte Carlo samples the propagated output set is $\{y_i\}$ with
 
@@ -56,3 +56,7 @@ i.e. the fraction of perturbed designs that remain feasible — a Monte Carlo co
 ## Where It Is Used in the App
 
 - **Robustness widget**: pick a candidate (best or pinned trial), set the noise level and sample count, and read the output histogram, statistics, and feasibility rate computed on the trained surrogate.
+
+## References
+
+- Box, G. E. P., & Muller, M. E. (1958). A Note on the Generation of Random Normal Deviates. *Annals of Mathematical Statistics*, 29(2), 610–611.

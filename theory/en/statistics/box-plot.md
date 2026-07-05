@@ -38,3 +38,9 @@ The whiskers do **not** simply extend to the fence values: each whisker extends 
 ## Where It Is Used in the App
 
 - **Box Plot widget**: compares the distributions of the objective columns or the parameter columns side by side. Columns on different scales can be compared by enabling min-max normalization.
+
+---
+
+## References
+
+- Tukey, J. W. (1977). _Exploratory Data Analysis_. Addison-Wesley.

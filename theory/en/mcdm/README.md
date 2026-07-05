@@ -25,7 +25,7 @@ Measures the "gap from ideal" for each trial using two distances — L1 (Manhatt
 
 ### PROMETHEE I / II
 
-Evaluates "how much is a preferred over b?" for every pair of trials using a preference function, and aggregates the results into flows (Φ+/Φ−/Φnet). PROMETHEE I provides a partial ranking (explicitly showing incomparable pairs); PROMETHEE II provides a complete ranking. Intuitive due to pairwise comparison, but note the O(m²) computational cost.
+Evaluates "how much is a preferred over b?" for every pair of trials using a preference function, and aggregates the results into flows (Φ+/Φ−/Φnet). PROMETHEE I is conceptually a partial ranking (allowing incomparable pairs); this implementation displays a total order (Φ+ descending, tiebreak Φ- ascending) and reports per-trial incomparability counts (⇹N in the chart). PROMETHEE II provides a complete ranking. Intuitive due to pairwise comparison, but note the O(m²) computational cost.
 
 ### Entropy Weight Method
 

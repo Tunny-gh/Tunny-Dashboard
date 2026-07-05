@@ -38,3 +38,9 @@ $$
 ## アプリ内での利用箇所
 
 - **Box Plot ウィジェット**: 目的関数群またはパラメータ群の分布を並べて比較する。スケールが異なる列同士は min-max 正規化を有効にして比較できる。
+
+---
+
+## 参考文献
+
+- Tukey, J. W. (1977). _Exploratory Data Analysis_. Addison-Wesley.

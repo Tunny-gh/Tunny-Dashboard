@@ -4,7 +4,7 @@
 
 PROMETHEE (Preference Ranking Organisation METHod for Enrichment Evaluations) evaluates every pair of trials (a, b) — "how much is a preferred over b?" — and aggregates those preferences into flow scores.
 
-- **PROMETHEE I**: partial ranking using Φ+ and Φ-
+- **PROMETHEE I**: conceptually a partial ranking (allows incomparable pairs) based on Φ+ and Φ-. This implementation displays it as a single total order (Φ+ descending, tiebreak Φ- ascending) and additionally reports, per trial, the number of trials it is incomparable with (`incomparable_counts`; shown as ⇹N in the chart)
 - **PROMETHEE II**: complete ranking using Φnet
 
 | Return value        | Description                                              |
@@ -43,7 +43,7 @@ $$P_j(d) = \begin{cases} 0 & \text{if } d \le 0 \\ \frac{d}{p_j} & \text{if } 0 
 
 $$\pi(a, b) = \sum_j w_j \cdot P_j(d_j(a, b)) \quad \in [0, 1]$$
 
-π(a, b) = 1 means a is strictly preferred over b across all objectives.
+π(a, b) = 1 means a is strictly preferred over b across all objectives. `compute_promethee` normalizes the weights internally so they sum to 1 (mirroring VIKOR / TOPSIS), which guarantees π ∈ [0, 1] and Φnet ∈ [-1, 1] even for unnormalized caller weights.
 
 ### Step 4: Positive and Negative Flows
 
@@ -55,7 +55,7 @@ $$\Phi^{\text{net}}(i) = \Phi^+(i) - \Phi^-(i)$$
 
 ### Step 5: Ranking
 
-**PROMETHEE I** (Φ+ desc, tiebreak Φ- asc): may leave some pairs incomparable when Φ+(a) > Φ+(b) but Φ-(a) > Φ-(b).
+**PROMETHEE I** (Φ+ desc, tiebreak Φ- asc): pairs with Φ+(a) > Φ+(b) but Φ-(a) > Φ-(b) (or lower on both) are incomparable — one trial outranks more while also being outranked more. The displayed order is totalized via the tiebreak rule above, and each trial's `incomparable_counts` entry reports how many valid trials it is incomparable with (shown as ⇹N next to the flows in the chart; 0 means the trial has a defined outranking relation with every other trial).
 
 **PROMETHEE II** (Φnet desc): always produces a complete ranking.
 
@@ -70,7 +70,7 @@ $$\Phi^{\text{net}}(i) = \Phi^+(i) - \Phi^-(i)$$
 
 ## Edge Cases
 
-**NaN trials**: excluded from pairwise computation; flows set to 0.0, placed last in ranking.
+**NaN/Inf trials**: any trial with a non-finite objective value is excluded from pairwise computation; flows set to 0.0, placed last in ranking.
 
 **Single trial**: m = 1, denominator max(m−1, 1) = 1, all flows = 0.0.
 
@@ -84,7 +84,12 @@ O(m² × n + m log m). The pairwise comparison is the bottleneck — under 20 ms
 
 ```
 Want pairwise "how much is a better than b?"    → PROMETHEE I / II
-Need partial ranking (incomparable pairs)?       → PROMETHEE I
+Want the Φ+/Φ- flow breakdown (still a total order)? → PROMETHEE I
 Need a complete ranking with net flow score?     → PROMETHEE II
 Dataset > 10,000 trials and speed matters?       → prefer TOPSIS / VIKOR
 ```
+
+## References
+
+- Brans, J.-P., & Vincke, P. (1985). A Preference Ranking Organisation Method: The PROMETHEE Method for MCDM. _Management Science_, 31(6), 647–656.
+- Brans, J.-P., Vincke, P., & Mareschal, B. (1986). How to select and how to rank projects: The PROMETHEE method. _European Journal of Operational Research_, 24(2), 228–238.

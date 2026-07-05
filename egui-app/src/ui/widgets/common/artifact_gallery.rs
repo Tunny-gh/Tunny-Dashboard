@@ -103,6 +103,8 @@ pub struct ArtifactGallery {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    /// Elbow（自動）モードで探索する k の上限。
+    pub elbow_max_k: usize,
     #[serde(skip)]
     pub cluster_computing: bool,
     #[serde(skip)]
@@ -125,6 +127,7 @@ impl Default for ArtifactGallery {
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::ElbowDefault,
             init_strategy: KMeansInitStrategy::KMeansPlusPlus,
+            elbow_max_k: 10,
             cluster_computing: false,
             cluster_pending: None,
             cluster_error: None,
@@ -140,7 +143,13 @@ impl ArtifactGallery {
 
     /// 現在のクラスタ設定に対応するキャッシュキー。
     pub fn cluster_cache_key(&self) -> ClusterCacheKey {
-        ClusterCacheKey::new(self.target_space, self.k_mode, self.k, self.init_strategy)
+        ClusterCacheKey::new(
+            self.target_space,
+            self.k_mode,
+            self.k,
+            self.init_strategy,
+            self.elbow_max_k,
+        )
     }
 
     /// クラスタリング実行をキューに積む（ClusterTable と同等）。
@@ -150,6 +159,7 @@ impl ArtifactGallery {
             target_space: self.target_space,
             k_mode: self.k_mode,
             init_strategy: self.init_strategy,
+            elbow_max_k: self.elbow_max_k,
         };
         match validate_cluster_request(&request, pareto_count) {
             Ok(()) => {
@@ -552,6 +562,14 @@ impl ArtifactGallery {
             ui.add_enabled(
                 k_editable,
                 egui::DragValue::new(&mut self.k).range(2..=pareto_count.max(2)),
+            );
+
+            let elbow_max_k_editable =
+                !self.cluster_computing && self.k_mode == KSelectionMode::ElbowDefault;
+            ui.label("Max k:");
+            ui.add_enabled(
+                elbow_max_k_editable,
+                egui::DragValue::new(&mut self.elbow_max_k).range(2..=50),
             );
 
             egui::ComboBox::from_id_salt("artifact_gallery_k_mode")

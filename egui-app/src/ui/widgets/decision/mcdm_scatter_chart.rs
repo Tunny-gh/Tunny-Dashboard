@@ -898,6 +898,7 @@ mod tests {
             phi_net: v.clone(),
             ranked_indices_i: (0..n as u32).collect(),
             ranked_indices_ii: (0..n as u32).collect(),
+            incomparable_counts: vec![0; n],
             duration_ms: 1.0,
         }
     }

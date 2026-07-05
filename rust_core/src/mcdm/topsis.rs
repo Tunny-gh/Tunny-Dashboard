@@ -46,6 +46,13 @@ pub fn compute_topsis(
     // English comment.
     super::validate_inputs(values, n_trials, n_objectives, weights, is_minimize)?;
 
+    // Weights are expected to sum to 1, but defend against callers that pass
+    // unnormalized weights (or a degenerate sum) — mirrors VIKOR. TOPSIS scores
+    // are invariant to a positive weight scale, so this only guards edge cases
+    // (all-zero / NaN weights) and keeps the API symmetric across MCDM methods.
+    let weights = super::normalize_weights(weights);
+    let weights = weights.as_slice();
+
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);
 
     // English comment.
@@ -325,6 +332,22 @@ mod tests {
             r.scores[0],
             r.scores[1]
         );
+    }
+
+    #[test]
+    fn unnormalized_weights_match_normalized() {
+        // Weights are normalized internally, so any positive scaling of the
+        // same weight vector must produce identical scores and ranking.
+        let values = [1.0_f64, 5.0, 3.0, 3.0, 5.0, 1.0];
+        let a = compute_topsis(&values, 3, 2, &[0.3, 0.7], &[true, true]).unwrap();
+        let b = compute_topsis(&values, 3, 2, &[3.0, 7.0], &[true, true]).unwrap();
+        for i in 0..3 {
+            assert!(
+                (a.scores[i] - b.scores[i]).abs() < 1e-12,
+                "scores must be invariant to weight scaling"
+            );
+        }
+        assert_eq!(a.ranked_indices, b.ranked_indices);
     }
 
     #[test]

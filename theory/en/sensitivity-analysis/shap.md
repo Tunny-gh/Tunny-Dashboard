@@ -4,7 +4,7 @@
 
 SHAP computes parameter importance using **Shapley values** from cooperative game theory (Lundberg & Lee, 2017). Each parameter receives a contribution value that represents its average marginal contribution across all possible feature coalitions.
 
-The ImportanceChart uses **TreeSHAP** for efficient exact Shapley value computation on Random Forest trees. Global importance is the mean $|\varphi_j(x)|$ across all samples and trees, normalized to sum to 1.
+The ImportanceChart uses **TreeSHAP** for efficient exact Shapley value computation on Random Forest trees. Global importance is the mean $|\varphi_j(x)|$ across the training split, normalized to sum to 1.
 
 ## Formula
 
@@ -17,7 +17,7 @@ $$
 Global SHAP importance:
 
 $$
-\operatorname{score}_j = \operatorname{mean} |\varphi_j(x)| \text{ over all samples and trees}
+\operatorname{score}_j = \operatorname{mean} |\varphi_j(x)| \text{ over the training split}
 $$
 
 Shapley values satisfy four axioms: efficiency, symmetry, linearity, dummy (a feature with no effect gets zero).
@@ -26,7 +26,7 @@ Shapley values satisfy four axioms: efficiency, symmetry, linearity, dummy (a fe
 
 | Aspect | SHAP | MDI | RF-ANOVA |
 | --- | --- | --- | --- |
-| Theoretical basis | Shapley axioms | Impurity reduction | Permutation accuracy drop |
+| Theoretical basis | Shapley axioms | Impurity reduction | Variance decomposition over leaf boxes (fANOVA) |
 | High-cardinality bias | None | High | Low |
 | Local interpretability | Yes | No | No |
 | Cost | Medium–High | Low | Medium |
@@ -59,3 +59,8 @@ Shapley values satisfy four axioms: efficiency, symmetry, linearity, dummy (a fe
 - When explainability and theoretical consistency are priorities.
 - For reports requiring rigorous attribution.
 - After RF-ANOVA / Permutation screening has identified top parameters.
+
+## References
+
+- Lundberg, S. M., & Lee, S.-I. (2017). A Unified Approach to Interpreting Model Predictions. _NeurIPS 30_.
+- Lundberg, S. M. et al. (2020). From local explanations to global understanding with explainable AI for trees. _Nature Machine Intelligence_, 2(1), 56–67.

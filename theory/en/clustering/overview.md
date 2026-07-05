@@ -16,7 +16,7 @@ Both use Lloyd's algorithm (assign → update → converge). Only the initial ce
 | Strategy      | Method                                      | Best for                        |
 | ------------- | ------------------------------------------- | ------------------------------- |
 | k-means++     | D²-proportional probabilistic sampling      | Default — avoids local optima   |
-| Deterministic | Xoshiro256Plus with fixed seed (42)         | Fully reproducible results      |
+| Deterministic | Same D²-proportional sampling, fixed seed (42) | Fully reproducible results      |
 
 ## Workflow
 
@@ -31,8 +31,8 @@ Run clustering
        └─ run k-means with user-specified k
 
 Init strategy (applies within k-means):
-  ├─ k-means++    → probabilistic D² sampling
-  └─ Deterministic → deterministic spread
+  ├─ k-means++    → probabilistic D² sampling (seed derived from n, k)
+  └─ Deterministic → same D² sampling, seed fixed to 42
 ```
 
 ## Input Space
@@ -42,3 +42,9 @@ Init strategy (applies within k-means):
 | Objective Space | Objective values only      | Find trials with similar performance      |
 | Variable Space  | Parameter values only      | Identify patterns in design variables     |
 | Combined        | Objectives + parameters    | See joint structure across both spaces    |
+
+## Related Methods
+
+- [Hierarchical Clustering](./hierarchical.md) — dendrogram-based, no upfront $k$
+- [PCA Biplot](./pca-biplot.md) — standardized 2D principal-component projection
+- [Self-Organizing Map (SOM)](./som.md) — topology-preserving 2D map

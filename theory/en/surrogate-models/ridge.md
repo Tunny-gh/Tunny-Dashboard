@@ -32,7 +32,23 @@ $$
 
 If σ_j ≈ 0, set σ_j = 1.0 (constant column guard). y is mean-centered only (y_c = y − ȳ).
 
-The system is solved via Gaussian elimination with partial pivoting.
+The system is solved via **Cholesky (LLT) decomposition** (faer). X'X + αI is always symmetric positive-definite for α > 0, making Cholesky the optimal solver; if the decomposition fails, the implementation falls back to a zero coefficient vector.
+
+## Application to PDP
+
+1D PDP uses the following closed-form approximation:
+
+$$
+\text{PDP}(v) = \bar{y} + \beta_j \cdot \frac{v - \mu_j}{\sigma_j}
+$$
+
+The contribution of the other parameters cancels out on average. The 2D PDP adds the terms for the two parameters:
+
+$$
+\bar{f}(v_1, v_2) = \bar{y} + \beta_{j_1} \cdot \frac{v_1 - \mu_{j_1}}{\sigma_{j_1}} + \beta_{j_2} \cdot \frac{v_2 - \mu_{j_2}}{\sigma_{j_2}}
+$$
+
+Because the Ridge surrogate is a linear model, it does not return confidence bands (`y_upper` / `y_lower`).
 
 ## R² Interpretation
 
@@ -61,3 +77,7 @@ Need a quick first approximation?            → Ridge, then upgrade if R² < 0.
 Nonlinear / noisy / tabular?                 → LightGBM or Random Forest
 Smooth nonlinear?                            → GP-FITC (or GP-VFE / GP-MOE)
 ```
+
+## References
+
+- Hoerl, A. E., & Kennard, R. W. (1970). Ridge Regression: Biased Estimation for Nonorthogonal Problems. *Technometrics*, 12(1), 55–67.

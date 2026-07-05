@@ -76,9 +76,11 @@ L-BFGS is used in the **surrogate optimizer** stage: it searches the fitted resp
 
 Note: GP hyperparameter optimization (fitting σ_f, l_d, σ_n) is handled internally by egobox-gp using COBYLA, not L-BFGS.
 
-**Convergence**: gradient norm < 1e-5 or max iterations reached (max_iters = 100).
+**Convergence**: gradient norm < argmin's default `tol_grad` = √(f64::EPSILON) ≈ 1.49×10⁻⁸ (the code does not call `with_tolerance_grad`, so argmin 0.11's built-in default applies), or max iterations reached (max_iters = 100).
 
 **Bounds handling**: box constraints [0,1]^d are enforced via a quadratic exterior penalty added to the cost function (weight = 1e3), not via projection. Numerical gradients (central finite differences, step = 1e-4) are used since the surrogate is a black box.
+
+**Multistart**: the initial point is the observed best point plus `N_RANDOM_STARTS = 7` fixed-seed random points, giving 8 starts in total.
 
 ## References
 

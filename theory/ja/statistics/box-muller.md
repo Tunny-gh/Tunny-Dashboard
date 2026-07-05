@@ -36,3 +36,9 @@ $$
 ## アプリ内での利用箇所
 
 - **Robustness ウィジェット**: 候補設計点まわりのガウス入力ノイズ摂動の生成、および（"Model uncertainty" 有効時の）GP 事後分布からのドローに使われる。
+
+---
+
+## 参考文献
+
+- Box, G. E. P., & Muller, M. E. (1958). A Note on the Generation of Random Normal Deviates. _Annals of Mathematical Statistics_, 29(2), 610–611.

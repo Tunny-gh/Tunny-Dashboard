@@ -45,3 +45,9 @@ To robustly capture non-linear but monotonic relationships, apply Pearson correl
 
 - **Scatter Matrix**: the correlation coefficient of each variable pair (upper-triangle cells) is computed as the Pearson correlation of the raw values → [Scatter Matrix](../widgets/scatter-matrix.md)
 - **Spearman rank correlation**: Spearman is simply Pearson correlation applied to the **rank series** → [Spearman rank correlation](../sensitivity-analysis/spearman.md)
+
+---
+
+## References
+
+- Pearson, K. (1895). Notes on regression and inheritance in the case of two parents. _Proceedings of the Royal Society of London_, 58, 240–242.

@@ -53,3 +53,9 @@ $$
 ## アプリ内での利用箇所
 
 - **Histogram ウィジェット → Fit セレクタ**: 選択した分布族（*Auto* なら最良 AIC の分布族）をヒストグラムに重ね描きし、適用可能な各分布族のフィット済みパラメータと AIC を表示する。
+
+---
+
+## 参考文献
+
+- Akaike, H. (1974). A new look at the statistical model identification. _IEEE Transactions on Automatic Control_, 19(6), 716–723.

@@ -12,12 +12,12 @@ The 9 parameter sensitivity metrics used by `ImportanceChart` / the Sensitivity 
 | ------------ | ------ | ---- | ----- |
 | Spearman | Spearman rank correlation | signed | Non-parametric; handles monotone non-linearity |
 | Ridge | Ridge regression coefficient | signed | Assumes a linear relationship; intuitive to read |
-| RF-Anova | Random Forest hold-out accuracy drop | non-negative | Close to real-world contribution; unstable under correlated features |
+| RF-Anova | fANOVA: main-effect importance from variance decomposition over Random Forest leaf boxes (Hutter et al. 2014) | non-negative | Does not attribute interaction effects to a single parameter; depends on the tree's leaf partition |
 | MDI | Mean Decrease in Impurity | non-negative | Split contribution during training; over-rates high-cardinality features |
 | Sobol First $S_i$ | First-order Sobol index | non-negative | Main effect only; excludes interactions |
 | Sobol Total $ST_i$ | Total-effect Sobol index | non-negative | Total influence including interactions |
 | SHAP | Shapley-value contribution | non-negative (mean abs) | Theoretically consistent; strong explainability |
-| Permutation | Repeated-average permutation importance (PFI) | non-negative | Lower variance than RF-ANOVA; higher cost |
+| Permutation | Permutation Feature Importance: trains a LightGBM RF once, then averages the holdout MSE increase over 5 shuffles per feature | non-negative | Higher cost than RF-ANOVA (fANOVA) |
 | ARD | GP length-scale relevance | non-negative | Global sensitivity from a trained GP surrogate's length scales |
 
 > Only Spearman / Ridge are signed (can be negative). Tree-based, Sobol, SHAP, Permutation, and ARD are non-negative. Only Spearman / Ridge are cheap; the rest require model training or Sobol sampling.

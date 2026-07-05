@@ -61,3 +61,7 @@ $$
 ## アプリ内での利用箇所
 
 - **SOM ウィジェット**: グリッドサイズとエポック数を設定し、学習済み地図の U-matrix・特徴別成分プレーン・ヒットカウントの各表示を切り替える。
+
+## 参考文献
+
+- Kohonen, T. (1982). Self-organized formation of topologically correct feature maps. _Biological Cybernetics_, 43(1), 59–69.

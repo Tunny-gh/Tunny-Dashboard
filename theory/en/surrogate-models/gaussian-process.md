@@ -15,7 +15,7 @@ Both GP-FITC and GP-VFE use egobox's sparse GP (FITC or VFE approximation) inter
 
 **Inducing points:** when N ≤ 100, Z = X (training points themselves); FITC/VFE then becomes mathematically equivalent to an exact GP with homoscedastic noise estimation. When N > 100, M = 100 inducing points are selected by k-means centroids (deterministic seed). The model trains on **all N points** — no subsampling. In the multi-objective surrogate optimizer the inducing points can be biased toward the Pareto front, concentrating them on the non-dominated trials so the surrogate is most accurate where it improves the front.
 
-Measured training times at N = 10,000: GP-FITC ≈ 2.4 s, GP-VFE ≈ 2.0 s (release build).
+Measured training times at N = 10,000: GP-FITC ≈ 2.4 s, GP-VFE ≈ 2.0 s (release build). These are reference values from measurements in a development environment and may vary by environment and data.
 
 ## Kernel: ARD Matérn 5/2
 
@@ -99,7 +99,7 @@ $$
 
 The trace term penalises the information lost by the inducing-point approximation and is absent in FITC.
 
-**Practical benchmark** (noise-free function, N = 100, M = 100):  
+**Practical benchmark** (noise-free function, N = 100, M = 100; reference values from measurements in a development environment — may vary by environment and data):  
 GP-FITC R² ≈ 0.88, GP-VFE R² ≈ 0.76 — VFE trades a small amount of fit tightness for a more principled bound.  
 On noisy data the two converge almost exactly.
 
@@ -142,7 +142,7 @@ egobox maximizes the chosen bound (FITC likelihood or VFE ELBO) using the gradie
 | Cholesky (M×M)          | O(M³)    | 1×10⁶                       |
 | Grid prediction (50×50) | O(2500·M)| 2.5×10⁵                     |
 
-Target: under 10,000 ms (release build). Measured at N = 10,000: GP-FITC ≈ 2.4 s, GP-VFE ≈ 2.0 s.
+Target: under 10,000 ms (release build). Measured at N = 10,000: GP-FITC ≈ 2.4 s, GP-VFE ≈ 2.0 s (reference values from measurements in a development environment — may vary by environment and data).
 
 ## R² Interpretation
 
@@ -174,3 +174,9 @@ Discontinuous / multi-regime response?      → GP-MOE (see gaussian-process-moe
 Nonlinear / noisy / large N?               → LightGBM or Random Forest
 Linear response?                            → Ridge
 ```
+
+## References
+
+- Rasmussen, C. E., & Williams, C. K. I. (2006). *Gaussian Processes for Machine Learning*. MIT Press.
+- Snelson, E., & Ghahramani, Z. (2006). Sparse Gaussian Processes using Pseudo-inputs. *NeurIPS 18*. (FITC)
+- Titsias, M. K. (2009). Variational Learning of Inducing Variables in Sparse Gaussian Processes. *AISTATS 2009*. (VFE)

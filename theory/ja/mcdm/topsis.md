@@ -52,7 +52,7 @@ $$
 w_{ij} = w_j r_{ij}
 $$
 
-重みはユーザが設定し（合計が 1 になるよう内部で正規化）、重要な目的関数の影響が大きくなる。
+重みはユーザが設定する。`compute_topsis()` は VIKOR と同様に、渡された `weights` を内部で合計 1 に正規化してから使用する（全ゼロや NaN などの退化した入力は均一重みにフォールバック）。重要な目的関数の影響が大きくなる点は変わらない。
 
 ---
 
@@ -92,17 +92,24 @@ $$
 
 ## 実装の詳細
 
-### NaN トライアルの扱い（`topsis.rs`）
+### NaN / Inf トライアルの扱い（`mod.rs` の `filter_valid_indices`）
 
-いずれかの目的関数値が `NaN` のトライアルは有効トライアルから除外され、スコアは `0.0` となりランキング末尾に配置される。
+いずれかの目的関数値が非有限（`NaN` または `±Inf`）のトライアルは有効トライアルから除外され、スコアは `0.0` となりランキング末尾に配置される。
 
 ```rust
-let valid_indices: Vec<usize> = (0..n_trials)
-    .filter(|&i| !(0..n_objectives).any(|j| values[i * n_objectives + j].is_nan()))
-    .collect();
+/// Return indices of trials whose objectives are all finite (excludes NaN and ±Inf).
+pub(crate) fn filter_valid_indices(
+    values: &[f64],
+    n_trials: usize,
+    n_objectives: usize,
+) -> Vec<usize> {
+    (0..n_trials)
+        .filter(|&i| (0..n_objectives).all(|j| values[i * n_objectives + j].is_finite()))
+        .collect()
+}
 ```
 
-補足: すべてのトライアルが `NaN` の場合は `valid_indices.is_empty()` となり、実装は縮退ケースとして**全トライアルに `0.5`** を割り当てる（`uniform_score_result(..., score=0.5)`）。
+補足: すべてのトライアルが非有限値の場合は `valid_indices.is_empty()` となり、実装は縮退ケースとして**全トライアルに `0.5`** を割り当てる（`uniform_score_result(..., score=0.5)`）。
 
 ```
 if valid_indices.is_empty() {
@@ -116,18 +123,19 @@ if valid_indices.is_empty() {
 
 ### 重みのスケール不変性
 
-内部では正規化前の重みをそのまま使うため、`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる（ベクトル正規化後の乗算なので比率のみが影響する）。
+`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる。`compute_topsis()` が重みを内部で合計 1 に正規化することに加え、そもそもスコアは重みベクトルの定数倍に不変（比率のみが効く）ためである。
 
 ### `compute_topsis()` の処理フロー
 
 ```
 1. validate_inputs()         → 入力サイズの整合性チェック
-2. NaN フィルタリング         → valid_indices を構築
-3. build_weighted_matrix()   → 列ノルム計算 → r_ij → w_ij
-4. find_ideal_solutions()    → is_minimize に応じて A+/A- を決定
-5. compute_scores()          → D+, D- → score_i
-6. NaN トライアルにスコア 0.0 を割り当て
-7. スコア降順ソートで ranked_indices を生成
+2. normalize_weights()       → 重みを合計 1 に正規化（退化時は均一重み）
+3. NaN/Inf フィルタリング     → valid_indices を構築
+4. build_weighted_matrix()   → 列ノルム計算 → r_ij → w_ij
+5. find_ideal_solutions()    → is_minimize に応じて A+/A- を決定
+6. compute_scores()          → D+, D- → score_i
+7. NaN/Inf トライアルにスコア 0.0 を割り当て
+8. スコア降順ソートで ranked_indices を生成
 ```
 
 ### 計算量
@@ -184,3 +192,9 @@ TopsisRankingChart のスライダーで感度確認するのが有効。
 - **重みスライダー**: 各目的関数の重み（0〜1）をリアルタイム変更→スコア再計算
 - **上位 N 件表示**: 5 / 10 / 20 件を切り替え
 - **バークリック**: 選択されたトライアルをハイライト（selectionStore 経由）
+
+---
+
+## 参考文献
+
+- Hwang, C.-L., & Yoon, K. (1981). _Multiple Attribute Decision Making: Methods and Applications_. Springer.

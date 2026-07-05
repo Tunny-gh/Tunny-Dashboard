@@ -14,7 +14,9 @@ $$
 W_k = \text{WCSS}(k) \quad \text{for } k = 2, \ldots, k_{\max}
 $$
 
-k_max = min(user limit, N).
+k_max = min(N, max-k setting) — the upper limit defaults to 10 and can be changed in the cluster widget UI ("Max k", range 2–50) when k selection is set to Elbow (Auto); N is the number of trials.
+
+**Note.** Each $W_k$ collected here is actually `model.inertia()` from linfa — the mean of squared distances to the nearest centroid (WCSS/N), not the summed WCSS — see the note in [kmeans.md](./kmeans.md#objective). Since N is constant across all k tried, this only rescales every $W_k$ by the same factor $1/N$ and does not change the location of the second-difference maximum below.
 
 ### Step 2: Second-Order Finite Difference
 
@@ -74,8 +76,12 @@ Recommended k = **3**.
 **Limitations**
 - Unreliable when WCSS decreases smoothly with no clear elbow
 - May over-estimate k on uniformly distributed data
-- If max_k is too small, the true elbow may be outside the search range
+- k_max defaults to 10; if the data genuinely needs more clusters, raise the "Max k" setting (up to 50) so the true elbow falls inside the search range — at the cost of more k-means runs
 
 ## When the Estimate Seems Off
 
 Switch to **Manual** mode and pick k directly. A useful heuristic: choose the k just after the steepest WCSS drop, preferring smaller k when interpretability matters.
+
+## References
+
+- Thorndike, R. L. (1953). Who Belongs in the Family? _Psychometrika_, 18(4), 267–276.

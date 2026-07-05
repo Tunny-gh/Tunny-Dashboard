@@ -32,7 +32,7 @@ $$
 
 $\sigma_j \approx 0$ の場合は $\sigma_j = 1.0$ で除算（定数列のゼロ除算を回避）。$y$ は平均センタリングのみ（$y_c = y - \bar{y}$）。
 
-連立方程式は部分ピボット選択付きガウス消去法で解く。
+連立方程式は **Cholesky（LLT）分解**（faer）で解く。$X^\top X + \alpha I$ は $\alpha > 0$ のとき常に対称正定値（SPD）になるため Cholesky が最適な解法であり、分解に失敗した場合はゼロ係数ベクトルにフォールバックする。
 
 ## PDP への適用
 
@@ -77,3 +77,7 @@ Ridge サロゲートは線形モデルであるため、信頼帯（`y_upper` /
 非線形・ノイジー・表形式？    → Random Forest
 滑らかな非線形？              → GP-FITC（または GP-VFE / GP-MOE）
 ```
+
+## 参考文献
+
+- Hoerl, A. E., & Kennard, R. W. (1970). Ridge Regression: Biased Estimation for Nonorthogonal Problems. *Technometrics*, 12(1), 55–67.

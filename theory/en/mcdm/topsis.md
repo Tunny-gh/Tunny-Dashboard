@@ -29,7 +29,7 @@ Multiply normalized values by user-assigned weights w_j:
 
 $$w_{ij} = w_j \cdot r_{ij}$$
 
-Weights are internally normalized to sum to 1.
+`compute_topsis` normalizes the weights internally so they sum to 1 (mirroring VIKOR; degenerate inputs such as all-zero or NaN weights fall back to uniform weights). The TOPSIS score is in any case invariant to a uniform rescaling of the weight vector: `w_ij = w_j · r_ij` scales every term by the same constant, so `D_i^+`, `D_i^-`, and therefore the score are unaffected — only the ratio between weights matters.
 
 ### Step 3: Ideal and Anti-Ideal Solutions
 
@@ -60,11 +60,11 @@ Sort by score descending.
 
 ## Edge Cases
 
-**NaN trials**: any trial with a NaN objective value is excluded from computation; its score is set to 0.0 and placed at the end of the ranking.
+**NaN/Inf trials**: any trial with a non-finite objective value (NaN or ±Inf) is excluded from computation; its score is set to 0.0 and placed at the end of the ranking.
 
 **All trials same value**: column norm = 0, so r_ij = 0, and D+ = D- = 0 → score = 0.5.
 
-**Weight scale invariance**: weights [0.7, 0.3] and [7.0, 3.0] give identical results because only the ratio matters after normalization.
+**Weight scale invariance**: weights [0.7, 0.3] and [7.0, 3.0] give identical results — `compute_topsis` normalizes weights to sum to 1 internally, and the score is invariant to a uniform rescaling of `w` in the first place; only the ratio between weights matters.
 
 ## Complexity
 
@@ -97,3 +97,7 @@ Want a fast, intuitive overall ranking?    → TOPSIS
 Need to balance utility vs. worst-case?   → VIKOR
 Want pairwise preference detail?           → PROMETHEE
 ```
+
+## References
+
+- Hwang, C.-L., & Yoon, K. (1981). _Multiple Attribute Decision Making: Methods and Applications_. Springer.

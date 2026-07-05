@@ -18,7 +18,7 @@ The initial centroid selection method for k-means. Both are **internal settings 
 | Init strategy | Description                                                                           | Best for                            |
 | ------------- | ------------------------------------------------------------------------------------- | ----------------------------------- |
 | k-means++     | D²-proportional probability sampling (Xoshiro256Plus, fixed seed derived from n · k) | Avoid local optima; quality-first   |
-| Deterministic | Deterministic reproduction with Xoshiro256Plus (fixed seed 42)                        | Fully reproducible results required |
+| Deterministic | Same k-means++ D²-proportional sampling (delegated to linfa), but with a fixed seed (42) | Fully reproducible results required |
 
 ## Choosing the Number of Clusters (k)
 
@@ -43,8 +43,8 @@ Run clustering
        └── Run k-means directly with user-specified k (applying Init strategy)
 
 Init strategy (differs only in k-means initialization)
-  ├── k-means++    → D²-proportional probability sampling
-  └── Deterministic → cumulative-distance threshold spread
+  ├── k-means++    → D²-proportional probability sampling (seed derived from n, k)
+  └── Deterministic → same D²-proportional sampling, seed fixed to 42
 ```
 
 ---
@@ -56,3 +56,13 @@ Init strategy (differs only in k-means initialization)
 | Objective Space | Objective values only      | Find trials with similar performance       |
 | Variable Space  | Parameter values only      | Identify patterns in design variables      |
 | Combined        | Objectives + parameters    | See joint structure across both spaces     |
+
+---
+
+## Related Methods
+
+Other structure-revealing tools in the same neighborhood, available as separate widgets:
+
+- [Hierarchical Clustering](./hierarchical.md) — builds a full merge tree (dendrogram) instead of committing to a single $k$ upfront
+- [PCA Biplot](./pca-biplot.md) — projects trials and variables onto a standardized 2D principal-component plane
+- [Self-Organizing Map (SOM)](./som.md) — a topology-preserving 2D map, complementary to a fixed $k$-cluster partition

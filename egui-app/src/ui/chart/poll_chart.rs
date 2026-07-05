@@ -1464,6 +1464,13 @@ fn compute_mcdm_result(
         }
         full
     };
+    let expand_counts = |subset_counts: Vec<u32>| -> Vec<u32> {
+        let mut full = vec![0u32; n_total];
+        for (j, &row) in pareto_row_indices.iter().enumerate() {
+            full[row] = subset_counts[j];
+        }
+        full
+    };
 
     match method {
         McdmMethod::Topsis => tunny_core::topsis::compute_topsis(
@@ -1524,6 +1531,7 @@ fn compute_mcdm_result(
                     phi_net: expand_scores(r.phi_net),
                     ranked_indices_i: r.ranked_indices_i.into_iter().map(&remap).collect(),
                     ranked_indices_ii: r.ranked_indices_ii.into_iter().map(remap).collect(),
+                    incomparable_counts: expand_counts(r.incomparable_counts),
                     duration_ms: r.duration_ms,
                 };
                 if method == McdmMethod::PrometheeI {
@@ -1563,7 +1571,7 @@ fn run_cluster_compute(
             let elbow = tunny_core::clustering::estimate_k_elbow(
                 &matrix.flat_data,
                 n_cols,
-                trial_count.min(10),
+                trial_count.min(req.elbow_max_k.clamp(2, 50)),
             );
             elbow.recommended_k.clamp(2, trial_count)
         }
