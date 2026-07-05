@@ -5,7 +5,7 @@
 SHAP（SHapley Additive exPlanations）は、ゲーム理論の **Shapley 値** に基づく特徴量重要度の計算手法（Lundberg & Lee, 2017）。
 各パラメータが予測値にどれだけ寄与したかを、**すべての特徴量の組み合わせ順序の平均**として厳密に定義する。
 
-ImportanceChart では **TreeSHAP**（Lundberg & Lee, 2018）を使用し、Random Forest の各木で Shapley 値を厳密かつ効率的に計算する。
+ImportanceChart では **TreeSHAP**（Lundberg et al., 2020）を使用し、Random Forest の各木で Shapley 値を厳密かつ効率的に計算する。
 本実装では TreeSHAP を自前で実装せず、**LightGBM の `predict_contrib`** に委譲している（後述）。
 グローバル重要度は各サンプルの $|\phi_j(x)|$ を全サンプル・全木にわたって平均し、合計が 1 になるよう正規化する。
 
@@ -59,7 +59,7 @@ $$
 ## TreeSHAP（LightGBM の `predict_contrib`）
 
 本実装では Shapley 値を自前で計算せず、**LightGBM の `predict_contrib`（C API: `C_API_PREDICT_CONTRIB`）** を利用する。
-LightGBM は内部で TreeSHAP（Lundberg et al. 2018）を実装しており、木モデルに対する Shapley 値を厳密かつ多項式時間（単一の木で $O(L \cdot D^2)$、$L$: 葉数、$D$: 深さ）で計算する。
+LightGBM は内部で TreeSHAP（Lundberg et al. 2020）を実装しており、木モデルに対する Shapley 値を厳密かつ多項式時間（単一の木で $O(L \cdot D^2)$、$L$: 葉数、$D$: 深さ）で計算する。
 
 `predict_contrib` はサンプルごとに長さ $P+1$ のベクトルを返す。先頭 $P$ 要素が各特徴量の寄与 $\phi_j(x)$、末尾 1 要素がバイアス項（期待値 $\mathbb{E}[\hat{f}]$）であり、**バイアス項はグローバル重要度の集計から除外する**。
 

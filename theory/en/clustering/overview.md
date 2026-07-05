@@ -42,3 +42,9 @@ Init strategy (applies within k-means):
 | Objective Space | Objective values only      | Find trials with similar performance      |
 | Variable Space  | Parameter values only      | Identify patterns in design variables     |
 | Combined        | Objectives + parameters    | See joint structure across both spaces    |
+
+## Related Methods
+
+- [Hierarchical Clustering](./hierarchical.md) — dendrogram-based, no upfront $k$
+- [PCA Biplot](./pca-biplot.md) — standardized 2D principal-component projection
+- [Self-Organizing Map (SOM)](./som.md) — topology-preserving 2D map

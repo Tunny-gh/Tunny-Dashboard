@@ -17,7 +17,7 @@ $$
 Global SHAP importance:
 
 $$
-\operatorname{score}_j = \operatorname{mean} |\varphi_j(x)| \text{ over all samples and trees}
+\operatorname{score}_j = \operatorname{mean} |\varphi_j(x)| \text{ over the training split}
 $$
 
 Shapley values satisfy four axioms: efficiency, symmetry, linearity, dummy (a feature with no effect gets zero).
@@ -26,7 +26,7 @@ Shapley values satisfy four axioms: efficiency, symmetry, linearity, dummy (a fe
 
 | Aspect | SHAP | MDI | RF-ANOVA |
 | --- | --- | --- | --- |
-| Theoretical basis | Shapley axioms | Impurity reduction | Permutation accuracy drop |
+| Theoretical basis | Shapley axioms | Impurity reduction | Variance decomposition over leaf boxes (fANOVA) |
 | High-cardinality bias | None | High | Low |
 | Local interpretability | Yes | No | No |
 | Cost | Medium–High | Low | Medium |

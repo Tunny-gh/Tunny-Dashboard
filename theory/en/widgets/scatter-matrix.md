@@ -12,7 +12,7 @@ The Scatter Matrix (also called a pairplot) shows pairwise scatter plots for eve
 ## How to Read
 
 - **Axis labels**: Row and column labels identify the variable for each cell. The diagonal cells show a histogram of that variable's distribution.
-- **Cross-widget selection**: the scatter matrix is a read-only consumer of selections. When another widget (e.g. Parallel Coordinates or Trial Table) makes a selection, the corresponding points are highlighted here. Clicking inside the scatter matrix does not generate cross-widget selections.
+- **Selection**: the scatter matrix does not participate in cross-widget selection — it neither highlights selections made in other widgets nor generates its own when clicked.
 
 ## Correlation Coefficient Cells (Upper Triangle)
 
@@ -26,5 +26,5 @@ Because Pearson correlation measures linear co-movement, note that a curved (non
 - **Curved or nonlinear pattern**: a curved cloud of points indicates a nonlinear relationship — use PDP Chart 2D for a detailed view.
 - **Circular cloud**: no systematic correlation between the two variables.
 - **Clusters**: distinct groups of points in a cell suggest that trials fall into discrete categories for those two variables.
-- **Off-diagonal cells**: each cell (i, j) shows variable i on the X axis and variable j on the Y axis. Cell (j, i) shows the mirror plot.
+- **Triangular layout**: the diagonal cells show a histogram of each variable's distribution; the lower-triangle cells (row > column) show a scatter plot of the column variable (X) against the row variable (Y); the upper-triangle cells (row < column) show the pairwise correlation coefficient instead of a mirrored scatter plot — each variable pair is plotted only once.
 - **Looking for important parameters**: look for cells where a parameter axis shows a strong pattern with an objective axis — those parameters likely have high importance.
