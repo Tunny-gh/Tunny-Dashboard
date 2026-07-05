@@ -89,10 +89,12 @@ fn fetch_metric_names(
     backend: &mut dyn OptunaBackend,
     study_id: i64,
 ) -> Result<Vec<String>, String> {
+    // `key` は MySQL/MariaDB の予約語のため、他クエリと同様テーブル修飾して参照する
+    // （`tsa.key` のようにエイリアス修飾されていれば問題ないが、無修飾だと構文エラーになる）。
     let rows = backend
         .query(
             "SELECT value_json FROM study_system_attributes \
-             WHERE study_id = ? AND key = 'study:metric_names'",
+             WHERE study_id = ? AND study_system_attributes.key = 'study:metric_names'",
             &[SqlParam::I64(study_id)],
         )
         .map_err(|e| format!("Failed to query study_system_attributes: {e}"))?;
