@@ -141,10 +141,23 @@ If $R^2$ is low (< 0.5), the relationship is strongly non-linear → check with 
 Algorithms used to optimize on the surrogate model.
 
 - [L-BFGS (Limited-memory BFGS)](optimization/lbfgs.md)
+- [NSGA-II (fast non-dominated sorting genetic algorithm)](optimization/nsga2.md)
+- [CMA-ES (Covariance Matrix Adaptation Evolution Strategy)](optimization/cma-es.md)
 - [**Acquisition functions (Expected Improvement / Lower Confidence Bound)**](optimization/acquisition-functions.md)
 - [**Expected Hypervolume Improvement (EHVI)**](optimization/ehvi.md)
 - [**Hypervolume (WFG algorithm)**](optimization/hypervolume.md)
 - [**Robustness analysis (Monte Carlo noise propagation)**](optimization/robustness-analysis.md)
+
+### Multi-objective convergence indicators
+
+The 4 indicators used by the Convergence chart to track Pareto-front quality as trials accumulate. The reference set and scale are shared across all series, so multiple Studies can be compared on the same chart.
+
+| Indicator | Direction | Notes | Details |
+|-----------|-----------|-------|---------|
+| Hypervolume | higher is better | Dominated volume w.r.t. a reference point; no reference set needed | [optimization/hypervolume.md](optimization/hypervolume.md) |
+| IGD+ | lower is better | Mean modified distance to the reference set; weakly Pareto compliant | [optimization/igd-plus.md](optimization/igd-plus.md) |
+| additive ε | lower is better | Smallest translation to weakly dominate the reference set (worst-case) | [optimization/epsilon-indicator.md](optimization/epsilon-indicator.md) |
+| R2 | lower is better | Mean weighted Tchebycheff utility (Das–Dennis weights) | [optimization/r2-indicator.md](optimization/r2-indicator.md) |
 
 ---
 
@@ -160,6 +173,17 @@ Clustering-related methods used by the `ClusterScatter` widget.
 | PCA Biplot | Standardized PCA plane with trial scores and variable loading arrows | [clustering/pca-biplot.md](clustering/pca-biplot.md) |
 | SOM (Self-Organizing Map) | Topology-preserving 2D map of the design space (U-matrix, component planes) | [clustering/som.md](clustering/som.md) |
 | [Overview](clustering/overview.md) | Clustering pipeline summary | [clustering/overview.md](clustering/overview.md) |
+
+---
+
+## Computational Geometry (Contours / Interpolation)
+
+Algorithms used by the Observed Contour widget to build the value grid and extract contour lines.
+
+| Method | Role | Details |
+|--------|------|---------|
+| Delaunay triangulation interpolation | Piecewise-linear interpolation inside the convex hull from observed points only (no extrapolation; sparsity guard) | [geometry/delaunay-interpolation.md](geometry/delaunay-interpolation.md) |
+| Marching squares | Iso-line extraction from a masked value grid | [geometry/marching-squares.md](geometry/marching-squares.md) |
 
 ---
 
@@ -226,6 +250,10 @@ I want to analyze optimization results
   │    └── survey all pairwise correlations → Correlation Matrix (Pearson / Spearman)
   │         └── inspect interesting pairs   → Scatter Matrix (actual shapes, clusters)
   │
+  ├── Check multi-objective convergence
+  │    └── Convergence chart → HV / IGD+ / ε-indicator / R2
+  │         (compare multiple Studies against a shared reference set)
+  │
   ├── Pick good trials
   │    ├── holistic multi-objective score → TOPSIS / VIKOR / PROMETHEE (MCDM chart)
   │    ├── full trade-off                 → Pareto Front (ParetoFront chart)
@@ -241,6 +269,7 @@ I want to analyze optimization results
   │
   └── Visualize parameter–objective relationships
        ├── 1 parameter → 1D PDP (PdpChart)
+       ├── observed values only, no model → Observed Contour (Delaunay interpolation, no extrapolation)
        ├── local landscape around a candidate → Response Surface 3D (surrogate slice)
        └── 2 parameters → 2D PDP (PdpChart2DState)
             ├── fast / linear              → Ridge regression

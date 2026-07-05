@@ -30,3 +30,5 @@ Use this chart to explore trade-offs between two objectives and identify the bes
 - **Trade-off shape**: a smooth Pareto curve indicates a continuous trade-off. A scattered front may indicate insufficient trials or conflicting objectives.
 - **Gaps in the front**: regions where no solution has been found — consider running more trials in those areas.
 - **Outliers far from the front**: dominated trials that performed poorly on both objectives.
+
+> Pareto front (non-dominated) classification is computed with fast non-dominated sort (Deb et al. 2002). See [NSGA-II — Fast Non-dominated Sort](../optimization/nsga2.md) for the algorithm.
