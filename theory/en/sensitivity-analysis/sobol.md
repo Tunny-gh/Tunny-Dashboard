@@ -72,3 +72,9 @@ Because Monte Carlo integration is impractical for real trial data, a **quadrati
 - When interactions between parameters are important.
 - When a global, model-agnostic sensitivity measure is needed.
 - After Spearman / Ridge screening identifies top candidates.
+
+## References
+
+- Saltelli, A. et al. (2010). Variance based sensitivity analysis of model output. Design and estimator for the total sensitivity index. _Computer Physics Communications_, 181(2), 259–270.
+- Jansen, M. J. W. (1999). Analysis of variance designs for model output. _Computer Physics Communications_, 117(1), 35–43.
+- Sobol, I. M. (1993). Sensitivity estimates for nonlinear mathematical models. _Mathematical Modelling and Computational Experiments_, 1(4), 407–414.
