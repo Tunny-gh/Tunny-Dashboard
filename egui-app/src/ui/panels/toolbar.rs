@@ -110,11 +110,13 @@ pub fn show_toolbar(
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // ライブ更新トグル（journal (.log) ファイル以外では無効。CSV / SQLite は
-            // ストリーミング追記の対象外のため、開いていても押せないようにする）。
-            let can_toggle = app_state.journal_path.as_deref().is_some_and(|p| {
-                !crate::io::flat_csv::is_csv_path(p) && !crate::io::sqlite::is_sqlite_path(p)
-            });
+            // ライブ更新トグル（journal (.log) / SQLite (.db 等) ファイルのみ有効。
+            // フラット CSV は 1 回きりのインポートでストリーミング追記の概念が無いため
+            // 開いていても押せないようにする）。
+            let can_toggle = app_state
+                .journal_path
+                .as_deref()
+                .is_some_and(|p| !crate::io::flat_csv::is_csv_path(p));
             let live_label = if app_state.live_update.enabled {
                 format!("Live: On ({}s)", app_state.live_update.interval_ms / 1000)
             } else {
@@ -122,8 +124,9 @@ pub fn show_toolbar(
             };
             let mut response = toolbar_button(ui, &live_label, can_toggle);
             if !can_toggle {
-                response = response
-                    .on_hover_text("Live Update is available for journal (.log) files only");
+                response = response.on_hover_text(
+                    "Live Update is available for journal (.log) / SQLite files only",
+                );
             }
             if response.clicked() && can_toggle {
                 actions.push(ToolbarAction::ToggleLiveUpdate);

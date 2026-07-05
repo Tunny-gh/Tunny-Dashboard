@@ -181,6 +181,15 @@ impl MessageHandler {
             AppMessage::LiveUpdateMaybeComplete => {
                 app_state.live_update.showing_completion_hint = true;
             }
+            AppMessage::SqliteLiveChanged { .. } => {
+                // 実際の再ロードはワーカースレッド経由で行う必要があるため、ここでは
+                // 状態を変更しない。呼び出し側（app.rs）が `sqlite_reload_study_id` で
+                // このメッセージを検出し `dispatch_reload_sqlite_study` を発行する。
+                // 再ロード結果は `SqliteLiveReloadDone` として届く。
+            }
+            AppMessage::SqliteLiveReloadDone { study_id, meta } => {
+                Self::handle_sqlite_live_reload_done(study_id, meta, app_state);
+            }
             AppMessage::PdpDone {
                 param,
                 objective,
@@ -454,6 +463,71 @@ impl MessageHandler {
         if is_final {
             Self::refresh_best_trial_history(app_state);
             *is_loading = false;
+        }
+    }
+
+    /// `AppMessage::SqliteLiveChanged` を受けて再ロードが必要な study_id を返す。
+    /// SQLite は trial 状態がインプレースで変わるため journal のような差分適用が
+    /// できず、フィンガープリント変化を検出したら対象 study を丸ごと再パースする
+    /// 必要がある。その再パースはワーカースレッド経由で行う必要があるため
+    /// （`MessageHandler::handle` は tx を持たない）、呼び出し側（app.rs）が本関数で
+    /// 対象 study_id を取り出し `dispatch_reload_sqlite_study` を発行する。
+    pub fn sqlite_reload_study_id(msg: &AppMessage) -> Option<u32> {
+        match msg {
+            AppMessage::SqliteLiveChanged { study_id } => Some(*study_id),
+            _ => None,
+        }
+    }
+
+    /// `AppMessage::SqliteLiveReloadDone` の処理本体。
+    ///
+    /// ワーカースレッド（`crate::io::sqlite::reload_single_study_task`）が既に
+    /// `swap_snapshot` / `store_extras_for` で共有ストアを差し替え済みなので、ここでは
+    /// - アクティブ化（`select_study`）
+    /// - Pareto ランクの再計算（通常の sqlite study 選択と同じ計算）
+    /// - StudyView の差し替え
+    /// - 収束履歴の作り直し・行数依存キャッシュの破棄（`handle_live_update_done` と同一）
+    ///
+    /// のみを行う。journal と異なり新規行の追記ではなく DataFrame 全体の置き換えである点が違うが、
+    /// スワップ後のマージ処理（キャッシュ破棄・履歴再計算・study 件数更新）は
+    /// `handle_live_update_done` と完全に同じにする。
+    fn handle_sqlite_live_reload_done(
+        study_id: u32,
+        meta: crate::state::app_state::StudyMeta,
+        app_state: &mut AppState,
+    ) {
+        if let Some(study) = &mut app_state.current_study {
+            if study.meta.study_id == study_id {
+                if let Some(df) = tunny_core::dataframe::snapshot(study_id) {
+                    let _ = tunny_core::dataframe::select_study(study_id);
+                    let is_minimize: Vec<bool> = meta
+                        .directions
+                        .iter()
+                        .map(|d| matches!(d, Direction::Minimize))
+                        .collect();
+                    let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
+                    study.view = StudyView::new(df, pareto.ranks);
+                    study.pareto_indices = pareto.pareto_indices;
+                    study.meta = meta.clone();
+                }
+            }
+        }
+
+        // ライブ更新で trial 数・best 値が変わるため収束履歴も作り直す
+        // （handle_live_update_done と同じ）。
+        Self::refresh_best_trial_history(app_state);
+
+        // トライアル数が変わるとキャッシュ済み結果の行数が合わなくなるため破棄する。
+        app_state.cluster_cache.clear();
+        app_state.mcdm_cache.clear();
+        app_state.mcdm_result = None;
+
+        if let Some(existing) = app_state
+            .all_studies
+            .iter_mut()
+            .find(|m| m.study_id == study_id)
+        {
+            *existing = meta;
         }
     }
 
@@ -1294,6 +1368,133 @@ mod tests {
         );
 
         assert!(app_state.live_update.showing_completion_hint);
+    }
+
+    // ── SQLite ライブ更新: SqliteLiveChanged / SqliteLiveReloadDone ──────
+
+    #[test]
+    fn sqlite_live_changed_reports_reload_study_id() {
+        // SqliteLiveChanged は再ロードが必要な study_id を運ぶだけのシグナルメッセージ。
+        // 実際の再ロード dispatch は tx を持つ app.rs が本関数の戻り値で行う。
+        let msg = AppMessage::SqliteLiveChanged { study_id: 7 };
+        assert_eq!(MessageHandler::sqlite_reload_study_id(&msg), Some(7));
+    }
+
+    #[test]
+    fn sqlite_reload_study_id_is_none_for_other_messages() {
+        let msg = AppMessage::LiveUpdateMaybeComplete;
+        assert_eq!(MessageHandler::sqlite_reload_study_id(&msg), None);
+    }
+
+    #[test]
+    fn sqlite_live_changed_handle_does_not_mutate_state() {
+        // handle() 自体は状態を変更しない（dispatch は app.rs 側の責務）。
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        MessageHandler::handle(
+            AppMessage::SqliteLiveChanged { study_id: 0 },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.current_study.is_none());
+        assert!(load_error.is_none());
+    }
+
+    #[test]
+    fn sqlite_live_reload_done_rebuilds_view_and_clears_caches() {
+        let _g = test_store_guard();
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error = None;
+
+        // 初期選択: 3 trial の study_id=0。
+        MessageHandler::handle(
+            make_study_message(3),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+        app_state.all_studies = vec![StudyMeta {
+            study_id: 0,
+            name: "s".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: 3,
+            param_names: vec!["x".to_string()],
+            objective_names: vec!["y".to_string()],
+            param_bounds: Default::default(),
+        }];
+        // キャッシュに何か入っていることをシミュレートする（reload で破棄されるはず）。
+        app_state.mcdm_result = Some(crate::state::app_state::McdmResult::Topsis(
+            crate::state::app_state::TopsisResult {
+                scores: vec![0.5],
+                ranked_indices: vec![0],
+                duration_ms: 1.0,
+            },
+        ));
+
+        // ワーカースレッドが行うのと同じく、再ロード結果（8 trial）を共有ストアへ
+        // 先に反映してから SqliteLiveReloadDone を送る想定。
+        let reloaded_rows: Vec<CoreTrialRow> = (0..8)
+            .map(|i| CoreTrialRow {
+                trial_id: i as u32,
+                trial_number: i as u32,
+                param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
+                param_category_label: std::collections::HashMap::new(),
+                objective_values: vec![i as f64],
+                user_attrs_numeric: std::collections::HashMap::new(),
+                user_attrs_string: std::collections::HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let reloaded_df = DataFrame::from_trials(
+            &reloaded_rows,
+            &["x".to_string()],
+            &["y".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        tunny_core::dataframe::swap_snapshot(0, std::sync::Arc::new(reloaded_df));
+
+        MessageHandler::handle(
+            AppMessage::SqliteLiveReloadDone {
+                study_id: 0,
+                meta: StudyMeta {
+                    study_id: 0,
+                    name: "s".to_string(),
+                    directions: vec![Direction::Minimize],
+                    completed_trials: 8,
+                    param_names: vec!["x".to_string()],
+                    objective_names: vec!["y".to_string()],
+                    param_bounds: Default::default(),
+                },
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let study = app_state.current_study.as_ref().unwrap();
+        assert_eq!(study.trial_count(), 8, "view must reflect the reloaded df");
+        assert!(
+            !study.pareto_indices.is_empty(),
+            "pareto ranks must be recomputed"
+        );
+        assert_eq!(study.meta.completed_trials, 8);
+        assert!(
+            app_state.mcdm_result.is_none(),
+            "row-count-dependent caches must be cleared"
+        );
+        assert_eq!(app_state.all_studies[0].completed_trials, 8);
     }
 
     #[test]

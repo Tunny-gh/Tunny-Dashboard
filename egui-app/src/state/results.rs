@@ -259,6 +259,16 @@ pub struct ConvergenceHistory {
 // ライブ更新状態
 // ============================================================
 
+/// ライブ更新対象のストレージ種別。ポーラーの実装（journal: バイトオフセット差分 /
+/// sqlite: フィンガープリント + 単一 Study 丸ごと再ロード）を切り替えるために使う。
+/// ファイルロード時（`AppMessage::JournalParsed` 処理）に確定する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LiveUpdateStorageKind {
+    #[default]
+    Journal,
+    Sqlite,
+}
+
 #[derive(Debug)]
 pub struct LiveUpdateState {
     pub enabled: bool,
@@ -268,6 +278,9 @@ pub struct LiveUpdateState {
     pub consecutive_errors: u32,
     pub poller_active: bool,
     pub showing_completion_hint: bool,
+    /// 現在開いているファイルのストレージ種別（journal / sqlite）。
+    /// sqlite はバイトオフセット差分が使えないため、ポーラーの実装を切り替える。
+    pub storage_kind: LiveUpdateStorageKind,
 }
 
 impl Clone for LiveUpdateState {
@@ -280,6 +293,7 @@ impl Clone for LiveUpdateState {
             consecutive_errors: self.consecutive_errors,
             poller_active: false,
             showing_completion_hint: self.showing_completion_hint,
+            storage_kind: self.storage_kind,
         }
     }
 }
@@ -294,6 +308,7 @@ impl Default for LiveUpdateState {
             consecutive_errors: 0,
             poller_active: false,
             showing_completion_hint: false,
+            storage_kind: LiveUpdateStorageKind::default(),
         }
     }
 }
@@ -334,6 +349,25 @@ mod tests {
         assert_eq!(state.consecutive_errors, 0);
         assert!(!state.poller_active);
         assert!(!state.showing_completion_hint);
+        assert_eq!(state.storage_kind, LiveUpdateStorageKind::Journal);
+    }
+
+    #[test]
+    fn live_update_storage_kind_default_is_journal() {
+        assert_eq!(
+            LiveUpdateStorageKind::default(),
+            LiveUpdateStorageKind::Journal
+        );
+    }
+
+    #[test]
+    fn live_update_state_clone_preserves_storage_kind() {
+        let state = LiveUpdateState {
+            storage_kind: LiveUpdateStorageKind::Sqlite,
+            ..Default::default()
+        };
+        let cloned = state.clone();
+        assert_eq!(cloned.storage_kind, LiveUpdateStorageKind::Sqlite);
     }
 
     #[test]

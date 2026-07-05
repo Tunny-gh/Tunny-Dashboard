@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::io::Seek;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
@@ -185,6 +186,138 @@ fn polling_loop(
     }
 }
 
+// =============================================================================
+// SQLite ライブ更新ポーラー
+//
+// journal はバイトオフセット差分で追記分だけを解析できるが、SQLite は
+// Optuna が trial の状態をインプレースで更新する（RUNNING→COMPLETE 等）ため
+// オフセット差分が使えない。代わりに `tunny_core::sqlite::study_fingerprint`
+// で変化の有無だけを安価に検出し、変化を検出したら対象 study を丸ごと
+// 再ロードするようメインスレッドへシグナルを送る（実際の再パースは
+// study worker スレッドが行う。本ポーラーはフィンガープリント取得のみ）。
+// =============================================================================
+
+/// SQLite ライブ更新ポーリングスレッドへ渡すコンテキスト。
+#[derive(Debug, Clone)]
+pub struct SqliteLiveUpdateContext {
+    pub file_path: PathBuf,
+    /// ポーリング対象 study（フィンガープリントは study 単位でしか取れない）。
+    pub study_id: u32,
+    /// ポーリング開始時点のフィンガープリント（journal の `initial_byte_offset` に相当）。
+    pub initial_fingerprint: tunny_core::sqlite::StudyFingerprint,
+    /// Milliseconds of no change before sending completion hint (default: 60_000)
+    pub no_change_timeout_ms: u64,
+}
+
+pub struct SqliteLivePoller {
+    stop_signal: Arc<AtomicBool>,
+    interval_ms: Arc<AtomicU64>,
+    thread_handle: Option<JoinHandle<()>>,
+}
+
+impl SqliteLivePoller {
+    pub fn start(
+        context: SqliteLiveUpdateContext,
+        tx: SyncSender<AppMessage>,
+        interval_ms: u64,
+    ) -> Self {
+        let stop_signal = Arc::new(AtomicBool::new(false));
+        let interval = Arc::new(AtomicU64::new(interval_ms));
+
+        let stop_clone = stop_signal.clone();
+        let interval_clone = interval.clone();
+        let no_change_timeout = Duration::from_millis(context.no_change_timeout_ms);
+
+        let handle = thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                sqlite_polling_loop(
+                    context,
+                    &tx,
+                    &stop_clone,
+                    &interval_clone,
+                    no_change_timeout,
+                );
+            }));
+            if result.is_err() {
+                let _ = tx.send(AppMessage::LiveUpdateError(
+                    "ポーリングスレッドが異常終了".to_string(),
+                ));
+            }
+        });
+
+        SqliteLivePoller {
+            stop_signal,
+            interval_ms: interval,
+            thread_handle: Some(handle),
+        }
+    }
+
+    pub fn stop(&mut self) {
+        self.stop_signal.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+        }
+    }
+
+    pub fn update_interval(&self, new_interval_ms: u64) {
+        self.interval_ms.store(new_interval_ms, Ordering::Relaxed);
+    }
+}
+
+fn sqlite_polling_loop(
+    context: SqliteLiveUpdateContext,
+    tx: &SyncSender<AppMessage>,
+    stop_signal: &AtomicBool,
+    interval_ms: &AtomicU64,
+    no_change_timeout: Duration,
+) {
+    let study_id = context.study_id;
+    let mut last_fingerprint = context.initial_fingerprint;
+    let mut error_count: u32 = 0;
+    let mut last_changed = SystemTime::now();
+    let mut completion_hint_sent = false;
+
+    loop {
+        if stop_signal.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let sleep_ms = interval_ms.load(Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(sleep_ms));
+
+        if stop_signal.load(Ordering::Relaxed) {
+            break;
+        }
+
+        match tunny_core::sqlite::study_fingerprint(&context.file_path, study_id) {
+            Ok(fingerprint) => {
+                error_count = 0;
+                if fingerprint != last_fingerprint {
+                    last_fingerprint = fingerprint;
+                    last_changed = SystemTime::now();
+                    completion_hint_sent = false;
+                    let _ = tx.send(AppMessage::SqliteLiveChanged { study_id });
+                } else if !completion_hint_sent {
+                    if let Ok(elapsed) = SystemTime::now().duration_since(last_changed) {
+                        if elapsed >= no_change_timeout {
+                            let _ = tx.send(AppMessage::LiveUpdateMaybeComplete);
+                            completion_hint_sent = true;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(AppMessage::LiveUpdateError(format!(
+                    "Live update: sqlite fingerprint error ({e})"
+                )));
+                if escalate_error(&mut error_count, tx, stop_signal) {
+                    break;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +480,168 @@ mod tests {
         assert!(
             found,
             "Expected LiveUpdateMaybeComplete after no-change timeout"
+        );
+    }
+}
+
+// =============================================================================
+// SqliteLivePoller tests
+// =============================================================================
+
+#[cfg(test)]
+mod sqlite_poller_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    /// `study_fingerprint` / `ensure_optuna_schema` が要求する最小限のテーブルだけを
+    /// 持つフィクスチャ DB を作る（`rust_core::io::sqlite::tests` の `create_schema` と
+    /// 同趣旨だが、egui-app 側からは private のため独自に用意する）。
+    fn make_fixture_db(path: &std::path::Path) -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE studies (
+                study_id INTEGER PRIMARY KEY,
+                study_name VARCHAR(512)
+            );
+            CREATE TABLE trials (
+                trial_id INTEGER PRIMARY KEY,
+                number INTEGER,
+                study_id INTEGER,
+                state VARCHAR(8),
+                datetime_start TEXT,
+                datetime_complete TEXT
+            );
+            INSERT INTO studies (study_id, study_name) VALUES (1, 'study-a');
+            INSERT INTO trials (trial_id, number, study_id, state) VALUES (1, 0, 1, 'RUNNING');
+            ",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn make_sqlite_context(
+        path: PathBuf,
+        study_id: u32,
+        fingerprint: tunny_core::sqlite::StudyFingerprint,
+    ) -> SqliteLiveUpdateContext {
+        SqliteLiveUpdateContext {
+            file_path: path,
+            study_id,
+            initial_fingerprint: fingerprint,
+            no_change_timeout_ms: 200, // short timeout for tests
+        }
+    }
+
+    fn make_channel() -> (SyncSender<AppMessage>, mpsc::Receiver<AppMessage>) {
+        mpsc::sync_channel(32)
+    }
+
+    #[test]
+    fn sqlite_poller_detects_trial_state_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("study.db");
+        let conn = make_fixture_db(&path);
+
+        let initial = tunny_core::sqlite::study_fingerprint(&path, 1).unwrap();
+        let (tx, rx) = make_channel();
+        let mut poller =
+            SqliteLivePoller::start(make_sqlite_context(path.clone(), 1, initial), tx, 50);
+
+        // Optuna が RUNNING trial を COMPLETE へ遷移させたのと同じ状況を作る。
+        conn.execute(
+            "UPDATE trials SET state = 'COMPLETE' WHERE trial_id = 1",
+            [],
+        )
+        .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut found = false;
+        while std::time::Instant::now() < deadline {
+            if let Ok(AppMessage::SqliteLiveChanged { study_id }) = rx.try_recv() {
+                assert_eq!(study_id, 1);
+                found = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        poller.stop();
+        assert!(found, "Expected SqliteLiveChanged after state transition");
+    }
+
+    #[test]
+    fn sqlite_poller_no_change_sends_no_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("study.db");
+        let _conn = make_fixture_db(&path);
+
+        let initial = tunny_core::sqlite::study_fingerprint(&path, 1).unwrap();
+        let (tx, rx) = make_channel();
+        let mut poller = SqliteLivePoller::start(make_sqlite_context(path, 1, initial), tx, 50);
+
+        thread::sleep(Duration::from_millis(150));
+        poller.stop();
+
+        let messages: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert!(
+            !messages
+                .iter()
+                .any(|m| matches!(m, AppMessage::SqliteLiveChanged { .. })),
+            "No SqliteLiveChanged expected when the DB is unchanged"
+        );
+    }
+
+    #[test]
+    fn sqlite_poller_no_change_timeout_sends_maybe_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("study.db");
+        let _conn = make_fixture_db(&path);
+
+        let initial = tunny_core::sqlite::study_fingerprint(&path, 1).unwrap();
+        let (tx, rx) = make_channel();
+        let mut poller = SqliteLivePoller::start(make_sqlite_context(path, 1, initial), tx, 50);
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut found = false;
+        while std::time::Instant::now() < deadline {
+            if let Ok(AppMessage::LiveUpdateMaybeComplete) = rx.try_recv() {
+                found = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        poller.stop();
+        assert!(
+            found,
+            "Expected LiveUpdateMaybeComplete after no-change timeout"
+        );
+    }
+
+    #[test]
+    fn sqlite_poller_missing_file_auto_stops_after_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let nonexistent = dir.path().join("does_not_exist.db");
+
+        let (tx, rx) = make_channel();
+        let mut poller = SqliteLivePoller::start(
+            make_sqlite_context(nonexistent, 1, Default::default()),
+            tx,
+            50,
+        );
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut got_error = false;
+        while std::time::Instant::now() < deadline {
+            if let Ok(AppMessage::LiveUpdateError(_)) = rx.try_recv() {
+                got_error = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        poller.stop();
+        assert!(
+            got_error,
+            "Expected LiveUpdateError after consecutive fingerprint errors"
         );
     }
 }

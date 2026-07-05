@@ -37,6 +37,13 @@ enum StudyCommand {
         meta: StudyMeta,
         tx: SyncSender<AppMessage>,
     },
+    /// SQLite ライブ更新: フィンガープリント変化を検出した study を丸ごと再パースする。
+    /// `SelectStudy` と異なり `loaded_study_ids` の有無に関わらず必ず再パースする
+    /// （既にロード済みでも中身が変わっているのが再ロードの動機のため）。
+    ReloadSqliteStudy {
+        study_id: u32,
+        tx: SyncSender<AppMessage>,
+    },
 }
 
 /// ワーカースレッドのローカル状態
@@ -198,6 +205,15 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         };
                         let _ = tx.send(msg);
                     }
+                    StudyCommand::ReloadSqliteStudy { study_id, tx } => {
+                        if let Some(ref path) = state.sqlite_path {
+                            crate::io::sqlite::reload_single_study_task(path, study_id, &tx);
+                        } else {
+                            let _ = tx.send(AppMessage::Error(
+                                "SQLite live update requires an open SQLite study".to_string(),
+                            ));
+                        }
+                    }
                 }
             }
         });
@@ -228,6 +244,11 @@ pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
 /// アクティブ Study を変更せずに `ComparisonStudyLoaded` を送信する。
 pub fn dispatch_load_comparison_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, tx });
+}
+
+/// SQLite ライブ更新: フィンガープリント変化を検出した study の再ロードを依頼する。
+pub fn dispatch_reload_sqlite_study(study_id: u32, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ReloadSqliteStudy { study_id, tx });
 }
 
 /// 比較 Study の DataFrame スナップショットから `StudyContext` を構築する。

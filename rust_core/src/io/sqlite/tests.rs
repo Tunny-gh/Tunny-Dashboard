@@ -423,3 +423,107 @@ fn scan_study_list_empty_database_errors() {
     let result = scan_study_list(file.path());
     assert!(result.is_err());
 }
+
+// ── study_fingerprint（ライブ更新の変化検出） ─────────────────────────
+
+#[test]
+fn study_fingerprint_equal_on_unchanged_db() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_eq!(fp1, fp2);
+}
+
+#[test]
+fn study_fingerprint_changes_when_trial_added() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+
+    conn.execute(
+        "INSERT INTO trials (trial_id, number, study_id, state) VALUES (100, 4, 1, 'RUNNING')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_ne!(fp1, fp2);
+    assert_eq!(fp2.total_trials, fp1.total_trials + 1);
+    assert_eq!(fp2.max_trial_id, 100);
+}
+
+#[test]
+fn study_fingerprint_changes_when_state_updated() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+
+    // trial 4 (PRUNED) を COMPLETE へ遷移させる（RUNNING→COMPLETE と同じ意味論）。
+    conn.execute(
+        "UPDATE trials SET state = 'COMPLETE' WHERE trial_id = 4",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_ne!(fp1, fp2);
+    assert_eq!(fp2.completed_trials, fp1.completed_trials + 1);
+    // state のみの変化では total_trials / max_trial_id は変わらない。
+    assert_eq!(fp2.total_trials, fp1.total_trials);
+    assert_eq!(fp2.max_trial_id, fp1.max_trial_id);
+}
+
+#[test]
+fn study_fingerprint_changes_when_intermediate_value_added() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    add_intermediate_values_table(&conn);
+    seed_basic(&conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+
+    conn.execute(
+        "INSERT INTO trial_intermediate_values \
+         (trial_id, step, intermediate_value, intermediate_value_type) \
+         VALUES (1, 0, 0.5, 'FINITE')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_ne!(fp1, fp2);
+    assert_eq!(fp2.intermediate_count, fp1.intermediate_count + 1);
+    // trials テーブル自体は変化していないため他フィールドは同じ。
+    assert_eq!(fp2.total_trials, fp1.total_trials);
+    assert_eq!(fp2.completed_trials, fp1.completed_trials);
+    assert_eq!(fp2.state_digest, fp1.state_digest);
+}
+
+#[test]
+fn study_fingerprint_works_when_intermediate_table_absent() {
+    // trial_intermediate_values テーブルが存在しない古い DB でもエラーにならず、
+    // intermediate_count は 0 になる（フォールバック）。
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let fp = study_fingerprint(file.path(), 1).unwrap();
+    assert_eq!(fp.intermediate_count, 0);
+}

@@ -5513,6 +5513,7 @@ dependencies = [
  "open",
  "pulldown-cmark",
  "rfd",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

@@ -99,6 +99,120 @@ fn objective_names_for(
     }
 }
 
+/// ライブ更新のポーリングで変化検出に使う軽量フィンガープリント。
+///
+/// journal と異なり SQLite は trial の状態がインプレースで更新される
+/// （RUNNING → COMPLETE 等）ため、バイトオフセット差分方式が使えない。
+/// 代わりに本フィンガープリントで変化の有無だけを安価に検出し、変化を検出したら
+/// 対象 study を丸ごと再パースする（`parse_single_study`）方式を取る。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StudyFingerprint {
+    pub total_trials: u32,
+    pub completed_trials: u32,
+    pub max_trial_id: i64,
+    /// 中間値レコード総数（テーブルが無ければ 0）。RUNNING trial の進捗検出用。
+    pub intermediate_count: i64,
+    /// state 文字列の集計ハッシュ（state 遷移の検出用）。
+    pub state_digest: u64,
+}
+
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+/// FNV-1a でバイト列をハッシュへ畳み込む（pure std、追加依存なし）。
+fn fnv1a_fold(mut hash: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// ライブ更新のポーリングで呼ぶ軽量フィンガープリント取得。
+/// `total_trials` / `completed_trials` / `max_trial_id` は集計クエリで、
+/// `intermediate_count` は `trial_intermediate_values` の有無を確認した上で数える
+/// （`fetch_study_extras` と同じガード）。`state_digest` は `trials` を trial_id 昇順で
+/// 読み、各行の trial_id と state 文字列を FNV-1a で畳み込んだもの（state 遷移の検出用）。
+pub fn study_fingerprint(path: &Path, study_id: u32) -> Result<StudyFingerprint, String> {
+    let conn = open_readonly(path)?;
+    ensure_optuna_schema(&conn)?;
+
+    let sid = i64::from(study_id);
+
+    let total_trials: u32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM trials WHERE study_id = ?1",
+            [sid],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to count trials: {e}"))?;
+
+    let completed_trials: u32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM trials WHERE study_id = ?1 AND state = 'COMPLETE'",
+            [sid],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to count completed trials: {e}"))?;
+
+    let max_trial_id: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(trial_id), 0) FROM trials WHERE study_id = ?1",
+            [sid],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to read max trial_id: {e}"))?;
+
+    // trial_intermediate_values テーブルの存在確認（古い DB では欠落しうる）。
+    let has_intermediate_table: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+             WHERE type='table' AND name='trial_intermediate_values')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to inspect intermediate values table: {e}"))?;
+
+    let intermediate_count: i64 = if has_intermediate_table {
+        conn.query_row(
+            "SELECT COUNT(*) FROM trial_intermediate_values tiv \
+             JOIN trials t ON tiv.trial_id = t.trial_id WHERE t.study_id = ?1",
+            [sid],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to count intermediate values: {e}"))?
+    } else {
+        0
+    };
+
+    let mut state_digest = FNV_OFFSET_BASIS;
+    {
+        let mut stmt = conn
+            .prepare("SELECT trial_id, state FROM trials WHERE study_id = ?1 ORDER BY trial_id")
+            .map_err(|e| format!("Failed to query trial states: {e}"))?;
+        let rows = stmt
+            .query_map([sid], |row| {
+                let trial_id: i64 = row.get(0)?;
+                let state: String = row.get(1)?;
+                Ok((trial_id, state))
+            })
+            .map_err(|e| format!("Failed to query trial states: {e}"))?;
+        for row in rows {
+            let (trial_id, state) = row.map_err(|e| format!("Failed to read trial states: {e}"))?;
+            state_digest = fnv1a_fold(state_digest, &trial_id.to_le_bytes());
+            state_digest = fnv1a_fold(state_digest, state.as_bytes());
+        }
+    }
+
+    Ok(StudyFingerprint {
+        total_trials,
+        completed_trials,
+        max_trial_id,
+        intermediate_count,
+        state_digest,
+    })
+}
+
 /// Phase 1: DB を開いて Study 一覧を返す（journal の `scan_study_list` と同じ役割）。
 /// completed_trials / total_trials は SQLite では安価に取れるため実数を入れる
 /// （journal scan と異なり 0 埋めではない）。param_names 等の詳細は Phase 2 で確定する。

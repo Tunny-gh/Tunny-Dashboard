@@ -1,14 +1,39 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
-use crate::io::live_update_poller::LiveUpdatePoller;
+use crate::io::live_update_poller::{LiveUpdatePoller, SqliteLivePoller, SqliteLiveUpdateContext};
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
+use crate::state::results::LiveUpdateStorageKind;
 use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::io::journal::live_update::LiveUpdateContext;
+
+/// アプリが現在起動しているライブ更新ポーラー。ストレージ種別（journal/sqlite）ごとに
+/// 実装が異なる（journal: バイトオフセット差分、sqlite: フィンガープリント + 丸ごと再ロード）
+/// ため、`TunnyApp` はどちらか一方を保持できるようにこの enum で包む。
+enum ActivePoller {
+    Journal(LiveUpdatePoller),
+    Sqlite(SqliteLivePoller),
+}
+
+impl ActivePoller {
+    fn stop(&mut self) {
+        match self {
+            ActivePoller::Journal(p) => p.stop(),
+            ActivePoller::Sqlite(p) => p.stop(),
+        }
+    }
+
+    fn update_interval(&self, new_interval_ms: u64) {
+        match self {
+            ActivePoller::Journal(p) => p.update_interval(new_interval_ms),
+            ActivePoller::Sqlite(p) => p.update_interval(new_interval_ms),
+        }
+    }
+}
 
 /// 非同期計算の完了メッセージごとに、キャンバスの各アイテム（独立した WidgetStates）へ
 /// どのウィジェットの完了状態を伝播するかを表す。
@@ -139,7 +164,7 @@ pub struct TunnyApp {
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
-    poller: Option<LiveUpdatePoller>,
+    poller: Option<ActivePoller>,
     /// 現在ウィンドウタイトルバーに設定済みの文字列。変化時のみ更新コマンドを送るために保持する。
     current_window_title: Option<String>,
 }
@@ -234,6 +259,15 @@ impl TunnyApp {
             // DataFrame 再構築コストを 1 フレームに集中させない（描画フリーズ回避）。
             // 残りのバッチはチャネルに残し、次フレームで処理する。
             let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
+            // SQLite ライブ更新: study がアクティブ化された（選択完了）タイミングで、
+            // ライブ更新が有効なら新しい study_id を追跡するようポーラーを再起動する
+            // （journal と異なりフィンガープリントは study 単位でしか取れないため）。
+            let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
+                || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
+            // SQLite ライブ更新: フィンガープリント変化を検出したら再ロードをワーカーへ依頼する。
+            // 実際の再パースは tx を必要とするため、tx を持たない MessageHandler ではなく
+            // ここ（tx を持つ app.rs）で dispatch する。
+            let sqlite_reload_study_id = MessageHandler::sqlite_reload_study_id(&msg);
             // 非同期計算の完了/失敗メッセージはグローバルな widget_states のみ更新する。
             // キャンバスの各アイテムは独立した WidgetStates を持つため（commit 73883d8）、
             // 処理後に完了状態（computing/結果/キャッシュ）を各アイテムへ伝播する必要がある。
@@ -266,13 +300,24 @@ impl TunnyApp {
                     .journal_path
                     .as_deref()
                     .is_some_and(crate::io::sqlite::is_sqlite_path);
-                if is_csv || is_sqlite {
-                    // Live Update は journal 専用。journal で有効化したまま CSV/SQLite を
-                    // 開いた場合、poller が非 journal ファイルを追跡しないよう強制オフにする。
+                if is_csv {
+                    // CSV はフラットインポート（1 回きりの取り込み）でストリーミング追記の
+                    // 概念が無いため、Live Update 対象外のまま強制オフにする。
                     self.app_state.live_update.enabled = false;
                     self.app_state.live_update.poller_active = false;
-                } else if self.app_state.live_update.enabled {
-                    self.restart_poller();
+                } else {
+                    self.app_state.live_update.storage_kind = if is_sqlite {
+                        LiveUpdateStorageKind::Sqlite
+                    } else {
+                        LiveUpdateStorageKind::Journal
+                    };
+                    if is_sqlite {
+                        // SQLite はフィンガープリントに study_id が要るため、Study 選択前は
+                        // ポーラーを起動しない（Study 選択完了時に is_study_activated 経由で起動する）。
+                        self.app_state.live_update.poller_active = false;
+                    } else if self.app_state.live_update.enabled {
+                        self.restart_poller();
+                    }
                 }
                 if is_csv {
                     if let Some(meta) = self.app_state.all_studies.first() {
@@ -289,6 +334,20 @@ impl TunnyApp {
             if is_live_error {
                 // poller stopped itself — drop the handle
                 self.poller = None;
+            }
+
+            if let Some(study_id) = sqlite_reload_study_id {
+                crate::io::study_worker::dispatch_reload_sqlite_study(study_id, self.sender());
+            }
+
+            // SQLite ライブ更新は study 単位でしかフィンガープリントを取れないため、
+            // 表示中の study が切り替わったらポーラーを新しい study_id で再起動する
+            // （journal はファイル全体を追跡するため study 切り替えでの再起動は不要）。
+            if is_study_activated
+                && self.app_state.live_update.enabled
+                && self.app_state.live_update.storage_kind == LiveUpdateStorageKind::Sqlite
+            {
+                self.restart_poller();
             }
 
             ctx.request_repaint();
@@ -471,7 +530,8 @@ impl TunnyApp {
         }
     }
 
-    /// ポーラーを現在のファイルで（再）起動する
+    /// ポーラーを現在のファイルで（再）起動する。
+    /// ストレージ種別（journal / sqlite）で実装が異なるため、ここで分岐する。
     fn restart_poller(&mut self) {
         // Stop any existing poller
         if let Some(mut p) = self.poller.take() {
@@ -482,45 +542,79 @@ impl TunnyApp {
             return;
         };
 
-        // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
-        // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
-        // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
-        // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
-        // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
-        // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
-        // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
-        // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
-        let (byte_offset, next_trial_id, study_trial_number_seeds) = match std::fs::read(file_path)
-        {
-            Ok(bytes) => {
-                let per_study =
-                    tunny_core::io::journal::live_update::count_created_trials_per_study(&bytes);
-                (
-                    bytes.len() as u64,
-                    tunny_core::io::journal::live_update::count_created_trials(&bytes),
-                    per_study,
-                )
-            }
-            Err(_) => (
-                std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
-                0,
-                std::collections::HashMap::new(),
-            ),
-        };
-
-        let ctx = LiveUpdateContext {
-            file_path: file_path.clone(),
-            initial_byte_offset: byte_offset,
-            next_trial_id,
-            study_trial_number_seeds,
-            study_distributions: vec![],
-            no_change_timeout_ms: 60_000,
-        };
-
         let interval_ms = self.app_state.live_update.interval_ms;
-        let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);
+
+        match self.app_state.live_update.storage_kind {
+            LiveUpdateStorageKind::Sqlite => {
+                // SQLite のフィンガープリントは study 単位でしか取れないため、
+                // アクティブ Study が無ければ何も起動しない
+                // （Study 選択完了時に is_study_activated 経由で改めて呼ばれる）。
+                let Some(study_id) = self
+                    .app_state
+                    .current_study
+                    .as_ref()
+                    .map(|s| s.meta.study_id)
+                else {
+                    return;
+                };
+                // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
+                // 起動する。次回ポーリングで実値と食い違えば単に 1 回余分に再ロードされる
+                // だけで、安全側に倒れる。
+                let initial_fingerprint =
+                    tunny_core::sqlite::study_fingerprint(file_path, study_id).unwrap_or_default();
+                let ctx = SqliteLiveUpdateContext {
+                    file_path: file_path.clone(),
+                    study_id,
+                    initial_fingerprint,
+                    no_change_timeout_ms: 60_000,
+                };
+                let poller = SqliteLivePoller::start(ctx, self.tx.clone(), interval_ms);
+                self.poller = Some(ActivePoller::Sqlite(poller));
+            }
+            LiveUpdateStorageKind::Journal => {
+                // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
+                // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
+                // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
+                // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
+                // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
+                // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
+                // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
+                // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
+                let (byte_offset, next_trial_id, study_trial_number_seeds) =
+                    match std::fs::read(file_path) {
+                        Ok(bytes) => {
+                            let per_study =
+                            tunny_core::io::journal::live_update::count_created_trials_per_study(
+                                &bytes,
+                            );
+                            (
+                                bytes.len() as u64,
+                                tunny_core::io::journal::live_update::count_created_trials(&bytes),
+                                per_study,
+                            )
+                        }
+                        Err(_) => (
+                            std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
+                            0,
+                            std::collections::HashMap::new(),
+                        ),
+                    };
+
+                let ctx = LiveUpdateContext {
+                    file_path: file_path.clone(),
+                    initial_byte_offset: byte_offset,
+                    next_trial_id,
+                    study_trial_number_seeds,
+                    study_distributions: vec![],
+                    no_change_timeout_ms: 60_000,
+                };
+
+                let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);
+                self.poller = Some(ActivePoller::Journal(poller));
+            }
+        }
+
         self.app_state.live_update.poller_active = true;
-        self.poller = Some(poller);
     }
 }
 

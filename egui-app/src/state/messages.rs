@@ -251,6 +251,21 @@ pub enum AppMessage {
     LiveUpdateError(String),
     /// 60秒間ファイル変化がなく最適化完了の可能性を検出した
     LiveUpdateMaybeComplete,
+    /// SQLite ライブ更新: フィンガープリントの変化を検出した。
+    /// SQLite は trial の状態がインプレースで更新される（RUNNING→COMPLETE 等）ため
+    /// journal のようなバイトオフセット差分ができない。対象 study の丸ごと再ロードを
+    /// ワーカースレッドへ依頼する必要があることを知らせるシグナルメッセージ。
+    SqliteLiveChanged {
+        study_id: u32,
+    },
+    /// SQLite ライブ更新: 対象 study の再ロードが完了した。
+    /// ワーカースレッドが `tunny_core::dataframe::swap_snapshot` /
+    /// `store_extras_for` まで済ませているため、ここでは
+    /// StudyView の再構築（Pareto 再計算含む）とキャッシュ破棄のみ行う。
+    SqliteLiveReloadDone {
+        study_id: u32,
+        meta: StudyMeta,
+    },
     /// 収束指標（HV / IGD+ / ε / R2）の推移計算が完了した。
     /// 基準 Study と比較 Study の全系列を一括計算し、共通参照セットで正規化する。
     IndicatorHistoryDone {

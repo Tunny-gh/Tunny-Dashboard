@@ -65,6 +65,34 @@ pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMes
     }
 }
 
+/// ライブ更新: フィンガープリント変化を検出した study を丸ごと再パースし、
+/// 共有ストアを差し替えた上で `AppMessage::SqliteLiveReloadDone` を送る。
+///
+/// journal のライブ更新（差分追記）と異なり、SQLite は trial の状態がインプレースで
+/// 更新されるため差分適用ができない。そのため `parse_single_study`（Phase 2 と同じ
+/// 関数）で対象 study を毎回丸ごと読み直す。SQLite の単一 study パースは軽量
+/// （数 ms 程度）なので、この再パース自体はワーカースレッド上で行い UI スレッドを
+/// ブロックしない。`swap_snapshot` / `store_extras_for` もこの関数内（ワーカー
+/// スレッド）で行う（`LoadComparisonStudy` と同じパターン）ため、
+/// `MessageHandler` 側は受信後に `snapshot(study_id)` を取り直すだけでよい。
+pub fn reload_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
+    match tunny_core::sqlite::parse_single_study(path, study_id) {
+        Ok((meta, df, extras)) => {
+            tunny_core::dataframe::swap_snapshot(study_id, std::sync::Arc::new(df));
+            tunny_core::dataframe::store_extras_for(study_id, extras);
+            let _ = tx.send(AppMessage::SqliteLiveReloadDone {
+                study_id,
+                meta: crate::io::journal::convert_study_meta(meta),
+            });
+            true
+        }
+        Err(e) => {
+            let _ = tx.send(AppMessage::Error(e));
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,6 +122,17 @@ mod tests {
     fn load_single_study_task_nonexistent_path_sends_error() {
         let (tx, rx) = std::sync::mpsc::sync_channel(4);
         let ok = load_single_study_task(Path::new("/nonexistent/study.db"), 1, &tx);
+        assert!(!ok);
+        match rx.try_recv() {
+            Ok(AppMessage::Error(_)) => {}
+            _ => panic!("Expected Error message"),
+        }
+    }
+
+    #[test]
+    fn reload_single_study_task_nonexistent_path_sends_error() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        let ok = reload_single_study_task(Path::new("/nonexistent/study.db"), 1, &tx);
         assert!(!ok);
         match rx.try_recv() {
             Ok(AppMessage::Error(_)) => {}
