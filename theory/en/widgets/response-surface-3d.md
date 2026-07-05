@@ -17,7 +17,7 @@ The two answer different questions. The PDP is the better tool for "how does thi
 1. Select the **objective** and **surrogate model**, then **Fit Surrogate** (asynchronous; same training pipeline and ≥10-trial requirement as the Surrogate Optimizer and Robustness widgets).
 2. Choose the two **axis parameters** and the **anchor** — best trial (direction-aware) or a pinned trial. The grid spans each axis parameter's declared range; all other parameters are frozen at the anchor's values.
 3. Set the **grid resolution** (20/30/50 per axis). Evaluation is instant on the trained model; only the fit is a long-running step.
-4. Rotate/zoom with the 3D camera (same controls as the other 3D charts). **Observed points** can be overlaid; with a GP model, **uncertainty** display is available.
+4. Rotate/zoom with the 3D camera (same controls as the other 3D charts). **Observed points** can be overlaid; with a GP model, **uncertainty** display is available. Hovering an overlaid observed point shows a tooltip with its parameter and objective values, and clicking it opens the trial-detail modal — the same interaction as the other 3D scatter charts.
 
 ## Reading the surface
 

@@ -197,6 +197,7 @@ pub(crate) fn render_chart(
                 &ctx.view,
                 &app_state.selected_indices,
                 &app_state.pinned_trials,
+                &app_state.artifact_map,
             );
         }
         ChartId::ParallelCoordinates => {
@@ -426,6 +427,7 @@ pub(crate) fn render_chart(
                 ctx.trial_count(),
                 &app_state.pinned_trials,
                 &cmap,
+                &app_state.artifact_map,
             );
         }
     }

@@ -20,7 +20,9 @@ use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     ArcballCamera,
 };
-use crate::ui::widgets::trial_detail_modal::{TrialDetailTarget, HIT_THRESHOLD};
+use crate::ui::widgets::trial_detail_modal::{
+    show_hover_tooltip, TrialDetailTarget, HIT_THRESHOLD,
+};
 
 /// 格子の一辺の点数。
 const N_GRID: usize = 60;
@@ -180,9 +182,9 @@ pub fn show(
             let opts3d = Render3dOpts {
                 show_points,
                 density_shade: state.density_shade,
+                modal_open: state.detail_modal.is_open(),
             };
-            render_3d(ui, result, &cmap, &mut state.camera, &opts3d);
-            None
+            render_3d(ui, result, &cmap, &mut state.camera, &opts3d, view)
         } else {
             let opts = RenderOpts {
                 show_points,
@@ -342,23 +344,27 @@ fn render_2d(
 struct Render3dOpts {
     show_points: bool,
     density_shade: bool,
+    /// 詳細モーダル表示中はホバーツールチップを抑止する。
+    modal_open: bool,
 }
 
 /// 3D サーフェス表示。角に `None` を含むセル（マスク）は描かない＝外挿を見せない。
 /// 軸: X=selected_x、Z=selected_y、縦 Y=value。深度ソートで奥から塗る（painter's algorithm）。
+/// 観測点（Show points 時のみ）のホバーでツールチップを、クリックで詳細対象を返す。
 fn render_3d(
     ui: &mut egui::Ui,
     result: &ObservedContourResult,
     cmap: &ColorMap,
     camera: &mut ArcballCamera,
     opts: &Render3dOpts,
-) {
+    view: &StudyView,
+) -> Option<TrialDetailTarget> {
     let surf = &result.surface;
     let nx = surf.x_values.len();
     let ny = surf.y_values.len();
     if nx < 2 || ny < 2 {
         ui.label("Not enough data to render a 3D surface.");
-        return;
+        return None;
     }
     let (x_min, x_max) = (surf.x_values[0], surf.x_values[nx - 1]);
     let (y_min, y_max) = (surf.y_values[0], surf.y_values[ny - 1]);
@@ -381,10 +387,10 @@ fn render_3d(
     };
     if !v_min.is_finite() || !v_max.is_finite() {
         ui.label("No data to render.");
-        return;
+        return None;
     }
 
-    let (painter, _rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);
+    let (painter, _rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, camera);
     draw_3d_grid(&painter, &project);
 
     // 点密度シェーディング: 観測点を各セルにビニングし、局所窓で平滑化して正規化する。
@@ -459,9 +465,10 @@ fn render_3d(
         }
     }
 
-    // 観測点の重畳。
+    // 観測点の重畳（ホバー・クリックのヒットテスト用に screen 位置も集める）。
+    let mut screen_points: Vec<(egui::Pos2, usize)> = Vec::new();
     if opts.show_points && x_max > x_min && y_max > y_min {
-        for p in &result.points {
+        for (idx, p) in result.points.iter().enumerate() {
             let fx = ((p[0] - x_min) / (x_max - x_min)).clamp(0.0, 1.0);
             let fy = ((p[1] - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
             let clip = [
@@ -473,6 +480,7 @@ fn render_3d(
             if pos.x.is_finite() && pos.y.is_finite() {
                 let color = cmap.interpolate(normalize(p[2], v_min, v_max));
                 items.push((depth, Prim::Point(pos, color)));
+                screen_points.push((pos, idx));
             }
         }
     }
@@ -521,6 +529,47 @@ fn render_3d(
         [&result.x_name, &result.value_name, &result.y_name],
         [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
     );
+
+    // ヒットした観測点から詳細対象を組み立てる（ホバー・クリック共用）。
+    let target_at = |idx: usize| -> Option<TrialDetailTarget> {
+        let trial_id = result.point_trial_ids.get(idx).copied()?;
+        let row_index = view.trial_ids.iter().position(|&t| t == trial_id)?;
+        let value = result.points.get(idx).map(|p| p[2]).unwrap_or(f64::NAN);
+        Some(TrialDetailTarget {
+            trial_id,
+            row_index,
+            context: vec![(result.value_name.clone(), format!("{:.6}", value))],
+        })
+    };
+
+    // ホバー → ツールチップ（2D 版・他の 3D 散布図と同じ操作感。モーダル表示中は抑止）。
+    if !opts.modal_open {
+        if let Some(hover) = hover_pos {
+            if let Some(idx) = nearest_point(&screen_points, hover, HIT_THRESHOLD) {
+                if let Some(target) = target_at(idx) {
+                    let trial_number = view
+                        .df
+                        .get_trial_number(target.row_index)
+                        .unwrap_or(target.row_index as u32);
+                    let p = &result.points[idx];
+                    let rows = vec![
+                        (result.x_name.clone(), format!("{:.4}", p[0])),
+                        (result.y_name.clone(), format!("{:.4}", p[1])),
+                        (result.value_name.clone(), format!("{:.4}", p[2])),
+                    ];
+                    show_hover_tooltip(ui, "observed_contour3d_hover_tooltip", trial_number, &rows);
+                }
+            }
+        }
+    }
+
+    // クリック → 最近傍の観測点を詳細表示。
+    if let Some(click) = click_pos {
+        if let Some(idx) = nearest_point(&screen_points, click, HIT_THRESHOLD) {
+            return target_at(idx);
+        }
+    }
+    None
 }
 
 /// 三角形を生メッシュに追加する（投影後の退化形状でも安全なよう法線計算なし）。
