@@ -70,7 +70,7 @@ $$
 
 #### 2D PDP（複数サロゲートモデルによる計算）
 
-2D PDP は選択されたサロゲートモデルで 50×50 グリッドを計算する:
+2D PDP は選択されたサロゲートモデルで、Random Forest は 30×30、それ以外（Ridge・GP-FITC・GP-VFE・GP-MOE）は 20×20 のグリッドを計算する（`egui-app/src/ui/widgets/pdp/pdp_2d.rs`）:
 
 | モデル | 計算方法 |
 | ------ | -------- |
@@ -99,7 +99,7 @@ $$
 \quad (k = 0, \ldots, n_{\mathrm{grid}}-1)
 $$
 
-デフォルト `n_grid = 50`。
+`n_grid` はモデルと次元数（1D/2D）によって異なる。1D PDP は Ridge が 50、それ以外（Random Forest・GP-FITC・GP-VFE・GP-MOE）は 30（`egui-app/src/ui/widgets/pdp/pdp_chart.rs`）。2D PDP は Random Forest が 30、それ以外は 20（前掲）。
 
 ### Z スコア標準化
 
@@ -174,7 +174,7 @@ $$
 
 **強み:** GP-FITC と同じアーキテクチャ。VFE 下界によりやや保守的なノイズ推定 → より滑らかなフィット。GP-FITC 曲面が過学習気味の場合に推奨。
 
-**弱み:** GP-FITC よりわずかにフィットが緩い（ノイズなしベンチマークで R² ≈ 0.76 vs 0.88）。
+**弱み:** GP-FITC よりわずかにフィットが緩い（参考値であり環境により変動するが、ノイズなしベンチマークで GP-FITC よりやや低い R² が観測される傾向がある）。
 
 ### GP-MOE（混合エキスパート GP）
 
