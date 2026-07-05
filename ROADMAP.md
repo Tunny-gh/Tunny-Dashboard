@@ -30,13 +30,15 @@
 
 「optuna-dashboard の完全上位互換」と言い切れる状態を作る。
 
-- [ ] 中間値（intermediate values）の取り込み（journal `SET_TRIAL_INTERMEDIATE_VALUE`
+- [x] 中間値（intermediate values）の取り込み（journal `SET_TRIAL_INTERMEDIATE_VALUE`
       / SQLite `trial_intermediate_values`）
-- [ ] 学習曲線・枝刈り分析プロット（PRUNED trial を含む中間値の可視化）
-- [ ] EDF プロット
-- [ ] Timeline プロット（全 trial 状態 × datetime_start/complete）
-- [ ] Rank プロット
-- [ ] SQLite ストレージのライブ更新（journal 限定の live update を拡張）
+- [x] 学習曲線・枝刈り分析プロット（PRUNED trial を含む中間値の可視化 =
+      Intermediate Values ウィジェット）
+- [x] EDF プロット
+- [x] Timeline プロット（全 trial 状態 × datetime_start/complete）
+- [x] Rank プロット
+- [x] SQLite ストレージのライブ更新（フィンガープリントポーリング + 単一 study
+      再ロード方式）
 
 ### 2. 自己完結型 HTML レポート出力
 
