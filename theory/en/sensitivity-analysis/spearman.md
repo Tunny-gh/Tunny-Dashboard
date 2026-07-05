@@ -65,11 +65,13 @@ Spearman's correlation is simply this measure applied to the **rank series** ins
 
 ## Multiple Objectives
 
-The importance score for parameter j is the mean |ρ| across all objectives:
+Spearman's ρ is computed independently for each objective $y_k$:
 
 $$
-\operatorname{score}(p_j) = \frac{1}{m} \sum_{k} |\rho(p_j, y_k)|
+\rho_k(p_j) = \rho(p_j, y_k)
 $$
+
+There is no cross-objective averaging: the dashboard keeps one score per (parameter, objective) pair. `ImportanceChart` displays $|\rho_k(p_j)|$ for the currently selected objective $k$ only — switching the objective selector recomputes and redraws the scores for that objective.
 
 ## Characteristics
 
@@ -89,3 +91,7 @@ $$
 - Small datasets (n < 50) — still reliable.
 - First pass to screen all parameters.
 - When the shape of the objective function is unknown.
+
+## References
+
+- Spearman, C. (1904). The proof and measurement of association between two things. _American Journal of Psychology_, 15(1), 72–101.

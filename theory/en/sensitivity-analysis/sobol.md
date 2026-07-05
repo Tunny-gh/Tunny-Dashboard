@@ -41,6 +41,14 @@ $ST_i \geq S_i$ always holds. A large gap $(ST_i - S_i)$ indicates strong intera
 
 Because Monte Carlo integration is impractical for real trial data, a **quadratic Ridge surrogate** is fitted on the trials, and Saltelli sampling is run on that surrogate using the Jansen estimator.
 
+## Parameters
+
+| Setting | Value |
+| --- | --- |
+| Saltelli sample count $N$ | 1,024 |
+| Ridge regularization strength $\alpha$ | 1.0 |
+| Random number generator | ChaCha8 (deterministic, seed `0xDEAD_BEEF_1234_5678`) |
+
 ## Interpreting Results
 
 - $S_i$ high, $ST_i \approx S_i$ → parameter has a large independent effect, few interactions.

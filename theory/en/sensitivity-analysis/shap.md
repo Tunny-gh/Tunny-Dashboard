@@ -59,3 +59,8 @@ Shapley values satisfy four axioms: efficiency, symmetry, linearity, dummy (a fe
 - When explainability and theoretical consistency are priorities.
 - For reports requiring rigorous attribution.
 - After RF-ANOVA / Permutation screening has identified top parameters.
+
+## References
+
+- Lundberg, S. M., & Lee, S.-I. (2017). A Unified Approach to Interpreting Model Predictions. _NeurIPS 30_.
+- Lundberg, S. M. et al. (2020). From local explanations to global understanding with explainable AI for trees. _Nature Machine Intelligence_, 2(1), 56–67.
