@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::messages::PdpResult2d;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_CONTOUR, COLOR_PDP_CI};
@@ -7,8 +10,9 @@ use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::pdp_chart::{classify_observed, ModelType, ObservedKind};
 use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    ArcballCamera,
+    show_hover_and_click_detail, ArcballCamera,
 };
+use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
 /// 2D グリッド値（行 = param1、列 = param2）
 pub(crate) type Grid = Vec<Vec<f64>>;
@@ -47,6 +51,9 @@ pub struct PdpChart2DState {
     pub show_observed: bool,
     /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
     pub feasible_only: bool,
+    /// 観測点クリックで開くトライアル詳細モーダル
+    #[serde(skip)]
+    pub detail_modal: TrialDetailModal,
 }
 
 impl Default for PdpChart2DState {
@@ -63,6 +70,7 @@ impl Default for PdpChart2DState {
             show_uncertainty: true,
             show_observed: false,
             feasible_only: false,
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
@@ -86,6 +94,7 @@ impl PdpChart2DState {
         view: &StudyView,
         selected_indices: &[u32],
         pinned: &[u32],
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         // Row 1: Parameter 1 + Parameter 2
         ui.horizontal(|ui| {
@@ -202,6 +211,7 @@ impl PdpChart2DState {
         }
 
         let camera = &mut self.camera;
+        let detail_modal = &mut self.detail_modal;
         let result = self.result.as_ref().unwrap();
         let values: &[Vec<f64>] = &result.z_values;
         let value_label = result.objective_name.clone();
@@ -221,8 +231,8 @@ impl PdpChart2DState {
             None
         };
 
-        // 観測データ ([param1, param2, objective], 分類)
-        let observed: Vec<([f64; 3], ObservedKind)> = if self.show_observed {
+        // 観測データ (行 index, [param1, param2, objective], 分類)
+        let observed: Vec<(usize, [f64; 3], ObservedKind)> = if self.show_observed {
             extract_observed_3d(
                 view,
                 &result.param1_name,
@@ -245,7 +255,7 @@ impl PdpChart2DState {
             v_min = v_min.min(l_min);
             v_max = v_max.max(u_max);
         }
-        for (p, _) in &observed {
+        for (_, p, _) in &observed {
             v_min = v_min.min(p[2]);
             v_max = v_max.max(p[2]);
         }
@@ -255,7 +265,7 @@ impl PdpChart2DState {
         // 観測点をクリップ空間へ（X = param1, Y(縦) = 目的関数値, Z = param2）
         let observed_clip: Vec<([f32; 3], egui::Color32)> = observed
             .iter()
-            .map(|&([p1, p2, ov], kind)| {
+            .map(|&(_, [p1, p2, ov], kind)| {
                 (
                     [
                         normalize_to_clip(p1, x_min, x_max),
@@ -267,13 +277,19 @@ impl PdpChart2DState {
             })
             .collect();
 
+        // ホバーツールチップ・クリック詳細用の列参照（観測点は実トライアル）
+        let p1_col = view.numeric_column(&result.param1_name);
+        let p2_col = view.numeric_column(&result.param2_name);
+        let obj_col = view.numeric_column(&result.objective_name);
+        let feas = view.feasibility();
+
         // キャンバス（右側にカラーバー分の余白を確保。バー＋数値目盛＋縦書きタイトル分。
         // observed_contour.rs の COLORBAR_RESERVE と同じ幅を確保する）
         let avail = ui.available_size();
         let canvas_size = egui::vec2((avail.x - 96.0).max(120.0), avail.y.max(160.0));
         ui.allocate_ui(canvas_size, |ui| {
             ui.set_min_size(canvas_size);
-            let (painter, rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);
+            let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, camera);
             draw_3d_grid(&painter, &project);
             // 軸線は細分化してサーフェスと一緒に深度ソートし、面との前後関係を反映する
             draw_surface_mesh(
@@ -303,7 +319,62 @@ impl PdpChart2DState {
                 egui::vec2(14.0, rect.height()),
             );
             draw_colorbar_simple(ui, bar_rect, c_min, c_max, cmap.clone(), Some(&value_label));
+
+            // 観測点のホバーツールチップ・クリック詳細（他の 3D 散布図と同じ操作感）。
+            // "Show data" オフ時は observed が空のため何も起きない。
+            let candidates: Vec<(u32, usize, egui::Pos2)> = observed
+                .iter()
+                .zip(observed_clip.iter())
+                .filter_map(|(&(row, _, _), &(clip, _))| {
+                    let (pos, _) = project(clip);
+                    if !pos.x.is_finite() || !pos.y.is_finite() {
+                        return None;
+                    }
+                    let trial_id = view.trial_ids.get(row).copied().unwrap_or(row as u32);
+                    Some((trial_id, row, pos))
+                })
+                .collect();
+            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+            show_hover_and_click_detail(
+                ui,
+                view,
+                &candidates,
+                hover_pos,
+                click_pos,
+                "pdp2d_hover_tooltip",
+                &mut *detail_modal,
+                |row| {
+                    vec![
+                        (
+                            result.param1_name.clone(),
+                            fmt(p1_col.and_then(|c| c.get(row)).copied()),
+                        ),
+                        (
+                            result.param2_name.clone(),
+                            fmt(p2_col.and_then(|c| c.get(row)).copied()),
+                        ),
+                        (
+                            result.objective_name.clone(),
+                            fmt(obj_col.and_then(|c| c.get(row)).copied()),
+                        ),
+                    ]
+                },
+                |row| {
+                    let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+                    vec![(
+                        "Status".to_string(),
+                        classify_observed(feas.is_feasible(row), rank)
+                            .label()
+                            .to_string(),
+                    )]
+                },
+            );
         });
+
+        // クリックで開いたトライアル詳細モーダルを描画する。
+        if detail_modal.is_open() {
+            detail_modal.show(ui, view, param_names, obj_names, artifact_map);
+        }
     }
 }
 
@@ -327,7 +398,9 @@ pub(crate) fn band_grids(z_values: &[Vec<f64>], variances: &[Vec<f64>]) -> BandG
     (lower, upper)
 }
 
-/// view から観測データ ([param1, param2, objective], 分類) を抽出する（テスト可能な純粋関数）。
+/// view から観測データ (行 index, [param1, param2, objective], 分類) を抽出する
+/// （テスト可能な純粋関数）。行 index はホバーツールチップ・クリック詳細の
+/// トライアル特定に使う。
 ///
 /// フィルタ規則は 1D PDP の `extract_observed` と同じ:
 /// `selected_indices` が空なら全試行、そうでなければ selected / pinned のみ。
@@ -340,7 +413,7 @@ pub fn extract_observed_3d(
     objective: &str,
     selected_indices: &[u32],
     pinned: &[u32],
-) -> Vec<([f64; 3], ObservedKind)> {
+) -> Vec<(usize, [f64; 3], ObservedKind)> {
     let (Some(p1_col), Some(p2_col), Some(obj_col)) = (
         view.numeric_column(param1),
         view.numeric_column(param2),
@@ -367,7 +440,11 @@ pub fn extract_observed_3d(
                 return None;
             }
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            Some(([p1, p2, ov], classify_observed(feas.is_feasible(i), rank)))
+            Some((
+                i,
+                [p1, p2, ov],
+                classify_observed(feas.is_feasible(i), rank),
+            ))
         })
         .collect()
 }
@@ -834,15 +911,17 @@ mod tests {
         let view = make_view_2p(&[1.0, 2.0], &[10.0, 20.0], &[0.5, 1.5]);
         let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[], &[]);
         assert_eq!(pts.len(), 2);
-        assert_eq!(pts[0].0, [1.0, 10.0, 0.5]);
-        assert_eq!(pts[1].0, [2.0, 20.0, 1.5]);
+        assert_eq!(pts[0].0, 0);
+        assert_eq!(pts[0].1, [1.0, 10.0, 0.5]);
+        assert_eq!(pts[1].0, 1);
+        assert_eq!(pts[1].1, [2.0, 20.0, 1.5]);
     }
 
     #[test]
     fn extract_observed_3d_filters_by_selection_and_pinned() {
         let view = make_view_2p(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0], &[0.1, 0.2, 0.3]);
         let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[0], &[2]);
-        let p1s: Vec<f64> = pts.iter().map(|(p, _)| p[0]).collect();
+        let p1s: Vec<f64> = pts.iter().map(|(_, p, _)| p[0]).collect();
         assert!(p1s.contains(&1.0), "selected row must be visible");
         assert!(p1s.contains(&3.0), "pinned row must remain visible");
         assert!(
@@ -863,7 +942,8 @@ mod tests {
         let view = make_view_2p(&[1.0, f64::NAN], &[10.0, 20.0], &[0.5, 1.5]);
         let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[], &[]);
         assert_eq!(pts.len(), 1);
-        assert_eq!(pts[0].0, [1.0, 10.0, 0.5]);
+        assert_eq!(pts[0].0, 0);
+        assert_eq!(pts[0].1, [1.0, 10.0, 0.5]);
     }
 
     #[test]
@@ -871,7 +951,7 @@ mod tests {
         // rank 0 → Pareto（赤）、rank > 0 → NonPareto（青）
         let view = make_view_2p_ranked(&[1.0, 2.0], &[10.0, 20.0], &[0.5, 1.5], vec![0, 1]);
         let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[], &[]);
-        assert_eq!(pts[0].1, ObservedKind::Pareto);
-        assert_eq!(pts[1].1, ObservedKind::NonPareto);
+        assert_eq!(pts[0].2, ObservedKind::Pareto);
+        assert_eq!(pts[1].2, ObservedKind::NonPareto);
     }
 }

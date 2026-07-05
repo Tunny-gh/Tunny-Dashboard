@@ -31,7 +31,10 @@ All GP variants use M = min(N, 100) inducing points backed by egobox-gp / egobox
 ## Interpreting the Plot
 
 - **1D PDP**: shows how the objective changes as one parameter varies (all others held at their mean).
-- **2D PDP**: shows the joint response surface for two parameters as a 3D surface plot.
+- **2D PDP**: shows the joint response surface for two parameters as a 3D surface plot. With
+  **Show data** on, hovering an overlaid observed point shows a tooltip with its parameter and
+  objective values, and clicking it opens the trial-detail modal (same interaction as the other
+  3D charts).
 - **Flat line / surface**: the parameter has little effect.
 - **Steep slope**: the parameter strongly influences the objective.
 - **Curved/non-monotonic shape**: nonlinear relationship — consider GP-FITC or Random Forest for accuracy.

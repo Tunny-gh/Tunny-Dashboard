@@ -40,8 +40,10 @@ with no data blank** instead of filling them in.
 
 ## Trial details
 
-In the 2D view, **click** an overlaid observed point to inspect that trial's details (its
-parameters, objective values, and so on).
+In both the 2D and 3D views, **hover** over an overlaid observed point to see a tooltip with
+that trial's coordinates and value, and **click** it to open the trial-detail modal (its
+parameters, objective values, artifacts, and so on). In 3D this requires **Show points** to be
+on; the tooltip is hidden while rotating or panning the camera.
 
 ## How to read it carefully
 

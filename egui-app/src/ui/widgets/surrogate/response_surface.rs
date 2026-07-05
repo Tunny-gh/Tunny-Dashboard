@@ -9,6 +9,7 @@
 //!
 //! 描画は `pdp_2d.rs` のサーフェスメッシュ共有描画（`draw_surface_mesh` ほか）を再利用する。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tunny_core::surrogate_opt::{
@@ -16,16 +17,19 @@ use tunny_core::surrogate_opt::{
 };
 
 use super::anchor::{center_label, resolve_center, CenterChoice};
+use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::COLOR_CONTOUR;
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::pdp_2d::{
     band_grids, draw_surface_mesh, extract_observed_3d, value_range_of,
 };
+use crate::ui::widgets::pdp_chart::classify_observed;
 use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    ArcballCamera,
+    show_hover_and_click_detail, ArcballCamera,
 };
+use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
 /// モデル選択肢（コンボ表示順）。`robustness.rs` と揃える。
 const MODEL_CHOICES: [SurrogateModelKind; 5] = [
@@ -73,6 +77,9 @@ pub struct ResponseSurfaceChart {
     pub pending_fit: Option<ResponseSurfaceFitRequest>,
     #[serde(skip)]
     cache: Option<(SliceCacheKey, SurfaceSlice)>,
+    /// 観測点クリックで開くトライアル詳細モーダル。
+    #[serde(skip)]
+    pub detail_modal: TrialDetailModal,
 }
 
 impl Default for ResponseSurfaceChart {
@@ -92,6 +99,7 @@ impl Default for ResponseSurfaceChart {
             fit_error: None,
             pending_fit: None,
             cache: None,
+            detail_modal: TrialDetailModal::new(),
         }
     }
 }
@@ -142,6 +150,7 @@ impl ResponseSurfaceChart {
         trial_count: usize,
         pinned_trials: &[u32],
         cmap: &ColorMap,
+        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
         if obj_names.is_empty() {
             ui.label("No objectives available.");
@@ -322,6 +331,7 @@ impl ResponseSurfaceChart {
         let param_y = self.param_y.clone();
         let objective_name = obj_names[self.selected_objective].clone();
         let camera = &mut self.camera;
+        let detail_modal = &mut self.detail_modal;
         // `camera`（self.camera への可変借用）と `slice`（self.cache への不変借用）は
         // 互いに素なフィールドなので同時に借用できる（pdp_2d.rs と同じパターン）。
         let (_, slice) = self.cache.as_ref().expect("checked non-empty above");
@@ -357,7 +367,7 @@ impl ResponseSurfaceChart {
         } else {
             vec![]
         };
-        for (p, _) in &observed {
+        for (_, p, _) in &observed {
             v_min = v_min.min(p[2]);
             v_max = v_max.max(p[2]);
         }
@@ -367,7 +377,7 @@ impl ResponseSurfaceChart {
 
         let observed_clip: Vec<([f32; 3], egui::Color32)> = observed
             .iter()
-            .map(|&([px, py, ov], kind)| {
+            .map(|&(_, [px, py, ov], kind)| {
                 (
                     [
                         normalize_to_clip(px, x_min, x_max),
@@ -387,9 +397,15 @@ impl ResponseSurfaceChart {
             (avail.x - 16.0).max(120.0),
             (avail.y - caption_h).max(160.0),
         );
+        // ホバーツールチップ・クリック詳細用の列参照（観測点は実トライアル）。
+        let px_col = view.numeric_column(&param_x);
+        let py_col = view.numeric_column(&param_y);
+        let obj_col = view.numeric_column(&objective_name);
+        let feas = view.feasibility();
+
         ui.allocate_ui(canvas_size, |ui| {
             ui.set_min_size(canvas_size);
-            let (painter, _rect, project, _click_pos, _hover_pos) = setup_3d_canvas(ui, camera);
+            let (painter, _rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, camera);
             draw_3d_grid(&painter, &project);
             draw_surface_mesh(
                 &painter,
@@ -408,6 +424,56 @@ impl ResponseSurfaceChart {
                 [&param_x, &objective_name, &param_y],
                 [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
             );
+
+            // 観測点のホバーツールチップ・クリック詳細（他の 3D 散布図と同じ操作感）。
+            // "Show data" オフ時は observed が空のため何も起きない。
+            let candidates: Vec<(u32, usize, egui::Pos2)> = observed
+                .iter()
+                .zip(observed_clip.iter())
+                .filter_map(|(&(row, _, _), &(clip, _))| {
+                    let (pos, _) = project(clip);
+                    if !pos.x.is_finite() || !pos.y.is_finite() {
+                        return None;
+                    }
+                    let trial_id = view.trial_ids.get(row).copied().unwrap_or(row as u32);
+                    Some((trial_id, row, pos))
+                })
+                .collect();
+            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
+            show_hover_and_click_detail(
+                ui,
+                view,
+                &candidates,
+                hover_pos,
+                click_pos,
+                "response_surface_hover_tooltip",
+                &mut *detail_modal,
+                |row| {
+                    vec![
+                        (
+                            param_x.clone(),
+                            fmt(px_col.and_then(|c| c.get(row)).copied()),
+                        ),
+                        (
+                            param_y.clone(),
+                            fmt(py_col.and_then(|c| c.get(row)).copied()),
+                        ),
+                        (
+                            objective_name.clone(),
+                            fmt(obj_col.and_then(|c| c.get(row)).copied()),
+                        ),
+                    ]
+                },
+                |row| {
+                    let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+                    vec![(
+                        "Status".to_string(),
+                        classify_observed(feas.is_feasible(row), rank)
+                            .label()
+                            .to_string(),
+                    )]
+                },
+            );
         });
 
         ui.label(
@@ -416,6 +482,11 @@ impl ResponseSurfaceChart {
             ))
             .weak(),
         );
+
+        // クリックで開いたトライアル詳細モーダルを描画する。
+        if detail_modal.is_open() {
+            detail_modal.show(ui, view, param_names, obj_names, artifact_map);
+        }
     }
 }
 
