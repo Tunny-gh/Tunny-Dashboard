@@ -309,6 +309,22 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/response-surface-3d.html"
             )),
         },
+        ChartId::IntermediateValues => HelpContent {
+            widget_name: "intermediate-values",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/intermediate-values.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/intermediate-values.html"
+            )),
+        },
+        ChartId::Timeline => HelpContent {
+            widget_name: "timeline",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/timeline.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/timeline.html")),
+        },
     }
 }
 

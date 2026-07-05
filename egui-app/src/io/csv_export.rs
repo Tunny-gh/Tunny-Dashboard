@@ -74,6 +74,8 @@ pub fn build_chart_csv(
         ChartId::SomMap => build_som_csv(app_state, widgets),
         ChartId::Dendrogram => build_dendrogram_csv(widgets),
         ChartId::ResponseSurface3D => build_response_surface_csv(widgets),
+        ChartId::IntermediateValues => build_intermediate_values_csv(),
+        ChartId::Timeline => build_timeline_csv(),
     }
 }
 
@@ -266,6 +268,12 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .response_surface
             .cached_slice()
             .is_some_and(|s| !s.x_values.is_empty() && !s.y_values.is_empty()),
+        ChartId::IntermediateValues => {
+            tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_intermediate())
+        }
+        ChartId::Timeline => {
+            tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_datetimes())
+        }
     }
 }
 
@@ -300,6 +308,8 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::SomMap => "som_map",
         ChartId::Dendrogram => "dendrogram",
         ChartId::ResponseSurface3D => "response_surface_3d",
+        ChartId::IntermediateValues => "intermediate_values",
+        ChartId::Timeline => "timeline",
     };
     format!("{}.csv", name)
 }
@@ -705,6 +715,66 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
             CsvField::UInt(i as u64),
             CsvField::Num(val),
             CsvField::Num(best),
+        ]);
+    }
+    Some(w.finish())
+}
+
+/// Intermediate Values の全 trial・全ステップを long 形式で出力する（間引きなし）。
+fn build_intermediate_values_csv() -> Option<String> {
+    let extras = tunny_core::dataframe::active_extras_snapshot()?;
+    if !extras.has_intermediate() {
+        return None;
+    }
+    // CSV エクスポートは表示用の間引き（MAX_CURVES）を適用せず全 trial を出す。
+    let (curves, _total) = crate::ui::widgets::intermediate_values::build_intermediate_curves(
+        &extras.trials,
+        false,
+        usize::MAX,
+    );
+    if curves.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header(["trial_number", "state", "step", "value"]);
+    for c in &curves {
+        for &[step, value] in &c.points {
+            w.row([
+                CsvField::UInt(c.trial_number as u64),
+                CsvField::Text(c.state.label()),
+                CsvField::Num(step),
+                CsvField::Num(value),
+            ]);
+        }
+    }
+    Some(w.finish())
+}
+
+/// Timeline の全 trial の開始/終了（経過秒）を出力する。
+fn build_timeline_csv() -> Option<String> {
+    let extras = tunny_core::dataframe::active_extras_snapshot()?;
+    if !extras.has_datetimes() {
+        return None;
+    }
+    let bars = crate::ui::widgets::timeline::build_timeline_bars(&extras.trials);
+    if bars.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header([
+        "trial_number",
+        "state",
+        "start_elapsed_s",
+        "end_elapsed_s",
+        "duration_s",
+    ]);
+    for b in &bars {
+        w.row([
+            CsvField::UInt(b.trial_number as u64),
+            CsvField::Text(b.state.label()),
+            CsvField::Num(b.start),
+            CsvField::Num(b.end),
+            CsvField::Num(b.end - b.start),
         ]);
     }
     Some(w.finish())

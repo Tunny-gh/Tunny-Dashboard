@@ -180,7 +180,9 @@ pub(crate) fn poll_chart_work(
         | ChartId::ComparisonTable
         | ChartId::PcaBiplot
         | ChartId::SomMap
-        | ChartId::Dendrogram => return,
+        | ChartId::Dendrogram
+        | ChartId::IntermediateValues
+        | ChartId::Timeline => return,
         _ => {}
     }
 

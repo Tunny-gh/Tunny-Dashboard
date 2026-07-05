@@ -149,3 +149,18 @@ pub const COLOR_GRID_STROKE: Color32 = Color32::from_rgb(154, 160, 166);
 /// 実行不可能解のグレーアウト色（premultiplied）
 /// premultiplied: rgb(180,180,180) × 80/255 ≈ 56,56,56; alpha = 80
 pub const COLOR_INFEASIBLE: Color32 = Color32::from_rgba_premultiplied(56, 56, 56, 80);
+
+// ====================================================================
+// trial state 系（Intermediate Values / Timeline 共通）
+// ====================================================================
+
+/// COMPLETE trial（正常終了）。最適化履歴の "All Trials" と同じ青系を再利用する。
+pub const COLOR_STATE_COMPLETE: Color32 = COLOR_OPT_TRIAL;
+/// PRUNED trial（枝刈り）。バーチャートのアクセント色（金色系）を再利用しオレンジとして扱う。
+pub const COLOR_STATE_PRUNED: Color32 = COLOR_BAR_ACCENT;
+/// RUNNING trial（実行中）。ニュートラルな灰色（空状態表示と同色）を再利用する。
+pub const COLOR_STATE_RUNNING: Color32 = COLOR_EMPTY_STATE;
+/// FAIL trial（失敗）。バーチャートの警告色（赤）を再利用する。
+pub const COLOR_STATE_FAIL: Color32 = COLOR_BAR_NEGATIVE;
+/// WAITING trial（開始待ち）。グリッド線と同じ薄い灰色を再利用する。
+pub const COLOR_STATE_WAITING: Color32 = COLOR_GRID_STROKE;

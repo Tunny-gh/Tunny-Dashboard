@@ -29,6 +29,8 @@ pub enum ChartId {
     SomMap,
     Dendrogram,
     ResponseSurface3D,
+    IntermediateValues,
+    Timeline,
 }
 
 impl ChartId {
@@ -65,6 +67,8 @@ impl ChartId {
             ChartId::SomMap,
             ChartId::Dendrogram,
             ChartId::ResponseSurface3D,
+            ChartId::IntermediateValues,
+            ChartId::Timeline,
         ]
     }
 
@@ -99,6 +103,8 @@ impl ChartId {
             ChartId::SomMap => "SOM Map",
             ChartId::Dendrogram => "Dendrogram",
             ChartId::ResponseSurface3D => "Response Surface 3D",
+            ChartId::IntermediateValues => "Intermediate Values",
+            ChartId::Timeline => "Timeline",
         }
     }
 
@@ -114,6 +120,8 @@ impl ChartId {
             ChartId::PcaBiplot => Some("Scores + loadings"),
             ChartId::SomMap => Some("Topology-preserving map"),
             ChartId::ResponseSurface3D => Some("Surrogate slice viewer"),
+            ChartId::IntermediateValues => Some("Learning curves per trial"),
+            ChartId::Timeline => Some("Trial execution timeline"),
             _ => None,
         }
     }

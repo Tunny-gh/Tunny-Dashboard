@@ -1,7 +1,9 @@
 // 最適化履歴
 mod history;
 pub use history::convergence;
+pub use history::intermediate_values;
 pub use history::optimization_history;
+pub use history::timeline;
 
 // パレート分析
 mod pareto;

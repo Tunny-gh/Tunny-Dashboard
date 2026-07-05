@@ -5,13 +5,14 @@ use crate::ui::widgets::{
     cluster_scatter_3d::ClusterScatter3D, comparison_table::ComparisonTableChart,
     convergence::ConvergenceChart, correlation_matrix::CorrelationMatrixChart,
     dendrogram::DendrogramChart, histogram::HistogramChart, importance_chart::ImportanceChart,
-    mcdm_chart::McdmRankChart, mcdm_scatter_chart::McdmScatterChart,
-    mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
-    parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
-    pca_biplot::PcaBiplotChart, pdp_2d::PdpChart2DState, pdp_chart::PdpChart,
-    radar_comparison::RadarComparisonChart, response_surface::ResponseSurfaceChart,
-    robustness::RobustnessChart, scatter_matrix::ScatterMatrix,
-    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart, som_map::SomMapChart,
+    intermediate_values::IntermediateValuesChart, mcdm_chart::McdmRankChart,
+    mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
+    optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
+    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pca_biplot::PcaBiplotChart,
+    pdp_2d::PdpChart2DState, pdp_chart::PdpChart, radar_comparison::RadarComparisonChart,
+    response_surface::ResponseSurfaceChart, robustness::RobustnessChart,
+    scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
+    slice_chart::SliceChart, som_map::SomMapChart, timeline::TimelineChart,
     trial_table::TrialTable,
 };
 
@@ -371,6 +372,10 @@ pub struct WidgetStates {
     pub dendrogram: DendrogramChart,
     /// 応答曲面 3D ビューアの UI 状態
     pub response_surface: ResponseSurfaceChart,
+    /// Intermediate Values（trial ごとの学習曲線）の UI 状態
+    pub intermediate_values: IntermediateValuesChart,
+    /// Timeline（trial 実行タイムライン）の UI 状態
+    pub timeline: TimelineChart,
     #[serde(skip)]
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）

@@ -430,5 +430,13 @@ pub(crate) fn render_chart(
                 &app_state.artifact_map,
             );
         }
+        ChartId::IntermediateValues => {
+            let extras = tunny_core::dataframe::active_extras_snapshot();
+            widgets.intermediate_values.show(ui, extras.as_deref());
+        }
+        ChartId::Timeline => {
+            let extras = tunny_core::dataframe::active_extras_snapshot();
+            widgets.timeline.show(ui, extras.as_deref());
+        }
     }
 }

@@ -108,6 +108,12 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::ResponseSurface3D => {
             egui::include_image!("../../../assets/widget_icons/response_surface.svg")
         }
+        ChartId::IntermediateValues => {
+            egui::include_image!("../../../assets/widget_icons/intermediate_values.svg")
+        }
+        ChartId::Timeline => {
+            egui::include_image!("../../../assets/widget_icons/timeline.svg")
+        }
     }
 }
 
@@ -169,6 +175,8 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                 &[
                     PanelItem::Chart(ChartId::OptimizationHistory),
                     PanelItem::Chart(ChartId::ConvergenceIndicators),
+                    PanelItem::Chart(ChartId::IntermediateValues),
+                    PanelItem::Chart(ChartId::Timeline),
                 ],
             ),
             (
