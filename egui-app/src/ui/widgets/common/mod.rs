@@ -8,5 +8,6 @@ pub mod log_scale;
 pub mod plot_nav;
 pub mod radar_chart;
 pub mod range_math;
+pub mod rdb_url_modal;
 pub mod trial_detail_modal;
 pub mod trial_table;

@@ -71,10 +71,16 @@ FORM/SORM までは不要でも「6σ 相当の判定ができる」と言える
 複数モデルの CV 精度・予測面のオーバーレイ比較（HEEDS 2504 の Compare Surrogates
 相当）。バックエンド（Auto 選択 / CV-R²）は既にあるので UI 追加が主。
 
-### 7. ストレージ対応拡大
+### 7. ストレージ対応拡大 ✅
 
 PostgreSQL / MySQL の Optuna RDB バックエンド対応。チームでの分散最適化は RDB
 バックエンドが標準的なため、実用上の優先度が高い。
+
+- [x] クエリロジックのバックエンド抽象化（OptunaBackend trait、SQLite と共有）
+- [x] PostgreSQL / MySQL リーダー（接続 URL 指定、SQLAlchemy 形式も受理）
+- [x] UI: ツールバー「Open URL…」ダイアログ、タイトルバーのパスワードマスク
+- [x] ライブ更新（フィンガープリントポーリング、SQLite と共通ループ）
+- 未対応: TLS 接続、artifacts の RDB 読み出し
 
 ## 長期（時流に乗った独自性）
 

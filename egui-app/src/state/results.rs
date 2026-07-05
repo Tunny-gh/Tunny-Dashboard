@@ -260,13 +260,17 @@ pub struct ConvergenceHistory {
 // ============================================================
 
 /// ライブ更新対象のストレージ種別。ポーラーの実装（journal: バイトオフセット差分 /
-/// sqlite: フィンガープリント + 単一 Study 丸ごと再ロード）を切り替えるために使う。
+/// sqlite・rdb: フィンガープリント + 単一 Study 丸ごと再ロード）を切り替えるために使う。
 /// ファイルロード時（`AppMessage::JournalParsed` 処理）に確定する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LiveUpdateStorageKind {
     #[default]
     Journal,
     Sqlite,
+    /// PostgreSQL/MySQL 接続 URL（`journal_path` に URL 文字列として格納）。
+    /// フィンガープリント取得・再ロードは `Sqlite` と同型だが、接続先が
+    /// ファイルパスではなく `RdbUrl` である点が異なる（`RdbLivePoller` が担当）。
+    Rdb,
 }
 
 #[derive(Debug)]

@@ -6,6 +6,8 @@ use crate::ui::widget_states::WidgetStates;
 #[derive(Debug, Clone)]
 pub enum ToolbarAction {
     OpenJournal(std::path::PathBuf),
+    /// 「Open URL…」ダイアログを開く（PostgreSQL/MySQL 接続 URL を直接入力する）。
+    OpenDbUrlDialog,
     SelectStudy(StudyMeta),
     ToggleLiveUpdate,
     SetPollInterval(u64),
@@ -39,6 +41,11 @@ pub fn show_toolbar(
             if let Some(path) = crate::io::file::open_file_dialog() {
                 actions.push(ToolbarAction::OpenJournal(path));
             }
+        }
+
+        // ファイルダイアログでは選べない PostgreSQL/MySQL 接続 URL を直接入力するボタン。
+        if toolbar_button(ui, "Open URL…", open_enabled).clicked() {
+            actions.push(ToolbarAction::OpenDbUrlDialog);
         }
 
         // セッション（レイアウト + ウィジェット設定 + 表示設定）の保存・復元。
@@ -110,9 +117,10 @@ pub fn show_toolbar(
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // ライブ更新トグル（journal (.log) / SQLite (.db 等) ファイルのみ有効。
-            // フラット CSV は 1 回きりのインポートでストリーミング追記の概念が無いため
-            // 開いていても押せないようにする）。
+            // ライブ更新トグル（journal (.log) / SQLite (.db 等) / PostgreSQL・MySQL 接続 URL
+            // のみ有効。フラット CSV は 1 回きりのインポートでストリーミング追記の概念が無いため
+            // 開いていても押せないようにする）。DB URL は拡張子を持たないため
+            // `!is_csv_path` の判定にそのまま通る。
             let can_toggle = app_state
                 .journal_path
                 .as_deref()
@@ -125,7 +133,7 @@ pub fn show_toolbar(
             let mut response = toolbar_button(ui, &live_label, can_toggle);
             if !can_toggle {
                 response = response.on_hover_text(
-                    "Live Update is available for journal (.log) / SQLite files only",
+                    "Live Update is available for journal (.log) / SQLite / DB URL sources only",
                 );
             }
             if response.clicked() && can_toggle {

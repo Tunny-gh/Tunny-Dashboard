@@ -17,7 +17,7 @@ pub mod surrogate_opt;
 
 pub use data::{dataframe, extras, filter};
 pub use io::journal::{live_update, parser as journal_parser};
-pub use io::{artifacts, export, flat_csv, journal, sqlite};
+pub use io::{artifacts, export, flat_csv, journal, rdb, sqlite};
 pub use mcdm::entropy;
 pub use mcdm::promethee;
 pub use mcdm::topsis;

@@ -271,8 +271,44 @@ fn sqlite_polling_loop(
     interval_ms: &AtomicU64,
     no_change_timeout: Duration,
 ) {
-    let study_id = context.study_id;
-    let mut last_fingerprint = context.initial_fingerprint;
+    let file_path = context.file_path;
+    fingerprint_polling_loop(
+        context.study_id,
+        context.initial_fingerprint,
+        move |study_id| tunny_core::sqlite::study_fingerprint(&file_path, study_id),
+        "sqlite",
+        tx,
+        stop_signal,
+        interval_ms,
+        no_change_timeout,
+    );
+}
+
+/// SQLite / RDB 共通のフィンガープリント方式ポーリングループ本体。
+///
+/// 両者は「接続先からフィンガープリントを 1 回取得する手段」だけが異なり
+/// （SQLite: ローカルファイルパスの再オープン、RDB: 接続 URL への再接続）、
+/// 変化検出・エラーエスカレーション・完了ヒント送出のロジックは完全に共通。
+/// その差分を `fingerprint_fn` クロージャへ閉じ込めることで
+/// `SqliteLivePoller` / `RdbLivePoller` の両方から本関数を共有する。
+///
+/// 送信メッセージは SQLite 用に定義済みの `SqliteLiveChanged` をそのまま流用する
+/// （RDB 用の新規メッセージは増やさない。呼び出し側は `storage_kind` で
+/// 再ロード先を振り分ける）。
+#[allow(clippy::too_many_arguments)]
+fn fingerprint_polling_loop<F>(
+    study_id: u32,
+    initial_fingerprint: tunny_core::rdb::StudyFingerprint,
+    fingerprint_fn: F,
+    error_source: &str,
+    tx: &SyncSender<AppMessage>,
+    stop_signal: &AtomicBool,
+    interval_ms: &AtomicU64,
+    no_change_timeout: Duration,
+) where
+    F: Fn(u32) -> Result<tunny_core::rdb::StudyFingerprint, String>,
+{
+    let mut last_fingerprint = initial_fingerprint;
     let mut error_count: u32 = 0;
     let mut last_changed = SystemTime::now();
     let mut completion_hint_sent = false;
@@ -289,7 +325,7 @@ fn sqlite_polling_loop(
             break;
         }
 
-        match tunny_core::sqlite::study_fingerprint(&context.file_path, study_id) {
+        match fingerprint_fn(study_id) {
             Ok(fingerprint) => {
                 error_count = 0;
                 if fingerprint != last_fingerprint {
@@ -308,7 +344,7 @@ fn sqlite_polling_loop(
             }
             Err(e) => {
                 let _ = tx.send(AppMessage::LiveUpdateError(format!(
-                    "Live update: sqlite fingerprint error ({e})"
+                    "Live update: {error_source} fingerprint error ({e})"
                 )));
                 if escalate_error(&mut error_count, tx, stop_signal) {
                     break;
@@ -316,6 +352,102 @@ fn sqlite_polling_loop(
             }
         }
     }
+}
+
+// =============================================================================
+// RDB（PostgreSQL/MySQL）ライブ更新ポーラー
+//
+// SQLite と同じくフィンガープリント方式（`fingerprint_polling_loop` を共有）だが、
+// 接続先がローカルファイルパスではなく `RdbUrl`（接続 URL）である点が異なる。
+// フィンガープリント取得は毎回 `RdbUrl` から再接続して行う
+// （`tunny_core::rdb::study_fingerprint_url`）。
+// =============================================================================
+
+/// RDB ライブ更新ポーリングスレッドへ渡すコンテキスト。
+#[derive(Debug, Clone)]
+pub struct RdbLiveUpdateContext {
+    pub url: tunny_core::rdb::RdbUrl,
+    /// ポーリング対象 study（フィンガープリントは study 単位でしか取れない）。
+    pub study_id: u32,
+    /// ポーリング開始時点のフィンガープリント。
+    pub initial_fingerprint: tunny_core::rdb::StudyFingerprint,
+    /// Milliseconds of no change before sending completion hint (default: 60_000)
+    pub no_change_timeout_ms: u64,
+}
+
+pub struct RdbLivePoller {
+    stop_signal: Arc<AtomicBool>,
+    interval_ms: Arc<AtomicU64>,
+    thread_handle: Option<JoinHandle<()>>,
+}
+
+impl RdbLivePoller {
+    pub fn start(
+        context: RdbLiveUpdateContext,
+        tx: SyncSender<AppMessage>,
+        interval_ms: u64,
+    ) -> Self {
+        let stop_signal = Arc::new(AtomicBool::new(false));
+        let interval = Arc::new(AtomicU64::new(interval_ms));
+
+        let stop_clone = stop_signal.clone();
+        let interval_clone = interval.clone();
+        let no_change_timeout = Duration::from_millis(context.no_change_timeout_ms);
+
+        let handle = thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                rdb_polling_loop(
+                    context,
+                    &tx,
+                    &stop_clone,
+                    &interval_clone,
+                    no_change_timeout,
+                );
+            }));
+            if result.is_err() {
+                let _ = tx.send(AppMessage::LiveUpdateError(
+                    "ポーリングスレッドが異常終了".to_string(),
+                ));
+            }
+        });
+
+        RdbLivePoller {
+            stop_signal,
+            interval_ms: interval,
+            thread_handle: Some(handle),
+        }
+    }
+
+    pub fn stop(&mut self) {
+        self.stop_signal.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+        }
+    }
+
+    pub fn update_interval(&self, new_interval_ms: u64) {
+        self.interval_ms.store(new_interval_ms, Ordering::Relaxed);
+    }
+}
+
+fn rdb_polling_loop(
+    context: RdbLiveUpdateContext,
+    tx: &SyncSender<AppMessage>,
+    stop_signal: &AtomicBool,
+    interval_ms: &AtomicU64,
+    no_change_timeout: Duration,
+) {
+    let url = context.url;
+    fingerprint_polling_loop(
+        context.study_id,
+        context.initial_fingerprint,
+        move |study_id| tunny_core::rdb::study_fingerprint_url(&url, study_id),
+        "rdb",
+        tx,
+        stop_signal,
+        interval_ms,
+        no_change_timeout,
+    );
 }
 
 #[cfg(test)]
@@ -643,5 +775,158 @@ mod sqlite_poller_tests {
             got_error,
             "Expected LiveUpdateError after consecutive fingerprint errors"
         );
+    }
+}
+
+// =============================================================================
+// fingerprint_polling_loop 共有ロジックのテスト（fake フィンガープリント関数）
+//
+// SqliteLivePoller は実 SQLite フィクスチャ DB で、RdbLivePoller は実 DB 接続が要る
+// ため CI では直接テストできない（RDB 側は #[ignore] 統合テストを別途用意する）。
+// 共有ループ本体（`fingerprint_polling_loop`）自体はクロージャ注入のため、
+// fake なフィンガープリント関数で両ポーラーの中核ロジックを検証できる。
+// =============================================================================
+
+#[cfg(test)]
+mod fingerprint_polling_loop_tests {
+    use super::*;
+    use std::sync::atomic::AtomicU32;
+    use std::sync::mpsc;
+
+    fn make_channel() -> (SyncSender<AppMessage>, mpsc::Receiver<AppMessage>) {
+        mpsc::sync_channel(32)
+    }
+
+    fn spawn_loop<F>(
+        study_id: u32,
+        initial: tunny_core::rdb::StudyFingerprint,
+        fingerprint_fn: F,
+        error_source: &'static str,
+        tx: SyncSender<AppMessage>,
+        no_change_timeout_ms: u64,
+        interval_ms: u64,
+    ) -> (Arc<AtomicBool>, JoinHandle<()>)
+    where
+        F: Fn(u32) -> Result<tunny_core::rdb::StudyFingerprint, String> + Send + 'static,
+    {
+        let stop_signal = Arc::new(AtomicBool::new(false));
+        let interval = Arc::new(AtomicU64::new(interval_ms));
+        let stop_clone = stop_signal.clone();
+        let interval_clone = interval.clone();
+        let no_change_timeout = Duration::from_millis(no_change_timeout_ms);
+        let handle = thread::spawn(move || {
+            fingerprint_polling_loop(
+                study_id,
+                initial,
+                fingerprint_fn,
+                error_source,
+                &tx,
+                &stop_clone,
+                &interval_clone,
+                no_change_timeout,
+            );
+        });
+        (stop_signal, handle)
+    }
+
+    /// SqliteLivePoller / RdbLivePoller いずれの closure 注入でも変化検出で
+    /// `SqliteLiveChanged`（流用メッセージ）が送られることを確認する。
+    #[test]
+    fn detects_fingerprint_change_via_injected_closure() {
+        let (tx, rx) = make_channel();
+        let call_count = Arc::new(AtomicU32::new(0));
+        let call_count_clone = call_count.clone();
+        let (stop_signal, handle) = spawn_loop(
+            42,
+            tunny_core::rdb::StudyFingerprint::default(),
+            move |study_id| {
+                assert_eq!(study_id, 42);
+                let n = call_count_clone.fetch_add(1, Ordering::Relaxed);
+                // 2 回目の呼び出しから変化させる（同じ値が続くのは変化なし扱い）。
+                Ok(tunny_core::rdb::StudyFingerprint {
+                    total_trials: if n >= 1 { 1 } else { 0 },
+                    ..Default::default()
+                })
+            },
+            "fake",
+            tx,
+            60_000,
+            10,
+        );
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut found = false;
+        while std::time::Instant::now() < deadline {
+            if let Ok(AppMessage::SqliteLiveChanged { study_id }) = rx.try_recv() {
+                assert_eq!(study_id, 42);
+                found = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        stop_signal.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+        assert!(found, "Expected SqliteLiveChanged from injected closure");
+    }
+
+    #[test]
+    fn stable_fingerprint_sends_no_change_message() {
+        let (tx, rx) = make_channel();
+        let fixed = tunny_core::rdb::StudyFingerprint {
+            total_trials: 5,
+            ..Default::default()
+        };
+        let fixed_clone = fixed.clone();
+        let (stop_signal, handle) = spawn_loop(
+            1,
+            fixed,
+            move |_| Ok(fixed_clone.clone()),
+            "fake",
+            tx,
+            60_000,
+            10,
+        );
+
+        thread::sleep(Duration::from_millis(150));
+        stop_signal.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+
+        let messages: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert!(
+            !messages
+                .iter()
+                .any(|m| matches!(m, AppMessage::SqliteLiveChanged { .. })),
+            "No SqliteLiveChanged expected when the fingerprint is stable"
+        );
+    }
+
+    #[test]
+    fn error_closure_escalates_and_auto_stops() {
+        let (tx, rx) = make_channel();
+        let (stop_signal, handle) = spawn_loop(
+            1,
+            Default::default(),
+            |_| Err("connection refused".to_string()),
+            "fake",
+            tx,
+            60_000,
+            10,
+        );
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut got_error = false;
+        while std::time::Instant::now() < deadline {
+            if let Ok(AppMessage::LiveUpdateError(msg)) = rx.try_recv() {
+                assert!(msg.contains("fake fingerprint error"));
+                got_error = true;
+            }
+            if stop_signal.load(Ordering::Relaxed) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        stop_signal.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+        assert!(got_error, "Expected LiveUpdateError after closure errors");
     }
 }

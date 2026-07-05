@@ -83,6 +83,11 @@ pub struct AppState {
     /// フラット CSV 読み込み直後に表示する方向・レンジ確認ダイアログの編集状態。
     /// `Some` の間はダイアログを表示し、確定するまで Study を活性化しない。
     pub csv_import_settings: Option<CsvImportSettings>,
+
+    // ── RDB (PostgreSQL/MySQL) 接続 URL ダイアログ ────────────────
+    /// 「Open URL…」ダイアログの入力中テキスト。`None` は非表示、`Some` は表示中
+    /// （空文字列を含む入力中の文字列そのもの）。
+    pub db_url_dialog: Option<String>,
 }
 
 impl AppState {
@@ -116,6 +121,7 @@ impl AppState {
             help_language: HelpLanguage::default(),
             convergence_indicator: MoIndicator::Hypervolume,
             csv_import_settings: None,
+            db_url_dialog: None,
         }
     }
 

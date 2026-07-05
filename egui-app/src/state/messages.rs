@@ -255,6 +255,10 @@ pub enum AppMessage {
     /// SQLite は trial の状態がインプレースで更新される（RUNNING→COMPLETE 等）ため
     /// journal のようなバイトオフセット差分ができない。対象 study の丸ごと再ロードを
     /// ワーカースレッドへ依頼する必要があることを知らせるシグナルメッセージ。
+    ///
+    /// RDB（PostgreSQL/MySQL）ライブ更新もフィンガープリント方式は同型のため、
+    /// 新しいメッセージ種別を増やさずこのメッセージをそのまま流用する
+    /// （`RdbLivePoller` もこれを送信する）。
     SqliteLiveChanged {
         study_id: u32,
     },
@@ -262,6 +266,9 @@ pub enum AppMessage {
     /// ワーカースレッドが `tunny_core::dataframe::swap_snapshot` /
     /// `store_extras_for` まで済ませているため、ここでは
     /// StudyView の再構築（Pareto 再計算含む）とキャッシュ破棄のみ行う。
+    ///
+    /// RDB ライブ更新の再ロード完了（`dispatch_reload_rdb_study` →
+    /// `crate::io::rdb::reload_single_study_task`）もこのメッセージをそのまま流用する。
     SqliteLiveReloadDone {
         study_id: u32,
         meta: StudyMeta,

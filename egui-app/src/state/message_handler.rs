@@ -471,7 +471,9 @@ impl MessageHandler {
     /// できず、フィンガープリント変化を検出したら対象 study を丸ごと再パースする
     /// 必要がある。その再パースはワーカースレッド経由で行う必要があるため
     /// （`MessageHandler::handle` は tx を持たない）、呼び出し側（app.rs）が本関数で
-    /// 対象 study_id を取り出し `dispatch_reload_sqlite_study` を発行する。
+    /// 対象 study_id を取り出し `dispatch_reload_sqlite_study` を発行する
+    /// （RDB ライブ更新も `SqliteLiveChanged` を流用するため、storage_kind が Rdb の
+    /// 場合は app.rs 側で `dispatch_reload_rdb_study` へ振り分ける）。
     pub fn sqlite_reload_study_id(msg: &AppMessage) -> Option<u32> {
         match msg {
             AppMessage::SqliteLiveChanged { study_id } => Some(*study_id),
