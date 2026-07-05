@@ -455,10 +455,27 @@ impl McdmRankChart {
                                 COLOR_BAR_NEGATIVE,
                             );
                         }
-                        ui.label(format!(
-                            "Φ+{:.3} Φ-{:.3}",
-                            r.phi_plus[idx], r.phi_minus[idx]
-                        ));
+                        let incomparable = r
+                            .incomparable_counts
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(0);
+                        if incomparable > 0 {
+                            ui.label(format!(
+                                "Φ+{:.3} Φ-{:.3} \u{21F9}{incomparable}",
+                                r.phi_plus[idx], r.phi_minus[idx]
+                            ))
+                            .on_hover_text(format!(
+                                "\u{21F9}{incomparable}: incomparable with {incomparable} trial(s) in the PROMETHEE I partial order \
+                                 (neither trial outranks the other on both \u{3a6}+ and \u{3a6}-). \
+                                 The displayed order is a tie-break for reference only."
+                            ));
+                        } else {
+                            ui.label(format!(
+                                "Φ+{:.3} Φ-{:.3}",
+                                r.phi_plus[idx], r.phi_minus[idx]
+                            ));
+                        }
                     });
                 }
             });

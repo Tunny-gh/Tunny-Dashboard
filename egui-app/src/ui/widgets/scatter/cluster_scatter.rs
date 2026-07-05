@@ -97,6 +97,8 @@ pub struct ClusterComputeRequest {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    /// Elbow（自動）モードで使う探索範囲の上限 k。Manual モードでは無視される。
+    pub elbow_max_k: usize,
 }
 
 /// クラスタリング結果のキャッシュキー。
@@ -110,6 +112,7 @@ pub struct ClusterCacheKey {
     pub k_mode: KSelectionMode,
     pub k: usize,
     pub init_strategy: KMeansInitStrategy,
+    pub elbow_max_k: usize,
 }
 
 impl ClusterCacheKey {
@@ -118,22 +121,31 @@ impl ClusterCacheKey {
         k_mode: KSelectionMode,
         k: usize,
         init_strategy: KMeansInitStrategy,
+        elbow_max_k: usize,
     ) -> Self {
         // Elbow モードでは入力 k は無視されるため、キャッシュヒット判定がブレないよう 0 に正規化する。
-        let k = match k_mode {
-            KSelectionMode::Manual => k,
-            KSelectionMode::ElbowDefault => 0,
+        // 対称的に、Manual モードでは elbow_max_k は使われないため 0 に正規化する。
+        let (k, elbow_max_k) = match k_mode {
+            KSelectionMode::Manual => (k, 0),
+            KSelectionMode::ElbowDefault => (0, elbow_max_k),
         };
         Self {
             target_space,
             k_mode,
             k,
             init_strategy,
+            elbow_max_k,
         }
     }
 
     pub fn from_request(req: &ClusterComputeRequest) -> Self {
-        Self::new(req.target_space, req.k_mode, req.k, req.init_strategy)
+        Self::new(
+            req.target_space,
+            req.k_mode,
+            req.k,
+            req.init_strategy,
+            req.elbow_max_k,
+        )
     }
 }
 
@@ -169,6 +181,8 @@ pub struct ClusterScatter {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
+    /// Elbow（自動）モードで探索する k の上限。
+    pub elbow_max_k: usize,
     #[serde(skip)]
     pub computing: bool,
     #[serde(skip)]
@@ -193,6 +207,7 @@ impl Default for ClusterScatter {
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::ElbowDefault,
             init_strategy: KMeansInitStrategy::KMeansPlusPlus,
+            elbow_max_k: 10,
             computing: false,
             pending_compute: None,
             last_error: None,
@@ -211,7 +226,13 @@ impl ClusterScatter {
 
     /// 現在の設定に対応するキャッシュキーを返す。
     pub fn cache_key(&self) -> ClusterCacheKey {
-        ClusterCacheKey::new(self.target_space, self.k_mode, self.k, self.init_strategy)
+        ClusterCacheKey::new(
+            self.target_space,
+            self.k_mode,
+            self.k,
+            self.init_strategy,
+            self.elbow_max_k,
+        )
     }
 
     /// クラスタ散布図を描画する
@@ -437,6 +458,14 @@ impl ClusterScatter {
                 egui::DragValue::new(&mut self.k).range(2..=trial_count.max(2)),
             );
 
+            let elbow_max_k_editable =
+                !self.computing && self.k_mode == KSelectionMode::ElbowDefault;
+            ui.label("Max k:");
+            ui.add_enabled(
+                elbow_max_k_editable,
+                egui::DragValue::new(&mut self.elbow_max_k).range(2..=50),
+            );
+
             egui::ComboBox::from_id_salt("cluster_scatter_k_mode")
                 .selected_text(self.k_mode.label())
                 .show_ui(ui, |ui| {
@@ -503,6 +532,7 @@ impl ClusterScatter {
             target_space: self.target_space,
             k_mode: self.k_mode,
             init_strategy: self.init_strategy,
+            elbow_max_k: self.elbow_max_k,
         };
 
         match validate_cluster_request(&request, trial_count) {
@@ -735,6 +765,7 @@ mod tests {
         assert_eq!(cs.target_space, ClusterSpace::Objective);
         assert_eq!(cs.k_mode, KSelectionMode::ElbowDefault);
         assert_eq!(cs.init_strategy, KMeansInitStrategy::KMeansPlusPlus);
+        assert_eq!(cs.elbow_max_k, 10);
         assert!(!cs.computing);
         assert!(cs.pending_compute.is_none());
         assert!(cs.last_error.is_none());
@@ -841,6 +872,7 @@ mod tests {
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::Manual,
             init_strategy: KMeansInitStrategy::KMeansPlusPlus,
+            elbow_max_k: 10,
         };
         assert!(validate_cluster_request(&request, 10).is_err());
     }
@@ -852,7 +884,33 @@ mod tests {
             target_space: ClusterSpace::Objective,
             k_mode: KSelectionMode::ElbowDefault,
             init_strategy: KMeansInitStrategy::KMeansPlusPlus,
+            elbow_max_k: 10,
         };
         assert!(validate_cluster_request(&request, 10).is_ok());
+    }
+
+    #[test]
+    fn cache_key_normalizes_unused_field_per_mode() {
+        // Manual モードでは elbow_max_k が意味を持たないため 0 に正規化される。
+        let manual_key = ClusterCacheKey::new(
+            ClusterSpace::Objective,
+            KSelectionMode::Manual,
+            5,
+            KMeansInitStrategy::KMeansPlusPlus,
+            42,
+        );
+        assert_eq!(manual_key.k, 5);
+        assert_eq!(manual_key.elbow_max_k, 0);
+
+        // Elbow モードでは k が意味を持たないため 0 に正規化される。
+        let elbow_key = ClusterCacheKey::new(
+            ClusterSpace::Objective,
+            KSelectionMode::ElbowDefault,
+            5,
+            KMeansInitStrategy::KMeansPlusPlus,
+            42,
+        );
+        assert_eq!(elbow_key.k, 0);
+        assert_eq!(elbow_key.elbow_max_k, 42);
     }
 }

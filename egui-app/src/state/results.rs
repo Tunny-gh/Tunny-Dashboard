@@ -109,6 +109,7 @@ pub struct PrometheeResult {
     pub phi_net: Vec<f64>,
     pub ranked_indices_i: Vec<u32>,
     pub ranked_indices_ii: Vec<u32>,
+    pub incomparable_counts: Vec<u32>,
     pub duration_ms: f64,
 }
 

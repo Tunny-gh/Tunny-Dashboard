@@ -1011,16 +1011,24 @@ fn build_mcdm_table_csv(result: &McdmResult, app_state: &AppState) -> Option<Str
         }
         McdmResult::PrometheeI(r) => {
             let mut w = CsvWriter::new();
-            w.header(["trial_id", "rank", "phi_plus", "phi_minus"]);
+            w.header([
+                "trial_id",
+                "rank",
+                "phi_plus",
+                "phi_minus",
+                "incomparable_count",
+            ]);
             for (rank, &idx) in r.ranked_indices_i.iter().enumerate() {
                 let i = idx as usize;
                 let phi_plus = r.phi_plus.get(i).copied().unwrap_or(f64::NAN);
                 let phi_minus = r.phi_minus.get(i).copied().unwrap_or(f64::NAN);
+                let incomparable_count = r.incomparable_counts.get(i).copied().unwrap_or(0);
                 w.row([
                     CsvField::UInt(tid(idx) as u64),
                     CsvField::UInt((rank + 1) as u64),
                     CsvField::Num(phi_plus),
                     CsvField::Num(phi_minus),
+                    CsvField::UInt(incomparable_count as u64),
                 ]);
             }
             Some(w.finish())
