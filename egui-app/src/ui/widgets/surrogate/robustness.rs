@@ -19,6 +19,7 @@ use tunny_core::surrogate_opt::{
 use super::anchor::{center_label, resolve_center, CenterChoice};
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 
 /// モデル選択肢（コンボ表示順）。`surrogate_opt` の一覧と揃える。
 const MODEL_CHOICES: [SurrogateModelKind; 5] = [
@@ -305,10 +306,12 @@ fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
     let chart = egui_plot::BarChart::new("Samples", bars).color(COLOR_BAR_PRIMARY);
 
     egui_plot::Plot::new("robustness_histogram")
+        .unified_nav()
         .legend(egui_plot::Legend::default())
         .x_axis_label("Output")
         .y_axis_label("Count")
         .show(ui, |plot_ui| {
+            apply_wheel_zoom(plot_ui);
             plot_ui.bar_chart(chart);
             plot_ui.vline(
                 egui_plot::VLine::new("Nominal", result.nominal)

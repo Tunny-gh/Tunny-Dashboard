@@ -5,6 +5,7 @@ use crate::theme::chart_colors::{
     COLOR_UNSELECTED_POINT,
 };
 use crate::theme::color_compute::compute_point_alpha;
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
@@ -16,6 +17,8 @@ pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
     // TASK-2241: rectangular brush state (screen coordinates).
+    // ブラシ選択は Shift + 左ドラッグ。修飾なし左ドラッグは統一ナビゲーション
+    // （矩形ズーム）に割り当てるため、開始判定で Shift を要求する。
     // egui_plot のクロスヘアは生のスクリーン座標へ最終変換を適用して描かれる。
     // 矩形もスクリーン座標で保持し、描画・選択判定ともに `PlotResponse.transform`
     // （点描画と同一の最終変換）で扱うことで、変換のフレーム遅延によるズレを避ける。
@@ -209,10 +212,15 @@ impl ParetoScatter2D {
         let current_brush_start = self.brush_start;
         let current_brush_end = self.brush_end;
 
+        // Shift 押下中は矩形ズームを止めてブラシ選択に左ドラッグを譲る。
+        let shift_down = ui.input(|i| i.modifiers.shift);
+
         let plot_response = egui_plot::Plot::new("pareto_2d_plot")
             .legend(egui_plot::Legend::default())
-            .allow_drag(false)
+            .unified_nav()
+            .allow_boxed_zoom(!shift_down)
             .show(ui, |plot_ui| {
+                apply_wheel_zoom(plot_ui);
                 // Brush interaction detection.
                 // 矩形はスクリーン座標で保持する。egui_plot のクロスヘアは生のスクリーン
                 // ポインタ位置に最終変換を適用して描かれるため、こちらもスクリーン座標で
@@ -226,7 +234,9 @@ impl ParetoScatter2D {
                     .or_else(|| resp.interact_pointer_pos())
                     .or_else(|| resp.ctx.input(|i| i.pointer.latest_pos()));
 
-                if resp.drag_started_by(egui::PointerButton::Primary) {
+                // ブラシ選択は Shift + 左ドラッグでのみ開始する。修飾なし左ドラッグ
+                // は egui_plot の矩形ズームが処理する（統一ナビゲーション）。
+                if shift_down && resp.drag_started_by(egui::PointerButton::Primary) {
                     new_brush_start = ptr;
                 }
                 // ブラシ操作中はプライマリボタンが押されている限り毎フレーム

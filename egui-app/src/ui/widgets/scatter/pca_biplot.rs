@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_SCATTER_DOT};
 use crate::theme::colormap::ColorMap;
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use tunny_core::clustering::PcaResult;
 
 /// PCA の対象空間。`tunny_core::clustering::PcaSpace` は serde を実装していないため、
@@ -188,11 +189,13 @@ impl PcaBiplotChart {
         );
 
         egui_plot::Plot::new("pca_biplot")
+            .unified_nav()
             .x_axis_label(x_label)
             .y_axis_label(y_label)
             .data_aspect(1.0)
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
+                apply_wheel_zoom(plot_ui);
                 for ([r, g, b, a], pts) in &color_groups {
                     let color = egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a);
                     plot_ui.points(

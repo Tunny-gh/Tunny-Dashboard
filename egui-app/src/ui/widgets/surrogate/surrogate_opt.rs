@@ -23,6 +23,7 @@ use crate::ui::widget_states::{
     SurrogateMultiOptimizeComputeRequest, SurrogateMultiSuggestComputeRequest, SurrogateOptState,
     SurrogateOptimizeComputeRequest, SurrogateSuggestComputeRequest,
 };
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use tunny_core::surrogate_opt::{
     AcquisitionKind, OptimizerKind, SurrogateModelKind, SurrogateValidationReport,
     TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
@@ -952,6 +953,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
     let plot_h = ui.available_height().clamp(180.0, 400.0);
 
     let mut plot = egui_plot::Plot::new(("surrogate_oof_plot", id_salt))
+        .unified_nav()
         .height(plot_h)
         .data_aspect(1.0)
         .x_axis_label("Actual")
@@ -961,6 +963,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         plot = plot.reset();
     }
     plot.show(ui, |plot_ui| {
+        apply_wheel_zoom(plot_ui);
         // 非フロント点（青）を背面に。
         plot_ui.points(
             egui_plot::Points::new("Out-of-fold predictions", other_pts)
@@ -1407,11 +1410,13 @@ fn render_front_scatter_2d(
     let y_label = result.objective_names.get(yi).cloned().unwrap_or_default();
 
     egui_plot::Plot::new("surrogate_front_scatter_2d")
+        .unified_nav()
         .height(220.0)
         .x_axis_label(&x_label)
         .y_axis_label(&y_label)
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
+            apply_wheel_zoom(plot_ui);
             // 観測点を背面に描く（実行不可能 → 被支配 → 観測フロントの順）。
             if toggles.infeasible && !obs_infeasible.is_empty() {
                 plot_ui.points(
@@ -1683,11 +1688,13 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         .style(egui_plot::LineStyle::Dashed { length: 8.0 });
 
     egui_plot::Plot::new("surrogate_history_plot")
+        .unified_nav()
         .height(200.0)
         .x_axis_label("Trial")
         .y_axis_label(&result.objective_name)
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
+            apply_wheel_zoom(plot_ui);
             plot_ui.points(scatter);
             plot_ui.line(best_line);
             plot_ui.line(hline);

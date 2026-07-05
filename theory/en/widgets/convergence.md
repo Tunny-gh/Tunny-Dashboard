@@ -25,8 +25,9 @@ When comparison studies are added, how series are made comparable depends on the
 ## Operations
 
 - **Indicator selector**: Use the dropdown at the top to switch indicators. The chart recomputes automatically.
-- **Zoom**: Scroll the mouse wheel to zoom into a range of trials.
-- **Pan**: Click and drag to pan along the trial axis.
+- **Zoom**: Scroll the mouse wheel, or drag with the left button to zoom into the selected rectangle.
+- **Pan**: Drag with the right mouse button to pan across the plot.
+- **Reset view**: Double-click with the left button to restore the default view.
 - **Reference point** (Hypervolume only): Override the auto-computed nadir + 10 % margin reference point per objective.
 
 ## How to Read

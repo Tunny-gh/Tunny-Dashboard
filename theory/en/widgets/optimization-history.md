@@ -13,8 +13,9 @@ The Optimization History chart shows how each objective function value changes o
 ## Operations
 
 - **Toggle series**: Click on the legend entries to show or hide individual series (All Trials, Best Value, Moving Average).
-- **Zoom**: Scroll the mouse wheel to zoom into a time range.
-- **Pan**: Click and drag to pan along the trial axis.
+- **Zoom**: Scroll the mouse wheel, or drag with the left button to zoom into the selected rectangle.
+- **Pan**: Drag with the right mouse button to pan across the plot.
+- **Reset view**: Double-click with the left button to restore the default view.
 - **Hover**: Hover over a point to see the trial number and objective value.
 - **Trial detail**: Click a point to open the trial detail modal for that trial.
 - **Best value line**: a solid line indicates the running best value found up to each trial.

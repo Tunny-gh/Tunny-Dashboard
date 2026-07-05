@@ -9,6 +9,7 @@ use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_MCDM_NONE, COLOR_UNSEL
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
@@ -419,10 +420,12 @@ fn render_scatter_plot(
 
     let mut clicked_detail: Option<(u32, usize)> = None;
     egui_plot::Plot::new("mcdm_scatter_plot")
+        .unified_nav()
         .x_axis_label(x_label)
         .y_axis_label(y_label)
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
+            apply_wheel_zoom(plot_ui);
             // 点クリックで詳細モーダルを開く対象を検出する。
             let resp = plot_ui.response();
             if resp.clicked_by(egui::PointerButton::Primary) {

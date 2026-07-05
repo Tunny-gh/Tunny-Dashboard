@@ -4,6 +4,7 @@ use crate::io::artifacts::ArtifactEntry;
 use crate::state::app_state::ConvergenceHistory;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::COLOR_CONVERGENCE_LINE;
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
@@ -290,11 +291,13 @@ impl ConvergenceChart {
         let mut clicked_detail: Option<(u32, usize, f64)> = None;
 
         egui_plot::Plot::new("convergence_plot")
+            .unified_nav()
             .legend(egui_plot::Legend::default())
             .x_axis_label("Trial")
             .y_axis_label(self.indicator.label())
             .include_x(0.0)
             .show(ui, |plot_ui| {
+                apply_wheel_zoom(plot_ui);
                 // 点クリックでトライアル詳細モーダルを開く（基準 Study の点のみ）。
                 let resp = plot_ui.response();
                 if resp.clicked_by(egui::PointerButton::Primary) {

@@ -4,6 +4,7 @@ use crate::theme::chart_colors::{
     COLOR_ICE_LINE, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_PDP_CI,
     COLOR_PDP_CI_LEGEND, COLOR_PDP_LINE,
 };
+use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use std::collections::HashMap;
 
 /// 観測点の分類（散布図系チャートと同じ配色規則で塗り分けるため）。
@@ -378,8 +379,10 @@ impl PdpChart {
         }
 
         egui_plot::Plot::new("pdp_1d_plot")
+            .unified_nav()
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
+                apply_wheel_zoom(plot_ui);
                 // 信頼区間バンド（グリッド区間ごとに凸四辺形を描画）
                 // egui_plot::Polygon はファン三角分割を使うため一枚の非凸ポリゴンでは
                 // 描画が崩れる。区間ごとの凸四辺形に分割することで正確に描画できる。
