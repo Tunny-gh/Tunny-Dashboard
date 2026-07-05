@@ -57,3 +57,7 @@ If the sum is non-positive or any $\theta_d$ is non-finite, no importance is rep
 - Use it as a quick screen and confirm the shape with PDP or a variance-based method (Sobol) when interactions matter.
 
 See also: [PDP](./pdp.md), [Sobol](./sobol.md), and the [Surrogate Optimizer widget](../widgets/surrogate-optimizer.md) (which fits the same GP family for response-surface optimization).
+
+## References
+
+- Rasmussen, C. E., & Williams, C. K. I. (2006). _Gaussian Processes for Machine Learning_. MIT Press.

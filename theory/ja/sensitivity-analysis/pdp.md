@@ -212,3 +212,9 @@ ImportanceChart / SensitivityHeatmap で重要パラメータを絞り込む
 | 出力       | `grid[k]`, `values[k]`   | `x_values[i]`, `y_values[j]`, `z_values[i][j]` |
 | サロゲート | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可、デフォルト Ridge） | Ridge / Random Forest / GP-FITC / GP-VFE / GP-MOE（選択可） |
 | 用途       | 単一パラメータの傾向確認  | 2変数複合効果・最適領域の把握         |
+
+---
+
+## 参考文献
+
+- Friedman, J. H. (2001). Greedy Function Approximation: A Gradient Boosting Machine. _Annals of Statistics_, 29(5), 1189–1232.

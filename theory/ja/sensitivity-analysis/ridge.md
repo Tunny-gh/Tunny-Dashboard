@@ -107,3 +107,7 @@ $$
 
 実務では、Ridge で一次スクリーニングし、非線形が疑われる場合に RF-ANOVA / SHAP / Sobol へ進む運用が扱いやすい。
 
+## 参考文献
+
+- Hoerl, A. E., & Kennard, R. W. (1970). Ridge Regression: Biased Estimation for Nonorthogonal Problems. _Technometrics_, 12(1), 55–67.
+

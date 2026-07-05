@@ -57,3 +57,7 @@ Each surrogate reports R² (fit to training data):
 - After identifying important parameters with Importance Chart / Sensitivity Heatmap.
 - To understand **how** a parameter affects the objective (not just how much).
 - To find the optimal region or interaction pattern between two parameters.
+
+## References
+
+- Friedman, J. H. (2001). Greedy Function Approximation: A Gradient Boosting Machine. _Annals of Statistics_, 29(5), 1189–1232.

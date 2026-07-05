@@ -129,17 +129,17 @@ for &v in &grid {
 }
 ```
 
-### Combined with Subsampling
+### Cost Is Bounded by Inducing Points, Not by Subsampling Training Rows
 
-The mean computation (full MC) remains $O(N \cdot N^2) = O(N^3)$, but combining with **subsampling** $N' = 100$ keeps the actual computation within $O(N'^3)$:
+The mean computation above (full MC over all $N$ training rows) is $O(G \cdot N \cdot N^2) = O(G N^3)$ if evaluated against the full $N \times N$ training covariance. In practice, GP-FITC / GP-VFE already bound this cost using $M \le 100$ **inducing points** (see [Gaussian Process](../surrogate-models/gaussian-process.md)) — this is a property of the FITC/VFE approximation itself, independent of $N$. It is **not** a subsample of the $N$ training rows: the mean computation still marginalizes over **all** $N$ training rows.
 
 | Operation | Cost (N=100, G=30) |
 | --- | --- |
-| GP training (Cholesky) | $O(N^3) = 10^6$ operations (once) |
-| Mean computation (all grid points) | $O(G \cdot N \cdot N^2) = 3 \times 10^7$ (forward substitution × 3,000 calls) |
+| GP training (Cholesky, bounded by $M \le 100$ inducing points) | $O(N^3) = 10^6$ operations (once) |
+| Mean computation (all grid points, all $N$ training rows) | $O(G \cdot N \cdot N^2) = 3 \times 10^7$ (forward substitution × 3,000 calls) |
 | **Variance computation (centroid approximation)** | $O(G \cdot N^2) = 3 \times 10^5$ (forward substitution × 30 calls) |
 
-Compared to the full computation without centroid approximation (evaluating variance at all $N$ points), the **variance step alone is 100× faster**.
+Compared to evaluating the predictive variance at every training row for every grid point (instead of once at the centroid per grid point), the **variance step alone is roughly $N\times$ faster** in this example.
 
 ---
 

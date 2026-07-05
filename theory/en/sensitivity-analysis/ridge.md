@@ -80,3 +80,7 @@ Because the closed-form solve is cheap (O(n·p²)), Ridge does not apply the row
 - When direction and magnitude of effect are needed alongside Spearman.
 
 Typical workflow: Ridge + Spearman for screening → RF-ANOVA / SHAP / Sobol if nonlinearity is suspected.
+
+## References
+
+- Hoerl, A. E., & Kennard, R. W. (1970). Ridge Regression: Biased Estimation for Nonorthogonal Problems. _Technometrics_, 12(1), 55–67.

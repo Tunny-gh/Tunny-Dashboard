@@ -57,3 +57,7 @@ $$
 - 素早いスクリーニングとして使い、形状は PDP で、交互作用が重要なら分散ベース（Sobol）で確認してください。
 
 関連: [PDP](./pdp.md), [Sobol](./sobol.md), [サロゲート最適化ウィジェット](../widgets/surrogate-optimizer.md)（同じ GP 系を応答曲面最適化に用います）。
+
+## 参考文献
+
+- Rasmussen, C. E., & Williams, C. K. I. (2006). _Gaussian Processes for Machine Learning_. MIT Press.
