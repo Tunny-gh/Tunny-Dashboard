@@ -137,3 +137,10 @@ MDI は連続値パラメータや取りうる値が多いカテゴリ特徴量�
 | 2,000+   | < 1,000ms（1,000 行にダウンサンプリング） |
 
 MDI は LightGBM RandomForest を 1 回学習するだけで、重要度（gain）と R² の両方を同じ booster から取得する。gain 計算のコストを考慮して最大行数を 1,000 に抑えている。バックグラウンドスレッドで実行されるため UI はブロックされない。
+
+---
+
+## 参考文献
+
+- Breiman, L. (2001). Random Forests. _Machine Learning_, 45(1), 5–32.
+- Ke, G. et al. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. _NeurIPS 30_.

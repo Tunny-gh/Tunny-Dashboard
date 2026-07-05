@@ -4,7 +4,7 @@
 
 SHAP computes parameter importance using **Shapley values** from cooperative game theory (Lundberg & Lee, 2017). Each parameter receives a contribution value that represents its average marginal contribution across all possible feature coalitions.
 
-The ImportanceChart uses **TreeSHAP** for efficient exact Shapley value computation on Random Forest trees. Global importance is the mean $|\varphi_j(x)|$ across all samples and trees, normalized to sum to 1.
+The ImportanceChart uses **TreeSHAP** for efficient exact Shapley value computation on Random Forest trees. Global importance is the mean $|\varphi_j(x)|$ across the training split, normalized to sum to 1.
 
 ## Formula
 

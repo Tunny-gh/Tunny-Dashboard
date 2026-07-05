@@ -56,3 +56,13 @@ Init strategy (differs only in k-means initialization)
 | Objective Space | Objective values only      | Find trials with similar performance       |
 | Variable Space  | Parameter values only      | Identify patterns in design variables      |
 | Combined        | Objectives + parameters    | See joint structure across both spaces     |
+
+---
+
+## Related Methods
+
+Other structure-revealing tools in the same neighborhood, available as separate widgets:
+
+- [Hierarchical Clustering](./hierarchical.md) — builds a full merge tree (dendrogram) instead of committing to a single $k$ upfront
+- [PCA Biplot](./pca-biplot.md) — projects trials and variables onto a standardized 2D principal-component plane
+- [Self-Organizing Map (SOM)](./som.md) — a topology-preserving 2D map, complementary to a fixed $k$-cluster partition

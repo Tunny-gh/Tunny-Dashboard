@@ -61,3 +61,7 @@ spanning $\pm 2$ standard deviations along each of the top two PCs. This makes t
 ## Where It Is Used in the App
 
 - **SOM widget**: configure grid size and epoch count, then switch between the U-matrix, per-feature component plane, and hit-count views of the trained map.
+
+## References
+
+- Kohonen, T. (1982). Self-organized formation of topologically correct feature maps. _Biological Cybernetics_, 43(1), 59–69.
