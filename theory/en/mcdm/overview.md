@@ -20,7 +20,7 @@ Scores each trial by how close it is to the ideal solution (best possible) and h
 Measures the "gap from ideal" using both L1 (Manhattan) and L∞ (Chebyshev) distances. Parameter v (0–1) balances overall utility vs. worst-case regret. Lower Q score = better compromise solution.
 
 ### PROMETHEE I / II
-Evaluates every trial pair (a, b) — "how much is a preferred over b?" — and aggregates into positive flow (Φ+), negative flow (Φ−), and net flow (Φnet). PROMETHEE I is conceptually a partial ranking, but this implementation returns it as a single total order (Φ+ descending, tiebreak Φ- ascending) without flagging incomparable pairs; PROMETHEE II gives a complete ranking.
+Evaluates every trial pair (a, b) — "how much is a preferred over b?" — and aggregates into positive flow (Φ+), negative flow (Φ−), and net flow (Φnet). PROMETHEE I is conceptually a partial ranking; this implementation displays a total order (Φ+ descending, tiebreak Φ- ascending) and reports per-trial incomparability counts (⇹N in the chart). PROMETHEE II gives a complete ranking.
 
 ### Entropy Weight Method
 Automatically computes objective weights from the variance (information content) of each objective across trials. Higher variance = higher weight. Use when you want data-driven, objective weights without manual input.

@@ -52,7 +52,7 @@ $$
 w_{ij} = w_j r_{ij}
 $$
 
-重みはユーザが設定する。`compute_topsis()` 自体は重みの正規化を行わず、渡された `weights` をそのまま使用する。合計が 1 になるよう正規化する処理は UI 層（`mcdm_chart.rs`）で行われ、正規化済みの重みが渡される。重要な目的関数の影響が大きくなる点は変わらない。
+重みはユーザが設定する。`compute_topsis()` は VIKOR と同様に、渡された `weights` を内部で合計 1 に正規化してから使用する（全ゼロや NaN などの退化した入力は均一重みにフォールバック）。重要な目的関数の影響が大きくなる点は変わらない。
 
 ---
 
@@ -123,18 +123,19 @@ if valid_indices.is_empty() {
 
 ### 重みのスケール不変性
 
-`compute_topsis()` は渡された重みを正規化せずそのまま使うため、`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる（ベクトル正規化後の乗算なので、重みベクトルの定数倍はスコアに影響せず比率のみが効く）。
+`[0.7, 0.3]` と `[7.0, 3.0]` は同じ結果になる。`compute_topsis()` が重みを内部で合計 1 に正規化することに加え、そもそもスコアは重みベクトルの定数倍に不変（比率のみが効く）ためである。
 
 ### `compute_topsis()` の処理フロー
 
 ```
 1. validate_inputs()         → 入力サイズの整合性チェック
-2. NaN/Inf フィルタリング     → valid_indices を構築
-3. build_weighted_matrix()   → 列ノルム計算 → r_ij → w_ij
-4. find_ideal_solutions()    → is_minimize に応じて A+/A- を決定
-5. compute_scores()          → D+, D- → score_i
-6. NaN/Inf トライアルにスコア 0.0 を割り当て
-7. スコア降順ソートで ranked_indices を生成
+2. normalize_weights()       → 重みを合計 1 に正規化（退化時は均一重み）
+3. NaN/Inf フィルタリング     → valid_indices を構築
+4. build_weighted_matrix()   → 列ノルム計算 → r_ij → w_ij
+5. find_ideal_solutions()    → is_minimize に応じて A+/A- を決定
+6. compute_scores()          → D+, D- → score_i
+7. NaN/Inf トライアルにスコア 0.0 を割り当て
+8. スコア降順ソートで ranked_indices を生成
 ```
 
 ### 計算量

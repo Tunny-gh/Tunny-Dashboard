@@ -10,6 +10,12 @@ pub struct PrometheeResult {
     pub phi_net: Vec<f64>,
     pub ranked_indices_i: Vec<u32>,
     pub ranked_indices_ii: Vec<u32>,
+    /// Number of trials each trial is incomparable with in the PROMETHEE I
+    /// partial order: a and b are incomparable when a is strictly higher on
+    /// both Φ+ and Φ- (or strictly lower on both). `ranked_indices_i` is
+    /// totalized via tie-breaking, so this array restores the partial-order
+    /// information the total order discards. Invalid (non-finite) trials are 0.
+    pub incomparable_counts: Vec<u32>,
     pub duration_ms: f64,
 }
 
@@ -23,6 +29,13 @@ pub fn compute_promethee(
     let start = Instant::now();
 
     super::validate_inputs(values, n_trials, n_objectives, weights, is_minimize)?;
+
+    // Weights are expected to sum to 1, but defend against callers that pass
+    // unnormalized weights (or a degenerate sum) — mirrors VIKOR / TOPSIS.
+    // π(a,b) = Σ_j w_j·P_j is a weighted mean only when Σw = 1, so this also
+    // guarantees Φ+, Φ- ∈ [0,1] and Φnet ∈ [-1,1].
+    let weights = super::normalize_weights(weights);
+    let weights = weights.as_slice();
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);
 
@@ -56,6 +69,8 @@ pub fn compute_promethee(
 
     let ranked_indices_i = rank_promethee_i(&phi_plus, &phi_minus, n_trials, &valid_indices);
     let ranked_indices_ii = rank_promethee_ii(&phi_net, n_trials, &valid_indices);
+    let incomparable_counts =
+        count_incomparable(&valid_phi_plus, &valid_phi_minus, &valid_indices, n_trials);
 
     Ok(PrometheeResult {
         phi_plus,
@@ -63,6 +78,7 @@ pub fn compute_promethee(
         phi_net,
         ranked_indices_i,
         ranked_indices_ii,
+        incomparable_counts,
         duration_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
@@ -252,6 +268,38 @@ fn rank_promethee_ii(phi_net: &[f64], n_trials: usize, valid_indices: &[usize]) 
     result
 }
 
+/// Counts, for each valid trial, how many other valid trials it is
+/// incomparable with in the PROMETHEE I partial order: a ⊥ b iff a is strictly
+/// higher on both Φ+ and Φ-, or strictly lower on both. The relation is
+/// symmetric, so only the upper triangle is scanned and both sides are
+/// incremented. Returns an n_trials-length vec (invalid trials stay 0).
+fn count_incomparable(
+    valid_phi_plus: &[f64],
+    valid_phi_minus: &[f64],
+    valid_indices: &[usize],
+    n_trials: usize,
+) -> Vec<u32> {
+    let n_valid = valid_indices.len();
+    let mut valid_counts = vec![0u32; n_valid];
+    for a in 0..n_valid {
+        for b in (a + 1)..n_valid {
+            let dp = valid_phi_plus[a] - valid_phi_plus[b];
+            let dm = valid_phi_minus[a] - valid_phi_minus[b];
+            // Higher Φ+ (outranks more) combined with higher Φ- (is outranked
+            // more) means neither trial dominates the other.
+            if (dp > 0.0 && dm > 0.0) || (dp < 0.0 && dm < 0.0) {
+                valid_counts[a] += 1;
+                valid_counts[b] += 1;
+            }
+        }
+    }
+    let mut counts = vec![0u32; n_trials];
+    for (vi, &ti) in valid_indices.iter().enumerate() {
+        counts[ti] = valid_counts[vi];
+    }
+    counts
+}
+
 fn zero_result(n_trials: usize, start: Instant) -> PrometheeResult {
     PrometheeResult {
         phi_plus: vec![0.0; n_trials],
@@ -259,6 +307,7 @@ fn zero_result(n_trials: usize, start: Instant) -> PrometheeResult {
         phi_net: vec![0.0; n_trials],
         ranked_indices_i: (0..n_trials as u32).collect(),
         ranked_indices_ii: (0..n_trials as u32).collect(),
+        incomparable_counts: vec![0; n_trials],
         duration_ms: start.elapsed().as_secs_f64() * 1000.0,
     }
 }
@@ -292,6 +341,70 @@ mod tests {
             (r.phi_plus[0] - 0.5).abs() < 1e-9,
             "phi_plus[0] expected 0.5, got {}",
             r.phi_plus[0]
+        );
+    }
+
+    // Unnormalized weights must give the same flows as normalized weights
+    // (weights are normalized internally so pi stays a weighted mean).
+    #[test]
+    fn unnormalized_weights_match_normalized() {
+        let values = vec![1.0_f64, 5.0, 3.0, 3.0, 5.0, 1.0];
+        let a = compute_promethee(&values, 3, 2, &[0.3, 0.7], &[true, true]).unwrap();
+        let b = compute_promethee(&values, 3, 2, &[3.0, 7.0], &[true, true]).unwrap();
+        for i in 0..3 {
+            assert!(
+                (a.phi_plus[i] - b.phi_plus[i]).abs() < 1e-12
+                    && (a.phi_minus[i] - b.phi_minus[i]).abs() < 1e-12,
+                "flows must be invariant to weight scaling"
+            );
+        }
+        assert_eq!(a.ranked_indices_i, b.ranked_indices_i);
+        assert_eq!(a.ranked_indices_ii, b.ranked_indices_ii);
+    }
+
+    // count_incomparable: higher on both phi+ and phi- => incomparable pair,
+    // counted on both sides; a clearly dominated pairing contributes nothing.
+    #[test]
+    fn count_incomparable_flags_conflicting_flows() {
+        // trial0: phi+=0.6 phi-=0.5 / trial1: phi+=0.5 phi-=0.2 -> incomparable
+        // trial2: phi+=0.1 phi-=0.9 -> comparable with both (worse on both axes)
+        let counts = count_incomparable(&[0.6, 0.5, 0.1], &[0.5, 0.2, 0.9], &[0, 1, 2], 3);
+        assert_eq!(counts, vec![1, 1, 0]);
+    }
+
+    // Incomparability counts skip invalid trials and map back to trial
+    // indices. Fixture (minimize both, w=(0.7,0.3)): flows computed by hand /
+    // reference implementation give
+    //   trial0 (1,3):  phi+=0.425, phi-=0.575
+    //   trial5 (4,0):  phi+=0.400, phi-=0.525
+    // trial0 is strictly higher than trial5 on BOTH phi+ and phi-, so the
+    // pair (0,5) is incomparable in the PROMETHEE I partial order; all other
+    // pairs are comparable. trial2 (NaN) is excluded and must stay 0.
+    #[test]
+    fn incomparable_counts_with_invalid_trial() {
+        let values = vec![
+            1.0_f64,
+            3.0, // trial0
+            5.0,
+            0.0, // trial1
+            f64::NAN,
+            3.0, // trial2: invalid
+            0.0,
+            4.0, // trial3
+            0.0,
+            2.0, // trial4
+            4.0,
+            0.0, // trial5
+        ];
+        let r = compute_promethee(&values, 6, 2, &[0.7, 0.3], &[true, true]).unwrap();
+        assert_eq!(r.incomparable_counts, vec![1, 0, 0, 0, 0, 1]);
+
+        // Cross-check against the returned flows: (0,5) must conflict.
+        let dp = r.phi_plus[0] - r.phi_plus[5];
+        let dm = r.phi_minus[0] - r.phi_minus[5];
+        assert!(
+            dp > 0.0 && dm > 0.0,
+            "trial0 should be higher on both flows (dp={dp}, dm={dm})"
         );
     }
 
