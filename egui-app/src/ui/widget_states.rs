@@ -4,12 +4,13 @@ use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, box_plot::BoxPlotChart, cluster_scatter::ClusterScatter,
     cluster_scatter_3d::ClusterScatter3D, comparison_table::ComparisonTableChart,
     convergence::ConvergenceChart, correlation_matrix::CorrelationMatrixChart,
-    dendrogram::DendrogramChart, histogram::HistogramChart, importance_chart::ImportanceChart,
-    intermediate_values::IntermediateValuesChart, mcdm_chart::McdmRankChart,
-    mcdm_scatter_chart::McdmScatterChart, mcdm_scatter_chart_3d::McdmScatterChart3D,
-    optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
-    pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pca_biplot::PcaBiplotChart,
-    pdp_2d::PdpChart2DState, pdp_chart::PdpChart, radar_comparison::RadarComparisonChart,
+    dendrogram::DendrogramChart, edf_plot::EdfPlotChart, histogram::HistogramChart,
+    importance_chart::ImportanceChart, intermediate_values::IntermediateValuesChart,
+    mcdm_chart::McdmRankChart, mcdm_scatter_chart::McdmScatterChart,
+    mcdm_scatter_chart_3d::McdmScatterChart3D, optimization_history::OptimizationHistoryChart,
+    parallel_coords::ParallelCoordsChart, pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart,
+    pca_biplot::PcaBiplotChart, pdp_2d::PdpChart2DState, pdp_chart::PdpChart,
+    radar_comparison::RadarComparisonChart, rank_plot::RankPlotChart,
     response_surface::ResponseSurfaceChart, robustness::RobustnessChart,
     scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
     slice_chart::SliceChart, som_map::SomMapChart, timeline::TimelineChart,
@@ -376,6 +377,10 @@ pub struct WidgetStates {
     pub intermediate_values: IntermediateValuesChart,
     /// Timeline（trial 実行タイムライン）の UI 状態
     pub timeline: TimelineChart,
+    /// EDF（経験分布関数）チャートの UI 状態
+    pub edf_plot: EdfPlotChart,
+    /// Rank Plot（パラメータペア × 目的関数ランク）の UI 状態
+    pub rank_plot: RankPlotChart,
     #[serde(skip)]
     pub capture: ChartCaptureState,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）

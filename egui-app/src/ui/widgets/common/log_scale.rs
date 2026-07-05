@@ -88,6 +88,20 @@ pub fn apply_log_y_axis(plot: egui_plot::Plot<'_>) -> egui_plot::Plot<'_> {
         })
 }
 
+/// X 軸対数スケール用の grid spacer / ラベル整形を `plot` に適用する。
+/// ロジックは `apply_log_y_axis` と同じで、対象軸のみ異なる（EDF プロットの
+/// X 軸対数スケールで使用）。
+pub fn apply_log_x_axis(plot: egui_plot::Plot<'_>) -> egui_plot::Plot<'_> {
+    plot.x_grid_spacer(log10_grid_spacer)
+        .x_axis_formatter(|mark, _range| {
+            if (mark.value - mark.value.round()).abs() > 1e-6 {
+                return String::new();
+            }
+            let original = 10f64.powf(mark.value.round());
+            format_log_tick(original)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

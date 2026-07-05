@@ -31,6 +31,8 @@ pub enum ChartId {
     ResponseSurface3D,
     IntermediateValues,
     Timeline,
+    EdfPlot,
+    RankPlot,
 }
 
 impl ChartId {
@@ -69,6 +71,8 @@ impl ChartId {
             ChartId::ResponseSurface3D,
             ChartId::IntermediateValues,
             ChartId::Timeline,
+            ChartId::EdfPlot,
+            ChartId::RankPlot,
         ]
     }
 
@@ -105,6 +109,8 @@ impl ChartId {
             ChartId::ResponseSurface3D => "Response Surface 3D",
             ChartId::IntermediateValues => "Intermediate Values",
             ChartId::Timeline => "Timeline",
+            ChartId::EdfPlot => "EDF",
+            ChartId::RankPlot => "Rank Plot",
         }
     }
 
@@ -122,6 +128,8 @@ impl ChartId {
             ChartId::ResponseSurface3D => Some("Surrogate slice viewer"),
             ChartId::IntermediateValues => Some("Learning curves per trial"),
             ChartId::Timeline => Some("Trial execution timeline"),
+            ChartId::EdfPlot => Some("Empirical distribution of objective values"),
+            ChartId::RankPlot => Some("Param pairs colored by objective rank"),
             _ => None,
         }
     }

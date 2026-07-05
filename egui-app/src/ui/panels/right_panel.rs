@@ -114,6 +114,12 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::Timeline => {
             egui::include_image!("../../../assets/widget_icons/timeline.svg")
         }
+        ChartId::EdfPlot => {
+            egui::include_image!("../../../assets/widget_icons/edf_plot.svg")
+        }
+        ChartId::RankPlot => {
+            egui::include_image!("../../../assets/widget_icons/rank_plot.svg")
+        }
     }
 }
 
@@ -177,6 +183,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::ConvergenceIndicators),
                     PanelItem::Chart(ChartId::IntermediateValues),
                     PanelItem::Chart(ChartId::Timeline),
+                    PanelItem::Chart(ChartId::EdfPlot),
                 ],
             ),
             (
@@ -195,6 +202,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
                     PanelItem::Chart(ChartId::ObservedContour),
+                    PanelItem::Chart(ChartId::RankPlot),
                 ],
             ),
             (

@@ -182,7 +182,9 @@ pub(crate) fn poll_chart_work(
         | ChartId::SomMap
         | ChartId::Dendrogram
         | ChartId::IntermediateValues
-        | ChartId::Timeline => return,
+        | ChartId::Timeline
+        | ChartId::EdfPlot
+        | ChartId::RankPlot => return,
         _ => {}
     }
 

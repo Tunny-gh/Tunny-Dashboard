@@ -76,6 +76,8 @@ pub fn build_chart_csv(
         ChartId::ResponseSurface3D => build_response_surface_csv(widgets),
         ChartId::IntermediateValues => build_intermediate_values_csv(),
         ChartId::Timeline => build_timeline_csv(),
+        ChartId::EdfPlot => build_edf_csv(app_state, widgets),
+        ChartId::RankPlot => build_rank_plot_csv(app_state, widgets),
     }
 }
 
@@ -274,6 +276,27 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
         ChartId::Timeline => {
             tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_datetimes())
         }
+        ChartId::EdfPlot => app_state.current_study.as_ref().is_some_and(|s| {
+            s.meta
+                .objective_names
+                .get(widgets.edf_plot.obj_idx)
+                .is_some_and(|name| s.view.numeric_column(name).is_some_and(|c| !c.is_empty()))
+        }),
+        ChartId::RankPlot => app_state.current_study.as_ref().is_some_and(|s| {
+            s.trial_count() > 0
+                && s.meta
+                    .param_names
+                    .get(widgets.rank_plot.x_param_idx)
+                    .is_some()
+                && s.meta
+                    .param_names
+                    .get(widgets.rank_plot.y_param_idx)
+                    .is_some()
+                && s.meta
+                    .objective_names
+                    .get(widgets.rank_plot.obj_idx)
+                    .is_some()
+        }),
     }
 }
 
@@ -310,6 +333,8 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::ResponseSurface3D => "response_surface_3d",
         ChartId::IntermediateValues => "intermediate_values",
         ChartId::Timeline => "timeline",
+        ChartId::EdfPlot => "edf_plot",
+        ChartId::RankPlot => "rank_plot",
     };
     format!("{}.csv", name)
 }
@@ -1138,6 +1163,65 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
             CsvField::Num(param_val),
             CsvField::Num(obj_val),
             CsvField::Text(if is_pareto { "true" } else { "false" }),
+        ]);
+    }
+    Some(w.finish())
+}
+
+/// EDF（経験分布関数）の全 trial 分の点列を出力する（表示上の対数フィルタは適用しない、間引きなし）。
+fn build_edf_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    let obj_idx = widgets.edf_plot.obj_idx;
+    let obj_name = study.meta.objective_names.get(obj_idx)?;
+    let values: Vec<f64> = study.view.numeric_column(obj_name)?.to_vec();
+    let points = crate::ui::widgets::edf_plot::build_edf_points(&values, false);
+    if points.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header([obj_name.as_str(), "cumulative_fraction"]);
+    for &[x, y] in &points {
+        w.row([CsvField::Num(x), CsvField::Num(y)]);
+    }
+    Some(w.finish())
+}
+
+/// Rank Plot の全 trial 分（NaN/欠損を含む）を出力する。
+fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    let n = study.trial_count();
+    if n == 0 {
+        return None;
+    }
+    let x_name = study.meta.param_names.get(widgets.rank_plot.x_param_idx)?;
+    let y_name = study.meta.param_names.get(widgets.rank_plot.y_param_idx)?;
+    let obj_idx = widgets.rank_plot.obj_idx;
+    let obj_name = study.meta.objective_names.get(obj_idx)?;
+    let minimize = !matches!(
+        study.meta.directions.get(obj_idx),
+        Some(Direction::Maximize)
+    );
+    let x_col = study.view.numeric_column(x_name);
+    let y_col = study.view.numeric_column(y_name);
+    let obj_values: Vec<f64> = study
+        .view
+        .numeric_column(obj_name)
+        .map(|c| c.to_vec())
+        .unwrap_or_default();
+    let ranks = crate::ui::widgets::rank_plot::compute_rank_percentiles(&obj_values, minimize);
+    let mut w = CsvWriter::new();
+    w.header(["trial_id", x_name, y_name, obj_name, "rank_percentile"]);
+    for (i, &tid) in study.view.trial_ids.iter().enumerate() {
+        let x_val = x_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let y_val = y_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let obj_val = obj_values.get(i).copied().unwrap_or(f64::NAN);
+        let rank = ranks.get(i).copied().unwrap_or(f64::NAN);
+        w.row([
+            CsvField::UInt(tid as u64),
+            CsvField::Num(x_val),
+            CsvField::Num(y_val),
+            CsvField::Num(obj_val),
+            CsvField::Num(rank),
         ]);
     }
     Some(w.finish())

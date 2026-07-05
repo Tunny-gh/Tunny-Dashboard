@@ -325,6 +325,16 @@ fn chart_help(id: &ChartId) -> HelpContent {
             html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/timeline.html")),
             html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/timeline.html")),
         },
+        ChartId::EdfPlot => HelpContent {
+            widget_name: "edf-plot",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/edf-plot.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/edf-plot.html")),
+        },
+        ChartId::RankPlot => HelpContent {
+            widget_name: "rank-plot",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/rank-plot.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/rank-plot.html")),
+        },
     }
 }
 

@@ -438,5 +438,54 @@ pub(crate) fn render_chart(
             let extras = tunny_core::dataframe::active_extras_snapshot();
             widgets.timeline.show(ui, extras.as_deref());
         }
+        ChartId::EdfPlot => {
+            use crate::theme::color_compute::rgba_to_color32;
+            use crate::ui::widgets::edf_plot::EdfComparison;
+            // 選択中の目的名を基準に、比較 Study から同名の目的値列を集める
+            // （OptimizationHistory と同じ手法）。
+            let sel_idx = widgets
+                .edf_plot
+                .obj_idx
+                .min(obj_names.len().saturating_sub(1));
+            let comparisons: Vec<EdfComparison> = match obj_names.get(sel_idx) {
+                Some(sel_name) => app_state
+                    .comparison_studies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, study)| {
+                        if !study.view.objective_names().iter().any(|n| n == sel_name) {
+                            return None;
+                        }
+                        let values = study.view.numeric_column(sel_name)?.to_vec();
+                        let color = app_state
+                            .comparison_colors
+                            .get(i)
+                            .copied()
+                            .unwrap_or([66, 133, 244, 255]);
+                        Some(EdfComparison {
+                            name: study.meta.name.clone(),
+                            color: rgba_to_color32(color),
+                            values,
+                        })
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
+            let base_name = ctx.meta.name.clone();
+            widgets
+                .edf_plot
+                .show(ui, &ctx.view, obj_names, &base_name, &comparisons);
+        }
+        ChartId::RankPlot => {
+            widgets.rank_plot.show(
+                ui,
+                &ctx.view,
+                param_names,
+                obj_names,
+                directions,
+                &cmap,
+                &app_state.artifact_map,
+            );
+        }
     }
 }

@@ -1,6 +1,7 @@
 // 最適化履歴
 mod history;
 pub use history::convergence;
+pub use history::edf_plot;
 pub use history::intermediate_values;
 pub use history::optimization_history;
 pub use history::timeline;
@@ -35,6 +36,7 @@ pub use scatter::dendrogram;
 pub use scatter::observed_contour;
 pub use scatter::parallel_coords;
 pub use scatter::pca_biplot;
+pub use scatter::rank_plot;
 pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;
 pub use scatter::som_map;
