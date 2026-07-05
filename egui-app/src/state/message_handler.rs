@@ -1244,6 +1244,7 @@ mod tests {
                 k_mode: crate::ui::widgets::cluster_scatter::KSelectionMode::Manual,
                 init_strategy:
                     crate::ui::widgets::cluster_scatter::KMeansInitStrategy::KMeansPlusPlus,
+                elbow_max_k: 10,
             });
 
         MessageHandler::handle(

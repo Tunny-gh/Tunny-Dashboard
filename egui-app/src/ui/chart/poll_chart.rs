@@ -1571,7 +1571,7 @@ fn run_cluster_compute(
             let elbow = tunny_core::clustering::estimate_k_elbow(
                 &matrix.flat_data,
                 n_cols,
-                trial_count.min(10),
+                trial_count.min(req.elbow_max_k.clamp(2, 50)),
             );
             elbow.recommended_k.clamp(2, trial_count)
         }
