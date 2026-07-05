@@ -48,10 +48,15 @@ with the denominator summed over *all* $p$ components, not just the two shown �
 - **The sign of a component is arbitrary.** Eigenvectors are only defined up to a sign flip; a mirrored biplot (left-right or top-bottom) represents the identical structure.
 - **Watch the explained-variance percentages in the axis labels.** Two components can capture a small fraction of the total variance when the data has many weakly-correlated variables — in that case, distances between trials in the biplot understate their true dissimilarity in the full variable space.
 - **Loading arrows are an approximation, not an exact correlation.** Because the implementation displays the raw eigenvector coefficients (uniformly rescaled for plotting, not individually rescaled by $\sqrt{\lambda_k}$), an arrow's direction is a reliable indicator of how a variable correlates with the two shown components, and the angle between two arrows approximates the correlation between those two variables — but arrow *length* comparisons across variables are only qualitative, and the approximation degrades the less the first two components dominate the total variance.
-- **Relation to the Cluster Scatter's internal PCA.** The Cluster Scatter widget also has an internal PCA-based 2D projection for display purposes, but that one only centers the data (no per-variable standardization) — appropriate when the widget projects a single homogeneous space. This widget standardizes deliberately because it routinely mixes parameters and objectives on unrelated scales; the two projections of the same trials will generally differ.
+- **Relation to the Cluster Scatter widget.** The Cluster Scatter widget's 2D and 3D scatter plots do **not** use a PCA projection at all — they plot the raw values of the first two (or three) selected objectives directly. If a PCA-plane view of the same trials is wanted, use this PCA Biplot widget instead; the two views are not the same projection and will generally show different trial layouts.
 
 ---
 
 ## Where It Is Used in the App
 
 - **PCA Biplot widget**: choose the variable space (Parameters / Objectives / All), optionally toggle loading arrows and objective-based point coloring, and read trial clustering and variable structure together on the PC1–PC2 plane.
+
+## References
+
+- Gabriel, K. R. (1971). The biplot graphic display of matrices with application to principal component analysis. _Biometrika_, 58(3), 453–467.
+- Hotelling, H. (1933). Analysis of a complex of statistical variables into principal components. _Journal of Educational Psychology_, 24, 417–441.

@@ -31,7 +31,7 @@ Because the chain can wander between different branches of the eventual tree bef
 ## Characteristics
 
 - **Ward's criterion favors compact, roughly spherical clusters** — the same bias k-means has, since both minimize the same within-cluster variance objective. Elongated or non-convex true clusters may be split or merged incorrectly.
-- **Standardization matters whenever variables have unrelated units or scales**, exactly as for [PCA Biplot](pca-biplot.md) and [SOM](som.md) — otherwise the variable with the largest raw range dominates every distance computed.
+- **Standardization matters whenever variables have unrelated units or scales**, exactly as for [PCA Biplot](pca-biplot.md) and [SOM](som.md) — otherwise the variable with the largest raw range dominates every distance computed. In this implementation, standardization is always applied and is not a user-facing toggle — the widget always calls Ward linkage with standardization enabled.
 - **Memory is $O(n^2)$** (the full pairwise distance matrix), and dendrograms of more than a few hundred leaves are unreadable regardless. Above **800 rows**, the implementation subsamples deterministically at an even stride rather than randomly, so the same study always produces the same reduced dendrogram; sampled-out rows simply don't appear as leaves.
 - **Dendrogram height is not a physical distance.** It is the accumulated Ward variance-increase scale from the Lance-Williams recurrence — comparable across merges within the same dendrogram, but not directly comparable to raw variable units or to distances from a different linkage method.
 
@@ -40,3 +40,8 @@ Because the chain can wander between different branches of the eventual tree bef
 ## Where It Is Used in the App
 
 - **Hierarchical Clustering widget**: view the dendrogram, drag the $k$ slider to cut the tree at a chosen number of clusters, and see the resulting clusters highlighted by color on the leaves.
+
+## References
+
+- Ward, J. H. (1963). Hierarchical Grouping to Optimize an Objective Function. _Journal of the American Statistical Association_, 58(301), 236–244.
+- Müllner, D. (2011). Modern hierarchical, agglomerative clustering algorithms. _arXiv:1109.2378_.

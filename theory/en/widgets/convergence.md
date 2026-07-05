@@ -15,7 +15,10 @@ The Convergence Indicators widget tracks how well the current Pareto front cover
 
 ## Comparison Studies
 
-When comparison studies are added, all series are evaluated against a **shared reference set** (computed from the union of all studies) and normalized to [0, 1] so they are directly comparable on the same chart.
+When comparison studies are added, how series are made comparable depends on the indicator:
+
+- **IGD+ / ε-indicator / R2**: all series are evaluated against a **shared reference set** (computed from the union of all studies) and normalized to [0, 1] so they are directly comparable on the same chart.
+- **Hypervolume**: all series instead share a single **reference point** (the union's nadir plus a 10 % margin, or the manual override below), and the resulting values are **not** normalized to [0, 1] — they remain in raw hypervolume units.
 
 ## Operations
 

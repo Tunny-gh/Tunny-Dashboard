@@ -23,6 +23,7 @@ The response-surface (heatmap) slice display has been removed. Surrogate fit can
 - **GP-VFE** — Same architecture as GP-FITC but uses the Variational Free Energy bound instead of FITC likelihood. Produces a slightly smoother, more conservative fit; recommended when GP-FITC surface looks overfit or spiky.
 - **GP-MOE** — Mixture-of-experts GP via egobox-moe. Clusters the input space with a Gaussian Mixture Model and trains one FITC expert per cluster (up to 3, selected by cross-validation on ≤ 500 points). Best for discontinuous or regime-switching objectives. If training fails, an error is reported rather than silently falling back.
 - **Ridge** — Linear ridge regression. Fast baseline; the surface is a plane, so the optimum always lies on the boundary of the declared range (search range).
+- **LightGBM** — Gradient-boosted-tree-derived model run in LightGBM's Random Forest mode. Handles non-smooth, discontinuous response surfaces well, but predictions are piecewise-constant and extrapolate flat beyond the training range; no predictive uncertainty is provided.
 
 ## Automatic model selection
 
@@ -43,7 +44,7 @@ For multi-objective fits, **Pareto-front (non-dominated, rank 0) trials are high
 ## Optimization methods
 
 - **Multi-start L-BFGS** — Gradient-based local search (numerical gradients) started from the best observed trial and several random points; the best converged point is reported.
-- **NSGA-II** — Genetic algorithm with SBX crossover, polynomial mutation and binary tournament selection (crowded comparison). Population-based and derivative-free, robust on multimodal surfaces. Currently applied to the single selected objective; the implementation supports multiple objectives for future Pareto-front optimization.
+- **NSGA-II** — Genetic algorithm with SBX crossover, polynomial mutation and binary tournament selection (crowded comparison). Population-based and derivative-free, robust on multimodal surfaces. Selectable here as the single-objective optimizer; in multi-objective mode NSGA-II is also used automatically to compute the predicted Pareto front (see "Predicted Pareto front scatter" above).
 - **CMA-ES** — Covariance Matrix Adaptation Evolution Strategy. Derivative-free search that adapts the sampling distribution to the local curvature of the surface; a strong default for continuous problems.
 - **Random Search** — Evaluates the surrogate at thousands of random points and picks the best. A robust baseline.
 

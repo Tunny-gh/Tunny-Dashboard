@@ -4,15 +4,15 @@
 
 MDI (Mean Decrease Impurity) computes parameter importance from the **impurity reduction at each split during Random Forest training**. Every time a parameter is used for a split, the weighted reduction in MSE is accumulated across all trees.
 
-The ImportanceChart normalizes scores to sum to 1.
+Scores are normalized to sum to 1.
 
 ## Comparison with RF-ANOVA
 
 | Aspect | MDI | RF-ANOVA |
 | --- | --- | --- |
-| Measured | During training | After training (holdout) |
+| Measured | During training | After training (variance decomposition over leaf boxes, fANOVA) |
 | Bias | Overestimates high-cardinality features | Affected by correlated features |
-| Interpretation | "How useful was it during learning?" | "How much accuracy is lost if removed?" |
+| Interpretation | "How useful was it during learning?" | "Fraction of the objective's variance explained by this parameter's main effect" |
 
 ## Formula
 
@@ -66,3 +66,8 @@ MDI tends to **overestimate high-cardinality features** (features with many dist
 
 - When you want fast importance with zero additional cost after training.
 - For a quick sanity check alongside RF-ANOVA or Permutation.
+
+## References
+
+- Breiman, L. (2001). Random Forests. _Machine Learning_, 45(1), 5–32.
+- Ke, G. et al. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. _NeurIPS 30_.

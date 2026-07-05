@@ -19,7 +19,7 @@ The Pareto Scatter 3D chart extends the 2D Pareto view to three objective functi
 ## How to Read
 
 - **Pareto surface points** (highlighted): non-dominated trials — no single trial dominates all three objectives simultaneously.
-- **Dominated points** (dimmed): at least one other trial is strictly better on all three objectives.
+- **Dominated points**: trials for which another trial is at least as good on all three objectives and strictly better on at least one. Pareto-front and dominated points are distinguished by colour, not by dimming; dimming (reduced opacity) instead marks points that fall outside the current selection filter, regardless of Pareto rank.
 - **3D trade-off surface**: the Pareto front forms a surface (rather than a curve in 2D). Points on this surface represent optimal trade-offs among all three objectives.
 - **Perspective matters**: rotate to different angles to fully understand the shape of the Pareto surface. Some regions may only be visible from certain viewpoints.
 - **Sparse surfaces**: fewer trials means larger gaps on the front — add more trials to fill in the trade-off space.

@@ -10,7 +10,7 @@ Use this chart to explore trade-offs between two objectives and identify the bes
 
 - **X / Y axis**: Use the X and Y dropdowns to select which objective is plotted on each axis.
 - **Surrogate front**: When a surrogate optimization result is available, check "Surrogate front" to overlay the predicted Pareto front as gold diamond markers.
-- **Show Infeasible** (constrained studies only): Toggle display of infeasible trials.
+- **Infeasible trials** (constrained studies only): always shown in a distinct colour when the study has constraints — there is no control to hide them.
 
 ## Operations
 
@@ -24,7 +24,7 @@ Use this chart to explore trade-offs between two objectives and identify the bes
 ## How to Read
 
 - **Pareto front points** (red): non-dominated trials — no other trial is better in both objectives simultaneously. These are your best candidates.
-- **Non-Pareto points** (blue): at least one other trial is better or equal in every objective.
+- **Non-Pareto points** (blue): dominated trials — another trial is at least as good in every objective and strictly better in at least one.
 - **Infeasible points**: trials that violate constraints, shown in a distinct colour.
 - **Unselected points** (greyed): points outside the current brush/selection region.
 - **Trade-off shape**: a smooth Pareto curve indicates a continuous trade-off. A scattered front may indicate insufficient trials or conflicting objectives.
