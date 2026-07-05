@@ -435,7 +435,7 @@ mod tests {
         assert!(!s.fitting);
         assert!(s.pending_fit.is_none());
         assert!(s.cached_slice().is_none());
-        assert!(!s.camera.is_identity_rotation());
+        assert_ne!(s.camera.rotation, [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

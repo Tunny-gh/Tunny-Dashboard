@@ -1,9 +1,12 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashMap;
-use tunny_core::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
-use tunny_core::sensitivity::compute_sensitivity;
+use tunny_core::dataframe::{DataFrame, TrialRow};
+use tunny_core::sensitivity::{
+    compute_sensitivity_single_obj, MdiMetric, RfAnovaMetric, RidgeMetric, SensitivityMetric,
+    SpearmanMetric,
+};
 
-fn setup_sensitivity_df(n: usize, n_params: usize, n_objectives: usize) {
+fn setup_sensitivity_df(n: usize, n_params: usize, n_objectives: usize) -> DataFrame {
     let param_names: Vec<String> = (0..n_params).map(|i| format!("x{}", i)).collect();
     let objective_names: Vec<String> = (0..n_objectives).map(|i| format!("obj{}", i)).collect();
 
@@ -33,20 +36,32 @@ fn setup_sensitivity_df(n: usize, n_params: usize, n_objectives: usize) {
         })
         .collect();
 
-    let df = DataFrame::from_trials(&rows, &param_names, &objective_names, &[], &[], 0);
-    store_dataframes(vec![df]);
-    select_study(0).expect("select_study failed");
+    DataFrame::from_trials(&rows, &param_names, &objective_names, &[], &[], 0)
 }
 
+/// アプリの実経路（`compute_sensitivity_single_obj` を目的ごとに呼ぶ）で
+/// 目的数に対するスケーリングを測る。
 fn bench_sensitivity(c: &mut Criterion) {
     let mut group = c.benchmark_group("sensitivity_objectives");
     for &n_obj in &[1usize, 2, 4, 8] {
         group.bench_with_input(
-            BenchmarkId::new("compute_sensitivity", n_obj),
+            BenchmarkId::new("compute_sensitivity_single_obj", n_obj),
             &n_obj,
             |b, &n_obj| {
-                setup_sensitivity_df(200, 5, n_obj);
-                b.iter(compute_sensitivity);
+                let df = setup_sensitivity_df(200, 5, n_obj);
+                b.iter(|| {
+                    (0..n_obj)
+                        .map(|obj_idx| {
+                            let metrics: Vec<Box<dyn SensitivityMetric>> = vec![
+                                Box::new(SpearmanMetric),
+                                Box::new(RidgeMetric),
+                                Box::new(RfAnovaMetric),
+                                Box::new(MdiMetric),
+                            ];
+                            compute_sensitivity_single_obj(&df, metrics, obj_idx)
+                        })
+                        .collect::<Vec<_>>()
+                });
             },
         );
     }

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 
 use super::model::DataFrame;
-use super::types::SelectStudyResult;
 
 // ============================================================
 // TASK-2329: 共有 study ストア（thread_local GLOBAL_STATE を全廃）
@@ -151,16 +150,12 @@ pub fn store_dataframes(dfs: Vec<DataFrame>) {
     with_store_write(|store| store.store_all(pairs));
 }
 
-/// アクティブ study を設定し、`DataFrameInfo` と GPU バッファ初期値を返す。
-pub fn select_study(study_id: u32) -> Result<SelectStudyResult, String> {
+/// アクティブ study を設定する。
+pub fn select_study(study_id: u32) -> Result<(), String> {
     with_store_write(|store| match store.snapshot(study_id) {
-        Some(df) => {
-            let result = SelectStudyResult {
-                data_frame_info: df.info(),
-                gpu_buffer_data: df.gpu_buffers(),
-            };
+        Some(_) => {
             store.set_active(study_id);
-            Ok(result)
+            Ok(())
         }
         None => Err(format!(
             "study_id {} not found (total: {})",

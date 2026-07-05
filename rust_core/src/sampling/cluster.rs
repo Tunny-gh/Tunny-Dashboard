@@ -15,16 +15,12 @@ use super::smart::downsample_smart;
 ///
 /// Returns `None` when no active study is loaded.
 pub fn downsample_by_cluster(ctx: &SamplingContext, max_points: usize) -> Option<DownsampleResult> {
-    #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
     let total_count = crate::dataframe::with_active_df(|df| df.row_count())?;
 
     if total_count <= max_points {
-        #[cfg(not(target_arch = "wasm32"))]
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(target_arch = "wasm32")]
-        let duration_ms = 0.0_f64;
 
         return Some(full_result(total_count, duration_ms));
     }
@@ -75,10 +71,7 @@ pub fn downsample_by_cluster(ctx: &SamplingContext, max_points: usize) -> Option
         .filter(|&&p| result_indices.contains(&p))
         .count();
 
-    #[cfg(not(target_arch = "wasm32"))]
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-    #[cfg(target_arch = "wasm32")]
-    let duration_ms = 0.0_f64;
 
     Some(DownsampleResult {
         indices: result_indices,

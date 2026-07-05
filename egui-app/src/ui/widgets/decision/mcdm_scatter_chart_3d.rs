@@ -520,8 +520,6 @@ mod tests {
         McdmResult::Topsis(TopsisResult {
             scores: vec![0.0; ranked.len().max(1)],
             ranked_indices: ranked,
-            positive_ideal: vec![],
-            negative_ideal: vec![],
             duration_ms: 0.0,
         })
     }

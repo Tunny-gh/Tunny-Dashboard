@@ -137,10 +137,6 @@ impl Default for ArtifactGallery {
 }
 
 impl ArtifactGallery {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// 現在のクラスタ設定に対応するキャッシュキー。
     pub fn cluster_cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(
@@ -997,7 +993,7 @@ mod tests {
     }
 
     fn study_ctx_with_trial_ids(ids: &[u32]) -> crate::state::types::StudyContext {
-        use crate::state::types::{StudyContext, StudyMeta, TrialRow as UiRow, TrialState};
+        use crate::state::types::{StudyContext, StudyMeta, TrialRow as UiRow};
         let rows: Vec<UiRow> = ids
             .iter()
             .enumerate()
@@ -1008,7 +1004,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                state: TrialState::Complete,
                 user_attrs: HashMap::new(),
             })
             .collect();
@@ -1017,11 +1012,8 @@ mod tests {
             name: "test".to_string(),
             directions: vec![],
             completed_trials: ids.len(),
-            total_trials: ids.len(),
             param_names: vec![],
             objective_names: vec![],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, rows)
@@ -1122,8 +1114,6 @@ mod tests {
         let result = McdmResult::Topsis(TopsisResult {
             scores: vec![0.1, 0.9, 0.5],
             ranked_indices: vec![1, 2, 0],
-            positive_ideal: vec![],
-            negative_ideal: vec![],
             duration_ms: 0.0,
         });
         let m = map_with(&[10, 11, 12]);
@@ -1141,8 +1131,6 @@ mod tests {
         let result = McdmResult::Topsis(TopsisResult {
             scores: vec![0.1, 0.9, 0.5],
             ranked_indices: vec![1, 2, 0],
-            positive_ideal: vec![],
-            negative_ideal: vec![],
             duration_ms: 0.0,
         });
         let m = map_with(&[12]); // 行 index 2 -> trial 12 のみ

@@ -133,24 +133,6 @@ fn tc_2264_06_compute_significant_features_detects_significance() {
 }
 
 #[test]
-fn tc_2264_07_orchestrator_matches_original_behavior() {
-    let (flat_data, labels, n, p, k) = make_two_cluster_data();
-    let stats = compute_cluster_stats_on_data(&flat_data, n, p, &labels, k);
-    // Verify same results as existing tests
-    assert_eq!(stats.len(), k);
-    let s0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-    assert!((s0.centroid[0] - 1.0).abs() < 1e-10);
-    assert!((s0.centroid[1] - 2.0).abs() < 1e-10);
-    assert_eq!(s0.size, 2);
-}
-
-#[test]
-fn tc_2264_08_orchestrator_empty_data() {
-    let stats = compute_cluster_stats_on_data(&[], 0, 2, &[], 2);
-    assert!(stats.is_empty(), "empty data should return empty stats");
-}
-
-#[test]
 fn tc_2262_05_kmeans_plusplus_correct_clusters_after_refactor() {
     let k = 3;
     let n_per = 50;
@@ -409,46 +391,6 @@ fn tc_901_06_elbow_recommended_k_valid() {
 }
 
 #[test]
-fn tc_901_07_cluster_stats_centroid() {
-    let flat_data = vec![0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0];
-    let labels = vec![0, 0, 1, 1];
-    let stats = compute_cluster_stats_on_data(&flat_data, 4, 2, &labels, 2);
-
-    let stat0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-    assert!(
-        (stat0.centroid[0] - 1.0).abs() < 1e-9,
-        "translated0translated x1 translated 1.0 translated"
-    );
-    assert!(
-        (stat0.centroid[1] - 2.0).abs() < 1e-9,
-        "translated0translated x2 translated 2.0 translated"
-    );
-    assert_eq!(stat0.size, 2, "translated0translated 2 translated");
-}
-
-#[test]
-fn tc_901_08_cluster_stats_significant() {
-    let n_per = 50;
-    let mut flat_data = Vec::new();
-    let mut labels = Vec::new();
-    for i in 0..n_per {
-        flat_data.push(i as f64 / n_per as f64);
-        flat_data.push(-1000.0 + i as f64 * 0.01);
-        labels.push(0usize);
-    }
-    for i in 0..n_per {
-        flat_data.push(i as f64 / n_per as f64);
-        flat_data.push(1000.0 + i as f64 * 0.01);
-        labels.push(1usize);
-    }
-
-    let stats = compute_cluster_stats_on_data(&flat_data, 2 * n_per, 2, &labels, 2);
-
-    let stat0 = stats.iter().find(|s| s.cluster_id == 0).unwrap();
-    assert!(stat0.significant_features[1], "translated y translated");
-}
-
-#[test]
 fn tc_901_p01_pca_performance() {
     #[cfg(debug_assertions)]
     let (n, p) = (2_000, 4);
@@ -484,21 +426,6 @@ fn tc_901_p02_kmeans_performance() {
         result.labels.iter().all(|&c| c < 4),
         "every label must fall in one of the 4 clusters"
     );
-}
-
-#[test]
-fn tc_901_p03_cluster_stats_performance() {
-    #[cfg(debug_assertions)]
-    let (n, p) = (2_000, 4);
-    #[cfg(not(debug_assertions))]
-    let (n, p) = (50_000, 4);
-
-    let flat_data: Vec<f64> = (0..n * p).map(|i| i as f64 / (n * p) as f64).collect();
-    let labels: Vec<usize> = (0..n).map(|i| i % 4).collect();
-
-    let stats = compute_cluster_stats_on_data(&flat_data, n, p, &labels, 4);
-
-    assert_eq!(stats.len(), 4, "translated 4 translated");
 }
 
 #[test]

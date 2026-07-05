@@ -792,7 +792,6 @@ pub fn build_ranking_rows(
 mod tests {
     use super::*;
     use crate::state::results::TopsisResult;
-    use crate::state::types::TrialRow;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
@@ -872,12 +871,9 @@ mod tests {
     }
 
     fn make_topsis_result(scores: Vec<f64>, ranked_indices: Vec<u32>) -> McdmResult {
-        let n = scores.len();
         McdmResult::Topsis(TopsisResult {
             scores,
             ranked_indices,
-            positive_ideal: vec![1.0; n],
-            negative_ideal: vec![0.0; n],
             duration_ms: 10.0,
         })
     }
@@ -1086,18 +1082,6 @@ mod tests {
         ]
     }
 
-    fn multi_obj_rows_for_topsis() -> Vec<TrialRow> {
-        multi_obj_data()
-            .into_iter()
-            .enumerate()
-            .map(|(i, objs)| TrialRow {
-                trial_id: i as u32,
-                objectives: objs,
-                ..Default::default()
-            })
-            .collect()
-    }
-
     #[test]
     fn topsis_full_pipeline_equal_weights() {
         let data = multi_obj_data();
@@ -1111,8 +1095,6 @@ mod tests {
         let mcdm_result = McdmResult::Topsis(TopsisResult {
             scores: core_result.scores.clone(),
             ranked_indices: core_result.ranked_indices.clone(),
-            positive_ideal: core_result.positive_ideal.clone(),
-            negative_ideal: core_result.negative_ideal.clone(),
             duration_ms: core_result.duration_ms,
         });
 
@@ -1206,8 +1188,6 @@ mod tests {
         let mcdm = McdmResult::Topsis(TopsisResult {
             scores: core_result.scores,
             ranked_indices: core_result.ranked_indices,
-            positive_ideal: core_result.positive_ideal,
-            negative_ideal: core_result.negative_ideal,
             duration_ms: core_result.duration_ms,
         });
 

@@ -80,7 +80,7 @@ $$
 | GP-VFE | ARD Matérn 5/2 GP（egobox-gp、VFE 下界、M=min(N,100)、全 N 点で学習） |
 | GP-MOE | 混合エキスパート GP（egobox-moe、GMM クラスタリング、最大 K=3 FITC エキスパート） |
 
-すべてのモデルで `model_type` 引数を `compute_pdp_2d()` / `compute_surface_from_data()` に渡すことでバックエンドのディスパッチが切り替わる。
+すべてのモデルで `model_type` 引数を `compute_pdp_2d()` に渡すことでバックエンドのディスパッチが切り替わる。
 
 ---
 
@@ -88,7 +88,7 @@ $$
 
 ### パラメータ型に関する前提
 
-`compute_pdp()` / `compute_pdp_2d()` は `DataFrame.get_numeric_column(...)` を使用して入力行列を構築している。したがって理論上の PDP 対象は数値パラメータに限定され、非数値列は `0.0` として扱われる（実装上のフォールバック値）。
+`compute_pdp_from_data()` / `compute_pdp_2d()` は `DataFrame.get_numeric_column(...)` を使用して入力行列を構築している。したがって理論上の PDP 対象は数値パラメータに限定され、非数値列は `0.0` として扱われる（実装上のフォールバック値）。
 
 ### グリッドの構築
 

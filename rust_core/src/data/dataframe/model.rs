@@ -1,5 +1,4 @@
-use super::buffers::{build_positions, build_positions3d};
-use super::types::{DataFrameInfo, GpuBufferData, TrialRow};
+use super::types::TrialRow;
 
 /// Documentation.
 /// Documentation.
@@ -462,36 +461,6 @@ impl DataFrame {
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, v)| v.as_slice())
-    }
-
-    /// Documentation.
-    pub fn info(&self) -> DataFrameInfo {
-        let mut all_user_attr: Vec<String> = self.user_attr_numeric_col_names.clone();
-        all_user_attr.extend(self.user_attr_string_col_names.iter().cloned());
-
-        DataFrameInfo {
-            row_count: self.row_count,
-            column_names: self.column_names(),
-            param_columns: self.param_col_names.clone(),
-            objective_columns: self.objective_col_names.clone(),
-            user_attr_columns: all_user_attr,
-            constraint_columns: self.constraint_col_names.clone(),
-            derived_columns: self.derived_col_names.clone(),
-        }
-    }
-
-    /// Documentation.
-    pub fn gpu_buffers(&self) -> GpuBufferData {
-        let n = self.row_count;
-        let positions = build_positions(self, n);
-        let positions3d = build_positions3d(self, n);
-        let sizes = vec![1.0f32; n];
-        GpuBufferData {
-            positions,
-            positions3d,
-            sizes,
-            trial_count: n,
-        }
     }
 
     /// Return a new `DataFrame` containing only rows where `is_feasible > 0.5`.

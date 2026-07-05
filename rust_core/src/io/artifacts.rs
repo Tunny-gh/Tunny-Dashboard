@@ -109,22 +109,6 @@ impl std::fmt::Display for ArtifactsError {
 }
 
 // ============================================================
-// detect_artifacts_dir
-// ============================================================
-
-/// Journal ファイルの親ディレクトリに `artifacts/` フォルダが存在するか検出する。
-/// 存在する場合は `Some(artifacts_dir)`, 存在しない場合は `None` を返す（REQ-007-A）
-pub fn detect_artifacts_dir(journal_path: &Path) -> Option<PathBuf> {
-    let parent = journal_path.parent()?;
-    let artifacts_dir = parent.join("artifacts");
-    if artifacts_dir.is_dir() {
-        Some(artifacts_dir)
-    } else {
-        None
-    }
-}
-
-// ============================================================
 // validate_path (NFR-201)
 // ============================================================
 
@@ -367,24 +351,6 @@ mod tests {
     #[test]
     fn test_extract_trial_id_no_leading_digit() {
         assert_eq!(extract_trial_id(Path::new("result_42")), None);
-    }
-
-    #[test]
-    fn test_detect_artifacts_dir_exists() {
-        let tmp = tempfile::tempdir().unwrap();
-        let journal_path = tmp.path().join("study.journal");
-        let artifacts_dir = tmp.path().join("artifacts");
-        std::fs::create_dir(&artifacts_dir).unwrap();
-        let result = detect_artifacts_dir(&journal_path);
-        assert_eq!(result, Some(artifacts_dir));
-    }
-
-    #[test]
-    fn test_detect_artifacts_dir_not_exists() {
-        let tmp = tempfile::tempdir().unwrap();
-        let journal_path = tmp.path().join("study.journal");
-        let result = detect_artifacts_dir(&journal_path);
-        assert!(result.is_none());
     }
 
     #[test]

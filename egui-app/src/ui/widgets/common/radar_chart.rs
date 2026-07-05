@@ -143,8 +143,6 @@ pub fn value_fraction(value: f64, lo: f64, hi: f64) -> f32 {
 
 /// [`draw_radar`] に渡す 1 系列（1 トライアル・1 個体ぶんの多角形）。
 pub struct RadarSeries {
-    /// 凡例・デバッグ用のラベル（`draw_radar` 自体は描かない。呼び出し側が凡例に使う）。
-    pub label: String,
     /// 線色（塗りもこの色から導出する）。
     pub color: Color32,
     /// 軸ごとの半径割合 `[0,1]`（欠損・非有限は None。その軸は隣接頂点とのみ線を結ぶ）。
@@ -307,7 +305,6 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
     let mut series: Vec<RadarSeries> = Vec::with_capacity(data.front.len() + 1);
     for individual in &data.front {
         series.push(RadarSeries {
-            label: String::new(),
             color: FRONT_LINE,
             fractions: to_fractions(individual),
             width: 1.0,
@@ -316,7 +313,6 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
     }
     let sel_values: Vec<Option<f64>> = axes.iter().map(|a| a.selected).collect();
     series.push(RadarSeries {
-        label: "This trial".to_string(),
         color: SELECTED,
         fractions: to_fractions(&sel_values),
         width: 2.0,
@@ -396,7 +392,6 @@ mod tests {
 
     #[test]
     fn build_objectives_first_then_params_and_collects_front() {
-        use crate::state::types::TrialState;
         use std::collections::HashMap;
         use std::sync::Arc;
         use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
@@ -417,8 +412,7 @@ mod tests {
         let obj_names = vec!["o0".to_string(), "o1".to_string()];
         let param_names = vec!["x".to_string()];
         let df = DataFrame::from_trials(&core_rows, &param_names, &obj_names, &[], &[], 0);
-        let mut view = StudyView::new(Arc::new(df), vec![0, 0, 1]);
-        view.state = vec![TrialState::Complete; 3];
+        let view = StudyView::new(Arc::new(df), vec![0, 0, 1]);
 
         let data = build(&view, &obj_names, &param_names, 0);
         // 目的 2 + 変数 1 = 3 軸、順序は目的→変数。

@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(chart.x_objective, 0);
         assert_eq!(chart.y_objective, 1);
         assert_eq!(chart.z_objective, 2);
-        assert!(!chart.camera.is_identity_rotation());
+        assert_ne!(chart.camera.rotation, [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

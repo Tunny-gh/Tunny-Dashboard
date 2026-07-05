@@ -48,11 +48,6 @@ impl TrialDetailModal {
         self.open = Some(target);
     }
 
-    /// モーダルを閉じる。
-    pub fn close(&mut self) {
-        self.open = None;
-    }
-
     /// モーダルが開いているか。
     pub fn is_open(&self) -> bool {
         self.open.is_some()

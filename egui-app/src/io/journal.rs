@@ -20,11 +20,8 @@ pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
             })
             .collect(),
         completed_trials: meta.completed_trials as usize,
-        total_trials: meta.total_trials as usize,
         param_names: meta.param_names,
         objective_names: meta.objective_names,
-        user_attr_names: meta.user_attr_names,
-        has_constraints: meta.has_constraints,
         param_bounds: meta.param_bounds,
     }
 }
@@ -118,6 +115,5 @@ mod tests {
         assert_eq!(app_meta.directions[0], Direction::Minimize);
         assert_eq!(app_meta.directions[1], Direction::Maximize);
         assert_eq!(app_meta.completed_trials, 5usize);
-        assert_eq!(app_meta.total_trials, 10usize);
     }
 }

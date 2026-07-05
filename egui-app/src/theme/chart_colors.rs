@@ -6,8 +6,6 @@ use egui::Color32;
 
 pub const COLOR_PARETO: Color32 = Color32::from_rgb(234, 67, 53);
 pub const COLOR_NON_PARETO: Color32 = Color32::from_rgb(66, 133, 244);
-/// premultiplied: r=234*60/255≈55, g=67*60/255≈16, b=53*60/255≈12
-pub const COLOR_PARETO_DIM: Color32 = Color32::from_rgba_premultiplied(55, 16, 12, 60);
 /// premultiplied: r=66*60/255≈16, g=133*60/255≈31, b=244*60/255≈57
 pub const COLOR_NON_PARETO_DIM: Color32 = Color32::from_rgba_premultiplied(16, 31, 57, 60);
 
@@ -23,9 +21,6 @@ pub const COLOR_AXIS_Z: Color32 = Color32::from_rgb(100, 100, 200);
 // MCDM スコア段階色
 // ====================================================================
 
-pub const COLOR_MCDM_HIGH: Color32 = Color32::from_rgb(234, 67, 53);
-pub const COLOR_MCDM_MID: Color32 = Color32::from_rgb(251, 188, 4);
-pub const COLOR_MCDM_LOW: Color32 = Color32::from_rgb(52, 168, 83);
 /// 劣解（ランク外）はクラスター図の非パレート色と揃えて淡い水色で表示する
 pub const COLOR_MCDM_NONE: Color32 = COLOR_NON_PARETO_DIM;
 
@@ -46,7 +41,6 @@ pub const COLOR_IMPORTANCE_BAR: Color32 = Color32::from_rgb(30, 60, 114);
 pub const COLOR_OPT_TRIAL: Color32 = Color32::from_rgb(66, 133, 244);
 pub const COLOR_OPT_PRUNED: Color32 = Color32::from_rgb(234, 67, 53);
 pub const COLOR_OPT_RUNNING: Color32 = Color32::from_rgb(52, 168, 83);
-pub const COLOR_OPT_BEST: Color32 = Color32::from_rgb(251, 188, 4);
 
 // ====================================================================
 // 収束指標チャート系
@@ -85,8 +79,6 @@ pub const COLOR_SCATTER_DOT: Color32 = Color32::from_rgb(66, 133, 244);
 
 /// premultiplied: r=66*40/255≈10, g=133*40/255≈21, b=244*40/255≈38
 pub const COLOR_SELECTION_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(10, 21, 38, 40);
-/// premultiplied: r=66*80/255≈21, g=133*80/255≈42, b=244*80/255≈77
-pub const COLOR_CELL_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(21, 42, 77, 80);
 /// 選択フィルタ外の散布図点を表す中間灰色（元の色相を残さず、選択点と明確に区別する）。
 /// 半透明にして選択点を引き立てつつ、灰色であることが分かる程度の不透明度を保つ。
 /// premultiplied: rgb(150,150,150) × 90/255 ≈ 53,53,53; alpha = 90
@@ -129,12 +121,6 @@ pub const COLOR_PARALLEL_LINE_UNSELECTED: Color32 = Color32::from_rgba_premultip
 
 /// premultiplied: r=66*120/255≈31, g=133*120/255≈63, b=244*120/255≈115
 pub const COLOR_PDP_CI_LEGEND: Color32 = Color32::from_rgba_premultiplied(31, 63, 115, 120);
-
-// ====================================================================
-// AHP 一貫性比率
-// ====================================================================
-
-pub const COLOR_CR_OK: Color32 = Color32::from_rgb(52, 168, 83);
 
 // ====================================================================
 // チャート汎用色

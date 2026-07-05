@@ -24,10 +24,6 @@ pub struct SliceChart {
 }
 
 impl SliceChart {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,

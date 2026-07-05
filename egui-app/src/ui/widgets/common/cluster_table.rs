@@ -52,10 +52,6 @@ impl Default for ClusterTable {
 }
 
 impl ClusterTable {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// 現在の設定に対応するキャッシュキーを返す。
     pub fn cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(

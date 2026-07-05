@@ -46,19 +46,6 @@ pub fn build_axis_order(param_names: &[String], objective_names: &[String]) -> V
         .collect()
 }
 
-/// 正規化ブラッシュ範囲をデータ値に逆変換する
-pub fn denormalize_brush_range(
-    y_min_normalized: f32,
-    y_max_normalized: f32,
-    axis_min: f64,
-    axis_max: f64,
-) -> (f64, f64) {
-    let range = axis_max - axis_min;
-    let raw_min = y_min_normalized as f64 * range + axis_min;
-    let raw_max = y_max_normalized as f64 * range + axis_min;
-    (raw_min, raw_max)
-}
-
 /// ドラッグ方向に関わらず (min, max) 順に整列する
 pub fn ordered_brush_range(start: f32, end: f32) -> (f32, f32) {
     (start.min(end), start.max(end))
@@ -183,18 +170,6 @@ impl Default for ParallelCoordsChart {
 }
 
 impl ParallelCoordsChart {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 全ブラッシュ範囲をリセットする
-    pub fn clear_brushes(&mut self) {
-        self.brush_ranges.clear();
-        self.drag_start = None;
-        self.brush_drag = None;
-        self.pending_selection = None;
-    }
-
     /// 平行座標プロットを描画する
     pub fn show(
         &mut self,
@@ -786,20 +761,6 @@ mod tests {
     // TASK-2022 tests
 
     #[test]
-    fn denormalize_brush_range_min_zero_max_one() {
-        let (raw_min, raw_max) = denormalize_brush_range(0.0, 1.0, 0.0, 10.0);
-        assert!((raw_min - 0.0).abs() < 1e-6);
-        assert!((raw_max - 10.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn denormalize_brush_range_midpoint() {
-        let (raw_min, raw_max) = denormalize_brush_range(0.25, 0.75, 0.0, 4.0);
-        assert!((raw_min - 1.0).abs() < 1e-6);
-        assert!((raw_max - 3.0).abs() < 1e-6);
-    }
-
-    #[test]
     fn ordered_brush_range_forward_drag() {
         let (min, max) = ordered_brush_range(0.2, 0.8);
         assert!((min - 0.2).abs() < 1e-6);
@@ -812,16 +773,6 @@ mod tests {
         let (min, max) = ordered_brush_range(0.8, 0.2);
         assert!((min - 0.2).abs() < 1e-6);
         assert!((max - 0.8).abs() < 1e-6);
-    }
-
-    #[test]
-    fn clear_brushes_empties_ranges() {
-        let mut chart = ParallelCoordsChart::default();
-        chart.brush_ranges.insert("x".to_string(), Some((0.1, 0.9)));
-        chart.drag_start = Some(("x".to_string(), 0.5));
-        chart.clear_brushes();
-        assert!(chart.brush_ranges.is_empty());
-        assert!(chart.drag_start.is_none());
     }
 
     // TASK-2125 tests
@@ -890,32 +841,6 @@ mod tests {
     }
 
     // --- TASK-2242: PCP brush tests ---
-
-    fn make_trial_with_params(id: u32, p: f64, obj: f64) -> crate::state::app_state::TrialRow {
-        use crate::state::app_state::{TrialRow, TrialState};
-        use std::collections::HashMap;
-        let mut params = HashMap::new();
-        params.insert("x".to_string(), p);
-        TrialRow {
-            trial_id: id,
-            trial_number: id,
-            params,
-            objectives: vec![obj],
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        }
-    }
-
-    #[test]
-    fn normalize_and_denormalize_brush_range_round_trip() {
-        // normalize 3.0 in [0, 10] → 0.3, then denormalize back
-        let norm = normalize_value(3.0, 0.0, 10.0);
-        let (lo, hi) = denormalize_brush_range(norm, norm, 0.0, 10.0);
-        assert!((lo - 3.0).abs() < 1e-4);
-        assert!((hi - 3.0).abs() < 1e-4);
-    }
 
     #[test]
     fn multi_axis_brush_applies_and_filter() {
@@ -1083,15 +1008,5 @@ mod tests {
         let (mn, mx) = feasible_color_range(&col, feas, (0.0, 0.0));
         assert_eq!(mn, 1.0);
         assert_eq!(mx, 4.0);
-    }
-
-    #[test]
-    fn clear_brushes_resets_selection_state() {
-        let mut chart = ParallelCoordsChart::default();
-        chart.brush_ranges.insert("x".to_string(), Some((0.2, 0.8)));
-        chart.pending_selection = Some(vec![0, 1]);
-        chart.clear_brushes();
-        assert!(chart.brush_ranges.is_empty());
-        assert!(chart.pending_selection.is_none());
     }
 }

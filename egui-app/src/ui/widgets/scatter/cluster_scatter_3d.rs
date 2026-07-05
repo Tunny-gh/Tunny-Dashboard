@@ -445,6 +445,6 @@ mod tests {
         assert_eq!(w.y_objective, 1);
         assert_eq!(w.z_objective, 2);
         assert!(w.show_infeasible);
-        assert!(!w.camera.is_identity_rotation());
+        assert_ne!(w.camera.rotation, [0.0, 0.0, 0.0, 1.0]);
     }
 }

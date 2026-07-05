@@ -57,7 +57,6 @@ impl ComputeSyncKind {
             | AppMessage::SurrogateMultiFitFailed(_)
             | AppMessage::SurrogateMultiFitCancelled => Some(Self::SurrogateFit),
             AppMessage::SurrogateOptDone(_)
-            | AppMessage::SurrogateOptFailed(_)
             | AppMessage::SurrogateMultiOptDone(_)
             | AppMessage::SurrogateMultiOptFailed(_) => Some(Self::SurrogateOpt),
             AppMessage::SurrogateSuggestDone(_)
@@ -390,11 +389,9 @@ impl TunnyApp {
                         .iter()
                         .any(|s| s.meta.study_id == meta.study_id);
                     if base_id != Some(meta.study_id) && !already {
-                        let study_idx = self.app_state.comparison_studies.len();
                         self.app_state.comparison_mode = true;
                         crate::io::study_worker::dispatch_load_comparison_study(
                             meta,
-                            study_idx,
                             self.sender(),
                         );
                     }
@@ -632,11 +629,8 @@ mod tests {
             name: "test".to_string(),
             directions: vec![],
             completed_trials: 5,
-            total_trials: 5,
             param_names: vec!["x".to_string()],
             objective_names: vec!["y".to_string()],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         }];
         tx.send(AppMessage::JournalParsed {
@@ -693,10 +687,8 @@ mod tests {
             AppMessage::SurrogateMultiOptDone(crate::state::messages::SurrogateMultiOptUiResult {
                 param_names: vec![],
                 objective_names: vec![],
-                minimize: vec![],
                 front: vec![],
                 r_squared: vec![],
-                slices: vec![],
             });
         assert!(matches!(
             ComputeSyncKind::from_message(&done),

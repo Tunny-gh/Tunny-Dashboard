@@ -7,14 +7,6 @@ use crate::theme::color_compute::correlation_color;
 /// セル数（下三角）×点数で描画コストが効くため、点数を抑えて応答性を保つ。
 pub const MAX_SCATTER_POINTS: usize = 1500;
 
-/// Scatter Matrix の1セルタイプ
-#[derive(Debug, Clone, PartialEq)]
-pub enum CellType {
-    Scatter,     // 下三角セル（散布図）
-    Correlation, // 上三角セル（相関係数）
-    Histogram,   // 対角セル
-}
-
 /// Scatter Matrix の表示モード
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MatrixMode {
@@ -70,10 +62,6 @@ impl Default for ScatterMatrix {
 }
 
 impl ScatterMatrix {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// 散布図行列を描画する
     pub fn show(
         &mut self,
@@ -397,43 +385,6 @@ pub fn downsample_indices_to_cap(indices: &[u32], cap: usize) -> Vec<u32> {
     indices.iter().step_by(step).copied().collect()
 }
 
-/// モードに基づいてセルの行数・列数を計算する
-pub fn grid_dimensions(mode: &MatrixMode, n_params: usize, n_objectives: usize) -> (usize, usize) {
-    match mode {
-        MatrixMode::ParamsVsParams => (n_params, n_params),
-        MatrixMode::ParamsVsObjectives => (n_params, n_objectives),
-    }
-}
-
-/// アルファベット順に軸名をソートする
-pub fn sort_axes_alphabetical(axes: &mut [String]) {
-    axes.sort();
-}
-
-/// 相関係数の絶対値が大きい順に軸をソートする（最初の軸との相関で順位付け）
-/// axes: 軸名リスト, corr_matrix: axes[i] vs axes[j] の相関係数行列
-pub fn sort_axes_by_correlation(axes: &mut [String], corr_matrix: &[Vec<f64>]) {
-    if axes.is_empty() || corr_matrix.is_empty() {
-        return;
-    }
-    // 最初の軸に対する絶対相関係数の合計でソート（降順）
-    let n = axes.len().min(corr_matrix.len());
-    let mut indexed: Vec<(usize, f64)> = (0..n)
-        .map(|i| {
-            let sum: f64 = corr_matrix[i][..n.min(corr_matrix[i].len())]
-                .iter()
-                .map(|&c| c.abs())
-                .sum();
-            (i, sum)
-        })
-        .collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let old_axes: Vec<String> = axes.to_vec();
-    for (new_pos, (old_idx, _)) in indexed.iter().enumerate() {
-        axes[new_pos] = old_axes[*old_idx].clone();
-    }
-}
-
 /// データ座標を画面座標に変換する
 pub fn data_to_screen(
     x: f64,
@@ -655,41 +606,6 @@ mod tests {
     }
 
     // TASK-2019 tests
-
-    #[test]
-    fn grid_dimensions_params_vs_params() {
-        let (rows, cols) = grid_dimensions(&MatrixMode::ParamsVsParams, 4, 2);
-        assert_eq!(rows, 4);
-        assert_eq!(cols, 4);
-    }
-
-    #[test]
-    fn grid_dimensions_params_vs_objectives() {
-        let (rows, cols) = grid_dimensions(&MatrixMode::ParamsVsObjectives, 4, 2);
-        assert_eq!(rows, 4);
-        assert_eq!(cols, 2);
-    }
-
-    #[test]
-    fn sort_axes_alphabetical_sorts_ascending() {
-        let mut axes = vec!["z".to_string(), "a".to_string(), "m".to_string()];
-        sort_axes_alphabetical(&mut axes);
-        assert_eq!(axes, vec!["a", "m", "z"]);
-    }
-
-    #[test]
-    fn sort_axes_by_correlation_highest_sum_first() {
-        let mut axes = vec!["x".to_string(), "y".to_string(), "z".to_string()];
-        // z has highest absolute correlation sum
-        let corr_matrix = vec![
-            vec![1.0, 0.1, 0.2], // x
-            vec![0.1, 1.0, 0.3], // y
-            vec![0.2, 0.3, 1.0], // z → sum = 1.5
-        ];
-        sort_axes_by_correlation(&mut axes, &corr_matrix);
-        // z (sum=1.5) > y (sum=1.4) > x (sum=1.3)
-        assert_eq!(axes[0], "z");
-    }
 
     #[test]
     fn scatter_matrix_default_mode() {

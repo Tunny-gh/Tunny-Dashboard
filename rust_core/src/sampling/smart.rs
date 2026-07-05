@@ -19,16 +19,12 @@ pub fn downsample_smart(
     max_points: usize,
     include_pareto: bool,
 ) -> Option<DownsampleResult> {
-    #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
     let total_count = crate::dataframe::with_active_df(|df| df.row_count())?;
 
     if total_count <= max_points {
-        #[cfg(not(target_arch = "wasm32"))]
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(target_arch = "wasm32")]
-        let duration_ms = 0.0_f64;
 
         return Some(full_result(total_count, duration_ms));
     }
@@ -41,10 +37,7 @@ pub fn downsample_smart(
     let pareto_count = pareto_indices.len();
 
     if pareto_count >= max_points {
-        #[cfg(not(target_arch = "wasm32"))]
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(target_arch = "wasm32")]
-        let duration_ms = 0.0_f64;
 
         return Some(DownsampleResult {
             indices: pareto_indices[..max_points].to_vec(),
@@ -65,10 +58,7 @@ pub fn downsample_smart(
     let mut indices = pareto_indices;
     indices.extend_from_slice(&sampled);
 
-    #[cfg(not(target_arch = "wasm32"))]
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-    #[cfg(target_arch = "wasm32")]
-    let duration_ms = 0.0_f64;
 
     Some(DownsampleResult {
         indices,

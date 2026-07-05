@@ -5,19 +5,6 @@ use crate::state::layout_state::ChartId;
 use crate::state::messages::AppMessage;
 use crate::ui::widget_states::WidgetStates;
 
-/// タイトルと区切り線付きでチャートを描画する
-pub fn show_cell_chart(
-    ui: &mut egui::Ui,
-    app_state: &mut AppState,
-    widgets: &mut WidgetStates,
-    chart_id: &ChartId,
-    tx: &mpsc::SyncSender<AppMessage>,
-) {
-    ui.label(egui::RichText::new(chart_id.label()).strong());
-    ui.separator();
-    show_chart(ui, app_state, widgets, chart_id, tx);
-}
-
 /// ChartId に対応するチャートウィジェットを描画する。
 ///
 /// 内部で [`crate::ui::render_chart::render_chart`]（描画のみ、`tx` 不要）と

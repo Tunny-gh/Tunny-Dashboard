@@ -6,12 +6,6 @@ use crate::ui::help::help_types::HelpLanguage;
 /// 左右パネルの開閉アニメーション所要時間（秒）
 pub const PANEL_ANIM_TIME: f32 = 0.20;
 
-/// パネルサイズの定数
-pub const LEFT_WIDTH_MIN: f32 = 120.0;
-pub const LEFT_WIDTH_MAX: f32 = 600.0;
-pub const RIGHT_WIDTH_MIN: f32 = 100.0;
-pub const RIGHT_WIDTH_MAX: f32 = 400.0;
-
 /// マウスがこのピクセル数以内に近づくとパネルが開く
 const HOVER_TRIGGER_PX: f32 = 20.0;
 
@@ -21,11 +15,6 @@ const EDGE_STRIP_W: f32 = 18.0;
 const EDGE_STRIP_ROUNDING: f32 = 4.0;
 /// インジケーターの縦サイズ（中央に短いタブとして表示）
 const EDGE_STRIP_H: f32 = 60.0;
-
-/// 左パネル幅のクランプ
-pub fn clamp_left_width(left_width: f32) -> f32 {
-    left_width.clamp(LEFT_WIDTH_MIN, LEFT_WIDTH_MAX)
-}
 
 /// TunnyApp のレイアウトを描画する（Toolbar + OverlayPanels + CentralPanel）
 pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
@@ -363,8 +352,6 @@ pub fn show_language_menu(ui: &mut egui::Ui, app_state: &mut AppState) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn show_language_menu_logic_sets_ja() {
         use crate::state::app_state::AppState;
@@ -373,26 +360,5 @@ mod tests {
         assert_eq!(state.help_language, HelpLanguage::En);
         state.help_language = HelpLanguage::Ja;
         assert_eq!(state.help_language, HelpLanguage::Ja);
-    }
-
-    #[test]
-    fn clamp_left_width_clamps_min() {
-        assert_eq!(clamp_left_width(0.0), LEFT_WIDTH_MIN);
-    }
-
-    #[test]
-    fn clamp_left_width_clamps_max() {
-        assert_eq!(clamp_left_width(9999.0), LEFT_WIDTH_MAX);
-    }
-
-    #[test]
-    fn clamp_left_width_passes_valid() {
-        assert_eq!(clamp_left_width(240.0), 240.0);
-    }
-
-    #[test]
-    fn width_constants_are_valid() {
-        const { assert!(LEFT_WIDTH_MIN < LEFT_WIDTH_MAX) };
-        const { assert!(RIGHT_WIDTH_MIN < RIGHT_WIDTH_MAX) };
     }
 }

@@ -1,5 +1,5 @@
 use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
-use crate::state::messages::{AppMessage, DownsampleKey};
+use crate::state::messages::AppMessage;
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
@@ -141,12 +141,6 @@ impl MessageHandler {
                 controls.pending_entropy = false;
                 controls.computing = false;
             }
-            AppMessage::DownsampleDone { key, indices } => match key {
-                DownsampleKey::Scatter => app_state.downsample_cache.scatter = Some(indices),
-                DownsampleKey::Pcp => app_state.downsample_cache.pcp = Some(indices),
-                DownsampleKey::Thumbnail => app_state.downsample_cache.thumbnail = Some(indices),
-                DownsampleKey::Hover => app_state.downsample_cache.hover = Some(indices),
-            },
             AppMessage::IndicatorHistoryDone {
                 indicator,
                 base,
@@ -189,23 +183,18 @@ impl MessageHandler {
                 result,
             } => {
                 // キャッシュに挿入してから result を設定
-                if let crate::state::messages::PdpResult::OneDim(ref r1d) = result {
-                    widget_states.pdp_chart.insert_cache(
-                        &param,
-                        &objective,
-                        &model_type,
-                        feasible_only,
-                        r1d.clone(),
-                    );
-                }
+                widget_states.pdp_chart.insert_cache(
+                    &param,
+                    &objective,
+                    &model_type,
+                    feasible_only,
+                    result.clone(),
+                );
                 widget_states.pdp_chart.result = Some(result);
                 widget_states.pdp_chart.computing = false;
             }
 
-            AppMessage::ComparisonStudyLoaded {
-                study_idx: _, // studies arrive in dispatch order; sequential append is correct
-                context,
-            } => {
+            AppMessage::ComparisonStudyLoaded { context } => {
                 // 3 つの並行 Vec（studies / colors / hv_histories）を同じ順序で揃える。
                 let idx = app_state.comparison_studies.len();
                 app_state.comparison_studies.push(*context);
@@ -266,10 +255,6 @@ impl MessageHandler {
                 widget_states.surrogate_opt.error_message = None;
                 widget_states.surrogate_opt.optimizing = false;
             }
-            AppMessage::SurrogateOptFailed(err) => {
-                widget_states.surrogate_opt.error_message = Some(err);
-                widget_states.surrogate_opt.optimizing = false;
-            }
             AppMessage::SurrogateMultiFitDone(trained) => {
                 widget_states.surrogate_opt.multi_trained = Some(trained);
                 widget_states.surrogate_opt.error_message = None;
@@ -294,9 +279,6 @@ impl MessageHandler {
             AppMessage::SurrogateMultiOptFailed(err) => {
                 widget_states.surrogate_opt.error_message = Some(err);
                 widget_states.surrogate_opt.optimizing = false;
-            }
-            AppMessage::ChartCaptureFailed(err) => {
-                widget_states.capture.last_error = Some(err);
             }
             AppMessage::SurrogateSuggestDone(result) => {
                 widget_states.surrogate_opt.suggest_result = Some(result);
@@ -663,11 +645,8 @@ mod tests {
                 name: "s".to_string(),
                 directions: vec![Direction::Minimize],
                 completed_trials: trial_count,
-                total_trials: trial_count,
                 param_names: vec!["x".to_string()],
                 objective_names: vec!["y".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
                 param_bounds: Default::default(),
             },
             study_id: 0,
@@ -718,11 +697,8 @@ mod tests {
                 name: "s".to_string(),
                 directions: vec![direction],
                 completed_trials: trial_count,
-                total_trials: trial_count,
                 param_names: vec!["x".to_string()],
                 objective_names: vec!["y".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
                 param_bounds: Default::default(),
             },
             study_id: 0,
@@ -762,11 +738,8 @@ mod tests {
                 name: "s".to_string(),
                 directions: vec![Direction::Minimize, Direction::Minimize],
                 completed_trials: trial_count,
-                total_trials: trial_count,
                 param_names: vec!["x".to_string()],
                 objective_names: vec!["y1".to_string(), "y2".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
                 param_bounds: Default::default(),
             },
             study_id: 0,
@@ -951,11 +924,8 @@ mod tests {
                 name: "s".to_string(),
                 directions: vec![Direction::Minimize],
                 completed_trials: 0,
-                total_trials: 0,
                 param_names: vec!["x".to_string()],
                 objective_names: vec!["y".to_string()],
-                user_attr_names: vec![],
-                has_constraints: false,
                 param_bounds: Default::default(),
             },
             new_rows: rows,
@@ -1089,11 +1059,8 @@ mod tests {
                     name: "s".to_string(),
                     directions: vec![Direction::Minimize, Direction::Minimize],
                     completed_trials: 3,
-                    total_trials: 3,
                     param_names: vec!["x".to_string()],
                     objective_names: vec!["o1".to_string(), "o2".to_string()],
-                    user_attr_names: vec![],
-                    has_constraints: false,
                     param_bounds: Default::default(),
                 },
                 study_id: 0,
@@ -1132,11 +1099,8 @@ mod tests {
             name: "s".to_string(),
             directions: vec![],
             completed_trials: 100,
-            total_trials: 100,
             param_names: vec![],
             objective_names: vec![],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         }];
         let mut widgets = WidgetStates::default();
@@ -1276,11 +1240,8 @@ mod tests {
                 name: "compare".to_string(),
                 directions: vec![Direction::Minimize],
                 completed_trials: 0,
-                total_trials: 0,
                 param_names: vec![],
                 objective_names: vec![],
-                user_attr_names: vec![],
-                has_constraints: false,
                 param_bounds: Default::default(),
             },
             vec![],
@@ -1288,7 +1249,6 @@ mod tests {
 
         MessageHandler::handle(
             AppMessage::ComparisonStudyLoaded {
-                study_idx: 0,
                 context: Box::new(context),
             },
             &mut app_state,

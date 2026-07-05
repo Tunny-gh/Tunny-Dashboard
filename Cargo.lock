@@ -5502,25 +5502,21 @@ name = "tunny-desktop"
 version = "0.1.0"
 dependencies = [
  "arboard",
- "bytemuck",
  "cargo_metadata",
  "dhat",
  "eframe",
  "egui",
- "egui-wgpu",
  "egui_extras",
  "egui_plot",
  "ico",
  "image",
  "open",
  "pulldown-cmark",
- "rayon",
  "rfd",
  "serde",
  "serde_json",
  "tempfile",
  "tunny-core",
- "wgpu",
  "winres",
 ]
 

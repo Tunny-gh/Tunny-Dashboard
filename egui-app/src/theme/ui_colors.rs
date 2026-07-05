@@ -69,10 +69,6 @@ pub const CLOSE_BTN_TEXT: Color32 = Color32::from_gray(180);
 /// メインブルー: TONMANUAL blue-500
 pub const ACCENT_BLUE: Color32 = Color32::from_rgb(59, 130, 246); // #3B82F6
 
-/// ホバーブルー: TONMANUAL blue-600
-#[allow(dead_code)]
-pub const ACCENT_BLUE_HOVER: Color32 = Color32::from_rgb(37, 99, 235); // #2563EB
-
 /// 選択ハイライト: blue-300（TOOLBAR_BG の blue-200 より暗くして選択状態を視認可能に）
 pub const ACCENT_BLUE_MUTED: Color32 = Color32::from_rgb(147, 197, 253); // #93C5FD
 
@@ -84,35 +80,10 @@ pub const ACCENT_BLUE_MUTED: Color32 = Color32::from_rgb(147, 197, 253); // #93C
 pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(17, 24, 39); // #111827
 
 /// 本文テキスト: TONMANUAL gray-600
-#[allow(dead_code)]
 pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(75, 85, 99); // #4B5563
 
 /// ボーダー: TONMANUAL gray-200
 pub const BORDER_COLOR: Color32 = Color32::from_rgb(229, 231, 235); // #E5E7EB
-
-// ====================================================================
-// 新規追加: ブランドカラー完全版 (TONMANUAL §2)
-// ====================================================================
-
-/// ヘッダー背景: TONMANUAL blue-300
-#[allow(dead_code)]
-pub const HEADER_BG: Color32 = Color32::from_rgb(147, 197, 253); // #93C5FD
-
-/// アナウンスバー背景: TONMANUAL blue-400
-#[allow(dead_code)]
-pub const ANNOUNCE_BG: Color32 = Color32::from_rgb(96, 165, 250); // #60A5FA
-
-/// アクション（購入・重要操作）: TONMANUAL green-500
-#[allow(dead_code)]
-pub const ACTION_GREEN: Color32 = Color32::from_rgb(34, 197, 94); // #22C55E
-
-/// アクションホバー: TONMANUAL green-600
-#[allow(dead_code)]
-pub const ACTION_GREEN_HOVER: Color32 = Color32::from_rgb(22, 163, 74); // #16A34A
-
-/// サブテキスト: TONMANUAL gray-700
-#[allow(dead_code)]
-pub const TEXT_SUB: Color32 = Color32::from_rgb(55, 65, 81); // #374151
 
 // ====================================================================
 // セマンティックカラー（変更なし）

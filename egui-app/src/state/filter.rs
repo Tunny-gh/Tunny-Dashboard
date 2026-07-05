@@ -23,11 +23,6 @@ impl DownsampleCache {
     }
 }
 
-/// 選択率の変化が再サンプリングをトリガーすべきか判定する
-pub fn should_resample(current_rate: f64, last_rate: f64) -> bool {
-    (current_rate - last_rate).abs() > 0.20
-}
-
 // ============================================================
 // AppState フィルターメソッド
 // ============================================================
@@ -37,25 +32,6 @@ impl AppState {
     pub fn set_filter(&mut self, param: &str, min: f64, max: f64) {
         self.filter_ranges.insert(param.to_string(), (min, max));
         self.apply_filters();
-    }
-
-    /// パラメータのフィルターを除去し、selected_indices を更新する
-    pub fn remove_filter(&mut self, param: &str) {
-        self.filter_ranges.remove(param);
-        self.apply_filters();
-    }
-
-    /// 全フィルターをクリアして全 Trial を選択状態にする
-    pub fn clear_filters(&mut self) {
-        self.filter_ranges.clear();
-        if let Some(ctx) = &self.current_study {
-            self.selected_indices = ctx.view.trial_ids.clone();
-        }
-    }
-
-    /// グラフ上のドラッグ選択で selected_indices を直接上書きする（フィルターには影響しない）
-    pub fn brush_select(&mut self, indices: Vec<u32>) {
-        self.selected_indices = indices;
     }
 
     /// filter_ranges に基づいて selected_indices を再計算する
@@ -98,7 +74,6 @@ impl AppState {
 mod tests {
     use std::collections::HashMap;
 
-    use super::*;
     use crate::state::app_state::*;
 
     fn make_study_ctx_with_params() -> StudyContext {
@@ -116,7 +91,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                state: TrialState::Complete,
                 user_attrs: HashMap::new(),
             },
             TrialRow {
@@ -126,7 +100,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                state: TrialState::Complete,
                 user_attrs: HashMap::new(),
             },
             TrialRow {
@@ -136,7 +109,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                state: TrialState::Complete,
                 user_attrs: HashMap::new(),
             },
         ];
@@ -145,11 +117,8 @@ mod tests {
             name: "test".to_string(),
             directions: vec![Direction::Minimize],
             completed_trials: 3,
-            total_trials: 3,
             param_names: vec!["x".to_string()],
             objective_names: vec![],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, trial_rows)
@@ -187,7 +156,6 @@ mod tests {
                     objectives: vec![i as f64],
                     pareto_rank: 0,
                     cluster_id: None,
-                    state: TrialState::Complete,
                     user_attrs: HashMap::new(),
                 }
             })
@@ -223,30 +191,6 @@ mod tests {
     // TASK-2026 tests
 
     #[test]
-    fn should_resample_small_change_no_trigger() {
-        // 10% change -> no trigger
-        assert!(!should_resample(0.6, 0.7));
-    }
-
-    #[test]
-    fn should_resample_large_change_triggers() {
-        // 25% change -> triggers
-        assert!(should_resample(0.5, 0.75));
-    }
-
-    #[test]
-    fn should_resample_exactly_20_percent_no_trigger() {
-        // exactly 20% is not > 0.20
-        assert!(!should_resample(0.5, 0.7));
-    }
-
-    #[test]
-    fn should_resample_negative_direction_triggers() {
-        // selection drops by 25%
-        assert!(should_resample(0.75, 0.5));
-    }
-
-    #[test]
     fn set_filter_excludes_out_of_range_trials() {
         let mut state = AppState::new();
         state.current_study = Some(make_study_ctx_with_params());
@@ -255,42 +199,5 @@ mod tests {
         assert!(state.selected_indices.contains(&0));
         assert!(!state.selected_indices.contains(&1));
         assert!(!state.selected_indices.contains(&2));
-    }
-
-    #[test]
-    fn remove_filter_restores_all_trials() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_study_ctx_with_params());
-        state.set_filter("x", 0.0, 0.5);
-        assert_eq!(state.selected_indices.len(), 1);
-        state.remove_filter("x");
-        assert_eq!(state.selected_indices.len(), 3);
-    }
-
-    #[test]
-    fn clear_filters_selects_all_trials() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_study_ctx_with_params());
-        state.set_filter("x", 0.0, 0.1);
-        assert!(state.selected_indices.is_empty());
-        state.clear_filters();
-        assert_eq!(state.selected_indices.len(), 3);
-    }
-
-    #[test]
-    fn brush_select_updates_selected_indices() {
-        let mut state = AppState::new();
-        state.brush_select(vec![1, 3, 5]);
-        assert_eq!(state.selected_indices, vec![1, 3, 5]);
-    }
-
-    #[test]
-    fn set_filter_then_remove_restores_all() {
-        let mut state = AppState::new();
-        state.current_study = Some(make_study_ctx_with_params());
-        state.set_filter("x", 0.5, 1.0);
-        state.remove_filter("x");
-        // 全件選択に戻る
-        assert_eq!(state.selected_indices.len(), 3);
     }
 }

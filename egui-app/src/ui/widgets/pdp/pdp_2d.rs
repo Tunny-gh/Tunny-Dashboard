@@ -716,7 +716,7 @@ mod tests {
     #[test]
     fn pdp2d_default_camera_is_tilted() {
         let s = PdpChart2DState::default();
-        assert!(!s.camera.is_identity_rotation());
+        assert_ne!(s.camera.rotation, [0.0, 0.0, 0.0, 1.0]);
         assert!(s.show_uncertainty);
         assert!(!s.show_observed);
         assert!(!s.feasible_only);

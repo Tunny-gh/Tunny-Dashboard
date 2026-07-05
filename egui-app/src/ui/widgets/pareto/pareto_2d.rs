@@ -1,4 +1,4 @@
-use crate::state::app_state::{AppState, TrialRow};
+use crate::state::app_state::AppState;
 use crate::state::messages::SurrogateMultiOptUiResult;
 use crate::theme::chart_colors::{
     COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_SURROGATE_FRONT,
@@ -8,32 +8,6 @@ use crate::theme::color_compute::compute_point_alpha;
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
-
-type PartitionedPoints = (Vec<[f64; 2]>, Vec<[f64; 2]>, Option<[f64; 2]>);
-
-/// ダウンサンプリングインデックスでトライアルをフィルタリングする
-/// indices が Some の場合はそのインデックスのトライアルのみ、None の場合は全件を返す
-pub fn filter_by_downsample_indices<'a>(
-    trial_rows: &'a [TrialRow],
-    indices: Option<&[u32]>,
-) -> Vec<&'a TrialRow> {
-    match indices {
-        Some(idx) => idx
-            .iter()
-            .filter_map(|&i| trial_rows.get(i as usize))
-            .collect(),
-        None => trial_rows.iter().collect(),
-    }
-}
-
-/// Pareto ランクに応じたマーカー半径を返す（ランク0が最大）
-pub fn pareto_marker_radius(pareto_rank: u32) -> f32 {
-    if pareto_rank == 0 {
-        5.0
-    } else {
-        2.5
-    }
-}
 
 /// 2D Pareto 散布図ウィジェット（egui_plot ベース）
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -461,142 +435,9 @@ impl ParetoScatter2D {
     }
 }
 
-/// 点 [x, y] が矩形 (corner1, corner2) の内部にあるか判定する（TASK-2241）
-pub fn point_in_rect(pt: [f64; 2], corner1: [f64; 2], corner2: [f64; 2]) -> bool {
-    let x_min = corner1[0].min(corner2[0]);
-    let x_max = corner1[0].max(corner2[0]);
-    let y_min = corner1[1].min(corner2[1]);
-    let y_max = corner1[1].max(corner2[1]);
-    pt[0] >= x_min && pt[0] <= x_max && pt[1] >= y_min && pt[1] <= y_max
-}
-
-/// 表示インデックスを feasible / infeasible に分類する。
-/// 制約なし Study（feas.has_constraints() == false）の場合は全件を feasible に分類する。
-pub fn classify_by_feasibility(
-    feas: tunny_core::dataframe::Feasibility<'_>,
-    indices: &[usize],
-) -> (Vec<usize>, Vec<usize>) {
-    if !feas.has_constraints() {
-        return (indices.to_vec(), vec![]);
-    }
-    let mut feasible = Vec::with_capacity(indices.len());
-    let mut infeasible = Vec::with_capacity(indices.len());
-    for &i in indices {
-        if feas.is_feasible(i) {
-            feasible.push(i);
-        } else {
-            infeasible.push(i);
-        }
-    }
-    (feasible, infeasible)
-}
-
-/// 矩形内に含まれる trial の ID リストを返す（TASK-2241）
-pub fn select_trials_in_rect(
-    rows: &[TrialRow],
-    corner1: [f64; 2],
-    corner2: [f64; 2],
-    x_idx: usize,
-    y_idx: usize,
-) -> Vec<u32> {
-    rows.iter()
-        .filter_map(|r| {
-            let x = r.objectives.get(x_idx).copied().unwrap_or(0.0);
-            let y = r.objectives.get(y_idx).copied().unwrap_or(0.0);
-            if point_in_rect([x, y], corner1, corner2) {
-                Some(r.trial_id)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// TrialRow リストから選択・非選択・ハイライト点を分離する
-pub fn partition_points(
-    trial_rows: &[crate::state::app_state::TrialRow],
-    selected_indices: &[u32],
-    highlighted: Option<u32>,
-    x_idx: usize,
-    y_idx: usize,
-) -> PartitionedPoints {
-    let mut selected_pts = vec![];
-    let mut unselected_pts = vec![];
-    let mut highlight_pt = None;
-
-    for row in trial_rows {
-        let x = row.objectives.get(x_idx).copied().unwrap_or(0.0);
-        let y = row.objectives.get(y_idx).copied().unwrap_or(0.0);
-        let pt = [x, y];
-
-        if let Some(h) = highlighted {
-            if row.trial_id == h {
-                highlight_pt = Some(pt);
-                continue;
-            }
-        }
-
-        let alpha = compute_point_alpha(row.trial_id, selected_indices);
-        if alpha == 255 {
-            selected_pts.push(pt);
-        } else {
-            unselected_pts.push(pt);
-        }
-    }
-    (selected_pts, unselected_pts, highlight_pt)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{TrialRow, TrialState};
-    use std::collections::HashMap;
-
-    fn make_trial(id: u32, objs: Vec<f64>) -> TrialRow {
-        TrialRow {
-            trial_id: id,
-            trial_number: id,
-            params: HashMap::new(),
-            objectives: objs,
-            pareto_rank: 0,
-            cluster_id: None,
-            state: TrialState::Complete,
-            user_attrs: HashMap::new(),
-        }
-    }
-
-    #[test]
-    fn partition_empty_selected_all_go_to_selected() {
-        let rows = vec![make_trial(0, vec![1.0, 2.0]), make_trial(1, vec![3.0, 4.0])];
-        let (sel, unsel, hl) = partition_points(&rows, &[], None, 0, 1);
-        assert_eq!(sel.len(), 2);
-        assert_eq!(unsel.len(), 0);
-        assert!(hl.is_none());
-    }
-
-    #[test]
-    fn partition_with_selected_splits_correctly() {
-        let rows = vec![
-            make_trial(0, vec![1.0, 2.0]),
-            make_trial(1, vec![3.0, 4.0]),
-            make_trial(2, vec![5.0, 6.0]),
-        ];
-        let (sel, unsel, hl) = partition_points(&rows, &[0, 2], None, 0, 1);
-        assert_eq!(sel.len(), 2);
-        assert_eq!(unsel.len(), 1);
-        assert!(hl.is_none());
-        // 非選択は trial_id=1
-        assert_eq!(unsel[0], [3.0, 4.0]);
-    }
-
-    #[test]
-    fn partition_highlight_extracted_separately() {
-        let rows = vec![make_trial(0, vec![1.0, 2.0]), make_trial(5, vec![9.0, 8.0])];
-        let (sel, unsel, hl) = partition_points(&rows, &[], Some(5), 0, 1);
-        assert_eq!(sel.len(), 1);
-        assert_eq!(unsel.len(), 0);
-        assert_eq!(hl, Some([9.0, 8.0]));
-    }
 
     #[test]
     fn pareto_scatter_2d_default() {
@@ -604,74 +445,6 @@ mod tests {
         assert_eq!(widget.x_axis, "obj0");
         assert_eq!(widget.y_axis, "obj1");
         assert!(widget.use_downsample);
-    }
-
-    // TASK-2020 tests
-
-    #[test]
-    fn filter_by_downsample_none_returns_all() {
-        let rows = vec![
-            make_trial(0, vec![]),
-            make_trial(1, vec![]),
-            make_trial(2, vec![]),
-        ];
-        let result = filter_by_downsample_indices(&rows, None);
-        assert_eq!(result.len(), 3);
-    }
-
-    #[test]
-    fn filter_by_downsample_some_returns_subset() {
-        let rows = vec![
-            make_trial(0, vec![]),
-            make_trial(1, vec![]),
-            make_trial(2, vec![]),
-        ];
-        let indices = vec![0u32, 2u32];
-        let result = filter_by_downsample_indices(&rows, Some(&indices));
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].trial_id, 0);
-        assert_eq!(result[1].trial_id, 2);
-    }
-
-    #[test]
-    fn pareto_marker_radius_rank0_is_larger() {
-        let r0 = pareto_marker_radius(0);
-        let r1 = pareto_marker_radius(1);
-        assert!(r0 > r1);
-    }
-
-    #[test]
-    fn pareto_marker_radius_non_front_rank_same() {
-        assert_eq!(pareto_marker_radius(1), pareto_marker_radius(2));
-    }
-
-    // --- TASK-2241: Brush selection tests ---
-
-    #[test]
-    fn point_in_rect_detects_selected_trials() {
-        // Point inside rect
-        assert!(point_in_rect([2.0, 3.0], [1.0, 2.0], [4.0, 5.0]));
-        // Point on boundary
-        assert!(point_in_rect([1.0, 2.0], [1.0, 2.0], [4.0, 5.0]));
-        // Point outside
-        assert!(!point_in_rect([0.0, 0.0], [1.0, 2.0], [4.0, 5.0]));
-        // Works with corners in either order
-        assert!(point_in_rect([2.0, 3.0], [4.0, 5.0], [1.0, 2.0]));
-    }
-
-    #[test]
-    fn brush_selection_updates_selected_indices() {
-        let rows = vec![
-            make_trial(0, vec![1.0, 1.0]),
-            make_trial(1, vec![3.0, 3.0]),
-            make_trial(2, vec![6.0, 6.0]),
-        ];
-        // Brush rect that covers trials 0 and 1 but not 2
-        let selected = select_trials_in_rect(&rows, [0.0, 0.0], [4.0, 4.0], 0, 1);
-        assert_eq!(selected.len(), 2);
-        assert!(selected.contains(&0));
-        assert!(selected.contains(&1));
-        assert!(!selected.contains(&2));
     }
 
     #[test]
@@ -690,52 +463,6 @@ mod tests {
         assert!(widget.brush_end.is_none());
     }
 
-    // ── constraint-aware visualization (TASK-2347) ──────────────────
-
-    #[test]
-    fn tc_cav_classify_no_constraint_all_feasible() {
-        use tunny_core::dataframe::Feasibility;
-        let indices = vec![0usize, 1, 2];
-        let feas = Feasibility::from_column(None);
-        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
-        assert_eq!(feasible.len(), 3);
-        assert!(infeasible.is_empty());
-    }
-
-    #[test]
-    fn tc_cav_classify_mixed_feasibility() {
-        use tunny_core::dataframe::Feasibility;
-        // is_feasible: [1.0, 0.0, 1.0] → idx 0,2 feasible; idx 1 infeasible
-        let col = vec![1.0f64, 0.0, 1.0];
-        let indices = vec![0usize, 1, 2];
-        let feas = Feasibility::from_column(Some(&col));
-        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
-        assert_eq!(feasible, vec![0, 2]);
-        assert_eq!(infeasible, vec![1]);
-    }
-
-    #[test]
-    fn tc_cav_classify_all_infeasible() {
-        use tunny_core::dataframe::Feasibility;
-        let col = vec![0.0f64, 0.0, 0.0];
-        let indices = vec![0usize, 1, 2];
-        let feas = Feasibility::from_column(Some(&col));
-        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
-        assert!(feasible.is_empty());
-        assert_eq!(infeasible.len(), 3);
-    }
-
-    #[test]
-    fn tc_cav_classify_all_feasible_with_constraint_col() {
-        use tunny_core::dataframe::Feasibility;
-        let col = vec![1.0f64, 1.0, 1.0];
-        let indices = vec![0usize, 1, 2];
-        let feas = Feasibility::from_column(Some(&col));
-        let (feasible, infeasible) = classify_by_feasibility(feas, &indices);
-        assert_eq!(feasible.len(), 3);
-        assert!(infeasible.is_empty());
-    }
-
     // ── surrogate_front_points のユニットテスト ───────────────────────
 
     fn make_ui_result() -> crate::state::messages::SurrogateMultiOptUiResult {
@@ -743,7 +470,6 @@ mod tests {
         crate::state::messages::SurrogateMultiOptUiResult {
             param_names: vec!["x".to_string()],
             objective_names: vec!["f0".to_string(), "f1".to_string()],
-            minimize: vec![true, true],
             front: vec![
                 ParetoFrontPoint {
                     params: vec![0.1],
@@ -755,7 +481,6 @@ mod tests {
                 },
             ],
             r_squared: vec![0.9, 0.85],
-            slices: vec![],
         }
     }
 

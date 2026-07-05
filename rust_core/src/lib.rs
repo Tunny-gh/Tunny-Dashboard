@@ -36,7 +36,7 @@ mod tests {
     }
 
     #[test]
-    fn wasm_get_trials_no_active_study_returns_empty() {
+    fn get_trials_no_active_study_returns_empty() {
         let result = crate::dataframe::with_active_df(|_df| 42usize);
         assert!(
             result.is_none(),
@@ -45,7 +45,7 @@ mod tests {
     }
 
     #[test]
-    fn wasm_get_trials_with_dataframe() {
+    fn get_trials_with_dataframe() {
         use crate::dataframe::{
             select_study, store_dataframes, with_active_df, DataFrame, TrialRow,
         };

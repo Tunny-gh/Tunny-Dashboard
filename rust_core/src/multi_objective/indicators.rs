@@ -59,12 +59,6 @@ impl MoIndicator {
     pub fn higher_is_better(self) -> bool {
         matches!(self, MoIndicator::Hypervolume)
     }
-
-    /// 参照集合（真のパレート前面の近似）を必要とするか。
-    /// Hypervolume は参照「点」のみで計算でき、参照「集合」は不要。
-    pub fn needs_reference_set(self) -> bool {
-        !matches!(self, MoIndicator::Hypervolume)
-    }
 }
 
 /// 1 系列分の入力（基準 Study または 1 つの比較 Study）。

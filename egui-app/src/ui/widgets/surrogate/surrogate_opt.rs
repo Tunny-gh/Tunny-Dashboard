@@ -1907,7 +1907,7 @@ mod tests {
     use super::*;
     use crate::ui::widget_states::SurrogateOptState;
 
-    fn ui_result(slice: Option<tunny_core::surrogate_opt::SurfaceSlice>) -> SurrogateOptUiResult {
+    fn ui_result() -> SurrogateOptUiResult {
         SurrogateOptUiResult {
             best_params: vec![("x".to_string(), 0.3), ("y".to_string(), 0.7)],
             best_value: 0.01,
@@ -1915,7 +1915,6 @@ mod tests {
             r_squared: 0.95,
             objective_name: "obj0".to_string(),
             minimize: true,
-            slice,
             best_observed_value: 0.05,
             predicted_constraints: vec![],
             feasibility_probability: None,
@@ -2022,7 +2021,7 @@ mod tests {
             optimizing: true,
             ..Default::default()
         };
-        state.result = Some(ui_result(None));
+        state.result = Some(ui_result());
         state.optimizing = false;
         assert!(!state.optimizing);
         assert!(state.result.is_some());
@@ -2033,7 +2032,7 @@ mod tests {
         use std::sync::Arc;
 
         let global = SurrogateOptState {
-            result: Some(ui_result(None)),
+            result: Some(ui_result()),
             fitting: false,
             optimizing: false,
             error_message: Some("err".to_string()),
