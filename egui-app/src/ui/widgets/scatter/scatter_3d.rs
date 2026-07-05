@@ -86,14 +86,6 @@ impl ArcballCamera {
         self.zoom = (self.zoom - delta).clamp(0.5, 10.0);
     }
 
-    pub fn is_identity_rotation(&self) -> bool {
-        let [x, y, z, w] = self.rotation;
-        x.abs() < f32::EPSILON
-            && y.abs() < f32::EPSILON
-            && z.abs() < f32::EPSILON
-            && (w - 1.0).abs() < 1e-6
-    }
-
     /// ドラッグ量（ピクセル）を画面パン（平行移動）として累積する
     pub fn pan_by_drag(&mut self, dx: f32, dy: f32) {
         self.pan[0] += dx;
@@ -162,11 +154,6 @@ pub fn normalize_to_clip(v: f64, v_min: f64, v_max: f64) -> f32 {
         return 0.0;
     }
     (2.0 * (v - v_min) / (v_max - v_min) - 1.0).clamp(-1.0, 1.0) as f32
-}
-
-/// ズーム値を有効範囲にクランプする
-pub fn clamp_zoom(zoom: f32, min: f32, max: f32) -> f32 {
-    zoom.clamp(min, max)
 }
 
 // ── UI ヘルパー ───────────────────────────────────────────────────
@@ -435,7 +422,7 @@ mod tests {
     #[test]
     fn arcball_camera_default_is_identity() {
         let cam = ArcballCamera::default();
-        assert!(cam.is_identity_rotation());
+        assert_eq!(cam.rotation, [0.0, 0.0, 0.0, 1.0]);
         assert!((cam.zoom - 3.0).abs() < f32::EPSILON);
     }
 
@@ -457,11 +444,6 @@ mod tests {
         };
         cam.apply_zoom(-1.0);
         assert!((cam.zoom - 10.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn clamp_zoom_within_range() {
-        assert!((clamp_zoom(3.0, 0.5, 10.0) - 3.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -570,7 +552,7 @@ mod tests {
     fn rotate_by_drag_changes_rotation_from_identity() {
         let mut cam = ArcballCamera::default();
         cam.rotate_by_drag(100.0, 0.0);
-        assert!(!cam.is_identity_rotation());
+        assert_ne!(cam.rotation, [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

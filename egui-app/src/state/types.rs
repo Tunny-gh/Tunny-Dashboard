@@ -13,27 +13,14 @@ pub enum Direction {
     Maximize,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub enum TrialState {
-    #[default]
-    Complete,
-    Running,
-    Pruned,
-    Fail,
-    Waiting,
-}
-
 #[derive(Debug, Clone)]
 pub struct StudyMeta {
     pub study_id: u32,
     pub name: String,
     pub directions: Vec<Direction>,
     pub completed_trials: usize,
-    pub total_trials: usize,
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
-    pub user_attr_names: Vec<String>,
-    pub has_constraints: bool,
     /// パラメータごとの宣言レンジ (low, high)（表示単位、数値パラメータのみ）。
     /// log 由来の探索空間範囲。サロゲート最適化の探索箱に使う。空 = 範囲不明。
     pub param_bounds: HashMap<String, (f64, f64)>,
@@ -119,6 +106,8 @@ impl CsvImportSettings {
     }
 }
 
+/// テスト用の行指向フィクスチャ（旧表現、MEM-001 で列指向 `StudyView` に置換済み）。
+#[cfg(test)]
 #[derive(Debug, Clone, Default)]
 pub struct TrialRow {
     pub trial_id: u32,
@@ -128,7 +117,6 @@ pub struct TrialRow {
     pub objectives: Vec<f64>,
     pub pareto_rank: u32,
     pub cluster_id: Option<i32>,
-    pub state: TrialState,
     pub user_attrs: HashMap<String, String>,
 }
 
@@ -173,7 +161,7 @@ impl StudyContext {
 
     /// テスト用: egui `TrialRow` の Vec から StudyContext を構築する。
     /// 列名は行データから導出し、DataFrame→StudyView を組み立てる。
-    /// pareto_rank / cluster_id / state は行から並行配列へ引き継ぐ。
+    /// pareto_rank / cluster_id は行から並行配列へ引き継ぐ。
     #[cfg(test)]
     pub(crate) fn from_rows_for_test(meta: StudyMeta, rows: Vec<TrialRow>) -> Self {
         use tunny_core::dataframe::TrialRow as CoreRow;
@@ -212,7 +200,6 @@ impl StudyContext {
         let mut view = StudyView::new(Arc::new(df), pareto_rank);
         for (i, r) in rows.iter().enumerate() {
             view.cluster_id[i] = r.cluster_id;
-            view.state[i] = r.state.clone();
         }
         StudyContext {
             meta,
@@ -226,7 +213,7 @@ impl StudyContext {
 // TASK-2331: StudyView — 列指向 DataFrame スナップショットの軽量ビュー
 //
 // `Arc<DataFrame>` をラップし、DataFrame にないアプリ層算出値（pareto_rank /
-// cluster_id / state / trial_ids）を並行配列で保持する。行指向 `Vec<TrialRow>`
+// cluster_id / trial_ids）を並行配列で保持する。行指向 `Vec<TrialRow>`
 // と per-row HashMap を永続保持しないため、列データの複製が発生しない（MEM-001）。
 // 段階移行のため一時的な互換ヘルパー `row_at` / `to_trial_rows` を提供する
 // （最終的に TASK-2342 で除去予定）。
@@ -242,8 +229,6 @@ pub struct StudyView {
     pub pareto_rank: Vec<u32>,
     /// クラスタ ID（行 index 順、未割当は None）。
     pub cluster_id: Vec<Option<i32>>,
-    /// 試行状態（行 index 順）。
-    pub state: Vec<TrialState>,
 }
 
 impl StudyView {
@@ -264,7 +249,6 @@ impl StudyView {
             trial_ids,
             pareto_rank,
             cluster_id: vec![None; n],
-            state: vec![TrialState::Complete; n],
         }
     }
 
@@ -328,11 +312,6 @@ impl StudyView {
             objectives,
             pareto_rank: self.pareto_rank.get(index).copied().unwrap_or(0),
             cluster_id: self.cluster_id.get(index).copied().flatten(),
-            state: self
-                .state
-                .get(index)
-                .cloned()
-                .unwrap_or(TrialState::Complete),
             user_attrs: HashMap::new(),
         }
     }
@@ -448,7 +427,6 @@ mod tests {
         assert_eq!(row.objectives, vec![2.0, 4.0]);
         assert_eq!(row.pareto_rank, 0);
         assert_eq!(row.cluster_id, None);
-        assert_eq!(row.state, TrialState::Complete);
         assert!(row.user_attrs.is_empty());
     }
 
@@ -480,60 +458,5 @@ mod tests {
         // pareto_rank の長さ(1) != row_count(2) → 0 埋め
         let view = StudyView::new(std::sync::Arc::new(df), vec![5]);
         assert_eq!(view.pareto_rank, vec![0, 0]);
-    }
-
-    /// テスト用の StudyContext を生成するヘルパー
-    pub(crate) fn make_study_ctx_with_params() -> StudyContext {
-        let mut params0 = HashMap::new();
-        params0.insert("x".to_string(), 0.2);
-        let mut params1 = HashMap::new();
-        params1.insert("x".to_string(), 0.6);
-        let mut params2 = HashMap::new();
-        params2.insert("x".to_string(), 0.9);
-        let trial_rows = vec![
-            TrialRow {
-                trial_id: 0,
-                trial_number: 0,
-                params: params0,
-                objectives: vec![],
-                pareto_rank: 0,
-                cluster_id: None,
-                state: TrialState::Complete,
-                user_attrs: HashMap::new(),
-            },
-            TrialRow {
-                trial_id: 1,
-                trial_number: 1,
-                params: params1,
-                objectives: vec![],
-                pareto_rank: 0,
-                cluster_id: None,
-                state: TrialState::Complete,
-                user_attrs: HashMap::new(),
-            },
-            TrialRow {
-                trial_id: 2,
-                trial_number: 2,
-                params: params2,
-                objectives: vec![],
-                pareto_rank: 0,
-                cluster_id: None,
-                state: TrialState::Complete,
-                user_attrs: HashMap::new(),
-            },
-        ];
-        let meta = StudyMeta {
-            study_id: 0,
-            name: "test".to_string(),
-            directions: vec![Direction::Minimize],
-            completed_trials: 3,
-            total_trials: 3,
-            param_names: vec!["x".to_string()],
-            objective_names: vec![],
-            user_attr_names: vec![],
-            has_constraints: false,
-            param_bounds: Default::default(),
-        };
-        StudyContext::from_rows_for_test(meta, trial_rows)
     }
 }

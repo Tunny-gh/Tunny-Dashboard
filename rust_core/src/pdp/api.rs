@@ -111,33 +111,6 @@ pub fn compute_pdp_from_data(
     }
 }
 
-pub fn compute_pdp(
-    param_name: &str,
-    objective_name: &str,
-    n_grid: usize,
-    _n_samples: usize,
-) -> Option<PdpResult1d> {
-    crate::dataframe::with_active_df(|df| {
-        let param_names = df.param_col_names().to_vec();
-        let objective_names = df.objective_col_names().to_vec();
-
-        let target_idx = param_names.iter().position(|p| p == param_name)?;
-        let _ = objective_names.iter().position(|o| o == objective_name)?;
-
-        let (x_matrix, y) = extract_xy(df, &param_names, objective_name, false);
-
-        Some(compute_pdp_from_matrix(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            target_idx,
-            n_grid,
-        ))
-    })
-    .flatten()
-}
-
 pub fn compute_pdp_2d(
     param1_name: &str,
     param2_name: &str,
@@ -215,61 +188,4 @@ pub fn compute_pdp_2d(
         }
     })
     .flatten()
-}
-
-/// Compute a 2D response surface from raw data without using the thread-local dataframe.
-/// Suitable for calling from background threads.
-/// `model_type` accepts "ridge" (default), "gp_fitc", "gp_vfe", "gp_moe".
-#[allow(clippy::too_many_arguments)]
-pub fn compute_surface_from_data(
-    x_matrix: Vec<Vec<f64>>,
-    y: Vec<f64>,
-    param_names: Vec<String>,
-    objective_name: &str,
-    param1_idx: usize,
-    param2_idx: usize,
-    n_grid: usize,
-    model_type: &str,
-) -> PdpResult2d {
-    match model_type {
-        "gp_fitc" => compute_pdp_2d_gp(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            param1_idx,
-            param2_idx,
-            n_grid,
-            GpMethod::Fitc,
-        ),
-        "gp_vfe" => compute_pdp_2d_gp(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            param1_idx,
-            param2_idx,
-            n_grid,
-            GpMethod::Vfe,
-        ),
-        "gp_moe" => compute_pdp_2d_gp(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            param1_idx,
-            param2_idx,
-            n_grid,
-            GpMethod::Moe,
-        ),
-        _ => compute_pdp_2d_from_matrix(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            param1_idx,
-            param2_idx,
-            n_grid,
-        ),
-    }
 }

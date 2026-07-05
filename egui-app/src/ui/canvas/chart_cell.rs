@@ -22,17 +22,6 @@ pub enum CellToolbarAction {
     CopyImage(PanelItem),
 }
 
-/// Returns the static list of items shown in the … (options) popup menu.
-pub fn chart_cell_menu_items() -> &'static [&'static str] {
-    &[
-        "Save as PNG",
-        "Copy image to clipboard",
-        "Save as CSV",
-        "Copy data to clipboard",
-        "Help",
-    ]
-}
-
 /// チャートセルの「…」(オプション) メニューボタンを描画し、選択されたアクションを返す。
 /// キャンバスビューのツールバーと最大化モーダルから共有する。
 pub(crate) fn show_chart_menu_button(
@@ -238,16 +227,6 @@ mod tests {
         let item = PanelItem::Chart(ChartId::OptimizationHistory);
         let action = CellToolbarAction::SaveAsPng(item);
         assert!(matches!(action, CellToolbarAction::SaveAsPng(_)));
-    }
-
-    #[test]
-    fn menu_contains_save_as_png_and_help() {
-        let items = chart_cell_menu_items();
-        assert!(items.contains(&"Save as PNG"));
-        assert!(items.contains(&"Copy image to clipboard"));
-        assert!(items.contains(&"Save as CSV"));
-        assert!(items.contains(&"Copy data to clipboard"));
-        assert!(items.contains(&"Help"));
     }
 
     #[test]

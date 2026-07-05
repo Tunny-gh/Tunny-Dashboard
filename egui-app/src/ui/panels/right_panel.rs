@@ -1,5 +1,5 @@
 use crate::state::app_state::AppState;
-use crate::state::layout_state::{ChartId, DragPayload, LayoutState, PanelItem};
+use crate::state::layout_state::{ChartId, DragPayload, PanelItem};
 
 /// アイコンタイルの幅（キャプションの折り返し幅でもある）。
 /// 長いウィジェット名が途中で切れないよう、複数行に折り返せる幅を確保する。
@@ -261,31 +261,10 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
     });
 }
 
-/// is_open トグルのロジックを単独でテスト可能な関数
-pub fn toggle_right_panel(layout: &mut LayoutState) {
-    layout.right_panel.is_open = !layout.right_panel.is_open;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::layout_state::LayoutState;
-
-    #[test]
-    fn toggle_right_panel_opens_closed() {
-        let mut layout = LayoutState::default();
-        layout.right_panel.is_open = false;
-        toggle_right_panel(&mut layout);
-        assert!(layout.right_panel.is_open);
-    }
-
-    #[test]
-    fn toggle_right_panel_closes_open() {
-        let mut layout = LayoutState::default();
-        layout.right_panel.is_open = true;
-        toggle_right_panel(&mut layout);
-        assert!(!layout.right_panel.is_open);
-    }
 
     #[test]
     fn right_panel_default_is_closed() {

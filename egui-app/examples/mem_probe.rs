@@ -20,7 +20,32 @@
 
 use tunny_core::dataframe::{select_study, snapshot};
 use tunny_core::io::journal::parser::parse_journal;
-use tunny_desktop::state::types::{StudyView, TrialRow, TrialState};
+use tunny_desktop::state::types::StudyView;
+
+/// 旧実装（`main` ブランチ）の試行状態 enum のローカル再現。
+/// アプリ本体からは削除済みのため、メモリ計測の忠実性のためにここで定義する。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+enum TrialState {
+    #[default]
+    Complete,
+}
+
+/// 旧実装が `StudyContext.trial_rows` に永続保持していた行指向表現のローカル再現。
+/// アプリ本体は列指向 `StudyView` に移行済み（MEM-001）。
+/// フィールドは読まずヒープ占有量の再現のためだけに保持する。
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct TrialRow {
+    trial_id: u32,
+    trial_number: u32,
+    params: std::collections::HashMap<String, f64>,
+    objectives: Vec<f64>,
+    pareto_rank: u32,
+    cluster_id: Option<i32>,
+    state: TrialState,
+    user_attrs: std::collections::HashMap<String, String>,
+}
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
@@ -131,7 +156,7 @@ fn main() {
                     objectives,
                     pareto_rank: v.pareto_rank.get(i).copied().unwrap_or(0),
                     cluster_id: v.cluster_id.get(i).copied().flatten(),
-                    state: v.state.get(i).cloned().unwrap_or(TrialState::Complete),
+                    state: TrialState::Complete,
                     user_attrs: std::collections::HashMap::new(),
                 }
             })

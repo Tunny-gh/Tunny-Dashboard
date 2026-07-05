@@ -155,14 +155,11 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                 app_state.importance_cache.contains_key(&key)
             }
         }
-        ChartId::PdpChart => {
-            use crate::state::messages::PdpResult;
-            widgets
-                .pdp_chart
-                .result
-                .as_ref()
-                .is_some_and(|r| matches!(r, PdpResult::OneDim(d) if !d.x_values.is_empty()))
-        }
+        ChartId::PdpChart => widgets
+            .pdp_chart
+            .result
+            .as_ref()
+            .is_some_and(|d| !d.x_values.is_empty()),
         ChartId::PdpChart2D => widgets
             .pdp_2d
             .result
@@ -756,12 +753,7 @@ fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<
     Some(w.finish())
 }
 fn build_pdp_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    use crate::state::messages::PdpResult;
-    let result = widgets.pdp_chart.result.as_ref()?;
-    let r = match result {
-        PdpResult::OneDim(r) => r,
-        PdpResult::TwoDim(_) => return None,
-    };
+    let r = widgets.pdp_chart.result.as_ref()?;
     if r.x_values.is_empty() {
         return None;
     }
@@ -1190,11 +1182,8 @@ mod tests {
             name: "test".to_string(),
             directions,
             completed_trials: 0,
-            total_trials: 0,
             param_names,
             objective_names: obj_names,
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, vec![])
@@ -1360,7 +1349,6 @@ mod tests {
         let mut state = AppState::default();
         let result = SensitivityResult {
             param_names: vec!["x".into(), "y".into()],
-            objective_names: vec!["f".into()],
             spearman: vec![vec![0.9, 0.3]],
             ridge: vec![RidgeResult {
                 beta: vec![0.8, 0.2],
@@ -1389,7 +1377,6 @@ mod tests {
         let mut state = AppState::default();
         let result = SensitivityResult {
             param_names: vec!["x,y".into()],
-            objective_names: vec!["f".into()],
             spearman: vec![vec![0.9]],
             ridge: vec![RidgeResult {
                 beta: vec![0.8],
@@ -1414,7 +1401,6 @@ mod tests {
         let mut state = AppState::default();
         let result = SensitivityResult {
             param_names: vec!["=SUM(A1)".into()],
-            objective_names: vec!["f".into()],
             spearman: vec![vec![0.9]],
             ridge: vec![RidgeResult {
                 beta: vec![0.8],
@@ -1591,9 +1577,9 @@ mod tests {
 
     #[test]
     fn pdp_csv_has_correct_header() {
-        use crate::state::messages::{PdpResult, PdpResult1d};
+        use crate::state::messages::PdpResult1d;
         let mut widgets = WidgetStates::default();
-        widgets.pdp_chart.result = Some(PdpResult::OneDim(PdpResult1d {
+        widgets.pdp_chart.result = Some(PdpResult1d {
             x_values: vec![0.0, 1.0],
             y_values: vec![0.5, 0.8],
             y_upper: Some(vec![0.6, 0.9]),
@@ -1601,8 +1587,7 @@ mod tests {
             ice_lines: vec![],
             r2: None,
             param_name: "x".to_string(),
-            objective_name: "f".to_string(),
-        }));
+        });
         let state = AppState::default();
         let csv = build_pdp_csv(&state, &widgets).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
@@ -1616,9 +1601,9 @@ mod tests {
 
     #[test]
     fn pdp_csv_handles_missing_ci() {
-        use crate::state::messages::{PdpResult, PdpResult1d};
+        use crate::state::messages::PdpResult1d;
         let mut widgets = WidgetStates::default();
-        widgets.pdp_chart.result = Some(PdpResult::OneDim(PdpResult1d {
+        widgets.pdp_chart.result = Some(PdpResult1d {
             x_values: vec![0.0],
             y_values: vec![0.5],
             y_upper: None,
@@ -1626,8 +1611,7 @@ mod tests {
             ice_lines: vec![],
             r2: None,
             param_name: "x".to_string(),
-            objective_name: "f".to_string(),
-        }));
+        });
         let state = AppState::default();
         let csv = build_pdp_csv(&state, &widgets).unwrap();
         // lower_ci and upper_ci should be empty strings
@@ -1674,8 +1658,6 @@ mod tests {
         McdmResult::Topsis(TopsisResult {
             scores: (0..trial_rows_len).map(|i| i as f64 * 0.1 + 0.5).collect(),
             ranked_indices: (0..trial_rows_len as u32).rev().collect(),
-            positive_ideal: vec![],
-            negative_ideal: vec![],
             duration_ms: 1.0,
         })
     }
@@ -1740,8 +1722,6 @@ mod tests {
             q_values: vec![0.1],
             display_scores: vec![0.4],
             ranked_indices: vec![0],
-            best_values: vec![],
-            worst_values: vec![],
             compromise_indices: vec![0],
             duration_ms: 1.0,
         });
@@ -1787,7 +1767,6 @@ mod tests {
         crate::state::messages::SurrogateMultiOptUiResult {
             param_names: vec!["x".to_string(), "y".to_string()],
             objective_names: vec!["f0".to_string(), "f1".to_string()],
-            minimize: vec![true, true],
             front: vec![
                 ParetoFrontPoint {
                     params: vec![0.1, 0.2],
@@ -1799,7 +1778,6 @@ mod tests {
                 },
             ],
             r_squared: vec![0.9, 0.85],
-            slices: vec![],
         }
     }
 
@@ -1839,7 +1817,6 @@ mod tests {
             r_squared: 0.9,
             objective_name: "f".to_string(),
             minimize: true,
-            slice: None,
             best_observed_value: 1.5,
             predicted_constraints: vec![],
             feasibility_probability: None,

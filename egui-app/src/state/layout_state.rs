@@ -32,6 +32,8 @@ pub enum ChartId {
 }
 
 impl ChartId {
+    /// 全チャートの列挙。ヘルプ・パネルの網羅性検証テスト専用。
+    #[cfg(test)]
     pub fn all() -> &'static [ChartId] {
         &[
             ChartId::ParetoScatter2D,
@@ -146,7 +148,8 @@ impl PanelItem {
         }
     }
 
-    /// 利用可能な全アイテムのリスト（右パネルに表示する順序）
+    /// 利用可能な全アイテムのリスト（右パネルに表示する順序）。網羅性検証テスト専用。
+    #[cfg(test)]
     pub fn all() -> Vec<PanelItem> {
         let mut items: Vec<PanelItem> = ChartId::all()
             .iter()

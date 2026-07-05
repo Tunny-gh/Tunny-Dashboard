@@ -35,7 +35,6 @@ enum StudyCommand {
     /// アクティブ Study は変更せずに DataFrame スナップショットと HV 履歴を返す。
     LoadComparisonStudy {
         meta: StudyMeta,
-        study_idx: usize,
         tx: SyncSender<AppMessage>,
     },
 }
@@ -141,11 +140,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             ));
                         }
                     }
-                    StudyCommand::LoadComparisonStudy {
-                        meta,
-                        study_idx,
-                        tx,
-                    } => {
+                    StudyCommand::LoadComparisonStudy { meta, tx } => {
                         let study_id = meta.study_id;
                         // DataFrame を確保する: 既にストアにあればそのまま、
                         // 未ロードならキャッシュ済みバイト列から該当 Study のみパースする。
@@ -189,7 +184,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             },
                         };
                         let msg = match df {
-                            Some(df) => build_comparison_loaded(meta, study_idx, &df),
+                            Some(df) => build_comparison_loaded(meta, &df),
                             None => AppMessage::ComparisonStudyLoadFailed(format!(
                                 "Failed to load study '{}' from the current journal.",
                                 meta.name
@@ -225,28 +220,19 @@ pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
 /// 同一ファイル内の別 Study を比較対象としてロードする。
 /// ワーカースレッド経由でキャッシュ済みバイト列を再利用し、
 /// アクティブ Study を変更せずに `ComparisonStudyLoaded` を送信する。
-pub fn dispatch_load_comparison_study(
-    meta: StudyMeta,
-    study_idx: usize,
-    tx: SyncSender<AppMessage>,
-) {
-    let _ = worker_sender().send(StudyCommand::LoadComparisonStudy {
-        meta,
-        study_idx,
-        tx,
-    });
+pub fn dispatch_load_comparison_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, tx });
 }
 
 /// 比較 Study の DataFrame スナップショットから `StudyContext` を構築する。
 /// Pareto ランクはこの用途では不要なため計算せず空で初期化する
 /// （`StudyView::new` が空ベクタを行数分の 0 に補完する）。
 /// 指標値の計算は `poll_chart` が base+全比較を一括で行う。
-fn build_comparison_loaded(meta: StudyMeta, study_idx: usize, df: &Arc<DataFrame>) -> AppMessage {
+fn build_comparison_loaded(meta: StudyMeta, df: &Arc<DataFrame>) -> AppMessage {
     use crate::state::app_state::{StudyContext, StudyView};
 
     let view = StudyView::new(Arc::clone(df), Vec::new());
     AppMessage::ComparisonStudyLoaded {
-        study_idx,
         context: Box::new(StudyContext {
             meta,
             view,

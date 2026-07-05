@@ -54,10 +54,6 @@ pub struct TrialTable {
 }
 
 impl TrialTable {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// テーブルを描画する。モードセレクタを表示し、選択モードに応じて切り替える。
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         if app_state.current_study.is_none() {
@@ -278,9 +274,7 @@ pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{
-        Direction, PinError, StudyContext, StudyMeta, TrialRow, TrialState,
-    };
+    use crate::state::app_state::{Direction, PinError, StudyContext, StudyMeta, TrialRow};
     use std::collections::HashMap;
 
     fn make_study_ctx(n: usize) -> StudyContext {
@@ -292,7 +286,6 @@ mod tests {
                 objectives: vec![i as f64],
                 pareto_rank: 0,
                 cluster_id: None,
-                state: TrialState::Complete,
                 user_attrs: HashMap::new(),
             })
             .collect();
@@ -301,11 +294,8 @@ mod tests {
             name: "test".to_string(),
             directions: vec![Direction::Minimize],
             completed_trials: n,
-            total_trials: n,
             param_names: vec![],
             objective_names: vec!["y".to_string()],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, trial_rows)

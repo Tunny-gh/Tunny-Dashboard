@@ -5,7 +5,6 @@
 #[derive(Debug, Clone)]
 pub struct SensitivityResult {
     pub param_names: Vec<String>,
-    pub objective_names: Vec<String>,
     pub spearman: Vec<Vec<f64>>,
     pub ridge: Vec<RidgeResult>,
     pub rf_anova: Option<RfAnovaResult>,
@@ -67,7 +66,6 @@ impl HeatmapMatrix {
 #[derive(Debug, Clone)]
 pub struct SobolResult {
     pub param_names: Vec<String>,
-    pub objective_names: Vec<String>,
     pub first_order: Vec<Vec<f64>>,
     pub total_effect: Vec<Vec<f64>>,
     pub r_squared: Vec<f64>,
@@ -83,8 +81,6 @@ pub struct ClusterResult {
 pub struct TopsisResult {
     pub scores: Vec<f64>,
     pub ranked_indices: Vec<u32>,
-    pub positive_ideal: Vec<f64>,
-    pub negative_ideal: Vec<f64>,
     pub duration_ms: f64,
 }
 
@@ -95,8 +91,6 @@ pub struct VikorResult {
     pub q_values: Vec<f64>,
     pub display_scores: Vec<f64>,
     pub ranked_indices: Vec<u32>,
-    pub best_values: Vec<f64>,
-    pub worst_values: Vec<f64>,
     /// 妥協解集合（C1/C2, Opricovic & Tzeng 2004）。Q昇順の元トライアルインデックス。
     pub compromise_indices: Vec<usize>,
     pub duration_ms: f64,
@@ -272,7 +266,6 @@ pub struct LiveUpdateState {
     pub last_byte_offset: u64,
     pub interval_ms: u64,
     pub consecutive_errors: u32,
-    pub last_change_time: Option<std::time::Instant>,
     pub poller_active: bool,
     pub showing_completion_hint: bool,
 }
@@ -285,7 +278,6 @@ impl Clone for LiveUpdateState {
             last_byte_offset: self.last_byte_offset,
             interval_ms: self.interval_ms,
             consecutive_errors: self.consecutive_errors,
-            last_change_time: None,
             poller_active: false,
             showing_completion_hint: self.showing_completion_hint,
         }
@@ -300,7 +292,6 @@ impl Default for LiveUpdateState {
             last_byte_offset: 0,
             interval_ms: 2000,
             consecutive_errors: 0,
-            last_change_time: None,
             poller_active: false,
             showing_completion_hint: false,
         }
@@ -341,7 +332,6 @@ mod tests {
         assert_eq!(state.last_byte_offset, 0);
         assert_eq!(state.interval_ms, 2000);
         assert_eq!(state.consecutive_errors, 0);
-        assert!(state.last_change_time.is_none());
         assert!(!state.poller_active);
         assert!(!state.showing_completion_hint);
     }
@@ -363,13 +353,11 @@ mod tests {
     fn live_update_state_clone_resets_runtime_fields() {
         let state = LiveUpdateState {
             enabled: true,
-            last_change_time: Some(std::time::Instant::now()),
             poller_active: true,
             ..Default::default()
         };
         let cloned = state.clone();
         assert!(cloned.enabled);
-        assert!(cloned.last_change_time.is_none());
         assert!(!cloned.poller_active);
     }
 
@@ -398,8 +386,6 @@ mod tests {
         let result = McdmResult::Topsis(TopsisResult {
             scores: vec![0.8, 0.6, 0.9],
             ranked_indices: vec![2, 0, 1],
-            positive_ideal: vec![1.0],
-            negative_ideal: vec![0.0],
             duration_ms: 12.5,
         });
         assert_eq!(result.primary_scores(), &[0.8, 0.6, 0.9]);
@@ -410,8 +396,6 @@ mod tests {
         let result = McdmResult::Topsis(TopsisResult {
             scores: vec![0.8, 0.6, 0.9],
             ranked_indices: vec![2, 0, 1],
-            positive_ideal: vec![1.0],
-            negative_ideal: vec![0.0],
             duration_ms: 12.5,
         });
         assert_eq!(result.ranked_indices(), &[2, 0, 1]);
@@ -422,8 +406,6 @@ mod tests {
         let result = McdmResult::Topsis(TopsisResult {
             scores: vec![0.5],
             ranked_indices: vec![0],
-            positive_ideal: vec![1.0],
-            negative_ideal: vec![0.0],
             duration_ms: 1.0,
         });
         assert_eq!(result.method_label(), "TOPSIS");
@@ -434,14 +416,10 @@ mod tests {
         let r = TopsisResult {
             scores: vec![0.9, 0.1],
             ranked_indices: vec![0, 1],
-            positive_ideal: vec![0.5, 0.5],
-            negative_ideal: vec![0.1, 0.1],
             duration_ms: 42.0,
         };
         assert_eq!(r.scores.len(), 2);
         assert_eq!(r.ranked_indices.len(), 2);
-        assert_eq!(r.positive_ideal.len(), 2);
-        assert_eq!(r.negative_ideal.len(), 2);
         assert!((r.duration_ms - 42.0).abs() < f64::EPSILON);
     }
 
@@ -450,8 +428,6 @@ mod tests {
         let topsis = TopsisResult {
             scores: vec![0.8, 0.6, 0.9],
             ranked_indices: vec![2, 0, 1],
-            positive_ideal: vec![1.0],
-            negative_ideal: vec![0.0],
             duration_ms: 12.5,
         };
         let mcdm = McdmResult::Topsis(topsis);
@@ -480,8 +456,6 @@ mod tests {
             q_values: vec![0.1, 0.5, 0.9],
             display_scores: vec![0.9, 0.5, 0.1],
             ranked_indices: vec![0, 1, 2],
-            best_values: vec![1.0, 2.0],
-            worst_values: vec![5.0, 8.0],
             compromise_indices: vec![0],
             duration_ms: 5.0,
         })

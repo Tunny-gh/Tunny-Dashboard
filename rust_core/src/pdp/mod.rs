@@ -4,7 +4,7 @@ mod ridge;
 mod types;
 pub(crate) mod utils;
 
-pub use api::{compute_pdp, compute_pdp_2d, compute_pdp_from_data, compute_surface_from_data};
+pub use api::{compute_pdp_2d, compute_pdp_from_data};
 pub use types::{PdpResult1d, PdpResult2d};
 
 #[cfg(test)]

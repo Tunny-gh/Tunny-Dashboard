@@ -1,4 +1,4 @@
-use crate::state::messages::{PdpResult, PdpResult1d};
+use crate::state::messages::PdpResult1d;
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
     COLOR_ICE_LINE, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_PDP_CI,
@@ -134,27 +134,10 @@ pub fn r2_quality(r2: f64) -> &'static str {
     }
 }
 
-/// 信頼区間バンドのポリゴン点列を構築する
-/// 上限を左→右、下限を右→左の順で結合する
-pub fn compute_band_polygon(x_vals: &[f64], y_upper: &[f64], y_lower: &[f64]) -> Vec<[f64; 2]> {
-    let upper: Vec<[f64; 2]> = x_vals
-        .iter()
-        .zip(y_upper.iter())
-        .map(|(&x, &y)| [x, y])
-        .collect();
-    let lower: Vec<[f64; 2]> = x_vals
-        .iter()
-        .zip(y_lower.iter())
-        .rev()
-        .map(|(&x, &y)| [x, y])
-        .collect();
-    upper.into_iter().chain(lower).collect()
-}
-
 /// view + 選択インデックスから観測データ ([param, objective], 分類) を抽出する
 /// （テスト可能な純粋関数）
 ///
-/// `selected_indices` が空の場合は全試行を対象とする（filter_rows_for_display と同様の規則）。
+/// `selected_indices` が空の場合は全試行を対象とする。
 /// `selected_indices` / `pinned` のどちらかに trial_id が含まれる行のみを抽出する。
 /// NaN / Inf の値はスキップする。
 /// 分類は他の散布図と同じ規則（pareto_rank == 0 → Pareto、is_feasible <= 0.5 → Infeasible）。
@@ -206,7 +189,7 @@ pub struct PdpChart {
     pub selected_objective: usize,
     pub model_type: ModelType,
     #[serde(skip)]
-    pub result: Option<PdpResult>,
+    pub result: Option<PdpResult1d>,
     #[serde(skip)]
     pub computing: bool,
     #[serde(skip)]
@@ -236,17 +219,6 @@ impl Default for PdpChart {
 }
 
 impl PdpChart {
-    /// キャッシュを確認して結果を返す。キャッシュミスの場合は None を返す
-    pub fn try_cache(&self, objective: &str) -> Option<&PdpResult1d> {
-        let key = cache_key(
-            &self.selected_param,
-            objective,
-            self.model_type.to_str(),
-            self.feasible_only,
-        );
-        self.cache.get(&key)
-    }
-
     /// グローバル widget の計算実行状態・結果・キャッシュを取り込む。
     /// PDP 結果は widget 側（result/cache）に保持されるため、キャンバスの各アイテム
     /// （独立した WidgetStates）にも反映しないと完了後も "No PDP data" のままになる。
@@ -345,7 +317,7 @@ impl PdpChart {
                         self.feasible_only,
                     );
                     if let Some(cached) = self.cache.get(&cache_key_str) {
-                        self.result = Some(PdpResult::OneDim(cached.clone()));
+                        self.result = Some(cached.clone());
                     } else {
                         let n_grid = match self.model_type {
                             ModelType::Ridge => 50,
@@ -391,12 +363,7 @@ impl PdpChart {
             vec![]
         };
 
-        match result {
-            PdpResult::OneDim(r) => self.show_1d(ui, r, &observed),
-            PdpResult::TwoDim(_) => {
-                ui.label("2D PDP will be implemented in TASK-2017");
-            }
-        }
+        self.show_1d(ui, result, &observed);
     }
 
     fn show_1d(
@@ -524,12 +491,9 @@ mod tests {
                 ice_lines: vec![],
                 r2: Some(0.9),
                 param_name: "x0".to_string(),
-                objective_name: "obj0".to_string(),
             },
         );
-        global.result = Some(PdpResult::OneDim(
-            global.cache.values().next().unwrap().clone(),
-        ));
+        global.result = Some(global.cache.values().next().unwrap().clone());
 
         item.adopt_compute_state(&global);
 
@@ -558,32 +522,6 @@ mod tests {
         assert_eq!(r2_quality(0.6), "Poor");
         assert_eq!(r2_quality(0.0), "Poor");
         assert_eq!(r2_quality(-0.5), "Poor");
-    }
-
-    #[test]
-    fn band_polygon_upper_then_lower_reversed() {
-        let x = vec![0.0, 1.0, 2.0];
-        let upper = vec![3.0, 4.0, 5.0];
-        let lower = vec![1.0, 2.0, 3.0];
-        let pts = compute_band_polygon(&x, &upper, &lower);
-        // 6 points total: 3 upper (l→r) + 3 lower (r→l)
-        assert_eq!(pts.len(), 6);
-        assert_eq!(pts[0], [0.0, 3.0]); // first upper
-        assert_eq!(pts[2], [2.0, 5.0]); // last upper
-        assert_eq!(pts[3], [2.0, 3.0]); // first lower (reversed: rightmost)
-        assert_eq!(pts[5], [0.0, 1.0]); // last lower (leftmost)
-    }
-
-    #[test]
-    fn band_polygon_upper_always_gte_lower_for_valid_input() {
-        let x = vec![0.0, 0.5, 1.0];
-        let upper = vec![2.0, 3.0, 4.0];
-        let lower = vec![0.0, 1.0, 2.0];
-        let pts = compute_band_polygon(&x, &upper, &lower);
-        // Upper points (index 0..3) should have higher y than lower points (index 3..6 reversed)
-        for i in 0..3 {
-            assert!(pts[i][1] >= pts[5 - i][1]);
-        }
     }
 
     #[test]
@@ -695,33 +633,6 @@ mod tests {
         let k1 = cache_key("x", "obj0", "Ridge", false);
         let k2 = cache_key("x", "obj0", "Ridge", true);
         assert_ne!(k1, k2);
-    }
-
-    #[test]
-    fn cache_hit_returns_result() {
-        let mut chart = PdpChart {
-            selected_param: "x".to_string(),
-            selected_objective: 0,
-            ..Default::default()
-        };
-        let result = PdpResult1d {
-            x_values: vec![0.0, 1.0],
-            y_values: vec![0.5, 1.5],
-            y_upper: None,
-            y_lower: None,
-            ice_lines: vec![],
-            r2: None,
-            param_name: "x".to_string(),
-            objective_name: "obj0".to_string(),
-        };
-        chart.insert_cache("x", "obj0", "ridge", false, result);
-        assert!(chart.try_cache("obj0").is_some());
-    }
-
-    #[test]
-    fn cache_miss_returns_none() {
-        let chart = PdpChart::default();
-        assert!(chart.try_cache("obj0").is_none());
     }
 
     // ── TASK-2237: PDP observed overlay 選択連動テスト ──────────

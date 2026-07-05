@@ -372,7 +372,6 @@ pub(crate) fn poll_chart_work(
                                         key: (obj_idx, feasible_only),
                                         result: SobolResult {
                                             param_names: r.param_names,
-                                            objective_names: r.objective_names,
                                             first_order: r.first_order,
                                             total_effect: r.total_effect,
                                             r_squared: r.r_squared,
@@ -396,7 +395,6 @@ pub(crate) fn poll_chart_work(
                                         key,
                                         result: SensitivityResult {
                                             param_names: r.param_names,
-                                            objective_names: vec![],
                                             spearman: vec![],
                                             ridge: vec![],
                                             rf_anova: None,
@@ -446,7 +444,6 @@ pub(crate) fn poll_chart_work(
                                     key,
                                     result: SensitivityResult {
                                         param_names: r.param_names,
-                                        objective_names: r.objective_names,
                                         spearman,
                                         ridge: r
                                             .ridge
@@ -522,7 +519,7 @@ pub(crate) fn poll_chart_work(
             widgets.pdp_chart.computing = true;
             let tx = tx.clone();
             crate::app::spawn_task(tx, move || {
-                use crate::state::messages::{PdpResult, PdpResult1d};
+                use crate::state::messages::PdpResult1d;
                 let r = tunny_core::pdp::compute_pdp_from_data(
                     x_matrix,
                     y,
@@ -537,7 +534,7 @@ pub(crate) fn poll_chart_work(
                     objective,
                     model_type,
                     feasible_only,
-                    result: PdpResult::OneDim(PdpResult1d {
+                    result: PdpResult1d {
                         x_values: r.grid,
                         y_values: r.values,
                         y_upper: r.y_upper,
@@ -545,8 +542,7 @@ pub(crate) fn poll_chart_work(
                         ice_lines: vec![],
                         r2: Some(r.r_squared),
                         param_name: r.param_name,
-                        objective_name: r.objective_name,
-                    }),
+                    },
                 }
             });
         }
@@ -967,7 +963,6 @@ pub(crate) fn poll_chart_work(
                         r_squared: r.r_squared,
                         objective_name: obj_name,
                         minimize,
-                        slice: r.slice,
                         best_observed_value: r.best_observed_value,
                         predicted_constraints,
                         feasibility_probability: r.feasibility_probability,
@@ -1008,7 +1003,7 @@ pub(crate) fn poll_chart_work(
                     let refs: Vec<&tunny_core::surrogate_opt::TrainedSurrogate> =
                         multi_trained.iter().collect();
                     let spec = tunny_core::surrogate_opt::SurrogateMultiOptimizeSpec {
-                        minimize: minimize_flags.clone(),
+                        minimize: minimize_flags,
                         slice_params,
                         n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
                     };
@@ -1021,10 +1016,8 @@ pub(crate) fn poll_chart_work(
                             AppMessage::SurrogateMultiOptDone(SurrogateMultiOptUiResult {
                                 param_names,
                                 objective_names: objective_names_owned,
-                                minimize: minimize_flags,
                                 front: r.front,
                                 r_squared: r.r_squared,
-                                slices: r.slices,
                             })
                         }
                         Err(e) => AppMessage::SurrogateMultiOptFailed(e),
@@ -1484,8 +1477,6 @@ fn compute_mcdm_result(
             McdmResult::Topsis(crate::state::results::TopsisResult {
                 scores: expand_scores(r.scores),
                 ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
-                positive_ideal: r.positive_ideal,
-                negative_ideal: r.negative_ideal,
                 duration_ms: start.elapsed().as_secs_f64() * 1000.0,
             })
         })
@@ -1505,8 +1496,6 @@ fn compute_mcdm_result(
                 q_values: expand_scores(r.q_values),
                 display_scores: expand_scores(r.display_scores),
                 ranked_indices: r.ranked_indices.into_iter().map(remap).collect(),
-                best_values: r.best_values,
-                worst_values: r.worst_values,
                 compromise_indices: r
                     .compromise_indices
                     .into_iter()

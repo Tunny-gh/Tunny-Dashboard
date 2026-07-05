@@ -18,23 +18,6 @@ pub struct OptHistoryComparison {
     pub is_minimize: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum HistoryMode {
-    BestValue,
-    AllTrials,
-    MovingAverage,
-}
-
-impl HistoryMode {
-    pub fn label(&self) -> &str {
-        match self {
-            HistoryMode::BestValue => "Best Value",
-            HistoryMode::AllTrials => "All Trials",
-            HistoryMode::MovingAverage => "Moving Average",
-        }
-    }
-}
-
 /// 基準 Study の値列から導出する O(n) 計算結果をまとめたキャッシュ。
 /// `key` が前回と変わらない限り毎フレームの再計算を避ける。
 /// Moving Average は表示トグルが有効なときのみ計算する（無効時は無駄な計算をしない）。
@@ -79,28 +62,6 @@ impl Default for OptimizationHistoryChart {
 }
 
 impl OptimizationHistoryChart {
-    #[allow(clippy::too_many_arguments)]
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        view: &StudyView,
-        obj_names: &[String],
-        directions: &[Direction],
-        param_names: &[String],
-        artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
-    ) {
-        self.show_with_comparisons(
-            ui,
-            view,
-            obj_names,
-            directions,
-            param_names,
-            "",
-            &[],
-            artifact_map,
-        );
-    }
-
     /// 基準 Study に加えて、比較 Study の累積ベスト値ラインを同一グラフに重ねて描画する。
     /// 比較ラインは「Best Value」表示が有効なときに各 Study の色で描かれる。
     ///
@@ -392,32 +353,6 @@ pub fn partition_history_by_feasibility(
     (feasible, infeasible)
 }
 
-/// view から [trial_idx, value] の点列を計算する
-pub fn compute_history_points(
-    view: &StudyView,
-    obj_names: &[String],
-    obj_idx: usize,
-    mode: &HistoryMode,
-    window_size: usize,
-    is_minimize: bool,
-) -> Vec<[f64; 2]> {
-    let values: Vec<f64> = obj_names
-        .get(obj_idx)
-        .and_then(|name| view.numeric_column(name))
-        .map(|col| col.to_vec())
-        .unwrap_or_default();
-
-    match mode {
-        HistoryMode::AllTrials => values
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| [i as f64, v])
-            .collect(),
-        HistoryMode::BestValue => compute_best_values(&values, is_minimize),
-        HistoryMode::MovingAverage => compute_moving_average(&values, window_size),
-    }
-}
-
 /// 累積ベスト値（最小化: 累積最小, 最大化: 累積最大）を計算する
 pub fn compute_best_values(values: &[f64], is_minimize: bool) -> Vec<[f64; 2]> {
     let mut best = if is_minimize {
@@ -499,13 +434,6 @@ mod tests {
         // windows(2) since min(10,2)=2: [1,2]=1.5
         assert_eq!(result.len(), 1);
         assert!((result[0][1] - 1.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn history_mode_labels_not_empty() {
-        assert!(!HistoryMode::BestValue.label().is_empty());
-        assert!(!HistoryMode::AllTrials.label().is_empty());
-        assert!(!HistoryMode::MovingAverage.label().is_empty());
     }
 
     // TASK-2126 tests

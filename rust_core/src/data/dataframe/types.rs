@@ -21,35 +21,3 @@ pub struct TrialRow {
     /// constraints value list（REQ-013）
     pub constraint_values: Vec<f64>,
 }
-
-/// Documentation.
-#[derive(Debug, Clone)]
-pub struct DataFrameInfo {
-    pub row_count: usize,
-    pub column_names: Vec<String>,
-    pub param_columns: Vec<String>,
-    pub objective_columns: Vec<String>,
-    pub user_attr_columns: Vec<String>,
-    pub constraint_columns: Vec<String>,
-    /// Documentation.
-    pub derived_columns: Vec<String>,
-}
-
-/// Documentation.
-#[derive(Debug)]
-pub struct GpuBufferData {
-    /// Documentation.
-    pub positions: Vec<f32>,
-    /// Documentation.
-    pub positions3d: Vec<f32>,
-    /// Documentation.
-    pub sizes: Vec<f32>,
-    pub trial_count: usize,
-}
-
-/// Documentation.
-#[derive(Debug)]
-pub struct SelectStudyResult {
-    pub data_frame_info: DataFrameInfo,
-    pub gpu_buffer_data: GpuBufferData,
-}

@@ -119,11 +119,8 @@ mod tests {
             name: "data".to_string(),
             directions: vec![Direction::Minimize, Direction::Minimize],
             completed_trials: 3,
-            total_trials: 3,
             param_names: vec!["a".to_string(), "x".to_string()],
             objective_names: vec!["f1".to_string(), "f2".to_string()],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds,
         }
     }

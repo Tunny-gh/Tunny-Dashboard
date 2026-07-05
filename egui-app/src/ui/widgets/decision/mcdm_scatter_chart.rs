@@ -5,10 +5,7 @@ use std::collections::HashMap;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
-use crate::theme::chart_colors::{
-    COLOR_EMPTY_STATE, COLOR_MCDM_HIGH, COLOR_MCDM_LOW, COLOR_MCDM_MID, COLOR_MCDM_NONE,
-    COLOR_UNSELECTED_POINT,
-};
+use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_MCDM_NONE, COLOR_UNSELECTED_POINT};
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
@@ -26,28 +23,6 @@ const AXIS_TOPSIS_SCORE: &str = "TOPSIS_Score";
 const AXIS_PHI_PLUS: &str = "Phi+";
 const AXIS_PHI_MINUS: &str = "Phi-";
 const AXIS_PHI_NET: &str = "Phi_Net";
-
-/// 上位N件の色分け閾値
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ScatterTopN {
-    Top5,
-    Top10,
-    Top20,
-}
-
-impl ScatterTopN {
-    pub fn label(self) -> &'static str {
-        match self {
-            ScatterTopN::Top5 => "Top 5",
-            ScatterTopN::Top10 => "Top 10",
-            ScatterTopN::Top20 => "Top 20",
-        }
-    }
-
-    pub fn all() -> &'static [ScatterTopN] {
-        &[ScatterTopN::Top5, ScatterTopN::Top10, ScatterTopN::Top20]
-    }
-}
 
 /// 軸選択オプション
 #[derive(Clone, Debug)]
@@ -126,23 +101,9 @@ impl Default for McdmScatterChart {
 }
 
 impl McdmScatterChart {
-    /// 新規インスタンスを生成する
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// グローバル widget の MCDM 実行状態を取り込む（キャンバスの各アイテム用）。
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.controls.adopt_compute_state(&src.controls);
-    }
-
-    /// キャッシュを無効化する
-    pub fn invalidate_cache(&mut self) {
-        self.display_rows_cache = None;
-        self.infeasible_cache = None;
-        self.hit_candidates = None;
-        self.cache_key = None;
-        self.error_message = None;
     }
 
     /// 現在の設定からキャッシュキーを生成する
@@ -657,67 +618,6 @@ pub(crate) fn extract_axis_values(
     }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Min-Max 正規化
-// ──────────────────────────────────────────────────────────────
-
-/// Min-Max正規化 (v - min) / (max - min)
-/// - 全値同一の場合は 0.5 を返す
-/// - NaN/Inf は NaN のまま（呼び出し元でフィルタ）
-pub(crate) fn normalize_values(values: &[f64]) -> Vec<f64> {
-    if values.is_empty() {
-        return vec![];
-    }
-
-    let mut min = f64::INFINITY;
-    let mut max = f64::NEG_INFINITY;
-    for &v in values {
-        if v.is_finite() {
-            if v < min {
-                min = v;
-            }
-            if v > max {
-                max = v;
-            }
-        }
-    }
-    if min == f64::INFINITY {
-        return vec![0.5; values.len()];
-    }
-
-    let range = max - min;
-    values
-        .iter()
-        .map(|&v| {
-            if !v.is_finite() {
-                f64::NAN
-            } else if range < f64::EPSILON {
-                0.5
-            } else {
-                (v - min) / range
-            }
-        })
-        .collect()
-}
-
-// ──────────────────────────────────────────────────────────────
-// ランキングベース色分けマッピング
-// ──────────────────────────────────────────────────────────────
-
-/// ランキング順位から表示色を決定する
-/// - rank 0-4:   常に Red（Top5に常時含む）
-/// - rank 5-9:   threshold >= Top10 の場合 Orange
-/// - rank 10-19: threshold >= Top20 の場合 Yellow
-/// - その他:     Gray
-pub(crate) fn map_rank_to_color(rank: usize, threshold: ScatterTopN) -> Color32 {
-    match rank {
-        0..=4 => COLOR_MCDM_HIGH,
-        5..=9 if threshold >= ScatterTopN::Top10 => COLOR_MCDM_MID,
-        10..=19 if threshold >= ScatterTopN::Top20 => COLOR_MCDM_LOW,
-        _ => COLOR_MCDM_NONE,
-    }
-}
-
 /// trial_idx → rank の逆引きマップを構築する
 /// ranked_indices[rank] = trial_idx なので逆引きが必要
 fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
@@ -869,8 +769,6 @@ mod tests {
             q_values: values.clone(),
             display_scores: values.iter().map(|v| 1.0 - v).collect(),
             ranked_indices: (0..n as u32).collect(),
-            best_values: vec![0.0; 2],
-            worst_values: vec![1.0; 2],
             compromise_indices: if n > 0 { vec![0] } else { vec![] },
             duration_ms: 1.0,
         }
@@ -884,8 +782,6 @@ mod tests {
         TopsisResult {
             scores: (0..n).map(|i| i as f64 / n as f64).collect(),
             ranked_indices: (0..n as u32).rev().collect(),
-            positive_ideal: vec![],
-            negative_ideal: vec![],
             duration_ms: 1.0,
         }
     }
@@ -906,8 +802,8 @@ mod tests {
     // ── 構造体・初期化テスト ─────────────────────────────────────
 
     #[test]
-    fn test_scatter_chart_new_defaults() {
-        let chart = McdmScatterChart::new();
+    fn test_scatter_chart_default_values() {
+        let chart = McdmScatterChart::default();
         assert_eq!(chart.x_axis, "Objective0");
         assert_eq!(chart.y_axis, "Objective1");
         assert!(chart.display_rows_cache.is_none());
@@ -916,27 +812,9 @@ mod tests {
     }
 
     #[test]
-    fn test_invalidate_cache_clears_data() {
-        use crate::state::types::ColormapName;
-        use crate::theme::colormap_name::colormap_from_name;
-        let mut chart = McdmScatterChart::new();
-        chart.display_rows_cache = Some(vec![(0.5, 0.5, Color32::RED, 0)]);
-        chart.error_message = Some("error".to_string());
-        let cmap_name = ColormapName::Viridis;
-        let cmap = colormap_from_name(&cmap_name);
-        chart.cache_key =
-            Some(chart.make_cache_key(10, &McdmResult::Topsis(make_topsis(10)), &cmap_name, 10));
-        let _ = cmap; // suppress unused warning
-        chart.invalidate_cache();
-        assert!(chart.display_rows_cache.is_none());
-        assert!(chart.cache_key.is_none());
-        assert!(chart.error_message.is_none());
-    }
-
-    #[test]
     fn test_cache_stale_when_no_key() {
         use crate::state::types::ColormapName;
-        let chart = McdmScatterChart::new();
+        let chart = McdmScatterChart::default();
         assert!(chart.is_cache_stale(
             100,
             &McdmResult::Topsis(make_topsis(100)),
@@ -949,7 +827,7 @@ mod tests {
     fn test_cache_stale_when_trial_count_changes() {
         use crate::state::types::ColormapName;
         let cmap_name = ColormapName::Viridis;
-        let mut chart = McdmScatterChart::new();
+        let mut chart = McdmScatterChart::default();
         let result = McdmResult::Topsis(make_topsis(100));
         chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name, 10));
         assert!(chart.is_cache_stale(150, &result, &cmap_name, 10)); // 150 ≠ 100
@@ -959,7 +837,7 @@ mod tests {
     fn test_cache_not_stale_same_key() {
         use crate::state::types::ColormapName;
         let cmap_name = ColormapName::Viridis;
-        let mut chart = McdmScatterChart::new();
+        let mut chart = McdmScatterChart::default();
         let result = McdmResult::Topsis(make_topsis(100));
         chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name, 10));
         assert!(!chart.is_cache_stale(100, &result, &cmap_name, 10));
@@ -1069,114 +947,6 @@ mod tests {
         // obj_names は ["obj0"] のみ。Objective5 は out of range → エラー
         let err = extract_axis_values("Objective5", &result, &view, &obj_names);
         assert!(err.is_err());
-    }
-
-    // ── normalize_values テスト ──────────────────────────────────
-
-    #[test]
-    fn test_normalize_basic() {
-        let v = vec![100.0, 150.0, 200.0];
-        let n = normalize_values(&v);
-        assert!((n[0] - 0.0).abs() < 1e-10);
-        assert!((n[1] - 0.5).abs() < 1e-10);
-        assert!((n[2] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_normalize_all_equal_gives_half() {
-        let v = vec![5.0, 5.0, 5.0];
-        let n = normalize_values(&v);
-        assert!(n.iter().all(|&x| (x - 0.5).abs() < 1e-10));
-    }
-
-    #[test]
-    fn test_normalize_empty() {
-        assert!(normalize_values(&[]).is_empty());
-    }
-
-    #[test]
-    fn test_normalize_negative_values() {
-        let v = vec![-100.0, -50.0, 0.0];
-        let n = normalize_values(&v);
-        assert!((n[0] - 0.0).abs() < 1e-10);
-        assert!((n[1] - 0.5).abs() < 1e-10);
-        assert!((n[2] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_normalize_with_nan_stays_nan() {
-        let v = vec![1.0, f64::NAN, 3.0];
-        let n = normalize_values(&v);
-        assert!((n[0] - 0.0).abs() < 1e-10);
-        assert!(n[1].is_nan());
-        assert!((n[2] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_normalize_single_value() {
-        let v = vec![42.0];
-        let n = normalize_values(&v);
-        assert!((n[0] - 0.5).abs() < 1e-10);
-    }
-
-    // ── map_rank_to_color テスト ─────────────────────────────────
-
-    #[test]
-    fn test_rank_0_always_red() {
-        for t in ScatterTopN::all() {
-            assert_eq!(map_rank_to_color(0, *t), COLOR_MCDM_HIGH);
-        }
-    }
-
-    #[test]
-    fn test_rank_4_always_red() {
-        for t in ScatterTopN::all() {
-            assert_eq!(map_rank_to_color(4, *t), COLOR_MCDM_HIGH);
-        }
-    }
-
-    #[test]
-    fn test_rank_5_gray_when_top5() {
-        assert_eq!(map_rank_to_color(5, ScatterTopN::Top5), COLOR_MCDM_NONE);
-    }
-
-    #[test]
-    fn test_rank_5_orange_when_top10() {
-        assert_eq!(map_rank_to_color(5, ScatterTopN::Top10), COLOR_MCDM_MID);
-    }
-
-    #[test]
-    fn test_rank_5_orange_when_top20() {
-        assert_eq!(map_rank_to_color(5, ScatterTopN::Top20), COLOR_MCDM_MID);
-    }
-
-    #[test]
-    fn test_rank_10_gray_when_top5() {
-        assert_eq!(map_rank_to_color(10, ScatterTopN::Top5), COLOR_MCDM_NONE);
-    }
-
-    #[test]
-    fn test_rank_10_gray_when_top10() {
-        assert_eq!(map_rank_to_color(10, ScatterTopN::Top10), COLOR_MCDM_NONE);
-    }
-
-    #[test]
-    fn test_rank_10_yellow_when_top20() {
-        assert_eq!(map_rank_to_color(10, ScatterTopN::Top20), COLOR_MCDM_LOW);
-    }
-
-    #[test]
-    fn test_rank_50_always_gray() {
-        for t in ScatterTopN::all() {
-            assert_eq!(map_rank_to_color(50, *t), COLOR_MCDM_NONE);
-        }
-    }
-
-    #[test]
-    fn test_scatter_top_n_ordering() {
-        assert!(ScatterTopN::Top5 < ScatterTopN::Top10);
-        assert!(ScatterTopN::Top10 < ScatterTopN::Top20);
-        assert!(ScatterTopN::Top5 < ScatterTopN::Top20);
     }
 
     // ── build_rank_map テスト ────────────────────────────────────

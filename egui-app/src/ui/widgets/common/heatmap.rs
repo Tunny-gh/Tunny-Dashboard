@@ -6,41 +6,6 @@
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::range_math;
 
-/// 値グリッド（行 = Y、列 = X）をカラーマップで塗ったヒートマップを描く。
-pub fn draw_heatmap(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    values: &[Vec<f64>],
-    cmap: ColorMap,
-) {
-    let n_row = values.len();
-    if n_row == 0 {
-        return;
-    }
-    let n_col = values[0].len();
-    if n_col == 0 {
-        return;
-    }
-    let (v_min, v_max) = value_range(values);
-    let cell_w = rect.width() / n_col as f32;
-    let cell_h = rect.height() / n_row as f32;
-
-    for (row, row_vals) in values.iter().enumerate() {
-        for (col, &val) in row_vals.iter().enumerate() {
-            let t = normalize(val, v_min, v_max);
-            let color = cmap.interpolate(t);
-            let cell_rect = egui::Rect::from_min_size(
-                egui::pos2(
-                    rect.left() + col as f32 * cell_w,
-                    rect.top() + row as f32 * cell_h,
-                ),
-                egui::vec2(cell_w + 1.0, cell_h + 1.0),
-            );
-            painter.rect_filled(cell_rect, 0.0, color);
-        }
-    }
-}
-
 /// マスク対応ヒートマップ。`None` のセルは塗らない（パネル背景のまま＝データなし）。
 /// `v_min` / `v_max` は呼び出し側で `Some` セルだけから求めた値域を渡す。
 pub fn draw_heatmap_masked(
@@ -159,14 +124,6 @@ pub fn draw_colorbar_simple(
     }
 }
 
-/// 値グリッドの [min, max] を返す。空・退化時はフォールバック範囲を返す。
-pub fn value_range(values: &[Vec<f64>]) -> (f64, f64) {
-    match range_math::value_range(values.iter().flatten().copied()) {
-        Some((mn, mx)) => range_math::expand_degenerate(mn, mx),
-        None => (0.0, 1.0),
-    }
-}
-
 /// 値を [0.0, 1.0] に正規化する（退化範囲は 0.5）。
 pub fn normalize(v: f64, v_min: f64, v_max: f64) -> f32 {
     range_math::normalize01(v, v_min, v_max)
@@ -177,23 +134,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn value_range_returns_correct_bounds() {
-        let values = vec![vec![1.0, 3.0], vec![2.0, 4.0]];
-        let (v_min, v_max) = value_range(&values);
-        assert!((v_min - 1.0).abs() < 1e-9);
-        assert!((v_max - 4.0).abs() < 1e-9);
-    }
-
-    #[test]
     fn normalize_clamps_to_unit_range() {
         assert!((normalize(0.5, 0.0, 1.0) - 0.5).abs() < 1e-6);
         assert!((normalize(-1.0, 0.0, 1.0) - 0.0).abs() < 1e-6);
         assert!((normalize(2.0, 0.0, 1.0) - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn value_range_empty_is_unit() {
-        let empty: Vec<Vec<f64>> = vec![];
-        assert_eq!(value_range(&empty), (0.0, 1.0));
     }
 }

@@ -207,60 +207,7 @@ fn tc_801_09_ridge_empty_returns_zero_r_squared() {
 }
 
 #[test]
-fn tc_801_10_sensitivity_all_correct_structure() {
-    let rows: Vec<TrialRow> = (0..10)
-        .map(|i| {
-            make_row_multi(
-                i,
-                &[("x1", i as f64), ("x2", (10 - i) as f64)],
-                vec![i as f64, (10 - i) as f64],
-            )
-        })
-        .collect();
-    let df = setup_df(rows, &["x1", "x2"], &["obj0", "obj1"]);
-
-    let result = compute_sensitivity_all(&df);
-
-    assert_eq!(result.param_names.len(), 2);
-    assert_eq!(result.objective_names.len(), 2);
-    assert_eq!(result.spearman.len(), 2);
-    assert_eq!(result.spearman[0].len(), 2);
-    assert_eq!(result.ridge.len(), 2);
-    assert!(result.rf_anova.is_some(), "rf_anova should be present");
-    let rf_anova = result.rf_anova.as_ref().unwrap();
-    assert_eq!(rf_anova.0.importances.len(), 2);
-    assert_eq!(rf_anova.0.importances[0].len(), 2);
-}
-
-#[test]
-fn tc_801_11_sensitivity_all_known_correlations() {
-    let rows: Vec<TrialRow> = (0..20)
-        .map(|i| {
-            make_row_multi(
-                i,
-                &[("x1", i as f64), ("x2", (20 - i) as f64)],
-                vec![i as f64],
-            )
-        })
-        .collect();
-    let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
-
-    let result = compute_sensitivity_all(&df);
-
-    assert!(
-        result.spearman[0][0] > 0.99,
-        "x1-obj0translated: {}",
-        result.spearman[0][0]
-    );
-    assert!(
-        result.spearman[1][0] < -0.99,
-        "x2-obj0translated: {}",
-        result.spearman[1][0]
-    );
-}
-
-#[test]
-fn tc_801_11b_sensitivity_all_categorical_param_non_zero() {
+fn tc_801_11b_sensitivity_categorical_param_non_zero() {
     let labels = ["A", "B", "C", "A", "B", "C"];
     let y_vals = [1.0, 2.0, 3.0, 1.2, 2.2, 3.2];
 
@@ -294,39 +241,25 @@ fn tc_801_11b_sensitivity_all_categorical_param_non_zero() {
         .collect();
 
     let df = setup_df(rows, &["cat"], &["obj0"]);
-    let result = compute_sensitivity_all(&df);
+    let results = compute_sensitivity_single_obj(
+        &df,
+        vec![Box::new(SpearmanMetric), Box::new(RidgeMetric)],
+        0,
+    );
 
-    assert_eq!(result.param_names, vec!["cat"]);
-    assert_eq!(result.objective_names, vec!["obj0"]);
+    assert_eq!(results.len(), 2, "both metrics should return results");
+    let spearman_result = &results[0];
+    let ridge_result = &results[1];
+    assert_eq!(spearman_result.param_names, vec!["cat"]);
     assert!(
-        result.spearman[0][0].abs() > 0.7,
+        spearman_result.spearman[0][0].abs() > 0.7,
         "categorical param should contribute to sensitivity: {}",
-        result.spearman[0][0]
+        spearman_result.spearman[0][0]
     );
     assert!(
-        result.ridge[0].beta[0].abs() > 0.0,
+        ridge_result.ridge[0].beta[0].abs() > 0.0,
         "categorical param beta should not be zero"
     );
-}
-
-#[test]
-fn tc_801_12_sensitivity_selected_subset() {
-    let rows: Vec<TrialRow> = (0..20)
-        .map(|i| make_row_multi(i, &[("x1", i as f64)], vec![i as f64]))
-        .collect();
-    setup_df(rows, &["x1"], &["obj0"]);
-
-    let indices: Vec<u32> = (0..10).collect();
-    let result = compute_sensitivity_selected(&indices).expect("translated");
-
-    assert_eq!(result.param_names, vec!["x1"]);
-    assert_eq!(result.objective_names, vec!["obj0"]);
-    assert!(
-        result.spearman[0][0] > 0.99,
-        "translated: {}",
-        result.spearman[0][0]
-    );
-    assert!(result.rf_anova.is_some(), "rf_anova should be present");
 }
 
 #[test]
@@ -341,8 +274,11 @@ fn tc_801_14_rf_anova_importances_sum_to_one_per_objective() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    let result = compute_sensitivity_all(&df);
-    let rf_anova = result.rf_anova.expect("rf_anova should be present");
+    let results = compute_sensitivity_single_obj(&df, vec![Box::new(RfAnovaMetric)], 0);
+    let rf_anova = results[0]
+        .rf_anova
+        .clone()
+        .expect("rf_anova should be present");
 
     assert_eq!(rf_anova.0.importances.len(), 2);
     assert_eq!(rf_anova.0.importances[0].len(), 1);
@@ -369,8 +305,11 @@ fn tc_801_15_rf_anova_small_dataset_non_zero() {
         })
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
-    let result = compute_sensitivity_all(&df);
-    let rf = result.rf_anova.expect("rf_anova should be present");
+    let results = compute_sensitivity_single_obj(&df, vec![Box::new(RfAnovaMetric)], 0);
+    let rf = results[0]
+        .rf_anova
+        .clone()
+        .expect("rf_anova should be present");
     let sum: f64 = rf.0.importances.iter().map(|row| row[0]).sum();
     assert!(
         sum > 0.1,
@@ -383,18 +322,6 @@ fn tc_801_15_rf_anova_small_dataset_non_zero() {
         rf.0.importances[0][0],
         rf.0.importances[1][0]
     );
-}
-
-#[test]
-fn tc_801_13_sensitivity_selected_empty_indices() {
-    let rows: Vec<TrialRow> = (0..5)
-        .map(|i| make_row_multi(i, &[("x1", i as f64)], vec![i as f64]))
-        .collect();
-    setup_df(rows, &["x1"], &["obj0"]);
-
-    let result = compute_sensitivity_selected(&[]).expect("translated");
-
-    assert!(result.spearman.is_empty(), "translatedspearmantranslated");
 }
 
 #[test]
@@ -447,34 +374,6 @@ fn tc_801_p02_ridge_50000_x_30_at_scale() {
             "ridge must return one coefficient per parameter (n={n})"
         );
     }
-}
-
-#[test]
-fn tc_801_p03_sensitivity_selected_at_scale() {
-    // RF-ANOVA trains a random forest on this path; use a smaller debug dataset
-    // so the (unoptimised) run stays reasonable while still exercising the path.
-    #[cfg(debug_assertions)]
-    let n = 200usize;
-    #[cfg(not(debug_assertions))]
-    let n = 2_000usize;
-
-    let rows: Vec<TrialRow> = (0..n)
-        .map(|i| make_row_multi(i as u32, &[("x1", i as f64)], vec![i as f64; 4]))
-        .collect();
-    setup_df(rows, &["x1"], &["obj0", "obj1", "obj2", "obj3"]);
-
-    let indices: Vec<u32> = (0..n as u32).collect();
-    let result = compute_sensitivity_selected(&indices).expect("sensitivity must compute");
-
-    assert_eq!(
-        result.param_names.len(),
-        1,
-        "one parameter (x1) was provided"
-    );
-    assert!(
-        !result.spearman.is_empty(),
-        "Spearman scores must be produced (n={n})"
-    );
 }
 
 #[test]

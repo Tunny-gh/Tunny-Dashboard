@@ -14,7 +14,7 @@ use serde_json::Value;
 use finalize::finalize_state;
 use state::{get_str, get_u64, ParserState};
 
-pub use types::{JournalParser, OptimizationDirection, ParseResult, StudyMeta};
+pub use types::{OptimizationDirection, ParseResult, StudyMeta};
 
 #[cfg(test)]
 use builders::TrialBuilder;
@@ -30,7 +30,6 @@ use distribution::Distribution;
 /// Documentation.
 /// Documentation.
 pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
-    #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
     if data.is_empty() {
@@ -71,10 +70,7 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
         return Err("No valid JSON lines found in journal".to_string());
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-    #[cfg(target_arch = "wasm32")]
-    let duration_ms = 0.0_f64;
 
     let (studies, dataframes) = finalize_state(state);
     crate::dataframe::store_dataframes(dataframes);

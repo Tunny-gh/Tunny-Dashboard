@@ -20,10 +20,6 @@ pub struct SensitivityHeatmap {
 }
 
 impl SensitivityHeatmap {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// グローバル widget の計算実行状態を取り込む。
     /// 結果は `AppState::sensitivity_heatmap_cache` に集約されるため、キャンバスの各
     /// アイテム（独立した WidgetStates）には実行フラグのみ反映すればよい。
@@ -224,10 +220,14 @@ mod tests {
 
     #[test]
     fn adopt_compute_state_copies_computing_flag() {
-        let mut global = SensitivityHeatmap::new();
-        global.computing = true;
-        let mut item = SensitivityHeatmap::new();
-        item.metric = ImportanceMetric::Ridge; // アイテム固有の選択は維持される
+        let global = SensitivityHeatmap {
+            computing: true,
+            ..Default::default()
+        };
+        let mut item = SensitivityHeatmap {
+            metric: ImportanceMetric::Ridge, // アイテム固有の選択は維持される
+            ..Default::default()
+        };
         item.adopt_compute_state(&global);
         assert!(item.computing);
         assert_eq!(item.metric, ImportanceMetric::Ridge);

@@ -395,11 +395,8 @@ mod tests {
             name: name.to_string(),
             directions: vec![],
             completed_trials: 0,
-            total_trials: 0,
             param_names: vec![],
             objective_names: vec![],
-            user_attr_names: vec![],
-            has_constraints: false,
             param_bounds: Default::default(),
         }
     }
@@ -500,11 +497,8 @@ mod tests {
                 name: "compare_study".to_string(),
                 directions: vec![Direction::Minimize],
                 completed_trials: 0,
-                total_trials: 0,
                 param_names: vec![],
                 objective_names: vec![],
-                user_attr_names: vec![],
-                has_constraints: false,
                 param_bounds: Default::default(),
             },
             vec![],
@@ -515,7 +509,6 @@ mod tests {
 
         MessageHandler::handle(
             AppMessage::ComparisonStudyLoaded {
-                study_idx: 0,
                 context: Box::new(context),
             },
             &mut app_state,

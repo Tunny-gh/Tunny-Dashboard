@@ -191,7 +191,6 @@ impl RadarComparisonChart {
             let color = cmap.interpolate(t);
             legend_entries.push((color, label.clone()));
             series.push(RadarSeries {
-                label,
                 color,
                 fractions,
                 // 強調表示（扇形メッシュ塗り + ドット）はせず、太めの輪郭線のみで

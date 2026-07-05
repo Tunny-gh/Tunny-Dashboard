@@ -11,13 +11,6 @@ use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
-/// クラスタ統計
-pub struct ClusterStats {
-    pub cluster_id: usize,
-    pub count: usize,
-    pub centroid: Vec<f64>,
-}
-
 /// クラスタリング対象空間
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ClusterSpace {
@@ -32,14 +25,6 @@ impl ClusterSpace {
             ClusterSpace::Objective => "Objective Space",
             ClusterSpace::Variable => "Variable Space",
             ClusterSpace::Combined => "Combined",
-        }
-    }
-
-    pub fn cache_offset(&self) -> usize {
-        match self {
-            ClusterSpace::Objective => 10_000,
-            ClusterSpace::Variable => 20_000,
-            ClusterSpace::Combined => 30_000,
         }
     }
 
@@ -167,12 +152,6 @@ impl ClusterMatrix {
     }
 }
 
-/// クラスタリング結果
-pub struct ClusteringResult {
-    pub labels: Vec<usize>,
-    pub cluster_stats: Vec<ClusterStats>,
-}
-
 /// クラスタ散布図ウィジェット
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -189,8 +168,6 @@ pub struct ClusterScatter {
     pub pending_compute: Option<ClusterComputeRequest>,
     #[serde(skip)]
     pub last_error: Option<crate::state::messages::ClusterUiError>,
-    #[serde(skip)]
-    pub result: Option<ClusteringResult>,
     /// 点クリックで開くトライアル詳細モーダル。
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
@@ -211,7 +188,6 @@ impl Default for ClusterScatter {
             computing: false,
             pending_compute: None,
             last_error: None,
-            result: None,
             detail_modal: TrialDetailModal::new(),
             cached_points: None,
             cache_key: (0, 0),
@@ -220,10 +196,6 @@ impl Default for ClusterScatter {
 }
 
 impl ClusterScatter {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// 現在の設定に対応するキャッシュキーを返す。
     pub fn cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(
@@ -703,53 +675,9 @@ pub fn validate_cluster_request(
     Ok(())
 }
 
-/// クラスタラベルが 0..k-1 の範囲に収まるか確認する
-pub fn cluster_labels_valid(labels: &[usize], k: usize) -> bool {
-    labels.iter().all(|&l| l < k)
-}
-
-/// 全クラスタの件数合計がデータ件数と一致するか確認する
-pub fn cluster_stats_count_sum(stats: &[ClusterStats]) -> usize {
-    stats.iter().map(|s| s.count).sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn cluster_labels_valid_all_in_range() {
-        let labels = vec![0, 1, 2, 0, 1, 2];
-        assert!(cluster_labels_valid(&labels, 3));
-    }
-
-    #[test]
-    fn cluster_labels_invalid_out_of_range() {
-        let labels = vec![0, 1, 3]; // 3 >= k=3
-        assert!(!cluster_labels_valid(&labels, 3));
-    }
-
-    #[test]
-    fn cluster_stats_count_sum_matches_total() {
-        let stats = vec![
-            ClusterStats {
-                cluster_id: 0,
-                count: 5,
-                centroid: vec![],
-            },
-            ClusterStats {
-                cluster_id: 1,
-                count: 3,
-                centroid: vec![],
-            },
-            ClusterStats {
-                cluster_id: 2,
-                count: 7,
-                centroid: vec![],
-            },
-        ];
-        assert_eq!(cluster_stats_count_sum(&stats), 15);
-    }
 
     #[test]
     fn cluster_space_labels() {
@@ -769,7 +697,6 @@ mod tests {
         assert!(!cs.computing);
         assert!(cs.pending_compute.is_none());
         assert!(cs.last_error.is_none());
-        assert!(cs.result.is_none());
         assert!(cs.cached_points.is_none());
         assert_eq!(cs.cache_key, (0, 0));
     }

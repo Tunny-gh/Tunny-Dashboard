@@ -526,7 +526,6 @@ mod tests {
     fn make_result(params: &[&str], scores: Vec<f64>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
-            objective_names: vec!["obj0".to_string()],
             spearman: vec![scores],
             ridge: vec![],
             rf_anova: None,
@@ -540,7 +539,6 @@ mod tests {
     fn make_result_with_ridge(params: &[&str], beta: Vec<f64>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
-            objective_names: vec!["obj0".to_string()],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![RidgeResult {
                 beta,
@@ -557,7 +555,6 @@ mod tests {
     fn make_result_with_rf_anova(params: &[&str], importances: Vec<Vec<f64>>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
-            objective_names: vec!["obj0".to_string()],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
             rf_anova: Some(RfAnovaResult {
@@ -574,7 +571,6 @@ mod tests {
     fn make_result_with_mdi(params: &[&str], importances: Vec<Vec<f64>>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
-            objective_names: vec!["obj0".to_string()],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
             rf_anova: None,
@@ -690,7 +686,6 @@ mod tests {
         use crate::state::app_state::SobolResult;
         let result = SobolResult {
             param_names: vec!["p0".into(), "p1".into()],
-            objective_names: vec!["obj0".into()],
             first_order: vec![vec![0.6, 0.2]], // [obj][param]
             total_effect: vec![vec![0.8, 0.3]],
             r_squared: vec![0.9],
@@ -724,7 +719,6 @@ mod tests {
         use crate::state::app_state::PermutationResult;
         let result = SensitivityResult {
             param_names: vec!["p0".to_string(), "p1".to_string()],
-            objective_names: vec!["obj0".to_string()],
             spearman: vec![],
             ridge: vec![],
             rf_anova: None,

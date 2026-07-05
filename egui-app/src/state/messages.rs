@@ -40,7 +40,6 @@ pub struct PdpResult1d {
     pub ice_lines: Vec<Vec<f64>>,
     pub r2: Option<f64>,
     pub param_name: String,
-    pub objective_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -53,12 +52,6 @@ pub struct PdpResult2d {
     pub objective_name: String,
     /// Posterior variance grid (GP methods only).
     pub uncertainties: Option<Vec<Vec<f64>>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum PdpResult {
-    OneDim(PdpResult1d),
-    TwoDim(PdpResult2d),
 }
 
 #[derive(Debug, Clone)]
@@ -131,14 +124,10 @@ pub struct SurrogateMultiSuggestUiResult {
 pub struct SurrogateMultiOptUiResult {
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
-    /// 目的ごとに true = 最小化。
-    pub minimize: Vec<bool>,
     /// 予測パレートフロント（第 1 目的昇順ソート済み）。
     pub front: Vec<tunny_core::surrogate_opt::ParetoFrontPoint>,
     /// 目的ごとの訓練データ決定係数。
     pub r_squared: Vec<f64>,
-    /// 目的ごとの応答曲面スライス（slice_params 無効時は空）。
-    pub slices: Vec<tunny_core::surrogate_opt::SurfaceSlice>,
 }
 
 /// サロゲート最適化の UI 表示用結果。
@@ -157,8 +146,6 @@ pub struct SurrogateOptUiResult {
     pub objective_name: String,
     /// true = 最小化問題として最適化した。
     pub minimize: bool,
-    /// 最適点を通る応答曲面の 2D スライス（ヒートマップ表示用）。
-    pub slice: Option<tunny_core::surrogate_opt::SurfaceSlice>,
     /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
     pub best_observed_value: f64,
     /// 推定最適点での制約サロゲート予測値（元の単位、制約名と同順）。制約なしなら空。
@@ -251,7 +238,7 @@ pub enum AppMessage {
         objective: String,
         model_type: String,
         feasible_only: bool,
-        result: PdpResult,
+        result: PdpResult1d,
     },
     Pdp2dDone(PdpResult2d),
     LiveUpdateDone {
@@ -277,7 +264,6 @@ pub enum AppMessage {
     // ── TASK-2112: 新規バリアント ────────────────────────────────────
     /// REQ-006: 比較 Study のロード完了
     ComparisonStudyLoaded {
-        study_idx: usize,
         context: Box<StudyContext>,
     },
     /// REQ-007: Artifacts ディレクトリスキャン完了
@@ -295,7 +281,6 @@ pub enum AppMessage {
     /// サロゲートのフィットがユーザー操作でキャンセルされた。
     SurrogateFitCancelled,
     SurrogateOptDone(SurrogateOptUiResult),
-    SurrogateOptFailed(String),
     /// 多目的サロゲートのフィット＋検証が完了した（全目的分の学習結果を保持）。
     SurrogateMultiFitDone(std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>),
     SurrogateMultiFitFailed(String),
@@ -303,7 +288,6 @@ pub enum AppMessage {
     SurrogateMultiFitCancelled,
     SurrogateMultiOptDone(SurrogateMultiOptUiResult),
     SurrogateMultiOptFailed(String),
-    ChartCaptureFailed(String),
     /// 獲得関数による候補提案が完了した。
     SurrogateSuggestDone(SurrogateSuggestUiResult),
     /// 獲得関数による候補提案が失敗した。
@@ -337,7 +321,7 @@ mod tests {
 
     #[test]
     fn pdp_result_one_dim() {
-        let result = PdpResult::OneDim(PdpResult1d {
+        let result = PdpResult1d {
             x_values: vec![0.0, 0.5, 1.0],
             y_values: vec![1.0, 0.5, 0.0],
             y_upper: None,
@@ -345,26 +329,17 @@ mod tests {
             ice_lines: vec![],
             r2: None,
             param_name: "x".to_string(),
-            objective_name: "y".to_string(),
-        });
-        match result {
-            PdpResult::OneDim(r) => assert_eq!(r.x_values.len(), 3),
-            _ => panic!("Expected OneDim"),
-        }
+        };
+        assert_eq!(result.x_values.len(), 3);
     }
 
     #[test]
     fn message_handler_accepts_new_message_family() {
-        let msgs: Vec<AppMessage> = vec![
-            AppMessage::ComparisonStudyLoadFailed("err".to_string()),
-            AppMessage::ChartCaptureFailed("capture error".to_string()),
-        ];
+        let msgs: Vec<AppMessage> = vec![AppMessage::ComparisonStudyLoadFailed("err".to_string())];
         // all variants should be matchable without panic
         for msg in msgs {
-            match msg {
-                AppMessage::ComparisonStudyLoadFailed(e) => assert!(!e.is_empty()),
-                AppMessage::ChartCaptureFailed(e) => assert!(!e.is_empty()),
-                _ => {}
+            if let AppMessage::ComparisonStudyLoadFailed(e) = msg {
+                assert!(!e.is_empty())
             }
         }
     }

@@ -28,5 +28,3 @@ pub struct ParseResult {
     pub studies: Vec<StudyMeta>,
     pub duration_ms: f64,
 }
-
-pub struct JournalParser;

@@ -28,11 +28,8 @@ fn test_study_meta(study_id: u32, n_obj: usize) -> StudyMeta {
         name: format!("study_{}", study_id),
         directions: vec![Direction::Minimize; n_obj],
         completed_trials: 0,
-        total_trials: 10_000,
         param_names: vec!["x".to_string()],
         objective_names: (0..n_obj).map(|i| format!("obj{}", i)).collect(),
-        user_attr_names: vec![],
-        has_constraints: false,
         param_bounds: Default::default(),
     }
 }

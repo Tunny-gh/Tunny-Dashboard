@@ -61,10 +61,6 @@ impl LiveUpdatePoller {
     pub fn update_interval(&self, new_interval_ms: u64) {
         self.interval_ms.store(new_interval_ms, Ordering::Relaxed);
     }
-
-    pub fn is_running(&self) -> bool {
-        self.thread_handle.is_some()
-    }
 }
 
 /// Increments error_count and, on the third consecutive error, sends the auto-stop message and
@@ -208,31 +204,6 @@ mod tests {
     // ── TASK-2219: lifecycle tests ─────────────────────────────────────
 
     #[test]
-    fn tc_2219_01_start_poller_returns_running() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test.log");
-        std::fs::write(&path, b"").unwrap();
-
-        let (tx, _rx) = make_channel();
-        let mut poller = LiveUpdatePoller::start(make_context(path, 0), tx, 50);
-        assert!(poller.is_running());
-        poller.stop();
-        assert!(!poller.is_running());
-    }
-
-    #[test]
-    fn tc_2219_02_stop_poller_joins_thread() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test.log");
-        std::fs::write(&path, b"").unwrap();
-
-        let (tx, _rx) = make_channel();
-        let mut poller = LiveUpdatePoller::start(make_context(path, 0), tx, 50);
-        poller.stop();
-        assert!(!poller.is_running());
-    }
-
-    #[test]
     fn tc_2219_03_file_append_sends_live_update_done() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.log");
@@ -324,7 +295,7 @@ mod tests {
             if let Ok(AppMessage::LiveUpdateError(_)) = rx.try_recv() {
                 got_error = true;
             }
-            if !poller.is_running() || poller.stop_signal.load(Ordering::Relaxed) {
+            if poller.stop_signal.load(Ordering::Relaxed) {
                 break;
             }
             thread::sleep(Duration::from_millis(20));
