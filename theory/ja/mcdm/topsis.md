@@ -52,7 +52,7 @@ $$
 w_{ij} = w_j r_{ij}
 $$
 
-重みはユーザが設定し（合計が 1 になるよう内部で正規化）、重要な目的関数の影響が大きくなる。
+重みはユーザが設定する。`compute_topsis()` 自体は重みの正規化を行わず、渡された `weights` をそのまま使用する。合計が 1 になるよう正規化する処理は UI 層（`mcdm_chart.rs`）で行われ、正規化済みの重みが渡される。重要な目的関数の影響が大きくなる点は変わらない。
 
 ---
 
@@ -92,14 +92,21 @@ $$
 
 ## 実装の詳細
 
-### NaN トライアルの扱い（`topsis.rs`）
+### NaN / Inf トライアルの扱い（`mod.rs` の `filter_valid_indices`）
 
-いずれかの目的関数値が `NaN` のトライアルは有効トライアルから除外され、スコアは `0.0` となりランキング末尾に配置される。
+いずれかの目的関数値が非有限（`NaN` または `±Inf`）のトライアルは有効トライアルから除外され、スコアは `0.0` となりランキング末尾に配置される。
 
 ```rust
-let valid_indices: Vec<usize> = (0..n_trials)
-    .filter(|&i| !(0..n_objectives).any(|j| values[i * n_objectives + j].is_nan()))
-    .collect();
+/// Return indices of trials whose objectives are all finite (excludes NaN and ±Inf).
+pub(crate) fn filter_valid_indices(
+    values: &[f64],
+    n_trials: usize,
+    n_objectives: usize,
+) -> Vec<usize> {
+    (0..n_trials)
+        .filter(|&i| (0..n_objectives).all(|j| values[i * n_objectives + j].is_finite()))
+        .collect()
+}
 ```
 
 補足: すべてのトライアルが `NaN` の場合は `valid_indices.is_empty()` となり、実装は縮退ケースとして**全トライアルに `0.5`** を割り当てる（`uniform_score_result(..., score=0.5)`）。

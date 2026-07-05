@@ -14,12 +14,14 @@ LightGBM の RF モード（`boosting_type=rf`）は、各木を異なるブー�
 
 | パラメータ          | 値  | 説明                                 |
 | ------------------- | --- | ------------------------------------ |
-| `num_iterations`    | 100 | アンサンブルの木の本数               |
+| `num_iterations`    | 64  | アンサンブルの木の本数               |
 | `max_depth`         | 10  | 木の最大深さ                         |
 | `min_data_in_leaf`  | 2   | 葉ノードの最小サンプル数             |
 | `bagging_fraction`  | 0.8 | 1 本の木に使うデータの割合           |
 | `feature_fraction`  | 0.8 | 1 本の木に使う特徴量の割合           |
 | `seed`              | 42  | 再現性のための固定シード             |
+
+注: PDP（1D/2D）計算時は `num_iterations` が明示的に 100 に上書きされる（サロゲートモデル本体の経路ではデフォルト値の 64 が使われる）。
 
 ---
 
@@ -86,3 +88,10 @@ R² は訓練データ上の MSE から計算される（過学習により楽�
 
 - 試行数が多い（$N \ge 200$）場合に効果的
 - $R^2 > 0.7$ なら曲面の傾向は信頼できる
+
+---
+
+## 参考文献
+
+- Breiman, L. (2001). Random Forests. *Machine Learning*, 45(1), 5–32.
+- Ke, G. et al. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. *NeurIPS 30*.

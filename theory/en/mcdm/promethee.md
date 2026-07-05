@@ -4,7 +4,7 @@
 
 PROMETHEE (Preference Ranking Organisation METHod for Enrichment Evaluations) evaluates every pair of trials (a, b) — "how much is a preferred over b?" — and aggregates those preferences into flow scores.
 
-- **PROMETHEE I**: partial ranking using Φ+ and Φ-
+- **PROMETHEE I**: conceptually a partial ranking (allows incomparable pairs) based on Φ+ and Φ-; this implementation returns it as a single total order (Φ+ descending, tiebreak Φ- ascending) without explicitly flagging incomparable pairs
 - **PROMETHEE II**: complete ranking using Φnet
 
 | Return value        | Description                                              |
@@ -55,7 +55,7 @@ $$\Phi^{\text{net}}(i) = \Phi^+(i) - \Phi^-(i)$$
 
 ### Step 5: Ranking
 
-**PROMETHEE I** (Φ+ desc, tiebreak Φ- asc): may leave some pairs incomparable when Φ+(a) > Φ+(b) but Φ-(a) > Φ-(b).
+**PROMETHEE I** (Φ+ desc, tiebreak Φ- asc): conceptually, pairs with Φ+(a) > Φ+(b) but Φ-(a) > Φ-(b) are incomparable. This implementation does not detect or flag such pairs — it always returns a single total order via the tiebreak rule above.
 
 **PROMETHEE II** (Φnet desc): always produces a complete ranking.
 
@@ -84,7 +84,12 @@ O(m² × n + m log m). The pairwise comparison is the bottleneck — under 20 ms
 
 ```
 Want pairwise "how much is a better than b?"    → PROMETHEE I / II
-Need partial ranking (incomparable pairs)?       → PROMETHEE I
+Want the Φ+/Φ- flow breakdown (still a total order)? → PROMETHEE I
 Need a complete ranking with net flow score?     → PROMETHEE II
 Dataset > 10,000 trials and speed matters?       → prefer TOPSIS / VIKOR
 ```
+
+## References
+
+- Brans, J.-P., & Vincke, P. (1985). A Preference Ranking Organisation Method: The PROMETHEE Method for MCDM. _Management Science_, 31(6), 647–656.
+- Brans, J.-P., Vincke, P., & Mareschal, B. (1986). How to select and how to rank projects: The PROMETHEE method. _European Journal of Operational Research_, 24(2), 228–238.

@@ -17,7 +17,7 @@ GP-FITC と GP-VFE はどちらも egobox の Sparse GP（FITC または VFE 近
 
 **誘導点の選択:** N ≤ 100 のとき誘導点 = 訓練点（Z = X）となり、FITC/VFE はノイズ推定付きの厳密 GP と数学的に等価になる。N > 100 のとき M = 100 個の誘導点を k-means セントロイド（決定論的シード）で選択。モデルは**全 N 点**で学習し、サブサンプリングは行わない。多目的サロゲート最適化では、誘導点をパレートフロント側に偏らせ、非劣 trial に集中させることで、フロントを改善する領域でサロゲートが最も正確になるようにできる。
 
-実測学習時間（N = 10,000）: GP-FITC ≈ 2.4 秒、GP-VFE ≈ 2.0 秒（release ビルド）。
+実測学習時間（N = 10,000）: GP-FITC ≈ 2.4 秒、GP-VFE ≈ 2.0 秒（release ビルド）。これらは開発環境での計測による参考値であり、環境やデータによって変動する。
 
 ---
 
@@ -143,7 +143,7 @@ $$
 
 トレース項は誘導点近似によって失われた情報量へのペナルティであり、FITC にはこの項がない。
 
-**実用的なベンチマーク**（ノイズなし関数、N = 100、M = 100）:  
+**実用的なベンチマーク**（ノイズなし関数、N = 100、M = 100；開発環境での計測による参考値であり、環境やデータによって変動する）:  
 GP-FITC R² ≈ 0.88、GP-VFE R² ≈ 0.76 — VFE はわずかにフィットを犠牲にして、より原理的な下界を実現する。  
 ノイズのあるデータでは両者はほぼ一致する。
 
@@ -186,7 +186,7 @@ GP はハイパーパラメータの初期値 $\log l_s = 0$（長さスケー�
 | Cholesky 分解（M×M）    | O(M³)     | 1×10⁶ ops             |
 | グリッド予測（50×50）   | O(2500·M) | 2.5×10⁵ ops           |
 
-**目標: 10,000ms 以内**（release ビルド）。実測（N = 10,000）: GP-FITC ≈ 2.4 秒、GP-VFE ≈ 2.0 秒。
+**目標: 10,000ms 以内**（release ビルド）。実測（N = 10,000）: GP-FITC ≈ 2.4 秒、GP-VFE ≈ 2.0 秒（開発環境での計測による参考値であり、環境やデータによって変動する）。
 
 ---
 
@@ -231,3 +231,11 @@ GP はハイパーパラメータの初期値 $\log l_s = 0$（長さスケー�
 
 - N < 50 の Study では GP-FITC が最も信頼性の高い補間を提供する
 - $R^2 > 0.8$ なら曲面はデータをよく説明できている
+
+---
+
+## 参考文献
+
+- Rasmussen, C. E., & Williams, C. K. I. (2006). *Gaussian Processes for Machine Learning*. MIT Press.
+- Snelson, E., & Ghahramani, Z. (2006). Sparse Gaussian Processes using Pseudo-inputs. *NeurIPS 18*.（FITC）
+- Titsias, M. K. (2009). Variational Learning of Inducing Variables in Sparse Gaussian Processes. *AISTATS 2009*.（VFE）

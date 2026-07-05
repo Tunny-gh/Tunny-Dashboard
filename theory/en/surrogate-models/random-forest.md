@@ -12,12 +12,14 @@ LightGBM's RF mode (`boosting_type=rf`) trains an ensemble of gradient-boosted d
 
 | Parameter           | Value | Notes                                    |
 | ------------------- | ----- | ---------------------------------------- |
-| `num_iterations`    | 100   | Number of trees in the ensemble          |
+| `num_iterations`    | 64    | Number of trees in the ensemble          |
 | `max_depth`         | 10    | Maximum tree depth                       |
 | `min_data_in_leaf`  | 2     | Minimum samples per leaf node            |
 | `bagging_fraction`  | 0.8   | Fraction of data sampled per tree        |
 | `feature_fraction`  | 0.8   | Fraction of features used per tree       |
 | `seed`              | 42    | Fixed seed for reproducibility           |
+
+Note: when computing PDP (1D/2D), `num_iterations` is explicitly overridden to 100 (the surrogate model path itself uses the default of 64).
 
 ## PDP Computation
 
@@ -67,3 +69,8 @@ Linear objective?                               → Ridge (faster)
 Smooth nonlinear?                               → GP-FITC (higher quality)
 Discontinuous / regime-switching?               → GP-MOE
 ```
+
+## References
+
+- Breiman, L. (2001). Random Forests. *Machine Learning*, 45(1), 5–32.
+- Ke, G. et al. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. *NeurIPS 30*.

@@ -36,3 +36,9 @@ A general Gaussian sample is obtained by scaling and shifting: $X = \mu + \sigma
 ## Where It Is Used in the App
 
 - **Robustness widget**: generates the Gaussian input-noise perturbations around the candidate design, and (when "Model uncertainty" is enabled) the draws from the GP posterior.
+
+---
+
+## References
+
+- Box, G. E. P., & Muller, M. E. (1958). A Note on the Generation of Random Normal Deviates. _Annals of Mathematical Statistics_, 29(2), 610–611.

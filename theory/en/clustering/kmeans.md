@@ -12,12 +12,24 @@ $$
 
 μ_k is the centroid of cluster C_k.
 
+**Note on the app's `wcss` field.** The value the app reports as `wcss` is `model.inertia()` from linfa, which is the **mean** of squared distances to the nearest centroid ($\text{WCSS}/N$), not the summed WCSS defined above. This does not affect the Elbow method: since N is the same across all k tried, using the mean instead of the sum only rescales every $W_k$ by a common constant $1/N$ and does not shift the position of the second-difference maximum (see [elbow.md](./elbow.md)).
+
 ## Algorithm
 
 1. **Initialize** — select k starting centroids using the chosen strategy
 2. **Assign** — assign each point to the nearest centroid
-3. **Update** — recompute each centroid as the mean of its points
-4. **Converge** — stop when WCSS change between iterations is below tolerance 1e-5 (max 300 iterations)
+3. **Update** — recompute each centroid using linfa's m\_k-means update (see below), which folds in the previous centroid rather than taking a plain mean
+4. **Converge** — stop when the Euclidean distance between the old and new centroid arrays is below tolerance 1e-5 (max 300 iterations)
+
+## Update Step
+
+`linfa_clustering::KMeans` does not average each cluster's points directly. It uses an m\_k-means-style update that folds the previous centroid in as an extra point:
+
+$$
+\mu_k^{\text{new}} = \frac{\mu_k^{\text{old}} + \sum_{x_i \in C_k} x_i}{|C_k| + 1}
+$$
+
+**Empty cluster**: when $|C_k| = 0$, the formula reduces to $\mu_k^{\text{new}} = \mu_k^{\text{old}}$ — the previous centroid is kept automatically, with no special-cased branch needed.
 
 ## Initialization Strategies
 
@@ -50,16 +62,23 @@ Used internally by the Elbow method for auto-k estimation.
 | Selection       | D²-proportional sampling (linfa) | D²-proportional sampling (linfa, fixed seed) |
 | Randomness      | Xoshiro256Plus (seed from n,k) | Xoshiro256Plus (seed=42) |
 | Reproducibility | Same data+k → same result | Always identical (seed=42) |
-| Theory          | O(log k) approximation    | None                       |
-| Local optima    | Low risk                  | Moderate risk              |
+| Theory          | O(log k) approximation    | Same guarantee (identical algorithm) |
+| Local optima    | Reduced by best-of-10 (see below) | Reduced by best-of-10; always the same run since the seed is fixed |
+
+Both strategies run the *same* D²-proportional selection and the same best-of-10 re-run (below); the only difference is the seed. The "Theory" and "Local optima" rows are therefore not a meaningful basis for choosing one over the other — pick k-means++ for a fresh seed derived from the data, or Deterministic when the caller (e.g. the Elbow method) needs a fixed, repeatable seed.
+
+## Multiple Runs (best-of-10)
+
+For a given seed, `linfa_clustering::KMeans` is configured with `.n_runs(10)`: it runs the full initialize → assign → update → converge procedure **10 independent times** and keeps the result with the lowest inertia (WCSS). This reduces — but does not eliminate — the risk of returning a poor local optimum, for both k-means++ and Deterministic alike.
 
 ## Implementation Parameters
 
 | Parameter          | Value                     |
 | ------------------ | ------------------------- |
 | max_iter           | 300                       |
+| n_runs             | 10 (best-of-10 by inertia)|
 | Distance metric    | Squared Euclidean         |
-| Empty cluster      | Keep previous centroid    |
+| Empty cluster      | Keep previous centroid (see [Update Step](#update-step)) |
 
 ## Strengths and Limitations
 
@@ -80,3 +99,8 @@ Used internally by the Elbow method for auto-k estimation.
 | Objective Space | Objective values only   | Cluster by performance similarity     |
 | Variable Space  | Parameter values only   | Cluster by design space patterns      |
 | Combined        | Both                    | Joint structure analysis              |
+
+## References
+
+- Lloyd, S. P. (1982). Least squares quantization in PCM. _IEEE Transactions on Information Theory_, 28(2), 129–137.
+- Arthur, D., & Vassilvitskii, S. (2007). k-means++: The Advantages of Careful Seeding. _SODA 2007_, 1027–1035.

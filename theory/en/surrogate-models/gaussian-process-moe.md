@@ -12,7 +12,7 @@ A single GP with a stationary kernel (e.g. Matérn 5/2) assumes the same smoothn
 
 a single GP either underestimates one region's variation or overfits another. GP-MOE addresses this by allowing each region to have its own GP with independently fitted hyperparameters.
 
-**Benchmark** (piecewise discontinuous function): GP-MOE R² ≈ 0.97 vs 0.89 for a single smooth-blended GP. On smooth or noisy data GP-MOE typically selects k = 1 cluster and matches GP-FITC.
+**Benchmark** (piecewise discontinuous function; reference values from measurements in a development environment — may vary by environment and data): GP-MOE R² ≈ 0.97 vs 0.89 for a single smooth-blended GP. On smooth or noisy data GP-MOE typically selects k = 1 cluster and matches GP-FITC.
 
 ## Architecture
 
@@ -115,3 +115,8 @@ Linear response?                                → Ridge
 ```
 
 See also: [GP-FITC / GP-VFE](gaussian-process.md)
+
+## References
+
+- Jacobs, R. A., Jordan, M. I., Nowlan, S. J., & Hinton, G. E. (1991). Adaptive Mixtures of Local Experts. *Neural Computation*, 3(1), 79–87.
+- Bettebghor, D. et al. (2011). Surrogate modeling approximation using a mixture of experts based on EM joint estimation. *Structural and Multidisciplinary Optimization*, 43(2), 243–259.

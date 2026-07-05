@@ -2,7 +2,7 @@
 
 ## 概要
 
-PROMETHEE（Preference Ranking Organisation METHod for Enrichment Evaluations）は、1986年に Jean-Pierre Brans によって提案された多基準意思決定（MCDM）手法。トライアル間の**ペアワイズ比較**に基づいて選好度を計算し、正のフロー（Φ+）と負のフロー（Φ-）からランキングを導出する。
+PROMETHEE（Preference Ranking Organisation METHod for Enrichment Evaluations）は、1982年に J.-P. Brans が提案し、Brans & Vincke (1985) らにより発展した多基準意思決定（MCDM）手法。トライアル間の**ペアワイズ比較**に基づいて選好度を計算し、正のフロー（Φ+）と負のフロー（Φ-）からランキングを導出する。
 
 PROMETHEE I は部分ランキング（Partial Ranking）、PROMETHEE II は完全ランキング（Complete Ranking）を提供する。
 
@@ -121,7 +121,7 @@ $$
 
 ### Step 5: ランキング
 
-#### PROMETHEE I（部分ランキング）
+#### PROMETHEE I（理論上は部分ランキング）
 
 Φ+ の降順でソート。Φ+ が同値の場合、Φ- の昇順でタイブレーク。
 
@@ -129,9 +129,11 @@ $$
 a \succ b \iff \Phi^+(a) > \Phi^+(b) \;\text{or}\; \bigl(\Phi^+(a) = \Phi^+(b) \;\text{and}\; \Phi^-(a) < \Phi^-(b)\bigr)
 $$
 
-同順位（比較不能）が発生し得る:
+理論上は以下のケースで比較不能となる:
 
 - $\Phi^+(a) > \Phi^+(b)$ かつ $\Phi^-(a) > \Phi^-(b)$ → 比較不能（一方が上回る面と下回る面の両方を持つ）
+
+**本実装での扱い**: `rank_promethee_i` は比較不能の検出を行わず、上記のタイブレーク規則（Φ+ 降順・Φ- 昇順）によって常に単一の全順序を返す。比較不能ペアの明示的な出力はない。
 
 #### PROMETHEE II（完全ランキング）
 
@@ -252,20 +254,20 @@ $p_j = 0$ となり `linear_preference` は $d > 0$ の場合常に 1.0 を返�
 
 トライアルごとに 2 本のバーを表示:
 
-- **Φ+ バー**（青 `#0c6ac0`）: 他をどれだけ上回るか
-- **Φ- バー**（赤 `#c02020`）: 他にどれだけ下回るか
+- **Φ+ バー**（青系）: 他をどれだけ上回るか
+- **Φ- バー**（赤系）: 他にどれだけ下回るか
 
-ランキング順（ranked_indices_i）に並び、部分ランキングの特性上、比較不能なペアが存在し得る。
+ランキング順（ranked_indices_i）に並ぶ。前述のとおり、本実装では比較不能ペアの明示的な区別は行われない。
 
 ### PROMETHEE II
 
 トライアルごとに 1 本の Φnet バーを表示:
 
-- **正値**（青 `#0c6ac0`）: 概ね優位
-- **負値**（オレンジ `#e07000`）: 概ね劣位
+- **正値**（青系）: 概ね優位
+- **負値**（アクセント色）: 概ね劣位
 - バーの幅は |Φnet| に比例
 
-PROMETHEE I ↔ II の切替時は同じキャッシュ（`cached_promethee`）から即時復元する。Φ+/Φ-/Φnet は常に同時に計算されるため再計算不要。
+PROMETHEE I ↔ II の切替時は同じキャッシュ（`app_state.mcdm_cache`）から即時復元する。Φ+/Φ-/Φnet は常に同時に計算されるため再計算不要。
 
 ---
 
@@ -274,7 +276,7 @@ PROMETHEE I ↔ II の切替時は同じキャッシュ（`cached_promethee`）�
 **強み:**
 
 - ペアワイズ比較に基づく直感的な解釈（a は b よりどれだけ好ましいか）
-- PROMETHEE I の部分ランキングで比較不能なペアを明示的に特定可能
+- PROMETHEE I は理論上は比較不能なペアを許容する部分ランキングだが、本実装では Φ+ 降順・Φ- 昇順のタイブレークによる全順序として返される（比較不能ペアの明示的な検出・出力はしない）
 - PROMETHEE II で完全な順序付けが可能
 - 選好関数の種類と閾値で目的関数ごとの選好の度合いを調整可能
 
@@ -304,5 +306,7 @@ Entropy 重みと組み合わせることで客観的な重み設定が可能。
 
 ## 参考文献
 
-- Brans, J.-P. (1986). L'ingénierie de la décision: élaboration d'instruments d'aide à la décision. _La méthode PROMETHEE_. Université Laval.
+- Brans, J.-P. (1982). L'ingénierie de la décision: élaboration d'instruments d'aide à la décision. _La méthode PROMETHEE_. Université Laval.
+- Brans, J.-P., & Vincke, P. (1985). A Preference Ranking Organisation Method: The PROMETHEE Method for MCDM. _Management Science_, 31(6), 647–656.
+- Brans, J.-P., Vincke, P., & Mareschal, B. (1986). How to select and how to rank projects: The PROMETHEE method. _European Journal of Operational Research_, 24(2), 228–238.
 - Brans, J.-P., & Mareschal, B. (2005). PROMETHEE methods. In _Multiple Criteria Decision Analysis: State of the Art Surveys_ (pp. 163–186). Springer.
