@@ -24,6 +24,9 @@ pub enum ToolbarAction {
     SaveSession,
     /// 指定パスのセッションファイルを復元する。
     LoadSession(std::path::PathBuf),
+
+    /// R4: 「Report…」ダイアログを開く（自己完結型レポート出力設定）。
+    OpenReportDialog,
 }
 
 /// ToolBar を描画する
@@ -206,6 +209,18 @@ pub fn show_toolbar(
                             });
                     });
                 });
+            }
+
+            // ── R4: 自己完結型レポート出力（HTML/Markdown/JSON） ─────────────
+            {
+                let has_study = app_state.current_study.is_some();
+                let mut response = toolbar_button(ui, "Report…", has_study);
+                if !has_study {
+                    response = response.on_hover_text("Select a study first to export a report");
+                }
+                if response.clicked() && has_study {
+                    actions.push(ToolbarAction::OpenReportDialog);
+                }
             }
 
             // 比較対象はバーにチップを並べず、1 つのドロップダウン内の

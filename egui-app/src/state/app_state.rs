@@ -4,6 +4,7 @@ pub use super::types::*;
 use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
+use crate::ui::widgets::report_modal::ReportDialogState;
 use std::collections::HashMap;
 use tunny_core::indicators::MoIndicator;
 
@@ -88,6 +89,10 @@ pub struct AppState {
     /// 「Open URL…」ダイアログの入力中テキスト。`None` は非表示、`Some` は表示中
     /// （空文字列を含む入力中の文字列そのもの）。
     pub db_url_dialog: Option<String>,
+
+    // ── R4: 自己完結型レポート出力（HTML/Markdown/JSON） ──────────
+    /// 「Report…」ダイアログの編集状態。`None` は非表示。
+    pub report_dialog: Option<ReportDialogState>,
 }
 
 impl AppState {
@@ -122,6 +127,7 @@ impl AppState {
             convergence_indicator: MoIndicator::Hypervolume,
             csv_import_settings: None,
             db_url_dialog: None,
+            report_dialog: None,
         }
     }
 

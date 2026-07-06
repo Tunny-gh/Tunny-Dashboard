@@ -11,15 +11,20 @@
 //! - [`builder`] — `(StudyMeta, DataFrame, StudyExtras)` → [`StudyReport`]
 //! - [`findings`] — Key Findings（まとめ）の決定論的生成
 //! - [`markdown`] — Markdown レンダラ（LLM 向け主用途）
+//! - [`html`] — 自己完結 HTML レンダラ（SVG チャート埋め込み）
+//! - [`text`] — Key Finding 文章テンプレート（markdown / html が共有）
 
 pub mod builder;
 pub mod findings;
+pub mod html;
 pub mod markdown;
 pub mod model;
 pub mod svg;
+pub mod text;
 pub mod theme;
 
 pub use builder::build_study_report;
+pub use html::render_html;
 pub use markdown::render_markdown;
 pub use model::*;
 

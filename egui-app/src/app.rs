@@ -507,6 +507,77 @@ impl TunnyApp {
                         Err(e) => self.load_error = Some(e),
                     }
                 }
+                ToolbarAction::OpenReportDialog => {
+                    self.app_state.report_dialog =
+                        Some(crate::ui::widgets::report_modal::ReportDialogState::default());
+                }
+            }
+        }
+    }
+
+    /// 「Report…」モーダルを描画し、Export 確定時に study のスナップショットを集めて
+    /// バックグラウンドスレッドへレポート生成を委譲する（`ToolbarAction::OpenReportDialog`
+    /// が `app_state.report_dialog` を開始した後、毎フレームここから呼ばれる）。
+    fn show_report_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::report_modal::{self, ReportModalAction};
+
+        let Some(mut dialog) = self.app_state.report_dialog.take() else {
+            return;
+        };
+        let study_name = self
+            .app_state
+            .current_study
+            .as_ref()
+            .map(|s| s.meta.name.clone());
+
+        let action = report_modal::show(ctx, &mut dialog, study_name.as_deref());
+        let can_start_export = !dialog.generating && dialog.success_paths.is_none();
+
+        match action {
+            Some(ReportModalAction::Close) => {
+                // 生成中でも待たずに閉じてよい（バックグラウンドジョブは fire-and-forget
+                // で継続し、ダイアログが無ければ完了/失敗は通知されない）。
+            }
+            Some(ReportModalAction::Export) if can_start_export => {
+                match dialog.selected_formats() {
+                    Err(e) => dialog.error = Some(e.to_string()),
+                    Ok(formats) => {
+                        dialog.error = None;
+                        let default_name = report_modal::default_file_name(
+                            study_name.as_deref().unwrap_or("study"),
+                        );
+                        let chosen = rfd::FileDialog::new()
+                            .set_file_name(&default_name)
+                            .add_filter("Report", &["html", "md", "json"])
+                            .save_file();
+                        if let Some(base_path) = chosen {
+                            if let Some(ctx_study) = &self.app_state.current_study {
+                                let meta = ctx_study.meta.clone();
+                                let df = ctx_study.view.df.clone();
+                                let extras = tunny_core::dataframe::active_extras_snapshot();
+                                let storage_display = crate::io::report_export::storage_display(
+                                    self.app_state.journal_path.as_deref(),
+                                );
+                                dialog.generating = true;
+                                crate::io::report_export::spawn_report_export(
+                                    meta,
+                                    df,
+                                    extras,
+                                    storage_display,
+                                    dialog.lang,
+                                    dialog.top_n,
+                                    formats,
+                                    base_path,
+                                    self.sender(),
+                                );
+                            }
+                        }
+                    }
+                }
+                self.app_state.report_dialog = Some(dialog);
+            }
+            _ => {
+                self.app_state.report_dialog = Some(dialog);
             }
         }
     }
@@ -787,6 +858,7 @@ impl eframe::App for TunnyApp {
         crate::ui::layout::show_layout(self, ui);
         self.show_csv_import_dialog(&ctx);
         self.show_db_url_dialog(&ctx);
+        self.show_report_dialog(&ctx);
         crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);
     }
 }

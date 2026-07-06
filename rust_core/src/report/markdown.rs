@@ -11,6 +11,7 @@
 use std::fmt::Write as _;
 
 use super::model::*;
+use super::text::format_unix_utc;
 use super::{format_number, ReportLang};
 
 /// [`StudyReport`] を Markdown へレンダリングする。
@@ -97,8 +98,9 @@ fn render_meta_line(s: &mut String, lang: ReportLang, report: &StudyReport) {
     if let Some(ts) = report.source.generated_at_unix {
         let _ = writeln!(
             s,
-            "- {} (unix): {}",
+            "- {}: {} (unix {})",
             tr(lang, "Generated at", "生成日時"),
+            format_unix_utc(ts),
             ts
         );
     }
@@ -151,145 +153,22 @@ fn render_key_findings(s: &mut String, lang: ReportLang, findings: &[KeyFinding]
     s.push('\n');
 }
 
+/// Key Finding を 1 文へ整形する（テンプレートは [`super::text`] で共有）。
+///
+/// 強調 span は Markdown の `**...**` で囲み、全 span を [`esc`] でセルセーフに
+/// する。リテラルへの `esc` はパイプ・改行を含まないため実質無変換で、
+/// ユーザー由来文字列（param 名等）のみが安全化される。
 fn finding_sentence(lang: ReportLang, f: &KeyFinding) -> String {
-    let num = |k: &str| f.metrics.get(k).copied().unwrap_or(f64::NAN);
-    let lab = |k: &str| f.labels.get(k).cloned().unwrap_or_default();
-    match f.kind {
-        FindingKind::BestSingle => {
-            let best = format_number(num("best"));
-            let trial = format_number(num("trial"));
-            let fp = pct(num("found_pct"));
-            match lang {
-                ReportLang::En => format!(
-                    "Best objective **{best}** at trial #{trial} (found at {fp}% of the run)."
-                ),
-                ReportLang::Ja => format!(
-                    "最良値 **{best}**（trial #{trial}、全体の {fp}% 時点で発見）。"
-                ),
-            }
-        }
-        FindingKind::ParetoSummary => {
-            let front = format_number(num("front_size"));
-            let complete = format_number(num("complete"));
-            match lang {
-                ReportLang::En => format!(
-                    "Pareto front holds **{front}** non-dominated trials out of {complete} completed."
-                ),
-                ReportLang::Ja => format!(
-                    "パレート前面は COMPLETE {complete} 件中 **{front}** 件の非支配解で構成される。"
-                ),
-            }
-        }
-        FindingKind::ConvergenceStatus => match lab("status").as_str() {
-            "converged" => tr(
-                lang,
-                "Optimization appears **converged** — no best-value updates in the final 20% of trials.",
-                "最適化は**収束**したとみられる（後半20%の試行で best 更新なし）。",
-            )
-            .to_string(),
-            "still_improving" => tr(
-                lang,
-                "Optimization is **still improving** — best value was updated within the final 20% of trials; more trials may help.",
-                "最適化はなお改善中（直近20%の試行でも best が更新されており、追加試行で改善の余地がある）。",
-            )
-            .to_string(),
-            _ => tr(
-                lang,
-                "**Insufficient data** for a convergence verdict (fewer than 10 completed trials).",
-                "収束判定に十分なデータがない（COMPLETE が10件未満）。",
-            )
-            .to_string(),
-        },
-        FindingKind::TopImportance => {
-            let method = lab("method");
-            let mut parts = Vec::new();
-            for i in 1..=3 {
-                let name = lab(&format!("param{i}"));
-                if name.is_empty() {
-                    continue;
-                }
-                let score = format_number(num(&format!("score{i}")));
-                parts.push(format!("{} ({})", esc(&name), score));
-            }
-            let list = parts.join(", ");
-            match lang {
-                ReportLang::En => {
-                    format!("Most influential parameters ({method}): {list}.")
-                }
-                ReportLang::Ja => {
-                    format!("影響の大きいパラメータ（{method}）: {list}。")
-                }
-            }
-        }
-        FindingKind::TradeOff => {
-            let a = esc(&lab("obj_a"));
-            let b = esc(&lab("obj_b"));
-            let rho = format_number(num("rho"));
-            match lang {
-                ReportLang::En => {
-                    format!("Objectives **{a}** and **{b}** trade off (Spearman ρ = {rho}).")
-                }
-                ReportLang::Ja => {
-                    format!("目的 **{a}** と **{b}** はトレードオフの関係にある（Spearman ρ = {rho}）。")
-                }
-            }
-        }
-        FindingKind::Feasibility => {
-            let feasible = format_number(num("feasible"));
-            let total = format_number(num("total"));
-            let rate = pct(num("rate") * 100.0);
-            let tail = if f.labels.contains_key("has_best") {
-                let bt = format_number(num("best_trial"));
-                match lang {
-                    ReportLang::En => format!("; best feasible at trial #{bt}"),
-                    ReportLang::Ja => format!("、最良は trial #{bt}"),
-                }
-            } else {
-                String::new()
-            };
-            match lang {
-                ReportLang::En => {
-                    format!("Feasible trials: **{feasible}/{total}** ({rate}%){tail}.")
-                }
-                ReportLang::Ja => {
-                    format!("実行可能な試行: **{feasible}/{total}**（{rate}%）{tail}。")
-                }
-            }
-        }
-        FindingKind::PruningEfficiency => {
-            let pruned = format_number(num("pruned"));
-            let rate = pct(num("rate") * 100.0);
-            let tail = if f.labels.contains_key("has_step") {
-                let step = format_number(num("median_step"));
-                match lang {
-                    ReportLang::En => format!("; median prune step {step}"),
-                    ReportLang::Ja => format!("、中央値 step {step}"),
-                }
-            } else {
-                String::new()
-            };
-            match lang {
-                ReportLang::En => {
-                    format!("Pruning removed **{pruned}** trials ({rate}% of finished){tail}.")
-                }
-                ReportLang::Ja => {
-                    format!("枝刈りにより **{pruned}** 件の試行が早期終了（終了試行の {rate}%）{tail}。")
-                }
-            }
-        }
-        FindingKind::DataQuality => {
-            let nan = format_number(num("nan_count"));
-            let fail = format_number(num("fail_count"));
-            match lang {
-                ReportLang::En => format!(
-                    "Data quality note: {nan} trial(s) with non-finite objective values, {fail} FAILED trial(s)."
-                ),
-                ReportLang::Ja => format!(
-                    "データ品質の注意: 目的値が非有限の試行 {nan} 件、FAIL 試行 {fail} 件。"
-                ),
-            }
+    let mut out = String::new();
+    for span in super::text::finding_spans(lang, f) {
+        let body = esc(&span.text);
+        if span.emphasis {
+            let _ = write!(out, "**{body}**");
+        } else {
+            out.push_str(&body);
         }
     }
+    out
 }
 
 // =============================================================================
@@ -385,6 +264,30 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             );
             render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
+            // front は目的空間のみで計算されるため、制約違反 trial が
+            // 混在し得る。その場合は表の直下に注記を出す。
+            let n_infeasible = pareto_table
+                .iter()
+                .filter(|t| t.max_constraint.is_some_and(|v| v > 0.0))
+                .count();
+            if n_infeasible > 0 {
+                let _ = writeln!(
+                    s,
+                    "{}\n",
+                    match lang {
+                        ReportLang::En => format!(
+                            "Note: the Pareto front is computed on objective values only \
+                             (non-dominated in objective space); {n_infeasible} of these \
+                             trials violate constraints."
+                        ),
+                        ReportLang::Ja => format!(
+                            "注記: パレート前面は目的空間の非劣解として計算しています。\
+                             うち {n_infeasible} 件は制約違反です。"
+                        ),
+                    }
+                );
+            }
+
             if *objective_count > 2 {
                 let _ = writeln!(
                     s,
@@ -410,7 +313,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
     }
 }
 
-/// TrialSummary の表を出力する（trial# + 目的 + パラメータ [+ 制約違反]）。
+/// TrialSummary の表を出力する（trial# + 目的 + パラメータ [+ 最大制約値]）。
 fn render_trial_table(
     s: &mut String,
     lang: ReportLang,
@@ -437,7 +340,15 @@ fn render_trial_table(
         let _ = write!(header, " {} |", esc(p));
     }
     if show_constraint {
-        let _ = write!(header, " {} |", tr(lang, "violation", "制約違反"));
+        let _ = write!(
+            header,
+            " {} |",
+            tr(
+                lang,
+                "max constraint (≤0 = feasible)",
+                "最大制約値（≤0 で充足）"
+            )
+        );
     }
     let _ = writeln!(s, "{header}");
 
@@ -457,10 +368,16 @@ fn render_trial_table(
             let _ = write!(row, " {} |", param_val(v));
         }
         if show_constraint {
-            let c = t
-                .constraint_violation
-                .map(format_number)
-                .unwrap_or_else(|| "-".to_string());
+            let c = match t.max_constraint {
+                // 正値 = 制約違反。値の後に明示マークを付ける。
+                Some(v) if v > 0.0 => format!(
+                    "{}{}",
+                    format_number(v),
+                    tr(lang, " (infeasible)", "（違反）")
+                ),
+                Some(v) => format_number(v),
+                None => "-".to_string(),
+            };
             let _ = write!(row, " {c} |");
         }
         let _ = writeln!(s, "{row}");

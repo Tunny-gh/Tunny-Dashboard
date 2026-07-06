@@ -7,6 +7,7 @@ pub mod flat_csv;
 pub mod journal;
 pub mod live_update_poller;
 pub mod rdb;
+pub mod report_export;
 pub mod session;
 pub mod sqlite;
 pub mod study;

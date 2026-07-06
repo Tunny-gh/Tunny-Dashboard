@@ -361,10 +361,17 @@ fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) -> TrialSum
         })
         .collect();
 
-    let constraint_violation = if meta.has_constraints {
-        df.get_numeric_column("constraint_sum")
-            .and_then(|c| c.get(row))
-            .copied()
+    // 生の制約値の行内最大。合計（constraint_sum）は負のマージンが正の違反を
+    // 打ち消して feasible に見えてしまうため使わない（max ≤ 0 ⟺ 全制約充足）。
+    let max_constraint = if meta.has_constraints {
+        df.constraint_col_names()
+            .iter()
+            .filter_map(|name| {
+                df.get_numeric_column(name)
+                    .and_then(|c| c.get(row))
+                    .copied()
+            })
+            .reduce(f64::max)
     } else {
         None
     };
@@ -387,7 +394,7 @@ fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) -> TrialSum
         trial_number,
         objectives,
         params,
-        constraint_violation,
+        max_constraint,
         user_attrs,
     }
 }

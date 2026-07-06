@@ -149,8 +149,9 @@ pub struct TrialSummary {
     pub objectives: Vec<f64>,
     /// パラメータ `(name, value)`（meta のパラメータ順）。
     pub params: Vec<(String, ParamValue)>,
-    /// 制約違反量（制約ありスタディのみ。全制約値の合計）。
-    pub constraint_violation: Option<f64>,
+    /// 最大制約値（制約ありスタディのみ。Optuna の生の制約値の行内最大で、
+    /// ≤0 なら全制約充足、正値なら制約違反）。
+    pub max_constraint: Option<f64>,
     /// user_attr `(name, value)`（名前昇順）。
     pub user_attrs: Vec<(String, String)>,
 }

@@ -328,6 +328,13 @@ pub enum AppMessage {
     ResponseSurfaceFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     /// 応答曲面 3D ビューア用サロゲートのフィットが失敗した。
     ResponseSurfaceFitFailed(String),
+
+    /// R4: 自己完結型レポート出力（HTML/Markdown/JSON）がバックグラウンドで完了した。
+    /// 実際に書き出したファイルパス一覧（複数フォーマット選択時は複数件）。
+    /// 失敗時は既存の `Error` を再利用する。
+    ReportExportDone {
+        paths: Vec<std::path::PathBuf>,
+    },
 }
 
 #[cfg(test)]

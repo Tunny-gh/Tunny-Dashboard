@@ -63,5 +63,6 @@ pub use common::convergence_card;
 pub use common::csv_import_modal;
 pub use common::license_modal;
 pub use common::rdb_url_modal;
+pub use common::report_modal;
 pub use common::trial_detail_modal;
 pub use common::trial_table;

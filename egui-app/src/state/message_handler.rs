@@ -156,8 +156,23 @@ impl MessageHandler {
                 widget_states.pdp_2d.computing = false;
             }
             AppMessage::Error(e) => {
+                // レポート出力中の失敗も汎用 Error を再利用する。ダイアログを開いた
+                // ままのユーザーには生成中フラグを解除してモーダル内にも表示する。
+                if let Some(dialog) = app_state.report_dialog.as_mut() {
+                    if dialog.generating {
+                        dialog.generating = false;
+                        dialog.error = Some(e.clone());
+                    }
+                }
                 *load_error = Some(e);
                 *is_loading = false;
+            }
+            AppMessage::ReportExportDone { paths } => {
+                if let Some(dialog) = app_state.report_dialog.as_mut() {
+                    dialog.generating = false;
+                    dialog.error = None;
+                    dialog.success_paths = Some(paths);
+                }
             }
             AppMessage::SensitivityError(_e) => {
                 widget_states.importance.computing = false;
@@ -1587,5 +1602,87 @@ mod tests {
         );
 
         assert_eq!(load_error.as_deref(), Some("file not found"));
+    }
+
+    // ── R4: レポート出力完了/失敗メッセージ ──────────────────────
+
+    #[test]
+    fn report_export_done_stores_paths_and_clears_generating() {
+        use crate::ui::widgets::report_modal::ReportDialogState;
+
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.report_dialog = Some(ReportDialogState {
+            generating: true,
+            ..Default::default()
+        });
+
+        let paths = vec![
+            std::path::PathBuf::from("/tmp/report_s.html"),
+            std::path::PathBuf::from("/tmp/report_s.json"),
+        ];
+        MessageHandler::handle(
+            AppMessage::ReportExportDone {
+                paths: paths.clone(),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let dialog = app_state.report_dialog.as_ref().expect("dialog remains");
+        assert!(!dialog.generating);
+        assert!(dialog.error.is_none());
+        assert_eq!(dialog.success_paths.as_deref(), Some(paths.as_slice()));
+        assert!(load_error.is_none());
+    }
+
+    #[test]
+    fn report_export_done_without_dialog_is_noop() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+
+        MessageHandler::handle(
+            AppMessage::ReportExportDone { paths: vec![] },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.report_dialog.is_none());
+        assert!(load_error.is_none());
+    }
+
+    #[test]
+    fn error_during_report_generation_surfaces_in_dialog() {
+        use crate::ui::widgets::report_modal::ReportDialogState;
+
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.report_dialog = Some(ReportDialogState {
+            generating: true,
+            ..Default::default()
+        });
+
+        MessageHandler::handle(
+            AppMessage::Error("disk full".to_string()),
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let dialog = app_state.report_dialog.as_ref().expect("dialog remains");
+        assert!(!dialog.generating);
+        assert_eq!(dialog.error.as_deref(), Some("disk full"));
+        assert_eq!(load_error.as_deref(), Some("disk full"));
     }
 }

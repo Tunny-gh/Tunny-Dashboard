@@ -52,7 +52,11 @@ struct Margins {
 ///
 /// `&` を最初に処理しないと、後続の置換で生成した実体参照
 /// （`&amp;` 等）を二重エスケープしてしまうため、処理順序が重要。
-fn escape_xml(s: &str) -> String {
+///
+/// エスケープ対象（`& < > " '`）は HTML テキストノード / 二重引用符属性値
+/// としても安全な集合であり、`html` レンダラもこの実装を共有する
+/// （`&apos;` は HTML5 では有効な実体参照であるため差分にならない）。
+pub(crate) fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
