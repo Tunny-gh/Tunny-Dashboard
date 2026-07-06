@@ -108,6 +108,13 @@ pub fn shifted_brush_range(orig: (f32, f32), delta: f32) -> (f32, f32) {
     (new_lo, new_lo + width)
 }
 
+/// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
+type DrawTargetsKey = (
+    usize,
+    usize,
+    std::collections::HashMap<String, Option<(f32, f32)>>,
+);
+
 /// 平行座標図ウィジェット
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -131,8 +138,9 @@ pub struct ParallelCoordsChart {
     /// ブラシ範囲・データが変わらない限り、全 trial × 全軸の brush 判定を再計算しない。
     #[serde(skip)]
     draw_targets_cache: Option<Vec<(usize, bool)>>,
+    /// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
     #[serde(skip)]
-    draw_targets_key: Option<(usize, usize, std::collections::HashMap<String, Option<(f32, f32)>>)>,
+    draw_targets_key: Option<DrawTargetsKey>,
     /// 折れ線描画の間引きインデックスキャッシュ（trial_count が変わらない限り再計算しない）
     #[serde(skip)]
     polyline_indices_cache: Option<Vec<u32>>,
@@ -205,8 +213,7 @@ impl ParallelCoordsChart {
         // 各軸の列スライスを view から借用（コピーしない・MEM-003）
         let cols = view.numeric_columns(&all_names);
 
-        // キャッシュキーには df の恒等性（Arc ポインタ）を含める（M-5）。
-        // 同一次元の別 Study に切り替えた場合でも古いレンジを使い続けない（rank_plot と同方式）。
+        // DataFrame の Arc 恒等性をキーに含め、同一次元の別 Study 切替でのスタール描画を防ぐ（M-5）。
         let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
         let cache_key = (df_ptr, trial_count, n_params, obj_names.len());
         if self.col_ranges_cache.is_none() || self.cache_key != cache_key {
@@ -381,13 +388,13 @@ impl ParallelCoordsChart {
 
         // 描画対象 (t_idx, in_selection) の一覧。ブラシ選択中のトライアルは間引きの
         // 影響を受けず必ず描画する（間引き対象 ∪ ブラシ通過トライアルの和集合）。
-        // 全 trial × 全軸の brush 判定と HashSet 構築は重いため、
-        // (df の恒等性, trial_count, ブラシ範囲) が変わらない限り再計算しない（M-14）。
-        let targets_valid = self.draw_targets_cache.is_some()
-            && self.draw_targets_key.as_ref().is_some_and(|(p, t, b)| {
-                *p == df_ptr && *t == trial_count && *b == self.brush_ranges
+        // 全 trial × 全軸の brush 判定 + HashSet 確保は重いため、df の恒等性・trial_count・
+        // ブラシ範囲が変わらない限り再計算せずキャッシュを使い回す（M-14）。
+        let draw_targets_key_matches = self.draw_targets_cache.is_some()
+            && self.draw_targets_key.as_ref().is_some_and(|(p, tc, br)| {
+                *p == df_ptr && *tc == trial_count && br == &self.brush_ranges
             });
-        if !targets_valid {
+        if !draw_targets_key_matches {
             let targets: Vec<(usize, bool)> = if has_active_brush {
                 let downsampled_set: std::collections::HashSet<usize> =
                     downsampled.iter().map(|&i| i as usize).collect();
@@ -493,14 +500,13 @@ impl ParallelCoordsChart {
             let galley = label_galleys[orig].clone();
             if rotate_labels {
                 // -label_angle（反時計回り）で回転させた "/" 形ラベルの最下端
-                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる。
-                // 回転後コーナーの走査は scatter モジュール共通ヘルパーに委譲する（D-12）。
+                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる（D-12 共通ヘルパー）。
                 let applied = -label_angle;
-                let corners = super::rotated_label_corners(galley.size(), applied);
+                let lowest = super::rotated_label_corners(galley.size(), applied).lowest;
                 // 最下端が軸上端のすぐ上に来るよう pos を決める
                 let gap = 2.0_f32;
                 let anchor = egui::pos2(x, axis_top - gap);
-                let pos = anchor - egui::vec2(corners.lowest.0, corners.lowest.1);
+                let pos = anchor - egui::vec2(lowest.0, lowest.1);
                 painter
                     .add(egui::epaint::TextShape::new(pos, galley, text_color).with_angle(applied));
             } else {

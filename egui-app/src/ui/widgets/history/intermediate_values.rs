@@ -6,8 +6,9 @@
 
 use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
 
-use super::state_colors::{show_state_legend, state_color};
-use crate::theme::chart_colors::COLOR_EMPTY_STATE;
+use super::state_colors::{
+    dim, distinct_states_in_order, empty_state, show_state_legend, state_color,
+};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{hit_test_nearest, show_hover_tooltip, HIT_THRESHOLD};
 
@@ -24,17 +25,46 @@ pub struct IntermediateCurve {
     pub points: Vec<[f64; 2]>,
 }
 
+/// ヒットテスト点に対応するツールチップ用の元データ（描画点と同じ index で対応）。
+#[derive(Debug, Clone)]
+struct HoverPoint {
+    trial_number: u32,
+    state: TrialState,
+    step: f64,
+    value: f64,
+}
+
+/// 曲線・ヒットテスト点・凡例状態など、`extras` の恒等性と log スケールだけで
+/// 決まるデータのキャッシュ（毎フレーム再構築を避ける・M-17）。
+/// キーは `extras`（`StudyExtras`）の恒等性アドレス + log スケール。ライブ更新時は
+/// `ArcSwap` が新しい Arc に差し替えるため、参照先アドレスの変化 = データ更新とみなせる
+/// （Timeline ウィジェットと同じ発想）。
+#[derive(Debug, Clone)]
+struct IntermediateCache {
+    key: (usize, bool),
+    curves: Vec<IntermediateCurve>,
+    total_eligible: usize,
+    present: Vec<TrialState>,
+    /// ヒットテスト用の点群（描画座標系＝ log 変換後）。
+    hit_points: Vec<(u32, usize, [f64; 2])>,
+    /// ツールチップ用の元データ（`hit_points` と同じ index で対応）。
+    hover_lookup: Vec<HoverPoint>,
+}
+
 /// Intermediate Values チャートウィジェット。
-#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct IntermediateValuesChart {
     /// Y 軸対数スケール切替。
     pub log_scale: bool,
+    #[serde(skip)]
+    cache: Option<IntermediateCache>,
 }
 
 impl IntermediateValuesChart {
     pub fn show(&mut self, ui: &mut egui::Ui, extras: Option<&StudyExtras>) {
         let Some(extras) = extras.filter(|e| e.has_intermediate()) else {
+            self.cache = None;
             empty_state(ui, "No intermediate values in this study");
             return;
         };
@@ -43,64 +73,68 @@ impl IntermediateValuesChart {
             self.log_scale = !self.log_scale;
         }
 
-        let (curves, total_eligible) =
-            build_intermediate_curves(&extras.trials, self.log_scale, MAX_CURVES);
+        // extras（StudyExtras）のアドレス + log スケールをキーにキャッシュする。
+        let key = (extras as *const StudyExtras as usize, self.log_scale);
+        let cache_valid = self.cache.as_ref().is_some_and(|c| c.key == key);
+        if !cache_valid {
+            let (curves, total_eligible) =
+                build_intermediate_curves(&extras.trials, self.log_scale, MAX_CURVES);
+            if curves.is_empty() {
+                self.cache = None;
+                empty_state(ui, "No intermediate values in this study");
+                return;
+            }
+            let present = distinct_states_in_order(curves.iter().map(|c| c.state));
 
-        if curves.is_empty() {
-            empty_state(ui, "No intermediate values in this study");
-            return;
+            // ヒットテスト用の点群（描画座標系＝ log 変換後）と、ツールチップ用の元データを
+            // 同じ index で対応づけて保持する。
+            let log_scale = self.log_scale;
+            let mut hit_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
+            let mut hover_lookup: Vec<HoverPoint> = Vec::new();
+            for c in &curves {
+                for &[step, value] in &c.points {
+                    let plot_y = if log_scale && value > 0.0 {
+                        value.log10()
+                    } else {
+                        value
+                    };
+                    let idx = hover_lookup.len();
+                    hit_points.push((c.trial_id, idx, [step, plot_y]));
+                    hover_lookup.push(HoverPoint {
+                        trial_number: c.trial_number,
+                        state: c.state,
+                        step,
+                        value,
+                    });
+                }
+            }
+            self.cache = Some(IntermediateCache {
+                key,
+                curves,
+                total_eligible,
+                present,
+                hit_points,
+                hover_lookup,
+            });
         }
+        let cache = self.cache.as_ref().expect("cache built above");
 
         ui.horizontal(|ui| {
-            if curves.len() < total_eligible {
+            if cache.curves.len() < cache.total_eligible {
                 ui.label(
                     egui::RichText::new(format!(
                         "showing {} of {} trials",
-                        curves.len(),
-                        total_eligible
+                        cache.curves.len(),
+                        cache.total_eligible
                     ))
                     .small()
                     .color(crate::theme::TEXT_SECONDARY()),
                 );
             }
-            let mut present: Vec<TrialState> = Vec::new();
-            for c in &curves {
-                if !present.contains(&c.state) {
-                    present.push(c.state);
-                }
-            }
-            show_state_legend(ui, &present);
+            show_state_legend(ui, &cache.present);
         });
 
-        // ヒットテスト用の点群（描画座標系＝ log 変換後）と、ツールチップ用の元データを
-        // 同じ index で対応づけて保持する。
-        struct HoverPoint {
-            trial_number: u32,
-            state: TrialState,
-            step: f64,
-            value: f64,
-        }
         let log_scale = self.log_scale;
-        let mut hit_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
-        let mut hover_lookup: Vec<HoverPoint> = Vec::new();
-        for c in &curves {
-            for &[step, value] in &c.points {
-                let plot_y = if log_scale && value > 0.0 {
-                    value.log10()
-                } else {
-                    value
-                };
-                let idx = hover_lookup.len();
-                hit_points.push((c.trial_id, idx, [step, plot_y]));
-                hover_lookup.push(HoverPoint {
-                    trial_number: c.trial_number,
-                    state: c.state,
-                    step,
-                    value,
-                });
-            }
-        }
-
         let mut plot = egui_plot::Plot::new("intermediate_values_plot")
             .unified_nav()
             .x_axis_label("step")
@@ -113,14 +147,14 @@ impl IntermediateValuesChart {
         plot.show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
             if let Some(pos) = plot_ui.response().hover_pos() {
-                hovered_idx =
-                    hit_test_nearest(plot_ui, &hit_points, pos, HIT_THRESHOLD).map(|(_, i)| i);
+                hovered_idx = hit_test_nearest(plot_ui, &cache.hit_points, pos, HIT_THRESHOLD)
+                    .map(|(_, i)| i);
             }
             let hovered_trial_id = hovered_idx
-                .and_then(|i| hit_points.get(i))
+                .and_then(|i| cache.hit_points.get(i))
                 .map(|&(t, ..)| t);
 
-            for c in &curves {
+            for c in &cache.curves {
                 let is_hovered = hovered_trial_id == Some(c.trial_id);
                 let base = state_color(c.state);
                 let color = if hovered_trial_id.is_some() && !is_hovered {
@@ -149,7 +183,7 @@ impl IntermediateValuesChart {
             }
         });
 
-        if let Some(hp) = hovered_idx.and_then(|i| hover_lookup.get(i)) {
+        if let Some(hp) = hovered_idx.and_then(|i| cache.hover_lookup.get(i)) {
             let rows = vec![
                 ("State".to_string(), hp.state.label().to_string()),
                 ("Step".to_string(), format!("{}", hp.step)),
@@ -158,18 +192,6 @@ impl IntermediateValuesChart {
             show_hover_tooltip(ui, "intermediate_values_hover", hp.trial_number, &rows);
         }
     }
-}
-
-/// hover 中でない曲線を薄く見せる（アルファのみ落とす）。
-fn dim(color: egui::Color32) -> egui::Color32 {
-    let [r, g, b, _] = color.to_array();
-    egui::Color32::from_rgba_unmultiplied(r, g, b, 90)
-}
-
-fn empty_state(ui: &mut egui::Ui, message: &str) {
-    ui.centered_and_justified(|ui| {
-        ui.colored_label(COLOR_EMPTY_STATE(), message);
-    });
 }
 
 /// `trials` から学習曲線を構築する（純粋関数・テスト対象）。

@@ -1,5 +1,55 @@
+<<<<<<< HEAD
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+=======
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// `write_atomic` の一時ファイル名を衝突させないための連番。
+static TMP_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// ファイルをアトミックに上書きする（一時ファイルへ書いてから `rename`）。
+///
+/// `std::fs::write` は「truncate → 書込み」の非アトミック操作のため、上書き途中の
+/// ディスク満杯・クラッシュで既存ファイルを破損・消失させうる。本関数は同一ディレクトリ内の
+/// 一時ファイルへ全内容を書き切ってから `rename` で置き換えるため、失敗しても既存ファイルは
+/// 元のまま残る（`rename` は同一ファイルシステム内でのみアトミックなので、一時ファイルは
+/// 必ず対象と同じディレクトリに作る — 別ファイルシステムだと `rename` が失敗する）。
+///
+/// 書込み・`rename` のいずれかが失敗した場合は一時ファイルの後始末を試みてからエラーを返す。
+pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    // 対象と同一ディレクトリに一時ファイルを置く（別 FS への rename を避ける）。
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let base = path.file_name().and_then(|n| n.to_str()).unwrap_or("tunny");
+    let seq = TMP_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_name = format!(".{base}.tmp-{}-{seq}", std::process::id());
+    let tmp_path = dir.join(tmp_name);
+
+    // 一時ファイルへ書き切ってから rename する。途中で失敗したら一時ファイルを掃除する。
+    if let Err(e) = write_all_to_new_file(&tmp_path, contents) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    if let Err(e) = std::fs::rename(&tmp_path, path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// 新規ファイルを作成し内容を書き切ってフラッシュする（`write_atomic` の一時ファイル書込み部）。
+fn write_all_to_new_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(contents)?;
+    f.flush()?;
+    Ok(())
+}
+>>>>>>> origin/claude/egui-app-quality-review-fw9ck5
 
 /// ネイティブファイルダイアログで最適化結果ファイルを選択する。
 /// `.log` は Optuna の Journal ストレージ、`.csv` は DesignExplorer 向け形式、
@@ -88,12 +138,19 @@ mod tests {
         assert!(result.is_err());
     }
 
+<<<<<<< HEAD
     // ── write_atomic（M-2: アトミック書き込み） ──────────────────
 
     #[test]
     fn write_atomic_creates_new_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.json");
+=======
+    #[test]
+    fn write_atomic_creates_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.txt");
+>>>>>>> origin/claude/egui-app-quality-review-fw9ck5
         write_atomic(&path, b"hello").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"hello");
     }
@@ -101,23 +158,37 @@ mod tests {
     #[test]
     fn write_atomic_overwrites_existing_file() {
         let dir = tempfile::tempdir().unwrap();
+<<<<<<< HEAD
         let path = dir.path().join("out.json");
         std::fs::write(&path, b"old content").unwrap();
+=======
+        let path = dir.path().join("out.txt");
+        std::fs::write(&path, b"old contents").unwrap();
+>>>>>>> origin/claude/egui-app-quality-review-fw9ck5
         write_atomic(&path, b"new").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"new");
     }
 
     #[test]
+<<<<<<< HEAD
     fn write_atomic_leaves_no_temp_files() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.json");
         write_atomic(&path, b"a").unwrap();
         write_atomic(&path, b"b").unwrap();
         // 成功後、ディレクトリには対象ファイルだけが残る（一時ファイルなし）。
+=======
+    fn write_atomic_leaves_no_temp_file_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.txt");
+        write_atomic(&path, b"data").unwrap();
+        // ディレクトリには対象ファイルのみが残る（一時ファイルは rename で消費される）。
+>>>>>>> origin/claude/egui-app-quality-review-fw9ck5
         let entries: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
+<<<<<<< HEAD
         assert_eq!(entries, vec![std::ffi::OsString::from("out.json")]);
     }
 
@@ -125,5 +196,15 @@ mod tests {
     fn write_atomic_fails_on_missing_parent_dir() {
         let path = Path::new("/nonexistent_dir_xyz/out.json");
         assert!(write_atomic(path, b"x").is_err());
+=======
+        assert_eq!(entries, vec![std::ffi::OsString::from("out.txt")]);
+    }
+
+    #[test]
+    fn write_atomic_preserves_original_on_bad_directory() {
+        // 親ディレクトリが存在しない場合は Err を返す（既存ファイルは触らない）。
+        let path = PathBuf::from("/nonexistent_dir_write_atomic/out.txt");
+        assert!(write_atomic(&path, b"x").is_err());
+>>>>>>> origin/claude/egui-app-quality-review-fw9ck5
     }
 }

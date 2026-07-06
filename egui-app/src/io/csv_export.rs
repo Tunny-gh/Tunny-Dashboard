@@ -1,4 +1,4 @@
-use crate::state::app_state::{AppState, McdmResult};
+use crate::state::app_state::{AppState, McdmResult, StudyContext};
 use crate::state::layout_state::ChartId;
 use crate::state::results::ClusterResult;
 use crate::state::types::Direction;
@@ -36,11 +36,23 @@ fn mcdm_result_for_chart<'a>(
     app_state.mcdm_cache.get(&key)
 }
 
+/// 多くの `build_*_csv` 冒頭の定型ガード（current_study を取得し、trial が 1 件以上ある
+/// ことを保証する）を集約する。study 未選択・trial 数 0 のいずれかなら `None` を返す。
+fn require_study(app_state: &AppState) -> Option<&StudyContext> {
+    let study = app_state.current_study.as_ref()?;
+    (study.trial_count() > 0).then_some(study)
+}
+
 pub fn build_chart_csv(
     chart_id: &ChartId,
     app_state: &AppState,
     widgets: &WidgetStates,
 ) -> Option<String> {
+    // has_csv_data（ボタン活性判定）を唯一のデータ有無判定として使い、両者の乖離を防ぐ。
+    // has_csv_data は軽量なので毎エクスポート先頭で呼んでも問題ない。
+    if !has_csv_data(chart_id, app_state, widgets) {
+        return None;
+    }
     match chart_id {
         ChartId::OptimizationHistory => build_optimization_history_csv(app_state, widgets),
         ChartId::ConvergenceIndicators => build_convergence_csv(app_state),
@@ -368,10 +380,7 @@ fn build_observed_contour_csv(widgets: &WidgetStates) -> Option<String> {
 /// 現在の列選択・ビン設定でヒストグラムを再計算して CSV にする。
 /// ウィジェット表示時と同じフォールバック（目的関数→パラメータの最初の数値列）を適用する。
 fn build_histogram_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
-    if study.trial_count() == 0 {
-        return None;
-    }
+    let study = require_study(app_state)?;
     let obj_names = &study.meta.objective_names;
     let param_names = &study.meta.param_names;
     let candidates: Vec<&String> = obj_names
@@ -408,10 +417,7 @@ fn build_histogram_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<S
 fn build_box_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     use crate::ui::widgets::box_plot::{normalize_minmax, BoxPlotSource};
 
-    let study = app_state.current_study.as_ref()?;
-    if study.trial_count() == 0 {
-        return None;
-    }
+    let study = require_study(app_state)?;
     let names: &[String] = match widgets.box_plot.source {
         BoxPlotSource::Objectives => &study.meta.objective_names,
         BoxPlotSource::Parameters => &study.meta.param_names,
@@ -465,10 +471,7 @@ fn build_box_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<St
 /// 現在の Method/列グループ設定で相関行列を再計算し、ワイド形式で CSV にする。
 /// NaN セルは空文字として出力する。
 fn build_correlation_matrix_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
-    if study.trial_count() == 0 {
-        return None;
-    }
+    let study = require_study(app_state)?;
     if !widgets.correlation_matrix.include_params && !widgets.correlation_matrix.include_objectives
     {
         return None;
@@ -518,8 +521,8 @@ fn build_correlation_matrix_csv(app_state: &AppState, widgets: &WidgetStates) ->
 /// レーダー比較の現在の軸設定（Include parameters）でピン留めトライアルの生値を
 /// ワイド形式（1 軸 1 行、列 = ピン留めトライアル）で CSV にする。正規化前の生値を出力する。
 fn build_radar_comparison_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
-    if study.trial_count() == 0 || app_state.pinned_trials.is_empty() {
+    let study = require_study(app_state)?;
+    if app_state.pinned_trials.is_empty() {
         return None;
     }
     let axes = crate::ui::widgets::radar_comparison::build_axes(
@@ -575,8 +578,8 @@ fn build_radar_comparison_csv(app_state: &AppState, widgets: &WidgetStates) -> O
 /// 比較表の現在の行設定（Parameters / User attrs）でピン留めトライアルの生値を
 /// ワイド形式（1 行 1 行、列 = ピン留めトライアル）で CSV にする。
 fn build_comparison_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
-    if study.trial_count() == 0 || app_state.pinned_trials.is_empty() {
+    let study = require_study(app_state)?;
+    if app_state.pinned_trials.is_empty() {
         return None;
     }
     let pinned_rows = crate::ui::widgets::comparison_table::resolve_pinned_rows(
@@ -914,11 +917,8 @@ fn build_pdp_2d_csv(_app_state: &AppState, widgets: &WidgetStates) -> Option<Str
     Some(w.finish())
 }
 fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
+    let study = require_study(app_state)?;
     let n = study.trial_count();
-    if n == 0 {
-        return None;
-    }
     let row_indices: Vec<usize> = (0..n).collect();
     Some(crate::io::export::build_csv_string_from_view(
         &study.view,
@@ -1002,31 +1002,17 @@ fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     // This matches the chart, which plots all trials and colors the front.
     // `StudyView::new` guarantees `pareto_rank` is row-aligned (length == row
     // count), so rank lookups never go out of bounds.
-    let param_names = &study.meta.param_names;
-    let obj_names = &study.meta.objective_names;
-    let param_cols = study.view.numeric_columns(param_names);
-    let obj_cols = study.view.numeric_columns(obj_names);
-    let mut w = CsvWriter::new();
-    let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
-    header.extend(param_names.iter().map(String::as_str));
-    header.extend(obj_names.iter().map(String::as_str));
-    header.push("pareto_rank");
-    w.header(header);
-    for (i, &tid) in study.view.trial_ids.iter().enumerate() {
-        let rank = study.view.pareto_rank.get(i).copied().unwrap_or(0);
-        let trial_number = study.view.df.get_trial_number(i).unwrap_or(i as u32);
-        let mut fields = vec![
-            CsvField::UInt(tid as u64),
-            CsvField::UInt(trial_number as u64),
-        ];
-        for col in param_cols.iter().chain(&obj_cols) {
-            let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-            fields.push(CsvField::Num(v));
-        }
-        fields.push(CsvField::UInt(rank as u64));
-        w.row(fields);
-    }
-    Some(w.finish())
+    let row_indices: Vec<usize> = (0..study.view.trial_ids.len()).collect();
+    Some(crate::io::export::build_trial_csv_from_view(
+        &study.view,
+        &row_indices,
+        &study.meta.param_names,
+        &study.meta.objective_names,
+        crate::io::export::TrialCsvColumns {
+            pareto_rank: true,
+            cluster_id: false,
+        },
+    ))
 }
 fn build_mcdm_rank_csv(result: &McdmResult, app_state: &AppState) -> Option<String> {
     let trial_ids = &app_state.current_study.as_ref()?.view.trial_ids;
@@ -1144,11 +1130,7 @@ fn build_mcdm_table_csv(result: &McdmResult, app_state: &AppState) -> Option<Str
 }
 
 fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
-    let n = study.trial_count();
-    if n == 0 {
-        return None;
-    }
+    let study = require_study(app_state)?;
     let param_idx = widgets.slice_chart.selected_param_idx;
     let obj_idx = widgets.slice_chart.selected_obj_idx;
     let param_name = study.meta.param_names.get(param_idx)?;
@@ -1195,11 +1177,7 @@ fn build_edf_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String>
 
 /// Rank Plot の全 trial 分（NaN/欠損を含む）を出力する。
 fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
-    let study = app_state.current_study.as_ref()?;
-    let n = study.trial_count();
-    if n == 0 {
-        return None;
-    }
+    let study = require_study(app_state)?;
     let x_name = study.meta.param_names.get(widgets.rank_plot.x_param_idx)?;
     let y_name = study.meta.param_names.get(widgets.rank_plot.y_param_idx)?;
     let obj_idx = widgets.rank_plot.obj_idx;

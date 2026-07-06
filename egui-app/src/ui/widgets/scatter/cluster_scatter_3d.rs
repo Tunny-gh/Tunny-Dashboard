@@ -7,10 +7,12 @@ use crate::ui::widgets::cluster_scatter::{
     KMeansInitStrategy, KSelectionMode,
 };
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    show_hover_and_click_detail, show_objective_combo, ArcballCamera, Range3DCache,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, project_value_3d,
+    setup_3d_canvas, show_hover_and_click_detail, show_objective_combo, ArcballCamera, DepthPoint,
+    Range3DCache,
 };
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::scatter_matrix::{downsample_indices_to_cap, MAX_SCATTER_POINTS};
+use crate::ui::widgets::trial_detail_modal::{axis_row, push_feasible_row, TrialDetailModal};
 
 /// クラスタ 3D 散布図ウィジェット
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -182,31 +184,37 @@ impl ClusterScatter3D {
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
+        // 全 trial を毎フレーム 3 回（infeasible / other / feasible）深度ソートするのは重いため、
+        // 2D 系と同じ 1500 点上限で間引いてから描画・ソートする（M-13）。
+        let all_indices: Vec<u32> = (0..trial_count as u32).collect();
+        let displayed = downsample_indices_to_cap(&all_indices, MAX_SCATTER_POINTS);
+
         // Collect points
         let show_infeasible = self.show_infeasible;
-        let mut feasible_pts: Vec<(egui::Pos2, f32, egui::Color32)> =
-            Vec::with_capacity(trial_count);
-        let mut infeasible_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        let mut feasible_pts: Vec<DepthPoint> = Vec::with_capacity(displayed.len());
+        let mut infeasible_pts: Vec<DepthPoint> = Vec::new();
         // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
-        let mut other_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        let mut other_pts: Vec<DepthPoint> = Vec::new();
         // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
-        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(trial_count);
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
 
-        for i in 0..trial_count {
+        for &idx in &displayed {
+            let i = idx as usize;
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            let clip = [
-                normalize_to_clip(xv, x_min, x_max),
-                normalize_to_clip(yv, y_min, y_max),
-                normalize_to_clip(zv, z_min, z_max),
-            ];
-            let (pos, depth) = project(clip);
+            // normalize→project は共通ヘルパー（D-1）。
+            let (pos, depth) = project_value_3d(&project, [xv, yv, zv], ranges);
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
             if !feas.is_feasible(i) {
                 if show_infeasible {
-                    infeasible_pts.push((pos, depth));
+                    infeasible_pts.push(DepthPoint {
+                        pos,
+                        depth,
+                        color: COLOR_INFEASIBLE(),
+                        radius: 3.0,
+                    });
                     candidates.push((trial_id, i, pos));
                 }
                 continue;
@@ -218,24 +226,25 @@ impl ClusterScatter3D {
 
             if has_cluster && label < 0 {
                 // クラスタリング済みだが非パレートフロント → 半透明で描画
-                other_pts.push((pos, depth));
+                other_pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color: COLOR_NON_PARETO_DIM(),
+                    radius: 2.5,
+                });
             } else {
-                feasible_pts.push((pos, depth, cluster_color(label)));
+                feasible_pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color: cluster_color(label),
+                    radius: 3.5,
+                });
             }
         }
 
-        infeasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _) in &infeasible_pts {
-            painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE());
-        }
-        other_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _) in &other_pts {
-            painter.circle_filled(*pos, 2.5, COLOR_NON_PARETO_DIM());
-        }
-        feasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _, color) in &feasible_pts {
-            painter.circle_filled(*pos, 3.5, *color);
-        }
+        draw_depth_sorted_points(&painter, &mut infeasible_pts, None);
+        draw_depth_sorted_points(&painter, &mut other_pts, None);
+        draw_depth_sorted_points(&painter, &mut feasible_pts, None);
 
         if !has_cluster && !self.computing {
             painter.text(
@@ -267,30 +276,18 @@ impl ClusterScatter3D {
             "cluster3d_hover_tooltip",
             &mut self.detail_modal,
             |row| {
-                let fmt =
-                    |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
                 let mut rows = vec![
-                    (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
-                    (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
-                    (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
+                    axis_row(&x_name, x_col, row),
+                    axis_row(&y_name, y_col, row),
+                    axis_row(&z_name, z_col, row),
                     ("Cluster".to_string(), cluster_str_for(row)),
                 ];
-                if feas.has_constraints() {
-                    rows.push((
-                        "Feasible".to_string(),
-                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                    ));
-                }
+                push_feasible_row(&mut rows, feas, row);
                 rows
             },
             |row| {
                 let mut context = vec![("Cluster".to_string(), cluster_str_for(row))];
-                if feas.has_constraints() {
-                    context.push((
-                        "Feasible".to_string(),
-                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                    ));
-                }
+                push_feasible_row(&mut context, feas, row);
                 context
             },
         );

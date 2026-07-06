@@ -29,14 +29,8 @@ use tunny_core::surrogate_opt::{
     TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
-/// モデル選択肢（コンボ表示順）。新モデル追加時はここへ並べる。
-const MODEL_CHOICES: [SurrogateModelKind; 5] = [
-    SurrogateModelKind::Ridge,
-    SurrogateModelKind::GpFitc,
-    SurrogateModelKind::GpVfe,
-    SurrogateModelKind::GpMoe,
-    SurrogateModelKind::Lgbm,
-];
+// モデル選択肢（コンボ表示順）。3 ウィジェット共通の単一情報源（`super::MODEL_CHOICES`）を使う。
+use super::MODEL_CHOICES;
 
 /// Model コンボの "Auto" エントリのラベル。
 const AUTO_MODEL_LABEL: &str = "Auto (cross-validated)";
@@ -1473,7 +1467,8 @@ fn render_front_scatter_3d(
         COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_SURROGATE_FRONT,
     };
     use crate::ui::widgets::scatter_3d::{
-        compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
+        compute_range_from_col, draw_3d_axes, draw_3d_grid, draw_depth_sorted_points,
+        project_value_3d, setup_3d_canvas, DepthPoint,
     };
 
     let xi = state.multi_front_x_obj;
@@ -1552,29 +1547,23 @@ fn render_front_scatter_3d(
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
-        // 1 群を投影・深度ソートして描画するヘルパー。
+        // 1 群を投影・深度ソートして描画するヘルパー（共通ヘルパー・D-1）。
+        let ranges = [(x_min, x_max), (y_min, y_max), (z_min, z_max)];
         let draw_group = |group: &[[f64; 3]], color: egui::Color32, radius: f32, stroke: bool| {
-            let mut calls: Vec<(egui::Pos2, f32)> = group
+            let mut calls: Vec<DepthPoint> = group
                 .iter()
-                .map(|p| {
-                    project([
-                        normalize_to_clip(p[0], x_min, x_max),
-                        normalize_to_clip(p[1], y_min, y_max),
-                        normalize_to_clip(p[2], z_min, z_max),
-                    ])
+                .map(|&p| {
+                    let (pos, depth) = project_value_3d(&project, p, ranges);
+                    DepthPoint {
+                        pos,
+                        depth,
+                        color,
+                        radius,
+                    }
                 })
                 .collect();
-            calls.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (pos, _) in &calls {
-                painter.circle_filled(*pos, radius, color);
-                if stroke {
-                    painter.circle_stroke(
-                        *pos,
-                        radius,
-                        egui::Stroke::new(1.0, egui::Color32::BLACK),
-                    );
-                }
-            }
+            let stroke = stroke.then(|| egui::Stroke::new(1.0, egui::Color32::BLACK));
+            draw_depth_sorted_points(&painter, &mut calls, stroke);
         };
 
         // 観測点（背面）→ 予測フロント（手前）の順に描画する。

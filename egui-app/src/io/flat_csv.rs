@@ -4,7 +4,7 @@
 //! 共有ストアへ登録し、`img` 列から CSV と同じディレクトリのアーティファクトを解決する。
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::app_state::StudyMeta;
@@ -47,6 +47,11 @@ fn build_artifact_map(
 ) -> HashMap<u32, Vec<ArtifactEntry>> {
     let mut map: HashMap<u32, Vec<ArtifactEntry>> = HashMap::new();
     for (trial_id, filename) in images {
+        // CSV ディレクトリ外への参照を防ぐ。絶対パス（RootDir / Windows の Prefix）や
+        // 親ディレクトリ参照（`..`）を含むファイル名は解決せず除外する。
+        if !is_safe_relative_filename(filename) {
+            continue;
+        }
         let path = base_dir.join(filename);
         if !path.is_file() {
             continue;
@@ -59,6 +64,18 @@ fn build_artifact_map(
         });
     }
     map
+}
+
+/// `img` 列のファイル名が CSV ディレクトリ内に収まる安全な相対パスかを判定する。
+/// 絶対パス（`RootDir` / Windows の `Prefix`）や親ディレクトリ参照（`ParentDir` = `..`）を
+/// 含む場合は `false` を返し、CSV ディレクトリ外のファイル参照（ディレクトリトラバーサル）を防ぐ。
+fn is_safe_relative_filename(filename: &str) -> bool {
+    Path::new(filename).components().all(|c| {
+        !matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    })
 }
 
 /// パスがフラット CSV 形式（拡張子 `.csv`）かを判定する。
@@ -101,6 +118,49 @@ mod tests {
         assert_eq!(map.len(), 1);
         assert_eq!(map.get(&0).unwrap()[0].filename, "a.png");
         assert!(!map.contains_key(&1));
+    }
+
+    #[test]
+    fn is_safe_relative_filename_accepts_plain_names() {
+        assert!(is_safe_relative_filename("a.png"));
+        assert!(is_safe_relative_filename("sub/dir/a.png"));
+        assert!(is_safe_relative_filename("./a.png"));
+    }
+
+    #[test]
+    fn is_safe_relative_filename_rejects_traversal_and_absolute() {
+        assert!(!is_safe_relative_filename("../secret.png"));
+        assert!(!is_safe_relative_filename("sub/../../secret.png"));
+        assert!(!is_safe_relative_filename("/etc/passwd"));
+        // Windows 形式の絶対/プレフィックスパス（cfg(windows) でのみ Prefix/RootDir になる）。
+        #[cfg(windows)]
+        {
+            assert!(!is_safe_relative_filename(r"C:\Windows\system32"));
+            assert!(!is_safe_relative_filename(r"\\server\share\a.png"));
+        }
+    }
+
+    #[test]
+    fn build_artifact_map_rejects_parent_dir_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        // base ディレクトリの外側に実ファイルを置いても、`..` 付きは解決しない。
+        std::fs::write(base.join("secret.png"), b"x").unwrap();
+        let images = vec![(0u32, "../secret.png".to_string())];
+        let map = build_artifact_map(base, &images);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn build_artifact_map_rejects_absolute_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let outside = base.join("abs.png");
+        std::fs::write(&outside, b"x").unwrap();
+        // 実在する絶対パスを指定しても、絶対パスは拒否される。
+        let images = vec![(0u32, outside.to_string_lossy().into_owned())];
+        let map = build_artifact_map(base, &images);
+        assert!(map.is_empty());
     }
 
     #[test]

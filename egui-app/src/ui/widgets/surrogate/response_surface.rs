@@ -29,19 +29,26 @@ use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     show_hover_and_click_detail, ArcballCamera,
 };
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::trial_detail_modal::{axis_row, TrialDetailModal};
 
-/// モデル選択肢（コンボ表示順）。`robustness.rs` と揃える。
-const MODEL_CHOICES: [SurrogateModelKind; 5] = [
-    SurrogateModelKind::Ridge,
-    SurrogateModelKind::GpFitc,
-    SurrogateModelKind::GpVfe,
-    SurrogateModelKind::GpMoe,
-    SurrogateModelKind::Lgbm,
-];
+// モデル選択肢（コンボ表示順）。3 ウィジェット共通の単一情報源（`super::MODEL_CHOICES`）を使う。
+use super::MODEL_CHOICES;
 
 /// グリッド解像度の選択肢。
 const GRID_CHOICES: [usize; 3] = [20, 30, 50];
+
+/// GP 系モデルのスライス評価はグリッド点数の二乗に比例して重い（50²=2500 点予測）。
+/// 描画パス同期実行での UI ブロックを避けるため、GP 系ではグリッド解像度をこの値で頭打ちにする。
+/// Ridge / LightGBM は安価なため制限しない。
+const GP_GRID_CAP: usize = 30;
+
+/// GP（ガウス過程）系モデルか。応答曲面スライスの計算コストが高いモデル群。
+fn is_gp_kind(kind: SurrogateModelKind) -> bool {
+    matches!(
+        kind,
+        SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe | SurrogateModelKind::GpMoe
+    )
+}
 
 /// フィット段階の計算リクエスト。poll_chart が消費する。
 pub struct ResponseSurfaceFitRequest {
@@ -49,8 +56,16 @@ pub struct ResponseSurfaceFitRequest {
     pub model: SurrogateModelKind,
 }
 
-/// キャッシュキー: (学習済みモデルのポインタ恒等性, x_idx, y_idx, アンカーのビット表現, n_grid)。
-type SliceCacheKey = (usize, usize, usize, Vec<u64>, usize);
+/// キャッシュキー: (フィット世代 ID, x_idx, y_idx, アンカーのビット表現, n_grid)。
+/// 先頭要素は以前 `Arc::as_ptr` だったが、解放後に同一アドレスが再利用されると
+/// 別モデルの結果を誤表示しうる（ABA）。フィット採用時に単調増加する世代 ID
+/// （`ResponseSurfaceChart::fit_generation`）へ置き換えて回避する。
+type SliceCacheKey = (u64, usize, usize, Vec<u64>, usize);
+
+/// アンカー解決結果のキャッシュキー: (フィット世代 ID, アンカー選択, DataFrame 恒等性)。
+/// 中心点解決（`resolve_center`）は全 trial を走査する O(N) 処理のため、
+/// 入力が変わらないフレームでは再走査を避ける。
+type AnchorCacheKey = (u64, CenterChoice, usize);
 
 /// 応答曲面 3D ウィジェットの UI 状態。
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -77,6 +92,15 @@ pub struct ResponseSurfaceChart {
     pub pending_fit: Option<ResponseSurfaceFitRequest>,
     #[serde(skip)]
     cache: Option<(SliceCacheKey, SurfaceSlice)>,
+    /// アンカー解決結果のキャッシュ（毎フレームの O(N) 走査回避）。
+    #[serde(skip)]
+    anchor_cache: Option<(AnchorCacheKey, Vec<f64>)>,
+    /// フィット採用時に単調増加する世代 ID。キャッシュキーの `Arc::as_ptr` 置換用。
+    #[serde(skip)]
+    fit_generation: u64,
+    /// 直近フレームで観測した学習済みモデルの Arc ポインタ（世代 ID 更新の変化検出用）。
+    #[serde(skip)]
+    fit_ptr: usize,
     /// 観測点クリックで開くトライアル詳細モーダル。
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
@@ -99,6 +123,9 @@ impl Default for ResponseSurfaceChart {
             fit_error: None,
             pending_fit: None,
             cache: None,
+            anchor_cache: None,
+            fit_generation: 0,
+            fit_ptr: 0,
             detail_modal: TrialDetailModal::new(),
         }
     }
@@ -120,14 +147,14 @@ impl ResponseSurfaceChart {
 }
 
 fn cache_key(
-    trained: &Arc<TrainedSurrogate>,
+    fit_generation: u64,
     x_idx: usize,
     y_idx: usize,
     anchor: &[f64],
     n_grid: usize,
 ) -> SliceCacheKey {
     (
-        Arc::as_ptr(trained) as usize,
+        fit_generation,
         x_idx,
         y_idx,
         anchor.iter().map(|v| v.to_bits()).collect(),
@@ -274,6 +301,14 @@ impl ResponseSurfaceChart {
             return;
         };
 
+        // フィット採用（trained の Arc が別モデルへ差し替わった）を検出して世代 ID を進める。
+        // キャッシュキーはこの世代 ID を使い、`Arc::as_ptr` のアドレス再利用（ABA）を避ける。
+        let trained_ptr = Arc::as_ptr(&trained) as usize;
+        if trained_ptr != self.fit_ptr {
+            self.fit_ptr = trained_ptr;
+            self.fit_generation = self.fit_generation.wrapping_add(1);
+        }
+
         if self.param_x.is_empty() || self.param_y.is_empty() || self.param_x == self.param_y {
             return;
         }
@@ -292,23 +327,42 @@ impl ResponseSurfaceChart {
             return;
         };
 
-        let Some(anchor) = resolve_center(&trained, self.anchor, view, obj_names, directions)
-        else {
+        // アンカー解決は全 trial を走査する O(N) 処理。入力（世代・選択・DataFrame）が
+        // 変わらないフレームでは前回結果を再利用する。
+        let anchor_key: AnchorCacheKey = (
+            self.fit_generation,
+            self.anchor,
+            Arc::as_ptr(&view.df) as usize,
+        );
+        if self.anchor_cache.as_ref().map(|(k, _)| k) != Some(&anchor_key) {
+            self.anchor_cache = resolve_center(&trained, self.anchor, view, obj_names, directions)
+                .map(|a| (anchor_key, a));
+        }
+        let Some((_, anchor)) = self.anchor_cache.as_ref() else {
             ui.colored_label(
                 egui::Color32::RED,
                 "Could not resolve the anchor point for the trained parameters.",
             );
             return;
         };
+        let anchor = anchor.clone();
 
-        let key = cache_key(&trained, x_idx, y_idx, &anchor, self.n_grid);
+        // GP 系はグリッド点数の二乗に比例して重いため、描画パス同期実行の UI ブロックを
+        // 抑えるようスライス解像度を頭打ちにする（Ridge / LightGBM は制限なし）。
+        let effective_grid = if is_gp_kind(trained.model_kind) {
+            self.n_grid.min(GP_GRID_CAP)
+        } else {
+            self.n_grid
+        };
+
+        let key = cache_key(self.fit_generation, x_idx, y_idx, &anchor, effective_grid);
         if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
             self.cache = tunny_core::surrogate_opt::surface_slice_at(
                 &trained,
                 &anchor,
                 x_idx,
                 y_idx,
-                self.n_grid,
+                effective_grid,
             )
             .map(|s| (key, s));
         }
@@ -439,7 +493,6 @@ impl ResponseSurfaceChart {
                     Some((trial_id, row, pos))
                 })
                 .collect();
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
             show_hover_and_click_detail(
                 ui,
                 view,
@@ -450,18 +503,9 @@ impl ResponseSurfaceChart {
                 &mut *detail_modal,
                 |row| {
                     vec![
-                        (
-                            param_x.clone(),
-                            fmt(px_col.and_then(|c| c.get(row)).copied()),
-                        ),
-                        (
-                            param_y.clone(),
-                            fmt(py_col.and_then(|c| c.get(row)).copied()),
-                        ),
-                        (
-                            objective_name.clone(),
-                            fmt(obj_col.and_then(|c| c.get(row)).copied()),
-                        ),
+                        axis_row(&param_x, px_col, row),
+                        axis_row(&param_y, py_col, row),
+                        axis_row(&objective_name, obj_col, row),
                     ]
                 },
                 |row| {

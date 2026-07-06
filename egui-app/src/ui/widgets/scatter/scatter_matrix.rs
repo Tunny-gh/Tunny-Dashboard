@@ -7,6 +7,9 @@ use crate::theme::color_compute::correlation_color;
 /// セル数（下三角）×点数で描画コストが効くため、点数を抑えて応答性を保つ。
 pub const MAX_SCATTER_POINTS: usize = 1500;
 
+/// 対角セルのヒストグラムのビン数。
+const HIST_BINS: usize = 10;
+
 /// Scatter Matrix の表示モード
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MatrixMode {
@@ -38,65 +41,44 @@ pub struct ScatterMatrix {
     downsample_cache: Option<(Vec<u32>, Vec<u32>)>,
     #[serde(skip)]
     downsample_cache_key: Option<(usize, usize, bool)>, // (df_ptr, trial_count, has_constraints)
+    /// セル統計（列レンジ・ヒストグラム・相関）と点色のキャッシュ（H-4）。
+    #[serde(skip)]
+    stats_cache: Option<MatrixStatsCache>,
     /// 行・列ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
     #[serde(skip)]
     label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
     #[serde(skip)]
     label_galleys_cache_key: Option<Vec<String>>,
-    /// 全セル統計（ヒストグラム・相関係数・列 min/max）のキャッシュ（H-4）。
-    /// O(n_axes² × trial_count) の再計算は df・軸リストが変わったときだけ行う。
-    #[serde(skip)]
-    cell_stats_cache: Option<CellStats>,
-    #[serde(skip)]
-    cell_stats_key: Option<(usize, Vec<String>)>, // (df_ptr, all_names)
-    /// 間引き後の描画点色（feasible / infeasible）のキャッシュ（H-4）。
-    #[serde(skip)]
-    point_colors_cache: Option<(Vec<egui::Color32>, Vec<egui::Color32>)>,
-    #[serde(skip)]
-    point_colors_key: Option<(usize, Option<String>, u64)>, // (df_ptr, 色付け目的関数, cmap fingerprint)
 }
 
-/// 散布図行列の全セル統計（H-4 のフレーム間キャッシュ本体）。
-/// いずれも `all_names` の列順に並ぶ。
-struct CellStats {
-    /// 対角セル用: 各列のヒストグラム（ビン数 `HIST_BINS`）
+/// セル統計（列レンジ・ヒストグラム・相関）と点色のキャッシュ（H-4）。
+///
+/// セル描画ループは毎フレーム、全列・全 trial に対してヒストグラム・相関係数・min/max を
+/// 再計算していた（O(n_axes² × trial_count)）。数万 trial × 十数パラメータではフレーム落ちの
+/// 主要因になる。df の恒等性・表示モード・着色目的・カラーマップが変わらない限り、これらを
+/// 一度だけ計算してキャッシュし、フレーム内は描画のみにする。
+struct MatrixStatsCache {
+    key: MatrixStatsKey,
+    /// 各列の min/max（散布図セルの座標変換に使う。`draw_scatter_cell` と同じ畳み込み）。
+    col_ranges: Vec<(f64, f64)>,
+    /// 対角セルのヒストグラム（列ごと・`HIST_BINS` ビン）。
     histograms: Vec<Vec<usize>>,
-    /// 上三角セル用: 相関係数の n×n フラット行列（`row * n + col` で参照、下三角と対角は 0.0）
+    /// 上三角セルの相関係数。`row * n + col`（row < col のみ有効）でアクセスする。
     correlations: Vec<f64>,
-    /// 散布図セル用: 各列の (min, max)
-    ranges: Vec<(f64, f64)>,
+    /// feasible 描画点の色（`feasible_draw` と同じ並び順）。
+    point_colors: Vec<egui::Color32>,
 }
 
-/// 対角セルのヒストグラムのビン数。
-const HIST_BINS: usize = 10;
-
-/// 全セル統計（ヒストグラム・相関・min/max）を一括計算する。
-/// 相関は上三角（col > row）のみ計算し、他は 0.0 のまま残す。
-fn compute_cell_stats(cols: &[&[f64]]) -> CellStats {
-    let n = cols.len();
-    let histograms: Vec<Vec<usize>> = cols
-        .iter()
-        .map(|col| compute_histogram(col, HIST_BINS))
-        .collect();
-    let ranges: Vec<(f64, f64)> = cols
-        .iter()
-        .map(|col| {
-            let mn = col.iter().cloned().fold(f64::INFINITY, f64::min);
-            let mx = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            (mn, mx)
-        })
-        .collect();
-    let mut correlations = vec![0.0_f64; n * n];
-    for row in 0..n {
-        for col in (row + 1)..n {
-            correlations[row * n + col] = compute_correlation(cols[row], cols[col]);
-        }
-    }
-    CellStats {
-        histograms,
-        correlations,
-        ranges,
-    }
+/// `MatrixStatsCache` の無効化キー。いずれかが変われば全セル統計を再計算する。
+#[derive(PartialEq)]
+struct MatrixStatsKey {
+    /// DataFrame の Arc 恒等性（別 Study/更新後の取り違えを防ぐ）。
+    df_ptr: usize,
+    mode: MatrixMode,
+    color_objective: Option<String>,
+    cmap_fp: u64,
+    trial_count: usize,
+    has_constraints: bool,
 }
 
 impl Default for ScatterMatrix {
@@ -109,12 +91,9 @@ impl Default for ScatterMatrix {
             color_objective: None,
             downsample_cache: None,
             downsample_cache_key: None,
+            stats_cache: None,
             label_galleys_cache: None,
             label_galleys_cache_key: None,
-            cell_stats_cache: None,
-            cell_stats_key: None,
-            point_colors_cache: None,
-            point_colors_key: None,
         }
     }
 }
@@ -155,6 +134,8 @@ impl ScatterMatrix {
 
         let feas = view.feasibility();
         let has_constraints = feas.has_constraints();
+        // DataFrame の Arc 恒等性。別 Study / 更新後の取り違えを防ぐキャッシュキーに使う。
+        let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
 
         // コントロール行: "Show Infeasible" トグル（制約あり Study のみ）と "Color by" ドロップダウン
         ui.horizontal(|ui| {
@@ -186,7 +167,7 @@ impl ScatterMatrix {
         // 描画パフォーマンス対策: セルあたりの表示点数に上限を設ける。
         // 全散布図セルで同じ間引きインデックスを使い回す（毎セル再計算しない）。
         // feasible/infeasible 分割＋間引きは trial_count・制約有無が変わらない限り再計算しない。
-        let ds_key = (trial_count, has_constraints);
+        let ds_key = (df_ptr, trial_count, has_constraints);
         if self.downsample_cache.is_none() || self.downsample_cache_key != Some(ds_key) {
             let (feasible_indices, infeasible_indices) =
                 split_feasibility_indices(trial_count, feas);
@@ -196,6 +177,54 @@ impl ScatterMatrix {
             self.downsample_cache = Some((feasible_draw, infeasible_draw));
             self.downsample_cache_key = Some(ds_key);
         }
+
+        // セル統計（列レンジ・ヒストグラム・相関）と点色を、df の恒等性・表示モード・
+        // 着色目的・カラーマップをキーに一度だけ計算してキャッシュする（H-4）。
+        // これらが変わらない限り、以降のセル描画ループは描画のみになる。
+        let stats_key = MatrixStatsKey {
+            df_ptr,
+            mode: self.mode.clone(),
+            color_objective: self.color_objective.clone(),
+            cmap_fp: super::rank_plot::cmap_fingerprint(cmap),
+            trial_count,
+            has_constraints,
+        };
+        if self.stats_cache.as_ref().map(|c| &c.key) != Some(&stats_key) {
+            // 列レンジ（`draw_scatter_cell` と同じ畳み込みで min/max を求める）。
+            let col_ranges: Vec<(f64, f64)> = cols.iter().map(|c| col_min_max(c)).collect();
+            // 対角セルのヒストグラム。
+            let histograms: Vec<Vec<usize>> = cols
+                .iter()
+                .map(|c| compute_histogram(c, HIST_BINS))
+                .collect();
+            // 上三角セルの相関係数（row < col のみ計算）。
+            let mut correlations = vec![0.0f64; n * n];
+            for row in 0..n {
+                for col in (row + 1)..n {
+                    correlations[row * n + col] = compute_correlation(cols[row], cols[col]);
+                }
+            }
+            // feasible 描画点の色（間引き後の点数分のみ）。
+            let point_colors = {
+                let feasible_draw = &self.downsample_cache.as_ref().unwrap().0;
+                compute_feasible_point_colors(
+                    view,
+                    &self.color_objective,
+                    obj_names,
+                    feas,
+                    cmap,
+                    feasible_draw,
+                )
+            };
+            self.stats_cache = Some(MatrixStatsCache {
+                key: stats_key,
+                col_ranges,
+                histograms,
+                correlations,
+                point_colors,
+            });
+        }
+        let stats = self.stats_cache.as_ref().unwrap();
         let (feasible_draw, infeasible_draw) = self.downsample_cache.as_ref().unwrap();
 
         // 行・列ラベルを事前レイアウトしてサイズを測る。
@@ -255,18 +284,9 @@ impl ScatterMatrix {
             let size = galley.size();
             if rotate_cols {
                 // -45°（反時計回り）で回転させた "/" 形ラベルの最下端を
-                // 各列中心・グリッド上端のすぐ上に合わせる（PCP と同じ手法）
+                // 各列中心・グリッド上端のすぐ上に合わせる（PCP と同じ手法・D-12 共通ヘルパー）
                 let applied = -label_angle;
-                let (sa, ca) = (applied.sin(), applied.cos());
-                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
-                let mut lowest = (0.0_f32, f32::MIN);
-                for (px, py) in corners {
-                    let rx = px * ca - py * sa;
-                    let ry = px * sa + py * ca;
-                    if ry > lowest.1 {
-                        lowest = (rx, ry);
-                    }
-                }
+                let lowest = super::rotated_label_corners(size, applied).lowest;
                 let anchor = egui::pos2(col_center_x, available.min.y - 2.0);
                 let pos = anchor - egui::vec2(lowest.0, lowest.1);
                 painter.add(
@@ -284,21 +304,11 @@ impl ScatterMatrix {
             let row_center_y = available.min.y + (idx as f32 + 0.5) * cell_h;
             if rotate_rows {
                 // -45° で回転させたラベルの右端（最大 rx の隅）を、
-                // 各行中心・グリッド左端のすぐ左に合わせる。
+                // 各行中心・グリッド左端のすぐ左に合わせる（D-12 共通ヘルパー）。
                 let applied = -label_angle;
-                let (sa, ca) = (applied.sin(), applied.cos());
-                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
-                let mut right = (f32::MIN, 0.0); // (rx, ry) で rx 最大の隅
-                let (mut min_ry, mut max_ry) = (f32::MAX, f32::MIN);
-                for (px, py) in corners {
-                    let rx = px * ca - py * sa;
-                    let ry = px * sa + py * ca;
-                    if rx > right.0 {
-                        right = (rx, ry);
-                    }
-                    min_ry = min_ry.min(ry);
-                    max_ry = max_ry.max(ry);
-                }
+                let corners = super::rotated_label_corners(size, applied);
+                let right = corners.rightmost;
+                let (min_ry, max_ry) = corners.ry_range;
                 // 右端を (available.min.x - gap) に、回転後の縦中心を row_center_y に合わせる
                 let anchor = egui::pos2(available.min.x - 4.0, row_center_y);
                 let center_ry = (min_ry + max_ry) * 0.5;
@@ -315,37 +325,10 @@ impl ScatterMatrix {
                 );
             }
         }
-        // 選択した目的関数の値でカラーマップ色を計算する。
-        // 目的関数がない・列が取れない場合は全点 COLOR_SCATTER_DOT。
-        // 実際に描画するのは間引き後の feasible_draw/infeasible_draw のみのため、
-        // 色配列も全トライアル分ではなく間引き後の点数分だけ計算する
+        // 点色はキャッシュ済み（stats.point_colors）。実際に描画するのは間引き後の
+        // feasible_draw/infeasible_draw のみで、色配列も間引き後の点数分だけ持つ
         // （draw_scatter_cell は colors を downsample_indices と同じ並び順で参照する）。
-        let point_colors: Vec<egui::Color32> = {
-            use super::parallel_coords::{feasible_color_range, normalize_value};
-            let color_obj_name = resolve_color_objective(&self.color_objective, obj_names);
-            if let Some(name) = color_obj_name {
-                if let Some(col) = view.numeric_column(name) {
-                    let col_min = col.iter().cloned().fold(f64::INFINITY, f64::min);
-                    let col_max = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let (mn, mx) = feasible_color_range(col, feas, (col_min, col_max));
-                    feasible_draw
-                        .iter()
-                        .map(|&i| {
-                            let v = col.get(i as usize).copied().unwrap_or(f64::NAN);
-                            if v.is_finite() {
-                                cmap.interpolate(normalize_value(v, mn, mx))
-                            } else {
-                                COLOR_SCATTER_DOT()
-                            }
-                        })
-                        .collect()
-                } else {
-                    vec![COLOR_SCATTER_DOT(); feasible_draw.len()]
-                }
-            } else {
-                vec![COLOR_SCATTER_DOT(); feasible_draw.len()]
-            }
-        };
+        // infeasible は単色のため、テーマ色の変化に追従できるよう毎フレーム安価に構築する。
         let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE(); infeasible_draw.len()];
 
         for row in 0..n {
@@ -354,12 +337,12 @@ impl ScatterMatrix {
                 let cell_rect = egui::Rect::from_min_size(min, egui::vec2(cell_w, cell_h));
 
                 if row == col {
-                    draw_histogram_cell(&painter, cell_rect, cols[row], 10);
+                    draw_histogram_bars(&painter, cell_rect, &stats.histograms[row]);
                 } else if col > row {
-                    // 上三角: 相関係数
-                    draw_correlation_cell(&painter, cell_rect, cols[row], cols[col]);
+                    // 上三角: 相関係数（キャッシュ済みの値を描画）
+                    draw_correlation_cell(&painter, cell_rect, stats.correlations[row * n + col]);
                 } else {
-                    // 下三角: 散布図（間引き済みインデックスで描画）
+                    // 下三角: 散布図（間引き済みインデックス + キャッシュ済み列レンジで描画）
                     if has_constraints && show_infeasible && !infeasible_draw.is_empty() {
                         // infeasible を背面に描画
                         draw_scatter_cell(
@@ -367,6 +350,8 @@ impl ScatterMatrix {
                             cell_rect,
                             cols[col],
                             cols[row],
+                            stats.col_ranges[col],
+                            stats.col_ranges[row],
                             &infeasible_colors,
                             Some(infeasible_draw),
                         );
@@ -377,7 +362,9 @@ impl ScatterMatrix {
                         cell_rect,
                         cols[col],
                         cols[row],
-                        &point_colors,
+                        stats.col_ranges[col],
+                        stats.col_ranges[row],
+                        &stats.point_colors,
                         Some(feasible_draw),
                     );
                 }
@@ -505,22 +492,65 @@ pub fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
     }
 }
 
+/// 列データの min/max を返す（散布図セルの座標変換用）。
+/// `f64::min`/`f64::max` の畳み込みは NaN を無視し、Inf は反映する（従来挙動を維持）。
+pub fn col_min_max(data: &[f64]) -> (f64, f64) {
+    let mn = data.iter().cloned().fold(f64::INFINITY, f64::min);
+    let mx = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    (mn, mx)
+}
+
+/// 散布図行列の feasible 描画点の色（`feasible_draw` と同じ並び順）を計算する。
+/// 目的関数がない・列が取れない場合は全点 `COLOR_SCATTER_DOT`。
+/// 実際に描画するのは間引き後の点のみのため、色配列も間引き後の点数分だけ計算する。
+fn compute_feasible_point_colors(
+    view: &crate::state::app_state::StudyView,
+    color_objective: &Option<String>,
+    obj_names: &[String],
+    feas: tunny_core::dataframe::Feasibility<'_>,
+    cmap: &crate::theme::colormap::ColorMap,
+    feasible_draw: &[u32],
+) -> Vec<egui::Color32> {
+    use super::parallel_coords::{feasible_color_range, normalize_value};
+    let Some(name) = resolve_color_objective(color_objective, obj_names) else {
+        return vec![COLOR_SCATTER_DOT(); feasible_draw.len()];
+    };
+    let Some(col) = view.numeric_column(name) else {
+        return vec![COLOR_SCATTER_DOT(); feasible_draw.len()];
+    };
+    let (col_min, col_max) = col_min_max(col);
+    let (mn, mx) = feasible_color_range(col, feas, (col_min, col_max));
+    feasible_draw
+        .iter()
+        .map(|&i| {
+            let v = col.get(i as usize).copied().unwrap_or(f64::NAN);
+            if v.is_finite() {
+                cmap.interpolate(normalize_value(v, mn, mx))
+            } else {
+                COLOR_SCATTER_DOT()
+            }
+        })
+        .collect()
+}
+
 /// 散布図セルを painter で描画する。
 /// `colors` はトライアル全体分ではなく、実際に描画するインデックス列（`downsample_indices`
 /// があればその並び順、無ければ 0..x_data.len()）に対応する分だけ渡せばよい
-/// （呼び出し側で間引き後の点数分だけ計算することでフレームごとの計算量を抑える）。
+/// （呼び出し側で間引き後の点数だけ計算することでフレームごとの計算量を抑える）。
+/// `x_range`/`y_range` は列の min/max を事前計算して渡す（毎フレームの畳み込みを避ける・H-4）。
+#[allow(clippy::too_many_arguments)]
 pub fn draw_scatter_cell(
     painter: &egui::Painter,
     cell_rect: egui::Rect,
     x_data: &[f64],
     y_data: &[f64],
+    x_range: (f64, f64),
+    y_range: (f64, f64),
     colors: &[egui::Color32],
     downsample_indices: Option<&[u32]>,
 ) {
-    let x_min = x_data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let x_max = x_data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let y_min = y_data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let y_max = y_data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let (x_min, x_max) = x_range;
+    let (y_min, y_max) = y_range;
 
     let indices: Box<dyn Iterator<Item = usize>> = if let Some(ds) = downsample_indices {
         Box::new(ds.iter().map(|&i| i as usize))
@@ -544,14 +574,10 @@ pub fn draw_scatter_cell(
     }
 }
 
-/// ヒストグラムセルを painter で描画する
-pub fn draw_histogram_cell(
-    painter: &egui::Painter,
-    cell_rect: egui::Rect,
-    data: &[f64],
-    n_bins: usize,
-) {
-    let bins = compute_histogram(data, n_bins);
+/// 事前計算済みヒストグラムビンを painter で棒グラフとして描画する。
+/// ビンの計算（`compute_histogram`）は呼び出し側でキャッシュする（H-4）。
+pub fn draw_histogram_bars(painter: &egui::Painter, cell_rect: egui::Rect, bins: &[usize]) {
+    let n_bins = bins.len().max(1);
     let max_count = *bins.iter().max().unwrap_or(&1).max(&1);
     let bar_width = cell_rect.width() / n_bins as f32;
 
@@ -568,14 +594,9 @@ pub fn draw_histogram_cell(
     }
 }
 
-/// 相関係数セルを painter で描画する
-pub fn draw_correlation_cell(
-    painter: &egui::Painter,
-    cell_rect: egui::Rect,
-    x_data: &[f64],
-    y_data: &[f64],
-) {
-    let corr = compute_correlation(x_data, y_data);
+/// 事前計算済みの相関係数 `corr` を painter でセルとして描画する。
+/// 相関の計算（`compute_correlation`）は呼び出し側でキャッシュする（H-4）。
+pub fn draw_correlation_cell(painter: &egui::Painter, cell_rect: egui::Rect, corr: f64) {
     let bg_color = correlation_color(corr);
     painter.rect_filled(cell_rect, 0.0, bg_color);
     painter.text(

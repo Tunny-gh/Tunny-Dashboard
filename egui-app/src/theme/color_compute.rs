@@ -32,6 +32,18 @@ pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
     }
 }
 
+/// `compute_point_alpha` の `HashSet` 版（M-16）。
+/// 呼び出し側がフレーム冒頭で選択集合を 1 度だけ `HashSet<u32>` へ構築し、
+/// 点ごとの `contains()` 線形走査（O(n·s)）を O(n) の集合参照に置き換えるために使う。
+/// `selected` が空の場合は全点が不透明（255）を返す（`compute_point_alpha` と同一挙動）。
+pub fn point_alpha_in_set(trial_id: u32, selected: &std::collections::HashSet<u32>) -> u8 {
+    if selected.is_empty() || selected.contains(&trial_id) {
+        255
+    } else {
+        50
+    }
+}
+
 fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     (a as f32 + t * (b as f32 - a as f32)) as u8
 }
@@ -89,6 +101,16 @@ mod tests {
     #[test]
     fn compute_point_alpha_not_selected_returns_transparent() {
         assert_eq!(compute_point_alpha(3, &[1, 5, 10]), 50);
+    }
+
+    #[test]
+    fn point_alpha_in_set_matches_slice_version() {
+        use std::collections::HashSet;
+        let empty: HashSet<u32> = HashSet::new();
+        assert_eq!(point_alpha_in_set(0, &empty), 255);
+        let sel: HashSet<u32> = [1u32, 5, 10].into_iter().collect();
+        assert_eq!(point_alpha_in_set(5, &sel), 255);
+        assert_eq!(point_alpha_in_set(3, &sel), 50);
     }
 
     #[test]

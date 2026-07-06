@@ -97,11 +97,17 @@ pub(crate) fn handle_toolbar_action(
             record_capture_target(&mut widgets.capture, target.clone(), CaptureDest::Clipboard);
         }
         CellToolbarAction::SaveAsCsv(PanelItem::Chart(chart_id)) => {
-            let csv = crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets);
-            if let Some(csv_str) = csv {
-                let filename = crate::io::csv_export::csv_export_filename(chart_id);
-                if let Err(e) = crate::io::export::save_csv_to_file_named(&csv_str, &filename) {
-                    let _ = tx.try_send(AppMessage::Error(e));
+            // 保存ダイアログ（rfd）は UI スレッドで先に実行してパスを確定する
+            // （report_export と同流儀: ダイアログ → バックグラウンド書き込み）。
+            let filename = crate::io::csv_export::csv_export_filename(chart_id);
+            if let Some(path) = crate::io::export::pick_csv_save_path(&filename) {
+                // build_chart_csv は &AppState / &WidgetStates（多数のキャッシュ・ウィジェット
+                // 状態）を要するためワーカーへは送れない。CSV 文字列は UI スレッドで構築し、
+                // ブロッキングになりうるファイル書き込みだけをバックグラウンドへ委譲する。
+                if let Some(csv_str) =
+                    crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets)
+                {
+                    crate::io::export::spawn_csv_write(csv_str, path, tx.clone());
                 }
             }
         }
@@ -113,11 +119,14 @@ pub(crate) fn handle_toolbar_action(
             }
         }
         CellToolbarAction::SaveAsCsv(PanelItem::TrialTable) => {
-            if let Some(csv_str) = crate::io::csv_export::build_trial_table_csv(app_state, widgets)
-            {
-                let filename = crate::io::csv_export::trial_table_csv_filename(widgets);
-                if let Err(e) = crate::io::export::save_csv_to_file_named(&csv_str, &filename) {
-                    let _ = tx.try_send(AppMessage::Error(e));
+            // Chart 版と同様、保存ダイアログを UI スレッドで先に実行してから
+            // ファイル書き込みをバックグラウンドへ委譲する。
+            let filename = crate::io::csv_export::trial_table_csv_filename(widgets);
+            if let Some(path) = crate::io::export::pick_csv_save_path(&filename) {
+                if let Some(csv_str) =
+                    crate::io::csv_export::build_trial_table_csv(app_state, widgets)
+                {
+                    crate::io::export::spawn_csv_write(csv_str, path, tx.clone());
                 }
             }
         }

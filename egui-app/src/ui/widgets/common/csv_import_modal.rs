@@ -43,9 +43,15 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
             .num_columns(2)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                for (i, name) in settings.objective_names.iter().enumerate() {
+                // `objective_names` と `maximize` の長さが食い違う CSV メタでも panic しない
+                // よう、直接添字ではなく zip で対応する要素だけを回す（余りは無視）。
+                for (i, (name, is_max)) in settings
+                    .objective_names
+                    .iter()
+                    .zip(settings.maximize.iter_mut())
+                    .enumerate()
+                {
                     ui.label(name);
-                    let is_max = &mut settings.maximize[i];
                     egui::ComboBox::from_id_salt(("csv_import_dir", i))
                         .selected_text(if *is_max { "Maximize" } else { "Minimize" })
                         .show_ui(ui, |ui| {

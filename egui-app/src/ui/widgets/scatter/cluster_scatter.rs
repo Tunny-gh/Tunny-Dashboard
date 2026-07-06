@@ -175,7 +175,7 @@ pub struct ClusterScatter {
     #[serde(skip)]
     cached_points: Option<Vec<[f32; 2]>>,
     #[serde(skip)]
-    cache_key: (usize, usize), // (trial_count, n_clusters)
+    cache_key: (usize, usize, usize), // (df_ptr, trial_count, n_clusters)
 }
 
 impl Default for ClusterScatter {
@@ -191,7 +191,7 @@ impl Default for ClusterScatter {
             last_error: None,
             detail_modal: TrialDetailModal::new(),
             cached_points: None,
-            cache_key: (0, 0),
+            cache_key: (0, 0, 0),
         }
     }
 }
@@ -283,8 +283,10 @@ impl ClusterScatter {
             return;
         }
 
-        // キャッシュ確認・更新（目的関数軸の座標）
-        let new_key = (n_trials, cr.n_clusters);
+        // キャッシュ確認・更新（目的関数軸の座標）。
+        // df の Arc 恒等性をキーに含め、同一次元の別 Study 切替でのスタール描画を防ぐ（M-6）。
+        let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
+        let new_key = (df_ptr, n_trials, cr.n_clusters);
         if self.cached_points.is_none() || self.cache_key != new_key {
             self.cached_points = Some(compute_obj_axes_2d(view, obj_names));
             self.cache_key = new_key;
@@ -701,7 +703,7 @@ mod tests {
         assert!(cs.pending_compute.is_none());
         assert!(cs.last_error.is_none());
         assert!(cs.cached_points.is_none());
-        assert_eq!(cs.cache_key, (0, 0));
+        assert_eq!(cs.cache_key, (0, 0, 0));
     }
 
     fn make_view_with_objs(obj_vals: &[Vec<f64>]) -> StudyView {
@@ -749,7 +751,7 @@ mod tests {
     #[test]
     fn cache_key_updated_on_data_change() {
         let cs = ClusterScatter::default();
-        assert_eq!(cs.cache_key, (0, 0));
+        assert_eq!(cs.cache_key, (0, 0, 0));
         assert!(cs.cached_points.is_none());
     }
 
@@ -774,12 +776,12 @@ mod tests {
         let mut item = ClusterScatter {
             computing: true,
             cached_points: Some(vec![[1.0, 2.0]]),
-            cache_key: (5, 3),
+            cache_key: (7, 5, 3),
             ..Default::default()
         };
         item.adopt_runtime_state(&ClusterScatter::default());
         assert_eq!(item.cached_points, Some(vec![[1.0, 2.0]]));
-        assert_eq!(item.cache_key, (5, 3));
+        assert_eq!(item.cache_key, (7, 5, 3));
     }
 
     #[test]
