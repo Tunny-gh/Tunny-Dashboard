@@ -154,6 +154,9 @@ pub struct TrialSummary {
     pub max_constraint: Option<f64>,
     /// user_attr `(name, value)`（名前昇順）。
     pub user_attrs: Vec<(String, String)>,
+    /// 同一目的値ベクトルを持つ初出 trial の番号（パレート表内のみ判定）。
+    /// `Some(n)` なら本 trial は trial `n` と目的値が完全一致する重複解。
+    pub duplicate_of: Option<u32>,
 }
 
 /// パラメータ値（数値 / カテゴリ）。
@@ -207,6 +210,10 @@ pub struct ObjectiveExtreme {
     pub best_value: f64,
     /// 最良値を達成した trial.number。
     pub best_trial_number: u32,
+    /// 最良 trial が全制約を満たすか（制約なしスタディでは常に `true`）。
+    /// 極値は全 COMPLETE trial の記述統計のため、制約違反 trial が
+    /// 最良となり得る。レンダラはその場合に明示マークを付ける。
+    pub best_feasible: bool,
     /// 最悪値。
     pub worst_value: f64,
 }
@@ -222,6 +229,8 @@ pub struct ParetoPoint {
     pub y: f64,
     /// パレート前面上の点か。
     pub on_front: bool,
+    /// 全制約を満たすか（制約なしスタディでは常に `true`）。
+    pub feasible: bool,
 }
 
 /// 収束セクション。

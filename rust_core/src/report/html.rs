@@ -490,7 +490,16 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                 td(s, &e.objective_name, false);
                 td(s, dir_label(lang, e.direction), false);
                 td(s, &format_number(e.best_value), true);
-                td(s, &format!("#{}", e.best_trial_number), true);
+                if e.best_feasible {
+                    td(s, &format!("#{}", e.best_trial_number), true);
+                } else {
+                    // 制約違反 trial が最良の場合は赤字 + ✗ で明示する。
+                    let _ = write!(
+                        s,
+                        "<td class=\"num infeasible\">#{} ✗</td>",
+                        e.best_trial_number
+                    );
+                }
                 td(s, &format_number(e.worst_value), true);
                 s.push_str("</tr>\n");
             }
@@ -555,8 +564,8 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             );
             render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
-            // front は目的空間のみで計算されるため、制約違反 trial が
-            // 混在し得る。その場合は表の直下に注記を出す。
+            // 前面は feasible 行のみから計算されるため、違反 trial が表に
+            // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
             let n_infeasible = pareto_table
                 .iter()
                 .filter(|t| t.max_constraint.is_some_and(|v| v > 0.0))
@@ -564,16 +573,31 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             if n_infeasible > 0 {
                 let note = match lang {
                     ReportLang::En => format!(
-                        "Note: the Pareto front is computed on objective values only \
-                         (non-dominated in objective space); {n_infeasible} of these \
-                         trials violate constraints."
+                        "Note: no trial satisfies all constraints, so the Pareto \
+                         front falls back to objective-space non-domination over \
+                         all trials; {n_infeasible} of these trials violate \
+                         constraints."
                     ),
                     ReportLang::Ja => format!(
-                        "注記: パレート前面は目的空間の非劣解として計算しています。\
+                        "注記: 全制約を満たす trial が無いため、パレート前面は\
+                         全 trial の目的空間非劣解にフォールバックしています。\
                          うち {n_infeasible} 件は制約違反です。"
                     ),
                 };
                 let _ = writeln!(s, "<p class=\"desc\">{}</p>", esc(&note));
+            }
+            if pareto_table.iter().any(|t| t.duplicate_of.is_some()) {
+                let _ = writeln!(
+                    s,
+                    "<p class=\"desc\">{}</p>",
+                    esc(tr(
+                        lang,
+                        "Note: \"(= #N)\" marks a trial whose objective values are \
+                         identical to trial #N (e.g. a re-sampled parameter set).",
+                        "注記: 「(= #N)」は trial #N と目的値が完全一致する重複解を\
+                         示します（同一パラメータの再サンプル等）。"
+                    ))
+                );
             }
         }
     }
@@ -634,7 +658,17 @@ fn render_trial_table(
 
     for t in trials {
         s.push_str("<tr>");
-        td(s, &format!("#{}", t.trial_number), true);
+        match t.duplicate_of {
+            // 同一目的値の重複解は初出 trial 番号を併記する（muted で控えめに）。
+            Some(first) => {
+                let _ = write!(
+                    s,
+                    "<td class=\"num\">#{} <span class=\"muted\">(= #{first})</span></td>",
+                    t.trial_number
+                );
+            }
+            None => td(s, &format!("#{}", t.trial_number), true),
+        }
         for i in 0..obj_names.len() {
             let v = t.objectives.get(i).copied().unwrap_or(f64::NAN);
             td(s, &format_number(v), true);
@@ -1201,6 +1235,7 @@ mod tests {
     use crate::data::dataframe::{DataFrame, TrialRow};
     use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
     use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
+    use crate::report::model::Outcome;
     use crate::report::{
         build_study_report, render_markdown, ReportLang, ReportOptions, ReportSource, StudyReport,
     };
@@ -1501,9 +1536,12 @@ mod tests {
         m
     }
 
-    /// front = {trial0, trial1, trial2}。trial0 は c=[0.4, -1.0] で
-    /// 「合計は -0.6（負）だが最大は 0.4（違反）」の回帰ケース。
-    fn df_multi_constrained(front_infeasible: bool) -> DataFrame {
+    /// 目的空間の front = {trial0, trial1, trial2}。
+    ///
+    /// `all_infeasible = true` では全行が c=[0.4, -1.0]（合計は -0.6 と負だが
+    /// 最大は 0.4 で違反）となり、feasible 解ゼロ → 目的空間前面への
+    /// フォールバック + 違反マーク/注記の回帰ケースになる。
+    fn df_multi_constrained(all_infeasible: bool) -> DataFrame {
         let pts = [
             (1.0, 4.0),
             (2.0, 2.0),
@@ -1516,7 +1554,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, &(o0, o1))| {
-                let cons: &[f64] = if i == 0 && front_infeasible {
+                let cons: &[f64] = if all_infeasible {
                     &[0.4, -1.0]
                 } else {
                     &[-0.5, -0.25]
@@ -1540,7 +1578,9 @@ mod tests {
     }
 
     #[test]
-    fn constrained_front_marks_infeasible_and_notes() {
+    fn all_infeasible_falls_back_and_marks_violations() {
+        // feasible 解ゼロ → 目的空間前面へフォールバックし、違反マークと
+        // フォールバック注記が出る。
         let report = build_study_report(
             &meta_multi_constrained(),
             &df_multi_constrained(true),
@@ -1552,29 +1592,123 @@ mod tests {
 
         // 列ヘッダは意味論込み。
         assert!(html.contains("max constraint (≤0 = feasible)"), "列ヘッダ");
-        // trial0 は sum なら -0.6（無印に見える）だが max は 0.4 → 違反マーク。
+        // 各行は sum なら -0.6（無印に見える）だが max は 0.4 → 違反マーク。
         assert!(
             html.contains("<td class=\"num infeasible\">0.4 ✗</td>"),
             "違反セルの赤字 + ✗ マーク（sum でなく max を表示）"
         );
-        // front に違反 trial が含まれるため注記が出る。
+        // フォールバックの注記が出る。
         assert!(
-            html.contains("trials violate constraints"),
-            "Pareto 表直下の注記"
+            html.contains("no trial satisfies all constraints"),
+            "Pareto 表直下のフォールバック注記"
+        );
+        // 極値表の最良 trial も違反マーク付き。
+        assert!(
+            html.contains("<td class=\"num infeasible\">#"),
+            "極値表の違反 trial マーク"
         );
 
         let ja = render_html(&report, ReportLang::Ja);
         assert!(ja.contains("最大制約値（≤0 で充足）"), "ja 列ヘッダ");
         assert!(ja.contains("件は制約違反です"), "ja 注記");
+        assert!(ja.contains("フォールバック"), "ja フォールバック注記");
 
         // Markdown も同じ意味論。
         let md = render_markdown(&report, ReportLang::En);
         assert!(md.contains("max constraint (≤0 = feasible)"));
         assert!(md.contains("0.4 (infeasible)"));
-        assert!(md.contains("trials violate constraints"));
+        assert!(md.contains("no trial satisfies all constraints"));
+        // 極値表: 両目的とも最小化で best は #0 (obj0=1.0) / #2 (obj1=1.0)。
+        assert!(md.contains("#0 (infeasible)"), "極値表の違反マーク: {md}");
         let md_ja = render_markdown(&report, ReportLang::Ja);
         assert!(md_ja.contains("0.4（違反）"));
         assert!(md_ja.contains("件は制約違反です"));
+    }
+
+    #[test]
+    fn infeasible_trial_is_excluded_from_front_when_feasible_exist() {
+        // trial1 (2,2) は目的空間では front だが制約違反 → 前面から除外され、
+        // 残る feasible 行で前面が再計算される（違反マーク・注記なし）。
+        let pts = [(1.0, 4.0), (2.0, 2.0), (4.0, 1.0), (3.0, 3.0)];
+        let rows: Vec<TrialRow> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, &(o0, o1))| {
+                let cons: &[f64] = if i == 1 { &[0.4] } else { &[-0.5] };
+                row_c(i as u32, &[("p", i as f64), ("q", 1.0)], &[o0, o1], cons)
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &rows,
+            &["p".to_string(), "q".to_string()],
+            &["obj0".to_string(), "obj1".to_string()],
+            &[],
+            &[],
+            2,
+        );
+        let report = build_study_report(&meta_multi_constrained(), &df, None, &source(), &opts());
+
+        let Outcome::MultiObj {
+            pareto_table,
+            scatter,
+            ..
+        } = &report.outcome
+        else {
+            panic!("multi-objective outcome expected");
+        };
+        let front_trials: Vec<u32> = pareto_table.iter().map(|t| t.trial_number).collect();
+        assert!(
+            !front_trials.contains(&1),
+            "違反 trial1 は前面から除外: {front_trials:?}"
+        );
+        // trial1 除外後は (3,3) も (1,4)/(4,1) に支配されないため front 入り。
+        assert!(front_trials.contains(&0) && front_trials.contains(&2));
+        // 散布図では trial1 は feasible=false / on_front=false の点として残る。
+        let p1 = scatter.iter().find(|p| p.trial_number == 1).unwrap();
+        assert!(!p1.feasible && !p1.on_front);
+
+        let html = render_html(&report, ReportLang::En);
+        assert!(!html.contains("class=\"num infeasible\""), "違反マークなし");
+        assert!(
+            !html.contains("no trial satisfies all constraints"),
+            "注記なし"
+        );
+    }
+
+    #[test]
+    fn duplicate_objective_trials_are_marked() {
+        // trial1 と trial3 は同一目的値 (2,2) → 若い trial1 が正、trial3 に
+        // duplicate_of = 1 が付き、両レンダラに凡例と併記が出る。
+        let pts = [(1.0, 4.0), (2.0, 2.0), (4.0, 1.0), (2.0, 2.0)];
+        let rows: Vec<TrialRow> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, &(o0, o1))| row(i as u32, &[("p", i as f64), ("q", 1.0)], &[o0, o1]))
+            .collect();
+        let df = DataFrame::from_trials(
+            &rows,
+            &["p".to_string(), "q".to_string()],
+            &["obj0".to_string(), "obj1".to_string()],
+            &[],
+            &[],
+            2,
+        );
+        let report = build_study_report(&meta_multi(), &df, None, &source(), &opts());
+
+        let Outcome::MultiObj { pareto_table, .. } = &report.outcome else {
+            panic!("multi-objective outcome expected");
+        };
+        let dup = pareto_table.iter().find(|t| t.trial_number == 3).unwrap();
+        assert_eq!(dup.duplicate_of, Some(1));
+        let first = pareto_table.iter().find(|t| t.trial_number == 1).unwrap();
+        assert_eq!(first.duplicate_of, None);
+
+        let html = render_html(&report, ReportLang::En);
+        assert!(html.contains("(= #1)"), "HTML の併記");
+        assert!(html.contains("identical to trial #N"), "HTML の凡例");
+        let md = render_markdown(&report, ReportLang::Ja);
+        assert!(md.contains("#3 (= #1)"), "MD の併記: {md}");
+        assert!(md.contains("重複解"), "MD の凡例");
     }
 
     #[test]

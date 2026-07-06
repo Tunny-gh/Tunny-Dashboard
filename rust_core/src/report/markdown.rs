@@ -240,13 +240,20 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             );
             let _ = writeln!(s, "|---|---|---|---|---|");
             for e in per_objective_extremes {
+                // 制約違反 trial が最良の場合は明示マークを付ける。
+                let infeasible_mark = if e.best_feasible {
+                    ""
+                } else {
+                    tr(lang, " (infeasible)", "（違反）")
+                };
                 let _ = writeln!(
                     s,
-                    "| {} | {} | {} | #{} | {} |",
+                    "| {} | {} | {} | #{}{} | {} |",
                     esc(&e.objective_name),
                     dir_label(lang, e.direction),
                     format_number(e.best_value),
                     e.best_trial_number,
+                    infeasible_mark,
                     format_number(e.worst_value)
                 );
             }
@@ -264,8 +271,8 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             );
             render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
-            // front は目的空間のみで計算されるため、制約違反 trial が
-            // 混在し得る。その場合は表の直下に注記を出す。
+            // 前面は feasible 行のみから計算されるため、違反 trial が表に
+            // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
             let n_infeasible = pareto_table
                 .iter()
                 .filter(|t| t.max_constraint.is_some_and(|v| v > 0.0))
@@ -276,17 +283,20 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                     "{}\n",
                     match lang {
                         ReportLang::En => format!(
-                            "Note: the Pareto front is computed on objective values only \
-                             (non-dominated in objective space); {n_infeasible} of these \
-                             trials violate constraints."
+                            "Note: no trial satisfies all constraints, so the Pareto \
+                             front falls back to objective-space non-domination over \
+                             all trials; {n_infeasible} of these trials violate \
+                             constraints."
                         ),
                         ReportLang::Ja => format!(
-                            "注記: パレート前面は目的空間の非劣解として計算しています。\
+                            "注記: 全制約を満たす trial が無いため、パレート前面は\
+                             全 trial の目的空間非劣解にフォールバックしています。\
                              うち {n_infeasible} 件は制約違反です。"
                         ),
                     }
                 );
             }
+            render_duplicate_note(s, lang, pareto_table);
 
             if *objective_count > 2 {
                 let _ = writeln!(
@@ -310,6 +320,23 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                 scatter.len()
             );
         }
+    }
+}
+
+/// 表内に重複解（`duplicate_of` 付き trial）があれば凡例を 1 行出力する。
+fn render_duplicate_note(s: &mut String, lang: ReportLang, trials: &[TrialSummary]) {
+    if trials.iter().any(|t| t.duplicate_of.is_some()) {
+        let _ = writeln!(
+            s,
+            "{}\n",
+            tr(
+                lang,
+                "Note: \"(= #N)\" marks a trial whose objective values are identical \
+                 to trial #N (e.g. a re-sampled parameter set).",
+                "注記: 「(= #N)」は trial #N と目的値が完全一致する重複解を示します\
+                 （同一パラメータの再サンプル等）。"
+            )
+        );
     }
 }
 
@@ -359,7 +386,11 @@ fn render_trial_table(
     let _ = writeln!(s, "|{sep}|");
 
     for t in trials {
-        let mut row = format!("| #{} |", t.trial_number);
+        let mut row = match t.duplicate_of {
+            // 同一目的値の重複解は初出 trial 番号を併記する。
+            Some(first) => format!("| #{} (= #{first}) |", t.trial_number),
+            None => format!("| #{} |", t.trial_number),
+        };
         for (i, _) in obj_names.iter().enumerate() {
             let v = t.objectives.get(i).copied().unwrap_or(f64::NAN);
             let _ = write!(row, " {} |", format_number(v));

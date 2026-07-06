@@ -85,17 +85,38 @@ pub fn build_study_report(
     // state 内訳・FAIL 数・実測所要時間。
     let (state_counts, fail_count, wall_clock) = state_summary(extras, n);
 
-    // パレートランク（多目的のみ意味を持つ）。
-    let ranks = if is_multi && n > 0 {
-        nd_sort(&objectives, &is_minimize)
-    } else {
-        vec![0u32; n]
-    };
-    let front_rows: Vec<usize> = if is_multi {
-        (0..n).filter(|&r| ranks[r] == 0 && valid_row[r]).collect()
+    // パレート前面（多目的のみ意味を持つ）。制約付きスタディでは feasible 行
+    // のみで非劣ソートする（Optuna の constrained 最適化の意味論に合わせる）。
+    // feasible 行が 1 件も無い場合のみ、全行の目的空間非劣解へフォールバック
+    // する（前面が空になるのを避け、レンダラ側の違反注記で透明化する）。
+    let feas = df.feasibility();
+    let front_rows: Vec<usize> = if is_multi && n > 0 {
+        let feasible_rows: Vec<usize> = (0..n)
+            .filter(|&r| valid_row[r] && feas.is_feasible(r))
+            .collect();
+        if feas.has_constraints() && !feasible_rows.is_empty() {
+            let sub: Vec<Vec<f64>> = feasible_rows
+                .iter()
+                .map(|&r| objectives[r].clone())
+                .collect();
+            let sub_ranks = nd_sort(&sub, &is_minimize);
+            feasible_rows
+                .iter()
+                .zip(&sub_ranks)
+                .filter(|&(_, &rank)| rank == 0)
+                .map(|(&r, _)| r)
+                .collect()
+        } else {
+            let ranks = nd_sort(&objectives, &is_minimize);
+            (0..n).filter(|&r| ranks[r] == 0 && valid_row[r]).collect()
+        }
     } else {
         Vec::new()
     };
+    let mut on_front = vec![false; n];
+    for &r in &front_rows {
+        on_front[r] = true;
+    }
 
     // ---- Overview ----
     let mut param_bounds: Vec<(String, f64, f64)> = meta
@@ -134,7 +155,7 @@ pub fn build_study_report(
             &objectives,
             &trial_numbers,
             &valid_row,
-            &ranks,
+            &on_front,
             &front_rows,
             &directions,
             &is_minimize,
@@ -396,6 +417,7 @@ fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) -> TrialSum
         params,
         max_constraint,
         user_attrs,
+        duplicate_of: None,
     }
 }
 
@@ -557,7 +579,7 @@ fn build_outcome_multi(
     objectives: &[Vec<f64>],
     trial_numbers: &[u32],
     valid_row: &[bool],
-    ranks: &[u32],
+    on_front: &[bool],
     front_rows: &[usize],
     directions: &[Direction],
     is_minimize: &[bool],
@@ -602,19 +624,22 @@ fn build_outcome_multi(
                 direction: directions[j],
                 best_value: best_v,
                 best_trial_number: trial_numbers[br],
+                best_feasible: df.feasibility().is_feasible(br),
                 worst_value: worst_v,
             });
         }
     }
 
     // 散布図（全 COMPLETE、先頭2目的軸）。
+    let feas = df.feasibility();
     let scatter: Vec<ParetoPoint> = (0..objectives.len())
         .filter(|&r| valid_row[r])
         .map(|r| ParetoPoint {
             trial_number: trial_numbers[r],
             x: objectives[r][0],
             y: if m >= 2 { objectives[r][1] } else { f64::NAN },
-            on_front: ranks[r] == 0,
+            on_front: on_front[r],
+            feasible: feas.is_feasible(r),
         })
         .collect();
 
@@ -635,11 +660,12 @@ fn build_outcome_multi(
     let cap = opts.top_n.saturating_mul(2);
     let pareto_table_rows = mcdm_ordered_front(df, meta, objectives, front_rows, is_minimize, m)
         .unwrap_or_else(|| front_rows.to_vec());
-    let pareto_table: Vec<TrialSummary> = pareto_table_rows
+    let mut pareto_table: Vec<TrialSummary> = pareto_table_rows
         .iter()
         .take(cap.max(1))
         .map(|&r| build_trial_summary(df, meta, r))
         .collect();
+    mark_duplicate_objectives(&mut pareto_table);
 
     let outcome = Outcome::MultiObj {
         pareto_size: front_rows.len(),
@@ -652,6 +678,31 @@ fn build_outcome_multi(
     };
 
     (outcome, mcdm)
+}
+
+/// 同一目的値ベクトルの trial を初出（最小 trial 番号）でマークする。
+///
+/// パレート前面では同一パラメータの再サンプル等で目的値が完全一致する
+/// trial が並び得る。各グループの最小 trial 番号を正とし、それ以外の
+/// `duplicate_of` に正の trial 番号を入れる。比較はビットパターン一致
+/// （NaN 目的値同士も同一視、-0.0 と 0.0 は区別）で決定論的に行う。
+fn mark_duplicate_objectives(table: &mut [TrialSummary]) {
+    use std::collections::HashMap;
+    let mut first_of: HashMap<Vec<u64>, u32> = HashMap::new();
+    for t in table.iter() {
+        let key: Vec<u64> = t.objectives.iter().map(|v| v.to_bits()).collect();
+        first_of
+            .entry(key)
+            .and_modify(|n| *n = (*n).min(t.trial_number))
+            .or_insert(t.trial_number);
+    }
+    for t in table.iter_mut() {
+        let key: Vec<u64> = t.objectives.iter().map(|v| v.to_bits()).collect();
+        let first = first_of[&key];
+        if first != t.trial_number {
+            t.duplicate_of = Some(first);
+        }
+    }
 }
 
 /// パレート前面行を TOPSIS ランキング順で返す（等重み）。front が空なら `None`。
