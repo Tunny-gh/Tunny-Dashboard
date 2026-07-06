@@ -95,11 +95,18 @@ PostgreSQL / MySQL の Optuna RDB バックエンド対応。チームでの分�
 
 ## 長期（時流に乗った独自性）
 
-### 8. LLM / MCP 連携
+### 8. LLM / MCP 連携 ✅
 
 Optimus が 2024 年に LLM ポストプロセッシングを製品化したのが業界の方向性。
 `tunny-core` がヘッドレスである構造的優位を活かし、MCP サーバーとして公開して
 「エージェントから自然言語で分析を依頼できる最適化分析ツール」にする。
+
+- [x] `tunny-mcp` バイナリ（stdio JSON-RPC、MCP tools 実装、依存は serde のみ）
+- [x] ツール: `list_studies` / `study_summary` / `study_report`（LLM向けMarkdown
+      / 構造化JSON、日英） / `trials`（ページネーション付き生データ）
+- [x] 全ストレージ対応（journal / SQLite / PostgreSQL / MySQL、パスワードマスク）
+- [x] プロトコル・ツールのユニットテスト + バイナリ起動の統合テスト、実DB E2E 検証
+- 将来拡張候補: importance / MCDM の単独ツール化、resources 対応（レポートHTML配信）
 
 ### 9. 性能ベンチマークの公表
 

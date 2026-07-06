@@ -29,6 +29,8 @@ All sources support **live update**: running studies are polled via a lightweigh
 - **Surrogate models & optimization** — response surface (3D), candidate suggestion via CMA-ES / NSGA-II / EHVI, robustness (MC noise propagation) analysis
 - **Clustering & projection** — k-means, hierarchical (dendrogram), PCA biplot, SOM map
 - **Self-contained report export** — one-file HTML / Markdown / JSON reports with key findings, charts (SVG), statistics, and MCDM rankings; light/dark, English/Japanese
+- **MCP server for AI agents** — `tunny-mcp` exposes studies, reports, and trial data to LLM agents (Claude Code, etc.) via the Model Context Protocol
+- **Dark mode** — light/dark theme toggle, persisted with the session
 - **Brushing & Linking** — cross-chart selection synchronized across all views in real time
 - **Free layout** — drag-and-drop chart arrangement
 - **Multi-study comparison** — overlay or side-by-side comparison of multiple studies
@@ -72,11 +74,12 @@ tunny-dashboard/
 │   ├── src/
 │   │   ├── io/         # File dialogs, storage readers, live update, export
 │   │   ├── state/      # Application state & message handling
-│   │   ├── theme/      # Color palette & colormaps
+│   │   ├── theme/      # Light/dark color palette & colormaps
 │   │   ├── ui/         # Panels, canvas, widgets, help system
 │   │   ├── app.rs      # Main app logic
 │   │   └── main.rs     # Entry point
 │   └── Cargo.toml
+├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
 ├── theory/             # Bilingual (en/ja) algorithm documentation
 └── Cargo.toml          # Workspace configuration
 ```
@@ -149,6 +152,30 @@ All widgets can be freely arranged on the dashboard canvas via drag-and-drop.
 
 - **Report export** — self-contained HTML / Markdown / JSON report of the whole study (key findings, Pareto front with constraint handling, convergence, importance, statistics, correlations, MCDM consensus). English/Japanese, light/dark, no external resources.
 - **CSV export** — selected trials with customizable columns.
+
+---
+
+## MCP Server (LLM integration)
+
+`tunny-mcp` exposes the same headless analytics to AI agents via the
+[Model Context Protocol](https://modelcontextprotocol.io/) (stdio transport,
+tools capability). An agent can list studies, pull an LLM-optimized Markdown
+report, and page through raw trial data — against journal files, SQLite, or
+PostgreSQL/MySQL storage.
+
+```bash
+cargo build --release -p tunny-mcp
+
+# Register with Claude Code:
+claude mcp add tunny -- /path/to/target/release/tunny-mcp
+```
+
+| Tool            | Description                                                                  |
+| --------------- | ---------------------------------------------------------------------------- |
+| `list_studies`  | Studies in a storage: id, name, directions, parameters, trial counts         |
+| `study_summary` | Compact JSON summary: overview + key findings + convergence status           |
+| `study_report`  | Full analysis report (Markdown for LLM consumption, or structured JSON)      |
+| `trials`        | Raw COMPLETE-trial rows (objectives / params / constraints) with pagination  |
 
 ---
 

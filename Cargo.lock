@@ -5956,6 +5956,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tunny-mcp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tunny-core",
+]
+
+[[package]]
 name = "twox-hash"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

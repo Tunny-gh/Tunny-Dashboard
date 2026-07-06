@@ -45,6 +45,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
 cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
+cargo fmt -p tunny-mcp -- --check
 ```
 
 ### アプリケーション実行
