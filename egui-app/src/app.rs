@@ -461,20 +461,26 @@ impl TunnyApp {
                 }
                 ToolbarAction::ExportCsv(target) => {
                     if let Some(ctx) = &self.app_state.current_study {
-                        let csv = crate::io::export::build_csv_string_from_view(
-                            &ctx.view,
-                            &crate::io::export::select_row_indices_for_export(
+                        // 保存ダイアログ（rfd）は UI スレッドで先に実行してパスを確定する。
+                        if let Some(path) = crate::io::export::pick_csv_save_path("export.csv") {
+                            // 行選択の解決だけ UI スレッドで行い、StudyView スナップショットと
+                            // 列名を clone してワーカーへ渡す（CSV 構築＋書き込みは
+                            // バックグラウンド、巨大 Study でも UI をフリーズさせない）。
+                            let row_indices = crate::io::export::select_row_indices_for_export(
                                 &ctx.view,
                                 &self.app_state.selected_indices,
                                 &ctx.pareto_indices,
                                 &target,
-                            ),
-                            &ctx.meta.param_names,
-                            &ctx.meta.objective_names,
-                        );
-                        // 保存失敗は握り潰さず load_error に反映する（SaveSession と同方針）。
-                        if let Err(e) = crate::io::export::save_csv_to_file(&csv) {
-                            self.load_error = Some(e);
+                            );
+                            // 保存失敗は握り潰さず load_error に反映する（CsvExportFailed 経由）。
+                            crate::io::export::spawn_view_csv_export(
+                                ctx.view.clone(),
+                                row_indices,
+                                ctx.meta.param_names.clone(),
+                                ctx.meta.objective_names.clone(),
+                                path,
+                                self.sender(),
+                            );
                         }
                     }
                 }

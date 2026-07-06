@@ -1,3 +1,7 @@
+use std::path::PathBuf;
+use std::sync::mpsc::SyncSender;
+
+use crate::state::messages::AppMessage;
 use crate::state::types::StudyView;
 use tunny_core::export::{CsvField, CsvWriter};
 
@@ -130,32 +134,47 @@ pub fn write_csv_to_path(csv: &str, path: &std::path::Path) -> Result<(), String
     crate::io::file::write_atomic(path, csv.as_bytes()).map_err(|e| e.to_string())
 }
 
-/// ファイル保存ダイアログを開いて CSV を保存する。
-/// ダイアログがキャンセルされた場合は `Ok(())` を返す。
-pub fn save_csv_to_file(csv: &str) -> Result<(), String> {
-    if let Some(path) = rfd::FileDialog::new()
-        .add_filter("CSV", &["csv"])
-        .set_file_name("export.csv")
-        .save_file()
-    {
-        write_csv_to_path(csv, &path)
-    } else {
-        Ok(())
-    }
-}
-
-/// デフォルトファイル名を指定してCSVをファイルダイアログ経由で保存する。
-/// ダイアログがキャンセルされた場合は `Ok(())` を返す。
-pub fn save_csv_to_file_named(csv: &str, default_name: &str) -> Result<(), String> {
-    if let Some(path) = rfd::FileDialog::new()
+/// CSV 保存ダイアログを開いて保存先パスのみを確定する（書き込みは行わない）。
+/// ネイティブの保存ダイアログは UI スレッドをブロックするため、呼び出し側が UI スレッドで
+/// 先に実行してパスを得てから、CSV 構築・書き込みをバックグラウンドへ委譲する
+/// （`spawn_report_export` と同じ流儀）。キャンセル時は `None` を返す。
+pub fn pick_csv_save_path(default_name: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new()
         .add_filter("CSV", &["csv"])
         .set_file_name(default_name)
         .save_file()
-    {
-        write_csv_to_path(csv, &path)
-    } else {
-        Ok(())
-    }
+}
+
+/// 構築済みの CSV 文字列を、確定済みパスへバックグラウンドスレッドで書き込む。
+/// 保存ダイアログは呼び出し側が UI スレッドで実行済みで、ここではファイル I/O のみを
+/// `spawn_task` へ委譲する（巨大 Study でも UI をフリーズさせない）。成功時は
+/// `CsvExportDone`、失敗時は `CsvExportFailed` を送る。
+pub fn spawn_csv_write(csv: String, path: PathBuf, tx: SyncSender<AppMessage>) {
+    crate::app::spawn_task(tx, move || match write_csv_to_path(&csv, &path) {
+        Ok(()) => AppMessage::CsvExportDone,
+        Err(e) => AppMessage::CsvExportFailed(e),
+    });
+}
+
+/// `StudyView` スナップショットから trial 行 CSV を構築し、確定済みパスへ書き込む処理を
+/// まとめてバックグラウンドスレッドで実行する。CSV 文字列の構築（全 trial 走査で巨大 Study
+/// では重い）と書き込みの双方を `spawn_task` 上で行うため、UI スレッドは保存ダイアログと
+/// 行選択の解決だけを担う。ワーカーへは所有権を移した clone のみを渡し、借用は持ち込まない。
+pub fn spawn_view_csv_export(
+    view: StudyView,
+    row_indices: Vec<usize>,
+    param_names: Vec<String>,
+    objective_names: Vec<String>,
+    path: PathBuf,
+    tx: SyncSender<AppMessage>,
+) {
+    crate::app::spawn_task(tx, move || {
+        let csv = build_csv_string_from_view(&view, &row_indices, &param_names, &objective_names);
+        match write_csv_to_path(&csv, &path) {
+            Ok(()) => AppMessage::CsvExportDone,
+            Err(e) => AppMessage::CsvExportFailed(e),
+        }
+    });
 }
 
 #[cfg(test)]

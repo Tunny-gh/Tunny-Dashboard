@@ -167,6 +167,13 @@ impl MessageHandler {
                 *load_error = Some(e);
                 *is_loading = false;
             }
+            AppMessage::CsvExportDone => {
+                // 成功時はユーザーへの通知を持たないため何もしない
+                // （エクスポートの成否は失敗時のみ load_error で表示する）。
+            }
+            AppMessage::CsvExportFailed(err) => {
+                *load_error = Some(err);
+            }
             AppMessage::ReportExportDone { paths, overwrote } => {
                 if let Some(dialog) = app_state.report_dialog.as_mut() {
                     dialog.generating = false;

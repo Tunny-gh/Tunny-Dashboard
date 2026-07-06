@@ -407,6 +407,14 @@ pub enum AppMessage {
     /// Compare Surrogates: 全モデルのフィットに失敗した。
     SurrogateCompareFailed(String),
 
+    /// low perf: CSV エクスポート（チャート / トライアルテーブル / 全 trial）の
+    /// バックグラウンド書き込みが成功した。成功時はトースト等の通知を持たないため
+    /// UI 側では何もしない（`ReportExportDone` と異なり表示すべき情報がない）。
+    CsvExportDone,
+    /// low perf: CSV エクスポートのバックグラウンド構築 / 書き込みが失敗した。
+    /// 既存の保存失敗（`ToolbarAction::ExportCsv`）と同方針で原因を `load_error` に反映する。
+    CsvExportFailed(String),
+
     /// R4: 自己完結型レポート出力（HTML/Markdown/JSON）がバックグラウンドで完了した。
     /// 実際に書き出したファイルパス一覧（複数フォーマット選択時は複数件）。
     /// 失敗時は既存の `Error` を再利用する。
