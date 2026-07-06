@@ -10,7 +10,8 @@ use crate::theme::chart_colors::{
 use crate::theme::color_compute::point_alpha_in_set;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    axis_row, hit_test_nearest, push_feasible_row, TrialDetailModal, TrialDetailTarget,
+    HIT_THRESHOLD,
 };
 
 /// 2D Pareto 散布図ウィジェット（egui_plot ベース）
@@ -420,24 +421,12 @@ impl ParetoScatter2D {
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
             let mut rows = vec![
-                (
-                    self.x_axis.clone(),
-                    fmt(x_col.and_then(|c| c.get(row)).copied()),
-                ),
-                (
-                    self.y_axis.clone(),
-                    fmt(y_col.and_then(|c| c.get(row)).copied()),
-                ),
+                axis_row(&self.x_axis, x_col, row),
+                axis_row(&self.y_axis, y_col, row),
                 ("Pareto Rank".to_string(), rank.to_string()),
             ];
-            if feas.has_constraints() {
-                rows.push((
-                    "Feasible".to_string(),
-                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                ));
-            }
+            push_feasible_row(&mut rows, feas, row);
             crate::ui::widgets::trial_detail_modal::show_hover_tooltip(
                 ui,
                 "pareto2d_hover_tooltip",
@@ -450,14 +439,8 @@ impl ParetoScatter2D {
         // app_state を可変借用する前に view / feas の不変借用を使い切る。
         if let Some((trial_id, row)) = clicked_detail {
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-            let feasible = feas.is_feasible(row);
             let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
-            if feas.has_constraints() {
-                context.push((
-                    "Feasible".to_string(),
-                    if feasible { "Yes" } else { "No" }.to_string(),
-                ));
-            }
+            push_feasible_row(&mut context, feas, row);
             self.detail_modal.open(TrialDetailTarget {
                 trial_id,
                 row_index: row,

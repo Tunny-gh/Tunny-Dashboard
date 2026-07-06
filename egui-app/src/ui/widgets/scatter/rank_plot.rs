@@ -5,7 +5,7 @@ use crate::state::types::{Direction, StudyView};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    axis_row, fmt_opt, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
 /// Rank Plot ウィジェット
@@ -225,15 +225,7 @@ impl RankPlotChart {
 
             plot.show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
-                let resp = plot_ui.response();
-                if resp.clicked_by(egui::PointerButton::Primary) {
-                    clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
-                        hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD)
-                    });
-                }
-                if let Some(pos) = resp.hover_pos() {
-                    hovered_detail = hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD);
-                }
+                (clicked_detail, hovered_detail) = resolve_click_hover(plot_ui, hit_candidates);
                 for (key, pts) in color_groups {
                     let color =
                         egui::Color32::from_rgba_unmultiplied(key[0], key[1], key[2], key[3]);
@@ -258,34 +250,23 @@ impl RankPlotChart {
         // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
-            let x_val = view
-                .numeric_column(&x_name)
-                .and_then(|c| c.get(row).copied());
-            let y_val = view
-                .numeric_column(&y_name)
-                .and_then(|c| c.get(row).copied());
-            let obj_val = view
-                .numeric_column(&obj_name)
-                .and_then(|c| c.get(row).copied());
-            let rank_val = ranks.get(row).copied();
             let rows = vec![
-                (x_name.clone(), fmt(x_val)),
-                (y_name.clone(), fmt(y_val)),
-                (obj_name.clone(), fmt(obj_val)),
-                ("Rank Percentile".to_string(), fmt(rank_val)),
+                axis_row(&x_name, view.numeric_column(&x_name), row),
+                axis_row(&y_name, view.numeric_column(&y_name), row),
+                axis_row(&obj_name, view.numeric_column(&obj_name), row),
+                (
+                    "Rank Percentile".to_string(),
+                    fmt_opt(ranks.get(row).copied()),
+                ),
             ];
             show_hover_tooltip(ui, "rank_plot_hover_tooltip", trial_number, &rows);
         }
 
         // 点クリックでトライアル詳細モーダルを開く（散布図共有・アーティファクト付き）。
         if let Some((trial_id, row)) = clicked_detail {
-            let rank_val = ranks.get(row).copied();
             let context = vec![(
                 "Rank Percentile".to_string(),
-                rank_val
-                    .map(|r| format!("{r:.4}"))
-                    .unwrap_or_else(|| "—".to_string()),
+                fmt_opt(ranks.get(row).copied()),
             )];
             self.detail_modal.open(TrialDetailTarget {
                 trial_id,

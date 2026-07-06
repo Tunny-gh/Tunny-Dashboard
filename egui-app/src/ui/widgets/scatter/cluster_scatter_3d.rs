@@ -12,7 +12,7 @@ use crate::ui::widgets::scatter_3d::{
     Range3DCache,
 };
 use crate::ui::widgets::scatter_matrix::{downsample_indices_to_cap, MAX_SCATTER_POINTS};
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::trial_detail_modal::{axis_row, push_feasible_row, TrialDetailModal};
 
 /// クラスタ 3D 散布図ウィジェット
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -276,30 +276,18 @@ impl ClusterScatter3D {
             "cluster3d_hover_tooltip",
             &mut self.detail_modal,
             |row| {
-                let fmt =
-                    |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
                 let mut rows = vec![
-                    (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
-                    (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
-                    (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
+                    axis_row(&x_name, x_col, row),
+                    axis_row(&y_name, y_col, row),
+                    axis_row(&z_name, z_col, row),
                     ("Cluster".to_string(), cluster_str_for(row)),
                 ];
-                if feas.has_constraints() {
-                    rows.push((
-                        "Feasible".to_string(),
-                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                    ));
-                }
+                push_feasible_row(&mut rows, feas, row);
                 rows
             },
             |row| {
                 let mut context = vec![("Cluster".to_string(), cluster_str_for(row))];
-                if feas.has_constraints() {
-                    context.push((
-                        "Feasible".to_string(),
-                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                    ));
-                }
+                push_feasible_row(&mut context, feas, row);
                 context
             },
         );

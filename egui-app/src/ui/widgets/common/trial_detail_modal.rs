@@ -8,6 +8,8 @@
 
 use std::collections::HashMap;
 
+use tunny_core::dataframe::Feasibility;
+
 use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
 use crate::state::types::StudyView;
 
@@ -18,6 +20,9 @@ const THUMB_SIZE: f32 = 220.0;
 
 /// 点クリック判定のしきい値（クリック位置から点までのスクリーン距離・px）。
 pub const HIT_THRESHOLD: f32 = 12.0;
+
+/// ヒットテストで解決した対象点（`trial_id`, `row_index`）。
+pub type TrialHit = (u32, usize);
 
 /// モーダルが表示する対象 trial と、散布図固有の付加情報。
 #[derive(Debug, Clone, PartialEq)]
@@ -123,7 +128,7 @@ impl TrialDetailModal {
                                 // 目的関数値。
                                 if !obj_names.is_empty() {
                                     section_label(ui, "Objectives");
-                                    let rows = value_rows(view, obj_names, target.row_index, 4);
+                                    let rows = value_rows(view, obj_names, target.row_index);
                                     kv_grid(ui, "trial_detail_objectives", &rows);
                                     ui.add_space(8.0);
                                 }
@@ -131,7 +136,7 @@ impl TrialDetailModal {
                                 // 変数値。
                                 if !param_names.is_empty() {
                                     section_label(ui, "Variables");
-                                    let rows = value_rows(view, param_names, target.row_index, 4);
+                                    let rows = value_rows(view, param_names, target.row_index);
                                     kv_grid(ui, "trial_detail_params", &rows);
                                     ui.add_space(8.0);
                                 }
@@ -195,20 +200,12 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
 }
 
 /// 列名→値スライスから (名前, 整形済み値) のペア列を作る。
-fn value_rows(
-    view: &StudyView,
-    names: &[String],
-    row_index: usize,
-    prec: usize,
-) -> Vec<(String, String)> {
+fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(String, String)> {
     let cols = view.numeric_columns(names);
     names
         .iter()
         .zip(cols.iter())
-        .map(|(name, col)| {
-            let v = col.and_then(|c| c.get(row_index)).copied();
-            (name.clone(), fmt_opt(v, prec))
-        })
+        .map(|(name, col)| axis_row(name, *col, row_index))
         .collect()
 }
 
@@ -226,11 +223,33 @@ fn kv_grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)]) {
         });
 }
 
-/// `Option<f64>` を固定小数で整形する（None は em dash）。
-fn fmt_opt(v: Option<f64>, prec: usize) -> String {
+/// `Option<f64>` を小数第 4 位で整形する（None は em dash）。
+/// 散布図のホバー/クリック詳細行が共有するフォーマッタ。
+pub fn fmt_opt(v: Option<f64>) -> String {
     match v {
-        Some(x) => format!("{x:.prec$}"),
+        Some(x) => format!("{x:.4}"),
         None => "—".to_string(),
+    }
+}
+
+/// 列スライスから 1 行分の `(軸名, 整形済み値)` を作る。散布図の x/y/z 軸値行が共有する。
+/// `col` は当該軸の数値列（欠損列は `None`）、`row` は `StudyView` 上の行 index。
+pub fn axis_row(name: &str, col: Option<&[f64]>, row: usize) -> (String, String) {
+    (
+        name.to_string(),
+        fmt_opt(col.and_then(|c| c.get(row)).copied()),
+    )
+}
+
+/// 制約付き Study の場合のみ `rows` に `("Feasible", "Yes"/"No")` 行を追加する。
+/// 制約なし（`has_constraints() == false`）なら何もしない。ホバー詳細行と
+/// クリック詳細 context の双方が共有する。
+pub fn push_feasible_row(rows: &mut Vec<(String, String)>, feas: Feasibility, row: usize) {
+    if feas.has_constraints() {
+        rows.push((
+            "Feasible".to_string(),
+            if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+        ));
     }
 }
 
@@ -342,6 +361,29 @@ pub fn hit_test_nearest(
     nearest_within(&screen_points, click, threshold).map(|i| (candidates[i].0, candidates[i].1))
 }
 
+/// 2D `egui_plot` 内でのクリック/ホバー解決を共通化する。`plot.show` のクロージャ内から
+/// `plot_ui` を渡して呼ぶ。戻り値は `(クリック, ホバー)` で、いずれも [`HIT_THRESHOLD`] px
+/// 以内で最も近い候補点を `(trial_id, row_index)` で返す（該当なしは `None`）。
+///
+/// - クリックは左ボタン押下フレームのみ `interact_pointer_pos` を基準に判定する。
+/// - ホバーは `hover_pos` があるフレームで判定する。
+pub fn resolve_click_hover(
+    plot_ui: &egui_plot::PlotUi,
+    candidates: &[(u32, usize, [f64; 2])],
+) -> (Option<TrialHit>, Option<TrialHit>) {
+    let resp = plot_ui.response();
+    let clicked = if resp.clicked_by(egui::PointerButton::Primary) {
+        resp.interact_pointer_pos()
+            .and_then(|pos| hit_test_nearest(plot_ui, candidates, pos, HIT_THRESHOLD))
+    } else {
+        None
+    };
+    let hovered = resp
+        .hover_pos()
+        .and_then(|pos| hit_test_nearest(plot_ui, candidates, pos, HIT_THRESHOLD));
+    (clicked, hovered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,7 +419,7 @@ mod tests {
 
     #[test]
     fn fmt_opt_formats_and_handles_none() {
-        assert_eq!(fmt_opt(Some(1.23456), 4), "1.2346");
-        assert_eq!(fmt_opt(None, 4), "—");
+        assert_eq!(fmt_opt(Some(1.23456)), "1.2346");
+        assert_eq!(fmt_opt(None), "—");
     }
 }

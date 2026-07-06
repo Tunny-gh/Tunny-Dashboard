@@ -15,7 +15,7 @@ use crate::ui::widgets::scatter_3d::{
     draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, normalize_to_clip, setup_3d_canvas,
     show_hover_and_click_detail, val_range, ArcballCamera, DepthPoint,
 };
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::trial_detail_modal::{fmt_opt, TrialDetailModal};
 use egui::Color32;
 
 // ── キャッシュ ────────────────────────────────────────────────────
@@ -354,12 +354,7 @@ impl McdmScatterChart3D {
             let score = result.primary_scores().get(row).copied();
             vec![
                 ("MCDM Rank".to_string(), rank_str),
-                (
-                    "Score".to_string(),
-                    score
-                        .map(|s| format!("{s:.4}"))
-                        .unwrap_or_else(|| "—".to_string()),
-                ),
+                ("Score".to_string(), fmt_opt(score)),
             ]
         };
         show_hover_and_click_detail(

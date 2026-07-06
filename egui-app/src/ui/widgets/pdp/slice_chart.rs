@@ -5,7 +5,7 @@ use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    axis_row, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
 /// パラメータ vs 目的関数の Slice 散布図ウィジェット
@@ -124,17 +124,8 @@ impl SliceChart {
         let mut hovered_detail: Option<(u32, usize)> = None;
         plot.show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
-            // 点クリックで詳細モーダルを開く対象を検出する。
-            let resp = plot_ui.response();
-            if resp.clicked_by(egui::PointerButton::Primary) {
-                clicked_detail = resp
-                    .interact_pointer_pos()
-                    .and_then(|pos| hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD));
-            }
-            // ホバー中の点を検出する。
-            if let Some(pos) = resp.hover_pos() {
-                hovered_detail = hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD);
-            }
+            // 点クリック・ホバーの対象を検出する。
+            (clicked_detail, hovered_detail) = resolve_click_hover(plot_ui, &hit_candidates);
             if !normal_pts.is_empty() {
                 let pts: egui_plot::PlotPoints = normal_pts.into_iter().map(apply_log).collect();
                 plot_ui.points(
@@ -157,21 +148,14 @@ impl SliceChart {
         // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
-            let param_val = view
-                .numeric_column(param_name)
-                .and_then(|c| c.get(row).copied());
-            let obj_val = obj_names
-                .get(obj_idx)
-                .and_then(|name| view.numeric_column(name))
-                .and_then(|c| c.get(row).copied());
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
+            let obj_label = obj_names.get(obj_idx).cloned().unwrap_or_default();
+            let obj_col = obj_names
+                .get(obj_idx)
+                .and_then(|name| view.numeric_column(name));
             let rows = vec![
-                (param_name.clone(), fmt(param_val)),
-                (
-                    obj_names.get(obj_idx).cloned().unwrap_or_default(),
-                    fmt(obj_val),
-                ),
+                axis_row(param_name, view.numeric_column(param_name), row),
+                axis_row(&obj_label, obj_col, row),
                 ("Pareto Rank".to_string(), rank.to_string()),
             ];
             show_hover_tooltip(ui, "slice_hover_tooltip", trial_number, &rows);

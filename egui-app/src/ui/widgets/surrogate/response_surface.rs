@@ -29,7 +29,7 @@ use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     show_hover_and_click_detail, ArcballCamera,
 };
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::trial_detail_modal::{axis_row, TrialDetailModal};
 
 // モデル選択肢（コンボ表示順）。3 ウィジェット共通の単一情報源（`super::MODEL_CHOICES`）を使う。
 use super::MODEL_CHOICES;
@@ -493,7 +493,6 @@ impl ResponseSurfaceChart {
                     Some((trial_id, row, pos))
                 })
                 .collect();
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
             show_hover_and_click_detail(
                 ui,
                 view,
@@ -504,18 +503,9 @@ impl ResponseSurfaceChart {
                 &mut *detail_modal,
                 |row| {
                     vec![
-                        (
-                            param_x.clone(),
-                            fmt(px_col.and_then(|c| c.get(row)).copied()),
-                        ),
-                        (
-                            param_y.clone(),
-                            fmt(py_col.and_then(|c| c.get(row)).copied()),
-                        ),
-                        (
-                            objective_name.clone(),
-                            fmt(obj_col.and_then(|c| c.get(row)).copied()),
-                        ),
+                        axis_row(&param_x, px_col, row),
+                        axis_row(&param_y, py_col, row),
+                        axis_row(&objective_name, obj_col, row),
                     ]
                 },
                 |row| {
