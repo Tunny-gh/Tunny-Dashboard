@@ -329,12 +329,14 @@ impl ResponseSurfaceChart {
 
         // アンカー解決は全 trial を走査する O(N) 処理。入力（世代・選択・DataFrame）が
         // 変わらないフレームでは前回結果を再利用する。
-        let anchor_key: AnchorCacheKey =
-            (self.fit_generation, self.anchor, Arc::as_ptr(&view.df) as usize);
+        let anchor_key: AnchorCacheKey = (
+            self.fit_generation,
+            self.anchor,
+            Arc::as_ptr(&view.df) as usize,
+        );
         if self.anchor_cache.as_ref().map(|(k, _)| k) != Some(&anchor_key) {
-            self.anchor_cache =
-                resolve_center(&trained, self.anchor, view, obj_names, directions)
-                    .map(|a| (anchor_key, a));
+            self.anchor_cache = resolve_center(&trained, self.anchor, view, obj_names, directions)
+                .map(|a| (anchor_key, a));
         }
         let Some((_, anchor)) = self.anchor_cache.as_ref() else {
             ui.colored_label(

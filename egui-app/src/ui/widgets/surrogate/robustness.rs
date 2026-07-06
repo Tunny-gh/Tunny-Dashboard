@@ -368,8 +368,11 @@ pub fn show(
 
     // 中心点解決は全 trial を走査する O(N) 処理。入力（世代・選択・DataFrame）が
     // 変わらないフレームでは前回結果を再利用する。
-    let center_key: CenterCacheKey =
-        (state.fit_generation, state.center, Arc::as_ptr(&view.df) as usize);
+    let center_key: CenterCacheKey = (
+        state.fit_generation,
+        state.center,
+        Arc::as_ptr(&view.df) as usize,
+    );
     if state.center_cache.as_ref().map(|(k, _)| k) != Some(&center_key) {
         state.center_cache = resolve_center(&trained, state.center, view, obj_names, directions)
             .map(|c| (center_key, c));

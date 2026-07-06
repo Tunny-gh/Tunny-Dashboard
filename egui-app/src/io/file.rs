@@ -29,13 +29,7 @@ pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let tmp_path = dir.join(tmp_name);
 
     // 一時ファイルへ書き切ってから rename する。途中で失敗したら一時ファイルを掃除する。
-    let write_result = (|| -> std::io::Result<()> {
-        let mut f = std::fs::File::create(&tmp_path)?;
-        f.write_all(contents)?;
-        f.flush()?;
-        Ok(())
-    })();
-    if let Err(e) = write_result {
+    if let Err(e) = write_all_to_new_file(&tmp_path, contents) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(e);
     }
@@ -44,6 +38,14 @@ pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(e);
     }
+    Ok(())
+}
+
+/// 新規ファイルを作成し内容を書き切ってフラッシュする（`write_atomic` の一時ファイル書込み部）。
+fn write_all_to_new_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(contents)?;
+    f.flush()?;
     Ok(())
 }
 
