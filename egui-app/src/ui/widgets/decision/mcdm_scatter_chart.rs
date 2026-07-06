@@ -681,9 +681,9 @@ pub(crate) fn extract_axis_values(
     }
 }
 
-/// trial_idx → rank の逆引きマップを構築する
+/// trial_idx → rank の逆引きマップを構築する（2D/3D 散布図で共有・D-6）。
 /// ranked_indices[rank] = trial_idx なので逆引きが必要
-fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
+pub(crate) fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
     let mut rank_map = vec![usize::MAX; n_trials];
     for (rank, &trial_idx) in ranked_indices.iter().enumerate() {
         let idx = trial_idx as usize;
@@ -692,6 +692,32 @@ fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
         }
     }
     rank_map
+}
+
+/// MCDM ランク → 散布図の点色（2D/3D 散布図で共有・D-6）。
+/// `rank`（`build_rank_map` の値。ランク外は `usize::MAX`）が `colored_range` 未満なら
+/// カラーマップの連続色（rank 0=最良→t=1.0）、それ以外は灰色（`COLOR_MCDM_NONE`）を返す。
+pub(crate) fn mcdm_rank_color(rank: usize, colored_range: usize, colormap: &ColorMap) -> Color32 {
+    if rank == usize::MAX || rank >= colored_range {
+        COLOR_MCDM_NONE()
+    } else {
+        let t = if colored_range > 1 {
+            1.0 - rank as f32 / (colored_range - 1) as f32
+        } else {
+            1.0
+        };
+        colormap.interpolate(t)
+    }
+}
+
+/// 軸選択が無効化されたときのデフォルト軸 ID を返す（2D/3D 散布図で共有・D-6）。
+/// `nth` 番目のオプション、無ければ先頭、いずれも無ければ空文字列。
+pub(crate) fn fallback_axis_id(options: &[AxisOption], nth: usize) -> String {
+    options
+        .get(nth)
+        .or_else(|| options.first())
+        .map(|o| o.id.clone())
+        .unwrap_or_default()
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -754,18 +780,8 @@ pub(crate) fn compute_scatter_points(
             infeasible_pts.push((x, y));
             continue;
         }
-        let color = if rank == usize::MAX || rank >= colored_range {
-            // ランク外または top_n 外は灰色
-            COLOR_MCDM_NONE()
-        } else {
-            // rank 0（最良）→ t=1.0、rank colored_range-1 → t=0.0
-            let t = if colored_range > 1 {
-                1.0 - rank as f32 / (colored_range - 1) as f32
-            } else {
-                1.0
-            };
-            colormap.interpolate(t)
-        };
+        // ランク → 色（top_n 内はカラーマップ、範囲外は灰色。3D と共有・D-6）
+        let color = mcdm_rank_color(rank, colored_range, colormap);
         let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
         feasible_pts.push((x, y, color, trial_id));
     }

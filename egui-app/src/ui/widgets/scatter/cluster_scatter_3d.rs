@@ -7,8 +7,9 @@ use crate::ui::widgets::cluster_scatter::{
     KMeansInitStrategy, KSelectionMode,
 };
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    show_hover_and_click_detail, show_objective_combo, ArcballCamera, Range3DCache,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, project_value_3d,
+    setup_3d_canvas, show_hover_and_click_detail, show_objective_combo, ArcballCamera, DepthPoint,
+    Range3DCache,
 };
 use crate::ui::widgets::scatter_matrix::{downsample_indices_to_cap, MAX_SCATTER_POINTS};
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
@@ -190,11 +191,10 @@ impl ClusterScatter3D {
 
         // Collect points
         let show_infeasible = self.show_infeasible;
-        let mut feasible_pts: Vec<(egui::Pos2, f32, egui::Color32)> =
-            Vec::with_capacity(displayed.len());
-        let mut infeasible_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        let mut feasible_pts: Vec<DepthPoint> = Vec::with_capacity(displayed.len());
+        let mut infeasible_pts: Vec<DepthPoint> = Vec::new();
         // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
-        let mut other_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        let mut other_pts: Vec<DepthPoint> = Vec::new();
         // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
         let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
 
@@ -203,17 +203,18 @@ impl ClusterScatter3D {
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            let clip = [
-                normalize_to_clip(xv, x_min, x_max),
-                normalize_to_clip(yv, y_min, y_max),
-                normalize_to_clip(zv, z_min, z_max),
-            ];
-            let (pos, depth) = project(clip);
+            // normalize→project は共通ヘルパー（D-1）。
+            let (pos, depth) = project_value_3d(&project, [xv, yv, zv], ranges);
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
             if !feas.is_feasible(i) {
                 if show_infeasible {
-                    infeasible_pts.push((pos, depth));
+                    infeasible_pts.push(DepthPoint {
+                        pos,
+                        depth,
+                        color: COLOR_INFEASIBLE(),
+                        radius: 3.0,
+                    });
                     candidates.push((trial_id, i, pos));
                 }
                 continue;
@@ -225,24 +226,25 @@ impl ClusterScatter3D {
 
             if has_cluster && label < 0 {
                 // クラスタリング済みだが非パレートフロント → 半透明で描画
-                other_pts.push((pos, depth));
+                other_pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color: COLOR_NON_PARETO_DIM(),
+                    radius: 2.5,
+                });
             } else {
-                feasible_pts.push((pos, depth, cluster_color(label)));
+                feasible_pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color: cluster_color(label),
+                    radius: 3.5,
+                });
             }
         }
 
-        infeasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _) in &infeasible_pts {
-            painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE());
-        }
-        other_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _) in &other_pts {
-            painter.circle_filled(*pos, 2.5, COLOR_NON_PARETO_DIM());
-        }
-        feasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _, color) in &feasible_pts {
-            painter.circle_filled(*pos, 3.5, *color);
-        }
+        draw_depth_sorted_points(&painter, &mut infeasible_pts, None);
+        draw_depth_sorted_points(&painter, &mut other_pts, None);
+        draw_depth_sorted_points(&painter, &mut feasible_pts, None);
 
         if !has_cluster && !self.computing {
             painter.text(

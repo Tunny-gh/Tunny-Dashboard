@@ -6,9 +6,11 @@ use crate::theme::chart_colors::{
 };
 use crate::theme::color_compute::point_alpha_in_set;
 use crate::theme::TOOLBAR_BTN_FG;
+use crate::ui::widgets::pareto_2d::classify_rows;
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    show_hover_and_click_detail, show_objective_combo, ArcballCamera, Range3DCache,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, project_value_3d,
+    setup_3d_canvas, show_hover_and_click_detail, show_objective_combo, ArcballCamera, DepthPoint,
+    Range3DCache,
 };
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
@@ -136,32 +138,30 @@ impl Pareto3dChart {
             .and_then(|n| view.numeric_column(n));
         let feas = view.feasibility();
 
-        let displayed: Vec<usize> = (0..trial_count).collect();
-
-        let mut draw_calls: Vec<(egui::Pos2, f32, egui::Color32, f32)> =
-            Vec::with_capacity(displayed.len());
-        let mut infeasible_draw_calls: Vec<(egui::Pos2, f32, egui::Color32, f32)> =
-            Vec::with_capacity(32);
+        let mut draw_calls: Vec<DepthPoint> = Vec::with_capacity(trial_count);
+        let mut infeasible_draw_calls: Vec<DepthPoint> = Vec::with_capacity(32);
         let mut highlight_call: Option<egui::Pos2> = None;
         let show_infeasible = self.show_infeasible;
         // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
-        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(trial_count);
 
-        for i in displayed {
+        // feasibility 分割・ランク参照は 2D と共有（D-6）。normalize→project は共通ヘルパー（D-1）。
+        for r in classify_rows(view) {
+            let i = r.row;
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            let clip = [
-                normalize_to_clip(xv, x_min, x_max),
-                normalize_to_clip(yv, y_min, y_max),
-                normalize_to_clip(zv, z_min, z_max),
-            ];
-            let (screen_pos, depth) = project(clip);
-            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            let (screen_pos, depth) = project_value_3d(&project, [xv, yv, zv], ranges);
+            let trial_id = r.trial_id;
 
-            if !feas.is_feasible(i) {
+            if !r.feasible {
                 if show_infeasible {
-                    infeasible_draw_calls.push((screen_pos, depth, COLOR_INFEASIBLE(), 3.0));
+                    infeasible_draw_calls.push(DepthPoint {
+                        pos: screen_pos,
+                        depth,
+                        color: COLOR_INFEASIBLE(),
+                        radius: 3.0,
+                    });
                     candidates.push((trial_id, i, screen_pos));
                 }
                 continue;
@@ -175,21 +175,17 @@ impl Pareto3dChart {
             }
 
             let alpha = point_alpha_in_set(trial_id, &selected_set);
-            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            let (color, radius) = determine_point_color_3d(rank, alpha);
-            draw_calls.push((screen_pos, depth, color, radius));
+            let (color, radius) = determine_point_color_3d(r.rank, alpha);
+            draw_calls.push(DepthPoint {
+                pos: screen_pos,
+                depth,
+                color,
+                radius,
+            });
         }
 
-        infeasible_draw_calls
-            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _, color, radius) in &infeasible_draw_calls {
-            painter.circle_filled(*pos, *radius, *color);
-        }
-
-        draw_calls.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _, color, radius) in &draw_calls {
-            painter.circle_filled(*pos, *radius, *color);
-        }
+        draw_depth_sorted_points(&painter, &mut infeasible_draw_calls, None);
+        draw_depth_sorted_points(&painter, &mut draw_calls, None);
 
         if let Some(pos) = highlight_call {
             painter.circle_filled(pos, 8.0, COLOR_HIGHLIGHT_PT());

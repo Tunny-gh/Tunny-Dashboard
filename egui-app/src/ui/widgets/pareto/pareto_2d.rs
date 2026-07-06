@@ -69,6 +69,36 @@ impl Default for ParetoScatter2D {
     }
 }
 
+/// feasibility 分割・pareto_rank・trial_id を行順に展開した分類結果（2D/3D Pareto 共通・D-6）。
+pub(crate) struct ClassifiedRow {
+    pub trial_id: u32,
+    pub row: usize,
+    pub feasible: bool,
+    /// pareto_rank（feasible のときのみ意味を持つ。infeasible では 0）。
+    pub rank: u32,
+}
+
+/// view の全 trial を行順に (trial_id, row, feasible, pareto_rank) へ分類する（D-6）。
+/// 2D/3D Pareto 散布図の feasibility 分割・ランク参照・trial_id 参照を共有する。
+/// 描画（色分け・ハイライト・深度ソート）は各ウィジェット側で行う。
+pub(crate) fn classify_rows(view: &crate::state::types::StudyView) -> Vec<ClassifiedRow> {
+    let n = view.row_count();
+    let feas = view.feasibility();
+    (0..n)
+        .map(|i| {
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            let feasible = feas.is_feasible(i);
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            ClassifiedRow {
+                trial_id,
+                row: i,
+                feasible,
+                rank,
+            }
+        })
+        .collect()
+}
+
 /// 目的列から `PointCache` を構築する（選択・ハイライト非依存）。
 fn build_point_cache(
     view: &crate::state::types::StudyView,
@@ -77,22 +107,23 @@ fn build_point_cache(
     key: (usize, usize, usize),
 ) -> PointCache {
     let n = view.row_count();
-    let feas = view.feasibility();
+    let coord = |i: usize| {
+        let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+        let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+        [x, y]
+    };
     let mut feasible: Vec<(u32, u32, [f64; 2])> = Vec::new();
     let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
     let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::with_capacity(n);
-    for i in 0..n {
-        let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-        let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-        let pt = [x, y];
-        let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-        displayed_points.push((trial_id, i, pt));
-        if !feas.is_feasible(i) {
+    // feasibility 分割・ランク参照は 3D と共有する（D-6）。
+    for r in classify_rows(view) {
+        let pt = coord(r.row);
+        displayed_points.push((r.trial_id, r.row, pt));
+        if !r.feasible {
             infeasible_pts.push(pt);
             continue;
         }
-        let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-        feasible.push((trial_id, rank, pt));
+        feasible.push((r.trial_id, r.rank, pt));
     }
     PointCache {
         key,

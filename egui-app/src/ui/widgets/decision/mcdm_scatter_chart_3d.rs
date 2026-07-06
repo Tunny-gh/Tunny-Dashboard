@@ -6,12 +6,14 @@ use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
-use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::mcdm_chart::McdmControls;
-use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options, ranked_hash};
+use crate::ui::widgets::mcdm_scatter_chart::{
+    build_rank_map, extract_axis_values, fallback_axis_id, get_axis_options, mcdm_rank_color,
+    ranked_hash,
+};
 use crate::ui::widgets::scatter_3d::{
-    draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas, show_hover_and_click_detail,
-    ArcballCamera,
+    draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, normalize_to_clip, setup_3d_canvas,
+    show_hover_and_click_detail, val_range, ArcballCamera, DepthPoint,
 };
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use egui::Color32;
@@ -82,14 +84,6 @@ impl Default for McdmScatterChart3D {
     }
 }
 
-fn val_range(vals: &[f64]) -> (f64, f64) {
-    let finite = vals.iter().copied().filter(|v| v.is_finite());
-    match range_math::value_range(finite) {
-        Some((mn, mx)) => range_math::expand_degenerate(mn, mx),
-        None => (-1.0, 1.0),
-    }
-}
-
 impl McdmScatterChart3D {
     /// グローバル widget の MCDM 実行状態を取り込む（キャンバスの各アイテム用）。
     pub fn adopt_compute_state(&mut self, src: &Self) {
@@ -141,15 +135,8 @@ impl McdmScatterChart3D {
         let y_range = val_range(&y_vals);
         let z_range = val_range(&z_vals);
 
-        // ranked_indices → rank_map
-        let ranked = result.ranked_indices();
-        let mut rank_map = vec![usize::MAX; n_trials];
-        for (rank, &idx) in ranked.iter().enumerate() {
-            let i = idx as usize;
-            if i < n_trials {
-                rank_map[i] = rank;
-            }
-        }
+        // ranked_indices → rank_map（2D と共有・D-6）
+        let rank_map = build_rank_map(result.ranked_indices(), n_trials);
         let colored_range = top_n.max(1);
 
         let feas = view.feasibility();
@@ -178,16 +165,8 @@ impl McdmScatterChart3D {
                 continue;
             }
 
-            let color = if rank == usize::MAX || rank >= colored_range {
-                COLOR_MCDM_NONE()
-            } else {
-                let t = if colored_range > 1 {
-                    1.0 - rank as f32 / (colored_range - 1) as f32
-                } else {
-                    1.0
-                };
-                colormap.interpolate(t)
-            };
+            // rank → 色（top_n 内はカラーマップ、範囲外は灰色。2D と共有・D-6）
+            let color = mcdm_rank_color(rank, colored_range, colormap);
             clip_pts.push(([cx, cy, cz], color, i));
         }
 
@@ -242,23 +221,15 @@ impl McdmScatterChart3D {
 
         // デフォルト軸のリセット（無効なIDを選択中の場合）
         if !options.iter().any(|o| o.id == self.x_axis) {
-            self.x_axis = options.first().map(|o| o.id.clone()).unwrap_or_default();
+            self.x_axis = fallback_axis_id(&options, 0);
             self.cache_key = None;
         }
         if !options.iter().any(|o| o.id == self.y_axis) {
-            self.y_axis = options
-                .get(1)
-                .or_else(|| options.first())
-                .map(|o| o.id.clone())
-                .unwrap_or_default();
+            self.y_axis = fallback_axis_id(&options, 1);
             self.cache_key = None;
         }
         if !options.iter().any(|o| o.id == self.z_axis) {
-            self.z_axis = options
-                .get(2)
-                .or_else(|| options.first())
-                .map(|o| o.id.clone())
-                .unwrap_or_default();
+            self.z_axis = fallback_axis_id(&options, 2);
             self.cache_key = None;
         }
 
@@ -337,32 +308,35 @@ impl McdmScatterChart3D {
 
             // 実行不可能解を最背面に描画
             if has_infeasible {
-                let mut inf_pts: Vec<(egui::Pos2, f32)> =
-                    Vec::with_capacity(pc.infeasible_clip_pts.len());
+                let mut inf_pts: Vec<DepthPoint> = Vec::with_capacity(pc.infeasible_clip_pts.len());
                 for &(clip, row) in &pc.infeasible_clip_pts {
                     let (pos, depth) = project(clip);
                     let trial_id = view.trial_ids.get(row).copied().unwrap_or(row as u32);
                     candidates.push((trial_id, row, pos));
-                    inf_pts.push((pos, depth));
+                    inf_pts.push(DepthPoint {
+                        pos,
+                        depth,
+                        color: COLOR_INFEASIBLE(),
+                        radius: 3.0,
+                    });
                 }
-                inf_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                for (pos, _) in &inf_pts {
-                    painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE());
-                }
+                draw_depth_sorted_points(&painter, &mut inf_pts, None);
             }
 
             // 実行可能解を奥から手前の順（ペインターズアルゴリズム）
-            let mut pts: Vec<(egui::Pos2, f32, Color32)> = Vec::with_capacity(pc.clip_pts.len());
+            let mut pts: Vec<DepthPoint> = Vec::with_capacity(pc.clip_pts.len());
             for &(clip, color, row) in &pc.clip_pts {
                 let (pos, depth) = project(clip);
                 let trial_id = view.trial_ids.get(row).copied().unwrap_or(row as u32);
                 candidates.push((trial_id, row, pos));
-                pts.push((pos, depth, color));
+                pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color,
+                    radius: 3.5,
+                });
             }
-            pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (pos, _, color) in &pts {
-                painter.circle_filled(*pos, 3.5, *color);
-            }
+            draw_depth_sorted_points(&painter, &mut pts, None);
         }
 
         // ── 右上カラーバー判例 ────────────────────────────────────
