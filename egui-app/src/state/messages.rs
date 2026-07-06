@@ -155,6 +155,45 @@ pub struct SurrogateOptUiResult {
 }
 
 // ============================================================
+// Compare Surrogates 関連型
+// ============================================================
+
+/// Compare Surrogates: 1 モデルの CV 指標比較行。フィット/検証に失敗した場合は
+/// `error` に理由を残し、他の数値フィールドは無効値（0.0）のまま UI 側で表示しない。
+#[derive(Debug, Clone)]
+pub struct SurrogateCompareRow {
+    pub kind: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub cv_r2_mean: f64,
+    pub cv_r2_std: f64,
+    pub holdout_r2: f64,
+    pub holdout_rmse: f64,
+    pub train_r2: f64,
+    /// フィット/検証に失敗した場合のエラーメッセージ。
+    pub error: Option<String>,
+}
+
+/// Compare Surrogates ウィジェットの UI 表示用結果。選択目的に対して全モデル種別を
+/// フィットした CV 指標比較と、ベスト観測 trial をアンカーとした 1D 予測スライスの
+/// オーバーレイを保持する。
+#[derive(Debug, Clone)]
+pub struct SurrogateCompareUiResult {
+    /// モデルごとの CV 指標比較行（表示順は UI 側でソートする）。
+    pub rows: Vec<SurrogateCompareRow>,
+    /// フィットに成功したモデルの 1D 予測スライス（アンカー点を通る）。
+    pub slices: Vec<(
+        tunny_core::surrogate_opt::SurrogateModelKind,
+        tunny_core::surrogate_opt::LineSlice,
+    )>,
+    /// スライス対象パラメータに対する観測データ (x, y)。
+    pub observed: Vec<(f64, f64)>,
+    /// スライス対象パラメータ名。
+    pub param_name: String,
+    pub objective_name: String,
+    /// アンカー点（元単位、学習に使ったパラメータ順）。
+    pub anchor: Vec<f64>,
+}
+
+// ============================================================
 // AppMessage
 // ============================================================
 
@@ -328,6 +367,12 @@ pub enum AppMessage {
     ResponseSurfaceFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     /// 応答曲面 3D ビューア用サロゲートのフィットが失敗した。
     ResponseSurfaceFitFailed(String),
+    /// Compare Surrogates: 全モデル種別のフィット＋比較が完了した
+    /// （個々のモデルのフィット失敗は `SurrogateCompareRow::error` に格納され、ここでは
+    /// 全モデルが失敗した場合のみ `SurrogateCompareFailed` を送る）。
+    SurrogateCompareDone(std::sync::Arc<SurrogateCompareUiResult>),
+    /// Compare Surrogates: 全モデルのフィットに失敗した。
+    SurrogateCompareFailed(String),
 
     /// R4: 自己完結型レポート出力（HTML/Markdown/JSON）がバックグラウンドで完了した。
     /// 実際に書き出したファイルパス一覧（複数フォーマット選択時は複数件）。

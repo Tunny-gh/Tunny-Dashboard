@@ -430,6 +430,22 @@ pub(crate) fn render_chart(
                 &app_state.artifact_map,
             );
         }
+        ChartId::SurrogateCompare => {
+            // カテゴリカル列（数値化できない列）は比較対象から除外する
+            // （Robustness / SurrogateOpt / ResponseSurface3D と同じ絞り込み）。
+            let numeric_params: Vec<String> = param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            crate::ui::widgets::compare::show(
+                ui,
+                &mut widgets.surrogate_compare,
+                obj_names,
+                &numeric_params,
+                ctx.trial_count(),
+            );
+        }
         ChartId::IntermediateValues => {
             let extras = tunny_core::dataframe::active_extras_snapshot();
             widgets.intermediate_values.show(ui, extras.as_deref());

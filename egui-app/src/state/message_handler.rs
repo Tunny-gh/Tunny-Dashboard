@@ -346,6 +346,15 @@ impl MessageHandler {
                 widget_states.response_surface.fit_error = Some(err);
                 widget_states.response_surface.fitting = false;
             }
+            AppMessage::SurrogateCompareDone(result) => {
+                widget_states.surrogate_compare.result = Some(result);
+                widget_states.surrogate_compare.error = None;
+                widget_states.surrogate_compare.computing = false;
+            }
+            AppMessage::SurrogateCompareFailed(err) => {
+                widget_states.surrogate_compare.error = Some(err);
+                widget_states.surrogate_compare.computing = false;
+            }
         }
     }
 

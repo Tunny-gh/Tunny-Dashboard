@@ -24,6 +24,8 @@ pub use pdp::slice_chart;
 
 // サロゲート最適化（応答曲面作成＋曲面上の最適化）
 mod surrogate;
+pub use surrogate::anchor;
+pub use surrogate::compare;
 pub use surrogate::response_surface;
 pub use surrogate::robustness;
 pub use surrogate::surrogate_opt;

@@ -1257,6 +1257,163 @@ pub(crate) fn poll_chart_work(
                 }
             });
         }
+        ChartId::SurrogateCompare => {
+            let Some(req) = widgets.surrogate_compare.pending.take() else {
+                return;
+            };
+            let ctx = app_state.current_study.as_ref().unwrap();
+            let numeric_params: Vec<String> = ctx
+                .meta
+                .param_names
+                .iter()
+                .filter(|p| ctx.view.numeric_column(p).is_some())
+                .cloned()
+                .collect();
+            if numeric_params.is_empty() {
+                widgets.surrogate_compare.error =
+                    Some("No numeric parameters available".to_string());
+                widgets.surrogate_compare.computing = false;
+                return;
+            }
+            let Some(objective) = obj_names.get(req.objective_index).cloned() else {
+                widgets.surrogate_compare.error = Some("Invalid objective selection".to_string());
+                widgets.surrogate_compare.computing = false;
+                return;
+            };
+            if req.slice_param >= numeric_params.len() {
+                widgets.surrogate_compare.error =
+                    Some("Invalid slice parameter selection".to_string());
+                widgets.surrogate_compare.computing = false;
+                return;
+            }
+
+            let n = ctx.view.row_count();
+            let param_cols = ctx.view.numeric_columns(&numeric_params);
+            let x_matrix: Vec<Vec<f64>> = (0..n)
+                .map(|i| {
+                    param_cols
+                        .iter()
+                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .collect()
+                })
+                .collect();
+            let y: Vec<f64> = ctx
+                .view
+                .numeric_column(&objective)
+                .map(|col| col.to_vec())
+                .unwrap_or_else(|| vec![0.0; n]);
+
+            let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
+                .iter()
+                .map(|p| ctx.meta.param_bounds.get(p).copied())
+                .collect();
+
+            // アンカー: 選択目的の観測ベスト行（方向を考慮）。x_matrix と列順が一致するため、
+            // その行をそのままアンカーベクトルとして使える。
+            let Some(best_row) = crate::ui::widgets::anchor::best_trial_row(
+                &ctx.view, obj_names, directions, &objective,
+            ) else {
+                widgets.surrogate_compare.error =
+                    Some("Could not resolve an anchor point".to_string());
+                widgets.surrogate_compare.computing = false;
+                return;
+            };
+            let anchor = x_matrix[best_row].clone();
+
+            let slice_param = req.slice_param;
+            let observed: Vec<(f64, f64)> = (0..n)
+                .filter_map(|i| {
+                    let xv = x_matrix.get(i)?.get(slice_param).copied()?;
+                    let yv = y.get(i).copied()?;
+                    (xv.is_finite() && yv.is_finite()).then_some((xv, yv))
+                })
+                .collect();
+
+            let kinds = crate::ui::widgets::compare::model_kinds(req.include_moe);
+            let param_name = numeric_params[slice_param].clone();
+            let objective_name = objective.clone();
+
+            widgets.surrogate_compare.error = None;
+
+            let tx = tx.clone();
+            crate::app::spawn_task(tx, move || {
+                use crate::state::messages::{SurrogateCompareRow, SurrogateCompareUiResult};
+
+                let mut rows: Vec<SurrogateCompareRow> = Vec::with_capacity(kinds.len());
+                let mut slices = Vec::new();
+
+                for kind in kinds {
+                    let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+                        x_matrix: x_matrix.clone(),
+                        y: y.clone(),
+                        param_names: numeric_params.clone(),
+                        objective_name: objective_name.clone(),
+                        model: kind,
+                        auto_select: false,
+                        // 単純な比較ビューのため制約は扱わない（ResponseSurface3D と同じ理由）。
+                        constraints: vec![],
+                        priority_rows: vec![],
+                        param_bounds: Some(param_bounds.clone()),
+                    };
+                    match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+                        Ok(trained) => {
+                            let v = &trained.validation;
+                            rows.push(SurrogateCompareRow {
+                                kind,
+                                cv_r2_mean: v.cv_r2_mean,
+                                cv_r2_std: v.cv_r2_std,
+                                holdout_r2: v.holdout_r2,
+                                holdout_rmse: v.holdout_rmse,
+                                train_r2: v.train_r2,
+                                error: None,
+                            });
+                            if let Some(slice) = tunny_core::surrogate_opt::line_slice_at(
+                                &trained,
+                                &anchor,
+                                slice_param,
+                                60,
+                            ) {
+                                slices.push((kind, slice));
+                            }
+                        }
+                        Err(e) => {
+                            rows.push(SurrogateCompareRow {
+                                kind,
+                                cv_r2_mean: 0.0,
+                                cv_r2_std: 0.0,
+                                holdout_r2: 0.0,
+                                holdout_rmse: 0.0,
+                                train_r2: 0.0,
+                                error: Some(e),
+                            });
+                        }
+                    }
+                }
+
+                // 全モデルが失敗した場合のみ Failed とする（一部失敗は行ごとのエラーとして表示する）。
+                if rows.iter().all(|r| r.error.is_some()) {
+                    let combined = rows
+                        .iter()
+                        .filter_map(|r| r.error.clone())
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    AppMessage::SurrogateCompareFailed(format!(
+                        "All models failed to fit: {combined}"
+                    ))
+                } else {
+                    AppMessage::SurrogateCompareDone(std::sync::Arc::new(
+                        SurrogateCompareUiResult {
+                            rows,
+                            slices,
+                            observed,
+                            param_name,
+                            objective_name,
+                            anchor,
+                        },
+                    ))
+                }
+            });
+        }
         _ => {}
     }
 }

@@ -40,8 +40,42 @@ pub struct RobustnessFitRequest {
 }
 
 /// キャッシュキー: (学習済みモデルのポインタ恒等性, 中心点のビット表現, ノイズ%のビット表現,
-/// サンプル数, 認識論的不確かさ込みか)。シードは固定 42 のためキーに含めない。
-type RobustnessCacheKey = (usize, Vec<u64>, u64, usize, bool);
+/// サンプル数, 認識論的不確かさ込みか, ノイズ分布種別, Weibull 形状パラメータのビット表現,
+/// LSL のビット表現（未指定なら None）, USL のビット表現（未指定なら None）)。
+/// シードは固定 42 のためキーに含めない。
+type RobustnessCacheKey = (
+    usize,
+    Vec<u64>,
+    u64,
+    usize,
+    bool,
+    u8,
+    u64,
+    Option<u64>,
+    Option<u64>,
+);
+
+/// ノイズ分布の選択肢（widget ローカル）。
+///
+/// コアの `NoiseDistribution` は `Weibull { shape }` を持つデータ運搬型で
+/// シリアライズを実装していないため、UI 状態の永続化用にこの薄いミラーを持つ。
+/// Weibull の形状パラメータ自体は別フィールド `weibull_shape` に持たせる。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum NoiseDistKind {
+    #[default]
+    Normal,
+    Uniform,
+    Weibull,
+}
+
+/// コンボ表示用ラベル。
+fn noise_dist_label(kind: NoiseDistKind) -> &'static str {
+    match kind {
+        NoiseDistKind::Normal => "Normal",
+        NoiseDistKind::Uniform => "Uniform",
+        NoiseDistKind::Weibull => "Weibull",
+    }
+}
 
 /// ロバスト性解析ウィジェットの UI 状態。
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -52,8 +86,18 @@ pub struct RobustnessChart {
     pub center: CenterChoice,
     /// ノイズの 1σ（パラメータレンジに対する割合、%）。
     pub noise_pct: f64,
+    /// ノイズの分布形。
+    pub noise_dist: NoiseDistKind,
+    /// Weibull 分布の形状パラメータ k（[0.2, 20] の範囲）。
+    pub weibull_shape: f64,
     pub n_samples: usize,
     pub include_epistemic: bool,
+    /// 仕様下限（LSL）を有効にするか、およびその値。
+    pub use_lower_spec: bool,
+    pub lower_spec_value: f64,
+    /// 仕様上限（USL）を有効にするか、およびその値。
+    pub use_upper_spec: bool,
+    pub upper_spec_value: f64,
 
     #[serde(skip)]
     pub trained: Option<Arc<TrainedSurrogate>>,
@@ -74,8 +118,14 @@ impl Default for RobustnessChart {
             model: SurrogateModelKind::GpFitc,
             center: CenterChoice::default(),
             noise_pct: 2.0,
+            noise_dist: NoiseDistKind::Normal,
+            weibull_shape: 1.5,
             n_samples: 1024,
             include_epistemic: false,
+            use_lower_spec: false,
+            lower_spec_value: 0.0,
+            use_upper_spec: false,
+            upper_spec_value: 0.0,
             trained: None,
             fitting: false,
             fit_error: None,
@@ -184,6 +234,51 @@ pub fn show(
         ui.checkbox(&mut state.include_epistemic, "Model uncertainty");
     });
 
+    // ── ノイズ分布 ────────────────────────────────────────────
+    ui.horizontal(|ui| {
+        ui.label("Noise dist:");
+        egui::ComboBox::from_id_salt("robustness_noise_dist")
+            .selected_text(noise_dist_label(state.noise_dist))
+            .show_ui(ui, |ui| {
+                for kind in [
+                    NoiseDistKind::Normal,
+                    NoiseDistKind::Uniform,
+                    NoiseDistKind::Weibull,
+                ] {
+                    ui.selectable_value(&mut state.noise_dist, kind, noise_dist_label(kind));
+                }
+            });
+        if state.noise_dist == NoiseDistKind::Weibull {
+            ui.label("k:");
+            ui.add(
+                egui::DragValue::new(&mut state.weibull_shape)
+                    .speed(0.1)
+                    .range(0.2..=20.0),
+            );
+        }
+    });
+
+    // ── 仕様限界（LSL/USL） ───────────────────────────────────
+    ui.horizontal(|ui| {
+        ui.label("Spec limits:");
+        // 既存結果の nominal を基準にスケール調整したステップ量。結果がまだ無ければ 0.1。
+        let speed = state
+            .cache
+            .as_ref()
+            .map(|(_, r)| (r.nominal.abs() * 0.01).max(0.01))
+            .unwrap_or(0.1);
+        ui.checkbox(&mut state.use_lower_spec, "LSL");
+        ui.add_enabled(
+            state.use_lower_spec,
+            egui::DragValue::new(&mut state.lower_spec_value).speed(speed),
+        );
+        ui.checkbox(&mut state.use_upper_spec, "USL");
+        ui.add_enabled(
+            state.use_upper_spec,
+            egui::DragValue::new(&mut state.upper_spec_value).speed(speed),
+        );
+    });
+
     // ── trial 数不足 ─────────────────────────────────────────────
     if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
         ui.label(
@@ -233,20 +328,36 @@ pub fn show(
         return;
     };
 
+    let lower_spec = state.use_lower_spec.then_some(state.lower_spec_value);
+    let upper_spec = state.use_upper_spec.then_some(state.upper_spec_value);
     let key = cache_key(
         &trained,
         &center,
         state.noise_pct,
         state.n_samples,
         state.include_epistemic,
+        state.noise_dist,
+        state.weibull_shape,
+        lower_spec,
+        upper_spec,
     );
     if state.cache.as_ref().map(|(k, _)| k) != Some(&key) {
+        let distribution = match state.noise_dist {
+            NoiseDistKind::Normal => tunny_core::surrogate_opt::NoiseDistribution::Normal,
+            NoiseDistKind::Uniform => tunny_core::surrogate_opt::NoiseDistribution::Uniform,
+            NoiseDistKind::Weibull => tunny_core::surrogate_opt::NoiseDistribution::Weibull {
+                shape: state.weibull_shape,
+            },
+        };
         let spec = RobustnessSpec {
             center,
             relative_sigma: state.noise_pct / 100.0,
+            distribution,
             n_samples: state.n_samples,
             include_epistemic: state.include_epistemic,
             seed: 42,
+            lower_spec,
+            upper_spec,
         };
         match tunny_core::surrogate_opt::robustness_analysis(&trained, &spec) {
             Ok(result) => state.cache = Some((key, result)),
@@ -262,16 +373,21 @@ pub fn show(
     }
 
     if let Some((_, result)) = &state.cache {
-        render_result(ui, result);
+        render_result(ui, result, lower_spec, upper_spec);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cache_key(
     trained: &Arc<TrainedSurrogate>,
     center: &[f64],
     noise_pct: f64,
     n_samples: usize,
     include_epistemic: bool,
+    noise_dist: NoiseDistKind,
+    weibull_shape: f64,
+    lower_spec: Option<f64>,
+    upper_spec: Option<f64>,
 ) -> RobustnessCacheKey {
     (
         Arc::as_ptr(trained) as usize,
@@ -279,11 +395,21 @@ fn cache_key(
         noise_pct.to_bits(),
         n_samples,
         include_epistemic,
+        noise_dist as u8,
+        weibull_shape.to_bits(),
+        lower_spec.map(f64::to_bits),
+        upper_spec.map(f64::to_bits),
     )
 }
 
 /// ヒストグラム + 統計サマリを描画する。
-fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
+/// `lower_spec` / `upper_spec` は有効な場合のみヒストグラムに LSL/USL の縦線を描く。
+fn render_result(
+    ui: &mut egui::Ui,
+    result: &RobustnessResult,
+    lower_spec: Option<f64>,
+    upper_spec: Option<f64>,
+) {
     let Some(hist) = compute_histogram(&result.samples, BinRule::Sturges) else {
         ui.label(egui::RichText::new("Not enough samples to plot.").weak());
         return;
@@ -305,11 +431,22 @@ fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
         .collect();
     let chart = egui_plot::BarChart::new("Samples", bars).color(COLOR_BAR_PRIMARY());
 
+    // 統計・成功確率のラベル行（プロット下）分の高さを確保する。
+    // 確保しないとプロットが利用可能高さ全体に広がり、ラベルが
+    // ウィジェット外へ押し出されて見えなくなる。
+    let label_rows = 1
+        + usize::from(result.feasibility_rate.is_some())
+        + usize::from(result.success_rate.is_some())
+        + usize::from(result.clipped_fraction > 0.0);
+    let reserved = 8.0 + label_rows as f32 * 20.0;
+    let plot_height = (ui.available_height() - reserved).max(120.0);
+
     egui_plot::Plot::new("robustness_histogram")
         .unified_nav()
         .legend(egui_plot::Legend::default())
         .x_axis_label("Output")
         .y_axis_label("Count")
+        .height(plot_height)
         .show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
             plot_ui.bar_chart(chart);
@@ -329,6 +466,12 @@ fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
                     .color(COLOR_BAR_ACCENT())
                     .style(egui_plot::LineStyle::Dashed { length: 4.0 }),
             );
+            if let Some(lsl) = lower_spec {
+                plot_ui.vline(egui_plot::VLine::new("LSL", lsl).color(COLOR_BAR_NEGATIVE()));
+            }
+            if let Some(usl) = upper_spec {
+                plot_ui.vline(egui_plot::VLine::new("USL", usl).color(COLOR_BAR_NEGATIVE()));
+            }
         });
 
     ui.add_space(4.0);
@@ -339,6 +482,21 @@ fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
     ));
     if let Some(rate) = result.feasibility_rate {
         ui.label(format!("P(feasible) {:.1}%", rate * 100.0));
+    }
+    if let Some(rate) = result.success_rate {
+        let sigma = result.sigma_level.unwrap_or(0.0);
+        let color = if sigma >= 4.0 {
+            crate::theme::chart_colors::COLOR_FIT_HIGH()
+        } else if sigma >= 2.0 {
+            crate::theme::chart_colors::COLOR_FIT_MID()
+        } else {
+            crate::theme::chart_colors::COLOR_FIT_LOW()
+        };
+        let mut line = format!("Success: {:.2}%  ・ σ level: {:.2}σ", rate * 100.0, sigma);
+        if let Some(cpk) = result.cpk {
+            line.push_str(&format!("  ・ Cpk: {cpk:.2}"));
+        }
+        ui.colored_label(color, line);
     }
     if result.clipped_fraction > 0.0 {
         ui.colored_label(
@@ -358,12 +516,148 @@ mod tests {
         assert_eq!(state.selected_objective, 0);
         assert_eq!(state.center, CenterChoice::BestTrial);
         assert_eq!(state.noise_pct, 2.0);
+        assert_eq!(state.noise_dist, NoiseDistKind::Normal);
+        assert_eq!(state.weibull_shape, 1.5);
         assert_eq!(state.n_samples, 1024);
         assert!(!state.include_epistemic);
+        assert!(!state.use_lower_spec);
+        assert_eq!(state.lower_spec_value, 0.0);
+        assert!(!state.use_upper_spec);
+        assert_eq!(state.upper_spec_value, 0.0);
         assert!(state.trained.is_none());
         assert!(!state.fitting);
         assert!(state.pending_fit.is_none());
         assert!(state.cached_result().is_none());
+    }
+
+    #[test]
+    fn noise_dist_kind_default_is_normal() {
+        assert_eq!(NoiseDistKind::default(), NoiseDistKind::Normal);
+    }
+
+    #[test]
+    fn noise_dist_labels_cover_all_choices() {
+        for kind in [
+            NoiseDistKind::Normal,
+            NoiseDistKind::Uniform,
+            NoiseDistKind::Weibull,
+        ] {
+            assert!(!noise_dist_label(kind).is_empty());
+        }
+    }
+
+    /// 最低限のフィールドだけ埋めた TrainedSurrogate をフィットして作る（cache_key 検証用）。
+    fn make_dummy_trained() -> TrainedSurrogate {
+        let xs: Vec<Vec<f64>> = (0..12)
+            .map(|i| vec![i as f64 / 12.0, (i as f64 / 12.0) * 0.5])
+            .collect();
+        let ys: Vec<f64> = (0..12).map(|i| i as f64).collect();
+        let req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            x_matrix: xs,
+            y: ys,
+            param_names: vec!["x".to_string(), "y".to_string()],
+            objective_name: "obj".to_string(),
+            model: SurrogateModelKind::Ridge,
+            auto_select: false,
+            constraints: vec![],
+            priority_rows: vec![],
+            param_bounds: None,
+        };
+        tunny_core::surrogate_opt::fit_surrogate_with_validation(&req).expect("dummy fit")
+    }
+
+    #[test]
+    fn cache_key_changes_with_distribution_shape_and_specs() {
+        let trained = Arc::new(make_dummy_trained());
+        let center = vec![0.5, 0.25];
+
+        let base = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Normal,
+            1.5,
+            None,
+            None,
+        );
+        let different_dist = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Uniform,
+            1.5,
+            None,
+            None,
+        );
+        let different_shape = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Weibull,
+            1.5,
+            None,
+            None,
+        );
+        let different_shape2 = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Weibull,
+            3.0,
+            None,
+            None,
+        );
+        let with_lower = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Normal,
+            1.5,
+            Some(-1.0),
+            None,
+        );
+        let with_upper = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Normal,
+            1.5,
+            None,
+            Some(1.0),
+        );
+
+        assert_ne!(base, different_dist);
+        assert_ne!(base, different_shape);
+        assert_ne!(different_shape, different_shape2);
+        assert_ne!(base, with_lower);
+        assert_ne!(base, with_upper);
+        assert_ne!(with_lower, with_upper);
+
+        // 同じ引数なら同じキーになる。
+        let base_again = cache_key(
+            &trained,
+            &center,
+            2.0,
+            1024,
+            false,
+            NoiseDistKind::Normal,
+            1.5,
+            None,
+            None,
+        );
+        assert_eq!(base, base_again);
     }
 
     #[test]

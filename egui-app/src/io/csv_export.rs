@@ -78,6 +78,7 @@ pub fn build_chart_csv(
         ChartId::Timeline => build_timeline_csv(),
         ChartId::EdfPlot => build_edf_csv(app_state, widgets),
         ChartId::RankPlot => build_rank_plot_csv(app_state, widgets),
+        ChartId::SurrogateCompare => build_surrogate_compare_csv(widgets),
     }
 }
 
@@ -297,6 +298,11 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                     .get(widgets.rank_plot.obj_idx)
                     .is_some()
         }),
+        ChartId::SurrogateCompare => widgets
+            .surrogate_compare
+            .result
+            .as_ref()
+            .is_some_and(|r| !r.rows.is_empty()),
     }
 }
 
@@ -335,6 +341,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::Timeline => "timeline",
         ChartId::EdfPlot => "edf_plot",
         ChartId::RankPlot => "rank_plot",
+        ChartId::SurrogateCompare => "surrogate_compare",
     };
     format!("{}.csv", name)
 }
@@ -1285,6 +1292,44 @@ fn build_robustness_csv(widgets: &WidgetStates) -> Option<String> {
     if let Some(result) = widgets.robustness.cached_result() {
         for &v in &result.samples {
             w.row([CsvField::Num(v)]);
+        }
+    }
+    Some(w.finish())
+}
+
+/// Compare Surrogates の CV 指標比較表を CSV にする。フィットに失敗したモデルは
+/// 数値欄を空欄にする。結果が無ければ None。
+fn build_surrogate_compare_csv(widgets: &WidgetStates) -> Option<String> {
+    let result = widgets.surrogate_compare.result.as_ref()?;
+    let mut w = CsvWriter::new();
+    w.header([
+        "model",
+        "cv_r2_mean",
+        "cv_r2_std",
+        "holdout_r2",
+        "holdout_rmse",
+        "train_r2",
+    ]);
+    for row in &result.rows {
+        let model_name = crate::ui::widgets::surrogate_opt::model_label(row.kind);
+        if row.error.is_some() {
+            w.row([
+                CsvField::Text(model_name),
+                CsvField::Empty,
+                CsvField::Empty,
+                CsvField::Empty,
+                CsvField::Empty,
+                CsvField::Empty,
+            ]);
+        } else {
+            w.row([
+                CsvField::Text(model_name),
+                CsvField::Num(row.cv_r2_mean),
+                CsvField::Num(row.cv_r2_std),
+                CsvField::Num(row.holdout_r2),
+                CsvField::Num(row.holdout_rmse),
+                CsvField::Num(row.train_r2),
+            ]);
         }
     }
     Some(w.finish())

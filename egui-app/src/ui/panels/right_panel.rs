@@ -120,6 +120,10 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::RankPlot => {
             egui::include_image!("../../../assets/widget_icons/rank_plot.svg")
         }
+        // Compare Surrogates はサロゲート最適化と同じモデル群を扱うため、既存アイコンを再利用する。
+        ChartId::SurrogateCompare => {
+            egui::include_image!("../../../assets/widget_icons/surrogate_opt.svg")
+        }
     }
 }
 
@@ -221,6 +225,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::PdpChart),
                     PanelItem::Chart(ChartId::PdpChart2D),
                     PanelItem::Chart(ChartId::ResponseSurface3D),
+                    PanelItem::Chart(ChartId::SurrogateCompare),
                 ],
             ),
             (

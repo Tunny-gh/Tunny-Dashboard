@@ -33,6 +33,7 @@ pub enum ChartId {
     Timeline,
     EdfPlot,
     RankPlot,
+    SurrogateCompare,
 }
 
 impl ChartId {
@@ -73,6 +74,7 @@ impl ChartId {
             ChartId::Timeline,
             ChartId::EdfPlot,
             ChartId::RankPlot,
+            ChartId::SurrogateCompare,
         ]
     }
 
@@ -111,6 +113,7 @@ impl ChartId {
             ChartId::Timeline => "Timeline",
             ChartId::EdfPlot => "EDF",
             ChartId::RankPlot => "Rank Plot",
+            ChartId::SurrogateCompare => "Compare Surrogates",
         }
     }
 
@@ -130,6 +133,7 @@ impl ChartId {
             ChartId::Timeline => Some("Trial execution timeline"),
             ChartId::EdfPlot => Some("Empirical distribution of objective values"),
             ChartId::RankPlot => Some("Param pairs colored by objective rank"),
+            ChartId::SurrogateCompare => Some("CV metrics & prediction overlay"),
             _ => None,
         }
     }

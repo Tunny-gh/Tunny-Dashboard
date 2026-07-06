@@ -62,6 +62,7 @@ enum ComputeSyncKind {
     ResponseSurfaceFit,
     Convergence,
     SensitivityHeatmap,
+    SurrogateCompare,
 }
 
 impl ComputeSyncKind {
@@ -99,6 +100,9 @@ impl ComputeSyncKind {
             }
             AppMessage::ResponseSurfaceFitDone(_) | AppMessage::ResponseSurfaceFitFailed(_) => {
                 Some(Self::ResponseSurfaceFit)
+            }
+            AppMessage::SurrogateCompareDone(_) | AppMessage::SurrogateCompareFailed(_) => {
+                Some(Self::SurrogateCompare)
             }
             AppMessage::IndicatorHistoryDone { .. } => Some(Self::Convergence),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
@@ -154,6 +158,9 @@ impl ComputeSyncKind {
                 Self::SensitivityHeatmap => w
                     .sensitivity_heatmap
                     .adopt_compute_state(&global.sensitivity_heatmap),
+                Self::SurrogateCompare => w
+                    .surrogate_compare
+                    .adopt_compute_state(&global.surrogate_compare),
             }
         }
     }

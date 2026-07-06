@@ -20,7 +20,7 @@ pub use ehvi::{suggest_candidates_multi, MultiSuggestedCandidate};
 pub use models::SurrogateModelKind;
 pub use optimizers::OptimizerKind;
 pub use progress::{FitProgress, FitProgressSnapshot};
-pub use robustness::{robustness_analysis, RobustnessResult, RobustnessSpec};
+pub use robustness::{robustness_analysis, NoiseDistribution, RobustnessResult, RobustnessSpec};
 pub use validation::SurrogateValidationReport;
 
 use crate::math::grid::linspace;
@@ -760,6 +760,61 @@ fn build_slice(
         y_values,
         z_values,
         z_std,
+    })
+}
+
+/// アンカー点を通る 1 パラメータ方向の予測スライス（サロゲート比較ビュー用）。
+#[derive(Debug, Clone)]
+pub struct LineSlice {
+    /// スライスするパラメータ列 index。
+    pub param_idx: usize,
+    /// 格子値（元の単位）。
+    pub x_values: Vec<f64>,
+    /// 予測値（元の単位）。
+    pub y_values: Vec<f64>,
+    /// 予測標準偏差（元の単位）。事後分散を持つモデル（GP 系）のみ Some。
+    pub y_std: Option<Vec<f64>>,
+}
+
+/// アンカー点（元単位）を通る 1D 予測スライスをサロゲートで評価する。
+///
+/// `param_idx` 以外の次元はアンカー値に固定し、`param_idx` を宣言レンジ
+/// （なければ観測レンジ）全域で `n_grid` 点（最低 2）評価する。
+/// 次元不一致・index 範囲外は `None`。
+pub fn line_slice_at(
+    trained: &TrainedSurrogate,
+    anchor_orig: &[f64],
+    param_idx: usize,
+    n_grid: usize,
+) -> Option<LineSlice> {
+    let surrogate = &trained.surrogate;
+    let n_dims = surrogate.col_stats.len();
+    if anchor_orig.len() != n_dims || param_idx >= n_dims {
+        return None;
+    }
+    let anchor_norm = surrogate.to_norm_x(anchor_orig);
+    let (min_x, range_x) = surrogate.col_stats[param_idx];
+    let x_values = linspace(min_x, min_x + range_x, n_grid.max(2));
+
+    let mut y_values = Vec::with_capacity(x_values.len());
+    let mut std_values = Vec::with_capacity(x_values.len());
+    let mut has_std = true;
+    for &vx in &x_values {
+        let mut pt = anchor_norm.clone();
+        pt[param_idx] = (vx - min_x) / range_x;
+        y_values.push(surrogate.to_original_y(surrogate.predict_norm(&pt)));
+        match surrogate.predict_var_norm(&pt) {
+            // 正規化空間の分散 → 元の単位の標準偏差（y_std 倍）。
+            Some(var) => std_values.push(var.max(0.0).sqrt() * surrogate.y_std),
+            None => has_std = false,
+        }
+    }
+
+    Some(LineSlice {
+        param_idx,
+        x_values,
+        y_values,
+        y_std: has_std.then_some(std_values),
     })
 }
 
