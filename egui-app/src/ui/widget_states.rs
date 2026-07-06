@@ -360,6 +360,10 @@ pub struct SurrogateObservedEntry {
     pub observed_feasible: Vec<bool>,
 }
 
+/// 比較 Study 1 件ぶんの同期シグネチャ: (df 恒等性, convergence history のデータ恒等性
+/// (ptr, len), 色)。
+type ConvergenceCompSig = (usize, Option<(usize, usize)>, [u8; 4]);
+
 /// ConvergenceIndicators の毎フレーム同期（history/objective_names の clone、比較系列の
 /// 再構築）を抑えるためのキー。データ恒等性は Vec のデータポインタ + 長さで検知する。
 #[derive(Clone, PartialEq)]
@@ -368,7 +372,7 @@ pub struct ConvergenceSyncKey {
     pub history: Option<(usize, usize)>,
     pub indicator: tunny_core::indicators::MoIndicator,
     pub ref_override: Option<(usize, usize)>,
-    pub comparisons: Vec<(usize, Option<(usize, usize)>, [u8; 4])>,
+    pub comparisons: Vec<ConvergenceCompSig>,
 }
 
 /// render_chart が毎フレーム再構築していた比較系列・観測データのキャッシュ。

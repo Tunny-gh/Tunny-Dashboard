@@ -569,8 +569,9 @@ impl TunnyApp {
                     Err(e) => dialog.error = Some(e.to_string()),
                     Ok(formats) => {
                         dialog.error = None;
-                        let default_name = report_modal::default_file_name(
+                        let default_name = report_modal::default_file_name_for(
                             study_name.as_deref().unwrap_or("study"),
+                            &formats,
                         );
                         let chosen = rfd::FileDialog::new()
                             .set_file_name(&default_name)
