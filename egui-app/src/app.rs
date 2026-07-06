@@ -14,6 +14,11 @@ use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::io::journal::live_update::LiveUpdateContext;
 
+/// ライブ更新ポーラーが「変化なし」と判断してから完了ヒント
+/// (`AppMessage::LiveUpdateMaybeComplete`) を送るまでの無変化時間（ミリ秒）。
+/// journal/sqlite/rdb の 3 ポーラー全てで共通の既定値として使う。
+const LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS: u64 = 60_000;
+
 /// アプリが現在起動しているライブ更新ポーラー。ストレージ種別（journal/sqlite/rdb）ごとに
 /// 実装が異なる（journal: バイトオフセット差分、sqlite・rdb: フィンガープリント + 丸ごと再ロード）
 /// ため、`TunnyApp` はどれか一方を保持できるようにこの enum で包む。
@@ -710,7 +715,7 @@ impl TunnyApp {
                     file_path: file_path.clone(),
                     study_id,
                     initial_fingerprint,
-                    no_change_timeout_ms: 60_000,
+                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
                 };
                 let poller = SqliteLivePoller::start(ctx, self.tx.clone(), interval_ms);
                 self.poller = Some(ActivePoller::Sqlite(poller));
@@ -739,7 +744,7 @@ impl TunnyApp {
                     url,
                     study_id,
                     initial_fingerprint,
-                    no_change_timeout_ms: 60_000,
+                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
                 };
                 let poller = RdbLivePoller::start(ctx, self.tx.clone(), interval_ms);
                 self.poller = Some(ActivePoller::Rdb(poller));
@@ -779,7 +784,7 @@ impl TunnyApp {
                     next_trial_id,
                     study_trial_number_seeds,
                     study_distributions: vec![],
-                    no_change_timeout_ms: 60_000,
+                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
                 };
 
                 let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);

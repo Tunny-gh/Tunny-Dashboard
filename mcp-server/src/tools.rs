@@ -55,7 +55,8 @@ pub fn definitions() -> Vec<Value> {
             "name": "study_summary",
             "description": "Compact summary of one study: overview (objectives, parameters, \
                             trial states) and key findings (Pareto front size, convergence \
-                            status, top parameter importance, feasibility). Cheaper than \
+                            status, top parameter importance, feasibility). Skips the MCDM \
+                            and correlation computations and returns far less text than \
                             study_report; use it first.",
             "inputSchema": {
                 "type": "object",
@@ -143,14 +144,36 @@ fn arg_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolError> {
 }
 
 fn arg_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
-    args.get(key)
-        .and_then(Value::as_u64)
-        .and_then(|v| u32::try_from(v).ok())
-        .ok_or_else(|| ToolError::Execution(format!("missing required argument: {key}")))
+    match args.get(key) {
+        None => Err(ToolError::Execution(format!(
+            "missing required argument: {key}"
+        ))),
+        // 存在するが型・範囲が不正（負数・小数・u32 超過）は区別して伝える。
+        Some(v) => v
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .ok_or_else(|| {
+                ToolError::Execution(format!(
+                    "invalid argument: {key} (expected a non-negative integer, got {v})"
+                ))
+            }),
+    }
 }
 
 fn exec_err(e: String) -> ToolError {
     ToolError::Execution(e)
+}
+
+/// レポート生成の共通入力（`ReportSource` + 生成時刻）を組み立てる。
+/// `study_report` / `study_summary` で重複していた組み立てを一元化する。
+fn report_source(storage_display: String) -> ReportSource {
+    ReportSource {
+        storage_display,
+        generated_at_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() as i64),
+    }
 }
 
 fn direction_label(d: &OptimizationDirection) -> &'static str {
@@ -213,13 +236,7 @@ fn study_report(args: &Value) -> Result<String, ToolError> {
     let (meta, df, extras, storage_display) =
         storage::load_study(storage_str, study_id).map_err(exec_err)?;
 
-    let source = ReportSource {
-        storage_display,
-        generated_at_unix: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_secs() as i64),
-    };
+    let source = report_source(storage_display);
     let opts = ReportOptions {
         lang,
         top_n,
@@ -253,14 +270,13 @@ fn study_summary(args: &Value) -> Result<String, ToolError> {
     let (meta, df, extras, storage_display) =
         storage::load_study(storage_str, study_id).map_err(exec_err)?;
 
-    let source = ReportSource {
-        storage_display,
-        generated_at_unix: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_secs() as i64),
+    let source = report_source(storage_display);
+    // 要約はレポート全体を出力しないため、MCDM・相関の計算を省略する
+    // （Key Findings とパレート表の TOPSIS 順は維持される）。
+    let opts = ReportOptions {
+        skip_decision_sections: true,
+        ..ReportOptions::default()
     };
-    let opts = ReportOptions::default();
     let report = build_study_report(&meta, &df, Some(&extras), &source, &opts);
 
     let overview = serde_json::to_value(&report.overview)

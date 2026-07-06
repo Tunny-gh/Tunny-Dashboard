@@ -200,6 +200,17 @@ pub fn robustness_analysis(
         }
     }
 
+    // フェイルクローズ: 非有限の予測が混入すると mean/std/percentile と
+    // 成功率がすべて静かに歪む（NaN は仕様判定の両側で false になり
+    // 分母にだけ残る）ため、明示的にエラーにする。
+    if samples.iter().any(|y| !y.is_finite()) {
+        return Err(
+            "surrogate produced non-finite predictions around this center; \
+             the model may be degenerate here"
+                .to_string(),
+        );
+    }
+
     let n = samples.len() as f64;
     let mean = samples.iter().sum::<f64>() / n;
     let var = samples.iter().map(|y| (y - mean).powi(2)).sum::<f64>() / n;

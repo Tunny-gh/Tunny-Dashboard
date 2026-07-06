@@ -16,7 +16,18 @@ pub struct MysqlBackend {
 impl MysqlBackend {
     /// URL（`mysql://user:pass@host:port/db`）から接続する。
     pub fn connect(url: &str) -> Result<Self, String> {
-        let opts = Opts::from_url(url).map_err(|e| format!("Failed to parse MySQL URL: {e}"))?;
+        let opts = Opts::from_url(url).map_err(|_| {
+            // `mysql::UrlError`（特に `InvalidValue`/`ParseError`）は URL の一部（クエリ
+            // パラメータ値等）をそのままメッセージに埋め込むことがあるため、生のエラーを
+            // そのまま表示しない。代わりに `RdbUrl::masked` でパスワードを隠した表示用
+            // URL のみを含める（パース自体に失敗する壊れた URL の場合はそれも諦める）。
+            let masked = super::url::RdbUrl::parse(url)
+                .map(|u| u.masked())
+                .unwrap_or_else(|| "mysql://<unparseable>".to_string());
+            format!(
+                "Failed to parse MySQL URL ({masked}): confirm the scheme/host/port/sslmode format"
+            )
+        })?;
         let conn = Conn::new(opts).map_err(|e| format!("Failed to connect to MySQL: {e}"))?;
         Ok(Self { conn })
     }

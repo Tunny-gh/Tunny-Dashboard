@@ -77,6 +77,16 @@ impl RdbUrl {
 
         // authority 内で最後の '@' が userinfo と host の境界。
         let Some(at_pos) = authority.rfind('@') else {
+            // authority に '@' が無い＝通常は userinfo 無し URL だが、パスワードに
+            // 未エンコードの '/' '?' '#' が含まれていると `authority_end` の境界判定が
+            // 本来の userinfo/host 境界より手前で切れてしまい、後続に '@' が現れる
+            // （＝実際には userinfo が存在する）ケースがありうる。この場合に
+            // `self.url.clone()` を返すと生パスワードがそのまま漏洩するため、
+            // フェイルクローズとして scheme 以降を丸ごと `***` に置き換えた
+            // 完全マスク形を返す。
+            if after_scheme.contains('@') {
+                return format!("{scheme}***");
+            }
             return self.url.clone(); // userinfo なし
         };
         let userinfo = &authority[..at_pos];
@@ -95,6 +105,55 @@ impl RdbUrl {
 /// 文字列が RDB 接続 URL（PostgreSQL/MySQL）として解釈できるかどうか。
 pub fn is_rdb_url(s: &str) -> bool {
     RdbUrl::parse(s).is_some()
+}
+
+/// クエリ文字列（`?` より後、`#` フラグメントは含まない）から、指定キー（大文字小文字を
+/// 区別しない）に一致するパラメータの値を全て返す。
+fn query_param_values<'a>(query: &'a str, key: &str) -> Vec<&'a str> {
+    query
+        .split(['&', ';'])
+        .filter_map(|kv| {
+            let mut it = kv.splitn(2, '=');
+            let k = it.next()?;
+            if !k.eq_ignore_ascii_case(key) {
+                return None;
+            }
+            Some(it.next().unwrap_or(""))
+        })
+        .collect()
+}
+
+/// TLS 無効化を表す値かどうか（`disable`/`disabled` を大文字小文字区別なく許容）。
+fn is_tls_disabled_value(value: &str) -> bool {
+    value.eq_ignore_ascii_case("disable") || value.eq_ignore_ascii_case("disabled")
+}
+
+/// TLS 接続の事前チェック（フェイルクローズ）。
+///
+/// `PostgresBackend`/`MysqlBackend` は現状 `NoTls` 固定で接続する（TLS 未対応）ため、
+/// 接続 URL のクエリに `sslmode=`（PostgreSQL 方言）または `ssl-mode=`（MySQL 方言）が
+/// `disable`/`disabled`（大文字小文字を区別しない）以外の値で指定されている場合、
+/// 暗号化を期待したユーザーの意図に反して平文接続してしまう。これを防ぐため、該当する
+/// 場合は接続前にエラーを返す。値の指定が無い、または `disable` 系のみの場合は素通しする。
+pub fn check_tls_precondition(url: &str) -> Result<(), String> {
+    let Some(q_start) = url.find('?') else {
+        return Ok(());
+    };
+    let after_q = &url[q_start + 1..];
+    // '#' 以降はフラグメントなのでクエリ文字列から除く。
+    let query = after_q.split('#').next().unwrap_or(after_q);
+
+    for key in ["sslmode", "ssl-mode"] {
+        for value in query_param_values(query, key) {
+            if !is_tls_disabled_value(value) {
+                return Err(format!(
+                    "TLS 接続は未対応です（{key}={value}）。暗号化なしで接続する場合は \
+                     {key} を外すか disable を指定してください / TLS is not supported yet"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -216,6 +275,36 @@ mod tests {
     }
 
     #[test]
+    fn masked_password_with_unencoded_slash_fails_closed() {
+        // パスワードに未エンコードの '/' を含むと authority 境界判定が手前で
+        // 切れてしまい、本来の '@' が後続に現れる。フェイルクローズで完全マスクされ、
+        // 生パスワード・生 URL のいずれも出力に含まれないことを確認する。
+        let url = RdbUrl::parse("postgresql://user:pa/ss@host/db").unwrap();
+        let masked = url.masked();
+        assert!(!masked.contains("pa/ss"));
+        assert!(!masked.contains(&url.url));
+        assert_eq!(masked, "postgresql://***");
+    }
+
+    #[test]
+    fn masked_password_with_unencoded_question_mark_fails_closed() {
+        let url = RdbUrl::parse("postgresql://user:pa?ss@host/db").unwrap();
+        let masked = url.masked();
+        assert!(!masked.contains("pa?ss"));
+        assert!(!masked.contains(&url.url));
+        assert_eq!(masked, "postgresql://***");
+    }
+
+    #[test]
+    fn masked_password_with_unencoded_hash_fails_closed() {
+        let url = RdbUrl::parse("mysql://user:pa#ss@host/db").unwrap();
+        let masked = url.masked();
+        assert!(!masked.contains("pa#ss"));
+        assert!(!masked.contains(&url.url));
+        assert_eq!(masked, "mysql://***");
+    }
+
+    #[test]
     fn masked_no_scheme_separator_returns_unchanged() {
         // 通常 parse を通した RdbUrl しか作られないので想定外だが、境界値として確認。
         let url = RdbUrl {
@@ -223,5 +312,60 @@ mod tests {
             url: "not-a-url".to_string(),
         };
         assert_eq!(url.masked(), "not-a-url");
+    }
+
+    #[test]
+    fn check_tls_precondition_no_query_string_is_ok() {
+        assert!(check_tls_precondition("postgresql://user:pass@localhost/db").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_sslmode_require_is_err() {
+        let err = check_tls_precondition("postgresql://u:p@localhost/db?sslmode=require")
+            .expect_err("sslmode=require should be rejected");
+        assert!(err.contains("sslmode=require"));
+    }
+
+    #[test]
+    fn check_tls_precondition_sslmode_disable_is_ok() {
+        assert!(check_tls_precondition("postgresql://u:p@localhost/db?sslmode=disable").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_sslmode_disable_case_insensitive_is_ok() {
+        // "disable" の大文字小文字違いは許容する。
+        assert!(check_tls_precondition("postgresql://u:p@localhost/db?sslmode=DISABLE").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_sslmode_disabled_word_is_ok() {
+        // "disable" / "DISABLED" いずれの表記も大文字小文字区別なく許容する。
+        assert!(check_tls_precondition("postgresql://u:p@localhost/db?sslmode=DISABLED").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_mysql_ssl_mode_required_is_err() {
+        let err = check_tls_precondition("mysql://u:p@localhost/db?ssl-mode=REQUIRED")
+            .expect_err("ssl-mode=REQUIRED should be rejected");
+        assert!(err.contains("ssl-mode=REQUIRED"));
+    }
+
+    #[test]
+    fn check_tls_precondition_mysql_ssl_mode_disable_is_ok() {
+        assert!(check_tls_precondition("mysql://u:p@localhost/db?ssl-mode=disable").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_other_query_params_are_ignored() {
+        assert!(check_tls_precondition("postgresql://u:p@localhost/db?connect_timeout=10").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_ignores_fragment() {
+        // '#' 以降はフラグメントであり、そこに sslmode=... という文字列が現れても
+        // クエリパラメータとしては扱わない。
+        assert!(
+            check_tls_precondition("postgresql://u:p@localhost/db?a=1#sslmode=require").is_ok()
+        );
     }
 }

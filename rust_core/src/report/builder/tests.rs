@@ -210,6 +210,50 @@ fn multi_objective_pareto_and_mcdm_consensus() {
 }
 
 #[test]
+fn skip_decision_sections_omits_mcdm_and_correlations_but_keeps_ordering() {
+    let mut skip_opts = opts();
+    skip_opts.skip_decision_sections = true;
+    let report = build_study_report(&meta_multi(), &df_multi(), None, &source(), &skip_opts);
+
+    assert!(
+        report.mcdm.is_none(),
+        "skip_decision_sections なら mcdm は None"
+    );
+    assert!(
+        report.correlations.is_none(),
+        "skip_decision_sections なら correlations も None"
+    );
+
+    // pareto_table の TOPSIS 順序付けは mcdm 省略時も機能し続ける。
+    let baseline = build_study_report(&meta_multi(), &df_multi(), None, &source(), &opts());
+    match (&report.outcome, &baseline.outcome) {
+        (
+            Outcome::MultiObj {
+                pareto_table: skipped_table,
+                ..
+            },
+            Outcome::MultiObj {
+                pareto_table: full_table,
+                ..
+            },
+        ) => {
+            let skipped_order: Vec<u32> = skipped_table.iter().map(|t| t.trial_number).collect();
+            let full_order: Vec<u32> = full_table.iter().map(|t| t.trial_number).collect();
+            assert_eq!(
+                skipped_order, full_order,
+                "TOPSIS 順は mcdm 省略の有無に関わらず一致するべき"
+            );
+        }
+        _ => panic!("multi-objective study must yield MultiObj"),
+    }
+
+    // Key Findings は変わらない。
+    let skipped_kinds: Vec<FindingKind> = report.key_findings.iter().map(|f| f.kind).collect();
+    let baseline_kinds: Vec<FindingKind> = baseline.key_findings.iter().map(|f| f.kind).collect();
+    assert_eq!(skipped_kinds, baseline_kinds);
+}
+
+#[test]
 fn multi_objective_trade_off_finding() {
     // obj0 昇順・obj1 降順（全 COMPLETE 点で Spearman ρ = -1）→ TradeOff finding。
     let pts = [
@@ -425,6 +469,21 @@ fn markdown_escapes_pipe_in_names() {
     assert!(
         md.contains("a\\|b"),
         "study 名のパイプはエスケープされるべき"
+    );
+}
+
+#[test]
+fn markdown_escapes_backslash_before_pipe() {
+    // バックスラッシュのエスケープはパイプのエスケープより先に行う必要がある
+    // （さもないと `a\|b` の `\` がテーブル構造を壊しかねない）。名前に
+    // `\|` と末尾の `\` を含めて確認する。
+    let mut meta = meta_single();
+    meta.name = r"a\|b\".to_string();
+    let report = build_study_report(&meta, &df_single(), None, &source(), &opts());
+    let md = render_markdown(&report, ReportLang::En);
+    assert!(
+        md.contains(r"a\\\|b\\"),
+        "バックスラッシュは `|` エスケープより前に二重化されるべき: {md}"
     );
 }
 

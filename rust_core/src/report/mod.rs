@@ -47,6 +47,10 @@ pub struct ReportOptions {
     pub top_n: usize,
     /// 相関ヒートマップの最大パラメータ数（既定 15）。
     pub max_heatmap_params: usize,
+    /// `true` なら MCDM セクションと相関セクションの計算を省略する
+    /// （study_summary 等の軽量用途向け）。Key Findings・パレート表の
+    /// TOPSIS 順は維持する（既定 `false`）。
+    pub skip_decision_sections: bool,
 }
 
 impl Default for ReportOptions {
@@ -55,6 +59,7 @@ impl Default for ReportOptions {
             lang: ReportLang::En,
             top_n: 10,
             max_heatmap_params: 15,
+            skip_decision_sections: false,
         }
     }
 }

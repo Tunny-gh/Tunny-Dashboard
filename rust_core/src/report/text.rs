@@ -45,6 +45,40 @@ fn pct(x: f64) -> String {
     format!("{:.0}", x)
 }
 
+/// 制約フォールバック注記（feasible 解が 1 件も無いためパレート前面が
+/// 全 trial の目的空間非劣解にフォールバックした旨）。Markdown / HTML
+/// 両レンダラで文言を共有する（エスケープは呼び出し側の責務）。
+pub(crate) fn infeasible_fallback_note(lang: ReportLang, n_infeasible: usize) -> String {
+    match lang {
+        ReportLang::En => format!(
+            "Note: no trial satisfies all constraints, so the Pareto \
+             front falls back to objective-space non-domination over \
+             all trials; {n_infeasible} of these trials violate \
+             constraints."
+        ),
+        ReportLang::Ja => format!(
+            "注記: 全制約を満たす trial が無いため、パレート前面は\
+             全 trial の目的空間非劣解にフォールバックしています。\
+             うち {n_infeasible} 件は制約違反です。"
+        ),
+    }
+}
+
+/// 重複解（`duplicate_of`）の凡例注記。Markdown / HTML 両レンダラで
+/// 文言を共有する（エスケープは呼び出し側の責務）。
+pub(crate) fn duplicate_legend_note(lang: ReportLang) -> &'static str {
+    match lang {
+        ReportLang::En => {
+            "Note: \"(= #N)\" marks a trial whose objective values are identical \
+             to trial #N (e.g. a re-sampled parameter set)."
+        }
+        ReportLang::Ja => {
+            "注記: 「(= #N)」は trial #N と目的値が完全一致する重複解を示します\
+             （同一パラメータの再サンプル等）。"
+        }
+    }
+}
+
 /// unix 秒（UTC）を ISO-8601 文字列へ整形する（chrono 非依存・決定論的）。
 pub(crate) fn format_unix_utc(secs: i64) -> String {
     let days = secs.div_euclid(86_400);

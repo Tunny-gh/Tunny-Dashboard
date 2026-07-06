@@ -55,6 +55,9 @@ pub struct ReportDialogState {
     pub generating: bool,
     /// 生成完了後に書き出したファイルパス一覧。`Some` の間は完了表示に切り替える。
     pub success_paths: Option<Vec<PathBuf>>,
+    /// サイレント上書きした非プライマリの兄弟ファイル
+    /// （プライマリは OS 保存ダイアログで確認済みのため含まれない）。
+    pub overwrote_paths: Vec<PathBuf>,
 }
 
 impl Default for ReportDialogState {
@@ -68,6 +71,7 @@ impl Default for ReportDialogState {
             error: None,
             generating: false,
             success_paths: None,
+            overwrote_paths: Vec::new(),
         }
     }
 }
@@ -162,6 +166,13 @@ pub fn show(
                 ui.colored_label(
                     crate::theme::TEXT_SECONDARY(),
                     format!("Saved: {}", path.display()),
+                );
+            }
+            // 保存ダイアログを経由しない兄弟ファイルの上書きを明示する。
+            for path in &state.overwrote_paths {
+                ui.colored_label(
+                    egui::Color32::from_rgb(202, 138, 4), // amber-600
+                    format!("Overwrote existing: {}", path.display()),
                 );
             }
             ui.add_space(8.0);

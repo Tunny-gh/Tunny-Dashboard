@@ -53,35 +53,72 @@ impl TimeUnit {
 }
 
 /// Timeline チャートウィジェット。
-#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-pub struct TimelineChart {}
+pub struct TimelineChart {
+    /// バー位置（datetime → 経過秒への変換結果）の再構築を避けるキャッシュ。
+    /// ホバー状態は毎フレーム変わり得るため、色付けだけは `show` 内で
+    /// 都度この上に軽く重ねる（`TimelineCache` は位置のみを持つ）。
+    #[serde(skip)]
+    cache: Option<TimelineCache>,
+}
+
+/// `build_timeline_bars` の結果（位置計算済みのバー群）と、そこから決まる
+/// 表示単位・凡例状態一覧をまとめたキャッシュ。
+///
+/// キーは `extras`（`StudyExtras`）の恒等性（アドレス）。呼び出し元は
+/// `ArcSwap::load_full()` 経由で同じ study の間は同一アロケーションを指す
+/// `Arc<StudyExtras>` を使い回すため（poll_chart.rs の DataFrame Arc 恒等性と
+/// 同じ発想）、参照先アドレスの変化 = データ更新とみなせる。
+#[derive(Debug, Clone)]
+struct TimelineCache {
+    key: usize,
+    bars: Vec<TimelineBar>,
+    unit: TimeUnit,
+    present: Vec<TrialState>,
+}
 
 impl TimelineChart {
     pub fn show(&mut self, ui: &mut egui::Ui, extras: Option<&StudyExtras>) {
         let Some(extras) = extras.filter(|e| e.has_datetimes()) else {
+            self.cache = None;
             empty_state(ui, "No datetime information in this study");
             return;
         };
 
-        let bars = build_timeline_bars(&extras.trials);
-        if bars.is_empty() {
-            empty_state(ui, "No datetime information in this study");
-            return;
+        // extras（StudyExtras）のアドレスをデータ恒等性として使う。ライブ更新時は
+        // ArcSwap が新しい Arc に差し替えるため、参照先アドレスも変わる。
+        let key = extras as *const StudyExtras as usize;
+        let cache_valid = self.cache.as_ref().is_some_and(|c| c.key == key);
+        if !cache_valid {
+            let bars = build_timeline_bars(&extras.trials);
+            if bars.is_empty() {
+                self.cache = None;
+                empty_state(ui, "No datetime information in this study");
+                return;
+            }
+            let span = bars.iter().map(|b| b.end).fold(0.0_f64, f64::max);
+            let unit = select_time_unit(span);
+            let mut present: Vec<TrialState> = Vec::new();
+            for b in &bars {
+                if !present.contains(&b.state) {
+                    present.push(b.state);
+                }
+            }
+            self.cache = Some(TimelineCache {
+                key,
+                bars,
+                unit,
+                present,
+            });
         }
-
-        let span = bars.iter().map(|b| b.end).fold(0.0_f64, f64::max);
-        let unit = select_time_unit(span);
+        let cache = self.cache.as_ref().expect("cache just populated above");
+        let bars = &cache.bars;
+        let unit = cache.unit;
         let divisor = unit.divisor();
         let x_label = format!("elapsed [{}]", unit.suffix());
 
-        let mut present: Vec<TrialState> = Vec::new();
-        for b in &bars {
-            if !present.contains(&b.state) {
-                present.push(b.state);
-            }
-        }
-        show_state_legend(ui, &present);
+        show_state_legend(ui, &cache.present);
 
         let half_width = BAR_WIDTH / 2.0;
         let mut hovered: Option<usize> = None;
@@ -96,10 +133,12 @@ impl TimelineChart {
             apply_wheel_zoom(plot_ui);
             if plot_ui.response().hovered() {
                 if let Some(p) = plot_ui.pointer_coordinate() {
-                    hovered = bar_at_position(&bars, p.x * divisor, p.y, half_width);
+                    hovered = bar_at_position(bars, p.x * divisor, p.y, half_width);
                 }
             }
 
+            // 位置（start/end）はキャッシュ済み。ここではホバーに応じた着色のみを
+            // 毎フレーム軽く行う（datetime → 経過秒の再計算は発生しない）。
             let plot_bars: Vec<egui_plot::Bar> = bars
                 .iter()
                 .enumerate()

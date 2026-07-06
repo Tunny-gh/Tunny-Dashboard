@@ -10,6 +10,58 @@ use crate::ui::widgets::cluster_scatter::{
 };
 use crate::ui::widgets::mcdm_chart::{McdmCacheKey, McdmComputeRequest, McdmControls};
 
+/// `build_numeric_fit_data` の戻り値: (数値パラメータ名, X 行列, パラメータごとの宣言レンジ)。
+type NumericFitData = (Vec<String>, Vec<Vec<f64>>, Vec<Option<(f64, f64)>>);
+
+/// 数値パラメータ列のみを対象に X 行列と宣言レンジ（param_bounds）を組み立てる。
+/// SurrogateOpt/Robustness/ResponseSurface3D/SurrogateCompare の各フィット段階で共通の
+/// 前処理（カテゴリカル列除外 → 行列化 → 宣言レンジ収集）を共有するためのヘルパー。
+/// 数値パラメータが一つもない場合は None を返す（呼び出し側でエラー表示させる）。
+fn build_numeric_fit_data(ctx: &StudyContext) -> Option<NumericFitData> {
+    // カテゴリカル列を除いた数値パラメータのみで X 行列を作る
+    //（render_chart 側のコンボに出す一覧と同じ絞り込み）。
+    let numeric_params: Vec<String> = ctx
+        .meta
+        .param_names
+        .iter()
+        .filter(|p| ctx.view.numeric_column(p).is_some())
+        .cloned()
+        .collect();
+    if numeric_params.is_empty() {
+        return None;
+    }
+
+    let n = ctx.view.row_count();
+    let param_cols = ctx.view.numeric_columns(&numeric_params);
+    let x_matrix: Vec<Vec<f64>> = (0..n)
+        .map(|i| {
+            param_cols
+                .iter()
+                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                .collect()
+        })
+        .collect();
+
+    // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
+    // 宣言レンジがある列はそれを探索範囲とし、無い列は観測レンジにフォールバック。
+    let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
+        .iter()
+        .map(|p| ctx.meta.param_bounds.get(p).copied())
+        .collect();
+
+    Some((numeric_params, x_matrix, param_bounds))
+}
+
+/// 指定した目的列を Vec<f64> として取り出す。列が存在しない場合は行数分 0.0 埋めの
+/// フォールバックとする（既存の挙動を維持するため）。
+fn resolve_y_column(ctx: &StudyContext, objective: &str) -> Vec<f64> {
+    let n = ctx.view.row_count();
+    ctx.view
+        .numeric_column(objective)
+        .map(|col| col.to_vec())
+        .unwrap_or_else(|| vec![0.0; n])
+}
+
 fn build_xy_for_objective(
     ctx: &crate::state::app_state::StudyContext,
     objective: &str,
@@ -741,35 +793,13 @@ pub(crate) fn poll_chart_work(
             // フィット段階を最優先で処理する（optimize より先に take する）。
             if let Some(fit_req) = widgets.surrogate_opt.pending_fit.take() {
                 let ctx = app_state.current_study.as_ref().unwrap();
-                // カテゴリカル列を除いた数値パラメータのみで X 行列を作る
-                //（render_chart 側のコンボに出す一覧と同じ絞り込み）。
-                let numeric_params: Vec<String> = ctx
-                    .meta
-                    .param_names
-                    .iter()
-                    .filter(|p| ctx.view.numeric_column(p).is_some())
-                    .cloned()
-                    .collect();
-                if numeric_params.is_empty() {
+                let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx)
+                else {
                     widgets.surrogate_opt.error_message =
                         Some("No numeric parameters available".to_string());
                     return;
-                }
-                let n = ctx.view.row_count();
-                let param_cols = ctx.view.numeric_columns(&numeric_params);
-                let x_matrix: Vec<Vec<f64>> = (0..n)
-                    .map(|i| {
-                        param_cols
-                            .iter()
-                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                            .collect()
-                    })
-                    .collect();
-                let y: Vec<f64> = ctx
-                    .view
-                    .numeric_column(&fit_req.objective)
-                    .map(|col| col.to_vec())
-                    .unwrap_or_else(|| vec![0.0; n]);
+                };
+                let y = resolve_y_column(ctx, &fit_req.objective);
 
                 // フィット開始前に前の学習結果・最適化結果をクリアする。
                 widgets.surrogate_opt.fitting = true;
@@ -796,13 +826,6 @@ pub(crate) fn poll_chart_work(
                     } else {
                         vec![]
                     };
-
-                // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
-                // 宣言レンジがある列はそれを探索範囲とし、無い列は観測レンジにフォールバック。
-                let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
-                    .iter()
-                    .map(|p| ctx.meta.param_bounds.get(p).copied())
-                    .collect();
 
                 // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
                 let progress = tunny_core::surrogate_opt::FitProgress::new();
@@ -839,28 +862,13 @@ pub(crate) fn poll_chart_work(
             } else if let Some(multi_fit_req) = widgets.surrogate_opt.pending_multi_fit.take() {
                 // 多目的フィット段階: 全目的に対してサロゲートを学習する。
                 let ctx = app_state.current_study.as_ref().unwrap();
-                let numeric_params: Vec<String> = ctx
-                    .meta
-                    .param_names
-                    .iter()
-                    .filter(|p| ctx.view.numeric_column(p).is_some())
-                    .cloned()
-                    .collect();
-                if numeric_params.is_empty() {
+                let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx)
+                else {
                     widgets.surrogate_opt.error_message =
                         Some("No numeric parameters available".to_string());
                     return;
-                }
+                };
                 let n = ctx.view.row_count();
-                let param_cols = ctx.view.numeric_columns(&numeric_params);
-                let x_matrix: Vec<Vec<f64>> = (0..n)
-                    .map(|i| {
-                        param_cols
-                            .iter()
-                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                            .collect()
-                    })
-                    .collect();
                 // 全目的の名前と y 列を収集する。
                 let objective_names: Vec<String> = obj_names.to_vec();
                 let objective_values: Vec<Vec<f64>> = obj_names
@@ -881,12 +889,6 @@ pub(crate) fn poll_chart_work(
                             .map(|d| matches!(d, Direction::Minimize))
                             .unwrap_or(true)
                     })
-                    .collect();
-
-                // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
-                let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
-                    .iter()
-                    .map(|p| ctx.meta.param_bounds.get(p).copied())
                     .collect();
 
                 // フィット開始前に前の多目的結果をクリアする。
@@ -1111,39 +1113,17 @@ pub(crate) fn poll_chart_work(
                 return;
             };
             let ctx = app_state.current_study.as_ref().unwrap();
-            let numeric_params: Vec<String> = ctx
-                .meta
-                .param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
-            if numeric_params.is_empty() {
+            let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx) else {
                 widgets.robustness.fit_error = Some("No numeric parameters available".to_string());
                 widgets.robustness.fitting = false;
                 return;
-            }
+            };
             let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
                 widgets.robustness.fit_error = Some("Invalid objective selection".to_string());
                 widgets.robustness.fitting = false;
                 return;
             };
-
-            let n = ctx.view.row_count();
-            let param_cols = ctx.view.numeric_columns(&numeric_params);
-            let x_matrix: Vec<Vec<f64>> = (0..n)
-                .map(|i| {
-                    param_cols
-                        .iter()
-                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                        .collect()
-                })
-                .collect();
-            let y: Vec<f64> = ctx
-                .view
-                .numeric_column(&objective)
-                .map(|col| col.to_vec())
-                .unwrap_or_else(|| vec![0.0; n]);
+            let y = resolve_y_column(ctx, &objective);
 
             // ロバスト性解析は制約の実行可能率も欲しいので、あれば常に渡す。
             let constraints: Vec<tunny_core::surrogate_opt::ConstraintData> = ctx
@@ -1159,11 +1139,6 @@ pub(crate) fn poll_chart_work(
                         }
                     })
                 })
-                .collect();
-
-            let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
-                .iter()
-                .map(|p| ctx.meta.param_bounds.get(p).copied())
                 .collect();
 
             widgets.robustness.trained = None;
@@ -1193,46 +1168,19 @@ pub(crate) fn poll_chart_work(
                 return;
             };
             let ctx = app_state.current_study.as_ref().unwrap();
-            let numeric_params: Vec<String> = ctx
-                .meta
-                .param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
-            if numeric_params.is_empty() {
+            let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx) else {
                 widgets.response_surface.fit_error =
                     Some("No numeric parameters available".to_string());
                 widgets.response_surface.fitting = false;
                 return;
-            }
+            };
             let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
                 widgets.response_surface.fit_error =
                     Some("Invalid objective selection".to_string());
                 widgets.response_surface.fitting = false;
                 return;
             };
-
-            let n = ctx.view.row_count();
-            let param_cols = ctx.view.numeric_columns(&numeric_params);
-            let x_matrix: Vec<Vec<f64>> = (0..n)
-                .map(|i| {
-                    param_cols
-                        .iter()
-                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                        .collect()
-                })
-                .collect();
-            let y: Vec<f64> = ctx
-                .view
-                .numeric_column(&objective)
-                .map(|col| col.to_vec())
-                .unwrap_or_else(|| vec![0.0; n]);
-
-            let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
-                .iter()
-                .map(|p| ctx.meta.param_bounds.get(p).copied())
-                .collect();
+            let y = resolve_y_column(ctx, &objective);
 
             widgets.response_surface.trained = None;
             widgets.response_surface.fit_error = None;
@@ -1262,19 +1210,12 @@ pub(crate) fn poll_chart_work(
                 return;
             };
             let ctx = app_state.current_study.as_ref().unwrap();
-            let numeric_params: Vec<String> = ctx
-                .meta
-                .param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
-            if numeric_params.is_empty() {
+            let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx) else {
                 widgets.surrogate_compare.error =
                     Some("No numeric parameters available".to_string());
                 widgets.surrogate_compare.computing = false;
                 return;
-            }
+            };
             let Some(objective) = obj_names.get(req.objective_index).cloned() else {
                 widgets.surrogate_compare.error = Some("Invalid objective selection".to_string());
                 widgets.surrogate_compare.computing = false;
@@ -1286,27 +1227,7 @@ pub(crate) fn poll_chart_work(
                 widgets.surrogate_compare.computing = false;
                 return;
             }
-
-            let n = ctx.view.row_count();
-            let param_cols = ctx.view.numeric_columns(&numeric_params);
-            let x_matrix: Vec<Vec<f64>> = (0..n)
-                .map(|i| {
-                    param_cols
-                        .iter()
-                        .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                        .collect()
-                })
-                .collect();
-            let y: Vec<f64> = ctx
-                .view
-                .numeric_column(&objective)
-                .map(|col| col.to_vec())
-                .unwrap_or_else(|| vec![0.0; n]);
-
-            let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
-                .iter()
-                .map(|p| ctx.meta.param_bounds.get(p).copied())
-                .collect();
+            let y = resolve_y_column(ctx, &objective);
 
             // アンカー: 選択目的の観測ベスト行（方向を考慮）。x_matrix と列順が一致するため、
             // その行をそのままアンカーベクトルとして使える。
@@ -1321,6 +1242,7 @@ pub(crate) fn poll_chart_work(
             let anchor = x_matrix[best_row].clone();
 
             let slice_param = req.slice_param;
+            let n = x_matrix.len();
             let observed: Vec<(f64, f64)> = (0..n)
                 .filter_map(|i| {
                     let xv = x_matrix.get(i)?.get(slice_param).copied()?;

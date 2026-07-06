@@ -10,8 +10,9 @@
 
 use std::fmt::Write as _;
 
+use super::builder::downsample;
 use super::model::*;
-use super::text::format_unix_utc;
+use super::text::{self, format_unix_utc};
 use super::{format_number, ReportLang};
 
 /// [`StudyReport`] を Markdown へレンダリングする。
@@ -53,9 +54,17 @@ fn tr(lang: ReportLang, en: &'static str, ja: &'static str) -> &'static str {
     }
 }
 
-/// テーブルセル用にパイプと改行をエスケープする。
+/// テーブルセル用にバックスラッシュ・パイプ・改行をエスケープする。
+///
+/// バックスラッシュは `|` のエスケープより先に処理する必要がある。
+/// 先に `|` → `\|` を行うと、元の文字列に含まれるバックスラッシュ
+/// （例: `a\|b`）が「エスケープ済みパイプ」と区別できず、後段のバック
+/// スラッシュ置換でパイプ側の `\` まで二重にエスケープされて表構造が
+/// 崩れる（あるいはその逆で `\|` がバックスラッシュ+パイプに読めてしまう）。
 fn esc(s: &str) -> String {
-    s.replace('|', "\\|").replace(['\n', '\r'], " ")
+    s.replace('\\', "\\\\")
+        .replace('|', "\\|")
+        .replace(['\n', '\r'], " ")
 }
 
 /// 方向ラベル。
@@ -281,19 +290,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                 let _ = writeln!(
                     s,
                     "{}\n",
-                    match lang {
-                        ReportLang::En => format!(
-                            "Note: no trial satisfies all constraints, so the Pareto \
-                             front falls back to objective-space non-domination over \
-                             all trials; {n_infeasible} of these trials violate \
-                             constraints."
-                        ),
-                        ReportLang::Ja => format!(
-                            "注記: 全制約を満たす trial が無いため、パレート前面は\
-                             全 trial の目的空間非劣解にフォールバックしています。\
-                             うち {n_infeasible} 件は制約違反です。"
-                        ),
-                    }
+                    text::infeasible_fallback_note(lang, n_infeasible)
                 );
             }
             render_duplicate_note(s, lang, pareto_table);
@@ -326,21 +323,15 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
 /// 表内に重複解（`duplicate_of` 付き trial）があれば凡例を 1 行出力する。
 fn render_duplicate_note(s: &mut String, lang: ReportLang, trials: &[TrialSummary]) {
     if trials.iter().any(|t| t.duplicate_of.is_some()) {
-        let _ = writeln!(
-            s,
-            "{}\n",
-            tr(
-                lang,
-                "Note: \"(= #N)\" marks a trial whose objective values are identical \
-                 to trial #N (e.g. a re-sampled parameter set).",
-                "注記: 「(= #N)」は trial #N と目的値が完全一致する重複解を示します\
-                 （同一パラメータの再サンプル等）。"
-            )
-        );
+        let _ = writeln!(s, "{}\n", text::duplicate_legend_note(lang));
     }
 }
 
 /// TrialSummary の表を出力する（trial# + 目的 + パラメータ [+ 最大制約値]）。
+///
+/// `user_attrs` はここでは意図的に出力しない（LLM 向けレポートを簡潔に保つ
+/// ため）。ユーザー付帯情報が必要な場合は HTML レンダラの付録（appendix）
+/// 側で確認できる。
 fn render_trial_table(
     s: &mut String,
     lang: ReportLang,
@@ -461,7 +452,7 @@ fn render_convergence(s: &mut String, lang: ReportLang, conv: &ConvergenceSectio
             "収束系列のサンプル（trial 番号 → 指標値）:"
         )
     );
-    let sampled = downsample_points(&conv.series, 20);
+    let sampled = downsample(&conv.series, 20);
     let _ = writeln!(
         s,
         "| {} | {} |",
@@ -473,16 +464,6 @@ fn render_convergence(s: &mut String, lang: ReportLang, conv: &ConvergenceSectio
         let _ = writeln!(s, "| #{} | {} |", p.trial_number, format_number(p.value));
     }
     s.push('\n');
-}
-
-fn downsample_points(pts: &[ConvergencePoint], max: usize) -> Vec<ConvergencePoint> {
-    if pts.len() <= max || max < 2 {
-        return pts.to_vec();
-    }
-    let last = pts.len() - 1;
-    (0..max)
-        .map(|k| pts[k * last / (max - 1)].clone())
-        .collect()
 }
 
 fn yes_no(lang: ReportLang, b: bool) -> &'static str {
@@ -796,4 +777,17 @@ fn render_reproduction(s: &mut String, lang: ReportLang, report: &StudyReport) {
     let _ = writeln!(s, "- max_heatmap_params: {}", r.max_heatmap_params);
     let _ = writeln!(s, "- schema_version: {}", r.schema_version);
     s.push('\n');
+}
+
+#[cfg(test)]
+mod esc_tests {
+    use super::esc;
+
+    #[test]
+    fn escapes_backslash_before_pipe() {
+        // バックスラッシュを先にエスケープしないと `a\|b` の `\` が
+        // 後続の `|` エスケープと衝突し、表構造が壊れ得る。
+        assert_eq!(esc("a\\|b"), "a\\\\\\|b");
+        assert_eq!(esc("trail\\"), "trail\\\\");
+    }
 }

@@ -22,6 +22,44 @@ pub struct EdfPlotChart {
     pub obj_idx: usize,
     /// X 軸対数スケール切替。有効時は 0 以下の値を持つ点を曲線から除外する。
     pub log_x: bool,
+    /// `build_edf_points`（ソート + 2 回のアロケーション）の結果キャッシュ。
+    #[serde(skip)]
+    cache: Option<EdfCache>,
+}
+
+/// EDF ステップ点列の再計算（O(n log n) ソート）を避けるためのキャッシュ。
+///
+/// base 系列は `view.df`（`Arc<DataFrame>`）の恒等性でキーイングできるが、
+/// comparison 系列（`EdfComparison::values`）は呼び出し側（render_chart.rs）が
+/// 毎フレーム新しい `Vec<f64>` として値を構築するため、安定したポインタ恒等性を
+/// 持たない。そのため両者とも値列の内容フィンガープリント（FNV-1a 風の畳み込み。
+/// O(n) だがヒープ確保なし）でキーイングする — ソート＋2 回のアロケーションより
+/// 十分に軽い。
+struct EdfCache {
+    key: (usize, usize, bool, u64),
+    base_points: Vec<[f64; 2]>,
+    comparison_points: Vec<(String, egui::Color32, Vec<[f64; 2]>)>,
+}
+
+/// 値列の内容を安価な u64 フィンガープリントに畳み込む（FNV-1a 風。ヒープ確保なし）。
+fn fingerprint_values(values: &[f64]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325 ^ (values.len() as u64);
+    for &v in values {
+        h = (h ^ v.to_bits()).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// 比較 Study 一覧の内容フィンガープリントを base のフィンガープリントに畳み込む。
+/// 系列名も含めるため、値が同じでも Study が入れ替わった場合は別キーになる。
+fn fold_comparisons_fingerprint(mut h: u64, comparisons: &[EdfComparison]) -> u64 {
+    for c in comparisons {
+        h = h.wrapping_mul(0x100000001b3) ^ fingerprint_values(&c.values);
+        for &b in c.name.as_bytes() {
+            h = (h ^ (b as u64)).wrapping_mul(0x100000001b3);
+        }
+    }
+    h
 }
 
 impl EdfPlotChart {
@@ -62,16 +100,32 @@ impl EdfPlotChart {
 
         let obj_name = &obj_names[self.obj_idx];
         let log_x = self.log_x;
-        let base_values: Vec<f64> = view
-            .numeric_column(obj_name)
-            .map(|c| c.to_vec())
-            .unwrap_or_default();
-        let base_points = build_edf_points(&base_values, log_x);
+        // numeric_column は DataFrame 内の列をゼロコピーで借用するだけなので、
+        // フィンガープリント計算・ソートのどちらにも Vec 化は不要。
+        let base_values: &[f64] = view.numeric_column(obj_name).unwrap_or(&[]);
 
-        let comparison_points: Vec<(&str, egui::Color32, Vec<[f64; 2]>)> = comparisons
-            .iter()
-            .map(|c| (c.name.as_str(), c.color, build_edf_points(&c.values, log_x)))
-            .collect();
+        // キャッシュキー: view（DataFrame）の恒等性 + 選択中の目的 + log スケール +
+        // base/comparison 値列の内容フィンガープリント。
+        let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
+        let fp = fold_comparisons_fingerprint(fingerprint_values(base_values), comparisons);
+        let key = (df_ptr, self.obj_idx, log_x, fp);
+
+        let cache_valid = self.cache.as_ref().is_some_and(|c| c.key == key);
+        if !cache_valid {
+            let base_points = build_edf_points(base_values, log_x);
+            let comparison_points: Vec<(String, egui::Color32, Vec<[f64; 2]>)> = comparisons
+                .iter()
+                .map(|c| (c.name.clone(), c.color, build_edf_points(&c.values, log_x)))
+                .collect();
+            self.cache = Some(EdfCache {
+                key,
+                base_points,
+                comparison_points,
+            });
+        }
+        let cache = self.cache.as_ref().expect("cache just populated above");
+        let base_points = &cache.base_points;
+        let comparison_points = &cache.comparison_points;
 
         if base_points.is_empty() && comparison_points.iter().all(|(_, _, pts)| pts.is_empty()) {
             ui.centered_and_justified(|ui| {
@@ -120,8 +174,8 @@ impl EdfPlotChart {
                         }
                     }
                 };
-                consider(base_label, &base_points);
-                for (name, _, pts) in &comparison_points {
+                consider(base_label, base_points);
+                for (name, _, pts) in comparison_points {
                     consider(name, pts);
                 }
                 hovered = best.map(|(_, name, x, y)| (name, x, y));
@@ -136,13 +190,13 @@ impl EdfPlotChart {
                         .width(1.5),
                 );
             }
-            for (name, color, pts) in &comparison_points {
+            for (name, color, pts) in comparison_points {
                 if pts.is_empty() {
                     continue;
                 }
                 let plot_pts: egui_plot::PlotPoints = pts.iter().copied().map(apply_log).collect();
                 plot_ui.line(
-                    egui_plot::Line::new(*name, plot_pts)
+                    egui_plot::Line::new(name.as_str(), plot_pts)
                         .color(*color)
                         .width(1.5),
                 );

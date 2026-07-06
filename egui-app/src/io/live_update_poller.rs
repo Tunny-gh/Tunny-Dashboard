@@ -295,18 +295,24 @@ fn sqlite_polling_loop(
 /// 送信メッセージは SQLite 用に定義済みの `SqliteLiveChanged` をそのまま流用する
 /// （RDB 用の新規メッセージは増やさない。呼び出し側は `storage_kind` で
 /// 再ロード先を振り分ける）。
+///
+/// `fingerprint_fn` は `FnMut` を要求する。RDB 側は接続セッション
+/// （`tunny_core::rdb::RdbFingerprintSession`）を tick を跨いで使い回すため、
+/// クロージャ内部で状態（`Option<RdbFingerprintSession>`）を書き換える必要がある
+/// （SQLite 側は状態を持たない `Fn` クロージャのままでよく、`Fn` は `FnMut` を
+/// 自動的に満たすため互換性は保たれる）。
 #[allow(clippy::too_many_arguments)]
 fn fingerprint_polling_loop<F>(
     study_id: u32,
     initial_fingerprint: tunny_core::rdb::StudyFingerprint,
-    fingerprint_fn: F,
+    mut fingerprint_fn: F,
     error_source: &str,
     tx: &SyncSender<AppMessage>,
     stop_signal: &AtomicBool,
     interval_ms: &AtomicU64,
     no_change_timeout: Duration,
 ) where
-    F: Fn(u32) -> Result<tunny_core::rdb::StudyFingerprint, String>,
+    F: FnMut(u32) -> Result<tunny_core::rdb::StudyFingerprint, String>,
 {
     let mut last_fingerprint = initial_fingerprint;
     let mut error_count: u32 = 0;
@@ -359,8 +365,10 @@ fn fingerprint_polling_loop<F>(
 //
 // SQLite と同じくフィンガープリント方式（`fingerprint_polling_loop` を共有）だが、
 // 接続先がローカルファイルパスではなく `RdbUrl`（接続 URL）である点が異なる。
-// フィンガープリント取得は毎回 `RdbUrl` から再接続して行う
-// （`tunny_core::rdb::study_fingerprint_url`）。
+// フィンガープリント取得は `tunny_core::rdb::RdbFingerprintSession` で接続を
+// 保持し、tick を跨いで使い回す（毎 tick 再接続すると TCP ハンドシェイクの
+// コストがポーリング間隔ごとに掛かるため）。セッションは初回 tick で遅延接続し、
+// フィンガープリント取得がエラーになったら破棄して次 tick で再接続を試みる。
 // =============================================================================
 
 /// RDB ライブ更新ポーリングスレッドへ渡すコンテキスト。
@@ -438,10 +446,27 @@ fn rdb_polling_loop(
     no_change_timeout: Duration,
 ) {
     let url = context.url;
+    // tick を跨いで再利用する接続セッション。初回 tick で遅延接続し、
+    // フィンガープリント取得（あるいは接続そのもの）が失敗したら破棄して
+    // 次 tick で再接続を試みる（接続状態が壊れている可能性があるため）。
+    let mut session: Option<tunny_core::rdb::RdbFingerprintSession> = None;
     fingerprint_polling_loop(
         context.study_id,
         context.initial_fingerprint,
-        move |study_id| tunny_core::rdb::study_fingerprint_url(&url, study_id),
+        move |study_id| {
+            if session.is_none() {
+                session = Some(tunny_core::rdb::RdbFingerprintSession::connect(&url)?);
+            }
+            // 直前で Some を保証しているため `expect` は panic しない。
+            let result = session
+                .as_mut()
+                .expect("session was just connected above")
+                .fingerprint(study_id);
+            if result.is_err() {
+                session = None;
+            }
+            result
+        },
         "rdb",
         tx,
         stop_signal,

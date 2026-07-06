@@ -39,21 +39,22 @@ pub struct RobustnessFitRequest {
     pub model: SurrogateModelKind,
 }
 
-/// キャッシュキー: (学習済みモデルのポインタ恒等性, 中心点のビット表現, ノイズ%のビット表現,
-/// サンプル数, 認識論的不確かさ込みか, ノイズ分布種別, Weibull 形状パラメータのビット表現,
-/// LSL のビット表現（未指定なら None）, USL のビット表現（未指定なら None）)。
-/// シードは固定 42 のためキーに含めない。
-type RobustnessCacheKey = (
-    usize,
-    Vec<u64>,
-    u64,
-    usize,
-    bool,
-    u8,
-    u64,
-    Option<u64>,
-    Option<u64>,
-);
+/// キャッシュキーのスカラー部分（center を除く）: (学習済みモデルのポインタ恒等性,
+/// ノイズ%のビット表現, サンプル数, 認識論的不確かさ込みか, ノイズ分布種別,
+/// Weibull 形状パラメータのビット表現, LSL のビット表現（未指定なら None）,
+/// USL のビット表現（未指定なら None）)。シードは固定 42 のためキーに含めない。
+///
+/// center（Vec<u64>）とは別フィールドに分離している。スカラー部分は Copy で
+/// ヒープ確保が無いため、毎フレームの再計算・比較を安価に行える。center は
+/// 実際にキャッシュを再構築する（ミス時）ときだけ Vec<u64> 化する
+/// （`cache_matches` はキャッシュ済み center とのゼロコピー要素比較で済ませる）。
+type RobustnessScalarKey = (usize, u64, usize, bool, u8, u64, Option<u64>, Option<u64>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RobustnessCacheKey {
+    scalar: RobustnessScalarKey,
+    center_bits: Vec<u64>,
+}
 
 /// ノイズ分布の選択肢（widget ローカル）。
 ///
@@ -330,18 +331,34 @@ pub fn show(
 
     let lower_spec = state.use_lower_spec.then_some(state.lower_spec_value);
     let upper_spec = state.use_upper_spec.then_some(state.upper_spec_value);
-    let key = cache_key(
-        &trained,
-        &center,
-        state.noise_pct,
-        state.n_samples,
-        state.include_epistemic,
-        state.noise_dist,
-        state.weibull_shape,
-        lower_spec,
-        upper_spec,
-    );
-    if state.cache.as_ref().map(|(k, _)| k) != Some(&key) {
+    // スカラー部分を先に比較し、一致した場合のみ center を（Vec 確保なしで）比較する。
+    // これにより、キャッシュがヒットするフレームでは Vec<u64> の確保が発生しない。
+    let cache_valid = state.cache.as_ref().is_some_and(|(k, _)| {
+        cache_matches(
+            k,
+            &trained,
+            &center,
+            state.noise_pct,
+            state.n_samples,
+            state.include_epistemic,
+            state.noise_dist,
+            state.weibull_shape,
+            lower_spec,
+            upper_spec,
+        )
+    });
+    if !cache_valid {
+        let key = cache_key(
+            &trained,
+            &center,
+            state.noise_pct,
+            state.n_samples,
+            state.include_epistemic,
+            state.noise_dist,
+            state.weibull_shape,
+            lower_spec,
+            upper_spec,
+        );
         let distribution = match state.noise_dist {
             NoiseDistKind::Normal => tunny_core::surrogate_opt::NoiseDistribution::Normal,
             NoiseDistKind::Uniform => tunny_core::surrogate_opt::NoiseDistribution::Uniform,
@@ -378,6 +395,32 @@ pub fn show(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn scalar_key(
+    trained: &Arc<TrainedSurrogate>,
+    noise_pct: f64,
+    n_samples: usize,
+    include_epistemic: bool,
+    noise_dist: NoiseDistKind,
+    weibull_shape: f64,
+    lower_spec: Option<f64>,
+    upper_spec: Option<f64>,
+) -> RobustnessScalarKey {
+    (
+        Arc::as_ptr(trained) as usize,
+        noise_pct.to_bits(),
+        n_samples,
+        include_epistemic,
+        noise_dist as u8,
+        weibull_shape.to_bits(),
+        lower_spec.map(f64::to_bits),
+        upper_spec.map(f64::to_bits),
+    )
+}
+
+/// キャッシュキーを構築する。center を Vec<u64> 化するため、キャッシュミス時
+/// （実際に再計算・格納するとき）だけ呼ぶこと。毎フレームの比較には
+/// `cache_matches` を使う。
+#[allow(clippy::too_many_arguments)]
 fn cache_key(
     trained: &Arc<TrainedSurrogate>,
     center: &[f64],
@@ -389,17 +432,56 @@ fn cache_key(
     lower_spec: Option<f64>,
     upper_spec: Option<f64>,
 ) -> RobustnessCacheKey {
-    (
-        Arc::as_ptr(trained) as usize,
-        center.iter().map(|v| v.to_bits()).collect(),
-        noise_pct.to_bits(),
+    RobustnessCacheKey {
+        scalar: scalar_key(
+            trained,
+            noise_pct,
+            n_samples,
+            include_epistemic,
+            noise_dist,
+            weibull_shape,
+            lower_spec,
+            upper_spec,
+        ),
+        center_bits: center.iter().map(|v| v.to_bits()).collect(),
+    }
+}
+
+/// 現在の入力がキャッシュ済みキーと一致するかを Vec 確保なしで判定する。
+/// まずヒープ確保の無いスカラー部分を比較し、一致した場合のみ center を
+/// 要素ごとにゼロコピーで比較する（新たな Vec<u64> は作らない）。
+#[allow(clippy::too_many_arguments)]
+fn cache_matches(
+    cached: &RobustnessCacheKey,
+    trained: &Arc<TrainedSurrogate>,
+    center: &[f64],
+    noise_pct: f64,
+    n_samples: usize,
+    include_epistemic: bool,
+    noise_dist: NoiseDistKind,
+    weibull_shape: f64,
+    lower_spec: Option<f64>,
+    upper_spec: Option<f64>,
+) -> bool {
+    let scalar = scalar_key(
+        trained,
+        noise_pct,
         n_samples,
         include_epistemic,
-        noise_dist as u8,
-        weibull_shape.to_bits(),
-        lower_spec.map(f64::to_bits),
-        upper_spec.map(f64::to_bits),
-    )
+        noise_dist,
+        weibull_shape,
+        lower_spec,
+        upper_spec,
+    );
+    if cached.scalar != scalar {
+        return false;
+    }
+    cached.center_bits.len() == center.len()
+        && cached
+            .center_bits
+            .iter()
+            .zip(center.iter())
+            .all(|(&bits, &v)| bits == v.to_bits())
 }
 
 /// ヒストグラム + 統計サマリを描画する。

@@ -21,20 +21,21 @@ use crate::tools;
 /// この版で応答する（クライアント側が互換性を判断する）。
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// サーバー状態。現状は初期化済みフラグのみ（ツールは無状態）。
-pub struct Server {
-    initialized: bool,
-}
+/// サーバー状態。ツールは無状態のため現状フィールドを持たない
+/// （initialize 前の tools/call も寛容に受け付ける）。
+pub struct Server {}
 
 impl Server {
     pub fn new() -> Server {
-        Server { initialized: false }
+        Server {}
     }
 
     /// 1 メッセージを処理し、返すべき応答があれば JSON 文字列で返す。
     ///
     /// 通知（id なし）には `None` を返す。パース不能な行には JSON-RPC の
-    /// 規定どおり `-32700 Parse error`（id = null）を返す。
+    /// 規定どおり `-32700 Parse error`（id = null）を返す。バッチ
+    /// （トップレベル配列）は未対応のため、クライアントが無応答で
+    /// ハングしないよう `-32600 Invalid Request` を明示的に返す。
     pub fn handle_message(&mut self, line: &str) -> Option<String> {
         let msg: Value = match serde_json::from_str(line) {
             Ok(v) => v,
@@ -42,6 +43,17 @@ impl Server {
                 return Some(error_response(Value::Null, -32700, "Parse error").to_string());
             }
         };
+
+        if msg.is_array() {
+            return Some(
+                error_response(
+                    Value::Null,
+                    -32600,
+                    "Batch requests are not supported by this server",
+                )
+                .to_string(),
+            );
+        }
 
         let id = msg.get("id").cloned();
         let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
@@ -54,10 +66,7 @@ impl Server {
 
         match (method, id) {
             // ── 通知 ─────────────────────────────────────────────
-            ("notifications/initialized", None) => {
-                self.initialized = true;
-                None
-            }
+            ("notifications/initialized", None) => None,
             (_, None) => None, // 未知の通知は無視
 
             // ── リクエスト ───────────────────────────────────────
@@ -196,6 +205,19 @@ mod tests {
         let mut s = Server::new();
         let resp = call(&mut s, "not json");
         assert_eq!(resp["error"]["code"], -32700);
+        assert!(resp["id"].is_null());
+    }
+
+    #[test]
+    fn batch_request_gets_explicit_invalid_request() {
+        // バッチ（配列）は未対応。無視するとクライアントが応答待ちで
+        // ハングするため、明示的に -32600 を返す。
+        let mut s = Server::new();
+        let resp = call(
+            &mut s,
+            r#"[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"ping"}]"#,
+        );
+        assert_eq!(resp["error"]["code"], -32600);
         assert!(resp["id"].is_null());
     }
 

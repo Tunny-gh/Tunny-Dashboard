@@ -379,6 +379,9 @@ pub enum AppMessage {
     /// 失敗時は既存の `Error` を再利用する。
     ReportExportDone {
         paths: Vec<std::path::PathBuf>,
+        /// 既存ファイルを上書きした非プライマリの兄弟パス
+        /// （プライマリは OS 保存ダイアログ側で確認済みのため含めない）。
+        overwrote: Vec<std::path::PathBuf>,
     },
 }
 

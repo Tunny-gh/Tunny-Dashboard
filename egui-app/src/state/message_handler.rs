@@ -167,11 +167,12 @@ impl MessageHandler {
                 *load_error = Some(e);
                 *is_loading = false;
             }
-            AppMessage::ReportExportDone { paths } => {
+            AppMessage::ReportExportDone { paths, overwrote } => {
                 if let Some(dialog) = app_state.report_dialog.as_mut() {
                     dialog.generating = false;
                     dialog.error = None;
                     dialog.success_paths = Some(paths);
+                    dialog.overwrote_paths = overwrote;
                 }
             }
             AppMessage::SensitivityError(_e) => {
@@ -1635,6 +1636,7 @@ mod tests {
         MessageHandler::handle(
             AppMessage::ReportExportDone {
                 paths: paths.clone(),
+                overwrote: vec![std::path::PathBuf::from("/tmp/report_s.json")],
             },
             &mut app_state,
             &mut widgets,
@@ -1646,6 +1648,10 @@ mod tests {
         assert!(!dialog.generating);
         assert!(dialog.error.is_none());
         assert_eq!(dialog.success_paths.as_deref(), Some(paths.as_slice()));
+        assert_eq!(
+            dialog.overwrote_paths,
+            vec![std::path::PathBuf::from("/tmp/report_s.json")]
+        );
         assert!(load_error.is_none());
     }
 
@@ -1657,7 +1663,10 @@ mod tests {
         let mut load_error: Option<String> = None;
 
         MessageHandler::handle(
-            AppMessage::ReportExportDone { paths: vec![] },
+            AppMessage::ReportExportDone {
+                paths: vec![],
+                overwrote: vec![],
+            },
             &mut app_state,
             &mut widgets,
             &mut is_loading,

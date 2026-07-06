@@ -855,7 +855,7 @@ pub fn histogram(bins: &[HistBin], width: f64, height: f64) -> String {
             coord(y),
             coord(bin_w),
             coord(bar_h),
-            seq400 = "--seq-400"
+            seq400 = theme::VAR_SEQ[3].1
         ));
     }
 

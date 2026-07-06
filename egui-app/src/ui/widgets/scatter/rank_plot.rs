@@ -23,6 +23,11 @@ pub struct RankPlotChart {
     /// 点クリックで開くトライアル詳細モーダル（他の散布図と共有）。
     #[serde(skip)]
     detail_modal: TrialDetailModal,
+    /// ランクのソート・点群構築・色グルーピングの結果キャッシュ。
+    /// `RankPlotCache::key` が変わらない限り毎フレームの再計算を避ける
+    /// （robustness.rs の Arc 恒等性パターンに倣う）。
+    #[serde(skip)]
+    cache: Option<RankPlotCache>,
 }
 
 impl Default for RankPlotChart {
@@ -32,8 +37,38 @@ impl Default for RankPlotChart {
             y_param_idx: 1,
             obj_idx: 0,
             detail_modal: TrialDetailModal::new(),
+            cache: None,
         }
     }
+}
+
+/// フレーム毎の再計算（ランクの O(n log n) ソート、点群構築、色グルーピング用
+/// HashMap 構築）を避けるためのキャッシュ。
+///
+/// キーは (DataFrame の Arc 恒等性, X パラメータ選択, Y パラメータ選択, 目的選択,
+/// カラーマップのフィンガープリント)。いずれかが変わったときだけ再構築する。
+/// カラーマップはユーザーがテーマ設定で切り替えられるため、色そのものが
+/// キャッシュ結果（color_groups のキー）に影響することを反映してキーに含める。
+struct RankPlotCache {
+    key: (usize, usize, usize, usize, u64),
+    ranks: Vec<f64>,
+    color_groups: HashMap<[u8; 4], Vec<[f64; 2]>>,
+    hit_candidates: Vec<(u32, usize, [f64; 2])>,
+}
+
+/// カラーマップの内容を安価な u64 フィンガープリントに畳み込む（FNV-1a 風）。
+/// 停止点数は少数（数点）のため、毎フレーム計算してもヒープ確保なしで軽量。
+fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325 ^ (cmap.stops.len() as u64);
+    for &(t, color) in &cmap.stops {
+        let packed = u32::from(color.r())
+            | (u32::from(color.g()) << 8)
+            | (u32::from(color.b()) << 16)
+            | (u32::from(color.a()) << 24);
+        h = (h ^ t.to_bits() as u64).wrapping_mul(0x100000001b3);
+        h = (h ^ packed as u64).wrapping_mul(0x100000001b3);
+    }
+    h
 }
 
 /// 描画対象 1 点分（トライアル ID・行 index・パラメータ座標・ランクパーセンタイル）。
@@ -121,33 +156,55 @@ impl RankPlotChart {
         let obj_name = obj_names[self.obj_idx].clone();
         let minimize = matches!(directions.get(self.obj_idx), Some(Direction::Minimize));
 
-        let obj_values: Vec<f64> = view
-            .numeric_column(&obj_name)
-            .map(|c| c.to_vec())
-            .unwrap_or_default();
-        // ランクは目的値列全体（COMPLETE trial 全件）から算出する。
-        // パラメータが欠損している行があっても、他行のランクには影響しない。
-        let ranks = compute_rank_percentiles(&obj_values, minimize);
+        // キャッシュキー: view（DataFrame）の恒等性 + 選択中の X/Y/目的 + カラーマップ。
+        // いずれも変わっていなければ、ランクのソートや色グルーピングを再計算しない。
+        let cache_key = (
+            std::sync::Arc::as_ptr(&view.df) as usize,
+            self.x_param_idx,
+            self.y_param_idx,
+            self.obj_idx,
+            cmap_fingerprint(cmap),
+        );
+        let cache_valid = self.cache.as_ref().is_some_and(|c| c.key == cache_key);
+        if !cache_valid {
+            let obj_values: Vec<f64> = view
+                .numeric_column(&obj_name)
+                .map(|c| c.to_vec())
+                .unwrap_or_default();
+            // ランクは目的値列全体（COMPLETE trial 全件）から算出する。
+            // パラメータが欠損している行があっても、他行のランクには影響しない。
+            let ranks = compute_rank_percentiles(&obj_values, minimize);
+            let points = collect_rank_points(view, &x_name, &y_name, &ranks);
 
-        let points = collect_rank_points(view, &x_name, &y_name, &ranks);
-        if points.is_empty() {
+            // 色ごとにグルーピングして描画バッチ数を抑える（MCDM 散布図と同じ手法）。
+            let mut color_groups: HashMap<[u8; 4], Vec<[f64; 2]>> = HashMap::new();
+            let hit_candidates: Vec<(u32, usize, [f64; 2])> = points
+                .iter()
+                .map(|p| (p.trial_id, p.row, [p.x, p.y]))
+                .collect();
+            for p in &points {
+                let color = cmap.interpolate(p.rank.clamp(0.0, 1.0) as f32);
+                let key = [color.r(), color.g(), color.b(), color.a()];
+                color_groups.entry(key).or_default().push([p.x, p.y]);
+            }
+
+            self.cache = Some(RankPlotCache {
+                key: cache_key,
+                ranks,
+                color_groups,
+                hit_candidates,
+            });
+        }
+        let cache = self.cache.as_ref().expect("cache just populated above");
+        if cache.hit_candidates.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No finite points to plot.").weak());
             });
             return;
         }
-
-        // 色ごとにグルーピングして描画バッチ数を抑える（MCDM 散布図と同じ手法）。
-        let mut color_groups: HashMap<[u8; 4], Vec<[f64; 2]>> = HashMap::new();
-        let hit_candidates: Vec<(u32, usize, [f64; 2])> = points
-            .iter()
-            .map(|p| (p.trial_id, p.row, [p.x, p.y]))
-            .collect();
-        for p in &points {
-            let color = cmap.interpolate(p.rank.clamp(0.0, 1.0) as f32);
-            let key = [color.r(), color.g(), color.b(), color.a()];
-            color_groups.entry(key).or_default().push([p.x, p.y]);
-        }
+        let ranks = &cache.ranks;
+        let hit_candidates = &cache.hit_candidates;
+        let color_groups = &cache.color_groups;
 
         let mut clicked_detail: Option<(u32, usize)> = None;
         let mut hovered_detail: Option<(u32, usize)> = None;
@@ -170,13 +227,13 @@ impl RankPlotChart {
                 let resp = plot_ui.response();
                 if resp.clicked_by(egui::PointerButton::Primary) {
                     clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
-                        hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD)
+                        hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD)
                     });
                 }
                 if let Some(pos) = resp.hover_pos() {
-                    hovered_detail = hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD);
+                    hovered_detail = hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD);
                 }
-                for (key, pts) in &color_groups {
+                for (key, pts) in color_groups {
                     let color =
                         egui::Color32::from_rgba_unmultiplied(key[0], key[1], key[2], key[3]);
                     plot_ui.points(

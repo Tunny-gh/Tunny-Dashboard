@@ -22,7 +22,7 @@ fn ensure_optuna_schema(backend: &mut dyn OptunaBackend) -> Result<(), String> {
         .table_exists("studies")
         .map_err(|e| format!("Failed to inspect database schema: {e}"))?;
     if !exists {
-        return Err("Not an Optuna SQLite storage: 'studies' table not found".to_string());
+        return Err("Not an Optuna storage: 'studies' table not found".to_string());
     }
     Ok(())
 }
@@ -42,22 +42,6 @@ fn query_scalar_i64(
         .and_then(|row| row.into_iter().next())
         .and_then(|v| v.as_i64())
         .ok_or_else(|| format!("{context}: expected a single integer row"))
-}
-
-/// `SELECT 1 ... LIMIT 1` の行の有無で真偽を判定する。
-///
-/// `EXISTS(...)` は PostgreSQL では bool 型で返るなど方言差が出るため、代わりに
-/// 行の有無判定（3 バックエンドで可搬）を使う。
-fn query_exists(
-    backend: &mut dyn OptunaBackend,
-    sql: &str,
-    params: &[SqlParam],
-    context: &str,
-) -> Result<bool, String> {
-    let rows = backend
-        .query(sql, params)
-        .map_err(|e| format!("{context}: {e}"))?;
-    Ok(!rows.is_empty())
 }
 
 fn fetch_directions(
@@ -159,8 +143,12 @@ fn fnv1a_fold(mut hash: u64, bytes: &[u8]) -> u64 {
 /// ライブ更新のポーリングで呼ぶ軽量フィンガープリント取得。
 /// `total_trials` / `completed_trials` / `max_trial_id` は集計クエリで、
 /// `intermediate_count` は `trial_intermediate_values` の有無を確認した上で数える
-/// （`fetch_study_extras` と同じガード）。`state_digest` は `trials` を trial_id 昇順で
-/// 読み、各行の trial_id と state 文字列を FNV-1a で畳み込んだもの（state 遷移の検出用）。
+/// （`fetch_study_extras` と同じガード）。`state_digest` は `trials` を state 別に
+/// `GROUP BY` した `(state, COUNT(*))` を state 昇順で読み、FNV-1a で畳み込んだもの
+/// （state 遷移の検出用）。trial 全行を読む代わりに集計クエリ 1 本で済ませることで、
+/// trial 数が多い study でもポーリング毎のコストを抑える
+/// （trial_id 単位の粒度は失うが、RUNNING→PRUNED/FAIL 等の state 別件数の変化は
+/// 引き続き検出できる）。
 pub fn study_fingerprint(
     backend: &mut dyn OptunaBackend,
     study_id: u32,
@@ -211,19 +199,20 @@ pub fn study_fingerprint(
     {
         let rows = backend
             .query(
-                "SELECT trial_id, state FROM trials WHERE study_id = ? ORDER BY trial_id",
+                "SELECT state, COUNT(*) FROM trials WHERE study_id = ? \
+                 GROUP BY state ORDER BY state",
                 &[SqlParam::I64(sid)],
             )
-            .map_err(|e| format!("Failed to query trial states: {e}"))?;
+            .map_err(|e| format!("Failed to query trial state counts: {e}"))?;
         for row in rows {
-            let trial_id = row[0].as_i64().ok_or_else(|| {
-                "Failed to read trial states: trial_id is not an integer".to_string()
+            let state = row[0].as_text().ok_or_else(|| {
+                "Failed to read trial state counts: state is not text".to_string()
             })?;
-            let state = row[1]
-                .as_text()
-                .ok_or_else(|| "Failed to read trial states: state is not text".to_string())?;
-            state_digest = fnv1a_fold(state_digest, &trial_id.to_le_bytes());
+            let count = row[1].as_i64().ok_or_else(|| {
+                "Failed to read trial state counts: count is not an integer".to_string()
+            })?;
             state_digest = fnv1a_fold(state_digest, state.as_bytes());
+            state_digest = fnv1a_fold(state_digest, &count.to_le_bytes());
         }
     }
 
@@ -235,6 +224,65 @@ pub fn study_fingerprint(
         intermediate_count,
         state_digest,
     })
+}
+
+/// 全 study の trial 件数（completed/total）を study_id ごとに 1 クエリで取得する。
+///
+/// `scan_study_list` が study 単位で `COUNT(*)` を 2 本ずつ発行する N+1 パターンを避ける
+/// ため、`GROUP BY study_id, state` で全 study 分をまとめて読み、
+/// `study_id -> (completed_trials, total_trials)` の map に畳み込む。
+fn fetch_trial_counts_by_study(
+    backend: &mut dyn OptunaBackend,
+) -> Result<HashMap<i64, (i64, i64)>, String> {
+    let rows = backend
+        .query(
+            "SELECT study_id, state, COUNT(*) FROM trials GROUP BY study_id, state",
+            &[],
+        )
+        .map_err(|e| format!("Failed to query trial counts: {e}"))?;
+
+    let mut counts: HashMap<i64, (i64, i64)> = HashMap::new();
+    for row in rows {
+        let study_id = row[0]
+            .as_i64()
+            .ok_or_else(|| "Failed to read trial counts: study_id is not an integer".to_string())?;
+        let state = row[1]
+            .as_text()
+            .ok_or_else(|| "Failed to read trial counts: state is not text".to_string())?;
+        let count = row[2]
+            .as_i64()
+            .ok_or_else(|| "Failed to read trial counts: count is not an integer".to_string())?;
+
+        let entry = counts.entry(study_id).or_insert((0, 0));
+        entry.1 += count; // total_trials
+        if state == "COMPLETE" {
+            entry.0 += count; // completed_trials
+        }
+    }
+    Ok(counts)
+}
+
+/// `constraints` システム属性を持つ trial が 1 件でもある study_id の集合を
+/// 1 クエリで取得する（`scan_study_list` の N+1 回避、`has_constraints` 判定用）。
+fn fetch_studies_with_constraints(
+    backend: &mut dyn OptunaBackend,
+) -> Result<std::collections::HashSet<i64>, String> {
+    let rows = backend
+        .query(
+            "SELECT DISTINCT t.study_id FROM trial_system_attributes tsa \
+             JOIN trials t ON tsa.trial_id = t.trial_id WHERE tsa.key = 'constraints'",
+            &[],
+        )
+        .map_err(|e| format!("Failed to query constraints: {e}"))?;
+
+    let mut study_ids = std::collections::HashSet::with_capacity(rows.len());
+    for row in rows {
+        let study_id = row[0]
+            .as_i64()
+            .ok_or_else(|| "Failed to read constraints: study_id is not an integer".to_string())?;
+        study_ids.insert(study_id);
+    }
+    Ok(study_ids)
 }
 
 /// Phase 1: DB を開いて Study 一覧を返す（journal の `scan_study_list` と同じ役割）。
@@ -266,32 +314,20 @@ pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>
         studies_raw.push((study_id, name));
     }
 
+    // study 単位の N+1 クエリ（completed/total 件数・constraints 有無）を避けるため、
+    // 全 study 分を先にまとめて 1 クエリずつ取得しておく。
+    let trial_counts = fetch_trial_counts_by_study(backend)?;
+    let studies_with_constraints = fetch_studies_with_constraints(backend)?;
+
     let mut studies = Vec::with_capacity(studies_raw.len());
     for (study_id, name) in studies_raw {
         let directions = fetch_directions(backend, study_id)?;
         let metric_names = fetch_metric_names(backend, study_id)?;
         let objective_names = objective_names_for(&directions, metric_names);
 
-        let completed_trials = query_scalar_i64(
-            backend,
-            "SELECT COUNT(*) FROM trials WHERE study_id = ? AND state = 'COMPLETE'",
-            &[SqlParam::I64(study_id)],
-            "Failed to count completed trials",
-        )?;
-        let total_trials = query_scalar_i64(
-            backend,
-            "SELECT COUNT(*) FROM trials WHERE study_id = ?",
-            &[SqlParam::I64(study_id)],
-            "Failed to count trials",
-        )?;
-        let has_constraints = query_exists(
-            backend,
-            "SELECT 1 FROM trial_system_attributes tsa \
-             JOIN trials t ON tsa.trial_id = t.trial_id \
-             WHERE t.study_id = ? AND tsa.key = 'constraints' LIMIT 1",
-            &[SqlParam::I64(study_id)],
-            "Failed to check constraints",
-        )?;
+        let (completed_trials, total_trials) =
+            trial_counts.get(&study_id).copied().unwrap_or((0, 0));
+        let has_constraints = studies_with_constraints.contains(&study_id);
 
         #[allow(clippy::cast_sign_loss)]
         studies.push(StudyMeta {

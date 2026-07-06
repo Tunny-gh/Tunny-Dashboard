@@ -5,9 +5,9 @@
 //!     <storage> <study_id> <out_dir> [--lang en|ja] [--top-n N]
 //! ```
 //!
-//! - `<storage>`: SQLite ファイルパスか RDB URL（`postgresql://` 系）。
-//!   `RdbUrl::parse` が URL とみなせば `parse_single_study_url` へ、そうでなければ
-//!   ローカルファイルとみなし `sqlite::parse_single_study` へディスパッチする。
+//! - `<storage>`: journal ファイル（.log/.journal）、SQLite ファイルパス、
+//!   または RDB URL（`postgresql://` 系）。ディスパッチは
+//!   `tunny_core::io::storage::load_study` に一元化されている。
 //! - `<study_id>`: 対象 study の ID。
 //! - `<out_dir>`: 出力先ディレクトリ（`report_{study}.{html,md,json}` の3形式を書く）。
 //! - `--lang`: 文章言語（既定 `en`）。
@@ -17,15 +17,11 @@
 //! ファイルの場合はパスそのものを用いる。`generated_at_unix` は `SystemTime` から
 //! 取得する（`core` ライブラリは時計を持たないが、example では利用してよい）。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tunny_core::data::dataframe::DataFrame;
-use tunny_core::data::extras::StudyExtras;
-use tunny_core::io::rdb::{parse_single_study_url, RdbUrl};
-use tunny_core::io::sqlite;
-use tunny_core::journal_parser::StudyMeta;
+use tunny_core::io::storage::load_study;
 use tunny_core::report::{render_html, render_markdown};
 use tunny_core::{build_study_report, ReportLang, ReportOptions, ReportSource};
 
@@ -88,24 +84,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         lang,
         top_n,
     })
-}
-
-/// storage をディスパッチして `(meta, df, extras, storage_display)` を得る。
-fn load_study(
-    storage: &str,
-    study_id: u32,
-) -> Result<(StudyMeta, DataFrame, StudyExtras, String), String> {
-    match RdbUrl::parse(storage) {
-        Some(url) => {
-            let masked = url.masked();
-            let (meta, df, extras) = parse_single_study_url(&url, study_id)?;
-            Ok((meta, df, extras, masked))
-        }
-        None => {
-            let (meta, df, extras) = sqlite::parse_single_study(Path::new(storage), study_id)?;
-            Ok((meta, df, extras, storage.to_string()))
-        }
-    }
 }
 
 /// ファイル名に使えない文字を `_` に置換し、study 名をサニタイズする。

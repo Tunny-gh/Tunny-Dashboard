@@ -15,7 +15,7 @@ use std::fmt::Write as _;
 
 use super::model::*;
 use super::svg::{self, HBarItem, HistBin, LinePoint, ScatterPoint};
-use super::text::format_unix_utc;
+use super::text::{self, format_unix_utc};
 use super::theme;
 use super::{format_number, ReportLang};
 
@@ -571,32 +571,14 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                 .filter(|t| t.max_constraint.is_some_and(|v| v > 0.0))
                 .count();
             if n_infeasible > 0 {
-                let note = match lang {
-                    ReportLang::En => format!(
-                        "Note: no trial satisfies all constraints, so the Pareto \
-                         front falls back to objective-space non-domination over \
-                         all trials; {n_infeasible} of these trials violate \
-                         constraints."
-                    ),
-                    ReportLang::Ja => format!(
-                        "注記: 全制約を満たす trial が無いため、パレート前面は\
-                         全 trial の目的空間非劣解にフォールバックしています。\
-                         うち {n_infeasible} 件は制約違反です。"
-                    ),
-                };
+                let note = text::infeasible_fallback_note(lang, n_infeasible);
                 let _ = writeln!(s, "<p class=\"desc\">{}</p>", esc(&note));
             }
             if pareto_table.iter().any(|t| t.duplicate_of.is_some()) {
                 let _ = writeln!(
                     s,
                     "<p class=\"desc\">{}</p>",
-                    esc(tr(
-                        lang,
-                        "Note: \"(= #N)\" marks a trial whose objective values are \
-                         identical to trial #N (e.g. a re-sampled parameter set).",
-                        "注記: 「(= #N)」は trial #N と目的値が完全一致する重複解を\
-                         示します（同一パラメータの再サンプル等）。"
-                    ))
+                    esc(text::duplicate_legend_note(lang))
                 );
             }
         }

@@ -68,6 +68,9 @@ impl PostgresBackend {
 
 /// canonical `?` プレースホルダを PostgreSQL ネイティブの `$1, $2, ...` へ変換する。
 /// 入力 SQL の文字列リテラル内に `?` は出現しない前提の単純置換。
+/// 前提: 本モジュールが組み立てるクエリは固定の SQL 文字列（`generic.rs` 内リテラル）
+/// のみで、文字列リテラルや JSON 演算子（`?`, `?|`, `?&` 等）の中に `?` を含む値は
+/// 現状使用していない。将来動的な SQL 片や JSON 演算子を扱う場合はこの前提を要再確認。
 pub fn convert_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len() + 8);
     let mut n: u32 = 0;
@@ -144,10 +147,16 @@ fn column_to_sql_value(row: &Row, idx: usize) -> Result<SqlValue, String> {
             let v: Option<EnumText> = row.try_get(idx).map_err(err)?;
             Ok(v.map_or(SqlValue::Null, |t| SqlValue::Text(t.0)))
         }
-        // NUMERIC: Optuna スキーマの数値列は SQLAlchemy Float（= double precision）で
-        // 定義されており NUMERIC は出現しない想定。`rust_decimal` 等の追加依存を避けるため
-        // Null 扱いにする（実データで遭遇した場合は要対応）。
-        _ => Ok(SqlValue::Null),
+        // NUMERIC 等の未対応型: Optuna スキーマの数値列は SQLAlchemy Float
+        // （= double precision）で定義されており通常出現しない想定だが、暗黙に
+        // `SqlValue::Null` へ丸めると「元々 NULL だった値」と「型変換が未対応で
+        // 落とした値」を区別できず、フィンガープリントや DataFrame が気づかれずに
+        // 壊れる恐れがある。`rust_decimal` 等の追加依存を避けつつ安全側に倒すため、
+        // 未対応型はエラーとして呼び出し側へ伝播する。
+        ref t => Err(format!(
+            "Unsupported PostgreSQL column type for column {idx}: {t} \
+             (refusing to silently convert to NULL)"
+        )),
     }
 }
 
@@ -172,7 +181,8 @@ impl OptunaBackend for PostgresBackend {
 
     fn table_exists(&mut self, table: &str) -> Result<bool, String> {
         let rows = self.query(
-            "SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1",
+            "SELECT 1 FROM information_schema.tables \
+             WHERE table_schema = current_schema() AND table_name = ? LIMIT 1",
             &[SqlParam::Text(table.to_string())],
         )?;
         Ok(!rows.is_empty())

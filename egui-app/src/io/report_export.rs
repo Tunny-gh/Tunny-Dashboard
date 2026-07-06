@@ -60,7 +60,7 @@ pub fn spawn_report_export(
             &formats,
             &base_path,
         ) {
-            Ok(paths) => AppMessage::ReportExportDone { paths },
+            Ok((paths, overwrote)) => AppMessage::ReportExportDone { paths, overwrote },
             Err(e) => AppMessage::Error(e),
         }
     });
@@ -78,7 +78,7 @@ fn build_and_write_report(
     top_n: usize,
     formats: &[ReportFormat],
     base_path: &Path,
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
     let core_meta = to_core_meta(meta, df, extras);
     let source = tunny_core::report::ReportSource {
         storage_display: storage_display.to_string(),
@@ -92,7 +92,15 @@ fn build_and_write_report(
     let report = tunny_core::report::build_study_report(&core_meta, df, extras, &source, &opts);
 
     let mut written = Vec::with_capacity(formats.len());
+    // ユーザーが保存ダイアログで選んだ base_path 自体は OS 側の上書き確認を経由するが、
+    // `with_extension` で導出する非プライマリの兄弟ファイル（例: base.md/base.json）は
+    // ダイアログを通らないため、書き込み前に存在チェックしてサイレント上書きを追跡する。
+    let mut overwritten: Vec<PathBuf> = Vec::new();
     for (format, path) in export_paths(base_path, formats) {
+        let is_primary = path == base_path;
+        if !is_primary && path.exists() {
+            overwritten.push(path.clone());
+        }
         let content = match format {
             ReportFormat::Html => tunny_core::report::render_html(&report, lang),
             ReportFormat::Markdown => tunny_core::report::render_markdown(&report, lang),
@@ -103,7 +111,8 @@ fn build_and_write_report(
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         written.push(path);
     }
-    Ok(written)
+
+    Ok((written, overwritten))
 }
 
 /// egui-app の `StudyMeta`（+ DataFrame / StudyExtras 由来の補助情報）を、
@@ -217,5 +226,112 @@ mod tests {
         assert_eq!(core_meta.total_trials, 1);
         assert!(!core_meta.has_constraints);
         assert!(core_meta.user_attr_names.is_empty());
+    }
+
+    // ── R4-fix: サイレント上書きの可視化 ──────────────────────
+
+    fn make_df() -> DataFrame {
+        use std::collections::HashMap;
+        use tunny_core::dataframe::TrialRow as CoreRow;
+
+        let rows = vec![CoreRow {
+            trial_id: 0,
+            trial_number: 0,
+            param_display: HashMap::from([("x".to_string(), 1.0)]),
+            param_category_label: HashMap::new(),
+            objective_values: vec![1.0],
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
+            constraint_values: vec![],
+        }];
+        DataFrame::from_trials(&rows, &["x".to_string()], &["y".to_string()], &[], &[], 0)
+    }
+
+    #[test]
+    fn build_and_write_report_flags_silently_overwritten_siblings() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base_path = dir.path().join("report_x.html");
+        // 兄弟ファイル（base_path 由来だが選択フォーマットが異なる非プライマリ）を
+        // あらかじめ用意しておき、サイレント上書き検出をテストする。
+        std::fs::write(dir.path().join("report_x.json"), "stale").expect("seed sibling");
+
+        let meta = make_meta();
+        let df = make_df();
+        let formats = [ReportFormat::Html, ReportFormat::Json];
+
+        let (written, overwrote) = build_and_write_report(
+            &meta,
+            &df,
+            None,
+            "(no storage)",
+            None,
+            ReportLang::En,
+            10,
+            &formats,
+            &base_path,
+        )
+        .expect("report export succeeds");
+
+        // 実ファイルは 2 件（html, json）。上書きは json のみ検出される。
+        assert_eq!(written.len(), 2);
+        assert!(written.contains(&base_path));
+        assert!(written.contains(&dir.path().join("report_x.json")));
+        assert_eq!(overwrote, vec![dir.path().join("report_x.json")]);
+    }
+
+    #[test]
+    fn build_and_write_report_no_note_when_nothing_overwritten() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base_path = dir.path().join("report_y.html");
+
+        let meta = make_meta();
+        let df = make_df();
+        let formats = [ReportFormat::Html, ReportFormat::Json];
+
+        let (written, overwrote) = build_and_write_report(
+            &meta,
+            &df,
+            None,
+            "(no storage)",
+            None,
+            ReportLang::En,
+            10,
+            &formats,
+            &base_path,
+        )
+        .expect("report export succeeds");
+
+        assert_eq!(written.len(), 2);
+        assert!(written.iter().all(|p| p.exists()));
+        assert!(overwrote.is_empty());
+    }
+
+    #[test]
+    fn build_and_write_report_ignores_preexisting_primary_path() {
+        // base_path（プライマリ）は保存ダイアログ側で上書き確認済みという前提のため、
+        // 事前に存在していても overwrite ノートには含めない。
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base_path = dir.path().join("report_z.html");
+        std::fs::write(&base_path, "stale primary").expect("seed primary");
+
+        let meta = make_meta();
+        let df = make_df();
+        let formats = [ReportFormat::Html];
+
+        let (written, overwrote) = build_and_write_report(
+            &meta,
+            &df,
+            None,
+            "(no storage)",
+            None,
+            ReportLang::En,
+            10,
+            &formats,
+            &base_path,
+        )
+        .expect("report export succeeds");
+
+        assert_eq!(written, vec![base_path]);
+        assert!(overwrote.is_empty());
     }
 }

@@ -185,7 +185,12 @@ pub fn build_study_report(
     let objective_stats = build_objective_stats(&objectives, meta, &directions, m);
 
     // ---- Correlations ----
-    let correlations = build_correlations(df, meta, &objectives, n, opts);
+    // `skip_decision_sections` なら解析コストの高い相関計算を省略する。
+    let correlations = if opts.skip_decision_sections {
+        None
+    } else {
+        build_correlations(df, meta, &objectives, n, opts)
+    };
 
     // ---- Execution ----
     let execution = extras.map(|ex| build_execution(ex, &state_counts, wall_clock));
@@ -284,7 +289,9 @@ fn spearman_pairwise(x: &[f64], y: &[f64]) -> f64 {
 }
 
 /// 系列を最大 `max` 点へ均等間引き（先頭・末尾を保持）。
-fn downsample<T: Clone>(pts: &[T], max: usize) -> Vec<T> {
+///
+/// `markdown` レンダラの収束系列サンプリングとも共有する（`pub(crate)`）。
+pub(crate) fn downsample<T: Clone>(pts: &[T], max: usize) -> Vec<T> {
     if pts.len() <= max || max < 2 {
         return pts.to_vec();
     }
@@ -488,6 +495,11 @@ fn build_convergence_multi(
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by_key(|&r| trial_numbers[r]);
     let ord_ids: Vec<u32> = order.iter().map(|&r| trial_numbers[r]).collect();
+    // `compute_hv_history_from_data`（multi_objective::pareto、report/ 外）は
+    // `&[Vec<f64>]` を要求するため、trial.number 順への並べ替えには行の
+    // 所有コピーが避けられない（借用元 `objectives` は元の行順を要すること）。
+    // このコピーは m 列 × n 行で元データと同オーダーであり、シグネチャを
+    // 変えない限り削減不可能。
     let ord_objs: Vec<Vec<f64>> = order.iter().map(|&r| objectives[r].clone()).collect();
 
     let hv = compute_hv_history_from_data(&ord_ids, &ord_objs, is_minimize);
@@ -643,23 +655,55 @@ fn build_outcome_multi(
         })
         .collect();
 
-    // MCDM（等重み、パレート前面部分集合）。
-    let mcdm = build_mcdm(
-        df,
-        meta,
-        objectives,
-        trial_numbers,
-        front_rows,
-        is_minimize,
-        m,
-        opts,
-    );
+    // MCDM 入力（等重み、パレート前面部分集合）。front が空なら計算不要。
+    let mcdm_values: Option<(Vec<f64>, usize, Vec<f64>)> = if front_rows.is_empty() || m == 0 {
+        None
+    } else {
+        let k = front_rows.len();
+        let values = flatten_front(objectives, front_rows, m);
+        let weights = vec![1.0 / m as f64; m];
+        Some((values, k, weights))
+    };
+
+    // TOPSIS ランキング（等重み）は pareto_table の順序付けと、
+    // `skip_decision_sections` で省略されない限り MCDM セクションの TOPSIS
+    // エントリの双方が使うため、ここで 1 回だけ計算して共有する
+    // （以前は build_mcdm と pareto_table 側で同一計算を重複実行していた）。
+    let front_topsis: Option<topsis::TopsisResult> =
+        mcdm_values.as_ref().and_then(|(values, k, weights)| {
+            topsis::compute_topsis(values, *k, m, weights, is_minimize).ok()
+        });
+
+    let mcdm = if opts.skip_decision_sections {
+        None
+    } else {
+        match (&mcdm_values, &front_topsis) {
+            (Some((values, k, weights)), Some(ts)) => build_mcdm(
+                ts,
+                values,
+                *k,
+                weights,
+                is_minimize,
+                m,
+                front_rows,
+                trial_numbers,
+                objectives,
+            ),
+            _ => None,
+        }
+    };
 
     // pareto_table は front 行全体を TOPSIS ランキングで並べ直す
     // （ランキング未計算なら front 行順）。top_n*2 で cap。
     let cap = opts.top_n.saturating_mul(2);
-    let pareto_table_rows = mcdm_ordered_front(df, meta, objectives, front_rows, is_minimize, m)
-        .unwrap_or_else(|| front_rows.to_vec());
+    let pareto_table_rows: Vec<usize> = match &front_topsis {
+        Some(ts) => ts
+            .ranked_indices
+            .iter()
+            .map(|&sub| front_rows[sub as usize])
+            .collect(),
+        None => front_rows.to_vec(),
+    };
     let mut pareto_table: Vec<TrialSummary> = pareto_table_rows
         .iter()
         .take(cap.max(1))
@@ -705,30 +749,6 @@ fn mark_duplicate_objectives(table: &mut [TrialSummary]) {
     }
 }
 
-/// パレート前面行を TOPSIS ランキング順で返す（等重み）。front が空なら `None`。
-fn mcdm_ordered_front(
-    _df: &DataFrame,
-    _meta: &StudyMeta,
-    objectives: &[Vec<f64>],
-    front_rows: &[usize],
-    is_minimize: &[bool],
-    m: usize,
-) -> Option<Vec<usize>> {
-    if front_rows.is_empty() {
-        return None;
-    }
-    let k = front_rows.len();
-    let values = flatten_front(objectives, front_rows, m);
-    let weights = vec![1.0 / m as f64; m];
-    let res = topsis::compute_topsis(&values, k, m, &weights, is_minimize).ok()?;
-    Some(
-        res.ranked_indices
-            .iter()
-            .map(|&sub| front_rows[sub as usize])
-            .collect(),
-    )
-}
-
 /// パレート前面部分集合の目的値を row-major に平坦化する。
 fn flatten_front(objectives: &[Vec<f64>], front_rows: &[usize], m: usize) -> Vec<f64> {
     let mut values = Vec::with_capacity(front_rows.len() * m);
@@ -738,27 +758,23 @@ fn flatten_front(objectives: &[Vec<f64>], front_rows: &[usize], m: usize) -> Vec
     values
 }
 
+/// TOPSIS ランキング（[`front_topsis`]）済みの結果を受け取り、VIKOR /
+/// PROMETHEE を追加計算して MCDM セクションを組み立てる。TOPSIS 自体は
+/// 呼び出し側（`build_outcome_multi`）と共有し、ここでは再計算しない。
 #[allow(clippy::too_many_arguments)]
 fn build_mcdm(
-    _df: &DataFrame,
-    _meta: &StudyMeta,
-    objectives: &[Vec<f64>],
-    trial_numbers: &[u32],
-    front_rows: &[usize],
+    ts: &topsis::TopsisResult,
+    values: &[f64],
+    k: usize,
+    weights: &[f64],
     is_minimize: &[bool],
     m: usize,
-    _opts: &ReportOptions,
+    front_rows: &[usize],
+    trial_numbers: &[u32],
+    objectives: &[Vec<f64>],
 ) -> Option<McdmSection> {
-    if front_rows.is_empty() || m == 0 {
-        return None;
-    }
-    let k = front_rows.len();
-    let values = flatten_front(objectives, front_rows, m);
-    let weights = vec![1.0 / m as f64; m];
-
-    let ts = topsis::compute_topsis(&values, k, m, &weights, is_minimize).ok()?;
-    let vk = vikor::compute_vikor(&values, k, m, &weights, is_minimize, VIKOR_V).ok()?;
-    let pr = promethee::compute_promethee(&values, k, m, &weights, is_minimize).ok()?;
+    let vk = vikor::compute_vikor(values, k, m, weights, is_minimize, VIKOR_V).ok()?;
+    let pr = promethee::compute_promethee(values, k, m, weights, is_minimize).ok()?;
 
     let entry = |ranked: &[u32], rank_i: usize| -> McdmEntry {
         let row = front_rows[ranked[rank_i] as usize];
@@ -790,7 +806,7 @@ fn build_mcdm(
 
     Some(McdmSection {
         weight_scheme: "equal".to_string(),
-        weights,
+        weights: weights.to_vec(),
         topsis_top: top_entries(&ts.ranked_indices),
         vikor_top: top_entries(&vk.ranked_indices),
         promethee_top: top_entries(&pr.ranked_indices_ii),
@@ -847,12 +863,12 @@ fn build_correlations(
     if n < 2 || meta.objective_names.is_empty() {
         return None;
     }
-    // 数値パラメータ列のみ。
-    let numeric_params: Vec<String> = meta
+    // 数値パラメータ列のみ。列スライスはここで 1 回だけ解決し、以降は
+    // 再ルックアップせず使い回す（フィルタとループでの二重解決を避ける）。
+    let numeric_params: Vec<(String, &[f64])> = meta
         .param_names
         .iter()
-        .filter(|name| df.get_numeric_column(name).is_some())
-        .cloned()
+        .filter_map(|name| df.get_numeric_column(name).map(|col| (name.clone(), col)))
         .collect();
     if numeric_params.is_empty() {
         return None;
@@ -865,8 +881,7 @@ fn build_correlations(
     // 各パラメータ×各目的の Spearman 行列と、|ρ| の最大値。
     let mut rows: Vec<(String, Vec<f64>, f64)> = numeric_params
         .iter()
-        .map(|name| {
-            let x = df.get_numeric_column(name).unwrap();
+        .map(|(name, x)| {
             let row: Vec<f64> = obj_cols.iter().map(|y| spearman_pairwise(x, y)).collect();
             let max_abs = row
                 .iter()
