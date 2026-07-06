@@ -37,12 +37,66 @@ pub struct ScatterMatrix {
     #[serde(skip)]
     downsample_cache: Option<(Vec<u32>, Vec<u32>)>,
     #[serde(skip)]
-    downsample_cache_key: Option<(usize, bool)>, // (trial_count, has_constraints)
+    downsample_cache_key: Option<(usize, usize, bool)>, // (df_ptr, trial_count, has_constraints)
     /// 行・列ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
     #[serde(skip)]
     label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
     #[serde(skip)]
     label_galleys_cache_key: Option<Vec<String>>,
+    /// 全セル統計（ヒストグラム・相関係数・列 min/max）のキャッシュ（H-4）。
+    /// O(n_axes² × trial_count) の再計算は df・軸リストが変わったときだけ行う。
+    #[serde(skip)]
+    cell_stats_cache: Option<CellStats>,
+    #[serde(skip)]
+    cell_stats_key: Option<(usize, Vec<String>)>, // (df_ptr, all_names)
+    /// 間引き後の描画点色（feasible / infeasible）のキャッシュ（H-4）。
+    #[serde(skip)]
+    point_colors_cache: Option<(Vec<egui::Color32>, Vec<egui::Color32>)>,
+    #[serde(skip)]
+    point_colors_key: Option<(usize, Option<String>, u64)>, // (df_ptr, 色付け目的関数, cmap fingerprint)
+}
+
+/// 散布図行列の全セル統計（H-4 のフレーム間キャッシュ本体）。
+/// いずれも `all_names` の列順に並ぶ。
+struct CellStats {
+    /// 対角セル用: 各列のヒストグラム（ビン数 `HIST_BINS`）
+    histograms: Vec<Vec<usize>>,
+    /// 上三角セル用: 相関係数の n×n フラット行列（`row * n + col` で参照、下三角と対角は 0.0）
+    correlations: Vec<f64>,
+    /// 散布図セル用: 各列の (min, max)
+    ranges: Vec<(f64, f64)>,
+}
+
+/// 対角セルのヒストグラムのビン数。
+const HIST_BINS: usize = 10;
+
+/// 全セル統計（ヒストグラム・相関・min/max）を一括計算する。
+/// 相関は上三角（col > row）のみ計算し、他は 0.0 のまま残す。
+fn compute_cell_stats(cols: &[&[f64]]) -> CellStats {
+    let n = cols.len();
+    let histograms: Vec<Vec<usize>> = cols
+        .iter()
+        .map(|col| compute_histogram(col, HIST_BINS))
+        .collect();
+    let ranges: Vec<(f64, f64)> = cols
+        .iter()
+        .map(|col| {
+            let mn = col.iter().cloned().fold(f64::INFINITY, f64::min);
+            let mx = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (mn, mx)
+        })
+        .collect();
+    let mut correlations = vec![0.0_f64; n * n];
+    for row in 0..n {
+        for col in (row + 1)..n {
+            correlations[row * n + col] = compute_correlation(cols[row], cols[col]);
+        }
+    }
+    CellStats {
+        histograms,
+        correlations,
+        ranges,
+    }
 }
 
 impl Default for ScatterMatrix {
@@ -57,6 +111,10 @@ impl Default for ScatterMatrix {
             downsample_cache_key: None,
             label_galleys_cache: None,
             label_galleys_cache_key: None,
+            cell_stats_cache: None,
+            cell_stats_key: None,
+            point_colors_cache: None,
+            point_colors_key: None,
         }
     }
 }

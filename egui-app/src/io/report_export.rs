@@ -107,7 +107,8 @@ fn build_and_write_report(
             ReportFormat::Json => serde_json::to_string_pretty(&report)
                 .map_err(|e| format!("Failed to serialize report as JSON: {e}"))?,
         };
-        std::fs::write(&path, content)
+        // 上書き対象（既存レポート）を書き込み途中の失敗で壊さないようアトミックに書く。
+        crate::io::file::write_atomic(&path, content.as_bytes())
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         written.push(path);
     }

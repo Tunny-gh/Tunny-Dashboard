@@ -58,7 +58,8 @@ struct RankPlotCache {
 
 /// カラーマップの内容を安価な u64 フィンガープリントに畳み込む（FNV-1a 風）。
 /// 停止点数は少数（数点）のため、毎フレーム計算してもヒープ確保なしで軽量。
-fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
+/// 散布図行列・PCA バイプロットのキャッシュキーでも共有する。
+pub(super) fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325 ^ (cmap.stops.len() as u64);
     for &(t, color) in &cmap.stops {
         let packed = u32::from(color.r())

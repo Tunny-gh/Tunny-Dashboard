@@ -84,7 +84,8 @@ pub fn save_png_to_file(data: &[u8]) -> Result<Option<()>, String> {
     match path {
         None => Ok(None), // user cancelled — not an error
         Some(p) => {
-            std::fs::write(&p, data).map_err(|e| format!("Write error: {e}"))?;
+            // 既存ファイルへの上書き保存が途中で失敗しても元画像を壊さないようアトミックに書く。
+            crate::io::file::write_atomic(&p, data).map_err(|e| format!("Write error: {e}"))?;
             Ok(Some(()))
         }
     }
