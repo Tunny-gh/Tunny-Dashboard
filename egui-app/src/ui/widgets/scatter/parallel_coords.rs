@@ -108,6 +108,13 @@ pub fn shifted_brush_range(orig: (f32, f32), delta: f32) -> (f32, f32) {
     (new_lo, new_lo + width)
 }
 
+/// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
+type DrawTargetsKey = (
+    usize,
+    usize,
+    std::collections::HashMap<String, Option<(f32, f32)>>,
+);
+
 /// 平行座標図ウィジェット
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -133,8 +140,7 @@ pub struct ParallelCoordsChart {
     draw_targets_cache: Option<Vec<(usize, bool)>>,
     /// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
     #[serde(skip)]
-    draw_targets_key:
-        Option<(usize, usize, std::collections::HashMap<String, Option<(f32, f32)>>)>,
+    draw_targets_key: Option<DrawTargetsKey>,
     /// 折れ線描画の間引きインデックスキャッシュ（trial_count が変わらない限り再計算しない）
     #[serde(skip)]
     polyline_indices_cache: Option<Vec<u32>>,
@@ -384,9 +390,7 @@ impl ParallelCoordsChart {
         // 影響を受けず必ず描画する（間引き対象 ∪ ブラシ通過トライアルの和集合）。
         // 全 trial × 全軸の brush 判定 + HashSet 確保は重いため、df の恒等性・trial_count・
         // ブラシ範囲が変わらない限り再計算せずキャッシュを使い回す（M-14）。
-        let draw_targets_key_matches = self
-            .draw_targets_cache
-            .is_some()
+        let draw_targets_key_matches = self.draw_targets_cache.is_some()
             && self.draw_targets_key.as_ref().is_some_and(|(p, tc, br)| {
                 *p == df_ptr && *tc == trial_count && br == &self.brush_ranges
             });

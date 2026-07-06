@@ -48,10 +48,13 @@ pub(crate) struct ScatterMetadata {
 struct DisplayBatches {
     /// 輝度昇順ソート済みの色バッチ（ランク済み feasible 点）。
     /// 各点は `(trial_id, [x, y])`。trial_id は選択フィルタ判定に使う。
-    color_batches: Vec<(Color32, Vec<(u32, [f64; 2])>)>,
+    color_batches: Vec<(Color32, BatchPoints)>,
     /// 未ランク（COLOR_MCDM_NONE）feasible 点。
-    none_pts: Vec<(u32, [f64; 2])>,
+    none_pts: BatchPoints,
 }
+
+/// 表示バッチ内の点リスト。各点は `(trial_id, [x, y])`。
+type BatchPoints = Vec<(u32, [f64; 2])>;
 
 /// `ranked_indices()` の FNV ライクなハッシュ。2D/3D 散布図で共有する（H-3）。
 ///
@@ -394,9 +397,9 @@ impl McdmScatterChart {
 /// 色→点の `HashMap` 分類と輝度ソートはここで 1 度だけ行い、
 /// キャッシュ再構築時以外は再計算しない（M-17）。選択フィルタには依存しない。
 fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
-    let mut none_pts: Vec<(u32, [f64; 2])> = Vec::new();
+    let mut none_pts: BatchPoints = Vec::new();
     // 色 → 座標リスト（輝度でソートするため u32 輝度値も保持）
-    let mut color_groups: HashMap<[u8; 4], (Vec<(u32, [f64; 2])>, u32)> = HashMap::new();
+    let mut color_groups: HashMap<[u8; 4], (BatchPoints, u32)> = HashMap::new();
 
     for &(x, y, color, trial_id) in points {
         if color == COLOR_MCDM_NONE() {

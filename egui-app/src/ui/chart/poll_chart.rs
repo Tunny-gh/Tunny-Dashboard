@@ -161,7 +161,13 @@ fn build_numeric_fit_xy_multi(
         .map(|p| ctx.meta.param_bounds.get(p).copied())
         .collect();
 
-    Some((numeric_params, x_matrix, objective_values, param_bounds, kept_rows))
+    Some((
+        numeric_params,
+        x_matrix,
+        objective_values,
+        param_bounds,
+        kept_rows,
+    ))
 }
 
 /// PDP 用の (X, y) を組み立てる。feasible_only の場合は実行可能解のみを対象とし、
@@ -537,7 +543,9 @@ fn poll_importance_chart(
     };
 
     let already_cached = if metric.is_sobol() {
-        app_state.sobol_cache.contains_key(&(obj_idx, feasible_only))
+        app_state
+            .sobol_cache
+            .contains_key(&(obj_idx, feasible_only))
     } else {
         app_state
             .importance_cache
@@ -556,8 +564,12 @@ fn poll_importance_chart(
     let tx = tx.clone();
     match metric {
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-            crate::app::spawn_task(tx, move || {
-                match tunny_core::sensitivity::compute_sobol_from_df(&df, SOBOL_SAMPLE_COUNT) {
+            crate::app::spawn_task(
+                tx,
+                move || match tunny_core::sensitivity::compute_sobol_from_df(
+                    &df,
+                    SOBOL_SAMPLE_COUNT,
+                ) {
                     Some(r) => AppMessage::SobolDone {
                         key: (obj_idx, feasible_only),
                         result: SobolResult {
@@ -568,8 +580,8 @@ fn poll_importance_chart(
                         },
                     },
                     None => AppMessage::SensitivityError("Sobol computation failed".into()),
-                }
-            });
+                },
+            );
         }
         ImportanceMetric::Ard => {
             // ARD は GP-FITC を学習してその長さスケールから重要度を得る
@@ -888,7 +900,13 @@ fn poll_artifact_gallery(
         }
         ArtifactViewMode::Mcdm => {
             let controls = &mut widgets.artifact_gallery.mcdm;
-            dispatch_mcdm_entropy(controls, ctx, obj_names, McdmChartSource::ArtifactGallery, tx);
+            dispatch_mcdm_entropy(
+                controls,
+                ctx,
+                obj_names,
+                McdmChartSource::ArtifactGallery,
+                tx,
+            );
             dispatch_mcdm_compute(
                 controls,
                 ctx,
@@ -1539,12 +1557,9 @@ fn poll_surrogate_compare(
                         train_r2: v.train_r2,
                         error: None,
                     });
-                    if let Some(slice) = tunny_core::surrogate_opt::line_slice_at(
-                        &trained,
-                        &anchor,
-                        slice_param,
-                        60,
-                    ) {
+                    if let Some(slice) =
+                        tunny_core::surrogate_opt::line_slice_at(&trained, &anchor, slice_param, 60)
+                    {
                         slices.push((kind, slice));
                     }
                 }

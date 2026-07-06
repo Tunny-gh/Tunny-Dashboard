@@ -193,8 +193,10 @@ impl ScatterMatrix {
             // 列レンジ（`draw_scatter_cell` と同じ畳み込みで min/max を求める）。
             let col_ranges: Vec<(f64, f64)> = cols.iter().map(|c| col_min_max(c)).collect();
             // 対角セルのヒストグラム。
-            let histograms: Vec<Vec<usize>> =
-                cols.iter().map(|c| compute_histogram(c, HIST_BINS)).collect();
+            let histograms: Vec<Vec<usize>> = cols
+                .iter()
+                .map(|c| compute_histogram(c, HIST_BINS))
+                .collect();
             // 上三角セルの相関係数（row < col のみ計算）。
             let mut correlations = vec![0.0f64; n * n];
             for row in 0..n {

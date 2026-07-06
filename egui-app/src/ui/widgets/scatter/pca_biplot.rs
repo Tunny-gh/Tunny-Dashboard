@@ -167,8 +167,8 @@ impl PcaBiplotChart {
         // 変わったときだけ、PCA 本体を保ったまま再構築する。
         let pca_valid = self.cache.as_ref().is_some_and(|c| c.pca_key == pca_key);
         if !pca_valid {
-            self.cache = tunny_core::clustering::run_pca_standardized(2, self.space.to_core())
-                .map(|result| {
+            self.cache = tunny_core::clustering::run_pca_standardized(2, self.space.to_core()).map(
+                |result| {
                     let draw = compute_pca_draw(&result, &self.color_objective, view, cmap);
                     PcaBiplotCache {
                         pca_key,
@@ -176,7 +176,8 @@ impl PcaBiplotChart {
                         draw_key,
                         draw,
                     }
-                });
+                },
+            );
         } else if self.cache.as_ref().is_some_and(|c| c.draw_key != draw_key) {
             if let Some(c) = self.cache.as_mut() {
                 c.draw = compute_pca_draw(&c.result, &self.color_objective, view, cmap);

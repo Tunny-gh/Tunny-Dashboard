@@ -87,40 +87,40 @@ pub(crate) fn render_chart(
                 ref mut opt_history,
                 ..
             } = *widgets;
-            let comparisons = render_cache.opt_history_comparisons(key, || match sel_name.as_deref()
-            {
-                Some(sel_name) => app_state
-                    .comparison_studies
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, study)| {
-                        let pos = study
-                            .view
-                            .objective_names()
-                            .iter()
-                            .position(|n| n == sel_name)?;
-                        let values = study.view.numeric_column(sel_name)?.to_vec();
-                        let is_minimize = study
-                            .meta
-                            .directions
-                            .get(pos)
-                            .map(|d| matches!(d, Direction::Minimize))
-                            .unwrap_or(true);
-                        let color = app_state
-                            .comparison_colors
-                            .get(i)
-                            .copied()
-                            .unwrap_or_else(|| comparison_color_at(i));
-                        Some(OptHistoryComparison {
-                            name: study.meta.name.clone(),
-                            color: rgba_to_color32(color),
-                            values,
-                            is_minimize,
+            let comparisons =
+                render_cache.opt_history_comparisons(key, || match sel_name.as_deref() {
+                    Some(sel_name) => app_state
+                        .comparison_studies
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, study)| {
+                            let pos = study
+                                .view
+                                .objective_names()
+                                .iter()
+                                .position(|n| n == sel_name)?;
+                            let values = study.view.numeric_column(sel_name)?.to_vec();
+                            let is_minimize = study
+                                .meta
+                                .directions
+                                .get(pos)
+                                .map(|d| matches!(d, Direction::Minimize))
+                                .unwrap_or(true);
+                            let color = app_state
+                                .comparison_colors
+                                .get(i)
+                                .copied()
+                                .unwrap_or_else(|| comparison_color_at(i));
+                            Some(OptHistoryComparison {
+                                name: study.meta.name.clone(),
+                                color: rgba_to_color32(color),
+                                values,
+                                is_minimize,
+                            })
                         })
-                    })
-                    .collect(),
-                None => Vec::new(),
-            });
+                        .collect(),
+                    None => Vec::new(),
+                });
             opt_history.show_with_comparisons(
                 ui,
                 &ctx.view,

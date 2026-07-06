@@ -106,12 +106,6 @@ pub fn default_file_name_for(study_name: &str, formats: &[ReportFormat]) -> Stri
     format!("report_{}.{}", sanitize_file_stem(study_name), ext)
 }
 
-/// 既定のファイル名（`report_{study_name}.html`）。HTML 固定版。
-/// 呼び出し側はフォーマット選択を反映する `default_file_name_for` を優先すること。
-pub fn default_file_name(study_name: &str) -> String {
-    default_file_name_for(study_name, &[ReportFormat::Html])
-}
-
 /// ファイル名として安全な文字（英数字・`-`・`_`）以外を `_` に置換する。
 /// 全文字が置換対象だった場合は `"study"` を返す。
 fn sanitize_file_stem(name: &str) -> String {
@@ -303,14 +297,22 @@ mod tests {
 
     #[test]
     fn default_file_name_sanitizes_unsafe_characters() {
-        assert_eq!(default_file_name("my study/01"), "report_my_study_01.html");
-        assert_eq!(default_file_name("safe-name_2"), "report_safe-name_2.html");
+        let html = [ReportFormat::Html];
+        assert_eq!(
+            default_file_name_for("my study/01", &html),
+            "report_my_study_01.html"
+        );
+        assert_eq!(
+            default_file_name_for("safe-name_2", &html),
+            "report_safe-name_2.html"
+        );
     }
 
     #[test]
     fn default_file_name_falls_back_when_fully_sanitized() {
-        assert_eq!(default_file_name("///"), "report_study.html");
-        assert_eq!(default_file_name(""), "report_study.html");
+        let html = [ReportFormat::Html];
+        assert_eq!(default_file_name_for("///", &html), "report_study.html");
+        assert_eq!(default_file_name_for("", &html), "report_study.html");
     }
 
     #[test]

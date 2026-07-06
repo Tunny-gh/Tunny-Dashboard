@@ -5,7 +5,9 @@
 
 use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
 
-use super::state_colors::{dim, distinct_states_in_order, empty_state, show_state_legend, state_color};
+use super::state_colors::{
+    dim, distinct_states_in_order, empty_state, show_state_legend, state_color,
+};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::show_hover_tooltip;
 

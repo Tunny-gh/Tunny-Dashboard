@@ -20,10 +20,7 @@ pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let base = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("tunny");
+    let base = path.file_name().and_then(|n| n.to_str()).unwrap_or("tunny");
     let seq = TMP_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp_name = format!(".{base}.tmp-{}-{seq}", std::process::id());
     let tmp_path = dir.join(tmp_name);

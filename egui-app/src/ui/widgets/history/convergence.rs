@@ -272,8 +272,7 @@ impl ConvergenceChart {
         // trial_id → 行 index の逆引きマップを 1 度だけ構築し、点ごとの線形走査
         // （O(m·n)）を O(m+n) に落とす（M-17）。同一 trial_id は最初の行を採用する
         // （旧 `position()` の挙動を保つ）。
-        let mut row_by_trial_id: HashMap<u32, usize> =
-            HashMap::with_capacity(view.trial_ids.len());
+        let mut row_by_trial_id: HashMap<u32, usize> = HashMap::with_capacity(view.trial_ids.len());
         for (row, &tid) in view.trial_ids.iter().enumerate() {
             row_by_trial_id.entry(tid).or_insert(row);
         }
