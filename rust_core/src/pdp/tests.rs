@@ -414,11 +414,13 @@ fn gp_2d_pdp_marginalises_third_dimension() {
     // individual x2 values. We check the surface increases along the x0 axis.
     use crate::gaussian_process::GpMethod;
     let n = 120;
+    // Low-discrepancy (golden-ratio / sqrt-2) sequences keep x0 and x1 spread
+    // over [0,1] and mutually decorrelated; perfectly collinear inputs (e.g.
+    // x1 = 1 - x0) make the kernel matrix singular and FITC training fail.
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|i| {
-            let t = i as f64 / n as f64;
-            let x0 = t;
-            let x1 = 1.0 - t;
+            let x0 = (i as f64 * 0.618_033_988_749_895).fract();
+            let x1 = (i as f64 * 0.414_213_562_373_095).fract();
             // x2 alternates to be (largely) decorrelated from x0/x1.
             let x2 = if i % 2 == 0 { 0.2 } else { 0.8 };
             vec![x0, x1, x2]
