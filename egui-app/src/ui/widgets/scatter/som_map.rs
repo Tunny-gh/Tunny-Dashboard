@@ -237,7 +237,7 @@ impl SomMapChart {
 
         if features.is_empty() {
             ui.colored_label(
-                crate::theme::chart_colors::COLOR_EMPTY_STATE,
+                crate::theme::chart_colors::COLOR_EMPTY_STATE(),
                 "No numeric columns available.",
             );
             return;
@@ -256,7 +256,7 @@ impl SomMapChart {
 
         let Some((_, result)) = &self.cache else {
             ui.colored_label(
-                crate::theme::chart_colors::COLOR_EMPTY_STATE,
+                crate::theme::chart_colors::COLOR_EMPTY_STATE(),
                 "Not enough data to train a SOM (need >= 3 rows and a 2x2+ grid).",
             );
             return;

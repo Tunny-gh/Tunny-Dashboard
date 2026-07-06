@@ -39,6 +39,8 @@ pub struct ViewSettings {
     pub hv_ref_point_override: Option<Vec<f64>>,
     pub convergence_indicator: MoIndicator,
     pub help_language: HelpLanguage,
+    /// ダークテーマか（`#[serde(default)]` により旧セッションはライト扱い）。
+    pub dark_mode: bool,
 }
 
 impl Default for ViewSettings {
@@ -50,6 +52,7 @@ impl Default for ViewSettings {
             hv_ref_point_override: None,
             convergence_indicator: MoIndicator::Hypervolume,
             help_language: HelpLanguage::default(),
+            dark_mode: false,
         }
     }
 }
@@ -64,6 +67,7 @@ impl ViewSettings {
             hv_ref_point_override: app_state.hv_ref_point_override.clone(),
             convergence_indicator: app_state.convergence_indicator,
             help_language: app_state.help_language,
+            dark_mode: app_state.dark_mode,
         }
     }
 
@@ -79,6 +83,7 @@ impl ViewSettings {
         }
         app_state.convergence_indicator = self.convergence_indicator;
         app_state.help_language = self.help_language;
+        app_state.dark_mode = self.dark_mode;
     }
 }
 

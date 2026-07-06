@@ -177,7 +177,7 @@ impl McdmScatterChart {
 
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
-                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute the MCDM ranking");
+                ui.colored_label(COLOR_EMPTY_STATE(), "Press Run to compute the MCDM ranking");
             });
             return;
         };
@@ -260,7 +260,7 @@ impl McdmScatterChart {
         }
 
         if let Some(ref error) = self.error_message {
-            ui.colored_label(ERROR_COLOR, error);
+            ui.colored_label(ERROR_COLOR(), error);
             return;
         }
 
@@ -394,7 +394,7 @@ fn render_scatter_plot(
             dim_pts.push([x, y]);
             continue;
         }
-        if color == COLOR_MCDM_NONE {
+        if color == COLOR_MCDM_NONE() {
             none_pts.push([x, y]);
         } else {
             let key = [color.r(), color.g(), color.b(), color.a()];
@@ -438,7 +438,7 @@ fn render_scatter_plot(
                 let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
                 plot_ui.points(
                     egui_plot::Points::new("Infeasible", pts)
-                        .color(crate::theme::chart_colors::COLOR_INFEASIBLE)
+                        .color(crate::theme::chart_colors::COLOR_INFEASIBLE())
                         .radius(3.0),
                 );
             }
@@ -446,7 +446,7 @@ fn render_scatter_plot(
             if !dim_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new("Others (unselected)", dim_pts)
-                        .color(COLOR_UNSELECTED_POINT)
+                        .color(COLOR_UNSELECTED_POINT())
                         .radius(2.5),
                 );
             }
@@ -454,7 +454,7 @@ fn render_scatter_plot(
             if !none_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new("Others", none_pts)
-                        .color(COLOR_MCDM_NONE)
+                        .color(COLOR_MCDM_NONE())
                         .radius(3.0),
                 );
             }
@@ -696,7 +696,7 @@ pub(crate) fn compute_scatter_points(
         }
         let color = if rank == usize::MAX || rank >= colored_range {
             // ランク外または top_n 外は灰色
-            COLOR_MCDM_NONE
+            COLOR_MCDM_NONE()
         } else {
             // rank 0（最良）→ t=1.0、rank colored_range-1 → t=0.0
             let t = if colored_range > 1 {
@@ -1029,7 +1029,7 @@ mod tests {
         let expected = cmap.interpolate(1.0);
         assert_eq!(points[0].2, expected);
         // top_n 外（rank >= top_n）は gray
-        assert_eq!(points[n - 1].2, COLOR_MCDM_NONE);
+        assert_eq!(points[n - 1].2, COLOR_MCDM_NONE());
     }
 
     #[test]

@@ -39,7 +39,7 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
         ui.add_space(4.0);
         ui.label(
             RichText::new("Connect directly to an Optuna RDBStorage (PostgreSQL/MySQL).")
-                .color(crate::theme::TEXT_SECONDARY),
+                .color(crate::theme::TEXT_SECONDARY()),
         );
         ui.add_space(4.0);
         ui.add(
@@ -52,7 +52,7 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
         if let Err(msg) = &parsed {
             if !input.trim().is_empty() {
                 ui.add_space(4.0);
-                ui.colored_label(crate::theme::ERROR_COLOR, *msg);
+                ui.colored_label(crate::theme::ERROR_COLOR(), *msg);
             }
         }
 

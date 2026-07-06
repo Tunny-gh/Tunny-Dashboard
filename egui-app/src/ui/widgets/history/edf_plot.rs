@@ -132,7 +132,7 @@ impl EdfPlotChart {
                     base_points.iter().copied().map(apply_log).collect();
                 plot_ui.line(
                     egui_plot::Line::new(base_label, pts)
-                        .color(COLOR_OPT_TRIAL)
+                        .color(COLOR_OPT_TRIAL())
                         .width(1.5),
                 );
             }
@@ -167,13 +167,13 @@ impl EdfPlotChart {
                     .show(ui, |ui| {
                         ui.label(
                             egui::RichText::new(obj_name.as_str())
-                                .color(crate::theme::TEXT_SECONDARY),
+                                .color(crate::theme::TEXT_SECONDARY()),
                         );
                         ui.label(format!("{value:.6}"));
                         ui.end_row();
                         ui.label(
                             egui::RichText::new("Cumulative Fraction")
-                                .color(crate::theme::TEXT_SECONDARY),
+                                .color(crate::theme::TEXT_SECONDARY()),
                         );
                         ui.label(format!("{frac:.4}"));
                         ui.end_row();

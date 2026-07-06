@@ -256,7 +256,7 @@ impl ClusterScatter {
         }
 
         if let Some(err) = &self.last_error {
-            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR()));
             if let Some(detail) = &err.detail_for_dev {
                 ui.label(egui::RichText::new(detail).small().weak());
             }
@@ -277,7 +277,7 @@ impl ClusterScatter {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("Cluster result is inconsistent. Please run again.")
-                        .color(ERROR_COLOR),
+                        .color(ERROR_COLOR()),
                 );
             });
             return;
@@ -368,7 +368,7 @@ impl ClusterScatter {
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", infeasible_pts)
-                            .color(COLOR_INFEASIBLE)
+                            .color(COLOR_INFEASIBLE())
                             .radius(3.0)
                             .name("Infeasible"),
                     );
@@ -377,7 +377,7 @@ impl ClusterScatter {
                 if !other_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", other_pts)
-                            .color(COLOR_NON_PARETO_DIM)
+                            .color(COLOR_NON_PARETO_DIM())
                             .radius(2.0)
                             .name("Others"),
                     );
@@ -387,7 +387,7 @@ impl ClusterScatter {
                 if !unselected_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", unselected_pts)
-                            .color(COLOR_UNSELECTED_POINT)
+                            .color(COLOR_UNSELECTED_POINT())
                             .radius(2.0)
                             .name("Others (unselected)"),
                     );

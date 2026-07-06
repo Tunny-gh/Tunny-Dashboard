@@ -28,7 +28,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
         ui.heading("CSV Import Settings");
         ui.label(
             RichText::new(format!("Study: {}", settings.study_name))
-                .color(crate::theme::TEXT_SECONDARY),
+                .color(crate::theme::TEXT_SECONDARY()),
         );
         ui.add_space(4.0);
         ui.label(
@@ -60,15 +60,15 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
         // ── 数値パラメータのレンジ ────────────────────────────
         ui.label(RichText::new("Parameter Ranges").strong());
         if settings.param_bounds.is_empty() {
-            ui.label(RichText::new("No numeric parameters.").color(crate::theme::TEXT_SECONDARY));
+            ui.label(RichText::new("No numeric parameters.").color(crate::theme::TEXT_SECONDARY()));
         } else {
             egui::Grid::new("csv_import_bounds")
                 .num_columns(3)
                 .spacing([12.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Parameter").color(crate::theme::TEXT_SECONDARY));
-                    ui.label(RichText::new("Min").color(crate::theme::TEXT_SECONDARY));
-                    ui.label(RichText::new("Max").color(crate::theme::TEXT_SECONDARY));
+                    ui.label(RichText::new("Parameter").color(crate::theme::TEXT_SECONDARY()));
+                    ui.label(RichText::new("Min").color(crate::theme::TEXT_SECONDARY()));
+                    ui.label(RichText::new("Max").color(crate::theme::TEXT_SECONDARY()));
                     ui.end_row();
                     for pb in settings.param_bounds.iter_mut() {
                         ui.label(&pb.name);
@@ -84,7 +84,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
         if !valid {
             ui.add_space(4.0);
             ui.colored_label(
-                crate::theme::ERROR_COLOR,
+                crate::theme::ERROR_COLOR(),
                 "Each parameter's Min must be a finite value smaller than its Max.",
             );
         }

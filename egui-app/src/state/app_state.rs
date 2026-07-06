@@ -76,6 +76,12 @@ pub struct AppState {
     /// ヘルプ表示言語（selected_colormap と同じパターンで clear() でリセットしない）
     pub help_language: HelpLanguage,
 
+    // ── テーマ ─────────────────────────────────────────────────
+    /// ダークテーマか（ビュー設定として clear() でリセットしない）。
+    /// 実際の `Visuals` / `theme::set_dark_mode` への反映は毎フレーム
+    /// `TunnyApp::logic` が差分検知して行う。
+    pub dark_mode: bool,
+
     // ── 収束指標選択 ───────────────────────────────────────────
     /// 収束指標チャートで表示中の指標（ビュー設定として clear() でリセットしない）
     pub convergence_indicator: MoIndicator,
@@ -124,6 +130,7 @@ impl AppState {
             pinned_trials: Vec::new(),
             comparison_base_study: None,
             help_language: HelpLanguage::default(),
+            dark_mode: false,
             convergence_indicator: MoIndicator::Hypervolume,
             csv_import_settings: None,
             db_url_dialog: None,
@@ -192,6 +199,7 @@ impl AppState {
         // pinned_trials は Study 切り替えでもリセットしない（ユーザーのピン設定を維持）
         // comparison_base_study は Study 切り替えでもリセットしない
         // help_language はユーザー設定を維持（selected_colormap と同じパターン）
+        // dark_mode はユーザー設定を維持（同上）
     }
 }
 

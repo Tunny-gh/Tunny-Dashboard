@@ -60,7 +60,7 @@ impl IntermediateValuesChart {
                         total_eligible
                     ))
                     .small()
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
                 );
             }
             let mut present: Vec<TrialState> = Vec::new();
@@ -168,7 +168,7 @@ fn dim(color: egui::Color32) -> egui::Color32 {
 
 fn empty_state(ui: &mut egui::Ui, message: &str) {
     ui.centered_and_justified(|ui| {
-        ui.colored_label(COLOR_EMPTY_STATE, message);
+        ui.colored_label(COLOR_EMPTY_STATE(), message);
     });
 }
 

@@ -303,7 +303,7 @@ fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
             egui_plot::Bar::new(center, count as f64).width(width)
         })
         .collect();
-    let chart = egui_plot::BarChart::new("Samples", bars).color(COLOR_BAR_PRIMARY);
+    let chart = egui_plot::BarChart::new("Samples", bars).color(COLOR_BAR_PRIMARY());
 
     egui_plot::Plot::new("robustness_histogram")
         .unified_nav()
@@ -315,18 +315,18 @@ fn render_result(ui: &mut egui::Ui, result: &RobustnessResult) {
             plot_ui.bar_chart(chart);
             plot_ui.vline(
                 egui_plot::VLine::new("Nominal", result.nominal)
-                    .color(egui::Color32::from_gray(160))
+                    .color(crate::theme::chart_colors::COLOR_GRID_STROKE())
                     .style(egui_plot::LineStyle::Dashed { length: 8.0 }),
             );
-            plot_ui.vline(egui_plot::VLine::new("Mean", result.mean).color(COLOR_BAR_NEGATIVE));
+            plot_ui.vline(egui_plot::VLine::new("Mean", result.mean).color(COLOR_BAR_NEGATIVE()));
             plot_ui.vline(
                 egui_plot::VLine::new("P5", result.p05)
-                    .color(COLOR_BAR_ACCENT)
+                    .color(COLOR_BAR_ACCENT())
                     .style(egui_plot::LineStyle::Dashed { length: 4.0 }),
             );
             plot_ui.vline(
                 egui_plot::VLine::new("P95", result.p95)
-                    .color(COLOR_BAR_ACCENT)
+                    .color(COLOR_BAR_ACCENT())
                     .style(egui_plot::LineStyle::Dashed { length: 4.0 }),
             );
         });

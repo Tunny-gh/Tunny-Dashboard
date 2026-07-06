@@ -223,7 +223,7 @@ impl OptimizationHistoryChart {
                         infeasible_vals.iter().copied().map(apply_log).collect();
                     plot_ui.points(
                         egui_plot::Points::new("Infeasible", pts)
-                            .color(COLOR_INFEASIBLE)
+                            .color(COLOR_INFEASIBLE())
                             .radius(1.5),
                     );
                 }
@@ -233,7 +233,7 @@ impl OptimizationHistoryChart {
                         feasible_vals.iter().copied().map(apply_log).collect();
                     plot_ui.points(
                         egui_plot::Points::new("All Trials", pts)
-                            .color(COLOR_OPT_TRIAL)
+                            .color(COLOR_OPT_TRIAL())
                             .radius(1.5),
                     );
                 }
@@ -255,7 +255,7 @@ impl OptimizationHistoryChart {
                         best_values.iter().copied().map(apply_log_y).collect();
                     plot_ui.line(
                         egui_plot::Line::new(base_label, pts)
-                            .color(COLOR_OPT_PRUNED)
+                            .color(COLOR_OPT_PRUNED())
                             .width(1.5),
                     );
                 }
@@ -287,7 +287,7 @@ impl OptimizationHistoryChart {
                     .collect();
                 plot_ui.line(
                     egui_plot::Line::new("Moving Average", pts)
-                        .color(COLOR_OPT_RUNNING)
+                        .color(COLOR_OPT_RUNNING())
                         .width(1.5),
                 );
             }

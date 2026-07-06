@@ -80,7 +80,7 @@ impl ClusterTable {
         self.show_controls(ui, pareto_count);
 
         if let Some(err) = self.last_error.clone() {
-            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR()));
             if let Some(detail) = &err.detail_for_dev {
                 ui.label(egui::RichText::new(detail).small().weak());
             }
@@ -108,7 +108,7 @@ impl ClusterTable {
                     egui::RichText::new(
                         "Cluster result is inconsistent. Please run clustering again.",
                     )
-                    .color(ERROR_COLOR),
+                    .color(ERROR_COLOR()),
                 );
             });
             return;
@@ -141,7 +141,7 @@ impl ClusterTable {
         let n_clusters = cr.n_clusters.max(1);
         let cluster_color = |label: i32| -> egui::Color32 {
             if label < 0 {
-                return crate::theme::TEXT_SECONDARY;
+                return crate::theme::TEXT_SECONDARY();
             }
             let t = if n_clusters == 1 {
                 0.5
@@ -161,7 +161,7 @@ impl ClusterTable {
         // 水平 ScrollArea でラップして全列を 1 セルにまとめず個別表示する。
         egui::ScrollArea::horizontal().show(ui, |ui| {
             // ストライプの色を強調して偶数/奇数行を見分けやすくする。
-            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -232,7 +232,7 @@ impl ClusterTable {
                                 clicked_trial = Some(trial_id);
                             }
                             if is_highlighted {
-                                ui.painter().rect_filled(res.rect, 0.0, COLOR_LINK);
+                                ui.painter().rect_filled(res.rect, 0.0, COLOR_LINK());
                             }
                         });
                         for col in &param_cols {
@@ -281,7 +281,7 @@ impl ClusterTable {
                 ui.separator();
                 ui.label(
                     egui::RichText::new(format!("Unclustered: {unclustered}"))
-                        .color(crate::theme::TEXT_SECONDARY),
+                        .color(crate::theme::TEXT_SECONDARY()),
                 );
             }
         });

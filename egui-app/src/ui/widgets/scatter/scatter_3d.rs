@@ -243,7 +243,7 @@ pub fn setup_3d_canvas(
         response.hover_pos()
     };
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, COLOR_3D_BG);
+    painter.rect_filled(rect, 0.0, COLOR_3D_BG());
     let center = rect.center();
     let scale = rect.size().min_elem() * 0.5 * (camera.zoom / 3.0) * 0.7;
     let cam_rot = camera.rotation;
@@ -314,7 +314,7 @@ pub fn show_hover_and_click_detail(
 
 /// 3Dグリッド（XY/XZ/YZ の 3 面）を描画する
 pub fn draw_3d_grid(painter: &egui::Painter, project: &impl Fn([f32; 3]) -> (egui::Pos2, f32)) {
-    let stroke = egui::Stroke::new(0.5, COLOR_3D_GRID);
+    let stroke = egui::Stroke::new(0.5, COLOR_3D_GRID());
     const N: i32 = 4;
     for i in 0..=N {
         let t = -1.0 + 2.0 * i as f32 / N as f32;
@@ -350,7 +350,7 @@ pub fn draw_3d_axes(
 ) {
     let neg_eps: [[f32; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
     let pos_eps: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let colors = [COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z];
+    let colors = [COLOR_AXIS_X(), COLOR_AXIS_Y(), COLOR_AXIS_Z()];
     for i in 0..3 {
         let (neg_pos, _) = project(neg_eps[i]);
         let (pos_pos, _) = project(pos_eps[i]);
@@ -369,7 +369,7 @@ pub fn draw_3d_axis_labels(
 ) {
     let neg_eps: [[f32; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]];
     let pos_eps: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let colors = [COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z];
+    let colors = [COLOR_AXIS_X(), COLOR_AXIS_Y(), COLOR_AXIS_Z()];
     for i in 0..3 {
         let (neg_pos, _) = project(neg_eps[i]);
         let (pos_pos, _) = project(pos_eps[i]);
@@ -396,7 +396,7 @@ pub fn draw_3d_axis_labels(
 /// サーフェスなどの深度ソート描画に混ぜることで、面との前後関係を正しく表現できる
 /// （`draw_3d_axes` は前後関係を持たない一本線として描く）。
 pub fn axis_segments_3d(subdivisions: usize) -> Vec<([f32; 3], [f32; 3], egui::Color32)> {
-    let colors = [COLOR_AXIS_X, COLOR_AXIS_Y, COLOR_AXIS_Z];
+    let colors = [COLOR_AXIS_X(), COLOR_AXIS_Y(), COLOR_AXIS_Z()];
     let n = subdivisions.max(1);
     let mut segments = Vec::with_capacity(3 * n);
     for (axis, color) in colors.into_iter().enumerate() {

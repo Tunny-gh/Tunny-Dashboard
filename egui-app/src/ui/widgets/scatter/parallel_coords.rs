@@ -302,7 +302,7 @@ impl ParallelCoordsChart {
             .collect();
 
         let painter = ui.painter().clone();
-        let text_color = COLOR_CHART_TEXT;
+        let text_color = COLOR_CHART_TEXT();
         let label_font = egui::FontId::proportional(10.0);
 
         // 軸ラベルを事前レイアウトし、隣接軸より幅が広ければ斜めに回転させて重なりを防ぐ。
@@ -340,11 +340,11 @@ impl ParallelCoordsChart {
         let axis_top = available.min.y + label_area;
         let axis_bottom = available.max.y - 10.0;
 
-        painter.rect_filled(available, 0.0, CENTRAL_BG);
+        painter.rect_filled(available, 0.0, CENTRAL_BG());
 
         const N_TICKS: usize = 5;
         let tick_len = 4.0_f32;
-        let tick_color = COLOR_PARALLEL_TICK;
+        let tick_color = COLOR_PARALLEL_TICK();
         let tick_font = egui::FontId::proportional(9.0);
 
         let show_infeasible = self.show_infeasible;
@@ -403,7 +403,7 @@ impl ParallelCoordsChart {
             }
 
             let color = if !in_selection {
-                COLOR_PARALLEL_LINE_UNSELECTED
+                COLOR_PARALLEL_LINE_UNSELECTED()
             } else if feasible {
                 // 選択軸の値を [0,1] に正規化し、カラーマップで色を決める
                 let base_color = cols
@@ -415,7 +415,7 @@ impl ParallelCoordsChart {
                         let (mn, mx) = color_range;
                         cmap.interpolate(normalize_value(v, mn, mx))
                     })
-                    .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT);
+                    .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT());
                 egui::Color32::from_rgba_unmultiplied(
                     base_color.r(),
                     base_color.g(),
@@ -423,7 +423,7 @@ impl ParallelCoordsChart {
                     120,
                 )
             } else {
-                COLOR_INFEASIBLE
+                COLOR_INFEASIBLE()
             };
 
             point_scratch.clear();
@@ -466,7 +466,7 @@ impl ParallelCoordsChart {
             let x = axis_x[disp];
             painter.line_segment(
                 [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
-                egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS),
+                egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS()),
             );
             let galley = label_galleys[orig].clone();
             if rotate_labels {

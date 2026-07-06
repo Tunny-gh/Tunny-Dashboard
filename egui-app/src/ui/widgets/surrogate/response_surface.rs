@@ -212,7 +212,7 @@ impl ResponseSurfaceChart {
         });
 
         if !self.param_x.is_empty() && self.param_x == self.param_y {
-            ui.colored_label(COLOR_CONTOUR, "Warning: X and Y must differ");
+            ui.colored_label(COLOR_CONTOUR(), "Warning: X and Y must differ");
         }
 
         ui.horizontal(|ui| {

@@ -915,7 +915,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
             .map(|r| format!("RMSE = {:.6}", r))
             .unwrap_or_default();
         ui.colored_label(
-            crate::theme::chart_colors::COLOR_PARETO,
+            crate::theme::chart_colors::COLOR_PARETO(),
             format!(
                 "Pareto-front fit — {}{} ({} front pts)",
                 r2_text,
@@ -946,7 +946,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
 
     let ref_line: egui_plot::PlotPoints = vec![[min_val, min_val], [max_val, max_val]].into();
     let ref_seg = egui_plot::Line::new("y = x", ref_line)
-        .color(egui::Color32::from_gray(160))
+        .color(crate::theme::chart_colors::COLOR_GRID_STROKE())
         .style(egui_plot::LineStyle::Dashed { length: 6.0 });
 
     // 列幅いっぱいを使い、高さは 180 px 〜 400 px に収める。
@@ -975,7 +975,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         if !front_pts.is_empty() {
             plot_ui.points(
                 egui_plot::Points::new("Pareto front", front_pts)
-                    .color(crate::theme::chart_colors::COLOR_PARETO)
+                    .color(crate::theme::chart_colors::COLOR_PARETO())
                     .radius(4.0),
             );
         }
@@ -1116,7 +1116,7 @@ fn render_best_point_table(ui: &mut egui::Ui, result: &SurrogateOptUiResult) {
     egui::ScrollArea::horizontal()
         .id_salt("surrogate_best_point_scroll")
         .show(ui, |ui| {
-            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -1423,7 +1423,7 @@ fn render_front_scatter_2d(
                     egui_plot::Points::new("Infeasible", obs_infeasible)
                         .shape(egui_plot::MarkerShape::Circle)
                         .radius(2.5)
-                        .color(COLOR_INFEASIBLE),
+                        .color(COLOR_INFEASIBLE()),
                 );
             }
             if toggles.dominated && !obs_dominated.is_empty() {
@@ -1431,7 +1431,7 @@ fn render_front_scatter_2d(
                     egui_plot::Points::new("Observed (others)", obs_dominated)
                         .shape(egui_plot::MarkerShape::Circle)
                         .radius(2.5)
-                        .color(COLOR_NON_PARETO),
+                        .color(COLOR_NON_PARETO()),
                 );
             }
             if toggles.front && !obs_front.is_empty() {
@@ -1439,14 +1439,14 @@ fn render_front_scatter_2d(
                     egui_plot::Points::new("Observed Pareto front", obs_front)
                         .shape(egui_plot::MarkerShape::Circle)
                         .radius(3.5)
-                        .color(COLOR_PARETO),
+                        .color(COLOR_PARETO()),
                 );
             }
             // フロントを結ぶ折れ線（点が 2 つ以上のとき）。
             if pts.len() >= 2 {
                 plot_ui.line(
                     egui_plot::Line::new("Predicted Pareto front", pts.clone())
-                        .color(COLOR_SURROGATE_FRONT)
+                        .color(COLOR_SURROGATE_FRONT())
                         .width(1.5),
                 );
             }
@@ -1455,7 +1455,7 @@ fn render_front_scatter_2d(
                 egui_plot::Points::new("Predicted Pareto front", pts)
                     .shape(egui_plot::MarkerShape::Diamond)
                     .radius(4.5)
-                    .color(COLOR_SURROGATE_FRONT),
+                    .color(COLOR_SURROGATE_FRONT()),
             );
         });
 }
@@ -1579,15 +1579,15 @@ fn render_front_scatter_3d(
 
         // 観測点（背面）→ 予測フロント（手前）の順に描画する。
         if toggles.infeasible {
-            draw_group(&obs_infeasible, COLOR_INFEASIBLE, 2.5, false);
+            draw_group(&obs_infeasible, COLOR_INFEASIBLE(), 2.5, false);
         }
         if toggles.dominated {
-            draw_group(&obs_dominated, COLOR_NON_PARETO, 2.5, false);
+            draw_group(&obs_dominated, COLOR_NON_PARETO(), 2.5, false);
         }
         if toggles.front {
-            draw_group(&obs_front, COLOR_PARETO, 3.5, false);
+            draw_group(&obs_front, COLOR_PARETO(), 3.5, false);
         }
-        draw_group(&front_pts, COLOR_SURROGATE_FRONT, 4.0, true);
+        draw_group(&front_pts, COLOR_SURROGATE_FRONT(), 4.0, true);
     });
 }
 
@@ -1605,7 +1605,7 @@ fn render_front_table(ui: &mut egui::Ui, result: &SurrogateMultiOptUiResult) {
         .max_height(200.0)
         .id_salt("surrogate_multi_front_scroll")
         .show(ui, |ui| {
-            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -1664,7 +1664,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         .map(|(i, &v)| [i as f64, v])
         .collect();
     let scatter = egui_plot::Points::new("All Trials", all_pts)
-        .color(COLOR_OPT_TRIAL)
+        .color(COLOR_OPT_TRIAL())
         .radius(2.0);
 
     // 累積ベスト線。
@@ -1672,7 +1672,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         .into_iter()
         .collect();
     let best_line = egui_plot::Line::new("Best so far", best_pts)
-        .color(COLOR_OPT_PRUNED)
+        .color(COLOR_OPT_PRUNED())
         .width(1.5);
 
     // 予測最適値の水平線。

@@ -45,9 +45,9 @@ impl Default for Pareto3dChart {
 /// infeasible 点の除外と COLOR_INFEASIBLE 適用は呼び出し元で行う。
 pub fn determine_point_color_3d(rank: u32, alpha: u8) -> (egui::Color32, f32) {
     let (base_color, radius) = if rank == 0 {
-        (COLOR_PARETO, 5.0_f32)
+        (COLOR_PARETO(), 5.0_f32)
     } else {
-        (COLOR_NON_PARETO, 3.0_f32)
+        (COLOR_NON_PARETO(), 3.0_f32)
     };
     let color = if alpha == 255 {
         base_color
@@ -158,7 +158,7 @@ impl Pareto3dChart {
 
             if !feas.is_feasible(i) {
                 if show_infeasible {
-                    infeasible_draw_calls.push((screen_pos, depth, COLOR_INFEASIBLE, 3.0));
+                    infeasible_draw_calls.push((screen_pos, depth, COLOR_INFEASIBLE(), 3.0));
                     candidates.push((trial_id, i, screen_pos));
                 }
                 continue;
@@ -189,8 +189,8 @@ impl Pareto3dChart {
         }
 
         if let Some(pos) = highlight_call {
-            painter.circle_filled(pos, 8.0, COLOR_HIGHLIGHT_PT);
-            painter.circle_stroke(pos, 9.5, egui::Stroke::new(1.5, TOOLBAR_BTN_FG));
+            painter.circle_filled(pos, 8.0, COLOR_HIGHLIGHT_PT());
+            painter.circle_stroke(pos, 9.5, egui::Stroke::new(1.5, TOOLBAR_BTN_FG()));
         }
 
         show_hover_and_click_detail(
@@ -271,14 +271,14 @@ mod tests {
     #[test]
     fn tc_cav_pareto_front_returns_pareto_color() {
         let (color, radius) = determine_point_color_3d(0, 255);
-        assert_eq!(color, COLOR_PARETO);
+        assert_eq!(color, COLOR_PARETO());
         assert!((radius - 5.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn tc_cav_non_pareto_returns_non_pareto_color() {
         let (color, _radius) = determine_point_color_3d(1, 255);
-        assert_eq!(color, COLOR_NON_PARETO);
+        assert_eq!(color, COLOR_NON_PARETO());
     }
 
     #[test]

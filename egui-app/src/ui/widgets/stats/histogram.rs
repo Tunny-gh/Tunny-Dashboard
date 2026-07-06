@@ -275,7 +275,7 @@ impl HistogramChart {
                 egui_plot::Bar::new(center, count as f64).width(width)
             })
             .collect();
-        let chart = egui_plot::BarChart::new("Count", bars).color(COLOR_BAR_PRIMARY);
+        let chart = egui_plot::BarChart::new("Count", bars).color(COLOR_BAR_PRIMARY());
 
         egui_plot::Plot::new("histogram_plot")
             .unified_nav()
@@ -287,12 +287,12 @@ impl HistogramChart {
                 plot_ui.bar_chart(chart);
                 plot_ui.vline(
                     egui_plot::VLine::new("Mean", mean)
-                        .color(COLOR_BAR_NEGATIVE)
+                        .color(COLOR_BAR_NEGATIVE())
                         .style(egui_plot::LineStyle::Dashed { length: 6.0 }),
                 );
                 plot_ui.vline(
                     egui_plot::VLine::new("Median", median)
-                        .color(COLOR_BAR_ACCENT)
+                        .color(COLOR_BAR_ACCENT())
                         .style(egui_plot::LineStyle::Dashed { length: 6.0 }),
                 );
                 if let Some(line) = fit_line {

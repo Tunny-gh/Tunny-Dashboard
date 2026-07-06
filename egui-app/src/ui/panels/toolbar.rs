@@ -74,7 +74,7 @@ pub fn show_toolbar(
         {
             ui.label(
                 egui::RichText::new("Target Study:")
-                    .color(crate::theme::TOOLBAR_TEXT)
+                    .color(crate::theme::TOOLBAR_TEXT())
                     .size(12.0),
             );
             let current_name = app_state
@@ -94,7 +94,7 @@ pub fn show_toolbar(
                 ui.add_enabled_ui(has_studies && !is_loading, |ui| {
                     egui::ComboBox::from_id_salt("study_select_combo")
                         .selected_text(
-                            egui::RichText::new(&display_text).color(crate::theme::TOOLBAR_TEXT),
+                            egui::RichText::new(&display_text).color(crate::theme::TOOLBAR_TEXT()),
                         )
                         .show_ui(ui, |ui| {
                             for study in &app_state.all_studies {
@@ -151,7 +151,7 @@ pub fn show_toolbar(
             };
             ui.label(
                 egui::RichText::new(trial_label)
-                    .color(crate::theme::TOOLBAR_TEXT)
+                    .color(crate::theme::TOOLBAR_TEXT())
                     .size(12.0),
             );
 
@@ -162,7 +162,7 @@ pub fn show_toolbar(
                 ui.add(
                     egui::Slider::new(&mut interval_sec, 1.0..=30.0)
                         .step_by(1.0)
-                        .text(egui::RichText::new("s").color(crate::theme::TOOLBAR_TEXT)),
+                        .text(egui::RichText::new("s").color(crate::theme::TOOLBAR_TEXT())),
                 );
                 if (interval_sec - prev).abs() > f64::EPSILON {
                     actions.push(ToolbarAction::SetPollInterval(
@@ -187,7 +187,8 @@ pub fn show_toolbar(
                     ui.add_enabled_ui(has_study, |ui| {
                         egui::ComboBox::from_id_salt("csv_export_combo")
                             .selected_text(
-                                egui::RichText::new("CSV Export").color(crate::theme::TOOLBAR_TEXT),
+                                egui::RichText::new("CSV Export")
+                                    .color(crate::theme::TOOLBAR_TEXT()),
                             )
                             .width(110.0)
                             .show_ui(ui, |ui| {
@@ -238,7 +239,7 @@ pub fn show_toolbar(
             // エラーメッセージ
             if let Some(err) = load_error {
                 if ui
-                    .colored_label(ERROR_COLOR, format!("Error: {}", err))
+                    .colored_label(ERROR_COLOR(), format!("Error: {}", err))
                     .clicked()
                 {
                     actions.push(ToolbarAction::ClearLoadError);
@@ -258,14 +259,14 @@ pub fn show_colormap_selector(
 ) {
     ui.label(
         egui::RichText::new("Colormap:")
-            .color(crate::theme::TOOLBAR_TEXT)
+            .color(crate::theme::TOOLBAR_TEXT())
             .size(12.0),
     );
     let current_label = app_state.selected_colormap.label().to_string();
     ui.scope(|ui| {
         apply_combo_visuals(ui.visuals_mut());
         egui::ComboBox::from_id_salt("toolbar_colormap_combo")
-            .selected_text(egui::RichText::new(current_label).color(crate::theme::TOOLBAR_TEXT))
+            .selected_text(egui::RichText::new(current_label).color(crate::theme::TOOLBAR_TEXT()))
             .width(120.0)
             .show_ui(ui, |ui| {
                 for cmap in ColormapName::all() {
@@ -306,7 +307,7 @@ fn push_comparison_selector(
         apply_combo_visuals(ui.visuals_mut());
         ui.add_enabled_ui(enabled, |ui| {
             egui::ComboBox::from_id_salt("compare_select_combo")
-                .selected_text(egui::RichText::new(label).color(crate::theme::TOOLBAR_TEXT))
+                .selected_text(egui::RichText::new(label).color(crate::theme::TOOLBAR_TEXT()))
                 .width(130.0)
                 .show_ui(ui, |ui| {
                     for s in &app_state.all_studies {
@@ -334,9 +335,9 @@ fn push_comparison_selector(
 fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
     let padding = egui::vec2(10.0, 5.0);
     let text_color = if enabled {
-        crate::theme::TOOLBAR_TEXT
+        crate::theme::TOOLBAR_TEXT()
     } else {
-        crate::theme::TOOLBAR_TEXT.gamma_multiply(0.4)
+        crate::theme::TOOLBAR_TEXT().gamma_multiply(0.4)
     };
     let galley = ui.fonts_mut(|f| {
         f.layout_no_wrap(
@@ -357,12 +358,12 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Respon
         let bg = if !enabled {
             egui::Color32::TRANSPARENT
         } else if resp.hovered() {
-            crate::theme::TOOLBAR_BTN_HOVER
+            crate::theme::TOOLBAR_BTN_HOVER()
         } else {
             egui::Color32::TRANSPARENT
         };
         let final_text_color = if enabled && resp.hovered() {
-            TOOLBAR_BTN_FG
+            TOOLBAR_BTN_FG()
         } else {
             text_color
         };
@@ -377,21 +378,21 @@ fn apply_combo_visuals(vis: &mut egui::Visuals) {
     use crate::theme::{
         TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_HOVER, TOOLBAR_INPUT_BG, TOOLBAR_INPUT_STROKE, TOOLBAR_TEXT,
     };
-    vis.override_text_color = Some(TOOLBAR_TEXT);
-    let bg_stroke = egui::Stroke::new(1.0, TOOLBAR_INPUT_STROKE);
-    let fg_text = egui::Stroke::new(1.0, TOOLBAR_TEXT);
-    let fg_white = egui::Stroke::new(1.0, TOOLBAR_BTN_FG);
+    vis.override_text_color = Some(TOOLBAR_TEXT());
+    let bg_stroke = egui::Stroke::new(1.0, TOOLBAR_INPUT_STROKE());
+    let fg_text = egui::Stroke::new(1.0, TOOLBAR_TEXT());
+    let fg_white = egui::Stroke::new(1.0, TOOLBAR_BTN_FG());
     for w in [&mut vis.widgets.inactive, &mut vis.widgets.noninteractive] {
-        w.weak_bg_fill = TOOLBAR_INPUT_BG;
-        w.bg_fill = TOOLBAR_INPUT_BG;
+        w.weak_bg_fill = TOOLBAR_INPUT_BG();
+        w.bg_fill = TOOLBAR_INPUT_BG();
         w.bg_stroke = bg_stroke;
         w.fg_stroke = fg_text;
     }
-    vis.widgets.hovered.weak_bg_fill = TOOLBAR_BTN_HOVER;
-    vis.widgets.hovered.bg_fill = TOOLBAR_BTN_HOVER;
+    vis.widgets.hovered.weak_bg_fill = TOOLBAR_BTN_HOVER();
+    vis.widgets.hovered.bg_fill = TOOLBAR_BTN_HOVER();
     vis.widgets.hovered.fg_stroke = fg_white;
-    vis.widgets.active.weak_bg_fill = TOOLBAR_BTN_ACTIVE;
-    vis.widgets.active.bg_fill = TOOLBAR_BTN_ACTIVE;
+    vis.widgets.active.weak_bg_fill = TOOLBAR_BTN_ACTIVE();
+    vis.widgets.active.bg_fill = TOOLBAR_BTN_ACTIVE();
     vis.widgets.active.fg_stroke = fg_white;
 }
 

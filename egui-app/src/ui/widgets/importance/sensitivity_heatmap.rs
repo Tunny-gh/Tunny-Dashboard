@@ -189,7 +189,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
             painter.rect_stroke(
                 cell_rect,
                 0.0,
-                egui::Stroke::new(0.5, COLOR_GRID_STROKE),
+                egui::Stroke::new(0.5, COLOR_GRID_STROKE()),
                 egui::StrokeKind::Inside,
             );
             painter.text(
@@ -197,7 +197,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
                 egui::Align2::CENTER_CENTER,
                 format!("{val:.2}"),
                 egui::FontId::proportional(9.0),
-                COLOR_CHART_TEXT,
+                COLOR_CHART_TEXT(),
             );
         }
     }

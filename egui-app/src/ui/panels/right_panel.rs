@@ -127,9 +127,9 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
 /// `enabled` が false（配置済み）の場合はティントを薄くし、操作不可にする。
 fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
     let tint = if enabled {
-        crate::theme::TEXT_SECONDARY
+        crate::theme::TEXT_SECONDARY()
     } else {
-        egui::Color32::from_gray(190)
+        crate::theme::CLOSE_BTN_TEXT()
     };
     ui.allocate_ui_with_layout(
         egui::vec2(TILE_W, TILE_H),
@@ -155,7 +155,7 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
 /// （Canvas ビューは同じウィジェットの複数配置を許すため、常に配置可能）。
 fn widget_tile(ui: &mut egui::Ui, item: &PanelItem) {
     let frame = egui::Frame::default()
-        .fill(crate::theme::WIDGET_BG)
+        .fill(crate::theme::WIDGET_BG())
         .corner_radius(6)
         .inner_margin(egui::Margin::same(2));
 
@@ -264,7 +264,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ui.label(
                 egui::RichText::new(*group_label)
                     .small()
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
             );
             ui.separator();
             ui.horizontal_wrapped(|ui| {

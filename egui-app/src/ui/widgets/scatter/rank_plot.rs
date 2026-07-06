@@ -296,7 +296,7 @@ fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
         egui::StrokeKind::Inside,
     );
 
-    let text_color = egui::Color32::from_gray(180);
+    let text_color = crate::theme::CLOSE_BTN_TEXT();
     let font = egui::FontId::proportional(9.0);
     painter.text(
         egui::pos2(bar_rect.center().x, bar_rect.top() - 2.0),

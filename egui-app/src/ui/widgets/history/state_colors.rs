@@ -13,11 +13,11 @@ use crate::theme::chart_colors::{
 /// trial state に対応する表示色を返す。
 pub fn state_color(state: TrialState) -> egui::Color32 {
     match state {
-        TrialState::Complete => COLOR_STATE_COMPLETE,
-        TrialState::Pruned => COLOR_STATE_PRUNED,
-        TrialState::Running => COLOR_STATE_RUNNING,
-        TrialState::Fail => COLOR_STATE_FAIL,
-        TrialState::Waiting => COLOR_STATE_WAITING,
+        TrialState::Complete => COLOR_STATE_COMPLETE(),
+        TrialState::Pruned => COLOR_STATE_PRUNED(),
+        TrialState::Running => COLOR_STATE_RUNNING(),
+        TrialState::Fail => COLOR_STATE_FAIL(),
+        TrialState::Waiting => COLOR_STATE_WAITING(),
     }
 }
 
@@ -41,7 +41,7 @@ pub fn show_state_legend(ui: &mut egui::Ui, present: &[TrialState]) {
             ui.label(
                 egui::RichText::new(state.label())
                     .small()
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
             );
         }
     });

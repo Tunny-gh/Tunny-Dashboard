@@ -135,7 +135,7 @@ impl ConvergenceChart {
             ui.label(
                 egui::RichText::new("Reference point:")
                     .small()
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
             );
 
             // Auto トグル
@@ -157,7 +157,7 @@ impl ConvergenceChart {
                     ui.label(
                         egui::RichText::new(name)
                             .small()
-                            .color(crate::theme::TEXT_SECONDARY),
+                            .color(crate::theme::TEXT_SECONDARY()),
                     );
                     let resp = ui.add(
                         egui::DragValue::new(&mut self.ref_point_buf[j])
@@ -216,7 +216,7 @@ impl ConvergenceChart {
             ui.label(
                 egui::RichText::new(direction_text)
                     .small()
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
             );
 
             // サンプリング間隔（データがあるときのみ）
@@ -232,7 +232,7 @@ impl ConvergenceChart {
                     ui.label(
                         egui::RichText::new(sampling_label)
                             .small()
-                            .color(crate::theme::TEXT_SECONDARY),
+                            .color(crate::theme::TEXT_SECONDARY()),
                     );
                 }
             }
@@ -317,7 +317,7 @@ impl ConvergenceChart {
 
                 // 基準 Study
                 if !base_points.is_empty() {
-                    let color = COLOR_CONVERGENCE_LINE;
+                    let color = COLOR_CONVERGENCE_LINE();
                     let line_pts: egui_plot::PlotPoints = base_points.iter().copied().collect();
                     plot_ui.line(egui_plot::Line::new(&base_label, line_pts).color(color));
                     let scatter: egui_plot::PlotPoints = base_points.iter().copied().collect();

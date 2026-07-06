@@ -153,14 +153,14 @@ pub fn show(
         ui.set_min_width(380.0);
         ui.heading("Export Report");
         if let Some(name) = study_name {
-            ui.label(RichText::new(format!("Study: {name}")).color(crate::theme::TEXT_SECONDARY));
+            ui.label(RichText::new(format!("Study: {name}")).color(crate::theme::TEXT_SECONDARY()));
         }
         ui.add_space(4.0);
 
         if let Some(paths) = &state.success_paths {
             for path in paths {
                 ui.colored_label(
-                    crate::theme::TEXT_SECONDARY,
+                    crate::theme::TEXT_SECONDARY(),
                     format!("Saved: {}", path.display()),
                 );
             }
@@ -203,7 +203,7 @@ pub fn show(
 
         if let Some(err) = &state.error {
             ui.add_space(4.0);
-            ui.colored_label(crate::theme::ERROR_COLOR, err);
+            ui.colored_label(crate::theme::ERROR_COLOR(), err);
         }
 
         ui.add_space(8.0);

@@ -219,7 +219,7 @@ fn kv_grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)]) {
         .spacing([16.0, 2.0])
         .show(ui, |ui| {
             for (k, v) in rows {
-                ui.label(egui::RichText::new(k).color(crate::theme::TEXT_SECONDARY));
+                ui.label(egui::RichText::new(k).color(crate::theme::TEXT_SECONDARY()));
                 ui.label(v);
                 ui.end_row();
             }
@@ -317,7 +317,7 @@ pub fn show_hover_tooltip(
             .spacing([12.0, 2.0])
             .show(ui, |ui| {
                 for (k, v) in rows {
-                    ui.label(egui::RichText::new(k).color(crate::theme::TEXT_SECONDARY));
+                    ui.label(egui::RichText::new(k).color(crate::theme::TEXT_SECONDARY()));
                     ui.label(v);
                     ui.end_row();
                 }

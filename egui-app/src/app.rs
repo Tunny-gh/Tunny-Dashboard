@@ -177,7 +177,7 @@ pub struct TunnyApp {
 
 impl TunnyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
-        cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
+        cc.egui_ctx.set_visuals(crate::theme::tunny_visuals(false));
         // artifact ギャラリーで file:// 画像を表示するためのローダを登録する。
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
@@ -796,6 +796,12 @@ impl eframe::App for TunnyApp {
     // logic() は描画を行わないフェーズ（メッセージポンプ・状態更新・スクリーンショット取得）を担当する。
     // egui 0.35 の eframe::App は update() が ui()/logic() に分割された。
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // テーマ同期: dark_mode の変更源（ツールバートグル・セッション復元）に
+        // よらず、グローバルフラグと Visuals をここで一元的に追従させる。
+        if self.app_state.dark_mode != crate::theme::is_dark_mode() {
+            ctx.set_visuals(crate::theme::tunny_visuals(self.app_state.dark_mode));
+        }
+
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
 
