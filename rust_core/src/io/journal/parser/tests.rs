@@ -45,7 +45,7 @@ fn scan_study_list_returns_names_only() {
 #[test]
 fn parse_single_study_alpha_returns_correct_trials() {
     let data = two_study_log();
-    let (meta, df) = parse_single_study(&data, 0).unwrap();
+    let (meta, df, _extras) = parse_single_study(&data, 0).unwrap();
     assert_eq!(meta.name, "alpha");
     assert_eq!(meta.completed_trials, 2);
     assert_eq!(meta.total_trials, 2);
@@ -56,7 +56,7 @@ fn parse_single_study_alpha_returns_correct_trials() {
 #[test]
 fn parse_single_study_beta_skips_alpha_trials() {
     let data = two_study_log();
-    let (meta, df) = parse_single_study(&data, 1).unwrap();
+    let (meta, df, _extras) = parse_single_study(&data, 1).unwrap();
     assert_eq!(meta.name, "beta");
     assert_eq!(meta.completed_trials, 3);
     assert_eq!(meta.total_trials, 3);
@@ -71,7 +71,7 @@ fn parse_single_study_beta_trial_number_is_in_study_index() {
     // beta(study_id=1) のグローバル trial_id は 2,3,4 だが、Study 内の trial.number は
     // 0,1,2 でなければならない（Optuna の trial.number = study 内作成順）。
     let data = two_study_log();
-    let (_meta, df) = parse_single_study(&data, 1).unwrap();
+    let (_meta, df, _extras) = parse_single_study(&data, 1).unwrap();
     let ids: Vec<u32> = (0..df.row_count())
         .map(|r| df.get_trial_id(r).unwrap())
         .collect();
@@ -103,7 +103,7 @@ fn streaming_beta_trial_number_is_in_study_index() {
 #[test]
 fn parse_single_study_objective_values_correct() {
     let data = two_study_log();
-    let (_meta, df) = parse_single_study(&data, 0).unwrap();
+    let (_meta, df, _extras) = parse_single_study(&data, 0).unwrap();
     let obj: Vec<f64> = df
         .get_numeric_column("obj0")
         .map(|c| c.to_vec())
@@ -254,6 +254,134 @@ fn tc_101_01_create_study_basic() {
             OptimizationDirection::Minimize,
             OptimizationDirection::Maximize,
         ]
+    );
+}
+
+// ── extras: op7 中間値 / 日時 / 全 state ────────────────────────────────
+
+/// study 0: trial 0 は COMPLETE（中間値 2 点・日時あり、step 逆順で投入）、
+/// trial 1 は PRUNED（op7 なし）。extras は両方（全 state）を含み、
+/// DataFrame は COMPLETE のみを含む。
+fn extras_log() -> Vec<u8> {
+    to_bytes(concat!(
+        "{\"op_code\":0,\"study_name\":\"alpha\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
+        // step を昇順にしないで投入し、finalize でのソートを検証する。
+        "{\"op_code\":7,\"trial_id\":0,\"step\":1,\"intermediate_value\":0.2}\n",
+        "{\"op_code\":7,\"trial_id\":0,\"step\":0,\"intermediate_value\":0.1}\n",
+        "{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:10\"}\n",
+        "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:11\"}\n",
+        "{\"op_code\":6,\"trial_id\":1,\"state\":2}\n"
+    ))
+}
+
+#[test]
+fn parse_single_study_collects_extras_for_all_states() {
+    use crate::extras::TrialState;
+
+    let data = extras_log();
+    let (_meta, df, extras) = parse_single_study(&data, 0).unwrap();
+
+    // DataFrame は COMPLETE のみ。
+    assert_eq!(
+        df.row_count(),
+        1,
+        "PRUNED trial must be excluded from DataFrame"
+    );
+
+    // extras は全 state（trial 0 と 1）を trial_id 昇順で保持する。
+    assert_eq!(extras.trials.len(), 2);
+    assert!(extras.has_intermediate());
+    assert!(extras.has_datetimes());
+    let ids: Vec<u32> = extras.trials.iter().map(|t| t.trial_id).collect();
+    assert_eq!(ids, vec![0, 1]);
+
+    let t0 = &extras.trials[0];
+    assert_eq!(t0.state, TrialState::Complete);
+    // 投入順によらず step 昇順に整列される。
+    assert_eq!(t0.intermediate_values, vec![(0, 0.1), (1, 0.2)]);
+    assert_eq!(t0.datetime_start, Some(1_704_067_200.0));
+    assert_eq!(t0.datetime_complete, Some(1_704_067_210.0));
+
+    let t1 = &extras.trials[1];
+    assert_eq!(t1.state, TrialState::Pruned);
+    assert!(t1.intermediate_values.is_empty());
+    assert_eq!(t1.datetime_start, Some(1_704_067_211.0));
+    assert_eq!(t1.datetime_complete, None);
+}
+
+#[test]
+fn parse_journal_stores_extras_in_shared_store() {
+    let data = extras_log();
+    parse_journal(&data).unwrap();
+    // 全体パースは enumerate（study_id = index）キーで extras を格納する。
+    let extras = crate::dataframe::extras_snapshot(0).expect("extras must be stored");
+    assert_eq!(extras.trials.len(), 2);
+    assert!(extras.has_intermediate());
+}
+
+/// Phase 2 ストリーミング（UI が実際に使う単一 study ロード経路）でも、
+/// 完了・prune・EOF 時点で Running のままの trial すべてが extras に反映され、
+/// `store_extras_for`（実 study_id キー）で共有ストアへ格納されることを検証する。
+#[test]
+fn parse_single_study_streaming_stores_extras_for_all_states() {
+    use crate::extras::TrialState;
+
+    let data = to_bytes(concat!(
+        "{\"op_code\":0,\"study_name\":\"alpha\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
+        // step を昇順にしないで投入し、ストリーミング経路でもソートされることを検証する。
+        "{\"op_code\":7,\"trial_id\":0,\"step\":1,\"intermediate_value\":0.2}\n",
+        "{\"op_code\":7,\"trial_id\":0,\"step\":0,\"intermediate_value\":0.1}\n",
+        "{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:10\"}\n",
+        // trial 1: PRUNED（op6 state=2）
+        "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:11\"}\n",
+        "{\"op_code\":6,\"trial_id\":1,\"state\":2}\n",
+        // trial 2: 最後まで完了しない（EOF 時点で Running のまま extras に残る）
+        "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:12\"}\n"
+    ));
+
+    // 対象 study 固有キー（study_id）で格納されることを確認するため、実行前後で読み比べる。
+    let study_id = 0u32;
+    let mut batches: Vec<StudyStreamBatch> = Vec::new();
+    parse_single_study_streaming(&data, study_id, 1000, |b| batches.push(b)).unwrap();
+
+    let extras = crate::dataframe::extras_snapshot(study_id)
+        .expect("streaming path must store_extras_for the target study_id");
+    assert_eq!(extras.trials.len(), 3, "COMPLETE + PRUNED + still-Running");
+    assert!(extras.has_intermediate());
+    assert!(extras.has_datetimes());
+
+    let ids: Vec<u32> = extras.trials.iter().map(|t| t.trial_id).collect();
+    assert_eq!(ids, vec![0, 1, 2], "trial_id 昇順");
+
+    let t0 = &extras.trials[0];
+    assert_eq!(t0.state, TrialState::Complete);
+    assert_eq!(
+        t0.intermediate_values,
+        vec![(0, 0.1), (1, 0.2)],
+        "step 昇順"
+    );
+    assert_eq!(t0.datetime_start, Some(1_704_067_200.0));
+    assert_eq!(t0.datetime_complete, Some(1_704_067_210.0));
+
+    let t1 = &extras.trials[1];
+    assert_eq!(t1.state, TrialState::Pruned);
+    assert!(t1.intermediate_values.is_empty());
+
+    let t2 = &extras.trials[2];
+    assert_eq!(
+        t2.state,
+        TrialState::Running,
+        "EOF 時点で未完了の trial は Running のまま extras に含まれる"
+    );
+    assert!(t2.datetime_complete.is_none());
+
+    // DataFrame（COMPLETE 限定）には trial 0 のみが含まれる。
+    let total_rows: usize = batches.iter().map(|b| b.new_rows.len()).sum();
+    assert_eq!(
+        total_rows, 1,
+        "PRUNED/Running trial must be excluded from rows"
     );
 }
 
@@ -608,6 +736,9 @@ fn trial_builder_constraint_values_stored() {
         user_attrs_string: HashMap::new(),
         constraint_values: vec![-1.0, -0.5, 0.0],
         has_constraints: true,
+        datetime_start: None,
+        datetime_complete: None,
+        intermediate_values: Vec::new(),
     };
     assert_eq!(trial.constraint_values.len(), 3);
     assert!(trial.constraint_values.iter().all(|&value| value <= 0.0));

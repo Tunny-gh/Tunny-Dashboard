@@ -134,7 +134,7 @@ impl BoxPlotChart {
             }
         }
 
-        let box_plot = egui_plot::BoxPlot::new("Box Plot", boxes).color(COLOR_BAR_PRIMARY);
+        let box_plot = egui_plot::BoxPlot::new("Box Plot", boxes).color(COLOR_BAR_PRIMARY());
 
         egui_plot::Plot::new("box_plot_plot")
             .unified_nav()
@@ -156,7 +156,7 @@ impl BoxPlotChart {
                         egui_plot::Points::new("Outliers", pts)
                             .shape(egui_plot::MarkerShape::Circle)
                             .radius(3.0)
-                            .color(COLOR_BAR_NEGATIVE),
+                            .color(COLOR_BAR_NEGATIVE()),
                     );
                 }
             });

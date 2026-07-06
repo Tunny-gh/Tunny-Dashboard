@@ -114,7 +114,7 @@ pub fn show_canvas_view(
 
     // ── 背景塗り＋ドットグリッド（パン/ズームに追従して動く） ─────────────
     let painter = ui.painter().clone();
-    painter.rect_filled(area, 0.0, crate::theme::CANVAS_BG);
+    painter.rect_filled(area, 0.0, crate::theme::CANVAS_BG());
     {
         let step = (GRID_WORLD * zoom).max(8.0);
         let origin = to_screen * egui::pos2(0.0, 0.0); // ワールド原点の画面位置
@@ -125,7 +125,7 @@ pub fn show_canvas_view(
         while gx <= area.right() {
             let mut gy = start_y;
             while gy <= area.bottom() {
-                painter.circle_filled(egui::pos2(gx, gy), r, crate::theme::CANVAS_DOT);
+                painter.circle_filled(egui::pos2(gx, gy), r, crate::theme::CANVAS_DOT());
                 gy += step;
             }
             gx += step;
@@ -164,11 +164,11 @@ pub fn show_canvas_view(
                 ui.allocate_rect(item_rect, egui::Sense::click());
                 // 背景・枠線
                 ui.painter()
-                    .rect_filled(item_rect, 4.0, crate::theme::CENTRAL_BG);
+                    .rect_filled(item_rect, 4.0, crate::theme::CENTRAL_BG());
                 ui.painter().rect_stroke(
                     item_rect,
                     4.0,
-                    egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+                    egui::Stroke::new(1.0, crate::theme::BORDER_COLOR()),
                     egui::StrokeKind::Inside,
                 );
 
@@ -253,9 +253,9 @@ pub fn show_canvas_view(
                 // 右下隅にグリップ（斜線）を常時描画し、リサイズ可能だと一目で分かるようにする。
                 // ホバー/ドラッグ時はアクセント色で強調する。
                 let grip_color = if active {
-                    crate::theme::ACCENT_BLUE
+                    crate::theme::ACCENT_BLUE()
                 } else {
-                    egui::Color32::from_gray(160)
+                    crate::theme::chart_colors::COLOR_GRID_STROKE()
                 };
                 let br = item_rect.max;
                 for i in 0..3 {
@@ -305,7 +305,7 @@ pub fn show_canvas_view(
         ui.painter().rect_stroke(
             area,
             0.0,
-            egui::Stroke::new(2.0, COLOR_SELECTION_HIGHLIGHT),
+            egui::Stroke::new(2.0, COLOR_SELECTION_HIGHLIGHT()),
             egui::StrokeKind::Inside,
         );
         if ui.input(|i| i.pointer.any_released()) {
@@ -367,7 +367,7 @@ pub fn show_canvas_view(
             let resp = ui
                 .add_sized(
                     egui::vec2(BTN_SIZE, BTN_SIZE),
-                    egui::Button::new(egui::RichText::new("⛶").color(crate::theme::TOOLBAR_TEXT)),
+                    egui::Button::new(egui::RichText::new("⛶").color(crate::theme::TOOLBAR_TEXT())),
                 )
                 .on_hover_text("Fit view to charts");
             if resp.hovered() {
@@ -394,15 +394,15 @@ pub fn show_canvas_view(
 /// アイテム上部バーのボタン（… / ×）にトップバーと同じ水色スタイルを適用する。
 fn apply_item_button_visuals(vis: &mut egui::Visuals) {
     use crate::theme::{TOOLBAR_BG, TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_HOVER, TOOLBAR_TEXT};
-    vis.override_text_color = Some(TOOLBAR_TEXT);
+    vis.override_text_color = Some(TOOLBAR_TEXT());
     for w in [&mut vis.widgets.inactive, &mut vis.widgets.open] {
-        w.weak_bg_fill = TOOLBAR_BG;
-        w.bg_fill = TOOLBAR_BG;
+        w.weak_bg_fill = TOOLBAR_BG();
+        w.bg_fill = TOOLBAR_BG();
     }
-    vis.widgets.hovered.weak_bg_fill = TOOLBAR_BTN_HOVER;
-    vis.widgets.hovered.bg_fill = TOOLBAR_BTN_HOVER;
-    vis.widgets.active.weak_bg_fill = TOOLBAR_BTN_ACTIVE;
-    vis.widgets.active.bg_fill = TOOLBAR_BTN_ACTIVE;
+    vis.widgets.hovered.weak_bg_fill = TOOLBAR_BTN_HOVER();
+    vis.widgets.hovered.bg_fill = TOOLBAR_BTN_HOVER();
+    vis.widgets.active.weak_bg_fill = TOOLBAR_BTN_ACTIVE();
+    vis.widgets.active.bg_fill = TOOLBAR_BTN_ACTIVE();
 }
 
 /// キャンバスアイテム上部のバーを描画する。
@@ -427,11 +427,11 @@ fn show_canvas_item_toolbar(
     // バー領域を確保（body をバーの下へ配置）し、背景・枠線を描画。
     ui.allocate_rect(bar_rect, egui::Sense::hover());
     ui.painter()
-        .rect_filled(bar_rect, 0.0, crate::theme::CELL_TOOLBAR_BG);
+        .rect_filled(bar_rect, 0.0, crate::theme::CELL_TOOLBAR_BG());
     ui.painter().rect_stroke(
         bar_rect,
         0.0,
-        egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+        egui::Stroke::new(1.0, crate::theme::BORDER_COLOR()),
         egui::StrokeKind::Inside,
     );
 
@@ -476,7 +476,7 @@ fn show_canvas_item_toolbar(
                 egui::Button::new(
                     egui::RichText::new("×")
                         .small()
-                        .color(crate::theme::TOOLBAR_TEXT),
+                        .color(crate::theme::TOOLBAR_TEXT()),
                 ),
             )
             .on_hover_text("Close");

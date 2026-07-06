@@ -18,6 +18,10 @@ where
         match arg.as_str() {
             "version" | "--version" | "-V" => return Ok(CliAction::PrintVersion),
             "-i" | "--input" => {
+                // ローカルファイルパス（journal .log / SQLite .db 等）に加えて、
+                // PostgreSQL/MySQL 接続 URL（例: postgresql://user:pass@host:5432/db）も
+                // そのまま受け付ける。`PathBuf::from` に文字列としてそのまま保持し、
+                // app.rs のコンストラクタ分岐が `path_as_rdb_url` で URL として認識する。
                 let Some(path) = args.next() else {
                     return Err(format!("{arg} requires a file path"));
                 };

@@ -101,7 +101,7 @@ impl ClusterScatter3D {
         // クラスタリング設定 + Run（2D と同じ操作）
         self.show_cluster_controls(ui, pareto_count);
         if let Some(err) = self.last_error.clone() {
-            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR()));
             if let Some(detail) = &err.detail_for_dev {
                 ui.label(egui::RichText::new(detail).small().weak());
             }
@@ -226,11 +226,11 @@ impl ClusterScatter3D {
 
         infeasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _) in &infeasible_pts {
-            painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
+            painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE());
         }
         other_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _) in &other_pts {
-            painter.circle_filled(*pos, 2.5, COLOR_NON_PARETO_DIM);
+            painter.circle_filled(*pos, 2.5, COLOR_NON_PARETO_DIM());
         }
         feasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         for (pos, _, color) in &feasible_pts {

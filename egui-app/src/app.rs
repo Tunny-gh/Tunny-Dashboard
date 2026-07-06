@@ -1,14 +1,50 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
-use crate::io::live_update_poller::LiveUpdatePoller;
+use crate::io::live_update_poller::{
+    LiveUpdatePoller, RdbLivePoller, RdbLiveUpdateContext, SqliteLivePoller,
+    SqliteLiveUpdateContext,
+};
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
+use crate::state::results::LiveUpdateStorageKind;
 use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::io::journal::live_update::LiveUpdateContext;
+
+/// ライブ更新ポーラーが「変化なし」と判断してから完了ヒント
+/// (`AppMessage::LiveUpdateMaybeComplete`) を送るまでの無変化時間（ミリ秒）。
+/// journal/sqlite/rdb の 3 ポーラー全てで共通の既定値として使う。
+const LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS: u64 = 60_000;
+
+/// アプリが現在起動しているライブ更新ポーラー。ストレージ種別（journal/sqlite/rdb）ごとに
+/// 実装が異なる（journal: バイトオフセット差分、sqlite・rdb: フィンガープリント + 丸ごと再ロード）
+/// ため、`TunnyApp` はどれか一方を保持できるようにこの enum で包む。
+enum ActivePoller {
+    Journal(LiveUpdatePoller),
+    Sqlite(SqliteLivePoller),
+    Rdb(RdbLivePoller),
+}
+
+impl ActivePoller {
+    fn stop(&mut self) {
+        match self {
+            ActivePoller::Journal(p) => p.stop(),
+            ActivePoller::Sqlite(p) => p.stop(),
+            ActivePoller::Rdb(p) => p.stop(),
+        }
+    }
+
+    fn update_interval(&self, new_interval_ms: u64) {
+        match self {
+            ActivePoller::Journal(p) => p.update_interval(new_interval_ms),
+            ActivePoller::Sqlite(p) => p.update_interval(new_interval_ms),
+            ActivePoller::Rdb(p) => p.update_interval(new_interval_ms),
+        }
+    }
+}
 
 /// 非同期計算の完了メッセージごとに、キャンバスの各アイテム（独立した WidgetStates）へ
 /// どのウィジェットの完了状態を伝播するかを表す。
@@ -31,6 +67,7 @@ enum ComputeSyncKind {
     ResponseSurfaceFit,
     Convergence,
     SensitivityHeatmap,
+    SurrogateCompare,
 }
 
 impl ComputeSyncKind {
@@ -68,6 +105,9 @@ impl ComputeSyncKind {
             }
             AppMessage::ResponseSurfaceFitDone(_) | AppMessage::ResponseSurfaceFitFailed(_) => {
                 Some(Self::ResponseSurfaceFit)
+            }
+            AppMessage::SurrogateCompareDone(_) | AppMessage::SurrogateCompareFailed(_) => {
+                Some(Self::SurrogateCompare)
             }
             AppMessage::IndicatorHistoryDone { .. } => Some(Self::Convergence),
             AppMessage::SensitivityHeatmapDone { .. } => Some(Self::SensitivityHeatmap),
@@ -123,6 +163,9 @@ impl ComputeSyncKind {
                 Self::SensitivityHeatmap => w
                     .sensitivity_heatmap
                     .adopt_compute_state(&global.sensitivity_heatmap),
+                Self::SurrogateCompare => w
+                    .surrogate_compare
+                    .adopt_compute_state(&global.surrogate_compare),
             }
         }
     }
@@ -139,14 +182,14 @@ pub struct TunnyApp {
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
-    poller: Option<LiveUpdatePoller>,
+    poller: Option<ActivePoller>,
     /// 現在ウィンドウタイトルバーに設定済みの文字列。変化時のみ更新コマンドを送るために保持する。
     current_window_title: Option<String>,
 }
 
 impl TunnyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
-        cc.egui_ctx.set_visuals(crate::theme::tunny_light_visuals());
+        cc.egui_ctx.set_visuals(crate::theme::tunny_visuals(false));
         // artifact ギャラリーで file:// 画像を表示するためのローダを登録する。
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
@@ -179,7 +222,9 @@ impl TunnyApp {
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
-            if crate::io::flat_csv::is_csv_path(&path) {
+            if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
+                crate::io::study_worker::dispatch_scan_rdb(url, tx.clone());
+            } else if crate::io::flat_csv::is_csv_path(&path) {
                 crate::io::study_worker::dispatch_scan_csv(path, tx.clone());
             } else if crate::io::sqlite::is_sqlite_path(&path) {
                 crate::io::study_worker::dispatch_scan_sqlite(path, tx.clone());
@@ -203,20 +248,30 @@ impl TunnyApp {
 
     /// 開いているファイルのフルパスをウィンドウタイトルバーに反映する。
     /// ファイル未読み込み時は "Tunny Dashboard (Beta)"、読み込み時は "Tunny Dashboard (Beta) - <フルパス>"。
+    /// RDB URL はパスワードを含みうるため、実際の計算は `compute_window_title` へ切り出し、
+    /// URL の場合は `RdbUrl::masked()` でパスワードを隠したものを表示する。
     fn sync_window_title(&mut self, ctx: &egui::Context) {
-        const BASE_TITLE: &str = "Tunny Dashboard (Beta)";
-        let title = match self
-            .app_state
-            .journal_path
-            .as_ref()
-            .map(|p| p.display().to_string())
-        {
-            Some(full_path) => format!("{BASE_TITLE} - {full_path}"),
-            None => BASE_TITLE.to_owned(),
-        };
+        let title = Self::compute_window_title(self.app_state.journal_path.as_deref());
         if self.current_window_title.as_deref() != Some(title.as_str()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.current_window_title = Some(title);
+        }
+    }
+
+    /// ウィンドウタイトル文字列を計算する純関数（`sync_window_title` から分離してテスト可能にする）。
+    /// `journal_path` が RDB 接続 URL として解釈できる場合はパスワードをマスクした
+    /// `RdbUrl::masked()` を表示し、それ以外は従来どおり `Path::display()` を使う。
+    fn compute_window_title(journal_path: Option<&std::path::Path>) -> String {
+        const BASE_TITLE: &str = "Tunny Dashboard (Beta)";
+        match journal_path {
+            Some(path) => {
+                let shown = match crate::io::rdb::path_as_rdb_url(path) {
+                    Some(url) => url.masked(),
+                    None => path.display().to_string(),
+                };
+                format!("{BASE_TITLE} - {shown}")
+            }
+            None => BASE_TITLE.to_owned(),
         }
     }
 
@@ -234,6 +289,15 @@ impl TunnyApp {
             // DataFrame 再構築コストを 1 フレームに集中させない（描画フリーズ回避）。
             // 残りのバッチはチャネルに残し、次フレームで処理する。
             let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
+            // SQLite ライブ更新: study がアクティブ化された（選択完了）タイミングで、
+            // ライブ更新が有効なら新しい study_id を追跡するようポーラーを再起動する
+            // （journal と異なりフィンガープリントは study 単位でしか取れないため）。
+            let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
+                || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
+            // SQLite ライブ更新: フィンガープリント変化を検出したら再ロードをワーカーへ依頼する。
+            // 実際の再パースは tx を必要とするため、tx を持たない MessageHandler ではなく
+            // ここ（tx を持つ app.rs）で dispatch する。
+            let sqlite_reload_study_id = MessageHandler::sqlite_reload_study_id(&msg);
             // 非同期計算の完了/失敗メッセージはグローバルな widget_states のみ更新する。
             // キャンバスの各アイテムは独立した WidgetStates を持つため（commit 73883d8）、
             // 処理後に完了状態（computing/結果/キャッシュ）を各アイテムへ伝播する必要がある。
@@ -266,13 +330,31 @@ impl TunnyApp {
                     .journal_path
                     .as_deref()
                     .is_some_and(crate::io::sqlite::is_sqlite_path);
-                if is_csv || is_sqlite {
-                    // Live Update は journal 専用。journal で有効化したまま CSV/SQLite を
-                    // 開いた場合、poller が非 journal ファイルを追跡しないよう強制オフにする。
+                let is_rdb = self
+                    .app_state
+                    .journal_path
+                    .as_deref()
+                    .is_some_and(|p| crate::io::rdb::path_as_rdb_url(p).is_some());
+                if is_csv {
+                    // CSV はフラットインポート（1 回きりの取り込み）でストリーミング追記の
+                    // 概念が無いため、Live Update 対象外のまま強制オフにする。
                     self.app_state.live_update.enabled = false;
                     self.app_state.live_update.poller_active = false;
-                } else if self.app_state.live_update.enabled {
-                    self.restart_poller();
+                } else {
+                    self.app_state.live_update.storage_kind = if is_sqlite {
+                        LiveUpdateStorageKind::Sqlite
+                    } else if is_rdb {
+                        LiveUpdateStorageKind::Rdb
+                    } else {
+                        LiveUpdateStorageKind::Journal
+                    };
+                    if is_sqlite || is_rdb {
+                        // SQLite/RDB はフィンガープリントに study_id が要るため、Study 選択前は
+                        // ポーラーを起動しない（Study 選択完了時に is_study_activated 経由で起動する）。
+                        self.app_state.live_update.poller_active = false;
+                    } else if self.app_state.live_update.enabled {
+                        self.restart_poller();
+                    }
                 }
                 if is_csv {
                     if let Some(meta) = self.app_state.all_studies.first() {
@@ -289,6 +371,29 @@ impl TunnyApp {
             if is_live_error {
                 // poller stopped itself — drop the handle
                 self.poller = None;
+            }
+
+            if let Some(study_id) = sqlite_reload_study_id {
+                // SqliteLiveChanged は SQLite/RDB 両方のライブ更新が流用するシグナルメッセージ
+                // なので、実際の再ロード先は現在の storage_kind で振り分ける。
+                if self.app_state.live_update.storage_kind == LiveUpdateStorageKind::Rdb {
+                    crate::io::study_worker::dispatch_reload_rdb_study(study_id, self.sender());
+                } else {
+                    crate::io::study_worker::dispatch_reload_sqlite_study(study_id, self.sender());
+                }
+            }
+
+            // SQLite/RDB ライブ更新は study 単位でしかフィンガープリントを取れないため、
+            // 表示中の study が切り替わったらポーラーを新しい study_id で再起動する
+            // （journal はファイル全体を追跡するため study 切り替えでの再起動は不要）。
+            if is_study_activated
+                && self.app_state.live_update.enabled
+                && matches!(
+                    self.app_state.live_update.storage_kind,
+                    LiveUpdateStorageKind::Sqlite | LiveUpdateStorageKind::Rdb
+                )
+            {
+                self.restart_poller();
             }
 
             ctx.request_repaint();
@@ -308,25 +413,9 @@ impl TunnyApp {
     pub fn apply_toolbar_actions(&mut self, actions: Vec<ToolbarAction>) {
         for action in actions {
             match action {
-                ToolbarAction::OpenJournal(path) => {
-                    // Stop existing poller before loading new file
-                    if let Some(mut p) = self.poller.take() {
-                        p.stop();
-                    }
-                    self.is_loading = true;
-                    self.load_error = None;
-                    self.app_state.all_studies.clear();
-                    self.app_state.current_study = None;
-                    // 別ファイルを開くと study_id 空間が変わるため、
-                    // 同一ファイル前提の比較セッションは破棄する。
-                    self.app_state.reset_comparison_session();
-                    if crate::io::flat_csv::is_csv_path(&path) {
-                        crate::io::study_worker::dispatch_scan_csv(path, self.sender());
-                    } else if crate::io::sqlite::is_sqlite_path(&path) {
-                        crate::io::study_worker::dispatch_scan_sqlite(path, self.sender());
-                    } else {
-                        crate::io::study_worker::dispatch_scan_journal(path, self.sender());
-                    }
+                ToolbarAction::OpenJournal(path) => self.open_path(path),
+                ToolbarAction::OpenDbUrlDialog => {
+                    self.app_state.db_url_dialog = Some(String::new());
                 }
                 ToolbarAction::SelectStudy(meta) => {
                     self.is_loading = true;
@@ -430,6 +519,125 @@ impl TunnyApp {
                         Err(e) => self.load_error = Some(e),
                     }
                 }
+                ToolbarAction::OpenReportDialog => {
+                    self.app_state.report_dialog =
+                        Some(crate::ui::widgets::report_modal::ReportDialogState::default());
+                }
+            }
+        }
+    }
+
+    /// 「Report…」モーダルを描画し、Export 確定時に study のスナップショットを集めて
+    /// バックグラウンドスレッドへレポート生成を委譲する（`ToolbarAction::OpenReportDialog`
+    /// が `app_state.report_dialog` を開始した後、毎フレームここから呼ばれる）。
+    fn show_report_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::report_modal::{self, ReportModalAction};
+
+        let Some(mut dialog) = self.app_state.report_dialog.take() else {
+            return;
+        };
+        let study_name = self
+            .app_state
+            .current_study
+            .as_ref()
+            .map(|s| s.meta.name.clone());
+
+        let action = report_modal::show(ctx, &mut dialog, study_name.as_deref());
+        let can_start_export = !dialog.generating && dialog.success_paths.is_none();
+
+        match action {
+            Some(ReportModalAction::Close) => {
+                // 生成中でも待たずに閉じてよい（バックグラウンドジョブは fire-and-forget
+                // で継続し、ダイアログが無ければ完了/失敗は通知されない）。
+            }
+            Some(ReportModalAction::Export) if can_start_export => {
+                match dialog.selected_formats() {
+                    Err(e) => dialog.error = Some(e.to_string()),
+                    Ok(formats) => {
+                        dialog.error = None;
+                        let default_name = report_modal::default_file_name(
+                            study_name.as_deref().unwrap_or("study"),
+                        );
+                        let chosen = rfd::FileDialog::new()
+                            .set_file_name(&default_name)
+                            .add_filter("Report", &["html", "md", "json"])
+                            .save_file();
+                        if let Some(base_path) = chosen {
+                            if let Some(ctx_study) = &self.app_state.current_study {
+                                let meta = ctx_study.meta.clone();
+                                let df = ctx_study.view.df.clone();
+                                let extras = tunny_core::dataframe::active_extras_snapshot();
+                                let storage_display = crate::io::report_export::storage_display(
+                                    self.app_state.journal_path.as_deref(),
+                                );
+                                dialog.generating = true;
+                                crate::io::report_export::spawn_report_export(
+                                    meta,
+                                    df,
+                                    extras,
+                                    storage_display,
+                                    dialog.lang,
+                                    dialog.top_n,
+                                    formats,
+                                    base_path,
+                                    self.sender(),
+                                );
+                            }
+                        }
+                    }
+                }
+                self.app_state.report_dialog = Some(dialog);
+            }
+            _ => {
+                self.app_state.report_dialog = Some(dialog);
+            }
+        }
+    }
+
+    /// 指定パスを開く（journal / CSV / SQLite / RDB URL いずれか）。
+    /// `ToolbarAction::OpenJournal` と「Open URL…」ダイアログの Open ボタンの
+    /// 両方から呼ばれる共通処理（URL は `PathBuf::from(正規化済み url 文字列)` として渡される）。
+    fn open_path(&mut self, path: std::path::PathBuf) {
+        // Stop existing poller before loading new file
+        if let Some(mut p) = self.poller.take() {
+            p.stop();
+        }
+        self.is_loading = true;
+        self.load_error = None;
+        self.app_state.all_studies.clear();
+        self.app_state.current_study = None;
+        // 別ファイル（別 URL）を開くと study_id 空間が変わるため、
+        // 同一ファイル前提の比較セッションは破棄する。
+        self.app_state.reset_comparison_session();
+        if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
+            crate::io::study_worker::dispatch_scan_rdb(url, self.sender());
+        } else if crate::io::flat_csv::is_csv_path(&path) {
+            crate::io::study_worker::dispatch_scan_csv(path, self.sender());
+        } else if crate::io::sqlite::is_sqlite_path(&path) {
+            crate::io::study_worker::dispatch_scan_sqlite(path, self.sender());
+        } else {
+            crate::io::study_worker::dispatch_scan_journal(path, self.sender());
+        }
+    }
+
+    /// 「Open URL…」ダイアログを描画し、Open 確定時に正規化済み URL 文字列を
+    /// `open_path` へ流す（`ToolbarAction::OpenJournal` と同じ経路）。
+    fn show_db_url_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::rdb_url_modal::{self, RdbUrlDialogAction};
+
+        let Some(mut input) = self.app_state.db_url_dialog.take() else {
+            return;
+        };
+        match rdb_url_modal::show(ctx, &mut input) {
+            Some(RdbUrlDialogAction::Open(normalized_url)) => {
+                self.open_path(std::path::PathBuf::from(normalized_url));
+            }
+            Some(RdbUrlDialogAction::Cancel) => {
+                // input は drop してダイアログを閉じる。
+            }
+            None => {
+                // 未確定。次フレームも表示を続ける。
+                self.app_state.db_url_dialog = Some(input);
             }
         }
     }
@@ -471,7 +679,8 @@ impl TunnyApp {
         }
     }
 
-    /// ポーラーを現在のファイルで（再）起動する
+    /// ポーラーを現在のファイルで（再）起動する。
+    /// ストレージ種別（journal / sqlite）で実装が異なるため、ここで分岐する。
     fn restart_poller(&mut self) {
         // Stop any existing poller
         if let Some(mut p) = self.poller.take() {
@@ -482,45 +691,108 @@ impl TunnyApp {
             return;
         };
 
-        // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
-        // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
-        // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
-        // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
-        // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
-        // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
-        // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
-        // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
-        let (byte_offset, next_trial_id, study_trial_number_seeds) = match std::fs::read(file_path)
-        {
-            Ok(bytes) => {
-                let per_study =
-                    tunny_core::io::journal::live_update::count_created_trials_per_study(&bytes);
-                (
-                    bytes.len() as u64,
-                    tunny_core::io::journal::live_update::count_created_trials(&bytes),
-                    per_study,
-                )
-            }
-            Err(_) => (
-                std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
-                0,
-                std::collections::HashMap::new(),
-            ),
-        };
-
-        let ctx = LiveUpdateContext {
-            file_path: file_path.clone(),
-            initial_byte_offset: byte_offset,
-            next_trial_id,
-            study_trial_number_seeds,
-            study_distributions: vec![],
-            no_change_timeout_ms: 60_000,
-        };
-
         let interval_ms = self.app_state.live_update.interval_ms;
-        let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);
+
+        match self.app_state.live_update.storage_kind {
+            LiveUpdateStorageKind::Sqlite => {
+                // SQLite のフィンガープリントは study 単位でしか取れないため、
+                // アクティブ Study が無ければ何も起動しない
+                // （Study 選択完了時に is_study_activated 経由で改めて呼ばれる）。
+                let Some(study_id) = self
+                    .app_state
+                    .current_study
+                    .as_ref()
+                    .map(|s| s.meta.study_id)
+                else {
+                    return;
+                };
+                // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
+                // 起動する。次回ポーリングで実値と食い違えば単に 1 回余分に再ロードされる
+                // だけで、安全側に倒れる。
+                let initial_fingerprint =
+                    tunny_core::sqlite::study_fingerprint(file_path, study_id).unwrap_or_default();
+                let ctx = SqliteLiveUpdateContext {
+                    file_path: file_path.clone(),
+                    study_id,
+                    initial_fingerprint,
+                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
+                };
+                let poller = SqliteLivePoller::start(ctx, self.tx.clone(), interval_ms);
+                self.poller = Some(ActivePoller::Sqlite(poller));
+            }
+            LiveUpdateStorageKind::Rdb => {
+                // RDB のフィンガープリントも study 単位でしか取れないため、SQLite と同様に
+                // アクティブ Study が無ければ何も起動しない。
+                let Some(study_id) = self
+                    .app_state
+                    .current_study
+                    .as_ref()
+                    .map(|s| s.meta.study_id)
+                else {
+                    return;
+                };
+                // journal_path には URL 文字列がそのまま格納されている（Phase C 設計）。
+                // 通常はここで必ず Some になるが、想定外に外れていれば安全側で何もしない。
+                let Some(url) = crate::io::rdb::path_as_rdb_url(file_path) else {
+                    return;
+                };
+                // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
+                // 起動する（SQLite と同じフォールバック方針）。
+                let initial_fingerprint =
+                    tunny_core::rdb::study_fingerprint_url(&url, study_id).unwrap_or_default();
+                let ctx = RdbLiveUpdateContext {
+                    url,
+                    study_id,
+                    initial_fingerprint,
+                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
+                };
+                let poller = RdbLivePoller::start(ctx, self.tx.clone(), interval_ms);
+                self.poller = Some(ActivePoller::Rdb(poller));
+            }
+            LiveUpdateStorageKind::Journal => {
+                // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
+                // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
+                // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
+                // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
+                // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
+                // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
+                // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
+                // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
+                let (byte_offset, next_trial_id, study_trial_number_seeds) =
+                    match std::fs::read(file_path) {
+                        Ok(bytes) => {
+                            let per_study =
+                            tunny_core::io::journal::live_update::count_created_trials_per_study(
+                                &bytes,
+                            );
+                            (
+                                bytes.len() as u64,
+                                tunny_core::io::journal::live_update::count_created_trials(&bytes),
+                                per_study,
+                            )
+                        }
+                        Err(_) => (
+                            std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
+                            0,
+                            std::collections::HashMap::new(),
+                        ),
+                    };
+
+                let ctx = LiveUpdateContext {
+                    file_path: file_path.clone(),
+                    initial_byte_offset: byte_offset,
+                    next_trial_id,
+                    study_trial_number_seeds,
+                    study_distributions: vec![],
+                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
+                };
+
+                let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);
+                self.poller = Some(ActivePoller::Journal(poller));
+            }
+        }
+
         self.app_state.live_update.poller_active = true;
-        self.poller = Some(poller);
     }
 }
 
@@ -536,6 +808,12 @@ impl eframe::App for TunnyApp {
     // logic() は描画を行わないフェーズ（メッセージポンプ・状態更新・スクリーンショット取得）を担当する。
     // egui 0.35 の eframe::App は update() が ui()/logic() に分割された。
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // テーマ同期: dark_mode の変更源（ツールバートグル・セッション復元）に
+        // よらず、グローバルフラグと Visuals をここで一元的に追従させる。
+        if self.app_state.dark_mode != crate::theme::is_dark_mode() {
+            ctx.set_visuals(crate::theme::tunny_visuals(self.app_state.dark_mode));
+        }
+
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
 
@@ -597,6 +875,8 @@ impl eframe::App for TunnyApp {
         let ctx = ui.ctx().clone();
         crate::ui::layout::show_layout(self, ui);
         self.show_csv_import_dialog(&ctx);
+        self.show_db_url_dialog(&ctx);
+        self.show_report_dialog(&ctx);
         crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);
     }
 }
@@ -744,5 +1024,43 @@ mod tests {
         assert_eq!(app_state.live_update.interval_ms, 2000);
         app_state.live_update.interval_ms = 5000;
         assert_eq!(app_state.live_update.interval_ms, 5000);
+    }
+
+    // ── Phase C: ウィンドウタイトルのパスワードマスク ─────────────────
+
+    #[test]
+    fn compute_window_title_no_path_returns_base_title() {
+        assert_eq!(
+            TunnyApp::compute_window_title(None),
+            "Tunny Dashboard (Beta)"
+        );
+    }
+
+    #[test]
+    fn compute_window_title_local_path_shows_full_path() {
+        let path = std::path::PathBuf::from("/home/user/study.log");
+        assert_eq!(
+            TunnyApp::compute_window_title(Some(&path)),
+            "Tunny Dashboard (Beta) - /home/user/study.log"
+        );
+    }
+
+    #[test]
+    fn compute_window_title_rdb_url_masks_password() {
+        let path =
+            std::path::PathBuf::from("postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test");
+        assert_eq!(
+            TunnyApp::compute_window_title(Some(&path)),
+            "Tunny Dashboard (Beta) - postgresql://tunny:***@127.0.0.1:5432/tunny_test"
+        );
+    }
+
+    #[test]
+    fn compute_window_title_rdb_url_without_password_unchanged() {
+        let path = std::path::PathBuf::from("mysql://tunny@127.0.0.1:3306/tunny_test");
+        assert_eq!(
+            TunnyApp::compute_window_title(Some(&path)),
+            "Tunny Dashboard (Beta) - mysql://tunny@127.0.0.1:3306/tunny_test"
+        );
     }
 }

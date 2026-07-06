@@ -24,9 +24,13 @@ use crate::theme::{ACCENT_BLUE, ERROR_COLOR, TEXT_SECONDARY};
 /// のため、(59,130,246) を alpha 48 で事前乗算した値を直接指定する。
 const FRONT_LINE: Color32 = Color32::from_rgba_premultiplied(11, 24, 46, 48);
 /// 選択トライアル多角形の色（赤系で強調）。
-const SELECTED: Color32 = ERROR_COLOR;
+fn selected() -> Color32 {
+    ERROR_COLOR()
+}
 /// グリッド（同心多角形・スポーク）の色。
-const GRID: Color32 = Color32::from_gray(214);
+fn grid_color() -> Color32 {
+    crate::theme::chart_colors::COLOR_PARALLEL_AXIS()
+}
 /// 強調系列（[`RadarSeries::emphasized`]）の扇形メッシュ塗りに使う不透明度。
 /// 旧 `SELECTED_FILL`（ERROR_COLOR を premultiplied (120,34,27) で薄めた値）と
 /// 見た目を一致させるため、`from_rgba_unmultiplied(color, 131)` で同じ結果になる値を使う。
@@ -204,10 +208,16 @@ pub fn draw_radar(
     // ── グリッド（同心多角形 + スポーク）──────────────────────────
     for ring in [0.25_f32, 0.5, 0.75, 1.0] {
         let pts: Vec<egui::Pos2> = (0..n).map(|i| point_at(i, ring)).collect();
-        painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(1.0, GRID)));
+        painter.add(egui::Shape::closed_line(
+            pts,
+            egui::Stroke::new(1.0, grid_color()),
+        ));
     }
     for i in 0..n {
-        painter.line_segment([center, point_at(i, 1.0)], egui::Stroke::new(1.0, GRID));
+        painter.line_segment(
+            [center, point_at(i, 1.0)],
+            egui::Stroke::new(1.0, grid_color()),
+        );
     }
 
     // ── 系列（フロント個体・選択トライアル・ピン留めトライアル等）───
@@ -259,9 +269,9 @@ pub fn draw_radar(
             egui::Align2::RIGHT_CENTER
         };
         let color = if *is_objective {
-            ACCENT_BLUE
+            ACCENT_BLUE()
         } else {
-            TEXT_SECONDARY
+            TEXT_SECONDARY()
         };
         painter.text(lp, align, name, egui::FontId::proportional(11.0), color);
     }
@@ -313,7 +323,7 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
     }
     let sel_values: Vec<Option<f64>> = axes.iter().map(|a| a.selected).collect();
     series.push(RadarSeries {
-        color: SELECTED,
+        color: selected(),
         fractions: to_fractions(&sel_values),
         width: 2.0,
         emphasized: true,
@@ -324,12 +334,12 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
     // ── 凡例 ────────────────────────────────────────────────────
     ui.add_space(4.0);
     ui.horizontal(|ui| {
-        swatch(ui, ACCENT_BLUE);
+        swatch(ui, ACCENT_BLUE());
         ui.label(
             egui::RichText::new(format!("Pareto front individuals ({})", data.front.len())).small(),
         );
         ui.add_space(12.0);
-        swatch(ui, SELECTED);
+        swatch(ui, selected());
         ui.label(egui::RichText::new("This trial").small());
     });
     ui.label(

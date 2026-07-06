@@ -28,6 +28,8 @@ arboard = "3"
 [dev-dependencies]
 tempfile = "3"
 dhat = "0.3"
+# SQLite ライブ更新ポーラーの統合テスト用フィクスチャ DB 作成にのみ使用する。
+rusqlite = { version = "0.40.1", features = ["bundled"] }
 
 # メモリ計測サンプル（TASK-2343/2344）。dhat ヒーププロファイラを使い
 # 列指向 StudyView と行指向 Vec<TrialRow> の常駐ヒープを比較する。

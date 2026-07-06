@@ -155,6 +155,45 @@ pub struct SurrogateOptUiResult {
 }
 
 // ============================================================
+// Compare Surrogates 関連型
+// ============================================================
+
+/// Compare Surrogates: 1 モデルの CV 指標比較行。フィット/検証に失敗した場合は
+/// `error` に理由を残し、他の数値フィールドは無効値（0.0）のまま UI 側で表示しない。
+#[derive(Debug, Clone)]
+pub struct SurrogateCompareRow {
+    pub kind: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub cv_r2_mean: f64,
+    pub cv_r2_std: f64,
+    pub holdout_r2: f64,
+    pub holdout_rmse: f64,
+    pub train_r2: f64,
+    /// フィット/検証に失敗した場合のエラーメッセージ。
+    pub error: Option<String>,
+}
+
+/// Compare Surrogates ウィジェットの UI 表示用結果。選択目的に対して全モデル種別を
+/// フィットした CV 指標比較と、ベスト観測 trial をアンカーとした 1D 予測スライスの
+/// オーバーレイを保持する。
+#[derive(Debug, Clone)]
+pub struct SurrogateCompareUiResult {
+    /// モデルごとの CV 指標比較行（表示順は UI 側でソートする）。
+    pub rows: Vec<SurrogateCompareRow>,
+    /// フィットに成功したモデルの 1D 予測スライス（アンカー点を通る）。
+    pub slices: Vec<(
+        tunny_core::surrogate_opt::SurrogateModelKind,
+        tunny_core::surrogate_opt::LineSlice,
+    )>,
+    /// スライス対象パラメータに対する観測データ (x, y)。
+    pub observed: Vec<(f64, f64)>,
+    /// スライス対象パラメータ名。
+    pub param_name: String,
+    pub objective_name: String,
+    /// アンカー点（元単位、学習に使ったパラメータ順）。
+    pub anchor: Vec<f64>,
+}
+
+// ============================================================
 // AppMessage
 // ============================================================
 
@@ -244,11 +283,35 @@ pub enum AppMessage {
     LiveUpdateDone {
         new_trial_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
+        /// 全 trial（全 state）の付帯情報へ反映する extras 差分イベント。
+        extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
     },
     /// 連続エラー（ファイルアクセス失敗など）をポーラーが検出した
     LiveUpdateError(String),
     /// 60秒間ファイル変化がなく最適化完了の可能性を検出した
     LiveUpdateMaybeComplete,
+    /// SQLite ライブ更新: フィンガープリントの変化を検出した。
+    /// SQLite は trial の状態がインプレースで更新される（RUNNING→COMPLETE 等）ため
+    /// journal のようなバイトオフセット差分ができない。対象 study の丸ごと再ロードを
+    /// ワーカースレッドへ依頼する必要があることを知らせるシグナルメッセージ。
+    ///
+    /// RDB（PostgreSQL/MySQL）ライブ更新もフィンガープリント方式は同型のため、
+    /// 新しいメッセージ種別を増やさずこのメッセージをそのまま流用する
+    /// （`RdbLivePoller` もこれを送信する）。
+    SqliteLiveChanged {
+        study_id: u32,
+    },
+    /// SQLite ライブ更新: 対象 study の再ロードが完了した。
+    /// ワーカースレッドが `tunny_core::dataframe::swap_snapshot` /
+    /// `store_extras_for` まで済ませているため、ここでは
+    /// StudyView の再構築（Pareto 再計算含む）とキャッシュ破棄のみ行う。
+    ///
+    /// RDB ライブ更新の再ロード完了（`dispatch_reload_rdb_study` →
+    /// `crate::io::rdb::reload_single_study_task`）もこのメッセージをそのまま流用する。
+    SqliteLiveReloadDone {
+        study_id: u32,
+        meta: StudyMeta,
+    },
     /// 収束指標（HV / IGD+ / ε / R2）の推移計算が完了した。
     /// 基準 Study と比較 Study の全系列を一括計算し、共通参照セットで正規化する。
     IndicatorHistoryDone {
@@ -304,6 +367,22 @@ pub enum AppMessage {
     ResponseSurfaceFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     /// 応答曲面 3D ビューア用サロゲートのフィットが失敗した。
     ResponseSurfaceFitFailed(String),
+    /// Compare Surrogates: 全モデル種別のフィット＋比較が完了した
+    /// （個々のモデルのフィット失敗は `SurrogateCompareRow::error` に格納され、ここでは
+    /// 全モデルが失敗した場合のみ `SurrogateCompareFailed` を送る）。
+    SurrogateCompareDone(std::sync::Arc<SurrogateCompareUiResult>),
+    /// Compare Surrogates: 全モデルのフィットに失敗した。
+    SurrogateCompareFailed(String),
+
+    /// R4: 自己完結型レポート出力（HTML/Markdown/JSON）がバックグラウンドで完了した。
+    /// 実際に書き出したファイルパス一覧（複数フォーマット選択時は複数件）。
+    /// 失敗時は既存の `Error` を再利用する。
+    ReportExportDone {
+        paths: Vec<std::path::PathBuf>,
+        /// 既存ファイルを上書きした非プライマリの兄弟パス
+        /// （プライマリは OS 保存ダイアログ側で確認済みのため含めない）。
+        overwrote: Vec<std::path::PathBuf>,
+    },
 }
 
 #[cfg(test)]

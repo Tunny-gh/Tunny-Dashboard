@@ -33,7 +33,7 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
                 "This application bundles {} third-party crates.",
                 LICENSES.len()
             ))
-            .color(crate::theme::TEXT_SECONDARY),
+            .color(crate::theme::TEXT_SECONDARY()),
         );
         ui.add_space(4.0);
 
@@ -62,7 +62,7 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new("No crates match the filter.")
-                            .color(crate::theme::TEXT_SECONDARY),
+                            .color(crate::theme::TEXT_SECONDARY()),
                     );
                     return;
                 }
@@ -113,7 +113,7 @@ fn show_entry(ui: &mut egui::Ui, entry: &LicenseEntry) {
                         "No license file was bundled with this crate. \
                          Refer to the SPDX identifier above and the repository.",
                     )
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
                 );
             } else {
                 ui.add_space(4.0);

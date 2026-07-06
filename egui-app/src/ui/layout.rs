@@ -34,22 +34,23 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
         .min_size(32.0)
         .frame(
             egui::Frame::default()
-                .fill(crate::theme::TOOLBAR_BG)
+                .fill(crate::theme::TOOLBAR_BG())
                 .inner_margin(egui::Margin::symmetric(8, 4)),
         )
         .show(ui, |ui| {
-            ui.visuals_mut().override_text_color = Some(crate::theme::TOOLBAR_TEXT);
+            ui.visuals_mut().override_text_color = Some(crate::theme::TOOLBAR_TEXT());
             {
                 let vis = ui.visuals_mut();
                 vis.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                 vis.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-                vis.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT);
-                vis.widgets.hovered.bg_fill = crate::theme::TOOLBAR_BTN_HOVER;
+                vis.widgets.inactive.fg_stroke =
+                    egui::Stroke::new(1.0, crate::theme::TOOLBAR_TEXT());
+                vis.widgets.hovered.bg_fill = crate::theme::TOOLBAR_BTN_HOVER();
                 vis.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-                vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TOOLBAR_BTN_FG);
-                vis.widgets.active.bg_fill = crate::theme::TOOLBAR_BTN_ACTIVE;
+                vis.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TOOLBAR_BTN_FG());
+                vis.widgets.active.bg_fill = crate::theme::TOOLBAR_BTN_ACTIVE();
                 vis.widgets.active.bg_stroke = egui::Stroke::NONE;
-                vis.widgets.active.fg_stroke = egui::Stroke::new(1.5, TOOLBAR_BTN_FG);
+                vis.widgets.active.fg_stroke = egui::Stroke::new(1.5, TOOLBAR_BTN_FG());
             }
             let toolbar_actions = show_toolbar(
                 ui,
@@ -63,6 +64,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
             ui.horizontal(|ui| {
                 show_colormap_selector(ui, &mut app.app_state, &mut app.widget_states);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    show_theme_toggle(ui, &mut app.app_state);
                     show_language_menu(ui, &mut app.app_state);
                     if ui.button("📄 Licenses").clicked() {
                         app.widget_states.license_modal.open = true;
@@ -164,7 +166,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
 
     // ─── 中央パネル（常にフル幅） ──────────────────────────────────────
     egui::CentralPanel::default()
-        .frame(egui::Frame::default().fill(crate::theme::CENTRAL_BG))
+        .frame(egui::Frame::default().fill(crate::theme::CENTRAL_BG()))
         .show(ui, |ui| {
             // グリッドを先に描画し、インジケーターは後で上に重ねる
             show_main_canvas(
@@ -197,8 +199,8 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
                 .unwrap_or(0.0);
 
             // ベース色: ACCENT_BLUE, ホバーで TOOLBAR_BTN_ACTIVE
-            let base_color = crate::theme::ACCENT_BLUE;
-            let hover_color = crate::theme::TOOLBAR_BTN_ACTIVE;
+            let base_color = crate::theme::ACCENT_BLUE();
+            let hover_color = crate::theme::TOOLBAR_BTN_ACTIVE();
 
             let lerp_color = |a: egui::Color32, b: egui::Color32, t: f32| -> egui::Color32 {
                 egui::Color32::from_rgba_unmultiplied(
@@ -270,7 +272,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
                 let frame = egui::Frame::default()
-                    .fill(crate::theme::PANEL_BG)
+                    .fill(crate::theme::PANEL_BG())
                     .inner_margin(egui::Margin::same(8))
                     .shadow(egui::Shadow {
                         offset: [4, 0],
@@ -298,7 +300,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
                 let frame = egui::Frame::default()
-                    .fill(crate::theme::PANEL_BG)
+                    .fill(crate::theme::PANEL_BG())
                     .inner_margin(egui::Margin::same(8))
                     .shadow(egui::Shadow {
                         offset: [-4, 0],
@@ -328,6 +330,20 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
         &mut app.widget_states,
         &tx,
     );
+}
+
+/// ライト/ダークテーマ切替ボタンを描画する。
+/// 実際の `Visuals` 反映は `TunnyApp::logic` の毎フレーム同期が行うため、
+/// ここでは `dark_mode` フラグを反転するだけでよい。
+pub fn show_theme_toggle(ui: &mut egui::Ui, app_state: &mut AppState) {
+    let (icon, tooltip) = if app_state.dark_mode {
+        ("☀ Light", "ライトテーマに切り替え / Switch to light theme")
+    } else {
+        ("🌙 Dark", "ダークテーマに切り替え / Switch to dark theme")
+    };
+    if ui.button(icon).on_hover_text(tooltip).clicked() {
+        app_state.dark_mode = !app_state.dark_mode;
+    }
 }
 
 /// ヘルプ言語切替メニューを描画する。

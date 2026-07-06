@@ -160,7 +160,7 @@ impl TrialTable {
         // （Cluster / MCDM モードと同じ表示スタイル）。
         egui::ScrollArea::horizontal().show(ui, |ui| {
             // ストライプの色を強調して偶数/奇数行を見分けやすくする。
-            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -212,7 +212,7 @@ impl TrialTable {
                                 clicked_trial = Some(trial_id);
                             }
                             if is_highlighted {
-                                ui.painter().rect_filled(res.rect, 0.0, COLOR_LINK);
+                                ui.painter().rect_filled(res.rect, 0.0, COLOR_LINK());
                             }
                         });
                         for col in &param_cols {

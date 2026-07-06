@@ -74,6 +74,11 @@ pub fn build_chart_csv(
         ChartId::SomMap => build_som_csv(app_state, widgets),
         ChartId::Dendrogram => build_dendrogram_csv(widgets),
         ChartId::ResponseSurface3D => build_response_surface_csv(widgets),
+        ChartId::IntermediateValues => build_intermediate_values_csv(),
+        ChartId::Timeline => build_timeline_csv(),
+        ChartId::EdfPlot => build_edf_csv(app_state, widgets),
+        ChartId::RankPlot => build_rank_plot_csv(app_state, widgets),
+        ChartId::SurrogateCompare => build_surrogate_compare_csv(widgets),
     }
 }
 
@@ -266,6 +271,38 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .response_surface
             .cached_slice()
             .is_some_and(|s| !s.x_values.is_empty() && !s.y_values.is_empty()),
+        ChartId::IntermediateValues => {
+            tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_intermediate())
+        }
+        ChartId::Timeline => {
+            tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_datetimes())
+        }
+        ChartId::EdfPlot => app_state.current_study.as_ref().is_some_and(|s| {
+            s.meta
+                .objective_names
+                .get(widgets.edf_plot.obj_idx)
+                .is_some_and(|name| s.view.numeric_column(name).is_some_and(|c| !c.is_empty()))
+        }),
+        ChartId::RankPlot => app_state.current_study.as_ref().is_some_and(|s| {
+            s.trial_count() > 0
+                && s.meta
+                    .param_names
+                    .get(widgets.rank_plot.x_param_idx)
+                    .is_some()
+                && s.meta
+                    .param_names
+                    .get(widgets.rank_plot.y_param_idx)
+                    .is_some()
+                && s.meta
+                    .objective_names
+                    .get(widgets.rank_plot.obj_idx)
+                    .is_some()
+        }),
+        ChartId::SurrogateCompare => widgets
+            .surrogate_compare
+            .result
+            .as_ref()
+            .is_some_and(|r| !r.rows.is_empty()),
     }
 }
 
@@ -300,6 +337,11 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::SomMap => "som_map",
         ChartId::Dendrogram => "dendrogram",
         ChartId::ResponseSurface3D => "response_surface_3d",
+        ChartId::IntermediateValues => "intermediate_values",
+        ChartId::Timeline => "timeline",
+        ChartId::EdfPlot => "edf_plot",
+        ChartId::RankPlot => "rank_plot",
+        ChartId::SurrogateCompare => "surrogate_compare",
     };
     format!("{}.csv", name)
 }
@@ -710,6 +752,66 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
     Some(w.finish())
 }
 
+/// Intermediate Values の全 trial・全ステップを long 形式で出力する（間引きなし）。
+fn build_intermediate_values_csv() -> Option<String> {
+    let extras = tunny_core::dataframe::active_extras_snapshot()?;
+    if !extras.has_intermediate() {
+        return None;
+    }
+    // CSV エクスポートは表示用の間引き（MAX_CURVES）を適用せず全 trial を出す。
+    let (curves, _total) = crate::ui::widgets::intermediate_values::build_intermediate_curves(
+        &extras.trials,
+        false,
+        usize::MAX,
+    );
+    if curves.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header(["trial_number", "state", "step", "value"]);
+    for c in &curves {
+        for &[step, value] in &c.points {
+            w.row([
+                CsvField::UInt(c.trial_number as u64),
+                CsvField::Text(c.state.label()),
+                CsvField::Num(step),
+                CsvField::Num(value),
+            ]);
+        }
+    }
+    Some(w.finish())
+}
+
+/// Timeline の全 trial の開始/終了（経過秒）を出力する。
+fn build_timeline_csv() -> Option<String> {
+    let extras = tunny_core::dataframe::active_extras_snapshot()?;
+    if !extras.has_datetimes() {
+        return None;
+    }
+    let bars = crate::ui::widgets::timeline::build_timeline_bars(&extras.trials);
+    if bars.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header([
+        "trial_number",
+        "state",
+        "start_elapsed_s",
+        "end_elapsed_s",
+        "duration_s",
+    ]);
+    for b in &bars {
+        w.row([
+            CsvField::UInt(b.trial_number as u64),
+            CsvField::Text(b.state.label()),
+            CsvField::Num(b.start),
+            CsvField::Num(b.end),
+            CsvField::Num(b.end - b.start),
+        ]);
+    }
+    Some(w.finish())
+}
+
 fn build_convergence_csv(app_state: &AppState) -> Option<String> {
     let history = app_state.convergence_history.as_ref()?;
     let label = app_state.convergence_indicator.label();
@@ -1073,6 +1175,65 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
     Some(w.finish())
 }
 
+/// EDF（経験分布関数）の全 trial 分の点列を出力する（表示上の対数フィルタは適用しない、間引きなし）。
+fn build_edf_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    let obj_idx = widgets.edf_plot.obj_idx;
+    let obj_name = study.meta.objective_names.get(obj_idx)?;
+    let values: Vec<f64> = study.view.numeric_column(obj_name)?.to_vec();
+    let points = crate::ui::widgets::edf_plot::build_edf_points(&values, false);
+    if points.is_empty() {
+        return None;
+    }
+    let mut w = CsvWriter::new();
+    w.header([obj_name.as_str(), "cumulative_fraction"]);
+    for &[x, y] in &points {
+        w.row([CsvField::Num(x), CsvField::Num(y)]);
+    }
+    Some(w.finish())
+}
+
+/// Rank Plot の全 trial 分（NaN/欠損を含む）を出力する。
+fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+    let study = app_state.current_study.as_ref()?;
+    let n = study.trial_count();
+    if n == 0 {
+        return None;
+    }
+    let x_name = study.meta.param_names.get(widgets.rank_plot.x_param_idx)?;
+    let y_name = study.meta.param_names.get(widgets.rank_plot.y_param_idx)?;
+    let obj_idx = widgets.rank_plot.obj_idx;
+    let obj_name = study.meta.objective_names.get(obj_idx)?;
+    let minimize = !matches!(
+        study.meta.directions.get(obj_idx),
+        Some(Direction::Maximize)
+    );
+    let x_col = study.view.numeric_column(x_name);
+    let y_col = study.view.numeric_column(y_name);
+    let obj_values: Vec<f64> = study
+        .view
+        .numeric_column(obj_name)
+        .map(|c| c.to_vec())
+        .unwrap_or_default();
+    let ranks = crate::ui::widgets::rank_plot::compute_rank_percentiles(&obj_values, minimize);
+    let mut w = CsvWriter::new();
+    w.header(["trial_id", x_name, y_name, obj_name, "rank_percentile"]);
+    for (i, &tid) in study.view.trial_ids.iter().enumerate() {
+        let x_val = x_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let y_val = y_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
+        let obj_val = obj_values.get(i).copied().unwrap_or(f64::NAN);
+        let rank = ranks.get(i).copied().unwrap_or(f64::NAN);
+        w.row([
+            CsvField::UInt(tid as u64),
+            CsvField::Num(x_val),
+            CsvField::Num(y_val),
+            CsvField::Num(obj_val),
+            CsvField::Num(rank),
+        ]);
+    }
+    Some(w.finish())
+}
+
 /// サロゲート最適化の推定最適点を CSV にする。
 /// 多目的結果がある場合はフロント点テーブルを優先出力する。
 /// 単目的の場合はパラメータ行＋予測値サマリ行を出力する。
@@ -1131,6 +1292,44 @@ fn build_robustness_csv(widgets: &WidgetStates) -> Option<String> {
     if let Some(result) = widgets.robustness.cached_result() {
         for &v in &result.samples {
             w.row([CsvField::Num(v)]);
+        }
+    }
+    Some(w.finish())
+}
+
+/// Compare Surrogates の CV 指標比較表を CSV にする。フィットに失敗したモデルは
+/// 数値欄を空欄にする。結果が無ければ None。
+fn build_surrogate_compare_csv(widgets: &WidgetStates) -> Option<String> {
+    let result = widgets.surrogate_compare.result.as_ref()?;
+    let mut w = CsvWriter::new();
+    w.header([
+        "model",
+        "cv_r2_mean",
+        "cv_r2_std",
+        "holdout_r2",
+        "holdout_rmse",
+        "train_r2",
+    ]);
+    for row in &result.rows {
+        let model_name = crate::ui::widgets::surrogate_opt::model_label(row.kind);
+        if row.error.is_some() {
+            w.row([
+                CsvField::Text(model_name),
+                CsvField::Empty,
+                CsvField::Empty,
+                CsvField::Empty,
+                CsvField::Empty,
+                CsvField::Empty,
+            ]);
+        } else {
+            w.row([
+                CsvField::Text(model_name),
+                CsvField::Num(row.cv_r2_mean),
+                CsvField::Num(row.cv_r2_std),
+                CsvField::Num(row.holdout_r2),
+                CsvField::Num(row.holdout_rmse),
+                CsvField::Num(row.train_r2),
+            ]);
         }
     }
     Some(w.finish())

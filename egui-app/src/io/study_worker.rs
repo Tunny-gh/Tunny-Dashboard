@@ -8,6 +8,7 @@ use crate::state::app_state::StudyMeta;
 use crate::state::messages::AppMessage;
 
 use tunny_core::dataframe::DataFrame;
+use tunny_core::rdb::RdbUrl;
 
 enum StudyCommand {
     /// Phase 1: ファイルをスキャンして Study 一覧のみ取得する
@@ -25,6 +26,11 @@ enum StudyCommand {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
+    /// Optuna RDBStorage（PostgreSQL/MySQL）を URL 経由で開いて Study 一覧のみ取得する。
+    ScanRdb {
+        url: RdbUrl,
+        tx: SyncSender<AppMessage>,
+    },
     /// Phase 2 兼再選択: 未ロードなら完全パース、ロード済みなら即活性化
     SelectStudy {
         meta: StudyMeta,
@@ -37,6 +43,19 @@ enum StudyCommand {
         meta: StudyMeta,
         tx: SyncSender<AppMessage>,
     },
+    /// SQLite ライブ更新: フィンガープリント変化を検出した study を丸ごと再パースする。
+    /// `SelectStudy` と異なり `loaded_study_ids` の有無に関わらず必ず再パースする
+    /// （既にロード済みでも中身が変わっているのが再ロードの動機のため）。
+    ReloadSqliteStudy {
+        study_id: u32,
+        tx: SyncSender<AppMessage>,
+    },
+    /// RDB ライブ更新版の `ReloadSqliteStudy`。フィンガープリント変化を検出した study を
+    /// URL 経由で丸ごと再パースする。
+    ReloadRdbStudy {
+        study_id: u32,
+        tx: SyncSender<AppMessage>,
+    },
 }
 
 /// ワーカースレッドのローカル状態
@@ -46,6 +65,10 @@ struct WorkerState {
     /// 開いている Optuna SQLite ストレージのパス。journal と異なりバイト列はキャッシュせず、
     /// Phase 2 はこのパスから直接再クエリする。journal/CSV とは相互排他。
     sqlite_path: Option<PathBuf>,
+    /// 開いている Optuna RDB（PostgreSQL/MySQL）ストレージの接続 URL。
+    /// sqlite_path 同様バイト列はキャッシュせず、Phase 2 は毎回この URL から再接続・再クエリする。
+    /// journal/CSV/sqlite とは相互排他（いずれかをセットする箇所で他を必ず None に戻す）。
+    rdb_url: Option<RdbUrl>,
     /// DataFrame をグローバルストアに登録済みの study_id セット
     loaded_study_ids: HashSet<u32>,
     /// フラット CSV インポート時の `img` 列由来アーティファクト。
@@ -62,6 +85,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
             let mut state = WorkerState {
                 journal_data: None,
                 sqlite_path: None,
+                rdb_url: None,
                 loaded_study_ids: HashSet::new(),
                 csv_artifacts: None,
             };
@@ -72,6 +96,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         if !matches!(msg, AppMessage::Error(_)) {
                             state.journal_data = Some(data);
                             state.sqlite_path = None;
+                            state.rdb_url = None;
                             state.loaded_study_ids.clear();
                             state.csv_artifacts = None;
                         }
@@ -84,6 +109,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 // ストリーミング経路は使わず、loaded 扱いにする。
                                 state.journal_data = None;
                                 state.sqlite_path = None;
+                                state.rdb_url = None;
                                 state.loaded_study_ids.clear();
                                 state.loaded_study_ids.insert(meta.study_id);
                                 state.csv_artifacts = Some((artifacts_dir, artifacts));
@@ -102,6 +128,18 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         if !matches!(msg, AppMessage::Error(_)) {
                             state.journal_data = None;
                             state.sqlite_path = Some(path);
+                            state.rdb_url = None;
+                            state.loaded_study_ids.clear();
+                            state.csv_artifacts = None;
+                        }
+                        let _ = tx.send(msg);
+                    }
+                    StudyCommand::ScanRdb { url, tx } => {
+                        let msg = crate::io::rdb::scan_rdb_task(url.clone());
+                        if !matches!(msg, AppMessage::Error(_)) {
+                            state.journal_data = None;
+                            state.sqlite_path = None;
+                            state.rdb_url = Some(url);
                             state.loaded_study_ids.clear();
                             state.csv_artifacts = None;
                         }
@@ -133,6 +171,12 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
+                        } else if let Some(ref url) = state.rdb_url {
+                            // 未ロード → RDB から全行を単一チャンクとして読み込む（1 通）。
+                            let ok = crate::io::rdb::load_single_study_task(url, study_id, &tx);
+                            if ok {
+                                state.loaded_study_ids.insert(study_id);
+                            }
                         } else {
                             let _ = tx.send(AppMessage::Error(
                                 "No journal is loaded yet. Please open a journal first."
@@ -151,11 +195,14 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                     match tunny_core::io::journal::parser::parse_single_study(
                                         data, study_id,
                                     ) {
-                                        Ok((_full_meta, df)) => {
+                                        Ok((_full_meta, df, extras)) => {
                                             let arc = Arc::new(df);
                                             tunny_core::dataframe::swap_snapshot(
                                                 study_id,
                                                 arc.clone(),
+                                            );
+                                            tunny_core::dataframe::store_extras_for(
+                                                study_id, extras,
                                             );
                                             state.loaded_study_ids.insert(study_id);
                                             Some(arc)
@@ -167,11 +214,14 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                     Some(path) => {
                                         match tunny_core::sqlite::parse_single_study(path, study_id)
                                         {
-                                            Ok((_full_meta, df)) => {
+                                            Ok((_full_meta, df, extras)) => {
                                                 let arc = Arc::new(df);
                                                 tunny_core::dataframe::swap_snapshot(
                                                     study_id,
                                                     arc.clone(),
+                                                );
+                                                tunny_core::dataframe::store_extras_for(
+                                                    study_id, extras,
                                                 );
                                                 state.loaded_study_ids.insert(study_id);
                                                 Some(arc)
@@ -179,7 +229,28 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                             Err(_) => None,
                                         }
                                     }
-                                    None => None,
+                                    None => match state.rdb_url.as_ref() {
+                                        Some(url) => {
+                                            match tunny_core::rdb::parse_single_study_url(
+                                                url, study_id,
+                                            ) {
+                                                Ok((_full_meta, df, extras)) => {
+                                                    let arc = Arc::new(df);
+                                                    tunny_core::dataframe::swap_snapshot(
+                                                        study_id,
+                                                        arc.clone(),
+                                                    );
+                                                    tunny_core::dataframe::store_extras_for(
+                                                        study_id, extras,
+                                                    );
+                                                    state.loaded_study_ids.insert(study_id);
+                                                    Some(arc)
+                                                }
+                                                Err(_) => None,
+                                            }
+                                        }
+                                        None => None,
+                                    },
                                 },
                             },
                         };
@@ -191,6 +262,24 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             )),
                         };
                         let _ = tx.send(msg);
+                    }
+                    StudyCommand::ReloadSqliteStudy { study_id, tx } => {
+                        if let Some(ref path) = state.sqlite_path {
+                            crate::io::sqlite::reload_single_study_task(path, study_id, &tx);
+                        } else {
+                            let _ = tx.send(AppMessage::Error(
+                                "SQLite live update requires an open SQLite study".to_string(),
+                            ));
+                        }
+                    }
+                    StudyCommand::ReloadRdbStudy { study_id, tx } => {
+                        if let Some(ref url) = state.rdb_url {
+                            crate::io::rdb::reload_single_study_task(url, study_id, &tx);
+                        } else {
+                            let _ = tx.send(AppMessage::Error(
+                                "RDB live update requires an open database study".to_string(),
+                            ));
+                        }
                     }
                 }
             }
@@ -213,6 +302,11 @@ pub fn dispatch_scan_sqlite(path: PathBuf, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanSqlite { path, tx });
 }
 
+/// Optuna RDBStorage（PostgreSQL/MySQL）を URL 経由で開いて Study 一覧を取得する。
+pub fn dispatch_scan_rdb(url: RdbUrl, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanRdb { url, tx });
+}
+
 pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::SelectStudy { meta, tx });
 }
@@ -222,6 +316,16 @@ pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
 /// アクティブ Study を変更せずに `ComparisonStudyLoaded` を送信する。
 pub fn dispatch_load_comparison_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, tx });
+}
+
+/// SQLite ライブ更新: フィンガープリント変化を検出した study の再ロードを依頼する。
+pub fn dispatch_reload_sqlite_study(study_id: u32, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ReloadSqliteStudy { study_id, tx });
+}
+
+/// RDB ライブ更新: フィンガープリント変化を検出した study の再ロードを依頼する。
+pub fn dispatch_reload_rdb_study(study_id: u32, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ReloadRdbStudy { study_id, tx });
 }
 
 /// 比較 Study の DataFrame スナップショットから `StudyContext` を構築する。

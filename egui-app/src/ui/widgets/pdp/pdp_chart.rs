@@ -22,9 +22,9 @@ pub enum ObservedKind {
 impl ObservedKind {
     pub fn color(self) -> egui::Color32 {
         match self {
-            ObservedKind::Pareto => COLOR_PARETO,
-            ObservedKind::NonPareto => COLOR_NON_PARETO,
-            ObservedKind::Infeasible => COLOR_INFEASIBLE,
+            ObservedKind::Pareto => COLOR_PARETO(),
+            ObservedKind::NonPareto => COLOR_NON_PARETO(),
+            ObservedKind::Infeasible => COLOR_INFEASIBLE(),
         }
     }
 
@@ -387,7 +387,7 @@ impl PdpChart {
                 // egui_plot::Polygon はファン三角分割を使うため一枚の非凸ポリゴンでは
                 // 描画が崩れる。区間ごとの凸四辺形に分割することで正確に描画できる。
                 if let (Some(upper), Some(lower)) = (&result.y_upper, &result.y_lower) {
-                    let fill = COLOR_PDP_CI;
+                    let fill = COLOR_PDP_CI();
                     let xs = &result.x_values;
                     let n = xs.len();
                     for i in 0..n.saturating_sub(1) {
@@ -408,7 +408,7 @@ impl PdpChart {
                 if result.y_upper.is_some() {
                     plot_ui.points(
                         egui_plot::Points::new("95% CI", vec![[f64::NAN, f64::NAN]])
-                            .color(COLOR_PDP_CI_LEGEND)
+                            .color(COLOR_PDP_CI_LEGEND())
                             .radius(6.0),
                     );
                 }
@@ -424,7 +424,7 @@ impl PdpChart {
                     plot_ui.line(
                         egui_plot::Line::new("", pts)
                             .width(0.5)
-                            .color(COLOR_ICE_LINE),
+                            .color(COLOR_ICE_LINE()),
                     );
                 }
 
@@ -438,7 +438,7 @@ impl PdpChart {
                 plot_ui.line(
                     egui_plot::Line::new("PDP", main_pts)
                         .width(2.0)
-                        .color(COLOR_PDP_LINE),
+                        .color(COLOR_PDP_LINE()),
                 );
 
                 // 観測データ散布図（最前面）。他の散布図と同じ配色で分類別に描く
@@ -602,9 +602,9 @@ mod tests {
 
     #[test]
     fn observed_kind_colors_match_scatter_palette() {
-        assert_eq!(ObservedKind::Pareto.color(), COLOR_PARETO);
-        assert_eq!(ObservedKind::NonPareto.color(), COLOR_NON_PARETO);
-        assert_eq!(ObservedKind::Infeasible.color(), COLOR_INFEASIBLE);
+        assert_eq!(ObservedKind::Pareto.color(), COLOR_PARETO());
+        assert_eq!(ObservedKind::NonPareto.color(), COLOR_NON_PARETO());
+        assert_eq!(ObservedKind::Infeasible.color(), COLOR_INFEASIBLE());
     }
 
     // TASK-2025 tests

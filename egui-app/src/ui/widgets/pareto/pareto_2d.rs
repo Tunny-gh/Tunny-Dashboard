@@ -272,7 +272,7 @@ impl ParetoScatter2D {
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Infeasible", infeasible_pts)
-                            .color(COLOR_INFEASIBLE)
+                            .color(COLOR_INFEASIBLE())
                             .radius(2.5),
                     );
                 }
@@ -280,7 +280,7 @@ impl ParetoScatter2D {
                 if !unselected_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Others (unselected)", unselected_pts)
-                            .color(COLOR_UNSELECTED_POINT)
+                            .color(COLOR_UNSELECTED_POINT())
                             .radius(2.5),
                     );
                 }
@@ -288,7 +288,7 @@ impl ParetoScatter2D {
                 if !non_pareto_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Others", non_pareto_pts)
-                            .color(COLOR_NON_PARETO)
+                            .color(COLOR_NON_PARETO())
                             .radius(2.5),
                     );
                 }
@@ -296,7 +296,7 @@ impl ParetoScatter2D {
                 if !pareto_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Pareto Front", pareto_pts)
-                            .color(COLOR_PARETO)
+                            .color(COLOR_PARETO())
                             .radius(4.0),
                     );
                 }
@@ -306,14 +306,14 @@ impl ParetoScatter2D {
                         egui_plot::Points::new("Surrogate Pareto Front", surrogate_pts)
                             .shape(egui_plot::MarkerShape::Diamond)
                             .radius(4.5)
-                            .color(COLOR_SURROGATE_FRONT),
+                            .color(COLOR_SURROGATE_FRONT()),
                     );
                 }
                 // ハイライト点
                 if let Some(pt) = highlight_pt {
                     plot_ui.points(
                         egui_plot::Points::new("Highlighted", vec![pt])
-                            .color(COLOR_HIGHLIGHT_PT)
+                            .color(COLOR_HIGHLIGHT_PT())
                             .radius(8.0),
                     );
                 }

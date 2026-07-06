@@ -4,6 +4,7 @@ pub use super::types::*;
 use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
+use crate::ui::widgets::report_modal::ReportDialogState;
 use std::collections::HashMap;
 use tunny_core::indicators::MoIndicator;
 
@@ -75,6 +76,12 @@ pub struct AppState {
     /// ヘルプ表示言語（selected_colormap と同じパターンで clear() でリセットしない）
     pub help_language: HelpLanguage,
 
+    // ── テーマ ─────────────────────────────────────────────────
+    /// ダークテーマか（ビュー設定として clear() でリセットしない）。
+    /// 実際の `Visuals` / `theme::set_dark_mode` への反映は毎フレーム
+    /// `TunnyApp::logic` が差分検知して行う。
+    pub dark_mode: bool,
+
     // ── 収束指標選択 ───────────────────────────────────────────
     /// 収束指標チャートで表示中の指標（ビュー設定として clear() でリセットしない）
     pub convergence_indicator: MoIndicator,
@@ -83,6 +90,15 @@ pub struct AppState {
     /// フラット CSV 読み込み直後に表示する方向・レンジ確認ダイアログの編集状態。
     /// `Some` の間はダイアログを表示し、確定するまで Study を活性化しない。
     pub csv_import_settings: Option<CsvImportSettings>,
+
+    // ── RDB (PostgreSQL/MySQL) 接続 URL ダイアログ ────────────────
+    /// 「Open URL…」ダイアログの入力中テキスト。`None` は非表示、`Some` は表示中
+    /// （空文字列を含む入力中の文字列そのもの）。
+    pub db_url_dialog: Option<String>,
+
+    // ── R4: 自己完結型レポート出力（HTML/Markdown/JSON） ──────────
+    /// 「Report…」ダイアログの編集状態。`None` は非表示。
+    pub report_dialog: Option<ReportDialogState>,
 }
 
 impl AppState {
@@ -114,8 +130,11 @@ impl AppState {
             pinned_trials: Vec::new(),
             comparison_base_study: None,
             help_language: HelpLanguage::default(),
+            dark_mode: false,
             convergence_indicator: MoIndicator::Hypervolume,
             csv_import_settings: None,
+            db_url_dialog: None,
+            report_dialog: None,
         }
     }
 
@@ -180,6 +199,7 @@ impl AppState {
         // pinned_trials は Study 切り替えでもリセットしない（ユーザーのピン設定を維持）
         // comparison_base_study は Study 切り替えでもリセットしない
         // help_language はユーザー設定を維持（selected_colormap と同じパターン）
+        // dark_mode はユーザー設定を維持（同上）
     }
 }
 

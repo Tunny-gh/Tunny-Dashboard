@@ -191,7 +191,7 @@ impl McdmControls {
         let obj_count = obj_names.len();
         if obj_count == 0 {
             ui.vertical_centered(|ui| {
-                ui.colored_label(COLOR_EMPTY_STATE, "Select a study first");
+                ui.colored_label(COLOR_EMPTY_STATE(), "Select a study first");
             });
             return false;
         }
@@ -296,7 +296,7 @@ impl McdmControls {
                         use egui_extras::{Column, TableBuilder};
                         let n_obj = entropy.weights.len();
                         if n_obj == 0 {
-                            ui.colored_label(COLOR_EMPTY_STATE, "No data");
+                            ui.colored_label(COLOR_EMPTY_STATE(), "No data");
                             return;
                         }
 
@@ -376,7 +376,7 @@ impl McdmRankChart {
 
         let Some(result) = result else {
             ui.vertical_centered(|ui| {
-                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute MCDM ranking");
+                ui.colored_label(COLOR_EMPTY_STATE(), "Press Run to compute MCDM ranking");
             });
             return;
         };
@@ -438,7 +438,7 @@ impl McdmRankChart {
                                     egui::vec2(phi_plus_w, rect_plus.height()),
                                 ),
                                 2.0,
-                                COLOR_BAR_PRIMARY,
+                                COLOR_BAR_PRIMARY(),
                             );
                         }
                         let (rect_minus, _) = ui.allocate_exact_size(
@@ -452,7 +452,7 @@ impl McdmRankChart {
                                     egui::vec2(phi_minus_w, rect_minus.height()),
                                 ),
                                 2.0,
-                                COLOR_BAR_NEGATIVE,
+                                COLOR_BAR_NEGATIVE(),
                             );
                         }
                         let incomparable = r
@@ -501,9 +501,9 @@ impl McdmRankChart {
                         0.0
                     };
                     let color = if phi_net >= 0.0 {
-                        COLOR_BAR_PRIMARY
+                        COLOR_BAR_PRIMARY()
                     } else {
-                        COLOR_BAR_ACCENT
+                        COLOR_BAR_ACCENT()
                     };
                     ui.horizontal(|ui| {
                         ui.add_sized(
@@ -542,7 +542,7 @@ impl McdmRankChart {
         }
 
         let max_score = entries.iter().map(|e| e.score).fold(0.0_f64, f64::max);
-        let bar_color = COLOR_BAR_PRIMARY;
+        let bar_color = COLOR_BAR_PRIMARY();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             let available_width = ui.available_width() - label_width - value_text_width - 8.0;
@@ -611,7 +611,7 @@ impl McdmTable {
 
         let Some(result) = result else {
             ui.vertical_centered(|ui| {
-                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute the MCDM ranking");
+                ui.colored_label(COLOR_EMPTY_STATE(), "Press Run to compute the MCDM ranking");
             });
             return None;
         };
@@ -626,7 +626,7 @@ impl McdmTable {
             self.controls.top_n.value(),
         );
         if rows.is_empty() {
-            ui.colored_label(COLOR_EMPTY_STATE, "No results to display");
+            ui.colored_label(COLOR_EMPTY_STATE(), "No results to display");
             return None;
         }
 
@@ -636,7 +636,7 @@ impl McdmTable {
         // （Cluster Table と同形式）。
         egui::ScrollArea::horizontal().show(ui, |ui| {
             // ストライプの色を強調して偶数/奇数行を見分けやすくする。
-            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)

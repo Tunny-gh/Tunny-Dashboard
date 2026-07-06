@@ -1,7 +1,10 @@
 // 最適化履歴
 mod history;
 pub use history::convergence;
+pub use history::edf_plot;
+pub use history::intermediate_values;
 pub use history::optimization_history;
+pub use history::timeline;
 
 // パレート分析
 mod pareto;
@@ -21,6 +24,8 @@ pub use pdp::slice_chart;
 
 // サロゲート最適化（応答曲面作成＋曲面上の最適化）
 mod surrogate;
+pub use surrogate::anchor;
+pub use surrogate::compare;
 pub use surrogate::response_surface;
 pub use surrogate::robustness;
 pub use surrogate::surrogate_opt;
@@ -33,6 +38,7 @@ pub use scatter::dendrogram;
 pub use scatter::observed_contour;
 pub use scatter::parallel_coords;
 pub use scatter::pca_biplot;
+pub use scatter::rank_plot;
 pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;
 pub use scatter::som_map;
@@ -58,5 +64,7 @@ pub use common::cluster_table;
 pub use common::convergence_card;
 pub use common::csv_import_modal;
 pub use common::license_modal;
+pub use common::rdb_url_modal;
+pub use common::report_modal;
 pub use common::trial_detail_modal;
 pub use common::trial_table;

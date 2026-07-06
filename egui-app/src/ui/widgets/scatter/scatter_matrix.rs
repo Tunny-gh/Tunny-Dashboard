@@ -277,18 +277,18 @@ impl ScatterMatrix {
                             if v.is_finite() {
                                 cmap.interpolate(normalize_value(v, mn, mx))
                             } else {
-                                COLOR_SCATTER_DOT
+                                COLOR_SCATTER_DOT()
                             }
                         })
                         .collect()
                 } else {
-                    vec![COLOR_SCATTER_DOT; feasible_draw.len()]
+                    vec![COLOR_SCATTER_DOT(); feasible_draw.len()]
                 }
             } else {
-                vec![COLOR_SCATTER_DOT; feasible_draw.len()]
+                vec![COLOR_SCATTER_DOT(); feasible_draw.len()]
             }
         };
-        let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE; infeasible_draw.len()];
+        let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE(); infeasible_draw.len()];
 
         for row in 0..n {
             for col in 0..n {
@@ -329,7 +329,7 @@ impl ScatterMatrix {
                 painter.rect_stroke(
                     cell_rect,
                     0.0,
-                    egui::Stroke::new(1.0, COLOR_GRID_STROKE),
+                    egui::Stroke::new(1.0, COLOR_GRID_STROKE()),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -481,7 +481,7 @@ pub fn draw_scatter_cell(
             (y_min, y_max),
             cell_rect,
         );
-        let color = colors.get(k).copied().unwrap_or(COLOR_SCATTER_DOT);
+        let color = colors.get(k).copied().unwrap_or(COLOR_SCATTER_DOT());
         painter.circle_filled(pos, 1.6, color);
     }
 }
@@ -506,7 +506,7 @@ pub fn draw_histogram_cell(
             ),
             egui::vec2(bar_width - 1.0, bar_height),
         );
-        painter.rect_filled(bar_rect, 0.0, COLOR_SCATTER_DOT);
+        painter.rect_filled(bar_rect, 0.0, COLOR_SCATTER_DOT());
     }
 }
 
@@ -525,7 +525,7 @@ pub fn draw_correlation_cell(
         egui::Align2::CENTER_CENTER,
         format!("{:.2}", corr),
         egui::FontId::proportional(12.0),
-        COLOR_CHART_TEXT,
+        COLOR_CHART_TEXT(),
     );
 }
 

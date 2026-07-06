@@ -149,7 +149,7 @@ impl ComparisonTableChart {
         if pinned_rows.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    COLOR_EMPTY_STATE,
+                    COLOR_EMPTY_STATE(),
                     "Pin trials (📌) in the Trial Table to compare them here.",
                 );
             });
@@ -166,7 +166,7 @@ impl ComparisonTableChart {
         if rows.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    COLOR_EMPTY_STATE,
+                    COLOR_EMPTY_STATE(),
                     "No numeric columns available to compare.",
                 );
             });
@@ -176,7 +176,7 @@ impl ComparisonTableChart {
         use egui_extras::{Column, TableBuilder};
 
         egui::ScrollArea::horizontal().show(ui, |ui| {
-            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG;
+            ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -223,7 +223,9 @@ impl ComparisonTableChart {
                                     "—".to_string()
                                 };
                                 if Some(ci) == best_idx {
-                                    ui.label(egui::RichText::new(text).strong().color(ACCENT_BLUE));
+                                    ui.label(
+                                        egui::RichText::new(text).strong().color(ACCENT_BLUE()),
+                                    );
                                 } else {
                                     ui.label(text);
                                 }

@@ -108,6 +108,22 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::ResponseSurface3D => {
             egui::include_image!("../../../assets/widget_icons/response_surface.svg")
         }
+        ChartId::IntermediateValues => {
+            egui::include_image!("../../../assets/widget_icons/intermediate_values.svg")
+        }
+        ChartId::Timeline => {
+            egui::include_image!("../../../assets/widget_icons/timeline.svg")
+        }
+        ChartId::EdfPlot => {
+            egui::include_image!("../../../assets/widget_icons/edf_plot.svg")
+        }
+        ChartId::RankPlot => {
+            egui::include_image!("../../../assets/widget_icons/rank_plot.svg")
+        }
+        // Compare Surrogates はサロゲート最適化と同じモデル群を扱うため、既存アイコンを再利用する。
+        ChartId::SurrogateCompare => {
+            egui::include_image!("../../../assets/widget_icons/surrogate_opt.svg")
+        }
     }
 }
 
@@ -115,9 +131,9 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
 /// `enabled` が false（配置済み）の場合はティントを薄くし、操作不可にする。
 fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
     let tint = if enabled {
-        crate::theme::TEXT_SECONDARY
+        crate::theme::TEXT_SECONDARY()
     } else {
-        egui::Color32::from_gray(190)
+        crate::theme::CLOSE_BTN_TEXT()
     };
     ui.allocate_ui_with_layout(
         egui::vec2(TILE_W, TILE_H),
@@ -143,7 +159,7 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
 /// （Canvas ビューは同じウィジェットの複数配置を許すため、常に配置可能）。
 fn widget_tile(ui: &mut egui::Ui, item: &PanelItem) {
     let frame = egui::Frame::default()
-        .fill(crate::theme::WIDGET_BG)
+        .fill(crate::theme::WIDGET_BG())
         .corner_radius(6)
         .inner_margin(egui::Margin::same(2));
 
@@ -169,6 +185,9 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                 &[
                     PanelItem::Chart(ChartId::OptimizationHistory),
                     PanelItem::Chart(ChartId::ConvergenceIndicators),
+                    PanelItem::Chart(ChartId::IntermediateValues),
+                    PanelItem::Chart(ChartId::Timeline),
+                    PanelItem::Chart(ChartId::EdfPlot),
                 ],
             ),
             (
@@ -187,6 +206,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
                     PanelItem::Chart(ChartId::ObservedContour),
+                    PanelItem::Chart(ChartId::RankPlot),
                 ],
             ),
             (
@@ -205,6 +225,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::PdpChart),
                     PanelItem::Chart(ChartId::PdpChart2D),
                     PanelItem::Chart(ChartId::ResponseSurface3D),
+                    PanelItem::Chart(ChartId::SurrogateCompare),
                 ],
             ),
             (
@@ -248,7 +269,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ui.label(
                 egui::RichText::new(*group_label)
                     .small()
-                    .color(crate::theme::TEXT_SECONDARY),
+                    .color(crate::theme::TEXT_SECONDARY()),
             );
             ui.separator();
             ui.horizontal_wrapped(|ui| {

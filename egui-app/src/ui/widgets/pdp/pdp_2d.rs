@@ -161,7 +161,7 @@ impl PdpChart2DState {
 
         // 同一パラメータ警告
         if !self.selected_param1.is_empty() && self.selected_param1 == self.selected_param2 {
-            ui.colored_label(COLOR_CONTOUR, "Warning: the same parameter is selected");
+            ui.colored_label(COLOR_CONTOUR(), "Warning: the same parameter is selected");
         }
 
         // Run button — only enabled when params are different and objectives exist
@@ -598,8 +598,8 @@ pub(crate) fn draw_surface_mesh(
 
     collect_cells(&mut items, values, None);
     if let Some((lower, upper)) = bands {
-        collect_cells(&mut items, lower, Some(COLOR_PDP_CI));
-        collect_cells(&mut items, upper, Some(COLOR_PDP_CI));
+        collect_cells(&mut items, lower, Some(COLOR_PDP_CI()));
+        collect_cells(&mut items, upper, Some(COLOR_PDP_CI()));
     }
 
     for (p, color) in points {

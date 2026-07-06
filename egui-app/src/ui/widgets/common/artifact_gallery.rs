@@ -400,7 +400,7 @@ impl ArtifactGallery {
         self.show_cluster_controls(ui, pareto_count);
 
         if let Some(err) = self.cluster_error.clone() {
-            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR));
+            ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR()));
             if err.retryable && ui.button("Retry").clicked() {
                 self.try_queue_cluster_compute(pareto_count);
             }
@@ -738,7 +738,7 @@ fn build_objective_labels(app_state: &AppState) -> HashMap<u32, String> {
 /// クラスタラベルから色を求める（ClusterTable と同じ規則）。
 fn cluster_color(label: i32, n_clusters: usize, colormap: &ColorMap) -> egui::Color32 {
     if label < 0 {
-        return crate::theme::TEXT_SECONDARY;
+        return crate::theme::TEXT_SECONDARY();
     }
     let t = if n_clusters <= 1 {
         0.5
@@ -763,9 +763,9 @@ fn show_artifact_card(
     let mut click = CardClick::default();
     let is_highlighted = app_state.highlighted_trial == Some(trial_id);
     let stroke = if is_highlighted {
-        egui::Stroke::new(2.0, COLOR_LINK)
+        egui::Stroke::new(2.0, COLOR_LINK())
     } else {
-        egui::Stroke::new(1.0, crate::theme::BORDER_COLOR)
+        egui::Stroke::new(1.0, crate::theme::BORDER_COLOR())
     };
 
     egui::Frame::group(ui.style())
@@ -824,7 +824,7 @@ fn show_artifact_card(
                     ui.add(egui::Label::new(
                         egui::RichText::new(obj_text)
                             .small()
-                            .color(crate::theme::TEXT_SECONDARY),
+                            .color(crate::theme::TEXT_SECONDARY()),
                     ));
                 }
             });

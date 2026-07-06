@@ -31,4 +31,10 @@ pub(super) struct TrialBuilder {
     pub(super) user_attrs_string: HashMap<String, String>,
     pub(super) constraint_values: Vec<f64>,
     pub(super) has_constraints: bool,
+    /// 開始日時。unix 秒（naive）。op_code=4 の `datetime_start` 由来。
+    pub(super) datetime_start: Option<f64>,
+    /// 完了日時。unix 秒（naive）。op_code=6 の `datetime_complete` 由来。
+    pub(super) datetime_complete: Option<f64>,
+    /// 中間値 `(step, value)`。op_code=7 由来。挿入順（後で step 昇順にソートする）。
+    pub(super) intermediate_values: Vec<(u64, f64)>,
 }

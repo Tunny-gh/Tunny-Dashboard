@@ -17,7 +17,8 @@ mod tests;
 pub use feasibility::Feasibility;
 pub use model::DataFrame;
 pub use state::{
-    active_snapshot, select_study, snapshot, store_dataframes, swap_snapshot, with_active_df,
+    active_extras_snapshot, active_snapshot, extras_snapshot, select_study, snapshot,
+    store_dataframes, store_extras, store_extras_for, swap_extras, swap_snapshot, with_active_df,
     with_df, SharedStudyStore,
 };
 pub use types::TrialRow;

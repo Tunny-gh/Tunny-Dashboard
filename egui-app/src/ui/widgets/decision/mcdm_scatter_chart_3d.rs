@@ -181,7 +181,7 @@ impl McdmScatterChart3D {
             }
 
             let color = if rank == usize::MAX || rank >= colored_range {
-                COLOR_MCDM_NONE
+                COLOR_MCDM_NONE()
             } else {
                 let t = if colored_range > 1 {
                     1.0 - rank as f32 / (colored_range - 1) as f32
@@ -235,7 +235,7 @@ impl McdmScatterChart3D {
 
         let Some(result) = mcdm_result else {
             ui.centered_and_justified(|ui| {
-                ui.colored_label(COLOR_EMPTY_STATE, "Press Run to compute the MCDM ranking");
+                ui.colored_label(COLOR_EMPTY_STATE(), "Press Run to compute the MCDM ranking");
             });
             return;
         };
@@ -300,7 +300,7 @@ impl McdmScatterChart3D {
             if let Err(e) =
                 self.rebuild_cache(result, view, obj_names, colormap, colormap_name, top_n)
             {
-                ui.colored_label(ERROR_COLOR, e);
+                ui.colored_label(ERROR_COLOR(), e);
                 return;
             }
         }
@@ -349,7 +349,7 @@ impl McdmScatterChart3D {
                 }
                 inf_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
                 for (pos, _) in &inf_pts {
-                    painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE);
+                    painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE());
                 }
             }
 
@@ -483,7 +483,7 @@ fn draw_colorbar_legend(
     painter.circle_filled(
         egui::pos2(bar_x + BAR_W * 0.5, others_y + row_h * 0.5),
         4.0,
-        COLOR_MCDM_NONE,
+        COLOR_MCDM_NONE(),
     );
     painter.text(
         egui::pos2(bar_x + TEXT_X, others_y + row_h * 0.5),
@@ -499,7 +499,7 @@ fn draw_colorbar_legend(
         painter.circle_filled(
             egui::pos2(bar_x + BAR_W * 0.5, inf_y + row_h * 0.5),
             4.0,
-            crate::theme::chart_colors::COLOR_INFEASIBLE,
+            crate::theme::chart_colors::COLOR_INFEASIBLE(),
         );
         painter.text(
             egui::pos2(bar_x + TEXT_X, inf_y + row_h * 0.5),

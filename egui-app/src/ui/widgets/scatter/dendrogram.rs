@@ -195,7 +195,7 @@ impl DendrogramChart {
 
         let features = feature_names(param_names, obj_names, self.space);
         if features.is_empty() {
-            ui.colored_label(COLOR_EMPTY_STATE, "No numeric columns available.");
+            ui.colored_label(COLOR_EMPTY_STATE(), "No numeric columns available.");
             return;
         }
 
@@ -207,7 +207,7 @@ impl DendrogramChart {
 
         let Some((_, result)) = &self.cache else {
             ui.colored_label(
-                COLOR_EMPTY_STATE,
+                COLOR_EMPTY_STATE(),
                 "Not enough data to build a dendrogram (need >= 2 rows).",
             );
             return;
@@ -270,7 +270,7 @@ impl DendrogramChart {
                 let x2 = (x + dash_len).min(rect.right());
                 painter.line_segment(
                     [egui::pos2(x, y), egui::pos2(x2, y)],
-                    egui::Stroke::new(1.0, egui::Color32::from_gray(160)),
+                    egui::Stroke::new(1.0, crate::theme::chart_colors::COLOR_GRID_STROKE()),
                 );
                 x += dash_len * 2.0;
             }

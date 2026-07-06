@@ -88,7 +88,7 @@ pub fn draw_colorbar_simple(
     );
 
     // 数値目盛（max / 中央 / min）をバー右脇に置く。最大幅を測ってタイトル位置に使う。
-    let text_color = egui::Color32::from_gray(180);
+    let text_color = crate::theme::CLOSE_BTN_TEXT();
     let tick_font = egui::FontId::proportional(10.0);
     let mid = (v_min + v_max) * 0.5;
     let ticks = [

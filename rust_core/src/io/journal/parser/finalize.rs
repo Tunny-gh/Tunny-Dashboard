@@ -1,12 +1,15 @@
 use std::collections::HashSet;
 
+use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
 use crate::dataframe::{DataFrame, TrialRow};
 
 use super::builders::TrialBuilder;
 use super::state::ParserState;
 use super::types::StudyMeta;
 
-pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFrame>) {
+pub(super) fn finalize_state(
+    state: ParserState,
+) -> (Vec<StudyMeta>, Vec<DataFrame>, Vec<StudyExtras>) {
     let ParserState {
         mut studies,
         trial_builders,
@@ -21,13 +24,28 @@ pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFra
     let mut per_study_unn: Vec<HashSet<String>> = (0..n_studies).map(|_| HashSet::new()).collect();
     let mut per_study_usn: Vec<HashSet<String>> = (0..n_studies).map(|_| HashSet::new()).collect();
     let mut per_study_max_c: Vec<usize> = vec![0; n_studies];
+    // 全 trial（全 state）の付帯情報。trial_id 昇順（sorted_trials が昇順のため）。
+    let mut per_study_extras: Vec<Vec<TrialExtra>> = (0..n_studies).map(|_| Vec::new()).collect();
 
-    for (trial_id, trial) in sorted_trials {
-        if trial.state != 1 {
-            continue;
-        }
+    for (trial_id, mut trial) in sorted_trials {
         let study_idx = trial.study_id as usize;
         if study_idx >= n_studies {
+            continue;
+        }
+
+        // extras は state を問わず全 trial を収集する。DataFrame（COMPLETE 限定）とは独立。
+        let mut intermediate_values = std::mem::take(&mut trial.intermediate_values);
+        intermediate_values.sort_by_key(|(step, _)| *step);
+        per_study_extras[study_idx].push(TrialExtra {
+            trial_id,
+            trial_number: trial.trial_number,
+            state: TrialState::from_journal(trial.state),
+            datetime_start: trial.datetime_start,
+            datetime_complete: trial.datetime_complete,
+            intermediate_values,
+        });
+
+        if trial.state != 1 {
             continue;
         }
 
@@ -73,6 +91,7 @@ pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFra
 
     let mut study_metas = Vec::with_capacity(n_studies);
     let mut dataframes = Vec::with_capacity(n_studies);
+    let mut extras: Vec<StudyExtras> = Vec::with_capacity(n_studies);
 
     for (index, builder) in studies.into_iter().enumerate() {
         let mut param_names: Vec<String> = builder.param_names.into_iter().collect();
@@ -115,7 +134,11 @@ pub(super) fn finalize_state(state: ParserState) -> (Vec<StudyMeta>, Vec<DataFra
             per_study_max_c[index],
         ));
         // study_rows はここでドロップされ、この study の中間行データが解放される
+
+        extras.push(StudyExtras {
+            trials: std::mem::take(&mut per_study_extras[index]),
+        });
     }
 
-    (study_metas, dataframes)
+    (study_metas, dataframes, extras)
 }

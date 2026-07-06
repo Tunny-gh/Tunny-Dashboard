@@ -128,7 +128,7 @@ impl RadarComparisonChart {
         if axes.len() < 3 {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    COLOR_EMPTY_STATE,
+                    COLOR_EMPTY_STATE(),
                     "Radar needs at least 3 axes — enable parameters.",
                 );
             });
@@ -138,7 +138,7 @@ impl RadarComparisonChart {
         if pinned_trials.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    COLOR_EMPTY_STATE,
+                    COLOR_EMPTY_STATE(),
                     "Pin trials (📌) in the Trial Table to compare them here.",
                 );
             });

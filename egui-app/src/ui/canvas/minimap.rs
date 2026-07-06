@@ -165,7 +165,7 @@ pub(crate) fn show_minimap(
                 mr,
                 4.0,
                 egui::Color32::from_black_alpha(170),
-                egui::Stroke::new(1.0, crate::theme::BORDER_COLOR),
+                egui::Stroke::new(1.0, crate::theme::BORDER_COLOR()),
                 egui::StrokeKind::Inside,
             );
 
@@ -205,7 +205,7 @@ pub(crate) fn show_minimap(
                     - layout.map_rect.min.to_vec2()
                     + mr.min.to_vec2();
                 let vp_map_rect = egui::Rect::from_min_max(vp_min, vp_max).intersect(mr);
-                let accent = crate::theme::ACCENT_BLUE;
+                let accent = crate::theme::ACCENT_BLUE();
                 painter.rect(
                     vp_map_rect,
                     1.0,

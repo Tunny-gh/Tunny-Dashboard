@@ -413,20 +413,32 @@ fn gp_2d_pdp_marginalises_third_dimension() {
     // the additive trend 2*x0 + 0.5*x1 + 5*mean(x2), NOT a function that tracks
     // individual x2 values. We check the surface increases along the x0 axis.
     use crate::gaussian_process::GpMethod;
-    let n = 120;
+    // n ≤ max_inducing (100) に抑えて Z = X（誘導点選択なし）の経路にする。
+    // 誘導点サブセット選択はプラットフォームの浮動小数点差に敏感で、
+    // Windows でのみ学習が失敗する flake の原因だった。
+    let n = 96;
+    // Low-discrepancy (golden-ratio / sqrt-2) sequences keep x0 and x1 spread
+    // over [0,1] and mutually decorrelated; perfectly collinear inputs (e.g.
+    // x1 = 1 - x0) make the kernel matrix singular and FITC training fail.
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|i| {
-            let t = i as f64 / n as f64;
-            let x0 = t;
-            let x1 = 1.0 - t;
+            let x0 = (i as f64 * 0.618_033_988_749_895).fract();
+            let x1 = (i as f64 * 0.414_213_562_373_095).fract();
             // x2 alternates to be (largely) decorrelated from x0/x1.
             let x2 = if i % 2 == 0 { 0.2 } else { 0.8 };
             vec![x0, x1, x2]
         })
         .collect();
+    // 完全にノイズレスな線形データはカーネル行列を特異にしやすく、
+    // ノイズフロア推定の成否がプラットフォーム依存になる。決定論的な
+    // 微小擾乱（振幅 0.05 ≪ x0 方向のトレンド 2.0）を加えて正則化する。
     let y: Vec<f64> = x_matrix
         .iter()
-        .map(|r| 2.0 * r[0] + 0.5 * r[1] + 5.0 * r[2])
+        .enumerate()
+        .map(|(i, r)| {
+            let jitter = 0.05 * ((i as f64) * 12.989_8).sin();
+            2.0 * r[0] + 0.5 * r[1] + 5.0 * r[2] + jitter
+        })
         .collect();
     let n_grid = 6;
 

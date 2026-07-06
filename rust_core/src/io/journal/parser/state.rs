@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use super::builders::{StudyBuilder, TrialBuilder};
 use super::distribution::Distribution;
 use super::types::OptimizationDirection;
+use crate::io::datetime::parse_naive_datetime;
 
 /// Documentation.
 pub(super) struct ParserState {
@@ -52,6 +53,7 @@ impl ParserState {
             4 => self.process_create_trial(json),
             5 => self.process_set_trial_param(json),
             6 => self.process_set_trial_state_values(json),
+            7 => self.process_set_trial_intermediate_value(json),
             8 => self.process_set_trial_user_attr(json),
             9 => self.process_set_trial_system_attr(json),
             _ => {}
@@ -116,6 +118,9 @@ impl ParserState {
                 return;
             }
         }
+
+        // 開始日時（naive unix 秒）。文字列でないか不正なら None。
+        let datetime_start = get_str(json, "datetime_start").and_then(parse_naive_datetime);
 
         if json.get("distributions").is_some() {
             let state = get_u64(json, "state").unwrap_or(0) as u8;
@@ -234,6 +239,9 @@ impl ParserState {
                     user_attrs_string,
                     constraint_values,
                     has_constraints,
+                    datetime_start,
+                    datetime_complete: None,
+                    intermediate_values: Vec::new(),
                 },
             );
         } else {
@@ -250,6 +258,9 @@ impl ParserState {
                     user_attrs_string: HashMap::new(),
                     constraint_values: Vec::new(),
                     has_constraints: false,
+                    datetime_start,
+                    datetime_complete: None,
+                    intermediate_values: Vec::new(),
                 },
             );
         }
@@ -306,11 +317,31 @@ impl ParserState {
                     .collect::<Vec<_>>()
             });
 
+        // 完了日時（naive unix 秒）。文字列でないか不正なら None。
+        let datetime_complete = get_str(json, "datetime_complete").and_then(parse_naive_datetime);
+
         if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
             trial.state = state;
             if let Some(updated_values) = values {
                 trial.values = Some(updated_values);
             }
+            if datetime_complete.is_some() {
+                trial.datetime_complete = datetime_complete;
+            }
+        }
+    }
+
+    /// op_code=7 (SET_TRIAL_INTERMEDIATE_VALUE): 中間値を trial に追記する。
+    /// フィールド: `trial_id`(u64), `step`(u64), `intermediate_value`(f64)。
+    /// value が欠落または非数値ならスキップする。
+    fn process_set_trial_intermediate_value(&mut self, json: &Value) {
+        let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
+        let step = get_u64(json, "step").unwrap_or(0);
+        let Some(value) = json.get("intermediate_value").and_then(|v| v.as_f64()) else {
+            return;
+        };
+        if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
+            trial.intermediate_values.push((step, value));
         }
     }
 

@@ -227,7 +227,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
             let x = available.min.x + header_w + j as f32 * cell_w;
             let cell_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
             let (color, text) = if val.is_nan() {
-                (COLOR_GRID_STROKE, "\u{2013}".to_string())
+                (COLOR_GRID_STROKE(), "\u{2013}".to_string())
             } else {
                 (diverging_colormap(val), format!("{val:.2}"))
             };
@@ -235,7 +235,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
             painter.rect_stroke(
                 cell_rect,
                 0.0,
-                egui::Stroke::new(0.5, COLOR_GRID_STROKE),
+                egui::Stroke::new(0.5, COLOR_GRID_STROKE()),
                 egui::StrokeKind::Inside,
             );
             painter.text(
@@ -243,7 +243,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
                 egui::Align2::CENTER_CENTER,
                 text,
                 egui::FontId::proportional(9.0),
-                COLOR_CHART_TEXT,
+                COLOR_CHART_TEXT(),
             );
         }
     }

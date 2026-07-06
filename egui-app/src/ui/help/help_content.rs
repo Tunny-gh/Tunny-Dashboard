@@ -309,6 +309,46 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/response-surface-3d.html"
             )),
         },
+        // Compare Surrogates 専用の理論ドキュメントは無いため、モデル種別の解説を含む
+        // Surrogate Optimizer の理論ドキュメント（"Surrogate models" 節）を共有する
+        // （ClusterScatter3D が clustering/overview.html を共有する既存パターンと同じ）。
+        ChartId::SurrogateCompare => HelpContent {
+            widget_name: "compare-surrogates",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/surrogate-optimizer.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/surrogate-optimizer.html"
+            )),
+        },
+        ChartId::IntermediateValues => HelpContent {
+            widget_name: "intermediate-values",
+            html_en: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/en/widgets/intermediate-values.html"
+            )),
+            html_ja: include_str!(concat!(
+                env!("OUT_DIR"),
+                "/help/ja/widgets/intermediate-values.html"
+            )),
+        },
+        ChartId::Timeline => HelpContent {
+            widget_name: "timeline",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/timeline.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/timeline.html")),
+        },
+        ChartId::EdfPlot => HelpContent {
+            widget_name: "edf-plot",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/edf-plot.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/edf-plot.html")),
+        },
+        ChartId::RankPlot => HelpContent {
+            widget_name: "rank-plot",
+            html_en: include_str!(concat!(env!("OUT_DIR"), "/help/en/widgets/rank-plot.html")),
+            html_ja: include_str!(concat!(env!("OUT_DIR"), "/help/ja/widgets/rank-plot.html")),
+        },
     }
 }
 

@@ -72,8 +72,9 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
 
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    let (studies, dataframes) = finalize_state(state);
+    let (studies, dataframes, extras) = finalize_state(state);
     crate::dataframe::store_dataframes(dataframes);
+    crate::dataframe::store_extras(extras);
 
     Ok(ParseResult {
         studies,
@@ -214,7 +215,14 @@ fn quick_extract_u32(line: &str, field: &str) -> Option<u32> {
 pub fn parse_single_study(
     data: &[u8],
     target_study_id: u32,
-) -> Result<(StudyMeta, crate::data::dataframe::DataFrame), String> {
+) -> Result<
+    (
+        StudyMeta,
+        crate::data::dataframe::DataFrame,
+        crate::data::extras::StudyExtras,
+    ),
+    String,
+> {
     use rayon::prelude::*;
 
     if data.is_empty() {
@@ -289,8 +297,8 @@ pub fn parse_single_study(
                     }
                 }
             }
-            5 | 6 | 8 | 9 => {
-                // 試行更新系: 対象 trial_id の行のみ Pass 2 へ
+            5..=9 => {
+                // 試行更新系（op7 の中間値含む）: 対象 trial_id の行のみ Pass 2 へ
                 any_valid = true;
                 if let Some(tid) = quick_extract_u32(line, "trial_id") {
                     if target_trial_ids.contains(&tid) {
@@ -329,7 +337,7 @@ pub fn parse_single_study(
         state.process_op(op, &json);
     }
 
-    let (studies, dataframes) = finalize_state(state);
+    let (studies, dataframes, extras) = finalize_state(state);
 
     let pos = studies
         .iter()
@@ -338,7 +346,8 @@ pub fn parse_single_study(
 
     let meta = studies.into_iter().nth(pos).unwrap();
     let df = dataframes.into_iter().nth(pos).unwrap();
-    Ok((meta, df))
+    let study_extras = extras.into_iter().nth(pos).unwrap();
+    Ok((meta, df, study_extras))
 }
 
 /// `parse_single_study_streaming` が逐次コールバックへ渡すバッチ。
@@ -501,6 +510,24 @@ fn stream_emit_completed_trial<F>(
     }
 }
 
+/// 除去（完了/prune/fail 確定または EOF 時点）される `TrialBuilder` から
+/// `TrialExtra` を構築する。中間値は step 昇順にそろえる。
+fn trial_extra_from_builder(
+    trial_id: u32,
+    b: &builders::TrialBuilder,
+) -> crate::data::extras::TrialExtra {
+    let mut intermediate_values = b.intermediate_values.clone();
+    intermediate_values.sort_by_key(|(step, _)| *step);
+    crate::data::extras::TrialExtra {
+        trial_id,
+        trial_number: b.trial_number,
+        state: crate::data::extras::TrialState::from_journal(b.state),
+        datetime_start: b.datetime_start,
+        datetime_complete: b.datetime_complete,
+        intermediate_values,
+    }
+}
+
 /// 対象 study の完了 Trial を前方 1 パスで解析し、`batch_size` 件ごとに `on_batch` へ送出する。
 ///
 /// `parse_single_study` と異なり、全件パース完了を待たずに完了 Trial を逐次出力するため、
@@ -508,6 +535,10 @@ fn stream_emit_completed_trial<F>(
 /// それまでに設定された params/attrs/constraints を取り込む（live_update と同じ逐次セマンティクス）。
 ///
 /// 列名集合（param/user_attr）は Trial をまたいで累積され、各バッチへ同梱する。
+///
+/// 全 trial（全 state）の付帯情報（[`crate::data::extras::StudyExtras`]）もあわせて収集し、
+/// 完了時に `store_extras_for` で共有ストアへ格納する（`parse_journal` が
+/// `store_extras` で格納するのと対になる、単一 study ロード経路の格納口）。
 pub fn parse_single_study_streaming<F>(
     data: &[u8],
     target_study_id: u32,
@@ -538,6 +569,8 @@ where
     let mut completed = 0u32;
     let mut any_valid = false;
     let mut first_sent = false;
+    // 全 trial（全 state）の付帯情報。除去時（完了/prune/fail/EOF）に随時追加する。
+    let mut extras_trials: Vec<crate::data::extras::TrialExtra> = Vec::new();
 
     for line in text.lines() {
         let line = line.trim();
@@ -597,6 +630,7 @@ where
                     let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
                     if trial_state == 1 {
                         let b = state.trial_builders.remove(&tid).unwrap();
+                        extras_trials.push(trial_extra_from_builder(tid, &b));
                         stream_emit_completed_trial(
                             tid,
                             b,
@@ -615,11 +649,13 @@ where
                             &mut on_batch,
                         );
                     } else if trial_state == 2 || trial_state == 3 {
-                        state.trial_builders.remove(&tid);
+                        if let Some(b) = state.trial_builders.remove(&tid) {
+                            extras_trials.push(trial_extra_from_builder(tid, &b));
+                        }
                     }
                 }
             }
-            5 | 6 | 8 | 9 => {
+            5..=9 => {
                 any_valid = true;
                 let Some(tid) = quick_extract_u32(line, "trial_id") else {
                     continue;
@@ -639,6 +675,7 @@ where
                 let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
                 if trial_state == 1 {
                     let b = state.trial_builders.remove(&tid).unwrap();
+                    extras_trials.push(trial_extra_from_builder(tid, &b));
                     stream_emit_completed_trial(
                         tid,
                         b,
@@ -657,7 +694,9 @@ where
                         &mut on_batch,
                     );
                 } else if trial_state == 2 || trial_state == 3 {
-                    state.trial_builders.remove(&tid);
+                    if let Some(b) = state.trial_builders.remove(&tid) {
+                        extras_trials.push(trial_extra_from_builder(tid, &b));
+                    }
                 }
             }
             _ => {}
@@ -670,6 +709,19 @@ where
     if (target_study_id as usize) >= state.studies.len() {
         return Err(format!("study_id {target_study_id} not found in journal"));
     }
+
+    // EOF 時点でまだ残っている trial_builders（対象 study のみ生成される）は
+    // 完了/prune/fail 未確定＝ Running のまま。extras に取り込む。
+    for (tid, b) in state.trial_builders.drain() {
+        extras_trials.push(trial_extra_from_builder(tid, &b));
+    }
+    extras_trials.sort_by_key(|t| t.trial_id);
+    crate::dataframe::store_extras_for(
+        target_study_id,
+        crate::data::extras::StudyExtras {
+            trials: extras_trials,
+        },
+    );
 
     // 最終バッチ（残り）を送出。完了 0 件でも is_final を通知する。
     let objective_names = if !state.studies[target_study_id as usize]

@@ -129,7 +129,7 @@ impl PcaBiplotChart {
         let Some(result) = self.cached_result() else {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    COLOR_EMPTY_STATE,
+                    COLOR_EMPTY_STATE(),
                     "PCA needs at least 2 numeric columns and 2 trials.",
                 );
             });
@@ -138,7 +138,7 @@ impl PcaBiplotChart {
         if result.projections.is_empty() || result.loadings.len() < 2 {
             ui.vertical_centered(|ui| {
                 ui.colored_label(
-                    COLOR_EMPTY_STATE,
+                    COLOR_EMPTY_STATE(),
                     "PCA needs at least 2 numeric columns and 2 trials.",
                 );
             });
@@ -162,10 +162,10 @@ impl PcaBiplotChart {
                         let t = ((v - color_min) / (color_max - color_min)) as f32;
                         cmap.interpolate(t)
                     } else {
-                        COLOR_SCATTER_DOT
+                        COLOR_SCATTER_DOT()
                     }
                 }
-                None => COLOR_SCATTER_DOT,
+                None => COLOR_SCATTER_DOT(),
             };
             let key = [color.r(), color.g(), color.b(), color.a()];
             color_groups.entry(key).or_default().push([x, y]);
@@ -216,7 +216,7 @@ impl PcaBiplotChart {
                         .collect();
                     plot_ui.arrows(
                         egui_plot::Arrows::new("Loadings", origins, tips.clone())
-                            .color(crate::theme::chart_colors::COLOR_CONTOUR),
+                            .color(crate::theme::chart_colors::COLOR_CONTOUR()),
                     );
                     for (j, name) in result.feature_names.iter().enumerate() {
                         if let Some(&[tx, ty]) = tips.get(j) {

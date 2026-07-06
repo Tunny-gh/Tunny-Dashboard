@@ -31,7 +31,7 @@ pub(crate) fn show_chart_menu_button(
 ) -> Option<CellToolbarAction> {
     let mut menu_action: Option<CellToolbarAction> = None;
     let menu_resp = ui.menu_button(
-        egui::RichText::new("…").small().color(CLOSE_BTN_TEXT),
+        egui::RichText::new("…").small().color(CLOSE_BTN_TEXT()),
         |ui| {
             if ui.button("Save as PNG").clicked() {
                 menu_action = Some(CellToolbarAction::SaveAsPng(item.clone()));

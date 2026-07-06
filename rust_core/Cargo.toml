@@ -27,6 +27,8 @@ linfa-clustering = "0.8"
 ndarray = "0.16"
 arc-swap = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
+postgres = "0.19"
+mysql = { version = "28", default-features = false, features = ["minimal"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
