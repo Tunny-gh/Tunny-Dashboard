@@ -97,10 +97,19 @@ impl ReportDialogState {
     }
 }
 
-/// 既定のファイル名（`report_{study_name}.html`）。study 名はファイル名に
-/// 使えない文字を `_` に置換する。
+/// 既定のファイル名（`report_{study_name}.{ext}`）。拡張子は選択フォーマットの
+/// 先頭から導出する（`formats` が空なら HTML）。JSON / Markdown のみ選択時に
+/// `.html` を出さないための入口で、OS 保存ダイアログの上書き確認の不変条件を保つ。
+/// study 名はファイル名に使えない文字を `_` に置換する。
+pub fn default_file_name_for(study_name: &str, formats: &[ReportFormat]) -> String {
+    let ext = formats.first().map(|f| f.extension()).unwrap_or("html");
+    format!("report_{}.{}", sanitize_file_stem(study_name), ext)
+}
+
+/// 既定のファイル名（`report_{study_name}.html`）。HTML 固定版。
+/// 呼び出し側はフォーマット選択を反映する `default_file_name_for` を優先すること。
 pub fn default_file_name(study_name: &str) -> String {
-    format!("report_{}.html", sanitize_file_stem(study_name))
+    default_file_name_for(study_name, &[ReportFormat::Html])
 }
 
 /// ファイル名として安全な文字（英数字・`-`・`_`）以外を `_` に置換する。
@@ -302,6 +311,21 @@ mod tests {
     fn default_file_name_falls_back_when_fully_sanitized() {
         assert_eq!(default_file_name("///"), "report_study.html");
         assert_eq!(default_file_name(""), "report_study.html");
+    }
+
+    #[test]
+    fn default_file_name_for_derives_extension_from_first_format() {
+        // JSON / Markdown のみ選択時は .html を出さない。
+        assert_eq!(
+            default_file_name_for("s", &[ReportFormat::Json]),
+            "report_s.json"
+        );
+        assert_eq!(
+            default_file_name_for("s", &[ReportFormat::Markdown, ReportFormat::Json]),
+            "report_s.md"
+        );
+        // 空選択は HTML にフォールバック。
+        assert_eq!(default_file_name_for("s", &[]), "report_s.html");
     }
 
     #[test]

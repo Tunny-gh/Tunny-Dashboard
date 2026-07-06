@@ -1,8 +1,10 @@
+use std::collections::HashSet;
+
 use crate::state::app_state::AppState;
 use crate::theme::chart_colors::{
     COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO,
 };
-use crate::theme::color_compute::compute_point_alpha;
+use crate::theme::color_compute::point_alpha_in_set;
 use crate::theme::TOOLBAR_BTN_FG;
 use crate::ui::widgets::scatter_3d::{
     compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
@@ -120,7 +122,8 @@ impl Pareto3dChart {
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
-        let selected = &app_state.selected_indices;
+        // 選択集合は HashSet を 1 度だけ構築し、点ごとの線形走査を避ける（M-16）。
+        let selected_set: HashSet<u32> = app_state.selected_indices.iter().copied().collect();
         let highlighted = app_state.highlighted_trial;
         let x_col = obj_names
             .get(self.x_objective)
@@ -171,7 +174,7 @@ impl Pareto3dChart {
                 continue;
             }
 
-            let alpha = compute_point_alpha(trial_id, selected);
+            let alpha = point_alpha_in_set(trial_id, &selected_set);
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
             let (color, radius) = determine_point_color_3d(rank, alpha);
             draw_calls.push((screen_pos, depth, color, radius));

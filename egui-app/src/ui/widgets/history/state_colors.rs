@@ -6,9 +6,35 @@
 use tunny_core::extras::TrialState;
 
 use crate::theme::chart_colors::{
-    COLOR_STATE_COMPLETE, COLOR_STATE_FAIL, COLOR_STATE_PRUNED, COLOR_STATE_RUNNING,
-    COLOR_STATE_WAITING,
+    COLOR_EMPTY_STATE, COLOR_STATE_COMPLETE, COLOR_STATE_FAIL, COLOR_STATE_PRUNED,
+    COLOR_STATE_RUNNING, COLOR_STATE_WAITING,
 };
+
+/// state の出現順（重複なし）リストを作る。Intermediate Values / Timeline の
+/// 凡例に載せる state 集合を作る共通ヘルパー（D-12）。
+pub fn distinct_states_in_order<I: IntoIterator<Item = TrialState>>(states: I) -> Vec<TrialState> {
+    let mut present: Vec<TrialState> = Vec::new();
+    for s in states {
+        if !present.contains(&s) {
+            present.push(s);
+        }
+    }
+    present
+}
+
+/// hover 中でない曲線・バーを薄く見せる（アルファのみ落とす）。
+/// Intermediate Values / Timeline 共通（D-12）。
+pub fn dim(color: egui::Color32) -> egui::Color32 {
+    let [r, g, b, _] = color.to_array();
+    egui::Color32::from_rgba_unmultiplied(r, g, b, 90)
+}
+
+/// 空状態メッセージを中央に表示する（Intermediate Values / Timeline 共通・D-12）。
+pub fn empty_state(ui: &mut egui::Ui, message: &str) {
+    ui.centered_and_justified(|ui| {
+        ui.colored_label(COLOR_EMPTY_STATE(), message);
+    });
+}
 
 /// trial state に対応する表示色を返す。
 pub fn state_color(state: TrialState) -> egui::Color32 {

@@ -244,6 +244,54 @@ fn tc_2224_03_zero_byte_file_no_errors() {
 }
 
 // ─────────────────────────────────────────────
+// TC-006 (M-1): Journal rotation / truncation resets the byte offset
+// ─────────────────────────────────────────────
+
+/// ジャーナルがローテーション/切り詰めされ `file_size < byte_offset` になった場合、
+/// ポーラーがオフセットを 0 にリセットして先頭から読み直すことを検証する。
+/// リセットしないと差分が永久に検出されず、無変化タイムアウトで「最適化完了」と誤認する。
+#[test]
+fn tc_2224_06_journal_rotation_resets_offset() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("rotate.log");
+    // 初期内容として 3 トライアル分を書き、そのサイズをオフセットの起点にする
+    // （初期分は既読扱い）。他テストとの global パーサ状態衝突を避けるため id は高位に取る。
+    let initial = make_trial_bytes(3, 900_000);
+    std::fs::write(&path, &initial).unwrap();
+    let offset = std::fs::metadata(&path).unwrap().len();
+
+    let (tx, rx) = mpsc::sync_channel(64);
+    let mut poller = LiveUpdatePoller::start(poller_context(path.clone(), offset), tx, 50);
+
+    // 数 tick ポーリングさせる（無変化）。
+    std::thread::sleep(Duration::from_millis(120));
+
+    // ローテーション: より小さい内容（2 トライアル）でファイルを丸ごと置き換える。
+    // これで file_size < byte_offset となり、切り詰め検出が発火するはず。
+    let rotated = make_trial_bytes(2, 800_000);
+    assert!(
+        (rotated.len() as u64) < offset,
+        "rotated file must be smaller than the previous offset to trigger truncation detection"
+    );
+    std::fs::write(&path, &rotated).unwrap();
+
+    // 切り詰めを検出しオフセットを 0 にリセット → 先頭から読み直し → LiveUpdateDone。
+    let msg = wait_for_live_update_done(&rx, Duration::from_secs(5));
+    poller.stop();
+
+    assert!(
+        msg.is_some(),
+        "Expected LiveUpdateDone after journal rotation/truncation (offset must reset to 0)"
+    );
+    if let Some(AppMessage::LiveUpdateDone { new_trial_rows, .. }) = &msg {
+        assert!(
+            !new_trial_rows.is_empty(),
+            "rotated-in trials should be re-read from the start of the new file"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────
 // TC-004: Bulk trials performance
 // ─────────────────────────────────────────────
 

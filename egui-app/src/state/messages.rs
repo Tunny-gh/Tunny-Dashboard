@@ -194,6 +194,26 @@ pub struct SurrogateCompareUiResult {
 }
 
 // ============================================================
+// ライブ更新ポーラーの起動準備結果（H-1 / H-2）
+// ============================================================
+
+/// ライブ更新ポーラーの起動に必要な初期状態を、UI スレッドをブロックせずに
+/// バックグラウンドで用意した結果。ストレージ種別ごとに、そのまま
+/// `*LivePoller::start` へ渡せる完成済みコンテキストを保持する。
+///
+/// - RDB フィンガープリント取得（DB 接続 + クエリ）
+/// - ジャーナル全読込 + trial 数カウント
+///
+/// はいずれも I/O を伴い、従来は `restart_poller` が UI スレッドで同期実行して
+/// いた（DB 低速・大容量ジャーナルでウィンドウがフリーズする H-1 / H-2）。
+/// これを `AppMessage::PollerReady` として非同期に受け渡す。
+pub enum PollerPrep {
+    Journal(tunny_core::io::journal::live_update::LiveUpdateContext),
+    Sqlite(crate::io::live_update_poller::SqliteLiveUpdateContext),
+    Rdb(crate::io::live_update_poller::RdbLiveUpdateContext),
+}
+
+// ============================================================
 // AppMessage
 // ============================================================
 
@@ -323,6 +343,19 @@ pub enum AppMessage {
     },
     Error(String),
     SensitivityError(String),
+    /// M-4: `spawn_task` で起動したワーカースレッドが panic を捕捉した。
+    /// panic メッセージを `load_error` に反映してユーザーへ可視化する
+    /// （捕捉しないと該当ウィジェットの computing/fitting が立ちっぱなしになる）。
+    TaskPanicked(String),
+    /// H-1 / H-2: ライブ更新ポーラーの起動準備がバックグラウンドで完了した。
+    /// `generation` は準備中にトグル/Study 変更が起きた場合の陳腐化検出用で、
+    /// 受信時に `TunnyApp::poller_generation` と一致しなければ破棄する。
+    /// ポーラー起動は tx/poller を持つ `app.rs`（`poll_messages`）で行うため、
+    /// このメッセージは `MessageHandler::handle` では処理しない。
+    PollerReady {
+        generation: u64,
+        prep: PollerPrep,
+    },
 
     // ── TASK-2112: 新規バリアント ────────────────────────────────────
     /// REQ-006: 比較 Study のロード完了

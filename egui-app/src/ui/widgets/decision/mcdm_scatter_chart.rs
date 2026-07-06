@@ -1,12 +1,12 @@
 //! MCDM Scatter Chart Widget
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_MCDM_NONE, COLOR_UNSELECTED_POINT};
-use crate::theme::color_compute::compute_point_alpha;
+use crate::theme::color_compute::point_alpha_in_set;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
@@ -39,6 +39,33 @@ pub(crate) struct ScatterMetadata {
     pub compute_time_ms: f64,
 }
 
+/// 事前計算済みの表示バッチ（選択フィルタ非依存・M-17）。
+///
+/// 旧実装は毎フレーム「色 → 点」の `HashMap` 構築＋輝度ソートを走らせていたが、
+/// この分類は選択フィルタに依存しないため、キャッシュ再構築時に 1 度だけ計算して
+/// 保持する。選択フィルタ（PCP ブラシ等）による淡色化のみ描画時に `HashSet` で
+/// 軽く適用する（M-16）。
+struct DisplayBatches {
+    /// 輝度昇順ソート済みの色バッチ（ランク済み feasible 点）。
+    /// 各点は `(trial_id, [x, y])`。trial_id は選択フィルタ判定に使う。
+    color_batches: Vec<(Color32, Vec<(u32, [f64; 2])>)>,
+    /// 未ランク（COLOR_MCDM_NONE）feasible 点。
+    none_pts: Vec<(u32, [f64; 2])>,
+}
+
+/// `ranked_indices()` の FNV ライクなハッシュ。2D/3D 散布図で共有する（H-3）。
+///
+/// 旧 2D 実装は `primary_scores()[0]` のビット表現＋件数のみをキーにしていたが、
+/// 行 0 がパレートフロント外（`expand_scores` で常に 0.0）だと重みを変えて Run しても
+/// キーが一致し、古いランク色が無言で表示され続ける欠陥があった。3D 版と同じ
+/// `ranked_indices()` 全体のハッシュを使うことで、ランキングが変われば必ず検知できる。
+pub(crate) fn ranked_hash(result: &McdmResult) -> u64 {
+    result.ranked_indices().iter().fold(0u64, |acc, &x| {
+        acc.wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(x as u64 + 1)
+    })
+}
+
 /// キャッシュキー
 #[derive(Clone, PartialEq, Eq)]
 struct CacheKey {
@@ -49,10 +76,8 @@ struct CacheKey {
     top_n: usize,
     /// MCDM手法（手法切替を検知）
     result_method: McdmMethod,
-    /// 先頭スコアのビット表現（重み変更を検知）
-    result_score0_bits: u64,
-    /// スコア件数
-    result_score_count: usize,
+    /// ranked_indices のハッシュ（重み変更・ランキング変更を検知）
+    ranked_indices_hash: u64,
 }
 
 /// MCDM 散布図ウィジェット
@@ -69,8 +94,9 @@ pub struct McdmScatterChart {
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
     // --- 内部キャッシュ状態 ---
+    /// 色→点の分類・輝度ソート済みの表示バッチ（毎フレーム再構築を避ける）。
     #[serde(skip)]
-    display_rows_cache: Option<Vec<(f64, f64, Color32, u32)>>,
+    display_batches: Option<DisplayBatches>,
     #[serde(skip)]
     infeasible_cache: Option<Vec<(f64, f64)>>,
     /// 点クリック判定用の候補（trial_id, 行 index, 座標）。display_rows_cache と同じキーで更新する。
@@ -91,7 +117,7 @@ impl Default for McdmScatterChart {
             x_axis: "Objective0".to_string(),
             y_axis: "Objective1".to_string(),
             detail_modal: TrialDetailModal::new(),
-            display_rows_cache: None,
+            display_batches: None,
             infeasible_cache: None,
             hit_candidates: None,
             metadata: None,
@@ -115,7 +141,6 @@ impl McdmScatterChart {
         colormap_name: &ColormapName,
         top_n: usize,
     ) -> CacheKey {
-        let scores = result.primary_scores();
         CacheKey {
             trial_count,
             x_axis: self.x_axis.clone(),
@@ -123,8 +148,7 @@ impl McdmScatterChart {
             colormap_name: colormap_name.clone(),
             top_n,
             result_method: result.method(),
-            result_score0_bits: scores.first().copied().unwrap_or(0.0).to_bits(),
-            result_score_count: scores.len(),
+            ranked_indices_hash: ranked_hash(result),
         }
     }
 
@@ -136,8 +160,6 @@ impl McdmScatterChart {
         colormap_name: &ColormapName,
         top_n: usize,
     ) -> bool {
-        let scores = result.primary_scores();
-        let score0_bits = scores.first().copied().unwrap_or(0.0).to_bits();
         match &self.cache_key {
             None => true,
             Some(key) => {
@@ -147,8 +169,7 @@ impl McdmScatterChart {
                     || key.colormap_name != *colormap_name
                     || key.top_n != top_n
                     || key.result_method != result.method()
-                    || key.result_score0_bits != score0_bits
-                    || key.result_score_count != scores.len()
+                    || key.ranked_indices_hash != ranked_hash(result)
             }
         }
     }
@@ -236,7 +257,9 @@ impl McdmScatterChart {
             ) {
                 Ok((points, infeasible, mut meta)) => {
                     meta.compute_time_ms = start.elapsed().as_secs_f64() * 1000.0;
-                    self.display_rows_cache = Some(points);
+                    // 色→点の分類・輝度ソートはここで 1 度だけ行い、以降のフレームは
+                    // 選択フィルタの適用のみに留める（M-17）。
+                    self.display_batches = Some(build_display_batches(&points));
                     self.infeasible_cache = Some(infeasible);
                     self.hit_candidates = Some(compute_hit_candidates(
                         result,
@@ -251,7 +274,7 @@ impl McdmScatterChart {
                 }
                 Err(e) => {
                     self.error_message = Some(e);
-                    self.display_rows_cache = None;
+                    self.display_batches = None;
                     self.infeasible_cache = None;
                     self.hit_candidates = None;
                     self.cache_key = None;
@@ -269,10 +292,10 @@ impl McdmScatterChart {
         let no_candidates = vec![];
         let candidates = self.hit_candidates.as_deref().unwrap_or(&no_candidates);
         let mut clicked_detail: Option<(u32, usize)> = None;
-        if let Some(ref points) = self.display_rows_cache {
+        if let Some(ref batches) = self.display_batches {
             clicked_detail = render_scatter_plot(
                 ui,
-                points,
+                batches,
                 infeasible,
                 candidates,
                 &self.x_axis,
@@ -366,11 +389,45 @@ impl McdmScatterChart {
 // 散布図レンダリング
 // ──────────────────────────────────────────────────────────────
 
+/// 事前計算済みの表示バッチ（`DisplayBatches`）を構築する。
+///
+/// 色→点の `HashMap` 分類と輝度ソートはここで 1 度だけ行い、
+/// キャッシュ再構築時以外は再計算しない（M-17）。選択フィルタには依存しない。
+fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
+    let mut none_pts: Vec<(u32, [f64; 2])> = Vec::new();
+    // 色 → 座標リスト（輝度でソートするため u32 輝度値も保持）
+    let mut color_groups: HashMap<[u8; 4], (Vec<(u32, [f64; 2])>, u32)> = HashMap::new();
+
+    for &(x, y, color, trial_id) in points {
+        if color == COLOR_MCDM_NONE() {
+            none_pts.push((trial_id, [x, y]));
+        } else {
+            let key = [color.r(), color.g(), color.b(), color.a()];
+            let lum = color.r() as u32 + color.g() as u32 + color.b() as u32;
+            let entry = color_groups.entry(key).or_insert((Vec::new(), lum));
+            entry.0.push((trial_id, [x, y]));
+        }
+    }
+
+    // 輝度順にソート（暗い順→明るい順で手前に描画）
+    let mut sorted: Vec<_> = color_groups.into_iter().collect();
+    sorted.sort_by_key(|(_, (_, lum))| *lum);
+    let color_batches = sorted
+        .into_iter()
+        .map(|([r, g, b, a], (pts, _))| (Color32::from_rgba_unmultiplied(r, g, b, a), pts))
+        .collect();
+
+    DisplayBatches {
+        color_batches,
+        none_pts,
+    }
+}
+
 /// 散布図を描画し、点がクリックされた場合は `(trial_id, 行 index)` を返す。
 #[allow(clippy::too_many_arguments)]
 fn render_scatter_plot(
     ui: &mut egui::Ui,
-    points: &[(f64, f64, Color32, u32)],
+    batches: &DisplayBatches,
     infeasible: &[(f64, f64)],
     hit_candidates: &[(u32, usize, [f64; 2])],
     x_label: &str,
@@ -379,34 +436,35 @@ fn render_scatter_plot(
     top_n: usize,
     selected_indices: &[u32],
 ) -> Option<(u32, usize)> {
-    use std::collections::HashMap;
-
-    // 未ランク（COLOR_MCDM_NONE）とランク済みを分離。
     // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外は淡色にまとめて背面に描く。
     // スコア・色はフロント全体基準のまま。ここでの分岐は表示上の強調に限る。
-    let mut none_pts: Vec<[f64; 2]> = Vec::new();
+    // 事前計算済みバッチに対し、選択集合（HashSet）による淡色化のみを適用する（M-16）。
+    let selected: HashSet<u32> = selected_indices.iter().copied().collect();
     let mut dim_pts: Vec<[f64; 2]> = Vec::new();
-    // 色 → 座標リスト（輝度でソートするため u32 輝度値も保持）
-    let mut color_groups: HashMap<[u8; 4], (Vec<[f64; 2]>, u32)> = HashMap::new();
-
-    for &(x, y, color, trial_id) in points {
-        if compute_point_alpha(trial_id, selected_indices) != 255 {
-            dim_pts.push([x, y]);
-            continue;
-        }
-        if color == COLOR_MCDM_NONE() {
-            none_pts.push([x, y]);
+    let mut none_pts: Vec<[f64; 2]> = Vec::new();
+    for &(trial_id, pt) in &batches.none_pts {
+        if point_alpha_in_set(trial_id, &selected) != 255 {
+            dim_pts.push(pt);
         } else {
-            let key = [color.r(), color.g(), color.b(), color.a()];
-            let lum = color.r() as u32 + color.g() as u32 + color.b() as u32;
-            let entry = color_groups.entry(key).or_insert((Vec::new(), lum));
-            entry.0.push([x, y]);
+            none_pts.push(pt);
         }
     }
-
-    // 輝度順にソート（暗い順→明るい順で手前に描画）
-    let mut sorted: Vec<_> = color_groups.into_iter().collect();
-    sorted.sort_by_key(|(_, (_, lum))| *lum);
+    // 輝度昇順を保ったまま、選択外を dim_pts へ振り分ける。
+    let mut color_draw: Vec<(Color32, Vec<[f64; 2]>)> =
+        Vec::with_capacity(batches.color_batches.len());
+    for (color, pts) in &batches.color_batches {
+        let mut drawn: Vec<[f64; 2]> = Vec::with_capacity(pts.len());
+        for &(trial_id, pt) in pts {
+            if point_alpha_in_set(trial_id, &selected) != 255 {
+                dim_pts.push(pt);
+            } else {
+                drawn.push(pt);
+            }
+        }
+        if !drawn.is_empty() {
+            color_draw.push((*color, drawn));
+        }
+    }
 
     // 判例用の代表色
     let best_color = colormap.interpolate(1.0);
@@ -459,8 +517,7 @@ fn render_scatter_plot(
                 );
             }
             // ランク済み：暗い（下位）→明るい（上位）の順
-            for ([r, g, b, a], (pts, _)) in sorted {
-                let color = Color32::from_rgba_unmultiplied(r, g, b, a);
+            for (color, pts) in color_draw {
                 plot_ui.points(egui_plot::Points::new("", pts).color(color).radius(4.0));
             }
             // 判例専用エントリ（データなし・名前のみ）
@@ -809,7 +866,7 @@ mod tests {
         let chart = McdmScatterChart::default();
         assert_eq!(chart.x_axis, "Objective0");
         assert_eq!(chart.y_axis, "Objective1");
-        assert!(chart.display_rows_cache.is_none());
+        assert!(chart.display_batches.is_none());
         assert!(chart.cache_key.is_none());
         assert!(chart.error_message.is_none());
     }

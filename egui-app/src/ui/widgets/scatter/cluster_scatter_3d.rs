@@ -10,6 +10,7 @@ use crate::ui::widgets::scatter_3d::{
     compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     show_hover_and_click_detail, show_objective_combo, ArcballCamera, Range3DCache,
 };
+use crate::ui::widgets::scatter_matrix::{downsample_indices_to_cap, MAX_SCATTER_POINTS};
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 
 /// クラスタ 3D 散布図ウィジェット
@@ -182,17 +183,23 @@ impl ClusterScatter3D {
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
+        // 全 trial を毎フレーム 3 回（infeasible / other / feasible）深度ソートするのは重いため、
+        // 2D 系と同じ 1500 点上限で間引いてから描画・ソートする（M-13）。
+        let all_indices: Vec<u32> = (0..trial_count as u32).collect();
+        let displayed = downsample_indices_to_cap(&all_indices, MAX_SCATTER_POINTS);
+
         // Collect points
         let show_infeasible = self.show_infeasible;
         let mut feasible_pts: Vec<(egui::Pos2, f32, egui::Color32)> =
-            Vec::with_capacity(trial_count);
+            Vec::with_capacity(displayed.len());
         let mut infeasible_pts: Vec<(egui::Pos2, f32)> = Vec::new();
         // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
         let mut other_pts: Vec<(egui::Pos2, f32)> = Vec::new();
         // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
-        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(trial_count);
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
 
-        for i in 0..trial_count {
+        for &idx in &displayed {
+            let i = idx as usize;
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);

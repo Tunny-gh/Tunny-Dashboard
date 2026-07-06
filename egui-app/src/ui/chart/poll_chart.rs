@@ -10,37 +10,97 @@ use crate::ui::widgets::cluster_scatter::{
 };
 use crate::ui::widgets::mcdm_chart::{McdmCacheKey, McdmComputeRequest, McdmControls};
 
-/// `build_numeric_fit_data` の戻り値: (数値パラメータ名, X 行列, パラメータごとの宣言レンジ)。
-type NumericFitData = (Vec<String>, Vec<Vec<f64>>, Vec<Option<(f64, f64)>>);
+/// 目的ごとの minimize フラグを directions から解決する（多目的最適化パス共通）。
+/// `n_obj` 個ぶんを返し、directions に無い目的は Minimize(true) 扱いにフォールバックする。
+fn minimize_flags(directions: &[Direction], n_obj: usize) -> Vec<bool> {
+    (0..n_obj)
+        .map(|i| {
+            directions
+                .get(i)
+                .map(|d| matches!(d, Direction::Minimize))
+                .unwrap_or(true)
+        })
+        .collect()
+}
 
-/// 数値パラメータ列のみを対象に X 行列と宣言レンジ（param_bounds）を組み立てる。
-/// SurrogateOpt/Robustness/ResponseSurface3D/SurrogateCompare の各フィット段階で共通の
-/// 前処理（カテゴリカル列除外 → 行列化 → 宣言レンジ収集）を共有するためのヘルパー。
-/// 数値パラメータが一つもない場合は None を返す（呼び出し側でエラー表示させる）。
-fn build_numeric_fit_data(ctx: &StudyContext) -> Option<NumericFitData> {
-    // カテゴリカル列を除いた数値パラメータのみで X 行列を作る
-    //（render_chart 側のコンボに出す一覧と同じ絞り込み）。
-    let numeric_params: Vec<String> = ctx
-        .meta
+/// カテゴリカル列（数値化できない列）を除いた数値パラメータ名の一覧。
+/// render_chart のコンボ表示・フィット行列構築で共通の絞り込みを与える。
+pub(crate) fn numeric_param_names(ctx: &StudyContext) -> Vec<String> {
+    ctx.meta
         .param_names
         .iter()
         .filter(|p| ctx.view.numeric_column(p).is_some())
         .cloned()
-        .collect();
+        .collect()
+}
+
+/// 制約列を `ConstraintData` として抽出する。`kept_rows` で指定した行だけを残し、
+/// 非有限フィルタ済みのフィット行列（`build_numeric_fit_xy` の X）と行を整合させる。
+fn collect_constraints(
+    ctx: &StudyContext,
+    kept_rows: &[usize],
+) -> Vec<tunny_core::surrogate_opt::ConstraintData> {
+    ctx.view
+        .df
+        .constraint_col_names()
+        .iter()
+        .filter_map(|col_name| {
+            ctx.view.df.get_numeric_column(col_name).map(|col| {
+                tunny_core::surrogate_opt::ConstraintData {
+                    name: col_name.clone(),
+                    values: kept_rows
+                        .iter()
+                        .map(|&i| col.get(i).copied().unwrap_or(0.0))
+                        .collect(),
+                }
+            })
+        })
+        .collect()
+}
+
+/// `build_numeric_fit_xy` の戻り値。
+/// (数値パラメータ名, X 行列, y, パラメータごとの宣言レンジ, 採用行インデックス)。
+type NumericFitXy = (
+    Vec<String>,
+    Vec<Vec<f64>>,
+    Vec<f64>,
+    Vec<Option<(f64, f64)>>,
+    Vec<usize>,
+);
+
+/// 数値パラメータ列のみで X 行列・目的ベクトル y・宣言レンジ（param_bounds）を組み立てる。
+/// 非有限値（NaN/inf）を含む行は学習対象から除外する（pruned/failed trial 由来の NaN が
+/// GP/回帰の学習行列へ流れて全 NaN 予測やワーカー panic を起こすのを防ぐ。observed_contour
+/// と同じ `is_finite` フィルタ方針）。数値パラメータが一つもない場合は None を返す。
+/// `kept_rows` は採用行の元 df インデックスで、制約列（`collect_constraints`）や
+/// アンカー行の解決を X と整合させるために使う。
+fn build_numeric_fit_xy(ctx: &StudyContext, objective: &str) -> Option<NumericFitXy> {
+    let numeric_params = numeric_param_names(ctx);
     if numeric_params.is_empty() {
         return None;
     }
 
     let n = ctx.view.row_count();
     let param_cols = ctx.view.numeric_columns(&numeric_params);
-    let x_matrix: Vec<Vec<f64>> = (0..n)
-        .map(|i| {
-            param_cols
-                .iter()
-                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                .collect()
-        })
-        .collect();
+    // 目的列が無い場合は 0.0 埋め（既存挙動）。存在する行の欠損セルも 0.0 とする。
+    let obj_col = ctx.view.numeric_column(objective);
+
+    let mut x_matrix: Vec<Vec<f64>> = Vec::with_capacity(n);
+    let mut y: Vec<f64> = Vec::with_capacity(n);
+    let mut kept_rows: Vec<usize> = Vec::with_capacity(n);
+    for i in 0..n {
+        let row: Vec<f64> = param_cols
+            .iter()
+            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+            .collect();
+        let yv = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+        // 非有限（NaN/inf）を含む行は除外する。
+        if row.iter().all(|v| v.is_finite()) && yv.is_finite() {
+            x_matrix.push(row);
+            y.push(yv);
+            kept_rows.push(i);
+        }
+    }
 
     // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
     // 宣言レンジがある列はそれを探索範囲とし、無い列は観測レンジにフォールバック。
@@ -49,21 +109,65 @@ fn build_numeric_fit_data(ctx: &StudyContext) -> Option<NumericFitData> {
         .map(|p| ctx.meta.param_bounds.get(p).copied())
         .collect();
 
-    Some((numeric_params, x_matrix, param_bounds))
+    Some((numeric_params, x_matrix, y, param_bounds, kept_rows))
 }
 
-/// 指定した目的列を Vec<f64> として取り出す。列が存在しない場合は行数分 0.0 埋めの
-/// フォールバックとする（既存の挙動を維持するため）。
-fn resolve_y_column(ctx: &StudyContext, objective: &str) -> Vec<f64> {
+/// `build_numeric_fit_xy` の多目的版。全目的の y 列をまとめて取り出し、
+/// いずれかの目的または X が非有限の行を除外する。
+type NumericFitXyMulti = (
+    Vec<String>,
+    Vec<Vec<f64>>,
+    Vec<Vec<f64>>,
+    Vec<Option<(f64, f64)>>,
+    Vec<usize>,
+);
+
+fn build_numeric_fit_xy_multi(
+    ctx: &StudyContext,
+    objectives: &[String],
+) -> Option<NumericFitXyMulti> {
+    let numeric_params = numeric_param_names(ctx);
+    if numeric_params.is_empty() {
+        return None;
+    }
+
     let n = ctx.view.row_count();
-    ctx.view
-        .numeric_column(objective)
-        .map(|col| col.to_vec())
-        .unwrap_or_else(|| vec![0.0; n])
+    let param_cols = ctx.view.numeric_columns(&numeric_params);
+    let obj_cols = ctx.view.numeric_columns(objectives);
+
+    let mut x_matrix: Vec<Vec<f64>> = Vec::with_capacity(n);
+    let mut kept_rows: Vec<usize> = Vec::with_capacity(n);
+    let mut objective_values: Vec<Vec<f64>> = vec![Vec::with_capacity(n); objectives.len()];
+    for i in 0..n {
+        let row: Vec<f64> = param_cols
+            .iter()
+            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+            .collect();
+        let ys: Vec<f64> = obj_cols
+            .iter()
+            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+            .collect();
+        if row.iter().all(|v| v.is_finite()) && ys.iter().all(|v| v.is_finite()) {
+            x_matrix.push(row);
+            for (o, &v) in ys.iter().enumerate() {
+                objective_values[o].push(v);
+            }
+            kept_rows.push(i);
+        }
+    }
+
+    let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
+        .iter()
+        .map(|p| ctx.meta.param_bounds.get(p).copied())
+        .collect();
+
+    Some((numeric_params, x_matrix, objective_values, param_bounds, kept_rows))
 }
 
+/// PDP 用の (X, y) を組み立てる。feasible_only の場合は実行可能解のみを対象とし、
+/// 非有限値（NaN/inf）を含む行は除外する（observed_contour と同じフィルタ方針）。
 fn build_xy_for_objective(
-    ctx: &crate::state::app_state::StudyContext,
+    ctx: &StudyContext,
     objective: &str,
     feasible_only: bool,
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
@@ -81,13 +185,16 @@ fn build_xy_for_objective(
         if feasible_only && !feas.is_feasible(i) {
             continue;
         }
-        x_matrix.push(
-            param_cols
-                .iter()
-                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                .collect(),
-        );
-        y.push(obj_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0));
+        let row: Vec<f64> = param_cols
+            .iter()
+            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+            .collect();
+        let yv = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+        if !row.iter().all(|v| v.is_finite()) || !yv.is_finite() {
+            continue;
+        }
+        x_matrix.push(row);
+        y.push(yv);
     }
 
     (x_matrix, y)
@@ -240,1104 +347,1240 @@ pub(crate) fn poll_chart_work(
         _ => {}
     }
 
+    // ChartId ごとに名前付きヘルパーへディスパッチする。各ヘルパーは current_study が
+    // Some であることを前提にしてよい（上の早期 return で保証済み）。
+    match chart_id {
+        ChartId::ConvergenceIndicators => poll_convergence_indicators(app_state, widgets, tx),
+        ChartId::ImportanceChart => poll_importance_chart(app_state, widgets, tx),
+        ChartId::SensitivityHeatmap => poll_sensitivity_heatmap(app_state, widgets, tx),
+        ChartId::PdpChart => poll_pdp_chart(app_state, widgets, tx),
+        ChartId::PdpChart2D => poll_pdp_chart_2d(widgets, tx),
+        ChartId::ClusterScatter => poll_cluster_scatter(app_state, widgets, tx),
+        ChartId::ClusterScatter3D => poll_cluster_scatter_3d(app_state, widgets, tx),
+        ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmScatterChart3D => {
+            poll_mcdm_charts(app_state, widgets, chart_id, tx)
+        }
+        ChartId::ArtifactGallery => poll_artifact_gallery(app_state, widgets, tx),
+        ChartId::ObservedContour => poll_observed_contour(app_state, widgets, tx),
+        ChartId::SurrogateOpt => poll_surrogate_opt(app_state, widgets, tx),
+        ChartId::Robustness => poll_robustness(app_state, widgets, tx),
+        ChartId::ResponseSurface3D => poll_response_surface(app_state, widgets, tx),
+        ChartId::SurrogateCompare => poll_surrogate_compare(app_state, widgets, tx),
+        _ => {}
+    }
+}
+
+/// 収束指標（Hypervolume 等）の推移を非同期計算する。基準 Study と比較 Study を
+/// 共通の参照点集合で正規化するため一括計算する。
+fn poll_convergence_indicators(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
-    let param_names = &ctx.meta.param_names;
     let directions = &ctx.meta.directions;
 
-    match chart_id {
-        ChartId::ConvergenceIndicators => {
-            if app_state.convergence_history.is_none() && !widgets.convergence.computing {
-                let is_minimize: Vec<bool> = directions
+    if app_state.convergence_history.is_some() || widgets.convergence.computing {
+        return;
+    }
+
+    let is_minimize: Vec<bool> = directions
+        .iter()
+        .map(|d| matches!(d, Direction::Minimize))
+        .collect();
+
+    // 計算コストを抑えるためダウンサンプリングする（最大 50 点）。
+    const TARGET_POINTS: usize = 50;
+    let n_trials = ctx.view.row_count();
+    let step = (n_trials / TARGET_POINTS).max(1);
+    let obj_cols = ctx.view.numeric_columns(obj_names);
+    let sampled_indices: Vec<usize> = (0..n_trials).step_by(step).collect();
+    let sampled_ids: Vec<u32> = sampled_indices
+        .iter()
+        .map(|&i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
+        .collect();
+    let sampled_objs: Vec<Vec<f64>> = sampled_indices
+        .iter()
+        .map(|&i| {
+            obj_cols
+                .iter()
+                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                .collect()
+        })
+        .collect();
+
+    // 比較 Study ごとに独立してダウンサンプリングする。
+    let mut comp_ids: Vec<Vec<u32>> = Vec::new();
+    let mut comp_objs: Vec<Vec<Vec<f64>>> = Vec::new();
+    let mut comp_steps: Vec<usize> = Vec::new();
+    for study in &app_state.comparison_studies {
+        let comp_obj_names = &study.meta.objective_names;
+        let cn = study.view.row_count();
+        let cs = (cn / TARGET_POINTS).max(1);
+        let comp_obj_cols = study.view.numeric_columns(comp_obj_names);
+        let cidxs: Vec<usize> = (0..cn).step_by(cs).collect();
+        let cids: Vec<u32> = cidxs
+            .iter()
+            .map(|&i| study.view.trial_ids.get(i).copied().unwrap_or(i as u32))
+            .collect();
+        let cobjs: Vec<Vec<f64>> = cidxs
+            .iter()
+            .map(|&i| {
+                comp_obj_cols
                     .iter()
-                    .map(|d| matches!(d, Direction::Minimize))
-                    .collect();
+                    .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                    .collect()
+            })
+            .collect();
+        comp_ids.push(cids);
+        comp_objs.push(cobjs);
+        comp_steps.push(cs);
+    }
 
-                // 計算コストを抑えるためダウンサンプリングする（最大 50 点）。
-                const TARGET_POINTS: usize = 50;
-                let n_trials = ctx.view.row_count();
-                let step = (n_trials / TARGET_POINTS).max(1);
-                let obj_cols = ctx.view.numeric_columns(obj_names);
-                let sampled_indices: Vec<usize> = (0..n_trials).step_by(step).collect();
-                let sampled_ids: Vec<u32> = sampled_indices
-                    .iter()
-                    .map(|&i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
-                    .collect();
-                let sampled_objs: Vec<Vec<f64>> = sampled_indices
-                    .iter()
-                    .map(|&i| {
-                        obj_cols
-                            .iter()
-                            .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                            .collect()
-                    })
-                    .collect();
+    // ユーザー指定の参照点（元の目的値）を正規化空間へ変換して渡す。
+    // 次元が目的数と一致しない指定は無視（None 扱い）して自動算出に委ねる。
+    let ref_override_norm: Option<Vec<f64>> = app_state
+        .hv_ref_point_override
+        .as_ref()
+        .filter(|r| r.len() == obj_names.len())
+        .map(|r| crate::state::ref_point_to_normalized(r, &is_minimize));
+    let is_minimize_for_back = is_minimize.clone();
+    let indicator = app_state.convergence_indicator;
 
-                // 比較 Study ごとに独立してダウンサンプリングする。
-                let mut comp_ids: Vec<Vec<u32>> = Vec::new();
-                let mut comp_objs: Vec<Vec<Vec<f64>>> = Vec::new();
-                let mut comp_steps: Vec<usize> = Vec::new();
-                for study in &app_state.comparison_studies {
-                    let comp_obj_names = &study.meta.objective_names;
-                    let cn = study.view.row_count();
-                    let cs = (cn / TARGET_POINTS).max(1);
-                    let comp_obj_cols = study.view.numeric_columns(comp_obj_names);
-                    let cidxs: Vec<usize> = (0..cn).step_by(cs).collect();
-                    let cids: Vec<u32> = cidxs
-                        .iter()
-                        .map(|&i| study.view.trial_ids.get(i).copied().unwrap_or(i as u32))
-                        .collect();
-                    let cobjs: Vec<Vec<f64>> = cidxs
-                        .iter()
-                        .map(|&i| {
-                            comp_obj_cols
-                                .iter()
-                                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                                .collect()
-                        })
-                        .collect();
-                    comp_ids.push(cids);
-                    comp_objs.push(cobjs);
-                    comp_steps.push(cs);
-                }
+    widgets.convergence.computing = true;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::results::ConvergenceHistory;
+        use tunny_core::indicators::SeriesInput;
 
-                // ユーザー指定の参照点（元の目的値）を正規化空間へ変換して渡す。
-                // 次元が目的数と一致しない指定は無視（None 扱い）して自動算出に委ねる。
-                let ref_override_norm: Option<Vec<f64>> = app_state
-                    .hv_ref_point_override
-                    .as_ref()
-                    .filter(|r| r.len() == obj_names.len())
-                    .map(|r| crate::state::ref_point_to_normalized(r, &is_minimize));
-                let is_minimize_for_back = is_minimize.clone();
-                let indicator = app_state.convergence_indicator;
-
-                widgets.convergence.computing = true;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    use crate::state::results::ConvergenceHistory;
-                    use tunny_core::indicators::SeriesInput;
-
-                    // 全系列（基準 + 比較）を一括計算して共通参照セットで正規化する。
-                    let mut series = vec![SeriesInput {
-                        trial_ids: &sampled_ids,
-                        objectives: &sampled_objs,
-                    }];
-                    for i in 0..comp_ids.len() {
-                        series.push(SeriesInput {
-                            trial_ids: &comp_ids[i],
-                            objectives: &comp_objs[i],
-                        });
-                    }
-                    let hist = tunny_core::indicators::compute_indicator_histories(
-                        &series,
-                        &is_minimize,
-                        indicator,
-                        ref_override_norm.as_deref(),
-                    );
-
-                    let base = if let Some(h) = hist.first() {
-                        ConvergenceHistory {
-                            trial_ids: h.trial_ids.clone(),
-                            values: h.values.clone(),
-                            sample_step: step,
-                            // 表示用に参照点を元の目的値の単位へ戻す。
-                            ref_point: crate::state::ref_point_to_original(
-                                &h.ref_point,
-                                &is_minimize_for_back,
-                            ),
-                        }
-                    } else {
-                        ConvergenceHistory {
-                            trial_ids: Vec::new(),
-                            values: Vec::new(),
-                            sample_step: step,
-                            ref_point: Vec::new(),
-                        }
-                    };
-
-                    let comparisons: Vec<ConvergenceHistory> = comp_steps
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &cs)| {
-                            if let Some(h) = hist.get(i + 1) {
-                                ConvergenceHistory {
-                                    trial_ids: h.trial_ids.clone(),
-                                    values: h.values.clone(),
-                                    sample_step: cs,
-                                    ref_point: Vec::new(),
-                                }
-                            } else {
-                                ConvergenceHistory {
-                                    trial_ids: Vec::new(),
-                                    values: Vec::new(),
-                                    sample_step: cs,
-                                    ref_point: Vec::new(),
-                                }
-                            }
-                        })
-                        .collect();
-
-                    AppMessage::IndicatorHistoryDone {
-                        indicator,
-                        base,
-                        comparisons,
-                    }
-                });
-            }
+        // 全系列（基準 + 比較）を一括計算して共通参照セットで正規化する。
+        let mut series = vec![SeriesInput {
+            trial_ids: &sampled_ids,
+            objectives: &sampled_objs,
+        }];
+        for i in 0..comp_ids.len() {
+            series.push(SeriesInput {
+                trial_ids: &comp_ids[i],
+                objectives: &comp_objs[i],
+            });
         }
-        ChartId::ImportanceChart => {
-            if let Some((metric, obj_idx, feasible_only)) =
-                widgets.importance.pending_compute.take()
-            {
-                use crate::state::results::{
-                    ArdResult, MdiResult, PermutationResult, RfAnovaResult, RidgeResult,
-                    SensitivityResult, ShapResult, SobolResult,
-                };
-                use crate::ui::widgets::importance_chart::{
-                    core_sensitivity_metric, ImportanceMetric, SOBOL_SAMPLE_COUNT,
-                };
+        let hist = tunny_core::indicators::compute_indicator_histories(
+            &series,
+            &is_minimize,
+            indicator,
+            ref_override_norm.as_deref(),
+        );
 
-                let already_cached = if metric.is_sobol() {
-                    app_state
-                        .sobol_cache
-                        .contains_key(&(obj_idx, feasible_only))
-                } else {
-                    app_state.importance_cache.contains_key(&(
-                        metric.cache_id(),
-                        obj_idx,
-                        feasible_only,
-                    ))
-                };
+        let base = if let Some(h) = hist.first() {
+            ConvergenceHistory {
+                trial_ids: h.trial_ids.clone(),
+                values: h.values.clone(),
+                sample_step: step,
+                // 表示用に参照点を元の目的値の単位へ戻す。
+                ref_point: crate::state::ref_point_to_original(&h.ref_point, &is_minimize_for_back),
+            }
+        } else {
+            ConvergenceHistory {
+                trial_ids: Vec::new(),
+                values: Vec::new(),
+                sample_step: step,
+                ref_point: Vec::new(),
+            }
+        };
 
-                if already_cached {
-                    widgets.importance.computing = false;
+        let comparisons: Vec<ConvergenceHistory> = comp_steps
+            .iter()
+            .enumerate()
+            .map(|(i, &cs)| {
+                if let Some(h) = hist.get(i + 1) {
+                    ConvergenceHistory {
+                        trial_ids: h.trial_ids.clone(),
+                        values: h.values.clone(),
+                        sample_step: cs,
+                        ref_point: Vec::new(),
+                    }
                 } else {
-                    let ctx = app_state.current_study.as_ref().unwrap();
-                    // 共有ストアの DataFrame を Arc::clone して直接利用（trial_rows 再構築不要）。
-                    // feasible_only の場合は実行可能解のみのコピーを使う。
-                    let df = sensitivity_df(ctx, feasible_only);
-                    let tx = tx.clone();
-                    match metric {
-                        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                            crate::app::spawn_task(tx, move || {
-                                match tunny_core::sensitivity::compute_sobol_from_df(
-                                    &df,
-                                    SOBOL_SAMPLE_COUNT,
-                                ) {
-                                    Some(r) => AppMessage::SobolDone {
-                                        key: (obj_idx, feasible_only),
-                                        result: SobolResult {
-                                            param_names: r.param_names,
-                                            first_order: r.first_order,
-                                            total_effect: r.total_effect,
-                                            r_squared: r.r_squared,
-                                        },
-                                    },
-                                    None => AppMessage::SensitivityError(
-                                        "Sobol computation failed".into(),
-                                    ),
-                                }
-                            });
-                        }
-                        ImportanceMetric::Ard => {
-                            // ARD は GP-FITC を学習してその長さスケールから重要度を得る
-                            //（DataFrame メトリクスではないため Sobol 同様の専用経路）。
-                            let key = (metric.cache_id(), obj_idx, feasible_only);
-                            crate::app::spawn_task(tx, move || {
-                                match tunny_core::surrogate_opt::compute_ard_importance_from_df(
-                                    &df, obj_idx,
-                                ) {
-                                    Some(r) => AppMessage::SensitivityDone {
-                                        key,
-                                        result: SensitivityResult {
-                                            param_names: r.param_names,
-                                            spearman: vec![],
-                                            ridge: vec![],
-                                            rf_anova: None,
-                                            mdi: None,
-                                            shap: None,
-                                            permutation: None,
-                                            ard: Some(ArdResult {
-                                                importances: r.importances,
-                                                r_squared: r.r_squared,
-                                            }),
-                                        },
-                                    },
-                                    None => AppMessage::SensitivityError(
-                                        "ARD importance requires a GP fit (need more trials)"
-                                            .into(),
-                                    ),
-                                }
-                            });
-                        }
-                        _ => {
-                            let Some(core_metric) = core_sensitivity_metric(metric) else {
-                                return;
-                            };
-                            let key = (metric.cache_id(), obj_idx, feasible_only);
-                            crate::app::spawn_task(tx, move || {
-                                let mut results =
-                                    tunny_core::sensitivity::compute_sensitivity_single_obj(
-                                        &df,
-                                        vec![core_metric],
-                                        obj_idx,
-                                    );
-                                let r = match results.pop() {
-                                    Some(r) => r,
-                                    None => {
-                                        return AppMessage::SensitivityError(
-                                            "Sensitivity computation failed".into(),
-                                        )
-                                    }
-                                };
-                                let n_params = r.spearman.len();
-                                let spearman: Vec<Vec<f64>> = if n_params > 0 {
-                                    vec![(0..n_params).map(|pi| r.spearman[pi][0]).collect()]
-                                } else {
-                                    vec![]
-                                };
-                                AppMessage::SensitivityDone {
-                                    key,
-                                    result: SensitivityResult {
-                                        param_names: r.param_names,
-                                        spearman,
-                                        ridge: r
-                                            .ridge
-                                            .into_iter()
-                                            .map(|x| RidgeResult {
-                                                beta: x.beta,
-                                                r_squared: x.r_squared,
-                                            })
-                                            .collect(),
-                                        rf_anova: r.rf_anova.map(|x| RfAnovaResult {
-                                            importances: x.0.importances,
-                                            r_squared: x.0.r_squared,
-                                        }),
-                                        mdi: r.mdi.map(|x| MdiResult {
-                                            importances: x.0.importances,
-                                            r_squared: x.0.r_squared,
-                                        }),
-                                        shap: r.shap.map(|x| ShapResult {
-                                            importances: x.0.importances,
-                                            r_squared: x.0.r_squared,
-                                        }),
-                                        permutation: r.permutation.map(|x| PermutationResult {
-                                            importances: x.0.importances,
-                                            r_squared: x.0.r_squared,
-                                        }),
-                                        ard: None,
-                                    },
-                                }
-                            });
-                        }
+                    ConvergenceHistory {
+                        trial_ids: Vec::new(),
+                        values: Vec::new(),
+                        sample_step: cs,
+                        ref_point: Vec::new(),
                     }
                 }
-            }
+            })
+            .collect();
+
+        AppMessage::IndicatorHistoryDone {
+            indicator,
+            base,
+            comparisons,
         }
-        ChartId::SensitivityHeatmap => {
-            // 選択手法の全パラメータ × 全目的の感度行列を非同期計算する。
-            // 計算要求は widgets.sensitivity_heatmap.pending_compute に積まれ
-            // （Run ボタン、または低コスト手法の自動トリガー）、結果は手法ごとに
-            // app_state.sensitivity_heatmap_cache へ集約される。
-            if let Some((metric, feasible_only)) =
-                widgets.sensitivity_heatmap.pending_compute.take()
-            {
-                if app_state
-                    .sensitivity_heatmap_cache
-                    .contains_key(&(metric.cache_id(), feasible_only))
-                {
-                    widgets.sensitivity_heatmap.computing = false;
-                } else {
-                    let ctx = app_state.current_study.as_ref().unwrap();
-                    let df = sensitivity_df(ctx, feasible_only);
-                    widgets.sensitivity_heatmap.computing = true;
-                    let tx = tx.clone();
-                    crate::app::spawn_task(tx, move || {
-                        compute_sensitivity_heatmap(metric, feasible_only, &df)
-                    });
-                }
-            }
-        }
-        ChartId::PdpChart => {
-            let Some(req) = widgets.pdp_chart.pending_compute.take() else {
-                return;
-            };
-            // current_study is guaranteed Some by the early return at the top of this function
-            let ctx = app_state.current_study.as_ref().unwrap();
-            let Some(target_param_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param)
-            else {
-                return;
-            };
-            let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective, req.feasible_only);
-            let param_names_owned = ctx.meta.param_names.clone();
-            let (param, objective, model_type) = (req.param, req.objective, req.model_type);
-            let (n_grid, feasible_only) = (req.n_grid, req.feasible_only);
-            widgets.pdp_chart.computing = true;
-            let tx = tx.clone();
+    });
+}
+
+/// パラメータ重要度（感度分析）の非同期計算をディスパッチする。
+fn poll_importance_chart(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let Some((metric, obj_idx, feasible_only)) = widgets.importance.pending_compute.take() else {
+        return;
+    };
+    use crate::state::results::{
+        ArdResult, MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult,
+        ShapResult, SobolResult,
+    };
+    use crate::ui::widgets::importance_chart::{
+        core_sensitivity_metric, ImportanceMetric, SOBOL_SAMPLE_COUNT,
+    };
+
+    let already_cached = if metric.is_sobol() {
+        app_state.sobol_cache.contains_key(&(obj_idx, feasible_only))
+    } else {
+        app_state
+            .importance_cache
+            .contains_key(&(metric.cache_id(), obj_idx, feasible_only))
+    };
+
+    if already_cached {
+        widgets.importance.computing = false;
+        return;
+    }
+
+    let ctx = app_state.current_study.as_ref().unwrap();
+    // 共有ストアの DataFrame を Arc::clone して直接利用（trial_rows 再構築不要）。
+    // feasible_only の場合は実行可能解のみのコピーを使う。
+    let df = sensitivity_df(ctx, feasible_only);
+    let tx = tx.clone();
+    match metric {
+        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
             crate::app::spawn_task(tx, move || {
-                use crate::state::messages::PdpResult1d;
-                let r = tunny_core::pdp::compute_pdp_from_data(
-                    x_matrix,
-                    y,
-                    param_names_owned,
-                    &objective,
-                    target_param_idx,
-                    n_grid,
-                    &model_type,
+                match tunny_core::sensitivity::compute_sobol_from_df(&df, SOBOL_SAMPLE_COUNT) {
+                    Some(r) => AppMessage::SobolDone {
+                        key: (obj_idx, feasible_only),
+                        result: SobolResult {
+                            param_names: r.param_names,
+                            first_order: r.first_order,
+                            total_effect: r.total_effect,
+                            r_squared: r.r_squared,
+                        },
+                    },
+                    None => AppMessage::SensitivityError("Sobol computation failed".into()),
+                }
+            });
+        }
+        ImportanceMetric::Ard => {
+            // ARD は GP-FITC を学習してその長さスケールから重要度を得る
+            //（DataFrame メトリクスではないため Sobol 同様の専用経路）。
+            let key = (metric.cache_id(), obj_idx, feasible_only);
+            crate::app::spawn_task(tx, move || {
+                match tunny_core::surrogate_opt::compute_ard_importance_from_df(&df, obj_idx) {
+                    Some(r) => AppMessage::SensitivityDone {
+                        key,
+                        result: SensitivityResult {
+                            param_names: r.param_names,
+                            spearman: vec![],
+                            ridge: vec![],
+                            rf_anova: None,
+                            mdi: None,
+                            shap: None,
+                            permutation: None,
+                            ard: Some(ArdResult {
+                                importances: r.importances,
+                                r_squared: r.r_squared,
+                            }),
+                        },
+                    },
+                    None => AppMessage::SensitivityError(
+                        "ARD importance requires a GP fit (need more trials)".into(),
+                    ),
+                }
+            });
+        }
+        _ => {
+            let Some(core_metric) = core_sensitivity_metric(metric) else {
+                return;
+            };
+            let key = (metric.cache_id(), obj_idx, feasible_only);
+            crate::app::spawn_task(tx, move || {
+                let mut results = tunny_core::sensitivity::compute_sensitivity_single_obj(
+                    &df,
+                    vec![core_metric],
+                    obj_idx,
                 );
-                AppMessage::PdpDone {
-                    param,
-                    objective,
-                    model_type,
-                    feasible_only,
-                    result: PdpResult1d {
-                        x_values: r.grid,
-                        y_values: r.values,
-                        y_upper: r.y_upper,
-                        y_lower: r.y_lower,
-                        ice_lines: vec![],
-                        r2: Some(r.r_squared),
-                        param_name: r.param_name,
+                let r = match results.pop() {
+                    Some(r) => r,
+                    None => {
+                        return AppMessage::SensitivityError(
+                            "Sensitivity computation failed".into(),
+                        )
+                    }
+                };
+                let n_params = r.spearman.len();
+                let spearman: Vec<Vec<f64>> = if n_params > 0 {
+                    vec![(0..n_params)
+                        .map(|pi| {
+                            r.spearman
+                                .get(pi)
+                                .and_then(|row| row.first())
+                                .copied()
+                                .unwrap_or(0.0)
+                        })
+                        .collect()]
+                } else {
+                    vec![]
+                };
+                AppMessage::SensitivityDone {
+                    key,
+                    result: SensitivityResult {
+                        param_names: r.param_names,
+                        spearman,
+                        ridge: r
+                            .ridge
+                            .into_iter()
+                            .map(|x| RidgeResult {
+                                beta: x.beta,
+                                r_squared: x.r_squared,
+                            })
+                            .collect(),
+                        rf_anova: r.rf_anova.map(|x| RfAnovaResult {
+                            importances: x.0.importances,
+                            r_squared: x.0.r_squared,
+                        }),
+                        mdi: r.mdi.map(|x| MdiResult {
+                            importances: x.0.importances,
+                            r_squared: x.0.r_squared,
+                        }),
+                        shap: r.shap.map(|x| ShapResult {
+                            importances: x.0.importances,
+                            r_squared: x.0.r_squared,
+                        }),
+                        permutation: r.permutation.map(|x| PermutationResult {
+                            importances: x.0.importances,
+                            r_squared: x.0.r_squared,
+                        }),
+                        ard: None,
                     },
                 }
             });
         }
-        ChartId::PdpChart2D => {
-            if let Some(req) = widgets.pdp_2d.pending_compute.take() {
-                widgets.pdp_2d.computing = true;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    let result = tunny_core::pdp::compute_pdp_2d(
-                        &req.param1,
-                        &req.param2,
-                        &req.objective,
-                        req.n_grid,
-                        &req.model_type,
-                        req.feasible_only,
-                    );
-                    match result {
-                        Some(r) => {
-                            use crate::state::messages::PdpResult2d;
-                            AppMessage::Pdp2dDone(PdpResult2d {
-                                x_values: r.x_values,
-                                y_values: r.y_values,
-                                z_values: r.z_values,
-                                param1_name: r.param1_name,
-                                param2_name: r.param2_name,
-                                objective_name: r.objective_name,
-                                uncertainties: r.uncertainties,
-                            })
-                        }
-                        None => AppMessage::Error("PDP 2D computation failed".into()),
-                    }
-                });
-            }
+    }
+}
+
+/// 感度ヒートマップ（全パラメータ × 全目的）の非同期計算をディスパッチする。
+fn poll_sensitivity_heatmap(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    // 選択手法の全パラメータ × 全目的の感度行列を非同期計算する。
+    // 計算要求は widgets.sensitivity_heatmap.pending_compute に積まれ
+    // （Run ボタン、または低コスト手法の自動トリガー）、結果は手法ごとに
+    // app_state.sensitivity_heatmap_cache へ集約される。
+    let Some((metric, feasible_only)) = widgets.sensitivity_heatmap.pending_compute.take() else {
+        return;
+    };
+    if app_state
+        .sensitivity_heatmap_cache
+        .contains_key(&(metric.cache_id(), feasible_only))
+    {
+        widgets.sensitivity_heatmap.computing = false;
+        return;
+    }
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let df = sensitivity_df(ctx, feasible_only);
+    widgets.sensitivity_heatmap.computing = true;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        compute_sensitivity_heatmap(metric, feasible_only, &df)
+    });
+}
+
+/// PDP（1D）の非同期計算をディスパッチする。
+fn poll_pdp_chart(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let Some(req) = widgets.pdp_chart.pending_compute.take() else {
+        return;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let Some(target_param_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param) else {
+        return;
+    };
+    let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective, req.feasible_only);
+    let param_names_owned = ctx.meta.param_names.clone();
+    let (param, objective, model_type) = (req.param, req.objective, req.model_type);
+    let (n_grid, feasible_only) = (req.n_grid, req.feasible_only);
+    widgets.pdp_chart.computing = true;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::PdpResult1d;
+        let r = tunny_core::pdp::compute_pdp_from_data(
+            x_matrix,
+            y,
+            param_names_owned,
+            &objective,
+            target_param_idx,
+            n_grid,
+            &model_type,
+        );
+        AppMessage::PdpDone {
+            param,
+            objective,
+            model_type,
+            feasible_only,
+            result: PdpResult1d {
+                x_values: r.grid,
+                y_values: r.values,
+                y_upper: r.y_upper,
+                y_lower: r.y_lower,
+                ice_lines: vec![],
+                r2: Some(r.r_squared),
+                param_name: r.param_name,
+            },
         }
-        ChartId::ClusterScatter => {
-            if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
+    });
+}
+
+/// PDP（2D）の非同期計算をディスパッチする。
+fn poll_pdp_chart_2d(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<AppMessage>) {
+    let Some(req) = widgets.pdp_2d.pending_compute.take() else {
+        return;
+    };
+    widgets.pdp_2d.computing = true;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        let result = tunny_core::pdp::compute_pdp_2d(
+            &req.param1,
+            &req.param2,
+            &req.objective,
+            req.n_grid,
+            &req.model_type,
+            req.feasible_only,
+        );
+        match result {
+            Some(r) => {
+                use crate::state::messages::PdpResult2d;
+                AppMessage::Pdp2dDone(PdpResult2d {
+                    x_values: r.x_values,
+                    y_values: r.y_values,
+                    z_values: r.z_values,
+                    param1_name: r.param1_name,
+                    param2_name: r.param2_name,
+                    objective_name: r.objective_name,
+                    uncertainties: r.uncertainties,
+                })
+            }
+            None => AppMessage::Error("PDP 2D computation failed".into()),
+        }
+    });
+}
+
+/// クラスタ散布図（2D）のクラスタリング計算をディスパッチする。
+fn poll_cluster_scatter(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let param_names = &ctx.meta.param_names;
+    let obj_names = &ctx.meta.objective_names;
+    let Some(req) = widgets.cluster_scatter.pending_compute.take() else {
+        return;
+    };
+    match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
+        Ok(matrix) => {
+            let tx = tx.clone();
+            crate::app::spawn_task(tx, move || {
+                run_cluster_compute(ClusterChartSource::Scatter2D, req, matrix)
+            });
+        }
+        Err(err) => {
+            widgets.cluster_scatter.set_error(err);
+        }
+    }
+}
+
+/// クラスタ散布図（3D）のクラスタリング計算をディスパッチする。
+fn poll_cluster_scatter_3d(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let param_names = &ctx.meta.param_names;
+    let obj_names = &ctx.meta.objective_names;
+    let Some(req) = widgets.cluster_scatter_3d.pending_compute.take() else {
+        return;
+    };
+    match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
+        Ok(matrix) => {
+            let tx = tx.clone();
+            crate::app::spawn_task(tx, move || {
+                run_cluster_compute(ClusterChartSource::Scatter3D, req, matrix)
+            });
+        }
+        Err(err) => {
+            widgets.cluster_scatter_3d.set_error(err);
+        }
+    }
+}
+
+/// MCDM 系チャート（ランク / 2D 散布 / 3D 散布）の計算をディスパッチする。
+/// 各チャートは独自の controls を持つが、ディスパッチ処理は共通。
+fn poll_mcdm_charts(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    chart_id: &ChartId,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
+
+    // 対象チャートの controls と source だけを選び、同じ 2 ステップを実行する。
+    let (controls, source) = match chart_id {
+        ChartId::McdmRankChart => (&mut widgets.mcdm_chart.controls, McdmChartSource::Rank),
+        ChartId::McdmScatterChart => (
+            &mut widgets.scatter_chart.controls,
+            McdmChartSource::Scatter2D,
+        ),
+        _ => (
+            &mut widgets.mcdm_scatter_3d.controls,
+            McdmChartSource::Scatter3D,
+        ),
+    };
+    dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
+    dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
+}
+
+/// Artifact Gallery（Cluster / MCDM モード）の非同期計算をディスパッチする。
+fn poll_artifact_gallery(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    use crate::ui::widgets::artifact_gallery::ArtifactViewMode;
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let param_names = &ctx.meta.param_names;
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
+
+    match widgets.artifact_gallery.mode {
+        ArtifactViewMode::Cluster => {
+            if let Some(req) = widgets.artifact_gallery.cluster_pending.take() {
                 match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
                     Ok(matrix) => {
                         let tx = tx.clone();
                         crate::app::spawn_task(tx, move || {
-                            run_cluster_compute(ClusterChartSource::Scatter2D, req, matrix)
+                            run_cluster_compute(ClusterChartSource::ArtifactGallery, req, matrix)
                         });
                     }
                     Err(err) => {
-                        widgets.cluster_scatter.set_error(err);
+                        widgets.artifact_gallery.set_cluster_error(err);
                     }
                 }
             }
         }
-        ChartId::ClusterScatter3D => {
-            if let Some(req) = widgets.cluster_scatter_3d.pending_compute.take() {
-                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
-                    Ok(matrix) => {
-                        let tx = tx.clone();
-                        crate::app::spawn_task(tx, move || {
-                            run_cluster_compute(ClusterChartSource::Scatter3D, req, matrix)
-                        });
-                    }
-                    Err(err) => {
-                        widgets.cluster_scatter_3d.set_error(err);
-                    }
+        ArtifactViewMode::Mcdm => {
+            let controls = &mut widgets.artifact_gallery.mcdm;
+            dispatch_mcdm_entropy(controls, ctx, obj_names, McdmChartSource::ArtifactGallery, tx);
+            dispatch_mcdm_compute(
+                controls,
+                ctx,
+                obj_names,
+                directions,
+                McdmChartSource::ArtifactGallery,
+                tx,
+            );
+        }
+        ArtifactViewMode::All => {}
+    }
+}
+
+/// Observed Contour（観測点補間の等高線）の非同期計算をディスパッチする。
+fn poll_observed_contour(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let Some(req) = widgets.observed_contour.pending_compute.take() else {
+        return;
+    };
+    let (Some(x_col), Some(y_col), Some(v_col)) = (
+        ctx.view.numeric_column(&req.x),
+        ctx.view.numeric_column(&req.y),
+        ctx.view.numeric_column(&req.value),
+    ) else {
+        widgets.observed_contour.error_message = Some("Selected column not found".to_string());
+        widgets.observed_contour.computing = false;
+        return;
+    };
+    let feas = ctx.view.feasibility();
+    let n = ctx.view.row_count();
+    let mut points: Vec<[f64; 3]> = Vec::with_capacity(n);
+    let mut point_trial_ids: Vec<u32> = Vec::with_capacity(n);
+    for i in 0..n {
+        if req.feasible_only && !feas.is_feasible(i) {
+            continue;
+        }
+        let (Some(&px), Some(&py), Some(&pv)) = (x_col.get(i), y_col.get(i), v_col.get(i)) else {
+            continue;
+        };
+        if !px.is_finite() || !py.is_finite() || !pv.is_finite() {
+            continue;
+        }
+        points.push([px, py, pv]);
+        point_trial_ids.push(ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32));
+    }
+    let (x_name, y_name, value_name) = (req.x, req.y, req.value);
+    let n_grid = req.n_grid;
+    let max_edge_ratio = req.max_edge_ratio;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::ObservedContourResult;
+        if points.len() < 3 {
+            return AppMessage::ObservedContourFailed(
+                "Not enough finite points to interpolate (need >= 3).".to_string(),
+            );
+        }
+        let surface = tunny_core::contour::observed_surface(&points, n_grid, max_edge_ratio);
+        if surface.x_values.is_empty() {
+            return AppMessage::ObservedContourFailed(
+                "Points are collinear or degenerate; cannot interpolate.".to_string(),
+            );
+        }
+        AppMessage::ObservedContourDone(ObservedContourResult {
+            x_name,
+            y_name,
+            value_name,
+            surface,
+            points,
+            point_trial_ids,
+        })
+    });
+}
+
+/// サロゲート最適化（SurrogateOpt）の各段階を優先順で処理する。
+/// フィット → 多目的フィット → 最適化 → 多目的最適化 → 候補提案 → 多目的候補提案 の順で、
+/// 未消化リクエストが見つかった最初の段階だけを実行する（元の else-if 連鎖と同じ挙動）。
+fn poll_surrogate_opt(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    if surrogate_stage_fit(app_state, widgets, tx) {
+        return;
+    }
+    if surrogate_stage_multi_fit(app_state, widgets, tx) {
+        return;
+    }
+    if surrogate_stage_optimize(app_state, widgets, tx) {
+        return;
+    }
+    if surrogate_stage_multi_optimize(app_state, widgets, tx) {
+        return;
+    }
+    if surrogate_stage_suggest(widgets, tx) {
+        return;
+    }
+    surrogate_stage_multi_suggest(app_state, widgets, tx);
+}
+
+/// SurrogateOpt: 単一目的フィット段階。未消化リクエストを消費したら true。
+fn surrogate_stage_fit(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) -> bool {
+    let Some(fit_req) = widgets.surrogate_opt.pending_fit.take() else {
+        return false;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let Some((numeric_params, x_matrix, y, param_bounds, kept_rows)) =
+        build_numeric_fit_xy(ctx, &fit_req.objective)
+    else {
+        widgets.surrogate_opt.error_message = Some("No numeric parameters available".to_string());
+        return true;
+    };
+
+    // フィット開始前に前の学習結果・最適化結果をクリアする。
+    widgets.surrogate_opt.fitting = true;
+    widgets.surrogate_opt.trained = None;
+    widgets.surrogate_opt.result = None;
+    widgets.surrogate_opt.error_message = None;
+
+    // 制約列を抽出する（use_constraints かつ制約列がある場合）。非有限フィルタで
+    // 除外した行と整合させるため kept_rows で絞り込む。
+    let constraints = if fit_req.use_constraints {
+        collect_constraints(ctx, &kept_rows)
+    } else {
+        vec![]
+    };
+
+    // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
+    let progress = tunny_core::surrogate_opt::FitProgress::new();
+    widgets.surrogate_opt.fit_progress = Some(progress.clone());
+
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            x_matrix,
+            y,
+            param_names: numeric_params,
+            objective_name: fit_req.objective,
+            model: fit_req.model,
+            auto_select: fit_req.auto_select,
+            constraints,
+            priority_rows: vec![],
+            param_bounds: Some(param_bounds),
+        };
+        match tunny_core::surrogate_opt::fit_surrogate_with_validation_tracked(
+            &fit_core_req,
+            &progress,
+        ) {
+            Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
+            Err(e) => {
+                // キャンセル由来の失敗はエラー表示しない。
+                if progress.is_cancelled() {
+                    AppMessage::SurrogateFitCancelled
+                } else {
+                    AppMessage::SurrogateFitFailed(e)
                 }
             }
         }
-        ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmScatterChart3D => {
-            // 各 MCDM チャートは独自の controls を持つが、ディスパッチ処理は共通。
-            // 対象チャートの controls と source だけを選び、同じ 2 ステップを実行する。
-            let (controls, source) = match chart_id {
-                ChartId::McdmRankChart => (&mut widgets.mcdm_chart.controls, McdmChartSource::Rank),
-                ChartId::McdmScatterChart => (
-                    &mut widgets.scatter_chart.controls,
-                    McdmChartSource::Scatter2D,
-                ),
-                _ => (
-                    &mut widgets.mcdm_scatter_3d.controls,
-                    McdmChartSource::Scatter3D,
-                ),
-            };
-            dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
-            dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
-        }
-        ChartId::ArtifactGallery => {
-            use crate::ui::widgets::artifact_gallery::ArtifactViewMode;
-            match widgets.artifact_gallery.mode {
-                ArtifactViewMode::Cluster => {
-                    if let Some(req) = widgets.artifact_gallery.cluster_pending.take() {
-                        match build_cluster_matrix(
-                            &ctx.view,
-                            param_names,
-                            obj_names,
-                            req.target_space,
-                        ) {
-                            Ok(matrix) => {
-                                let tx = tx.clone();
-                                crate::app::spawn_task(tx, move || {
-                                    run_cluster_compute(
-                                        ClusterChartSource::ArtifactGallery,
-                                        req,
-                                        matrix,
-                                    )
-                                });
-                            }
-                            Err(err) => {
-                                widgets.artifact_gallery.set_cluster_error(err);
-                            }
-                        }
-                    }
+    });
+    true
+}
+
+/// SurrogateOpt: 多目的フィット段階（全目的を学習）。未消化リクエストを消費したら true。
+fn surrogate_stage_multi_fit(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) -> bool {
+    let Some(multi_fit_req) = widgets.surrogate_opt.pending_multi_fit.take() else {
+        return false;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
+    let objective_names: Vec<String> = obj_names.to_vec();
+    let Some((numeric_params, x_matrix, objective_values, param_bounds, _kept_rows)) =
+        build_numeric_fit_xy_multi(ctx, obj_names)
+    else {
+        widgets.surrogate_opt.error_message = Some("No numeric parameters available".to_string());
+        return true;
+    };
+    // 目的ごとの minimize フラグを directions から解決する（多目的最適化パスと同じ方法）。
+    let minimize_flags = minimize_flags(directions, obj_names.len());
+
+    // フィット開始前に前の多目的結果をクリアする。
+    widgets.surrogate_opt.fitting = true;
+    widgets.surrogate_opt.multi_trained = None;
+    widgets.surrogate_opt.multi_result = None;
+    widgets.surrogate_opt.error_message = None;
+
+    // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
+    let progress = tunny_core::surrogate_opt::FitProgress::new();
+    widgets.surrogate_opt.fit_progress = Some(progress.clone());
+
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        // パレートフロント集中つきで全目的を学習する
+        //（N > GP 誘導点上限のとき非劣 trial に誘導点を集中）。
+        match tunny_core::surrogate_opt::fit_multi_surrogates_tracked(
+            &x_matrix,
+            &objective_values,
+            &numeric_params,
+            &objective_names,
+            multi_fit_req.model,
+            &minimize_flags,
+            Some(&param_bounds),
+            &progress,
+        ) {
+            Ok(trained_vec) => AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(trained_vec)),
+            Err(e) => {
+                if progress.is_cancelled() {
+                    AppMessage::SurrogateMultiFitCancelled
+                } else {
+                    AppMessage::SurrogateMultiFitFailed(e)
                 }
-                ArtifactViewMode::Mcdm => {
-                    let controls = &mut widgets.artifact_gallery.mcdm;
-                    dispatch_mcdm_entropy(
-                        controls,
-                        ctx,
-                        obj_names,
-                        McdmChartSource::ArtifactGallery,
-                        tx,
-                    );
-                    dispatch_mcdm_compute(
-                        controls,
-                        ctx,
-                        obj_names,
-                        directions,
-                        McdmChartSource::ArtifactGallery,
-                        tx,
-                    );
-                }
-                ArtifactViewMode::All => {}
             }
         }
-        ChartId::ObservedContour => {
-            if let Some(req) = widgets.observed_contour.pending_compute.take() {
-                let ctx = app_state.current_study.as_ref().unwrap();
-                let (Some(x_col), Some(y_col), Some(v_col)) = (
-                    ctx.view.numeric_column(&req.x),
-                    ctx.view.numeric_column(&req.y),
-                    ctx.view.numeric_column(&req.value),
-                ) else {
-                    widgets.observed_contour.error_message =
-                        Some("Selected column not found".to_string());
-                    widgets.observed_contour.computing = false;
-                    return;
-                };
-                let feas = ctx.view.feasibility();
-                let n = ctx.view.row_count();
-                let mut points: Vec<[f64; 3]> = Vec::with_capacity(n);
-                let mut point_trial_ids: Vec<u32> = Vec::with_capacity(n);
-                for i in 0..n {
-                    if req.feasible_only && !feas.is_feasible(i) {
-                        continue;
-                    }
-                    let (Some(&px), Some(&py), Some(&pv)) =
-                        (x_col.get(i), y_col.get(i), v_col.get(i))
-                    else {
-                        continue;
-                    };
-                    if !px.is_finite() || !py.is_finite() || !pv.is_finite() {
-                        continue;
-                    }
-                    points.push([px, py, pv]);
-                    point_trial_ids.push(ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32));
-                }
-                let (x_name, y_name, value_name) = (req.x, req.y, req.value);
-                let n_grid = req.n_grid;
-                let max_edge_ratio = req.max_edge_ratio;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    use crate::state::messages::ObservedContourResult;
-                    if points.len() < 3 {
-                        return AppMessage::ObservedContourFailed(
-                            "Not enough finite points to interpolate (need >= 3).".to_string(),
-                        );
-                    }
-                    let surface =
-                        tunny_core::contour::observed_surface(&points, n_grid, max_edge_ratio);
-                    if surface.x_values.is_empty() {
-                        return AppMessage::ObservedContourFailed(
-                            "Points are collinear or degenerate; cannot interpolate.".to_string(),
-                        );
-                    }
-                    AppMessage::ObservedContourDone(ObservedContourResult {
-                        x_name,
-                        y_name,
-                        value_name,
-                        surface,
-                        points,
-                        point_trial_ids,
-                    })
-                });
-            }
-        }
-        ChartId::SurrogateOpt => {
-            // フィット段階を最優先で処理する（optimize より先に take する）。
-            if let Some(fit_req) = widgets.surrogate_opt.pending_fit.take() {
-                let ctx = app_state.current_study.as_ref().unwrap();
-                let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx)
-                else {
-                    widgets.surrogate_opt.error_message =
-                        Some("No numeric parameters available".to_string());
-                    return;
-                };
-                let y = resolve_y_column(ctx, &fit_req.objective);
+    });
+    true
+}
 
-                // フィット開始前に前の学習結果・最適化結果をクリアする。
-                widgets.surrogate_opt.fitting = true;
-                widgets.surrogate_opt.trained = None;
-                widgets.surrogate_opt.result = None;
-                widgets.surrogate_opt.error_message = None;
+/// SurrogateOpt: 単一目的最適化段階。未消化リクエストを消費したら true。
+fn surrogate_stage_optimize(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) -> bool {
+    let Some(opt_req) = widgets.surrogate_opt.pending_optimize.take() else {
+        return false;
+    };
+    // 最適化段階は学習済みモデルが必要。
+    let Some(trained) = widgets.surrogate_opt.trained.clone() else {
+        widgets.surrogate_opt.error_message =
+            Some("No trained model available. Run Fit & Validate first.".to_string());
+        return true;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
 
-                // 制約列を抽出する（use_constraints かつ制約列がある場合）。
-                let constraints: Vec<tunny_core::surrogate_opt::ConstraintData> =
-                    if fit_req.use_constraints {
-                        ctx.view
-                            .df
-                            .constraint_col_names()
-                            .iter()
-                            .filter_map(|col_name| {
-                                ctx.view.df.get_numeric_column(col_name).map(|col| {
-                                    tunny_core::surrogate_opt::ConstraintData {
-                                        name: col_name.clone(),
-                                        values: col.to_vec(),
-                                    }
-                                })
-                            })
-                            .collect()
-                    } else {
-                        vec![]
-                    };
+    let obj_name = trained.objective_name.clone();
+    let obj_idx = obj_names.iter().position(|o| *o == obj_name);
+    let minimize = obj_idx
+        .and_then(|i| directions.get(i))
+        .map(|d| matches!(d, Direction::Minimize))
+        .unwrap_or(true);
 
-                // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
-                let progress = tunny_core::surrogate_opt::FitProgress::new();
-                widgets.surrogate_opt.fit_progress = Some(progress.clone());
+    // 応答曲面スライスは廃止したため生成しない。
+    let slice_params: Option<(usize, usize)> = None;
 
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
-                        x_matrix,
-                        y,
-                        param_names: numeric_params,
-                        objective_name: fit_req.objective,
-                        model: fit_req.model,
-                        auto_select: fit_req.auto_select,
-                        constraints,
-                        priority_rows: vec![],
-                        param_bounds: Some(param_bounds),
-                    };
-                    match tunny_core::surrogate_opt::fit_surrogate_with_validation_tracked(
-                        &fit_core_req,
-                        &progress,
-                    ) {
-                        Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
-                        Err(e) => {
-                            // キャンセル由来の失敗はエラー表示しない。
-                            if progress.is_cancelled() {
-                                AppMessage::SurrogateFitCancelled
-                            } else {
-                                AppMessage::SurrogateFitFailed(e)
-                            }
-                        }
-                    }
-                });
-            } else if let Some(multi_fit_req) = widgets.surrogate_opt.pending_multi_fit.take() {
-                // 多目的フィット段階: 全目的に対してサロゲートを学習する。
-                let ctx = app_state.current_study.as_ref().unwrap();
-                let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx)
-                else {
-                    widgets.surrogate_opt.error_message =
-                        Some("No numeric parameters available".to_string());
-                    return;
-                };
-                let n = ctx.view.row_count();
-                // 全目的の名前と y 列を収集する。
-                let objective_names: Vec<String> = obj_names.to_vec();
-                let objective_values: Vec<Vec<f64>> = obj_names
-                    .iter()
-                    .map(|name| {
-                        ctx.view
-                            .numeric_column(name)
-                            .map(|c| c.to_vec())
-                            .unwrap_or_else(|| vec![0.0; n])
-                    })
-                    .collect();
-                // 目的ごとの minimize フラグを directions から解決する
-                //（多目的最適化パスと同じ方法）。
-                let minimize_flags: Vec<bool> = (0..obj_names.len())
-                    .map(|i| {
-                        directions
-                            .get(i)
-                            .map(|d| matches!(d, Direction::Minimize))
-                            .unwrap_or(true)
-                    })
-                    .collect();
+    widgets.surrogate_opt.optimizing = true;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::SurrogateOptUiResult;
+        let param_names_owned = trained.param_names.clone();
+        let spec = tunny_core::surrogate_opt::SurrogateOptimizeSpec {
+            minimize,
+            optimizer: opt_req.optimizer,
+            slice_params,
+            n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
+        };
+        let constraint_names = trained.constraint_names.clone();
+        let r = tunny_core::surrogate_opt::optimize_on_trained(&trained, &spec);
+        let predicted_constraints: Vec<(String, f64)> = constraint_names
+            .into_iter()
+            .zip(r.predicted_constraints)
+            .collect();
+        AppMessage::SurrogateOptDone(SurrogateOptUiResult {
+            best_params: param_names_owned.into_iter().zip(r.best_params).collect(),
+            best_value: r.best_value,
+            predicted_std: r.predicted_std,
+            r_squared: r.r_squared,
+            objective_name: obj_name,
+            minimize,
+            best_observed_value: r.best_observed_value,
+            predicted_constraints,
+            feasibility_probability: r.feasibility_probability,
+        })
+    });
+    true
+}
 
-                // フィット開始前に前の多目的結果をクリアする。
-                widgets.surrogate_opt.fitting = true;
-                widgets.surrogate_opt.multi_trained = None;
-                widgets.surrogate_opt.multi_result = None;
-                widgets.surrogate_opt.error_message = None;
+/// SurrogateOpt: 多目的最適化段階。未消化リクエストを消費したら true。
+fn surrogate_stage_multi_optimize(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) -> bool {
+    if widgets
+        .surrogate_opt
+        .pending_multi_optimize
+        .take()
+        .is_none()
+    {
+        return false;
+    }
+    // 多目的最適化段階: 学習済みサロゲート群が必要。
+    let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
+        widgets.surrogate_opt.error_message =
+            Some("No trained multi-objective model. Run Fit & Validate first.".to_string());
+        return true;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
 
-                // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
-                let progress = tunny_core::surrogate_opt::FitProgress::new();
-                widgets.surrogate_opt.fit_progress = Some(progress.clone());
+    // 目的ごとの minimize フラグを directions から解決する。
+    let minimize_flags = minimize_flags(directions, obj_names.len());
 
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    // パレートフロント集中つきで全目的を学習する
-                    //（N > GP 誘導点上限のとき非劣 trial に誘導点を集中）。
-                    match tunny_core::surrogate_opt::fit_multi_surrogates_tracked(
-                        &x_matrix,
-                        &objective_values,
-                        &numeric_params,
-                        &objective_names,
-                        multi_fit_req.model,
-                        &minimize_flags,
-                        Some(&param_bounds),
-                        &progress,
-                    ) {
-                        Ok(trained_vec) => {
-                            AppMessage::SurrogateMultiFitDone(std::sync::Arc::new(trained_vec))
-                        }
-                        Err(e) => {
-                            if progress.is_cancelled() {
-                                AppMessage::SurrogateMultiFitCancelled
-                            } else {
-                                AppMessage::SurrogateMultiFitFailed(e)
-                            }
-                        }
-                    }
-                });
-            } else if let Some(opt_req) = widgets.surrogate_opt.pending_optimize.take() {
-                // 最適化段階は学習済みモデルが必要。
-                let Some(trained) = widgets.surrogate_opt.trained.clone() else {
-                    widgets.surrogate_opt.error_message =
-                        Some("No trained model available. Run Fit & Validate first.".to_string());
-                    return;
-                };
+    // 応答曲面スライスは廃止したため生成しない。
+    let slice_params: Option<(usize, usize)> = None;
 
-                let obj_name = trained.objective_name.clone();
-                let obj_idx = obj_names.iter().position(|o| *o == obj_name);
-                let minimize = obj_idx
-                    .and_then(|i| directions.get(i))
-                    .map(|d| matches!(d, Direction::Minimize))
-                    .unwrap_or(true);
-
-                // 応答曲面スライスは廃止したため生成しない。
-                let slice_params: Option<(usize, usize)> = None;
-
-                widgets.surrogate_opt.optimizing = true;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    use crate::state::messages::SurrogateOptUiResult;
-                    let param_names_owned = trained.param_names.clone();
-                    let spec = tunny_core::surrogate_opt::SurrogateOptimizeSpec {
-                        minimize,
-                        optimizer: opt_req.optimizer,
-                        slice_params,
-                        n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
-                    };
-                    let constraint_names = trained.constraint_names.clone();
-                    let r = tunny_core::surrogate_opt::optimize_on_trained(&trained, &spec);
-                    let predicted_constraints: Vec<(String, f64)> = constraint_names
-                        .into_iter()
-                        .zip(r.predicted_constraints)
-                        .collect();
-                    AppMessage::SurrogateOptDone(SurrogateOptUiResult {
-                        best_params: param_names_owned.into_iter().zip(r.best_params).collect(),
-                        best_value: r.best_value,
-                        predicted_std: r.predicted_std,
-                        r_squared: r.r_squared,
-                        objective_name: obj_name,
-                        minimize,
-                        best_observed_value: r.best_observed_value,
-                        predicted_constraints,
-                        feasibility_probability: r.feasibility_probability,
-                    })
-                });
-            } else if widgets
-                .surrogate_opt
-                .pending_multi_optimize
-                .take()
-                .is_some()
-            {
-                // 多目的最適化段階: 学習済みサロゲート群が必要。
-                let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
-                    widgets.surrogate_opt.error_message = Some(
-                        "No trained multi-objective model. Run Fit & Validate first.".to_string(),
-                    );
-                    return;
-                };
-
-                // 目的ごとの minimize フラグを directions から解決する。
-                let minimize_flags: Vec<bool> = (0..obj_names.len())
-                    .map(|i| {
-                        directions
-                            .get(i)
-                            .map(|d| matches!(d, Direction::Minimize))
-                            .unwrap_or(true)
-                    })
-                    .collect();
-
-                // 応答曲面スライスは廃止したため生成しない。
-                let slice_params: Option<(usize, usize)> = None;
-
-                let objective_names_owned = obj_names.to_vec();
-                widgets.surrogate_opt.optimizing = true;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    use crate::state::messages::SurrogateMultiOptUiResult;
-                    let refs: Vec<&tunny_core::surrogate_opt::TrainedSurrogate> =
-                        multi_trained.iter().collect();
-                    let spec = tunny_core::surrogate_opt::SurrogateMultiOptimizeSpec {
-                        minimize: minimize_flags,
-                        slice_params,
-                        n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
-                    };
-                    match tunny_core::surrogate_opt::optimize_multi_on_trained(&refs, &spec) {
-                        Ok(r) => {
-                            let param_names = refs
-                                .first()
-                                .map(|t| t.param_names.clone())
-                                .unwrap_or_default();
-                            AppMessage::SurrogateMultiOptDone(SurrogateMultiOptUiResult {
-                                param_names,
-                                objective_names: objective_names_owned,
-                                front: r.front,
-                                r_squared: r.r_squared,
-                            })
-                        }
-                        Err(e) => AppMessage::SurrogateMultiOptFailed(e),
-                    }
-                });
-            } else if let Some(suggest_req) = widgets.surrogate_opt.pending_suggest.take() {
-                // 候補提案段階: 学習済み GP サロゲートが必要。
-                let Some(trained) = widgets.surrogate_opt.trained.clone() else {
-                    widgets.surrogate_opt.error_message =
-                        Some("No trained model available. Run Fit & Validate first.".to_string());
-                    return;
-                };
-
-                let param_names = trained.param_names.clone();
-                let objective_name = trained.objective_name.clone();
-                widgets.surrogate_opt.suggesting = true;
-                widgets.surrogate_opt.error_message = None;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    use crate::state::messages::SurrogateSuggestUiResult;
-                    match tunny_core::surrogate_opt::suggest_candidates(
-                        &trained,
-                        suggest_req.n_candidates,
-                        suggest_req.acquisition,
-                        suggest_req.minimize,
-                    ) {
-                        Ok(candidates) => {
-                            AppMessage::SurrogateSuggestDone(SurrogateSuggestUiResult {
-                                candidates,
-                                param_names,
-                                objective_name,
-                            })
-                        }
-                        Err(e) => AppMessage::SurrogateSuggestFailed(e),
-                    }
-                });
-            } else if let Some(multi_suggest_req) =
-                widgets.surrogate_opt.pending_multi_suggest.take()
-            {
-                // 多目的候補提案段階（EHVI）: 学習済み GP サロゲート群が必要。
-                let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
-                    widgets.surrogate_opt.error_message = Some(
-                        "No trained multi-objective model. Run Fit & Validate first.".to_string(),
-                    );
-                    return;
-                };
-
-                // 目的ごとの minimize フラグを directions から解決する。
-                let minimize_flags: Vec<bool> = (0..obj_names.len())
-                    .map(|i| {
-                        directions
-                            .get(i)
-                            .map(|d| matches!(d, Direction::Minimize))
-                            .unwrap_or(true)
-                    })
-                    .collect();
-
-                let param_names = multi_trained
+    let objective_names_owned = obj_names.to_vec();
+    widgets.surrogate_opt.optimizing = true;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::SurrogateMultiOptUiResult;
+        let refs: Vec<&tunny_core::surrogate_opt::TrainedSurrogate> =
+            multi_trained.iter().collect();
+        let spec = tunny_core::surrogate_opt::SurrogateMultiOptimizeSpec {
+            minimize: minimize_flags,
+            slice_params,
+            n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
+        };
+        match tunny_core::surrogate_opt::optimize_multi_on_trained(&refs, &spec) {
+            Ok(r) => {
+                let param_names = refs
                     .first()
                     .map(|t| t.param_names.clone())
                     .unwrap_or_default();
-                let objective_names = obj_names.to_vec();
-                widgets.surrogate_opt.multi_suggesting = true;
-                widgets.surrogate_opt.error_message = None;
-                let tx = tx.clone();
-                crate::app::spawn_task(tx, move || {
-                    use crate::state::messages::SurrogateMultiSuggestUiResult;
-                    match tunny_core::surrogate_opt::suggest_candidates_multi(
-                        &multi_trained,
-                        &minimize_flags,
-                        multi_suggest_req.n_candidates,
-                    ) {
-                        Ok(candidates) => {
-                            AppMessage::SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult {
-                                candidates,
-                                param_names,
-                                objective_names,
-                            })
-                        }
-                        Err(e) => AppMessage::SurrogateMultiSuggestFailed(e),
-                    }
-                });
-            }
-        }
-        ChartId::Robustness => {
-            let Some(fit_req) = widgets.robustness.pending_fit.take() else {
-                return;
-            };
-            let ctx = app_state.current_study.as_ref().unwrap();
-            let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx) else {
-                widgets.robustness.fit_error = Some("No numeric parameters available".to_string());
-                widgets.robustness.fitting = false;
-                return;
-            };
-            let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
-                widgets.robustness.fit_error = Some("Invalid objective selection".to_string());
-                widgets.robustness.fitting = false;
-                return;
-            };
-            let y = resolve_y_column(ctx, &objective);
-
-            // ロバスト性解析は制約の実行可能率も欲しいので、あれば常に渡す。
-            let constraints: Vec<tunny_core::surrogate_opt::ConstraintData> = ctx
-                .view
-                .df
-                .constraint_col_names()
-                .iter()
-                .filter_map(|col_name| {
-                    ctx.view.df.get_numeric_column(col_name).map(|col| {
-                        tunny_core::surrogate_opt::ConstraintData {
-                            name: col_name.clone(),
-                            values: col.to_vec(),
-                        }
-                    })
+                AppMessage::SurrogateMultiOptDone(SurrogateMultiOptUiResult {
+                    param_names,
+                    objective_names: objective_names_owned,
+                    front: r.front,
+                    r_squared: r.r_squared,
                 })
-                .collect();
-
-            widgets.robustness.trained = None;
-            widgets.robustness.fit_error = None;
-
-            let tx = tx.clone();
-            crate::app::spawn_task(tx, move || {
-                let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
-                    x_matrix,
-                    y,
-                    param_names: numeric_params,
-                    objective_name: objective,
-                    model: fit_req.model,
-                    auto_select: false,
-                    constraints,
-                    priority_rows: vec![],
-                    param_bounds: Some(param_bounds),
-                };
-                match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
-                    Ok(t) => AppMessage::RobustnessFitDone(std::sync::Arc::new(t)),
-                    Err(e) => AppMessage::RobustnessFitFailed(e),
-                }
-            });
-        }
-        ChartId::ResponseSurface3D => {
-            let Some(fit_req) = widgets.response_surface.pending_fit.take() else {
-                return;
-            };
-            let ctx = app_state.current_study.as_ref().unwrap();
-            let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx) else {
-                widgets.response_surface.fit_error =
-                    Some("No numeric parameters available".to_string());
-                widgets.response_surface.fitting = false;
-                return;
-            };
-            let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
-                widgets.response_surface.fit_error =
-                    Some("Invalid objective selection".to_string());
-                widgets.response_surface.fitting = false;
-                return;
-            };
-            let y = resolve_y_column(ctx, &objective);
-
-            widgets.response_surface.trained = None;
-            widgets.response_surface.fit_error = None;
-
-            let tx = tx.clone();
-            crate::app::spawn_task(tx, move || {
-                let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
-                    x_matrix,
-                    y,
-                    param_names: numeric_params,
-                    objective_name: objective,
-                    model: fit_req.model,
-                    auto_select: false,
-                    // 応答曲面のスライス評価は実行可能性を扱わないため、制約は渡さない。
-                    constraints: vec![],
-                    priority_rows: vec![],
-                    param_bounds: Some(param_bounds),
-                };
-                match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
-                    Ok(t) => AppMessage::ResponseSurfaceFitDone(std::sync::Arc::new(t)),
-                    Err(e) => AppMessage::ResponseSurfaceFitFailed(e),
-                }
-            });
-        }
-        ChartId::SurrogateCompare => {
-            let Some(req) = widgets.surrogate_compare.pending.take() else {
-                return;
-            };
-            let ctx = app_state.current_study.as_ref().unwrap();
-            let Some((numeric_params, x_matrix, param_bounds)) = build_numeric_fit_data(ctx) else {
-                widgets.surrogate_compare.error =
-                    Some("No numeric parameters available".to_string());
-                widgets.surrogate_compare.computing = false;
-                return;
-            };
-            let Some(objective) = obj_names.get(req.objective_index).cloned() else {
-                widgets.surrogate_compare.error = Some("Invalid objective selection".to_string());
-                widgets.surrogate_compare.computing = false;
-                return;
-            };
-            if req.slice_param >= numeric_params.len() {
-                widgets.surrogate_compare.error =
-                    Some("Invalid slice parameter selection".to_string());
-                widgets.surrogate_compare.computing = false;
-                return;
             }
-            let y = resolve_y_column(ctx, &objective);
-
-            // アンカー: 選択目的の観測ベスト行（方向を考慮）。x_matrix と列順が一致するため、
-            // その行をそのままアンカーベクトルとして使える。
-            let Some(best_row) = crate::ui::widgets::anchor::best_trial_row(
-                &ctx.view, obj_names, directions, &objective,
-            ) else {
-                widgets.surrogate_compare.error =
-                    Some("Could not resolve an anchor point".to_string());
-                widgets.surrogate_compare.computing = false;
-                return;
-            };
-            let anchor = x_matrix[best_row].clone();
-
-            let slice_param = req.slice_param;
-            let n = x_matrix.len();
-            let observed: Vec<(f64, f64)> = (0..n)
-                .filter_map(|i| {
-                    let xv = x_matrix.get(i)?.get(slice_param).copied()?;
-                    let yv = y.get(i).copied()?;
-                    (xv.is_finite() && yv.is_finite()).then_some((xv, yv))
-                })
-                .collect();
-
-            let kinds = crate::ui::widgets::compare::model_kinds(req.include_moe);
-            let param_name = numeric_params[slice_param].clone();
-            let objective_name = objective.clone();
-
-            widgets.surrogate_compare.error = None;
-
-            let tx = tx.clone();
-            crate::app::spawn_task(tx, move || {
-                use crate::state::messages::{SurrogateCompareRow, SurrogateCompareUiResult};
-
-                let mut rows: Vec<SurrogateCompareRow> = Vec::with_capacity(kinds.len());
-                let mut slices = Vec::new();
-
-                for kind in kinds {
-                    let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
-                        x_matrix: x_matrix.clone(),
-                        y: y.clone(),
-                        param_names: numeric_params.clone(),
-                        objective_name: objective_name.clone(),
-                        model: kind,
-                        auto_select: false,
-                        // 単純な比較ビューのため制約は扱わない（ResponseSurface3D と同じ理由）。
-                        constraints: vec![],
-                        priority_rows: vec![],
-                        param_bounds: Some(param_bounds.clone()),
-                    };
-                    match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
-                        Ok(trained) => {
-                            let v = &trained.validation;
-                            rows.push(SurrogateCompareRow {
-                                kind,
-                                cv_r2_mean: v.cv_r2_mean,
-                                cv_r2_std: v.cv_r2_std,
-                                holdout_r2: v.holdout_r2,
-                                holdout_rmse: v.holdout_rmse,
-                                train_r2: v.train_r2,
-                                error: None,
-                            });
-                            if let Some(slice) = tunny_core::surrogate_opt::line_slice_at(
-                                &trained,
-                                &anchor,
-                                slice_param,
-                                60,
-                            ) {
-                                slices.push((kind, slice));
-                            }
-                        }
-                        Err(e) => {
-                            rows.push(SurrogateCompareRow {
-                                kind,
-                                cv_r2_mean: 0.0,
-                                cv_r2_std: 0.0,
-                                holdout_r2: 0.0,
-                                holdout_rmse: 0.0,
-                                train_r2: 0.0,
-                                error: Some(e),
-                            });
-                        }
-                    }
-                }
-
-                // 全モデルが失敗した場合のみ Failed とする（一部失敗は行ごとのエラーとして表示する）。
-                if rows.iter().all(|r| r.error.is_some()) {
-                    let combined = rows
-                        .iter()
-                        .filter_map(|r| r.error.clone())
-                        .collect::<Vec<_>>()
-                        .join("; ");
-                    AppMessage::SurrogateCompareFailed(format!(
-                        "All models failed to fit: {combined}"
-                    ))
-                } else {
-                    AppMessage::SurrogateCompareDone(std::sync::Arc::new(
-                        SurrogateCompareUiResult {
-                            rows,
-                            slices,
-                            observed,
-                            param_name,
-                            objective_name,
-                            anchor,
-                        },
-                    ))
-                }
-            });
+            Err(e) => AppMessage::SurrogateMultiOptFailed(e),
         }
-        _ => {}
+    });
+    true
+}
+
+/// SurrogateOpt: 単一目的の候補提案段階。未消化リクエストを消費したら true。
+fn surrogate_stage_suggest(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<AppMessage>) -> bool {
+    let Some(suggest_req) = widgets.surrogate_opt.pending_suggest.take() else {
+        return false;
+    };
+    // 候補提案段階: 学習済み GP サロゲートが必要。
+    let Some(trained) = widgets.surrogate_opt.trained.clone() else {
+        widgets.surrogate_opt.error_message =
+            Some("No trained model available. Run Fit & Validate first.".to_string());
+        return true;
+    };
+
+    let param_names = trained.param_names.clone();
+    let objective_name = trained.objective_name.clone();
+    widgets.surrogate_opt.suggesting = true;
+    widgets.surrogate_opt.error_message = None;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::SurrogateSuggestUiResult;
+        match tunny_core::surrogate_opt::suggest_candidates(
+            &trained,
+            suggest_req.n_candidates,
+            suggest_req.acquisition,
+            suggest_req.minimize,
+        ) {
+            Ok(candidates) => AppMessage::SurrogateSuggestDone(SurrogateSuggestUiResult {
+                candidates,
+                param_names,
+                objective_name,
+            }),
+            Err(e) => AppMessage::SurrogateSuggestFailed(e),
+        }
+    });
+    true
+}
+
+/// SurrogateOpt: 多目的候補提案段階（EHVI）。未消化リクエストを消費したら true。
+fn surrogate_stage_multi_suggest(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) -> bool {
+    let Some(multi_suggest_req) = widgets.surrogate_opt.pending_multi_suggest.take() else {
+        return false;
+    };
+    // 多目的候補提案段階（EHVI）: 学習済み GP サロゲート群が必要。
+    let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
+        widgets.surrogate_opt.error_message =
+            Some("No trained multi-objective model. Run Fit & Validate first.".to_string());
+        return true;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
+
+    // 目的ごとの minimize フラグを directions から解決する。
+    let minimize_flags = minimize_flags(directions, obj_names.len());
+
+    let param_names = multi_trained
+        .first()
+        .map(|t| t.param_names.clone())
+        .unwrap_or_default();
+    let objective_names = obj_names.to_vec();
+    widgets.surrogate_opt.multi_suggesting = true;
+    widgets.surrogate_opt.error_message = None;
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::SurrogateMultiSuggestUiResult;
+        match tunny_core::surrogate_opt::suggest_candidates_multi(
+            &multi_trained,
+            &minimize_flags,
+            multi_suggest_req.n_candidates,
+        ) {
+            Ok(candidates) => {
+                AppMessage::SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult {
+                    candidates,
+                    param_names,
+                    objective_names,
+                })
+            }
+            Err(e) => AppMessage::SurrogateMultiSuggestFailed(e),
+        }
+    });
+    true
+}
+
+/// ロバスト性解析のフィット段階をディスパッチする。
+fn poll_robustness(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let Some(fit_req) = widgets.robustness.pending_fit.take() else {
+        return;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    // 数値パラメータの存在を先に確認（元の検証順を維持）。
+    if numeric_param_names(ctx).is_empty() {
+        widgets.robustness.fit_error = Some("No numeric parameters available".to_string());
+        widgets.robustness.fitting = false;
+        return;
     }
+    let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
+        widgets.robustness.fit_error = Some("Invalid objective selection".to_string());
+        widgets.robustness.fitting = false;
+        return;
+    };
+    let Some((numeric_params, x_matrix, y, param_bounds, kept_rows)) =
+        build_numeric_fit_xy(ctx, &objective)
+    else {
+        widgets.robustness.fit_error = Some("No numeric parameters available".to_string());
+        widgets.robustness.fitting = false;
+        return;
+    };
+
+    // ロバスト性解析は制約の実行可能率も欲しいので、あれば常に渡す。
+    let constraints = collect_constraints(ctx, &kept_rows);
+
+    widgets.robustness.trained = None;
+    widgets.robustness.fit_error = None;
+
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            x_matrix,
+            y,
+            param_names: numeric_params,
+            objective_name: objective,
+            model: fit_req.model,
+            auto_select: false,
+            constraints,
+            priority_rows: vec![],
+            param_bounds: Some(param_bounds),
+        };
+        match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+            Ok(t) => AppMessage::RobustnessFitDone(std::sync::Arc::new(t)),
+            Err(e) => AppMessage::RobustnessFitFailed(e),
+        }
+    });
+}
+
+/// 応答曲面 3D のフィット段階をディスパッチする。
+fn poll_response_surface(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let Some(fit_req) = widgets.response_surface.pending_fit.take() else {
+        return;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    // 数値パラメータの存在を先に確認（元の検証順を維持）。
+    if numeric_param_names(ctx).is_empty() {
+        widgets.response_surface.fit_error = Some("No numeric parameters available".to_string());
+        widgets.response_surface.fitting = false;
+        return;
+    }
+    let Some(objective) = obj_names.get(fit_req.objective_index).cloned() else {
+        widgets.response_surface.fit_error = Some("Invalid objective selection".to_string());
+        widgets.response_surface.fitting = false;
+        return;
+    };
+    let Some((numeric_params, x_matrix, y, param_bounds, _kept_rows)) =
+        build_numeric_fit_xy(ctx, &objective)
+    else {
+        widgets.response_surface.fit_error = Some("No numeric parameters available".to_string());
+        widgets.response_surface.fitting = false;
+        return;
+    };
+
+    widgets.response_surface.trained = None;
+    widgets.response_surface.fit_error = None;
+
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            x_matrix,
+            y,
+            param_names: numeric_params,
+            objective_name: objective,
+            model: fit_req.model,
+            auto_select: false,
+            // 応答曲面のスライス評価は実行可能性を扱わないため、制約は渡さない。
+            constraints: vec![],
+            priority_rows: vec![],
+            param_bounds: Some(param_bounds),
+        };
+        match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+            Ok(t) => AppMessage::ResponseSurfaceFitDone(std::sync::Arc::new(t)),
+            Err(e) => AppMessage::ResponseSurfaceFitFailed(e),
+        }
+    });
+}
+
+/// Compare Surrogates（全モデル種別の CV 指標比較 + 予測スライス）の計算をディスパッチする。
+fn poll_surrogate_compare(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    let Some(req) = widgets.surrogate_compare.pending.take() else {
+        return;
+    };
+    let ctx = app_state.current_study.as_ref().unwrap();
+    let obj_names = &ctx.meta.objective_names;
+    let directions = &ctx.meta.directions;
+    // 数値パラメータの存在を先に確認（元の検証順を維持）。
+    if numeric_param_names(ctx).is_empty() {
+        widgets.surrogate_compare.error = Some("No numeric parameters available".to_string());
+        widgets.surrogate_compare.computing = false;
+        return;
+    }
+    let Some(objective) = obj_names.get(req.objective_index).cloned() else {
+        widgets.surrogate_compare.error = Some("Invalid objective selection".to_string());
+        widgets.surrogate_compare.computing = false;
+        return;
+    };
+    let Some((numeric_params, x_matrix, y, param_bounds, kept_rows)) =
+        build_numeric_fit_xy(ctx, &objective)
+    else {
+        widgets.surrogate_compare.error = Some("No numeric parameters available".to_string());
+        widgets.surrogate_compare.computing = false;
+        return;
+    };
+    if req.slice_param >= numeric_params.len() {
+        widgets.surrogate_compare.error = Some("Invalid slice parameter selection".to_string());
+        widgets.surrogate_compare.computing = false;
+        return;
+    }
+
+    // アンカー: 選択目的の観測ベスト行（方向を考慮）。best_trial_row は元 df の行 index を
+    // 返すため、非有限フィルタ後の x_matrix では kept_rows 内での位置に対応させる。
+    let Some(best_row) =
+        crate::ui::widgets::anchor::best_trial_row(&ctx.view, obj_names, directions, &objective)
+    else {
+        widgets.surrogate_compare.error = Some("Could not resolve an anchor point".to_string());
+        widgets.surrogate_compare.computing = false;
+        return;
+    };
+    let Some(anchor) = kept_rows
+        .iter()
+        .position(|&r| r == best_row)
+        .and_then(|pos| x_matrix.get(pos))
+        .cloned()
+    else {
+        widgets.surrogate_compare.error = Some("Could not resolve an anchor point".to_string());
+        widgets.surrogate_compare.computing = false;
+        return;
+    };
+
+    let slice_param = req.slice_param;
+    let n = x_matrix.len();
+    let observed: Vec<(f64, f64)> = (0..n)
+        .filter_map(|i| {
+            let xv = x_matrix.get(i)?.get(slice_param).copied()?;
+            let yv = y.get(i).copied()?;
+            (xv.is_finite() && yv.is_finite()).then_some((xv, yv))
+        })
+        .collect();
+
+    let kinds = crate::ui::widgets::compare::model_kinds(req.include_moe);
+    let param_name = numeric_params[slice_param].clone();
+    let objective_name = objective.clone();
+
+    widgets.surrogate_compare.error = None;
+
+    let tx = tx.clone();
+    crate::app::spawn_task(tx, move || {
+        use crate::state::messages::{SurrogateCompareRow, SurrogateCompareUiResult};
+
+        let mut rows: Vec<SurrogateCompareRow> = Vec::with_capacity(kinds.len());
+        let mut slices = Vec::new();
+
+        for kind in kinds {
+            let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+                x_matrix: x_matrix.clone(),
+                y: y.clone(),
+                param_names: numeric_params.clone(),
+                objective_name: objective_name.clone(),
+                model: kind,
+                auto_select: false,
+                // 単純な比較ビューのため制約は扱わない（ResponseSurface3D と同じ理由）。
+                constraints: vec![],
+                priority_rows: vec![],
+                param_bounds: Some(param_bounds.clone()),
+            };
+            match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+                Ok(trained) => {
+                    let v = &trained.validation;
+                    rows.push(SurrogateCompareRow {
+                        kind,
+                        cv_r2_mean: v.cv_r2_mean,
+                        cv_r2_std: v.cv_r2_std,
+                        holdout_r2: v.holdout_r2,
+                        holdout_rmse: v.holdout_rmse,
+                        train_r2: v.train_r2,
+                        error: None,
+                    });
+                    if let Some(slice) = tunny_core::surrogate_opt::line_slice_at(
+                        &trained,
+                        &anchor,
+                        slice_param,
+                        60,
+                    ) {
+                        slices.push((kind, slice));
+                    }
+                }
+                Err(e) => {
+                    rows.push(SurrogateCompareRow {
+                        kind,
+                        cv_r2_mean: 0.0,
+                        cv_r2_std: 0.0,
+                        holdout_r2: 0.0,
+                        holdout_rmse: 0.0,
+                        train_r2: 0.0,
+                        error: Some(e),
+                    });
+                }
+            }
+        }
+
+        // 全モデルが失敗した場合のみ Failed とする（一部失敗は行ごとのエラーとして表示する）。
+        if rows.iter().all(|r| r.error.is_some()) {
+            let combined = rows
+                .iter()
+                .filter_map(|r| r.error.clone())
+                .collect::<Vec<_>>()
+                .join("; ");
+            AppMessage::SurrogateCompareFailed(format!("All models failed to fit: {combined}"))
+        } else {
+            AppMessage::SurrogateCompareDone(std::sync::Arc::new(SurrogateCompareUiResult {
+                rows,
+                slices,
+                observed,
+                param_name,
+                objective_name,
+                anchor,
+            }))
+        }
+    });
 }
 
 /// 統合トライアルテーブル（`PanelItem::TrialTable`）の非同期計算をディスパッチする。

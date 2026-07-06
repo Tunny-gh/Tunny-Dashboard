@@ -98,6 +98,12 @@ pub struct ArtifactGallery {
     /// カードクリックで開くトライアル詳細モーダル（散布図等と共有）。
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
+    /// 直近フレームで画像テクスチャを生成した file:// URI 一覧（ページ離脱時の解放用）。
+    #[serde(skip)]
+    displayed_uris: Vec<String>,
+    /// 直近に描画した (表示モード, ページ)。これが変わったら前ページのテクスチャを解放する。
+    #[serde(skip)]
+    displayed_key: Option<(ArtifactViewMode, usize)>,
     // ── Cluster 設定（ClusterTable と同一構成）──────────────────
     pub k: usize,
     pub target_space: ClusterSpace,
@@ -132,6 +138,8 @@ impl Default for ArtifactGallery {
             cluster_pending: None,
             cluster_error: None,
             mcdm: McdmControls::default(),
+            displayed_uris: Vec::new(),
+            displayed_key: None,
         }
     }
 }
@@ -298,6 +306,23 @@ impl ArtifactGallery {
         }
     }
 
+    /// ページ / モードが変わったら前ページで生成した画像テクスチャを解放し（ページ送りでの
+    /// VRAM 蓄積防止）、今フレーム表示中の URI を記録する。
+    fn refresh_displayed_textures(
+        &mut self,
+        ctx: &egui::Context,
+        key: (ArtifactViewMode, usize),
+        uris: Vec<String>,
+    ) {
+        if self.displayed_key != Some(key) {
+            for uri in self.displayed_uris.drain(..) {
+                ctx.forget_image(&uri);
+            }
+            self.displayed_key = Some(key);
+        }
+        self.displayed_uris = uris;
+    }
+
     /// カードグリッド描画後の結果（ハイライト要求 / 詳細モーダル要求）を適用する。
     fn apply_card_outcome(
         &mut self,
@@ -369,8 +394,11 @@ impl ArtifactGallery {
                 cards.push((trial_id, String::new(), entry));
             }
         }
+        // このページで生成する画像テクスチャの URI。ページ離脱時の解放判定に使う。
+        let page_uris: Vec<String> = cards.iter().filter_map(|(_, _, e)| image_uri(e)).collect();
         let mut clicked: Option<u32> = None;
         let mut detail: Option<TrialDetailTarget> = None;
+        let ctx = ui.ctx().clone();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -379,6 +407,7 @@ impl ArtifactGallery {
                 clicked = h;
                 detail = p;
             });
+        self.refresh_displayed_textures(&ctx, (ArtifactViewMode::All, self.page), page_uris);
         self.apply_card_outcome(app_state, clicked, detail);
     }
 
@@ -437,34 +466,80 @@ impl ArtifactGallery {
 
         let thumb = self.thumb_size.size();
         let n_clusters = cr.n_clusters.max(1);
+
+        // 全クラスタのメンバーをセクション順に平坦化し、All モードと同様に PAGE_SIZE 単位で
+        // ページ分割する。以前は非仮想化で全クラスタ・全メンバー画像を毎フレーム add しており
+        // 数百枚で表示切替時に大ハング + VRAM 常駐していた（M-15）。
+        let flat: Vec<(i32, u32, &ArtifactEntry)> = sections
+            .iter()
+            .flat_map(|(label, members)| members.iter().map(move |(tid, e)| (*label, *tid, *e)))
+            .collect();
+        let total_pages = flat.len().div_ceil(PAGE_SIZE).max(1);
+        if self.page >= total_pages {
+            self.page = total_pages - 1;
+        }
+
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(self.page > 0, egui::Button::new("◀ Prev"))
+                .clicked()
+            {
+                self.page -= 1;
+            }
+            ui.label(format!("Page {}/{}", self.page + 1, total_pages));
+            if ui
+                .add_enabled(self.page + 1 < total_pages, egui::Button::new("Next ▶"))
+                .clicked()
+            {
+                self.page += 1;
+            }
+            ui.separator();
+            ui.label(format!("{} clustered trials with artifacts", flat.len()));
+        });
+
+        let page_items = paginate(&flat, self.page, PAGE_SIZE);
+        // このページで生成する画像テクスチャの URI（ページ離脱時の解放判定用）。
+        let page_uris: Vec<String> = page_items
+            .iter()
+            .filter_map(|(_, _, e)| image_uri(e))
+            .collect();
+        let ctx = ui.ctx().clone();
+        // ヘッダーのインデント分を差し引いた幅で列数を決める。
+        let w = (content_w - 24.0).max(thumb);
+
         let mut clicked: Option<u32> = None;
         let mut detail: Option<TrialDetailTarget> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (label, members) in &sections {
-                    let count = members.len();
-                    let title = if *label < 0 {
-                        format!("Unclustered ({count})")
-                    } else {
-                        format!("Cluster {label} ({count})")
-                    };
-                    let color = cluster_color(*label, n_clusters, &cmap);
-                    let badge = if *label < 0 {
+                // ページ内で連続する同一クラスタをまとめ、セクション見出し + グリッドで描画する。
+                let mut i = 0;
+                while i < page_items.len() {
+                    let label = page_items[i].0;
+                    let start = i;
+                    while i < page_items.len() && page_items[i].0 == label {
+                        i += 1;
+                    }
+                    let group = &page_items[start..i];
+                    let color = cluster_color(label, n_clusters, &cmap);
+                    let badge = if label < 0 {
                         "·".to_string()
                     } else {
                         format!("C{label}")
                     };
-                    let cards: Vec<(u32, String, &ArtifactEntry)> = members
+                    let title = if label < 0 {
+                        format!("Unclustered ({} shown)", group.len())
+                    } else {
+                        format!("Cluster {label} ({} shown)", group.len())
+                    };
+                    let cards: Vec<(u32, String, &ArtifactEntry)> = group
                         .iter()
-                        .map(|(trial_id, entry)| (*trial_id, badge.clone(), *entry))
+                        .map(|(_, tid, e)| (*tid, badge.clone(), *e))
                         .collect();
                     egui::CollapsingHeader::new(egui::RichText::new(title).color(color))
-                        .id_salt(("artifact_cluster_section", *label))
+                        .id_salt(("artifact_cluster_section", label))
                         .default_open(true)
                         .show(ui, |ui| {
-                            // ヘッダーのインデント分を差し引いた幅で列数を決める。
-                            let w = (content_w - 24.0).max(thumb);
                             let (h, p) =
                                 render_card_grid(ui, app_state, w, thumb, &cards, obj_by_trial);
                             if h.is_some() {
@@ -476,6 +551,7 @@ impl ArtifactGallery {
                         });
                 }
             });
+        self.refresh_displayed_textures(&ctx, (ArtifactViewMode::Cluster, self.page), page_uris);
         self.apply_card_outcome(app_state, clicked, detail);
     }
 
@@ -537,6 +613,10 @@ impl ArtifactGallery {
             let badge = format!("#{} ({:.3})", entry.rank, entry.score);
             cards.push((entry.trial_id, badge, entry.entry));
         }
+        // Mcdm はページ分割しない（top_n で件数がユーザー制限済み）。モード離脱時に
+        // テクスチャを解放できるよう、表示中 URI だけは記録する。
+        let page_uris: Vec<String> = cards.iter().filter_map(|(_, _, e)| image_uri(e)).collect();
+        let ctx = ui.ctx().clone();
         let mut clicked: Option<u32> = None;
         let mut detail: Option<TrialDetailTarget> = None;
         egui::ScrollArea::vertical()
@@ -547,6 +627,7 @@ impl ArtifactGallery {
                 clicked = h;
                 detail = p;
             });
+        self.refresh_displayed_textures(&ctx, (ArtifactViewMode::Mcdm, 0), page_uris);
         self.apply_card_outcome(app_state, clicked, detail);
     }
 
@@ -748,6 +829,17 @@ fn cluster_color(label: i32, n_clusters: usize, colormap: &ColorMap) -> egui::Co
     colormap.interpolate(t)
 }
 
+/// 画像アーティファクトの file:// URI を返す。
+/// 画像でない、または非 UTF-8 パス（URI で表現できない）の場合は `None`。
+/// 非 UTF-8 パスを `to_string_lossy` で潰すと実在しないパスの URI になり画像が
+/// 無言で壊れるため、ここで弾いて呼び出し側にフォールバックさせる。
+fn image_uri(entry: &ArtifactEntry) -> Option<String> {
+    if !matches!(entry.file_type(), ArtifactFileType::Image) {
+        return None;
+    }
+    entry.path.to_str().map(|s| format!("file://{s}"))
+}
+
 /// 1 枚の artifact カードを描画する。
 /// 画像クリックで拡大プレビュー、タイトルクリックで trial ハイライトを要求する。
 #[allow(clippy::too_many_arguments)]
@@ -774,9 +866,8 @@ fn show_artifact_card(
         .show(ui, |ui| {
             ui.set_width(thumb);
             ui.vertical(|ui| {
-                match entry.file_type() {
-                    ArtifactFileType::Image => {
-                        let uri = format!("file://{}", entry.path.to_string_lossy());
+                match (entry.file_type(), image_uri(entry)) {
+                    (ArtifactFileType::Image, Some(uri)) => {
                         let resp = ui
                             .add(
                                 egui::Image::from_uri(uri)
@@ -788,7 +879,19 @@ fn show_artifact_card(
                             click.detail = true;
                         }
                     }
-                    other => {
+                    (ArtifactFileType::Image, None) => {
+                        // 非 UTF-8 パスは file:// URI で表現できない。壊れた画像の代わりに
+                        // アイコン + Open ボタンでフォールバックする。
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(thumb * 0.2);
+                            ui.label(egui::RichText::new("🖼").size(thumb * 0.4));
+                            ui.add_space(thumb * 0.2);
+                            if ui.small_button("Open").clicked() {
+                                let _ = open::that(&entry.path);
+                            }
+                        });
+                    }
+                    (other, _) => {
                         let icon = if matches!(other, ArtifactFileType::Csv) {
                             "📊"
                         } else {

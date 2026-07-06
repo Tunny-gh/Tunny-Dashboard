@@ -178,6 +178,17 @@ impl MessageHandler {
             AppMessage::SensitivityError(_e) => {
                 widget_states.importance.computing = false;
             }
+            AppMessage::TaskPanicked(detail) => {
+                // ワーカースレッドが panic した。原因のウィジェットは特定できない
+                // （どの計算の panic かは spawn_task 側では分からない）ため、
+                // エラーをユーザーに可視化しつつロード中フラグだけ解除する。
+                *load_error = Some(format!("バックグラウンド処理が異常終了しました: {detail}"));
+                *is_loading = false;
+            }
+            AppMessage::PollerReady { .. } => {
+                // ポーラー起動は tx/poller を持つ app.rs（poll_messages）が横取りして
+                // 処理するため、MessageHandler には渡されない（到達しない）。
+            }
             AppMessage::LiveUpdateDone {
                 new_trial_rows,
                 updated_study_counts,
@@ -526,28 +537,22 @@ impl MessageHandler {
         if let Some(study) = &mut app_state.current_study {
             if study.meta.study_id == study_id {
                 if let Some(df) = tunny_core::dataframe::snapshot(study_id) {
-                    let _ = tunny_core::dataframe::select_study(study_id);
+                    // ワーカーが swap 済みの df を採用し、meta を最新化してから
+                    // Pareto + StudyView を作り直す（handle_live_update_done と共通）。
+                    study.meta = meta.clone();
                     let is_minimize: Vec<bool> = meta
                         .directions
                         .iter()
                         .map(|d| matches!(d, Direction::Minimize))
                         .collect();
-                    let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
-                    study.view = StudyView::new(df, pareto.ranks);
-                    study.pareto_indices = pareto.pareto_indices;
-                    study.meta = meta.clone();
+                    Self::rebuild_active_view(study, df, &is_minimize);
                 }
             }
         }
 
-        // ライブ更新で trial 数・best 値が変わるため収束履歴も作り直す
+        // trial 数・best 値が変わるため収束履歴・行数依存キャッシュを作り直す
         // （handle_live_update_done と同じ）。
-        Self::refresh_best_trial_history(app_state);
-
-        // トライアル数が変わるとキャッシュ済み結果の行数が合わなくなるため破棄する。
-        app_state.cluster_cache.clear();
-        app_state.mcdm_cache.clear();
-        app_state.mcdm_result = None;
+        Self::invalidate_row_dependent_state(app_state);
 
         if let Some(existing) = app_state
             .all_studies
@@ -558,12 +563,39 @@ impl MessageHandler {
         }
     }
 
+    /// swap 済みの `arc` をアクティブ化して Pareto を再計算し、`study` の StudyView を
+    /// 作り直す（D-7: live update / sqlite・rdb reload の共通処理）。
+    /// 呼び出し前に `study.meta` が最新で、共有ストアへ `arc` が swap 済みであること。
+    fn rebuild_active_view(
+        study: &mut StudyContext,
+        arc: std::sync::Arc<DataFrame>,
+        is_minimize: &[bool],
+    ) {
+        let _ = tunny_core::dataframe::select_study(study.meta.study_id);
+        let pareto = tunny_core::pareto::compute_pareto_ranks(is_minimize);
+        study.view = StudyView::new(arc, pareto.ranks);
+        study.pareto_indices = pareto.pareto_indices;
+    }
+
+    /// ライブ更新・再ロードで trial 数が変わった後の共通後処理（D-7）:
+    /// best-trial 履歴の再計算と、行数依存キャッシュ（cluster / mcdm）の破棄。
+    fn invalidate_row_dependent_state(app_state: &mut AppState) {
+        Self::refresh_best_trial_history(app_state);
+        app_state.cluster_cache.clear();
+        app_state.mcdm_cache.clear();
+        app_state.mcdm_result = None;
+    }
+
     fn handle_live_update_done(
         new_core_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
         extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
         app_state: &mut AppState,
     ) {
+        // 新規完了 trial 行があれば DataFrame を作り直したかどうか。
+        // 中間値・状態変化のみ（extras）の更新では列は変化しないため、
+        // 全 clone + O(N²) Pareto 再計算・行数依存キャッシュ破棄をスキップする（M-7）。
+        let mut df_rebuilt = false;
         if let Some(study) = &mut app_state.current_study {
             let study_id = study.meta.study_id;
 
@@ -586,39 +618,38 @@ impl MessageHandler {
                 })
                 .collect();
 
-            let param_names = study.meta.param_names.clone();
-            let obj_names = study.meta.objective_names.clone();
-            let un = study.view.df.user_attr_numeric_col_names().to_vec();
-            let us = study.view.df.user_attr_string_col_names().to_vec();
-            let max_c = study.view.df.constraint_col_names().len();
-            let mut new_df = (*study.view.df).clone();
-            new_df.append_trials(&added_rows, &param_names, &obj_names, &un, &us, max_c);
+            // 新規 trial 行が無い更新（RUNNING 中の中間値報告など）は列が変わらない。
+            // extras は上でマージ済みなので、ここで打ち切って重い再計算を回避する（M-7）。
+            if !added_rows.is_empty() {
+                let param_names = study.meta.param_names.clone();
+                let obj_names = study.meta.objective_names.clone();
+                let un = study.view.df.user_attr_numeric_col_names().to_vec();
+                let us = study.view.df.user_attr_string_col_names().to_vec();
+                let max_c = study.view.df.constraint_col_names().len();
+                let mut new_df = (*study.view.df).clone();
+                new_df.append_trials(&added_rows, &param_names, &obj_names, &un, &us, max_c);
 
-            let is_minimize: Vec<bool> = study
-                .meta
-                .directions
-                .iter()
-                .map(|d| matches!(d, Direction::Minimize))
-                .collect();
+                let is_minimize: Vec<bool> = study
+                    .meta
+                    .directions
+                    .iter()
+                    .map(|d| matches!(d, Direction::Minimize))
+                    .collect();
 
-            // 先に共有ストアを差し替えてアクティブ化し、列がそろった DataFrame から
-            // Pareto を計算する（handle_study_chunk と同じ方式）。all_rows を直接 nd_sort へ
-            // 渡すと、ライブ差分が目的本数の異なる行を含む場合にスライス範囲外で panic する。
-            // from_trials / compute_pareto_ranks は不足目的を NaN で埋め形状を必ずそろえる。
-            let arc = std::sync::Arc::new(new_df);
-            tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
-            let _ = tunny_core::dataframe::select_study(study_id);
-            let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
-            study.view = StudyView::new(arc, pareto.ranks);
-            study.pareto_indices = pareto.pareto_indices;
+                // 先に共有ストアを差し替えてアクティブ化し、列がそろった DataFrame から
+                // Pareto を計算する（handle_study_chunk と同じ方式）。all_rows を直接 nd_sort へ
+                // 渡すと、ライブ差分が目的本数の異なる行を含む場合にスライス範囲外で panic する。
+                // from_trials / compute_pareto_ranks は不足目的を NaN で埋め形状を必ずそろえる。
+                let arc = std::sync::Arc::new(new_df);
+                tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
+                Self::rebuild_active_view(study, arc, &is_minimize);
+                df_rebuilt = true;
+            }
         }
-        // ライブ更新で trial 数・best 値が変わるため収束履歴も作り直す。
-        Self::refresh_best_trial_history(app_state);
-
-        // トライアル数が変わるとキャッシュ済み結果の行数が合わなくなるため破棄する。
-        app_state.cluster_cache.clear();
-        app_state.mcdm_cache.clear();
-        app_state.mcdm_result = None;
+        // trial 数・best 値が変わったときのみ収束履歴・行数依存キャッシュを作り直す（M-7）。
+        if df_rebuilt {
+            Self::invalidate_row_dependent_state(app_state);
+        }
 
         // Update all_studies completed_trials
         for (study_id, new_count) in updated_study_counts {

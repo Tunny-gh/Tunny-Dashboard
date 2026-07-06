@@ -9,36 +9,45 @@ pub enum ExportTarget {
     ParetoOnly,
 }
 
-/// trial エクスポート共通のヘッダ列
-/// （trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id）を書き込む。
-fn write_trial_header(w: &mut CsvWriter, param_names: &[String], objective_names: &[String]) {
-    let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
-    header.extend(param_names.iter().map(String::as_str));
-    header.extend(objective_names.iter().map(String::as_str));
-    header.push("pareto_rank");
-    header.push("cluster_id");
-    w.header(header);
+/// trial 行 CSV の末尾に付けるオプション列（ランク / クラスタ）のフラグ。
+/// 呼び出し元ごとに必要な列だけを true にする（pareto エクスポートはランクのみ、
+/// 全件エクスポートはランク＋クラスタ）。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TrialCsvColumns {
+    /// `pareto_rank` 列（各行の Pareto ランク。0 = フロント）を含める。
+    pub pareto_rank: bool,
+    /// `cluster_id` 列（クラスタ割当。未割当は空欄）を含める。
+    pub cluster_id: bool,
 }
 
-/// `StudyView` と行インデックスリストから CSV 文字列を生成する。
-/// 列順: trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id。
-pub fn build_csv_string_from_view(
+/// `StudyView` と行インデックスリストから trial 行 CSV を生成する。
+/// 列順: trial_id, trial_number, params..., objectives..., [pareto_rank], [cluster_id]。
+/// 末尾のランク列・クラスタ列の有無は `columns` で切り替える。
+pub fn build_trial_csv_from_view(
     view: &StudyView,
     row_indices: &[usize],
     param_names: &[String],
     objective_names: &[String],
+    columns: TrialCsvColumns,
 ) -> String {
     let param_cols = view.numeric_columns(param_names);
     let obj_cols = view.numeric_columns(objective_names);
 
     let mut w = CsvWriter::new();
-    write_trial_header(&mut w, param_names, objective_names);
+    let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
+    header.extend(param_names.iter().map(String::as_str));
+    header.extend(objective_names.iter().map(String::as_str));
+    if columns.pareto_rank {
+        header.push("pareto_rank");
+    }
+    if columns.cluster_id {
+        header.push("cluster_id");
+    }
+    w.header(header);
 
     for &i in row_indices {
         let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
         let trial_number = view.df.get_trial_number(i).unwrap_or(i as u32);
-        let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-        let cluster = view.cluster_id.get(i).copied().flatten();
         let mut fields = vec![
             CsvField::UInt(trial_id as u64),
             CsvField::UInt(trial_number as u64),
@@ -47,16 +56,42 @@ pub fn build_csv_string_from_view(
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             fields.push(CsvField::Num(v));
         }
-        fields.push(CsvField::UInt(rank as u64));
-        fields.push(
-            cluster
-                .map(|c| CsvField::Int(c as i64))
-                .unwrap_or(CsvField::Empty),
-        );
+        if columns.pareto_rank {
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            fields.push(CsvField::UInt(rank as u64));
+        }
+        if columns.cluster_id {
+            let cluster = view.cluster_id.get(i).copied().flatten();
+            fields.push(
+                cluster
+                    .map(|c| CsvField::Int(c as i64))
+                    .unwrap_or(CsvField::Empty),
+            );
+        }
         w.row(fields);
     }
 
     w.finish()
+}
+
+/// `StudyView` と行インデックスリストから CSV 文字列を生成する（ランク＋クラスタ列付き）。
+/// 列順: trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id。
+pub fn build_csv_string_from_view(
+    view: &StudyView,
+    row_indices: &[usize],
+    param_names: &[String],
+    objective_names: &[String],
+) -> String {
+    build_trial_csv_from_view(
+        view,
+        row_indices,
+        param_names,
+        objective_names,
+        TrialCsvColumns {
+            pareto_rank: true,
+            cluster_id: true,
+        },
+    )
 }
 
 /// `StudyView` ベースのエクスポート対象行インデックスを返す。
@@ -90,8 +125,9 @@ pub fn select_row_indices_for_export(
 }
 
 /// CSV 文字列を指定パスへ書き込む。失敗時はエラー文字列を返す。
+/// 上書き途中のクラッシュで既存ファイルを壊さないようアトミックに書き込む。
 pub fn write_csv_to_path(csv: &str, path: &std::path::Path) -> Result<(), String> {
-    std::fs::write(path, csv).map_err(|e| e.to_string())
+    crate::io::file::write_atomic(path, csv.as_bytes()).map_err(|e| e.to_string())
 }
 
 /// ファイル保存ダイアログを開いて CSV を保存する。

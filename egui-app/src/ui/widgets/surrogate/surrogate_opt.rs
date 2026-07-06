@@ -29,14 +29,8 @@ use tunny_core::surrogate_opt::{
     TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
-/// モデル選択肢（コンボ表示順）。新モデル追加時はここへ並べる。
-const MODEL_CHOICES: [SurrogateModelKind; 5] = [
-    SurrogateModelKind::Ridge,
-    SurrogateModelKind::GpFitc,
-    SurrogateModelKind::GpVfe,
-    SurrogateModelKind::GpMoe,
-    SurrogateModelKind::Lgbm,
-];
+// モデル選択肢（コンボ表示順）。3 ウィジェット共通の単一情報源（`super::MODEL_CHOICES`）を使う。
+use super::MODEL_CHOICES;
 
 /// Model コンボの "Auto" エントリのラベル。
 const AUTO_MODEL_LABEL: &str = "Auto (cross-validated)";

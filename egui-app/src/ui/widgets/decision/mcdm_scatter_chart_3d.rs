@@ -8,7 +8,7 @@ use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::mcdm_chart::McdmControls;
-use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options};
+use crate::ui::widgets::mcdm_scatter_chart::{extract_axis_values, get_axis_options, ranked_hash};
 use crate::ui::widgets::scatter_3d::{
     draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas, show_hover_and_click_detail,
     ArcballCamera,
@@ -96,11 +96,9 @@ impl McdmScatterChart3D {
         self.controls.adopt_compute_state(&src.controls);
     }
 
+    /// 2D 版と共有する `ranked_indices()` ハッシュ（H-3 で 2D/3D 共通化）。
     fn ranked_hash(result: &McdmResult) -> u64 {
-        result.ranked_indices().iter().fold(0u64, |acc, &x| {
-            acc.wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(x as u64 + 1)
-        })
+        ranked_hash(result)
     }
 
     fn is_cache_stale(

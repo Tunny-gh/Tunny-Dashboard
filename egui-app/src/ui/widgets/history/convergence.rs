@@ -269,12 +269,20 @@ impl ConvergenceChart {
         // クリック判定用に基準 Study の点を (trial_id, 行 index, [x, y]) で構築する。
         // 描画点と座標を一致させるため `base_points` をそのまま流用し、trial_id から
         // `view` 上の行を解決する（解決できない点はクリック対象外）。
+        // trial_id → 行 index の逆引きマップを 1 度だけ構築し、点ごとの線形走査
+        // （O(m·n)）を O(m+n) に落とす（M-17）。同一 trial_id は最初の行を採用する
+        // （旧 `position()` の挙動を保つ）。
+        let mut row_by_trial_id: HashMap<u32, usize> =
+            HashMap::with_capacity(view.trial_ids.len());
+        for (row, &tid) in view.trial_ids.iter().enumerate() {
+            row_by_trial_id.entry(tid).or_insert(row);
+        }
         let base_hit_points: Vec<(u32, usize, [f64; 2])> = base_points
             .iter()
             .enumerate()
             .filter_map(|(i, &pt)| {
                 let tid = *history.trial_ids.get(i)?;
-                let row = view.trial_ids.iter().position(|&t| t == tid)?;
+                let row = *row_by_trial_id.get(&tid)?;
                 Some((tid, row, pt))
             })
             .collect();

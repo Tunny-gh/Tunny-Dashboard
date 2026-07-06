@@ -8,7 +8,7 @@ use crate::io::live_update_poller::{
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
-use crate::state::messages::AppMessage;
+use crate::state::messages::{AppMessage, PollerPrep};
 use crate::state::results::LiveUpdateStorageKind;
 use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
@@ -150,9 +150,8 @@ impl ComputeSyncKind {
                 Self::ObservedContour => w
                     .observed_contour
                     .adopt_compute_state(&global.observed_contour),
-                Self::SurrogateFit => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
-                Self::SurrogateOpt => w.surrogate_opt.adopt_compute_state(&global.surrogate_opt),
-                Self::SurrogateSuggest => {
+                // フィット・最適化・提案はいずれも同じ surrogate_opt 状態を共有する。
+                Self::SurrogateFit | Self::SurrogateOpt | Self::SurrogateSuggest => {
                     w.surrogate_opt.adopt_compute_state(&global.surrogate_opt)
                 }
                 Self::RobustnessFit => w.robustness.adopt_compute_state(&global.robustness),
@@ -183,6 +182,11 @@ pub struct TunnyApp {
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
     poller: Option<ActivePoller>,
+    /// ライブ更新ポーラーの起動準備（H-1/H-2）に付与する世代カウンタ。
+    /// `restart_poller` のたびに +1 し、準備完了メッセージ（`AppMessage::PollerReady`）
+    /// が現在の世代と一致する場合のみポーラーを起動する。準備中にユーザーが
+    /// トグル/Study 変更/別ファイルを開いた場合、古い準備結果を破棄するために使う。
+    poller_generation: u64,
     /// 現在ウィンドウタイトルバーに設定済みの文字列。変化時のみ更新コマンドを送るために保持する。
     current_window_title: Option<String>,
 }
@@ -222,15 +226,7 @@ impl TunnyApp {
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
-            if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
-                crate::io::study_worker::dispatch_scan_rdb(url, tx.clone());
-            } else if crate::io::flat_csv::is_csv_path(&path) {
-                crate::io::study_worker::dispatch_scan_csv(path, tx.clone());
-            } else if crate::io::sqlite::is_sqlite_path(&path) {
-                crate::io::study_worker::dispatch_scan_sqlite(path, tx.clone());
-            } else {
-                crate::io::study_worker::dispatch_scan_journal(path, tx.clone());
-            }
+            dispatch_scan(path, tx.clone());
         }
         Self {
             app_state: AppState::new(),
@@ -242,6 +238,7 @@ impl TunnyApp {
             tx,
             rx,
             poller: None,
+            poller_generation: 0,
             current_window_title: None,
         }
     }
@@ -283,6 +280,16 @@ impl TunnyApp {
     /// ノンブロッキングにメッセージを処理し AppState を更新する
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
+            // H-1/H-2: ポーラー起動準備の完了は tx/poller を要するため、tx を持たない
+            // MessageHandler ではなくここで横取りして処理する（世代一致時のみ起動）。
+            let msg = match msg {
+                AppMessage::PollerReady { generation, prep } => {
+                    self.start_prepared_poller(generation, prep);
+                    ctx.request_repaint();
+                    continue;
+                }
+                other => other,
+            };
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
             let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
             // ストリーミングロードのバッチは 1 フレーム 1 件に絞り、各バッチの
@@ -371,6 +378,8 @@ impl TunnyApp {
             if is_live_error {
                 // poller stopped itself — drop the handle
                 self.poller = None;
+                // 起動待ちの準備タスクがあれば陳腐化させ、エラー後に勝手に再起動させない。
+                self.invalidate_pending_poller();
             }
 
             if let Some(study_id) = sqlite_reload_study_id {
@@ -429,6 +438,8 @@ impl TunnyApp {
                         if let Some(mut p) = self.poller.take() {
                             p.stop();
                         }
+                        // 起動待ちの準備タスクがあれば陳腐化させる（H-1/H-2）。
+                        self.invalidate_pending_poller();
                         self.app_state.live_update.poller_active = false;
                     }
                 }
@@ -461,7 +472,10 @@ impl TunnyApp {
                             &ctx.meta.param_names,
                             &ctx.meta.objective_names,
                         );
-                        let _ = crate::io::export::save_csv_to_file(&csv);
+                        // 保存失敗は握り潰さず load_error に反映する（SaveSession と同方針）。
+                        if let Err(e) = crate::io::export::save_csv_to_file(&csv) {
+                            self.load_error = Some(e);
+                        }
                     }
                 }
                 ToolbarAction::AddComparisonStudy(meta) => {
@@ -609,15 +623,9 @@ impl TunnyApp {
         // 別ファイル（別 URL）を開くと study_id 空間が変わるため、
         // 同一ファイル前提の比較セッションは破棄する。
         self.app_state.reset_comparison_session();
-        if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
-            crate::io::study_worker::dispatch_scan_rdb(url, self.sender());
-        } else if crate::io::flat_csv::is_csv_path(&path) {
-            crate::io::study_worker::dispatch_scan_csv(path, self.sender());
-        } else if crate::io::sqlite::is_sqlite_path(&path) {
-            crate::io::study_worker::dispatch_scan_sqlite(path, self.sender());
-        } else {
-            crate::io::study_worker::dispatch_scan_journal(path, self.sender());
-        }
+        // 別ファイルを開く前に、起動待ちのポーラー準備タスクを陳腐化させる（H-1/H-2）。
+        self.invalidate_pending_poller();
+        dispatch_scan(path, self.sender());
     }
 
     /// 「Open URL…」ダイアログを描画し、Open 確定時に正規化済み URL 文字列を
@@ -679,19 +687,38 @@ impl TunnyApp {
         }
     }
 
+    /// 起動待ち（準備中）のポーラーを陳腐化させる（H-1/H-2）。
+    /// 世代を進めることで、進行中の準備タスクが送る `AppMessage::PollerReady` を
+    /// 受信時に破棄させる。トグルオフ・別ファイルオープン・ライブエラー時に呼ぶ。
+    fn invalidate_pending_poller(&mut self) {
+        self.poller_generation = self.poller_generation.wrapping_add(1);
+    }
+
     /// ポーラーを現在のファイルで（再）起動する。
-    /// ストレージ種別（journal / sqlite）で実装が異なるため、ここで分岐する。
+    ///
+    /// フィンガープリント取得（DB 接続 + クエリ）やジャーナル全読込 + trial 数
+    /// カウントは I/O を伴い UI スレッドをフリーズさせるため（H-1/H-2）、ここでは
+    /// 準備タスクをバックグラウンドへ spawn するだけに留める。準備完了後に
+    /// `AppMessage::PollerReady` が届き、`start_prepared_poller` が実際にポーラーを
+    /// 起動する。ストレージ種別（journal / sqlite / rdb）で準備内容が異なる。
     fn restart_poller(&mut self) {
         // Stop any existing poller
         if let Some(mut p) = self.poller.take() {
             p.stop();
         }
 
-        let Some(ref file_path) = self.app_state.journal_path else {
+        // 所有権付きで取り出す（この後 invalidate_pending_poller が &mut self を取るため、
+        // self.app_state を借用したまま跨げない）。
+        let Some(file_path) = self.app_state.journal_path.clone() else {
             return;
         };
 
-        let interval_ms = self.app_state.live_update.interval_ms;
+        // 世代を進め、この呼び出しで spawn する準備タスクにだけ有効な世代を割り当てる。
+        // 以降にトグル/Study 変更で restart_poller が再度呼ばれると世代が進み、
+        // 本タスクの結果は start_prepared_poller で破棄される。
+        self.invalidate_pending_poller();
+        let generation = self.poller_generation;
+        let tx = self.tx.clone();
 
         match self.app_state.live_update.storage_kind {
             LiveUpdateStorageKind::Sqlite => {
@@ -706,19 +733,25 @@ impl TunnyApp {
                 else {
                     return;
                 };
-                // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
-                // 起動する。次回ポーリングで実値と食い違えば単に 1 回余分に再ロードされる
-                // だけで、安全側に倒れる。
-                let initial_fingerprint =
-                    tunny_core::sqlite::study_fingerprint(file_path, study_id).unwrap_or_default();
-                let ctx = SqliteLiveUpdateContext {
-                    file_path: file_path.clone(),
-                    study_id,
-                    initial_fingerprint,
-                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
-                };
-                let poller = SqliteLivePoller::start(ctx, self.tx.clone(), interval_ms);
-                self.poller = Some(ActivePoller::Sqlite(poller));
+                let file_path = file_path.clone();
+                spawn_task(tx, move || {
+                    // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
+                    // 起動する。次回ポーリングで実値と食い違えば単に 1 回余分に再ロードされる
+                    // だけで、安全側に倒れる。
+                    let initial_fingerprint =
+                        tunny_core::sqlite::study_fingerprint(&file_path, study_id)
+                            .unwrap_or_default();
+                    let ctx = SqliteLiveUpdateContext {
+                        file_path,
+                        study_id,
+                        initial_fingerprint,
+                        no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
+                    };
+                    AppMessage::PollerReady {
+                        generation,
+                        prep: PollerPrep::Sqlite(ctx),
+                    }
+                });
             }
             LiveUpdateStorageKind::Rdb => {
                 // RDB のフィンガープリントも study 単位でしか取れないため、SQLite と同様に
@@ -733,65 +766,106 @@ impl TunnyApp {
                 };
                 // journal_path には URL 文字列がそのまま格納されている（Phase C 設計）。
                 // 通常はここで必ず Some になるが、想定外に外れていれば安全側で何もしない。
-                let Some(url) = crate::io::rdb::path_as_rdb_url(file_path) else {
+                let Some(url) = crate::io::rdb::path_as_rdb_url(&file_path) else {
                     return;
                 };
-                // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
-                // 起動する（SQLite と同じフォールバック方針）。
-                let initial_fingerprint =
-                    tunny_core::rdb::study_fingerprint_url(&url, study_id).unwrap_or_default();
-                let ctx = RdbLiveUpdateContext {
-                    url,
-                    study_id,
-                    initial_fingerprint,
-                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
-                };
-                let poller = RdbLivePoller::start(ctx, self.tx.clone(), interval_ms);
-                self.poller = Some(ActivePoller::Rdb(poller));
+                spawn_task(tx, move || {
+                    // DB 接続 + クエリはここ（バックグラウンド）で行う。低速・到達不能でも
+                    // UI スレッドはブロックされない（H-1）。取得失敗時はデフォルト値で
+                    // 起動する（SQLite と同じフォールバック方針）。
+                    let initial_fingerprint =
+                        tunny_core::rdb::study_fingerprint_url(&url, study_id).unwrap_or_default();
+                    let ctx = RdbLiveUpdateContext {
+                        url,
+                        study_id,
+                        initial_fingerprint,
+                        no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
+                    };
+                    AppMessage::PollerReady {
+                        generation,
+                        prep: PollerPrep::Rdb(ctx),
+                    }
+                });
             }
             LiveUpdateStorageKind::Journal => {
-                // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
-                // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
-                // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
-                // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
-                // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
-                // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
-                // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
-                // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
-                let (byte_offset, next_trial_id, study_trial_number_seeds) =
-                    match std::fs::read(file_path) {
-                        Ok(bytes) => {
-                            let per_study =
+                let file_path = file_path.clone();
+                spawn_task(tx, move || {
+                    // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
+                    // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
+                    // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
+                    // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
+                    // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
+                    // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
+                    // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
+                    // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
+                    // 数百 MB 級ジャーナルの全読込 + カウントもここ（バックグラウンド）で行う（H-2）。
+                    let (byte_offset, next_trial_id, study_trial_number_seeds) =
+                        match std::fs::read(&file_path) {
+                            Ok(bytes) => {
+                                let per_study =
                             tunny_core::io::journal::live_update::count_created_trials_per_study(
                                 &bytes,
                             );
-                            (
-                                bytes.len() as u64,
-                                tunny_core::io::journal::live_update::count_created_trials(&bytes),
-                                per_study,
-                            )
-                        }
-                        Err(_) => (
-                            std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0),
-                            0,
-                            std::collections::HashMap::new(),
-                        ),
+                                (
+                                    bytes.len() as u64,
+                                    tunny_core::io::journal::live_update::count_created_trials(
+                                        &bytes,
+                                    ),
+                                    per_study,
+                                )
+                            }
+                            Err(_) => (
+                                std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0),
+                                0,
+                                std::collections::HashMap::new(),
+                            ),
+                        };
+
+                    let ctx = LiveUpdateContext {
+                        file_path,
+                        initial_byte_offset: byte_offset,
+                        next_trial_id,
+                        study_trial_number_seeds,
+                        study_distributions: vec![],
+                        no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
                     };
-
-                let ctx = LiveUpdateContext {
-                    file_path: file_path.clone(),
-                    initial_byte_offset: byte_offset,
-                    next_trial_id,
-                    study_trial_number_seeds,
-                    study_distributions: vec![],
-                    no_change_timeout_ms: LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS,
-                };
-
-                let poller = LiveUpdatePoller::start(ctx, self.tx.clone(), interval_ms);
-                self.poller = Some(ActivePoller::Journal(poller));
+                    AppMessage::PollerReady {
+                        generation,
+                        prep: PollerPrep::Journal(ctx),
+                    }
+                });
             }
         }
 
+        // 準備タスクを spawn した時点で「起動処理中」として扱う（UI 表示のため）。
+        // 実際のポーラー起動は start_prepared_poller が行う。
+        self.app_state.live_update.poller_active = true;
+    }
+
+    /// バックグラウンド準備タスク（H-1/H-2）が完了して届いた `PollerReady` を受け、
+    /// 世代が最新（準備中にトグル/Study 変更が起きていない）ならポーラーを起動する。
+    fn start_prepared_poller(&mut self, generation: u64, prep: PollerPrep) {
+        // 準備中にトグル/Study 変更/別ファイルオープンで世代が進んでいれば破棄する。
+        if generation != self.poller_generation {
+            return;
+        }
+        // 通常は restart_poller が停止済みだが、念のため既存ポーラーを止める。
+        if let Some(mut p) = self.poller.take() {
+            p.stop();
+        }
+        // 準備中に間隔が変わっている可能性があるため、起動時点の最新値を使う。
+        let interval_ms = self.app_state.live_update.interval_ms;
+        let tx = self.tx.clone();
+        let poller = match prep {
+            PollerPrep::Journal(ctx) => {
+                ActivePoller::Journal(LiveUpdatePoller::start(ctx, tx, interval_ms))
+            }
+            PollerPrep::Sqlite(ctx) => {
+                ActivePoller::Sqlite(SqliteLivePoller::start(ctx, tx, interval_ms))
+            }
+            PollerPrep::Rdb(ctx) => ActivePoller::Rdb(RdbLivePoller::start(ctx, tx, interval_ms)),
+        };
+        self.poller = Some(poller);
         self.app_state.live_update.poller_active = true;
     }
 }
@@ -881,13 +955,42 @@ impl eframe::App for TunnyApp {
     }
 }
 
-/// バックグラウンドタスク起動ヘルパー
+/// 開くパスの種別（RDB URL / フラット CSV / SQLite / journal）を判定し、対応する
+/// スキャンをワーカースレッドへ発行する。`TunnyApp::new`（初期パス）と `open_path`
+/// （ツールバー・URL ダイアログ）の共通処理（D-12）。
+fn dispatch_scan(path: std::path::PathBuf, tx: mpsc::SyncSender<AppMessage>) {
+    if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
+        crate::io::study_worker::dispatch_scan_rdb(url, tx);
+    } else if crate::io::flat_csv::is_csv_path(&path) {
+        crate::io::study_worker::dispatch_scan_csv(path, tx);
+    } else if crate::io::sqlite::is_sqlite_path(&path) {
+        crate::io::study_worker::dispatch_scan_sqlite(path, tx);
+    } else {
+        crate::io::study_worker::dispatch_scan_journal(path, tx);
+    }
+}
+
+/// バックグラウンドタスク起動ヘルパー。
+///
+/// ワーカーの panic を `catch_unwind` で捕捉し、`AppMessage::TaskPanicked` として
+/// UI へ通知する（M-4）。捕捉しないと panic 時に完了メッセージが届かず、該当
+/// ウィジェットの `computing`/`fitting` フラグが立ちっぱなしでスピナーが永久に回る。
 pub fn spawn_task<F>(tx: mpsc::SyncSender<AppMessage>, f: F)
 where
     F: FnOnce() -> AppMessage + Send + 'static,
 {
     std::thread::spawn(move || {
-        let msg = f();
+        let msg = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+            Ok(msg) => msg,
+            Err(payload) => {
+                let detail = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "不明な panic".to_string());
+                AppMessage::TaskPanicked(detail)
+            }
+        };
         let _ = tx.send(msg);
     });
 }
@@ -989,6 +1092,17 @@ mod tests {
         match msg {
             AppMessage::Error(e) => assert_eq!(e, "from thread"),
             _ => panic!("Expected Error"),
+        }
+    }
+
+    #[test]
+    fn spawn_task_captures_panic() {
+        // M-4: ワーカー内 panic は TaskPanicked として通知され、無限スピナー化を防ぐ。
+        let (tx, rx) = make_channel();
+        spawn_task(tx, || panic!("boom in worker"));
+        match rx.recv().unwrap() {
+            AppMessage::TaskPanicked(detail) => assert!(detail.contains("boom in worker")),
+            _ => panic!("Expected TaskPanicked"),
         }
     }
 

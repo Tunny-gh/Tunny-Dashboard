@@ -241,8 +241,10 @@ fn render_artifacts(ui: &mut egui::Ui, entries: &[ArtifactEntry]) {
             ui.allocate_ui(egui::vec2(THUMB_SIZE, THUMB_SIZE + 24.0), |ui| {
                 ui.vertical(|ui| {
                     match entry.file_type() {
-                        ArtifactFileType::Image => {
-                            let uri = format!("file://{}", entry.path.to_string_lossy());
+                        // 非 UTF-8 パスは `to_string_lossy` で潰すと実在しないパスの URI になり
+                        // 画像が無言で壊れる。`to_str()` で弾き、非画像と同じフォールバックへ。
+                        ArtifactFileType::Image if entry.path.to_str().is_some() => {
+                            let uri = format!("file://{}", entry.path.to_str().unwrap());
                             ui.add(
                                 egui::Image::from_uri(uri)
                                     .fit_to_exact_size(egui::vec2(THUMB_SIZE, THUMB_SIZE)),

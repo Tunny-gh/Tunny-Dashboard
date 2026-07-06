@@ -126,7 +126,15 @@ pub struct ParallelCoordsChart {
     #[serde(skip)]
     col_ranges_cache: Option<Vec<(f64, f64)>>,
     #[serde(skip)]
-    cache_key: (usize, usize, usize), // (trial_count, n_params, n_objs)
+    cache_key: (usize, usize, usize, usize), // (df_ptr, trial_count, n_params, n_objs)
+    /// ブラシ選択中の描画対象 (t_idx, in_selection) 一覧のキャッシュ（M-14）。
+    /// ブラシ範囲・データが変わらない限り、全 trial × 全軸の brush 判定を再計算しない。
+    #[serde(skip)]
+    draw_targets_cache: Option<Vec<(usize, bool)>>,
+    /// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
+    #[serde(skip)]
+    draw_targets_key:
+        Option<(usize, usize, std::collections::HashMap<String, Option<(f32, f32)>>)>,
     /// 折れ線描画の間引きインデックスキャッシュ（trial_count が変わらない限り再計算しない）
     #[serde(skip)]
     polyline_indices_cache: Option<Vec<u32>>,
@@ -157,7 +165,9 @@ impl Default for ParallelCoordsChart {
             brush_drag: None,
             axis_visibility: std::collections::HashMap::new(),
             col_ranges_cache: None,
-            cache_key: (0, 0, 0),
+            cache_key: (0, 0, 0, 0),
+            draw_targets_cache: None,
+            draw_targets_key: None,
             polyline_indices_cache: None,
             polyline_indices_cache_key: None,
             label_galleys_cache: None,
@@ -197,7 +207,9 @@ impl ParallelCoordsChart {
         // 各軸の列スライスを view から借用（コピーしない・MEM-003）
         let cols = view.numeric_columns(&all_names);
 
-        let cache_key = (trial_count, n_params, obj_names.len());
+        // DataFrame の Arc 恒等性をキーに含め、同一次元の別 Study 切替でのスタール描画を防ぐ（M-5）。
+        let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
+        let cache_key = (df_ptr, trial_count, n_params, obj_names.len());
         if self.col_ranges_cache.is_none() || self.cache_key != cache_key {
             let col_ranges: Vec<(f64, f64)> = cols
                 .iter()
@@ -370,24 +382,37 @@ impl ParallelCoordsChart {
 
         // 描画対象 (t_idx, in_selection) の一覧。ブラシ選択中のトライアルは間引きの
         // 影響を受けず必ず描画する（間引き対象 ∪ ブラシ通過トライアルの和集合）。
-        let draw_targets: Vec<(usize, bool)> = if has_active_brush {
-            let downsampled_set: std::collections::HashSet<usize> =
-                downsampled.iter().map(|&i| i as usize).collect();
-            (0..trial_count)
-                .filter_map(|t_idx| {
-                    let passes = trial_passes_brushes(
-                        t_idx,
-                        &self.brush_ranges,
-                        &cols,
-                        col_ranges,
-                        &all_names,
-                    );
-                    (downsampled_set.contains(&t_idx) || passes).then_some((t_idx, passes))
-                })
-                .collect()
-        } else {
-            downsampled.iter().map(|&i| (i as usize, true)).collect()
-        };
+        // 全 trial × 全軸の brush 判定 + HashSet 確保は重いため、df の恒等性・trial_count・
+        // ブラシ範囲が変わらない限り再計算せずキャッシュを使い回す（M-14）。
+        let draw_targets_key_matches = self
+            .draw_targets_cache
+            .is_some()
+            && self.draw_targets_key.as_ref().is_some_and(|(p, tc, br)| {
+                *p == df_ptr && *tc == trial_count && br == &self.brush_ranges
+            });
+        if !draw_targets_key_matches {
+            let targets: Vec<(usize, bool)> = if has_active_brush {
+                let downsampled_set: std::collections::HashSet<usize> =
+                    downsampled.iter().map(|&i| i as usize).collect();
+                (0..trial_count)
+                    .filter_map(|t_idx| {
+                        let passes = trial_passes_brushes(
+                            t_idx,
+                            &self.brush_ranges,
+                            &cols,
+                            col_ranges,
+                            &all_names,
+                        );
+                        (downsampled_set.contains(&t_idx) || passes).then_some((t_idx, passes))
+                    })
+                    .collect()
+            } else {
+                downsampled.iter().map(|&i| (i as usize, true)).collect()
+            };
+            self.draw_targets_cache = Some(targets);
+            self.draw_targets_key = Some((df_ptr, trial_count, self.brush_ranges.clone()));
+        }
+        let draw_targets = self.draw_targets_cache.as_ref().unwrap();
 
         // 各試行を折れ線で描画（半透明）。
         // 選択外（グレーアウト）の線を先に描き、選択内の線を最前面に重ねる。
@@ -395,7 +420,7 @@ impl ParallelCoordsChart {
         // 最前面に重ねる選択内の線だけは、後段でまとめて描くために個別に複製する。
         let mut selected_polylines: Vec<(Vec<egui::Pos2>, egui::Color32)> = Vec::new();
         let mut point_scratch: Vec<egui::Pos2> = Vec::with_capacity(n_visible);
-        for (t_idx, in_selection) in draw_targets {
+        for &(t_idx, in_selection) in draw_targets {
             let feasible = feas.is_feasible(t_idx);
 
             if !feasible && !show_infeasible {
@@ -471,20 +496,9 @@ impl ParallelCoordsChart {
             let galley = label_galleys[orig].clone();
             if rotate_labels {
                 // -label_angle（反時計回り）で回転させた "/" 形ラベルの最下端
-                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる。
-                let size = galley.size();
+                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる（D-12 共通ヘルパー）。
                 let applied = -label_angle;
-                let (sa, ca) = (applied.sin(), applied.cos());
-                // 4 隅を回転させ、画面上で最も下（最大 y）になる点を探す
-                let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
-                let mut lowest = (0.0_f32, f32::MIN); // pos からの相対オフセット (rx, ry)
-                for (px, py) in corners {
-                    let rx = px * ca - py * sa;
-                    let ry = px * sa + py * ca;
-                    if ry > lowest.1 {
-                        lowest = (rx, ry);
-                    }
-                }
+                let lowest = super::rotated_label_corners(galley.size(), applied).lowest;
                 // 最下端が軸上端のすぐ上に来るよう pos を決める
                 let gap = 2.0_f32;
                 let anchor = egui::pos2(x, axis_top - gap);
