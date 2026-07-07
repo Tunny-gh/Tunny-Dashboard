@@ -9,7 +9,7 @@ pub enum SensitivityKind {
     Permutation,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SensitivityResult {
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,

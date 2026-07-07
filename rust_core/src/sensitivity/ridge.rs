@@ -142,7 +142,7 @@ impl SensitivityMetric for RidgeMetric {
 
         let y: Vec<f64> = df
             .get_numeric_column(&objective_name)
-            .map(|col| col[..n].to_vec())
+            .map(|col| col.iter().take(n).copied().collect())
             .unwrap_or_else(|| vec![0.0; n]);
 
         let param_cols: Vec<Vec<f64>> = param_names
@@ -163,12 +163,8 @@ impl SensitivityMetric for RidgeMetric {
         Some(SensitivityResult {
             param_names,
             objective_names: vec![objective_name],
-            spearman: vec![],
             ridge,
-            rf_anova: None,
-            mdi: None,
-            shap: None,
-            permutation: None,
+            ..Default::default()
         })
     }
 
@@ -216,19 +212,22 @@ pub(crate) fn compute_xty_vector(
         .collect()
 }
 
-/// R² (決定係数) を計算する。ss_tot < EPSILON の場合は 0.0 を返す。
+/// R² (決定係数) を計算する。
+///
+/// 定数 y（ss_tot ≈ 0）の規約は `pdp::utils::r_squared` と統一:
+/// 残差もほぼゼロ（定数を完全に再現）なら 1.0、そうでなければ 0.0。
 pub(crate) fn compute_r_squared(x_cols: &[f64], y_c: &[f64], beta: &[f64], n: usize) -> f64 {
     let num_params = beta.len();
     let ss_tot: f64 = y_c.iter().map(|&yi| yi * yi).sum();
-    if ss_tot < f64::EPSILON {
-        return 0.0;
-    }
     let ss_res: f64 = (0..n)
         .map(|i| {
             let y_hat: f64 = (0..num_params).map(|j| x_cols[j * n + i] * beta[j]).sum();
             (y_c[i] - y_hat).powi(2)
         })
         .sum();
+    if ss_tot < f64::EPSILON {
+        return if ss_res < f64::EPSILON { 1.0 } else { 0.0 };
+    }
     (1.0 - ss_res / ss_tot).max(0.0)
 }
 
@@ -322,9 +321,21 @@ mod tests {
 
     #[test]
     fn tc_2265_05_compute_r_squared_zero_variance() {
+        // 定数 y の規約は pdp::utils::r_squared と統一:
+        // 残差もゼロ（定数を完全再現）なら 1.0。
         let x = vec![1.0, 1.0, 1.0];
         let y_c = vec![0.0, 0.0, 0.0]; // ss_tot = 0
         let beta = vec![0.0];
+        let r2 = compute_r_squared(&x, &y_c, &beta, 3);
+        assert!((r2 - 1.0).abs() < 1e-10, "R²={} for zero-variance y", r2);
+    }
+
+    #[test]
+    fn tc_2265_05b_compute_r_squared_zero_variance_nonzero_residual() {
+        // 定数 y を再現できていない場合は 0.0。
+        let x = vec![1.0, 2.0, 3.0];
+        let y_c = vec![0.0, 0.0, 0.0]; // ss_tot = 0
+        let beta = vec![1.0]; // y_hat = [1, 2, 3] → 残差非ゼロ
         let r2 = compute_r_squared(&x, &y_c, &beta, 3);
         assert!((r2 - 0.0).abs() < 1e-10, "R²={} for zero-variance y", r2);
     }

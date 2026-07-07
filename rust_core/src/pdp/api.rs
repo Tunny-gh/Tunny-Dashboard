@@ -4,6 +4,16 @@ use super::types::{PdpResult1d, PdpResult2d};
 use super::utils::extract_xy;
 use crate::gaussian_process::GpMethod;
 
+/// `model_type` 文字列を GP 手法へ解決する。GP 系でない場合は `None`。
+fn resolve_gp_method(model_type: &str) -> Option<GpMethod> {
+    match model_type {
+        "gp_fitc" => Some(GpMethod::Fitc),
+        "gp_vfe" => Some(GpMethod::Vfe),
+        "gp_moe" => Some(GpMethod::Moe),
+        _ => None,
+    }
+}
+
 /// メインスレッド側で事前に抽出したデータを直接受け取って PDP を計算する。
 /// `with_active_df` を使わないため、バックグラウンドスレッドから安全に呼べる。
 /// `model_type` には "ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest"
@@ -17,6 +27,31 @@ pub fn compute_pdp_from_data(
     n_grid: usize,
     model_type: &str,
 ) -> PdpResult1d {
+    // Ridge (線形) は全モデル共通のフォールバック。
+    let ridge_fallback = || {
+        compute_pdp_from_matrix(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+        )
+    };
+
+    if let Some(method) = resolve_gp_method(model_type) {
+        return compute_pdp_1d_gp_raw(
+            &x_matrix,
+            &y,
+            &param_names,
+            objective_name,
+            target_param_idx,
+            n_grid,
+            method,
+        )
+        .unwrap_or_else(ridge_fallback);
+    }
+
     match model_type {
         "random_forest" => {
             let param_name = param_names
@@ -33,81 +68,10 @@ pub fn compute_pdp_from_data(
                     y_upper: None,
                     y_lower: None,
                 },
-                None => compute_pdp_from_matrix(
-                    &x_matrix,
-                    &y,
-                    &param_names,
-                    objective_name,
-                    target_param_idx,
-                    n_grid,
-                ),
+                None => ridge_fallback(),
             }
         }
-        "gp_fitc" => compute_pdp_1d_gp_raw(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            target_param_idx,
-            n_grid,
-            GpMethod::Fitc,
-        )
-        .unwrap_or_else(|| {
-            compute_pdp_from_matrix(
-                &x_matrix,
-                &y,
-                &param_names,
-                objective_name,
-                target_param_idx,
-                n_grid,
-            )
-        }),
-        "gp_vfe" => compute_pdp_1d_gp_raw(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            target_param_idx,
-            n_grid,
-            GpMethod::Vfe,
-        )
-        .unwrap_or_else(|| {
-            compute_pdp_from_matrix(
-                &x_matrix,
-                &y,
-                &param_names,
-                objective_name,
-                target_param_idx,
-                n_grid,
-            )
-        }),
-        "gp_moe" => compute_pdp_1d_gp_raw(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            target_param_idx,
-            n_grid,
-            GpMethod::Moe,
-        )
-        .unwrap_or_else(|| {
-            compute_pdp_from_matrix(
-                &x_matrix,
-                &y,
-                &param_names,
-                objective_name,
-                target_param_idx,
-                n_grid,
-            )
-        }),
-        _ => compute_pdp_from_matrix(
-            &x_matrix,
-            &y,
-            &param_names,
-            objective_name,
-            target_param_idx,
-            n_grid,
-        ),
+        _ => ridge_fallback(),
     }
 }
 
@@ -129,6 +93,19 @@ pub fn compute_pdp_2d(
 
         let (x_matrix, y) = extract_xy(df, &param_names, objective_name, feasible_only);
 
+        if let Some(method) = resolve_gp_method(model_type) {
+            return Some(compute_pdp_2d_gp(
+                &x_matrix,
+                &y,
+                &param_names,
+                objective_name,
+                p1_idx,
+                p2_idx,
+                n_grid,
+                method,
+            ));
+        }
+
         match model_type {
             "random_forest" => {
                 let (x_values, y_values, z_values, r_squared) =
@@ -146,36 +123,6 @@ pub fn compute_pdp_2d(
                     uncertainties: None,
                 })
             }
-            "gp_fitc" => Some(compute_pdp_2d_gp(
-                &x_matrix,
-                &y,
-                &param_names,
-                objective_name,
-                p1_idx,
-                p2_idx,
-                n_grid,
-                GpMethod::Fitc,
-            )),
-            "gp_vfe" => Some(compute_pdp_2d_gp(
-                &x_matrix,
-                &y,
-                &param_names,
-                objective_name,
-                p1_idx,
-                p2_idx,
-                n_grid,
-                GpMethod::Vfe,
-            )),
-            "gp_moe" => Some(compute_pdp_2d_gp(
-                &x_matrix,
-                &y,
-                &param_names,
-                objective_name,
-                p1_idx,
-                p2_idx,
-                n_grid,
-                GpMethod::Moe,
-            )),
             _ => Some(compute_pdp_2d_from_matrix(
                 &x_matrix,
                 &y,

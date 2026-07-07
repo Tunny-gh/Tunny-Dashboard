@@ -1,5 +1,5 @@
 use super::data::get_param_numeric_values;
-use super::{compute_ridge_from_vecs, SobolResult};
+use super::SobolResult;
 use crate::math::rng::SeededRng;
 use crate::math::stats::column_mean_std;
 use rayon::prelude::*;
@@ -108,22 +108,32 @@ fn build_sobol_surrogate(
         (quad_feat_means[j], quad_feat_stds[j]) = column_mean_std(&vals);
     }
 
-    let x_quad_std: Vec<Vec<f64>> = quad_feats
+    // Standardize the quadratic features exactly once, into a column-major flat
+    // array, and hand that to the ridge solver's already-standardized entry
+    // point. Previously the features were standardized here AND again inside
+    // `compute_ridge_from_vecs`, a redundant double standardization.
+    let mut x_quad_std_cols = vec![0.0f64; n * n_quad];
+    for (j, (&m, &s)) in quad_feat_means
         .iter()
-        .map(|row| {
-            row.iter()
-                .enumerate()
-                .map(|(j, &v)| (v - quad_feat_means[j]) / quad_feat_stds[j])
-                .collect()
-        })
-        .collect();
+        .zip(quad_feat_stds.iter())
+        .enumerate()
+    {
+        for (i, row) in quad_feats.iter().enumerate() {
+            x_quad_std_cols[j * n + i] = (row[j] - m) / s;
+        }
+    }
 
     let triplets: Vec<(Vec<f64>, f64, f64)> = y_matrix
         .par_iter()
         .map(|y| {
             let y_mean = y.iter().sum::<f64>() / n as f64;
             let y_centered: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();
-            let ridge_res = compute_ridge_from_vecs(&x_quad_std, &y_centered, alpha);
+            let ridge_res = super::ridge::compute_ridge_from_standardized_columns(
+                &x_quad_std_cols,
+                n,
+                &y_centered,
+                alpha,
+            );
             (ridge_res.beta, y_mean, ridge_res.r_squared)
         })
         .collect();
@@ -217,7 +227,7 @@ pub fn compute_sobol_from_df(
         return None;
     }
 
-    let param_columns: Vec<Vec<f64>> = param_names
+    let raw_param_columns: Vec<Vec<f64>> = param_names
         .iter()
         .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
         .collect();
@@ -229,8 +239,29 @@ pub fn compute_sobol_from_df(
                 .unwrap_or_else(|| vec![0.0; n])
         })
         .collect();
+
+    // 他の感度指標（`prepare_training_data`）と同様に、パラメータと全目的値が
+    // すべて有限な行のみで代理モデルを構築する。失敗/枝刈り trial の NaN 目的値が
+    // ridge に伝播すると、全指標が NaN の「静かに壊れた」結果になるため。
+    let valid_indices: Vec<usize> = (0..n)
+        .filter(|&i| {
+            raw_param_columns.iter().all(|col| col[i].is_finite())
+                && objective_columns.iter().all(|col| col[i].is_finite())
+        })
+        .collect();
+    if valid_indices.len() < 2 {
+        return None;
+    }
+    let n = valid_indices.len();
+    let param_columns: Vec<Vec<f64>> = raw_param_columns
+        .iter()
+        .map(|col| valid_indices.iter().map(|&i| col[i]).collect())
+        .collect();
+    let y_matrix: Vec<Vec<f64>> = objective_columns
+        .iter()
+        .map(|col| valid_indices.iter().map(|&i| col[i]).collect())
+        .collect();
     let x_matrix = build_row_major_matrix(&param_columns, n);
-    let y_matrix = objective_columns;
 
     let surrogate = build_sobol_surrogate(&x_matrix, &y_matrix, n_params, 1.0)?;
 

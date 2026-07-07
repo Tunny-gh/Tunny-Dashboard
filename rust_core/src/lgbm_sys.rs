@@ -96,4 +96,7 @@ extern "C" {
         importance_type: i32,
         out_results: *mut f64,
     ) -> i32;
+
+    /// Writes the number of features the booster was trained on into `*out`.
+    pub fn LGBM_BoosterGetNumFeature(handle: BoosterHandle, out: *mut i32) -> i32;
 }
