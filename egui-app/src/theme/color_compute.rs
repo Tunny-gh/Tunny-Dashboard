@@ -6,6 +6,13 @@ pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
+/// `Color32` を `[R, G, B, A]`（非プリマルチプライドアルファ）のバイト配列へ変換する（D-11）。
+/// 色ごとに点をグループ化する `HashMap`/`BTreeMap` のキーや、成分の一時取り出しに使う。
+/// 逆変換は [`rgba_to_color32`] を使う。
+pub fn rgba_key(color: egui::Color32) -> [u8; 4] {
+    [color.r(), color.g(), color.b(), color.a()]
+}
+
 /// 比較 Study に割り当てる代表色のパレット（基準 Study の緑系とは別の色相）。
 /// 各要素は `[R, G, B, A]` の非プリマルチプライドアルファ。
 const COMPARISON_PALETTE: [[u8; 4]; 6] = [
@@ -86,6 +93,13 @@ pub fn sequential_colormap(t: f64) -> egui::Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rgba_key_roundtrips_through_rgba_to_color32() {
+        let color = egui::Color32::from_rgba_unmultiplied(12, 34, 56, 78);
+        assert_eq!(rgba_key(color), [12, 34, 56, 78]);
+        assert_eq!(rgba_to_color32(rgba_key(color)), color);
+    }
 
     #[test]
     fn compute_point_alpha_empty_selected_returns_opaque() {

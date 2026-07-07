@@ -9,6 +9,25 @@ pub mod scatter_3d;
 pub mod scatter_matrix;
 pub mod som_map;
 
+use crate::state::types::StudyView;
+
+/// `view` から `features` 列を解決し、全特徴が有限な行のみを採用した学習行列を返す（D-11）。
+/// 存在しない列名が 1 つでもあれば空を返す。NaN/Inf を含む行はスキップする
+/// （サブサンプルや距離計算などの後処理は呼び出し側の責務）。
+pub(super) fn feature_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
+    let Some(cols): Option<Vec<&[f64]>> = features.iter().map(|f| view.numeric_column(f)).collect()
+    else {
+        return Vec::new();
+    };
+    (0..view.row_count())
+        .filter_map(|r| {
+            cols.iter()
+                .map(|c| c.get(r).copied().filter(|v| v.is_finite()))
+                .collect::<Option<Vec<f64>>>()
+        })
+        .collect()
+}
+
 /// 45°回転ラベルの配置に使う、回転後コーナーのオフセット計算結果。
 /// PCP の縦軸ラベルと散布図行列の行・列ラベルで共有する（D-12）。
 pub(super) struct RotatedLabelCorners {

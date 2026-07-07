@@ -4,6 +4,7 @@ use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
+use crate::ui::widgets::common::range_math::value_range;
 use crate::ui::widgets::trial_detail_modal::{
     axis_row, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
@@ -247,16 +248,11 @@ pub fn compute_plot_points(
         .collect();
 
     if single_objective {
+        let y_range = value_range(valid.iter().map(|(_, y, _)| *y));
         let best_y = if minimize {
-            valid
-                .iter()
-                .map(|(_, y, _)| *y)
-                .fold(f64::INFINITY, f64::min)
+            y_range.map(|(mn, _)| mn).unwrap_or(f64::INFINITY)
         } else {
-            valid
-                .iter()
-                .map(|(_, y, _)| *y)
-                .fold(f64::NEG_INFINITY, f64::max)
+            y_range.map(|(_, mx)| mx).unwrap_or(f64::NEG_INFINITY)
         };
 
         let mut highlighted: Vec<[f64; 2]> = Vec::new();

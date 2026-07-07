@@ -8,6 +8,7 @@
 use egui::RichText;
 
 use crate::state::app_state::CsvImportSettings;
+use crate::ui::widgets::common::modal::ModalScaffold;
 
 /// ダイアログの操作結果。
 pub enum CsvImportAction {
@@ -23,88 +24,90 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
     let mut load_clicked = false;
     let valid = settings.bounds_valid();
 
-    let modal = egui::Modal::new(egui::Id::new("csv_import_settings_modal")).show(ctx, |ui| {
-        ui.set_min_width(440.0);
-        ui.heading("CSV Import Settings");
-        ui.label(
-            RichText::new(format!("Study: {}", settings.study_name))
-                .color(crate::theme::TEXT_SECONDARY()),
-        );
-        ui.add_space(4.0);
-        ui.label(
-            "CSV files don't carry optimization directions or parameter ranges. \
+    let outcome = ModalScaffold::new("csv_import_settings_modal", 440.0)
+        .heading("CSV Import Settings")
+        .show(ctx, |ui| {
+            ui.label(
+                RichText::new(format!("Study: {}", settings.study_name))
+                    .color(crate::theme::TEXT_SECONDARY()),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                "CSV files don't carry optimization directions or parameter ranges. \
                  Please confirm or adjust them before loading.",
-        );
-        ui.separator();
+            );
+            ui.separator();
 
-        // ── 目的の最適化方向 ──────────────────────────────────
-        ui.label(RichText::new("Objective Directions").strong());
-        egui::Grid::new("csv_import_directions")
-            .num_columns(2)
-            .spacing([16.0, 4.0])
-            .show(ui, |ui| {
-                // `objective_names` と `maximize` の長さが食い違う CSV メタでも panic しない
-                // よう、直接添字ではなく zip で対応する要素だけを回す（余りは無視）。
-                for (i, (name, is_max)) in settings
-                    .objective_names
-                    .iter()
-                    .zip(settings.maximize.iter_mut())
-                    .enumerate()
-                {
-                    ui.label(name);
-                    egui::ComboBox::from_id_salt(("csv_import_dir", i))
-                        .selected_text(if *is_max { "Maximize" } else { "Minimize" })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(is_max, false, "Minimize");
-                            ui.selectable_value(is_max, true, "Maximize");
-                        });
-                    ui.end_row();
-                }
-            });
-        ui.add_space(8.0);
-
-        // ── 数値パラメータのレンジ ────────────────────────────
-        ui.label(RichText::new("Parameter Ranges").strong());
-        if settings.param_bounds.is_empty() {
-            ui.label(RichText::new("No numeric parameters.").color(crate::theme::TEXT_SECONDARY()));
-        } else {
-            egui::Grid::new("csv_import_bounds")
-                .num_columns(3)
-                .spacing([12.0, 4.0])
+            // ── 目的の最適化方向 ──────────────────────────────────
+            ui.label(RichText::new("Objective Directions").strong());
+            egui::Grid::new("csv_import_directions")
+                .num_columns(2)
+                .spacing([16.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Parameter").color(crate::theme::TEXT_SECONDARY()));
-                    ui.label(RichText::new("Min").color(crate::theme::TEXT_SECONDARY()));
-                    ui.label(RichText::new("Max").color(crate::theme::TEXT_SECONDARY()));
-                    ui.end_row();
-                    for pb in settings.param_bounds.iter_mut() {
-                        ui.label(&pb.name);
-                        // 観測幅の 1% を 1 ステップとし、ダブルクリックで直接入力もできる。
-                        let speed = ((pb.high - pb.low).abs() * 0.01).max(0.01);
-                        ui.add(egui::DragValue::new(&mut pb.low).speed(speed));
-                        ui.add(egui::DragValue::new(&mut pb.high).speed(speed));
+                    // `objective_names` と `maximize` の長さが食い違う CSV メタでも panic しない
+                    // よう、直接添字ではなく zip で対応する要素だけを回す（余りは無視）。
+                    for (i, (name, is_max)) in settings
+                        .objective_names
+                        .iter()
+                        .zip(settings.maximize.iter_mut())
+                        .enumerate()
+                    {
+                        ui.label(name);
+                        egui::ComboBox::from_id_salt(("csv_import_dir", i))
+                            .selected_text(if *is_max { "Maximize" } else { "Minimize" })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(is_max, false, "Minimize");
+                                ui.selectable_value(is_max, true, "Maximize");
+                            });
                         ui.end_row();
                     }
                 });
-        }
+            ui.add_space(8.0);
 
-        if !valid {
-            ui.add_space(4.0);
-            ui.colored_label(
-                crate::theme::ERROR_COLOR(),
-                "Each parameter's Min must be a finite value smaller than its Max.",
-            );
-        }
-
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.add_enabled(valid, egui::Button::new("Load")).clicked() {
-                load_clicked = true;
+            // ── 数値パラメータのレンジ ────────────────────────────
+            ui.label(RichText::new("Parameter Ranges").strong());
+            if settings.param_bounds.is_empty() {
+                ui.label(
+                    RichText::new("No numeric parameters.").color(crate::theme::TEXT_SECONDARY()),
+                );
+            } else {
+                egui::Grid::new("csv_import_bounds")
+                    .num_columns(3)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("Parameter").color(crate::theme::TEXT_SECONDARY()));
+                        ui.label(RichText::new("Min").color(crate::theme::TEXT_SECONDARY()));
+                        ui.label(RichText::new("Max").color(crate::theme::TEXT_SECONDARY()));
+                        ui.end_row();
+                        for pb in settings.param_bounds.iter_mut() {
+                            ui.label(&pb.name);
+                            // 観測幅の 1% を 1 ステップとし、ダブルクリックで直接入力もできる。
+                            let speed = ((pb.high - pb.low).abs() * 0.01).max(0.01);
+                            ui.add(egui::DragValue::new(&mut pb.low).speed(speed));
+                            ui.add(egui::DragValue::new(&mut pb.high).speed(speed));
+                            ui.end_row();
+                        }
+                    });
             }
+
+            if !valid {
+                ui.add_space(4.0);
+                ui.colored_label(
+                    crate::theme::ERROR_COLOR(),
+                    "Each parameter's Min must be a finite value smaller than its Max.",
+                );
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.add_enabled(valid, egui::Button::new("Load")).clicked() {
+                    load_clicked = true;
+                }
+            });
         });
-    });
 
     // Esc / 背景クリックでもレンジが有効なら確定する（無効時は開いたまま）。
-    if load_clicked || (modal.should_close() && valid) {
+    if load_clicked || (outcome.should_close && valid) {
         Some(CsvImportAction::Apply)
     } else {
         None

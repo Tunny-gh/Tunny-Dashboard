@@ -8,9 +8,9 @@ use crate::theme::colormap::ColorMap;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::cluster_scatter::{
-    validate_cluster_request, ClusterCacheKey, ClusterComputeRequest, ClusterSpace,
-    KMeansInitStrategy, KSelectionMode,
+    ClusterCacheKey, ClusterComputeRequest, ClusterSpace, KMeansInitStrategy, KSelectionMode,
 };
+use crate::ui::widgets::common::cluster_controls::ClusterControls;
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::trial_detail_modal::{TrialDetailModal, TrialDetailTarget};
 
@@ -156,26 +156,23 @@ impl ArtifactGallery {
         )
     }
 
+    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    fn cluster_controls(&mut self) -> ClusterControls<'_> {
+        ClusterControls {
+            k: &mut self.k,
+            target_space: &mut self.target_space,
+            k_mode: &mut self.k_mode,
+            init_strategy: &mut self.init_strategy,
+            elbow_max_k: &mut self.elbow_max_k,
+            computing: &mut self.cluster_computing,
+            pending_compute: &mut self.cluster_pending,
+            last_error: &mut self.cluster_error,
+        }
+    }
+
     /// クラスタリング実行をキューに積む（ClusterTable と同等）。
     fn try_queue_cluster_compute(&mut self, pareto_count: usize) {
-        let request = ClusterComputeRequest {
-            k: self.k,
-            target_space: self.target_space,
-            k_mode: self.k_mode,
-            init_strategy: self.init_strategy,
-            elbow_max_k: self.elbow_max_k,
-        };
-        match validate_cluster_request(&request, pareto_count) {
-            Ok(()) => {
-                self.cluster_pending = Some(request);
-                self.cluster_computing = true;
-                self.cluster_error = None;
-            }
-            Err(err) => {
-                self.cluster_pending = None;
-                self.cluster_error = Some(err);
-            }
-        }
+        self.cluster_controls().try_queue_compute(pareto_count);
     }
 
     pub fn set_cluster_error(&mut self, err: crate::state::messages::ClusterUiError) {
@@ -633,85 +630,8 @@ impl ArtifactGallery {
 
     /// クラスタリング設定 UI（ClusterTable の show_controls と同操作感）。
     fn show_cluster_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
-        ui.horizontal(|ui| {
-            let k_editable = !self.cluster_computing && self.k_mode == KSelectionMode::Manual;
-            ui.label("k:");
-            ui.add_enabled(
-                k_editable,
-                egui::DragValue::new(&mut self.k).range(2..=pareto_count.max(2)),
-            );
-
-            let elbow_max_k_editable =
-                !self.cluster_computing && self.k_mode == KSelectionMode::ElbowDefault;
-            ui.label("Max k:");
-            ui.add_enabled(
-                elbow_max_k_editable,
-                egui::DragValue::new(&mut self.elbow_max_k).range(2..=50),
-            );
-
-            egui::ComboBox::from_id_salt("artifact_gallery_k_mode")
-                .selected_text(self.k_mode.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::ElbowDefault,
-                        KSelectionMode::ElbowDefault.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::Manual,
-                        KSelectionMode::Manual.label(),
-                    );
-                });
-
-            egui::ComboBox::from_id_salt("artifact_gallery_space")
-                .selected_text(self.target_space.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Objective,
-                        ClusterSpace::Objective.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Variable,
-                        ClusterSpace::Variable.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Combined,
-                        ClusterSpace::Combined.label(),
-                    );
-                });
-
-            ui.label("Init:");
-            egui::ComboBox::from_id_salt("artifact_gallery_init")
-                .selected_text(self.init_strategy.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::KMeansPlusPlus,
-                        KMeansInitStrategy::KMeansPlusPlus.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::Deterministic,
-                        KMeansInitStrategy::Deterministic.label(),
-                    );
-                });
-
-            if ui
-                .add_enabled(!self.cluster_computing, egui::Button::new("Run"))
-                .clicked()
-            {
-                self.try_queue_cluster_compute(pareto_count);
-            }
-
-            if self.cluster_computing {
-                ui.spinner();
-                ui.label("Running clustering...");
-            }
-        });
+        self.cluster_controls()
+            .show_controls(ui, pareto_count, "artifact_gallery", true);
         ui.separator();
     }
 }

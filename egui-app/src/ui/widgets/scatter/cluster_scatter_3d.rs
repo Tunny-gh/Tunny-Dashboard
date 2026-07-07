@@ -3,9 +3,9 @@ use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap_name::colormap_from_name;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::cluster_scatter::{
-    validate_cluster_request, ClusterCacheKey, ClusterComputeRequest, ClusterSpace,
-    KMeansInitStrategy, KSelectionMode,
+    ClusterCacheKey, ClusterComputeRequest, ClusterSpace, KMeansInitStrategy, KSelectionMode,
 };
+use crate::ui::widgets::common::cluster_controls::ClusterControls;
 use crate::ui::widgets::scatter_3d::{
     compute_range_from_col, draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, project_value_3d,
     setup_3d_canvas, show_hover_and_click_detail, show_objective_combo, ArcballCamera, DepthPoint,
@@ -304,110 +304,29 @@ impl ClusterScatter3D {
         }
     }
 
+    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    fn controls(&mut self) -> ClusterControls<'_> {
+        ClusterControls {
+            k: &mut self.k,
+            target_space: &mut self.target_space,
+            k_mode: &mut self.k_mode,
+            init_strategy: &mut self.init_strategy,
+            elbow_max_k: &mut self.elbow_max_k,
+            computing: &mut self.computing,
+            pending_compute: &mut self.pending_compute,
+            last_error: &mut self.last_error,
+        }
+    }
+
     /// クラスタリング設定 UI（k / モード / 空間 / Init / Run）を描画する。
     /// 2D の ClusterScatter::show_header と同じ操作感。
     fn show_cluster_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
-        ui.horizontal(|ui| {
-            let k_editable = !self.computing && self.k_mode == KSelectionMode::Manual;
-            ui.label("k:");
-            ui.add_enabled(
-                k_editable,
-                egui::DragValue::new(&mut self.k).range(2..=pareto_count.max(2)),
-            );
-
-            let elbow_max_k_editable =
-                !self.computing && self.k_mode == KSelectionMode::ElbowDefault;
-            ui.label("Max k:");
-            ui.add_enabled(
-                elbow_max_k_editable,
-                egui::DragValue::new(&mut self.elbow_max_k).range(2..=50),
-            );
-
-            egui::ComboBox::from_id_salt("cluster_scatter_3d_k_mode")
-                .selected_text(self.k_mode.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::ElbowDefault,
-                        KSelectionMode::ElbowDefault.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::Manual,
-                        KSelectionMode::Manual.label(),
-                    );
-                });
-
-            egui::ComboBox::from_id_salt("cluster_scatter_3d_space")
-                .selected_text(self.target_space.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Objective,
-                        ClusterSpace::Objective.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Variable,
-                        ClusterSpace::Variable.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Combined,
-                        ClusterSpace::Combined.label(),
-                    );
-                });
-
-            ui.label("Init:");
-            egui::ComboBox::from_id_salt("cluster_scatter_3d_init")
-                .selected_text(self.init_strategy.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::KMeansPlusPlus,
-                        KMeansInitStrategy::KMeansPlusPlus.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::Deterministic,
-                        KMeansInitStrategy::Deterministic.label(),
-                    );
-                });
-
-            if ui
-                .add_enabled(!self.computing, egui::Button::new("Run"))
-                .clicked()
-            {
-                self.try_queue_compute(pareto_count);
-            }
-
-            if self.computing {
-                ui.spinner();
-                ui.label("Running clustering...");
-            }
-        });
+        self.controls()
+            .show_controls(ui, pareto_count, "cluster_scatter_3d", true);
     }
 
     fn try_queue_compute(&mut self, pareto_count: usize) {
-        let request = ClusterComputeRequest {
-            k: self.k,
-            target_space: self.target_space,
-            k_mode: self.k_mode,
-            init_strategy: self.init_strategy,
-            elbow_max_k: self.elbow_max_k,
-        };
-
-        match validate_cluster_request(&request, pareto_count) {
-            Ok(()) => {
-                self.pending_compute = Some(request);
-                self.computing = true;
-                self.last_error = None;
-            }
-            Err(err) => {
-                self.pending_compute = None;
-                self.last_error = Some(err);
-            }
-        }
+        self.controls().try_queue_compute(pareto_count);
     }
 
     pub fn set_error(&mut self, err: crate::state::messages::ClusterUiError) {

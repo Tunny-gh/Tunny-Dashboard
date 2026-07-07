@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use egui::RichText;
 use tunny_core::report::ReportLang;
 
+use crate::ui::widgets::common::modal::ModalScaffold;
+
 /// エクスポート可能なレポート形式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReportFormat {
@@ -156,90 +158,92 @@ pub fn show(
     let mut export_clicked = false;
     let mut close_clicked = false;
 
-    let modal = egui::Modal::new(egui::Id::new("report_export_dialog")).show(ctx, |ui| {
-        ui.set_min_width(380.0);
-        ui.heading("Export Report");
-        if let Some(name) = study_name {
-            ui.label(RichText::new(format!("Study: {name}")).color(crate::theme::TEXT_SECONDARY()));
-        }
-        ui.add_space(4.0);
-
-        if let Some(paths) = &state.success_paths {
-            for path in paths {
-                ui.colored_label(
-                    crate::theme::TEXT_SECONDARY(),
-                    format!("Saved: {}", path.display()),
+    let outcome = ModalScaffold::new("report_export_dialog", 380.0)
+        .heading("Export Report")
+        .show(ctx, |ui| {
+            if let Some(name) = study_name {
+                ui.label(
+                    RichText::new(format!("Study: {name}")).color(crate::theme::TEXT_SECONDARY()),
                 );
             }
-            // 保存ダイアログを経由しない兄弟ファイルの上書きを明示する。
-            for path in &state.overwrote_paths {
-                ui.colored_label(
-                    egui::Color32::from_rgb(202, 138, 4), // amber-600
-                    format!("Overwrote existing: {}", path.display()),
-                );
+            ui.add_space(4.0);
+
+            if let Some(paths) = &state.success_paths {
+                for path in paths {
+                    ui.colored_label(
+                        crate::theme::TEXT_SECONDARY(),
+                        format!("Saved: {}", path.display()),
+                    );
+                }
+                // 保存ダイアログを経由しない兄弟ファイルの上書きを明示する。
+                for path in &state.overwrote_paths {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(202, 138, 4), // amber-600
+                        format!("Overwrote existing: {}", path.display()),
+                    );
+                }
+                ui.add_space(8.0);
+                if ui.button("Close").clicked() {
+                    close_clicked = true;
+                }
+                return;
             }
+
+            ui.add_enabled_ui(!state.generating, |ui| {
+                ui.label("Formats:");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut state.html, ReportFormat::Html.label());
+                    ui.checkbox(&mut state.markdown, ReportFormat::Markdown.label());
+                    ui.checkbox(&mut state.json, ReportFormat::Json.label());
+                });
+
+                ui.add_space(4.0);
+                ui.label("Language:");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut state.lang, ReportLang::En, "En");
+                    ui.selectable_value(&mut state.lang, ReportLang::Ja, "Ja");
+                });
+
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label("Top-N:");
+                    ui.add(egui::DragValue::new(&mut state.top_n).range(1..=100));
+                });
+            });
+
+            if state.generating {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Generating report...");
+                });
+            }
+
+            if let Some(err) = &state.error {
+                ui.add_space(4.0);
+                ui.colored_label(crate::theme::ERROR_COLOR(), err);
+            }
+
             ui.add_space(8.0);
-            if ui.button("Close").clicked() {
-                close_clicked = true;
-            }
-            return;
-        }
-
-        ui.add_enabled_ui(!state.generating, |ui| {
-            ui.label("Formats:");
             ui.horizontal(|ui| {
-                ui.checkbox(&mut state.html, ReportFormat::Html.label());
-                ui.checkbox(&mut state.markdown, ReportFormat::Markdown.label());
-                ui.checkbox(&mut state.json, ReportFormat::Json.label());
-            });
-
-            ui.add_space(4.0);
-            ui.label("Language:");
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut state.lang, ReportLang::En, "En");
-                ui.selectable_value(&mut state.lang, ReportLang::Ja, "Ja");
-            });
-
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("Top-N:");
-                ui.add(egui::DragValue::new(&mut state.top_n).range(1..=100));
+                if ui
+                    .add_enabled(!state.generating, egui::Button::new("Export"))
+                    .clicked()
+                {
+                    export_clicked = true;
+                }
+                if ui
+                    .add_enabled(!state.generating, egui::Button::new("Cancel"))
+                    .clicked()
+                {
+                    close_clicked = true;
+                }
             });
         });
-
-        if state.generating {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label("Generating report...");
-            });
-        }
-
-        if let Some(err) = &state.error {
-            ui.add_space(4.0);
-            ui.colored_label(crate::theme::ERROR_COLOR(), err);
-        }
-
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!state.generating, egui::Button::new("Export"))
-                .clicked()
-            {
-                export_clicked = true;
-            }
-            if ui
-                .add_enabled(!state.generating, egui::Button::new("Cancel"))
-                .clicked()
-            {
-                close_clicked = true;
-            }
-        });
-    });
 
     if export_clicked {
         Some(ReportModalAction::Export)
-    } else if close_clicked || (modal.should_close() && !state.generating) {
+    } else if close_clicked || (outcome.should_close && !state.generating) {
         Some(ReportModalAction::Close)
     } else {
         None

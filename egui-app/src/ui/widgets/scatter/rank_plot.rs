@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::colormap::ColorMap;
+use crate::ui::widgets::common::heatmap::draw_gradient_bar;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     axis_row, fmt_opt, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
@@ -312,22 +313,13 @@ fn collect_rank_points(
 
 /// ランクパーセンタイルの凡例（縦グラデーションバー + Best/Worst ラベル）を描画する。
 ///
-/// `common::heatmap::draw_colorbar_simple` と同じグラデーション描画方式に倣うが、
-/// ランクは値そのものではなく相対順位（0=最良〜1=最悪）であるため、数値目盛の
-/// 代わりに Best / Worst ラベルを使う方が直感的と判断し、専用の簡易版を用意した。
+/// バー本体は `common::heatmap::draw_gradient_bar` を共有する（D-10）。ランクは値
+/// そのものではなく相対順位（0=最良〜1=最悪）であるため、数値目盛の代わりに
+/// Best / Worst ラベルを使う方が直感的と判断し、ラベル部分のみ専用実装とした。
 fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     let painter = ui.painter();
-    let n_steps = 32;
-    let step_h = bar_rect.height() / n_steps as f32;
-    for i in 0..n_steps {
-        // i=0 がバー上端（Worst=1.0 の色）、末尾が下端（Best=0.0 の色）。
-        let t = 1.0 - (i as f32 / (n_steps - 1).max(1) as f32);
-        let step_rect = egui::Rect::from_min_size(
-            egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
-            egui::vec2(bar_rect.width(), step_h + 1.0),
-        );
-        painter.rect_filled(step_rect, 0.0, cmap.interpolate(t));
-    }
+    // i=0 がバー上端（Worst=1.0 の色）、末尾が下端（Best=0.0 の色）。
+    draw_gradient_bar(painter, bar_rect, cmap, 32);
     painter.rect_stroke(
         bar_rect,
         0.0,

@@ -13,6 +13,7 @@ use tunny_core::dataframe::Feasibility;
 use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
 use crate::state::types::StudyView;
 
+use super::modal::ModalScaffold;
 use super::radar_chart;
 
 /// サムネイル一辺のサイズ（px）。
@@ -84,111 +85,113 @@ impl TrialDetailModal {
         let radar_w = (max_w * 0.3).clamp(300.0, 500.0);
 
         let mut close = false;
-        let modal = egui::Modal::new(egui::Id::new("trial_detail_modal")).show(&egui_ctx, |ui| {
-            ui.set_max_width(max_w);
-            // 画像のアスペクト比に依らずモーダルを大きく確保する。
-            ui.set_min_width(max_w);
-            ui.set_min_height(max_h);
-            ui.horizontal(|ui| {
-                // ヘッダーは Optuna の `trial.number`（Study 内 0 始まりの作成順番号）を表示する。
-                // `trial_id` はストレージ横断のグローバル ID で、他 study や
-                // pruned/failed トライアルの分だけ番号がずれるため表示に使わない
-                // （アーティファクト参照には引き続き `trial_id` を使う）。
-                let trial_number = view
-                    .df
-                    .get_trial_number(target.row_index)
-                    .unwrap_or(target.row_index as u32);
-                ui.heading(format!("Trial {trial_number}"));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("× Close").clicked() {
-                        close = true;
-                    }
-                });
-            });
-            ui.separator();
-
-            egui::ScrollArea::vertical()
-                .max_height(body_max_h)
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    // 3 段組: 左=テキスト情報 / 中央=レーダー / 右=アーティファクト。
-                    ui.horizontal_top(|ui| {
-                        // 左: テキスト情報（Chart Info / Objectives / Variables）。
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(left_w, body_max_h),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                // 散布図固有の情報（ランク・クラスタ番号など）。
-                                if !target.context.is_empty() {
-                                    section_label(ui, "Chart Info");
-                                    kv_grid(ui, "trial_detail_context", &target.context);
-                                    ui.add_space(8.0);
-                                }
-
-                                // 目的関数値。
-                                if !obj_names.is_empty() {
-                                    section_label(ui, "Objectives");
-                                    let rows = value_rows(view, obj_names, target.row_index);
-                                    kv_grid(ui, "trial_detail_objectives", &rows);
-                                    ui.add_space(8.0);
-                                }
-
-                                // 変数値。
-                                if !param_names.is_empty() {
-                                    section_label(ui, "Variables");
-                                    let rows = value_rows(view, param_names, target.row_index);
-                                    kv_grid(ui, "trial_detail_params", &rows);
-                                    ui.add_space(8.0);
-                                }
-                            },
-                        );
-
-                        ui.separator();
-
-                        // 中央: レーダーチャート（目的＋変数）。パレートフロント各個体を
-                        // 薄い線で重ね、外周＝フロント最大（包絡）。選択トライアルを赤で重ねる。
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(radar_w, body_max_h),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                let radar_data = radar_chart::build(
-                                    view,
-                                    obj_names,
-                                    param_names,
-                                    target.row_index,
-                                );
-                                if radar_data.axes.len() >= 3 {
-                                    section_label(ui, "Comparison (Radar)");
-                                    radar_chart::show(ui, &radar_data);
-                                } else {
-                                    ui.label(
-                                        egui::RichText::new("Radar chart unavailable.").weak(),
-                                    );
-                                }
-                            },
-                        );
-
-                        ui.separator();
-
-                        // 右: アーティファクト（サムネイル＋ファイル名）。
-                        ui.vertical(|ui| {
-                            section_label(ui, "Artifacts");
-                            match artifact_map.get(&target.trial_id) {
-                                Some(entries) if !entries.is_empty() => {
-                                    render_artifacts(ui, entries)
-                                }
-                                _ => {
-                                    ui.label(
-                                        egui::RichText::new("No artifacts for this trial.").weak(),
-                                    );
-                                }
-                            }
-                        });
+        // 見出しは Close ボタンと同一行に置くため足場の自動見出しは使わず、本文側で描く。
+        // 画像のアスペクト比に依らずモーダルを大きく確保する（min=max=max_w）。
+        let outcome = ModalScaffold::new("trial_detail_modal", max_w)
+            .max_width(max_w)
+            .min_height(max_h)
+            .show(&egui_ctx, |ui| {
+                ui.horizontal(|ui| {
+                    // ヘッダーは Optuna の `trial.number`（Study 内 0 始まりの作成順番号）を表示する。
+                    // `trial_id` はストレージ横断のグローバル ID で、他 study や
+                    // pruned/failed トライアルの分だけ番号がずれるため表示に使わない
+                    // （アーティファクト参照には引き続き `trial_id` を使う）。
+                    let trial_number = view
+                        .df
+                        .get_trial_number(target.row_index)
+                        .unwrap_or(target.row_index as u32);
+                    ui.heading(format!("Trial {trial_number}"));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("× Close").clicked() {
+                            close = true;
+                        }
                     });
                 });
-        });
+                ui.separator();
 
-        if close || modal.should_close() {
+                egui::ScrollArea::vertical()
+                    .max_height(body_max_h)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        // 3 段組: 左=テキスト情報 / 中央=レーダー / 右=アーティファクト。
+                        ui.horizontal_top(|ui| {
+                            // 左: テキスト情報（Chart Info / Objectives / Variables）。
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(left_w, body_max_h),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    // 散布図固有の情報（ランク・クラスタ番号など）。
+                                    if !target.context.is_empty() {
+                                        section_label(ui, "Chart Info");
+                                        kv_grid(ui, "trial_detail_context", &target.context);
+                                        ui.add_space(8.0);
+                                    }
+
+                                    // 目的関数値。
+                                    if !obj_names.is_empty() {
+                                        section_label(ui, "Objectives");
+                                        let rows = value_rows(view, obj_names, target.row_index);
+                                        kv_grid(ui, "trial_detail_objectives", &rows);
+                                        ui.add_space(8.0);
+                                    }
+
+                                    // 変数値。
+                                    if !param_names.is_empty() {
+                                        section_label(ui, "Variables");
+                                        let rows = value_rows(view, param_names, target.row_index);
+                                        kv_grid(ui, "trial_detail_params", &rows);
+                                        ui.add_space(8.0);
+                                    }
+                                },
+                            );
+
+                            ui.separator();
+
+                            // 中央: レーダーチャート（目的＋変数）。パレートフロント各個体を
+                            // 薄い線で重ね、外周＝フロント最大（包絡）。選択トライアルを赤で重ねる。
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(radar_w, body_max_h),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    let radar_data = radar_chart::build(
+                                        view,
+                                        obj_names,
+                                        param_names,
+                                        target.row_index,
+                                    );
+                                    if radar_data.axes.len() >= 3 {
+                                        section_label(ui, "Comparison (Radar)");
+                                        radar_chart::show(ui, &radar_data);
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("Radar chart unavailable.").weak(),
+                                        );
+                                    }
+                                },
+                            );
+
+                            ui.separator();
+
+                            // 右: アーティファクト（サムネイル＋ファイル名）。
+                            ui.vertical(|ui| {
+                                section_label(ui, "Artifacts");
+                                match artifact_map.get(&target.trial_id) {
+                                    Some(entries) if !entries.is_empty() => {
+                                        render_artifacts(ui, entries)
+                                    }
+                                    _ => {
+                                        ui.label(
+                                            egui::RichText::new("No artifacts for this trial.")
+                                                .weak(),
+                                        );
+                                    }
+                                }
+                            });
+                        });
+                    });
+            });
+
+        if close || outcome.should_close {
             self.open = None;
         }
     }

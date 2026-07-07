@@ -118,17 +118,7 @@ fn subsample_indices(n: usize, cap: usize) -> Vec<usize> {
 /// view から学習行列を組み立てる。指定した全特徴が有限な行のみ採用し
 /// （NaN 混入行はスキップ）、`MAX_SOM_ROWS` を超える場合は等間隔サブサンプルする。
 fn build_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
-    let Some(cols): Option<Vec<&[f64]>> = features.iter().map(|f| view.numeric_column(f)).collect()
-    else {
-        return Vec::new();
-    };
-    let full_rows: Vec<Vec<f64>> = (0..view.row_count())
-        .filter_map(|r| {
-            cols.iter()
-                .map(|c| c.get(r).copied().filter(|v| v.is_finite()))
-                .collect::<Option<Vec<f64>>>()
-        })
-        .collect();
+    let full_rows = super::feature_matrix(view, features);
     let idx = subsample_indices(full_rows.len(), MAX_SOM_ROWS);
     idx.into_iter().map(|i| full_rows[i].clone()).collect()
 }

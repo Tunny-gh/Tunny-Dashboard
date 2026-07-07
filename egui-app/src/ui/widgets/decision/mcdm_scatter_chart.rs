@@ -6,7 +6,7 @@ use crate::io::artifacts::ArtifactEntry;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_MCDM_NONE, COLOR_UNSELECTED_POINT};
-use crate::theme::color_compute::point_alpha_in_set;
+use crate::theme::color_compute::{point_alpha_in_set, rgba_key, rgba_to_color32};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
@@ -405,7 +405,7 @@ fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
         if color == COLOR_MCDM_NONE() {
             none_pts.push((trial_id, [x, y]));
         } else {
-            let key = [color.r(), color.g(), color.b(), color.a()];
+            let key = rgba_key(color);
             let lum = color.r() as u32 + color.g() as u32 + color.b() as u32;
             let entry = color_groups.entry(key).or_insert((Vec::new(), lum));
             entry.0.push((trial_id, [x, y]));
@@ -417,7 +417,7 @@ fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
     sorted.sort_by_key(|(_, (_, lum))| *lum);
     let color_batches = sorted
         .into_iter()
-        .map(|([r, g, b, a], (pts, _))| (Color32::from_rgba_unmultiplied(r, g, b, a), pts))
+        .map(|(key, (pts, _))| (rgba_to_color32(key), pts))
         .collect();
 
     DisplayBatches {

@@ -6,6 +6,7 @@ use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::common::heatmap::draw_gradient_bar;
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::mcdm_scatter_chart::{
     build_rank_map, extract_axis_values, fallback_axis_id, get_axis_options, mcdm_rank_color,
@@ -390,7 +391,7 @@ fn draw_colorbar_legend(
     const PADDING: f32 = 8.0;
     const TEXT_X: f32 = BAR_W + 4.0;
     const FONT_SZ: f32 = 10.0;
-    const N_SEGS: i32 = 24;
+    const N_SEGS: usize = 24;
 
     // 判例全体の高さ（カラーバー＋Others＋オプションのInfeasible）
     let row_h = 16.0_f32;
@@ -410,20 +411,10 @@ fn draw_colorbar_legend(
     let bar_x = origin.x + PADDING;
     let bar_y = origin.y + PADDING;
 
-    // カラーバー（上 = Rank 1 = t=1.0、下 = Rank top_n = t=0.0）
-    for seg in 0..N_SEGS {
-        let t = 1.0 - seg as f32 / (N_SEGS - 1) as f32;
-        let color = colormap.interpolate(t);
-        let seg_h = BAR_H / N_SEGS as f32;
-        painter.rect_filled(
-            egui::Rect::from_min_size(
-                egui::pos2(bar_x, bar_y + seg as f32 * seg_h),
-                egui::vec2(BAR_W, seg_h + 0.5),
-            ),
-            0.0,
-            color,
-        );
-    }
+    // カラーバー（上 = Rank 1 = t=1.0、下 = Rank top_n = t=0.0）。バー本体の描画は
+    // `common::heatmap::draw_gradient_bar` を共有する（D-10）。外枠は付けない。
+    let bar_rect = egui::Rect::from_min_size(egui::pos2(bar_x, bar_y), egui::vec2(BAR_W, BAR_H));
+    draw_gradient_bar(painter, bar_rect, colormap, N_SEGS);
 
     let text_color = egui::Color32::from_rgb(220, 220, 220);
     let font = egui::FontId::proportional(FONT_SZ);

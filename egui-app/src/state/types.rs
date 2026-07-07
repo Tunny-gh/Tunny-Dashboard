@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use tunny_core::dataframe::DataFrame;
 
+use crate::ui::widgets::range_math::value_range;
+
 // ============================================================
 // 基本型定義
 // ============================================================
@@ -142,8 +144,8 @@ impl StudyContext {
         if values.is_empty() {
             return (0.0, 1.0);
         }
-        let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        // `values` は直前の空チェックにより非空であることが保証されている。
+        let (min, max) = value_range(values.iter().cloned()).unwrap();
         if (max - min).abs() < f64::EPSILON {
             (min - 0.5, max + 0.5)
         } else {

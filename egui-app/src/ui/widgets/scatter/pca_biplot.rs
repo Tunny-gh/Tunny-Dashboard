@@ -12,8 +12,10 @@ use std::collections::BTreeMap;
 
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_SCATTER_DOT};
+use crate::theme::color_compute::{rgba_key, rgba_to_color32};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
+use crate::ui::widgets::common::range_math::finite_value_range;
 use tunny_core::clustering::PcaResult;
 
 /// PCA の対象空間。`tunny_core::clustering::PcaSpace` は serde を実装していないため、
@@ -215,8 +217,8 @@ impl PcaBiplotChart {
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
-                for ([r, g, b, a], pts) in &draw.color_groups {
-                    let color = egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a);
+                for (&key, pts) in &draw.color_groups {
+                    let color = rgba_to_color32(key);
                     plot_ui.points(
                         egui_plot::Points::new("Trials", pts.clone())
                             .color(color)
@@ -276,7 +278,7 @@ fn compute_pca_draw(
             }
             None => COLOR_SCATTER_DOT(),
         };
-        let key = [color.r(), color.g(), color.b(), color.a()];
+        let key = rgba_key(color);
         color_groups.entry(key).or_default().push([x, y]);
     }
 
@@ -326,19 +328,7 @@ fn color_range(col: Option<&[f64]>) -> (f64, f64) {
     let Some(col) = col else {
         return (0.0, 0.0);
     };
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
-    for &v in col {
-        if v.is_finite() {
-            lo = lo.min(v);
-            hi = hi.max(v);
-        }
-    }
-    if lo.is_finite() && hi.is_finite() {
-        (lo, hi)
-    } else {
-        (0.0, 0.0)
-    }
+    finite_value_range(col.iter().copied()).unwrap_or((0.0, 0.0))
 }
 
 #[cfg(test)]

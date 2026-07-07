@@ -18,6 +18,7 @@ use egui::Color32;
 
 use crate::state::types::StudyView;
 use crate::theme::{ACCENT_BLUE, ERROR_COLOR, TEXT_SECONDARY};
+use crate::ui::widgets::common::range_math::finite_value_range;
 
 /// パレートフロント各個体の線色（アクセントブルー #3B82F6 を alpha≈48 で薄く）。
 /// 重なるほど色が濃くなり、分布の密度が見える。`from_rgba_premultiplied` は const
@@ -83,19 +84,11 @@ pub fn build(
             let Some(col) = view.numeric_column(name) else {
                 continue;
             };
-            let mut lo = f64::INFINITY;
-            let mut hi = f64::NEG_INFINITY;
-            for &r in &front_rows {
-                if let Some(&v) = col.get(r) {
-                    if v.is_finite() {
-                        lo = lo.min(v);
-                        hi = hi.max(v);
-                    }
-                }
-            }
-            if !(lo.is_finite() && hi.is_finite()) {
+            let Some((lo, hi)) =
+                finite_value_range(front_rows.iter().filter_map(|&r| col.get(r).copied()))
+            else {
                 continue;
-            }
+            };
             let selected = col.get(selected_row).copied().filter(|v| v.is_finite());
             axes.push(RadarAxis {
                 name: name.clone(),

@@ -9,6 +9,7 @@ use super::state_colors::{
     dim, distinct_states_in_order, empty_state, show_state_legend, state_color,
 };
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
+use crate::ui::widgets::common::range_math::value_range;
 use crate::ui::widgets::trial_detail_modal::show_hover_tooltip;
 
 /// 横棒の高さ（trial_number ± half_width の範囲を占める）。
@@ -183,19 +184,21 @@ fn format_elapsed(seconds: f64, unit: TimeUnit) -> String {
 /// - `datetime_complete` が無い trial（RUNNING など）は、study 内で判明している
 ///   最大の日時（開始・完了いずれか）まで棒を伸ばす。
 pub fn build_timeline_bars(trials: &[TrialExtra]) -> Vec<TimelineBar> {
-    let t0 = trials
-        .iter()
-        .filter_map(|t| t.datetime_start)
-        .fold(f64::INFINITY, f64::min);
+    let t0 = value_range(trials.iter().filter_map(|t| t.datetime_start))
+        .map(|(mn, _)| mn)
+        .unwrap_or(f64::INFINITY);
     if !t0.is_finite() {
         return Vec::new();
     }
 
-    let max_ts = trials
-        .iter()
-        .flat_map(|t| [t.datetime_start, t.datetime_complete])
-        .flatten()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let max_ts = value_range(
+        trials
+            .iter()
+            .flat_map(|t| [t.datetime_start, t.datetime_complete])
+            .flatten(),
+    )
+    .map(|(_, mx)| mx)
+    .unwrap_or(f64::NEG_INFINITY);
 
     trials
         .iter()

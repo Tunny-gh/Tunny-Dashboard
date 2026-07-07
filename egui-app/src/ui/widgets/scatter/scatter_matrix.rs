@@ -2,6 +2,7 @@ use crate::theme::chart_colors::{
     COLOR_CHART_TEXT, COLOR_GRID_STROKE, COLOR_INFEASIBLE, COLOR_SCATTER_DOT,
 };
 use crate::theme::color_compute::correlation_color;
+use crate::ui::widgets::common::range_math::value_range;
 
 /// 散布図セルあたりに描画する最大点数。これを超える試行は均等間引きで描画する。
 /// セル数（下三角）×点数で描画コストが効くため、点数を抑えて応答性を保つ。
@@ -461,8 +462,8 @@ pub fn compute_histogram(data: &[f64], n_bins: usize) -> Vec<usize> {
     if data.is_empty() || n_bins == 0 {
         return vec![0; n_bins];
     }
-    let v_min = data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let v_max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    // `data` は直前の空チェックにより非空であることが保証されている。
+    let (v_min, v_max) = value_range(data.iter().cloned()).unwrap();
     if (v_max - v_min).abs() < f64::EPSILON {
         let mut bins = vec![0usize; n_bins];
         bins[n_bins / 2] = data.len();
@@ -495,9 +496,7 @@ pub fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
 /// 列データの min/max を返す（散布図セルの座標変換用）。
 /// `f64::min`/`f64::max` の畳み込みは NaN を無視し、Inf は反映する（従来挙動を維持）。
 pub fn col_min_max(data: &[f64]) -> (f64, f64) {
-    let mn = data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let mx = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    (mn, mx)
+    value_range(data.iter().cloned()).unwrap_or((f64::INFINITY, f64::NEG_INFINITY))
 }
 
 /// 散布図行列の feasible 描画点の色（`feasible_draw` と同じ並び順）を計算する。

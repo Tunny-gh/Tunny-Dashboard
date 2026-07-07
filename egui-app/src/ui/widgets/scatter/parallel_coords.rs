@@ -2,6 +2,7 @@ use crate::theme::chart_colors::{
     COLOR_CHART_TEXT, COLOR_INFEASIBLE, COLOR_PARALLEL_AXIS, COLOR_PARALLEL_LINE_DEFAULT,
     COLOR_PARALLEL_LINE_UNSELECTED, COLOR_PARALLEL_TICK,
 };
+use crate::theme::color_compute::{rgba_key, rgba_to_color32};
 use crate::theme::CENTRAL_BG;
 use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::scatter_matrix::downsample_indices_to_cap;
@@ -220,11 +221,8 @@ impl ParallelCoordsChart {
             let col_ranges: Vec<(f64, f64)> = cols
                 .iter()
                 .map(|data| match data {
-                    Some(c) => {
-                        let mn = c.iter().cloned().fold(f64::INFINITY, f64::min);
-                        let mx = c.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                        (mn, mx)
-                    }
+                    Some(c) => range_math::value_range(c.iter().cloned())
+                        .unwrap_or((f64::INFINITY, f64::NEG_INFINITY)),
                     None => (0.0, 1.0),
                 })
                 .collect();
@@ -445,12 +443,8 @@ impl ParallelCoordsChart {
                         cmap.interpolate(normalize_value(v, mn, mx))
                     })
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT());
-                egui::Color32::from_rgba_unmultiplied(
-                    base_color.r(),
-                    base_color.g(),
-                    base_color.b(),
-                    120,
-                )
+                let [r, g, b, _] = rgba_key(base_color);
+                rgba_to_color32([r, g, b, 120])
             } else {
                 COLOR_INFEASIBLE()
             };
