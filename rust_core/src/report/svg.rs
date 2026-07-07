@@ -20,6 +20,10 @@
 //!   埋め込まない（HTML ページ側の CSS からフォントを継承させる）。数値
 //!   ラベルには `font-variant-numeric: tabular-nums` を付与する。
 //! - 系列が1本のみのチャートは凡例を出さない（`<title>` が系列名を兼ねる）。
+//! - 描画要素は `write!`（[`std::fmt::Write`]）で出力バッファへ直接書き込み、
+//!   要素ごとの使い捨て `String` 確保を避ける。
+
+use std::fmt::Write as _;
 
 use super::theme;
 
@@ -197,57 +201,61 @@ fn nice_ticks_integer(min: f64, max: f64, target_count: usize) -> Vec<i64> {
     }
 }
 
-/// `<line>` によるヘアライングリッド線。
-fn hairline(x1: f64, y1: f64, x2: f64, y2: f64) -> String {
-    format!(
-        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"var({grid})\" stroke-width=\"1\" />\n",
+/// `<line>` によるヘアライングリッド線を `body` へ書き込む。
+fn hairline(body: &mut String, x1: f64, y1: f64, x2: f64, y2: f64) {
+    let _ = writeln!(
+        body,
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"var({grid})\" stroke-width=\"1\" />",
         coord(x1),
         coord(y1),
         coord(x2),
         coord(y2),
         grid = theme::VAR_GRID
-    )
+    );
 }
 
-/// `<line>` による軸線。
-fn axis_line(x1: f64, y1: f64, x2: f64, y2: f64) -> String {
-    format!(
-        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"var({axis})\" stroke-width=\"1\" />\n",
+/// `<line>` による軸線を `body` へ書き込む。
+fn axis_line(body: &mut String, x1: f64, y1: f64, x2: f64, y2: f64) {
+    let _ = writeln!(
+        body,
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"var({axis})\" stroke-width=\"1\" />",
         coord(x1),
         coord(y1),
         coord(x2),
         coord(y2),
         axis = theme::VAR_AXIS
-    )
+    );
 }
 
-/// ミュートインクのテキスト（軸目盛・カテゴリラベル用）。
-fn text_muted(x: f64, y: f64, anchor: &str, content: &str, numeric: bool) -> String {
+/// ミュートインクのテキスト（軸目盛・カテゴリラベル用）を `body` へ書き込む。
+fn text_muted(body: &mut String, x: f64, y: f64, anchor: &str, content: &str, numeric: bool) {
     let style = if numeric {
         " style=\"font-variant-numeric: tabular-nums\""
     } else {
         ""
     };
-    format!(
-        "<text x=\"{}\" y=\"{}\" text-anchor=\"{anchor}\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\"{style}>{}</text>\n",
+    let _ = writeln!(
+        body,
+        "<text x=\"{}\" y=\"{}\" text-anchor=\"{anchor}\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\"{style}>{}</text>",
         coord(x),
         coord(y),
         escape_xml(content),
         fs = FONT_SIZE,
         muted = theme::VAR_INK_MUTED
-    )
+    );
 }
 
-/// 副次インクの直接データラベル（最終値・バー端の値など）。
-fn text_secondary(x: f64, y: f64, anchor: &str, content: &str) -> String {
-    format!(
-        "<text x=\"{}\" y=\"{}\" text-anchor=\"{anchor}\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({secondary})\" style=\"font-variant-numeric: tabular-nums\">{}</text>\n",
+/// 副次インクの直接データラベル（最終値・バー端の値など）を `body` へ書き込む。
+fn text_secondary(body: &mut String, x: f64, y: f64, anchor: &str, content: &str) {
+    let _ = writeln!(
+        body,
+        "<text x=\"{}\" y=\"{}\" text-anchor=\"{anchor}\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({secondary})\" style=\"font-variant-numeric: tabular-nums\">{}</text>",
         coord(x),
         coord(y),
         escape_xml(content),
         fs = FONT_SIZE,
         secondary = theme::VAR_INK_SECONDARY
-    )
+    );
 }
 
 /// SVG ルート要素でチャート本体をラップする（viewBox ベースで responsive）。
@@ -261,7 +269,15 @@ fn svg_wrap(width: f64, height: f64, body: &str) -> String {
 
 /// データが空の場合のプレースホルダ表示。
 fn empty_message(width: f64, height: f64) -> String {
-    let body = text_muted(width / 2.0, height / 2.0, "middle", "no data", false);
+    let mut body = String::new();
+    text_muted(
+        &mut body,
+        width / 2.0,
+        height / 2.0,
+        "middle",
+        "no data",
+        false,
+    );
     svg_wrap(width, height, &body)
 }
 
@@ -355,30 +371,26 @@ pub fn line_chart(
 
     for t in &y_ticks {
         let y = sy(*t);
-        body.push_str(&hairline(m.left, y, m.left + plot_w, y));
-        body.push_str(&text_muted(
-            m.left - 8.0,
-            y + 3.0,
-            "end",
-            &fmt_sig4(*t),
-            true,
-        ));
+        hairline(&mut body, m.left, y, m.left + plot_w, y);
+        text_muted(&mut body, m.left - 8.0, y + 3.0, "end", &fmt_sig4(*t), true);
     }
-    body.push_str(&axis_line(
+    axis_line(
+        &mut body,
         m.left,
         m.top + plot_h,
         m.left + plot_w,
         m.top + plot_h,
-    ));
+    );
     for t in &x_ticks {
         let x = sx(*t as f64);
-        body.push_str(&text_muted(
+        text_muted(
+            &mut body,
             x,
             m.top + plot_h + 18.0,
             "middle",
             &t.to_string(),
             true,
-        ));
+        );
     }
 
     let path_points = points
@@ -392,10 +404,11 @@ pub fn line_chart(
         })
         .collect::<Vec<_>>()
         .join(" ");
-    body.push_str(&format!(
-        "<polyline points=\"{path_points}\" fill=\"none\" stroke=\"var({series1})\" stroke-width=\"2\" />\n",
+    let _ = writeln!(
+        body,
+        "<polyline points=\"{path_points}\" fill=\"none\" stroke=\"var({series1})\" stroke-width=\"2\" />",
         series1 = theme::VAR_SERIES[0]
-    ));
+    );
 
     let marker = |idx: usize, body: &mut String| {
         let p = &points[idx];
@@ -406,12 +419,13 @@ pub fn line_chart(
             p.trial_number,
             fmt_sig4(p.value)
         ));
-        body.push_str(&format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({series1})\"><title>{title}</title></circle>\n",
+        let _ = writeln!(
+            body,
+            "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({series1})\"><title>{title}</title></circle>",
             coord(cx),
             coord(cy),
             series1 = theme::VAR_SERIES[0]
-        ));
+        );
     };
 
     for &idx in improvement_marks {
@@ -424,12 +438,13 @@ pub fn line_chart(
     }
 
     let last = &points[last_idx];
-    body.push_str(&text_secondary(
+    text_secondary(
+        &mut body,
         sx(last.trial_number as f64) + 8.0,
         sy(last.value) + 4.0,
         "start",
         &final_label,
-    ));
+    );
 
     svg_wrap(width, height, &body)
 }
@@ -447,6 +462,9 @@ pub struct ScatterPoint {
     pub x: f64,
     /// Y 座標（2番目の目的値）。
     pub y: f64,
+    /// 全制約を満たす点か（制約なしスタディでは常に `true`）。
+    /// `false` の点はツールチップに `[infeasible]` を付記する。
+    pub feasible: bool,
 }
 
 /// Pareto 散布図を描画する。
@@ -517,68 +535,97 @@ pub fn scatter_chart(
 
     let mut body = String::new();
 
-    for t in &y_ticks {
-        let y = sy(*t);
-        body.push_str(&hairline(m.left, y, m.left + plot_w, y));
-        body.push_str(&text_muted(
-            m.left - 8.0,
-            y + 3.0,
-            "end",
-            &fmt_sig4(*t),
-            true,
-        ));
+    scatter_frame(
+        &mut body, &m, plot_w, plot_h, height, &x_ticks, &y_ticks, &sx, &sy, x_label, y_label,
+    );
+    scatter_points(&mut body, background, front, &sx, &sy);
+    if has_legend {
+        scatter_legend(&mut body, &m, plot_w);
     }
-    for t in &x_ticks {
+
+    svg_wrap(width, height, &body)
+}
+
+/// 散布図の枠（グリッド線・目盛ラベル・軸線・軸タイトル）を書き込む。
+#[allow(clippy::too_many_arguments)]
+fn scatter_frame(
+    body: &mut String,
+    m: &Margins,
+    plot_w: f64,
+    plot_h: f64,
+    height: f64,
+    x_ticks: &[f64],
+    y_ticks: &[f64],
+    sx: &dyn Fn(f64) -> f64,
+    sy: &dyn Fn(f64) -> f64,
+    x_label: &str,
+    y_label: &str,
+) {
+    for t in y_ticks {
+        let y = sy(*t);
+        hairline(body, m.left, y, m.left + plot_w, y);
+        text_muted(body, m.left - 8.0, y + 3.0, "end", &fmt_sig4(*t), true);
+    }
+    for t in x_ticks {
         let x = sx(*t);
-        body.push_str(&hairline(x, m.top, x, m.top + plot_h));
-        body.push_str(&text_muted(
+        hairline(body, x, m.top, x, m.top + plot_h);
+        text_muted(
+            body,
             x,
             m.top + plot_h + 18.0,
             "middle",
             &fmt_sig4(*t),
             true,
-        ));
+        );
     }
-    body.push_str(&axis_line(
+    axis_line(
+        body,
         m.left,
         m.top + plot_h,
         m.left + plot_w,
         m.top + plot_h,
-    ));
-    body.push_str(&axis_line(m.left, m.top, m.left, m.top + plot_h));
+    );
+    axis_line(body, m.left, m.top, m.left, m.top + plot_h);
 
-    body.push_str(&text_muted(
+    text_muted(
+        body,
         m.left + plot_w / 2.0,
         height - 4.0,
         "middle",
         x_label,
         false,
-    ));
+    );
     // Y 軸タイトル: 左マージン内（目盛ラベルのさらに左）に rotate(-90) で
     // 縦書き配置する。回転中心 = (14, プロット縦中央)。
     let ty = m.top + plot_h / 2.0;
-    body.push_str(&format!(
-        "<text x=\"14\" y=\"{}\" transform=\"rotate(-90 14 {})\" text-anchor=\"middle\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\">{}</text>\n",
+    let _ = writeln!(
+        body,
+        "<text x=\"14\" y=\"{}\" transform=\"rotate(-90 14 {})\" text-anchor=\"middle\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\">{}</text>",
         coord(ty),
         coord(ty),
         escape_xml(y_label),
         fs = FONT_SIZE,
         muted = theme::VAR_INK_MUTED
-    ));
+    );
+}
 
+/// 散布図のデータマーク（背景点・front 階段線・front 点）を書き込む。
+fn scatter_points(
+    body: &mut String,
+    background: &[ScatterPoint],
+    front: &[ScatterPoint],
+    sx: &dyn Fn(f64) -> f64,
+    sy: &dyn Fn(f64) -> f64,
+) {
     for p in background {
-        let title = escape_xml(&format!(
-            "trial #{} ({}, {})",
-            p.trial_number,
-            fmt_sig4(p.x),
-            fmt_sig4(p.y)
-        ));
-        body.push_str(&format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({muted})\" fill-opacity=\"0.4\"><title>{title}</title></circle>\n",
+        let title = escape_xml(&scatter_title(p, false));
+        let _ = writeln!(
+            body,
+            "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({muted})\" fill-opacity=\"0.4\"><title>{title}</title></circle>",
             coord(sx(p.x)),
             coord(sy(p.y)),
             muted = theme::VAR_INK_MUTED
-        ));
+        );
     }
 
     if front.len() >= 2 {
@@ -591,80 +638,90 @@ pub fn scatter_chart(
         );
         for w in sorted_front.windows(2) {
             let (prev, cur) = (w[0], w[1]);
-            path.push_str(&format!(
+            let _ = write!(
+                path,
                 " L {} {} L {} {}",
                 coord(sx(cur.x)),
                 coord(sy(prev.y)),
                 coord(sx(cur.x)),
                 coord(sy(cur.y))
-            ));
+            );
         }
-        body.push_str(&format!(
-            "<path d=\"{path}\" fill=\"none\" stroke=\"var({series1})\" stroke-width=\"1.5\" />\n",
+        let _ = writeln!(
+            body,
+            "<path d=\"{path}\" fill=\"none\" stroke=\"var({series1})\" stroke-width=\"1.5\" />",
             series1 = theme::VAR_SERIES[0]
-        ));
+        );
     }
 
     for p in front {
-        let title = escape_xml(&format!(
-            "trial #{} ({}, {}) [front]",
-            p.trial_number,
-            fmt_sig4(p.x),
-            fmt_sig4(p.y)
-        ));
-        body.push_str(&format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"5\" fill=\"var({series1})\"><title>{title}</title></circle>\n",
+        let title = escape_xml(&scatter_title(p, true));
+        let _ = writeln!(
+            body,
+            "<circle cx=\"{}\" cy=\"{}\" r=\"5\" fill=\"var({series1})\"><title>{title}</title></circle>",
             coord(sx(p.x)),
             coord(sy(p.y)),
             series1 = theme::VAR_SERIES[0]
-        ));
+        );
     }
+}
 
-    // 凡例（front / dominated の2系列があるときのみ）: プロット右上の
-    // 上マージン内に「● Pareto front ● dominated」を右詰めで置く。
-    // 凡例マーカーはデータマークではないため <title> を付けない。
-    if has_legend {
-        const LEGEND_FRONT: &str = "Pareto front";
-        const LEGEND_BG: &str = "dominated";
-        let w_front = LEGEND_FRONT.chars().count() as f64 * CHAR_W;
-        let w_bg = LEGEND_BG.chars().count() as f64 * CHAR_W;
-        let item_gap = 18.0;
-        let marker_w = 12.0; // マーカー直径 + テキストとの間隔
-        let total = marker_w + w_front + item_gap + marker_w + w_bg;
-        let start_x = (m.left + plot_w - total).max(m.left);
-        let cy = 10.0;
-        let text_y = cy + 4.0;
-
-        body.push_str(&format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({series1})\" />\n",
-            coord(start_x + 4.0),
-            coord(cy),
-            series1 = theme::VAR_SERIES[0]
-        ));
-        body.push_str(&text_muted(
-            start_x + marker_w,
-            text_y,
-            "start",
-            LEGEND_FRONT,
-            false,
-        ));
-        let x2 = start_x + marker_w + w_front + item_gap;
-        body.push_str(&format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({muted})\" fill-opacity=\"0.4\" />\n",
-            coord(x2 + 4.0),
-            coord(cy),
-            muted = theme::VAR_INK_MUTED
-        ));
-        body.push_str(&text_muted(
-            x2 + marker_w,
-            text_y,
-            "start",
-            LEGEND_BG,
-            false,
-        ));
+/// 散布図点のツールチップ文字列（front / infeasible の付記込み）。
+fn scatter_title(p: &ScatterPoint, on_front: bool) -> String {
+    let mut title = format!(
+        "trial #{} ({}, {})",
+        p.trial_number,
+        fmt_sig4(p.x),
+        fmt_sig4(p.y)
+    );
+    if on_front {
+        title.push_str(" [front]");
     }
+    if !p.feasible {
+        title.push_str(" [infeasible]");
+    }
+    title
+}
 
-    svg_wrap(width, height, &body)
+/// 凡例（front / dominated の2系列があるときのみ）: プロット右上の
+/// 上マージン内に「● Pareto front ● dominated」を右詰めで置く。
+/// 凡例マーカーはデータマークではないため `<title>` を付けない。
+fn scatter_legend(body: &mut String, m: &Margins, plot_w: f64) {
+    const LEGEND_FRONT: &str = "Pareto front";
+    const LEGEND_BG: &str = "dominated";
+    let w_front = LEGEND_FRONT.chars().count() as f64 * CHAR_W;
+    let w_bg = LEGEND_BG.chars().count() as f64 * CHAR_W;
+    let item_gap = 18.0;
+    let marker_w = 12.0; // マーカー直径 + テキストとの間隔
+    let total = marker_w + w_front + item_gap + marker_w + w_bg;
+    let start_x = (m.left + plot_w - total).max(m.left);
+    let cy = 10.0;
+    let text_y = cy + 4.0;
+
+    let _ = writeln!(
+        body,
+        "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({series1})\" />",
+        coord(start_x + 4.0),
+        coord(cy),
+        series1 = theme::VAR_SERIES[0]
+    );
+    text_muted(
+        body,
+        start_x + marker_w,
+        text_y,
+        "start",
+        LEGEND_FRONT,
+        false,
+    );
+    let x2 = start_x + marker_w + w_front + item_gap;
+    let _ = writeln!(
+        body,
+        "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({muted})\" fill-opacity=\"0.4\" />",
+        coord(x2 + 4.0),
+        coord(cy),
+        muted = theme::VAR_INK_MUTED
+    );
+    text_muted(body, x2 + marker_w, text_y, "start", LEGEND_BG, false);
 }
 
 // ================================================================
@@ -734,14 +791,15 @@ pub fn hbar_chart(items: &[HBarItem], width: f64) -> String {
 
     for t in &value_ticks {
         let x = m.left + (t / x_max) * plot_w;
-        body.push_str(&hairline(x, m.top, x, height - m.bottom));
-        body.push_str(&text_muted(
+        hairline(&mut body, x, m.top, x, height - m.bottom);
+        text_muted(
+            &mut body,
             x,
             height - m.bottom + 16.0,
             "middle",
             &fmt_sig4(*t),
             true,
-        ));
+        );
     }
 
     for (i, item) in items.iter().enumerate() {
@@ -751,31 +809,34 @@ pub fn hbar_chart(items: &[HBarItem], width: f64) -> String {
 
         let full_label_escaped = escape_xml(&item.label);
         let display_label = truncate_label(&item.label, MAX_LABEL_CHARS);
-        body.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\"><title>{full_label_escaped}</title>{}</text>\n",
+        let _ = writeln!(
+            body,
+            "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\"><title>{full_label_escaped}</title>{}</text>",
             coord(m.left - 8.0),
             coord(y_mid),
             escape_xml(&display_label),
             fs = FONT_SIZE,
             muted = theme::VAR_INK_MUTED
-        ));
+        );
 
         let title = escape_xml(&format!("{}: {}", item.label, fmt_sig4(item.value)));
-        body.push_str(&format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"2\" fill=\"var({series1})\"><title>{title}</title></rect>\n",
+        let _ = writeln!(
+            body,
+            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"2\" fill=\"var({series1})\"><title>{title}</title></rect>",
             coord(m.left),
             coord(y_top),
             coord(bar_w),
             coord(BAR_H),
             series1 = theme::VAR_SERIES[0]
-        ));
+        );
 
-        body.push_str(&text_secondary(
+        text_secondary(
+            &mut body,
             m.left + bar_w + 6.0,
             y_mid,
             "start",
             &fmt_sig4(item.value),
-        ));
+        );
     }
 
     svg_wrap(width, height, &body)
@@ -829,14 +890,15 @@ pub fn histogram(bins: &[HistBin], width: f64, height: f64) -> String {
 
     for t in &y_ticks {
         let y = m.top + plot_h - (t / y_max) * plot_h;
-        body.push_str(&hairline(m.left, y, m.left + plot_w, y));
-        body.push_str(&text_muted(
+        hairline(&mut body, m.left, y, m.left + plot_w, y);
+        text_muted(
+            &mut body,
             m.left - 8.0,
             y + 3.0,
             "end",
             &format!("{}", t.round() as i64),
             true,
-        ));
+        );
     }
 
     for (i, bin) in bins.iter().enumerate() {
@@ -849,14 +911,15 @@ pub fn histogram(bins: &[HistBin], width: f64, height: f64) -> String {
             fmt_sig4(bin.upper),
             bin.count
         ));
-        body.push_str(&format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"var({seq400})\"><title>{title}</title></rect>\n",
+        let _ = writeln!(
+            body,
+            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"var({seq400})\"><title>{title}</title></rect>",
             coord(x),
             coord(y),
             coord(bin_w),
             coord(bar_h),
             seq400 = theme::VAR_SEQ[3].1
-        ));
+        );
     }
 
     // X 軸の代表目盛り（最初のビン下端 / 中央境界 / 最後のビン上端）。
@@ -868,7 +931,7 @@ pub fn histogram(bins: &[HistBin], width: f64, height: f64) -> String {
         (mid, m.left + (n / 2) as f64 * (bin_w + GAP)),
         (last, m.left + plot_w),
     ] {
-        body.push_str(&text_muted(x, height - 8.0, "middle", &fmt_sig4(val), true));
+        text_muted(&mut body, x, height - 8.0, "middle", &fmt_sig4(val), true);
     }
 
     svg_wrap(width, height, &body)
@@ -877,6 +940,12 @@ pub fn histogram(bins: &[HistBin], width: f64, height: f64) -> String {
 // ================================================================
 // heatmap（相関ヒートマップ）
 // ================================================================
+
+/// 行ラベルの最大表示文字数（超過分は `…` + `<title>`）。
+const HEATMAP_MAX_ROW_CHARS: usize = 24;
+/// 列ラベルの最大表示文字数。回転ラベルの投影高さ（=上マージン）を
+/// 有限に抑えるための上限で、超過分は `…` + `<title>` に退避する。
+const HEATMAP_MAX_COL_CHARS: usize = 22;
 
 /// 相関ヒートマップを描画する（ダイバージング配色、値域 `[-1, 1]`）。
 ///
@@ -902,11 +971,6 @@ pub fn heatmap(
     const GAP: f64 = 2.0;
     const CELL_H: f64 = 28.0;
     const LEGEND_W: f64 = 90.0;
-    /// 行ラベルの最大表示文字数（超過分は `…` + `<title>`）。
-    const MAX_ROW_CHARS: usize = 24;
-    /// 列ラベルの最大表示文字数。回転ラベルの投影高さ（=上マージン）を
-    /// 有限に抑えるための上限で、超過分は `…` + `<title>` に退避する。
-    const MAX_COL_CHARS: usize = 22;
     /// rotate(-40°) した列ラベルの、1文字あたりの垂直投影高さ
     /// （`CHAR_W × sin(40°) ≈ 7.0 × 0.643`）。
     const COL_LABEL_RISE: f64 = 4.5;
@@ -920,12 +984,12 @@ pub fn heatmap(
     // 表示（truncation 後）ラベルの最大文字数からマージンを動的に決める。
     let max_row_chars = row_labels
         .iter()
-        .map(|s| truncate_label(s, MAX_ROW_CHARS).chars().count())
+        .map(|s| truncate_label(s, HEATMAP_MAX_ROW_CHARS).chars().count())
         .max()
         .unwrap_or(0);
     let max_col_chars = col_labels
         .iter()
-        .map(|s| truncate_label(s, MAX_COL_CHARS).chars().count())
+        .map(|s| truncate_label(s, HEATMAP_MAX_COL_CHARS).chars().count())
         .max()
         .unwrap_or(0);
     let m = Margins {
@@ -942,18 +1006,37 @@ pub fn heatmap(
 
     let mut body = String::new();
 
+    heatmap_col_labels(&mut body, col_labels, cols, &m, cell_w, GAP);
+    heatmap_cells(
+        &mut body, matrix, row_labels, col_labels, rows, cols, &m, cell_w, CELL_H, GAP,
+    );
+    heatmap_legend(&mut body, width, &m, plot_h, LEGEND_W);
+
+    svg_wrap(width, height, &body)
+}
+
+/// ヒートマップの列ラベル（rotate(-40°)、truncation + `<title>` 退避）を書き込む。
+fn heatmap_col_labels(
+    body: &mut String,
+    col_labels: &[String],
+    cols: usize,
+    m: &Margins,
+    cell_w: f64,
+    gap: f64,
+) {
     for (c, label) in col_labels.iter().enumerate().take(cols) {
-        let cx = m.left + c as f64 * (cell_w + GAP) + cell_w / 2.0;
+        let cx = m.left + c as f64 * (cell_w + gap) + cell_w / 2.0;
         let cy = m.top - 8.0;
-        let display = truncate_label(label, MAX_COL_CHARS);
+        let display = truncate_label(label, HEATMAP_MAX_COL_CHARS);
         // truncation したときのみ完全ラベルを <title> で保持する。
         let title = if display == *label {
             String::new()
         } else {
             format!("<title>{}</title>", escape_xml(label))
         };
-        body.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" transform=\"rotate(-40 {} {})\" text-anchor=\"start\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\">{title}{}</text>\n",
+        let _ = writeln!(
+            body,
+            "<text x=\"{}\" y=\"{}\" transform=\"rotate(-40 {} {})\" text-anchor=\"start\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\">{title}{}</text>",
             coord(cx),
             coord(cy),
             coord(cx),
@@ -961,69 +1044,90 @@ pub fn heatmap(
             escape_xml(&display),
             fs = FONT_SIZE,
             muted = theme::VAR_INK_MUTED
-        ));
+        );
     }
+}
 
+/// ヒートマップの行ラベルとセル（量子化塗り + 高相関セルの直接ラベル）を書き込む。
+#[allow(clippy::too_many_arguments)]
+fn heatmap_cells(
+    body: &mut String,
+    matrix: &[Vec<f64>],
+    row_labels: &[String],
+    col_labels: &[String],
+    rows: usize,
+    cols: usize,
+    m: &Margins,
+    cell_w: f64,
+    cell_h: f64,
+    gap: f64,
+) {
     for (r, row) in matrix.iter().enumerate().take(rows) {
-        let y = m.top + r as f64 * (CELL_H + GAP);
+        let y = m.top + r as f64 * (cell_h + gap);
         let row_label = row_labels.get(r).map(String::as_str).unwrap_or("");
-        let display = truncate_label(row_label, MAX_ROW_CHARS);
+        let display = truncate_label(row_label, HEATMAP_MAX_ROW_CHARS);
         let title = if display == row_label {
             String::new()
         } else {
             format!("<title>{}</title>", escape_xml(row_label))
         };
-        body.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\">{title}{}</text>\n",
+        let _ = writeln!(
+            body,
+            "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({muted})\">{title}{}</text>",
             coord(m.left - 8.0),
-            coord(y + CELL_H / 2.0 + 4.0),
+            coord(y + cell_h / 2.0 + 4.0),
             escape_xml(&display),
             fs = FONT_SIZE,
             muted = theme::VAR_INK_MUTED
-        ));
+        );
 
         for (c, &value) in row.iter().enumerate().take(cols) {
-            let x = m.left + c as f64 * (cell_w + GAP);
+            let x = m.left + c as f64 * (cell_w + gap);
             let clamped = value.clamp(-1.0, 1.0);
             let bin = theme::diverging_bin(clamped);
             let fill_var = theme::diverging_var(bin);
             let col_label = col_labels.get(c).map(String::as_str).unwrap_or("");
             let title = escape_xml(&format!("{row_label} × {col_label}: {}", fmt_sig4(value)));
-            body.push_str(&format!(
-                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"var({fill_var})\"><title>{title}</title></rect>\n",
+            let _ = writeln!(
+                body,
+                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"var({fill_var})\"><title>{title}</title></rect>",
                 coord(x),
                 coord(y),
                 coord(cell_w),
-                coord(CELL_H)
-            ));
+                coord(cell_h)
+            );
 
             if theme::diverging_show_label(value) {
                 let ink_var = theme::diverging_ink_var(bin);
-                body.push_str(&format!(
-                    "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({ink_var})\" style=\"font-variant-numeric: tabular-nums\">{}</text>\n",
+                let _ = writeln!(
+                    body,
+                    "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-family=\"inherit\" font-size=\"{fs}\" fill=\"var({ink_var})\" style=\"font-variant-numeric: tabular-nums\">{}</text>",
                     coord(x + cell_w / 2.0),
-                    coord(y + CELL_H / 2.0 + 4.0),
+                    coord(y + cell_h / 2.0 + 4.0),
                     escape_xml(&fmt_sig4(value)),
                     fs = FONT_SIZE
-                ));
+                );
             }
         }
     }
+}
 
-    // 離散カラーレジェンド（-5..=5 の11段階を縦に並べる）。
-    let legend_x = width - LEGEND_W + 8.0;
+/// 離散カラーレジェンド（-5..=5 の11段階を縦に並べる）を書き込む。
+fn heatmap_legend(body: &mut String, width: f64, m: &Margins, plot_h: f64, legend_w: f64) {
+    let legend_x = width - legend_w + 8.0;
     let swatch_h = (plot_h / 11.0).max(6.0);
     for (i, bin) in (-5..=5).rev().enumerate() {
         let y = m.top + i as f64 * swatch_h;
         let fill_var = theme::diverging_var(bin);
         let range_desc = diverging_bin_range_desc(bin);
-        body.push_str(&format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"14\" height=\"{}\" fill=\"var({fill_var})\"><title>{}</title></rect>\n",
+        let _ = writeln!(
+            body,
+            "<rect x=\"{}\" y=\"{}\" width=\"14\" height=\"{}\" fill=\"var({fill_var})\"><title>{}</title></rect>",
             coord(legend_x),
             coord(y),
             coord(swatch_h.max(1.0)),
             escape_xml(&range_desc)
-        ));
+        );
         if bin == 5 || bin == 0 || bin == -5 {
             let label = if bin == 5 {
                 "1"
@@ -1032,17 +1136,16 @@ pub fn heatmap(
             } else {
                 "0"
             };
-            body.push_str(&text_muted(
+            text_muted(
+                body,
                 legend_x + 18.0,
                 y + swatch_h / 2.0 + 3.0,
                 "start",
                 label,
                 true,
-            ));
+            );
         }
     }
-
-    svg_wrap(width, height, &body)
 }
 
 /// レジェンドの `<title>` 用に量子化段階が表す値域を説明する文字列を作る。
@@ -1249,6 +1352,7 @@ mod tests {
                 trial_number: i,
                 x: i as f64,
                 y: (20 - i) as f64,
+                feasible: true,
             })
             .collect();
         let front: Vec<ScatterPoint> = (0..5)
@@ -1256,6 +1360,7 @@ mod tests {
                 trial_number: i,
                 x: i as f64 * 2.0,
                 y: (5 - i) as f64,
+                feasible: true,
             })
             .collect();
         let svg = scatter_chart(&background, &front, "obj1", "obj2", 400.0, 300.0);
@@ -1278,6 +1383,7 @@ mod tests {
                 trial_number: i,
                 x: i as f64,
                 y: i as f64,
+                feasible: true,
             })
             .collect();
         let svg = scatter_chart(&background, &[], "x", "y", 300.0, 200.0);
@@ -1291,14 +1397,40 @@ mod tests {
             trial_number: 0,
             x: 1.0,
             y: 1.0,
+            feasible: true,
         }];
         let front = vec![ScatterPoint {
             trial_number: 0,
             x: 1.0,
             y: 1.0,
+            feasible: true,
         }];
         let svg = scatter_chart(&background, &front, "x", "y", 300.0, 200.0);
         assert!(!svg.contains("<path"));
+    }
+
+    #[test]
+    fn scatter_chart_marks_infeasible_in_tooltip() {
+        // feasible=false の点はツールチップに [infeasible] を付記する。
+        // feasible な点には付かない。
+        let background = vec![
+            ScatterPoint {
+                trial_number: 0,
+                x: 1.0,
+                y: 2.0,
+                feasible: false,
+            },
+            ScatterPoint {
+                trial_number: 1,
+                x: 2.0,
+                y: 1.0,
+                feasible: true,
+            },
+        ];
+        let svg = scatter_chart(&background, &[], "x", "y", 300.0, 200.0);
+        assert_eq!(count(&svg, "[infeasible]"), 1);
+        assert!(svg.contains("trial #0 (1, 2) [infeasible]"));
+        assert!(svg.contains("trial #1 (2, 1)</title>"));
     }
 
     // ---------------- hbar_chart ----------------

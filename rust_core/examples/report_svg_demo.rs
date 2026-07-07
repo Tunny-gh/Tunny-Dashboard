@@ -63,6 +63,7 @@ fn pareto_data() -> (Vec<ScatterPoint>, Vec<ScatterPoint>) {
             trial_number: i,
             x,
             y,
+            feasible: true,
         });
     }
     // 非劣解フロント: x が大きいほど y が小さくなる単調な12点。
@@ -73,6 +74,7 @@ fn pareto_data() -> (Vec<ScatterPoint>, Vec<ScatterPoint>) {
             trial_number: 1000 + i,
             x: t * 9.5 + 0.2,
             y: (1.0 - t).powf(1.3) * 9.5 + 0.1,
+            feasible: true,
         });
     }
     (background, front)

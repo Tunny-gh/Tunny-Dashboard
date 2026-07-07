@@ -436,7 +436,9 @@ fn markdown_contains_all_sections_for_full_study() {
     let report = build_study_report(&meta_single(), &df_single(), None, &source(), &opts());
     let md = render_markdown(&report, ReportLang::En);
     for heading in [
-        "# Optimization Report: single_study",
+        // スタディ名の `_` は Markdown 強調と誤解釈されないよう `\_` に
+        // エスケープされる（描画時は `_` として表示される）。
+        "# Optimization Report: single\\_study",
         "## Key Findings",
         "## Outcome",
         "## Convergence",

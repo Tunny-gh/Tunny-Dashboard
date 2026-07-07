@@ -86,6 +86,14 @@ pub fn format_number(value: f64) -> String {
     format_sig(value, 4)
 }
 
+/// パーセント値の整形（整数丸め）。
+///
+/// Markdown / HTML / Key Finding テンプレートの3箇所で同一規則を共有する
+/// （以前はレンダラごとに同一実装が重複していた）。
+pub(crate) fn pct(x: f64) -> String {
+    format!("{x:.0}")
+}
+
 fn format_sig(value: f64, sig: usize) -> String {
     if value.is_nan() {
         return "NaN".to_string();

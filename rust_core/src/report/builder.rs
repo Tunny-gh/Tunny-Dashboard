@@ -18,7 +18,8 @@ use crate::data::extras::{StudyExtras, TrialState};
 use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
 use crate::mcdm::{promethee, topsis, vikor};
 use crate::multi_objective::pareto::{compute_hv_history_from_data, nd_sort};
-use crate::statistics::{compute_histogram, quantile, BinRule};
+use crate::statistics::histogram::sturges_bins;
+use crate::statistics::{compute_histogram, quantile, BinRule, CorrelationMethod};
 
 use super::findings::{self, FindingInputs};
 use super::model::*;
@@ -273,19 +274,11 @@ pub fn build_study_report(
 // 共通ヘルパー
 // =============================================================================
 
-/// 2 系列のペアワイズ Spearman（両側有限の行のみ使用）。
+/// 2 系列のペアワイズ Spearman（両側有限の行のみ使用、2 行未満は NaN）。
+///
+/// 実装は `statistics::correlation` の共有ヘルパへ委譲する（重複実装の解消）。
 fn spearman_pairwise(x: &[f64], y: &[f64]) -> f64 {
-    let n = x.len().min(y.len());
-    let (fx, fy): (Vec<f64>, Vec<f64>) = x[..n]
-        .iter()
-        .zip(&y[..n])
-        .filter(|&(&a, &b)| a.is_finite() && b.is_finite())
-        .map(|(&a, &b)| (a, b))
-        .unzip();
-    if fx.len() < 2 {
-        return f64::NAN;
-    }
-    crate::math::stats::spearman_correlation(&fx, &fy)
+    crate::statistics::correlation::pairwise_correlation(x, y, CorrelationMethod::Spearman)
 }
 
 /// 系列を最大 `max` 点へ均等間引き（先頭・末尾を保持）。
@@ -599,61 +592,17 @@ fn build_outcome_multi(
     m: usize,
     opts: &ReportOptions,
 ) -> (Outcome, Option<McdmSection>) {
-    // 目的ごとの極値。
-    let mut per_objective_extremes = Vec::with_capacity(m);
-    for j in 0..m {
-        let minimize = is_minimize[j];
-        let mut best_v = if minimize {
-            f64::INFINITY
-        } else {
-            f64::NEG_INFINITY
-        };
-        let mut worst_v = if minimize {
-            f64::NEG_INFINITY
-        } else {
-            f64::INFINITY
-        };
-        let mut best_row: Option<usize> = None;
-        for row in 0..objectives.len() {
-            if !valid_row[row] {
-                continue;
-            }
-            let v = objectives[row][j];
-            let is_best = if minimize { v < best_v } else { v > best_v };
-            if best_row.is_none() || is_best {
-                best_v = v;
-                best_row = Some(row);
-            }
-            let is_worst = if minimize { v > worst_v } else { v < worst_v };
-            if is_worst {
-                worst_v = v;
-            }
-        }
-        if let Some(br) = best_row {
-            per_objective_extremes.push(ObjectiveExtreme {
-                objective_index: j,
-                objective_name: meta.objective_names[j].clone(),
-                direction: directions[j],
-                best_value: best_v,
-                best_trial_number: trial_numbers[br],
-                best_feasible: df.feasibility().is_feasible(br),
-                worst_value: worst_v,
-            });
-        }
-    }
-
-    // 散布図（全 COMPLETE、先頭2目的軸）。
-    let feas = df.feasibility();
-    let scatter: Vec<ParetoPoint> = (0..objectives.len())
-        .filter(|&r| valid_row[r])
-        .map(|r| ParetoPoint {
-            trial_number: trial_numbers[r],
-            x: objectives[r][0],
-            y: if m >= 2 { objectives[r][1] } else { f64::NAN },
-            on_front: on_front[r],
-            feasible: feas.is_feasible(r),
-        })
-        .collect();
+    let per_objective_extremes = build_objective_extremes(
+        df,
+        meta,
+        objectives,
+        trial_numbers,
+        valid_row,
+        directions,
+        is_minimize,
+        m,
+    );
+    let scatter = build_scatter_points(df, objectives, trial_numbers, valid_row, on_front, m);
 
     // MCDM 入力（等重み、パレート前面部分集合）。front が空なら計算不要。
     let mcdm_values: Option<(Vec<f64>, usize, Vec<f64>)> = if front_rows.is_empty() || m == 0 {
@@ -693,10 +642,116 @@ fn build_outcome_multi(
         }
     };
 
-    // pareto_table は front 行全体を TOPSIS ランキングで並べ直す
-    // （ランキング未計算なら front 行順）。top_n*2 で cap。
+    let pareto_table = build_pareto_table(df, meta, front_rows, front_topsis.as_ref(), opts);
+
+    // フォールバック注記用の違反件数は cap 前の front 全体から数える
+    // （cap 済み pareto_table から数えると top_n*2 で頭打ちになり過少表示）。
+    let feas = df.feasibility();
+    let pareto_infeasible_count = front_rows.iter().filter(|&&r| !feas.is_feasible(r)).count();
+
+    let outcome = Outcome::MultiObj {
+        pareto_size: front_rows.len(),
+        complete_count: valid_count,
+        objective_count: m,
+        per_objective_extremes,
+        pareto_table,
+        pareto_infeasible_count,
+        scatter,
+        scatter_axes: (0, 1),
+    };
+
+    (outcome, mcdm)
+}
+
+/// 目的ごとの極値（方向に沿った最良・最悪と、最良 trial の feasibility）を
+/// 全 COMPLETE trial から組み立てる。
+#[allow(clippy::too_many_arguments)]
+fn build_objective_extremes(
+    df: &DataFrame,
+    meta: &StudyMeta,
+    objectives: &[Vec<f64>],
+    trial_numbers: &[u32],
+    valid_row: &[bool],
+    directions: &[Direction],
+    is_minimize: &[bool],
+    m: usize,
+) -> Vec<ObjectiveExtreme> {
+    let mut per_objective_extremes = Vec::with_capacity(m);
+    for j in 0..m {
+        let minimize = is_minimize[j];
+        let mut best_v = if minimize {
+            f64::INFINITY
+        } else {
+            f64::NEG_INFINITY
+        };
+        let mut worst_v = if minimize {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+        let mut best_row: Option<usize> = None;
+        for row in 0..objectives.len() {
+            if !valid_row[row] {
+                continue;
+            }
+            let v = objectives[row][j];
+            let is_best = if minimize { v < best_v } else { v > best_v };
+            if best_row.is_none() || is_best {
+                best_v = v;
+                best_row = Some(row);
+            }
+            let is_worst = if minimize { v > worst_v } else { v < worst_v };
+            if is_worst {
+                worst_v = v;
+            }
+        }
+        if let Some(br) = best_row {
+            per_objective_extremes.push(ObjectiveExtreme {
+                objective_name: meta.objective_names[j].clone(),
+                direction: directions[j],
+                best_value: best_v,
+                best_trial_number: trial_numbers[br],
+                best_feasible: df.feasibility().is_feasible(br),
+                worst_value: worst_v,
+            });
+        }
+    }
+    per_objective_extremes
+}
+
+/// 散布図点（全 COMPLETE、先頭2目的軸、front / feasible 判定付き）を組み立てる。
+fn build_scatter_points(
+    df: &DataFrame,
+    objectives: &[Vec<f64>],
+    trial_numbers: &[u32],
+    valid_row: &[bool],
+    on_front: &[bool],
+    m: usize,
+) -> Vec<ParetoPoint> {
+    let feas = df.feasibility();
+    (0..objectives.len())
+        .filter(|&r| valid_row[r])
+        .map(|r| ParetoPoint {
+            trial_number: trial_numbers[r],
+            x: objectives[r][0],
+            y: if m >= 2 { objectives[r][1] } else { f64::NAN },
+            on_front: on_front[r],
+            feasible: feas.is_feasible(r),
+        })
+        .collect()
+}
+
+/// パレート表（TOPSIS 順、ランキング未計算なら front 行順、`top_n*2` で cap、
+/// 重複解マーク付き）を組み立てる。
+fn build_pareto_table(
+    df: &DataFrame,
+    meta: &StudyMeta,
+    front_rows: &[usize],
+    front_topsis: Option<&topsis::TopsisResult>,
+    opts: &ReportOptions,
+) -> Vec<TrialSummary> {
     let cap = opts.top_n.saturating_mul(2);
-    let pareto_table_rows: Vec<usize> = match &front_topsis {
+    let pareto_table_rows: Vec<usize> = match front_topsis {
         Some(ts) => ts
             .ranked_indices
             .iter()
@@ -710,18 +765,7 @@ fn build_outcome_multi(
         .map(|&r| build_trial_summary(df, meta, r))
         .collect();
     mark_duplicate_objectives(&mut pareto_table);
-
-    let outcome = Outcome::MultiObj {
-        pareto_size: front_rows.len(),
-        complete_count: valid_count,
-        objective_count: m,
-        per_objective_extremes,
-        pareto_table,
-        scatter,
-        scatter_axes: (0, 1),
-    };
-
-    (outcome, mcdm)
+    pareto_table
 }
 
 /// 同一目的値ベクトルの trial を初出（最小 trial 番号）でマークする。
@@ -962,10 +1006,6 @@ fn build_objective_stats(
             }
         })
         .collect()
-}
-
-fn sturges_bins(n: usize) -> usize {
-    ((n as f64).log2().ceil() as usize).saturating_add(1)
 }
 
 // =============================================================================
