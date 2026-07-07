@@ -1,7 +1,6 @@
-//! Module documentation.
+//! DataFrame の行を数値レンジ条件で絞り込むフィルタ。
 //!
-//! Module documentation.
-//! Module documentation.
+//! 列ごとのレンジ (min/max) を AND 条件として適用し、通過した行のインデックスを返す。
 //!
 //! Reference: docs/implements/TASK-103/filter-requirements.md
 
@@ -11,7 +10,7 @@ use std::collections::HashMap;
 // Documentation.
 // =============================================================================
 
-/// Documentation.
+/// 数値列を絞り込む範囲（下限・上限、いずれも省略可）。
 #[derive(Debug, Clone)]
 pub struct Range {
     pub min: Option<f64>,
@@ -79,7 +78,7 @@ mod tests {
     // Documentation.
     // -------------------------------------------------------------------------
 
-    /// Documentation.
+    /// テスト用の `TrialRow` を組み立てるヘルパー。
     fn make_row(trial_id: u32, params: &[(&str, f64)], obj: Vec<f64>) -> TrialRow {
         TrialRow {
             trial_id,
@@ -93,7 +92,7 @@ mod tests {
         }
     }
 
-    /// Documentation.
+    /// テスト用の `DataFrame` を構築し、アクティブ Study として登録するヘルパー。
     fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
         let param_names: Vec<String> = params.iter().map(|s| s.to_string()).collect();
         let obj_names: Vec<String> = objs.iter().map(|s| s.to_string()).collect();

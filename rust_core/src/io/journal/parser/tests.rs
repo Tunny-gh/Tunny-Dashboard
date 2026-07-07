@@ -225,16 +225,16 @@ fn streaming_objective_names_prefer_metric_names_over_derived() {
 }
 
 #[test]
-fn quick_extract_u32_basic() {
+fn line_u32_field_basic() {
     assert_eq!(
-        quick_extract_u32(r#"{"op_code":4,"study_id":2,"x":0}"#, "study_id"),
+        line_u32_field(r#"{"op_code":4,"study_id":2,"x":0}"#, "study_id"),
         Some(2)
     );
     assert_eq!(
-        quick_extract_u32(r#"{"trial_id":  42,"state":1}"#, "trial_id"),
+        line_u32_field(r#"{"trial_id":  42,"state":1}"#, "trial_id"),
         Some(42)
     );
-    assert_eq!(quick_extract_u32(r#"{"no_field":1}"#, "study_id"), None);
+    assert_eq!(line_u32_field(r#"{"no_field":1}"#, "study_id"), None);
 }
 
 fn to_bytes(s: &str) -> Vec<u8> {

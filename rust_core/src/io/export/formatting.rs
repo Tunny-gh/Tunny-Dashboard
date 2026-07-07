@@ -1,14 +1,10 @@
-/// Documentation.
+/// CSV のフィールド区切り文字。
 pub(super) const CSV_DELIMITER: char = ',';
 
-/// Documentation.
+/// クオートが必要になる文字（区切り文字・改行・ダブルクオート）。
 pub(super) const NEEDS_QUOTING_CHARS: [char; 3] = [',', '\n', '"'];
 
-/// Documentation.
-///
-/// Documentation.
-/// Documentation.
-/// Documentation.
+/// 構造クオート（カンマ・改行・ダブルクオートを含む場合のみ `"` で囲み、内部の `"` は `""` にエスケープ）を適用する。
 pub(super) fn escape_csv_field(s: &str) -> String {
     if s.chars().any(|c| NEEDS_QUOTING_CHARS.contains(&c)) {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -31,12 +27,8 @@ pub(super) fn sanitize_csv_text(s: &str) -> String {
     }
 }
 
-/// Documentation.
-///
-/// Design:
-/// Documentation.
-/// Documentation.
-/// Documentation.
+/// f64 を CSV 出力用の文字列に整形する。整数値は小数点なし、非有限値（NaN/inf）は空欄、
+/// それ以外は小数点以下10桁で丸めた上で末尾の余分な0を除去する。
 pub(super) fn format_f64(v: f64) -> String {
     if v.is_nan() || v.is_infinite() {
         return String::new();

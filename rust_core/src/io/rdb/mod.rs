@@ -33,8 +33,10 @@ use self::url::check_tls_precondition;
 /// `RdbUrl` の種別に応じて対応するバックエンドへ接続する。
 ///
 /// 両バックエンドとも現状 TLS 未対応（`NoTls` 固定）のため、接続前に
-/// `check_tls_precondition` で `sslmode`/`ssl-mode` が暗号化を要求していないか
-/// フェイルクローズで確認する（詳細は `url::check_tls_precondition` を参照）。
+/// `check_tls_precondition` で平文接続の可否を確認する: `sslmode`/`ssl-mode` が
+/// 暗号化を要求していればエラー（フェイルクローズ）、非ローカルホストへの平文接続は
+/// `sslmode=disable` の明示（opt-in）が無ければエラー、ループバックホストは無指定でも
+/// 許可する（詳細は `url::check_tls_precondition` を参照）。
 fn connect(url: &RdbUrl) -> Result<Box<dyn OptunaBackend>, String> {
     check_tls_precondition(&url.url)?;
     match url.kind {

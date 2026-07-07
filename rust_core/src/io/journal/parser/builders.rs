@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::types::OptimizationDirection;
 
-/// Documentation.
+/// journal のイベント列から `StudyMeta` を組み立てる途中状態。
 pub(super) struct StudyBuilder {
     pub(super) study_id: u32,
     pub(super) name: String,
@@ -18,7 +18,7 @@ pub(super) struct StudyBuilder {
     pub(super) param_bounds: HashMap<String, (f64, f64)>,
 }
 
-/// Documentation.
+/// journal のイベント列から trial 1 件分のデータを組み立てる途中状態。
 pub(super) struct TrialBuilder {
     pub(super) study_id: u32,
     /// Study 内 0 始まりの trial.number（作成順 = op_code=4 の study 内出現順）。

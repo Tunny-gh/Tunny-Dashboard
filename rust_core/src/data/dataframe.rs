@@ -1,8 +1,7 @@
-//! Module documentation.
+//! Optuna の試行データを保持する DataFrame とそのスナップショット管理。
 //!
-//! Module documentation.
-//! Module documentation.
-//! Module documentation.
+//! 列指向データを保持する `DataFrame`（`model`）、feasibility 判定（`feasibility`）、
+//! Study ごとのスナップショット共有状態（`state`）、行データ型（`types`）で構成する。
 //!
 //! Reference: docs/implements/TASK-102/dataframe-requirements.md
 

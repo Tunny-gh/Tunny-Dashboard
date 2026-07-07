@@ -27,7 +27,7 @@ pub fn parse_naive_datetime(s: &str) -> Option<f64> {
     let (year, month, day) = parse_date(date_part)?;
     let (hour, minute, second, frac) = parse_time(time_part)?;
 
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
         return None;
     }
     if hour > 23 || minute > 59 || second > 60 {
@@ -38,6 +38,27 @@ pub fn parse_naive_datetime(s: &str) -> Option<f64> {
     let whole =
         days * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second);
     Some(whole as f64 + frac)
+}
+
+/// 閏年判定（グレゴリオ暦: 4 の倍数、ただし 100 の倍数は除き 400 の倍数は含む）。
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+/// 指定年月の日数（month は 1..=12 前提。範囲外は 0 を返し呼び出し側の検証で弾かれる）。
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 0,
+    }
 }
 
 /// `YYYY-MM-DD` を (year, month, day) へ分解する。
@@ -148,6 +169,30 @@ mod tests {
         assert_eq!(parse_naive_datetime("2024-01-01T25:00:00"), None);
         assert_eq!(parse_naive_datetime("2024-01-01T00:00:00."), None);
         assert_eq!(parse_naive_datetime("2024-01-01T00:00:xx"), None);
+    }
+
+    #[test]
+    fn rejects_invalid_day_for_month() {
+        // 月別日数を超える日は不正（従来は 1..=31 の一律チェックで 2/31 を受理していた）。
+        assert_eq!(parse_naive_datetime("2024-02-31T00:00:00"), None);
+        assert_eq!(parse_naive_datetime("2024-04-31T00:00:00"), None);
+        assert_eq!(parse_naive_datetime("2024-06-31T00:00:00"), None);
+        assert_eq!(parse_naive_datetime("2024-01-32T00:00:00"), None);
+        assert_eq!(parse_naive_datetime("2024-01-00T00:00:00"), None);
+    }
+
+    #[test]
+    fn leap_day_rules() {
+        // 2024 は閏年（4 の倍数）→ 2/29 は有効。
+        assert!(parse_naive_datetime("2024-02-29T00:00:00").is_some());
+        // 2023 は平年 → 2/29 は不正。
+        assert_eq!(parse_naive_datetime("2023-02-29T00:00:00"), None);
+        // 1900 は 100 の倍数（400 の倍数でない）→ 平年。
+        assert_eq!(parse_naive_datetime("1900-02-29T00:00:00"), None);
+        // 2000 は 400 の倍数 → 閏年。
+        assert!(parse_naive_datetime("2000-02-29T00:00:00").is_some());
+        // 平年の 2/28 は有効。
+        assert!(parse_naive_datetime("2023-02-28T00:00:00").is_some());
     }
 
     #[test]

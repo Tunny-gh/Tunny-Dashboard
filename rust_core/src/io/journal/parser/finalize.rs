@@ -7,9 +7,17 @@ use super::builders::TrialBuilder;
 use super::state::ParserState;
 use super::types::StudyMeta;
 
-pub(super) fn finalize_state(
-    state: ParserState,
-) -> (Vec<StudyMeta>, Vec<DataFrame>, Vec<StudyExtras>) {
+/// `finalize_state` が返す 1 study 分の確定データ。
+///
+/// 以前は `(Vec<StudyMeta>, Vec<DataFrame>, Vec<StudyExtras>)` の並行 3 Vec を返していたが、
+/// 呼び出し側の `nth(pos).unwrap()` 連発を避けるため study 単位の struct にまとめる。
+pub(super) struct FinalizedStudy {
+    pub(super) meta: StudyMeta,
+    pub(super) dataframe: DataFrame,
+    pub(super) extras: StudyExtras,
+}
+
+pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
     let ParserState {
         mut studies,
         trial_builders,
@@ -89,9 +97,7 @@ pub(super) fn finalize_state(
         });
     }
 
-    let mut study_metas = Vec::with_capacity(n_studies);
-    let mut dataframes = Vec::with_capacity(n_studies);
-    let mut extras: Vec<StudyExtras> = Vec::with_capacity(n_studies);
+    let mut finalized: Vec<FinalizedStudy> = Vec::with_capacity(n_studies);
 
     for (index, builder) in studies.into_iter().enumerate() {
         let mut param_names: Vec<String> = builder.param_names.into_iter().collect();
@@ -100,7 +106,7 @@ pub(super) fn finalize_state(
         user_attr_names.sort();
         let objective_names = builder.objective_names;
 
-        study_metas.push(StudyMeta {
+        let meta = StudyMeta {
             study_id: builder.study_id,
             name: builder.name,
             directions: builder.directions,
@@ -111,7 +117,7 @@ pub(super) fn finalize_state(
             user_attr_names,
             has_constraints: builder.has_constraints,
             param_bounds: builder.param_bounds,
-        });
+        };
 
         let mut unn: Vec<String> = std::mem::take(&mut per_study_unn[index])
             .into_iter()
@@ -125,20 +131,24 @@ pub(super) fn finalize_state(
         // ピーク削減: 各 study の行 Vec を take して DataFrame 構築後に即解放する。
         // take で所有権を移動させることで、全 study 行が同時メモリ上に残らない。
         let study_rows = std::mem::take(&mut per_study_rows[index]);
-        dataframes.push(DataFrame::from_trials(
+        let dataframe = DataFrame::from_trials(
             &study_rows,
             &param_names,
             &objective_names,
             &unn,
             &usn,
             per_study_max_c[index],
-        ));
+        );
         // study_rows はここでドロップされ、この study の中間行データが解放される
 
-        extras.push(StudyExtras {
-            trials: std::mem::take(&mut per_study_extras[index]),
+        finalized.push(FinalizedStudy {
+            meta,
+            dataframe,
+            extras: StudyExtras {
+                trials: std::mem::take(&mut per_study_extras[index]),
+            },
         });
     }
 
-    (study_metas, dataframes, extras)
+    finalized
 }

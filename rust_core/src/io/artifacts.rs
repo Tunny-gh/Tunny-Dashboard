@@ -158,7 +158,13 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
         return map;
     };
     let reader = std::io::BufReader::new(file);
-    for line in reader.lines().map_while(Result::ok) {
+    for line in reader.lines() {
+        // 非 UTF-8 等で読めない行はその行のみスキップして走査を継続する
+        // （`map_while(Result::ok)` は最初の不正行で走査全体を打ち切り、
+        // 以降のメタデータを黙って取りこぼすため使わない）。
+        let Ok(line) = line else {
+            continue;
+        };
         // `artifacts:` を含まない行は JSON パースを省略する（大きな Journal 対策）。
         if !line.contains("artifacts:") {
             continue;

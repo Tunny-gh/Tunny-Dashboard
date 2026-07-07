@@ -1,11 +1,11 @@
-/// Documentation.
+/// 最適化の方向（最小化 / 最大化）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OptimizationDirection {
     Minimize,
     Maximize,
 }
 
-/// Documentation.
+/// Study のメタ情報（パラメータ・目的・attribute の名前一覧や試行数など）。
 #[derive(Debug, Clone)]
 pub struct StudyMeta {
     pub study_id: u32,
@@ -22,7 +22,7 @@ pub struct StudyMeta {
     pub param_bounds: std::collections::HashMap<String, (f64, f64)>,
 }
 
-/// Documentation.
+/// journal ファイルのパース結果（全 Study のメタ情報と所要時間）。
 #[derive(Debug)]
 pub struct ParseResult {
     pub studies: Vec<StudyMeta>,
