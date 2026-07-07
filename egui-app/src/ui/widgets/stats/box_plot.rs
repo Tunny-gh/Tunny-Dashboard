@@ -1,6 +1,7 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
+use crate::ui::widgets::common::range_math::value_range;
 use tunny_core::statistics::{compute_boxplot, BoxPlotStats};
 
 /// 箱ひげ図の対象列グループ。
@@ -171,8 +172,8 @@ pub(crate) fn normalize_minmax(values: &[f64]) -> Vec<f64> {
     if finite.is_empty() {
         return values.to_vec();
     }
-    let min = finite.iter().copied().fold(f64::INFINITY, f64::min);
-    let max = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    // `finite` は空でないことを直前で確認済み。
+    let (min, max) = value_range(finite.iter().copied()).unwrap();
     values
         .iter()
         .map(|&v| {

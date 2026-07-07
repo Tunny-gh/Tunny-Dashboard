@@ -187,77 +187,46 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                     StudyCommand::LoadComparisonStudy { meta, tx } => {
                         let study_id = meta.study_id;
                         // DataFrame を確保する: 既にストアにあればそのまま、
-                        // 未ロードならキャッシュ済みバイト列から該当 Study のみパースする。
-                        let df = match tunny_core::dataframe::snapshot(study_id) {
-                            Some(df) => Some(df),
-                            None => match state.journal_data.as_ref() {
-                                Some(data) => {
-                                    match tunny_core::io::journal::parser::parse_single_study(
-                                        data, study_id,
-                                    ) {
-                                        Ok((_full_meta, df, extras)) => {
-                                            let arc = Arc::new(df);
-                                            tunny_core::dataframe::swap_snapshot(
-                                                study_id,
-                                                arc.clone(),
-                                            );
-                                            tunny_core::dataframe::store_extras_for(
-                                                study_id, extras,
-                                            );
-                                            state.loaded_study_ids.insert(study_id);
-                                            Some(arc)
-                                        }
-                                        Err(_) => None,
-                                    }
+                        // 未ロードならキャッシュ済みストレージから該当 Study のみパースする。
+                        // 旧実装はパース失敗を `Err(_) => None` で握り潰していたため、原因
+                        // （破損データ・DB エラー等）がユーザーに伝わらなかった。ここでは
+                        // 実エラー文字列を保持し `ComparisonStudyLoadFailed` に載せて返す。
+                        let df: Result<Arc<DataFrame>, String> =
+                            match tunny_core::dataframe::snapshot(study_id) {
+                                Some(df) => Ok(df),
+                                None => {
+                                    // ストレージ種別ごとに「パース部」だけを実行し、結果を
+                                    // `Result<(DataFrame, StudyExtras), String>` に正規化する。
+                                    // 3 種で共通の「ストア登録」処理はパース成功後に一括で行う
+                                    // （旧実装で 3 回コピペされていた 8 行ブロックを 1 箇所へ集約）。
+                                    let parsed = if let Some(data) = state.journal_data.as_ref() {
+                                        tunny_core::io::journal::parser::parse_single_study(
+                                            data, study_id,
+                                        )
+                                        .map(|(_full_meta, df, extras)| (df, extras))
+                                    } else if let Some(path) = state.sqlite_path.as_ref() {
+                                        tunny_core::sqlite::parse_single_study(path, study_id)
+                                            .map(|(_full_meta, df, extras)| (df, extras))
+                                    } else if let Some(url) = state.rdb_url.as_ref() {
+                                        tunny_core::rdb::parse_single_study_url(url, study_id)
+                                            .map(|(_full_meta, df, extras)| (df, extras))
+                                    } else {
+                                        Err("No storage is currently open.".to_string())
+                                    };
+                                    // パース成功時のみ共通のストア登録を行い Arc を得る。
+                                    parsed.map(|(df, extras)| {
+                                        let arc = Arc::new(df);
+                                        tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
+                                        tunny_core::dataframe::store_extras_for(study_id, extras);
+                                        state.loaded_study_ids.insert(study_id);
+                                        arc
+                                    })
                                 }
-                                None => match state.sqlite_path.as_ref() {
-                                    Some(path) => {
-                                        match tunny_core::sqlite::parse_single_study(path, study_id)
-                                        {
-                                            Ok((_full_meta, df, extras)) => {
-                                                let arc = Arc::new(df);
-                                                tunny_core::dataframe::swap_snapshot(
-                                                    study_id,
-                                                    arc.clone(),
-                                                );
-                                                tunny_core::dataframe::store_extras_for(
-                                                    study_id, extras,
-                                                );
-                                                state.loaded_study_ids.insert(study_id);
-                                                Some(arc)
-                                            }
-                                            Err(_) => None,
-                                        }
-                                    }
-                                    None => match state.rdb_url.as_ref() {
-                                        Some(url) => {
-                                            match tunny_core::rdb::parse_single_study_url(
-                                                url, study_id,
-                                            ) {
-                                                Ok((_full_meta, df, extras)) => {
-                                                    let arc = Arc::new(df);
-                                                    tunny_core::dataframe::swap_snapshot(
-                                                        study_id,
-                                                        arc.clone(),
-                                                    );
-                                                    tunny_core::dataframe::store_extras_for(
-                                                        study_id, extras,
-                                                    );
-                                                    state.loaded_study_ids.insert(study_id);
-                                                    Some(arc)
-                                                }
-                                                Err(_) => None,
-                                            }
-                                        }
-                                        None => None,
-                                    },
-                                },
-                            },
-                        };
+                            };
                         let msg = match df {
-                            Some(df) => build_comparison_loaded(meta, &df),
-                            None => AppMessage::ComparisonStudyLoadFailed(format!(
-                                "Failed to load study '{}' from the current journal.",
+                            Ok(df) => build_comparison_loaded(meta, &df),
+                            Err(detail) => AppMessage::ComparisonStudyLoadFailed(format!(
+                                "Failed to load study '{}' from the current storage: {detail}",
                                 meta.name
                             )),
                         };

@@ -82,17 +82,7 @@ fn feature_names(
 /// view から距離行列を組み立てる。指定した全特徴が有限な行のみ採用する
 /// （800 行超のサブサンプルは `ward_linkage` 内部が担う）。
 fn build_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
-    let Some(cols): Option<Vec<&[f64]>> = features.iter().map(|f| view.numeric_column(f)).collect()
-    else {
-        return Vec::new();
-    };
-    (0..view.row_count())
-        .filter_map(|r| {
-            cols.iter()
-                .map(|c| c.get(r).copied().filter(|v| v.is_finite()))
-                .collect::<Option<Vec<f64>>>()
-        })
-        .collect()
+    super::feature_matrix(view, features)
 }
 
 /// カット閾値（`merges[cutoff-1].distance` と `merges[cutoff].distance` の中点、
@@ -222,13 +212,7 @@ impl DendrogramChart {
         let threshold = cut_threshold(&result.merges, n, k);
 
         let cmap = ColorMap::turbo();
-        let cluster_color = |label: usize| -> egui::Color32 {
-            if k <= 1 {
-                cmap.interpolate(0.5)
-            } else {
-                cmap.interpolate(label as f32 / (k - 1) as f32)
-            }
-        };
+        let cluster_color = |label: usize| -> egui::Color32 { cmap.sample_categorical(label, k) };
         const ABOVE_CUT_COLOR: egui::Color32 = egui::Color32::from_gray(140);
 
         // サブサンプル時は下にキャプション行が続くため、その高さぶんを

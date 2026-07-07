@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyView};
 use crate::theme::colormap::ColorMap;
+use crate::ui::widgets::common::heatmap::draw_gradient_bar;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    axis_row, fmt_opt, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
 /// Rank Plot ウィジェット
@@ -58,7 +59,8 @@ struct RankPlotCache {
 
 /// カラーマップの内容を安価な u64 フィンガープリントに畳み込む（FNV-1a 風）。
 /// 停止点数は少数（数点）のため、毎フレーム計算してもヒープ確保なしで軽量。
-fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
+/// 散布図行列・PCA バイプロットのキャッシュキーでも共有する。
+pub(super) fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325 ^ (cmap.stops.len() as u64);
     for &(t, color) in &cmap.stops {
         let packed = u32::from(color.r())
@@ -224,15 +226,7 @@ impl RankPlotChart {
 
             plot.show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
-                let resp = plot_ui.response();
-                if resp.clicked_by(egui::PointerButton::Primary) {
-                    clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
-                        hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD)
-                    });
-                }
-                if let Some(pos) = resp.hover_pos() {
-                    hovered_detail = hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD);
-                }
+                (clicked_detail, hovered_detail) = resolve_click_hover(plot_ui, hit_candidates);
                 for (key, pts) in color_groups {
                     let color =
                         egui::Color32::from_rgba_unmultiplied(key[0], key[1], key[2], key[3]);
@@ -257,34 +251,23 @@ impl RankPlotChart {
         // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
-            let x_val = view
-                .numeric_column(&x_name)
-                .and_then(|c| c.get(row).copied());
-            let y_val = view
-                .numeric_column(&y_name)
-                .and_then(|c| c.get(row).copied());
-            let obj_val = view
-                .numeric_column(&obj_name)
-                .and_then(|c| c.get(row).copied());
-            let rank_val = ranks.get(row).copied();
             let rows = vec![
-                (x_name.clone(), fmt(x_val)),
-                (y_name.clone(), fmt(y_val)),
-                (obj_name.clone(), fmt(obj_val)),
-                ("Rank Percentile".to_string(), fmt(rank_val)),
+                axis_row(&x_name, view.numeric_column(&x_name), row),
+                axis_row(&y_name, view.numeric_column(&y_name), row),
+                axis_row(&obj_name, view.numeric_column(&obj_name), row),
+                (
+                    "Rank Percentile".to_string(),
+                    fmt_opt(ranks.get(row).copied()),
+                ),
             ];
             show_hover_tooltip(ui, "rank_plot_hover_tooltip", trial_number, &rows);
         }
 
         // 点クリックでトライアル詳細モーダルを開く（散布図共有・アーティファクト付き）。
         if let Some((trial_id, row)) = clicked_detail {
-            let rank_val = ranks.get(row).copied();
             let context = vec![(
                 "Rank Percentile".to_string(),
-                rank_val
-                    .map(|r| format!("{r:.4}"))
-                    .unwrap_or_else(|| "—".to_string()),
+                fmt_opt(ranks.get(row).copied()),
             )];
             self.detail_modal.open(TrialDetailTarget {
                 trial_id,
@@ -330,22 +313,13 @@ fn collect_rank_points(
 
 /// ランクパーセンタイルの凡例（縦グラデーションバー + Best/Worst ラベル）を描画する。
 ///
-/// `common::heatmap::draw_colorbar_simple` と同じグラデーション描画方式に倣うが、
-/// ランクは値そのものではなく相対順位（0=最良〜1=最悪）であるため、数値目盛の
-/// 代わりに Best / Worst ラベルを使う方が直感的と判断し、専用の簡易版を用意した。
+/// バー本体は `common::heatmap::draw_gradient_bar` を共有する（D-10）。ランクは値
+/// そのものではなく相対順位（0=最良〜1=最悪）であるため、数値目盛の代わりに
+/// Best / Worst ラベルを使う方が直感的と判断し、ラベル部分のみ専用実装とした。
 fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     let painter = ui.painter();
-    let n_steps = 32;
-    let step_h = bar_rect.height() / n_steps as f32;
-    for i in 0..n_steps {
-        // i=0 がバー上端（Worst=1.0 の色）、末尾が下端（Best=0.0 の色）。
-        let t = 1.0 - (i as f32 / (n_steps - 1).max(1) as f32);
-        let step_rect = egui::Rect::from_min_size(
-            egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
-            egui::vec2(bar_rect.width(), step_h + 1.0),
-        );
-        painter.rect_filled(step_rect, 0.0, cmap.interpolate(t));
-    }
+    // i=0 がバー上端（Worst=1.0 の色）、末尾が下端（Best=0.0 の色）。
+    draw_gradient_bar(painter, bar_rect, cmap, 32);
     painter.rect_stroke(
         bar_rect,
         0.0,

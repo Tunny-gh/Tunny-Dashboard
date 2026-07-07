@@ -1,13 +1,17 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use crate::state::app_state::AppState;
 use crate::state::messages::SurrogateMultiOptUiResult;
 use crate::theme::chart_colors::{
     COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_PARETO, COLOR_SURROGATE_FRONT,
     COLOR_UNSELECTED_POINT,
 };
-use crate::theme::color_compute::compute_point_alpha;
+use crate::theme::color_compute::point_alpha_in_set;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    axis_row, hit_test_nearest, push_feasible_row, TrialDetailModal, TrialDetailTarget,
+    HIT_THRESHOLD,
 };
 
 /// 2D Pareto 散布図ウィジェット（egui_plot ベース）
@@ -31,6 +35,25 @@ pub struct ParetoScatter2D {
     pub detail_modal: TrialDetailModal,
     /// サロゲート予測フロント点をオーバーレイ表示するか。
     pub show_surrogate_front: bool,
+    /// 列抽出済みの点群キャッシュ（選択・ハイライト非依存・M-17）。
+    #[serde(skip)]
+    point_cache: Option<PointCache>,
+}
+
+/// 目的列から抽出済みの点群キャッシュ（選択フィルタ・ハイライトには依存しない）。
+///
+/// 旧実装は毎フレーム全 trial について「列取得 + feasibility 判定 + rank 参照 +
+/// trial_id 参照」を回して点ベクトル群を再構築していた。これらは `view.df` の
+/// 恒等性と軸だけで決まるため、`(df ポインタ, x_idx, y_idx)` をキーに 1 度だけ抽出し、
+/// 選択・ハイライトによる分類は描画時に軽く適用する（M-16 の HashSet を併用）。
+struct PointCache {
+    key: (usize, usize, usize),
+    /// feasible 点: `(trial_id, pareto_rank, [x, y])`。
+    feasible: Vec<(u32, u32, [f64; 2])>,
+    /// infeasible 点の座標（常にグレーで最背面）。
+    infeasible_pts: Vec<[f64; 2]>,
+    /// クリック・ブラシ判定用の全描画点 `(trial_id, 行 index, [x, y])`。
+    displayed_points: Vec<(u32, usize, [f64; 2])>,
 }
 
 impl Default for ParetoScatter2D {
@@ -42,7 +65,72 @@ impl Default for ParetoScatter2D {
             brush_end: None,
             detail_modal: TrialDetailModal::new(),
             show_surrogate_front: true,
+            point_cache: None,
         }
+    }
+}
+
+/// feasibility 分割・pareto_rank・trial_id を行順に展開した分類結果（2D/3D Pareto 共通・D-6）。
+pub(crate) struct ClassifiedRow {
+    pub trial_id: u32,
+    pub row: usize,
+    pub feasible: bool,
+    /// pareto_rank（feasible のときのみ意味を持つ。infeasible では 0）。
+    pub rank: u32,
+}
+
+/// view の全 trial を行順に (trial_id, row, feasible, pareto_rank) へ分類する（D-6）。
+/// 2D/3D Pareto 散布図の feasibility 分割・ランク参照・trial_id 参照を共有する。
+/// 描画（色分け・ハイライト・深度ソート）は各ウィジェット側で行う。
+pub(crate) fn classify_rows(view: &crate::state::types::StudyView) -> Vec<ClassifiedRow> {
+    let n = view.row_count();
+    let feas = view.feasibility();
+    (0..n)
+        .map(|i| {
+            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
+            let feasible = feas.is_feasible(i);
+            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
+            ClassifiedRow {
+                trial_id,
+                row: i,
+                feasible,
+                rank,
+            }
+        })
+        .collect()
+}
+
+/// 目的列から `PointCache` を構築する（選択・ハイライト非依存）。
+fn build_point_cache(
+    view: &crate::state::types::StudyView,
+    x_col: Option<&[f64]>,
+    y_col: Option<&[f64]>,
+    key: (usize, usize, usize),
+) -> PointCache {
+    let n = view.row_count();
+    let coord = |i: usize| {
+        let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+        let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+        [x, y]
+    };
+    let mut feasible: Vec<(u32, u32, [f64; 2])> = Vec::new();
+    let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
+    let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::with_capacity(n);
+    // feasibility 分割・ランク参照は 3D と共有する（D-6）。
+    for r in classify_rows(view) {
+        let pt = coord(r.row);
+        displayed_points.push((r.trial_id, r.row, pt));
+        if !r.feasible {
+            infeasible_pts.push(pt);
+            continue;
+        }
+        feasible.push((r.trial_id, r.rank, pt));
+    }
+    PointCache {
+        key,
+        feasible,
+        infeasible_pts,
+        displayed_points,
     }
 }
 
@@ -138,50 +226,38 @@ impl ParetoScatter2D {
 
         // view の列スライスから直接点群を構築（行クローンキャッシュを持たない・MEM-002）
         let view = &ctx.view;
-        let n = view.row_count();
         let x_col = obj_names
             .get(x_idx)
             .and_then(|name| view.numeric_column(name));
         let y_col = obj_names
             .get(y_idx)
             .and_then(|name| view.numeric_column(name));
+        let feas = view.feasibility();
+
+        // 列抽出・feasibility 判定は df の恒等性と軸だけで決まるため、毎フレームの
+        // 再構築を避けてキャッシュする（M-17）。選択・ハイライトによる分類は下で
+        // 軽く適用する。
+        let cache_key = (Arc::as_ptr(&view.df) as usize, x_idx, y_idx);
+        if self.point_cache.as_ref().map(|c| c.key) != Some(cache_key) {
+            self.point_cache = Some(build_point_cache(view, x_col, y_col, cache_key));
+        }
+        let cache = self.point_cache.as_ref().expect("point cache built above");
 
         // パレートフロント(rank==0)と非パレートに分類。
         // 選択フィルタが有効な場合、選択外は Pareto/非 Pareto を問わず灰色でまとめる
-        // （色相を残すと選択点と紛らわしいため）。
+        // （色相を残すと選択点と紛らわしいため）。選択集合は HashSet を 1 度だけ構築し、
+        // 点ごとの線形走査を避ける（M-16）。
+        let selected_set: HashSet<u32> = selected.iter().copied().collect();
         let mut pareto_pts: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts: Vec<[f64; 2]> = Vec::new();
         let mut unselected_pts: Vec<[f64; 2]> = Vec::new();
-        let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
         let mut highlight_pt: Option<[f64; 2]> = None;
-        // ブラシ矩形選択・点クリック判定用に (trial_id, 行 index, 点) を保持（行クローンを持たない）
-        let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
-
-        let feas = view.feasibility();
-
-        for i in 0..n {
-            let x = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            let y = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            let pt = [x, y];
-            let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-            displayed_points.push((trial_id, i, pt));
-
-            let feasible = feas.is_feasible(i);
-
-            if !feasible {
-                infeasible_pts.push(pt);
-                continue;
-            }
-
-            let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-
+        for &(trial_id, rank, pt) in &cache.feasible {
             if highlighted == Some(trial_id) {
                 highlight_pt = Some(pt);
                 continue;
             }
-
-            let is_selected = compute_point_alpha(trial_id, &selected) == 255;
-            if !is_selected {
+            if point_alpha_in_set(trial_id, &selected_set) != 255 {
                 // 選択外は Pareto/非 Pareto を問わず灰色グループへ
                 unselected_pts.push(pt);
             } else if rank == 0 {
@@ -190,6 +266,9 @@ impl ParetoScatter2D {
                 non_pareto_pts.push(pt);
             }
         }
+        // 実行不可能解・ヒットテスト候補はキャッシュから参照する。
+        let infeasible_pts = &cache.infeasible_pts;
+        let displayed_points = &cache.displayed_points;
 
         // サロゲートフロント点を事前に計算する（クロージャ内で借用衝突を避けるため）。
         let surrogate_pts: Vec<[f64; 2]> = if self.show_surrogate_front {
@@ -254,7 +333,7 @@ impl ParetoScatter2D {
                 if resp.clicked_by(egui::PointerButton::Primary) {
                     // 点の近傍をクリックしたら詳細モーダル、空白なら選択クリア。
                     clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
-                        hit_test_nearest(plot_ui, &displayed_points, pos, HIT_THRESHOLD)
+                        hit_test_nearest(plot_ui, displayed_points, pos, HIT_THRESHOLD)
                     });
                     blank_clicked = clicked_detail.is_none();
                 }
@@ -262,7 +341,7 @@ impl ParetoScatter2D {
                 // ホバー中の点を検出（矩形ブラシ操作中は抑止）。
                 if current_brush_start.is_none() && !resp.dragged_by(egui::PointerButton::Primary) {
                     hovered_detail = resp.hover_pos().and_then(|pos| {
-                        hit_test_nearest(plot_ui, &displayed_points, pos, HIT_THRESHOLD)
+                        hit_test_nearest(plot_ui, displayed_points, pos, HIT_THRESHOLD)
                     });
                 }
 
@@ -271,7 +350,7 @@ impl ParetoScatter2D {
                 // 実行不可能解（最背面: グレーアウト）
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
-                        egui_plot::Points::new("Infeasible", infeasible_pts)
+                        egui_plot::Points::new("Infeasible", infeasible_pts.clone())
                             .color(COLOR_INFEASIBLE())
                             .radius(2.5),
                     );
@@ -342,24 +421,12 @@ impl ParetoScatter2D {
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
             let mut rows = vec![
-                (
-                    self.x_axis.clone(),
-                    fmt(x_col.and_then(|c| c.get(row)).copied()),
-                ),
-                (
-                    self.y_axis.clone(),
-                    fmt(y_col.and_then(|c| c.get(row)).copied()),
-                ),
+                axis_row(&self.x_axis, x_col, row),
+                axis_row(&self.y_axis, y_col, row),
                 ("Pareto Rank".to_string(), rank.to_string()),
             ];
-            if feas.has_constraints() {
-                rows.push((
-                    "Feasible".to_string(),
-                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                ));
-            }
+            push_feasible_row(&mut rows, feas, row);
             crate::ui::widgets::trial_detail_modal::show_hover_tooltip(
                 ui,
                 "pareto2d_hover_tooltip",
@@ -372,14 +439,8 @@ impl ParetoScatter2D {
         // app_state を可変借用する前に view / feas の不変借用を使い切る。
         if let Some((trial_id, row)) = clicked_detail {
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
-            let feasible = feas.is_feasible(row);
             let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
-            if feas.has_constraints() {
-                context.push((
-                    "Feasible".to_string(),
-                    if feasible { "Yes" } else { "No" }.to_string(),
-                ));
-            }
+            push_feasible_row(&mut context, feas, row);
             self.detail_modal.open(TrialDetailTarget {
                 trial_id,
                 row_index: row,

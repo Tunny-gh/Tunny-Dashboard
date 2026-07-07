@@ -55,6 +55,27 @@ pub fn value_range_masked(values: &[Vec<Option<f64>>]) -> (f64, f64) {
     }
 }
 
+/// 縦カラーバー本体（セグメントを `cmap.interpolate` で積み上げた `rect_filled`）を描く（D-10）。
+///
+/// 上端が `t=1.0`、下端が `t=0.0` になるよう `n_steps` 段に分割して塗り分ける。
+/// 外枠・ラベル・目盛りなど呼び出し側固有の装飾はここには含めない。
+pub fn draw_gradient_bar(
+    painter: &egui::Painter,
+    bar_rect: egui::Rect,
+    cmap: &ColorMap,
+    n_steps: usize,
+) {
+    let step_h = bar_rect.height() / n_steps as f32;
+    for i in 0..n_steps {
+        let t = 1.0 - (i as f32 / (n_steps - 1).max(1) as f32);
+        let step_rect = egui::Rect::from_min_size(
+            egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
+            egui::vec2(bar_rect.width(), step_h + 1.0),
+        );
+        painter.rect_filled(step_rect, 0.0, cmap.interpolate(t));
+    }
+}
+
 /// ヒートマップ脇の縦カラーバーを描く。
 ///
 /// バー本体（上 = max / 下 = min）に加え、**数値目盛**（max / 中央 / min）をバー右脇に、
@@ -70,16 +91,7 @@ pub fn draw_colorbar_simple(
     title: Option<&str>,
 ) {
     let painter = ui.painter();
-    let n_steps = 48;
-    let step_h = bar_rect.height() / n_steps as f32;
-    for i in 0..n_steps {
-        let t = 1.0 - (i as f32 / (n_steps - 1).max(1) as f32);
-        let step_rect = egui::Rect::from_min_size(
-            egui::pos2(bar_rect.left(), bar_rect.top() + i as f32 * step_h),
-            egui::vec2(bar_rect.width(), step_h + 1.0),
-        );
-        painter.rect_filled(step_rect, 0.0, cmap.interpolate(t));
-    }
+    draw_gradient_bar(painter, bar_rect, &cmap, 48);
     painter.rect_stroke(
         bar_rect,
         0.0,

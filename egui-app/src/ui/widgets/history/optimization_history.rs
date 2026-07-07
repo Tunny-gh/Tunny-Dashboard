@@ -7,7 +7,7 @@ use crate::theme::chart_colors::{
 };
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
-    hit_test_nearest, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
+    push_feasible_row, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
 /// 比較 Study 1 件分の最適化履歴系列（選択中の目的に対する値列 + 色 + 凡例名）。
@@ -200,17 +200,8 @@ impl OptimizationHistoryChart {
 
         plot.show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
-            // 点クリックでトライアル詳細モーダルを開く（基準 Study の試行のみ）。
-            let resp = plot_ui.response();
-            if resp.clicked_by(egui::PointerButton::Primary) {
-                if let Some(pos) = resp.interact_pointer_pos() {
-                    clicked_detail = hit_test_nearest(plot_ui, base_hit_points, pos, HIT_THRESHOLD);
-                }
-            }
-            // ホバー中の点を検出する（基準 Study の試行のみ）。
-            if let Some(pos) = resp.hover_pos() {
-                hovered_detail = hit_test_nearest(plot_ui, base_hit_points, pos, HIT_THRESHOLD);
-            }
+            // 点クリック・ホバーの対象を検出する（基準 Study の試行のみ）。
+            (clicked_detail, hovered_detail) = resolve_click_hover(plot_ui, base_hit_points);
 
             // All Trials は常に描画（凡例クリックで表示切替可能）。
             if !values.is_empty() {
@@ -300,12 +291,7 @@ impl OptimizationHistoryChart {
             if let (Some(name), Some(v)) = (obj_names.get(self.obj_idx), values.get(row)) {
                 rows.push((name.clone(), format!("{v:.6}")));
             }
-            if feas.has_constraints() {
-                rows.push((
-                    "Feasible".to_string(),
-                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                ));
-            }
+            push_feasible_row(&mut rows, feas, row);
             show_hover_tooltip(ui, "opt_history_hover_tooltip", trial_number, &rows);
         }
 
@@ -316,12 +302,7 @@ impl OptimizationHistoryChart {
             if let (Some(name), Some(v)) = (obj_names.get(self.obj_idx), values.get(row)) {
                 context.push((name.clone(), format!("{v:.6}")));
             }
-            if feas.has_constraints() {
-                context.push((
-                    "Feasible".to_string(),
-                    if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                ));
-            }
+            push_feasible_row(&mut context, feas, row);
             self.detail_modal.open(TrialDetailTarget {
                 trial_id,
                 row_index: row,

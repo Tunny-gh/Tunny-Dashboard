@@ -28,6 +28,21 @@ pub fn value_range<I: IntoIterator<Item = f64>>(vals: I) -> Option<(f64, f64)> {
     any.then_some((mn, mx))
 }
 
+/// 数値イテレータから非有限値（NaN・Inf）を除いた [min, max] を計算する。
+/// 有限値が 1 件も無い（空を含む）場合は `None` を返す。
+/// 退化範囲の扱いは呼び出し側の判断に委ねる（`expand_degenerate` 参照）。
+pub fn finite_value_range<I: IntoIterator<Item = f64>>(vals: I) -> Option<(f64, f64)> {
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for v in vals {
+        if v.is_finite() {
+            mn = mn.min(v);
+            mx = mx.max(v);
+        }
+    }
+    (mn.is_finite() && mx.is_finite()).then_some((mn, mx))
+}
+
 /// 退化範囲（`max - min` がほぼ 0）を ±1 に広げる。それ以外はそのまま返す。
 pub fn expand_degenerate(min: f64, max: f64) -> (f64, f64) {
     if (max - min).abs() < f64::EPSILON {
@@ -83,6 +98,22 @@ mod tests {
         let (mn, mx) = value_range([1.0, f64::INFINITY]).unwrap();
         assert_eq!(mn, 1.0);
         assert!(mx.is_infinite());
+    }
+
+    #[test]
+    fn finite_value_range_ignores_non_finite() {
+        let vals = [1.0, f64::NAN, 5.0, f64::INFINITY, -2.0];
+        assert_eq!(finite_value_range(vals), Some((-2.0, 5.0)));
+    }
+
+    #[test]
+    fn finite_value_range_empty_is_none() {
+        assert_eq!(finite_value_range(std::iter::empty()), None);
+    }
+
+    #[test]
+    fn finite_value_range_all_non_finite_is_none() {
+        assert_eq!(finite_value_range([f64::NAN, f64::INFINITY]), None);
     }
 
     #[test]

@@ -126,6 +126,17 @@ impl ColorMap {
         }
     }
 
+    /// `count` 件のカテゴリのうち `idx` 番目に割り当てる色を、等間隔サンプリングで返す（D-11）。
+    /// `count <= 1` の場合は退化ケースとして中央値（t=0.5）を返す。それ以外は
+    /// `idx / (count - 1)` で `[0, 1]` に均等割り当てる。
+    pub fn sample_categorical(&self, idx: usize, count: usize) -> egui::Color32 {
+        if count <= 1 {
+            self.interpolate(0.5)
+        } else {
+            self.interpolate(idx as f32 / (count - 1) as f32)
+        }
+    }
+
     /// t を [0.0, 1.0] にクランプして停止点間を線形補間する
     pub fn interpolate(&self, t: f32) -> egui::Color32 {
         if self.stops.is_empty() {
@@ -167,6 +178,20 @@ impl ColorMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sample_categorical_single_is_midpoint() {
+        let cmap = ColorMap::viridis();
+        assert_eq!(cmap.sample_categorical(0, 1), cmap.interpolate(0.5));
+    }
+
+    #[test]
+    fn sample_categorical_spans_full_range() {
+        let cmap = ColorMap::viridis();
+        assert_eq!(cmap.sample_categorical(0, 3), cmap.interpolate(0.0));
+        assert_eq!(cmap.sample_categorical(1, 3), cmap.interpolate(0.5));
+        assert_eq!(cmap.sample_categorical(2, 3), cmap.interpolate(1.0));
+    }
 
     #[test]
     fn interpolate_at_zero_returns_first_stop() {

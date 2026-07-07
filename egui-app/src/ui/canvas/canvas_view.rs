@@ -121,15 +121,28 @@ pub fn show_canvas_view(
         let start_x = area.left() - (area.left() - origin.x).rem_euclid(step);
         let start_y = area.top() - (area.top() - origin.y).rem_euclid(step);
         let r = (1.2 * zoom).clamp(0.6, 2.2);
+        let color = crate::theme::CANVAS_DOT();
+        // 数万個の circle_filled はテッセレーション負荷が高いため、可視範囲の点を
+        // 1 枚の Mesh へまとめる（各点を 2 三角形の小さな四角で描画）。
+        let mut mesh = egui::Mesh::default();
         let mut gx = start_x;
         while gx <= area.right() {
             let mut gy = start_y;
             while gy <= area.bottom() {
-                painter.circle_filled(egui::pos2(gx, gy), r, crate::theme::CANVAS_DOT());
+                let idx = mesh.vertices.len() as u32;
+                let rect =
+                    egui::Rect::from_center_size(egui::pos2(gx, gy), egui::vec2(r * 2.0, r * 2.0));
+                mesh.colored_vertex(rect.left_top(), color);
+                mesh.colored_vertex(rect.right_top(), color);
+                mesh.colored_vertex(rect.right_bottom(), color);
+                mesh.colored_vertex(rect.left_bottom(), color);
+                mesh.add_triangle(idx, idx + 1, idx + 2);
+                mesh.add_triangle(idx, idx + 2, idx + 3);
                 gy += step;
             }
             gx += step;
         }
+        painter.add(egui::Shape::mesh(mesh));
     }
 
     // ── アイテム描画（z-order は egui の Area が自動管理） ────────────────

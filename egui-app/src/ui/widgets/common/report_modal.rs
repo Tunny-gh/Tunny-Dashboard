@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use egui::RichText;
 use tunny_core::report::ReportLang;
 
+use crate::ui::widgets::common::modal::ModalScaffold;
+
 /// エクスポート可能なレポート形式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReportFormat {
@@ -97,10 +99,13 @@ impl ReportDialogState {
     }
 }
 
-/// 既定のファイル名（`report_{study_name}.html`）。study 名はファイル名に
-/// 使えない文字を `_` に置換する。
-pub fn default_file_name(study_name: &str) -> String {
-    format!("report_{}.html", sanitize_file_stem(study_name))
+/// 既定のファイル名（`report_{study_name}.{ext}`）。拡張子は選択フォーマットの
+/// 先頭から導出する（`formats` が空なら HTML）。JSON / Markdown のみ選択時に
+/// `.html` を出さないための入口で、OS 保存ダイアログの上書き確認の不変条件を保つ。
+/// study 名はファイル名に使えない文字を `_` に置換する。
+pub fn default_file_name_for(study_name: &str, formats: &[ReportFormat]) -> String {
+    let ext = formats.first().map(|f| f.extension()).unwrap_or("html");
+    format!("report_{}.{}", sanitize_file_stem(study_name), ext)
 }
 
 /// ファイル名として安全な文字（英数字・`-`・`_`）以外を `_` に置換する。
@@ -153,90 +158,92 @@ pub fn show(
     let mut export_clicked = false;
     let mut close_clicked = false;
 
-    let modal = egui::Modal::new(egui::Id::new("report_export_dialog")).show(ctx, |ui| {
-        ui.set_min_width(380.0);
-        ui.heading("Export Report");
-        if let Some(name) = study_name {
-            ui.label(RichText::new(format!("Study: {name}")).color(crate::theme::TEXT_SECONDARY()));
-        }
-        ui.add_space(4.0);
-
-        if let Some(paths) = &state.success_paths {
-            for path in paths {
-                ui.colored_label(
-                    crate::theme::TEXT_SECONDARY(),
-                    format!("Saved: {}", path.display()),
+    let outcome = ModalScaffold::new("report_export_dialog", 380.0)
+        .heading("Export Report")
+        .show(ctx, |ui| {
+            if let Some(name) = study_name {
+                ui.label(
+                    RichText::new(format!("Study: {name}")).color(crate::theme::TEXT_SECONDARY()),
                 );
             }
-            // 保存ダイアログを経由しない兄弟ファイルの上書きを明示する。
-            for path in &state.overwrote_paths {
-                ui.colored_label(
-                    egui::Color32::from_rgb(202, 138, 4), // amber-600
-                    format!("Overwrote existing: {}", path.display()),
-                );
+            ui.add_space(4.0);
+
+            if let Some(paths) = &state.success_paths {
+                for path in paths {
+                    ui.colored_label(
+                        crate::theme::TEXT_SECONDARY(),
+                        format!("Saved: {}", path.display()),
+                    );
+                }
+                // 保存ダイアログを経由しない兄弟ファイルの上書きを明示する。
+                for path in &state.overwrote_paths {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(202, 138, 4), // amber-600
+                        format!("Overwrote existing: {}", path.display()),
+                    );
+                }
+                ui.add_space(8.0);
+                if ui.button("Close").clicked() {
+                    close_clicked = true;
+                }
+                return;
             }
+
+            ui.add_enabled_ui(!state.generating, |ui| {
+                ui.label("Formats:");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut state.html, ReportFormat::Html.label());
+                    ui.checkbox(&mut state.markdown, ReportFormat::Markdown.label());
+                    ui.checkbox(&mut state.json, ReportFormat::Json.label());
+                });
+
+                ui.add_space(4.0);
+                ui.label("Language:");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut state.lang, ReportLang::En, "En");
+                    ui.selectable_value(&mut state.lang, ReportLang::Ja, "Ja");
+                });
+
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label("Top-N:");
+                    ui.add(egui::DragValue::new(&mut state.top_n).range(1..=100));
+                });
+            });
+
+            if state.generating {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Generating report...");
+                });
+            }
+
+            if let Some(err) = &state.error {
+                ui.add_space(4.0);
+                ui.colored_label(crate::theme::ERROR_COLOR(), err);
+            }
+
             ui.add_space(8.0);
-            if ui.button("Close").clicked() {
-                close_clicked = true;
-            }
-            return;
-        }
-
-        ui.add_enabled_ui(!state.generating, |ui| {
-            ui.label("Formats:");
             ui.horizontal(|ui| {
-                ui.checkbox(&mut state.html, ReportFormat::Html.label());
-                ui.checkbox(&mut state.markdown, ReportFormat::Markdown.label());
-                ui.checkbox(&mut state.json, ReportFormat::Json.label());
-            });
-
-            ui.add_space(4.0);
-            ui.label("Language:");
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut state.lang, ReportLang::En, "En");
-                ui.selectable_value(&mut state.lang, ReportLang::Ja, "Ja");
-            });
-
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("Top-N:");
-                ui.add(egui::DragValue::new(&mut state.top_n).range(1..=100));
+                if ui
+                    .add_enabled(!state.generating, egui::Button::new("Export"))
+                    .clicked()
+                {
+                    export_clicked = true;
+                }
+                if ui
+                    .add_enabled(!state.generating, egui::Button::new("Cancel"))
+                    .clicked()
+                {
+                    close_clicked = true;
+                }
             });
         });
-
-        if state.generating {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label("Generating report...");
-            });
-        }
-
-        if let Some(err) = &state.error {
-            ui.add_space(4.0);
-            ui.colored_label(crate::theme::ERROR_COLOR(), err);
-        }
-
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!state.generating, egui::Button::new("Export"))
-                .clicked()
-            {
-                export_clicked = true;
-            }
-            if ui
-                .add_enabled(!state.generating, egui::Button::new("Cancel"))
-                .clicked()
-            {
-                close_clicked = true;
-            }
-        });
-    });
 
     if export_clicked {
         Some(ReportModalAction::Export)
-    } else if close_clicked || (modal.should_close() && !state.generating) {
+    } else if close_clicked || (outcome.should_close && !state.generating) {
         Some(ReportModalAction::Close)
     } else {
         None
@@ -294,14 +301,37 @@ mod tests {
 
     #[test]
     fn default_file_name_sanitizes_unsafe_characters() {
-        assert_eq!(default_file_name("my study/01"), "report_my_study_01.html");
-        assert_eq!(default_file_name("safe-name_2"), "report_safe-name_2.html");
+        let html = [ReportFormat::Html];
+        assert_eq!(
+            default_file_name_for("my study/01", &html),
+            "report_my_study_01.html"
+        );
+        assert_eq!(
+            default_file_name_for("safe-name_2", &html),
+            "report_safe-name_2.html"
+        );
     }
 
     #[test]
     fn default_file_name_falls_back_when_fully_sanitized() {
-        assert_eq!(default_file_name("///"), "report_study.html");
-        assert_eq!(default_file_name(""), "report_study.html");
+        let html = [ReportFormat::Html];
+        assert_eq!(default_file_name_for("///", &html), "report_study.html");
+        assert_eq!(default_file_name_for("", &html), "report_study.html");
+    }
+
+    #[test]
+    fn default_file_name_for_derives_extension_from_first_format() {
+        // JSON / Markdown のみ選択時は .html を出さない。
+        assert_eq!(
+            default_file_name_for("s", &[ReportFormat::Json]),
+            "report_s.json"
+        );
+        assert_eq!(
+            default_file_name_for("s", &[ReportFormat::Markdown, ReportFormat::Json]),
+            "report_s.md"
+        );
+        // 空選択は HTML にフォールバック。
+        assert_eq!(default_file_name_for("s", &[]), "report_s.html");
     }
 
     #[test]

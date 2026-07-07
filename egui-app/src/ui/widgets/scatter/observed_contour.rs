@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::messages::ObservedContourResult;
 use crate::state::types::StudyView;
+use crate::theme::color_compute::{rgba_key, rgba_to_color32};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widget_states::{ObservedContourComputeRequest, ObservedContourState};
 use crate::ui::widgets::common::heatmap::{
@@ -458,8 +459,8 @@ fn render_3d(
             // 観測の薄いセルを透明にする（密度→不透明度）。色相は保ち α だけ動かす。
             if let Some(d) = &density {
                 let a = (40.0 + 215.0 * d[i][j].sqrt()).round().clamp(0.0, 255.0) as u8;
-                let [r, g, b, _] = color.to_array();
-                color = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+                let [r, g, b, _] = rgba_key(color);
+                color = rgba_to_color32([r, g, b, a]);
             }
             items.push((depth * 0.25, Prim::Cell(pts, color)));
         }

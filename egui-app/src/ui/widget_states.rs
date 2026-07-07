@@ -1,4 +1,6 @@
+use crate::ui::widgets::edf_plot::EdfComparison;
 use crate::ui::widgets::license_modal::LicenseModalState;
+use crate::ui::widgets::optimization_history::OptHistoryComparison;
 use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
 use crate::ui::widgets::{
     artifact_gallery::ArtifactGallery, box_plot::BoxPlotChart, cluster_scatter::ClusterScatter,
@@ -327,6 +329,107 @@ pub struct ChartCaptureState {
     pub pending_capture_dest: CaptureDest,
 }
 
+// ── render_chart の毎フレーム再構築を抑えるキャッシュ ───────────────
+// immediate mode では update が毎フレーム走るため、選択・データが変わらない限り
+// 目的列の to_vec クローンや比較系列の再構築を避ける。全フィールドは実行時状態のため
+// 直列化しない（`WidgetStates` 側で `#[serde(skip)]`）。
+
+/// 比較系列（OptimizationHistory / EdfPlot）のキャッシュキー。
+/// 基準 Study の df 恒等性・選択目的名・各比較 Study の (df 恒等性, 色) を含めるため、
+/// Study 切替・比較セット変更・色変更・目的切替のいずれでも確実に無効化される。
+#[derive(Clone, PartialEq)]
+pub struct ComparisonSeriesKey {
+    pub base_df: usize,
+    pub sel_name: Option<String>,
+    pub comps: Vec<(usize, [u8; 4])>,
+}
+
+/// SurrogateOpt の観測データ（目的列 clone・実行可能性）キャッシュキー。
+#[derive(Clone, PartialEq)]
+pub struct SurrogateObservedKey {
+    pub df: usize,
+    pub obj_history_name: Option<String>,
+    pub multi_obj_names: Option<Vec<String>>,
+}
+
+/// SurrogateOpt 観測データのキャッシュ本体（キーと再利用する owned バッファ）。
+pub struct SurrogateObservedEntry {
+    pub key: SurrogateObservedKey,
+    pub obj_history: Option<Vec<f64>>,
+    pub observed_cols: Option<Vec<Vec<f64>>>,
+    pub observed_feasible: Vec<bool>,
+}
+
+/// 比較 Study 1 件ぶんの同期シグネチャ: (df 恒等性, convergence history のデータ恒等性
+/// (ptr, len), 色)。
+type ConvergenceCompSig = (usize, Option<(usize, usize)>, [u8; 4]);
+
+/// ConvergenceIndicators の毎フレーム同期（history/objective_names の clone、比較系列の
+/// 再構築）を抑えるためのキー。データ恒等性は Vec のデータポインタ + 長さで検知する。
+#[derive(Clone, PartialEq)]
+pub struct ConvergenceSyncKey {
+    pub base_df: usize,
+    pub history: Option<(usize, usize)>,
+    pub indicator: tunny_core::indicators::MoIndicator,
+    pub ref_override: Option<(usize, usize)>,
+    pub comparisons: Vec<ConvergenceCompSig>,
+}
+
+/// render_chart が毎フレーム再構築していた比較系列・観測データのキャッシュ。
+#[derive(Default)]
+pub struct RenderChartCache {
+    opt_history: Option<(ComparisonSeriesKey, Vec<OptHistoryComparison>)>,
+    edf: Option<(ComparisonSeriesKey, Vec<EdfComparison>)>,
+    surrogate_observed: Option<SurrogateObservedEntry>,
+    /// 最後に ConvergenceChart へ同期した際のキー（値本体は widget 側に保持）。
+    pub convergence_sync: Option<ConvergenceSyncKey>,
+}
+
+impl RenderChartCache {
+    /// OptimizationHistory の比較系列を取得する。キーが一致しない場合のみ `build` する。
+    pub fn opt_history_comparisons(
+        &mut self,
+        key: ComparisonSeriesKey,
+        build: impl FnOnce() -> Vec<OptHistoryComparison>,
+    ) -> &[OptHistoryComparison] {
+        if self.opt_history.as_ref().map(|(k, _)| k) != Some(&key) {
+            self.opt_history = Some((key, build()));
+        }
+        &self.opt_history.as_ref().unwrap().1
+    }
+
+    /// EdfPlot の比較系列を取得する。キーが一致しない場合のみ `build` する。
+    pub fn edf_comparisons(
+        &mut self,
+        key: ComparisonSeriesKey,
+        build: impl FnOnce() -> Vec<EdfComparison>,
+    ) -> &[EdfComparison] {
+        if self.edf.as_ref().map(|(k, _)| k) != Some(&key) {
+            self.edf = Some((key, build()));
+        }
+        &self.edf.as_ref().unwrap().1
+    }
+
+    /// SurrogateOpt の観測データを取得する。キーが一致しない場合のみ `build` する。
+    /// `build` は (obj_history, observed_cols, observed_feasible) を返す。
+    pub fn surrogate_observed(
+        &mut self,
+        key: SurrogateObservedKey,
+        build: impl FnOnce() -> (Option<Vec<f64>>, Option<Vec<Vec<f64>>>, Vec<bool>),
+    ) -> &SurrogateObservedEntry {
+        if self.surrogate_observed.as_ref().map(|e| &e.key) != Some(&key) {
+            let (obj_history, observed_cols, observed_feasible) = build();
+            self.surrogate_observed = Some(SurrogateObservedEntry {
+                key,
+                obj_history,
+                observed_cols,
+                observed_feasible,
+            });
+        }
+        self.surrogate_observed.as_ref().unwrap()
+    }
+}
+
 /// 各チャートウィジェットの UI 状態をまとめて保持する
 /// AppState（データ）とは分離した純粋な UI 状態
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -385,6 +488,9 @@ pub struct WidgetStates {
     pub rank_plot: RankPlotChart,
     #[serde(skip)]
     pub capture: ChartCaptureState,
+    /// render_chart の毎フレーム再構築（比較系列・観測列 clone）を抑えるキャッシュ。
+    #[serde(skip)]
+    pub render_cache: RenderChartCache,
     /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
     #[serde(skip)]
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,
