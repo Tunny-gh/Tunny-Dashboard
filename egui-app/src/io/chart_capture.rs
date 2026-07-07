@@ -84,10 +84,6 @@ pub fn save_png_to_file(data: &[u8]) -> Result<Option<()>, String> {
     match path {
         None => Ok(None), // user cancelled — not an error
         Some(p) => {
-<<<<<<< HEAD
-            // 既存ファイルへの上書き保存が途中で失敗しても元画像を壊さないようアトミックに書く。
-=======
->>>>>>> origin/claude/egui-app-quality-review-fw9ck5
             crate::io::file::write_atomic(&p, data).map_err(|e| format!("Write error: {e}"))?;
             Ok(Some(()))
         }
