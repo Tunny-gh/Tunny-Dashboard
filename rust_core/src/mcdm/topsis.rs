@@ -1,39 +1,38 @@
 /// TOPSIS (Technique for Order Preference by Similarity to Ideal Solution)
-/// English documentation.
+/// による多目的最適化結果のランキング計算。
 ///
 /// TASK-1615: mode-frontier-features
-/// English documentation.
-/// English documentation.
+/// 各案（trial）を正規化・重み付けした上で、理想解（各目的の最良値）
+/// および負理想解（各目的の最悪値）からのユークリッド距離を求め、
+/// 負理想解への近さの相対値をスコアとして採用する。
 use std::time::Instant;
 
-/// English documentation.
+/// TOPSIS 計算結果。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TopsisResult {
-    /// English documentation.
+    /// 各 trial の TOPSIS スコア（0〜1、大きいほど理想解に近い）。
     pub scores: Vec<f64>,
-    /// English documentation.
+    /// スコア降順に並べた trial インデックス。
     pub ranked_indices: Vec<u32>,
-    /// English documentation.
+    /// 各目的における正理想解（重み付き正規化後の最良値）。
     pub positive_ideal: Vec<f64>,
-    /// English documentation.
+    /// 各目的における負理想解（重み付き正規化後の最悪値）。
     pub negative_ideal: Vec<f64>,
-    /// English documentation.
+    /// 計算にかかった時間（ミリ秒）。
     pub duration_ms: f64,
 }
 
-/// English documentation.
+/// TOPSIS 法により各 trial のスコアとランキングを計算する。
 ///
-/// English documentation.
+/// 手順:
+/// 1. 入力を検証する。
+/// 2. 重みを正規化する。
+/// 3. NaN/Inf を含む行を除外し、有効な行のみでベクトル正規化・重み付けを行う。
+/// 4. 正理想解・負理想解を求める。
+/// 5. 各 trial の正理想解・負理想解への距離からスコアを算出する。
 ///
-/// English documentation.
-/// English documentation.
-/// English documentation.
-/// English documentation.
-/// English documentation.
-/// English documentation.
-///
-/// English documentation.
-/// English documentation.
+/// 有効な trial が存在しない場合は全 trial に一律スコア 0.5 を返す。
+/// NaN/Inf を含む trial のスコアは 0.0 となり、ランキング末尾に置かれる。
 pub fn compute_topsis(
     values: &[f64],
     n_trials: usize,
@@ -43,7 +42,7 @@ pub fn compute_topsis(
 ) -> Result<TopsisResult, String> {
     let start = Instant::now();
 
-    // English comment.
+    // 入力を検証する。
     super::validate_inputs(values, n_trials, n_objectives, weights, is_minimize)?;
 
     // Weights are expected to sum to 1, but defend against callers that pass
@@ -55,7 +54,7 @@ pub fn compute_topsis(
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);
 
-    // English comment.
+    // 有効な trial が 1 件もない場合は一律スコア 0.5 を返す。
     if valid_indices.is_empty() {
         return Ok(uniform_score_result(n_trials, n_objectives, 0.5, &start));
     }
@@ -65,11 +64,11 @@ pub fn compute_topsis(
     let weighted_matrix =
         build_weighted_matrix(values, n_objectives, weights, &valid_indices, n_valid);
 
-    // English comment.
+    // 正理想解・負理想解を求める。
     let (positive_ideal, negative_ideal) =
         find_ideal_solutions(&weighted_matrix, n_valid, n_objectives, is_minimize);
 
-    // English comment.
+    // 各 trial のスコアを算出する。
     let valid_scores = compute_scores(
         &weighted_matrix,
         n_valid,
@@ -78,13 +77,13 @@ pub fn compute_topsis(
         &negative_ideal,
     );
 
-    // English comment.
+    // 有効な trial のスコアを元の trial インデックスに書き戻す（無効な trial は 0.0 のまま）。
     let mut scores = vec![0.0_f64; n_trials];
     for (vi, &ti) in valid_indices.iter().enumerate() {
         scores[ti] = valid_scores[vi];
     }
 
-    // English comment.
+    // スコア降順で trial インデックスをソートする。
     let mut ranked_indices: Vec<u32> = (0..n_trials as u32).collect();
     ranked_indices.sort_unstable_by(|&a, &b| {
         scores[b as usize]
@@ -102,11 +101,11 @@ pub fn compute_topsis(
 }
 
 // =============================================================================
-// English comment.
+// ヘルパ関数
 // =============================================================================
 
-/// English documentation.
-/// English documentation.
+/// 有効な trial が存在しない場合に、全 trial へ一律スコアを割り当てた結果を生成する。
+/// 理想解はいずれもゼロベクトルとする。
 fn uniform_score_result(
     n_trials: usize,
     n_objectives: usize,
@@ -142,7 +141,7 @@ fn build_weighted_matrix(
     valid_indices: &[usize],
     n_valid: usize,
 ) -> Vec<f64> {
-    // English comment.
+    // 各目的（列）ごとにユークリッドノルムを求める。
     let mut col_norms = vec![0.0_f64; n_objectives];
     for &i in valid_indices {
         for j in 0..n_objectives {
@@ -169,7 +168,7 @@ fn build_weighted_matrix(
     matrix
 }
 
-/// English documentation.
+/// 重み付き正規化行列から各目的の正理想解・負理想解を求める。
 ///
 /// Single row-major pass: cache-friendly, avoids multiple column scans.
 fn find_ideal_solutions(
@@ -199,19 +198,19 @@ fn find_ideal_solutions(
     let mut negative = vec![0.0_f64; n_objectives];
     for j in 0..n_objectives {
         (positive[j], negative[j]) = if is_minimize[j] {
-            (col_min[j], col_max[j]) // English: English
+            (col_min[j], col_max[j]) // minimize: 正理想=最小、負理想=最大
         } else {
-            (col_max[j], col_min[j]) // English: English
+            (col_max[j], col_min[j]) // maximize: 正理想=最大、負理想=最小
         };
     }
     (positive, negative)
 }
 
-/// English documentation.
+/// 各 trial の正理想解・負理想解からのユークリッド距離に基づき TOPSIS スコアを計算する。
 ///
 /// D+_i = sqrt(sum_j(w_ij - A+_j)^2)
 /// D-_i = sqrt(sum_j(w_ij - A-_j)^2)
-/// score_i = D-_i / (D+_i + D-_i)  D++D-=0 → 0.5 🔵
+/// score_i = D-_i / (D+_i + D-_i)（D+ + D- = 0 のときは 0.5）
 fn compute_scores(
     weighted_matrix: &[f64],
     n_valid: usize,
@@ -241,7 +240,7 @@ fn compute_scores(
 }
 
 // =============================================================================
-// English comment.
+// テスト
 // =============================================================================
 
 #[cfg(test)]
@@ -249,46 +248,41 @@ mod tests {
     use super::*;
 
     // -------------------------------------------------------------------------
-    // English comment.
+    // 正常系
     // -------------------------------------------------------------------------
 
     #[test]
     fn tc_1615_01_basic_two_obj_minimize() {
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
+        // trial0: (1, 4)
+        // trial1: (4, 1)
+        // trial2: (2, 2)
+        // どちらの目的も minimize。
 
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
         let values = [1.0_f64, 4.0, 4.0, 1.0, 2.0, 2.0];
         let weights = [0.5_f64, 0.5];
         let is_minimize = [true, true];
 
-        // English comment.
         let result = compute_topsis(&values, 3, 2, &weights, &is_minimize);
 
-        // English comment.
-        assert!(result.is_ok(), "English");
+        assert!(result.is_ok(), "計算は成功するはず");
         let r = result.unwrap();
 
-        // English comment.
         assert_eq!(r.ranked_indices.len(), 3);
-        // English comment.
         assert_eq!(r.scores.len(), 3);
-        // English comment.
         for &s in &r.scores {
-            assert!((0.0..=1.0).contains(&s), "English0〜1English: {}", s);
+            assert!(
+                (0.0..=1.0).contains(&s),
+                "スコアは 0〜1 の範囲であるべき: {}",
+                s
+            );
         }
-        // English comment.
+        // ランキングはスコア降順であるはず。
         for i in 0..r.ranked_indices.len() - 1 {
             let idx_curr = r.ranked_indices[i] as usize;
             let idx_next = r.ranked_indices[i + 1] as usize;
             assert!(
                 r.scores[idx_curr] >= r.scores[idx_next],
-                "English: scores[{}]={} >= scores[{}]={}",
+                "ランキングはスコア降順であるべき: scores[{}]={} >= scores[{}]={}",
                 idx_curr,
                 r.scores[idx_curr],
                 idx_next,
@@ -299,36 +293,27 @@ mod tests {
 
     #[test]
     fn tc_1615_02_maximize_direction() {
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
+        // trial0: (1, 1)
+        // trial1: (5, 1)
+        // trial2: (5, 5)
 
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
         let values = [1.0_f64, 1.0, 5.0, 1.0, 5.0, 5.0];
-        let weights = [0.7_f64, 0.3]; // obj0English
-        let is_minimize = [false, true]; // obj0Englishmaximize
+        let weights = [0.7_f64, 0.3]; // obj0 を重視
+        let is_minimize = [false, true]; // obj0 は maximize
 
-        // English comment.
         let result = compute_topsis(&values, 3, 2, &weights, &is_minimize);
 
-        // English comment.
         assert!(result.is_ok());
         let r = result.unwrap();
 
-        // English comment.
         assert_eq!(
             r.ranked_indices[0], 1,
-            "trial1Englishobj0English・obj1English。ranked[0]={}",
+            "trial1 は obj0・obj1 とも最良なので 1 位のはず。ranked[0]={}",
             r.ranked_indices[0]
         );
-        // English comment.
         assert!(
             r.scores[0] < r.scores[1],
-            "trial1>trial0English: scores[0]={}, scores[1]={}",
+            "trial1 のスコアは trial0 より大きいはず: scores[0]={}, scores[1]={}",
             r.scores[0],
             r.scores[1]
         );
@@ -352,157 +337,139 @@ mod tests {
 
     #[test]
     fn tc_1615_03_weights_affect_ranking() {
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
+        // 重みを変えることでランキングが変化することを確認する。
 
         let values = [1.0_f64, 5.0, 5.0, 1.0]; // trial0:(1,5) trial1:(5,1)
         let is_minimize = [true, true];
 
-        // English comment.
+        // obj0 を重視した場合。
         let result_a = compute_topsis(&values, 2, 2, &[0.9, 0.1], &is_minimize).unwrap();
-        // English comment.
+        // obj1 を重視した場合。
         let result_b = compute_topsis(&values, 2, 2, &[0.1, 0.9], &is_minimize).unwrap();
 
-        // English comment.
         assert_eq!(
             result_a.ranked_indices[0], 0,
-            "obj0Englishtrial0English1English"
+            "obj0 重視なら trial0 が 1 位のはず"
         );
-        // English comment.
         assert_eq!(
             result_b.ranked_indices[0], 1,
-            "obj1Englishtrial1English1English"
+            "obj1 重視なら trial1 が 1 位のはず"
         );
     }
 
     #[test]
     fn tc_1615_04_single_trial() {
-        // English comment.
-        // English comment.
-        // English comment.
+        // trial が 1 件のみの場合の境界値テスト。
 
         let values = [3.0_f64, 7.0];
         let result = compute_topsis(&values, 1, 2, &[0.5, 0.5], &[true, true]);
 
         assert!(result.is_ok());
         let r = result.unwrap();
-        // English comment.
         assert_eq!(r.scores.len(), 1);
-        // English comment.
         assert!(
             (r.scores[0] - 0.5).abs() < 1e-9,
-            "1Englishscore=0.5English: {}",
+            "1 trial のみの場合 score=0.5 のはず: {}",
             r.scores[0]
         );
-        // English comment.
         assert_eq!(r.ranked_indices, vec![0u32]);
     }
 
     #[test]
     fn tc_1615_05_single_objective() {
-        // English comment.
-        // English comment.
+        // 目的が 1 つだけの場合の境界値テスト。
 
-        let values = [3.0_f64, 1.0, 2.0]; // 3English×1English
+        let values = [3.0_f64, 1.0, 2.0]; // 3 trial × 1 目的
         let result = compute_topsis(&values, 3, 1, &[1.0], &[true]);
 
         assert!(result.is_ok());
         let r = result.unwrap();
-        // English comment.
-        assert_eq!(r.ranked_indices[0], 1, "English1.0Englishtrial1English");
-        // English comment.
-        assert_eq!(r.ranked_indices[2], 0, "English3.0Englishtrial0English");
+        assert_eq!(r.ranked_indices[0], 1, "最小値 1.0 の trial1 が 1 位のはず");
+        assert_eq!(
+            r.ranked_indices[2], 0,
+            "最大値 3.0 の trial0 が最下位のはず"
+        );
     }
 
     // -------------------------------------------------------------------------
-    // English comment.
+    // エラー系
     // -------------------------------------------------------------------------
 
     #[test]
     fn tc_1615_06_zero_trials_error() {
-        // English comment.
-        // English comment.
+        // n_trials=0 はエラーになるべき。
 
         let result = compute_topsis(&[], 0, 2, &[0.5, 0.5], &[true, true]);
-        assert!(result.is_err(), "n_trials=0EnglishーEnglish");
+        assert!(result.is_err(), "n_trials=0 はエラーになるはず");
         let msg = result.unwrap_err();
         assert!(
             msg.contains("n_trials") || msg.contains("trial"),
-            "EnglishーEnglishーEnglishn_trialsEnglish: {}",
+            "エラーメッセージに n_trials が含まれるはず: {}",
             msg
         );
     }
 
     #[test]
     fn tc_1615_07_values_length_mismatch_error() {
-        // English comment.
-        // English comment.
+        // values の長さが n_trials * n_objectives と一致しない場合はエラー。
 
-        // English comment.
         let result = compute_topsis(&[1.0, 2.0, 3.0], 2, 2, &[0.5, 0.5], &[true, true]);
-        assert!(result.is_err(), "valuesEnglishーEnglish");
+        assert!(result.is_err(), "values 長不一致はエラーになるはず");
     }
 
     #[test]
     fn tc_1615_08_weights_length_mismatch_error() {
-        // English comment.
-        // English comment.
+        // weights の長さが n_objectives と一致しない場合はエラー。
 
-        // English comment.
         let result = compute_topsis(&[1.0, 2.0, 3.0, 4.0], 2, 2, &[1.0], &[true, true]);
-        assert!(result.is_err(), "weightsEnglishーEnglish");
+        assert!(result.is_err(), "weights 長不一致はエラーになるはず");
     }
 
     #[test]
     fn tc_1615_09_is_minimize_length_mismatch_error() {
-        // English comment.
-        // English comment.
+        // is_minimize の長さが n_objectives と一致しない場合はエラー。
 
-        // English comment.
         let result = compute_topsis(&[1.0, 2.0, 3.0, 4.0], 2, 2, &[0.5, 0.5], &[true]);
-        assert!(result.is_err(), "is_minimizeEnglishーEnglish");
+        assert!(result.is_err(), "is_minimize 長不一致はエラーになるはず");
     }
 
     // -------------------------------------------------------------------------
-    // English comment.
+    // 境界値・エッジケース
     // -------------------------------------------------------------------------
 
     #[test]
     fn tc_1615_10_all_same_values_no_crash() {
-        // English comment.
-        // English comment.
-        // English comment.
+        // 全 trial が同じ値でもクラッシュしないことを確認する。
 
-        let values = [2.0_f64, 3.0, 2.0, 3.0, 2.0, 3.0]; // 3English
+        let values = [2.0_f64, 3.0, 2.0, 3.0, 2.0, 3.0]; // 3 trial
         let result = compute_topsis(&values, 3, 2, &[0.5, 0.5], &[true, true]);
 
-        // English comment.
-        assert!(result.is_ok(), "EnglishーEnglish");
+        assert!(result.is_ok(), "全 trial 同値でもエラーにならないはず");
         let r = result.unwrap();
-        // English comment.
         for &s in &r.scores {
-            assert!((s - 0.5).abs() < 1e-9, "Englishscore=0.5: {}", s);
+            assert!(
+                (s - 0.5).abs() < 1e-9,
+                "全 trial 同値なら score=0.5 のはず: {}",
+                s
+            );
         }
     }
 
     #[test]
     fn tc_1615_11_nan_trial_ranked_last() {
-        // English comment.
-        // English comment.
-        // English comment.
+        // trial1 が NaN を含む場合、計算対象から除外され最下位にランクされることを確認する。
 
-        // English comment.
         let values = [1.0_f64, 1.0, f64::NAN, 1.0];
         let result = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]);
 
         assert!(result.is_ok());
         let r = result.unwrap();
-        // English comment.
-        assert_eq!(r.scores[1], 0.0, "NaNEnglish0.0English");
-        // English comment.
-        assert_eq!(*r.ranked_indices.last().unwrap(), 1u32, "NaNEnglish");
+        assert_eq!(r.scores[1], 0.0, "NaN trial のスコアは 0.0 のはず");
+        assert_eq!(
+            *r.ranked_indices.last().unwrap(),
+            1u32,
+            "NaN trial は最下位にランクされるはず"
+        );
     }
 
     #[test]
@@ -529,33 +496,31 @@ mod tests {
 
     #[test]
     fn tc_1615_13_ranked_indices_length() {
-        // English comment.
-        // English comment.
+        // ranked_indices と scores の長さが n_trials と一致することを確認する。
 
-        let values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 3English×2English
+        let values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 3 trial × 2 目的
         let result = compute_topsis(&values, 3, 2, &[0.5, 0.5], &[true, true]).unwrap();
 
-        // English comment.
         assert_eq!(result.ranked_indices.len(), 3);
-        // English comment.
         assert_eq!(result.scores.len(), 3);
-        // English comment.
+        // ranked_indices は各インデックスの順列であるはず。
         let mut sorted = result.ranked_indices.clone();
         sorted.sort();
-        assert_eq!(sorted, vec![0u32, 1, 2], "0,1,2English1English");
+        assert_eq!(
+            sorted,
+            vec![0u32, 1, 2],
+            "インデックス 0,1,2 が各 1 回ずつ含まれるはず"
+        );
     }
 
     #[test]
     fn tc_1615_14_ideal_solutions_dimension() {
-        // English comment.
-        // English comment.
+        // positive_ideal / negative_ideal の次元が n_objectives と一致することを確認する。
 
-        let values: Vec<f64> = (0..9).map(|i| i as f64).collect(); // 3English×3English
+        let values: Vec<f64> = (0..9).map(|i| i as f64).collect(); // 3 trial × 3 目的
         let result = compute_topsis(&values, 3, 3, &[1.0 / 3.0; 3], &[true; 3]).unwrap();
 
-        // English comment.
         assert_eq!(result.positive_ideal.len(), 3);
-        // English comment.
         assert_eq!(result.negative_ideal.len(), 3);
     }
 
@@ -578,19 +543,16 @@ mod tests {
 
     #[test]
     fn tc_1616_01_two_trials_ranking() {
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
+        // trial0: (1, 2)（両目的とも最小）
+        // trial1: (3, 4)
+        // is_minimize なので trial0 が有利。
         let values = [1.0_f64, 2.0, 3.0, 4.0];
         let result = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]).unwrap();
 
-        // English comment.
-        assert_eq!(result.ranked_indices[0], 0, "trial0English1English");
-        // English comment.
+        assert_eq!(result.ranked_indices[0], 0, "trial0 が 1 位のはず");
         assert!(
             result.scores[0] > result.scores[1],
-            "trial0Englishtrial1English"
+            "trial0 のスコアは trial1 より大きいはず"
         );
     }
 
@@ -636,20 +598,20 @@ mod tests {
 
     #[test]
     fn tc_1616_02_weights_scale_invariant() {
-        // English comment.
-        // English comment.
-        // English comment.
-        // English comment.
+        // 重みは内部で正規化されるため、比率が同じであればスケールを変えても
+        // 同じランキングになるはず。
         let values = [1.0_f64, 5.0, 5.0, 1.0];
         let r1 = compute_topsis(&values, 2, 2, &[0.7, 0.3], &[true, true]).unwrap();
-        // English comment.
+        // 上と同じ比率をスケールした重み。
         let r2 = compute_topsis(&values, 2, 2, &[7.0, 3.0], &[true, true]).unwrap();
 
-        // English comment.
         assert_eq!(
             r1.ranked_indices[0], 0,
-            "weights=[0.7,0.3]Englishtrial0English1English"
+            "weights=[0.7,0.3] なら trial0 が 1 位のはず"
         );
-        assert_eq!(r2.ranked_indices[0], 0, "weights=[7.0,3.0]English");
+        assert_eq!(
+            r2.ranked_indices[0], 0,
+            "weights=[7.0,3.0] でも同じ順位のはず"
+        );
     }
 }

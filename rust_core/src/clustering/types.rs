@@ -11,44 +11,45 @@ pub enum InitStrategy {
     Deterministic,
 }
 
-/// Documentation.
+/// PCA にかける特徴空間の選択。
 ///
-/// Documentation.
+/// アクティブ Study のどの数値列を PCA の入力に使うかを指定する。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PcaSpace {
-    /// Documentation.
+    /// パラメータ列のみ。
     Param,
-    /// Documentation.
+    /// 目的関数列のみ。
     Objective,
-    /// Documentation.
+    /// パラメータ + 目的関数 + 数値 user attr のすべて。
     All,
 }
 
-/// Documentation.
+/// PCA の計算結果。
 ///
-/// Documentation.
+/// 成分は説明分散の降順に整列される。入力が不正（n < 2 など）の場合は
+/// すべて空の結果を返す。
 #[derive(Debug, Clone)]
 pub struct PcaResult {
-    /// Documentation.
+    /// 各行を主成分空間へ射影した座標。`projections[row][component]`。
     pub projections: Vec<Vec<f64>>,
-    /// Documentation.
+    /// 各主成分の負荷量（固有ベクトル）。`loadings[component][feature]`。
     pub loadings: Vec<Vec<f64>>,
-    /// Documentation.
+    /// 各成分の説明分散（固有値、降順）。
     pub explained_variance: Vec<f64>,
     /// 各成分の寄与率（固有値 / 全固有値の和）。`explained_variance` と同長。
     pub explained_ratio: Vec<f64>,
-    /// Documentation.
+    /// 入力に使った特徴（列）名。行列 API 経由では空。
     pub feature_names: Vec<String>,
 }
 
-/// Documentation.
+/// k-means クラスタリングの結果。
 #[derive(Debug, Clone)]
 pub struct KmeansResult {
-    /// Documentation.
+    /// 各行の所属クラスタ（0..k-1）。入力が不正な場合は空。
     pub labels: Vec<usize>,
-    /// Documentation.
+    /// 各クラスタの重心。`centroids[cluster][feature]`。
     pub centroids: Vec<Vec<f64>>,
-    /// Documentation.
+    /// クラスタ内平方和（Within-Cluster Sum of Squares）。
     pub wcss: f64,
     /// 設定した最大反復回数の上限値。linfa は実際の反復回数を公開しないため、
     /// この値は常に `max_n_iterations` に指定した設定値であり、実行時に実際に
@@ -56,11 +57,11 @@ pub struct KmeansResult {
     pub iterations: usize,
 }
 
-/// Documentation.
+/// エルボー法によるクラスタ数推定の結果。
 #[derive(Debug, Clone)]
 pub struct ElbowResult {
-    /// Documentation.
+    /// k = 2..=max_k の各クラスタ数に対する WCSS。
     pub wcss_per_k: Vec<f64>,
-    /// Documentation.
+    /// WCSS 曲線の屈曲（二階差分最大）から推定した推奨クラスタ数。
     pub recommended_k: usize,
 }

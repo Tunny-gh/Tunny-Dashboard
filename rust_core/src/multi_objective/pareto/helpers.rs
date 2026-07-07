@@ -1,6 +1,7 @@
-/// Documentation.
+/// 最小化前提のパレート支配判定。
 ///
-/// Documentation.
+/// `a` が `b` を支配する（全目的で a <= b かつ少なくとも 1 目的で a < b）
+/// とき true。NaN が混ざる比較は常に false 側に倒れるため支配とは判定されない。
 pub(super) fn dominates_minimized(a: &[f64], b: &[f64]) -> bool {
     let mut strictly_better = false;
     for (&ai, &bi) in a.iter().zip(b.iter()) {
@@ -14,9 +15,9 @@ pub(super) fn dominates_minimized(a: &[f64], b: &[f64]) -> bool {
     strictly_better
 }
 
-/// Documentation.
+/// 目的値を最小化方向へ統一する（最大化目的は符号反転）。
 ///
-/// Documentation.
+/// `is_minimize` の長さが目的数に満たない場合、不足分は最小化として扱う。
 pub(crate) fn normalize_objectives(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<Vec<f64>> {
     objectives
         .iter()

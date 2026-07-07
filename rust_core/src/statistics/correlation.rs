@@ -50,7 +50,9 @@ pub fn compute_correlation_matrix(
     Some(CorrelationMatrix { labels, values })
 }
 
-fn pairwise_correlation(x: &[f64], y: &[f64], method: CorrelationMethod) -> f64 {
+/// 2 列間の相関係数（pairwise complete-case: 両方有限な行のみ使用、
+/// 有効行 2 未満は NaN）。report 生成などからも再利用するため crate 内公開。
+pub(crate) fn pairwise_correlation(x: &[f64], y: &[f64], method: CorrelationMethod) -> f64 {
     let n = x.len().min(y.len());
     let (fx, fy): (Vec<f64>, Vec<f64>) = x[..n]
         .iter()

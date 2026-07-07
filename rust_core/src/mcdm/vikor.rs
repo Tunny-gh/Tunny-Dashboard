@@ -28,6 +28,15 @@ pub fn compute_vikor(
 
     super::validate_inputs(values, n_trials, n_objectives, weights, is_minimize)?;
 
+    // v is the S/R trade-off weight, defined on [0,1]. Defend against
+    // out-of-range or non-finite callers instead of propagating a bogus Q
+    // (NaN v falls back to the conventional consensus value 0.5).
+    let v = if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+
     // Weights are expected to sum to 1, but defend against callers that pass
     // unnormalized weights (or a degenerate sum) instead of erroring out.
     let weights = super::normalize_weights(weights);
@@ -662,6 +671,32 @@ mod tests {
     // Weight normalization itself (empty/zero/negative/NaN fallback, division by
     // sum) is tested in `crate::mcdm::tests`; `tc_vikor_012` above covers that
     // compute_vikor's own normalization step produces consistent results.
+
+    #[test]
+    fn tc_vikor_015_out_of_range_v_is_clamped() {
+        // v は [0,1] に clamp され、範囲外でも Q が定義域を壊さない。
+        let values = [1.0_f64, 3.0, 2.0];
+        let weights = [1.0_f64];
+        let is_minimize = [true];
+
+        let hi = compute_vikor(&values, 3, 1, &weights, &is_minimize, 5.0).unwrap();
+        let one = compute_vikor(&values, 3, 1, &weights, &is_minimize, 1.0).unwrap();
+        assert_eq!(hi.q_values, one.q_values, "v>1 は v=1 と同じ結果になるべき");
+
+        let lo = compute_vikor(&values, 3, 1, &weights, &is_minimize, -2.0).unwrap();
+        let zero = compute_vikor(&values, 3, 1, &weights, &is_minimize, 0.0).unwrap();
+        assert_eq!(
+            lo.q_values, zero.q_values,
+            "v<0 は v=0 と同じ結果になるべき"
+        );
+
+        let nan = compute_vikor(&values, 3, 1, &weights, &is_minimize, f64::NAN).unwrap();
+        assert!(
+            nan.q_values.iter().all(|q| q.is_finite()),
+            "NaN v でも Q は有限であるべき: {:?}",
+            nan.q_values
+        );
+    }
 
     // -------------------------------------------------------------------------
     // Error cases

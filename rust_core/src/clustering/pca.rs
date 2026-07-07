@@ -51,29 +51,21 @@ pub(crate) fn run_pca_on_matrix_opts(
         return empty;
     }
     let p = data[0].len();
+    // 行長が不揃いだと列アクセス・フラット化で範囲外 panic するため明示的に弾く。
+    if data.iter().any(|row| row.len() != p) {
+        return empty;
+    }
     let k = n_components.min(p);
 
-    let means = col_means(data);
-    let mut x_c = center_data(data, &means);
-
-    if standardize {
-        let nf = (n as f64 - 1.0).max(1.0);
-        let stds: Vec<f64> = (0..p)
-            .map(|j| {
-                let var = x_c.iter().map(|row| row[j] * row[j]).sum::<f64>() / nf;
-                var.sqrt()
-            })
-            .collect();
-        for row in &mut x_c {
-            for (j, v) in row.iter_mut().enumerate() {
-                if stds[j] > 1e-12 {
-                    *v /= stds[j];
-                } else {
-                    *v = 0.0;
-                }
-            }
-        }
-    }
+    let x_c = if standardize {
+        // 相関行列 PCA: 標準化（不偏分散 n-1、clustering 共通ヘルパ）が
+        // 中心化を兼ねる。
+        let mut x = data.to_vec();
+        super::standardize::standardize_columns(&mut x, 1);
+        x
+    } else {
+        center_data(data, &col_means(data))
+    };
 
     let mut x_cols = vec![0.0f64; n * p];
     for (i, row) in x_c.iter().enumerate() {
