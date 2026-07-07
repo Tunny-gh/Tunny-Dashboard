@@ -159,6 +159,23 @@ pub struct TrialSummary {
     pub duplicate_of: Option<u32>,
 }
 
+impl TrialSummary {
+    /// この trial が制約違反か（最大制約値が正）。
+    ///
+    /// 制約なしスタディ（`max_constraint == None`）は違反ではない。
+    /// HTML / Markdown 両レンダラの違反マーク判定を 1 箇所に共有する。
+    pub fn violates_constraints(&self) -> bool {
+        self.max_constraint.is_some_and(|v| v > 0.0)
+    }
+}
+
+/// 表内に重複解（`duplicate_of` 付き trial）が含まれるか。
+///
+/// HTML / Markdown 両レンダラの「(= #N)」凡例注記の出力判定を共有する。
+pub fn has_duplicate_marks(trials: &[TrialSummary]) -> bool {
+    trials.iter().any(|t| t.duplicate_of.is_some())
+}
+
 /// パラメータ値（数値 / カテゴリ）。
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum ParamValue {
@@ -190,9 +207,17 @@ pub enum Outcome {
         per_objective_extremes: Vec<ObjectiveExtreme>,
         /// パレート前面の trial 表（TOPSIS 順、`top_n*2` で cap）。
         pareto_table: Vec<TrialSummary>,
+        /// パレート前面（cap 前の全体）に含まれる制約違反 trial の件数。
+        /// feasible 解が 1 件も無く目的空間非劣解へフォールバックした場合のみ
+        /// 正値になる。レンダラのフォールバック注記はこの値を使う
+        /// （cap 済み `pareto_table` から数えると過少表示になり得るため）。
+        pareto_infeasible_count: usize,
         /// 散布図点（全 COMPLETE + front 判定、先頭2目的軸）。
         scatter: Vec<ParetoPoint>,
-        /// 散布図の軸に用いた目的インデックス `(x, y)`。
+        /// 散布図の軸に用いた目的インデックス `(x, y)`。現状ビルダーは常に
+        /// 先頭2目的 `(0, 1)` を渡すが、レンダラが軸ラベル・注記の文言に
+        /// このインデックスを読むため、固定値でもモデルに保持する
+        /// （将来の軸選択オプションの受け皿でもある）。
         scatter_axes: (usize, usize),
     },
 }
@@ -200,8 +225,6 @@ pub enum Outcome {
 /// 目的ごとの極値。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ObjectiveExtreme {
-    /// 目的インデックス。
-    pub objective_index: usize,
     /// 目的名。
     pub objective_name: String,
     /// 方向。

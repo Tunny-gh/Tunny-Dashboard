@@ -13,7 +13,7 @@ use std::fmt::Write as _;
 use super::builder::downsample;
 use super::model::*;
 use super::text::{self, format_unix_utc};
-use super::{format_number, ReportLang};
+use super::{format_number, pct, ReportLang};
 
 /// [`StudyReport`] を Markdown へレンダリングする。
 pub fn render_markdown(report: &StudyReport, lang: ReportLang) -> String {
@@ -54,17 +54,61 @@ fn tr(lang: ReportLang, en: &'static str, ja: &'static str) -> &'static str {
     }
 }
 
-/// テーブルセル用にバックスラッシュ・パイプ・改行をエスケープする。
+/// ユーザー由来文字列を Markdown セルセーフ / インラインセーフに
+/// エスケープする（テーブルセルと本文インラインの両方で使う）。
 ///
-/// バックスラッシュは `|` のエスケープより先に処理する必要がある。
-/// 先に `|` → `\|` を行うと、元の文字列に含まれるバックスラッシュ
-/// （例: `a\|b`）が「エスケープ済みパイプ」と区別できず、後段のバック
-/// スラッシュ置換でパイプ側の `\` まで二重にエスケープされて表構造が
-/// 崩れる（あるいはその逆で `\|` がバックスラッシュ+パイプに読めてしまう）。
+/// - `\` → `\\`、`|` → `\|`: テーブル構造の保護。1 文字ずつの単一パスで
+///   処理するため、逐次 `replace` で問題になる「先に置換した `\` を後段が
+///   二重エスケープする」順序依存は発生しない。
+/// - `&` → `&amp;`、`<` → `&lt;`: 出力 Markdown が下流で HTML 化される場合
+///   （MCP 経由の表示等）の XSS / 構造破壊を防ぐ。Markdown 上は実体参照と
+///   してそのまま表示される。
+/// - `* _ [ ] #` → `\*` 等: Markdown インライン記法（強調・リンク・見出し）
+///   としての誤解釈を防ぐ（Key Finding のユーザー由来 span を含む）。
+/// - 改行（`\n` / `\r`）→ 空白: セル・行構造の保護。
 fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('|', "\\|")
-        .replace(['\n', '\r'], " ")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '|' => out.push_str("\\|"),
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '*' => out.push_str("\\*"),
+            '_' => out.push_str("\\_"),
+            '[' => out.push_str("\\["),
+            ']' => out.push_str("\\]"),
+            '#' => out.push_str("\\#"),
+            '\n' | '\r' => out.push(' '),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// ユーザー由来の名前をインラインコード span として整形する。
+///
+/// インラインコード内ではバックスラッシュエスケープが効かないため、
+/// [`esc`] は適用せず、CommonMark の規則で埋め込みバックティックに対応する:
+/// 中身に含まれる最長のバックティック連続長より 1 長いバックティック列で
+/// 囲み、中身の先頭/末尾がバックティックの場合は空白でパディングする
+/// （パース時に両端 1 個ずつの空白が剥がされる）。改行は空白へ置換する。
+fn code_span(s: &str) -> String {
+    let content: String = s
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    let max_run = content.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(max_run + 1);
+    if content.is_empty() {
+        // 空のコード span は Markdown として成立しないため、空白 1 個を置く。
+        return "` `".to_string();
+    }
+    if content.starts_with('`') || content.ends_with('`') {
+        format!("{fence} {content} {fence}")
+    } else {
+        format!("{fence}{content}{fence}")
+    }
 }
 
 /// 方向ラベル。
@@ -80,10 +124,6 @@ fn param_val(v: &ParamValue) -> String {
         ParamValue::Num(x) => format_number(*x),
         ParamValue::Cat(s) => esc(s),
     }
-}
-
-fn pct(x: f64) -> String {
-    format!("{:.0}", x)
 }
 
 // =============================================================================
@@ -164,9 +204,11 @@ fn render_key_findings(s: &mut String, lang: ReportLang, findings: &[KeyFinding]
 
 /// Key Finding を 1 文へ整形する（テンプレートは [`super::text`] で共有）。
 ///
-/// 強調 span は Markdown の `**...**` で囲み、全 span を [`esc`] でセルセーフに
-/// する。リテラルへの `esc` はパイプ・改行を含まないため実質無変換で、
-/// ユーザー由来文字列（param 名等）のみが安全化される。
+/// 強調 span は Markdown の `**...**` で囲み、全 span を [`esc`] で
+/// インラインセーフにする。ユーザー由来文字列（param 名等）の Markdown
+/// 特殊文字（`* _ [ ] #` 等）はここで安全化される。テンプレートリテラル
+/// 中の `#`（`trial #N` 等）も `\#` になるが、Markdown 描画上は `#` の
+/// まま表示されるため無害。
 fn finding_sentence(lang: ReportLang, f: &KeyFinding) -> String {
     let mut out = String::new();
     for span in super::text::finding_spans(lang, f) {
@@ -217,6 +259,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             objective_count,
             per_objective_extremes,
             pareto_table,
+            pareto_infeasible_count,
             scatter,
             scatter_axes,
         } => {
@@ -282,15 +325,12 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
 
             // 前面は feasible 行のみから計算されるため、違反 trial が表に
             // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
-            let n_infeasible = pareto_table
-                .iter()
-                .filter(|t| t.max_constraint.is_some_and(|v| v > 0.0))
-                .count();
-            if n_infeasible > 0 {
+            // 件数は builder が cap 前の front 全体から集計済み。
+            if *pareto_infeasible_count > 0 {
                 let _ = writeln!(
                     s,
                     "{}\n",
-                    text::infeasible_fallback_note(lang, n_infeasible)
+                    text::infeasible_fallback_note(lang, *pareto_infeasible_count)
                 );
             }
             render_duplicate_note(s, lang, pareto_table);
@@ -310,19 +350,32 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                     tr(lang, "objectives total", "目的中")
                 );
             }
-            let _ = writeln!(
-                s,
-                "{} {}.\n",
-                tr(lang, "Scatter points:", "散布図の点数:"),
-                scatter.len()
-            );
+            // 制約違反点があれば件数を併記する（点自体は全 COMPLETE を含む）。
+            let n_scatter_infeasible = scatter.iter().filter(|p| !p.feasible).count();
+            if n_scatter_infeasible > 0 {
+                let _ = writeln!(
+                    s,
+                    "{} {} ({} {}).\n",
+                    tr(lang, "Scatter points:", "散布図の点数:"),
+                    scatter.len(),
+                    n_scatter_infeasible,
+                    tr(lang, "infeasible", "件は制約違反")
+                );
+            } else {
+                let _ = writeln!(
+                    s,
+                    "{} {}.\n",
+                    tr(lang, "Scatter points:", "散布図の点数:"),
+                    scatter.len()
+                );
+            }
         }
     }
 }
 
 /// 表内に重複解（`duplicate_of` 付き trial）があれば凡例を 1 行出力する。
 fn render_duplicate_note(s: &mut String, lang: ReportLang, trials: &[TrialSummary]) {
-    if trials.iter().any(|t| t.duplicate_of.is_some()) {
+    if has_duplicate_marks(trials) {
         let _ = writeln!(s, "{}\n", text::duplicate_legend_note(lang));
     }
 }
@@ -391,8 +444,8 @@ fn render_trial_table(
         }
         if show_constraint {
             let c = match t.max_constraint {
-                // 正値 = 制約違反。値の後に明示マークを付ける。
-                Some(v) if v > 0.0 => format!(
+                // 正値 = 制約違反（判定は model 側で共有）。明示マークを付ける。
+                Some(v) if t.violates_constraints() => format!(
                     "{}{}",
                     format_number(v),
                     tr(lang, " (infeasible)", "（違反）")
@@ -489,11 +542,11 @@ fn render_importance(s: &mut String, lang: ReportLang, importance: &Option<Impor
     );
     let _ = writeln!(
         s,
-        "{} `{}` {} `{}`. {}\n",
+        "{} {} {} {}. {}\n",
         tr(lang, "Method:", "手法:"),
-        esc(&sec.method),
+        code_span(&sec.method),
         tr(lang, "against objective", "評価対象の目的:"),
-        esc(&sec.objective_name),
+        code_span(&sec.objective_name),
         tr(
             lang,
             "Scores are sorted descending; higher means more influential.",
@@ -579,9 +632,9 @@ fn render_correlations(
     let _ = writeln!(s, "## {}\n", tr(lang, "Correlations", "相関"));
     let _ = writeln!(
         s,
-        "{} `{}`. {}\n",
+        "{} {}. {}\n",
         tr(lang, "Method:", "手法:"),
-        esc(&sec.method),
+        code_span(&sec.method),
         tr(
             lang,
             "Each cell is the rank correlation between a parameter (row) and an objective (column); parameters capped by max |ρ|.",
@@ -624,9 +677,9 @@ fn render_mcdm(s: &mut String, lang: ReportLang, mcdm: &Option<McdmSection>, obj
     let weights: Vec<String> = sec.weights.iter().map(|w| format_number(*w)).collect();
     let _ = writeln!(
         s,
-        "{} `{}` ({}: {}). {}\n",
+        "{} {} ({}: {}). {}\n",
         tr(lang, "Weighting:", "重み付け:"),
-        esc(&sec.weight_scheme),
+        code_span(&sec.weight_scheme),
         tr(lang, "weights", "重み"),
         weights.join(", "),
         tr(
@@ -781,13 +834,54 @@ fn render_reproduction(s: &mut String, lang: ReportLang, report: &StudyReport) {
 
 #[cfg(test)]
 mod esc_tests {
-    use super::esc;
+    use super::{code_span, esc};
 
     #[test]
     fn escapes_backslash_before_pipe() {
-        // バックスラッシュを先にエスケープしないと `a\|b` の `\` が
-        // 後続の `|` エスケープと衝突し、表構造が壊れ得る。
+        // 単一パス処理のため `a\|b` の `\` と `|` のエスケープが
+        // 衝突せず、表構造が壊れない。
         assert_eq!(esc("a\\|b"), "a\\\\\\|b");
         assert_eq!(esc("trail\\"), "trail\\\\");
+    }
+
+    #[test]
+    fn escapes_html_amp_and_lt() {
+        // 下流で HTML 化される場合の XSS / 構造破壊対策。
+        assert_eq!(esc("a&b"), "a&amp;b");
+        assert_eq!(esc("<script>"), "&lt;script>");
+        // `&` はそのまま実体参照化され、二重エスケープしない
+        // （単一パスのため `&amp;` の再処理は起きない）。
+        assert_eq!(esc("&lt;"), "&amp;lt;");
+    }
+
+    #[test]
+    fn escapes_markdown_inline_specials() {
+        // 強調・リンク・見出し記法として誤解釈されない。
+        assert_eq!(esc("*em*"), "\\*em\\*");
+        assert_eq!(esc("snake_case_name"), "snake\\_case\\_name");
+        assert_eq!(esc("[link]"), "\\[link\\]");
+        assert_eq!(esc("#tag"), "\\#tag");
+    }
+
+    #[test]
+    fn newlines_become_spaces() {
+        assert_eq!(esc("a\nb\rc"), "a b c");
+    }
+
+    #[test]
+    fn code_span_wraps_plain_names() {
+        assert_eq!(code_span("spearman_abs"), "`spearman_abs`");
+    }
+
+    #[test]
+    fn code_span_handles_embedded_backticks() {
+        // 中身の最長バックティック連続長 +1 のフェンスで囲む。
+        assert_eq!(code_span("a`b"), "``a`b``");
+        assert_eq!(code_span("a``b"), "```a``b```");
+        // 先頭/末尾がバックティックの場合は空白でパディングする。
+        assert_eq!(code_span("`lead"), "`` `lead ``");
+        assert_eq!(code_span("trail`"), "`` trail` ``");
+        // 空文字列は空白 1 個のコード span にする。
+        assert_eq!(code_span(""), "` `");
     }
 }

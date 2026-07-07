@@ -12,7 +12,7 @@
 //! 安全化され、決定論的かつ安全な出力になる。
 
 use super::model::{FindingKind, KeyFinding};
-use super::{format_number, ReportLang};
+use super::{format_number, pct, ReportLang};
 
 /// 文章を構成する 1 区間。
 pub(crate) struct Span {
@@ -38,11 +38,6 @@ impl Span {
             emphasis: true,
         }
     }
-}
-
-/// パーセント表示（整数丸め、Markdown レンダラと同一規則）。
-fn pct(x: f64) -> String {
-    format!("{:.0}", x)
 }
 
 /// 制約フォールバック注記（feasible 解が 1 件も無いためパレート前面が
