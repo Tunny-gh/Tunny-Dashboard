@@ -26,9 +26,7 @@ pub use generic::{
 pub use mysql_backend::MysqlBackend;
 pub use postgres_backend::PostgresBackend;
 pub use sqlite_backend::SqliteBackend;
-pub use url::{is_rdb_url, RdbKind, RdbUrl};
-
-use self::url::check_tls_precondition;
+pub use url::{check_tls_precondition, has_explicit_plaintext_optin, is_rdb_url, RdbKind, RdbUrl};
 
 /// `RdbUrl` の種別に応じて対応するバックエンドへ接続する。
 ///

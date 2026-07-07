@@ -1,13 +1,20 @@
 //! 「Open URL…」ダイアログ: PostgreSQL/MySQL 接続 URL を直接入力してストレージを開く。
 //!
 //! ローカルファイルのみを想定する `rfd::FileDialog`（"Open" ボタン）では RDB 接続 URL を
-//! 選べないため、専用の 1 行入力モーダルを別途用意する。パース結果（成否・正規化済み
-//! 文字列）を計算する部分は `resolve_open_url` として UI から切り離してあり、
-//! egui コンテキスト無しでテストできる。
+//! 選べないため、専用の 1 行入力モーダルを別途用意する。パース・TLS 事前チェックの
+//! 判定部分は `classify_input` として UI から切り離してあり、egui コンテキスト無しで
+//! テストできる。
+//!
+//! バックエンドは TLS 未対応（平文接続のみ）のため、接続してからエラーで知るのでは
+//! なく、入力中に次を通知する:
+//! - `sslmode=disable` の明示が無い URL → 「この接続は暗号化されない」旨の警告
+//!   （ループバック等、接続自体は可能なケース）
+//! - 非ローカルホストへ opt-in 無し、または `sslmode=require` 等 → 接続時に必ず
+//!   拒否されるため、その理由を表示して Open を無効化
 
 use egui::RichText;
 
-use tunny_core::rdb::RdbUrl;
+use tunny_core::rdb::{check_tls_precondition, has_explicit_plaintext_optin, RdbUrl};
 
 use crate::ui::widgets::common::modal::ModalScaffold;
 
@@ -19,12 +26,35 @@ pub enum RdbUrlDialogAction {
     Cancel,
 }
 
-/// 入力文字列をパースし、"Open" 可能かどうかと正規化済み URL 文字列を返す純関数。
-/// 空文字列や `postgresql://`/`mysql://` 以外のスキームは `Err` になる。
-pub fn resolve_open_url(input: &str) -> Result<String, &'static str> {
-    RdbUrl::parse(input.trim())
-        .map(|url| url.url)
-        .ok_or("Unsupported URL. Use postgresql:// or mysql://")
+/// 入力 URL の判定結果（表示メッセージと Open 可否を決める）。
+#[derive(Debug, PartialEq, Eq)]
+pub enum RdbUrlCheck {
+    /// スキーム不正・空入力など、RDB URL として解釈できない。
+    Invalid,
+    /// パースは通るが、TLS 事前チェックにより接続時に必ず拒否される
+    /// （非ローカルホストへの opt-in 無し平文、`sslmode=require` 等）。
+    /// `reason` は接続時に返るものと同じ説明文。
+    Blocked { reason: String },
+    /// 接続可能だが `sslmode=disable` の明示が無い平文接続
+    /// （ループバック接続の無指定など）。暗号化されない旨を通知する。
+    PlaintextImplicit { url: String },
+    /// `sslmode=disable` 明示済みの平文接続。ユーザーが了解済みのため通知しない。
+    PlaintextExplicit { url: String },
+}
+
+/// 入力文字列をパース・正規化し、TLS 事前チェックまで含めて分類する純関数。
+pub fn classify_input(input: &str) -> RdbUrlCheck {
+    let Some(url) = RdbUrl::parse(input.trim()) else {
+        return RdbUrlCheck::Invalid;
+    };
+    if let Err(reason) = check_tls_precondition(&url.url) {
+        return RdbUrlCheck::Blocked { reason };
+    }
+    if has_explicit_plaintext_optin(&url.url) {
+        RdbUrlCheck::PlaintextExplicit { url: url.url }
+    } else {
+        RdbUrlCheck::PlaintextImplicit { url: url.url }
+    }
 }
 
 /// 「Open URL…」モーダルを描画する。
@@ -32,7 +62,7 @@ pub fn resolve_open_url(input: &str) -> Result<String, &'static str> {
 /// 戻り値が `None` の間はダイアログを開いたままにする（次フレームも `input` を保持して
 /// 呼び直すこと）。`Some(Open(..))` / `Some(Cancel)` が返ったらダイアログを閉じてよい。
 pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogAction> {
-    let mut open_clicked = false;
+    let mut open_url: Option<String> = None;
     let mut cancel_clicked = false;
 
     let outcome = ModalScaffold::new("rdb_url_dialog", 440.0)
@@ -50,21 +80,42 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
                     .desired_width(ui.available_width()),
             );
 
-            let parsed = resolve_open_url(input);
-            if let Err(msg) = &parsed {
-                if !input.trim().is_empty() {
-                    ui.add_space(4.0);
-                    ui.colored_label(crate::theme::ERROR_COLOR(), *msg);
+            let check = classify_input(input);
+            let openable_url: Option<&str> = match &check {
+                RdbUrlCheck::Invalid => {
+                    if !input.trim().is_empty() {
+                        ui.add_space(4.0);
+                        ui.colored_label(
+                            crate::theme::ERROR_COLOR(),
+                            "Unsupported URL. Use postgresql:// or mysql://",
+                        );
+                    }
+                    None
                 }
-            }
+                RdbUrlCheck::Blocked { reason } => {
+                    ui.add_space(4.0);
+                    ui.colored_label(crate::theme::ERROR_COLOR(), reason);
+                    None
+                }
+                RdbUrlCheck::PlaintextImplicit { url } => {
+                    ui.add_space(4.0);
+                    ui.colored_label(
+                        crate::theme::WARNING_COLOR(),
+                        "⚠ This connection will not be encrypted (TLS is not supported). \
+                         Add sslmode=disable to acknowledge and hide this notice.",
+                    );
+                    Some(url.as_str())
+                }
+                RdbUrlCheck::PlaintextExplicit { url } => Some(url.as_str()),
+            };
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(parsed.is_ok(), egui::Button::new("Open"))
+                    .add_enabled(openable_url.is_some(), egui::Button::new("Open"))
                     .clicked()
                 {
-                    open_clicked = true;
+                    open_url = openable_url.map(str::to_owned);
                 }
                 if ui.button("Cancel").clicked() {
                     cancel_clicked = true;
@@ -72,9 +123,8 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
             });
         });
 
-    if open_clicked {
-        // ボタンは parsed.is_ok() のときのみ有効なので、ここでの再パース失敗は起こらない想定。
-        resolve_open_url(input).ok().map(RdbUrlDialogAction::Open)
+    if let Some(url) = open_url {
+        Some(RdbUrlDialogAction::Open(url))
     } else if cancel_clicked || outcome.should_close {
         Some(RdbUrlDialogAction::Cancel)
     } else {
@@ -86,51 +136,94 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
 mod tests {
     use super::*;
 
+    fn expect_url(check: RdbUrlCheck) -> String {
+        match check {
+            RdbUrlCheck::PlaintextImplicit { url } | RdbUrlCheck::PlaintextExplicit { url } => url,
+            other => panic!("expected openable URL, got {other:?}"),
+        }
+    }
+
     #[test]
-    fn resolve_open_url_accepts_postgresql_and_mysql() {
+    fn classify_accepts_postgresql_and_mysql_loopback() {
         assert_eq!(
-            resolve_open_url("postgresql://user:pass@localhost:5432/db"),
-            Ok("postgresql://user:pass@localhost:5432/db".to_string())
+            expect_url(classify_input("postgresql://user:pass@localhost:5432/db")),
+            "postgresql://user:pass@localhost:5432/db"
         );
         assert_eq!(
-            resolve_open_url("mysql://user:pass@localhost:3306/db"),
-            Ok("mysql://user:pass@localhost:3306/db".to_string())
+            expect_url(classify_input("mysql://user:pass@localhost:3306/db")),
+            "mysql://user:pass@localhost:3306/db"
         );
     }
 
     #[test]
-    fn resolve_open_url_normalizes_short_scheme_and_driver_suffix() {
+    fn classify_normalizes_short_scheme_and_driver_suffix() {
         assert_eq!(
-            resolve_open_url("postgres://u:p@h/db"),
-            Ok("postgresql://u:p@h/db".to_string())
+            expect_url(classify_input("postgres://u:p@localhost/db")),
+            "postgresql://u:p@localhost/db"
         );
         assert_eq!(
-            resolve_open_url("postgresql+psycopg2://u:p@h/db"),
-            Ok("postgresql://u:p@h/db".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_open_url_trims_whitespace() {
-        assert_eq!(
-            resolve_open_url("  postgresql://u:p@h/db  "),
-            Ok("postgresql://u:p@h/db".to_string())
+            expect_url(classify_input("postgresql+psycopg2://u:p@localhost/db")),
+            "postgresql://u:p@localhost/db"
         );
     }
 
     #[test]
-    fn resolve_open_url_rejects_unsupported_scheme() {
+    fn classify_trims_whitespace() {
         assert_eq!(
-            resolve_open_url("sqlite:///a.db"),
-            Err("Unsupported URL. Use postgresql:// or mysql://")
+            expect_url(classify_input("  postgresql://u:p@localhost/db  ")),
+            "postgresql://u:p@localhost/db"
         );
+    }
+
+    #[test]
+    fn classify_rejects_unsupported_scheme() {
+        assert_eq!(classify_input("sqlite:///a.db"), RdbUrlCheck::Invalid);
+        assert_eq!(classify_input(""), RdbUrlCheck::Invalid);
         assert_eq!(
-            resolve_open_url(""),
-            Err("Unsupported URL. Use postgresql:// or mysql://")
+            classify_input("/local/path/study.log"),
+            RdbUrlCheck::Invalid
         );
-        assert_eq!(
-            resolve_open_url("/local/path/study.log"),
-            Err("Unsupported URL. Use postgresql:// or mysql://")
-        );
+    }
+
+    #[test]
+    fn classify_notifies_when_sslmode_disable_is_not_explicit() {
+        // ループバック + 無指定は接続可能だが「暗号化されない」通知の対象になる。
+        assert!(matches!(
+            classify_input("postgresql://u:p@localhost/db"),
+            RdbUrlCheck::PlaintextImplicit { .. }
+        ));
+        assert!(matches!(
+            classify_input("mysql://u:p@127.0.0.1:3306/db"),
+            RdbUrlCheck::PlaintextImplicit { .. }
+        ));
+    }
+
+    #[test]
+    fn classify_skips_notice_when_sslmode_disable_is_explicit() {
+        assert!(matches!(
+            classify_input("postgresql://u:p@localhost/db?sslmode=disable"),
+            RdbUrlCheck::PlaintextExplicit { .. }
+        ));
+        // 非ローカルホストも opt-in 明示済みなら接続可能・通知なし。
+        assert!(matches!(
+            classify_input("mysql://u:p@db.example.com/db?ssl-mode=disable"),
+            RdbUrlCheck::PlaintextExplicit { .. }
+        ));
+    }
+
+    #[test]
+    fn classify_blocks_urls_rejected_by_tls_precondition() {
+        // 非ローカルホストへの opt-in 無し平文は接続時に必ず拒否されるため Blocked。
+        let RdbUrlCheck::Blocked { reason } = classify_input("postgresql://u:p@db.example.com/db")
+        else {
+            panic!("remote without sslmode must be Blocked");
+        };
+        assert!(reason.contains("sslmode=disable"), "reason: {reason}");
+
+        // sslmode=require は TLS 未対応のため Blocked。
+        assert!(matches!(
+            classify_input("postgresql://u:p@localhost/db?sslmode=require"),
+            RdbUrlCheck::Blocked { .. }
+        ));
     }
 }

@@ -188,3 +188,10 @@ themed_color!(
     Color32::from_rgb(234, 67, 53),
     Color32::from_rgb(234, 67, 53)
 );
+
+themed_color!(
+    /// 警告表示色（非ブロッキングな注意喚起）: light = amber-600 / dark = amber-400
+    WARNING_COLOR,
+    Color32::from_rgb(217, 119, 6),   // #D97706
+    Color32::from_rgb(251, 191, 36)   // #FBBF24
+);

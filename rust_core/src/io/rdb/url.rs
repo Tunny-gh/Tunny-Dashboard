@@ -179,6 +179,31 @@ fn is_loopback_host(host: &str) -> bool {
             .all(|o| !o.is_empty() && o.len() <= 3 && o.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// URL のクエリ文字列（`?` より後、`#` フラグメントは含まない）を取り出す。
+fn extract_query(url: &str) -> Option<&str> {
+    url.find('?').map(|q_start| {
+        let after_q = &url[q_start + 1..];
+        after_q.split('#').next().unwrap_or(after_q)
+    })
+}
+
+/// URL に平文接続の明示 opt-in（`sslmode=disable` / `ssl-mode=disable`、
+/// 大文字小文字区別なし、`disabled` 表記も許容）が含まれているかどうか。
+///
+/// UI 側が「暗号化されない接続になる」ことを接続前に通知するかどうかの判定に使う:
+/// 明示 opt-in 済みならユーザーは平文接続を了解しているため通知不要、
+/// 無指定なら平文になることを通知する（接続可否は `check_tls_precondition` が別途判定）。
+pub fn has_explicit_plaintext_optin(url: &str) -> bool {
+    let Some(query) = extract_query(url) else {
+        return false;
+    };
+    ["sslmode", "ssl-mode"].iter().any(|key| {
+        query_param_values(query, key)
+            .iter()
+            .any(|v| is_tls_disabled_value(v))
+    })
+}
+
 /// TLS 接続の事前チェック（フェイルクローズ + 平文接続の明示 opt-in）。
 ///
 /// `PostgresBackend`/`MysqlBackend` は現状 `NoTls` 固定で接続する（TLS 未対応）。
@@ -192,11 +217,7 @@ fn is_loopback_host(host: &str) -> bool {
 /// 3. 非ローカルホストへは `sslmode=disable`（または `ssl-mode=disable`）が明示された
 ///    場合のみ平文接続を許可し、無指定ならエラーを返す（平文接続の明示 opt-in）。
 pub fn check_tls_precondition(url: &str) -> Result<(), String> {
-    // クエリ文字列（'#' フラグメントは除く）。
-    let query = url.find('?').map(|q_start| {
-        let after_q = &url[q_start + 1..];
-        after_q.split('#').next().unwrap_or(after_q)
-    });
+    let query = extract_query(url);
 
     let mut tls_explicitly_disabled = false;
     if let Some(query) = query {
@@ -493,6 +514,37 @@ mod tests {
         assert!(check_tls_precondition("postgresql://u:p@localhost.evil.com/db").is_err());
         assert!(check_tls_precondition("postgresql://u:p@127.0.0.1.evil.com/db").is_err());
         assert!(check_tls_precondition("postgresql://u:p@1127.0.0.1/db").is_err());
+    }
+
+    // ── 平文接続の明示 opt-in 判定（UI の事前通知用） ────────────────────
+
+    #[test]
+    fn has_explicit_plaintext_optin_variants() {
+        // 明示あり（大文字小文字・disabled 表記・MySQL 方言を許容）。
+        assert!(has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?sslmode=disable"
+        ));
+        assert!(has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?SSLMODE=DISABLED"
+        ));
+        assert!(has_explicit_plaintext_optin(
+            "mysql://u:p@h/db?ssl-mode=disable"
+        ));
+        assert!(has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?connect_timeout=10&sslmode=disable"
+        ));
+        // 明示なし。
+        assert!(!has_explicit_plaintext_optin("postgresql://u:p@h/db"));
+        assert!(!has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?connect_timeout=10"
+        ));
+        assert!(!has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?sslmode=require"
+        ));
+        // フラグメント内は無視する。
+        assert!(!has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db#sslmode=disable"
+        ));
     }
 
     #[test]
