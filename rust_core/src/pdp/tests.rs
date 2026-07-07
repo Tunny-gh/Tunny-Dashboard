@@ -1,9 +1,10 @@
 use super::*;
 
-/// Documentation.
+/// Build `n` samples with 2 params (`x1`, `x2`) where the objective depends
+/// only on `x1` (`y = x1`), linearly and monotonically increasing.
 ///
-/// Documentation.
-/// Documentation.
+/// `x2` is an unrelated oscillating feature (`sin(i * 0.3)`), used to check
+/// that the PDP for `x1` stays monotone regardless of `x2`.
 fn make_linear_data_1d(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<String>) {
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|i| {
@@ -17,9 +18,12 @@ fn make_linear_data_1d(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<String>) {
     (x_matrix, y, names)
 }
 
-/// Documentation.
+/// Build `n` samples with 3 correlated params (`x1`, `x2`, `x3`, all derived
+/// from a shared `t = i / n`) and an objective that is an exact linear
+/// combination of them: `y = 2*x1 - 0.5*x2 + 0.3*x3`.
 ///
-/// Documentation.
+/// Used to check that PDP/surrogate fits recover a known linear relationship
+/// across multiple parameters.
 fn make_linear_data_multi(n: usize) -> (Vec<Vec<f64>>, Vec<f64>, Vec<String>) {
     let x_matrix: Vec<Vec<f64>> = (0..n)
         .map(|i| {

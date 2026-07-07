@@ -19,6 +19,7 @@
 
 use super::common::normalize;
 use crate::math::rng::SeededRng;
+use crate::math::stats::value_range;
 use rayon::prelude::*;
 
 /// 葉ノード: 各次元の軸並行区間 `[lo, hi]` と葉内 y の平均値。
@@ -56,20 +57,7 @@ struct BuildCtx<'a> {
 /// 各木の根ノードの box はこの範囲で初期化される。
 fn observed_ranges(x: &[Vec<f64>], p: usize) -> Vec<(f64, f64)> {
     (0..p)
-        .map(|d| {
-            let mut lo = f64::INFINITY;
-            let mut hi = f64::NEG_INFINITY;
-            for row in x {
-                let v = row[d];
-                if v < lo {
-                    lo = v;
-                }
-                if v > hi {
-                    hi = v;
-                }
-            }
-            (lo, hi)
-        })
+        .map(|d| value_range(x.iter().map(|row| row[d])))
         .collect()
 }
 

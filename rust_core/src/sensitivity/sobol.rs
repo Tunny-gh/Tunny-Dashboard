@@ -1,7 +1,7 @@
 use super::data::get_param_numeric_values;
 use super::SobolResult;
 use crate::math::rng::SeededRng;
-use crate::math::stats::column_mean_std;
+use crate::math::stats::{column_mean_std, value_range};
 use rayon::prelude::*;
 
 struct SobolSurrogate {
@@ -53,11 +53,7 @@ fn compute_param_ranges_from_columns(param_columns: &[Vec<f64>]) -> Vec<(f64, f6
                 return (0.0, 1.0);
             }
 
-            let (min, max) = col
-                .iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
-                    (lo.min(v), hi.max(v))
-                });
+            let (min, max) = value_range(col.iter().copied());
 
             if (max - min).abs() < f64::EPSILON {
                 (min - 1.0, max + 1.0)

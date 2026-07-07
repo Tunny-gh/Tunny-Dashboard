@@ -1,4 +1,4 @@
-use crate::math::stats::column_mean_std;
+use crate::math::stats::{column_mean_std, value_range};
 
 pub(crate) fn col_mean_std(data: &[f64]) -> (f64, f64) {
     column_mean_std(data)
@@ -8,10 +8,7 @@ pub(crate) fn col_mean_std(data: &[f64]) -> (f64, f64) {
 ///
 /// Returns `(min, max)`. Returns `(INFINITY, NEG_INFINITY)` for an empty slice.
 pub(crate) fn col_min_max(data: &[f64]) -> (f64, f64) {
-    data.iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &v| {
-            (mn.min(v), mx.max(v))
-        })
+    value_range(data.iter().copied())
 }
 
 /// Normalize x matrix using min-max scaling.

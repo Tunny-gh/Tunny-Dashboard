@@ -28,7 +28,7 @@ use super::models::{fit_surrogate, FittedSurrogate};
 use super::optimizers::minimize_scalar_fn;
 use super::TrainedSurrogate;
 use crate::math::rng::SeededRng;
-use crate::multi_objective::pareto::hypervolume_nd;
+use crate::multi_objective::pareto::{dominates_minimized, hypervolume_nd};
 
 /// 参照点の nadir からのマージン（z-score 単位）。
 const REF_MARGIN: f64 = 0.1;
@@ -143,7 +143,7 @@ fn build_observed_front(
     // 非劣解の抽出（最小化: a が b に支配される ⟺ 全次元 a ≥ b かつ 1 次元で a > b）。
     let mut front: Vec<Vec<f64>> = Vec::new();
     for p in &points {
-        let dominated = points.iter().any(|q| dominates(q, p));
+        let dominated = points.iter().any(|q| dominates_minimized(q, p));
         if !dominated {
             // 重複点を除く。
             let dup = front
@@ -155,20 +155,6 @@ fn build_observed_front(
         }
     }
     front
-}
-
-/// 最小化規約で q が p を支配するか（q ≤ p 全次元 かつ q < p いずれか）。
-fn dominates(q: &[f64], p: &[f64]) -> bool {
-    let mut strictly_better = false;
-    for (qi, pi) in q.iter().zip(p.iter()) {
-        if qi > pi {
-            return false;
-        }
-        if qi < pi {
-            strictly_better = true;
-        }
-    }
-    strictly_better
 }
 
 /// 参照点 r を計算する: 次元ごとに `max_{p∈P} g_k(p) + REF_MARGIN`。

@@ -114,6 +114,26 @@ pub(crate) fn column_mean_std(vals: &[f64]) -> (f64, f64) {
     (mean, std_dev)
 }
 
+/// Minimum and maximum of an iterator of `f64` values in a single pass.
+///
+/// NaN values are ignored: `f64::min`/`f64::max` return the non-NaN operand
+/// when only one side is NaN, so a NaN element neither becomes the new
+/// minimum/maximum nor is it able to replace an already-tracked value. This
+/// matches the single-pass min/max loop every caller previously implemented
+/// independently.
+///
+/// Returns `(f64::INFINITY, f64::NEG_INFINITY)` when the iterator is empty
+/// (or yields only NaN values); callers apply their own fallback for that
+/// degenerate case (see `pdp::utils::col_min_max`,
+/// `sensitivity::tree::fanova::observed_ranges`, and
+/// `sensitivity::sobol::compute_param_ranges_from_columns`, which differ on
+/// what an empty/degenerate range should default to).
+pub(crate) fn value_range(iter: impl Iterator<Item = f64>) -> (f64, f64) {
+    iter.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+        (lo.min(v), hi.max(v))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +214,35 @@ mod tests {
     fn tc_2261_06_pearson_empty_returns_nan() {
         let r = pearson_correlation(&[], &[]);
         assert!(r.is_nan(), "expected NaN for empty slices, got {}", r);
+    }
+
+    // --- value_range ---
+
+    #[test]
+    fn value_range_normal_data() {
+        let (min, max) = value_range([3.0, 1.0, 2.0].into_iter());
+        assert_eq!(min, 1.0);
+        assert_eq!(max, 3.0);
+    }
+
+    #[test]
+    fn value_range_empty_returns_inf_neg_inf() {
+        let (min, max) = value_range(std::iter::empty());
+        assert_eq!(min, f64::INFINITY);
+        assert_eq!(max, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn value_range_ignores_nan() {
+        let (min, max) = value_range([1.0, f64::NAN, 5.0].into_iter());
+        assert_eq!(min, 1.0);
+        assert_eq!(max, 5.0);
+    }
+
+    #[test]
+    fn value_range_all_nan_returns_inf_neg_inf() {
+        let (min, max) = value_range([f64::NAN, f64::NAN].into_iter());
+        assert_eq!(min, f64::INFINITY);
+        assert_eq!(max, f64::NEG_INFINITY);
     }
 }

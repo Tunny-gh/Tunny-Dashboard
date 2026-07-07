@@ -1,8 +1,10 @@
 /// 最小化前提のパレート支配判定。
 ///
 /// `a` が `b` を支配する（全目的で a <= b かつ少なくとも 1 目的で a < b）
-/// とき true。NaN が混ざる比較は常に false 側に倒れるため支配とは判定されない。
-pub(super) fn dominates_minimized(a: &[f64], b: &[f64]) -> bool {
+/// とき true。NaN を含む次元は両方向の比較が false になるため「等価」として
+/// スキップされ、残りの次元だけで判定される（呼び出し側は原則として事前に
+/// 有限値へフィルタしている前提）。
+pub(crate) fn dominates_minimized(a: &[f64], b: &[f64]) -> bool {
     let mut strictly_better = false;
     for (&ai, &bi) in a.iter().zip(b.iter()) {
         if ai > bi {
