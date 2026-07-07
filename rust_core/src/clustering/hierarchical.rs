@@ -43,41 +43,41 @@ pub const MAX_HIERARCHICAL_ROWS: usize = 800;
 /// Ward 法の凝集型階層クラスタリングを実行する。
 ///
 /// `standardize` が true なら各列を平均 0・分散 1 に標準化してから距離を取る
-/// （単位の異なる変数を混在させる場合は必須）。行数が
-/// [`MAX_HIERARCHICAL_ROWS`] を超える場合は等間隔サブサンプルする。
-/// 行数 2 未満・特徴 0 のときは `None`。
+/// （単位の異なる変数を混在させる場合は必須）。NaN/Inf を含む行や特徴数の
+/// 揃わない行は距離が定義できないため冒頭で除外する（他のクラスタリング
+/// 関数と同じ方針）。行数が [`MAX_HIERARCHICAL_ROWS`] を超える場合は
+/// 等間隔サブサンプルする。有効行 2 未満・特徴 0 のときは `None`。
 pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<HierarchicalResult> {
     if data.len() < 2 || data[0].is_empty() {
         return None;
     }
+    let p = data[0].len();
+
+    // ── NaN/Inf 行・不揃い行の除外 ───────────────────────────────
+    // 非有限値が 1 つでも混入すると全ペア距離が NaN 化し、最近傍探索が
+    // 候補を見つけられず添字計算が範囲外 panic に到達する（H4 対策）。
+    let finite_rows: Vec<usize> = (0..data.len())
+        .filter(|&r| data[r].len() == p && data[r].iter().all(|v| v.is_finite()))
+        .collect();
+    if finite_rows.len() < 2 {
+        return None;
+    }
 
     // ── サブサンプル（等間隔・決定論的）─────────────────────────
-    let row_indices: Vec<usize> = if data.len() > MAX_HIERARCHICAL_ROWS {
-        let step = data.len() as f64 / MAX_HIERARCHICAL_ROWS as f64;
+    let row_indices: Vec<usize> = if finite_rows.len() > MAX_HIERARCHICAL_ROWS {
+        let step = finite_rows.len() as f64 / MAX_HIERARCHICAL_ROWS as f64;
         (0..MAX_HIERARCHICAL_ROWS)
-            .map(|i| ((i as f64 * step) as usize).min(data.len() - 1))
+            .map(|i| finite_rows[((i as f64 * step) as usize).min(finite_rows.len() - 1)])
             .collect()
     } else {
-        (0..data.len()).collect()
+        finite_rows
     };
     let n = row_indices.len();
-    let p = data[0].len();
 
     // ── 標準化（オプション）──────────────────────────────────────
     let mut x: Vec<Vec<f64>> = row_indices.iter().map(|&r| data[r].clone()).collect();
     if standardize {
-        for j in 0..p {
-            let mean = x.iter().map(|r| r[j]).sum::<f64>() / n as f64;
-            let var = x.iter().map(|r| (r[j] - mean).powi(2)).sum::<f64>() / n as f64;
-            let std = var.sqrt();
-            for row in &mut x {
-                row[j] = if std > 1e-12 {
-                    (row[j] - mean) / std
-                } else {
-                    0.0
-                };
-            }
-        }
+        super::standardize::standardize_columns(&mut x, 0);
     }
 
     // ── 距離行列（Ward 初期値 = ユークリッド距離の 2 乗 / 2 ... 慣例的には
@@ -130,6 +130,11 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
                     best_d = dd;
                     best = cand;
                 }
+            }
+            // 二重防御: NaN 距離などで最近傍が見つからない場合は panic せず
+            // 安全に打ち切る（冒頭の有限値フィルタにより通常は到達しない）。
+            if best == usize::MAX {
+                return None;
             }
             if Some(best) == prev {
                 // 相互最近傍 → 併合。
@@ -373,5 +378,40 @@ mod tests {
     fn too_small_input_returns_none() {
         assert!(ward_linkage(&[vec![1.0]], false).is_none());
         assert!(ward_linkage(&[], false).is_none());
+    }
+
+    #[test]
+    fn nan_rows_are_excluded_without_panic() {
+        // NaN 行が混入しても panic せず、有限行のみでクラスタリングされる（H4 回帰）。
+        let mut data = two_blobs();
+        data.insert(3, vec![f64::NAN, 0.0]);
+        data.push(vec![0.5, f64::INFINITY]);
+        let n_valid = data.len() - 2;
+        for standardize in [false, true] {
+            let r = ward_linkage(&data, standardize).expect("valid rows remain");
+            assert_eq!(r.row_indices.len(), n_valid);
+            assert_eq!(r.merges.len(), n_valid - 1);
+            // row_indices は NaN 行 (3, 末尾) を含まない。
+            assert!(!r.row_indices.contains(&3));
+            assert!(!r.row_indices.contains(&(data.len() - 1)));
+            assert!(r.merges.iter().all(|m| m.distance.is_finite()));
+        }
+    }
+
+    #[test]
+    fn all_nan_rows_return_none() {
+        // 有効行が 2 未満なら panic せず None。
+        let data = vec![vec![f64::NAN, 1.0], vec![2.0, f64::NAN], vec![1.0, 1.0]];
+        assert!(ward_linkage(&data, false).is_none());
+        assert!(ward_linkage(&data, true).is_none());
+    }
+
+    #[test]
+    fn ragged_rows_are_excluded_without_panic() {
+        // 特徴数の揃わない行も距離が定義できないため除外される。
+        let mut data = two_blobs();
+        data.push(vec![1.0]); // 1 特徴しかない行
+        let r = ward_linkage(&data, false).expect("valid rows remain");
+        assert_eq!(r.row_indices.len(), data.len() - 1);
     }
 }

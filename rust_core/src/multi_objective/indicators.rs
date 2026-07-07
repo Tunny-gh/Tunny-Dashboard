@@ -19,6 +19,8 @@
 //! - Hypervolume は既存実装との整合と参照点指定の単位を保つため、正規化（符号反転のみ）空間で
 //!   計算し、参照点は全系列共有の nadir から算出する。
 
+use rayon::prelude::*;
+
 use super::pareto::{add_to_pareto_front, compute_ref_point, hypervolume_nd, normalize_objectives};
 
 /// 全体評価指標の種類。
@@ -188,6 +190,9 @@ pub fn compute_indicator_histories(
         .zip(normalized.iter())
         .map(|(s, norm)| {
             let n = norm.len();
+            // HV は正規化最小化空間の前面、それ以外は [0,1] 空間の前面を増分更新する。
+            // 支配関係は正の線形スケール + 平行移動（to_unit）で保存されるため、
+            // 毎ステップ前面全体を [0,1] へ再写像しなくても同じ前面集合になる。
             let mut current_front: Vec<Vec<f64>> = Vec::new();
             let mut values = Vec::with_capacity(n);
 
@@ -198,20 +203,20 @@ pub fn compute_indicator_histories(
                     values.push(values.last().copied().unwrap_or(0.0));
                     continue;
                 }
-                add_to_pareto_front(&mut current_front, obj.clone());
 
                 let v = match indicator {
-                    MoIndicator::Hypervolume => hypervolume_nd(&current_front, &hv_ref_point),
+                    MoIndicator::Hypervolume => {
+                        add_to_pareto_front(&mut current_front, obj.clone());
+                        hypervolume_nd(&current_front, &hv_ref_point)
+                    }
                     _ => {
-                        // [0,1] 空間の前面を同期して再構築し、参照集合と比較する。
-                        let current_unit: Vec<Vec<f64>> =
-                            current_front.iter().map(|p| to_unit(p)).collect();
+                        add_to_pareto_front(&mut current_front, to_unit(obj));
                         match indicator {
-                            MoIndicator::IgdPlus => igd_plus(&current_unit, &reference_unit),
+                            MoIndicator::IgdPlus => igd_plus(&current_front, &reference_unit),
                             MoIndicator::Epsilon => {
-                                additive_epsilon(&current_unit, &reference_unit)
+                                additive_epsilon(&current_front, &reference_unit)
                             }
-                            MoIndicator::R2 => r2_indicator(&current_unit, &weights),
+                            MoIndicator::R2 => r2_indicator(&current_front, &weights),
                             MoIndicator::Hypervolume => unreachable!(),
                         }
                     }
@@ -244,16 +249,19 @@ pub fn igd_plus(approx: &[Vec<f64>], reference: &[Vec<f64>]) -> f64 {
     if approx.is_empty() {
         return f64::INFINITY;
     }
-    let sum: f64 = reference
-        .iter()
+    // 参照点ごとの最近傍探索を並列化する。決定性維持のため、参照集合の
+    // 元の順序で Vec に集めてから逐次に総和を取る（並列リダクションの
+    // 加算順序ゆらぎで最下位ビットが変わるのを避ける）。
+    let mins: Vec<f64> = reference
+        .par_iter()
         .map(|z| {
             approx
                 .iter()
                 .map(|a| dist_plus(a, z))
                 .fold(f64::INFINITY, f64::min)
         })
-        .sum();
-    sum / reference.len() as f64
+        .collect();
+    mins.iter().sum::<f64>() / reference.len() as f64
 }
 
 /// 修正距離 d+(a, z)（a が z より悪い目的のみ寄与する。最小化前提）。
@@ -284,8 +292,11 @@ pub fn additive_epsilon(approx: &[Vec<f64>], reference: &[Vec<f64>]) -> f64 {
     if approx.is_empty() {
         return f64::INFINITY;
     }
-    reference
-        .iter()
+    // 参照点ごとの min-max 計算を並列化する。max は結合的で丸め誤差を
+    // 持たないが、igd_plus と同じく順序保存 collect + 逐次 fold で
+    // 決定性を明示的に保証する。
+    let per_ref: Vec<f64> = reference
+        .par_iter()
         .map(|z| {
             approx
                 .iter()
@@ -297,7 +308,8 @@ pub fn additive_epsilon(approx: &[Vec<f64>], reference: &[Vec<f64>]) -> f64 {
                 })
                 .fold(f64::INFINITY, f64::min)
         })
-        .fold(f64::NEG_INFINITY, f64::max)
+        .collect();
+    per_ref.iter().copied().fold(f64::NEG_INFINITY, f64::max)
 }
 
 /// R2 indicator（重み付き Tchebycheff スカラー化、ideal 基準）。

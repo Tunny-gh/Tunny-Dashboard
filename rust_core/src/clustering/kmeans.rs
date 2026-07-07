@@ -109,8 +109,19 @@ pub(crate) fn estimate_k_elbow_on_data(
     }
 }
 
+/// フラットな行優先データに対して k-means を実行する。
+///
+/// `flat_data.len()` が `n_cols` で割り切れない場合は不正入力とみなし、
+/// 空の結果（`labels` 空）を返す。debug ビルドではアサートで検出する
+/// （以前は黙って行数を切り捨てた末に空結果を返していた）。
 pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize, init: InitStrategy) -> KmeansResult {
-    if n_cols == 0 || flat_data.is_empty() {
+    debug_assert!(
+        n_cols == 0 || flat_data.len().is_multiple_of(n_cols),
+        "flat_data length {} is not divisible by n_cols {}",
+        flat_data.len(),
+        n_cols
+    );
+    if n_cols == 0 || flat_data.is_empty() || !flat_data.len().is_multiple_of(n_cols) {
         return KmeansResult {
             labels: vec![],
             centroids: vec![],
@@ -122,8 +133,18 @@ pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize, init: InitStrategy
     run_kmeans_on_data(flat_data, n, n_cols, k, init)
 }
 
+/// エルボー法で推奨クラスタ数を推定する。
+///
+/// `flat_data.len()` が `n_cols` で割り切れない場合は不正入力とみなし、
+/// 空の結果を返す（debug ビルドではアサートで検出）。
 pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> ElbowResult {
-    if n_cols == 0 || flat_data.is_empty() {
+    debug_assert!(
+        n_cols == 0 || flat_data.len().is_multiple_of(n_cols),
+        "flat_data length {} is not divisible by n_cols {}",
+        flat_data.len(),
+        n_cols
+    );
+    if n_cols == 0 || flat_data.is_empty() || !flat_data.len().is_multiple_of(n_cols) {
         return ElbowResult {
             wcss_per_k: vec![],
             recommended_k: 2,
@@ -131,4 +152,25 @@ pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> Elbow
     }
     let n = flat_data.len() / n_cols;
     estimate_k_elbow_on_data(flat_data, n, n_cols, max_k)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg_attr(debug_assertions, should_panic(expected = "not divisible"))]
+    fn run_kmeans_rejects_non_divisible_flat_data() {
+        // debug: アサートで早期検出 / release: 黙って切り捨てず空結果。
+        let r = run_kmeans(2, &[1.0, 2.0, 3.0], 2, InitStrategy::Deterministic);
+        assert!(r.labels.is_empty());
+        assert!(r.centroids.is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, should_panic(expected = "not divisible"))]
+    fn estimate_k_elbow_rejects_non_divisible_flat_data() {
+        let r = estimate_k_elbow(&[1.0, 2.0, 3.0, 4.0, 5.0], 2, 4);
+        assert!(r.wcss_per_k.is_empty());
+    }
 }
