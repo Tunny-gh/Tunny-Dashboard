@@ -6,6 +6,7 @@
 
 use std::error::Error as StdError;
 
+use postgres::fallible_iterator::FallibleIterator;
 use postgres::types::private::BytesMut;
 use postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
 use postgres::{Client, NoTls, Row};
@@ -161,32 +162,37 @@ fn column_to_sql_value(row: &Row, idx: usize) -> Result<SqlValue, String> {
 }
 
 impl OptunaBackend for PostgresBackend {
-    fn query(&mut self, sql: &str, params: &[SqlParam]) -> Result<Vec<Vec<SqlValue>>, String> {
+    fn query_for_each(
+        &mut self,
+        sql: &str,
+        params: &[SqlParam],
+        on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+    ) -> Result<(), String> {
         let converted = convert_placeholders(sql);
         let owned_params: Vec<Box<dyn ToSql + Sync>> =
             params.iter().map(to_postgres_param).collect();
         let refs: Vec<&(dyn ToSql + Sync)> = owned_params.iter().map(AsRef::as_ref).collect();
-        let rows = self
+        // `query_raw` はサーバカーソル経由で行をストリーミングする（`query` のように
+        // 全 `Row` を一括バッファしない）。`RowIter` は `FallibleIterator` なので
+        // `.next()` は `Result<Option<Row>>` を返す。
+        let mut row_iter = self
             .client
-            .query(&converted, &refs)
+            .query_raw(&converted, refs)
             .map_err(|e| format!("Failed to execute query: {e}"))?;
-        rows.iter()
-            .map(|row| {
-                (0..row.len())
-                    .map(|i| column_to_sql_value(row, i))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .collect()
+        let mut buf: Vec<SqlValue> = Vec::new();
+        while let Some(row) = row_iter
+            .next()
+            .map_err(|e| format!("Failed to read query results: {e}"))?
+        {
+            buf.clear();
+            for i in 0..row.len() {
+                buf.push(column_to_sql_value(&row, i)?);
+            }
+            on_row(&buf)?;
+        }
+        Ok(())
     }
-
-    fn table_exists(&mut self, table: &str) -> Result<bool, String> {
-        let rows = self.query(
-            "SELECT 1 FROM information_schema.tables \
-             WHERE table_schema = current_schema() AND table_name = ? LIMIT 1",
-            &[SqlParam::Text(table.to_string())],
-        )?;
-        Ok(!rows.is_empty())
-    }
+    // `table_exists` は既定実装（`information_schema` + `current_schema()`）をそのまま使う。
 }
 
 #[cfg(test)]

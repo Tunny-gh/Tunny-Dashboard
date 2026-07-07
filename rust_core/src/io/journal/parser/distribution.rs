@@ -15,7 +15,7 @@ pub(crate) enum Distribution {
 }
 
 impl Distribution {
-    /// Documentation.
+    /// journal の distribution JSON（文字列で二重にシリアライズされている場合を含む）を解析する。
     pub(crate) fn from_json(json: &Value) -> Self {
         if let Some(serialized) = json.as_str() {
             if let Ok(parsed) = serde_json::from_str::<Value>(serialized) {
@@ -62,7 +62,6 @@ impl Distribution {
         }
     }
 
-    /// Documentation.
     /// 宣言レンジ (low, high) を表示単位で返す（Float / Int のみ）。
     /// サロゲート最適化の探索範囲を真の変数範囲に一致させるために使う。
     /// log スケールの low/high も表示（実数）空間の値なのでそのまま返す。
@@ -98,7 +97,7 @@ impl Distribution {
         }
     }
 
-    /// Documentation.
+    /// Categorical の格納値（インデックス）を対応する選択肢のラベル文字列に変換する。
     pub(crate) fn categorical_label(&self, internal: f64) -> Option<String> {
         let Distribution::Categorical { choices } = self else {
             return None;

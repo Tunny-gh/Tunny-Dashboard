@@ -48,7 +48,12 @@ fn value_ref_to_sql_value(value_ref: rusqlite::types::ValueRef<'_>) -> SqlValue 
 }
 
 impl OptunaBackend for SqliteBackend {
-    fn query(&mut self, sql: &str, params: &[SqlParam]) -> Result<Vec<Vec<SqlValue>>, String> {
+    fn query_for_each(
+        &mut self,
+        sql: &str,
+        params: &[SqlParam],
+        on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+    ) -> Result<(), String> {
         let mut stmt = self
             .conn
             .prepare(sql)
@@ -56,18 +61,26 @@ impl OptunaBackend for SqliteBackend {
         let column_count = stmt.column_count();
         let bound_params: Vec<rusqlite::types::Value> =
             params.iter().map(to_rusqlite_value).collect();
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(bound_params), |row| {
-                let mut values = Vec::with_capacity(column_count);
-                for i in 0..column_count {
-                    values.push(value_ref_to_sql_value(row.get_ref(i)?));
-                }
-                Ok(values)
-            })
-            .map_err(|e| format!("Failed to execute query: {e}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Failed to read query results: {e}"))?;
-        Ok(rows)
+        // rusqlite の `Rows` カーソルで 1 行ずつ取り出し、行バッファを使い回して
+        // 全行を同時にメモリへ載せない（大規模 DB での OOM 回避）。
+        let mut rows = stmt
+            .query(rusqlite::params_from_iter(bound_params))
+            .map_err(|e| format!("Failed to execute query: {e}"))?;
+        let mut buf: Vec<SqlValue> = Vec::with_capacity(column_count);
+        while let Some(row) = rows
+            .next()
+            .map_err(|e| format!("Failed to read query results: {e}"))?
+        {
+            buf.clear();
+            for i in 0..column_count {
+                let value_ref = row
+                    .get_ref(i)
+                    .map_err(|e| format!("Failed to read column {i}: {e}"))?;
+                buf.push(value_ref_to_sql_value(value_ref));
+            }
+            on_row(&buf)?;
+        }
+        Ok(())
     }
 
     fn table_exists(&mut self, table: &str) -> Result<bool, String> {

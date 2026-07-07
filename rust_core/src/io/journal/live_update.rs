@@ -2,6 +2,7 @@
 //!
 //! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-1201
 
+use super::line_u32_field;
 use super::parser::distribution::Distribution;
 use crate::io::datetime::parse_naive_datetime;
 use serde_json::Value;
@@ -336,24 +337,9 @@ pub fn count_created_trials(data: &[u8]) -> u32 {
 }
 
 /// 行から op_code 値を抽出する（JSON パース不要の軽量版）。
+/// 抽出本体は [`line_u32_field`]（`io::journal` 共通ヘルパ、行毎の alloc なし）。
 fn line_op_code(line: &str) -> Option<u8> {
-    line_u32_field(line, "op_code").map(|v| v as u8)
-}
-
-/// 行から `"key": <非負整数>` の値を抽出する（JSON パース不要の軽量版）。
-fn line_u32_field(line: &str, key: &str) -> Option<u32> {
-    let needle = format!("\"{key}\"");
-    let key_pos = line.find(&needle)?;
-    let after = line.get(key_pos + needle.len()..)?;
-    let colon = after.find(':')?;
-    let digits = after[colon + 1..].trim_start();
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
-    if end == 0 {
-        return None;
-    }
-    digits[..end].parse().ok()
+    line_u32_field(line, "op_code").and_then(|v| u8::try_from(v).ok())
 }
 
 // =============================================================================

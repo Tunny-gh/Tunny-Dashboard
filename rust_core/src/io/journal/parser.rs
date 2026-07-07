@@ -1,5 +1,7 @@
-//! Module documentation.
-//! Module documentation.
+//! Optuna JournalStorage（JSON Lines）のパーサ。
+//!
+//! 一括解析（`parse_journal`）、Study 一覧の高速スキャン（`scan_study_list`）、
+//! 指定 study のオンデマンド解析（`parse_single_study` / `parse_single_study_streaming`）を提供する。
 //!
 //! Reference: docs/implements/TASK-101/journal-parser-requirements.md
 
@@ -11,6 +13,7 @@ mod types;
 
 use serde_json::Value;
 
+use super::line_u32_field;
 use finalize::finalize_state;
 use state::{get_str, get_u64, ParserState};
 
@@ -21,14 +24,11 @@ use builders::TrialBuilder;
 #[cfg(test)]
 use distribution::Distribution;
 
-/// Documentation.
+/// Journal 全体を一括パースし、全 study の `StudyMeta` を返す。
 ///
-/// Documentation.
-/// Documentation.
-/// Documentation.
-///
-/// Documentation.
-/// Documentation.
+/// 併せて全 study の `DataFrame`（COMPLETE trial）と `StudyExtras`（全 state の付帯情報）を
+/// 構築し、共有ストア（`crate::dataframe`）へ格納する。不正な JSON 行は読み飛ばし、
+/// 有効行が 1 行も無い場合はエラーを返す。
 pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     let start = std::time::Instant::now();
 
@@ -72,7 +72,15 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
 
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    let (studies, dataframes, extras) = finalize_state(state);
+    let finalized = finalize_state(state);
+    let mut studies = Vec::with_capacity(finalized.len());
+    let mut dataframes = Vec::with_capacity(finalized.len());
+    let mut extras = Vec::with_capacity(finalized.len());
+    for study in finalized {
+        studies.push(study.meta);
+        dataframes.push(study.dataframe);
+        extras.push(study.extras);
+    }
     crate::dataframe::store_dataframes(dataframes);
     crate::dataframe::store_extras(extras);
 
@@ -91,6 +99,8 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
     }
     let text = String::from_utf8_lossy(data);
     let mut studies: Vec<StudyMeta> = Vec::new();
+    // study 名の重複チェック用（Vec の線形探索を避ける）。
+    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for line in text.lines() {
         let line = line.trim();
@@ -100,7 +110,7 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         // op_code は Optuna journal の各行で必ず先頭フィールド (`{"op_code":N,...`)。
         // 1 回だけ抽出して分岐し、行全体を何度も走査する contains を排除する。
         // Trial 行（op_code 4/5/6/8/9）は全体の 99% 以上を占めるため、ここで即除外する。
-        let op = match quick_extract_u32(line, "op_code") {
+        let op = match line_u32_field(line, "op_code") {
             Some(op) => u64::from(op),
             None => continue,
         };
@@ -118,7 +128,8 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         match op {
             0 => {
                 let name = get_str(&json, "study_name").unwrap_or("").to_string();
-                if studies.iter().any(|s| s.name == name) {
+                // 同名 study の重複 create_study 行はスキップ（HashSet で O(1) 判定）。
+                if !seen_names.insert(name.clone()) {
                     continue;
                 }
                 let directions = json
@@ -178,29 +189,41 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
     Ok(studies)
 }
 
-/// JSON パース不要で `"field":N` 形式の u32 値を高速抽出する。
-/// Phase 2 の string-level フィルタリングに使用する。
-fn quick_extract_u32(line: &str, field: &str) -> Option<u32> {
-    // 例: `"study_id":2,` → Some(2)
-    // フィールド名の長さに応じてスタック上のバッファを使うため alloc なし。
-    let key_start = line.find(field)?;
-    // field の前に `"` があり、後に `":` が続くことを確認する
-    let before = key_start.checked_sub(1)?;
-    if line.as_bytes().get(before) != Some(&b'"') {
-        return None;
+/// op_code=0（CREATE_STUDY）/ 3（SET_STUDY_SYSTEM_ATTR）の共通処理
+/// （`parse_single_study` Pass 1 と `parse_single_study_streaming` で共用）。
+///
+/// op0 は数が少ないため即 JSON パースする。op3 の大半は巨大な sampler 属性行のため、
+/// `study:metric_names` を含む行のみパースする。戻り値は「有効行として数えるか」
+/// （op0 はパース成功時のみ、op3 は常に true）。
+fn process_study_meta_op(state: &mut ParserState, op: u8, line: &str) -> bool {
+    match op {
+        0 => {
+            if let Ok(json) = serde_json::from_str::<Value>(line) {
+                state.process_op(0, &json);
+                true
+            } else {
+                false
+            }
+        }
+        3 => {
+            if line.contains("study:metric_names") {
+                if let Ok(json) = serde_json::from_str::<Value>(line) {
+                    state.process_op(3, &json);
+                }
+            }
+            true
+        }
+        _ => false,
     }
-    let after_key = key_start + field.len();
-    let rest = line.get(after_key..)?;
-    // `":` または `": ` を探す
-    let colon_pos = rest.find(':')?;
-    let digits = rest[colon_pos + 1..].trim_start();
-    let end = digits
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(digits.len());
-    if end == 0 {
-        return None;
+}
+
+/// op_code=4 の非対象 study 行の共通処理: JSON パースせず、trial_id カウンタの整合と
+/// 該当 study の total_trials のみ更新する（`parse_single_study` / streaming で共用）。
+fn count_other_study_trial(state: &mut ParserState, sid: u32) {
+    state.next_trial_id += 1;
+    if (sid as usize) < state.studies.len() {
+        state.studies[sid as usize].total_trials += 1;
     }
-    digits[..end].parse().ok()
 }
 
 /// Phase 2: 指定 study_id の Trial データのみパースして (StudyMeta, DataFrame) を返す。
@@ -244,34 +267,22 @@ pub fn parse_single_study(
             continue;
         }
 
-        let op = match quick_extract_u32(line, "op_code") {
+        let op = match line_u32_field(line, "op_code") {
             #[allow(clippy::cast_possible_truncation)]
             Some(op) => op as u8,
             None => continue,
         };
 
         match op {
-            0 => {
-                // CREATE_STUDY: 数が少ないので即パース
-                if let Ok(json) = serde_json::from_str::<Value>(line) {
+            0 | 3 => {
+                if process_study_meta_op(&mut state, op, line) {
                     any_valid = true;
-                    state.process_op(0, &json);
-                }
-            }
-            3 => {
-                // SET_STUDY_SYSTEM_ATTR: 必要なのは metric_names を持つ行のみ。
-                // 巨大な sampler 属性行の JSON パースを回避する。
-                any_valid = true;
-                if line.contains("study:metric_names") {
-                    if let Ok(json) = serde_json::from_str::<Value>(line) {
-                        state.process_op(3, &json);
-                    }
                 }
             }
             4 => {
                 any_valid = true;
                 let pre_trial_id = state.next_trial_id;
-                match quick_extract_u32(line, "study_id") {
+                match line_u32_field(line, "study_id") {
                     Some(sid) if sid == target_study_id => {
                         // 対象 Study → Pass 2 へ回す（カウンタは先に進める）
                         state.next_trial_id += 1;
@@ -280,10 +291,7 @@ pub fn parse_single_study(
                     }
                     Some(sid) => {
                         // 他 Study → JSON 不要、カウンタのみ更新
-                        state.next_trial_id += 1;
-                        if (sid as usize) < state.studies.len() {
-                            state.studies[sid as usize].total_trials += 1;
-                        }
+                        count_other_study_trial(&mut state, sid);
                     }
                     None => {
                         // 抽出失敗 → 安全のためフルパースにフォールバック
@@ -300,7 +308,7 @@ pub fn parse_single_study(
             5..=9 => {
                 // 試行更新系（op7 の中間値含む）: 対象 trial_id の行のみ Pass 2 へ
                 any_valid = true;
-                if let Some(tid) = quick_extract_u32(line, "trial_id") {
+                if let Some(tid) = line_u32_field(line, "trial_id") {
                     if target_trial_ids.contains(&tid) {
                         deferred.push((line, op, None));
                     }
@@ -337,17 +345,12 @@ pub fn parse_single_study(
         state.process_op(op, &json);
     }
 
-    let (studies, dataframes, extras) = finalize_state(state);
-
-    let pos = studies
-        .iter()
-        .position(|s| s.study_id == target_study_id)
+    let study = finalize_state(state)
+        .into_iter()
+        .find(|s| s.meta.study_id == target_study_id)
         .ok_or_else(|| format!("study_id {target_study_id} not found in journal"))?;
 
-    let meta = studies.into_iter().nth(pos).unwrap();
-    let df = dataframes.into_iter().nth(pos).unwrap();
-    let study_extras = extras.into_iter().nth(pos).unwrap();
-    Ok((meta, df, study_extras))
+    Ok((study.meta, study.dataframe, study.extras))
 }
 
 /// `parse_single_study_streaming` が逐次コールバックへ渡すバッチ。
@@ -376,137 +379,179 @@ pub struct StudyStreamBatch {
     pub is_final: bool,
 }
 
-/// 累積集合から StudyMeta スナップショットを生成する。
-#[allow(clippy::too_many_arguments)]
-fn stream_build_meta(
-    state: &ParserState,
-    target: u32,
-    param_set: &std::collections::BTreeSet<String>,
-    uan_set: &std::collections::BTreeSet<String>,
-    uas_set: &std::collections::BTreeSet<String>,
-    derived_objective_names: &[String],
+/// `parse_single_study_streaming` の累積状態（バッチ・列名集合・カウンタ）。
+///
+/// 旧 `stream_emit_completed_trial` が約 15 個の引数で受け渡していた可変状態を
+/// 1 つの struct に集約したもの（挙動は不変）。
+struct StreamAccum {
+    batch: Vec<crate::dataframe::TrialRow>,
+    batch_size: usize,
+    param_set: std::collections::BTreeSet<String>,
+    uan_set: std::collections::BTreeSet<String>,
+    uas_set: std::collections::BTreeSet<String>,
+    derived_objective_names: Vec<String>,
     has_constraints: bool,
+    max_constraints: usize,
     completed: u32,
-) -> StudyMeta {
-    let builder = &state.studies[target as usize];
-    let objective_names = if builder.objective_names.is_empty() {
-        derived_objective_names.to_vec()
-    } else {
-        builder.objective_names.clone()
-    };
-    // user_attr_names は数値・文字列をマージしソート（既存 finalize と同等）。
-    let mut user_attr_names: Vec<String> = uan_set.iter().chain(uas_set.iter()).cloned().collect();
-    user_attr_names.sort();
-    user_attr_names.dedup();
-    StudyMeta {
-        study_id: target,
-        name: builder.name.clone(),
-        directions: builder.directions.clone(),
-        completed_trials: completed,
-        total_trials: builder.total_trials,
-        param_names: param_set.iter().cloned().collect(),
-        objective_names,
-        user_attr_names,
-        has_constraints,
-        param_bounds: builder.param_bounds.clone(),
-    }
+    first_sent: bool,
 }
 
-/// 完了 Trial（state==1）の builder をバッチへ取り込み、列名集合・カウンタを更新する。
-/// バッチが満杯になったら `on_batch` で送出する。
-///
-/// in-memory ストレージは op_code=4 にすべての Trial データ（state / values / params）を
-/// インラインで持ち、後続の op_code=6 が来ない。一方ファイルストレージは op_code=6 で完了する。
-/// 両者の完了処理を共通化するためのヘルパー。
-#[allow(clippy::too_many_arguments)]
-fn stream_emit_completed_trial<F>(
-    tid: u32,
-    builder: builders::TrialBuilder,
-    state: &ParserState,
-    target_study_id: u32,
-    batch: &mut Vec<crate::dataframe::TrialRow>,
-    batch_size: usize,
-    param_set: &mut std::collections::BTreeSet<String>,
-    uan_set: &mut std::collections::BTreeSet<String>,
-    uas_set: &mut std::collections::BTreeSet<String>,
-    derived_objective_names: &mut Vec<String>,
-    has_constraints: &mut bool,
-    max_constraints: &mut usize,
-    completed: &mut u32,
-    first_sent: &mut bool,
-    on_batch: &mut F,
-) where
-    F: FnMut(StudyStreamBatch),
-{
-    use crate::dataframe::TrialRow;
-
-    let b = builder;
-    for name in b.param_display.keys() {
-        param_set.insert(name.clone());
-    }
-    for name in b.param_category_label.keys() {
-        param_set.insert(name.clone());
-    }
-    for name in b.user_attrs_numeric.keys() {
-        uan_set.insert(name.clone());
-    }
-    for name in b.user_attrs_string.keys() {
-        uas_set.insert(name.clone());
-    }
-    if b.has_constraints {
-        *has_constraints = true;
-    }
-    *max_constraints = (*max_constraints).max(b.constraint_values.len());
-    if derived_objective_names.is_empty() {
-        if let Some(values) = &b.values {
-            *derived_objective_names = (0..values.len()).map(|i| format!("obj{i}")).collect();
+impl StreamAccum {
+    fn new(batch_size: usize) -> Self {
+        let batch_size = batch_size.max(1);
+        StreamAccum {
+            batch: Vec::with_capacity(batch_size),
+            batch_size,
+            param_set: std::collections::BTreeSet::new(),
+            uan_set: std::collections::BTreeSet::new(),
+            uas_set: std::collections::BTreeSet::new(),
+            derived_objective_names: Vec::new(),
+            has_constraints: false,
+            max_constraints: 0,
+            completed: 0,
+            first_sent: false,
         }
     }
-    *completed += 1;
-    batch.push(TrialRow {
-        trial_id: tid,
-        trial_number: b.trial_number,
-        param_display: b.param_display,
-        param_category_label: b.param_category_label,
-        objective_values: b.values.unwrap_or_default(),
-        user_attrs_numeric: b.user_attrs_numeric,
-        user_attrs_string: b.user_attrs_string,
-        constraint_values: b.constraint_values,
-    });
 
-    if batch.len() >= batch_size {
-        let meta = stream_build_meta(
-            state,
-            target_study_id,
-            param_set,
-            uan_set,
-            uas_set,
-            derived_objective_names,
-            *has_constraints,
-            *completed,
-        );
-        let objective_names = if !state.studies[target_study_id as usize]
-            .objective_names
-            .is_empty()
-        {
-            state.studies[target_study_id as usize]
-                .objective_names
-                .clone()
+    /// 目的名を選ぶ: study builder 側の確定名があればそれ、無ければ完了 trial の
+    /// values 数から導出した `obj{i}`。
+    fn objective_names(&self, state: &ParserState, target: u32) -> Vec<String> {
+        let builder_names = &state.studies[target as usize].objective_names;
+        if builder_names.is_empty() {
+            self.derived_objective_names.clone()
         } else {
-            derived_objective_names.clone()
-        };
+            builder_names.clone()
+        }
+    }
+
+    /// 累積集合から StudyMeta スナップショットを生成する。
+    fn snapshot_meta(&self, state: &ParserState, target: u32) -> StudyMeta {
+        let builder = &state.studies[target as usize];
+        // user_attr_names は数値・文字列をマージしソート（既存 finalize と同等）。
+        let mut user_attr_names: Vec<String> = self
+            .uan_set
+            .iter()
+            .chain(self.uas_set.iter())
+            .cloned()
+            .collect();
+        user_attr_names.sort();
+        user_attr_names.dedup();
+        StudyMeta {
+            study_id: target,
+            name: builder.name.clone(),
+            directions: builder.directions.clone(),
+            completed_trials: self.completed,
+            total_trials: builder.total_trials,
+            param_names: self.param_set.iter().cloned().collect(),
+            objective_names: self.objective_names(state, target),
+            user_attr_names,
+            has_constraints: self.has_constraints,
+            param_bounds: builder.param_bounds.clone(),
+        }
+    }
+
+    /// 現在の累積内容から `StudyStreamBatch` を組み立てて送出する
+    /// （`batch` は take されて空になる）。
+    fn send_batch<F>(&mut self, state: &ParserState, target: u32, is_final: bool, on_batch: &mut F)
+    where
+        F: FnMut(StudyStreamBatch),
+    {
+        let meta = self.snapshot_meta(state, target);
+        let objective_names = self.objective_names(state, target);
         on_batch(StudyStreamBatch {
             meta,
-            new_rows: std::mem::take(batch),
-            param_names: param_set.iter().cloned().collect(),
+            new_rows: std::mem::take(&mut self.batch),
+            param_names: self.param_set.iter().cloned().collect(),
             objective_names,
-            user_attr_numeric_names: uan_set.iter().cloned().collect(),
-            user_attr_string_names: uas_set.iter().cloned().collect(),
-            max_constraints: *max_constraints,
-            is_first: !*first_sent,
-            is_final: false,
+            user_attr_numeric_names: self.uan_set.iter().cloned().collect(),
+            user_attr_string_names: self.uas_set.iter().cloned().collect(),
+            max_constraints: self.max_constraints,
+            is_first: !self.first_sent,
+            is_final,
         });
-        *first_sent = true;
+        self.first_sent = true;
+    }
+
+    /// 完了 Trial（state==1）の builder をバッチへ取り込み、列名集合・カウンタを更新する。
+    /// バッチが満杯になったら `on_batch` で送出する。
+    fn emit_completed_trial<F>(
+        &mut self,
+        tid: u32,
+        builder: builders::TrialBuilder,
+        state: &ParserState,
+        target: u32,
+        on_batch: &mut F,
+    ) where
+        F: FnMut(StudyStreamBatch),
+    {
+        use crate::dataframe::TrialRow;
+
+        let b = builder;
+        for name in b.param_display.keys() {
+            self.param_set.insert(name.clone());
+        }
+        for name in b.param_category_label.keys() {
+            self.param_set.insert(name.clone());
+        }
+        for name in b.user_attrs_numeric.keys() {
+            self.uan_set.insert(name.clone());
+        }
+        for name in b.user_attrs_string.keys() {
+            self.uas_set.insert(name.clone());
+        }
+        if b.has_constraints {
+            self.has_constraints = true;
+        }
+        self.max_constraints = self.max_constraints.max(b.constraint_values.len());
+        if self.derived_objective_names.is_empty() {
+            if let Some(values) = &b.values {
+                self.derived_objective_names =
+                    (0..values.len()).map(|i| format!("obj{i}")).collect();
+            }
+        }
+        self.completed += 1;
+        self.batch.push(TrialRow {
+            trial_id: tid,
+            trial_number: b.trial_number,
+            param_display: b.param_display,
+            param_category_label: b.param_category_label,
+            objective_values: b.values.unwrap_or_default(),
+            user_attrs_numeric: b.user_attrs_numeric,
+            user_attrs_string: b.user_attrs_string,
+            constraint_values: b.constraint_values,
+        });
+
+        if self.batch.len() >= self.batch_size {
+            self.send_batch(state, target, false, on_batch);
+        }
+    }
+
+    /// trial の状態確定処理（op_code=4 のインライン state / op_code=6 で共通）。
+    ///
+    /// in-memory ストレージは op_code=4 にすべての Trial データ（state / values / params）を
+    /// インラインで持ち、後続の op_code=6 が来ない。一方ファイルストレージは op_code=6 で
+    /// 完了する。state==1（完了）なら確定行を送出し、2/3（prune/fail）は builder を破棄して
+    /// extras のみ記録する。それ以外（RUNNING）は builder を残して後続 op を待つ。
+    fn resolve_trial_state<F>(
+        &mut self,
+        state: &mut ParserState,
+        tid: u32,
+        target: u32,
+        extras_trials: &mut Vec<crate::data::extras::TrialExtra>,
+        on_batch: &mut F,
+    ) where
+        F: FnMut(StudyStreamBatch),
+    {
+        let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
+        if trial_state == 1 {
+            let b = state.trial_builders.remove(&tid).unwrap();
+            extras_trials.push(trial_extra_from_builder(tid, &b));
+            self.emit_completed_trial(tid, b, state, target, on_batch);
+        } else if trial_state == 2 || trial_state == 3 {
+            if let Some(b) = state.trial_builders.remove(&tid) {
+                extras_trials.push(trial_extra_from_builder(tid, &b));
+            }
+        }
     }
 }
 
@@ -548,27 +593,13 @@ pub fn parse_single_study_streaming<F>(
 where
     F: FnMut(StudyStreamBatch),
 {
-    use crate::dataframe::TrialRow;
-    use std::collections::BTreeSet;
-
     if data.is_empty() {
         return Err("Empty journal data".to_string());
     }
     let text = String::from_utf8_lossy(data);
     let mut state = ParserState::new_with_target(target_study_id);
-
-    let batch_size = batch_size.max(1);
-    let mut batch: Vec<TrialRow> = Vec::with_capacity(batch_size);
-
-    let mut param_set: BTreeSet<String> = BTreeSet::new();
-    let mut uan_set: BTreeSet<String> = BTreeSet::new();
-    let mut uas_set: BTreeSet<String> = BTreeSet::new();
-    let mut derived_objective_names: Vec<String> = Vec::new();
-    let mut has_constraints = false;
-    let mut max_constraints = 0usize;
-    let mut completed = 0u32;
+    let mut acc = StreamAccum::new(batch_size);
     let mut any_valid = false;
-    let mut first_sent = false;
     // 全 trial（全 state）の付帯情報。除去時（完了/prune/fail/EOF）に随時追加する。
     let mut extras_trials: Vec<crate::data::extras::TrialExtra> = Vec::new();
 
@@ -577,31 +608,22 @@ where
         if line.is_empty() {
             continue;
         }
-        let op = match quick_extract_u32(line, "op_code") {
+        let op = match line_u32_field(line, "op_code") {
             #[allow(clippy::cast_possible_truncation)]
             Some(op) => op as u8,
             None => continue,
         };
 
         match op {
-            0 => {
-                if let Ok(json) = serde_json::from_str::<Value>(line) {
+            0 | 3 => {
+                if process_study_meta_op(&mut state, op, line) {
                     any_valid = true;
-                    state.process_op(0, &json);
-                }
-            }
-            3 => {
-                any_valid = true;
-                if line.contains("study:metric_names") {
-                    if let Ok(json) = serde_json::from_str::<Value>(line) {
-                        state.process_op(3, &json);
-                    }
                 }
             }
             4 => {
                 any_valid = true;
                 let mut parsed_target = false;
-                match quick_extract_u32(line, "study_id") {
+                match line_u32_field(line, "study_id") {
                     Some(sid) if sid == target_study_id => {
                         if let Ok(json) = serde_json::from_str::<Value>(line) {
                             state.process_op(4, &json);
@@ -610,10 +632,7 @@ where
                     }
                     Some(sid) => {
                         // 他 study: trial_id カウンタの整合のみ維持（JSON 不要）。
-                        state.next_trial_id += 1;
-                        if (sid as usize) < state.studies.len() {
-                            state.studies[sid as usize].total_trials += 1;
-                        }
+                        count_other_study_trial(&mut state, sid);
                     }
                     None => {
                         if let Ok(json) = serde_json::from_str::<Value>(line) {
@@ -627,37 +646,18 @@ where
                 // ファイルストレージの op_code=4 は state==0 のため builder を残して 5/6 を待つ。
                 if parsed_target {
                     let tid = state.next_trial_id.wrapping_sub(1);
-                    let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
-                    if trial_state == 1 {
-                        let b = state.trial_builders.remove(&tid).unwrap();
-                        extras_trials.push(trial_extra_from_builder(tid, &b));
-                        stream_emit_completed_trial(
-                            tid,
-                            b,
-                            &state,
-                            target_study_id,
-                            &mut batch,
-                            batch_size,
-                            &mut param_set,
-                            &mut uan_set,
-                            &mut uas_set,
-                            &mut derived_objective_names,
-                            &mut has_constraints,
-                            &mut max_constraints,
-                            &mut completed,
-                            &mut first_sent,
-                            &mut on_batch,
-                        );
-                    } else if trial_state == 2 || trial_state == 3 {
-                        if let Some(b) = state.trial_builders.remove(&tid) {
-                            extras_trials.push(trial_extra_from_builder(tid, &b));
-                        }
-                    }
+                    acc.resolve_trial_state(
+                        &mut state,
+                        tid,
+                        target_study_id,
+                        &mut extras_trials,
+                        &mut on_batch,
+                    );
                 }
             }
             5..=9 => {
                 any_valid = true;
-                let Some(tid) = quick_extract_u32(line, "trial_id") else {
+                let Some(tid) = line_u32_field(line, "trial_id") else {
                     continue;
                 };
                 if !state.trial_builders.contains_key(&tid) {
@@ -672,32 +672,13 @@ where
                     continue;
                 }
                 // op6 完了判定: state==1 で確定行を送出、2/3（prune/fail）は破棄。
-                let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
-                if trial_state == 1 {
-                    let b = state.trial_builders.remove(&tid).unwrap();
-                    extras_trials.push(trial_extra_from_builder(tid, &b));
-                    stream_emit_completed_trial(
-                        tid,
-                        b,
-                        &state,
-                        target_study_id,
-                        &mut batch,
-                        batch_size,
-                        &mut param_set,
-                        &mut uan_set,
-                        &mut uas_set,
-                        &mut derived_objective_names,
-                        &mut has_constraints,
-                        &mut max_constraints,
-                        &mut completed,
-                        &mut first_sent,
-                        &mut on_batch,
-                    );
-                } else if trial_state == 2 || trial_state == 3 {
-                    if let Some(b) = state.trial_builders.remove(&tid) {
-                        extras_trials.push(trial_extra_from_builder(tid, &b));
-                    }
-                }
+                acc.resolve_trial_state(
+                    &mut state,
+                    tid,
+                    target_study_id,
+                    &mut extras_trials,
+                    &mut on_batch,
+                );
             }
             _ => {}
         }
@@ -724,37 +705,7 @@ where
     );
 
     // 最終バッチ（残り）を送出。完了 0 件でも is_final を通知する。
-    let objective_names = if !state.studies[target_study_id as usize]
-        .objective_names
-        .is_empty()
-    {
-        state.studies[target_study_id as usize]
-            .objective_names
-            .clone()
-    } else {
-        derived_objective_names.clone()
-    };
-    let meta = stream_build_meta(
-        &state,
-        target_study_id,
-        &param_set,
-        &uan_set,
-        &uas_set,
-        &derived_objective_names,
-        has_constraints,
-        completed,
-    );
-    on_batch(StudyStreamBatch {
-        meta,
-        new_rows: std::mem::take(&mut batch),
-        param_names: param_set.iter().cloned().collect(),
-        objective_names,
-        user_attr_numeric_names: uan_set.iter().cloned().collect(),
-        user_attr_string_names: uas_set.iter().cloned().collect(),
-        max_constraints,
-        is_first: !first_sent,
-        is_final: true,
-    });
+    acc.send_batch(&state, target_study_id, true, &mut on_batch);
 
     Ok(())
 }

@@ -1,18 +1,14 @@
 use super::formatting::format_f64;
 
-/// Documentation.
+/// アクティブな DataFrame の数値列ごとに min/max/mean/std/count を集計し JSON 文字列で返す。
 ///
-/// Documentation.
-/// Documentation.
-/// Documentation.
-///
-/// Documentation.
+/// DataFrame が未設定の場合は `"{}"` を返す。
 pub fn compute_report_stats() -> String {
     let result = crate::dataframe::with_active_df(compute_report_stats_from_df);
     result.unwrap_or_else(|| "{}".to_string())
 }
 
-/// Documentation.
+/// 指定 DataFrame の数値列ごとに min/max/mean/std/count を集計し JSON 文字列を組み立てる。
 pub(crate) fn compute_report_stats_from_df(df: &crate::dataframe::DataFrame) -> String {
     if df.row_count() == 0 {
         return "{}".to_string();

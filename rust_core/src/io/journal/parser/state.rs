@@ -6,22 +6,24 @@ use super::distribution::Distribution;
 use super::types::OptimizationDirection;
 use crate::io::datetime::parse_naive_datetime;
 
-/// Documentation.
+/// journal 解析の途中状態（study builder・trial builder・trial_id カウンタ）。
 pub(super) struct ParserState {
     pub(super) studies: Vec<StudyBuilder>,
     pub(super) trial_builders: HashMap<u32, TrialBuilder>,
     pub(super) next_trial_id: u32,
     /// Some(id) の場合、その study_id の Trial のみ TrialBuilder を生成する（Phase 2 オンデマンド解析用）。
     pub(super) target_study_id: Option<u32>,
+    /// 登録済み study 名の集合（重複 create_study 行の O(1) スキップ用）。
+    study_names: HashSet<String>,
 }
 
-/// Documentation.
+/// JSON オブジェクトから `key` の u64 値を取り出す（欠落・型不一致は `None`）。
 #[inline]
 pub(super) fn get_u64(json: &Value, key: &str) -> Option<u64> {
     json.get(key).and_then(|value| value.as_u64())
 }
 
-/// Documentation.
+/// JSON オブジェクトから `key` の文字列値を取り出す（欠落・型不一致は `None`）。
 #[inline]
 pub(super) fn get_str<'a>(json: &'a Value, key: &str) -> Option<&'a str> {
     json.get(key).and_then(|value| value.as_str())
@@ -34,6 +36,7 @@ impl ParserState {
             trial_builders: HashMap::with_capacity(1024),
             next_trial_id: 0,
             target_study_id: None,
+            study_names: HashSet::new(),
         }
     }
 
@@ -43,6 +46,7 @@ impl ParserState {
             trial_builders: HashMap::with_capacity(1024),
             next_trial_id: 0,
             target_study_id: Some(target_study_id),
+            study_names: HashSet::new(),
         }
     }
 
@@ -63,8 +67,9 @@ impl ParserState {
     fn process_create_study(&mut self, json: &Value) {
         let name = get_str(json, "study_name").unwrap_or("").to_string();
         // A journal file may contain multiple create_study entries for the same study
-        // (e.g. from parallel workers). Skip if the name is already registered.
-        if self.studies.iter().any(|s| s.name == name) {
+        // (e.g. from parallel workers). Skip if the name is already registered
+        // (HashSet lookup; the Vec linear scan was O(n) per create_study line).
+        if !self.study_names.insert(name.clone()) {
             return;
         }
         let directions = json
