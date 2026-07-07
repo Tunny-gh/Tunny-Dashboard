@@ -226,9 +226,9 @@ pub fn robustness_analysis(
         nominal,
         mean,
         std,
-        p05: percentile(&sorted, 0.05),
-        median: percentile(&sorted, 0.5),
-        p95: percentile(&sorted, 0.95),
+        p05: crate::statistics::quantile(&sorted, 0.05),
+        median: crate::statistics::quantile(&sorted, 0.5),
+        p95: crate::statistics::quantile(&sorted, 0.95),
         samples,
         feasibility_rate: has_constraints.then(|| feas_sum / n),
         clipped_fraction: clipped_count as f64 / n,
@@ -283,20 +283,6 @@ fn spec_metrics(
     };
 
     (Some(rate), Some(sigma_level), cpk)
-}
-
-/// ソート済み配列の分位点（順序統計量間の線形補間、NumPy "linear" と同方式）。
-fn percentile(sorted: &[f64], q: f64) -> f64 {
-    if sorted.is_empty() {
-        return f64::NAN;
-    }
-    if sorted.len() == 1 {
-        return sorted[0];
-    }
-    let h = (sorted.len() - 1) as f64 * q;
-    let lo = h.floor() as usize;
-    let hi = (lo + 1).min(sorted.len() - 1);
-    sorted[lo] + (h - h.floor()) * (sorted[hi] - sorted[lo])
 }
 
 #[cfg(test)]
@@ -541,9 +527,10 @@ mod tests {
 
     #[test]
     fn percentile_linear_interpolation() {
+        // 分位点は共通の statistics::quantile（NumPy type-7）へ委譲する。
         let sorted = vec![0.0, 1.0, 2.0, 3.0];
-        assert_eq!(percentile(&sorted, 0.5), 1.5);
-        assert_eq!(percentile(&sorted, 0.0), 0.0);
-        assert_eq!(percentile(&sorted, 1.0), 3.0);
+        assert_eq!(crate::statistics::quantile(&sorted, 0.5), 1.5);
+        assert_eq!(crate::statistics::quantile(&sorted, 0.0), 0.0);
+        assert_eq!(crate::statistics::quantile(&sorted, 1.0), 3.0);
     }
 }

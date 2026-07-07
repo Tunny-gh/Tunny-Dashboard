@@ -5,6 +5,7 @@
 //! （self-adjoint）固有値分解を使う。
 
 use crate::math::rng::SeededRng;
+use rayon::prelude::*;
 
 pub(crate) struct CmaEsConfig {
     /// 初期ステップサイズ（[0,1] 箱に対して 0.3 が標準）。
@@ -27,7 +28,7 @@ impl Default for CmaEsConfig {
 /// `eval` を最小化し、評価済みの最良点（best-ever）を返す。
 pub(crate) fn cma_es_minimize<F>(eval: F, start: &[f64], cfg: &CmaEsConfig) -> Vec<f64>
 where
-    F: Fn(&[f64]) -> f64,
+    F: Fn(&[f64]) -> f64 + Sync,
 {
     let n = start.len();
     if n == 0 {
@@ -75,13 +76,20 @@ where
 
     for gen in 0..max_gens {
         // C = B diag(d²) Bᵀ（固有値は数値誤差で負になり得るためクランプ）。
-        let (eigvals, b) = symmetric_eigen(&cov);
+        // 固有値分解が失敗した場合は panic せず、その時点の best-ever を返して打ち切る。
+        let (eigvals, b) = match symmetric_eigen(&cov) {
+            Some(decomp) => decomp,
+            None => break,
+        };
         let d_diag: Vec<f64> = eigvals.iter().map(|&v| v.max(1e-20).sqrt()).collect();
 
         // ── サンプリングと評価 ─────────────────────────────────────
         // y_k = B (d ∘ z_k), x_k = m + σ y_k
+        // サンプリングは共有 RNG のため逐次で行い、評価（サロゲート予測）は
+        // 互いに独立なので rayon で並列化する（par_iter は入力順で collect
+        // するため、乱数列・順位付け・best 更新順は逐次実行と一致する）。
         let mut ys: Vec<Vec<f64>> = Vec::with_capacity(lambda);
-        let mut costs: Vec<f64> = Vec::with_capacity(lambda);
+        let mut xs: Vec<Vec<f64>> = Vec::with_capacity(lambda);
         for _ in 0..lambda {
             let z: Vec<f64> = (0..n)
                 .map(|_| next_gauss(&mut rng, &mut gauss_spare))
@@ -89,13 +97,15 @@ where
             let dz: Vec<f64> = z.iter().zip(&d_diag).map(|(zi, di)| zi * di).collect();
             let y = mat_vec(&b, &dz);
             let x: Vec<f64> = mean.iter().zip(&y).map(|(m, yi)| m + sigma * yi).collect();
-            let cost = eval(&x);
+            ys.push(y);
+            xs.push(x);
+        }
+        let costs: Vec<f64> = xs.par_iter().map(|x| eval(x)).collect();
+        for (x, &cost) in xs.iter().zip(costs.iter()) {
             if cost < best_cost {
                 best_cost = cost;
-                best = x;
+                best = x.clone();
             }
-            ys.push(y);
-            costs.push(cost);
         }
         let mut order: Vec<usize> = (0..lambda).collect();
         order.sort_by(|&a, &b| {
@@ -163,6 +173,12 @@ where
 }
 
 /// Box-Muller 法による標準正規乱数（2 個生成して 1 個を温存する）。
+///
+/// `crate::math::rng::SeededRng::next_gaussian` はサイン項（2 個目の変量）を捨てる
+/// ため、乱数を 1 個生成するたびに一様乱数を 2 個消費する。CMA-ES は 1 世代あたり
+/// `n × λ` 個の正規乱数を引くため、ここではサイン項を `spare` に温存して一様乱数の
+/// 消費を半減させる（かつ既存のゴールデン乱数列＝収束軌道を維持する）。この spare
+/// 温存が next_gaussian と両立しないため、cma_es 側は独自実装を維持する。
 fn next_gauss(rng: &mut SeededRng, spare: &mut Option<f64>) -> f64 {
     if let Some(s) = spare.take() {
         return s;
@@ -198,25 +214,24 @@ fn mat_t_vec(a: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
 }
 
 /// 対称行列（共分散行列）の固有値分解を faer の self-adjoint 固有値分解で計算する。
-/// `(固有値, 固有ベクトル行列 B)` を返す（`B` の列 j が固有値 j に対応:
+/// `Some((固有値, 固有ベクトル行列 B))` を返す（`B` の列 j が固有値 j に対応:
 /// `b[i][j]` は固有ベクトル j の成分 i）。固有値は昇順（faer の仕様）。
-fn symmetric_eigen(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
+/// 分解が失敗した場合は panic せず `None` を返す（呼び出し側で世代ループを打ち切る）。
+fn symmetric_eigen(a: &[Vec<f64>]) -> Option<(Vec<f64>, Vec<Vec<f64>>)> {
     let n = a.len();
     if n == 0 {
-        return (Vec::new(), Vec::new());
+        return Some((Vec::new(), Vec::new()));
     }
     // 数値誤差による非対称性を避けるため (A + Aᵀ)/2 を使う。
     let mat = faer::Mat::<f64>::from_fn(n, n, |i, j| 0.5 * (a[i][j] + a[j][i]));
-    let eigen = mat
-        .self_adjoint_eigen(faer::Side::Lower)
-        .expect("symmetric eigendecomposition of covariance matrix failed");
+    let eigen = mat.self_adjoint_eigen(faer::Side::Lower).ok()?;
     let u = eigen.U();
     let s = eigen.S();
     let eigvals: Vec<f64> = (0..n).map(|i| s[i]).collect();
     let b: Vec<Vec<f64>> = (0..n)
         .map(|i| (0..n).map(|j| u[(i, j)]).collect())
         .collect();
-    (eigvals, b)
+    Some((eigvals, b))
 }
 
 #[cfg(test)]
@@ -227,7 +242,7 @@ mod tests {
     fn symmetric_eigen_known_2x2() {
         // [[2,1],[1,2]] の固有値は 1 と 3。
         let a = vec![vec![2.0, 1.0], vec![1.0, 2.0]];
-        let (mut vals, b) = symmetric_eigen(&a);
+        let (mut vals, b) = symmetric_eigen(&a).expect("2x2 decomposition should succeed");
         vals.sort_by(|x, y| x.partial_cmp(y).unwrap());
         assert!((vals[0] - 1.0).abs() < 1e-9, "{vals:?}");
         assert!((vals[1] - 3.0).abs() < 1e-9, "{vals:?}");
@@ -249,7 +264,7 @@ mod tests {
             vec![1.0, 3.0, 0.2],
             vec![0.5, 0.2, 2.0],
         ];
-        let (vals, b) = symmetric_eigen(&a);
+        let (vals, b) = symmetric_eigen(&a).expect("3x3 decomposition should succeed");
         for i in 0..3 {
             for j in 0..3 {
                 let recon: f64 = (0..3).map(|k| b[i][k] * vals[k] * b[j][k]).sum();
