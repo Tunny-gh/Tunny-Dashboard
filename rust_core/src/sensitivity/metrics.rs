@@ -64,12 +64,8 @@ impl TreeMetric for RfAnovaMetric {
         SensitivityResult {
             param_names,
             objective_names: vec![objective_name],
-            spearman: vec![],
-            ridge: vec![],
             rf_anova: Some(RfAnovaResult(result)),
-            mdi: None,
-            shap: None,
-            permutation: None,
+            ..Default::default()
         }
     }
 }
@@ -99,12 +95,8 @@ impl TreeMetric for MdiMetric {
         SensitivityResult {
             param_names,
             objective_names: vec![objective_name],
-            spearman: vec![],
-            ridge: vec![],
-            rf_anova: None,
             mdi: Some(MdiResult(result)),
-            shap: None,
-            permutation: None,
+            ..Default::default()
         }
     }
 }
@@ -134,12 +126,8 @@ impl TreeMetric for ShapMetric {
         SensitivityResult {
             param_names,
             objective_names: vec![objective_name],
-            spearman: vec![],
-            ridge: vec![],
-            rf_anova: None,
-            mdi: None,
             shap: Some(ShapResult(result)),
-            permutation: None,
+            ..Default::default()
         }
     }
 }
@@ -169,12 +157,8 @@ impl TreeMetric for PermutationMetric {
         SensitivityResult {
             param_names,
             objective_names: vec![objective_name],
-            spearman: vec![],
-            ridge: vec![],
-            rf_anova: None,
-            mdi: None,
-            shap: None,
             permutation: Some(PermutationResult(result)),
+            ..Default::default()
         }
     }
 }
@@ -198,7 +182,7 @@ fn tree_extract_data(df: &DataFrame, obj_idx: usize) -> Option<TreeExtractedData
 
     let y: Vec<f64> = df
         .get_numeric_column(&objective_name)
-        .map(|col| col[..n].to_vec())
+        .map(|col| col.iter().take(n).copied().collect())
         .unwrap_or_else(|| vec![0.0; n]);
 
     let param_cols: Vec<Vec<f64>> = param_names
@@ -206,7 +190,12 @@ fn tree_extract_data(df: &DataFrame, obj_idx: usize) -> Option<TreeExtractedData
         .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
         .collect();
     let x_matrix: Vec<Vec<f64>> = (0..n)
-        .map(|row| param_cols.iter().map(|col| col[row]).collect())
+        .map(|row| {
+            param_cols
+                .iter()
+                .map(|col| col.get(row).copied().unwrap_or(0.0))
+                .collect()
+        })
         .collect();
 
     Some((param_names, objective_name, x_matrix, y))

@@ -296,6 +296,14 @@ fn decompose_tree(tree: &FanovaTree, ranges: &[(f64, f64)], p: usize) -> Option<
             continue;
         }
 
+        // 次元 d を除いた周辺重み × 葉平均は区間に依存しないため、(leaf, d) ごとに
+        // 1 度だけ事前計算する（以前は区間ループ内で毎回再計算しており O(葉数×区間数)）。
+        let marginal_terms: Vec<f64> = tree
+            .leaves
+            .iter()
+            .map(|leaf| leaf_weight(&leaf.bounds, ranges, p, Some(d)) * leaf.mean)
+            .collect();
+
         // 次元 d について全葉の区間端点を集め、相異なる端点で区切られた区分求積用の
         // 「基本区間」を作る。基本区間内では、それを含む葉の集合が変化しない。
         let mut endpoints: Vec<f64> = Vec::with_capacity(tree.leaves.len() * 2 + 2);
@@ -321,11 +329,12 @@ fn decompose_tree(tree: &FanovaTree, ranges: &[(f64, f64)], p: usize) -> Option<
             let f_j: f64 = tree
                 .leaves
                 .iter()
-                .filter(|leaf| {
+                .zip(&marginal_terms)
+                .filter(|(leaf, _)| {
                     let (lo, hi) = leaf.bounds[d];
                     mid >= lo && mid <= hi
                 })
-                .map(|leaf| leaf_weight(&leaf.bounds, ranges, p, Some(d)) * leaf.mean)
+                .map(|(_, &term)| term)
                 .sum();
 
             let diff = f_j - f0;
@@ -499,5 +508,89 @@ mod tests {
             (frac1 - 0.096_774_193_548_387_1).abs() < 1e-9,
             "frac1={frac1}"
         );
+    }
+
+    /// 周辺重みの (leaf, d) キャッシュ化（区間ループ外への吊り上げ）が、実データから
+    /// 学習したフォレストの分解結果を一切変えないことを、区間ループ内で毎回
+    /// `leaf_weight` を再計算する素朴な実装と突き合わせて確認する。
+    #[test]
+    fn cached_marginal_weights_match_naive_recomputation() {
+        // 素朴な実装（キャッシュなし）: decompose_tree の旧ロジックを踏襲。
+        fn decompose_naive(tree: &FanovaTree, ranges: &[(f64, f64)], p: usize) -> Vec<f64> {
+            let weights: Vec<f64> = tree
+                .leaves
+                .iter()
+                .map(|l| leaf_weight(&l.bounds, ranges, p, None))
+                .collect();
+            let f0: f64 = weights
+                .iter()
+                .zip(&tree.leaves)
+                .map(|(&w, l)| w * l.mean)
+                .sum();
+            let mut dim_variance = vec![0.0; p];
+            for (d, &(range_lo, range_hi)) in ranges.iter().enumerate() {
+                let range_len = range_hi - range_lo;
+                if range_len < 1e-12 {
+                    continue;
+                }
+                let mut endpoints: Vec<f64> = vec![range_lo, range_hi];
+                for leaf in &tree.leaves {
+                    let (lo, hi) = leaf.bounds[d];
+                    endpoints.push(lo.clamp(range_lo, range_hi));
+                    endpoints.push(hi.clamp(range_lo, range_hi));
+                }
+                endpoints.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                endpoints.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
+                for w in endpoints.windows(2) {
+                    let (i_lo, i_hi) = (w[0], w[1]);
+                    let i_len = i_hi - i_lo;
+                    if i_len < 1e-12 {
+                        continue;
+                    }
+                    let mid = (i_lo + i_hi) / 2.0;
+                    let f_j: f64 = tree
+                        .leaves
+                        .iter()
+                        .filter(|leaf| {
+                            let (lo, hi) = leaf.bounds[d];
+                            mid >= lo && mid <= hi
+                        })
+                        .map(|leaf| leaf_weight(&leaf.bounds, ranges, p, Some(d)) * leaf.mean)
+                        .sum();
+                    let diff = f_j - f0;
+                    dim_variance[d] += (i_len / range_len) * diff * diff;
+                }
+            }
+            dim_variance
+        }
+
+        // 実データからフォレストを学習して両実装を突き合わせる。
+        let mut rng = SeededRng::from_seed(12345);
+        let x: Vec<Vec<f64>> = (0..50)
+            .map(|_| {
+                (0..3)
+                    .map(|_| rng.next_usize(1000) as f64 / 1000.0)
+                    .collect()
+            })
+            .collect();
+        let y: Vec<f64> = x.iter().map(|r| 3.0 * r[0] + r[1] * r[1]).collect();
+        let config = FanovaConfig {
+            n_trees: 8,
+            max_depth: 6,
+            min_samples_leaf: 2,
+            seed: 7,
+        };
+        let (trees, ranges) = train_forest(&x, &y, &config);
+        assert!(!trees.is_empty());
+
+        for tree in &trees {
+            let Some(decomp) = decompose_tree(tree, &ranges, 3) else {
+                continue;
+            };
+            let naive = decompose_naive(tree, &ranges, 3);
+            for (a, b) in decomp.dim_variance.iter().zip(&naive) {
+                assert_eq!(a, b, "cached vs naive dim_variance must be bit-identical");
+            }
+        }
     }
 }

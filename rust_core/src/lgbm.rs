@@ -89,6 +89,23 @@ fn make_cstring(s: &str) -> Result<CString, LgbmError> {
     CString::new(s).map_err(|e| LgbmError(e.to_string()))
 }
 
+/// Range-checked `usize -> i32` conversion for dimensions passed to the C API.
+fn dim_to_i32(n: usize, what: &str) -> Result<i32, LgbmError> {
+    i32::try_from(n).map_err(|_| LgbmError(format!("{what} {n} exceeds i32::MAX")))
+}
+
+/// Validates that `x` is a non-empty rectangular matrix and returns its column
+/// count. LightGBM reads `nrow * ncol` contiguous f64s, so a ragged matrix
+/// (rows shorter than `x[0]`) would make the C API read past the flattened
+/// buffer (out-of-bounds). Returns `None` for empty or ragged input.
+fn rectangular_ncol(x: &[Vec<f64>]) -> Option<usize> {
+    let ncol = x.first()?.len();
+    if ncol == 0 || x.iter().any(|row| row.len() != ncol) {
+        return None;
+    }
+    Some(ncol)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Creates a LightGBM dataset from a feature matrix and label vector.
@@ -96,11 +113,14 @@ pub fn to_lgbm_dataset(x: &[Vec<f64>], y: &[f64]) -> Result<LgbmDataset, LgbmErr
     if x.is_empty() || y.is_empty() {
         return Err(LgbmError("empty data".into()));
     }
-    let nrow = x.len() as i32;
-    let ncol = x[0].len() as i32;
-    if ncol == 0 {
-        return Err(LgbmError("no features".into()));
+    let ncol_usize = rectangular_ncol(x)
+        .ok_or_else(|| LgbmError("feature matrix must be non-empty and rectangular".into()))?;
+    if x.len() != y.len() {
+        return Err(LgbmError("row count and label count differ".into()));
     }
+    let nrow = dim_to_i32(x.len(), "nrow")?;
+    let ncol = dim_to_i32(ncol_usize, "ncol")?;
+    let n_labels = dim_to_i32(y.len(), "label count")?;
     let flat_x: Vec<f64> = x.iter().flat_map(|row| row.iter().copied()).collect();
     // min_data_in_leaf must be set at dataset construction time so LightGBM
     // does not pre-discard bins that would be "too small" given its default of 20.
@@ -130,7 +150,7 @@ pub fn to_lgbm_dataset(x: &[Vec<f64>], y: &[f64]) -> Result<LgbmDataset, LgbmErr
             handle,
             label_field.as_ptr(),
             labels_f32.as_ptr().cast(),
-            y.len() as i32,
+            n_labels,
             C_API_DTYPE_FLOAT32,
         )
     };
@@ -144,7 +164,13 @@ pub fn to_lgbm_dataset(x: &[Vec<f64>], y: &[f64]) -> Result<LgbmDataset, LgbmErr
 
 /// Trains a LightGBM model in RandomForest mode.
 pub fn train_lgbm_rf(x: &[Vec<f64>], y: &[f64], config: &LgbmRfConfig) -> Option<LgbmBooster> {
-    let dataset = to_lgbm_dataset(x, y).ok()?;
+    let dataset = match to_lgbm_dataset(x, y) {
+        Ok(ds) => ds,
+        Err(e) => {
+            log_lgbm_failure("dataset creation", &e.0);
+            return None;
+        }
+    };
 
     let params_str = format!(
         "boosting_type=rf num_iterations={ni} max_depth={md} \
@@ -158,42 +184,76 @@ pub fn train_lgbm_rf(x: &[Vec<f64>], y: &[f64], config: &LgbmRfConfig) -> Option
         ff = config.feature_fraction,
         seed = config.seed,
     );
-    let params = make_cstring(&params_str).ok()?;
+    let params = match make_cstring(&params_str) {
+        Ok(p) => p,
+        Err(e) => {
+            log_lgbm_failure("parameter string", &e.0);
+            return None;
+        }
+    };
 
     let mut booster: BoosterHandle = std::ptr::null_mut();
     let rc = unsafe { lgbm_sys::LGBM_BoosterCreate(dataset.0, params.as_ptr(), &mut booster) };
     if rc != 0 {
+        log_lgbm_failure("booster creation", &LgbmError::last().0);
         return None;
     }
+    // Wrap immediately so the booster is freed on any early return below.
+    let booster = LgbmBooster(booster);
 
     for _ in 0..config.num_iterations {
         let mut is_finished = 0i32;
-        let rc = unsafe { lgbm_sys::LGBM_BoosterUpdateOneIter(booster, &mut is_finished) };
-        if rc != 0 || is_finished != 0 {
+        let rc = unsafe { lgbm_sys::LGBM_BoosterUpdateOneIter(booster.0, &mut is_finished) };
+        // rc != 0 is a genuine training failure and must be distinguished from
+        // the is_finished == 1 early-stop (which is a normal successful end).
+        if rc != 0 {
+            log_lgbm_failure("boosting iteration", &LgbmError::last().0);
+            return None;
+        }
+        if is_finished != 0 {
             break;
         }
     }
 
-    Some(LgbmBooster(booster))
+    Some(booster)
+}
+
+/// Records an FFI failure so the underlying cause is not silently lost.
+/// Debug builds only, to avoid polluting release output; the public API still
+/// degrades gracefully by returning `None`/empty.
+fn log_lgbm_failure(stage: &str, msg: &str) {
+    #[cfg(debug_assertions)]
+    eprintln!("LightGBM {stage} failed: {msg}");
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (stage, msg);
+    }
 }
 
 /// Predicts with a trained booster (normal regression output).
-pub fn lgbm_predict(booster: &LgbmBooster, x: &[Vec<f64>]) -> Vec<f64> {
-    predict_internal(booster, x, C_API_PREDICT_NORMAL).unwrap_or_default()
+///
+/// Returns `None` when the underlying FFI call fails (invalid/ragged input, a
+/// LightGBM error, etc.) so callers can distinguish failure from an empty result
+/// instead of it being silently flattened into an empty `Vec`.
+pub fn lgbm_predict(booster: &LgbmBooster, x: &[Vec<f64>]) -> Option<Vec<f64>> {
+    predict_internal(booster, x, C_API_PREDICT_NORMAL)
 }
 
 /// Predicts SHAP contribution values.
 ///
 /// Returns a flat-reshaped `Vec<Vec<f64>>` with shape `[n_samples][n_features + 1]`.
-/// The last column is the bias term.
+/// The last column is the bias term. An empty `Vec` signals a failed/empty prediction.
 pub fn lgbm_predict_contrib(booster: &LgbmBooster, x: &[Vec<f64>]) -> Vec<Vec<f64>> {
     if x.is_empty() {
         return Vec::new();
     }
     let ncol = x[0].len();
-    let flat = predict_internal(booster, x, C_API_PREDICT_CONTRIB).unwrap_or_default();
+    let Some(flat) = predict_internal(booster, x, C_API_PREDICT_CONTRIB) else {
+        return Vec::new();
+    };
+    // cols = ncol + 1 is always >= 1, so no zero-chunk guard is needed.
     let cols = ncol + 1;
-    if flat.is_empty() || cols == 0 {
+    if flat.is_empty() {
         return Vec::new();
     }
     flat.chunks(cols).map(|c| c.to_vec()).collect()
@@ -204,7 +264,7 @@ pub fn lgbm_mse(booster: &LgbmBooster, x_eval: &[Vec<f64>], y_eval: &[f64]) -> O
     if y_eval.is_empty() {
         return None;
     }
-    let preds = lgbm_predict(booster, x_eval);
+    let preds = lgbm_predict(booster, x_eval)?;
     if preds.is_empty() {
         return None;
     }
@@ -223,7 +283,30 @@ pub fn lgbm_feature_importance(booster: &LgbmBooster, n_features: usize) -> Vec<
     if n_features == 0 {
         return Vec::new();
     }
-    let mut out = vec![0.0f64; n_features];
+    let zeros = || vec![0.0f64; n_features];
+
+    // LGBM_BoosterFeatureImportance writes exactly the model's own feature count,
+    // regardless of the caller's `n_features`. Query it first and size the buffer
+    // to it; a mismatch with the caller's expectation means the importances would
+    // not line up with the caller's parameter list, so fail safe with zeros.
+    let mut model_features: i32 = 0;
+    let rc = unsafe { lgbm_sys::LGBM_BoosterGetNumFeature(booster.0, &mut model_features) };
+    if rc != 0 || model_features < 0 {
+        log_lgbm_failure("feature count query", &LgbmError::last().0);
+        return zeros();
+    }
+    let model_features = model_features as usize;
+    if model_features != n_features {
+        log_lgbm_failure(
+            "feature importance",
+            &format!("model has {model_features} features but caller expected {n_features}"),
+        );
+        return zeros();
+    }
+
+    // Buffer sized to the model's actual feature count avoids any out-of-bounds
+    // write by the C API.
+    let mut out = vec![0.0f64; model_features];
     let rc = unsafe {
         lgbm_sys::LGBM_BoosterFeatureImportance(
             booster.0,
@@ -233,7 +316,8 @@ pub fn lgbm_feature_importance(booster: &LgbmBooster, n_features: usize) -> Vec<
         )
     };
     if rc != 0 {
-        return vec![0.0; n_features];
+        log_lgbm_failure("feature importance", &LgbmError::last().0);
+        return zeros();
     }
     let sum: f64 = out.iter().sum();
     if sum > 0.0 {
@@ -262,8 +346,10 @@ fn predict_internal(booster: &LgbmBooster, x: &[Vec<f64>], predict_type: i32) ->
     if x.is_empty() {
         return None;
     }
-    let nrow = x.len() as i32;
-    let ncol = x[0].len() as i32;
+    // Ragged input would make the C API read past the flattened buffer (OOB).
+    let ncol_usize = rectangular_ncol(x)?;
+    let nrow = dim_to_i32(x.len(), "nrow").ok()?;
+    let ncol = dim_to_i32(ncol_usize, "ncol").ok()?;
     let flat_x: Vec<f64> = x.iter().flat_map(|row| row.iter().copied()).collect();
     let empty_param = make_cstring("").ok()?;
 
@@ -386,7 +472,7 @@ pub fn compute_pdp_2d_lgbm(
             })
         })
         .collect();
-    let flat_preds = lgbm_predict(&booster, &all_rows);
+    let flat_preds = lgbm_predict(&booster, &all_rows)?;
     if flat_preds.len() != n_grid * n_grid * n_rows {
         return None;
     }
@@ -458,7 +544,7 @@ pub fn compute_pdp_1d_lgbm(
             })
         })
         .collect();
-    let all_preds = lgbm_predict(&booster, &all_rows);
+    let all_preds = lgbm_predict(&booster, &all_rows)?;
     if all_preds.len() != n_grid * n_rows {
         return None;
     }
@@ -510,7 +596,7 @@ mod tests {
     fn predict_length_matches_input() {
         let (x, y) = synthetic_data(30);
         let booster = train_lgbm_rf(&x, &y, &LgbmRfConfig::default()).unwrap();
-        let preds = lgbm_predict(&booster, &x);
+        let preds = lgbm_predict(&booster, &x).expect("predict should succeed");
         assert_eq!(preds.len(), x.len());
     }
 
@@ -562,7 +648,7 @@ mod tests {
         let dataset = to_lgbm_dataset(&x, &y);
         assert!(dataset.is_ok(), "to_lgbm_dataset should succeed");
         let booster = train_lgbm_rf(&x, &y, &LgbmRfConfig::default()).unwrap();
-        let preds = lgbm_predict(&booster, &x);
+        let preds = lgbm_predict(&booster, &x).expect("predict should succeed");
         assert_eq!(preds.len(), x.len());
         let mse = lgbm_mse(&booster, &x, &y).unwrap();
         assert!(mse.is_finite());

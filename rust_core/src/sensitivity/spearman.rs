@@ -19,7 +19,7 @@ impl SensitivityMetric for SpearmanMetric {
 
         let y: Vec<f64> = df
             .get_numeric_column(&objective_name)
-            .map(|col| col[..n].to_vec())
+            .map(|col| col.iter().take(n).copied().collect())
             .unwrap_or_else(|| vec![0.0; n]);
 
         let spearman: Vec<Vec<f64>> = param_names
@@ -34,11 +34,7 @@ impl SensitivityMetric for SpearmanMetric {
             param_names,
             objective_names: vec![objective_name],
             spearman,
-            ridge: vec![],
-            rf_anova: None,
-            mdi: None,
-            shap: None,
-            permutation: None,
+            ..Default::default()
         })
     }
 

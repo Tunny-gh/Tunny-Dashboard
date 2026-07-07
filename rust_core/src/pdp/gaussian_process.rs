@@ -193,26 +193,27 @@ pub(crate) fn compute_pdp_2d_gp_raw(
             let v1n = (v1 - min1) / range1;
             let mut z_row = Vec::with_capacity(n_grid);
             let mut var_row = Vec::with_capacity(n_grid);
+            // Reusable buffers: clone the training matrix once per v1 and fix the
+            // first target column; per grid cell only the two target columns are
+            // overwritten (instead of re-cloning every row for every cell).
+            let mut pred_rows: Vec<Vec<f64>> = x_norm.to_vec();
+            for pt in &mut pred_rows {
+                pt[param1_idx] = v1n;
+            }
+            let mut centroid_pt = centroid_norm.clone();
+            centroid_pt[param1_idx] = v1n;
             for &v2 in &y_values {
                 let v2n = (v2 - min2) / range2;
 
                 // ── Mean: marginalise over all training rows ──
-                let pred_rows: Vec<Vec<f64>> = x_norm
-                    .iter()
-                    .map(|row_norm| {
-                        let mut pt = row_norm.clone();
-                        pt[param1_idx] = v1n;
-                        pt[param2_idx] = v2n;
-                        pt
-                    })
-                    .collect();
+                for pt in &mut pred_rows {
+                    pt[param2_idx] = v2n;
+                }
                 let preds = model.predict_mean_batch(&pred_rows);
                 let mean_avg = preds.iter().sum::<f64>() / n as f64;
                 z_row.push(mean_avg * y_std + y_mean);
 
                 // ── Variance: evaluate once at the centroid ──
-                let mut centroid_pt = centroid_norm.clone();
-                centroid_pt[param1_idx] = v1n;
                 centroid_pt[param2_idx] = v2n;
                 let var_centroid = model.predict_variance(&centroid_pt).max(0.0);
                 var_row.push(var_centroid * y_std * y_std);
@@ -282,7 +283,11 @@ pub(crate) fn compute_pdp_2d_gp(
     if n < 3 || n_grid == 0 {
         return empty;
     }
-    let p = x_matrix[0].len();
+    // Guard against an empty feature matrix (e.g. y populated but x rows missing).
+    let Some(first_row) = x_matrix.first() else {
+        return empty;
+    };
+    let p = first_row.len();
     if param1_idx >= p || param2_idx >= p {
         return empty;
     }
