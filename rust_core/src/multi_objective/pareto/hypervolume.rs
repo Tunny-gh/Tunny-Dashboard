@@ -206,7 +206,8 @@ pub fn compute_hv_history_with_ref(
     }
 }
 
-/// Documentation.
+/// アクティブな DataFrame の目的値列から HV 推移を計算するスレッドローカル版。
+/// アクティブ Study がなければ空の結果を返す。
 pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
     crate::dataframe::with_active_df(|df| {
         let n = df.row_count();

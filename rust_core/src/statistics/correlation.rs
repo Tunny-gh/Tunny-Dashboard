@@ -50,7 +50,11 @@ pub fn compute_correlation_matrix(
     Some(CorrelationMatrix { labels, values })
 }
 
-fn pairwise_correlation(x: &[f64], y: &[f64], method: CorrelationMethod) -> f64 {
+/// 2 系列のペアワイズ相関（両側有限の行のみ使用、2 行未満は NaN）。
+///
+/// `report::builder` からも再利用するため crate 内公開（以前は report 側に
+/// 同一ロジックの重複実装があった）。
+pub(crate) fn pairwise_correlation(x: &[f64], y: &[f64], method: CorrelationMethod) -> f64 {
     let n = x.len().min(y.len());
     let (fx, fy): (Vec<f64>, Vec<f64>) = x[..n]
         .iter()

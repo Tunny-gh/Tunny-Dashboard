@@ -6,7 +6,7 @@
 //! 正規化空間 [0,1]^d・z-score 目的空間で全計算を行い、結果を元の単位へ変換して返す。
 
 use super::feasibility::feasibility_probability;
-use super::models::{fit_constraint_surrogate, fit_surrogate, FittedSurrogate};
+use super::models::{fit_constraint_surrogate, fit_surrogate, FittedSurrogate, SurrogateModelKind};
 use super::optimizers::minimize_scalar_fn;
 use super::{best_observed_index, TrainedSurrogate};
 
@@ -140,6 +140,166 @@ fn incumbent(
     }
 }
 
+/// 獲得関数のコスト（最小化方向）を 1 点で評価する。
+///
+/// - 制約付き EI: `-EI(x) · P_feas(x)`
+/// - 制約付き LCB: `LCB(x) + CONSTRAINT_LCB_PENALTY · (1 − P_feas(x))`
+///
+/// `c_models` が空なら P_feas = 1 として扱う（制約なし）。
+fn acquisition_cost(
+    surrogate: &FittedSurrogate,
+    c_models: &[FittedSurrogate],
+    acquisition: AcquisitionKind,
+    minimize: bool,
+    f_best: f64,
+    x_norm: &[f64],
+) -> f64 {
+    let mu = if minimize {
+        surrogate.predict_norm(x_norm)
+    } else {
+        -surrogate.predict_norm(x_norm)
+    };
+    let sigma = surrogate
+        .predict_var_norm(x_norm)
+        .map(|v| v.max(0.0).sqrt())
+        .unwrap_or(0.0);
+    let p = if c_models.is_empty() {
+        1.0
+    } else {
+        feasibility_probability(c_models, x_norm)
+    };
+    match acquisition {
+        AcquisitionKind::ExpectedImprovement => -ei_norm(f_best, mu, sigma) * p,
+        AcquisitionKind::LowerConfidenceBound => {
+            lcb_norm(mu, sigma) + CONSTRAINT_LCB_PENALTY * (1.0 - p)
+        }
+    }
+}
+
+/// `work_c`（制約ごとの列）から行方向の制約値行列を再構築する（Constant Liar 追記分を含む）。
+fn constraint_rows(work_c: &[Vec<f64>], n_constraints: usize, n_rows: usize) -> Vec<Vec<f64>> {
+    (0..n_rows)
+        .map(|row| {
+            (0..n_constraints)
+                .map(|ci| {
+                    work_c
+                        .get(ci)
+                        .and_then(|col| col.get(row))
+                        .copied()
+                        .unwrap_or(0.0)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// 獲得関数を最大化する候補点（正規化空間）を探索して確定する。
+///
+/// 既出候補と重複（正規化 L2² < 1e-12）した場合は `retry_seed` のランダム
+/// スタートで 1 回だけ再探索する。
+#[allow(clippy::too_many_arguments)]
+fn locate_candidate_norm(
+    surrogate: &FittedSurrogate,
+    c_models: &[FittedSurrogate],
+    acquisition: AcquisitionKind,
+    minimize: bool,
+    f_best: f64,
+    start_norm: &[f64],
+    prev_candidates: &[SuggestedCandidate],
+    retry_seed: u64,
+) -> Vec<f64> {
+    let n_dims = start_norm.len();
+    // 獲得関数（最小化方向）。
+    let eval_acq = |x_norm: &[f64]| -> f64 {
+        acquisition_cost(surrogate, c_models, acquisition, minimize, f_best, x_norm)
+    };
+
+    let cand = minimize_scalar_fn(&eval_acq, n_dims, start_norm);
+
+    // 重複ガード: 前の候補との L2 距離が 1e-6 以下なら再試行。
+    let is_dup = prev_candidates.iter().any(|prev| {
+        let prev_norm = surrogate.to_norm_x(&prev.params);
+        let dist2: f64 = cand
+            .iter()
+            .zip(prev_norm.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        dist2 < 1e-12
+    });
+    if is_dup {
+        // 再試行: 別シードのランダムスタートで再探索。
+        let mut rng = crate::math::rng::SeededRng::from_seed(retry_seed);
+        let alt_start: Vec<f64> = (0..n_dims).map(|_| rng.next_f64()).collect();
+        minimize_scalar_fn(&eval_acq, n_dims, &alt_start)
+    } else {
+        cand
+    }
+}
+
+/// 確定した候補点（正規化空間）を元の単位の [`SuggestedCandidate`] に変換する。
+fn describe_candidate(
+    surrogate: &FittedSurrogate,
+    c_models: &[FittedSurrogate],
+    acquisition: AcquisitionKind,
+    minimize: bool,
+    f_best: f64,
+    best_norm: &[f64],
+) -> SuggestedCandidate {
+    let params = surrogate.to_original_x(best_norm);
+    let predicted_value = surrogate.to_original_y(surrogate.predict_norm(best_norm));
+    let predicted_std = surrogate
+        .predict_var_norm(best_norm)
+        .map(|v| v.max(0.0).sqrt() * surrogate.y_std);
+
+    // 獲得スコアは最大化方向（最小化コストの符号反転）。
+    let acq_score = -acquisition_cost(
+        surrogate,
+        c_models,
+        acquisition,
+        minimize,
+        f_best,
+        best_norm,
+    );
+
+    // 制約予測値と実行可能性確率を計算する。
+    let (predicted_constraints, p_feas) = if c_models.is_empty() {
+        (vec![], None)
+    } else {
+        let preds: Vec<f64> = c_models
+            .iter()
+            .map(|cm| cm.to_original_y(cm.predict_norm(best_norm)))
+            .collect();
+        (preds, Some(feasibility_probability(c_models, best_norm)))
+    };
+
+    SuggestedCandidate {
+        params,
+        predicted_value,
+        predicted_std,
+        acq_score,
+        predicted_constraints,
+        feasibility_probability: p_feas,
+    }
+}
+
+/// Constant Liar の作業データで目的サロゲートと全制約サロゲートを再フィットする。
+///
+/// いずれかの再フィットに失敗したら `None` を返す（呼び出し側でバッチを打ち切り、
+/// それまでの候補を返す）。
+fn refit_constant_liar(
+    model_kind: SurrogateModelKind,
+    work_x: &[Vec<f64>],
+    work_y: &[f64],
+    work_c: &[Vec<f64>],
+) -> Option<(FittedSurrogate, Vec<FittedSurrogate>)> {
+    let surrogate = fit_surrogate(model_kind, work_x, work_y).ok()?;
+    let mut c_models = Vec::with_capacity(work_c.len());
+    for col in work_c {
+        c_models.push(fit_constraint_surrogate(model_kind, work_x, col).ok()?);
+    }
+    Some((surrogate, c_models))
+}
+
 /// 訓練済みサロゲートから次試行の候補点を提案する。
 ///
 /// - `trained`: 検証済みの学習結果（GP 系のみ対応）。
@@ -176,8 +336,6 @@ pub fn suggest_candidates(
         );
     }
 
-    let has_constraints = !trained.constraint_models.is_empty();
-    let n_dims = trained.surrogate.col_stats.len();
     let mut candidates: Vec<SuggestedCandidate> = Vec::with_capacity(n_candidates);
 
     // Constant Liar 用の作業コピー。
@@ -212,186 +370,66 @@ pub fn suggest_candidates(
     let mut refitted_constraints: Vec<Vec<FittedSurrogate>> = Vec::new();
 
     for i in 0..n_candidates {
-        // 今回の反復で使うサロゲートへの参照を取得する。
-        let (params_orig, predicted_value, predicted_std, acq_score, pred_constraints, p_feas) = {
-            let surrogate: &FittedSurrogate = if i == 0 {
-                &trained.surrogate
-            } else {
-                &refitted[i - 1]
-            };
-            // 制約サロゲートへの参照。
-            let c_models: &[FittedSurrogate] = if i == 0 {
-                &trained.constraint_models
-            } else {
-                &refitted_constraints[i - 1]
-            };
-
-            // work_y と work_c から制約値行列を再構築する（Constant Liar 追記分を含む）。
-            let work_constraint_values: Vec<Vec<f64>> = (0..work_y.len())
-                .map(|row| {
-                    (0..c_models.len())
-                        .map(|ci| {
-                            work_c
-                                .get(ci)
-                                .and_then(|col| col.get(row))
-                                .copied()
-                                .unwrap_or(0.0)
-                        })
-                        .collect()
-                })
-                .collect();
-
-            let f_best = incumbent(surrogate, &work_y, minimize, &work_constraint_values);
-
-            // 獲得関数（最小化方向）を構築する。
-            // 制約付き EI: EI(x) * P_feas(x)
-            // 制約付き LCB: LCB(x) + CONSTRAINT_LCB_PENALTY * (1 - P_feas(x))
-            let eval_acq = |x_norm: &[f64]| -> f64 {
-                let mu = if minimize {
-                    surrogate.predict_norm(x_norm)
-                } else {
-                    -surrogate.predict_norm(x_norm)
-                };
-                let sigma = surrogate
-                    .predict_var_norm(x_norm)
-                    .map(|v| v.max(0.0).sqrt())
-                    .unwrap_or(0.0);
-                let p = if has_constraints {
-                    feasibility_probability(c_models, x_norm)
-                } else {
-                    1.0
-                };
-                match acquisition {
-                    // 制約付き EI: -EI * P_feas（最小化方向）
-                    AcquisitionKind::ExpectedImprovement => -ei_norm(f_best, mu, sigma) * p,
-                    // 制約付き LCB: LCB + penalty * (1 - P_feas)
-                    AcquisitionKind::LowerConfidenceBound => {
-                        lcb_norm(mu, sigma) + CONSTRAINT_LCB_PENALTY * (1.0 - p)
-                    }
-                }
-            };
-
-            // 開始点: 現在の観測ベスト点（正規化空間）。
-            let best_idx = best_observed_index(&work_y, minimize);
-            let start_norm = surrogate.to_norm_x(&work_x[best_idx]);
-
-            // 重複ガード: 前の候補との L2 距離が 1e-6 以下なら再試行。
-            let best_norm = {
-                let cand = minimize_scalar_fn(&eval_acq, n_dims, &start_norm);
-                let is_dup = candidates.iter().any(|prev| {
-                    let prev_norm = surrogate.to_norm_x(&prev.params);
-                    let dist2: f64 = cand
-                        .iter()
-                        .zip(prev_norm.iter())
-                        .map(|(a, b)| (a - b).powi(2))
-                        .sum();
-                    dist2 < 1e-12
-                });
-                if is_dup {
-                    // 再試行: 別シードのランダムスタートで再探索。
-                    let mut rng = crate::math::rng::SeededRng::from_seed(42 + i as u64 + 1);
-                    let alt_start: Vec<f64> = (0..n_dims).map(|_| rng.next_f64()).collect();
-                    minimize_scalar_fn(&eval_acq, n_dims, &alt_start)
-                } else {
-                    cand
-                }
-            };
-
-            // 候補を元の単位へ変換する。
-            let params_orig = surrogate.to_original_x(&best_norm);
-            let mu_norm = surrogate.predict_norm(&best_norm);
-            let predicted_value = surrogate.to_original_y(mu_norm);
-            let predicted_std = surrogate
-                .predict_var_norm(&best_norm)
-                .map(|v| v.max(0.0).sqrt() * surrogate.y_std);
-
-            // 獲得スコアは最大化方向（大きいほど有望）。
-            let acq_score = {
-                let mu = if minimize { mu_norm } else { -mu_norm };
-                let sigma = surrogate
-                    .predict_var_norm(&best_norm)
-                    .map(|v| v.max(0.0).sqrt())
-                    .unwrap_or(0.0);
-                let p = if has_constraints {
-                    feasibility_probability(c_models, &best_norm)
-                } else {
-                    1.0
-                };
-                match acquisition {
-                    AcquisitionKind::ExpectedImprovement => ei_norm(f_best, mu, sigma) * p,
-                    AcquisitionKind::LowerConfidenceBound => {
-                        -lcb_norm(mu, sigma) - CONSTRAINT_LCB_PENALTY * (1.0 - p)
-                    }
-                }
-            };
-
-            // 制約予測値と実行可能性確率を計算する。
-            let (pred_constraints, p_feas) = if has_constraints {
-                let preds: Vec<f64> = c_models
-                    .iter()
-                    .map(|cm| cm.to_original_y(cm.predict_norm(&best_norm)))
-                    .collect();
-                let p = feasibility_probability(c_models, &best_norm);
-                (preds, Some(p))
-            } else {
-                (vec![], None)
-            };
-
-            (
-                params_orig,
-                predicted_value,
-                predicted_std,
-                acq_score,
-                pred_constraints,
-                p_feas,
-            )
+        // 今回の反復で使うサロゲート／制約サロゲートへの参照を取得する。
+        let surrogate: &FittedSurrogate = if i == 0 {
+            &trained.surrogate
+        } else {
+            &refitted[i - 1]
         };
-        // surrogate への借用はここで終了する。
+        let c_models: &[FittedSurrogate] = if i == 0 {
+            &trained.constraint_models
+        } else {
+            &refitted_constraints[i - 1]
+        };
 
-        candidates.push(SuggestedCandidate {
-            params: params_orig.clone(),
-            predicted_value,
-            predicted_std,
-            acq_score,
-            predicted_constraints: pred_constraints.clone(),
-            feasibility_probability: p_feas,
-        });
+        // work_y と work_c から制約値行列を再構築する（Constant Liar 追記分を含む）。
+        let work_constraint_values = constraint_rows(&work_c, c_models.len(), work_y.len());
+        let f_best = incumbent(surrogate, &work_y, minimize, &work_constraint_values);
+
+        // 開始点: 現在の観測ベスト点（正規化空間）。
+        let best_idx = best_observed_index(&work_y, minimize);
+        let start_norm = surrogate.to_norm_x(&work_x[best_idx]);
+
+        // 獲得関数を最適化して候補点を確定する。
+        let best_norm = locate_candidate_norm(
+            surrogate,
+            c_models,
+            acquisition,
+            minimize,
+            f_best,
+            &start_norm,
+            &candidates,
+            42 + i as u64 + 1,
+        );
+
+        // 候補を元の単位へ変換して記録する。
+        let candidate = describe_candidate(
+            surrogate,
+            c_models,
+            acquisition,
+            minimize,
+            f_best,
+            &best_norm,
+        );
+        candidates.push(candidate);
 
         // Constant Liar: 次の候補のために作業データへ追加して再フィット。
         if i + 1 < n_candidates {
-            work_x.push(params_orig);
+            let last = &candidates[i];
+            work_x.push(last.params.clone());
             work_y.push(lie_y);
             // 制約の嘘値: 候補の制約予測平均値を使う。
+            let lie_constraints = last.predicted_constraints.clone();
             for (ci, col) in work_c.iter_mut().enumerate() {
-                let lie_c = pred_constraints.get(ci).copied().unwrap_or(0.0);
-                col.push(lie_c);
+                col.push(lie_constraints.get(ci).copied().unwrap_or(0.0));
             }
-            match fit_surrogate(trained.model_kind, &work_x, &work_y) {
-                Ok(new_surrogate) => {
+            match refit_constant_liar(trained.model_kind, &work_x, &work_y, &work_c) {
+                Some((new_surrogate, new_c_models)) => {
                     refitted.push(new_surrogate);
+                    refitted_constraints.push(new_c_models);
                 }
-                Err(_) => {
-                    // 再フィット失敗 → これまでの候補を Ok で返す。
-                    return Ok(candidates);
-                }
-            }
-            // 制約モデルも再フィットする。
-            let mut new_c_models = Vec::with_capacity(work_c.len());
-            let mut constraint_refit_ok = true;
-            for col in &work_c {
-                match fit_constraint_surrogate(trained.model_kind, &work_x, col) {
-                    Ok(cm) => new_c_models.push(cm),
-                    Err(_) => {
-                        constraint_refit_ok = false;
-                        break;
-                    }
-                }
-            }
-            if constraint_refit_ok {
-                refitted_constraints.push(new_c_models);
-            } else {
-                // 制約モデル再フィット失敗 → これまでの候補を Ok で返す。
-                return Ok(candidates);
+                // 再フィット失敗 → これまでの候補を Ok で返す。
+                None => return Ok(candidates),
             }
         }
     }

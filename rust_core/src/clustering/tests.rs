@@ -37,7 +37,7 @@ fn tc_2262_06_deterministic_correct_clusters_after_refactor() {
     assert!(cx[2] > 199.0, "third centroid x > 199.0, got {}", cx[2]);
 }
 
-/// Documentation.
+/// 第 1 特徴の分散が第 2 特徴を大きく上回る 2 特徴データを生成する。
 fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
     (0..n)
         .map(|i| {
@@ -48,7 +48,8 @@ fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
-/// Documentation.
+/// k 個のクラスタ中心 (0, 100, 200, ...) の周囲に点を並べたフラットな
+/// 行優先データ（2 特徴）を生成する。
 fn make_clustered_data(n_per_cluster: usize, k: usize) -> Vec<f64> {
     let mut data = Vec::with_capacity(n_per_cluster * k * 2);
     for c in 0..k {
@@ -113,16 +114,16 @@ fn tc_901_01_pca_dominant_axis() {
     let data = make_dominant_axis_data(200);
     let result = run_pca_on_matrix(&data, 2);
 
-    assert_eq!(result.loadings.len(), 2, "translated 2 translated");
+    assert_eq!(result.loadings.len(), 2, "loadings は 2 成分あるべき");
     assert_eq!(
         result.explained_variance.len(),
         2,
-        "translated 2 translated"
+        "explained_variance は 2 成分あるべき"
     );
 
     assert!(
         result.explained_variance[0] > result.explained_variance[1],
-        "translated1translated {} translated2translated {} translated",
+        "第 1 主成分の分散 {} は第 2 主成分の分散 {} より大きいべき",
         result.explained_variance[0],
         result.explained_variance[1]
     );
@@ -131,7 +132,7 @@ fn tc_901_01_pca_dominant_axis() {
     let loading1 = result.loadings[0][1].abs();
     assert!(
         loading0 > loading1,
-        "translated1translated x1 translated {} translated x2 translated {} translated",
+        "第 1 主成分は x1 の寄与 {} が x2 の寄与 {} より大きいべき",
         loading0,
         loading1
     );
@@ -143,14 +144,25 @@ fn tc_901_02_pca_projection_shape() {
     let data = make_dominant_axis_data(n);
     let result = run_pca_on_matrix(&data, 2);
 
-    assert_eq!(result.projections.len(), n, "translated n translated");
-    assert_eq!(result.projections[0].len(), 2, "translated 2 translated");
+    assert_eq!(result.projections.len(), n, "射影は n 行あるべき");
+    assert_eq!(result.projections[0].len(), 2, "射影は 2 成分あるべき");
 }
 
 #[test]
 fn tc_901_03_pca_empty_data() {
     let result = run_pca_on_matrix(&[vec![1.0, 2.0]], 2);
-    assert!(result.projections.is_empty(), "n<2 translated");
+    assert!(result.projections.is_empty(), "n<2 は空結果を返すべき");
+}
+
+#[test]
+fn pca_ragged_rows_return_empty_without_panic() {
+    // 行長が不揃いな入力は範囲外アクセスせず空結果を返す。
+    let data = vec![vec![1.0, 2.0], vec![3.0], vec![4.0, 5.0, 6.0]];
+    let result = run_pca_on_matrix(&data, 2);
+    assert!(result.projections.is_empty());
+    assert!(result.loadings.is_empty());
+    let standardized = super::pca::run_pca_on_matrix_opts(&data, 2, true);
+    assert!(standardized.projections.is_empty());
 }
 
 #[test]
@@ -203,8 +215,8 @@ fn tc_901_04_kmeans_convergence() {
 
     let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
 
-    assert_eq!(result.labels.len(), n, "translated n translated");
-    assert_eq!(result.centroids.len(), k, "translated k translated");
+    assert_eq!(result.labels.len(), n, "ラベルは n 個あるべき");
+    assert_eq!(result.centroids.len(), k, "セントロイドは k 個あるべき");
 
     let mut counts = vec![0usize; k];
     for &label in &result.labels {
@@ -213,7 +225,7 @@ fn tc_901_04_kmeans_convergence() {
     for (cluster_id, &count) in counts.iter().enumerate() {
         assert_eq!(
             count, n_per_cluster,
-            "translated {} translated {} translated",
+            "クラスタ {} の点数は {} であるべき",
             cluster_id, n_per_cluster
         );
     }
@@ -230,7 +242,7 @@ fn tc_901_05_kmeans_wcss_decreases_with_k() {
 
     assert!(
         wcss_k4 < wcss_k2,
-        "k=4 translated WCSS {} translated k=2 translated WCSS {} translated",
+        "k=4 の WCSS {} は k=2 の WCSS {} より小さいべき",
         wcss_k4,
         wcss_k2
     );
@@ -245,15 +257,11 @@ fn tc_901_06_elbow_recommended_k_valid() {
 
     let result = estimate_k_elbow_on_data(&data, n, p, 8);
 
-    assert_eq!(
-        result.wcss_per_k.len(),
-        7,
-        "WCSS translated 7 translated (k=2..8) translated"
-    );
+    assert_eq!(result.wcss_per_k.len(), 7, "WCSS は 7 個 (k=2..8) あるべき");
 
     assert!(
         result.recommended_k >= 2 && result.recommended_k <= 8,
-        "translated k={} translatedrange [2, 8] translated",
+        "推奨 k={} は範囲 [2, 8] に収まるべき",
         result.recommended_k
     );
 }
@@ -275,7 +283,7 @@ fn tc_901_p01_pca_performance() {
 
     let result = run_pca_on_matrix(&data, 2);
 
-    assert_eq!(result.projections.len(), n, "translated n translated");
+    assert_eq!(result.projections.len(), n, "射影は n 行あるべき");
 }
 
 #[test]
@@ -289,7 +297,7 @@ fn tc_901_p02_kmeans_performance() {
 
     let result = run_kmeans_on_data(&flat_data, n, p, 4, InitStrategy::Deterministic);
 
-    assert_eq!(result.labels.len(), n, "translated n translated");
+    assert_eq!(result.labels.len(), n, "ラベルは n 個あるべき");
     assert!(
         result.labels.iter().all(|&c| c < 4),
         "every label must fall in one of the 4 clusters"

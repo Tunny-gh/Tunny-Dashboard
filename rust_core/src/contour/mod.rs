@@ -126,13 +126,14 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
         });
     }
 
-    // 5. 正規化格子で点位置 + 重心補間。
+    // 5. 正規化格子で点位置 + 重心補間（三角形 bbox のバケット索引で高速化）。
+    let index = TriGridIndex::new(tris);
     let gxs = linspace(0.0, 1.0, n_grid);
     let gys = linspace(0.0, 1.0, n_grid);
     let mut z = vec![vec![None; n_grid]; n_grid];
     for (i, &gx) in gxs.iter().enumerate() {
         for (j, &gy) in gys.iter().enumerate() {
-            z[i][j] = interpolate(&tris, gx, gy);
+            z[i][j] = index.interpolate(gx, gy);
         }
     }
 
@@ -143,30 +144,85 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
     }
 }
 
+/// 三角形 bbox によるグリッドバケット索引（正規化空間 [0,1]^2 前提）。
+///
+/// 格子セルごとの全三角形線形走査（O(grid² × tris)）を避けるため、
+/// 一様な nb×nb のバケット格子に「bbox が重なる三角形の index」を昇順で
+/// 積んでおき、点位置判定は点の属するバケット内の候補のみ調べる。
+/// バケット内の候補は三角形 index 昇順のまま保持されるため、
+/// 「最初に点を含む三角形が勝つ」という線形走査の結果と完全に一致する。
+struct TriGridIndex {
+    tris: Vec<Tri>,
+    /// バケット格子の一辺の数。
+    nb: usize,
+    /// `buckets[iy * nb + ix]` = そのセルに bbox が重なる三角形 index（昇順）。
+    buckets: Vec<Vec<u32>>,
+}
+
+impl TriGridIndex {
+    fn new(tris: Vec<Tri>) -> Self {
+        // 三角形数の平方根程度のバケット数で、セルあたり候補数を O(√tris) に抑える。
+        let nb = ((tris.len() as f64).sqrt().ceil() as usize).clamp(1, 64);
+        let mut buckets = vec![Vec::new(); nb * nb];
+        // 重心座標判定は EPS(1e-9) だけ三角形外の点も受理するため、bbox を
+        // それより十分大きいマージンで拡げて候補の取り漏らしを防ぐ。
+        const MARGIN: f64 = 1e-6;
+        for (ti, t) in tris.iter().enumerate() {
+            let xmin = t.ax.min(t.bx).min(t.cx) - MARGIN;
+            let xmax = t.ax.max(t.bx).max(t.cx) + MARGIN;
+            let ymin = t.ay.min(t.by).min(t.cy) - MARGIN;
+            let ymax = t.ay.max(t.by).max(t.cy) + MARGIN;
+            let (ix0, ix1) = (Self::cell(xmin, nb), Self::cell(xmax, nb));
+            let (iy0, iy1) = (Self::cell(ymin, nb), Self::cell(ymax, nb));
+            for iy in iy0..=iy1 {
+                for ix in ix0..=ix1 {
+                    buckets[iy * nb + ix].push(ti as u32);
+                }
+            }
+        }
+        Self { tris, nb, buckets }
+    }
+
+    /// 座標（ほぼ [0,1]）→ バケット index。負値は 0 に飽和（`as usize` の仕様）。
+    fn cell(v: f64, nb: usize) -> usize {
+        ((v * nb as f64) as usize).min(nb - 1)
+    }
+
+    /// 点 `(px, py)` を含む最初（index 最小）の三角形で重心補間する。
+    /// どの三角形にも含まれなければ `None`（凸包外 / マスク領域）。
+    fn interpolate(&self, px: f64, py: f64) -> Option<f64> {
+        let bucket = &self.buckets[Self::cell(py, self.nb) * self.nb + Self::cell(px, self.nb)];
+        for &ti in bucket {
+            if let Some(v) = barycentric_value(&self.tris[ti as usize], px, py) {
+                return Some(v);
+            }
+        }
+        None
+    }
+}
+
+/// 点 `(px, py)` が三角形 `t` 内（境界の数値誤差込み）なら重心座標で補間値を返す。
+fn barycentric_value(t: &Tri, px: f64, py: f64) -> Option<f64> {
+    const EPS: f64 = 1e-9;
+    let denom = (t.by - t.cy) * (t.ax - t.cx) + (t.cx - t.bx) * (t.ay - t.cy);
+    if denom.abs() < 1e-15 {
+        return None; // 退化三角形。
+    }
+    let la = ((t.by - t.cy) * (px - t.cx) + (t.cx - t.bx) * (py - t.cy)) / denom;
+    let lb = ((t.cy - t.ay) * (px - t.cx) + (t.ax - t.cx) * (py - t.cy)) / denom;
+    let lc = 1.0 - la - lb;
+    if la >= -EPS && lb >= -EPS && lc >= -EPS {
+        Some(la * t.va + lb * t.vb + lc * t.vc)
+    } else {
+        None
+    }
+}
+
 /// 正規化空間のユークリッド距離。
 fn dist(a: &Point, b: &Point) -> f64 {
     let dx = a.x - b.x;
     let dy = a.y - b.y;
     (dx * dx + dy * dy).sqrt()
-}
-
-/// 点 `(px, py)` を含む最初の三角形を見つけ、重心座標で値を補間する。
-/// どの三角形にも含まれなければ `None`（凸包外 / マスク領域）。
-fn interpolate(tris: &[Tri], px: f64, py: f64) -> Option<f64> {
-    const EPS: f64 = 1e-9;
-    for t in tris {
-        let denom = (t.by - t.cy) * (t.ax - t.cx) + (t.cx - t.bx) * (t.ay - t.cy);
-        if denom.abs() < 1e-15 {
-            continue; // 退化三角形。
-        }
-        let la = ((t.by - t.cy) * (px - t.cx) + (t.cx - t.bx) * (py - t.cy)) / denom;
-        let lb = ((t.cy - t.ay) * (px - t.cx) + (t.ax - t.cx) * (py - t.cy)) / denom;
-        let lc = 1.0 - la - lb;
-        if la >= -EPS && lb >= -EPS && lc >= -EPS {
-            return Some(la * t.va + lb * t.vb + lc * t.vc);
-        }
-    }
-    None
 }
 
 /// 有限点のみ抽出し、(x,y) が近接する点を 1 つに統合（値は平均）する。
@@ -199,20 +255,30 @@ fn clean_points(pts: &[[f64; 3]]) -> Vec<[f64; 3]> {
     }
 
     const Q: f64 = 1.0e6;
-    // key -> (sum_x, sum_y, sum_v, count)
+    // key -> (sum_x, sum_y, sum_v, count)。
+    // HashMap のイテレーション順はインスタンスごとにランダムなため、
+    // 出力順は挿入順（= 元データの出現順）を別途保持して決定的にする。
+    // 順序が揺れると三角形分割の順序が変わり、境界上の格子点の補間値が
+    // 実行ごとに最終桁で揺れてしまう。
     let mut acc: HashMap<(i64, i64), (f64, f64, f64, u32)> = HashMap::new();
+    let mut order: Vec<(i64, i64)> = Vec::new();
     for p in &finite {
         let kx = ((p[0] - xmin) / xr * Q).round() as i64;
         let ky = ((p[1] - ymin) / yr * Q).round() as i64;
-        let e = acc.entry((kx, ky)).or_insert((0.0, 0.0, 0.0, 0));
+        let e = acc.entry((kx, ky)).or_insert_with(|| {
+            order.push((kx, ky));
+            (0.0, 0.0, 0.0, 0)
+        });
         e.0 += p[0];
         e.1 += p[1];
         e.2 += p[2];
         e.3 += 1;
     }
-    acc.values()
-        .map(|(sx, sy, sv, c)| {
-            let c = *c as f64;
+    order
+        .iter()
+        .map(|k| {
+            let (sx, sy, sv, c) = acc[k];
+            let c = c as f64;
             [sx / c, sy / c, sv / c]
         })
         .collect()
@@ -434,6 +500,61 @@ mod tests {
         let pts = [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 2.0, 2.0]];
         let s = observed_surface(&pts, 10, 0.0);
         assert!(s.x_values.is_empty());
+    }
+
+    #[test]
+    fn bucketed_index_matches_linear_scan_exactly() {
+        // バケット索引は「index 最小の含有三角形が勝つ」線形走査と完全一致する。
+        let pts: Vec<[f64; 3]> = (0..40)
+            .map(|i| {
+                // 決定論的な擬似ランダム配置。
+                let x = ((i * 37 + 11) % 97) as f64 / 97.0;
+                let y = ((i * 53 + 29) % 89) as f64 / 89.0;
+                [x, y, x * 3.0 - y * 2.0 + (x * y).sin()]
+            })
+            .collect();
+        let s = observed_surface(&pts, 31, 0.0);
+        // 同一入力から三角形リストを再構築し、線形走査で照合する。
+        let cleaned = clean_points(&pts);
+        let (mut xmin, mut xmax) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
+        for p in &cleaned {
+            xmin = xmin.min(p[0]);
+            xmax = xmax.max(p[0]);
+            ymin = ymin.min(p[1]);
+            ymax = ymax.max(p[1]);
+        }
+        let norm: Vec<Point> = cleaned
+            .iter()
+            .map(|p| Point {
+                x: (p[0] - xmin) / (xmax - xmin),
+                y: (p[1] - ymin) / (ymax - ymin),
+            })
+            .collect();
+        let tri = triangulate(&norm);
+        let tris: Vec<Tri> = tri
+            .triangles
+            .chunks_exact(3)
+            .map(|t| Tri {
+                ax: norm[t[0]].x,
+                ay: norm[t[0]].y,
+                bx: norm[t[1]].x,
+                by: norm[t[1]].y,
+                cx: norm[t[2]].x,
+                cy: norm[t[2]].y,
+                va: cleaned[t[0]][2],
+                vb: cleaned[t[1]][2],
+                vc: cleaned[t[2]][2],
+            })
+            .collect();
+        let gxs = linspace(0.0, 1.0, 31);
+        let gys = linspace(0.0, 1.0, 31);
+        for (i, &gx) in gxs.iter().enumerate() {
+            for (j, &gy) in gys.iter().enumerate() {
+                let brute = tris.iter().find_map(|t| barycentric_value(t, gx, gy));
+                assert_eq!(s.z[i][j], brute, "mismatch at grid ({i},{j})");
+            }
+        }
     }
 
     #[test]

@@ -8,6 +8,8 @@
 //! `optimizers::multi_objective_nsga2` が多目的サロゲートの呼び出しを担う。
 
 use crate::math::rng::SeededRng;
+use crate::multi_objective::pareto::dominates_minimized;
+use rayon::prelude::*;
 
 /// 単目的最適化での SBX 分布指数 η_c（局所探索寄り）。
 const SBX_ETA_SINGLE_OBJECTIVE: f64 = 20.0;
@@ -65,7 +67,7 @@ pub(crate) fn nsga2_minimize<F>(
     cfg: &Nsga2Config,
 ) -> Vec<(Vec<f64>, Vec<f64>)>
 where
-    F: Fn(&[f64]) -> Vec<f64>,
+    F: Fn(&[f64]) -> Vec<f64> + Sync,
 {
     let n = (cfg.pop_size.max(4) + 1) & !1; // 偶数化（最低 4）
     let mut rng = SeededRng::from_seed(cfg.seed);
@@ -79,7 +81,9 @@ where
     while pop.len() < n {
         pop.push((0..n_dims).map(|_| rng.next_f64()).collect());
     }
-    let mut fit: Vec<Vec<f64>> = pop.iter().map(|g| eval(g)).collect();
+    // 集団評価は RNG を使わない純粋なサロゲート予測なので rayon で並列化する
+    // （par_iter は入力順を保つため決定性は保たれる）。
+    let mut fit: Vec<Vec<f64>> = pop.par_iter().map(|g| eval(g)).collect();
 
     for _ in 0..cfg.generations {
         // 親集団のランクと混雑度（トーナメント選択用）。
@@ -105,7 +109,7 @@ where
                 offspring.push(c2);
             }
         }
-        let offspring_fit: Vec<Vec<f64>> = offspring.iter().map(|g| eval(g)).collect();
+        let offspring_fit: Vec<Vec<f64>> = offspring.par_iter().map(|g| eval(g)).collect();
 
         // ── 環境選択（親子 2n からエリート n を残す） ────────────────
         pop.extend(offspring);
@@ -148,22 +152,24 @@ where
         .unwrap_or_default()
 }
 
-/// a が b をパレート支配するか（全目的最小化）。
-fn dominates(a: &[f64], b: &[f64]) -> bool {
-    a.iter().zip(b).all(|(x, y)| x <= y) && a.iter().zip(b).any(|(x, y)| x < y)
-}
-
 /// 高速非劣ソート。フロントごとの個体 index リストを返す（先頭が第一フロント）。
+///
+/// NOTE: `multi_objective::pareto::ranking::nd_sort` と同一アルゴリズム
+/// （Fast Non-dominated Sort）だが、意図的に別実装として維持している。
+/// こちらは NSGA-II の世代ループ内で小集団（既定 `pop_size = 64`、親子合わせても
+/// 高々 128 個体）に対して毎世代呼ばれるホットパスであり、`nd_sort` が備える
+/// 並列化・NaN 行マスクなど大規模 DataFrame 向けの機構は不要かつオーバーヘッドに
+/// なるため、単純な逐次 O(n^2) 実装のままにしている。
 fn fast_non_dominated_sort(fit: &[Vec<f64>]) -> Vec<Vec<usize>> {
     let n = fit.len();
     let mut dominated_by: Vec<Vec<usize>> = vec![Vec::new(); n]; // i が支配する個体
     let mut domination_count = vec![0usize; n]; // i を支配する個体数
     for i in 0..n {
         for j in (i + 1)..n {
-            if dominates(&fit[i], &fit[j]) {
+            if dominates_minimized(&fit[i], &fit[j]) {
                 dominated_by[i].push(j);
                 domination_count[j] += 1;
-            } else if dominates(&fit[j], &fit[i]) {
+            } else if dominates_minimized(&fit[j], &fit[i]) {
                 dominated_by[j].push(i);
                 domination_count[i] += 1;
             }
@@ -305,9 +311,9 @@ mod tests {
 
     #[test]
     fn dominates_requires_strict_improvement() {
-        assert!(dominates(&[1.0, 1.0], &[2.0, 1.0]));
-        assert!(!dominates(&[1.0, 1.0], &[1.0, 1.0]));
-        assert!(!dominates(&[1.0, 2.0], &[2.0, 1.0])); // 非劣関係
+        assert!(dominates_minimized(&[1.0, 1.0], &[2.0, 1.0]));
+        assert!(!dominates_minimized(&[1.0, 1.0], &[1.0, 1.0]));
+        assert!(!dominates_minimized(&[1.0, 2.0], &[2.0, 1.0])); // 非劣関係
     }
 
     #[test]

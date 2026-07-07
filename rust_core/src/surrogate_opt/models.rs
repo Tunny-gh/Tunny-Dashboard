@@ -97,8 +97,7 @@ impl FittedSurrogate {
                 // （Booster は predict で内部状態を変更しないため安全）。
                 let booster = booster.lock().unwrap_or_else(|e| e.into_inner());
                 lgbm_predict(&booster, &[x_norm.to_vec()])
-                    .first()
-                    .copied()
+                    .and_then(|preds| preds.first().copied())
                     .unwrap_or(0.0)
             }
             #[cfg(test)]

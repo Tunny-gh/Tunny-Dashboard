@@ -66,30 +66,30 @@ fn mysql_value_to_sql_value(value: Value) -> SqlValue {
 }
 
 impl OptunaBackend for MysqlBackend {
-    fn query(&mut self, sql: &str, params: &[SqlParam]) -> Result<Vec<Vec<SqlValue>>, String> {
+    fn query_for_each(
+        &mut self,
+        sql: &str,
+        params: &[SqlParam],
+        on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+    ) -> Result<(), String> {
         let bound_params: Vec<Value> = params.iter().map(to_mysql_value).collect();
-        let rows: Vec<mysql::Row> = self
+        // `exec_iter` はサーバから行をストリーミングで取り出す（全行を一括バッファしない）。
+        let result = self
             .conn
-            .exec(sql, bound_params)
+            .exec_iter(sql, bound_params)
             .map_err(|e| format!("Failed to execute query: {e}"))?;
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                row.unwrap()
-                    .into_iter()
-                    .map(mysql_value_to_sql_value)
-                    .collect()
-            })
-            .collect())
+        let mut buf: Vec<SqlValue> = Vec::new();
+        for row_result in result {
+            let row = row_result.map_err(|e| format!("Failed to read query results: {e}"))?;
+            buf.clear();
+            buf.extend(row.unwrap().into_iter().map(mysql_value_to_sql_value));
+            on_row(&buf)?;
+        }
+        Ok(())
     }
 
-    fn table_exists(&mut self, table: &str) -> Result<bool, String> {
-        let rows = self.query(
-            "SELECT 1 FROM information_schema.tables \
-             WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
-            &[SqlParam::Text(table.to_string())],
-        )?;
-        Ok(!rows.is_empty())
+    fn current_schema_expr(&self) -> &'static str {
+        "DATABASE()"
     }
 
     fn text_cast(&self, expr: &str) -> String {

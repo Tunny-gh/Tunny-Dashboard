@@ -57,10 +57,17 @@ impl SomResult {
     }
 }
 
+/// バッチ学習のエポック内で使う最大行数。超える場合は等間隔サブサンプルした
+/// 行のみで重みを更新する（hierarchical の行数キャップと同じ慣行・決定論的）。
+/// BMU・ヒット・U-matrix は全行に対して計算するため出力の形は変わらない。
+pub const MAX_SOM_TRAINING_ROWS: usize = 800;
+
 /// バッチ SOM を学習する。行数 3 未満・特徴 0・グリッド 2x2 未満は `None`。
 ///
 /// データは内部で標準化される（分散ゼロ列は 0 に写像され地図に寄与しない）。
 /// 近傍幅 σ はエポックに沿って `max(grid_w, grid_h)/2` から 0.5 へ指数減衰する。
+/// 行数が [`MAX_SOM_TRAINING_ROWS`] を超える場合、エポック内の重み更新のみ
+/// 等間隔サブサンプルで行う（結果は行数によらず決定論的）。
 pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
     let n = data.len();
     if n < 3 || data[0].is_empty() || spec.grid_w < 2 || spec.grid_h < 2 || spec.n_epochs == 0 {
@@ -69,29 +76,9 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
     let p = data[0].len();
     let n_nodes = spec.grid_w * spec.grid_h;
 
-    // ── 標準化 ──────────────────────────────────────────────────
-    let mut means = vec![0.0f64; p];
-    let mut stds = vec![0.0f64; p];
-    for j in 0..p {
-        let mean = data.iter().map(|r| r[j]).sum::<f64>() / n as f64;
-        let var = data.iter().map(|r| (r[j] - mean).powi(2)).sum::<f64>() / n as f64;
-        means[j] = mean;
-        stds[j] = var.sqrt();
-    }
-    let x: Vec<Vec<f64>> = data
-        .iter()
-        .map(|row| {
-            (0..p)
-                .map(|j| {
-                    if stds[j] > 1e-12 {
-                        (row[j] - means[j]) / stds[j]
-                    } else {
-                        0.0
-                    }
-                })
-                .collect()
-        })
-        .collect();
+    // ── 標準化（clustering 共通ヘルパ、母分散 n）─────────────────
+    let mut x: Vec<Vec<f64>> = data.to_vec();
+    let (means, stds) = super::standardize::standardize_columns(&mut x, 0);
 
     // ── PCA 平面に沿った決定論的線形初期化 ──────────────────────
     // 標準化済みデータの上位 2 主成分方向に ±2√λ の範囲でグリッドを張る。
@@ -152,6 +139,17 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         best
     };
 
+    // ── 学習行のサブサンプル（等間隔・決定論的）──────────────────
+    // 行数キャップ以下なら全行（従来と同一の挙動）。
+    let train_indices: Vec<usize> = if n > MAX_SOM_TRAINING_ROWS {
+        let step = n as f64 / MAX_SOM_TRAINING_ROWS as f64;
+        (0..MAX_SOM_TRAINING_ROWS)
+            .map(|i| ((i as f64 * step) as usize).min(n - 1))
+            .collect()
+    } else {
+        (0..n).collect()
+    };
+
     // ── バッチ学習 ──────────────────────────────────────────────
     let sigma0 = (spec.grid_w.max(spec.grid_h)) as f64 / 2.0;
     let sigma_end = 0.5f64;
@@ -163,7 +161,7 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         // 各行の BMU を確定し、近傍カーネルで重み付き平均を取る。
         let mut num = vec![vec![0.0f64; p]; n_nodes];
         let mut den = vec![0.0f64; n_nodes];
-        for row in &x {
+        for row in train_indices.iter().map(|&ri| &x[ri]) {
             let bmu = find_bmu(&weights, row);
             let (bx, by) = node_xy(bmu);
             for node in 0..n_nodes {
@@ -276,6 +274,23 @@ mod tests {
         // 元単位: x0 は 0 付近と 10 付近の 2 群 → プレーンの範囲がそのスケールに乗る。
         let max = plane.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         assert!(max > 1.0, "destandardized plane should reach data scale");
+    }
+
+    #[test]
+    fn caps_training_rows_but_outputs_full_shapes() {
+        // 学習キャップを超えても BMU/ヒットは全行分返り、決定性が保たれる。
+        let n = MAX_SOM_TRAINING_ROWS + 50;
+        let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 7) as f64]).collect();
+        let spec = SomSpec {
+            grid_w: 4,
+            grid_h: 4,
+            n_epochs: 3,
+        };
+        let a = train_som(&data, &spec).unwrap();
+        assert_eq!(a.bmu.len(), n);
+        assert_eq!(a.hits.iter().sum::<usize>(), n);
+        let b = train_som(&data, &spec).unwrap();
+        assert_eq!(a.bmu, b.bmu);
     }
 
     #[test]

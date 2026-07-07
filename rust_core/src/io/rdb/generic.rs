@@ -59,11 +59,7 @@ fn fetch_directions(
         let direction = row[0]
             .as_text()
             .ok_or_else(|| "Failed to read study_directions: direction is not text".to_string())?;
-        directions.push(if direction == "MAXIMIZE" {
-            OptimizationDirection::Maximize
-        } else {
-            OptimizationDirection::Minimize
-        });
+        directions.push(direction_from_str(direction));
     }
     Ok(directions)
 }
@@ -109,6 +105,70 @@ fn objective_names_for(
     } else {
         (0..directions.len()).map(|i| format!("obj{i}")).collect()
     }
+}
+
+fn direction_from_str(direction: &str) -> OptimizationDirection {
+    if direction == "MAXIMIZE" {
+        OptimizationDirection::Maximize
+    } else {
+        OptimizationDirection::Minimize
+    }
+}
+
+/// 全 study の最適化方向を study_id ごとに 1 クエリで取得する（`scan_study_list` の N+1 回避）。
+/// `objective` 昇順で読むため、各 study 内の方向は目的インデックス順に並ぶ。
+fn fetch_directions_by_study(
+    backend: &mut dyn OptunaBackend,
+) -> Result<HashMap<i64, Vec<OptimizationDirection>>, String> {
+    let mut map: HashMap<i64, Vec<OptimizationDirection>> = HashMap::new();
+    backend.query_for_each(
+        "SELECT study_id, direction FROM study_directions ORDER BY study_id, objective",
+        &[],
+        &mut |row| {
+            let study_id = row[0].as_i64().ok_or_else(|| {
+                "Failed to read study_directions: study_id is not an integer".to_string()
+            })?;
+            let direction = row[1].as_text().ok_or_else(|| {
+                "Failed to read study_directions: direction is not text".to_string()
+            })?;
+            map.entry(study_id)
+                .or_default()
+                .push(direction_from_str(direction));
+            Ok(())
+        },
+    )?;
+    Ok(map)
+}
+
+/// 全 study の `study:metric_names`（目的名）を study_id ごとに 1 クエリで取得する
+/// （`scan_study_list` の N+1 回避）。値が無い study はマップに現れない。
+fn fetch_metric_names_by_study(
+    backend: &mut dyn OptunaBackend,
+) -> Result<HashMap<i64, Vec<String>>, String> {
+    let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+    backend.query_for_each(
+        "SELECT study_id, value_json FROM study_system_attributes \
+         WHERE study_system_attributes.key = 'study:metric_names'",
+        &[],
+        &mut |row| {
+            let study_id = row[0].as_i64().ok_or_else(|| {
+                "Failed to read study_system_attributes: study_id is not an integer".to_string()
+            })?;
+            let names = row[1]
+                .as_text()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .and_then(|v| v.as_array().cloned())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default();
+            map.insert(study_id, names);
+            Ok(())
+        },
+    )?;
+    Ok(map)
 }
 
 /// ライブ更新のポーリングで変化検出に使う軽量フィンガープリント。
@@ -234,31 +294,29 @@ pub fn study_fingerprint(
 fn fetch_trial_counts_by_study(
     backend: &mut dyn OptunaBackend,
 ) -> Result<HashMap<i64, (i64, i64)>, String> {
-    let rows = backend
-        .query(
-            "SELECT study_id, state, COUNT(*) FROM trials GROUP BY study_id, state",
-            &[],
-        )
-        .map_err(|e| format!("Failed to query trial counts: {e}"))?;
-
     let mut counts: HashMap<i64, (i64, i64)> = HashMap::new();
-    for row in rows {
-        let study_id = row[0]
-            .as_i64()
-            .ok_or_else(|| "Failed to read trial counts: study_id is not an integer".to_string())?;
-        let state = row[1]
-            .as_text()
-            .ok_or_else(|| "Failed to read trial counts: state is not text".to_string())?;
-        let count = row[2]
-            .as_i64()
-            .ok_or_else(|| "Failed to read trial counts: count is not an integer".to_string())?;
+    backend.query_for_each(
+        "SELECT study_id, state, COUNT(*) FROM trials GROUP BY study_id, state",
+        &[],
+        &mut |row| {
+            let study_id = row[0].as_i64().ok_or_else(|| {
+                "Failed to read trial counts: study_id is not an integer".to_string()
+            })?;
+            let state = row[1]
+                .as_text()
+                .ok_or_else(|| "Failed to read trial counts: state is not text".to_string())?;
+            let count = row[2].as_i64().ok_or_else(|| {
+                "Failed to read trial counts: count is not an integer".to_string()
+            })?;
 
-        let entry = counts.entry(study_id).or_insert((0, 0));
-        entry.1 += count; // total_trials
-        if state == "COMPLETE" {
-            entry.0 += count; // completed_trials
-        }
-    }
+            let entry = counts.entry(study_id).or_insert((0, 0));
+            entry.1 += count; // total_trials
+            if state == "COMPLETE" {
+                entry.0 += count; // completed_trials
+            }
+            Ok(())
+        },
+    )?;
     Ok(counts)
 }
 
@@ -267,21 +325,19 @@ fn fetch_trial_counts_by_study(
 fn fetch_studies_with_constraints(
     backend: &mut dyn OptunaBackend,
 ) -> Result<std::collections::HashSet<i64>, String> {
-    let rows = backend
-        .query(
-            "SELECT DISTINCT t.study_id FROM trial_system_attributes tsa \
-             JOIN trials t ON tsa.trial_id = t.trial_id WHERE tsa.key = 'constraints'",
-            &[],
-        )
-        .map_err(|e| format!("Failed to query constraints: {e}"))?;
-
-    let mut study_ids = std::collections::HashSet::with_capacity(rows.len());
-    for row in rows {
-        let study_id = row[0]
-            .as_i64()
-            .ok_or_else(|| "Failed to read constraints: study_id is not an integer".to_string())?;
-        study_ids.insert(study_id);
-    }
+    let mut study_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    backend.query_for_each(
+        "SELECT DISTINCT t.study_id FROM trial_system_attributes tsa \
+         JOIN trials t ON tsa.trial_id = t.trial_id WHERE tsa.key = 'constraints'",
+        &[],
+        &mut |row| {
+            let study_id = row[0].as_i64().ok_or_else(|| {
+                "Failed to read constraints: study_id is not an integer".to_string()
+            })?;
+            study_ids.insert(study_id);
+            Ok(())
+        },
+    )?;
     Ok(study_ids)
 }
 
@@ -314,15 +370,21 @@ pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>
         studies_raw.push((study_id, name));
     }
 
-    // study 単位の N+1 クエリ（completed/total 件数・constraints 有無）を避けるため、
-    // 全 study 分を先にまとめて 1 クエリずつ取得しておく。
+    // study 単位の N+1 クエリ（directions・metric_names・completed/total 件数・
+    // constraints 有無）を避けるため、全 study 分を先にまとめて 1 クエリずつ取得しておく。
+    let mut directions_by_study = fetch_directions_by_study(backend)?;
+    let mut metric_names_by_study = fetch_metric_names_by_study(backend)?;
     let trial_counts = fetch_trial_counts_by_study(backend)?;
     let studies_with_constraints = fetch_studies_with_constraints(backend)?;
 
     let mut studies = Vec::with_capacity(studies_raw.len());
     for (study_id, name) in studies_raw {
-        let directions = fetch_directions(backend, study_id)?;
-        let metric_names = fetch_metric_names(backend, study_id)?;
+        // 範囲外の study_id は StudyMeta.study_id (u32) に収まらないためスキップする。
+        let Ok(study_id_u32) = u32::try_from(study_id) else {
+            continue;
+        };
+        let directions = directions_by_study.remove(&study_id).unwrap_or_default();
+        let metric_names = metric_names_by_study.remove(&study_id).unwrap_or_default();
         let objective_names = objective_names_for(&directions, metric_names);
 
         let (completed_trials, total_trials) =
@@ -331,7 +393,7 @@ pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>
 
         #[allow(clippy::cast_sign_loss)]
         studies.push(StudyMeta {
-            study_id: study_id as u32,
+            study_id: study_id_u32,
             name,
             directions,
             completed_trials: completed_trials as u32,
@@ -437,25 +499,22 @@ pub fn parse_single_study_rows(
     // ── trials (COMPLETE のみ、trial_id 昇順) ────────────────────────────
     let mut trial_order: Vec<u32> = Vec::new();
     let mut accum: HashMap<u32, TrialAccum> = HashMap::new();
-    {
-        let rows = backend
-            .query(
-                "SELECT trial_id, number FROM trials \
-                 WHERE study_id = ? AND state = 'COMPLETE' ORDER BY trial_id",
-                &[SqlParam::I64(sid)],
-            )
-            .map_err(|e| format!("Failed to query trials: {e}"))?;
-        for row in rows {
+    backend.query_for_each(
+        "SELECT trial_id, number FROM trials \
+         WHERE study_id = ? AND state = 'COMPLETE' ORDER BY trial_id",
+        &[SqlParam::I64(sid)],
+        &mut |row| {
             let trial_id = row[0]
                 .as_i64()
                 .ok_or_else(|| "Failed to read trials: trial_id is not an integer".to_string())?;
             let number = row[1]
                 .as_i64()
                 .ok_or_else(|| "Failed to read trials: number is not an integer".to_string())?;
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
-            #[allow(clippy::cast_sign_loss)]
-            let number = number as u32;
+            // id 列が u32 に収まらない行はスキップする（黙って切り捨てない）。
+            let (Ok(trial_id), Ok(number)) = (u32::try_from(trial_id), u32::try_from(number))
+            else {
+                return Ok(());
+            };
             trial_order.push(trial_id);
             accum.insert(
                 trial_id,
@@ -469,20 +528,17 @@ pub fn parse_single_study_rows(
                     constraint_values: Vec::new(),
                 },
             );
-        }
-    }
+            Ok(())
+        },
+    )?;
 
     // ── trial_values ──────────────────────────────────────────────────
-    {
-        let rows = backend
-            .query(
-                "SELECT tv.trial_id, tv.objective, tv.value, tv.value_type \
-                 FROM trial_values tv JOIN trials t ON tv.trial_id = t.trial_id \
-                 WHERE t.study_id = ? AND t.state = 'COMPLETE'",
-                &[SqlParam::I64(sid)],
-            )
-            .map_err(|e| format!("Failed to query trial_values: {e}"))?;
-        for row in rows {
+    backend.query_for_each(
+        "SELECT tv.trial_id, tv.objective, tv.value, tv.value_type \
+         FROM trial_values tv JOIN trials t ON tv.trial_id = t.trial_id \
+         WHERE t.study_id = ? AND t.state = 'COMPLETE'",
+        &[SqlParam::I64(sid)],
+        &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
                 "Failed to read trial_values: trial_id is not an integer".to_string()
             })?;
@@ -498,27 +554,25 @@ pub fn parse_single_study_rows(
                 "INF_NEG" => f64::NEG_INFINITY,
                 _ => value.unwrap_or(f64::NAN),
             };
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
+            let Ok(trial_id) = u32::try_from(trial_id) else {
+                return Ok(());
+            };
             if let Some(trial) = accum.get_mut(&trial_id) {
                 trial.objective_values.push((objective, v));
             }
-        }
-    }
+            Ok(())
+        },
+    )?;
 
     // ── trial_params ─────────────────────────────────────────────────
     let mut param_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut param_bounds: HashMap<String, (f64, f64)> = HashMap::new();
-    {
-        let rows = backend
-            .query(
-                "SELECT tp.trial_id, tp.param_name, tp.param_value, tp.distribution_json \
-                 FROM trial_params tp JOIN trials t ON tp.trial_id = t.trial_id \
-                 WHERE t.study_id = ? AND t.state = 'COMPLETE' ORDER BY tp.trial_id",
-                &[SqlParam::I64(sid)],
-            )
-            .map_err(|e| format!("Failed to query trial_params: {e}"))?;
-        for row in rows {
+    backend.query_for_each(
+        "SELECT tp.trial_id, tp.param_name, tp.param_value, tp.distribution_json \
+         FROM trial_params tp JOIN trials t ON tp.trial_id = t.trial_id \
+         WHERE t.study_id = ? AND t.state = 'COMPLETE' ORDER BY tp.trial_id",
+        &[SqlParam::I64(sid)],
+        &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
                 "Failed to read trial_params: trial_id is not an integer".to_string()
             })?;
@@ -540,8 +594,9 @@ pub fn parse_single_study_rows(
             }
 
             param_names.insert(param_name.clone());
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
+            let Ok(trial_id) = u32::try_from(trial_id) else {
+                return Ok(());
+            };
             if let Some(trial) = accum.get_mut(&trial_id) {
                 trial
                     .param_display
@@ -550,24 +605,21 @@ pub fn parse_single_study_rows(
                     trial.param_category_label.insert(param_name, label);
                 }
             }
-        }
-    }
+            Ok(())
+        },
+    )?;
 
     // ── trial_user_attributes ────────────────────────────────────────
     let mut user_attr_numeric_names: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
     let mut user_attr_string_names: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
-    {
-        let rows = backend
-            .query(
-                "SELECT tua.trial_id, tua.key, tua.value_json \
-                 FROM trial_user_attributes tua JOIN trials t ON tua.trial_id = t.trial_id \
-                 WHERE t.study_id = ? AND t.state = 'COMPLETE'",
-                &[SqlParam::I64(sid)],
-            )
-            .map_err(|e| format!("Failed to query trial_user_attributes: {e}"))?;
-        for row in rows {
+    backend.query_for_each(
+        "SELECT tua.trial_id, tua.key, tua.value_json \
+         FROM trial_user_attributes tua JOIN trials t ON tua.trial_id = t.trial_id \
+         WHERE t.study_id = ? AND t.state = 'COMPLETE'",
+        &[SqlParam::I64(sid)],
+        &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
                 "Failed to read trial_user_attributes: trial_id is not an integer".to_string()
             })?;
@@ -578,10 +630,11 @@ pub fn parse_single_study_rows(
                 "Failed to read trial_user_attributes: value_json is not text".to_string()
             })?;
             let Ok(value) = serde_json::from_str::<Value>(value_json) else {
-                continue;
+                return Ok(());
             };
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
+            let Ok(trial_id) = u32::try_from(trial_id) else {
+                return Ok(());
+            };
             if let Some(trial) = accum.get_mut(&trial_id) {
                 let before_numeric = trial.user_attrs_numeric.len();
                 let before_string = trial.user_attrs_string.len();
@@ -597,22 +650,19 @@ pub fn parse_single_study_rows(
                     user_attr_string_names.insert(key.to_string());
                 }
             }
-        }
-    }
+            Ok(())
+        },
+    )?;
 
     // ── trial_system_attributes (constraints only) ───────────────────
     let mut has_constraints = false;
     let mut max_constraints = 0usize;
-    {
-        let rows = backend
-            .query(
-                "SELECT tsa.trial_id, tsa.value_json \
-                 FROM trial_system_attributes tsa JOIN trials t ON tsa.trial_id = t.trial_id \
-                 WHERE t.study_id = ? AND t.state = 'COMPLETE' AND tsa.key = 'constraints'",
-                &[SqlParam::I64(sid)],
-            )
-            .map_err(|e| format!("Failed to query trial_system_attributes: {e}"))?;
-        for row in rows {
+    backend.query_for_each(
+        "SELECT tsa.trial_id, tsa.value_json \
+         FROM trial_system_attributes tsa JOIN trials t ON tsa.trial_id = t.trial_id \
+         WHERE t.study_id = ? AND t.state = 'COMPLETE' AND tsa.key = 'constraints'",
+        &[SqlParam::I64(sid)],
+        &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
                 "Failed to read trial_system_attributes: trial_id is not an integer".to_string()
             })?;
@@ -620,18 +670,20 @@ pub fn parse_single_study_rows(
                 "Failed to read trial_system_attributes: value_json is not text".to_string()
             })?;
             let Ok(Value::Array(values)) = serde_json::from_str::<Value>(value_json) else {
-                continue;
+                return Ok(());
             };
             let constraints: Vec<f64> = values.iter().filter_map(Value::as_f64).collect();
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
+            let Ok(trial_id) = u32::try_from(trial_id) else {
+                return Ok(());
+            };
             if let Some(trial) = accum.get_mut(&trial_id) {
                 max_constraints = max_constraints.max(constraints.len());
                 trial.constraint_values = constraints;
                 has_constraints = true;
             }
-        }
-    }
+            Ok(())
+        },
+    )?;
 
     // ── assemble TrialRow in trial_id order ──────────────────────────
     let mut rows: Vec<TrialRow> = Vec::with_capacity(trial_order.len());
@@ -710,10 +762,7 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
             backend.text_cast("datetime_start"),
             backend.text_cast("datetime_complete"),
         );
-        let rows = backend
-            .query(&sql, &[SqlParam::I64(sid)])
-            .map_err(|e| format!("Failed to query trials for extras: {e}"))?;
-        for row in rows {
+        backend.query_for_each(&sql, &[SqlParam::I64(sid)], &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
                 "Failed to read trials for extras: trial_id is not an integer".to_string()
             })?;
@@ -726,10 +775,11 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
             let datetime_start = row[3].as_text();
             let datetime_complete = row[4].as_text();
 
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
-            #[allow(clippy::cast_sign_loss)]
-            let number = number as u32;
+            // id 列が u32 に収まらない行はスキップする（黙って切り捨てない）。
+            let (Ok(trial_id), Ok(number)) = (u32::try_from(trial_id), u32::try_from(number))
+            else {
+                return Ok(());
+            };
 
             index_of.insert(trial_id, trials.len());
             trials.push(TrialExtra {
@@ -740,7 +790,8 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
                 datetime_complete: datetime_complete.and_then(parse_naive_datetime),
                 intermediate_values: Vec::new(),
             });
-        }
+            Ok(())
+        })?;
     }
 
     // trial_intermediate_values テーブルの存在確認（古い DB では欠落しうる）。
@@ -749,41 +800,41 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
         .map_err(|e| format!("Failed to inspect intermediate values table: {e}"))?;
 
     if has_intermediate_table {
-        let rows = backend
-            .query(
-                "SELECT tiv.trial_id, tiv.step, tiv.intermediate_value, tiv.intermediate_value_type \
-                 FROM trial_intermediate_values tiv \
-                 JOIN trials t ON tiv.trial_id = t.trial_id \
-                 WHERE t.study_id = ? ORDER BY tiv.trial_id, tiv.step",
-                &[SqlParam::I64(sid)],
-            )
-            .map_err(|e| format!("Failed to query trial_intermediate_values: {e}"))?;
-        for row in rows {
-            let trial_id = row[0].as_i64().ok_or_else(|| {
-                "Failed to read trial_intermediate_values: trial_id is not an integer".to_string()
-            })?;
-            let step = row[1].as_i64().ok_or_else(|| {
-                "Failed to read trial_intermediate_values: step is not an integer".to_string()
-            })?;
-            let value = row[2].as_f64();
-            let value_type = row[3].as_text().ok_or_else(|| {
-                "Failed to read trial_intermediate_values: intermediate_value_type is not text"
-                    .to_string()
-            })?;
-            let v = match value_type {
-                "INF_POS" => f64::INFINITY,
-                "INF_NEG" => f64::NEG_INFINITY,
-                "NAN" => f64::NAN,
-                _ => value.unwrap_or(f64::NAN),
-            };
-            #[allow(clippy::cast_sign_loss)]
-            let trial_id = trial_id as u32;
-            #[allow(clippy::cast_sign_loss)]
-            let step = step as u64;
-            if let Some(&idx) = index_of.get(&trial_id) {
-                trials[idx].intermediate_values.push((step, v));
-            }
-        }
+        backend.query_for_each(
+            "SELECT tiv.trial_id, tiv.step, tiv.intermediate_value, tiv.intermediate_value_type \
+             FROM trial_intermediate_values tiv \
+             JOIN trials t ON tiv.trial_id = t.trial_id \
+             WHERE t.study_id = ? ORDER BY tiv.trial_id, tiv.step",
+            &[SqlParam::I64(sid)],
+            &mut |row| {
+                let trial_id = row[0].as_i64().ok_or_else(|| {
+                    "Failed to read trial_intermediate_values: trial_id is not an integer"
+                        .to_string()
+                })?;
+                let step = row[1].as_i64().ok_or_else(|| {
+                    "Failed to read trial_intermediate_values: step is not an integer".to_string()
+                })?;
+                let value = row[2].as_f64();
+                let value_type = row[3].as_text().ok_or_else(|| {
+                    "Failed to read trial_intermediate_values: intermediate_value_type is not text"
+                        .to_string()
+                })?;
+                let v = match value_type {
+                    "INF_POS" => f64::INFINITY,
+                    "INF_NEG" => f64::NEG_INFINITY,
+                    "NAN" => f64::NAN,
+                    _ => value.unwrap_or(f64::NAN),
+                };
+                let (Ok(trial_id), Ok(step)) = (u32::try_from(trial_id), u64::try_from(step))
+                else {
+                    return Ok(());
+                };
+                if let Some(&idx) = index_of.get(&trial_id) {
+                    trials[idx].intermediate_values.push((step, v));
+                }
+                Ok(())
+            },
+        )?;
     }
 
     // 保険として step 昇順にそろえる（SQL の ORDER BY を信頼するが冪等）。

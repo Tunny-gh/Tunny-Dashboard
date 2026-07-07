@@ -13,9 +13,20 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-L{}", libs_dir.display());
         println!("cargo:rustc-link-arg=-Wl,-l_lightgbm");
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", libs_dir.display());
-    } else {
+    } else if cfg!(target_os = "windows") {
+        // Windows (MSVC): links lib_lightgbm.lib (import library from the DLL).
+        // The literal file name is lib_lightgbm.lib, so the link name is `lib_lightgbm`.
         println!("cargo:rustc-link-search=native={}", libs_dir.display());
         println!("cargo:rustc-link-lib=dylib=lib_lightgbm");
+    } else {
+        // Linux: the shared object is `lib_lightgbm.so`. `rustc-link-lib=dylib=NAME`
+        // links `libNAME.so`, so NAME must be `_lightgbm` (→ lib_lightgbm.so).
+        // The previous `lib_lightgbm` wrongly resolved to `liblib_lightgbm.so`.
+        println!("cargo:rustc-link-search=native={}", libs_dir.display());
+        println!("cargo:rustc-link-lib=dylib=_lightgbm");
+        // -rpath lets the produced binary/test locate the .so at runtime, matching
+        // the macOS branch above.
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", libs_dir.display());
     }
 
     // Copy lib_lightgbm.dll into the cargo target directory so that test

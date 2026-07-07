@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 
-/// Documentation.
-/// Documentation.
+/// 1 trial 分のデータを保持する行。DataFrame 構築の入力となる中間表現。
 #[derive(Clone)]
 pub struct TrialRow {
     /// ストレージ横断のグローバル trial_id（op_code=4 出現順）。
     pub trial_id: u32,
     /// Study 内 0 始まりの trial.number（Optuna の `trial.number`、作成順）。
     pub trial_number: u32,
-    /// Documentation.
+    /// パラメータ名から表示値（数値）へのマップ。
     pub param_display: HashMap<String, f64>,
-    /// Documentation.
+    /// カテゴリカルパラメータ名から選択肢ラベル文字列へのマップ。
     pub param_category_label: HashMap<String, String>,
     /// objectivevalue list（obj0, obj1, ...）
     pub objective_values: Vec<f64>,

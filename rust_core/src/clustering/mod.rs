@@ -2,6 +2,7 @@ mod hierarchical;
 mod kmeans;
 mod pca;
 mod som;
+mod standardize;
 mod types;
 
 pub use hierarchical::{
@@ -10,7 +11,7 @@ pub use hierarchical::{
 };
 pub use kmeans::{estimate_k_elbow, run_kmeans};
 pub use pca::{run_pca, run_pca_standardized};
-pub use som::{train_som, SomResult, SomSpec};
+pub use som::{train_som, SomResult, SomSpec, MAX_SOM_TRAINING_ROWS};
 pub use types::{ElbowResult, InitStrategy, KmeansResult, PcaResult, PcaSpace};
 
 #[cfg(test)]

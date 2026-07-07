@@ -1,4 +1,4 @@
-use crate::math::stats::column_mean_std;
+use crate::math::stats::{column_mean_std, value_range};
 
 pub(crate) fn col_mean_std(data: &[f64]) -> (f64, f64) {
     column_mean_std(data)
@@ -8,10 +8,7 @@ pub(crate) fn col_mean_std(data: &[f64]) -> (f64, f64) {
 ///
 /// Returns `(min, max)`. Returns `(INFINITY, NEG_INFINITY)` for an empty slice.
 pub(crate) fn col_min_max(data: &[f64]) -> (f64, f64) {
-    data.iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &v| {
-            (mn.min(v), mx.max(v))
-        })
+    value_range(data.iter().copied())
 }
 
 /// Normalize x matrix using min-max scaling.
@@ -53,6 +50,12 @@ pub(crate) fn normalize_x_minmax(x_matrix: &[Vec<f64>]) -> (Vec<(f64, f64)>, Vec
 /// # Returns
 /// (y_mean, y_std, y_norm)
 /// - y_std minimum value: f64::EPSILON (zero division guard)
+///
+/// NOTE: `math::stats::column_mean_std` は敢えて再利用しない。あちらは退化時
+/// （std < EPSILON）に std を 1.0 に置き換える規約で、返した std から退化を
+/// 区別できない。ここでは y_std が逆正規化（`pred * y_std + y_mean`）と信頼区間の
+/// スケールに使われるため、定数 y では EPSILON を返して予測バンドを潰す現行挙動を
+/// 維持する必要がある（1.0 に変えると定数 y で偽の不確かさが表示される）。
 pub(crate) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
     let n = y.len();
     if n == 0 {
@@ -67,7 +70,8 @@ pub(crate) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
 
 /// Calculate R² coefficient of determination.
 ///
-/// If ss_tot < EPSILON (constant y), returns 1.0.
+/// 定数 y（ss_tot ≈ 0）の規約は `sensitivity::ridge::compute_r_squared` と統一:
+/// 残差もほぼゼロ（定数を完全に再現）なら 1.0、そうでなければ 0.0。
 pub(crate) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
     let n = y_actual.len();
     if n == 0 {
@@ -75,14 +79,14 @@ pub(crate) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
     }
     let y_mean = y_actual.iter().sum::<f64>() / n as f64;
     let ss_tot: f64 = y_actual.iter().map(|&v| (v - y_mean).powi(2)).sum();
-    if ss_tot < f64::EPSILON {
-        return 1.0;
-    }
     let ss_res: f64 = y_actual
         .iter()
         .zip(y_pred.iter())
         .map(|(&a, &p)| (a - p).powi(2))
         .sum();
+    if ss_tot < f64::EPSILON {
+        return if ss_res < f64::EPSILON { 1.0 } else { 0.0 };
+    }
     1.0 - ss_res / ss_tot
 }
 
@@ -249,6 +253,19 @@ mod tests {
 
         // Then: Should return 1.0 without panicking (zero division guard)
         assert_eq!(r2, 1.0);
+    }
+
+    #[test]
+    fn tc_201_e02_constant_y_bad_prediction_returns_zero() {
+        // Given: constant y but predictions that do NOT reproduce it
+        let y_actual = vec![5.0, 5.0, 5.0];
+        let y_pred = vec![1.0, 2.0, 3.0];
+
+        // When: r_squared is called
+        let r2 = r_squared(&y_actual, &y_pred);
+
+        // Then: unified convention (residual != 0 for constant y) → 0.0
+        assert_eq!(r2, 0.0);
     }
 
     #[test]

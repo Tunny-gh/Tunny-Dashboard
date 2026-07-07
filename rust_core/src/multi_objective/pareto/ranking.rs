@@ -4,10 +4,12 @@ use super::helpers::{compute_ref_point, normalize_objectives};
 use super::hypervolume::hypervolume_nd;
 use super::types::ParetoResult;
 
-/// Non-dominated Sorting（FNDS: Fast Non-dominated Sort）🟢
+/// Non-dominated Sorting（FNDS: Fast Non-dominated Sort）。
 ///
-/// Documentation.
-/// Documentation.
+/// 各試行にパレートランク（0 = 非支配前面、1 = それを除いた前面、…）を割り当てる。
+/// 最大化目的は符号反転して最小化に統一し、NaN を含む行・目的本数の揃わない行は
+/// 支配判定から除外して最悪ランク（最大ランク + 1）を与える。単目的（m <= 1）は
+/// 全行ランク 0。ペア支配判定は rayon で並列化している。
 pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     let n = objectives.len();
     if n == 0 {
@@ -65,6 +67,10 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
                     continue;
                 }
                 let oj = &norm_flat[j * m..(j + 1) * m];
+                // NOTE: この支配判定は helpers::dominates_minimized と意図的に
+                // 重複している。ここはホットループで、1 パスで「i が j を支配 /
+                // j が i を支配」の双方向を同時に判定できる（共通ヘルパを 2 回
+                // 呼ぶと走査が倍になる）ため、性能目的で inline 実装を維持する。
                 let mut i_better = false;
                 let mut j_better = false;
                 for k in 0..m {
@@ -150,9 +156,12 @@ fn compute_hypervolume(
     }
 }
 
-/// Documentation.
+/// アクティブな DataFrame の目的値列に対してパレートランクと Hypervolume を計算する。
 ///
-/// Documentation.
+/// 制約なしの場合は全行を `nd_sort` にかける。制約ありの場合は feasible 行のみを
+/// ランク付けし、infeasible 行には制約違反量（`constraint_sum`）の昇順で
+/// feasible の最大ランクより後ろのランクを与える。Hypervolume は目的数 2 以上かつ
+/// パレート前面が 2 点以上のときのみ `Some`。アクティブ Study がなければ空の結果。
 pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
     crate::dataframe::with_active_df(|df| {
         let obj_names = df.objective_col_names();

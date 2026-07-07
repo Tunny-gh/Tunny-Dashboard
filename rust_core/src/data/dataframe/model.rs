@@ -1,19 +1,21 @@
+use std::collections::{HashMap, VecDeque};
+
 use super::types::TrialRow;
 
-/// Documentation.
-/// Documentation.
+/// 列指向の Trial テーブル（数値列・文字列列を名前で引く軽量 DataFrame）。
+/// journal / RDB パーサが構築し、UI・エクスポート・分析コードが共通で参照する。
 #[derive(Clone, Debug)]
 pub struct DataFrame {
     row_count: usize,
-    /// Documentation.
+    /// 行 index 順の trial_id。
     trial_ids: Vec<u32>,
     /// Study 内 0 始まりの trial.number（行 index 順）。
     trial_numbers: Vec<u32>,
-    /// Documentation.
+    /// 数値列（名前, 値）。param / objective / user_attr / constraint / 派生列を含む。
     numeric_cols: Vec<(String, Vec<f64>)>,
-    /// Documentation.
+    /// 文字列列（名前, 値）。カテゴリカル param / user_attr 文字列列。
     string_cols: Vec<(String, Vec<String>)>,
-    /// Documentation.
+    /// パラメータ列名（生成順）。
     param_col_names: Vec<String>,
     objective_col_names: Vec<String>,
     user_attr_numeric_col_names: Vec<String>,
@@ -24,7 +26,7 @@ pub struct DataFrame {
 }
 
 impl DataFrame {
-    /// Documentation.
+    /// 行 0・列 0 の空 DataFrame を返す。
     pub fn empty() -> Self {
         DataFrame {
             row_count: 0,
@@ -41,16 +43,12 @@ impl DataFrame {
         }
     }
 
-    /// Documentation.
+    /// Trial 行データから DataFrame を構築する。
     ///
-    /// Documentation.
-    /// Documentation.
-    /// Documentation.
-    /// Documentation.
-    /// Documentation.
-    /// Documentation.
-    /// Documentation.
-    /// Documentation.
+    /// 列の生成順は param → objective → user_attr（数値/文字列）→ constraint → 派生列。
+    /// param はカテゴリラベルが 1 行でもあれば文字列列、なければ数値列になる。
+    /// 制約がある場合は派生列 `is_feasible` / `constraint_sum` を追加する。
+    /// 欠損値は param: 0.0 / objective・user 数値: NaN / 文字列: "" / 制約: 0.0 で埋める。
     pub fn from_trials(
         trial_rows: &[TrialRow],
         param_names: &[String],
@@ -205,33 +203,58 @@ impl DataFrame {
         self.trial_numbers
             .extend(new_rows.iter().map(|r| r.trial_number));
 
-        // 同名列が複数カテゴリに存在しうるため、「まだ伸長していない（長さ old_n の）
-        // 最初の同名列」を選ぶ。from_trials の列生成順（param → objective → user →
-        // constraint）と本メソッドの処理順が同じなので、対応関係が保たれる。
-        fn extend_numeric(
-            cols: &mut [(String, Vec<f64>)],
-            name: &str,
-            old_n: usize,
-            values: impl Iterator<Item = f64>,
-        ) {
-            if let Some((_, col)) = cols
-                .iter_mut()
-                .find(|(n, col)| n == name && col.len() == old_n)
-            {
-                col.extend(values);
+        // 列名 → 「まだ伸長していない（長さ old_n の）同名列 index」のキュー。
+        // 同名列が複数カテゴリに存在しうるため、生成順（from_trials の
+        // param → objective → user → constraint）で先頭から消費する。本メソッドの
+        // 処理順が同じなので対応関係が保たれる。名前ごとの線形探索を避けるための
+        // HashMap 化（旧実装は伸長のたびに全列を線形走査していた）。
+        // キーは列名のコピーで持つ（ループ中に self.numeric_cols 等を可変借用するため）。
+        let mut numeric_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
+        for (i, (name, col)) in self.numeric_cols.iter().enumerate() {
+            if col.len() == old_n {
+                numeric_pending
+                    .entry(name.clone())
+                    .or_default()
+                    .push_back(i);
             }
         }
+        let mut string_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
+        for (i, (name, col)) in self.string_cols.iter().enumerate() {
+            if col.len() == old_n {
+                string_pending.entry(name.clone()).or_default().push_back(i);
+            }
+        }
+
+        // 既存列名の membership 判定用セット（旧実装の `iter().any()` の置き換え）。
+        let mut param_name_set: std::collections::HashSet<String> =
+            self.param_col_names.iter().cloned().collect();
+        let mut objective_name_set: std::collections::HashSet<String> =
+            self.objective_col_names.iter().cloned().collect();
+        let mut uan_name_set: std::collections::HashSet<String> =
+            self.user_attr_numeric_col_names.iter().cloned().collect();
+        let mut uas_name_set: std::collections::HashSet<String> =
+            self.user_attr_string_col_names.iter().cloned().collect();
+
+        /// pending キューの先頭 index の列を伸長する（無ければ no-op）。
+        fn extend_numeric(
+            cols: &mut [(String, Vec<f64>)],
+            pending: &mut HashMap<String, VecDeque<usize>>,
+            name: &str,
+            values: impl Iterator<Item = f64>,
+        ) {
+            if let Some(idx) = pending.get_mut(name).and_then(VecDeque::pop_front) {
+                cols[idx].1.extend(values);
+            }
+        }
+        /// pending キューの先頭 index の列を伸長する（無ければ no-op）。
         fn extend_string(
             cols: &mut [(String, Vec<String>)],
+            pending: &mut HashMap<String, VecDeque<usize>>,
             name: &str,
-            old_n: usize,
             values: impl Iterator<Item = String>,
         ) {
-            if let Some((_, col)) = cols
-                .iter_mut()
-                .find(|(n, col)| n == name && col.len() == old_n)
-            {
-                col.extend(values);
+            if let Some(idx) = pending.get_mut(name).and_then(VecDeque::pop_front) {
+                cols[idx].1.extend(values);
             }
         }
 
@@ -247,7 +270,7 @@ impl DataFrame {
                         .unwrap_or_default()
                 })
             };
-            if !self.param_col_names.iter().any(|n| n == name) {
+            if !param_name_set.contains(name) {
                 // ストリーミング途中で初出現した param 列。既存行はデフォルトで埋める。
                 if new_has_label {
                     let mut vals = vec![String::new(); old_n];
@@ -263,21 +286,34 @@ impl DataFrame {
                     self.numeric_cols.push((name.clone(), vals));
                 }
                 self.param_col_names.push(name.clone());
-            } else if self
-                .string_cols
-                .iter()
-                .any(|(n, col)| n == name && col.len() == old_n)
+                param_name_set.insert(name.clone());
+            } else if string_pending
+                .get(name.as_str())
+                .is_some_and(|q| !q.is_empty())
             {
-                extend_string(&mut self.string_cols, name, old_n, label_values());
+                extend_string(
+                    &mut self.string_cols,
+                    &mut string_pending,
+                    name,
+                    label_values(),
+                );
             } else if new_has_label {
                 // 数値列にカテゴリラベルが初出現。from_trials は「1 行でもラベルがあれば
                 // 列全体を文字列」とするため、列を置き換える（既存の数値行は ""）。
-                if let Some(idx) = self
-                    .numeric_cols
-                    .iter()
-                    .position(|(n, col)| n == name && col.len() == old_n)
+                if let Some(idx) = numeric_pending
+                    .get_mut(name.as_str())
+                    .and_then(VecDeque::pop_front)
                 {
                     self.numeric_cols.remove(idx);
+                    // remove で idx より後ろの列が 1 つずつ前へ詰まるため、
+                    // pending キュー内の index を補正する。
+                    for queue in numeric_pending.values_mut() {
+                        for i in queue.iter_mut() {
+                            if *i > idx {
+                                *i -= 1;
+                            }
+                        }
+                    }
                 }
                 let mut vals = vec![String::new(); old_n];
                 vals.extend(label_values());
@@ -285,8 +321,8 @@ impl DataFrame {
             } else {
                 extend_numeric(
                     &mut self.numeric_cols,
+                    &mut numeric_pending,
                     name,
-                    old_n,
                     new_rows
                         .iter()
                         .map(|r| *r.param_display.get(name).unwrap_or(&0.0)),
@@ -298,13 +334,14 @@ impl DataFrame {
             let values = new_rows
                 .iter()
                 .map(move |r| r.objective_values.get(i).copied().unwrap_or(f64::NAN));
-            if self.objective_col_names.iter().any(|n| n == name) {
-                extend_numeric(&mut self.numeric_cols, name, old_n, values);
+            if objective_name_set.contains(name) {
+                extend_numeric(&mut self.numeric_cols, &mut numeric_pending, name, values);
             } else {
                 let mut vals = vec![f64::NAN; old_n];
                 vals.extend(values);
                 self.numeric_cols.push((name.clone(), vals));
                 self.objective_col_names.push(name.clone());
+                objective_name_set.insert(name.clone());
             }
         }
 
@@ -312,13 +349,14 @@ impl DataFrame {
             let values = new_rows
                 .iter()
                 .map(|r| *r.user_attrs_numeric.get(name).unwrap_or(&f64::NAN));
-            if self.user_attr_numeric_col_names.iter().any(|n| n == name) {
-                extend_numeric(&mut self.numeric_cols, name, old_n, values);
+            if uan_name_set.contains(name) {
+                extend_numeric(&mut self.numeric_cols, &mut numeric_pending, name, values);
             } else {
                 let mut vals = vec![f64::NAN; old_n];
                 vals.extend(values);
                 self.numeric_cols.push((name.clone(), vals));
                 self.user_attr_numeric_col_names.push(name.clone());
+                uan_name_set.insert(name.clone());
             }
         }
 
@@ -326,13 +364,14 @@ impl DataFrame {
             let values = new_rows
                 .iter()
                 .map(|r| r.user_attrs_string.get(name).cloned().unwrap_or_default());
-            if self.user_attr_string_col_names.iter().any(|n| n == name) {
-                extend_string(&mut self.string_cols, name, old_n, values);
+            if uas_name_set.contains(name) {
+                extend_string(&mut self.string_cols, &mut string_pending, name, values);
             } else {
                 let mut vals = vec![String::new(); old_n];
                 vals.extend(values);
                 self.string_cols.push((name.clone(), vals));
                 self.user_attr_string_col_names.push(name.clone());
+                uas_name_set.insert(name.clone());
             }
         }
 
@@ -345,7 +384,12 @@ impl DataFrame {
                     .iter()
                     .map(move |r| r.constraint_values.get(ci).copied().unwrap_or(0.0));
                 if ci < self.constraint_col_names.len() {
-                    extend_numeric(&mut self.numeric_cols, &col_name, old_n, values);
+                    extend_numeric(
+                        &mut self.numeric_cols,
+                        &mut numeric_pending,
+                        &col_name,
+                        values,
+                    );
                 } else {
                     let mut vals = vec![0.0; old_n];
                     vals.extend(values);
@@ -365,8 +409,8 @@ impl DataFrame {
             if self.derived_col_names.iter().any(|n| n == "is_feasible") {
                 extend_numeric(
                     &mut self.numeric_cols,
+                    &mut numeric_pending,
                     "is_feasible",
-                    old_n,
                     feasible_values,
                 );
             } else {
@@ -378,7 +422,12 @@ impl DataFrame {
 
             let sum_values = new_rows.iter().map(|r| r.constraint_values.iter().sum());
             if self.derived_col_names.iter().any(|n| n == "constraint_sum") {
-                extend_numeric(&mut self.numeric_cols, "constraint_sum", old_n, sum_values);
+                extend_numeric(
+                    &mut self.numeric_cols,
+                    &mut numeric_pending,
+                    "constraint_sum",
+                    sum_values,
+                );
             } else {
                 let mut vals = vec![0.0; old_n];
                 vals.extend(sum_values);
@@ -400,7 +449,7 @@ impl DataFrame {
         );
     }
 
-    /// Documentation.
+    /// 指定行の trial_id を返す（範囲外は `None`）。
     pub fn get_trial_id(&self, row: usize) -> Option<u32> {
         self.trial_ids.get(row).copied()
     }
@@ -414,7 +463,7 @@ impl DataFrame {
         Some(self.trial_numbers.get(row).copied().unwrap_or(row as u32))
     }
 
-    /// Documentation.
+    /// パラメータ列名（生成順）。
     pub fn param_col_names(&self) -> &[String] {
         &self.param_col_names
     }
@@ -435,19 +484,19 @@ impl DataFrame {
         &self.constraint_col_names
     }
 
-    /// Documentation.
+    /// 行数（trial 数）を返す。
     pub fn row_count(&self) -> usize {
         self.row_count
     }
 
-    /// Documentation.
+    /// 全列名（数値列 → 文字列列の順）を返す。
     pub fn column_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.numeric_cols.iter().map(|(n, _)| n.clone()).collect();
         names.extend(self.string_cols.iter().map(|(n, _)| n.clone()));
         names
     }
 
-    /// Documentation.
+    /// 数値列を名前で引く（同名列が複数ある場合は先頭、無ければ `None`）。
     pub fn get_numeric_column(&self, name: &str) -> Option<&[f64]> {
         self.numeric_cols
             .iter()
@@ -455,7 +504,7 @@ impl DataFrame {
             .map(|(_, v)| v.as_slice())
     }
 
-    /// Documentation.
+    /// 文字列列を名前で引く（同名列が複数ある場合は先頭、無ければ `None`）。
     pub fn get_string_column(&self, name: &str) -> Option<&[String]> {
         self.string_cols
             .iter()

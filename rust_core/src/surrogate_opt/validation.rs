@@ -1,10 +1,23 @@
 //! サロゲートモデルのホールドアウト＋k-fold CV 検証。
 
 use crate::pdp::utils::r_squared;
+use rayon::prelude::*;
 
 use super::models::{fit_surrogate, SurrogateModelKind};
 use super::progress::FitProgress;
 use crate::math::rng::SeededRng;
+
+/// 1 fold の CV 結果（並列評価してから fold 順に集約するための中間表現）。
+struct FoldOutcome {
+    /// OOF (実測, 予測) ペア（この fold の検証点、`cv_val_indices` 順）。
+    oof: Vec<(f64, f64)>,
+    /// 各 OOF 点がパレートフロント（rank 0）の trial か。
+    is_front: Vec<bool>,
+    /// この fold の検証 RMSE（縮退 fold でも算出する）。
+    rmse: f64,
+    /// この fold の検証 R²（点数 < 2 または分散ゼロの縮退 fold は `None`）。
+    r2: Option<f64>,
+}
 
 /// ホールドアウト + k-fold CV によるサロゲートモデルの検証レポート。
 #[derive(Debug, Clone)]
@@ -186,61 +199,88 @@ pub(crate) fn validate_surrogate_tracked_front(
     let mut cv_r2_values: Vec<f64> = Vec::with_capacity(k);
     let mut cv_rmse_values: Vec<f64> = Vec::with_capacity(k);
 
-    for fold in 0..k {
-        // fold 以外を訓練に使用する。
-        let cv_train_indices: Vec<usize> = (0..k)
-            .filter(|&f| f != fold)
-            .flat_map(|f| fold_indices[f].iter().copied())
-            .collect();
-        let cv_val_indices: &[usize] = &fold_indices[fold];
+    // 各 fold の学習は互いに独立で RNG も共有しないため rayon で並列化する。
+    // 結果は fold 順に集約するので OOF ペア・スコアの順序は逐次実行と一致する
+    // （固定シードでの再現性を維持）。progress の inc_done はアトミックで順序非依存。
+    let fold_outcomes: Vec<FoldOutcome> = (0..k)
+        .into_par_iter()
+        .map(|fold| -> Result<FoldOutcome, String> {
+            // fold 以外を訓練に使用する。
+            let cv_train_indices: Vec<usize> = (0..k)
+                .filter(|&f| f != fold)
+                .flat_map(|f| fold_indices[f].iter().copied())
+                .collect();
+            let cv_val_indices: &[usize] = &fold_indices[fold];
 
-        let cv_train_x: Vec<Vec<f64>> = cv_train_indices
-            .iter()
-            .map(|&i| x_matrix[i].clone())
-            .collect();
-        let cv_train_y: Vec<f64> = cv_train_indices.iter().map(|&i| y[i]).collect();
-        let cv_val_x: Vec<Vec<f64>> = cv_val_indices
-            .iter()
-            .map(|&i| x_matrix[i].clone())
-            .collect();
-        let cv_val_y: Vec<f64> = cv_val_indices.iter().map(|&i| y[i]).collect();
+            let cv_train_x: Vec<Vec<f64>> = cv_train_indices
+                .iter()
+                .map(|&i| x_matrix[i].clone())
+                .collect();
+            let cv_train_y: Vec<f64> = cv_train_indices.iter().map(|&i| y[i]).collect();
+            let cv_val_x: Vec<Vec<f64>> = cv_val_indices
+                .iter()
+                .map(|&i| x_matrix[i].clone())
+                .collect();
+            let cv_val_y: Vec<f64> = cv_val_indices.iter().map(|&i| y[i]).collect();
 
-        progress.check()?;
-        let cv_model = fit_surrogate(kind, &cv_train_x, &cv_train_y)
-            .map_err(|e| format!("CV fold {fold} 訓練失敗: {e}"))?;
-        progress.inc_done();
+            progress.check()?;
+            let cv_model = fit_surrogate(kind, &cv_train_x, &cv_train_y)
+                .map_err(|e| format!("CV fold {fold} 訓練失敗: {e}"))?;
+            progress.inc_done();
 
-        let cv_pred: Vec<f64> = cv_val_x
-            .iter()
-            .map(|row| {
-                let x_norm = cv_model.to_norm_x(row);
-                cv_model.to_original_y(cv_model.predict_norm(&x_norm))
+            let cv_pred: Vec<f64> = cv_val_x
+                .iter()
+                .map(|row| {
+                    let x_norm = cv_model.to_norm_x(row);
+                    cv_model.to_original_y(cv_model.predict_norm(&x_norm))
+                })
+                .collect();
+
+            // OOF ペアを収集する（元の行 index でフロント所属も記録）。
+            let mut oof = Vec::with_capacity(cv_val_indices.len());
+            let mut is_front = Vec::with_capacity(cv_val_indices.len());
+            for ((&idx, &actual), &predicted) in cv_val_indices
+                .iter()
+                .zip(cv_val_y.iter())
+                .zip(cv_pred.iter())
+            {
+                oof.push((actual, predicted));
+                is_front.push(front_set.contains(&idx));
+            }
+
+            // fold RMSE（縮退 fold でも含める）。
+            let rmse_fold = rmse(&cv_val_y, &cv_pred);
+
+            // 縮退 fold（点数 < 2 または分散ゼロ）は R² から除外する。
+            let r2_fold = if cv_val_y.len() < 2 {
+                None
+            } else {
+                let y_mean = cv_val_y.iter().sum::<f64>() / cv_val_y.len() as f64;
+                let ss_tot: f64 = cv_val_y.iter().map(|&v| (v - y_mean).powi(2)).sum();
+                if ss_tot < f64::EPSILON {
+                    None
+                } else {
+                    Some(r_squared(&cv_val_y, &cv_pred))
+                }
+            };
+
+            Ok(FoldOutcome {
+                oof,
+                is_front,
+                rmse: rmse_fold,
+                r2: r2_fold,
             })
-            .collect();
+        })
+        .collect::<Result<Vec<_>, String>>()?;
 
-        // OOF ペアを収集する（元の行 index でフロント所属も記録）。
-        for ((&idx, &actual), &predicted) in cv_val_indices
-            .iter()
-            .zip(cv_val_y.iter())
-            .zip(cv_pred.iter())
-        {
-            oof_pairs.push((actual, predicted));
-            oof_is_front.push(front_set.contains(&idx));
+    // fold 順に集約する（逐次実行時と同じ並び）。
+    for outcome in fold_outcomes {
+        oof_pairs.extend(outcome.oof);
+        oof_is_front.extend(outcome.is_front);
+        cv_rmse_values.push(outcome.rmse);
+        if let Some(r2) = outcome.r2 {
+            cv_r2_values.push(r2);
         }
-
-        // fold RMSE（縮退 fold でも含める）。
-        cv_rmse_values.push(rmse(&cv_val_y, &cv_pred));
-
-        // 縮退 fold（点数 < 2 または分散ゼロ）は R² から除外する。
-        if cv_val_y.len() < 2 {
-            continue;
-        }
-        let y_mean = cv_val_y.iter().sum::<f64>() / cv_val_y.len() as f64;
-        let ss_tot: f64 = cv_val_y.iter().map(|&v| (v - y_mean).powi(2)).sum();
-        if ss_tot < f64::EPSILON {
-            continue;
-        }
-        cv_r2_values.push(r_squared(&cv_val_y, &cv_pred));
     }
 
     // CV R² の平均・標準偏差（有効 fold のみ）。

@@ -17,7 +17,7 @@ use super::model::*;
 use super::svg::{self, HBarItem, HistBin, LinePoint, ScatterPoint};
 use super::text::{self, format_unix_utc};
 use super::theme;
-use super::{format_number, ReportLang};
+use super::{format_number, pct, ReportLang};
 
 /// フルページ幅チャートの viewBox 幅（レスポンシブなので相対比のみ意味を持つ）。
 const CHART_W: f64 = 880.0;
@@ -191,10 +191,6 @@ fn yes_no(lang: ReportLang, b: bool) -> &'static str {
     } else {
         tr(lang, "no", "いいえ")
     }
-}
-
-fn pct(x: f64) -> String {
-    format!("{:.0}", x)
 }
 
 /// 数値パラメータ値を `(表示文字列, 数値か)` として返す。
@@ -423,27 +419,14 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
 
     match &report.outcome {
         Outcome::SingleObj { best_trial, top_n } => {
-            if let Some(bt) = best_trial {
-                let _ = writeln!(s, "<h3>{}</h3>", esc(tr(lang, "Best trial", "最良 trial")));
-                render_trial_table(
-                    s,
-                    lang,
-                    std::slice::from_ref(bt),
-                    obj_names,
-                    has_constraints,
-                );
-            }
-            let _ = writeln!(s, "<h3>{}</h3>", esc(tr(lang, "Top trials", "上位 trial")));
-            let _ = writeln!(
+            render_outcome_single(
                 s,
-                "<p class=\"desc\">{}</p>",
-                esc(tr(
-                    lang,
-                    "Best first; objective and parameter columns.",
-                    "最良順。目的とパラメータの列。"
-                ))
+                lang,
+                best_trial.as_ref(),
+                top_n,
+                obj_names,
+                has_constraints,
             );
-            render_trial_table(s, lang, top_n, obj_names, has_constraints);
         }
         Outcome::MultiObj {
             pareto_size,
@@ -451,6 +434,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             objective_count,
             per_objective_extremes,
             pareto_table,
+            pareto_infeasible_count,
             scatter,
             scatter_axes,
         } => {
@@ -461,127 +445,186 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                 pareto_size,
                 complete_count
             );
-
-            // 目的ごとの極値。
-            let _ = writeln!(
+            render_extremes_table(s, lang, per_objective_extremes);
+            render_outcome_scatter(s, lang, scatter, *scatter_axes, *objective_count, obj_names);
+            render_pareto_table_block(
                 s,
-                "<h3>{}</h3>",
-                esc(tr(lang, "Per-objective extremes", "目的ごとの極値"))
+                lang,
+                pareto_table,
+                *pareto_infeasible_count,
+                obj_names,
+                has_constraints,
             );
-            let _ = writeln!(
-                s,
-                "<p class=\"desc\">{}</p>",
-                esc(tr(
-                    lang,
-                    "Best value respects each objective's direction.",
-                    "最良値は各目的の方向に従う。"
-                ))
-            );
-            open_table(s);
-            s.push_str("<thead><tr>");
-            th(s, tr(lang, "objective", "目的"), false);
-            th(s, tr(lang, "direction", "方向"), false);
-            th(s, tr(lang, "best", "最良"), true);
-            th(s, tr(lang, "best trial", "最良 trial"), true);
-            th(s, tr(lang, "worst", "最悪"), true);
-            s.push_str("</tr></thead>\n<tbody>\n");
-            for e in per_objective_extremes {
-                s.push_str("<tr>");
-                td(s, &e.objective_name, false);
-                td(s, dir_label(lang, e.direction), false);
-                td(s, &format_number(e.best_value), true);
-                if e.best_feasible {
-                    td(s, &format!("#{}", e.best_trial_number), true);
-                } else {
-                    // 制約違反 trial が最良の場合は赤字 + ✗ で明示する。
-                    let _ = write!(
-                        s,
-                        "<td class=\"num infeasible\">#{} ✗</td>",
-                        e.best_trial_number
-                    );
-                }
-                td(s, &format_number(e.worst_value), true);
-                s.push_str("</tr>\n");
-            }
-            s.push_str("</tbody>\n");
-            close_table(s);
-
-            // 散布図（先頭2目的軸）。
-            if !scatter.is_empty() && *objective_count >= 2 {
-                let (xi, yi) = *scatter_axes;
-                let x_label = obj_names.get(xi).map(String::as_str).unwrap_or("obj x");
-                let y_label = obj_names.get(yi).map(String::as_str).unwrap_or("obj y");
-                let background: Vec<ScatterPoint> = scatter
-                    .iter()
-                    .filter(|p| !p.on_front)
-                    .map(scatter_pt)
-                    .collect();
-                let front: Vec<ScatterPoint> = scatter
-                    .iter()
-                    .filter(|p| p.on_front)
-                    .map(scatter_pt)
-                    .collect();
-                let chart =
-                    svg::scatter_chart(&background, &front, x_label, y_label, CHART_W, 440.0);
-                let _ = writeln!(
-                    s,
-                    "<figure>{chart}<figcaption>{}</figcaption></figure>",
-                    esc(tr(
-                        lang,
-                        "Objective space: Pareto front vs dominated trials.",
-                        "目的空間: パレート前面と被支配解。"
-                    ))
-                );
-                if *objective_count > 2 {
-                    let _ = writeln!(
-                        s,
-                        "<p class=\"desc\">{} ({} {}).</p>",
-                        esc(tr(
-                            lang,
-                            "Scatter uses the first two objectives",
-                            "散布図は先頭2目的を使用"
-                        )),
-                        objective_count,
-                        esc(tr(lang, "objectives total", "目的中"))
-                    );
-                }
-            }
-
-            // パレート表（TOPSIS 順）。
-            let _ = writeln!(
-                s,
-                "<h3>{}</h3>",
-                esc(tr(lang, "Pareto-front trials", "パレート前面の trial"))
-            );
-            let _ = writeln!(
-                s,
-                "<p class=\"desc\">{}</p>",
-                esc(tr(
-                    lang,
-                    "Ordered by equal-weight TOPSIS (capped).",
-                    "等重み TOPSIS 順（cap 済み）。"
-                ))
-            );
-            render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
-
-            // 前面は feasible 行のみから計算されるため、違反 trial が表に
-            // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
-            let n_infeasible = pareto_table
-                .iter()
-                .filter(|t| t.max_constraint.is_some_and(|v| v > 0.0))
-                .count();
-            if n_infeasible > 0 {
-                let note = text::infeasible_fallback_note(lang, n_infeasible);
-                let _ = writeln!(s, "<p class=\"desc\">{}</p>", esc(&note));
-            }
-            if pareto_table.iter().any(|t| t.duplicate_of.is_some()) {
-                let _ = writeln!(
-                    s,
-                    "<p class=\"desc\">{}</p>",
-                    esc(text::duplicate_legend_note(lang))
-                );
-            }
         }
+    }
+}
+
+/// 単目的の Outcome（最良 trial + 上位 trial 表）。
+fn render_outcome_single(
+    s: &mut String,
+    lang: ReportLang,
+    best_trial: Option<&TrialSummary>,
+    top_n: &[TrialSummary],
+    obj_names: &[String],
+    has_constraints: bool,
+) {
+    if let Some(bt) = best_trial {
+        let _ = writeln!(s, "<h3>{}</h3>", esc(tr(lang, "Best trial", "最良 trial")));
+        render_trial_table(
+            s,
+            lang,
+            std::slice::from_ref(bt),
+            obj_names,
+            has_constraints,
+        );
+    }
+    let _ = writeln!(s, "<h3>{}</h3>", esc(tr(lang, "Top trials", "上位 trial")));
+    let _ = writeln!(
+        s,
+        "<p class=\"desc\">{}</p>",
+        esc(tr(
+            lang,
+            "Best first; objective and parameter columns.",
+            "最良順。目的とパラメータの列。"
+        ))
+    );
+    render_trial_table(s, lang, top_n, obj_names, has_constraints);
+}
+
+/// 目的ごとの極値表。
+fn render_extremes_table(s: &mut String, lang: ReportLang, extremes: &[ObjectiveExtreme]) {
+    let _ = writeln!(
+        s,
+        "<h3>{}</h3>",
+        esc(tr(lang, "Per-objective extremes", "目的ごとの極値"))
+    );
+    let _ = writeln!(
+        s,
+        "<p class=\"desc\">{}</p>",
+        esc(tr(
+            lang,
+            "Best value respects each objective's direction.",
+            "最良値は各目的の方向に従う。"
+        ))
+    );
+    open_table(s);
+    s.push_str("<thead><tr>");
+    th(s, tr(lang, "objective", "目的"), false);
+    th(s, tr(lang, "direction", "方向"), false);
+    th(s, tr(lang, "best", "最良"), true);
+    th(s, tr(lang, "best trial", "最良 trial"), true);
+    th(s, tr(lang, "worst", "最悪"), true);
+    s.push_str("</tr></thead>\n<tbody>\n");
+    for e in extremes {
+        s.push_str("<tr>");
+        td(s, &e.objective_name, false);
+        td(s, dir_label(lang, e.direction), false);
+        td(s, &format_number(e.best_value), true);
+        if e.best_feasible {
+            td(s, &format!("#{}", e.best_trial_number), true);
+        } else {
+            // 制約違反 trial が最良の場合は赤字 + ✗ で明示する。
+            let _ = write!(
+                s,
+                "<td class=\"num infeasible\">#{} ✗</td>",
+                e.best_trial_number
+            );
+        }
+        td(s, &format_number(e.worst_value), true);
+        s.push_str("</tr>\n");
+    }
+    s.push_str("</tbody>\n");
+    close_table(s);
+}
+
+/// 目的空間の散布図（先頭2目的軸、front / dominated 2系列）。
+fn render_outcome_scatter(
+    s: &mut String,
+    lang: ReportLang,
+    scatter: &[ParetoPoint],
+    scatter_axes: (usize, usize),
+    objective_count: usize,
+    obj_names: &[String],
+) {
+    if scatter.is_empty() || objective_count < 2 {
+        return;
+    }
+    let (xi, yi) = scatter_axes;
+    let x_label = obj_names.get(xi).map(String::as_str).unwrap_or("obj x");
+    let y_label = obj_names.get(yi).map(String::as_str).unwrap_or("obj y");
+    let background: Vec<ScatterPoint> = scatter
+        .iter()
+        .filter(|p| !p.on_front)
+        .map(scatter_pt)
+        .collect();
+    let front: Vec<ScatterPoint> = scatter
+        .iter()
+        .filter(|p| p.on_front)
+        .map(scatter_pt)
+        .collect();
+    let chart = svg::scatter_chart(&background, &front, x_label, y_label, CHART_W, 440.0);
+    let _ = writeln!(
+        s,
+        "<figure>{chart}<figcaption>{}</figcaption></figure>",
+        esc(tr(
+            lang,
+            "Objective space: Pareto front vs dominated trials.",
+            "目的空間: パレート前面と被支配解。"
+        ))
+    );
+    if objective_count > 2 {
+        let _ = writeln!(
+            s,
+            "<p class=\"desc\">{} ({} {}).</p>",
+            esc(tr(
+                lang,
+                "Scatter uses the first two objectives",
+                "散布図は先頭2目的を使用"
+            )),
+            objective_count,
+            esc(tr(lang, "objectives total", "目的中"))
+        );
+    }
+}
+
+/// パレート表（TOPSIS 順）と、フォールバック注記・重複解凡例。
+fn render_pareto_table_block(
+    s: &mut String,
+    lang: ReportLang,
+    pareto_table: &[TrialSummary],
+    pareto_infeasible_count: usize,
+    obj_names: &[String],
+    has_constraints: bool,
+) {
+    let _ = writeln!(
+        s,
+        "<h3>{}</h3>",
+        esc(tr(lang, "Pareto-front trials", "パレート前面の trial"))
+    );
+    let _ = writeln!(
+        s,
+        "<p class=\"desc\">{}</p>",
+        esc(tr(
+            lang,
+            "Ordered by equal-weight TOPSIS (capped).",
+            "等重み TOPSIS 順（cap 済み）。"
+        ))
+    );
+    render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
+
+    // 前面は feasible 行のみから計算されるため、違反 trial が表に
+    // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
+    // 件数は builder が cap 前の front 全体から集計済み。
+    if pareto_infeasible_count > 0 {
+        let note = text::infeasible_fallback_note(lang, pareto_infeasible_count);
+        let _ = writeln!(s, "<p class=\"desc\">{}</p>", esc(&note));
+    }
+    if has_duplicate_marks(pareto_table) {
+        let _ = writeln!(
+            s,
+            "<p class=\"desc\">{}</p>",
+            esc(text::duplicate_legend_note(lang))
+        );
     }
 }
 
@@ -590,6 +633,7 @@ fn scatter_pt(p: &ParetoPoint) -> ScatterPoint {
         trial_number: p.trial_number as i64,
         x: p.x,
         y: p.y,
+        feasible: p.feasible,
     }
 }
 
@@ -662,8 +706,8 @@ fn render_trial_table(
         }
         if show_constraint {
             match t.max_constraint {
-                // 正値 = 制約違反。赤字 + ✗ で明示する。
-                Some(v) if v > 0.0 => {
+                // 正値 = 制約違反（判定は model 側で共有）。赤字 + ✗ で明示する。
+                Some(v) if t.violates_constraints() => {
                     let _ = write!(
                         s,
                         "<td class=\"num infeasible\">{} ✗</td>",

@@ -128,32 +128,124 @@ fn is_tls_disabled_value(value: &str) -> bool {
     value.eq_ignore_ascii_case("disable") || value.eq_ignore_ascii_case("disabled")
 }
 
-/// TLS 接続の事前チェック（フェイルクローズ）。
+/// URL からホスト部を取り出す（userinfo・ポート・path 等を除去）。
 ///
-/// `PostgresBackend`/`MysqlBackend` は現状 `NoTls` 固定で接続する（TLS 未対応）ため、
-/// 接続 URL のクエリに `sslmode=`（PostgreSQL 方言）または `ssl-mode=`（MySQL 方言）が
-/// `disable`/`disabled`（大文字小文字を区別しない）以外の値で指定されている場合、
-/// 暗号化を期待したユーザーの意図に反して平文接続してしまう。これを防ぐため、該当する
-/// 場合は接続前にエラーを返す。値の指定が無い、または `disable` 系のみの場合は素通しする。
-pub fn check_tls_precondition(url: &str) -> Result<(), String> {
-    let Some(q_start) = url.find('?') else {
-        return Ok(());
+/// `scheme://` 直後から最初の `/` `?` `#` までを authority とみなし、最後の `@` より
+/// 後ろをホスト+ポートとして扱う（`masked` と同じ境界規約）。IPv6 リテラルは
+/// `[...]` ブラケット表記（`postgresql://u:p@[::1]:5432/db`）を想定し、ブラケットの
+/// 中身を返す。ポートは末尾の「最後の `:` 以降が数字のみ」の場合のみ除去する。
+/// パースできない場合は `None`（呼び出し側でフェイルクローズする）。
+fn extract_host(url: &str) -> Option<&str> {
+    let authority_start = scheme_end(url)?;
+    let after_scheme = &url[authority_start..];
+    let authority_end = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..authority_end];
+    // 最後の '@' より後ろが host[:port]（userinfo なしなら authority 全体）。
+    let host_port = match authority.rfind('@') {
+        Some(at) => &authority[at + 1..],
+        None => authority,
     };
-    let after_q = &url[q_start + 1..];
-    // '#' 以降はフラグメントなのでクエリ文字列から除く。
-    let query = after_q.split('#').next().unwrap_or(after_q);
+    // IPv6 ブラケット表記。
+    if let Some(rest) = host_port.strip_prefix('[') {
+        return rest.split(']').next();
+    }
+    // 末尾の :port を除去（数字のみの場合）。
+    match host_port.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+            Some(host)
+        }
+        _ => Some(host_port),
+    }
+}
 
-    for key in ["sslmode", "ssl-mode"] {
-        for value in query_param_values(query, key) {
-            if !is_tls_disabled_value(value) {
-                return Err(format!(
-                    "TLS 接続は未対応です（{key}={value}）。暗号化なしで接続する場合は \
-                     {key} を外すか disable を指定してください / TLS is not supported yet"
-                ));
+/// ループバック（ローカル）ホストかどうか。
+/// `localhost` / `127.x.x.x`（127.0.0.0/8）/ `::1` を大文字小文字区別なく判定する。
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") || host == "::1" {
+        return true;
+    }
+    // 127.0.0.0/8（例: 127.0.0.1）。4 オクテットの数値表記のみ受理する。
+    let mut it = host.split('.');
+    let first = it.next();
+    if first != Some("127") {
+        return false;
+    }
+    let octets: Vec<&str> = it.collect();
+    octets.len() == 3
+        && octets
+            .iter()
+            .all(|o| !o.is_empty() && o.len() <= 3 && o.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// URL のクエリ文字列（`?` より後、`#` フラグメントは含まない）を取り出す。
+fn extract_query(url: &str) -> Option<&str> {
+    url.find('?').map(|q_start| {
+        let after_q = &url[q_start + 1..];
+        after_q.split('#').next().unwrap_or(after_q)
+    })
+}
+
+/// URL に平文接続の明示 opt-in（`sslmode=disable` / `ssl-mode=disable`、
+/// 大文字小文字区別なし、`disabled` 表記も許容）が含まれているかどうか。
+///
+/// UI 側が「暗号化されない接続になる」ことを接続前に通知するかどうかの判定に使う:
+/// 明示 opt-in 済みならユーザーは平文接続を了解しているため通知不要、
+/// 無指定なら平文になることを通知する（接続可否は `check_tls_precondition` が別途判定）。
+pub fn has_explicit_plaintext_optin(url: &str) -> bool {
+    let Some(query) = extract_query(url) else {
+        return false;
+    };
+    ["sslmode", "ssl-mode"].iter().any(|key| {
+        query_param_values(query, key)
+            .iter()
+            .any(|v| is_tls_disabled_value(v))
+    })
+}
+
+/// TLS 接続の事前チェック（フェイルクローズ + 平文接続の明示 opt-in）。
+///
+/// `PostgresBackend`/`MysqlBackend` は現状 `NoTls` 固定で接続する（TLS 未対応）。
+/// 暗号化を期待したユーザーの資格情報を黙って平文で送らないよう、次の規則で判定する:
+///
+/// 1. `sslmode=`（PostgreSQL 方言）/ `ssl-mode=`（MySQL 方言）が `disable`/`disabled`
+///    以外の値（`require` 等、大文字小文字区別なし）で指定されていれば常にエラー
+///    （従来どおりのフェイルクローズ）。
+/// 2. 接続先ホストがループバック（`localhost` / 127.0.0.0/8 / `::1`）なら、
+///    sslmode 無指定でも平文接続を許可する。
+/// 3. 非ローカルホストへは `sslmode=disable`（または `ssl-mode=disable`）が明示された
+///    場合のみ平文接続を許可し、無指定ならエラーを返す（平文接続の明示 opt-in）。
+pub fn check_tls_precondition(url: &str) -> Result<(), String> {
+    let query = extract_query(url);
+
+    let mut tls_explicitly_disabled = false;
+    if let Some(query) = query {
+        for key in ["sslmode", "ssl-mode"] {
+            for value in query_param_values(query, key) {
+                if is_tls_disabled_value(value) {
+                    tls_explicitly_disabled = true;
+                } else {
+                    return Err(format!(
+                        "TLS 接続は未対応です（{key}={value}）。暗号化なしで接続する場合は \
+                         {key}=disable を明示してください / TLS is not supported yet"
+                    ));
+                }
             }
         }
     }
-    Ok(())
+
+    // ループバックへの接続、または disable の明示があれば平文接続を許可する。
+    let is_local = extract_host(url).is_some_and(is_loopback_host);
+    if is_local || tls_explicitly_disabled {
+        return Ok(());
+    }
+    Err(
+        "TLS 接続は未対応のため、非ローカルホストへ暗号化なしで接続する場合は \
+         sslmode=disable（MySQL は ssl-mode=disable）を明示してください / \
+         TLS is not supported yet: add sslmode=disable to opt in to a plaintext connection"
+            .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -367,5 +459,109 @@ mod tests {
         assert!(
             check_tls_precondition("postgresql://u:p@localhost/db?a=1#sslmode=require").is_ok()
         );
+    }
+
+    // ── M9: 非ローカルホストへの平文接続は明示 opt-in ───────────────────
+
+    #[test]
+    fn check_tls_precondition_loopback_hosts_allow_plaintext_without_sslmode() {
+        // ループバックは sslmode 無指定でも平文接続を許可する。
+        assert!(check_tls_precondition("postgresql://u:p@localhost/db").is_ok());
+        assert!(check_tls_precondition("postgresql://u:p@localhost:5432/db").is_ok());
+        assert!(check_tls_precondition("postgresql://u:p@127.0.0.1:5432/db").is_ok());
+        assert!(check_tls_precondition("postgresql://u:p@127.1.2.3/db").is_ok());
+        assert!(check_tls_precondition("postgresql://u:p@[::1]:5432/db").is_ok());
+        assert!(check_tls_precondition("mysql://u:p@LOCALHOST:3306/db").is_ok());
+        // userinfo なしでも同様。
+        assert!(check_tls_precondition("postgresql://127.0.0.1/db").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_remote_host_without_sslmode_is_err() {
+        let err = check_tls_precondition("postgresql://u:p@db.example.com:5432/db")
+            .expect_err("remote host without sslmode must be rejected");
+        assert!(err.contains("sslmode=disable"), "err: {err}");
+    }
+
+    #[test]
+    fn check_tls_precondition_remote_mysql_without_ssl_mode_is_err() {
+        let err = check_tls_precondition("mysql://u:p@10.0.0.5:3306/db")
+            .expect_err("remote host without ssl-mode must be rejected");
+        assert!(err.contains("ssl-mode=disable"), "err: {err}");
+    }
+
+    #[test]
+    fn check_tls_precondition_remote_host_with_sslmode_disable_is_ok() {
+        // 非ローカルホストでも disable の明示があれば平文接続を許可する（opt-in）。
+        assert!(
+            check_tls_precondition("postgresql://u:p@db.example.com:5432/db?sslmode=disable")
+                .is_ok()
+        );
+        assert!(check_tls_precondition("mysql://u:p@10.0.0.5/db?ssl-mode=disable").is_ok());
+    }
+
+    #[test]
+    fn check_tls_precondition_remote_host_with_sslmode_require_is_err() {
+        // 非ローカルホストでも require 系は従来どおり遮断（disable への誘導ではなく明示エラー）。
+        let err = check_tls_precondition("postgresql://u:p@db.example.com/db?sslmode=require")
+            .expect_err("sslmode=require must be rejected");
+        assert!(err.contains("sslmode=require"), "err: {err}");
+    }
+
+    #[test]
+    fn check_tls_precondition_lookalike_hosts_are_not_loopback() {
+        // localhost / 127.* に似せた非ローカルホストを誤許可しない。
+        assert!(check_tls_precondition("postgresql://u:p@localhost.evil.com/db").is_err());
+        assert!(check_tls_precondition("postgresql://u:p@127.0.0.1.evil.com/db").is_err());
+        assert!(check_tls_precondition("postgresql://u:p@1127.0.0.1/db").is_err());
+    }
+
+    // ── 平文接続の明示 opt-in 判定（UI の事前通知用） ────────────────────
+
+    #[test]
+    fn has_explicit_plaintext_optin_variants() {
+        // 明示あり（大文字小文字・disabled 表記・MySQL 方言を許容）。
+        assert!(has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?sslmode=disable"
+        ));
+        assert!(has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?SSLMODE=DISABLED"
+        ));
+        assert!(has_explicit_plaintext_optin(
+            "mysql://u:p@h/db?ssl-mode=disable"
+        ));
+        assert!(has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?connect_timeout=10&sslmode=disable"
+        ));
+        // 明示なし。
+        assert!(!has_explicit_plaintext_optin("postgresql://u:p@h/db"));
+        assert!(!has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?connect_timeout=10"
+        ));
+        assert!(!has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db?sslmode=require"
+        ));
+        // フラグメント内は無視する。
+        assert!(!has_explicit_plaintext_optin(
+            "postgresql://u:p@h/db#sslmode=disable"
+        ));
+    }
+
+    #[test]
+    fn extract_host_variants() {
+        assert_eq!(
+            extract_host("postgresql://u:p@localhost:5432/db"),
+            Some("localhost")
+        );
+        assert_eq!(
+            extract_host("postgresql://db.example.com/db"),
+            Some("db.example.com")
+        );
+        assert_eq!(extract_host("postgresql://u:p@[::1]:5432/db"), Some("::1"));
+        assert_eq!(
+            extract_host("mysql://u@127.0.0.1?ssl-mode=disable"),
+            Some("127.0.0.1")
+        );
+        assert_eq!(extract_host("not-a-url"), None);
     }
 }
