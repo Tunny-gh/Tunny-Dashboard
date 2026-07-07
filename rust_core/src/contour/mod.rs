@@ -255,20 +255,30 @@ fn clean_points(pts: &[[f64; 3]]) -> Vec<[f64; 3]> {
     }
 
     const Q: f64 = 1.0e6;
-    // key -> (sum_x, sum_y, sum_v, count)
+    // key -> (sum_x, sum_y, sum_v, count)。
+    // HashMap のイテレーション順はインスタンスごとにランダムなため、
+    // 出力順は挿入順（= 元データの出現順）を別途保持して決定的にする。
+    // 順序が揺れると三角形分割の順序が変わり、境界上の格子点の補間値が
+    // 実行ごとに最終桁で揺れてしまう。
     let mut acc: HashMap<(i64, i64), (f64, f64, f64, u32)> = HashMap::new();
+    let mut order: Vec<(i64, i64)> = Vec::new();
     for p in &finite {
         let kx = ((p[0] - xmin) / xr * Q).round() as i64;
         let ky = ((p[1] - ymin) / yr * Q).round() as i64;
-        let e = acc.entry((kx, ky)).or_insert((0.0, 0.0, 0.0, 0));
+        let e = acc.entry((kx, ky)).or_insert_with(|| {
+            order.push((kx, ky));
+            (0.0, 0.0, 0.0, 0)
+        });
         e.0 += p[0];
         e.1 += p[1];
         e.2 += p[2];
         e.3 += 1;
     }
-    acc.values()
-        .map(|(sx, sy, sv, c)| {
-            let c = *c as f64;
+    order
+        .iter()
+        .map(|k| {
+            let (sx, sy, sv, c) = acc[k];
+            let c = c as f64;
             [sx / c, sy / c, sv / c]
         })
         .collect()

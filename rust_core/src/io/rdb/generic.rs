@@ -131,7 +131,9 @@ fn fetch_directions_by_study(
             let direction = row[1].as_text().ok_or_else(|| {
                 "Failed to read study_directions: direction is not text".to_string()
             })?;
-            map.entry(study_id).or_default().push(direction_from_str(direction));
+            map.entry(study_id)
+                .or_default()
+                .push(direction_from_str(direction));
             Ok(())
         },
     )?;
@@ -303,9 +305,9 @@ fn fetch_trial_counts_by_study(
             let state = row[1]
                 .as_text()
                 .ok_or_else(|| "Failed to read trial counts: state is not text".to_string())?;
-            let count = row[2]
-                .as_i64()
-                .ok_or_else(|| "Failed to read trial counts: count is not an integer".to_string())?;
+            let count = row[2].as_i64().ok_or_else(|| {
+                "Failed to read trial counts: count is not an integer".to_string()
+            })?;
 
             let entry = counts.entry(study_id).or_insert((0, 0));
             entry.1 += count; // total_trials

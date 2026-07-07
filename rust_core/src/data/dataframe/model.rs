@@ -212,7 +212,10 @@ impl DataFrame {
         let mut numeric_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
         for (i, (name, col)) in self.numeric_cols.iter().enumerate() {
             if col.len() == old_n {
-                numeric_pending.entry(name.clone()).or_default().push_back(i);
+                numeric_pending
+                    .entry(name.clone())
+                    .or_default()
+                    .push_back(i);
             }
         }
         let mut string_pending: HashMap<String, VecDeque<usize>> = HashMap::new();

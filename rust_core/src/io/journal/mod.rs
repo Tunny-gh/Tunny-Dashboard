@@ -46,12 +46,18 @@ mod tests {
 
     #[test]
     fn extracts_leading_field() {
-        assert_eq!(line_u32_field(r#"{"op_code":4,"study_id":2}"#, "op_code"), Some(4));
+        assert_eq!(
+            line_u32_field(r#"{"op_code":4,"study_id":2}"#, "op_code"),
+            Some(4)
+        );
     }
 
     #[test]
     fn extracts_middle_field() {
-        assert_eq!(line_u32_field(r#"{"op_code":4,"study_id":2}"#, "study_id"), Some(2));
+        assert_eq!(
+            line_u32_field(r#"{"op_code":4,"study_id":2}"#, "study_id"),
+            Some(2)
+        );
     }
 
     #[test]
@@ -86,6 +92,9 @@ mod tests {
     #[test]
     fn rejects_out_of_range_value() {
         // u32 を超える値は None（黙って切り捨てない）。
-        assert_eq!(line_u32_field(r#"{"trial_id":4294967296}"#, "trial_id"), None);
+        assert_eq!(
+            line_u32_field(r#"{"trial_id":4294967296}"#, "trial_id"),
+            None
+        );
     }
 }
