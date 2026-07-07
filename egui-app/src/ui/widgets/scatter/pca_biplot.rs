@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_SCATTER_DOT};
-use crate::theme::color_compute::{rgba_key, rgba_to_color32};
+use crate::theme::color_compute::{key_to_color32, rgba_key};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::common::range_math::finite_value_range;
@@ -218,7 +218,7 @@ impl PcaBiplotChart {
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
                 for (&key, pts) in &draw.color_groups {
-                    let color = rgba_to_color32(key);
+                    let color = key_to_color32(key);
                     plot_ui.points(
                         egui_plot::Points::new("Trials", pts.clone())
                             .color(color)

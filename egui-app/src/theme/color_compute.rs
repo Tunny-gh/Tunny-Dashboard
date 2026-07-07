@@ -6,11 +6,18 @@ pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
-/// `Color32` を `[R, G, B, A]`（非プリマルチプライドアルファ）のバイト配列へ変換する（D-11）。
-/// 色ごとに点をグループ化する `HashMap`/`BTreeMap` のキーや、成分の一時取り出しに使う。
-/// 逆変換は [`rgba_to_color32`] を使う。
+/// `Color32` を格納バイトそのまま（プリマルチプライドアルファ、順序 [R, G, B, A]）の
+/// 配列へ変換する（D-11）。色ごとに点をグループ化する `HashMap`/`BTreeMap` のキーに使う。
+/// 逆変換は [`key_to_color32`]（ロスレス恒等）。[`rgba_to_color32`] は非プリマルチプライド
+/// 入力用であり逆変換ではないことに注意（半透明色で成分が一致しなくなる）。
 pub fn rgba_key(color: egui::Color32) -> [u8; 4] {
-    [color.r(), color.g(), color.b(), color.a()]
+    color.to_array()
+}
+
+/// [`rgba_key`] の逆変換。プリマルチプライド空間のバイト列をそのまま復元するため、
+/// `key_to_color32(rgba_key(c)) == c` が全ての色で厳密に成り立つ。
+pub fn key_to_color32(key: [u8; 4]) -> egui::Color32 {
+    egui::Color32::from_rgba_premultiplied(key[0], key[1], key[2], key[3])
 }
 
 /// 比較 Study に割り当てる代表色のパレット（基準 Study の緑系とは別の色相）。
@@ -95,10 +102,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rgba_key_roundtrips_through_rgba_to_color32() {
+    fn rgba_key_roundtrips_through_key_to_color32() {
+        // 半透明色でもプリマルチプライド空間の往復は厳密に恒等。
         let color = egui::Color32::from_rgba_unmultiplied(12, 34, 56, 78);
-        assert_eq!(rgba_key(color), [12, 34, 56, 78]);
-        assert_eq!(rgba_to_color32(rgba_key(color)), color);
+        assert_eq!(key_to_color32(rgba_key(color)), color);
+        // 不透明色は成分バイトがそのままキーになる。
+        let opaque = egui::Color32::from_rgb(12, 34, 56);
+        assert_eq!(rgba_key(opaque), [12, 34, 56, 255]);
+        assert_eq!(key_to_color32(rgba_key(opaque)), opaque);
     }
 
     #[test]

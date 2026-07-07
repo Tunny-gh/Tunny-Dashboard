@@ -6,7 +6,7 @@ use crate::io::artifacts::ArtifactEntry;
 use crate::state::results::{McdmMethod, McdmResult};
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_MCDM_NONE, COLOR_UNSELECTED_POINT};
-use crate::theme::color_compute::{point_alpha_in_set, rgba_key, rgba_to_color32};
+use crate::theme::color_compute::{key_to_color32, point_alpha_in_set, rgba_key};
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
@@ -417,7 +417,7 @@ fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
     sorted.sort_by_key(|(_, (_, lum))| *lum);
     let color_batches = sorted
         .into_iter()
-        .map(|(key, (pts, _))| (rgba_to_color32(key), pts))
+        .map(|(key, (pts, _))| (key_to_color32(key), pts))
         .collect();
 
     DisplayBatches {
