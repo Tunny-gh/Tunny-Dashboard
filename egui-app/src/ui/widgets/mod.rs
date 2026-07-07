@@ -68,3 +68,6 @@ pub use common::rdb_url_modal;
 pub use common::report_modal;
 pub use common::trial_detail_modal;
 pub use common::trial_table;
+// state 層（`state::types::StudyContext::param_range`）から min/max 集計ヘルパーを
+// 再利用するための再エクスポート（D-9）。
+pub(crate) use common::range_math;

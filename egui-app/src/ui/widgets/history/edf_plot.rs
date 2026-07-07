@@ -1,7 +1,7 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::COLOR_OPT_TRIAL;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
-use crate::ui::widgets::trial_detail_modal::HIT_THRESHOLD;
+use crate::ui::widgets::trial_detail_modal::{hit_test_nearest, HIT_THRESHOLD};
 
 /// 比較 Study 1 件分の EDF 系列（選択中の目的に対応する値列 + 色 + 凡例名）。
 pub struct EdfComparison {
@@ -162,23 +162,24 @@ impl EdfPlotChart {
             apply_wheel_zoom(plot_ui);
 
             if let Some(pos) = plot_ui.response().hover_pos() {
-                let mut best: Option<(f32, String, f64, f64)> = None;
-                let mut consider = |name: &str, pts: &[[f64; 2]]| {
+                // 他の history ウィジェットと同じ共通ヒットテストを再利用する。
+                // 候補は描画座標系（apply_log 適用後）で並べ、`usize` フィールドに
+                // ツールチップ用データ（凡例名・元の値・累積割合）の lookup index を埋め込む。
+                let mut hit_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
+                let mut lookup: Vec<(String, f64, f64)> = Vec::new();
+                let mut push = |name: &str, pts: &[[f64; 2]]| {
                     for &p in pts {
                         let plot_pt = apply_log(p);
-                        let screen = plot_ui
-                            .screen_from_plot(egui_plot::PlotPoint::new(plot_pt[0], plot_pt[1]));
-                        let d = screen.distance(pos);
-                        if d <= HIT_THRESHOLD && best.as_ref().is_none_or(|(bd, ..)| d < *bd) {
-                            best = Some((d, name.to_string(), p[0], p[1]));
-                        }
+                        hit_points.push((0, lookup.len(), plot_pt));
+                        lookup.push((name.to_string(), p[0], p[1]));
                     }
                 };
-                consider(base_label, base_points);
+                push(base_label, base_points);
                 for (name, _, pts) in comparison_points {
-                    consider(name, pts);
+                    push(name, pts);
                 }
-                hovered = best.map(|(_, name, x, y)| (name, x, y));
+                hovered = hit_test_nearest(plot_ui, &hit_points, pos, HIT_THRESHOLD)
+                    .and_then(|(_, i)| lookup.get(i).cloned());
             }
 
             if !base_points.is_empty() {

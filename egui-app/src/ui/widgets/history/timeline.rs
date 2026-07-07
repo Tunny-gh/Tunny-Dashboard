@@ -5,9 +5,11 @@
 
 use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
 
-use super::state_colors::{show_state_legend, state_color};
-use crate::theme::chart_colors::COLOR_EMPTY_STATE;
+use super::state_colors::{
+    dim, distinct_states_in_order, empty_state, show_state_legend, state_color,
+};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
+use crate::ui::widgets::common::range_math::value_range;
 use crate::ui::widgets::trial_detail_modal::show_hover_tooltip;
 
 /// 横棒の高さ（trial_number ± half_width の範囲を占める）。
@@ -99,12 +101,7 @@ impl TimelineChart {
             }
             let span = bars.iter().map(|b| b.end).fold(0.0_f64, f64::max);
             let unit = select_time_unit(span);
-            let mut present: Vec<TrialState> = Vec::new();
-            for b in &bars {
-                if !present.contains(&b.state) {
-                    present.push(b.state);
-                }
-            }
+            let present = distinct_states_in_order(bars.iter().map(|b| b.state));
             self.cache = Some(TimelineCache {
                 key,
                 bars,
@@ -180,18 +177,6 @@ fn format_elapsed(seconds: f64, unit: TimeUnit) -> String {
     format!("{:.2} {}", seconds / unit.divisor(), unit.suffix())
 }
 
-/// hover 中でないバーを薄く見せる（アルファのみ落とす）。
-fn dim(color: egui::Color32) -> egui::Color32 {
-    let [r, g, b, _] = color.to_array();
-    egui::Color32::from_rgba_unmultiplied(r, g, b, 90)
-}
-
-fn empty_state(ui: &mut egui::Ui, message: &str) {
-    ui.centered_and_justified(|ui| {
-        ui.colored_label(COLOR_EMPTY_STATE(), message);
-    });
-}
-
 /// `trials` からタイムラインバーを構築する（純粋関数・テスト対象）。
 ///
 /// - `datetime_start` を持たない trial は除外する。
@@ -199,19 +184,21 @@ fn empty_state(ui: &mut egui::Ui, message: &str) {
 /// - `datetime_complete` が無い trial（RUNNING など）は、study 内で判明している
 ///   最大の日時（開始・完了いずれか）まで棒を伸ばす。
 pub fn build_timeline_bars(trials: &[TrialExtra]) -> Vec<TimelineBar> {
-    let t0 = trials
-        .iter()
-        .filter_map(|t| t.datetime_start)
-        .fold(f64::INFINITY, f64::min);
+    let t0 = value_range(trials.iter().filter_map(|t| t.datetime_start))
+        .map(|(mn, _)| mn)
+        .unwrap_or(f64::INFINITY);
     if !t0.is_finite() {
         return Vec::new();
     }
 
-    let max_ts = trials
-        .iter()
-        .flat_map(|t| [t.datetime_start, t.datetime_complete])
-        .flatten()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let max_ts = value_range(
+        trials
+            .iter()
+            .flat_map(|t| [t.datetime_start, t.datetime_complete])
+            .flatten(),
+    )
+    .map(|(_, mx)| mx)
+    .unwrap_or(f64::NEG_INFINITY);
 
     trials
         .iter()

@@ -149,7 +149,8 @@ pub fn write_session_to_path(
     path: &Path,
 ) -> Result<(), String> {
     let json = to_json(layout, widgets, view)?;
-    std::fs::write(path, json).map_err(|e| format!("Failed to write session file: {e}"))
+    crate::io::file::write_atomic(path, json.as_bytes())
+        .map_err(|e| format!("Failed to write session file: {e}"))
 }
 
 /// 指定パスからセッションを読み込む。

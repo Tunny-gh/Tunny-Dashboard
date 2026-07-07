@@ -1,10 +1,12 @@
 pub mod artifact_gallery;
+pub mod cluster_controls;
 pub mod cluster_table;
 pub mod convergence_card;
 pub mod csv_import_modal;
 pub mod heatmap;
 pub mod license_modal;
 pub mod log_scale;
+pub mod modal;
 pub mod plot_nav;
 pub mod radar_chart;
 pub mod range_math;

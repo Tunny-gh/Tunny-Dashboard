@@ -408,6 +408,9 @@ impl McdmRankChart {
                 let bar_max_width = (available_width / 2.0).max(25.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_i[rank] as usize;
+                    // 隣の incomparable_counts と同様に防御的に添字参照する。
+                    let phi_plus = r.phi_plus.get(idx).copied().unwrap_or(0.0);
+                    let phi_minus = r.phi_minus.get(idx).copied().unwrap_or(0.0);
                     ui.horizontal(|ui| {
                         ui.add_sized(
                             [label_width, bar_height],
@@ -418,12 +421,12 @@ impl McdmRankChart {
                             .truncate(),
                         );
                         let phi_plus_w = if max_val > 0.0 {
-                            (r.phi_plus[idx] / max_val * bar_max_width as f64) as f32
+                            (phi_plus / max_val * bar_max_width as f64) as f32
                         } else {
                             0.0
                         };
                         let phi_minus_w = if max_val > 0.0 {
-                            (r.phi_minus[idx] / max_val * bar_max_width as f64) as f32
+                            (phi_minus / max_val * bar_max_width as f64) as f32
                         } else {
                             0.0
                         };
@@ -463,7 +466,7 @@ impl McdmRankChart {
                         if incomparable > 0 {
                             ui.label(format!(
                                 "Φ+{:.3} Φ-{:.3} \u{21F9}{incomparable}",
-                                r.phi_plus[idx], r.phi_minus[idx]
+                                phi_plus, phi_minus
                             ))
                             .on_hover_text(format!(
                                 "\u{21F9}{incomparable}: incomparable with {incomparable} trial(s) in the PROMETHEE I partial order \
@@ -471,10 +474,7 @@ impl McdmRankChart {
                                  The displayed order is a tie-break for reference only."
                             ));
                         } else {
-                            ui.label(format!(
-                                "Φ+{:.3} Φ-{:.3}",
-                                r.phi_plus[idx], r.phi_minus[idx]
-                            ));
+                            ui.label(format!("Φ+{:.3} Φ-{:.3}", phi_plus, phi_minus));
                         }
                     });
                 }
@@ -494,7 +494,7 @@ impl McdmRankChart {
                 let bar_max_width = available_width.max(50.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_ii[rank] as usize;
-                    let phi_net = r.phi_net[idx];
+                    let phi_net = r.phi_net.get(idx).copied().unwrap_or(0.0);
                     let bar_w = if max_abs > 0.0 {
                         (phi_net.abs() / max_abs * bar_max_width as f64) as f32
                     } else {

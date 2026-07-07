@@ -7,6 +7,7 @@ use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM, COLOR_U
 use crate::theme::color_compute::compute_point_alpha;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
+use crate::ui::widgets::common::cluster_controls::ClusterControls;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
@@ -175,7 +176,7 @@ pub struct ClusterScatter {
     #[serde(skip)]
     cached_points: Option<Vec<[f32; 2]>>,
     #[serde(skip)]
-    cache_key: (usize, usize), // (trial_count, n_clusters)
+    cache_key: (usize, usize, usize), // (df_ptr, trial_count, n_clusters)
 }
 
 impl Default for ClusterScatter {
@@ -191,7 +192,7 @@ impl Default for ClusterScatter {
             last_error: None,
             detail_modal: TrialDetailModal::new(),
             cached_points: None,
-            cache_key: (0, 0),
+            cache_key: (0, 0, 0),
         }
     }
 }
@@ -283,8 +284,10 @@ impl ClusterScatter {
             return;
         }
 
-        // キャッシュ確認・更新（目的関数軸の座標）
-        let new_key = (n_trials, cr.n_clusters);
+        // キャッシュ確認・更新（目的関数軸の座標）。
+        // df の Arc 恒等性をキーに含め、同一次元の別 Study 切替でのスタール描画を防ぐ（M-6）。
+        let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
+        let new_key = (df_ptr, n_trials, cr.n_clusters);
         if self.cached_points.is_none() || self.cache_key != new_key {
             self.cached_points = Some(compute_obj_axes_2d(view, obj_names));
             self.cache_key = new_key;
@@ -307,12 +310,7 @@ impl ClusterScatter {
         // k=2 → t=0.0, 1.0（両端）、k=3 → t=0.0, 0.5, 1.0 など
         let n_clusters = cr.n_clusters.max(1);
         let cluster_color = |label: i32| -> egui::Color32 {
-            let t = if n_clusters == 1 {
-                0.5
-            } else {
-                label as f32 / (n_clusters - 1) as f32
-            };
-            colormap.interpolate(t)
+            colormap.sample_categorical(label.max(0) as usize, n_clusters)
         };
 
         // クラスタリング対象はパレートフロントのみ。クラスタ別に座標を集約し、
@@ -424,103 +422,28 @@ impl ClusterScatter {
             .show(ui, view, param_names, obj_names, artifact_map);
     }
 
+    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    fn controls(&mut self) -> ClusterControls<'_> {
+        ClusterControls {
+            k: &mut self.k,
+            target_space: &mut self.target_space,
+            k_mode: &mut self.k_mode,
+            init_strategy: &mut self.init_strategy,
+            elbow_max_k: &mut self.elbow_max_k,
+            computing: &mut self.computing,
+            pending_compute: &mut self.pending_compute,
+            last_error: &mut self.last_error,
+        }
+    }
+
     fn show_header(&mut self, ui: &mut egui::Ui, trial_count: usize) {
-        ui.horizontal(|ui| {
-            let k_editable = !self.computing && self.k_mode == KSelectionMode::Manual;
-            ui.label("k:");
-            ui.add_enabled(
-                k_editable,
-                egui::DragValue::new(&mut self.k).range(2..=trial_count.max(2)),
-            );
-
-            let elbow_max_k_editable =
-                !self.computing && self.k_mode == KSelectionMode::ElbowDefault;
-            ui.label("Max k:");
-            ui.add_enabled(
-                elbow_max_k_editable,
-                egui::DragValue::new(&mut self.elbow_max_k).range(2..=50),
-            );
-
-            egui::ComboBox::from_id_salt("cluster_scatter_k_mode")
-                .selected_text(self.k_mode.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::ElbowDefault,
-                        KSelectionMode::ElbowDefault.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::Manual,
-                        KSelectionMode::Manual.label(),
-                    );
-                });
-
-            egui::ComboBox::from_id_salt("cluster_scatter_space")
-                .selected_text(self.target_space.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Objective,
-                        ClusterSpace::Objective.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Variable,
-                        ClusterSpace::Variable.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Combined,
-                        ClusterSpace::Combined.label(),
-                    );
-                });
-
-            ui.label("Init:");
-            egui::ComboBox::from_id_salt("cluster_scatter_init")
-                .selected_text(self.init_strategy.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::KMeansPlusPlus,
-                        KMeansInitStrategy::KMeansPlusPlus.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::Deterministic,
-                        KMeansInitStrategy::Deterministic.label(),
-                    );
-                });
-
-            if ui
-                .add_enabled(!self.computing, egui::Button::new("Run"))
-                .clicked()
-            {
-                self.try_queue_compute(trial_count);
-            }
-        });
+        // 2D はスピナーを本体側（show 内）で別途表示するため、ここでは出さない。
+        self.controls()
+            .show_controls(ui, trial_count, "cluster_scatter", false);
     }
 
     fn try_queue_compute(&mut self, trial_count: usize) {
-        let request = ClusterComputeRequest {
-            k: self.k,
-            target_space: self.target_space,
-            k_mode: self.k_mode,
-            init_strategy: self.init_strategy,
-            elbow_max_k: self.elbow_max_k,
-        };
-
-        match validate_cluster_request(&request, trial_count) {
-            Ok(()) => {
-                self.pending_compute = Some(request);
-                self.computing = true;
-                self.last_error = None;
-            }
-            Err(err) => {
-                self.pending_compute = None;
-                self.last_error = Some(err);
-            }
-        }
+        self.controls().try_queue_compute(trial_count);
     }
 
     pub fn set_error(&mut self, err: crate::state::messages::ClusterUiError) {
@@ -701,7 +624,7 @@ mod tests {
         assert!(cs.pending_compute.is_none());
         assert!(cs.last_error.is_none());
         assert!(cs.cached_points.is_none());
-        assert_eq!(cs.cache_key, (0, 0));
+        assert_eq!(cs.cache_key, (0, 0, 0));
     }
 
     fn make_view_with_objs(obj_vals: &[Vec<f64>]) -> StudyView {
@@ -749,7 +672,7 @@ mod tests {
     #[test]
     fn cache_key_updated_on_data_change() {
         let cs = ClusterScatter::default();
-        assert_eq!(cs.cache_key, (0, 0));
+        assert_eq!(cs.cache_key, (0, 0, 0));
         assert!(cs.cached_points.is_none());
     }
 
@@ -774,12 +697,12 @@ mod tests {
         let mut item = ClusterScatter {
             computing: true,
             cached_points: Some(vec![[1.0, 2.0]]),
-            cache_key: (5, 3),
+            cache_key: (7, 5, 3),
             ..Default::default()
         };
         item.adopt_runtime_state(&ClusterScatter::default());
         assert_eq!(item.cached_points, Some(vec![[1.0, 2.0]]));
-        assert_eq!(item.cache_key, (5, 3));
+        assert_eq!(item.cache_key, (7, 5, 3));
     }
 
     #[test]

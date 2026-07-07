@@ -51,86 +51,152 @@ pub(crate) fn render_chart(
             unreachable!()
         }
         ChartId::OptimizationHistory => {
-            use crate::theme::color_compute::rgba_to_color32;
+            use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};
             use crate::ui::widgets::optimization_history::OptHistoryComparison;
             // 選択中の目的名を基準に、比較 Study から同名の目的値列を集める。
+            // 毎フレームの to_vec クローンを避けるため、選択目的・比較セット・色・
+            // Study 恒等性でキャッシュする（M-11）。
             let sel_idx = widgets
                 .opt_history
                 .obj_idx
                 .min(obj_names.len().saturating_sub(1));
-            let comparisons: Vec<OptHistoryComparison> = match obj_names.get(sel_idx) {
-                Some(sel_name) => app_state
+            let sel_name = obj_names.get(sel_idx).cloned();
+            let key = crate::ui::widget_states::ComparisonSeriesKey {
+                base_df: std::sync::Arc::as_ptr(&ctx.view.df) as usize,
+                sel_name: sel_name.clone(),
+                comps: app_state
                     .comparison_studies
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, study)| {
-                        let pos = study
-                            .view
-                            .objective_names()
-                            .iter()
-                            .position(|n| n == sel_name)?;
-                        let values = study.view.numeric_column(sel_name)?.to_vec();
-                        let is_minimize = study
-                            .meta
-                            .directions
-                            .get(pos)
-                            .map(|d| matches!(d, Direction::Minimize))
-                            .unwrap_or(true);
-                        let color = app_state
-                            .comparison_colors
-                            .get(i)
-                            .copied()
-                            .unwrap_or([66, 133, 244, 255]);
-                        Some(OptHistoryComparison {
-                            name: study.meta.name.clone(),
-                            color: rgba_to_color32(color),
-                            values,
-                            is_minimize,
-                        })
+                    .map(|(i, s)| {
+                        (
+                            std::sync::Arc::as_ptr(&s.view.df) as usize,
+                            app_state
+                                .comparison_colors
+                                .get(i)
+                                .copied()
+                                .unwrap_or_else(|| comparison_color_at(i)),
+                        )
                     })
                     .collect(),
-                None => Vec::new(),
             };
             let base_name = ctx.meta.name.clone();
-            widgets.opt_history.show_with_comparisons(
+
+            let crate::ui::widget_states::WidgetStates {
+                ref mut render_cache,
+                ref mut opt_history,
+                ..
+            } = *widgets;
+            let comparisons =
+                render_cache.opt_history_comparisons(key, || match sel_name.as_deref() {
+                    Some(sel_name) => app_state
+                        .comparison_studies
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, study)| {
+                            let pos = study
+                                .view
+                                .objective_names()
+                                .iter()
+                                .position(|n| n == sel_name)?;
+                            let values = study.view.numeric_column(sel_name)?.to_vec();
+                            let is_minimize = study
+                                .meta
+                                .directions
+                                .get(pos)
+                                .map(|d| matches!(d, Direction::Minimize))
+                                .unwrap_or(true);
+                            let color = app_state
+                                .comparison_colors
+                                .get(i)
+                                .copied()
+                                .unwrap_or_else(|| comparison_color_at(i));
+                            Some(OptHistoryComparison {
+                                name: study.meta.name.clone(),
+                                color: rgba_to_color32(color),
+                                values,
+                                is_minimize,
+                            })
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                });
+            opt_history.show_with_comparisons(
                 ui,
                 &ctx.view,
                 obj_names,
                 directions,
                 param_names,
                 &base_name,
-                &comparisons,
+                comparisons,
                 &app_state.artifact_map,
             );
         }
         ChartId::ConvergenceIndicators => {
-            use crate::theme::color_compute::rgba_to_color32;
+            use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};
             use crate::ui::widgets::convergence::ConvergenceSeries;
-            widgets.convergence.history = app_state.convergence_history.clone();
-            widgets.convergence.base_name = ctx.meta.name.clone();
-            widgets.convergence.objective_names = obj_names.clone();
-            widgets.convergence.ref_point_override = app_state.hv_ref_point_override.clone();
-            // 現在選択中の収束指標をウィジェットへ伝達する。
-            widgets.convergence.indicator = app_state.convergence_indicator;
-            // 比較 Study の指標推移を色付き系列として渡し、同一グラフに重ねる。
-            widgets.convergence.comparisons = app_state
-                .comparison_studies
-                .iter()
-                .enumerate()
-                .filter_map(|(i, study)| {
-                    let history = app_state.comparison_convergence_histories.get(i)?.clone();
-                    let color = app_state
-                        .comparison_colors
-                        .get(i)
-                        .copied()
-                        .unwrap_or([66, 133, 244, 255]);
-                    Some(ConvergenceSeries {
-                        name: study.meta.name.clone(),
-                        color: rgba_to_color32(color),
-                        history,
+            // history/objective_names の clone と比較系列の再構築は、選択・データが
+            // 変わったときのみ実行する（毎フレーム clone を回避。item low）。
+            // データ恒等性は Vec のデータポインタ + 長さで検知する。
+            let key = crate::ui::widget_states::ConvergenceSyncKey {
+                base_df: std::sync::Arc::as_ptr(&ctx.view.df) as usize,
+                history: app_state
+                    .convergence_history
+                    .as_ref()
+                    .map(|h| (h.values.as_ptr() as usize, h.values.len())),
+                indicator: app_state.convergence_indicator,
+                ref_override: app_state
+                    .hv_ref_point_override
+                    .as_ref()
+                    .map(|v| (v.as_ptr() as usize, v.len())),
+                comparisons: app_state
+                    .comparison_studies
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        (
+                            std::sync::Arc::as_ptr(&s.view.df) as usize,
+                            app_state
+                                .comparison_convergence_histories
+                                .get(i)
+                                .map(|h| (h.values.as_ptr() as usize, h.values.len())),
+                            app_state
+                                .comparison_colors
+                                .get(i)
+                                .copied()
+                                .unwrap_or_else(|| comparison_color_at(i)),
+                        )
                     })
-                })
-                .collect();
+                    .collect(),
+            };
+            if widgets.render_cache.convergence_sync.as_ref() != Some(&key) {
+                widgets.render_cache.convergence_sync = Some(key);
+                widgets.convergence.history = app_state.convergence_history.clone();
+                widgets.convergence.base_name = ctx.meta.name.clone();
+                widgets.convergence.objective_names = obj_names.clone();
+                widgets.convergence.ref_point_override = app_state.hv_ref_point_override.clone();
+                // 現在選択中の収束指標をウィジェットへ伝達する。
+                widgets.convergence.indicator = app_state.convergence_indicator;
+                // 比較 Study の指標推移を色付き系列として渡し、同一グラフに重ねる。
+                widgets.convergence.comparisons = app_state
+                    .comparison_studies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, study)| {
+                        let history = app_state.comparison_convergence_histories.get(i)?.clone();
+                        let color = app_state
+                            .comparison_colors
+                            .get(i)
+                            .copied()
+                            .unwrap_or_else(|| comparison_color_at(i));
+                        Some(ConvergenceSeries {
+                            name: study.meta.name.clone(),
+                            color: rgba_to_color32(color),
+                            history,
+                        })
+                    })
+                    .collect();
+            }
             widgets.convergence.show(
                 ui,
                 &ctx.view,
@@ -295,23 +361,41 @@ pub(crate) fn render_chart(
         ChartId::SurrogateOpt => {
             let trial_count = ctx.trial_count();
             // カテゴリカル列（数値化できない列）は最適化対象から除外する。
-            let numeric_params: Vec<String> = param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
-            // 現在の結果が参照する目的列を取得する（結果が無い場合は None）。
-            let obj_history: Option<Vec<f64>> = widgets
+            let numeric_params = crate::ui::chart::poll_chart::numeric_param_names(ctx);
+            // 目的列の to_vec クローンと observed_feasible の再構築は、Study 恒等性と
+            // 結果が参照する目的名が変わったときのみ実行する（毎フレーム全 clone を回避。M-11）。
+            let obj_history_name = widgets
                 .surrogate_opt
                 .result
                 .as_ref()
-                .and_then(|r| ctx.view.numeric_column(&r.objective_name))
-                .map(|col| col.to_vec());
-            // 多目的フロント散布図に重ねる観測点。result の目的順に整列した各目的の全 trial 値に
-            // 加え、Pareto ランクと実行可能性を渡し、ParetoScatter と同様に分類表示する。
-            let observed_cols: Option<Vec<Vec<f64>>> =
-                widgets.surrogate_opt.multi_result.as_ref().map(|r| {
-                    r.objective_names
+                .map(|r| r.objective_name.clone());
+            let multi_obj_names = widgets
+                .surrogate_opt
+                .multi_result
+                .as_ref()
+                .map(|r| r.objective_names.clone());
+            let key = crate::ui::widget_states::SurrogateObservedKey {
+                df: std::sync::Arc::as_ptr(&ctx.view.df) as usize,
+                obj_history_name: obj_history_name.clone(),
+                multi_obj_names: multi_obj_names.clone(),
+            };
+
+            let crate::ui::widget_states::WidgetStates {
+                ref mut render_cache,
+                ref mut surrogate_opt,
+                ..
+            } = *widgets;
+            let entry = render_cache.surrogate_observed(key, || {
+                // 現在の結果が参照する目的列を取得する（結果が無い場合は None）。
+                let obj_history = obj_history_name
+                    .as_ref()
+                    .and_then(|name| ctx.view.numeric_column(name))
+                    .map(|col| col.to_vec());
+                // 多目的フロント散布図に重ねる観測点。result の目的順に整列した各目的の
+                // 全 trial 値に加え、Pareto ランクと実行可能性を渡し、ParetoScatter と
+                // 同様に分類表示する。
+                let observed_cols: Option<Vec<Vec<f64>>> = multi_obj_names.as_ref().map(|names| {
+                    names
                         .iter()
                         .map(|name| {
                             ctx.view
@@ -321,29 +405,31 @@ pub(crate) fn render_chart(
                         })
                         .collect()
                 });
-            let observed_feasible: Vec<bool> = if observed_cols.is_some() {
-                let feas = ctx.view.feasibility();
-                (0..ctx.view.row_count())
-                    .map(|i| feas.is_feasible(i))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let observed = observed_cols.as_ref().map(|cols| {
+                let observed_feasible: Vec<bool> = if observed_cols.is_some() {
+                    let feas = ctx.view.feasibility();
+                    (0..ctx.view.row_count())
+                        .map(|i| feas.is_feasible(i))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                (obj_history, observed_cols, observed_feasible)
+            });
+            let observed = entry.observed_cols.as_ref().map(|cols| {
                 crate::ui::widgets::surrogate_opt::ObservedData {
                     objective_cols: cols,
                     pareto_rank: &ctx.view.pareto_rank,
-                    feasible: &observed_feasible,
+                    feasible: &entry.observed_feasible,
                 }
             });
             let constraint_col_names = ctx.view.df.constraint_col_names().to_vec();
             crate::ui::widgets::surrogate_opt::show(
                 ui,
-                &mut widgets.surrogate_opt,
+                surrogate_opt,
                 &numeric_params,
                 obj_names,
                 trial_count,
-                obj_history.as_deref(),
+                entry.obj_history.as_deref(),
                 observed.as_ref(),
                 &constraint_col_names,
             );
@@ -413,11 +499,7 @@ pub(crate) fn render_chart(
         ChartId::ResponseSurface3D => {
             // カテゴリカル列（数値化できない列）は応答曲面の対象から除外する
             // （Robustness / SurrogateOpt と同じ絞り込み）。
-            let numeric_params: Vec<String> = param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
+            let numeric_params = crate::ui::chart::poll_chart::numeric_param_names(ctx);
             widgets.response_surface.show(
                 ui,
                 &ctx.view,
@@ -433,11 +515,7 @@ pub(crate) fn render_chart(
         ChartId::SurrogateCompare => {
             // カテゴリカル列（数値化できない列）は比較対象から除外する
             // （Robustness / SurrogateOpt / ResponseSurface3D と同じ絞り込み）。
-            let numeric_params: Vec<String> = param_names
-                .iter()
-                .filter(|p| ctx.view.numeric_column(p).is_some())
-                .cloned()
-                .collect();
+            let numeric_params = crate::ui::chart::poll_chart::numeric_param_names(ctx);
             crate::ui::widgets::compare::show(
                 ui,
                 &mut widgets.surrogate_compare,
@@ -455,15 +533,42 @@ pub(crate) fn render_chart(
             widgets.timeline.show(ui, extras.as_deref());
         }
         ChartId::EdfPlot => {
-            use crate::theme::color_compute::rgba_to_color32;
+            use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};
             use crate::ui::widgets::edf_plot::EdfComparison;
             // 選択中の目的名を基準に、比較 Study から同名の目的値列を集める
-            // （OptimizationHistory と同じ手法）。
+            // （OptimizationHistory と同じ手法・キャッシュ。M-11）。
             let sel_idx = widgets
                 .edf_plot
                 .obj_idx
                 .min(obj_names.len().saturating_sub(1));
-            let comparisons: Vec<EdfComparison> = match obj_names.get(sel_idx) {
+            let sel_name = obj_names.get(sel_idx).cloned();
+            let key = crate::ui::widget_states::ComparisonSeriesKey {
+                base_df: std::sync::Arc::as_ptr(&ctx.view.df) as usize,
+                sel_name: sel_name.clone(),
+                comps: app_state
+                    .comparison_studies
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        (
+                            std::sync::Arc::as_ptr(&s.view.df) as usize,
+                            app_state
+                                .comparison_colors
+                                .get(i)
+                                .copied()
+                                .unwrap_or_else(|| comparison_color_at(i)),
+                        )
+                    })
+                    .collect(),
+            };
+            let base_name = ctx.meta.name.clone();
+
+            let crate::ui::widget_states::WidgetStates {
+                ref mut render_cache,
+                ref mut edf_plot,
+                ..
+            } = *widgets;
+            let comparisons = render_cache.edf_comparisons(key, || match sel_name.as_deref() {
                 Some(sel_name) => app_state
                     .comparison_studies
                     .iter()
@@ -477,7 +582,7 @@ pub(crate) fn render_chart(
                             .comparison_colors
                             .get(i)
                             .copied()
-                            .unwrap_or([66, 133, 244, 255]);
+                            .unwrap_or_else(|| comparison_color_at(i));
                         Some(EdfComparison {
                             name: study.meta.name.clone(),
                             color: rgba_to_color32(color),
@@ -486,11 +591,8 @@ pub(crate) fn render_chart(
                     })
                     .collect(),
                 None => Vec::new(),
-            };
-            let base_name = ctx.meta.name.clone();
-            widgets
-                .edf_plot
-                .show(ui, &ctx.view, obj_names, &base_name, &comparisons);
+            });
+            edf_plot.show(ui, &ctx.view, obj_names, &base_name, comparisons);
         }
         ChartId::RankPlot => {
             widgets.rank_plot.show(

@@ -6,6 +6,20 @@ pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
+/// `Color32` を格納バイトそのまま（プリマルチプライドアルファ、順序 [R, G, B, A]）の
+/// 配列へ変換する（D-11）。色ごとに点をグループ化する `HashMap`/`BTreeMap` のキーに使う。
+/// 逆変換は [`key_to_color32`]（ロスレス恒等）。[`rgba_to_color32`] は非プリマルチプライド
+/// 入力用であり逆変換ではないことに注意（半透明色で成分が一致しなくなる）。
+pub fn rgba_key(color: egui::Color32) -> [u8; 4] {
+    color.to_array()
+}
+
+/// [`rgba_key`] の逆変換。プリマルチプライド空間のバイト列をそのまま復元するため、
+/// `key_to_color32(rgba_key(c)) == c` が全ての色で厳密に成り立つ。
+pub fn key_to_color32(key: [u8; 4]) -> egui::Color32 {
+    egui::Color32::from_rgba_premultiplied(key[0], key[1], key[2], key[3])
+}
+
 /// 比較 Study に割り当てる代表色のパレット（基準 Study の緑系とは別の色相）。
 /// 各要素は `[R, G, B, A]` の非プリマルチプライドアルファ。
 const COMPARISON_PALETTE: [[u8; 4]; 6] = [
@@ -26,6 +40,18 @@ pub fn comparison_color_at(idx: usize) -> [u8; 4] {
 /// selected_indices が空の場合は全点が不透明（255）を返す。
 pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
     if selected_indices.is_empty() || selected_indices.contains(&trial_id) {
+        255
+    } else {
+        50
+    }
+}
+
+/// `compute_point_alpha` の `HashSet` 版（M-16）。
+/// 呼び出し側がフレーム冒頭で選択集合を 1 度だけ `HashSet<u32>` へ構築し、
+/// 点ごとの `contains()` 線形走査（O(n·s)）を O(n) の集合参照に置き換えるために使う。
+/// `selected` が空の場合は全点が不透明（255）を返す（`compute_point_alpha` と同一挙動）。
+pub fn point_alpha_in_set(trial_id: u32, selected: &std::collections::HashSet<u32>) -> u8 {
+    if selected.is_empty() || selected.contains(&trial_id) {
         255
     } else {
         50
@@ -76,6 +102,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rgba_key_roundtrips_through_key_to_color32() {
+        // 半透明色でもプリマルチプライド空間の往復は厳密に恒等。
+        let color = egui::Color32::from_rgba_unmultiplied(12, 34, 56, 78);
+        assert_eq!(key_to_color32(rgba_key(color)), color);
+        // 不透明色は成分バイトがそのままキーになる。
+        let opaque = egui::Color32::from_rgb(12, 34, 56);
+        assert_eq!(rgba_key(opaque), [12, 34, 56, 255]);
+        assert_eq!(key_to_color32(rgba_key(opaque)), opaque);
+    }
+
+    #[test]
     fn compute_point_alpha_empty_selected_returns_opaque() {
         assert_eq!(compute_point_alpha(0, &[]), 255);
         assert_eq!(compute_point_alpha(99, &[]), 255);
@@ -89,6 +126,16 @@ mod tests {
     #[test]
     fn compute_point_alpha_not_selected_returns_transparent() {
         assert_eq!(compute_point_alpha(3, &[1, 5, 10]), 50);
+    }
+
+    #[test]
+    fn point_alpha_in_set_matches_slice_version() {
+        use std::collections::HashSet;
+        let empty: HashSet<u32> = HashSet::new();
+        assert_eq!(point_alpha_in_set(0, &empty), 255);
+        let sel: HashSet<u32> = [1u32, 5, 10].into_iter().collect();
+        assert_eq!(point_alpha_in_set(5, &sel), 255);
+        assert_eq!(point_alpha_in_set(3, &sel), 50);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::COLOR_EMPTY_STATE;
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::radar_chart::{draw_radar, swatch, RadarSeries};
+use crate::ui::widgets::common::range_math::finite_value_range;
 
 /// レーダー比較ウィジェットの UI 状態。計算キャッシュは持たない
 /// （数個の多角形を毎フレーム再計算しても軽量なため）。
@@ -76,19 +77,7 @@ pub fn build_axes<'a>(
 
 /// 軸の値域（非有限値を除いた min/max）。範囲が空なら `(0.0, 0.0)`（degenerate 扱い）。
 fn axis_range(col: &[f64]) -> (f64, f64) {
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
-    for &v in col {
-        if v.is_finite() {
-            lo = lo.min(v);
-            hi = hi.max(v);
-        }
-    }
-    if lo.is_finite() && hi.is_finite() {
-        (lo, hi)
-    } else {
-        (0.0, 0.0)
-    }
+    finite_value_range(col.iter().copied()).unwrap_or((0.0, 0.0))
 }
 
 /// 値を軸上の半径割合 [0,1] に正規化する。`min == max`（degenerate）なら 0.5。
@@ -183,12 +172,7 @@ impl RadarComparisonChart {
 
             let number = view.df.get_trial_number(row).unwrap_or(trial_id);
             let label = format!("Trial #{number}");
-            let t = if n_pins <= 1 {
-                0.5
-            } else {
-                pin_idx as f32 / (n_pins - 1) as f32
-            };
-            let color = cmap.interpolate(t);
+            let color = cmap.sample_categorical(pin_idx, n_pins);
             legend_entries.push((color, label.clone()));
             series.push(RadarSeries {
                 color,

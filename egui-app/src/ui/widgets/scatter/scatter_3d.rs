@@ -115,6 +115,16 @@ pub fn compute_range_from_col(col: Option<&[f64]>) -> (f64, f64) {
     }
 }
 
+/// 有限値のみで [min, max] を計算し、退化範囲を拡張する（NaN/Inf は無視）。
+/// 空・全非有限のときは (-1.0, 1.0) を返す。MCDM 3D 散布図の軸レンジ算出で共有する（D-12）。
+pub fn val_range(vals: &[f64]) -> (f64, f64) {
+    let finite = vals.iter().copied().filter(|v| v.is_finite());
+    match range_math::value_range(finite) {
+        Some((mn, mx)) => range_math::expand_degenerate(mn, mx),
+        None => (-1.0, 1.0),
+    }
+}
+
 /// x/y/z 軸のデータ範囲キャッシュ。
 /// `key`（通常は軸インデックス3つ + 行数のタプル）が前回と変わらない限り、
 /// `compute_range_from_col` による再計算を省略する。
@@ -154,6 +164,55 @@ pub fn normalize_to_clip(v: f64, v_min: f64, v_max: f64) -> f32 {
         return 0.0;
     }
     (2.0 * (v - v_min) / (v_max - v_min) - 1.0).clamp(-1.0, 1.0) as f32
+}
+
+// ── 深度ソート描画 ────────────────────────────────────────────────
+
+/// 深度付きの描画点。3D 散布図のペインターズアルゴリズム（奥→手前描画）用の
+/// 一時バッファ要素。`pareto_3d` / `cluster_scatter_3d` / `mcdm_scatter_chart_3d` /
+/// `surrogate_opt` の 4 箇所が共有する（D-1）。
+#[derive(Clone, Copy)]
+pub struct DepthPoint {
+    /// スクリーン座標
+    pub pos: egui::Pos2,
+    /// カメラ深度（小さいほど奥）
+    pub depth: f32,
+    pub color: egui::Color32,
+    pub radius: f32,
+}
+
+/// 深度で奥→手前にソートし、`circle_filled` で描画する（ペインターズアルゴリズム）。
+/// `stroke` が `Some` のときは各点に円周ストロークも重ねる（予測フロント点の強調用）。
+pub fn draw_depth_sorted_points(
+    painter: &egui::Painter,
+    points: &mut [DepthPoint],
+    stroke: Option<egui::Stroke>,
+) {
+    points.sort_by(|a, b| {
+        a.depth
+            .partial_cmp(&b.depth)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for p in points.iter() {
+        painter.circle_filled(p.pos, p.radius, p.color);
+        if let Some(s) = stroke {
+            painter.circle_stroke(p.pos, p.radius, s);
+        }
+    }
+}
+
+/// 値空間の点 `[x, y, z]` を各軸レンジで clip 空間 [-1, 1] に正規化し、投影して
+/// `(スクリーン座標, 深度)` を返す（normalize_to_clip×3 → project の定型処理・D-1）。
+pub fn project_value_3d(
+    project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
+    v: [f64; 3],
+    ranges: [(f64, f64); 3],
+) -> (egui::Pos2, f32) {
+    project([
+        normalize_to_clip(v[0], ranges[0].0, ranges[0].1),
+        normalize_to_clip(v[1], ranges[1].0, ranges[1].1),
+        normalize_to_clip(v[2], ranges[2].0, ranges[2].1),
+    ])
 }
 
 // ── UI ヘルパー ───────────────────────────────────────────────────

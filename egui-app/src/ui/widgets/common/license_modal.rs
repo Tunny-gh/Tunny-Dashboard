@@ -6,6 +6,7 @@
 use egui::RichText;
 
 use crate::licenses::{LicenseEntry, LICENSES};
+use crate::ui::widgets::common::modal::ModalScaffold;
 
 /// ライセンスモーダルの UI 状態。
 #[derive(Default)]
@@ -23,63 +24,62 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
         return;
     }
 
-    let modal = egui::Modal::new(egui::Id::new("oss_license_modal")).show(ctx, |ui| {
-        ui.set_min_width(560.0);
-        ui.set_max_width(720.0);
+    let outcome = ModalScaffold::new("oss_license_modal", 560.0)
+        .max_width(720.0)
+        .heading("Open Source Licenses")
+        .show(ctx, |ui| {
+            ui.label(
+                RichText::new(format!(
+                    "This application bundles {} third-party crates.",
+                    LICENSES.len()
+                ))
+                .color(crate::theme::TEXT_SECONDARY()),
+            );
+            ui.add_space(4.0);
 
-        ui.heading("Open Source Licenses");
-        ui.label(
-            RichText::new(format!(
-                "This application bundles {} third-party crates.",
-                LICENSES.len()
-            ))
-            .color(crate::theme::TEXT_SECONDARY()),
-        );
-        ui.add_space(4.0);
-
-        ui.horizontal(|ui| {
-            ui.label("Filter:");
-            ui.text_edit_singleline(&mut state.search);
-            if !state.search.is_empty() && ui.button("✖").clicked() {
-                state.search.clear();
-            }
-        });
-        ui.separator();
-
-        let needle = state.search.trim().to_lowercase();
-        let filtered: Vec<&LicenseEntry> = LICENSES
-            .iter()
-            .filter(|e| matches_filter(e, &needle))
-            .collect();
-
-        // モーダル高をビューポートに対して抑え、長大なリストはスクロールさせる。
-        let max_h = ctx.content_rect().height() * 0.6;
-        egui::ScrollArea::vertical()
-            .max_height(max_h)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                if filtered.is_empty() {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new("No crates match the filter.")
-                            .color(crate::theme::TEXT_SECONDARY()),
-                    );
-                    return;
-                }
-                for entry in filtered {
-                    show_entry(ui, entry);
+            ui.horizontal(|ui| {
+                ui.label("Filter:");
+                ui.text_edit_singleline(&mut state.search);
+                if !state.search.is_empty() && ui.button("✖").clicked() {
+                    state.search.clear();
                 }
             });
+            ui.separator();
 
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("Close").clicked() {
-                state.open = false;
-            }
+            let needle = state.search.trim().to_lowercase();
+            let filtered: Vec<&LicenseEntry> = LICENSES
+                .iter()
+                .filter(|e| matches_filter(e, &needle))
+                .collect();
+
+            // モーダル高をビューポートに対して抑え、長大なリストはスクロールさせる。
+            let max_h = ctx.content_rect().height() * 0.6;
+            egui::ScrollArea::vertical()
+                .max_height(max_h)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if filtered.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("No crates match the filter.")
+                                .color(crate::theme::TEXT_SECONDARY()),
+                        );
+                        return;
+                    }
+                    for entry in filtered {
+                        show_entry(ui, entry);
+                    }
+                });
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Close").clicked() {
+                    state.open = false;
+                }
+            });
         });
-    });
 
-    if modal.should_close() {
+    if outcome.should_close {
         state.open = false;
     }
 }

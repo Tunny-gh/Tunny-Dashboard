@@ -64,6 +64,14 @@ impl LiveUpdatePoller {
     }
 }
 
+impl Drop for LiveUpdatePoller {
+    /// ポーラーが明示 `stop()` されずに破棄された場合でもスレッドをリークさせない。
+    /// `stop()` は冪等（2 回目以降は thread_handle が None のため no-op）で二重呼び出し安全。
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// Increments error_count and, on the third consecutive error, sends the auto-stop message and
 /// signals the thread to stop. Returns `true` if the loop should `break`.
 fn escalate_error(
@@ -125,6 +133,15 @@ fn polling_loop(
         };
 
         let file_size = metadata.len();
+
+        // ジャーナルのローテーション/切り詰め検出。ファイルサイズが既読オフセットより
+        // 小さくなった場合、ログが置き換え（ローテーション）または切り詰められたと判断し、
+        // オフセットを 0 に戻して先頭から読み直す。放置すると差分が永久に検出されず、
+        // 無変化タイムアウトで「最適化完了」と誤認してしまうため。
+        if file_size < byte_offset {
+            byte_offset = 0;
+        }
+
         if file_size <= byte_offset {
             // No new data — check for completion hint
             if !completion_hint_sent {
@@ -156,7 +173,11 @@ fn polling_loop(
             continue;
         }
 
-        let read_size = (file_size - byte_offset) as usize;
+        // 差分全体を一括確保せず、1 tick あたり最大 MAX_READ_CHUNK バイトまでに制限する。
+        // 残りは次 tick で読む（append_journal_diff は行単位で consumed_bytes を返すため、
+        // チャンク末尾が行途中でも byte_offset は完全な行までしか進まず、取りこぼさない）。
+        const MAX_READ_CHUNK: u64 = 8 * 1024 * 1024;
+        let read_size = (file_size - byte_offset).min(MAX_READ_CHUNK) as usize;
         let mut buf = vec![0u8; read_size];
         if file.read_exact(&mut buf).is_err() {
             if escalate_error(&mut error_count, tx, stop_signal) {
@@ -261,6 +282,14 @@ impl SqliteLivePoller {
 
     pub fn update_interval(&self, new_interval_ms: u64) {
         self.interval_ms.store(new_interval_ms, Ordering::Relaxed);
+    }
+}
+
+impl Drop for SqliteLivePoller {
+    /// 明示 `stop()` されずに破棄されてもポーリングスレッドをリークさせない
+    /// （`stop()` は冪等で二重呼び出し安全）。
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -435,6 +464,14 @@ impl RdbLivePoller {
 
     pub fn update_interval(&self, new_interval_ms: u64) {
         self.interval_ms.store(new_interval_ms, Ordering::Relaxed);
+    }
+}
+
+impl Drop for RdbLivePoller {
+    /// 明示 `stop()` されずに破棄されてもポーリングスレッドをリークさせない
+    /// （`stop()` は冪等で二重呼び出し安全）。
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 

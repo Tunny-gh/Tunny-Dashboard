@@ -12,7 +12,7 @@ use crate::ui::widgets::scatter_3d::{
     axis_segments_3d, draw_3d_axis_labels, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
     show_hover_and_click_detail, ArcballCamera,
 };
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::trial_detail_modal::{axis_row, TrialDetailModal};
 
 /// 2D グリッド値（行 = param1、列 = param2）
 pub(crate) type Grid = Vec<Vec<f64>>;
@@ -334,7 +334,6 @@ impl PdpChart2DState {
                     Some((trial_id, row, pos))
                 })
                 .collect();
-            let fmt = |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
             show_hover_and_click_detail(
                 ui,
                 view,
@@ -345,18 +344,9 @@ impl PdpChart2DState {
                 &mut *detail_modal,
                 |row| {
                     vec![
-                        (
-                            result.param1_name.clone(),
-                            fmt(p1_col.and_then(|c| c.get(row)).copied()),
-                        ),
-                        (
-                            result.param2_name.clone(),
-                            fmt(p2_col.and_then(|c| c.get(row)).copied()),
-                        ),
-                        (
-                            result.objective_name.clone(),
-                            fmt(obj_col.and_then(|c| c.get(row)).copied()),
-                        ),
+                        axis_row(&result.param1_name, p1_col, row),
+                        axis_row(&result.param2_name, p2_col, row),
+                        axis_row(&result.objective_name, obj_col, row),
                     ]
                 },
                 |row| {

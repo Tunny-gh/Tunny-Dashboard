@@ -3,14 +3,16 @@ use crate::theme::chart_colors::{COLOR_INFEASIBLE, COLOR_NON_PARETO_DIM};
 use crate::theme::colormap_name::colormap_from_name;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::cluster_scatter::{
-    validate_cluster_request, ClusterCacheKey, ClusterComputeRequest, ClusterSpace,
-    KMeansInitStrategy, KSelectionMode,
+    ClusterCacheKey, ClusterComputeRequest, ClusterSpace, KMeansInitStrategy, KSelectionMode,
 };
+use crate::ui::widgets::common::cluster_controls::ClusterControls;
 use crate::ui::widgets::scatter_3d::{
-    compute_range_from_col, draw_3d_axes, draw_3d_grid, normalize_to_clip, setup_3d_canvas,
-    show_hover_and_click_detail, show_objective_combo, ArcballCamera, Range3DCache,
+    compute_range_from_col, draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, project_value_3d,
+    setup_3d_canvas, show_hover_and_click_detail, show_objective_combo, ArcballCamera, DepthPoint,
+    Range3DCache,
 };
-use crate::ui::widgets::trial_detail_modal::TrialDetailModal;
+use crate::ui::widgets::scatter_matrix::{downsample_indices_to_cap, MAX_SCATTER_POINTS};
+use crate::ui::widgets::trial_detail_modal::{axis_row, push_feasible_row, TrialDetailModal};
 
 /// クラスタ 3D 散布図ウィジェット
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -164,12 +166,7 @@ impl ClusterScatter3D {
             if label < 0 {
                 return egui::Color32::GRAY;
             }
-            let t = if n_clusters == 1 {
-                0.5_f32
-            } else {
-                (label as f32 / (n_clusters - 1) as f32).clamp(0.0, 1.0)
-            };
-            colormap.interpolate(t)
+            colormap.sample_categorical(label as usize, n_clusters)
         };
 
         let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, &mut self.camera);
@@ -182,31 +179,37 @@ impl ClusterScatter3D {
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
+        // 全 trial を毎フレーム 3 回（infeasible / other / feasible）深度ソートするのは重いため、
+        // 2D 系と同じ 1500 点上限で間引いてから描画・ソートする（M-13）。
+        let all_indices: Vec<u32> = (0..trial_count as u32).collect();
+        let displayed = downsample_indices_to_cap(&all_indices, MAX_SCATTER_POINTS);
+
         // Collect points
         let show_infeasible = self.show_infeasible;
-        let mut feasible_pts: Vec<(egui::Pos2, f32, egui::Color32)> =
-            Vec::with_capacity(trial_count);
-        let mut infeasible_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        let mut feasible_pts: Vec<DepthPoint> = Vec::with_capacity(displayed.len());
+        let mut infeasible_pts: Vec<DepthPoint> = Vec::new();
         // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
-        let mut other_pts: Vec<(egui::Pos2, f32)> = Vec::new();
+        let mut other_pts: Vec<DepthPoint> = Vec::new();
         // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
-        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(trial_count);
+        let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
 
-        for i in 0..trial_count {
+        for &idx in &displayed {
+            let i = idx as usize;
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            let clip = [
-                normalize_to_clip(xv, x_min, x_max),
-                normalize_to_clip(yv, y_min, y_max),
-                normalize_to_clip(zv, z_min, z_max),
-            ];
-            let (pos, depth) = project(clip);
+            // normalize→project は共通ヘルパー（D-1）。
+            let (pos, depth) = project_value_3d(&project, [xv, yv, zv], ranges);
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
             if !feas.is_feasible(i) {
                 if show_infeasible {
-                    infeasible_pts.push((pos, depth));
+                    infeasible_pts.push(DepthPoint {
+                        pos,
+                        depth,
+                        color: COLOR_INFEASIBLE(),
+                        radius: 3.0,
+                    });
                     candidates.push((trial_id, i, pos));
                 }
                 continue;
@@ -218,24 +221,25 @@ impl ClusterScatter3D {
 
             if has_cluster && label < 0 {
                 // クラスタリング済みだが非パレートフロント → 半透明で描画
-                other_pts.push((pos, depth));
+                other_pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color: COLOR_NON_PARETO_DIM(),
+                    radius: 2.5,
+                });
             } else {
-                feasible_pts.push((pos, depth, cluster_color(label)));
+                feasible_pts.push(DepthPoint {
+                    pos,
+                    depth,
+                    color: cluster_color(label),
+                    radius: 3.5,
+                });
             }
         }
 
-        infeasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _) in &infeasible_pts {
-            painter.circle_filled(*pos, 3.0, COLOR_INFEASIBLE());
-        }
-        other_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _) in &other_pts {
-            painter.circle_filled(*pos, 2.5, COLOR_NON_PARETO_DIM());
-        }
-        feasible_pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (pos, _, color) in &feasible_pts {
-            painter.circle_filled(*pos, 3.5, *color);
-        }
+        draw_depth_sorted_points(&painter, &mut infeasible_pts, None);
+        draw_depth_sorted_points(&painter, &mut other_pts, None);
+        draw_depth_sorted_points(&painter, &mut feasible_pts, None);
 
         if !has_cluster && !self.computing {
             painter.text(
@@ -267,30 +271,18 @@ impl ClusterScatter3D {
             "cluster3d_hover_tooltip",
             &mut self.detail_modal,
             |row| {
-                let fmt =
-                    |v: Option<f64>| v.map(|x| format!("{x:.4}")).unwrap_or_else(|| "—".into());
                 let mut rows = vec![
-                    (x_name.clone(), fmt(x_col.and_then(|c| c.get(row)).copied())),
-                    (y_name.clone(), fmt(y_col.and_then(|c| c.get(row)).copied())),
-                    (z_name.clone(), fmt(z_col.and_then(|c| c.get(row)).copied())),
+                    axis_row(&x_name, x_col, row),
+                    axis_row(&y_name, y_col, row),
+                    axis_row(&z_name, z_col, row),
                     ("Cluster".to_string(), cluster_str_for(row)),
                 ];
-                if feas.has_constraints() {
-                    rows.push((
-                        "Feasible".to_string(),
-                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                    ));
-                }
+                push_feasible_row(&mut rows, feas, row);
                 rows
             },
             |row| {
                 let mut context = vec![("Cluster".to_string(), cluster_str_for(row))];
-                if feas.has_constraints() {
-                    context.push((
-                        "Feasible".to_string(),
-                        if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
-                    ));
-                }
+                push_feasible_row(&mut context, feas, row);
                 context
             },
         );
@@ -307,110 +299,29 @@ impl ClusterScatter3D {
         }
     }
 
+    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    fn controls(&mut self) -> ClusterControls<'_> {
+        ClusterControls {
+            k: &mut self.k,
+            target_space: &mut self.target_space,
+            k_mode: &mut self.k_mode,
+            init_strategy: &mut self.init_strategy,
+            elbow_max_k: &mut self.elbow_max_k,
+            computing: &mut self.computing,
+            pending_compute: &mut self.pending_compute,
+            last_error: &mut self.last_error,
+        }
+    }
+
     /// クラスタリング設定 UI（k / モード / 空間 / Init / Run）を描画する。
     /// 2D の ClusterScatter::show_header と同じ操作感。
     fn show_cluster_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
-        ui.horizontal(|ui| {
-            let k_editable = !self.computing && self.k_mode == KSelectionMode::Manual;
-            ui.label("k:");
-            ui.add_enabled(
-                k_editable,
-                egui::DragValue::new(&mut self.k).range(2..=pareto_count.max(2)),
-            );
-
-            let elbow_max_k_editable =
-                !self.computing && self.k_mode == KSelectionMode::ElbowDefault;
-            ui.label("Max k:");
-            ui.add_enabled(
-                elbow_max_k_editable,
-                egui::DragValue::new(&mut self.elbow_max_k).range(2..=50),
-            );
-
-            egui::ComboBox::from_id_salt("cluster_scatter_3d_k_mode")
-                .selected_text(self.k_mode.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::ElbowDefault,
-                        KSelectionMode::ElbowDefault.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.k_mode,
-                        KSelectionMode::Manual,
-                        KSelectionMode::Manual.label(),
-                    );
-                });
-
-            egui::ComboBox::from_id_salt("cluster_scatter_3d_space")
-                .selected_text(self.target_space.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Objective,
-                        ClusterSpace::Objective.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Variable,
-                        ClusterSpace::Variable.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.target_space,
-                        ClusterSpace::Combined,
-                        ClusterSpace::Combined.label(),
-                    );
-                });
-
-            ui.label("Init:");
-            egui::ComboBox::from_id_salt("cluster_scatter_3d_init")
-                .selected_text(self.init_strategy.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::KMeansPlusPlus,
-                        KMeansInitStrategy::KMeansPlusPlus.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.init_strategy,
-                        KMeansInitStrategy::Deterministic,
-                        KMeansInitStrategy::Deterministic.label(),
-                    );
-                });
-
-            if ui
-                .add_enabled(!self.computing, egui::Button::new("Run"))
-                .clicked()
-            {
-                self.try_queue_compute(pareto_count);
-            }
-
-            if self.computing {
-                ui.spinner();
-                ui.label("Running clustering...");
-            }
-        });
+        self.controls()
+            .show_controls(ui, pareto_count, "cluster_scatter_3d", true);
     }
 
     fn try_queue_compute(&mut self, pareto_count: usize) {
-        let request = ClusterComputeRequest {
-            k: self.k,
-            target_space: self.target_space,
-            k_mode: self.k_mode,
-            init_strategy: self.init_strategy,
-            elbow_max_k: self.elbow_max_k,
-        };
-
-        match validate_cluster_request(&request, pareto_count) {
-            Ok(()) => {
-                self.pending_compute = Some(request);
-                self.computing = true;
-                self.last_error = None;
-            }
-            Err(err) => {
-                self.pending_compute = None;
-                self.last_error = Some(err);
-            }
-        }
+        self.controls().try_queue_compute(pareto_count);
     }
 
     pub fn set_error(&mut self, err: crate::state::messages::ClusterUiError) {

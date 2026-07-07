@@ -9,6 +9,8 @@ use egui::RichText;
 
 use tunny_core::rdb::RdbUrl;
 
+use crate::ui::widgets::common::modal::ModalScaffold;
+
 /// ダイアログの操作結果。
 pub enum RdbUrlDialogAction {
     /// パース済み・正規化済みの URL 文字列で開く。
@@ -33,47 +35,47 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
     let mut open_clicked = false;
     let mut cancel_clicked = false;
 
-    let modal = egui::Modal::new(egui::Id::new("rdb_url_dialog")).show(ctx, |ui| {
-        ui.set_min_width(440.0);
-        ui.heading("Open Database URL");
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new("Connect directly to an Optuna RDBStorage (PostgreSQL/MySQL).")
-                .color(crate::theme::TEXT_SECONDARY()),
-        );
-        ui.add_space(4.0);
-        ui.add(
-            egui::TextEdit::singleline(input)
-                .hint_text("postgresql://user:pass@host:5432/dbname")
-                .desired_width(ui.available_width()),
-        );
+    let outcome = ModalScaffold::new("rdb_url_dialog", 440.0)
+        .heading("Open Database URL")
+        .show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Connect directly to an Optuna RDBStorage (PostgreSQL/MySQL).")
+                    .color(crate::theme::TEXT_SECONDARY()),
+            );
+            ui.add_space(4.0);
+            ui.add(
+                egui::TextEdit::singleline(input)
+                    .hint_text("postgresql://user:pass@host:5432/dbname")
+                    .desired_width(ui.available_width()),
+            );
 
-        let parsed = resolve_open_url(input);
-        if let Err(msg) = &parsed {
-            if !input.trim().is_empty() {
-                ui.add_space(4.0);
-                ui.colored_label(crate::theme::ERROR_COLOR(), *msg);
+            let parsed = resolve_open_url(input);
+            if let Err(msg) = &parsed {
+                if !input.trim().is_empty() {
+                    ui.add_space(4.0);
+                    ui.colored_label(crate::theme::ERROR_COLOR(), *msg);
+                }
             }
-        }
 
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(parsed.is_ok(), egui::Button::new("Open"))
-                .clicked()
-            {
-                open_clicked = true;
-            }
-            if ui.button("Cancel").clicked() {
-                cancel_clicked = true;
-            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(parsed.is_ok(), egui::Button::new("Open"))
+                    .clicked()
+                {
+                    open_clicked = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel_clicked = true;
+                }
+            });
         });
-    });
 
     if open_clicked {
         // ボタンは parsed.is_ok() のときのみ有効なので、ここでの再パース失敗は起こらない想定。
         resolve_open_url(input).ok().map(RdbUrlDialogAction::Open)
-    } else if cancel_clicked || modal.should_close() {
+    } else if cancel_clicked || outcome.should_close {
         Some(RdbUrlDialogAction::Cancel)
     } else {
         None
