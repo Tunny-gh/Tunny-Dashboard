@@ -239,7 +239,9 @@ fn full_session_over_stdio() {
     let study_report_text = study_report_resp["result"]["content"][0]["text"]
         .as_str()
         .expect("study_report text content");
-    assert!(study_report_text.contains("demo_study"));
+    // Markdown レンダラはユーザー由来文字列の `_` を強調記法として
+    // 誤解釈されないようエスケープするため、study 名は `demo\_study` になる。
+    assert!(study_report_text.contains(r"demo\_study"));
     assert!(study_report_text.contains("## "));
 
     std::fs::remove_dir_all(&dir).ok();
