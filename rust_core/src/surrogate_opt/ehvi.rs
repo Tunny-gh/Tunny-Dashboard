@@ -89,13 +89,18 @@ impl EhviContext<'_> {
         }
 
         // 各サンプルで v_s[k] = g_k + s_k * Z[s][k] を作り、HV(P ∪ {v_s}) − HV(P) を加算。
+        // フロントのクローンはループ外で 1 度だけ行い、末尾のプレースホルダ要素のみを
+        // サンプルごとに上書きする（サンプルごとの割り当てをゼロにする）。
         let mut acc = 0.0;
         let mut augmented: Vec<Vec<f64>> = Vec::with_capacity(self.front.len() + 1);
+        augmented.extend_from_slice(&self.front);
+        augmented.push(vec![0.0; n_obj]);
+        let last = augmented.len() - 1;
         for z_row in self.z_matrix {
-            let v_s: Vec<f64> = (0..n_obj).map(|k| g[k] + s[k] * z_row[k]).collect();
-            augmented.clear();
-            augmented.extend_from_slice(&self.front);
-            augmented.push(v_s);
+            let slot = &mut augmented[last];
+            for k in 0..n_obj {
+                slot[k] = g[k] + s[k] * z_row[k];
+            }
             let hv_aug = hypervolume_nd(&augmented, &self.ref_point);
             let improvement = hv_aug - self.hv_p;
             if improvement > 0.0 {
@@ -178,19 +183,13 @@ fn compute_ref_point(front: &[Vec<f64>], n_obj: usize) -> Vec<f64> {
         .collect()
 }
 
-/// 固定シード RNG から S×n_obj の標準正規行列を引く（Box-Muller 変換）。
+/// 固定シード RNG から S×n_obj の標準正規行列を引く。
 ///
-/// `next_f64` は [0,1) の一様乱数を返すため、対で標準正規を 2 個生成する。
+/// 標準正規サンプルは共通の `SeededRng::next_gaussian`（Box-Muller）を再利用する。
 fn draw_standard_normal_matrix(rows: usize, cols: usize) -> Vec<Vec<f64>> {
     let mut rng = SeededRng::from_seed(EHVI_SEED);
-    let mut next_normal = move || -> f64 {
-        // Box-Muller: u1 ∈ (0,1] を保証するため 0 を回避する。
-        let u1 = (rng.next_f64()).max(f64::MIN_POSITIVE);
-        let u2 = rng.next_f64();
-        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
-    };
     (0..rows)
-        .map(|_| (0..cols).map(|_| next_normal()).collect())
+        .map(|_| (0..cols).map(|_| rng.next_gaussian()).collect())
         .collect()
 }
 
@@ -589,6 +588,67 @@ mod tests {
             suggested.ehvi_score,
             worst_ehvi
         );
+    }
+
+    #[test]
+    fn ehvi_matches_naive_clone_reference() {
+        // 割り当てゼロの in-place 実装が、フロントを毎回クローンする素朴な参照実装と
+        // 完全一致（ビット一致）することを確認する（M1 リファクタの数値的等価性）。
+        let trained = analytic_two_objectives(true);
+        let surrogates: Vec<&FittedSurrogate> = trained.iter().map(|t| &t.surrogate).collect();
+        let signs = vec![1.0, 1.0];
+        let ys_refs: Vec<&[f64]> = trained.iter().map(|t| t.y.as_slice()).collect();
+        let front = build_observed_front(&surrogates, &ys_refs, &signs);
+        let ref_point = compute_ref_point(&front, 2);
+        let hv_p = hypervolume_nd(&front, &ref_point);
+        let z_matrix = draw_standard_normal_matrix(EHVI_SAMPLES, 2);
+        let ctx = EhviContext {
+            surrogates: surrogates.clone(),
+            signs: signs.clone(),
+            front: front.clone(),
+            ref_point: ref_point.clone(),
+            hv_p,
+            z_matrix: &z_matrix,
+        };
+
+        // 素朴な参照実装（毎サンプルで front 全体をクローンして push）。
+        let naive_ehvi = |x_norm: &[f64]| -> f64 {
+            let n_obj = surrogates.len();
+            let g: Vec<f64> = (0..n_obj)
+                .map(|k| signs[k] * surrogates[k].predict_norm(x_norm))
+                .collect();
+            let s: Vec<f64> = (0..n_obj)
+                .map(|k| {
+                    surrogates[k]
+                        .predict_var_norm(x_norm)
+                        .map(|v| v.max(0.0).sqrt())
+                        .unwrap_or(0.0)
+                })
+                .collect();
+            let mut acc = 0.0;
+            for z_row in &z_matrix {
+                let v_s: Vec<f64> = (0..n_obj).map(|k| g[k] + s[k] * z_row[k]).collect();
+                let mut augmented = front.clone();
+                augmented.push(v_s);
+                let hv_aug = hypervolume_nd(&augmented, &ref_point);
+                let improvement = hv_aug - hv_p;
+                if improvement > 0.0 {
+                    acc += improvement;
+                }
+            }
+            acc / z_matrix.len() as f64
+        };
+
+        for x in [
+            vec![0.3, 0.3],
+            vec![0.5, 0.5],
+            vec![0.7, 0.2],
+            vec![0.1, 0.9],
+        ] {
+            let fast = ctx.ehvi(&x);
+            let naive = naive_ehvi(&x);
+            assert_eq!(fast, naive, "EHVI must be bit-identical at x = {x:?}");
+        }
     }
 
     #[test]

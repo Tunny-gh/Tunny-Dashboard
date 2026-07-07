@@ -8,6 +8,7 @@
 //! `optimizers::multi_objective_nsga2` が多目的サロゲートの呼び出しを担う。
 
 use crate::math::rng::SeededRng;
+use rayon::prelude::*;
 
 /// 単目的最適化での SBX 分布指数 η_c（局所探索寄り）。
 const SBX_ETA_SINGLE_OBJECTIVE: f64 = 20.0;
@@ -65,7 +66,7 @@ pub(crate) fn nsga2_minimize<F>(
     cfg: &Nsga2Config,
 ) -> Vec<(Vec<f64>, Vec<f64>)>
 where
-    F: Fn(&[f64]) -> Vec<f64>,
+    F: Fn(&[f64]) -> Vec<f64> + Sync,
 {
     let n = (cfg.pop_size.max(4) + 1) & !1; // 偶数化（最低 4）
     let mut rng = SeededRng::from_seed(cfg.seed);
@@ -79,7 +80,9 @@ where
     while pop.len() < n {
         pop.push((0..n_dims).map(|_| rng.next_f64()).collect());
     }
-    let mut fit: Vec<Vec<f64>> = pop.iter().map(|g| eval(g)).collect();
+    // 集団評価は RNG を使わない純粋なサロゲート予測なので rayon で並列化する
+    // （par_iter は入力順を保つため決定性は保たれる）。
+    let mut fit: Vec<Vec<f64>> = pop.par_iter().map(|g| eval(g)).collect();
 
     for _ in 0..cfg.generations {
         // 親集団のランクと混雑度（トーナメント選択用）。
@@ -105,7 +108,7 @@ where
                 offspring.push(c2);
             }
         }
-        let offspring_fit: Vec<Vec<f64>> = offspring.iter().map(|g| eval(g)).collect();
+        let offspring_fit: Vec<Vec<f64>> = offspring.par_iter().map(|g| eval(g)).collect();
 
         // ── 環境選択（親子 2n からエリート n を残す） ────────────────
         pop.extend(offspring);

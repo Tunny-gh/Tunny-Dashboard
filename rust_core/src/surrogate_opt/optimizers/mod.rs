@@ -40,6 +40,18 @@ pub(crate) const SEED: u64 = 42;
 /// 制約違反量（正規化 z-score 超過分）に乗じるスカラー。
 const CONSTRAINT_PENALTY: f64 = 100.0;
 
+/// 箱 [0,1]^d の外側に出た成分への二次ペナルティ `Σ max(0, v−1)² + max(0, −v)²`。
+/// 各点は [0,1] にクランプして評価しつつ、外側方向へ滑らかな勾配を与えるために使う。
+fn box_penalty(t: &[f64]) -> f64 {
+    t.iter()
+        .map(|&v| {
+            let over = (v - 1.0).max(0.0);
+            let under = (-v).max(0.0);
+            over * over + under * under
+        })
+        .sum()
+}
+
 /// サロゲート曲面上で最適化し、正規化空間 [0,1]^d の最適点を返す。
 /// `minimize=false`（最大化）は符号反転した曲面の最小化として扱う。
 ///
@@ -87,14 +99,7 @@ pub(crate) fn minimize_on_surrogate(
 
     let constrained_cost = |t: &[f64]| -> f64 {
         let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
-        let bound_pen: f64 = t
-            .iter()
-            .map(|&v| {
-                let over = (v - 1.0).max(0.0);
-                let under = (-v).max(0.0);
-                over * over + under * under
-            })
-            .sum();
+        let bound_pen = box_penalty(t);
         let obj = sign * surrogate.predict_norm(&clamped);
         let con_pen: f64 = constraint_models
             .iter()
@@ -112,15 +117,7 @@ pub(crate) fn minimize_on_surrogate(
 /// 箱内にクランプした点でサロゲートを評価し、箱外には二次ペナルティを課す。
 pub(crate) fn penalized_cost(surrogate: &FittedSurrogate, sign: f64, t: &[f64]) -> f64 {
     let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
-    let penalty: f64 = t
-        .iter()
-        .map(|&v| {
-            let over = (v - 1.0).max(0.0);
-            let under = (-v).max(0.0);
-            over * over + under * under
-        })
-        .sum();
-    sign * surrogate.predict_norm(&clamped) + BOUND_PENALTY * penalty
+    sign * surrogate.predict_norm(&clamped) + BOUND_PENALTY * box_penalty(t)
 }
 
 /// 観測ベスト点＋乱数点からのマルチスタート L-BFGS。
@@ -254,15 +251,7 @@ pub(crate) fn minimize_scalar_fn(
 /// 箱内にクランプした点で任意関数を評価し、箱外に二次ペナルティを課す。
 fn penalized_fn(f: &(dyn Fn(&[f64]) -> f64 + Sync), t: &[f64]) -> f64 {
     let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
-    let penalty: f64 = t
-        .iter()
-        .map(|&v| {
-            let over = (v - 1.0).max(0.0);
-            let under = (-v).max(0.0);
-            over * over + under * under
-        })
-        .sum();
-    f(&clamped) + BOUND_PENALTY * penalty
+    f(&clamped) + BOUND_PENALTY * box_penalty(t)
 }
 
 /// 多目的サロゲート曲面上で NSGA-II を実行し、第一パレートフロントを返す。
