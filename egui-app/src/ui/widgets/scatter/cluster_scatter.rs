@@ -310,12 +310,7 @@ impl ClusterScatter {
         // k=2 → t=0.0, 1.0（両端）、k=3 → t=0.0, 0.5, 1.0 など
         let n_clusters = cr.n_clusters.max(1);
         let cluster_color = |label: i32| -> egui::Color32 {
-            let t = if n_clusters == 1 {
-                0.5
-            } else {
-                label as f32 / (n_clusters - 1) as f32
-            };
-            colormap.interpolate(t)
+            colormap.sample_categorical(label.max(0) as usize, n_clusters)
         };
 
         // クラスタリング対象はパレートフロントのみ。クラスタ別に座標を集約し、

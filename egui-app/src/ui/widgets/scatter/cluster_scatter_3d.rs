@@ -166,12 +166,7 @@ impl ClusterScatter3D {
             if label < 0 {
                 return egui::Color32::GRAY;
             }
-            let t = if n_clusters == 1 {
-                0.5_f32
-            } else {
-                (label as f32 / (n_clusters - 1) as f32).clamp(0.0, 1.0)
-            };
-            colormap.interpolate(t)
+            colormap.sample_categorical(label as usize, n_clusters)
         };
 
         let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, &mut self.camera);
