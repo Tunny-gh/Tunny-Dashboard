@@ -6,6 +6,17 @@
 - **方法**: モジュール単位で 8 担当(app/state、io、UI コア+テーマ、scatter 系、surrogate+PDP、decision/pareto/history/stats、common 系、横断重複専任)+ 補完 1 担当の計 9 レビューを並列実施し、重大度 high の指摘は統合時に実コードで再検証した。egui の immediate mode 特性(毎フレーム `update` 実行)を前提に速度問題を判定している。
 - **報告基準**: 実害シナリオを説明できる欠陥のみ。スタイル上の好みは含まない。
 
+## 修正対応状況(2026-07-07 完了)
+
+本報告書の全項目を同ブランチ上で修正済み。要点:
+
+- **High(H-1〜H-4)**: すべて修正。H-1/H-2 は `spawn_task` + 世代ガード付き `AppMessage::PollerReady` でバックグラウンド化、H-3 は 2D にも `ranked_hash` を導入、H-4 はセル統計を df 恒等性キーでキャッシュ化。
+- **Medium(M-1〜M-21)**: すべて修正。設計変更を伴う2件は安全な緩和で対応 — M-7 はデータ実変更時のみ再計算(不変時は clone + O(N²) をスキップ)、M-8 は行指向再構築の廃止 + Pareto を最終バッチのみで確定計算。M-9 はドラッグ解放時のみ再計算するデバウンス + サンプル/仕様限界統計の分離。M-10/ABA はフィット採用時に単調増加する `fit_generation` をキーに採用。M-4 は `catch_unwind` + `AppMessage::TaskPanicked` で panic を可視化。
+- **Low**: すべて修正(flat_csv のパス検証、csv_import_modal の添字防御、PROMETHEE の `.get` 化、report_modal の拡張子導出、アトミック書き込み(`io::file::write_atomic`)、ポーラー `Drop`、テクスチャ解放 ほか)。
+- **重複(D-1〜D-12)**: すべて共通化。3D 描画骨格 `draw_depth_sorted_points`、ツールチップ行 + click/hover 解決(`trial_detail_modal`)、モーダル足場(`common/modal.rs`)、クラスタ制御(`common/cluster_controls.rs`)、`MODEL_CHOICES` 単一情報源化、`range_math::value_range`/`finite_value_range` への置換、`heatmap::draw_gradient_bar`、`ColorMap::sample_categorical`、`rgba_key`、`feature_matrix` ほか。意図的な残置は2件のみ: クラスタ実行状態の 3 メソッド(共通化すると差引で悪化)、radar_chart の行列化(欠損軸の部分描画という固有挙動を保存)。
+- **M-20 分割**: `poll_chart_work` を 36 ヘルパーへ分割(本体 54 行)、`surrogate_opt.rs`(2,198行)を 7 ファイルへ、`artifact_gallery.rs`(1,185行)を 3 ファイルへ分割。いずれも外部 API・挙動不変。
+- **検証**: `cargo clippy --workspace --all-targets --locked -- -D warnings` 警告ゼロ、3 クレートの `cargo fmt --check` 通過(CI の Linux lint ジョブと同条件)。テストのリンクは LightGBM ネイティブライブラリ不在のため本環境では不可(CI の Windows/macOS ジョブで実行される)。
+
 ## 総評
 
 到達可能な panic・ゼロ除算・インジェクションはほぼ潰れており、基礎的な堅牢性は高い。
