@@ -142,3 +142,54 @@
 2. **リリース前推奨**: M9（PostgreSQL 平文接続の opt-in 化）、M10（Markdown エスケープ）、M11（LightGBM エラーの可視化）
 3. **リリース後の整理**: 横断重複 9 グループの集約（機械的作業として分担可能）、長大関数の分割、プレースホルダ doc の解消
 4. **性能改善**: M1（EHVI クローン）→ M2/M3（RDB 経路）→ M4〜M8 の順で効果が大きい
+
+---
+
+# 対応状況（2026-07-07 修正完了）
+
+上記レビューの全指摘に対する修正を実施した。検証: `cargo fmt`（3クレート）/ `cargo clippy --workspace --all-targets --locked -- -D warnings` / ワークスペース全テスト（tunny-core 851・tunny-desktop 699・tunny-mcp 17 ほか、全パス）。
+
+## High — すべて修正済み
+
+| # | 対応 |
+|---|---|
+| H1 | `LGBM_BoosterGetNumFeature` でモデル実特徴量数を取得してバッファ確保。FFI 宣言を追加 |
+| H2 | `to_lgbm_dataset` / 予測系の入口で全行長の一致と `param_idx < ncol` を検証、寸法の `as i32` は `try_from` 化 |
+| H3 | `symmetric_eigen` を `Option` 化し、分解失敗時はその時点の best を返して打ち切り（panic 経路を除去） |
+| H4 | `ward_linkage` に NaN/Inf 行の除外と近傍未発見時の早期 return を追加（二重防御、NaN 入力のテスト追加） |
+| H5 | `compute_sobol_from_df` に有限値行フィルタを追加（他手法と同一方針） |
+
+## Medium — すべて対応済み（主なもの）
+
+- **M1** EHVI: MC サンプル毎のフロント全クローンを解消（バッファ再利用、数値結果不変）
+- **M2** `scan_study_list` の directions / metric_names をバッチ取得化（N+1 解消）
+- **M3** 大量行読み込みを行コールバック方式に変更（3 バックエンド一貫）
+- **M4** fANOVA の葉周辺重みを (leaf, dim) 単位で事前計算
+- **M5** CV k-fold / Auto 候補評価 / 目的別 fit を決定性を保って rayon 並列化
+- **M6** indicators の系列計算を並列化
+- **M7** contour::interpolate を bbox グリッドバケット化（結果完全一致をテストで担保）
+- **M8** svg の `format!` 割り当てを `write!` 直接書き込みへ
+- **M9** 非ローカルホストへの平文 DB 接続は `sslmode=disable` の明示を必須化（localhost は従来どおり）
+- **M10** Markdown esc に `& < * _ [ ] #` のエスケープと backtick 対応の code span を追加
+- **M11** LightGBM の学習/予測エラーを Option/Result で可視化
+- **M12** `n_infeasible` を未 cap のフロント全体から算出
+- **M13** journal parser の op_code 分岐を共通化、15 引数ヘルパを状態 struct 化
+- **M14** html/markdown の集計・判定ロジックを共有ヘルパへ抽出
+- **M15** 長大関数（`suggest_candidates` / `render_outcome` / `build_outcome_multi` / svg 描画）を分割
+- **M16** PDP の GP 3 アーム重複を集約
+- **M17** プレースホルダ doc・文字化けテストメッセージを解消
+
+## 横断重複 — 集約済み
+
+正規化（未使用の `multi_objective::weights` を削除し一本化）、パレート支配判定（`dominates_minimized` に統一）、分位点（`statistics::quantile` に統一）、Sturges ビン数・ペアワイズ相関（statistics 再利用）、z-score 標準化（`clustering::standardize_columns`）、Box-Muller（`SeededRng::next_gaussian` 再利用。CMA-ES のみ spare 温存のため意図的に独自実装を維持、理由コメント付き）、列レンジ計算（`math::stats::value_range`）。
+
+意図的に統合しなかったもの（理由コメントをコードに明記）: nsga2 の軽量非劣ソート、`sensitivity::tree::normalize` のゼロフォールバック、`pareto::ranking` の双方向 1 パス支配判定。
+
+## Low — 対応済み
+
+artifacts の非 UTF-8 行スキップ継続化、id 列の `try_from` 統一、日付の月別日数・閏年検証、`append_trials` の HashMap 化、R² 規約統一（定数 y: 残差≈0 なら 1.0、それ以外 0.0）、SOM の行数キャップ、kmeans/pca/vikor の入力防御、report の未使用フィールド整理ほか。
+
+## 修正中に発見・修正した追加の問題
+
+1. **contour の非決定性**: `clean_points` が HashMap のイテレーション順で点を返しており、同一入力でも等値線の値が実行ごとに最終桁で揺れていた。挿入順を保持する決定的な実装に修正（新規テストが間欠的失敗として露呈させた既存バグ）
+2. **egui-app / build.rs の Linux リンク名**: `liblib_lightgbm.so` を探す誤設定を `lib_lightgbm.so` + rpath に修正（rust_core 側と同時に修正）
