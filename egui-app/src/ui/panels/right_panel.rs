@@ -11,7 +11,7 @@ const TILE_H: f32 = 50.0;
 const ICON_SIZE: f32 = 24.0;
 
 /// 各 PanelItem に対応する SVG アイコンを返す。
-/// アイコンは白単色で作成しており、描画時にテーマ色で乗算ティントする。
+/// アイコンは白単色で作成しており、描画時にグループごとのパステルカラーで乗算ティントする。
 fn item_icon(item: &PanelItem) -> egui::ImageSource<'static> {
     match item {
         PanelItem::TrialTable => {
@@ -128,12 +128,14 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
 }
 
 /// 1 ウィジェット分のアイコンタイル（アイコン + キャプション）を描画する。
+/// アイコンは所属グループのパステルカラー `icon_color` でティントし、
 /// `enabled` が false（配置済み）の場合はティントを薄くし、操作不可にする。
-fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
-    let tint = if enabled {
-        crate::theme::TEXT_SECONDARY()
+fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool, icon_color: egui::Color32) {
+    let (icon_tint, text_color) = if enabled {
+        (icon_color, crate::theme::TEXT_SECONDARY())
     } else {
-        crate::theme::CLOSE_BTN_TEXT()
+        let dim = crate::theme::CLOSE_BTN_TEXT();
+        (dim, dim)
     };
     ui.allocate_ui_with_layout(
         egui::vec2(TILE_W, TILE_H),
@@ -146,10 +148,15 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
             ui.add(
                 egui::Image::new(item_icon(item))
                     .fit_to_exact_size(egui::vec2(ICON_SIZE, ICON_SIZE))
-                    .tint(tint),
+                    .tint(icon_tint),
             );
             ui.add(
-                egui::Label::new(egui::RichText::new(item.label()).size(9.0).color(tint)).wrap(),
+                egui::Label::new(
+                    egui::RichText::new(item.label())
+                        .size(9.0)
+                        .color(text_color),
+                )
+                .wrap(),
             );
         },
     );
@@ -157,7 +164,7 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool) {
 
 /// アイコンタイルを枠付きで描画する。ウィジェットは常にドラッグ元にする
 /// （Canvas ビューは同じウィジェットの複数配置を許すため、常に配置可能）。
-fn widget_tile(ui: &mut egui::Ui, item: &PanelItem) {
+fn widget_tile(ui: &mut egui::Ui, item: &PanelItem, icon_color: egui::Color32) {
     let frame = egui::Frame::default()
         .fill(crate::theme::WIDGET_BG())
         .corner_radius(6)
@@ -166,7 +173,7 @@ fn widget_tile(ui: &mut egui::Ui, item: &PanelItem) {
     let drag_id = egui::Id::new("right_panel_item").with(item.label());
     let resp = ui
         .dnd_drag_source(drag_id, DragPayload::NewWidget(item.clone()), |ui| {
-            frame.show(ui, |ui| tile_contents(ui, item, true));
+            frame.show(ui, |ui| tile_contents(ui, item, true, icon_color));
         })
         .response;
     resp.on_hover_text(item.label());
@@ -179,9 +186,13 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
         ui.heading("Widgets");
         ui.add_space(4.0);
 
-        let groups: &[(&str, &[PanelItem])] = &[
+        // グループごとのパステルカラー（アイコンのティント色）。
+        // 色の実値は theme::ui_colors の GROUP_* を参照。
+        type GroupColor = fn() -> egui::Color32;
+        let groups: &[(&str, GroupColor, &[PanelItem])] = &[
             (
                 "Convergence",
+                crate::theme::GROUP_CONVERGENCE,
                 &[
                     PanelItem::Chart(ChartId::OptimizationHistory),
                     PanelItem::Chart(ChartId::ConvergenceIndicators),
@@ -192,6 +203,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "Pareto / Multi-Objective",
+                crate::theme::GROUP_PARETO,
                 &[
                     PanelItem::Chart(ChartId::ParetoScatter2D),
                     PanelItem::Chart(ChartId::ParetoScatter3D),
@@ -200,6 +212,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "Variable Analysis",
+                crate::theme::GROUP_VARIABLE_ANALYSIS,
                 &[
                     PanelItem::Chart(ChartId::ImportanceChart),
                     PanelItem::Chart(ChartId::SensitivityHeatmap),
@@ -211,6 +224,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "Statistics",
+                crate::theme::GROUP_STATISTICS,
                 &[
                     PanelItem::Chart(ChartId::Histogram),
                     PanelItem::Chart(ChartId::BoxPlot),
@@ -221,6 +235,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             // 分析と取り違えないよう、モデルベースであることを群として明示する。
             (
                 "Response Surface (model-based)",
+                crate::theme::GROUP_RESPONSE_SURFACE,
                 &[
                     PanelItem::Chart(ChartId::PdpChart),
                     PanelItem::Chart(ChartId::PdpChart2D),
@@ -230,6 +245,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "Optimization",
+                crate::theme::GROUP_OPTIMIZATION,
                 &[
                     PanelItem::Chart(ChartId::SurrogateOpt),
                     PanelItem::Chart(ChartId::Robustness),
@@ -237,6 +253,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "Clustering",
+                crate::theme::GROUP_CLUSTERING,
                 &[
                     PanelItem::Chart(ChartId::ClusterScatter),
                     PanelItem::Chart(ChartId::ClusterScatter3D),
@@ -247,6 +264,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "MCDM",
+                crate::theme::GROUP_MCDM,
                 &[
                     PanelItem::Chart(ChartId::McdmRankChart),
                     PanelItem::Chart(ChartId::McdmScatterChart),
@@ -257,6 +275,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
             (
                 "Artifacts / Data",
+                crate::theme::GROUP_ARTIFACTS,
                 &[
                     PanelItem::Chart(ChartId::ArtifactGallery),
                     PanelItem::TrialTable,
@@ -264,7 +283,8 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ),
         ];
 
-        for (group_label, items) in groups {
+        for (group_label, group_color, items) in groups {
+            let icon_color = group_color();
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(*group_label)
@@ -275,7 +295,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
                 for item in *items {
-                    widget_tile(ui, item);
+                    widget_tile(ui, item, icon_color);
                 }
             });
         }
