@@ -136,6 +136,78 @@ themed_color!(
 );
 
 // ====================================================================
+// ウィジェットグループアイコン色（パステル調）
+//
+// 右パネルのウィジェット一覧で、グループごとにアイコンを色分けする。
+// 白単色 SVG への乗算ティントとして使うため、明度の高いパステル色で統一。
+// light はパネル背景 (gray-100) 上での視認性を保つやや濃い目のトーン、
+// dark は gray-800 上で映える 300 系のトーン。
+// ====================================================================
+
+themed_color!(
+    /// Convergence グループ: light = sky-500 / dark = sky-300
+    GROUP_CONVERGENCE,
+    Color32::from_rgb(14, 165, 233),  // #0EA5E9
+    Color32::from_rgb(125, 211, 252)  // #7DD3FC
+);
+
+themed_color!(
+    /// Pareto / Multi-Objective グループ: light = orange-400 / dark = orange-300
+    GROUP_PARETO,
+    Color32::from_rgb(251, 146, 60),  // #FB923C
+    Color32::from_rgb(253, 186, 116)  // #FDBA74
+);
+
+themed_color!(
+    /// Variable Analysis グループ: light = emerald-500 / dark = emerald-300
+    GROUP_VARIABLE_ANALYSIS,
+    Color32::from_rgb(16, 185, 129),  // #10B981
+    Color32::from_rgb(110, 231, 183)  // #6EE7B7
+);
+
+themed_color!(
+    /// Statistics グループ: light = violet-400 / dark = violet-300
+    GROUP_STATISTICS,
+    Color32::from_rgb(167, 139, 250), // #A78BFA
+    Color32::from_rgb(196, 181, 253)  // #C4B5FD
+);
+
+themed_color!(
+    /// Response Surface (model-based) グループ: light = pink-400 / dark = pink-300
+    GROUP_RESPONSE_SURFACE,
+    Color32::from_rgb(244, 114, 182), // #F472B6
+    Color32::from_rgb(249, 168, 212)  // #F9A8D4
+);
+
+themed_color!(
+    /// Optimization グループ: light = amber-500 / dark = amber-300
+    GROUP_OPTIMIZATION,
+    Color32::from_rgb(245, 158, 11),  // #F59E0B
+    Color32::from_rgb(252, 211, 77)   // #FCD34D
+);
+
+themed_color!(
+    /// Clustering グループ: light = teal-500 / dark = teal-300
+    GROUP_CLUSTERING,
+    Color32::from_rgb(20, 184, 166),  // #14B8A6
+    Color32::from_rgb(94, 234, 212)   // #5EEAD4
+);
+
+themed_color!(
+    /// MCDM グループ: light = red-400 / dark = red-300
+    GROUP_MCDM,
+    Color32::from_rgb(248, 113, 113), // #F87171
+    Color32::from_rgb(252, 165, 165)  // #FCA5A5
+);
+
+themed_color!(
+    /// Artifacts / Data グループ: light = indigo-400 / dark = indigo-300
+    GROUP_ARTIFACTS,
+    Color32::from_rgb(129, 140, 248), // #818CF8
+    Color32::from_rgb(165, 180, 252)  // #A5B4FC
+);
+
+// ====================================================================
 // アクセントカラー (TONMANUAL §2 プライマリカラー)
 // ====================================================================
 
