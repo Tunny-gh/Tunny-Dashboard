@@ -4665,6 +4665,15 @@ checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
 name = "quick-xml"
+version = "0.38.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "quick-xml"
 version = "0.39.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdcc8dd4e2f670d309a5f0e83fe36dfdc05af317008fea29144da1a2ac858e5e"
@@ -5911,6 +5920,7 @@ dependencies = [
  "arc-swap",
  "argmin",
  "argmin-math",
+ "base64",
  "criterion",
  "delaunator",
  "egobox-gp",
@@ -5921,6 +5931,7 @@ dependencies = [
  "mysql",
  "ndarray",
  "postgres",
+ "quick-xml 0.38.4",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
  "rand_xoshiro 0.6.0",
@@ -5929,6 +5940,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ureq",
 ]
 
 [[package]]
@@ -6052,6 +6064,18 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "ureq"
+version = "2.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
+dependencies = [
+ "base64",
+ "log",
+ "once_cell",
+ "url",
+]
 
 [[package]]
 name = "url"
@@ -6380,7 +6404,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c324a910fd86ebdc364a3e61ec1f11737d3b1d6c273c0239ee8ff4bc0d24b4a"
 dependencies = [
  "proc-macro2",
- "quick-xml",
+ "quick-xml 0.39.4",
  "quote",
 ]
 
@@ -7267,7 +7291,7 @@ version = "5.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8067892e940ed1727dea64690378601603b31d62dfde019a5335fbb7c0e0ed9"
 dependencies = [
- "quick-xml",
+ "quick-xml 0.39.4",
  "serde",
  "zbus_names",
  "zvariant",

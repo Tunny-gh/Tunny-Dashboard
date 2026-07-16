@@ -111,6 +111,51 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
+/// unix 秒（f64、UTC ナイーブ扱い）を "YYYY-MM-DDTHH:MM:SS.ffffff" に変換する。
+/// `parse_naive_datetime` の逆変換。マイクロ秒 6 桁固定。
+///
+/// 負の unix 秒は考慮不要（1970 以降のみサポート）だが、非有限値（NaN / Inf）や
+/// 極端な値が渡された場合でも panic はしない。
+pub fn format_naive_datetime(unix_secs: f64) -> String {
+    // NaN / Inf を安全な既定値へフォールバックする（f64 -> i64 の `as` キャストは
+    // Rust 1.45 以降 saturating のため panic しないが、意味のある値にしておく）。
+    let unix_secs = if unix_secs.is_finite() {
+        unix_secs
+    } else {
+        0.0
+    };
+    let total_micros = (unix_secs * 1_000_000.0).round() as i64;
+
+    let secs = total_micros.div_euclid(1_000_000);
+    let micros = total_micros.rem_euclid(1_000_000);
+
+    let days = secs.div_euclid(86_400);
+    let secs_of_day = secs.rem_euclid(86_400);
+    let hour = secs_of_day / 3_600;
+    let minute = (secs_of_day % 3_600) / 60;
+    let second = secs_of_day % 60;
+
+    let (year, month, day) = civil_from_days(days);
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{micros:06}")
+}
+
+/// civil-from-days アルゴリズム（Howard Hinnant）。`days_from_civil` の逆変換。
+/// 1970-01-01 を 0 とする epoch 日数から (year, month, day) を復元する。
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +246,46 @@ mod tests {
         let v = parse_naive_datetime("2024-02-29T12:00:00").unwrap();
         // 2024-02-29 == day 19782 from epoch; *86400 + 43200
         assert_eq!(v, 19_782.0 * 86_400.0 + 43_200.0);
+    }
+
+    /// `format_naive_datetime` が固定でマイクロ秒 6 桁・"T" 区切りを出力すること。
+    #[test]
+    fn format_naive_datetime_epoch() {
+        assert_eq!(format_naive_datetime(0.0), "1970-01-01T00:00:00.000000");
+    }
+
+    #[test]
+    fn format_naive_datetime_matches_expected_string() {
+        let t = parse_naive_datetime("2026-07-16T10:30:00.123456").unwrap();
+        assert_eq!(format_naive_datetime(t), "2026-07-16T10:30:00.123456");
+    }
+
+    /// ラウンドトリップ: 代表時刻（epoch・通常時刻・うるう年境界）で
+    /// `parse_naive_datetime(&format_naive_datetime(t))` がマイクロ秒精度で一致すること。
+    #[test]
+    fn datetime_roundtrip_representative_values() {
+        let cases = [
+            0.0,
+            parse_naive_datetime("2026-07-16T10:30:00.123456").unwrap(),
+            parse_naive_datetime("2024-02-29T23:59:59.999999").unwrap(),
+            parse_naive_datetime("2000-02-29T00:00:00.000000").unwrap(),
+            parse_naive_datetime("1970-01-01T00:00:01.000001").unwrap(),
+        ];
+        for t in cases {
+            let formatted = format_naive_datetime(t);
+            let roundtripped = parse_naive_datetime(&formatted).unwrap();
+            assert!(
+                (roundtripped - t).abs() < 1e-6,
+                "roundtrip mismatch: t={t} formatted={formatted} roundtripped={roundtripped}"
+            );
+        }
+    }
+
+    /// 非有限値（NaN / Inf）を渡しても panic しないこと。
+    #[test]
+    fn format_naive_datetime_handles_non_finite_without_panic() {
+        let _ = format_naive_datetime(f64::NAN);
+        let _ = format_naive_datetime(f64::INFINITY);
+        let _ = format_naive_datetime(f64::NEG_INFINITY);
     }
 }

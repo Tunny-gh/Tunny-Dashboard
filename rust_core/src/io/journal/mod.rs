@@ -4,6 +4,7 @@
 
 pub mod live_update;
 pub mod parser;
+pub mod writer;
 
 /// JSON パースを行わずに、行から `"key": <非負整数>` の値を高速抽出する。
 ///

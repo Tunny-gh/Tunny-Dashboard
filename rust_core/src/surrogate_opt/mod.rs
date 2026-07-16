@@ -9,7 +9,8 @@ mod ard;
 mod ehvi;
 pub(crate) mod feasibility;
 mod models;
-mod optimizers;
+// gh ランナー（crate::gh::runner）が nsga2 を実目的関数評価に転用するため crate 内公開
+pub(crate) mod optimizers;
 pub(crate) mod progress;
 mod robustness;
 pub(crate) mod validation;

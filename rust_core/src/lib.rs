@@ -3,6 +3,7 @@ pub mod contour;
 pub mod convergence;
 pub mod data;
 pub(crate) mod gaussian_process;
+pub mod gh;
 pub mod io;
 pub(crate) mod lgbm;
 pub(crate) mod lgbm_sys;

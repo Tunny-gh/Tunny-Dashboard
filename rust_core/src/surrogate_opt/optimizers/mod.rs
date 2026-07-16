@@ -4,7 +4,8 @@
 //! 新しい手法はここへバリアントを追加する。
 
 mod cma_es;
-mod nsga2;
+// gh ランナー（crate::gh::runner）が実目的関数評価に転用するため crate 内公開
+pub(crate) mod nsga2;
 
 use argmin::core::{CostFunction, Error, Gradient};
 
