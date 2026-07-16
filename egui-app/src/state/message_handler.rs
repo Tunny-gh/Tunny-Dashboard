@@ -374,6 +374,23 @@ impl MessageHandler {
                 widget_states.surrogate_compare.error = Some(err);
                 widget_states.surrogate_compare.computing = false;
             }
+            AppMessage::GhOptFinished { result } => {
+                if let Some(run) = app_state.gh_opt_run.as_mut() {
+                    run.finished = Some(match result {
+                        Ok(summary) => Ok(format!(
+                            "完了: {} trials 成功 / {} 失敗{}",
+                            summary.completed,
+                            summary.failed,
+                            if summary.cancelled {
+                                "（キャンセル）"
+                            } else {
+                                ""
+                            }
+                        )),
+                        Err(e) => Err(e),
+                    });
+                }
+            }
         }
     }
 
@@ -1740,5 +1757,124 @@ mod tests {
         assert!(!dialog.generating);
         assert_eq!(dialog.error.as_deref(), Some("disk full"));
         assert_eq!(load_error.as_deref(), Some("disk full"));
+    }
+
+    // ── .ghx D&D → 最適化実行: GhOptFinished ──────────────────────
+
+    fn make_gh_opt_run_state() -> crate::state::app_state::GhOptRunState {
+        crate::state::app_state::GhOptRunState {
+            progress: tunny_core::surrogate_opt::FitProgress::new(),
+            journal_path: std::path::PathBuf::from("/tmp/model_optuna.log"),
+            study_name: "model-000001".to_string(),
+            finished: None,
+        }
+    }
+
+    #[test]
+    fn gh_opt_finished_ok_formats_success_message() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.gh_opt_run = Some(make_gh_opt_run_state());
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Ok(tunny_core::gh::GhRunSummary {
+                    study_id: 0,
+                    completed: 48,
+                    failed: 2,
+                    cancelled: false,
+                }),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let run = app_state.gh_opt_run.as_ref().expect("run state remains");
+        assert_eq!(
+            run.finished.as_ref(),
+            Some(&Ok("完了: 48 trials 成功 / 2 失敗".to_string()))
+        );
+    }
+
+    #[test]
+    fn gh_opt_finished_ok_cancelled_appends_hint() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.gh_opt_run = Some(make_gh_opt_run_state());
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Ok(tunny_core::gh::GhRunSummary {
+                    study_id: 0,
+                    completed: 10,
+                    failed: 0,
+                    cancelled: true,
+                }),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let run = app_state.gh_opt_run.as_ref().expect("run state remains");
+        assert_eq!(
+            run.finished.as_ref(),
+            Some(&Ok(
+                "完了: 10 trials 成功 / 0 失敗（キャンセル）".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn gh_opt_finished_err_sets_error_string() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.gh_opt_run = Some(make_gh_opt_run_state());
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Err("journal write failed".to_string()),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let run = app_state.gh_opt_run.as_ref().expect("run state remains");
+        assert_eq!(
+            run.finished.as_ref(),
+            Some(&Err("journal write failed".to_string()))
+        );
+    }
+
+    #[test]
+    fn gh_opt_finished_without_run_state_is_noop() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Err("no run".to_string()),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.gh_opt_run.is_none());
+        assert!(load_error.is_none());
     }
 }

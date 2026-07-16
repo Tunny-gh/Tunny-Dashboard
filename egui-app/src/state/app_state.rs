@@ -99,6 +99,14 @@ pub struct AppState {
     // ── R4: 自己完結型レポート出力（HTML/Markdown/JSON） ──────────
     /// 「Report…」ダイアログの編集状態。`None` は非表示。
     pub report_dialog: Option<ReportDialogState>,
+
+    // ── .ghx D&D → 最適化実行 ──────────────────────────────────
+    /// .ghx D&D / Open で開いた最適化設定ダイアログの編集状態。`None` は非表示。
+    pub gh_opt_dialog: Option<GhOptDialogState>,
+    /// 実行中（または直近終了）の .ghx 最適化の状態。`None` は非表示。
+    /// `open_path` の study 切替（`clear()`）では消さない。実行中に他 study を見ても
+    /// 進捗オーバーレイが残っていてほしいため（clear() のコメント参照）。
+    pub gh_opt_run: Option<GhOptRunState>,
 }
 
 impl AppState {
@@ -135,6 +143,8 @@ impl AppState {
             csv_import_settings: None,
             db_url_dialog: None,
             report_dialog: None,
+            gh_opt_dialog: None,
+            gh_opt_run: None,
         }
     }
 

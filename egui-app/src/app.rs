@@ -619,6 +619,13 @@ impl TunnyApp {
     /// `ToolbarAction::OpenJournal` と「Open URL…」ダイアログの Open ボタンの
     /// 両方から呼ばれる共通処理（URL は `PathBuf::from(正規化済み url 文字列)` として渡される）。
     fn open_path(&mut self, path: std::path::PathBuf) {
+        // .ghx は既存の journal/CSV/SQLite/RDB スキャン経路とは別物（最適化問題定義であり
+        // 結果ストレージではない）。D&D（`handle_ghx_drop`）と同じ処理へ回し、
+        // 抽出できたら最適化設定モーダルを開く。
+        if crate::io::file::is_ghx_path(&path) {
+            self.open_ghx_path(path);
+            return;
+        }
         // Stop existing poller before loading new file
         if let Some(mut p) = self.poller.take() {
             p.stop();
@@ -691,6 +698,231 @@ impl TunnyApp {
                 // 未確定。次フレームも表示を続ける。
                 self.app_state.csv_import_settings = Some(settings);
             }
+        }
+    }
+
+    // ── .ghx D&D → 最適化設定モーダル → バックグラウンド実行 ──────────
+
+    /// .ghx ファイルのドラッグ&ドロップを受け付ける。
+    /// 複数ドロップされた場合は `.ghx`（大文字小文字無視）拡張子を持つ最初のファイルのみを
+    /// 扱う。それ以外の拡張子は既存の D&D 未実装の挙動のまま無視する（競合しない）。
+    fn handle_ghx_drop(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.clone());
+        let ghx_path = dropped
+            .into_iter()
+            .find_map(|f| f.path.filter(|p| crate::io::file::is_ghx_path(p)));
+        if let Some(path) = ghx_path {
+            self.open_ghx_path(path);
+        }
+    }
+
+    /// .ghx を読み込み、問題抽出（同期・高速）に成功したら最適化設定モーダルを開く。
+    /// D&D（`handle_ghx_drop`）と `open_path` の .ghx 経路の両方から呼ばれる共通処理。
+    fn open_ghx_path(&mut self, path: std::path::PathBuf) {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match tunny_core::gh::extract_problem(&text) {
+                Ok(problem) => {
+                    self.app_state.gh_opt_dialog = Some(
+                        crate::state::app_state::GhOptDialogState::new(path, text, problem),
+                    );
+                }
+                Err(e) => self.load_error = Some(e),
+            },
+            Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
+        }
+    }
+
+    /// .ghx 最適化設定モーダルを描画する。Run 確定時に `start_ghx_run` へ配線し、
+    /// 設定エラー（`build_compute_definition` / `prepare_gh_run` の失敗）はダイアログへ
+    /// 差し戻して開いたままにする。
+    fn show_ghx_opt_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::ghx_opt_modal::{self, GhxOptAction};
+
+        let Some(mut dialog) = self.app_state.gh_opt_dialog.take() else {
+            return;
+        };
+        match ghx_opt_modal::show(ctx, &mut dialog) {
+            Some(GhxOptAction::Run) => {
+                self.start_ghx_run(dialog);
+                // start_ghx_run が設定エラーで失敗した場合は自身で gh_opt_dialog へ戻す。
+            }
+            Some(GhxOptAction::Cancel) => {
+                // dialog は drop してダイアログを閉じる。
+            }
+            None => {
+                // 未確定。次フレームも表示を続ける。
+                self.app_state.gh_opt_dialog = Some(dialog);
+            }
+        }
+    }
+
+    /// Run 確定を受けて Rhino.Compute 評価器・journal・進捗ハンドルを組み立て、
+    /// バックグラウンドスレッドで最適化ループ（`run_prepared`）を開始する。
+    /// `build_compute_definition` / `prepare_gh_run` が失敗した場合はエラーを
+    /// `dialog.error` に載せて `gh_opt_dialog` へ戻し、モーダルを開いたままにする。
+    fn start_ghx_run(&mut self, mut dialog: crate::state::app_state::GhOptDialogState) {
+        use tunny_core::gh::{
+            build_compute_definition, prepare_gh_run, run_prepared, ComputeConfig,
+            ComputeEvaluator, GhRunConfig, GhSampler,
+        };
+        use tunny_core::io::journal::parser::OptimizationDirection;
+        use tunny_core::surrogate_opt::FitProgress;
+
+        let directions: Vec<OptimizationDirection> = dialog
+            .maximize
+            .iter()
+            .map(|&is_max| {
+                if is_max {
+                    OptimizationDirection::Maximize
+                } else {
+                    OptimizationDirection::Minimize
+                }
+            })
+            .collect();
+        let run_cfg = GhRunConfig {
+            study_name: dialog.study_name.clone(),
+            directions,
+            sampler: if dialog.sampler_is_random {
+                GhSampler::Random
+            } else {
+                GhSampler::Nsga2
+            },
+            n_trials: dialog.n_trials,
+            population_size: dialog.population_size,
+            generations: dialog.generations,
+            seed: dialog.seed,
+        };
+        let compute_cfg = ComputeConfig {
+            server_url: dialog.server_url.clone(),
+            api_key: if dialog.api_key.trim().is_empty() {
+                None
+            } else {
+                Some(dialog.api_key.clone())
+            },
+            max_parallel: dialog.max_parallel,
+            ..ComputeConfig::default()
+        };
+
+        let def = match build_compute_definition(&dialog.ghx_text, &dialog.problem) {
+            Ok(def) => def,
+            Err(e) => {
+                dialog.error = Some(e);
+                self.app_state.gh_opt_dialog = Some(dialog);
+                return;
+            }
+        };
+        let evaluator = ComputeEvaluator::new(&compute_cfg, &def);
+
+        let journal_path = std::path::PathBuf::from(&dialog.journal_path);
+        let prep = match prepare_gh_run(&journal_path, &dialog.problem, &run_cfg) {
+            Ok(prep) => prep,
+            Err(e) => {
+                dialog.error = Some(e);
+                self.app_state.gh_opt_dialog = Some(dialog);
+                return;
+            }
+        };
+
+        let progress = FitProgress::new();
+        self.app_state.gh_opt_run = Some(crate::state::app_state::GhOptRunState {
+            progress: progress.clone(),
+            journal_path: journal_path.clone(),
+            study_name: dialog.study_name.clone(),
+            finished: None,
+        });
+        // journal に study を作成済みなので、これから開くと study 一覧に現れる。
+        // ポーラーを起動して以降の試行をライブ表示に流し込む。
+        self.app_state.live_update.enabled = true;
+
+        let problem = dialog.problem.clone();
+        spawn_task(self.sender(), move || {
+            let result = run_prepared(&prep, &problem, &evaluator, &run_cfg, &progress);
+            AppMessage::GhOptFinished { result }
+        });
+
+        // study が既に journal に書かれているため、開けば study 一覧に現れる
+        // （1 件のみなら poll_messages が自動選択し、ライブ更新で試行が流れ込む）。
+        self.open_path(journal_path);
+        // dialog は drop してモーダルを閉じる（None のまま戻さない）。
+    }
+
+    /// 実行中（または直近終了）の .ghx 最適化を非モーダルの進捗オーバーレイで表示する。
+    /// 実行中は進捗バー + Cancel、終了後は結果メッセージ + Close を表示する。
+    fn show_ghx_opt_overlay(&mut self, ctx: &egui::Context) {
+        let Some(run) = self.app_state.gh_opt_run.as_ref() else {
+            return;
+        };
+
+        let mut cancel_clicked = false;
+        let mut close_clicked = false;
+
+        egui::Window::new("Grasshopper Optimization")
+            .id(egui::Id::new("ghx_opt_progress_window"))
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -16.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(260.0);
+                match &run.finished {
+                    None => {
+                        // 進捗を滑らかに更新するため一定間隔で再描画を要求する。
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(250));
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(egui::RichText::new(&run.study_name).strong());
+                        });
+                        let snapshot = run.progress.snapshot();
+                        if snapshot.total > 0 {
+                            let frac =
+                                (snapshot.done as f32 / snapshot.total as f32).clamp(0.0, 1.0);
+                            ui.add(
+                                egui::ProgressBar::new(frac)
+                                    .show_percentage()
+                                    .desired_width(240.0),
+                            );
+                        }
+                        if !snapshot.stage.is_empty() {
+                            ui.label(
+                                egui::RichText::new(&snapshot.stage)
+                                    .color(crate::theme::TEXT_SECONDARY()),
+                            );
+                        }
+                        let cancelling = run.progress.is_cancelled();
+                        let label = if cancelling {
+                            "Cancelling…"
+                        } else {
+                            "Cancel"
+                        };
+                        if ui
+                            .add_enabled(!cancelling, egui::Button::new(label))
+                            .clicked()
+                        {
+                            cancel_clicked = true;
+                        }
+                    }
+                    Some(result) => {
+                        match result {
+                            Ok(msg) => {
+                                ui.label(msg);
+                            }
+                            Err(err) => {
+                                ui.colored_label(crate::theme::ERROR_COLOR(), err);
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            close_clicked = true;
+                        }
+                    }
+                }
+            });
+
+        if cancel_clicked {
+            run.progress.request_cancel();
+        }
+        if close_clicked {
+            self.app_state.gh_opt_run = None;
         }
     }
 
@@ -897,6 +1129,7 @@ impl eframe::App for TunnyApp {
 
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
+        self.handle_ghx_drop(ctx);
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
         let cap = &mut self.widget_states.capture;
@@ -958,6 +1191,8 @@ impl eframe::App for TunnyApp {
         self.show_csv_import_dialog(&ctx);
         self.show_db_url_dialog(&ctx);
         self.show_report_dialog(&ctx);
+        self.show_ghx_opt_dialog(&ctx);
+        self.show_ghx_opt_overlay(&ctx);
         crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);
     }
 }

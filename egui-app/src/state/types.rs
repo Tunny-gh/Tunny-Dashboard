@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tunny_core::dataframe::DataFrame;
@@ -368,6 +369,118 @@ impl ColormapName {
     }
 }
 
+// ============================================================
+// .ghx D&D → 最適化設定モーダル / バックグラウンド実行状態
+// ============================================================
+
+/// .ghx D&D で開く最適化設定ダイアログの状態。
+///
+/// `AppState::gh_opt_dialog` が `Some` の間、`ghx_opt_modal` がこの状態を編集しながら
+/// 表示する。[`GhxOptAction::Run`](crate::ui::widgets::common::ghx_opt_modal::GhxOptAction)
+/// を受け取った側（app.rs）がここから `GhRunConfig` / `ComputeConfig` を組み立てる。
+#[derive(Debug, Clone)]
+pub struct GhOptDialogState {
+    /// D&D / Open で選ばれた .ghx ファイルの絶対パス。
+    pub ghx_path: PathBuf,
+    /// 元の .ghx XML 全文（Run 時に `build_compute_definition` へそのまま渡す）。
+    pub ghx_text: String,
+    /// `extract_problem` の抽出結果（変数・目的・警告）。
+    pub problem: tunny_core::gh::GhProblem,
+    /// 目的ごとの最大化フラグ（`problem.objectives` と同順・同長、既定 false = Minimize）。
+    pub maximize: Vec<bool>,
+    /// journal 内で一意にするための study 名（既定: "<ghxのstem>-<unix秒下6桁>"）。
+    pub study_name: String,
+    /// 出力先 journal パス（既定: ghx と同じディレクトリの "<stem>_optuna.log"）。
+    pub journal_path: String,
+    /// Rhino.Compute サーバー URL（既定 "http://localhost:6500"）。
+    pub server_url: String,
+    /// Rhino.Compute の API key（空文字なら `ComputeConfig.api_key = None` として扱う）。
+    pub api_key: String,
+    /// 同時リクエスト数の上限（既定 4、1..=16）。
+    pub max_parallel: usize,
+    /// true = Random サンプラー、false = NSGA-II（既定）。
+    pub sampler_is_random: bool,
+    /// Random サンプラーの試行数（既定 50）。
+    pub n_trials: usize,
+    /// NSGA-II の個体数（既定 16）。
+    pub population_size: usize,
+    /// NSGA-II の世代数（既定 10）。
+    pub generations: usize,
+    /// 乱数シード（既定 42）。
+    pub seed: u64,
+    /// Run 失敗時（`build_compute_definition` / `prepare_gh_run` のエラー）の表示用。
+    pub error: Option<String>,
+}
+
+impl GhOptDialogState {
+    /// .ghx 抽出直後の既定値でダイアログ状態を構築する。
+    pub fn new(ghx_path: PathBuf, ghx_text: String, problem: tunny_core::gh::GhProblem) -> Self {
+        let stem = ghx_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("gh_opt")
+            .to_string();
+        let secs_suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() % 1_000_000)
+            .unwrap_or(0);
+        let study_name = format!("{stem}-{secs_suffix:06}");
+        let journal_path = ghx_path
+            .parent()
+            .map(|dir| dir.join(format!("{stem}_optuna.log")))
+            .unwrap_or_else(|| PathBuf::from(format!("{stem}_optuna.log")))
+            .to_string_lossy()
+            .into_owned();
+        let maximize = vec![false; problem.objectives.len()];
+        Self {
+            ghx_path,
+            ghx_text,
+            problem,
+            maximize,
+            study_name,
+            journal_path,
+            server_url: "http://localhost:6500".to_string(),
+            api_key: String::new(),
+            max_parallel: 4,
+            sampler_is_random: false,
+            n_trials: 50,
+            population_size: 16,
+            generations: 10,
+            seed: 42,
+            error: None,
+        }
+    }
+}
+
+/// 実行中の .ghx 最適化の状態（非モーダルの進捗オーバーレイ用）。
+///
+/// `AppState::gh_opt_run` が `Some` の間、進捗オーバーレイ（app.rs）が表示される。
+/// `progress` は `run_prepared` を走らせるバックグラウンドスレッドと共有するハンドルで、
+/// `snapshot()` で進捗を読み取り `request_cancel()` でキャンセルを要求する。
+/// `FitProgress` が `Debug` を実装していないため `#[derive(Debug)]` はできない
+/// （`SurrogateOptState::fit_progress` など既存の進捗保持フィールドと同じ制約）。
+/// `AppState` は `#[derive(Debug)]` のため、`progress` をプレースホルダに置き換えた
+/// 手動実装を用意する。
+#[derive(Clone)]
+pub struct GhOptRunState {
+    pub progress: tunny_core::surrogate_opt::FitProgress,
+    pub journal_path: PathBuf,
+    pub study_name: String,
+    /// `None` = 実行中。`Some` = 終了（成功メッセージ or エラー文字列）。
+    pub finished: Option<Result<String, String>>,
+}
+
+impl std::fmt::Debug for GhOptRunState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GhOptRunState")
+            .field("progress", &"FitProgress { .. }")
+            .field("journal_path", &self.journal_path)
+            .field("study_name", &self.study_name)
+            .field("finished", &self.finished)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,6 +495,57 @@ mod tests {
         for cmap in ColormapName::all() {
             assert!(!cmap.label().is_empty(), "{:?} has empty label", cmap);
         }
+    }
+
+    // ── GhOptDialogState::new のデフォルト導出 ──────────────────
+    fn make_gh_problem(n_objectives: usize) -> tunny_core::gh::GhProblem {
+        tunny_core::gh::GhProblem {
+            variables: vec![],
+            objectives: (0..n_objectives)
+                .map(|i| tunny_core::gh::GhObjective {
+                    source_guid: format!("guid-{i}"),
+                    name: format!("f{i}"),
+                })
+                .collect(),
+            tunny_component: "Tunny".to_string(),
+            warnings: vec![],
+        }
+    }
+
+    #[test]
+    fn gh_opt_dialog_state_derives_defaults_from_path() {
+        let path = PathBuf::from("/tmp/some_dir/model.ghx");
+        let state = GhOptDialogState::new(path.clone(), "<xml/>".to_string(), make_gh_problem(2));
+
+        assert_eq!(state.ghx_path, path);
+        assert_eq!(state.ghx_text, "<xml/>");
+        assert_eq!(state.maximize, vec![false, false]);
+        // study_name: "<stem>-<unix秒下6桁>"（6 桁ゼロ埋め）
+        assert!(
+            state.study_name.starts_with("model-"),
+            "study_name: {}",
+            state.study_name
+        );
+        assert_eq!(state.study_name.len(), "model-".len() + 6);
+        // journal_path: ghx と同じディレクトリの "<stem>_optuna.log"
+        assert_eq!(state.journal_path, "/tmp/some_dir/model_optuna.log");
+        assert_eq!(state.server_url, "http://localhost:6500");
+        assert_eq!(state.api_key, "");
+        assert_eq!(state.max_parallel, 4);
+        assert!(!state.sampler_is_random);
+        assert_eq!(state.n_trials, 50);
+        assert_eq!(state.population_size, 16);
+        assert_eq!(state.generations, 10);
+        assert_eq!(state.seed, 42);
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn gh_opt_dialog_state_maximize_matches_objective_count() {
+        let path = PathBuf::from("model.ghx");
+        let state = GhOptDialogState::new(path, String::new(), make_gh_problem(3));
+        assert_eq!(state.maximize.len(), 3);
+        assert!(state.maximize.iter().all(|&m| !m));
     }
 
     // ── TASK-2331: StudyView テスト ──────────────────────────────

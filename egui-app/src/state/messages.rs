@@ -424,6 +424,13 @@ pub enum AppMessage {
         /// （プライマリは OS 保存ダイアログ側で確認済みのため含めない）。
         overwrote: Vec<std::path::PathBuf>,
     },
+
+    /// .ghx バックグラウンド最適化（`tunny_core::gh::run_prepared`）が完了した。
+    /// `Ok` はキャンセル込みの正常終了、`Err` は journal 書き込み失敗等の致命的エラー
+    /// （個々の評価失敗は `GhRunSummary.failed` に集計済みで `Err` にはならない）。
+    GhOptFinished {
+        result: Result<tunny_core::gh::GhRunSummary, String>,
+    },
 }
 
 #[cfg(test)]

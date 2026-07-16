@@ -184,7 +184,8 @@ Optimus が 2024 年に LLM ポストプロセッシングを製品化したの�
 
 分析ツールとしての信頼を毀損しないための基盤。
 
-- [ ] study 作成・trial 追加の書き込み API（journal 先行）
+- [x] study 作成・trial 追加の書き込み API（journal 先行）— `io::journal::writer`。
+      既存パーサとのラウンドトリップテストでフォーマット契約を保証
 - [ ] 読み取り専用モードの明示、書き込み前の確認 UI、Optuna バージョン互換チェック
 
 ## 中核（フェーズ 2B: ランナー — ツールがループを回す）
@@ -221,19 +222,21 @@ RH_IN / RH_OUT グループの注入も Dashboard が ghx（XML）に対して�
 当初案の「問題定義マニフェストの .gh 埋め込み」（Tunny 本体側の機能追加）は、
 .gh のままの D&D 対応と GH_Archive フォーマット変化への保険として後段に格下げ。
 
-- [ ] ghx パーサ + 問題定義抽出（Dashboard 側）: GH_Archive XML →
-      変数・目的・接続の中間表現 `GhProblem`。Tunny コンポーネント検出
-- [ ] Compute 用定義の生成（Dashboard 側）: 変数スライダーへの RH_IN グループ
+- [x] ghx パーサ + 問題定義抽出（Dashboard 側）: GH_Archive XML →
+      変数・目的・接続の中間表現 `GhProblem`。Tunny コンポーネント検出（`gh::problem`）
+- [x] Compute 用定義の生成（Dashboard 側）: 変数スライダーへの RH_IN グループ
       付与、目的ワイヤへの RH_OUT 用パラメータ注入を ghx XML 上で実施
-- [ ] Rhino.Compute クライアント: ローカル rhino.compute（Rhino ライセンスで
+      （`gh::compute_def`）
+- [x] Rhino.Compute クライアント: ローカル rhino.compute（Rhino ライセンスで
       追加費用なし）に変数値を与えて solve し目的値を抽出する HTTP
-      クライアント。並列 worker = 並行リクエストとして 13 の実行管理層に載せる
-- [ ] D&D UI: .ghx ドロップ → 問題定義の確認・サンプラー設定 →
+      クライアント。並列 worker = 並行リクエスト（同時実行数はセマフォで制限、
+      `gh::compute`）
+- [x] D&D UI: .ghx ドロップ → 問題定義の確認・サンプラー設定 →
       study 作成（journal、11・12 の書き込み層）→ ランナー起動 →
       既存のライブ更新で監視。試行が Optuna 互換ストレージに落ちるため
       全分析機能が無改修で機能する
-- [ ] サンプラー: 既存 Rust 実装（Random / NSGA-II）を実目的関数評価に転用して
-      開始。CMA-ES / TPE 等の追加は需要を見て判断
+- [x] サンプラー: 既存 Rust 実装（Random / NSGA-II）を実目的関数評価に転用して
+      開始（`gh::runner`）。CMA-ES / TPE 等の追加は需要を見て判断
 - [ ] 後段: 問題定義マニフェスト（.gh 対応・フォーマット保険、Tunny 本体側）、
       実 Rhino.Compute に対する E2E 検証（型 GUID 等の実環境確認）
 - [ ] 検討事項: rhino.compute プロセスの起動・ポート管理を Dashboard が担うか

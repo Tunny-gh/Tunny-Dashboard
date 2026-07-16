@@ -48,13 +48,14 @@ fn write_all_to_new_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
 
 /// ネイティブファイルダイアログで最適化結果ファイルを選択する。
 /// `.log` は Optuna の Journal ストレージ、`.csv` は DesignExplorer 向け形式、
-/// `.db`/`.sqlite`/`.sqlite3` は Optuna の RDB（SQLite）ストレージであることが
-/// フィルタ名から分かるようにする。
+/// `.db`/`.sqlite`/`.sqlite3` は Optuna の RDB（SQLite）ストレージ、`.ghx` は
+/// Grasshopper 定義（選択すると `TunnyApp::open_path` が最適化設定モーダルを開く）
+/// であることがフィルタ名から分かるようにする。
 pub fn open_file_dialog() -> Option<PathBuf> {
     rfd::FileDialog::new()
         .add_filter(
-            "Optimization Result (Optuna .log / DesignExplorer .csv / Optuna SQLite .db/.sqlite/.sqlite3)",
-            &["log", "csv", "db", "sqlite", "sqlite3"],
+            "Optimization Result (Optuna .log / DesignExplorer .csv / Optuna SQLite .db/.sqlite/.sqlite3 / Grasshopper .ghx)",
+            &["log", "csv", "db", "sqlite", "sqlite3", "ghx"],
         )
         .add_filter("Optuna Result (*.log)", &["log"])
         .add_filter("DesignExplorer (*.csv)", &["csv"])
@@ -62,7 +63,17 @@ pub fn open_file_dialog() -> Option<PathBuf> {
             "Optuna SQLite (.db/.sqlite/.sqlite3)",
             &["db", "sqlite", "sqlite3"],
         )
+        .add_filter("Grasshopper (*.ghx)", &["ghx"])
         .pick_file()
+}
+
+/// パスの拡張子が `.ghx`（大文字小文字無視）か判定する。
+/// D&D と `TunnyApp::open_path` の両方で .ghx 経路（最適化設定モーダル）への
+/// 振り分けに使う（`io::flat_csv::is_csv_path` / `io::sqlite::is_sqlite_path` と同じ形）。
+pub fn is_ghx_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("ghx"))
 }
 
 /// ファイルをバイト列として読み込む
@@ -127,5 +138,15 @@ mod tests {
         // 親ディレクトリが存在しない場合は Err を返す（既存ファイルは触らない）。
         let path = PathBuf::from("/nonexistent_dir_write_atomic/out.txt");
         assert!(write_atomic(&path, b"x").is_err());
+    }
+
+    #[test]
+    fn is_ghx_path_matches_case_insensitive() {
+        assert!(is_ghx_path(&PathBuf::from("model.ghx")));
+        assert!(is_ghx_path(&PathBuf::from("Model.GHX")));
+        assert!(is_ghx_path(&PathBuf::from("/a/b/model.Ghx")));
+        assert!(!is_ghx_path(&PathBuf::from("model.gh")));
+        assert!(!is_ghx_path(&PathBuf::from("model.log")));
+        assert!(!is_ghx_path(&PathBuf::from("model")));
     }
 }

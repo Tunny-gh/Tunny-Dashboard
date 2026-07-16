@@ -63,6 +63,7 @@ pub use common::artifact_gallery;
 pub use common::cluster_table;
 pub use common::convergence_card;
 pub use common::csv_import_modal;
+pub use common::ghx_opt_modal;
 pub use common::license_modal;
 pub use common::rdb_url_modal;
 pub use common::report_modal;
