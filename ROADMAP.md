@@ -213,23 +213,29 @@ Optimus が 2024 年に LLM ポストプロセッシングを製品化したの�
 Dashboard に D&D すると、Dashboard が Rhino.Compute を使ってそのまま最適化を
 実行できる。
 
-- [ ] 問題定義マニフェスト（Tunny 本体側の機能追加）: 変数（名前・型・範囲）、
-      目的（方向）、制約を記述したマニフェストを .gh に埋め込み or 並置
-      エクスポート。Dashboard は GH アーカイブを直接パースしない
-      （GH_IO 形式の追随保守を負わないため）
-- [ ] Compute 用定義の自動生成（Tunny 本体側）: 変数スライダーに RH_IN、
-      目的ワイヤに RH_OUT を付与した solve 用定義の書き出し。solve 時に
-      Tunny コンポーネント自身の最適化ループが起動しないことをここで保証
-- [ ] Rhino.Compute クライアント（Dashboard 側）: ローカル rhino.compute
-      （Rhino ライセンスで追加費用なし）に変数値を与えて solve し目的値を
-      抽出する HTTP クライアント。並列 worker = 並行リクエストとして
-      13 の実行管理層に載せる
-- [ ] D&D UI: .gh ドロップ → マニフェスト確認・サンプラー設定 →
+**方式（2026-07 決定）**: MVP は **.ghx（XML）の直接パース**で実現する。
+.ghx は GH_Archive の XML シリアライズなので、変数スライダー（名前・範囲・桁数）、
+ワイヤ接続（Tunny コンポーネントの Variables / Objectives 入力）、Tunny の設定を
+Dashboard 単体で抽出でき、**Tunny 本体のリリースに依存しない**。
+RH_IN / RH_OUT グループの注入も Dashboard が ghx（XML）に対して行う。
+当初案の「問題定義マニフェストの .gh 埋め込み」（Tunny 本体側の機能追加）は、
+.gh のままの D&D 対応と GH_Archive フォーマット変化への保険として後段に格下げ。
+
+- [ ] ghx パーサ + 問題定義抽出（Dashboard 側）: GH_Archive XML →
+      変数・目的・接続の中間表現 `GhProblem`。Tunny コンポーネント検出
+- [ ] Compute 用定義の生成（Dashboard 側）: 変数スライダーへの RH_IN グループ
+      付与、目的ワイヤへの RH_OUT 用パラメータ注入を ghx XML 上で実施
+- [ ] Rhino.Compute クライアント: ローカル rhino.compute（Rhino ライセンスで
+      追加費用なし）に変数値を与えて solve し目的値を抽出する HTTP
+      クライアント。並列 worker = 並行リクエストとして 13 の実行管理層に載せる
+- [ ] D&D UI: .ghx ドロップ → 問題定義の確認・サンプラー設定 →
       study 作成（journal、11・12 の書き込み層）→ ランナー起動 →
       既存のライブ更新で監視。試行が Optuna 互換ストレージに落ちるため
       全分析機能が無改修で機能する
-- [ ] サンプラー: 既存 Rust 実装（CMA-ES / NSGA-II）を実目的関数評価に転用して
-      開始。TPE 等の追加は需要を見て判断
+- [ ] サンプラー: 既存 Rust 実装（Random / NSGA-II）を実目的関数評価に転用して
+      開始。CMA-ES / TPE 等の追加は需要を見て判断
+- [ ] 後段: 問題定義マニフェスト（.gh 対応・フォーマット保険、Tunny 本体側）、
+      実 Rhino.Compute に対する E2E 検証（型 GUID 等の実環境確認）
 - [ ] 検討事項: rhino.compute プロセスの起動・ポート管理を Dashboard が担うか
       ユーザーに任せるか（UX 判断）、Compute の Windows 前提と Dashboard の
       クロスプラットフォームの整理、共有ストレージ経由での Tunny 側との協調
