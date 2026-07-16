@@ -209,9 +209,31 @@ Optimus が 2024 年に LLM ポストプロセッシングを製品化したの�
 
 ### 15. Grasshopper（Tunny）第一級連携
 
-- [ ] 共有ストレージ（journal / RDB）経由での Tunny との協調
-      （Dashboard の enqueue を Tunny 側が消化する等、連携プロトコルの設計から）
-- [ ] 将来検討: Rhino.Compute 経由のヘッドレス評価
+**理想形（フェーズ 2B の中核ゴール）**: Tunny で最適化を実行している .gh ファイルを
+Dashboard に D&D すると、Dashboard が Rhino.Compute を使ってそのまま最適化を
+実行できる。
+
+- [ ] 問題定義マニフェスト（Tunny 本体側の機能追加）: 変数（名前・型・範囲）、
+      目的（方向）、制約を記述したマニフェストを .gh に埋め込み or 並置
+      エクスポート。Dashboard は GH アーカイブを直接パースしない
+      （GH_IO 形式の追随保守を負わないため）
+- [ ] Compute 用定義の自動生成（Tunny 本体側）: 変数スライダーに RH_IN、
+      目的ワイヤに RH_OUT を付与した solve 用定義の書き出し。solve 時に
+      Tunny コンポーネント自身の最適化ループが起動しないことをここで保証
+- [ ] Rhino.Compute クライアント（Dashboard 側）: ローカル rhino.compute
+      （Rhino ライセンスで追加費用なし）に変数値を与えて solve し目的値を
+      抽出する HTTP クライアント。並列 worker = 並行リクエストとして
+      13 の実行管理層に載せる
+- [ ] D&D UI: .gh ドロップ → マニフェスト確認・サンプラー設定 →
+      study 作成（journal、11・12 の書き込み層）→ ランナー起動 →
+      既存のライブ更新で監視。試行が Optuna 互換ストレージに落ちるため
+      全分析機能が無改修で機能する
+- [ ] サンプラー: 既存 Rust 実装（CMA-ES / NSGA-II）を実目的関数評価に転用して
+      開始。TPE 等の追加は需要を見て判断
+- [ ] 検討事項: rhino.compute プロセスの起動・ポート管理を Dashboard が担うか
+      ユーザーに任せるか（UX 判断）、Compute の Windows 前提と Dashboard の
+      クロスプラットフォームの整理、共有ストレージ経由での Tunny 側との協調
+      （Dashboard の enqueue を Tunny が消化する逆方向の連携）
 
 ## 中核（フェーズ 2C: 自動化・エージェント化）
 
