@@ -42,7 +42,7 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
 
     let can_run = !state.study_name.trim().is_empty()
         && !state.journal_path.trim().is_empty()
-        && !state.server_url.trim().is_empty();
+        && !state.compute_target.trim().is_empty();
 
     let outcome = ModalScaffold::new("ghx_opt_modal", 520.0)
         .heading("Grasshopper Optimization")
@@ -121,13 +121,27 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
             // ── Rhino.Compute 接続設定 ────────────────────────────
             ui.label(RichText::new("Rhino.Compute").strong());
             ui.horizontal(|ui| {
-                ui.label("Server URL:");
+                ui.label("Server:");
                 ui.add(
-                    egui::TextEdit::singleline(&mut state.server_url)
-                        .hint_text("http://localhost:6500")
+                    egui::TextEdit::singleline(&mut state.compute_target)
+                        .hint_text("http://localhost:6500 or rhino.compute.exe path")
                         .desired_width(240.0),
                 );
             });
+            // EXE パス指定時のみポート入力を出し、起動を Dashboard が管理する旨を示す。
+            if matches!(
+                tunny_core::gh::classify_compute_input(&state.compute_target),
+                tunny_core::gh::ComputeTarget::Exe(_)
+            ) {
+                ui.horizontal(|ui| {
+                    ui.label("Port:");
+                    ui.add(egui::DragValue::new(&mut state.compute_port).range(1..=65535));
+                    ui.label(
+                        RichText::new("EXE を起動して接続します（終了時に停止）")
+                            .color(crate::theme::TEXT_SECONDARY()),
+                    );
+                });
+            }
             ui.horizontal(|ui| {
                 ui.label("API key:");
                 ui.add(

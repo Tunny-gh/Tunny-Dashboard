@@ -756,14 +756,23 @@ impl TunnyApp {
         }
     }
 
+    /// rhino.compute のローカル起動を待つ上限秒数。初回起動は Rhino の
+    /// ロードで数十秒かかることがあるため余裕を持たせる。
+    const COMPUTE_STARTUP_TIMEOUT_SECS: u64 = 180;
+
     /// Run 確定を受けて Rhino.Compute 評価器・journal・進捗ハンドルを組み立て、
     /// バックグラウンドスレッドで最適化ループ（`run_prepared`）を開始する。
     /// `build_compute_definition` / `prepare_gh_run` が失敗した場合はエラーを
     /// `dialog.error` に載せて `gh_opt_dialog` へ戻し、モーダルを開いたままにする。
+    ///
+    /// Compute 接続先は URL（既存サーバー）または rhino.compute の EXE パス。
+    /// EXE の場合は起動に時間がかかるため、プロセス起動・待機もバックグラウンド
+    /// タスク側で行う（進捗オーバーレイに「起動中…」が表示される）。
     fn start_ghx_run(&mut self, mut dialog: crate::state::app_state::GhOptDialogState) {
         use tunny_core::gh::{
-            build_compute_definition, prepare_gh_run, run_prepared, ComputeConfig,
-            ComputeEvaluator, GhRunConfig, GhSampler,
+            build_compute_definition, classify_compute_input, prepare_gh_run, run_prepared,
+            start_compute_server_tracked, ComputeConfig, ComputeEvaluator, ComputeTarget,
+            GhRunConfig, GhSampler,
         };
         use tunny_core::io::journal::parser::OptimizationDirection;
         use tunny_core::surrogate_opt::FitProgress;
@@ -792,16 +801,14 @@ impl TunnyApp {
             generations: dialog.generations,
             seed: dialog.seed,
         };
-        let compute_cfg = ComputeConfig {
-            server_url: dialog.server_url.clone(),
-            api_key: if dialog.api_key.trim().is_empty() {
-                None
-            } else {
-                Some(dialog.api_key.clone())
-            },
-            max_parallel: dialog.max_parallel,
-            ..ComputeConfig::default()
+        let target = classify_compute_input(&dialog.compute_target);
+        let compute_port = dialog.compute_port;
+        let api_key = if dialog.api_key.trim().is_empty() {
+            None
+        } else {
+            Some(dialog.api_key.clone())
         };
+        let max_parallel = dialog.max_parallel;
 
         let def = match build_compute_definition(&dialog.ghx_text, &dialog.problem) {
             Ok(def) => def,
@@ -811,7 +818,6 @@ impl TunnyApp {
                 return;
             }
         };
-        let evaluator = ComputeEvaluator::new(&compute_cfg, &def);
 
         let journal_path = std::path::PathBuf::from(&dialog.journal_path);
         let prep = match prepare_gh_run(&journal_path, &dialog.problem, &run_cfg) {
@@ -836,7 +842,33 @@ impl TunnyApp {
 
         let problem = dialog.problem.clone();
         spawn_task(self.sender(), move || {
-            let result = run_prepared(&prep, &problem, &evaluator, &run_cfg, &progress);
+            let result = (|| {
+                // EXE 指定の場合はここでプロセスを起動して URL を得る。
+                // ハンドルは最適化ループの終了までスコープに保持し、Drop で停止する。
+                let _server;
+                let server_url = match target {
+                    ComputeTarget::Url(url) => url,
+                    ComputeTarget::Exe(path) => {
+                        let handle = start_compute_server_tracked(
+                            &path,
+                            compute_port,
+                            Self::COMPUTE_STARTUP_TIMEOUT_SECS,
+                            &progress,
+                        )?;
+                        let url = handle.url().to_string();
+                        _server = handle;
+                        url
+                    }
+                };
+                let compute_cfg = ComputeConfig {
+                    server_url,
+                    api_key,
+                    max_parallel,
+                    ..ComputeConfig::default()
+                };
+                let evaluator = ComputeEvaluator::new(&compute_cfg, &def);
+                run_prepared(&prep, &problem, &evaluator, &run_cfg, &progress)
+            })();
             AppMessage::GhOptFinished { result }
         });
 

@@ -392,8 +392,12 @@ pub struct GhOptDialogState {
     pub study_name: String,
     /// 出力先 journal パス（既定: ghx と同じディレクトリの "<stem>_optuna.log"）。
     pub journal_path: String,
-    /// Rhino.Compute サーバー URL（既定 "http://localhost:6500"）。
-    pub server_url: String,
+    /// Rhino.Compute の接続先。URL（`http://…`）または rhino.compute
+    /// 実行ファイルのパス（EXE 指定時は Dashboard がプロセスを起動・停止する）。
+    /// 解釈は `tunny_core::gh::classify_compute_input` に従う。
+    pub compute_target: String,
+    /// EXE 指定時に rhino.compute へ渡すポート番号（既定 6500）。URL 指定時は未使用。
+    pub compute_port: u16,
     /// Rhino.Compute の API key（空文字なら `ComputeConfig.api_key = None` として扱う）。
     pub api_key: String,
     /// 同時リクエスト数の上限（既定 4、1..=16）。
@@ -439,7 +443,8 @@ impl GhOptDialogState {
             maximize,
             study_name,
             journal_path,
-            server_url: "http://localhost:6500".to_string(),
+            compute_target: "http://localhost:6500".to_string(),
+            compute_port: 6500,
             api_key: String::new(),
             max_parallel: 4,
             sampler_is_random: false,
@@ -529,7 +534,8 @@ mod tests {
         assert_eq!(state.study_name.len(), "model-".len() + 6);
         // journal_path: ghx と同じディレクトリの "<stem>_optuna.log"
         assert_eq!(state.journal_path, "/tmp/some_dir/model_optuna.log");
-        assert_eq!(state.server_url, "http://localhost:6500");
+        assert_eq!(state.compute_target, "http://localhost:6500");
+        assert_eq!(state.compute_port, 6500);
         assert_eq!(state.api_key, "");
         assert_eq!(state.max_parallel, 4);
         assert!(!state.sampler_is_random);

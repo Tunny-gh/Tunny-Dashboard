@@ -239,9 +239,11 @@ RH_IN / RH_OUT グループの注入も Dashboard が ghx（XML）に対して�
       開始（`gh::runner`）。CMA-ES / TPE 等の追加は需要を見て判断
 - [ ] 後段: 問題定義マニフェスト（.gh 対応・フォーマット保険、Tunny 本体側）、
       実 Rhino.Compute に対する E2E 検証（型 GUID 等の実環境確認）
-- [ ] 検討事項: rhino.compute プロセスの起動・ポート管理を Dashboard が担うか
-      ユーザーに任せるか（UX 判断）、Compute の Windows 前提と Dashboard の
-      クロスプラットフォームの整理、共有ストレージ経由での Tunny 側との協調
+- [x] rhino.compute プロセスの起動・ポート管理: 両対応で解決。URL 指定なら
+      稼働中サーバーに接続、EXE パス指定なら Dashboard が `--port` 付きで起動し
+      ヘルスチェック待機・実行終了時に停止する（`gh::compute_server`）
+- [ ] 検討事項: Compute の Windows 前提と Dashboard のクロスプラットフォームの
+      整理、共有ストレージ経由での Tunny 側との協調
       （Dashboard の enqueue を Tunny が消化する逆方向の連携）
 
 ## 中核（フェーズ 2C: 自動化・エージェント化）
