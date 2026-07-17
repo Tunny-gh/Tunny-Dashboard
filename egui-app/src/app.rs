@@ -904,8 +904,16 @@ impl TunnyApp {
         let journal_path = std::path::PathBuf::from(&dialog.journal_path);
         // Persist the injected definition next to the journal (best-effort).
         // It can be opened in Grasshopper to inspect the exact definition sent
-        // to Compute, which is invaluable when a solve fails.
-        let _ = std::fs::write(journal_path.with_extension("compute.ghx"), &def.ghx);
+        // to Compute, and in EXE mode its absolute path doubles as the request
+        // `pointer` (compute then loads and caches the definition from the file
+        // instead of re-parsing the base64 payload on every request).
+        let compute_ghx_path = journal_path.with_extension("compute.ghx");
+        let compute_ghx_abs =
+            std::path::absolute(&compute_ghx_path).unwrap_or_else(|_| compute_ghx_path.clone());
+        let definition_pointer = match std::fs::write(&compute_ghx_abs, &def.ghx) {
+            Ok(()) => Some(compute_ghx_abs.to_string_lossy().into_owned()),
+            Err(_) => None,
+        };
         let prep = match prepare_gh_run(&journal_path, &dialog.problem, &run_cfg) {
             Ok(prep) => prep,
             Err(e) => {
@@ -934,6 +942,9 @@ impl TunnyApp {
                 // Keep the handle in scope until the optimization loop finishes; it
                 // stops on Drop.
                 let _server;
+                // The definition-file pointer is only valid when compute runs on
+                // this machine, which the EXE launch mode guarantees.
+                let mut use_pointer = false;
                 let server_url = match target {
                     ComputeTarget::Url(url) => url,
                     ComputeTarget::Exe(path) => {
@@ -945,6 +956,7 @@ impl TunnyApp {
                         )?;
                         let url = handle.url().to_string();
                         _server = handle;
+                        use_pointer = true;
                         url
                     }
                 };
@@ -954,7 +966,12 @@ impl TunnyApp {
                     max_parallel,
                     ..ComputeConfig::default()
                 };
-                let evaluator = ComputeEvaluator::new(&compute_cfg, &def);
+                let mut evaluator = ComputeEvaluator::new(&compute_cfg, &def);
+                if use_pointer {
+                    if let Some(pointer) = definition_pointer {
+                        evaluator = evaluator.with_definition_pointer(pointer);
+                    }
+                }
                 run_prepared(&prep, &problem, &evaluator, &run_cfg, &progress)
             })();
             AppMessage::GhOptFinished { result }

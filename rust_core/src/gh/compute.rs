@@ -57,6 +57,9 @@ pub struct ComputeEvaluator {
     api_key: Option<String>,
     /// Base64-encoded Compute definition (same for every request).
     algo: String,
+    /// Local file path of the definition, sent as the request's `pointer`.
+    /// See [`ComputeEvaluator::with_definition_pointer`].
+    pointer: Option<String>,
     input_params: Vec<String>,
     output_params: Vec<String>,
     agent: ureq::Agent,
@@ -73,11 +76,26 @@ impl ComputeEvaluator {
             endpoint,
             api_key: cfg.api_key.clone(),
             algo: base64::engine::general_purpose::STANDARD.encode(def.ghx.as_bytes()),
+            pointer: None,
             input_params: def.input_params.clone(),
             output_params: def.output_params.clone(),
             agent,
             semaphore: Semaphore::new(cfg.max_parallel.max(1)),
         }
+    }
+
+    /// Sends `path` as the request's `pointer` so compute loads (and caches) the
+    /// definition from the local file instead of re-deserializing the base64
+    /// `algo` on every request. This avoids compute's noisy binary-first
+    /// deserialization attempt (which logs an exception per request for XML
+    /// payloads) and skips redundant per-request parsing.
+    ///
+    /// Only valid when rhino.compute runs on the same machine as this process
+    /// (e.g. the EXE launch mode). The base64 `algo` is still included as a
+    /// fallback in case the file cannot be read.
+    pub fn with_definition_pointer(mut self, path: impl Into<String>) -> Self {
+        self.pointer = Some(path.into());
+        self
     }
 
     fn request_body(&self, values: &[f64]) -> Value {
@@ -96,7 +114,7 @@ impl ComputeEvaluator {
             .collect();
         json!({
             "algo": self.algo,
-            "pointer": null,
+            "pointer": self.pointer.as_deref(),
             "cachesolve": false,
             "values": inputs,
         })
@@ -249,6 +267,24 @@ mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
+
+    #[test]
+    fn request_body_includes_pointer_when_set() {
+        let def = ComputeDefinition {
+            ghx: "<Archive/>".to_string(),
+            input_params: vec!["RH_IN:x".to_string()],
+            output_params: vec!["RH_OUT:v".to_string()],
+        };
+        let cfg = ComputeConfig::default();
+        let plain = ComputeEvaluator::new(&cfg, &def);
+        assert_eq!(plain.request_body(&[1.0])["pointer"], Value::Null);
+        let with_pointer =
+            ComputeEvaluator::new(&cfg, &def).with_definition_pointer(r"C:\runs\model.compute.ghx");
+        let body = with_pointer.request_body(&[1.0]);
+        assert_eq!(body["pointer"], r"C:\runs\model.compute.ghx");
+        // algo stays included as a fallback for when the file cannot be read
+        assert!(body["algo"].as_str().unwrap().len() > 4);
+    }
 
     #[test]
     fn extracts_outputs_from_response() {
