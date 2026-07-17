@@ -33,6 +33,10 @@ pub struct ComputeDefinition {
     pub input_params: Vec<String>,
     /// Output parameter names (`RH_OUT:objective_name`, in the same order as `GhProblem.objectives`)
     pub output_params: Vec<String>,
+    /// Constraint output parameter names (`RH_OUT:constraint:name`, in the same
+    /// order as `GhProblem.constraints`; the prefix keeps them from colliding
+    /// with objective outputs of the same name)
+    pub constraint_params: Vec<String>,
 }
 
 /// Generates a Compute-ready definition from the original .ghx and the extracted problem definition.
@@ -48,6 +52,7 @@ pub fn build_compute_definition(
     let mut next_index = anchors.object_count;
     let mut input_params = Vec::with_capacity(problem.variables.len());
     let mut output_params = Vec::with_capacity(problem.objectives.len());
+    let mut constraint_params = Vec::with_capacity(problem.constraints.len());
 
     for var in &problem.variables {
         let nick = format!("RH_IN:{}", var.name);
@@ -88,6 +93,29 @@ pub fn build_compute_definition(
         output_params.push(nick);
     }
 
+    for con in &problem.constraints {
+        // Constraint sources are relayed the same way as objectives (they are
+        // usually component output parameters too).
+        let nick = format!("RH_OUT:constraint:{}", con.name);
+        let relay_guid = synthetic_guid(xml, &mut guid_counter);
+        injected.push_str(&relay_param_xml(
+            next_index,
+            &relay_guid,
+            &con.name,
+            &con.source_guid,
+        ));
+        next_index += 1;
+        let group_guid = synthetic_guid(xml, &mut guid_counter);
+        injected.push_str(&group_object_xml(
+            next_index,
+            &group_guid,
+            &nick,
+            &relay_guid,
+        ));
+        next_index += 1;
+        constraint_params.push(nick);
+    }
+
     // ── 3 splices, in ascending position order: the ObjectCount value, the chunks
     //    count attribute, and the insertion at the end of the object list ───────────
     let new_count = next_index;
@@ -104,6 +132,7 @@ pub fn build_compute_definition(
         ghx: out,
         input_params,
         output_params,
+        constraint_params,
     })
 }
 
@@ -334,21 +363,23 @@ mod tests {
 
         assert_eq!(def.input_params, vec!["RH_IN:span", "RH_IN:count"]);
         assert_eq!(def.output_params, vec!["RH_OUT:weight", "RH_OUT:disp"]);
+        assert_eq!(def.constraint_params, vec!["RH_OUT:constraint:penalty"]);
 
         // Still well-formed after injection, and the object count is updated
-        // (original 5 + 2 RH_IN groups + 2×2 relay+group per objective = 11).
+        // (original 7 + 2 RH_IN groups + 2×2 relay+group per objective
+        // + 1×2 relay+group for the constraint = 15).
         let root = crate::gh::ghx::parse_archive(&def.ghx).unwrap();
         let objects = root.find_chunk_recursive("DefinitionObjects").unwrap();
-        assert_eq!(objects.item_i64("ObjectCount"), Some(11));
-        assert_eq!(objects.chunks_named("Object").count(), 11);
-        assert!(def.ghx.contains(r#"<chunks count="11">"#));
+        assert_eq!(objects.item_i64("ObjectCount"), Some(15));
+        assert_eq!(objects.chunks_named("Object").count(), 15);
+        assert!(def.ghx.contains(r#"<chunks count="15">"#));
 
         // The RH_IN group has the slider's InstanceGuid as its member
         let groups: Vec<_> = objects
             .chunks_named("Object")
             .filter(|o| o.item_text("Name") == Some("Group"))
             .collect();
-        assert_eq!(groups.len(), 4);
+        assert_eq!(groups.len(), 5);
         let rh_in_span = groups
             .iter()
             .map(|g| g.find_chunk("Container").unwrap())
@@ -379,6 +410,27 @@ mod tests {
             .find(|c| c.item_text("NickName") == Some("RH_OUT:weight"))
             .expect("RH_OUT:weight group");
         assert_eq!(rh_out_weight.item_text("ID"), Some(relay_guid));
+
+        // The constraint relay receives from the constraint's source parameter,
+        // and its group carries the prefixed RH_OUT name
+        let con_relays: Vec<_> = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("Name") == Some("Data"))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .filter(|c| c.item_text("NickName") == Some("penalty"))
+            .collect();
+        assert_eq!(con_relays.len(), 1);
+        assert_eq!(
+            con_relays[0].item_text("Source"),
+            Some("0aaaaaaa-0000-0000-0000-00000000pena")
+        );
+        let con_relay_guid = con_relays[0].item_text("InstanceGuid").unwrap();
+        let rh_out_con = groups
+            .iter()
+            .map(|g| g.find_chunk("Container").unwrap())
+            .find(|c| c.item_text("NickName") == Some("RH_OUT:constraint:penalty"))
+            .expect("RH_OUT:constraint:penalty group");
+        assert_eq!(rh_out_con.item_text("ID"), Some(con_relay_guid));
 
         // The original definition body (Tunny component, etc.) is preserved
         assert!(def.ghx.contains("Tunny"));

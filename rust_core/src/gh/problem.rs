@@ -38,12 +38,28 @@ pub struct GhObjective {
     pub name: String,
 }
 
+/// An optimization constraint (a parameter connected to the Constraint input of
+/// the attribute component wired to Tunny's Attributes input).
+///
+/// Tunny's convention: a trial is feasible when every constraint value is <= 0.
+/// Constraints are "soft" — infeasible trials are still evaluated and recorded;
+/// feasibility only steers the sampler and the analysis.
+#[derive(Debug, Clone)]
+pub struct GhConstraint {
+    /// The source parameter's InstanceGuid (used for RH_OUT relay injection)
+    pub source_guid: String,
+    /// Constraint name (the source parameter's NickName; a sequence number is appended on duplicates)
+    pub name: String,
+}
+
 /// Intermediate representation of an optimization problem extracted from a .ghx file.
 /// Will be merged into the same type once a future .gh + manifest path is added (ROADMAP item 15).
 #[derive(Debug, Clone)]
 pub struct GhProblem {
     pub variables: Vec<GhVariable>,
     pub objectives: Vec<GhObjective>,
+    /// Constraints wired via the attribute component (empty when none are set up)
+    pub constraints: Vec<GhConstraint>,
     /// Display name of the detected Tunny component
     pub tunny_component: String,
     /// Notes on connections etc. ignored during extraction (shown in the UI)
@@ -172,6 +188,48 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
         });
     }
 
+    // Attributes input → follow to the attribute component (Construct Fish
+    // Attribute) and read the sources of its Constraint input as constraints.
+    // Tunny's convention: constraint value <= 0 means the trial is feasible.
+    let attribute_sources = input_sources(tunny.container, &["attribute", "attrs"], "attr");
+    let mut constraints = Vec::new();
+    for guid in &attribute_sources {
+        // The source GUID is the attribute component's output parameter (or the
+        // component itself when it is a floating object); resolve the owner.
+        let owner = records.iter().find(|r| {
+            r.instance_guid == guid.as_str()
+                || component_params(r.container)
+                    .iter()
+                    .any(|p| p.item_text("InstanceGuid") == Some(guid.as_str()))
+        });
+        let Some(owner) = owner else {
+            warnings.push(format!(
+                "Source {guid} of the attributes input was not found in the definition"
+            ));
+            continue;
+        };
+        let constraint_sources = input_sources(owner.container, &["constraint"], "c");
+        if constraint_sources.is_empty() {
+            warnings.push(format!(
+                "No constraints found on attribute component \"{}\" (no sources on its Constraint input)",
+                owner.nickname
+            ));
+            continue;
+        }
+        for guid in &constraint_sources {
+            let index = constraints.len();
+            let name = param_index
+                .get(guid.as_str())
+                .map(|p| p.nickname.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("constraint_{}", index + 1));
+            constraints.push(GhConstraint {
+                source_guid: guid.clone(),
+                name,
+            });
+        }
+    }
+
     if variables.is_empty() {
         return Err(format!(
             "No sliders connected to the variables input of Tunny component \"{}\"",
@@ -197,10 +255,17 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
             .map(|o| &mut o.name)
             .collect::<Vec<_>>(),
     );
+    dedupe_names(
+        &mut constraints
+            .iter_mut()
+            .map(|c| &mut c.name)
+            .collect::<Vec<_>>(),
+    );
 
     Ok(GhProblem {
         variables,
         objectives,
+        constraints,
         tunny_component: tunny.nickname.clone(),
         warnings,
     })
@@ -309,7 +374,7 @@ fn dedupe_names(names: &mut [&mut String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gh::fixtures::sample_ghx;
+    use crate::gh::fixtures::{sample_ghx, sample_ghx_without_constraint};
 
     #[test]
     fn extracts_variables_and_objectives_from_fixture() {
@@ -339,7 +404,46 @@ mod tests {
         );
         // Objective via a floating parameter
         assert_eq!(problem.objectives[1].name, "disp");
+
+        // Constraint via the attribute component's Constraint input
+        assert_eq!(problem.constraints.len(), 1);
+        assert_eq!(problem.constraints[0].name, "penalty");
+        assert_eq!(
+            problem.constraints[0].source_guid,
+            "0aaaaaaa-0000-0000-0000-00000000pena"
+        );
         assert!(problem.warnings.is_empty());
+    }
+
+    #[test]
+    fn no_attribute_wiring_means_no_constraints() {
+        let problem = extract_problem(&sample_ghx_without_constraint()).unwrap();
+        assert!(problem.constraints.is_empty());
+        // Not an error, and no warning either (an unwired Attributes input is normal)
+        assert!(problem.warnings.is_empty());
+    }
+
+    #[test]
+    fn attribute_without_constraint_input_warns() {
+        // Rename the Constraint input so the attribute component has no
+        // detectable constraint input; extraction succeeds with a warning.
+        let xml = sample_ghx()
+            .replace(
+                r#"<item name="Name" type_name="gh_string" type_code="10">Constraint</item>"#,
+                r#"<item name="Name" type_name="gh_string" type_code="10">Other</item>"#,
+            )
+            .replace(
+                r#"<item name="NickName" type_name="gh_string" type_code="10">C</item>"#,
+                r#"<item name="NickName" type_name="gh_string" type_code="10">X</item>"#,
+            );
+        let problem = extract_problem(&xml).unwrap();
+        assert!(problem.constraints.is_empty());
+        assert_eq!(problem.warnings.len(), 1);
+        assert!(
+            problem.warnings[0].contains("FishAttr"),
+            "unexpected warning: {}",
+            problem.warnings[0]
+        );
     }
 
     #[test]

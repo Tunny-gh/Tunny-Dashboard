@@ -126,6 +126,21 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                 });
             ui.add_space(8.0);
 
+            // ── Constraints (read-only; wired via the attribute component) ───────
+            if !state.problem.constraints.is_empty() {
+                ui.label(RichText::new("Constraints").strong());
+                for c in &state.problem.constraints {
+                    ui.label(&c.name);
+                }
+                ui.label(
+                    RichText::new(
+                        "Feasible when ≤ 0. Recorded per trial and used to steer NSGA-II.",
+                    )
+                    .color(crate::theme::TEXT_SECONDARY()),
+                );
+                ui.add_space(8.0);
+            }
+
             // ── Rhino.Compute connection settings ────────────────────────────────
             ui.label(RichText::new("Rhino.Compute").strong());
             ui.horizontal(|ui| {
@@ -285,6 +300,7 @@ mod tests {
                     name: format!("f{i}"),
                 })
                 .collect(),
+            constraints: vec![],
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
         }

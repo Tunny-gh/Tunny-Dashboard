@@ -669,7 +669,14 @@ impl MessageHandler {
                 let obj_names = study.meta.objective_names.clone();
                 let un = study.view.df.user_attr_numeric_col_names().to_vec();
                 let us = study.view.df.user_attr_string_col_names().to_vec();
-                let max_c = study.view.df.constraint_col_names().len();
+                // Constraints may first appear in live rows (e.g. a .ghx run on a
+                // fresh journal), so grow the column count beyond the existing df.
+                let incoming_c = added_rows
+                    .iter()
+                    .map(|r| r.constraint_values.len())
+                    .max()
+                    .unwrap_or(0);
+                let max_c = study.view.df.constraint_col_names().len().max(incoming_c);
                 let mut new_df = (*study.view.df).clone();
                 new_df.append_trials(&added_rows, &param_names, &obj_names, &un, &us, max_c);
 

@@ -42,13 +42,23 @@ impl Default for ComputeConfig {
     }
 }
 
+/// Result of evaluating one trial.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GhEvaluation {
+    /// Objective values (in the same order as `GhProblem.objectives`).
+    pub objectives: Vec<f64>,
+    /// Constraint values (in the same order as `GhProblem.constraints`; empty
+    /// when the problem has no constraints). Feasible when every value <= 0.
+    pub constraints: Vec<f64>,
+}
+
 /// Evaluator for the real objective function. The implementation can be
 /// swapped between Rhino.Compute (production) and a mock (for tests and for
 /// verifying the runner in isolation).
 pub trait GhEvaluator: Send + Sync {
     /// Takes variable values (in the same order as `GhProblem.variables`) and
-    /// returns objective values (in the same order as `GhProblem.objectives`).
-    fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String>;
+    /// returns objective and constraint values.
+    fn evaluate(&self, values: &[f64]) -> Result<GhEvaluation, String>;
 }
 
 /// `GhEvaluator` implementation that evaluates via Rhino.Compute.
@@ -62,6 +72,7 @@ pub struct ComputeEvaluator {
     pointer: Option<String>,
     input_params: Vec<String>,
     output_params: Vec<String>,
+    constraint_params: Vec<String>,
     agent: ureq::Agent,
     semaphore: Semaphore,
 }
@@ -79,6 +90,7 @@ impl ComputeEvaluator {
             pointer: None,
             input_params: def.input_params.clone(),
             output_params: def.output_params.clone(),
+            constraint_params: def.constraint_params.clone(),
             agent,
             semaphore: Semaphore::new(cfg.max_parallel.max(1)),
         }
@@ -122,7 +134,7 @@ impl ComputeEvaluator {
 }
 
 impl GhEvaluator for ComputeEvaluator {
-    fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String> {
+    fn evaluate(&self, values: &[f64]) -> Result<GhEvaluation, String> {
         if values.len() != self.input_params.len() {
             return Err(format!(
                 "Variable count mismatch (expected {}, got {})",
@@ -161,7 +173,10 @@ impl GhEvaluator for ComputeEvaluator {
             .map_err(|e| format!("Failed to read the Rhino.Compute response: {e}"))?;
         let parsed: Value = serde_json::from_str(&text)
             .map_err(|e| format!("Rhino.Compute response is not JSON: {e}"))?;
-        extract_outputs(&parsed, &self.output_params)
+        Ok(GhEvaluation {
+            objectives: extract_outputs(&parsed, &self.output_params)?,
+            constraints: extract_outputs(&parsed, &self.constraint_params)?,
+        })
     }
 }
 
@@ -274,6 +289,7 @@ mod tests {
             ghx: "<Archive/>".to_string(),
             input_params: vec!["RH_IN:x".to_string()],
             output_params: vec!["RH_OUT:v".to_string()],
+            constraint_params: vec![],
         };
         let cfg = ComputeConfig::default();
         let plain = ComputeEvaluator::new(&cfg, &def);
@@ -346,7 +362,7 @@ mod tests {
             reader.read_exact(&mut body).unwrap();
             let body = String::from_utf8(body).unwrap();
 
-            let reply = r#"{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "System.Double", "data": "42.5"}]}}]}"#;
+            let reply = r#"{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "System.Double", "data": "42.5"}]}}, {"ParamName": "RH_OUT:constraint:penalty", "InnerTree": {"{0}": [{"type": "System.Double", "data": "-0.25"}]}}]}"#;
             let mut stream = reader.into_inner();
             write!(
                 stream,
@@ -362,6 +378,7 @@ mod tests {
             ghx: "<Archive/>".to_string(),
             input_params: vec!["RH_IN:span".to_string()],
             output_params: vec!["RH_OUT:weight".to_string()],
+            constraint_params: vec!["RH_OUT:constraint:penalty".to_string()],
         };
         let cfg = ComputeConfig {
             server_url: format!("http://127.0.0.1:{port}"),
@@ -370,7 +387,8 @@ mod tests {
         };
         let evaluator = ComputeEvaluator::new(&cfg, &def);
         let result = evaluator.evaluate(&[5.5]).unwrap();
-        assert_eq!(result, vec![42.5]);
+        assert_eq!(result.objectives, vec![42.5]);
+        assert_eq!(result.constraints, vec![-0.25]);
 
         // Verify the contents of the request the server received
         let request_body = server.join().unwrap();

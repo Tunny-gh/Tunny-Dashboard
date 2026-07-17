@@ -520,6 +520,7 @@ mod tests {
                     name: format!("f{i}"),
                 })
                 .collect(),
+            constraints: vec![],
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
         }

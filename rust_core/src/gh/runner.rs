@@ -36,6 +36,23 @@ use super::problem::{GhProblem, GhVariable};
 /// value is used instead.
 const FAIL_PENALTY: f64 = 1e12;
 
+/// Fitness returned to the optimization algorithm for a constraint-violating trial:
+/// `FAIL_PENALTY + total violation` on every objective. This emulates Deb's
+/// constrained domination with a generic minimizer: any feasible solution
+/// (objectives far below FAIL_PENALTY) dominates every infeasible one, and among
+/// infeasible solutions the one with less total violation dominates. Violations
+/// below f64 resolution at 1e12 (~1e-4) tie, which is acceptable for ranking.
+/// The trial itself is still recorded as COMPLETE with its real objective values
+/// (Tunny's constraints are soft — feasibility steers the search, not validity).
+fn constrained_penalty_fitness(n_obj: usize, constraints: &[f64]) -> Option<Vec<f64>> {
+    let violation: f64 = constraints.iter().map(|c| c.max(0.0)).sum();
+    if violation > 0.0 {
+        Some(vec![FAIL_PENALTY + violation; n_obj])
+    } else {
+        None
+    }
+}
+
 /// The kind of sampler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GhSampler {
@@ -240,14 +257,20 @@ impl TrialRecorder<'_> {
         };
 
         match self.evaluator.evaluate(&values) {
-            Ok(objectives) if objectives.len() == n_obj => {
-                if let Err(e) = self.finish(trial_id, TrialState::Complete, &objectives) {
+            Ok(eval) if eval.objectives.len() == n_obj => {
+                if let Err(e) = self.finish_complete(trial_id, &eval) {
                     self.set_io_error(e);
                     return vec![FAIL_PENALTY; n_obj];
                 }
                 self.completed.fetch_add(1, Ordering::Relaxed);
                 self.progress.inc_done();
-                objectives
+                // Constraint-violating trials feed a penalty fitness to the
+                // algorithm (see constrained_penalty_fitness); the journal
+                // record above keeps the real objective values.
+                if let Some(penalized) = constrained_penalty_fitness(n_obj, &eval.constraints) {
+                    return penalized;
+                }
+                eval.objectives
                     .iter()
                     .zip(self.directions)
                     .map(|(v, d)| match d {
@@ -256,12 +279,12 @@ impl TrialRecorder<'_> {
                     })
                     .collect()
             }
-            Ok(objectives) => {
+            Ok(eval) => {
                 self.record_failure(
                     trial_id,
                     format!(
                         "Objective count mismatch (expected {n_obj}, got {})",
-                        objectives.len()
+                        eval.objectives.len()
                     ),
                 );
                 vec![FAIL_PENALTY; n_obj]
@@ -299,6 +322,21 @@ impl TrialRecorder<'_> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .finish_trial(trial_id, state, values)
+    }
+
+    /// Records a successful evaluation: constraint values (op9, if any) followed
+    /// by COMPLETE with the objective values (holds the writer lock once so the
+    /// two records stay adjacent even under parallel evaluation).
+    fn finish_complete(
+        &self,
+        trial_id: u32,
+        eval: &super::compute::GhEvaluation,
+    ) -> Result<(), String> {
+        let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        if !eval.constraints.is_empty() {
+            writer.set_trial_constraints(trial_id, &eval.constraints)?;
+        }
+        writer.finish_trial(trial_id, TrialState::Complete, &eval.objectives)
     }
 
     fn record_failure(&self, trial_id: u32, reason: String) {
@@ -367,11 +405,13 @@ mod tests {
     use crate::gh::problem::extract_problem;
     use crate::io::journal::parser::parse_single_study;
 
-    /// Mock evaluator that computes objective values via a closure.
-    struct FnEvaluator<F: Fn(&[f64]) -> Result<Vec<f64>, String> + Send + Sync>(F);
+    use crate::gh::compute::GhEvaluation;
 
-    impl<F: Fn(&[f64]) -> Result<Vec<f64>, String> + Send + Sync> GhEvaluator for FnEvaluator<F> {
-        fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String> {
+    /// Mock evaluator that computes objective values via a closure.
+    struct FnEvaluator<F: Fn(&[f64]) -> Result<GhEvaluation, String> + Send + Sync>(F);
+
+    impl<F: Fn(&[f64]) -> Result<GhEvaluation, String> + Send + Sync> GhEvaluator for FnEvaluator<F> {
+        fn evaluate(&self, values: &[f64]) -> Result<GhEvaluation, String> {
             (self.0)(values)
         }
     }
@@ -391,8 +431,15 @@ mod tests {
         }
     }
 
+    /// Objectives: [span+count, span-count]. Constraint (the fixture wires one):
+    /// span - 8 (feasible when span <= 8).
     fn sum_diff_evaluator() -> impl GhEvaluator {
-        FnEvaluator(|v: &[f64]| Ok(vec![v[0] + v[1], v[0] - v[1]]))
+        FnEvaluator(|v: &[f64]| {
+            Ok(GhEvaluation {
+                objectives: vec![v[0] + v[1], v[0] - v[1]],
+                constraints: vec![v[0] - 8.0],
+            })
+        })
     }
 
     #[test]
@@ -438,6 +485,29 @@ mod tests {
         }
         // param_bounds reflects the slider range
         assert_eq!(meta.param_bounds.get("span"), Some(&(3.0, 12.0)));
+
+        // Constraints recorded via op9: c1 = span - 8, feasibility matches
+        let c1 = df.get_numeric_column("c1").unwrap().to_vec();
+        let feasible = df.get_numeric_column("is_feasible").unwrap().to_vec();
+        for i in 0..df.row_count() {
+            assert!((c1[i] - (span[i] - 8.0)).abs() < 1e-9);
+            assert_eq!(feasible[i], if c1[i] <= 0.0 { 1.0 } else { 0.0 });
+        }
+    }
+
+    #[test]
+    fn constrained_penalty_fitness_orders_by_violation() {
+        // Feasible: no penalty
+        assert_eq!(constrained_penalty_fitness(2, &[-1.0, 0.0]), None);
+        assert_eq!(constrained_penalty_fitness(2, &[]), None);
+        // Infeasible: identical penalized value on every objective,
+        // ordered by total violation (constrained-domination emulation)
+        let a = constrained_penalty_fitness(2, &[0.5, -1.0]).unwrap();
+        let b = constrained_penalty_fitness(2, &[2.0, 1.0]).unwrap();
+        assert_eq!(a.len(), 2);
+        assert_eq!(a[0], a[1]);
+        assert!(a[0] < b[0], "less violation must rank better");
+        assert!(a[0] > 1e11, "penalty must dominate any real objective");
     }
 
     #[test]

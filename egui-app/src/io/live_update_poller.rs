@@ -669,10 +669,13 @@ mod tests {
 
         struct SumEvaluator;
         impl tunny_core::gh::GhEvaluator for SumEvaluator {
-            fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String> {
+            fn evaluate(&self, values: &[f64]) -> Result<tunny_core::gh::GhEvaluation, String> {
                 // Simulate a slow solve so trials arrive across several poll ticks.
                 thread::sleep(Duration::from_millis(20));
-                Ok(vec![values.iter().sum()])
+                Ok(tunny_core::gh::GhEvaluation {
+                    objectives: vec![values.iter().sum()],
+                    constraints: vec![values[0] - 5.0],
+                })
             }
         }
 
@@ -689,6 +692,10 @@ mod tests {
             objectives: vec![tunny_core::gh::GhObjective {
                 source_guid: "o1".to_string(),
                 name: "f".to_string(),
+            }],
+            constraints: vec![tunny_core::gh::GhConstraint {
+                source_guid: "c1".to_string(),
+                name: "g".to_string(),
             }],
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
@@ -732,6 +739,10 @@ mod tests {
                     assert_eq!(row.study_id, 0);
                     assert_eq!(row.objectives.len(), 1);
                     assert!(row.params.contains_key("x"));
+                    // op9 constraints stream through into the live rows
+                    assert_eq!(row.constraint_values.len(), 1);
+                    let x = row.params["x"];
+                    assert!((row.constraint_values[0] - (x - 5.0)).abs() < 1e-9);
                 }
                 rows += new_trial_rows.len();
             } else {
