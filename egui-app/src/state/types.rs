@@ -541,7 +541,12 @@ mod tests {
         );
         assert_eq!(state.study_name.len(), "model-".len() + 6);
         // journal_path: "<stem>_optuna.log" in the same directory as the ghx
-        assert_eq!(state.journal_path, "/tmp/some_dir/model_optuna.log");
+        // (built via PathBuf::join so the separator matches the platform)
+        let expected_journal = PathBuf::from("/tmp/some_dir")
+            .join("model_optuna.log")
+            .display()
+            .to_string();
+        assert_eq!(state.journal_path, expected_journal);
         assert!(state.compute_use_exe);
         assert_eq!(state.compute_url, "http://localhost:6500");
         assert_eq!(state.compute_exe_path, "");
