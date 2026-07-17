@@ -101,21 +101,24 @@ impl JournalWriter {
             })
             .collect();
 
-        let record = serde_json::json!({
-            "op_code": 0,
-            "worker_id": self.worker_id,
-            "study_name": study_name,
-            "directions": directions_json,
-        });
+        let record = ordered_object(&[
+            ("op_code", j(0)),
+            ("worker_id", j(&self.worker_id)),
+            ("study_name", j(study_name)),
+            ("directions", j(&directions_json)),
+        ]);
         self.write_line(&record)?;
 
         if !objective_names.is_empty() {
-            let attr_record = serde_json::json!({
-                "op_code": 3,
-                "worker_id": self.worker_id,
-                "study_id": study_id,
-                "system_attr": { "study:metric_names": objective_names },
-            });
+            let attr_record = ordered_object(&[
+                ("op_code", j(3)),
+                ("worker_id", j(&self.worker_id)),
+                ("study_id", j(study_id)),
+                (
+                    "system_attr",
+                    j(serde_json::json!({ "study:metric_names": objective_names })),
+                ),
+            ]);
             self.write_line(&attr_record)?;
         }
 
@@ -130,12 +133,12 @@ impl JournalWriter {
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
 
-        let record = serde_json::json!({
-            "op_code": 4,
-            "worker_id": self.worker_id,
-            "study_id": study_id,
-            "datetime_start": format_naive_datetime(now_unix_secs()),
-        });
+        let record = ordered_object(&[
+            ("op_code", j(4)),
+            ("worker_id", j(&self.worker_id)),
+            ("study_id", j(study_id)),
+            ("datetime_start", j(format_naive_datetime(now_unix_secs()))),
+        ]);
         self.write_line(&record)?;
 
         Ok(trial_id)
@@ -153,37 +156,42 @@ impl JournalWriter {
         distribution: &ParamDistribution,
     ) -> Result<(), String> {
         let inner = match distribution {
-            ParamDistribution::Float { low, high } => serde_json::json!({
-                "name": "FloatDistribution",
-                "attributes": {
-                    "log": false,
-                    "low": low,
-                    "high": high,
-                    "step": Value::Null,
-                }
-            }),
-            ParamDistribution::Int { low, high } => serde_json::json!({
-                "name": "IntDistribution",
-                "attributes": {
-                    "log": false,
-                    "low": low,
-                    "high": high,
-                    "step": 1,
-                }
-            }),
+            ParamDistribution::Float { low, high } => ordered_object(&[
+                ("name", j("FloatDistribution")),
+                (
+                    "attributes",
+                    ordered_object(&[
+                        ("step", j(Value::Null)),
+                        ("low", j(low)),
+                        ("high", j(high)),
+                        ("log", j(false)),
+                    ]),
+                ),
+            ]),
+            ParamDistribution::Int { low, high } => ordered_object(&[
+                ("name", j("IntDistribution")),
+                (
+                    "attributes",
+                    ordered_object(&[
+                        ("log", j(false)),
+                        ("step", j(1)),
+                        ("low", j(low)),
+                        ("high", j(high)),
+                    ]),
+                ),
+            ]),
         };
-        // Double serialization: stringify the distribution object once, then embed it
-        // as a JSON string value (no hand-rolled escaping).
-        let distribution_str = Value::String(inner.to_string());
 
-        let record = serde_json::json!({
-            "op_code": 5,
-            "worker_id": self.worker_id,
-            "trial_id": trial_id,
-            "param_name": param_name,
-            "param_value_internal": value,
-            "distribution": distribution_str,
-        });
+        let record = ordered_object(&[
+            ("op_code", j(5)),
+            ("worker_id", j(&self.worker_id)),
+            ("trial_id", j(trial_id)),
+            ("param_name", j(param_name)),
+            ("param_value_internal", j(value)),
+            // Double serialization: the distribution object is embedded as a JSON
+            // string value, matching what Optuna itself writes.
+            ("distribution", j(&inner)),
+        ]);
         self.write_line(&record)
     }
 
@@ -213,14 +221,17 @@ impl JournalWriter {
             Value::Null
         };
 
-        let record = serde_json::json!({
-            "op_code": 6,
-            "worker_id": self.worker_id,
-            "trial_id": trial_id,
-            "state": state_code,
-            "values": values_json,
-            "datetime_complete": format_naive_datetime(now_unix_secs()),
-        });
+        let record = ordered_object(&[
+            ("op_code", j(6)),
+            ("worker_id", j(&self.worker_id)),
+            ("trial_id", j(trial_id)),
+            ("state", j(state_code)),
+            ("values", j(&values_json)),
+            (
+                "datetime_complete",
+                j(format_naive_datetime(now_unix_secs())),
+            ),
+        ]);
         self.write_line(&record)
     }
 
@@ -230,9 +241,8 @@ impl JournalWriter {
     }
 
     /// Writes one record as a single line of JSON, performing a single `write` + `flush`.
-    fn write_line(&mut self, value: &Value) -> Result<(), String> {
-        let mut line = serde_json::to_string(value)
-            .map_err(|err| format!("failed to serialize journal record: {err}"))?;
+    fn write_line(&mut self, object: &str) -> Result<(), String> {
+        let mut line = object.to_string();
         line.push('\n');
         self.file.write_all(line.as_bytes()).map_err(|err| {
             format!(
@@ -247,6 +257,34 @@ impl JournalWriter {
             )
         })
     }
+}
+
+/// Serializes an object with the given key order and Python-style separators
+/// (`", "` / `": "`), matching what Optuna's JournalFileBackend writes via
+/// `json.dumps`. serde_json's own object type sorts keys alphabetically, which
+/// would bury `op_code` in the middle of the line; field order carries no JSON
+/// semantics, but keeping Optuna's layout makes the files diffable against
+/// journals produced by Optuna itself.
+///
+/// Values are pre-serialized JSON fragments (use [`j`] for leaves, or another
+/// `ordered_object` result for nested objects).
+fn ordered_object(fields: &[(&str, String)]) -> String {
+    let mut out = String::from("{");
+    for (i, (key, value)) in fields.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&Value::String((*key).to_string()).to_string());
+        out.push_str(": ");
+        out.push_str(value);
+    }
+    out.push('}');
+    out
+}
+
+/// Serializes a leaf value as a JSON fragment for [`ordered_object`].
+fn j<T: serde::Serialize>(value: T) -> String {
+    serde_json::to_string(&value).expect("primitive JSON serialization cannot fail")
 }
 
 /// Returns the current time as unix seconds (f64). Returns 0.0 on failure (never panics).
@@ -481,7 +519,7 @@ mod tests {
         let data = std::fs::read_to_string(&path).unwrap();
         let op5_lines: Vec<&str> = data
             .lines()
-            .filter(|line| line.contains(r#""op_code":5"#))
+            .filter(|line| line.starts_with(r#"{"op_code": 5"#))
             .collect();
         assert_eq!(op5_lines.len(), 2);
 
@@ -525,6 +563,12 @@ mod tests {
             assert_eq!(
                 json.get("worker_id").and_then(Value::as_str),
                 Some("custom-worker")
+            );
+            // Optuna's journal layout: op_code is the first key on every line
+            // (`{"op_code": N, ...}` with Python json.dumps separators).
+            assert!(
+                line.starts_with(r#"{"op_code": "#),
+                "op_code must lead the line: {line}"
             );
         }
     }
