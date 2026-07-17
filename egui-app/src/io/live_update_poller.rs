@@ -120,8 +120,28 @@ fn polling_loop(
 
         let path = &context.file_path;
 
-        let metadata = match std::fs::metadata(path) {
-            Ok(m) => m,
+        // The size must come from an opened handle, not from path-based
+        // std::fs::metadata: on Windows (NTFS) the directory entry that a
+        // path query reads is not refreshed while a writer keeps the file
+        // open, so it reports a stale size for the entire duration of a run
+        // (the .ghx runner holds the journal open in append mode). A
+        // handle-based query always sees the current size.
+        let mut file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                let _ = tx.send(AppMessage::LiveUpdateError(format!(
+                    "Live update: file open error ({})",
+                    e
+                )));
+                if escalate_error(&mut error_count, tx, stop_signal) {
+                    break;
+                }
+                continue;
+            }
+        };
+
+        let file_size = match file.metadata() {
+            Ok(m) => m.len(),
             Err(e) => {
                 let _ = tx.send(AppMessage::LiveUpdateError(format!(
                     "Live update: file metadata error ({})",
@@ -133,8 +153,6 @@ fn polling_loop(
                 continue;
             }
         };
-
-        let file_size = metadata.len();
 
         // Detect journal rotation/truncation. If the file size becomes
         // smaller than the already-read offset, assume the log was replaced
@@ -158,16 +176,6 @@ fn polling_loop(
             error_count = 0;
             continue;
         }
-
-        let mut file = match std::fs::File::open(path) {
-            Ok(f) => f,
-            Err(_) => {
-                if escalate_error(&mut error_count, tx, stop_signal) {
-                    break;
-                }
-                continue;
-            }
-        };
 
         if file.seek(std::io::SeekFrom::Start(byte_offset)).is_err() {
             if escalate_error(&mut error_count, tx, stop_signal) {
@@ -648,6 +656,90 @@ mod tests {
             got_error,
             "Expected LiveUpdateError after consecutive errors"
         );
+    }
+
+    /// End-to-end repro of the .ghx D&D optimization flow: prepare_gh_run creates
+    /// the study, the poller starts exactly as restart_poller does (offset/counters
+    /// read from the file), then run_prepared appends trials from worker threads.
+    /// Every completed trial must be delivered through LiveUpdateDone.
+    #[test]
+    fn gh_run_trials_stream_through_live_update() {
+        use tunny_core::gh::{prepare_gh_run, run_prepared, GhRunConfig, GhSampler};
+        use tunny_core::io::journal::parser::OptimizationDirection;
+
+        struct SumEvaluator;
+        impl tunny_core::gh::GhEvaluator for SumEvaluator {
+            fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String> {
+                // Simulate a slow solve so trials arrive across several poll ticks.
+                thread::sleep(Duration::from_millis(20));
+                Ok(vec![values.iter().sum()])
+            }
+        }
+
+        let problem = tunny_core::gh::GhProblem {
+            variables: vec![tunny_core::gh::GhVariable {
+                instance_guid: "g1".to_string(),
+                name: "x".to_string(),
+                low: 0.0,
+                high: 10.0,
+                value: 5.0,
+                digits: 2,
+                is_integer: false,
+            }],
+            objectives: vec![tunny_core::gh::GhObjective {
+                source_guid: "o1".to_string(),
+                name: "f".to_string(),
+            }],
+            tunny_component: "Tunny".to_string(),
+            warnings: vec![],
+        };
+        let cfg = GhRunConfig {
+            study_name: "live-test".to_string(),
+            directions: vec![OptimizationDirection::Minimize],
+            sampler: GhSampler::Random,
+            n_trials: 8,
+            ..GhRunConfig::default()
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run_optuna.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+
+        // Mirror restart_poller's prep: offset and counters from the current file.
+        let bytes = std::fs::read(&journal).unwrap();
+        let ctx = LiveUpdateContext {
+            file_path: journal.clone(),
+            initial_byte_offset: bytes.len() as u64,
+            next_trial_id: tunny_core::io::journal::live_update::count_created_trials(&bytes),
+            study_trial_number_seeds:
+                tunny_core::io::journal::live_update::count_created_trials_per_study(&bytes),
+            study_distributions: vec![],
+            no_change_timeout_ms: 60_000,
+        };
+        let (tx, rx) = make_channel();
+        let mut poller = LiveUpdatePoller::start(ctx, tx, 30);
+
+        let progress = tunny_core::surrogate_opt::FitProgress::new();
+        let summary = run_prepared(&prep, &problem, &SumEvaluator, &cfg, &progress).unwrap();
+        assert_eq!(summary.completed, 8);
+
+        // Collect rows until all 8 completed trials have streamed through.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut rows = 0usize;
+        while std::time::Instant::now() < deadline && rows < 8 {
+            if let Ok(AppMessage::LiveUpdateDone { new_trial_rows, .. }) = rx.try_recv() {
+                for row in &new_trial_rows {
+                    assert_eq!(row.study_id, 0);
+                    assert_eq!(row.objectives.len(), 1);
+                    assert!(row.params.contains_key("x"));
+                }
+                rows += new_trial_rows.len();
+            } else {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        poller.stop();
+        assert_eq!(rows, 8, "all completed trials must arrive via live update");
     }
 
     #[test]

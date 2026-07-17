@@ -300,6 +300,7 @@ impl TunnyApp {
             };
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
             let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
+            let is_gh_opt_finished = matches!(&msg, AppMessage::GhOptFinished { .. });
             // Limit streaming-load batches to one per frame so each batch's DataFrame
             // rebuild cost isn't concentrated into a single frame (avoids render stalls).
             // Remaining batches stay in the channel and are processed on the next frame.
@@ -395,6 +396,10 @@ impl TunnyApp {
                 // Invalidate any pending prep task so an error doesn't cause it to
                 // restart the poller on its own.
                 self.invalidate_pending_poller();
+            }
+
+            if is_gh_opt_finished {
+                self.refresh_after_gh_opt();
             }
 
             if let Some(study_id) = sqlite_reload_study_id {
@@ -1078,6 +1083,31 @@ impl TunnyApp {
     /// file, or a live error.
     fn invalidate_pending_poller(&mut self) {
         self.poller_generation = self.poller_generation.wrapping_add(1);
+    }
+
+    /// Reloads the displayed study when a .ghx optimization run finishes, as a
+    /// safety net for trials the live-update stream may have missed (e.g. polls
+    /// dropped after repeated I/O errors, or live update toggled off mid-run).
+    /// A full re-parse of the journal is authoritative, so the final state shown
+    /// always matches the file. Skipped if the user has meanwhile opened a
+    /// different file.
+    fn refresh_after_gh_opt(&mut self) {
+        let Some(run) = self.app_state.gh_opt_run.as_ref() else {
+            return;
+        };
+        if self.app_state.journal_path.as_deref() != Some(run.journal_path.as_path()) {
+            return;
+        }
+        let Some(meta) = self
+            .app_state
+            .current_study
+            .as_ref()
+            .map(|s| s.meta.clone())
+        else {
+            return;
+        };
+        self.is_loading = true;
+        crate::io::study_worker::dispatch_select_study(meta, self.sender());
     }
 
     /// (Re)starts the poller for the current file.
