@@ -738,43 +738,47 @@ impl TunnyApp {
     ///   (if several files are dropped, the first `.ghx` wins).
     /// - Otherwise, the first recognized result storage file
     ///   (journal / SQLite / CSV) is routed to the normal open flow.
+    /// - Anything else surfaces an error explaining the supported types
+    ///   (in particular, binary `.gh` must be re-saved as `.ghx`) — a silent
+    ///   no-op here would look like the drop simply didn't work.
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.clone());
         if dropped.is_empty() {
             return;
         }
-        if let Some(path) = dropped
-            .iter()
-            .filter_map(|f| f.path.clone())
-            .find(|p| crate::io::file::is_ghx_path(p))
-        {
-            self.open_ghx_path(path);
+        let paths: Vec<std::path::PathBuf> = dropped.into_iter().filter_map(|f| f.path).collect();
+        if let Some(path) = paths.iter().find(|p| crate::io::file::is_ghx_path(p)) {
+            self.open_ghx_path(path.clone());
             return;
         }
-        if let Some(path) = dropped
-            .into_iter()
-            .filter_map(|f| f.path)
-            .find(|p| crate::io::file::is_storage_path(p))
-        {
-            self.open_path(path);
+        if let Some(path) = paths.iter().find(|p| crate::io::file::is_storage_path(p)) {
+            self.open_path(path.clone());
+            return;
         }
+        self.load_error = Some(unsupported_drop_message(&paths));
     }
 
     /// While files are being dragged over the window, dims the screen and shows
     /// what will happen on drop (Grasshopper optimization for .ghx, normal open
-    /// for storage files). This makes the always-available drop target visible.
+    /// for storage files, or an unsupported-type notice). This makes the
+    /// always-available drop target visible.
     fn show_drop_hover_overlay(&self, ctx: &egui::Context) {
         let hovered: Vec<_> = ctx.input(|i| i.raw.hovered_files.clone());
         if hovered.is_empty() {
             return;
         }
-        let has_ghx = hovered
-            .iter()
-            .any(|f| f.path.as_deref().is_some_and(crate::io::file::is_ghx_path));
-        let text = if has_ghx {
+        let paths: Vec<std::path::PathBuf> = hovered.into_iter().filter_map(|f| f.path).collect();
+        let text = if paths.iter().any(|p| crate::io::file::is_ghx_path(p)) {
             "Drop to set up Grasshopper optimization"
-        } else {
+        } else if paths.iter().any(|p| crate::io::file::is_storage_path(p)) {
             "Drop to open"
+        } else if paths.iter().any(|p| crate::io::file::is_gh_binary_path(p)) {
+            ".gh is not supported — in Grasshopper, save as .ghx (Grasshopper XML) and drop that"
+        } else if paths.is_empty() {
+            // Some platforms don't expose the path while hovering.
+            "Drop files to open"
+        } else {
+            "Unsupported file type (.log / .db / .sqlite / .csv / .ghx are supported)"
         };
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
@@ -1349,6 +1353,34 @@ fn dispatch_scan(path: std::path::PathBuf, tx: mpsc::SyncSender<AppMessage>) {
 /// `AppMessage::TaskPanicked` (M-4). Without catching them, a panic would mean the
 /// completion message never arrives, leaving the relevant widget's `computing`/`fitting`
 /// flag stuck on and the spinner spinning forever.
+/// Builds the error message shown when a drop contained no openable file.
+/// Special-cases binary `.gh`, the most likely mistake for the .ghx flow,
+/// with instructions on how to re-save the definition as `.ghx`.
+fn unsupported_drop_message(paths: &[std::path::PathBuf]) -> String {
+    let names: Vec<String> = paths
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    let names = if names.is_empty() {
+        "(unknown)".to_string()
+    } else {
+        names.join(", ")
+    };
+    if paths.iter().any(|p| crate::io::file::is_gh_binary_path(p)) {
+        format!(
+            "{names}: .gh is a binary Grasshopper file and cannot be read directly. \
+             In Grasshopper, use File > Save As and choose the \"Grasshopper XML (*.ghx)\" \
+             file type, then drop the .ghx here."
+        )
+    } else {
+        format!(
+            "{names}: unsupported file type. Supported: .log / .journal (Optuna journal), \
+             .db / .sqlite / .sqlite3 (Optuna SQLite), .csv (DesignExplorer), \
+             .ghx (Grasshopper XML)."
+        )
+    }
+}
+
 pub fn spawn_task<F>(tx: mpsc::SyncSender<AppMessage>, f: F)
 where
     F: FnOnce() -> AppMessage + Send + 'static,
@@ -1376,6 +1408,28 @@ mod tests {
 
     fn make_channel() -> (mpsc::SyncSender<AppMessage>, mpsc::Receiver<AppMessage>) {
         mpsc::sync_channel(32)
+    }
+
+    #[test]
+    fn unsupported_drop_message_guides_gh_binary_to_ghx() {
+        let msg = unsupported_drop_message(&[std::path::PathBuf::from("/a/model.gh")]);
+        assert!(msg.contains("model.gh"), "{msg}");
+        assert!(msg.contains(".ghx"), "{msg}");
+        assert!(msg.contains("Save As"), "{msg}");
+    }
+
+    #[test]
+    fn unsupported_drop_message_lists_supported_types() {
+        let msg = unsupported_drop_message(&[std::path::PathBuf::from("notes.txt")]);
+        assert!(msg.contains("notes.txt"), "{msg}");
+        assert!(msg.contains("unsupported file type"), "{msg}");
+        assert!(msg.contains(".ghx"), "{msg}");
+    }
+
+    #[test]
+    fn unsupported_drop_message_handles_missing_paths() {
+        let msg = unsupported_drop_message(&[]);
+        assert!(msg.contains("(unknown)"), "{msg}");
     }
 
     #[test]

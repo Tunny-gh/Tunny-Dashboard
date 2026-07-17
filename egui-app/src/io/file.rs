@@ -81,6 +81,15 @@ pub fn is_ghx_path(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("ghx"))
 }
 
+/// Determines whether the path's extension is `.gh` (case-insensitive) — the
+/// binary Grasshopper format, which this app cannot read. Used only to give a
+/// helpful "save it as .ghx instead" message on drag & drop.
+pub fn is_gh_binary_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("gh"))
+}
+
 /// Determines whether the path looks like an openable result storage file
 /// (Optuna journal / SQLite / DesignExplorer CSV). Used by drag-and-drop to
 /// decide whether a dropped non-.ghx file should be routed to the normal
