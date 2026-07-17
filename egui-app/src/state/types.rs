@@ -393,11 +393,15 @@ pub struct GhOptDialogState {
     pub study_name: String,
     /// Output journal path (default: "<stem>_optuna.log" in the same directory as the ghx).
     pub journal_path: String,
-    /// Rhino.Compute connection target. Either a URL (`http://…`) or the path to the
-    /// rhino.compute executable (when an EXE is given, the Dashboard starts/stops the process).
-    /// Interpretation follows `tunny_core::gh::classify_compute_input`.
-    pub compute_target: String,
-    /// Port passed to rhino.compute when an EXE is specified (default 6500). Unused when a URL is specified.
+    /// true = launch a local rhino.compute EXE (the Dashboard starts/stops the
+    /// process), false = connect to an already-running server URL (default).
+    pub compute_use_exe: bool,
+    /// Server URL used when `compute_use_exe` is false (default "http://localhost:6500").
+    /// A pasted EXE path is still tolerated here (classified on run).
+    pub compute_url: String,
+    /// Path to the rhino.compute executable used when `compute_use_exe` is true.
+    pub compute_exe_path: String,
+    /// Port passed to rhino.compute in EXE mode (default 6500). Unused in URL mode.
     pub compute_port: u16,
     /// Rhino.Compute API key (treated as `ComputeConfig.api_key = None` if empty).
     pub api_key: String,
@@ -444,7 +448,9 @@ impl GhOptDialogState {
             maximize,
             study_name,
             journal_path,
-            compute_target: "http://localhost:6500".to_string(),
+            compute_use_exe: false,
+            compute_url: "http://localhost:6500".to_string(),
+            compute_exe_path: String::new(),
             compute_port: 6500,
             api_key: String::new(),
             max_parallel: 4,
@@ -535,7 +541,9 @@ mod tests {
         assert_eq!(state.study_name.len(), "model-".len() + 6);
         // journal_path: "<stem>_optuna.log" in the same directory as the ghx
         assert_eq!(state.journal_path, "/tmp/some_dir/model_optuna.log");
-        assert_eq!(state.compute_target, "http://localhost:6500");
+        assert!(!state.compute_use_exe);
+        assert_eq!(state.compute_url, "http://localhost:6500");
+        assert_eq!(state.compute_exe_path, "");
         assert_eq!(state.compute_port, 6500);
         assert_eq!(state.api_key, "");
         assert_eq!(state.max_parallel, 4);

@@ -883,7 +883,13 @@ impl TunnyApp {
             generations: dialog.generations,
             seed: dialog.seed,
         };
-        let target = classify_compute_input(&dialog.compute_target);
+        // In EXE mode the path comes from the dedicated field; in URL mode a
+        // pasted EXE path is still tolerated via classification.
+        let target = if dialog.compute_use_exe {
+            ComputeTarget::Exe(std::path::PathBuf::from(dialog.compute_exe_path.trim()))
+        } else {
+            classify_compute_input(&dialog.compute_url)
+        };
         let compute_port = dialog.compute_port;
         let api_key = if dialog.api_key.trim().is_empty() {
             None

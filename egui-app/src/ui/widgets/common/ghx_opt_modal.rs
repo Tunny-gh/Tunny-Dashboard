@@ -42,9 +42,13 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
         .unwrap_or("(unknown)")
         .to_string();
 
-    let can_run = !state.study_name.trim().is_empty()
-        && !state.journal_path.trim().is_empty()
-        && !state.compute_target.trim().is_empty();
+    let compute_ok = if state.compute_use_exe {
+        !state.compute_exe_path.trim().is_empty()
+    } else {
+        !state.compute_url.trim().is_empty()
+    };
+    let can_run =
+        !state.study_name.trim().is_empty() && !state.journal_path.trim().is_empty() && compute_ok;
 
     let outcome = ModalScaffold::new("ghx_opt_modal", 520.0)
         .heading("Grasshopper Optimization")
@@ -125,25 +129,41 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
             // ── Rhino.Compute connection settings ────────────────────────────────
             ui.label(RichText::new("Rhino.Compute").strong());
             ui.horizontal(|ui| {
-                ui.label("Server:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut state.compute_target)
-                        .hint_text("http://localhost:6500 or rhino.compute.exe path")
-                        .desired_width(240.0),
-                );
+                ui.radio_value(&mut state.compute_use_exe, false, "Server URL");
+                ui.radio_value(&mut state.compute_use_exe, true, "Launch EXE");
             });
-            // Only show the port input when an EXE path is specified, and indicate that
-            // the Dashboard manages the launch.
-            if matches!(
-                tunny_core::gh::classify_compute_input(&state.compute_target),
-                tunny_core::gh::ComputeTarget::Exe(_)
-            ) {
+            if state.compute_use_exe {
+                ui.horizontal(|ui| {
+                    ui.label("EXE path:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.compute_exe_path)
+                            .hint_text(r"...\rhino.compute\rhino.compute.exe")
+                            .desired_width(200.0),
+                    );
+                    if ui.button("Browse…").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("rhino.compute (*.exe)", &["exe"])
+                            .pick_file()
+                        {
+                            state.compute_exe_path = path.to_string_lossy().into_owned();
+                        }
+                    }
+                });
                 ui.horizontal(|ui| {
                     ui.label("Port:");
                     ui.add(egui::DragValue::new(&mut state.compute_port).range(1..=65535));
                     ui.label(
                         RichText::new("Launches the EXE and connects (stopped when the run ends)")
                             .color(crate::theme::TEXT_SECONDARY()),
+                    );
+                });
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label("Server URL:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.compute_url)
+                            .hint_text("http://localhost:6500")
+                            .desired_width(240.0),
                     );
                 });
             }
