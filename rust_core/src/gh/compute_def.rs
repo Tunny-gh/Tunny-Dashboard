@@ -11,16 +11,18 @@
 //! The original definition body is preserved byte-for-byte; only the DefinitionObjects
 //! object count and an append at the end are touched.
 //!
-//! Note: the type GUIDs of the injected objects (Group / Param_Number) and the minimal
-//! serialization format need E2E verification against a real Rhino.Compute environment
-//! (a follow-up task under ROADMAP item 15).
+//! The type GUIDs and the serialization layout of the injected objects (Group /
+//! Data parameter) are modeled on, and verified against, GH_Group and floating
+//! parameter chunks found in real .ghx files. End-to-end solve behavior against
+//! a live Rhino.Compute still needs field verification (ROADMAP item 15).
 
 use super::problem::GhProblem;
 
-/// Type GUID of the Grasshopper Group object.
+/// Type GUID of the Grasshopper Group object (verified against real .ghx files).
 const GROUP_TYPE_GUID: &str = "c552a431-af5b-46a9-a8a4-0fcbc27ef596";
-/// Type GUID of the floating Number parameter (Param_Number).
-const PARAM_NUMBER_TYPE_GUID: &str = "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312";
+/// Type GUID of the floating generic Data parameter, used as the RH_OUT relay
+/// (verified against real .ghx files; passes through values of any type).
+const DATA_PARAM_TYPE_GUID: &str = "8ec86459-bf01-4409-baee-174d0d2b13d0";
 
 /// A Compute-ready definition with RH_IN / RH_OUT already injected.
 #[derive(Debug, Clone)]
@@ -229,6 +231,10 @@ fn xml_escape(s: &str) -> String {
 }
 
 /// XML for a group object containing a single member.
+///
+/// The layout mirrors GH_Group's actual serialization observed in real .ghx
+/// files: an alphabetical item list (Border / Colour / Description / ID /
+/// ID_Count / InstanceGuid / Name / NickName) plus an empty Attributes chunk.
 fn group_object_xml(
     index: usize,
     instance_guid: &str,
@@ -243,13 +249,21 @@ fn group_object_xml(
   </items>
   <chunks count="1">
     <chunk name="Container">
-      <items count="5">
+      <items count="8">
+        <item name="Border" type_name="gh_int32" type_code="3">1</item>
+        <item name="Colour" type_name="gh_drawing_color" type_code="36">
+          <ARGB>150;170;135;255</ARGB>
+        </item>
+        <item name="Description" type_name="gh_string" type_code="10">A group of Grasshopper objects</item>
         <item name="ID" index="0" type_name="gh_guid" type_code="9">{member_guid}</item>
-        <item name="IDCount" type_name="gh_int32" type_code="3">1</item>
+        <item name="ID_Count" type_name="gh_int32" type_code="3">1</item>
         <item name="InstanceGuid" type_name="gh_guid" type_code="9">{instance_guid}</item>
         <item name="Name" type_name="gh_string" type_code="10">Group</item>
         <item name="NickName" type_name="gh_string" type_code="10">{nick}</item>
       </items>
+      <chunks count="1">
+        <chunk name="Attributes" />
+      </chunks>
     </chunk>
   </chunks>
 </chunk>
@@ -258,21 +272,27 @@ fn group_object_xml(
     )
 }
 
-/// XML for the relay Number parameter that receives the value from an objective's source.
+/// XML for the relay parameter that receives the value from an objective's source.
+///
+/// Uses the generic Data parameter (pass-through of any type). The layout
+/// mirrors a floating Data parameter's actual serialization observed in real
+/// .ghx files (Description / InstanceGuid / Name / NickName / Optional /
+/// Source / SourceCount plus an Attributes chunk with Bounds and Pivot).
 fn relay_param_xml(index: usize, instance_guid: &str, nickname: &str, source_guid: &str) -> String {
     format!(
         r#"<chunk name="Object" index="{index}">
   <items count="2">
-    <item name="GUID" type_name="gh_guid" type_code="9">{PARAM_NUMBER_TYPE_GUID}</item>
-    <item name="Name" type_name="gh_string" type_code="10">Number</item>
+    <item name="GUID" type_name="gh_guid" type_code="9">{DATA_PARAM_TYPE_GUID}</item>
+    <item name="Name" type_name="gh_string" type_code="10">Data</item>
   </items>
   <chunks count="1">
     <chunk name="Container">
-      <items count="6">
+      <items count="7">
+        <item name="Description" type_name="gh_string" type_code="10">Contains a collection of generic data</item>
         <item name="InstanceGuid" type_name="gh_guid" type_code="9">{instance_guid}</item>
-        <item name="Name" type_name="gh_string" type_code="10">Number</item>
+        <item name="Name" type_name="gh_string" type_code="10">Data</item>
         <item name="NickName" type_name="gh_string" type_code="10">{nick}</item>
-        <item name="Optional" type_name="gh_bool" type_code="1">true</item>
+        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
         <item name="Source" index="0" type_name="gh_guid" type_code="9">{source_guid}</item>
         <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
       </items>
@@ -339,11 +359,11 @@ mod tests {
             Some("0aaaaaaa-0000-0000-0000-0000000slid1")
         );
 
-        // RH_OUT goes through a relay Number parameter, and the relay has the
+        // RH_OUT goes through a relay Data parameter, and the relay has the
         // objective's source as its Source
         let relays: Vec<_> = objects
             .chunks_named("Object")
-            .filter(|o| o.item_text("Name") == Some("Number"))
+            .filter(|o| o.item_text("Name") == Some("Data"))
             .map(|o| o.find_chunk("Container").unwrap())
             .filter(|c| c.item_text("NickName") == Some("weight"))
             .collect();

@@ -902,6 +902,10 @@ impl TunnyApp {
         };
 
         let journal_path = std::path::PathBuf::from(&dialog.journal_path);
+        // Persist the injected definition next to the journal (best-effort).
+        // It can be opened in Grasshopper to inspect the exact definition sent
+        // to Compute, which is invaluable when a solve fails.
+        let _ = std::fs::write(journal_path.with_extension("compute.ghx"), &def.ghx);
         let prep = match prepare_gh_run(&journal_path, &dialog.problem, &run_cfg) {
             Ok(prep) => prep,
             Err(e) => {
