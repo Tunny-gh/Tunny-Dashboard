@@ -447,7 +447,7 @@ mod tests {
     fn tc_1615_10_all_same_values_no_crash() {
         // Confirms it does not crash even when all trials have the same value.
 
-        let values = [2.0_f64, 3.0, 2.0, 3.0, 2.0, 3.0]; // 3 trial
+        let values = [2.0_f64, 3.0, 2.0, 3.0, 2.0, 3.0]; // 3 trials x 2 objectives
         let result = compute_topsis(&values, 3, 2, &[0.5, 0.5], &[true, true]);
 
         assert!(result.is_ok(), "全 trial 同値でもエラーにならないはず");

@@ -1,10 +1,10 @@
 //! The setup modal for confirming an optimization problem opened via .ghx D&D and
 //! starting a background optimization through Rhino.Compute.
 //!
-//! The variables and objectives extracted by `extract_problem` are shown read-only only
-//! (there's no path to edit the ghx-side slider ranges from the UI). The only things the
-//! user can edit are the objectives' optimization directions, the Rhino.Compute
-//! connection settings, the sampler settings, and the output destination.
+//! The variables and objectives extracted by `extract_problem` are shown read-only
+//! (there is no way to edit the ghx-side slider ranges from the UI). The user can
+//! only edit the objectives' optimization directions, the Rhino.Compute connection
+//! settings, the sampler settings, and the output destination.
 
 use egui::RichText;
 
@@ -19,8 +19,8 @@ pub enum GhxOptAction {
     Cancel,
 }
 
-/// Computes NSGA-II's total evaluation count (evenized population size ×
-/// (generation count + 1)). The evenization rule is the same as the implementation on the
+/// Computes NSGA-II's total evaluation count (population size rounded up to an even number ×
+/// (generation count + 1)). The rounding rule is the same as the implementation on the
 /// `tunny_core::gh::runner` side (`(pop.max(4) + 1) & !1`).
 fn nsga2_total_evaluations(population_size: usize, generations: usize) -> usize {
     let even_pop = (population_size.max(4) + 1) & !1;

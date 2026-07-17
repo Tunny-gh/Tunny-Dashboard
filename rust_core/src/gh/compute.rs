@@ -43,8 +43,8 @@ impl Default for ComputeConfig {
 }
 
 /// Evaluator for the real objective function. The implementation can be
-/// swapped between Rhino.Compute (production) and a mock (unit testing the
-/// test/runner).
+/// swapped between Rhino.Compute (production) and a mock (for tests and for
+/// verifying the runner in isolation).
 pub trait GhEvaluator: Send + Sync {
     /// Takes variable values (in the same order as `GhProblem.variables`) and
     /// returns objective values (in the same order as `GhProblem.objectives`).

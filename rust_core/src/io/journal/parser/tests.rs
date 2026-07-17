@@ -246,7 +246,7 @@ fn to_bytes(s: &str) -> Vec<u8> {
 fn tc_101_01_create_study_basic() {
     let data =
         to_bytes(r#"{"op_code":0,"worker_id":"w1","study_name":"my_study","directions":[1,2]}"#);
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies.len(), 1);
     assert_eq!(result.studies[0].name, "my_study");
     assert_eq!(
@@ -393,7 +393,7 @@ fn tc_101_02_create_trial_complete() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].completed_trials, 1);
     assert_eq!(result.studies[0].total_trials, 1);
 }
@@ -406,7 +406,7 @@ fn tc_101_03_float_distribution_no_log() {
         "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x\",\"param_value_internal\":0.5,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0,\"log\":false}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].param_names.contains(&"x".to_string()));
 }
 
@@ -423,7 +423,7 @@ fn tc_101_04_float_distribution_log_true() {
         line,
         r#"{"op_code":6,"worker_id":"w","trial_id":0,"state":1,"values":[0.5],"datetime_complete":"2024-01-01T00:00:01.000000"}"#,
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].param_names.contains(&"lr".to_string()));
 }
 
@@ -435,7 +435,7 @@ fn tc_101_05_int_distribution_basic() {
         "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"n\",\"param_value_internal\":3.0,\"distribution\":{\"name\":\"IntDistribution\",\"low\":0,\"high\":10,\"step\":1,\"log\":false}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].param_names.contains(&"n".to_string()));
 }
 
@@ -447,7 +447,7 @@ fn tc_101_07_categorical_distribution_string() {
         "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"cat\",\"param_value_internal\":1.0,\"distribution\":{\"name\":\"CategoricalDistribution\",\"choices\":[\"a\",\"b\",\"c\"]}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].param_names.contains(&"cat".to_string()));
 }
 
@@ -463,7 +463,7 @@ fn tc_101_10_multiple_studies() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:02.000000\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":2,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:03.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies.len(), 2);
     let sa = result
         .studies
@@ -487,7 +487,7 @@ fn tc_101_11_trial_id_sequential() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:01.000000\"}\n",
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:02.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].total_trials, 3);
 }
 
@@ -499,7 +499,7 @@ fn tc_101_12_user_attr_numeric() {
         "{\"op_code\":8,\"worker_id\":\"w\",\"trial_id\":0,\"user_attr\":{\"loss\":0.123}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0]
         .user_attr_names
         .contains(&"loss".to_string()));
@@ -513,7 +513,7 @@ fn tc_101_13_user_attr_string() {
         "{\"op_code\":8,\"worker_id\":\"w\",\"trial_id\":0,\"user_attr\":{\"tag\":\"run_a\"}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0]
         .user_attr_names
         .contains(&"tag".to_string()));
@@ -527,7 +527,7 @@ fn tc_101_14_constraints_expansion() {
         "{\"op_code\":9,\"worker_id\":\"w\",\"trial_id\":0,\"system_attr\":{\"constraints\":[-0.5,0.3]}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].has_constraints);
 }
 
@@ -539,7 +539,7 @@ fn tc_101_15_constraints_all_feasible() {
         "{\"op_code\":9,\"worker_id\":\"w\",\"trial_id\":0,\"system_attr\":{\"constraints\":[-1.0,-0.5,0.0]}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].has_constraints);
     assert_eq!(result.studies[0].completed_trials, 1);
 }
@@ -551,14 +551,14 @@ fn tc_101_16_multi_objective_values() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.1,0.9],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].objective_names.len(), 2);
 }
 
 #[test]
 fn tc_101_17_duration_ms_returned() {
     let data = to_bytes(r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#);
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.duration_ms >= 0.0);
 }
 
@@ -615,7 +615,7 @@ fn tc_101_e06_all_trials_not_complete() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].completed_trials, 0);
     assert_eq!(result.studies[0].total_trials, 2);
 }
@@ -628,7 +628,7 @@ fn tc_101_e07_distributed_optimization_overwrite() {
         "{\"op_code\":6,\"worker_id\":\"w1\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w2\",\"trial_id\":0,\"state\":1,\"values\":[0.3],\"datetime_complete\":\"2024-01-01T00:00:02.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].completed_trials, 1);
 }
 
@@ -643,7 +643,7 @@ fn tc_101_b01_empty_file() {
 #[test]
 fn tc_101_b02_study_only_no_trials() {
     let data = to_bytes(r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#);
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies.len(), 1);
     assert_eq!(result.studies[0].completed_trials, 0);
 }
@@ -656,7 +656,7 @@ fn tc_101_b03_categorical_boundary_indices() {
         "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"cat\",\"param_value_internal\":0.0,\"distribution\":{\"name\":\"CategoricalDistribution\",\"choices\":[\"a\",\"b\",\"c\"]}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert!(result.studies[0].param_names.contains(&"cat".to_string()));
 }
 
@@ -667,7 +667,7 @@ fn tc_101_b07_minimal_journal() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].completed_trials, 1);
 }
 
@@ -683,7 +683,7 @@ fn tc_101_p01_performance_50000_lines() {
     }
     let data = lines.join("\n").into_bytes();
 
-    let result = parse_journal(&data).expect("50,000 translated");
+    let result = parse_journal(&data).expect("50,000-line journal should parse successfully");
 
     assert_eq!(result.studies[0].completed_trials, 50_000);
 }
@@ -788,7 +788,7 @@ fn parse_real_log_format_param_values() {
         "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x1\",\"param_value_internal\":17.43,\"distribution\":\"{\\\"name\\\": \\\"FloatDistribution\\\", \\\"attributes\\\": {\\\"step\\\": 0.01, \\\"low\\\": -32.77, \\\"high\\\": 32.77, \\\"log\\\": false}}\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[21.64],\"datetime_complete\":\"2026-03-28T11:58:48.612043\"}\n"
     ));
-    let result = parse_journal(&data).expect("translated");
+    let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies[0].completed_trials, 1);
     assert!(result.studies[0].param_names.contains(&"x0".to_string()));
     assert!(result.studies[0].param_names.contains(&"x1".to_string()));
@@ -889,34 +889,47 @@ fn parse_real_log_file() {
         eprintln!("test.log not found at {:?}, skipping", log_path);
         return;
     }
-    let data = std::fs::read(&log_path).expect("test.log translated");
-    let result = parse_journal(&data).expect("test.log translated");
+    let data = std::fs::read(&log_path).expect("test.log should be readable");
+    let result = parse_journal(&data).expect("test.log should parse successfully");
 
-    assert!(result.studies.len() >= 2, "translated 2 Study translated");
+    assert!(
+        result.studies.len() >= 2,
+        "test.log should contain at least 2 studies"
+    );
 
     let ackley = &result.studies[0];
-    assert!(ackley.completed_trials > 0, "Ackley translated");
+    assert!(
+        ackley.completed_trials > 0,
+        "Ackley study should have completed trials"
+    );
     assert_eq!(
         ackley.param_names.len(),
         10,
-        "Ackley translated 10 parameter"
+        "Ackley study should have 10 params"
     );
     for i in 0..10 {
         let name = format!("Ackley_Variable{i}");
         assert!(
             ackley.param_names.contains(&name),
-            "Ackley translated {name} translated"
+            "Ackley study should contain param {name}"
         );
     }
 
     let dtlz = &result.studies[1];
-    assert!(dtlz.completed_trials > 0, "DTLZ1 translated");
-    assert_eq!(dtlz.param_names.len(), 10, "DTLZ1 translated 10 parameter");
+    assert!(
+        dtlz.completed_trials > 0,
+        "DTLZ1 study should have completed trials"
+    );
+    assert_eq!(
+        dtlz.param_names.len(),
+        10,
+        "DTLZ1 study should have 10 params"
+    );
     for i in 0..10 {
         let name = format!("DTLZ1_Variable{i}");
         assert!(
             dtlz.param_names.contains(&name),
-            "DTLZ1 translated {name} translated"
+            "DTLZ1 study should contain param {name}"
         );
     }
 
@@ -926,16 +939,19 @@ fn parse_real_log_file() {
         assert_eq!(
             param_cols.len(),
             10,
-            "Ackley DataFrame translated 10 parametertranslated"
+            "Ackley DataFrame should have 10 param columns"
         );
         let col = df
             .get_numeric_column("Ackley_Variable0")
-            .expect("translated");
+            .expect("Ackley_Variable0 column should exist");
         assert!(
             col[0].abs() > 1e-10,
-            "Ackley_Variable0 translated: {}",
+            "Ackley_Variable0 should be non-zero: {}",
             col[0]
         );
     });
-    assert!(df_check.is_some(), "DataFrame translated");
+    assert!(
+        df_check.is_some(),
+        "DataFrame for study 0 should be accessible"
+    );
 }

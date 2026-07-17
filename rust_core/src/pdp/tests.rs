@@ -46,13 +46,13 @@ fn tc_803_01_pdp_monotone_positive() {
 
     let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 10);
 
-    assert_eq!(result.grid.len(), 10, "translated 10 translated");
-    assert_eq!(result.values.len(), 10, "PDPtranslated 10 translated");
+    assert_eq!(result.grid.len(), 10, "grid should have 10 points");
+    assert_eq!(result.values.len(), 10, "PDP values should have 10 points");
 
     for i in 0..result.values.len() - 1 {
         assert!(
             result.values[i] < result.values[i + 1],
-            "PDP[{}]={} translated PDP[{}]={} translated（translated）",
+            "PDP[{}]={} should be less than PDP[{}]={} (monotone increasing)",
             i,
             result.values[i],
             i + 1,
@@ -73,7 +73,7 @@ fn tc_803_02_pdp_monotone_negative() {
     for i in 0..result.values.len() - 1 {
         assert!(
             result.values[i] > result.values[i + 1],
-            "PDP[{}]={} translated PDP[{}]={} translated（translated）",
+            "PDP[{}]={} should be greater than PDP[{}]={} (monotone decreasing)",
             i,
             result.values[i],
             i + 1,
@@ -96,7 +96,7 @@ fn tc_803_03_pdp_midpoint_equals_ymean() {
     let tolerance = (y_mean.abs() + 0.01) * 0.05;
     assert!(
         (mid_val - y_mean).abs() < tolerance,
-        "translatedPDPtranslated {} translated y_mean {} translated ±5% translated",
+        "PDP midpoint {} should be within ±5% of y_mean {}",
         mid_val,
         y_mean
     );
@@ -113,7 +113,7 @@ fn tc_803_04_pdp_r_squared_high_for_linear() {
 
     assert!(
         result.r_squared > 0.99,
-        "translated R² {} translated 0.99 translated",
+        "R² {} should exceed 0.99 for linear data",
         result.r_squared
     );
 }
@@ -126,12 +126,9 @@ fn tc_803_05_empty_data_returns_empty() {
 
     let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 10);
 
-    assert!(result.grid.is_empty(), "n<2 translated");
-    assert!(result.values.is_empty(), "n<2 translated");
-    assert_eq!(
-        result.r_squared, 0.0,
-        "n<2 translated R² translated 0.0 translated"
-    );
+    assert!(result.grid.is_empty(), "grid should be empty for n<2");
+    assert!(result.values.is_empty(), "values should be empty for n<2");
+    assert_eq!(result.r_squared, 0.0, "R² should be 0.0 for n<2");
 }
 
 #[test]
@@ -141,11 +138,11 @@ fn tc_803_06_pdp_2d_grid_shape() {
 
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 8);
 
-    assert_eq!(result.x_values.len(), 8, "x_values translated 8 translated");
-    assert_eq!(result.y_values.len(), 8, "y_values translated 8 translated");
-    assert_eq!(result.z_values.len(), 8, "z_values translated 8 translated");
+    assert_eq!(result.x_values.len(), 8, "x_values should have 8 points");
+    assert_eq!(result.y_values.len(), 8, "y_values should have 8 points");
+    assert_eq!(result.z_values.len(), 8, "z_values should have 8 rows");
     for row in &result.z_values {
-        assert_eq!(row.len(), 8, "z_values translated 8 translated");
+        assert_eq!(row.len(), 8, "each z_values row should have 8 points");
     }
 }
 
@@ -159,15 +156,15 @@ fn tc_803_07_pdp_2d_empty_data() {
 
     assert!(
         result.x_values.is_empty(),
-        "n<2 translated x_values translated"
+        "x_values should be empty for n<2"
     );
     assert!(
         result.y_values.is_empty(),
-        "n<2 translated y_values translated"
+        "y_values should be empty for n<2"
     );
     assert!(
         result.z_values.is_empty(),
-        "n<2 translated z_values translated"
+        "z_values should be empty for n<2"
     );
 }
 
@@ -180,7 +177,7 @@ fn tc_803_08_pdp_2d_r_squared() {
 
     assert!(
         result.r_squared > 0.95,
-        "translated 2parameterPDP R² {} translated 0.95 translated",
+        "2-parameter PDP R² {} should exceed 0.95",
         result.r_squared
     );
 }
@@ -192,13 +189,10 @@ fn tc_803_09_result_names() {
 
     let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj_target", 0, 5);
 
-    assert_eq!(
-        result.param_name, "x1",
-        "param_name translated 'x1' translated"
-    );
+    assert_eq!(result.param_name, "x1", "param_name should be 'x1'");
     assert_eq!(
         result.objective_name, "obj_target",
-        "objective_name translated 'obj_target' translated"
+        "objective_name should be 'obj_target'"
     );
 }
 
@@ -224,7 +218,7 @@ fn tc_803_p01_pdp_1d_performance() {
 
     let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 20);
 
-    assert_eq!(result.grid.len(), 20, "translated 20 translated");
+    assert_eq!(result.grid.len(), 20, "grid should have 20 points");
 }
 
 #[test]
@@ -249,15 +243,11 @@ fn tc_803_p02_pdp_2d_performance() {
 
     let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 15);
 
-    assert_eq!(
-        result.z_values.len(),
-        15,
-        "z_values translated 15 translated"
-    );
+    assert_eq!(result.z_values.len(), 15, "z_values should have 15 rows");
     assert_eq!(
         result.z_values[0].len(),
         15,
-        "z_values translated 15 translated"
+        "each z_values row should have 15 points"
     );
 }
 

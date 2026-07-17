@@ -42,7 +42,7 @@ mod tests {
         let result = crate::dataframe::with_active_df(|_df| 42usize);
         assert!(
             result.is_none(),
-            "translated Study translated None translated"
+            "with_active_df should return None when no study is active"
         );
     }
 

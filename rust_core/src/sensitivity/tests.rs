@@ -21,7 +21,7 @@ fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
     let obj_names: Vec<String> = objs.iter().map(|s| s.to_string()).collect();
     let df = DataFrame::from_trials(&rows, &param_names, &obj_names, &[], &[], 0);
     store_dataframes(vec![df.clone()]);
-    select_study(0).expect("study 0 translated");
+    select_study(0).expect("study 0 should be selectable");
     df
 }
 
@@ -34,7 +34,7 @@ fn tc_801_01_spearman_perfect_positive() {
 
     assert!(
         (r - 1.0).abs() < 1e-9,
-        "translatedSpearmantranslated1.0translated: {}",
+        "Spearman correlation should be ~1.0: {}",
         r
     );
 }
@@ -48,7 +48,7 @@ fn tc_801_02_spearman_perfect_negative() {
 
     assert!(
         (r + 1.0).abs() < 1e-9,
-        "translatedSpearmantranslated-1.0translated: {}",
+        "Spearman correlation should be ~-1.0: {}",
         r
     );
 }
@@ -63,7 +63,7 @@ fn tc_801_03_spearman_known_example() {
     let expected = 13.0 / 35.0;
     assert!(
         (r - expected).abs() < 1e-9,
-        "Spearmantranslated: expected={}, got={}",
+        "Spearman correlation mismatch: expected={}, got={}",
         expected,
         r
     );
@@ -76,7 +76,11 @@ fn tc_801_04_spearman_tied_ranks() {
 
     let r = compute_spearman(&x, &y);
 
-    assert!(r > 0.9, "translated: {}", r);
+    assert!(
+        r > 0.9,
+        "Spearman correlation should be positive for tied ranks: {}",
+        r
+    );
 }
 
 #[test]
@@ -84,8 +88,11 @@ fn tc_801_05_spearman_n_less_than_2_returns_zero() {
     let r1 = compute_spearman(&[], &[]);
     let r2 = compute_spearman(&[1.0], &[1.0]);
 
-    assert_eq!(r1, 0.0, "translated0.0translated");
-    assert_eq!(r2, 0.0, "n=1translated0.0translated");
+    assert_eq!(
+        r1, 0.0,
+        "Spearman correlation should be 0.0 for empty input"
+    );
+    assert_eq!(r2, 0.0, "Spearman correlation should be 0.0 for n=1");
 }
 
 #[test]
@@ -161,7 +168,7 @@ fn tc_801_06_ridge_perfect_linear_r_squared_near_1() {
 
     assert!(
         result.r_squared > 0.99,
-        "translatedR²translated1.0translated: {}",
+        "R² should be ~1.0 for perfect linear fit: {}",
         result.r_squared
     );
 }
@@ -176,7 +183,7 @@ fn tc_801_07_ridge_beta_sign_correct() {
 
     assert!(
         result.beta[0] > 0.0,
-        "translatedβ>0translated: {}",
+        "beta should be positive: {}",
         result.beta[0]
     );
 }
@@ -189,10 +196,10 @@ fn tc_801_08_ridge_two_params_identifies_stronger() {
 
     let result = compute_ridge_from_vecs(&x_matrix, &y, 0.01);
 
-    assert_eq!(result.beta.len(), 2, "βtranslated2translated");
+    assert_eq!(result.beta.len(), 2, "beta should have 2 entries");
     assert!(
         result.beta[0].abs() > result.beta[1].abs(),
-        "x1translatedx2translated: beta={:?}",
+        "x1 beta should exceed x2 beta: beta={:?}",
         result.beta
     );
 }
@@ -202,8 +209,8 @@ fn tc_801_09_ridge_empty_returns_zero_r_squared() {
     let empty: Vec<Vec<f64>> = vec![];
     let result = compute_ridge_from_vecs(&empty, &[], 1.0);
 
-    assert_eq!(result.beta.len(), 0, "translatedβtranslated");
-    assert_eq!(result.r_squared, 0.0, "translatedR²=0.0");
+    assert_eq!(result.beta.len(), 0, "beta should be empty for empty input");
+    assert_eq!(result.r_squared, 0.0, "R² should be 0.0 for empty input");
 }
 
 #[test]

@@ -796,7 +796,7 @@ impl TunnyApp {
     /// If `build_compute_definition` / `prepare_gh_run` fails, the error is put in
     /// `dialog.error` and sent back to `gh_opt_dialog`, keeping the modal open.
     ///
-    /// The Compute target is either a URL (an existing server) or an rhino.compute EXE
+    /// The Compute target is either a URL (an existing server) or a rhino.compute EXE
     /// path. For the EXE case, starting the process takes time, so process launch and
     /// waiting also happen on the background task side (the progress overlay shows
     /// "Starting…").
