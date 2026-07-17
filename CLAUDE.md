@@ -1,44 +1,39 @@
 # Tunny Dashboard
 
-Optuna 最適化結果分析のための Rust egui デスクトップアプリ。
+A Rust egui desktop app for analyzing Optuna optimization results.
 
-## 実装分担
+## Language
 
-適切にAgentを使った作業分担を行いトークン管理を行うこと。
+Code comments, commit messages, and PRs must always be written in English.
 
-- 設計、実装やレビューなどの困難な作業
-  - FableやOpusが担当
-- 機械的な作業
-  - Sonnetが担当
+## Development Commands
 
-## 開発コマンド
-
-### ビルド
+### Build
 
 ```bash
-# ワークスペース全体ビルド
+# Build the entire workspace
 cargo build --workspace
 
-# リリースビルド
+# Release build
 cargo build --workspace --release
 ```
 
-### テスト実行
+### Run Tests
 
 ```bash
-# 全テスト実行
+# Run all tests
 cargo test --workspace
 
-# rust_core のみ
+# rust_core only
 cargo test -p tunny-core
 
-# egui-app のみ
+# egui-app only
 cargo test -p tunny-desktop
 ```
 
-### 静的解析
+### Static Analysis
 
-コミット前には必ず確認すること。CI と同条件で実行する（`--all-targets` がないとテストコードが clippy の対象外になる）。
+Always run these before committing. Run them under the same conditions as CI (`--all-targets` is required so that test code is also covered by clippy).
 
 ```bash
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -48,13 +43,13 @@ cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 cargo fmt -p tunny-mcp -- --check
 ```
 
-### アプリケーション実行
+### Run the Application
 
 ```bash
 cargo run -p tunny-desktop
 ```
 
-### ベンチマーク
+### Benchmark
 
 ```bash
 cargo bench -p tunny-core
