@@ -394,7 +394,8 @@ pub struct GhOptDialogState {
     /// Output journal path (default: "<stem>_optuna.log" in the same directory as the ghx).
     pub journal_path: String,
     /// true = launch a local rhino.compute EXE (the Dashboard starts/stops the
-    /// process), false = connect to an already-running server URL (default).
+    /// process; default), false = connect to an already-running server URL.
+    /// EXE mode is the default because the app can manage the whole lifecycle.
     pub compute_use_exe: bool,
     /// Server URL used when `compute_use_exe` is false (default "http://localhost:6500").
     /// A pasted EXE path is still tolerated here (classified on run).
@@ -448,7 +449,7 @@ impl GhOptDialogState {
             maximize,
             study_name,
             journal_path,
-            compute_use_exe: false,
+            compute_use_exe: true,
             compute_url: "http://localhost:6500".to_string(),
             compute_exe_path: String::new(),
             compute_port: 6500,
@@ -541,7 +542,7 @@ mod tests {
         assert_eq!(state.study_name.len(), "model-".len() + 6);
         // journal_path: "<stem>_optuna.log" in the same directory as the ghx
         assert_eq!(state.journal_path, "/tmp/some_dir/model_optuna.log");
-        assert!(!state.compute_use_exe);
+        assert!(state.compute_use_exe);
         assert_eq!(state.compute_url, "http://localhost:6500");
         assert_eq!(state.compute_exe_path, "");
         assert_eq!(state.compute_port, 6500);

@@ -129,8 +129,8 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
             // ── Rhino.Compute connection settings ────────────────────────────────
             ui.label(RichText::new("Rhino.Compute").strong());
             ui.horizontal(|ui| {
-                ui.radio_value(&mut state.compute_use_exe, false, "Server URL");
                 ui.radio_value(&mut state.compute_use_exe, true, "Launch EXE");
+                ui.radio_value(&mut state.compute_use_exe, false, "Server URL");
             });
             if state.compute_use_exe {
                 ui.horizontal(|ui| {
