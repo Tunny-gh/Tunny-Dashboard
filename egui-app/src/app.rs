@@ -645,7 +645,7 @@ impl TunnyApp {
     fn open_path(&mut self, path: std::path::PathBuf) {
         // .ghx is separate from the existing journal/CSV/SQLite/RDB scan path (it's an
         // optimization problem definition, not a result store). Route it through the
-        // same handling as D&D (`handle_ghx_drop`), and open the optimization setup
+        // same handling as D&D (`handle_dropped_files`), and open the optimization setup
         // modal once extraction succeeds.
         if crate::io::file::is_ghx_path(&path) {
             self.open_ghx_path(path);
@@ -729,25 +729,71 @@ impl TunnyApp {
         }
     }
 
-    // ── .ghx D&D -> optimization setup modal -> background run ─────────
+    // ── File D&D (.ghx -> optimization setup modal, storage -> open) ────
 
-    /// Accepts drag & drop of a .ghx file.
-    /// If multiple files are dropped, only the first one with a `.ghx` extension
-    /// (case-insensitive) is handled. Other extensions are ignored, keeping the
-    /// existing unimplemented D&D behavior unchanged (no conflict).
-    fn handle_ghx_drop(&mut self, ctx: &egui::Context) {
+    /// Accepts drag & drop of files. Works on every screen, including the
+    /// startup guidance screen (drops are read from the raw input every frame).
+    ///
+    /// - A `.ghx` file opens the Grasshopper optimization setup modal
+    ///   (if several files are dropped, the first `.ghx` wins).
+    /// - Otherwise, the first recognized result storage file
+    ///   (journal / SQLite / CSV) is routed to the normal open flow.
+    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.clone());
-        let ghx_path = dropped
-            .into_iter()
-            .find_map(|f| f.path.filter(|p| crate::io::file::is_ghx_path(p)));
-        if let Some(path) = ghx_path {
-            self.open_ghx_path(path);
+        if dropped.is_empty() {
+            return;
         }
+        if let Some(path) = dropped
+            .iter()
+            .filter_map(|f| f.path.clone())
+            .find(|p| crate::io::file::is_ghx_path(p))
+        {
+            self.open_ghx_path(path);
+            return;
+        }
+        if let Some(path) = dropped
+            .into_iter()
+            .filter_map(|f| f.path)
+            .find(|p| crate::io::file::is_storage_path(p))
+        {
+            self.open_path(path);
+        }
+    }
+
+    /// While files are being dragged over the window, dims the screen and shows
+    /// what will happen on drop (Grasshopper optimization for .ghx, normal open
+    /// for storage files). This makes the always-available drop target visible.
+    fn show_drop_hover_overlay(&self, ctx: &egui::Context) {
+        let hovered: Vec<_> = ctx.input(|i| i.raw.hovered_files.clone());
+        if hovered.is_empty() {
+            return;
+        }
+        let has_ghx = hovered
+            .iter()
+            .any(|f| f.path.as_deref().is_some_and(crate::io::file::is_ghx_path));
+        let text = if has_ghx {
+            "Drop to set up Grasshopper optimization"
+        } else {
+            "Drop to open"
+        };
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("file_drop_overlay"),
+        ));
+        let rect = ctx.content_rect();
+        painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(120));
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            text,
+            egui::FontId::proportional(22.0),
+            egui::Color32::WHITE,
+        );
     }
 
     /// Loads a .ghx, and if problem extraction (synchronous, fast) succeeds, opens the
     /// optimization setup modal. Shared handling called both from D&D
-    /// (`handle_ghx_drop`) and the .ghx path in `open_path`.
+    /// (`handle_dropped_files`) and the .ghx path in `open_path`.
     fn open_ghx_path(&mut self, path: std::path::PathBuf) {
         match std::fs::read_to_string(&path) {
             Ok(text) => match tunny_core::gh::extract_problem(&text) {
@@ -1213,7 +1259,7 @@ impl eframe::App for TunnyApp {
 
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
-        self.handle_ghx_drop(ctx);
+        self.handle_dropped_files(ctx);
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
         let cap = &mut self.widget_states.capture;
@@ -1277,6 +1323,7 @@ impl eframe::App for TunnyApp {
         self.show_report_dialog(&ctx);
         self.show_ghx_opt_dialog(&ctx);
         self.show_ghx_opt_overlay(&ctx);
+        self.show_drop_hover_overlay(&ctx);
         crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);
     }
 }

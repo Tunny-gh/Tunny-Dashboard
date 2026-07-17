@@ -81,6 +81,18 @@ pub fn is_ghx_path(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("ghx"))
 }
 
+/// Determines whether the path looks like an openable result storage file
+/// (Optuna journal / SQLite / DesignExplorer CSV). Used by drag-and-drop to
+/// decide whether a dropped non-.ghx file should be routed to the normal
+/// open flow. The extension set matches `open_file_dialog`'s filter.
+pub fn is_storage_path(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["log", "journal", "csv", "db", "sqlite", "sqlite3"]
+            .iter()
+            .any(|ext| e.eq_ignore_ascii_case(ext))
+    })
+}
+
 /// Reads a file as a byte buffer.
 pub fn read_journal_file(path: &PathBuf) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| e.to_string())
