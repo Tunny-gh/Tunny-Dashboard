@@ -10,22 +10,22 @@ use crate::ui::widgets::cluster_scatter::{
 };
 use crate::ui::widgets::common::cluster_controls::ClusterControls;
 
-/// クラスタ割当テーブルウィジェット。
-/// クラスタリング結果（各トライアルがどのクラスタに属するか）を一覧表示する。
-/// 行クリックでハイライト、📌 でピン留めが可能（TrialTable と同じ操作感）。
+/// The cluster assignment table widget.
+/// Lists the clustering result (which cluster each trial belongs to).
+/// Rows can be highlighted by clicking and pinned via 📌 (the same feel as TrialTable).
 ///
-/// 2D / 3D と同様に独自のクラスタリング設定（k / 対象空間 / モード / Init）を持ち、
-/// 結果は設定キーごとに `app_state.cluster_cache` で共有・キャッシュされる。
+/// Like 2D / 3D, it has its own clustering settings (k / target space / mode / Init),
+/// and results are shared/cached per settings key in `app_state.cluster_cache`.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ClusterTable {
-    /// クラスタリング対象外（パレートフロント以外）の解も表示するか
+    /// Whether to also show solutions outside the clustering target (non-Pareto-front)
     pub show_unclustered: bool,
     pub k: usize,
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
-    /// Elbow（自動）モードで探索する k の上限。
+    /// Upper bound of k searched in Elbow (automatic) mode.
     pub elbow_max_k: usize,
     #[serde(skip)]
     pub computing: bool,
@@ -52,7 +52,7 @@ impl Default for ClusterTable {
 }
 
 impl ClusterTable {
-    /// 現在の設定に対応するキャッシュキーを返す。
+    /// Returns the cache key corresponding to the current settings.
     pub fn cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(
             self.target_space,
@@ -63,7 +63,7 @@ impl ClusterTable {
         )
     }
 
-    /// テーブルを描画する
+    /// Renders the table
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState, colormap: &ColorMap) {
         let Some(study_ctx) = app_state.current_study.as_ref() else {
             ui.centered_and_justified(|ui| {
@@ -74,7 +74,8 @@ impl ClusterTable {
 
         let view = &study_ctx.view;
         let n = view.row_count();
-        // クラスタリング対象はパレートフロント（pareto_rank == 0）の解数で判定する。
+        // The clustering target is determined by the count of Pareto-front solutions
+        // (pareto_rank == 0).
         let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
 
         self.show_controls(ui, pareto_count);
@@ -114,12 +115,12 @@ impl ClusterTable {
             return;
         }
 
-        // クラスタ別件数を集計（label < 0 は未クラスタ）
+        // Aggregate counts per cluster (label < 0 means unclustered)
         let counts = cluster_counts(&cr.labels);
 
         self.show_header(ui, cr, &counts);
 
-        // 表示対象の行インデックスを決定（クラスタ順 → trial 順）
+        // Determine the row indices to display (cluster order -> trial order)
         let visible = visible_indices(&cr.labels, self.show_unclustered);
         if visible.is_empty() {
             ui.centered_and_justified(|ui| {
@@ -156,11 +157,12 @@ impl ClusterTable {
         let mut clicked_trial: Option<u32> = None;
         let mut pin_toggled: Option<u32> = None;
 
-        // パラメータ・目的を 1 列ずつに展開し、横スクロール可能にする。
-        // egui_extras の Table は横スクロールを内蔵しないため、固定幅カラムを
-        // 水平 ScrollArea でラップして全列を 1 セルにまとめず個別表示する。
+        // Expand parameters and objectives into one column each, allowing horizontal
+        // scrolling. egui_extras's Table has no built-in horizontal scroll, so wrap
+        // fixed-width columns in a horizontal ScrollArea and display every column
+        // individually instead of cramming them into one cell.
         egui::ScrollArea::horizontal().show(ui, |ui| {
-            // ストライプの色を強調して偶数/奇数行を見分けやすくする。
+            // Emphasize the stripe color to make it easy to tell even/odd rows apart.
             ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
@@ -168,8 +170,8 @@ impl ClusterTable {
                 .column(Column::exact(30.0)) // Pin column
                 .column(Column::initial(70.0).at_least(50.0)) // Cluster
                 .column(Column::initial(70.0).at_least(50.0)) // Trial ID
-                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
-                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
+                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // per variable
+                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // per objective
                 .column(Column::initial(90.0).at_least(50.0)) // Pareto Rank
                 .header(20.0, |mut header| {
                     header.col(|ui| {
@@ -290,7 +292,8 @@ impl ClusterTable {
         });
     }
 
-    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    /// Assembles a bundle of mutable references to the settings/running-state fields
+    /// (for delegating to shared logic).
     fn controls(&mut self) -> ClusterControls<'_> {
         ClusterControls {
             k: &mut self.k,
@@ -304,8 +307,8 @@ impl ClusterTable {
         }
     }
 
-    /// クラスタリング設定 UI（k / モード / 空間 / Init / Run）を描画する。
-    /// 2D の ClusterScatter::show_header と同じ操作感。
+    /// Renders the clustering settings UI (k / mode / space / Init / Run).
+    /// Same feel as 2D's ClusterScatter::show_header.
     fn show_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
         self.controls()
             .show_controls(ui, pareto_count, "cluster_table", true);
@@ -326,9 +329,10 @@ impl ClusterTable {
         self.last_error = None;
     }
 
-    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
-    /// 計算結果は `app_state.cluster_cache` に集約されるため、キャンバスの各アイテム
-    /// （独立した WidgetStates）にも完了状態を反映する。表示用設定は維持する。
+    /// Pulls in the shared clustering running state (computing / pending / error).
+    /// Since compute results are aggregated into `app_state.cluster_cache`, reflect the
+    /// completion state into every canvas item (an independent WidgetStates) too. Keeps
+    /// display settings as-is.
     pub fn adopt_runtime_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.pending_compute = src.pending_compute.clone();
@@ -336,7 +340,7 @@ impl ClusterTable {
     }
 }
 
-/// クラスタ別の件数を集計する（キー: ラベル、値: 件数。-1 は未クラスタ）。
+/// Aggregates the count per cluster (key: label, value: count. -1 means unclustered).
 fn cluster_counts(labels: &[i32]) -> BTreeMap<i32, usize> {
     let mut counts: BTreeMap<i32, usize> = BTreeMap::new();
     for &label in labels {
@@ -345,8 +349,8 @@ fn cluster_counts(labels: &[i32]) -> BTreeMap<i32, usize> {
     counts
 }
 
-/// 表示対象の行インデックスを「クラスタ順 → trial 順」で返す。
-/// `show_unclustered` が false の場合、label < 0 の行は除外する。
+/// Returns the row indices to display, in "cluster order -> trial order."
+/// If `show_unclustered` is false, rows with label < 0 are excluded.
 fn visible_indices(labels: &[i32], show_unclustered: bool) -> Vec<usize> {
     let mut indices: Vec<usize> = (0..labels.len())
         .filter(|&i| {
@@ -354,7 +358,7 @@ fn visible_indices(labels: &[i32], show_unclustered: bool) -> Vec<usize> {
             show_unclustered || label >= 0
         })
         .collect();
-    // 未クラスタ（-1）は末尾にまとめるため、ソートキーを (sort_label, index) とする。
+    // Group unclustered (-1) at the end, so use (sort_label, index) as the sort key.
     indices.sort_by_key(|&i| {
         let label = labels[i];
         let sort_label = if label < 0 { i32::MAX } else { label };
@@ -387,7 +391,7 @@ mod tests {
     fn visible_indices_excludes_unclustered_by_default() {
         let labels = vec![0, -1, 1, -1, 0];
         let visible = visible_indices(&labels, false);
-        // -1 のインデックス 1, 3 は除外される
+        // Indices 1, 3 with -1 are excluded
         assert_eq!(visible, vec![0, 4, 2]);
     }
 
@@ -395,7 +399,7 @@ mod tests {
     fn visible_indices_includes_unclustered_when_requested() {
         let labels = vec![0, -1, 1, -1, 0];
         let visible = visible_indices(&labels, true);
-        // クラスタ順 (0,0,1) のあとに未クラスタ (-1,-1) が続く
+        // Cluster order (0,0,1) is followed by unclustered (-1,-1)
         assert_eq!(visible, vec![0, 4, 2, 1, 3]);
     }
 

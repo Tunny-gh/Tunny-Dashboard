@@ -2,22 +2,22 @@ use crate::math::rng::SeededRng;
 use crate::sensitivity::data::sample_rows;
 use std::sync::Arc;
 
-/// `PreparedData::split` の戻り値型
+/// Return type of `PreparedData::split`
 type SplitData<'a> = (&'a [Vec<f64>], &'a [Vec<f64>], &'a [f64], &'a [f64]);
 
-/// NaN/Inf フィルタリング・ダウンサンプリング・シャッフル・ホールドアウト分割の結果
+/// Result of NaN/Inf filtering, downsampling, shuffling, and holdout splitting
 pub(crate) struct PreparedData {
     pub x_shuffled: Arc<Vec<Vec<f64>>>,
     pub y_shuffled: Vec<f64>,
-    /// x_shuffled[..split_idx] が訓練データ、[split_idx..] が評価データ
+    /// x_shuffled[..split_idx] is the training data, [split_idx..] is the eval data
     pub split_idx: usize,
-    /// false の場合は train == eval（データが少なすぎる場合）
+    /// If false, train == eval (too little data)
     pub use_holdout: bool,
 }
 
 impl PreparedData {
-    /// (x_train, x_eval, y_train, y_eval) を返す。
-    /// use_holdout が false の場合は train と eval が同じスライスを指す。
+    /// Returns (x_train, x_eval, y_train, y_eval).
+    /// If use_holdout is false, train and eval point to the same slice.
     pub(crate) fn split(&self) -> SplitData<'_> {
         let x = self.x_shuffled.as_slice();
         if self.use_holdout {
@@ -33,7 +33,7 @@ impl PreparedData {
     }
 }
 
-/// 80/20 ホールドアウト分割パラメータ (use_holdout, split_idx) を計算する。
+/// Computes the 80/20 holdout split parameters (use_holdout, split_idx).
 fn compute_split(n: usize) -> (bool, usize) {
     const MIN_EVAL: usize = 2;
     const MIN_TRAIN: usize = 2;
@@ -46,8 +46,8 @@ fn compute_split(n: usize) -> (bool, usize) {
     (use_holdout, split_idx)
 }
 
-/// NaN/Inf フィルタリング、ダウンサンプリング、シャッフル、ホールドアウト分割を一括実行する。
-/// 有効行数が 2 未満の場合は `None` を返す。
+/// Runs NaN/Inf filtering, downsampling, shuffling, and holdout splitting in one pass.
+/// Returns `None` if the number of valid rows is fewer than 2.
 pub(crate) fn prepare_training_data(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -98,8 +98,8 @@ pub(crate) fn prepare_training_data(
     })
 }
 
-/// 指定列を Fisher-Yates シャッフルでインプレース置換する。
-/// 呼び出し元は必要に応じて事前に元の列値を退避し、処理後に復元すること。
+/// Replaces the specified column in place via a Fisher-Yates shuffle.
+/// Callers should save the original column values beforehand if needed and restore them afterward.
 pub(crate) fn permute_column_inplace(matrix: &mut [Vec<f64>], feature_idx: usize, seed: u64) {
     let n = matrix.len();
     if n == 0 {
@@ -154,14 +154,15 @@ where
     }
 }
 
-/// 値を合計で正規化する。合計が 0 以下の場合は全要素を 0.0 にする。
+/// Normalizes values by their sum. If the sum is <= 0, sets all elements to 0.0.
 ///
-/// NOTE: `mcdm::normalize_weights` とは意図的に異なる規約。あちらは退化時
-/// （合計が非有限または 0 以下）に一様分布 `1/n` へフォールバックするが、
-/// ここでの入力は特徴量重要度であり、合計 0 は「木が分割を作れず、
-/// どの特徴量も重要度を持たない」ことを意味する。一様分布にすり替えると
-/// 「全特徴量が等しく重要」という偽の情報を伝えてしまうため、全要素 0.0
-/// （＝重要度なし）を返す方が呼び出し側の意味づけとして正しい。
+/// NOTE: This is deliberately a different convention from `mcdm::normalize_weights`.
+/// That one falls back to a uniform distribution `1/n` in the degenerate case
+/// (sum non-finite or <= 0), but the input here is feature importances, and a
+/// sum of 0 means "the tree could not make any splits, so no feature has any
+/// importance." Substituting a uniform distribution would falsely convey that
+/// "all features are equally important," so returning all-zero elements
+/// (i.e., no importance) is the semantically correct choice for callers.
 pub(crate) fn normalize(values: &mut [f64]) {
     let sum = values.iter().sum::<f64>();
     if sum < f64::EPSILON {

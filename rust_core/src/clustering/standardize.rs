@@ -1,17 +1,19 @@
-//! clustering 内共通の列 z-score 標準化ヘルパ。
+//! Shared column z-score standardization helper for the clustering module.
 //!
-//! hierarchical / som / pca で重複していた標準化処理の一本化。分散の
-//! 自由度補正が異なる（hierarchical・som は母分散 n、pca は不偏分散 n-1）
-//! ため `ddof` でパラメータ化する。
+//! Consolidates the standardization logic that was duplicated across
+//! hierarchical / som / pca. Since the variance's degrees-of-freedom
+//! correction differs (hierarchical and som use population variance n, pca
+//! uses sample variance n-1), it is parameterized via `ddof`.
 
-/// 各列を平均 0・分散 1 に in-place で標準化する。
+/// Standardizes each column in place to mean 0, variance 1.
 ///
-/// - `ddof`: 分散の自由度補正。0 なら母分散（分母 n）、1 なら不偏分散（分母 n-1）。
-/// - 標準偏差が 1e-12 以下の列（実質的に分散ゼロ）は全要素を 0 に写像する。
-/// - 戻り値は `(列平均, 列標準偏差)`。標準偏差は補正後の生の値を返す
-///   （分散ゼロ列でも 0 に丸めない。逆変換側で同じ閾値判定を行うこと）。
+/// - `ddof`: Degrees-of-freedom correction for variance. 0 for population variance (denominator n), 1 for sample variance (denominator n-1).
+/// - A column whose standard deviation is <= 1e-12 (effectively zero variance) has all its elements mapped to 0.
+/// - Returns `(column means, column standard deviations)`. The standard
+///   deviation is the raw post-correction value (not rounded to 0 even for a
+///   zero-variance column; the inverse-transform side must apply the same threshold check).
 ///
-/// 前提: 全行が同じ長さであること（呼び出し側で検証する）。
+/// Precondition: all rows must have the same length (validated by the caller).
 pub(super) fn standardize_columns(x: &mut [Vec<f64>], ddof: usize) -> (Vec<f64>, Vec<f64>) {
     let n = x.len();
     if n == 0 || x[0].is_empty() {
@@ -47,7 +49,7 @@ mod tests {
         let mut x = vec![vec![1.0], vec![2.0], vec![3.0]];
         let (means, stds) = standardize_columns(&mut x, 0);
         assert!((means[0] - 2.0).abs() < 1e-12);
-        // 母分散 = 2/3 → std = sqrt(2/3)
+        // Population variance = 2/3 -> std = sqrt(2/3)
         assert!((stds[0] - (2.0f64 / 3.0).sqrt()).abs() < 1e-12);
         let mean_after: f64 = x.iter().map(|r| r[0]).sum::<f64>() / 3.0;
         let var_after: f64 = x.iter().map(|r| (r[0] - mean_after).powi(2)).sum::<f64>() / 3.0;
@@ -59,7 +61,7 @@ mod tests {
     fn ddof_one_uses_sample_variance() {
         let mut x = vec![vec![1.0], vec![2.0], vec![3.0]];
         let (_, stds) = standardize_columns(&mut x, 1);
-        // 不偏分散 = 1.0 → std = 1.0
+        // Sample variance = 1.0 -> std = 1.0
         assert!((stds[0] - 1.0).abs() < 1e-12);
     }
 

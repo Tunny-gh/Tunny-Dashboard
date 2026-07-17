@@ -1,15 +1,17 @@
-//! Python (pymcdm) との PROMETHEE I/II クロスチェック用ハーネス。
+//! Cross-check harness against Python (pymcdm) for PROMETHEE I/II.
 //!
-//! Rust 実装 (rust_core/src/mcdm/promethee.rs) は線形選好関数 (V-shape, q=0)
-//! を使い、閾値 p_j は各目的の range_j (有効行内 max-min) の 0.2 倍を自動設定する。
-//! pymcdm 側は PROMETHEE_II('vshape', p=p_thresholds, q=None) で同じ閾値を渡す。
-//! p_j も出力するので、Python 側で改めて計算する必要はない。
+//! The Rust implementation (rust_core/src/mcdm/promethee.rs) uses a linear
+//! preference function (V-shape, q=0), and automatically sets each threshold p_j
+//! to 0.2 times the objective's range_j (max-min over valid rows).
+//! On the Python side, PROMETHEE_II('vshape', p=p_thresholds, q=None) is passed
+//! the same thresholds. p_j is also included in the output, so there is no need
+//! to recompute it on the Python side.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_promethee`
+//! Run: `cargo run -p tunny-core --example verify_promethee`
 
 use tunny_core::promethee::compute_promethee;
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {

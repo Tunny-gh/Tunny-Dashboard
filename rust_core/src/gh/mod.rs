@@ -1,16 +1,17 @@
-//! Grasshopper（.ghx）連携。
+//! Grasshopper (.ghx) integration.
 //!
-//! Tunny で最適化を構成した Grasshopper 定義（.ghx）から問題定義を抽出し、
-//! Rhino.Compute で実目的関数を評価しながら最適化を実行、試行を Optuna 互換
-//! journal に書き込む（ROADMAP フェーズ 2B・項目 15）。
+//! Extracts a problem definition from a Grasshopper definition (.ghx) that has
+//! optimization configured with Tunny, runs the optimization while evaluating
+//! the real objective function via Rhino.Compute, and writes trials to an
+//! Optuna-compatible journal (ROADMAP Phase 2B, item 15).
 //!
-//! パイプライン:
-//! 1. `problem::extract_problem` — .ghx から変数（スライダー）と目的を抽出
-//! 2. `compute_def::build_compute_definition` — RH_IN / RH_OUT を注入した
-//!    Compute 用定義を生成
-//! 3. `compute::ComputeEvaluator` — rhino.compute の /grasshopper で 1 試行を評価
-//! 4. `runner` — サンプラー（Random / NSGA-II）で最適化ループを回し、
-//!    journal に試行を記録（既存のライブ更新・全分析機能がそのまま効く）
+//! Pipeline:
+//! 1. `problem::extract_problem` — extracts variables (sliders) and objectives from the .ghx
+//! 2. `compute_def::build_compute_definition` — generates a Compute-ready definition
+//!    with RH_IN / RH_OUT injected
+//! 3. `compute::ComputeEvaluator` — evaluates one trial via rhino.compute's /grasshopper endpoint
+//! 4. `runner` — runs the optimization loop with a sampler (Random / NSGA-II),
+//!    recording trials to the journal (existing live-update and full analysis features work as-is)
 
 mod ghx;
 
@@ -31,12 +32,13 @@ pub use runner::{
     prepare_gh_run, run_prepared, GhRunConfig, GhRunSummary, GhSampler, PreparedGhRun,
 };
 
-/// テスト用の合成 .ghx フィクスチャ。
+/// Synthetic .ghx fixture for testing.
 ///
-/// 実ファイルの構造（Definition → DefinitionObjects → Object → Container …）を
-/// 最小限で再現する: スライダー 2 本（span / count）、出力パラメータ weight を
-/// 持つコンポーネント（Beam）、フローティング Number パラメータ disp、
-/// それらを Variables / Objectives 入力で受ける Tunny コンポーネント。
+/// Reproduces the structure of a real file (Definition -> DefinitionObjects ->
+/// Object -> Container ...) with the minimum needed: 2 sliders (span / count), a
+/// component (Beam) with an output parameter weight, a floating Number
+/// parameter disp, and a Tunny component that receives them via its Variables /
+/// Objectives inputs.
 #[cfg(test)]
 pub(crate) mod fixtures {
     pub fn sample_ghx() -> String {

@@ -5,16 +5,18 @@
 //! downstream code (UI, export, ...) does not need to distinguish the
 //! storage backend.
 //!
-//! クエリ組み立てロジック本体は `crate::io::rdb::generic` へ移動した
-//! （PostgreSQL / MySQL とロジックを共有するため）。このモジュールは
-//! `SqliteBackend` を開いて `rdb` 層へ委譲する薄い互換レイヤーであり、
-//! 公開関数のシグネチャ・戻り値型・エラー文言は移行前と同一に保つ。
+//! The core query-building logic has been moved to `crate::io::rdb::generic`
+//! (to share logic with PostgreSQL / MySQL). This module is now a thin
+//! compatibility layer that opens a `SqliteBackend` and delegates to the
+//! `rdb` layer, keeping the public functions' signatures, return types, and
+//! error wording identical to before the migration.
 
 use std::path::Path;
 
-// `rusqlite::Connection` / `OptimizationDirection` / `TrialState` はこのモジュール自体は
-// 使わないが、`tests.rs` が `use super::*;` でフィクスチャ構築に使うため、テストビルドに
-// 限定してスコープへ引き込む（tests.rs は無変更が受入条件のため）。
+// `rusqlite::Connection` / `OptimizationDirection` / `TrialState` are not used by
+// this module itself, but `tests.rs` uses them via `use super::*;` to build
+// fixtures, so they are pulled into scope only for test builds (leaving
+// `tests.rs` unchanged is an acceptance condition).
 #[cfg(test)]
 use rusqlite::Connection;
 
@@ -30,34 +32,35 @@ use crate::io::rdb::{self, RdbStudyRows, SqliteBackend};
 #[cfg(test)]
 mod tests;
 
-/// `RdbStudyRows` の互換エイリアス（呼び出し側の参照名を変えないため）。
+/// Compatibility alias for `RdbStudyRows` (kept so callers' reference names don't change).
 pub type SqliteStudyRows = RdbStudyRows;
 
-/// `StudyFingerprint` の互換 re-export。
+/// Compatibility re-export of `StudyFingerprint`.
 pub use crate::io::rdb::StudyFingerprint;
 
-/// ライブ更新のポーリングで呼ぶ軽量フィンガープリント取得。
-/// 詳細は `rdb::generic::study_fingerprint` を参照。
+/// Lightweight fingerprint retrieval called by live-update polling.
+/// See `rdb::generic::study_fingerprint` for details.
 pub fn study_fingerprint(path: &Path, study_id: u32) -> Result<StudyFingerprint, String> {
     let mut backend = SqliteBackend::open_readonly(path)?;
     rdb::study_fingerprint(&mut backend, study_id)
 }
 
-/// Phase 1: DB を開いて Study 一覧を返す。詳細は `rdb::generic::scan_study_list` を参照。
+/// Phase 1: Opens the DB and returns the list of studies. See `rdb::generic::scan_study_list` for details.
 pub fn scan_study_list(path: &Path) -> Result<Vec<StudyMeta>, String> {
     let mut backend = SqliteBackend::open_readonly(path)?;
     rdb::scan_study_list(&mut backend)
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、確定メタと行データを返す。
-/// 詳細は `rdb::generic::parse_single_study_rows` を参照。
+/// Phase 2: Reads all COMPLETE trials for the given study and returns the finalized
+/// metadata and row data. See `rdb::generic::parse_single_study_rows` for details.
 pub fn parse_single_study_rows(path: &Path, study_id: u32) -> Result<SqliteStudyRows, String> {
     let mut backend = SqliteBackend::open_readonly(path)?;
     rdb::parse_single_study_rows(&mut backend, study_id)
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、(確定メタ, `DataFrame`, `StudyExtras`) を返す
-/// （journal の `parse_single_study` と同じ出力契約）。
+/// Phase 2: Reads all COMPLETE trials for the given study and returns
+/// (finalized metadata, `DataFrame`, `StudyExtras`) (same output contract as
+/// the journal's `parse_single_study`).
 pub fn parse_single_study(
     path: &Path,
     study_id: u32,

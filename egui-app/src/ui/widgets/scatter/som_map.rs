@@ -1,12 +1,14 @@
-//! SOM（自己組織化マップ）ウィジェット。
+//! SOM (Self-Organizing Map) widget.
 //!
-//! 標準化した特徴空間でバッチ SOM を学習し（`tunny_core::clustering::train_som`）、
-//! U-matrix・成分プレーン・ヒットカウントを切り替えて表示する。学習はミリ秒〜
-//! 数十ミリ秒オーダーのため SYNC ウィジェット（poll_chart を介さずレンダーパスで
-//! 直接計算しキャッシュする）。理論的背景は theory/{en,ja}/clustering/som.md。
+//! Trains a batch SOM on the standardized feature space
+//! (`tunny_core::clustering::train_som`) and switches between displaying the
+//! U-matrix, component planes, and hit counts. Training takes on the order of
+//! milliseconds to tens of milliseconds, so this is a SYNC widget (computed directly
+//! and cached in the render pass, without going through poll_chart). See
+//! theory/{en,ja}/clustering/som.md for the theoretical background.
 //!
-//! 配線メモ（このファイルはまだ mod.rs に登録されていない。ChartId::SomMap /
-//! label "SOM Map" / icon som_map.svg として配線予定）。
+//! Wiring note: this file is not yet registered in mod.rs. Planned to be wired up as
+//! ChartId::SomMap / label "SOM Map" / icon som_map.svg.
 
 use crate::state::types::StudyView;
 use crate::theme::colormap::ColorMap;
@@ -14,7 +16,7 @@ use crate::ui::widgets::common::heatmap::draw_colorbar_simple;
 use crate::ui::widgets::common::range_math::{expand_degenerate, normalize01, value_range};
 use tunny_core::clustering::{train_som, SomResult, SomSpec};
 
-/// 学習に使う特徴空間。
+/// Feature space used for training.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SomSpace {
     #[default]
@@ -38,7 +40,7 @@ impl SomSpace {
     }
 }
 
-/// 表示モード。
+/// Display mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SomViewMode {
     #[default]
@@ -57,21 +59,22 @@ impl SomViewMode {
     }
 }
 
-/// SOM 学習に使う行数の上限（超える場合は等間隔ストライドでサブサンプル）。
+/// Upper bound on the number of rows used for SOM training (subsampled at an even
+/// stride when exceeded).
 const MAX_SOM_ROWS: usize = 2000;
 
 /// (study_name, row_count, grid_size, n_epochs, space disc)
 type SomCacheKey = (String, usize, usize, usize, u8);
 
-/// SOM ウィジェットの UI 状態。
+/// UI state for the SOM widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SomMapChart {
-    /// グリッドの一辺のノード数（正方グリッド、両軸共通）。
+    /// Number of nodes per grid side (square grid, shared by both axes).
     pub grid_size: usize,
     pub n_epochs: usize,
     pub view_mode: SomViewMode,
-    /// ComponentPlane モードで表示する特徴名。
+    /// Feature name displayed in ComponentPlane mode.
     pub selected_feature: String,
     pub space: SomSpace,
     #[serde(skip)]
@@ -91,7 +94,7 @@ impl Default for SomMapChart {
     }
 }
 
-/// `space` に応じた学習対象の特徴名一覧（目的関数を含めるかどうか）。
+/// The list of feature names to train on for a given `space` (whether to include objectives).
 fn feature_names(param_names: &[String], obj_names: &[String], space: SomSpace) -> Vec<String> {
     match space {
         SomSpace::Params => param_names.to_vec(),
@@ -103,8 +106,8 @@ fn feature_names(param_names: &[String], obj_names: &[String], space: SomSpace) 
     }
 }
 
-/// 行数 `n` を `cap` 以下へ等間隔ストライドで間引くインデックス一覧（昇順・重複なし）。
-/// `n <= cap` または `cap == 0` の場合は `0..n` をそのまま返す。
+/// A list of indices (ascending, no duplicates) that thins `n` rows down to at most
+/// `cap` using an even stride. Returns `0..n` unchanged when `n <= cap` or `cap == 0`.
 fn subsample_indices(n: usize, cap: usize) -> Vec<usize> {
     if cap == 0 || n <= cap {
         return (0..n).collect();
@@ -115,8 +118,9 @@ fn subsample_indices(n: usize, cap: usize) -> Vec<usize> {
         .collect()
 }
 
-/// view から学習行列を組み立てる。指定した全特徴が有限な行のみ採用し
-/// （NaN 混入行はスキップ）、`MAX_SOM_ROWS` を超える場合は等間隔サブサンプルする。
+/// Builds the training matrix from a view. Only adopts rows where all specified
+/// features are finite (rows containing NaN are skipped), and subsamples evenly
+/// when the row count exceeds `MAX_SOM_ROWS`.
 fn build_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
     let full_rows = super::feature_matrix(view, features);
     let idx = subsample_indices(full_rows.len(), MAX_SOM_ROWS);
@@ -134,8 +138,9 @@ impl SomMapChart {
         )
     }
 
-    /// 現在の表示モードに対応するノード値グリッド（行優先 `grid_h * grid_w`）と
-    /// 軸ラベルを返す。CSV エクスポート（配線フェーズで csv_export.rs から呼ぶ想定）用。
+    /// Returns the node-value grid (row-major `grid_h * grid_w`) and axis label for
+    /// the current display mode. For CSV export (intended to be called from
+    /// csv_export.rs once wiring is complete).
     pub fn current_grid(
         &self,
         param_names: &[String],
@@ -267,8 +272,8 @@ impl SomMapChart {
             }
         };
 
-        // U-matrix モードは下にキャプション行が続くため、その高さぶんを
-        // グリッド確保前に予約する（キャプションの見切れ防止）。
+        // U-matrix mode is followed by a caption row below, so reserve its height
+        // before allocating the grid (to avoid clipping the caption).
         let caption_reserve = if self.view_mode == SomViewMode::UMatrix {
             ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y
         } else {
@@ -290,8 +295,9 @@ impl SomMapChart {
     }
 }
 
-/// ノードグリッドをセル塗り + カラーバーで描画する（heatmap.rs の共有描画を利用）。
-/// `bottom_reserve` は呼び出し側が下に描くキャプション等のため確保しない高さ。
+/// Draws the node grid as filled cells plus a color bar (using shared rendering from
+/// heatmap.rs). `bottom_reserve` is the height left unallocated for a caption etc.
+/// drawn below by the caller.
 fn render_grid(
     ui: &mut egui::Ui,
     grid_w: usize,

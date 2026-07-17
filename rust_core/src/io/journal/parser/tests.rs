@@ -37,7 +37,7 @@ fn scan_study_list_returns_names_only() {
     assert_eq!(studies.len(), 2);
     assert_eq!(studies[0].name, "alpha");
     assert_eq!(studies[1].name, "beta");
-    // Phase 1 では completed_trials は未確定
+    // completed_trials is not yet determined in Phase 1
     assert_eq!(studies[0].completed_trials, 0);
     assert_eq!(studies[1].completed_trials, 0);
 }
@@ -60,7 +60,7 @@ fn parse_single_study_beta_skips_alpha_trials() {
     assert_eq!(meta.name, "beta");
     assert_eq!(meta.completed_trials, 3);
     assert_eq!(meta.total_trials, 3);
-    // beta の param は "y" のみ（alpha の "x" は含まれない）
+    // beta's only param is "y" (alpha's "x" is not included)
     assert!(meta.param_names.contains(&"y".to_string()));
     assert!(!meta.param_names.contains(&"x".to_string()));
     assert_eq!(df.row_count(), 3);
@@ -68,8 +68,8 @@ fn parse_single_study_beta_skips_alpha_trials() {
 
 #[test]
 fn parse_single_study_beta_trial_number_is_in_study_index() {
-    // beta(study_id=1) のグローバル trial_id は 2,3,4 だが、Study 内の trial.number は
-    // 0,1,2 でなければならない（Optuna の trial.number = study 内作成順）。
+    // beta's (study_id=1) global trial_id values are 2,3,4, but the trial.number within the
+    // study must be 0,1,2 (Optuna's trial.number = creation order within the study).
     let data = two_study_log();
     let (_meta, df, _extras) = parse_single_study(&data, 1).unwrap();
     let ids: Vec<u32> = (0..df.row_count())
@@ -84,7 +84,7 @@ fn parse_single_study_beta_trial_number_is_in_study_index() {
 
 #[test]
 fn streaming_beta_trial_number_is_in_study_index() {
-    // streaming パス（UI が使う経路）でも trial.number が Study 内連番になる。
+    // trial.number must also be sequential within the study on the streaming path (the route the UI uses).
     let data = two_study_log();
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
     parse_single_study_streaming(&data, 1, 2, |b| batches.push(b)).unwrap();
@@ -121,7 +121,7 @@ fn parse_single_study_nonexistent_id_returns_error() {
 #[test]
 fn streaming_beta_matches_single_study_and_batches() {
     let data = two_study_log();
-    // batch_size=2 → beta は 3 件なので [2件] + [1件(final)] の 2 バッチ
+    // batch_size=2 -> beta has 3 trials, so 2 batches: [2 rows] + [1 row (final)]
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
     parse_single_study_streaming(&data, 1, 2, |b| batches.push(b)).unwrap();
 
@@ -131,21 +131,21 @@ fn streaming_beta_matches_single_study_and_batches() {
     assert_eq!(batches[0].new_rows.len(), 2);
     assert_eq!(batches[1].new_rows.len(), 1);
 
-    // 全行を結合すると parse_single_study と一致する
+    // Concatenating all rows should match parse_single_study
     let all_ids: Vec<u32> = batches
         .iter()
         .flat_map(|b| b.new_rows.iter().map(|r| r.trial_id))
         .collect();
     assert_eq!(all_ids, vec![2, 3, 4]);
 
-    // 最終メタは beta・3 件・param "y" のみ（alpha の "x" は混入しない）
+    // The final meta should be beta, 3 trials, param "y" only (no mixing in of alpha's "x")
     let final_meta = &batches.last().unwrap().meta;
     assert_eq!(final_meta.name, "beta");
     assert_eq!(final_meta.completed_trials, 3);
     assert!(final_meta.param_names.contains(&"y".to_string()));
     assert!(!final_meta.param_names.contains(&"x".to_string()));
 
-    // 目的値が正しい順序で揃う
+    // Objective values should line up in the correct order
     let objs: Vec<f64> = batches
         .iter()
         .flat_map(|b| b.new_rows.iter().map(|r| r.objective_values[0]))
@@ -155,9 +155,10 @@ fn streaming_beta_matches_single_study_and_batches() {
 
 #[test]
 fn streaming_emits_inline_completed_trials_inmem() {
-    // in-memory ストレージ形式: op_code=4 に state/values/params をインラインで持ち、
-    // 後続の op_code=5/6 が来ない。streaming パス（UI が使う経路）でも完了 Trial を
-    // 送出できることを検証する（回帰防止: 以前は 0 件になり Trial 数が表示されなかった）。
+    // In-memory storage format: op_code=4 carries state/values/params inline, with no
+    // subsequent op_code=5/6. Verifies that completed trials can still be emitted on the
+    // streaming path (the route the UI uses) (regression guard: this used to yield 0 rows and
+    // the trial count wasn't displayed).
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"dtlz\",\"directions\":[1,1]}\n",
         "{\"op_code\":3,\"worker_id\":\"w\",\"study_id\":0,\"system_attr\":{\"study:metric_names\":[\"Obj1\",\"Obj2\"]}}\n",
@@ -168,7 +169,7 @@ fn streaming_emits_inline_completed_trials_inmem() {
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
     parse_single_study_streaming(&data, 0, 1000, |b| batches.push(b)).unwrap();
 
-    // 完了 Trial は 2 件（state==1）。state==3（fail）は除外される。
+    // There are 2 completed trials (state==1). state==3 (fail) is excluded.
     let total: usize = batches.iter().map(|b| b.new_rows.len()).sum();
     assert_eq!(total, 2, "inline-completed trials should be emitted");
 
@@ -178,7 +179,7 @@ fn streaming_emits_inline_completed_trials_inmem() {
     assert_eq!(last.objective_names, vec!["Obj1", "Obj2"]);
     assert!(last.param_names.contains(&"x".to_string()));
 
-    // 目的値が正しい順序で揃う。
+    // Objective values should line up in the correct order.
     let objs: Vec<f64> = batches
         .iter()
         .flat_map(|b| b.new_rows.iter().map(|r| r.objective_values[0]))
@@ -191,7 +192,7 @@ fn streaming_single_batch_when_batch_size_large() {
     let data = two_study_log();
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
     parse_single_study_streaming(&data, 0, 1000, |b| batches.push(b)).unwrap();
-    // alpha 2 件 → 1 バッチ（is_first かつ is_final）
+    // alpha has 2 trials -> 1 batch (is_first and is_final)
     assert_eq!(batches.len(), 1);
     assert!(batches[0].is_first && batches[0].is_final);
     assert_eq!(batches[0].new_rows.len(), 2);
@@ -204,9 +205,9 @@ fn streaming_nonexistent_id_returns_error() {
     assert!(parse_single_study_streaming(&data, 99, 100, |_| {}).is_err());
 }
 
-/// op_code=3 で study:metric_names が設定されている場合、ストリーミングバッチの
-/// objective_names がメタ名称（"Obj" 等）と一致することを確認するリグレッションテスト。
-/// 以前は derived_objective_names ("obj0") が優先されてしまい、チャートが空になっていた。
+/// Regression test confirming that when study:metric_names is set via op_code=3, the streaming
+/// batch's objective_names matches the meta names (e.g. "Obj") rather than the derived ones.
+/// This used to prioritize derived_objective_names ("obj0"), leaving the chart empty.
 #[test]
 fn streaming_objective_names_prefer_metric_names_over_derived() {
     let data = to_bytes(concat!(
@@ -218,9 +219,9 @@ fn streaming_objective_names_prefer_metric_names_over_derived() {
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
     parse_single_study_streaming(&data, 0, 1000, |b| batches.push(b)).unwrap();
     assert_eq!(batches.len(), 1);
-    // バッチの objective_names は derived ("obj0") ではなく metric_names ("MyObj") を使うべき
+    // The batch's objective_names should use metric_names ("MyObj"), not derived ("obj0")
     assert_eq!(batches[0].objective_names, vec!["MyObj".to_string()]);
-    // meta の objective_names とも一致するべき
+    // Should also match meta's objective_names
     assert_eq!(batches[0].meta.objective_names, vec!["MyObj".to_string()]);
 }
 
@@ -257,16 +258,16 @@ fn tc_101_01_create_study_basic() {
     );
 }
 
-// ── extras: op7 中間値 / 日時 / 全 state ────────────────────────────────
+// ── extras: op7 intermediate values / datetimes / all states ────────────────────────────────
 
-/// study 0: trial 0 は COMPLETE（中間値 2 点・日時あり、step 逆順で投入）、
-/// trial 1 は PRUNED（op7 なし）。extras は両方（全 state）を含み、
-/// DataFrame は COMPLETE のみを含む。
+/// study 0: trial 0 is COMPLETE (2 intermediate values with datetimes, submitted in reverse step order),
+/// trial 1 is PRUNED (no op7). extras contains both (all states), while
+/// the DataFrame contains COMPLETE only.
 fn extras_log() -> Vec<u8> {
     to_bytes(concat!(
         "{\"op_code\":0,\"study_name\":\"alpha\",\"directions\":[1]}\n",
         "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        // step を昇順にしないで投入し、finalize でのソートを検証する。
+        // Submitted with steps not in ascending order, to verify the sort in finalize.
         "{\"op_code\":7,\"trial_id\":0,\"step\":1,\"intermediate_value\":0.2}\n",
         "{\"op_code\":7,\"trial_id\":0,\"step\":0,\"intermediate_value\":0.1}\n",
         "{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:10\"}\n",
@@ -282,14 +283,14 @@ fn parse_single_study_collects_extras_for_all_states() {
     let data = extras_log();
     let (_meta, df, extras) = parse_single_study(&data, 0).unwrap();
 
-    // DataFrame は COMPLETE のみ。
+    // DataFrame contains COMPLETE only.
     assert_eq!(
         df.row_count(),
         1,
         "PRUNED trial must be excluded from DataFrame"
     );
 
-    // extras は全 state（trial 0 と 1）を trial_id 昇順で保持する。
+    // extras keeps all states (trial 0 and 1) ordered by ascending trial_id.
     assert_eq!(extras.trials.len(), 2);
     assert!(extras.has_intermediate());
     assert!(extras.has_datetimes());
@@ -298,7 +299,7 @@ fn parse_single_study_collects_extras_for_all_states() {
 
     let t0 = &extras.trials[0];
     assert_eq!(t0.state, TrialState::Complete);
-    // 投入順によらず step 昇順に整列される。
+    // Sorted by ascending step regardless of insertion order.
     assert_eq!(t0.intermediate_values, vec![(0, 0.1), (1, 0.2)]);
     assert_eq!(t0.datetime_start, Some(1_704_067_200.0));
     assert_eq!(t0.datetime_complete, Some(1_704_067_210.0));
@@ -314,15 +315,15 @@ fn parse_single_study_collects_extras_for_all_states() {
 fn parse_journal_stores_extras_in_shared_store() {
     let data = extras_log();
     parse_journal(&data).unwrap();
-    // 全体パースは enumerate（study_id = index）キーで extras を格納する。
+    // Full parsing stores extras keyed by enumerate (study_id = index).
     let extras = crate::dataframe::extras_snapshot(0).expect("extras must be stored");
     assert_eq!(extras.trials.len(), 2);
     assert!(extras.has_intermediate());
 }
 
-/// Phase 2 ストリーミング（UI が実際に使う単一 study ロード経路）でも、
-/// 完了・prune・EOF 時点で Running のままの trial すべてが extras に反映され、
-/// `store_extras_for`（実 study_id キー）で共有ストアへ格納されることを検証する。
+/// Verifies that Phase 2 streaming (the single-study load path the UI actually uses) also
+/// reflects every trial in extras — completed, pruned, and still Running at EOF — and stores
+/// them into the shared store via `store_extras_for` (keyed by the real study_id).
 #[test]
 fn parse_single_study_streaming_stores_extras_for_all_states() {
     use crate::extras::TrialState;
@@ -330,18 +331,18 @@ fn parse_single_study_streaming_stores_extras_for_all_states() {
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"study_name\":\"alpha\",\"directions\":[1]}\n",
         "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        // step を昇順にしないで投入し、ストリーミング経路でもソートされることを検証する。
+        // Submitted with steps not in ascending order, to verify sorting also occurs on the streaming path.
         "{\"op_code\":7,\"trial_id\":0,\"step\":1,\"intermediate_value\":0.2}\n",
         "{\"op_code\":7,\"trial_id\":0,\"step\":0,\"intermediate_value\":0.1}\n",
         "{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:10\"}\n",
-        // trial 1: PRUNED（op6 state=2）
+        // trial 1: PRUNED (op6 state=2)
         "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:11\"}\n",
         "{\"op_code\":6,\"trial_id\":1,\"state\":2}\n",
-        // trial 2: 最後まで完了しない（EOF 時点で Running のまま extras に残る）
+        // trial 2: never completes (stays Running in extras at EOF)
         "{\"op_code\":4,\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:12\"}\n"
     ));
 
-    // 対象 study 固有キー（study_id）で格納されることを確認するため、実行前後で読み比べる。
+    // Compare before/after the run to confirm storage is keyed by the target study's own study_id.
     let study_id = 0u32;
     let mut batches: Vec<StudyStreamBatch> = Vec::new();
     parse_single_study_streaming(&data, study_id, 1000, |b| batches.push(b)).unwrap();
@@ -377,7 +378,7 @@ fn parse_single_study_streaming_stores_extras_for_all_states() {
     );
     assert!(t2.datetime_complete.is_none());
 
-    // DataFrame（COMPLETE 限定）には trial 0 のみが含まれる。
+    // The DataFrame (COMPLETE only) contains only trial 0.
     let total_rows: usize = batches.iter().map(|b| b.new_rows.len()).sum();
     assert_eq!(
         total_rows, 1,
@@ -698,7 +699,7 @@ fn distribution_float_display_is_identity() {
 
 #[test]
 fn distribution_int_display_is_stored_value() {
-    // Optuna は low/step に関係なく実値を格納する（low=1 でもオフセットしない）
+    // Optuna stores the real value regardless of low/step (no offset even when low=1)
     let dist = Distribution::Int { low: 1, high: 10 };
     assert!((dist.to_display_f64(3.0) - 3.0).abs() < 1e-10);
 }
@@ -757,7 +758,7 @@ fn distribution_from_json_string_with_attributes() {
 
 #[test]
 fn distribution_from_json_string_log_true() {
-    // log 分布でも格納値は外部表現（実値）なので表示変換は恒等
+    // Even for a log distribution, the stored value is the external representation (real value), so the display conversion is the identity
     let json_str = r#""{\"name\": \"FloatDistribution\", \"attributes\": {\"step\": 0.0, \"low\": 1e-5, \"high\": 1.0, \"log\": true}}""#;
     let val: Value = serde_json::from_str(json_str).unwrap();
     let dist = Distribution::from_json(&val);
@@ -774,7 +775,7 @@ fn distribution_from_json_object_with_attributes() {
     .unwrap();
     let dist = Distribution::from_json(&val);
     assert!(matches!(dist, Distribution::Int { low: 0, high: 10 }));
-    // step 付きでも格納値は実値（外部表現）そのもの
+    // Even with a step set, the stored value is the real value (external representation) itself
     assert!((dist.to_display_f64(6.0) - 6.0).abs() < 1e-10);
 }
 

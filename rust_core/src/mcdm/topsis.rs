@@ -1,38 +1,41 @@
 /// TOPSIS (Technique for Order Preference by Similarity to Ideal Solution)
-/// による多目的最適化結果のランキング計算。
+/// ranking computation for multi-objective optimization results.
 ///
 /// TASK-1615: mode-frontier-features
-/// 各案（trial）を正規化・重み付けした上で、理想解（各目的の最良値）
-/// および負理想解（各目的の最悪値）からのユークリッド距離を求め、
-/// 負理想解への近さの相対値をスコアとして採用する。
+/// Normalizes and weights each candidate (trial), computes its Euclidean distance
+/// from the positive ideal solution (the best value per objective) and the negative
+/// ideal solution (the worst value per objective), and adopts the relative closeness
+/// to the negative ideal solution as the score.
 use std::time::Instant;
 
-/// TOPSIS 計算結果。
+/// TOPSIS computation result.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TopsisResult {
-    /// 各 trial の TOPSIS スコア（0〜1、大きいほど理想解に近い）。
+    /// TOPSIS score per trial (0 to 1; larger means closer to the ideal solution).
     pub scores: Vec<f64>,
-    /// スコア降順に並べた trial インデックス。
+    /// Trial indices sorted in descending order of score.
     pub ranked_indices: Vec<u32>,
-    /// 各目的における正理想解（重み付き正規化後の最良値）。
+    /// Positive ideal solution per objective (best value after weighted normalization).
     pub positive_ideal: Vec<f64>,
-    /// 各目的における負理想解（重み付き正規化後の最悪値）。
+    /// Negative ideal solution per objective (worst value after weighted normalization).
     pub negative_ideal: Vec<f64>,
-    /// 計算にかかった時間（ミリ秒）。
+    /// Time taken for the computation (milliseconds).
     pub duration_ms: f64,
 }
 
-/// TOPSIS 法により各 trial のスコアとランキングを計算する。
+/// Computes the score and ranking of each trial using the TOPSIS method.
 ///
-/// 手順:
-/// 1. 入力を検証する。
-/// 2. 重みを正規化する。
-/// 3. NaN/Inf を含む行を除外し、有効な行のみでベクトル正規化・重み付けを行う。
-/// 4. 正理想解・負理想解を求める。
-/// 5. 各 trial の正理想解・負理想解への距離からスコアを算出する。
+/// Steps:
+/// 1. Validate the input.
+/// 2. Normalize the weights.
+/// 3. Exclude rows containing NaN/Inf, and perform vector normalization and weighting
+///    only on the valid rows.
+/// 4. Determine the positive and negative ideal solutions.
+/// 5. Compute each trial's score from its distances to the positive and negative
+///    ideal solutions.
 ///
-/// 有効な trial が存在しない場合は全 trial に一律スコア 0.5 を返す。
-/// NaN/Inf を含む trial のスコアは 0.0 となり、ランキング末尾に置かれる。
+/// When no valid trial exists, returns a uniform score of 0.5 for all trials.
+/// A trial containing NaN/Inf gets a score of 0.0 and is placed at the bottom of the ranking.
 pub fn compute_topsis(
     values: &[f64],
     n_trials: usize,
@@ -42,7 +45,7 @@ pub fn compute_topsis(
 ) -> Result<TopsisResult, String> {
     let start = Instant::now();
 
-    // 入力を検証する。
+    // Validate the input.
     super::validate_inputs(values, n_trials, n_objectives, weights, is_minimize)?;
 
     // Weights are expected to sum to 1, but defend against callers that pass
@@ -54,7 +57,7 @@ pub fn compute_topsis(
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);
 
-    // 有効な trial が 1 件もない場合は一律スコア 0.5 を返す。
+    // If there are no valid trials at all, return a uniform score of 0.5.
     if valid_indices.is_empty() {
         return Ok(uniform_score_result(n_trials, n_objectives, 0.5, &start));
     }
@@ -64,11 +67,11 @@ pub fn compute_topsis(
     let weighted_matrix =
         build_weighted_matrix(values, n_objectives, weights, &valid_indices, n_valid);
 
-    // 正理想解・負理想解を求める。
+    // Determine the positive and negative ideal solutions.
     let (positive_ideal, negative_ideal) =
         find_ideal_solutions(&weighted_matrix, n_valid, n_objectives, is_minimize);
 
-    // 各 trial のスコアを算出する。
+    // Compute each trial's score.
     let valid_scores = compute_scores(
         &weighted_matrix,
         n_valid,
@@ -77,13 +80,14 @@ pub fn compute_topsis(
         &negative_ideal,
     );
 
-    // 有効な trial のスコアを元の trial インデックスに書き戻す（無効な trial は 0.0 のまま）。
+    // Write the valid trials' scores back into the original trial indices
+    // (invalid trials remain 0.0).
     let mut scores = vec![0.0_f64; n_trials];
     for (vi, &ti) in valid_indices.iter().enumerate() {
         scores[ti] = valid_scores[vi];
     }
 
-    // スコア降順で trial インデックスをソートする。
+    // Sort trial indices in descending order of score.
     let mut ranked_indices: Vec<u32> = (0..n_trials as u32).collect();
     ranked_indices.sort_unstable_by(|&a, &b| {
         scores[b as usize]
@@ -101,11 +105,11 @@ pub fn compute_topsis(
 }
 
 // =============================================================================
-// ヘルパ関数
+// Helper functions
 // =============================================================================
 
-/// 有効な trial が存在しない場合に、全 trial へ一律スコアを割り当てた結果を生成する。
-/// 理想解はいずれもゼロベクトルとする。
+/// Builds a result assigning a uniform score to all trials when no valid
+/// trial exists. Both ideal solutions are the zero vector.
 fn uniform_score_result(
     n_trials: usize,
     n_objectives: usize,
@@ -141,7 +145,7 @@ fn build_weighted_matrix(
     valid_indices: &[usize],
     n_valid: usize,
 ) -> Vec<f64> {
-    // 各目的（列）ごとにユークリッドノルムを求める。
+    // Compute the Euclidean norm for each objective (column).
     let mut col_norms = vec![0.0_f64; n_objectives];
     for &i in valid_indices {
         for j in 0..n_objectives {
@@ -168,7 +172,8 @@ fn build_weighted_matrix(
     matrix
 }
 
-/// 重み付き正規化行列から各目的の正理想解・負理想解を求める。
+/// Determines the positive and negative ideal solutions for each objective
+/// from the weighted normalized matrix.
 ///
 /// Single row-major pass: cache-friendly, avoids multiple column scans.
 fn find_ideal_solutions(
@@ -198,19 +203,20 @@ fn find_ideal_solutions(
     let mut negative = vec![0.0_f64; n_objectives];
     for j in 0..n_objectives {
         (positive[j], negative[j]) = if is_minimize[j] {
-            (col_min[j], col_max[j]) // minimize: 正理想=最小、負理想=最大
+            (col_min[j], col_max[j]) // minimize: positive ideal = min, negative ideal = max
         } else {
-            (col_max[j], col_min[j]) // maximize: 正理想=最大、負理想=最小
+            (col_max[j], col_min[j]) // maximize: positive ideal = max, negative ideal = min
         };
     }
     (positive, negative)
 }
 
-/// 各 trial の正理想解・負理想解からのユークリッド距離に基づき TOPSIS スコアを計算する。
+/// Computes the TOPSIS score for each trial based on its Euclidean
+/// distance from the positive and negative ideal solutions.
 ///
 /// D+_i = sqrt(sum_j(w_ij - A+_j)^2)
 /// D-_i = sqrt(sum_j(w_ij - A-_j)^2)
-/// score_i = D-_i / (D+_i + D-_i)（D+ + D- = 0 のときは 0.5）
+/// score_i = D-_i / (D+_i + D-_i) (0.5 when D+ + D- = 0)
 fn compute_scores(
     weighted_matrix: &[f64],
     n_valid: usize,
@@ -240,7 +246,7 @@ fn compute_scores(
 }
 
 // =============================================================================
-// テスト
+// Tests
 // =============================================================================
 
 #[cfg(test)]
@@ -248,7 +254,7 @@ mod tests {
     use super::*;
 
     // -------------------------------------------------------------------------
-    // 正常系
+    // Normal cases
     // -------------------------------------------------------------------------
 
     #[test]
@@ -256,7 +262,7 @@ mod tests {
         // trial0: (1, 4)
         // trial1: (4, 1)
         // trial2: (2, 2)
-        // どちらの目的も minimize。
+        // Both objectives are minimize.
 
         let values = [1.0_f64, 4.0, 4.0, 1.0, 2.0, 2.0];
         let weights = [0.5_f64, 0.5];
@@ -276,7 +282,7 @@ mod tests {
                 s
             );
         }
-        // ランキングはスコア降順であるはず。
+        // The ranking should be in descending order of score.
         for i in 0..r.ranked_indices.len() - 1 {
             let idx_curr = r.ranked_indices[i] as usize;
             let idx_next = r.ranked_indices[i + 1] as usize;
@@ -298,8 +304,8 @@ mod tests {
         // trial2: (5, 5)
 
         let values = [1.0_f64, 1.0, 5.0, 1.0, 5.0, 5.0];
-        let weights = [0.7_f64, 0.3]; // obj0 を重視
-        let is_minimize = [false, true]; // obj0 は maximize
+        let weights = [0.7_f64, 0.3]; // weight obj0 more heavily
+        let is_minimize = [false, true]; // obj0 is maximize
 
         let result = compute_topsis(&values, 3, 2, &weights, &is_minimize);
 
@@ -337,14 +343,14 @@ mod tests {
 
     #[test]
     fn tc_1615_03_weights_affect_ranking() {
-        // 重みを変えることでランキングが変化することを確認する。
+        // Confirms that changing the weights changes the ranking.
 
         let values = [1.0_f64, 5.0, 5.0, 1.0]; // trial0:(1,5) trial1:(5,1)
         let is_minimize = [true, true];
 
-        // obj0 を重視した場合。
+        // Case where obj0 is weighted more heavily.
         let result_a = compute_topsis(&values, 2, 2, &[0.9, 0.1], &is_minimize).unwrap();
-        // obj1 を重視した場合。
+        // Case where obj1 is weighted more heavily.
         let result_b = compute_topsis(&values, 2, 2, &[0.1, 0.9], &is_minimize).unwrap();
 
         assert_eq!(
@@ -359,7 +365,7 @@ mod tests {
 
     #[test]
     fn tc_1615_04_single_trial() {
-        // trial が 1 件のみの場合の境界値テスト。
+        // Boundary-value test for the case of a single trial.
 
         let values = [3.0_f64, 7.0];
         let result = compute_topsis(&values, 1, 2, &[0.5, 0.5], &[true, true]);
@@ -377,9 +383,9 @@ mod tests {
 
     #[test]
     fn tc_1615_05_single_objective() {
-        // 目的が 1 つだけの場合の境界値テスト。
+        // Boundary-value test for the case of a single objective.
 
-        let values = [3.0_f64, 1.0, 2.0]; // 3 trial × 1 目的
+        let values = [3.0_f64, 1.0, 2.0]; // 3 trials x 1 objective
         let result = compute_topsis(&values, 3, 1, &[1.0], &[true]);
 
         assert!(result.is_ok());
@@ -392,12 +398,12 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // エラー系
+    // Error cases
     // -------------------------------------------------------------------------
 
     #[test]
     fn tc_1615_06_zero_trials_error() {
-        // n_trials=0 はエラーになるべき。
+        // n_trials=0 should be an error.
 
         let result = compute_topsis(&[], 0, 2, &[0.5, 0.5], &[true, true]);
         assert!(result.is_err(), "n_trials=0 はエラーになるはず");
@@ -411,7 +417,7 @@ mod tests {
 
     #[test]
     fn tc_1615_07_values_length_mismatch_error() {
-        // values の長さが n_trials * n_objectives と一致しない場合はエラー。
+        // Error when the length of values does not match n_trials * n_objectives.
 
         let result = compute_topsis(&[1.0, 2.0, 3.0], 2, 2, &[0.5, 0.5], &[true, true]);
         assert!(result.is_err(), "values 長不一致はエラーになるはず");
@@ -419,7 +425,7 @@ mod tests {
 
     #[test]
     fn tc_1615_08_weights_length_mismatch_error() {
-        // weights の長さが n_objectives と一致しない場合はエラー。
+        // Error when the length of weights does not match n_objectives.
 
         let result = compute_topsis(&[1.0, 2.0, 3.0, 4.0], 2, 2, &[1.0], &[true, true]);
         assert!(result.is_err(), "weights 長不一致はエラーになるはず");
@@ -427,19 +433,19 @@ mod tests {
 
     #[test]
     fn tc_1615_09_is_minimize_length_mismatch_error() {
-        // is_minimize の長さが n_objectives と一致しない場合はエラー。
+        // Error when the length of is_minimize does not match n_objectives.
 
         let result = compute_topsis(&[1.0, 2.0, 3.0, 4.0], 2, 2, &[0.5, 0.5], &[true]);
         assert!(result.is_err(), "is_minimize 長不一致はエラーになるはず");
     }
 
     // -------------------------------------------------------------------------
-    // 境界値・エッジケース
+    // Boundary values / edge cases
     // -------------------------------------------------------------------------
 
     #[test]
     fn tc_1615_10_all_same_values_no_crash() {
-        // 全 trial が同じ値でもクラッシュしないことを確認する。
+        // Confirms it does not crash even when all trials have the same value.
 
         let values = [2.0_f64, 3.0, 2.0, 3.0, 2.0, 3.0]; // 3 trial
         let result = compute_topsis(&values, 3, 2, &[0.5, 0.5], &[true, true]);
@@ -457,7 +463,8 @@ mod tests {
 
     #[test]
     fn tc_1615_11_nan_trial_ranked_last() {
-        // trial1 が NaN を含む場合、計算対象から除外され最下位にランクされることを確認する。
+        // Confirms that when trial1 contains NaN, it is excluded from the
+        // computation and ranked last.
 
         let values = [1.0_f64, 1.0, f64::NAN, 1.0];
         let result = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]);
@@ -496,14 +503,14 @@ mod tests {
 
     #[test]
     fn tc_1615_13_ranked_indices_length() {
-        // ranked_indices と scores の長さが n_trials と一致することを確認する。
+        // Confirms that the lengths of ranked_indices and scores match n_trials.
 
-        let values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 3 trial × 2 目的
+        let values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 3 trials x 2 objectives
         let result = compute_topsis(&values, 3, 2, &[0.5, 0.5], &[true, true]).unwrap();
 
         assert_eq!(result.ranked_indices.len(), 3);
         assert_eq!(result.scores.len(), 3);
-        // ranked_indices は各インデックスの順列であるはず。
+        // ranked_indices should be a permutation of each index.
         let mut sorted = result.ranked_indices.clone();
         sorted.sort();
         assert_eq!(
@@ -515,9 +522,9 @@ mod tests {
 
     #[test]
     fn tc_1615_14_ideal_solutions_dimension() {
-        // positive_ideal / negative_ideal の次元が n_objectives と一致することを確認する。
+        // Confirms that the dimensions of positive_ideal / negative_ideal match n_objectives.
 
-        let values: Vec<f64> = (0..9).map(|i| i as f64).collect(); // 3 trial × 3 目的
+        let values: Vec<f64> = (0..9).map(|i| i as f64).collect(); // 3 trials x 3 objectives
         let result = compute_topsis(&values, 3, 3, &[1.0 / 3.0; 3], &[true; 3]).unwrap();
 
         assert_eq!(result.positive_ideal.len(), 3);
@@ -543,9 +550,9 @@ mod tests {
 
     #[test]
     fn tc_1616_01_two_trials_ranking() {
-        // trial0: (1, 2)（両目的とも最小）
+        // trial0: (1, 2) (both objectives are lowest)
         // trial1: (3, 4)
-        // is_minimize なので trial0 が有利。
+        // trial0 is favored since is_minimize.
         let values = [1.0_f64, 2.0, 3.0, 4.0];
         let result = compute_topsis(&values, 2, 2, &[0.5, 0.5], &[true, true]).unwrap();
 
@@ -556,7 +563,7 @@ mod tests {
         );
     }
 
-    // ---- TASK-2268: build_weighted_matrix 単一アロケーション化 ----
+    // ---- TASK-2268: make build_weighted_matrix use a single allocation ----
 
     #[test]
     fn tc_2268_01_topsis_scores_match_after_single_alloc_refactor() {
@@ -598,11 +605,11 @@ mod tests {
 
     #[test]
     fn tc_1616_02_weights_scale_invariant() {
-        // 重みは内部で正規化されるため、比率が同じであればスケールを変えても
-        // 同じランキングになるはず。
+        // Since weights are normalized internally, the same ranking should
+        // result as long as the ratio is unchanged, regardless of scale.
         let values = [1.0_f64, 5.0, 5.0, 1.0];
         let r1 = compute_topsis(&values, 2, 2, &[0.7, 0.3], &[true, true]).unwrap();
-        // 上と同じ比率をスケールした重み。
+        // Weights scaled by the same ratio as above.
         let r2 = compute_topsis(&values, 2, 2, &[7.0, 3.0], &[true, true]).unwrap();
 
         assert_eq!(

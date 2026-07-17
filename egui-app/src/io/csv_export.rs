@@ -6,8 +6,9 @@ use crate::ui::widget_states::WidgetStates;
 use crate::ui::widgets::trial_table::TrialTableMode;
 use tunny_core::export::{CsvField, CsvWriter};
 
-/// チャート固有のクラスタリング設定キーで、キャッシュからクラスタ結果を解決する。
-/// 2D / 3D / Table はそれぞれ独立した設定を持つため、エクスポート対象も各自のキーで引く。
+/// Resolves the cluster result from the cache using the chart-specific clustering
+/// settings key. 2D / 3D / Table each have independent settings, so the export target
+/// is also looked up with each one's own key.
 fn cluster_result_for_chart<'a>(
     chart_id: &ChartId,
     app_state: &'a AppState,
@@ -21,7 +22,7 @@ fn cluster_result_for_chart<'a>(
     app_state.cluster_cache.get(&key)
 }
 
-/// チャート固有の MCDM 設定キーで、キャッシュから結果を解決する。
+/// Resolves the result from the cache using the chart-specific MCDM settings key.
 fn mcdm_result_for_chart<'a>(
     chart_id: &ChartId,
     app_state: &'a AppState,
@@ -36,8 +37,9 @@ fn mcdm_result_for_chart<'a>(
     app_state.mcdm_cache.get(&key)
 }
 
-/// 多くの `build_*_csv` 冒頭の定型ガード（current_study を取得し、trial が 1 件以上ある
-/// ことを保証する）を集約する。study 未選択・trial 数 0 のいずれかなら `None` を返す。
+/// Consolidates the boilerplate guard used at the start of many `build_*_csv` functions
+/// (getting current_study and ensuring there's at least 1 trial). Returns `None` if
+/// either no study is selected or the trial count is 0.
 fn require_study(app_state: &AppState) -> Option<&StudyContext> {
     let study = app_state.current_study.as_ref()?;
     (study.trial_count() > 0).then_some(study)
@@ -48,8 +50,9 @@ pub fn build_chart_csv(
     app_state: &AppState,
     widgets: &WidgetStates,
 ) -> Option<String> {
-    // has_csv_data（ボタン活性判定）を唯一のデータ有無判定として使い、両者の乖離を防ぐ。
-    // has_csv_data は軽量なので毎エクスポート先頭で呼んでも問題ない。
+    // Use has_csv_data (the button-enable check) as the single source of truth for
+    // whether data exists, to prevent the two from diverging. has_csv_data is
+    // lightweight, so calling it at the start of every export is fine.
     if !has_csv_data(chart_id, app_state, widgets) {
         return None;
     }
@@ -94,8 +97,9 @@ pub fn build_chart_csv(
     }
 }
 
-/// 統合トライアルテーブル（`PanelItem::TrialTable`）の CSV を、現在のモードに応じて組み立てる。
-/// All はトライアル一覧、Cluster はクラスタ割当、MCDM はランキングを出力する。
+/// Builds the CSV for the unified trial table (`PanelItem::TrialTable`) according to the
+/// current mode. All outputs the trial list, Cluster outputs cluster assignments, and
+/// MCDM outputs the ranking.
 pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     match widgets.trial_table.mode {
         TrialTableMode::All => build_trial_based_csv(app_state),
@@ -112,7 +116,7 @@ pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Op
     }
 }
 
-/// 統合トライアルテーブルに、現在のモードでエクスポート可能なデータがあるか判定する。
+/// Determines whether the unified trial table has exportable data in the current mode.
 pub fn has_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> bool {
     match widgets.trial_table.mode {
         TrialTableMode::All => app_state
@@ -134,7 +138,7 @@ pub fn has_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> bool
     }
 }
 
-/// 統合トライアルテーブルの CSV ファイル名を、現在のモードに応じて返す。
+/// Returns the CSV file name for the unified trial table according to the current mode.
 pub fn trial_table_csv_filename(widgets: &WidgetStates) -> String {
     let name = match widgets.trial_table.mode {
         TrialTableMode::All => "trial_table",
@@ -358,7 +362,8 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
     format!("{}.csv", name)
 }
 
-/// Observed Contour の補間格子を long 形式で出力する（マスクされたセルは除外）。
+/// Outputs the Observed Contour interpolation grid in long format (masked cells
+/// excluded).
 fn build_observed_contour_csv(widgets: &WidgetStates) -> Option<String> {
     let r = widgets.observed_contour.result.as_ref()?;
     let surf = &r.surface;
@@ -377,8 +382,9 @@ fn build_observed_contour_csv(widgets: &WidgetStates) -> Option<String> {
     Some(w.finish())
 }
 
-/// 現在の列選択・ビン設定でヒストグラムを再計算して CSV にする。
-/// ウィジェット表示時と同じフォールバック（目的関数→パラメータの最初の数値列）を適用する。
+/// Recomputes the histogram with the current column selection / bin settings and turns
+/// it into CSV. Applies the same fallback as when the widget renders (objective ->
+/// parameter's first numeric column).
 fn build_histogram_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = require_study(app_state)?;
     let obj_names = &study.meta.objective_names;
@@ -413,7 +419,8 @@ fn build_histogram_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<S
     Some(w.finish())
 }
 
-/// 現在の Source/Normalize 設定で各列の箱ひげ統計を再計算して CSV にする（1列1行）。
+/// Recomputes box-plot statistics for each column with the current Source/Normalize
+/// settings and turns them into CSV (one row per column).
 fn build_box_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     use crate::ui::widgets::box_plot::{normalize_minmax, BoxPlotSource};
 
@@ -468,8 +475,8 @@ fn build_box_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<St
     any.then(|| w.finish())
 }
 
-/// 現在の Method/列グループ設定で相関行列を再計算し、ワイド形式で CSV にする。
-/// NaN セルは空文字として出力する。
+/// Recomputes the correlation matrix with the current Method/column-group settings and
+/// turns it into CSV in wide format. NaN cells are output as an empty string.
 fn build_correlation_matrix_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = require_study(app_state)?;
     if !widgets.correlation_matrix.include_params && !widgets.correlation_matrix.include_objectives
@@ -518,8 +525,9 @@ fn build_correlation_matrix_csv(app_state: &AppState, widgets: &WidgetStates) ->
     Some(w.finish())
 }
 
-/// レーダー比較の現在の軸設定（Include parameters）でピン留めトライアルの生値を
-/// ワイド形式（1 軸 1 行、列 = ピン留めトライアル）で CSV にする。正規化前の生値を出力する。
+/// Turns the pinned trials' raw values into CSV in wide format (one row per axis,
+/// columns = pinned trials) using radar comparison's current axis settings (Include
+/// parameters). Outputs raw values before normalization.
 fn build_radar_comparison_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = require_study(app_state)?;
     if app_state.pinned_trials.is_empty() {
@@ -575,8 +583,9 @@ fn build_radar_comparison_csv(app_state: &AppState, widgets: &WidgetStates) -> O
     Some(w.finish())
 }
 
-/// 比較表の現在の行設定（Parameters / User attrs）でピン留めトライアルの生値を
-/// ワイド形式（1 行 1 行、列 = ピン留めトライアル）で CSV にする。
+/// Turns the pinned trials' raw values into CSV in wide format (one row per row-def,
+/// columns = pinned trials) using the comparison table's current row settings
+/// (Parameters / User attrs).
 fn build_comparison_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = require_study(app_state)?;
     if app_state.pinned_trials.is_empty() {
@@ -625,7 +634,7 @@ fn build_comparison_table_csv(app_state: &AppState, widgets: &WidgetStates) -> O
     Some(w.finish())
 }
 
-/// キャッシュ済みの PCA 結果を `pc1,pc2` の 2 列 CSV にする。
+/// Turns the cached PCA result into a two-column `pc1,pc2` CSV.
 fn build_pca_biplot_csv(widgets: &WidgetStates) -> Option<String> {
     let result = widgets.pca_biplot.cached_result()?;
     if result.projections.is_empty() {
@@ -641,8 +650,8 @@ fn build_pca_biplot_csv(widgets: &WidgetStates) -> Option<String> {
     Some(w.finish())
 }
 
-/// SOM の現在の表示モード（U-matrix / Component Plane / Hits）に対応するノード値
-/// グリッドを、行 = y・列 = x のワイド形式で CSV にする。
+/// Turns the node value grid corresponding to SOM's current display mode (U-matrix /
+/// Component Plane / Hits) into CSV in wide format (rows = y, columns = x).
 fn build_som_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
     let (grid_w, grid_h, values, _label) = widgets
@@ -670,7 +679,8 @@ fn build_som_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String>
     Some(w.finish())
 }
 
-/// デンドログラムの葉順に (元 view の行インデックス, カット後クラスタラベル) を CSV にする。
+/// Turns (original view row index, post-cut cluster label) pairs into CSV, in
+/// dendrogram leaf order.
 fn build_dendrogram_csv(widgets: &WidgetStates) -> Option<String> {
     let assignments = widgets.dendrogram.leaf_assignments()?;
     if assignments.is_empty() {
@@ -687,7 +697,8 @@ fn build_dendrogram_csv(widgets: &WidgetStates) -> Option<String> {
     Some(w.finish())
 }
 
-/// 応答曲面スライスの z グリッドを CSV にする（列ヘッダーに x 値、各行の先頭に y 値）。
+/// Turns the response surface slice's z grid into CSV (x values in the column headers,
+/// y value at the start of each row).
 fn build_response_surface_csv(widgets: &WidgetStates) -> Option<String> {
     let slice = widgets.response_surface.cached_slice()?;
     let nx = slice.x_values.len();
@@ -755,13 +766,15 @@ fn build_optimization_history_csv(app_state: &AppState, widgets: &WidgetStates) 
     Some(w.finish())
 }
 
-/// Intermediate Values の全 trial・全ステップを long 形式で出力する（間引きなし）。
+/// Outputs all trials and all steps of Intermediate Values in long format (no
+/// thinning).
 fn build_intermediate_values_csv() -> Option<String> {
     let extras = tunny_core::dataframe::active_extras_snapshot()?;
     if !extras.has_intermediate() {
         return None;
     }
-    // CSV エクスポートは表示用の間引き（MAX_CURVES）を適用せず全 trial を出す。
+    // CSV export doesn't apply the display thinning (MAX_CURVES) and outputs all
+    // trials.
     let (curves, _total) = crate::ui::widgets::intermediate_values::build_intermediate_curves(
         &extras.trials,
         false,
@@ -785,7 +798,7 @@ fn build_intermediate_values_csv() -> Option<String> {
     Some(w.finish())
 }
 
-/// Timeline の全 trial の開始/終了（経過秒）を出力する。
+/// Outputs the start/end (elapsed seconds) of every trial in Timeline.
 fn build_timeline_csv() -> Option<String> {
     let extras = tunny_core::dataframe::active_extras_snapshot()?;
     if !extras.has_datetimes() {
@@ -937,8 +950,8 @@ fn build_cluster_csv(
     build_cluster_csv_from_result(cr, app_state)
 }
 
-/// クラスタ結果を直接受け取って CSV を組み立てる（チャート ID 非依存）。
-/// 統合トライアルテーブルなど、ChartId を持たない呼び出し元から使う。
+/// Builds CSV by taking a cluster result directly (chart-ID-independent). Used by
+/// callers that don't have a ChartId, such as the unified trial table.
 fn build_cluster_csv_from_result(cr: &ClusterResult, app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
     let n = study.trial_count();
@@ -1157,7 +1170,8 @@ fn build_slice_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<Strin
     Some(w.finish())
 }
 
-/// EDF（経験分布関数）の全 trial 分の点列を出力する（表示上の対数フィルタは適用しない、間引きなし）。
+/// Outputs the EDF (empirical distribution function) point list for all trials (doesn't
+/// apply the display-only log filter, no thinning).
 fn build_edf_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
     let obj_idx = widgets.edf_plot.obj_idx;
@@ -1175,7 +1189,7 @@ fn build_edf_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String>
     Some(w.finish())
 }
 
-/// Rank Plot の全 trial 分（NaN/欠損を含む）を出力する。
+/// Outputs all trials of Rank Plot (including NaN/missing values).
 fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     let study = require_study(app_state)?;
     let x_name = study.meta.param_names.get(widgets.rank_plot.x_param_idx)?;
@@ -1212,11 +1226,11 @@ fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<S
     Some(w.finish())
 }
 
-/// サロゲート最適化の推定最適点を CSV にする。
-/// 多目的結果がある場合はフロント点テーブルを優先出力する。
-/// 単目的の場合はパラメータ行＋予測値サマリ行を出力する。
+/// Turns the surrogate optimization's estimated optimum into CSV.
+/// If a multi-objective result exists, the front-point table is output preferentially.
+/// For single-objective, outputs parameter rows plus a predicted-value summary row.
 fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
-    // 多目的結果を優先する。
+    // Prefer the multi-objective result.
     if let Some(ref multi) = widgets.surrogate_opt.multi_result {
         return Some(build_surrogate_multi_opt_csv(multi));
     }
@@ -1242,7 +1256,7 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
     }
     w.row([CsvField::Text("r_squared"), CsvField::Num(result.r_squared)]);
 
-    // 検証指標を追記する（学習済みモデルが保持されている場合）。
+    // Append validation metrics (if a trained model is held).
     if let Some(ref trained) = widgets.surrogate_opt.trained {
         let v = &trained.validation;
         w.row([CsvField::Text("train_r2"), CsvField::Num(v.train_r2)]);
@@ -1263,7 +1277,8 @@ fn build_surrogate_opt_csv(widgets: &WidgetStates) -> Option<String> {
     Some(w.finish())
 }
 
-/// ロバスト性解析の出力サンプルを 1 列 CSV にする。キャッシュが無ければヘッダのみ返す。
+/// Turns the robustness analysis's output samples into a single-column CSV. Returns just
+/// the header if there's no cached result.
 fn build_robustness_csv(widgets: &WidgetStates) -> Option<String> {
     let mut w = CsvWriter::new();
     w.header(["sample"]);
@@ -1275,8 +1290,8 @@ fn build_robustness_csv(widgets: &WidgetStates) -> Option<String> {
     Some(w.finish())
 }
 
-/// Compare Surrogates の CV 指標比較表を CSV にする。フィットに失敗したモデルは
-/// 数値欄を空欄にする。結果が無ければ None。
+/// Turns Compare Surrogates's CV metric comparison table into CSV. Models that failed to
+/// fit have their numeric fields left blank. Returns None if there's no result.
 fn build_surrogate_compare_csv(widgets: &WidgetStates) -> Option<String> {
     let result = widgets.surrogate_compare.result.as_ref()?;
     let mut w = CsvWriter::new();
@@ -1313,13 +1328,13 @@ fn build_surrogate_compare_csv(widgets: &WidgetStates) -> Option<String> {
     Some(w.finish())
 }
 
-/// 多目的サロゲート最適化のフロント点テーブルを CSV にする。
-/// ヘッダ行 = 目的名 + パラメータ名、1 行 = 1 フロント点。
+/// Turns the multi-objective surrogate optimization's front-point table into CSV.
+/// Header row = objective names + parameter names, one row per front point.
 fn build_surrogate_multi_opt_csv(
     result: &crate::state::messages::SurrogateMultiOptUiResult,
 ) -> String {
     let mut w = CsvWriter::new();
-    // ヘッダ行
+    // Header row
     let headers: Vec<&str> = result
         .objective_names
         .iter()
@@ -1327,7 +1342,7 @@ fn build_surrogate_multi_opt_csv(
         .chain(result.param_names.iter().map(|s| s.as_str()))
         .collect();
     w.header(headers);
-    // データ行（1 フロント点 = 1 行）
+    // Data rows (one row per front point)
     for pt in &result.front {
         let fields: Vec<CsvField> = pt
             .values
@@ -1486,7 +1501,7 @@ mod tests {
                 sample_step: 5,
                 ref_point: vec![],
             }),
-            // convergence_indicator は AppState::default() で Hypervolume に初期化される。
+            // convergence_indicator is initialized to Hypervolume by AppState::default().
             ..AppState::default()
         };
         let csv = build_convergence_csv(&state).unwrap();
@@ -1672,7 +1687,7 @@ mod tests {
             make_trial(1, p.clone(), vec![1.0]),
         ]);
         state.current_study = Some(study);
-        // 2D チャートの設定キーで結果をキャッシュに登録する。
+        // Register the result in the cache under the 2D chart's settings key.
         let key = widgets.cluster_scatter.cache_key();
         state.cluster_cache.insert(
             key,
@@ -1860,7 +1875,7 @@ mod tests {
     fn mcdm_rank_csv_returns_none_when_no_study() {
         let state = AppState::default();
         let result = make_topsis_mcdm(1);
-        // current_study が無い場合は None
+        // None when there's no current_study
         assert!(build_mcdm_rank_csv(&result, &state).is_none());
     }
 
@@ -1937,7 +1952,7 @@ mod tests {
         assert_eq!(lines[1], "0,1.5,0.5,true");
     }
 
-    // ── 多目的サロゲート最適化の CSV テスト ──────────────────────
+    // ── Multi-objective surrogate optimization CSV tests ──────────────────────
 
     fn make_multi_opt_result() -> crate::state::messages::SurrogateMultiOptUiResult {
         use tunny_core::surrogate_opt::ParetoFrontPoint;
@@ -1970,7 +1985,7 @@ mod tests {
     fn multi_opt_csv_row_count_equals_front_size() {
         let result = make_multi_opt_result();
         let csv = build_surrogate_multi_opt_csv(&result);
-        // ヘッダ 1 行 + フロント点 2 行 = 合計 3 行
+        // 1 header row + 2 front-point rows = 3 rows total
         assert_eq!(csv.lines().count(), 3);
     }
 
@@ -1986,7 +2001,8 @@ mod tests {
     fn build_surrogate_opt_csv_prefers_multi_result() {
         let mut widgets = WidgetStates::default();
         widgets.surrogate_opt.multi_result = Some(make_multi_opt_result());
-        // 単目的結果も入れておく（多目的が優先されること）。
+        // Also set a single-objective result (to verify multi-objective takes
+        // priority).
         widgets.surrogate_opt.result = Some(crate::state::messages::SurrogateOptUiResult {
             best_params: vec![("x".to_string(), 0.5)],
             best_value: 1.0,
@@ -2000,7 +2016,7 @@ mod tests {
         });
         let state = AppState::default();
         let csv = build_chart_csv(&ChartId::SurrogateOpt, &state, &widgets).unwrap();
-        // 多目的 CSV のヘッダには目的名が含まれる
+        // The multi-objective CSV's header includes the objective names
         let header = csv.lines().next().unwrap();
         assert!(
             header.contains("f0") && header.contains("f1"),

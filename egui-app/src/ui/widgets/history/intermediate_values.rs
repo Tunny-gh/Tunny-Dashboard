@@ -1,8 +1,9 @@
-//! Intermediate Values ウィジェット。
+//! Intermediate Values widget.
 //!
-//! trial ごとの中間値（intermediate values）を学習曲線として重ね描きする。
-//! Optuna の pruning はこの中間値の推移を見て打ち切りを判断するため、
-//! 「どのくらいの trial 数で・どんな形状に落ち着くか」を state 別に俯瞰できるようにする。
+//! Overlays each trial's intermediate values as a learning curve.
+//! Optuna's pruning decides whether to stop a trial by watching the progression of these
+//! intermediate values, so this lets users see at a glance, per state, "after how many trials,
+//! and settling into what shape."
 
 use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
 
@@ -12,11 +13,11 @@ use super::state_colors::{
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{hit_test_nearest, show_hover_tooltip, HIT_THRESHOLD};
 
-/// 描画する学習曲線の上限。これを超える trial 数のときは均等間引きする
-/// （全 trial を描くと 1 フレームの描画コストが跳ね上がるため）。
+/// Upper bound on the number of learning curves drawn. When the trial count exceeds this,
+/// evenly subsamples them (drawing every trial would spike the per-frame draw cost).
 const MAX_CURVES: usize = 2000;
 
-/// 1 trial 分の学習曲線。`points` は `(step, value)` の実値（未変換）。
+/// Learning curve for a single trial. `points` are raw `(step, value)` values (unconverted).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntermediateCurve {
     pub trial_id: u32,
@@ -25,7 +26,7 @@ pub struct IntermediateCurve {
     pub points: Vec<[f64; 2]>,
 }
 
-/// ヒットテスト点に対応するツールチップ用の元データ（描画点と同じ index で対応）。
+/// Original data for the tooltip corresponding to a hit-test point (indexed the same as the drawn point).
 #[derive(Debug, Clone)]
 struct HoverPoint {
     trial_number: u32,
@@ -34,28 +35,28 @@ struct HoverPoint {
     value: f64,
 }
 
-/// 曲線・ヒットテスト点・凡例状態など、`extras` の恒等性と log スケールだけで
-/// 決まるデータのキャッシュ（毎フレーム再構築を避ける・M-17）。
-/// キーは `extras`（`StudyExtras`）の恒等性アドレス + log スケール。ライブ更新時は
-/// `ArcSwap` が新しい Arc に差し替えるため、参照先アドレスの変化 = データ更新とみなせる
-/// （Timeline ウィジェットと同じ発想）。
+/// Cache of data determined solely by the identity of `extras` and the log scale — curves,
+/// hit-test points, legend state, etc. (avoids per-frame rebuilding; M-17).
+/// The key is the identity address of `extras` (`StudyExtras`) + log scale. On a live update,
+/// `ArcSwap` swaps in a new Arc, so a change in the referenced address can be treated as a data
+/// update (same idea as the Timeline widget).
 #[derive(Debug, Clone)]
 struct IntermediateCache {
     key: (usize, bool),
     curves: Vec<IntermediateCurve>,
     total_eligible: usize,
     present: Vec<TrialState>,
-    /// ヒットテスト用の点群（描画座標系＝ log 変換後）。
+    /// Point set for hit testing (in drawing coordinates, i.e. after log conversion).
     hit_points: Vec<(u32, usize, [f64; 2])>,
-    /// ツールチップ用の元データ（`hit_points` と同じ index で対応）。
+    /// Original data for tooltips (indexed the same as `hit_points`).
     hover_lookup: Vec<HoverPoint>,
 }
 
-/// Intermediate Values チャートウィジェット。
+/// Intermediate Values chart widget.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct IntermediateValuesChart {
-    /// Y 軸対数スケール切替。
+    /// Toggle for Y-axis log scale.
     pub log_scale: bool,
     #[serde(skip)]
     cache: Option<IntermediateCache>,
@@ -73,7 +74,7 @@ impl IntermediateValuesChart {
             self.log_scale = !self.log_scale;
         }
 
-        // extras（StudyExtras）のアドレス + log スケールをキーにキャッシュする。
+        // Cache keyed by the address of extras (StudyExtras) + log scale.
         let key = (extras as *const StudyExtras as usize, self.log_scale);
         let cache_valid = self.cache.as_ref().is_some_and(|c| c.key == key);
         if !cache_valid {
@@ -86,8 +87,8 @@ impl IntermediateValuesChart {
             }
             let present = distinct_states_in_order(curves.iter().map(|c| c.state));
 
-            // ヒットテスト用の点群（描画座標系＝ log 変換後）と、ツールチップ用の元データを
-            // 同じ index で対応づけて保持する。
+            // Keep the hit-test point set (in drawing coordinates, i.e. after log conversion)
+            // and the tooltip's original data indexed the same.
             let log_scale = self.log_scale;
             let mut hit_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
             let mut hover_lookup: Vec<HoverPoint> = Vec::new();
@@ -194,15 +195,15 @@ impl IntermediateValuesChart {
     }
 }
 
-/// `trials` から学習曲線を構築する（純粋関数・テスト対象）。
+/// Builds learning curves from `trials` (a pure function, covered by tests).
 ///
-/// - 中間値を持たない trial は除外する。
-/// - `log_scale` が true のときは各曲線内の非正値の点を落とす（描画時の
-///   log10 変換前に不正な点を除いておく）。
-/// - 対象 trial 数が `max_curves` を超える場合は均等間引きして上限に収める。
+/// - Trials without intermediate values are excluded.
+/// - When `log_scale` is true, non-positive points within each curve are dropped (removes
+///   invalid points before the log10 conversion at draw time).
+/// - If the eligible trial count exceeds `max_curves`, subsamples evenly to stay within the cap.
 ///
-/// 戻り値は `(曲線一覧, 中間値を持つ trial の総数)`。総数は間引き前の値であり、
-/// 呼び出し側が「showing N of M trials」の注記を出すために使う。
+/// Returns `(curve list, total number of trials with intermediate values)`. The total is the
+/// pre-subsampling value, used by the caller to display a "showing N of M trials" note.
 pub fn build_intermediate_curves(
     trials: &[TrialExtra],
     log_scale: bool,
@@ -309,7 +310,7 @@ mod tests {
             trial(1, TrialState::Complete, &[(0, 1.0)]),
         ];
         let (curves, total) = build_intermediate_curves(&trials, true, 2000);
-        // total はログ適用前の「中間値を持つ trial 数」なので 2 のまま。
+        // total stays at 2, since it's the "number of trials with intermediate values" before applying log.
         assert_eq!(total, 2);
         assert_eq!(curves.len(), 1);
         assert_eq!(curves[0].trial_id, 1);
@@ -324,7 +325,7 @@ mod tests {
         assert_eq!(total, 5000);
         assert!(curves.len() <= 2000);
         assert!(!curves.is_empty());
-        // 間引きは先頭から一定間隔なので、先頭 trial は必ず残る。
+        // Subsampling steps at a fixed interval from the start, so the first trial always remains.
         assert_eq!(curves[0].trial_id, 0);
     }
 

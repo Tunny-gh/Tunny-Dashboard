@@ -6,24 +6,24 @@ use super::distribution::Distribution;
 use super::types::OptimizationDirection;
 use crate::io::datetime::parse_naive_datetime;
 
-/// journal 解析の途中状態（study builder・trial builder・trial_id カウンタ）。
+/// Intermediate state of journal parsing (study builders, trial builders, trial_id counter).
 pub(super) struct ParserState {
     pub(super) studies: Vec<StudyBuilder>,
     pub(super) trial_builders: HashMap<u32, TrialBuilder>,
     pub(super) next_trial_id: u32,
-    /// Some(id) の場合、その study_id の Trial のみ TrialBuilder を生成する（Phase 2 オンデマンド解析用）。
+    /// When Some(id), only create a TrialBuilder for trials with that study_id (used for Phase 2 on-demand parsing).
     pub(super) target_study_id: Option<u32>,
-    /// 登録済み study 名の集合（重複 create_study 行の O(1) スキップ用）。
+    /// Set of already-registered study names (used to skip duplicate create_study lines in O(1)).
     study_names: HashSet<String>,
 }
 
-/// JSON オブジェクトから `key` の u64 値を取り出す（欠落・型不一致は `None`）。
+/// Extracts the u64 value of `key` from a JSON object (returns `None` if missing or the wrong type).
 #[inline]
 pub(super) fn get_u64(json: &Value, key: &str) -> Option<u64> {
     json.get(key).and_then(|value| value.as_u64())
 }
 
-/// JSON オブジェクトから `key` の文字列値を取り出す（欠落・型不一致は `None`）。
+/// Extracts the string value of `key` from a JSON object (returns `None` if missing or the wrong type).
 #[inline]
 pub(super) fn get_str<'a>(json: &'a Value, key: &str) -> Option<&'a str> {
     json.get(key).and_then(|value| value.as_str())
@@ -110,21 +110,21 @@ impl ParserState {
 
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
-        // Optuna の trial.number は study 内の作成順（0 始まり）。total_trials を
-        // インクリメントする前の値がそのトライアルの number になる。
+        // Optuna's trial.number is the creation order within the study (0-based). The value of
+        // total_trials before it is incremented becomes that trial's number.
         let trial_number = self.studies[study_id as usize].total_trials;
         self.studies[study_id as usize].total_trials += 1;
 
-        // Phase 2 オンデマンド解析: 対象 study 以外の TrialBuilder 生成をスキップ。
-        // ops 5/6/8/9 は trial_id を明示参照するため、ビルダーが存在しない trial への
-        // 更新は自然に no-op となり、不整合は生じない。
+        // Phase 2 on-demand parsing: skip TrialBuilder creation for studies other than the target.
+        // Since ops 5/6/8/9 reference trial_id explicitly, updates to a trial whose builder
+        // doesn't exist naturally become no-ops, so no inconsistency results.
         if let Some(target) = self.target_study_id {
             if study_id != target {
                 return;
             }
         }
 
-        // 開始日時（naive unix 秒）。文字列でないか不正なら None。
+        // Start datetime (naive unix seconds). None if not a string or invalid.
         let datetime_start = get_str(json, "datetime_start").and_then(parse_naive_datetime);
 
         if json.get("distributions").is_some() {
@@ -192,7 +192,7 @@ impl ParserState {
                 }
             }
 
-            // 数値パラメータの宣言レンジ (low, high) を study に記録する（初出のみ）。
+            // Record the declared range (low, high) for numeric parameters on the study (first occurrence only).
             if let Some(distributions) = dist_obj {
                 for (name, distribution_value) in distributions {
                     if let Some(bounds) = Distribution::from_json(distribution_value).bounds() {
@@ -286,8 +286,8 @@ impl ParserState {
             .map(Distribution::from_json)
             .unwrap_or(Distribution::Uniform);
 
-        // 数値パラメータの宣言レンジを study に記録する（初出のみ）。
-        // trial の study_id を読んでから studies を更新する（借用の重複を避ける）。
+        // Record the declared range of numeric parameters on the study (first occurrence only).
+        // Read the trial's study_id first, then update studies (to avoid overlapping borrows).
         if let Some(bounds) = distribution.bounds() {
             if let Some(study_id) = self.trial_builders.get(&trial_id).map(|t| t.study_id) {
                 if let Some(study) = self.studies.get_mut(study_id as usize) {
@@ -322,7 +322,7 @@ impl ParserState {
                     .collect::<Vec<_>>()
             });
 
-        // 完了日時（naive unix 秒）。文字列でないか不正なら None。
+        // Completion datetime (naive unix seconds). None if not a string or invalid.
         let datetime_complete = get_str(json, "datetime_complete").and_then(parse_naive_datetime);
 
         if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
@@ -336,9 +336,9 @@ impl ParserState {
         }
     }
 
-    /// op_code=7 (SET_TRIAL_INTERMEDIATE_VALUE): 中間値を trial に追記する。
-    /// フィールド: `trial_id`(u64), `step`(u64), `intermediate_value`(f64)。
-    /// value が欠落または非数値ならスキップする。
+    /// op_code=7 (SET_TRIAL_INTERMEDIATE_VALUE): appends an intermediate value to a trial.
+    /// Fields: `trial_id`(u64), `step`(u64), `intermediate_value`(f64).
+    /// Skipped if value is missing or not numeric.
     fn process_set_trial_intermediate_value(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
         let step = get_u64(json, "step").unwrap_or(0);

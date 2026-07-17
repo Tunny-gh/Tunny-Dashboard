@@ -1,19 +1,21 @@
-//! `report::svg` / `report::theme` の目視レビュー用デモハーネス。
+//! Demo harness for visually reviewing `report::svg` / `report::theme`.
 //!
-//! それらしい擬似データ（60 試行の収束カーブ、2 目的 Pareto 点群、
-//! 8 パラメータの重要度、20 ビンのヒストグラム、8×2 の相関ヒートマップ）
-//! から5種のチャートをすべて生成し、[`tunny_core::report::theme::css_variables`]
-//! のカラートークンを埋め込んだ自己完結 HTML ファイルとして書き出す。
-//! ブラウザで開いてライト/ダーク双方の見た目を目視確認するためのもの
-//! （分析ロジックは一切含まず、`report::svg` の描画結果を確認するだけ）。
+//! Generates all 5 chart kinds from plausible-looking synthetic data (a 60-trial
+//! convergence curve, a 2-objective Pareto point cloud, 8-parameter importance,
+//! a 20-bin histogram, an 8x2 correlation heatmap), then writes them out as a
+//! self-contained HTML file with the color tokens from
+//! [`tunny_core::report::theme::css_variables`] embedded.
+//! Meant to be opened in a browser to visually confirm the look of both light and
+//! dark themes (contains no analysis logic whatsoever — just checks `report::svg`'s
+//! rendering output).
 //!
-//! 実行: `cargo run -p tunny-core --example report_svg_demo -- [出力パス]`
-//! （出力パス省略時は `/tmp/report_svg_demo.html`）
+//! Run: `cargo run -p tunny-core --example report_svg_demo -- [output_path]`
+//! (defaults to `/tmp/report_svg_demo.html` if output_path is omitted)
 
 use tunny_core::report::svg::{self, HBarItem, HistBin, LinePoint, ScatterPoint};
 use tunny_core::report::theme;
 
-/// 決定的な擬似乱数（xorshift64*）。デモ用データの再現性のために使う。
+/// Deterministic pseudo-random generator (xorshift64*). Used for reproducibility of demo data.
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -27,8 +29,9 @@ impl Rng {
 
 fn convergence_data() -> (Vec<LinePoint>, Vec<usize>) {
     let mut rng = Rng(0x5EED_2234_ABCD_0001);
-    // 探索初期は大きくばらつき、後半ほど改善が起きにくくなる典型的な
-    // 収束カーブを模した生の試行値列（best-so-far ではない）を作る。
+    // Build a raw trial-value sequence (not best-so-far) that mimics a typical
+    // convergence curve: large variance early in the search, with improvements
+    // becoming less likely later on.
     let raw: Vec<f64> = (0..60)
         .map(|i| {
             let trend = 5.0 * (-(i as f64) / 18.0).exp() + 0.3;
@@ -66,7 +69,7 @@ fn pareto_data() -> (Vec<ScatterPoint>, Vec<ScatterPoint>) {
             feasible: true,
         });
     }
-    // 非劣解フロント: x が大きいほど y が小さくなる単調な12点。
+    // Non-dominated front: 12 monotonic points where larger x means smaller y.
     let mut front = Vec::with_capacity(12);
     for i in 0..12 {
         let t = i as f64 / 11.0;
@@ -121,7 +124,8 @@ fn histogram_data() -> Vec<HistBin> {
     let mut rng = Rng(0x5EED_2234_ABCD_0003);
     let mut counts = [0u64; 20];
     for _ in 0..400 {
-        // 単純な正規分布近似（Irwin-Hall 的な合算)で中央に山を作る。
+        // Build a peak at the center using a simple normal approximation (an
+        // Irwin-Hall-like sum).
         let v: f64 = (0..6).map(|_| rng.next_f64()).sum::<f64>() / 6.0;
         let bin = ((v * 20.0) as usize).min(19);
         counts[bin] += 1;
@@ -136,8 +140,9 @@ fn histogram_data() -> Vec<HistBin> {
 }
 
 fn heatmap_data() -> (Vec<Vec<f64>>, Vec<String>, Vec<String>) {
-    // 8 パラメータ × 2 目的の Spearman 相関。境界値 (-1, -0.51, -0.5, 0, 0.5,
-    // 0.51, 1) を含む値をわざと混ぜて量子化の見た目を確認できるようにする。
+    // Spearman correlation for 8 parameters x 2 objectives. Deliberately mixes in
+    // boundary values (-1, -0.51, -0.5, 0, 0.5, 0.51, 1) so the look of quantization
+    // can be verified.
     let matrix = vec![
         vec![1.0, -1.0],
         vec![0.51, -0.51],

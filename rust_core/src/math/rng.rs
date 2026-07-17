@@ -34,9 +34,9 @@ impl SeededRng {
         }
     }
 
-    /// 標準正規分布 N(0, 1) からのサンプルを返す（Box-Muller 法）。
+    /// Returns a sample from the standard normal distribution N(0, 1) (Box-Muller method).
     ///
-    /// `next_f64()` は 0 を返し得るため、対数の引数には `1 - u`（(0, 1] の範囲）を使う。
+    /// Since `next_f64()` can return 0, the log argument uses `1 - u` (which is in (0, 1]).
     pub(crate) fn next_gaussian(&mut self) -> f64 {
         let u1 = 1.0 - self.next_f64();
         let u2 = self.next_f64();
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn tc_301_01_seeded_rng_reproducibility() {
-        // 【テスト目的】: 同一シードで同一乱数列が再現されることを確認
+        // [Test purpose]: Verify that the same seed reproduces the same random sequence
         let mut rng1 = SeededRng::from_seed(42);
         let mut rng2 = SeededRng::from_seed(42);
         for _ in 0..10 {
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn tc_301_03_next_f64_range() {
-        // 【テスト目的】: next_f64() が常に [0, 1) を返すことを確認
+        // [Test purpose]: Verify that next_f64() always returns a value in [0, 1)
         let mut rng = SeededRng::from_seed(0);
         for _ in 0..1000 {
             let v = rng.next_f64();
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn tc_301_04_next_usize_range() {
-        // 【テスト目的】: next_usize(n) が [0, n) を返すことを確認
+        // [Test purpose]: Verify that next_usize(n) always returns a value in [0, n)
         let mut rng = SeededRng::from_seed(0);
         for _ in 0..1000 {
             let v = rng.next_usize(100);

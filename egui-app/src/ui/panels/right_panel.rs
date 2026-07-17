@@ -1,17 +1,18 @@
 use crate::state::app_state::AppState;
 use crate::state::layout_state::{ChartId, DragPayload, PanelItem};
 
-/// アイコンタイルの幅（キャプションの折り返し幅でもある）。
-/// 長いウィジェット名が途中で切れないよう、複数行に折り返せる幅を確保する。
+/// Icon tile width (also the caption's wrap width).
+/// Reserves enough width for the caption to wrap across multiple lines so long widget
+/// names aren't cut off mid-word.
 const TILE_W: f32 = 78.0;
-/// アイコンタイルの基準の高さ（アイコン + キャプション2行を想定）。
-/// 余白を詰めるため2行ぶんに切り詰めている。名前が3行以上の場合は伸びる。
+/// The icon tile's base height (assumes icon + a 2-line caption).
+/// Truncated to 2 lines' worth to keep margins tight. Grows for names of 3+ lines.
 const TILE_H: f32 = 50.0;
-/// SVG アイコンの描画サイズ。
+/// The SVG icon's rendering size.
 const ICON_SIZE: f32 = 24.0;
 
-/// 各 PanelItem に対応する SVG アイコンを返す。
-/// アイコンは白単色で作成しており、描画時にグループごとのパステルカラーで乗算ティントする。
+/// Returns the SVG icon corresponding to each PanelItem.
+/// Icons are authored as solid white and are multiply-tinted per group's pastel color at draw time.
 fn item_icon(item: &PanelItem) -> egui::ImageSource<'static> {
     match item {
         PanelItem::TrialTable => {
@@ -120,16 +121,16 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::RankPlot => {
             egui::include_image!("../../../assets/widget_icons/rank_plot.svg")
         }
-        // Compare Surrogates はサロゲート最適化と同じモデル群を扱うため、既存アイコンを再利用する。
+        // Compare Surrogates handles the same set of models as surrogate optimization, so the existing icon is reused.
         ChartId::SurrogateCompare => {
             egui::include_image!("../../../assets/widget_icons/surrogate_opt.svg")
         }
     }
 }
 
-/// 1 ウィジェット分のアイコンタイル（アイコン + キャプション）を描画する。
-/// アイコンは所属グループのパステルカラー `icon_color` でティントし、
-/// `enabled` が false（配置済み）の場合はティントを薄くし、操作不可にする。
+/// Draws the icon tile (icon + caption) for a single widget.
+/// The icon is tinted with the owning group's pastel color `icon_color`; when `enabled`
+/// is false (already placed), the tint is dimmed and interaction is disabled.
 fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool, icon_color: egui::Color32) {
     let (icon_tint, text_color) = if enabled {
         (icon_color, crate::theme::TEXT_SECONDARY())
@@ -142,7 +143,7 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool, icon_color:
         egui::Layout::top_down(egui::Align::Center),
         |ui| {
             ui.set_min_size(egui::vec2(TILE_W, TILE_H));
-            // キャプションは TILE_W 幅で折り返す（途中で切らない）。
+            // The caption wraps at the TILE_W width (never cut mid-word).
             ui.set_max_width(TILE_W);
             ui.spacing_mut().item_spacing.y = 1.0;
             ui.add(
@@ -162,8 +163,8 @@ fn tile_contents(ui: &mut egui::Ui, item: &PanelItem, enabled: bool, icon_color:
     );
 }
 
-/// アイコンタイルを枠付きで描画する。ウィジェットは常にドラッグ元にする
-/// （Canvas ビューは同じウィジェットの複数配置を許すため、常に配置可能）。
+/// Draws a framed icon tile. The widget is always a drag source (the Canvas view allows
+/// multiple placements of the same widget, so it's always placeable).
 fn widget_tile(ui: &mut egui::Ui, item: &PanelItem, icon_color: egui::Color32) {
     let frame = egui::Frame::default()
         .fill(crate::theme::WIDGET_BG())
@@ -179,15 +180,15 @@ fn widget_tile(ui: &mut egui::Ui, item: &PanelItem, icon_color: egui::Color32) {
     resp.on_hover_text(item.label());
 }
 
-/// 右パネルを描画する（ウィジェット一覧）。
-/// パネルの開閉はホバーで自動制御されるため、トグルボタンは不要。
+/// Draws the right panel (the widget list).
+/// The panel's open/close is auto-controlled by hover, so no toggle button is needed.
 pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading("Widgets");
         ui.add_space(4.0);
 
-        // グループごとのパステルカラー（アイコンのティント色）。
-        // 色の実値は theme::ui_colors の GROUP_* を参照。
+        // Per-group pastel color (the icon's tint color).
+        // See GROUP_* in theme::ui_colors for the actual color values.
         type GroupColor = fn() -> egui::Color32;
         let groups: &[(&str, GroupColor, &[PanelItem])] = &[
             (
@@ -231,8 +232,9 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::CorrelationMatrix),
                 ],
             ),
-            // PDP はサロゲートを学習し他変数を周辺化した予測（外挿あり）。データ由来の
-            // 分析と取り違えないよう、モデルベースであることを群として明示する。
+            // PDP trains a surrogate and marginalizes other variables to predict (with
+            // extrapolation). The group name explicitly marks it as model-based so it
+            // isn't mistaken for data-derived analysis.
             (
                 "Response Surface (model-based)",
                 crate::theme::GROUP_RESPONSE_SURFACE,

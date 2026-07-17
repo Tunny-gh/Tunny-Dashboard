@@ -338,8 +338,8 @@ fn tc_801_p01_spearman_50000_x_30_x_4_at_scale() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    // 全列が単調増加なので、どの param×obj ペアでも Spearman は厳密に 1.0 になる。
-    // 全ペアを計算することで大規模入力でも破綻しないこと（スケール時のスモーク）も兼ねる。
+    // All columns are monotonically increasing, so Spearman must be exactly 1.0 for every param x obj pair.
+    // Computing every pair also serves as a smoke test that nothing breaks at scale on large input.
     for param_column in &param_cols {
         for objective_column in &obj_cols {
             let r = compute_spearman(param_column, objective_column);
@@ -365,7 +365,7 @@ fn tc_801_p02_ridge_50000_x_30_at_scale() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    // 各目的について Ridge を解き、パラメータごとに係数が 1 つ返ることを確認する。
+    // Solve Ridge for each objective and confirm exactly one coefficient is returned per parameter.
     for y in &y_vecs {
         let r = compute_ridge_from_vecs(&x_matrix, y, 1.0);
         assert_eq!(
@@ -385,7 +385,7 @@ fn tc_1610_01_build_quad_features_output_length() {
 
 #[test]
 fn tc_301_06_sobol_regression_after_seeded_rng_migration() {
-    // 【テスト目的】: lcg_next → SeededRng 移行後も Sobol 感度解析が正常動作することを確認
+    // [Test purpose]: Confirm Sobol sensitivity analysis still works correctly after the lcg_next -> SeededRng migration
     let rows: Vec<TrialRow> = (0..50)
         .map(|i| {
             let x1 = i as f64;
@@ -425,7 +425,7 @@ fn tc_1610_03_compute_sobol_insufficient_data_returns_none() {
 
 #[test]
 fn tc_1610_03b_compute_sobol_zero_n_samples_returns_none() {
-    // n_samples=0 は 0/0=NaN が clamp をすり抜けて NaN 汚染された結果を返してはならない。
+    // n_samples=0 must not let 0/0=NaN slip past the clamp and return a NaN-contaminated result.
     let rows: Vec<TrialRow> = (0..50)
         .map(|i| {
             let x1 = i as f64;
@@ -479,7 +479,7 @@ fn tc_1610_06_compute_sobol_index_pair_known_values() {
     let (fo, te) = compute_sobol_index_pair(&fa, &fb, &fab);
 
     // var_y = 1, unclamped s_i = 1.5 → clamped 1.0, raw st_i = 0.125
-    // ST_i >= S_i を強制するため max(0.125, 1.5) = 1.5 → clamp → 1.0
+    // To enforce ST_i >= S_i, max(0.125, 1.5) = 1.5 → clamp → 1.0
     assert!((fo - 1.0).abs() < 1e-12, "first-order mismatch: {fo}");
     assert!((te - 1.0).abs() < 1e-12, "total-effect mismatch: {te}");
 }
@@ -621,7 +621,7 @@ fn tc_pfi_int_02_result_shape() {
 }
 
 // ===========================================================================
-// TASK-2263: compute_sensitivity_single_obj 簡略化テスト
+// TASK-2263: compute_sensitivity_single_obj simplification tests
 // ===========================================================================
 
 #[test]

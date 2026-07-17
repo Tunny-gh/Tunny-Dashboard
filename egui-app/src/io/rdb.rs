@@ -1,10 +1,12 @@
-//! RDB（PostgreSQL/MySQL）接続 URL のブリッジ。`io/sqlite.rs` と同型で、
-//! 呼び先だけ `tunny_core::rdb::*_url` 系（`RdbUrl` を受け取る版）に差し替えてある。
+//! Bridge for RDB (PostgreSQL/MySQL) connection URLs. Mirrors the shape of
+//! `io/sqlite.rs`, only swapping the callees for the `tunny_core::rdb::*_url` family
+//! (the versions that take an `RdbUrl`).
 //!
-//! SQLite との違い: SQLite はローカルファイルパスを毎回そのまま再クエリすれば良いが、
-//! RDB は接続 URL（パスワードを含む）を `journal_path: Option<PathBuf>` に文字列として
-//! 格納している（配管の diff を最小化するため。詳細は Phase C 設計ドキュメント参照）。
-//! `path_as_rdb_url` はその文字列を都度 `RdbUrl::parse` へ通して判定・復元する。
+//! Difference from SQLite: SQLite can simply re-query the local file path as-is each
+//! time, but RDB stores the connection URL (including the password) as a string in
+//! `journal_path: Option<PathBuf>` (to minimize the plumbing diff; see the Phase C
+//! design document for details). `path_as_rdb_url` runs that string through
+//! `RdbUrl::parse` each time to detect and reconstruct it.
 
 use std::path::Path;
 use std::sync::mpsc::SyncSender;
@@ -13,14 +15,16 @@ use tunny_core::rdb::RdbUrl;
 
 use crate::state::messages::AppMessage;
 
-/// `journal_path` に格納されたパスが RDB 接続 URL として解釈できるかを判定し、
-/// 可能なら `RdbUrl` を復元する。SQLite の `is_sqlite_path` に相当する判定関数だが、
-/// こちらは拡張子ではなく文字列全体を `RdbUrl::parse` に通す。
+/// Determines whether the path stored in `journal_path` can be interpreted as an RDB
+/// connection URL, and reconstructs an `RdbUrl` if possible. This is the counterpart
+/// to SQLite's `is_sqlite_path`, but instead of checking the extension, it runs the
+/// entire string through `RdbUrl::parse`.
 pub fn path_as_rdb_url(path: &Path) -> Option<RdbUrl> {
     path.to_str().and_then(RdbUrl::parse)
 }
 
-/// Phase 1: RDB ストレージを開いて Study 一覧を返す（`io::sqlite::scan_sqlite_task` と同じ役割）。
+/// Phase 1: opens the RDB storage and returns the Study list (same role as
+/// `io::sqlite::scan_sqlite_task`).
 pub fn scan_rdb_task(url: RdbUrl) -> AppMessage {
     match tunny_core::rdb::scan_study_list_url(&url) {
         Ok(studies) => {
@@ -37,8 +41,8 @@ pub fn scan_rdb_task(url: RdbUrl) -> AppMessage {
     }
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、単一チャンクとして
-/// `StudyChunkLoaded` を送信する（`io::sqlite::load_single_study_task` と同じ役割）。
+/// Phase 2: reads all COMPLETE trials for the specified study and sends them as a
+/// single chunk via `StudyChunkLoaded` (same role as `io::sqlite::load_single_study_task`).
 pub fn load_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::rdb::parse_single_study_rows_url(url, study_id) {
         Ok(rows) => {
@@ -64,10 +68,9 @@ pub fn load_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMe
     }
 }
 
-/// ライブ更新: フィンガープリント変化を検出した study を丸ごと再パースし、
-/// 共有ストアを差し替えた上で `AppMessage::SqliteLiveReloadDone` を送る
-/// （RDB ライブ更新もこのメッセージをそのまま流用する。`io::sqlite::reload_single_study_task`
-/// と同じ役割）。
+/// Live update: fully re-parses the study whose fingerprint change was detected,
+/// swaps out the shared store, and sends `AppMessage::SqliteLiveReloadDone` (RDB live
+/// update reuses this message as-is too. Same role as `io::sqlite::reload_single_study_task`).
 pub fn reload_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::rdb::parse_single_study_url(url, study_id) {
         Ok((meta, df, extras)) => {
@@ -115,7 +118,7 @@ mod tests {
 
     #[test]
     fn scan_rdb_task_unreachable_host_returns_error() {
-        // 実 DB へ接続できない URL（未使用ポート）はエラーメッセージを返す。
+        // A URL that can't connect to a real DB (unused port) returns an error message.
         let url = RdbUrl::parse("postgresql://u:p@127.0.0.1:1/nope").unwrap();
         let msg = scan_rdb_task(url);
         match msg {
@@ -150,9 +153,10 @@ mod tests {
 
     #[test]
     fn scan_rdb_task_uses_normalized_url_as_path() {
-        // postgres:// (短縮形) は正規化されて postgresql:// になる。
-        // 接続には失敗するが、正規化ロジック自体はエラーパスに関係なく通るため、
-        // ここでは RdbUrl::parse の正規化結果を直接確認する。
+        // postgres:// (the shorthand form) is normalized to postgresql://.
+        // The connection itself will fail, but the normalization logic runs
+        // regardless of the error path, so here we directly verify the
+        // normalization result of RdbUrl::parse.
         let url = RdbUrl::parse("postgres://u:p@127.0.0.1:1/nope").unwrap();
         assert_eq!(url.url, "postgresql://u:p@127.0.0.1:1/nope");
         let _ = PathBuf::from(url.url.clone());

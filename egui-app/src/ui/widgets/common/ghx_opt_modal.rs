@@ -1,34 +1,36 @@
-//! .ghx D&D で開いた最適化問題を確認し、Rhino.Compute 経由のバックグラウンド最適化を
-//! 開始するための設定モーダル。
+//! The setup modal for confirming an optimization problem opened via .ghx D&D and
+//! starting a background optimization through Rhino.Compute.
 //!
-//! `extract_problem` が抽出した変数・目的は読み取り専用で表示するのみ（ghx 側の
-//! スライダー範囲を UI から編集する経路は無い）。ユーザーが編集できるのは
-//! 目的の最適化方向・Rhino.Compute 接続設定・サンプラー設定・出力先のみ。
+//! The variables and objectives extracted by `extract_problem` are shown read-only only
+//! (there's no path to edit the ghx-side slider ranges from the UI). The only things the
+//! user can edit are the objectives' optimization directions, the Rhino.Compute
+//! connection settings, the sampler settings, and the output destination.
 
 use egui::RichText;
 
 use crate::state::app_state::GhOptDialogState;
 use crate::ui::widgets::common::modal::ModalScaffold;
 
-/// ダイアログの操作結果。
+/// The dialog's action result.
 pub enum GhxOptAction {
-    /// 現在の設定で最適化を開始する。
+    /// Start optimization with the current settings.
     Run,
-    /// ダイアログを閉じる（何も開始しない）。
+    /// Close the dialog (start nothing).
     Cancel,
 }
 
-/// NSGA-II の総評価数を計算する（偶数化した個体数 ×（世代数 + 1））。
-/// 偶数化規則は `tunny_core::gh::runner` 側の実装（`(pop.max(4) + 1) & !1`）と同じ。
+/// Computes NSGA-II's total evaluation count (evenized population size ×
+/// (generation count + 1)). The evenization rule is the same as the implementation on the
+/// `tunny_core::gh::runner` side (`(pop.max(4) + 1) & !1`).
 fn nsga2_total_evaluations(population_size: usize, generations: usize) -> usize {
     let even_pop = (population_size.max(4) + 1) & !1;
     even_pop * (generations + 1)
 }
 
-/// .ghx 最適化設定モーダルを描画する。
+/// Renders the .ghx optimization setup modal.
 ///
-/// `Some(GhxOptAction::Run)` / `Some(GhxOptAction::Cancel)` が返るまでダイアログを
-/// 開いたままにする（呼び出し側は毎フレーム `state` を渡して呼び直すこと）。
+/// Keeps the dialog open until `Some(GhxOptAction::Run)` / `Some(GhxOptAction::Cancel)`
+/// is returned (the caller must call this again every frame, passing `state`).
 pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptAction> {
     let mut run_clicked = false;
     let mut cancel_clicked = false;
@@ -61,7 +63,7 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
             }
             ui.separator();
 
-            // ── Variables（読み取り専用） ────────────────────────
+            // ── Variables (read-only) ────────────────────────
             ui.label(RichText::new("Variables").strong());
             if state.problem.variables.is_empty() {
                 ui.label(
@@ -91,14 +93,16 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
             }
             ui.add_space(8.0);
 
-            // ── Objectives（方向のみ編集可） ──────────────────────
+            // ── Objectives (only the direction is editable) ──────────────────────
             ui.label(RichText::new("Objectives").strong());
             egui::Grid::new("ghx_opt_objectives")
                 .num_columns(2)
                 .spacing([16.0, 4.0])
                 .show(ui, |ui| {
-                    // objectives と maximize は同数のはずだが、不整合でも panic しないよう
-                    // zip で対応する要素のみ回す（余りは無視。csv_import_modal と同じ方針）。
+                    // objectives and maximize should have the same length, but to avoid
+                    // panicking even if they don't match, iterate only over corresponding
+                    // elements via zip (any leftover is ignored — the same policy as
+                    // csv_import_modal).
                     for (i, (obj, is_max)) in state
                         .problem
                         .objectives
@@ -118,7 +122,7 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                 });
             ui.add_space(8.0);
 
-            // ── Rhino.Compute 接続設定 ────────────────────────────
+            // ── Rhino.Compute connection settings ────────────────────────────────
             ui.label(RichText::new("Rhino.Compute").strong());
             ui.horizontal(|ui| {
                 ui.label("Server:");
@@ -128,7 +132,8 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                         .desired_width(240.0),
                 );
             });
-            // EXE パス指定時のみポート入力を出し、起動を Dashboard が管理する旨を示す。
+            // Only show the port input when an EXE path is specified, and indicate that
+            // the Dashboard manages the launch.
             if matches!(
                 tunny_core::gh::classify_compute_input(&state.compute_target),
                 tunny_core::gh::ComputeTarget::Exe(_)
@@ -275,11 +280,11 @@ mod tests {
 
     #[test]
     fn nsga2_total_evaluations_matches_runner_evenization() {
-        // pop=16, gen=10 → even_pop=16 (既に偶数) * (10+1) = 176
+        // pop=16, gen=10 → even_pop=16 (already even) * (10+1) = 176
         assert_eq!(nsga2_total_evaluations(16, 10), 176);
-        // pop=15（奇数）→ (15+1)&!1 = 16 * (10+1) = 176
+        // pop=15 (odd) → (15+1)&!1 = 16 * (10+1) = 176
         assert_eq!(nsga2_total_evaluations(15, 10), 176);
-        // pop=4未満は 4 に切り上げ: pop=1 → (4+1)&!1 = 4 * (0+1) = 4
+        // pop below 4 is rounded up to 4: pop=1 → (4+1)&!1 = 4 * (0+1) = 4
         assert_eq!(nsga2_total_evaluations(1, 0), 4);
     }
 

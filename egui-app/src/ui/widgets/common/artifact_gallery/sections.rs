@@ -1,7 +1,8 @@
-//! 純粋データ整形ヘルパー。
+//! Pure data-shaping helpers.
 //!
-//! trial_id の絞り込み・ページ分割・クラスタ/MCDM 結果と artifact の突き合わせなど、
-//! egui に依存しない純粋関数群をまとめる（テストしやすいようウィジェット状態から分離）。
+//! Groups together egui-independent pure functions for trial_id filtering,
+//! pagination, and matching cluster/MCDM results against artifacts (kept
+//! separate from widget state to make them easy to test).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -10,7 +11,7 @@ use crate::state::app_state::AppState;
 use crate::state::results::{ClusterResult, McdmResult};
 use crate::theme::colormap::ColorMap;
 
-/// 各 trial の目的関数値を `name: value` 改行区切りで整形したマップを返す。
+/// Returns a map of each trial's objective values, formatted as `name: value` pairs joined by newlines.
 pub(super) fn build_objective_labels(app_state: &AppState) -> HashMap<u32, String> {
     let mut out: HashMap<u32, String> = HashMap::new();
     let Some(ctx) = app_state.current_study.as_ref() else {
@@ -22,7 +23,7 @@ pub(super) fn build_objective_labels(app_state: &AppState) -> HashMap<u32, Strin
     }
     let view = &ctx.view;
     let cols = view.numeric_columns(obj_names);
-    // 表示され得るのは artifact を持つ trial のみ。文字列整形をそれらに限定する。
+    // Only trials with an artifact can be displayed. Limit the string formatting to those.
     let artifact_map = &app_state.artifact_map;
     for (idx, &trial_id) in view.trial_ids.iter().enumerate() {
         if !artifact_map.contains_key(&trial_id) {
@@ -42,7 +43,7 @@ pub(super) fn build_objective_labels(app_state: &AppState) -> HashMap<u32, Strin
     out
 }
 
-/// クラスタラベルから色を求める（ClusterTable と同じ規則）。
+/// Derives a color from a cluster label (same rule as ClusterTable).
 pub(super) fn cluster_color(label: i32, n_clusters: usize, colormap: &ColorMap) -> egui::Color32 {
     if label < 0 {
         return crate::theme::TEXT_SECONDARY();
@@ -55,7 +56,7 @@ pub(super) fn cluster_color(label: i32, n_clusters: usize, colormap: &ColorMap) 
     colormap.interpolate(t)
 }
 
-/// 指定インデックスのアーティファクトを持つ trial_id を昇順で返す。
+/// Returns, in ascending order, the trial_ids that have an artifact at the given index.
 pub(super) fn artifact_trials_with_index(
     artifact_map: &std::collections::HashMap<u32, Vec<ArtifactEntry>>,
     index: usize,
@@ -69,9 +70,10 @@ pub(super) fn artifact_trials_with_index(
     ids
 }
 
-/// `ids` を現在の Study に属する trial_id だけに絞り込む。
-/// `artifact_map` は Journal 全体（全 Study）の trial を含むため、対象 Study の
-/// `view.trial_ids` に含まれるものだけを残す。Study 未選択時は空を返す。
+/// Restricts `ids` to only the trial_ids that belong to the current Study.
+/// `artifact_map` contains trials from the entire Journal (all Studies), so
+/// only ones present in the target Study's `view.trial_ids` are kept.
+/// Returns empty when no Study is selected.
 pub(super) fn restrict_to_current_study(ids: Vec<u32>, app_state: &AppState) -> Vec<u32> {
     let Some(ctx) = app_state.current_study.as_ref() else {
         return Vec::new();
@@ -80,8 +82,8 @@ pub(super) fn restrict_to_current_study(ids: Vec<u32>, app_state: &AppState) -> 
     ids.into_iter().filter(|id| set.contains(id)).collect()
 }
 
-/// 選択フィルタ（PCP ブラシ等）に基づき trial_id リストを絞り込む。
-/// `selected_indices` が空の場合は全件を返す（テーブル等と同じ「空 = 全件」規約）。
+/// Filters the trial_id list based on a selection filter (PCP brush, etc.).
+/// Returns all items when `selected_indices` is empty (same "empty = all" convention as tables, etc.).
 pub(super) fn filter_ids_by_selection(ids: Vec<u32>, selected_indices: &[u32]) -> Vec<u32> {
     if selected_indices.is_empty() {
         return ids;
@@ -90,7 +92,7 @@ pub(super) fn filter_ids_by_selection(ids: Vec<u32>, selected_indices: &[u32]) -
     ids.into_iter().filter(|id| set.contains(id)).collect()
 }
 
-/// `items` のうち `page` ページ目（0 始まり, `per_page` 件）のスライスを返す。
+/// Returns the slice of `items` for `page` (0-indexed, `per_page` items per page).
 pub(super) fn paginate<T>(items: &[T], page: usize, per_page: usize) -> &[T] {
     if per_page == 0 || items.is_empty() {
         return &[];
@@ -100,10 +102,11 @@ pub(super) fn paginate<T>(items: &[T], page: usize, per_page: usize) -> &[T] {
     &items[start..end]
 }
 
-/// クラスタ別に artifact を振り分ける。
-/// 戻り値は (ラベル, [(trial_id, &paths)]) をラベル昇順（未クラスタ -1 は末尾）で並べたもの。
-/// artifact を持たない trial は除外する。
-/// `artifact_index` 番目のアーティファクトを持たない trial は除外する。
+/// Groups artifacts by cluster.
+/// Returns (label, [(trial_id, &paths)]) pairs ordered by ascending label
+/// (unclustered -1 goes last).
+/// Trials without an artifact are excluded.
+/// Trials without an artifact at `artifact_index` are excluded.
 #[allow(clippy::type_complexity)]
 pub(super) fn cluster_sections<'a>(
     cluster_result: &ClusterResult,
@@ -124,7 +127,7 @@ pub(super) fn cluster_sections<'a>(
         };
         by_label.entry(label).or_default().push((trial_id, entry));
     }
-    // BTreeMap は昇順。未クラスタ(-1)を末尾へ移す。
+    // BTreeMap iterates in ascending order. Move unclustered (-1) to the end.
     let mut sections: Vec<(i32, Vec<(u32, &ArtifactEntry)>)> = Vec::new();
     let mut unclustered: Option<(i32, Vec<(u32, &ArtifactEntry)>)> = None;
     for (label, members) in by_label {
@@ -140,7 +143,7 @@ pub(super) fn cluster_sections<'a>(
     sections
 }
 
-/// MCDM ランキング順のエントリ。
+/// An entry in MCDM ranking order.
 pub(super) struct McdmArtifactEntry<'a> {
     pub rank: usize,
     pub score: f64,
@@ -148,8 +151,8 @@ pub(super) struct McdmArtifactEntry<'a> {
     pub entry: &'a ArtifactEntry,
 }
 
-/// MCDM 結果をランク順に並べ、`artifact_index` 番目のアーティファクトを持つ trial を
-/// 最大 `top_n` 件返す。
+/// Orders the MCDM result by rank and returns up to `top_n` trials that have
+/// an artifact at `artifact_index`.
 pub(super) fn mcdm_ordered<'a>(
     result: &McdmResult,
     trial_ids: &[u32],
@@ -208,9 +211,9 @@ mod tests {
     #[test]
     fn artifact_trials_with_index_filters_and_sorts() {
         let mut m = map_with(&[5, 2, 9]);
-        m.insert(3, vec![]); // 空は除外
+        m.insert(3, vec![]); // empty is excluded
         assert_eq!(artifact_trials_with_index(&m, 0), vec![2, 5, 9]);
-        // index 1 を持つ trial のみ。
+        // Only trials with index 1.
         m.insert(7, vec![entry("a"), entry("b")]);
         assert_eq!(artifact_trials_with_index(&m, 1), vec![7]);
     }
@@ -244,10 +247,10 @@ mod tests {
 
     #[test]
     fn restrict_to_current_study_keeps_only_study_trials() {
-        // artifact_map は Journal 全体（study A: 0,1 / study B: 100,101）を含む。
+        // artifact_map contains the entire Journal (study A: 0,1 / study B: 100,101).
         let mut state = AppState::new();
         state.artifact_map = map_with(&[0, 1, 100, 101]);
-        // 現在の Study は trial 0,1 のみを持つ。
+        // The current Study has only trials 0,1.
         state.current_study = Some(study_ctx_with_trial_ids(&[0, 1]));
 
         let ids = artifact_trials_with_index(&state.artifact_map, 0);
@@ -285,7 +288,7 @@ mod tests {
 
     #[test]
     fn cluster_sections_groups_and_puts_unclustered_last() {
-        // 行 index と trial_id を別物にして変換を検証する。
+        // Make row index and trial_id different values to verify the conversion.
         let trial_ids = vec![10, 11, 12, 13];
         let cr = ClusterResult {
             labels: vec![1, 0, -1, 0],
@@ -294,8 +297,8 @@ mod tests {
         let m = map_with(&[10, 11, 12, 13]);
         let sections = cluster_sections(&cr, &trial_ids, &m, 0);
         let labels: Vec<i32> = sections.iter().map(|(l, _)| *l).collect();
-        assert_eq!(labels, vec![0, 1, -1]); // 未クラスタ末尾
-                                            // cluster 0 は trial 11, 13
+        assert_eq!(labels, vec![0, 1, -1]); // unclustered last
+                                            // cluster 0 is trials 11, 13
         let c0: Vec<u32> = sections[0].1.iter().map(|(t, _)| *t).collect();
         assert_eq!(c0, vec![11, 13]);
     }
@@ -307,7 +310,7 @@ mod tests {
             labels: vec![0, 0, 1],
             n_clusters: 2,
         };
-        let m = map_with(&[10]); // 11, 12 は artifact 無し
+        let m = map_with(&[10]); // 11, 12 have no artifact
         let sections = cluster_sections(&cr, &trial_ids, &m, 0);
         let total: usize = sections.iter().map(|(_, v)| v.len()).sum();
         assert_eq!(total, 1);
@@ -321,19 +324,19 @@ mod tests {
             n_clusters: 1,
         };
         let mut m = HashMap::new();
-        m.insert(10, vec![entry("a"), entry("b")]); // index 1 あり
-        m.insert(11, vec![entry("c")]); // index 1 なし → 除外
+        m.insert(10, vec![entry("a"), entry("b")]); // has index 1
+        m.insert(11, vec![entry("c")]); // no index 1 -> excluded
         let sections = cluster_sections(&cr, &trial_ids, &m, 1);
         let members = &sections[0].1;
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].0, 10);
-        assert_eq!(members[0].1.filename, "b.png"); // 2 番目を選択
+        assert_eq!(members[0].1.filename, "b.png"); // the second one selected
     }
 
     #[test]
     fn mcdm_ordered_respects_rank_and_topn() {
         let trial_ids = vec![10, 11, 12];
-        // ranked_indices は行 index。スコアは行 index 基準。
+        // ranked_indices are row indices. Scores are keyed by row index.
         let result = McdmResult::Topsis(TopsisResult {
             scores: vec![0.1, 0.9, 0.5],
             ranked_indices: vec![1, 2, 0],
@@ -343,7 +346,7 @@ mod tests {
         let ordered = mcdm_ordered(&result, &trial_ids, &m, 0, 2);
         assert_eq!(ordered.len(), 2);
         assert_eq!(ordered[0].rank, 1);
-        assert_eq!(ordered[0].trial_id, 11); // 行 index 1 -> trial 11
+        assert_eq!(ordered[0].trial_id, 11); // row index 1 -> trial 11
         assert!((ordered[0].score - 0.9).abs() < 1e-9);
         assert_eq!(ordered[1].trial_id, 12);
     }
@@ -356,10 +359,10 @@ mod tests {
             ranked_indices: vec![1, 2, 0],
             duration_ms: 0.0,
         });
-        let m = map_with(&[12]); // 行 index 2 -> trial 12 のみ
+        let m = map_with(&[12]); // row index 2 -> only trial 12
         let ordered = mcdm_ordered(&result, &trial_ids, &m, 0, 10);
         assert_eq!(ordered.len(), 1);
         assert_eq!(ordered[0].trial_id, 12);
-        assert_eq!(ordered[0].rank, 2); // 全体ランクは 2 位
+        assert_eq!(ordered[0].rank, 2); // overall rank is 2nd
     }
 }

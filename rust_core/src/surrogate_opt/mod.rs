@@ -1,15 +1,17 @@
-//! 応答曲面（サロゲートモデル）の学習と、その曲面上での最適化。
+//! Fitting a response surface (surrogate model) and optimizing over that surface.
 //!
-//! サンプリング結果（trial 群）からサロゲートモデルを学習し、正規化 [0,1]^d 箱内で
-//! 最適化を実行して推定最適点を返す。モデル・最適化手法はそれぞれ
-//! [`SurrogateModelKind`] / [`OptimizerKind`] へバリアントを追加することで拡張する。
+//! Fits a surrogate model from sampling results (a set of trials), then runs
+//! optimization inside the normalized [0,1]^d box to return the estimated optimum.
+//! Extend the model and optimization methods by adding variants to
+//! [`SurrogateModelKind`] / [`OptimizerKind`] respectively.
 
 mod acquisition;
 mod ard;
 mod ehvi;
 pub(crate) mod feasibility;
 mod models;
-// gh ランナー（crate::gh::runner）が nsga2 を実目的関数評価に転用するため crate 内公開
+// Exposed within the crate because the gh runner (crate::gh::runner) repurposes nsga2
+// for real objective-function evaluation.
 pub(crate) mod optimizers;
 pub(crate) mod progress;
 mod robustness;
@@ -29,25 +31,31 @@ use crate::math::rng::SeededRng;
 use progress::FIT_CANCELLED;
 use validation::validate_surrogate_tracked;
 
-/// サロゲート学習に必要な最小 trial 数。
+/// Minimum number of trials required to fit a surrogate.
 pub const MIN_TRIALS_FOR_SURROGATE_OPT: usize = 10;
 
-/// 学習に使う trial 数の上限。これを超えるとエリート帯＋ランダムで間引く。
+/// Upper bound on the number of trials used for fitting. Above this, the data is
+/// subsampled by keeping an elite band plus random fill.
 ///
-/// GP-FITC は誘導点 M=100 に情報を圧縮するため、N をこの程度まで間引いても応答
-/// 曲面の質はほとんど落ちない。一方コストは N にほぼ線形（検証で同一モデルを 7 回
-/// 学習する）なので、大規模 study での待ち時間を大幅に短縮できる。
+/// GP-FITC compresses the information into M=100 inducing points, so subsampling
+/// N down to roughly this size barely degrades the response surface quality.
+/// Meanwhile cost scales nearly linearly with N (validation fits the same model
+/// 7 times), so this cuts wait time substantially for large studies.
 pub const MAX_TRAIN_FOR_FIT: usize = 2000;
 
-/// 自動モデル選択（Auto）の候補モデル。CV R² が最も高い候補を選ぶ。
+/// Candidate models for automatic model selection (Auto). The candidate with the
+/// highest CV R² is chosen.
 ///
-/// 並び順は「単純・低コストなモデルを先頭」に揃えてある（Ridge → GP-FITC → GP-VFE →
-/// LightGBM）。同点時はこの並びで先に来る候補を優先する（タイブレーク）。
+/// The order is arranged "simplest / lowest-cost model first" (Ridge -> GP-FITC ->
+/// GP-VFE -> LightGBM). On a tie, the candidate earlier in this order is preferred
+/// (tie-break).
 ///
-/// GpMoe は候補から除外している:
-///   - クラスタ数を CV で探索するため、候補ごとの検証コストが他より大幅に高い。
-///   - 滑らか／線形なデータでは単一 GP に劣化し（クラスタが退化する）、Auto の
-///     コスト対効果が悪い。MoE は不連続・多峰応答が分かっているときに手動で選ぶ想定。
+/// GpMoe is excluded from the candidates:
+///   - It searches the cluster count via CV, so its per-candidate validation cost
+///     is far higher than the others.
+///   - On smooth/linear data it degenerates to a single GP (clusters collapse),
+///     giving Auto poor cost-effectiveness. MoE is meant to be selected manually
+///     when the response is known to be discontinuous or multimodal.
 pub const AUTO_CANDIDATES: [SurrogateModelKind; 4] = [
     SurrogateModelKind::Ridge,
     SurrogateModelKind::GpFitc,
@@ -55,21 +63,25 @@ pub const AUTO_CANDIDATES: [SurrogateModelKind; 4] = [
     SurrogateModelKind::Lgbm,
 ];
 
-/// 自動モデル選択（Auto）の結果。選ばれたモデルと候補ごとの CV R² を持つ。
+/// Result of automatic model selection (Auto). Holds the chosen model and the
+/// per-candidate CV R².
 #[derive(Debug, Clone)]
 pub struct ModelSelectionReport {
-    /// 選択されたモデル種別（最も高い CV R²、同点は AUTO_CANDIDATES の先頭優先）。
+    /// The selected model kind (highest CV R²; ties prefer the earlier entry in
+    /// AUTO_CANDIDATES).
     pub chosen: SurrogateModelKind,
-    /// 候補ごとの (モデル種別, スコア = cv_r2_mean)。`AUTO_CANDIDATES` と同順。
-    /// フィット／検証に失敗した候補は f64::NEG_INFINITY を記録し、選択対象から外す。
+    /// Per-candidate (model kind, score = cv_r2_mean), in the same order as
+    /// `AUTO_CANDIDATES`. A candidate whose fit/validation fails is recorded as
+    /// f64::NEG_INFINITY and excluded from selection.
     pub scores: Vec<(SurrogateModelKind, f64)>,
 }
 
-/// `AUTO_CANDIDATES` を交差検証し、CV R² が最も高いモデルを選ぶ。
+/// Cross-validates `AUTO_CANDIDATES` and selects the model with the highest CV R².
 ///
-/// 各候補について [`validate_surrogate`] を実行し、`cv_r2_mean` をスコアとする。
-/// スコア差が 1e-3 未満の候補は「同点」とみなし、`AUTO_CANDIDATES` で先に来る候補
-/// （より単純・低コスト）を優先する。全候補が失敗した場合のみ `Err` を返す。
+/// Runs [`validate_surrogate`] for each candidate and uses `cv_r2_mean` as its
+/// score. Candidates whose score differs by less than 1e-3 are treated as "tied",
+/// preferring the candidate earlier in `AUTO_CANDIDATES` (simpler / lower cost).
+/// Returns `Err` only if every candidate fails.
 pub fn select_best_model(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -78,10 +90,12 @@ pub fn select_best_model(
     select_best_model_tracked(x_matrix, y, seed, &FitProgress::default(), "")
 }
 
-/// [`select_best_model`] と同じだが、進捗更新とキャンセルに対応する。
+/// Same as [`select_best_model`] but supports progress reporting and cancellation.
 ///
-/// `stage_prefix` は段階ラベルの接頭辞（多目的で「Objective k/N: 」を付けるため）。
-/// キャンセル要求があれば（候補の検証失敗に紛れず）[`FIT_CANCELLED`] を返す。
+/// `stage_prefix` is the prefix for the stage label (used to prepend
+/// "Objective k/N: " in the multi-objective case). If a cancellation is
+/// requested, returns [`FIT_CANCELLED`] rather than letting it look like an
+/// ordinary candidate-validation failure.
 fn select_best_model_tracked(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -100,8 +114,9 @@ fn select_best_model_tracked(
             i + 1,
             AUTO_CANDIDATES.len()
         ));
-        // フィット／検証に失敗した候補は NEG_INFINITY を記録し、選択対象から外す。
-        // ただしキャンセル由来の失敗は握りつぶさず伝播する。
+        // A candidate whose fit/validation fails is recorded as NEG_INFINITY and
+        // excluded from selection. However, a failure caused by cancellation is
+        // propagated rather than swallowed.
         let score = match validate_surrogate_tracked(kind, x_matrix, y, seed, progress) {
             Ok(report) => report.cv_r2_mean,
             Err(_) if progress.is_cancelled() => return Err(FIT_CANCELLED.to_string()),
@@ -110,13 +125,16 @@ fn select_best_model_tracked(
         scores.push((kind, score));
     }
 
-    // CV R² の差がこの値未満の候補は「同点」とみなし、AUTO_CANDIDATES で先に来る
-    // （より単純・低コストな）候補を優先する。完全に線形なデータでは GP も Ridge も
-    // ほぼ完璧に当てはまる（R² ≈ 1）ため、わずかな差で複雑な GP を選ばないようにする。
+    // Candidates whose CV R² differs by less than this value are treated as
+    // "tied", preferring the candidate earlier in AUTO_CANDIDATES (simpler /
+    // lower cost). On perfectly linear data both GP and Ridge fit almost
+    // perfectly (R² ≈ 1), so this avoids picking the more complex GP over a
+    // negligible difference.
     const TIE_TOLERANCE: f64 = 1e-3;
 
-    // 最大スコアの候補を選ぶ。AUTO_CANDIDATES の先頭から走査し、許容差を超えて
-    // 大きいものだけ採用することで、同点は先（より単純）に来る候補が残る。
+    // Select the candidate with the highest score. Scanning from the front of
+    // AUTO_CANDIDATES and only accepting a strictly-better-than-tolerance score
+    // means ties are left resolved in favor of the earlier (simpler) candidate.
     let mut chosen: Option<(SurrogateModelKind, f64)> = None;
     for &(kind, score) in &scores {
         if !score.is_finite() {
@@ -135,95 +153,104 @@ fn select_best_model_tracked(
     Ok(ModelSelectionReport { chosen, scores })
 }
 
-/// スライス格子のデフォルト解像度。
+/// Default resolution of the slice grid.
 pub const DEFAULT_SLICE_GRID: usize = 20;
 
-/// サロゲート最適化の入力。
+/// Input to surrogate optimization.
 pub struct SurrogateOptRequest {
-    /// 訓練データ（行 = trial、列 = パラメータ）。元の単位。
+    /// Training data (row = trial, column = parameter), in original units.
     pub x_matrix: Vec<Vec<f64>>,
-    /// 目的値（元の単位）。
+    /// Objective values (original units).
     pub y: Vec<f64>,
-    /// 各パラメータ列の名前（結果の `best_params` と同順）。
+    /// Name of each parameter column (same order as `best_params` in the result).
     pub param_names: Vec<String>,
-    /// 目的の名前（表示用）。
+    /// Objective name (for display).
     pub objective_name: String,
-    /// true = 最小化、false = 最大化。
+    /// true = minimize, false = maximize.
     pub minimize: bool,
-    /// 使用するサロゲートモデル。
+    /// Surrogate model to use.
     pub model: SurrogateModelKind,
-    /// 使用する最適化手法。
+    /// Optimizer to use.
     pub optimizer: OptimizerKind,
-    /// 最適点を通る応答曲面スライスを返す 2 パラメータの列 index（表示用）。
+    /// Column indices of the two parameters for the response-surface slice
+    /// through the optimum (for display).
     pub slice_params: Option<(usize, usize)>,
-    /// スライス格子の一辺の点数。
+    /// Number of points along one side of the slice grid.
     pub n_grid: usize,
-    /// 制約データ（空 = 制約なし）。
+    /// Constraint data (empty = unconstrained).
     pub constraints: Vec<ConstraintData>,
 }
 
-/// サロゲート学習に渡す 1 制約のデータ。
+/// Data for a single constraint passed to surrogate fitting.
 ///
-/// Optuna の制約規約: 値 ≤ 0 が実行可能（feasible）。
+/// Optuna's constraint convention: value ≤ 0 is feasible.
 pub struct ConstraintData {
-    /// 制約の名前（表示・ログ用）。
+    /// Constraint name (for display/logging).
     pub name: String,
-    /// 各 trial の制約値（`x_matrix` と同じ行順）。
+    /// Constraint value per trial (same row order as `x_matrix`).
     pub values: Vec<f64>,
 }
 
-/// サロゲートの学習＋検証の入力。
+/// Input to surrogate fitting + validation.
 pub struct SurrogateFitRequest {
     pub x_matrix: Vec<Vec<f64>>,
     pub y: Vec<f64>,
     pub param_names: Vec<String>,
     pub objective_name: String,
     pub model: SurrogateModelKind,
-    /// true のとき `model` を無視して `AUTO_CANDIDATES` を交差検証し、最良モデルを
-    /// 自動選択して学習する（`TrainedSurrogate.model_selection` に経緯を残す）。
+    /// When true, ignores `model` and cross-validates `AUTO_CANDIDATES` to
+    /// automatically select and fit the best model (the outcome is recorded in
+    /// `TrainedSurrogate.model_selection`).
     pub auto_select: bool,
-    /// 制約データ（空 = 制約なし）。各要素が 1 制約を表す。
+    /// Constraint data (empty = unconstrained). Each element is one constraint.
     pub constraints: Vec<ConstraintData>,
-    /// 誘導点として優先する行 index（`x_matrix` への index）。空 = 一様（既定）。
-    /// 多目的でパレートフロント上の trial に GP の誘導点を集中させるために使う。
-    /// N が GP の誘導点上限（100）以下のときは効果がない（Z = X で全点を使う）。
+    /// Row indices (into `x_matrix`) to prioritize as inducing points. Empty =
+    /// uniform (default). Used to concentrate the GP's inducing points on
+    /// Pareto-front trials in the multi-objective case. Has no effect when N is
+    /// at or below the GP's inducing-point cap (100), since Z = X uses every
+    /// point anyway.
     pub priority_rows: Vec<usize>,
-    /// 各パラメータ列の宣言レンジ (low, high)（log 由来。`param_names` と同順）。
-    /// `Some(vec)` のとき、各列を観測 min/max ではなくこの範囲で正規化し、最適化の
-    /// 探索箱（正規化空間 [0,1]^d）を真の変数範囲に一致させる。列が `None` の場合や
-    /// 全体が `None` の場合は観測レンジにフォールバックする。
+    /// Declared range (low, high) per parameter column (derived from the log;
+    /// same order as `param_names`). When `Some(vec)`, each column is normalized
+    /// using this range instead of the observed min/max, so the optimization
+    /// search box (normalized space [0,1]^d) matches the true variable range.
+    /// Falls back to the observed range for columns that are `None`, or when the
+    /// whole field is `None`.
     pub param_bounds: Option<Vec<Option<(f64, f64)>>>,
 }
 
-/// 検証済みの学習結果。最適化で再利用する。
+/// A validated fit result, reused for optimization.
 pub struct TrainedSurrogate {
     pub(crate) surrogate: models::FittedSurrogate,
     pub model_kind: SurrogateModelKind,
     pub param_names: Vec<String>,
     pub objective_name: String,
-    /// 学習に使った元データ（最適化の開始点に使用）。
+    /// Original data used for fitting (used as the optimization start point).
     pub(crate) x_matrix: Vec<Vec<f64>>,
     pub(crate) y: Vec<f64>,
     pub validation: SurrogateValidationReport,
-    /// ARD 長さスケールから算出した相対パラメータ重要度（`param_names` と同順、合計 1.0）。
+    /// Relative parameter importance derived from the ARD length scales (same
+    /// order as `param_names`, summing to 1.0).
     ///
-    /// GP（単一 SGP: FITC / VFE）のみ Some。MoE / Ridge / LightGBM は None。
-    /// 重要度はモデルの入力次元（= `x_matrix` の列）に対応し、その列順は `param_names`
-    /// と一致する（`fit_surrogate` は列順を入れ替えないため）。
+    /// Some only for GP (single SGP: FITC / VFE). None for MoE / Ridge / LightGBM.
+    /// The importance corresponds to the model's input dimensions (= columns of
+    /// `x_matrix`), whose column order matches `param_names` (since
+    /// `fit_surrogate` never reorders columns).
     pub param_importance: Option<Vec<f64>>,
-    /// 制約名（`constraint_models` と同順。空 = 制約なし）。
+    /// Constraint names (same order as `constraint_models`; empty = unconstrained).
     pub constraint_names: Vec<String>,
-    /// 制約ごとの学習済みサロゲート（`constraint_names` と同順）。
+    /// Fitted surrogate per constraint (same order as `constraint_names`).
     pub(crate) constraint_models: Vec<models::FittedSurrogate>,
-    /// 各 trial の制約値（行 = trial、列 = 制約; `constraint_names` と同順）。
-    /// 実行可能インカンバントの計算に使う。
+    /// Constraint value per trial (row = trial, column = constraint; same order
+    /// as `constraint_names`). Used to compute the feasible incumbent.
     pub(crate) constraint_values: Vec<Vec<f64>>,
-    /// 自動モデル選択（`auto_select = true`）の経緯。手動指定時は None。
-    /// `model_kind` には選ばれた具体的なモデル種別が入る。
+    /// History of automatic model selection (`auto_select = true`). None when
+    /// the model was specified manually. `model_kind` holds the concrete model
+    /// kind that was chosen.
     pub model_selection: Option<ModelSelectionReport>,
 }
 
-/// 最適化ステージの設定（学習済みモデルに対して実行する）。
+/// Configuration for the optimization stage (run against an already-fitted model).
 pub struct SurrogateOptimizeSpec {
     pub minimize: bool,
     pub optimizer: OptimizerKind,
@@ -231,45 +258,52 @@ pub struct SurrogateOptimizeSpec {
     pub n_grid: usize,
 }
 
-/// 最適点を通る応答曲面の 2D スライス（他次元は最適点に固定）。
+/// A 2D slice of the response surface through the optimum (other dimensions
+/// fixed at the optimum).
 #[derive(Debug, Clone)]
 pub struct SurfaceSlice {
     pub param_x_idx: usize,
     pub param_y_idx: usize,
-    /// X 軸の格子値（元の単位）。
+    /// X-axis grid values (original units).
     pub x_values: Vec<f64>,
-    /// Y 軸の格子値（元の単位）。
+    /// Y-axis grid values (original units).
     pub y_values: Vec<f64>,
-    /// 予測値格子。`z_values[i][j] = f(x_values[i], y_values[j])`。
+    /// Predicted value grid. `z_values[i][j] = f(x_values[i], y_values[j])`.
     pub z_values: Vec<Vec<f64>>,
-    /// 予測標準偏差の格子（元の単位、`z_values` と同形状）。
-    /// 事後分散を持つモデル（GP 系）のみ Some。Ridge / LightGBM は None。
+    /// Grid of predicted standard deviations (original units, same shape as
+    /// `z_values`). Some only for models with a posterior variance (GP family);
+    /// None for Ridge / LightGBM.
     pub z_std: Option<Vec<Vec<f64>>>,
 }
 
-/// サロゲート最適化の結果。
+/// Result of surrogate optimization.
 #[derive(Debug, Clone)]
 pub struct SurrogateOptResult {
-    /// 推定最適点のパラメータ値（元の単位、`param_names` と同順）。
+    /// Parameter values at the estimated optimum (original units, same order as
+    /// `param_names`).
     pub best_params: Vec<f64>,
-    /// 推定最適点でのサロゲート予測値（元の単位）。
+    /// Surrogate prediction at the estimated optimum (original units).
     pub best_value: f64,
-    /// 予測標準偏差（ガウス過程系のみ。Ridge は None）。
+    /// Predicted standard deviation (Gaussian-process models only; None for Ridge).
     pub predicted_std: Option<f64>,
-    /// 訓練データに対するサロゲートの決定係数。
+    /// Coefficient of determination of the surrogate on the training data.
     pub r_squared: f64,
-    /// 最適点を通る応答曲面スライス（`slice_params` 指定時のみ）。
+    /// Response-surface slice through the optimum (only when `slice_params` is
+    /// given).
     pub slice: Option<SurfaceSlice>,
-    /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
+    /// Best value among the observed data (original units). The minimum when
+    /// minimizing, the maximum when maximizing.
     pub best_observed_value: f64,
-    /// 推定最適点での各制約サロゲートの予測値（元の単位、`constraint_names` と同順）。
-    /// 制約なし（`constraint_names` が空）のときは空。
+    /// Predicted value of each constraint surrogate at the estimated optimum
+    /// (original units, same order as `constraint_names`). Empty when
+    /// unconstrained (`constraint_names` is empty).
     pub predicted_constraints: Vec<f64>,
-    /// 推定最適点での実行可能性確率（0.0〜1.0）。制約なしのときは None。
+    /// Feasibility probability at the estimated optimum (0.0-1.0). None when
+    /// unconstrained.
     pub feasibility_probability: Option<f64>,
 }
 
-/// 入力の共通バリデーションを行う（成功時は (n, n_dims) を返す）。
+/// Performs common input validation (returns (n, n_dims) on success).
 fn validate_inputs(x_matrix: &[Vec<f64>], y: &[f64]) -> Result<(usize, usize), String> {
     let n = y.len();
     let n_dims = x_matrix.first().map(|r| r.len()).unwrap_or(0);
@@ -300,22 +334,26 @@ fn validate_inputs(x_matrix: &[Vec<f64>], y: &[f64]) -> Result<(usize, usize), S
     Ok((n, n_dims))
 }
 
-/// `idx` で指定した行だけを取り出した新しい Vec を返す。
+/// Returns a new Vec containing only the rows specified by `idx`.
 fn take_rows<T: Clone>(rows: &[T], idx: &[usize]) -> Vec<T> {
     idx.iter().map(|&i| rows[i].clone()).collect()
 }
 
-/// 大規模学習データを `cap` 点へ間引くインデックス（昇順）を返す。`N ≤ cap` のときは
-/// `None`（間引き不要）。
+/// Returns the ascending indices to subsample large training data down to `cap`
+/// points. Returns `None` (no subsampling needed) when `N <= cap`.
 ///
-/// 方針: エリート（最適化で重要な領域）を必ず残し、残り枠を非エリートからランダム
-/// （固定シード）で補う。Optuna の trial は良い領域に密集するため、ランダム補充は
-/// その密度分布を保ったまま空間を粗く覆う（空間充填だと密度を均して良い領域が薄まる
-/// ため使わない）。エリートは予算の半分（`cap/2`）まで:
-/// - 単目的: 目的値の両端（best/worst 各 1/4 ずつ）。`fit` は最適化方向に非依存なので、
-///   両端を残せば最大化・最小化どちらでも最適点側が保持される。
-/// - 多目的: 非劣ランク昇順。rank 0 から、`cap/2` に満たなければ rank 1, 2, … と対象を
-///   広げる（`nd_sort` は単目的では全 rank 0 を返すため、単目的経路では使わない）。
+/// Strategy: always keep the elites (regions important for optimization), and
+/// fill the remaining budget from the non-elites at random (fixed seed). Since
+/// Optuna trials cluster in good regions, random fill covers the space coarsely
+/// while preserving that density distribution (space-filling is not used because
+/// it would flatten the density and dilute the good regions). Elites take up to
+/// half the budget (`cap/2`):
+/// - Single-objective: both tails of the objective value (best/worst, 1/4 each).
+///   `fit` is agnostic to the optimization direction, so keeping both tails
+///   preserves the optimum side regardless of minimize/maximize.
+/// - Multi-objective: ascending non-domination rank. Starting from rank 0,
+///   expand to rank 1, 2, ... if `cap/2` is not yet reached (`nd_sort` returns
+///   all rank 0 in the single-objective case, so it isn't used on that path).
 fn subsample_indices(
     objective_cols: &[&[f64]],
     minimize: &[bool],
@@ -330,7 +368,8 @@ fn subsample_indices(
     let mut is_elite = vec![false; n];
 
     if objective_cols.len() <= 1 {
-        // 単目的: 値で昇順ソートし両端をエリートにする（最適化方向に非依存）。
+        // Single-objective: sort ascending by value and make both tails elite
+        // (agnostic to optimization direction).
         let col = objective_cols[0];
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by(|&a, &b| {
@@ -347,13 +386,14 @@ fn subsample_indices(
             is_elite[i] = true;
         }
     } else {
-        // 多目的: 非劣ランク昇順で先頭 elite_target 点（rank 0 → 1 → 2 … と広がる）。
+        // Multi-objective: take the first elite_target points in ascending
+        // non-domination rank order (expanding rank 0 -> 1 -> 2 -> ...).
         let rows: Vec<Vec<f64>> = (0..n)
             .map(|i| objective_cols.iter().map(|c| c[i]).collect())
             .collect();
         let ranks = crate::multi_objective::pareto::nd_sort(&rows, minimize);
         let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by_key(|&i| ranks[i]); // 安定ソート: 同ランク内は index 順
+        order.sort_by_key(|&i| ranks[i]); // Stable sort: index order within the same rank.
         for &i in order.iter().take(elite_target) {
             is_elite[i] = true;
         }
@@ -369,12 +409,13 @@ fn subsample_indices(
     Some(chosen)
 }
 
-/// 単目的フィット要求が大きすぎる場合に間引いた要求を返す（`N ≤ cap` なら `None`）。
-/// 制約値・優先行も同じインデックスで整合的に間引く。
+/// Returns a subsampled request when the single-objective fit request is too
+/// large (`None` when `N <= cap`). Constraint values and priority rows are
+/// subsampled consistently using the same indices.
 fn subsample_fit_request(req: &SurrogateFitRequest) -> Option<SurrogateFitRequest> {
     let idx = subsample_indices(&[&req.y], &[], MAX_TRAIN_FOR_FIT, 42)?;
 
-    // 旧 index → 新位置の対応（優先行の remap 用）。
+    // Mapping from old index to new position (for remapping priority rows).
     let mut remap = vec![usize::MAX; req.y.len()];
     for (new_pos, &old) in idx.iter().enumerate() {
         remap[old] = new_pos;
@@ -408,9 +449,11 @@ fn subsample_fit_request(req: &SurrogateFitRequest) -> Option<SurrogateFitReques
     })
 }
 
-/// 学習済みサロゲートに対して最適化を実行し、結果を返す共通ロジック。
+/// Common logic that runs optimization against a fitted surrogate and returns
+/// the result.
 ///
-/// `constraint_models` が空でないとき、コスト関数に制約ペナルティを加えて探索する。
+/// When `constraint_models` is non-empty, the search adds a constraint penalty
+/// to the cost function.
 #[allow(clippy::too_many_arguments)]
 fn run_optimize(
     surrogate: &models::FittedSurrogate,
@@ -424,7 +467,7 @@ fn run_optimize(
 ) -> SurrogateOptResult {
     let n_dims = x_matrix.first().map(|r| r.len()).unwrap_or(0);
 
-    // 観測ベスト点（最適化のスタート点に使う）。
+    // Best observed point (used as the optimization start point).
     let best_observed_idx = best_observed_index(y, minimize);
     let start_norm = surrogate.to_norm_x(&x_matrix[best_observed_idx]);
 
@@ -446,7 +489,7 @@ fn run_optimize(
 
     let best_observed_value = y[best_observed_idx];
 
-    // 制約の予測値と実行可能性確率を計算する。
+    // Compute the predicted constraint values and feasibility probability.
     let (predicted_constraints, feasibility_probability) = if constraint_models.is_empty() {
         (vec![], None)
     } else {
@@ -470,7 +513,7 @@ fn run_optimize(
     }
 }
 
-/// サロゲートモデル種別の表示名（進捗ラベル用）。
+/// Display name of a surrogate model kind (for progress labels).
 fn model_display_name(kind: SurrogateModelKind) -> &'static str {
     match kind {
         SurrogateModelKind::Ridge => "Ridge",
@@ -481,9 +524,11 @@ fn model_display_name(kind: SurrogateModelKind) -> &'static str {
     }
 }
 
-/// 学習に予定しているモデル学習回数を見積もる（進捗バーの分母）。
-/// [`fit_validated_inner`] が `inc_done` を呼ぶ回数と一致させる: auto 時は候補ごとの
-/// 検証（ホールドアウト 1 + CV k）×候補数、検証本体（1 + k）、最終モデル 1、制約数。
+/// Estimates the number of model fits planned for training (the progress bar
+/// denominator). Kept in sync with how many times [`fit_validated_inner`] calls
+/// `inc_done`: for auto selection, per-candidate validation (1 holdout + k CV)
+/// times the number of candidates, plus the main validation (1 + k), plus 1 for
+/// the final model, plus the number of constraints.
 fn estimate_fit_count(req: &SurrogateFitRequest) -> usize {
     let k = req.y.len().min(5);
     let validate = 1 + k;
@@ -495,26 +540,27 @@ fn estimate_fit_count(req: &SurrogateFitRequest) -> usize {
     auto + validate + 1 + req.constraints.len()
 }
 
-/// サロゲートを学習し、ホールドアウト＋k-fold CV で検証した結果を返す。
+/// Fits a surrogate and returns the result validated by holdout + k-fold CV.
 ///
-/// 検証シードは 42 を使用する。制約モデルは CV なしで全データ学習する。
+/// Uses validation seed 42. Constraint models are fit on all data without CV.
 pub fn fit_surrogate_with_validation(
     req: &SurrogateFitRequest,
 ) -> Result<TrainedSurrogate, String> {
     fit_surrogate_with_validation_tracked(req, &FitProgress::default())
 }
 
-/// [`fit_surrogate_with_validation`] と同じだが、`progress` で進捗報告とキャンセルに
-/// 対応する（UI のバックグラウンド学習から使う）。
+/// Same as [`fit_surrogate_with_validation`], but supports progress reporting
+/// and cancellation via `progress` (used by background training from the UI).
 pub fn fit_surrogate_with_validation_tracked(
     req: &SurrogateFitRequest,
     progress: &FitProgress,
 ) -> Result<TrainedSurrogate, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
 
-    // 大規模データは学習前に間引く（検証で同一モデルを複数回学習するコストは N に
-    // ほぼ線形）。間引いた集合を以降すべて（CV・最終モデル・制約）に使うため、検証
-    // スコアと実際にデプロイするモデルが同一データを見て整合する。
+    // Subsample large data before fitting (validation fits the same model
+    // multiple times, so cost scales nearly linearly with N). The subsampled
+    // set is used for everything downstream (CV, final model, constraints), so
+    // the validation score and the actually-deployed model see the same data.
     let subsampled = subsample_fit_request(req);
     let req = subsampled.as_ref().unwrap_or(req);
 
@@ -522,18 +568,21 @@ pub fn fit_surrogate_with_validation_tracked(
     fit_validated_inner(req, progress, "")
 }
 
-/// 検証＋全データ学習の本体（入力検証・間引きは呼び出し側が済ませている前提）。
+/// The core of validation + full-data fitting (assumes the caller has already
+/// done input validation and subsampling).
 ///
-/// 各モデル学習の境界で `progress` を更新し、キャンセル要求があれば早期に `Err` を
-/// 返す。`stage_prefix` は段階ラベルの接頭辞（多目的の目的識別に使う）。
+/// Updates `progress` at each model-fit boundary and returns `Err` early if
+/// cancellation is requested. `stage_prefix` is the prefix for the stage label
+/// (used to identify the objective in the multi-objective case).
 fn fit_validated_inner(
     req: &SurrogateFitRequest,
     progress: &FitProgress,
     stage_prefix: &str,
 ) -> Result<TrainedSurrogate, String> {
-    // Auto 選択時は AUTO_CANDIDATES を交差検証して最良モデルを決める。
-    // 以降の学習・検証・制約モデルは選ばれた具体的なモデル種別で行う
-    //（SurrogateModelKind に "Auto" バリアントはないため、自動的に整合する）。
+    // For auto selection, cross-validate AUTO_CANDIDATES to decide the best
+    // model. All subsequent fitting, validation, and constraint models use the
+    // concrete chosen model kind (this stays consistent automatically since
+    // SurrogateModelKind has no "Auto" variant).
     let (model_kind, model_selection) = if req.auto_select {
         let report = select_best_model_tracked(&req.x_matrix, &req.y, 42, progress, stage_prefix)?;
         let chosen = report.chosen;
@@ -542,7 +591,7 @@ fn fit_validated_inner(
         (req.model, None)
     };
 
-    // CV・ホールドアウト検証を実施する。
+    // Run CV and holdout validation.
     progress.set_stage(format!(
         "{stage_prefix}Cross-validating {}",
         model_display_name(model_kind)
@@ -556,9 +605,10 @@ fn fit_validated_inner(
         progress,
     )?;
 
-    // 全データで最終モデルを学習する。優先行（パレートフロント等）があれば GP の
-    // 誘導点をそこに集中させる。CV/ホールドアウト検証側は汎化性能の推定のため一様
-    // 誘導点のままにする（validate_surrogate は priority を受け取らない）。
+    // Fit the final model on all data. If priority rows (e.g. the Pareto front)
+    // are given, concentrate the GP's inducing points there. The CV/holdout
+    // validation side keeps uniform inducing points since it estimates
+    // generalization performance (validate_surrogate does not accept priority).
     progress.check()?;
     progress.set_stage(format!("{stage_prefix}Fitting final model"));
     let surrogate = models::fit_surrogate_with_priority_bounds(
@@ -570,13 +620,14 @@ fn fit_validated_inner(
     )?;
     progress.inc_done();
 
-    // 全データ訓練 R² を最終モデルから設定する。
+    // Set the full-data training R² from the final model.
     report.train_r2 = surrogate.r_squared;
 
-    // ARD 長さスケールによるパラメータ重要度（GP のみ Some、param_names と同順）。
+    // Parameter importance from the ARD length scales (Some only for GP, same
+    // order as param_names).
     let param_importance = surrogate.param_importance();
 
-    // 制約ごとにサロゲートを学習する（CV なし、全データ）。
+    // Fit a surrogate for each constraint (no CV, all data).
     let mut constraint_names = Vec::with_capacity(req.constraints.len());
     let mut constraint_models = Vec::with_capacity(req.constraints.len());
     let mut constraint_values: Vec<Vec<f64>> = Vec::with_capacity(req.x_matrix.len());
@@ -585,11 +636,13 @@ fn fit_validated_inner(
     }
 
     for cd in &req.constraints {
-        // 制約モデルは目的関数と同じモデル種別で学習する。GP 系なら事後分散から
-        // 平滑な実行可能性確率 P(c ≤ 0) が得られ（制約境界付近の不確実性を考慮した
-        // 探索ができる）、Ridge / LightGBM ならハード指標へフォールバックする
-        // （feasibility::single_prob 参照）。
-        // Auto 選択時も目的モデルと同じ「選ばれた」種別を制約モデルに使う。
+        // Constraint models are fit with the same model kind as the objective.
+        // For GP-family models, the posterior variance gives a smooth
+        // feasibility probability P(c <= 0) (enabling search that accounts for
+        // uncertainty near the constraint boundary); Ridge / LightGBM fall back
+        // to a hard indicator (see feasibility::single_prob).
+        // Under auto selection, the constraint model also uses the same
+        // "chosen" kind as the objective model.
         progress.check()?;
         progress.set_stage(format!("{stage_prefix}Fitting constraint '{}'", cd.name));
         let cm = models::fit_constraint_surrogate_bounds(
@@ -625,7 +678,7 @@ fn fit_validated_inner(
     })
 }
 
-/// 学習済みサロゲートモデルに対して最適化を実行する。
+/// Runs optimization against a fitted surrogate model.
 pub fn optimize_on_trained(
     trained: &TrainedSurrogate,
     spec: &SurrogateOptimizeSpec,
@@ -642,16 +695,18 @@ pub fn optimize_on_trained(
     )
 }
 
-/// サロゲートモデルを学習し、その曲面上で最適化を実行する。
+/// Fits a surrogate model and runs optimization over that surface.
 ///
-/// バックグラウンドスレッドから呼べるよう、スレッドローカルの DataFrame には依存しない。
+/// Does not depend on a thread-local DataFrame, so it can be called from a
+/// background thread.
 pub fn run_surrogate_optimization(req: &SurrogateOptRequest) -> Result<SurrogateOptResult, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
 
     let surrogate = models::fit_surrogate(req.model, &req.x_matrix, &req.y)?;
 
-    // 制約サロゲートを学習する（制約なしの場合は空 vec）。目的関数と同じモデル種別を使い、
-    // GP 系なら平滑な実行可能性確率を、Ridge / LightGBM ならハード指標を用いる。
+    // Fit constraint surrogates (empty vec when unconstrained). Uses the same
+    // model kind as the objective: a smooth feasibility probability for
+    // GP-family models, a hard indicator for Ridge / LightGBM.
     let constraint_models: Vec<models::FittedSurrogate> = req
         .constraints
         .iter()
@@ -673,11 +728,14 @@ pub fn run_surrogate_optimization(req: &SurrogateOptRequest) -> Result<Surrogate
     ))
 }
 
-/// 学習済みサロゲートの応答曲面スライスを評価する（3D 応答曲面ビューア用）。
+/// Evaluates a response-surface slice of a fitted surrogate (for the 3D
+/// response-surface viewer).
 ///
-/// `anchor_orig`（元単位、`param_names` と同順）を通り、`param_x_idx` ×
-/// `param_y_idx` 平面で宣言レンジ全域を `n_grid` × `n_grid` 格子評価する。
-/// PDP と異なり他パラメータを周辺化せず、アンカー点に固定した「生の断面」を返す。
+/// Passes through `anchor_orig` (original units, same order as `param_names`)
+/// and evaluates an `n_grid` x `n_grid` grid over the full declared range in
+/// the `param_x_idx` x `param_y_idx` plane. Unlike a PDP, it does not marginalize
+/// the other parameters — it returns a "raw cross-section" with them fixed at
+/// the anchor point.
 pub fn surface_slice_at(
     trained: &TrainedSurrogate,
     anchor_orig: &[f64],
@@ -701,7 +759,8 @@ pub fn surface_slice_at(
     )
 }
 
-/// 観測値ベストの行 index（minimize なら最小、maximize なら最大）。
+/// Row index of the best observed value (minimum when minimizing, maximum when
+/// maximizing).
 fn best_observed_index(y: &[f64], minimize: bool) -> usize {
     let mut best = 0usize;
     for (i, &v) in y.iter().enumerate() {
@@ -713,7 +772,8 @@ fn best_observed_index(y: &[f64], minimize: bool) -> usize {
     best
 }
 
-/// 最適点 `t_best`（正規化空間）を通る 2D スライス格子をサロゲートで評価する。
+/// Evaluates a 2D slice grid through the optimum `t_best` (normalized space)
+/// using the surrogate.
 fn build_slice(
     surrogate: &models::FittedSurrogate,
     t_best: &[f64],
@@ -730,8 +790,10 @@ fn build_slice(
     let x_values = linspace(min_x, min_x + range_x, n_grid);
     let y_values = linspace(min_y, min_y + range_y, n_grid);
 
-    // 各格子点で平均（元の単位）と、可能なら事後分散から元単位の標準偏差を評価する。
-    // z_std はモデルが事後分散を持つ（GP 系）ときのみ Some を保持する。
+    // Evaluate the mean (original units) at each grid point, plus the
+    // original-unit standard deviation derived from the posterior variance
+    // where available. z_std holds Some only when the model has a posterior
+    // variance (GP family).
     let mut z_values: Vec<Vec<f64>> = Vec::with_capacity(x_values.len());
     let mut z_std_grid: Vec<Vec<f64>> = Vec::with_capacity(x_values.len());
     let mut has_std = true;
@@ -744,7 +806,8 @@ fn build_slice(
             pt[param_y_idx] = (vy - min_y) / range_y;
             z_row.push(surrogate.to_original_y(surrogate.predict_norm(&pt)));
             match surrogate.predict_var_norm(&pt) {
-                // 正規化空間の分散 → 元の単位の標準偏差（y_std 倍）。
+                // Normalized-space variance -> original-unit standard deviation
+                // (scaled by y_std).
                 Some(var) => std_row.push(var.max(0.0).sqrt() * surrogate.y_std),
                 None => has_std = false,
             }
@@ -764,24 +827,28 @@ fn build_slice(
     })
 }
 
-/// アンカー点を通る 1 パラメータ方向の予測スライス（サロゲート比較ビュー用）。
+/// A predicted slice along one parameter direction, through the anchor point
+/// (for the surrogate comparison view).
 #[derive(Debug, Clone)]
 pub struct LineSlice {
-    /// スライスするパラメータ列 index。
+    /// Column index of the parameter being sliced.
     pub param_idx: usize,
-    /// 格子値（元の単位）。
+    /// Grid values (original units).
     pub x_values: Vec<f64>,
-    /// 予測値（元の単位）。
+    /// Predicted values (original units).
     pub y_values: Vec<f64>,
-    /// 予測標準偏差（元の単位）。事後分散を持つモデル（GP 系）のみ Some。
+    /// Predicted standard deviation (original units). Some only for models with
+    /// a posterior variance (GP family).
     pub y_std: Option<Vec<f64>>,
 }
 
-/// アンカー点（元単位）を通る 1D 予測スライスをサロゲートで評価する。
+/// Evaluates a 1D predicted slice through the anchor point (original units)
+/// using the surrogate.
 ///
-/// `param_idx` 以外の次元はアンカー値に固定し、`param_idx` を宣言レンジ
-/// （なければ観測レンジ）全域で `n_grid` 点（最低 2）評価する。
-/// 次元不一致・index 範囲外は `None`。
+/// Fixes every dimension other than `param_idx` at the anchor value, and
+/// evaluates `param_idx` over its declared range (falling back to the observed
+/// range) at `n_grid` points (minimum 2). Returns `None` on a dimension
+/// mismatch or out-of-range index.
 pub fn line_slice_at(
     trained: &TrainedSurrogate,
     anchor_orig: &[f64],
@@ -805,7 +872,8 @@ pub fn line_slice_at(
         pt[param_idx] = (vx - min_x) / range_x;
         y_values.push(surrogate.to_original_y(surrogate.predict_norm(&pt)));
         match surrogate.predict_var_norm(&pt) {
-            // 正規化空間の分散 → 元の単位の標準偏差（y_std 倍）。
+            // Normalized-space variance -> original-unit standard deviation
+            // (scaled by y_std).
             Some(var) => std_values.push(var.max(0.0).sqrt() * surrogate.y_std),
             None => has_std = false,
         }
@@ -819,66 +887,73 @@ pub fn line_slice_at(
     })
 }
 
-/// 多目的サロゲート最適化の入力。
+/// Input to multi-objective surrogate optimization.
 pub struct SurrogateMultiOptRequest {
-    /// 訓練データ（行 = trial、列 = パラメータ）。元の単位。
+    /// Training data (row = trial, column = parameter), in original units.
     pub x_matrix: Vec<Vec<f64>>,
-    /// 目的ごとの値列。`ys[k][i]` = trial i の目的 k の値。
+    /// Value column per objective. `ys[k][i]` = value of objective k for trial i.
     pub ys: Vec<Vec<f64>>,
-    /// 各パラメータ列の名前。
+    /// Name of each parameter column.
     pub param_names: Vec<String>,
-    /// `ys` と同順の目的名。
+    /// Objective names, same order as `ys`.
     pub objective_names: Vec<String>,
-    /// 目的ごとに true = 最小化。`ys` と同じ長さ。
+    /// Per-objective true = minimize. Same length as `ys`.
     pub minimize: Vec<bool>,
-    /// 使用するサロゲートモデル。
+    /// Surrogate model to use.
     pub model: SurrogateModelKind,
-    /// 応答曲面スライスの 2 パラメータ列 index（表示用）。
+    /// Column indices of the two parameters for the response-surface slice
+    /// (for display).
     pub slice_params: Option<(usize, usize)>,
-    /// スライス格子の一辺の点数。
+    /// Number of points along one side of the slice grid.
     pub n_grid: usize,
 }
 
-/// 予測パレートフロント上の 1 点。
+/// A single point on the predicted Pareto front.
 #[derive(Debug, Clone)]
 pub struct ParetoFrontPoint {
-    /// パラメータ値（元の単位、`param_names` と同順）。
+    /// Parameter values (original units, same order as `param_names`).
     pub params: Vec<f64>,
-    /// 各目的のサロゲート予測値（元の単位、`objective_names` と同順）。
+    /// Surrogate-predicted value for each objective (original units, same order
+    /// as `objective_names`).
     pub values: Vec<f64>,
 }
 
-/// 多目的サロゲート最適化の結果。
+/// Result of multi-objective surrogate optimization.
 #[derive(Debug, Clone)]
 pub struct SurrogateMultiOptResult {
-    /// 予測パレートフロント（第 1 目的の値で昇順ソート済み）。
+    /// Predicted Pareto front, sorted ascending by the first objective's value.
     pub front: Vec<ParetoFrontPoint>,
-    /// 目的ごとの訓練データ決定係数（`objective_names` と同順）。
+    /// Training-data coefficient of determination per objective (same order as
+    /// `objective_names`).
     pub r_squared: Vec<f64>,
-    /// 目的ごとの応答曲面スライス（`slice_params` 指定時のみ、`objective_names` と同順。指定なし/無効時は空）。
+    /// Response-surface slice per objective (only when `slice_params` is given,
+    /// same order as `objective_names`; empty when unspecified/invalid).
     pub slices: Vec<SurfaceSlice>,
 }
 
-/// 多目的最適化ステージの設定（学習済みモデル群に対して実行する）。
+/// Configuration for the multi-objective optimization stage (run against a set
+/// of already-fitted models).
 pub struct SurrogateMultiOptimizeSpec {
-    /// 目的ごとに true = 最小化。`trained` と同じ長さ。
+    /// Per-objective true = minimize. Same length as `trained`.
     pub minimize: Vec<bool>,
     pub slice_params: Option<(usize, usize)>,
     pub n_grid: usize,
 }
 
-/// 多目的最適化の共通入力（目的 1 件ぶん）。
+/// Common input to multi-objective optimization (for a single objective).
 struct MultiObjectiveEntry<'a> {
     surrogate: &'a models::FittedSurrogate,
-    /// 観測ベスト点（初期シード）の探索に使う学習データ。
+    /// Training data used to find the observed-best point (initial seed).
     x_matrix: &'a [Vec<f64>],
     y: &'a [f64],
 }
 
-/// 学習済みサロゲート群に対する NSGA-II 実行＋フロント後処理の共通ロジック。
+/// Common logic that runs NSGA-II against a set of fitted surrogates and
+/// post-processes the resulting front.
 ///
-/// 全 entry のサロゲートは同一の正規化変換（col_stats）を持つ前提
-/// （同じパラメータ空間の x_matrix から学習されていること）。
+/// Assumes every entry's surrogate shares the same normalization transform
+/// (col_stats), i.e. all were fit from an x_matrix over the same parameter
+/// space.
 fn run_multi_optimize(
     entries: &[MultiObjectiveEntry<'_>],
     minimize: &[bool],
@@ -892,8 +967,9 @@ fn run_multi_optimize(
 
     let r_squared: Vec<f64> = surrogates.iter().map(|s| s.r_squared).collect();
 
-    // ── 初期シード: 目的ごとの観測ベスト点を正規化 ─────────────────
-    // col_stats は全サロゲートで共通のため、先頭サロゲートの to_norm_x を使う。
+    // ── Initial seeds: normalize the observed-best point per objective ─────
+    // col_stats is shared across all surrogates, so use the first surrogate's
+    // to_norm_x.
     let seeds: Vec<Vec<f64>> = entries
         .iter()
         .zip(minimize.iter())
@@ -903,15 +979,15 @@ fn run_multi_optimize(
         })
         .collect();
 
-    // ── NSGA-II 実行 ─────────────────────────────────────────────────
+    // ── Run NSGA-II ──────────────────────────────────────────────────
     let signs: Vec<f64> = minimize
         .iter()
         .map(|&m| if m { 1.0 } else { -1.0 })
         .collect();
     let raw_front = optimizers::multi_objective_nsga2(&surrogates, &signs, &seeds);
 
-    // ── フロント点の後処理 ──────────────────────────────────────────
-    // 重複遺伝子の除去（全次元 1e-9 以内）。
+    // ── Post-process front points ───────────────────────────────────
+    // Remove duplicate genomes (within 1e-9 across every dimension).
     let mut deduped: Vec<(Vec<f64>, Vec<f64>)> = Vec::new();
     'outer: for (genome, fitness) in raw_front {
         for (existing, _) in &deduped {
@@ -926,7 +1002,8 @@ fn run_multi_optimize(
         deduped.push((genome, fitness));
     }
 
-    // 各点の遺伝子を [0,1] にクランプし、全目的のサロゲート予測値（元の単位）を計算。
+    // Clamp each point's genome to [0,1] and compute the surrogate-predicted
+    // value (original units) for every objective.
     let mut front_points: Vec<ParetoFrontPoint> = deduped
         .into_iter()
         .map(|(genome, _)| {
@@ -940,21 +1017,22 @@ fn run_multi_optimize(
         })
         .collect();
 
-    // 第 1 目的の値で昇順ソート。
+    // Sort ascending by the first objective's value.
     front_points.sort_by(|a, b| {
         a.values[0]
             .partial_cmp(&b.values[0])
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // ── スライス ─────────────────────────────────────────────────────
+    // ── Slices ───────────────────────────────────────────────────────
     let slices = if let Some((px, py)) = slice_params {
-        // バランス点: 正規化目的空間で理想点に最も近い点を選ぶ。
-        // 理想点 = 各目的の sign 調整済み最小値（NSGA-II の最小化方向）。
+        // Balance point: the point closest to the ideal point in normalized
+        // objective space. Ideal point = the sign-adjusted minimum of each
+        // objective (NSGA-II's minimization direction).
         if front_points.is_empty() || px >= n_dims || py >= n_dims || px == py {
             Vec::new()
         } else {
-            // 正規化目的空間での理想点。
+            // Ideal point in normalized objective space.
             let ideal: Vec<f64> = (0..n_obj)
                 .map(|k| {
                     front_points
@@ -964,7 +1042,8 @@ fn run_multi_optimize(
                 })
                 .collect();
 
-            // バランス点（理想点に最近の点）の正規化パラメータを求める。
+            // Find the normalized parameters of the balance point (the point
+            // closest to the ideal point).
             let ideal_dist = |p: &ParetoFrontPoint| -> f64 {
                 (0..n_obj)
                     .map(|k| (signs[k] * p.values[k] - ideal[k]).powi(2))
@@ -980,7 +1059,7 @@ fn run_multi_optimize(
                 .map(|p| ref_surrogate.to_norm_x(&p.params))
                 .unwrap_or_else(|| vec![0.5; n_dims]);
 
-            // 目的ごとにスライスを構築。
+            // Build a slice for each objective.
             surrogates
                 .iter()
                 .filter_map(|s| build_slice(s, &balance_norm, px, py, n_grid.max(2), n_dims))
@@ -997,8 +1076,9 @@ fn run_multi_optimize(
     }
 }
 
-/// 検証済みの学習結果群に対して NSGA-II でパレートフロントを推定する。
-/// `trained[k]` は目的 k のサロゲート。全要素が同一の param_names / 学習データ次元を持つこと。
+/// Estimates the Pareto front via NSGA-II against a set of validated fit results.
+/// `trained[k]` is the surrogate for objective k. Every element must share the
+/// same param_names and training-data dimensionality.
 pub fn optimize_multi_on_trained(
     trained: &[&TrainedSurrogate],
     spec: &SurrogateMultiOptimizeSpec,
@@ -1042,13 +1122,15 @@ pub fn optimize_multi_on_trained(
     ))
 }
 
-/// 多目的サロゲートモデルを学習し、NSGA-II でパレートフロントを推定する。
+/// Fits multi-objective surrogate models and estimates the Pareto front via
+/// NSGA-II.
 ///
-/// バックグラウンドスレッドから呼べるよう、スレッドローカルの DataFrame には依存しない。
+/// Does not depend on a thread-local DataFrame, so it can be called from a
+/// background thread.
 pub fn run_surrogate_multi_optimization(
     req: &SurrogateMultiOptRequest,
 ) -> Result<SurrogateMultiOptResult, String> {
-    // ── バリデーション ────────────────────────────────────────────────
+    // ── Validation ───────────────────────────────────────────────────
     let n_obj = req.ys.len();
     if n_obj < 2 {
         return Err(format!(
@@ -1096,7 +1178,7 @@ pub fn run_surrogate_multi_optimization(
         return Err("Input contains non-finite values".to_string());
     }
 
-    // ── 目的ごとにサロゲートを学習 ──────────────────────────────────
+    // ── Fit a surrogate for each objective ──────────────────────────
     let surrogates: Vec<models::FittedSurrogate> = req
         .ys
         .iter()
@@ -1121,14 +1203,17 @@ pub fn run_surrogate_multi_optimization(
     ))
 }
 
-/// 多目的サロゲートを目的ごとに学習する（パレートフロント集中つき）。
+/// Fits a multi-objective surrogate for each objective (with Pareto-front
+/// concentration).
 ///
-/// `objective_values[k]` は目的 k の列（長さ N）、`minimize[k]` はその最適化方向。
-/// 全目的を行ベクトルに組み替えて `nd_sort` で非劣（rank == 0）trial を求め、それらを
-/// 各 GP の誘導点として優先する（`SurrogateFitRequest.priority_rows`）。
+/// `objective_values[k]` is the column for objective k (length N); `minimize[k]`
+/// is its optimization direction. Reassembles all objectives into row vectors,
+/// finds the non-dominated (rank == 0) trials via `nd_sort`, and prioritizes
+/// them as inducing points for every GP (`SurrogateFitRequest.priority_rows`).
 ///
-/// フロント集中は N が GP の誘導点上限（100）を超えるときのみモデルを変える。
-/// N ≤ 100 では各 GP が Z = X（全点）を使うため、優先指定は結果に影響しない。
+/// Front concentration only changes the model when N exceeds the GP's
+/// inducing-point cap (100). For N <= 100 each GP uses Z = X (all points), so
+/// the priority setting has no effect on the result.
 pub fn fit_multi_surrogates(
     x_matrix: &[Vec<f64>],
     objective_values: &[Vec<f64>],
@@ -1149,9 +1234,10 @@ pub fn fit_multi_surrogates(
     )
 }
 
-/// [`fit_multi_surrogates`] と同じだが、`progress` で進捗報告とキャンセルに対応する
-/// （UI のバックグラウンド学習から使う）。進捗は全目的を通した総学習回数で表し、
-/// 目的 k の学習中はラベルに目的名を出す。
+/// Same as [`fit_multi_surrogates`], but supports progress reporting and
+/// cancellation via `progress` (used by background training from the UI).
+/// Progress is expressed as the total fit count across every objective, and
+/// the label shows the objective name while fitting objective k.
 #[allow(clippy::too_many_arguments)]
 pub fn fit_multi_surrogates_tracked(
     x_matrix: &[Vec<f64>],
@@ -1184,9 +1270,11 @@ pub fn fit_multi_surrogates_tracked(
         }
     }
 
-    // 大規模データは全目的で共有する 1 つの部分集合に間引く（目的ごとに別集合だと
-    // パレートフロントが不整合になるため）。間引き後は各目的の fit が N ≤ cap となり
-    // 二重に間引かれない。優先行（rank 0）も間引き後の集合で計算し直す。
+    // Subsample large data into a single subset shared across all objectives
+    // (using a different subset per objective would make the Pareto front
+    // inconsistent). After subsampling, each objective's fit already has
+    // N <= cap, so it isn't subsampled a second time. Priority rows (rank 0)
+    // are also recomputed on the subsampled set.
     let obj_cols: Vec<&[f64]> = objective_values.iter().map(Vec::as_slice).collect();
     let subset = subsample_indices(&obj_cols, minimize, MAX_TRAIN_FOR_FIT, 42);
     let x_subset: Vec<Vec<f64>>;
@@ -1201,7 +1289,8 @@ pub fn fit_multi_surrogates_tracked(
     };
     let n = x_matrix.len();
 
-    // 行ごとの目的ベクトル rows[i][k] を組み、非劣 trial（rank == 0）を優先行にする。
+    // Build the per-row objective vector rows[i][k] and make non-dominated
+    // trials (rank == 0) the priority rows.
     let rows: Vec<Vec<f64>> = (0..n)
         .map(|i| objective_values.iter().map(|col| col[i]).collect())
         .collect();
@@ -1213,8 +1302,9 @@ pub fn fit_multi_surrogates_tracked(
         .map(|(i, _)| i)
         .collect();
 
-    // 進捗の総数: 各目的が (ホールドアウト 1 + CV k) + 最終モデル 1 を学習する。
-    // 各目的の req は auto_select=false・制約なしなので estimate_fit_count と一致する。
+    // Total progress: each objective fits (1 holdout + k CV) + 1 final model.
+    // Each objective's req has auto_select=false and no constraints, so this
+    // matches estimate_fit_count.
     let per_obj = (1 + n.min(5)) + 1;
     progress.set_total(n_obj * per_obj);
 
@@ -1231,8 +1321,9 @@ pub fn fit_multi_surrogates_tracked(
             priority_rows: priority.clone(),
             param_bounds: param_bounds.map(|b| b.to_vec()),
         };
-        // 学習データは間引き済み（N ≤ cap）なので、間引き・set_total を行わない
-        // 本体を直接呼ぶ（各目的の inc_done が共有ハンドルに積み上がる）。
+        // The training data is already subsampled (N <= cap), so call the core
+        // directly, skipping subsampling and set_total (each objective's
+        // inc_done accumulates on the shared handle).
         let prefix = format!("Objective {}/{} ({}): ", k + 1, n_obj, objective_names[k]);
         let t = fit_validated_inner(&req, progress, &prefix).map_err(|e| {
             format!(
@@ -1247,12 +1338,14 @@ pub fn fit_multi_surrogates_tracked(
 
 #[cfg(test)]
 impl TrainedSurrogate {
-    /// テスト用: 解析的モックサロゲートから `TrainedSurrogate` を組み立てる。
+    /// For tests: assembles a `TrainedSurrogate` from an analytic mock surrogate.
     ///
-    /// GP フィットを一切行わずに「曲面を使う処理」（最適化・スライス・多目的フロント・
-    /// 獲得関数・実行可能性）を検証するための入口。`surrogate` は
-    /// [`models::FittedSurrogate::analytic`] で作った既知曲面を渡す。`x_matrix` / `y` は
-    /// 最適化の開始点（観測ベスト）の算出にのみ使われ、曲面そのものは `surrogate` が定義する。
+    /// An entry point for testing "surface-consuming" logic (optimization,
+    /// slicing, multi-objective fronts, acquisition functions, feasibility)
+    /// without ever running a GP fit. Pass a known surface built with
+    /// [`models::FittedSurrogate::analytic`] as `surrogate`. `x_matrix` / `y`
+    /// are used only to compute the optimization start point (observed best);
+    /// the surface itself is defined entirely by `surrogate`.
     pub(crate) fn analytic_mock(
         x_matrix: Vec<Vec<f64>>,
         y: Vec<f64>,
@@ -1275,8 +1368,9 @@ impl TrainedSurrogate {
         }
     }
 
-    /// 解析的モックに制約サロゲートを 1 本追加する（[`analytic_mock`] と組み合わせて使う）。
-    /// `values` は各 trial の制約値（`x_matrix` と同じ行順）。
+    /// Adds one constraint surrogate to an analytic mock (used together with
+    /// [`analytic_mock`]). `values` is the constraint value per trial (same row
+    /// order as `x_matrix`).
     pub(crate) fn with_analytic_constraint(
         mut self,
         name: &str,

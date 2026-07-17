@@ -3,45 +3,44 @@ use crate::theme::chart_colors::COLOR_OPT_TRIAL;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{hit_test_nearest, HIT_THRESHOLD};
 
-/// 比較 Study 1 件分の EDF 系列（選択中の目的に対応する値列 + 色 + 凡例名）。
+/// EDF series for one comparison Study (value column for the selected objective + color + legend name).
 pub struct EdfComparison {
     pub name: String,
     pub color: egui::Color32,
-    /// 選択中の目的に対応する目的値列（COMPLETE trial の行順）。
+    /// Objective value column for the selected objective (in COMPLETE-trial row order).
     pub values: Vec<f64>,
 }
 
-/// EDF（経験分布関数）チャートウィジェット
+/// EDF (Empirical Distribution Function) chart widget
 ///
-/// Optuna の `plot_edf` に相当し、選択した目的関数値の経験分布（値 x 以下の
-/// トライアル割合）をステップ関数で描画する。曲線が急峻なら値が集中しており、
-/// 右にシフトしているほど（最小化なら）悪い結果が多いことを示す。
+/// Corresponds to Optuna's `plot_edf`, and draws the empirical distribution (fraction of trials
+/// with a value <= x) of the selected objective value as a step function. A steep curve means
+/// values are concentrated, and a rightward shift (for minimization) indicates more bad results.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct EdfPlotChart {
     pub obj_idx: usize,
-    /// X 軸対数スケール切替。有効時は 0 以下の値を持つ点を曲線から除外する。
+    /// Toggle for X-axis log scale. When enabled, points with values <= 0 are excluded from the curve.
     pub log_x: bool,
-    /// `build_edf_points`（ソート + 2 回のアロケーション）の結果キャッシュ。
+    /// Cached result of `build_edf_points` (sort + two allocations).
     #[serde(skip)]
     cache: Option<EdfCache>,
 }
 
-/// EDF ステップ点列の再計算（O(n log n) ソート）を避けるためのキャッシュ。
+/// Cache to avoid recomputing (O(n log n) sort) the EDF step point sequence.
 ///
-/// base 系列は `view.df`（`Arc<DataFrame>`）の恒等性でキーイングできるが、
-/// comparison 系列（`EdfComparison::values`）は呼び出し側（render_chart.rs）が
-/// 毎フレーム新しい `Vec<f64>` として値を構築するため、安定したポインタ恒等性を
-/// 持たない。そのため両者とも値列の内容フィンガープリント（FNV-1a 風の畳み込み。
-/// O(n) だがヒープ確保なし）でキーイングする — ソート＋2 回のアロケーションより
-/// 十分に軽い。
+/// The base series can be keyed by the identity of `view.df` (`Arc<DataFrame>`), but the
+/// comparison series (`EdfComparison::values`) is built as a fresh `Vec<f64>` every frame by
+/// the caller (render_chart.rs), so it has no stable pointer identity. Both are therefore keyed
+/// by a content fingerprint of the value column (an FNV-1a-like fold; O(n) but no heap
+/// allocation) — sufficiently cheap compared to a sort plus two allocations.
 struct EdfCache {
     key: (usize, usize, bool, u64),
     base_points: Vec<[f64; 2]>,
     comparison_points: Vec<(String, egui::Color32, Vec<[f64; 2]>)>,
 }
 
-/// 値列の内容を安価な u64 フィンガープリントに畳み込む（FNV-1a 風。ヒープ確保なし）。
+/// Folds a value column's contents into a cheap u64 fingerprint (FNV-1a-like; no heap allocation).
 fn fingerprint_values(values: &[f64]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325 ^ (values.len() as u64);
     for &v in values {
@@ -50,8 +49,9 @@ fn fingerprint_values(values: &[f64]) -> u64 {
     h
 }
 
-/// 比較 Study 一覧の内容フィンガープリントを base のフィンガープリントに畳み込む。
-/// 系列名も含めるため、値が同じでも Study が入れ替わった場合は別キーになる。
+/// Folds the content fingerprint of the comparison-Study list into the base fingerprint.
+/// The series name is also included, so if the values are the same but the Study was
+/// swapped, the key still differs.
 fn fold_comparisons_fingerprint(mut h: u64, comparisons: &[EdfComparison]) -> u64 {
     for c in comparisons {
         h = h.wrapping_mul(0x100000001b3) ^ fingerprint_values(&c.values);
@@ -63,7 +63,7 @@ fn fold_comparisons_fingerprint(mut h: u64, comparisons: &[EdfComparison]) -> u6
 }
 
 impl EdfPlotChart {
-    /// EDF チャートを描画する。比較 Study の EDF 曲線を同一グラフに重ねる。
+    /// Draws the EDF chart. Overlays comparison Studies' EDF curves on the same graph.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -100,12 +100,12 @@ impl EdfPlotChart {
 
         let obj_name = &obj_names[self.obj_idx];
         let log_x = self.log_x;
-        // numeric_column は DataFrame 内の列をゼロコピーで借用するだけなので、
-        // フィンガープリント計算・ソートのどちらにも Vec 化は不要。
+        // numeric_column only borrows the DataFrame column with zero copies, so neither the
+        // fingerprint computation nor the sort needs it converted to a Vec.
         let base_values: &[f64] = view.numeric_column(obj_name).unwrap_or(&[]);
 
-        // キャッシュキー: view（DataFrame）の恒等性 + 選択中の目的 + log スケール +
-        // base/comparison 値列の内容フィンガープリント。
+        // Cache key: identity of view (DataFrame) + selected objective + log scale +
+        // content fingerprint of the base/comparison value columns.
         let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
         let fp = fold_comparisons_fingerprint(fingerprint_values(base_values), comparisons);
         let key = (df_ptr, self.obj_idx, log_x, fp);
@@ -134,8 +134,8 @@ impl EdfPlotChart {
             return;
         }
 
-        // X 軸対数スケール時は値を log10 変換して描画する
-        // （build_edf_points は非正値をすでに除外済みのため log10 は常に有限）。
+        // When the X axis uses a log scale, draw with values converted via log10
+        // (build_edf_points has already excluded non-positive values, so log10 is always finite).
         let apply_log = |[x, y]: [f64; 2]| -> [f64; 2] { [if log_x { x.log10() } else { x }, y] };
 
         let base_label = if comparisons.is_empty() || base_name.is_empty() {
@@ -155,16 +155,17 @@ impl EdfPlotChart {
             plot = crate::ui::widgets::common::log_scale::apply_log_x_axis(plot);
         }
 
-        // ホバー中の最寄り点（凡例名, 元の値, 累積割合）。
+        // Nearest hovered point (legend name, original value, cumulative fraction).
         let mut hovered: Option<(String, f64, f64)> = None;
 
         plot.show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
 
             if let Some(pos) = plot_ui.response().hover_pos() {
-                // 他の history ウィジェットと同じ共通ヒットテストを再利用する。
-                // 候補は描画座標系（apply_log 適用後）で並べ、`usize` フィールドに
-                // ツールチップ用データ（凡例名・元の値・累積割合）の lookup index を埋め込む。
+                // Reuses the same shared hit test as other history widgets.
+                // Candidates are laid out in drawing coordinates (after apply_log), and the
+                // lookup index for the tooltip data (legend name, original value, cumulative
+                // fraction) is embedded in the `usize` field.
                 let mut hit_points: Vec<(u32, usize, [f64; 2])> = Vec::new();
                 let mut lookup: Vec<(String, f64, f64)> = Vec::new();
                 let mut push = |name: &str, pts: &[[f64; 2]]| {
@@ -204,9 +205,9 @@ impl EdfPlotChart {
             }
         });
 
-        // EDF の点は個別 trial ではなく曲線上の値なので、共有の
-        // `show_hover_tooltip`（見出しが "Trial N" 固定）は使わず、
-        // 系列名を見出しにした専用ツールチップを描く。
+        // EDF points are values on the curve rather than individual trials, so instead of the
+        // shared `show_hover_tooltip` (whose heading is fixed to "Trial N"), draw a dedicated
+        // tooltip with the series name as the heading.
         if let Some((name, value, frac)) = hovered {
             egui::Tooltip::always_open(
                 ui.ctx().clone(),
@@ -238,14 +239,14 @@ impl EdfPlotChart {
     }
 }
 
-/// EDF（経験分布関数）のステップ点列を構築する。
+/// Builds the EDF (Empirical Distribution Function) step point sequence.
 ///
-/// - NaN / ±Inf の値は除外する。
-/// - `log_x` が true のとき、0 以下の値も除外する（対数軸に表せないため）。
-/// - 残った値を昇順ソートし、同値はまとめて 1 段のステップとして扱う
-///   （右連続: 値 `v` にちょうど一致する点で累積割合が跳ね上がる）。
-/// - y は 0..1 の累積割合（フィルタ後の件数で正規化）。
-/// - フィルタ後に値が残らない場合は空を返す。
+/// - Values that are NaN / ±Inf are excluded.
+/// - When `log_x` is true, values <= 0 are also excluded (they can't be shown on a log axis).
+/// - The remaining values are sorted ascending, and equal values are grouped into a single step
+///   (right-continuous: the cumulative fraction jumps up exactly at the point matching value `v`).
+/// - y is the cumulative fraction in 0..1 (normalized by the post-filter count).
+/// - If no values remain after filtering, returns empty.
 pub fn build_edf_points(values: &[f64], log_x: bool) -> Vec<[f64; 2]> {
     let mut filtered: Vec<f64> = values
         .iter()

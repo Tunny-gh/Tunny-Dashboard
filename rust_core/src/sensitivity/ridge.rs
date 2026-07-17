@@ -173,8 +173,9 @@ impl SensitivityMetric for RidgeMetric {
     }
 }
 
-/// X'X 行列を計算する（column-major flat 配列から、Ridge 正則化項は含まない）。
-/// 返り値は `num_params × num_params` の行優先フラット配列。
+/// Computes the X'X matrix from a column-major flat array (without the
+/// Ridge regularization term). Returns a row-major `num_params × num_params`
+/// flat array.
 pub(crate) fn compute_xtx_matrix(
     x_cols: &[f64],
     n: usize,
@@ -197,7 +198,7 @@ pub(crate) fn compute_xtx_matrix(
     xtx
 }
 
-/// X'y ベクトルを計算する（y は中心化済み）。
+/// Computes the X'y vector (y is already centered).
 pub(crate) fn compute_xty_vector(
     x_cols: &[f64],
     y_c: &[f64],
@@ -212,10 +213,10 @@ pub(crate) fn compute_xty_vector(
         .collect()
 }
 
-/// R² (決定係数) を計算する。
+/// Computes R² (coefficient of determination).
 ///
-/// 定数 y（ss_tot ≈ 0）の規約は `pdp::utils::r_squared` と統一:
-/// 残差もほぼゼロ（定数を完全に再現）なら 1.0、そうでなければ 0.0。
+/// The convention for constant y (ss_tot ≈ 0) matches `pdp::utils::r_squared`:
+/// 1.0 if the residual is also near zero (the constant is reproduced exactly), else 0.0.
 pub(crate) fn compute_r_squared(x_cols: &[f64], y_c: &[f64], beta: &[f64], n: usize) -> f64 {
     let num_params = beta.len();
     let ss_tot: f64 = y_c.iter().map(|&yi| yi * yi).sum();
@@ -321,8 +322,8 @@ mod tests {
 
     #[test]
     fn tc_2265_05_compute_r_squared_zero_variance() {
-        // 定数 y の規約は pdp::utils::r_squared と統一:
-        // 残差もゼロ（定数を完全再現）なら 1.0。
+        // The convention for constant y matches pdp::utils::r_squared:
+        // 1.0 if the residual is also zero (the constant is reproduced exactly).
         let x = vec![1.0, 1.0, 1.0];
         let y_c = vec![0.0, 0.0, 0.0]; // ss_tot = 0
         let beta = vec![0.0];
@@ -332,10 +333,10 @@ mod tests {
 
     #[test]
     fn tc_2265_05b_compute_r_squared_zero_variance_nonzero_residual() {
-        // 定数 y を再現できていない場合は 0.0。
+        // 0.0 when the constant y is not reproduced.
         let x = vec![1.0, 2.0, 3.0];
         let y_c = vec![0.0, 0.0, 0.0]; // ss_tot = 0
-        let beta = vec![1.0]; // y_hat = [1, 2, 3] → 残差非ゼロ
+        let beta = vec![1.0]; // y_hat = [1, 2, 3] -> nonzero residual
         let r2 = compute_r_squared(&x, &y_c, &beta, 3);
         assert!((r2 - 0.0).abs() < 1e-10, "R²={} for zero-variance y", r2);
     }

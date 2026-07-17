@@ -6,17 +6,17 @@ use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widgets::cluster_table::ClusterTable;
 use crate::ui::widgets::mcdm_chart::McdmTable;
 
-/// トライアルテーブルの表示モード。
-/// Artifact ギャラリーと同様に、関連する複数のテーブルを 1 つのウィジェットへ統合し、
-/// モードセレクタで切り替える。
+/// Display mode of the trial table.
+/// Like the Artifact gallery, several related tables are unified into a single widget
+/// and switched via a mode selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum TrialTableMode {
-    /// 全トライアル一覧（選択 ∪ ピン留め）。設定不要。
+    /// The full trial list (selected ∪ pinned). No settings needed.
     #[default]
     All,
-    /// クラスタリング結果（各トライアルのクラスタ割当）を表示。
+    /// Shows the clustering result (each trial's cluster assignment).
     Cluster,
-    /// MCDM ランキング順に表示。
+    /// Shows trials in MCDM ranking order.
     Mcdm,
 }
 
@@ -30,23 +30,24 @@ impl TrialTableMode {
     }
 }
 
-/// トライアルテーブルウィジェット。
-/// 旧 BottomPanel の一覧に加え、クラスタ割当テーブル（Cluster）と MCDM ランキング
-/// テーブル（MCDM）をモードセレクタで切り替える統合ウィジェット。
-/// クラスタ / MCDM の設定・実行状態は埋め込んだ各サブウィジェットが保持し、
-/// 計算結果は設定キーごとに `cluster_cache` / `mcdm_cache` で共有・キャッシュされる
-/// （Artifact ギャラリーと同じ統合スタイル）。
-/// グリッドキャンバスの任意のセルに D&D で配置できる。
+/// The trial table widget.
+/// A unified widget that switches, via a mode selector, between the legacy BottomPanel
+/// list plus the cluster assignment table (Cluster) and the MCDM ranking table (MCDM).
+/// Cluster / MCDM settings and running state are held by their embedded sub-widgets, and
+/// compute results are shared/cached per settings key in `cluster_cache` / `mcdm_cache`
+/// (the same unified style as the Artifact gallery).
+/// Can be placed in any cell of the grid canvas via D&D.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct TrialTable {
     pub mode: TrialTableMode,
-    /// Cluster モードの設定・描画を担うサブウィジェット。
+    /// Sub-widget handling Cluster mode's settings and rendering.
     pub cluster: ClusterTable,
-    /// MCDM モードの設定・描画を担うサブウィジェット。
+    /// Sub-widget handling MCDM mode's settings and rendering.
     pub mcdm: McdmTable,
-    /// 表示対象の行インデックス（選択∪ピン）のキャッシュ。
-    /// `selected_indices` / `pinned` の中身か行数が変わらない限り再計算しない。
+    /// Cache of the row indices to display (selected ∪ pinned).
+    /// Not recomputed unless the contents or count of `selected_indices` / `pinned`
+    /// change.
     #[serde(skip)]
     visible_cache: Option<Vec<usize>>,
     #[serde(skip)]
@@ -54,7 +55,8 @@ pub struct TrialTable {
 }
 
 impl TrialTable {
-    /// テーブルを描画する。モードセレクタを表示し、選択モードに応じて切り替える。
+    /// Renders the table. Shows the mode selector and switches according to the
+    /// selected mode.
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         if app_state.current_study.is_none() {
             ui.centered_and_justified(|ui| {
@@ -63,7 +65,7 @@ impl TrialTable {
             return;
         }
 
-        // モードセレクタ（Artifact ギャラリーと同じ操作感）。
+        // Mode selector (same feel as the Artifact gallery).
         ui.horizontal(|ui| {
             ui.label("View:");
             egui::ComboBox::from_id_salt("trial_table_mode")
@@ -90,8 +92,8 @@ impl TrialTable {
         }
     }
 
-    /// MCDM モード: 設定 UI + ランキング順テーブル（McdmTable へ委譲）。
-    /// ピン留めトグルは McdmTable から返され、ここで AppState へ適用する。
+    /// MCDM mode: settings UI + ranked table (delegated to McdmTable).
+    /// The pin toggle is returned from McdmTable and applied to AppState here.
     fn show_mcdm(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         let Some(ctx) = app_state.current_study.as_ref() else {
             return;
@@ -112,7 +114,7 @@ impl TrialTable {
         }
     }
 
-    /// All モード: 全トライアル一覧（選択 ∪ ピン留め）を描画する。
+    /// All mode: renders the full trial list (selected ∪ pinned).
     fn show_all(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         let study_ctx = app_state.current_study.as_ref().unwrap();
         let pinned = app_state.pinned_trials.clone();
@@ -121,8 +123,9 @@ impl TrialTable {
         let param_names = study_ctx.meta.param_names.clone();
         let obj_names = study_ctx.meta.objective_names.clone();
 
-        // 行を materialize せず、表示対象の行インデックス（選択∪ピン、元順序）を計算する。
-        // selected_indices / pinned の中身と行数が変わらない限り再計算しない。
+        // Compute the row indices to display (selected ∪ pinned, in original order)
+        // without materializing rows. Not recomputed unless the contents or count of
+        // selected_indices / pinned change.
         let view = &study_ctx.view;
         let n = view.row_count();
         let cache_key = (app_state.selected_indices.clone(), pinned.clone(), n);
@@ -145,7 +148,7 @@ impl TrialTable {
             self.visible_cache_key = Some(cache_key);
         }
         let visible = self.visible_cache.as_ref().unwrap();
-        // 列スライスを view から借用（行クローンを持たない）
+        // Borrow column slices from view (no row cloning)
         let param_cols = view.numeric_columns(&param_names);
         let obj_cols = view.numeric_columns(&obj_names);
         let trial_ids = &view.trial_ids;
@@ -156,18 +159,18 @@ impl TrialTable {
         let mut clicked_trial: Option<u32> = None;
         let mut pin_toggled: Option<u32> = None;
 
-        // パラメータ・目的を 1 列ずつに展開し、横スクロール可能にする
-        // （Cluster / MCDM モードと同じ表示スタイル）。
+        // Expand parameters and objectives into one column each, allowing horizontal
+        // scrolling (the same display style as Cluster / MCDM mode).
         egui::ScrollArea::horizontal().show(ui, |ui| {
-            // ストライプの色を強調して偶数/奇数行を見分けやすくする。
+            // Emphasize the stripe color to make it easy to tell even/odd rows apart.
             ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
                 .column(Column::exact(30.0)) // Pin column
                 .column(Column::initial(70.0).at_least(50.0)) // Trial ID
-                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
-                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
+                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // per variable
+                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // per objective
                 .column(Column::initial(90.0).at_least(50.0)) // Pareto Rank
                 .header(20.0, |mut header| {
                     header.col(|ui| {
@@ -194,7 +197,8 @@ impl TrialTable {
                     body.rows(18.0, visible.len(), |mut row| {
                         let idx = visible[row.index()];
                         let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
-                        // 表示は Optuna の trial.number（Study 内 0 始まりの作成順番号）。
+                        // Display Optuna's trial.number (the 0-based creation-order
+                        // number within the Study).
                         let trial_number = view.df.get_trial_number(idx).unwrap_or(idx as u32);
                         let rank = pareto_rank.get(idx).copied().unwrap_or(0);
                         let is_highlighted = highlighted == Some(trial_id);
@@ -244,8 +248,8 @@ impl TrialTable {
     }
 }
 
-/// 表示対象の TrialRow を返す（ピン留め考慮版・テストのみで使用）。
-/// selected_indices が空なら全件、そうでなければ selected ∪ pinned で返す。
+/// Returns the TrialRows to display (pin-aware version, used only in tests).
+/// If selected_indices is empty, returns all; otherwise returns selected ∪ pinned.
 #[cfg(test)]
 pub fn get_display_rows_with_pins(
     study_ctx: &StudyContext,
@@ -265,7 +269,7 @@ pub fn get_display_rows_with_pins(
         .collect()
 }
 
-/// 表示対象の TrialRow を返す（テストのみで使用）。
+/// Returns the TrialRows to display (used only in tests).
 #[cfg(test)]
 pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
     get_display_rows_with_pins(study_ctx, selected_indices, &[])
@@ -328,7 +332,7 @@ mod tests {
         assert_eq!(rows.len(), 0);
     }
 
-    // ── TASK-2235: ピン留めUIテスト ──────────────────────────────
+    // ── TASK-2235: pinning UI tests ──────────────────────────────
 
     #[test]
     fn get_display_rows_keeps_pinned_rows_visible() {
@@ -345,7 +349,7 @@ mod tests {
 
     #[test]
     fn pin_icon_reflects_current_state() {
-        // pin アイコンは is_pinned フラグで切り替わる
+        // The pin icon switches based on the is_pinned flag
         let is_pinned = true;
         let label = if is_pinned { "📌" } else { "·" };
         assert_eq!(label, "📌");

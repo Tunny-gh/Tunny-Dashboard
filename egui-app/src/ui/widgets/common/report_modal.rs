@@ -1,11 +1,12 @@
-//! 「Report…」ダイアログ: 自己完結型レポート（HTML / Markdown / JSON）の出力設定。
+//! The "Report…" dialog: output settings for self-contained reports (HTML / Markdown / JSON).
 //!
-//! フォーマット選択・言語・Top-N をここで確定し、Export を押すと呼び出し側
-//! （`app.rs`）が rfd の保存ダイアログでベースパスを選ばせ、バックグラウンド
-//! スレッドで `tunny_core::report::build_study_report` を実行する
-//! （`crate::io::report_export::spawn_report_export`）。生成中/完了/失敗の状態は
-//! この `ReportDialogState` 自体が持つため、egui コンテキスト無しでも純粋な
-//! ロジック（検証・ファイル名導出）をテストできる。
+//! Format selection, language, and Top-N are finalized here, and clicking
+//! Export lets the caller (`app.rs`) choose a base path via an rfd save
+//! dialog, then runs `tunny_core::report::build_study_report` on a
+//! background thread (`crate::io::report_export::spawn_report_export`).
+//! The generating/complete/failed state is held by `ReportDialogState`
+//! itself, so the pure logic (validation, file name derivation) can be
+//! tested without an egui context.
 
 use std::path::{Path, PathBuf};
 
@@ -14,7 +15,7 @@ use tunny_core::report::ReportLang;
 
 use crate::ui::widgets::common::modal::ModalScaffold;
 
-/// エクスポート可能なレポート形式。
+/// Exportable report formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReportFormat {
     Html,
@@ -23,7 +24,7 @@ pub enum ReportFormat {
 }
 
 impl ReportFormat {
-    /// ファイル拡張子（先頭ドット無し）。
+    /// File extension (without leading dot).
     pub fn extension(self) -> &'static str {
         match self {
             ReportFormat::Html => "html",
@@ -32,7 +33,7 @@ impl ReportFormat {
         }
     }
 
-    /// 表示ラベル。
+    /// Display label.
     pub fn label(self) -> &'static str {
         match self {
             ReportFormat::Html => "HTML",
@@ -42,23 +43,24 @@ impl ReportFormat {
     }
 }
 
-/// 「Report…」モーダルの編集状態。`AppState.report_dialog` が `Some` の間表示する。
+/// Editing state of the "Report…" modal. Displayed while `AppState.report_dialog` is `Some`.
 #[derive(Debug, Clone)]
 pub struct ReportDialogState {
     pub html: bool,
     pub markdown: bool,
     pub json: bool,
     pub lang: ReportLang,
-    /// 上位表の件数（`ReportOptions::top_n` にそのまま渡す）。
+    /// Number of top rows (passed directly to `ReportOptions::top_n`).
     pub top_n: usize,
-    /// フォーマット未選択などのバリデーションエラー、または生成失敗時のエラー。
+    /// Validation error such as no format selected, or an error on generation failure.
     pub error: Option<String>,
-    /// バックグラウンドで生成中か（true の間は入力を無効化する）。
+    /// Whether generation is running in the background (input is disabled while true).
     pub generating: bool,
-    /// 生成完了後に書き出したファイルパス一覧。`Some` の間は完了表示に切り替える。
+    /// The list of file paths written after generation completes. Switches to the
+    /// completion display while `Some`.
     pub success_paths: Option<Vec<PathBuf>>,
-    /// サイレント上書きした非プライマリの兄弟ファイル
-    /// （プライマリは OS 保存ダイアログで確認済みのため含まれない）。
+    /// Non-primary sibling files that were silently overwritten
+    /// (the primary is not included since it's already confirmed via the OS save dialog).
     pub overwrote_paths: Vec<PathBuf>,
 }
 
@@ -79,7 +81,7 @@ impl Default for ReportDialogState {
 }
 
 impl ReportDialogState {
-    /// チェック済みフォーマットの一覧を返す。1 件も選択されていなければ `Err`。
+    /// Returns the list of checked formats. `Err` if none are selected.
     pub fn selected_formats(&self) -> Result<Vec<ReportFormat>, &'static str> {
         let mut formats = Vec::new();
         if self.html {
@@ -99,17 +101,18 @@ impl ReportDialogState {
     }
 }
 
-/// 既定のファイル名（`report_{study_name}.{ext}`）。拡張子は選択フォーマットの
-/// 先頭から導出する（`formats` が空なら HTML）。JSON / Markdown のみ選択時に
-/// `.html` を出さないための入口で、OS 保存ダイアログの上書き確認の不変条件を保つ。
-/// study 名はファイル名に使えない文字を `_` に置換する。
+/// The default file name (`report_{study_name}.{ext}`). The extension is derived from
+/// the first of the selected formats (HTML if `formats` is empty). This is the entry
+/// point that avoids emitting `.html` when only JSON / Markdown is selected, preserving
+/// the OS save dialog's overwrite-confirmation invariant.
+/// Characters unusable in a file name in the study name are replaced with `_`.
 pub fn default_file_name_for(study_name: &str, formats: &[ReportFormat]) -> String {
     let ext = formats.first().map(|f| f.extension()).unwrap_or("html");
     format!("report_{}.{}", sanitize_file_stem(study_name), ext)
 }
 
-/// ファイル名として安全な文字（英数字・`-`・`_`）以外を `_` に置換する。
-/// 全文字が置換対象だった場合は `"study"` を返す。
+/// Replaces characters other than those safe for a file name (alphanumeric, `-`, `_`)
+/// with `_`. Returns `"study"` if every character was subject to replacement.
 fn sanitize_file_stem(name: &str) -> String {
     let sanitized: String = name
         .chars()
@@ -128,8 +131,9 @@ fn sanitize_file_stem(name: &str) -> String {
     }
 }
 
-/// ユーザーが選んだベースパスから、選択フォーマットぶんの拡張子違いパスを導出する。
-/// 例: base=`report_x.html`, formats=[Html, Json] → `report_x.html`, `report_x.json`。
+/// Derives extension-varying paths for the selected formats from the base path chosen
+/// by the user.
+/// Example: base=`report_x.html`, formats=[Html, Json] → `report_x.html`, `report_x.json`.
 pub fn export_paths(base_path: &Path, formats: &[ReportFormat]) -> Vec<(ReportFormat, PathBuf)> {
     formats
         .iter()
@@ -137,19 +141,19 @@ pub fn export_paths(base_path: &Path, formats: &[ReportFormat]) -> Vec<(ReportFo
         .collect()
 }
 
-/// ダイアログの操作結果。
+/// The dialog's operation result.
 pub enum ReportModalAction {
-    /// Export ボタン押下（形式検証は呼び出し側 `app.rs` が行う）。
+    /// The Export button was pressed (format validation is done by the caller, `app.rs`).
     Export,
-    /// Cancel / Close ボタン押下、またはモーダル外クリック。
+    /// The Cancel / Close button was pressed, or a click occurred outside the modal.
     Close,
 }
 
-/// 「Report…」モーダルを描画する。
+/// Draws the "Report…" modal.
 ///
-/// 戻り値が `None` の間はダイアログを開いたままにする。`generating` 中は
-/// 入力・Export ボタンを無効化し、`success_paths` が `Some` になったら
-/// 完了メッセージ＋Close ボタンに切り替える。
+/// The dialog stays open while the return value is `None`. While `generating`,
+/// input and the Export button are disabled, and once `success_paths` becomes
+/// `Some`, it switches to a completion message + Close button.
 pub fn show(
     ctx: &egui::Context,
     state: &mut ReportDialogState,
@@ -175,7 +179,7 @@ pub fn show(
                         format!("Saved: {}", path.display()),
                     );
                 }
-                // 保存ダイアログを経由しない兄弟ファイルの上書きを明示する。
+                // Explicitly call out overwrites of sibling files that bypass the save dialog.
                 for path in &state.overwrote_paths {
                     ui.colored_label(
                         egui::Color32::from_rgb(202, 138, 4), // amber-600
@@ -321,7 +325,7 @@ mod tests {
 
     #[test]
     fn default_file_name_for_derives_extension_from_first_format() {
-        // JSON / Markdown のみ選択時は .html を出さない。
+        // .html is not emitted when only JSON / Markdown is selected.
         assert_eq!(
             default_file_name_for("s", &[ReportFormat::Json]),
             "report_s.json"
@@ -330,7 +334,7 @@ mod tests {
             default_file_name_for("s", &[ReportFormat::Markdown, ReportFormat::Json]),
             "report_s.md"
         );
-        // 空選択は HTML にフォールバック。
+        // An empty selection falls back to HTML.
         assert_eq!(default_file_name_for("s", &[]), "report_s.html");
     }
 

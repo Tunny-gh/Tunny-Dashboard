@@ -7,12 +7,13 @@ use crate::theme::CENTRAL_BG;
 use crate::ui::widgets::common::range_math;
 use crate::ui::widgets::scatter_matrix::downsample_indices_to_cap;
 
-/// PCP 折れ線の最大描画数。1 試行あたり線分 (n_visible-1) 本を描くため
-/// 散布図の点よりも描画コストが高く、scatter_matrix の `MAX_SCATTER_POINTS` と
-/// 同じ上限を採用する（ブラシで選択中のトライアルは間引き対象外・常に描画する）。
+/// Max number of PCP polylines to draw. Each trial draws (n_visible-1) line
+/// segments, which is more expensive than a scatter point, so we adopt the
+/// same cap as `MAX_SCATTER_POINTS` in scatter_matrix (trials currently
+/// selected by a brush are exempt from downsampling and are always drawn).
 const MAX_PCP_POLYLINES: usize = 1500;
 
-/// 値の範囲に応じた精度で軸目盛り値をフォーマットする
+/// Formats an axis tick value with precision scaled to the value range.
 pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
     let range = (mx - mn).abs();
     if range < 1e-9 {
@@ -28,17 +29,17 @@ pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
     }
 }
 
-/// 値を [0, 1] に正規化する（min==max の場合は 0.5 を返す）
+/// Normalizes a value to [0, 1] (returns 0.5 when min == max).
 pub fn normalize_value(v: f64, v_min: f64, v_max: f64) -> f32 {
     range_math::normalize01(v, v_min, v_max)
 }
 
-/// 正規化値 [0,1] を画面の Y 座標に変換する（0 = bottom, 1 = top）
+/// Converts a normalized value [0,1] to a screen Y coordinate (0 = bottom, 1 = top).
 pub fn normalized_to_screen_y(normalized: f32, plot_top: f32, plot_bottom: f32) -> f32 {
     plot_bottom - normalized * (plot_bottom - plot_top)
 }
 
-/// 軸の表示名リストをパラメータ名と目的関数名から構築する
+/// Builds the list of axis display names from parameter names and objective names.
 pub fn build_axis_order(param_names: &[String], objective_names: &[String]) -> Vec<String> {
     param_names
         .iter()
@@ -47,13 +48,14 @@ pub fn build_axis_order(param_names: &[String], objective_names: &[String]) -> V
         .collect()
 }
 
-/// ドラッグ方向に関わらず (min, max) 順に整列する
+/// Orders the pair as (min, max) regardless of drag direction.
 pub fn ordered_brush_range(start: f32, end: f32) -> (f32, f32) {
     (start.min(end), start.max(end))
 }
 
-/// `axis_visibility` に基づき、描画対象（可視）軸の元インデックス一覧を返す。
-/// 未登録の軸は表示扱い（`unwrap_or(true)`）とし、デフォルトでは全軸が可視になる。
+/// Returns the original indices of the axes to draw (visible ones), based on
+/// `axis_visibility`. Unregistered axes default to visible (`unwrap_or(true)`),
+/// so all axes are visible by default.
 pub fn visible_axis_indices(
     all_names: &[String],
     axis_visibility: &std::collections::HashMap<String, bool>,
@@ -63,9 +65,10 @@ pub fn visible_axis_indices(
         .collect()
 }
 
-/// 色付け用の正規化レンジを実行可能解のみから算出する。
-/// 実行不可能解の外れ値でカラーマップが圧縮されないよう、軸の座標レンジとは別に求める。
-/// 制約なし（feas.has_constraints() == false）の場合は全件、有効な値が一つも無い場合は `fallback` を返す。
+/// Computes the normalization range used for coloring from feasible solutions only.
+/// Kept separate from the axis coordinate range so infeasible outliers don't
+/// compress the colormap. Uses all values when there are no constraints
+/// (feas.has_constraints() == false); returns `fallback` if no valid value exists.
 pub fn feasible_color_range(
     col: &[f64],
     feas: tunny_core::dataframe::Feasibility<'_>,
@@ -86,37 +89,39 @@ pub fn feasible_color_range(
     }
 }
 
-/// PCP ブラシ操作のドラッグ種別。
+/// Drag kind for PCP brush interaction.
 enum BrushDrag {
-    /// 新規範囲の作成（従来挙動）。`drag_start` のアンカーから現在位置まで範囲を引く。
+    /// Creating a new range (the legacy behavior). Drags a range from the
+    /// `drag_start` anchor to the current pointer position.
     Create,
-    /// 既存範囲の平行移動。`grab_norm_y` はドラッグ開始時のポインタ正規化 Y、
-    /// `orig_range` は移動前の `(lo, hi)`。差分を加算して範囲全体をスライドする。
+    /// Translating an existing range. `grab_norm_y` is the normalized Y of the
+    /// pointer at drag start, `orig_range` is the `(lo, hi)` before the move.
+    /// The delta is added to slide the whole range.
     Move {
         grab_norm_y: f32,
         orig_range: (f32, f32),
     },
 }
 
-/// 既存ブラシ範囲を `delta`（正規化）だけ平行移動する。
-/// 幅を保ったまま [0, 1] に収まるよう端でクランプする。
+/// Translates an existing brush range by `delta` (normalized units).
+/// Clamps at the edges to stay within [0, 1] while preserving the width.
 pub fn shifted_brush_range(orig: (f32, f32), delta: f32) -> (f32, f32) {
     let (lo, hi) = orig;
     let width = hi - lo;
-    // 下端・上端のどちらが先に境界へ達するかで delta を制限する
+    // Limit delta by whichever edge (low or high) would hit the boundary first.
     let clamped_delta = delta.clamp(-lo, 1.0 - hi);
     let new_lo = lo + clamped_delta;
     (new_lo, new_lo + width)
 }
 
-/// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
+/// Invalidation key for draw_targets_cache: (df_ptr, trial_count, brush range snapshot).
 type DrawTargetsKey = (
     usize,
     usize,
     std::collections::HashMap<String, Option<(f32, f32)>>,
 );
 
-/// 平行座標図ウィジェット
+/// Parallel coordinates plot widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ParallelCoordsChart {
@@ -126,28 +131,30 @@ pub struct ParallelCoordsChart {
     pub brush_ranges: std::collections::HashMap<String, Option<(f32, f32)>>,
     #[serde(skip)]
     pub drag_start: Option<(String, f32)>,
-    /// 進行中のドラッグ種別（新規作成 or 既存範囲の移動）。drag_start と併用する。
+    /// Kind of drag in progress (creating a new range or moving an existing
+    /// one). Used together with drag_start.
     #[serde(skip)]
     brush_drag: Option<BrushDrag>,
-    /// REQ-004: 軸ごとの表示/非表示フラグ（true = 表示）
+    /// REQ-004: per-axis show/hide flag (true = visible).
     pub axis_visibility: std::collections::HashMap<String, bool>,
     #[serde(skip)]
     col_ranges_cache: Option<Vec<(f64, f64)>>,
     #[serde(skip)]
     cache_key: (usize, usize, usize, usize), // (df_ptr, trial_count, n_params, n_objs)
-    /// ブラシ選択中の描画対象 (t_idx, in_selection) 一覧のキャッシュ（M-14）。
-    /// ブラシ範囲・データが変わらない限り、全 trial × 全軸の brush 判定を再計算しない。
+    /// Cache of the draw targets (t_idx, in_selection) list while a brush
+    /// selection is active (M-14). Skips recomputing the per-trial ×
+    /// per-axis brush check unless the brush ranges or data change.
     #[serde(skip)]
     draw_targets_cache: Option<Vec<(usize, bool)>>,
-    /// draw_targets_cache の無効化キー: (df_ptr, trial_count, ブラシ範囲のスナップショット)。
+    /// Invalidation key for draw_targets_cache: (df_ptr, trial_count, brush range snapshot).
     #[serde(skip)]
     draw_targets_key: Option<DrawTargetsKey>,
-    /// 折れ線描画の間引きインデックスキャッシュ（trial_count が変わらない限り再計算しない）
+    /// Downsampling index cache for polyline drawing (recomputed only when trial_count changes).
     #[serde(skip)]
     polyline_indices_cache: Option<Vec<u32>>,
     #[serde(skip)]
     polyline_indices_cache_key: Option<usize>, // trial_count
-    /// 軸ラベルの事前レイアウト済み Galley キャッシュ（軸名リストが変わらない限り再計算しない）
+    /// Pre-laid-out Galley cache for axis labels (recomputed only when the axis name list changes).
     #[serde(skip)]
     label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
     #[serde(skip)]
@@ -155,9 +162,10 @@ pub struct ParallelCoordsChart {
     // TASK-2242: pending selection from completed brush drag
     #[serde(skip)]
     pub pending_selection: Option<Vec<u32>>,
-    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    /// Whether to show infeasible solutions (only meaningful for a Study with constraints).
     pub show_infeasible: bool,
-    /// 線の色付けに使う軸名（None の場合は最後の軸 = 末尾の目的にフォールバック）
+    /// Axis name used to color the lines (falls back to the last axis = last
+    /// objective when None).
     pub color_axis: Option<String>,
 }
 
@@ -187,7 +195,7 @@ impl Default for ParallelCoordsChart {
 }
 
 impl ParallelCoordsChart {
-    /// 平行座標プロットを描画する
+    /// Draws the parallel coordinates plot.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -211,10 +219,12 @@ impl ParallelCoordsChart {
         }
 
         let n_params = param_names.len();
-        // 各軸の列スライスを view から借用（コピーしない・MEM-003）
+        // Borrow each axis's column slice from view (no copy, MEM-003).
         let cols = view.numeric_columns(&all_names);
 
-        // DataFrame の Arc 恒等性をキーに含め、同一次元の別 Study 切替でのスタール描画を防ぐ（M-5）。
+        // Include the DataFrame's Arc identity in the key to prevent stale
+        // rendering when switching to a different Study with the same
+        // dimensions (M-5).
         let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
         let cache_key = (df_ptr, trial_count, n_params, obj_names.len());
         if self.col_ranges_cache.is_none() || self.cache_key != cache_key {
@@ -234,9 +244,9 @@ impl ParallelCoordsChart {
         let feas = view.feasibility();
         let has_constraints = feas.has_constraints();
 
-        // コントロール行: 描画軸の選択 + 色付け対象軸 + "Show Infeasible"
+        // Control row: choose axes to draw + coloring axis + "Show Infeasible".
         ui.horizontal(|ui| {
-            // 描画する軸を選ぶチェックボックス付きドロップダウン（デフォルト全表示）
+            // Dropdown with checkboxes to choose which axes to draw (all shown by default).
             let visible_count = all_names
                 .iter()
                 .filter(|n| self.axis_visibility.get(*n).copied().unwrap_or(true))
@@ -266,7 +276,8 @@ impl ParallelCoordsChart {
                     }
                 });
 
-            // 線の色付け対象軸（未設定なら末尾の軸 = 末尾の目的）を解決する
+            // Resolve the axis used to color the lines (falls back to the
+            // last axis = last objective if unset).
             let current_axis = self
                 .color_axis
                 .clone()
@@ -290,7 +301,7 @@ impl ParallelCoordsChart {
             }
         });
 
-        // 描画対象（可視）軸の元インデックス一覧（未登録 = 表示）。
+        // Original indices of the axes to draw (visible ones); unregistered = visible.
         let visible = visible_axis_indices(&all_names, &self.axis_visibility);
         let n_visible = visible.len();
         if n_visible < 2 {
@@ -300,7 +311,7 @@ impl ParallelCoordsChart {
             return;
         }
 
-        // 描画に使う色付け対象軸のインデックス（ドロップダウン反映後に解決）
+        // Index of the coloring axis used for drawing (resolved after the dropdown update).
         let color_axis_idx = self
             .color_axis
             .as_ref()
@@ -321,9 +332,10 @@ impl ParallelCoordsChart {
         let text_color = COLOR_CHART_TEXT();
         let label_font = egui::FontId::proportional(10.0);
 
-        // 軸ラベルを事前レイアウトし、隣接軸より幅が広ければ斜めに回転させて重なりを防ぐ。
-        // レイアウト（layout_no_wrap）はテキスト整形コストがあるため、軸名リストが
-        // 変わらない限り毎フレーム再計算しない。
+        // Pre-lay-out the axis labels and rotate them diagonally when wider
+        // than the adjacent axis spacing to avoid overlap. Layout
+        // (layout_no_wrap) has text-shaping cost, so we don't recompute it
+        // every frame unless the axis name list changes.
         if self.label_galleys_cache.is_none()
             || self.label_galleys_cache_key.as_deref() != Some(&all_names[..])
         {
@@ -343,11 +355,11 @@ impl ParallelCoordsChart {
         let axis_spacing = (available.width() - 2.0 * axis_margin) / (n_visible - 1) as f32;
         let rotate_labels = max_label_w > axis_spacing - 4.0;
         let label_angle = if rotate_labels {
-            std::f32::consts::FRAC_PI_4 // 45° 回転（右肩上がり）
+            std::f32::consts::FRAC_PI_4 // 45° rotation (rising to the right)
         } else {
             0.0
         };
-        // ラベルが占有する上端の高さ（回転時は対角方向の高さ）
+        // Height occupied by labels at the top (diagonal height when rotated).
         let label_area = if rotate_labels {
             (max_label_w * label_angle.sin() + label_h * label_angle.cos()).min(110.0) + 8.0
         } else {
@@ -365,18 +377,19 @@ impl ParallelCoordsChart {
 
         let show_infeasible = self.show_infeasible;
 
-        // 色付けの正規化レンジは実行可能解のみから算出する（軸の座標レンジとは別）。
+        // The normalization range for coloring is computed from feasible
+        // solutions only (kept separate from the axis coordinate range).
         let color_range: (f64, f64) = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
             Some(col) => feasible_color_range(col, feas, col_ranges[color_axis_idx]),
             None => col_ranges[color_axis_idx],
         };
 
-        // アクティブなブラシが一つでもあれば、選択範囲外の線をグレーアウトする。
-        // ドラッグ中も `brush_ranges` が更新されるためリアルタイムに反映される。
+        // Gray out lines outside the selection if any brush is active.
+        // Updated in real time since `brush_ranges` changes while dragging.
         let has_active_brush = self.brush_ranges.values().any(|range| range.is_some());
 
-        // 描画対象トライアルの間引き: 全件描画は重いため MAX_PCP_POLYLINES 件に制限する。
-        // trial_count が変わらない限り再計算しない。
+        // Downsample the trials to draw: drawing everything is expensive, so
+        // cap it at MAX_PCP_POLYLINES. Recomputed only when trial_count changes.
         if self.polyline_indices_cache_key != Some(trial_count) {
             let all: Vec<u32> = (0..trial_count as u32).collect();
             self.polyline_indices_cache = Some(downsample_indices_to_cap(&all, MAX_PCP_POLYLINES));
@@ -384,10 +397,12 @@ impl ParallelCoordsChart {
         }
         let downsampled = self.polyline_indices_cache.as_ref().unwrap();
 
-        // 描画対象 (t_idx, in_selection) の一覧。ブラシ選択中のトライアルは間引きの
-        // 影響を受けず必ず描画する（間引き対象 ∪ ブラシ通過トライアルの和集合）。
-        // 全 trial × 全軸の brush 判定 + HashSet 確保は重いため、df の恒等性・trial_count・
-        // ブラシ範囲が変わらない限り再計算せずキャッシュを使い回す（M-14）。
+        // List of draw targets (t_idx, in_selection). Trials currently
+        // selected by a brush are exempt from downsampling and always drawn
+        // (union of the downsampled set and the brush-passing trials).
+        // Checking brushes for every trial × axis plus building a HashSet is
+        // expensive, so we reuse the cache unless the df identity,
+        // trial_count, or brush ranges change (M-14).
         let draw_targets_key_matches = self.draw_targets_cache.is_some()
             && self.draw_targets_key.as_ref().is_some_and(|(p, tc, br)| {
                 *p == df_ptr && *tc == trial_count && br == &self.brush_ranges
@@ -416,10 +431,12 @@ impl ParallelCoordsChart {
         }
         let draw_targets = self.draw_targets_cache.as_ref().unwrap();
 
-        // 各試行を折れ線で描画（半透明）。
-        // 選択外（グレーアウト）の線を先に描き、選択内の線を最前面に重ねる。
-        // スクラッチバッファは即時描画分（非選択）で使い回し、per-trial のアロケーションを避ける。
-        // 最前面に重ねる選択内の線だけは、後段でまとめて描くために個別に複製する。
+        // Draw each trial as a (semi-transparent) polyline.
+        // Draw the out-of-selection (grayed-out) lines first, then overlay
+        // the in-selection lines on top. The scratch buffer is reused for
+        // lines drawn immediately (not selected) to avoid a per-trial
+        // allocation; only the in-selection lines drawn on top are cloned
+        // individually so they can be drawn together afterward.
         let mut selected_polylines: Vec<(Vec<egui::Pos2>, egui::Color32)> = Vec::new();
         let mut point_scratch: Vec<egui::Pos2> = Vec::with_capacity(n_visible);
         for &(t_idx, in_selection) in draw_targets {
@@ -432,7 +449,7 @@ impl ParallelCoordsChart {
             let color = if !in_selection {
                 COLOR_PARALLEL_LINE_UNSELECTED()
             } else if feasible {
-                // 選択軸の値を [0,1] に正規化し、カラーマップで色を決める
+                // Normalize the selected axis's value to [0,1] and look up the color via the colormap.
                 let base_color = cols
                     .get(color_axis_idx)
                     .and_then(|c| c.as_ref())
@@ -468,7 +485,7 @@ impl ParallelCoordsChart {
             }
             if valid && point_scratch.len() >= 2 {
                 if in_selection && has_active_brush {
-                    // 選択内の線は後でまとめて最前面に描画する
+                    // Draw in-selection lines together on top afterward.
                     selected_polylines.push((point_scratch.clone(), color));
                 } else {
                     for pair in point_scratch.windows(2) {
@@ -477,14 +494,14 @@ impl ParallelCoordsChart {
                 }
             }
         }
-        // 選択内の線を最前面に重ねる
+        // Overlay the in-selection lines on top.
         for (points, color) in &selected_polylines {
             for pair in points.windows(2) {
                 painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, *color));
             }
         }
 
-        // 縦軸・ラベル・目盛りを最前面に描画
+        // Draw the vertical axes, labels, and ticks on top.
         for (disp, &orig) in visible.iter().enumerate() {
             let x = axis_x[disp];
             painter.line_segment(
@@ -493,11 +510,13 @@ impl ParallelCoordsChart {
             );
             let galley = label_galleys[orig].clone();
             if rotate_labels {
-                // -label_angle（反時計回り）で回転させた "/" 形ラベルの最下端
-                // （= 文字列先頭・左下隅）を、各軸の上端 (x, axis_top) に合わせる（D-12 共通ヘルパー）。
+                // Align the lowest corner (start of the string, bottom-left)
+                // of the "/"-shaped label rotated by -label_angle
+                // (counter-clockwise) to each axis's top point (x, axis_top)
+                // (shared helper, D-12).
                 let applied = -label_angle;
                 let lowest = super::rotated_label_corners(galley.size(), applied).lowest;
-                // 最下端が軸上端のすぐ上に来るよう pos を決める
+                // Choose pos so the lowest corner sits just above the axis top.
                 let gap = 2.0_f32;
                 let anchor = egui::pos2(x, axis_top - gap);
                 let pos = anchor - egui::vec2(lowest.0, lowest.1);
@@ -531,7 +550,7 @@ impl ParallelCoordsChart {
             }
         }
 
-        // Draw brush range overlays（可視軸のみ）
+        // Draw brush range overlays (visible axes only).
         for (disp, &orig) in visible.iter().enumerate() {
             let name = &all_names[orig];
             if let Some(Some((y_lo, y_hi))) = self.brush_ranges.get(name.as_str()) {
@@ -578,7 +597,7 @@ impl ParallelCoordsChart {
                 let norm_y = ((axis_bottom - ptr.y) / (axis_bottom - axis_top)).clamp(0.0, 1.0);
 
                 if response.drag_started() {
-                    // 既存ブラシの内側をつかんだら移動モード、それ以外は新規作成モード。
+                    // Move mode if grabbing inside an existing brush, otherwise create mode.
                     let existing = self
                         .brush_ranges
                         .get(axis_name.as_str())
@@ -621,10 +640,11 @@ impl ParallelCoordsChart {
             }
         }
 
-        // 既存ブラシの矩形内をホバー中は「つかんで移動できる」ことを grab カーソルで示す
+        // Show a grab cursor while hovering inside an existing brush rect to
+        // indicate it can be grabbed and moved.
         if let Some(ptr) = response.hover_pos() {
             let hovering_brush = visible.iter().enumerate().any(|(disp, &orig)| {
-                // ブラシ矩形は軸を中心に幅 ±6px（描画時と同じ）
+                // The brush rect spans ±6px around the axis (same as when drawing).
                 if (ptr.x - axis_x[disp]).abs() > 6.0 {
                     return false;
                 }
@@ -657,8 +677,9 @@ impl ParallelCoordsChart {
     }
 }
 
-/// 単一トライアル（行インデックス `t_idx`）が全アクティブブラシ範囲を AND 条件で満たすか判定する。
-/// 値が欠損している軸にアクティブブラシがある場合は不通過（false）とする。
+/// Checks whether a single trial (row index `t_idx`) satisfies all active
+/// brush ranges under an AND condition. Fails (false) if an axis with a
+/// missing value has an active brush.
 pub fn trial_passes_brushes(
     t_idx: usize,
     brush_ranges: &std::collections::HashMap<String, Option<(f32, f32)>>,
@@ -689,8 +710,10 @@ pub fn trial_passes_brushes(
     true
 }
 
-/// 全ブラシ範囲に対して AND 条件でトライアルをフィルタリングし trial_id リストを返す（TASK-2242）
-/// 列スライス（view 由来の借用）と trial_ids 並行配列から算出する（行クローン不要・MEM-003）。
+/// Filters trials against all brush ranges under an AND condition and
+/// returns the trial_id list (TASK-2242). Computed from column slices
+/// (borrowed from view) and the parallel trial_ids array, so no row cloning
+/// is needed (MEM-003).
 pub fn filter_trials_by_brushes(
     trial_ids: &[u32],
     brush_ranges: &std::collections::HashMap<String, Option<(f32, f32)>>,
@@ -918,7 +941,7 @@ mod tests {
             vec![Some(col_data[0].as_slice()), Some(col_data[1].as_slice())];
         let col_ranges = vec![(0.0_f64, 10.0_f64), (0.0_f64, 10.0_f64)];
         let all_names = vec!["x".to_string(), "obj".to_string()];
-        // ブラシ未設定（None のみ）→ 全件通過
+        // No brush set (None only) -> everything passes.
         let mut brush_ranges: HashMap<String, Option<(f32, f32)>> = HashMap::new();
         brush_ranges.insert("x".to_string(), None);
         assert!(trial_passes_brushes(
@@ -933,7 +956,7 @@ mod tests {
     #[test]
     fn trial_passes_brushes_missing_value_with_active_brush_excluded() {
         use std::collections::HashMap;
-        // axis 1 は値が 1 件しかなく、t_idx=1 は欠損
+        // axis 1 has only one value, so t_idx=1 is missing.
         let col_data_x = vec![2.0, 8.0];
         let col_data_obj = vec![5.0];
         let cols: Vec<Option<&[f64]>> =
@@ -942,7 +965,7 @@ mod tests {
         let all_names = vec!["x".to_string(), "obj".to_string()];
         let mut brush_ranges: HashMap<String, Option<(f32, f32)>> = HashMap::new();
         brush_ranges.insert("obj".to_string(), Some((0.0, 1.0)));
-        // t_idx=1 は obj 値が欠損 → ブラシがアクティブなので不通過
+        // t_idx=1 is missing the obj value -> fails since the brush is active.
         assert!(!trial_passes_brushes(
             1,
             &brush_ranges,
@@ -956,7 +979,7 @@ mod tests {
     fn visible_axis_indices_default_all_visible() {
         use std::collections::HashMap;
         let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let vis = HashMap::new(); // 未登録 = 全表示
+        let vis = HashMap::new(); // unregistered = all visible
         assert_eq!(visible_axis_indices(&names, &vis), vec![0, 1, 2]);
     }
 
@@ -982,7 +1005,8 @@ mod tests {
     #[test]
     fn feasible_color_range_excludes_infeasible_outliers() {
         use tunny_core::dataframe::Feasibility;
-        // 実行不可能解 (idx 3) が外れ値 1000.0 を持つが、レンジは実行可能解のみから算出する
+        // The infeasible solution (idx 3) has an outlier value of 1000.0, but
+        // the range is computed from feasible solutions only.
         let col = [1.0, 2.0, 3.0, 1000.0];
         let feas_col = [1.0, 1.0, 1.0, 0.0];
         let feas = Feasibility::from_column(Some(&feas_col));

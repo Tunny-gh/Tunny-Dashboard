@@ -1,22 +1,25 @@
-//! モーダルダイアログの共通足場（D-4）。
+//! Common scaffold for modal dialogs (D-4).
 //!
-//! 各モーダル（CSV インポート / ライセンス / RDB URL / レポート / トライアル詳細）は
-//! `egui::Modal::new(Id::new(..)).show(ctx, |ui| { 最小幅設定; 見出し; 本文 })` と
-//! 末尾の `should_close()` 判定を重複して書いていた。この足場でその定型部分を 1 箇所に集約し、
-//! 各モーダルは ID・タイトル・最小幅（＋任意で最大幅・最小高さ）と本文クロージャだけを渡す。
+//! Each modal (CSV import / license / RDB URL / report / trial detail) used to
+//! duplicate `egui::Modal::new(Id::new(..)).show(ctx, |ui| { set min width; heading;
+//! body })` along with a trailing `should_close()` check. This scaffold centralizes
+//! that boilerplate in one place; each modal only needs to pass the ID, title, min
+//! width (plus optional max width / min height), and a body closure.
 //!
-//! `should_close()` を組み合わせる最終的な「閉じる」条件（バリデーション・生成中の抑止など）は
-//! モーダルごとに異なるため、足場は `should_close` を [`ModalOutcome`] として返すだけに留める。
+//! The final "close" condition combined with `should_close()` (validation, suppression
+//! during generation, etc.) differs per modal, so the scaffold only returns
+//! `should_close` as a [`ModalOutcome`].
 
-/// 足場の描画結果。各モーダルは Load / Export / Cancel 等の確定操作を本文クロージャ内で
-/// 捕捉した可変変数へ記録するため、足場が返すのは `should_close` のみとする。
+/// The scaffold's draw result. Each modal records confirm actions (Load / Export /
+/// Cancel, etc.) into mutable variables captured inside the body closure, so the
+/// scaffold only needs to return `should_close`.
 pub struct ModalOutcome {
-    /// 背景クリック・Esc 等でモーダルが閉じられようとしているか。
+    /// Whether the modal is being closed (background click, Esc, etc.).
     pub should_close: bool,
 }
 
-/// モーダル足場のビルダ。`new` で ID と最小幅を与え、必要に応じて最大幅・最小高さ・
-/// 自動見出しを追加してから `show` で描画する。
+/// Builder for the modal scaffold. Give it an ID and min width via `new`, optionally
+/// add a max width / min height / auto heading, then draw with `show`.
 pub struct ModalScaffold<'a> {
     id: &'a str,
     min_width: f32,
@@ -26,7 +29,7 @@ pub struct ModalScaffold<'a> {
 }
 
 impl<'a> ModalScaffold<'a> {
-    /// ID と最小幅を指定して足場を作る。
+    /// Creates the scaffold with the given ID and min width.
     pub fn new(id: &'a str, min_width: f32) -> Self {
         Self {
             id,
@@ -37,27 +40,28 @@ impl<'a> ModalScaffold<'a> {
         }
     }
 
-    /// 最大幅を設定する。
+    /// Sets the max width.
     pub fn max_width(mut self, w: f32) -> Self {
         self.max_width = Some(w);
         self
     }
 
-    /// 最小高さを設定する。
+    /// Sets the min height.
     pub fn min_height(mut self, h: f32) -> Self {
         self.min_height = Some(h);
         self
     }
 
-    /// 本文の先頭に自動で描く見出しを設定する。独自ヘッダ（例: 見出し＋Close ボタンを
-    /// 同一行に置くトライアル詳細）を持つモーダルでは指定せず、本文側で描く。
+    /// Sets a heading to be drawn automatically at the top of the body. Omit this for
+    /// modals with a custom header (e.g. trial detail, which places a heading + Close
+    /// button on the same line) and draw it in the body instead.
     pub fn heading(mut self, title: impl Into<String>) -> Self {
         self.heading = Some(title.into());
         self
     }
 
-    /// 足場を描画する。設定済みの最小幅・最大幅・最小高さと見出しを適用してから
-    /// `body` を呼び、`should_close` を返す。
+    /// Draws the scaffold. Applies the configured min width, max width, min height,
+    /// and heading, then calls `body` and returns `should_close`.
     pub fn show(self, ctx: &egui::Context, body: impl FnOnce(&mut egui::Ui)) -> ModalOutcome {
         let modal = egui::Modal::new(egui::Id::new(self.id)).show(ctx, |ui| {
             ui.set_min_width(self.min_width);

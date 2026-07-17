@@ -1,13 +1,14 @@
-//! rhino.compute の Grasshopper エンドポイントで 1 試行を評価するクライアント。
+//! Client that evaluates a single trial via rhino.compute's Grasshopper endpoint.
 //!
-//! ローカルの rhino.compute（既定 `http://localhost:6500`）へ
-//! `POST /grasshopper` を送り、`RH_IN:*` に変数値を割り当てて solve し、
-//! `RH_OUT:*` の値を目的値として取り出す。リクエストはステートレスなので
-//! 並列 worker = 並行リクエストで並列評価できる（同時実行数は
-//! `ComputeConfig.max_parallel` のセマフォで制限）。
+//! Sends `POST /grasshopper` to a local rhino.compute instance (default
+//! `http://localhost:6500`), assigns variable values to `RH_IN:*`, solves,
+//! and extracts the `RH_OUT:*` values as the objective values. Requests are
+//! stateless, so parallel workers map directly to concurrent requests
+//! (concurrency is capped by a semaphore via `ComputeConfig.max_parallel`).
 //!
-//! HTTP は平文（http://）のみ対応。rhino.compute はローカル起動が前提のため
-//! TLS は不要（RDB の TLS 対応と同様、必要になれば拡張する）。
+//! Only plain HTTP (http://) is supported. Since rhino.compute is assumed to
+//! run locally, TLS is not required (extend this if needed later, mirroring
+//! how the RDB connection handles TLS).
 
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
@@ -17,16 +18,16 @@ use serde_json::{json, Value};
 
 use super::compute_def::ComputeDefinition;
 
-/// rhino.compute への接続設定。
+/// Connection settings for rhino.compute.
 #[derive(Debug, Clone)]
 pub struct ComputeConfig {
-    /// 例: `http://localhost:6500`
+    /// e.g. `http://localhost:6500`
     pub server_url: String,
-    /// rhino.compute の `RhinoComputeKey`（未設定なら送らない）
+    /// rhino.compute's `RhinoComputeKey` (not sent if unset).
     pub api_key: Option<String>,
-    /// 1 リクエスト（= 1 solve）のタイムアウト秒
+    /// Timeout in seconds for a single request (= one solve).
     pub timeout_secs: u64,
-    /// 同時リクエスト数の上限
+    /// Upper bound on the number of concurrent requests.
     pub max_parallel: usize,
 }
 
@@ -41,19 +42,20 @@ impl Default for ComputeConfig {
     }
 }
 
-/// 実目的関数の評価器。実装は Rhino.Compute（本番）とモック（テスト・
-/// ランナーの単体検証）を差し替えられる。
+/// Evaluator for the real objective function. The implementation can be
+/// swapped between Rhino.Compute (production) and a mock (unit testing the
+/// test/runner).
 pub trait GhEvaluator: Send + Sync {
-    /// 変数の実値（`GhProblem.variables` と同順）を受けて目的の実値
-    /// （`GhProblem.objectives` と同順)を返す。
+    /// Takes variable values (in the same order as `GhProblem.variables`) and
+    /// returns objective values (in the same order as `GhProblem.objectives`).
     fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String>;
 }
 
-/// Rhino.Compute で評価する `GhEvaluator` 実装。
+/// `GhEvaluator` implementation that evaluates via Rhino.Compute.
 pub struct ComputeEvaluator {
     endpoint: String,
     api_key: Option<String>,
-    /// base64 済み Compute 用定義（リクエストごとに同一）
+    /// Base64-encoded Compute definition (same for every request).
     algo: String,
     input_params: Vec<String>,
     output_params: Vec<String>,
@@ -145,10 +147,10 @@ impl GhEvaluator for ComputeEvaluator {
     }
 }
 
-/// Compute 応答（GrasshopperEndpoint の schema）から RH_OUT の値を取り出す。
+/// Extracts RH_OUT values from a Compute response (GrasshopperEndpoint schema).
 ///
-/// 応答形式:
-/// `{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "...", "data": <数値または JSON 文字列>}]}}]}`
+/// Response format:
+/// `{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "...", "data": <number or JSON string>}]}}]}`
 fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64>, String> {
     let values = response
         .get("values")
@@ -183,8 +185,8 @@ fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64
     Ok(result)
 }
 
-/// Resthopper の data フィールドを数値として解釈する。
-/// 数値そのもの、数値の文字列（"12.3"）、JSON 文字列（"\"12.3\""）を受ける。
+/// Interprets a Resthopper `data` field as a number.
+/// Accepts a raw number, a numeric string (`"12.3"`), or a doubly-wrapped JSON string (`"\"12.3\""`).
 fn parse_data_number(data: &Value) -> Option<f64> {
     match data {
         Value::Number(n) => n.as_f64(),
@@ -193,7 +195,7 @@ fn parse_data_number(data: &Value) -> Option<f64> {
             if let Ok(v) = trimmed.parse::<f64>() {
                 return Some(v);
             }
-            // "\"12.3\"" のように JSON として二重に包まれている場合
+            // Case where the value is doubly-wrapped as JSON, e.g. "\"12.3\""
             match serde_json::from_str::<Value>(trimmed) {
                 Ok(Value::Number(n)) => n.as_f64(),
                 Ok(Value::String(inner)) => inner.trim().parse().ok(),
@@ -206,7 +208,7 @@ fn parse_data_number(data: &Value) -> Option<f64> {
     }
 }
 
-/// 同時リクエスト数を制限する最小のセマフォ（RAII ガード方式）。
+/// Minimal semaphore that limits the number of concurrent requests (RAII guard style).
 struct Semaphore {
     permits: Mutex<usize>,
     cv: Condvar,
@@ -281,7 +283,7 @@ mod tests {
         assert_eq!(parse_data_number(&json!("abc")), None);
     }
 
-    /// 最小の HTTP サーバーを立てて evaluate のリクエスト/レスポンス往復を検証する。
+    /// Spins up a minimal HTTP server to verify the request/response round trip of `evaluate`.
     #[test]
     fn evaluate_round_trip_against_fake_server() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -332,7 +334,7 @@ mod tests {
         let result = evaluator.evaluate(&[5.5]).unwrap();
         assert_eq!(result, vec![42.5]);
 
-        // サーバーが受け取ったリクエストの中身を検証
+        // Verify the contents of the request the server received
         let request_body = server.join().unwrap();
         let req: Value = serde_json::from_str(&request_body).unwrap();
         assert_eq!(req["values"][0]["ParamName"], "RH_IN:span");

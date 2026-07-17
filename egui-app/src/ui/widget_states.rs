@@ -19,38 +19,39 @@ use crate::ui::widgets::{
     trial_table::TrialTable,
 };
 
-// ── Observed Contour（観測点補間の等高線）────────────────────────
+// ── Observed Contour (contours from interpolating observed points) ────
 
-/// Observed Contour の計算リクエスト。poll_chart が消費する。
+/// The compute request for Observed Contour. Consumed by poll_chart.
 pub struct ObservedContourComputeRequest {
     pub x: String,
     pub y: String,
     pub value: String,
     pub n_grid: usize,
-    /// 疎ガード（正規化空間の最長辺閾値）。0.0 で無効。
+    /// Sparsity guard (longest-edge threshold in normalized space). 0.0 disables it.
     pub max_edge_ratio: f64,
     pub feasible_only: bool,
 }
 
-/// Observed Contour ウィジェットの UI 状態。
+/// UI state for the Observed Contour widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ObservedContourState {
     pub selected_x: String,
     pub selected_y: String,
-    /// 値（色）に使う列名（params∪objectives）。
+    /// The column name used for value (color) (params ∪ objectives).
     pub selected_value: String,
-    /// Coverage スライダー（疎ガード閾値）。
+    /// The Coverage slider (sparsity guard threshold).
     pub max_edge_ratio: f64,
     pub show_points: bool,
     pub feasible_only: bool,
-    /// 色の対数スケール（Phase 2）。
+    /// Log scale for color (Phase 2).
     pub log_scale: bool,
-    /// 等高線の重ね描き（Phase 2）。
+    /// Overlaying contour lines (Phase 2).
     pub show_contour_lines: bool,
-    /// 3D 表示（Phase 3）。
+    /// 3D display (Phase 3).
     pub view_3d: bool,
-    /// 点密度シェーディング: 観測が薄いセルを暗くして過信を抑える（3D、Phase 3）。
+    /// Point-density shading: darkens sparsely-observed cells to curb overconfidence
+    /// (3D, Phase 3).
     pub density_shade: bool,
     pub camera: crate::ui::widgets::scatter_3d::ArcballCamera,
     #[serde(skip)]
@@ -61,11 +62,12 @@ pub struct ObservedContourState {
     pub error_message: Option<String>,
     #[serde(skip)]
     pub pending_compute: Option<ObservedContourComputeRequest>,
-    /// 最後に計算を発行した署名 (x, y, value, max_edge_ratio, feasible_only)。
-    /// 選択が変わったかを検知して自動再計算するために使う。
+    /// The signature (x, y, value, max_edge_ratio, feasible_only) at the time the
+    /// last compute was issued.
+    /// Used to detect selection changes and trigger automatic recomputation.
     #[serde(skip)]
     pub applied_sig: Option<(String, String, String, f64, bool)>,
-    /// 点クリックで開くトライアル詳細モーダル（Phase 2）。
+    /// Trial detail modal opened by clicking a point (Phase 2).
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -95,8 +97,9 @@ impl Default for ObservedContourState {
 }
 
 impl ObservedContourState {
-    /// グローバル widget の計算実行状態・結果・エラーを取り込む（キャンバス各アイテム伝播用）。
-    /// 軸・値・スライダー等の UI 選択は各アイテム側を維持する。
+    /// Adopts the global widget's compute execution state, result, and error (for
+    /// propagation to each canvas item).
+    /// UI selections such as axes, value, and sliders are kept on each item's side.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.result = src.result.clone();
@@ -104,68 +107,73 @@ impl ObservedContourState {
     }
 }
 
-// ── Surrogate Optimizer 計算リクエスト（フィット段階） ──────────
+// ── Surrogate Optimizer compute request (fit stage) ──────────────
 pub struct SurrogateFitComputeRequest {
     pub objective: String,
-    /// `auto_select = false` のときに使う具体的なモデル種別。Auto のときは無視される
-    /// プレースホルダ（core 側が CV で選び直す）。
+    /// The concrete model kind used when `auto_select = false`. It's a placeholder
+    /// that's ignored when Auto (core re-selects it via CV).
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
-    /// true のとき core が `AUTO_CANDIDATES` を交差検証して最良モデルを自動選択する。
+    /// When true, core cross-validates `AUTO_CANDIDATES` and automatically selects the best model.
     pub auto_select: bool,
-    /// 制約を使用するか（true のとき制約列を ConstraintData に詰めて渡す）。
+    /// Whether to use constraints (when true, packs constraint columns into
+    /// ConstraintData and passes them along).
     pub use_constraints: bool,
 }
 
-// ── Surrogate Optimizer 計算リクエスト（最適化段階） ────────────
+// ── Surrogate Optimizer compute request (optimize stage) ────────
 pub struct SurrogateOptimizeComputeRequest {
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
 }
 
-// ── Surrogate Optimizer 計算リクエスト（候補提案段階） ──────────
+// ── Surrogate Optimizer compute request (suggest stage) ──────────
 pub struct SurrogateSuggestComputeRequest {
-    /// 使用する獲得関数。
+    /// The acquisition function to use.
     pub acquisition: tunny_core::surrogate_opt::AcquisitionKind,
-    /// 提案する候補数。
+    /// Number of candidates to suggest.
     pub n_candidates: usize,
-    /// true = 最小化問題として提案する。
+    /// true = suggest as a minimization problem.
     pub minimize: bool,
 }
 
-/// 多目的サロゲート最適化のフィット段階リクエスト。
+/// The fit-stage request for multi-objective surrogate optimization.
 pub struct SurrogateMultiFitComputeRequest {
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
 }
 
-/// 多目的サロゲート最適化の最適化段階リクエスト（実行シグナルのみ）。
+/// The optimize-stage request for multi-objective surrogate optimization (a run
+/// signal only).
 pub struct SurrogateMultiOptimizeComputeRequest;
 
-/// EHVI による多目的候補提案リクエスト。
+/// A multi-objective candidate suggestion request via EHVI.
 pub struct SurrogateMultiSuggestComputeRequest {
-    /// 提案する候補数。
+    /// Number of candidates to suggest.
     pub n_candidates: usize,
 }
 
-// ── Surrogate Optimizer UI 状態 ─────────────────────────────────
+// ── Surrogate Optimizer UI state ───────────────────────────────────
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SurrogateOptState {
     pub selected_objective: usize,
     pub model: tunny_core::surrogate_opt::SurrogateModelKind,
-    /// true のとき Model コンボで "Auto (cross-validated)" が選択されている。
-    /// この場合 `model` はプレースホルダ扱いとなり、core が CV で最良モデルを選ぶ。
+    /// True when "Auto (cross-validated)" is selected in the Model combo.
+    /// In that case `model` is treated as a placeholder, and core picks the best
+    /// model via CV.
     pub auto_select: bool,
     pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
-    /// フィット段階のスピナーフラグ。
+    /// The spinner flag for the fit stage.
     #[serde(skip)]
     pub fitting: bool,
-    /// フィット中の進捗・キャンセル共有ハンドル（学習スレッドと共有）。
-    /// `fitting` が true の間だけ `Some`。Cancel ボタンと進捗バーが参照する。
+    /// A shared handle for fit progress/cancellation (shared with the training
+    /// thread).
+    /// `Some` only while `fitting` is true. Referenced by the Cancel button and
+    /// progress bar.
     #[serde(skip)]
     pub fit_progress: Option<tunny_core::surrogate_opt::FitProgress>,
-    /// 最適化段階のスピナーフラグ。
+    /// The spinner flag for the optimize stage.
     #[serde(skip)]
     pub optimizing: bool,
-    /// 検証済みの学習結果（フィット完了後に保持）。
+    /// The validated training result (kept after fit completes).
     #[serde(skip)]
     pub trained: Option<std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>>,
     #[serde(skip)]
@@ -176,66 +184,73 @@ pub struct SurrogateOptState {
     pub pending_fit: Option<SurrogateFitComputeRequest>,
     #[serde(skip)]
     pub pending_optimize: Option<SurrogateOptimizeComputeRequest>,
-    /// true のとき多目的モード（全目的を NSGA-II で同時最適化）。
+    /// When true, multi-objective mode (optimizes all objectives simultaneously with NSGA-II).
     pub multi_objective: bool,
-    /// 多目的フィット段階の計算リクエスト（未消化）。
+    /// The pending compute request for the multi-objective fit stage.
     #[serde(skip)]
     pub pending_multi_fit: Option<SurrogateMultiFitComputeRequest>,
-    /// 多目的最適化段階の計算リクエスト（未消化）。
+    /// The pending compute request for the multi-objective optimize stage.
     #[serde(skip)]
     pub pending_multi_optimize: Option<SurrogateMultiOptimizeComputeRequest>,
-    /// 多目的フィット完了後の学習済みサロゲート群（目的順）。
+    /// The trained surrogates (in objective order) after multi-objective fit completes.
     #[serde(skip)]
     pub multi_trained: Option<std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>>,
-    /// 多目的最適化の完了結果。
+    /// The completed result of multi-objective optimization.
     #[serde(skip)]
     pub multi_result: Option<crate::state::messages::SurrogateMultiOptUiResult>,
-    /// 予測パレートフロント散布図の X 軸目的インデックス。
+    /// The X-axis objective index for the predicted Pareto front scatter plot.
     pub multi_front_x_obj: usize,
-    /// 予測パレートフロント散布図の Y 軸目的インデックス。
+    /// The Y-axis objective index for the predicted Pareto front scatter plot.
     pub multi_front_y_obj: usize,
-    /// 予測パレートフロント散布図の Z 軸目的インデックス（3D 表示時）。
+    /// The Z-axis objective index for the predicted Pareto front scatter plot (when
+    /// shown in 3D).
     pub multi_front_z_obj: usize,
-    /// 予測パレートフロントを 3D 散布図で表示するか（目的が 3 つ以上のときのみ有効）。
+    /// Whether to show the predicted Pareto front as a 3D scatter plot (only
+    /// enabled with 3+ objectives).
     pub multi_front_3d: bool,
-    /// 予測パレートフロント 3D 散布図のカメラ状態。
+    /// Camera state for the predicted Pareto front 3D scatter plot.
     pub multi_front_camera: crate::ui::widgets::scatter_3d::ArcballCamera,
-    /// フロント散布図で観測パレートフロント（rank 0・feasible）を表示するか。
+    /// Whether to show the observed Pareto front (rank 0, feasible) in the front
+    /// scatter plot.
     pub show_observed_front: bool,
-    /// フロント散布図で観測の被支配点（rank>0・feasible）を表示するか。
+    /// Whether to show observed dominated points (rank>0, feasible) in the front
+    /// scatter plot.
     pub show_observed_dominated: bool,
-    /// フロント散布図で観測の実行不可能解を表示するか。
+    /// Whether to show observed infeasible solutions in the front scatter plot.
     pub show_observed_infeasible: bool,
-    /// 多目的検証表示で選択中の目的インデックス（OOF プロット対象）。
+    /// The selected objective index (target of the OOF plot) in the multi-objective
+    /// validation display.
     pub multi_validation_objective: usize,
-    /// 制約を使用するか（制約付き Study のみ UI に表示; true = 制約を渡す）。
+    /// Whether to use constraints (shown in the UI only for constrained Studies;
+    /// true = pass constraints along).
     pub use_constraints: bool,
-    // ── 獲得関数による候補提案 ──────────────────────────────────
-    /// 選択中の獲得関数。
+    // ── candidate suggestion via acquisition function ─────────────────
+    /// The currently selected acquisition function.
     pub acq_kind: tunny_core::surrogate_opt::AcquisitionKind,
-    /// 提案する候補数（1〜10）。
+    /// Number of candidates to suggest (1-10).
     pub n_suggest_candidates: usize,
-    /// 候補提案の計算中フラグ。
+    /// The computing-in-progress flag for candidate suggestion.
     #[serde(skip)]
     pub suggesting: bool,
-    /// 候補提案の未消化リクエスト。
+    /// The pending request for candidate suggestion.
     #[serde(skip)]
     pub pending_suggest: Option<SurrogateSuggestComputeRequest>,
-    /// 候補提案の結果。
+    /// The result of candidate suggestion.
     #[serde(skip)]
     pub suggest_result: Option<crate::state::messages::SurrogateSuggestUiResult>,
-    /// 応答曲面スライスに予測標準偏差（±σ）を重ねて表示するか（GP 系のみ。既定 off）。
+    /// Whether to overlay predicted standard deviation (±σ) on the response surface
+    /// slice (GP models only; off by default).
     pub show_slice_uncertainty: bool,
-    // ── EHVI による多目的候補提案 ──────────────────────────────────
-    /// 多目的提案の候補数（1〜10）。
+    // ── multi-objective candidate suggestion via EHVI ──────────────────
+    /// Number of candidates for multi-objective suggestion (1-10).
     pub n_multi_suggest_candidates: usize,
-    /// 多目的候補提案の計算中フラグ。
+    /// The computing-in-progress flag for multi-objective candidate suggestion.
     #[serde(skip)]
     pub multi_suggesting: bool,
-    /// 多目的候補提案の未消化リクエスト。
+    /// The pending request for multi-objective candidate suggestion.
     #[serde(skip)]
     pub pending_multi_suggest: Option<SurrogateMultiSuggestComputeRequest>,
-    /// 多目的候補提案の結果。
+    /// The result of multi-objective candidate suggestion.
     #[serde(skip)]
     pub multi_suggest_result: Option<crate::state::messages::SurrogateMultiSuggestUiResult>,
 }
@@ -264,7 +279,7 @@ impl Default for SurrogateOptState {
             multi_front_y_obj: 1,
             multi_front_z_obj: 2,
             multi_front_3d: true,
-            // Y軸45° + X軸-30° のアイソメトリック初期視点（Pareto 3D と同じ）。
+            // Isometric initial viewpoint of Y-axis 45deg + X-axis -30deg (same as Pareto 3D).
             multi_front_camera: crate::ui::widgets::scatter_3d::ArcballCamera::isometric_default(),
             show_observed_front: true,
             show_observed_dominated: true,
@@ -286,9 +301,9 @@ impl Default for SurrogateOptState {
 }
 
 impl SurrogateOptState {
-    /// グローバル widget の計算実行状態・結果・エラーを取り込む。
-    /// キャンバスのアイテム別 WidgetStates へ完了状態を伝播するために使う
-    /// （目的・モデル・最適化手法・スライス軸の選択は維持する）。
+    /// Adopts the global widget's compute execution state, results, and error.
+    /// Used to propagate completion state to each canvas item's WidgetStates
+    /// (selections such as objective, model, optimizer, and slice axes are kept as-is).
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.fitting = src.fitting;
         self.fit_progress = src.fit_progress.clone();
@@ -305,38 +320,41 @@ impl SurrogateOptState {
     }
 }
 
-// ── TASK-2228/2245: チャートキャプチャ状態 ───────────────────────
-/// キャプチャした PNG の出力先。
+// ── TASK-2228/2245: chart capture state ───────────────────────────
+/// The output destination for a captured PNG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CaptureDest {
-    /// ファイルダイアログを開いて保存する。
+    /// Save by opening a file dialog.
     #[default]
     File,
-    /// クリップボードへコピーする。
+    /// Copy to the clipboard.
     Clipboard,
 }
 
 #[derive(Default)]
 pub struct ChartCaptureState {
     pub last_error: Option<String>,
-    /// PNG 保存対象セル（消費されたら `None` に戻す）
+    /// The cell targeted for PNG save (reset to `None` once consumed)
     pub pending_capture: Option<crate::state::layout_state::PanelItem>,
-    /// 保存対象セルの描画矩形（`ViewportCommand::Screenshot` 後のクロップに使う）
+    /// The draw rect of the target cell (used to crop after `ViewportCommand::Screenshot`)
     pub pending_capture_rect: Option<egui::Rect>,
-    /// Screenshot コマンド発行済みフラグ（次フレームで `Event::Screenshot` を待つ）
+    /// Flag that the Screenshot command has been issued (waits for
+    /// `Event::Screenshot` next frame)
     pub screenshot_requested: bool,
-    /// キャプチャ結果の出力先（ファイル保存 or クリップボード）
+    /// The output destination for the capture result (file save or clipboard)
     pub pending_capture_dest: CaptureDest,
 }
 
-// ── render_chart の毎フレーム再構築を抑えるキャッシュ ───────────────
-// immediate mode では update が毎フレーム走るため、選択・データが変わらない限り
-// 目的列の to_vec クローンや比較系列の再構築を避ける。全フィールドは実行時状態のため
-// 直列化しない（`WidgetStates` 側で `#[serde(skip)]`）。
+// ── Cache to suppress per-frame rebuilding in render_chart ────────────
+// In immediate mode, update runs every frame, so this avoids re-cloning objective
+// columns to_vec or rebuilding comparison series unless the selection or data
+// changes. All fields are runtime state, so they are not serialized (`#[serde(skip)]`
+// on the `WidgetStates` side).
 
-/// 比較系列（OptimizationHistory / EdfPlot）のキャッシュキー。
-/// 基準 Study の df 恒等性・選択目的名・各比較 Study の (df 恒等性, 色) を含めるため、
-/// Study 切替・比較セット変更・色変更・目的切替のいずれでも確実に無効化される。
+/// Cache key for the comparison series (OptimizationHistory / EdfPlot).
+/// Includes the base Study's df identity, the selected objective name, and each
+/// comparison Study's (df identity, color), so it's reliably invalidated on any of:
+/// Study switch, comparison set change, color change, or objective switch.
 #[derive(Clone, PartialEq)]
 pub struct ComparisonSeriesKey {
     pub base_df: usize,
@@ -344,7 +362,7 @@ pub struct ComparisonSeriesKey {
     pub comps: Vec<(usize, [u8; 4])>,
 }
 
-/// SurrogateOpt の観測データ（目的列 clone・実行可能性）キャッシュキー。
+/// Cache key for SurrogateOpt's observed data (objective column clone, feasibility).
 #[derive(Clone, PartialEq)]
 pub struct SurrogateObservedKey {
     pub df: usize,
@@ -352,7 +370,7 @@ pub struct SurrogateObservedKey {
     pub multi_obj_names: Option<Vec<String>>,
 }
 
-/// SurrogateOpt 観測データのキャッシュ本体（キーと再利用する owned バッファ）。
+/// The cache body for SurrogateOpt's observed data (the key plus owned buffers for reuse).
 pub struct SurrogateObservedEntry {
     pub key: SurrogateObservedKey,
     pub obj_history: Option<Vec<f64>>,
@@ -360,12 +378,13 @@ pub struct SurrogateObservedEntry {
     pub observed_feasible: Vec<bool>,
 }
 
-/// 比較 Study 1 件ぶんの同期シグネチャ: (df 恒等性, convergence history のデータ恒等性
-/// (ptr, len), 色)。
+/// The sync signature for a single comparison Study: (df identity, convergence
+/// history's data identity (ptr, len), color).
 type ConvergenceCompSig = (usize, Option<(usize, usize)>, [u8; 4]);
 
-/// ConvergenceIndicators の毎フレーム同期（history/objective_names の clone、比較系列の
-/// 再構築）を抑えるためのキー。データ恒等性は Vec のデータポインタ + 長さで検知する。
+/// The key used to suppress ConvergenceIndicators' per-frame sync work (cloning
+/// history/objective_names, rebuilding comparison series). Data identity is
+/// detected via the Vec's data pointer + length.
 #[derive(Clone, PartialEq)]
 pub struct ConvergenceSyncKey {
     pub base_df: usize,
@@ -375,18 +394,21 @@ pub struct ConvergenceSyncKey {
     pub comparisons: Vec<ConvergenceCompSig>,
 }
 
-/// render_chart が毎フレーム再構築していた比較系列・観測データのキャッシュ。
+/// The cache for the comparison series and observed data that render_chart used to
+/// rebuild every frame.
 #[derive(Default)]
 pub struct RenderChartCache {
     opt_history: Option<(ComparisonSeriesKey, Vec<OptHistoryComparison>)>,
     edf: Option<(ComparisonSeriesKey, Vec<EdfComparison>)>,
     surrogate_observed: Option<SurrogateObservedEntry>,
-    /// 最後に ConvergenceChart へ同期した際のキー（値本体は widget 側に保持）。
+    /// The key at the time of the last sync to ConvergenceChart (the value itself
+    /// is kept on the widget side).
     pub convergence_sync: Option<ConvergenceSyncKey>,
 }
 
 impl RenderChartCache {
-    /// OptimizationHistory の比較系列を取得する。キーが一致しない場合のみ `build` する。
+    /// Gets OptimizationHistory's comparison series. Only calls `build` when the key
+    /// doesn't match.
     pub fn opt_history_comparisons(
         &mut self,
         key: ComparisonSeriesKey,
@@ -398,7 +420,7 @@ impl RenderChartCache {
         &self.opt_history.as_ref().unwrap().1
     }
 
-    /// EdfPlot の比較系列を取得する。キーが一致しない場合のみ `build` する。
+    /// Gets EdfPlot's comparison series. Only calls `build` when the key doesn't match.
     pub fn edf_comparisons(
         &mut self,
         key: ComparisonSeriesKey,
@@ -410,8 +432,8 @@ impl RenderChartCache {
         &self.edf.as_ref().unwrap().1
     }
 
-    /// SurrogateOpt の観測データを取得する。キーが一致しない場合のみ `build` する。
-    /// `build` は (obj_history, observed_cols, observed_feasible) を返す。
+    /// Gets SurrogateOpt's observed data. Only calls `build` when the key doesn't match.
+    /// `build` returns (obj_history, observed_cols, observed_feasible).
     pub fn surrogate_observed(
         &mut self,
         key: SurrogateObservedKey,
@@ -430,8 +452,8 @@ impl RenderChartCache {
     }
 }
 
-/// 各チャートウィジェットの UI 状態をまとめて保持する
-/// AppState（データ）とは分離した純粋な UI 状態
+/// Holds the UI state for each chart widget, bundled together.
+/// Pure UI state, separate from AppState (data).
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct WidgetStates {
@@ -448,59 +470,63 @@ pub struct WidgetStates {
     pub cluster_scatter: ClusterScatter,
     pub cluster_scatter_3d: ClusterScatter3D,
     pub mcdm_chart: McdmRankChart,
-    /// トライアル一覧 / クラスタ割当 / MCDM ランキングを統合したテーブルウィジェット。
+    /// The table widget that unifies the trial list / cluster assignment / MCDM ranking.
     pub trial_table: TrialTable,
     pub artifact_gallery: ArtifactGallery,
     pub slice_chart: SliceChart,
-    // TASK-1504: MCDM 散布図ウィジェット
+    // TASK-1504: MCDM scatter plot widget
     pub scatter_chart: McdmScatterChart,
     pub mcdm_scatter_3d: McdmScatterChart3D,
-    /// Observed Contour（観測トライアル点の補間による等高線）の UI 状態
+    /// UI state for Observed Contour (contours from interpolating observed trial points)
     pub observed_contour: ObservedContourState,
-    /// サロゲート最適化（応答曲面作成＋曲面上の最適化）の UI 状態
+    /// UI state for surrogate optimization (building a response surface + optimizing
+    /// on that surface)
     pub surrogate_opt: SurrogateOptState,
-    /// ロバスト性解析（学習済みサロゲート上の入力ノイズ MC 伝播）の UI 状態
+    /// UI state for robustness analysis (MC propagation of input noise on the
+    /// trained surrogate)
     pub robustness: RobustnessChart,
     pub histogram: HistogramChart,
     pub box_plot: BoxPlotChart,
     pub correlation_matrix: CorrelationMatrixChart,
-    /// ピン留めトライアルのレーダー比較（意思決定フェーズ）の UI 状態
+    /// UI state for the radar comparison of pinned trials (decision-making phase)
     pub radar_comparison: RadarComparisonChart,
-    /// ピン留めトライアルの比較表（意思決定フェーズ）の UI 状態
+    /// UI state for the comparison table of pinned trials (decision-making phase)
     pub comparison_table: ComparisonTableChart,
-    /// PCA バイプロット（スコア + ローディング）の UI 状態
+    /// UI state for the PCA biplot (scores + loadings)
     pub pca_biplot: PcaBiplotChart,
-    /// SOM（自己組織化マップ）の UI 状態
+    /// UI state for SOM (self-organizing map)
     pub som_map: SomMapChart,
-    /// 階層クラスタリング（デンドログラム）の UI 状態
+    /// UI state for hierarchical clustering (dendrogram)
     pub dendrogram: DendrogramChart,
-    /// 応答曲面 3D ビューアの UI 状態
+    /// UI state for the response surface 3D viewer
     pub response_surface: ResponseSurfaceChart,
-    /// Compare Surrogates（全モデル種別の CV 指標比較 + 予測スライスオーバーレイ）の UI 状態
+    /// UI state for Compare Surrogates (CV metric comparison across all model kinds
+    /// + predicted slice overlay)
     pub surrogate_compare: SurrogateCompareChart,
-    /// Intermediate Values（trial ごとの学習曲線）の UI 状態
+    /// UI state for Intermediate Values (learning curve per trial)
     pub intermediate_values: IntermediateValuesChart,
-    /// Timeline（trial 実行タイムライン）の UI 状態
+    /// UI state for Timeline (trial execution timeline)
     pub timeline: TimelineChart,
-    /// EDF（経験分布関数）チャートの UI 状態
+    /// UI state for the EDF (empirical distribution function) chart
     pub edf_plot: EdfPlotChart,
-    /// Rank Plot（パラメータペア × 目的関数ランク）の UI 状態
+    /// UI state for Rank Plot (parameter pairs x objective function rank)
     pub rank_plot: RankPlotChart,
     #[serde(skip)]
     pub capture: ChartCaptureState,
-    /// render_chart の毎フレーム再構築（比較系列・観測列 clone）を抑えるキャッシュ。
+    /// Cache to suppress render_chart's per-frame rebuild (comparison series /
+    /// observed column clones).
     #[serde(skip)]
     pub render_cache: RenderChartCache,
-    /// ダブルクリックで最大化表示中のウィジェット（None = 通常表示）
+    /// The widget currently maximized via double-click (None = normal display)
     #[serde(skip)]
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,
-    /// オープンソースライセンス表示モーダルの状態
+    /// State of the open-source license display modal
     #[serde(skip)]
     pub license_modal: LicenseModalState,
 }
 
 impl WidgetStates {
-    /// Study 切替時に全チャートの show_infeasible フラグを true にリセットする。
+    /// Resets the show_infeasible flag to true for all charts on Study switch.
     pub fn reset_infeasible_flags(&mut self) {
         self.pareto_3d.show_infeasible = true;
         self.cluster_scatter_3d.show_infeasible = true;
@@ -520,7 +546,7 @@ mod tests {
         assert!(ws.capture.last_error.is_none());
     }
 
-    // ── SurrogateOptState の新 2 段階フィールドに対する回帰テスト ──
+    // ── Regression tests for SurrogateOptState's new 2-stage fields ──
 
     #[test]
     fn surrogate_opt_state_default_has_expected_flags() {
@@ -531,7 +557,7 @@ mod tests {
         assert!(state.pending_fit.is_none());
         assert!(state.pending_optimize.is_none());
         assert!(state.result.is_none());
-        // 多目的フィールドの初期値確認
+        // Confirm initial values of multi-objective fields
         assert!(!state.multi_objective);
         assert!(state.pending_multi_fit.is_none());
         assert!(state.pending_multi_optimize.is_none());
@@ -561,19 +587,19 @@ mod tests {
         };
         dst.adopt_compute_state(&src);
 
-        // 伝播されるフィールド
+        // Fields that are propagated
         assert!(!dst.fitting);
         assert!(!dst.optimizing);
         assert_eq!(dst.error_message.as_deref(), Some("err"));
-        // 選択は維持される
+        // Selections are preserved
         assert_eq!(
             dst.model,
             tunny_core::surrogate_opt::SurrogateModelKind::Ridge
         );
         assert_eq!(dst.selected_objective, 2);
-        // UI 選択（OOF プロット対象）は伝播されず維持される
+        // The UI selection (OOF plot target) is not propagated and is preserved
         assert_eq!(dst.multi_validation_objective, 1);
-        // multi_trained / multi_result も伝播される
+        // multi_trained / multi_result are also propagated
         assert!(dst.multi_trained.is_none());
         assert!(dst.multi_result.is_none());
     }

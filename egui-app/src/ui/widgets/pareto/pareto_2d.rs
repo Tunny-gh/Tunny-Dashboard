@@ -14,45 +14,49 @@ use crate::ui::widgets::trial_detail_modal::{
     HIT_THRESHOLD,
 };
 
-/// 2D Pareto 散布図ウィジェット（egui_plot ベース）
+/// 2D Pareto scatter widget (egui_plot based)
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ParetoScatter2D {
     pub x_axis: String,
     pub y_axis: String,
     // TASK-2241: rectangular brush state (screen coordinates).
-    // ブラシ選択は Shift + 左ドラッグ。修飾なし左ドラッグは統一ナビゲーション
-    // （矩形ズーム）に割り当てるため、開始判定で Shift を要求する。
-    // egui_plot のクロスヘアは生のスクリーン座標へ最終変換を適用して描かれる。
-    // 矩形もスクリーン座標で保持し、描画・選択判定ともに `PlotResponse.transform`
-    // （点描画と同一の最終変換）で扱うことで、変換のフレーム遅延によるズレを避ける。
+    // Brush selection is Shift + left drag. Unmodified left drag is assigned to unified
+    // navigation (box zoom), so Shift is required for the start detection.
+    // egui_plot's crosshair is drawn by applying the final transform to the raw screen
+    // coordinates. Keeping the rectangle in screen coordinates too, and handling both
+    // drawing and selection via `PlotResponse.transform` (the same final transform used
+    // for point drawing), avoids drift caused by a frame's worth of transform lag.
     #[serde(skip)]
     pub brush_start: Option<egui::Pos2>,
     #[serde(skip)]
     pub brush_end: Option<egui::Pos2>,
-    /// 点クリックで開くトライアル詳細モーダル。
+    /// Trial detail modal opened by clicking a point.
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
-    /// サロゲート予測フロント点をオーバーレイ表示するか。
+    /// Whether to overlay the surrogate-predicted front points.
     pub show_surrogate_front: bool,
-    /// 列抽出済みの点群キャッシュ（選択・ハイライト非依存・M-17）。
+    /// Cache of column-extracted points (independent of selection/highlight - M-17).
     #[serde(skip)]
     point_cache: Option<PointCache>,
 }
 
-/// 目的列から抽出済みの点群キャッシュ（選択フィルタ・ハイライトには依存しない）。
+/// Cache of points extracted from the objective columns (independent of the selection
+/// filter and highlight).
 ///
-/// 旧実装は毎フレーム全 trial について「列取得 + feasibility 判定 + rank 参照 +
-/// trial_id 参照」を回して点ベクトル群を再構築していた。これらは `view.df` の
-/// 恒等性と軸だけで決まるため、`(df ポインタ, x_idx, y_idx)` をキーに 1 度だけ抽出し、
-/// 選択・ハイライトによる分類は描画時に軽く適用する（M-16 の HashSet を併用）。
+/// The old implementation rebuilt the point vectors every frame by iterating over all
+/// trials to perform "column lookup + feasibility check + rank lookup + trial_id
+/// lookup". Since these are determined solely by the identity of `view.df` and the
+/// axes, we extract them once keyed on `(df pointer, x_idx, y_idx)` and apply the
+/// selection/highlight classification lightly at draw time (combined with the M-16
+/// HashSet).
 struct PointCache {
     key: (usize, usize, usize),
-    /// feasible 点: `(trial_id, pareto_rank, [x, y])`。
+    /// Feasible points: `(trial_id, pareto_rank, [x, y])`.
     feasible: Vec<(u32, u32, [f64; 2])>,
-    /// infeasible 点の座標（常にグレーで最背面）。
+    /// Coordinates of infeasible points (always drawn gray, at the back).
     infeasible_pts: Vec<[f64; 2]>,
-    /// クリック・ブラシ判定用の全描画点 `(trial_id, 行 index, [x, y])`。
+    /// All drawn points for click/brush hit-testing: `(trial_id, row index, [x, y])`.
     displayed_points: Vec<(u32, usize, [f64; 2])>,
 }
 
@@ -70,18 +74,20 @@ impl Default for ParetoScatter2D {
     }
 }
 
-/// feasibility 分割・pareto_rank・trial_id を行順に展開した分類結果（2D/3D Pareto 共通・D-6）。
+/// Classification result expanding feasibility split, pareto_rank, and trial_id in row
+/// order (shared by 2D/3D Pareto - D-6).
 pub(crate) struct ClassifiedRow {
     pub trial_id: u32,
     pub row: usize,
     pub feasible: bool,
-    /// pareto_rank（feasible のときのみ意味を持つ。infeasible では 0）。
+    /// pareto_rank (only meaningful when feasible; 0 for infeasible).
     pub rank: u32,
 }
 
-/// view の全 trial を行順に (trial_id, row, feasible, pareto_rank) へ分類する（D-6）。
-/// 2D/3D Pareto 散布図の feasibility 分割・ランク参照・trial_id 参照を共有する。
-/// 描画（色分け・ハイライト・深度ソート）は各ウィジェット側で行う。
+/// Classifies all trials of the view into (trial_id, row, feasible, pareto_rank) in row
+/// order (D-6). Shared by the 2D/3D Pareto scatter plots for feasibility splitting,
+/// rank lookup, and trial_id lookup. Drawing (coloring, highlighting, depth sorting) is
+/// done on each widget's side.
 pub(crate) fn classify_rows(view: &crate::state::types::StudyView) -> Vec<ClassifiedRow> {
     let n = view.row_count();
     let feas = view.feasibility();
@@ -100,7 +106,7 @@ pub(crate) fn classify_rows(view: &crate::state::types::StudyView) -> Vec<Classi
         .collect()
 }
 
-/// 目的列から `PointCache` を構築する（選択・ハイライト非依存）。
+/// Builds a `PointCache` from the objective columns (independent of selection/highlight).
 fn build_point_cache(
     view: &crate::state::types::StudyView,
     x_col: Option<&[f64]>,
@@ -116,7 +122,7 @@ fn build_point_cache(
     let mut feasible: Vec<(u32, u32, [f64; 2])> = Vec::new();
     let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
     let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::with_capacity(n);
-    // feasibility 分割・ランク参照は 3D と共有する（D-6）。
+    // Feasibility splitting and rank lookup are shared with 3D (D-6).
     for r in classify_rows(view) {
         let pt = coord(r.row);
         displayed_points.push((r.trial_id, r.row, pt));
@@ -134,8 +140,9 @@ fn build_point_cache(
     }
 }
 
-/// 目的軸名から `SurrogateMultiOptUiResult` のフロント点列を解決する純粋関数。
-/// どちらかの軸名が結果に含まれない場合は空 Vec を返す。
+/// A pure function that resolves the front point series of `SurrogateMultiOptUiResult`
+/// from objective axis names. Returns an empty Vec if either axis name is not present
+/// in the result.
 pub fn surrogate_front_points(
     result: &SurrogateMultiOptUiResult,
     x_axis: &str,
@@ -176,8 +183,9 @@ impl ParetoScatter2D {
         let selected = app_state.selected_indices.clone();
         let highlighted = app_state.highlighted_trial;
 
-        // 既定の軸名（"obj0"/"obj1"）は読み込んだ目的関数名と一致しないため、
-        // 現在の選択が目的関数名に無ければ実際の名前へ寄せる（MCDM 散布図と同じ挙動）。
+        // The default axis names ("obj0"/"obj1") won't match the loaded objective
+        // function names, so if the current selection isn't among the objective
+        // function names, snap it to the actual name (same behavior as the MCDM scatter).
         if !obj_names.iter().any(|n| n == &self.x_axis) {
             if let Some(first) = obj_names.first() {
                 self.x_axis = first.clone();
@@ -191,7 +199,7 @@ impl ParetoScatter2D {
             }
         }
 
-        // 軸割り当て ComboBox + サロゲートフロントチェックボックス
+        // Axis assignment ComboBox + surrogate front checkbox
         ui.horizontal(|ui| {
             ui.label("X Axis:");
             egui::ComboBox::from_id_salt("x_axis_combo")
@@ -209,7 +217,7 @@ impl ParetoScatter2D {
                         ui.selectable_value(&mut self.y_axis, name.clone(), name);
                     }
                 });
-            // サロゲートフロントが利用可能な場合のみチェックボックスを表示する。
+            // Only show the checkbox when the surrogate front is available.
             if surrogate_front.is_some() {
                 ui.checkbox(&mut self.show_surrogate_front, "Surrogate front");
             }
@@ -224,7 +232,7 @@ impl ParetoScatter2D {
             .position(|n| n == &self.y_axis)
             .unwrap_or(1);
 
-        // view の列スライスから直接点群を構築（行クローンキャッシュを持たない・MEM-002）
+        // Build the point set directly from the view's column slices (no row-clone cache - MEM-002)
         let view = &ctx.view;
         let x_col = obj_names
             .get(x_idx)
@@ -234,19 +242,20 @@ impl ParetoScatter2D {
             .and_then(|name| view.numeric_column(name));
         let feas = view.feasibility();
 
-        // 列抽出・feasibility 判定は df の恒等性と軸だけで決まるため、毎フレームの
-        // 再構築を避けてキャッシュする（M-17）。選択・ハイライトによる分類は下で
-        // 軽く適用する。
+        // Column extraction and feasibility determination are decided solely by the
+        // identity of df and the axes, so we cache them to avoid rebuilding every frame
+        // (M-17). Classification by selection/highlight is applied lightly below.
         let cache_key = (Arc::as_ptr(&view.df) as usize, x_idx, y_idx);
         if self.point_cache.as_ref().map(|c| c.key) != Some(cache_key) {
             self.point_cache = Some(build_point_cache(view, x_col, y_col, cache_key));
         }
         let cache = self.point_cache.as_ref().expect("point cache built above");
 
-        // パレートフロント(rank==0)と非パレートに分類。
-        // 選択フィルタが有効な場合、選択外は Pareto/非 Pareto を問わず灰色でまとめる
-        // （色相を残すと選択点と紛らわしいため）。選択集合は HashSet を 1 度だけ構築し、
-        // 点ごとの線形走査を避ける（M-16）。
+        // Classify into Pareto front (rank==0) and non-Pareto.
+        // When the selection filter is active, unselected points are grouped in gray
+        // regardless of Pareto/non-Pareto (keeping hue would be confusing with selected
+        // points). The selected set is built as a HashSet only once, avoiding a linear
+        // scan per point (M-16).
         let selected_set: HashSet<u32> = selected.iter().copied().collect();
         let mut pareto_pts: Vec<[f64; 2]> = Vec::new();
         let mut non_pareto_pts: Vec<[f64; 2]> = Vec::new();
@@ -258,7 +267,7 @@ impl ParetoScatter2D {
                 continue;
             }
             if point_alpha_in_set(trial_id, &selected_set) != 255 {
-                // 選択外は Pareto/非 Pareto を問わず灰色グループへ
+                // Unselected points go to the gray group regardless of Pareto/non-Pareto
                 unselected_pts.push(pt);
             } else if rank == 0 {
                 pareto_pts.push(pt);
@@ -266,11 +275,11 @@ impl ParetoScatter2D {
                 non_pareto_pts.push(pt);
             }
         }
-        // 実行不可能解・ヒットテスト候補はキャッシュから参照する。
+        // Infeasible solutions and hit-test candidates are referenced from the cache.
         let infeasible_pts = &cache.infeasible_pts;
         let displayed_points = &cache.displayed_points;
 
-        // サロゲートフロント点を事前に計算する（クロージャ内で借用衝突を避けるため）。
+        // Precompute the surrogate front points (to avoid a borrow conflict inside the closure).
         let surrogate_pts: Vec<[f64; 2]> = if self.show_surrogate_front {
             surrogate_front
                 .map(|r| surrogate_front_points(r, &self.x_axis, &self.y_axis))
@@ -284,14 +293,14 @@ impl ParetoScatter2D {
         let mut new_brush_end: Option<egui::Pos2> = None;
         let mut drag_finished = false;
         let mut blank_clicked = false;
-        // 点クリックで開く詳細モーダルの対象（trial_id, 行 index）。
+        // The target (trial_id, row index) of the detail modal opened by a point click.
         let mut clicked_detail: Option<(u32, usize)> = None;
-        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        // The point currently under the mouse hover (trial_id, row index). Used for tooltip display.
         let mut hovered_detail: Option<(u32, usize)> = None;
         let current_brush_start = self.brush_start;
         let current_brush_end = self.brush_end;
 
-        // Shift 押下中は矩形ズームを止めてブラシ選択に左ドラッグを譲る。
+        // While Shift is held, disable box zoom and yield left-drag to brush selection.
         let shift_down = ui.input(|i| i.modifiers.shift);
 
         let plot_response = egui_plot::Plot::new("pareto_2d_plot")
@@ -301,27 +310,31 @@ impl ParetoScatter2D {
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
                 // Brush interaction detection.
-                // 矩形はスクリーン座標で保持する。egui_plot のクロスヘアは生のスクリーン
-                // ポインタ位置に最終変換を適用して描かれるため、こちらもスクリーン座標で
-                // 扱えば、描画・選択ともにクロージャ後の最終 transform で一貫処理でき、
-                // 変換のフレーム遅延に起因するズレを完全に避けられる。
+                // The rectangle is kept in screen coordinates. Since egui_plot's crosshair
+                // is drawn by applying the final transform to the raw screen pointer
+                // position, handling this in screen coordinates as well lets both drawing
+                // and selection be processed consistently with the final transform after
+                // the closure, completely avoiding drift caused by a frame's worth of
+                // transform lag.
                 let resp = plot_ui.response();
-                // クロスヘア（ルーラー）と同じ `hover_pos()` を基準にし、ドラッグ中に
-                // None になり得る場合は interact / latest にフォールバックする。
+                // Uses the same `hover_pos()` as the crosshair (ruler) as the basis, and
+                // falls back to interact / latest for cases where it can become None
+                // during a drag.
                 let ptr = resp
                     .hover_pos()
                     .or_else(|| resp.interact_pointer_pos())
                     .or_else(|| resp.ctx.input(|i| i.pointer.latest_pos()));
 
-                // ブラシ選択は Shift + 左ドラッグでのみ開始する。修飾なし左ドラッグ
-                // は egui_plot の矩形ズームが処理する（統一ナビゲーション）。
+                // Brush selection starts only with Shift + left drag. Unmodified left
+                // drag is handled by egui_plot's box zoom (unified navigation).
                 if shift_down && resp.drag_started_by(egui::PointerButton::Primary) {
                     new_brush_start = ptr;
                 }
-                // ブラシ操作中はプライマリボタンが押されている限り毎フレーム
-                // ライブのポインタ座標で終端を更新する。`dragged_by()` はポインタが
-                // 動いたフレームでしか発火しないため、それに頼ると終端が前フレームの
-                // 古い座標に取り残され、矩形がカーソルからずれて見える。
+                // While the brush operation is active, update the end point with the
+                // live pointer coordinates every frame as long as the primary button is
+                // held. `dragged_by()` only fires on frames where the pointer moved, so
+                // relying on it would leave the end point stuck at the previous frame's
+                // stale coordinates, making the rectangle appear to drift from the cursor.
                 let brush_active = current_brush_start.is_some() || new_brush_start.is_some();
                 let primary_down = resp.ctx.input(|i| i.pointer.primary_down());
                 if brush_active && primary_down {
@@ -331,23 +344,23 @@ impl ParetoScatter2D {
                     drag_finished = true;
                 }
                 if resp.clicked_by(egui::PointerButton::Primary) {
-                    // 点の近傍をクリックしたら詳細モーダル、空白なら選択クリア。
+                    // Clicking near a point opens the detail modal; clicking blank space clears the selection.
                     clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
                         hit_test_nearest(plot_ui, displayed_points, pos, HIT_THRESHOLD)
                     });
                     blank_clicked = clicked_detail.is_none();
                 }
 
-                // ホバー中の点を検出（矩形ブラシ操作中は抑止）。
+                // Detect the hovered point (suppressed during rectangular brush operations).
                 if current_brush_start.is_none() && !resp.dragged_by(egui::PointerButton::Primary) {
                     hovered_detail = resp.hover_pos().and_then(|pos| {
                         hit_test_nearest(plot_ui, displayed_points, pos, HIT_THRESHOLD)
                     });
                 }
 
-                // 選択矩形は Plot 描画後にスクリーン座標で重ね描きする（下記参照）。
+                // The selection rectangle is overlaid in screen coordinates after the Plot is drawn (see below).
 
-                // 実行不可能解（最背面: グレーアウト）
+                // Infeasible solutions (backmost layer: grayed out)
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Infeasible", infeasible_pts.clone())
@@ -355,7 +368,7 @@ impl ParetoScatter2D {
                             .radius(2.5),
                     );
                 }
-                // 選択フィルタ外（灰色・背面、Pareto/非 Pareto をまとめる）
+                // Outside the selection filter (gray, background, Pareto/non-Pareto combined)
                 if !unselected_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Others (unselected)", unselected_pts)
@@ -363,7 +376,7 @@ impl ParetoScatter2D {
                             .radius(2.5),
                     );
                 }
-                // 非パレート（青点）
+                // Non-Pareto (blue points)
                 if !non_pareto_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Others", non_pareto_pts)
@@ -371,7 +384,7 @@ impl ParetoScatter2D {
                             .radius(2.5),
                     );
                 }
-                // パレートフロント（赤丸 + 赤線）
+                // Pareto front (red circles + red line)
                 if !pareto_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Pareto Front", pareto_pts)
@@ -379,7 +392,7 @@ impl ParetoScatter2D {
                             .radius(4.0),
                     );
                 }
-                // サロゲート予測フロント（金色ダイヤモンド）
+                // Surrogate predicted front (gold diamonds)
                 if !surrogate_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Surrogate Pareto Front", surrogate_pts)
@@ -388,7 +401,7 @@ impl ParetoScatter2D {
                             .color(COLOR_SURROGATE_FRONT()),
                     );
                 }
-                // ハイライト点
+                // Highlighted point
                 if let Some(pt) = highlight_pt {
                     plot_ui.points(
                         egui_plot::Points::new("Highlighted", vec![pt])
@@ -400,8 +413,9 @@ impl ParetoScatter2D {
 
         let plot_transform = plot_response.transform;
 
-        // 選択矩形をスクリーン座標で重ね描きする。点描画と同じ最終 transform の
-        // 描画領域（frame）にクリップするため、矩形は常に実カーソルへ正確に追従する。
+        // Overlay the selection rectangle in screen coordinates. Since it's clipped to
+        // the drawing area (frame) of the same final transform used for point drawing,
+        // the rectangle always accurately tracks the real cursor.
         let draw_start = new_brush_start.or(current_brush_start);
         let draw_end = new_brush_end.or(current_brush_end);
         if let (Some(s), Some(e)) = (draw_start, draw_end) {
@@ -416,8 +430,9 @@ impl ParetoScatter2D {
             );
         }
 
-        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
-        // view / feas の不変借用のみで完結させ、app_state の可変借用前に処理する。
+        // If there's a hovered point, show a summary tooltip at the pointer position.
+        // This is done using only immutable borrows of view / feas, before the mutable
+        // borrow of app_state.
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
@@ -435,8 +450,8 @@ impl ParetoScatter2D {
             );
         }
 
-        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
-        // app_state を可変借用する前に view / feas の不変借用を使い切る。
+        // A point click opens the trial detail modal (scatter plot info = Pareto rank).
+        // Exhausts the immutable borrows of view / feas before mutably borrowing app_state.
         if let Some((trial_id, row)) = clicked_detail {
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
             let mut context = vec![("Pareto Rank".to_string(), rank.to_string())];
@@ -458,8 +473,9 @@ impl ParetoScatter2D {
         }
         if drag_finished {
             if let (Some(start), Some(end)) = (self.brush_start, self.brush_end) {
-                // 各点を描画と同じ最終 transform でスクリーン座標へ変換し、矩形（スクリーン）
-                // に含まれるかで判定する。見た目の矩形と選択結果が必ず一致する。
+                // Convert each point to screen coordinates with the same final transform
+                // used for drawing, and judge inclusion by the rectangle (screen). This
+                // guarantees the visible rectangle always matches the selection result.
                 let rect = egui::Rect::from_two_pos(start, end);
                 let new_selection: Vec<u32> = displayed_points
                     .iter()
@@ -480,7 +496,7 @@ impl ParetoScatter2D {
             app_state.selected_indices.clear();
         }
 
-        // 詳細モーダルを描画する（current_study / artifact_map を再借用）。
+        // Draw the detail modal (re-borrows current_study / artifact_map).
         if self.detail_modal.is_open() {
             if let Some(ctx) = app_state.current_study.as_ref() {
                 self.detail_modal.show(
@@ -522,7 +538,7 @@ mod tests {
         assert!(widget.brush_end.is_none());
     }
 
-    // ── surrogate_front_points のユニットテスト ───────────────────────
+    // ── unit tests for surrogate_front_points ───────────────────────
 
     fn make_ui_result() -> crate::state::messages::SurrogateMultiOptUiResult {
         use tunny_core::surrogate_opt::ParetoFrontPoint;
@@ -564,7 +580,7 @@ mod tests {
     #[test]
     fn surrogate_front_points_unknown_axis_returns_empty() {
         let result = make_ui_result();
-        // 存在しない軸名 → 空
+        // Nonexistent axis name → empty
         let pts = surrogate_front_points(&result, "f0", "unknown");
         assert!(pts.is_empty());
     }

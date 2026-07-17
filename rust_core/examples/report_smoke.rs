@@ -1,21 +1,21 @@
-//! 自己完結レポート出力（HTML / Markdown / JSON）の E2E 動作確認用 CLI。
+//! Standalone CLI for E2E verification of report output (HTML / Markdown / JSON).
 //!
 //! ```text
 //! cargo run -p tunny-core --example report_smoke -- \
 //!     <storage> <study_id> <out_dir> [--lang en|ja] [--top-n N]
 //! ```
 //!
-//! - `<storage>`: journal ファイル（.log/.journal）、SQLite ファイルパス、
-//!   または RDB URL（`postgresql://` 系）。ディスパッチは
-//!   `tunny_core::io::storage::load_study` に一元化されている。
-//! - `<study_id>`: 対象 study の ID。
-//! - `<out_dir>`: 出力先ディレクトリ（`report_{study}.{html,md,json}` の3形式を書く）。
-//! - `--lang`: 文章言語（既定 `en`）。
-//! - `--top-n`: 上位表の件数（既定 10）。
+//! - `<storage>`: a journal file (.log/.journal), a SQLite file path, or an RDB URL
+//!   (`postgresql://` family). Dispatch is centralized in
+//!   `tunny_core::io::storage::load_study`.
+//! - `<study_id>`: the target study's ID.
+//! - `<out_dir>`: output directory (writes all 3 formats: `report_{study}.{html,md,json}`).
+//! - `--lang`: report language (default `en`).
+//! - `--top-n`: number of rows in the top-N table (default 10).
 //!
-//! `storage_display` は URL の場合 `RdbUrl::masked()`（生パスワードを残さない）、
-//! ファイルの場合はパスそのものを用いる。`generated_at_unix` は `SystemTime` から
-//! 取得する（`core` ライブラリは時計を持たないが、example では利用してよい）。
+//! `storage_display` uses `RdbUrl::masked()` for URLs (never leaves the raw password
+//! in place) and the path itself for files. `generated_at_unix` is obtained from
+//! `SystemTime` (the `core` library has no clock, but examples may use one).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -25,7 +25,7 @@ use tunny_core::io::storage::load_study;
 use tunny_core::report::{render_html, render_markdown};
 use tunny_core::{build_study_report, ReportLang, ReportOptions, ReportSource};
 
-/// パース済みコマンドライン引数。
+/// Parsed command-line arguments.
 struct Args {
     storage: String,
     study_id: u32,
@@ -86,7 +86,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     })
 }
 
-/// ファイル名に使えない文字を `_` に置換し、study 名をサニタイズする。
+/// Sanitizes the study name by replacing characters that are invalid in file names with `_`.
 fn sanitize(name: &str) -> String {
     let cleaned: String = name
         .chars()

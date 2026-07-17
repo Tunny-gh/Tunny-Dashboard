@@ -1,10 +1,10 @@
-//! 散布図の点クリックで開く「トライアル詳細」モーダル。
+//! "Trial detail" modal opened by clicking a point in a scatter plot.
 //!
-//! Pareto 2D / Cluster 2D / MCDM 散布図が共有する。各散布図はクリックされた点の
-//! trial を検出して [`TrialDetailModal::open`] で対象を渡し、毎フレーム
-//! [`TrialDetailModal::show`] を呼んで描画する。モーダルは散布図固有の情報
-//! （Pareto ランク / クラスタ番号 / MCDM ランクなど）に加えて、目的関数値・変数値・
-//! アーティファクト（サムネイル＋ファイル名）を表示する。
+//! Shared by the Pareto 2D / Cluster 2D / MCDM scatter plots. Each scatter plot detects the
+//! trial for the clicked point and passes the target to [`TrialDetailModal::open`], then
+//! calls [`TrialDetailModal::show`] every frame to render it. In addition to chart-specific
+//! information (Pareto rank / cluster number / MCDM rank, etc.), the modal shows objective
+//! values, parameter values, and artifacts (thumbnail + filename).
 
 use std::collections::HashMap;
 
@@ -16,31 +16,32 @@ use crate::state::types::StudyView;
 use super::modal::ModalScaffold;
 use super::radar_chart;
 
-/// サムネイル一辺のサイズ（px）。
+/// Thumbnail side length (px).
 const THUMB_SIZE: f32 = 220.0;
 
-/// 点クリック判定のしきい値（クリック位置から点までのスクリーン距離・px）。
+/// Threshold for point-click hit testing (screen-space distance from click position to
+/// point, in px).
 pub const HIT_THRESHOLD: f32 = 12.0;
 
-/// ヒットテストで解決した対象点（`trial_id`, `row_index`）。
+/// The target point resolved by hit testing (`trial_id`, `row_index`).
 pub type TrialHit = (u32, usize);
 
-/// モーダルが表示する対象 trial と、散布図固有の付加情報。
+/// The target trial shown by the modal, plus chart-specific supplementary info.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrialDetailTarget {
-    /// 対象トライアルのグローバル ID（アーティファクト参照に使う。表示はしない）。
+    /// Global ID of the target trial (used for artifact lookup; not displayed).
     pub trial_id: u32,
-    /// `StudyView` 上の行 index。目的関数値・変数値の参照に加え、
-    /// Study 内 0 始まり番号としてヘッダー表示にも使う。
+    /// Row index in the `StudyView`. Used both to look up objective/parameter values and,
+    /// as the 0-based number within the Study, for the header display.
     pub row_index: usize,
-    /// 散布図固有の情報（例: `[("Pareto Rank", "0")]`）。表示は配列順。
+    /// Chart-specific info (e.g. `[("Pareto Rank", "0")]`). Displayed in array order.
     pub context: Vec<(String, String)>,
 }
 
-/// 散布図共有のトライアル詳細モーダル。
+/// Trial detail modal shared across scatter plots.
 #[derive(Default)]
 pub struct TrialDetailModal {
-    /// 表示中の対象。`None` のとき閉じている。
+    /// The currently displayed target. `None` means it's closed.
     open: Option<TrialDetailTarget>,
 }
 
@@ -49,18 +50,18 @@ impl TrialDetailModal {
         Self::default()
     }
 
-    /// 対象 trial を設定してモーダルを開く。
+    /// Sets the target trial and opens the modal.
     pub fn open(&mut self, target: TrialDetailTarget) {
         self.open = Some(target);
     }
 
-    /// モーダルが開いているか。
+    /// Whether the modal is open.
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
 
-    /// モーダルを描画する。閉じている場合は何もしない。
-    /// 背景クリック / Esc / Close ボタンで閉じる。
+    /// Renders the modal. Does nothing if it's closed.
+    /// Closes on background click / Esc / the Close button.
     pub fn show(
         &mut self,
         ui: &egui::Ui,
@@ -74,28 +75,30 @@ impl TrialDetailModal {
         };
         let egui_ctx = ui.ctx().clone();
         let screen = egui_ctx.content_rect();
-        // Artifact プレビューモーダルと同等に画面の大半を占めるサイズにする。
+        // Sized to take up most of the screen, matching the artifact preview modal.
         let max_w = (screen.width() * 0.95).max(320.0);
         let max_h = (screen.height() * 0.95).max(240.0);
-        // ヘッダー・区切り・余白を除いた本文スクロール領域の高さ。
+        // Height of the scrollable body area, excluding the header/separator/margins.
         let body_max_h = (max_h - 80.0).max(160.0);
-        // 3 段組: 左=テキスト情報 / 中央=レーダー / 右=アーティファクト。
-        // 左・中央は固定幅、残りを右（アーティファクト）に充てる。
+        // Three columns: left = text info / center = radar chart / right = artifacts.
+        // Left and center are fixed width; the rest goes to the right (artifacts).
         let left_w = (max_w * 0.26).clamp(280.0, 460.0);
         let radar_w = (max_w * 0.3).clamp(300.0, 500.0);
 
         let mut close = false;
-        // 見出しは Close ボタンと同一行に置くため足場の自動見出しは使わず、本文側で描く。
-        // 画像のアスペクト比に依らずモーダルを大きく確保する（min=max=max_w）。
+        // The heading sits on the same row as the Close button, so we skip the scaffold's
+        // automatic heading and draw it ourselves in the body.
+        // Keep the modal large regardless of image aspect ratio (min=max=max_w).
         let outcome = ModalScaffold::new("trial_detail_modal", max_w)
             .max_width(max_w)
             .min_height(max_h)
             .show(&egui_ctx, |ui| {
                 ui.horizontal(|ui| {
-                    // ヘッダーは Optuna の `trial.number`（Study 内 0 始まりの作成順番号）を表示する。
-                    // `trial_id` はストレージ横断のグローバル ID で、他 study や
-                    // pruned/failed トライアルの分だけ番号がずれるため表示に使わない
-                    // （アーティファクト参照には引き続き `trial_id` を使う）。
+                    // The header shows Optuna's `trial.number` (the 0-based creation-order
+                    // number within the Study). `trial_id` is a global ID spanning storage
+                    // and shifts by the number of pruned/failed trials and trials from
+                    // other studies, so it's not used for display (it's still used for
+                    // artifact lookup).
                     let trial_number = view
                         .df
                         .get_trial_number(target.row_index)
@@ -113,21 +116,22 @@ impl TrialDetailModal {
                     .max_height(body_max_h)
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
-                        // 3 段組: 左=テキスト情報 / 中央=レーダー / 右=アーティファクト。
+                        // Three columns: left = text info / center = radar chart / right =
+                        // artifacts.
                         ui.horizontal_top(|ui| {
-                            // 左: テキスト情報（Chart Info / Objectives / Variables）。
+                            // Left: text info (Chart Info / Objectives / Variables).
                             ui.allocate_ui_with_layout(
                                 egui::vec2(left_w, body_max_h),
                                 egui::Layout::top_down(egui::Align::Min),
                                 |ui| {
-                                    // 散布図固有の情報（ランク・クラスタ番号など）。
+                                    // Chart-specific info (rank, cluster number, etc.).
                                     if !target.context.is_empty() {
                                         section_label(ui, "Chart Info");
                                         kv_grid(ui, "trial_detail_context", &target.context);
                                         ui.add_space(8.0);
                                     }
 
-                                    // 目的関数値。
+                                    // Objective values.
                                     if !obj_names.is_empty() {
                                         section_label(ui, "Objectives");
                                         let rows = value_rows(view, obj_names, target.row_index);
@@ -135,7 +139,7 @@ impl TrialDetailModal {
                                         ui.add_space(8.0);
                                     }
 
-                                    // 変数値。
+                                    // Parameter values.
                                     if !param_names.is_empty() {
                                         section_label(ui, "Variables");
                                         let rows = value_rows(view, param_names, target.row_index);
@@ -147,8 +151,10 @@ impl TrialDetailModal {
 
                             ui.separator();
 
-                            // 中央: レーダーチャート（目的＋変数）。パレートフロント各個体を
-                            // 薄い線で重ね、外周＝フロント最大（包絡）。選択トライアルを赤で重ねる。
+                            // Center: radar chart (objectives + variables). Overlays every
+                            // Pareto-front individual as a thin line, with the outer
+                            // envelope = the front's maxima; the selected trial is overlaid
+                            // in red.
                             ui.allocate_ui_with_layout(
                                 egui::vec2(radar_w, body_max_h),
                                 egui::Layout::top_down(egui::Align::Min),
@@ -172,7 +178,7 @@ impl TrialDetailModal {
 
                             ui.separator();
 
-                            // 右: アーティファクト（サムネイル＋ファイル名）。
+                            // Right: artifacts (thumbnail + filename).
                             ui.vertical(|ui| {
                                 section_label(ui, "Artifacts");
                                 match artifact_map.get(&target.trial_id) {
@@ -197,12 +203,12 @@ impl TrialDetailModal {
     }
 }
 
-/// セクション見出し。
+/// Section heading.
 fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).strong());
 }
 
-/// 列名→値スライスから (名前, 整形済み値) のペア列を作る。
+/// Builds (name, formatted value) pairs from a column-name -> value-slice mapping.
 fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(String, String)> {
     let cols = view.numeric_columns(names);
     names
@@ -212,7 +218,7 @@ fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(Stri
         .collect()
 }
 
-/// 2 列のキー/値グリッドを描画する。
+/// Renders a two-column key/value grid.
 fn kv_grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)]) {
     egui::Grid::new(id)
         .num_columns(2)
@@ -226,8 +232,8 @@ fn kv_grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)]) {
         });
 }
 
-/// `Option<f64>` を小数第 4 位で整形する（None は em dash）。
-/// 散布図のホバー/クリック詳細行が共有するフォーマッタ。
+/// Formats an `Option<f64>` to 4 decimal places (`None` becomes an em dash).
+/// Shared by the scatter plots' hover/click detail rows.
 pub fn fmt_opt(v: Option<f64>) -> String {
     match v {
         Some(x) => format!("{x:.4}"),
@@ -235,8 +241,10 @@ pub fn fmt_opt(v: Option<f64>) -> String {
     }
 }
 
-/// 列スライスから 1 行分の `(軸名, 整形済み値)` を作る。散布図の x/y/z 軸値行が共有する。
-/// `col` は当該軸の数値列（欠損列は `None`）、`row` は `StudyView` 上の行 index。
+/// Builds a single `(axis name, formatted value)` row from a column slice. Shared by the
+/// scatter plots' x/y/z axis value rows.
+/// `col` is the numeric column for that axis (`None` for a missing column), `row` is the
+/// row index in the `StudyView`.
 pub fn axis_row(name: &str, col: Option<&[f64]>, row: usize) -> (String, String) {
     (
         name.to_string(),
@@ -244,9 +252,9 @@ pub fn axis_row(name: &str, col: Option<&[f64]>, row: usize) -> (String, String)
     )
 }
 
-/// 制約付き Study の場合のみ `rows` に `("Feasible", "Yes"/"No")` 行を追加する。
-/// 制約なし（`has_constraints() == false`）なら何もしない。ホバー詳細行と
-/// クリック詳細 context の双方が共有する。
+/// Appends a `("Feasible", "Yes"/"No")` row to `rows`, but only for a constrained Study.
+/// Does nothing if there are no constraints (`has_constraints() == false`). Shared by both
+/// the hover detail rows and the click detail context.
 pub fn push_feasible_row(rows: &mut Vec<(String, String)>, feas: Feasibility, row: usize) {
     if feas.has_constraints() {
         rows.push((
@@ -256,15 +264,17 @@ pub fn push_feasible_row(rows: &mut Vec<(String, String)>, feas: Feasibility, ro
     }
 }
 
-/// アーティファクトをサムネイル（画像）＋ファイル名で横並びに描画する。
+/// Renders artifacts side by side as a thumbnail (image) + filename.
 fn render_artifacts(ui: &mut egui::Ui, entries: &[ArtifactEntry]) {
     ui.horizontal_wrapped(|ui| {
         for entry in entries {
             ui.allocate_ui(egui::vec2(THUMB_SIZE, THUMB_SIZE + 24.0), |ui| {
                 ui.vertical(|ui| {
                     match entry.file_type() {
-                        // 非 UTF-8 パスは `to_string_lossy` で潰すと実在しないパスの URI になり
-                        // 画像が無言で壊れる。`to_str()` で弾き、非画像と同じフォールバックへ。
+                        // Collapsing a non-UTF-8 path with `to_string_lossy` produces a URI
+                        // for a path that doesn't actually exist, silently breaking the
+                        // image. Reject it with `to_str()` and fall back the same way as
+                        // for non-image files.
                         ArtifactFileType::Image if entry.path.to_str().is_some() => {
                             let uri = format!("file://{}", entry.path.to_str().unwrap());
                             ui.add(
@@ -297,10 +307,12 @@ fn render_artifacts(ui: &mut egui::Ui, entries: &[ArtifactEntry]) {
     });
 }
 
-/// クリック座標に最も近い候補点の index を返す（スクリーン座標・しきい値 px 以内）。
+/// Returns the index of the candidate point closest to the click coordinate (screen
+/// coordinates, within the threshold in px).
 ///
-/// `egui_plot` のクロージャ内で点のスクリーン座標を計算してから呼ぶ。純粋関数として
-/// テスト可能にするため、候補のスクリーン座標とクリック座標のみを受ける。
+/// Call this after computing the points' screen coordinates inside the `egui_plot` closure.
+/// It only takes candidate screen coordinates and the click coordinate so it stays a pure,
+/// testable function.
 pub fn nearest_within(
     screen_points: &[egui::Pos2],
     click: egui::Pos2,
@@ -316,18 +328,20 @@ pub fn nearest_within(
     best.map(|(_, i)| i)
 }
 
-/// ホバー中のトライアル概要を、ポインタ位置のツールチップとして表示する共通ヘルパー。
+/// Common helper that shows a tooltip at the pointer position summarizing the hovered
+/// trial.
 ///
-/// 散布図系（Scatter 2D / History / Slice）が共有する。`trial_number` を見出しに、
-/// `rows`（ラベル, 値）を 2 列グリッドで並べる。`id_salt` はツールチップとグリッドの
-/// Id 衝突を避けるためチャートごとに一意な文字列を渡す。
+/// Shared by the scatter-style charts (Scatter 2D / History / Slice). Uses `trial_number`
+/// as the heading and lays out `rows` (label, value) in a two-column grid. `id_salt` should
+/// be a string unique per chart to avoid `Id` collisions between the tooltip and the grid.
 pub fn show_hover_tooltip(
     ui: &egui::Ui,
     id_salt: &str,
     trial_number: u32,
     rows: &[(String, String)],
 ) {
-    // egui 0.35: show_tooltip_at_pointer は廃止。Tooltip::always_open + PopupAnchor::Pointer で代替する。
+    // egui 0.35: show_tooltip_at_pointer was removed. Replaced with
+    // Tooltip::always_open + PopupAnchor::Pointer.
     egui::Tooltip::always_open(
         ui.ctx().clone(),
         ui.layer_id(),
@@ -349,8 +363,9 @@ pub fn show_hover_tooltip(
     });
 }
 
-/// 候補点（trial_id, row_index, plot 座標）から、クリック位置（スクリーン座標）に
-/// 最も近くかつ `threshold` px 以内の点を `(trial_id, row_index)` で返す。
+/// From the candidate points (trial_id, row_index, plot coordinates), returns the
+/// `(trial_id, row_index)` of the point closest to the click position (screen coordinates)
+/// and within `threshold` px.
 pub fn hit_test_nearest(
     plot_ui: &egui_plot::PlotUi,
     candidates: &[(u32, usize, [f64; 2])],
@@ -364,12 +379,14 @@ pub fn hit_test_nearest(
     nearest_within(&screen_points, click, threshold).map(|i| (candidates[i].0, candidates[i].1))
 }
 
-/// 2D `egui_plot` 内でのクリック/ホバー解決を共通化する。`plot.show` のクロージャ内から
-/// `plot_ui` を渡して呼ぶ。戻り値は `(クリック, ホバー)` で、いずれも [`HIT_THRESHOLD`] px
-/// 以内で最も近い候補点を `(trial_id, row_index)` で返す（該当なしは `None`）。
+/// Consolidates click/hover resolution inside a 2D `egui_plot`. Call it from within the
+/// `plot.show` closure, passing `plot_ui`. Returns `(click, hover)`, each being the closest
+/// candidate point within [`HIT_THRESHOLD`] px as `(trial_id, row_index)` (or `None` if
+/// there is no match).
 ///
-/// - クリックは左ボタン押下フレームのみ `interact_pointer_pos` を基準に判定する。
-/// - ホバーは `hover_pos` があるフレームで判定する。
+/// - Clicks are resolved from `interact_pointer_pos` only on the frame the left button is
+///   pressed.
+/// - Hover is resolved on any frame where `hover_pos` is available.
 pub fn resolve_click_hover(
     plot_ui: &egui_plot::PlotUi,
     candidates: &[(u32, usize, [f64; 2])],
@@ -398,7 +415,7 @@ mod tests {
             egui::pos2(10.0, 0.0),
             egui::pos2(100.0, 100.0),
         ];
-        // クリック (11, 0) に最も近いのは index 1（距離 1）。
+        // The closest point to click (11, 0) is index 1 (distance 1).
         assert_eq!(nearest_within(&pts, egui::pos2(11.0, 0.0), 12.0), Some(1));
     }
 
@@ -416,7 +433,7 @@ mod tests {
     #[test]
     fn nearest_within_picks_strictly_closest() {
         let pts = vec![egui::pos2(5.0, 0.0), egui::pos2(3.0, 0.0)];
-        // どちらもしきい値内だが、より近い index 1 を選ぶ。
+        // Both are within the threshold, but the closer index 1 is chosen.
         assert_eq!(nearest_within(&pts, egui::pos2(0.0, 0.0), 12.0), Some(1));
     }
 

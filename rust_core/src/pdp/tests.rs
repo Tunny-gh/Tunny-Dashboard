@@ -417,9 +417,10 @@ fn gp_2d_pdp_marginalises_third_dimension() {
     // the additive trend 2*x0 + 0.5*x1 + 5*mean(x2), NOT a function that tracks
     // individual x2 values. We check the surface increases along the x0 axis.
     use crate::gaussian_process::GpMethod;
-    // n ≤ max_inducing (100) に抑えて Z = X（誘導点選択なし）の経路にする。
-    // 誘導点サブセット選択はプラットフォームの浮動小数点差に敏感で、
-    // Windows でのみ学習が失敗する flake の原因だった。
+    // Keep n <= max_inducing (100) so we take the Z = X (no inducing-point
+    // selection) path. Inducing-point subset selection is sensitive to
+    // platform floating-point differences, and was the cause of a flake
+    // where training failed only on Windows.
     let n = 96;
     // Low-discrepancy (golden-ratio / sqrt-2) sequences keep x0 and x1 spread
     // over [0,1] and mutually decorrelated; perfectly collinear inputs (e.g.
@@ -433,9 +434,10 @@ fn gp_2d_pdp_marginalises_third_dimension() {
             vec![x0, x1, x2]
         })
         .collect();
-    // 完全にノイズレスな線形データはカーネル行列を特異にしやすく、
-    // ノイズフロア推定の成否がプラットフォーム依存になる。決定論的な
-    // 微小擾乱（振幅 0.05 ≪ x0 方向のトレンド 2.0）を加えて正則化する。
+    // Perfectly noiseless linear data tends to make the kernel matrix
+    // singular, making noise-floor estimation succeed or fail depending on
+    // the platform. Add a deterministic tiny perturbation (amplitude 0.05,
+    // much smaller than the x0-direction trend of 2.0) to regularize it.
     let y: Vec<f64> = x_matrix
         .iter()
         .enumerate()

@@ -1,26 +1,29 @@
-//! MySQL / MariaDB (`mysql` クレート) 実装。
+//! MySQL / MariaDB (`mysql` crate) implementation.
 //!
-//! `OptunaBackend` trait を `mysql::Conn` 上に実装する。プレースホルダは `?` が
-//! ネイティブなので変換不要。`mysql::Value` → `SqlValue` の変換のみを担う。
+//! Implements the `OptunaBackend` trait on top of `mysql::Conn`. `?` is the
+//! native placeholder, so no conversion is needed. This file only handles
+//! converting `mysql::Value` to `SqlValue`.
 
 use mysql::prelude::Queryable;
 use mysql::{Conn, Opts, Value};
 
 use super::backend::{OptunaBackend, SqlParam, SqlValue};
 
-/// MySQL/MariaDB に接続した `OptunaBackend` 実装。
+/// An `OptunaBackend` implementation connected to MySQL/MariaDB.
 pub struct MysqlBackend {
     conn: Conn,
 }
 
 impl MysqlBackend {
-    /// URL（`mysql://user:pass@host:port/db`）から接続する。
+    /// Connects from a URL (`mysql://user:pass@host:port/db`).
     pub fn connect(url: &str) -> Result<Self, String> {
         let opts = Opts::from_url(url).map_err(|_| {
-            // `mysql::UrlError`（特に `InvalidValue`/`ParseError`）は URL の一部（クエリ
-            // パラメータ値等）をそのままメッセージに埋め込むことがあるため、生のエラーを
-            // そのまま表示しない。代わりに `RdbUrl::masked` でパスワードを隠した表示用
-            // URL のみを含める（パース自体に失敗する壊れた URL の場合はそれも諦める）。
+            // `mysql::UrlError` (especially `InvalidValue`/`ParseError`) may embed
+            // part of the URL (such as a query parameter value) directly into
+            // its message, so we do not display the raw error as-is. Instead,
+            // include only a display URL with the password hidden via
+            // `RdbUrl::masked` (if parsing itself fails on a malformed URL, we
+            // give up on that too).
             let masked = super::url::RdbUrl::parse(url)
                 .map(|u| u.masked())
                 .unwrap_or_else(|| "mysql://<unparseable>".to_string());
@@ -40,10 +43,11 @@ fn to_mysql_value(param: &SqlParam) -> Value {
     }
 }
 
-/// MySQL の `DATE`/`DATETIME` (`Value::Date`) を `"YYYY-MM-DD HH:MM:SS.ffffff"` へ整形する。
+/// Formats MySQL's `DATE`/`DATETIME` (`Value::Date`) as `"YYYY-MM-DD HH:MM:SS.ffffff"`.
 ///
-/// `text_cast`（`CAST(... AS CHAR)`）経由で読む限り実際には `Value::Bytes` として
-/// 返ってくる想定だが、保険として `Value::Date` が来ても文字列化できるようにする。
+/// As long as this is read via `text_cast` (`CAST(... AS CHAR)`), it's expected
+/// to actually come back as `Value::Bytes`, but as a safety net this also
+/// stringifies `Value::Date` if it is received instead.
 fn format_mysql_date(y: u16, m: u8, d: u8, h: u8, i: u8, s: u8, us: u32) -> String {
     format!("{y:04}-{m:02}-{d:02} {h:02}:{i:02}:{s:02}.{us:06}")
 }
@@ -60,7 +64,7 @@ fn mysql_value_to_sql_value(value: Value) -> SqlValue {
         Value::Date(y, mo, d, h, mi, s, us) => {
             SqlValue::Text(format_mysql_date(y, mo, d, h, mi, s, us))
         }
-        // TIME 型は Optuna スキーマでは使われない想定。安全側で NULL 扱いにする。
+        // The TIME type is not expected to be used in the Optuna schema. Treat it as NULL to be safe.
         Value::Time(..) => SqlValue::Null,
     }
 }
@@ -73,7 +77,7 @@ impl OptunaBackend for MysqlBackend {
         on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
     ) -> Result<(), String> {
         let bound_params: Vec<Value> = params.iter().map(to_mysql_value).collect();
-        // `exec_iter` はサーバから行をストリーミングで取り出す（全行を一括バッファしない）。
+        // `exec_iter` streams rows from the server (does not buffer all rows at once).
         let result = self
             .conn
             .exec_iter(sql, bound_params)

@@ -1,14 +1,14 @@
-//! Python (scipy.stats) との分布あてはめ (MLE) クロスチェック用ハーネス。
+//! A harness for cross-checking distribution fitting (MLE) against Python (scipy.stats).
 //!
-//! 入力データと Normal/LogNormal/Weibull 各分布の MLE フィット結果 (パラメータ,
-//! 対数尤度, AIC) を JSON で stdout に出力する。Python 側は同じ入力を
-//! scipy.stats.*.fit で再計算して突き合わせる。
+//! Outputs the input data and the MLE fit results (parameters, log-likelihood, AIC) for
+//! the Normal/LogNormal/Weibull distributions as JSON to stdout. The Python side
+//! recomputes the same input with scipy.stats.*.fit and compares.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_distribution_fit`
+//! Run: `cargo run -p tunny-core --example verify_distribution_fit`
 
 use tunny_core::statistics::distribution_fit::{fit_distribution, FitDistribution};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// A deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -40,15 +40,15 @@ fn fit_json(values: &[f64], dist: FitDistribution) -> serde_json::Value {
 fn main() {
     let mut rng = Rng(0x0F1E2D3C_4B5A6978);
 
-    // A: 正規分布に近い n=100 サンプル (Box-Muller, mu=10, sigma=2)
+    // A: n=100 sample close to normal (Box-Muller, mu=10, sigma=2)
     let normal_like: Vec<f64> = (0..100).map(|_| rng.next_normal() * 2.0 + 10.0).collect();
 
-    // B: 対数正規に近い n=90 サンプル (exp(normal(mu=0.5, sigma=0.8)))
+    // B: n=90 sample close to log-normal (exp(normal(mu=0.5, sigma=0.8)))
     let lognormal_like: Vec<f64> = (0..90)
         .map(|_| (rng.next_normal() * 0.8 + 0.5).exp())
         .collect();
 
-    // C: ワイブルに近い n=80 サンプル (逆変換法, k=2.5, lambda=5.0)
+    // C: n=80 sample close to Weibull (inverse transform method, k=2.5, lambda=5.0)
     let weibull_like: Vec<f64> = (0..80)
         .map(|_| {
             let u = rng.next_f64().max(1e-12);
@@ -56,7 +56,7 @@ fn main() {
         })
         .collect();
 
-    // D: 歪んだ小サンプル n=40 (正規からはずれた非対称分布)
+    // D: n=40 skewed small sample (an asymmetric distribution deviating from normal)
     let skewed_small: Vec<f64> = (0..40)
         .map(|i| 3.0 + (i as f64 * 0.31).sin().abs() * 5.0 + rng.next_f64() * 0.5)
         .collect();

@@ -7,7 +7,7 @@ use super::common::{
 };
 use crate::lgbm::{lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 
-/// 前処理済みデータから PFI 重要度を計算する（`metrics::PermutationMetric` からも呼ばれる）。
+/// Compute PFI importances from preprocessed data (also called from `metrics::PermutationMetric`).
 pub(in crate::sensitivity) fn compute_from_prepared(
     data: &PreparedData,
 ) -> Option<(Vec<f64>, f64)> {
@@ -20,16 +20,16 @@ pub(in crate::sensitivity) fn compute_from_prepared(
         seed: PFI_SEED_BASE as i32,
         ..Default::default()
     };
-    // モデルは 1 回だけ学習し、全特徴量のパーミュテーション評価で共有する。
-    // LightGBM の予測は同一 booster への並行呼び出しが安全でないため、
-    // RF-ANOVA と同じく特徴量ループは逐次実行する。
+    // Train the model only once and share it across the permutation evaluation of all features.
+    // LightGBM predictions are not safe to call concurrently on the same booster, so, as with
+    // RF-ANOVA, the per-feature loop runs sequentially.
     let booster = train_lgbm_rf(x_train, y_train, &config)?;
 
     let baseline_mse = lgbm_mse(&booster, x_eval, y_eval)
         .unwrap_or(0.0)
         .max(f64::EPSILON);
 
-    // eval 行列を 1 回だけクローンし、特徴量ごとにインプレース置換→MSE→復元する。
+    // Clone the eval matrix only once, then for each feature: permute in place → MSE → restore.
     let mut x_work = x_eval.to_vec();
     let mut importances = vec![0.0; p];
     for feature_idx in 0..p {

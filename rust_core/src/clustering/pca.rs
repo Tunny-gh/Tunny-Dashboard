@@ -24,15 +24,16 @@ fn center_data(data: &[Vec<f64>], means: &[f64]) -> Vec<Vec<f64>> {
         .collect()
 }
 
-/// 中心化のみ（標準化なし）の PCA。既存テストの互換ラッパー。
+/// PCA with centering only (no standardization). Compatibility wrapper for existing tests.
 #[cfg(test)]
 pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaResult {
     run_pca_on_matrix_opts(data, n_components, false)
 }
 
-/// PCA 本体。`standardize` が true なら各列を標準偏差で割り（相関行列 PCA）、
-/// 単位の異なる変数を混在させても各変数が等しい重みを持つようにする。
-/// 分散ゼロの列は標準化後 0 になり、成分に寄与しない（loadings の整列は保たれる）。
+/// The core PCA implementation. When `standardize` is true, each column is divided by its
+/// standard deviation (correlation-matrix PCA), so variables with different units still
+/// contribute equal weight. A zero-variance column becomes 0 after standardization and
+/// contributes nothing to the components (loadings alignment is preserved).
 pub(crate) fn run_pca_on_matrix_opts(
     data: &[Vec<f64>],
     n_components: usize,
@@ -51,15 +52,16 @@ pub(crate) fn run_pca_on_matrix_opts(
         return empty;
     }
     let p = data[0].len();
-    // 行長が不揃いだと列アクセス・フラット化で範囲外 panic するため明示的に弾く。
+    // Reject explicitly if row lengths are inconsistent, since column access and flattening
+    // would otherwise panic with an out-of-range index.
     if data.iter().any(|row| row.len() != p) {
         return empty;
     }
     let k = n_components.min(p);
 
     let x_c = if standardize {
-        // 相関行列 PCA: 標準化（不偏分散 n-1、clustering 共通ヘルパ）が
-        // 中心化を兼ねる。
+        // Correlation-matrix PCA: standardization (unbiased variance with n-1, via the
+        // shared clustering helper) also performs the centering.
         let mut x = data.to_vec();
         super::standardize::standardize_columns(&mut x, 1);
         x
@@ -152,9 +154,9 @@ pub(crate) fn run_pca_on_matrix_opts(
     }
 }
 
-/// バイプロット用の標準化 PCA（相関行列 PCA）。
-/// 単位の異なるパラメータ・目的関数を混在させる用途では標準化が必須のため、
-/// `run_pca`（中心化のみ）とは別の公開エントリポイントとして提供する。
+/// Standardized PCA for biplots (correlation-matrix PCA).
+/// Standardization is required when mixing parameters and objectives with different units,
+/// so this is offered as a separate public entry point from `run_pca` (centering only).
 pub fn run_pca_standardized(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
     run_pca_impl(n_components, space, true)
 }

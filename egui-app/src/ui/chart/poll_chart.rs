@@ -10,8 +10,8 @@ use crate::ui::widgets::cluster_scatter::{
 };
 use crate::ui::widgets::mcdm_chart::{McdmCacheKey, McdmComputeRequest, McdmControls};
 
-/// 目的ごとの minimize フラグを directions から解決する（多目的最適化パス共通）。
-/// `n_obj` 個ぶんを返し、directions に無い目的は Minimize(true) 扱いにフォールバックする。
+/// Resolves the per-objective minimize flag from `directions` (shared by multi-objective optimization paths).
+/// Returns `n_obj` entries; objectives missing from `directions` fall back to Minimize(true).
 fn minimize_flags(directions: &[Direction], n_obj: usize) -> Vec<bool> {
     (0..n_obj)
         .map(|i| {
@@ -23,8 +23,8 @@ fn minimize_flags(directions: &[Direction], n_obj: usize) -> Vec<bool> {
         .collect()
 }
 
-/// カテゴリカル列（数値化できない列）を除いた数値パラメータ名の一覧。
-/// render_chart のコンボ表示・フィット行列構築で共通の絞り込みを与える。
+/// List of numeric parameter names, excluding categorical columns (those that can't be numeric-ized).
+/// Provides the common filter used by render_chart's combo display and fit-matrix construction.
 pub(crate) fn numeric_param_names(ctx: &StudyContext) -> Vec<String> {
     ctx.meta
         .param_names
@@ -34,8 +34,8 @@ pub(crate) fn numeric_param_names(ctx: &StudyContext) -> Vec<String> {
         .collect()
 }
 
-/// 制約列を `ConstraintData` として抽出する。`kept_rows` で指定した行だけを残し、
-/// 非有限フィルタ済みのフィット行列（`build_numeric_fit_xy` の X）と行を整合させる。
+/// Extracts constraint columns as `ConstraintData`. Keeps only the rows specified by `kept_rows`,
+/// aligning them with the non-finite-filtered fit matrix (X from `build_numeric_fit_xy`).
 fn collect_constraints(
     ctx: &StudyContext,
     kept_rows: &[usize],
@@ -58,8 +58,8 @@ fn collect_constraints(
         .collect()
 }
 
-/// `build_numeric_fit_xy` の戻り値。
-/// (数値パラメータ名, X 行列, y, パラメータごとの宣言レンジ, 採用行インデックス)。
+/// Return value of `build_numeric_fit_xy`.
+/// (numeric parameter names, X matrix, y, per-parameter declared range, kept row indices).
 type NumericFitXy = (
     Vec<String>,
     Vec<Vec<f64>>,
@@ -68,12 +68,13 @@ type NumericFitXy = (
     Vec<usize>,
 );
 
-/// 数値パラメータ列のみで X 行列・目的ベクトル y・宣言レンジ（param_bounds）を組み立てる。
-/// 非有限値（NaN/inf）を含む行は学習対象から除外する（pruned/failed trial 由来の NaN が
-/// GP/回帰の学習行列へ流れて全 NaN 予測やワーカー panic を起こすのを防ぐ。observed_contour
-/// と同じ `is_finite` フィルタ方針）。数値パラメータが一つもない場合は None を返す。
-/// `kept_rows` は採用行の元 df インデックスで、制約列（`collect_constraints`）や
-/// アンカー行の解決を X と整合させるために使う。
+/// Builds the X matrix, objective vector y, and declared range (param_bounds) using only numeric
+/// parameter columns. Rows containing non-finite values (NaN/inf) are excluded from training (this
+/// prevents NaN from pruned/failed trials flowing into the GP/regression training matrix and causing
+/// all-NaN predictions or worker panics; same `is_finite` filter policy as observed_contour). Returns
+/// None if there are no numeric parameters at all.
+/// `kept_rows` holds the original df indices of the kept rows, used to align constraint columns
+/// (`collect_constraints`) and anchor row resolution with X.
 fn build_numeric_fit_xy(ctx: &StudyContext, objective: &str) -> Option<NumericFitXy> {
     let numeric_params = numeric_param_names(ctx);
     if numeric_params.is_empty() {
@@ -82,7 +83,7 @@ fn build_numeric_fit_xy(ctx: &StudyContext, objective: &str) -> Option<NumericFi
 
     let n = ctx.view.row_count();
     let param_cols = ctx.view.numeric_columns(&numeric_params);
-    // 目的列が無い場合は 0.0 埋め（既存挙動）。存在する行の欠損セルも 0.0 とする。
+    // Fill with 0.0 when the objective column is missing (existing behavior). Missing cells in existing rows are also 0.0.
     let obj_col = ctx.view.numeric_column(objective);
 
     let mut x_matrix: Vec<Vec<f64>> = Vec::with_capacity(n);
@@ -94,7 +95,7 @@ fn build_numeric_fit_xy(ctx: &StudyContext, objective: &str) -> Option<NumericFi
             .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
             .collect();
         let yv = obj_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-        // 非有限（NaN/inf）を含む行は除外する。
+        // Exclude rows containing non-finite values (NaN/inf).
         if row.iter().all(|v| v.is_finite()) && yv.is_finite() {
             x_matrix.push(row);
             y.push(yv);
@@ -102,8 +103,8 @@ fn build_numeric_fit_xy(ctx: &StudyContext, objective: &str) -> Option<NumericFi
         }
     }
 
-    // 各数値パラメータの宣言レンジ（log 由来）を x_matrix の列順で集める。
-    // 宣言レンジがある列はそれを探索範囲とし、無い列は観測レンジにフォールバック。
+    // Collect each numeric parameter's declared range (derived from log) in x_matrix column order.
+    // Columns with a declared range use it as the search range; columns without one fall back to the observed range.
     let param_bounds: Vec<Option<(f64, f64)>> = numeric_params
         .iter()
         .map(|p| ctx.meta.param_bounds.get(p).copied())
@@ -112,8 +113,8 @@ fn build_numeric_fit_xy(ctx: &StudyContext, objective: &str) -> Option<NumericFi
     Some((numeric_params, x_matrix, y, param_bounds, kept_rows))
 }
 
-/// `build_numeric_fit_xy` の多目的版。全目的の y 列をまとめて取り出し、
-/// いずれかの目的または X が非有限の行を除外する。
+/// Multi-objective version of `build_numeric_fit_xy`. Extracts the y columns for all objectives together,
+/// excluding rows where any objective or X value is non-finite.
 type NumericFitXyMulti = (
     Vec<String>,
     Vec<Vec<f64>>,
@@ -170,8 +171,8 @@ fn build_numeric_fit_xy_multi(
     ))
 }
 
-/// PDP 用の (X, y) を組み立てる。feasible_only の場合は実行可能解のみを対象とし、
-/// 非有限値（NaN/inf）を含む行は除外する（observed_contour と同じフィルタ方針）。
+/// Builds (X, y) for PDP. When feasible_only is set, only feasible solutions are targeted,
+/// and rows containing non-finite values (NaN/inf) are excluded (same filter policy as observed_contour).
 fn build_xy_for_objective(
     ctx: &StudyContext,
     objective: &str,
@@ -182,7 +183,7 @@ fn build_xy_for_objective(
 
     let param_cols = ctx.view.numeric_columns(param_names);
     let obj_col = ctx.view.numeric_column(objective);
-    // 実行可能解フィルタ。is_feasible 列が無い（制約なし）場合は全行を対象とする。
+    // Feasible-solution filter. If there's no is_feasible column (no constraints), all rows are targeted.
     let feas = ctx.view.feasibility();
 
     let mut x_matrix: Vec<Vec<f64>> = Vec::with_capacity(n);
@@ -206,8 +207,8 @@ fn build_xy_for_objective(
     (x_matrix, y)
 }
 
-/// 感度分析用の DataFrame を返す。feasible_only の場合は実行可能解のみの
-/// コピーを作る（コア関数は DataFrame を直接受け取るため）。
+/// Returns the DataFrame for sensitivity analysis. When feasible_only is set, makes a copy
+/// containing only feasible solutions (since the core functions take a DataFrame directly).
 fn sensitivity_df(
     ctx: &crate::state::app_state::StudyContext,
     feasible_only: bool,
@@ -219,10 +220,10 @@ fn sensitivity_df(
     }
 }
 
-/// 選択手法について、全パラメータ × 全目的の感度行列 `values[param][obj]` を計算する。
-/// Sobol（First/Total）は一度の全目的計算から指数を取り出し、その他は目的ごとに
-/// 単一目的メトリクスを評価して列を埋める。手法→コアメトリクスの対応は
-/// `core_sensitivity_metric` を ImportanceChart と共有する。
+/// Computes the all-parameter x all-objective sensitivity matrix `values[param][obj]` for the selected
+/// method. For Sobol (First/Total), indices are extracted from a single all-objective computation;
+/// for other methods, each column is filled by evaluating the single-objective metric per objective.
+/// The method-to-core-metric mapping is shared with ImportanceChart via `core_sensitivity_metric`.
 fn compute_sensitivity_heatmap(
     metric: crate::ui::widgets::importance_chart::ImportanceMetric,
     feasible_only: bool,
@@ -240,7 +241,7 @@ fn compute_sensitivity_heatmap(
     let mut values = vec![vec![0.0f64; n_objs]; n_params];
 
     if metric.is_sobol() {
-        // first_order / total_effect はともに [param][obj] 形状で全目的を一括で返す。
+        // Both first_order and total_effect return all objectives at once, shaped as [param][obj].
         if let Some(sobol) = tunny_core::sensitivity::compute_sobol_from_df(df, SOBOL_SAMPLE_COUNT)
         {
             use crate::ui::widgets::importance_chart::ImportanceMetric;
@@ -280,9 +281,9 @@ fn compute_sensitivity_heatmap(
     }
 }
 
-/// 単一目的の計算結果（コア `SensitivityResult`）から、指定パラメータのスコアを取り出す。
-/// 木ベース（RF-Anova/MDI/SHAP/Permutation）は `importances[param][0]`、Spearman は
-/// `spearman[param][0]`、Ridge は `ridge[0].beta[param]`。Sobol はこの経路を通らない。
+/// Extracts the score for the given parameter from a single-objective computation result (core
+/// `SensitivityResult`). Tree-based methods (RF-Anova/MDI/SHAP/Permutation) use `importances[param][0]`,
+/// Spearman uses `spearman[param][0]`, Ridge uses `ridge[0].beta[param]`. Sobol doesn't go through this path.
 fn single_obj_param_score(
     r: &tunny_core::sensitivity::SensitivityResult,
     metric: crate::ui::widgets::importance_chart::ImportanceMetric,
@@ -353,8 +354,8 @@ pub(crate) fn poll_chart_work(
         _ => {}
     }
 
-    // ChartId ごとに名前付きヘルパーへディスパッチする。各ヘルパーは current_study が
-    // Some であることを前提にしてよい（上の早期 return で保証済み）。
+    // Dispatches to a named helper per ChartId. Each helper may assume current_study is
+    // Some (guaranteed by the early return above).
     match chart_id {
         ChartId::ConvergenceIndicators => poll_convergence_indicators(app_state, widgets, tx),
         ChartId::ImportanceChart => poll_importance_chart(app_state, widgets, tx),
@@ -376,8 +377,8 @@ pub(crate) fn poll_chart_work(
     }
 }
 
-/// 収束指標（Hypervolume 等）の推移を非同期計算する。基準 Study と比較 Study を
-/// 共通の参照点集合で正規化するため一括計算する。
+/// Asynchronously computes the progression of convergence indicators (Hypervolume, etc.). The baseline
+/// Study and comparison Studies are computed together so they can be normalized against a common set of reference points.
 fn poll_convergence_indicators(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -396,7 +397,7 @@ fn poll_convergence_indicators(
         .map(|d| matches!(d, Direction::Minimize))
         .collect();
 
-    // 計算コストを抑えるためダウンサンプリングする（最大 50 点）。
+    // Downsample to limit computation cost (up to 50 points).
     const TARGET_POINTS: usize = 50;
     let n_trials = ctx.view.row_count();
     let step = (n_trials / TARGET_POINTS).max(1);
@@ -416,7 +417,7 @@ fn poll_convergence_indicators(
         })
         .collect();
 
-    // 比較 Study ごとに独立してダウンサンプリングする。
+    // Downsample independently for each comparison Study.
     let mut comp_ids: Vec<Vec<u32>> = Vec::new();
     let mut comp_objs: Vec<Vec<Vec<f64>>> = Vec::new();
     let mut comp_steps: Vec<usize> = Vec::new();
@@ -444,8 +445,8 @@ fn poll_convergence_indicators(
         comp_steps.push(cs);
     }
 
-    // ユーザー指定の参照点（元の目的値）を正規化空間へ変換して渡す。
-    // 次元が目的数と一致しない指定は無視（None 扱い）して自動算出に委ねる。
+    // Convert the user-specified reference point (original objective values) into normalized space before passing it in.
+    // A specification whose dimensionality doesn't match the objective count is ignored (treated as None), deferring to automatic computation.
     let ref_override_norm: Option<Vec<f64>> = app_state
         .hv_ref_point_override
         .as_ref()
@@ -460,7 +461,7 @@ fn poll_convergence_indicators(
         use crate::state::results::ConvergenceHistory;
         use tunny_core::indicators::SeriesInput;
 
-        // 全系列（基準 + 比較）を一括計算して共通参照セットで正規化する。
+        // Compute all series (baseline + comparisons) together and normalize with a common reference set.
         let mut series = vec![SeriesInput {
             trial_ids: &sampled_ids,
             objectives: &sampled_objs,
@@ -483,7 +484,7 @@ fn poll_convergence_indicators(
                 trial_ids: h.trial_ids.clone(),
                 values: h.values.clone(),
                 sample_step: step,
-                // 表示用に参照点を元の目的値の単位へ戻す。
+                // Convert the reference point back to the original objective-value units for display.
                 ref_point: crate::state::ref_point_to_original(&h.ref_point, &is_minimize_for_back),
             }
         } else {
@@ -525,7 +526,7 @@ fn poll_convergence_indicators(
     });
 }
 
-/// パラメータ重要度（感度分析）の非同期計算をディスパッチする。
+/// Dispatches asynchronous computation of parameter importance (sensitivity analysis).
 fn poll_importance_chart(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -558,8 +559,8 @@ fn poll_importance_chart(
     }
 
     let ctx = app_state.current_study.as_ref().unwrap();
-    // 共有ストアの DataFrame を Arc::clone して直接利用（trial_rows 再構築不要）。
-    // feasible_only の場合は実行可能解のみのコピーを使う。
+    // Directly use the shared store's DataFrame via Arc::clone (no need to rebuild trial_rows).
+    // When feasible_only is set, use a copy containing only feasible solutions.
     let df = sensitivity_df(ctx, feasible_only);
     let tx = tx.clone();
     match metric {
@@ -584,8 +585,8 @@ fn poll_importance_chart(
             );
         }
         ImportanceMetric::Ard => {
-            // ARD は GP-FITC を学習してその長さスケールから重要度を得る
-            //（DataFrame メトリクスではないため Sobol 同様の専用経路）。
+            // ARD trains a GP-FITC and derives importance from its length scales
+            // (not a DataFrame metric, so it takes a dedicated path like Sobol).
             let key = (metric.cache_id(), obj_idx, feasible_only);
             crate::app::spawn_task(tx, move || {
                 match tunny_core::surrogate_opt::compute_ard_importance_from_df(&df, obj_idx) {
@@ -681,16 +682,16 @@ fn poll_importance_chart(
     }
 }
 
-/// 感度ヒートマップ（全パラメータ × 全目的）の非同期計算をディスパッチする。
+/// Dispatches asynchronous computation of the sensitivity heatmap (all parameters x all objectives).
 fn poll_sensitivity_heatmap(
     app_state: &AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    // 選択手法の全パラメータ × 全目的の感度行列を非同期計算する。
-    // 計算要求は widgets.sensitivity_heatmap.pending_compute に積まれ
-    // （Run ボタン、または低コスト手法の自動トリガー）、結果は手法ごとに
-    // app_state.sensitivity_heatmap_cache へ集約される。
+    // Asynchronously computes the all-parameter x all-objective sensitivity matrix for the selected method.
+    // Compute requests are queued in widgets.sensitivity_heatmap.pending_compute (via the Run button, or
+    // auto-triggered for low-cost methods), and results are collected per method into
+    // app_state.sensitivity_heatmap_cache.
     let Some((metric, feasible_only)) = widgets.sensitivity_heatmap.pending_compute.take() else {
         return;
     };
@@ -710,7 +711,7 @@ fn poll_sensitivity_heatmap(
     });
 }
 
-/// PDP（1D）の非同期計算をディスパッチする。
+/// Dispatches asynchronous computation of PDP (1D).
 fn poll_pdp_chart(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -758,7 +759,7 @@ fn poll_pdp_chart(
     });
 }
 
-/// PDP（2D）の非同期計算をディスパッチする。
+/// Dispatches asynchronous computation of PDP (2D).
 fn poll_pdp_chart_2d(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<AppMessage>) {
     let Some(req) = widgets.pdp_2d.pending_compute.take() else {
         return;
@@ -792,7 +793,7 @@ fn poll_pdp_chart_2d(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<AppMessag
     });
 }
 
-/// クラスタ散布図（2D）のクラスタリング計算をディスパッチする。
+/// Dispatches the clustering computation for the cluster scatter plot (2D).
 fn poll_cluster_scatter(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -817,7 +818,7 @@ fn poll_cluster_scatter(
     }
 }
 
-/// クラスタ散布図（3D）のクラスタリング計算をディスパッチする。
+/// Dispatches the clustering computation for the cluster scatter plot (3D).
 fn poll_cluster_scatter_3d(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -842,8 +843,8 @@ fn poll_cluster_scatter_3d(
     }
 }
 
-/// MCDM 系チャート（ランク / 2D 散布 / 3D 散布）の計算をディスパッチする。
-/// 各チャートは独自の controls を持つが、ディスパッチ処理は共通。
+/// Dispatches computation for MCDM-family charts (rank / 2D scatter / 3D scatter).
+/// Each chart has its own controls, but the dispatch logic is shared.
 fn poll_mcdm_charts(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -854,7 +855,7 @@ fn poll_mcdm_charts(
     let obj_names = &ctx.meta.objective_names;
     let directions = &ctx.meta.directions;
 
-    // 対象チャートの controls と source だけを選び、同じ 2 ステップを実行する。
+    // Select only the target chart's controls and source, then run the same two steps.
     let (controls, source) = match chart_id {
         ChartId::McdmRankChart => (&mut widgets.mcdm_chart.controls, McdmChartSource::Rank),
         ChartId::McdmScatterChart => (
@@ -870,7 +871,7 @@ fn poll_mcdm_charts(
     dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
 }
 
-/// Artifact Gallery（Cluster / MCDM モード）の非同期計算をディスパッチする。
+/// Dispatches asynchronous computation for the Artifact Gallery (Cluster / MCDM modes).
 fn poll_artifact_gallery(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -920,7 +921,7 @@ fn poll_artifact_gallery(
     }
 }
 
-/// Observed Contour（観測点補間の等高線）の非同期計算をディスパッチする。
+/// Dispatches asynchronous computation for the Observed Contour (contour interpolated from observed points).
 fn poll_observed_contour(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -984,9 +985,10 @@ fn poll_observed_contour(
     });
 }
 
-/// サロゲート最適化（SurrogateOpt）の各段階を優先順で処理する。
-/// フィット → 多目的フィット → 最適化 → 多目的最適化 → 候補提案 → 多目的候補提案 の順で、
-/// 未消化リクエストが見つかった最初の段階だけを実行する（元の else-if 連鎖と同じ挙動）。
+/// Processes each stage of surrogate optimization (SurrogateOpt) in priority order.
+/// In the order fit -> multi-objective fit -> optimize -> multi-objective optimize -> suggest candidates ->
+/// multi-objective suggest candidates, only the first stage with a pending request is executed
+/// (same behavior as the original else-if chain).
 fn poll_surrogate_opt(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1010,7 +1012,7 @@ fn poll_surrogate_opt(
     surrogate_stage_multi_suggest(app_state, widgets, tx);
 }
 
-/// SurrogateOpt: 単一目的フィット段階。未消化リクエストを消費したら true。
+/// SurrogateOpt: single-objective fit stage. Returns true if a pending request was consumed.
 fn surrogate_stage_fit(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1027,21 +1029,21 @@ fn surrogate_stage_fit(
         return true;
     };
 
-    // フィット開始前に前の学習結果・最適化結果をクリアする。
+    // Clear the previous training and optimization results before starting the fit.
     widgets.surrogate_opt.fitting = true;
     widgets.surrogate_opt.trained = None;
     widgets.surrogate_opt.result = None;
     widgets.surrogate_opt.error_message = None;
 
-    // 制約列を抽出する（use_constraints かつ制約列がある場合）。非有限フィルタで
-    // 除外した行と整合させるため kept_rows で絞り込む。
+    // Extract constraint columns (when use_constraints is set and constraint columns exist). Filtered
+    // by kept_rows to stay aligned with the rows excluded by the non-finite filter.
     let constraints = if fit_req.use_constraints {
         collect_constraints(ctx, &kept_rows)
     } else {
         vec![]
     };
 
-    // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
+    // Shared progress/cancellation handle (shared between the UI and the training thread).
     let progress = tunny_core::surrogate_opt::FitProgress::new();
     widgets.surrogate_opt.fit_progress = Some(progress.clone());
 
@@ -1064,7 +1066,7 @@ fn surrogate_stage_fit(
         ) {
             Ok(t) => AppMessage::SurrogateFitDone(std::sync::Arc::new(t)),
             Err(e) => {
-                // キャンセル由来の失敗はエラー表示しない。
+                // Don't show an error for failures caused by cancellation.
                 if progress.is_cancelled() {
                     AppMessage::SurrogateFitCancelled
                 } else {
@@ -1076,7 +1078,7 @@ fn surrogate_stage_fit(
     true
 }
 
-/// SurrogateOpt: 多目的フィット段階（全目的を学習）。未消化リクエストを消費したら true。
+/// SurrogateOpt: multi-objective fit stage (trains all objectives). Returns true if a pending request was consumed.
 fn surrogate_stage_multi_fit(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1095,23 +1097,23 @@ fn surrogate_stage_multi_fit(
         widgets.surrogate_opt.error_message = Some("No numeric parameters available".to_string());
         return true;
     };
-    // 目的ごとの minimize フラグを directions から解決する（多目的最適化パスと同じ方法）。
+    // Resolve the per-objective minimize flag from directions (same approach as the multi-objective optimization path).
     let minimize_flags = minimize_flags(directions, obj_names.len());
 
-    // フィット開始前に前の多目的結果をクリアする。
+    // Clear the previous multi-objective results before starting the fit.
     widgets.surrogate_opt.fitting = true;
     widgets.surrogate_opt.multi_trained = None;
     widgets.surrogate_opt.multi_result = None;
     widgets.surrogate_opt.error_message = None;
 
-    // 進捗・キャンセル共有ハンドル（UI と学習スレッドで共有）。
+    // Shared progress/cancellation handle (shared between the UI and the training thread).
     let progress = tunny_core::surrogate_opt::FitProgress::new();
     widgets.surrogate_opt.fit_progress = Some(progress.clone());
 
     let tx = tx.clone();
     crate::app::spawn_task(tx, move || {
-        // パレートフロント集中つきで全目的を学習する
-        //（N > GP 誘導点上限のとき非劣 trial に誘導点を集中）。
+        // Train all objectives with Pareto-front concentration
+        // (concentrates inducing points on non-dominated trials when N exceeds the GP inducing-point cap).
         match tunny_core::surrogate_opt::fit_multi_surrogates_tracked(
             &x_matrix,
             &objective_values,
@@ -1135,7 +1137,7 @@ fn surrogate_stage_multi_fit(
     true
 }
 
-/// SurrogateOpt: 単一目的最適化段階。未消化リクエストを消費したら true。
+/// SurrogateOpt: single-objective optimization stage. Returns true if a pending request was consumed.
 fn surrogate_stage_optimize(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1144,7 +1146,7 @@ fn surrogate_stage_optimize(
     let Some(opt_req) = widgets.surrogate_opt.pending_optimize.take() else {
         return false;
     };
-    // 最適化段階は学習済みモデルが必要。
+    // The optimization stage requires a trained model.
     let Some(trained) = widgets.surrogate_opt.trained.clone() else {
         widgets.surrogate_opt.error_message =
             Some("No trained model available. Run Fit & Validate first.".to_string());
@@ -1161,7 +1163,7 @@ fn surrogate_stage_optimize(
         .map(|d| matches!(d, Direction::Minimize))
         .unwrap_or(true);
 
-    // 応答曲面スライスは廃止したため生成しない。
+    // Response-surface slices have been removed, so none are generated.
     let slice_params: Option<(usize, usize)> = None;
 
     widgets.surrogate_opt.optimizing = true;
@@ -1196,7 +1198,7 @@ fn surrogate_stage_optimize(
     true
 }
 
-/// SurrogateOpt: 多目的最適化段階。未消化リクエストを消費したら true。
+/// SurrogateOpt: multi-objective optimization stage. Returns true if a pending request was consumed.
 fn surrogate_stage_multi_optimize(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1210,7 +1212,7 @@ fn surrogate_stage_multi_optimize(
     {
         return false;
     }
-    // 多目的最適化段階: 学習済みサロゲート群が必要。
+    // Multi-objective optimization stage: requires a set of trained surrogates.
     let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
         widgets.surrogate_opt.error_message =
             Some("No trained multi-objective model. Run Fit & Validate first.".to_string());
@@ -1220,10 +1222,10 @@ fn surrogate_stage_multi_optimize(
     let obj_names = &ctx.meta.objective_names;
     let directions = &ctx.meta.directions;
 
-    // 目的ごとの minimize フラグを directions から解決する。
+    // Resolve the per-objective minimize flag from directions.
     let minimize_flags = minimize_flags(directions, obj_names.len());
 
-    // 応答曲面スライスは廃止したため生成しない。
+    // Response-surface slices have been removed, so none are generated.
     let slice_params: Option<(usize, usize)> = None;
 
     let objective_names_owned = obj_names.to_vec();
@@ -1257,12 +1259,12 @@ fn surrogate_stage_multi_optimize(
     true
 }
 
-/// SurrogateOpt: 単一目的の候補提案段階。未消化リクエストを消費したら true。
+/// SurrogateOpt: single-objective candidate-suggestion stage. Returns true if a pending request was consumed.
 fn surrogate_stage_suggest(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<AppMessage>) -> bool {
     let Some(suggest_req) = widgets.surrogate_opt.pending_suggest.take() else {
         return false;
     };
-    // 候補提案段階: 学習済み GP サロゲートが必要。
+    // Candidate-suggestion stage: requires a trained GP surrogate.
     let Some(trained) = widgets.surrogate_opt.trained.clone() else {
         widgets.surrogate_opt.error_message =
             Some("No trained model available. Run Fit & Validate first.".to_string());
@@ -1293,7 +1295,7 @@ fn surrogate_stage_suggest(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<App
     true
 }
 
-/// SurrogateOpt: 多目的候補提案段階（EHVI）。未消化リクエストを消費したら true。
+/// SurrogateOpt: multi-objective candidate-suggestion stage (EHVI). Returns true if a pending request was consumed.
 fn surrogate_stage_multi_suggest(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1302,7 +1304,7 @@ fn surrogate_stage_multi_suggest(
     let Some(multi_suggest_req) = widgets.surrogate_opt.pending_multi_suggest.take() else {
         return false;
     };
-    // 多目的候補提案段階（EHVI）: 学習済み GP サロゲート群が必要。
+    // Multi-objective candidate-suggestion stage (EHVI): requires a set of trained GP surrogates.
     let Some(multi_trained) = widgets.surrogate_opt.multi_trained.clone() else {
         widgets.surrogate_opt.error_message =
             Some("No trained multi-objective model. Run Fit & Validate first.".to_string());
@@ -1312,7 +1314,7 @@ fn surrogate_stage_multi_suggest(
     let obj_names = &ctx.meta.objective_names;
     let directions = &ctx.meta.directions;
 
-    // 目的ごとの minimize フラグを directions から解決する。
+    // Resolve the per-objective minimize flag from directions.
     let minimize_flags = minimize_flags(directions, obj_names.len());
 
     let param_names = multi_trained
@@ -1343,7 +1345,7 @@ fn surrogate_stage_multi_suggest(
     true
 }
 
-/// ロバスト性解析のフィット段階をディスパッチする。
+/// Dispatches the fit stage of robustness analysis.
 fn poll_robustness(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1354,7 +1356,7 @@ fn poll_robustness(
     };
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
-    // 数値パラメータの存在を先に確認（元の検証順を維持）。
+    // Check for the existence of numeric parameters first (preserving the original validation order).
     if numeric_param_names(ctx).is_empty() {
         widgets.robustness.fit_error = Some("No numeric parameters available".to_string());
         widgets.robustness.fitting = false;
@@ -1373,7 +1375,7 @@ fn poll_robustness(
         return;
     };
 
-    // ロバスト性解析は制約の実行可能率も欲しいので、あれば常に渡す。
+    // Robustness analysis also wants the constraint feasibility rate, so always pass constraints when present.
     let constraints = collect_constraints(ctx, &kept_rows);
 
     widgets.robustness.trained = None;
@@ -1399,7 +1401,7 @@ fn poll_robustness(
     });
 }
 
-/// 応答曲面 3D のフィット段階をディスパッチする。
+/// Dispatches the fit stage of the 3D response surface.
 fn poll_response_surface(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1410,7 +1412,7 @@ fn poll_response_surface(
     };
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
-    // 数値パラメータの存在を先に確認（元の検証順を維持）。
+    // Check for the existence of numeric parameters first (preserving the original validation order).
     if numeric_param_names(ctx).is_empty() {
         widgets.response_surface.fit_error = Some("No numeric parameters available".to_string());
         widgets.response_surface.fitting = false;
@@ -1441,7 +1443,7 @@ fn poll_response_surface(
             objective_name: objective,
             model: fit_req.model,
             auto_select: false,
-            // 応答曲面のスライス評価は実行可能性を扱わないため、制約は渡さない。
+            // Response-surface slice evaluation doesn't handle feasibility, so no constraints are passed.
             constraints: vec![],
             priority_rows: vec![],
             param_bounds: Some(param_bounds),
@@ -1453,7 +1455,7 @@ fn poll_response_surface(
     });
 }
 
-/// Compare Surrogates（全モデル種別の CV 指標比較 + 予測スライス）の計算をディスパッチする。
+/// Dispatches computation for Compare Surrogates (CV metric comparison across all model kinds + prediction slices).
 fn poll_surrogate_compare(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -1465,7 +1467,7 @@ fn poll_surrogate_compare(
     let ctx = app_state.current_study.as_ref().unwrap();
     let obj_names = &ctx.meta.objective_names;
     let directions = &ctx.meta.directions;
-    // 数値パラメータの存在を先に確認（元の検証順を維持）。
+    // Check for the existence of numeric parameters first (preserving the original validation order).
     if numeric_param_names(ctx).is_empty() {
         widgets.surrogate_compare.error = Some("No numeric parameters available".to_string());
         widgets.surrogate_compare.computing = false;
@@ -1489,8 +1491,9 @@ fn poll_surrogate_compare(
         return;
     }
 
-    // アンカー: 選択目的の観測ベスト行（方向を考慮）。best_trial_row は元 df の行 index を
-    // 返すため、非有限フィルタ後の x_matrix では kept_rows 内での位置に対応させる。
+    // Anchor: the observed best row for the selected objective (direction-aware). Since best_trial_row
+    // returns the row index in the original df, map it to its position within kept_rows for the
+    // non-finite-filtered x_matrix.
     let Some(best_row) =
         crate::ui::widgets::anchor::best_trial_row(&ctx.view, obj_names, directions, &objective)
     else {
@@ -1540,7 +1543,7 @@ fn poll_surrogate_compare(
                 objective_name: objective_name.clone(),
                 model: kind,
                 auto_select: false,
-                // 単純な比較ビューのため制約は扱わない（ResponseSurface3D と同じ理由）。
+                // Constraints aren't handled since this is a simple comparison view (same reason as ResponseSurface3D).
                 constraints: vec![],
                 priority_rows: vec![],
                 param_bounds: Some(param_bounds.clone()),
@@ -1577,7 +1580,7 @@ fn poll_surrogate_compare(
             }
         }
 
-        // 全モデルが失敗した場合のみ Failed とする（一部失敗は行ごとのエラーとして表示する）。
+        // Only report Failed if all models failed (partial failures are shown as per-row errors).
         if rows.iter().all(|r| r.error.is_some()) {
             let combined = rows
                 .iter()
@@ -1598,10 +1601,10 @@ fn poll_surrogate_compare(
     });
 }
 
-/// 統合トライアルテーブル（`PanelItem::TrialTable`）の非同期計算をディスパッチする。
-/// 現在のモードに応じて、Cluster なら クラスタリング、MCDM なら MCDM 計算を起動する。
-/// 計算結果は Cluster/MCDM テーブルと同じ `ClusterChartSource::Table` /
-/// `McdmChartSource::Table` で共有・キャッシュされる。
+/// Dispatches asynchronous computation for the unified trial table (`PanelItem::TrialTable`).
+/// Depending on the current mode, launches clustering for Cluster or MCDM computation for MCDM.
+/// Results are shared and cached under the same `ClusterChartSource::Table` /
+/// `McdmChartSource::Table` as the Cluster/MCDM tables.
 pub(crate) fn poll_trial_table_work(
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
@@ -1649,7 +1652,7 @@ pub(crate) fn poll_trial_table_work(
     }
 }
 
-/// Entropy 重みの計算を必要なら起動する（チャートごとの controls から）。
+/// Launches the Entropy weight computation if needed (from each chart's controls).
 fn dispatch_mcdm_entropy(
     controls: &mut McdmControls,
     ctx: &StudyContext,
@@ -1700,8 +1703,8 @@ fn dispatch_mcdm_entropy(
     );
 }
 
-/// MCDM ランキングの計算を必要なら起動する（チャートごとの controls から）。
-/// 結果は設定キー付きで返し、`app_state.mcdm_cache` に格納される。
+/// Launches the MCDM ranking computation if needed (from each chart's controls).
+/// The result is returned with a config key and stored in `app_state.mcdm_cache`.
 fn dispatch_mcdm_compute(
     controls: &mut McdmControls,
     ctx: &StudyContext,
@@ -1721,7 +1724,7 @@ fn dispatch_mcdm_compute(
     let n_total = ctx.view.row_count();
     let n_objectives = obj_names.len();
 
-    // パレートフロント（rank == 0）の行インデックスのみを対象とする
+    // Target only the row indices on the Pareto front (rank == 0)
     let pareto_row_indices: Vec<usize> = (0..n_total)
         .filter(|&i| ctx.view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
         .collect();
@@ -1765,7 +1768,7 @@ fn dispatch_mcdm_compute(
     });
 }
 
-/// パレートフロント部分集合に対して MCDM を計算し、全トライアル長へ展開した結果を返す。
+/// Computes MCDM over the Pareto-front subset and returns the result expanded to full trial length.
 #[allow(clippy::too_many_arguments)]
 fn compute_mcdm_result(
     method: McdmMethod,
@@ -1784,7 +1787,7 @@ fn compute_mcdm_result(
         return Err("MCDM: Pareto front is empty. Run the optimizer first.".to_string());
     }
 
-    // subset 内のインデックスを全トライアルのインデックスに変換するヘルパー
+    // Helper that converts an index within the subset to a full-trial index
     let remap = |subset_idx: u32| -> u32 {
         pareto_row_indices
             .get(subset_idx as usize)
@@ -1881,7 +1884,7 @@ fn run_cluster_compute(
     matrix: ClusterMatrix,
 ) -> AppMessage {
     let key = ClusterCacheKey::from_request(&req);
-    let trial_count = matrix.n_rows; // パレートフロントの解数（k-means に渡す行数）
+    let trial_count = matrix.n_rows; // Number of Pareto-front solutions (rows passed to k-means)
     let n_cols = matrix.n_cols;
 
     if !matrix.is_valid_for_clustering() {
@@ -1933,7 +1936,7 @@ fn run_cluster_compute(
         );
     }
 
-    // パレートフロントのラベルを全トライアル分に展開（対象外の解は -1）
+    // Expand Pareto-front labels to cover all trials (solutions not included get -1)
     let mut full_labels = vec![-1i32; matrix.total_trials];
     for (matrix_row, &trial_idx) in matrix.target_indices.iter().enumerate() {
         if let Some(&label) = result.labels.get(matrix_row) {

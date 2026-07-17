@@ -1,15 +1,15 @@
-//! tunny-mcp: Tunny Dashboard の Optuna 分析機能を公開する MCP サーバー。
+//! tunny-mcp: an MCP server exposing Tunny Dashboard's Optuna analysis features.
 //!
-//! MCP (Model Context Protocol) の stdio トランスポートを実装する。
-//! stdin から改行区切りの JSON-RPC 2.0 メッセージを読み、stdout へ
-//! 応答を 1 行 1 メッセージで書く。ログ・診断は stderr のみに出す
-//! （stdout はプロトコル専用）。
+//! Implements the MCP (Model Context Protocol) stdio transport.
+//! Reads newline-delimited JSON-RPC 2.0 messages from stdin and writes
+//! responses to stdout, one message per line. Logs/diagnostics go only to
+//! stderr (stdout is reserved for the protocol).
 //!
 //! ```text
-//! tunny-mcp            # MCP クライアント（Claude Code 等）から起動される
+//! tunny-mcp            # launched by an MCP client (e.g. Claude Code)
 //! ```
 //!
-//! クライアント登録例（Claude Code）:
+//! Example client registration (Claude Code):
 //!
 //! ```text
 //! claude mcp add tunny -- /path/to/tunny-mcp
@@ -21,9 +21,10 @@ mod tools;
 
 use std::io::{BufRead, Read, Write};
 
-/// 1 行（= 1 JSON-RPC メッセージ）の最大バイト数。
-/// 改行なしの巨大入力によるメモリ枯渇（DoS）を防ぐ上限で、正当な
-/// ツール呼び出し（storage パス + 引数）には十分すぎる余裕を持たせている。
+/// The maximum bytes for one line (= one JSON-RPC message).
+/// This upper bound prevents memory exhaustion (DoS) from a huge input with no
+/// newline, while leaving more than enough headroom for a legitimate tool
+/// call (storage path + arguments).
 const MAX_LINE_BYTES: u64 = 8 * 1024 * 1024;
 
 fn main() {
@@ -35,8 +36,9 @@ fn main() {
     let mut server = rpc::Server::new();
 
     loop {
-        // 行長上限付き読み込み。上限を超えた行はフレーミングを再同期
-        // できないため、エラー応答を返して終了する。
+        // Reads with a line-length cap. A line exceeding the cap can't have
+        // its framing resynchronized, so an error response is returned and
+        // the loop terminates.
         let mut buf = String::new();
         match (&mut reader).take(MAX_LINE_BYTES).read_line(&mut buf) {
             Ok(0) => break, // EOF
@@ -58,12 +60,12 @@ fn main() {
             continue;
         }
         if let Some(response) = server.handle_message(&buf) {
-            // 1 メッセージ 1 行（改行区切り JSON-RPC）。
+            // One message per line (newline-delimited JSON-RPC).
             if writeln!(out, "{response}")
                 .and_then(|()| out.flush())
                 .is_err()
             {
-                // stdout が閉じられた = クライアント終了。
+                // stdout was closed = the client exited.
                 break;
             }
         }

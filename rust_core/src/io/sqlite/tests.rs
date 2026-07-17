@@ -85,8 +85,9 @@ fn seed_basic(conn: &Connection) {
     )
     .unwrap();
 
-    // study 1: trials 1..=4 (1,2,3 complete; 4 pruned)。datetime_start/complete も付与し
-    // extras（全 trial の付帯情報）の日時パースを検証できるようにする。
+    // study 1: trials 1..=4 (1,2,3 complete; 4 pruned). Also sets datetime_start/complete
+    // so the datetime parsing of extras (per-trial metadata for all trials) can be
+    // verified.
     conn.execute_batch(
         "
         INSERT INTO trials (trial_id, number, study_id, state, datetime_start, datetime_complete) VALUES
@@ -166,9 +167,10 @@ fn seed_basic(conn: &Connection) {
     .unwrap();
 }
 
-/// `trial_intermediate_values` テーブルを追加する。古い Optuna DB には存在しないため、
-/// `create_schema` には含めず、中間値を検証するテストでのみ明示的に追加する
-/// （`create_schema` のみのテストは「テーブル欠落時は空」というフォールバックの検証を兼ねる）。
+/// Adds the `trial_intermediate_values` table. It doesn't exist in older Optuna DBs, so
+/// it's excluded from `create_schema` and added explicitly only by tests that verify
+/// intermediate values (tests using `create_schema` alone also double as verification of
+/// the "empty when the table is missing" fallback).
 fn add_intermediate_values_table(conn: &Connection) {
     conn.execute_batch(
         "
@@ -184,8 +186,9 @@ fn add_intermediate_values_table(conn: &Connection) {
     .unwrap();
 }
 
-/// study_id=1 の trial 1（COMPLETE）と trial 4（PRUNED）に中間値を積む。
-/// trial 1 は step 昇順チェック用に逆順で INSERT し、trial 4 に INF_POS を混ぜる。
+/// Adds intermediate values to study_id=1's trial 1 (COMPLETE) and trial 4 (PRUNED).
+/// Trial 1 is INSERTed in reverse order to check ascending-step sorting, and trial 4 mixes
+/// in an INF_POS.
 fn seed_intermediate_values(conn: &Connection) {
     conn.execute_batch(
         "
@@ -261,7 +264,8 @@ fn parse_single_study_reads_params_and_excludes_non_complete_trials() {
     let x_vals = df.get_numeric_column("x").unwrap();
     assert_eq!(x_vals, &[0.5, 1.5, -2.0]);
 
-    // Optuna は param_value に実値（外部表現）を格納するため表示もそのまま
+    // Optuna stores the actual value (external representation) in param_value, so the
+    // display is unchanged too
     let n_vals = df.get_numeric_column("n").unwrap();
     assert_eq!(n_vals, &[3.0, 5.0, 7.0]);
 
@@ -327,8 +331,8 @@ fn parse_single_study_extracts_constraints() {
 
 #[test]
 fn parse_single_study_extras_without_intermediate_table_are_empty() {
-    // trial_intermediate_values テーブルが存在しない古い DB でもエラーにならず、
-    // 中間値は空で返る（フォールバック）。
+    // Doesn't error even on an older DB lacking the trial_intermediate_values table;
+    // intermediate values come back empty (fallback).
     let file = tempfile::NamedTempFile::new().unwrap();
     let conn = Connection::open(file.path()).unwrap();
     create_schema(&conn);
@@ -355,36 +359,37 @@ fn parse_single_study_extras_include_all_states_datetimes_and_intermediate_value
     drop(conn);
 
     let (_meta, df, extras) = parse_single_study(file.path(), 1).unwrap();
-    // DataFrame は COMPLETE のみ（PRUNED は含まれない）。
+    // DataFrame contains only COMPLETE (PRUNED is not included).
     assert_eq!(
         df.row_count(),
         3,
         "PRUNED trial must stay excluded from the DataFrame"
     );
 
-    // extras は全 state（4 trial）を trial_id 昇順で保持する。
+    // extras holds all states (4 trials) in ascending trial_id order.
     assert_eq!(extras.trials.len(), 4);
     assert!(extras.has_intermediate());
     assert!(extras.has_datetimes());
     let ids: Vec<u32> = extras.trials.iter().map(|t| t.trial_id).collect();
     assert_eq!(ids, vec![1, 2, 3, 4]);
 
-    // trial 4 は PRUNED として state が反映される。
+    // trial 4's state is reflected as PRUNED.
     let pruned = extras.trials.iter().find(|t| t.trial_id == 4).unwrap();
     assert_eq!(pruned.state, TrialState::Pruned);
-    // trial 4 の中間値には INF_POS → f64::INFINITY へのマッピングが含まれる。
+    // trial 4's intermediate values include the INF_POS -> f64::INFINITY mapping.
     assert_eq!(pruned.intermediate_values, vec![(0, f64::INFINITY)]);
 
-    // trial 1 は COMPLETE。中間値は挿入順に関わらず step 昇順に整列される。
+    // trial 1 is COMPLETE. Intermediate values are sorted in ascending step order
+    // regardless of insertion order.
     let t1 = extras.trials.iter().find(|t| t.trial_id == 1).unwrap();
     assert_eq!(t1.state, TrialState::Complete);
     assert_eq!(t1.intermediate_values, vec![(0, 0.1), (1, 0.2)]);
 
-    // datetime は naive unix 秒へパースされる（2024-01-01 00:00:00 == 1704067200）。
+    // datetime is parsed into naive unix seconds (2024-01-01 00:00:00 == 1704067200).
     assert_eq!(t1.datetime_start, Some(1_704_067_200.0));
     assert_eq!(t1.datetime_complete, Some(1_704_067_210.0));
 
-    // 中間値を持たない trial（2, 3）は空のまま。
+    // Trials with no intermediate values (2, 3) remain empty.
     let t2 = extras.trials.iter().find(|t| t.trial_id == 2).unwrap();
     assert!(t2.intermediate_values.is_empty());
 }
@@ -424,7 +429,7 @@ fn scan_study_list_empty_database_errors() {
     assert!(result.is_err());
 }
 
-// ── study_fingerprint（ライブ更新の変化検出） ─────────────────────────
+// ── study_fingerprint (live update change detection) ─────────────────────────
 
 #[test]
 fn study_fingerprint_equal_on_unchanged_db() {
@@ -470,7 +475,7 @@ fn study_fingerprint_changes_when_state_updated() {
 
     let fp1 = study_fingerprint(file.path(), 1).unwrap();
 
-    // trial 4 (PRUNED) を COMPLETE へ遷移させる（RUNNING→COMPLETE と同じ意味論）。
+    // Transition trial 4 (PRUNED) to COMPLETE (same semantics as RUNNING->COMPLETE).
     conn.execute(
         "UPDATE trials SET state = 'COMPLETE' WHERE trial_id = 4",
         [],
@@ -481,7 +486,7 @@ fn study_fingerprint_changes_when_state_updated() {
     let fp2 = study_fingerprint(file.path(), 1).unwrap();
     assert_ne!(fp1, fp2);
     assert_eq!(fp2.completed_trials, fp1.completed_trials + 1);
-    // state のみの変化では total_trials / max_trial_id は変わらない。
+    // A state-only change doesn't change total_trials / max_trial_id.
     assert_eq!(fp2.total_trials, fp1.total_trials);
     assert_eq!(fp2.max_trial_id, fp1.max_trial_id);
 }
@@ -508,7 +513,7 @@ fn study_fingerprint_changes_when_intermediate_value_added() {
     let fp2 = study_fingerprint(file.path(), 1).unwrap();
     assert_ne!(fp1, fp2);
     assert_eq!(fp2.intermediate_count, fp1.intermediate_count + 1);
-    // trials テーブル自体は変化していないため他フィールドは同じ。
+    // The trials table itself hasn't changed, so the other fields are the same.
     assert_eq!(fp2.total_trials, fp1.total_trials);
     assert_eq!(fp2.completed_trials, fp1.completed_trials);
     assert_eq!(fp2.state_digest, fp1.state_digest);
@@ -516,8 +521,8 @@ fn study_fingerprint_changes_when_intermediate_value_added() {
 
 #[test]
 fn study_fingerprint_works_when_intermediate_table_absent() {
-    // trial_intermediate_values テーブルが存在しない古い DB でもエラーにならず、
-    // intermediate_count は 0 になる（フォールバック）。
+    // Doesn't error even on an older DB lacking the trial_intermediate_values table;
+    // intermediate_count becomes 0 (fallback).
     let file = tempfile::NamedTempFile::new().unwrap();
     let conn = Connection::open(file.path()).unwrap();
     create_schema(&conn);

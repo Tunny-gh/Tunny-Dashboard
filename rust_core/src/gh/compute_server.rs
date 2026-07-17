@@ -1,14 +1,15 @@
-//! rhino.compute のローカルプロセス起動・停止の管理。
+//! Manages starting and stopping a local rhino.compute process.
 //!
-//! Compute の接続先は「稼働中サーバーの URL」に加えて「rhino.compute の
-//! 実行ファイルパス」を受け付ける。EXE 指定の場合は Dashboard が
-//! `--port` 付きでプロセスを起動し、HTTP が応答するまで待ってから
-//! 評価に使う。返される `ComputeServerHandle` の Drop でプロセスを停止する
-//! （最適化ループの終了・エラー・キャンセルで確実に片付く）。
+//! In addition to the URL of a running server, the Compute connection target
+//! also accepts a path to the rhino.compute executable. When an EXE is
+//! specified, the Dashboard launches the process with `--port` and waits for
+//! HTTP to respond before using it for evaluation. Dropping the returned
+//! `ComputeServerHandle` stops the process (ensuring cleanup on optimization
+//! loop completion, error, or cancellation).
 //!
-//! 制限: 停止するのは起動した親プロセスのみ。rhino.compute が生成する
-//! compute.geometry 子プロセスは rhino.compute 自身のシャットダウン処理に
-//! 委ねる。
+//! Limitation: only the launched parent process is stopped. The
+//! compute.geometry child process spawned by rhino.compute is left to
+//! rhino.compute's own shutdown handling.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -16,17 +17,18 @@ use std::time::{Duration, Instant};
 
 use crate::surrogate_opt::FitProgress;
 
-/// ユーザー入力（URL または EXE パス）の解釈結果。
+/// Result of interpreting user input (a URL or an EXE path).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComputeTarget {
-    /// 稼働中の rhino.compute サーバーの URL（例 `http://localhost:6500`）
+    /// URL of a running rhino.compute server (e.g. `http://localhost:6500`)
     Url(String),
-    /// rhino.compute 実行ファイルのパス。Dashboard が起動・停止を管理する
+    /// Path to the rhino.compute executable. The Dashboard manages start/stop
     Exe(PathBuf),
 }
 
-/// Compute 接続先入力を分類する。`http://` / `https://`（大文字小文字無視)で
-/// 始まれば URL、それ以外はローカル実行ファイルのパスとみなす。
+/// Classifies the Compute connection target input. If it starts with
+/// `http://` / `https://` (case-insensitive), it is treated as a URL;
+/// otherwise as a path to a local executable.
 pub fn classify_compute_input(input: &str) -> ComputeTarget {
     let trimmed = input.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -37,7 +39,7 @@ pub fn classify_compute_input(input: &str) -> ComputeTarget {
     }
 }
 
-/// 起動した rhino.compute プロセスのハンドル。Drop で kill + wait する。
+/// Handle to a launched rhino.compute process. Drop kills and waits on it.
 #[derive(Debug)]
 pub struct ComputeServerHandle {
     child: Child,
@@ -45,7 +47,7 @@ pub struct ComputeServerHandle {
 }
 
 impl ComputeServerHandle {
-    /// 接続先 URL（`http://localhost:<port>`）。
+    /// Connection URL (`http://localhost:<port>`).
     pub fn url(&self) -> &str {
         &self.url
     }
@@ -58,13 +60,16 @@ impl Drop for ComputeServerHandle {
     }
 }
 
-/// rhino.compute を起動し、HTTP が応答するまで待つ。
+/// Launches rhino.compute and waits until HTTP responds.
 ///
-/// - `--port <port>` を引数に渡し、作業ディレクトリは EXE の親ディレクトリ
-/// - rhino.compute の初回起動は Rhino のロードで数十秒かかることがあるため、
-///   `startup_timeout_secs` は余裕を持たせる（UI 側の既定は 180 秒）
-/// - `should_abort` が true を返したら待機を中断する（キャンセル対応）。
-///   中断・失敗時は戻り値の Drop 経路と同様にプロセスを停止して返す
+/// - Passes `--port <port>` as an argument; the working directory is the
+///   EXE's parent directory
+/// - The first launch of rhino.compute can take tens of seconds due to Rhino
+///   loading, so `startup_timeout_secs` should allow enough margin (the UI
+///   default is 180 seconds)
+/// - Waiting is interrupted if `should_abort` returns true (for
+///   cancellation support). On interruption or failure, the process is
+///   stopped via the same Drop path as the returned value
 pub fn start_compute_server(
     exe_path: &Path,
     port: u16,
@@ -95,17 +100,17 @@ pub fn start_compute_server(
             exe_path.display()
         )
     })?;
-    // 以降のエラーは handle の Drop がプロセスを停止する。
+    // From this point on, any error causes handle's Drop to stop the process.
     let mut handle = ComputeServerHandle { child, url };
     wait_until_ready(&mut handle, startup_timeout_secs, should_abort)?;
     Ok(handle)
 }
 
-/// `FitProgress` にステージ表示とキャンセルを紐付けて rhino.compute を起動する。
+/// Launches rhino.compute, wiring up stage display and cancellation via `FitProgress`.
 ///
-/// UI から呼ぶための薄いラッパ（ステージ設定はクレート内限定 API のため
-/// ここで行う）。起動待機中は「rhino.compute を起動中…」を表示し、
-/// `progress.request_cancel()` で待機を中断できる。
+/// A thin wrapper for calling from the UI (stage setting is done here since
+/// it's a crate-internal-only API). While waiting to start, it displays
+/// "Starting rhino.compute…", and `progress.request_cancel()` can interrupt the wait.
 pub fn start_compute_server_tracked(
     exe_path: &Path,
     port: u16,
@@ -118,11 +123,12 @@ pub fn start_compute_server_tracked(
     })
 }
 
-/// HTTP が応答するまでポーリングする。
+/// Polls until HTTP responds.
 ///
-/// `/healthcheck` へ GET し、HTTP 応答が返れば（ステータスによらず）起動済みと
-/// みなす。接続エラーの間は 500ms 間隔で再試行し、子プロセスの早期終了と
-/// タイムアウトを検出する。
+/// Sends GET to `/healthcheck`; any HTTP response (regardless of status) is
+/// treated as meaning the server has started. While connection errors
+/// persist, it retries at 500ms intervals, detecting early child process
+/// exit and timeout.
 fn wait_until_ready(
     handle: &mut ComputeServerHandle,
     timeout_secs: u64,
@@ -137,7 +143,7 @@ fn wait_until_ready(
         if should_abort() {
             return Err("rhino.compute の起動待機がキャンセルされました".to_string());
         }
-        // 起動直後にクラッシュ・即終了した場合はタイムアウトを待たずに報告する。
+        // If it crashes or exits immediately after launch, report it without waiting for the timeout.
         if let Ok(Some(status)) = handle.child.try_wait() {
             return Err(format!(
                 "rhino.compute が起動直後に終了しました（{status}）。\
@@ -146,8 +152,9 @@ fn wait_until_ready(
             ));
         }
         match agent.get(&health_url).call() {
-            // HTTP 応答が返ればサーバーは生きている（healthcheck 未実装の
-            // ビルドでも 404 等が返れば起動済みとみなせる）。
+            // Any HTTP response means the server is alive (even a build
+            // without healthcheck implemented can be considered started if
+            // it returns e.g. 404).
             Ok(_) | Err(ureq::Error::Status(_, _)) => return Ok(()),
             Err(_) => {}
         }
@@ -199,16 +206,17 @@ mod tests {
         assert!(err.contains("見つかりません"), "unexpected: {err}");
     }
 
-    // 以下はプロセス起動を伴うテスト。シェルスクリプトを疑似 EXE として使うため
-    // unix（Linux / macOS CI）のみで実行する。Windows CI では起動経路は
-    // 実 rhino.compute での手動確認に委ねる。
+    // The tests below actually launch a process. Since a shell script is
+    // used as a pseudo-EXE, they run only on unix (Linux / macOS CI). On
+    // Windows CI, the launch path is left to manual verification with real
+    // rhino.compute.
     #[cfg(unix)]
     mod process_tests {
         use super::super::*;
         use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
 
-        /// 実行可能な一時スクリプトを作る。
+        /// Creates a temporary executable script.
         fn write_script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
             let path = dir.join("fake_compute.sh");
             let mut f = std::fs::File::create(&path).unwrap();
@@ -226,7 +234,7 @@ mod tests {
             let start = std::time::Instant::now();
             let err = start_compute_server(&exe, 65002, 60, &|| false).unwrap_err();
             assert!(err.contains("終了しました"), "unexpected: {err}");
-            // 60 秒のタイムアウトを待たずに返ること
+            // Should return without waiting for the 60-second timeout
             assert!(start.elapsed() < Duration::from_secs(30));
         }
 
@@ -248,9 +256,10 @@ mod tests {
 
         #[test]
         fn ready_when_http_responds() {
-            // 空きポートで疑似 HTTP サーバーを立て、そのポートを指定して起動。
-            // 子プロセス自体は待機するだけのスクリプトだが、HTTP 応答があれば
-            // ready と判定される（healthcheck の応答内容は問わない）。
+            // Start a pseudo HTTP server on a free port, and launch with
+            // that port specified. The child process itself is just a
+            // script that waits, but as long as there's an HTTP response it
+            // is judged ready (the healthcheck response content doesn't matter).
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             std::thread::spawn(move || {
@@ -267,7 +276,7 @@ mod tests {
             let exe = write_script(dir.path(), "while true; do sleep 1; done");
             let handle = start_compute_server(&exe, port, 30, &|| false).unwrap();
             assert_eq!(handle.url(), format!("http://localhost:{port}"));
-            // Drop で子プロセスが停止する（ハングしないことで確認）。
+            // Drop stops the child process (verified by not hanging).
             drop(handle);
         }
     }

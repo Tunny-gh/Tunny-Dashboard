@@ -1,10 +1,11 @@
-/// CSV のフィールド区切り文字。
+/// CSV field delimiter character.
 pub(super) const CSV_DELIMITER: char = ',';
 
-/// クオートが必要になる文字（区切り文字・改行・ダブルクオート）。
+/// Characters that require quoting (delimiter, newline, double quote).
 pub(super) const NEEDS_QUOTING_CHARS: [char; 3] = [',', '\n', '"'];
 
-/// 構造クオート（カンマ・改行・ダブルクオートを含む場合のみ `"` で囲み、内部の `"` は `""` にエスケープ）を適用する。
+/// Applies structural quoting (wraps in `"` only if the value contains a comma,
+/// newline, or double quote, escaping any inner `"` as `""`).
 pub(super) fn escape_csv_field(s: &str) -> String {
     if s.chars().any(|c| NEEDS_QUOTING_CHARS.contains(&c)) {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -13,12 +14,15 @@ pub(super) fn escape_csv_field(s: &str) -> String {
     }
 }
 
-/// 数式インジェクションを誘発する先頭文字（Excel 等が式として解釈する）。
+/// Leading characters that can trigger formula injection (interpreted as a
+/// formula by Excel and similar spreadsheet applications).
 pub(super) const FORMULA_LEADING_CHARS: [char; 4] = ['=', '+', '-', '@'];
 
-/// テキストフィールド用のサニタイズ。先頭が数式文字なら `'` を前置して
-/// スプレッドシートの式解釈を無効化した上で、構造クオートを適用する。
-/// 数値をフォーマットした文字列には使わないこと（負数の `-` に `'` が付くため）。
+/// Sanitization for text fields. If the value starts with a formula character,
+/// prefixes it with `'` to disable spreadsheet formula interpretation, then
+/// applies structural quoting.
+/// Do not use this on formatted numeric strings (a negative number's leading
+/// `-` would get a `'` prefixed).
 pub(super) fn sanitize_csv_text(s: &str) -> String {
     if s.starts_with(FORMULA_LEADING_CHARS) {
         escape_csv_field(&format!("'{s}"))
@@ -27,8 +31,9 @@ pub(super) fn sanitize_csv_text(s: &str) -> String {
     }
 }
 
-/// f64 を CSV 出力用の文字列に整形する。整数値は小数点なし、非有限値（NaN/inf）は空欄、
-/// それ以外は小数点以下10桁で丸めた上で末尾の余分な0を除去する。
+/// Formats an f64 as a string for CSV output. Integer values are written without
+/// a decimal point, non-finite values (NaN/inf) become an empty field, and other
+/// values are rounded to 10 decimal places with trailing zeros trimmed.
 pub(super) fn format_f64(v: f64) -> String {
     if v.is_nan() || v.is_infinite() {
         return String::new();

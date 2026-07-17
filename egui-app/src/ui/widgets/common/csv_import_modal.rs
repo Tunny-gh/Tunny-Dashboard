@@ -1,25 +1,27 @@
-//! CSV インポート確認ダイアログ。
+//! The CSV import confirmation dialog.
 //!
-//! フラット CSV には最適化方向（最大化/最小化）や変数の宣言レンジが含まれないため、
-//! 読み込み直後にこのモーダルで観測値由来の既定値を提示し、ユーザーが確認・修正できる
-//! ようにする。確定すると編集値が `StudyMeta` に反映され、その方向で Pareto ランクが、
-//! そのレンジでサロゲート最適化の探索箱が決まる。
+//! Since a flat CSV doesn't carry optimization directions (maximize/minimize) or declared
+//! variable ranges, this modal presents defaults derived from the observed values right
+//! after loading, letting the user confirm or adjust them. Once confirmed, the edited
+//! values are applied to `StudyMeta`; that direction determines the Pareto rank, and that
+//! range determines the search box for surrogate optimization.
 
 use egui::RichText;
 
 use crate::state::app_state::CsvImportSettings;
 use crate::ui::widgets::common::modal::ModalScaffold;
 
-/// ダイアログの操作結果。
+/// The dialog's operation result.
 pub enum CsvImportAction {
-    /// 現在の編集値で Study を読み込む。
+    /// Loads the Study with the current edited values.
     Apply,
 }
 
-/// CSV インポート確認モーダルを描画する。
+/// Draws the CSV import confirmation modal.
 ///
-/// 確定された場合のみ `Some(CsvImportAction::Apply)` を返す。返り値が `None` の間は
-/// ダイアログを開いたままにする。Esc / 背景クリックでもレンジが有効なら確定する。
+/// Returns `Some(CsvImportAction::Apply)` only when confirmed. The dialog stays open
+/// while the return value is `None`. Esc / a click outside the dialog also confirms if
+/// the range is valid.
 pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<CsvImportAction> {
     let mut load_clicked = false;
     let valid = settings.bounds_valid();
@@ -38,14 +40,16 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
             );
             ui.separator();
 
-            // ── 目的の最適化方向 ──────────────────────────────────
+            // ── Objective optimization directions ──────────────────────────────────
             ui.label(RichText::new("Objective Directions").strong());
             egui::Grid::new("csv_import_directions")
                 .num_columns(2)
                 .spacing([16.0, 4.0])
                 .show(ui, |ui| {
-                    // `objective_names` と `maximize` の長さが食い違う CSV メタでも panic しない
-                    // よう、直接添字ではなく zip で対応する要素だけを回す（余りは無視）。
+                    // Iterates only over the corresponding elements via zip, rather than
+                    // direct indexing, so this doesn't panic even on CSV metadata where
+                    // `objective_names` and `maximize` lengths disagree (the remainder is
+                    // ignored).
                     for (i, (name, is_max)) in settings
                         .objective_names
                         .iter()
@@ -64,7 +68,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
                 });
             ui.add_space(8.0);
 
-            // ── 数値パラメータのレンジ ────────────────────────────
+            // ── Numeric parameter ranges ────────────────────────────
             ui.label(RichText::new("Parameter Ranges").strong());
             if settings.param_bounds.is_empty() {
                 ui.label(
@@ -81,7 +85,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
                         ui.end_row();
                         for pb in settings.param_bounds.iter_mut() {
                             ui.label(&pb.name);
-                            // 観測幅の 1% を 1 ステップとし、ダブルクリックで直接入力もできる。
+                            // Uses 1% of the observed width as one step; double-clicking also allows direct entry.
                             let speed = ((pb.high - pb.low).abs() * 0.01).max(0.01);
                             ui.add(egui::DragValue::new(&mut pb.low).speed(speed));
                             ui.add(egui::DragValue::new(&mut pb.high).speed(speed));
@@ -106,7 +110,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
             });
         });
 
-    // Esc / 背景クリックでもレンジが有効なら確定する（無効時は開いたまま）。
+    // Esc / a click outside the dialog also confirms if the range is valid (stays open when invalid).
     if load_clicked || (outcome.should_close && valid) {
         Some(CsvImportAction::Apply)
     } else {
@@ -138,7 +142,7 @@ mod tests {
     fn from_meta_sorts_bounds_and_defaults_to_minimize() {
         let s = CsvImportSettings::from_meta(&make_meta());
         assert_eq!(s.maximize, vec![false, false]);
-        // パラメータ名昇順。
+        // Parameter names in ascending order.
         assert_eq!(s.param_bounds[0].name, "a");
         assert_eq!(s.param_bounds[1].name, "x");
         assert!(s.bounds_valid());

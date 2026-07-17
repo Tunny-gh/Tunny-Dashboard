@@ -10,7 +10,7 @@ fn method_label(method: CorrelationMethod) -> &'static str {
     }
 }
 
-/// キャッシュキー用の判別子。
+/// Discriminant used for the cache key.
 fn method_disc(method: CorrelationMethod) -> u8 {
     match method {
         CorrelationMethod::Pearson => 0,
@@ -21,7 +21,7 @@ fn method_disc(method: CorrelationMethod) -> u8 {
 /// (study_name, method_disc, include_params, include_objectives, row_count)
 type CorrCacheKey = (String, u8, bool, bool, usize);
 
-/// パラメータ・目的関数の相関行列ヒートマップウィジェット。
+/// Correlation matrix heatmap widget for parameters and objective functions.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct CorrelationMatrixChart {
@@ -128,8 +128,10 @@ impl CorrelationMatrixChart {
     }
 }
 
-/// k×k の相関行列ヒートマップを painter で直接描画する（sensitivity_heatmap と同じ流儀）。
-/// 列ヘッダはセル幅に収まらない場合、ScatterMatrix と同じ 45° 回転で重なりを防ぐ。
+/// Draws the k x k correlation matrix heatmap directly with the painter
+/// (same style as sensitivity_heatmap). When a column header doesn't fit
+/// within the cell width, it's rotated 45 degrees to avoid overlap, the
+/// same as ScatterMatrix.
 fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
     let n = matrix.labels.len();
     if n == 0 {
@@ -139,7 +141,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
     let text_color = ui.visuals().text_color();
     let font = egui::FontId::proportional(10.0);
 
-    // ラベルを先にレイアウトして最大幅を測る（回転判定・ヘッダ寸法に使う）。
+    // Lay out labels first and measure the max width (used for the rotation decision and header dimensions).
     let label_galleys: Vec<std::sync::Arc<egui::Galley>> = matrix
         .labels
         .iter()
@@ -156,10 +158,11 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
 
     let available = ui.available_rect_before_wrap();
 
-    // 行ヘッダ幅はラベル実幅に合わせる（従来の固定 80px では長い名前が重なった）。
+    // Row header width matches the actual label width (the previous fixed
+    // 80px caused long names to overlap).
     let header_w = (max_label_w + 8.0).clamp(60.0, available.width() * 0.3);
 
-    // 列ラベルがセル幅に収まらなければ 45° 回転（ScatterMatrix と同じ判定・寸法）。
+    // Rotate column labels 45 degrees if they don't fit the cell width (same test/dimensions as ScatterMatrix).
     let label_angle = std::f32::consts::FRAC_PI_4;
     let cell_w_est = (available.width() - header_w) / n as f32;
     let rotate_cols = max_label_w > cell_w_est - 4.0;
@@ -174,13 +177,14 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
 
     let painter = ui.painter();
 
-    // 列ヘッダ
+    // Column headers
     for (j, galley) in label_galleys.iter().enumerate() {
         let col_center_x = available.min.x + header_w + (j as f32 + 0.5) * cell_w;
         let size = galley.size();
         if rotate_cols {
-            // -45°（反時計回り）で回転させた "/" 形ラベルの最下端を
-            // 各列中心・グリッド上端のすぐ上に合わせる（ScatterMatrix と同じ手法）。
+            // Align the bottom edge of the "/"-shaped label, rotated -45
+            // degrees (counterclockwise), just above each column's center
+            // at the grid's top edge (same technique as ScatterMatrix).
             let applied = -label_angle;
             let (sa, ca) = (applied.sin(), applied.cos());
             let corners = [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)];
@@ -209,7 +213,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
         }
     }
 
-    // 行ヘッダ + セルグリッド
+    // Row headers + cell grid
     for (i, label) in matrix.labels.iter().enumerate() {
         let y = available.min.y + header_h + i as f32 * cell_h;
 

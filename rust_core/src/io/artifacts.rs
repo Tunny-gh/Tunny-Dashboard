@@ -1,10 +1,11 @@
-//! REQ-007: Artifacts フォルダスキャン・パストラバーサル防止 (NFR-201)
+//! REQ-007: Artifacts folder scanning and path traversal prevention (NFR-201)
 //!
-//! Optuna のアーティファクト機能では、ファイルの実体は `artifacts/<artifact_id>`
-//! （拡張子なし、ファイル名 = artifact_id）として保存され、trial との対応・元のファイル名・
-//! MIME タイプは Journal の `set_trial_system_attr`（キー `artifacts:<artifact_id>`）に
-//! JSON 文字列で記録される。したがって **ファイル名から trial_id を推測することはできず**、
-//! Journal のメタデータを参照して trial と artifact を結び付ける必要がある。
+//! In Optuna's artifact feature, the actual file is stored as `artifacts/<artifact_id>`
+//! (no extension, filename = artifact_id), and the mapping to the trial, the original
+//! filename, and the MIME type are recorded as a JSON string in the Journal's
+//! `set_trial_system_attr` (key `artifacts:<artifact_id>`). Therefore **the trial_id
+//! cannot be inferred from the filename**, and the Journal metadata must be consulted
+//! to link a trial to its artifacts.
 
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -14,14 +15,14 @@ use std::path::{Path, PathBuf};
 // ArtifactFileType
 // ============================================================
 
-/// アーティファクトのファイルタイプ（REQ-007-E/F/G）
+/// Artifact file type (REQ-007-E/F/G)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArtifactFileType {
     /// PNG / JPG / JPEG / GIF / WEBP
     Image,
     /// CSV
     Csv,
-    /// その他
+    /// Other
     Other,
 }
 
@@ -39,7 +40,7 @@ impl ArtifactFileType {
         }
     }
 
-    /// MIME タイプから種別を判定する（判定できない場合は None）。
+    /// Determines the type from the MIME type (returns None if it cannot be determined).
     pub fn from_mime(mime: &str) -> Option<Self> {
         if mime.starts_with("image/") {
             Some(Self::Image)
@@ -50,7 +51,7 @@ impl ArtifactFileType {
         }
     }
 
-    /// MIME タイプを優先し、無ければ元ファイル名の拡張子で種別を判定する。
+    /// Prefers the MIME type, falling back to the original filename's extension if absent.
     pub fn classify(filename: &str, mime: &str) -> Self {
         Self::from_mime(mime).unwrap_or_else(|| Self::from_path(Path::new(filename)))
     }
@@ -60,9 +61,10 @@ impl ArtifactFileType {
 // ArtifactEntry / ArtifactMeta
 // ============================================================
 
-/// 表示用に解決済みの 1 アーティファクト。
-/// `path` はディスク上の実体（`base_dir/<artifact_id>`）、`filename` は表示用の元ファイル名、
-/// `mimetype` は種別判定用（不明な場合は空文字）。
+/// A single artifact resolved for display.
+/// `path` is the on-disk entity (`base_dir/<artifact_id>`), `filename` is the original
+/// filename used for display, and `mimetype` is used for type classification (empty
+/// string if unknown).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArtifactEntry {
     pub path: PathBuf,
@@ -76,7 +78,7 @@ impl ArtifactEntry {
     }
 }
 
-/// Journal の `artifacts:<id>` システム属性値（JSON 文字列）をデコードした構造。
+/// Structure decoded from the Journal's `artifacts:<id>` system attribute value (a JSON string).
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ArtifactMeta {
     #[serde(default)]
@@ -93,9 +95,9 @@ pub struct ArtifactMeta {
 
 #[derive(Debug)]
 pub enum ArtifactsError {
-    /// base_dir 外へのアクセス試行（NFR-201）
+    /// Attempted access outside base_dir (NFR-201)
     PathTraversal,
-    /// IO エラー
+    /// IO error
     Io(std::io::Error),
 }
 
@@ -112,8 +114,8 @@ impl std::fmt::Display for ArtifactsError {
 // validate_path (NFR-201)
 // ============================================================
 
-/// `base_dir` 外へのパストラバーサルを防ぐ安全なパス検証。
-/// `../` 等を含むパスを検出した場合は `Err(ArtifactsError::PathTraversal)` を返す。
+/// Safe path validation that prevents path traversal outside `base_dir`.
+/// Returns `Err(ArtifactsError::PathTraversal)` if a path containing `../` or similar is detected.
 pub fn validate_path(base_dir: &Path, file_path: &Path) -> Result<PathBuf, ArtifactsError> {
     let canonical_base = base_dir.canonicalize().map_err(ArtifactsError::Io)?;
     let canonical_file = file_path.canonicalize().map_err(ArtifactsError::Io)?;
@@ -125,14 +127,14 @@ pub fn validate_path(base_dir: &Path, file_path: &Path) -> Result<PathBuf, Artif
 }
 
 // ============================================================
-// extract_trial_id（レガシーレイアウト用フォールバック）
+// extract_trial_id (fallback for the legacy layout)
 // ============================================================
 
-/// ファイル名/ディレクトリ名の先頭連続数値を trial_id として抽出する。
-/// 例: `"42"` → `42`, `"42_result.png"` → `42`, `"result_42"` → `None`
+/// Extracts the leading run of digits in a filename/directory name as the trial_id.
+/// Example: `"42"` → `42`, `"42_result.png"` → `42`, `"result_42"` → `None`
 ///
-/// Optuna 標準のアーティファクトストアでは使われないが、`artifacts/<trial_id>/file` のような
-/// 独自レイアウトの後方互換フォールバックとして残す。
+/// Not used by Optuna's standard artifact store, but kept as a backward-compatibility
+/// fallback for custom layouts such as `artifacts/<trial_id>/file`.
 pub fn extract_trial_id(path: &Path) -> Option<u32> {
     let name = path.file_name()?.to_str()?;
     let digits: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -147,11 +149,12 @@ pub fn extract_trial_id(path: &Path) -> Option<u32> {
 // parse_artifact_metadata
 // ============================================================
 
-/// Journal を走査し、`trial_id → [ArtifactMeta]` のマッピングを構築する。
+/// Scans the Journal and builds a `trial_id → [ArtifactMeta]` mapping.
 ///
-/// Optuna は `set_trial_system_attr`（op_code 9, キー `system_attr`）またはトライアル生成時の
-/// インライン `system_attrs`（op_code 4）に、キー `artifacts:<artifact_id>` で JSON 文字列を記録する。
-/// trial_id は Journal 全体で一意なので study を区別せず全件まとめて返す。
+/// Optuna records a JSON string under the key `artifacts:<artifact_id>`, either in
+/// `set_trial_system_attr` (op_code 9, key `system_attr`) or in the inline `system_attrs`
+/// (op_code 4) emitted at trial creation. Since trial_id is unique across the whole Journal,
+/// all entries are returned together without distinguishing by study.
 pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<ArtifactMeta>> {
     let mut map: HashMap<u32, Vec<ArtifactMeta>> = HashMap::new();
     let Ok(file) = std::fs::File::open(journal_path) else {
@@ -159,20 +162,21 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
     };
     let reader = std::io::BufReader::new(file);
     for line in reader.lines() {
-        // 非 UTF-8 等で読めない行はその行のみスキップして走査を継続する
-        // （`map_while(Result::ok)` は最初の不正行で走査全体を打ち切り、
-        // 以降のメタデータを黙って取りこぼすため使わない）。
+        // Lines that fail to read (e.g. non-UTF-8) are skipped individually while
+        // scanning continues (`map_while(Result::ok)` would abort the entire scan
+        // at the first invalid line and silently drop the remaining metadata, so
+        // it is not used here).
         let Ok(line) = line else {
             continue;
         };
-        // `artifacts:` を含まない行は JSON パースを省略する（大きな Journal 対策）。
+        // Skip JSON parsing for lines that don't contain `artifacts:` (optimization for large Journals).
         if !line.contains("artifacts:") {
             continue;
         }
         let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
-        // trial_id は u32 の範囲に収まらない場合スキップする（黙って切り捨てない）。
+        // Skip if trial_id doesn't fit in u32 (do not silently truncate).
         let Some(trial_id) = json
             .get("trial_id")
             .and_then(|v| v.as_u64())
@@ -180,7 +184,7 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
         else {
             continue;
         };
-        // op_code 9 は "system_attr"、op_code 4 のインラインは "system_attrs"。
+        // op_code 9 uses "system_attr"; the inline form for op_code 4 uses "system_attrs".
         let Some(obj) = json
             .get("system_attr")
             .or_else(|| json.get("system_attrs"))
@@ -210,7 +214,7 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
 // resolve_from_metadata / scan_legacy_layout
 // ============================================================
 
-/// メタデータを元に `base_dir/<artifact_id>` を解決する（Optuna 標準ストア）。
+/// Resolves `base_dir/<artifact_id>` based on the metadata (Optuna's standard store).
 pub fn resolve_from_metadata(
     base_dir: &Path,
     meta_by_trial: &HashMap<u32, Vec<ArtifactMeta>>,
@@ -222,7 +226,7 @@ pub fn resolve_from_metadata(
                 continue;
             }
             let path = base_dir.join(&meta.artifact_id);
-            // 実体が存在し base_dir 内に収まるもののみ採用する（NFR-201）。
+            // Only accept entries whose file exists and stays within base_dir (NFR-201).
             if validate_path(base_dir, &path).is_err() {
                 continue;
             }
@@ -241,7 +245,7 @@ pub fn resolve_from_metadata(
     out
 }
 
-/// レガシーレイアウト（ファイル名/ディレクトリ名の先頭数値 = trial_id）をスキャンする。
+/// Scans the legacy layout (leading number in filename/directory name = trial_id).
 pub fn scan_legacy_layout(base_dir: &Path) -> HashMap<u32, Vec<ArtifactEntry>> {
     let mut out: HashMap<u32, Vec<ArtifactEntry>> = HashMap::new();
     let Ok(entries) = std::fs::read_dir(base_dir) else {
@@ -273,7 +277,7 @@ pub fn scan_legacy_layout(base_dir: &Path) -> HashMap<u32, Vec<ArtifactEntry>> {
     out
 }
 
-/// ディスク上のファイル名をそのまま表示名に使う `ArtifactEntry` を作る（レガシー用）。
+/// Builds an `ArtifactEntry` that uses the on-disk filename directly as the display name (for legacy layout).
 fn make_entry(path: PathBuf) -> ArtifactEntry {
     let filename = path
         .file_name()
@@ -288,7 +292,7 @@ fn make_entry(path: PathBuf) -> ArtifactEntry {
 }
 
 // ============================================================
-// テスト
+// Tests
 // ============================================================
 
 #[cfg(test)]
@@ -325,7 +329,7 @@ mod tests {
 
     #[test]
     fn classify_prefers_mime_then_extension() {
-        // 拡張子なし（artifact_id ファイル名）でも MIME で判定できる。
+        // Even without an extension (artifact_id as filename), MIME allows classification.
         assert_eq!(
             ArtifactFileType::classify("00b40d87-uuid", "image/png"),
             ArtifactFileType::Image
@@ -370,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_validate_path_traversal_blocked() {
-        // NFR-201: base_dir 外のパスを拒否する
+        // NFR-201: reject paths outside base_dir
         let tmp1 = tempfile::tempdir().unwrap();
         let tmp2 = tempfile::tempdir().unwrap();
         let file_in_other = tmp2.path().join("secret.txt");
@@ -379,13 +383,13 @@ mod tests {
         assert!(matches!(result, Err(ArtifactsError::PathTraversal)));
     }
 
-    // ── Journal メタデータ解析 ───────────────────────────────────
+    // ── Journal metadata parsing ───────────────────────────────────
 
     #[test]
     fn parse_artifact_metadata_reads_system_attr_op9() {
         let tmp = tempfile::tempdir().unwrap();
         let journal = tmp.path().join("study.journal");
-        // op_code 9: set_trial_system_attr。値は JSON 文字列。
+        // op_code 9: set_trial_system_attr. The value is a JSON string.
         let line = r#"{"op_code":9,"worker_id":"w","trial_id":42,"system_attr":{"artifacts:abc123":"{\"artifact_id\": \"abc123\", \"filename\": \"result.png\", \"mimetype\": \"image/png\"}"}}"#;
         std::fs::write(&journal, format!("{line}\n")).unwrap();
 
@@ -406,14 +410,15 @@ mod tests {
 
         let map = parse_artifact_metadata(&journal);
         let metas = map.get(&7).unwrap();
-        assert_eq!(metas[0].artifact_id, "def456"); // キー接尾辞から補完
+        assert_eq!(metas[0].artifact_id, "def456"); // filled in from the key suffix
         assert_eq!(metas[0].filename, "data.csv");
     }
 
     #[test]
     fn parse_artifact_metadata_skips_out_of_range_trial_id() {
-        // trial_id が u32 の範囲を超える場合は `as u32` で黙って切り捨てず、
-        // そのエントリごとスキップする（監査で見つかった切り捨てバグの回帰テスト）。
+        // When trial_id exceeds the u32 range, the whole entry is skipped instead of
+        // silently truncating it via `as u32` (regression test for a truncation bug
+        // found during audit).
         let tmp = tempfile::tempdir().unwrap();
         let journal = tmp.path().join("study.journal");
         let oversized_trial_id = u64::from(u32::MAX) + 1;
@@ -441,9 +446,9 @@ mod tests {
     fn resolve_from_metadata_matches_files_on_disk() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
-        // artifact_id をファイル名として実体を作成（拡張子なし）。
+        // Create the file using artifact_id as the filename (no extension).
         std::fs::write(base.join("abc123"), b"img").unwrap();
-        // 存在しない artifact は除外されることも確認。
+        // Also verify that a nonexistent artifact is excluded.
         let mut meta_by_trial: HashMap<u32, Vec<ArtifactMeta>> = HashMap::new();
         meta_by_trial.insert(
             42,

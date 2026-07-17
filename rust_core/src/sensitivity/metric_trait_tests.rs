@@ -1,7 +1,7 @@
-//! TASK-2259 Redフェーズ: SpearmanMetric・RidgeMetric の SensitivityMetric トレイト実装テスト
+//! TASK-2259 Red phase: SensitivityMetric trait implementation tests for SpearmanMetric and RidgeMetric
 //!
-//! テストケース定義: docs/implements/rust-core-refactoring/TASK-2259/spearman-ridge-metric-impl-testcases.md
-//! 要件定義: docs/implements/rust-core-refactoring/TASK-2259/spearman-ridge-metric-impl-requirements.md
+//! Test case definitions: docs/implements/rust-core-refactoring/TASK-2259/spearman-ridge-metric-impl-testcases.md
+//! Requirements definition: docs/implements/rust-core-refactoring/TASK-2259/spearman-ridge-metric-impl-requirements.md
 
 use super::compute_sensitivity_single_obj;
 use super::metric_trait::SensitivityMetric;
@@ -11,7 +11,7 @@ use crate::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// テストユーティリティ
+// Test utilities
 // ---------------------------------------------------------------------------
 
 fn make_row_multi(trial_id: u32, params: &[(&str, f64)], objectives: Vec<f64>) -> TrialRow {
@@ -37,58 +37,58 @@ fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
 }
 
 // ===========================================================================
-// 正常系テストケース
+// Normal-path test cases
 // ===========================================================================
 
 #[test]
 fn tc_2259_01_spearman_metric_name() {
-    // 【テスト目的】: SpearmanMetric::name() が正しい文字列 "Spearman" を返すことを確認
-    // 【テスト内容】: SpearmanMetric インスタンスを生成し name() を呼び出す
-    // 【期待される動作】: "Spearman" という &'static str が返る
-    // 🔵 信頼性レベル: 青（要件定義書セクション2、interfaces.rs で明記）
+    // 【Test purpose】: Verify that SpearmanMetric::name() returns the correct string "Spearman"
+    // 【Test description】: Instantiate SpearmanMetric and call name()
+    // 【Expected behavior】: Returns the &'static str "Spearman"
+    // 🔵 Reliability level: Blue (explicitly stated in requirements doc section 2, interfaces.rs)
 
-    // 【テストデータ準備】: ゼロサイズ構造体のインスタンス化確認
-    // 【初期条件設定】: 特別な前提条件なし
+    // 【Test data preparation】: Confirm instantiation of the zero-sized struct
+    // 【Initial condition setup】: No special preconditions
     let metric = SpearmanMetric;
 
-    // 【実際の処理実行】: name() メソッドの呼び出し
-    // 【処理内容】: トレイトメソッド name() の戻り値確認
+    // 【Actual execution】: Call the name() method
+    // 【Process description】: Check the return value of the trait method name()
     let name = metric.name();
 
-    // 【結果検証】: 戻り値が "Spearman" と完全一致すること
-    // 【期待値確認】: 要件定義書セクション2 name() 戻り値テーブル
-    assert_eq!(name, "Spearman"); // 【確認内容】: 正確な文字列が返る 🔵
+    // 【Result verification】: The return value must exactly match "Spearman"
+    // 【Expected value check】: Requirements doc section 2, name() return value table
+    assert_eq!(name, "Spearman"); // 【Verification point】: The exact string is returned 🔵
 }
 
 #[test]
 fn tc_2259_02_ridge_metric_name() {
-    // 【テスト目的】: RidgeMetric::name() が正しい文字列 "Ridge" を返すことを確認
-    // 【テスト内容】: RidgeMetric インスタンスを生成し name() を呼び出す
-    // 【期待される動作】: "Ridge" という &'static str が返る
-    // 🔵 信頼性レベル: 青（要件定義書セクション2、interfaces.rs で明記）
+    // 【Test purpose】: Verify that RidgeMetric::name() returns the correct string "Ridge"
+    // 【Test description】: Instantiate RidgeMetric and call name()
+    // 【Expected behavior】: Returns the &'static str "Ridge"
+    // 🔵 Reliability level: Blue (explicitly stated in requirements doc section 2, interfaces.rs)
 
-    // 【テストデータ準備】: ゼロサイズ構造体のインスタンス化確認
-    // 【初期条件設定】: 特別な前提条件なし
+    // 【Test data preparation】: Confirm instantiation of the zero-sized struct
+    // 【Initial condition setup】: No special preconditions
     let metric = RidgeMetric;
 
-    // 【実際の処理実行】: name() メソッドの呼び出し
-    // 【処理内容】: トレイトメソッド name() の戻り値確認
+    // 【Actual execution】: Call the name() method
+    // 【Process description】: Check the return value of the trait method name()
     let name = metric.name();
 
-    // 【結果検証】: 戻り値が "Ridge" と完全一致すること
-    // 【期待値確認】: 要件定義書セクション2 name() 戻り値テーブル
-    assert_eq!(name, "Ridge"); // 【確認内容】: 正確な文字列が返る 🔵
+    // 【Result verification】: The return value must exactly match "Ridge"
+    // 【Expected value check】: Requirements doc section 2, name() return value table
+    assert_eq!(name, "Ridge"); // 【Verification point】: The exact string is returned 🔵
 }
 
 #[test]
 fn tc_2259_03_spearman_positive_correlation() {
-    // 【テスト目的】: SpearmanMetric::compute() が正の相関データで正しい SensitivityResult を返す
-    // 【テスト内容】: 20行・2パラメータの DataFrame で obj_idx=0 のとき Spearman 感度値が正しく計算される
-    // 【期待される動作】: x1-obj0 は正相関(>0.99)、x2-obj0 は負相関(<-0.99)、他フィールドは空/None
-    // 🔵 信頼性レベル: 青（要件定義書セクション2 SensitivityResult 定義、full.rs L57-76）
+    // 【Test purpose】: SpearmanMetric::compute() returns a correct SensitivityResult for positively correlated data
+    // 【Test description】: With a 20-row, 2-parameter DataFrame, verify the Spearman sensitivity value is computed correctly for obj_idx=0
+    // 【Expected behavior】: x1-obj0 is positively correlated (>0.99), x2-obj0 is negatively correlated (<-0.99), other fields are empty/None
+    // 🔵 Reliability level: Blue (requirements doc section 2 SensitivityResult definition, full.rs L57-76)
 
-    // 【テストデータ準備】: tc_801_11 と同一パターン。x1=i, x2=20-i, y=i の完全相関データ
-    // 【初期条件設定】: 20行・2パラメータ・1目的関数の DataFrame
+    // 【Test data preparation】: Same pattern as tc_801_11. Perfectly correlated data with x1=i, x2=20-i, y=i
+    // 【Initial condition setup】: DataFrame with 20 rows, 2 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..20)
         .map(|i| {
             make_row_multi(
@@ -100,94 +100,94 @@ fn tc_2259_03_spearman_positive_correlation() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: トレイトメソッド compute() による Spearman 感度計算
+    // 【Actual execution】: Call SpearmanMetric::compute()
+    // 【Process description】: Spearman sensitivity computation via the trait method compute()
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: SensitivityResult の全フィールドを検証
-    // 【期待値確認】: 要件定義書セクション2「SensitivityResult の内容（SpearmanMetric）」
+    // 【Result verification】: Check every field of SensitivityResult
+    // 【Expected value check】: Requirements doc section 2, "SensitivityResult contents (SpearmanMetric)"
     assert!(
         result.is_some(),
         "SpearmanMetric::compute() should return Some"
-    ); // 【確認内容】: 計算が正常に完了し Some が返る 🔵
+    ); // 【Verification point】: Computation completes successfully and returns Some 🔵
     let r = result.unwrap();
-    assert_eq!(r.param_names, vec!["x1", "x2"]); // 【確認内容】: パラメータ名が正しく設定される 🔵
-    assert_eq!(r.objective_names, vec!["obj0"]); // 【確認内容】: 目的関数名が1要素のみ 🔵
-    assert_eq!(r.spearman.len(), 2); // 【確認内容】: パラメータ数分の感度値が設定される 🔵
+    assert_eq!(r.param_names, vec!["x1", "x2"]); // 【Verification point】: Parameter names are set correctly 🔵
+    assert_eq!(r.objective_names, vec!["obj0"]); // 【Verification point】: Only one objective name 🔵
+    assert_eq!(r.spearman.len(), 2); // 【Verification point】: Sensitivity values are set for each parameter 🔵
     assert!(
         r.spearman[0][0] > 0.99,
         "x1-obj0 should be positively correlated: {}",
         r.spearman[0][0]
-    ); // 【確認内容】: x1-obj0 正相関 🔵
+    ); // 【Verification point】: x1-obj0 positively correlated 🔵
     assert!(
         r.spearman[1][0] < -0.99,
         "x2-obj0 should be negatively correlated: {}",
         r.spearman[1][0]
-    ); // 【確認内容】: x2-obj0 負相関 🔵
-    assert!(r.ridge.is_empty()); // 【確認内容】: Ridge フィールドは空 🔵
-    assert!(r.rf_anova.is_none()); // 【確認内容】: rf_anova は None 🔵
-    assert!(r.mdi.is_none()); // 【確認内容】: mdi は None 🔵
-    assert!(r.shap.is_none()); // 【確認内容】: shap は None 🔵
-    assert!(r.permutation.is_none()); // 【確認内容】: permutation は None 🔵
+    ); // 【Verification point】: x2-obj0 negatively correlated 🔵
+    assert!(r.ridge.is_empty()); // 【Verification point】: Ridge field is empty 🔵
+    assert!(r.rf_anova.is_none()); // 【Verification point】: rf_anova is None 🔵
+    assert!(r.mdi.is_none()); // 【Verification point】: mdi is None 🔵
+    assert!(r.shap.is_none()); // 【Verification point】: shap is None 🔵
+    assert!(r.permutation.is_none()); // 【Verification point】: permutation is None 🔵
 }
 
 #[test]
 fn tc_2259_04_ridge_linear_data() {
-    // 【テスト目的】: RidgeMetric::compute() が線形関係データで正しい SensitivityResult を返す
-    // 【テスト内容】: 50行・1パラメータの完全線形データで R^2 > 0.99 を確認
-    // 【期待される動作】: R^2 が 0.99 以上、beta が正の符号を持つ
-    // 🔵 信頼性レベル: 青（要件定義書セクション2、full.rs L77-89）
+    // 【Test purpose】: RidgeMetric::compute() returns a correct SensitivityResult for linearly related data
+    // 【Test description】: Verify R^2 > 0.99 for a perfectly linear 50-row, 1-parameter dataset
+    // 【Expected behavior】: R^2 is 0.99 or higher, and beta has a positive sign
+    // 🔵 Reliability level: Blue (requirements doc section 2, full.rs L77-89)
 
-    // 【テストデータ準備】: tc_801_06 と同一パターン。x1=i, y=2*i+1 の完全線形関係
-    // 【初期条件設定】: 50行・1パラメータ・1目的関数の DataFrame
+    // 【Test data preparation】: Same pattern as tc_801_06. Perfectly linear relationship x1=i, y=2*i+1
+    // 【Initial condition setup】: DataFrame with 50 rows, 1 parameter, 1 objective
     let rows: Vec<TrialRow> = (0..50)
         .map(|i| make_row_multi(i, &[("x1", i as f64)], vec![2.0 * i as f64 + 1.0]))
         .collect();
     let df = setup_df(rows, &["x1"], &["obj0"]);
 
-    // 【実際の処理実行】: RidgeMetric::compute() を呼び出す
-    // 【処理内容】: トレイトメソッド compute() による Ridge 感度計算
+    // 【Actual execution】: Call RidgeMetric::compute()
+    // 【Process description】: Ridge sensitivity computation via the trait method compute()
     let metric = RidgeMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: SensitivityResult の全フィールドを検証
-    // 【期待値確認】: 要件定義書セクション2「SensitivityResult の内容（RidgeMetric）」
+    // 【Result verification】: Check every field of SensitivityResult
+    // 【Expected value check】: Requirements doc section 2, "SensitivityResult contents (RidgeMetric)"
     assert!(
         result.is_some(),
         "RidgeMetric::compute() should return Some"
-    ); // 【確認内容】: 計算が正常に完了 🔵
+    ); // 【Verification point】: Computation completes successfully 🔵
     let r = result.unwrap();
-    assert_eq!(r.param_names, vec!["x1"]); // 【確認内容】: パラメータ名 🔵
-    assert_eq!(r.objective_names, vec!["obj0"]); // 【確認内容】: 目的関数名1要素 🔵
-    assert!(r.spearman.is_empty()); // 【確認内容】: Spearman フィールドは空 🔵
-    assert_eq!(r.ridge.len(), 1); // 【確認内容】: ridge フィールドに1要素 🔵
-    assert_eq!(r.ridge[0].beta.len(), 1); // 【確認内容】: beta がパラメータ数分 🔵
+    assert_eq!(r.param_names, vec!["x1"]); // 【Verification point】: Parameter name 🔵
+    assert_eq!(r.objective_names, vec!["obj0"]); // 【Verification point】: One objective name 🔵
+    assert!(r.spearman.is_empty()); // 【Verification point】: Spearman field is empty 🔵
+    assert_eq!(r.ridge.len(), 1); // 【Verification point】: One element in the ridge field 🔵
+    assert_eq!(r.ridge[0].beta.len(), 1); // 【Verification point】: beta has one entry per parameter 🔵
     assert!(
         r.ridge[0].r_squared > 0.99,
         "R² should be close to 1.0: {}",
         r.ridge[0].r_squared
-    ); // 【確認内容】: R^2 が高い値 🔵
+    ); // 【Verification point】: R^2 is high 🔵
     assert!(
         r.ridge[0].beta[0] > 0.0,
         "beta should be positive: {}",
         r.ridge[0].beta[0]
-    ); // 【確認内容】: beta の符号が正 🔵
-    assert!(r.rf_anova.is_none()); // 【確認内容】: rf_anova は None 🔵
-    assert!(r.mdi.is_none()); // 【確認内容】: mdi は None 🔵
-    assert!(r.shap.is_none()); // 【確認内容】: shap は None 🔵
-    assert!(r.permutation.is_none()); // 【確認内容】: permutation は None 🔵
+    ); // 【Verification point】: beta has a positive sign 🔵
+    assert!(r.rf_anova.is_none()); // 【Verification point】: rf_anova is None 🔵
+    assert!(r.mdi.is_none()); // 【Verification point】: mdi is None 🔵
+    assert!(r.shap.is_none()); // 【Verification point】: shap is None 🔵
+    assert!(r.permutation.is_none()); // 【Verification point】: permutation is None 🔵
 }
 
 #[test]
 fn tc_2259_05_spearman_matches_legacy() {
-    // 【テスト目的】: SpearmanMetric::compute() が compute_sensitivity_single_obj(Spearman) と同一結果を返す
-    // 【テスト内容】: 20行・3パラメータの DataFrame で両方の計算結果を浮動小数点許容誤差 1e-10 で比較
-    // 【期待される動作】: 全パラメータの spearman 値が差 < 1e-10 で一致
-    // 🔵 信頼性レベル: 青（NFR-102、full.rs L57-76 と直接的に比較）
+    // 【Test purpose】: SpearmanMetric::compute() returns the same result as compute_sensitivity_single_obj(Spearman)
+    // 【Test description】: Compare both computation results with a 20-row, 3-parameter DataFrame using a 1e-10 floating-point tolerance
+    // 【Expected behavior】: The spearman value for every parameter matches within a difference of < 1e-10
+    // 🔵 Reliability level: Blue (NFR-102, direct comparison with full.rs L57-76)
 
-    // 【テストデータ準備】: 3パラメータの多様なデータパターン
-    // 【初期条件設定】: 20行・3パラメータ・1目的関数の DataFrame
+    // 【Test data preparation】: Diverse data patterns for 3 parameters
+    // 【Initial condition setup】: DataFrame with 20 rows, 3 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..20)
         .map(|i| {
             make_row_multi(
@@ -203,14 +203,14 @@ fn tc_2259_05_spearman_matches_legacy() {
         .collect();
     let df = setup_df(rows, &["p0", "p1", "p2"], &["obj0"]);
 
-    // 【実際の処理実行】: トレイト実装と新 API の両方で計算して比較
+    // 【Actual execution】: Compute with both the trait implementation and the new API, then compare
     let metric = SpearmanMetric;
     let metric_result = metric.compute(&df, 0);
     let api_results = compute_sensitivity_single_obj(&df, vec![Box::new(SpearmanMetric)], 0);
 
-    // 【結果検証】: 両者の計算結果が同一であることを確認
-    assert!(metric_result.is_some()); // 【確認内容】: トレイト実装が Some を返す 🔵
-    assert!(!api_results.is_empty()); // 【確認内容】: 新 API も結果を返す 🔵
+    // 【Result verification】: Confirm both computation results are identical
+    assert!(metric_result.is_some()); // 【Verification point】: The trait implementation returns Some 🔵
+    assert!(!api_results.is_empty()); // 【Verification point】: The new API also returns a result 🔵
     let mr = metric_result.unwrap();
     let ar = &api_results[0];
     for i in 0..mr.spearman.len() {
@@ -222,19 +222,19 @@ fn tc_2259_05_spearman_matches_legacy() {
             mr.spearman[i][0],
             ar.spearman[i][0],
             diff
-        ); // 【確認内容】: 各パラメータの感度値が差 < 1e-10 で一致 🔵
+        ); // 【Verification point】: Each parameter's sensitivity value matches within a difference of < 1e-10 🔵
     }
 }
 
 #[test]
 fn tc_2259_06_ridge_matches_legacy() {
-    // 【テスト目的】: RidgeMetric::compute() が compute_sensitivity_single_obj(Ridge) と同一結果を返す
-    // 【テスト内容】: 30行・3パラメータの DataFrame で beta と r_squared を比較
-    // 【期待される動作】: beta 全要素と r_squared が差 < 1e-10 で一致
-    // 🔵 信頼性レベル: 青（NFR-102、full.rs L77-89 と直接的に比較）
+    // 【Test purpose】: RidgeMetric::compute() returns the same result as compute_sensitivity_single_obj(Ridge)
+    // 【Test description】: Compare beta and r_squared with a 30-row, 3-parameter DataFrame
+    // 【Expected behavior】: Every beta element and r_squared match within a difference of < 1e-10
+    // 🔵 Reliability level: Blue (NFR-102, direct comparison with full.rs L77-89)
 
-    // 【テストデータ準備】: 3パラメータの多様なデータパターン
-    // 【初期条件設定】: 30行・3パラメータ・1目的関数の DataFrame
+    // 【Test data preparation】: Diverse data patterns for 3 parameters
+    // 【Initial condition setup】: DataFrame with 30 rows, 3 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..30)
         .map(|i| {
             make_row_multi(
@@ -250,14 +250,14 @@ fn tc_2259_06_ridge_matches_legacy() {
         .collect();
     let df = setup_df(rows, &["p0", "p1", "p2"], &["obj0"]);
 
-    // 【実際の処理実行】: トレイト実装と新 API の両方で計算して比較
+    // 【Actual execution】: Compute with both the trait implementation and the new API, then compare
     let metric = RidgeMetric;
     let metric_result = metric.compute(&df, 0);
     let api_results = compute_sensitivity_single_obj(&df, vec![Box::new(RidgeMetric)], 0);
 
-    // 【結果検証】: 両者の計算結果が同一であることを確認
-    assert!(metric_result.is_some()); // 【確認内容】: トレイト実装が Some を返す 🔵
-    assert!(!api_results.is_empty()); // 【確認内容】: 新 API も結果を返す 🔵
+    // 【Result verification】: Confirm both computation results are identical
+    assert!(metric_result.is_some()); // 【Verification point】: The trait implementation returns Some 🔵
+    assert!(!api_results.is_empty()); // 【Verification point】: The new API also returns a result 🔵
     let mr = metric_result.unwrap();
     let ar = &api_results[0];
     for i in 0..mr.ridge[0].beta.len() {
@@ -269,7 +269,7 @@ fn tc_2259_06_ridge_matches_legacy() {
             mr.ridge[0].beta[i],
             ar.ridge[0].beta[i],
             diff
-        ); // 【確認内容】: beta 各要素が差 < 1e-10 で一致 🔵
+        ); // 【Verification point】: Each beta element matches within a difference of < 1e-10 🔵
     }
     let r2_diff = (mr.ridge[0].r_squared - ar.ridge[0].r_squared).abs();
     assert!(
@@ -278,18 +278,18 @@ fn tc_2259_06_ridge_matches_legacy() {
         mr.ridge[0].r_squared,
         ar.ridge[0].r_squared,
         r2_diff
-    ); // 【確認内容】: R^2 が差 < 1e-10 で一致 🔵
+    ); // 【Verification point】: R^2 matches within a difference of < 1e-10 🔵
 }
 
 #[test]
 fn tc_2259_09_spearman_as_trait_object() {
-    // 【テスト目的】: SpearmanMetric を Box<dyn SensitivityMetric> として利用できることを確認
-    // 【テスト内容】: トレイトオブジェクト経由で compute() と name() を呼び出す
-    // 【期待される動作】: トレイトオブジェクト経由でも正常に計算が行われる
-    // 🔵 信頼性レベル: 青（設計文書 architecture.md「ディスパッチ」、metric_trait.rs の Send + Sync 制約）
+    // 【Test purpose】: Verify SpearmanMetric can be used as a Box<dyn SensitivityMetric>
+    // 【Test description】: Call compute() and name() through the trait object
+    // 【Expected behavior】: Computation proceeds normally even through the trait object
+    // 🔵 Reliability level: Blue (design doc architecture.md "dispatch", Send + Sync bound in metric_trait.rs)
 
-    // 【テストデータ準備】: 基本的な DataFrame
-    // 【初期条件設定】: 20行・2パラメータ・1目的関数
+    // 【Test data preparation】: A basic DataFrame
+    // 【Initial condition setup】: 20 rows, 2 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..20)
         .map(|i| {
             make_row_multi(
@@ -301,29 +301,29 @@ fn tc_2259_09_spearman_as_trait_object() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: トレイトオブジェクトとして格納してメソッド呼び出し
-    // 【処理内容】: ポリモーフィックな利用パターンの検証
+    // 【Actual execution】: Store as a trait object and call methods on it
+    // 【Process description】: Verify the polymorphic usage pattern
     let metric: Box<dyn SensitivityMetric> = Box::new(SpearmanMetric);
 
-    // 【結果検証】: トレイトオブジェクト経由の動的ディスパッチが正常に機能
-    // 【期待値確認】: compute() が Some を返し、name() が正しい値を返す
-    assert_eq!(metric.name(), "Spearman"); // 【確認内容】: name() が正しい文字列を返す 🔵
+    // 【Result verification】: Dynamic dispatch through the trait object works correctly
+    // 【Expected value check】: compute() returns Some, and name() returns the correct value
+    assert_eq!(metric.name(), "Spearman"); // 【Verification point】: name() returns the correct string 🔵
     let result = metric.compute(&df, 0);
     assert!(
         result.is_some(),
         "trait object compute() should return Some"
-    ); // 【確認内容】: 計算結果が返る 🔵
+    ); // 【Verification point】: The computation result is returned 🔵
 }
 
 #[test]
 fn tc_2259_10_ridge_as_trait_object() {
-    // 【テスト目的】: RidgeMetric を Box<dyn SensitivityMetric> として利用できることを確認
-    // 【テスト内容】: トレイトオブジェクト経由で compute() と name() を呼び出す
-    // 【期待される動作】: トレイトオブジェクト経由でも正常に計算が行われる
-    // 🔵 信頼性レベル: 青（設計文書 architecture.md「ディスパッチ」）
+    // 【Test purpose】: Verify RidgeMetric can be used as a Box<dyn SensitivityMetric>
+    // 【Test description】: Call compute() and name() through the trait object
+    // 【Expected behavior】: Computation proceeds normally even through the trait object
+    // 🔵 Reliability level: Blue (design doc architecture.md "dispatch")
 
-    // 【テストデータ準備】: 基本的な DataFrame
-    // 【初期条件設定】: 20行・2パラメータ・1目的関数
+    // 【Test data preparation】: A basic DataFrame
+    // 【Initial condition setup】: 20 rows, 2 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..20)
         .map(|i| {
             make_row_multi(
@@ -335,29 +335,29 @@ fn tc_2259_10_ridge_as_trait_object() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: トレイトオブジェクトとして格納してメソッド呼び出し
-    // 【処理内容】: ポリモーフィックな利用パターンの検証
+    // 【Actual execution】: Store as a trait object and call methods on it
+    // 【Process description】: Verify the polymorphic usage pattern
     let metric: Box<dyn SensitivityMetric> = Box::new(RidgeMetric);
 
-    // 【結果検証】: トレイトオブジェクト経由の動的ディスパッチが正常に機能
-    // 【期待値確認】: compute() が Some を返し、name() が正しい値を返す
-    assert_eq!(metric.name(), "Ridge"); // 【確認内容】: name() が正しい文字列を返す 🔵
+    // 【Result verification】: Dynamic dispatch through the trait object works correctly
+    // 【Expected value check】: compute() returns Some, and name() returns the correct value
+    assert_eq!(metric.name(), "Ridge"); // 【Verification point】: name() returns the correct string 🔵
     let result = metric.compute(&df, 0);
     assert!(
         result.is_some(),
         "trait object compute() should return Some"
-    ); // 【確認内容】: 計算結果が返る 🔵
+    ); // 【Verification point】: The computation result is returned 🔵
 }
 
 #[test]
 fn tc_2259_11_multiple_metrics_vector_dispatch() {
-    // 【テスト目的】: 複数メトリックを Vec<Box<dyn SensitivityMetric>> に格納し統一的に処理できることを確認
-    // 【テスト内容】: SpearmanMetric と RidgeMetric を同一 Vec に格納しイテレーションで compute() を呼び出す
-    // 【期待される動作】: 各メトリックが独立して正しい結果を返す
-    // 🔵 信頼性レベル: 青（要件定義書セクション1「何をする機能か」、REQ-A03）
+    // 【Test purpose】: Verify multiple metrics can be stored in a Vec<Box<dyn SensitivityMetric>> and processed uniformly
+    // 【Test description】: Store SpearmanMetric and RidgeMetric in the same Vec and call compute() via iteration
+    // 【Expected behavior】: Each metric independently returns the correct result
+    // 🔵 Reliability level: Blue (requirements doc section 1 "what the feature does", REQ-A03)
 
-    // 【テストデータ準備】: 20行・2パラメータの DataFrame
-    // 【初期条件設定】: 両メトリックで計算可能なデータ
+    // 【Test data preparation】: A 20-row, 2-parameter DataFrame
+    // 【Initial condition setup】: Data computable by both metrics
     let rows: Vec<TrialRow> = (0..20)
         .map(|i| {
             make_row_multi(
@@ -369,37 +369,37 @@ fn tc_2259_11_multiple_metrics_vector_dispatch() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: Vec に格納してイテレーション
-    // 【処理内容】: 統一的なディスパッチパターン
+    // 【Actual execution】: Store in a Vec and iterate
+    // 【Process description】: A unified dispatch pattern
     let metrics: Vec<Box<dyn SensitivityMetric>> =
         vec![Box::new(SpearmanMetric), Box::new(RidgeMetric)];
 
-    // 【結果検証】: 各メトリックの name() と compute() が正しく動作
-    // 【期待値確認】: REQ-A03 新規指標追加時にディスパッチ側の変更なし
-    assert_eq!(metrics[0].name(), "Spearman"); // 【確認内容】: 1つ目のメトリック名 🔵
-    assert_eq!(metrics[1].name(), "Ridge"); // 【確認内容】: 2つ目のメトリック名 🔵
+    // 【Result verification】: Each metric's name() and compute() work correctly
+    // 【Expected value check】: REQ-A03 no dispatch-side changes needed when adding a new metric
+    assert_eq!(metrics[0].name(), "Spearman"); // 【Verification point】: Name of the first metric 🔵
+    assert_eq!(metrics[1].name(), "Ridge"); // 【Verification point】: Name of the second metric 🔵
 
     let spearman_result = metrics[0].compute(&df, 0);
     assert!(
         spearman_result.is_some(),
         "SpearmanMetric should return Some"
-    ); // 【確認内容】: Spearman 計算成功 🔵
-    assert!(!spearman_result.unwrap().spearman.is_empty()); // 【確認内容】: spearman フィールドが空でない 🔵
+    ); // 【Verification point】: Spearman computation succeeds 🔵
+    assert!(!spearman_result.unwrap().spearman.is_empty()); // 【Verification point】: The spearman field is not empty 🔵
 
     let ridge_result = metrics[1].compute(&df, 0);
-    assert!(ridge_result.is_some(), "RidgeMetric should return Some"); // 【確認内容】: Ridge 計算成功 🔵
-    assert!(!ridge_result.unwrap().ridge.is_empty()); // 【確認内容】: ridge フィールドが空でない 🔵
+    assert!(ridge_result.is_some(), "RidgeMetric should return Some"); // 【Verification point】: Ridge computation succeeds 🔵
+    assert!(!ridge_result.unwrap().ridge.is_empty()); // 【Verification point】: The ridge field is not empty 🔵
 }
 
 #[test]
 fn tc_2259_12_spearman_obj_idx_1() {
-    // 【テスト目的】: SpearmanMetric::compute() が obj_idx=1（2番目の目的関数）で正しく計算すること
-    // 【テスト内容】: 20行・2パラメータ・2目的関数の DataFrame で obj_idx=1 を指定
-    // 【期待される動作】: 2番目の目的関数に対する Spearman 感度値が正しく計算される
-    // 🔵 信頼性レベル: 青（要件定義書セクション2、full.rs の obj_idx ロジック）
+    // 【Test purpose】: Verify SpearmanMetric::compute() computes correctly for obj_idx=1 (the second objective)
+    // 【Test description】: Specify obj_idx=1 with a 20-row, 2-parameter, 2-objective DataFrame
+    // 【Expected behavior】: The Spearman sensitivity value for the second objective is computed correctly
+    // 🔵 Reliability level: Blue (requirements doc section 2, obj_idx logic in full.rs)
 
-    // 【テストデータ準備】: 2目的関数のデータ。obj0=i, obj1=20-i
-    // 【初期条件設定】: 20行・2パラメータ・2目的関数
+    // 【Test data preparation】: Data with 2 objectives. obj0=i, obj1=20-i
+    // 【Initial condition setup】: 20 rows, 2 parameters, 2 objectives
     let rows: Vec<TrialRow> = (0..20)
         .map(|i| {
             make_row_multi(
@@ -411,28 +411,28 @@ fn tc_2259_12_spearman_obj_idx_1() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0", "obj1"]);
 
-    // 【実際の処理実行】: obj_idx=1 で SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: 2番目の目的関数に対する感度計算
+    // 【Actual execution】: Call SpearmanMetric::compute() with obj_idx=1
+    // 【Process description】: Sensitivity computation for the second objective
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 1);
 
-    // 【結果検証】: objective_names が正しく1要素であること
-    // 【期待値確認】: obj_idx=1 の場合、objective_names == ["obj1"]
-    assert!(result.is_some()); // 【確認内容】: 計算成功 🔵
+    // 【Result verification】: objective_names correctly has exactly one element
+    // 【Expected value check】: When obj_idx=1, objective_names == ["obj1"]
+    assert!(result.is_some()); // 【Verification point】: Computation succeeds 🔵
     let r = result.unwrap();
-    assert_eq!(r.objective_names, vec!["obj1"]); // 【確認内容】: 2番目の目的関数名のみ 🔵
-    assert_eq!(r.spearman.len(), 2); // 【確認内容】: パラメータ数分の感度値 🔵
+    assert_eq!(r.objective_names, vec!["obj1"]); // 【Verification point】: Only the second objective name 🔵
+    assert_eq!(r.spearman.len(), 2); // 【Verification point】: Sensitivity values for each parameter 🔵
 }
 
 #[test]
 fn tc_2259_13_ridge_obj_idx_1() {
-    // 【テスト目的】: RidgeMetric::compute() が obj_idx=1（2番目の目的関数）で正しく計算すること
-    // 【テスト内容】: 30行・2パラメータ・2目的関数の DataFrame で obj_idx=1 を指定
-    // 【期待される動作】: 2番目の目的関数に対する RidgeResult が正しく計算される
-    // 🔵 信頼性レベル: 青（要件定義書セクション2、full.rs L77-89）
+    // 【Test purpose】: Verify RidgeMetric::compute() computes correctly for obj_idx=1 (the second objective)
+    // 【Test description】: Specify obj_idx=1 with a 30-row, 2-parameter, 2-objective DataFrame
+    // 【Expected behavior】: The RidgeResult for the second objective is computed correctly
+    // 🔵 Reliability level: Blue (requirements doc section 2, full.rs L77-89)
 
-    // 【テストデータ準備】: 2目的関数のデータ
-    // 【初期条件設定】: 30行・2パラメータ・2目的関数
+    // 【Test data preparation】: Data with 2 objectives
+    // 【Initial condition setup】: 30 rows, 2 parameters, 2 objectives
     let rows: Vec<TrialRow> = (0..30)
         .map(|i| {
             make_row_multi(
@@ -444,108 +444,108 @@ fn tc_2259_13_ridge_obj_idx_1() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0", "obj1"]);
 
-    // 【実際の処理実行】: obj_idx=1 で RidgeMetric::compute() を呼び出す
-    // 【処理内容】: 2番目の目的関数に対する Ridge 回帰
+    // 【Actual execution】: Call RidgeMetric::compute() with obj_idx=1
+    // 【Process description】: Ridge regression for the second objective
     let metric = RidgeMetric;
     let result = metric.compute(&df, 1);
 
-    // 【結果検証】: objective_names と ridge の構造を確認
-    // 【期待値確認】: obj_idx=1 の場合、objective_names == ["obj1"]
-    assert!(result.is_some()); // 【確認内容】: 計算成功 🔵
+    // 【Result verification】: Check the structure of objective_names and ridge
+    // 【Expected value check】: When obj_idx=1, objective_names == ["obj1"]
+    assert!(result.is_some()); // 【Verification point】: Computation succeeds 🔵
     let r = result.unwrap();
-    assert_eq!(r.objective_names, vec!["obj1"]); // 【確認内容】: 2番目の目的関数名のみ 🔵
-    assert_eq!(r.ridge.len(), 1); // 【確認内容】: ridge に1要素 🔵
-    assert_eq!(r.ridge[0].beta.len(), 2); // 【確認内容】: beta がパラメータ数分 🔵
+    assert_eq!(r.objective_names, vec!["obj1"]); // 【Verification point】: Only the second objective name 🔵
+    assert_eq!(r.ridge.len(), 1); // 【Verification point】: One element in ridge 🔵
+    assert_eq!(r.ridge[0].beta.len(), 2); // 【Verification point】: beta has one entry per parameter 🔵
 }
 
 // ===========================================================================
-// 異常系テストケース
+// Abnormal-path test cases
 // ===========================================================================
 
 #[test]
 fn tc_2259_14_spearman_insufficient_data_n1() {
-    // 【テスト目的】: SpearmanMetric::compute() がデータ不足（n=1）で None を返すことを確認
-    // 【テスト内容】: 1行の DataFrame で compute() を呼び出し None が返ることを確認
-    // 【期待される動作】: None が返りパニックしない
-    // 🔵 信頼性レベル: 青（EDGE-2259-01、完了条件「データ不足時に None を返しパニックしない」）
+    // 【Test purpose】: Verify SpearmanMetric::compute() returns None on insufficient data (n=1)
+    // 【Test description】: Call compute() with a 1-row DataFrame and confirm it returns None
+    // 【Expected behavior】: Returns None without panicking
+    // 🔵 Reliability level: Blue (EDGE-2259-01, completion criterion "returns None without panicking on insufficient data")
 
-    // 【テストデータ準備】: 1行のみの DataFrame
-    // 【初期条件設定】: 1行・2パラメータ・1目的関数
+    // 【Test data preparation】: A DataFrame with only 1 row
+    // 【Initial condition setup】: 1 row, 2 parameters, 1 objective
     let rows = vec![make_row_multi(0, &[("x1", 1.0), ("x2", 2.0)], vec![3.0])];
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: データ不足時のエラーハンドリング
+    // 【Actual execution】: Call SpearmanMetric::compute()
+    // 【Process description】: Error handling for insufficient data
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: None が返ること（パニックしないこと）
-    // 【期待値確認】: n < 2 の場合は None
+    // 【Result verification】: None is returned (no panic)
+    // 【Expected value check】: None when n < 2
     assert!(
         result.is_none(),
         "SpearmanMetric should return None when n < 2"
-    ); // 【確認内容】: データ不足で None 🔵
+    ); // 【Verification point】: None on insufficient data 🔵
 }
 
 #[test]
 fn tc_2259_15_ridge_insufficient_data_n1() {
-    // 【テスト目的】: RidgeMetric::compute() がデータ不足（n=1）で None を返すことを確認
-    // 【テスト内容】: 1行の DataFrame で compute() を呼び出し None が返ることを確認
-    // 【期待される動作】: None が返りパニックしない
-    // 🔵 信頼性レベル: 青（EDGE-2259-01）
+    // 【Test purpose】: Verify RidgeMetric::compute() returns None on insufficient data (n=1)
+    // 【Test description】: Call compute() with a 1-row DataFrame and confirm it returns None
+    // 【Expected behavior】: Returns None without panicking
+    // 🔵 Reliability level: Blue (EDGE-2259-01)
 
-    // 【テストデータ準備】: 1行のみの DataFrame
-    // 【初期条件設定】: 1行・2パラメータ・1目的関数
+    // 【Test data preparation】: A DataFrame with only 1 row
+    // 【Initial condition setup】: 1 row, 2 parameters, 1 objective
     let rows = vec![make_row_multi(0, &[("x1", 1.0), ("x2", 2.0)], vec![3.0])];
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: RidgeMetric::compute() を呼び出す
-    // 【処理内容】: データ不足時のエラーハンドリング
+    // 【Actual execution】: Call RidgeMetric::compute()
+    // 【Process description】: Error handling for insufficient data
     let metric = RidgeMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: None が返ること（パニックしないこと）
-    // 【期待値確認】: n < 2 の場合は None
+    // 【Result verification】: None is returned (no panic)
+    // 【Expected value check】: None when n < 2
     assert!(
         result.is_none(),
         "RidgeMetric should return None when n < 2"
-    ); // 【確認内容】: データ不足で None 🔵
+    ); // 【Verification point】: None on insufficient data 🔵
 }
 
 #[test]
 fn tc_2259_16_spearman_empty_data_n0() {
-    // 【テスト目的】: SpearmanMetric::compute() が空データ（n=0）で None を返すことを確認
-    // 【テスト内容】: 0行の DataFrame で compute() を呼び出し None が返ることを確認
-    // 【期待される動作】: None が返りパニックしない
-    // 🔵 信頼性レベル: 青（EDGE-2259-01、full.rs L29 の n < 2 チェック）
+    // 【Test purpose】: Verify SpearmanMetric::compute() returns None on empty data (n=0)
+    // 【Test description】: Call compute() with a 0-row DataFrame and confirm it returns None
+    // 【Expected behavior】: Returns None without panicking
+    // 🔵 Reliability level: Blue (EDGE-2259-01, the n < 2 check in full.rs L29)
 
-    // 【テストデータ準備】: 0行の DataFrame
-    // 【初期条件設定】: 空の DataFrame（パラメータ名と目的関数名は設定済み）
+    // 【Test data preparation】: A DataFrame with 0 rows
+    // 【Initial condition setup】: An empty DataFrame (parameter and objective names are already set)
     let rows: Vec<TrialRow> = vec![];
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
 
-    // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: 空データのエラーハンドリング
+    // 【Actual execution】: Call SpearmanMetric::compute()
+    // 【Process description】: Error handling for empty data
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: None が返ること（パニックしないこと）
-    // 【期待値確認】: n = 0 < 2 の場合は None
+    // 【Result verification】: None is returned (no panic)
+    // 【Expected value check】: None when n = 0 < 2
     assert!(
         result.is_none(),
         "SpearmanMetric should return None when n = 0"
-    ); // 【確認内容】: 空データで None 🔵
+    ); // 【Verification point】: None on empty data 🔵
 }
 
 #[test]
 fn tc_2259_18_spearman_invalid_obj_idx() {
-    // 【テスト目的】: SpearmanMetric::compute() が無効な obj_idx（範囲外）で None を返すことを確認
-    // 【テスト内容】: 2目的関数の DataFrame で obj_idx=5 を指定
-    // 【期待される動作】: None が返りパニックしない
-    // 🔵 信頼性レベル: 青（EDGE-2259-03、full.rs L25-27 の get(obj_idx) チェック）
+    // 【Test purpose】: Verify SpearmanMetric::compute() returns None for an invalid (out-of-range) obj_idx
+    // 【Test description】: Specify obj_idx=5 with a 2-objective DataFrame
+    // 【Expected behavior】: Returns None without panicking
+    // 🔵 Reliability level: Blue (EDGE-2259-03, the get(obj_idx) check in full.rs L25-27)
 
-    // 【テストデータ準備】: 10行・2パラメータ・2目的関数の DataFrame
-    // 【初期条件設定】: objective_col_names.len() == 2 の状態で obj_idx=5 を指定
+    // 【Test data preparation】: A 10-row, 2-parameter, 2-objective DataFrame
+    // 【Initial condition setup】: obj_idx=5 specified while objective_col_names.len() == 2
     let rows: Vec<TrialRow> = (0..10)
         .map(|i| {
             make_row_multi(
@@ -557,28 +557,28 @@ fn tc_2259_18_spearman_invalid_obj_idx() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0", "obj1"]);
 
-    // 【実際の処理実行】: 範囲外の obj_idx=5 で compute() を呼び出す
-    // 【処理内容】: インデックス境界チェックの検証
+    // 【Actual execution】: Call compute() with the out-of-range obj_idx=5
+    // 【Process description】: Verify the index bounds check
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 5);
 
-    // 【結果検証】: None が返ること（パニックしないこと）
-    // 【期待値確認】: obj_idx >= objective_names.len() の場合は None
+    // 【Result verification】: None is returned (no panic)
+    // 【Expected value check】: None when obj_idx >= objective_names.len()
     assert!(
         result.is_none(),
         "SpearmanMetric should return None for out-of-range obj_idx"
-    ); // 【確認内容】: 範囲外で None 🔵
+    ); // 【Verification point】: None when out of range 🔵
 }
 
 #[test]
 fn tc_2259_19_ridge_invalid_obj_idx() {
-    // 【テスト目的】: RidgeMetric::compute() が無効な obj_idx（範囲外）で None を返すことを確認
-    // 【テスト内容】: 2目的関数の DataFrame で obj_idx=100 を指定
-    // 【期待される動作】: None が返りパニックしない
-    // 🔵 信頼性レベル: 青（EDGE-2259-03）
+    // 【Test purpose】: Verify RidgeMetric::compute() returns None for an invalid (out-of-range) obj_idx
+    // 【Test description】: Specify obj_idx=100 with a 2-objective DataFrame
+    // 【Expected behavior】: Returns None without panicking
+    // 🔵 Reliability level: Blue (EDGE-2259-03)
 
-    // 【テストデータ準備】: 10行・2パラメータ・2目的関数の DataFrame
-    // 【初期条件設定】: objective_col_names.len() == 2 の状態で obj_idx=100 を指定
+    // 【Test data preparation】: A 10-row, 2-parameter, 2-objective DataFrame
+    // 【Initial condition setup】: obj_idx=100 specified while objective_col_names.len() == 2
     let rows: Vec<TrialRow> = (0..10)
         .map(|i| {
             make_row_multi(
@@ -590,119 +590,119 @@ fn tc_2259_19_ridge_invalid_obj_idx() {
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0", "obj1"]);
 
-    // 【実際の処理実行】: 範囲外の obj_idx=100 で compute() を呼び出す
-    // 【処理内容】: インデックス境界チェックの検証
+    // 【Actual execution】: Call compute() with the out-of-range obj_idx=100
+    // 【Process description】: Verify the index bounds check
     let metric = RidgeMetric;
     let result = metric.compute(&df, 100);
 
-    // 【結果検証】: None が返ること（パニックしないこと）
-    // 【期待値確認】: obj_idx >= objective_names.len() の場合は None
+    // 【Result verification】: None is returned (no panic)
+    // 【Expected value check】: None when obj_idx >= objective_names.len()
     assert!(
         result.is_none(),
         "RidgeMetric should return None for out-of-range obj_idx"
-    ); // 【確認内容】: 範囲外で None 🔵
+    ); // 【Verification point】: None when out of range 🔵
 }
 
 // ===========================================================================
-// 境界値テストケース
+// Boundary-value test cases
 // ===========================================================================
 
 #[test]
 fn tc_2259_20_spearman_empty_params() {
-    // 【テスト目的】: SpearmanMetric::compute() がパラメータなし（param_names 空）で None を返すことを確認
-    // 【テスト内容】: 0パラメータの DataFrame で compute() を呼び出す
-    // 【期待される動作】: None が返りパニックしない
-    // 🔵 信頼性レベル: 青（EDGE-2259-02、full.rs L29 param_names.is_empty() チェック）
+    // 【Test purpose】: Verify SpearmanMetric::compute() returns None when there are no parameters (param_names is empty)
+    // 【Test description】: Call compute() with a 0-parameter DataFrame
+    // 【Expected behavior】: Returns None without panicking
+    // 🔵 Reliability level: Blue (EDGE-2259-02, the param_names.is_empty() check in full.rs L29)
 
-    // 【テストデータ準備】: パラメータなしの DataFrame
-    // 【初期条件設定】: 10行・0パラメータ・1目的関数
+    // 【Test data preparation】: A DataFrame with no parameters
+    // 【Initial condition setup】: 10 rows, 0 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..10)
         .map(|i| make_row_multi(i, &[], vec![i as f64]))
         .collect();
     let df = setup_df(rows, &[], &["obj0"]);
 
-    // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: 空パラメータリストのエラーハンドリング
+    // 【Actual execution】: Call SpearmanMetric::compute()
+    // 【Process description】: Error handling for an empty parameter list
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: None が返ること
-    // 【期待値確認】: param_names.is_empty() の場合は None
+    // 【Result verification】: None is returned
+    // 【Expected value check】: None when param_names.is_empty()
     assert!(
         result.is_none(),
         "SpearmanMetric should return None when param_names is empty"
-    ); // 【確認内容】: 空パラメータで None 🔵
+    ); // 【Verification point】: None with empty parameters 🔵
 }
 
 #[test]
 fn tc_2259_22_spearman_min_rows_n2() {
-    // 【テスト目的】: SpearmanMetric::compute() が最小行数（n=2）で正しい計算結果を返すことを確認
-    // 【テスト内容】: 2行・1パラメータの完全正相関データで Spearman = 1.0 を確認
-    // 【期待される動作】: n=2 で Some が返り、spearman 値が正確
-    // 🔵 信頼性レベル: 青（spearman.rs L77-79 n < 2 チェック、full.rs L29）
+    // 【Test purpose】: Verify SpearmanMetric::compute() returns a correct result at the minimum row count (n=2)
+    // 【Test description】: Confirm Spearman = 1.0 with 2-row, 1-parameter perfectly positively correlated data
+    // 【Expected behavior】: Returns Some at n=2, with an accurate spearman value
+    // 🔵 Reliability level: Blue (the n < 2 check at spearman.rs L77-79, full.rs L29)
 
-    // 【テストデータ準備】: 最小行数の完全正相関データ
-    // 【初期条件設定】: 2行・1パラメータ・1目的関数、x1=[1,2], y=[1,2]
+    // 【Test data preparation】: Minimal-row-count perfectly positively correlated data
+    // 【Initial condition setup】: 2 rows, 1 parameter, 1 objective, x1=[1,2], y=[1,2]
     let rows = vec![
         make_row_multi(0, &[("x1", 1.0)], vec![1.0]),
         make_row_multi(1, &[("x1", 2.0)], vec![2.0]),
     ];
     let df = setup_df(rows, &["x1"], &["obj0"]);
 
-    // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: 最小行数での計算
+    // 【Actual execution】: Call SpearmanMetric::compute()
+    // 【Process description】: Computation at the minimum row count
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: Some が返り、完全正相関が検出される
-    // 【期待値確認】: n=2 で正常計算、spearman = 1.0
-    assert!(result.is_some()); // 【確認内容】: n=2 で Some が返る 🔵
+    // 【Result verification】: Returns Some, and the perfect positive correlation is detected
+    // 【Expected value check】: Normal computation at n=2, spearman = 1.0
+    assert!(result.is_some()); // 【Verification point】: Returns Some at n=2 🔵
     let r = result.unwrap();
-    assert_eq!(r.spearman.len(), 1); // 【確認内容】: パラメータ1つ分 🔵
+    assert_eq!(r.spearman.len(), 1); // 【Verification point】: One entry for the one parameter 🔵
     assert!(
         (r.spearman[0][0] - 1.0).abs() < 1e-9,
         "n=2 perfect positive: {}",
         r.spearman[0][0]
-    ); // 【確認内容】: 完全正相関 🔵
+    ); // 【Verification point】: Perfect positive correlation 🔵
 }
 
 #[test]
 fn tc_2259_23_ridge_min_rows_n2() {
-    // 【テスト目的】: RidgeMetric::compute() が最小行数（n=2）で正しい RidgeResult を返すことを確認
-    // 【テスト内容】: 2行・1パラメータのデータで Ridge 計算が正常に行われる
-    // 【期待される動作】: n=2 で Some が返り、ridge フィールドに結果が設定される
-    // 🔵 信頼性レベル: 青（ridge.rs L136 n < 2 チェック）
+    // 【Test purpose】: Verify RidgeMetric::compute() returns a correct RidgeResult at the minimum row count (n=2)
+    // 【Test description】: Confirm the Ridge computation proceeds normally with 2-row, 1-parameter data
+    // 【Expected behavior】: Returns Some at n=2, with a result set in the ridge field
+    // 🔵 Reliability level: Blue (the n < 2 check at ridge.rs L136)
 
-    // 【テストデータ準備】: 最小行数の線形データ
-    // 【初期条件設定】: 2行・1パラメータ・1目的関数、x1=[1,2], y=[3,5]
+    // 【Test data preparation】: Minimal-row-count linear data
+    // 【Initial condition setup】: 2 rows, 1 parameter, 1 objective, x1=[1,2], y=[3,5]
     let rows = vec![
         make_row_multi(0, &[("x1", 1.0)], vec![3.0]),
         make_row_multi(1, &[("x1", 2.0)], vec![5.0]),
     ];
     let df = setup_df(rows, &["x1"], &["obj0"]);
 
-    // 【実際の処理実行】: RidgeMetric::compute() を呼び出す
-    // 【処理内容】: 最小行数での Ridge 計算
+    // 【Actual execution】: Call RidgeMetric::compute()
+    // 【Process description】: Ridge computation at the minimum row count
     let metric = RidgeMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: Some が返り、RidgeResult が正しく構築される
-    // 【期待値確認】: n=2 で正常計算
-    assert!(result.is_some()); // 【確認内容】: n=2 で Some が返る 🔵
+    // 【Result verification】: Returns Some, and RidgeResult is built correctly
+    // 【Expected value check】: Normal computation at n=2
+    assert!(result.is_some()); // 【Verification point】: Returns Some at n=2 🔵
     let r = result.unwrap();
-    assert_eq!(r.ridge.len(), 1); // 【確認内容】: ridge に1要素 🔵
-    assert_eq!(r.ridge[0].beta.len(), 1); // 【確認内容】: beta がパラメータ数分 🔵
+    assert_eq!(r.ridge.len(), 1); // 【Verification point】: One element in ridge 🔵
+    assert_eq!(r.ridge[0].beta.len(), 1); // 【Verification point】: beta has one entry per parameter 🔵
 }
 
 #[test]
 fn tc_2259_27_spearman_large_data() {
-    // 【テスト目的】: SpearmanMetric::compute() が大規模データ（1000行）で正しい結果を返すことを確認
-    // 【テスト内容】: 1000行・5パラメータの DataFrame で計算が正常に完了する
-    // 【期待される動作】: 全 spearman 値が [-1.0, 1.0] の範囲内
-    // 🔵 信頼性レベル: 青（compute_spearman は既存関数、正確性は担保済み）
+    // 【Test purpose】: Verify SpearmanMetric::compute() returns a correct result on large-scale data (1000 rows)
+    // 【Test description】: Confirm the computation completes normally with a 1000-row, 5-parameter DataFrame
+    // 【Expected behavior】: All spearman values fall within [-1.0, 1.0]
+    // 🔵 Reliability level: Blue (compute_spearman is an existing function whose accuracy is already guaranteed)
 
-    // 【テストデータ準備】: 1000行の多パラメータデータ
-    // 【初期条件設定】: 1000行・5パラメータ・1目的関数
+    // 【Test data preparation】: Large-scale multi-parameter data with 1000 rows
+    // 【Initial condition setup】: 1000 rows, 5 parameters, 1 objective
     let rows: Vec<TrialRow> = (0..1000)
         .map(|i| {
             make_row_multi(
@@ -720,16 +720,16 @@ fn tc_2259_27_spearman_large_data() {
         .collect();
     let df = setup_df(rows, &["p0", "p1", "p2", "p3", "p4"], &["obj0"]);
 
-    // 【実際の処理実行】: SpearmanMetric::compute() を呼び出す
-    // 【処理内容】: 大規模データでの計算
+    // 【Actual execution】: Call SpearmanMetric::compute()
+    // 【Process description】: Computation on large-scale data
     let metric = SpearmanMetric;
     let result = metric.compute(&df, 0);
 
-    // 【結果検証】: 計算が正常に完了し、値が範囲内
-    // 【期待値確認】: 大規模データでも正確な SensitivityResult が返る
-    assert!(result.is_some()); // 【確認内容】: 大規模データで Some 🔵
+    // 【Result verification】: The computation completes normally and values are within range
+    // 【Expected value check】: An accurate SensitivityResult is returned even for large-scale data
+    assert!(result.is_some()); // 【Verification point】: Returns Some for large-scale data 🔵
     let r = result.unwrap();
-    assert_eq!(r.spearman.len(), 5); // 【確認内容】: 5パラメータ分 🔵
+    assert_eq!(r.spearman.len(), 5); // 【Verification point】: One entry per parameter (5) 🔵
     for (i, param_vals) in r.spearman.iter().enumerate() {
         for (j, val) in param_vals.iter().enumerate() {
             assert!(
@@ -738,33 +738,33 @@ fn tc_2259_27_spearman_large_data() {
                 i,
                 j,
                 val
-            ); // 【確認内容】: 値が [-1, 1] の範囲内 🔵
+            ); // 【Verification point】: The value is within [-1, 1] 🔵
         }
     }
 }
 
 #[test]
 fn tc_2259_29_spearman_send_sync() {
-    // 【テスト目的】: SpearmanMetric が Send + Sync トレイトを自動実装することをコンパイル時に確認
-    // 【テスト内容】: コンパイル時型チェック関数で Send + Sync 制約を検証
-    // 【期待される動作】: コンパイルが成功する（ゼロサイズ構造体は自動的に Send + Sync）
-    // 🔵 信頼性レベル: 青（metric_trait.rs Send + Sync 制約、Rust 型システムによる自動導出）
+    // 【Test purpose】: Confirm at compile time that SpearmanMetric automatically implements Send + Sync
+    // 【Test description】: Verify the Send + Sync bound with a compile-time type-check function
+    // 【Expected behavior】: Compilation succeeds (a zero-sized struct is automatically Send + Sync)
+    // 🔵 Reliability level: Blue (Send + Sync bound in metric_trait.rs, automatically derived by the Rust type system)
 
-    // 【テストデータ準備】: 不要（コンパイル時チェック）
-    // 【初期条件設定】: 型レベルの確認
+    // 【Test data preparation】: Not required (compile-time check)
+    // 【Initial condition setup】: A type-level check
     fn _assert_send_sync<T: Send + Sync>() {}
-    _assert_send_sync::<SpearmanMetric>(); // 【確認内容】: SpearmanMetric が Send + Sync を満たす 🔵
+    _assert_send_sync::<SpearmanMetric>(); // 【Verification point】: SpearmanMetric satisfies Send + Sync 🔵
 }
 
 #[test]
 fn tc_2259_30_ridge_send_sync() {
-    // 【テスト目的】: RidgeMetric が Send + Sync トレイトを自動実装することをコンパイル時に確認
-    // 【テスト内容】: コンパイル時型チェック関数で Send + Sync 制約を検証
-    // 【期待される動作】: コンパイルが成功する
-    // 🔵 信頼性レベル: 青（metric_trait.rs Send + Sync 制約）
+    // 【Test purpose】: Confirm at compile time that RidgeMetric automatically implements Send + Sync
+    // 【Test description】: Verify the Send + Sync bound with a compile-time type-check function
+    // 【Expected behavior】: Compilation succeeds
+    // 🔵 Reliability level: Blue (Send + Sync bound in metric_trait.rs)
 
-    // 【テストデータ準備】: 不要（コンパイル時チェック）
-    // 【初期条件設定】: 型レベルの確認
+    // 【Test data preparation】: Not required (compile-time check)
+    // 【Initial condition setup】: A type-level check
     fn _assert_send_sync<T: Send + Sync>() {}
-    _assert_send_sync::<RidgeMetric>(); // 【確認内容】: RidgeMetric が Send + Sync を満たす 🔵
+    _assert_send_sync::<RidgeMetric>(); // 【Verification point】: RidgeMetric satisfies Send + Sync 🔵
 }

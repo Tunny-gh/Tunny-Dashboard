@@ -15,16 +15,18 @@ fn load_app_icon() -> egui::IconData {
         .expect("embedded app icon should be a valid PNG")
 }
 
-/// プロセスの DPI awareness を「System Aware」に設定する。
+/// Sets the process's DPI awareness to "System Aware".
 ///
-/// winit のデフォルト（Per-Monitor Aware V2）では、解像度（DPI）の異なるディスプレイ間で
-/// ウィンドウを移動するたびに Windows が `WM_DPICHANGED` を発行し、winit がその都度
-/// ウィンドウサイズを適用するため、モニタ境界を跨ぐ間リサイズが連続して暴れる。
-/// System Aware にするとプロセスは単一の DPI を使い、モニタ跨ぎで `WM_DPICHANGED` が
-/// 発生しなくなる（別 DPI のモニタでは OS がビットマップ拡縮するためややぼやける）。
+/// With winit's default (Per-Monitor Aware V2), whenever the window is moved between
+/// displays with different resolutions (DPI), Windows issues `WM_DPICHANGED` and winit
+/// applies the new window size each time, causing resizes to thrash continuously while
+/// crossing a monitor boundary. Setting System Aware makes the process use a single DPI,
+/// so `WM_DPICHANGED` no longer fires when crossing monitors (on a monitor with a
+/// different DPI, the OS bitmap-scales the window, which looks slightly blurry).
 ///
-/// DPI awareness は winit が `EventLoop` 構築時に設定するため、その前に呼ぶ必要がある。
-/// 先に設定しておけば winit 側の設定は失敗して無視され、こちらの指定が優先される。
+/// DPI awareness must be set before winit configures it when constructing the
+/// `EventLoop`, so this must be called first. Setting it beforehand makes winit's own
+/// setting attempt fail and get ignored, so this setting takes priority.
 #[cfg(windows)]
 fn set_system_dpi_awareness() {
     use std::ffi::c_void;

@@ -1,29 +1,33 @@
-//! メモリ計測ベンチマーク基盤（TASK-2343 / TASK-2344）
+//! Memory measurement benchmark harness (TASK-2343 / TASK-2344)
 //!
-//! Optuna Journal ログをロードし、memory-efficiency リファクタの中核である
-//! 「列指向 `Arc<DataFrame>` + `StudyView` 並行配列」常駐表現と、旧実装
-//! （`main` ブランチ）が `StudyContext` に永続保持していた行指向
-//! `Vec<TrialRow>` 表現とを、`dhat` ヒーププロファイラで定量比較する。
+//! Loads an Optuna Journal log and quantitatively compares, via the `dhat` heap
+//! profiler, the resident representation at the core of the memory-efficiency
+//! refactor — "column-oriented `Arc<DataFrame>` + `StudyView` parallel arrays" — against
+//! the row-oriented `Vec<TrialRow>` representation the old implementation (the `main`
+//! branch) kept persistently held in `StudyContext`.
 //!
-//! 計測指標（NFR-001/002/003 / MEM-001/004 検証用）:
-//!   - 列指向常駐ヒープ（全 study の `DataFrame` を共有ストアに常駐）
-//!   - `StudyView` 並行配列の追加オーバーヘッド
-//!   - 旧 行指向 `Vec<TrialRow>` 常駐ヒープ（per-row HashMap 込み）
-//!   - パース時ピークヒープ（ロードピーク; NFR-003）
-//!   - 列指向 / 行指向の削減率（NFR-001: 定常 -50% 以上の主証拠）
+//! Measurement metrics (for verifying NFR-001/002/003 / MEM-001/004):
+//!   - Column-oriented resident heap (all studies' `DataFrame`s resident in the shared
+//!     store)
+//!   - Additional overhead of `StudyView` parallel arrays
+//!   - Old row-oriented `Vec<TrialRow>` resident heap (including per-row HashMap)
+//!   - Peak heap during parsing (load peak; NFR-003)
+//!   - Reduction rate from row-oriented to column-oriented (NFR-001: the primary
+//!     evidence for a steady-state reduction of -50% or more)
 //!
-//! 実行:
+//! Usage:
 //!   cargo run --release --example mem_probe -- <journal.log>
-//!   （引数省略時はカレントの mem_eff.log を使用）
+//!   (uses mem_eff.log in the current directory if the argument is omitted)
 //!
-//! dhat は `dhat-heap.json` も出力する（`dhat-view` で詳細閲覧可）。
+//! dhat also outputs `dhat-heap.json` (viewable in detail with `dhat-view`).
 
 use tunny_core::dataframe::{select_study, snapshot};
 use tunny_core::io::journal::parser::parse_journal;
 use tunny_desktop::state::types::StudyView;
 
-/// 旧実装（`main` ブランチ）の試行状態 enum のローカル再現。
-/// アプリ本体からは削除済みのため、メモリ計測の忠実性のためにここで定義する。
+/// A local reproduction of the old implementation's (`main` branch) trial state enum.
+/// It's been removed from the app itself, so it's defined here to keep the memory
+/// measurement faithful.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 enum TrialState {
@@ -31,9 +35,10 @@ enum TrialState {
     Complete,
 }
 
-/// 旧実装が `StudyContext.trial_rows` に永続保持していた行指向表現のローカル再現。
-/// アプリ本体は列指向 `StudyView` に移行済み（MEM-001）。
-/// フィールドは読まずヒープ占有量の再現のためだけに保持する。
+/// A local reproduction of the row-oriented representation the old implementation kept
+/// persistently held in `StudyContext.trial_rows`.
+/// The app itself has migrated to the column-oriented `StudyView` (MEM-001).
+/// The fields are never read; they're held purely to reproduce the heap footprint.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TrialRow {
@@ -50,7 +55,7 @@ struct TrialRow {
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-/// 現在の生存ヒープ量（bytes）。
+/// The current live heap size (bytes).
 fn live() -> usize {
     dhat::HeapStats::get().curr_bytes
 }
@@ -60,14 +65,15 @@ fn mib(bytes: i128) -> f64 {
 }
 
 fn main() {
-    // `.testing()` で HeapStats::get() を有効化する。
+    // Enable HeapStats::get() with `.testing()`.
     let _profiler = dhat::Profiler::builder().testing().build();
 
     let path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "mem_eff.log".to_string());
 
-    // ファイル読込み前のベースライン（生ファイルバッファを含まない真の基準）。
+    // Baseline before reading the file (a true baseline that excludes the raw file
+    // buffer).
     let baseline = live();
 
     let read_start = std::time::Instant::now();
@@ -81,7 +87,7 @@ fn main() {
     let file_bytes = data.len();
     let read_ms = read_start.elapsed().as_secs_f64() * 1000.0;
 
-    // --- パース（全 study を共有ストアへ常駐化） ---
+    // --- Parse (makes all studies resident in the shared store) ---
     let parse_start = std::time::Instant::now();
     let result = match parse_journal(&data) {
         Ok(r) => r,
@@ -91,20 +97,23 @@ fn main() {
         }
     };
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-    // パース直後（生ファイルバッファ data がまだ生存）のピークを記録。
+    // Record the peak right after parsing (while the raw file buffer `data` is still
+    // alive).
     let peak_with_buffer = dhat::HeapStats::get().max_bytes;
 
-    // 生ファイルバッファを解放して常駐ストアのみを残す。
+    // Free the raw file buffer, leaving only the resident store.
     drop(data);
 
     let after_parse = live();
-    // 生ファイルバッファ解放後の常駐 = 全 DataFrame 列データ（共有ストア）。
+    // Resident memory after freeing the raw file buffer = all DataFrame column data
+    // (the shared store).
     let store_resident = after_parse as i128 - baseline as i128;
 
     let studies = &result.studies;
     let total_trials: usize = studies.iter().map(|s| s.completed_trials as usize).sum();
 
-    // --- 新表現: 全 study の StudyView を構築（共有 DataFrame + 並行配列） ---
+    // --- New representation: build StudyViews for all studies (shared DataFrame +
+    // parallel arrays) ---
     let before_views = live();
     let mut views: Vec<StudyView> = Vec::with_capacity(studies.len());
     for s in studies {
@@ -118,15 +127,17 @@ fn main() {
     }
     let after_views = live();
     let view_overhead = after_views as i128 - before_views as i128;
-    // 新表現の定常常駐 = 列指向ストア + StudyView 並行配列。
+    // Steady-state resident memory of the new representation = column-oriented store +
+    // StudyView parallel arrays.
     let new_resident = after_views as i128 - baseline as i128;
 
-    // 各 StudyView は Arc<DataFrame> をクローン参照するだけ（実データ複製なし）。
+    // Each StudyView only clones an Arc<DataFrame> reference (no actual data
+    // duplication).
     let view_rows: usize = views.iter().map(|v| v.row_count()).sum();
 
-    // --- 旧表現: 全 study を行指向 Vec<TrialRow> として再構築 ---
-    // これは main ブランチが StudyContext.trial_rows に永続保持していた表現と
-    // 等価（per-row HashMap<params> + Vec<objectives>）。
+    // --- Old representation: rebuild all studies as row-oriented Vec<TrialRow> ---
+    // This is equivalent to the representation the main branch kept persistently held in
+    // StudyContext.trial_rows (per-row HashMap<params> + Vec<objectives>).
     let before_rows = live();
     let mut legacy_rows: Vec<Vec<TrialRow>> = Vec::with_capacity(views.len());
     for v in &views {
@@ -167,14 +178,15 @@ fn main() {
     let legacy_resident = after_rows as i128 - before_rows as i128;
     let legacy_row_count: usize = legacy_rows.iter().map(|r| r.len()).sum();
 
-    // --- 削減率（行指向→列指向）---
-    // 公平な定常比較: 旧 = 行 Vec、新 = 列指向ストア + StudyView 配列。
+    // --- Reduction rate (row-oriented -> column-oriented) ---
+    // A fair steady-state comparison: old = row Vec, new = column-oriented store +
+    // StudyView arrays.
     let reduction_pct = if legacy_resident > 0 {
         (legacy_resident - new_resident) as f64 / legacy_resident as f64 * 100.0
     } else {
         0.0
     };
-    // バイト/試行の比較（表現密度）。
+    // Bytes-per-trial comparison (representation density).
     let bytes_per_row_legacy = if legacy_row_count > 0 {
         legacy_resident as f64 / legacy_row_count as f64
     } else {
@@ -186,7 +198,7 @@ fn main() {
         0.0
     };
 
-    // 生存維持（最適化で解放されないように）。
+    // Keep alive (so the optimizer doesn't free them).
     std::hint::black_box(&views);
     std::hint::black_box(&legacy_rows);
 

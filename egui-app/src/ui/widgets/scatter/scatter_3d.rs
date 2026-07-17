@@ -1,5 +1,5 @@
-//! 3D 散布図描画の共有インフラ。
-//! Pareto・Clustering・MCDM の各 3D ウィジェットが参照する。
+//! Shared infrastructure for 3D scatter plot rendering.
+//! Used by the Pareto, Clustering, and MCDM 3D widgets.
 
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
@@ -10,9 +10,9 @@ use crate::ui::widgets::trial_detail_modal::{
     nearest_within, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
-// ── クォータニオン計算 ────────────────────────────────────────────
+// ── Quaternion math ───────────────────────────────────────────────
 
-/// クォータニオン積（Hamilton product）
+/// Quaternion product (Hamilton product).
 pub fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let [ax, ay, az, aw] = a;
     let [bx, by, bz, bw] = b;
@@ -24,7 +24,7 @@ pub fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-/// 軸・角度 → 単位クォータニオン
+/// Converts axis + angle to a unit quaternion.
 pub fn axis_angle_to_quat(axis: [f32; 3], angle: f32) -> [f32; 4] {
     let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
     if len < f32::EPSILON {
@@ -36,7 +36,7 @@ pub fn axis_angle_to_quat(axis: [f32; 3], angle: f32) -> [f32; 4] {
     [axis[0] * s, axis[1] * s, axis[2] * s, c]
 }
 
-/// クォータニオンで点を回転（Rodrigues 最適化形式）
+/// Rotates a point by a quaternion (optimized Rodrigues form).
 pub fn rotate_by_quaternion(p: [f32; 3], q: [f32; 4]) -> [f32; 3] {
     let [qx, qy, qz, qw] = q;
     let [px, py, pz] = p;
@@ -52,11 +52,11 @@ pub fn rotate_by_quaternion(p: [f32; 3], q: [f32; 4]) -> [f32; 3] {
 
 // ── ArcballCamera ─────────────────────────────────────────────────
 
-/// Arcball カメラ状態
+/// Arcball camera state.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ArcballCamera {
-    /// クォータニオン [x, y, z, w]
+    /// Quaternion [x, y, z, w].
     pub rotation: [f32; 4],
     pub zoom: f32,
     pub pan: [f32; 2],
@@ -73,8 +73,9 @@ impl Default for ArcballCamera {
 }
 
 impl ArcballCamera {
-    /// アイソメトリック初期視点（Y軸45° + X軸-30°相当）のカメラを返す。
-    /// Pareto/Cluster/MCDM/PDP の各 3D ウィジェットが既定カメラ姿勢として使う。
+    /// Returns a camera at the default isometric view (equivalent to a 45° Y-axis
+    /// rotation plus a -30° X-axis rotation).
+    /// Used as the default camera pose by the Pareto/Cluster/MCDM/PDP 3D widgets.
     pub fn isometric_default() -> Self {
         Self {
             rotation: [-0.2391, 0.3696, 0.0990, 0.8924],
@@ -86,13 +87,13 @@ impl ArcballCamera {
         self.zoom = (self.zoom - delta).clamp(0.5, 10.0);
     }
 
-    /// ドラッグ量（ピクセル）を画面パン（平行移動）として累積する
+    /// Accumulates a drag amount (in pixels) as screen pan (translation).
     pub fn pan_by_drag(&mut self, dx: f32, dy: f32) {
         self.pan[0] += dx;
         self.pan[1] += dy;
     }
 
-    /// ドラッグ量（ピクセル）をアークボール回転に変換して累積する
+    /// Converts a drag amount (in pixels) to an arcball rotation and accumulates it.
     pub fn rotate_by_drag(&mut self, dx: f32, dy: f32) {
         const SENSITIVITY: f32 = 0.005;
         let q_y = axis_angle_to_quat([0.0, 1.0, 0.0], dx * SENSITIVITY);
@@ -105,9 +106,9 @@ impl ArcballCamera {
     }
 }
 
-// ── データ範囲 ────────────────────────────────────────────────────
+// ── Data range ────────────────────────────────────────────────────
 
-/// 列スライスから [min, max] を計算する（StudyView の列を直接受け取る・MEM-002）。
+/// Computes [min, max] from a column slice (takes a StudyView column directly, MEM-002).
 pub fn compute_range_from_col(col: Option<&[f64]>) -> (f64, f64) {
     match col.and_then(|c| range_math::value_range(c.iter().copied())) {
         Some((mn, mx)) if mn.is_finite() && mx.is_finite() => range_math::expand_degenerate(mn, mx),
@@ -115,8 +116,9 @@ pub fn compute_range_from_col(col: Option<&[f64]>) -> (f64, f64) {
     }
 }
 
-/// 有限値のみで [min, max] を計算し、退化範囲を拡張する（NaN/Inf は無視）。
-/// 空・全非有限のときは (-1.0, 1.0) を返す。MCDM 3D 散布図の軸レンジ算出で共有する（D-12）。
+/// Computes [min, max] from finite values only and expands a degenerate range
+/// (NaN/Inf are ignored). Returns (-1.0, 1.0) when empty or all non-finite.
+/// Shared with the MCDM 3D scatter plot's axis range computation (D-12).
 pub fn val_range(vals: &[f64]) -> (f64, f64) {
     let finite = vals.iter().copied().filter(|v| v.is_finite());
     match range_math::value_range(finite) {
@@ -125,9 +127,9 @@ pub fn val_range(vals: &[f64]) -> (f64, f64) {
     }
 }
 
-/// x/y/z 軸のデータ範囲キャッシュ。
-/// `key`（通常は軸インデックス3つ + 行数のタプル）が前回と変わらない限り、
-/// `compute_range_from_col` による再計算を省略する。
+/// Cache for the x/y/z axis data ranges.
+/// Skips recomputation via `compute_range_from_col` as long as `key` (typically a
+/// tuple of three axis indices plus the row count) is unchanged from last time.
 #[derive(Debug, Clone)]
 pub struct Range3DCache<K> {
     key: Option<K>,
@@ -144,7 +146,8 @@ impl<K> Default for Range3DCache<K> {
 }
 
 impl<K: PartialEq> Range3DCache<K> {
-    /// `key` が前回のキャッシュキーと異なる場合のみ `compute` で x/y/z 範囲を再計算する。
+    /// Recomputes the x/y/z ranges via `compute` only when `key` differs from the
+    /// previous cache key.
     pub fn get_or_compute(
         &mut self,
         key: K,
@@ -158,7 +161,7 @@ impl<K: PartialEq> Range3DCache<K> {
     }
 }
 
-/// 3D 正規化座標: データ範囲 [v_min, v_max] を [-1, 1] に変換する
+/// 3D normalized coordinates: converts the data range [v_min, v_max] to [-1, 1].
 pub fn normalize_to_clip(v: f64, v_min: f64, v_max: f64) -> f32 {
     if (v_max - v_min).abs() < f64::EPSILON {
         return 0.0;
@@ -166,23 +169,24 @@ pub fn normalize_to_clip(v: f64, v_min: f64, v_max: f64) -> f32 {
     (2.0 * (v - v_min) / (v_max - v_min) - 1.0).clamp(-1.0, 1.0) as f32
 }
 
-// ── 深度ソート描画 ────────────────────────────────────────────────
+// ── Depth-sorted rendering ───────────────────────────────────────
 
-/// 深度付きの描画点。3D 散布図のペインターズアルゴリズム（奥→手前描画）用の
-/// 一時バッファ要素。`pareto_3d` / `cluster_scatter_3d` / `mcdm_scatter_chart_3d` /
-/// `surrogate_opt` の 4 箇所が共有する（D-1）。
+/// A drawable point with depth. A temporary buffer element for the 3D scatter
+/// plot's painter's algorithm (draw back-to-front). Shared by 4 places: `pareto_3d`,
+/// `cluster_scatter_3d`, `mcdm_scatter_chart_3d`, and `surrogate_opt` (D-1).
 #[derive(Clone, Copy)]
 pub struct DepthPoint {
-    /// スクリーン座標
+    /// Screen coordinates.
     pub pos: egui::Pos2,
-    /// カメラ深度（小さいほど奥）
+    /// Camera depth (smaller = farther back).
     pub depth: f32,
     pub color: egui::Color32,
     pub radius: f32,
 }
 
-/// 深度で奥→手前にソートし、`circle_filled` で描画する（ペインターズアルゴリズム）。
-/// `stroke` が `Some` のときは各点に円周ストロークも重ねる（予測フロント点の強調用）。
+/// Sorts back-to-front by depth and draws with `circle_filled` (painter's algorithm).
+/// When `stroke` is `Some`, also overlays a circular stroke on each point (used to
+/// emphasize predicted front points).
 pub fn draw_depth_sorted_points(
     painter: &egui::Painter,
     points: &mut [DepthPoint],
@@ -201,8 +205,9 @@ pub fn draw_depth_sorted_points(
     }
 }
 
-/// 値空間の点 `[x, y, z]` を各軸レンジで clip 空間 [-1, 1] に正規化し、投影して
-/// `(スクリーン座標, 深度)` を返す（normalize_to_clip×3 → project の定型処理・D-1）。
+/// Normalizes a point `[x, y, z]` in value space to clip space [-1, 1] using each
+/// axis's range, then projects it and returns `(screen coordinates, depth)`
+/// (the normalize_to_clip x3 -> project boilerplate, D-1).
 pub fn project_value_3d(
     project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
     v: [f64; 3],
@@ -215,9 +220,9 @@ pub fn project_value_3d(
     ])
 }
 
-// ── UI ヘルパー ───────────────────────────────────────────────────
+// ── UI helpers ────────────────────────────────────────────────────
 
-/// インデックスベースの目的関数選択コンボボックス
+/// Index-based objective selection combo box.
 pub fn show_objective_combo(
     ui: &mut egui::Ui,
     label: &str,
@@ -235,19 +240,20 @@ pub fn show_objective_combo(
         });
 }
 
-// ── キャンバス初期化 ──────────────────────────────────────────────
+// ── Canvas setup ──────────────────────────────────────────────────
 
-/// カメラ操作を処理し、描画準備済みの painter・rect・project クロージャと
-/// 左クリック位置・ホバー位置を返す。
-/// - 右ドラッグ → 回転
-/// - 中ドラッグ / Shift+右ドラッグ → パン（平行移動）
-/// - スクロール → ズーム
-/// - 左クリック → 戻り値の `click_pos` にクリック位置を返す（点クリック判定用）
-/// - ホバー → 戻り値の `hover_pos` にポインタ位置を返す（ドラッグ中は `None`。点ホバー
-///   ツールチップ判定用）
-/// - 背景塗りつぶし済み
+/// Handles camera interaction and returns a render-ready painter, rect, project
+/// closure, left-click position, and hover position.
+/// - Right-drag -> rotate
+/// - Middle-drag / Shift+right-drag -> pan (translate)
+/// - Scroll -> zoom
+/// - Left-click -> returns the click position in `click_pos` (for point-click hit testing)
+/// - Hover -> returns the pointer position in `hover_pos` (`None` while dragging; used
+///   for point-hover tooltip hit testing)
+/// - Background already filled
 ///
-/// `project` はスクリーン座標と深度 (Pos2, depth) を返す純粋関数（Copy キャプチャのみ）
+/// `project` is a pure function (Copy-capture only) returning screen coordinates and
+/// depth (Pos2, depth).
 #[allow(clippy::type_complexity)]
 pub fn setup_3d_canvas(
     ui: &mut egui::Ui,
@@ -265,18 +271,18 @@ pub fn setup_3d_canvas(
     if response.dragged_by(egui::PointerButton::Middle)
         || (shift && response.dragged_by(egui::PointerButton::Secondary))
     {
-        // 中ドラッグ、または Shift を押しながらの右ドラッグでパン
+        // Pan on middle-drag, or right-drag while holding Shift.
         let d = response.drag_delta();
         camera.pan_by_drag(d.x, d.y);
     } else if response.dragged_by(egui::PointerButton::Secondary) {
-        // 右ドラッグで回転
+        // Rotate on right-drag.
         let d = response.drag_delta();
         camera.rotate_by_drag(d.x, d.y);
     }
-    // スクロールズームはこのウィジェットにマウスがあるときだけ適用する。
-    // smooth_scroll_delta はグローバル入力のため、ホバー判定でゲートしないと
-    // キャンバス上の全 3D ウィジェットが同時にズームしてしまう。
-    // 適用したスクロール量は消費し、他のウィジェット／キャンバスへ伝播させない。
+    // Apply scroll-zoom only while the mouse is over this widget. smooth_scroll_delta
+    // is global input, so without gating on hover, all 3D widgets on the canvas
+    // would zoom simultaneously. Consume the applied scroll amount so it doesn't
+    // propagate to other widgets/canvases.
     let scroll = if response.hovered() {
         ui.input_mut(|i| {
             let s = i.smooth_scroll_delta.y;
@@ -289,13 +295,13 @@ pub fn setup_3d_canvas(
     if scroll.abs() > f32::EPSILON {
         camera.apply_zoom(scroll * 0.01);
     }
-    // 左クリック位置（点クリックでの詳細モーダル表示用）
+    // Left-click position (used to show the detail modal on point click).
     let click_pos = if response.clicked_by(egui::PointerButton::Primary) {
         response.interact_pointer_pos()
     } else {
         None
     };
-    // ホバー位置（点ホバーツールチップ用）。回転・パン中のドラッグは抑止する。
+    // Hover position (for point-hover tooltips). Suppressed while dragging (rotate/pan).
     let hover_pos = if response.dragged() {
         None
     } else {
@@ -320,9 +326,10 @@ pub fn setup_3d_canvas(
     (painter, rect, project, click_pos, hover_pos)
 }
 
-/// 指定座標に最も近い 3D 点を `(trial_id, row_index)` で返す（クリック・ホバー共用）。
-/// `candidates` は描画した各点の `(trial_id, row_index, スクリーン座標)`。
-/// `HIT_THRESHOLD` px 以内に点がなければ `None`。
+/// Returns the 3D point nearest to the given coordinates as `(trial_id, row_index)`
+/// (shared by click and hover). `candidates` is each rendered point's
+/// `(trial_id, row_index, screen coordinates)`. Returns `None` if no point is
+/// within `HIT_THRESHOLD` px.
 pub fn pick_nearest_3d(
     candidates: &[(u32, usize, egui::Pos2)],
     pos: egui::Pos2,
@@ -331,10 +338,11 @@ pub fn pick_nearest_3d(
     nearest_within(&pts, pos, HIT_THRESHOLD).map(|i| (candidates[i].0, candidates[i].1))
 }
 
-/// 3D 散布図共通の「ホバーでツールチップ・クリックで詳細モーダル」フロー。
-/// - モーダル表示中はホバーのツールチップ表示を抑止する。
-/// - `hover_rows`/`click_context` はヒットした行 index から表示行を組み立てるクロージャ
-///   （ウィジェットによってホバーとクリックで見せる内容が異なるため分離している）。
+/// Shared "hover for tooltip, click for detail modal" flow for 3D scatter plots.
+/// - Suppresses the hover tooltip while the modal is open.
+/// - `hover_rows`/`click_context` are closures that build the displayed rows from the
+///   hit row index (kept separate since the content shown on hover vs. click differs
+///   by widget).
 #[allow(clippy::too_many_arguments)]
 pub fn show_hover_and_click_detail(
     ui: &mut egui::Ui,
@@ -369,9 +377,9 @@ pub fn show_hover_and_click_detail(
     }
 }
 
-// ── グリッド・軸描画 ──────────────────────────────────────────────
+// ── Grid / axis rendering ─────────────────────────────────────────
 
-/// 3Dグリッド（XY/XZ/YZ の 3 面）を描画する
+/// Draws the 3D grid (the XY/XZ/YZ planes).
 pub fn draw_3d_grid(painter: &egui::Painter, project: &impl Fn([f32; 3]) -> (egui::Pos2, f32)) {
     let stroke = egui::Stroke::new(0.5, COLOR_3D_GRID());
     const N: i32 = 4;
@@ -398,9 +406,9 @@ pub fn draw_3d_grid(painter: &egui::Painter, project: &impl Fn([f32; 3]) -> (egu
     }
 }
 
-/// 軸線（-1→+1）と名前・値ラベルを描画する。
+/// Draws the axis lines (-1 -> +1) plus name and value labels.
 ///
-/// `names` は `[x_name, y_name, z_name]`、`ranges` は `[(x_min, x_max), ...]`。
+/// `names` is `[x_name, y_name, z_name]`, `ranges` is `[(x_min, x_max), ...]`.
 pub fn draw_3d_axes(
     painter: &egui::Painter,
     project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
@@ -418,8 +426,9 @@ pub fn draw_3d_axes(
     draw_3d_axis_labels(painter, project, names, ranges);
 }
 
-/// 軸の名前・値ラベルのみを描画する（軸線は描かない）。
-/// 軸線を深度ソートに混ぜて描く場合に、ラベルだけ最前面へ出す用途。
+/// Draws only the axis name/value labels (does not draw the axis lines).
+/// Used to bring labels to the front when axis lines are drawn mixed into the
+/// depth-sorted pass.
 pub fn draw_3d_axis_labels(
     painter: &egui::Painter,
     project: &impl Fn([f32; 3]) -> (egui::Pos2, f32),
@@ -451,9 +460,10 @@ pub fn draw_3d_axis_labels(
     }
 }
 
-/// 軸線（-1→+1）を細分化し、クリップ空間の線分 (始点, 終点, 色) として返す。
-/// サーフェスなどの深度ソート描画に混ぜることで、面との前後関係を正しく表現できる
-/// （`draw_3d_axes` は前後関係を持たない一本線として描く）。
+/// Subdivides the axis lines (-1 -> +1) and returns them as clip-space segments
+/// (start, end, color). Mixing these into depth-sorted rendering (e.g. with a
+/// surface) correctly represents front/back ordering relative to the surface
+/// (`draw_3d_axes` draws a single line with no depth ordering).
 pub fn axis_segments_3d(subdivisions: usize) -> Vec<([f32; 3], [f32; 3], egui::Color32)> {
     let colors = [COLOR_AXIS_X(), COLOR_AXIS_Y(), COLOR_AXIS_Z()];
     let n = subdivisions.max(1);
@@ -472,7 +482,7 @@ pub fn axis_segments_3d(subdivisions: usize) -> Vec<([f32; 3], [f32; 3], egui::C
     segments
 }
 
-// ── テスト ────────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -563,13 +573,13 @@ mod tests {
     fn axis_segments_3d_returns_three_axes_subdivided() {
         let segs = axis_segments_3d(8);
         assert_eq!(segs.len(), 3 * 8);
-        // 各軸の最初の線分は -1 から、最後の線分は +1 で終わる
+        // Each axis's first segment starts at -1 and the last segment ends at +1.
         for axis in 0..3 {
             let first = &segs[axis * 8];
             let last = &segs[axis * 8 + 7];
             assert!((first.0[axis] - (-1.0)).abs() < 1e-6);
             assert!((last.1[axis] - 1.0).abs() < 1e-6);
-            // 他の成分は 0（軸は原点を通る）
+            // The other components are 0 (the axis passes through the origin).
             for c in 0..3 {
                 if c != axis {
                     assert_eq!(first.0[c], 0.0);

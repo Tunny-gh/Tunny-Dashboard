@@ -1,35 +1,38 @@
-//! GH_Archive XML（.ghx）の汎用ツリーパーサ。
+//! Generic tree parser for GH_Archive XML (.ghx).
 //!
-//! .ghx は Grasshopper の GH_Archive を XML でシリアライズしたもので、
-//! `<chunk>`（名前付きノード）と `<item>`（名前・型・値の葉）の再帰構造を持つ。
-//! ここではフォーマットの意味論には立ち入らず、ツリーをそのまま
-//! `GhxChunk` / `GhxItem` に写し取る。意味論（スライダー・ワイヤ等の解釈）は
-//! `problem` モジュールが担う。
+//! .ghx is Grasshopper's GH_Archive serialized as XML; it has a recursive
+//! structure of `<chunk>` (named nodes) and `<item>` (name/type/value
+//! leaves). This module doesn't concern itself with the format's semantics —
+//! it simply copies the tree into `GhxChunk` / `GhxItem`. Semantics
+//! (interpreting sliders, wires, etc.) are the `problem` module's job.
 //!
-//! 注意: GH_Archive の XML 構造は公式ドキュメントがなく、事実上の安定性に
-//! 依存している（ROADMAP 項目 15 参照）。パースはタグ名・属性名のみに基づき、
-//! 未知の要素は無視する方針で前方互換性を確保する。
+//! Note: the GH_Archive XML structure has no official documentation and
+//! relies on de facto stability (see ROADMAP item 15). Parsing is based only
+//! on tag and attribute names, and unknown elements are ignored, to ensure
+//! forward compatibility.
 
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
-/// `<item>` 要素。単純型（gh_double / gh_string / gh_guid 等）の値は
-/// `text` にテキスト内容がそのまま入る。複合型（座標・色等）の子要素は
-/// 現状の用途では不要なため捨てる。
+/// An `<item>` element. For simple types (gh_double / gh_string / gh_guid,
+/// etc.) the value's text content goes straight into `text`. Child elements
+/// of compound types (coordinates, colors, etc.) are discarded since they
+/// aren't needed for the current use case.
 #[derive(Debug, Clone)]
 pub(crate) struct GhxItem {
     pub name: String,
-    /// 同名 item が並ぶ場合の連番（例: ワイヤ接続元の `Source`）。
-    /// 現状は文書順で十分なため解釈側では未使用（デバッグ・将来用に保持）。
+    /// Sequence number when multiple items share a name (e.g. wire source
+    /// `Source`). Currently unused on the interpreting side since document
+    /// order is sufficient (kept for debugging / future use).
     #[allow(dead_code)]
     pub index: Option<i64>,
-    /// GH_IO の型名（gh_double 等）。解釈はテキスト値で行うため未使用。
+    /// GH_IO type name (gh_double, etc.). Unused since interpretation is done via the text value.
     #[allow(dead_code)]
     pub type_name: String,
     pub text: String,
 }
 
-/// `<chunk>` 要素（ルートの `<Archive>` も便宜上 chunk として扱う）。
+/// A `<chunk>` element (the root `<Archive>` is also treated as a chunk for convenience).
 #[derive(Debug, Clone)]
 pub(crate) struct GhxChunk {
     pub name: String,
@@ -49,21 +52,21 @@ impl GhxChunk {
         }
     }
 
-    /// 直下の子 chunk を名前（大文字小文字無視）で探す。
+    /// Finds a direct child chunk by name (case-insensitive).
     pub fn find_chunk(&self, name: &str) -> Option<&GhxChunk> {
         self.chunks
             .iter()
             .find(|c| c.name.eq_ignore_ascii_case(name))
     }
 
-    /// 直下の子 chunk のうち指定名のものをすべて返す。
+    /// Returns all direct child chunks with the given name.
     pub fn chunks_named<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a GhxChunk> {
         self.chunks
             .iter()
             .filter(move |c| c.name.eq_ignore_ascii_case(name))
     }
 
-    /// 深さ優先で子孫 chunk を名前で探す（自身は含まない）。
+    /// Depth-first search for a descendant chunk by name (does not include self).
     pub fn find_chunk_recursive(&self, name: &str) -> Option<&GhxChunk> {
         for child in &self.chunks {
             if child.name.eq_ignore_ascii_case(name) {
@@ -76,29 +79,29 @@ impl GhxChunk {
         None
     }
 
-    /// 直下の item を名前（大文字小文字無視）で探す。
+    /// Finds a direct child item by name (case-insensitive).
     pub fn item(&self, name: &str) -> Option<&GhxItem> {
         self.items
             .iter()
             .find(|i| i.name.eq_ignore_ascii_case(name))
     }
 
-    /// 直下の item のテキスト値。
+    /// The text value of a direct child item.
     pub fn item_text(&self, name: &str) -> Option<&str> {
         self.item(name).map(|i| i.text.as_str())
     }
 
-    /// 直下の item を f64 として読む。
+    /// Reads a direct child item as f64.
     pub fn item_f64(&self, name: &str) -> Option<f64> {
         self.item_text(name).and_then(|t| t.trim().parse().ok())
     }
 
-    /// 直下の item を i64 として読む。
+    /// Reads a direct child item as i64.
     pub fn item_i64(&self, name: &str) -> Option<i64> {
         self.item_text(name).and_then(|t| t.trim().parse().ok())
     }
 
-    /// 直下の同名 item をすべて返す（index 順は文書順のまま）。
+    /// Returns all direct child items with the same name (index order follows document order).
     pub fn items_named<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a GhxItem> {
         self.items
             .iter()
@@ -106,14 +109,15 @@ impl GhxChunk {
     }
 }
 
-/// 要素スタック上の種別。テキストの帰属先判定（item 直下のテキストのみ拾う）
-/// と chunk の開閉に使う。
+/// The kind of element on the element stack. Used both to determine where
+/// text belongs (only text directly under an item is captured) and to track
+/// chunk open/close.
 enum ElemKind {
-    /// `<Archive>` または `<chunk>`（GhxChunk をスタックに積んだ要素）
+    /// `<Archive>` or `<chunk>` (an element whose GhxChunk was pushed onto the stack)
     Chunk,
-    /// `<item>`（current_item が生きている間のみ Item として扱う）
+    /// `<item>` (treated as an Item only while current_item is alive)
     Item,
-    /// それ以外（`<items>` `<chunks>` や複合型 item の子要素等）
+    /// Anything else (`<items>`, `<chunks>`, child elements of compound-type items, etc.)
     Other,
 }
 
@@ -127,7 +131,7 @@ fn attr_of(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
     None
 }
 
-/// .ghx 全体をパースしてルート chunk（`<Archive>`）を返す。
+/// Parses the entire .ghx and returns the root chunk (`<Archive>`).
 pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
     let mut reader = Reader::from_str(xml);
     let mut elem_stack: Vec<ElemKind> = Vec::new();
@@ -161,7 +165,7 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 }
             }
             Ok(Event::Empty(e)) => {
-                // 自己終了要素。空文字列の item がこの形になることがある。
+                // Self-closing element. An empty-string item can take this form.
                 if e.local_name().as_ref() == b"item" && current_item.is_none() {
                     if let Some(chunk) = chunk_stack.last_mut() {
                         chunk.items.push(GhxItem {
@@ -174,8 +178,9 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 }
             }
             Ok(Event::Text(t)) => {
-                // item 要素の直下のテキストのみ値として採用する
-                // （複合型の子要素内テキストは ElemKind::Other の下なので拾わない）。
+                // Only text directly under an item element is adopted as
+                // the value (text inside a compound type's child elements
+                // falls under ElemKind::Other and is not captured).
                 if matches!(elem_stack.last(), Some(ElemKind::Item)) {
                     if let Some(item) = current_item.as_mut() {
                         let decoded = t
@@ -186,8 +191,8 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 }
             }
             Ok(Event::GeneralRef(r)) => {
-                // 実体参照（&amp; 等）はテキストと別イベントで届くため、
-                // 解決して item のテキストに連結する。
+                // Entity references (&amp; etc.) arrive as a separate event
+                // from text, so resolve them and append to the item's text.
                 if matches!(elem_stack.last(), Some(ElemKind::Item)) {
                     if let Some(item) = current_item.as_mut() {
                         let name = r
@@ -219,8 +224,9 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                     if let (Some(mut item), Some(chunk)) =
                         (current_item.take(), chunk_stack.last_mut())
                     {
-                        // 複合型 item では子要素間の整形用空白が text に混入する
-                        // ため取り除く（単純型の値は前後空白なしで書かれる）。
+                        // For compound-type items, formatting whitespace between child
+                        // elements ends up mixed into text, so trim it (simple-type values
+                        // are written without leading/trailing whitespace).
                         item.text = item.text.trim().to_string();
                         chunk.items.push(item);
                     }
@@ -229,7 +235,7 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 None => return Err("XML 要素の開閉が対応していません".to_string()),
             },
             Ok(Event::Eof) => break,
-            Ok(_) => {} // 宣言・コメント・CDATA 等は無視
+            Ok(_) => {} // ignore declarations, comments, CDATA, etc.
             Err(e) => return Err(format!(".ghx の XML パースに失敗: {e}")),
         }
     }
@@ -278,7 +284,7 @@ mod tests {
 </Archive>"#;
         let root = parse_archive(xml).unwrap();
         assert_eq!(root.name, "Root");
-        // 複合型 item の子要素テキストは値に混入しない
+        // A compound-type item's child element text doesn't leak into the value
         assert_eq!(root.item_text("ArchiveVersion"), Some(""));
         let objects = root
             .find_chunk_recursive("DefinitionObjects")
@@ -291,7 +297,7 @@ mod tests {
             objs[0].item_text("GUID"),
             Some("57da07bd-ecab-415d-9d86-af36d7073abc")
         );
-        // XML エスケープが解除される
+        // XML escapes are unescaped
         assert_eq!(objs[1].item_text("Name"), Some("A & B"));
         assert_eq!(objs[1].index, Some(1));
     }

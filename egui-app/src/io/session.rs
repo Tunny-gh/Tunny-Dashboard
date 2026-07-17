@@ -1,10 +1,13 @@
-//! セッション（プロジェクト）ファイルの保存・復元。
+//! Save / restore of session (project) files.
 //!
-//! キャンバスレイアウト・各ウィジェット設定・グローバル表示設定を JSON として
-//! 保存し、後で復元する。データ本体（journal / SQLite / CSV）は保存しない —
-//! 復元後に別のデータセットを開いても可視化構成が維持されることが狙い。
-//! 列参照の不整合（存在しない列名・範囲外インデックス）は Study 切替と同じ
-//! 経路で各ウィジェットがフォールバックするため、復元側での検証は行わない。
+//! Saves the canvas layout, each widget's settings, and the global view
+//! settings as JSON, to be restored later. The underlying data (journal /
+//! SQLite / CSV) is not saved — the intent is that the visualization
+//! configuration is preserved even if a different dataset is opened after
+//! restoring. Inconsistent column references (nonexistent column names,
+//! out-of-range indices) are handled by each widget's fallback via the same
+//! path used for Study switching, so no validation is performed on the
+//! restore side.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,31 +18,35 @@ use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::indicators::MoIndicator;
 
-/// セッションファイルのフォーマットバージョン。
-/// 後方互換の追加（フィールド追加）ではインクリメントせず、
-/// 互換性が壊れる変更時のみ上げる。
+/// Session file format version.
+/// Not incremented for backward-compatible additions (adding fields);
+/// bumped only when making a breaking change.
 pub const SESSION_VERSION: u32 = 1;
 
-/// セッションファイルの拡張子。中身は素の JSON なので、独自拡張子ではなく
-/// `.json` を使う（何のファイルか一目で分かり、エディタでも開ける）。
-/// ファイル名の慣例は `*-session.json`。
+/// Session file extension. Since the content is plain JSON, this uses
+/// `.json` rather than a custom extension (so it's obvious what kind of
+/// file it is, and it can still be opened in an editor). The file naming
+/// convention is `*-session.json`.
 pub const SESSION_EXTENSION: &str = "json";
 
-/// AppState のうち「どう見せるか」を表すグローバル表示設定。
-/// 「どのデータを見るか」（journal_path / study 選択 / 比較セッション）は
-/// 意図的に含めない。
+/// The subset of `AppState` representing "how to display" as a global view
+/// setting. "Which data to view" (journal_path / study selection /
+/// comparison session) is intentionally excluded.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ViewSettings {
     pub selected_colormap: ColormapName,
-    /// 列名 → (min, max)。存在しない列のエントリはフィルタ適用時に無視される。
+    /// column name -> (min, max). Entries for nonexistent columns are
+    /// ignored when the filter is applied.
     pub filter_ranges: HashMap<String, (f64, f64)>,
-    /// ピン留め trial ID。復元先のデータに存在しない ID は各ウィジェットが無視する。
+    /// Pinned trial IDs. IDs that don't exist in the restored data are
+    /// ignored by each widget.
     pub pinned_trials: Vec<u32>,
     pub hv_ref_point_override: Option<Vec<f64>>,
     pub convergence_indicator: MoIndicator,
     pub help_language: HelpLanguage,
-    /// ダークテーマか（`#[serde(default)]` により旧セッションはライト扱い）。
+    /// Whether the dark theme is active (older sessions are treated as
+    /// light via `#[serde(default)]`).
     pub dark_mode: bool,
 }
 
@@ -58,7 +65,8 @@ impl Default for ViewSettings {
 }
 
 impl ViewSettings {
-    /// 現在の AppState からセッションに保存すべき表示設定を抜き出す。
+    /// Extracts the view settings to save into the session from the
+    /// current AppState.
     pub fn capture(app_state: &AppState) -> Self {
         Self {
             selected_colormap: app_state.selected_colormap.clone(),
@@ -71,8 +79,9 @@ impl ViewSettings {
         }
     }
 
-    /// 表示設定を AppState へ書き戻す。
-    /// HV 参照点の変更は収束履歴の再計算をトリガーするため無効化する。
+    /// Writes the view settings back into AppState.
+    /// Invalidates the convergence history if the HV reference point
+    /// changed, since that requires recomputation.
     pub fn apply(self, app_state: &mut AppState) {
         app_state.selected_colormap = self.selected_colormap;
         app_state.filter_ranges = self.filter_ranges;
@@ -87,24 +96,26 @@ impl ViewSettings {
     }
 }
 
-/// セッションファイル本体（読み込み側）。
-/// `WidgetStates` は `Clone` を持たないため、書き込み側は参照を束ねた
-/// `SessionFileRef` を内部で使い、この型は復元専用とする。
+/// The session file body (read side).
+/// Since `WidgetStates` does not implement `Clone`, the write side
+/// internally uses `SessionFileRef`, which bundles references; this type
+/// is dedicated to restoring.
 #[derive(serde::Deserialize)]
 pub struct SessionFile {
-    /// フォーマットバージョン。`SESSION_VERSION` より新しいファイルは読み込みを拒否する。
+    /// Format version. Files newer than `SESSION_VERSION` are rejected on load.
     pub version: u32,
-    /// キャンバスレイアウト（アイテム配置・pan/zoom・パネル状態）。
+    /// Canvas layout (item placement, pan/zoom, panel state).
     pub layout: LayoutState,
-    /// キャンバスアイテム ID → ウィジェット設定。
-    /// ランタイム状態（計算結果・キャッシュ）は `#[serde(skip)]` で除外されており、
-    /// 復元後の初回描画で再計算される。
+    /// Canvas item ID -> widget settings.
+    /// Runtime state (computation results, caches) is excluded via
+    /// `#[serde(skip)]` and is recomputed on the first render after
+    /// restoring.
     pub widgets: HashMap<u64, WidgetStates>,
-    /// グローバル表示設定。
+    /// Global view settings.
     pub view: ViewSettings,
 }
 
-/// 現在のアプリ状態をクローンなしで JSON 化する。
+/// Serializes the current app state to JSON without cloning.
 pub fn to_json(
     layout: &LayoutState,
     widgets: &HashMap<u64, WidgetStates>,
@@ -126,8 +137,9 @@ pub fn to_json(
     .map_err(|e| format!("Failed to serialize session: {e}"))
 }
 
-/// JSON 文字列からセッションを復元する。
-/// 未知のフィールドは無視し、欠落フィールドは既定値で補う（前方互換）。
+/// Restores a session from a JSON string.
+/// Unknown fields are ignored, and missing fields fall back to defaults
+/// (forward compatibility).
 pub fn from_json(text: &str) -> Result<SessionFile, String> {
     let session: SessionFile =
         serde_json::from_str(text).map_err(|e| format!("Failed to parse session file: {e}"))?;
@@ -141,7 +153,7 @@ pub fn from_json(text: &str) -> Result<SessionFile, String> {
     Ok(session)
 }
 
-/// セッションを指定パスへ書き込む。
+/// Writes the session to the specified path.
 pub fn write_session_to_path(
     layout: &LayoutState,
     widgets: &HashMap<u64, WidgetStates>,
@@ -153,15 +165,15 @@ pub fn write_session_to_path(
         .map_err(|e| format!("Failed to write session file: {e}"))
 }
 
-/// 指定パスからセッションを読み込む。
+/// Reads the session from the specified path.
 pub fn read_session_from_path(path: &Path) -> Result<SessionFile, String> {
     let text =
         std::fs::read_to_string(path).map_err(|e| format!("Failed to read session file: {e}"))?;
     from_json(&text)
 }
 
-/// ファイル保存ダイアログを開いてセッションを保存する。
-/// キャンセル時は `Ok(None)`、成功時は保存先パスを返す。
+/// Opens a file save dialog and saves the session.
+/// Returns `Ok(None)` on cancel, or the destination path on success.
 pub fn save_session_dialog(
     layout: &LayoutState,
     widgets: &HashMap<u64, WidgetStates>,
@@ -178,8 +190,8 @@ pub fn save_session_dialog(
     Ok(Some(path))
 }
 
-/// セッションファイル選択ダイアログを開く（キャンセル時は `None`）。
-/// 読み込み・適用は呼び出し側（`apply_toolbar_actions`）が行う。
+/// Opens a session file picker dialog (returns `None` on cancel).
+/// Loading and applying is done by the caller (`apply_toolbar_actions`).
 pub fn pick_session_file_dialog() -> Option<PathBuf> {
     rfd::FileDialog::new()
         .add_filter("Tunny Dashboard Session (*.json)", &[SESSION_EXTENSION])
@@ -218,7 +230,7 @@ mod tests {
 
     #[test]
     fn missing_view_fields_fall_back_to_defaults() {
-        // 将来のフィールド追加を想定: view が空オブジェクトでも読めること
+        // Anticipates future field additions: view must still load even as an empty object.
         let mut value: serde_json::Value = serde_json::from_str(&make_json()).unwrap();
         value["view"] = serde_json::json!({});
         let restored = from_json(&value.to_string()).unwrap();
@@ -280,7 +292,7 @@ mod tests {
         assert_eq!(fresh.pinned_trials, vec![3, 8]);
         assert_eq!(fresh.filter_ranges.get("x"), Some(&(0.5, 2.5)));
         assert_eq!(fresh.hv_ref_point_override, Some(vec![10.0, 20.0]));
-        // HV 参照点が変わったので収束履歴は無効化される
+        // The convergence history is invalidated because the HV reference point changed.
         assert!(fresh.convergence_history.is_none());
     }
 

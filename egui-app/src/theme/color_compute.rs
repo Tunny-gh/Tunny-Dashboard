@@ -1,43 +1,45 @@
-/// RGBA バイト配列（非プリマルチプライドアルファ、順序 [R, G, B, A]）を
-/// egui の Color32 へ変換する。
-/// state 層は egui 依存を持たないため `[u8; 4]` で色を保持しており、
-/// UI 描画時にこの関数を使って Color32 へ変換する。
+/// Converts an RGBA byte array (non-premultiplied alpha, order [R, G, B, A]) to
+/// egui's Color32.
+/// The state layer doesn't depend on egui, so it holds colors as `[u8; 4]`;
+/// use this function to convert to Color32 at UI drawing time.
 pub fn rgba_to_color32(rgba: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
-/// `Color32` を格納バイトそのまま（プリマルチプライドアルファ、順序 [R, G, B, A]）の
-/// 配列へ変換する（D-11）。色ごとに点をグループ化する `HashMap`/`BTreeMap` のキーに使う。
-/// 逆変換は [`key_to_color32`]（ロスレス恒等）。[`rgba_to_color32`] は非プリマルチプライド
-/// 入力用であり逆変換ではないことに注意（半透明色で成分が一致しなくなる）。
+/// Converts `Color32` to an array of its stored bytes as-is (premultiplied alpha, order
+/// [R, G, B, A]) (D-11). Used as the key of `HashMap`/`BTreeMap` for grouping points by color.
+/// The inverse conversion is [`key_to_color32`] (lossless identity). Note that [`rgba_to_color32`]
+/// is for non-premultiplied input and is not the inverse conversion (components won't match for
+/// semi-transparent colors).
 pub fn rgba_key(color: egui::Color32) -> [u8; 4] {
     color.to_array()
 }
 
-/// [`rgba_key`] の逆変換。プリマルチプライド空間のバイト列をそのまま復元するため、
-/// `key_to_color32(rgba_key(c)) == c` が全ての色で厳密に成り立つ。
+/// Inverse conversion of [`rgba_key`]. Since it restores the byte sequence in premultiplied
+/// space as-is, `key_to_color32(rgba_key(c)) == c` holds exactly for every color.
 pub fn key_to_color32(key: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgba_premultiplied(key[0], key[1], key[2], key[3])
 }
 
-/// 比較 Study に割り当てる代表色のパレット（基準 Study の緑系とは別の色相）。
-/// 各要素は `[R, G, B, A]` の非プリマルチプライドアルファ。
+/// Palette of representative colors assigned to comparison Studies (a different hue family
+/// from the baseline Study's green tones).
+/// Each element is `[R, G, B, A]` with non-premultiplied alpha.
 const COMPARISON_PALETTE: [[u8; 4]; 6] = [
-    [66, 133, 244, 255], // 青
-    [234, 67, 53, 255],  // 赤
-    [251, 188, 4, 255],  // 黄
-    [171, 71, 188, 255], // 紫
-    [255, 112, 67, 255], // オレンジ
-    [0, 172, 193, 255],  // シアン
+    [66, 133, 244, 255], // blue
+    [234, 67, 53, 255],  // red
+    [251, 188, 4, 255],  // yellow
+    [171, 71, 188, 255], // purple
+    [255, 112, 67, 255], // orange
+    [0, 172, 193, 255],  // cyan
 ];
 
-/// `idx` 番目の比較 Study に割り当てる色を返す（パレットを循環）。
+/// Returns the color assigned to the `idx`-th comparison Study (cycles through the palette).
 pub fn comparison_color_at(idx: usize) -> [u8; 4] {
     COMPARISON_PALETTE[idx % COMPARISON_PALETTE.len()]
 }
 
-/// trial_id が selected_indices に含まれるかでアルファ値を計算する。
-/// selected_indices が空の場合は全点が不透明（255）を返す。
+/// Computes the alpha value based on whether trial_id is included in selected_indices.
+/// If selected_indices is empty, all points return opaque (255).
 pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
     if selected_indices.is_empty() || selected_indices.contains(&trial_id) {
         255
@@ -46,10 +48,10 @@ pub fn compute_point_alpha(trial_id: u32, selected_indices: &[u32]) -> u8 {
     }
 }
 
-/// `compute_point_alpha` の `HashSet` 版（M-16）。
-/// 呼び出し側がフレーム冒頭で選択集合を 1 度だけ `HashSet<u32>` へ構築し、
-/// 点ごとの `contains()` 線形走査（O(n·s)）を O(n) の集合参照に置き換えるために使う。
-/// `selected` が空の場合は全点が不透明（255）を返す（`compute_point_alpha` と同一挙動）。
+/// `HashSet` version of `compute_point_alpha` (M-16).
+/// Used when the caller builds the selection set into a `HashSet<u32>` once at the start of the
+/// frame, replacing the per-point `contains()` linear scan (O(n*s)) with an O(n) set lookup.
+/// If `selected` is empty, all points return opaque (255) (same behavior as `compute_point_alpha`).
 pub fn point_alpha_in_set(trial_id: u32, selected: &std::collections::HashSet<u32>) -> u8 {
     if selected.is_empty() || selected.contains(&trial_id) {
         255
@@ -70,7 +72,7 @@ fn lerp_color(c0: egui::Color32, c1: egui::Color32, t: f32) -> egui::Color32 {
     )
 }
 
-/// [-1, +1] の値を low(-1) → white(0) → high(+1) の3点グラデーションに変換する。
+/// Converts a value in [-1, +1] into a 3-point gradient of low(-1) -> white(0) -> high(+1).
 fn signed_to_diverging_color(v: f64, low: egui::Color32, high: egui::Color32) -> egui::Color32 {
     let t = ((v + 1.0) / 2.0).clamp(0.0, 1.0) as f32;
     if t < 0.5 {
@@ -80,18 +82,19 @@ fn signed_to_diverging_color(v: f64, low: egui::Color32, high: egui::Color32) ->
     }
 }
 
-/// 発散型カラーマップ: score=-1.0 → 青, 0.0 → 白, +1.0 → 赤
+/// Diverging colormap: score=-1.0 -> blue, 0.0 -> white, +1.0 -> red
 pub fn diverging_colormap(score: f64) -> egui::Color32 {
     signed_to_diverging_color(score, egui::Color32::BLUE, egui::Color32::RED)
 }
 
-/// 相関係数を Color32 に変換する（赤=負相関, 白=無相関, 青=正相関）
+/// Converts a correlation coefficient to Color32 (red=negative correlation, white=no correlation, blue=positive correlation)
 pub fn correlation_color(corr: f64) -> egui::Color32 {
     signed_to_diverging_color(corr, egui::Color32::RED, egui::Color32::BLUE)
 }
 
-/// 逐次型カラーマップ: 非負の正規化値 t∈[0,1] を白(0) → 赤(1) のグラデーションに変換する。
-/// 重要度のように符号を持たない量（木ベース・Sobol など）の表示に用いる。
+/// Sequential colormap: converts a non-negative normalized value t in [0,1] into a
+/// white(0) -> red(1) gradient. Used to display unsigned quantities like importance
+/// (tree-based, Sobol, etc.).
 pub fn sequential_colormap(t: f64) -> egui::Color32 {
     let t = t.clamp(0.0, 1.0) as f32;
     lerp_color(egui::Color32::WHITE, egui::Color32::RED, t)
@@ -103,10 +106,10 @@ mod tests {
 
     #[test]
     fn rgba_key_roundtrips_through_key_to_color32() {
-        // 半透明色でもプリマルチプライド空間の往復は厳密に恒等。
+        // Even for semi-transparent colors, the round trip through premultiplied space is exactly identity.
         let color = egui::Color32::from_rgba_unmultiplied(12, 34, 56, 78);
         assert_eq!(key_to_color32(rgba_key(color)), color);
-        // 不透明色は成分バイトがそのままキーになる。
+        // For opaque colors, the component bytes become the key as-is.
         let opaque = egui::Color32::from_rgb(12, 34, 56);
         assert_eq!(rgba_key(opaque), [12, 34, 56, 255]);
         assert_eq!(key_to_color32(rgba_key(opaque)), opaque);

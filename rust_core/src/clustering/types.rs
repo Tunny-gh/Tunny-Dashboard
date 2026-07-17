@@ -1,67 +1,71 @@
-/// k-means 初期重心選択戦略
+/// Strategy for selecting the initial k-means centroids.
 ///
-/// どちらも linfa のデフォルト初期化（k-means++、D² 比例確率でサンプリング）を使用する。
-/// 違いは乱数シードの決め方のみ。
+/// Both variants use linfa's default initialization (k-means++, sampling
+/// with probability proportional to D²). The only difference is how the
+/// random seed is chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitStrategy {
-    /// k-means++ をデータ形状（n, k）由来のシードで実行する。
+    /// Runs k-means++ with a seed derived from the data shape (n, k).
     KMeansPlusPlus,
-    /// k-means++ を固定シード（42）で実行する。シードが固定されているため、
-    /// 同じ入力に対しては常に同じ初期重心・結果が得られる（再現性重視）。
+    /// Runs k-means++ with a fixed seed (42). Because the seed is fixed,
+    /// the same input always yields the same initial centroids and result
+    /// (prioritizes reproducibility).
     Deterministic,
 }
 
-/// PCA にかける特徴空間の選択。
+/// Selection of the feature space fed into PCA.
 ///
-/// アクティブ Study のどの数値列を PCA の入力に使うかを指定する。
+/// Specifies which numeric columns of the active study are used as PCA input.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PcaSpace {
-    /// パラメータ列のみ。
+    /// Parameter columns only.
     Param,
-    /// 目的関数列のみ。
+    /// Objective columns only.
     Objective,
-    /// パラメータ + 目的関数 + 数値 user attr のすべて。
+    /// All of parameters + objectives + numeric user attrs.
     All,
 }
 
-/// PCA の計算結果。
+/// Result of a PCA computation.
 ///
-/// 成分は説明分散の降順に整列される。入力が不正（n < 2 など）の場合は
-/// すべて空の結果を返す。
+/// Components are sorted by explained variance in descending order. If the
+/// input is invalid (e.g. n < 2), all fields are returned empty.
 #[derive(Debug, Clone)]
 pub struct PcaResult {
-    /// 各行を主成分空間へ射影した座標。`projections[row][component]`。
+    /// Coordinates of each row projected into principal-component space. `projections[row][component]`.
     pub projections: Vec<Vec<f64>>,
-    /// 各主成分の負荷量（固有ベクトル）。`loadings[component][feature]`。
+    /// Loadings (eigenvectors) of each principal component. `loadings[component][feature]`.
     pub loadings: Vec<Vec<f64>>,
-    /// 各成分の説明分散（固有値、降順）。
+    /// Explained variance of each component (eigenvalues, descending).
     pub explained_variance: Vec<f64>,
-    /// 各成分の寄与率（固有値 / 全固有値の和）。`explained_variance` と同長。
+    /// Explained variance ratio of each component (eigenvalue / sum of all eigenvalues). Same length as `explained_variance`.
     pub explained_ratio: Vec<f64>,
-    /// 入力に使った特徴（列）名。行列 API 経由では空。
+    /// Names of the features (columns) used as input. Empty when using the matrix API.
     pub feature_names: Vec<String>,
 }
 
-/// k-means クラスタリングの結果。
+/// Result of k-means clustering.
 #[derive(Debug, Clone)]
 pub struct KmeansResult {
-    /// 各行の所属クラスタ（0..k-1）。入力が不正な場合は空。
+    /// Cluster assignment for each row (0..k-1). Empty if the input is invalid.
     pub labels: Vec<usize>,
-    /// 各クラスタの重心。`centroids[cluster][feature]`。
+    /// Centroid of each cluster. `centroids[cluster][feature]`.
     pub centroids: Vec<Vec<f64>>,
-    /// クラスタ内平方和（Within-Cluster Sum of Squares）。
+    /// Within-Cluster Sum of Squares.
     pub wcss: f64,
-    /// 設定した最大反復回数の上限値。linfa は実際の反復回数を公開しないため、
-    /// この値は常に `max_n_iterations` に指定した設定値であり、実行時に実際に
-    /// 何回反復したかを表すものではない。
+    /// The configured upper bound on the number of iterations. Since linfa
+    /// does not expose the actual iteration count, this value is always the
+    /// setting passed as `max_n_iterations`, not the number of iterations
+    /// actually performed at runtime.
     pub iterations: usize,
 }
 
-/// エルボー法によるクラスタ数推定の結果。
+/// Result of estimating the cluster count via the elbow method.
 #[derive(Debug, Clone)]
 pub struct ElbowResult {
-    /// k = 2..=max_k の各クラスタ数に対する WCSS。
+    /// WCSS for each cluster count k = 2..=max_k.
     pub wcss_per_k: Vec<f64>,
-    /// WCSS 曲線の屈曲（二階差分最大）から推定した推奨クラスタ数。
+    /// Recommended cluster count, estimated from the bend (max second
+    /// difference) in the WCSS curve.
     pub recommended_k: usize,
 }

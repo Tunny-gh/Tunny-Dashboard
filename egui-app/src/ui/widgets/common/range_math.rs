@@ -1,11 +1,14 @@
-//! 値域正規化・min/max 集計の共有ヘルパー。
+//! Shared helpers for value-range normalization and min/max aggregation.
 //!
-//! 散布図・PDP・ヒートマップなど複数のウィジェットで重複していた
-//! 「[0,1] 正規化」「イテレータからの値域集計」「退化範囲（min==max）の拡張」
-//! ロジックをここに集約する。各呼び出し元固有のフォールバック挙動（空/非有限値の
-//! 扱い）は呼び出し側に残し、このモジュールでは共通の集計・正規化のみを提供する。
+//! Consolidates the "[0,1] normalization", "value-range aggregation from
+//! an iterator", and "expansion of a degenerate range (min==max)" logic
+//! that was duplicated across multiple widgets (scatter plots, PDP,
+//! heatmaps, etc.). Fallback behavior specific to each caller (handling of
+//! empty / non-finite values) remains with the caller; this module
+//! provides only the common aggregation and normalization.
 
-/// 値を [0, 1] に正規化する（クランプ済み）。`v_max == v_min`（退化範囲）の場合は 0.5 を返す。
+/// Normalizes a value to [0, 1] (clamped). Returns 0.5 when `v_max ==
+/// v_min` (a degenerate range).
 pub fn normalize01(v: f64, min: f64, max: f64) -> f32 {
     if (max - min).abs() < f64::EPSILON {
         return 0.5;
@@ -13,9 +16,11 @@ pub fn normalize01(v: f64, min: f64, max: f64) -> f32 {
     ((v - min) / (max - min)).clamp(0.0, 1.0) as f32
 }
 
-/// 数値イテレータから [min, max] を計算する（NaN は無視、Inf は集計に含む）。
-/// イテレータが空の場合のみ `None` を返す。非有限値（Inf）のフィルタや、
-/// 退化範囲の扱いは呼び出し側の判断に委ねる（`expand_degenerate` 参照）。
+/// Computes [min, max] from a numeric iterator (NaN is ignored, Inf is
+/// included in the aggregation). Returns `None` only when the iterator is
+/// empty. Filtering of non-finite values (Inf) and handling of a
+/// degenerate range are left to the caller's judgment (see
+/// `expand_degenerate`).
 pub fn value_range<I: IntoIterator<Item = f64>>(vals: I) -> Option<(f64, f64)> {
     let mut mn = f64::INFINITY;
     let mut mx = f64::NEG_INFINITY;
@@ -28,9 +33,10 @@ pub fn value_range<I: IntoIterator<Item = f64>>(vals: I) -> Option<(f64, f64)> {
     any.then_some((mn, mx))
 }
 
-/// 数値イテレータから非有限値（NaN・Inf）を除いた [min, max] を計算する。
-/// 有限値が 1 件も無い（空を含む）場合は `None` を返す。
-/// 退化範囲の扱いは呼び出し側の判断に委ねる（`expand_degenerate` 参照）。
+/// Computes [min, max] from a numeric iterator, excluding non-finite
+/// values (NaN, Inf). Returns `None` when there are no finite values at
+/// all (including when the iterator is empty). Handling of a degenerate
+/// range is left to the caller's judgment (see `expand_degenerate`).
 pub fn finite_value_range<I: IntoIterator<Item = f64>>(vals: I) -> Option<(f64, f64)> {
     let mut mn = f64::INFINITY;
     let mut mx = f64::NEG_INFINITY;
@@ -43,7 +49,8 @@ pub fn finite_value_range<I: IntoIterator<Item = f64>>(vals: I) -> Option<(f64, 
     (mn.is_finite() && mx.is_finite()).then_some((mn, mx))
 }
 
-/// 退化範囲（`max - min` がほぼ 0）を ±1 に広げる。それ以外はそのまま返す。
+/// Expands a degenerate range (`max - min` nearly 0) by ±1. Otherwise
+/// returns it unchanged.
 pub fn expand_degenerate(min: f64, max: f64) -> (f64, f64) {
     if (max - min).abs() < f64::EPSILON {
         (min - 1.0, max + 1.0)
@@ -94,7 +101,7 @@ mod tests {
 
     #[test]
     fn value_range_includes_infinite() {
-        // Inf のフィルタは呼び出し側の責務。ここでは集計に含まれる。
+        // Filtering Inf is the caller's responsibility; here it is included in the aggregation.
         let (mn, mx) = value_range([1.0, f64::INFINITY]).unwrap();
         assert_eq!(mn, 1.0);
         assert!(mx.is_infinite());

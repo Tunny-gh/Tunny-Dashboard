@@ -14,9 +14,9 @@ use crate::ui::widgets::scatter_3d::{
 };
 use crate::ui::widgets::trial_detail_modal::{axis_row, TrialDetailModal};
 
-/// 2D グリッド値（行 = param1、列 = param2）
+/// 2D grid values (rows = param1, columns = param2)
 pub(crate) type Grid = Vec<Vec<f64>>;
-/// 95% CI バンドの (下限, 上限) グリッド
+/// (lower, upper) grids for the 95% CI band
 pub(crate) type BandGrids = (Grid, Grid);
 
 /// Pending 2D PDP computation request, placed by show() and consumed by the chart cell body.
@@ -26,11 +26,11 @@ pub struct Pdp2dComputeRequest {
     pub objective: String,
     pub n_grid: usize,
     pub model_type: String,
-    /// 実行可能解（is_feasible > 0.5）のみでモデルをフィットするか
+    /// Whether to fit the model using only feasible trials (is_feasible > 0.5)
     pub feasible_only: bool,
 }
 
-/// PDP 2D ウィジェット状態
+/// PDP 2D widget state
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct PdpChart2DState {
@@ -45,13 +45,13 @@ pub struct PdpChart2DState {
     #[serde(skip)]
     pub pending_compute: Option<Pdp2dComputeRequest>,
     pub camera: ArcballCamera,
-    /// ガウス過程系で不確実性（±1.96σ = 95% CI）を半透明バンドとして重ねるか
+    /// Whether to overlay uncertainty (±1.96σ = 95% CI) as a translucent band for GP-family models
     pub show_uncertainty: bool,
-    /// 観測データ（サンプリング点）をサーフェスに重ねて表示するか
+    /// Whether to overlay observed data (sampled points) on the surface
     pub show_observed: bool,
-    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    /// Whether to fit the model using only feasible trials (UI shown only for constrained studies)
     pub feasible_only: bool,
-    /// 観測点クリックで開くトライアル詳細モーダル
+    /// Trial detail modal opened by clicking an observed point
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -76,9 +76,10 @@ impl Default for PdpChart2DState {
 }
 
 impl PdpChart2DState {
-    /// グローバル widget の計算実行状態・結果を取り込む。
-    /// 2D PDP 結果は widget 側（result）に保持されるため、キャンバスの各アイテム
-    /// （独立した WidgetStates）にも反映する。パラメータ・目的関数・モデルの選択は維持する。
+    /// Adopts the computing state and result from the global widget.
+    /// The 2D PDP result is held on the widget side (`result`), so it must also be
+    /// reflected onto each canvas item (independent WidgetStates). The parameter,
+    /// objective, and model selections are preserved.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.result = src.result.clone();
@@ -148,18 +149,18 @@ impl PdpChart2DState {
                     }
                 });
 
-            // 観測データ表示トグル（1D PDP と同じ操作感）
+            // Toggle to show observed data (same interaction as 1D PDP)
             ui.separator();
             ui.toggle_value(&mut self.show_observed, "Show data");
 
-            // 実行可能解フィルタ（制約付きスタディのみ）
+            // Feasible-only filter (constrained studies only)
             if view.feasibility().has_constraints() {
                 ui.toggle_value(&mut self.feasible_only, "Feasible only")
                     .on_hover_text("Fit the model using feasible trials only");
             }
         });
 
-        // 同一パラメータ警告
+        // Warning for identical parameter selection
         if !self.selected_param1.is_empty() && self.selected_param1 == self.selected_param2 {
             ui.colored_label(COLOR_CONTOUR(), "Warning: the same parameter is selected");
         }
@@ -201,7 +202,8 @@ impl PdpChart2DState {
             return;
         }
 
-        // 不確実性バンド表示トグル（ガウス過程系のみ。result の不変借用前に self を可変借用する）
+        // Toggle for the uncertainty band (GP-family models only; mutably borrow self
+        // before taking an immutable borrow of result)
         let has_uncertainty = self
             .result
             .as_ref()
@@ -221,7 +223,7 @@ impl PdpChart2DState {
             return;
         }
 
-        // 不確実性バンド: Mean ± 1.96σ の上下サーフェス（半透明で重ね描き）
+        // Uncertainty band: upper/lower surfaces at Mean ± 1.96σ (drawn translucent, overlaid)
         let bands: Option<BandGrids> = if self.show_uncertainty && has_uncertainty {
             result
                 .uncertainties
@@ -231,7 +233,7 @@ impl PdpChart2DState {
             None
         };
 
-        // 観測データ (行 index, [param1, param2, objective], 分類)
+        // Observed data: (row index, [param1, param2, objective], classification)
         let observed: Vec<(usize, [f64; 3], ObservedKind)> = if self.show_observed {
             extract_observed_3d(
                 view,
@@ -245,9 +247,9 @@ impl PdpChart2DState {
             vec![]
         };
 
-        // 色は Mean の値域で正規化する（カラーバーもこの値域）
+        // Color is normalized over the Mean value range (the colorbar uses this range too)
         let (c_min, c_max) = value_range_of(values);
-        // 縦軸のジオメトリ範囲はバンド・観測点も収まるよう拡張する
+        // Extend the vertical-axis geometry range so the bands and observed points fit too
         let (mut v_min, mut v_max) = (c_min, c_max);
         if let Some((lower, upper)) = &bands {
             let (l_min, _) = value_range_of(lower);
@@ -262,7 +264,7 @@ impl PdpChart2DState {
         let (x_min, x_max) = axis_range_of(&result.x_values);
         let (y_min, y_max) = axis_range_of(&result.y_values);
 
-        // 観測点をクリップ空間へ（X = param1, Y(縦) = 目的関数値, Z = param2）
+        // Project observed points into clip space (X = param1, Y(vertical) = objective value, Z = param2)
         let observed_clip: Vec<([f32; 3], egui::Color32)> = observed
             .iter()
             .map(|&(_, [p1, p2, ov], kind)| {
@@ -277,21 +279,22 @@ impl PdpChart2DState {
             })
             .collect();
 
-        // ホバーツールチップ・クリック詳細用の列参照（観測点は実トライアル）
+        // Column references for the hover tooltip / click detail (observed points are real trials)
         let p1_col = view.numeric_column(&result.param1_name);
         let p2_col = view.numeric_column(&result.param2_name);
         let obj_col = view.numeric_column(&result.objective_name);
         let feas = view.feasibility();
 
-        // キャンバス（右側にカラーバー分の余白を確保。バー＋数値目盛＋縦書きタイトル分。
-        // observed_contour.rs の COLORBAR_RESERVE と同じ幅を確保する）
+        // Canvas (reserve margin on the right for the colorbar: bar + numeric ticks +
+        // vertical title. Uses the same width as COLORBAR_RESERVE in observed_contour.rs)
         let avail = ui.available_size();
         let canvas_size = egui::vec2((avail.x - 96.0).max(120.0), avail.y.max(160.0));
         ui.allocate_ui(canvas_size, |ui| {
             ui.set_min_size(canvas_size);
             let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, camera);
             draw_3d_grid(&painter, &project);
-            // 軸線は細分化してサーフェスと一緒に深度ソートし、面との前後関係を反映する
+            // Axis lines are subdivided and depth-sorted together with the surface so
+            // their front/back relationship with the faces is reflected correctly
             draw_surface_mesh(
                 &painter,
                 &project,
@@ -303,8 +306,8 @@ impl PdpChart2DState {
                 &observed_clip,
                 &axis_segments_3d(24),
             );
-            // 軸ラベルは読めるよう常に最前面に描く。
-            // X = param1, Y(縦) = 目的関数値, Z = param2
+            // Axis labels are always drawn on top for readability.
+            // X = param1, Y(vertical) = objective value, Z = param2
             draw_3d_axis_labels(
                 &painter,
                 &project,
@@ -312,16 +315,17 @@ impl PdpChart2DState {
                 [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
             );
 
-            // カラーバーはキャンバス右脇に重ねて描画する（色 = Mean の値域）。
-            // ヒートマップ・contour と同じ共有描画（observed_contour.rs）を使う。
+            // The colorbar is overlaid to the right of the canvas (color = Mean value range).
+            // Uses the same shared drawing routine as heatmap/contour (observed_contour.rs).
             let bar_rect = egui::Rect::from_min_size(
                 egui::pos2(rect.right() + 6.0, rect.top()),
                 egui::vec2(14.0, rect.height()),
             );
             draw_colorbar_simple(ui, bar_rect, c_min, c_max, cmap.clone(), Some(&value_label));
 
-            // 観測点のホバーツールチップ・クリック詳細（他の 3D 散布図と同じ操作感）。
-            // "Show data" オフ時は observed が空のため何も起きない。
+            // Hover tooltip / click detail for observed points (same interaction as the
+            // other 3D scatter plots). When "Show data" is off, `observed` is empty so
+            // nothing happens.
             let candidates: Vec<(u32, usize, egui::Pos2)> = observed
                 .iter()
                 .zip(observed_clip.iter())
@@ -361,16 +365,16 @@ impl PdpChart2DState {
             );
         });
 
-        // クリックで開いたトライアル詳細モーダルを描画する。
+        // Draw the trial detail modal opened by a click.
         if detail_modal.is_open() {
             detail_modal.show(ui, view, param_names, obj_names, artifact_map);
         }
     }
 }
 
-/// Mean グリッドと分散グリッドから 95% CI の下限・上限グリッドを作る。
-/// 分散が数値誤差で負の場合は 0 として扱う（NaN を生まない）。
-/// 不揃いな行は短い方に合わせる。
+/// Builds the lower/upper grids for the 95% CI from the Mean grid and variance grid.
+/// A variance that is negative due to numerical error is treated as 0 (avoids producing NaN).
+/// Ragged rows are truncated to the shorter length.
 pub(crate) fn band_grids(z_values: &[Vec<f64>], variances: &[Vec<f64>]) -> BandGrids {
     let mut lower = Vec::with_capacity(z_values.len());
     let mut upper = Vec::with_capacity(z_values.len());
@@ -388,14 +392,14 @@ pub(crate) fn band_grids(z_values: &[Vec<f64>], variances: &[Vec<f64>]) -> BandG
     (lower, upper)
 }
 
-/// view から観測データ (行 index, [param1, param2, objective], 分類) を抽出する
-/// （テスト可能な純粋関数）。行 index はホバーツールチップ・クリック詳細の
-/// トライアル特定に使う。
+/// Extracts observed data (row index, [param1, param2, objective], classification) from
+/// the view (a testable pure function). The row index is used to identify the trial for
+/// the hover tooltip / click detail.
 ///
-/// フィルタ規則は 1D PDP の `extract_observed` と同じ:
-/// `selected_indices` が空なら全試行、そうでなければ selected / pinned のみ。
-/// 非有限値を含む行はスキップする。
-/// 分類は他の散布図と同じ規則（pareto_rank == 0 → Pareto、is_feasible <= 0.5 → Infeasible）。
+/// Filtering rules match `extract_observed` in 1D PDP: all trials if `selected_indices`
+/// is empty, otherwise only selected / pinned. Rows containing non-finite values are
+/// skipped. Classification follows the same rule as the other scatter plots
+/// (pareto_rank == 0 → Pareto, is_feasible <= 0.5 → Infeasible).
 pub fn extract_observed_3d(
     view: &StudyView,
     param1: &str,
@@ -439,9 +443,10 @@ pub fn extract_observed_3d(
         .collect()
 }
 
-/// グリッド値をクリップ空間 [-1,1]^3 の四角形メッシュに変換する。
-/// 座標系: x = 行 index（param1）、y = 値（縦軸）、z = 列 index（param2）。
-/// 戻り値は (角4点のクリップ座標, セル平均値)。不揃いな行はスキップする。
+/// Converts grid values into a quad mesh in clip space [-1,1]^3.
+/// Coordinate system: x = row index (param1), y = value (vertical axis), z = column
+/// index (param2). Returns (clip coordinates of the 4 corners, cell mean value).
+/// Ragged rows are skipped.
 pub(crate) fn surface_quads(
     values: &[Vec<f64>],
     v_min: f64,
@@ -485,7 +490,7 @@ pub(crate) fn surface_quads(
     quads
 }
 
-/// 三角形を生メッシュに追加する
+/// Adds a triangle to the raw mesh
 fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
     let base = mesh.vertices.len() as u32;
     for p in pts {
@@ -498,7 +503,7 @@ fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
     mesh.indices.extend([base, base + 1, base + 2]);
 }
 
-/// 線分をクアッド（三角形 2 枚）として生メッシュに追加する
+/// Adds a line segment to the raw mesh as a quad (2 triangles)
 fn push_edge(
     mesh: &mut egui::Mesh,
     a: egui::Pos2,
@@ -516,19 +521,21 @@ fn push_edge(
     push_tri(mesh, [a + n, b - n, a - n], color);
 }
 
-/// サーフェスメッシュ・不確実性バンド・観測点を描画する。
+/// Draws the surface mesh, uncertainty band, and observed points.
 ///
-/// セルを投影して深度ソートし、奥から手前へ塗る（painter's algorithm）。
-/// 投影後の四角形は視点によって非凸・極端に細い形状になり得るが、egui の
-/// テッセレータ（`Shape::convex_polygon` / ストローク）は鋭角でマイター法線が
-/// 発散し画面を横切るスパイクを生むため、頂点座標をそのまま使う生の
-/// `egui::Mesh` を直接構築する（法線計算が無いのでどんな退化形状でも安全）。
-/// メッシュ線も細いクアッドとして同じメッシュに入れ、描画順を保つ。
-/// バンド（半透明・メッシュ線なし）・観測点・3D 線分（軸線）も同じ深度リストに
-/// 混ぜることで、重なりのブレンドや面の裏に隠れる前後関係が正しくなる。
+/// Projects each cell, depth-sorts them, and paints back-to-front (painter's
+/// algorithm). Projected quads can become non-convex or extremely thin depending on
+/// the viewpoint; egui's tessellator (`Shape::convex_polygon` / stroke) produces
+/// diverging miter normals at sharp angles, creating spikes across the screen, so we
+/// build a raw `egui::Mesh` directly from the vertex coordinates instead (safe for any
+/// degenerate shape since there is no normal computation). Mesh edge lines are also
+/// added to the same mesh as thin quads to preserve draw order. Bands (translucent, no
+/// mesh lines), observed points, and 3D line segments (axis lines) are mixed into the
+/// same depth list so overlap blending and front/back occlusion behind faces come out
+/// correctly.
 ///
-/// `pub(crate)`: `response_surface.rs`（応答曲面 3D ビューア）が同じメッシュ描画を
-/// 再利用するため、モジュール外へ公開している。
+/// `pub(crate)`: exposed beyond this module because `response_surface.rs` (the
+/// response-surface 3D viewer) reuses the same mesh-drawing routine.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_surface_mesh(
     painter: &egui::Painter,
@@ -555,8 +562,8 @@ pub(crate) fn draw_surface_mesh(
     let (c_min, c_max) = color_range;
     let mut items: Vec<(f32, Prim)> = Vec::new();
 
-    // グリッドのセルを投影して深度リストへ追加する。
-    // `color` が Some なら固定色（バンド）、None ならカラーマップ（Mean 面）。
+    // Projects grid cells and appends them to the depth list.
+    // If `color` is Some, use a fixed color (band); if None, use the colormap (Mean surface).
     let collect_cells =
         |items: &mut Vec<(f32, Prim)>, grid: &[Vec<f64>], flat_color: Option<egui::Color32>| {
             for (corners, mean) in surface_quads(grid, v_min, v_max) {
@@ -569,7 +576,7 @@ pub(crate) fn draw_surface_mesh(
                     pts[i] = p;
                     depth += d;
                 }
-                // 非有限値（NaN グリッドなど）を含むセルは描画しない
+                // Skip drawing cells that contain non-finite values (e.g. NaN grid)
                 if !finite {
                     continue;
                 }
@@ -624,7 +631,7 @@ pub(crate) fn draw_surface_mesh(
                 let [p0, p1, p2, p3] = *corners;
                 push_tri(&mut mesh, [p0, p1, p2], *color);
                 push_tri(&mut mesh, [p0, p2, p3], *color);
-                // メッシュ線（セル外周のみ。対角線は描かない）
+                // Mesh lines (cell outline only; no diagonals drawn)
                 if *edges {
                     let edge_color = color.gamma_multiply(0.6);
                     for (a, b) in [(p0, p1), (p1, p2), (p2, p3), (p3, p0)] {
@@ -633,7 +640,7 @@ pub(crate) fn draw_surface_mesh(
                 }
             }
             Prim::Point(pos, color) => {
-                // 円 Shape を挟むため、ここまでのメッシュを先に確定する
+                // Flush the mesh built so far before inserting a circle Shape
                 if !mesh.is_empty() {
                     painter.add(egui::Shape::mesh(std::mem::take(&mut mesh)));
                 }
@@ -649,7 +656,7 @@ pub(crate) fn draw_surface_mesh(
     }
 }
 
-/// 軸グリッド値（昇順 linspace）から値域 [min, max] を返す
+/// Returns the value range [min, max] from axis grid values (an ascending linspace)
 fn axis_range_of(values: &[f64]) -> (f64, f64) {
     match range_math::value_range(values.iter().copied()) {
         Some((mn, mx)) if mn.is_finite() && mx.is_finite() => (mn, mx),
@@ -657,19 +664,20 @@ fn axis_range_of(values: &[f64]) -> (f64, f64) {
     }
 }
 
-/// 値を [0.0, 1.0] に正規化する
+/// Normalizes a value to [0.0, 1.0]
 pub fn normalize_value(v: f64, v_min: f64, v_max: f64) -> f32 {
     range_math::normalize01(v, v_min, v_max)
 }
 
-/// 値グリッドの値域 [min, max] を返す。
-/// `value_range_of` は退化範囲（min==max）を拡張しない点が heatmap 側の
-/// `value_range` と異なるため、共有ヘルパーの degenerate 拡張は使わない。
+/// Returns the value range [min, max] of a value grid.
+/// `value_range_of` differs from the heatmap side's `value_range` in that it does not
+/// expand a degenerate range (min==max), so it does not use the shared helper's
+/// degenerate-range expansion.
 pub fn value_range_of(values: &[Vec<f64>]) -> (f64, f64) {
     range_math::value_range(values.iter().flatten().copied()).unwrap_or((0.0, 1.0))
 }
 
-/// param1 と param2 が異なることを確認する（同一の場合 false）
+/// Checks that param1 and param2 are different (returns false if identical)
 pub fn check_params_different(p1: &str, p2: &str) -> bool {
     !p1.is_empty() && !p2.is_empty() && p1 != p2
 }
@@ -736,7 +744,7 @@ mod tests {
 
     #[test]
     fn surface_quads_count_matches_grid_cells() {
-        // 3x4 グリッド → (3-1)*(4-1) = 6 セル
+        // 3x4 grid -> (3-1)*(4-1) = 6 cells
         let grid = vec![
             vec![0.0, 1.0, 2.0, 3.0],
             vec![1.0, 2.0, 3.0, 4.0],
@@ -752,12 +760,12 @@ mod tests {
         let quads = surface_quads(&grid, 0.0, 2.0);
         assert_eq!(quads.len(), 1);
         let (corners, mean) = &quads[0];
-        // x（行）・z（列）は [-1, 1] の端に乗る
+        // x (row) and z (column) sit at the [-1, 1] boundary
         assert!((corners[0][0] - (-1.0)).abs() < 1e-6);
         assert!((corners[0][2] - (-1.0)).abs() < 1e-6);
         assert!((corners[2][0] - 1.0).abs() < 1e-6);
         assert!((corners[2][2] - 1.0).abs() < 1e-6);
-        // y は値の正規化: 0.0 → -1, 2.0 → +1
+        // y is value normalization: 0.0 -> -1, 2.0 -> +1
         assert!((corners[0][1] - (-1.0)).abs() < 1e-6);
         assert!((corners[2][1] - 1.0).abs() < 1e-6);
         assert!((mean - 1.0).abs() < 1e-9);
@@ -773,10 +781,10 @@ mod tests {
 
     #[test]
     fn surface_quads_skips_ragged_rows() {
-        // 2 行目が短い → 欠けたセルはスキップされる
+        // Row 2 is short -> the missing cell is skipped
         let grid = vec![vec![0.0, 1.0, 2.0], vec![1.0, 2.0], vec![2.0, 3.0, 4.0]];
         let quads = surface_quads(&grid, 0.0, 4.0);
-        // (row0,col0) と (row1,col0) のみ有効（col1 は row1 が欠落）
+        // Only (row0,col0) and (row1,col0) are valid (col1 is missing from row1)
         assert_eq!(quads.len(), 2);
     }
 
@@ -791,20 +799,20 @@ mod tests {
 
     #[test]
     fn band_grids_computes_95_ci() {
-        // 分散 4 → σ = 2 → ±1.96×2 = ±3.92
+        // variance 4 -> sigma = 2 -> ±1.96×2 = ±3.92
         let z = vec![vec![10.0, 20.0]];
         let var = vec![vec![4.0, 0.0]];
         let (lower, upper) = band_grids(&z, &var);
         assert!((lower[0][0] - (10.0 - 3.92)).abs() < 1e-9);
         assert!((upper[0][0] - (10.0 + 3.92)).abs() < 1e-9);
-        // 分散 0 → バンドは Mean に一致
+        // variance 0 -> band matches the Mean
         assert_eq!(lower[0][1], 20.0);
         assert_eq!(upper[0][1], 20.0);
     }
 
     #[test]
     fn band_grids_negative_variance_does_not_produce_nan() {
-        // ガウス過程の事後分散は数値誤差で僅かに負になり得る
+        // A Gaussian process posterior variance can become slightly negative due to numerical error
         let z = vec![vec![5.0]];
         let var = vec![vec![-1e-12]];
         let (lower, upper) = band_grids(&z, &var);
@@ -817,7 +825,7 @@ mod tests {
     #[test]
     fn band_grids_truncates_to_shorter_rows() {
         let z = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
-        let var = vec![vec![0.0]]; // 行数・列数とも不足
+        let var = vec![vec![0.0]]; // both row and column counts are short
         let (lower, upper) = band_grids(&z, &var);
         assert_eq!(lower.len(), 1);
         assert_eq!(lower[0].len(), 1);
@@ -850,7 +858,7 @@ mod tests {
 
     #[test]
     fn push_edge_builds_finite_quad() {
-        // どんな線分でも頂点座標は有界（マイター発散のような無限大は生じない）
+        // Vertex coordinates stay bounded for any segment (no infinities like miter divergence)
         let mut mesh = egui::Mesh::default();
         push_edge(
             &mut mesh,
@@ -866,7 +874,7 @@ mod tests {
         }
     }
 
-    // ── extract_observed_3d ──────────────────────────────────────
+    // ── extract_observed_3d ──────────────────────────────────────────
 
     fn make_view_2p_ranked(p1: &[f64], p2: &[f64], obj: &[f64], ranks: Vec<u32>) -> StudyView {
         use std::collections::HashMap;
@@ -938,7 +946,7 @@ mod tests {
 
     #[test]
     fn extract_observed_3d_classifies_by_pareto_rank() {
-        // rank 0 → Pareto（赤）、rank > 0 → NonPareto（青）
+        // rank 0 -> Pareto (red), rank > 0 -> NonPareto (blue)
         let view = make_view_2p_ranked(&[1.0, 2.0], &[10.0, 20.0], &[0.5, 1.5], vec![0, 1]);
         let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[], &[]);
         assert_eq!(pts[0].2, ObservedKind::Pareto);

@@ -1,11 +1,12 @@
-//! Optuna 互換の journal ログ（JSON Lines）を書き出す writer。
+//! Writer that produces an Optuna-compatible journal log (JSON Lines).
 //!
-//! 既存パーサ（`super::parser` / `super::live_update`）が読める形式で、かつ
-//! 実際の Optuna の `JournalStorage` が書く形式（distribution の二重シリアライズ等）に
-//! 合わせて 1 レコード 1 行を追記する。ライブ更新ポーラーがバイトオフセット差分で
-//! 読むことを前提に、1 行書くごとに単一の `write` + `flush` を行う。
+//! Appends one record per line in a format that the existing parsers
+//! (`super::parser` / `super::live_update`) can read, matching the actual format that
+//! Optuna's `JournalStorage` writes (e.g. double-serialization of distributions). Since
+//! the live-update poller reads based on byte-offset diffs, a single `write` + `flush`
+//! is performed after each line written.
 //!
-//! Reference: 仕様書「Optuna 互換 journal writer」（rust_core/src/io/journal/writer.rs）
+//! Reference: spec doc "Optuna-compatible journal writer" (rust_core/src/io/journal/writer.rs)
 
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
@@ -19,39 +20,39 @@ use crate::io::datetime::format_naive_datetime;
 use crate::io::journal::live_update::count_created_trials;
 use crate::io::journal::parser::OptimizationDirection;
 
-/// worker_id の既定値（Optuna 本家リーダとの互換のために全レコードへ含める）。
+/// Default value for worker_id (included in every record for compatibility with the original Optuna reader).
 const DEFAULT_WORKER_ID: &str = "tunny-dashboard";
 
-/// param の探索範囲指定（journal の distribution として書かれる）。
+/// The search-range specification for a param (written as the journal's distribution).
 #[derive(Debug, Clone)]
 pub enum ParamDistribution {
     Float { low: f64, high: f64 },
     Int { low: i64, high: i64 },
 }
 
-/// Optuna 互換 journal ログの writer。
+/// Writer for an Optuna-compatible journal log.
 ///
-/// 1 レコード 1 行の JSON Lines を追記し、行ごとに flush する。
-/// スレッド安全ではない（呼び出し側が Mutex 等で直列化する）。
+/// Appends one record per line of JSON Lines, flushing after each line.
+/// Not thread-safe (the caller must serialize access, e.g. with a Mutex).
 pub struct JournalWriter {
     file: File,
     path: PathBuf,
-    /// 次に採番する study_id（ファイル内の既存 op0 数 + 自分が書いた op0 数）。
+    /// The next study_id to assign (existing op0 count in the file + op0 count written by this writer).
     next_study_id: u32,
-    /// 次に採番するグローバル trial_id（ファイル内の既存 op4 数 + 自分が書いた op4 数）。
+    /// The next global trial_id to assign (existing op4 count in the file + op4 count written by this writer).
     next_trial_id: u32,
     worker_id: String,
 }
 
 impl JournalWriter {
-    /// ファイルを追記モードで開く（無ければ作成）。既存内容をスキャンして
-    /// 次の study_id / trial_id を採番する。worker_id は既定値
-    /// (`"tunny-dashboard"`) を使う。
+    /// Opens the file in append mode (creating it if absent). Scans existing content
+    /// to assign the next study_id / trial_id. Uses the default worker_id
+    /// (`"tunny-dashboard"`).
     pub fn open(path: &Path) -> Result<Self, String> {
         Self::open_with_worker_id(path, DEFAULT_WORKER_ID)
     }
 
-    /// worker_id を指定して開く。それ以外の挙動は [`JournalWriter::open`] と同じ。
+    /// Opens with a specified worker_id. Otherwise behaves the same as [`JournalWriter::open`].
     pub fn open_with_worker_id(path: &Path, worker_id: &str) -> Result<Self, String> {
         let existing = match std::fs::read(path) {
             Ok(bytes) => bytes,
@@ -82,7 +83,7 @@ impl JournalWriter {
         })
     }
 
-    /// op0（と objective_names が非空なら op3）を書き、study_id を返す。
+    /// Writes op0 (and op3 if objective_names is non-empty), and returns study_id.
     pub fn create_study(
         &mut self,
         study_name: &str,
@@ -121,10 +122,10 @@ impl JournalWriter {
         Ok(study_id)
     }
 
-    /// op4 を書き、グローバル trial_id を返す。datetime_start は現在時刻。
+    /// Writes op4 and returns the global trial_id. datetime_start is the current time.
     ///
-    /// `distributions` フィールドは含めない（ファイルストレージ形式 = RUNNING 状態として
-    /// 登録させ、以降の op5/op6 を待たせるため）。
+    /// Does not include the `distributions` field (this registers it as RUNNING in the
+    /// file-storage format, so that subsequent op5/op6 are awaited).
     pub fn create_trial(&mut self, study_id: u32) -> Result<u32, String> {
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
@@ -140,10 +141,10 @@ impl JournalWriter {
         Ok(trial_id)
     }
 
-    /// op5 を書く。value は実値（Float はそのまま、Int も実値を f64 で）。
+    /// Writes op5. value is the actual value (Float as-is; Int also as its actual value in f64).
     ///
-    /// `distribution` は実際の Optuna が書く形式に合わせ、JSON 文字列として
-    /// 二重シリアライズする（`serde_json::Value::String` 経由の機械的な変換）。
+    /// `distribution` is double-serialized as a JSON string to match the format that
+    /// Optuna actually writes (a mechanical conversion via `serde_json::Value::String`).
     pub fn set_trial_param(
         &mut self,
         trial_id: u32,
@@ -171,8 +172,8 @@ impl JournalWriter {
                 }
             }),
         };
-        // 二重シリアライズ: distribution オブジェクトを一度文字列化してから
-        // JSON 文字列値として埋め込む（手組みのエスケープはしない）。
+        // Double serialization: stringify the distribution object once, then embed it
+        // as a JSON string value (no hand-rolled escaping).
         let distribution_str = Value::String(inner.to_string());
 
         let record = serde_json::json!({
@@ -186,8 +187,8 @@ impl JournalWriter {
         self.write_line(&record)
     }
 
-    /// op6 を書く。state が Complete のとき values を配列で、そうでなければ null を書く。
-    /// datetime_complete は現在時刻。
+    /// Writes op6. Writes values as an array when state is Complete, otherwise null.
+    /// datetime_complete is the current time.
     pub fn finish_trial(
         &mut self,
         trial_id: u32,
@@ -223,12 +224,12 @@ impl JournalWriter {
         self.write_line(&record)
     }
 
-    /// journal ファイルのパス。
+    /// The path to the journal file.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// 1 レコードを 1 行の JSON として書き、単一の `write` + `flush` を行う。
+    /// Writes one record as a single line of JSON, performing a single `write` + `flush`.
     fn write_line(&mut self, value: &Value) -> Result<(), String> {
         let mut line = serde_json::to_string(value)
             .map_err(|err| format!("failed to serialize journal record: {err}"))?;
@@ -248,7 +249,7 @@ impl JournalWriter {
     }
 }
 
-/// 現在時刻を unix 秒（f64）で返す。取得に失敗した場合は 0.0（panic はしない）。
+/// Returns the current time as unix seconds (f64). Returns 0.0 on failure (never panics).
 fn now_unix_secs() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -256,8 +257,8 @@ fn now_unix_secs() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// 既存ファイル内容から op_code=0（CREATE_STUDY）の行数を数える。
-/// パースできない行・末尾の不完全行は無視する。
+/// Counts the number of op_code=0 (CREATE_STUDY) lines in the existing file content.
+/// Unparseable lines and a trailing incomplete line are ignored.
 fn count_created_studies(data: &[u8]) -> u32 {
     let mut count = 0u32;
     for line in data.split(|&byte| byte == b'\n') {
@@ -279,8 +280,8 @@ mod tests {
     use super::*;
     use crate::io::journal::parser::{parse_single_study, scan_study_list};
 
-    /// ラウンドトリップ（最重要）: writer で書いた journal を既存パーサで読み、
-    /// study 情報・DataFrame・StudyExtras が期待どおりになることを検証する。
+    /// Round-trip (most important): reads a journal written by the writer using the
+    /// existing parser and verifies the study info / DataFrame / StudyExtras match expectations.
     #[test]
     fn writer_roundtrip_via_existing_parser() {
         let tmp = tempfile::tempdir().unwrap();
@@ -325,7 +326,7 @@ mod tests {
             .finish_trial(trial0, TrialState::Complete, &[12.3, 4.5])
             .unwrap();
 
-        // trial1: 同 param 構成 -> Fail（values なし）
+        // trial1: same param config -> Fail (no values)
         let trial1 = writer.create_trial(study_id).unwrap();
         assert_eq!(trial1, 1);
         writer
@@ -358,7 +359,7 @@ mod tests {
 
         let data = std::fs::read(&path).unwrap();
 
-        // study 一覧・directions・objective_names。
+        // Study list, directions, objective_names.
         let studies = scan_study_list(&data).unwrap();
         assert_eq!(studies.len(), 1);
         assert_eq!(studies[0].name, "my-study");
@@ -374,14 +375,14 @@ mod tests {
             vec!["weight".to_string(), "disp".to_string()]
         );
 
-        // 1 study 分の詳細解析。
+        // Detailed parsing for one study.
         let (meta, df, extras) = parse_single_study(&data, 0).unwrap();
         assert_eq!(meta.completed_trials, 2);
         assert_eq!(meta.total_trials, 3);
         assert_eq!(meta.param_bounds.get("span"), Some(&(3.0, 12.0)));
         assert_eq!(meta.param_bounds.get("count"), Some(&(1.0, 10.0)));
 
-        // DataFrame: COMPLETE のみ 2 行（trial0, trial2）。
+        // DataFrame: only COMPLETE, 2 rows (trial0, trial2).
         assert_eq!(df.row_count(), 2);
         assert_eq!(df.get_trial_id(0), Some(0));
         assert_eq!(df.get_trial_id(1), Some(2));
@@ -393,7 +394,7 @@ mod tests {
         assert_eq!(df.get_numeric_column("span"), Some([5.5, 0.0].as_slice()));
         assert_eq!(df.get_numeric_column("count"), Some([3.0, 0.0].as_slice()));
 
-        // StudyExtras: trial 3 件、state が Complete/Fail/Complete、日時が Some。
+        // StudyExtras: 3 trials, states Complete/Fail/Complete, datetimes are Some.
         assert_eq!(extras.trials.len(), 3);
         assert_eq!(extras.trials[0].trial_id, 0);
         assert_eq!(extras.trials[0].state, TrialState::Complete);
@@ -409,8 +410,8 @@ mod tests {
         assert!(extras.trials[2].datetime_complete.is_some());
     }
 
-    /// 追記の採番: 一度閉じて再 open すると、study_id / trial_id が
-    /// 既存件数から連番で続くこと。
+    /// Append numbering: after closing once and reopening, study_id / trial_id must
+    /// continue sequentially from the existing counts.
     #[test]
     fn writer_reopen_continues_numbering() {
         let tmp = tempfile::tempdir().unwrap();
@@ -444,8 +445,9 @@ mod tests {
         assert_eq!(studies[1].name, "study-b");
     }
 
-    /// 二重シリアライズ: 書いた op5 行を素で serde_json パースし、`distribution` が
-    /// 文字列型で、その中身を再パースすると name/attributes が正しいこと。
+    /// Double serialization: parse the written op5 line raw with serde_json, verify
+    /// `distribution` is a string type, and verify that re-parsing its contents gives
+    /// the correct name/attributes.
     #[test]
     fn set_trial_param_double_serializes_distribution() {
         let tmp = tempfile::tempdir().unwrap();
@@ -503,7 +505,7 @@ mod tests {
         assert_eq!(inner["attributes"]["step"], 1);
     }
 
-    /// 全レコードに worker_id が含まれ、1 行ごとに `\n` 終端されていること。
+    /// Every record includes worker_id, and each line is terminated by `\n`.
     #[test]
     fn writer_includes_worker_id_and_newline_terminated_lines() {
         let tmp = tempfile::tempdir().unwrap();

@@ -1,35 +1,38 @@
-//! Y 軸対数スケール描画の共通ヘルパー。
+//! Common helpers for drawing a log-scale Y axis.
 //!
-//! 対数スケールでは値を log10 変換してプロットし、Y 軸ラベルは変換前の元の値
-//! （10^mark で復元）を表示する。複数のチャート（最適化履歴・Slice など）で
-//! 同じ目盛り・ラベル整形を共有するためにここへ切り出している。
+//! On a log scale, values are plotted after a log10 transform, and the Y-axis
+//! labels display the original pre-transform value (restored via 10^mark).
+//! Factored out here so multiple charts (optimization history, Slice, etc.)
+//! can share the same tick placement and label formatting.
 
-/// log10 変換した軸（プロット座標 = log10(値)）に対し、10 の累乗を主目盛りに
-/// 配置する grid spacer。各ディケード（10^k 〜 10^(k+1)）内に 2〜9 倍の補助目盛りを
-/// 置き、`step_size` の大小でラインの太さを区別する（主目盛り > 補助目盛り）。
+/// A grid spacer that places powers of 10 as major ticks on a log10-transformed
+/// axis (plot coordinate = log10(value)). Within each decade (10^k to 10^(k+1)),
+/// places minor ticks at 2x-9x, distinguishing line thickness by `step_size`
+/// (major > minor).
 pub fn log10_grid_spacer(input: egui_plot::GridInput) -> Vec<egui_plot::GridMark> {
     let (min, max) = input.bounds;
     if !min.is_finite() || !max.is_finite() || min >= max {
         return Vec::new();
     }
 
-    // 表示範囲（log10 空間）を覆うディケードの整数指数。可視範囲を覆うだけに留め、
-    // 範囲外へ目盛り（特にラベル）がはみ出さないようにする。
+    // Integer exponents of the decades covering the display range (log10 space).
+    // Keep this limited to just covering the visible range, so ticks
+    // (especially labels) don't spill outside it.
     let start = min.floor() as i64;
     let end = max.ceil() as i64;
 
-    // ディケード数が多すぎる場合は主目盛り（10 の累乗）のみに間引く。
+    // If there are too many decades, thin down to major ticks (powers of 10) only.
     let decade_span = end - start;
     let majors_only = decade_span > 12;
 
-    // 可視範囲内の目盛りのみ採用する（端からわずかに外れる分は許容する）。
+    // Only keep ticks within the visible range (allow a small margin past the edges).
     let eps = (max - min) * 1e-9;
     let in_bounds = |v: f64| v >= min - eps && v <= max + eps;
 
     let mut marks = Vec::new();
     for exp in start..=end {
         let decade = 10f64.powi(exp as i32);
-        // 主目盛り: 10^exp。step_size はディケード全幅（log10 空間で 1.0）。
+        // Major tick: 10^exp. step_size is the full decade width (1.0 in log10 space).
         if in_bounds(exp as f64) {
             marks.push(egui_plot::GridMark {
                 value: exp as f64,
@@ -39,7 +42,7 @@ pub fn log10_grid_spacer(input: egui_plot::GridInput) -> Vec<egui_plot::GridMark
         if majors_only {
             continue;
         }
-        // 補助目盛り: 2×, 3×, ... 9× 10^exp。log10 空間での位置は exp + log10(m)。
+        // Minor ticks: 2x, 3x, ... 9x 10^exp. Position in log10 space is exp + log10(m).
         for m in 2..=9 {
             let value = (decade * m as f64).log10();
             if in_bounds(value) {
@@ -53,33 +56,34 @@ pub fn log10_grid_spacer(input: egui_plot::GridInput) -> Vec<egui_plot::GridMark
     marks
 }
 
-/// 対数スケール時の Y 軸ラベルを、元の値（10^mark 復元後）に応じて読みやすく整形する。
-/// 大きな値・小さな値は指数表記、中間域は桁数に応じた固定小数で表示する。
+/// Formats a log-scale Y-axis label for readability, based on the original
+/// value (restored via 10^mark). Large/small values use exponential notation;
+/// the middle range uses fixed-point notation with a digit count based on magnitude.
 pub fn format_log_tick(value: f64) -> String {
     if value == 0.0 {
         return "0".to_string();
     }
     let abs = value.abs();
     if !(1e-4..1e5).contains(&abs) {
-        // 表示域外は指数表記（例: 1.2e-5, 3.4e6）
+        // Outside the display range, use exponential notation (e.g. 1.2e-5, 3.4e6)
         format!("{value:.1e}")
     } else if abs >= 100.0 {
         format!("{value:.0}")
     } else if abs >= 1.0 {
         format!("{value:.1}")
     } else {
-        // 1 未満は有効桁を確保するため小数桁を増やす
+        // Below 1, increase decimal digits to preserve significant figures
         format!("{value:.3}")
     }
 }
 
-/// Y 軸対数スケール用の grid spacer / ラベル整形を `plot` に適用する。
-/// 主目盛り（10 の累乗）のみラベルを付け、補助目盛り（2〜9 倍）はラインのみとする。
+/// Applies the grid spacer / label formatting for a log-scale Y axis to `plot`.
+/// Only major ticks (powers of 10) get labels; minor ticks (2x-9x) are lines only.
 pub fn apply_log_y_axis(plot: egui_plot::Plot<'_>) -> egui_plot::Plot<'_> {
     plot.y_grid_spacer(log10_grid_spacer)
         .y_axis_formatter(|mark, _range| {
-            // 主目盛り（10 の累乗 = log10 空間で整数）のみラベルを付け、
-            // 補助目盛り（2〜9 倍）はラインのみでラベルは出さない。
+            // Only major ticks (powers of 10 = integers in log10 space) get
+            // labels; minor ticks (2x-9x) are lines only, with no label.
             if (mark.value - mark.value.round()).abs() > 1e-6 {
                 return String::new();
             }
@@ -88,9 +92,9 @@ pub fn apply_log_y_axis(plot: egui_plot::Plot<'_>) -> egui_plot::Plot<'_> {
         })
 }
 
-/// X 軸対数スケール用の grid spacer / ラベル整形を `plot` に適用する。
-/// ロジックは `apply_log_y_axis` と同じで、対象軸のみ異なる（EDF プロットの
-/// X 軸対数スケールで使用）。
+/// Applies the grid spacer / label formatting for a log-scale X axis to `plot`.
+/// Same logic as `apply_log_y_axis`, only the target axis differs (used for
+/// the X-axis log scale in the EDF plot).
 pub fn apply_log_x_axis(plot: egui_plot::Plot<'_>) -> egui_plot::Plot<'_> {
     plot.x_grid_spacer(log10_grid_spacer)
         .x_axis_formatter(|mark, _range| {

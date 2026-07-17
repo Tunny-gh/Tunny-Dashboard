@@ -51,11 +51,12 @@ pub(crate) fn normalize_x_minmax(x_matrix: &[Vec<f64>]) -> (Vec<(f64, f64)>, Vec
 /// (y_mean, y_std, y_norm)
 /// - y_std minimum value: f64::EPSILON (zero division guard)
 ///
-/// NOTE: `math::stats::column_mean_std` は敢えて再利用しない。あちらは退化時
-/// （std < EPSILON）に std を 1.0 に置き換える規約で、返した std から退化を
-/// 区別できない。ここでは y_std が逆正規化（`pred * y_std + y_mean`）と信頼区間の
-/// スケールに使われるため、定数 y では EPSILON を返して予測バンドを潰す現行挙動を
-/// 維持する必要がある（1.0 に変えると定数 y で偽の不確かさが表示される）。
+/// NOTE: Deliberately not reusing `math::stats::column_mean_std`. It has a convention of
+/// replacing std with 1.0 when degenerate (std < EPSILON), which makes it impossible to
+/// distinguish the degenerate case from the returned std. Here, y_std is used for
+/// denormalization (`pred * y_std + y_mean`) and confidence-interval scaling, so the current
+/// behavior of returning EPSILON for constant y (which collapses the prediction band) must be
+/// preserved (changing it to 1.0 would display false uncertainty for constant y).
 pub(crate) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
     let n = y.len();
     if n == 0 {
@@ -70,8 +71,8 @@ pub(crate) fn normalize_y(y: &[f64]) -> (f64, f64, Vec<f64>) {
 
 /// Calculate R² coefficient of determination.
 ///
-/// 定数 y（ss_tot ≈ 0）の規約は `sensitivity::ridge::compute_r_squared` と統一:
-/// 残差もほぼゼロ（定数を完全に再現）なら 1.0、そうでなければ 0.0。
+/// The convention for constant y (ss_tot ~ 0) is unified with `sensitivity::ridge::compute_r_squared`:
+/// 1.0 if the residual is also nearly zero (i.e. the constant is reproduced exactly), otherwise 0.0.
 pub(crate) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
     let n = y_actual.len();
     if n == 0 {
@@ -364,8 +365,8 @@ mod tests {
         assert_eq!(x_matrix[0][1], 0.0); // z doesn't exist, so 0.0
     }
 
-    /// 制約付き（is_feasible 列あり）の DataFrame を作る。
-    /// constraint <= 0 が実行可能（Optuna 規約）。
+    /// Builds a DataFrame with constraints (has an is_feasible column).
+    /// constraint <= 0 is feasible (Optuna convention).
     fn make_constrained_df(constraints: &[f64]) -> crate::dataframe::DataFrame {
         use crate::dataframe::{DataFrame, TrialRow};
         use std::collections::HashMap;
@@ -406,7 +407,7 @@ mod tests {
 
     #[test]
     fn extract_xy_feasible_only_keeps_all_rows_without_constraint_column() {
-        // 制約なし（is_feasible 列が存在しない）→ フラグに関わらず全行
+        // No constraints (no is_feasible column) -> all rows regardless of the flag
         use crate::dataframe::{DataFrame, TrialRow};
         use std::collections::HashMap;
         let rows = vec![TrialRow {

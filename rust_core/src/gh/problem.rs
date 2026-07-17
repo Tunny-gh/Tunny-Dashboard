@@ -1,69 +1,70 @@
-//! .ghx から最適化問題の定義を抽出する。
+//! Extracts an optimization problem definition from a .ghx file.
 //!
-//! 抽出規則:
-//! - 定義内の Tunny コンポーネント（オブジェクト名に "tunny" を含む）を探す
-//! - その Variables 入力に接続された Number Slider 群 → 変数（名前・範囲・桁数）
-//! - その Objectives 入力に接続されたパラメータ群 → 目的（名前と接続元 GUID）
+//! Extraction rules:
+//! - Find the Tunny component in the definition (an object name containing "tunny")
+//! - Number Sliders connected to its Variables input → variables (name, range, digits)
+//! - Parameters connected to its Objectives input → objectives (name and source GUID)
 //!
-//! 目的の方向（minimize/maximize）は Tunny コンポーネントの内部設定の
-//! シリアライズ形式が固定でないため ghx からは読まず、既定 Minimize として
-//! UI 側で編集させる。
+//! The objective direction (minimize/maximize) is not read from the ghx
+//! because the serialization format of the Tunny component's internal
+//! settings isn't fixed; it defaults to Minimize and is left for the user
+//! to edit in the UI.
 
 use super::ghx::{parse_archive, GhxChunk};
 
-/// 最適化変数（Number Slider 由来）。
+/// An optimization variable (originating from a Number Slider).
 #[derive(Debug, Clone)]
 pub struct GhVariable {
-    /// スライダーの InstanceGuid（RH_IN グループ注入で使う）
+    /// The slider's InstanceGuid (used for RH_IN group injection)
     pub instance_guid: String,
-    /// journal の param 名になる（スライダーの NickName、重複時は連番付与）
+    /// Becomes the journal's param name (the slider's NickName; a sequence number is appended on duplicates)
     pub name: String,
     pub low: f64,
     pub high: f64,
-    /// 定義保存時点のスライダー値
+    /// The slider's value at the time the definition was saved
     pub value: f64,
-    /// 小数桁数（スライダーの丸め。評価値もこの桁に丸める）
+    /// Number of decimal digits (the slider's rounding; evaluated values are also rounded to this)
     pub digits: u32,
-    /// 整数スライダーか（digits == 0 を整数とみなす）
+    /// Whether it's an integer slider (digits == 0 is treated as integer)
     pub is_integer: bool,
 }
 
-/// 最適化目的（Tunny の Objectives 入力に接続されたパラメータ）。
+/// An optimization objective (a parameter connected to Tunny's Objectives input).
 #[derive(Debug, Clone)]
 pub struct GhObjective {
-    /// 接続元パラメータの InstanceGuid（RH_OUT 用リレー注入で使う）
+    /// The source parameter's InstanceGuid (used for RH_OUT relay injection)
     pub source_guid: String,
-    /// 目的名（接続元パラメータの NickName、重複時は連番付与)
+    /// Objective name (the source parameter's NickName; a sequence number is appended on duplicates)
     pub name: String,
 }
 
-/// .ghx から抽出した最適化問題の中間表現。
-/// 将来 .gh + マニフェスト経路が入っても同じ型に合流させる（ROADMAP 項目 15）。
+/// Intermediate representation of an optimization problem extracted from a .ghx file.
+/// Will be merged into the same type once a future .gh + manifest path is added (ROADMAP item 15).
 #[derive(Debug, Clone)]
 pub struct GhProblem {
     pub variables: Vec<GhVariable>,
     pub objectives: Vec<GhObjective>,
-    /// 検出した Tunny コンポーネントの表示名
+    /// Display name of the detected Tunny component
     pub tunny_component: String,
-    /// 抽出時に無視した接続などの注意事項（UI に表示する）
+    /// Notes on connections etc. ignored during extraction (shown in the UI)
     pub warnings: Vec<String>,
 }
 
-/// 定義内オブジェクトの中間情報。
+/// Intermediate info for an object within the definition.
 struct ObjectRecord<'a> {
-    /// オブジェクト型名（"Number Slider" / "Group" など。Object 直下の Name item）
+    /// Object type name ("Number Slider" / "Group" etc.; the Name item directly under Object)
     type_name: &'a str,
     container: &'a GhxChunk,
     instance_guid: &'a str,
     nickname: String,
 }
 
-/// パラメータ GUID → 表示名 の索引エントリ。
+/// Index entry mapping a parameter GUID → its display name.
 struct ParamEntry {
     nickname: String,
 }
 
-/// .ghx テキストから最適化問題を抽出する。
+/// Extracts an optimization problem from .ghx text.
 pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
     let root = parse_archive(xml)?;
     let objects_chunk = root
@@ -73,7 +74,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
                 .to_string()
         })?;
 
-    // 全オブジェクトの走査と索引作り
+    // Walk all objects and build the index
     let mut records: Vec<ObjectRecord<'_>> = Vec::new();
     for obj in objects_chunk.chunks_named("Object") {
         let type_name = obj.item_text("Name").unwrap_or("");
@@ -97,8 +98,8 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
         });
     }
 
-    // パラメータ GUID 索引: フローティングパラメータ自身と、
-    // コンポーネントの入出力パラメータ（param_input / param_output）を登録する。
+    // Parameter GUID index: registers both floating parameters themselves
+    // and component input/output parameters (param_input / param_output).
     let mut param_index: std::collections::HashMap<&str, ParamEntry> =
         std::collections::HashMap::new();
     for rec in &records {
@@ -121,7 +122,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
         }
     }
 
-    // Tunny コンポーネント検出
+    // Detect the Tunny component
     let tunny = records
         .iter()
         .find(|r| {
@@ -136,7 +137,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
 
     let mut warnings = Vec::new();
 
-    // Variables 入力 → スライダー解決
+    // Variables input → slider resolution
     let variable_sources = input_sources(tunny.container, &["variable", "vars"], "v");
     let mut variables = Vec::new();
     for guid in &variable_sources {
@@ -157,7 +158,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
         }
     }
 
-    // Objectives 入力 → 接続元パラメータの名前解決
+    // Objectives input → resolve names of source parameters
     let objective_sources = input_sources(tunny.container, &["objective", "objs"], "o");
     let mut objectives = Vec::new();
     for (i, guid) in objective_sources.iter().enumerate() {
@@ -206,9 +207,9 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
     })
 }
 
-/// コンポーネント Container 配下の入出力パラメータ chunk（param_input /
-/// param_output）を再帰的に集める。GH のバージョンによりネスト位置が異なる
-/// ことがあるため、直下に限定しない。
+/// Recursively collects input/output parameter chunks (param_input /
+/// param_output) under a component's Container. Not limited to direct
+/// children, since the nesting position can vary by GH version.
 fn component_params(container: &GhxChunk) -> Vec<&GhxChunk> {
     let mut found = Vec::new();
     collect_params(container, &mut found);
@@ -226,8 +227,9 @@ fn collect_params<'a>(chunk: &'a GhxChunk, out: &mut Vec<&'a GhxChunk>) {
     }
 }
 
-/// Tunny コンポーネントの指定入力（名前の部分一致 or ニックネーム完全一致）に
-/// 接続された Source GUID を文書順で返す。
+/// Returns, in document order, the Source GUIDs connected to a Tunny
+/// component's specified input (matched by partial name match or exact
+/// nickname match).
 fn input_sources(container: &GhxChunk, name_keys: &[&str], nick_key: &str) -> Vec<String> {
     let mut found = Vec::new();
     for param in component_params(container) {
@@ -256,7 +258,7 @@ fn input_sources(container: &GhxChunk, name_keys: &[&str], nick_key: &str) -> Ve
     found
 }
 
-/// スライダーオブジェクトから変数情報を読む。
+/// Reads variable info from a slider object.
 fn read_slider(rec: &ObjectRecord<'_>) -> Result<GhVariable, String> {
     let slider = rec.container.find_chunk("Slider").ok_or_else(|| {
         format!(
@@ -294,8 +296,8 @@ fn read_slider(rec: &ObjectRecord<'_>) -> Result<GhVariable, String> {
     })
 }
 
-/// 名前の重複に連番サフィックスを付けて一意化する（journal の param 名 /
-/// 目的名は一意である必要がある）。
+/// Uniquifies duplicate names by appending a sequence-number suffix (journal
+/// param names / objective names must be unique).
 fn dedupe_names(names: &mut [&mut String]) {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for name in names.iter_mut() {
@@ -332,13 +334,13 @@ mod tests {
         assert_eq!(count.high, 10.0);
 
         assert_eq!(problem.objectives.len(), 2);
-        // コンポーネント出力パラメータ経由の目的
+        // Objective via a component output parameter
         assert_eq!(problem.objectives[0].name, "weight");
         assert_eq!(
             problem.objectives[0].source_guid,
             "0aaaaaaa-0000-0000-0000-00000000beam"
         );
-        // フローティングパラメータ経由の目的
+        // Objective via a floating parameter
         assert_eq!(problem.objectives[1].name, "disp");
         assert!(problem.warnings.is_empty());
     }
@@ -352,7 +354,7 @@ mod tests {
 
     #[test]
     fn duplicate_names_are_uniquified() {
-        // フィクスチャの count スライダーの NickName を span に変えて重複させる
+        // Change the fixture's count slider NickName to span to create a duplicate
         let xml = sample_ghx().replace(
             r#"<item name="NickName" type_name="gh_string" type_code="10">count</item>"#,
             r#"<item name="NickName" type_name="gh_string" type_code="10">span</item>"#,

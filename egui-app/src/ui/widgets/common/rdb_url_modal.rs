@@ -1,16 +1,18 @@
-//! 「Open URL…」ダイアログ: PostgreSQL/MySQL 接続 URL を直接入力してストレージを開く。
+//! "Open URL…" dialog: opens storage by directly entering a PostgreSQL/MySQL
+//! connection URL.
 //!
-//! ローカルファイルのみを想定する `rfd::FileDialog`（"Open" ボタン）では RDB 接続 URL を
-//! 選べないため、専用の 1 行入力モーダルを別途用意する。パース・TLS 事前チェックの
-//! 判定部分は `classify_input` として UI から切り離してあり、egui コンテキスト無しで
-//! テストできる。
+//! `rfd::FileDialog` (the "Open" button), which only handles local files, cannot
+//! select an RDB connection URL, so a dedicated single-line-input modal is provided
+//! separately. The parsing and TLS-precondition-check logic is factored out of the UI
+//! as `classify_input`, so it can be tested without an egui context.
 //!
-//! バックエンドは TLS 未対応（平文接続のみ）のため、接続してからエラーで知るのでは
-//! なく、入力中に次を通知する:
-//! - `sslmode=disable` の明示が無い URL → 「この接続は暗号化されない」旨の警告
-//!   （ループバック等、接続自体は可能なケース）
-//! - 非ローカルホストへ opt-in 無し、または `sslmode=require` 等 → 接続時に必ず
-//!   拒否されるため、その理由を表示して Open を無効化
+//! Since the backend doesn't support TLS (plaintext connections only), rather than
+//! finding out via an error after connecting, the following is reported while typing:
+//! - A URL without an explicit `sslmode=disable` -> a warning that "this connection
+//!   will not be encrypted" (cases where the connection itself is still possible,
+//!   e.g. loopback)
+//! - A non-local host without opt-in, or `sslmode=require`, etc. -> the connection
+//!   will always be rejected, so the reason is shown and Open is disabled
 
 use egui::RichText;
 
@@ -18,31 +20,35 @@ use tunny_core::rdb::{check_tls_precondition, has_explicit_plaintext_optin, RdbU
 
 use crate::ui::widgets::common::modal::ModalScaffold;
 
-/// ダイアログの操作結果。
+/// The dialog's action result.
 pub enum RdbUrlDialogAction {
-    /// パース済み・正規化済みの URL 文字列で開く。
+    /// Open with the parsed and normalized URL string.
     Open(String),
-    /// ダイアログを閉じる（何も開かない）。
+    /// Close the dialog (open nothing).
     Cancel,
 }
 
-/// 入力 URL の判定結果（表示メッセージと Open 可否を決める）。
+/// The classification result for the input URL (determines the displayed message and
+/// whether Open is enabled).
 #[derive(Debug, PartialEq, Eq)]
 pub enum RdbUrlCheck {
-    /// スキーム不正・空入力など、RDB URL として解釈できない。
+    /// Cannot be interpreted as an RDB URL (invalid scheme, empty input, etc.).
     Invalid,
-    /// パースは通るが、TLS 事前チェックにより接続時に必ず拒否される
-    /// （非ローカルホストへの opt-in 無し平文、`sslmode=require` 等）。
-    /// `reason` は接続時に返るものと同じ説明文。
+    /// Parses fine, but the TLS precondition check means the connection will always
+    /// be rejected (plaintext to a non-local host without opt-in, `sslmode=require`,
+    /// etc.). `reason` is the same explanation text returned at connection time.
     Blocked { reason: String },
-    /// 接続可能だが `sslmode=disable` の明示が無い平文接続
-    /// （ループバック接続の無指定など）。暗号化されない旨を通知する。
+    /// Connectable, but a plaintext connection without an explicit
+    /// `sslmode=disable` (e.g. an unspecified loopback connection). Reports that it
+    /// will not be encrypted.
     PlaintextImplicit { url: String },
-    /// `sslmode=disable` 明示済みの平文接続。ユーザーが了解済みのため通知しない。
+    /// A plaintext connection with `sslmode=disable` explicitly set. Not reported
+    /// since the user has already acknowledged it.
     PlaintextExplicit { url: String },
 }
 
-/// 入力文字列をパース・正規化し、TLS 事前チェックまで含めて分類する純関数。
+/// A pure function that parses and normalizes the input string, classifying it
+/// including the TLS precondition check.
 pub fn classify_input(input: &str) -> RdbUrlCheck {
     let Some(url) = RdbUrl::parse(input.trim()) else {
         return RdbUrlCheck::Invalid;
@@ -57,10 +63,11 @@ pub fn classify_input(input: &str) -> RdbUrlCheck {
     }
 }
 
-/// 「Open URL…」モーダルを描画する。
+/// Draws the "Open URL…" modal.
 ///
-/// 戻り値が `None` の間はダイアログを開いたままにする（次フレームも `input` を保持して
-/// 呼び直すこと）。`Some(Open(..))` / `Some(Cancel)` が返ったらダイアログを閉じてよい。
+/// Keep the dialog open while the return value is `None` (call again next frame,
+/// keeping `input` around). Once `Some(Open(..))` / `Some(Cancel)` is returned, the
+/// dialog may be closed.
 pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogAction> {
     let mut open_url: Option<String> = None;
     let mut cancel_clicked = false;
@@ -187,7 +194,7 @@ mod tests {
 
     #[test]
     fn classify_notifies_when_sslmode_disable_is_not_explicit() {
-        // ループバック + 無指定は接続可能だが「暗号化されない」通知の対象になる。
+        // Loopback + unspecified is connectable but subject to the "not encrypted" notice.
         assert!(matches!(
             classify_input("postgresql://u:p@localhost/db"),
             RdbUrlCheck::PlaintextImplicit { .. }
@@ -204,7 +211,7 @@ mod tests {
             classify_input("postgresql://u:p@localhost/db?sslmode=disable"),
             RdbUrlCheck::PlaintextExplicit { .. }
         ));
-        // 非ローカルホストも opt-in 明示済みなら接続可能・通知なし。
+        // A non-local host is also connectable with no notice once opt-in is explicit.
         assert!(matches!(
             classify_input("mysql://u:p@db.example.com/db?ssl-mode=disable"),
             RdbUrlCheck::PlaintextExplicit { .. }
@@ -213,14 +220,14 @@ mod tests {
 
     #[test]
     fn classify_blocks_urls_rejected_by_tls_precondition() {
-        // 非ローカルホストへの opt-in 無し平文は接続時に必ず拒否されるため Blocked。
+        // Plaintext to a non-local host without opt-in is always rejected at connect time, so Blocked.
         let RdbUrlCheck::Blocked { reason } = classify_input("postgresql://u:p@db.example.com/db")
         else {
             panic!("remote without sslmode must be Blocked");
         };
         assert!(reason.contains("sslmode=disable"), "reason: {reason}");
 
-        // sslmode=require は TLS 未対応のため Blocked。
+        // sslmode=require is Blocked since TLS is unsupported.
         assert!(matches!(
             classify_input("postgresql://u:p@localhost/db?sslmode=require"),
             RdbUrlCheck::Blocked { .. }

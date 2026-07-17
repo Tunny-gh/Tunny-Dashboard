@@ -1,10 +1,12 @@
-//! 「Report…」ダイアログのバックグラウンド生成処理（Phase R4）。
+//! Background generation processing for the "Report..." dialog (Phase R4).
 //!
-//! UI スレッドはこのモジュールへ study のスナップショット（`StudyMeta` クローン・
-//! `Arc<DataFrame>`・`Arc<StudyExtras>`・マスク済みストレージ表示名・生成日時）を
-//! 渡すだけで、実際の `tunny_core::report::build_study_report` 呼び出しとファイル書き込みは
-//! `crate::app::spawn_task` が起動するワーカースレッドで行う（UI をブロックしない）。
-//! 成功時は `AppMessage::ReportExportDone`、失敗時は既存の `AppMessage::Error` を送る。
+//! The UI thread only needs to pass a study snapshot (a `StudyMeta` clone,
+//! `Arc<DataFrame>`, `Arc<StudyExtras>`, masked storage display name, and generation
+//! timestamp) into this module; the actual `tunny_core::report::build_study_report`
+//! call and file writing happen on a worker thread launched by
+//! `crate::app::spawn_task` (so the UI is never blocked). Sends
+//! `AppMessage::ReportExportDone` on success, or the existing `AppMessage::Error` on
+//! failure.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::SyncSender;
@@ -18,8 +20,8 @@ use crate::state::app_state::{Direction, StudyMeta};
 use crate::state::messages::AppMessage;
 use crate::ui::widgets::report_modal::{export_paths, ReportFormat};
 
-/// journal_path から表示用のストレージ名を作る。RDB URL は必ずマスク済み文字列にする
-/// （レポートに生パスワードを残さない）。
+/// Builds a display-ready storage name from journal_path. RDB URLs are always turned
+/// into a masked string (never leave a raw password in the report).
 pub fn storage_display(journal_path: Option<&Path>) -> String {
     match journal_path {
         Some(path) => match crate::io::rdb::path_as_rdb_url(path) {
@@ -30,7 +32,8 @@ pub fn storage_display(journal_path: Option<&Path>) -> String {
     }
 }
 
-/// UI スレッドで集めたスナップショットからレポート生成をバックグラウンドスレッドへ委譲する。
+/// Delegates report generation to a background thread, from a snapshot collected on
+/// the UI thread.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_report_export(
     meta: StudyMeta,
@@ -66,7 +69,7 @@ pub fn spawn_report_export(
     });
 }
 
-/// `StudyReport` を構築し、選択フォーマットぶんのファイルへ書き出す。
+/// Builds a `StudyReport` and writes it out to a file for each selected format.
 #[allow(clippy::too_many_arguments)]
 fn build_and_write_report(
     meta: &StudyMeta,
@@ -92,9 +95,10 @@ fn build_and_write_report(
     let report = tunny_core::report::build_study_report(&core_meta, df, extras, &source, &opts);
 
     let mut written = Vec::with_capacity(formats.len());
-    // ユーザーが保存ダイアログで選んだ base_path 自体は OS 側の上書き確認を経由するが、
-    // `with_extension` で導出する非プライマリの兄弟ファイル（例: base.md/base.json）は
-    // ダイアログを通らないため、書き込み前に存在チェックしてサイレント上書きを追跡する。
+    // The base_path itself, chosen by the user in the save dialog, goes through the
+    // OS's overwrite confirmation, but non-primary sibling files derived via
+    // `with_extension` (e.g. base.md/base.json) don't go through the dialog, so we
+    // check existence before writing to track silent overwrites.
     let mut overwritten: Vec<PathBuf> = Vec::new();
     for (format, path) in export_paths(base_path, formats) {
         let is_primary = path == base_path;
@@ -115,14 +119,16 @@ fn build_and_write_report(
     Ok((written, overwritten))
 }
 
-/// egui-app の `StudyMeta`（+ DataFrame / StudyExtras 由来の補助情報）を、
-/// `tunny_core::report::build_study_report` が要求する core 側 `StudyMeta` へ変換する。
+/// Converts egui-app's `StudyMeta` (plus auxiliary info derived from DataFrame /
+/// StudyExtras) into the core-side `StudyMeta` required by
+/// `tunny_core::report::build_study_report`.
 ///
-/// - `user_attr_names`: egui-app 側の `StudyMeta` は持たないため、DataFrame の
-///   数値/文字列 user_attr 列名を統合して補う。
-/// - `has_constraints`: DataFrame に制約列が 1 つでもあれば true とする。
-/// - `total_trials`: `StudyExtras`（全 state の付帯情報）があればその件数、
-///   無ければ DataFrame の行数（= COMPLETE trial 数）で代用する。
+/// - `user_attr_names`: egui-app's `StudyMeta` doesn't have this, so it's filled in by
+///   merging the DataFrame's numeric/string user_attr column names.
+/// - `has_constraints`: true if the DataFrame has even one constraint column.
+/// - `total_trials`: uses the count from `StudyExtras` (extra info for all states) if
+///   available, otherwise falls back to the DataFrame's row count (= number of
+///   COMPLETE trials).
 fn to_core_meta(
     meta: &StudyMeta,
     df: &DataFrame,
@@ -228,7 +234,7 @@ mod tests {
         assert!(core_meta.user_attr_names.is_empty());
     }
 
-    // ── R4-fix: サイレント上書きの可視化 ──────────────────────
+    // ── R4-fix: surfacing silent overwrites ──────────────────────
 
     fn make_df() -> DataFrame {
         use std::collections::HashMap;
@@ -251,8 +257,8 @@ mod tests {
     fn build_and_write_report_flags_silently_overwritten_siblings() {
         let dir = tempfile::tempdir().expect("tempdir");
         let base_path = dir.path().join("report_x.html");
-        // 兄弟ファイル（base_path 由来だが選択フォーマットが異なる非プライマリ）を
-        // あらかじめ用意しておき、サイレント上書き検出をテストする。
+        // Pre-seed a sibling file (derived from base_path but a non-primary one with a
+        // different selected format) to test silent-overwrite detection.
         std::fs::write(dir.path().join("report_x.json"), "stale").expect("seed sibling");
 
         let meta = make_meta();
@@ -272,7 +278,7 @@ mod tests {
         )
         .expect("report export succeeds");
 
-        // 実ファイルは 2 件（html, json）。上書きは json のみ検出される。
+        // There are 2 actual files (html, json). Only json is detected as overwritten.
         assert_eq!(written.len(), 2);
         assert!(written.contains(&base_path));
         assert!(written.contains(&dir.path().join("report_x.json")));
@@ -308,8 +314,9 @@ mod tests {
 
     #[test]
     fn build_and_write_report_ignores_preexisting_primary_path() {
-        // base_path（プライマリ）は保存ダイアログ側で上書き確認済みという前提のため、
-        // 事前に存在していても overwrite ノートには含めない。
+        // base_path (the primary) is assumed to already have gone through overwrite
+        // confirmation on the save-dialog side, so even if it pre-exists it isn't
+        // included in the overwrite note.
         let dir = tempfile::tempdir().expect("tempdir");
         let base_path = dir.path().join("report_z.html");
         std::fs::write(&base_path, "stale primary").expect("seed primary");

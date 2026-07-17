@@ -110,7 +110,7 @@ fn tc_102_06_constraint_columns() {
 
 #[test]
 fn filter_feasible_keeps_only_feasible_rows() {
-    // c <= 0 が実行可能（Optuna 規約）。row0/row2 が実行可能。
+    // c <= 0 is feasible (Optuna convention). row0/row2 are feasible.
     let mut rows = vec![
         make_trial(&[("x", 1.0)], vec![10.0]),
         make_trial(&[("x", 2.0)], vec![20.0]),
@@ -139,7 +139,7 @@ fn filter_feasible_keeps_only_feasible_rows() {
     assert_eq!(x, &vec![1.0, 3.0]);
     let obj = filtered.get_numeric_column("obj0").expect("obj0 column");
     assert_eq!(obj, &vec![10.0, 30.0]);
-    // 列名リストは維持される
+    // The column name list is preserved.
     assert_eq!(filtered.param_col_names(), df.param_col_names());
     assert_eq!(filtered.objective_col_names(), df.objective_col_names());
 }
@@ -220,8 +220,10 @@ fn tc_102_14_select_study_multiple_studies() {
 
 #[test]
 fn tc_2330_all_studies_resident_by_id_after_parse() {
-    // TASK-2330: 初回パースで全 study が study_id キーで常駐し、
-    // select_study せずとも任意 study を snapshot で参照できること（比較の再パース廃止の土台）。
+    // TASK-2330: after the initial parse, all studies are resident keyed
+    // by study_id, so any study can be referenced via snapshot without
+    // calling select_study (the foundation for removing re-parsing on
+    // comparison).
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"A\",\"directions\":[0]}\n",
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
@@ -234,13 +236,13 @@ fn tc_2330_all_studies_resident_by_id_after_parse() {
     ));
     crate::journal_parser::parse_journal(&data).expect("parse ok");
 
-    // select_study を呼ばずに両 study を snapshot で取得できる
+    // Both studies can be obtained via snapshot without calling select_study.
     let s0 = snapshot(0).expect("study 0 resident");
     let s1 = snapshot(1).expect("study 1 resident");
     assert_eq!(s0.row_count(), 1);
     assert_eq!(s1.row_count(), 2);
 
-    // with_df でも任意 study を参照できる
+    // with_df can also reference any study.
     let rc1 = with_df(1, |df| df.row_count());
     assert_eq!(rc1, Some(2));
 }
@@ -298,10 +300,10 @@ fn tc_102_p01_load_50000_trials_at_scale() {
 }
 
 // ============================================================
-// append_trials: from_trials(全行) との等価性
+// append_trials: equivalence with from_trials (all rows)
 // ============================================================
 
-/// 列内容が名前引きで一致するか（内部格納順は問わない）。
+/// Checks whether column contents match by name lookup (internal storage order does not matter).
 fn assert_df_equivalent(appended: &DataFrame, rebuilt: &DataFrame) {
     assert_eq!(appended.row_count(), rebuilt.row_count());
     for i in 0..appended.row_count() {
@@ -385,7 +387,7 @@ fn append_trials_equals_from_trials_basic() {
 fn append_trials_backfills_new_param_column() {
     let o = vec!["obj0".to_string()];
     let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
-    // 2 チャンク目で param "z"（数値）と user attr が初出現する。
+    // param "z" (numeric) and user attrs first appear in the 2nd chunk.
     let mut t = make_trial_n(1, &[("x", 1.5), ("z", 9.0)], vec![2.0]);
     t.user_attrs_numeric.insert("loss".into(), 0.5);
     t.user_attrs_string.insert("tag".into(), "b".into());
@@ -430,7 +432,7 @@ fn append_trials_flips_numeric_param_to_categorical() {
     let all = vec![chunk1[0].clone(), t];
     let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 0);
     assert_df_equivalent(&df, &rebuilt);
-    // 既存数値行はラベル無しとして "" になる（from_trials と同じ規則）。
+    // Existing numeric rows become "" as unlabeled (same rule as from_trials).
     assert_eq!(df.get_string_column("opt").unwrap()[0], "");
 }
 
@@ -449,7 +451,7 @@ fn append_trials_constraints_appear_mid_stream() {
     let all = vec![chunk1[0].clone(), t];
     let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 2);
     assert_df_equivalent(&df, &rebuilt);
-    // 制約を持たない既存行は feasible 扱い。
+    // Existing rows with no constraints are treated as feasible.
     assert!((df.get_numeric_column("is_feasible").unwrap()[0] - 1.0).abs() < 1e-12);
     assert!((df.get_numeric_column("is_feasible").unwrap()[1] - 0.0).abs() < 1e-12);
 }

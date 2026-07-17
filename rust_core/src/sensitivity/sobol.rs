@@ -199,8 +199,8 @@ pub(crate) fn compute_sobol_index_pair(fa_k: &[f64], fb_k: &[f64], fab_k: &[f64]
         .sum::<f64>()
         / (2.0 * n_f * var_y);
 
-    // 有限サンプル推定では ST_i < S_i になり得る。
-    // 理論的に保証される ST_i >= S_i を出力値に強制してから [0,1] にクランプする。
+    // With a finite-sample estimate, ST_i < S_i can occur.
+    // Enforce the theoretically guaranteed ST_i >= S_i before clamping the output to [0,1].
     let st_i = st_i.max(s_i);
     (s_i.clamp(0.0, 1.0), st_i.clamp(0.0, 1.0))
 }
@@ -236,9 +236,10 @@ pub fn compute_sobol_from_df(
         })
         .collect();
 
-    // 他の感度指標（`prepare_training_data`）と同様に、パラメータと全目的値が
-    // すべて有限な行のみで代理モデルを構築する。失敗/枝刈り trial の NaN 目的値が
-    // ridge に伝播すると、全指標が NaN の「静かに壊れた」結果になるため。
+    // As with the other sensitivity metrics (`prepare_training_data`), the surrogate model is
+    // built only from rows where the parameters and all objective values are finite. If a NaN
+    // objective from a failed/pruned trial propagated into the ridge regression, all metrics
+    // would come out as a "silently broken" NaN result.
     let valid_indices: Vec<usize> = (0..n)
         .filter(|&i| {
             raw_param_columns.iter().all(|col| col[i].is_finite())

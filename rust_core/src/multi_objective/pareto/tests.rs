@@ -109,11 +109,11 @@ fn tc_201_06_hypervolume_2d_known_value() {
 
 #[test]
 fn tc_201_06b_hypervolume_2d_ignores_dominated_and_duplicate_points() {
-    // 回帰テスト: 区間和が非支配フロント前提のまま縮約しておらず、支配される
-    // 点 (0.7,0.9) が混入するとその区間の帯が低い高さで計上され HV が過小
-    // (0.28 -> 0.27) になっていた。
-    // 非支配フロント {(0.2,0.8),(0.8,0.2)}, ref=(1,1) の HV は 0.28
-    // (pymoo と一致確認済み)。支配点・重複点を混ぜても不変であること。
+    // Regression test: the interval sum was not reduced to a non-dominated-front
+    // premise, and mixing in a dominated point (0.7,0.9) caused that interval's
+    // band to be counted at a lower height, undershooting HV (0.28 -> 0.27).
+    // The non-dominated front {(0.2,0.8),(0.8,0.2)}, ref=(1,1) has HV 0.28
+    // (confirmed to match pymoo). This must stay invariant even with dominated/duplicate points mixed in.
     let front = vec![(0.2, 0.8), (0.8, 0.2)];
     let mixed = vec![(0.2, 0.8), (0.8, 0.2), (0.7, 0.9), (0.2, 0.8)];
     let hv_front = hypervolume_2d(&front, 1.0, 1.0);
@@ -124,14 +124,14 @@ fn tc_201_06b_hypervolume_2d_ignores_dominated_and_duplicate_points() {
 
 #[test]
 fn tc_201_06c_hypervolume_nd_m2_ignores_dominated_points() {
-    // hypervolume_nd の m=2 経路(EHVI が支配候補点込みで呼ぶ)でも
-    // doc コメントの契約「支配点を含んでよい」が守られること。
+    // Even on the hypervolume_nd m=2 path (called by EHVI with dominated candidate
+    // points included), the doc comment's contract "may include dominated points" must hold.
     let pts = vec![vec![0.2, 0.8], vec![0.8, 0.2], vec![0.7, 0.9]];
     let hv = hypervolume_nd(&pts, &[1.0, 1.0]);
     assert!((hv - 0.28).abs() < 1e-12, "HV = {hv}");
 
-    // 3点とも非支配のケースは縮約後も3点残り、HV が増えるのが正しい
-    // (pymoo: 0.32)。
+    // When all 3 points are non-dominated, all 3 should remain after reduction,
+    // and HV should correctly increase (pymoo: 0.32).
     let pts_nd = vec![vec![0.2, 0.8], vec![0.8, 0.2], vec![0.6, 0.6]];
     let hv_nd = hypervolume_nd(&pts_nd, &[1.0, 1.0]);
     assert!((hv_nd - 0.32).abs() < 1e-12, "HV = {hv_nd}");
@@ -238,11 +238,13 @@ fn tc_hv_nd_3d_known_value() {
 
 #[test]
 fn tc_hv_201_11_compute_pareto_ranks_3obj_two_points_overlap() {
-    // 2点 (0,1,1), (1,0,0) は互いに非支配で、3次元目の値も両点で異なる
-    // （3次元目を無視する旧実装のバグでは値が変わらない座標を避けるため）。
-    // nadir=(1,1,1), ideal=(0,0,0) -> ref = nadir + 0.1*range = (1.1,1.1,1.1)。
-    // 包除原理で手計算: Vol(p1)=1.1*0.1*0.1=0.011, Vol(p2)=0.1*1.1*1.1=0.121,
-    // 重複=(1.1-1)^3=0.001 -> HV=0.011+0.121-0.001=0.131
+    // The 2 points (0,1,1), (1,0,0) are mutually non-dominated, and the 3rd
+    // dimension's value also differs between the two points (to avoid a
+    // coordinate whose value stays constant, which the old implementation's bug
+    // of ignoring the 3rd dimension would miss).
+    // nadir=(1,1,1), ideal=(0,0,0) -> ref = nadir + 0.1*range = (1.1,1.1,1.1).
+    // By hand via inclusion-exclusion: Vol(p1)=1.1*0.1*0.1=0.011, Vol(p2)=0.1*1.1*1.1=0.121,
+    // overlap=(1.1-1)^3=0.001 -> HV=0.011+0.121-0.001=0.131
     let rows = vec![
         make_row_obj(0, vec![0.0, 1.0, 1.0]),
         make_row_obj(1, vec![1.0, 0.0, 0.0]),
@@ -260,7 +262,7 @@ fn hv_history_with_ref_returns_used_ref_point() {
     let objs = vec![vec![1.0, 1.0], vec![0.5, 2.0]];
     let ids: Vec<u32> = vec![0, 1];
     let is_min = [true, true];
-    // 指定なし: 自動算出された参照点が返る（全要素が観測の nadir 超）。
+    // Unspecified: an auto-computed reference point is returned (every element exceeds the observed nadir).
     let auto = compute_hv_history_with_ref(&ids, &objs, &is_min, None);
     assert_eq!(auto.ref_point.len(), 2);
     assert!(auto.ref_point[0] > 1.0 && auto.ref_point[1] > 2.0);
@@ -274,7 +276,7 @@ fn hv_history_with_ref_honors_override() {
     let custom = vec![10.0, 10.0];
     let r = compute_hv_history_with_ref(&ids, &objs, &is_min, Some(&custom));
     assert_eq!(r.ref_point, custom);
-    // 参照点を広げると HV は自動算出時より大きくなる。
+    // Widening the reference point makes HV larger than the auto-computed value.
     let auto = compute_hv_history_with_ref(&ids, &objs, &is_min, None);
     assert!(r.hv_values.last().unwrap() > auto.hv_values.last().unwrap());
 }
@@ -284,7 +286,7 @@ fn hv_history_with_ref_ignores_wrong_dim_override() {
     let objs = vec![vec![1.0, 1.0], vec![2.0, 0.5]];
     let ids: Vec<u32> = vec![0, 1];
     let is_min = [true, true];
-    // 次元不一致の指定は無視して自動算出にフォールバックする。
+    // A dimension-mismatched override is ignored, falling back to auto-computation.
     let bad = vec![10.0, 10.0, 10.0];
     let r = compute_hv_history_with_ref(&ids, &objs, &is_min, Some(&bad));
     assert_eq!(r.ref_point.len(), 2);

@@ -5,7 +5,7 @@ use crate::state::messages::AppMessage;
 use crate::state::types::StudyView;
 use tunny_core::export::{CsvField, CsvWriter};
 
-/// CSVエクスポートの対象
+/// Target rows for CSV export.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExportTarget {
     AllData,
@@ -13,20 +13,20 @@ pub enum ExportTarget {
     ParetoOnly,
 }
 
-/// trial 行 CSV の末尾に付けるオプション列（ランク / クラスタ）のフラグ。
-/// 呼び出し元ごとに必要な列だけを true にする（pareto エクスポートはランクのみ、
-/// 全件エクスポートはランク＋クラスタ）。
+/// Flags for optional columns (rank / cluster) appended to the end of a trial-row CSV.
+/// Each caller sets only the columns it needs to true (a pareto export needs only the
+/// rank, a full export needs rank + cluster).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TrialCsvColumns {
-    /// `pareto_rank` 列（各行の Pareto ランク。0 = フロント）を含める。
+    /// Include the `pareto_rank` column (each row's Pareto rank; 0 = front).
     pub pareto_rank: bool,
-    /// `cluster_id` 列（クラスタ割当。未割当は空欄）を含める。
+    /// Include the `cluster_id` column (cluster assignment; blank if unassigned).
     pub cluster_id: bool,
 }
 
-/// `StudyView` と行インデックスリストから trial 行 CSV を生成する。
-/// 列順: trial_id, trial_number, params..., objectives..., [pareto_rank], [cluster_id]。
-/// 末尾のランク列・クラスタ列の有無は `columns` で切り替える。
+/// Generates a trial-row CSV from a `StudyView` and a row index list.
+/// Column order: trial_id, trial_number, params..., objectives..., [pareto_rank], [cluster_id].
+/// Whether the trailing rank/cluster columns are present is controlled by `columns`.
 pub fn build_trial_csv_from_view(
     view: &StudyView,
     row_indices: &[usize],
@@ -78,8 +78,8 @@ pub fn build_trial_csv_from_view(
     w.finish()
 }
 
-/// `StudyView` と行インデックスリストから CSV 文字列を生成する（ランク＋クラスタ列付き）。
-/// 列順: trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id。
+/// Generates a CSV string from a `StudyView` and a row index list (with rank + cluster columns).
+/// Column order: trial_id, trial_number, params..., objectives..., pareto_rank, cluster_id.
 pub fn build_csv_string_from_view(
     view: &StudyView,
     row_indices: &[usize],
@@ -98,7 +98,7 @@ pub fn build_csv_string_from_view(
     )
 }
 
-/// `StudyView` ベースのエクスポート対象行インデックスを返す。
+/// Returns the row indices to export, based on the `StudyView`.
 pub fn select_row_indices_for_export(
     view: &StudyView,
     selected_indices: &[u32],
@@ -128,16 +128,16 @@ pub fn select_row_indices_for_export(
     }
 }
 
-/// CSV 文字列を指定パスへ書き込む。失敗時はエラー文字列を返す。
-/// 上書き途中のクラッシュで既存ファイルを壊さないようアトミックに書き込む。
+/// Writes a CSV string to the given path. Returns an error string on failure.
+/// Writes atomically so a crash mid-overwrite doesn't corrupt the existing file.
 pub fn write_csv_to_path(csv: &str, path: &std::path::Path) -> Result<(), String> {
     crate::io::file::write_atomic(path, csv.as_bytes()).map_err(|e| e.to_string())
 }
 
-/// CSV 保存ダイアログを開いて保存先パスのみを確定する（書き込みは行わない）。
-/// ネイティブの保存ダイアログは UI スレッドをブロックするため、呼び出し側が UI スレッドで
-/// 先に実行してパスを得てから、CSV 構築・書き込みをバックグラウンドへ委譲する
-/// （`spawn_report_export` と同じ流儀）。キャンセル時は `None` を返す。
+/// Opens the CSV save dialog and only determines the save path (does not write).
+/// Since the native save dialog blocks the UI thread, the caller runs this first on
+/// the UI thread to obtain the path, then delegates CSV construction and writing to
+/// the background (the same convention as `spawn_report_export`). Returns `None` on cancel.
 pub fn pick_csv_save_path(default_name: &str) -> Option<PathBuf> {
     rfd::FileDialog::new()
         .add_filter("CSV", &["csv"])
@@ -145,10 +145,10 @@ pub fn pick_csv_save_path(default_name: &str) -> Option<PathBuf> {
         .save_file()
 }
 
-/// 構築済みの CSV 文字列を、確定済みパスへバックグラウンドスレッドで書き込む。
-/// 保存ダイアログは呼び出し側が UI スレッドで実行済みで、ここではファイル I/O のみを
-/// `spawn_task` へ委譲する（巨大 Study でも UI をフリーズさせない）。成功時は
-/// `CsvExportDone`、失敗時は `CsvExportFailed` を送る。
+/// Writes an already-built CSV string to the confirmed path on a background thread.
+/// The save dialog has already been run by the caller on the UI thread; here only the
+/// file I/O is delegated to `spawn_task` (so the UI doesn't freeze even for a huge
+/// Study). Sends `CsvExportDone` on success, `CsvExportFailed` on failure.
 pub fn spawn_csv_write(csv: String, path: PathBuf, tx: SyncSender<AppMessage>) {
     crate::app::spawn_task(tx, move || match write_csv_to_path(&csv, &path) {
         Ok(()) => AppMessage::CsvExportDone,
@@ -156,10 +156,11 @@ pub fn spawn_csv_write(csv: String, path: PathBuf, tx: SyncSender<AppMessage>) {
     });
 }
 
-/// `StudyView` スナップショットから trial 行 CSV を構築し、確定済みパスへ書き込む処理を
-/// まとめてバックグラウンドスレッドで実行する。CSV 文字列の構築（全 trial 走査で巨大 Study
-/// では重い）と書き込みの双方を `spawn_task` 上で行うため、UI スレッドは保存ダイアログと
-/// 行選択の解決だけを担う。ワーカーへは所有権を移した clone のみを渡し、借用は持ち込まない。
+/// Builds a trial-row CSV from a `StudyView` snapshot and writes it to the confirmed
+/// path, running both steps together on a background thread. Since both building the
+/// CSV string (heavy for a huge Study, as it scans all trials) and writing happen on
+/// `spawn_task`, the UI thread only handles the save dialog and resolving the row
+/// selection. Only owned clones are passed to the worker; no borrows are carried across.
 pub fn spawn_view_csv_export(
     view: StudyView,
     row_indices: Vec<usize>,

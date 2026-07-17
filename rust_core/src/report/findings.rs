@@ -1,28 +1,29 @@
-//! Key Findings（まとめ）の決定論的生成。
+//! Deterministic generation of Key Findings (summary).
 //!
-//! 各 [`FindingKind`] は文書化された発火条件を満たす場合のみ生成される。
-//! 生成順は固定（BestSingle/ParetoSummary → ConvergenceStatus → TopImportance
-//! → TradeOff → Feasibility → PruningEfficiency → DataQuality）で、同一入力に対して
-//! バイト同一の出力を保証する。文章化はレンダラのテンプレートが担当し、ここでは
-//! 数値・文字列のファクトのみを詰める。
+//! Each [`FindingKind`] is only generated when its documented trigger
+//! condition is met. Generation order is fixed (BestSingle/ParetoSummary →
+//! ConvergenceStatus → TopImportance → TradeOff → Feasibility →
+//! PruningEfficiency → DataQuality), guaranteeing byte-identical output for
+//! identical input. Wording is handled by the renderer templates; this module
+//! only fills in numeric and string facts.
 
 use std::collections::BTreeMap;
 
 use super::model::{ConvergenceStatus, FindingKind, KeyFinding};
 
-/// COMPLETE がこの数未満なら収束判定を [`ConvergenceStatus::Insufficient`] とする。
+/// If COMPLETE count is below this, the convergence verdict is [`ConvergenceStatus::Insufficient`].
 pub(super) const MIN_TRIALS_FOR_CONVERGENCE: usize = 10;
-/// best 更新がこの割合以降にあれば「なお改善中」とみなす閾値。
+/// Threshold fraction after which a best update is considered "still improving".
 pub(super) const STILL_IMPROVING_FRACTION: f64 = 0.8;
-/// トレードオフ finding を発火させる Spearman の上限（これ未満で発火）。
+/// Upper bound on Spearman rho that triggers the trade-off finding (fires below this).
 pub(super) const TRADEOFF_RHO_THRESHOLD: f64 = -0.3;
 
-/// 収束状態を判定する。
+/// Determines the convergence status.
 ///
-/// - COMPLETE が [`MIN_TRIALS_FOR_CONVERGENCE`] 未満 → `Insufficient`
-/// - best の最終更新位置 `last_improve_frac`（0.0..=1.0）が
-///   [`STILL_IMPROVING_FRACTION`] 以上 → `StillImproving`
-/// - それ以外 → `Converged`
+/// - COMPLETE below [`MIN_TRIALS_FOR_CONVERGENCE`] → `Insufficient`
+/// - The final best-update position `last_improve_frac` (0.0..=1.0) at or
+///   above [`STILL_IMPROVING_FRACTION`] → `StillImproving`
+/// - Otherwise → `Converged`
 pub(super) fn convergence_status(
     complete_count: usize,
     last_improve_frac: f64,
@@ -36,35 +37,35 @@ pub(super) fn convergence_status(
     }
 }
 
-/// findings 生成に必要な、builder が事前計算したファクト。
+/// Facts pre-computed by the builder that findings generation needs.
 pub(super) struct FindingInputs {
-    /// 多目的か。
+    /// Whether this is multi-objective.
     pub is_multi: bool,
-    /// 単目的の `(best 値, trial.number, 発見時点%)`。
+    /// Single-objective `(best value, trial.number, discovery %)`.
     pub best_single: Option<(f64, u32, f64)>,
-    /// 多目的の `(front サイズ, COMPLETE 数)`。
+    /// Multi-objective `(front size, COMPLETE count)`.
     pub pareto: Option<(usize, usize)>,
-    /// 収束判定。
+    /// Convergence verdict.
     pub convergence_status: ConvergenceStatus,
-    /// 重要度上位 `(param, score)`（最大3件、降順）。
+    /// Top importance ranking `(param, score)` (up to 3 entries, descending).
     pub top_importance: Vec<(String, f64)>,
-    /// 重要度の手法名。
+    /// Importance method name.
     pub importance_method: Option<String>,
-    /// 最も負の目的間 Spearman `(obj_a, obj_b, rho)`（rho < 閾値のときのみ Some）。
+    /// Most negative inter-objective Spearman `(obj_a, obj_b, rho)` (Some only when rho < threshold).
     pub trade_off: Option<(String, String, f64)>,
-    /// 制約充足 `(feasible 率, feasible 数, 総数, 最良 feasible trial.number)`。
+    /// Constraint satisfaction `(feasible rate, feasible count, total count, best feasible trial.number)`.
     pub feasibility: Option<(f64, usize, usize, Option<u32>)>,
-    /// 枝刈り `(prune 率, PRUNED 数, 中央値 step)`。
+    /// Pruning `(prune rate, PRUNED count, median step)`.
     pub pruning: Option<(f64, usize, Option<f64>)>,
-    /// データ品質 `(NaN 目的値の件数, FAIL 件数)`。
+    /// Data quality `(count of NaN objective values, FAIL count)`.
     pub data_quality: Option<(usize, usize)>,
 }
 
-/// [`FindingInputs`] から Key Findings を固定順で組み立てる。
+/// Assembles Key Findings from [`FindingInputs`] in a fixed order.
 pub(super) fn generate_findings(inputs: &FindingInputs) -> Vec<KeyFinding> {
     let mut out = Vec::new();
 
-    // 1. BestSingle（単目的） / ParetoSummary（多目的）
+    // 1. BestSingle (single-objective) / ParetoSummary (multi-objective)
     if inputs.is_multi {
         if let Some((front, complete)) = inputs.pareto {
             out.push(pareto_summary(front, complete));
@@ -226,14 +227,14 @@ mod tests {
 
     #[test]
     fn convergence_insufficient_below_threshold() {
-        // COMPLETE < 10 は常に Insufficient（改善位置に依らない）。
+        // COMPLETE < 10 is always Insufficient (regardless of improvement position).
         assert_eq!(convergence_status(9, 1.0), ConvergenceStatus::Insufficient);
         assert_eq!(convergence_status(0, 0.0), ConvergenceStatus::Insufficient);
     }
 
     #[test]
     fn convergence_still_improving_when_last_update_in_tail() {
-        // 後半20%（>=0.8）で best 更新 → StillImproving。
+        // Best update in the last 20% (>=0.8) → StillImproving.
         assert_eq!(
             convergence_status(100, 0.8),
             ConvergenceStatus::StillImproving
@@ -246,7 +247,7 @@ mod tests {
 
     #[test]
     fn convergence_converged_when_last_update_early() {
-        // 後半20%より前で最後の更新 → Converged。
+        // Last update before the final 20% → Converged.
         assert_eq!(convergence_status(100, 0.79), ConvergenceStatus::Converged);
         assert_eq!(convergence_status(50, 0.5), ConvergenceStatus::Converged);
     }

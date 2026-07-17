@@ -20,21 +20,21 @@ pub struct AppendDiffResult {
     pub pending_running: usize,
     pub new_trial_rows: Vec<TrialRow>,
     pub updated_study_counts: Vec<(u32, usize)>,
-    /// 全 trial（全 state）の付帯情報（extras）へ反映すべき差分イベント。
+    /// Diff events to apply to the extras (auxiliary info) of all trials (all states).
     pub extras_events: ExtrasDiff,
 }
 
-/// ライブ差分から抽出した extras（state / 日時 / 中間値）更新イベント。
+/// Extras (state / datetime / intermediate value) update events extracted from a live diff.
 ///
-/// `new_trial_rows` が COMPLETE のみを扱うのに対し、こちらは全 state のイベントを収集する。
-/// 消費側（egui-app）が study の [`crate::extras::StudyExtras`] へマージする。
+/// While `new_trial_rows` only handles COMPLETE trials, this collects events for all states.
+/// The consumer (egui-app) merges these into the study's [`crate::extras::StudyExtras`].
 #[derive(Debug, Clone, Default)]
 pub struct ExtrasDiff {
-    /// op_code=4 (CREATE_TRIAL): (trial_id, study_id, trial_number, datetime_start)。
+    /// op_code=4 (CREATE_TRIAL): (trial_id, study_id, trial_number, datetime_start).
     pub new_trials: Vec<(u32, u32, u32, Option<f64>)>,
-    /// op_code=7 (SET_TRIAL_INTERMEDIATE_VALUE): (trial_id, step, value)。
+    /// op_code=7 (SET_TRIAL_INTERMEDIATE_VALUE): (trial_id, step, value).
     pub intermediate_values: Vec<(u32, u64, f64)>,
-    /// op_code=6 (SET_TRIAL_STATE_VALUES): (trial_id, state, datetime_complete)。全 state を記録する。
+    /// op_code=6 (SET_TRIAL_STATE_VALUES): (trial_id, state, datetime_complete). Records all states.
     pub state_changes: Vec<(u32, u8, Option<f64>)>,
 }
 
@@ -59,7 +59,7 @@ pub struct TrialRow {
 #[derive(Debug, Default)]
 struct PendingTrial {
     study_idx: u32,
-    /// Study 内 0 始まりの trial.number（作成時に確定）。
+    /// 0-based trial.number within the study (fixed at creation time).
     trial_number: u32,
     values: Option<Vec<f64>>,
     param_display: HashMap<String, f64>,
@@ -72,8 +72,8 @@ struct PendingTrial {
 #[derive(Debug, Default)]
 struct LiveUpdateState {
     next_trial_id: u32,
-    /// study_id → これまでに作成された Trial 数（次の trial.number）。
-    /// ライブ開始時に既存ファイルの per-study 作成数で seed する。
+    /// study_id → number of trials created so far (i.e. the next trial.number).
+    /// Seeded from the existing file's per-study creation count when going live.
     next_trial_number: HashMap<u32, u32>,
     pending: HashMap<u32, PendingTrial>,
 }
@@ -88,7 +88,7 @@ pub struct LiveUpdateContext {
     pub file_path: PathBuf,
     pub initial_byte_offset: u64,
     pub next_trial_id: u32,
-    /// 既存ファイルの per-study 作成数（study_id → 件数）。各 Study の次の trial.number を seed する。
+    /// Per-study creation counts from the existing file (study_id → count). Seeds each study's next trial.number.
     pub study_trial_number_seeds: HashMap<u32, u32>,
     pub study_distributions: Vec<StudyDistributionInfo>,
     /// Milliseconds of no file change before sending completion hint (default: 60_000)
@@ -163,7 +163,7 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         json.get("study_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                     let trial_id = s.next_trial_id;
                     s.next_trial_id += 1;
-                    // Study 内 0 始まりの trial.number を per-study カウンタから採番する。
+                    // Assign the 0-based trial.number within the study from the per-study counter.
                     let counter = s.next_trial_number.entry(study_idx).or_insert(0);
                     let trial_number = *counter;
                     *counter += 1;
@@ -193,8 +193,8 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                             json.get("param_name").and_then(|v| v.as_str()),
                             json.get("param_value_internal").and_then(|v| v.as_f64()),
                         ) {
-                            // journal の distribution フィールドは JSON 文字列。from_json が
-                            // 文字列の再パースと attributes ネストの両方を処理する。
+                            // The journal's distribution field is a JSON string; from_json
+                            // handles both re-parsing the string and the nested attributes.
                             let dist = json.get("distribution").map(Distribution::from_json);
                             let display_val = dist.as_ref().map_or(val, |d| d.to_display_f64(val));
                             let label = dist.as_ref().and_then(|d| d.categorical_label(val));
@@ -226,7 +226,7 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         .get("datetime_complete")
                         .and_then(|v| v.as_str())
                         .and_then(parse_naive_datetime);
-                    // state を問わず（COMPLETE/PRUNED/FAIL 含む）全 state 変化を記録する。
+                    // Record all state changes regardless of state (including COMPLETE/PRUNED/FAIL).
                     extras
                         .state_changes
                         .push((trial_id, state_val, datetime_complete));
@@ -296,15 +296,16 @@ pub fn set_next_trial_id(id: u32) {
     STATE.with(|s| s.borrow_mut().next_trial_id = id);
 }
 
-/// per-study の「次の trial.number」カウンタを seed する。
-/// 既存ファイルの per-study 作成数（[`count_created_trials_per_study`]）を渡すと、
-/// ライブ中に作られる Trial が Study 内で連続した trial.number を持つようになる。
+/// Seeds the per-study "next trial.number" counter.
+/// Passing in the existing file's per-study creation counts
+/// ([`count_created_trials_per_study`]) makes trials created during live updates
+/// receive trial.numbers that continue consecutively within each study.
 pub fn set_study_trial_number_seeds(seeds: HashMap<u32, u32>) {
     STATE.with(|s| s.borrow_mut().next_trial_number = seeds);
 }
 
-/// 既存ファイル中の op_code=4（CREATE_TRIAL）レコードを study_id ごとに数える。
-/// 返り値の `study_id → 件数` は各 Study 内で次に作られる Trial の trial.number に等しい。
+/// Counts op_code=4 (CREATE_TRIAL) records in the existing file, per study_id.
+/// The returned `study_id → count` equals the trial.number of the next trial created in each study.
 pub fn count_created_trials_per_study(data: &[u8]) -> HashMap<u32, u32> {
     let text = String::from_utf8_lossy(data);
     let mut counts: HashMap<u32, u32> = HashMap::new();
@@ -318,13 +319,14 @@ pub fn count_created_trials_per_study(data: &[u8]) -> HashMap<u32, u32> {
     counts
 }
 
-/// Optuna が次の CREATE_TRIAL に割り当てる global trial_id を求める。
+/// Computes the global trial_id that Optuna will assign to the next CREATE_TRIAL.
 ///
-/// Optuna の Journal storage は op_code=4（CREATE_TRIAL）の出現順に trial_id を
-/// **全 study・全状態（running/failed/pruned 含む）横断**で連番付与する。
-/// そのためファイル中の op_code=4 レコード総数が、次に作られる Trial の trial_id に等しい。
-/// ライブ更新開始時の `next_trial_id` はこの値でなければ op_code=5/6 の trial_id と
-/// 照合できず、Trial が正しく構築されない。
+/// Optuna's Journal storage assigns trial_id sequentially in order of op_code=4
+/// (CREATE_TRIAL) occurrence, **across all studies and all states (including
+/// running/failed/pruned)**. So the total count of op_code=4 records in the file
+/// equals the trial_id of the next trial to be created. The `next_trial_id` at the
+/// start of live updates must equal this value, or it won't match the trial_id in
+/// op_code=5/6 records and trials won't be built correctly.
 pub fn count_created_trials(data: &[u8]) -> u32 {
     let text = String::from_utf8_lossy(data);
     let mut count = 0u32;
@@ -336,8 +338,8 @@ pub fn count_created_trials(data: &[u8]) -> u32 {
     count
 }
 
-/// 行から op_code 値を抽出する（JSON パース不要の軽量版）。
-/// 抽出本体は [`line_u32_field`]（`io::journal` 共通ヘルパ、行毎の alloc なし）。
+/// Extracts the op_code value from a line (lightweight version, no JSON parsing required).
+/// Extraction itself is done by [`line_u32_field`] (a shared `io::journal` helper, no per-line alloc).
 fn line_op_code(line: &str) -> Option<u8> {
     line_u32_field(line, "op_code").and_then(|v| u8::try_from(v).ok())
 }
@@ -400,7 +402,7 @@ mod tests {
 
     #[test]
     fn count_created_trials_counts_all_op4_across_studies_and_states() {
-        // 2 study・running/pruned/failed 混在でも op_code=4 の総数を数える。
+        // Counts the total number of op_code=4 even with 2 studies and a mix of running/pruned/failed.
         let lines = vec![
             r#"{"op_code":0,"study_name":"a","directions":[1]}"#.to_string(),
             r#"{"op_code":0,"study_name":"b","directions":[1]}"#.to_string(),
@@ -414,13 +416,13 @@ mod tests {
             r#"{"op_code":6,"trial_id":3,"state":3}"#.to_string(),
         ];
         let data = make_diff_bytes(&lines);
-        // op_code=4 は 4 件 → 次の trial_id は 4。
+        // op_code=4 appears 4 times → the next trial_id is 4.
         assert_eq!(count_created_trials(&data), 4);
     }
 
     #[test]
     fn count_created_trials_per_study_counts_op4_per_study() {
-        // study 0 に 2 件・study 1 に 2 件の op_code=4（状態は問わない）。
+        // 2 op_code=4 records for study 0, 2 for study 1 (state doesn't matter).
         let lines = vec![
             r#"{"op_code":0,"study_name":"a","directions":[1]}"#.to_string(),
             r#"{"op_code":0,"study_name":"b","directions":[1]}"#.to_string(),
@@ -438,8 +440,8 @@ mod tests {
     #[test]
     fn live_trial_number_continues_from_seed() {
         with_fresh_state(|| {
-            // 既存ファイルで study 0 に 5 件作成済み（trial.number 0..4）。次のライブ Trial の
-            // trial.number は 5 でなければならない（グローバル trial_id とは別系統）。
+            // The existing file already has 5 trials created for study 0 (trial.number 0..4).
+            // The next live trial's trial.number must be 5 (a separate sequence from the global trial_id).
             set_next_trial_id(5);
             set_study_trial_number_seeds(HashMap::from([(0, 5)]));
             let data = make_diff_bytes(&[make_create_trial(0), make_complete(5, &[1.0])]);
@@ -454,8 +456,8 @@ mod tests {
     #[test]
     fn live_update_with_correct_next_trial_id_builds_full_row() {
         with_fresh_state(|| {
-            // 既存ファイルに 10 個の op_code=4 があり、ライブ開始時に正しく next_trial_id=10
-            // を設定した場合、新規 Trial の param/objective が欠落せず構築される（回帰）。
+            // The existing file has 10 op_code=4 records; when next_trial_id=10 is correctly
+            // set at the start of live updates, new trials' params/objectives are built without loss (regression test).
             set_next_trial_id(10);
             let create = make_create_trial(0);
             let set_param = make_set_param(10, "x1", 0.5);
@@ -751,8 +753,8 @@ mod tests {
 
     #[test]
     fn tc_2218_08_log_param_is_stored_as_external_value() {
-        // Optuna は log 分布でも param_value_internal に外部表現（実値）を
-        // そのまま格納するため、表示値は格納値と一致しなければならない。
+        // Optuna stores the external representation (the actual value) directly in
+        // param_value_internal even for log distributions, so the display value must match the stored value.
         with_fresh_state(|| {
             let create = make_create_trial(0);
             let stored = 0.125;
@@ -802,7 +804,7 @@ mod tests {
         });
     }
 
-    // ── extras_events (ExtrasDiff): op4/op7/op6 の付帯情報差分 ───────────
+    // ── extras_events (ExtrasDiff): op4/op7/op6 auxiliary info diffs ───────────
 
     #[test]
     fn extras_op4_records_new_trial_with_datetime_start() {
@@ -845,7 +847,7 @@ mod tests {
                 result.extras_events.intermediate_values,
                 vec![(0u32, 0u64, 0.5)]
             );
-            // op7 は completion ロジック（pending の解決）に影響しない。
+            // op7 does not affect the completion logic (resolving pending trials).
             assert_eq!(result.new_trial_rows.len(), 0);
             assert_eq!(result.pending_running, 1);
         });
@@ -883,7 +885,7 @@ mod tests {
                 result.extras_events.state_changes,
                 vec![(0u32, 1u8, Some(1_704_067_201.0))]
             );
-            // 通常の完了行構築は従来どおり動作する。
+            // Normal completed-row construction still works as before.
             assert_eq!(result.new_trial_rows.len(), 1);
             assert_eq!(result.new_trial_rows[0].objectives, vec![1.0]);
         });
@@ -935,7 +937,7 @@ mod tests {
     #[test]
     fn extras_events_default_when_no_complete_line() {
         with_fresh_state(|| {
-            // 改行なしで何も消費されない場合、extras_events も空のまま。
+            // When nothing is consumed due to no newline, extras_events also stays empty.
             let result = append_journal_diff(b"incomplete line without newline");
             assert_eq!(result.consumed_bytes, 0);
             assert!(result.extras_events.new_trials.is_empty());

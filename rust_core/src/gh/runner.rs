@@ -1,17 +1,19 @@
-//! Grasshopper 定義に対する最適化ランナー。
+//! Optimization runner for Grasshopper definitions.
 //!
-//! `GhEvaluator`（Rhino.Compute またはモック）で実目的関数を評価し、
-//! 全試行を Optuna 互換 journal に記録する。journal に落とすことで既存の
-//! ライブ更新・全分析ウィジェット・レポートが無改修でそのまま機能する。
+//! Evaluates the real objective function via `GhEvaluator` (Rhino.Compute or a mock) and
+//! records every trial to an Optuna-compatible journal. Writing to the journal means the
+//! existing live-update, all analysis widgets, and reports work as-is without modification.
 //!
-//! 使い方は 2 段階:
-//! 1. `prepare_gh_run` — journal を開き study を作成（同期・軽量）。
-//!    呼び出し側はこの直後に journal を開けば study 一覧に現れる。
-//! 2. `run_prepared` — 最適化ループ本体（ブロッキング。バックグラウンド
-//!    スレッドで呼ぶ）。進捗・キャンセルは `FitProgress` を共有する。
+//! Usage is a two-step process:
+//! 1. `prepare_gh_run` — opens the journal and creates the study (synchronous, lightweight).
+//!    The caller can open the journal right after this call and the study will already
+//!    appear in the study list.
+//! 2. `run_prepared` — the main optimization loop (blocking; call it from a background
+//!    thread). Progress and cancellation are shared via `FitProgress`.
 //!
-//! 内部の最適化は既存実装を転用する: 正規化空間 [0,1]^d・全目的最小化の
-//! 規約に合わせ、実変数範囲との変換と Maximize の符号反転をここで担う。
+//! The internal optimizer reuses the existing implementation: to match its convention of
+//! normalized space [0,1]^d and minimizing all objectives, this module handles the
+//! conversion to/from the real variable ranges and sign-flipping for Maximize.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -29,31 +31,32 @@ use crate::surrogate_opt::FitProgress;
 use super::compute::GhEvaluator;
 use super::problem::{GhProblem, GhVariable};
 
-/// 評価失敗・キャンセル時に最適化アルゴリズムへ返すペナルティ値。
-/// 無限大は crowding distance の正規化で NaN を生むため大きな有限値を使う。
+/// Penalty value returned to the optimization algorithm on evaluation failure or cancellation.
+/// Infinity would produce NaN when normalizing the crowding distance, so a large finite
+/// value is used instead.
 const FAIL_PENALTY: f64 = 1e12;
 
-/// サンプラーの種類。
+/// The kind of sampler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GhSampler {
-    /// 一様ランダムサンプリング（試行数 = `n_trials`）
+    /// Uniform random sampling (trial count = `n_trials`)
     Random,
-    /// NSGA-II（試行数 = 偶数化した個体数 ×（世代数 + 1））
+    /// NSGA-II (trial count = population size rounded to even × (generations + 1))
     Nsga2,
 }
 
-/// 最適化実行の設定。
+/// Configuration for an optimization run.
 #[derive(Debug, Clone)]
 pub struct GhRunConfig {
     pub study_name: String,
-    /// 目的ごとの最適化方向（`GhProblem.objectives` と同数・同順）
+    /// Optimization direction per objective (same count and order as `GhProblem.objectives`)
     pub directions: Vec<OptimizationDirection>,
     pub sampler: GhSampler,
-    /// Random サンプラーの試行数
+    /// Trial count for the Random sampler
     pub n_trials: usize,
-    /// NSGA-II の個体数
+    /// Population size for NSGA-II
     pub population_size: usize,
-    /// NSGA-II の世代数
+    /// Number of generations for NSGA-II
     pub generations: usize,
     pub seed: u64,
 }
@@ -72,36 +75,36 @@ impl Default for GhRunConfig {
     }
 }
 
-/// 実行結果の要約。
+/// Summary of a run's results.
 #[derive(Debug, Clone)]
 pub struct GhRunSummary {
     pub study_id: u32,
-    /// COMPLETE で記録できた試行数
+    /// Number of trials recorded as COMPLETE
     pub completed: usize,
-    /// 評価失敗（FAIL で記録）の試行数
+    /// Number of trials that failed evaluation (recorded as FAIL)
     pub failed: usize,
-    /// キャンセルで打ち切られたか
+    /// Whether the run was cut short by cancellation
     pub cancelled: bool,
 }
 
-/// `prepare_gh_run` の結果。study 作成済みの journal writer を保持する。
+/// Result of `prepare_gh_run`. Holds a journal writer with the study already created.
 pub struct PreparedGhRun {
     writer: Mutex<JournalWriter>,
     study_id: u32,
 }
 
 impl PreparedGhRun {
-    /// 作成した study の ID（journal 内での連番）。
+    /// ID of the created study (a sequential number within the journal).
     pub fn study_id(&self) -> u32 {
         self.study_id
     }
 }
 
-/// journal を開いて study を作成する（同期・軽量）。
+/// Opens the journal and creates the study (synchronous, lightweight).
 ///
-/// この呼び出しの直後から journal 上に study が存在するため、呼び出し側は
-/// `run_prepared` をバックグラウンドで開始する前に journal を開いて
-/// ライブ更新に載せることができる。
+/// Immediately after this call, the study already exists in the journal, so the caller
+/// can open the journal to pick up live updates before starting `run_prepared` in the
+/// background.
 pub fn prepare_gh_run(
     journal_path: &Path,
     problem: &GhProblem,
@@ -126,14 +129,14 @@ pub fn prepare_gh_run(
     })
 }
 
-/// 最適化ループ本体（ブロッキング）。バックグラウンドスレッドから呼ぶこと。
+/// The main optimization loop (blocking). Call it from a background thread.
 ///
-/// - 進捗は `progress` に反映される（total = 予定評価回数）
-/// - `progress.request_cancel()` で以降の評価を打ち切る（実行中の solve は
-///   完了を待つ）。キャンセル分は journal に記録しない
-/// - 評価エラーの試行は FAIL として記録し、最適化アルゴリズムには
-///   ペナルティ値を返して続行する
-/// - journal への書き込み自体が失敗した場合は中断して Err を返す
+/// - Progress is reflected in `progress` (total = the planned number of evaluations)
+/// - `progress.request_cancel()` cuts off further evaluations (an in-flight solve is
+///   allowed to finish). Cancelled trials are not recorded to the journal
+/// - Trials with an evaluation error are recorded as FAIL, and a penalty value is
+///   returned to the optimization algorithm so it can continue
+/// - If writing to the journal itself fails, the run aborts and returns Err
 pub fn run_prepared(
     prep: &PreparedGhRun,
     problem: &GhProblem,
@@ -160,7 +163,7 @@ pub fn run_prepared(
             let n = cfg.n_trials.max(1);
             progress.set_total(n);
             (0..n).into_par_iter().for_each(|i| {
-                // 並列でも決定論的になるよう試行ごとに独立シードを導出する
+                // Derive an independent seed per trial so results stay deterministic even in parallel
                 let mut rng = SeededRng::from_seed(
                     cfg.seed
                         .wrapping_add((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
@@ -170,8 +173,9 @@ pub fn run_prepared(
             });
         }
         GhSampler::Nsga2 => {
-            // nsga2_minimize は個体数を偶数（最低 4）に切り上げ、
-            // 初期集団 + 各世代の子集団を評価する。
+            // nsga2_minimize rounds the population size up to an even number
+            // (minimum 4), then evaluates the initial population plus each
+            // generation's offspring population.
             let pop_even = (cfg.population_size.max(4) + 1) & !1;
             progress.set_total(pop_even * (cfg.generations + 1));
             let nsga_cfg = Nsga2Config {
@@ -180,7 +184,7 @@ pub fn run_prepared(
                 seed: cfg.seed,
                 ..Nsga2Config::for_objectives(cfg.directions.len())
             };
-            // 定義保存時点のスライダー値を初期個体としてシードする
+            // Seed the initial individual with the slider values at the time the definition was saved
             let initial = vec![normalize_current(problem)];
             nsga2_minimize(|x| recorder.eval_signed(x), n_dims, &initial, &nsga_cfg);
         }
@@ -204,7 +208,7 @@ pub fn run_prepared(
     })
 }
 
-/// 1 試行の評価と journal 記録。並列評価スレッドから共有される。
+/// Evaluates a single trial and records it to the journal. Shared across parallel evaluation threads.
 struct TrialRecorder<'a> {
     writer: &'a Mutex<JournalWriter>,
     study_id: u32,
@@ -214,12 +218,12 @@ struct TrialRecorder<'a> {
     progress: &'a FitProgress,
     completed: AtomicUsize,
     failed: AtomicUsize,
-    /// journal 書き込みエラー（最初の 1 件）。発生後は新規評価を止める。
+    /// Journal write error (the first one). Once set, no new evaluations are started.
     io_error: Mutex<Option<String>>,
 }
 
 impl TrialRecorder<'_> {
-    /// 正規化点を評価し、最小化規約に符号調整した目的値を返す。
+    /// Evaluates a normalized point and returns objective values sign-adjusted to the minimize convention.
     fn eval_signed(&self, x_norm: &[f64]) -> Vec<f64> {
         let n_obj = self.directions.len();
         if self.progress.is_cancelled() || self.has_io_error() {
@@ -269,7 +273,7 @@ impl TrialRecorder<'_> {
         }
     }
 
-    /// trial を作成し param を記録する（writer ロックは 1 回で済ませる）。
+    /// Creates the trial and records params (acquires the writer lock only once).
     fn begin_trial(&self, values: &[f64]) -> Result<u32, String> {
         let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         let trial_id = writer.create_trial(self.study_id)?;
@@ -321,9 +325,9 @@ impl TrialRecorder<'_> {
     }
 }
 
-/// 正規化点 [0,1]^d をスライダーの実値に変換する。
-/// スライダーの丸め（整数 / 小数桁数）を適用し、journal に記録する値と
-/// Compute に送る値を一致させる。
+/// Converts a normalized point [0,1]^d into the slider's real value.
+/// Applies the slider's rounding (integer / decimal digits) so that the value
+/// recorded to the journal matches the value sent to Compute.
 fn denormalize(problem: &GhProblem, x_norm: &[f64]) -> Vec<f64> {
     problem
         .variables
@@ -337,7 +341,7 @@ fn denormalize(problem: &GhProblem, x_norm: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// 現在のスライダー値を正規化空間に写す（NSGA-II の初期個体シード用）。
+/// Maps the current slider values into normalized space (for seeding NSGA-II's initial individual).
 fn normalize_current(problem: &GhProblem) -> Vec<f64> {
     problem
         .variables
@@ -362,7 +366,7 @@ mod tests {
     use crate::gh::problem::extract_problem;
     use crate::io::journal::parser::parse_single_study;
 
-    /// クロージャで目的値を計算するモック評価器。
+    /// Mock evaluator that computes objective values via a closure.
     struct FnEvaluator<F: Fn(&[f64]) -> Result<Vec<f64>, String> + Send + Sync>(F);
 
     impl<F: Fn(&[f64]) -> Result<Vec<f64>, String> + Send + Sync> GhEvaluator for FnEvaluator<F> {
@@ -420,18 +424,18 @@ mod tests {
         );
         assert_eq!(extras.trials.len(), 6);
 
-        // journal に記録された param と目的値の整合（obj0 = span + count）
+        // Consistency between the params and objective values recorded in the journal (obj0 = span + count)
         let span = df.get_numeric_column("span").unwrap().to_vec();
         let count = df.get_numeric_column("count").unwrap().to_vec();
         let weight = df.get_numeric_column("weight").unwrap().to_vec();
         for i in 0..df.row_count() {
             assert!((span[i] + count[i] - weight[i]).abs() < 1e-9);
-            // 整数スライダーは整数値、実数スライダーは範囲内
+            // Integer sliders produce integer values; real-valued sliders stay within range
             assert_eq!(count[i], count[i].round());
             assert!((1.0..=10.0).contains(&count[i]));
             assert!((3.0..=12.0).contains(&span[i]));
         }
-        // param_bounds がスライダー範囲を反映
+        // param_bounds reflects the slider range
         assert_eq!(meta.param_bounds.get("span"), Some(&(3.0, 12.0)));
     }
 
@@ -447,7 +451,7 @@ mod tests {
         let summary =
             run_prepared(&prep, &problem, &sum_diff_evaluator(), &cfg, &progress).unwrap();
 
-        // 偶数化した個体数 4 ×（世代 1 + 初期 1）= 8 評価
+        // Population size rounded to even (4) x (1 generation + 1 initial) = 8 evaluations
         assert_eq!(summary.completed, 8);
         let snapshot = progress.snapshot();
         assert_eq!(snapshot.total, 8);

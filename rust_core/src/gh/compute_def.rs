@@ -1,46 +1,46 @@
-//! Rhino.Compute で solve 可能な定義（RH_IN / RH_OUT 付き .ghx）の生成。
+//! Generates a solve-ready definition for Rhino.Compute (a .ghx with RH_IN / RH_OUT added).
 //!
-//! Compute の Grasshopper エンドポイントは、`RH_IN:名前` のニックネームを持つ
-//! グループに入力値を割り当て、`RH_OUT:名前` グループ内パラメータの値を応答に
-//! 含める。ここでは元の .ghx に対して:
+//! Compute's Grasshopper endpoint assigns input values to groups whose nickname is
+//! `RH_IN:name`, and includes the values of parameters inside `RH_OUT:name` groups in the
+//! response. Here, for the original .ghx, we inject via XML string manipulation:
 //!
-//! - 各変数スライダーを包む `RH_IN:変数名` グループ
-//! - 各目的の接続元に配線したリレー Number パラメータ + それを包む
-//!   `RH_OUT:目的名` グループ
+//! - An `RH_IN:variable_name` group wrapping each variable slider
+//! - A relay Number parameter wired to each objective's source, plus an
+//!   `RH_OUT:objective_name` group wrapping it
 //!
-//! を XML 文字列操作で注入する。元の定義本体はバイト単位で保持し、
-//! DefinitionObjects のオブジェクト数と末尾への追加のみを行う。
+//! The original definition body is preserved byte-for-byte; only the DefinitionObjects
+//! object count and an append at the end are touched.
 //!
-//! 注意: 注入するオブジェクトの型 GUID（Group / Param_Number）と最小
-//! シリアライズ形式は実環境の Rhino.Compute での E2E 検証が必要
-//! （ROADMAP 項目 15 の後段タスク）。
+//! Note: the type GUIDs of the injected objects (Group / Param_Number) and the minimal
+//! serialization format need E2E verification against a real Rhino.Compute environment
+//! (a follow-up task under ROADMAP item 15).
 
 use super::problem::GhProblem;
 
-/// Grasshopper の Group オブジェクトの型 GUID。
+/// Type GUID of the Grasshopper Group object.
 const GROUP_TYPE_GUID: &str = "c552a431-af5b-46a9-a8a4-0fcbc27ef596";
-/// フローティング Number パラメータ（Param_Number）の型 GUID。
+/// Type GUID of the floating Number parameter (Param_Number).
 const PARAM_NUMBER_TYPE_GUID: &str = "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312";
 
-/// RH_IN / RH_OUT 注入済みの Compute 用定義。
+/// A Compute-ready definition with RH_IN / RH_OUT already injected.
 #[derive(Debug, Clone)]
 pub struct ComputeDefinition {
-    /// 注入済み .ghx テキスト
+    /// The injected .ghx text
     pub ghx: String,
-    /// 入力パラメータ名（`RH_IN:変数名`、`GhProblem.variables` と同順）
+    /// Input parameter names (`RH_IN:variable_name`, in the same order as `GhProblem.variables`)
     pub input_params: Vec<String>,
-    /// 出力パラメータ名（`RH_OUT:目的名`、`GhProblem.objectives` と同順）
+    /// Output parameter names (`RH_OUT:objective_name`, in the same order as `GhProblem.objectives`)
     pub output_params: Vec<String>,
 }
 
-/// 元の .ghx と抽出済み問題定義から Compute 用定義を生成する。
+/// Generates a Compute-ready definition from the original .ghx and the extracted problem definition.
 pub fn build_compute_definition(
     xml: &str,
     problem: &GhProblem,
 ) -> Result<ComputeDefinition, String> {
     let anchors = locate_definition_objects(xml)?;
 
-    // ── 注入オブジェクトの生成 ──────────────────────────────────────
+    // ── Generate the injected objects ───────────────────────────────
     let mut guid_counter: u64 = 1;
     let mut injected = String::new();
     let mut next_index = anchors.object_count;
@@ -61,11 +61,11 @@ pub fn build_compute_definition(
     }
 
     for obj in &problem.objectives {
-        // 目的の接続元はコンポーネントの出力パラメータであることが多く、
-        // ドキュメントオブジェクトではないためグループに直接入れられない。
-        // 常にリレー Number パラメータを新設して接続元から受け、リレーを
-        // グループに入れる（接続元がフローティングパラメータでも同じ経路で
-        // 動くため分岐しない）。
+        // An objective's source is often a component's output parameter, which is not a
+        // document object and so cannot be placed directly into a group. We always create
+        // a new relay Number parameter to receive from the source, and put the relay into
+        // the group instead (this works the same way even when the source is already a
+        // floating parameter, so no branching is needed).
         let nick = format!("RH_OUT:{}", obj.name);
         let relay_guid = synthetic_guid(xml, &mut guid_counter);
         injected.push_str(&relay_param_xml(
@@ -86,8 +86,8 @@ pub fn build_compute_definition(
         output_params.push(nick);
     }
 
-    // ── 3 箇所のスプライス（位置昇順）: ObjectCount 値・chunks count 属性・
-    //    オブジェクト列末尾への挿入 ────────────────────────────────────
+    // ── 3 splices, in ascending position order: the ObjectCount value, the chunks
+    //    count attribute, and the insertion at the end of the object list ───────────
     let new_count = next_index;
     let mut out = String::with_capacity(xml.len() + injected.len() + 64);
     out.push_str(&xml[..anchors.object_count_text.0]);
@@ -105,23 +105,23 @@ pub fn build_compute_definition(
     })
 }
 
-/// DefinitionObjects チャンク内の編集位置。
+/// Edit positions within the DefinitionObjects chunk.
 struct Anchors {
-    /// 既存のオブジェクト数
+    /// Existing object count
     object_count: usize,
-    /// ObjectCount item のテキスト範囲（バイト）
+    /// Byte range of the ObjectCount item's text
     object_count_text: (usize, usize),
-    /// オブジェクト列 `<chunks count="N">` の数値テキスト範囲（バイト）
+    /// Byte range of the numeric text of the object list's `<chunks count="N">`
     chunks_count_text: (usize, usize),
-    /// オブジェクト列の閉じタグ `</chunks>` の直前位置（挿入点）
+    /// Position immediately before the object list's closing tag `</chunks>` (the insertion point)
     insertion_pos: usize,
 }
 
-/// DefinitionObjects の編集アンカーを特定する。
+/// Locates the DefinitionObjects edit anchors.
 ///
-/// タグ・属性は GH_IO が機械生成する固定形式（ダブルクォート属性）で、
-/// item テキスト内の `<` `>` は XML エスケープされるため、素朴な部分文字列
-/// 探索でタグ境界を安全に特定できる。
+/// Tags and attributes follow the fixed, machine-generated format produced by GH_IO
+/// (double-quoted attributes), and `<` `>` inside item text is XML-escaped, so tag
+/// boundaries can be located safely with plain substring search.
 fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
     let err = |msg: &str| format!(".ghx の構造が想定と異なります: {msg}");
 
@@ -129,7 +129,7 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
         .find(r#"name="DefinitionObjects""#)
         .ok_or_else(|| err("DefinitionObjects がありません"))?;
 
-    // ObjectCount item のテキスト範囲
+    // Text range of the ObjectCount item
     let oc_tag = xml[do_pos..]
         .find(r#"<item name="ObjectCount""#)
         .map(|i| do_pos + i)
@@ -147,8 +147,8 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
         .parse()
         .map_err(|_| err("ObjectCount が数値ではありません"))?;
 
-    // ObjectCount を含む <items> ブロックの終端後、最初の <chunks …> が
-    // オブジェクト列のコンテナ。
+    // After the end of the <items> block containing ObjectCount, the first <chunks …>
+    // is the container for the object list.
     let items_end = xml[oc_text_end..]
         .find("</items>")
         .map(|i| oc_text_end + i + "</items>".len())
@@ -170,8 +170,8 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
         .map(|i| count_attr + i)
         .ok_or_else(|| err("count 属性が閉じていません"))?;
 
-    // 対応する </chunks> を深さ走査で探す（Object チャンク内の入れ子の
-    // <chunks> を数えて相殺する）。
+    // Find the matching </chunks> via a depth traversal (counting and canceling out
+    // nested <chunks> inside Object chunks).
     let mut cursor = chunks_open_end;
     let mut depth = 1usize;
     let insertion_pos = loop {
@@ -201,7 +201,7 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
     })
 }
 
-/// 既存 XML と衝突しない合成 GUID を生成する（決定論的）。
+/// Generates a synthetic GUID that does not collide with the existing XML (deterministic).
 fn synthetic_guid(xml: &str, counter: &mut u64) -> String {
     loop {
         let guid = format!("7d0acade-0000-4000-8000-{:012x}", *counter);
@@ -212,7 +212,7 @@ fn synthetic_guid(xml: &str, counter: &mut u64) -> String {
     }
 }
 
-/// XML テキスト/属性値のエスケープ。
+/// Escapes XML text/attribute values.
 fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -228,7 +228,7 @@ fn xml_escape(s: &str) -> String {
     out
 }
 
-/// メンバー 1 つを含むグループオブジェクトの XML。
+/// XML for a group object containing a single member.
 fn group_object_xml(
     index: usize,
     instance_guid: &str,
@@ -258,7 +258,7 @@ fn group_object_xml(
     )
 }
 
-/// 目的の接続元から値を受けるリレー Number パラメータの XML。
+/// XML for the relay Number parameter that receives the value from an objective's source.
 fn relay_param_xml(index: usize, instance_guid: &str, nickname: &str, source_guid: &str) -> String {
     format!(
         r#"<chunk name="Object" index="{index}">
@@ -315,15 +315,15 @@ mod tests {
         assert_eq!(def.input_params, vec!["RH_IN:span", "RH_IN:count"]);
         assert_eq!(def.output_params, vec!["RH_OUT:weight", "RH_OUT:disp"]);
 
-        // 注入後も整形式で、オブジェクト数が更新されている
-        // （元 5 + RH_IN グループ 2 + 目的ごとにリレー+グループ 2×2 = 11）。
+        // Still well-formed after injection, and the object count is updated
+        // (original 5 + 2 RH_IN groups + 2×2 relay+group per objective = 11).
         let root = crate::gh::ghx::parse_archive(&def.ghx).unwrap();
         let objects = root.find_chunk_recursive("DefinitionObjects").unwrap();
         assert_eq!(objects.item_i64("ObjectCount"), Some(11));
         assert_eq!(objects.chunks_named("Object").count(), 11);
         assert!(def.ghx.contains(r#"<chunks count="11">"#));
 
-        // RH_IN グループがスライダーの InstanceGuid をメンバーに持つ
+        // The RH_IN group has the slider's InstanceGuid as its member
         let groups: Vec<_> = objects
             .chunks_named("Object")
             .filter(|o| o.item_text("Name") == Some("Group"))
@@ -339,8 +339,8 @@ mod tests {
             Some("0aaaaaaa-0000-0000-0000-0000000slid1")
         );
 
-        // RH_OUT はリレー Number パラメータを経由し、リレーが目的の接続元を
-        // Source に持つ
+        // RH_OUT goes through a relay Number parameter, and the relay has the
+        // objective's source as its Source
         let relays: Vec<_> = objects
             .chunks_named("Object")
             .filter(|o| o.item_text("Name") == Some("Number"))
@@ -360,7 +360,7 @@ mod tests {
             .expect("RH_OUT:weight グループ");
         assert_eq!(rh_out_weight.item_text("ID"), Some(relay_guid));
 
-        // 元の定義本体（Tunny コンポーネント等）は保持される
+        // The original definition body (Tunny component, etc.) is preserved
         assert!(def.ghx.contains("Tunny"));
         assert!(def.ghx.contains("Beam Analyzer"));
     }
@@ -374,7 +374,7 @@ mod tests {
         let problem = extract_problem(&xml).unwrap();
         assert_eq!(problem.variables[0].name, "a&b");
         let def = build_compute_definition(&xml, &problem).unwrap();
-        // 注入 XML 内でも正しくエスケープされ、再パース可能
+        // Correctly escaped inside the injected XML too, and re-parseable
         assert!(def.ghx.contains("RH_IN:a&amp;b"));
         assert!(crate::gh::ghx::parse_archive(&def.ghx).is_ok());
         assert_eq!(def.input_params[0], "RH_IN:a&b");

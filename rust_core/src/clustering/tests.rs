@@ -37,7 +37,7 @@ fn tc_2262_06_deterministic_correct_clusters_after_refactor() {
     assert!(cx[2] > 199.0, "third centroid x > 199.0, got {}", cx[2]);
 }
 
-/// 第 1 特徴の分散が第 2 特徴を大きく上回る 2 特徴データを生成する。
+/// Generates 2-feature data where the 1st feature's variance greatly exceeds the 2nd feature's.
 fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
     (0..n)
         .map(|i| {
@@ -48,8 +48,8 @@ fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
-/// k 個のクラスタ中心 (0, 100, 200, ...) の周囲に点を並べたフラットな
-/// 行優先データ（2 特徴）を生成する。
+/// Generates flat, row-major data (2 features) with points arranged around
+/// k cluster centers (0, 100, 200, ...).
 fn make_clustered_data(n_per_cluster: usize, k: usize) -> Vec<f64> {
     let mut data = Vec::with_capacity(n_per_cluster * k * 2);
     for c in 0..k {
@@ -64,7 +64,7 @@ fn make_clustered_data(n_per_cluster: usize, k: usize) -> Vec<f64> {
     data
 }
 
-// ---- TASK-2267: k-means 不要クローン削減 回帰テスト ----
+// ---- TASK-2267: k-means unnecessary clone reduction regression tests ----
 
 #[test]
 fn tc_2267_01_kmeans_plusplus_determinism_after_clone_reduction() {
@@ -156,7 +156,7 @@ fn tc_901_03_pca_empty_data() {
 
 #[test]
 fn pca_ragged_rows_return_empty_without_panic() {
-    // 行長が不揃いな入力は範囲外アクセスせず空結果を返す。
+    // Ragged-length rows must return an empty result without an out-of-bounds access.
     let data = vec![vec![1.0, 2.0], vec![3.0], vec![4.0, 5.0, 6.0]];
     let result = run_pca_on_matrix(&data, 2);
     assert!(result.projections.is_empty());
@@ -177,7 +177,7 @@ fn pca_explained_ratio_sums_to_at_most_one() {
 
 #[test]
 fn pca_standardized_is_column_scale_invariant() {
-    // 標準化 PCA では、ある列を 1000 倍しても寄与率は変わらない（相関行列 PCA）。
+    // With standardized PCA, scaling a column by 1000x doesn't change the explained ratio (correlation-matrix PCA).
     let data = make_dominant_axis_data(100);
     let scaled: Vec<Vec<f64>> = data
         .iter()
@@ -196,7 +196,7 @@ fn pca_standardized_is_column_scale_invariant() {
 
 #[test]
 fn pca_standardized_zero_variance_column_is_inert() {
-    // 分散ゼロ列は標準化後 0 となり、loadings の整列は保たれつつ寄与しない。
+    // A zero-variance column becomes 0 after standardization, keeping loadings aligned while contributing nothing.
     let data: Vec<Vec<f64>> = (0..50)
         .map(|i| vec![i as f64, 7.0, (i as f64 * 0.5).sin()])
         .collect();

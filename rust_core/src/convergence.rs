@@ -70,22 +70,23 @@ mod tests {
 
     #[test]
     fn improvement_rate_maximize_counts_non_decreasing_steps() {
-        // build_best_trial_history(..., false) が生成するような非減少列で
-        // maximize 方向の改善が正しくカウントされることを確認する回帰テスト。
+        // Regression test verifying that improvements in the maximize direction are counted
+        // correctly for a non-decreasing sequence like the one build_best_trial_history(..., false)
+        // produces.
         let ids = vec![0u32, 1, 2, 3];
         let vals = vec![1.0f64, 0.5, 2.0, 2.0];
         let history = build_best_trial_history(&ids, &vals, false);
         assert_eq!(history, vec![(0, 1.0), (1, 1.0), (2, 2.0), (3, 2.0)]);
 
         let rate = compute_improvement_rate(&history, 100, false);
-        // 改善は id=0 (初回) と id=2 (1.0 -> 2.0) の2回、window長は4。
+        // Two improvements: id=0 (initial) and id=2 (1.0 -> 2.0); window length is 4.
         assert_eq!(rate, 2.0 / 4.0);
     }
 
     #[test]
     fn improvement_rate_minimize_direction_mismatch_detects_no_improvement() {
-        // maximize 方向で改善している履歴を誤って minimize として解釈すると
-        // 改善が検出されなくなることを確認する（A4 バグの再発防止）。
+        // Verify that misinterpreting a history that improves in the maximize direction as
+        // minimize causes improvements to go undetected (regression guard for the A4 bug).
         let history = vec![(0u32, 1.0_f64), (1, 1.0), (2, 2.0), (3, 2.0)];
         let rate_as_minimize = compute_improvement_rate(&history, 100, true);
         let rate_as_maximize = compute_improvement_rate(&history, 100, false);

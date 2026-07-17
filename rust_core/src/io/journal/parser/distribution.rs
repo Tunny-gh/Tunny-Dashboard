@@ -1,11 +1,12 @@
 use serde_json::Value;
 
-/// Optuna の distribution 定義（journal の `distribution` / RDB の `distribution_json`）。
+/// Optuna's distribution definition (`distribution` in the journal / `distribution_json` in the RDB).
 ///
-/// Optuna が格納するパラメータ値（journal の `param_value_internal` / RDB の
-/// `param_value`）は、Float・Int では**外部表現（実際の提案値）そのもの**を f64 に
-/// したものである。log や step は分布の定義情報であり、格納値の変換には関与しない。
-/// 唯一の例外が Categorical で、`choices` 配列へのインデックスが格納される。
+/// The parameter value Optuna stores (`param_value_internal` in the journal / `param_value`
+/// in the RDB) is, for Float and Int, **the external representation (the actual suggested value)
+/// itself** cast to f64. `log` and `step` are part of the distribution's definition and play no
+/// role in converting the stored value. The one exception is Categorical, whose stored value is
+/// an index into the `choices` array.
 #[derive(Debug)]
 pub(crate) enum Distribution {
     Float { low: f64, high: f64 },
@@ -15,7 +16,7 @@ pub(crate) enum Distribution {
 }
 
 impl Distribution {
-    /// journal の distribution JSON（文字列で二重にシリアライズされている場合を含む）を解析する。
+    /// Parses the journal's distribution JSON (including the case where it's double-serialized as a string).
     pub(crate) fn from_json(json: &Value) -> Self {
         if let Some(serialized) = json.as_str() {
             if let Ok(parsed) = serde_json::from_str::<Value>(serialized) {
@@ -62,10 +63,10 @@ impl Distribution {
         }
     }
 
-    /// 宣言レンジ (low, high) を表示単位で返す（Float / Int のみ）。
-    /// サロゲート最適化の探索範囲を真の変数範囲に一致させるために使う。
-    /// log スケールの low/high も表示（実数）空間の値なのでそのまま返す。
-    /// Categorical / Uniform、または値が欠落・退化（high ≤ low）の場合は None。
+    /// Returns the declared range (low, high) in display units (Float / Int only).
+    /// Used to make the surrogate optimization's search range match the true variable range.
+    /// The low/high of a log-scale distribution are already in display (real-number) space, so they're returned as is.
+    /// Returns None for Categorical / Uniform, or when the values are missing or degenerate (high <= low).
     pub(crate) fn bounds(&self) -> Option<(f64, f64)> {
         match self {
             Distribution::Float { low, high } => {
@@ -86,10 +87,11 @@ impl Distribution {
         }
     }
 
-    /// 格納値を表示値へ変換する。Optuna は Float・Int の格納値として外部表現
-    /// そのものを持つ（log 分布でも log 変換されず、step があっても値は実値）ため、
-    /// Float は恒等、Int は浮動小数点誤差を吸収する丸めのみを行う。
-    /// Categorical はインデックスなので丸めて返す（ラベルは `categorical_label` で解決）。
+    /// Converts the stored value to a display value. Since Optuna stores the external
+    /// representation itself as the value for Float and Int (no log transform even for log
+    /// distributions, and the value is the real value even when a step is set), Float is the
+    /// identity and Int only rounds to absorb floating-point error.
+    /// Categorical is an index, so it's rounded and returned as-is (the label is resolved via `categorical_label`).
     pub(crate) fn to_display_f64(&self, internal: f64) -> f64 {
         match self {
             Distribution::Float { .. } | Distribution::Uniform => internal,
@@ -97,7 +99,7 @@ impl Distribution {
         }
     }
 
-    /// Categorical の格納値（インデックス）を対応する選択肢のラベル文字列に変換する。
+    /// Converts a Categorical's stored value (an index) into the corresponding choice's label string.
     pub(crate) fn categorical_label(&self, internal: f64) -> Option<String> {
         let Distribution::Categorical { choices } = self else {
             return None;

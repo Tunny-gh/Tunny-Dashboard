@@ -3,9 +3,10 @@ use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use tunny_core::io::journal::parser::{parse_single_study, scan_study_list};
 
-/// 単一 Study・大量 Trial の合成 journal (`n_results.log` 相当) を生成する。
-/// 1× op0(create_study) + N×{ op4(create_trial) + 複数 op5(set_trial_param) + op6(state_values) }。
-/// op5 には実データ同様の `distribution` 文字列を持たせ、パース負荷を再現する。
+/// Generates a synthetic journal (equivalent to `n_results.log`) with a single Study and a
+/// large number of Trials.
+/// 1x op0(create_study) + Nx{ op4(create_trial) + multiple op5(set_trial_param) + op6(state_values) }.
+/// op5 carries a `distribution` string just like real data, to reproduce the parsing load.
 fn build_n_results(n_trials: u32, n_params: u32) -> Vec<u8> {
     let mut lines: Vec<String> = Vec::with_capacity((n_trials * (n_params + 2) + 2) as usize);
     lines.push(

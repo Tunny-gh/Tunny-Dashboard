@@ -34,7 +34,7 @@ mod tests {
 
     #[test]
     fn lib_compiles() {
-        // 到達すればライブラリのコンパイルとリンクに成功している。
+        // Reaching this point means the library compiled and linked successfully.
     }
 
     #[test]

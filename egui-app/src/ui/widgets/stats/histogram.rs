@@ -5,7 +5,7 @@ use tunny_core::statistics::{
     compute_histogram, fit_all, quantile, BinRule, FitDistribution, FittedDistribution, Histogram,
 };
 
-/// ヒストグラムのビン分割ルール（UI 用。`Manual` は本数を別フィールドで保持する）。
+/// The histogram's bin-splitting rule (for the UI; `Manual` holds the count in a separate field).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum HistBinRule {
     #[default]
@@ -25,7 +25,7 @@ impl HistBinRule {
         }
     }
 
-    /// キャッシュキー用の判別子。
+    /// The discriminant used for the cache key.
     fn disc(self) -> u8 {
         match self {
             HistBinRule::Sturges => 0,
@@ -35,7 +35,7 @@ impl HistBinRule {
         }
     }
 
-    /// CSV エクスポートでも同じビン分割を再現するため crate 内に公開する。
+    /// Exposed within the crate so the same bin splitting can be reproduced for CSV export.
     pub(crate) fn to_core(self, manual_bins: usize) -> BinRule {
         match self {
             HistBinRule::Sturges => BinRule::Sturges,
@@ -46,8 +46,8 @@ impl HistBinRule {
     }
 }
 
-/// ヒストグラムに重ね描きする分布フィットの選択。
-/// `Auto` は適用可能な分布のうち AIC 最小のものを選ぶ。
+/// The distribution fit selection overlaid on the histogram.
+/// `Auto` chooses the applicable distribution with the lowest AIC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum HistFit {
     #[default]
@@ -73,9 +73,9 @@ impl HistFit {
 /// (study_name, col, rule_disc, manual_bins, row_count)
 type HistCacheKey = (String, String, u8, usize, usize);
 
-/// キャッシュ済みの計算結果一式。mean/median はソートを伴うため
-/// ヒストグラムと一緒にキャッシュし、毎フレームの再計算を避ける。
-/// `fits` は適用可能な分布フィット（AIC 昇順）。
+/// The full set of cached computation results. Since mean/median involve sorting,
+/// they're cached alongside the histogram to avoid recomputing every frame.
+/// `fits` is the applicable distribution fits (ascending AIC).
 struct HistComputed {
     hist: Histogram,
     mean: f64,
@@ -83,11 +83,12 @@ struct HistComputed {
     fits: Vec<FittedDistribution>,
 }
 
-/// ヒストグラムウィジェット。単一列の分布を表示する。
+/// Histogram widget. Displays the distribution of a single column.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct HistogramChart {
-    /// 空文字、または現在の Study に存在しない列名なら最初の目的関数へフォールバックする。
+    /// Falls back to the first objective function if empty, or if the column name
+    /// doesn't exist in the current Study.
     pub selected_col: String,
     pub rule: HistBinRule,
     pub manual_bins: usize,
@@ -109,7 +110,7 @@ impl Default for HistogramChart {
 }
 
 impl HistogramChart {
-    /// 数値列（目的関数→パラメータの順）を対象にヒストグラムを描画する。
+    /// Draws a histogram for numeric columns (objective functions first, then parameters).
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -219,7 +220,7 @@ impl HistogramChart {
         };
         let (hist, mean, median) = (&computed.hist, computed.mean, computed.median);
 
-        // 選択された分布フィット（Auto は AIC 最小 = fits の先頭）。
+        // The selected distribution fit (Auto = lowest AIC = the first of fits).
         let selected_fit: Option<&FittedDistribution> = match self.fit {
             HistFit::None => None,
             HistFit::Auto => computed.fits.first(),
@@ -237,7 +238,7 @@ impl HistogramChart {
                 .find(|f| f.dist == FitDistribution::Weibull),
         };
 
-        // PDF をカウント尺度（n × ビン幅）へ変換した重ね描き曲線。
+        // An overlay curve converting the PDF to a count scale (n × bin width).
         let fit_line = selected_fit.map(|f| {
             let n_total: f64 = hist.counts.iter().map(|&c| c as f64).sum();
             let (first, last) = (
@@ -300,7 +301,7 @@ impl HistogramChart {
                 }
             });
 
-        // フィットのパラメータ表示、または適用不能の注記。
+        // Displays the fit's parameters, or a note that it's not applicable.
         match (self.fit, selected_fit) {
             (HistFit::None, _) => {}
             (_, Some(f)) => {

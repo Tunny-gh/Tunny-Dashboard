@@ -109,11 +109,11 @@ pub(crate) fn estimate_k_elbow_on_data(
     }
 }
 
-/// フラットな行優先データに対して k-means を実行する。
+/// Runs k-means on flat, row-major data.
 ///
-/// `flat_data.len()` が `n_cols` で割り切れない場合は不正入力とみなし、
-/// 空の結果（`labels` 空）を返す。debug ビルドではアサートで検出する
-/// （以前は黙って行数を切り捨てた末に空結果を返していた）。
+/// If `flat_data.len()` is not divisible by `n_cols`, the input is treated as invalid and
+/// an empty result (`labels` empty) is returned. Debug builds detect this via an assert
+/// (previously it silently truncated the row count and returned an empty result).
 pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize, init: InitStrategy) -> KmeansResult {
     debug_assert!(
         n_cols == 0 || flat_data.len().is_multiple_of(n_cols),
@@ -133,10 +133,10 @@ pub fn run_kmeans(k: usize, flat_data: &[f64], n_cols: usize, init: InitStrategy
     run_kmeans_on_data(flat_data, n, n_cols, k, init)
 }
 
-/// エルボー法で推奨クラスタ数を推定する。
+/// Estimates the recommended cluster count using the elbow method.
 ///
-/// `flat_data.len()` が `n_cols` で割り切れない場合は不正入力とみなし、
-/// 空の結果を返す（debug ビルドではアサートで検出）。
+/// If `flat_data.len()` is not divisible by `n_cols`, the input is treated as invalid and
+/// an empty result is returned (detected via an assert in debug builds).
 pub fn estimate_k_elbow(flat_data: &[f64], n_cols: usize, max_k: usize) -> ElbowResult {
     debug_assert!(
         n_cols == 0 || flat_data.len().is_multiple_of(n_cols),
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     #[cfg_attr(debug_assertions, should_panic(expected = "not divisible"))]
     fn run_kmeans_rejects_non_divisible_flat_data() {
-        // debug: アサートで早期検出 / release: 黙って切り捨てず空結果。
+        // debug: caught early via assert / release: empty result instead of silent truncation.
         let r = run_kmeans(2, &[1.0, 2.0, 3.0], 2, InitStrategy::Deterministic);
         assert!(r.labels.is_empty());
         assert!(r.centroids.is_empty());

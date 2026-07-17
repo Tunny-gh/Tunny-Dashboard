@@ -1,13 +1,14 @@
-//! 2D ヒートマップ描画の共有ヘルパー。
+//! Shared helper for rendering 2D heatmaps.
 //!
-//! Optimizer（`surrogate_opt`）の応答曲面スライス（真上から見た 2D ヒートマップ）で
-//! 使う共有モジュール。
+//! A shared module used by the Optimizer's (`surrogate_opt`) response-surface slice
+//! (the 2D heatmap seen from directly above).
 
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::range_math;
 
-/// マスク対応ヒートマップ。`None` のセルは塗らない（パネル背景のまま＝データなし）。
-/// `v_min` / `v_max` は呼び出し側で `Some` セルだけから求めた値域を渡す。
+/// A mask-aware heatmap. `None` cells aren't painted (they stay the panel background,
+/// meaning no data). `v_min` / `v_max` should be passed by the caller as the value range
+/// computed from `Some` cells only.
 pub fn draw_heatmap_masked(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -30,7 +31,7 @@ pub fn draw_heatmap_masked(
     for (row, row_vals) in values.iter().enumerate() {
         for (col, cell) in row_vals.iter().enumerate() {
             let Some(val) = cell else {
-                continue; // データなし → 塗らない。
+                continue; // No data -> don't paint.
             };
             let t = normalize(*val, v_min, v_max);
             let color = cmap.interpolate(t);
@@ -46,7 +47,8 @@ pub fn draw_heatmap_masked(
     }
 }
 
-/// マスク対応グリッドの値域 [min, max] を `Some` セルだけから求める。空なら (0,1)。
+/// Computes the value range [min, max] of a mask-aware grid from `Some` cells only. If
+/// empty, returns (0,1).
 pub fn value_range_masked(values: &[Vec<Option<f64>>]) -> (f64, f64) {
     let flat = values.iter().flatten().flatten().copied();
     match range_math::value_range(flat) {
@@ -55,10 +57,12 @@ pub fn value_range_masked(values: &[Vec<Option<f64>>]) -> (f64, f64) {
     }
 }
 
-/// 縦カラーバー本体（セグメントを `cmap.interpolate` で積み上げた `rect_filled`）を描く（D-10）。
+/// Draws the vertical color bar body (segments stacked as `rect_filled`, colored via
+/// `cmap.interpolate`) (D-10).
 ///
-/// 上端が `t=1.0`、下端が `t=0.0` になるよう `n_steps` 段に分割して塗り分ける。
-/// 外枠・ラベル・目盛りなど呼び出し側固有の装飾はここには含めない。
+/// Divides it into `n_steps` bands so the top end is `t=1.0` and the bottom end is
+/// `t=0.0`. Caller-specific decoration such as the outer border, labels, and ticks
+/// isn't included here.
 pub fn draw_gradient_bar(
     painter: &egui::Painter,
     bar_rect: egui::Rect,
@@ -76,12 +80,15 @@ pub fn draw_gradient_bar(
     }
 }
 
-/// ヒートマップ脇の縦カラーバーを描く。
+/// Draws a vertical color bar next to a heatmap.
 ///
-/// バー本体（上 = max / 下 = min）に加え、**数値目盛**（max / 中央 / min）をバー右脇に、
-/// `title` が `Some` なら凡例が表す値の名前を縦書きでさらに右に添える。目盛・タイトルは
-/// バー右側にはみ出すため `ui.painter()`（bar_rect にクリップしない）で描く。呼び出し側は
-/// bar_rect の右に目盛（＋タイトル）ぶんの余白を確保すること（目盛のみ ~50px、タイトル込み ~80px）。
+/// In addition to the bar body (top = max / bottom = min), places **numeric ticks**
+/// (max / middle / min) alongside the bar's right edge, and if `title` is `Some`, adds
+/// the value name the legend represents, written vertically further to the right. Since
+/// the ticks and title spill out to the right of the bar, they're drawn with
+/// `ui.painter()` (not clipped to bar_rect). The caller must reserve enough margin to
+/// the right of bar_rect for the ticks (plus title) (~50px for ticks alone, ~80px
+/// including the title).
 pub fn draw_colorbar_simple(
     ui: &mut egui::Ui,
     bar_rect: egui::Rect,
@@ -99,7 +106,8 @@ pub fn draw_colorbar_simple(
         egui::StrokeKind::Inside,
     );
 
-    // 数値目盛（max / 中央 / min）をバー右脇に置く。最大幅を測ってタイトル位置に使う。
+    // Place numeric ticks (max / middle / min) alongside the bar's right edge. Measure
+    // their max width to position the title.
     let text_color = crate::theme::CLOSE_BTN_TEXT();
     let tick_font = egui::FontId::proportional(10.0);
     let mid = (v_min + v_max) * 0.5;
@@ -120,7 +128,8 @@ pub fn draw_colorbar_simple(
         tick_w = tick_w.max(r.width());
     }
 
-    // 凡例が表す値の名前を縦書きで添える（数値目盛の右）。
+    // Add the value name the legend represents, written vertically (to the right of the
+    // numeric ticks).
     if let Some(title) = title.filter(|t| !t.is_empty()) {
         let galley = painter.layout_no_wrap(
             title.to_owned(),
@@ -136,7 +145,7 @@ pub fn draw_colorbar_simple(
     }
 }
 
-/// 値を [0.0, 1.0] に正規化する（退化範囲は 0.5）。
+/// Normalizes a value into [0.0, 1.0] (a degenerate range maps to 0.5).
 pub fn normalize(v: f64, v_min: f64, v_max: f64) -> f32 {
     range_math::normalize01(v, v_min, v_max)
 }

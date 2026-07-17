@@ -1,7 +1,8 @@
-//! フラット CSV（1 行 = 1 トライアル）形式のインポート（egui-app 側ブリッジ）。
+//! Import of the flat CSV (1 row = 1 trial) format (egui-app side bridge).
 //!
-//! rust_core の [`tunny_core::flat_csv::parse_flat_csv`] を呼び出して単一 Study を
-//! 共有ストアへ登録し、`img` 列から CSV と同じディレクトリのアーティファクトを解決する。
+//! Calls rust_core's [`tunny_core::flat_csv::parse_flat_csv`] to register a single
+//! Study into the shared store, and resolves artifacts in the same directory as the
+//! CSV from the `img` column.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -9,13 +10,13 @@ use std::path::{Component, Path, PathBuf};
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::app_state::StudyMeta;
 
-/// CSV インポート成功時の戻り値: `(StudyMeta, artifacts_dir, trial_id→アーティファクト)`。
+/// Return value on successful CSV import: `(StudyMeta, artifacts_dir, trial_id -> artifacts)`.
 pub type CsvLoadResult = (StudyMeta, PathBuf, HashMap<u32, Vec<ArtifactEntry>>);
 
-/// CSV を読み込み単一 Study を共有ストアへ登録する。
+/// Reads a CSV and registers a single Study into the shared store.
 ///
-/// 成功時は `(StudyMeta, artifacts_dir, trial_id→アーティファクト)` を返す。
-/// `artifacts_dir` は CSV の親ディレクトリ（`img` 列の基準パス）。
+/// On success, returns `(StudyMeta, artifacts_dir, trial_id -> artifacts)`.
+/// `artifacts_dir` is the CSV's parent directory (the base path for the `img` column).
 pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let study_name = path
@@ -26,7 +27,7 @@ pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
 
     let result = tunny_core::flat_csv::parse_flat_csv(&data, &study_name)?;
 
-    // 単一 Study として共有ストアへ登録する（study_id = 0）。
+    // Register into the shared store as a single Study (study_id = 0).
     tunny_core::dataframe::store_dataframes(vec![result.dataframe]);
 
     let base_dir = path
@@ -39,16 +40,17 @@ pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
     Ok((meta, base_dir, artifact_map))
 }
 
-/// `img` 列のファイル名を CSV と同じディレクトリの実体に解決し、trial_id 別にまとめる。
-/// 実体が存在しないファイルは除外する。
+/// Resolves `img` column file names against actual files in the same directory as the
+/// CSV, grouped by trial_id. Files that don't exist are excluded.
 fn build_artifact_map(
     base_dir: &Path,
     images: &[(u32, String)],
 ) -> HashMap<u32, Vec<ArtifactEntry>> {
     let mut map: HashMap<u32, Vec<ArtifactEntry>> = HashMap::new();
     for (trial_id, filename) in images {
-        // CSV ディレクトリ外への参照を防ぐ。絶対パス（RootDir / Windows の Prefix）や
-        // 親ディレクトリ参照（`..`）を含むファイル名は解決せず除外する。
+        // Prevent references outside the CSV directory. File names containing an
+        // absolute path (RootDir / Windows Prefix) or a parent directory reference
+        // (`..`) are excluded without resolving.
         if !is_safe_relative_filename(filename) {
             continue;
         }
@@ -56,7 +58,8 @@ fn build_artifact_map(
         if !path.is_file() {
             continue;
         }
-        // mimetype は空文字にしておき、拡張子から種別判定させる（ArtifactEntry::file_type）。
+        // Leave mimetype as an empty string and let the type be determined from the
+        // extension (ArtifactEntry::file_type).
         map.entry(*trial_id).or_default().push(ArtifactEntry {
             path,
             filename: filename.clone(),
@@ -66,9 +69,10 @@ fn build_artifact_map(
     map
 }
 
-/// `img` 列のファイル名が CSV ディレクトリ内に収まる安全な相対パスかを判定する。
-/// 絶対パス（`RootDir` / Windows の `Prefix`）や親ディレクトリ参照（`ParentDir` = `..`）を
-/// 含む場合は `false` を返し、CSV ディレクトリ外のファイル参照（ディレクトリトラバーサル）を防ぐ。
+/// Determines whether the `img` column's file name is a safe relative path that stays
+/// within the CSV directory. Returns `false` if it contains an absolute path
+/// (`RootDir` / Windows `Prefix`) or a parent directory reference (`ParentDir` = `..`),
+/// preventing file references outside the CSV directory (directory traversal).
 fn is_safe_relative_filename(filename: &str) -> bool {
     Path::new(filename).components().all(|c| {
         !matches!(
@@ -78,7 +82,7 @@ fn is_safe_relative_filename(filename: &str) -> bool {
     })
 }
 
-/// パスがフラット CSV 形式（拡張子 `.csv`）かを判定する。
+/// Determines whether the path is the flat CSV format (extension `.csv`).
 pub fn is_csv_path(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -132,7 +136,7 @@ mod tests {
         assert!(!is_safe_relative_filename("../secret.png"));
         assert!(!is_safe_relative_filename("sub/../../secret.png"));
         assert!(!is_safe_relative_filename("/etc/passwd"));
-        // Windows 形式の絶対/プレフィックスパス（cfg(windows) でのみ Prefix/RootDir になる）。
+        // Windows-style absolute/prefix paths (only become Prefix/RootDir under cfg(windows)).
         #[cfg(windows)]
         {
             assert!(!is_safe_relative_filename(r"C:\Windows\system32"));
@@ -144,7 +148,7 @@ mod tests {
     fn build_artifact_map_rejects_parent_dir_traversal() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
-        // base ディレクトリの外側に実ファイルを置いても、`..` 付きは解決しない。
+        // Even if a real file is placed outside the base directory, a name with `..` is not resolved.
         std::fs::write(base.join("secret.png"), b"x").unwrap();
         let images = vec![(0u32, "../secret.png".to_string())];
         let map = build_artifact_map(base, &images);
@@ -157,7 +161,7 @@ mod tests {
         let base = tmp.path();
         let outside = base.join("abs.png");
         std::fs::write(&outside, b"x").unwrap();
-        // 実在する絶対パスを指定しても、絶対パスは拒否される。
+        // Even when a real, existing absolute path is given, absolute paths are rejected.
         let images = vec![(0u32, outside.to_string_lossy().into_owned())];
         let map = build_artifact_map(base, &images);
         assert!(map.is_empty());
@@ -178,7 +182,7 @@ mod tests {
         assert_eq!(meta.param_names, vec!["x".to_string(), "y".to_string()]);
         assert_eq!(meta.objective_names, vec!["f".to_string()]);
         assert_eq!(meta.completed_trials, 2);
-        // img0.png は存在、missing.png は除外。
+        // img0.png exists, missing.png is excluded.
         assert_eq!(artifacts.len(), 1);
         assert!(artifacts.contains_key(&0));
     }

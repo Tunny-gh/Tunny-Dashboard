@@ -4,12 +4,15 @@ use super::helpers::{compute_ref_point, normalize_objectives};
 use super::hypervolume::hypervolume_nd;
 use super::types::ParetoResult;
 
-/// Non-dominated Sorting（FNDS: Fast Non-dominated Sort）。
+/// Non-dominated Sorting (FNDS: Fast Non-dominated Sort).
 ///
-/// 各試行にパレートランク（0 = 非支配前面、1 = それを除いた前面、…）を割り当てる。
-/// 最大化目的は符号反転して最小化に統一し、NaN を含む行・目的本数の揃わない行は
-/// 支配判定から除外して最悪ランク（最大ランク + 1）を与える。単目的（m <= 1）は
-/// 全行ランク 0。ペア支配判定は rayon で並列化している。
+/// Assigns a Pareto rank to each trial (0 = non-dominated front, 1 = the
+/// front after removing rank 0, and so on). Maximize objectives are
+/// sign-flipped to unify everything as minimization; rows containing NaN or
+/// with a mismatched number of objectives are excluded from domination
+/// checks and given the worst rank (max rank + 1). For single-objective
+/// input (m <= 1), every row gets rank 0. Pairwise domination checks are
+/// parallelized with rayon.
 pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     let n = objectives.len();
     if n == 0 {
@@ -23,8 +26,9 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
         return vec![0u32; n];
     }
 
-    // 目的本数が m に満たない行（不揃い入力）は NaN 行として扱い、支配判定から除外する。
-    // これがないと下流で norm_flat[i*m..(i+1)*m] がスライス範囲外になり panic する。
+    // Rows with fewer than m objectives (ragged input) are treated as NaN
+    // rows and excluded from domination checks. Without this, indexing
+    // norm_flat[i*m..(i+1)*m] downstream would go out of bounds and panic.
     let nan_mask: Vec<bool> = objectives
         .iter()
         .map(|obj| obj.len() < m || obj.iter().any(|v| v.is_nan()))
@@ -39,7 +43,7 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
             }
         })
         .collect();
-    // 各行を必ず m 要素にそろえてフラット化する（不足分は NaN で埋める）。
+    // Flatten each row to exactly m elements (padding any shortfall with NaN).
     let mut norm_flat: Vec<f64> = Vec::with_capacity(n * m);
     for obj in objectives {
         for (j, &sign) in signs.iter().enumerate() {
@@ -51,8 +55,8 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
     let mut ranks = vec![0u32; n];
     let init_cap = (n / 4).clamp(4, 128);
 
-    // 並列フェーズ: 各 i について j > i との支配関係を並列計算
-    // pair_results[i] = (i が支配する j のリスト, i を支配する j のリスト)
+    // Parallel phase: for each i, compute domination relations against j > i in parallel.
+    // pair_results[i] = (list of j dominated by i, list of j that dominate i)
     let pair_results: Vec<(Vec<usize>, Vec<usize>)> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -67,10 +71,12 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
                     continue;
                 }
                 let oj = &norm_flat[j * m..(j + 1) * m];
-                // NOTE: この支配判定は helpers::dominates_minimized と意図的に
-                // 重複している。ここはホットループで、1 パスで「i が j を支配 /
-                // j が i を支配」の双方向を同時に判定できる（共通ヘルパを 2 回
-                // 呼ぶと走査が倍になる）ため、性能目的で inline 実装を維持する。
+                // NOTE: This domination check intentionally duplicates
+                // helpers::dominates_minimized. This is a hot loop, and a
+                // single pass can determine both directions at once
+                // ("i dominates j" / "j dominates i") — calling the shared
+                // helper twice would double the number of scans — so an
+                // inline implementation is kept here for performance.
                 let mut i_better = false;
                 let mut j_better = false;
                 for k in 0..m {
@@ -90,7 +96,7 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
         })
         .collect();
 
-    // 集約フェーズ: O(n + edges) で dominates_list と domination_count を構築
+    // Aggregation phase: build dominates_list and domination_count in O(n + edges)
     let mut domination_count = vec![0u32; n];
     let mut dominates_list: Vec<Vec<usize>> =
         (0..n).map(|_| Vec::with_capacity(init_cap)).collect();
@@ -100,7 +106,7 @@ pub fn nd_sort(objectives: &[Vec<f64>], is_minimize: &[bool]) -> Vec<u32> {
             dominates_list[i].push(j);
             domination_count[j] += 1;
         }
-        // j_dom_i: j > i で j が i を支配 → dominates_list[j] に i を追加
+        // j_dom_i: j > i and j dominates i -> add i to dominates_list[j]
         for dom in j_dom_i {
             dominates_list[dom].push(i);
             domination_count[i] += 1;
@@ -156,12 +162,14 @@ fn compute_hypervolume(
     }
 }
 
-/// アクティブな DataFrame の目的値列に対してパレートランクと Hypervolume を計算する。
+/// Computes Pareto ranks and hypervolume for the active DataFrame's objective columns.
 ///
-/// 制約なしの場合は全行を `nd_sort` にかける。制約ありの場合は feasible 行のみを
-/// ランク付けし、infeasible 行には制約違反量（`constraint_sum`）の昇順で
-/// feasible の最大ランクより後ろのランクを与える。Hypervolume は目的数 2 以上かつ
-/// パレート前面が 2 点以上のときのみ `Some`。アクティブ Study がなければ空の結果。
+/// Without constraints, all rows go through `nd_sort`. With constraints,
+/// only feasible rows are ranked; infeasible rows are given ranks after the
+/// max feasible rank, ordered by ascending constraint violation
+/// (`constraint_sum`). Hypervolume is `Some` only when there are 2+
+/// objectives and the Pareto front has 2+ points. Returns an empty result if
+/// there is no active study.
 pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
     crate::dataframe::with_active_df(|df| {
         let obj_names = df.objective_col_names();
@@ -193,7 +201,7 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
         let constraint_sum_col = df.get_numeric_column("constraint_sum");
 
         if !feas.has_constraints() {
-            // 制約なし: 従来フロー
+            // No constraints: the original flow
             let ranks = nd_sort(&objectives, is_minimize);
             let pareto_indices: Vec<u32> = ranks
                 .iter()
@@ -209,7 +217,7 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
             };
         }
 
-        // 制約あり: feasible/infeasible 分離フロー
+        // With constraints: separate feasible/infeasible flow
         let (feasible_indices, infeasible_indices) = feas.partition_indices(n);
         let feasible_objectives: Vec<Vec<f64>> = feasible_indices
             .iter()

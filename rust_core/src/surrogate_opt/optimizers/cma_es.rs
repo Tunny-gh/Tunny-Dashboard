@@ -1,16 +1,18 @@
-//! CMA-ES（共分散行列適応進化戦略、Hansen のチュートリアルに基づく標準形）。
+//! CMA-ES (Covariance Matrix Adaptation Evolution Strategy, the standard form based on
+//! Hansen's tutorial).
 //!
-//! 正規化空間 [0,1]^d の単一目的最小化に使う。重みは正の上位 μ 個体のみ
-//! （rank-one + rank-μ 更新）。共分散行列の固有値分解は faer の対称
-//! （self-adjoint）固有値分解を使う。
+//! Used for single-objective minimization in normalized space [0,1]^d. Weights are
+//! applied only to the top μ individuals (rank-one + rank-μ update). The eigenvalue
+//! decomposition of the covariance matrix uses faer's symmetric (self-adjoint)
+//! eigenvalue decomposition.
 
 use crate::math::rng::SeededRng;
 use rayon::prelude::*;
 
 pub(crate) struct CmaEsConfig {
-    /// 初期ステップサイズ（[0,1] 箱に対して 0.3 が標準）。
+    /// Initial step size (0.3 is standard for the [0,1] box).
     pub sigma0: f64,
-    /// 最大世代数（0 = 次元から自動決定）。
+    /// Maximum number of generations (0 = auto-determined from dimensionality).
     pub max_generations: usize,
     pub seed: u64,
 }
@@ -25,7 +27,7 @@ impl Default for CmaEsConfig {
     }
 }
 
-/// `eval` を最小化し、評価済みの最良点（best-ever）を返す。
+/// Minimizes `eval` and returns the best point ever evaluated (best-ever).
 pub(crate) fn cma_es_minimize<F>(eval: F, start: &[f64], cfg: &CmaEsConfig) -> Vec<f64>
 where
     F: Fn(&[f64]) -> f64 + Sync,
@@ -38,7 +40,7 @@ where
     let mut rng = SeededRng::from_seed(cfg.seed);
     let mut gauss_spare: Option<f64> = None;
 
-    // ── 戦略パラメータ（Hansen の推奨値） ───────────────────────────
+    // ── Strategy parameters (Hansen's recommended values) ───────────
     let lambda = 4 + (3.0 * nf.ln()).floor() as usize;
     let mu = lambda / 2;
     let weights: Vec<f64> = {
@@ -55,7 +57,7 @@ where
     let c_c = (4.0 + mu_eff / nf) / (nf + 4.0 + 2.0 * mu_eff / nf);
     let c_1 = 2.0 / ((nf + 1.3).powi(2) + mu_eff);
     let c_mu = (2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((nf + 2.0).powi(2) + mu_eff)).min(1.0 - c_1);
-    // E‖N(0,I)‖ の近似。
+    // Approximation of E‖N(0,I)‖.
     let chi_n = nf.sqrt() * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
 
     let max_gens = if cfg.max_generations > 0 {
@@ -64,7 +66,7 @@ where
         (100 + 20 * n).min(500)
     };
 
-    // ── 状態 ────────────────────────────────────────────────────────
+    // ── State ─────────────────────────────────────────────────────────
     let mut mean = start.to_vec();
     let mut sigma = cfg.sigma0;
     let mut cov = identity(n);
@@ -75,19 +77,20 @@ where
     let mut best_cost = eval(start);
 
     for gen in 0..max_gens {
-        // C = B diag(d²) Bᵀ（固有値は数値誤差で負になり得るためクランプ）。
-        // 固有値分解が失敗した場合は panic せず、その時点の best-ever を返して打ち切る。
+        // C = B diag(d²) Bᵀ (eigenvalues are clamped since numerical error can make them negative).
+        // If the eigenvalue decomposition fails, don't panic — return the best-ever found so far and stop.
         let (eigvals, b) = match symmetric_eigen(&cov) {
             Some(decomp) => decomp,
             None => break,
         };
         let d_diag: Vec<f64> = eigvals.iter().map(|&v| v.max(1e-20).sqrt()).collect();
 
-        // ── サンプリングと評価 ─────────────────────────────────────
+        // ── Sampling and evaluation ─────────────────────────────────
         // y_k = B (d ∘ z_k), x_k = m + σ y_k
-        // サンプリングは共有 RNG のため逐次で行い、評価（サロゲート予測）は
-        // 互いに独立なので rayon で並列化する（par_iter は入力順で collect
-        // するため、乱数列・順位付け・best 更新順は逐次実行と一致する）。
+        // Sampling is done sequentially since it shares the RNG, while evaluation
+        // (surrogate prediction) is mutually independent and parallelized with rayon
+        // (par_iter collects in input order, so the random sequence, ranking, and
+        // best-update order match sequential execution).
         let mut ys: Vec<Vec<f64>> = Vec::with_capacity(lambda);
         let mut xs: Vec<Vec<f64>> = Vec::with_capacity(lambda);
         for _ in 0..lambda {
@@ -114,7 +117,7 @@ where
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // ── 平均の更新 ─────────────────────────────────────────────
+        // ── Mean update ────────────────────────────────────────────
         let mut y_w = vec![0.0f64; n];
         for (i, &w) in weights.iter().enumerate() {
             for d in 0..n {
@@ -125,7 +128,7 @@ where
             mean[d] += sigma * y_w[d];
         }
 
-        // ── ステップサイズパス p_σ（C^{-1/2} y_w = B d^{-1} Bᵀ y_w） ──
+        // ── Step-size evolution path p_σ (C^{-1/2} y_w = B d^{-1} Bᵀ y_w) ──
         let bt_yw = mat_t_vec(&b, &y_w);
         let dinv_bt: Vec<f64> = bt_yw.iter().zip(&d_diag).map(|(v, di)| v / di).collect();
         let c_inv_sqrt_yw = mat_vec(&b, &dinv_bt);
@@ -141,13 +144,13 @@ where
             0.0
         };
 
-        // ── 共分散パス p_c と C の更新（rank-one + rank-μ） ─────────
+        // ── Covariance evolution path p_c and update of C (rank-one + rank-μ) ─────────
         let cc_coef = (c_c * (2.0 - c_c) * mu_eff).sqrt();
         for d in 0..n {
             p_c[d] = (1.0 - c_c) * p_c[d] + h_sigma * cc_coef * y_w[d];
         }
         let delta_h = (1.0 - h_sigma) * c_c * (2.0 - c_c);
-        // 上三角を計算して下三角へ鏡映し、対称性を厳密に保つ。
+        // Compute the upper triangle and mirror it to the lower triangle to strictly preserve symmetry.
         for i in 0..n {
             for j in i..n {
                 let mut rank_mu = 0.0;
@@ -162,7 +165,7 @@ where
             }
         }
 
-        // ── ステップサイズの更新と停止判定 ──────────────────────────
+        // ── Step-size update and termination check ──────────────────────────
         sigma *= ((c_sigma / d_sigma) * (p_sigma_norm / chi_n - 1.0)).exp();
         if !sigma.is_finite() || sigma * d_diag.iter().cloned().fold(0.0f64, f64::max) < 1e-9 {
             break;
@@ -172,18 +175,20 @@ where
     best
 }
 
-/// Box-Muller 法による標準正規乱数（2 個生成して 1 個を温存する）。
+/// Standard normal random variate via the Box-Muller method (generates 2 values and
+/// keeps 1 in reserve).
 ///
-/// `crate::math::rng::SeededRng::next_gaussian` はサイン項（2 個目の変量）を捨てる
-/// ため、乱数を 1 個生成するたびに一様乱数を 2 個消費する。CMA-ES は 1 世代あたり
-/// `n × λ` 個の正規乱数を引くため、ここではサイン項を `spare` に温存して一様乱数の
-/// 消費を半減させる（かつ既存のゴールデン乱数列＝収束軌道を維持する）。この spare
-/// 温存が next_gaussian と両立しないため、cma_es 側は独自実装を維持する。
+/// `crate::math::rng::SeededRng::next_gaussian` discards the sine term (the second
+/// variate), so it consumes 2 uniform random numbers for every 1 gaussian it produces.
+/// CMA-ES draws `n × λ` gaussians per generation, so here we keep the sine term in
+/// `spare` to halve the consumption of uniform random numbers (and preserve the
+/// existing "golden" random sequence / convergence trajectory). Because this spare-
+/// keeping is incompatible with next_gaussian, cma_es keeps its own implementation.
 fn next_gauss(rng: &mut SeededRng, spare: &mut Option<f64>) -> f64 {
     if let Some(s) = spare.take() {
         return s;
     }
-    // next_f64 は [0,1) のため、log(0) を避けるよう 1−u ∈ (0,1] を使う。
+    // next_f64 is in [0,1), so use 1−u ∈ (0,1] to avoid log(0).
     let u1 = 1.0 - rng.next_f64();
     let u2 = rng.next_f64();
     let r = (-2.0 * u1.ln()).sqrt();
@@ -198,14 +203,14 @@ fn identity(n: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
-/// 行列ベクトル積 `A v`。
+/// Matrix-vector product `A v`.
 fn mat_vec(a: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
     a.iter()
         .map(|row| row.iter().zip(v).map(|(x, y)| x * y).sum())
         .collect()
 }
 
-/// 転置行列ベクトル積 `Aᵀ v`。
+/// Transposed matrix-vector product `Aᵀ v`.
 fn mat_t_vec(a: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
     let n = a.len();
     (0..n)
@@ -213,16 +218,19 @@ fn mat_t_vec(a: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// 対称行列（共分散行列）の固有値分解を faer の self-adjoint 固有値分解で計算する。
-/// `Some((固有値, 固有ベクトル行列 B))` を返す（`B` の列 j が固有値 j に対応:
-/// `b[i][j]` は固有ベクトル j の成分 i）。固有値は昇順（faer の仕様）。
-/// 分解が失敗した場合は panic せず `None` を返す（呼び出し側で世代ループを打ち切る）。
+/// Computes the eigenvalue decomposition of a symmetric matrix (the covariance matrix)
+/// using faer's self-adjoint eigenvalue decomposition.
+/// Returns `Some((eigenvalues, eigenvector matrix B))` (column j of `B` corresponds to
+/// eigenvalue j: `b[i][j]` is component i of eigenvector j). Eigenvalues are in
+/// ascending order (per faer's convention).
+/// If the decomposition fails, returns `None` instead of panicking (the caller then
+/// stops the generation loop).
 fn symmetric_eigen(a: &[Vec<f64>]) -> Option<(Vec<f64>, Vec<Vec<f64>>)> {
     let n = a.len();
     if n == 0 {
         return Some((Vec::new(), Vec::new()));
     }
-    // 数値誤差による非対称性を避けるため (A + Aᵀ)/2 を使う。
+    // Use (A + Aᵀ)/2 to avoid asymmetry from numerical error.
     let mat = faer::Mat::<f64>::from_fn(n, n, |i, j| 0.5 * (a[i][j] + a[j][i]));
     let eigen = mat.self_adjoint_eigen(faer::Side::Lower).ok()?;
     let u = eigen.U();
@@ -240,13 +248,13 @@ mod tests {
 
     #[test]
     fn symmetric_eigen_known_2x2() {
-        // [[2,1],[1,2]] の固有値は 1 と 3。
+        // The eigenvalues of [[2,1],[1,2]] are 1 and 3.
         let a = vec![vec![2.0, 1.0], vec![1.0, 2.0]];
         let (mut vals, b) = symmetric_eigen(&a).expect("2x2 decomposition should succeed");
         vals.sort_by(|x, y| x.partial_cmp(y).unwrap());
         assert!((vals[0] - 1.0).abs() < 1e-9, "{vals:?}");
         assert!((vals[1] - 3.0).abs() < 1e-9, "{vals:?}");
-        // B は直交行列のはず（BᵀB ≈ I）。
+        // B should be an orthogonal matrix (BᵀB ≈ I).
         for i in 0..2 {
             for j in 0..2 {
                 let dot: f64 = (0..2).map(|k| b[k][i] * b[k][j]).sum();
@@ -258,7 +266,7 @@ mod tests {
 
     #[test]
     fn symmetric_eigen_reconstructs_matrix() {
-        // A = B diag(λ) Bᵀ = B D² Bᵀ（D = diag(√λ)）を再構成して一致を確認。
+        // Reconstruct A = B diag(λ) Bᵀ = B D² Bᵀ (D = diag(√λ)) and check it matches.
         let a = vec![
             vec![4.0, 1.0, 0.5],
             vec![1.0, 3.0, 0.2],
@@ -299,7 +307,7 @@ mod tests {
 
     #[test]
     fn cma_es_minimizes_elliptic_5d() {
-        // 条件数のある楕円関数でも収束することを確認（共分散適応の検証）。
+        // Verify convergence even on an ill-conditioned elliptic function (checks covariance adaptation).
         let cfg = CmaEsConfig::default();
         let target = [0.6, 0.4, 0.5, 0.3, 0.7];
         let best = cma_es_minimize(

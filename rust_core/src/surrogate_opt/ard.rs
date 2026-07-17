@@ -1,28 +1,32 @@
-//! ARD（自動関連度決定）パラメータ重要度を DataFrame から直接算出する。
+//! Computes ARD (Automatic Relevance Determination) parameter importance directly
+//! from a DataFrame.
 //!
-//! GP-FITC サロゲートを学習し、その ARD 長さスケールから相対パラメータ重要度を
-//! 取り出す。感度分析（Importance ウィジェット）の 1 手法として使う。Sobol の
-//! `sensitivity::compute_sobol_from_df` と同じく「DataFrame → 1 目的の重要度」の
-//! 入口を提供する。パラメータは数値列・カテゴリ列とも `get_param_numeric_values`
-//! で数値化して GP に渡す（カテゴリは Sobol 同様ラベル符号化）。
+//! Fits a GP-FITC surrogate and extracts relative parameter importance from its ARD
+//! length scales. Used as one method for sensitivity analysis (the Importance
+//! widget). Like Sobol's `sensitivity::compute_sobol_from_df`, it provides a
+//! "DataFrame -> single-objective importance" entry point. Both numeric and
+//! categorical parameter columns are numericized via `get_param_numeric_values`
+//! before being passed to the GP (categories are label-encoded, same as Sobol).
 
 use super::{fit_surrogate_with_validation, SurrogateFitRequest, SurrogateModelKind};
 use crate::dataframe::DataFrame;
 use crate::sensitivity::get_param_numeric_values;
 
-/// ARD パラメータ重要度の結果（1 目的分）。
+/// Result of ARD parameter importance (for a single objective).
 pub struct ArdImportanceResult {
-    /// パラメータ名（`importances` と同順）。
+    /// Parameter names (same order as `importances`).
     pub param_names: Vec<String>,
-    /// 各パラメータの相対重要度（合計 1.0、`param_names` と同順）。
+    /// Relative importance of each parameter (sums to 1.0, same order as `param_names`).
     pub importances: Vec<f64>,
-    /// 学習した GP の交差検証 R²（重要度の信頼度の目安）。
+    /// Cross-validation R² of the fitted GP (a rough gauge of the importance's reliability).
     pub r_squared: f64,
 }
 
-/// 指定目的（`obj_idx`）について GP-FITC を学習し、ARD 由来のパラメータ重要度を返す。
+/// Fits GP-FITC for the given objective (`obj_idx`) and returns the ARD-derived
+/// parameter importance.
 ///
-/// trial 数が学習に不足する／GP が ARD を露出しない（学習失敗など）場合は `None`。
+/// Returns `None` when there are too few trials to fit, or the GP does not expose
+/// ARD (e.g. training failure).
 pub fn compute_ard_importance_from_df(
     df: &DataFrame,
     obj_idx: usize,
@@ -35,7 +39,7 @@ pub fn compute_ard_importance_from_df(
     }
     let objective_name = df.objective_col_names().get(obj_idx)?.clone();
 
-    // パラメータ列（数値 or ラベル符号化）→ 行優先 X 行列。
+    // Parameter columns (numeric or label-encoded) -> row-major X matrix.
     let param_columns: Vec<Vec<f64>> = param_names
         .iter()
         .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
@@ -61,7 +65,7 @@ pub fn compute_ard_importance_from_df(
         priority_rows: vec![],
         param_bounds: None,
     };
-    // 入力検証（最小 trial 数等）は fit_surrogate_with_validation が行う。
+    // Input validation (minimum trial count, etc.) is handled by fit_surrogate_with_validation.
     let trained = fit_surrogate_with_validation(&req).ok()?;
     let importances = trained.param_importance?;
     Some(ArdImportanceResult {
@@ -90,11 +94,12 @@ mod tests {
         }
     }
 
-    /// 結線確認: GP-FITC を学習して ARD 重要度が得られ、param_names と整合し、
-    /// 合計が 1.0 になること。egobox GP の数値品質そのものは検証しない。
+    /// Wiring check: fitting GP-FITC yields ARD importance that is consistent with
+    /// param_names and sums to 1.0. Does not verify the numerical quality of the
+    /// egobox GP itself.
     #[test]
     fn ard_importance_from_df_wires_through_gp() {
-        // x0 が応答を強く動かし、x1 はほぼ無関係になるよう構成する。
+        // Constructed so x0 strongly drives the response and x1 is nearly irrelevant.
         let rows: Vec<TrialRow> = (0..30)
             .map(|i| {
                 let x0 = i as f64 / 30.0;
@@ -120,8 +125,9 @@ mod tests {
             (sum - 1.0).abs() < 1e-6,
             "importances should sum to 1.0, got {sum}"
         );
-        // x0 が応答を ~300 倍強く動かすため、列順が保たれていれば x0 の重要度が大きい。
-        // （合計 1.0・長さ一致だけでは param↔importance の入れ替わりを検出できない）。
+        // x0 drives the response ~300x more strongly, so if column order is preserved
+        // x0's importance should be larger. (Summing to 1.0 and matching length alone
+        // cannot detect a param<->importance swap.)
         assert!(
             result.importances[0] > result.importances[1],
             "x0 drives the response far more than x1; ARD importance must rank it higher: {:?}",
@@ -130,7 +136,7 @@ mod tests {
         assert!(result.r_squared.is_finite());
     }
 
-    /// 範囲外の目的インデックスは None。
+    /// An out-of-range objective index returns None.
     #[test]
     fn ard_importance_from_df_out_of_range_objective() {
         let rows: Vec<TrialRow> = (0..12)

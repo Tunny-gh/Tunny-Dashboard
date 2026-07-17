@@ -1,13 +1,14 @@
-//! Python (numpy) とのヒストグラムビン計算クロスチェック用ハーネス。
+//! Cross-check harness against Python (numpy) for histogram bin computation.
 //!
-//! 入力データと各ビン規則(Sturges/Scott/FreedmanDiaconis/Manual)の計算結果を
-//! JSON で stdout に出力する。Python 側は同じ入力を numpy で再計算して突き合わせる。
+//! Outputs the input data and the computed results for each binning rule
+//! (Sturges/Scott/FreedmanDiaconis/Manual) to stdout as JSON. The Python side
+//! recomputes the same input with numpy and compares the results.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_histogram`
+//! Run: `cargo run -p tunny-core --example verify_histogram`
 
 use tunny_core::statistics::histogram::{compute_histogram, BinRule};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -18,7 +19,7 @@ impl Rng {
         (v >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    /// Box-Muller で標準正規に近い値を生成する。
+    /// Generates a value close to standard normal using Box-Muller.
     fn next_normal(&mut self) -> f64 {
         let u1 = self.next_f64().max(1e-12);
         let u2 = self.next_f64();
@@ -52,13 +53,13 @@ fn all_rules_json(values: &[f64]) -> serde_json::Value {
 fn main() {
     let mut rng = Rng(0x1357_9BDF_2468_ACE0);
 
-    // A: n=80 の一様分布
+    // A: n=80 uniform distribution
     let uniform: Vec<f64> = (0..80).map(|_| rng.next_f64() * 100.0).collect();
 
-    // B: n=60、整数丸めで多数のタイを持つ (FD の IQR=0 フォールバックを誘発しうる)
+    // B: n=60, many ties from integer rounding (may trigger FD's IQR=0 fallback)
     let ties: Vec<f64> = (0..60).map(|_| (rng.next_f64() * 3.0).floor()).collect();
 
-    // C: n=50、NaN/Inf混入
+    // C: n=50, mixed with NaN/Inf
     let with_nonfinite: Vec<f64> = (0..50)
         .enumerate()
         .map(|(i, _)| {
@@ -72,15 +73,15 @@ fn main() {
         })
         .collect();
 
-    // D: 定数データ
+    // D: constant data
     let constant = vec![7.5; 10];
 
-    // E: n=70、対数正規に近い歪んだ分布 (Box-Muller -> exp)
+    // E: n=70, distribution skewed close to log-normal (Box-Muller -> exp)
     let skewed: Vec<f64> = (0..70)
         .map(|_| (rng.next_normal() * 0.5 + 1.0).exp())
         .collect();
 
-    // F: n=8 の小サンプル (Sturges の丸め境界を確認)
+    // F: n=8 small sample (checks Sturges' rounding boundary)
     let small: Vec<f64> = (0..8).map(|v| v as f64).collect();
 
     let datasets: Vec<(String, Vec<f64>)> = vec![

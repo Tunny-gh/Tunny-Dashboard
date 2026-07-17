@@ -1,19 +1,22 @@
-//! IGD+ / additive ε-indicator / R2 indicator のクロスチェック用ハーネス。
+//! Harness for cross-checking IGD+ / additive epsilon-indicator / R2 indicator.
 //!
-//! IGD+ と ε-indicator は pymoo (moocore 経由) の実装と突き合わせる。
-//! R2 indicator は pymoo に実装が無いため、重みベクトル生成だけ
-//! `rust_core/src/multi_objective/indicators.rs` の `simplex_lattice_weights`
-//! （private）と同じアルゴリズムをこのハーネス内に複製し、生成した重みを
-//! 公開関数 `r2_indicator` にそのまま渡す。Python 側は同じ重みベクトルを使い
-//! 標準定義（Hansen & Jaszkiewicz の重み付き Tchebycheff）で再計算する。
+//! IGD+ and the epsilon-indicator are checked against pymoo's
+//! implementation (via moocore). Since pymoo has no R2 indicator
+//! implementation, only the weight-vector generation is replicated here
+//! using the same algorithm as `simplex_lattice_weights` (private) in
+//! `rust_core/src/multi_objective/indicators.rs`, and the generated
+//! weights are passed as-is into the public `r2_indicator` function. The
+//! Python side uses the same weight vectors and recomputes with the
+//! standard definition (Hansen & Jaszkiewicz's weighted Tchebycheff).
 //!
-//! すべて最小化前提・[0,1] に正規化済みの空間で計算する（indicators.rs の契約通り）。
+//! Everything is computed assuming minimization, in a space already
+//! normalized to [0,1] (per indicators.rs's contract).
 //!
-//! 実行: `cargo run -p tunny-core --example verify_indicators`
+//! Run with: `cargo run -p tunny-core --example verify_indicators`
 
 use tunny_core::indicators::{additive_epsilon, igd_plus, r2_indicator};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -31,10 +34,11 @@ fn gen_points(rng: &mut Rng, n: usize, m: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
-// --- indicators.rs の simplex_lattice_weights を検証用に複製 ---
-// (private のためこのハーネスからは呼べない。同一アルゴリズムをここに複製し、
-//  生成した重みを公開関数 r2_indicator にそのまま渡すことで、
-//  「重み生成が同じなら r2_indicator の計算が正しいか」を検証する。)
+// --- Replicated from indicators.rs's simplex_lattice_weights, for verification ---
+// (It's private, so it can't be called from this harness. The same
+//  algorithm is replicated here, and the generated weights are passed
+//  as-is into the public r2_indicator function, to verify "given the same
+//  weight generation, is r2_indicator's computation correct?")
 
 fn simplex_lattice_weights(m: usize) -> Vec<Vec<f64>> {
     const TARGET: usize = 100;
@@ -127,7 +131,7 @@ fn main() {
     let mut rng = Rng(0x5EED_1234_ABCD_0004);
 
     let igd_eps_cases = vec![
-        // 2D: 手作り境界ケース（既存ユニットテストの拡張版）。
+        // 2D: hand-crafted boundary case (an extended version of the existing unit test).
         igd_eps_case(
             "hand_2d_identical_sets",
             vec![vec![0.0, 1.0], vec![1.0, 0.0]],
@@ -138,13 +142,13 @@ fn main() {
             vec![vec![0.2, 0.2]],
             vec![vec![0.5, 0.5], vec![0.8, 0.2]],
         ),
-        // 2D 乱数ケース: approx n=20, reference n=15。
+        // 2D random case: approx n=20, reference n=15.
         igd_eps_case(
             "random_2d_n20_ref15",
             gen_points(&mut rng, 20, 2),
             gen_points(&mut rng, 15, 2),
         ),
-        // 3D 乱数ケース: approx n=15, reference n=12。
+        // 3D random case: approx n=15, reference n=12.
         igd_eps_case(
             "random_3d_n15_ref12",
             gen_points(&mut rng, 15, 3),

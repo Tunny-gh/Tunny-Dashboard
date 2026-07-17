@@ -1,35 +1,36 @@
-//! 実行可能性（制約充足）判定の一元化。
+//! Centralizes feasibility (constraint-satisfaction) determination.
 //!
-//! `is_feasible` 派生列（1.0 = 実行可能 / 0.0 = 実行不可能、制約付きスタディのみ存在）
-//! へのアクセスを `Feasibility` ビューに集約する。列名・閾値（> 0.5）・
-//! 「列なし = 全行実行可能」のフォールバック規則をここ 1 箇所で定義し、
-//! 各チャート・計算経路はこのビュー経由で判定する。
+//! Consolidates access to the `is_feasible` derived column (1.0 = feasible /
+//! 0.0 = infeasible, present only for constrained studies) into a
+//! `Feasibility` view. Defines the column name, threshold (> 0.5), and the
+//! "no column = all rows feasible" fallback rule in this one place, and every
+//! chart/computation path makes its determination through this view.
 
 use super::model::DataFrame;
 
-/// `is_feasible` 列の名前（DataFrame 構築時の派生列名と一致させること）。
+/// Name of the `is_feasible` column (must match the derived column name used when building the DataFrame).
 pub(crate) const IS_FEASIBLE_COL: &str = "is_feasible";
 
-/// 実行可能性ビュー。`DataFrame::feasibility()` から取得する。
-/// 列スライスを直接ラップできるため、テストや列だけ持つ場面では
-/// [`Feasibility::from_column`] で構築できる。
+/// Feasibility view. Obtained from `DataFrame::feasibility()`.
+/// Since it can wrap a column slice directly, it can also be constructed via
+/// [`Feasibility::from_column`] in tests or contexts that only have the column.
 #[derive(Clone, Copy)]
 pub struct Feasibility<'a> {
     col: Option<&'a [f64]>,
 }
 
 impl<'a> Feasibility<'a> {
-    /// `is_feasible` 列スライス（無ければ `None`）から構築する。
+    /// Constructs from an `is_feasible` column slice (`None` if absent).
     pub fn from_column(col: Option<&'a [f64]>) -> Self {
         Self { col }
     }
 
-    /// スタディに制約が定義されているか（= `is_feasible` 列が存在するか）。
+    /// Whether constraints are defined for the study (i.e., whether the `is_feasible` column exists).
     pub fn has_constraints(&self) -> bool {
         self.col.is_some()
     }
 
-    /// 指定行が実行可能か。列が無い（制約なし）・行が範囲外の場合は `true`。
+    /// Whether the given row is feasible. Returns `true` if the column is absent (no constraints) or the row is out of range.
     pub fn is_feasible(&self, row: usize) -> bool {
         self.col
             .and_then(|c| c.get(row))
@@ -37,7 +38,7 @@ impl<'a> Feasibility<'a> {
             .unwrap_or(true)
     }
 
-    /// 行 `0..n` を（実行可能, 実行不可能）のインデックス列に分割する。
+    /// Splits rows `0..n` into (feasible, infeasible) index lists.
     pub fn partition_indices(&self, n: usize) -> (Vec<usize>, Vec<usize>) {
         let mut feasible = Vec::with_capacity(n);
         let mut infeasible = Vec::new();
@@ -53,7 +54,7 @@ impl<'a> Feasibility<'a> {
 }
 
 impl DataFrame {
-    /// この DataFrame の実行可能性ビューを返す。
+    /// Returns the feasibility view for this DataFrame.
     pub fn feasibility(&self) -> Feasibility<'_> {
         Feasibility::from_column(self.get_numeric_column(IS_FEASIBLE_COL))
     }
@@ -82,7 +83,7 @@ mod tests {
         assert!(feas.is_feasible(0));
         assert!(!feas.is_feasible(1));
         assert!(feas.is_feasible(2));
-        assert!(!feas.is_feasible(3)); // ちょうど 0.5 は不可能側
+        assert!(!feas.is_feasible(3)); // Exactly 0.5 is on the infeasible side
     }
 
     #[test]

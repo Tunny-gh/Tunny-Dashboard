@@ -1,21 +1,22 @@
-//! キャンバスビューポートのユーティリティ関数。
+//! Canvas viewport utility functions.
 //!
-//! ここに定義した純粋関数はユニットテスト可能で、egui の描画コンテキストに依存しない。
-//! ミニマップなど将来の機能もこのモジュールの関数を再利用できる。
+//! The pure functions defined here are unit-testable and do not depend on
+//! egui's rendering context. Future features such as a minimap can also
+//! reuse this module's functions.
 
 use crate::state::layout_state::CanvasItem;
 
-/// ズーム下限（手動ズームアウト・フィット計算の両方で参照する単一ソース）
+/// Zoom lower bound (single source referenced by both manual zoom-out and fit calculation)
 pub(crate) const ZOOM_MIN: f32 = 0.1;
-/// ズーム上限（手動ズームインの上限）
+/// Zoom upper bound (limit for manual zoom-in)
 pub(crate) const ZOOM_MAX: f32 = 3.0;
 
-/// フィット時の画面マージン（各辺）
+/// Screen margin used when fitting (each side)
 const FIT_MARGIN: f32 = 24.0;
 
-/// アイテム群のバウンディングボックス（ワールド座標）を返す。
+/// Returns the bounding box (in world coordinates) of a set of items.
 ///
-/// アイテムが空の場合は `None` を返す。
+/// Returns `None` if the items are empty.
 pub(crate) fn items_bbox(items: &[CanvasItem]) -> Option<egui::Rect> {
     let mut iter = items.iter();
     let first = iter.next()?;
@@ -28,19 +29,21 @@ pub(crate) fn items_bbox(items: &[CanvasItem]) -> Option<egui::Rect> {
     Some(bbox)
 }
 
-/// `world_center` が `area.center()` に来るようなパンを返す。
+/// Returns the pan such that `world_center` ends up at `area.center()`.
 ///
-/// 変換式: `screen_pos = area.min + pan + zoom * world_pos` に基づき、
-/// `screen_pos == area.center()` となる `pan` を求める。
+/// Based on the transform `screen_pos = area.min + pan + zoom * world_pos`,
+/// solves for the `pan` that satisfies `screen_pos == area.center()`.
 pub(crate) fn pan_to_center(area: egui::Rect, zoom: f32, world_center: egui::Pos2) -> egui::Vec2 {
     area.center().to_vec2() - area.min.to_vec2() - zoom * world_center.to_vec2()
 }
 
-/// `bbox` 全体が `area` 内に収まる (zoom, pan) を返す。
+/// Returns the (zoom, pan) that fits the entire `bbox` within `area`.
 ///
-/// - マージン: 各辺 `FIT_MARGIN` スクリーンピクセル
-/// - zoom は `[ZOOM_MIN, 1.0]` にクランプ（フィット操作は 100% を超えてズームインしない）
-/// - `bbox` の幅または高さが 0 以下の縮退ケースでは zoom = 1.0 を使う
+/// - Margin: `FIT_MARGIN` screen pixels on each side
+/// - zoom is clamped to `[ZOOM_MIN, 1.0]` (a fit operation never zooms in
+///   past 100%)
+/// - In the degenerate case where `bbox`'s width or height is 0 or less,
+///   uses zoom = 1.0
 pub(crate) fn fit_view(area: egui::Rect, bbox: egui::Rect) -> (f32, egui::Vec2) {
     let avail_w = area.width() - 2.0 * FIT_MARGIN;
     let avail_h = area.height() - 2.0 * FIT_MARGIN;
@@ -58,7 +61,7 @@ pub(crate) fn fit_view(area: egui::Rect, bbox: egui::Rect) -> (f32, egui::Vec2) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ユニットテスト
+// Unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
@@ -78,13 +81,13 @@ mod tests {
 
     // ── items_bbox ────────────────────────────────────────────────────────────
 
-    /// アイテムが空のとき None を返す
+    /// Returns None when the items are empty.
     #[test]
     fn items_bbox_empty_returns_none() {
         assert!(items_bbox(&[]).is_none());
     }
 
-    /// 単一アイテムのバウンディングボックスはアイテム自身
+    /// The bounding box of a single item is the item itself.
     #[test]
     fn items_bbox_single_item() {
         let items = [make_item(0, 10.0, 20.0, 100.0, 80.0)];
@@ -93,7 +96,7 @@ mod tests {
         assert_eq!(bbox.max, egui::pos2(110.0, 100.0));
     }
 
-    /// 複数アイテムの外接矩形が正しく計算される
+    /// The enclosing rectangle of multiple items is computed correctly.
     #[test]
     fn items_bbox_multiple_items() {
         let items = [
@@ -111,24 +114,25 @@ mod tests {
 
     // ── fit_view ─────────────────────────────────────────────────────────────
 
-    /// 幅方向に広い bbox は zoom < 1.0 になり、bbox 中心が area 中心に来る
+    /// A bbox wide in the horizontal direction yields zoom < 1.0, and the
+    /// bbox center ends up at the area center.
     #[test]
     fn fit_view_wide_bbox_produces_zoom_below_1() {
         let area = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
-        // bbox が area の 4 倍の幅 → zoom が 0.5 未満になるはず
+        // bbox is 4x the width of area -> zoom should end up below 0.5
         let bbox = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(3000.0, 400.0));
         let (zoom, pan) = fit_view(area, bbox);
 
-        // zoom が下限より大きく 1.0 以下
+        // zoom is greater than the lower bound and at most 1.0
         assert!((ZOOM_MIN..=1.0).contains(&zoom), "zoom={zoom}");
-        // zoom < 1.0 になるはず（幅が大きいので）
+        // zoom should be < 1.0 (since the width is large)
         assert!(
             zoom < 1.0,
             "wide bbox should produce zoom < 1.0, got {zoom}"
         );
 
-        // bbox 中心がスクリーン中心に来るか検証:
-        // screen = area.min + pan + zoom * world → world=bbox.center() で screen==area.center()
+        // Verify that the bbox center ends up at the screen center:
+        // screen = area.min + pan + zoom * world -> at world=bbox.center(), screen==area.center()
         let world_center = bbox.center();
         let screen_center = area.min.to_vec2() + pan + zoom * world_center.to_vec2();
         let expected = area.center().to_vec2();
@@ -142,7 +146,7 @@ mod tests {
         );
     }
 
-    /// 小さな bbox は zoom が 1.0 にクランプされる（ズームインしない）
+    /// A small bbox has its zoom clamped to 1.0 (never zooms in).
     #[test]
     fn fit_view_small_bbox_caps_zoom_at_1() {
         let area = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
@@ -151,7 +155,7 @@ mod tests {
         assert_eq!(zoom, 1.0, "small bbox must not zoom in beyond 100%");
     }
 
-    /// 縮退した bbox（幅 0）は NaN や inf を生まない
+    /// A degenerate bbox (width 0) does not produce NaN or inf.
     #[test]
     fn fit_view_degenerate_bbox_no_nan() {
         let area = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));

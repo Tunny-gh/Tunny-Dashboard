@@ -359,11 +359,12 @@ mod tests {
 
     #[test]
     fn tc_vikor_013_single_maximize_objective_discriminates() {
-        // 回帰テスト: best/worst の初期値が minimize 専用で、maximize 目的では
-        // 初期値 (+inf/-inf) から更新されず inf/inf = NaN が S を汚染していた。
+        // Regression test: the initial best/worst values were minimize-only, and for a
+        // maximize objective they never got updated from the initial (+inf/-inf), so
+        // inf/inf = NaN contaminated S.
         // best=5, worst=1, range=4:
         // trial0: contrib=1.0*|5-1|/4=1.0 -> S=R=1.0 / trial1: S=R=0.0
-        // -> Q=[1.0, 0.0](pymcdm と一致することを確認済み)
+        // -> Q=[1.0, 0.0] (confirmed to match pymcdm)
         let values = [1.0_f64, 5.0];
         let weights = [1.0_f64];
         let is_minimize = [false];
@@ -389,7 +390,7 @@ mod tests {
 
     #[test]
     fn tc_vikor_014_mixed_direction_exact_s_r_q() {
-        // 方向混在時の S/R/Q の実値検証(手計算)。
+        // Exact-value verification of S/R/Q with mixed directions (computed by hand).
         // obj0 minimize: best=1, worst=3, range=2
         // obj1 maximize: best=5, worst=1, range=4
         // t0=(1,5): S=0, R=0 / t1=(3,1): S=1, R=0.5
@@ -674,7 +675,7 @@ mod tests {
 
     #[test]
     fn tc_vikor_015_out_of_range_v_is_clamped() {
-        // v は [0,1] に clamp され、範囲外でも Q が定義域を壊さない。
+        // v is clamped to [0,1], so an out-of-range value never breaks Q's domain.
         let values = [1.0_f64, 3.0, 2.0];
         let weights = [1.0_f64];
         let is_minimize = [true];

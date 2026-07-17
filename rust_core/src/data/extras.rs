@@ -1,11 +1,14 @@
-//! COMPLETE 限定の `DataFrame` と並走する、全 trial（全 state）の付帯情報。
+//! Auxiliary information for all trials (all states) that runs alongside the
+//! COMPLETE-only `DataFrame`.
 //!
-//! `DataFrame` は COMPLETE trial のみを列指向で保持し全解析の基盤となるが、
-//! 中間値（intermediate values）・trial state・開始/完了日時は全 trial 分が必要になる
-//! （学習曲線・タイムライン・進捗表示など）。これらを `DataFrame` とは別の
-//! per-study 構造 `StudyExtras` として保持し、共有ストアに study_id ごとに格納する。
+//! `DataFrame` holds only COMPLETE trials column-wise and underpins all analysis,
+//! but intermediate values, trial state, and start/complete datetimes are needed
+//! for all trials (learning curves, timelines, progress display, etc.). These are
+//! kept in a separate per-study structure, `StudyExtras`, distinct from
+//! `DataFrame`, and stored per study_id in the shared store.
 
-/// Optuna trial state（journal の数値表現 / SQLite の文字列表現の両方から変換）。
+/// Optuna trial state (converted from both the journal's numeric representation
+/// and SQLite's string representation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrialState {
     Running,
@@ -16,8 +19,8 @@ pub enum TrialState {
 }
 
 impl TrialState {
-    /// journal ストレージの数値 state から変換する。
-    /// 0=Running, 1=Complete, 2=Pruned, 3=Fail, 4=Waiting。未知値は Running とみなす。
+    /// Converts from the journal storage's numeric state.
+    /// 0=Running, 1=Complete, 2=Pruned, 3=Fail, 4=Waiting. Unknown values are treated as Running.
     pub fn from_journal(value: u8) -> Self {
         match value {
             1 => TrialState::Complete,
@@ -28,8 +31,8 @@ impl TrialState {
         }
     }
 
-    /// SQLite (RDBStorage) の文字列 state から変換する。
-    /// 未知値は Running とみなす。
+    /// Converts from SQLite (RDBStorage)'s string state.
+    /// Unknown values are treated as Running.
     pub fn from_rdb_str(value: &str) -> Self {
         match value {
             "COMPLETE" => TrialState::Complete,
@@ -40,7 +43,7 @@ impl TrialState {
         }
     }
 
-    /// Optuna の大文字表記の state 名を返す。
+    /// Returns Optuna's uppercase state name.
     pub fn label(&self) -> &'static str {
         match self {
             TrialState::Running => "RUNNING",
@@ -52,37 +55,37 @@ impl TrialState {
     }
 }
 
-/// 単一 trial の付帯情報（state / 日時 / 中間値）。
+/// Auxiliary information for a single trial (state / datetimes / intermediate values).
 #[derive(Debug, Clone)]
 pub struct TrialExtra {
-    /// ストレージ横断のグローバル trial_id（op_code=4 出現順）。
+    /// Global trial_id across storages (order of op_code=4 occurrence).
     pub trial_id: u32,
-    /// Study 内 0 始まりの trial.number（作成順）。
+    /// 0-based trial.number within the study (creation order).
     pub trial_number: u32,
     pub state: TrialState,
-    /// 開始日時。unix 秒（naive、タイムゾーン変換なし）。
+    /// Start datetime. Unix seconds (naive, no timezone conversion).
     pub datetime_start: Option<f64>,
-    /// 完了日時。unix 秒（naive、タイムゾーン変換なし）。
+    /// Complete datetime. Unix seconds (naive, no timezone conversion).
     pub datetime_complete: Option<f64>,
-    /// 中間値 `(step, value)`。step 昇順。
+    /// Intermediate values `(step, value)`. Sorted by step ascending.
     pub intermediate_values: Vec<(u64, f64)>,
 }
 
-/// Study 内全 trial（全 state）の付帯情報。trial_id 昇順。
+/// Auxiliary information for all trials (all states) within a study. Sorted by trial_id ascending.
 #[derive(Debug, Clone, Default)]
 pub struct StudyExtras {
     pub trials: Vec<TrialExtra>,
 }
 
 impl StudyExtras {
-    /// いずれかの trial が中間値を持つか。
+    /// Whether any trial has intermediate values.
     pub fn has_intermediate(&self) -> bool {
         self.trials
             .iter()
             .any(|t| !t.intermediate_values.is_empty())
     }
 
-    /// いずれかの trial が開始/完了日時を持つか。
+    /// Whether any trial has a start/complete datetime.
     pub fn has_datetimes(&self) -> bool {
         self.trials
             .iter()

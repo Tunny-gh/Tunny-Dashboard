@@ -14,14 +14,14 @@ use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::io::journal::live_update::LiveUpdateContext;
 
-/// ライブ更新ポーラーが「変化なし」と判断してから完了ヒント
-/// (`AppMessage::LiveUpdateMaybeComplete`) を送るまでの無変化時間（ミリ秒）。
-/// journal/sqlite/rdb の 3 ポーラー全てで共通の既定値として使う。
+/// No-change duration (milliseconds) between the live update poller deciding "no change"
+/// and sending the completion hint (`AppMessage::LiveUpdateMaybeComplete`).
+/// Used as the common default for all three pollers (journal/sqlite/rdb).
 const LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS: u64 = 60_000;
 
-/// アプリが現在起動しているライブ更新ポーラー。ストレージ種別（journal/sqlite/rdb）ごとに
-/// 実装が異なる（journal: バイトオフセット差分、sqlite・rdb: フィンガープリント + 丸ごと再ロード）
-/// ため、`TunnyApp` はどれか一方を保持できるようにこの enum で包む。
+/// The live update poller currently running in the app. Since the implementation differs
+/// per storage kind (journal/sqlite/rdb) (journal: byte offset diffing, sqlite/rdb:
+/// fingerprint + full reload), `TunnyApp` wraps them in this enum so it can hold either one.
 enum ActivePoller {
     Journal(LiveUpdatePoller),
     Sqlite(SqliteLivePoller),
@@ -46,13 +46,14 @@ impl ActivePoller {
     }
 }
 
-/// 非同期計算の完了メッセージごとに、キャンバスの各アイテム（独立した WidgetStates）へ
-/// どのウィジェットの完了状態を伝播するかを表す。
+/// For each async-compute completion message, indicates which widget's completion state
+/// should be propagated to each canvas item (an independent `WidgetStates`).
 ///
-/// 計算の発行（`pending_compute`）はアイテム固有の WidgetStates から行われるが、
-/// 完了メッセージ（`MessageHandler::handle`）はグローバルな `widget_states` のみを更新する。
-/// そのため、伝播しないとキャンバスのアイテムは `computing` フラグが立ったままになり、
-/// スピナーが消えず結果が描画されない（commit 73883d8 のアイテム別状態化に伴う回帰）。
+/// Compute is dispatched (`pending_compute`) from the item-specific `WidgetStates`, but
+/// the completion message (`MessageHandler::handle`) only updates the global
+/// `widget_states`. Without propagation, canvas items would be left with the `computing`
+/// flag stuck on, so the spinner never stops and results never render (a regression
+/// introduced by the per-item state split in commit 73883d8).
 enum ComputeSyncKind {
     Cluster,
     Importance,
@@ -115,9 +116,10 @@ impl ComputeSyncKind {
         }
     }
 
-    /// グローバル widget（処理済みの正状態）から、キャンバスの全アイテムへ完了状態を反映する。
-    /// 各 `adopt_*` はアイテム固有の UI 選択（パラメータ・目的関数など）を維持し、
-    /// 計算の出力・実行フラグのみを取り込む。
+    /// Propagates the completion state from the global widget (the just-processed
+    /// authoritative state) to every canvas item. Each `adopt_*` preserves the
+    /// item-specific UI selections (parameters, objectives, etc.) and only pulls in
+    /// the compute output and the running flag.
     fn propagate(self, global: &WidgetStates, canvas: &mut HashMap<u64, WidgetStates>) {
         for w in canvas.values_mut() {
             match self {
@@ -150,7 +152,7 @@ impl ComputeSyncKind {
                 Self::ObservedContour => w
                     .observed_contour
                     .adopt_compute_state(&global.observed_contour),
-                // フィット・最適化・提案はいずれも同じ surrogate_opt 状態を共有する。
+                // Fit, optimize, and suggest all share the same surrogate_opt state.
                 Self::SurrogateFit | Self::SurrogateOpt | Self::SurrogateSuggest => {
                     w.surrogate_opt.adopt_compute_state(&global.surrogate_opt)
                 }
@@ -174,30 +176,32 @@ pub struct TunnyApp {
     pub app_state: AppState,
     pub layout: LayoutState,
     pub widget_states: WidgetStates,
-    /// キャンバスビューの各アイテム（item.id 単位）に独立した UI 状態を保持する。
-    /// 同じウィジェットを複数置いても設定が共有されないようにするため。
+    /// Holds independent UI state per canvas view item (keyed by item.id), so placing the
+    /// same widget more than once doesn't share its settings.
     pub canvas_widgets: HashMap<u64, WidgetStates>,
     pub is_loading: bool,
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
     poller: Option<ActivePoller>,
-    /// ライブ更新ポーラーの起動準備（H-1/H-2）に付与する世代カウンタ。
-    /// `restart_poller` のたびに +1 し、準備完了メッセージ（`AppMessage::PollerReady`）
-    /// が現在の世代と一致する場合のみポーラーを起動する。準備中にユーザーが
-    /// トグル/Study 変更/別ファイルを開いた場合、古い準備結果を破棄するために使う。
+    /// Generation counter attached to live update poller startup prep (H-1/H-2).
+    /// Incremented by 1 on every `restart_poller` call; the poller is only started when
+    /// the ready message (`AppMessage::PollerReady`) matches the current generation.
+    /// Used to discard stale prep results if the user toggles / switches Study / opens
+    /// a different file while prep is still in flight.
     poller_generation: u64,
-    /// 現在ウィンドウタイトルバーに設定済みの文字列。変化時のみ更新コマンドを送るために保持する。
+    /// The string currently set on the window title bar. Kept so an update command is only
+    /// sent when it actually changes.
     current_window_title: Option<String>,
 }
 
 impl TunnyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_visuals(false));
-        // artifact ギャラリーで file:// 画像を表示するためのローダを登録する。
+        // Register a loader so the artifact gallery can display file:// images.
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        // Inter + Noto Sans JP フォントを設定（日本語グリフは JP フォントにフォールバック）
+        // Set up Inter + Noto Sans JP fonts (Japanese glyphs fall back to the JP font).
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
             "Inter".to_owned(),
@@ -243,10 +247,12 @@ impl TunnyApp {
         }
     }
 
-    /// 開いているファイルのフルパスをウィンドウタイトルバーに反映する。
-    /// ファイル未読み込み時は "Tunny Dashboard (Beta)"、読み込み時は "Tunny Dashboard (Beta) - <フルパス>"。
-    /// RDB URL はパスワードを含みうるため、実際の計算は `compute_window_title` へ切り出し、
-    /// URL の場合は `RdbUrl::masked()` でパスワードを隠したものを表示する。
+    /// Reflects the full path of the opened file in the window title bar.
+    /// Shows "Tunny Dashboard (Beta)" when no file is loaded, and
+    /// "Tunny Dashboard (Beta) - <full path>" when one is loaded.
+    /// Since an RDB URL may contain a password, the actual computation is split out into
+    /// `compute_window_title`, which shows the password masked via `RdbUrl::masked()`
+    /// when the path is a URL.
     fn sync_window_title(&mut self, ctx: &egui::Context) {
         let title = Self::compute_window_title(self.app_state.journal_path.as_deref());
         if self.current_window_title.as_deref() != Some(title.as_str()) {
@@ -255,9 +261,10 @@ impl TunnyApp {
         }
     }
 
-    /// ウィンドウタイトル文字列を計算する純関数（`sync_window_title` から分離してテスト可能にする）。
-    /// `journal_path` が RDB 接続 URL として解釈できる場合はパスワードをマスクした
-    /// `RdbUrl::masked()` を表示し、それ以外は従来どおり `Path::display()` を使う。
+    /// Pure function that computes the window title string (split out from
+    /// `sync_window_title` so it's testable). If `journal_path` can be interpreted as an
+    /// RDB connection URL, shows the password-masked `RdbUrl::masked()`; otherwise falls
+    /// back to the usual `Path::display()`.
     fn compute_window_title(journal_path: Option<&std::path::Path>) -> String {
         const BASE_TITLE: &str = "Tunny Dashboard (Beta)";
         match journal_path {
@@ -272,16 +279,17 @@ impl TunnyApp {
         }
     }
 
-    /// バックグラウンドタスク起動用の Sender クローンを返す
+    /// Returns a Sender clone for launching background tasks.
     pub fn sender(&self) -> mpsc::SyncSender<AppMessage> {
         self.tx.clone()
     }
 
-    /// ノンブロッキングにメッセージを処理し AppState を更新する
+    /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
-            // H-1/H-2: ポーラー起動準備の完了は tx/poller を要するため、tx を持たない
-            // MessageHandler ではなくここで横取りして処理する（世代一致時のみ起動）。
+            // H-1/H-2: poller prep completion needs tx/poller, so intercept it here
+            // (rather than in the tx-less MessageHandler) and only start it when the
+            // generation still matches.
             let msg = match msg {
                 AppMessage::PollerReady { generation, prep } => {
                     self.start_prepared_poller(generation, prep);
@@ -292,23 +300,24 @@ impl TunnyApp {
             };
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
             let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
-            // ストリーミングロードのバッチは 1 フレーム 1 件に絞り、各バッチの
-            // DataFrame 再構築コストを 1 フレームに集中させない（描画フリーズ回避）。
-            // 残りのバッチはチャネルに残し、次フレームで処理する。
+            // Limit streaming-load batches to one per frame so each batch's DataFrame
+            // rebuild cost isn't concentrated into a single frame (avoids render stalls).
+            // Remaining batches stay in the channel and are processed on the next frame.
             let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
-            // SQLite ライブ更新: study がアクティブ化された（選択完了）タイミングで、
-            // ライブ更新が有効なら新しい study_id を追跡するようポーラーを再起動する
-            // （journal と異なりフィンガープリントは study 単位でしか取れないため）。
+            // SQLite live update: once a study becomes active (selection completed), if
+            // live update is enabled, restart the poller so it tracks the new study_id
+            // (unlike journal, the fingerprint can only be obtained per study).
             let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
                 || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
-            // SQLite ライブ更新: フィンガープリント変化を検出したら再ロードをワーカーへ依頼する。
-            // 実際の再パースは tx を必要とするため、tx を持たない MessageHandler ではなく
-            // ここ（tx を持つ app.rs）で dispatch する。
+            // SQLite live update: once a fingerprint change is detected, ask the worker
+            // to reload. The actual re-parse needs tx, so dispatch it here (in app.rs,
+            // which holds tx) rather than in the tx-less MessageHandler.
             let sqlite_reload_study_id = MessageHandler::sqlite_reload_study_id(&msg);
-            // 非同期計算の完了/失敗メッセージはグローバルな widget_states のみ更新する。
-            // キャンバスの各アイテムは独立した WidgetStates を持つため（commit 73883d8）、
-            // 処理後に完了状態（computing/結果/キャッシュ）を各アイテムへ伝播する必要がある。
-            // どのウィジェットへ伝播すべきかを msg 消費前に判定しておく。
+            // Async compute completion/failure messages only update the global
+            // widget_states. Since each canvas item holds independent WidgetStates
+            // (commit 73883d8), the completion state (computing/result/cache) must be
+            // propagated to every item after processing. Decide which widget to
+            // propagate to before msg is consumed.
             let sync = ComputeSyncKind::from_message(&msg);
 
             MessageHandler::handle(
@@ -319,14 +328,17 @@ impl TunnyApp {
                 &mut self.load_error,
             );
 
-            // 完了状態をキャンバスの全アイテムへ反映する（グローバル widget が処理済みの正状態）。
+            // Reflect the completion state into every canvas item (the global widget is
+            // now the just-processed authoritative state).
             if let Some(sync) = sync {
                 sync.propagate(&self.widget_states, &mut self.canvas_widgets);
             }
 
             if is_journal_parsed {
-                // フラット CSV は最適化方向・変数レンジの情報を持たないため、自動活性化せず
-                // 確認ダイアログを開く。確定時に編集値を反映した meta で select_study を発行する。
+                // Flat CSV has no info on optimization direction / variable range, so
+                // don't auto-activate — open the confirmation dialog instead. On
+                // confirmation, dispatch select_study with meta reflecting the edited
+                // values.
                 let is_csv = self
                     .app_state
                     .journal_path
@@ -343,8 +355,9 @@ impl TunnyApp {
                     .as_deref()
                     .is_some_and(|p| crate::io::rdb::path_as_rdb_url(p).is_some());
                 if is_csv {
-                    // CSV はフラットインポート（1 回きりの取り込み）でストリーミング追記の
-                    // 概念が無いため、Live Update 対象外のまま強制オフにする。
+                    // CSV is a flat import (one-time ingestion) with no concept of
+                    // streaming appends, so force Live Update off and keep it out of
+                    // scope.
                     self.app_state.live_update.enabled = false;
                     self.app_state.live_update.poller_active = false;
                 } else {
@@ -356,8 +369,9 @@ impl TunnyApp {
                         LiveUpdateStorageKind::Journal
                     };
                     if is_sqlite || is_rdb {
-                        // SQLite/RDB はフィンガープリントに study_id が要るため、Study 選択前は
-                        // ポーラーを起動しない（Study 選択完了時に is_study_activated 経由で起動する）。
+                        // SQLite/RDB fingerprinting needs study_id, so don't start the
+                        // poller before a Study is selected (it starts via
+                        // is_study_activated once Study selection completes).
                         self.app_state.live_update.poller_active = false;
                     } else if self.app_state.live_update.enabled {
                         self.restart_poller();
@@ -369,7 +383,7 @@ impl TunnyApp {
                             Some(crate::state::app_state::CsvImportSettings::from_meta(meta));
                     }
                 } else if self.app_state.all_studies.len() == 1 {
-                    // Study が 1 件のみなら自動的に Phase 2 を開始する
+                    // If there's only one Study, automatically start Phase 2.
                     self.is_loading = true;
                     let meta = self.app_state.all_studies[0].clone();
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
@@ -378,13 +392,15 @@ impl TunnyApp {
             if is_live_error {
                 // poller stopped itself — drop the handle
                 self.poller = None;
-                // 起動待ちの準備タスクがあれば陳腐化させ、エラー後に勝手に再起動させない。
+                // Invalidate any pending prep task so an error doesn't cause it to
+                // restart the poller on its own.
                 self.invalidate_pending_poller();
             }
 
             if let Some(study_id) = sqlite_reload_study_id {
-                // SqliteLiveChanged は SQLite/RDB 両方のライブ更新が流用するシグナルメッセージ
-                // なので、実際の再ロード先は現在の storage_kind で振り分ける。
+                // SqliteLiveChanged is a signal message reused by both SQLite and RDB
+                // live update, so dispatch the actual reload based on the current
+                // storage_kind.
                 if self.app_state.live_update.storage_kind == LiveUpdateStorageKind::Rdb {
                     crate::io::study_worker::dispatch_reload_rdb_study(study_id, self.sender());
                 } else {
@@ -392,9 +408,9 @@ impl TunnyApp {
                 }
             }
 
-            // SQLite/RDB ライブ更新は study 単位でしかフィンガープリントを取れないため、
-            // 表示中の study が切り替わったらポーラーを新しい study_id で再起動する
-            // （journal はファイル全体を追跡するため study 切り替えでの再起動は不要）。
+            // SQLite/RDB live update can only get a fingerprint per study, so when the
+            // displayed study switches, restart the poller with the new study_id
+            // (journal tracks the whole file, so no restart is needed on study switch).
             if is_study_activated
                 && self.app_state.live_update.enabled
                 && matches!(
@@ -412,8 +428,9 @@ impl TunnyApp {
             }
         }
 
-        // ストリーミングロード中は入力が無くても継続描画して次バッチを取り込む
-        // （bounded channel への送信は UI 描画に追いつくまで自然にブロックされる）。
+        // Keep repainting during streaming load even without input, to keep pulling in
+        // the next batch (sends to the bounded channel naturally block until UI
+        // rendering catches up).
         if self.is_loading {
             ctx.request_repaint();
         }
@@ -438,7 +455,7 @@ impl TunnyApp {
                         if let Some(mut p) = self.poller.take() {
                             p.stop();
                         }
-                        // 起動待ちの準備タスクがあれば陳腐化させる（H-1/H-2）。
+                        // Invalidate any pending prep task (H-1/H-2).
                         self.invalidate_pending_poller();
                         self.app_state.live_update.poller_active = false;
                     }
@@ -461,18 +478,21 @@ impl TunnyApp {
                 }
                 ToolbarAction::ExportCsv(target) => {
                     if let Some(ctx) = &self.app_state.current_study {
-                        // 保存ダイアログ（rfd）は UI スレッドで先に実行してパスを確定する。
+                        // The save dialog (rfd) runs first on the UI thread to pin down
+                        // the path.
                         if let Some(path) = crate::io::export::pick_csv_save_path("export.csv") {
-                            // 行選択の解決だけ UI スレッドで行い、StudyView スナップショットと
-                            // 列名を clone してワーカーへ渡す（CSV 構築＋書き込みは
-                            // バックグラウンド、巨大 Study でも UI をフリーズさせない）。
+                            // Resolve the row selection on the UI thread only, then clone
+                            // the StudyView snapshot and column names to hand off to the
+                            // worker (CSV building + writing happens in the background,
+                            // so the UI doesn't freeze even for huge Studies).
                             let row_indices = crate::io::export::select_row_indices_for_export(
                                 &ctx.view,
                                 &self.app_state.selected_indices,
                                 &ctx.pareto_indices,
                                 &target,
                             );
-                            // 保存失敗は握り潰さず load_error に反映する（CsvExportFailed 経由）。
+                            // Don't swallow save failures — reflect them into load_error
+                            // (via CsvExportFailed).
                             crate::io::export::spawn_view_csv_export(
                                 ctx.view.clone(),
                                 row_indices,
@@ -485,8 +505,8 @@ impl TunnyApp {
                     }
                 }
                 ToolbarAction::AddComparisonStudy(meta) => {
-                    // 同一ファイル内の別 Study を比較対象として追加する。
-                    // 既に追加済み、または基準 Study 自身は無視する。
+                    // Add another Study from the same file as a comparison target.
+                    // Ignore it if already added, or if it's the base Study itself.
                     let base_id = self
                         .app_state
                         .current_study
@@ -529,9 +549,10 @@ impl TunnyApp {
                 ToolbarAction::LoadSession(path) => {
                     match crate::io::session::read_session_from_path(&path) {
                         Ok(session) => {
-                            // データ（study / 比較セッション）はそのまま。レイアウトと
-                            // 設定だけ差し替え、計算結果は次フレームの各ウィジェットの
-                            // ポーリングで復元後の設定に基づいて再計算される。
+                            // The data (study / comparison session) stays as-is. Only
+                            // swap the layout and settings; compute results get
+                            // recomputed on the next frame by each widget's polling,
+                            // based on the restored settings.
                             self.layout = session.layout;
                             self.canvas_widgets = session.widgets;
                             session.view.apply(&mut self.app_state);
@@ -547,9 +568,10 @@ impl TunnyApp {
         }
     }
 
-    /// 「Report…」モーダルを描画し、Export 確定時に study のスナップショットを集めて
-    /// バックグラウンドスレッドへレポート生成を委譲する（`ToolbarAction::OpenReportDialog`
-    /// が `app_state.report_dialog` を開始した後、毎フレームここから呼ばれる）。
+    /// Renders the "Report…" modal, and on Export confirmation collects a snapshot of
+    /// the study and delegates report generation to a background thread (called every
+    /// frame from here after `ToolbarAction::OpenReportDialog` starts
+    /// `app_state.report_dialog`).
     fn show_report_dialog(&mut self, ctx: &egui::Context) {
         use crate::ui::widgets::report_modal::{self, ReportModalAction};
 
@@ -567,8 +589,9 @@ impl TunnyApp {
 
         match action {
             Some(ReportModalAction::Close) => {
-                // 生成中でも待たずに閉じてよい（バックグラウンドジョブは fire-and-forget
-                // で継続し、ダイアログが無ければ完了/失敗は通知されない）。
+                // OK to close without waiting even while generating (the background job
+                // continues fire-and-forget; without the dialog, completion/failure just
+                // won't be reported).
             }
             Some(ReportModalAction::Export) if can_start_export => {
                 match dialog.selected_formats() {
@@ -615,13 +638,15 @@ impl TunnyApp {
         }
     }
 
-    /// 指定パスを開く（journal / CSV / SQLite / RDB URL いずれか）。
-    /// `ToolbarAction::OpenJournal` と「Open URL…」ダイアログの Open ボタンの
-    /// 両方から呼ばれる共通処理（URL は `PathBuf::from(正規化済み url 文字列)` として渡される）。
+    /// Opens the given path (journal / CSV / SQLite / RDB URL — any of them).
+    /// Shared handling called both from `ToolbarAction::OpenJournal` and the Open button
+    /// of the "Open URL…" dialog (a URL is passed as
+    /// `PathBuf::from(normalized url string)`).
     fn open_path(&mut self, path: std::path::PathBuf) {
-        // .ghx は既存の journal/CSV/SQLite/RDB スキャン経路とは別物（最適化問題定義であり
-        // 結果ストレージではない）。D&D（`handle_ghx_drop`）と同じ処理へ回し、
-        // 抽出できたら最適化設定モーダルを開く。
+        // .ghx is separate from the existing journal/CSV/SQLite/RDB scan path (it's an
+        // optimization problem definition, not a result store). Route it through the
+        // same handling as D&D (`handle_ghx_drop`), and open the optimization setup
+        // modal once extraction succeeds.
         if crate::io::file::is_ghx_path(&path) {
             self.open_ghx_path(path);
             return;
@@ -634,16 +659,17 @@ impl TunnyApp {
         self.load_error = None;
         self.app_state.all_studies.clear();
         self.app_state.current_study = None;
-        // 別ファイル（別 URL）を開くと study_id 空間が変わるため、
-        // 同一ファイル前提の比較セッションは破棄する。
+        // Opening a different file (a different URL) changes the study_id space, so
+        // discard any comparison session that assumed the same file.
         self.app_state.reset_comparison_session();
-        // 別ファイルを開く前に、起動待ちのポーラー準備タスクを陳腐化させる（H-1/H-2）。
+        // Invalidate the pending poller prep task before opening a different file
+        // (H-1/H-2).
         self.invalidate_pending_poller();
         dispatch_scan(path, self.sender());
     }
 
-    /// 「Open URL…」ダイアログを描画し、Open 確定時に正規化済み URL 文字列を
-    /// `open_path` へ流す（`ToolbarAction::OpenJournal` と同じ経路）。
+    /// Renders the "Open URL…" dialog and, on Open confirmation, feeds the normalized
+    /// URL string into `open_path` (the same path as `ToolbarAction::OpenJournal`).
     fn show_db_url_dialog(&mut self, ctx: &egui::Context) {
         use crate::ui::widgets::rdb_url_modal::{self, RdbUrlDialogAction};
 
@@ -655,16 +681,17 @@ impl TunnyApp {
                 self.open_path(std::path::PathBuf::from(normalized_url));
             }
             Some(RdbUrlDialogAction::Cancel) => {
-                // input は drop してダイアログを閉じる。
+                // Drop input to close the dialog.
             }
             None => {
-                // 未確定。次フレームも表示を続ける。
+                // Not confirmed yet. Keep showing it on the next frame.
                 self.app_state.db_url_dialog = Some(input);
             }
         }
     }
 
-    /// CSV インポート確認ダイアログを描画し、確定時に編集値を Study へ反映して活性化する。
+    /// Renders the CSV import confirmation dialog and, on confirmation, applies the
+    /// edited values to the Study and activates it.
     fn show_csv_import_dialog(&mut self, ctx: &egui::Context) {
         use crate::ui::widgets::csv_import_modal::{self, CsvImportAction};
 
@@ -673,7 +700,8 @@ impl TunnyApp {
         };
         match csv_import_modal::show(ctx, &mut settings) {
             Some(CsvImportAction::Apply) => {
-                // 編集値を all_studies のエントリへ反映してから select_study を発行する。
+                // Apply the edited values to the all_studies entry before dispatching
+                // select_study.
                 if let Some(slot) = self
                     .app_state
                     .all_studies
@@ -692,20 +720,21 @@ impl TunnyApp {
                     self.is_loading = true;
                     crate::io::study_worker::dispatch_select_study(meta, self.tx.clone());
                 }
-                // settings は drop してダイアログを閉じる。
+                // Drop settings to close the dialog.
             }
             None => {
-                // 未確定。次フレームも表示を続ける。
+                // Not confirmed yet. Keep showing it on the next frame.
                 self.app_state.csv_import_settings = Some(settings);
             }
         }
     }
 
-    // ── .ghx D&D → 最適化設定モーダル → バックグラウンド実行 ──────────
+    // ── .ghx D&D -> optimization setup modal -> background run ─────────
 
-    /// .ghx ファイルのドラッグ&ドロップを受け付ける。
-    /// 複数ドロップされた場合は `.ghx`（大文字小文字無視）拡張子を持つ最初のファイルのみを
-    /// 扱う。それ以外の拡張子は既存の D&D 未実装の挙動のまま無視する（競合しない）。
+    /// Accepts drag & drop of a .ghx file.
+    /// If multiple files are dropped, only the first one with a `.ghx` extension
+    /// (case-insensitive) is handled. Other extensions are ignored, keeping the
+    /// existing unimplemented D&D behavior unchanged (no conflict).
     fn handle_ghx_drop(&mut self, ctx: &egui::Context) {
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.clone());
         let ghx_path = dropped
@@ -716,8 +745,9 @@ impl TunnyApp {
         }
     }
 
-    /// .ghx を読み込み、問題抽出（同期・高速）に成功したら最適化設定モーダルを開く。
-    /// D&D（`handle_ghx_drop`）と `open_path` の .ghx 経路の両方から呼ばれる共通処理。
+    /// Loads a .ghx, and if problem extraction (synchronous, fast) succeeds, opens the
+    /// optimization setup modal. Shared handling called both from D&D
+    /// (`handle_ghx_drop`) and the .ghx path in `open_path`.
     fn open_ghx_path(&mut self, path: std::path::PathBuf) {
         match std::fs::read_to_string(&path) {
             Ok(text) => match tunny_core::gh::extract_problem(&text) {
@@ -732,9 +762,9 @@ impl TunnyApp {
         }
     }
 
-    /// .ghx 最適化設定モーダルを描画する。Run 確定時に `start_ghx_run` へ配線し、
-    /// 設定エラー（`build_compute_definition` / `prepare_gh_run` の失敗）はダイアログへ
-    /// 差し戻して開いたままにする。
+    /// Renders the .ghx optimization setup modal. On Run confirmation, wires into
+    /// `start_ghx_run`; setup errors (failures from `build_compute_definition` /
+    /// `prepare_gh_run`) are sent back to the dialog, which stays open.
     fn show_ghx_opt_dialog(&mut self, ctx: &egui::Context) {
         use crate::ui::widgets::ghx_opt_modal::{self, GhxOptAction};
 
@@ -744,30 +774,32 @@ impl TunnyApp {
         match ghx_opt_modal::show(ctx, &mut dialog) {
             Some(GhxOptAction::Run) => {
                 self.start_ghx_run(dialog);
-                // start_ghx_run が設定エラーで失敗した場合は自身で gh_opt_dialog へ戻す。
+                // If start_ghx_run fails due to a setup error, it puts the dialog back
+                // into gh_opt_dialog itself.
             }
             Some(GhxOptAction::Cancel) => {
-                // dialog は drop してダイアログを閉じる。
+                // Drop dialog to close it.
             }
             None => {
-                // 未確定。次フレームも表示を続ける。
+                // Not confirmed yet. Keep showing it on the next frame.
                 self.app_state.gh_opt_dialog = Some(dialog);
             }
         }
     }
 
-    /// rhino.compute のローカル起動を待つ上限秒数。初回起動は Rhino の
-    /// ロードで数十秒かかることがあるため余裕を持たせる。
+    /// Upper bound in seconds to wait for rhino.compute to start locally. The first
+    /// startup can take tens of seconds while Rhino loads, so give it some margin.
     const COMPUTE_STARTUP_TIMEOUT_SECS: u64 = 180;
 
-    /// Run 確定を受けて Rhino.Compute 評価器・journal・進捗ハンドルを組み立て、
-    /// バックグラウンドスレッドで最適化ループ（`run_prepared`）を開始する。
-    /// `build_compute_definition` / `prepare_gh_run` が失敗した場合はエラーを
-    /// `dialog.error` に載せて `gh_opt_dialog` へ戻し、モーダルを開いたままにする。
+    /// On Run confirmation, assembles the Rhino.Compute evaluator, journal, and progress
+    /// handle, and starts the optimization loop (`run_prepared`) on a background thread.
+    /// If `build_compute_definition` / `prepare_gh_run` fails, the error is put in
+    /// `dialog.error` and sent back to `gh_opt_dialog`, keeping the modal open.
     ///
-    /// Compute 接続先は URL（既存サーバー）または rhino.compute の EXE パス。
-    /// EXE の場合は起動に時間がかかるため、プロセス起動・待機もバックグラウンド
-    /// タスク側で行う（進捗オーバーレイに「起動中…」が表示される）。
+    /// The Compute target is either a URL (an existing server) or an rhino.compute EXE
+    /// path. For the EXE case, starting the process takes time, so process launch and
+    /// waiting also happen on the background task side (the progress overlay shows
+    /// "Starting…").
     fn start_ghx_run(&mut self, mut dialog: crate::state::app_state::GhOptDialogState) {
         use tunny_core::gh::{
             build_compute_definition, classify_compute_input, prepare_gh_run, run_prepared,
@@ -836,15 +868,17 @@ impl TunnyApp {
             study_name: dialog.study_name.clone(),
             finished: None,
         });
-        // journal に study を作成済みなので、これから開くと study 一覧に現れる。
-        // ポーラーを起動して以降の試行をライブ表示に流し込む。
+        // The study is already created in the journal, so opening it now will show it in
+        // the study list. Start the poller so subsequent trials stream into the live
+        // view.
         self.app_state.live_update.enabled = true;
 
         let problem = dialog.problem.clone();
         spawn_task(self.sender(), move || {
             let result = (|| {
-                // EXE 指定の場合はここでプロセスを起動して URL を得る。
-                // ハンドルは最適化ループの終了までスコープに保持し、Drop で停止する。
+                // If an EXE was specified, start the process here to obtain the URL.
+                // Keep the handle in scope until the optimization loop finishes; it
+                // stops on Drop.
                 let _server;
                 let server_url = match target {
                     ComputeTarget::Url(url) => url,
@@ -872,14 +906,16 @@ impl TunnyApp {
             AppMessage::GhOptFinished { result }
         });
 
-        // study が既に journal に書かれているため、開けば study 一覧に現れる
-        // （1 件のみなら poll_messages が自動選択し、ライブ更新で試行が流れ込む）。
+        // The study is already written to the journal, so opening it shows it in the
+        // study list (if there's only one, poll_messages auto-selects it and live update
+        // streams the trials in).
         self.open_path(journal_path);
-        // dialog は drop してモーダルを閉じる（None のまま戻さない）。
+        // Drop dialog to close the modal (don't put it back as None).
     }
 
-    /// 実行中（または直近終了）の .ghx 最適化を非モーダルの進捗オーバーレイで表示する。
-    /// 実行中は進捗バー + Cancel、終了後は結果メッセージ + Close を表示する。
+    /// Displays a running (or just-finished) .ghx optimization in a non-modal progress
+    /// overlay. Shows a progress bar + Cancel while running, and a result message +
+    /// Close once finished.
     fn show_ghx_opt_overlay(&mut self, ctx: &egui::Context) {
         let Some(run) = self.app_state.gh_opt_run.as_ref() else {
             return;
@@ -898,7 +934,8 @@ impl TunnyApp {
                 ui.set_min_width(260.0);
                 match &run.finished {
                     None => {
-                        // 進捗を滑らかに更新するため一定間隔で再描画を要求する。
+                        // Request a repaint at a fixed interval to smoothly update the
+                        // progress.
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_millis(250));
                         ui.horizontal(|ui| {
@@ -958,44 +995,46 @@ impl TunnyApp {
         }
     }
 
-    /// 起動待ち（準備中）のポーラーを陳腐化させる（H-1/H-2）。
-    /// 世代を進めることで、進行中の準備タスクが送る `AppMessage::PollerReady` を
-    /// 受信時に破棄させる。トグルオフ・別ファイルオープン・ライブエラー時に呼ぶ。
+    /// Invalidates the pending (starting) poller (H-1/H-2).
+    /// Advancing the generation causes the `AppMessage::PollerReady` sent by an in-flight
+    /// prep task to be discarded on receipt. Call on toggle-off, opening a different
+    /// file, or a live error.
     fn invalidate_pending_poller(&mut self) {
         self.poller_generation = self.poller_generation.wrapping_add(1);
     }
 
-    /// ポーラーを現在のファイルで（再）起動する。
+    /// (Re)starts the poller for the current file.
     ///
-    /// フィンガープリント取得（DB 接続 + クエリ）やジャーナル全読込 + trial 数
-    /// カウントは I/O を伴い UI スレッドをフリーズさせるため（H-1/H-2）、ここでは
-    /// 準備タスクをバックグラウンドへ spawn するだけに留める。準備完了後に
-    /// `AppMessage::PollerReady` が届き、`start_prepared_poller` が実際にポーラーを
-    /// 起動する。ストレージ種別（journal / sqlite / rdb）で準備内容が異なる。
+    /// Obtaining the fingerprint (DB connection + query) or reading the whole journal
+    /// plus counting trials involves I/O that would freeze the UI thread (H-1/H-2), so
+    /// this only spawns a prep task in the background. Once prep completes,
+    /// `AppMessage::PollerReady` arrives and `start_prepared_poller` actually starts the
+    /// poller. What prep does differs by storage kind (journal / sqlite / rdb).
     fn restart_poller(&mut self) {
         // Stop any existing poller
         if let Some(mut p) = self.poller.take() {
             p.stop();
         }
 
-        // 所有権付きで取り出す（この後 invalidate_pending_poller が &mut self を取るため、
-        // self.app_state を借用したまま跨げない）。
+        // Take it out by value (since invalidate_pending_poller below takes &mut self, we
+        // can't hold a borrow of self.app_state across that call).
         let Some(file_path) = self.app_state.journal_path.clone() else {
             return;
         };
 
-        // 世代を進め、この呼び出しで spawn する準備タスクにだけ有効な世代を割り当てる。
-        // 以降にトグル/Study 変更で restart_poller が再度呼ばれると世代が進み、
-        // 本タスクの結果は start_prepared_poller で破棄される。
+        // Advance the generation and assign the now-current generation only to the prep
+        // task spawned by this call. If restart_poller is called again later due to a
+        // toggle/Study change, the generation advances further and this task's result
+        // gets discarded in start_prepared_poller.
         self.invalidate_pending_poller();
         let generation = self.poller_generation;
         let tx = self.tx.clone();
 
         match self.app_state.live_update.storage_kind {
             LiveUpdateStorageKind::Sqlite => {
-                // SQLite のフィンガープリントは study 単位でしか取れないため、
-                // アクティブ Study が無ければ何も起動しない
-                // （Study 選択完了時に is_study_activated 経由で改めて呼ばれる）。
+                // SQLite fingerprints can only be obtained per study, so start nothing
+                // if there's no active Study (it gets called again via
+                // is_study_activated once Study selection completes).
                 let Some(study_id) = self
                     .app_state
                     .current_study
@@ -1006,9 +1045,10 @@ impl TunnyApp {
                 };
                 let file_path = file_path.clone();
                 spawn_task(tx, move || {
-                    // 初期フィンガープリント取得に失敗しても（読み取り競合等）デフォルト値で
-                    // 起動する。次回ポーリングで実値と食い違えば単に 1 回余分に再ロードされる
-                    // だけで、安全側に倒れる。
+                    // Even if the initial fingerprint fetch fails (e.g. a read
+                    // conflict), start with a default value. If it later mismatches the
+                    // real value on the next poll, it just causes one extra reload —
+                    // fails safe.
                     let initial_fingerprint =
                         tunny_core::sqlite::study_fingerprint(&file_path, study_id)
                             .unwrap_or_default();
@@ -1025,8 +1065,8 @@ impl TunnyApp {
                 });
             }
             LiveUpdateStorageKind::Rdb => {
-                // RDB のフィンガープリントも study 単位でしか取れないため、SQLite と同様に
-                // アクティブ Study が無ければ何も起動しない。
+                // RDB fingerprints can also only be obtained per study, so like SQLite,
+                // start nothing if there's no active Study.
                 let Some(study_id) = self
                     .app_state
                     .current_study
@@ -1035,15 +1075,17 @@ impl TunnyApp {
                 else {
                     return;
                 };
-                // journal_path には URL 文字列がそのまま格納されている（Phase C 設計）。
-                // 通常はここで必ず Some になるが、想定外に外れていれば安全側で何もしない。
+                // journal_path holds the URL string directly (Phase C design). This
+                // should normally always be Some here; if it unexpectedly isn't, do
+                // nothing as a safe fallback.
                 let Some(url) = crate::io::rdb::path_as_rdb_url(&file_path) else {
                     return;
                 };
                 spawn_task(tx, move || {
-                    // DB 接続 + クエリはここ（バックグラウンド）で行う。低速・到達不能でも
-                    // UI スレッドはブロックされない（H-1）。取得失敗時はデフォルト値で
-                    // 起動する（SQLite と同じフォールバック方針）。
+                    // The DB connection + query happens here (in the background). Even
+                    // if it's slow or unreachable, the UI thread isn't blocked (H-1). On
+                    // fetch failure, start with a default value (same fallback policy as
+                    // SQLite).
                     let initial_fingerprint =
                         tunny_core::rdb::study_fingerprint_url(&url, study_id).unwrap_or_default();
                     let ctx = RdbLiveUpdateContext {
@@ -1061,15 +1103,20 @@ impl TunnyApp {
             LiveUpdateStorageKind::Journal => {
                 let file_path = file_path.clone();
                 spawn_task(tx, move || {
-                    // Optuna は trial_id を全 study・全状態横断で op_code=4 の出現順に連番付与する。
-                    // ライブ更新の差分パーサは次に作る Trial へこの global trial_id を割り当て、
-                    // 続く op_code=5/6 を trial_id で照合する。したがって開始時の next_trial_id は
-                    // 「ファイル中の op_code=4 レコード総数」でなければならない。meta には全体総数が
-                    // 無い（Phase1 は total_trials=0、選択 study 以外も 0）ため、ファイルを 1 度読んで数える。
-                    // 同じバイト列から byte_offset も取り、metadata 取得との競合（読取り中の追記）を防ぐ。
-                    // per-study の作成数も同じバイト列から数え、各 Study の次の trial.number を seed する
-                    // （ライブ中に作られる Trial が Study 内で連続した番号を持つようにする）。
-                    // 数百 MB 級ジャーナルの全読込 + カウントもここ（バックグラウンド）で行う（H-2）。
+                    // Optuna assigns trial_id sequentially, in op_code=4 appearance
+                    // order, across all studies and states. The live update diff parser
+                    // assigns this global trial_id to the next Trial it creates, and
+                    // matches subsequent op_code=5/6 records by trial_id. So the
+                    // starting next_trial_id must equal "the total count of op_code=4
+                    // records in the file." meta doesn't hold the overall total (Phase1
+                    // has total_trials=0, and so do non-selected studies), so read the
+                    // file once and count. Also grab byte_offset from the same byte
+                    // buffer to avoid a race with metadata fetching (appends happening
+                    // during the read). Count the per-study creation counts from the same
+                    // buffer too, to seed each Study's next trial.number (so Trials
+                    // created during live update get consecutive numbers within their
+                    // Study). Reading and counting the whole hundred-MB-scale journal
+                    // also happens here (in the background) (H-2).
                     let (byte_offset, next_trial_id, study_trial_number_seeds) =
                         match std::fs::read(&file_path) {
                             Ok(bytes) => {
@@ -1108,23 +1155,27 @@ impl TunnyApp {
             }
         }
 
-        // 準備タスクを spawn した時点で「起動処理中」として扱う（UI 表示のため）。
-        // 実際のポーラー起動は start_prepared_poller が行う。
+        // Treat this as "starting" as soon as the prep task is spawned (for UI display).
+        // The actual poller start happens in start_prepared_poller.
         self.app_state.live_update.poller_active = true;
     }
 
-    /// バックグラウンド準備タスク（H-1/H-2）が完了して届いた `PollerReady` を受け、
-    /// 世代が最新（準備中にトグル/Study 変更が起きていない）ならポーラーを起動する。
+    /// Receives the `PollerReady` that arrives once the background prep task (H-1/H-2)
+    /// completes, and starts the poller if the generation is still current (i.e. no
+    /// toggle/Study change happened while it was preparing).
     fn start_prepared_poller(&mut self, generation: u64, prep: PollerPrep) {
-        // 準備中にトグル/Study 変更/別ファイルオープンで世代が進んでいれば破棄する。
+        // Discard it if the generation has advanced due to a toggle/Study
+        // change/opening a different file while preparing.
         if generation != self.poller_generation {
             return;
         }
-        // 通常は restart_poller が停止済みだが、念のため既存ポーラーを止める。
+        // restart_poller normally already stopped it, but stop any existing poller just
+        // in case.
         if let Some(mut p) = self.poller.take() {
             p.stop();
         }
-        // 準備中に間隔が変わっている可能性があるため、起動時点の最新値を使う。
+        // The interval may have changed while preparing, so use its latest value at
+        // startup time.
         let interval_ms = self.app_state.live_update.interval_ms;
         let tx = self.tx.clone();
         let poller = match prep {
@@ -1150,11 +1201,12 @@ impl Drop for TunnyApp {
 }
 
 impl eframe::App for TunnyApp {
-    // logic() は描画を行わないフェーズ（メッセージポンプ・状態更新・スクリーンショット取得）を担当する。
-    // egui 0.35 の eframe::App は update() が ui()/logic() に分割された。
+    // logic() handles the non-rendering phase (message pump, state updates, screenshot
+    // capture). In egui 0.35, eframe::App's update() was split into ui()/logic().
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // テーマ同期: dark_mode の変更源（ツールバートグル・セッション復元）に
-        // よらず、グローバルフラグと Visuals をここで一元的に追従させる。
+        // Theme sync: regardless of what changed dark_mode (toolbar toggle, session
+        // restore), keep the global flag and Visuals following it consistently from
+        // here.
         if self.app_state.dark_mode != crate::theme::is_dark_mode() {
             ctx.set_visuals(crate::theme::tunny_visuals(self.app_state.dark_mode));
         }
@@ -1229,9 +1281,9 @@ impl eframe::App for TunnyApp {
     }
 }
 
-/// 開くパスの種別（RDB URL / フラット CSV / SQLite / journal）を判定し、対応する
-/// スキャンをワーカースレッドへ発行する。`TunnyApp::new`（初期パス）と `open_path`
-/// （ツールバー・URL ダイアログ）の共通処理（D-12）。
+/// Determines the kind of path being opened (RDB URL / flat CSV / SQLite / journal) and
+/// dispatches the corresponding scan to a worker thread. Shared handling (D-12) between
+/// `TunnyApp::new` (initial path) and `open_path` (toolbar / URL dialog).
 fn dispatch_scan(path: std::path::PathBuf, tx: mpsc::SyncSender<AppMessage>) {
     if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
         crate::io::study_worker::dispatch_scan_rdb(url, tx);
@@ -1244,11 +1296,12 @@ fn dispatch_scan(path: std::path::PathBuf, tx: mpsc::SyncSender<AppMessage>) {
     }
 }
 
-/// バックグラウンドタスク起動ヘルパー。
+/// Background task launch helper.
 ///
-/// ワーカーの panic を `catch_unwind` で捕捉し、`AppMessage::TaskPanicked` として
-/// UI へ通知する（M-4）。捕捉しないと panic 時に完了メッセージが届かず、該当
-/// ウィジェットの `computing`/`fitting` フラグが立ちっぱなしでスピナーが永久に回る。
+/// Catches worker panics with `catch_unwind` and reports them to the UI as
+/// `AppMessage::TaskPanicked` (M-4). Without catching them, a panic would mean the
+/// completion message never arrives, leaving the relevant widget's `computing`/`fitting`
+/// flag stuck on and the spinner spinning forever.
 pub fn spawn_task<F>(tx: mpsc::SyncSender<AppMessage>, f: F)
 where
     F: FnOnce() -> AppMessage + Send + 'static,
@@ -1309,8 +1362,9 @@ mod tests {
 
     #[test]
     fn convergence_done_maps_to_compute_sync() {
-        // 回帰防止: IndicatorHistoryDone が sync 対象から漏れると、計算完了後も
-        // キャンバスアイテムの computing が下りず spinner が回り続ける。
+        // Regression guard: if IndicatorHistoryDone falls out of the sync targets, the
+        // canvas item's computing flag never drops after compute finishes and the
+        // spinner keeps spinning.
         use crate::state::app_state::ConvergenceHistory;
         let msg = AppMessage::IndicatorHistoryDone {
             indicator: tunny_core::indicators::MoIndicator::Hypervolume,
@@ -1330,8 +1384,9 @@ mod tests {
 
     #[test]
     fn surrogate_multi_messages_map_to_compute_sync() {
-        // 回帰防止: 多目的サロゲートの完了/失敗が sync 対象から漏れると、
-        // キャンバスアイテムの fitting/optimizing が下りず spinner が回り続ける。
+        // Regression guard: if multi-objective surrogate completion/failure falls out of
+        // the sync targets, the canvas item's fitting/optimizing flag never drops and the
+        // spinner keeps spinning.
         assert!(matches!(
             ComputeSyncKind::from_message(&AppMessage::SurrogateMultiFitFailed("e".into())),
             Some(ComputeSyncKind::SurrogateFit)
@@ -1371,7 +1426,8 @@ mod tests {
 
     #[test]
     fn spawn_task_captures_panic() {
-        // M-4: ワーカー内 panic は TaskPanicked として通知され、無限スピナー化を防ぐ。
+        // M-4: a panic inside a worker is reported as TaskPanicked, preventing an
+        // infinite spinner.
         let (tx, rx) = make_channel();
         spawn_task(tx, || panic!("boom in worker"));
         match rx.recv().unwrap() {
@@ -1414,7 +1470,7 @@ mod tests {
         assert_eq!(app_state.live_update.interval_ms, 5000);
     }
 
-    // ── Phase C: ウィンドウタイトルのパスワードマスク ─────────────────
+    // ── Phase C: window title password masking ─────────────────
 
     #[test]
     fn compute_window_title_no_path_returns_base_title() {

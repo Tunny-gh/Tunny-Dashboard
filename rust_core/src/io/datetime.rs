@@ -1,28 +1,30 @@
-//! 依存追加なしの naive 日時パーサ。
+//! Naive datetime parser with no added dependencies.
 //!
-//! Optuna の journal / SQLite は日時を `YYYY-MM-DDTHH:MM:SS[.ffffff]` または
-//! `YYYY-MM-DD HH:MM:SS[.ffffff]` の文字列で持つ（タイムゾーン情報なし）。
-//! chrono をワークスペースに追加しない方針のため、標準ライブラリのみで
-//! unix 秒（f64、naive・タイムゾーン変換なし）へ変換する。
+//! Optuna's journal / SQLite store datetimes as strings in the form
+//! `YYYY-MM-DDTHH:MM:SS[.ffffff]` or `YYYY-MM-DD HH:MM:SS[.ffffff]` (no timezone
+//! information). Since the policy is not to add chrono to the workspace, conversion
+//! to unix seconds (f64, naive, no timezone conversion) is done using only the
+//! standard library.
 
-/// naive 日時文字列を unix 秒（f64）へ変換する。
+/// Converts a naive datetime string to unix seconds (f64).
 ///
-/// 受け付ける形式:
+/// Accepted formats:
 /// - `YYYY-MM-DDTHH:MM:SS`
-/// - `YYYY-MM-DD HH:MM:SS`（区切りは 'T' またはスペース）
-/// - 末尾に任意桁の小数秒 `.ffffff` を許容する。
+/// - `YYYY-MM-DD HH:MM:SS` (separator is 'T' or a space)
+/// - An optional trailing fractional-second part `.ffffff` of any number of digits.
 ///
-/// タイムゾーンは扱わず、記載値をそのまま UTC 相当の naive epoch 秒として返す。
-/// 不正な入力は `None` を返す。
+/// Timezones are not handled; the value as written is returned as-is as a naive
+/// epoch second treated as equivalent to UTC. Invalid input returns `None`.
 pub fn parse_naive_datetime(s: &str) -> Option<f64> {
     let s = s.trim();
-    // 日付部（10 文字: YYYY-MM-DD）と時刻部を区切り文字（'T' or ' '）で分割する。
+    // Split into the date part (10 chars: YYYY-MM-DD) and the time part at the
+    // separator ('T' or ' ').
     let sep = s.as_bytes().get(10).copied()?;
     if sep != b'T' && sep != b' ' {
         return None;
     }
     let (date_part, rest) = s.split_at(10);
-    let time_part = &rest[1..]; // 区切り 1 文字をスキップ
+    let time_part = &rest[1..]; // skip the single separator character
 
     let (year, month, day) = parse_date(date_part)?;
     let (hour, minute, second, frac) = parse_time(time_part)?;
@@ -40,12 +42,14 @@ pub fn parse_naive_datetime(s: &str) -> Option<f64> {
     Some(whole as f64 + frac)
 }
 
-/// 閏年判定（グレゴリオ暦: 4 の倍数、ただし 100 の倍数は除き 400 の倍数は含む）。
+/// Leap-year check (Gregorian calendar: multiples of 4, excluding multiples of 100,
+/// but including multiples of 400).
 fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
-/// 指定年月の日数（month は 1..=12 前提。範囲外は 0 を返し呼び出し側の検証で弾かれる）。
+/// Number of days in the given year/month (assumes month is 1..=12; out-of-range
+/// returns 0 and is rejected by the caller's validation).
 fn days_in_month(year: i64, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -61,7 +65,7 @@ fn days_in_month(year: i64, month: u32) -> u32 {
     }
 }
 
-/// `YYYY-MM-DD` を (year, month, day) へ分解する。
+/// Splits `YYYY-MM-DD` into (year, month, day).
 fn parse_date(s: &str) -> Option<(i64, u32, u32)> {
     let bytes = s.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
@@ -73,15 +77,15 @@ fn parse_date(s: &str) -> Option<(i64, u32, u32)> {
     Some((year, month, day))
 }
 
-/// `HH:MM:SS[.ffffff]` を (hour, minute, second, frac_seconds) へ分解する。
+/// Splits `HH:MM:SS[.ffffff]` into (hour, minute, second, frac_seconds).
 fn parse_time(s: &str) -> Option<(u32, u32, u32, f64)> {
-    // 小数秒を分離する。
+    // Separate out the fractional-second part.
     let (hms, frac) = match s.split_once('.') {
         Some((hms, frac_digits)) => {
             if frac_digits.is_empty() || !frac_digits.bytes().all(|b| b.is_ascii_digit()) {
                 return None;
             }
-            // "0.<frac_digits>" として解釈する（桁数は任意）。
+            // Interpreted as "0.<frac_digits>" (any number of digits allowed).
             let frac: f64 = format!("0.{frac_digits}").parse().ok()?;
             (hms, frac)
         }
@@ -98,8 +102,8 @@ fn parse_time(s: &str) -> Option<(u32, u32, u32, f64)> {
     Some((hour, minute, second, frac))
 }
 
-/// days-from-civil アルゴリズム（Howard Hinnant）。
-/// 1970-01-01 を 0 とする epoch 日数を返す。
+/// days-from-civil algorithm (Howard Hinnant).
+/// Returns the epoch day count with 1970-01-01 as 0.
 fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -111,14 +115,15 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// unix 秒（f64、UTC ナイーブ扱い）を "YYYY-MM-DDTHH:MM:SS.ffffff" に変換する。
-/// `parse_naive_datetime` の逆変換。マイクロ秒 6 桁固定。
+/// Converts unix seconds (f64, treated as naive UTC) to "YYYY-MM-DDTHH:MM:SS.ffffff".
+/// The inverse of `parse_naive_datetime`. Always uses 6 fixed digits of microseconds.
 ///
-/// 負の unix 秒は考慮不要（1970 以降のみサポート）だが、非有限値（NaN / Inf）や
-/// 極端な値が渡された場合でも panic はしない。
+/// Negative unix seconds need not be handled (only 1970 onward is supported), but the
+/// function does not panic even if given non-finite values (NaN / Inf) or extreme values.
 pub fn format_naive_datetime(unix_secs: f64) -> String {
-    // NaN / Inf を安全な既定値へフォールバックする（f64 -> i64 の `as` キャストは
-    // Rust 1.45 以降 saturating のため panic しないが、意味のある値にしておく）。
+    // Fall back non-finite values (NaN / Inf) to a safe default (the `as` cast from
+    // f64 to i64 is saturating since Rust 1.45 and won't panic, but we still want a
+    // meaningful value).
     let unix_secs = if unix_secs.is_finite() {
         unix_secs
     } else {
@@ -140,8 +145,8 @@ pub fn format_naive_datetime(unix_secs: f64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{micros:06}")
 }
 
-/// civil-from-days アルゴリズム（Howard Hinnant）。`days_from_civil` の逆変換。
-/// 1970-01-01 を 0 とする epoch 日数から (year, month, day) を復元する。
+/// civil-from-days algorithm (Howard Hinnant). The inverse of `days_from_civil`.
+/// Recovers (year, month, day) from the epoch day count with 1970-01-01 as 0.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -218,7 +223,8 @@ mod tests {
 
     #[test]
     fn rejects_invalid_day_for_month() {
-        // 月別日数を超える日は不正（従来は 1..=31 の一律チェックで 2/31 を受理していた）。
+        // A day exceeding the month's day count is invalid (previously a uniform
+        // 1..=31 check would have accepted 2/31).
         assert_eq!(parse_naive_datetime("2024-02-31T00:00:00"), None);
         assert_eq!(parse_naive_datetime("2024-04-31T00:00:00"), None);
         assert_eq!(parse_naive_datetime("2024-06-31T00:00:00"), None);
@@ -228,15 +234,15 @@ mod tests {
 
     #[test]
     fn leap_day_rules() {
-        // 2024 は閏年（4 の倍数）→ 2/29 は有効。
+        // 2024 is a leap year (multiple of 4) → 2/29 is valid.
         assert!(parse_naive_datetime("2024-02-29T00:00:00").is_some());
-        // 2023 は平年 → 2/29 は不正。
+        // 2023 is not a leap year → 2/29 is invalid.
         assert_eq!(parse_naive_datetime("2023-02-29T00:00:00"), None);
-        // 1900 は 100 の倍数（400 の倍数でない）→ 平年。
+        // 1900 is a multiple of 100 (but not 400) → not a leap year.
         assert_eq!(parse_naive_datetime("1900-02-29T00:00:00"), None);
-        // 2000 は 400 の倍数 → 閏年。
+        // 2000 is a multiple of 400 → a leap year.
         assert!(parse_naive_datetime("2000-02-29T00:00:00").is_some());
-        // 平年の 2/28 は有効。
+        // 2/28 in a non-leap year is valid.
         assert!(parse_naive_datetime("2023-02-28T00:00:00").is_some());
     }
 
@@ -248,7 +254,7 @@ mod tests {
         assert_eq!(v, 19_782.0 * 86_400.0 + 43_200.0);
     }
 
-    /// `format_naive_datetime` が固定でマイクロ秒 6 桁・"T" 区切りを出力すること。
+    /// `format_naive_datetime` always outputs 6 fixed digits of microseconds with a "T" separator.
     #[test]
     fn format_naive_datetime_epoch() {
         assert_eq!(format_naive_datetime(0.0), "1970-01-01T00:00:00.000000");
@@ -260,8 +266,9 @@ mod tests {
         assert_eq!(format_naive_datetime(t), "2026-07-16T10:30:00.123456");
     }
 
-    /// ラウンドトリップ: 代表時刻（epoch・通常時刻・うるう年境界）で
-    /// `parse_naive_datetime(&format_naive_datetime(t))` がマイクロ秒精度で一致すること。
+    /// Round trip: for representative timestamps (epoch, normal time, leap-year
+    /// boundary), `parse_naive_datetime(&format_naive_datetime(t))` matches to
+    /// microsecond precision.
     #[test]
     fn datetime_roundtrip_representative_values() {
         let cases = [
@@ -281,7 +288,7 @@ mod tests {
         }
     }
 
-    /// 非有限値（NaN / Inf）を渡しても panic しないこと。
+    /// Passing a non-finite value (NaN / Inf) must not panic.
     #[test]
     fn format_naive_datetime_handles_non_finite_without_panic() {
         let _ = format_naive_datetime(f64::NAN);

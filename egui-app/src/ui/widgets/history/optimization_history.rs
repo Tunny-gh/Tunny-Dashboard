@@ -10,18 +10,21 @@ use crate::ui::widgets::trial_detail_modal::{
     push_feasible_row, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
-/// 比較 Study 1 件分の最適化履歴系列（選択中の目的に対する値列 + 色 + 凡例名）。
+/// The optimization history series for a single comparison Study (value column for
+/// the selected objective + color + legend name).
 pub struct OptHistoryComparison {
     pub name: String,
     pub color: egui::Color32,
-    /// 選択中の目的に対応する目的値列（行順）。
+    /// The objective value column corresponding to the selected objective (row order).
     pub values: Vec<f64>,
     pub is_minimize: bool,
 }
 
-/// 基準 Study の値列から導出する O(n) 計算結果をまとめたキャッシュ。
-/// `key` が前回と変わらない限り毎フレームの再計算を避ける。
-/// Moving Average は表示トグルが有効なときのみ計算する（無効時は無駄な計算をしない）。
+/// A cache bundling the O(n) computation results derived from the base Study's value
+/// column.
+/// Avoids recomputation every frame as long as `key` is unchanged from before.
+/// Moving Average is only computed when the display toggle is enabled (no wasted
+/// computation when disabled).
 struct HistoryCache {
     key: (usize, usize, bool, usize, bool), // (row_count, obj_idx, log_scale, window_size, is_minimize)
     values: Vec<f64>,
@@ -32,19 +35,19 @@ struct HistoryCache {
     moving_avg: Option<Vec<[f64; 2]>>,
 }
 
-/// 最適化履歴チャートウィジェット
+/// The optimization history chart widget
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct OptimizationHistoryChart {
     pub show_moving_avg: bool,
     pub window_size: usize,
     pub obj_idx: usize,
-    /// REQ-008: Y 軸対数スケール切替
+    /// REQ-008: Y-axis log scale toggle
     pub log_scale: bool,
-    /// 点クリックで開くトライアル詳細モーダル（散布図と共有）。
+    /// Trial detail modal opened by clicking a point (shared with the scatter plot).
     #[serde(skip)]
     detail_modal: TrialDetailModal,
-    /// 基準 Study の O(n) 計算結果キャッシュ。
+    /// Cache of the base Study's O(n) computation results.
     #[serde(skip)]
     history_cache: Option<HistoryCache>,
 }
@@ -63,11 +66,13 @@ impl Default for OptimizationHistoryChart {
 }
 
 impl OptimizationHistoryChart {
-    /// 基準 Study に加えて、比較 Study の累積ベスト値ラインを同一グラフに重ねて描画する。
-    /// 比較ラインは「Best Value」表示が有効なときに各 Study の色で描かれる。
+    /// Draws the base Study plus, overlaid on the same graph, each comparison
+    /// Study's cumulative-best-value line. Comparison lines are drawn in each
+    /// Study's color when the "Best Value" display is enabled.
     ///
-    /// 「All Trials」の点をクリックすると、散布図と共有のトライアル詳細モーダルを開く。
-    /// 基準 Study の点のみ対象（比較 Study の試行は基準 Study の `view` に存在しない）。
+    /// Clicking an "All Trials" point opens the trial detail modal shared with the
+    /// scatter plot. Only base Study points are targeted (comparison Study trials
+    /// don't exist in the base Study's `view`).
     #[allow(clippy::too_many_arguments)]
     pub fn show_with_comparisons(
         &mut self,
@@ -80,7 +85,7 @@ impl OptimizationHistoryChart {
         comparisons: &[OptHistoryComparison],
         artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
-        // 目的関数インデックスを有効範囲に収める
+        // Clamp the objective function index to a valid range
         if obj_names.is_empty() {
             self.obj_idx = 0;
         } else {
@@ -94,9 +99,9 @@ impl OptimizationHistoryChart {
 
         let feas = view.feasibility();
 
-        // All Trials / Best Value / Infeasible は常に描画する（表示のオン/オフは
-        // チャート凡例のクリックで切り替えられる）。トグルは Moving Average /
-        // Log Scale と目的選択のみ残す。
+        // All Trials / Best Value / Infeasible are always drawn (their on/off display
+        // can be toggled by clicking the chart legend). Only Moving Average / Log
+        // Scale and objective selection remain as toggles.
         ui.horizontal(|ui| {
             if ui
                 .selectable_label(self.show_moving_avg, "Moving Average")
@@ -105,7 +110,7 @@ impl OptimizationHistoryChart {
                 self.show_moving_avg = !self.show_moving_avg;
             }
 
-            // 多目的の場合のみ目的関数選択コンボボックスを表示
+            // Show the objective function selection combo box only for multi-objective
             if obj_names.len() > 1 {
                 ui.separator();
                 let selected_label = obj_names
@@ -121,7 +126,7 @@ impl OptimizationHistoryChart {
                     });
             }
 
-            // REQ-008-D: 対数スケールトグル
+            // REQ-008-D: log scale toggle
             ui.separator();
             if ui.selectable_label(self.log_scale, "Log Scale").clicked() {
                 self.log_scale = !self.log_scale;
@@ -133,9 +138,11 @@ impl OptimizationHistoryChart {
         let window_size = self.window_size;
         let row_count = view.row_count();
 
-        // 基準 Study の O(n) 計算（values / feasible 分割 / hit-test 点 / 累積ベスト値）は
-        // 行数・目的選択・log/最小最大化フラグ・移動平均ウィンドウが変わらない限り
-        // 再計算しない（Moving Average は表示トグルが有効なときのみ遅延計算する）。
+        // The base Study's O(n) computation (values / feasible split / hit-test
+        // points / cumulative best value) is not recomputed unless the row count,
+        // objective selection, log/minimize-maximize flag, or moving-average window
+        // changes (Moving Average is lazily computed only when the display toggle is
+        // enabled).
         let cache_key = (row_count, self.obj_idx, log_scale, window_size, is_minimize);
         if self.history_cache.as_ref().map(|c| c.key) != Some(cache_key) {
             let values: Vec<f64> = obj_names
@@ -144,11 +151,14 @@ impl OptimizationHistoryChart {
                 .map(|col| col.to_vec())
                 .unwrap_or_default();
 
-            // All Trials の feasible / infeasible 分割（制約あり Study のみ分岐）
+            // Split All Trials into feasible / infeasible (only branches for
+            // constrained Studies)
             let (feasible_vals, infeasible_vals) = partition_history_by_feasibility(&values, feas);
 
-            // クリック判定用に各試行の点を (trial_id, 行 index, [x, y]) で構築する。
-            // x は行 index、y は描画と一致させるため log スケール時のみ log10 変換する。
+            // Build each trial's point as (trial_id, row index, [x, y]) for click
+            // detection.
+            // x is the row index; y is converted with log10 only under log scale, to
+            // match the drawing.
             let base_hit_points: Vec<(u32, usize, [f64; 2])> = values
                 .iter()
                 .enumerate()
@@ -182,33 +192,35 @@ impl OptimizationHistoryChart {
         let best_values = &cache.best_values;
         let moving_avg = cache.moving_avg.as_ref();
 
-        // クリックされた点（trial_id, 行 index）。
+        // The clicked point (trial_id, row index).
         let mut clicked_detail: Option<(u32, usize)> = None;
-        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        // The point currently under mouse hover (trial_id, row index). Used for
+        // tooltip display.
         let mut hovered_detail: Option<(u32, usize)> = None;
 
         let mut plot = egui_plot::Plot::new("optimization_history_plot")
             .unified_nav()
             .legend(egui_plot::Legend::default());
 
-        // 対数スケール時は値を log10 変換して描画しているため、Y 軸ラベルは
-        // 変換前の元の値（10^mark で復元）を表示する。目盛りは 10 の累乗
-        // （1, 10, 100, ...）を主目盛りとし、その間に 2〜9 倍の補助目盛りを置く。
+        // Since values are drawn with a log10 transform under log scale, the Y-axis
+        // labels show the original pre-transform values (restored via 10^mark).
+        // Powers of 10 (1, 10, 100, ...) are used as major ticks, with minor ticks
+        // at 2-9x in between.
         if log_scale {
             plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot);
         }
 
         plot.show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
-            // 点クリック・ホバーの対象を検出する（基準 Study の試行のみ）。
+            // Detect click/hover targets (base Study trials only).
             (clicked_detail, hovered_detail) = resolve_click_hover(plot_ui, base_hit_points);
 
-            // All Trials は常に描画（凡例クリックで表示切替可能）。
+            // All Trials is always drawn (display can be toggled via the legend).
             if !values.is_empty() {
                 let apply_log = |[x, v]: [f64; 2]| -> [f64; 2] {
                     [x, if log_scale && v > 0.0 { v.log10() } else { v }]
                 };
-                // infeasible を背面に常時描画（凡例クリックで表示切替可能）
+                // Draw infeasible points behind, always (display can be toggled via the legend)
                 if !infeasible_vals.is_empty() {
                     let pts: egui_plot::PlotPoints =
                         infeasible_vals.iter().copied().map(apply_log).collect();
@@ -218,7 +230,7 @@ impl OptimizationHistoryChart {
                             .radius(1.5),
                     );
                 }
-                // feasible 点（制約なし Study は全点 feasible_vals に入る）
+                // Feasible points (for an unconstrained Study, all points go into feasible_vals)
                 if !feasible_vals.is_empty() {
                     let pts: egui_plot::PlotPoints =
                         feasible_vals.iter().copied().map(apply_log).collect();
@@ -230,13 +242,14 @@ impl OptimizationHistoryChart {
                 }
             }
 
-            // Best Value は常に描画（凡例クリックで表示切替可能）。
+            // Best Value is always drawn (display can be toggled via the legend).
             {
                 let apply_log_y = |[x, y]: [f64; 2]| -> [f64; 2] {
                     [x, if log_scale && y > 0.0 { y.log10() } else { y }]
                 };
                 if !values.is_empty() {
-                    // 比較時は基準 Study も名前で区別できるようラベルを切り替える。
+                    // When comparing, switch the label so the base Study can also be
+                    // distinguished by name.
                     let base_label = if comparisons.is_empty() || base_name.is_empty() {
                         "Best Value"
                     } else {
@@ -250,7 +263,7 @@ impl OptimizationHistoryChart {
                             .width(1.5),
                     );
                 }
-                // 比較 Study の累積ベスト値ラインを各色で重ね描きする。
+                // Overlay each comparison Study's cumulative-best-value line in its own color.
                 for comp in comparisons {
                     if comp.values.is_empty() {
                         continue;
@@ -284,7 +297,7 @@ impl OptimizationHistoryChart {
             }
         });
 
-        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        // If there's a hovered point, show a summary tooltip at the pointer position.
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let mut rows = Vec::new();
@@ -295,8 +308,8 @@ impl OptimizationHistoryChart {
             show_hover_tooltip(ui, "opt_history_hover_tooltip", trial_number, &rows);
         }
 
-        // クリックされた点があれば、選択中の目的値（と feasibility）を付加情報として
-        // モーダルを開く。
+        // If there's a clicked point, open the modal with the selected objective
+        // value (and feasibility) as extra context.
         if let Some((trial_id, row)) = clicked_detail {
             let mut context = Vec::new();
             if let (Some(name), Some(v)) = (obj_names.get(self.obj_idx), values.get(row)) {
@@ -310,7 +323,7 @@ impl OptimizationHistoryChart {
             });
         }
 
-        // 詳細モーダルを描画する（散布図と同じ共有実装）。
+        // Draw the detail modal (same shared implementation as the scatter plot).
         if self.detail_modal.is_open() {
             self.detail_modal
                 .show(ui, view, param_names, obj_names, artifact_map);
@@ -318,9 +331,11 @@ impl OptimizationHistoryChart {
     }
 }
 
-/// feasibility に基づいて目的値列を feasible / infeasible 点列に分割する。
-/// 制約なし Study（feas.has_constraints() == false）の場合は全点を feasible に分類する。
-/// 戻り値: (feasible_pts, infeasible_pts) いずれも [trial_idx, value] 形式。
+/// Splits the objective value column into feasible / infeasible point lists based on
+/// feasibility.
+/// For an unconstrained Study (feas.has_constraints() == false), all points are
+/// classified as feasible.
+/// Returns: (feasible_pts, infeasible_pts), both in [trial_idx, value] format.
 pub fn partition_history_by_feasibility(
     values: &[f64],
     feas: tunny_core::dataframe::Feasibility<'_>,
@@ -337,7 +352,7 @@ pub fn partition_history_by_feasibility(
     (feasible, infeasible)
 }
 
-/// 累積ベスト値（最小化: 累積最小, 最大化: 累積最大）を計算する
+/// Computes the cumulative best value (minimize: cumulative min, maximize: cumulative max)
 pub fn compute_best_values(values: &[f64], is_minimize: bool) -> Vec<[f64; 2]> {
     let mut best = if is_minimize {
         f64::INFINITY
@@ -358,7 +373,7 @@ pub fn compute_best_values(values: &[f64], is_minimize: bool) -> Vec<[f64; 2]> {
         .collect()
 }
 
-/// 移動平均を計算する
+/// Computes the moving average
 pub fn compute_moving_average(values: &[f64], window: usize) -> Vec<[f64; 2]> {
     if values.is_empty() || window == 0 {
         return vec![];

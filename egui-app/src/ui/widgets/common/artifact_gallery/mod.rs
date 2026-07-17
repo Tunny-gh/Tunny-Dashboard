@@ -20,18 +20,18 @@ use sections::{
     filter_ids_by_selection, mcdm_ordered, paginate, restrict_to_current_study,
 };
 
-/// 1 ページに表示する artifact カード数（All モード）。
-/// 一度に生成する egui::Image を絞り、テクスチャ生成コストを抑える。
+/// Number of artifact cards shown per page (All mode).
+/// Limits how many `egui::Image`s are created at once, keeping texture generation cost down.
 const PAGE_SIZE: usize = 12;
 
-/// サムネイルの表示サイズ（大中小）。一辺のワールド座標長を持つ。
+/// Thumbnail display size (large/medium/small). Holds the world-space side length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThumbSize {
-    /// 小（既定）。
+    /// Small (default).
     Small,
-    /// 中。
+    /// Medium.
     Medium,
-    /// 大。
+    /// Large.
     Large,
 }
 
@@ -44,7 +44,7 @@ impl ThumbSize {
         }
     }
 
-    /// サムネイル一辺のサイズ（ワールド座標）。
+    /// Thumbnail side length (world-space coordinates).
     fn size(&self) -> f32 {
         match self {
             ThumbSize::Small => 140.0,
@@ -54,14 +54,14 @@ impl ThumbSize {
     }
 }
 
-/// Artifact ギャラリーの表示モード。
+/// Display mode for the artifact gallery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ArtifactViewMode {
-    /// 全 artifact をページネーション表示（設定不要）。
+    /// Paginated display of all artifacts (no configuration needed).
     All,
-    /// クラスタリング結果でグルーピング表示。
+    /// Grouped display by clustering result.
     Cluster,
-    /// MCDM ランキング順に表示。
+    /// Display ordered by MCDM ranking.
     Mcdm,
 }
 
@@ -75,38 +75,41 @@ impl ArtifactViewMode {
     }
 }
 
-/// Artifact ギャラリーウィジェット。
+/// Artifact gallery widget.
 ///
-/// `app_state.artifact_map`（trial_id → ファイルパス）を、クラスタリング / MCDM の結果と
-/// 関連付けて表示する。クラスタ・MCDM の設定は本ウィジェットが自前で持ち、計算結果は
-/// 設定キーごとに `cluster_cache` / `mcdm_cache` で共有・キャッシュされる。
+/// Displays `app_state.artifact_map` (trial_id -> file path) in association with
+/// clustering / MCDM results. This widget owns its own cluster / MCDM settings, and the
+/// computed results are shared and cached per settings key via `cluster_cache` /
+/// `mcdm_cache`.
 ///
-/// これにより、設定を切り替えれば対応する結果が表示され、ギャラリーを複数配置して
-/// それぞれ別設定にすれば「設定 A vs 設定 B」の比較ができる（他の Cluster/MCDM
-/// ウィジェットと同じ比較スタイル）。
+/// This means switching the settings shows the corresponding results, and placing multiple
+/// galleries with different settings lets you compare "settings A vs settings B" (the same
+/// comparison style as the other Cluster/MCDM widgets).
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ArtifactGallery {
     pub mode: ArtifactViewMode,
     pub page: usize,
     pub thumb_size: ThumbSize,
-    /// 1 トライアルに複数アーティファクトがある場合に、何番目（0 始まり）を表示するか。
+    /// Which artifact index (0-based) to display when a trial has multiple artifacts.
     pub artifact_index: usize,
-    /// カードクリックで開くトライアル詳細モーダル（散布図等と共有）。
+    /// Trial detail modal opened by clicking a card (shared with the scatter plots, etc.).
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
-    /// 直近フレームで画像テクスチャを生成した file:// URI 一覧（ページ離脱時の解放用）。
+    /// List of `file://` URIs for which an image texture was generated in the most recent
+    /// frame (used to free them when leaving the page).
     #[serde(skip)]
     displayed_uris: Vec<String>,
-    /// 直近に描画した (表示モード, ページ)。これが変わったら前ページのテクスチャを解放する。
+    /// The most recently rendered (view mode, page). When this changes, the previous
+    /// page's textures are freed.
     #[serde(skip)]
     displayed_key: Option<(ArtifactViewMode, usize)>,
-    // ── Cluster 設定（ClusterTable と同一構成）──────────────────
+    // ── Cluster settings (same layout as ClusterTable) ──────────────
     pub k: usize,
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
-    /// Elbow（自動）モードで探索する k の上限。
+    /// Upper bound of k explored in Elbow (automatic) mode.
     pub elbow_max_k: usize,
     #[serde(skip)]
     pub cluster_computing: bool,
@@ -114,7 +117,7 @@ pub struct ArtifactGallery {
     pub cluster_pending: Option<ClusterComputeRequest>,
     #[serde(skip)]
     pub cluster_error: Option<crate::state::messages::ClusterUiError>,
-    // ── MCDM 設定（既存 McdmControls を再利用）──────────────────
+    // ── MCDM settings (reuses the existing McdmControls) ──────────────
     pub mcdm: McdmControls,
 }
 
@@ -142,7 +145,7 @@ impl Default for ArtifactGallery {
 }
 
 impl ArtifactGallery {
-    /// 現在のクラスタ設定に対応するキャッシュキー。
+    /// Cache key corresponding to the current cluster settings.
     pub fn cluster_cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(
             self.target_space,
@@ -153,7 +156,8 @@ impl ArtifactGallery {
         )
     }
 
-    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    /// Assembles the bundle of mutable references to the settings/execution-state fields
+    /// (for delegating to shared logic).
     fn cluster_controls(&mut self) -> ClusterControls<'_> {
         ClusterControls {
             k: &mut self.k,
@@ -167,7 +171,7 @@ impl ArtifactGallery {
         }
     }
 
-    /// クラスタリング実行をキューに積む（ClusterTable と同等）。
+    /// Queues a clustering run (equivalent to ClusterTable).
     fn try_queue_cluster_compute(&mut self, pareto_count: usize) {
         self.cluster_controls().try_queue_compute(pareto_count);
     }
@@ -183,15 +187,16 @@ impl ArtifactGallery {
         self.cluster_error = None;
     }
 
-    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
-    /// キャンバスの各アイテムへ完了状態を反映するために使う（表示設定は維持）。
+    /// Adopts the shared clustering execution state (computing / pending / error).
+    /// Used to reflect completion status into each canvas item (display settings are kept
+    /// as-is).
     pub fn adopt_cluster_runtime(&mut self, src: &Self) {
         self.cluster_computing = src.cluster_computing;
         self.cluster_pending = src.cluster_pending.clone();
         self.cluster_error = src.cluster_error.clone();
     }
 
-    /// ギャラリーを描画する。
+    /// Renders the gallery.
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &mut AppState) {
         if app_state.current_study.is_none() {
             ui.centered_and_justified(|ui| {
@@ -212,7 +217,7 @@ impl ArtifactGallery {
             return;
         }
 
-        // 1 トライアルあたりの最大アーティファクト数（インデックスセレクタの範囲に使う）。
+        // Maximum number of artifacts per trial (used as the range for the index selector).
         let max_artifacts = app_state
             .artifact_map
             .values()
@@ -224,7 +229,7 @@ impl ArtifactGallery {
             self.artifact_index = max_artifacts - 1;
         }
 
-        // モードセレクタ + アーティファクト番号セレクタ。
+        // Mode selector + artifact index selector.
         ui.horizontal(|ui| {
             ui.label("View:");
             egui::ComboBox::from_id_salt("artifact_gallery_mode")
@@ -251,7 +256,7 @@ impl ArtifactGallery {
                     }
                 });
 
-            // 1 トライアルに複数アーティファクトがある場合のみ表示する。
+            // Only shown when a trial has more than one artifact.
             if max_artifacts > 1 {
                 ui.separator();
                 ui.label("Artifact #:");
@@ -267,11 +272,13 @@ impl ArtifactGallery {
 
         let artifact_index = self.artifact_index;
 
-        // 各 trial の目的関数値ラベルを事前計算する（カードに良し悪し判断材料として表示）。
+        // Precompute each trial's objective value labels (shown on cards as a hint for
+        // judging quality).
         let obj_by_trial = build_objective_labels(app_state);
 
-        // キャンバスの Area 内では available_width が実質無制限になり horizontal_wrapped が
-        // 折り返さないため、ウィジェット本体の幅をここで確定して列数計算に使う。
+        // Inside the canvas's Area, `available_width` is effectively unbounded and
+        // `horizontal_wrapped` won't wrap, so the widget's own width is fixed here and used
+        // for the column count calculation.
         let content_w = ui.available_width();
 
         match self.mode {
@@ -286,7 +293,8 @@ impl ArtifactGallery {
             }
         }
 
-        // カードクリックで開いたトライアル詳細モーダルを描画する（散布図等と同一内容）。
+        // Render the trial detail modal opened by a card click (same content as the
+        // scatter plots, etc.).
         if self.detail_modal.is_open() {
             if let Some(ctx) = app_state.current_study.as_ref() {
                 self.detail_modal.show(
@@ -300,8 +308,9 @@ impl ArtifactGallery {
         }
     }
 
-    /// ページ / モードが変わったら前ページで生成した画像テクスチャを解放し（ページ送りでの
-    /// VRAM 蓄積防止）、今フレーム表示中の URI を記録する。
+    /// When the page / mode changes, frees the image textures generated for the previous
+    /// page (preventing VRAM accumulation while paging), and records the URIs displayed in
+    /// the current frame.
     fn refresh_displayed_textures(
         &mut self,
         ctx: &egui::Context,
@@ -317,7 +326,8 @@ impl ArtifactGallery {
         self.displayed_uris = uris;
     }
 
-    /// カードグリッド描画後の結果（ハイライト要求 / 詳細モーダル要求）を適用する。
+    /// Applies the outcome of rendering the card grid (highlight request / detail modal
+    /// request).
     fn apply_card_outcome(
         &mut self,
         app_state: &mut AppState,
@@ -332,7 +342,8 @@ impl ArtifactGallery {
         }
     }
 
-    /// All モード: artifact を持つ全 trial をページネーション表示（各 trial は選択番号の 1 枚）。
+    /// All mode: paginated display of every trial with an artifact (each trial shows the
+    /// selected index only).
     fn show_all(
         &mut self,
         ui: &mut egui::Ui,
@@ -341,9 +352,10 @@ impl ArtifactGallery {
         artifact_index: usize,
         obj_by_trial: &HashMap<u32, String>,
     ) {
-        // artifact_map は Journal 全体（全 Study）の trial を含むため、まず現在の Study に
-        // 属する trial へ絞り込む（trial_id は Journal 全体で一意なので他 Study の artifact が
-        // 混在しうる）。その上で選択フィルタ（PCP ブラシ等）を適用する（空 = 全件）。
+        // `artifact_map` includes trials from the whole Journal (all Studies), so first
+        // restrict to trials belonging to the current Study (`trial_id` is unique across
+        // the whole Journal, so artifacts from other Studies can be mixed in). Then apply
+        // the selection filter (PCP brush, etc.) on top (empty = all).
         let study_trials = restrict_to_current_study(
             artifact_trials_with_index(&app_state.artifact_map, artifact_index),
             app_state,
@@ -388,7 +400,8 @@ impl ArtifactGallery {
                 cards.push((trial_id, String::new(), entry));
             }
         }
-        // このページで生成する画像テクスチャの URI。ページ離脱時の解放判定に使う。
+        // URIs of the image textures generated for this page. Used to decide what to free
+        // when leaving the page.
         let page_uris: Vec<String> = cards.iter().filter_map(|(_, _, e)| image_uri(e)).collect();
         let mut clicked: Option<u32> = None;
         let mut detail: Option<TrialDetailTarget> = None;
@@ -405,7 +418,7 @@ impl ArtifactGallery {
         self.apply_card_outcome(app_state, clicked, detail);
     }
 
-    /// Cluster モード: 設定 UI + クラスタ別セクション表示。
+    /// Cluster mode: settings UI + per-cluster sections.
     fn show_cluster(
         &mut self,
         ui: &mut egui::Ui,
@@ -461,9 +474,10 @@ impl ArtifactGallery {
         let thumb = self.thumb_size.size();
         let n_clusters = cr.n_clusters.max(1);
 
-        // 全クラスタのメンバーをセクション順に平坦化し、All モードと同様に PAGE_SIZE 単位で
-        // ページ分割する。以前は非仮想化で全クラスタ・全メンバー画像を毎フレーム add しており
-        // 数百枚で表示切替時に大ハング + VRAM 常駐していた（M-15）。
+        // Flatten every cluster's members in section order and paginate them in PAGE_SIZE
+        // chunks, same as All mode. Previously this rendered every cluster's every member
+        // image unvirtualized every frame, which caused a large hang plus resident VRAM at
+        // hundreds of images when switching views (M-15).
         let flat: Vec<(i32, u32, &ArtifactEntry)> = sections
             .iter()
             .flat_map(|(label, members)| members.iter().map(move |(tid, e)| (*label, *tid, *e)))
@@ -492,13 +506,14 @@ impl ArtifactGallery {
         });
 
         let page_items = paginate(&flat, self.page, PAGE_SIZE);
-        // このページで生成する画像テクスチャの URI（ページ離脱時の解放判定用）。
+        // URIs of the image textures generated for this page (used to decide what to free
+        // when leaving the page).
         let page_uris: Vec<String> = page_items
             .iter()
             .filter_map(|(_, _, e)| image_uri(e))
             .collect();
         let ctx = ui.ctx().clone();
-        // ヘッダーのインデント分を差し引いた幅で列数を決める。
+        // Determine the column count using the width minus the header's indentation.
         let w = (content_w - 24.0).max(thumb);
 
         let mut clicked: Option<u32> = None;
@@ -506,7 +521,8 @@ impl ArtifactGallery {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // ページ内で連続する同一クラスタをまとめ、セクション見出し + グリッドで描画する。
+                // Group consecutive entries of the same cluster within the page, and render
+                // a section heading + grid for each.
                 let mut i = 0;
                 while i < page_items.len() {
                     let label = page_items[i].0;
@@ -549,7 +565,7 @@ impl ArtifactGallery {
         self.apply_card_outcome(app_state, clicked, detail);
     }
 
-    /// MCDM モード: 設定 UI + ランキング順表示。
+    /// MCDM mode: settings UI + ranking-order display.
     fn show_mcdm(
         &mut self,
         ui: &mut egui::Ui,
@@ -607,8 +623,8 @@ impl ArtifactGallery {
             let badge = format!("#{} ({:.3})", entry.rank, entry.score);
             cards.push((entry.trial_id, badge, entry.entry));
         }
-        // Mcdm はページ分割しない（top_n で件数がユーザー制限済み）。モード離脱時に
-        // テクスチャを解放できるよう、表示中 URI だけは記録する。
+        // Mcdm mode is not paginated (top_n already limits the count for the user).
+        // Only record the currently displayed URIs so textures can be freed on mode exit.
         let page_uris: Vec<String> = cards.iter().filter_map(|(_, _, e)| image_uri(e)).collect();
         let ctx = ui.ctx().clone();
         let mut clicked: Option<u32> = None;
@@ -625,7 +641,7 @@ impl ArtifactGallery {
         self.apply_card_outcome(app_state, clicked, detail);
     }
 
-    /// クラスタリング設定 UI（ClusterTable の show_controls と同操作感）。
+    /// Clustering settings UI (same feel as ClusterTable's `show_controls`).
     fn show_cluster_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
         self.cluster_controls()
             .show_controls(ui, pareto_count, "artifact_gallery", true);

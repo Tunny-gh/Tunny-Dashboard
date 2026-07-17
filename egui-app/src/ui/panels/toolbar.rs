@@ -6,7 +6,7 @@ use crate::ui::widget_states::WidgetStates;
 #[derive(Debug, Clone)]
 pub enum ToolbarAction {
     OpenJournal(std::path::PathBuf),
-    /// 「Open URL…」ダイアログを開く（PostgreSQL/MySQL 接続 URL を直接入力する）。
+    /// Opens the "Open URL…" dialog (directly enter a PostgreSQL/MySQL connection URL).
     OpenDbUrlDialog,
     SelectStudy(StudyMeta),
     ToggleLiveUpdate,
@@ -14,22 +14,22 @@ pub enum ToolbarAction {
     ScanArtifacts(std::path::PathBuf),
     ClearLoadError,
 
-    // TASK-2228: 新規アクション
+    // TASK-2228: new actions
     ExportCsv(ExportTarget),
-    /// 同一ファイル内の指定 Study を比較対象として追加する。
+    /// Adds the specified Study within the same file as a comparison target.
     AddComparisonStudy(StudyMeta),
     RemoveComparisonStudy(usize),
 
-    /// 現在のレイアウト・ウィジェット設定・表示設定をセッションファイルへ保存する。
+    /// Saves the current layout, widget settings, and view settings to a session file.
     SaveSession,
-    /// 指定パスのセッションファイルを復元する。
+    /// Restores the session file at the specified path.
     LoadSession(std::path::PathBuf),
 
-    /// R4: 「Report…」ダイアログを開く（自己完結型レポート出力設定）。
+    /// R4: Opens the "Report…" dialog (self-contained report export settings).
     OpenReportDialog,
 }
 
-/// ToolBar を描画する
+/// Draws the ToolBar.
 pub fn show_toolbar(
     ui: &mut egui::Ui,
     app_state: &AppState,
@@ -38,7 +38,7 @@ pub fn show_toolbar(
 ) -> Vec<ToolbarAction> {
     let mut actions = Vec::new();
     ui.horizontal(|ui| {
-        // ファイル開くボタン
+        // File open button
         let open_enabled = !is_loading;
         if toolbar_button(ui, "Open", open_enabled).clicked() {
             if let Some(path) = crate::io::file::open_file_dialog() {
@@ -46,13 +46,14 @@ pub fn show_toolbar(
             }
         }
 
-        // ファイルダイアログでは選べない PostgreSQL/MySQL 接続 URL を直接入力するボタン。
+        // A button to directly enter a PostgreSQL/MySQL connection URL, which can't be
+        // selected via the file dialog.
         if toolbar_button(ui, "Open URL…", open_enabled).clicked() {
             actions.push(ToolbarAction::OpenDbUrlDialog);
         }
 
-        // セッション（レイアウト + ウィジェット設定 + 表示設定）の保存・復元。
-        // データ本体は保存しないため、データ未読み込みでも常に押せる。
+        // Save/restore the session (layout + widget settings + view settings).
+        // The data itself is not saved, so this can always be pressed even before data is loaded.
         if toolbar_button(ui, "Save Session", true)
             .on_hover_text("Save the canvas layout, widget settings, and view settings")
             .clicked()
@@ -70,7 +71,7 @@ pub fn show_toolbar(
 
         ui.separator();
 
-        // Study選択: 常に ComboBox を表示、未読み込み時は無効
+        // Study selection: always shows the ComboBox, disabled when nothing is loaded
         {
             ui.label(
                 egui::RichText::new("Target Study:")
@@ -120,10 +121,11 @@ pub fn show_toolbar(
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // ライブ更新トグル（journal (.log) / SQLite (.db 等) / PostgreSQL・MySQL 接続 URL
-            // のみ有効。フラット CSV は 1 回きりのインポートでストリーミング追記の概念が無いため
-            // 開いていても押せないようにする）。DB URL は拡張子を持たないため
-            // `!is_csv_path` の判定にそのまま通る。
+            // Live update toggle (enabled only for journal (.log) / SQLite (.db, etc.) /
+            // PostgreSQL/MySQL connection URLs. Flat CSV is a one-time import with no
+            // concept of streaming appends, so this stays unpressable even when one is
+            // open). DB URLs have no extension, so they pass through the `!is_csv_path`
+            // check as-is.
             let can_toggle = app_state
                 .journal_path
                 .as_deref()
@@ -143,7 +145,7 @@ pub fn show_toolbar(
                 actions.push(ToolbarAction::ToggleLiveUpdate);
             }
 
-            // 試行数カウンタ
+            // Trial count
             let trial_label = if let Some(study) = &app_state.current_study {
                 format!("Trials: {}", study.trial_count())
             } else {
@@ -155,7 +157,7 @@ pub fn show_toolbar(
                     .size(12.0),
             );
 
-            // ポーリング間隔スライダー（ライブ更新ON時のみ表示）
+            // Polling interval slider (shown only when live update is ON)
             if app_state.live_update.enabled {
                 let mut interval_sec = app_state.live_update.interval_ms as f64 / 1000.0;
                 let prev = interval_sec;
@@ -173,7 +175,7 @@ pub fn show_toolbar(
 
             ui.separator();
 
-            // ── REQ-007: Artifacts フォルダ選択 ───────────────────────────────
+            // ── REQ-007: Artifacts folder selection ───────────────────────────────
             if toolbar_button(ui, "Artifacts", true).clicked() {
                 if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
                     actions.push(ToolbarAction::ScanArtifacts(base_dir));
@@ -212,7 +214,7 @@ pub fn show_toolbar(
                 });
             }
 
-            // ── R4: 自己完結型レポート出力（HTML/Markdown/JSON） ─────────────
+            // ── R4: self-contained report export (HTML/Markdown/JSON) ─────────────
             {
                 let has_study = app_state.current_study.is_some();
                 let mut response = toolbar_button(ui, "Report…", has_study);
@@ -224,19 +226,20 @@ pub fn show_toolbar(
                 }
             }
 
-            // 比較対象はバーにチップを並べず、1 つのドロップダウン内の
-            // チェックボックス一覧で管理する（バーの横幅崩れを防ぐ）。
-            // チェックで比較対象に追加、外すと解除する。基準 Study 自身は一覧に出さない。
+            // Comparison targets are not laid out as chips on the bar; instead they're
+            // managed via a checkbox list inside a single dropdown (to prevent the bar
+            // from overflowing its width). Checking adds a comparison target, unchecking
+            // removes it. The base Study itself is not shown in the list.
             push_comparison_selector(ui, app_state, &mut actions);
 
             ui.separator();
 
-            // ローディングインジケーター
+            // Loading indicator
             if is_loading {
                 ui.spinner();
             }
 
-            // エラーメッセージ
+            // Error message
             if let Some(err) = load_error {
                 if ui
                     .colored_label(ERROR_COLOR(), format!("Error: {}", err))
@@ -250,8 +253,8 @@ pub fn show_toolbar(
     actions
 }
 
-/// カラーマップ選択セレクタ（ツールバー 2 段目・左端、常時表示）。
-/// 変更時は全チャートの色を再計算する。
+/// Colormap selector (toolbar row 2, leftmost, always shown).
+/// Recomputes the colors of all charts on change.
 pub fn show_colormap_selector(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -281,9 +284,10 @@ pub fn show_colormap_selector(
     });
 }
 
-/// 比較 Study 選択ドロップダウンを描画する。
-/// バーには「Compare (件数)」のラベルだけを置き、開くと同一ファイルの
-/// Study がチェックボックスで並ぶ。チェック状態の変化に応じて追加/解除アクションを積む。
+/// Draws the comparison Study selection dropdown.
+/// Only a "Compare (count)" label is placed on the bar; opening it lists the Studies
+/// from the same file as checkboxes. Add/remove actions are pushed in response to
+/// checkbox state changes.
 fn push_comparison_selector(
     ui: &mut egui::Ui,
     app_state: &AppState,
@@ -402,7 +406,7 @@ mod tests {
 
     #[test]
     fn loading_state_clears_on_file_open_sequence() {
-        // ファイル選択時に is_loading=true, load_error=None になることを確認
+        // Verify that selecting a file sets is_loading=true, load_error=None
         let is_loading = true;
         let load_error: Option<String> = None;
         assert!(is_loading);
@@ -411,7 +415,7 @@ mod tests {
 
     #[test]
     fn error_cleared_on_click_simulation() {
-        // エラーラベルクリック時のシミュレーション
+        // Simulates clicking the error label
         let load_error: Option<String> = None;
         assert!(load_error.is_none());
     }
@@ -428,7 +432,7 @@ mod tests {
         }
     }
 
-    // TASK-2228: 新規 ToolbarAction variants のテスト
+    // TASK-2228: tests for new ToolbarAction variants
     #[test]
     fn toolbar_action_variants_compile_and_match() {
         let actions = vec![
@@ -455,7 +459,7 @@ mod tests {
         assert_eq!(actions.len(), 5);
     }
 
-    // ── TASK-2233: CSV Export UI テスト ──────────────────────────
+    // ── TASK-2233: CSV Export UI tests ──────────────────────────
 
     #[test]
     fn export_csv_action_targets_all_three_modes() {
@@ -486,7 +490,7 @@ mod tests {
         assert_eq!(content, csv);
     }
 
-    // ── TASK-2234: Comparison UI テスト ──────────────────────────
+    // ── TASK-2234: Comparison UI tests ──────────────────────────
 
     #[test]
     fn toolbar_emits_add_comparison_action() {

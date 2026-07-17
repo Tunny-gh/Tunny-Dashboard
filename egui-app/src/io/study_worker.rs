@@ -11,69 +11,70 @@ use tunny_core::dataframe::DataFrame;
 use tunny_core::rdb::RdbUrl;
 
 enum StudyCommand {
-    /// Phase 1: ファイルをスキャンして Study 一覧のみ取得する
+    /// Phase 1: scans the file and retrieves only the list of Studies
     ScanJournal {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
-    /// フラット CSV（1 行 = 1 トライアル）形式を読み込み、単一 Study を登録する。
+    /// Loads a flat CSV (1 row = 1 trial) format and registers it as a single Study.
     ScanCsv {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
-    /// Optuna SQLite（RDBStorage）を開いて Study 一覧のみ取得する。
+    /// Opens Optuna SQLite (RDBStorage) and retrieves only the list of Studies.
     ScanSqlite {
         path: PathBuf,
         tx: SyncSender<AppMessage>,
     },
-    /// Optuna RDBStorage（PostgreSQL/MySQL）を URL 経由で開いて Study 一覧のみ取得する。
+    /// Opens Optuna RDBStorage (PostgreSQL/MySQL) via a URL and retrieves only the list of Studies.
     ScanRdb {
         url: RdbUrl,
         tx: SyncSender<AppMessage>,
     },
-    /// Phase 2 兼再選択: 未ロードなら完全パース、ロード済みなら即活性化
+    /// Phase 2 / reselection: fully parses if not yet loaded, activates immediately if already loaded
     SelectStudy {
         meta: StudyMeta,
         tx: SyncSender<AppMessage>,
     },
-    /// 同一ファイル内の別 Study を比較対象としてロードする。
-    /// 未ロードならキャッシュ済みバイト列から該当 Study のみパースし、
-    /// アクティブ Study は変更せずに DataFrame スナップショットと HV 履歴を返す。
+    /// Loads another Study within the same file as a comparison target.
+    /// If not yet loaded, parses only that Study from the cached byte buffer,
+    /// and returns a DataFrame snapshot and HV history without changing the active Study.
     LoadComparisonStudy {
         meta: StudyMeta,
         tx: SyncSender<AppMessage>,
     },
-    /// SQLite ライブ更新: フィンガープリント変化を検出した study を丸ごと再パースする。
-    /// `SelectStudy` と異なり `loaded_study_ids` の有無に関わらず必ず再パースする
-    /// （既にロード済みでも中身が変わっているのが再ロードの動機のため）。
+    /// SQLite live update: fully re-parses a study whose fingerprint change was detected.
+    /// Unlike `SelectStudy`, this always re-parses regardless of whether it's in
+    /// `loaded_study_ids` (since a reload is triggered precisely because content changed
+    /// even if the study was already loaded).
     ReloadSqliteStudy {
         study_id: u32,
         tx: SyncSender<AppMessage>,
     },
-    /// RDB ライブ更新版の `ReloadSqliteStudy`。フィンガープリント変化を検出した study を
-    /// URL 経由で丸ごと再パースする。
+    /// RDB live-update counterpart of `ReloadSqliteStudy`. Fully re-parses a study whose
+    /// fingerprint change was detected, via the URL.
     ReloadRdbStudy {
         study_id: u32,
         tx: SyncSender<AppMessage>,
     },
 }
 
-/// ワーカースレッドのローカル状態
+/// Local state of the worker thread
 struct WorkerState {
-    /// Phase 1 で読み込んだ生バイト列。Phase 2 でファイル再読み込みを避けるためキャッシュする
+    /// Raw byte buffer read in Phase 1. Cached to avoid re-reading the file in Phase 2
     journal_data: Option<Vec<u8>>,
-    /// 開いている Optuna SQLite ストレージのパス。journal と異なりバイト列はキャッシュせず、
-    /// Phase 2 はこのパスから直接再クエリする。journal/CSV とは相互排他。
+    /// Path of the currently open Optuna SQLite storage. Unlike journal, the bytes aren't cached;
+    /// Phase 2 re-queries directly from this path. Mutually exclusive with journal/CSV.
     sqlite_path: Option<PathBuf>,
-    /// 開いている Optuna RDB（PostgreSQL/MySQL）ストレージの接続 URL。
-    /// sqlite_path 同様バイト列はキャッシュせず、Phase 2 は毎回この URL から再接続・再クエリする。
-    /// journal/CSV/sqlite とは相互排他（いずれかをセットする箇所で他を必ず None に戻す）。
+    /// Connection URL of the currently open Optuna RDB (PostgreSQL/MySQL) storage.
+    /// Like sqlite_path, bytes aren't cached; Phase 2 reconnects and re-queries from this URL every time.
+    /// Mutually exclusive with journal/CSV/sqlite (wherever one is set, the others are always reset to None).
     rdb_url: Option<RdbUrl>,
-    /// DataFrame をグローバルストアに登録済みの study_id セット
+    /// Set of study_ids whose DataFrame has been registered in the global store
     loaded_study_ids: HashSet<u32>,
-    /// フラット CSV インポート時の `img` 列由来アーティファクト。
-    /// `(artifacts_dir, trial_id → entries)`。Study 選択（StudySelected が `clear()` で
-    /// アーティファクトを破棄する）後に毎回再送するため保持する。Journal を開くと None に戻す。
+    /// Artifacts derived from the `img` column when importing a flat CSV.
+    /// `(artifacts_dir, trial_id -> entries)`. Kept so it can be resent every time a Study is
+    /// selected (since StudySelected's `clear()` discards artifacts). Reset to None when a Journal is opened.
     csv_artifacts: Option<(PathBuf, HashMap<u32, Vec<ArtifactEntry>>)>,
 }
 
@@ -105,8 +106,8 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                     StudyCommand::ScanCsv { path, tx } => {
                         match crate::io::flat_csv::load_csv(&path) {
                             Ok((meta, artifacts_dir, artifacts)) => {
-                                // CSV は単一 Study を即時ストア登録済み。Journal の
-                                // ストリーミング経路は使わず、loaded 扱いにする。
+                                // CSV immediately registers its single Study in the store. It
+                                // doesn't use the Journal's streaming path, so it's treated as loaded.
                                 state.journal_data = None;
                                 state.sqlite_path = None;
                                 state.rdb_url = None;
@@ -148,10 +149,10 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                     StudyCommand::SelectStudy { meta, tx } => {
                         let study_id = meta.study_id;
                         if state.loaded_study_ids.contains(&study_id) {
-                            // DataFrame は既にストアにある → そのまま活性化（即時 1 通）
+                            // The DataFrame is already in the store -> activate it directly (single immediate message)
                             let _ = tx.send(crate::io::study::select_study_task(meta));
-                            // CSV インポート時は StudySelected の clear() でアーティファクトが
-                            // 破棄されるため、選択のたびに再送する。
+                            // For CSV imports, StudySelected's clear() discards the artifacts,
+                            // so resend them every time a selection happens.
                             if let Some((dir, artifacts)) = &state.csv_artifacts {
                                 let _ = tx.send(AppMessage::ArtifactsDirScanned {
                                     trial_artifacts: artifacts.clone(),
@@ -159,20 +160,20 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 });
                             }
                         } else if let Some(ref data) = state.journal_data {
-                            // 未ロード → Phase 2: ストリーミング解析。完了 Trial を 1000 件ごとに
-                            // StudyChunkLoaded として tx へ逐次送信する（複数通）。
+                            // Not yet loaded -> Phase 2: streaming parse. Sends completed Trials to
+                            // tx incrementally as StudyChunkLoaded, every 1000 trials (multiple messages).
                             let ok = crate::io::journal::stream_single_study_task(data, meta, &tx);
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
                         } else if let Some(ref path) = state.sqlite_path {
-                            // 未ロード → SQLite から全行を単一チャンクとして読み込む（1 通）。
+                            // Not yet loaded -> loads all rows from SQLite as a single chunk (one message).
                             let ok = crate::io::sqlite::load_single_study_task(path, study_id, &tx);
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
                         } else if let Some(ref url) = state.rdb_url {
-                            // 未ロード → RDB から全行を単一チャンクとして読み込む（1 通）。
+                            // Not yet loaded -> loads all rows from the RDB as a single chunk (one message).
                             let ok = crate::io::rdb::load_single_study_task(url, study_id, &tx);
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
@@ -186,19 +187,21 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                     }
                     StudyCommand::LoadComparisonStudy { meta, tx } => {
                         let study_id = meta.study_id;
-                        // DataFrame を確保する: 既にストアにあればそのまま、
-                        // 未ロードならキャッシュ済みストレージから該当 Study のみパースする。
-                        // 旧実装はパース失敗を `Err(_) => None` で握り潰していたため、原因
-                        // （破損データ・DB エラー等）がユーザーに伝わらなかった。ここでは
-                        // 実エラー文字列を保持し `ComparisonStudyLoadFailed` に載せて返す。
+                        // Secure the DataFrame: use it as-is if already in the store,
+                        // otherwise parse only the target Study from the cached storage.
+                        // The old implementation swallowed parse failures with `Err(_) => None`,
+                        // so the cause (corrupted data, DB error, etc.) never reached the user.
+                        // Here the actual error string is kept and returned via `ComparisonStudyLoadFailed`.
                         let df: Result<Arc<DataFrame>, String> =
                             match tunny_core::dataframe::snapshot(study_id) {
                                 Some(df) => Ok(df),
                                 None => {
-                                    // ストレージ種別ごとに「パース部」だけを実行し、結果を
-                                    // `Result<(DataFrame, StudyExtras), String>` に正規化する。
-                                    // 3 種で共通の「ストア登録」処理はパース成功後に一括で行う
-                                    // （旧実装で 3 回コピペされていた 8 行ブロックを 1 箇所へ集約）。
+                                    // Runs only the "parse" step per storage kind, normalizing the
+                                    // result to `Result<(DataFrame, StudyExtras), String>`.
+                                    // The "store registration" step shared across the three kinds is
+                                    // done together after a successful parse (consolidating the
+                                    // 8-line block that was copy-pasted 3 times in the old implementation
+                                    // into one place).
                                     let parsed = if let Some(data) = state.journal_data.as_ref() {
                                         tunny_core::io::journal::parser::parse_single_study(
                                             data, study_id,
@@ -213,7 +216,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                     } else {
                                         Err("No storage is currently open.".to_string())
                                     };
-                                    // パース成功時のみ共通のストア登録を行い Arc を得る。
+                                    // Only on a successful parse does it perform the shared store registration and obtain the Arc.
                                     parsed.map(|(df, extras)| {
                                         let arc = Arc::new(df);
                                         tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
@@ -261,17 +264,17 @@ pub fn dispatch_scan_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanJournal { path, tx });
 }
 
-/// フラット CSV を読み込み単一 Study として登録する。
+/// Loads a flat CSV and registers it as a single Study.
 pub fn dispatch_scan_csv(path: PathBuf, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanCsv { path, tx });
 }
 
-/// Optuna SQLite ストレージを開いて Study 一覧を取得する。
+/// Opens the Optuna SQLite storage and retrieves the list of Studies.
 pub fn dispatch_scan_sqlite(path: PathBuf, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanSqlite { path, tx });
 }
 
-/// Optuna RDBStorage（PostgreSQL/MySQL）を URL 経由で開いて Study 一覧を取得する。
+/// Opens Optuna RDBStorage (PostgreSQL/MySQL) via a URL and retrieves the list of Studies.
 pub fn dispatch_scan_rdb(url: RdbUrl, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ScanRdb { url, tx });
 }
@@ -280,27 +283,27 @@ pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::SelectStudy { meta, tx });
 }
 
-/// 同一ファイル内の別 Study を比較対象としてロードする。
-/// ワーカースレッド経由でキャッシュ済みバイト列を再利用し、
-/// アクティブ Study を変更せずに `ComparisonStudyLoaded` を送信する。
+/// Loads another Study within the same file as a comparison target.
+/// Reuses the cached byte buffer via the worker thread, and sends
+/// `ComparisonStudyLoaded` without changing the active Study.
 pub fn dispatch_load_comparison_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, tx });
 }
 
-/// SQLite ライブ更新: フィンガープリント変化を検出した study の再ロードを依頼する。
+/// SQLite live update: requests a reload of a study whose fingerprint change was detected.
 pub fn dispatch_reload_sqlite_study(study_id: u32, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ReloadSqliteStudy { study_id, tx });
 }
 
-/// RDB ライブ更新: フィンガープリント変化を検出した study の再ロードを依頼する。
+/// RDB live update: requests a reload of a study whose fingerprint change was detected.
 pub fn dispatch_reload_rdb_study(study_id: u32, tx: SyncSender<AppMessage>) {
     let _ = worker_sender().send(StudyCommand::ReloadRdbStudy { study_id, tx });
 }
 
-/// 比較 Study の DataFrame スナップショットから `StudyContext` を構築する。
-/// Pareto ランクはこの用途では不要なため計算せず空で初期化する
-/// （`StudyView::new` が空ベクタを行数分の 0 に補完する）。
-/// 指標値の計算は `poll_chart` が base+全比較を一括で行う。
+/// Builds a `StudyContext` from a comparison Study's DataFrame snapshot.
+/// Pareto rank isn't needed for this purpose, so it's initialized empty without computing it
+/// (`StudyView::new` pads the empty vector with 0s for the row count).
+/// Indicator-value computation is done together for base + all comparisons by `poll_chart`.
 fn build_comparison_loaded(meta: StudyMeta, df: &Arc<DataFrame>) -> AppMessage {
     use crate::state::app_state::{StudyContext, StudyView};
 

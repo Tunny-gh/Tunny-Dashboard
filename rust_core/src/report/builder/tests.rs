@@ -46,8 +46,10 @@ fn meta_single() -> StudyMeta {
 }
 
 fn df_single() -> DataFrame {
-    // obj0 = a（単調増加）→ 最良は trial0 で確定（後半に更新なし = Converged）。
-    // a は obj0 と完全相関（|ρ|=1）で重要度最大。b は弱相関。
+    // obj0 = a (monotonically increasing) -> best is settled at trial0 (no
+    // update in the latter half = Converged).
+    // a is perfectly correlated with obj0 (|ρ|=1), giving it the highest
+    // importance. b is weakly correlated.
     let b = [5.0, 3.0, 8.0, 1.0, 9.0, 2.0, 7.0, 0.0, 6.0, 4.0, 10.0, 11.0];
     let rows: Vec<TrialRow> = (0..12)
         .map(|i| row(i, &[("a", i as f64), ("b", b[i as usize])], &[i as f64]))
@@ -81,7 +83,8 @@ fn meta_multi() -> StudyMeta {
 }
 
 fn df_multi() -> DataFrame {
-    // front = {trial0(1,4), trial1(2,2), trial2(4,1)}、他は支配される。
+    // front = {trial0(1,4), trial1(2,2), trial2(4,1)}, the rest are
+    // dominated.
     let pts = [
         (1.0, 4.0),
         (2.0, 2.0),
@@ -106,7 +109,7 @@ fn df_multi() -> DataFrame {
 }
 
 // =============================================================================
-// 単目的
+// Single-objective
 // =============================================================================
 
 #[test]
@@ -119,7 +122,7 @@ fn single_objective_outcome_and_convergence() {
             assert_eq!(bt.trial_number, 0, "obj0=a 最小は trial0");
             assert_eq!(bt.objectives, vec![0.0]);
             assert!(!top_n.is_empty());
-            // 上位は最良（最小）順。
+            // Top entries are ordered best (smallest) first.
             let first = top_n[0].objectives[0];
             let last = top_n[top_n.len() - 1].objectives[0];
             assert!(first <= last, "top_n は最良順で並ぶ");
@@ -127,7 +130,7 @@ fn single_objective_outcome_and_convergence() {
         _ => panic!("single-objective study must yield SingleObj"),
     }
 
-    // best-so-far は最小化で非増加（単調）。
+    // best-so-far is non-increasing (monotonic) for minimization.
     let vals: Vec<f64> = report.convergence.series.iter().map(|p| p.value).collect();
     for w in vals.windows(2) {
         assert!(w[1] <= w[0], "best-so-far は非増加であるべき: {w:?}");
@@ -145,7 +148,7 @@ fn single_objective_importance_orders_a_first() {
     assert_eq!(imp.method, "spearman_abs");
     assert_eq!(imp.objective_name, "obj0");
     assert_eq!(imp.scores[0].0, "a", "a は obj0 と完全相関で最重要");
-    // 降順。
+    // Descending order.
     for w in imp.scores.windows(2) {
         assert!(w[0].1 >= w[1].1, "importance は降順");
     }
@@ -162,7 +165,7 @@ fn single_objective_key_findings_present() {
 }
 
 // =============================================================================
-// 多目的
+// Multi-objective
 // =============================================================================
 
 #[test]
@@ -181,14 +184,14 @@ fn multi_objective_pareto_and_mcdm_consensus() {
             assert_eq!(*pareto_size, 3, "front = trial0,1,2");
             assert_eq!(*complete_count, 6);
             assert_eq!(*objective_count, 2);
-            // obj0 最良は trial0（=1）、obj1 最良は trial2（=1）。
+            // obj0's best is trial0 (=1), obj1's best is trial2 (=1).
             let e0 = &per_objective_extremes[0];
             assert_eq!(e0.best_trial_number, 0);
             assert_eq!(e0.best_value, 1.0);
             let e1 = &per_objective_extremes[1];
             assert_eq!(e1.best_trial_number, 2);
             assert_eq!(e1.best_value, 1.0);
-            // 散布図は全 COMPLETE、front 点3つ。
+            // The scatter plot covers all COMPLETE trials, with 3 front points.
             assert_eq!(scatter.len(), 6);
             assert_eq!(scatter.iter().filter(|p| p.on_front).count(), 3);
         }
@@ -198,10 +201,11 @@ fn multi_objective_pareto_and_mcdm_consensus() {
     let mcdm = report.mcdm.expect("mcdm present for multi-objective");
     assert_eq!(mcdm.weight_scheme, "equal");
     assert_eq!(mcdm.weights, vec![0.5, 0.5]);
-    // front が3件なので3手法すべての top10 は front 全体 → コンセンサスは {0,1,2}。
+    // The front has 3 entries, so the top10 of all three methods is the
+    // entire front -> consensus is {0,1,2}.
     assert_eq!(mcdm.consensus_trials, vec![0, 1, 2]);
 
-    // HV は非減少。
+    // HV is non-decreasing.
     let vals: Vec<f64> = report.convergence.series.iter().map(|p| p.value).collect();
     assert_eq!(report.convergence.metric, ConvergenceMetric::Hypervolume);
     for w in vals.windows(2) {
@@ -224,7 +228,7 @@ fn skip_decision_sections_omits_mcdm_and_correlations_but_keeps_ordering() {
         "skip_decision_sections なら correlations も None"
     );
 
-    // pareto_table の TOPSIS 順序付けは mcdm 省略時も機能し続ける。
+    // pareto_table's TOPSIS ordering keeps working even when mcdm is skipped.
     let baseline = build_study_report(&meta_multi(), &df_multi(), None, &source(), &opts());
     match (&report.outcome, &baseline.outcome) {
         (
@@ -247,7 +251,7 @@ fn skip_decision_sections_omits_mcdm_and_correlations_but_keeps_ordering() {
         _ => panic!("multi-objective study must yield MultiObj"),
     }
 
-    // Key Findings は変わらない。
+    // Key Findings should not change.
     let skipped_kinds: Vec<FindingKind> = report.key_findings.iter().map(|f| f.kind).collect();
     let baseline_kinds: Vec<FindingKind> = baseline.key_findings.iter().map(|f| f.kind).collect();
     assert_eq!(skipped_kinds, baseline_kinds);
@@ -255,7 +259,8 @@ fn skip_decision_sections_omits_mcdm_and_correlations_but_keeps_ordering() {
 
 #[test]
 fn multi_objective_trade_off_finding() {
-    // obj0 昇順・obj1 降順（全 COMPLETE 点で Spearman ρ = -1）→ TradeOff finding。
+    // obj0 ascending, obj1 descending (Spearman ρ = -1 across all COMPLETE
+    // points) -> TradeOff finding.
     let pts = [
         (1.0, 6.0),
         (2.0, 5.0),
@@ -290,7 +295,7 @@ fn multi_objective_trade_off_finding() {
 }
 
 // =============================================================================
-// 堅牢性（0 / 1 trial、NaN、制約、extras）
+// Robustness (0 / 1 trial, NaN, constraints, extras)
 // =============================================================================
 
 #[test]
@@ -317,7 +322,7 @@ fn zero_trials_does_not_panic() {
         _ => panic!("expected SingleObj"),
     }
     assert!(report.importance.is_none());
-    // レンダリングも panic しない。
+    // Rendering must not panic either.
     let _ = render_markdown(&report, ReportLang::En);
     let _ = render_markdown(&report, ReportLang::Ja);
 }
@@ -343,7 +348,7 @@ fn single_trial_robustness() {
         }
         _ => panic!("expected SingleObj"),
     }
-    // n<2 のため importance/correlations は計算しない。
+    // importance/correlations are not computed since n<2.
     assert!(report.importance.is_none());
     assert!(report.correlations.is_none());
 }
@@ -354,7 +359,7 @@ fn nan_objective_triggers_data_quality() {
     let mut rows: Vec<TrialRow> = (0..11)
         .map(|i| row(i, &[("a", i as f64), ("b", 0.0)], &[i as f64]))
         .collect();
-    // 1件だけ NaN 目的値。
+    // Just one NaN objective value.
     rows.push(row(11, &[("a", 11.0), ("b", 0.0)], &[f64::NAN]));
     let df = DataFrame::from_trials(
         &rows,
@@ -388,7 +393,7 @@ fn extras_produce_execution_and_pruning() {
             intermediate_values: vec![],
         });
     }
-    // PRUNED 2件（中間値 step あり）と FAIL 1件を追加。
+    // Add 2 PRUNED trials (with intermediate-value steps) and 1 FAIL trial.
     extras.trials.push(TrialExtra {
         trial_id: 12,
         trial_number: 12,
@@ -428,7 +433,7 @@ fn extras_produce_execution_and_pruning() {
 }
 
 // =============================================================================
-// Markdown レンダラ
+// Markdown renderer
 // =============================================================================
 
 #[test]
@@ -436,8 +441,8 @@ fn markdown_contains_all_sections_for_full_study() {
     let report = build_study_report(&meta_single(), &df_single(), None, &source(), &opts());
     let md = render_markdown(&report, ReportLang::En);
     for heading in [
-        // スタディ名の `_` は Markdown 強調と誤解釈されないよう `\_` に
-        // エスケープされる（描画時は `_` として表示される）。
+        // The `_` in the study name is escaped to `\_` so it isn't
+        // misinterpreted as Markdown emphasis (it still renders as `_`).
         "# Optimization Report: single\\_study",
         "## Key Findings",
         "## Outcome",
@@ -476,9 +481,9 @@ fn markdown_escapes_pipe_in_names() {
 
 #[test]
 fn markdown_escapes_backslash_before_pipe() {
-    // バックスラッシュのエスケープはパイプのエスケープより先に行う必要がある
-    // （さもないと `a\|b` の `\` がテーブル構造を壊しかねない）。名前に
-    // `\|` と末尾の `\` を含めて確認する。
+    // Backslash escaping must happen before pipe escaping (otherwise the
+    // `\` in `a\|b` could break the table structure). Verify with a name
+    // that includes `\|` and a trailing `\`.
     let mut meta = meta_single();
     meta.name = r"a\|b\".to_string();
     let report = build_study_report(&meta, &df_single(), None, &source(), &opts());

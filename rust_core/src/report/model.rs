@@ -1,410 +1,441 @@
-//! `StudyReport` の構造体ツリー（言語非依存の構造化ファクト）。
+//! The `StudyReport` struct tree (language-independent structured facts).
 //!
-//! ここに定義する型はすべて `serde::Serialize` を導出し、JSON へそのまま出力できる。
-//! 文章化（en / ja）はレンダラ（`markdown` / `html`）のテンプレートが担当し、
-//! モデル自体は言語に依存しない。数値は f64 のまま保持し、丸め・整形は
-//! レンダラの共通フォーマッタ（[`crate::report::format_number`]）で行う。
+//! Every type defined here derives `serde::Serialize` and can be output
+//! directly as JSON. Prose generation (en / ja) is the responsibility of
+//! the renderer (`markdown` / `html`) templates; the model itself is
+//! language-independent. Numbers are kept as f64, and rounding/formatting
+//! is handled by the renderer's shared formatter
+//! ([`crate::report::format_number`]).
 //!
-//! 決定論性のため、辞書的な集合は [`std::collections::BTreeMap`] または
-//! ソート済み `Vec` で保持し、`HashMap` の反復順に依存する出力を作らない。
+//! For determinism, dictionary-like collections are kept as
+//! [`std::collections::BTreeMap`] or sorted `Vec`s, and no output depends
+//! on `HashMap` iteration order.
 
 use std::collections::BTreeMap;
 
-/// スキーマのバージョン。破壊的変更のたびに増やす。
+/// Schema version. Bumped on every breaking change.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// 目的の最適化方向（`serde` 出力用の言語非依存表現）。
+/// Optimization direction of an objective (language-independent
+/// representation for `serde` output).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Direction {
-    /// 最小化。
+    /// Minimize.
     Minimize,
-    /// 最大化。
+    /// Maximize.
     Maximize,
 }
 
 impl Direction {
-    /// 最小化方向か。
+    /// Whether this is the minimize direction.
     pub fn is_minimize(self) -> bool {
         matches!(self, Direction::Minimize)
     }
 }
 
-/// レポートのルート構造体。
+/// Root struct of the report.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StudyReport {
-    /// スキーマバージョン（[`SCHEMA_VERSION`]）。
+    /// Schema version ([`SCHEMA_VERSION`]).
     pub schema_version: u32,
-    /// ソース情報（ストレージ表示名・生成日時）。
+    /// Source info (storage display name, generation time).
     pub source: ReportSourceInfo,
-    /// スタディ概要。
+    /// Study overview.
     pub overview: Overview,
-    /// Key Findings（まとめ）。決定論的に自動生成される。
+    /// Key Findings (summary). Generated automatically and
+    /// deterministically.
     pub key_findings: Vec<KeyFinding>,
-    /// 最適化結果（単目的 / 多目的）。
+    /// Optimization outcome (single-objective / multi-objective).
     pub outcome: Outcome,
-    /// 収束セクション（best-so-far / HV 推移）。
+    /// Convergence section (best-so-far / HV progression).
     pub convergence: ConvergenceSection,
-    /// パラメータ重要度（計算不能なら `None`）。
+    /// Parameter importance (`None` if it could not be computed).
     pub importance: Option<ImportanceSection>,
-    /// 目的値の分布統計（目的ごと）。
+    /// Distribution statistics of objective values (per objective).
     pub objective_stats: Vec<ObjectiveStats>,
-    /// パラメータ×目的の相関（計算不能なら `None`）。
+    /// Parameter x objective correlations (`None` if it could not be
+    /// computed).
     pub correlations: Option<CorrelationSection>,
-    /// 多目的の意思決定分析（MCDM）。単目的なら `None`。
+    /// Multi-objective decision analysis (MCDM). `None` for
+    /// single-objective.
     pub mcdm: Option<McdmSection>,
-    /// 実行時情報（extras がある場合のみ）。
+    /// Execution info (only present when extras exist).
     pub execution: Option<ExecutionSection>,
-    /// 再現情報。
+    /// Reproduction info.
     pub reproduction: Reproduction,
 }
 
-/// ソース情報（`ReportSource` のスナップショット）。
+/// Source info (a snapshot of `ReportSource`).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ReportSourceInfo {
-    /// ストレージ表示名（RDB URL の場合はマスク済み）。
+    /// Storage display name (masked for RDB URLs).
     pub storage_display: String,
-    /// 生成日時（unix 秒）。`None` なら日時欄を省略する。
+    /// Generation time (unix seconds). If `None`, the date/time field is
+    /// omitted.
     pub generated_at_unix: Option<i64>,
 }
 
-/// スタディ概要。
+/// Study overview.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Overview {
-    /// スタディ名。
+    /// Study name.
     pub name: String,
-    /// 目的ごとの最適化方向。
+    /// Optimization direction per objective.
     pub directions: Vec<Direction>,
-    /// 目的名。
+    /// Objective names.
     pub objective_names: Vec<String>,
-    /// パラメータ名。
+    /// Parameter names.
     pub param_names: Vec<String>,
-    /// user_attr 名。
+    /// user_attr names.
     pub user_attr_names: Vec<String>,
-    /// state ラベルごとの trial 数（決定論のため BTreeMap）。
+    /// Trial count per state label (BTreeMap for determinism).
     pub state_counts: BTreeMap<String, usize>,
-    /// COMPLETE trial 数（解析対象の行数）。
+    /// Number of COMPLETE trials (rows subject to analysis).
     pub complete_trials: usize,
-    /// 全 trial 数（meta 由来）。
+    /// Total trial count (from meta).
     pub total_trials: usize,
-    /// 実測所要時間（秒）。extras の日時から算出。無ければ `None`。
+    /// Measured wall-clock duration (seconds). Computed from extras'
+    /// timestamps. `None` if unavailable.
     pub wall_clock_seconds: Option<f64>,
-    /// パラメータの宣言レンジ `(name, low, high)`。名前昇順。
+    /// Declared parameter ranges `(name, low, high)`, sorted by name.
     pub param_bounds: Vec<(String, f64, f64)>,
-    /// 制約が定義されているか。
+    /// Whether constraints are defined.
     pub has_constraints: bool,
 }
 
-/// Key Finding（まとめの1項目）。
+/// One Key Finding (summary item).
 ///
-/// `kind` は固定 enum で、レンダラが網羅 `match` して文章化する。`metrics` /
-/// `labels` はテンプレートに埋める数値・文字列。決定論のため BTreeMap を使う。
+/// `kind` is a fixed enum, and the renderer exhaustively `match`es it to
+/// produce prose. `metrics` / `labels` are the numbers/strings to embed in
+/// the template. Uses BTreeMap for determinism.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct KeyFinding {
-    /// 種類。
+    /// Kind.
     pub kind: FindingKind,
-    /// テンプレートに埋める数値。
+    /// Numeric values to embed in the template.
     pub metrics: BTreeMap<String, f64>,
-    /// テンプレートに埋める文字列（param 名等）。
+    /// String values to embed in the template (param names, etc.).
     pub labels: BTreeMap<String, String>,
 }
 
-/// Key Finding の種類（固定 enum）。
+/// Kind of a Key Finding (fixed enum).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum FindingKind {
-    /// 単目的の最良値・trial 番号・発見時点。
+    /// Single-objective best value, trial number, and when it was found.
     BestSingle,
-    /// パレート前面のサイズと各目的の極値。
+    /// Pareto front size and each objective's extremes.
     ParetoSummary,
-    /// 収束判定（Converged / StillImproving / Insufficient）。
+    /// Convergence status (Converged / StillImproving / Insufficient).
     ConvergenceStatus,
-    /// 上位パラメータ（method 名付き）。
+    /// Top parameters (with method name).
     TopImportance,
-    /// 目的間のトレードオフ（最も負の Spearman ペア）。
+    /// Trade-off between objectives (most negative Spearman pair).
     TradeOff,
-    /// 制約充足率と最良 feasible trial。
+    /// Constraint satisfaction rate and best feasible trial.
     Feasibility,
-    /// 枝刈り効率（prune 率と中央値 step）。
+    /// Pruning efficiency (prune rate and median step).
     PruningEfficiency,
-    /// データ品質（FAIL / NaN 目的値の注意喚起）。
+    /// Data quality (alert for FAIL / NaN objective values).
     DataQuality,
 }
 
-/// 収束判定の状態。
+/// Convergence status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum ConvergenceStatus {
-    /// 収束済み（後半20%で best 更新なし）。
+    /// Converged (no best update in the latter 20%).
     Converged,
-    /// なお改善中（後半20%で best 更新あり）。
+    /// Still improving (best updated in the latter 20%).
     StillImproving,
-    /// データ不足（COMPLETE < 10）。
+    /// Insufficient data (COMPLETE < 10).
     Insufficient,
 }
 
-/// 単一 trial の要約。
+/// Summary of a single trial.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TrialSummary {
-    /// Study 内 0 始まりの trial.number。
+    /// trial.number, 0-based within the study.
     pub trial_number: u32,
-    /// 目的値（目的順）。
+    /// Objective values (in objective order).
     pub objectives: Vec<f64>,
-    /// パラメータ `(name, value)`（meta のパラメータ順）。
+    /// Parameters `(name, value)` (in meta's parameter order).
     pub params: Vec<(String, ParamValue)>,
-    /// 最大制約値（制約ありスタディのみ。Optuna の生の制約値の行内最大で、
-    /// ≤0 なら全制約充足、正値なら制約違反）。
+    /// Max constraint value (constrained studies only; the max over
+    /// Optuna's raw constraint values for the row — `<= 0` means all
+    /// constraints satisfied, positive means a constraint violation).
     pub max_constraint: Option<f64>,
-    /// user_attr `(name, value)`（名前昇順）。
+    /// user_attr `(name, value)` (sorted by name).
     pub user_attrs: Vec<(String, String)>,
-    /// 同一目的値ベクトルを持つ初出 trial の番号（パレート表内のみ判定）。
-    /// `Some(n)` なら本 trial は trial `n` と目的値が完全一致する重複解。
+    /// The number of the first trial sharing the same objective value
+    /// vector (only determined within the Pareto table). `Some(n)` means
+    /// this trial is a duplicate solution whose objective values exactly
+    /// match trial `n`.
     pub duplicate_of: Option<u32>,
 }
 
 impl TrialSummary {
-    /// この trial が制約違反か（最大制約値が正）。
+    /// Whether this trial violates constraints (max constraint value is
+    /// positive).
     ///
-    /// 制約なしスタディ（`max_constraint == None`）は違反ではない。
-    /// HTML / Markdown 両レンダラの違反マーク判定を 1 箇所に共有する。
+    /// Unconstrained studies (`max_constraint == None`) never count as a
+    /// violation. Shares the violation-mark determination logic in one
+    /// place for both the HTML and Markdown renderers.
     pub fn violates_constraints(&self) -> bool {
         self.max_constraint.is_some_and(|v| v > 0.0)
     }
 }
 
-/// 表内に重複解（`duplicate_of` 付き trial）が含まれるか。
+/// Whether the table contains any duplicate solutions (trials with
+/// `duplicate_of` set).
 ///
-/// HTML / Markdown 両レンダラの「(= #N)」凡例注記の出力判定を共有する。
+/// Shared by both the HTML and Markdown renderers to decide whether to
+/// emit the "(= #N)" legend note.
 pub fn has_duplicate_marks(trials: &[TrialSummary]) -> bool {
     trials.iter().any(|t| t.duplicate_of.is_some())
 }
 
-/// パラメータ値（数値 / カテゴリ）。
+/// Parameter value (numeric / categorical).
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum ParamValue {
-    /// 数値パラメータ。
+    /// Numeric parameter.
     Num(f64),
-    /// カテゴリカルパラメータ（表示ラベル）。
+    /// Categorical parameter (display label).
     Cat(String),
 }
 
-/// 最適化結果。
+/// Optimization outcome.
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum Outcome {
-    /// 単目的。
+    /// Single-objective.
     SingleObj {
-        /// 最良 trial（COMPLETE が無ければ `None`）。
+        /// Best trial (`None` if there are no COMPLETE trials).
         best_trial: Option<TrialSummary>,
-        /// 上位 trial（最良順、`top_n` 件）。
+        /// Top trials (best-first, `top_n` entries).
         top_n: Vec<TrialSummary>,
     },
-    /// 多目的。
+    /// Multi-objective.
     MultiObj {
-        /// パレート前面のサイズ。
+        /// Pareto front size.
         pareto_size: usize,
-        /// COMPLETE 数。
+        /// COMPLETE count.
         complete_count: usize,
-        /// 目的数。
+        /// Objective count.
         objective_count: usize,
-        /// 目的ごとの極値。
+        /// Extremes per objective.
         per_objective_extremes: Vec<ObjectiveExtreme>,
-        /// パレート前面の trial 表（TOPSIS 順、`top_n*2` で cap）。
+        /// Pareto front trial table (TOPSIS order, capped at `top_n*2`).
         pareto_table: Vec<TrialSummary>,
-        /// パレート前面（cap 前の全体）に含まれる制約違反 trial の件数。
-        /// feasible 解が 1 件も無く目的空間非劣解へフォールバックした場合のみ
-        /// 正値になる。レンダラのフォールバック注記はこの値を使う
-        /// （cap 済み `pareto_table` から数えると過少表示になり得るため）。
+        /// Number of constraint-violating trials contained in the Pareto
+        /// front (the full set, before capping). Only becomes positive
+        /// when there are zero feasible solutions and the front falls
+        /// back to non-dominated points in objective space. The
+        /// renderer's fallback note uses this value (counting from the
+        /// capped `pareto_table` could under-report).
         pareto_infeasible_count: usize,
-        /// 散布図点（全 COMPLETE + front 判定、先頭2目的軸）。
+        /// Scatter plot points (all COMPLETE trials + front
+        /// determination, first two objective axes).
         scatter: Vec<ParetoPoint>,
-        /// 散布図の軸に用いた目的インデックス `(x, y)`。現状ビルダーは常に
-        /// 先頭2目的 `(0, 1)` を渡すが、レンダラが軸ラベル・注記の文言に
-        /// このインデックスを読むため、固定値でもモデルに保持する
-        /// （将来の軸選択オプションの受け皿でもある）。
+        /// Objective indices `(x, y)` used as the scatter plot axes. The
+        /// builder currently always passes the first two objectives
+        /// `(0, 1)`, but since the renderer reads this index for axis
+        /// labels and note text, it is kept in the model even as a fixed
+        /// value (also a placeholder for a future axis-selection option).
         scatter_axes: (usize, usize),
     },
 }
 
-/// 目的ごとの極値。
+/// Extremes for one objective.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ObjectiveExtreme {
-    /// 目的名。
+    /// Objective name.
     pub objective_name: String,
-    /// 方向。
+    /// Direction.
     pub direction: Direction,
-    /// 最良値。
+    /// Best value.
     pub best_value: f64,
-    /// 最良値を達成した trial.number。
+    /// trial.number that achieved the best value.
     pub best_trial_number: u32,
-    /// 最良 trial が全制約を満たすか（制約なしスタディでは常に `true`）。
-    /// 極値は全 COMPLETE trial の記述統計のため、制約違反 trial が
-    /// 最良となり得る。レンダラはその場合に明示マークを付ける。
+    /// Whether the best trial satisfies all constraints (always `true`
+    /// for unconstrained studies). Because extremes are descriptive
+    /// statistics over all COMPLETE trials, a constraint-violating trial
+    /// can end up as the best. The renderer adds an explicit mark in that
+    /// case.
     pub best_feasible: bool,
-    /// 最悪値。
+    /// Worst value.
     pub worst_value: f64,
 }
 
-/// 散布図の1点（パレート前面判定付き）。
+/// One point of the scatter plot (with Pareto front determination).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ParetoPoint {
-    /// trial.number。
+    /// trial.number.
     pub trial_number: u32,
-    /// x 軸値（先頭目的）。
+    /// X-axis value (first objective).
     pub x: f64,
-    /// y 軸値（2番目の目的）。
+    /// Y-axis value (second objective).
     pub y: f64,
-    /// パレート前面上の点か。
+    /// Whether this point lies on the Pareto front.
     pub on_front: bool,
-    /// 全制約を満たすか（制約なしスタディでは常に `true`）。
+    /// Whether it satisfies all constraints (always `true` for
+    /// unconstrained studies).
     pub feasible: bool,
 }
 
-/// 収束セクション。
+/// Convergence section.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ConvergenceSection {
-    /// 系列が表す指標。
+    /// Metric the series represents.
     pub metric: ConvergenceMetric,
-    /// 系列（trial.number, 値）。≤500 点に間引き済み。
+    /// Series (trial.number, value). Already thinned to <= 500 points.
     pub series: Vec<ConvergencePoint>,
-    /// best が発見された trial.number（データ不足なら `None`）。
+    /// trial.number where the best was found (`None` if data is
+    /// insufficient).
     pub found_at_trial_number: Option<u32>,
-    /// 直近20%の試行で best が更新されたか。
+    /// Whether the best was updated in the most recent 20% of trials.
     pub improved_in_last_20pct: bool,
-    /// 収束判定。
+    /// Convergence status.
     pub status: ConvergenceStatus,
 }
 
-/// 収束系列の指標種別。
+/// Kind of metric for the convergence series.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum ConvergenceMetric {
-    /// 単目的の best-so-far。
+    /// Single-objective best-so-far.
     BestSoFar,
-    /// 多目的の Hypervolume 推移。
+    /// Multi-objective Hypervolume progression.
     Hypervolume,
 }
 
-/// 収束系列の1点。
+/// One point of the convergence series.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ConvergencePoint {
-    /// trial.number。
+    /// trial.number.
     pub trial_number: u32,
-    /// 指標値。
+    /// Metric value.
     pub value: f64,
 }
 
-/// パラメータ重要度セクション。
+/// Parameter importance section.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportanceSection {
-    /// 重要度の算出手法名（例: `"spearman_abs"`）。
+    /// Name of the importance-computation method (e.g. `"spearman_abs"`).
     pub method: String,
-    /// 重要度を評価した対象の目的名。
+    /// Objective name that importance was evaluated against.
     pub objective_name: String,
-    /// `(param, score)` を降順（score 大きい順）に並べたもの。
+    /// `(param, score)` pairs sorted descending (largest score first).
     pub scores: Vec<(String, f64)>,
 }
 
-/// 目的値の分布統計。
+/// Distribution statistics of objective values.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ObjectiveStats {
-    /// 目的名。
+    /// Objective name.
     pub name: String,
-    /// 方向。
+    /// Direction.
     pub direction: Direction,
-    /// 有限値の件数。
+    /// Count of finite values.
     pub n: usize,
-    /// 平均。
+    /// Mean.
     pub mean: f64,
-    /// 母標準偏差。
+    /// Population standard deviation.
     pub std: f64,
-    /// 最小。
+    /// Min.
     pub min: f64,
-    /// 第1四分位。
+    /// First quartile.
     pub q1: f64,
-    /// 中央値。
+    /// Median.
     pub median: f64,
-    /// 第3四分位。
+    /// Third quartile.
     pub q3: f64,
-    /// 最大。
+    /// Max.
     pub max: f64,
-    /// ヒストグラム（≤20 ビン）。有限値が無ければ `None`。
+    /// Histogram (<= 20 bins). `None` if there are no finite values.
     pub histogram: Option<HistogramData>,
 }
 
-/// ヒストグラムのビン境界と度数。
+/// Histogram bin edges and counts.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HistogramData {
-    /// ビン境界（昇順、`len() == counts.len() + 1`）。
+    /// Bin edges (ascending, `len() == counts.len() + 1`).
     pub bin_edges: Vec<f64>,
-    /// 度数。
+    /// Counts.
     pub counts: Vec<usize>,
 }
 
-/// パラメータ×目的の相関セクション。
+/// Parameter x objective correlation section.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CorrelationSection {
-    /// 相関手法名（`"spearman"`）。
+    /// Correlation method name (`"spearman"`).
     pub method: String,
-    /// 行に対応するパラメータ名（|ρ| 最大値降順、`max_heatmap_params` で cap）。
+    /// Parameter names corresponding to each row (sorted descending by
+    /// max |ρ|, capped at `max_heatmap_params`).
     pub params: Vec<String>,
-    /// 列に対応する目的名。
+    /// Objective names corresponding to each column.
     pub objectives: Vec<String>,
-    /// `matrix[i][j]` = params[i] と objectives[j] の相関。計算不能は NaN。
+    /// `matrix[i][j]` = correlation between params[i] and objectives[j].
+    /// NaN if it could not be computed.
     pub matrix: Vec<Vec<f64>>,
 }
 
-/// 多目的の意思決定分析（MCDM）セクション。
+/// Multi-objective decision analysis (MCDM) section.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct McdmSection {
-    /// 重み付けの方式（`"equal"` = 等重み）。
+    /// Weighting scheme (`"equal"` = equal weights).
     pub weight_scheme: String,
-    /// 各目的の重み。
+    /// Weight for each objective.
     pub weights: Vec<f64>,
-    /// TOPSIS の上位 trial。
+    /// Top trials by TOPSIS.
     pub topsis_top: Vec<McdmEntry>,
-    /// VIKOR の上位 trial。
+    /// Top trials by VIKOR.
     pub vikor_top: Vec<McdmEntry>,
-    /// PROMETHEE II の上位 trial。
+    /// Top trials by PROMETHEE II.
     pub promethee_top: Vec<McdmEntry>,
-    /// 3手法すべての top10 に入る trial.number（昇順）。
+    /// trial.numbers appearing in the top 10 of all three methods
+    /// (ascending).
     pub consensus_trials: Vec<u32>,
 }
 
-/// MCDM ランキングの1エントリ。
+/// One entry of an MCDM ranking.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct McdmEntry {
-    /// 順位（1 始まり）。
+    /// Rank (1-based).
     pub rank: usize,
-    /// trial.number。
+    /// trial.number.
     pub trial_number: u32,
-    /// 目的値。
+    /// Objective values.
     pub objectives: Vec<f64>,
 }
 
-/// 実行時情報セクション。
+/// Execution info section.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExecutionSection {
-    /// state ラベルごとの trial 数。
+    /// Trial count per state label.
     pub state_counts: BTreeMap<String, usize>,
-    /// 枝刈り率（PRUNED / 全終了 trial）。
+    /// Pruning rate (PRUNED / all finished trials).
     pub pruned_rate: f64,
-    /// 枝刈り step の中央値（PRUNED の最終中間値 step）。無ければ `None`。
+    /// Median pruning step (final intermediate-value step for PRUNED
+    /// trials). `None` if unavailable.
     pub median_prune_step: Option<f64>,
-    /// 1 trial あたり平均所要秒。無ければ `None`。
+    /// Mean duration per trial, in seconds. `None` if unavailable.
     pub mean_trial_seconds: Option<f64>,
-    /// 1 trial あたり所要秒の母標準偏差。無ければ `None`。
+    /// Population standard deviation of per-trial duration, in seconds.
+    /// `None` if unavailable.
     pub std_trial_seconds: Option<f64>,
-    /// 総所要時間（秒）。無ければ `None`。
+    /// Total duration (seconds). `None` if unavailable.
     pub total_seconds: Option<f64>,
 }
 
-/// 再現情報。
+/// Reproduction info.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Reproduction {
-    /// スタディ ID。
+    /// Study ID.
     pub study_id: u32,
-    /// ストレージ表示名（マスク済み）。
+    /// Storage display name (masked).
     pub storage_display: String,
-    /// 上位表の件数（options のエコー）。
+    /// Number of entries in the top table (echoed from options).
     pub top_n: usize,
-    /// 相関ヒートマップの最大パラメータ数（options のエコー）。
+    /// Max parameter count for the correlation heatmap (echoed from
+    /// options).
     pub max_heatmap_params: usize,
-    /// スキーマバージョン。
+    /// Schema version.
     pub schema_version: u32,
 }

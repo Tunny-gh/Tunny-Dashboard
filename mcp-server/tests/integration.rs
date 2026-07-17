@@ -1,9 +1,9 @@
-//! tunny-mcp のエンドツーエンド統合テスト。
+//! End-to-end integration test for tunny-mcp.
 //!
-//! 実バイナリ（`env!("CARGO_BIN_EXE_tunny-mcp")`）を子プロセスとして起動し、
-//! stdin へ改行区切り JSON-RPC メッセージを流し込んで stdout の応答を検証する。
-//! ネットワークや外部ファイルには依存せず、一時ディレクトリに置いた Optuna
-//! journal ファイルのフィクスチャのみを読み込む（終了時に削除）。
+//! Launches the real binary (`env!("CARGO_BIN_EXE_tunny-mcp")`) as a child process, feeds
+//! newline-delimited JSON-RPC messages into stdin, and checks the stdout responses.
+//! Doesn't depend on the network or external files; only reads an Optuna journal file
+//! fixture placed in a temporary directory (deleted on completion).
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -11,15 +11,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
-/// 最小限の Optuna journal フィクスチャ。
+/// A minimal Optuna journal fixture.
 ///
-/// study "demo_study"（2 目的: obj0 を最小化、obj1 を最大化）に、param "x"
-/// （FloatDistribution [0.0, 1.0]）を持つ COMPLETE trial を 3 件作る。
+/// Creates study "demo_study" (2 objectives: minimize obj0, maximize obj1) with 3 COMPLETE
+/// trials, each having param "x" (FloatDistribution [0.0, 1.0]).
 ///
 /// op_code: 0=create_study, 4=create_trial, 5=set_trial_param,
-/// 6=set_trial_state_values（state=1 は COMPLETE）。trial_id は
-/// ファイル全体を通じた create_trial の出現順で自動採番されるため、
-/// 後続の op 5/6 は 0, 1, 2 の順で参照する。
+/// 6=set_trial_state_values (state=1 is COMPLETE). trial_id is auto-numbered by the order in
+/// which create_trial appears throughout the file, so the subsequent op 5/6 entries reference
+/// 0, 1, 2 in that order.
 fn journal_fixture() -> String {
     concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"demo_study\",\"directions\":[1,2]}\n",
@@ -39,7 +39,7 @@ fn journal_fixture() -> String {
     .to_string()
 }
 
-/// テスト専用の一意な一時ディレクトリを作る。
+/// Creates a unique temporary directory for exclusive use by the test.
 fn make_temp_dir() -> std::path::PathBuf {
     let unique = format!(
         "tunny-mcp-it-{}-{:?}",
@@ -138,7 +138,7 @@ fn full_session_over_stdio() {
         }
         stdin.flush().expect("flush stdin");
     }
-    // stdin を閉じる（EOF）ことでサーバーのメインループを終了させる。
+    // Closing stdin (EOF) terminates the server's main loop.
     drop(stdin);
 
     let stdout = child.stdout.take().expect("child stdout");
@@ -152,7 +152,7 @@ fn full_session_over_stdio() {
     let status = child.wait().expect("wait for child");
     assert!(status.success(), "tunny-mcp exited with {status:?}");
 
-    // notifications/initialized には応答がないため、送信7件 - 通知1件 = 6行。
+    // notifications/initialized gets no response, so 7 messages sent - 1 notification = 6 lines.
     assert_eq!(
         response_lines.len(),
         6,
@@ -166,7 +166,7 @@ fn full_session_over_stdio() {
         })
         .collect();
 
-    // 全応答が妥当な JSON-RPC で、対応する id を持つこと。
+    // Every response must be valid JSON-RPC with the corresponding id.
     let expected_ids: Vec<i64> = vec![1, 2, 3, 4, 5, 6];
     for (resp, expected_id) in responses.iter().zip(expected_ids.iter()) {
         assert_eq!(resp["jsonrpc"], "2.0");
@@ -209,7 +209,7 @@ fn full_session_over_stdio() {
     assert_eq!(study_summary_json["overview"]["name"], "demo_study");
     assert!(study_summary_json["key_findings"].is_array());
     assert!(study_summary_json["convergence"].is_object());
-    // 2 目的スタディなので pareto セクションが出るはず（best は出ない）。
+    // Since this is a 2-objective study, the pareto section should appear (best should not).
     assert!(
         study_summary_json["pareto"].is_object(),
         "{study_summary_json:#?}"
@@ -239,8 +239,8 @@ fn full_session_over_stdio() {
     let study_report_text = study_report_resp["result"]["content"][0]["text"]
         .as_str()
         .expect("study_report text content");
-    // Markdown レンダラはユーザー由来文字列の `_` を強調記法として
-    // 誤解釈されないようエスケープするため、study 名は `demo\_study` になる。
+    // The Markdown renderer escapes `_` in user-derived strings so it isn't misinterpreted as
+    // emphasis markup, so the study name becomes `demo\_study`.
     assert!(study_report_text.contains(r"demo\_study"));
     assert!(study_report_text.contains("## "));
 

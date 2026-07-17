@@ -1,14 +1,15 @@
-//! `StudyReport` の構築（既存解析 API の合成）。
+//! Construction of [`StudyReport`] (composition of existing analysis APIs).
 //!
-//! ここでは新規の解析ロジックを発明せず、`multi_objective` / `mcdm` /
-//! `statistics` / `math` / `convergence` の既存公開関数を合成してモデルを埋める。
-//! チャートに必要な系列はすべてここで計算し、レンダラは描くだけにする。
+//! No new analysis logic is invented here; the model is filled by composing
+//! existing public functions from `multi_objective` / `mcdm` / `statistics` /
+//! `math` / `convergence`. All series needed for charts are computed here so
+//! the renderer only has to draw them.
 //!
-//! ## 方向の扱い
+//! ## Handling of direction
 //!
-//! [`OptimizationDirection`] を目的ごとに尊重する。`is_minimize[j]` は
-//! `matches!(directions[j], Minimize)` で、既存 MCDM / pareto / convergence の
-//! 呼び出し規約に一致させる。
+//! [`OptimizationDirection`] is respected per objective. `is_minimize[j]` is
+//! `matches!(directions[j], Minimize)`, matching the calling convention of
+//! the existing MCDM / pareto / convergence functions.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,18 +26,20 @@ use super::findings::{self, FindingInputs};
 use super::model::*;
 use super::{format_number, ReportOptions, ReportSource};
 
-/// 収束の後半20%判定に用いる、VIKOR の妥協解パラメータ（標準値）。
+/// VIKOR compromise-solution parameter (standard value), used for the
+/// last-20% convergence check.
 const VIKOR_V: f64 = 0.5;
-/// 収束系列の最大点数（間引き上限）。
+/// Maximum number of points in the convergence series (downsampling cap).
 const MAX_SERIES_POINTS: usize = 500;
-/// ヒストグラムの最大ビン数。
+/// Maximum number of histogram bins.
 const MAX_HIST_BINS: usize = 20;
 
-/// `(StudyMeta, DataFrame, StudyExtras)` から [`StudyReport`] を構築する。
+/// Builds a [`StudyReport`] from `(StudyMeta, DataFrame, StudyExtras)`.
 ///
-/// `df` は COMPLETE trial のみを列指向で保持する前提。`extras` は全 state の
-/// 付帯情報（無ければ実行時セクションと枝刈り finding を省略）。決定論性のため、
-/// 出力に現れる集合はすべてソート済み / BTree で構成する。
+/// `df` is assumed to hold only COMPLETE trials, column-oriented. `extras`
+/// carries auxiliary data for all states (if absent, the execution section
+/// and pruning finding are omitted). For determinism, every collection that
+/// appears in the output is sorted / backed by a BTree.
 pub fn build_study_report(
     meta: &StudyMeta,
     df: &DataFrame,
@@ -57,7 +60,7 @@ pub fn build_study_report(
     let is_multi = m >= 2;
     let n = df.row_count();
 
-    // 目的列と目的値行列（NaN 許容）。
+    // Objective columns and objective value matrix (NaN allowed).
     let obj_cols: Vec<Option<&[f64]>> = meta
         .objective_names
         .iter()
@@ -75,7 +78,7 @@ pub fn build_study_report(
         .map(|row| df.get_trial_number(row).unwrap_or(row as u32))
         .collect();
 
-    // 有効行（全目的が有限）。
+    // Valid rows (all objectives finite).
     let valid_row: Vec<bool> = objectives
         .iter()
         .map(|o| o.len() == m && o.iter().all(|v| v.is_finite()))
@@ -83,13 +86,15 @@ pub fn build_study_report(
     let valid_count = valid_row.iter().filter(|&&v| v).count();
     let nan_count = n - valid_count;
 
-    // state 内訳・FAIL 数・実測所要時間。
+    // State breakdown, FAIL count, and measured wall-clock time.
     let (state_counts, fail_count, wall_clock) = state_summary(extras, n);
 
-    // パレート前面（多目的のみ意味を持つ）。制約付きスタディでは feasible 行
-    // のみで非劣ソートする（Optuna の constrained 最適化の意味論に合わせる）。
-    // feasible 行が 1 件も無い場合のみ、全行の目的空間非劣解へフォールバック
-    // する（前面が空になるのを避け、レンダラ側の違反注記で透明化する）。
+    // Pareto front (only meaningful for multi-objective). For constrained
+    // studies, non-dominated sorting uses only feasible rows (matching
+    // Optuna's constrained-optimization semantics). Only when there are no
+    // feasible rows at all do we fall back to the non-dominated set over
+    // all rows (this avoids an empty front, and the renderer's violation
+    // note makes the fallback transparent).
     let feas = df.feasibility();
     let front_rows: Vec<usize> = if is_multi && n > 0 {
         let feasible_rows: Vec<usize> = (0..n)
@@ -186,7 +191,8 @@ pub fn build_study_report(
     let objective_stats = build_objective_stats(&objectives, meta, &directions, m);
 
     // ---- Correlations ----
-    // `skip_decision_sections` なら解析コストの高い相関計算を省略する。
+    // If `skip_decision_sections`, skip the computationally expensive
+    // correlation calculation.
     let correlations = if opts.skip_decision_sections {
         None
     } else {
@@ -271,19 +277,23 @@ pub fn build_study_report(
 }
 
 // =============================================================================
-// 共通ヘルパー
+// Common helpers
 // =============================================================================
 
-/// 2 系列のペアワイズ Spearman（両側有限の行のみ使用、2 行未満は NaN）。
+/// Pairwise Spearman correlation between two series (uses only rows finite
+/// in both; NaN if fewer than 2 rows).
 ///
-/// 実装は `statistics::correlation` の共有ヘルパへ委譲する（重複実装の解消）。
+/// Implementation delegates to the shared helper in `statistics::correlation`
+/// (avoids duplicate implementations).
 fn spearman_pairwise(x: &[f64], y: &[f64]) -> f64 {
     crate::statistics::correlation::pairwise_correlation(x, y, CorrelationMethod::Spearman)
 }
 
-/// 系列を最大 `max` 点へ均等間引き（先頭・末尾を保持）。
+/// Evenly downsamples a series to at most `max` points (preserving first
+/// and last).
 ///
-/// `markdown` レンダラの収束系列サンプリングとも共有する（`pub(crate)`）。
+/// Also shared with the convergence-series sampling in the `markdown`
+/// renderer (`pub(crate)`).
 pub(crate) fn downsample<T: Clone>(pts: &[T], max: usize) -> Vec<T> {
     if pts.len() <= max || max < 2 {
         return pts.to_vec();
@@ -294,8 +304,9 @@ pub(crate) fn downsample<T: Clone>(pts: &[T], max: usize) -> Vec<T> {
         .collect()
 }
 
-/// 単調 best-so-far 系列で、最後に改善（更新）が起きた index を返す。
-/// 先頭（index 0）は初回として常に改善とみなす。
+/// Returns the index of the last improvement (update) in a monotonic
+/// best-so-far series. The first point (index 0) is always counted as an
+/// improvement, since it's the first observation.
 fn last_improve_index(best_series: &[f64], minimize: bool) -> usize {
     let mut last = 0;
     for i in 1..best_series.len() {
@@ -311,7 +322,8 @@ fn last_improve_index(best_series: &[f64], minimize: bool) -> usize {
     last
 }
 
-/// state 内訳（全 state）・FAIL 数・実測所要時間（秒）を返す。
+/// Returns the state breakdown (all states), FAIL count, and measured
+/// wall-clock time (seconds).
 fn state_summary(
     extras: Option<&StudyExtras>,
     complete_n: usize,
@@ -348,7 +360,7 @@ fn state_summary(
     (counts, fail, wall)
 }
 
-/// 1 行分の [`TrialSummary`] を構築する。
+/// Builds a [`TrialSummary`] for a single row.
 fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) -> TrialSummary {
     let trial_number = df.get_trial_number(row).unwrap_or(row as u32);
     let objectives: Vec<f64> = meta
@@ -382,8 +394,10 @@ fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) -> TrialSum
         })
         .collect();
 
-    // 生の制約値の行内最大。合計（constraint_sum）は負のマージンが正の違反を
-    // 打ち消して feasible に見えてしまうため使わない（max ≤ 0 ⟺ 全制約充足）。
+    // Row-wise max of the raw constraint values. We don't use the sum
+    // (constraint_sum) because negative margins can cancel out positive
+    // violations and make an infeasible row look feasible (max ≤ 0 ⟺ all
+    // constraints satisfied).
     let max_constraint = if meta.has_constraints {
         df.constraint_col_names()
             .iter()
@@ -433,7 +447,7 @@ fn build_convergence_single(
     m: usize,
 ) -> ConvergenceSection {
     let minimize = is_minimize.first().copied().unwrap_or(true);
-    // 有効行を trial.number 昇順に並べる。
+    // Sort valid rows by ascending trial.number.
     let mut seq: Vec<usize> = (0..objectives.len()).filter(|&r| valid_row[r]).collect();
     seq.sort_by_key(|&r| trial_numbers[r]);
 
@@ -484,15 +498,16 @@ fn build_convergence_multi(
     valid_count: usize,
 ) -> ConvergenceSection {
     let n = objectives.len();
-    // trial.number 昇順に並べ替えて HV 推移を計算する。
+    // Sort by ascending trial.number and compute the HV trajectory.
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by_key(|&r| trial_numbers[r]);
     let ord_ids: Vec<u32> = order.iter().map(|&r| trial_numbers[r]).collect();
-    // `compute_hv_history_from_data`（multi_objective::pareto、report/ 外）は
-    // `&[Vec<f64>]` を要求するため、trial.number 順への並べ替えには行の
-    // 所有コピーが避けられない（借用元 `objectives` は元の行順を要すること）。
-    // このコピーは m 列 × n 行で元データと同オーダーであり、シグネチャを
-    // 変えない限り削減不可能。
+    // `compute_hv_history_from_data` (multi_objective::pareto, outside
+    // report/) requires `&[Vec<f64>]`, so an owned copy of the rows is
+    // unavoidable when reordering by trial.number (the borrowed
+    // `objectives` must keep its original row order). This copy is m
+    // columns x n rows, the same order of magnitude as the original data,
+    // and cannot be reduced without changing the signature.
     let ord_objs: Vec<Vec<f64>> = order.iter().map(|&r| objectives[r].clone()).collect();
 
     let hv = compute_hv_history_from_data(&ord_ids, &ord_objs, is_minimize);
@@ -507,7 +522,8 @@ fn build_convergence_multi(
         };
     }
 
-    // HV は単調非減少なので「改善 = 前値より大きい」で最後の更新位置を判定する。
+    // HV is monotonically non-decreasing, so "improvement = greater than
+    // the previous value" determines the last update position.
     let last_idx = last_improve_index(&hv.hv_values, false);
     let len = hv.hv_values.len();
     let frac = if len <= 1 {
@@ -604,7 +620,8 @@ fn build_outcome_multi(
     );
     let scatter = build_scatter_points(df, objectives, trial_numbers, valid_row, on_front, m);
 
-    // MCDM 入力（等重み、パレート前面部分集合）。front が空なら計算不要。
+    // MCDM input (equal weights, Pareto-front subset). No computation
+    // needed if the front is empty.
     let mcdm_values: Option<(Vec<f64>, usize, Vec<f64>)> = if front_rows.is_empty() || m == 0 {
         None
     } else {
@@ -613,11 +630,11 @@ fn build_outcome_multi(
         let weights = vec![1.0 / m as f64; m];
         Some((values, k, weights))
     };
-
-    // TOPSIS ランキング（等重み）は pareto_table の順序付けと、
-    // `skip_decision_sections` で省略されない限り MCDM セクションの TOPSIS
-    // エントリの双方が使うため、ここで 1 回だけ計算して共有する
-    // （以前は build_mcdm と pareto_table 側で同一計算を重複実行していた）。
+    // The equal-weight TOPSIS ranking is used both for ordering
+    // pareto_table and, unless omitted by `skip_decision_sections`, for the
+    // TOPSIS entries in the MCDM section, so it's computed once here and
+    // shared (previously build_mcdm and pareto_table each ran the same
+    // computation redundantly).
     let front_topsis: Option<topsis::TopsisResult> =
         mcdm_values.as_ref().and_then(|(values, k, weights)| {
             topsis::compute_topsis(values, *k, m, weights, is_minimize).ok()
@@ -644,8 +661,9 @@ fn build_outcome_multi(
 
     let pareto_table = build_pareto_table(df, meta, front_rows, front_topsis.as_ref(), opts);
 
-    // フォールバック注記用の違反件数は cap 前の front 全体から数える
-    // （cap 済み pareto_table から数えると top_n*2 で頭打ちになり過少表示）。
+    // The violation count for the fallback note is counted over the entire
+    // front before capping (counting from the capped pareto_table would be
+    // clamped at top_n*2 and under-report the count).
     let feas = df.feasibility();
     let pareto_infeasible_count = front_rows.iter().filter(|&&r| !feas.is_feasible(r)).count();
 
@@ -663,8 +681,8 @@ fn build_outcome_multi(
     (outcome, mcdm)
 }
 
-/// 目的ごとの極値（方向に沿った最良・最悪と、最良 trial の feasibility）を
-/// 全 COMPLETE trial から組み立てる。
+/// Builds per-objective extremes (best/worst along the direction, plus the
+/// feasibility of the best trial) from all COMPLETE trials.
 #[allow(clippy::too_many_arguments)]
 fn build_objective_extremes(
     df: &DataFrame,
@@ -719,7 +737,8 @@ fn build_objective_extremes(
     per_objective_extremes
 }
 
-/// 散布図点（全 COMPLETE、先頭2目的軸、front / feasible 判定付き）を組み立てる。
+/// Builds scatter points (all COMPLETE, first two objective axes, with
+/// front / feasible flags).
 fn build_scatter_points(
     df: &DataFrame,
     objectives: &[Vec<f64>],
@@ -741,8 +760,8 @@ fn build_scatter_points(
         .collect()
 }
 
-/// パレート表（TOPSIS 順、ランキング未計算なら front 行順、`top_n*2` で cap、
-/// 重複解マーク付き）を組み立てる。
+/// Builds the Pareto table (TOPSIS order, or front row order if ranking
+/// wasn't computed; capped at `top_n*2`; with duplicate-solution marks).
 fn build_pareto_table(
     df: &DataFrame,
     meta: &StudyMeta,
@@ -768,12 +787,15 @@ fn build_pareto_table(
     pareto_table
 }
 
-/// 同一目的値ベクトルの trial を初出（最小 trial 番号）でマークする。
+/// Marks trials with an identical objective-value vector by their first
+/// occurrence (smallest trial number).
 ///
-/// パレート前面では同一パラメータの再サンプル等で目的値が完全一致する
-/// trial が並び得る。各グループの最小 trial 番号を正とし、それ以外の
-/// `duplicate_of` に正の trial 番号を入れる。比較はビットパターン一致
-/// （NaN 目的値同士も同一視、-0.0 と 0.0 は区別）で決定論的に行う。
+/// On the Pareto front, trials with exactly matching objective values can
+/// occur, e.g. from resampling the same parameters. The smallest trial
+/// number in each group is treated as canonical, and the others get a
+/// positive trial number set in `duplicate_of`. Comparison is done
+/// deterministically by bit-pattern equality (NaN objective values are
+/// also treated as equal to each other; -0.0 and 0.0 are distinguished).
 fn mark_duplicate_objectives(table: &mut [TrialSummary]) {
     use std::collections::HashMap;
     let mut first_of: HashMap<Vec<u64>, u32> = HashMap::new();
@@ -793,7 +815,8 @@ fn mark_duplicate_objectives(table: &mut [TrialSummary]) {
     }
 }
 
-/// パレート前面部分集合の目的値を row-major に平坦化する。
+/// Flattens the objective values of the Pareto-front subset into row-major
+/// order.
 fn flatten_front(objectives: &[Vec<f64>], front_rows: &[usize], m: usize) -> Vec<f64> {
     let mut values = Vec::with_capacity(front_rows.len() * m);
     for &r in front_rows {
@@ -802,9 +825,10 @@ fn flatten_front(objectives: &[Vec<f64>], front_rows: &[usize], m: usize) -> Vec
     values
 }
 
-/// TOPSIS ランキング（[`front_topsis`]）済みの結果を受け取り、VIKOR /
-/// PROMETHEE を追加計算して MCDM セクションを組み立てる。TOPSIS 自体は
-/// 呼び出し側（`build_outcome_multi`）と共有し、ここでは再計算しない。
+/// Takes the already-computed TOPSIS ranking ([`front_topsis`]) and
+/// additionally computes VIKOR / PROMETHEE to build the MCDM section.
+/// TOPSIS itself is shared with the caller (`build_outcome_multi`) and is
+/// not recomputed here.
 #[allow(clippy::too_many_arguments)]
 fn build_mcdm(
     ts: &topsis::TopsisResult,
@@ -862,7 +886,8 @@ fn build_mcdm(
 // Importance / Correlations / Stats
 // =============================================================================
 
-/// 数値パラメータのみを対象に、目的0 に対する |Spearman| を重要度とする。
+/// Uses |Spearman| against objective 0 as the importance score, for
+/// numeric parameters only.
 fn build_importance(
     df: &DataFrame,
     meta: &StudyMeta,
@@ -907,8 +932,9 @@ fn build_correlations(
     if n < 2 || meta.objective_names.is_empty() {
         return None;
     }
-    // 数値パラメータ列のみ。列スライスはここで 1 回だけ解決し、以降は
-    // 再ルックアップせず使い回す（フィルタとループでの二重解決を避ける）。
+    // Numeric parameter columns only. Column slices are resolved here
+    // exactly once and reused afterward without re-lookup (avoids
+    // resolving twice across the filter and the loop).
     let numeric_params: Vec<(String, &[f64])> = meta
         .param_names
         .iter()
@@ -922,7 +948,7 @@ fn build_correlations(
         .map(|j| objectives.iter().map(|o| o[j]).collect())
         .collect();
 
-    // 各パラメータ×各目的の Spearman 行列と、|ρ| の最大値。
+    // Spearman matrix for each parameter x each objective, plus the max |ρ|.
     let mut rows: Vec<(String, Vec<f64>, f64)> = numeric_params
         .iter()
         .map(|(name, x)| {
@@ -935,7 +961,7 @@ fn build_correlations(
         })
         .collect();
 
-    // |ρ| 最大値降順（同点は名前昇順）で cap。
+    // Cap by descending max |ρ| (ties broken by ascending name).
     rows.sort_by(|a, b| {
         b.2.partial_cmp(&a.2)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -1027,7 +1053,7 @@ fn build_execution(
         0.0
     };
 
-    // PRUNED trial の最終中間値 step の中央値。
+    // Median of the final intermediate-value step among PRUNED trials.
     let mut prune_steps: Vec<f64> = ex
         .trials
         .iter()
@@ -1042,7 +1068,7 @@ fn build_execution(
         Some(quantile(&prune_steps, 0.5))
     };
 
-    // trial 所要時間。
+    // Trial durations.
     let durations: Vec<f64> = ex
         .trials
         .iter()
@@ -1140,7 +1166,7 @@ fn feasibility_fact(
     } else {
         0.0
     };
-    // 単目的のみ最良 feasible trial を求める。
+    // Only for single-objective: find the best feasible trial.
     let best_trial = if !is_multi {
         let minimize = is_minimize.first().copied().unwrap_or(true);
         let mut best: Option<(f64, u32)> = None;

@@ -3,7 +3,8 @@ use std::sync::mpsc::SyncSender;
 
 use crate::state::messages::AppMessage;
 
-/// パスが Optuna SQLite ストレージ（拡張子 db/sqlite/sqlite3、大文字小文字無視）かを判定する。
+/// Determines whether a path is an Optuna SQLite storage (extension db/sqlite/sqlite3,
+/// case-insensitive).
 pub fn is_sqlite_path(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
         e.eq_ignore_ascii_case("db")
@@ -12,10 +13,11 @@ pub fn is_sqlite_path(path: &Path) -> bool {
     })
 }
 
-/// Phase 1: SQLite ストレージを開いて Study 一覧を返す（journal の `scan_journal_task` と同じ役割）。
+/// Phase 1: opens the SQLite storage and returns the Study list (same role as
+/// journal's `scan_journal_task`).
 ///
-/// journal と異なり生バイト列のキャッシュは不要（Phase 2 は `path` から直接再クエリする）ため、
-/// 戻り値は `AppMessage` のみ。
+/// Unlike journal, no raw byte buffer cache is needed (Phase 2 re-queries directly
+/// from `path`), so the return value is just `AppMessage`.
 pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
     match tunny_core::sqlite::scan_study_list(&path) {
         Ok(studies) => {
@@ -32,17 +34,20 @@ pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
     }
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、単一チャンクとして
-/// `StudyChunkLoaded` を送信する（journal の `stream_single_study_task` と同じ役割）。
+/// Phase 2: reads all COMPLETE trials for the specified study and sends them as a
+/// single chunk via `StudyChunkLoaded` (same role as journal's
+/// `stream_single_study_task`).
 ///
-/// SQLite は行指向クエリで対象 study の全行を一括取得できるため journal のような
-/// バッチ分割ストリーミングは不要。`is_first = is_final = true` の 1 通に全行を積んで送ることで、
-/// `MessageHandler::handle_study_chunk` を journal と共有し、param フィルタスライダーや
-/// pareto ランク計算などの UI 状態を journal 経路と完全に同一にする。
+/// Since SQLite can fetch all rows for the target study at once via a row-oriented
+/// query, batch-split streaming like journal's is unnecessary. By packing all rows
+/// into one message with `is_first = is_final = true`, `MessageHandler::handle_study_chunk`
+/// is shared with journal, making UI state such as the param filter sliders and
+/// Pareto rank computation exactly the same as the journal path.
 pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::sqlite::parse_single_study_rows(path, study_id) {
         Ok(rows) => {
-            // 全 trial（全 state）の付帯情報を実 study_id キーで共有ストアへ格納する。
+            // Store the extra info for all trials (all states) into the shared store,
+            // keyed by the actual study_id.
             tunny_core::dataframe::store_extras_for(study_id, rows.extras);
             let _ = tx.send(AppMessage::StudyChunkLoaded {
                 study_id,
@@ -65,16 +70,17 @@ pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMes
     }
 }
 
-/// ライブ更新: フィンガープリント変化を検出した study を丸ごと再パースし、
-/// 共有ストアを差し替えた上で `AppMessage::SqliteLiveReloadDone` を送る。
+/// Live update: fully re-parses the study whose fingerprint change was detected,
+/// swaps out the shared store, and sends `AppMessage::SqliteLiveReloadDone`.
 ///
-/// journal のライブ更新（差分追記）と異なり、SQLite は trial の状態がインプレースで
-/// 更新されるため差分適用ができない。そのため `parse_single_study`（Phase 2 と同じ
-/// 関数）で対象 study を毎回丸ごと読み直す。SQLite の単一 study パースは軽量
-/// （数 ms 程度）なので、この再パース自体はワーカースレッド上で行い UI スレッドを
-/// ブロックしない。`swap_snapshot` / `store_extras_for` もこの関数内（ワーカー
-/// スレッド）で行う（`LoadComparisonStudy` と同じパターン）ため、
-/// `MessageHandler` 側は受信後に `snapshot(study_id)` を取り直すだけでよい。
+/// Unlike journal's live update (incremental append), SQLite updates trial state
+/// in place, so incremental application isn't possible. This is why the target study
+/// is fully re-read every time with `parse_single_study` (the same function as
+/// Phase 2). Parsing a single SQLite study is lightweight (on the order of a few ms),
+/// so this re-parse itself runs on the worker thread and doesn't block the UI thread.
+/// `swap_snapshot` / `store_extras_for` are also performed within this function (on
+/// the worker thread), following the same pattern as `LoadComparisonStudy`, so the
+/// `MessageHandler` side only needs to re-fetch `snapshot(study_id)` after receiving it.
 pub fn reload_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::sqlite::parse_single_study(path, study_id) {
         Ok((meta, df, extras)) => {

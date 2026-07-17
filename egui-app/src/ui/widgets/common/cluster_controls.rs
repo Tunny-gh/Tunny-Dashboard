@@ -1,14 +1,16 @@
-//! クラスタリング設定 UI と計算キュー投入の共通ロジック（D-3）。
+//! Common logic for the clustering settings UI and compute-queue submission (D-3).
 //!
-//! 2D / 3D クラスタ散布図・クラスタテーブル・Artifact ギャラリーの 4 ウィジェットは、
-//! いずれも同じクラスタリング設定（k / Max k / 対象空間 / k 選択モード / Init 戦略）と
-//! 実行状態（computing / pending / error）を持ち、同一の制御行 UI と「Run 押下 →
-//! バリデーション → キュー投入」フローを重複して実装していた。
+//! The 4 widgets — 2D / 3D cluster scatter plots, the cluster table, and the Artifact
+//! gallery — all share the same clustering settings (k / Max k / target space /
+//! k-selection mode / Init strategy) and execution state (computing / pending / error),
+//! and used to duplicate the same control-row UI and "Run clicked -> validation ->
+//! queue submission" flow.
 //!
-//! 各ウィジェットは（外部から直接フィールド参照・take される都合で）設定値と実行状態を
-//! フラットなフィールドとして保持し続ける必要があるため、ここでは値をまとめて所有する
-//! 代わりに、それらフィールドへの可変参照束 [`ClusterControls`] を受け取って UI 描画と
-//! キュー投入判定だけを共通化する。
+//! Each widget needs to keep its settings and execution state as flat fields (since
+//! they're referenced and taken directly from the outside, e.g. by tests or workers),
+//! so instead of owning the values together, this module takes a bundle of mutable
+//! references to those fields ([`ClusterControls`]) and shares only the UI drawing and
+//! queue-submission logic.
 
 use crate::state::messages::ClusterUiError;
 use crate::ui::widgets::cluster_scatter::{
@@ -16,17 +18,19 @@ use crate::ui::widgets::cluster_scatter::{
     KSelectionMode,
 };
 
-/// クラスタ制御 UI が編集する設定値と実行状態への可変参照束。
+/// A bundle of mutable references to the settings and execution state that the
+/// cluster control UI edits.
 ///
-/// 4 ウィジェットは同一のフィールド構成を持つが、テストやワーカー側から個別フィールドを
-/// 直接参照・`take` するためフィールドはフラットに保つ。各ウィジェットは呼び出しごとに
-/// 自分のフィールドからこの束を組み立て、`show_controls` / `try_queue_compute` に委譲する。
+/// The 4 widgets share the same field layout, but fields are kept flat because tests
+/// and workers reference and `take` individual fields directly. Each widget builds
+/// this bundle from its own fields on every call and delegates to `show_controls` /
+/// `try_queue_compute`.
 pub struct ClusterControls<'a> {
     pub k: &'a mut usize,
     pub target_space: &'a mut ClusterSpace,
     pub k_mode: &'a mut KSelectionMode,
     pub init_strategy: &'a mut KMeansInitStrategy,
-    /// Elbow（自動）モードで探索する k の上限。
+    /// Upper bound on k explored in Elbow (automatic) mode.
     pub elbow_max_k: &'a mut usize,
     pub computing: &'a mut bool,
     pub pending_compute: &'a mut Option<ClusterComputeRequest>,
@@ -34,15 +38,20 @@ pub struct ClusterControls<'a> {
 }
 
 impl ClusterControls<'_> {
-    /// クラスタリング設定 UI（k / Max k / モード / 空間 / Init / Run）を 1 行で描画する。
+    /// Draws the clustering settings UI (k / Max k / mode / space / Init / Run) in a
+    /// single row.
     ///
-    /// - `count` は k / Max k・実行可否の基準となる対象点数（多くはパレートフロント点数）。
-    /// - `id_prefix` は 3 つの ComboBox の `id_salt` 衝突回避に使う（ウィジェットごとに一意）。
-    ///   `"{id_prefix}_k_mode"` / `"{id_prefix}_space"` / `"{id_prefix}_init"` を割り当てる。
-    /// - `inline_spinner` が true のとき、実行中は Run の右にスピナーを表示する
-    ///   （2D 散布図は本体側で別途スピナー表示するため false を渡す）。
+    /// - `count` is the target point count (often the Pareto front point count) used
+    ///   as the basis for k / Max k and run eligibility.
+    /// - `id_prefix` is used to avoid `id_salt` collisions across the 3 ComboBoxes
+    ///   (unique per widget); assigns `"{id_prefix}_k_mode"` / `"{id_prefix}_space"` /
+    ///   `"{id_prefix}_init"`.
+    /// - When `inline_spinner` is true, a spinner is shown to the right of Run while
+    ///   running (2D scatter plots show their own spinner separately, so they pass
+    ///   false).
     ///
-    /// Run 押下時は `try_queue_compute` を呼び、バリデーションを通れば pending に積む。
+    /// On Run click, calls `try_queue_compute`, which pushes to pending if validation
+    /// passes.
     pub fn show_controls(
         &mut self,
         ui: &mut egui::Ui,
@@ -131,8 +140,9 @@ impl ClusterControls<'_> {
         });
     }
 
-    /// 現在の設定でクラスタリング要求を組み立ててバリデーションし、通れば pending に積む。
-    /// バリデーション失敗時は pending を空にしてエラーを立てる（従来の各実装と同一挙動）。
+    /// Builds a clustering request from the current settings and validates it,
+    /// pushing to pending on success. On validation failure, clears pending and sets
+    /// the error (same behavior as the previous per-widget implementations).
     pub fn try_queue_compute(&mut self, count: usize) {
         let request = ClusterComputeRequest {
             k: *self.k,

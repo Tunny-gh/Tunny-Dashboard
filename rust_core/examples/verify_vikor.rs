@@ -1,15 +1,16 @@
-//! Python (pymcdm) との VIKOR クロスチェック用ハーネス。
+//! Cross-check harness against Python (pymcdm) for VIKOR.
 //!
-//! 入力データ（決定行列・重み・方向・v）と計算結果を JSON で stdout に出力する。
-//! Python 側は pymcdm.methods.VIKOR で同じ入力を再計算して突き合わせる。
-//! pymcdm の VIKOR は「全代替案で値が同じ列」(fstar==fminus) があると
-//! ValueError を送出するため、この生成データには定数列を含めない。
+//! Outputs the input data (decision matrix, weights, directions, v) and the
+//! computation result to stdout as JSON. On the Python side, pymcdm.methods.VIKOR
+//! recomputes the same input and the results are compared.
+//! pymcdm's VIKOR raises ValueError when a column has the same value across all
+//! alternatives (fstar==fminus), so the generated data here avoids constant columns.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_vikor`
+//! Run: `cargo run -p tunny-core --example verify_vikor`
 
 use tunny_core::vikor::compute_vikor;
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {

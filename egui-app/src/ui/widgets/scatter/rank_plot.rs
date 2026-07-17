@@ -9,24 +9,24 @@ use crate::ui::widgets::trial_detail_modal::{
     axis_row, fmt_opt, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
-/// Rank Plot ウィジェット
+/// Rank Plot widget
 ///
-/// Optuna の `plot_rank` に相当する。選択した 2 パラメータの散布図を、選択した
-/// 目的関数値のランク（パーセンタイル。0=最良〜1=最悪）で色付けする。生の値では
-/// なく順位で色付けするため外れ値に頑健で、パラメータの組み合わせが目的関数の
-/// 良し悪しにどう影響するかを俯瞰しやすい。
+/// Corresponds to Optuna's `plot_rank`. Colors a scatter plot of two selected parameters by
+/// the rank (percentile; 0=best to 1=worst) of the selected objective value. Coloring by rank
+/// rather than the raw value makes it robust to outliers, and makes it easy to see at a glance
+/// how a combination of parameters affects the goodness of the objective.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RankPlotChart {
     pub x_param_idx: usize,
     pub y_param_idx: usize,
     pub obj_idx: usize,
-    /// 点クリックで開くトライアル詳細モーダル（他の散布図と共有）。
+    /// Trial detail modal opened by clicking a point (shared with other scatter plots).
     #[serde(skip)]
     detail_modal: TrialDetailModal,
-    /// ランクのソート・点群構築・色グルーピングの結果キャッシュ。
-    /// `RankPlotCache::key` が変わらない限り毎フレームの再計算を避ける
-    /// （robustness.rs の Arc 恒等性パターンに倣う）。
+    /// Cached result of rank sorting, point-set construction, and color grouping.
+    /// Avoids per-frame recomputation as long as `RankPlotCache::key` hasn't changed
+    /// (follows the Arc-identity pattern used in robustness.rs).
     #[serde(skip)]
     cache: Option<RankPlotCache>,
 }
@@ -43,13 +43,13 @@ impl Default for RankPlotChart {
     }
 }
 
-/// フレーム毎の再計算（ランクの O(n log n) ソート、点群構築、色グルーピング用
-/// HashMap 構築）を避けるためのキャッシュ。
+/// Cache to avoid per-frame recomputation (rank's O(n log n) sort, point-set construction,
+/// and HashMap construction for color grouping).
 ///
-/// キーは (DataFrame の Arc 恒等性, X パラメータ選択, Y パラメータ選択, 目的選択,
-/// カラーマップのフィンガープリント)。いずれかが変わったときだけ再構築する。
-/// カラーマップはユーザーがテーマ設定で切り替えられるため、色そのものが
-/// キャッシュ結果（color_groups のキー）に影響することを反映してキーに含める。
+/// The key is (Arc identity of the DataFrame, X parameter selection, Y parameter selection,
+/// objective selection, colormap fingerprint). Rebuilt only when any of these change.
+/// Since the colormap can be switched by the user via theme settings, the color itself
+/// affects the cached result (the key of color_groups), so it's included in the cache key.
 struct RankPlotCache {
     key: (usize, usize, usize, usize, u64),
     ranks: Vec<f64>,
@@ -57,9 +57,10 @@ struct RankPlotCache {
     hit_candidates: Vec<(u32, usize, [f64; 2])>,
 }
 
-/// カラーマップの内容を安価な u64 フィンガープリントに畳み込む（FNV-1a 風）。
-/// 停止点数は少数（数点）のため、毎フレーム計算してもヒープ確保なしで軽量。
-/// 散布図行列・PCA バイプロットのキャッシュキーでも共有する。
+/// Folds the colormap contents into a cheap u64 fingerprint (FNV-1a-like).
+/// The number of stops is small (a handful), so computing this every frame is
+/// lightweight with no heap allocation. Also shared as a cache key with the
+/// scatter matrix and PCA biplot.
 pub(super) fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325 ^ (cmap.stops.len() as u64);
     for &(t, color) in &cmap.stops {
@@ -73,7 +74,7 @@ pub(super) fn cmap_fingerprint(cmap: &ColorMap) -> u64 {
     h
 }
 
-/// 描画対象 1 点分（トライアル ID・行 index・パラメータ座標・ランクパーセンタイル）。
+/// Data for a single plotted point (trial ID, row index, parameter coordinates, rank percentile).
 struct RankPoint {
     trial_id: u32,
     row: usize,
@@ -83,7 +84,7 @@ struct RankPoint {
 }
 
 impl RankPlotChart {
-    /// Rank Plot を描画する。
+    /// Draws the Rank Plot.
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -114,11 +115,11 @@ impl RankPlotChart {
             return;
         }
 
-        // インデックスのクランプ（データ更新後の範囲外アクセスを防ぐ）。
+        // Clamp indices (prevents out-of-range access after a data update).
         self.x_param_idx = self.x_param_idx.min(param_names.len() - 1);
         self.y_param_idx = self.y_param_idx.min(param_names.len() - 1);
-        // X/Y が同一パラメータになった場合（クランプ後の衝突など）は、
-        // 対角線上に潰れた無意味な散布図にならないよう Y を次のパラメータへ送る。
+        // If X/Y end up as the same parameter (e.g. a collision after clamping), advance Y to
+        // the next parameter so the scatter plot doesn't collapse into a meaningless diagonal.
         if self.x_param_idx == self.y_param_idx {
             self.y_param_idx = (self.x_param_idx + 1) % param_names.len();
         }
@@ -158,8 +159,8 @@ impl RankPlotChart {
         let obj_name = obj_names[self.obj_idx].clone();
         let minimize = matches!(directions.get(self.obj_idx), Some(Direction::Minimize));
 
-        // キャッシュキー: view（DataFrame）の恒等性 + 選択中の X/Y/目的 + カラーマップ。
-        // いずれも変わっていなければ、ランクのソートや色グルーピングを再計算しない。
+        // Cache key: identity of view (DataFrame) + selected X/Y/objective + colormap.
+        // If none of these have changed, rank sorting and color grouping aren't recomputed.
         let cache_key = (
             std::sync::Arc::as_ptr(&view.df) as usize,
             self.x_param_idx,
@@ -173,12 +174,12 @@ impl RankPlotChart {
                 .numeric_column(&obj_name)
                 .map(|c| c.to_vec())
                 .unwrap_or_default();
-            // ランクは目的値列全体（COMPLETE trial 全件）から算出する。
-            // パラメータが欠損している行があっても、他行のランクには影響しない。
+            // Ranks are computed from the full objective-value column (all COMPLETE trials).
+            // A row with a missing parameter doesn't affect the ranks of other rows.
             let ranks = compute_rank_percentiles(&obj_values, minimize);
             let points = collect_rank_points(view, &x_name, &y_name, &ranks);
 
-            // 色ごとにグルーピングして描画バッチ数を抑える（MCDM 散布図と同じ手法）。
+            // Group by color to limit the number of draw batches (same approach as the MCDM scatter plot).
             let mut color_groups: HashMap<[u8; 4], Vec<[f64; 2]>> = HashMap::new();
             let hit_candidates: Vec<(u32, usize, [f64; 2])> = points
                 .iter()
@@ -248,7 +249,7 @@ impl RankPlotChart {
             });
         });
 
-        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        // If there's a hovered point, show a summary tooltip at the pointer position.
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let rows = vec![
@@ -263,7 +264,7 @@ impl RankPlotChart {
             show_hover_tooltip(ui, "rank_plot_hover_tooltip", trial_number, &rows);
         }
 
-        // 点クリックでトライアル詳細モーダルを開く（散布図共有・アーティファクト付き）。
+        // Clicking a point opens the trial detail modal (shared across scatter plots, with artifacts).
         if let Some((trial_id, row)) = clicked_detail {
             let context = vec![(
                 "Rank Percentile".to_string(),
@@ -280,7 +281,7 @@ impl RankPlotChart {
     }
 }
 
-/// view から Rank Plot の描画点を集める（NaN/Inf の x/y は除外）。
+/// Collects the Rank Plot's plotted points from view (excludes NaN/Inf x/y).
 fn collect_rank_points(
     view: &StudyView,
     x_name: &str,
@@ -311,14 +312,14 @@ fn collect_rank_points(
         .collect()
 }
 
-/// ランクパーセンタイルの凡例（縦グラデーションバー + Best/Worst ラベル）を描画する。
+/// Draws the rank percentile legend (a vertical gradient bar + Best/Worst labels).
 ///
-/// バー本体は `common::heatmap::draw_gradient_bar` を共有する（D-10）。ランクは値
-/// そのものではなく相対順位（0=最良〜1=最悪）であるため、数値目盛の代わりに
-/// Best / Worst ラベルを使う方が直感的と判断し、ラベル部分のみ専用実装とした。
+/// The bar itself is shared with `common::heatmap::draw_gradient_bar` (D-10). Since rank is a
+/// relative order (0=best to 1=worst) rather than a raw value, Best / Worst labels were judged
+/// more intuitive than numeric tick marks, so only the label portion has a dedicated implementation.
 fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     let painter = ui.painter();
-    // i=0 がバー上端（Worst=1.0 の色）、末尾が下端（Best=0.0 の色）。
+    // i=0 is the top of the bar (color for Worst=1.0), the last entry is the bottom (color for Best=0.0).
     draw_gradient_bar(painter, bar_rect, cmap, 32);
     painter.rect_stroke(
         bar_rect,
@@ -345,14 +346,14 @@ fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     );
 }
 
-/// 目的値のランクパーセンタイルを計算する（0.0=最良 〜 1.0=最悪）。
+/// Computes the rank percentiles of objective values (0.0=best to 1.0=worst).
 ///
-/// - `minimize=true` のとき値が小さいほど 0 に近く、`false` のとき値が大きいほど
-///   0 に近い（常に「良い解」が 0 側になるよう Direction を反映する）。
-/// - 同値（タイ）は平均順位で扱う（順位の間を取る）。
-/// - NaN は最悪（1.0）として扱う。
-/// - 有限値が 1 件のみのときは 0.0（唯一の観測 = 最良として扱う）。
-/// - 空配列は空を返す。
+/// - When `minimize=true`, smaller values are closer to 0; when `false`, larger values are
+///   closer to 0 (Direction is reflected so a "good solution" is always on the 0 side).
+/// - Equal values (ties) are handled with the average rank (splitting the difference between ranks).
+/// - NaN is treated as worst (1.0).
+/// - When there's only a single finite value, it's 0.0 (the sole observation is treated as best).
+/// - An empty array returns empty.
 pub fn compute_rank_percentiles(values: &[f64], minimize: bool) -> Vec<f64> {
     let n = values.len();
     if n == 0 {
@@ -373,14 +374,14 @@ pub fn compute_rank_percentiles(values: &[f64], minimize: bool) -> Vec<f64> {
     }
 
     let m = finite.len();
-    let mut ranks = vec![1.0f64; n]; // NaN 等の非有限値は最悪(1.0)のまま残す
+    let mut ranks = vec![1.0f64; n]; // Non-finite values such as NaN stay at worst (1.0)
     let mut i = 0;
     while i < m {
         let mut j = i;
         while j < m && finite[j].1 == finite[i].1 {
             j += 1;
         }
-        // タイ区間 [i, j) の平均順位（0-indexed）を [0, m-1] から [0, 1] へ正規化する。
+        // Normalize the average rank (0-indexed) of the tied interval [i, j) from [0, m-1] to [0, 1].
         let avg_rank = ((i + j - 1) as f64) / 2.0;
         let percentile = if m > 1 {
             avg_rank / (m - 1) as f64

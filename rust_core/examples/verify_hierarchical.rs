@@ -1,13 +1,14 @@
-//! Python (scipy) との階層クラスタリング(Ward法)クロスチェック用ハーネス。
+//! Cross-check harness against Python (scipy) for hierarchical clustering (Ward's method).
 //!
-//! 入力データと計算結果を JSON で stdout に出力する。Python 側は同じ入力を
-//! scipy.cluster.hierarchy.linkage(method='ward') で再計算して突き合わせる。
+//! Outputs the input data and the computed results to stdout as JSON. The Python
+//! side recomputes the same input with scipy.cluster.hierarchy.linkage(method='ward')
+//! and compares the results.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_hierarchical`
+//! Run: `cargo run -p tunny-core --example verify_hierarchical`
 
 use tunny_core::clustering::{cut_tree, ward_linkage};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -24,7 +25,7 @@ fn main() {
     let n_per_blob = 10;
     let centers = [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (0.0, 8.0, 4.0)];
 
-    // 3 個の明確に分離したブロブ (3 特徴)。標準化なしと標準化ありの両方を検証する。
+    // 3 clearly separated blobs (3 features). Verify both without and with standardization.
     let mut data: Vec<Vec<f64>> = Vec::new();
     for &(cx, cy, cz) in &centers {
         for _ in 0..n_per_blob {
@@ -35,7 +36,8 @@ fn main() {
             ]);
         }
     }
-    // 第 3 列だけ桁違いに大きいスケールにして標準化の効果も見えるようにする。
+    // Scale only the 3rd column to an order of magnitude larger so the effect of
+    // standardization is visible.
     let mut data_scaled = data.clone();
     for row in &mut data_scaled {
         row[2] *= 1000.0;

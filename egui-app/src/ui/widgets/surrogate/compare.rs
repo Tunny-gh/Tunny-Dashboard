@@ -1,13 +1,17 @@
-//! Compare Surrogates ウィジェット。
+//! The Compare Surrogates widget.
 //!
-//! 選択した目的について全サロゲートモデル種別（Ridge / GP-FITC / GP-VFE / LightGBM、
-//! および任意で GP-MOE）を一括でフィットし、CV 指標の比較表と、ベスト観測 trial を
-//! アンカーとした 1 パラメータ方向の予測スライスのオーバーレイを表示する。HEEDS の
-//! "Compare Surrogates" 相当。フィットは非同期（poll_chart.rs 経由）。
+//! Fits all surrogate model kinds (Ridge / GP-FITC / GP-VFE / LightGBM, and
+//! optionally GP-MOE) in one batch for the selected objective, and displays
+//! a CV metric comparison table plus an overlay of 1D prediction slices
+//! along one parameter direction, anchored on the best observed trial.
+//! Equivalent to HEEDS's "Compare Surrogates". Fitting is asynchronous (via
+//! poll_chart.rs).
 //!
-//! アンカーは常にベスト観測 trial（`anchor::best_trial_row` で方向を考慮して解決）で、
-//! `response_surface.rs` / `robustness.rs` と異なり pin 留め trial の選択 UI は持たない
-//! （複数モデルを横並びで比較する用途では中心点を固定した方が比較しやすいため）。
+//! The anchor is always the best observed trial (resolved via
+//! `anchor::best_trial_row`, taking direction into account), and unlike
+//! `response_surface.rs` / `robustness.rs`, this doesn't have a pinned-trial
+//! selection UI (fixing the center point makes it easier to compare multiple
+//! models side by side).
 
 use std::sync::Arc;
 
@@ -20,8 +24,8 @@ use crate::theme::chart_colors::{
 };
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 
-/// 常に比較する基本モデル種別（表示・フィット順）。GP-MOE は計算コストが高いため
-/// `include_moe` が有効なときのみ追加する。
+/// The base model kinds always compared (display / fit order). Since GP-MOE is
+/// computationally expensive, it's added only when `include_moe` is enabled.
 const BASE_KINDS: [SurrogateModelKind; 4] = [
     SurrogateModelKind::Ridge,
     SurrogateModelKind::GpFitc,
@@ -29,7 +33,7 @@ const BASE_KINDS: [SurrogateModelKind; 4] = [
     SurrogateModelKind::Lgbm,
 ];
 
-/// `include_moe` に応じてフィットするモデル種別の一覧を返す。
+/// Returns the list of model kinds to fit, depending on `include_moe`.
 pub fn model_kinds(include_moe: bool) -> Vec<SurrogateModelKind> {
     let mut kinds = BASE_KINDS.to_vec();
     if include_moe {
@@ -38,7 +42,7 @@ pub fn model_kinds(include_moe: bool) -> Vec<SurrogateModelKind> {
     kinds
 }
 
-/// オーバーレイプロットでのモデル別固定配色。
+/// Fixed per-model color scheme for the overlay plot.
 fn model_color(kind: SurrogateModelKind) -> egui::Color32 {
     match kind {
         SurrogateModelKind::Ridge => COLOR_BAR_ACCENT(),
@@ -49,23 +53,24 @@ fn model_color(kind: SurrogateModelKind) -> egui::Color32 {
     }
 }
 
-/// 比較実行の計算リクエスト。poll_chart が消費する。
+/// A computation request for a comparison run. Consumed by poll_chart.
 pub struct SurrogateCompareRequest {
     pub objective_index: usize,
     pub slice_param: usize,
     pub include_moe: bool,
 }
 
-/// Compare Surrogates ウィジェットの UI 状態。
-/// 全フィールドの既定値が型の `Default` と一致するため、`#[derive(Default)]` で導出する
-/// （`response_surface.rs` / `robustness.rs` は既定値が型の Default と異なるため手動実装している）。
+/// UI state of the Compare Surrogates widget.
+/// Derived via `#[derive(Default)]` since every field's default matches the type's
+/// `Default` (`response_surface.rs` / `robustness.rs` implement this manually because
+/// their defaults differ from the type's Default).
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SurrogateCompareChart {
     pub selected_objective: usize,
-    /// 1D オーバーレイのスライス対象パラメータ index（数値パラメータ一覧内）。
+    /// The parameter index to slice for the 1D overlay (within the numeric parameter list).
     pub slice_param: usize,
-    /// GP-MOE は低速なため既定オフ。
+    /// GP-MOE is slow, so it's off by default.
     pub include_moe: bool,
 
     #[serde(skip)]
@@ -79,8 +84,8 @@ pub struct SurrogateCompareChart {
 }
 
 impl SurrogateCompareChart {
-    /// グローバル widget の計算実行状態・結果・エラーを取り込む
-    /// （`ComputeSyncKind::SurrogateCompare` から呼ぶ。`robustness.rs` と同じ規約）。
+    /// Adopts the computation state, result, and error from the global widget
+    /// (called from `ComputeSyncKind::SurrogateCompare`; same convention as `robustness.rs`).
     pub fn adopt_compute_state(&mut self, global: &Self) {
         self.computing = global.computing;
         self.error = global.error.clone();
@@ -88,8 +93,9 @@ impl SurrogateCompareChart {
     }
 }
 
-/// `obj_names` は現在の Study の全目的。`param_names` は数値パラメータ一覧
-/// （スライス対象コンボの候補、カテゴリカル列は除外済みのものを渡すこと）。
+/// `obj_names` is all objectives of the current Study. `param_names` is the list of
+/// numeric parameters (pass the candidates for the slice-target combo box with
+/// categorical columns already excluded).
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut SurrogateCompareChart,
@@ -194,7 +200,7 @@ pub fn show(
     ));
 }
 
-/// CV 指標比較表を描画する（CV R² 降順、失敗モデルは末尾）。
+/// Draws the CV metric comparison table (descending CV R², failed models at the end).
 fn render_metrics_table(ui: &mut egui::Ui, result: &SurrogateCompareUiResult) {
     ui.strong(format!("CV metrics — {}", result.objective_name));
 
@@ -249,7 +255,7 @@ fn render_metrics_table(ui: &mut egui::Ui, result: &SurrogateCompareUiResult) {
         });
 }
 
-/// 観測データ + モデルごとの 1D 予測スライスを重ねたオーバーレイプロットを描画する。
+/// Draws an overlay plot of observed data plus the per-model 1D prediction slices.
 fn render_overlay_plot(ui: &mut egui::Ui, result: &SurrogateCompareUiResult) {
     let observed_pts: Vec<[f64; 2]> = result.observed.iter().map(|&(x, y)| [x, y]).collect();
 
@@ -322,7 +328,7 @@ mod tests {
         dst.adopt_compute_state(&src);
         assert!(!dst.computing);
         assert_eq!(dst.error.as_deref(), Some("err"));
-        // UI 選択は維持される。
+        // UI selection is preserved.
         assert_eq!(dst.selected_objective, 2);
         assert_eq!(dst.slice_param, 1);
     }

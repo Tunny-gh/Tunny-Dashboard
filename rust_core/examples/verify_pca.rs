@@ -1,16 +1,17 @@
-//! Python (numpy/sklearn) との PCA クロスチェック用ハーネス。
+//! Harness for cross-checking PCA against Python (numpy/sklearn).
 //!
-//! `run_pca` / `run_pca_standardized` はアクティブ DataFrame に依存するため、
-//! `tunny_core::dataframe` の公開 API (`store_dataframes` / `select_study`) で
-//! 合成データを積んだ 1 study を用意してから呼び出す。
+//! Since `run_pca` / `run_pca_standardized` depend on the active
+//! DataFrame, this prepares a single study loaded with synthetic data via
+//! `tunny_core::dataframe`'s public API (`store_dataframes` /
+//! `select_study`) before calling them.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_pca`
+//! Run with: `cargo run -p tunny-core --example verify_pca`
 
 use std::collections::HashMap;
 use tunny_core::clustering::{run_pca, run_pca_standardized, PcaSpace};
 use tunny_core::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -28,8 +29,9 @@ fn main() {
     let param_names = vec!["p0".to_string(), "p1".to_string(), "p2".to_string()];
     let obj_names = vec!["obj0".to_string()];
 
-    // 相関のある 3 パラメータ + 1 目的関数。p2 だけ桁違いのスケールにして
-    // 標準化 (相関行列 PCA) の効果が見えるようにする。
+    // 3 correlated parameters + 1 objective function. Only p2 is scaled by
+    // orders of magnitude, so the effect of standardization (correlation-
+    // matrix PCA) is visible.
     let mut data: Vec<Vec<f64>> = Vec::with_capacity(n);
     for _ in 0..n {
         let p0 = rng.next_f64() * 10.0;
@@ -62,7 +64,8 @@ fn main() {
     store_dataframes(vec![df]);
     select_study(0).unwrap();
 
-    // Param 空間 (3 特徴) で中心化のみ / 標準化 (相関行列) 双方を検証する。
+    // Verifies both centering-only and standardization (correlation
+    // matrix) in the Param space (3 features).
     let raw = run_pca(3, PcaSpace::Param).unwrap();
     let standardized = run_pca_standardized(3, PcaSpace::Param).unwrap();
 

@@ -39,8 +39,8 @@ fn setup_sensitivity_df(n: usize, n_params: usize, n_objectives: usize) -> DataF
     DataFrame::from_trials(&rows, &param_names, &objective_names, &[], &[], 0)
 }
 
-/// アプリの実経路（`compute_sensitivity_single_obj` を目的ごとに呼ぶ）で
-/// 目的数に対するスケーリングを測る。
+/// Measures scaling with the number of objectives along the app's real code
+/// path (calling `compute_sensitivity_single_obj` per objective).
 fn bench_sensitivity(c: &mut Criterion) {
     let mut group = c.benchmark_group("sensitivity_objectives");
     for &n_obj in &[1usize, 2, 4, 8] {

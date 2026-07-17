@@ -1,112 +1,117 @@
-//! HTML / SVG レポート共通カラーパレット（検証済みトークン）。
+//! HTML / SVG report shared color palette (verified tokens).
 //!
-//! 値の出典は設計書「短期2: 自己完結型レポート出力」の
-//! 「HTML レンダラ」節に記載のカラートークンで、本モジュールはそれを
-//! `pub const &str` として固定化したものである。ライト/ダーク両対応の
-//! ページを JS 無しで実現するため、値そのものではなく CSS custom
-//! property（`--foo` の形）を経由して SVG / HTML から参照する設計とし、
-//! [`css_variables`] がその宣言ブロック（`:root` + `@media
-//! (prefers-color-scheme: dark)`）を文字列として生成する。
+//! The values are sourced from the color tokens listed in the "HTML
+//! Renderer" section of the design document "Short-term 2: Self-contained
+//! report output", and this module fixes them as `pub const &str`. To
+//! achieve light/dark support without JS, the design references values not
+//! directly but through CSS custom properties (in the form `--foo`) from
+//! SVG / HTML, and [`css_variables`] generates that declaration block
+//! (`:root` + `@media (prefers-color-scheme: dark)`) as a string.
 //!
-//! # 派生パレットの導出方法（シーケンシャル / ダイバージング）
+//! # How the derived palettes (sequential / diverging) are computed
 //!
-//! 設計書はシーケンシャルの両端（100 と 700）とダイバージングの両極
-//! （blue / red）と中立色のみを規定しており、中間段階は本モジュールで
-//! 補間して定義する。単純に sRGB のバイト値を線形補間すると、色相の
-//! 異なる中間色が濁って（低彩度に）見える問題があるため、
-//! [OKLab](https://bottosson.github.io/posts/oklab/) 色空間（知覚的に
-//! 均等になるよう設計された空間）で補間してから sRGB に戻す。
-//! 具体的な手順は以下（`#[cfg(test)]` 内に同じ手順の参照実装があり、
-//! 下記の定数値がその実装の出力と一致することをテストで担保している）。
+//! The design document specifies only the two ends of the sequential scale
+//! (100 and 700), the two poles of the diverging scale (blue / red), and
+//! the neutral color; the intermediate steps are interpolated and defined
+//! in this module. Naively interpolating sRGB byte values linearly makes
+//! intermediate colors of differing hue look muddy (desaturated), so
+//! interpolation is performed in [OKLab](https://bottosson.github.io/posts/oklab/)
+//! color space (designed to be perceptually uniform) and converted back to
+//! sRGB. The concrete procedure is as follows (a reference implementation
+//! of the same procedure lives in `#[cfg(test)]`, and tests assert that the
+//! constant values below match that implementation's output).
 //!
-//! 1. 両端の sRGB 16 進値をリニア RGB → OKLab に変換する。
-//! 2. OKLab 空間で `L`, `a`, `b` をそれぞれ線形補間する。
-//! 3. OKLab → リニア RGB → sRGB に逆変換し、8bit に丸めて 16 進文字列化する。
+//! 1. Convert the sRGB hex values at both ends to linear RGB, then to OKLab.
+//! 2. Linearly interpolate `L`, `a`, and `b` independently in OKLab space.
+//! 3. Convert back OKLab -> linear RGB -> sRGB, round to 8 bits, and format
+//!    as a hex string.
 //!
-//! シーケンシャル（`SEQ_100..=SEQ_700`）は 100 刻みの 7 段階
-//! （`t = (step - 100) / 600`）、ダイバージングの各腕（`DIV_NEG_*` /
-//! `DIV_POS_*`）は中立色を `t = 0`、極色を `t = 1` として
-//! `t = i / 5`（`i = 1..=5`）の 5 段階で補間している
-//! （設計書の「五段階 × 2 腕」に対応）。
+//! The sequential scale (`SEQ_100..=SEQ_700`) has 7 steps at increments of
+//! 100 (`t = (step - 100) / 600`); each arm of the diverging scale
+//! (`DIV_NEG_*` / `DIV_POS_*`) has 5 steps with `t = 0` at the neutral color
+//! and `t = 1` at the pole color, using `t = i / 5` (`i = 1..=5`)
+//! (corresponding to the design document's "five steps x two arms").
 //!
-//! ダイバージングの直接ラベルのインク色（黒 / 白）は各段階の相対輝度
-//! （WCAG のコントラスト比）から事前計算済みで、[`diverging_ink_var`]
-//! が段階ごとに適切な CSS 変数名を返す。
+//! The ink color (black / white) used for direct labels on the diverging
+//! scale is precomputed from the relative luminance (WCAG contrast ratio)
+//! of each step, and [`diverging_ink_var`] returns the appropriate CSS
+//! variable name for each step.
 
 // ============================================================
-// Surface（面）
+// Surface
 // ============================================================
 
-/// ライトテーマの面色。
+/// Light-theme surface color.
 pub const SURFACE_LIGHT: &str = "#fcfcfb";
-/// ダークテーマの面色。
+/// Dark-theme surface color.
 pub const SURFACE_DARK: &str = "#1a1a19";
 
 // ============================================================
-// Ink（テキスト）
+// Ink (text)
 // ============================================================
 
-/// ライトテーマの主要インク色（本文・見出し）。
+/// Light-theme primary ink color (body text, headings).
 pub const INK_PRIMARY_LIGHT: &str = "#0b0b0b";
-/// ダークテーマの主要インク色。
+/// Dark-theme primary ink color.
 pub const INK_PRIMARY_DARK: &str = "#ffffff";
-/// ライトテーマの副次インク色（キャプション等）。
+/// Light-theme secondary ink color (captions, etc.).
 pub const INK_SECONDARY_LIGHT: &str = "#52514e";
-/// ダークテーマの副次インク色。
+/// Dark-theme secondary ink color.
 pub const INK_SECONDARY_DARK: &str = "#c3c2b7";
-/// ミュートインク色（軸ラベル・補助テキスト用）。
+/// Muted ink color (for axis labels and auxiliary text).
 ///
-/// 設計書はライト/ダークで単一値のみを規定している
-/// （このグレーは両テーマの面色に対して十分なコントラストを保てるため、
-/// テーマ別の値を持たない）。
+/// The design document specifies a single value shared by both themes
+/// (this gray retains sufficient contrast against the surface color of
+/// both themes, so it has no per-theme variant).
 pub const INK_MUTED: &str = "#898781";
 
 // ============================================================
 // Grid / Axis
 // ============================================================
 
-/// ライトテーマのグリッド線色（hairline）。
+/// Light-theme grid line color (hairline).
 pub const GRID_LIGHT: &str = "#e1e0d9";
-/// ダークテーマのグリッド線色。
+/// Dark-theme grid line color.
 pub const GRID_DARK: &str = "#2c2c2a";
-/// ライトテーマの軸線色。
+/// Light-theme axis line color.
 pub const AXIS_LIGHT: &str = "#c3c2b7";
-/// ダークテーマの軸線色。
+/// Dark-theme axis line color.
 pub const AXIS_DARK: &str = "#383835";
 
 // ============================================================
-// Categorical series（1〜6、この順番固定・循環禁止）
+// Categorical series (1-6, fixed order, no cycling)
 // ============================================================
 
-/// 系列1（blue）ライト。
+/// Series 1 (blue), light.
 pub const SERIES_1_LIGHT: &str = "#2a78d6";
-/// 系列1（blue）ダーク。
+/// Series 1 (blue), dark.
 pub const SERIES_1_DARK: &str = "#3987e5";
-/// 系列2（aqua）ライト。
+/// Series 2 (aqua), light.
 pub const SERIES_2_LIGHT: &str = "#1baf7a";
-/// 系列2（aqua）ダーク。
+/// Series 2 (aqua), dark.
 pub const SERIES_2_DARK: &str = "#199e70";
-/// 系列3（yellow）ライト。
+/// Series 3 (yellow), light.
 pub const SERIES_3_LIGHT: &str = "#eda100";
-/// 系列3（yellow）ダーク。
+/// Series 3 (yellow), dark.
 pub const SERIES_3_DARK: &str = "#c98500";
-/// 系列4（green）ライト。
+/// Series 4 (green), light.
 ///
-/// 設計書は単一値のみ規定しており、ダークテーマでも同値を用いる。
+/// The design document specifies only a single value; the dark theme uses
+/// the same value.
 pub const SERIES_4_LIGHT: &str = "#008300";
-/// 系列4（green）ダーク（ライトと同値）。
+/// Series 4 (green), dark (same value as light).
 pub const SERIES_4_DARK: &str = "#008300";
-/// 系列5（violet）ライト。
+/// Series 5 (violet), light.
 pub const SERIES_5_LIGHT: &str = "#4a3aa7";
-/// 系列5（violet）ダーク。
+/// Series 5 (violet), dark.
 pub const SERIES_5_DARK: &str = "#9085e9";
-/// 系列6（red）ライト。
+/// Series 6 (red), light.
 pub const SERIES_6_LIGHT: &str = "#e34948";
-/// 系列6（red）ダーク。
+/// Series 6 (red), dark.
 pub const SERIES_6_DARK: &str = "#e66767";
 
-/// カテゴリカル系列色（ライト）。インデックス 0 が系列1に対応する。
-/// 循環利用は禁止（7系列目以降が必要な設計は行わない）。
+/// Categorical series colors (light). Index 0 corresponds to series 1.
+/// Cycling is not allowed (no design should require a 7th series or beyond).
 pub const SERIES_LIGHT: [&str; 6] = [
     SERIES_1_LIGHT,
     SERIES_2_LIGHT,
@@ -115,7 +120,7 @@ pub const SERIES_LIGHT: [&str; 6] = [
     SERIES_5_LIGHT,
     SERIES_6_LIGHT,
 ];
-/// カテゴリカル系列色（ダーク）。
+/// Categorical series colors (dark).
 pub const SERIES_DARK: [&str; 6] = [
     SERIES_1_DARK,
     SERIES_2_DARK,
@@ -126,95 +131,97 @@ pub const SERIES_DARK: [&str; 6] = [
 ];
 
 // ============================================================
-// Sequential（ヒストグラム等の単調量。テーマ非依存の単一パレット）
+// Sequential (monotonic quantities such as histograms; single
+// theme-independent palette)
 // ============================================================
 
-/// シーケンシャル 100（最淡）。設計書の両端値そのもの。
+/// Sequential 100 (lightest). The design document's end value verbatim.
 pub const SEQ_100: &str = "#cde2fb";
-/// シーケンシャル 200（OKLab 補間、`t=1/6`）。
+/// Sequential 200 (OKLab interpolation, `t=1/6`).
 pub const SEQ_200: &str = "#abc3e2";
-/// シーケンシャル 300（OKLab 補間、`t=2/6`）。
+/// Sequential 300 (OKLab interpolation, `t=2/6`).
 pub const SEQ_300: &str = "#8aa6ca";
-/// シーケンシャル 400（OKLab 補間、`t=3/6`）。ヒストグラムの既定色。
+/// Sequential 400 (OKLab interpolation, `t=3/6`). Default histogram color.
 pub const SEQ_400: &str = "#6a89b2";
-/// シーケンシャル 500（OKLab 補間、`t=4/6`）。
+/// Sequential 500 (OKLab interpolation, `t=4/6`).
 pub const SEQ_500: &str = "#4b6c9a";
-/// シーケンシャル 600（OKLab 補間、`t=5/6`）。
+/// Sequential 600 (OKLab interpolation, `t=5/6`).
 pub const SEQ_600: &str = "#2d5182";
-/// シーケンシャル 700（最濃）。設計書の両端値そのもの。
+/// Sequential 700 (darkest). The design document's end value verbatim.
 pub const SEQ_700: &str = "#0d366b";
 
 // ============================================================
-// Diverging（相関ヒートマップ、[-1,1] を 5+5+neutral に量子化）
+// Diverging (correlation heatmap; [-1,1] quantized into 5+5+neutral)
 // ============================================================
 
-/// ダイバージング中立色（ライト、`v=0`）。
+/// Diverging neutral color (light, `v=0`).
 pub const DIV_NEUTRAL_LIGHT: &str = "#f0efec";
-/// ダイバージング中立色（ダーク、`v=0`）。
+/// Diverging neutral color (dark, `v=0`).
 pub const DIV_NEUTRAL_DARK: &str = "#383835";
 
-/// 負側（blue 方向）段階1（中立寄り）ライト。
+/// Negative side (blue direction) step 1 (closest to neutral), light.
 pub const DIV_NEG_1_LIGHT: &str = "#c9d8ea";
-/// 負側段階2ライト。
+/// Negative side step 2, light.
 pub const DIV_NEG_2_LIGHT: &str = "#a3c1e7";
-/// 負側段階3ライト。
+/// Negative side step 3, light.
 pub const DIV_NEG_3_LIGHT: &str = "#7da9e2";
-/// 負側段階4ライト。
+/// Negative side step 4, light.
 pub const DIV_NEG_4_LIGHT: &str = "#5691dd";
-/// 負側段階5（`v=-1`、blue 極そのもの）ライト。
+/// Negative side step 5 (`v=-1`, the blue pole itself), light.
 pub const DIV_NEG_5_LIGHT: &str = "#2a78d6";
 
-/// 正側（red 方向）段階1（中立寄り）ライト。
+/// Positive side (red direction) step 1 (closest to neutral), light.
 pub const DIV_POS_1_LIGHT: &str = "#f3d0cb";
-/// 正側段階2ライト。
+/// Positive side step 2, light.
 pub const DIV_POS_2_LIGHT: &str = "#f2b1aa";
-/// 正側段階3ライト。
+/// Positive side step 3, light.
 pub const DIV_POS_3_LIGHT: &str = "#f09289";
-/// 正側段階4ライト。
+/// Positive side step 4, light.
 pub const DIV_POS_4_LIGHT: &str = "#ea7069";
-/// 正側段階5（`v=1`、red 極そのもの）ライト。
+/// Positive side step 5 (`v=1`, the red pole itself), light.
 pub const DIV_POS_5_LIGHT: &str = "#e34948";
 
-/// 負側段階1ダーク。
+/// Negative side step 1, dark.
 pub const DIV_NEG_1_DARK: &str = "#3b4856";
-/// 負側段階2ダーク。
+/// Negative side step 2, dark.
 pub const DIV_NEG_2_DARK: &str = "#3d5878";
-/// 負側段階3ダーク。
+/// Negative side step 3, dark.
 pub const DIV_NEG_3_DARK: &str = "#3e689b";
-/// 負側段階4ダーク。
+/// Negative side step 4, dark.
 pub const DIV_NEG_4_DARK: &str = "#3c77bf";
-/// 負側段階5（`v=-1`）ダーク。
+/// Negative side step 5 (`v=-1`), dark.
 pub const DIV_NEG_5_DARK: &str = "#3987e5";
 
-/// 正側段階1ダーク。
+/// Positive side step 1, dark.
 pub const DIV_POS_1_DARK: &str = "#5a433f";
-/// 正側段階2ダーク。
+/// Positive side step 2, dark.
 pub const DIV_POS_2_DARK: &str = "#7b4d49";
-/// 正側段階3ダーク。
+/// Positive side step 3, dark.
 pub const DIV_POS_3_DARK: &str = "#9e5653";
-/// 正側段階4ダーク。
+/// Positive side step 4, dark.
 pub const DIV_POS_4_DARK: &str = "#c15f5d";
-/// 正側段階5（`v=1`）ダーク。
+/// Positive side step 5 (`v=1`), dark.
 pub const DIV_POS_5_DARK: &str = "#e66767";
 
 // ============================================================
-// CSS custom property 名（svg.rs / html レンダラが共有する唯一の定義）
+// CSS custom property names (the single definition shared by svg.rs / the
+// HTML renderer)
 // ============================================================
 
-/// `--surface` 変数名。
+/// `--surface` variable name.
 pub const VAR_SURFACE: &str = "--surface";
-/// `--ink-primary` 変数名。
+/// `--ink-primary` variable name.
 pub const VAR_INK_PRIMARY: &str = "--ink-primary";
-/// `--ink-secondary` 変数名。
+/// `--ink-secondary` variable name.
 pub const VAR_INK_SECONDARY: &str = "--ink-secondary";
-/// `--ink-muted` 変数名。
+/// `--ink-muted` variable name.
 pub const VAR_INK_MUTED: &str = "--ink-muted";
-/// `--grid` 変数名。
+/// `--grid` variable name.
 pub const VAR_GRID: &str = "--grid";
-/// `--axis` 変数名。
+/// `--axis` variable name.
 pub const VAR_AXIS: &str = "--axis";
 
-/// カテゴリカル系列の変数名（インデックス 0 が系列1）。
+/// Categorical series variable names (index 0 is series 1).
 pub const VAR_SERIES: [&str; 6] = [
     "--series-1",
     "--series-2",
@@ -224,7 +231,7 @@ pub const VAR_SERIES: [&str; 6] = [
     "--series-6",
 ];
 
-/// シーケンシャル段階と変数名の対応（`(段階, 変数名)`）。
+/// Mapping between sequential steps and variable names (`(step, name)`).
 pub const VAR_SEQ: [(u16, &str); 7] = [
     (100, "--seq-100"),
     (200, "--seq-200"),
@@ -235,11 +242,11 @@ pub const VAR_SEQ: [(u16, &str); 7] = [
     (700, "--seq-700"),
 ];
 
-/// ダイバージング中立色の変数名。
+/// Diverging neutral color variable name.
 pub const VAR_DIV_NEUTRAL: &str = "--div-neutral";
-/// ダイバージング中立色の直接ラベルインク変数名。
+/// Diverging neutral color direct-label ink variable name.
 pub const VAR_DIV_NEUTRAL_INK: &str = "--div-neutral-ink";
-/// ダイバージング負側（blue 方向）の変数名（インデックス 0 が段階1）。
+/// Diverging negative side (blue direction) variable names (index 0 is step 1).
 pub const VAR_DIV_NEG: [&str; 5] = [
     "--div-neg-1",
     "--div-neg-2",
@@ -247,7 +254,7 @@ pub const VAR_DIV_NEG: [&str; 5] = [
     "--div-neg-4",
     "--div-neg-5",
 ];
-/// ダイバージング負側の直接ラベルインク変数名。
+/// Diverging negative side direct-label ink variable names.
 pub const VAR_DIV_NEG_INK: [&str; 5] = [
     "--div-neg-1-ink",
     "--div-neg-2-ink",
@@ -255,7 +262,7 @@ pub const VAR_DIV_NEG_INK: [&str; 5] = [
     "--div-neg-4-ink",
     "--div-neg-5-ink",
 ];
-/// ダイバージング正側（red 方向）の変数名。
+/// Diverging positive side (red direction) variable names.
 pub const VAR_DIV_POS: [&str; 5] = [
     "--div-pos-1",
     "--div-pos-2",
@@ -263,7 +270,7 @@ pub const VAR_DIV_POS: [&str; 5] = [
     "--div-pos-4",
     "--div-pos-5",
 ];
-/// ダイバージング正側の直接ラベルインク変数名。
+/// Diverging positive side direct-label ink variable names.
 pub const VAR_DIV_POS_INK: [&str; 5] = [
     "--div-pos-1-ink",
     "--div-pos-2-ink",
@@ -272,15 +279,16 @@ pub const VAR_DIV_POS_INK: [&str; 5] = [
     "--div-pos-5-ink",
 ];
 
-/// 相関ヒートマップの値を `-5..=5` の量子化段階に丸める
-/// （`0` が中立、`-5`/`5` が両極）。
+/// Rounds a correlation-heatmap value into a quantized `-5..=5` step
+/// (`0` is neutral, `-5`/`5` are the poles).
 ///
-/// 量子化規則: `mag = ceil(min(|v|, 1) * 5)` を `1..=5` にクランプし、
-/// `v` の符号を付与する。`v == 0.0` は中立（`0`）を返す。
-/// 境界は `(0.0, 0.2] -> 1, (0.2, 0.4] -> 2, ..., (0.8, 1.0] -> 5` であり、
-/// たとえば `v = 0.5` と `v = 0.51` は同じ段階（3）に量子化される
-/// （数値ラベルの表示要否は別途 [`diverging_show_label`] の `|v| > 0.5`
-/// で判定するため、量子化そのものは 0.5 ちょうどでは切り替わらない）。
+/// Quantization rule: clamp `mag = ceil(min(|v|, 1) * 5)` to `1..=5` and
+/// apply the sign of `v`. `v == 0.0` returns neutral (`0`). The boundaries
+/// are `(0.0, 0.2] -> 1, (0.2, 0.4] -> 2, ..., (0.8, 1.0] -> 5`, so for
+/// example `v = 0.5` and `v = 0.51` quantize to the same step (3) (whether
+/// to show the numeric label is decided separately by
+/// [`diverging_show_label`]'s `|v| > 0.5` check, so the quantization itself
+/// does not switch exactly at 0.5).
 pub fn diverging_bin(v: f64) -> i32 {
     if v == 0.0 {
         return 0;
@@ -293,13 +301,14 @@ pub fn diverging_bin(v: f64) -> i32 {
     }
 }
 
-/// `|v| > 0.5` のセルにのみ数値の直接ラベルを表示する（設計書の規則）。
+/// Shows a numeric direct label only for cells with `|v| > 0.5` (design
+/// document rule).
 pub fn diverging_show_label(v: f64) -> bool {
     v.abs() > 0.5
 }
 
-/// 量子化段階（[`diverging_bin`] の戻り値、`-5..=5`）に対応する
-/// 塗り色の CSS 変数名を返す。
+/// Returns the CSS variable name for the fill color corresponding to a
+/// quantized step (the return value of [`diverging_bin`], `-5..=5`).
 pub fn diverging_var(bin: i32) -> &'static str {
     match bin {
         0 => VAR_DIV_NEUTRAL,
@@ -309,13 +318,16 @@ pub fn diverging_var(bin: i32) -> &'static str {
     }
 }
 
-/// 量子化段階に対応する直接ラベルインク色の CSS 変数名を返す。
+/// Returns the CSS variable name for the direct-label ink color
+/// corresponding to a quantized step.
 ///
-/// インク色自体は各段階のセル色に対する WCAG コントラスト比を
-/// 事前計算して選定済み（ライトテーマは全段階で黒、ダークテーマは
-/// 両極（`-5`/`5`）のみ黒・それ以外は白）。値は
-/// [`VAR_INK_PRIMARY`] を指す `--ink-primary` ではなく、テーマに応じて
-/// 黒/白いずれかに固定された専用変数（`css_variables` が定義する）を返す。
+/// The ink color itself was chosen ahead of time based on the precomputed
+/// WCAG contrast ratio against each step's cell color (all steps use black
+/// in the light theme; in the dark theme only the two poles (`-5`/`5`) use
+/// black and the rest use white). The returned value is not
+/// `--ink-primary` (i.e. [`VAR_INK_PRIMARY`]) but a dedicated variable
+/// fixed to either black or white depending on the theme (defined by
+/// `css_variables`).
 pub fn diverging_ink_var(bin: i32) -> &'static str {
     match bin {
         0 => VAR_DIV_NEUTRAL_INK,
@@ -325,13 +337,14 @@ pub fn diverging_ink_var(bin: i32) -> &'static str {
     }
 }
 
-/// HTML `<style>` に埋め込む CSS custom property 宣言ブロックを生成する。
+/// Generates the CSS custom property declaration block to embed in the
+/// HTML `<style>` tag.
 ///
-/// `:root { ... }`（ライト既定）と
-/// `@media (prefers-color-scheme: dark) { :root { ... } }`（ダーク上書き）
-/// の2ブロックからなる文字列を返す。HTML レンダラはこれをそのまま
-/// `<style>` 内に埋め込むことを想定している（値はすべて本モジュールの
-/// 定数由来であり、ここに直接 16 進値を書き足さないこと）。
+/// Returns a string consisting of two blocks: `:root { ... }` (light
+/// default) and `@media (prefers-color-scheme: dark) { :root { ... } }`
+/// (dark override). The HTML renderer is expected to embed this directly
+/// inside `<style>` (all values originate from this module's constants;
+/// do not add hex values directly here).
 pub fn css_variables() -> String {
     let mut light = String::new();
     let mut dark = String::new();
@@ -356,7 +369,8 @@ pub fn css_variables() -> String {
         SEQ_100, SEQ_200, SEQ_300, SEQ_400, SEQ_500, SEQ_600, SEQ_700,
     ];
     for (idx, (_, name)) in VAR_SEQ.iter().enumerate() {
-        // シーケンシャルはテーマ非依存（設計書が単一パレットのみ規定）。
+        // Sequential is theme-independent (the design document specifies
+        // only a single palette).
         push(seq_light[idx], seq_light[idx], name);
     }
 
@@ -377,7 +391,8 @@ pub fn css_variables() -> String {
         DIV_NEG_4_DARK,
         DIV_NEG_5_DARK,
     ];
-    // ダークテーマの負側ラベルインク: 段階5(極)のみ黒、1〜4は白。
+    // Dark-theme negative-side label ink: black only at step 5 (pole),
+    // white for steps 1-4.
     let div_neg_ink_dark = [
         INK_PRIMARY_DARK,
         INK_PRIMARY_DARK,
@@ -387,7 +402,7 @@ pub fn css_variables() -> String {
     ];
     for i in 0..5 {
         push(div_neg_light[i], div_neg_dark[i], VAR_DIV_NEG[i]);
-        // ライトテーマは全段階黒。
+        // Light theme uses black at every step.
         push(INK_PRIMARY_LIGHT, div_neg_ink_dark[i], VAR_DIV_NEG_INK[i]);
     }
 
@@ -405,7 +420,8 @@ pub fn css_variables() -> String {
         DIV_POS_4_DARK,
         DIV_POS_5_DARK,
     ];
-    // ダークテーマの正側ラベルインク: 段階4・5(極付近)は黒、1〜3は白。
+    // Dark-theme positive-side label ink: black at steps 4-5 (near the
+    // pole), white for steps 1-3.
     let div_pos_ink_dark = [
         INK_PRIMARY_DARK,
         INK_PRIMARY_DARK,
@@ -429,9 +445,11 @@ mod tests {
     use super::*;
 
     // ------------------------------------------------------------
-    // OKLab 補間の参照実装（モジュール doc の手順をそのまま実装したもの）。
-    // 上記の `pub const` 群がこの実装の出力と一致することを検証する
-    // ことで、16進リテラルが手計算ミスなく導出されたことを担保する。
+    // Reference implementation of the OKLab interpolation (a direct
+    // implementation of the procedure described in the module doc comment).
+    // Verifying that the `pub const` values above match this
+    // implementation's output ensures the hex literals were derived
+    // without manual calculation errors.
     // ------------------------------------------------------------
 
     fn srgb_to_linear(c: f64) -> f64 {
@@ -611,7 +629,8 @@ mod tests {
 
     #[test]
     fn diverging_label_ink_light_is_always_black() {
-        // ライトテーマは全11段階で黒インクの方がコントラストが高い。
+        // In the light theme, black ink gives higher contrast across all
+        // 11 steps.
         let all = [
             DIV_NEUTRAL_LIGHT,
             DIV_NEG_1_LIGHT,

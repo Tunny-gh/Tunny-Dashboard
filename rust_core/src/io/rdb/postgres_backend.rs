@@ -1,8 +1,9 @@
-//! PostgreSQL (`postgres` クレート, 同期クライアント) 実装。
+//! PostgreSQL (`postgres` crate, synchronous client) implementation.
 //!
-//! `OptunaBackend` trait を `postgres::Client` 上に実装する。canonical `?`
-//! プレースホルダを `$1`, `$2`, ... へ変換し、`postgres::Row` はカラム型に応じて
-//! `SqlValue` へ変換する（PostgreSQL は動的型無しで値を取り出せないため）。
+//! Implements the `OptunaBackend` trait on top of `postgres::Client`. Converts
+//! canonical `?` placeholders to `$1`, `$2`, ... and converts `postgres::Row`
+//! to `SqlValue` according to the column type (because PostgreSQL cannot
+//! extract values without a static type).
 
 use std::error::Error as StdError;
 
@@ -13,15 +14,16 @@ use postgres::{Client, NoTls, Row};
 
 use super::backend::{OptunaBackend, SqlParam, SqlValue};
 
-/// バインドパラメータ用の `ToSql` 実装。
+/// A `ToSql` implementation for bind parameters.
 ///
-/// Optuna スキーマの ID 列 (`study_id`/`trial_id`/`objective`/`step` 等) は
-/// PostgreSQL 上では `INTEGER` (INT4) で定義されているが、canonical 層は
-/// `SqlParam::I64` (i64) しか持たない。`postgres` クレートの `i64: ToSql` は
-/// `INT8` しか `accepts` しないため、サーバがパラメータ型を INT4/INT2 と推論する
-/// 文脈（`study_id = ?` 等）でバインドすると型不一致エラーになる。
-/// このラッパーはサーバから通知された実際の型 `ty` を見て INT2/INT4/INT8 の
-/// いずれにも自身を合わせて符号化することで、列の実際の整数幅に関わらず束縛できる。
+/// ID columns in the Optuna schema (`study_id`/`trial_id`/`objective`/`step`,
+/// etc.) are defined as `INTEGER` (INT4) on PostgreSQL, but the canonical layer
+/// only has `SqlParam::I64` (i64). Since the `postgres` crate's `i64: ToSql`
+/// only `accepts` `INT8`, binding it in a context where the server infers the
+/// parameter type as INT4/INT2 (e.g. `study_id = ?`) results in a type
+/// mismatch error. This wrapper looks at the actual type `ty` reported by the
+/// server and encodes itself to match whichever of INT2/INT4/INT8 is needed,
+/// so it can bind regardless of the column's actual integer width.
 #[derive(Debug)]
 struct IntParam(i64);
 
@@ -53,13 +55,13 @@ impl ToSql for IntParam {
     to_sql_checked!();
 }
 
-/// PostgreSQL に接続した `OptunaBackend` 実装。
+/// An `OptunaBackend` implementation connected to PostgreSQL.
 pub struct PostgresBackend {
     client: Client,
 }
 
 impl PostgresBackend {
-    /// URL（`postgresql://user:pass@host:port/db`）から接続する。TLS 無し。
+    /// Connects from a URL (`postgresql://user:pass@host:port/db`). No TLS.
     pub fn connect(url: &str) -> Result<Self, String> {
         let client = Client::connect(url, NoTls)
             .map_err(|e| format!("Failed to connect to PostgreSQL: {e}"))?;
@@ -67,11 +69,13 @@ impl PostgresBackend {
     }
 }
 
-/// canonical `?` プレースホルダを PostgreSQL ネイティブの `$1, $2, ...` へ変換する。
-/// 入力 SQL の文字列リテラル内に `?` は出現しない前提の単純置換。
-/// 前提: 本モジュールが組み立てるクエリは固定の SQL 文字列（`generic.rs` 内リテラル）
-/// のみで、文字列リテラルや JSON 演算子（`?`, `?|`, `?&` 等）の中に `?` を含む値は
-/// 現状使用していない。将来動的な SQL 片や JSON 演算子を扱う場合はこの前提を要再確認。
+/// Converts canonical `?` placeholders to PostgreSQL's native `$1, $2, ...`.
+/// A simple substitution that assumes no `?` appears inside string literals in
+/// the input SQL. Assumption: the queries this module builds are only fixed
+/// SQL strings (literals within `generic.rs`), and none of them currently use
+/// `?` inside string literals or JSON operators (`?`, `?|`, `?&`, etc.). This
+/// assumption must be re-verified if dynamic SQL fragments or JSON operators
+/// are handled in the future.
 pub fn convert_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len() + 8);
     let mut n: u32 = 0;
@@ -94,10 +98,11 @@ fn to_postgres_param(param: &SqlParam) -> Box<dyn ToSql + Sync> {
     }
 }
 
-/// Optuna スキーマの `trials.state` / `study_directions.direction` は PostgreSQL 上では
-/// `CREATE TYPE ... AS ENUM (...)` で作られたユーザー定義 ENUM 型で読み出される。
-/// ENUM のワイヤ形式（テキスト/バイナリとも）はラベル文字列そのものなので、
-/// `String: FromSql` を素通しできないぶんだけ ENUM 種別を受理する薄いラッパーで読む。
+/// On PostgreSQL, the Optuna schema's `trials.state` / `study_directions.direction`
+/// are read as user-defined ENUM types created with `CREATE TYPE ... AS ENUM (...)`.
+/// Since the ENUM wire format (both text and binary) is just the label string
+/// itself, `String: FromSql` cannot be used directly, so it's read via a thin
+/// wrapper that accepts the ENUM kind instead.
 struct EnumText(String);
 
 impl<'a> FromSql<'a> for EnumText {
@@ -110,7 +115,8 @@ impl<'a> FromSql<'a> for EnumText {
     }
 }
 
-/// カラム型に応じて 1 セルを `SqlValue` へ変換する。NULL は各型の `Option<T>` 経由で判定する。
+/// Converts a single cell to `SqlValue` according to the column type. NULL is
+/// determined via each type's `Option<T>`.
 fn column_to_sql_value(row: &Row, idx: usize) -> Result<SqlValue, String> {
     let ty = row.columns()[idx].type_().clone();
     let err = |e: postgres::Error| format!("Failed to read column {idx} (type {ty}): {e}");
@@ -143,17 +149,20 @@ fn column_to_sql_value(row: &Row, idx: usize) -> Result<SqlValue, String> {
             let v: Option<bool> = row.try_get(idx).map_err(err)?;
             Ok(v.map_or(SqlValue::Null, |b| SqlValue::I64(i64::from(b))))
         }
-        // `trials.state` / `study_directions.direction` 用のユーザー定義 ENUM 型。
+        // The user-defined ENUM type for `trials.state` / `study_directions.direction`.
         ref t if matches!(t.kind(), Kind::Enum(_)) => {
             let v: Option<EnumText> = row.try_get(idx).map_err(err)?;
             Ok(v.map_or(SqlValue::Null, |t| SqlValue::Text(t.0)))
         }
-        // NUMERIC 等の未対応型: Optuna スキーマの数値列は SQLAlchemy Float
-        // （= double precision）で定義されており通常出現しない想定だが、暗黙に
-        // `SqlValue::Null` へ丸めると「元々 NULL だった値」と「型変換が未対応で
-        // 落とした値」を区別できず、フィンガープリントや DataFrame が気づかれずに
-        // 壊れる恐れがある。`rust_decimal` 等の追加依存を避けつつ安全側に倒すため、
-        // 未対応型はエラーとして呼び出し側へ伝播する。
+        // Unsupported types such as NUMERIC: numeric columns in the Optuna
+        // schema are defined as SQLAlchemy Float (= double precision), so this
+        // is not expected to occur normally. However, silently rounding this
+        // down to `SqlValue::Null` would make it impossible to distinguish
+        // "a value that was originally NULL" from "a value dropped because the
+        // type conversion is unsupported," risking a silent breakage of the
+        // fingerprint or DataFrame. To stay on the safe side while avoiding an
+        // extra dependency such as `rust_decimal`, unsupported types are
+        // propagated as an error to the caller instead.
         ref t => Err(format!(
             "Unsupported PostgreSQL column type for column {idx}: {t} \
              (refusing to silently convert to NULL)"
@@ -172,9 +181,9 @@ impl OptunaBackend for PostgresBackend {
         let owned_params: Vec<Box<dyn ToSql + Sync>> =
             params.iter().map(to_postgres_param).collect();
         let refs: Vec<&(dyn ToSql + Sync)> = owned_params.iter().map(AsRef::as_ref).collect();
-        // `query_raw` はサーバカーソル経由で行をストリーミングする（`query` のように
-        // 全 `Row` を一括バッファしない）。`RowIter` は `FallibleIterator` なので
-        // `.next()` は `Result<Option<Row>>` を返す。
+        // `query_raw` streams rows via a server-side cursor (unlike `query`, it
+        // does not buffer all `Row`s at once). Since `RowIter` is a
+        // `FallibleIterator`, `.next()` returns `Result<Option<Row>>`.
         let mut row_iter = self
             .client
             .query_raw(&converted, refs)
@@ -192,7 +201,7 @@ impl OptunaBackend for PostgresBackend {
         }
         Ok(())
     }
-    // `table_exists` は既定実装（`information_schema` + `current_schema()`）をそのまま使う。
+    // `table_exists` uses the default implementation as-is (`information_schema` + `current_schema()`).
 }
 
 #[cfg(test)]

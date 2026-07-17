@@ -6,7 +6,7 @@ use crate::state::messages::AppMessage;
 
 use tunny_core::io::journal::parser::{self, OptimizationDirection};
 
-/// rust_core の StudyMeta → egui-app の StudyMeta に変換
+/// Converts a rust_core StudyMeta into an egui-app StudyMeta.
 pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
     StudyMeta {
         study_id: meta.study_id,
@@ -26,8 +26,8 @@ pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
     }
 }
 
-/// Phase 1: ファイルを読み込んで op_code=0/3 のみスキャンし Study 一覧を返す。
-/// 生バイト列も返すことで Phase 2 でのファイル再読み込みを不要にする。
+/// Phase 1: reads the file, scans only op_code=0/3, and returns the Study list.
+/// Also returns the raw byte buffer so Phase 2 doesn't need to re-read the file.
 pub fn scan_journal_task(path: PathBuf) -> (Vec<u8>, AppMessage) {
     match crate::io::file::read_journal_file(&path) {
         Ok(data) => match parser::scan_study_list(&data) {
@@ -46,13 +46,15 @@ pub fn scan_journal_task(path: PathBuf) -> (Vec<u8>, AppMessage) {
     }
 }
 
-/// Phase 2（ストリーミング）: キャッシュ済みバイト列から target study を前方 1 パスで解析し、
-/// 完了 Trial を `BATCH_SIZE` 件ごとに `StudyChunkLoaded` として逐次送信する。
+/// Phase 2 (streaming): parses the target study from the cached byte buffer in a single
+/// forward pass, sending completed trials incrementally as `StudyChunkLoaded` every
+/// `BATCH_SIZE` entries.
 ///
-/// ファイル再読み込みは行わない。`tx` は bounded channel のため、UI が描画に追いつくまで
-/// 自然にバックプレッシャーがかかる。成功時 `true`（呼び出し側が loaded 登録に使う）。
+/// Does not re-read the file. Since `tx` is a bounded channel, natural backpressure is
+/// applied until the UI catches up with rendering. Returns `true` on success (the caller
+/// uses this to register it as loaded).
 pub fn stream_single_study_task(data: &[u8], meta: StudyMeta, tx: &SyncSender<AppMessage>) -> bool {
-    /// グラフへ反映する 1 バッチあたりの完了 Trial 数。
+    /// Number of completed trials per batch reflected in the graph.
     const BATCH_SIZE: usize = 1000;
 
     let study_id = meta.study_id;
