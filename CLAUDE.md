@@ -1,54 +1,54 @@
 # Tunny Dashboard
 
-Optuna 最適化結果分析のための Rust egui デスクトップアプリ。
+A Rust egui desktop app for analyzing Optuna optimization results.
 
-## 言語ポリシー
+## Language
 
-- **Git コミットメッセージ、PR のタイトル・本文は英語で書くこと。**
-- **ROADMAP.md などのプロジェクトドキュメントは英語で書くこと。**
-- **ソースコード内のコメント・doc コメントは英語で書くこと。**
-- **UI 文言（ラベル・進捗・エラーメッセージ等のユーザー向け文字列）は英語で書くこと。**
-- 日本語レポート出力（`ReportLang::Ja`）とバイリンガルのヘルプ/理論ドキュメントは
-  日本語コンテンツが機能仕様なので日本語のまま。
-- チャットでの応答はユーザーの使用言語（日本語）に合わせる。
+- Code comments and doc comments, commit messages, and PR titles/bodies are
+  written in English.
+- Project documents such as ROADMAP.md are written in English.
+- UI text (labels, progress, error messages, and other user-facing strings) is
+  written in English.
+- Japanese report output (`ReportLang::Ja`) and the bilingual help/theory
+  documents stay Japanese — the Japanese content there is part of the
+  functional spec.
+- Chat responses follow the user's language (Japanese).
 
-## 実装分担
+## Task Delegation
 
-適切にAgentを使った作業分担を行いトークン管理を行うこと。
+Divide work across agents appropriately to manage token usage.
 
-- 設計、実装やレビューなどの困難な作業
-  - FableやOpusが担当
-- 機械的な作業
-  - Sonnetが担当
+- Design, implementation, review, and other demanding work: Fable or Opus
+- Mechanical work: Sonnet
 
-## 開発コマンド
+## Development Commands
 
-### ビルド
+### Build
 
 ```bash
-# ワークスペース全体ビルド
+# Build the entire workspace
 cargo build --workspace
 
-# リリースビルド
+# Release build
 cargo build --workspace --release
 ```
 
-### テスト実行
+### Run Tests
 
 ```bash
-# 全テスト実行
+# Run all tests
 cargo test --workspace
 
-# rust_core のみ
+# rust_core only
 cargo test -p tunny-core
 
-# egui-app のみ
+# egui-app only
 cargo test -p tunny-desktop
 ```
 
-### 静的解析
+### Static Analysis
 
-コミット前には必ず確認すること。CI と同条件で実行する（`--all-targets` がないとテストコードが clippy の対象外になる）。
+Always run these before committing. Run them under the same conditions as CI (`--all-targets` is required so that test code is also covered by clippy).
 
 ```bash
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -58,13 +58,13 @@ cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 cargo fmt -p tunny-mcp -- --check
 ```
 
-### アプリケーション実行
+### Run the Application
 
 ```bash
 cargo run -p tunny-desktop
 ```
 
-### ベンチマーク
+### Benchmark
 
 ```bash
 cargo bench -p tunny-core
