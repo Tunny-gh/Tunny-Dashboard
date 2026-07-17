@@ -70,8 +70,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
     let objects_chunk = root
         .find_chunk_recursive("DefinitionObjects")
         .ok_or_else(|| {
-            "DefinitionObjects が見つかりません。Grasshopper の .ghx ファイルか確認してください"
-                .to_string()
+            "DefinitionObjects not found; make sure this is a Grasshopper .ghx file".to_string()
         })?;
 
     // Walk all objects and build the index
@@ -130,8 +129,8 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
                 || r.nickname.to_ascii_lowercase().contains("tunny")
         })
         .ok_or_else(|| {
-            "Tunny コンポーネントが見つかりません。Tunny で最適化を構成した定義を \
-             .ghx 形式で保存してください"
+            "Tunny component not found. Save a definition that contains a Tunny \
+             optimization setup as .ghx"
                 .to_string()
         })?;
 
@@ -149,11 +148,11 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
                 }
             }
             Some(rec) => warnings.push(format!(
-                "変数入力に接続された「{}」（{}）は Number Slider ではないためスキップしました",
+                "Skipped \"{}\" ({}) on the variables input because it is not a Number Slider",
                 rec.nickname, rec.type_name
             )),
             None => warnings.push(format!(
-                "変数入力の接続元 {guid} が定義内に見つかりませんでした"
+                "Source {guid} of the variables input was not found in the definition"
             )),
         }
     }
@@ -175,13 +174,13 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
 
     if variables.is_empty() {
         return Err(format!(
-            "Tunny コンポーネント「{}」の変数入力に接続されたスライダーが見つかりません",
+            "No sliders connected to the variables input of Tunny component \"{}\"",
             tunny.nickname
         ));
     }
     if objectives.is_empty() {
         return Err(format!(
-            "Tunny コンポーネント「{}」の目的入力に接続されたパラメータが見つかりません",
+            "No parameters connected to the objectives input of Tunny component \"{}\"",
             tunny.nickname
         ));
     }
@@ -260,21 +259,19 @@ fn input_sources(container: &GhxChunk, name_keys: &[&str], nick_key: &str) -> Ve
 
 /// Reads variable info from a slider object.
 fn read_slider(rec: &ObjectRecord<'_>) -> Result<GhVariable, String> {
-    let slider = rec.container.find_chunk("Slider").ok_or_else(|| {
-        format!(
-            "スライダー「{}」の Slider チャンクが見つかりません",
-            rec.nickname
-        )
-    })?;
+    let slider = rec
+        .container
+        .find_chunk("Slider")
+        .ok_or_else(|| format!("Slider chunk not found for slider \"{}\"", rec.nickname))?;
     let low = slider
         .item_f64("Min")
-        .ok_or_else(|| format!("スライダー「{}」の Min が読めません", rec.nickname))?;
+        .ok_or_else(|| format!("Cannot read Min of slider \"{}\"", rec.nickname))?;
     let high = slider
         .item_f64("Max")
-        .ok_or_else(|| format!("スライダー「{}」の Max が読めません", rec.nickname))?;
+        .ok_or_else(|| format!("Cannot read Max of slider \"{}\"", rec.nickname))?;
     if !high.is_finite() || !low.is_finite() || high <= low {
         return Err(format!(
-            "スライダー「{}」の範囲が不正です（Min={low}, Max={high}）",
+            "Slider \"{}\" has an invalid range (Min={low}, Max={high})",
             rec.nickname
         ));
     }

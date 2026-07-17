@@ -285,7 +285,7 @@ fn render_model_selection(
         model_label(selection.chosen)
     ))
     .on_hover_text(
-        "候補モデルを交差検証し、CV R² が最も高いものを自動選択しました（同点は単純なモデルを優先）。",
+        "Cross-validated the candidate models and selected the one with the highest CV R² (ties prefer the simpler model).",
     );
 
     // Sort candidates by descending CV R² (failed candidates = NEG_INFINITY go last).
@@ -455,8 +455,9 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
             ),
         )
         .on_hover_text(
-            "パレートフロント（rank 0）の trial だけで算出した out-of-fold の近似精度。\
-             最適化で実際に使うフロント近傍をサロゲートがどれだけ正しく予測できているかを示す。",
+            "Out-of-fold accuracy computed only on Pareto-front (rank 0) trials. \
+             Shows how well the surrogate predicts the region near the front that \
+             the optimization actually uses.",
         );
     }
 

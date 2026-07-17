@@ -88,7 +88,7 @@ mod tests {
                 assert_eq!(received.get(&0).unwrap()[0].filename, "result.png");
                 assert_eq!(received_dir, artifacts_dir);
             }
-            _ => panic!("予期しないメッセージタイプ"),
+            _ => panic!("unexpected message type"),
         }
     }
 }

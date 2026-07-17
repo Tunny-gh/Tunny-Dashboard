@@ -107,7 +107,7 @@ impl GhEvaluator for ComputeEvaluator {
     fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String> {
         if values.len() != self.input_params.len() {
             return Err(format!(
-                "変数の数が一致しません（期待 {}、実際 {}）",
+                "Variable count mismatch (expected {}, got {})",
                 self.input_params.len(),
                 values.len()
             ));
@@ -128,21 +128,21 @@ impl GhEvaluator for ComputeEvaluator {
                 let detail = resp.into_string().unwrap_or_default();
                 let detail = detail.chars().take(500).collect::<String>();
                 return Err(format!(
-                    "Rhino.Compute がエラーを返しました (HTTP {code}): {detail}"
+                    "Rhino.Compute returned an error (HTTP {code}): {detail}"
                 ));
             }
             Err(e) => {
                 return Err(format!(
-                    "Rhino.Compute に接続できません（{}）: {e}",
+                    "Cannot connect to Rhino.Compute ({}): {e}",
                     self.endpoint
                 ))
             }
         };
         let text = response
             .into_string()
-            .map_err(|e| format!("Rhino.Compute 応答の読み取りに失敗: {e}"))?;
+            .map_err(|e| format!("Failed to read the Rhino.Compute response: {e}"))?;
         let parsed: Value = serde_json::from_str(&text)
-            .map_err(|e| format!("Rhino.Compute 応答が JSON ではありません: {e}"))?;
+            .map_err(|e| format!("Rhino.Compute response is not JSON: {e}"))?;
         extract_outputs(&parsed, &self.output_params)
     }
 }
@@ -155,7 +155,7 @@ fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64
     let values = response
         .get("values")
         .and_then(Value::as_array)
-        .ok_or_else(|| "Rhino.Compute 応答に values がありません".to_string())?;
+        .ok_or_else(|| "Rhino.Compute response has no values field".to_string())?;
 
     let mut result = Vec::with_capacity(output_params.len());
     for name in output_params {
@@ -163,7 +163,9 @@ fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64
             .iter()
             .find(|e| e.get("ParamName").and_then(Value::as_str) == Some(name.as_str()))
             .ok_or_else(|| {
-                format!("応答に {name} が含まれていません。定義の出力接続を確認してください")
+                format!(
+                    "The response does not contain {name}; check the definition's output wiring"
+                )
             })?;
         let first_item = entry
             .get("InnerTree")
@@ -171,14 +173,14 @@ fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64
             .and_then(|tree| tree.values().next())
             .and_then(Value::as_array)
             .and_then(|items| items.first())
-            .ok_or_else(|| format!("{name} の値が空です（solve が失敗している可能性）"))?;
+            .ok_or_else(|| format!("{name} is empty (the solve may have failed)"))?;
         let data = first_item
             .get("data")
-            .ok_or_else(|| format!("{name} の応答に data がありません"))?;
+            .ok_or_else(|| format!("{name} has no data field in the response"))?;
         let value = parse_data_number(data)
-            .ok_or_else(|| format!("{name} の値を数値として解釈できません: {data}"))?;
+            .ok_or_else(|| format!("Cannot interpret the value of {name} as a number: {data}"))?;
         if !value.is_finite() {
-            return Err(format!("{name} の値が有限ではありません: {value}"));
+            return Err(format!("The value of {name} is not finite: {value}"));
         }
         result.push(value);
     }

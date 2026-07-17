@@ -491,7 +491,7 @@ mod tests {
         assert_ne!(
             McdmScatterChart3D::ranked_hash(&r1),
             McdmScatterChart3D::ranked_hash(&r2),
-            "ランキング順序が変わればハッシュが変わる"
+            "hash changes when the ranking order changes"
         );
     }
 
@@ -528,7 +528,7 @@ mod tests {
                 &crate::state::types::ColormapName::Viridis,
                 10
             ),
-            "ランキング変更でキャッシュが無効化される"
+            "cache is invalidated when the ranking changes"
         );
     }
 
@@ -548,7 +548,7 @@ mod tests {
         });
         assert!(
             !w.is_cache_stale(10, &result, &crate::state::types::ColormapName::Viridis, 10),
-            "同じランキングならキャッシュは有効"
+            "cache stays valid for the same ranking"
         );
     }
 

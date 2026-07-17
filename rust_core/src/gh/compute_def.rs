@@ -123,52 +123,52 @@ struct Anchors {
 /// (double-quoted attributes), and `<` `>` inside item text is XML-escaped, so tag
 /// boundaries can be located safely with plain substring search.
 fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
-    let err = |msg: &str| format!(".ghx の構造が想定と異なります: {msg}");
+    let err = |msg: &str| format!("Unexpected .ghx structure: {msg}");
 
     let do_pos = xml
         .find(r#"name="DefinitionObjects""#)
-        .ok_or_else(|| err("DefinitionObjects がありません"))?;
+        .ok_or_else(|| err("missing DefinitionObjects"))?;
 
     // Text range of the ObjectCount item
     let oc_tag = xml[do_pos..]
         .find(r#"<item name="ObjectCount""#)
         .map(|i| do_pos + i)
-        .ok_or_else(|| err("ObjectCount がありません"))?;
+        .ok_or_else(|| err("missing ObjectCount"))?;
     let oc_text_start = xml[oc_tag..]
         .find('>')
         .map(|i| oc_tag + i + 1)
-        .ok_or_else(|| err("ObjectCount の開始タグが閉じていません"))?;
+        .ok_or_else(|| err("unclosed ObjectCount start tag"))?;
     let oc_text_end = xml[oc_text_start..]
         .find("</item>")
         .map(|i| oc_text_start + i)
-        .ok_or_else(|| err("ObjectCount が閉じていません"))?;
+        .ok_or_else(|| err("unclosed ObjectCount item"))?;
     let object_count: usize = xml[oc_text_start..oc_text_end]
         .trim()
         .parse()
-        .map_err(|_| err("ObjectCount が数値ではありません"))?;
+        .map_err(|_| err("ObjectCount is not a number"))?;
 
     // After the end of the <items> block containing ObjectCount, the first <chunks …>
     // is the container for the object list.
     let items_end = xml[oc_text_end..]
         .find("</items>")
         .map(|i| oc_text_end + i + "</items>".len())
-        .ok_or_else(|| err("items ブロックが閉じていません"))?;
+        .ok_or_else(|| err("unclosed items block"))?;
     let chunks_open = xml[items_end..]
         .find("<chunks")
         .map(|i| items_end + i)
-        .ok_or_else(|| err("オブジェクト列の chunks がありません"))?;
+        .ok_or_else(|| err("missing object-list chunks"))?;
     let chunks_open_end = xml[chunks_open..]
         .find('>')
         .map(|i| chunks_open + i + 1)
-        .ok_or_else(|| err("chunks の開始タグが閉じていません"))?;
+        .ok_or_else(|| err("unclosed chunks start tag"))?;
     let count_attr = xml[chunks_open..chunks_open_end]
         .find(r#"count=""#)
         .map(|i| chunks_open + i + r#"count=""#.len())
-        .ok_or_else(|| err("chunks に count 属性がありません"))?;
+        .ok_or_else(|| err("chunks has no count attribute"))?;
     let count_attr_end = xml[count_attr..chunks_open_end]
         .find('"')
         .map(|i| count_attr + i)
-        .ok_or_else(|| err("count 属性が閉じていません"))?;
+        .ok_or_else(|| err("unclosed count attribute"))?;
 
     // Find the matching </chunks> via a depth traversal (counting and canceling out
     // nested <chunks> inside Object chunks).
@@ -189,7 +189,7 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
                 }
                 cursor = c + "</chunks>".len();
             }
-            _ => return Err(err("chunks の対応が取れません")),
+            _ => return Err(err("unbalanced chunks")),
         }
     };
 
@@ -333,7 +333,7 @@ mod tests {
             .iter()
             .map(|g| g.find_chunk("Container").unwrap())
             .find(|c| c.item_text("NickName") == Some("RH_IN:span"))
-            .expect("RH_IN:span グループ");
+            .expect("RH_IN:span group");
         assert_eq!(
             rh_in_span.item_text("ID"),
             Some("0aaaaaaa-0000-0000-0000-0000000slid1")
@@ -357,7 +357,7 @@ mod tests {
             .iter()
             .map(|g| g.find_chunk("Container").unwrap())
             .find(|c| c.item_text("NickName") == Some("RH_OUT:weight"))
-            .expect("RH_OUT:weight グループ");
+            .expect("RH_OUT:weight group");
         assert_eq!(rh_out_weight.item_text("ID"), Some(relay_guid));
 
         // The original definition body (Tunny component, etc.) is preserved

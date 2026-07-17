@@ -348,9 +348,9 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
 /// so here we just need to flip the `dark_mode` flag.
 pub fn show_theme_toggle(ui: &mut egui::Ui, app_state: &mut AppState) {
     let (icon, tooltip) = if app_state.dark_mode {
-        ("☀ Light", "ライトテーマに切り替え / Switch to light theme")
+        ("☀ Light", "Switch to light theme")
     } else {
-        ("🌙 Dark", "ダークテーマに切り替え / Switch to dark theme")
+        ("🌙 Dark", "Switch to dark theme")
     };
     if ui.button(icon).on_hover_text(tooltip).clicked() {
         app_state.dark_mode = !app_state.dark_mode;

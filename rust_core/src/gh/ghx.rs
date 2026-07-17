@@ -185,7 +185,7 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                     if let Some(item) = current_item.as_mut() {
                         let decoded = t
                             .decode()
-                            .map_err(|e| format!("XML テキストのデコードに失敗: {e}"))?;
+                            .map_err(|e| format!("Failed to decode XML text: {e}"))?;
                         item.text.push_str(&decoded);
                     }
                 }
@@ -197,14 +197,14 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                     if let Some(item) = current_item.as_mut() {
                         let name = r
                             .decode()
-                            .map_err(|e| format!("実体参照のデコードに失敗: {e}"))?;
+                            .map_err(|e| format!("Failed to decode entity reference: {e}"))?;
                         if let Ok(Some(c)) = r.resolve_char_ref() {
                             item.text.push(c);
                         } else if let Some(s) = quick_xml::escape::resolve_predefined_entity(&name)
                         {
                             item.text.push_str(s);
                         } else {
-                            return Err(format!("未対応の実体参照です: &{name};"));
+                            return Err(format!("Unsupported entity reference: &{name};"));
                         }
                     }
                 }
@@ -213,7 +213,7 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 Some(ElemKind::Chunk) => {
                     let finished = chunk_stack
                         .pop()
-                        .ok_or_else(|| "chunk の開閉が対応していません".to_string())?;
+                        .ok_or_else(|| "Unbalanced chunk open/close".to_string())?;
                     if let Some(parent) = chunk_stack.last_mut() {
                         parent.chunks.push(finished);
                     } else {
@@ -232,15 +232,15 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                     }
                 }
                 Some(ElemKind::Other) => {}
-                None => return Err("XML 要素の開閉が対応していません".to_string()),
+                None => return Err("Unbalanced XML element open/close".to_string()),
             },
             Ok(Event::Eof) => break,
             Ok(_) => {} // ignore declarations, comments, CDATA, etc.
-            Err(e) => return Err(format!(".ghx の XML パースに失敗: {e}")),
+            Err(e) => return Err(format!("Failed to parse the .ghx XML: {e}")),
         }
     }
 
-    root.ok_or_else(|| ".ghx に <Archive> ルート要素が見つかりません".to_string())
+    root.ok_or_else(|| "No <Archive> root element found in the .ghx".to_string())
 }
 
 #[cfg(test)]

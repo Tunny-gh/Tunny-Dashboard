@@ -191,7 +191,9 @@ impl MessageHandler {
                 // identified (spawn_task has no way to know which computation
                 // panicked), so surface the error to the user while only
                 // clearing the loading flag.
-                *load_error = Some(format!("バックグラウンド処理が異常終了しました: {detail}"));
+                *load_error = Some(format!(
+                    "A background task terminated unexpectedly: {detail}"
+                ));
                 *is_loading = false;
             }
             AppMessage::PollerReady { .. } => {
@@ -383,11 +385,11 @@ impl MessageHandler {
                 if let Some(run) = app_state.gh_opt_run.as_mut() {
                     run.finished = Some(match result {
                         Ok(summary) => Ok(format!(
-                            "完了: {} trials 成功 / {} 失敗{}",
+                            "Done: {} trials succeeded / {} failed{}",
                             summary.completed,
                             summary.failed,
                             if summary.cancelled {
-                                "（キャンセル）"
+                                " (cancelled)"
                             } else {
                                 ""
                             }
@@ -1822,7 +1824,7 @@ mod tests {
         let run = app_state.gh_opt_run.as_ref().expect("run state remains");
         assert_eq!(
             run.finished.as_ref(),
-            Some(&Ok("完了: 48 trials 成功 / 2 失敗".to_string()))
+            Some(&Ok("Done: 48 trials succeeded / 2 failed".to_string()))
         );
     }
 
@@ -1853,7 +1855,7 @@ mod tests {
         assert_eq!(
             run.finished.as_ref(),
             Some(&Ok(
-                "完了: 10 trials 成功 / 0 失敗（キャンセル）".to_string()
+                "Done: 10 trials succeeded / 0 failed (cancelled)".to_string()
             ))
         );
     }

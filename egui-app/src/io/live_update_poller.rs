@@ -40,7 +40,7 @@ impl LiveUpdatePoller {
             }));
             if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
-                    "ポーリングスレッドが異常終了".to_string(),
+                    "Polling thread terminated unexpectedly".to_string(),
                 ));
             }
         });
@@ -84,7 +84,7 @@ fn escalate_error(
     *error_count += 1;
     if *error_count >= 3 {
         let _ = tx.send(AppMessage::LiveUpdateError(
-            "連続エラーにより自動停止".to_string(),
+            "Stopped automatically after repeated errors".to_string(),
         ));
         stop_signal.store(true, Ordering::Relaxed);
         return true;
@@ -267,7 +267,7 @@ impl SqliteLivePoller {
             }));
             if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
-                    "ポーリングスレッドが異常終了".to_string(),
+                    "Polling thread terminated unexpectedly".to_string(),
                 ));
             }
         });
@@ -452,7 +452,7 @@ impl RdbLivePoller {
             }));
             if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
-                    "ポーリングスレッドが異常終了".to_string(),
+                    "Polling thread terminated unexpectedly".to_string(),
                 ));
             }
         });

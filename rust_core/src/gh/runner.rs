@@ -112,13 +112,13 @@ pub fn prepare_gh_run(
 ) -> Result<PreparedGhRun, String> {
     if cfg.directions.len() != problem.objectives.len() {
         return Err(format!(
-            "最適化方向の数（{}）が目的の数（{}）と一致しません",
+            "The number of optimization directions ({}) does not match the number of objectives ({})",
             cfg.directions.len(),
             problem.objectives.len()
         ));
     }
     if problem.variables.is_empty() {
-        return Err("変数がありません".to_string());
+        return Err("No variables".to_string());
     }
     let mut writer = JournalWriter::open(journal_path)?;
     let objective_names: Vec<String> = problem.objectives.iter().map(|o| o.name.clone()).collect();
@@ -156,7 +156,7 @@ pub fn run_prepared(
         io_error: Mutex::new(None),
     };
     let n_dims = problem.variables.len();
-    progress.set_stage("Rhino.Compute で評価中");
+    progress.set_stage("Evaluating with Rhino.Compute");
 
     match cfg.sampler {
         GhSampler::Random => {
@@ -197,7 +197,7 @@ pub fn run_prepared(
         .take()
     {
         return Err(format!(
-            "journal への書き込みに失敗したため中断しました: {e}"
+            "Aborted because writing to the journal failed: {e}"
         ));
     }
     Ok(GhRunSummary {
@@ -260,7 +260,7 @@ impl TrialRecorder<'_> {
                 self.record_failure(
                     trial_id,
                     format!(
-                        "目的値の数が一致しません（期待 {n_obj}、実際 {}）",
+                        "Objective count mismatch (expected {n_obj}, got {})",
                         objectives.len()
                     ),
                 );
@@ -309,7 +309,8 @@ impl TrialRecorder<'_> {
         self.failed.fetch_add(1, Ordering::Relaxed);
         self.progress.inc_done();
         let short: String = reason.chars().take(120).collect();
-        self.progress.set_stage(format!("評価エラーあり: {short}"));
+        self.progress
+            .set_stage(format!("Evaluation errors: {short}"));
     }
 
     fn has_io_error(&self) -> bool {

@@ -683,9 +683,9 @@ fn render_result(
         } else {
             crate::theme::chart_colors::COLOR_FIT_LOW()
         };
-        let mut line = format!("Success: {:.2}%  ・ σ level: {:.2}σ", rate * 100.0, sigma);
+        let mut line = format!("Success: {:.2}%  |  σ level: {:.2}σ", rate * 100.0, sigma);
         if let Some(cpk) = result.cpk {
-            line.push_str(&format!("  ・ Cpk: {cpk:.2}"));
+            line.push_str(&format!("  |  Cpk: {cpk:.2}"));
         }
         ui.colored_label(color, line);
     }

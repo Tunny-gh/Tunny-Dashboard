@@ -142,7 +142,7 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                     ui.label("Port:");
                     ui.add(egui::DragValue::new(&mut state.compute_port).range(1..=65535));
                     ui.label(
-                        RichText::new("EXE を起動して接続します（終了時に停止）")
+                        RichText::new("Launches the EXE and connects (stopped when the run ends)")
                             .color(crate::theme::TEXT_SECONDARY()),
                     );
                 });

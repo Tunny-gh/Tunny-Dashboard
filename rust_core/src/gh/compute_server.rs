@@ -78,7 +78,7 @@ pub fn start_compute_server(
 ) -> Result<ComputeServerHandle, String> {
     if !exe_path.is_file() {
         return Err(format!(
-            "rhino.compute の実行ファイルが見つかりません: {}",
+            "rhino.compute executable not found: {}",
             exe_path.display()
         ));
     }
@@ -96,7 +96,7 @@ pub fn start_compute_server(
     }
     let child = cmd.spawn().map_err(|e| {
         format!(
-            "rhino.compute の起動に失敗しました（{}）: {e}",
+            "Failed to launch rhino.compute ({}): {e}",
             exe_path.display()
         )
     })?;
@@ -117,7 +117,7 @@ pub fn start_compute_server_tracked(
     startup_timeout_secs: u64,
     progress: &FitProgress,
 ) -> Result<ComputeServerHandle, String> {
-    progress.set_stage("rhino.compute を起動中…");
+    progress.set_stage("Starting rhino.compute…");
     start_compute_server(exe_path, port, startup_timeout_secs, &|| {
         progress.is_cancelled()
     })
@@ -141,13 +141,13 @@ fn wait_until_ready(
     let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
     loop {
         if should_abort() {
-            return Err("rhino.compute の起動待機がキャンセルされました".to_string());
+            return Err("Waiting for rhino.compute startup was cancelled".to_string());
         }
         // If it crashes or exits immediately after launch, report it without waiting for the timeout.
         if let Ok(Some(status)) = handle.child.try_wait() {
             return Err(format!(
-                "rhino.compute が起動直後に終了しました（{status}）。\
-                 パスとポート {} の使用状況を確認してください",
+                "rhino.compute exited immediately after launch ({status}). \
+                 Check the executable path and whether {} is already in use",
                 handle.url
             ));
         }
@@ -160,7 +160,7 @@ fn wait_until_ready(
         }
         if Instant::now() >= deadline {
             return Err(format!(
-                "rhino.compute が {timeout_secs} 秒以内に応答しませんでした（{}）",
+                "rhino.compute did not respond within {timeout_secs} seconds ({})",
                 handle.url
             ));
         }
@@ -203,7 +203,7 @@ mod tests {
             &|| false,
         )
         .unwrap_err();
-        assert!(err.contains("見つかりません"), "unexpected: {err}");
+        assert!(err.contains("not found"), "unexpected: {err}");
     }
 
     // The tests below actually launch a process. Since a shell script is
@@ -233,7 +233,7 @@ mod tests {
             let exe = write_script(dir.path(), "exit 7");
             let start = std::time::Instant::now();
             let err = start_compute_server(&exe, 65002, 60, &|| false).unwrap_err();
-            assert!(err.contains("終了しました"), "unexpected: {err}");
+            assert!(err.contains("exited immediately"), "unexpected: {err}");
             // Should return without waiting for the 60-second timeout
             assert!(start.elapsed() < Duration::from_secs(30));
         }
@@ -243,7 +243,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let exe = write_script(dir.path(), "while true; do sleep 1; done");
             let err = start_compute_server(&exe, 65003, 1, &|| false).unwrap_err();
-            assert!(err.contains("応答しませんでした"), "unexpected: {err}");
+            assert!(err.contains("did not respond"), "unexpected: {err}");
         }
 
         #[test]
@@ -251,7 +251,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let exe = write_script(dir.path(), "while true; do sleep 1; done");
             let err = start_compute_server(&exe, 65004, 60, &|| true).unwrap_err();
-            assert!(err.contains("キャンセル"), "unexpected: {err}");
+            assert!(err.contains("cancelled"), "unexpected: {err}");
         }
 
         #[test]

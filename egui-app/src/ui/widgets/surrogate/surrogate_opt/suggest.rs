@@ -85,7 +85,7 @@ pub(super) fn render_suggest_result(
     if ui
         .button("Copy enqueue JSON")
         .on_hover_text(
-            "Optuna の study.enqueue_trial(params) に渡せる形式でクリップボードへコピーします。",
+            "Copies to the clipboard in a format you can pass to Optuna's study.enqueue_trial(params).",
         )
         .clicked()
     {
@@ -161,7 +161,7 @@ pub(super) fn render_multi_suggest_result(
     if ui
         .button("Copy enqueue JSON")
         .on_hover_text(
-            "Optuna の study.enqueue_trial(params) に渡せる形式でクリップボードへコピーします。",
+            "Copies to the clipboard in a format you can pass to Optuna's study.enqueue_trial(params).",
         )
         .clicked()
     {
