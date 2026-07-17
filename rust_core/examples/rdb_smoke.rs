@@ -1,17 +1,20 @@
-//! RDB バックエンド (SQLite/PostgreSQL/MySQL) の E2E 動作確認用 CLI。
+//! CLI for manual E2E verification of the RDB backends (SQLite/PostgreSQL/MySQL).
 //!
 //! ```text
 //! cargo run -p tunny-core --example rdb_smoke -- <url-or-sqlite-path> [study_id]
 //! ```
 //!
-//! - `study_id` 省略時: study 一覧（id, name, directions, completed/total）を出力する。
-//! - `study_id` 指定時: 確定メタ・行データ・extras（trial state 集計 / 中間値件数）・
-//!   フィンガープリントを出力する。
+//! - When `study_id` is omitted: prints the study list (id, name, directions,
+//!   completed/total).
+//! - When `study_id` is given: prints the resolved metadata, row data, extras
+//!   (trial state counts / intermediate value count), and fingerprint.
 //!
-//! `<url-or-sqlite-path>` は `postgresql://`/`mysql://` 系 URL か、SQLite ファイルの
-//! パス（`is_rdb_url` が偽の場合はローカルファイルとみなし `io::sqlite` へフォールバック）
-//! のいずれも受け付ける。3 バックエンドを同一データで突き合わせる手元 E2E 検証のための
-//! ハーネスであり、出力は `key=value` 形式・1 項目 1 行で他ツールとの diff に耐える形にする。
+//! `<url-or-sqlite-path>` accepts either a `postgresql://`/`mysql://`-style URL
+//! or a SQLite file path (when `is_rdb_url` is false, it is treated as a local
+//! file and falls back to `io::sqlite`). This is a hand-run E2E verification
+//! harness for cross-checking the 3 backends against the same data, so the
+//! output uses a `key=value` format, one item per line, to withstand diffing
+//! against other tools.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -80,7 +83,7 @@ fn print_study_detail(target: &str, study_id: u32) -> Result<(), String> {
     println!("objective_names={}", rows.objective_names.join(","));
     println!("row_count={}", rows.rows.len());
 
-    // extras: trial state 集計 / 中間値総数。
+    // extras: trial state counts / total intermediate values.
     let mut state_counts: BTreeMap<&'static str, u32> = BTreeMap::new();
     let mut intermediate_total: u64 = 0;
     for trial in &rows.extras.trials {
@@ -110,8 +113,8 @@ fn print_study_detail(target: &str, study_id: u32) -> Result<(), String> {
         );
     }
 
-    // フィンガープリント（ライブ更新ポーリング用）。nonzero であること・
-    // 2 回連続で呼んでも同じ値であることを呼び出し側（オーケストレータ）が確認する。
+    // Fingerprint (for live-update polling). The caller (orchestrator) verifies
+    // it is nonzero and that calling it twice in a row yields the same value.
     let fingerprint = match &is_url {
         Some(url) => study_fingerprint_url(url, study_id)?,
         None => sqlite::study_fingerprint(Path::new(target), study_id)?,

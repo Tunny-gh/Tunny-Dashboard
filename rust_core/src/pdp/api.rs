@@ -4,7 +4,7 @@ use super::types::{PdpResult1d, PdpResult2d};
 use super::utils::extract_xy;
 use crate::gaussian_process::GpMethod;
 
-/// `model_type` 文字列を GP 手法へ解決する。GP 系でない場合は `None`。
+/// Resolves a `model_type` string into a GP method. Returns `None` for non-GP models.
 fn resolve_gp_method(model_type: &str) -> Option<GpMethod> {
     match model_type {
         "gp_fitc" => Some(GpMethod::Fitc),
@@ -14,10 +14,9 @@ fn resolve_gp_method(model_type: &str) -> Option<GpMethod> {
     }
 }
 
-/// メインスレッド側で事前に抽出したデータを直接受け取って PDP を計算する。
-/// `with_active_df` を使わないため、バックグラウンドスレッドから安全に呼べる。
-/// `model_type` には "ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest"
-/// のいずれかを指定する。
+/// Computes the PDP directly from data extracted beforehand on the main thread.
+/// Safe to call from a background thread since it does not use `with_active_df`.
+/// `model_type` must be one of "ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest".
 pub fn compute_pdp_from_data(
     x_matrix: Vec<Vec<f64>>,
     y: Vec<f64>,
@@ -27,7 +26,7 @@ pub fn compute_pdp_from_data(
     n_grid: usize,
     model_type: &str,
 ) -> PdpResult1d {
-    // Ridge (線形) は全モデル共通のフォールバック。
+    // Ridge (linear) is the common fallback for all models.
     let ridge_fallback = || {
         compute_pdp_from_matrix(
             &x_matrix,

@@ -5,11 +5,12 @@ use super::super::constants::{
 use super::common::{run_importances_pipeline, PreparedData};
 use super::fanova::{compute_fanova, FanovaConfig};
 
-/// 前処理済みデータから fANOVA 重要度を計算する（`metrics::RfAnovaMetric` からも呼ばれる）。
+/// Compute fANOVA importances from preprocessed data (also called from `metrics::RfAnovaMetric`).
 ///
-/// Hutter et al. (2014) の functional ANOVA: 独自実装の CART 回帰フォレストを訓練データ
-/// (train split) で学習し、各木の葉ノード区間（box）から主効果の分散を厳密に周辺化分解する。
-/// R² は評価データ (eval split) に対するフォレスト予測から算出する。
+/// Functional ANOVA per Hutter et al. (2014): trains a custom CART regression forest on the
+/// training data (train split), then exactly marginalizes each tree's leaf-node box intervals
+/// to decompose the main-effect variance. R² is computed from the forest's predictions on the
+/// evaluation data (eval split).
 pub(in crate::sensitivity) fn compute_from_prepared(
     data: &PreparedData,
 ) -> Option<(Vec<f64>, f64)> {
@@ -39,7 +40,7 @@ mod tests {
     use super::*;
     use crate::math::rng::SeededRng;
 
-    /// t2: y = 4*x0 + 小さいノイズ。x0 が支配的な特徴量になるはず。
+    /// t2: y = 4*x0 + small noise. x0 should become the dominant feature.
     fn make_dominant_xy(n: usize, n_feats: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
         let mut rng = SeededRng::from_seed(123);
         let x: Vec<Vec<f64>> = (0..n)
@@ -65,8 +66,8 @@ mod tests {
         );
     }
 
-    /// t3: 同一入力での 2 回の呼び出しはビット単位で一致する（rayon 並列化があっても
-    /// 集約は木の順序を保った逐次ループで行うため決定的）。
+    /// t3: two calls with the same input are bit-identical (deterministic because, even with
+    /// rayon parallelism, aggregation runs in a sequential loop that preserves tree order).
     #[test]
     fn deterministic_across_repeated_calls() {
         let (x, y) = make_dominant_xy(120, 3);
@@ -76,8 +77,8 @@ mod tests {
         assert_eq!(r2_a, r2_b, "r_squared should be bit-identical");
     }
 
-    /// t4a: y が定数の場合、全木で分割が発生せず全分散もゼロになる。パニックせず
-    /// 重要度はすべて 0.0 になることを確認する。
+    /// t4a: when y is constant, no tree ever splits and total variance is zero. Verify this
+    /// does not panic and all importances come out as 0.0.
     #[test]
     fn constant_y_does_not_panic() {
         let x: Vec<Vec<f64>> = (0..30).map(|i| vec![i as f64 / 30.0, 0.5]).collect();
@@ -91,7 +92,8 @@ mod tests {
         assert_eq!(r2, 0.0);
     }
 
-    /// t4b: 定数の特徴量列があってもパニックせず、可変な特徴量が支配的重要度を持つ。
+    /// t4b: a constant feature column does not panic, and the varying feature holds dominant
+    /// importance.
     #[test]
     fn constant_feature_column_does_not_panic() {
         let mut rng = SeededRng::from_seed(9);

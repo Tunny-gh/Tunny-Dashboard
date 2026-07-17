@@ -10,23 +10,24 @@ use crate::ui::widgets::trial_detail_modal::{
 };
 use tunny_core::indicators::MoIndicator;
 
-/// 1 本の指標推移系列（凡例名 + 色 + データ）。
+/// One indicator-history series (legend name + color + data).
 pub struct ConvergenceSeries {
     pub name: String,
     pub color: egui::Color32,
     pub history: ConvergenceHistory,
 }
 
-/// 参照点指定の変更要求。`render_chart` が app_state へ反映する。
+/// A request to change the reference point spec. `render_chart` reflects it into
+/// app_state.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RefPointChange {
-    /// 自動算出（nadir + 10% マージン）に戻す。
+    /// Revert to auto-computation (nadir + 10% margin).
     Auto,
-    /// 元の目的値の単位・目的ごとの参照点を指定する。
+    /// Specify a reference point per objective, in the original objective value units.
     Manual(Vec<f64>),
 }
 
-/// 多目的収束指標チャートウィジェット（HV / IGD+ / ε-indicator / R2）
+/// Multi-objective convergence indicator chart widget (HV / IGD+ / ε-indicator / R2)
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ConvergenceChart {
@@ -34,30 +35,34 @@ pub struct ConvergenceChart {
     pub history: Option<ConvergenceHistory>,
     #[serde(skip)]
     pub computing: bool,
-    /// 基準 Study の凡例名（比較系列と区別するために表示する）。
+    /// Legend name of the base Study (shown to distinguish it from comparison series).
     #[serde(skip)]
     pub base_name: String,
-    /// 目的名（参照点ラベルの目的ごとの見出しに使う）。
+    /// Objective names (used as the per-objective heading for reference point labels).
     #[serde(skip)]
     pub objective_names: Vec<String>,
-    /// 同一グラフに重ね描きする比較 Study の系列。
+    /// Comparison Study series overlaid on the same graph.
     #[serde(skip)]
     pub comparisons: Vec<ConvergenceSeries>,
-    /// 現在の参照点指定（元の目的値の単位）。`None` で自動算出。
-    /// app_state からミラーされ、UI 操作の起点になる。
+    /// Current reference point spec (in original objective value units). `None` means
+    /// auto-computation. Mirrored from app_state and the origin of UI operations.
     pub ref_point_override: Option<Vec<f64>>,
-    /// 参照点指定の変更要求（render_chart が `.take()` して app_state へ反映する）。
+    /// A request to change the reference point spec (`render_chart` `.take()`s it and
+    /// reflects it into app_state).
     #[serde(skip)]
     pub pending_ref_point: Option<RefPointChange>,
-    /// 現在表示中の収束指標（render_chart が毎フレーム app_state からセットする）。
+    /// The currently displayed convergence indicator (set from app_state by
+    /// render_chart every frame).
     pub indicator: MoIndicator,
-    /// 指標変更要求（render_chart が `.take()` して app_state へ反映する）。
+    /// A request to change the indicator (`render_chart` `.take()`s it and reflects it
+    /// into app_state).
     #[serde(skip)]
     pub pending_indicator: Option<MoIndicator>,
-    /// 目的ごとの入力バッファ（Manual 編集中の値を確定まで保持）。
+    /// Per-objective input buffer (holds values being edited under Manual until
+    /// committed).
     #[serde(skip)]
     ref_point_buf: Vec<f64>,
-    /// 点クリックで開くトライアル詳細モーダル（散布図と共有）。
+    /// Trial detail modal opened by clicking a point (shared with the scatter plot).
     #[serde(skip)]
     detail_modal: TrialDetailModal,
 }
@@ -81,17 +86,19 @@ impl Default for ConvergenceChart {
 }
 
 impl ConvergenceChart {
-    /// グローバル widget（処理済みの正状態）から実行フラグのみを取り込む。
-    /// 指標データは `app_state.convergence_history` に集約され描画時に毎フレーム反映されるため、
-    /// キャンバスの各アイテム（独立した WidgetStates）には computing のみ同期すればよい。
-    /// これを行わないと計算完了後もアイテム側の computing が下りず spinner が回り続ける。
+    /// Pulls only the running flag from the global widget (the just-processed
+    /// authoritative state). Indicator data is aggregated into
+    /// `app_state.convergence_history` and reflected every frame at render time, so each
+    /// canvas item (an independent WidgetStates) only needs `computing` synced.
+    /// Without this, the item's computing never drops after compute finishes and the
+    /// spinner keeps spinning.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
     }
 
-    /// `history` のサンプリングステップを使って (x=連番×step, y=値) の点列を作る。
-    /// X 軸はサンプリング順の連番 × ステップ (0, step, 2*step, …)。
-    /// trial_id は途中試行から始まる場合があり 0 スタートにならないため使わない。
+    /// Builds a point list of (x=index×step, y=value) using `history`'s sampling step.
+    /// The X axis is the sampling-order index × step (0, step, 2*step, …). trial_id
+    /// isn't used because it may start partway through and thus not start at 0.
     fn to_points(history: &ConvergenceHistory) -> Vec<[f64; 2]> {
         let step = history.sample_step.max(1);
         history
@@ -102,21 +109,24 @@ impl ConvergenceChart {
             .collect()
     }
 
-    /// 参照点コントロールを描画する（多目的 + HV 選択時のみ）。
-    /// Auto チェックで自動算出に戻し、外すと目的ごとの数値フィールドで入力できる。
-    /// 値の確定（フォーカスアウト / ドラッグ終了）時のみ `pending_ref_point` を立てて
-    /// 再計算をトリガーし、入力途中の連続再計算を防ぐ。
+    /// Renders the reference point controls (only when multi-objective + HV is
+    /// selected). Checking Auto reverts to auto-computation; unchecking it allows
+    /// entering per-objective numeric fields. `pending_ref_point` is only set when a
+    /// value is committed (focus lost / drag stopped), triggering recomputation, to
+    /// avoid continuous recomputation mid-edit.
     fn show_ref_point_controls(&mut self, ui: &mut egui::Ui) {
         let n_obj = self.objective_names.len();
-        // HV は多目的のみ意味を持つ。単目的/未読み込みは表示しない。
+        // HV is only meaningful for multi-objective. Don't show it for single-objective
+        // or when not yet loaded.
         if n_obj < 2 {
             return;
         }
 
         let is_auto = self.ref_point_override.is_none();
 
-        // 編集の起点。Manual なら override、Auto なら直近計算に使った参照点
-        // （なければ 0.0）を初期値にする。
+        // Starting point for editing. Under Manual, use the override; under Auto, use
+        // the reference point used in the most recent computation (or 0.0 if none) as
+        // the initial value.
         let seed: Vec<f64> = if let Some(r) = &self.ref_point_override {
             let mut v = r.clone();
             v.resize(n_obj, 0.0);
@@ -138,19 +148,20 @@ impl ConvergenceChart {
                     .color(crate::theme::TEXT_SECONDARY()),
             );
 
-            // Auto トグル
+            // Auto toggle
             let mut auto = is_auto;
             if ui.checkbox(&mut auto, "Auto").changed() {
                 if auto {
                     self.pending_ref_point = Some(RefPointChange::Auto);
                 } else {
-                    // Manual へ切替: 現在のシード値を初期指定として確定する。
+                    // Switching to Manual: commit the current seed value as the initial
+                    // spec.
                     self.ref_point_buf = seed.clone();
                     self.pending_ref_point = Some(RefPointChange::Manual(seed.clone()));
                 }
             }
 
-            // 目的ごとの数値フィールド（Manual 時のみ編集可能）
+            // Per-objective numeric fields (editable only under Manual)
             ui.add_enabled_ui(!is_auto, |ui| {
                 let mut commit = false;
                 for (j, name) in self.objective_names.iter().enumerate() {
@@ -176,11 +187,11 @@ impl ConvergenceChart {
         });
     }
 
-    /// 収束指標チャートを描画する。
+    /// Renders the convergence indicator chart.
     ///
-    /// `view` / `param_names` / `artifact_map` は基準 Study の点をクリックしたときに
-    /// 開くトライアル詳細モーダル用。比較 Study の点は基準 Study の `view` に対応行が
-    /// ないためクリック対象にしない。
+    /// `view` / `param_names` / `artifact_map` are for the trial detail modal opened by
+    /// clicking a point of the base Study. Points of comparison Studies have no
+    /// corresponding row in the base Study's `view`, so they aren't clickable.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -189,14 +200,16 @@ impl ConvergenceChart {
         obj_names: &[String],
         artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     ) {
-        // 単目的（または目的数未確定）の場合は収束指標を描画しない。
+        // Don't render convergence indicators for single-objective (or when the
+        // objective count isn't yet determined).
         if self.objective_names.len() < 2 {
             ui.label("Convergence indicators are defined only for multi-objective studies (≥2 objectives).");
             return;
         }
 
-        // 指標セレクタと補足情報（方向・サンプリング間隔）を 1 行に並べる。
-        // コンボボックス右の余白を活用し、縦方向のスペースを節約する。
+        // Lay out the indicator selector and supplementary info (direction, sampling
+        // interval) on one line. Uses the space to the right of the combo box to save
+        // vertical space.
         let mut new_indicator = self.indicator;
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("convergence_indicator")
@@ -207,7 +220,7 @@ impl ConvergenceChart {
                     }
                 });
 
-            // 方向（大小どちらが良いか）
+            // Direction (whether higher or lower is better)
             let direction_text = if self.indicator.higher_is_better() {
                 "Higher is better"
             } else {
@@ -219,7 +232,7 @@ impl ConvergenceChart {
                     .color(crate::theme::TEXT_SECONDARY()),
             );
 
-            // サンプリング間隔（データがあるときのみ）
+            // Sampling interval (only when data is available)
             if !self.computing {
                 if let Some(history) = &self.history {
                     let step = history.sample_step;
@@ -241,7 +254,7 @@ impl ConvergenceChart {
             self.pending_indicator = Some(new_indicator);
         }
 
-        // 参照点コントロールは HV 選択時のみ表示する。
+        // Show the reference point controls only when HV is selected.
         if self.indicator == MoIndicator::Hypervolume {
             self.show_ref_point_controls(ui);
         }
@@ -266,12 +279,12 @@ impl ConvergenceChart {
             self.base_name.clone()
         };
 
-        // クリック判定用に基準 Study の点を (trial_id, 行 index, [x, y]) で構築する。
-        // 描画点と座標を一致させるため `base_points` をそのまま流用し、trial_id から
-        // `view` 上の行を解決する（解決できない点はクリック対象外）。
-        // trial_id → 行 index の逆引きマップを 1 度だけ構築し、点ごとの線形走査
-        // （O(m·n)）を O(m+n) に落とす（M-17）。同一 trial_id は最初の行を採用する
-        // （旧 `position()` の挙動を保つ）。
+        // Build the base Study's points as (trial_id, row index, [x, y]) for hit
+        // testing. Reuse `base_points` as-is so drawn points and coordinates match, and
+        // resolve the row on `view` from trial_id (points that can't be resolved aren't
+        // clickable). Build the trial_id -> row index reverse lookup map once, turning
+        // a per-point linear scan (O(m·n)) into O(m+n) (M-17). For duplicate trial_ids,
+        // keep the first row (preserving the old `position()` behavior).
         let mut row_by_trial_id: HashMap<u32, usize> = HashMap::with_capacity(view.trial_ids.len());
         for (row, &tid) in view.trial_ids.iter().enumerate() {
             row_by_trial_id.entry(tid).or_insert(row);
@@ -286,7 +299,7 @@ impl ConvergenceChart {
             })
             .collect();
 
-        // 比較系列の点列を事前計算（空履歴はスキップ）。
+        // Precompute comparison series point lists (skip empty histories).
         let comparison_series: Vec<(&str, egui::Color32, Vec<[f64; 2]>)> = self
             .comparisons
             .iter()
@@ -294,7 +307,7 @@ impl ConvergenceChart {
             .map(|s| (s.name.as_str(), s.color, Self::to_points(&s.history)))
             .collect();
 
-        // クリックされた基準 Study の点（trial_id, 行 index, 指標値）。
+        // The clicked point of the base Study (trial_id, row index, indicator value).
         let mut clicked_detail: Option<(u32, usize, f64)> = None;
 
         egui_plot::Plot::new("convergence_plot")
@@ -305,7 +318,8 @@ impl ConvergenceChart {
             .include_x(0.0)
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
-                // 点クリックでトライアル詳細モーダルを開く（基準 Study の点のみ）。
+                // Clicking a point opens the trial detail modal (base Study points
+                // only).
                 let resp = plot_ui.response();
                 if resp.clicked_by(egui::PointerButton::Primary) {
                     if let Some(pos) = resp.interact_pointer_pos() {
@@ -322,7 +336,7 @@ impl ConvergenceChart {
                     }
                 }
 
-                // 基準 Study
+                // Base Study
                 if !base_points.is_empty() {
                     let color = COLOR_CONVERGENCE_LINE();
                     let line_pts: egui_plot::PlotPoints = base_points.iter().copied().collect();
@@ -335,7 +349,7 @@ impl ConvergenceChart {
                     );
                 }
 
-                // 比較 Study を色分けして重ね描きする
+                // Overlay comparison Studies with distinct colors
                 for (name, color, points) in &comparison_series {
                     let line_pts: egui_plot::PlotPoints = points.iter().copied().collect();
                     plot_ui.line(egui_plot::Line::new(*name, line_pts).color(*color));
@@ -348,7 +362,8 @@ impl ConvergenceChart {
                 }
             });
 
-        // クリックされた点があれば、指標名と値を付加情報としてモーダルを開く。
+        // If a point was clicked, open the modal with the indicator name and value as
+        // extra context.
         if let Some((trial_id, row, value)) = clicked_detail {
             let context = vec![(self.indicator.label().to_string(), format!("{value:.6}"))];
             self.detail_modal.open(TrialDetailTarget {
@@ -358,7 +373,7 @@ impl ConvergenceChart {
             });
         }
 
-        // 詳細モーダルを描画する（散布図と同じ共有実装）。
+        // Render the detail modal (the same shared implementation as the scatter plot).
         if self.detail_modal.is_open() {
             self.detail_modal
                 .show(ui, view, param_names, obj_names, artifact_map);
@@ -376,17 +391,17 @@ mod tests {
         let chart = ConvergenceChart::default();
         assert!(chart.history.is_none());
         assert!(!chart.computing);
-        // 既定は Auto（override なし）・変更要求なし。
+        // Default is Auto (no override) with no pending change.
         assert!(chart.ref_point_override.is_none());
         assert!(chart.pending_ref_point.is_none());
-        // 既定の指標は Hypervolume。
+        // Default indicator is Hypervolume.
         assert_eq!(chart.indicator, MoIndicator::Hypervolume);
         assert!(chart.pending_indicator.is_none());
     }
 
     #[test]
     fn pending_ref_point_encodes_auto_and_manual() {
-        // 変更要求は Auto / Manual(値) の 2 値で表す。
+        // A change request is represented as one of two values: Auto / Manual(value).
         let to_auto = Some(RefPointChange::Auto);
         let to_manual = Some(RefPointChange::Manual(vec![1.0, 2.0]));
         assert!(matches!(to_auto, Some(RefPointChange::Auto)));
@@ -395,8 +410,8 @@ mod tests {
 
     #[test]
     fn adopt_compute_state_clears_stuck_computing() {
-        // 計算完了後にグローバル側の computing=false を取り込むと、
-        // spinner で固まっていたアイテム側の computing が下りる。
+        // Pulling in computing=false from the global side after compute finishes drops
+        // the computing flag on the item side that had been stuck showing a spinner.
         let mut item = ConvergenceChart {
             computing: true,
             ..Default::default()
@@ -429,7 +444,7 @@ mod tests {
 
     #[test]
     fn indicator_variants_accessible() {
-        // 全 4 指標が列挙可能であることを確認する。
+        // Confirm all 4 indicators can be enumerated.
         let all = MoIndicator::all();
         assert_eq!(all.len(), 4);
         assert!(all.contains(&MoIndicator::Hypervolume));

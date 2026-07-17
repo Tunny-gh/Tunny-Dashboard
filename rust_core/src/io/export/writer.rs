@@ -1,24 +1,26 @@
-//! チャート/テーブル系 CSV エクスポートの共通ライター。
+//! Common writer for chart/table-style CSV export.
 //!
-//! 全フィールドを型付きで受け取り、テキストには構造クオート（カンマ・引用符・改行）と
-//! 数式インジェクションガード（先頭 `=` `+` `-` `@` に `'` 前置）を一律に適用する。
-//! 数値は非有限（NaN/inf）を空欄として出力する。
-//! UI 層の各 `build_*_csv` はフォーマットを自前実装せず本ライターを使うこと。
+//! Accepts all fields in typed form and uniformly applies structural quoting
+//! (comma, quote, newline) plus a formula-injection guard (prefixing `'` when
+//! the value starts with `=` `+` `-` `@`) to text fields.
+//! Numeric values output non-finite values (NaN/inf) as empty fields.
+//! Each `build_*_csv` in the UI layer should use this writer rather than
+//! implementing its own formatting.
 
 use super::formatting::sanitize_csv_text;
 
-/// CSV の 1 フィールド。テキストのみサニタイズ対象になる。
+/// A single CSV field. Only text is subject to sanitization.
 #[derive(Debug, Clone)]
 pub enum CsvField<'a> {
-    /// テキスト（クオート + 数式ガードを適用）
+    /// Text (quoting + formula guard applied)
     Text(&'a str),
-    /// 実数値。非有限は空欄。
+    /// A real number. Non-finite values become empty.
     Num(f64),
-    /// 符号付き整数
+    /// Signed integer
     Int(i64),
-    /// 符号なし整数
+    /// Unsigned integer
     UInt(u64),
-    /// 空欄
+    /// Empty field
     Empty,
 }
 
@@ -38,7 +40,7 @@ impl CsvField<'_> {
     }
 }
 
-/// 行単位で CSV 文字列を組み立てるライター。各行は `\n` 終端。
+/// A writer that builds a CSV string row by row. Each row is terminated with `\n`.
 #[derive(Debug, Default)]
 pub struct CsvWriter {
     buf: String,
@@ -49,7 +51,7 @@ impl CsvWriter {
         Self::default()
     }
 
-    /// ヘッダ行（全フィールドをテキストとして扱う）。
+    /// Header row (treats all fields as text).
     pub fn header<'a, I>(&mut self, fields: I) -> &mut Self
     where
         I: IntoIterator<Item = &'a str>,
@@ -57,7 +59,7 @@ impl CsvWriter {
         self.row(fields.into_iter().map(CsvField::Text))
     }
 
-    /// データ行を 1 行書き込む。
+    /// Writes a single data row.
     pub fn row<'a, I>(&mut self, fields: I) -> &mut Self
     where
         I: IntoIterator<Item = CsvField<'a>>,
@@ -74,7 +76,7 @@ impl CsvWriter {
         self
     }
 
-    /// 生成済み CSV 文字列を返す。
+    /// Returns the generated CSV string.
     pub fn finish(self) -> String {
         self.buf
     }
@@ -103,7 +105,7 @@ mod tests {
     fn writer_numeric_fields_not_formula_guarded() {
         let mut w = CsvWriter::new();
         w.row([CsvField::Num(-1.25), CsvField::Int(-3), CsvField::UInt(7)]);
-        // 負数は数値なので ' を付けない。
+        // A negative number is numeric, so no ' prefix is added.
         assert_eq!(w.finish(), "-1.25,-3,7\n");
     }
 

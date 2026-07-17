@@ -37,7 +37,7 @@ pub enum ChartId {
 }
 
 impl ChartId {
-    /// 全チャートの列挙。ヘルプ・パネルの網羅性検証テスト専用。
+    /// Enumeration of all charts. Used only by help/panel exhaustiveness tests.
     #[cfg(test)]
     pub fn all() -> &'static [ChartId] {
         &[
@@ -117,7 +117,8 @@ impl ChartId {
         }
     }
 
-    /// チャートタイトルの隣に表示する補足説明（凡例）。なければ None。
+    /// Supplementary description (legend) shown next to the chart title. `None` if
+    /// there isn't one.
     pub fn subtitle(&self) -> Option<&'static str> {
         match self {
             ChartId::ScatterMatrix => Some(
@@ -140,19 +141,19 @@ impl ChartId {
 }
 
 // ----------------------------------------
-// PanelItem — キャンバスに配置できるウィジェットの統合型
-// 🔵 ユーザーヒアリング（チャートとテーブルをD&D対象化）より
+// PanelItem — a unified type for widgets that can be placed on the canvas
+// 🔵 From user interviews (making charts and tables D&D targets)
 // ----------------------------------------
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum PanelItem {
-    /// 既存チャートをラップ
+    /// Wraps an existing chart
     Chart(ChartId),
-    /// 旧 BottomPanel をウィジェット化したトライアル一覧テーブル
+    /// The trial list table, made into a widget from the old BottomPanel
     TrialTable,
 }
 
 impl PanelItem {
-    /// 表示ラベル（右パネルの一覧・セルヘッダー等に使用）
+    /// Display label (used in the right panel list, cell headers, etc.)
     pub fn label(&self) -> &'static str {
         match self {
             PanelItem::Chart(id) => id.label(),
@@ -160,7 +161,8 @@ impl PanelItem {
         }
     }
 
-    /// セルタイトルの隣に表示する補足説明（凡例）。なければ None。
+    /// Supplementary description (legend) shown next to the cell title. `None` if
+    /// there isn't one.
     pub fn subtitle(&self) -> Option<&'static str> {
         match self {
             PanelItem::Chart(id) => id.subtitle(),
@@ -168,7 +170,8 @@ impl PanelItem {
         }
     }
 
-    /// 利用可能な全アイテムのリスト（右パネルに表示する順序）。網羅性検証テスト専用。
+    /// List of all available items (in the order shown in the right panel). Used
+    /// only by exhaustiveness tests.
     #[cfg(test)]
     pub fn all() -> Vec<PanelItem> {
         let mut items: Vec<PanelItem> = ChartId::all()
@@ -181,17 +184,17 @@ impl PanelItem {
 }
 
 // ----------------------------------------
-// DragPayload — D&D ペイロードの統合型
-// 🔵 ユーザーヒアリング（D&D移動）+ 既存 PanelItem D&D より
+// DragPayload — a unified type for D&D payloads
+// 🔵 From user interviews (D&D move) + existing PanelItem D&D
 // ----------------------------------------
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DragPayload {
-    /// 右パネルからの新規配置
+    /// New placement from the right panel
     NewWidget(PanelItem),
 }
 
 impl DragPayload {
-    /// ペイロードから PanelItem を取得する
+    /// Extracts the PanelItem from the payload
     pub fn item(&self) -> &PanelItem {
         match self {
             DragPayload::NewWidget(item) => item,
@@ -200,19 +203,20 @@ impl DragPayload {
 }
 
 // ----------------------------------------
-// RightPanelState — 右パネルの開閉・サイズ状態
-// 🔵 ユーザーヒアリング（ハンバーガーメニュー）より
+// RightPanelState — the right panel's open/closed and size state
+// 🔵 From user interviews (hamburger menu)
 // ----------------------------------------
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RightPanelState {
-    /// ハンバーガーメニューで切り替える開閉状態
+    /// Open/closed state, toggled by the hamburger menu
     pub is_open: bool,
-    /// パネル幅（ドラッグでリサイズ可）
+    /// Panel width (resizable by drag)
     pub width: f32,
-    /// 直近フレームで実際に描画されたパネル左端の X 座標。
-    /// アイコンタイルが `width` より広く描画され egui の constrain により
-    /// 左へシフトされることがあるため、ホバー閉じ判定には設定値ではなく
-    /// この実測値を用いる。描画前（未設定）は None。
+    /// The X coordinate of the panel's left edge as actually drawn in the most
+    /// recent frame.
+    /// Icon tiles can be drawn wider than `width` and get shifted left by egui's
+    /// constrain, so the hover-close check uses this measured value rather than the
+    /// configured value. `None` before drawing (not yet set).
     #[serde(skip)]
     pub last_rendered_left_x: Option<f32>,
 }
@@ -228,37 +232,38 @@ impl Default for RightPanelState {
 }
 
 // ----------------------------------------
-// CanvasItem — キャンバス上に自由配置された1ウィジェット
-// 同じウィジェットを複数配置できるよう固有 ID を持つ。
-// 座標・サイズはワールド座標（無限平面上の値）。
+// CanvasItem — a single widget freely placed on the canvas
+// Has a unique ID so the same widget can be placed multiple times.
+// Coordinates and size are in world coordinates (values on an infinite plane).
 // ----------------------------------------
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CanvasItem {
-    /// 固有インスタンス ID（複数配置対応）
+    /// Unique instance ID (supports multiple placements)
     pub id: u64,
-    /// 配置されたウィジェット
+    /// The placed widget
     pub content: PanelItem,
-    /// ワールド座標の左上位置
+    /// Top-left position in world coordinates
     pub x: f32,
     pub y: f32,
-    /// ワールド座標でのサイズ
+    /// Size in world coordinates
     pub w: f32,
     pub h: f32,
 }
 
 // ----------------------------------------
-// CanvasLayout — 自由配置キャンバスの状態
-// items の順序が z-order（末尾が最前面）。pan/zoom はビューポート変換。
+// CanvasLayout — state of the freely-placed canvas
+// The order of items is the z-order (last is frontmost). pan/zoom is the viewport
+// transform.
 // ----------------------------------------
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CanvasLayout {
     pub items: Vec<CanvasItem>,
-    /// 次に採番する ID
+    /// Next ID to assign
     pub next_id: u64,
-    /// ビューポート変換の平行移動（画面座標オフセット）
+    /// Translation of the viewport transform (screen-coordinate offset)
     pub pan_x: f32,
     pub pan_y: f32,
-    /// ビューポート変換のスケール（既定 1.0）
+    /// Scale of the viewport transform (default 1.0)
     pub zoom: f32,
 }
 
@@ -275,7 +280,7 @@ impl Default for CanvasLayout {
 }
 
 impl CanvasLayout {
-    /// 新規アイテムをワールド座標 `(x, y)` に追加する。固有 ID を採番して返す。
+    /// Adds a new item at world coordinates `(x, y)`. Assigns and returns a unique ID.
     pub fn add(&mut self, content: PanelItem, x: f32, y: f32, w: f32, h: f32) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
@@ -290,7 +295,7 @@ impl CanvasLayout {
         id
     }
 
-    /// 指定 ID のアイテムを削除する。
+    /// Removes the item with the given ID.
     pub fn remove(&mut self, id: u64) {
         self.items.retain(|it| it.id != id);
     }
@@ -299,12 +304,12 @@ impl CanvasLayout {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LayoutState {
     pub left_panel_width: f32,
-    /// 自由配置キャンバスのレイアウト
+    /// Layout of the freely-placed canvas
     #[serde(default)]
     pub canvas: CanvasLayout,
-    /// 右パネルの状態
+    /// State of the right panel
     pub right_panel: RightPanelState,
-    /// 左パネルの開閉状態（ホバーで自動制御）
+    /// Open/closed state of the left panel (auto-controlled by hover)
     #[serde(default)]
     pub left_panel_open: bool,
 }

@@ -1,16 +1,20 @@
-//! トライアル詳細モーダル内に描画するレーダーチャート、および汎用レーダー描画関数。
+//! Radar chart drawn inside the trial detail modal, plus generic radar rendering
+//! functions.
 //!
-//! 軸（頂点）は目的関数 → 変数の順に並べる。各軸の半径スケールは
-//! パレートフロント（`pareto_rank == 0`）個体の値域に合わせ、外周（radius = 1.0）が
-//! パレートフロント最大値（= 包絡上限）に対応する。比較のため、パレートフロントの
-//! 各個体を薄い線で重ね描きし、選択トライアルをその上に濃い赤で重ねる。
+//! Axes (vertices) are ordered objectives -> variables. Each axis's radius scale is
+//! fit to the value range of the Pareto front (`pareto_rank == 0`) individuals, so
+//! the outer ring (radius = 1.0) corresponds to the Pareto front maximum (the
+//! envelope's upper bound). For comparison, each Pareto front individual is overlaid
+//! with a thin line, and the selected trial is drawn on top in bold red.
 //!
-//! `egui_plot` には極座標チャートが無いため、`egui::Painter` で自前描画する。
-//! 軸スケール計算（[`axis_scale`] / [`value_fraction`]）と軸構築（[`build`]）は
-//! 純粋関数として切り出し、描画ロジックと独立にテストする。
+//! `egui_plot` has no polar chart support, so this draws directly with
+//! `egui::Painter`. Axis scale computation ([`axis_scale`] / [`value_fraction`]) and
+//! axis construction ([`build`]) are factored out as pure functions and tested
+//! independently of the rendering logic.
 //!
-//! 描画そのものは [`draw_radar`] に切り出しており、モーダル以外（例:
-//! Radar Comparison ウィジェット）からも軸ラベルと系列群さえ渡せば再利用できる。
+//! The rendering itself is factored into [`draw_radar`], which can be reused outside
+//! the modal (e.g. by the Radar Comparison widget) as long as axis labels and a set
+//! of series are supplied.
 
 use std::f32::consts::PI;
 
@@ -20,52 +24,54 @@ use crate::state::types::StudyView;
 use crate::theme::{ACCENT_BLUE, ERROR_COLOR, TEXT_SECONDARY};
 use crate::ui::widgets::common::range_math::finite_value_range;
 
-/// パレートフロント各個体の線色（アクセントブルー #3B82F6 を alpha≈48 で薄く）。
-/// 重なるほど色が濃くなり、分布の密度が見える。`from_rgba_premultiplied` は const
-/// のため、(59,130,246) を alpha 48 で事前乗算した値を直接指定する。
+/// Line color for each Pareto front individual (accent blue #3B82F6, thinned to
+/// alpha ≈ 48). Overlapping lines look darker, revealing distribution density.
+/// Since `from_rgba_premultiplied` is const, we specify (59,130,246) premultiplied
+/// with alpha 48 directly.
 const FRONT_LINE: Color32 = Color32::from_rgba_premultiplied(11, 24, 46, 48);
-/// 選択トライアル多角形の色（赤系で強調）。
+/// Color of the selected trial's polygon (emphasized in red).
 fn selected() -> Color32 {
     ERROR_COLOR()
 }
-/// グリッド（同心多角形・スポーク）の色。
+/// Color of the grid (concentric polygons + spokes).
 fn grid_color() -> Color32 {
     crate::theme::chart_colors::COLOR_PARALLEL_AXIS()
 }
-/// 強調系列（[`RadarSeries::emphasized`]）の扇形メッシュ塗りに使う不透明度。
-/// 旧 `SELECTED_FILL`（ERROR_COLOR を premultiplied (120,34,27) で薄めた値）と
-/// 見た目を一致させるため、`from_rgba_unmultiplied(color, 131)` で同じ結果になる値を使う。
+/// Opacity used for the fan-shaped mesh fill of an emphasized series
+/// ([`RadarSeries::emphasized`]). To match the look of the old `SELECTED_FILL`
+/// (ERROR_COLOR thinned via premultiplied (120,34,27)), use the value that produces
+/// the same result via `from_rgba_unmultiplied(color, 131)`.
 const EMPHASIZED_FILL_ALPHA: u8 = 131;
 
-/// レーダー 1 軸ぶんのメタ情報。
+/// Metadata for a single radar axis.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RadarAxis {
-    /// 軸名（目的関数名 または 変数名）。
+    /// Axis name (objective name or variable name).
     pub name: String,
-    /// 目的関数なら true（変数なら false）。ラベル色分けに使う。
+    /// True for an objective (false for a variable). Used for label color-coding.
     pub is_objective: bool,
-    /// 選択トライアルの値（欠損・非有限のとき None）。
+    /// The selected trial's value (None when missing or non-finite).
     pub selected: Option<f64>,
-    /// パレートフロント個体での最小値（半径スケールの下限算出に使う）。
+    /// Minimum value among Pareto front individuals (used for the radius scale's lower bound).
     pub front_min: f64,
-    /// パレートフロント個体での最大値（= 軸の包絡上限）。
+    /// Maximum value among Pareto front individuals (= the axis's envelope upper bound).
     pub front_max: f64,
 }
 
-/// レーダーチャートの描画データ。
+/// Rendering data for the radar chart.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RadarData {
-    /// 軸メタ情報（目的 → 変数の順）。
+    /// Axis metadata (ordered objectives -> variables).
     pub axes: Vec<RadarAxis>,
-    /// パレートフロント各個体の値。外側 = 個体、内側 = `axes` と同じ並びの軸値。
-    /// 欠損・非有限は None。
+    /// Values for each Pareto front individual. Outer = individual, inner = axis
+    /// values in the same order as `axes`. Missing/non-finite is None.
     pub front: Vec<Vec<Option<f64>>>,
 }
 
-/// `StudyView` から目的関数 → 変数の順でレーダー描画データを構築する。
+/// Builds radar rendering data from a `StudyView`, ordered objectives -> variables.
 ///
-/// パレートフロント（`pareto_rank == 0`）に有限値が無い軸はスキップする。
-/// `front` には各パレートフロント個体の（スキップ後の）軸値を整列して格納する。
+/// Skips axes that have no finite value on the Pareto front (`pareto_rank == 0`).
+/// `front` stores each Pareto front individual's (post-skip) axis values, aligned.
 pub fn build(
     view: &StudyView,
     obj_names: &[String],
@@ -76,7 +82,7 @@ pub fn build(
         .filter(|&i| view.pareto_rank.get(i).copied() == Some(0))
         .collect();
 
-    // 採用する軸の (列スライス, メタ) を順に収集する。
+    // Collect (column slice, metadata) for each adopted axis, in order.
     let mut axes: Vec<RadarAxis> = Vec::with_capacity(obj_names.len() + param_names.len());
     let mut cols: Vec<&[f64]> = Vec::with_capacity(axes.capacity());
     for (names, is_objective) in [(obj_names, true), (param_names, false)] {
@@ -101,7 +107,7 @@ pub fn build(
         }
     }
 
-    // 各フロント個体の値を採用軸ぶんだけ整列して取り出す。
+    // Extract each front individual's values, aligned to the adopted axes.
     let front: Vec<Vec<Option<f64>>> = front_rows
         .iter()
         .map(|&r| {
@@ -114,11 +120,12 @@ pub fn build(
     RadarData { axes, front }
 }
 
-/// 軸の半径スケール `(lo, hi)` を返す。
+/// Returns the axis radius scale `(lo, hi)`.
 ///
-/// `hi` はパレートフロント最大値（外周＝包絡上限）。`lo` はフロント最小値より下に
-/// マージンを取り、フロント個体が中心から離れて見えるようにする。フロントが 1 点
-/// （`front_min == front_max`）の場合は、その値が半径中央に来るよう対称に広げる。
+/// `hi` is the Pareto front maximum (outer ring = envelope upper bound). `lo` adds a
+/// margin below the front minimum so front individuals appear away from the center.
+/// When the front is a single point (`front_min == front_max`), it is expanded
+/// symmetrically so that value lands at the mid-radius.
 pub fn axis_scale(front_min: f64, front_max: f64) -> (f64, f64) {
     let span = front_max - front_min;
     if span.abs() <= f64::EPSILON {
@@ -129,7 +136,8 @@ pub fn axis_scale(front_min: f64, front_max: f64) -> (f64, f64) {
     }
 }
 
-/// 値を半径割合へ写像する。範囲外はわずかな超過を許し、描画側でクランプする。
+/// Maps a value to a radius fraction. Slight overshoot beyond the range is allowed
+/// and clamped on the rendering side.
 pub fn value_fraction(value: f64, lo: f64, hi: f64) -> f32 {
     let span = hi - lo;
     if span.abs() <= f64::EPSILON {
@@ -138,26 +146,31 @@ pub fn value_fraction(value: f64, lo: f64, hi: f64) -> f32 {
     ((value - lo) / span) as f32
 }
 
-/// [`draw_radar`] に渡す 1 系列（1 トライアル・1 個体ぶんの多角形）。
+/// A single series (a polygon for one trial/one individual) passed to [`draw_radar`].
 pub struct RadarSeries {
-    /// 線色（塗りもこの色から導出する）。
+    /// Line color (the fill color is also derived from this).
     pub color: Color32,
-    /// 軸ごとの半径割合 `[0,1]`（欠損・非有限は None。その軸は隣接頂点とのみ線を結ぶ）。
+    /// Radius fraction `[0,1]` per axis (None for missing/non-finite; that axis only
+    /// connects to its adjacent vertices).
     pub fractions: Vec<Option<f32>>,
-    /// 線の太さ。
+    /// Line width.
     pub width: f32,
-    /// true なら太線に加えて中心からの扇形メッシュ塗り + 頂点ドットを描く
-    /// （トライアル詳細モーダルの「選択トライアル」相当の強調表示）。
-    /// false なら細い輪郭線のみ（パレートフロント個体、あるいは複数トライアルの
-    /// 重ね描き比較のように「強調しすぎない」系列に使う）。
+    /// When true, in addition to a bold line, draws a fan-shaped mesh fill from the
+    /// center plus vertex dots (the emphasis style used for the "selected trial" in
+    /// the trial detail modal).
+    /// When false, draws only a thin outline (used for series that shouldn't be
+    /// over-emphasized, such as Pareto front individuals or overlaid multi-trial
+    /// comparisons).
     pub emphasized: bool,
 }
 
-/// 軸ラベル一覧（軸名, 目的関数なら true）と系列群から汎用レーダーチャートを描画する。
+/// Draws a generic radar chart from a list of axis labels (axis name, true if an
+/// objective) and a set of series.
 ///
-/// 軸が 3 未満の場合は何も描画せず `false` を返す（メッセージ表示は呼び出し側の責務。
-/// モーダルと Radar Comparison ウィジェットで文言が異なるため、ここでは持たない）。
-/// 軸が 3 以上なら描画して `true` を返す。
+/// Draws nothing and returns `false` when there are fewer than 3 axes (showing a
+/// message is the caller's responsibility, since the modal and the Radar Comparison
+/// widget use different wording; this function doesn't own that). Draws and returns
+/// `true` when there are 3 or more axes.
 pub fn draw_radar(
     ui: &mut egui::Ui,
     axis_labels: &[(String, bool)],
@@ -168,9 +181,9 @@ pub fn draw_radar(
         return false;
     }
 
-    // 両呼び出し元（詳細モーダル / Radar Comparison）とも下に凡例・キャプション行を
-    // 描くため 2 行ぶんを予約し、幅だけでなく利用可能な高さも尊重する
-    // （高さの低いキャンバスセルで凡例が見切れないように）。
+    // Both callers (detail modal / Radar Comparison) draw a legend and caption row
+    // below, so reserve space for 2 rows and respect available height as well as
+    // width (to avoid clipping the legend in short canvas cells).
     let bottom_reserve =
         2.0 * (ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y);
     let side = ui
@@ -180,25 +193,25 @@ pub fn draw_radar(
     let (rect, _resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let center = rect.center();
-    // ラベルぶんの余白を引いた半径。
+    // Radius after subtracting margin for labels.
     let radius = side * 0.5 - 64.0;
 
-    // 頂点 i の角度（上方向起点・時計回り）。
+    // Angle of vertex i (starting up, clockwise).
     let angle = |i: usize| -> f32 { -PI / 2.0 + (i as f32) * 2.0 * PI / (n as f32) };
-    // 頂点 i・半径割合 frac のスクリーン座標（過超過は 1.12 でクランプ）。
+    // Screen coordinates for vertex i at radius fraction frac (overshoot clamped at 1.12).
     let point_at = |i: usize, frac: f32| -> egui::Pos2 {
         let a = angle(i);
         let r = frac.clamp(0.0, 1.12) * radius;
         center + egui::vec2(a.cos() * r, a.sin() * r)
     };
-    // 軸値の系列（欠損は None）をスクリーン座標へ写像する。
+    // Maps a series of axis values (missing = None) to screen coordinates.
     let to_points = |values: &[Option<f32>]| -> Vec<Option<egui::Pos2>> {
         (0..n)
             .map(|i| values.get(i).copied().flatten().map(|f| point_at(i, f)))
             .collect()
     };
 
-    // ── グリッド（同心多角形 + スポーク）──────────────────────────
+    // ── Grid (concentric polygons + spokes) ───────────────────────
     for ring in [0.25_f32, 0.5, 0.75, 1.0] {
         let pts: Vec<egui::Pos2> = (0..n).map(|i| point_at(i, ring)).collect();
         painter.add(egui::Shape::closed_line(
@@ -213,13 +226,14 @@ pub fn draw_radar(
         );
     }
 
-    // ── 系列（フロント個体・選択トライアル・ピン留めトライアル等）───
+    // ── Series (front individuals, selected trial, pinned trials, etc.) ──
     for s in series {
         let pts = to_points(&s.fractions);
         let stroke = egui::Stroke::new(s.width, s.color);
 
         if s.emphasized && pts.iter().all(|p| p.is_some()) {
-            // 全軸そろっていれば中心からの扇状メッシュで塗る（中心に対し星形なので妥当）。
+            // When all axes are present, fill with a fan-shaped mesh from the center
+            // (reasonable since it's star-shaped around the center).
             let poly: Vec<egui::Pos2> = pts.iter().map(|p| p.unwrap()).collect();
             let fill_color = Color32::from_rgba_unmultiplied(
                 s.color.r(),
@@ -240,7 +254,8 @@ pub fn draw_radar(
             painter.add(egui::Shape::mesh(fill));
             painter.add(egui::Shape::closed_line(poly, stroke));
         } else {
-            // 欠損軸があれば隣接する有効頂点どうしだけ線で結ぶ（強調系列でなくても同様）。
+            // When an axis is missing, connect only adjacent valid vertices with a
+            // line (same behavior for non-emphasized series).
             draw_ring_polyline(&painter, &pts, stroke);
         }
         if s.emphasized {
@@ -250,7 +265,7 @@ pub fn draw_radar(
         }
     }
 
-    // ── 軸ラベル ────────────────────────────────────────────────
+    // ── Axis labels ────────────────────────────────────────────
     for (i, (name, is_objective)) in axis_labels.iter().enumerate() {
         let a = angle(i);
         let lp = center + egui::vec2(a.cos() * (radius + 12.0), a.sin() * (radius + 12.0));
@@ -272,7 +287,8 @@ pub fn draw_radar(
     true
 }
 
-/// レーダーチャートを描画する。軸が 3 未満ならレーダーにならないため注記のみ表示。
+/// Draws the radar chart. Shows only a note when there are fewer than 3 axes, since
+/// that can't form a radar shape.
 pub fn show(ui: &mut egui::Ui, data: &RadarData) {
     let axes = &data.axes;
     let axis_labels: Vec<(String, bool)> = axes
@@ -324,7 +340,7 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
 
     draw_radar(ui, &axis_labels, &series);
 
-    // ── 凡例 ────────────────────────────────────────────────────
+    // ── Legend ─────────────────────────────────────────────────
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         swatch(ui, ACCENT_BLUE());
@@ -344,8 +360,8 @@ pub fn show(ui: &mut egui::Ui, data: &RadarData) {
     );
 }
 
-/// 軸順の点列（欠損は None）を閉じた折れ線として描く。
-/// 隣り合う有効頂点どうしのみ線分で結び、欠損があればその区間を飛ばす。
+/// Draws a sequence of points in axis order (missing = None) as a closed polyline.
+/// Connects only adjacent valid vertices with line segments, skipping any gap.
 fn draw_ring_polyline(painter: &egui::Painter, pts: &[Option<egui::Pos2>], stroke: egui::Stroke) {
     let n = pts.len();
     for i in 0..n {
@@ -356,8 +372,8 @@ fn draw_ring_polyline(painter: &egui::Painter, pts: &[Option<egui::Pos2>], strok
     }
 }
 
-/// 凡例用の小さな色見本を描く。他ウィジェット（Radar Comparison 等）からも
-/// 凡例行を揃えるために再利用できるよう `pub(crate)` にする。
+/// Draws a small color swatch for the legend. Made `pub(crate)` so other widgets
+/// (e.g. Radar Comparison) can reuse it to keep legend rows consistent.
 pub(crate) fn swatch(ui: &mut egui::Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
     ui.painter().rect_filled(rect, 2.0, color);
@@ -370,11 +386,11 @@ mod tests {
     #[test]
     fn axis_scale_outer_maps_to_front_max() {
         let (lo, hi) = axis_scale(2.0, 10.0);
-        // 外周（hi）はフロント最大に一致。
+        // The outer ring (hi) matches the front maximum.
         assert!((hi - 10.0).abs() < 1e-9);
-        // 最小は下方向にマージン（span=8 の 20% 下）。
+        // The minimum has a downward margin (20% below the span=8 range).
         assert!((lo - (2.0 - 1.6)).abs() < 1e-9);
-        // フロント最大は割合 1.0、最小は中心から離れた正の割合。
+        // The front maximum maps to fraction 1.0; the minimum to a positive fraction away from center.
         assert!((value_fraction(10.0, lo, hi) - 1.0).abs() < 1e-6);
         let f_min = value_fraction(2.0, lo, hi);
         assert!(f_min > 0.0 && f_min < 1.0);
@@ -382,7 +398,7 @@ mod tests {
 
     #[test]
     fn axis_scale_handles_degenerate_front() {
-        // フロントが 1 点なら値は半径中央。
+        // When the front is a single point, the value lands at mid-radius.
         let (lo, hi) = axis_scale(5.0, 5.0);
         assert!((value_fraction(5.0, lo, hi) - 0.5).abs() < 1e-6);
         assert!(lo < 5.0 && hi > 5.0);
@@ -399,7 +415,7 @@ mod tests {
         use std::sync::Arc;
         use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
-        // 3 トライアル。trial0,1 がフロント（rank 0）、trial2 は rank 1。
+        // 3 trials. trial0, 1 are on the front (rank 0), trial2 is rank 1.
         let core_rows: Vec<CoreRow> = (0..3)
             .map(|i| CoreRow {
                 trial_id: i as u32,
@@ -418,20 +434,20 @@ mod tests {
         let view = StudyView::new(Arc::new(df), vec![0, 0, 1]);
 
         let data = build(&view, &obj_names, &param_names, 0);
-        // 目的 2 + 変数 1 = 3 軸、順序は目的→変数。
+        // 2 objectives + 1 variable = 3 axes, ordered objectives -> variables.
         assert_eq!(data.axes.len(), 3);
         assert_eq!(data.axes[0].name, "o0");
         assert!(data.axes[0].is_objective);
         assert_eq!(data.axes[2].name, "x");
         assert!(!data.axes[2].is_objective);
 
-        // フロント（trial0,1）のみで min/max を取る: o0 = {0,2} → [0,2]。
+        // Take min/max over the front (trial0, 1) only: o0 = {0,2} -> [0,2].
         assert!((data.axes[0].front_min - 0.0).abs() < 1e-9);
         assert!((data.axes[0].front_max - 2.0).abs() < 1e-9);
-        // 選択 = row 0 の o0 = 0.0。
+        // Selected = row 0's o0 = 0.0.
         assert_eq!(data.axes[0].selected, Some(0.0));
 
-        // フロント個体は 2 行、各 3 軸ぶん。trial1 の o0=2, o1=9, x=1。
+        // Front individuals: 2 rows, 3 axes each. trial1 has o0=2, o1=9, x=1.
         assert_eq!(data.front.len(), 2);
         assert_eq!(data.front[0].len(), 3);
         assert_eq!(data.front[1], vec![Some(2.0), Some(9.0), Some(1.0)]);
@@ -458,11 +474,11 @@ mod tests {
         let obj_names = vec!["o0".to_string()];
         let df = DataFrame::from_trials(&core_rows, &[], &obj_names, &[], &[], 0);
         let view = StudyView::new(Arc::new(df), vec![0, 0]);
-        // 存在しない列名を要求してスキップを確認する。
+        // Request a nonexistent column name to verify it gets skipped.
         let missing = vec!["nope".to_string()];
         let data = build(&view, &missing, &[], 0);
         assert!(data.axes.is_empty());
-        // 軸が無ければフロント各行も空。
+        // With no axes, each front row is also empty.
         assert!(data.front.iter().all(|r| r.is_empty()));
     }
 }

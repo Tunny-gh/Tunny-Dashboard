@@ -4,11 +4,11 @@ use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 
-/// バックグラウンドタスクからのメッセージを処理するハンドラー
+/// Handler that processes messages from background tasks.
 pub struct MessageHandler;
 
 impl MessageHandler {
-    /// 単一メッセージを処理し、AppState と WidgetStates を更新する
+    /// Processes a single message and updates AppState and WidgetStates.
     pub fn handle(
         msg: AppMessage,
         app_state: &mut AppState,
@@ -32,8 +32,8 @@ impl MessageHandler {
                 match tunny_core::dataframe::snapshot(study_id) {
                     Some(df) => {
                         let view = StudyView::new(df, pareto_rank);
-                        // Phase 2 の完全 meta で all_studies のエントリを同期する
-                        // （Phase 1 では completed_trials 等が 0 のため）
+                        // Sync the all_studies entry with Phase 2's complete meta
+                        // (in Phase 1, completed_trials etc. are 0)
                         if let Some(existing) = app_state
                             .all_studies
                             .iter_mut()
@@ -121,11 +121,11 @@ impl MessageHandler {
                 key,
                 result,
             } => {
-                // 設定キーごとにキャッシュし、同じ設定の他チャートと共有する。
+                // Cache per settings key, shared with other charts using the same settings.
                 app_state.mcdm_cache.insert(key, result.clone());
-                // 最後に計算した結果は McdmScore カラーモードの基準として保持する。
+                // Keep the most recently computed result as the basis for the McdmScore color mode.
                 app_state.mcdm_result = Some(result);
-                // 計算を開始したチャートの実行状態のみ解除する。
+                // Only clear the execution state of the chart that started the computation.
                 Self::mcdm_controls_mut(source, widget_states).computing = false;
             }
             AppMessage::McdmFailed { source, message } => {
@@ -156,8 +156,9 @@ impl MessageHandler {
                 widget_states.pdp_2d.computing = false;
             }
             AppMessage::Error(e) => {
-                // レポート出力中の失敗も汎用 Error を再利用する。ダイアログを開いた
-                // ままのユーザーには生成中フラグを解除してモーダル内にも表示する。
+                // Failures during report export also reuse the generic Error.
+                // If the user still has the dialog open, clear the generating
+                // flag and also display it inside the modal.
                 if let Some(dialog) = app_state.report_dialog.as_mut() {
                     if dialog.generating {
                         dialog.generating = false;
@@ -168,8 +169,8 @@ impl MessageHandler {
                 *is_loading = false;
             }
             AppMessage::CsvExportDone => {
-                // 成功時はユーザーへの通知を持たないため何もしない
-                // （エクスポートの成否は失敗時のみ load_error で表示する）。
+                // Does nothing on success since there's no user notification for it
+                // (export success/failure is only shown via load_error on failure).
             }
             AppMessage::CsvExportFailed(err) => {
                 *load_error = Some(err);
@@ -186,15 +187,19 @@ impl MessageHandler {
                 widget_states.importance.computing = false;
             }
             AppMessage::TaskPanicked(detail) => {
-                // ワーカースレッドが panic した。原因のウィジェットは特定できない
-                // （どの計算の panic かは spawn_task 側では分からない）ため、
-                // エラーをユーザーに可視化しつつロード中フラグだけ解除する。
-                *load_error = Some(format!("バックグラウンド処理が異常終了しました: {detail}"));
+                // A worker thread panicked. The widget responsible cannot be
+                // identified (spawn_task has no way to know which computation
+                // panicked), so surface the error to the user while only
+                // clearing the loading flag.
+                *load_error = Some(format!(
+                    "A background task terminated unexpectedly: {detail}"
+                ));
                 *is_loading = false;
             }
             AppMessage::PollerReady { .. } => {
-                // ポーラー起動は tx/poller を持つ app.rs（poll_messages）が横取りして
-                // 処理するため、MessageHandler には渡されない（到達しない）。
+                // Poller startup is intercepted and handled by app.rs
+                // (poll_messages), which holds the tx/poller, so this never
+                // reaches MessageHandler (unreachable here).
             }
             AppMessage::LiveUpdateDone {
                 new_trial_rows,
@@ -216,10 +221,11 @@ impl MessageHandler {
                 app_state.live_update.showing_completion_hint = true;
             }
             AppMessage::SqliteLiveChanged { .. } => {
-                // 実際の再ロードはワーカースレッド経由で行う必要があるため、ここでは
-                // 状態を変更しない。呼び出し側（app.rs）が `sqlite_reload_study_id` で
-                // このメッセージを検出し `dispatch_reload_sqlite_study` を発行する。
-                // 再ロード結果は `SqliteLiveReloadDone` として届く。
+                // The actual reload has to go through a worker thread, so no
+                // state is changed here. The caller (app.rs) detects this
+                // message via `sqlite_reload_study_id` and issues
+                // `dispatch_reload_sqlite_study`. The reload result arrives as
+                // `SqliteLiveReloadDone`.
             }
             AppMessage::SqliteLiveReloadDone { study_id, meta } => {
                 Self::handle_sqlite_live_reload_done(study_id, meta, app_state);
@@ -231,7 +237,7 @@ impl MessageHandler {
                 feasible_only,
                 result,
             } => {
-                // キャッシュに挿入してから result を設定
+                // Insert into the cache before setting result
                 widget_states.pdp_chart.insert_cache(
                     &param,
                     &objective,
@@ -244,14 +250,15 @@ impl MessageHandler {
             }
 
             AppMessage::ComparisonStudyLoaded { context } => {
-                // 3 つの並行 Vec（studies / colors / hv_histories）を同じ順序で揃える。
+                // Keep the 3 parallel Vecs (studies / colors / hv_histories) aligned in the same order.
                 let idx = app_state.comparison_studies.len();
                 app_state.comparison_studies.push(*context);
                 app_state
                     .comparison_colors
                     .push(crate::theme::color_compute::comparison_color_at(idx));
-                // プレースホルダーを追加して並行 Vec の添字を揃える。
-                // 実際の指標値は次回 poll_chart が base+全比較を一括再計算して上書きする。
+                // Add a placeholder to keep the parallel Vec indices aligned.
+                // The actual metric values are overwritten the next time
+                // poll_chart batch-recomputes base + all comparisons.
                 app_state
                     .comparison_convergence_histories
                     .push(ConvergenceHistory {
@@ -260,7 +267,7 @@ impl MessageHandler {
                         sample_step: 1,
                         ref_point: Vec::new(),
                     });
-                // 基準 Study の指標を None にして統合再計算をトリガーする。
+                // Set the baseline Study's metric to None to trigger a unified recomputation.
                 app_state.convergence_history = None;
             }
             AppMessage::ArtifactsDirScanned {
@@ -294,7 +301,7 @@ impl MessageHandler {
                 widget_states.surrogate_opt.fit_progress = None;
             }
             AppMessage::SurrogateFitCancelled => {
-                // ユーザーがキャンセルした。エラー表示はせず状態だけ戻す。
+                // The user cancelled. Just revert the state without showing an error.
                 widget_states.surrogate_opt.error_message = None;
                 widget_states.surrogate_opt.fitting = false;
                 widget_states.surrogate_opt.fit_progress = None;
@@ -374,12 +381,30 @@ impl MessageHandler {
                 widget_states.surrogate_compare.error = Some(err);
                 widget_states.surrogate_compare.computing = false;
             }
+            AppMessage::GhOptFinished { result } => {
+                if let Some(run) = app_state.gh_opt_run.as_mut() {
+                    run.finished = Some(match result {
+                        Ok(summary) => Ok(format!(
+                            "Done: {} trials succeeded / {} failed{}",
+                            summary.completed,
+                            summary.failed,
+                            if summary.cancelled {
+                                " (cancelled)"
+                            } else {
+                                ""
+                            }
+                        )),
+                        Err(e) => Err(e),
+                    });
+                }
+            }
         }
     }
 
-    /// 単目的 Study の best-so-far 履歴（trial_number, cumulative best）を構築し
-    /// `app_state.best_trial_history` へ格納する。多目的 Study では None のまま
-    /// （収束カードは非表示となり、HV 履歴が代わりに多目的の推移を担う）。
+    /// Builds a single-objective Study's best-so-far history (trial_number,
+    /// cumulative best) and stores it in `app_state.best_trial_history`. Left
+    /// as None for multi-objective Studies (the convergence card is hidden,
+    /// and the HV history instead handles the multi-objective trend).
     fn refresh_best_trial_history(app_state: &mut AppState) {
         let Some(ctx) = app_state.current_study.as_ref() else {
             app_state.best_trial_history = None;
@@ -405,14 +430,17 @@ impl MessageHandler {
         ));
     }
 
-    /// Study 選択時のストリーミングロード 1 バッチを適用する。
+    /// Applies one batch of the streaming load when a Study is selected.
     ///
-    /// - 最初のバッチ（`is_first`）: 既存状態をクリアし StudyContext を新規生成。
-    /// - 以降: 既存 DataFrame の列クローンへ `append_trials` で新規行を追記する。
-    ///   行指向への再構築（旧 core_rows_from_df 方式）はチャンクごとに O(ロード済み行数) の
-    ///   HashMap/String 生成を伴いロード全体で O(n²) になるため廃止した。
-    /// - Pareto は重い（多目的 nd_sort が O(N²)）ため**ストリーミング中は計算せず**、
-    ///   `is_final` のバッチで一度だけ確定計算する（読み込み中は rank 0 表示）。
+    /// - First batch (`is_first`): clears existing state and creates a new StudyContext.
+    /// - Subsequent batches: clones the existing DataFrame's columns and
+    ///   appends new rows via `append_trials`. Rebuilding into row-oriented
+    ///   form (the old core_rows_from_df approach) was removed because it
+    ///   involved O(loaded row count) HashMap/String allocation per chunk,
+    ///   making the whole load O(n^2).
+    /// - Since Pareto is expensive (multi-objective nd_sort is O(N^2)), it is
+    ///   **not computed during streaming**; it's computed once, definitively,
+    ///   on the `is_final` batch (rank 0 is shown while loading).
     #[allow(clippy::too_many_arguments)]
     fn handle_study_chunk(
         study_id: u32,
@@ -429,9 +457,10 @@ impl MessageHandler {
         widget_states: &mut WidgetStates,
         is_loading: &mut bool,
     ) {
-        // 最初のバッチは Study 切り替えとして既存状態をリセットする。
-        // 以降のバッチは列クローン（memcpy 相当）+ in-place 追記。制約列数の増加は
-        // append_trials 側が既存列数と max を取って吸収する。
+        // The first batch resets existing state as a Study switch.
+        // Subsequent batches: column clone (equivalent to memcpy) + in-place
+        // append. An increase in constraint column count is absorbed by
+        // append_trials, which takes the max with the existing column count.
         let start_fresh = is_first || app_state.current_study.is_none();
         let mut new_df = if start_fresh {
             app_state.clear();
@@ -454,7 +483,7 @@ impl MessageHandler {
         let arc = std::sync::Arc::new(new_df);
         tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
 
-        // Pareto は最終バッチでのみ確定。アクティブ DataFrame を読むため select_study で活性化する。
+        // Pareto is only finalized on the last batch. Activated via select_study since it reads the active DataFrame.
         let (ranks, pareto_indices) = if is_final {
             let _ = tunny_core::dataframe::select_study(study_id);
             let is_minimize: Vec<bool> = meta
@@ -481,7 +510,7 @@ impl MessageHandler {
             });
         }
 
-        // Phase 2 の累積 meta で all_studies のエントリを同期する。
+        // Sync the all_studies entry with Phase 2's cumulative meta.
         if let Some(existing) = app_state
             .all_studies
             .iter_mut()
@@ -491,7 +520,7 @@ impl MessageHandler {
         }
 
         if start_fresh {
-            // 後続機能がアクティブ DataFrame を参照できるよう早期に活性化する。
+            // Activate early so downstream features can reference the active DataFrame.
             let _ = tunny_core::dataframe::select_study(study_id);
             widget_states.convergence.computing = false;
             widget_states.cluster_scatter = Default::default();
@@ -509,14 +538,15 @@ impl MessageHandler {
         }
     }
 
-    /// `AppMessage::SqliteLiveChanged` を受けて再ロードが必要な study_id を返す。
-    /// SQLite は trial 状態がインプレースで変わるため journal のような差分適用が
-    /// できず、フィンガープリント変化を検出したら対象 study を丸ごと再パースする
-    /// 必要がある。その再パースはワーカースレッド経由で行う必要があるため
-    /// （`MessageHandler::handle` は tx を持たない）、呼び出し側（app.rs）が本関数で
-    /// 対象 study_id を取り出し `dispatch_reload_sqlite_study` を発行する
-    /// （RDB ライブ更新も `SqliteLiveChanged` を流用するため、storage_kind が Rdb の
-    /// 場合は app.rs 側で `dispatch_reload_rdb_study` へ振り分ける）。
+    /// Returns the study_id that needs to be reloaded, given an `AppMessage::SqliteLiveChanged`.
+    /// Since SQLite mutates trial state in place, journal-style diff
+    /// application can't be used; upon detecting a fingerprint change, the
+    /// target study must be re-parsed entirely. That re-parse has to go
+    /// through a worker thread (`MessageHandler::handle` has no tx), so the
+    /// caller (app.rs) extracts the target study_id via this function and
+    /// issues `dispatch_reload_sqlite_study` (RDB live update also reuses
+    /// `SqliteLiveChanged`, so when storage_kind is Rdb, app.rs routes it to
+    /// `dispatch_reload_rdb_study` instead).
     pub fn sqlite_reload_study_id(msg: &AppMessage) -> Option<u32> {
         match msg {
             AppMessage::SqliteLiveChanged { study_id } => Some(*study_id),
@@ -524,18 +554,21 @@ impl MessageHandler {
         }
     }
 
-    /// `AppMessage::SqliteLiveReloadDone` の処理本体。
+    /// The processing body for `AppMessage::SqliteLiveReloadDone`.
     ///
-    /// ワーカースレッド（`crate::io::sqlite::reload_single_study_task`）が既に
-    /// `swap_snapshot` / `store_extras_for` で共有ストアを差し替え済みなので、ここでは
-    /// - アクティブ化（`select_study`）
-    /// - Pareto ランクの再計算（通常の sqlite study 選択と同じ計算）
-    /// - StudyView の差し替え
-    /// - 収束履歴の作り直し・行数依存キャッシュの破棄（`handle_live_update_done` と同一）
+    /// The worker thread (`crate::io::sqlite::reload_single_study_task`) has
+    /// already replaced the shared store via `swap_snapshot` /
+    /// `store_extras_for`, so this only does:
+    /// - Activation (`select_study`)
+    /// - Recomputing Pareto ranks (same computation as a normal sqlite study selection)
+    /// - Replacing the StudyView
+    /// - Rebuilding the convergence history / discarding row-dependent caches
+    ///   (identical to `handle_live_update_done`)
     ///
-    /// のみを行う。journal と異なり新規行の追記ではなく DataFrame 全体の置き換えである点が違うが、
-    /// スワップ後のマージ処理（キャッシュ破棄・履歴再計算・study 件数更新）は
-    /// `handle_live_update_done` と完全に同じにする。
+    /// Unlike journal, this replaces the entire DataFrame rather than
+    /// appending new rows, but the post-swap merge processing (cache discard,
+    /// history recomputation, study count update) is made exactly the same as
+    /// `handle_live_update_done`.
     fn handle_sqlite_live_reload_done(
         study_id: u32,
         meta: crate::state::app_state::StudyMeta,
@@ -544,8 +577,8 @@ impl MessageHandler {
         if let Some(study) = &mut app_state.current_study {
             if study.meta.study_id == study_id {
                 if let Some(df) = tunny_core::dataframe::snapshot(study_id) {
-                    // ワーカーが swap 済みの df を採用し、meta を最新化してから
-                    // Pareto + StudyView を作り直す（handle_live_update_done と共通）。
+                    // Adopt the df already swapped in by the worker, refresh
+                    // meta, then rebuild Pareto + StudyView (shared with handle_live_update_done).
                     study.meta = meta.clone();
                     let is_minimize: Vec<bool> = meta
                         .directions
@@ -557,8 +590,8 @@ impl MessageHandler {
             }
         }
 
-        // trial 数・best 値が変わるため収束履歴・行数依存キャッシュを作り直す
-        // （handle_live_update_done と同じ）。
+        // Rebuild the convergence history / row-dependent caches since trial
+        // count and best value may have changed (same as handle_live_update_done).
         Self::invalidate_row_dependent_state(app_state);
 
         if let Some(existing) = app_state
@@ -570,9 +603,10 @@ impl MessageHandler {
         }
     }
 
-    /// swap 済みの `arc` をアクティブ化して Pareto を再計算し、`study` の StudyView を
-    /// 作り直す（D-7: live update / sqlite・rdb reload の共通処理）。
-    /// 呼び出し前に `study.meta` が最新で、共有ストアへ `arc` が swap 済みであること。
+    /// Activates the already-swapped `arc`, recomputes Pareto, and rebuilds
+    /// `study`'s StudyView (D-7: shared processing for live update / sqlite,rdb reload).
+    /// Before calling, `study.meta` must be up to date and `arc` must already
+    /// be swapped into the shared store.
     fn rebuild_active_view(
         study: &mut StudyContext,
         arc: std::sync::Arc<DataFrame>,
@@ -584,8 +618,9 @@ impl MessageHandler {
         study.pareto_indices = pareto.pareto_indices;
     }
 
-    /// ライブ更新・再ロードで trial 数が変わった後の共通後処理（D-7）:
-    /// best-trial 履歴の再計算と、行数依存キャッシュ（cluster / mcdm）の破棄。
+    /// Shared post-processing after a live update / reload changes the trial
+    /// count (D-7): recomputes the best-trial history and discards
+    /// row-dependent caches (cluster / mcdm).
     fn invalidate_row_dependent_state(app_state: &mut AppState) {
         Self::refresh_best_trial_history(app_state);
         app_state.cluster_cache.clear();
@@ -599,18 +634,19 @@ impl MessageHandler {
         extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
         app_state: &mut AppState,
     ) {
-        // 新規完了 trial 行があれば DataFrame を作り直したかどうか。
-        // 中間値・状態変化のみ（extras）の更新では列は変化しないため、
-        // 全 clone + O(N²) Pareto 再計算・行数依存キャッシュ破棄をスキップする（M-7）。
+        // Whether the DataFrame was rebuilt due to newly completed trial rows.
+        // An update that is only intermediate values / state changes (extras)
+        // doesn't change the columns, so skip the full clone + O(N^2) Pareto
+        // recomputation + row-dependent cache discard (M-7).
         let mut df_rebuilt = false;
         if let Some(study) = &mut app_state.current_study {
             let study_id = study.meta.study_id;
 
-            // 全 trial（全 state）の付帯情報（extras）へライブ差分をマージする。
+            // Merge the live diff into the supplementary info (extras) for all trials (all states).
             Self::merge_extras_diff(study_id, &extras_events);
 
-            // 既存 DataFrame の列クローンへライブ差分の新試行のみを追記する
-            // （全行の行指向再構築は行わない）。
+            // Append only the new trials from the live diff to a clone of the
+            // existing DataFrame's columns (does not rebuild all rows into row-oriented form).
             let added_rows: Vec<CoreTrialRow> = new_core_rows
                 .iter()
                 .map(|core_row| CoreTrialRow {
@@ -625,8 +661,9 @@ impl MessageHandler {
                 })
                 .collect();
 
-            // 新規 trial 行が無い更新（RUNNING 中の中間値報告など）は列が変わらない。
-            // extras は上でマージ済みなので、ここで打ち切って重い再計算を回避する（M-7）。
+            // An update with no new trial rows (e.g. intermediate-value
+            // reports while RUNNING) doesn't change the columns. extras was
+            // already merged above, so stop here to avoid the heavy recomputation (M-7).
             if !added_rows.is_empty() {
                 let param_names = study.meta.param_names.clone();
                 let obj_names = study.meta.objective_names.clone();
@@ -643,17 +680,20 @@ impl MessageHandler {
                     .map(|d| matches!(d, Direction::Minimize))
                     .collect();
 
-                // 先に共有ストアを差し替えてアクティブ化し、列がそろった DataFrame から
-                // Pareto を計算する（handle_study_chunk と同じ方式）。all_rows を直接 nd_sort へ
-                // 渡すと、ライブ差分が目的本数の異なる行を含む場合にスライス範囲外で panic する。
-                // from_trials / compute_pareto_ranks は不足目的を NaN で埋め形状を必ずそろえる。
+                // First swap in and activate the shared store, then compute
+                // Pareto from a DataFrame with aligned columns (same approach
+                // as handle_study_chunk). Passing all_rows directly to
+                // nd_sort would panic on an out-of-range slice if the live
+                // diff includes rows with a different objective count.
+                // from_trials / compute_pareto_ranks always align the shape
+                // by filling missing objectives with NaN.
                 let arc = std::sync::Arc::new(new_df);
                 tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
                 Self::rebuild_active_view(study, arc, &is_minimize);
                 df_rebuilt = true;
             }
         }
-        // trial 数・best 値が変わったときのみ収束履歴・行数依存キャッシュを作り直す（M-7）。
+        // Only rebuild the convergence history / row-dependent caches when the trial count or best value changed (M-7).
         if df_rebuilt {
             Self::invalidate_row_dependent_state(app_state);
         }
@@ -670,12 +710,13 @@ impl MessageHandler {
         }
     }
 
-    /// ライブ差分の [`ExtrasDiff`] を対象 study の [`StudyExtras`] へマージし、
-    /// 共有ストアへ原子的に差し替える。trial_id 昇順を維持する。
+    /// Merges the live diff's [`ExtrasDiff`] into the target study's
+    /// [`StudyExtras`] and atomically swaps it into the shared store.
+    /// Maintains ascending trial_id order.
     ///
-    /// - new_trials: state=Running の [`TrialExtra`] を追加する（既存 trial_id は据え置き）。
-    /// - intermediate_values: 対応 trial へ (step, value) を追記する（未知なら placeholder 生成）。
-    /// - state_changes: state と datetime_complete を更新する（未知なら placeholder 生成）。
+    /// - new_trials: adds [`TrialExtra`] entries with state=Running (existing trial_ids are left as-is).
+    /// - intermediate_values: appends (step, value) to the corresponding trial (generates a placeholder if unknown).
+    /// - state_changes: updates state and datetime_complete (generates a placeholder if unknown).
     fn merge_extras_diff(study_id: u32, diff: &tunny_core::io::journal::live_update::ExtrasDiff) {
         use std::collections::HashMap;
         use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
@@ -687,7 +728,7 @@ impl MessageHandler {
             return;
         }
 
-        // 現行スナップショットを基点に可変コピーを作る（無ければ空）。
+        // Make a mutable copy based on the current snapshot (empty if absent).
         let mut extras: StudyExtras = tunny_core::dataframe::extras_snapshot(study_id)
             .map(|arc| (*arc).clone())
             .unwrap_or_default();
@@ -699,8 +740,9 @@ impl MessageHandler {
             .map(|(i, t)| (t.trial_id, i))
             .collect();
 
-        // trial_id に対応する index を返す。無ければ Running の placeholder を生成する。
-        // （trial_number 不明時は trial_id を暫定採用する。live_update と同じフォールバック。）
+        // Returns the index corresponding to trial_id. If absent, generates a
+        // Running placeholder. (When trial_number is unknown, trial_id is
+        // used as a provisional value — the same fallback as live_update.)
         fn ensure_trial(
             extras: &mut StudyExtras,
             index_of: &mut HashMap<u32, usize>,
@@ -732,7 +774,7 @@ impl MessageHandler {
                 trial_number,
                 datetime_start,
             );
-            // 既存 trial なら datetime_start のみ補完する。
+            // For an existing trial, only fill in datetime_start.
             if extras.trials[idx].datetime_start.is_none() {
                 extras.trials[idx].datetime_start = datetime_start;
             }
@@ -751,7 +793,7 @@ impl MessageHandler {
             }
         }
 
-        // trial_id 昇順を維持し、各 trial の中間値を step 昇順にそろえる。
+        // Maintain ascending trial_id order, and sort each trial's intermediate values by ascending step.
         extras.trials.sort_by_key(|t| t.trial_id);
         for trial in &mut extras.trials {
             trial.intermediate_values.sort_by_key(|(step, _)| *step);
@@ -773,9 +815,9 @@ impl MessageHandler {
             .map(|c| c.trial_count())
             .unwrap_or(0);
         if result.labels.len() == trial_count {
-            // 結果は設定キーごとにキャッシュし、同じ設定の他チャートと共有する。
+            // Cache the result per settings key, shared with other charts using the same settings.
             app_state.cluster_cache.insert(key, result);
-            // 実行を開始したチャートの spinner / pending を解除する。
+            // Clear the spinner / pending state of the chart that started the run.
             Self::clear_cluster_runtime(source, widget_states);
         } else {
             let err = crate::state::messages::cluster_ui_error(
@@ -799,7 +841,7 @@ impl MessageHandler {
         Self::set_cluster_error(source, err, widget_states);
     }
 
-    /// クラスタリング開始元のウィジェットの実行状態を解除する。
+    /// Clears the execution state of the widget that started clustering.
     fn clear_cluster_runtime(
         source: crate::state::messages::ClusterChartSource,
         widget_states: &mut WidgetStates,
@@ -815,7 +857,7 @@ impl MessageHandler {
         }
     }
 
-    /// MCDM 計算開始元チャートの controls への可変参照を返す。
+    /// Returns a mutable reference to the controls of the chart that started the MCDM computation.
     fn mcdm_controls_mut(
         source: crate::state::messages::McdmChartSource,
         widget_states: &mut WidgetStates,
@@ -830,7 +872,7 @@ impl MessageHandler {
         }
     }
 
-    /// クラスタリング開始元のウィジェットにエラーを設定する。
+    /// Sets an error on the widget that started clustering.
     fn set_cluster_error(
         source: crate::state::messages::ClusterChartSource,
         err: crate::state::messages::ClusterUiError,
@@ -853,8 +895,8 @@ mod tests {
     use super::*;
     use crate::state::app_state::{Direction, StudyMeta};
 
-    /// テスト用: 共有ストア（テストビルドでは thread_local）に DataFrame を格納し、
-    /// 新しい StudySelected ペイロード（study_id + pareto_rank）を返す。
+    /// For tests: stores a DataFrame into the shared store (thread_local in
+    /// test builds) and returns a new StudySelected payload (study_id + pareto_rank).
     fn make_study_message(trial_count: usize) -> AppMessage {
         let core_rows: Vec<CoreTrialRow> = (0..trial_count)
             .map(|i| CoreTrialRow {
@@ -894,16 +936,17 @@ mod tests {
         }
     }
 
-    /// 共有ストア（本番ビルドではプロセスグローバル）を使うテストを直列化するガード。
-    /// tunny-desktop のテストは tunny-core を通常リンクするため store は全テスト共有。
-    /// store_dataframes + snapshot を使うテストはこのガードで直列化して競合を防ぐ。
+    /// Guard for serializing tests that use the shared store (a process-global
+    /// in production builds). Since tunny-desktop's tests link tunny-core
+    /// normally, the store is shared across all tests. Tests using
+    /// store_dataframes + snapshot are serialized with this guard to prevent races.
     fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         LOCK.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// テスト用: 単目的 Study の StudySelected を、任意の目的値・方向で構築する
-    /// （best_trial_history の配線検証用）。
+    /// For tests: builds a StudySelected for a single-objective Study, with
+    /// arbitrary objective values / direction (for verifying best_trial_history wiring).
     fn make_study_message_single_objective(values: &[f64], direction: Direction) -> AppMessage {
         let trial_count = values.len();
         let core_rows: Vec<CoreTrialRow> = values
@@ -946,8 +989,8 @@ mod tests {
         }
     }
 
-    /// テスト用: 2 目的 Study の StudySelected を構築する（best_trial_history が
-    /// 多目的では None のままであることの検証用）。
+    /// For tests: builds a StudySelected for a 2-objective Study (for
+    /// verifying best_trial_history stays None for multi-objective).
     fn make_study_message_multi_objective(trial_count: usize) -> AppMessage {
         let core_rows: Vec<CoreTrialRow> = (0..trial_count)
             .map(|i| CoreTrialRow {
@@ -1212,7 +1255,7 @@ mod tests {
         assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 3);
         assert!(!is_loading, "loading cleared on final batch");
 
-        // 列データが結合されている
+        // The column data has been merged
         let xs = app_state
             .current_study
             .as_ref()
@@ -1259,9 +1302,11 @@ mod tests {
         assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
     }
 
-    /// 回帰: ライブ差分が目的本数の異なる行（空の objectives）を含んでも、
-    /// 多目的 Pareto 計算がスライス範囲外で panic しないこと。
-    /// （次の create/complete 境界をまたぐ Trial が空 objectives 行を生むケースを再現）
+    /// Regression: even when the live diff includes a row with a different
+    /// objective count (empty objectives), the multi-objective Pareto
+    /// computation must not panic on an out-of-range slice.
+    /// (Reproduces the case where a Trial that straddles the next
+    /// create/complete boundary produces an empty-objectives row.)
     #[test]
     fn live_update_done_handles_ragged_objectives_without_panic() {
         let _g = test_store_guard();
@@ -1270,7 +1315,7 @@ mod tests {
         let mut is_loading = false;
         let mut load_error = None;
 
-        // 2 目的の study を構築する。
+        // Build a 2-objective study.
         let core_rows: Vec<CoreTrialRow> = (0..3)
             .map(|i| CoreTrialRow {
                 trial_id: i as u32,
@@ -1313,7 +1358,7 @@ mod tests {
             &mut load_error,
         );
 
-        // 完全な行 1 件 + 目的が空のゴミ行 1 件を混ぜて送る（旧実装ではここで panic）。
+        // Send a mix of 1 complete row + 1 garbage row with empty objectives (the old implementation panicked here).
         let mut empty_obj_row = make_core_trial_row(4, 0, vec![]);
         empty_obj_row.objectives = vec![];
         MessageHandler::handle(
@@ -1328,7 +1373,7 @@ mod tests {
             &mut load_error,
         );
 
-        // panic せず 5 行になっていること。
+        // Verifies it doesn't panic and results in 5 rows.
         assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
     }
 
@@ -1435,12 +1480,12 @@ mod tests {
         assert!(app_state.live_update.showing_completion_hint);
     }
 
-    // ── SQLite ライブ更新: SqliteLiveChanged / SqliteLiveReloadDone ──────
+    // ── SQLite live update: SqliteLiveChanged / SqliteLiveReloadDone ──────
 
     #[test]
     fn sqlite_live_changed_reports_reload_study_id() {
-        // SqliteLiveChanged は再ロードが必要な study_id を運ぶだけのシグナルメッセージ。
-        // 実際の再ロード dispatch は tx を持つ app.rs が本関数の戻り値で行う。
+        // SqliteLiveChanged is just a signal message that carries the study_id needing a reload.
+        // The actual reload dispatch is done by app.rs (which holds tx) using this function's return value.
         let msg = AppMessage::SqliteLiveChanged { study_id: 7 };
         assert_eq!(MessageHandler::sqlite_reload_study_id(&msg), Some(7));
     }
@@ -1453,7 +1498,7 @@ mod tests {
 
     #[test]
     fn sqlite_live_changed_handle_does_not_mutate_state() {
-        // handle() 自体は状態を変更しない（dispatch は app.rs 側の責務）。
+        // handle() itself does not mutate state (dispatch is app.rs's responsibility).
         let mut app_state = AppState::new();
         let mut widgets = WidgetStates::default();
         let mut is_loading = false;
@@ -1479,7 +1524,7 @@ mod tests {
         let mut is_loading = false;
         let mut load_error = None;
 
-        // 初期選択: 3 trial の study_id=0。
+        // Initial selection: study_id=0 with 3 trials.
         MessageHandler::handle(
             make_study_message(3),
             &mut app_state,
@@ -1496,7 +1541,7 @@ mod tests {
             objective_names: vec!["y".to_string()],
             param_bounds: Default::default(),
         }];
-        // キャッシュに何か入っていることをシミュレートする（reload で破棄されるはず）。
+        // Simulate the cache having something in it (should be discarded by reload).
         app_state.mcdm_result = Some(crate::state::app_state::McdmResult::Topsis(
             crate::state::app_state::TopsisResult {
                 scores: vec![0.5],
@@ -1505,8 +1550,8 @@ mod tests {
             },
         ));
 
-        // ワーカースレッドが行うのと同じく、再ロード結果（8 trial）を共有ストアへ
-        // 先に反映してから SqliteLiveReloadDone を送る想定。
+        // As the worker thread would do, first reflect the reload result (8
+        // trials) into the shared store, then send SqliteLiveReloadDone.
         let reloaded_rows: Vec<CoreTrialRow> = (0..8)
             .map(|i| CoreTrialRow {
                 trial_id: i as u32,
@@ -1594,7 +1639,7 @@ mod tests {
         assert!(widgets.cluster_scatter.last_error.is_none());
     }
 
-    // ── TASK-2230: 比較ロードメッセージのテスト ──────────────────
+    // ── TASK-2230: comparison load message tests ─────────────────
 
     #[test]
     fn comparison_load_message_updates_state_entrypoint() {
@@ -1629,7 +1674,7 @@ mod tests {
 
         assert_eq!(app_state.comparison_studies.len(), 1);
         assert_eq!(app_state.comparison_studies[0].meta.study_id, 99);
-        // 並行 Vec が同じ長さに揃うこと
+        // Verifies the parallel Vecs stay the same length
         assert_eq!(app_state.comparison_colors.len(), 1);
         assert_eq!(app_state.comparison_convergence_histories.len(), 1);
     }
@@ -1652,7 +1697,7 @@ mod tests {
         assert_eq!(load_error.as_deref(), Some("file not found"));
     }
 
-    // ── R4: レポート出力完了/失敗メッセージ ──────────────────────
+    // ── R4: report export done/failed messages ────────────────────
 
     #[test]
     fn report_export_done_stores_paths_and_clears_generating() {
@@ -1740,5 +1785,124 @@ mod tests {
         assert!(!dialog.generating);
         assert_eq!(dialog.error.as_deref(), Some("disk full"));
         assert_eq!(load_error.as_deref(), Some("disk full"));
+    }
+
+    // ── .ghx D&D -> optimization run: GhOptFinished ────────────────
+
+    fn make_gh_opt_run_state() -> crate::state::app_state::GhOptRunState {
+        crate::state::app_state::GhOptRunState {
+            progress: tunny_core::surrogate_opt::FitProgress::new(),
+            journal_path: std::path::PathBuf::from("/tmp/model_optuna.log"),
+            study_name: "model-000001".to_string(),
+            finished: None,
+        }
+    }
+
+    #[test]
+    fn gh_opt_finished_ok_formats_success_message() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.gh_opt_run = Some(make_gh_opt_run_state());
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Ok(tunny_core::gh::GhRunSummary {
+                    study_id: 0,
+                    completed: 48,
+                    failed: 2,
+                    cancelled: false,
+                }),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let run = app_state.gh_opt_run.as_ref().expect("run state remains");
+        assert_eq!(
+            run.finished.as_ref(),
+            Some(&Ok("Done: 48 trials succeeded / 2 failed".to_string()))
+        );
+    }
+
+    #[test]
+    fn gh_opt_finished_ok_cancelled_appends_hint() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.gh_opt_run = Some(make_gh_opt_run_state());
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Ok(tunny_core::gh::GhRunSummary {
+                    study_id: 0,
+                    completed: 10,
+                    failed: 0,
+                    cancelled: true,
+                }),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let run = app_state.gh_opt_run.as_ref().expect("run state remains");
+        assert_eq!(
+            run.finished.as_ref(),
+            Some(&Ok(
+                "Done: 10 trials succeeded / 0 failed (cancelled)".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn gh_opt_finished_err_sets_error_string() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+        app_state.gh_opt_run = Some(make_gh_opt_run_state());
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Err("journal write failed".to_string()),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        let run = app_state.gh_opt_run.as_ref().expect("run state remains");
+        assert_eq!(
+            run.finished.as_ref(),
+            Some(&Err("journal write failed".to_string()))
+        );
+    }
+
+    #[test]
+    fn gh_opt_finished_without_run_state_is_noop() {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = false;
+        let mut load_error: Option<String> = None;
+
+        MessageHandler::handle(
+            AppMessage::GhOptFinished {
+                result: Err("no run".to_string()),
+            },
+            &mut app_state,
+            &mut widgets,
+            &mut is_loading,
+            &mut load_error,
+        );
+
+        assert!(app_state.gh_opt_run.is_none());
+        assert!(load_error.is_none());
     }
 }

@@ -1,8 +1,9 @@
-//! キャンバスミニマップ。
+//! Canvas minimap.
 //!
-//! 純粋な計算ロジック（[`compute_minimap_layout`]、[`world_to_map`]、[`map_to_world`]）と
-//! 描画・インタラクション（[`show_minimap`]）を同一モジュールに置く。
-//! 計算部分は egui 描画コンテキストに依存しないためユニットテスト可能。
+//! Keeps the pure computation logic ([`compute_minimap_layout`],
+//! [`world_to_map`], [`map_to_world`]) and drawing/interaction
+//! ([`show_minimap`]) in the same module.
+//! The computation part doesn't depend on the egui drawing context, so it's unit-testable.
 
 use egui::emath::TSTransform;
 
@@ -10,43 +11,45 @@ use crate::state::layout_state::CanvasItem;
 use crate::ui::canvas::viewport::{items_bbox, pan_to_center};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// レイアウト定数
+// Layout constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// ミニマップの最大幅（スクリーンピクセル）
+/// Maximum minimap width (screen pixels)
 const MAX_W: f32 = 100.0;
-/// ミニマップの最大高さ（スクリーンピクセル）
+/// Maximum minimap height (screen pixels)
 const MAX_H: f32 = 75.0;
-/// エリア端からのマージン（スクリーンピクセル）
+/// Margin from the area edge (screen pixels)
 const MARGIN: f32 = 12.0;
 
-/// フィットボタンのサイズ（canvas_view.rs の BTN_SIZE と同じ値）
+/// Fit button size (same value as BTN_SIZE in canvas_view.rs)
 pub(crate) const BTN_SIZE: f32 = 28.0;
-/// フィットボタンのマージン（canvas_view.rs の BTN_MARGIN と同じ値）
+/// Fit button margin (same value as BTN_MARGIN in canvas_view.rs)
 pub(crate) const BTN_MARGIN: f32 = 12.0;
 
-/// フィットボタン（右下）が占有する領域サイズ（スクリーンpx）。
-/// レイアウト側で右パネルのホバー開閉判定からこの隅を除外するために参照する。
+/// Area size (screen px) occupied by the fit button (bottom-right).
+/// Referenced by the layout side to exclude this corner from the right
+/// panel's hover open/close detection.
 pub(crate) fn fit_button_footprint() -> egui::Vec2 {
     let s = BTN_SIZE + BTN_MARGIN * 2.0;
     egui::vec2(s, s)
 }
 
-/// ミニマップ（左下）が占有しうる最大領域サイズ（スクリーンpx）。
-/// レイアウト側で左パネルのホバー開閉判定からこの隅を除外するために参照する。
+/// Maximum area size (screen px) the minimap (bottom-left) can occupy.
+/// Referenced by the layout side to exclude this corner from the left
+/// panel's hover open/close detection.
 pub(crate) fn minimap_footprint() -> egui::Vec2 {
     egui::vec2(MAX_W + MARGIN * 2.0, MAX_H + MARGIN * 2.0)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 純粋計算 — ユニットテスト可能
+// Pure computation — unit-testable
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// ミニマップの画面レイアウト情報。
+/// The minimap's screen layout info.
 ///
-/// - `map_rect` : ミニマップが占有する画面矩形
-/// - `scale`    : ワールド座標 1 単位 → マップ内 px の比率
-/// - `world_origin` : ミニマップ左上に対応するワールド座標
+/// - `map_rect` : the screen rect occupied by the minimap
+/// - `scale`    : ratio of 1 world-coordinate unit to px within the map
+/// - `world_origin` : the world coordinate corresponding to the minimap's top-left
 #[derive(Debug, Clone)]
 pub(crate) struct MinimapLayout {
     pub map_rect: egui::Rect,
@@ -54,19 +57,22 @@ pub(crate) struct MinimapLayout {
     pub world_origin: egui::Pos2,
 }
 
-/// ミニマップのレイアウトを計算する（純粋関数）。
+/// Computes the minimap layout (pure function).
 ///
-/// # 引数
-/// - `area`         : キャンバス全体のスクリーン矩形
-/// - `world_bounds` : ミニマップが表すワールド矩形（アイテム bbox ∪ ビューポートを 5% 拡張したもの）
+/// # Arguments
+/// - `area`         : the screen rect of the entire canvas
+/// - `world_bounds` : the world rect the minimap represents (items bbox union
+///   viewport, expanded by 5%)
 ///
-/// # 配置
-/// 左下隅に配置する（フィットボタンは右下隅のため干渉しない）。
+/// # Placement
+/// Placed in the bottom-left corner (doesn't interfere with the fit button,
+/// which is in the bottom-right corner).
 ///
-/// # 縮退ガード
-/// `world_bounds` の幅/高さが 0 以下の場合は scale = 1.0 / マップサイズ = MAX として扱う。
+/// # Degenerate guard
+/// If `world_bounds`'s width/height is 0 or less, treats it as scale = 1.0 /
+/// map size = MAX.
 pub(crate) fn compute_minimap_layout(area: egui::Rect, world_bounds: egui::Rect) -> MinimapLayout {
-    // スケール: ワールド → マップ
+    // Scale: world -> map
     let scale = if world_bounds.width() > 0.0 && world_bounds.height() > 0.0 {
         let sx = MAX_W / world_bounds.width();
         let sy = MAX_H / world_bounds.height();
@@ -75,7 +81,7 @@ pub(crate) fn compute_minimap_layout(area: egui::Rect, world_bounds: egui::Rect)
         1.0
     };
 
-    // マップの実際のサイズ（縦横比を保ち MAX に収まる）
+    // Actual map size (preserves aspect ratio and stays within MAX)
     let map_w = if world_bounds.width() > 0.0 {
         (world_bounds.width() * scale).min(MAX_W)
     } else {
@@ -87,7 +93,7 @@ pub(crate) fn compute_minimap_layout(area: egui::Rect, world_bounds: egui::Rect)
         MAX_H
     };
 
-    // 左下隅に配置する。
+    // Placed in the bottom-left corner.
     let map_bottom = area.bottom() - MARGIN;
     let map_left = area.left() + MARGIN;
 
@@ -101,28 +107,28 @@ pub(crate) fn compute_minimap_layout(area: egui::Rect, world_bounds: egui::Rect)
     }
 }
 
-/// ワールド座標をミニマップ内のスクリーン座標へ変換する。
+/// Converts a world coordinate to a screen coordinate within the minimap.
 pub(crate) fn world_to_map(layout: &MinimapLayout, p: egui::Pos2) -> egui::Pos2 {
     layout.map_rect.min + (p - layout.world_origin) * layout.scale
 }
 
-/// ミニマップ内のスクリーン座標をワールド座標へ変換する（[`world_to_map`] の逆写像）。
+/// Converts a screen coordinate within the minimap to a world coordinate (the inverse of [`world_to_map`]).
 pub(crate) fn map_to_world(layout: &MinimapLayout, p: egui::Pos2) -> egui::Pos2 {
     layout.world_origin + (p - layout.map_rect.min) / layout.scale
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 描画・インタラクション
+// Drawing / interaction
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// ミニマップオーバーレイを描画し、ドラッグによるビューポート移動を処理する。
+/// Draws the minimap overlay and handles viewport panning via dragging.
 ///
-/// アイテムが空のときは何も描画しない。
-/// `to_screen` を直接更新することで呼び出し元のビューポート変換に反映される。
+/// Draws nothing when items is empty.
+/// Updating `to_screen` directly reflects the change into the caller's viewport transform.
 ///
-/// # オーバーレイ実装
-/// [`egui::Order::Foreground`] の [`egui::Area`] を使用するため、
-/// キャンバス背景・チャートより常に手前に描画され、背景インタラクションも遮蔽される。
+/// # Overlay implementation
+/// Uses an [`egui::Area`] with [`egui::Order::Foreground`], so it's always
+/// drawn in front of the canvas background/charts, and also blocks background interaction.
 pub(crate) fn show_minimap(
     ui: &mut egui::Ui,
     area: egui::Rect,
@@ -134,33 +140,33 @@ pub(crate) fn show_minimap(
         return;
     }
 
-    // ── ワールド境界の計算 ────────────────────────────────────────────────
+    // ── World bounds computation ─────────────────────────────────────────
     let items_bb = match items_bbox(items) {
         Some(b) => b,
         None => return,
     };
-    // 現在のビューポートをワールド座標に変換
+    // Convert the current viewport into world coordinates
     let viewport_world = to_screen.inverse().mul_rect(area);
-    // アイテム bbox とビューポートの和集合に 5% マージンを付加する
+    // Add a 5% margin to the union of the items bbox and the viewport
     let union = items_bb.union(viewport_world);
     let world_bounds = union.expand2(union.size() * 0.05);
 
     let layout = compute_minimap_layout(area, world_bounds);
 
-    // ── インタラクション（Foreground より前に登録してミニマップ外クリックと分離） ──
-    // Area の fixed_pos にミニマップ左上を使う。
+    // ── Interaction (registered before Foreground to separate from clicks outside the minimap) ──
+    // Use the minimap's top-left as the Area's fixed_pos.
     let minimap_resp = egui::Area::new(egui::Id::new("canvas_minimap_overlay"))
         .order(egui::Order::Foreground)
         .fixed_pos(layout.map_rect.min)
         .show(ui.ctx(), |ui| {
             let map_size = layout.map_rect.size();
 
-            // センス領域をマップ全体に確保（ホバー判定 + クリック/ドラッグ）
+            // Reserve the sense region over the entire map (hover detection + click/drag)
             let (resp, painter) = ui.allocate_painter(map_size, egui::Sense::click_and_drag());
 
-            let mr = resp.rect; // Area 内の実際の矩形（map_rect と一致するはず）
+            let mr = resp.rect; // The actual rect within the Area (should match map_rect)
 
-            // ── 背景パネル ─────────────────────────────────────────────
+            // ── Background panel ──────────────────────────────────────
             painter.rect(
                 mr,
                 4.0,
@@ -169,13 +175,13 @@ pub(crate) fn show_minimap(
                 egui::StrokeKind::Inside,
             );
 
-            // ── アイテム矩形 ─────────────────────────────────────────
+            // ── Item rects ─────────────────────────────────────────────
             for item in items {
                 let item_world_rect = egui::Rect::from_min_size(
                     egui::pos2(item.x, item.y),
                     egui::vec2(item.w, item.h),
                 );
-                // マップ内の矩形（layout.map_rect.min 基点なのでオフセットを調整）
+                // Rect within the map (adjust the offset since it's based on layout.map_rect.min)
                 let map_min = world_to_map(&layout, item_world_rect.min)
                     - layout.map_rect.min.to_vec2()
                     + mr.min.to_vec2();
@@ -183,7 +189,7 @@ pub(crate) fn show_minimap(
                     - layout.map_rect.min.to_vec2()
                     + mr.min.to_vec2();
                 let item_map_rect = egui::Rect::from_min_max(map_min, map_max);
-                // マップ内にクリップ（交差が空なら描かない）
+                // Clip to within the map (don't draw if the intersection is empty)
                 let clipped = item_map_rect.intersect(mr);
                 if clipped.is_positive() {
                     painter.rect(
@@ -196,7 +202,7 @@ pub(crate) fn show_minimap(
                 }
             }
 
-            // ── ビューポート矩形 ──────────────────────────────────────
+            // ── Viewport rect ──────────────────────────────────────────
             {
                 let vp_min = world_to_map(&layout, viewport_world.min)
                     - layout.map_rect.min.to_vec2()
@@ -215,7 +221,7 @@ pub(crate) fn show_minimap(
                 );
             }
 
-            // ── カーソル ─────────────────────────────────────────────
+            // ── Cursor ─────────────────────────────────────────────────
             if resp.dragged() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             } else if resp.hovered() {
@@ -225,12 +231,12 @@ pub(crate) fn show_minimap(
             resp
         });
 
-    // ── ドラッグ/クリックでビューポートを移動 ───────────────────────────────
+    // ── Pan the viewport on drag/click ──────────────────────────────────
     let resp = minimap_resp.inner;
     let do_pan = resp.clicked() || resp.dragged();
     if do_pan {
         if let Some(ptr) = resp.interact_pointer_pos() {
-            // Area 内ポインタ → 実際のスクリーン座標（map_rect.min オフセット分を加算）
+            // Pointer within the Area -> actual screen coordinate (add the map_rect.min offset)
             let map_ptr = ptr + layout.map_rect.min.to_vec2() - resp.rect.min.to_vec2();
             let world_center = map_to_world(&layout, map_ptr);
             let zoom = to_screen.scaling;
@@ -241,7 +247,7 @@ pub(crate) fn show_minimap(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ユニットテスト
+// Unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
@@ -257,7 +263,7 @@ mod tests {
 
     // ── compute_minimap_layout ────────────────────────────────────────────
 
-    /// 幅方向が制約になる場合、マップ幅が MAX_W を超えない
+    /// When width is the constraining dimension, the map width doesn't exceed MAX_W
     #[test]
     fn layout_respects_max_width() {
         let area = make_area();
@@ -271,7 +277,7 @@ mod tests {
         );
     }
 
-    /// 高さ方向が制約になる場合、マップ高さが MAX_H を超えない
+    /// When height is the constraining dimension, the map height doesn't exceed MAX_H
     #[test]
     fn layout_respects_max_height() {
         let area = make_area();
@@ -285,7 +291,7 @@ mod tests {
         );
     }
 
-    /// アスペクト比が保持される（許容誤差 1%）
+    /// The aspect ratio is preserved (tolerance 1%)
     #[test]
     fn layout_preserves_aspect_ratio() {
         let area = make_area();
@@ -301,7 +307,7 @@ mod tests {
         );
     }
 
-    /// ミニマップは左下隅に配置される（フィットボタンの右下とは別の隅）
+    /// The minimap is placed in the bottom-left corner (a different corner than the fit button's bottom-right)
     #[test]
     fn layout_anchored_bottom_left() {
         let area = make_area();
@@ -321,7 +327,7 @@ mod tests {
         );
     }
 
-    /// 縮退境界（幅 0 高さ 0）でも有限値を返す
+    /// Returns finite values even for degenerate bounds (width 0, height 0)
     #[test]
     fn layout_degenerate_bounds_finite() {
         let area = make_area();
@@ -332,9 +338,9 @@ mod tests {
         assert!(layout.map_rect.min.y.is_finite());
     }
 
-    // ── world_to_map / map_to_world 往復変換 ─────────────────────────────
+    // ── world_to_map / map_to_world round-trip conversion ─────────────────
 
-    /// world→map→world が元の座標に戻る（往復精度 0.01 px 以内）
+    /// world -> map -> world returns to the original coordinates (round-trip precision within 0.01 px)
     #[test]
     fn world_map_roundtrip() {
         let area = make_area();
@@ -357,7 +363,7 @@ mod tests {
         }
     }
 
-    /// map→world→map が元のマップ座標に戻る
+    /// map -> world -> map returns to the original map coordinates
     #[test]
     fn map_world_roundtrip() {
         let area = make_area();
@@ -379,13 +385,13 @@ mod tests {
         }
     }
 
-    // ── ビューポート矩形の包含確認 ────────────────────────────────────────
+    // ── Viewport rect containment check ────────────────────────────────
 
-    /// ビューポートが常にワールド境界内に収まる（5% 拡張後）
+    /// The viewport always stays within the world bounds (after 5% expansion)
     #[test]
     fn viewport_rect_always_inside_map_bounds() {
         let area = make_area();
-        // 典型的なビューポート（画面全体相当）
+        // A typical viewport (equivalent to the full screen)
         let viewport_world =
             egui::Rect::from_min_size(egui::pos2(-100.0, -50.0), egui::vec2(1200.0, 800.0));
         let items_bb = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(800.0, 600.0));
@@ -394,23 +400,23 @@ mod tests {
 
         let layout = compute_minimap_layout(area, world_bounds);
 
-        // ビューポートの4角がすべてワールド境界内に収まる
+        // All 4 corners of the viewport stay within the world bounds
         for corner in [
             viewport_world.min,
             viewport_world.max,
             egui::pos2(viewport_world.min.x, viewport_world.max.y),
             egui::pos2(viewport_world.max.x, viewport_world.min.y),
         ] {
-            // world_bounds に 5% 拡張済みなので収まるはず
+            // Should fit since world_bounds has already been expanded by 5%
             assert!(
                 world_bounds.contains(corner),
                 "corner {corner:?} outside world_bounds {world_bounds:?}"
             );
-            // ワールド座標からマップ座標に変換したとき、マップ矩形内に収まる
+            // When converted from world coordinates to map coordinates, it should stay within the map rect
             let mp = world_to_map(&layout, corner);
             assert!(
                 layout.map_rect.contains(mp) || {
-                    // 境界上の浮動小数誤差を許容
+                    // Tolerate floating-point error at the boundary
                     (mp.x - layout.map_rect.min.x).min(layout.map_rect.max.x - mp.x) > -0.1
                         && (mp.y - layout.map_rect.min.y).min(layout.map_rect.max.y - mp.y) > -0.1
                 },

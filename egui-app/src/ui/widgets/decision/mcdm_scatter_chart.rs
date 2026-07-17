@@ -16,7 +16,7 @@ use crate::ui::widgets::trial_detail_modal::{
 };
 use egui::Color32;
 
-/// 軸識別子定数（get_axis_options と extract_axis_values で共有）
+/// Axis identifier constants (shared by `get_axis_options` and `extract_axis_values`)
 const AXIS_VIKOR_Q: &str = "VIKOR_Q";
 const AXIS_VIKOR_S: &str = "VIKOR_S";
 const AXIS_VIKOR_R: &str = "VIKOR_R";
@@ -25,43 +25,46 @@ const AXIS_PHI_PLUS: &str = "Phi+";
 const AXIS_PHI_MINUS: &str = "Phi-";
 const AXIS_PHI_NET: &str = "Phi_Net";
 
-/// 軸選択オプション
+/// Axis selection option
 #[derive(Clone, Debug)]
 pub(crate) struct AxisOption {
     pub id: String,
     pub label: String,
 }
 
-/// 散布図計算メタデータ
+/// Scatter plot computation metadata
 #[derive(Clone, Debug)]
 pub(crate) struct ScatterMetadata {
     pub total_trials: usize,
     pub compute_time_ms: f64,
 }
 
-/// 事前計算済みの表示バッチ（選択フィルタ非依存・M-17）。
+/// Precomputed display batches (independent of the selection filter · M-17).
 ///
-/// 旧実装は毎フレーム「色 → 点」の `HashMap` 構築＋輝度ソートを走らせていたが、
-/// この分類は選択フィルタに依存しないため、キャッシュ再構築時に 1 度だけ計算して
-/// 保持する。選択フィルタ（PCP ブラシ等）による淡色化のみ描画時に `HashSet` で
-/// 軽く適用する（M-16）。
+/// The previous implementation rebuilt a `HashMap` of "color -> points" plus a luminance
+/// sort every frame, but this classification doesn't depend on the selection filter, so
+/// it is now computed once when the cache is rebuilt and kept around. Only the dimming
+/// caused by the selection filter (PCP brush, etc.) is applied lightly at render time via
+/// a `HashSet` (M-16).
 struct DisplayBatches {
-    /// 輝度昇順ソート済みの色バッチ（ランク済み feasible 点）。
-    /// 各点は `(trial_id, [x, y])`。trial_id は選択フィルタ判定に使う。
+    /// Color batches sorted by ascending luminance (ranked feasible points).
+    /// Each point is `(trial_id, [x, y])`. `trial_id` is used for selection filter checks.
     color_batches: Vec<(Color32, BatchPoints)>,
-    /// 未ランク（COLOR_MCDM_NONE）feasible 点。
+    /// Unranked (COLOR_MCDM_NONE) feasible points.
     none_pts: BatchPoints,
 }
 
-/// 表示バッチ内の点リスト。各点は `(trial_id, [x, y])`。
+/// List of points in a display batch. Each point is `(trial_id, [x, y])`.
 type BatchPoints = Vec<(u32, [f64; 2])>;
 
-/// `ranked_indices()` の FNV ライクなハッシュ。2D/3D 散布図で共有する（H-3）。
+/// FNV-like hash of `ranked_indices()`, shared by the 2D/3D scatter plots (H-3).
 ///
-/// 旧 2D 実装は `primary_scores()[0]` のビット表現＋件数のみをキーにしていたが、
-/// 行 0 がパレートフロント外（`expand_scores` で常に 0.0）だと重みを変えて Run しても
-/// キーが一致し、古いランク色が無言で表示され続ける欠陥があった。3D 版と同じ
-/// `ranked_indices()` 全体のハッシュを使うことで、ランキングが変われば必ず検知できる。
+/// The previous 2D implementation keyed the cache only on the bit pattern of
+/// `primary_scores()[0]` plus the point count. If row 0 was outside the Pareto front
+/// (`expand_scores` always maps it to 0.0), changing the weights and re-running could
+/// keep the same key, silently leaving the old rank colors displayed. Using a hash of the
+/// entire `ranked_indices()`, as the 3D version does, guarantees detection whenever the
+/// ranking changes.
 pub(crate) fn ranked_hash(result: &McdmResult) -> u64 {
     result.ranked_indices().iter().fold(0u64, |acc, &x| {
         acc.wrapping_mul(6_364_136_223_846_793_005)
@@ -69,7 +72,7 @@ pub(crate) fn ranked_hash(result: &McdmResult) -> u64 {
     })
 }
 
-/// キャッシュキー
+/// Cache key
 #[derive(Clone, PartialEq, Eq)]
 struct CacheKey {
     trial_count: usize,
@@ -77,32 +80,34 @@ struct CacheKey {
     y_axis: String,
     colormap_name: ColormapName,
     top_n: usize,
-    /// MCDM手法（手法切替を検知）
+    /// MCDM method (detects method switches)
     result_method: McdmMethod,
-    /// ranked_indices のハッシュ（重み変更・ランキング変更を検知）
+    /// Hash of ranked_indices (detects weight changes / ranking changes)
     ranked_indices_hash: u64,
 }
 
-/// MCDM 散布図ウィジェット
+/// MCDM scatter plot widget
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct McdmScatterChart {
-    /// MCDM 設定・実行状態（手法 / 重み / Run など）
+    /// MCDM configuration and execution state (method / weights / Run, etc.)
     pub controls: McdmControls,
-    /// X軸の軸識別子
+    /// X-axis identifier
     pub x_axis: String,
-    /// Y軸の軸識別子
+    /// Y-axis identifier
     pub y_axis: String,
-    /// 点クリックで開くトライアル詳細モーダル。
+    /// Trial detail modal opened by clicking a point.
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
-    // --- 内部キャッシュ状態 ---
-    /// 色→点の分類・輝度ソート済みの表示バッチ（毎フレーム再構築を避ける）。
+    // --- Internal cache state ---
+    /// Display batches classified by color and sorted by luminance (avoids rebuilding
+    /// every frame).
     #[serde(skip)]
     display_batches: Option<DisplayBatches>,
     #[serde(skip)]
     infeasible_cache: Option<Vec<(f64, f64)>>,
-    /// 点クリック判定用の候補（trial_id, 行 index, 座標）。display_rows_cache と同じキーで更新する。
+    /// Candidates for point-click hit testing (trial_id, row index, coordinates).
+    /// Updated with the same key as `display_rows_cache`.
     #[serde(skip)]
     hit_candidates: Option<Vec<(u32, usize, [f64; 2])>>,
     #[serde(skip)]
@@ -131,12 +136,12 @@ impl Default for McdmScatterChart {
 }
 
 impl McdmScatterChart {
-    /// グローバル widget の MCDM 実行状態を取り込む（キャンバスの各アイテム用）。
+    /// Adopts the MCDM execution state from the global widget (for canvas items).
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.controls.adopt_compute_state(&src.controls);
     }
 
-    /// 現在の設定からキャッシュキーを生成する
+    /// Builds a cache key from the current settings
     fn make_cache_key(
         &self,
         trial_count: usize,
@@ -155,7 +160,7 @@ impl McdmScatterChart {
         }
     }
 
-    /// キャッシュが陳腐化しているか確認する
+    /// Checks whether the cache is stale
     fn is_cache_stale(
         &self,
         trial_count: usize,
@@ -177,7 +182,7 @@ impl McdmScatterChart {
         }
     }
 
-    /// ウィジェットを描画する
+    /// Renders the widget
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -208,7 +213,7 @@ impl McdmScatterChart {
 
         let options = get_axis_options(result, obj_names);
 
-        // デフォルト軸が無効な場合に更新
+        // Update the default axis if it's invalid
         if !options.iter().any(|o| o.id == self.x_axis) {
             if let Some(first) = options.first() {
                 self.x_axis = first.id.clone();
@@ -244,7 +249,7 @@ impl McdmScatterChart {
 
         let n_trials = view.row_count();
 
-        // キャッシュが陳腐化している場合に再計算
+        // Recompute if the cache is stale
         if self.is_cache_stale(n_trials, result, colormap_name, top_n) {
             let new_key = self.make_cache_key(n_trials, result, colormap_name, top_n);
             let start = std::time::Instant::now();
@@ -260,8 +265,8 @@ impl McdmScatterChart {
             ) {
                 Ok((points, infeasible, mut meta)) => {
                     meta.compute_time_ms = start.elapsed().as_secs_f64() * 1000.0;
-                    // 色→点の分類・輝度ソートはここで 1 度だけ行い、以降のフレームは
-                    // 選択フィルタの適用のみに留める（M-17）。
+                    // Color classification and luminance sorting are done once here;
+                    // subsequent frames only apply the selection filter (M-17).
                     self.display_batches = Some(build_display_batches(&points));
                     self.infeasible_cache = Some(infeasible);
                     self.hit_candidates = Some(compute_hit_candidates(
@@ -309,7 +314,7 @@ impl McdmScatterChart {
             );
         }
 
-        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = MCDM ランク・スコア）。
+        // Open the trial detail modal on point click (scatter info = MCDM rank/score).
         if let Some((trial_id, row)) = clicked_detail {
             let rank_map = build_rank_map(result.ranked_indices(), view.row_count());
             let rank = rank_map.get(row).copied().unwrap_or(usize::MAX);
@@ -326,7 +331,8 @@ impl McdmScatterChart {
                     .map(|s| format!("{s:.4}"))
                     .unwrap_or_else(|| "—".to_string()),
             ));
-            // VIKOR: 妥協解集合（C1/C2）に属する点はモーダルでも明示する。
+            // VIKOR: also flag points belonging to the compromise solution set (C1/C2) in
+            // the modal.
             if let McdmResult::Vikor(vr) = result {
                 if vr.compromise_indices.contains(&row) {
                     context.push(("VIKOR Compromise".to_string(), "★ Yes (C1/C2)".to_string()));
@@ -342,7 +348,8 @@ impl McdmScatterChart {
             .show(ui, view, param_names, obj_names, artifact_map);
 
         ui.separator();
-        // 選択フィルタ中は、スコアがフロント全体基準である旨を明示する。
+        // While a selection filter is active, clarify that scores are computed over the
+        // full Pareto front.
         if !selected_indices.is_empty() {
             ui.label(
                 egui::RichText::new(
@@ -352,8 +359,9 @@ impl McdmScatterChart {
                 .weak(),
             );
         }
-        // VIKOR: 妥協解集合（Opricovic & Tzeng の受容条件 C1/C2 を満たす解）を明示する。
-        // C1 が不成立の場合は複数解になるため、trial 番号のリストで表示する。
+        // VIKOR: highlight the compromise solution set (solutions satisfying Opricovic &
+        // Tzeng's acceptance conditions C1/C2). If C1 doesn't hold there may be multiple
+        // solutions, so display them as a list of trial numbers.
         if let McdmResult::Vikor(vr) = result {
             if !vr.compromise_indices.is_empty() {
                 let labels: Vec<String> = vr
@@ -389,16 +397,17 @@ impl McdmScatterChart {
 }
 
 // ──────────────────────────────────────────────────────────────
-// 散布図レンダリング
+// Scatter plot rendering
 // ──────────────────────────────────────────────────────────────
 
-/// 事前計算済みの表示バッチ（`DisplayBatches`）を構築する。
+/// Builds the precomputed display batches (`DisplayBatches`).
 ///
-/// 色→点の `HashMap` 分類と輝度ソートはここで 1 度だけ行い、
-/// キャッシュ再構築時以外は再計算しない（M-17）。選択フィルタには依存しない。
+/// The `HashMap` classification by color and luminance sorting are done once here, and
+/// are not recomputed except when the cache is rebuilt (M-17). Independent of the
+/// selection filter.
 fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
     let mut none_pts: BatchPoints = Vec::new();
-    // 色 → 座標リスト（輝度でソートするため u32 輝度値も保持）
+    // color -> coordinate list (also keeps the u32 luminance value for sorting)
     let mut color_groups: HashMap<[u8; 4], (BatchPoints, u32)> = HashMap::new();
 
     for &(x, y, color, trial_id) in points {
@@ -412,7 +421,7 @@ fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
         }
     }
 
-    // 輝度順にソート（暗い順→明るい順で手前に描画）
+    // Sort by luminance (draw dark-to-light, so lighter points end up on top)
     let mut sorted: Vec<_> = color_groups.into_iter().collect();
     sorted.sort_by_key(|(_, (_, lum))| *lum);
     let color_batches = sorted
@@ -426,7 +435,7 @@ fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
     }
 }
 
-/// 散布図を描画し、点がクリックされた場合は `(trial_id, 行 index)` を返す。
+/// Renders the scatter plot and returns `(trial_id, row index)` if a point was clicked.
 #[allow(clippy::too_many_arguments)]
 fn render_scatter_plot(
     ui: &mut egui::Ui,
@@ -439,9 +448,11 @@ fn render_scatter_plot(
     top_n: usize,
     selected_indices: &[u32],
 ) -> Option<(u32, usize)> {
-    // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外は淡色にまとめて背面に描く。
-    // スコア・色はフロント全体基準のまま。ここでの分岐は表示上の強調に限る。
-    // 事前計算済みバッチに対し、選択集合（HashSet）による淡色化のみを適用する（M-16）。
+    // When a selection filter (PCP brush, etc.) is active, points outside the selection
+    // are dimmed and drawn together in the back. Scores/colors remain based on the full
+    // front; branching here only affects visual emphasis.
+    // Only dimming via the selection set (HashSet) is applied to the precomputed batches
+    // (M-16).
     let selected: HashSet<u32> = selected_indices.iter().copied().collect();
     let mut dim_pts: Vec<[f64; 2]> = Vec::new();
     let mut none_pts: Vec<[f64; 2]> = Vec::new();
@@ -452,7 +463,7 @@ fn render_scatter_plot(
             none_pts.push(pt);
         }
     }
-    // 輝度昇順を保ったまま、選択外を dim_pts へ振り分ける。
+    // Keep ascending luminance order while routing unselected points into dim_pts.
     let mut color_draw: Vec<(Color32, Vec<[f64; 2]>)> =
         Vec::with_capacity(batches.color_batches.len());
     for (color, pts) in &batches.color_batches {
@@ -469,14 +480,14 @@ fn render_scatter_plot(
         }
     }
 
-    // 判例用の代表色
+    // Representative colors for the legend
     let best_color = colormap.interpolate(1.0);
     let worst_color = if top_n > 1 {
         colormap.interpolate(0.0)
     } else {
         best_color
     };
-    // 凡例から表示/非表示を切り替えられるため、常に描画する
+    // Always draw since visibility can be toggled from the legend
     let has_infeasible = !infeasible.is_empty();
 
     let mut clicked_detail: Option<(u32, usize)> = None;
@@ -487,14 +498,14 @@ fn render_scatter_plot(
         .legend(egui_plot::Legend::default())
         .show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
-            // 点クリックで詳細モーダルを開く対象を検出する。
+            // Detect the target for opening the detail modal on point click.
             let resp = plot_ui.response();
             if resp.clicked_by(egui::PointerButton::Primary) {
                 clicked_detail = resp
                     .interact_pointer_pos()
                     .and_then(|pos| hit_test_nearest(plot_ui, hit_candidates, pos, HIT_THRESHOLD));
             }
-            // 実行不可能解を最背面に描画
+            // Draw infeasible solutions in the back
             if has_infeasible {
                 let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
                 plot_ui.points(
@@ -503,7 +514,8 @@ fn render_scatter_plot(
                         .radius(3.0),
                 );
             }
-            // 選択フィルタ外（灰色・最背面、凡例は "Others (unselected)" に集約）
+            // Outside the selection filter (gray, drawn in back; grouped under
+            // "Others (unselected)" in the legend)
             if !dim_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new("Others (unselected)", dim_pts)
@@ -511,7 +523,7 @@ fn render_scatter_plot(
                         .radius(2.5),
                 );
             }
-            // 未ランク（グレー）
+            // Unranked (gray)
             if !none_pts.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new("Others", none_pts)
@@ -519,11 +531,11 @@ fn render_scatter_plot(
                         .radius(3.0),
                 );
             }
-            // ランク済み：暗い（下位）→明るい（上位）の順
+            // Ranked: dark (lower rank) to light (higher rank)
             for (color, pts) in color_draw {
                 plot_ui.points(egui_plot::Points::new("", pts).color(color).radius(4.0));
             }
-            // 判例専用エントリ（データなし・名前のみ）
+            // Legend-only entries (no data, name only)
             plot_ui.points(
                 egui_plot::Points::new("Rank 1 (Best)", Vec::<[f64; 2]>::new())
                     .color(best_color)
@@ -540,8 +552,9 @@ fn render_scatter_plot(
     clicked_detail
 }
 
-/// クリック判定用の候補（trial_id, 行 index, 座標）を計算する。
-/// 散布図に描画される有限値の点のみを対象にする（feasible / infeasible を問わない）。
+/// Computes candidates for hit testing (trial_id, row index, coordinates).
+/// Only covers points with finite values drawn in the scatter plot (feasible or
+/// infeasible).
 fn compute_hit_candidates(
     mcdm_result: &McdmResult,
     view: &StudyView,
@@ -569,14 +582,14 @@ fn compute_hit_candidates(
 }
 
 // ──────────────────────────────────────────────────────────────
-// 軸オプション生成
+// Axis option generation
 // ──────────────────────────────────────────────────────────────
 
-/// MCDM結果から利用可能な軸オプションを生成する
+/// Generates the available axis options from the MCDM result
 pub(crate) fn get_axis_options(mcdm_result: &McdmResult, obj_names: &[String]) -> Vec<AxisOption> {
     let mut options = Vec::with_capacity(obj_names.len() + 5);
 
-    // 目的関数オプション
+    // Objective function options
     for (i, name) in obj_names.iter().enumerate() {
         options.push(AxisOption {
             id: format!("Objective{}", i),
@@ -584,7 +597,7 @@ pub(crate) fn get_axis_options(mcdm_result: &McdmResult, obj_names: &[String]) -
         });
     }
 
-    // MCDM方法別スコアオプション
+    // Score options per MCDM method
     match mcdm_result {
         McdmResult::Vikor(_) => {
             for (id, label) in [
@@ -622,17 +635,17 @@ pub(crate) fn get_axis_options(mcdm_result: &McdmResult, obj_names: &[String]) -
 }
 
 // ──────────────────────────────────────────────────────────────
-// 軸値抽出
+// Axis value extraction
 // ──────────────────────────────────────────────────────────────
 
-/// 指定された軸識別子から各トライアルの値を抽出する
+/// Extracts each trial's value for the given axis identifier
 pub(crate) fn extract_axis_values(
     axis_id: &str,
     mcdm_result: &McdmResult,
     view: &StudyView,
     obj_names: &[String],
 ) -> Result<Vec<f64>, String> {
-    // 目的関数 "Objective{N}" の場合
+    // For the objective function "Objective{N}"
     if let Some(idx_str) = axis_id.strip_prefix("Objective") {
         let idx: usize = idx_str
             .parse()
@@ -647,7 +660,7 @@ pub(crate) fn extract_axis_values(
         return Ok(values);
     }
 
-    // MCDM方法別スコア（view に依存しない）
+    // Score per MCDM method (independent of view)
     match mcdm_result {
         McdmResult::Vikor(r) => {
             if axis_id == AXIS_VIKOR_Q {
@@ -681,8 +694,8 @@ pub(crate) fn extract_axis_values(
     }
 }
 
-/// trial_idx → rank の逆引きマップを構築する（2D/3D 散布図で共有・D-6）。
-/// ranked_indices[rank] = trial_idx なので逆引きが必要
+/// Builds a `trial_idx -> rank` reverse lookup map (shared by the 2D/3D scatter plots ·
+/// D-6). Since `ranked_indices[rank] = trial_idx`, a reverse lookup is needed.
 pub(crate) fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usize> {
     let mut rank_map = vec![usize::MAX; n_trials];
     for (rank, &trial_idx) in ranked_indices.iter().enumerate() {
@@ -694,9 +707,10 @@ pub(crate) fn build_rank_map(ranked_indices: &[u32], n_trials: usize) -> Vec<usi
     rank_map
 }
 
-/// MCDM ランク → 散布図の点色（2D/3D 散布図で共有・D-6）。
-/// `rank`（`build_rank_map` の値。ランク外は `usize::MAX`）が `colored_range` 未満なら
-/// カラーマップの連続色（rank 0=最良→t=1.0）、それ以外は灰色（`COLOR_MCDM_NONE`）を返す。
+/// MCDM rank -> scatter point color (shared by the 2D/3D scatter plots · D-6).
+/// If `rank` (the value from `build_rank_map`; `usize::MAX` when outside the ranking) is
+/// less than `colored_range`, returns a continuous colormap color (rank 0 = best -> t=1.0);
+/// otherwise returns gray (`COLOR_MCDM_NONE`).
 pub(crate) fn mcdm_rank_color(rank: usize, colored_range: usize, colormap: &ColorMap) -> Color32 {
     if rank == usize::MAX || rank >= colored_range {
         COLOR_MCDM_NONE()
@@ -710,8 +724,9 @@ pub(crate) fn mcdm_rank_color(rank: usize, colored_range: usize, colormap: &Colo
     }
 }
 
-/// 軸選択が無効化されたときのデフォルト軸 ID を返す（2D/3D 散布図で共有・D-6）。
-/// `nth` 番目のオプション、無ければ先頭、いずれも無ければ空文字列。
+/// Returns the default axis ID to use when axis selection becomes invalid (shared by the
+/// 2D/3D scatter plots · D-6). The `nth` option, or the first one if unavailable, or an
+/// empty string if there are none at all.
 pub(crate) fn fallback_axis_id(options: &[AxisOption], nth: usize) -> String {
     options
         .get(nth)
@@ -721,18 +736,18 @@ pub(crate) fn fallback_axis_id(options: &[AxisOption], nth: usize) -> String {
 }
 
 // ──────────────────────────────────────────────────────────────
-// 散布図ポイント計算
+// Scatter point computation
 // ──────────────────────────────────────────────────────────────
 
-/// 散布図の1点: (x座標, y座標, 色, trial_id)。
-/// trial_id は選択フィルタ（PCP ブラシ等）でのグレーアウト判定に使う。
+/// A single scatter plot point: (x coordinate, y coordinate, color, trial_id).
+/// `trial_id` is used to determine graying-out for the selection filter (PCP brush, etc.).
 type ScatterPoint = (f64, f64, Color32, u32);
-/// `compute_scatter_points` の戻り値型エイリアス。
+/// Return type alias for `compute_scatter_points`.
 type ScatterPointsResult = (Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata);
 
-/// MCDM散布図ポイントを計算する
-/// - 軸値抽出 → カラーマップによる連続着色
-/// - 戻り値: (実行可能解ポイント, 実行不可能解ポイント, メタデータ)
+/// Computes the MCDM scatter plot points
+/// - Extract axis values -> continuous coloring via colormap
+/// - Return value: (feasible points, infeasible points, metadata)
 pub(crate) fn compute_scatter_points(
     mcdm_result: &McdmResult,
     view: &StudyView,
@@ -760,7 +775,7 @@ pub(crate) fn compute_scatter_points(
 
     let ranked = mcdm_result.ranked_indices();
     let rank_map = build_rank_map(ranked, n_trials);
-    // top_n の範囲でカラーコンターを割り当て、最低1は確保する
+    // Assign color contours within the top_n range, ensuring at least 1
     let colored_range = top_n.max(1);
 
     let mut feasible_pts: Vec<ScatterPoint> = Vec::with_capacity(n_trials);
@@ -780,7 +795,7 @@ pub(crate) fn compute_scatter_points(
             infeasible_pts.push((x, y));
             continue;
         }
-        // ランク → 色（top_n 内はカラーマップ、範囲外は灰色。3D と共有・D-6）
+        // Rank -> color (colormap within top_n, gray outside; shared with 3D · D-6)
         let color = mcdm_rank_color(rank, colored_range, colormap);
         let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
         feasible_pts.push((x, y, color, trial_id));
@@ -798,7 +813,7 @@ pub(crate) fn compute_scatter_points(
 }
 
 // ──────────────────────────────────────────────────────────────
-// ユニットテスト
+// Unit tests
 // ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -809,7 +824,7 @@ mod tests {
     use std::sync::Arc;
     use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
-    // ── テストヘルパー ──────────────────────────────────────────
+    // ── Test helpers ──────────────────────────────────────────
 
     fn make_view_with_objectives(objective_rows: &[Vec<f64>]) -> (StudyView, Vec<String>) {
         let n = objective_rows.len();
@@ -878,7 +893,7 @@ mod tests {
         }
     }
 
-    // ── 構造体・初期化テスト ─────────────────────────────────────
+    // ── Struct / initialization tests ─────────────────────────────────────
 
     #[test]
     fn test_scatter_chart_default_values() {
@@ -922,7 +937,7 @@ mod tests {
         assert!(!chart.is_cache_stale(100, &result, &cmap_name, 10));
     }
 
-    // ── get_axis_options テスト ──────────────────────────────────
+    // ── get_axis_options tests ──────────────────────────────────
 
     #[test]
     fn test_axis_options_vikor_has_scores() {
@@ -958,12 +973,12 @@ mod tests {
     fn test_axis_options_empty_objectives() {
         let result = McdmResult::Topsis(make_topsis(3));
         let options = get_axis_options(&result, &[]);
-        // TOPSIS_Score だけ
+        // Only TOPSIS_Score
         assert_eq!(options.len(), 1);
         assert_eq!(options[0].id, "TOPSIS_Score");
     }
 
-    // ── extract_axis_values テスト ────────────────────────────────
+    // ── extract_axis_values tests ────────────────────────────────
 
     #[test]
     fn test_extract_objective0() {
@@ -1023,12 +1038,12 @@ mod tests {
     fn test_extract_out_of_range_objective() {
         let (view, obj_names) = make_view_with_objectives(&[vec![1.0]]);
         let result = McdmResult::Vikor(make_vikor(1));
-        // obj_names は ["obj0"] のみ。Objective5 は out of range → エラー
+        // obj_names is only ["obj0"]. Objective5 is out of range -> error
         let err = extract_axis_values("Objective5", &result, &view, &obj_names);
         assert!(err.is_err());
     }
 
-    // ── build_rank_map テスト ────────────────────────────────────
+    // ── build_rank_map tests ────────────────────────────────────
 
     #[test]
     fn test_build_rank_map_basic() {
@@ -1037,7 +1052,7 @@ mod tests {
         assert_eq!(map[5], 0);
         assert_eq!(map[2], 1);
         assert_eq!(map[8], 2);
-        assert_eq!(map[0], usize::MAX); // ランク外
+        assert_eq!(map[0], usize::MAX); // outside the ranking
         assert_eq!(map[3], usize::MAX);
     }
 
@@ -1046,11 +1061,11 @@ mod tests {
         let n = 5usize;
         let ranked: Vec<u32> = vec![4, 3, 2, 1, 0];
         let map = build_rank_map(&ranked, n);
-        assert_eq!(map[4], 0); // trial 4 が rank 0（最良）
-        assert_eq!(map[0], 4); // trial 0 が rank 4（最悪）
+        assert_eq!(map[4], 0); // trial 4 is rank 0 (best)
+        assert_eq!(map[0], 4); // trial 0 is rank 4 (worst)
     }
 
-    // ── compute_scatter_points 統合テスト ─────────────────────────
+    // ── compute_scatter_points integration tests ─────────────────────────
 
     #[test]
     fn test_compute_scatter_points_basic() {
@@ -1101,10 +1116,10 @@ mod tests {
         )
         .unwrap();
 
-        // rank 0（best）→ t=1.0 → colormap の最高端
+        // rank 0 (best) -> t=1.0 -> top end of the colormap
         let expected = cmap.interpolate(1.0);
         assert_eq!(points[0].2, expected);
-        // top_n 外（rank >= top_n）は gray
+        // Outside top_n (rank >= top_n) is gray
         assert_eq!(points[n - 1].2, COLOR_MCDM_NONE());
     }
 

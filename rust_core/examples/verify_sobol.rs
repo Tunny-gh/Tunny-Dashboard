@@ -1,28 +1,33 @@
-//! Python (SALib) との Sobol感度分析クロスチェック用ハーネス。
+//! Cross-check harness against Python (SALib) for Sobol sensitivity analysis.
 //!
-//! `sensitivity::sobol::compute_sobol_from_df` は生の目的関数値を直接
-//! Saltelli型サンプリングするのではなく、学習データに2次特徴量（各パラメータの
-//! 1次・2乗・全ペアの交互作用項）の Ridge 回帰サロゲートを内部で fit し、その
-//! サロゲートを A/B/AB 行列で評価して Sobol 指数を Monte Carlo 推定する。
-//! SALib と同一のサンプル・同一の目的関数を直接比較することは pub API の制約上
-//! できないため、本ハーネスは 2 ケースで検証する。
+//! Rather than sampling raw objective function values directly with Saltelli-style
+//! sampling, `sensitivity::sobol::compute_sobol_from_df` internally fits a Ridge
+//! regression surrogate on quadratic features of the training data (each parameter's
+//! linear, squared, and all pairwise interaction terms), then evaluates that surrogate
+//! on the A/B/AB matrices to Monte Carlo-estimate the Sobol indices. Directly
+//! comparing the same samples and the same objective function against SALib is not
+//! possible given the constraints of the public API, so this harness verifies with
+//! 2 cases instead.
 //!
-//! - Case 1（`quadratic_exact`）: 2次特徴量の空間で厳密に表現できる関数
-//!   （線形3項 + 1交互作用項）。学習データを十分多く取ればサロゲートはほぼ
-//!   厳密にフィットする（r_squared ≈ 1）ため、Sobol 推定量そのものの正しさを
-//!   サロゲート近似誤差と切り離して検証できる。ANOVA分解から導いた解析解と比較する。
-//! - Case 2（`ishigami`）: 4次項を含む標準テスト関数（Ishigami, a=7, b=0.1）。
-//!   2次までしか表現できないサロゲートには本質的に近似誤差が生じるため、
-//!   SALib・解析解との数値一致は期待しない。サロゲートの r_squared と併記し、
-//!   「推定量は正しいがサロゲート経由である」という実装上の制約を記録する目的で実行する。
+//! - Case 1 (`quadratic_exact`): a function exactly representable in the quadratic
+//!   feature space (3 linear terms + 1 interaction term). With enough training data,
+//!   the surrogate fits almost exactly (r_squared ≈ 1), which lets us verify the
+//!   correctness of the Sobol estimator itself, decoupled from surrogate approximation
+//!   error. Compared against an analytical solution derived from ANOVA decomposition.
+//! - Case 2 (`ishigami`): a standard test function containing a quartic term
+//!   (Ishigami, a=7, b=0.1). Since a surrogate that can only represent up to quadratic
+//!   terms necessarily incurs approximation error, we do not expect numerical
+//!   agreement with SALib or the analytical solution. This is run alongside the
+//!   surrogate's r_squared to document the implementation constraint that "the
+//!   estimator is correct, but it goes through a surrogate."
 //!
-//! 実行: `cargo run -p tunny-core --example verify_sobol`
+//! Run: `cargo run -p tunny-core --example verify_sobol`
 
 use std::collections::HashMap;
 use tunny_core::dataframe::{DataFrame, TrialRow};
 use tunny_core::sensitivity::compute_sobol_from_df;
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {

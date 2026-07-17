@@ -13,9 +13,10 @@ pub(crate) fn render_chart(
         return;
     }
 
-    // pareto_2d/3d は &mut AppState を要求するため先に処理する
+    // pareto_2d/3d require &mut AppState, so handle them first
     if matches!(chart_id, ChartId::ParetoScatter2D) {
-        // surrogate_opt との分割借用: pareto_2d と surrogate_opt を同時に可変借用する。
+        // Split borrow with surrogate_opt: mutably borrow pareto_2d and surrogate_opt at
+        // the same time.
         let crate::ui::widget_states::WidgetStates {
             ref mut pareto_2d,
             ref surrogate_opt,
@@ -53,9 +54,10 @@ pub(crate) fn render_chart(
         ChartId::OptimizationHistory => {
             use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};
             use crate::ui::widgets::optimization_history::OptHistoryComparison;
-            // 選択中の目的名を基準に、比較 Study から同名の目的値列を集める。
-            // 毎フレームの to_vec クローンを避けるため、選択目的・比較セット・色・
-            // Study 恒等性でキャッシュする（M-11）。
+            // Collect same-named objective value columns from the comparison Studies,
+            // based on the currently selected objective name. Cached by selected
+            // objective, comparison set, color, and Study identity to avoid a to_vec
+            // clone every frame (M-11).
             let sel_idx = widgets
                 .opt_history
                 .obj_idx
@@ -135,9 +137,9 @@ pub(crate) fn render_chart(
         ChartId::ConvergenceIndicators => {
             use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};
             use crate::ui::widgets::convergence::ConvergenceSeries;
-            // history/objective_names の clone と比較系列の再構築は、選択・データが
-            // 変わったときのみ実行する（毎フレーム clone を回避。item low）。
-            // データ恒等性は Vec のデータポインタ + 長さで検知する。
+            // Cloning history/objective_names and rebuilding the comparison series only
+            // happens when the selection or data changes (avoids cloning every frame;
+            // item low). Data identity is detected via the Vec's data pointer + length.
             let key = crate::ui::widget_states::ConvergenceSyncKey {
                 base_df: std::sync::Arc::as_ptr(&ctx.view.df) as usize,
                 history: app_state
@@ -175,9 +177,10 @@ pub(crate) fn render_chart(
                 widgets.convergence.base_name = ctx.meta.name.clone();
                 widgets.convergence.objective_names = obj_names.clone();
                 widgets.convergence.ref_point_override = app_state.hv_ref_point_override.clone();
-                // 現在選択中の収束指標をウィジェットへ伝達する。
+                // Pass the currently selected convergence indicator to the widget.
                 widgets.convergence.indicator = app_state.convergence_indicator;
-                // 比較 Study の指標推移を色付き系列として渡し、同一グラフに重ねる。
+                // Pass the comparison Studies' indicator history as colored series and
+                // overlay them on the same graph.
                 widgets.convergence.comparisons = app_state
                     .comparison_studies
                     .iter()
@@ -204,15 +207,17 @@ pub(crate) fn render_chart(
                 obj_names,
                 &app_state.artifact_map,
             );
-            // 指標変更要求を app_state へ反映し、再計算をトリガーする。
+            // Reflect an indicator change request into app_state and trigger
+            // recomputation.
             if let Some(new_ind) = widgets.convergence.pending_indicator.take() {
                 if new_ind != app_state.convergence_indicator {
                     app_state.convergence_indicator = new_ind;
                     app_state.convergence_history = None;
                 }
             }
-            // 参照点の変更要求を app_state へ反映し、再計算させる。
-            // 値が変わらない場合は再計算しない（DragValue の確定連発を吸収）。
+            // Reflect a reference point change request into app_state and let it
+            // recompute. Skip recomputation if the value hasn't actually changed
+            // (absorbs repeated DragValue commits).
             if let Some(change) = widgets.convergence.pending_ref_point.take() {
                 use crate::ui::widgets::convergence::RefPointChange;
                 let new_override = match change {
@@ -346,7 +351,8 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::ObservedContour => {
-            // 軸候補の数値フィルタはウィジェット側で行う（モーダル表示には全変数名が要る）。
+            // The numeric filter on axis candidates is done on the widget side (the
+            // modal display needs every variable name).
             crate::ui::widgets::observed_contour::show(
                 ui,
                 &mut widgets.observed_contour,
@@ -360,10 +366,12 @@ pub(crate) fn render_chart(
         }
         ChartId::SurrogateOpt => {
             let trial_count = ctx.trial_count();
-            // カテゴリカル列（数値化できない列）は最適化対象から除外する。
+            // Exclude categorical columns (ones that can't be numericized) from the
+            // optimization target.
             let numeric_params = crate::ui::chart::poll_chart::numeric_param_names(ctx);
-            // 目的列の to_vec クローンと observed_feasible の再構築は、Study 恒等性と
-            // 結果が参照する目的名が変わったときのみ実行する（毎フレーム全 clone を回避。M-11）。
+            // Cloning the objective column's to_vec and rebuilding observed_feasible only
+            // happens when Study identity or the objective name the result references
+            // changes (avoids a full clone every frame. M-11).
             let obj_history_name = widgets
                 .surrogate_opt
                 .result
@@ -386,14 +394,16 @@ pub(crate) fn render_chart(
                 ..
             } = *widgets;
             let entry = render_cache.surrogate_observed(key, || {
-                // 現在の結果が参照する目的列を取得する（結果が無い場合は None）。
+                // Get the objective column the current result references (None if there's
+                // no result).
                 let obj_history = obj_history_name
                     .as_ref()
                     .and_then(|name| ctx.view.numeric_column(name))
                     .map(|col| col.to_vec());
-                // 多目的フロント散布図に重ねる観測点。result の目的順に整列した各目的の
-                // 全 trial 値に加え、Pareto ランクと実行可能性を渡し、ParetoScatter と
-                // 同様に分類表示する。
+                // Observed points to overlay on the multi-objective front scatter plot.
+                // Pass the full trial values of each objective, arranged in the result's
+                // objective order, along with Pareto rank and feasibility, and classify
+                // them the same way as ParetoScatter.
                 let observed_cols: Option<Vec<Vec<f64>>> = multi_obj_names.as_ref().map(|names| {
                     names
                         .iter()
@@ -497,8 +507,8 @@ pub(crate) fn render_chart(
                 .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
         }
         ChartId::ResponseSurface3D => {
-            // カテゴリカル列（数値化できない列）は応答曲面の対象から除外する
-            // （Robustness / SurrogateOpt と同じ絞り込み）。
+            // Exclude categorical columns (ones that can't be numericized) from the
+            // response surface target (the same filtering as Robustness / SurrogateOpt).
             let numeric_params = crate::ui::chart::poll_chart::numeric_param_names(ctx);
             widgets.response_surface.show(
                 ui,
@@ -513,8 +523,9 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::SurrogateCompare => {
-            // カテゴリカル列（数値化できない列）は比較対象から除外する
-            // （Robustness / SurrogateOpt / ResponseSurface3D と同じ絞り込み）。
+            // Exclude categorical columns (ones that can't be numericized) from the
+            // comparison target (the same filtering as Robustness / SurrogateOpt /
+            // ResponseSurface3D).
             let numeric_params = crate::ui::chart::poll_chart::numeric_param_names(ctx);
             crate::ui::widgets::compare::show(
                 ui,
@@ -535,8 +546,9 @@ pub(crate) fn render_chart(
         ChartId::EdfPlot => {
             use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};
             use crate::ui::widgets::edf_plot::EdfComparison;
-            // 選択中の目的名を基準に、比較 Study から同名の目的値列を集める
-            // （OptimizationHistory と同じ手法・キャッシュ。M-11）。
+            // Collect same-named objective value columns from the comparison Studies,
+            // based on the currently selected objective name (the same technique/cache
+            // as OptimizationHistory. M-11).
             let sel_idx = widgets
                 .edf_plot
                 .obj_idx

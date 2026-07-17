@@ -1,17 +1,17 @@
-//! Python (scipy) との Spearman順位相関クロスチェック用ハーネス。
+//! Harness for cross-checking Spearman rank correlation against Python (scipy).
 //!
-//! 対象は `sensitivity::spearman::compute_spearman`（`sensitivity` モジュールの
-//! pub 関数 `tunny_core::sensitivity::compute_spearman` として公開）。
-//! 内部で使う順位付け・Pearson相関 (`math::stats::rank` / `spearman_correlation`) は
-//! 別レポート (correlation.md) で scipy と突き合わせ済みのため、本ハーネスは
-//! `compute_spearman` 固有の前処理（NaN/Inf のペアワイズ除去）が正しく効いているかに
-//! 焦点を当てる。
+//! Targets `sensitivity::spearman::compute_spearman` (exposed as the pub function
+//! `tunny_core::sensitivity::compute_spearman` in the `sensitivity` module).
+//! The ranking and Pearson correlation used internally (`math::stats::rank` /
+//! `spearman_correlation`) have already been cross-checked against scipy in a separate report
+//! (correlation.md), so this harness focuses on whether `compute_spearman`'s own preprocessing
+//! (pairwise removal of NaN/Inf) works correctly.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_spearman`
+//! Run with: `cargo run -p tunny-core --example verify_spearman`
 
 use tunny_core::sensitivity::compute_spearman;
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {

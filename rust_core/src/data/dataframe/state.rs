@@ -7,20 +7,21 @@ use super::model::DataFrame;
 use crate::data::extras::StudyExtras;
 
 // ============================================================
-// TASK-2329: 共有 study ストア（thread_local GLOBAL_STATE を全廃）
+// TASK-2329: shared study store (thread_local GLOBAL_STATE fully removed)
 //
-// DataFrame の実体は本ストアに study_id ごと「ただ一度」存在する。
-// UI スレッド・ワーカースレッドのいずれからも `snapshot(study_id)` で
-// `Arc<DataFrame>` をロックフリーにクローン取得できるため、行指向データの
-// 永続複製（旧 `Vec<TrialRow>`）が不要になる（MEM-001）。
-// 各スロットは `ArcSwap` でライブ更新時に原子的差替えが可能（TASK-2340）。
+// The DataFrame for each study_id exists "exactly once" in this store.
+// Both the UI thread and worker threads can lock-free clone an
+// `Arc<DataFrame>` via `snapshot(study_id)`, eliminating the need for a
+// persistent copy of row-oriented data (the old `Vec<TrialRow>`) (MEM-001).
+// Each slot supports atomic swap on live updates via `ArcSwap` (TASK-2340).
 // ============================================================
 
-/// study_id → DataFrame スナップショットを全スレッドから共有する store。
+/// Store shared across all threads, mapping study_id → DataFrame snapshot.
 ///
-/// `extras_slots` は `slots`（COMPLETE 限定 DataFrame）と並走する、全 trial（全 state）の
-/// 付帯情報 [`StudyExtras`] を同じ study_id キーで保持する並列マップ。DataFrame と同じく
-/// `ArcSwap` によりライブ更新時の原子的差替えが可能。
+/// `extras_slots` is a parallel map keyed by the same study_id that runs
+/// alongside `slots` (DataFrame limited to COMPLETE trials) and holds
+/// [`StudyExtras`] supplementary information for all trials (all states).
+/// Like DataFrame, it supports atomic swap on live updates via `ArcSwap`.
 pub struct SharedStudyStore {
     slots: HashMap<u32, ArcSwap<DataFrame>>,
     extras_slots: HashMap<u32, ArcSwap<StudyExtras>>,
@@ -28,7 +29,7 @@ pub struct SharedStudyStore {
 }
 
 impl SharedStudyStore {
-    /// 空ストアを生成する。
+    /// Creates an empty store.
     pub fn new() -> Self {
         SharedStudyStore {
             slots: HashMap::new(),
@@ -37,8 +38,8 @@ impl SharedStudyStore {
         }
     }
 
-    /// 全 study の DataFrame を `study_id` キーで格納する。active はリセットする。
-    /// 新規ファイルロードの一部として呼ばれるため、`extras_slots` の古い内容も破棄する。
+    /// Stores the DataFrames for all studies keyed by `study_id`. Resets active.
+    /// Called as part of a fresh file load, so any stale `extras_slots` content is also discarded.
     pub fn store_all(&mut self, dataframes: Vec<(u32, DataFrame)>) {
         self.slots = dataframes
             .into_iter()
@@ -48,7 +49,7 @@ impl SharedStudyStore {
         self.active_study_id = None;
     }
 
-    /// 全 study の `StudyExtras` を `study_id` キーで格納する（既存 extras は置き換え）。
+    /// Stores `StudyExtras` for all studies keyed by `study_id` (replaces any existing extras).
     pub fn store_extras_all(&mut self, extras: Vec<(u32, StudyExtras)>) {
         self.extras_slots = extras
             .into_iter()
@@ -56,7 +57,7 @@ impl SharedStudyStore {
             .collect();
     }
 
-    /// 単一 study の `StudyExtras` を挿入または置き換える（実 study_id キーのロード用）。
+    /// Inserts or replaces `StudyExtras` for a single study (for loads keyed by real study_id).
     pub fn store_extras_for(&mut self, study_id: u32, extras: StudyExtras) {
         match self.extras_slots.get(&study_id) {
             Some(slot) => slot.store(std::sync::Arc::new(extras)),
@@ -67,19 +68,19 @@ impl SharedStudyStore {
         }
     }
 
-    /// `study_id` の `StudyExtras` スナップショットをクローン取得する（ロックフリー）。
+    /// Clones and returns the `StudyExtras` snapshot for `study_id` (lock-free).
     pub fn extras_snapshot(&self, study_id: u32) -> Option<Arc<StudyExtras>> {
         self.extras_slots
             .get(&study_id)
             .map(|slot| slot.load_full())
     }
 
-    /// アクティブ study の `StudyExtras` スナップショットを取得する。
+    /// Returns the `StudyExtras` snapshot for the active study.
     pub fn active_extras_snapshot(&self) -> Option<Arc<StudyExtras>> {
         self.active_study_id.and_then(|id| self.extras_snapshot(id))
     }
 
-    /// ライブ更新: `StudyExtras` スロットを原子的に差し替える。存在しなければ新規挿入する。
+    /// Live update: atomically swaps the `StudyExtras` slot. Inserts a new one if absent.
     pub fn swap_extras(&mut self, study_id: u32, new_extras: Arc<StudyExtras>) {
         match self.extras_slots.get(&study_id) {
             Some(slot) => slot.store(new_extras),
@@ -89,18 +90,18 @@ impl SharedStudyStore {
         }
     }
 
-    /// `study_id` の DataFrame スナップショットをクローン取得する（ロックフリー）。
+    /// Clones and returns the DataFrame snapshot for `study_id` (lock-free).
     pub fn snapshot(&self, study_id: u32) -> Option<Arc<DataFrame>> {
         self.slots.get(&study_id).map(|slot| slot.load_full())
     }
 
-    /// アクティブ study のスナップショットを取得する。
+    /// Returns the snapshot for the active study.
     pub fn active_snapshot(&self) -> Option<Arc<DataFrame>> {
         self.active_study_id.and_then(|id| self.snapshot(id))
     }
 
-    /// ライブ更新: 既存スロットのスナップショットを原子的に差し替える（TASK-2340）。
-    /// スロットが存在しない場合は新規挿入する。
+    /// Live update: atomically swaps the snapshot of an existing slot (TASK-2340).
+    /// Inserts a new one if the slot does not exist.
     pub fn swap_snapshot(&mut self, study_id: u32, new_df: Arc<DataFrame>) {
         match self.slots.get(&study_id) {
             Some(slot) => slot.store(new_df),
@@ -110,7 +111,7 @@ impl SharedStudyStore {
         }
     }
 
-    /// アクティブ study を設定する。スロットが存在すれば true。
+    /// Sets the active study. Returns true if the slot exists.
     pub fn set_active(&mut self, study_id: u32) -> bool {
         if self.slots.contains_key(&study_id) {
             self.active_study_id = Some(study_id);
@@ -120,12 +121,12 @@ impl SharedStudyStore {
         }
     }
 
-    /// 格納 study 数。
+    /// Number of stored studies.
     pub fn len(&self) -> usize {
         self.slots.len()
     }
 
-    /// 空判定。
+    /// Whether the store is empty.
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
@@ -138,18 +139,21 @@ impl Default for SharedStudyStore {
 }
 
 // ============================================================
-// ストア保持機構（cfg 分岐）
+// Store retention mechanism (cfg branch)
 //
-// - 本番ビルド: プロセスグローバルな `RwLock<SharedStudyStore>`。
-//   全スレッドで単一の DataFrame 実体を共有し、UI スレッドが行指向データを
-//   複製せずに `Arc<DataFrame>` を取得できる（MEM-001 の本丸）。
-// - テストビルド: thread_local。`cargo test` は1プロセス・マルチスレッド並列で
-//   走るため、テスト間の状態分離（旧 thread_local 設計の特性）を保つ。
-//   ※ ストアのロジックは `SharedStudyStore` 本体に集約され、保持機構のみ分岐する。
-//     クロススレッド共有の本番経路は egui-app 側の統合テストで検証する。
+// - Production build: a process-global `RwLock<SharedStudyStore>`.
+//   A single DataFrame instance is shared across all threads, letting the
+//   UI thread obtain an `Arc<DataFrame>` without duplicating row-oriented
+//   data (the heart of MEM-001).
+// - Test build: thread_local. `cargo test` runs multi-threaded within a
+//   single process, so this preserves state isolation between tests (a
+//   property of the old thread_local design).
+//   Note: the store logic itself is consolidated in `SharedStudyStore`; only
+//   the retention mechanism branches here. The production cross-thread
+//   sharing path is verified by integration tests on the egui-app side.
 // ============================================================
 
-/// プロセスグローバルな単一の共有ストア。read/write で同一インスタンスを共有する。
+/// A single process-global shared store. read/write share the same instance.
 #[cfg(not(test))]
 fn global_store() -> &'static std::sync::RwLock<SharedStudyStore> {
     use std::sync::{OnceLock, RwLock};
@@ -186,11 +190,11 @@ fn with_store_write<R>(f: impl FnOnce(&mut SharedStudyStore) -> R) -> R {
 }
 
 // ============================================================
-// 公開 API（保持機構に依存しない単一実装）
+// Public API (a single implementation independent of the retention mechanism)
 // ============================================================
 
-/// パース結果の DataFrame 群を `study_id`（= Vec インデックス）キーで格納する。
-/// 既存スナップショットは置き換えられ、active はリセットされる。
+/// Stores the parsed DataFrames keyed by `study_id` (= Vec index).
+/// Existing snapshots are replaced and active is reset.
 pub fn store_dataframes(dfs: Vec<DataFrame>) {
     let pairs: Vec<(u32, DataFrame)> = dfs
         .into_iter()
@@ -200,7 +204,7 @@ pub fn store_dataframes(dfs: Vec<DataFrame>) {
     with_store_write(|store| store.store_all(pairs));
 }
 
-/// アクティブ study を設定する。
+/// Sets the active study.
 pub fn select_study(study_id: u32) -> Result<(), String> {
     with_store_write(|store| match store.snapshot(study_id) {
         Some(_) => {
@@ -215,37 +219,37 @@ pub fn select_study(study_id: u32) -> Result<(), String> {
     })
 }
 
-/// アクティブ study の DataFrame に対してクロージャを適用する。
-/// ロック保持時間を最小化するため、先に `Arc` を取得してから適用する。
+/// Applies a closure to the active study's DataFrame.
+/// To minimize lock hold time, the `Arc` is obtained first and then applied.
 pub fn with_active_df<T, F: FnOnce(&DataFrame) -> T>(f: F) -> Option<T> {
     let arc = with_store_read(|store| store.active_snapshot())?;
     Some(f(&arc))
 }
 
-/// 任意 study の DataFrame に対してクロージャを適用する。
+/// Applies a closure to an arbitrary study's DataFrame.
 pub fn with_df<T, F: FnOnce(&DataFrame) -> T>(study_id: u32, f: F) -> Option<T> {
     let arc = with_store_read(|store| store.snapshot(study_id))?;
     Some(f(&arc))
 }
 
-/// 任意 study の DataFrame スナップショット（`Arc`）を取得する。
-/// UI スレッドが行指向データを複製せずに列データを参照するための入口（MEM-001）。
+/// Gets an arbitrary study's DataFrame snapshot (`Arc`).
+/// The entry point letting the UI thread reference column data without duplicating row-oriented data (MEM-001).
 pub fn snapshot(study_id: u32) -> Option<Arc<DataFrame>> {
     with_store_read(|store| store.snapshot(study_id))
 }
 
-/// アクティブ study の DataFrame スナップショット（`Arc`）を取得する。
+/// Gets the active study's DataFrame snapshot (`Arc`).
 pub fn active_snapshot() -> Option<Arc<DataFrame>> {
     with_store_read(|store| store.active_snapshot())
 }
 
-/// ライブ更新: study の DataFrame スナップショットを原子的に差し替える（TASK-2340）。
+/// Live update: atomically swaps a study's DataFrame snapshot (TASK-2340).
 pub fn swap_snapshot(study_id: u32, new_df: Arc<DataFrame>) {
     with_store_write(|store| store.swap_snapshot(study_id, new_df));
 }
 
-/// パース結果の `StudyExtras` 群を `study_id`（= Vec インデックス）キーで格納する。
-/// journal の全体パース（`store_dataframes` と対）で使う enumerate 規約。
+/// Stores the parsed `StudyExtras` keyed by `study_id` (= Vec index).
+/// Uses the enumerate convention paired with `store_dataframes` for a full journal parse.
 pub fn store_extras(extras: Vec<StudyExtras>) {
     let pairs: Vec<(u32, StudyExtras)> = extras
         .into_iter()
@@ -255,30 +259,30 @@ pub fn store_extras(extras: Vec<StudyExtras>) {
     with_store_write(|store| store.store_extras_all(pairs));
 }
 
-/// 単一 study の `StudyExtras` を実 study_id キーで挿入または置き換える。
-/// 単一 study ロード（SQLite / journal streaming）で使う。
+/// Inserts or replaces a single study's `StudyExtras`, keyed by its real study_id.
+/// Used for single-study loads (SQLite / journal streaming).
 pub fn store_extras_for(study_id: u32, extras: StudyExtras) {
     with_store_write(|store| store.store_extras_for(study_id, extras));
 }
 
-/// 任意 study の `StudyExtras` スナップショット（`Arc`）を取得する。
+/// Gets an arbitrary study's `StudyExtras` snapshot (`Arc`).
 pub fn extras_snapshot(study_id: u32) -> Option<Arc<StudyExtras>> {
     with_store_read(|store| store.extras_snapshot(study_id))
 }
 
-/// アクティブ study の `StudyExtras` スナップショット（`Arc`）を取得する。
+/// Gets the active study's `StudyExtras` snapshot (`Arc`).
 pub fn active_extras_snapshot() -> Option<Arc<StudyExtras>> {
     with_store_read(|store| store.active_extras_snapshot())
 }
 
-/// ライブ更新: study の `StudyExtras` スナップショットを原子的に差し替える。
+/// Live update: atomically swaps a study's `StudyExtras` snapshot.
 pub fn swap_extras(study_id: u32, new_extras: Arc<StudyExtras>) {
     with_store_write(|store| store.swap_extras(study_id, new_extras));
 }
 
 // ============================================================
-// SharedStudyStore ロジックの直接テスト
-// （保持機構 cfg に依存せず、ストア本体の正しさを検証する）
+// Direct tests of SharedStudyStore logic
+// (verifies the store's own correctness, independent of the retention mechanism cfg)
 // ============================================================
 
 #[cfg(test)]
@@ -357,7 +361,7 @@ mod store_tests {
         );
     }
 
-    // ── extras スロット ─────────────────────────────────────────────────
+    // ── extras slots ─────────────────────────────────────────────────
 
     use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
 
@@ -400,7 +404,7 @@ mod store_tests {
         let mut store = SharedStudyStore::new();
         store.store_extras_for(0, extras_with(&[0, 1]));
         assert!(store.extras_snapshot(0).is_some());
-        // 新規ファイルロード相当。extras も破棄されなければならない。
+        // Equivalent to a fresh file load. extras must also be discarded.
         store.store_all(vec![(0, df_with_rows(1))]);
         assert!(store.extras_snapshot(0).is_none());
     }
@@ -411,7 +415,7 @@ mod store_tests {
         store.store_extras_for(0, extras_with(&[0]));
         store.swap_extras(0, Arc::new(extras_with(&[0, 1, 2, 3])));
         assert_eq!(store.extras_snapshot(0).unwrap().trials.len(), 4);
-        // 未存在スロットへの swap は新規挿入。
+        // A swap onto a nonexistent slot is treated as an insert.
         store.swap_extras(7, Arc::new(extras_with(&[9])));
         assert_eq!(store.extras_snapshot(7).unwrap().trials.len(), 1);
     }

@@ -6,7 +6,7 @@ use crate::lgbm::{
     lgbm_feature_importance, lgbm_mse, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig,
 };
 
-/// 前処理済みデータから MDI 重要度を計算する（`metrics::MdiMetric` からも呼ばれる）。
+/// Compute MDI importances from preprocessed data (also called from `metrics::MdiMetric`).
 pub(in crate::sensitivity) fn compute_from_prepared(
     data: &PreparedData,
 ) -> Option<(Vec<f64>, f64)> {

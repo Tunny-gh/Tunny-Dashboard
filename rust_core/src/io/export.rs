@@ -1,8 +1,9 @@
-//! CSV 出力・レポート集計機能を提供するモジュール。
+//! Module providing CSV export and report aggregation functionality.
 //!
 //! Design:
-//! テキスト生成（`csv` / `formatting` / `report`）と実ファイル書き込み（`writer`）を分離し、
-//! CSV エスケープ・数式インジェクション対策・数値フォーマットは `formatting` に集約する。
+//! Text generation (`csv` / `formatting` / `report`) is separated from actual file
+//! writing (`writer`), and CSV escaping, formula-injection prevention, and numeric
+//! formatting are consolidated in `formatting`.
 //!
 //! Reference: docs/tasks/tunny-dashboard-tasks.md TASK-1101
 

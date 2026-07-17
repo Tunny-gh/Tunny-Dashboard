@@ -102,10 +102,10 @@ fn bin_count(finite: &[f64], min: f64, max: f64, rule: BinRule) -> usize {
     }
 }
 
-/// Sturges の公式によるビン数 `ceil(log2(n)) + 1`（最小 1）。
+/// Bin count via Sturges' formula: `ceil(log2(n)) + 1` (minimum 1).
 ///
-/// `report::builder` がビン数の決定（独自上限つき）に再利用するため
-/// crate 内公開（以前は report 側に同一実装が重複していた）。
+/// Exposed crate-internally so `report::builder` can reuse it when deciding its bin count
+/// (with its own additional cap); previously the same implementation was duplicated there.
 pub(crate) fn sturges_bins(n: usize) -> usize {
     (((n as f64).log2().ceil() as i64) + 1).max(1) as usize
 }

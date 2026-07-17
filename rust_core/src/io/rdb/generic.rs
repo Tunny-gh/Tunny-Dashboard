@@ -1,8 +1,9 @@
-//! Optuna RDBStorage の共通クエリ・組み立てロジック。
+//! Common query-building logic for Optuna's RDBStorage.
 //!
-//! SQLite / PostgreSQL / MySQL で共通のクエリ文字列・行組み立てロジックをここに
-//! 集約する。接続や値表現の方言差は `OptunaBackend` trait 経由でのみバックエンドへ
-//! 問い合わせるため、本体はバックエンド非依存になっている。
+//! Consolidates the query strings and row-assembly logic common to
+//! SQLite / PostgreSQL / MySQL here. Dialect differences in connection
+//! handling and value representation are only queried against the backend via
+//! the `OptunaBackend` trait, so the core logic is backend-agnostic.
 
 use std::collections::HashMap;
 
@@ -16,7 +17,7 @@ use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
 
 use super::backend::{OptunaBackend, SqlParam, SqlValue};
 
-/// Optuna スキーマかどうかを `studies` テーブルの有無で判定する。
+/// Determines whether this is an Optuna schema by checking for the `studies` table.
 fn ensure_optuna_schema(backend: &mut dyn OptunaBackend) -> Result<(), String> {
     let exists = backend
         .table_exists("studies")
@@ -27,7 +28,7 @@ fn ensure_optuna_schema(backend: &mut dyn OptunaBackend) -> Result<(), String> {
     Ok(())
 }
 
-/// 1 行 1 列の集計クエリ（`COUNT`/`MAX` 等）を実行し `i64` として返す。
+/// Executes a single-row, single-column aggregate query (`COUNT`/`MAX`, etc.) and returns it as `i64`.
 fn query_scalar_i64(
     backend: &mut dyn OptunaBackend,
     sql: &str,
@@ -64,13 +65,14 @@ fn fetch_directions(
     Ok(directions)
 }
 
-/// `study_system_attributes` の `study:metric_names` から目的名を読む（無ければ空）。
+/// Reads objective names from `study_system_attributes`'s `study:metric_names` (empty if absent).
 fn fetch_metric_names(
     backend: &mut dyn OptunaBackend,
     study_id: i64,
 ) -> Result<Vec<String>, String> {
-    // `key` は MySQL/MariaDB の予約語のため、他クエリと同様テーブル修飾して参照する
-    // （`tsa.key` のようにエイリアス修飾されていれば問題ないが、無修飾だと構文エラーになる）。
+    // `key` is a reserved word in MySQL/MariaDB, so as with other queries it is
+    // referenced qualified by table name (an alias-qualified reference like
+    // `tsa.key` is fine, but unqualified would be a syntax error).
     let rows = backend
         .query(
             "SELECT value_json FROM study_system_attributes \
@@ -115,8 +117,10 @@ fn direction_from_str(direction: &str) -> OptimizationDirection {
     }
 }
 
-/// 全 study の最適化方向を study_id ごとに 1 クエリで取得する（`scan_study_list` の N+1 回避）。
-/// `objective` 昇順で読むため、各 study 内の方向は目的インデックス順に並ぶ。
+/// Fetches the optimization direction for every study, per study_id, in a
+/// single query (avoids N+1 in `scan_study_list`). Read in ascending
+/// `objective` order, so within each study the directions are ordered by
+/// objective index.
 fn fetch_directions_by_study(
     backend: &mut dyn OptunaBackend,
 ) -> Result<HashMap<i64, Vec<OptimizationDirection>>, String> {
@@ -140,8 +144,9 @@ fn fetch_directions_by_study(
     Ok(map)
 }
 
-/// 全 study の `study:metric_names`（目的名）を study_id ごとに 1 クエリで取得する
-/// （`scan_study_list` の N+1 回避）。値が無い study はマップに現れない。
+/// Fetches every study's `study:metric_names` (objective names), per
+/// study_id, in a single query (avoids N+1 in `scan_study_list`). A study
+/// with no value does not appear in the map.
 fn fetch_metric_names_by_study(
     backend: &mut dyn OptunaBackend,
 ) -> Result<HashMap<i64, Vec<String>>, String> {
@@ -171,27 +176,28 @@ fn fetch_metric_names_by_study(
     Ok(map)
 }
 
-/// ライブ更新のポーリングで変化検出に使う軽量フィンガープリント。
+/// A lightweight fingerprint used for change detection during live-update polling.
 ///
-/// journal と異なり RDB (SQLite 等) は trial の状態がインプレースで更新される
-/// （RUNNING → COMPLETE 等）ため、バイトオフセット差分方式が使えない。
-/// 代わりに本フィンガープリントで変化の有無だけを安価に検出し、変化を検出したら
-/// 対象 study を丸ごと再パースする（`parse_single_study`）方式を取る。
+/// Unlike journal, RDB (SQLite etc.) updates trial state in place
+/// (RUNNING → COMPLETE, etc.), so a byte-offset diff approach cannot be used.
+/// Instead, this fingerprint cheaply detects only whether a change occurred,
+/// and if a change is detected, the entire target study is re-parsed
+/// (`parse_single_study`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StudyFingerprint {
     pub total_trials: u32,
     pub completed_trials: u32,
     pub max_trial_id: i64,
-    /// 中間値レコード総数（テーブルが無ければ 0）。RUNNING trial の進捗検出用。
+    /// Total number of intermediate-value records (0 if the table is absent). For detecting RUNNING trial progress.
     pub intermediate_count: i64,
-    /// state 文字列の集計ハッシュ（state 遷移の検出用）。
+    /// An aggregate hash of state strings (for detecting state transitions).
     pub state_digest: u64,
 }
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-/// FNV-1a でバイト列をハッシュへ畳み込む（pure std、追加依存なし）。
+/// Folds a byte slice into a hash using FNV-1a (pure std, no extra dependency).
 fn fnv1a_fold(mut hash: u64, bytes: &[u8]) -> u64 {
     for &b in bytes {
         hash ^= u64::from(b);
@@ -200,15 +206,16 @@ fn fnv1a_fold(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
-/// ライブ更新のポーリングで呼ぶ軽量フィンガープリント取得。
-/// `total_trials` / `completed_trials` / `max_trial_id` は集計クエリで、
-/// `intermediate_count` は `trial_intermediate_values` の有無を確認した上で数える
-/// （`fetch_study_extras` と同じガード）。`state_digest` は `trials` を state 別に
-/// `GROUP BY` した `(state, COUNT(*))` を state 昇順で読み、FNV-1a で畳み込んだもの
-/// （state 遷移の検出用）。trial 全行を読む代わりに集計クエリ 1 本で済ませることで、
-/// trial 数が多い study でもポーリング毎のコストを抑える
-/// （trial_id 単位の粒度は失うが、RUNNING→PRUNED/FAIL 等の state 別件数の変化は
-/// 引き続き検出できる）。
+/// A lightweight fingerprint fetch called during live-update polling.
+/// `total_trials` / `completed_trials` / `max_trial_id` come from aggregate
+/// queries, and `intermediate_count` is counted after confirming
+/// `trial_intermediate_values` exists (the same guard as
+/// `fetch_study_extras`). `state_digest` reads `trials` grouped by state via
+/// `GROUP BY` as `(state, COUNT(*))` in ascending state order and folds it
+/// with FNV-1a (for detecting state transitions). By using a single aggregate
+/// query instead of reading every trial row, the per-poll cost stays low even
+/// for studies with many trials (this loses trial_id-level granularity, but
+/// changes in per-state counts such as RUNNING→PRUNED/FAIL can still be detected).
 pub fn study_fingerprint(
     backend: &mut dyn OptunaBackend,
     study_id: u32,
@@ -238,7 +245,7 @@ pub fn study_fingerprint(
         "Failed to read max trial_id",
     )?;
 
-    // trial_intermediate_values テーブルの存在確認（古い DB では欠落しうる）。
+    // Check for the existence of the trial_intermediate_values table (may be absent in older DBs).
     let has_intermediate_table = backend
         .table_exists("trial_intermediate_values")
         .map_err(|e| format!("Failed to inspect intermediate values table: {e}"))?;
@@ -286,11 +293,12 @@ pub fn study_fingerprint(
     })
 }
 
-/// 全 study の trial 件数（completed/total）を study_id ごとに 1 クエリで取得する。
+/// Fetches the trial count (completed/total) for every study, per study_id, in a single query.
 ///
-/// `scan_study_list` が study 単位で `COUNT(*)` を 2 本ずつ発行する N+1 パターンを避ける
-/// ため、`GROUP BY study_id, state` で全 study 分をまとめて読み、
-/// `study_id -> (completed_trials, total_trials)` の map に畳み込む。
+/// To avoid the N+1 pattern where `scan_study_list` issues two `COUNT(*)`
+/// queries per study, this reads all studies at once with
+/// `GROUP BY study_id, state` and folds them into a
+/// `study_id -> (completed_trials, total_trials)` map.
 fn fetch_trial_counts_by_study(
     backend: &mut dyn OptunaBackend,
 ) -> Result<HashMap<i64, (i64, i64)>, String> {
@@ -320,8 +328,9 @@ fn fetch_trial_counts_by_study(
     Ok(counts)
 }
 
-/// `constraints` システム属性を持つ trial が 1 件でもある study_id の集合を
-/// 1 クエリで取得する（`scan_study_list` の N+1 回避、`has_constraints` 判定用）。
+/// Fetches, in a single query, the set of study_ids that have at least one
+/// trial with a `constraints` system attribute (avoids N+1 in
+/// `scan_study_list`, used for the `has_constraints` check).
 fn fetch_studies_with_constraints(
     backend: &mut dyn OptunaBackend,
 ) -> Result<std::collections::HashSet<i64>, String> {
@@ -341,9 +350,10 @@ fn fetch_studies_with_constraints(
     Ok(study_ids)
 }
 
-/// Phase 1: DB を開いて Study 一覧を返す（journal の `scan_study_list` と同じ役割）。
-/// completed_trials / total_trials は安価に取れるため実数を入れる
-/// （journal scan と異なり 0 埋めではない）。param_names 等の詳細は Phase 2 で確定する。
+/// Phase 1: opens the DB and returns the list of studies (plays the same role
+/// as journal's `scan_study_list`). Since completed_trials / total_trials can
+/// be obtained cheaply, they are filled with real values (unlike journal
+/// scan, they are not zero-filled). Details such as param_names are finalized in Phase 2.
 pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>, String> {
     ensure_optuna_schema(backend)?;
 
@@ -370,8 +380,9 @@ pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>
         studies_raw.push((study_id, name));
     }
 
-    // study 単位の N+1 クエリ（directions・metric_names・completed/total 件数・
-    // constraints 有無）を避けるため、全 study 分を先にまとめて 1 クエリずつ取得しておく。
+    // To avoid per-study N+1 queries (directions, metric_names,
+    // completed/total counts, presence of constraints), fetch all studies'
+    // worth up front with one query each.
     let mut directions_by_study = fetch_directions_by_study(backend)?;
     let mut metric_names_by_study = fetch_metric_names_by_study(backend)?;
     let trial_counts = fetch_trial_counts_by_study(backend)?;
@@ -379,7 +390,7 @@ pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>
 
     let mut studies = Vec::with_capacity(studies_raw.len());
     for (study_id, name) in studies_raw {
-        // 範囲外の study_id は StudyMeta.study_id (u32) に収まらないためスキップする。
+        // An out-of-range study_id does not fit in StudyMeta.study_id (u32), so skip it.
         let Ok(study_id_u32) = u32::try_from(study_id) else {
             continue;
         };
@@ -409,9 +420,9 @@ pub fn scan_study_list(backend: &mut dyn OptunaBackend) -> Result<Vec<StudyMeta>
     Ok(studies)
 }
 
-/// 数値/文字列を journal パーサ (`state.rs`) と同じ意味論で振り分ける。
-/// Number → numeric、String → string。それ以外（bool, array, object, null）は破棄する
-/// （journal の `process_set_trial_user_attr` も同様に破棄しており、to_string にはフォールバックしない）。
+/// Sorts numbers/strings using the same semantics as the journal parser (`state.rs`).
+/// Number → numeric, String → string. Anything else (bool, array, object, null) is discarded
+/// (journal's `process_set_trial_user_attr` discards them the same way, with no fallback to to_string).
 fn classify_user_attr(
     value: &Value,
     key: &str,
@@ -435,32 +446,36 @@ struct TrialAccum {
     constraint_values: Vec<f64>,
 }
 
-/// `parse_single_study_rows` の戻り値。`DataFrame` 組み立て前の行指向データを保持する。
+/// Return value of `parse_single_study_rows`. Holds row-oriented data before `DataFrame` assembly.
 ///
-/// egui-app 側が journal の `StudyStreamBatch` と同じ形（meta + `Vec<TrialRow>` + 列名集合）で
-/// 単一チャンクとして扱えるように、`DataFrame::from_trials` を呼ぶ前の中間表現を公開する。
+/// Exposes the intermediate representation before calling `DataFrame::from_trials`
+/// so the egui-app side can treat it as a single chunk in the same shape as
+/// journal's `StudyStreamBatch` (meta + `Vec<TrialRow>` + column name sets).
 pub struct RdbStudyRows {
-    /// 確定済み `StudyMeta`（param_bounds / param_names / user_attr_names 含む）。
+    /// The finalized `StudyMeta` (includes param_bounds / param_names / user_attr_names).
     pub meta: StudyMeta,
-    /// COMPLETE trial の行データ（trial_id 昇順）。
+    /// Row data for COMPLETE trials (ascending trial_id order).
     pub rows: Vec<TrialRow>,
-    /// パラメータ列名（ソート済み）。
+    /// Parameter column names (sorted).
     pub param_names: Vec<String>,
-    /// 目的列名。
+    /// Objective column names.
     pub objective_names: Vec<String>,
-    /// user_attr 数値列名（ソート済み）。
+    /// user_attr numeric column names (sorted).
     pub user_attr_numeric_names: Vec<String>,
-    /// user_attr 文字列列名（ソート済み）。
+    /// user_attr string column names (sorted).
     pub user_attr_string_names: Vec<String>,
-    /// 観測した制約数の最大値。
+    /// Maximum number of observed constraints.
     pub max_constraints: usize,
-    /// 全 trial（全 state）の付帯情報（state / 日時 / 中間値）。trial_id 昇順。
+    /// Supplementary info for every trial (all states): state / datetime /
+    /// intermediate values. Ascending trial_id order.
     pub extras: StudyExtras,
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、確定メタと行データを返す。
-/// `DataFrame` 組み立て前の中間表現なので、`parse_single_study` はこれをそのまま
-/// `DataFrame::from_trials` に渡すだけのラッパーになる。
+/// Phase 2: reads all COMPLETE trials for the given study, and returns the
+/// finalized metadata and row data.
+/// Since this is the intermediate representation before `DataFrame` assembly,
+/// `parse_single_study` is just a wrapper that passes it straight to
+/// `DataFrame::from_trials`.
 pub fn parse_single_study_rows(
     backend: &mut dyn OptunaBackend,
     study_id: u32,
@@ -469,8 +484,8 @@ pub fn parse_single_study_rows(
 
     let sid = i64::from(study_id);
 
-    // 元の rusqlite 実装と同様、study 未存在・クエリ失敗のいずれも
-    // 「study_id {id} not found in database」に丸める。
+    // As in the original rusqlite implementation, both a missing study and a
+    // query failure are folded into "study_id {id} not found in database".
     let name = backend
         .query(
             "SELECT study_name FROM studies WHERE study_id = ?",
@@ -493,10 +508,10 @@ pub fn parse_single_study_rows(
         "Failed to count trials",
     )?;
 
-    // ── extras: 全 trial（全 state）の付帯情報（state / 日時 / 中間値） ──────
+    // ── extras: supplementary info for all trials (all states) — state / datetime / intermediate values ──
     let extras = fetch_study_extras(backend, sid)?;
 
-    // ── trials (COMPLETE のみ、trial_id 昇順) ────────────────────────────
+    // ── trials (COMPLETE only, ascending trial_id) ────────────────────────
     let mut trial_order: Vec<u32> = Vec::new();
     let mut accum: HashMap<u32, TrialAccum> = HashMap::new();
     backend.query_for_each(
@@ -510,7 +525,7 @@ pub fn parse_single_study_rows(
             let number = row[1]
                 .as_i64()
                 .ok_or_else(|| "Failed to read trials: number is not an integer".to_string())?;
-            // id 列が u32 に収まらない行はスキップする（黙って切り捨てない）。
+            // Skip rows whose id column doesn't fit in u32 (don't silently truncate).
             let (Ok(trial_id), Ok(number)) = (u32::try_from(trial_id), u32::try_from(number))
             else {
                 return Ok(());
@@ -741,18 +756,21 @@ pub fn parse_single_study_rows(
     })
 }
 
-/// 指定 study の全 trial（全 state）の付帯情報を読む。
+/// Reads supplementary info for every trial (all states) of the given study.
 ///
-/// - `trials` から trial_id / number / state / datetime_start / datetime_complete を trial_id 昇順で読む。
-///   日時は `backend.text_cast()` でテキスト化した上で読み、`parse_naive_datetime` により
-///   naive unix 秒へ変換する（SQLite は元々 TEXT だが、PostgreSQL/MySQL のネイティブ
-///   timestamp 型との差を吸収するため常にテキスト化を通す）。
-/// - `trial_intermediate_values` から中間値を読み、各 trial に step 昇順で紐付ける。
-///   このテーブルは古い DB では存在しない場合があるため `backend.table_exists` で存在を確認し、
-///   無ければ中間値は空とする。value_type は trial_values と同じ意味論
-///   (FINITE/INF_POS/INF_NEG/NAN) で解釈する。
+/// - Reads trial_id / number / state / datetime_start / datetime_complete
+///   from `trials`, in ascending trial_id order. Datetimes are read after
+///   being stringified via `backend.text_cast()`, then converted to naive
+///   unix seconds by `parse_naive_datetime` (SQLite is natively TEXT, but the
+///   stringification is applied unconditionally to absorb the difference
+///   from PostgreSQL/MySQL's native timestamp types).
+/// - Reads intermediate values from `trial_intermediate_values` and attaches
+///   them to each trial in ascending step order. This table may not exist in
+///   older DBs, so its presence is checked via `backend.table_exists`; if
+///   absent, intermediate values are left empty. `value_type` is interpreted
+///   with the same semantics as trial_values (FINITE/INF_POS/INF_NEG/NAN).
 fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<StudyExtras, String> {
-    // trial_id → extras 内の index。中間値の紐付けに使う。
+    // trial_id -> index within extras. Used to attach intermediate values.
     let mut index_of: HashMap<u32, usize> = HashMap::new();
     let mut trials: Vec<TrialExtra> = Vec::new();
     {
@@ -775,7 +793,7 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
             let datetime_start = row[3].as_text();
             let datetime_complete = row[4].as_text();
 
-            // id 列が u32 に収まらない行はスキップする（黙って切り捨てない）。
+            // Skip rows whose id column doesn't fit in u32 (don't silently truncate).
             let (Ok(trial_id), Ok(number)) = (u32::try_from(trial_id), u32::try_from(number))
             else {
                 return Ok(());
@@ -794,7 +812,7 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
         })?;
     }
 
-    // trial_intermediate_values テーブルの存在確認（古い DB では欠落しうる）。
+    // Check whether the trial_intermediate_values table exists (may be absent in older DBs).
     let has_intermediate_table = backend
         .table_exists("trial_intermediate_values")
         .map_err(|e| format!("Failed to inspect intermediate values table: {e}"))?;
@@ -837,7 +855,7 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
         )?;
     }
 
-    // 保険として step 昇順にそろえる（SQL の ORDER BY を信頼するが冪等）。
+    // Sort by ascending step as a safety net (we trust SQL's ORDER BY, but this is idempotent).
     for trial in &mut trials {
         trial.intermediate_values.sort_by_key(|(step, _)| *step);
     }
@@ -845,8 +863,9 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
     Ok(StudyExtras { trials })
 }
 
-/// Phase 2: 指定 study の COMPLETE trial を全件読み、(確定メタ, `DataFrame`, `StudyExtras`) を返す
-/// （journal の `parse_single_study` と同じ出力契約）。
+/// Phase 2: reads all COMPLETE trials for the given study, and returns
+/// (finalized metadata, `DataFrame`, `StudyExtras`)
+/// (same output contract as journal's `parse_single_study`).
 pub fn parse_single_study(
     backend: &mut dyn OptunaBackend,
     study_id: u32,

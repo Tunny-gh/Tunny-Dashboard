@@ -4,7 +4,7 @@ use super::super::constants::{
 use super::common::{run_importances_pipeline, PreparedData};
 use crate::lgbm::{lgbm_mse, lgbm_predict_contrib, mse_to_r_squared, train_lgbm_rf, LgbmRfConfig};
 
-/// 前処理済みデータから SHAP 重要度を計算する（`metrics::ShapMetric` からも呼ばれる）。
+/// Compute SHAP importances from preprocessed data (also called from `metrics::ShapMetric`).
 pub(in crate::sensitivity) fn compute_from_prepared(
     data: &PreparedData,
 ) -> Option<(Vec<f64>, f64)> {

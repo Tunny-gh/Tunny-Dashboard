@@ -1,28 +1,27 @@
-//! JSON-RPC 2.0 / MCP プロトコル層。
+//! JSON-RPC 2.0 / MCP protocol layer.
 //!
-//! stdio トランスポートの改行区切り JSON-RPC を処理する。MCP のうち
-//! tools 機能のみを実装する（resources / prompts は未対応で、
-//! capabilities にも載せない）。
+//! Handles newline-delimited JSON-RPC over the stdio transport. Implements only the tools
+//! feature of MCP (resources / prompts are unsupported, and aren't listed in capabilities either).
 //!
-//! 対応メソッド:
-//! - `initialize` → protocolVersion / capabilities / serverInfo
-//! - `notifications/initialized` → 無応答（通知）
-//! - `ping` → 空オブジェクト
-//! - `tools/list` → ツール定義（JSON Schema 付き）
-//! - `tools/call` → ツール実行。結果は `content: [{type: "text", ...}]`
+//! Supported methods:
+//! - `initialize` -> protocolVersion / capabilities / serverInfo
+//! - `notifications/initialized` -> no response (notification)
+//! - `ping` -> empty object
+//! - `tools/list` -> tool definitions (with JSON Schema)
+//! - `tools/call` -> executes a tool. The result is `content: [{type: "text", ...}]`
 //!
-//! 未知のメソッドは id 付きなら `-32601 Method not found`、通知なら無視する。
+//! Unknown methods get `-32601 Method not found` if they have an id, or are ignored if they're a notification.
 
 use serde_json::{json, Value};
 
 use crate::tools;
 
-/// サーバーが名乗る MCP プロトコル版。クライアントが別の版を要求しても
-/// この版で応答する（クライアント側が互換性を判断する）。
+/// The MCP protocol version this server claims to speak. Even if a client requests a different
+/// version, the server responds with this version (the client decides compatibility).
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// サーバー状態。ツールは無状態のため現状フィールドを持たない
-/// （initialize 前の tools/call も寛容に受け付ける）。
+/// Server state. Tools are stateless, so it currently has no fields
+/// (a `tools/call` before `initialize` is also accepted leniently).
 pub struct Server {}
 
 impl Server {
@@ -30,12 +29,11 @@ impl Server {
         Server {}
     }
 
-    /// 1 メッセージを処理し、返すべき応答があれば JSON 文字列で返す。
+    /// Handles a single message and returns the response as a JSON string, if one is required.
     ///
-    /// 通知（id なし）には `None` を返す。パース不能な行には JSON-RPC の
-    /// 規定どおり `-32700 Parse error`（id = null）を返す。バッチ
-    /// （トップレベル配列）は未対応のため、クライアントが無応答で
-    /// ハングしないよう `-32600 Invalid Request` を明示的に返す。
+    /// Returns `None` for notifications (no id). Returns `-32700 Parse error` (id = null) for
+    /// unparseable lines, per the JSON-RPC spec. Batches (top-level arrays) are unsupported, so
+    /// `-32600 Invalid Request` is returned explicitly to avoid leaving the client hanging with no response.
     pub fn handle_message(&mut self, line: &str) -> Option<String> {
         let msg: Value = match serde_json::from_str(line) {
             Ok(v) => v,
@@ -59,17 +57,17 @@ impl Server {
         let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
 
-        // 応答メッセージ（result/error を持ち method を持たない）は無視する。
+        // Ignore response messages (which have result/error but no method).
         if method.is_empty() {
             return None;
         }
 
         match (method, id) {
-            // ── 通知 ─────────────────────────────────────────────
+            // ── Notifications ─────────────────────────────────────────────
             ("notifications/initialized", None) => None,
-            (_, None) => None, // 未知の通知は無視
+            (_, None) => None, // Ignore unknown notifications
 
-            // ── リクエスト ───────────────────────────────────────
+            // ── Requests ───────────────────────────────────────
             ("initialize", Some(id)) => Some(ok_response(id, self.initialize()).to_string()),
             ("ping", Some(id)) => Some(ok_response(id, json!({})).to_string()),
             ("tools/list", Some(id)) => {
@@ -96,7 +94,7 @@ impl Server {
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
         match tools::call(name, &arguments) {
-            // ツール実行の成功。テキストコンテンツ 1 件で返す。
+            // Successful tool execution. Returned as a single text content item.
             Ok(text) => ok_response(
                 id,
                 json!({
@@ -104,8 +102,8 @@ impl Server {
                     "isError": false,
                 }),
             ),
-            // ツール実行時エラーは MCP の規定どおり isError: true の
-            // ツール結果として返す（プロトコルエラーにしない）。
+            // A tool execution error is returned as a tool result with isError: true,
+            // per the MCP spec (not treated as a protocol error).
             Err(tools::ToolError::Execution(msg)) => ok_response(
                 id,
                 json!({
@@ -113,7 +111,7 @@ impl Server {
                     "isError": true,
                 }),
             ),
-            // 未知のツール名はプロトコルエラー。
+            // An unknown tool name is a protocol error.
             Err(tools::ToolError::UnknownTool) => {
                 error_response(id, -32602, &format!("Unknown tool: {name}"))
             }
@@ -153,7 +151,7 @@ mod tests {
         assert_eq!(resp["result"]["serverInfo"]["name"], "tunny-mcp");
         assert!(resp["result"]["capabilities"]["tools"].is_object());
 
-        // initialized 通知は無応答。
+        // The initialized notification gets no response.
         assert!(s
             .handle_message(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
             .is_none());
@@ -181,7 +179,7 @@ mod tests {
         assert!(tools.contains(&"study_summary"), "{tools:?}");
         assert!(tools.contains(&"study_report"), "{tools:?}");
         assert!(tools.contains(&"trials"), "{tools:?}");
-        // 全ツールが inputSchema を持つこと。
+        // Every tool must have an inputSchema.
         for t in resp["result"]["tools"].as_array().unwrap() {
             assert_eq!(t["inputSchema"]["type"], "object", "tool={}", t["name"]);
         }
@@ -210,8 +208,8 @@ mod tests {
 
     #[test]
     fn batch_request_gets_explicit_invalid_request() {
-        // バッチ（配列）は未対応。無視するとクライアントが応答待ちで
-        // ハングするため、明示的に -32600 を返す。
+        // Batches (arrays) are unsupported. Ignoring them would leave the client hanging
+        // waiting for a response, so -32600 is returned explicitly.
         let mut s = Server::new();
         let resp = call(
             &mut s,
@@ -234,7 +232,7 @@ mod tests {
     #[test]
     fn tool_execution_error_is_iserror_result() {
         let mut s = Server::new();
-        // 存在しないストレージ → 実行エラー（isError: true のツール結果）。
+        // A nonexistent storage -> execution error (a tool result with isError: true).
         let resp = call(
             &mut s,
             r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_studies","arguments":{"storage":"/nonexistent/x.db"}}}"#,

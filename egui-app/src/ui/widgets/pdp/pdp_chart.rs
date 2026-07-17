@@ -7,15 +7,15 @@ use crate::theme::chart_colors::{
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use std::collections::HashMap;
 
-/// 観測点の分類（散布図系チャートと同じ配色規則で塗り分けるため）。
-/// 1D / 2D PDP の観測データオーバーレイで共用する。
+/// Classification of an observed point (colored using the same scheme as the scatter
+/// chart family). Shared by the observed-data overlays of 1D / 2D PDP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObservedKind {
-    /// パレートフロント（pareto_rank == 0）→ 赤
+    /// Pareto front (pareto_rank == 0) -> red
     Pareto,
-    /// 非パレートの実行可能解 → 青
+    /// Non-Pareto feasible solution -> blue
     NonPareto,
-    /// 実行不可能解 → グレー
+    /// Infeasible solution -> gray
     Infeasible,
 }
 
@@ -43,7 +43,8 @@ impl ObservedKind {
     ];
 }
 
-/// 実行可能性とパレートランクから観測点の分類を返す（他の散布図と同じ規則）
+/// Returns the observed-point classification from feasibility and Pareto rank (same
+/// rule as the other scatter plots)
 pub fn classify_observed(feasible: bool, pareto_rank: u32) -> ObservedKind {
     if !feasible {
         ObservedKind::Infeasible
@@ -54,13 +55,13 @@ pub fn classify_observed(feasible: bool, pareto_rank: u32) -> ObservedKind {
     }
 }
 
-/// 1D PDP 計算リクエスト（show() がセットし chart_registry が消費する）
+/// 1D PDP computation request (set by show() and consumed by chart_registry)
 pub struct PdpComputeRequest {
     pub param: String,
     pub objective: String,
     pub n_grid: usize,
     pub model_type: String,
-    /// 実行可能解（is_feasible > 0.5）のみでモデルをフィットするか
+    /// Whether to fit the model using only feasible trials (is_feasible > 0.5)
     pub feasible_only: bool,
 }
 
@@ -111,7 +112,7 @@ impl ModelType {
     }
 }
 
-/// PDP キャッシュキーを生成する
+/// Generates a PDP cache key
 pub fn cache_key(
     param: &str,
     objective: &str,
@@ -124,7 +125,7 @@ pub fn cache_key(
     )
 }
 
-/// R² 値の品質分類を返す
+/// Returns a quality classification for the R² value
 pub fn r2_quality(r2: f64) -> &'static str {
     if r2 > 0.8 {
         "Good"
@@ -135,13 +136,14 @@ pub fn r2_quality(r2: f64) -> &'static str {
     }
 }
 
-/// view + 選択インデックスから観測データ ([param, objective], 分類) を抽出する
-/// （テスト可能な純粋関数）
+/// Extracts observed data ([param, objective], classification) from the view + selected
+/// indices (a testable pure function)
 ///
-/// `selected_indices` が空の場合は全試行を対象とする。
-/// `selected_indices` / `pinned` のどちらかに trial_id が含まれる行のみを抽出する。
-/// NaN / Inf の値はスキップする。
-/// 分類は他の散布図と同じ規則（pareto_rank == 0 → Pareto、is_feasible <= 0.5 → Infeasible）。
+/// If `selected_indices` is empty, all trials are targeted.
+/// Only rows whose trial_id is included in `selected_indices` or `pinned` are extracted.
+/// NaN / Inf values are skipped.
+/// Classification follows the same rule as the other scatter plots (pareto_rank == 0 ->
+/// Pareto, is_feasible <= 0.5 -> Infeasible).
 pub fn extract_observed(
     view: &StudyView,
     obj_names: &[String],
@@ -181,7 +183,7 @@ pub fn extract_observed(
         .collect()
 }
 
-/// PDP チャートウィジェット
+/// PDP chart widget
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct PdpChart {
@@ -196,7 +198,7 @@ pub struct PdpChart {
     #[serde(skip)]
     pub cache: HashMap<String, PdpResult1d>,
     pub show_observed: bool,
-    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    /// Whether to fit the model using only feasible trials (UI shown only for constrained studies)
     pub feasible_only: bool,
     #[serde(skip)]
     pub pending_compute: Option<PdpComputeRequest>,
@@ -220,17 +222,18 @@ impl Default for PdpChart {
 }
 
 impl PdpChart {
-    /// グローバル widget の計算実行状態・結果・キャッシュを取り込む。
-    /// PDP 結果は widget 側（result/cache）に保持されるため、キャンバスの各アイテム
-    /// （独立した WidgetStates）にも反映しないと完了後も "No PDP data" のままになる。
-    /// パラメータ・目的関数・モデルなどの選択はアイテム固有なので維持する。
+    /// Adopts the computing state, result, and cache from the global widget.
+    /// The PDP result is held on the widget side (result/cache), so unless it is also
+    /// reflected onto each canvas item (independent WidgetStates), it stays stuck at
+    /// "No PDP data" even after completion. The parameter, objective, model, etc.
+    /// selections are item-specific and are preserved.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.result = src.result.clone();
         self.cache = src.cache.clone();
     }
 
-    /// キャッシュに結果を挿入する
+    /// Inserts a result into the cache
     pub fn insert_cache(
         &mut self,
         param: &str,
@@ -254,7 +257,7 @@ impl PdpChart {
         selected_indices: &[u32],
         pinned: &[u32],
     ) {
-        // パラメータ選択
+        // Parameter selection
         ui.horizontal(|ui| {
             ui.label("Parameter:");
             egui::ComboBox::from_id_salt("pdp_param_combo")
@@ -279,7 +282,7 @@ impl PdpChart {
                         }
                     });
             }
-            // モデル選択
+            // Model selection
             ui.label("Model:");
             egui::ComboBox::from_id_salt("pdp_model_combo")
                 .selected_text(self.model_type.label())
@@ -291,17 +294,17 @@ impl PdpChart {
                         }
                     }
                 });
-            // 観測データ表示トグル
+            // Toggle to show observed data
             ui.separator();
             ui.toggle_value(&mut self.show_observed, "Show data");
 
-            // 実行可能解フィルタ（制約付きスタディのみ）
+            // Feasible-only filter (constrained studies only)
             if view.feasibility().has_constraints() {
                 ui.toggle_value(&mut self.feasible_only, "Feasible only")
                     .on_hover_text("Fit the model using feasible trials only");
             }
 
-            // Run ボタン
+            // Run button
             ui.separator();
             let can_run =
                 !self.selected_param.is_empty() && !obj_names.is_empty() && !self.computing;
@@ -310,7 +313,7 @@ impl PdpChart {
                 .clicked()
             {
                 if let Some(obj_name) = obj_names.get(self.selected_objective) {
-                    // キャッシュヒットの場合は再計算せずにキャッシュから結果を取得
+                    // On a cache hit, fetch the result from the cache instead of recomputing
                     let cache_key_str = cache_key(
                         &self.selected_param,
                         obj_name,
@@ -350,7 +353,7 @@ impl PdpChart {
             return;
         };
 
-        // 観測データを事前計算（show_observed == false のときはゼロコスト）
+        // Pre-compute observed data (zero cost when show_observed == false)
         let observed = if self.show_observed {
             extract_observed(
                 view,
@@ -373,7 +376,7 @@ impl PdpChart {
         result: &PdpResult1d,
         observed: &[([f64; 2], ObservedKind)],
     ) {
-        // R² 表示
+        // Display R²
         if let Some(r2) = result.r2 {
             ui.label(format!("R²: {:.2} ({})", r2, r2_quality(r2)));
         }
@@ -383,9 +386,10 @@ impl PdpChart {
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
-                // 信頼区間バンド（グリッド区間ごとに凸四辺形を描画）
-                // egui_plot::Polygon はファン三角分割を使うため一枚の非凸ポリゴンでは
-                // 描画が崩れる。区間ごとの凸四辺形に分割することで正確に描画できる。
+                // Confidence-interval band (drawn as a convex quad per grid interval).
+                // egui_plot::Polygon uses fan triangulation, so a single non-convex
+                // polygon would render incorrectly; splitting into a convex quad per
+                // interval renders it accurately.
                 if let (Some(upper), Some(lower)) = (&result.y_upper, &result.y_lower) {
                     let fill = COLOR_PDP_CI();
                     let xs = &result.x_values;
@@ -404,7 +408,7 @@ impl PdpChart {
                         );
                     }
                 }
-                // 凡例エントリ（透明な点でラベルのみ表示）
+                // Legend entry (a transparent point used to show only the label)
                 if result.y_upper.is_some() {
                     plot_ui.points(
                         egui_plot::Points::new("95% CI", vec![[f64::NAN, f64::NAN]])
@@ -413,7 +417,7 @@ impl PdpChart {
                     );
                 }
 
-                // ICE ライン
+                // ICE lines
                 for ice in &result.ice_lines {
                     let pts: egui_plot::PlotPoints = result
                         .x_values
@@ -428,7 +432,7 @@ impl PdpChart {
                     );
                 }
 
-                // PDP 平均曲線
+                // PDP mean curve
                 let main_pts: egui_plot::PlotPoints = result
                     .x_values
                     .iter()
@@ -441,7 +445,8 @@ impl PdpChart {
                         .color(COLOR_PDP_LINE()),
                 );
 
-                // 観測データ散布図（最前面）。他の散布図と同じ配色で分類別に描く
+                // Observed-data scatter (frontmost). Drawn per classification with the
+                // same coloring as the other scatter plots
                 if self.show_observed && !observed.is_empty() {
                     for kind in ObservedKind::ALL {
                         let pts: Vec<[f64; 2]> = observed
@@ -469,8 +474,9 @@ mod tests {
 
     #[test]
     fn adopt_compute_state_propagates_result_and_clears_computing() {
-        // キャンバスのアイテムが Run で computing=true のまま、グローバル側の完了結果を
-        // 取り込むと spinner が解除され結果が描画される（描画されない不具合の回帰防止）。
+        // A canvas item left with computing=true from Run should clear its spinner and
+        // draw the result once it adopts the global side's completed result
+        // (regression guard against the "not drawn" bug).
         let mut item = PdpChart {
             computing: true,
             selected_param: "x1".to_string(),
@@ -503,7 +509,7 @@ mod tests {
         assert!(!item.computing);
         assert!(item.result.is_some());
         assert_eq!(item.cache.len(), 1);
-        // アイテム固有の選択は維持される。
+        // Item-specific selections are preserved.
         assert_eq!(item.selected_param, "x1");
         assert_eq!(item.selected_objective, 2);
     }
@@ -578,7 +584,7 @@ mod tests {
     #[test]
     fn extract_observed_missing_param() {
         let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
-        // "y" は view に存在しない → 空
+        // "y" does not exist in the view -> empty
         let pts = extract_observed(&view, &obj_names, "y", 0, &[], &[]);
         assert!(pts.is_empty());
     }
@@ -586,7 +592,7 @@ mod tests {
     #[test]
     fn extract_observed_out_of_range_obj() {
         let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
-        // obj_idx=5 は範囲外 → 空
+        // obj_idx=5 is out of range -> empty
         let pts = extract_observed(&view, &obj_names, "x", 5, &[], &[]);
         assert!(pts.is_empty());
     }
@@ -595,7 +601,7 @@ mod tests {
     fn classify_observed_matches_scatter_rules() {
         assert_eq!(classify_observed(true, 0), ObservedKind::Pareto);
         assert_eq!(classify_observed(true, 1), ObservedKind::NonPareto);
-        // 実行不可能はランクに関わらず Infeasible
+        // Infeasible regardless of rank
         assert_eq!(classify_observed(false, 0), ObservedKind::Infeasible);
         assert_eq!(classify_observed(false, 3), ObservedKind::Infeasible);
     }
@@ -632,13 +638,13 @@ mod tests {
 
     #[test]
     fn cache_key_different_feasible_flag_produces_different_key() {
-        // feasible_only の切替で別キャッシュエントリになる（stale ヒット防止）
+        // Toggling feasible_only produces a distinct cache entry (prevents stale hits)
         let k1 = cache_key("x", "obj0", "Ridge", false);
         let k2 = cache_key("x", "obj0", "Ridge", true);
         assert_ne!(k1, k2);
     }
 
-    // ── TASK-2237: PDP observed overlay 選択連動テスト ──────────
+    // ── TASK-2237: PDP observed overlay selection-linkage tests ──────────
 
     #[test]
     fn pdp_overlay_uses_filtered_rows_when_selection_exists() {

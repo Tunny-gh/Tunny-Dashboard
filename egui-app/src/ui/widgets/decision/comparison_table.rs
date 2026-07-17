@@ -1,25 +1,27 @@
-//! ピン留めした trial を横並びで比較する表ウィジェット。
+//! Table widget that compares pinned trials side by side.
 //!
-//! 行 = 目的関数 + (トグルで) 数値パラメータ + (トグルで) 数値ユーザー属性。
-//! 列 = ピン留めしたトライアル。目的関数の行は highlight_best が有効なとき、
-//! 方向（最小化/最大化）を考慮して最良セルを強調表示する。
-//! カテゴリカルパラメータは数値列を持たないため、`build_rows` で自動的に除外される
-//! （`trial_table` の全件一覧も同様に数値列のみを表示している）。
-//! 詳細は `theory/{en,ja}/widgets/comparison-table.md` を参照。
+//! Rows = objectives + (toggle) numeric parameters + (toggle) numeric user attrs.
+//! Columns = pinned trials. When `highlight_best` is enabled, objective rows
+//! highlight the best cell taking the direction (minimize/maximize) into account.
+//! Categorical parameters have no numeric column, so they are automatically
+//! excluded by `build_rows` (the full listing in `trial_table` likewise shows
+//! only numeric columns).
+//! See `theory/{en,ja}/widgets/comparison-table.md` for details.
 
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::COLOR_EMPTY_STATE;
 use crate::theme::ACCENT_BLUE;
 
-/// 比較表ウィジェットの UI 状態。計算キャッシュは持たない（表示のたびに軽量な再構築で十分なため）。
+/// UI state for the comparison table widget. No computation cache is kept
+/// (a lightweight rebuild on every display is cheap enough).
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ComparisonTableChart {
-    /// 数値パラメータも行に含めるか。
+    /// Whether to also include numeric parameters as rows.
     pub show_params: bool,
-    /// 数値ユーザー属性も行に含めるか。
+    /// Whether to also include numeric user attributes as rows.
     pub show_user_attrs: bool,
-    /// 目的関数行について、方向を考慮した最良セルを強調表示するか。
+    /// Whether to highlight the direction-aware best cell for objective rows.
     pub highlight_best: bool,
 }
 
@@ -33,24 +35,26 @@ impl Default for ComparisonTableChart {
     }
 }
 
-/// 行の種別。目的関数行だけが `highlight_best` の対象になる。
+/// Row kind. Only objective rows are subject to `highlight_best`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
-    /// `directions` 内のインデックス（反転判定に使う）。
+    /// Index into `directions` (used to determine whether to invert).
     Objective(usize),
     Parameter,
     UserAttr,
 }
 
-/// 表 1 行ぶんの情報（列の借用込み）。`show` と CSV エクスポートで共有する。
+/// Information for a single table row (including a borrow of the column).
+/// Shared between `show` and CSV export.
 pub struct RowInfo<'a> {
     pub label: &'a str,
     pub col: &'a [f64],
     pub kind: RowKind,
 }
 
-/// 行リストを構築する（目的関数 → 数値パラメータ → 数値ユーザー属性の順）。
-/// 数値列を持たない列（カテゴリカルパラメータなど）はスキップする。
+/// Builds the row list (order: objectives -> numeric parameters -> numeric
+/// user attributes). Columns without a numeric column (e.g. categorical
+/// parameters) are skipped.
 pub fn build_rows<'a>(
     view: &'a StudyView,
     param_names: &'a [String],
@@ -93,7 +97,7 @@ pub fn build_rows<'a>(
     rows
 }
 
-/// ピン留めトライアルのうち、現在の view に存在するものだけを `(trial_id, row_index)` で解決する。
+/// Resolves only the pinned trials that exist in the current view, as `(trial_id, row_index)` pairs.
 pub fn resolve_pinned_rows(view: &StudyView, pinned_trials: &[u32]) -> Vec<(u32, usize)> {
     pinned_trials
         .iter()
@@ -106,8 +110,8 @@ pub fn resolve_pinned_rows(view: &StudyView, pinned_trials: &[u32]) -> Vec<(u32,
         .collect()
 }
 
-/// ピン留め列順の値から、方向を考慮した最良セルのインデックスを返す。
-/// 非有限値は無視する。有限値が 1 つもなければ `None`。
+/// Returns the index of the direction-aware best cell among the pinned-column
+/// values. Non-finite values are ignored; returns `None` if there is no finite value.
 pub fn best_pin_index(values: &[f64], direction: &Direction) -> Option<usize> {
     let mut best: Option<(usize, f64)> = None;
     for (i, &v) in values.iter().enumerate() {

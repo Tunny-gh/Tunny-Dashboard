@@ -1,14 +1,15 @@
-//! Python (scikit-learn) との k-means クロスチェック用ハーネス。
+//! Harness for cross-checking k-means against Python (scikit-learn).
 //!
-//! k-means++ はシードが揃わないため厳密な数値一致は不可能。よく分離した
-//! 合成ブロブに対し「クラスタ割当がラベル置換を除いて一致」「inertia (wcss)
-//! がほぼ一致」を検証する方針。エルボー法の wcss 系列の単調減少性も出力する。
+//! Since k-means++ seeds can't be aligned, exact numeric agreement is impossible. The approach
+//! is to verify, on well-separated synthetic blobs, that "cluster assignments match modulo
+//! label permutation" and "inertia (wcss) nearly matches." Also outputs the elbow method's
+//! wcss series to check its monotonic decrease.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_kmeans`
+//! Run with: `cargo run -p tunny-core --example verify_kmeans`
 
 use tunny_core::clustering::{estimate_k_elbow, run_kmeans, InitStrategy};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {

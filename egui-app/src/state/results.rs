@@ -1,5 +1,5 @@
 // ============================================================
-// 分析結果型
+// Analysis result types
 // ============================================================
 
 #[derive(Debug, Clone)]
@@ -14,8 +14,8 @@ pub struct SensitivityResult {
     pub ard: Option<ArdResult>,
 }
 
-/// ARD（GP 長さスケール）由来のパラメータ重要度（1 目的分）。
-/// `importances[param]` は `param_names` と同順で、合計 1.0。
+/// Parameter importance derived from ARD (GP length scales), for one objective.
+/// `importances[param]` is in the same order as `param_names`, summing to 1.0.
 #[derive(Debug, Clone)]
 pub struct ArdResult {
     pub importances: Vec<f64>,
@@ -39,19 +39,19 @@ pub type MdiResult = TreeImportanceResult;
 pub type ShapResult = TreeImportanceResult;
 pub type PermutationResult = TreeImportanceResult;
 
-/// Sensitivity Heatmap 用の感度行列（1 手法分）。`values[param][objective]`。
-/// 手法ごとに `AppState::sensitivity_heatmap_cache` へ保持する。
+/// Sensitivity matrix for the Sensitivity Heatmap, for one method. `values[param][objective]`.
+/// Kept per method in `AppState::sensitivity_heatmap_cache`.
 #[derive(Debug, Clone)]
 pub struct HeatmapMatrix {
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
     pub values: Vec<Vec<f64>>,
-    /// 符号付き（発散表示）か非負（逐次表示・列正規化）か。
+    /// Whether values are signed (diverging display) or non-negative (sequential display, column-normalized).
     pub signed: bool,
 }
 
 impl HeatmapMatrix {
-    /// 行列の次元が param_names / objective_names と整合しているか。
+    /// Whether the matrix's dimensions are consistent with param_names / objective_names.
     pub fn is_well_formed(&self) -> bool {
         !self.param_names.is_empty()
             && !self.objective_names.is_empty()
@@ -91,7 +91,8 @@ pub struct VikorResult {
     pub q_values: Vec<f64>,
     pub display_scores: Vec<f64>,
     pub ranked_indices: Vec<u32>,
-    /// 妥協解集合（C1/C2, Opricovic & Tzeng 2004）。Q昇順の元トライアルインデックス。
+    /// Compromise solution set (C1/C2, Opricovic & Tzeng 2004). Original trial
+    /// indices, sorted ascending by Q.
     pub compromise_indices: Vec<usize>,
     pub duration_ms: f64,
 }
@@ -211,14 +212,16 @@ impl McdmResult {
     }
 }
 
-/// 参照点を正規化空間と元の目的値空間の間で変換する。
+/// Converts a reference point between normalized space and the original objective-value space.
 ///
-/// 正規化は「最小化目的はそのまま、最大化目的は符号反転」。この写像は成分ごとに
-/// 自身が逆写像になっているため、`original→normalized` と `normalized→original` の
-/// 双方に同じ関数を使える。`is_minimize` が足りない成分は最小化として扱う。
+/// Normalization means "minimize objectives are kept as-is, maximize objectives
+/// are sign-flipped." Since this mapping is its own inverse component-wise, the
+/// same function can be used for both `original -> normalized` and
+/// `normalized -> original`. Components missing from `is_minimize` are treated
+/// as minimize.
 ///
-/// 呼び出し側は方向を明示するため `ref_point_to_normalized` /
-/// `ref_point_to_original` を使う（こちらは内部実装）。
+/// Callers should use `ref_point_to_normalized` / `ref_point_to_original` to
+/// make the direction explicit (this is the internal implementation).
 fn convert_ref_point(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
     ref_point
         .iter()
@@ -233,43 +236,45 @@ fn convert_ref_point(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
         .collect()
 }
 
-/// 正規化空間の参照点を元の目的値の単位へ戻す（表示用）。
+/// Converts a reference point from normalized space back into original objective-value units (for display).
 pub fn ref_point_to_original(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
     convert_ref_point(ref_point, is_minimize)
 }
 
-/// 元の目的値の参照点を正規化空間へ変換する（計算入力用）。
+/// Converts a reference point in original objective-value units into normalized space (for computation input).
 pub fn ref_point_to_normalized(ref_point: &[f64], is_minimize: &[bool]) -> Vec<f64> {
     convert_ref_point(ref_point, is_minimize)
 }
 
-/// 収束指標推移データ（HV / IGD+ / ε / R2 共通）
+/// Convergence metric history data (shared by HV / IGD+ / eps / R2).
 #[derive(Debug, Clone)]
 pub struct ConvergenceHistory {
     pub trial_ids: Vec<u32>,
     pub values: Vec<f64>,
-    /// ダウンサンプリングのステップ幅（1 = 全点）
+    /// Downsampling step size (1 = every point).
     pub sample_step: usize,
-    /// HV 計算に使用した参照点（元の目的値の単位。目的ごと）。
-    /// 単目的など HV を計算しない場合は空。
+    /// Reference point used for the HV computation (in original objective-value
+    /// units, per objective). Empty when HV is not computed (e.g. single objective).
     pub ref_point: Vec<f64>,
 }
 
 // ============================================================
-// ライブ更新状態
+// Live update state
 // ============================================================
 
-/// ライブ更新対象のストレージ種別。ポーラーの実装（journal: バイトオフセット差分 /
-/// sqlite・rdb: フィンガープリント + 単一 Study 丸ごと再ロード）を切り替えるために使う。
-/// ファイルロード時（`AppMessage::JournalParsed` 処理）に確定する。
+/// The storage kind targeted by live update. Used to switch between poller
+/// implementations (journal: byte-offset diffing / sqlite, rdb: fingerprint +
+/// full reload of a single Study). Determined at file load time (while
+/// handling `AppMessage::JournalParsed`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LiveUpdateStorageKind {
     #[default]
     Journal,
     Sqlite,
-    /// PostgreSQL/MySQL 接続 URL（`journal_path` に URL 文字列として格納）。
-    /// フィンガープリント取得・再ロードは `Sqlite` と同型だが、接続先が
-    /// ファイルパスではなく `RdbUrl` である点が異なる（`RdbLivePoller` が担当）。
+    /// A PostgreSQL/MySQL connection URL (stored as a URL string in
+    /// `journal_path`). Fingerprint retrieval / reload follows the same
+    /// pattern as `Sqlite`, but the target is an `RdbUrl` rather than a file
+    /// path (handled by `RdbLivePoller`).
     Rdb,
 }
 
@@ -279,8 +284,8 @@ pub struct LiveUpdateState {
     pub interval_ms: u64,
     pub poller_active: bool,
     pub showing_completion_hint: bool,
-    /// 現在開いているファイルのストレージ種別（journal / sqlite）。
-    /// sqlite はバイトオフセット差分が使えないため、ポーラーの実装を切り替える。
+    /// Storage kind of the currently open file (journal / sqlite).
+    /// sqlite can't use byte-offset diffing, so the poller implementation switches.
     pub storage_kind: LiveUpdateStorageKind,
 }
 
@@ -309,7 +314,7 @@ impl Default for LiveUpdateState {
 }
 
 // ============================================================
-// テスト
+// Tests
 // ============================================================
 
 #[cfg(test)]
@@ -318,7 +323,7 @@ mod tests {
 
     #[test]
     fn convert_ref_point_is_self_inverse_per_component() {
-        // 最小化はそのまま、最大化は符号反転。往復で元に戻る。
+        // Minimize is kept as-is, maximize is sign-flipped. A round trip returns the original.
         let original = vec![3.0, 7.0];
         let is_min = vec![true, false];
         let norm = ref_point_to_normalized(&original, &is_min);
@@ -330,7 +335,7 @@ mod tests {
     #[test]
     fn convert_ref_point_defaults_missing_dirs_to_minimize() {
         let v = vec![1.0, 2.0];
-        let is_min: Vec<bool> = vec![]; // 不足 → 最小化扱い（符号維持）
+        let is_min: Vec<bool> = vec![]; // missing -> treated as minimize (sign kept)
         assert_eq!(ref_point_to_normalized(&v, &is_min), v);
     }
 

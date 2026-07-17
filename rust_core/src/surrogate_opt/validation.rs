@@ -1,4 +1,4 @@
-//! サロゲートモデルのホールドアウト＋k-fold CV 検証。
+//! Holdout + k-fold CV validation for surrogate models.
 
 use crate::pdp::utils::r_squared;
 use rayon::prelude::*;
@@ -7,56 +7,65 @@ use super::models::{fit_surrogate, SurrogateModelKind};
 use super::progress::FitProgress;
 use crate::math::rng::SeededRng;
 
-/// 1 fold の CV 結果（並列評価してから fold 順に集約するための中間表現）。
+/// Result of a single CV fold (an intermediate form for aggregating in fold
+/// order after parallel evaluation).
 struct FoldOutcome {
-    /// OOF (実測, 予測) ペア（この fold の検証点、`cv_val_indices` 順）。
+    /// OOF (actual, predicted) pairs (this fold's validation points, in
+    /// `cv_val_indices` order).
     oof: Vec<(f64, f64)>,
-    /// 各 OOF 点がパレートフロント（rank 0）の trial か。
+    /// Whether each OOF point belongs to the Pareto front (rank 0) trial.
     is_front: Vec<bool>,
-    /// この fold の検証 RMSE（縮退 fold でも算出する）。
+    /// This fold's validation RMSE (computed even for degenerate folds).
     rmse: f64,
-    /// この fold の検証 R²（点数 < 2 または分散ゼロの縮退 fold は `None`）。
+    /// This fold's validation R² (`None` for degenerate folds with < 2 points
+    /// or zero variance).
     r2: Option<f64>,
 }
 
-/// ホールドアウト + k-fold CV によるサロゲートモデルの検証レポート。
+/// Validation report for a surrogate model via holdout + k-fold CV.
 #[derive(Debug, Clone)]
 pub struct SurrogateValidationReport {
     pub n_samples: usize,
-    /// ホールドアウト分割の訓練側サンプル数（全体の 8 割）。
+    /// Number of training samples in the holdout split (80% of the total).
     pub n_train: usize,
-    /// ホールドアウト分割のテスト側サンプル数（全体の 2 割）。
+    /// Number of test samples in the holdout split (20% of the total).
     pub n_test: usize,
-    /// 全データで学習した最終モデルの訓練 R²（元の単位）。
+    /// Training R² of the final model trained on all data (original units).
     pub train_r2: f64,
-    /// 8:2 ホールドアウト: 80% で学習し、残り 20% に対する R²。
+    /// 80:20 holdout: R² on the remaining 20%, trained on the other 80%.
     pub holdout_r2: f64,
-    /// 同テストデータに対する RMSE（元の単位）。
+    /// RMSE on the same test data (original units).
     pub holdout_rmse: f64,
-    /// CV の fold 数（データが少ない場合は 5 未満になりうる）。
+    /// Number of CV folds (can be fewer than 5 when data is scarce).
     pub cv_folds: usize,
-    /// fold ごとの検証 R² の平均と標準偏差（母標準偏差）。
+    /// Mean and standard deviation of per-fold validation R² (population std).
     pub cv_r2_mean: f64,
     pub cv_r2_std: f64,
-    /// fold ごとの検証 RMSE の平均と標準偏差。
+    /// Mean and standard deviation of per-fold validation RMSE.
     pub cv_rmse_mean: f64,
     pub cv_rmse_std: f64,
-    /// out-of-fold の (実測値, 予測値) ペア（元の単位、予測 vs 実測プロット用）。
+    /// Out-of-fold (actual, predicted) pairs (original units, for predicted
+    /// vs. actual plots).
     pub oof_pairs: Vec<(f64, f64)>,
-    /// `oof_pairs` と同順で、その点がパレートフロント（多目的 rank 0）の trial か。
-    /// 多目的フィットのみ非空（単目的フィットや Auto 選択時の検証では全要素なし）。
-    /// フロント近傍の近似度を散布図で色分けするために使う。
+    /// Same order as `oof_pairs`; whether each point belongs to the Pareto
+    /// front (multi-objective rank 0) trial. Non-empty only for
+    /// multi-objective fits (empty for single-objective fits or validation
+    /// under Auto selection). Used to color-code fit quality near the front
+    /// in scatter plots.
     pub oof_is_front: Vec<bool>,
-    /// パレートフロント点のみで算出した OOF R²（フロント点が 2 点未満／分散ゼロなら None）。
+    /// OOF R² computed using only Pareto front points (None if fewer than 2
+    /// front points or zero variance).
     pub front_r2: Option<f64>,
-    /// パレートフロント点のみで算出した OOF RMSE（フロント点が無ければ None）。
+    /// OOF RMSE computed using only Pareto front points (None if there are no
+    /// front points).
     pub front_rmse: Option<f64>,
 }
 
 #[cfg(test)]
 impl SurrogateValidationReport {
-    /// テスト用のプレースホルダ検証レポート（解析的モックサロゲートに添える）。
-    /// 検証は行わない（曲面が既知のため）ので、R² 系は完全フィットを表す 1.0 を入れる。
+    /// A placeholder validation report for tests, to attach to the analytic
+    /// mock surrogate. No validation is performed (since the surface is
+    /// known), so the R² fields are set to 1.0 to represent a perfect fit.
     pub(crate) fn placeholder() -> Self {
         SurrogateValidationReport {
             n_samples: 0,
@@ -78,7 +87,7 @@ impl SurrogateValidationReport {
     }
 }
 
-/// RMSE を計算する（元の単位）。
+/// Computes RMSE (original units).
 fn rmse(actual: &[f64], pred: &[f64]) -> f64 {
     let n = actual.len();
     if n == 0 {
@@ -93,7 +102,7 @@ fn rmse(actual: &[f64], pred: &[f64]) -> f64 {
     mse.sqrt()
 }
 
-/// 母標準偏差を計算する。
+/// Computes the population standard deviation.
 fn population_std(values: &[f64]) -> f64 {
     let n = values.len();
     if n == 0 {
@@ -104,16 +113,18 @@ fn population_std(values: &[f64]) -> f64 {
     var.sqrt()
 }
 
-/// 指定モデルに対してホールドアウト＋k-fold CV を実施し、検証レポートを返す。
+/// Runs holdout + k-fold CV for the given model kind and returns a validation
+/// report.
 ///
-/// - シャッフルは `seed` を用いた ChaCha8 RNG で決定論的に実施する。
-/// - ホールドアウト: n_test = max(1, round(n × 0.2)) 点をテストに使用する。
-/// - k-fold CV: k = min(5, n)。fold へのアサインはシャッフル後の round-robin。
-///   縮退 fold（点数 < 2 または分散ゼロ）は R² 平均・標準偏差から除外するが、
-///   OOF ペアと RMSE には含める。
+/// - Shuffling is done deterministically with a ChaCha8 RNG seeded by `seed`.
+/// - Holdout: n_test = max(1, round(n × 0.2)) points are used for the test set.
+/// - k-fold CV: k = min(5, n). Fold assignment is round-robin after shuffling.
+///   Degenerate folds (< 2 points or zero variance) are excluded from the R²
+///   mean/std but are still included in the OOF pairs and RMSE.
 ///
-/// `train_r2` は呼び出し元（`fit_surrogate_with_validation`）が全データモデルの
-/// 値で上書きするため、ここでは 0.0 を返す。
+/// `train_r2` is returned as 0.0 here, since the caller
+/// (`fit_surrogate_with_validation`) overwrites it with the value from the
+/// full-data model.
 #[cfg(test)]
 pub(crate) fn validate_surrogate(
     kind: SurrogateModelKind,
@@ -124,9 +135,10 @@ pub(crate) fn validate_surrogate(
     validate_surrogate_tracked(kind, x_matrix, y, seed, &FitProgress::default())
 }
 
-/// [`validate_surrogate`] と同じだが、各モデル学習の境界で `progress` を更新し、
-/// キャンセル要求があれば早期に `Err` を返す。学習回数（ホールドアウト 1 + CV k 回）
-/// だけ [`FitProgress::inc_done`] を呼ぶ。段階ラベルは呼び出し側が設定する。
+/// Same as [`validate_surrogate`], but updates `progress` at the boundary of
+/// each model training step, returning `Err` early if cancellation is
+/// requested. Calls [`FitProgress::inc_done`] once per training run (1 holdout
+/// + k CV runs). The caller sets the stage label.
 pub(crate) fn validate_surrogate_tracked(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
@@ -137,9 +149,10 @@ pub(crate) fn validate_surrogate_tracked(
     validate_surrogate_tracked_front(kind, x_matrix, y, seed, &[], progress)
 }
 
-/// [`validate_surrogate_tracked`] と同じだが、`front_rows`（パレートフロント = rank 0 の
-/// 行 index、`x_matrix` への index）を受け取り、各 OOF 点がフロントかを記録して
-/// フロント点のみの R²/RMSE も算出する。多目的フィットでフロント近傍の近似度を示すため。
+/// Same as [`validate_surrogate_tracked`], but takes `front_rows` (Pareto
+/// front = rank 0 row indices, indexing into `x_matrix`), records whether each
+/// OOF point is on the front, and also computes R²/RMSE for front points
+/// only. Used to show fit quality near the front for multi-objective fits.
 pub(crate) fn validate_surrogate_tracked_front(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
@@ -152,12 +165,12 @@ pub(crate) fn validate_surrogate_tracked_front(
     let front_set: HashSet<usize> = front_rows.iter().copied().collect();
     let n = y.len();
 
-    // シャッフル済みインデックスを生成する。
+    // Generate shuffled indices.
     let mut indices: Vec<usize> = (0..n).collect();
     let mut rng = SeededRng::from_seed(seed);
     rng.shuffle(&mut indices);
 
-    // ---- ホールドアウト ----
+    // ---- Holdout ----
     let n_test = ((n as f64 * 0.2).round() as usize).max(1);
     let n_train = n - n_test;
 
@@ -188,7 +201,7 @@ pub(crate) fn validate_surrogate_tracked_front(
     // ---- k-fold CV ----
     let k = n.min(5);
 
-    // シャッフル済みインデックスを round-robin で k fold に割り当てる。
+    // Assign shuffled indices to k folds via round-robin.
     let mut fold_indices: Vec<Vec<usize>> = vec![Vec::new(); k];
     for (pos, &idx) in indices.iter().enumerate() {
         fold_indices[pos % k].push(idx);
@@ -199,13 +212,14 @@ pub(crate) fn validate_surrogate_tracked_front(
     let mut cv_r2_values: Vec<f64> = Vec::with_capacity(k);
     let mut cv_rmse_values: Vec<f64> = Vec::with_capacity(k);
 
-    // 各 fold の学習は互いに独立で RNG も共有しないため rayon で並列化する。
-    // 結果は fold 順に集約するので OOF ペア・スコアの順序は逐次実行と一致する
-    // （固定シードでの再現性を維持）。progress の inc_done はアトミックで順序非依存。
+    // Each fold's training is independent and shares no RNG, so we parallelize
+    // with rayon. Results are aggregated in fold order, so the OOF pair/score
+    // order matches sequential execution (preserving reproducibility for a
+    // fixed seed). `progress`'s inc_done is atomic and order-independent.
     let fold_outcomes: Vec<FoldOutcome> = (0..k)
         .into_par_iter()
         .map(|fold| -> Result<FoldOutcome, String> {
-            // fold 以外を訓練に使用する。
+            // Use every fold except this one for training.
             let cv_train_indices: Vec<usize> = (0..k)
                 .filter(|&f| f != fold)
                 .flat_map(|f| fold_indices[f].iter().copied())
@@ -236,7 +250,7 @@ pub(crate) fn validate_surrogate_tracked_front(
                 })
                 .collect();
 
-            // OOF ペアを収集する（元の行 index でフロント所属も記録）。
+            // Collect OOF pairs (also record front membership by original row index).
             let mut oof = Vec::with_capacity(cv_val_indices.len());
             let mut is_front = Vec::with_capacity(cv_val_indices.len());
             for ((&idx, &actual), &predicted) in cv_val_indices
@@ -248,10 +262,10 @@ pub(crate) fn validate_surrogate_tracked_front(
                 is_front.push(front_set.contains(&idx));
             }
 
-            // fold RMSE（縮退 fold でも含める）。
+            // Fold RMSE (included even for degenerate folds).
             let rmse_fold = rmse(&cv_val_y, &cv_pred);
 
-            // 縮退 fold（点数 < 2 または分散ゼロ）は R² から除外する。
+            // Exclude degenerate folds (< 2 points or zero variance) from R².
             let r2_fold = if cv_val_y.len() < 2 {
                 None
             } else {
@@ -273,7 +287,7 @@ pub(crate) fn validate_surrogate_tracked_front(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    // fold 順に集約する（逐次実行時と同じ並び）。
+    // Aggregate in fold order (same ordering as sequential execution).
     for outcome in fold_outcomes {
         oof_pairs.extend(outcome.oof);
         oof_is_front.extend(outcome.is_front);
@@ -283,7 +297,7 @@ pub(crate) fn validate_surrogate_tracked_front(
         }
     }
 
-    // CV R² の平均・標準偏差（有効 fold のみ）。
+    // Mean and standard deviation of CV R² (valid folds only).
     let cv_r2_mean = if cv_r2_values.is_empty() {
         0.0
     } else {
@@ -291,7 +305,7 @@ pub(crate) fn validate_surrogate_tracked_front(
     };
     let cv_r2_std = population_std(&cv_r2_values);
 
-    // CV RMSE の平均・標準偏差（全 fold）。
+    // Mean and standard deviation of CV RMSE (all folds).
     let cv_rmse_mean = if cv_rmse_values.is_empty() {
         0.0
     } else {
@@ -299,7 +313,7 @@ pub(crate) fn validate_surrogate_tracked_front(
     };
     let cv_rmse_std = population_std(&cv_rmse_values);
 
-    // パレートフロント点のみの OOF R²/RMSE（フロント近傍の近似度）。
+    // OOF R²/RMSE using only Pareto front points (fit quality near the front).
     let front_actual: Vec<f64> = oof_pairs
         .iter()
         .zip(oof_is_front.iter())
@@ -333,7 +347,7 @@ pub(crate) fn validate_surrogate_tracked_front(
         n_samples: n,
         n_train,
         n_test,
-        train_r2: 0.0, // 呼び出し元が全データモデルの値で上書きする。
+        train_r2: 0.0, // Overwritten by the caller with the full-data model's value.
         holdout_r2,
         holdout_rmse,
         cv_folds: k,

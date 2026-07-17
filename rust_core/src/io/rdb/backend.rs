@@ -1,10 +1,12 @@
-//! Optuna RDB バックエンド抽象化。
+//! Optuna RDB backend abstraction.
 //!
-//! SQLite / PostgreSQL / MySQL の方言差分（値の型表現、テーブル存在確認、
-//! 日時の文字列化）をこの trait に隔離し、クエリ組み立てロジック本体
-//! （`generic.rs`）はバックエンド非依存にする。
+//! Isolates the dialect differences between SQLite / PostgreSQL / MySQL (value
+//! type representation, table-existence checks, datetime stringification)
+//! behind this trait, keeping the query-building logic itself (`generic.rs`)
+//! backend-agnostic.
 
-/// 行の各カラム値。ドライバ毎の型差を吸収する最小の共通表現。
+/// A single column value in a row. The minimal common representation that
+/// absorbs the type differences between drivers.
 #[derive(Debug, Clone)]
 pub enum SqlValue {
     Null,
@@ -14,7 +16,7 @@ pub enum SqlValue {
 }
 
 impl SqlValue {
-    /// `I64` のみを取り出す（型不一致・NULL は `None`）。
+    /// Extracts only `I64` (returns `None` on type mismatch or NULL).
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             SqlValue::I64(v) => Some(*v),
@@ -22,8 +24,8 @@ impl SqlValue {
         }
     }
 
-    /// `F64` を取り出す。`I64` は f64 へ変換して許容する
-    /// （MySQL 等のドライバが DOUBLE 列を Int で返す場合があるための coercion）。
+    /// Extracts `F64`. `I64` is also accepted by converting it to f64
+    /// (coercion for drivers such as MySQL's that may return a DOUBLE column as Int).
     #[allow(clippy::cast_precision_loss)]
     pub fn as_f64(&self) -> Option<f64> {
         match self {
@@ -33,7 +35,7 @@ impl SqlValue {
         }
     }
 
-    /// `Text` のみを取り出す（型不一致・NULL は `None`）。
+    /// Extracts only `Text` (returns `None` on type mismatch or NULL).
     pub fn as_text(&self) -> Option<&str> {
         match self {
             SqlValue::Text(v) => Some(v.as_str()),
@@ -41,7 +43,7 @@ impl SqlValue {
         }
     }
 
-    /// `Text` を所有権ごと取り出す（型不一致・NULL は `None`）。
+    /// Extracts `Text` by ownership (returns `None` on type mismatch or NULL).
     pub fn into_text(self) -> Option<String> {
         match self {
             SqlValue::Text(v) => Some(v),
@@ -50,25 +52,28 @@ impl SqlValue {
     }
 }
 
-/// クエリパラメータ。canonical `?` プレースホルダに対応する値。
+/// A query parameter. A value bound to a canonical `?` placeholder.
 #[derive(Debug, Clone)]
 pub enum SqlParam {
     I64(i64),
     Text(String),
 }
 
-/// Optuna RDBStorage を読むために必要な最小限のバックエンド操作。
+/// The minimal set of backend operations needed to read Optuna's RDBStorage.
 ///
-/// クエリ組み立てロジック（`generic.rs`）はこの trait だけに依存し、
-/// SQLite/PostgreSQL/MySQL の接続・型変換の差分はここに閉じ込める。
+/// The query-building logic (`generic.rs`) depends only on this trait, and the
+/// connection/type-conversion differences between SQLite/PostgreSQL/MySQL are
+/// confined here.
 pub trait OptunaBackend {
-    /// canonical `?` プレースホルダの SQL を実行し、1 行ずつ `on_row` へ渡す。
+    /// Executes SQL with canonical `?` placeholders and passes each row to `on_row`.
     ///
-    /// trials / trial_params / trial_values 等の大量行を読む経路で、全行を
-    /// `Vec<Vec<SqlValue>>` に一括マテリアライズせず（巨大 DB での OOM を避けるため）
-    /// 行単位でコールバックへ流し込むための基幹メソッド。`on_row` が `Err` を返した
-    /// 時点で走査を打ち切りそのエラーを伝播する（行の型不一致等の早期中断に使う）。
-    /// 各バックエンドはドライバのカーソル/イテレータで可能な限りストリーミングする。
+    /// The core method used on the path that reads large numbers of rows, such
+    /// as trials / trial_params / trial_values, to stream rows into the callback
+    /// one at a time instead of materializing all rows at once into a
+    /// `Vec<Vec<SqlValue>>` (to avoid OOM on huge DBs). Once `on_row` returns
+    /// `Err`, iteration stops and that error is propagated (used for early
+    /// abort on things like a row type mismatch). Each backend streams as much
+    /// as possible via the driver's cursor/iterator.
     fn query_for_each(
         &mut self,
         sql: &str,
@@ -76,9 +81,10 @@ pub trait OptunaBackend {
         on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
     ) -> Result<(), String>;
 
-    /// canonical `?` プレースホルダの SQL を実行し全行を返す。
-    /// 集計クエリ（`COUNT`/`MAX` 等、行数が小さい経路）向けの利便メソッド。
-    /// 既定実装は [`query_for_each`](Self::query_for_each) で 1 行ずつ収集する。
+    /// Executes SQL with canonical `?` placeholders and returns all rows.
+    /// A convenience method for aggregate queries (`COUNT`/`MAX` etc., paths
+    /// with a small row count). The default implementation collects rows one
+    /// at a time via [`query_for_each`](Self::query_for_each).
     fn query(&mut self, sql: &str, params: &[SqlParam]) -> Result<Vec<Vec<SqlValue>>, String> {
         let mut rows: Vec<Vec<SqlValue>> = Vec::new();
         self.query_for_each(sql, params, &mut |row| {
@@ -88,11 +94,12 @@ pub trait OptunaBackend {
         Ok(rows)
     }
 
-    /// テーブル存在確認（方言依存）。
+    /// Checks whether a table exists (dialect-dependent).
     ///
-    /// 既定実装は `information_schema.tables` を [`current_schema_expr`](Self::current_schema_expr)
-    /// で修飾して引く（PostgreSQL / MySQL 共通）。SQLite のように `information_schema` を
-    /// 持たないバックエンドはこのメソッドをまるごとオーバーライドする。
+    /// The default implementation looks it up in `information_schema.tables`,
+    /// qualified by [`current_schema_expr`](Self::current_schema_expr) (common
+    /// to PostgreSQL / MySQL). Backends without `information_schema`, such as
+    /// SQLite, override this method entirely.
     fn table_exists(&mut self, table: &str) -> Result<bool, String> {
         let sql = format!(
             "SELECT 1 FROM information_schema.tables \
@@ -103,17 +110,19 @@ pub trait OptunaBackend {
         Ok(!rows.is_empty())
     }
 
-    /// `table_exists` の既定実装で「現在のスキーマ」を表す SQL 式（方言 hook）。
-    /// 既定は PostgreSQL の `current_schema()`。MySQL は `DATABASE()` にオーバーライドする。
+    /// The SQL expression representing "the current schema" used by
+    /// `table_exists`'s default implementation (a dialect hook). Defaults to
+    /// PostgreSQL's `current_schema()`. MySQL overrides it to `DATABASE()`.
     fn current_schema_expr(&self) -> &'static str {
         "current_schema()"
     }
 
-    /// 式をテキストへキャストする SQL 断片。既定は `CAST({expr} AS TEXT)`。
+    /// A SQL fragment that casts an expression to text. Defaults to `CAST({expr} AS TEXT)`.
     ///
-    /// `datetime_start` / `datetime_complete` の読み出しに使う（SQLite は TEXT だが
-    /// PostgreSQL/MySQL はネイティブ timestamp のため、文字列化してから共通コードへ
-    /// 渡すことで型差を吸収する）。MySQL は `CAST({expr} AS CHAR)` にオーバーライドする。
+    /// Used when reading `datetime_start` / `datetime_complete` (SQLite stores
+    /// them as TEXT, but PostgreSQL/MySQL use a native timestamp type, so
+    /// stringifying before passing to the common code absorbs the type
+    /// difference). MySQL overrides it to `CAST({expr} AS CHAR)`.
     fn text_cast(&self, expr: &str) -> String {
         format!("CAST({expr} AS TEXT)")
     }

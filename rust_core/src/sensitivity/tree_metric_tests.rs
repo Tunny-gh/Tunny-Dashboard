@@ -1,4 +1,5 @@
-//! TASK-2260: RfAnovaMetric・MdiMetric・ShapMetric・PermutationMetric の SensitivityMetric トレイト実装テスト
+//! TASK-2260: Tests for the SensitivityMetric trait implementations of RfAnovaMetric, MdiMetric,
+//! ShapMetric, and PermutationMetric
 
 use super::compute_sensitivity_single_obj;
 use super::metric_trait::SensitivityMetric;
@@ -42,7 +43,7 @@ fn large_df(n: usize) -> DataFrame {
 }
 
 // ===========================================================================
-// name() テスト
+// name() tests
 // ===========================================================================
 
 #[test]
@@ -66,7 +67,7 @@ fn tc_2260_04_permutation_metric_name() {
 }
 
 // ===========================================================================
-// compute() 正常系: Some が返り正しいフィールドが設定される
+// compute() happy path: returns Some with the correct fields set
 // ===========================================================================
 
 #[test]
@@ -152,7 +153,7 @@ fn tc_2260_08_permutation_compute_valid() {
 }
 
 // ===========================================================================
-// compute() 異常系: データ不足で None を返す
+// compute() error path: returns None when data is insufficient
 // ===========================================================================
 
 #[test]
@@ -226,7 +227,7 @@ fn tc_2260_14_all_metrics_empty_data_n0() {
 }
 
 // ===========================================================================
-// compute() 結果が legacy compute_sensitivity_single_obj と一致する
+// compute() results match the legacy compute_sensitivity_single_obj
 // ===========================================================================
 
 #[test]
@@ -360,7 +361,7 @@ fn tc_2260_18_permutation_matches_new_api() {
 }
 
 // ===========================================================================
-// トレイトオブジェクト経由の動的ディスパッチ
+// Dynamic dispatch via trait objects
 // ===========================================================================
 
 #[test]

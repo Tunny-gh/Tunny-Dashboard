@@ -1,8 +1,9 @@
-//! NDSort・Hypervolume
+//! NDSort / Hypervolume
 //!
-//! パレートランク（Fast Non-dominated Sort）、パレート前面の Hypervolume
-//! （2D は区間和、3D 以上は WFG）、および試行順の HV 推移を提供する。
-//! 最大化目的は内部で符号反転し、最小化に統一した空間で計算する。
+//! Provides Pareto rank (Fast Non-dominated Sort), the Hypervolume of the Pareto front
+//! (interval sum for 2D, WFG for 3D and above), and the HV trajectory in trial order.
+//! Maximize objectives have their sign flipped internally, and computation happens in a
+//! space unified to minimization.
 //!
 //! Reference: docs/implements/TASK-201/pareto-requirements.md
 

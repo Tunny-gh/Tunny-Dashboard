@@ -20,85 +20,109 @@ pub struct AppState {
     pub selected_indices: Vec<u32>,
     pub filter_ranges: HashMap<String, (f64, f64)>,
     pub highlighted_trial: Option<u32>,
-    /// 感度分析（単一目的）の結果キャッシュ。キーは (手法 id, 目的 idx, feasible_only)。
+    /// Result cache for sensitivity analysis (single objective). Key is (method id,
+    /// objective idx, feasible_only).
     pub importance_cache: HashMap<(u8, usize, bool), SensitivityResult>,
-    /// Sobol 指数の結果キャッシュ。キーは (目的 idx, feasible_only)。
+    /// Result cache for Sobol indices. Key is (objective idx, feasible_only).
     pub sobol_cache: HashMap<(usize, bool), SobolResult>,
-    /// Sensitivity Heatmap の結果キャッシュ。手法 id（`ImportanceMetric::cache_id`）と
-    /// feasible_only ごとに全パラメータ × 全目的の行列を保持し、各アイテムが共有する。
+    /// Result cache for the Sensitivity Heatmap. Holds an all-parameters x
+    /// all-objectives matrix per (method id (`ImportanceMetric::cache_id`),
+    /// feasible_only), shared by each item.
     pub sensitivity_heatmap_cache: HashMap<(u8, bool), HeatmapMatrix>,
-    /// クラスタリング結果のキャッシュ。設定キー（対象空間 / k / モード / Init）ごとに
-    /// 計算結果を保持し、2D / 3D / Table が各自の設定で参照・共有する。
+    /// Result cache for clustering. Holds computation results per settings key
+    /// (target space / k / mode / Init), referenced and shared by 2D / 3D / Table
+    /// with their own settings.
     pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
     pub live_update: LiveUpdateState,
-    /// 最後に計算した MCDM 結果。McdmScore カラーモードの色付け基準として保持する。
+    /// The most recently computed MCDM result. Kept as the coloring basis for the
+    /// McdmScore color mode.
     pub mcdm_result: Option<McdmResult>,
-    /// MCDM 結果のキャッシュ。設定キー（手法 / 重みモード / 重み / v）ごとに保持し、
-    /// 各チャート（Ranking / Scatter / Scatter3D / Table）が各自の設定で参照・共有する。
+    /// Result cache for MCDM. Held per settings key (method / weight mode / weights
+    /// / v), referenced and shared by each chart (Ranking / Scatter / Scatter3D /
+    /// Table) with their own settings.
     pub mcdm_cache: HashMap<McdmCacheKey, McdmResult>,
     pub convergence_history: Option<ConvergenceHistory>,
-    /// HV 参照点のユーザー指定（元の目的値の単位・目的ごと）。
-    /// `None` のときは観測点から自動算出する（nadir + 10% マージン）。
-    /// 変更時は `convergence_history` を None にして再計算をトリガーする。
+    /// User-specified HV reference point (in the original objective value units, per
+    /// objective).
+    /// When `None`, it's auto-computed from the observed points (nadir + 10% margin).
+    /// On change, sets `convergence_history` to None to trigger recomputation.
     pub hv_ref_point_override: Option<Vec<f64>>,
     pub selected_colormap: ColormapName,
 
-    // ── REQ-006: Multi-study 比較 ──────────────────────────────
-    /// 比較モードが有効か
+    // ── REQ-006: Multi-study comparison ─────────────────────────
+    /// Whether comparison mode is enabled
     pub comparison_mode: bool,
-    /// 比較対象の StudyContext リスト（最大 4 件）
+    /// List of StudyContexts being compared (up to 4)
     pub comparison_studies: Vec<StudyContext>,
-    /// 比較スタディの色リスト（各要素は `[R, G, B, A]` の非プリマルチプライドアルファ）。
-    /// state 層から egui 依存を排除するため UI 型ではなく生配列で保持する。
-    /// 描画時は `crate::theme::color_compute::rgba_to_color32` で Color32 へ変換する。
+    /// List of colors for comparison studies (each element is `[R, G, B, A]`,
+    /// non-premultiplied alpha).
+    /// Held as raw arrays rather than a UI type, to keep the state layer free of an
+    /// egui dependency.
+    /// Converted to Color32 via `crate::theme::color_compute::rgba_to_color32` when drawing.
     pub comparison_colors: Vec<[u8; 4]>,
-    /// 比較スタディの収束指標推移（`comparison_studies` と同じ順序・要素数）。
-    /// 収束指標チャートで基準 Study と同一グラフに重ね描きするために保持する。
+    /// Convergence indicator history for comparison studies (same order and element
+    /// count as `comparison_studies`).
+    /// Kept so the convergence indicator chart can overlay them on the same graph as
+    /// the base Study.
     pub comparison_convergence_histories: Vec<ConvergenceHistory>,
 
-    // ── REQ-007: Artifacts ────────────────────────────────────
-    /// スキャン済みの artifacts ベースディレクトリ
+    // ── REQ-007: Artifacts ───────────────────────────────────────
+    /// The scanned artifacts base directory
     pub artifacts_dir: Option<std::path::PathBuf>,
-    /// trial_id → アーティファクト（実体パス + 元ファイル名 + MIME）のマップ
+    /// Map from trial_id -> artifacts (actual path + original file name + MIME)
     pub artifact_map: HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
 
-    // ── REQ-008: 収束診断 ──────────────────────────────────────
-    /// (trial_id, cumulative_best_value) の履歴（単目的 Study のみ）
+    // ── REQ-008: Convergence diagnostics ──────────────────────────
+    /// History of (trial_id, cumulative_best_value) (single-objective Study only)
     pub best_trial_history: Option<Vec<(u32, f64)>>,
 
-    // ── TASK-2228: 共通状態拡張 ────────────────────────────────
-    /// ピン留め trial ID リスト（最大 20 件）
+    // ── TASK-2228: common state extensions ────────────────────────
+    /// List of pinned trial IDs (up to 20)
     pub pinned_trials: Vec<u32>,
-    /// Comparison セッションの基準 study_id
+    /// The base study_id of the Comparison session
     pub comparison_base_study: Option<u32>,
 
-    // ── HTML Help Browser ──────────────────────────────────────
-    /// ヘルプ表示言語（selected_colormap と同じパターンで clear() でリセットしない）
+    // ── HTML Help Browser ─────────────────────────────────────────
+    /// Help display language (same pattern as selected_colormap; not reset by clear())
     pub help_language: HelpLanguage,
 
-    // ── テーマ ─────────────────────────────────────────────────
-    /// ダークテーマか（ビュー設定として clear() でリセットしない）。
-    /// 実際の `Visuals` / `theme::set_dark_mode` への反映は毎フレーム
-    /// `TunnyApp::logic` が差分検知して行う。
+    // ── Theme ────────────────────────────────────────────────────
+    /// Whether dark theme is active (a view setting; not reset by clear()).
+    /// The actual reflection into `Visuals` / `theme::set_dark_mode` is done every
+    /// frame by `TunnyApp::logic` via diff detection.
     pub dark_mode: bool,
 
-    // ── 収束指標選択 ───────────────────────────────────────────
-    /// 収束指標チャートで表示中の指標（ビュー設定として clear() でリセットしない）
+    // ── Convergence indicator selection ───────────────────────────
+    /// The indicator currently shown in the convergence indicator chart (a view
+    /// setting; not reset by clear())
     pub convergence_indicator: MoIndicator,
 
-    // ── CSV インポート確認ダイアログ ───────────────────────────
-    /// フラット CSV 読み込み直後に表示する方向・レンジ確認ダイアログの編集状態。
-    /// `Some` の間はダイアログを表示し、確定するまで Study を活性化しない。
+    // ── CSV import confirmation dialog ──────────────────────────────
+    /// Edit state for the direction/range confirmation dialog shown right after
+    /// loading a flat CSV.
+    /// The dialog is shown while `Some`, and the Study is not activated until confirmed.
     pub csv_import_settings: Option<CsvImportSettings>,
 
-    // ── RDB (PostgreSQL/MySQL) 接続 URL ダイアログ ────────────────
-    /// 「Open URL…」ダイアログの入力中テキスト。`None` は非表示、`Some` は表示中
-    /// （空文字列を含む入力中の文字列そのもの）。
+    // ── RDB (PostgreSQL/MySQL) connection URL dialog ─────────────────
+    /// The text currently being entered in the "Open URL…" dialog. `None` means
+    /// hidden, `Some` means shown (the in-progress input string itself, including
+    /// an empty string).
     pub db_url_dialog: Option<String>,
 
-    // ── R4: 自己完結型レポート出力（HTML/Markdown/JSON） ──────────
-    /// 「Report…」ダイアログの編集状態。`None` は非表示。
+    // ── R4: self-contained report output (HTML/Markdown/JSON) ──────
+    /// Edit state for the "Report…" dialog. `None` means hidden.
     pub report_dialog: Option<ReportDialogState>,
+
+    // ── .ghx D&D -> run optimization ────────────────────────────────
+    /// Edit state for the optimization settings dialog opened via .ghx D&D / Open.
+    /// `None` means hidden.
+    pub gh_opt_dialog: Option<GhOptDialogState>,
+    /// State of the currently running (or most recently finished) .ghx optimization.
+    /// `None` means hidden.
+    /// Not cleared by `clear()` on `open_path`'s study switch. This is so the
+    /// progress overlay stays visible while running even if the user looks at a
+    /// different study (see the comment on clear()).
+    pub gh_opt_run: Option<GhOptRunState>,
 }
 
 impl AppState {
@@ -135,18 +159,21 @@ impl AppState {
             csv_import_settings: None,
             db_url_dialog: None,
             report_dialog: None,
+            gh_opt_dialog: None,
+            gh_opt_run: None,
         }
     }
 
-    /// ハイライト中の Trial を設定する
+    /// Sets the currently highlighted Trial
     pub fn set_highlight(&mut self, trial_id: u32) {
         self.highlighted_trial = Some(trial_id);
     }
 
-    /// trial_id のピン留めをトグルする。
-    /// 既に登録済みなら解除し `Ok(false)` を返す。
-    /// 新規追加時に 20 件上限を超える場合は `Err(PinError::MaxPinnedReached)` を返す。
-    /// 正常に追加できたときは `Ok(true)` を返す。
+    /// Toggles the pin state of `trial_id`.
+    /// If already registered, unpins it and returns `Ok(false)`.
+    /// Returns `Err(PinError::MaxPinnedReached)` if adding a new pin would exceed
+    /// the limit of 20.
+    /// Returns `Ok(true)` when successfully added.
     pub fn toggle_pinned_trial(&mut self, trial_id: u32) -> Result<bool, PinError> {
         const MAX_PINS: usize = 20;
         if let Some(pos) = self.pinned_trials.iter().position(|&t| t == trial_id) {
@@ -160,8 +187,9 @@ impl AppState {
         Ok(true)
     }
 
-    /// 比較セッションをリセットする。
-    /// `comparison_base_study` が現在の study_id と不一致のとき、または明示リセット時に呼ぶ。
+    /// Resets the comparison session.
+    /// Call this when `comparison_base_study` doesn't match the current study_id, or
+    /// on an explicit reset.
     pub fn reset_comparison_session(&mut self) {
         self.comparison_mode = false;
         self.comparison_studies.clear();
@@ -170,7 +198,7 @@ impl AppState {
         self.comparison_base_study = None;
     }
 
-    /// Study切り替え時にBrushing&Linking状態と分析結果をリセット
+    /// Resets Brushing & Linking state and analysis results on Study switch
     pub fn clear(&mut self) {
         self.selected_indices.clear();
         self.filter_ranges.clear();
@@ -182,33 +210,33 @@ impl AppState {
         self.mcdm_result = None;
         self.mcdm_cache.clear();
         self.convergence_history = None;
-        // 参照点は目的のスケールに依存するため Study 切り替えでリセットする。
+        // The reference point depends on the objective's scale, so reset it on Study switch.
         self.hv_ref_point_override = None;
-        // selected_colormap はユーザー設定を維持
+        // selected_colormap is preserved as a user setting
 
-        // REQ-006: comparison_mode/studies/colors は Study 切り替えでも維持
-        // （ユーザーが明示的にリセットするまで比較セッションを保持）
+        // REQ-006: comparison_mode/studies/colors are preserved across Study
+        // switches (the comparison session is kept until the user explicitly resets it)
 
-        // REQ-007: Artifacts は Study 切り替え時にリセット
+        // REQ-007: Artifacts are reset on Study switch
         self.artifacts_dir = None;
         self.artifact_map.clear();
 
-        // REQ-008: 収束履歴は Study 切り替え時にリセット
+        // REQ-008: convergence history is reset on Study switch
         self.best_trial_history = None;
 
-        // pinned_trials は Study 切り替えでもリセットしない（ユーザーのピン設定を維持）
-        // comparison_base_study は Study 切り替えでもリセットしない
-        // help_language はユーザー設定を維持（selected_colormap と同じパターン）
-        // dark_mode はユーザー設定を維持（同上）
+        // pinned_trials is not reset on Study switch either (preserves the user's pin settings)
+        // comparison_base_study is not reset on Study switch either
+        // help_language is preserved as a user setting (same pattern as selected_colormap)
+        // dark_mode is preserved as a user setting (same as above)
     }
 }
 
 // ============================================================
-// TASK-2232: 選択＋ピン留め可視性ヘルパー
+// TASK-2232: selection + pinned visibility helper
 // ============================================================
 
-/// `selected_indices` と `pinned_trials` の和集合を重複なしで返す。
-/// 元の `selected_indices` の順序を保持し、pinned のみの要素を末尾に追加する。
+/// Returns the union of `selected_indices` and `pinned_trials`, without duplicates.
+/// Preserves the original `selected_indices` order, appending pinned-only elements at the end.
 pub fn merge_selected_with_pinned(selected: &[u32], pinned: &[u32]) -> Vec<u32> {
     let mut seen: std::collections::HashSet<u32> = selected.iter().copied().collect();
     let mut result: Vec<u32> = selected.to_vec();
@@ -236,7 +264,7 @@ impl Default for AppState {
 }
 
 // ============================================================
-// テスト
+// Tests
 // ============================================================
 
 #[cfg(test)]
@@ -309,7 +337,7 @@ mod tests {
     }
 
     // ============================================================
-    // TASK-2110: 8 新規フィールドのテスト
+    // TASK-2110: tests for the 8 new fields
     // ============================================================
 
     #[test]
@@ -360,19 +388,19 @@ mod tests {
 
     #[test]
     fn task2110_clear_preserves_comparison_fields() {
-        // comparison_mode/studies/colors は clear() でリセットしない
+        // comparison_mode/studies/colors are not reset by clear()
         let mut state = AppState::new();
         state.comparison_mode = true;
         state.comparison_colors = vec![[255, 0, 0, 255]];
 
         state.clear();
 
-        // comparison_mode と comparison_colors は維持される
+        // comparison_mode and comparison_colors are preserved
         assert!(state.comparison_mode);
         assert_eq!(state.comparison_colors.len(), 1);
     }
 
-    // ── TASK-2228: 新規フィールドのテスト ──────────────────────
+    // ── TASK-2228: tests for the new fields ─────────────────────
 
     #[test]
     fn app_state_default_includes_new_fields() {
@@ -387,12 +415,12 @@ mod tests {
         state.pinned_trials = vec![1, 2, 3];
         state.comparison_base_study = Some(42);
         state.clear();
-        // pinned_trials と comparison_base_study は clear() でリセットしない
+        // pinned_trials and comparison_base_study are not reset by clear()
         assert_eq!(state.pinned_trials, vec![1, 2, 3]);
         assert_eq!(state.comparison_base_study, Some(42));
     }
 
-    // ── TASK-2254: help_language フィールドのテスト ───────────────
+    // ── TASK-2254: tests for the help_language field ────────────────
 
     #[test]
     fn app_state_new_help_language_defaults_to_en() {
@@ -410,16 +438,16 @@ mod tests {
         assert_eq!(state.help_language, HelpLanguage::Ja);
     }
 
-    // ── TASK-2232: 可視性ヘルパーテスト ──────────────────────────
+    // ── TASK-2232: visibility helper tests ───────────────────────────
 
     #[test]
     fn merge_selected_with_pinned_preserves_union() {
         let result = merge_selected_with_pinned(&[1, 2, 3], &[3, 4, 5]);
-        // 1,2,3 から、4,5 が追加。3 は重複なし
+        // From 1,2,3, add 4,5. 3 is not duplicated
         assert_eq!(result, vec![1, 2, 3, 4, 5]);
     }
 
-    // ── TASK-2231: ピン留めトグルテスト ──────────────────────────
+    // ── TASK-2231: pin toggle tests ───────────────────────────────
 
     #[test]
     fn toggle_pinned_trial_adds_and_removes_entry() {
@@ -445,7 +473,7 @@ mod tests {
         assert_eq!(state.pinned_trials.len(), 20);
     }
 
-    // ── TASK-2230: 比較セッションリセットテスト ──────────────────
+    // ── TASK-2230: comparison session reset tests ────────────────────
 
     #[test]
     fn reset_comparison_session_clears_all_comparison_state() {
@@ -463,7 +491,7 @@ mod tests {
         assert!(state.comparison_base_study.is_none());
     }
 
-    // ── TASK-2246: 回帰テスト ──────────────────────────────────────
+    // ── TASK-2246: regression tests ───────────────────────────────────
 
     // F-003: pinning regression
     #[test]

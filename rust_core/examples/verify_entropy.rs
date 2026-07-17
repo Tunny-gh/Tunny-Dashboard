@@ -1,15 +1,16 @@
-//! Python (pymcdm) とのエントロピー重みクロスチェック用ハーネス。
+//! Harness for cross-checking entropy weights against Python (pymcdm).
 //!
-//! pymcdm.weights.entropy_weights は内部で sum_normalization を使い、これは
-//! 「全値が正 (>0)」でないと ValueError を送出する。そのため、このハーネスは
-//! 正値のみの決定行列を生成する（負値/0を含む列の扱いは Rust 側の独自ロジック
-//! であり、Rust 単体テスト tc_entropy_08/09/11 で別途検証済み）。
+//! pymcdm.weights.entropy_weights uses sum_normalization internally, which raises a
+//! ValueError unless "all values are positive (>0)". This harness therefore generates a
+//! decision matrix with only positive values (handling of columns containing negative
+//! values/0 is Rust-side custom logic, separately verified by the Rust unit tests
+//! tc_entropy_08/09/11).
 //!
-//! 実行: `cargo run -p tunny-core --example verify_entropy`
+//! Run with: `cargo run -p tunny-core --example verify_entropy`
 
 use tunny_core::entropy::compute_entropy_weights;
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {

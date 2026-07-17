@@ -1,27 +1,31 @@
-//! サロゲート最適化ウィジェット。
+//! The surrogate optimization widget.
 //!
-//! サンプリング結果（trial 群）から応答曲面（サロゲートモデル）を学習し、
-//! その曲面上で最適化を実行して推定最適点を表示する。計算は
-//! `tunny_core::surrogate_opt` がバックグラウンドで行う（poll_chart.rs 参照）。
+//! Trains a response surface (surrogate model) from the sampled results (the trial
+//! set), then runs optimization on that surface and shows the estimated optimum.
+//! The computation is done in the background by `tunny_core::surrogate_opt` (see
+//! poll_chart.rs).
 //!
-//! 2 段階フロー:
-//!   1. Fit & Validate: ホールドアウト + 5-fold CV で検証指標を表示。
-//!   2. Run Optimization: 学習済みモデル上で最適化を実行。
+//! 2-stage flow:
+//!   1. Fit & Validate: shows validation metrics via holdout + 5-fold CV.
+//!   2. Run Optimization: runs optimization on the trained model.
 //!
-//! レイアウト:
-//!   全幅前段: 数値パラメータ無し / trial 数不足 の早期リターン。
-//!   左列 (Fit & Validate): Objective + Model コンボ → Fit & Validate ボタン →
-//!       フィット中スピナー → 検証指標グリッド + 品質判定 + OOF 散布図。
-//!   右列 (Optimization): Optimizer / Surface X / Y コンボ →
-//!       Run Optimization ボタン → 最適化中スピナー → 結果。
+//! Layout:
+//!   Full-width preamble: early return for no numeric parameters / insufficient
+//!       trial count.
+//!   Left column (Fit & Validate): Objective + Model combo -> Fit & Validate button
+//!       -> fitting spinner -> validation metrics grid + quality assessment + OOF
+//!       scatter plot.
+//!   Right column (Optimization): Optimizer / Surface X / Y combo -> Run
+//!       Optimization button -> optimizing spinner -> result.
 //!
-//! モジュール構成（責務ごとに分割。外部から見える公開 API は本 mod で維持する）:
-//!   - `labels`: ラベル・選択肢・品質判定の純粋ヘルパー。
-//!   - `fit`: 左列（フィット・検証・OOF プロット）。
-//!   - `optimize`: 右列（最適化列・結果サマリ・履歴プロット）。
-//!   - `front_view`: 予測パレートフロントの 2D/3D 散布図。
-//!   - `tables`: 推定最適点・フロント点の表形式レンダリング。
-//!   - `suggest`: 候補提案（EI/LCB・EHVI）の結果テーブル。
+//! Module layout (split by responsibility; the externally visible public API is kept
+//! in this mod):
+//!   - `labels`: pure helpers for labels, choices, and quality assessment.
+//!   - `fit`: the left column (fit, validate, OOF plot).
+//!   - `optimize`: the right column (optimize column, result summary, history plot).
+//!   - `front_view`: 2D/3D scatter plot of the predicted Pareto front.
+//!   - `tables`: tabular rendering of the estimated optimum and front points.
+//!   - `suggest`: result table for candidate suggestions (EI/LCB, EHVI).
 
 mod fit;
 mod front_view;
@@ -36,26 +40,32 @@ use tunny_core::surrogate_opt::{TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT};
 use fit::{render_fit_column, render_fit_column_multi};
 use optimize::{render_optimize_column, render_optimize_column_multi};
 
-// 分割前と同じ `surrogate_opt::model_label` のパスを維持するための再エクスポート。
-// 他ウィジェット（robustness / compare / response_surface）・CSV エクスポートが参照する。
+// Re-export to keep the same `surrogate_opt::model_label` path as before the split.
+// Referenced by other widgets (robustness / compare / response_surface) and CSV export.
 pub(crate) use labels::model_label;
 
-/// 多目的フロント散布図に重ねる観測（既存 trial）データ。
-/// すべて trial 行順に整列し、`objective_cols` は `multi_result` の目的順に並ぶ。
-/// 観測点を ParetoScatter と同様にパレートフロント / 被支配 / 実行不可能へ分類するために使う。
+/// Observed (existing trial) data overlaid on the multi-objective front scatter plot.
+/// All arrays are aligned in trial row order, and `objective_cols` is ordered by
+/// `multi_result`'s objective order.
+/// Used to classify observed points into Pareto front / dominated / infeasible, the
+/// same way as ParetoScatter.
 pub struct ObservedData<'a> {
-    /// 目的ごとの全 trial 観測値（`multi_result.objective_names` の順）。
+    /// All trial observed values per objective (in `multi_result.objective_names` order).
     pub objective_cols: &'a [Vec<f64>],
-    /// 各 trial の Pareto ランク（0 = 観測フロント）。
+    /// Each trial's Pareto rank (0 = observed front).
     pub pareto_rank: &'a [u32],
-    /// 各 trial が feasible か。
+    /// Whether each trial is feasible.
     pub feasible: &'a [bool],
 }
 
-/// `param_names` は数値パラメータのみ（カテゴリカル列は最適化対象にしない）。
-/// `obj_history` は現在の結果が参照する目的列の全値（trial 順）。プロット用。
-/// `observed` は多目的フロント散布図に重ねる観測点（結果が無いときは None）。
-/// `constraint_col_names` は制約列名（制約付き Study のみ非空）。
+/// `param_names` contains numeric parameters only (categorical columns are not
+/// optimization targets).
+/// `obj_history` is all values (in trial order) of the objective column referenced
+/// by the current result. For plotting.
+/// `observed` is the observed points overlaid on the multi-objective front scatter
+/// plot (None when there's no result).
+/// `constraint_col_names` is the constraint column names (non-empty only for
+/// constrained Studies).
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
@@ -67,13 +77,13 @@ pub fn show(
     observed: Option<&ObservedData>,
     constraint_col_names: &[String],
 ) {
-    // ── 全幅前段: 数値パラメータ無し ──────────────────────────────
+    // ── Full-width preamble: no numeric parameters ──────────────────
     if param_names.is_empty() {
         ui.label("No numeric parameters available for surrogate optimization.");
         return;
     }
 
-    // ── 全幅前段: trial 数不足 ─────────────────────────────────────
+    // ── Full-width preamble: insufficient trial count ───────────────
     if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
         ui.colored_label(
             egui::Color32::RED,
@@ -85,7 +95,7 @@ pub fn show(
         return;
     }
 
-    // ── 多目的モード切替チェックボックス（目的が 2 つ以上の時のみ表示） ──
+    // ── Multi-objective mode toggle checkbox (shown only when there are 2+ objectives) ──
     if obj_names.len() >= 2 {
         let prev_multi = state.multi_objective;
         ui.checkbox(
@@ -93,7 +103,7 @@ pub fn show(
             "Multi-objective (all objectives)",
         );
         if state.multi_objective != prev_multi {
-            // モード切替時にエラーをクリアする。
+            // Clear the error when switching modes.
             state.error_message = None;
         }
     }
@@ -121,19 +131,19 @@ pub fn show(
         .map(|v| multi_trained_matches(v, state, obj_names))
         .unwrap_or(false);
 
-    // ── 2 列レイアウト ─────────────────────────────────────────────
-    // trial_detail_modal と同じ慣用: horizontal_top + allocate_ui_with_layout で
-    // 各列を等幅に区切る。
+    // ── 2-column layout ──────────────────────────────────────────────
+    // Same idiom as trial_detail_modal: horizontal_top + allocate_ui_with_layout to
+    // split into equal-width columns.
     let available_w = ui.available_width();
     let col_w = (available_w / 2.0).max(200.0);
 
-    // エラー表示（フィット・最適化どちらの失敗も全幅で出す）。
+    // Error display (shown full-width for either fit or optimize failure).
     if let Some(ref err) = state.error_message.clone() {
         ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
     }
 
     ui.horizontal_top(|ui| {
-        // ── 左列: Fit & Validate ──────────────────────────────────
+        // ── Left column: Fit & Validate ───────────────────────────
         ui.allocate_ui_with_layout(
             egui::vec2(col_w, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
@@ -148,7 +158,7 @@ pub fn show(
 
         ui.separator();
 
-        // ── 右列: Optimization ───────────────────────────────────
+        // ── Right column: Optimization ────────────────────────────
         ui.allocate_ui_with_layout(
             egui::vec2(col_w, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
@@ -169,7 +179,7 @@ pub fn show(
     });
 }
 
-/// 学習済みモデルが現在の UI 選択（目的・モデル種別）と一致するか判定する。
+/// Determines whether the trained model matches the current UI selection (objective, model kind).
 pub(super) fn trained_matches(
     trained: &TrainedSurrogate,
     state: &SurrogateOptState,
@@ -182,8 +192,8 @@ pub(super) fn trained_matches(
     if trained.objective_name != selected_obj {
         return false;
     }
-    // Auto モードでは具体的なモデル種別は core が選ぶため、model_kind ではなく
-    // 「Auto で学習されたか（model_selection が Some）」で一致を判定する。
+    // In Auto mode, core picks the concrete model kind, so the match is determined
+    // by "was it trained with Auto (model_selection is Some)" rather than model_kind.
     if state.auto_select {
         trained.model_selection.is_some()
     } else {
@@ -191,7 +201,8 @@ pub(super) fn trained_matches(
     }
 }
 
-/// 多目的学習済みモデル群が現在の UI 選択（モデル・目的集合）と一致するか判定する。
+/// Determines whether the multi-objective trained model set matches the current UI
+/// selection (model, objective set).
 pub(crate) fn multi_trained_matches(
     trained: &[TrainedSurrogate],
     state: &SurrogateOptState,
@@ -217,7 +228,7 @@ mod tests {
     fn optimize_click_requires_matching_trained() {
         let state = SurrogateOptState::default();
         let obj_names = ["obj0".to_string()];
-        // trained が None のため has_matching_trained は false。
+        // has_matching_trained is false since trained is None.
         let has_matching = state
             .trained
             .as_deref()
@@ -226,13 +237,13 @@ mod tests {
         assert!(!has_matching);
     }
 
-    // ── multi_trained_matches のユニットテスト ────────────────────────
+    // ── unit tests for multi_trained_matches ──────────────────────────
 
     fn make_dummy_trained(
         obj_name: &str,
         model: SurrogateModelKind,
     ) -> tunny_core::surrogate_opt::TrainedSurrogate {
-        // 最低限のフィールドだけ埋めた TrainedSurrogate をフィットして作る。
+        // Fit a TrainedSurrogate with only the minimum required fields filled in.
         let xs: Vec<Vec<f64>> = (0..12)
             .map(|i| vec![i as f64 / 12.0, (i as f64 / 12.0) * 0.5])
             .collect();
@@ -273,7 +284,7 @@ mod tests {
             make_dummy_trained("f0", SurrogateModelKind::GpFitc),
             make_dummy_trained("f1", SurrogateModelKind::GpFitc),
         ];
-        // モデルが Ridge に変わった場合
+        // Case where the model changed to Ridge
         let state = SurrogateOptState {
             model: SurrogateModelKind::Ridge,
             ..Default::default()
@@ -283,7 +294,7 @@ mod tests {
 
     #[test]
     fn multi_trained_matches_wrong_objectives() {
-        let obj_names = vec!["f0".to_string(), "f2".to_string()]; // f2 が違う
+        let obj_names = vec!["f0".to_string(), "f2".to_string()]; // f2 is different
         let trained = vec![
             make_dummy_trained("f0", SurrogateModelKind::GpFitc),
             make_dummy_trained("f1", SurrogateModelKind::GpFitc),
@@ -297,7 +308,7 @@ mod tests {
 
     #[test]
     fn multi_trained_matches_wrong_length() {
-        let obj_names = vec!["f0".to_string()]; // 目的数が 1
+        let obj_names = vec!["f0".to_string()]; // objective count is 1
         let trained = vec![
             make_dummy_trained("f0", SurrogateModelKind::GpFitc),
             make_dummy_trained("f1", SurrogateModelKind::GpFitc),

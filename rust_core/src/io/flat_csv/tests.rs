@@ -15,7 +15,7 @@ fn parses_colibri_like_csv() {
     assert_eq!(result.meta.name, "colibri");
     assert_eq!(result.meta.completed_trials, 2);
     assert_eq!(result.meta.total_trials, 2);
-    // パラメータはソート済み。
+    // Parameters are sorted.
     assert_eq!(
         result.meta.param_names,
         vec![
@@ -24,7 +24,7 @@ fn parses_colibri_like_csv() {
             "Y-grid".to_string()
         ]
     );
-    // 目的は列順を保持。
+    // Objectives preserve column order.
     assert_eq!(
         result.meta.objective_names,
         vec![
@@ -34,7 +34,7 @@ fn parses_colibri_like_csv() {
             "2F-MeanLux".to_string()
         ]
     );
-    // 方向は情報が無いため全 Minimize。
+    // Direction defaults to Minimize for all, since there's no such info.
     assert_eq!(result.meta.directions.len(), 4);
     assert!(result
         .meta
@@ -84,7 +84,7 @@ fn dataframe_row_count_matches_data_rows() {
 
 #[test]
 fn categorical_param_falls_back_to_label_column() {
-    // 非数値のパラメータ列はカテゴリ扱いになり、bounds は付かない。
+    // A non-numeric parameter column is treated as categorical, and gets no bounds.
     let csv = "in:material,out:f\nsteel,1\nwood,2\n";
     let result = parse_flat_csv(csv.as_bytes(), "s").unwrap();
     assert!(!result.meta.param_bounds.contains_key("material"));
@@ -95,7 +95,7 @@ fn categorical_param_falls_back_to_label_column() {
 fn non_prefixed_column_becomes_user_attr() {
     let csv = "in:x,out:f,note,score\n1,10,hello,3.5\n2,20,world,4.5\n";
     let result = parse_flat_csv(csv.as_bytes(), "s").unwrap();
-    // note(文字列) と score(数値) が user_attr として取り込まれる。
+    // note (string) and score (numeric) are ingested as user_attrs.
     assert!(result.meta.user_attr_names.contains(&"note".to_string()));
     assert!(result.meta.user_attr_names.contains(&"score".to_string()));
 }

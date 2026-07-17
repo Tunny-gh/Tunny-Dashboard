@@ -1,7 +1,8 @@
-//! ストレージディスパッチ（tunny-core への薄い委譲）。
+//! Storage dispatch (a thin delegation to tunny-core).
 //!
-//! 判定規則・資格情報の扱い（エラーへの storage 文字列非エコー、RDB URL の
-//! パスワードマスク）は `tunny_core::io::storage` に一元化されている。
-//! 本モジュールはツール層が使う 2 関数を再エクスポートするのみ。
+//! The detection rules and credential handling (not echoing the storage
+//! string into errors, masking the password in RDB URLs) are centralized in
+//! `tunny_core::io::storage`. This module only re-exports the 2 functions
+//! used by the tool layer.
 
 pub use tunny_core::io::storage::{load_study, scan_studies};

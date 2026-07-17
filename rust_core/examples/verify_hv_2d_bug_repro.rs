@@ -1,8 +1,9 @@
 use tunny_core::pareto::hypervolume_nd;
 
 fn main() {
-    // 支配点なし・重複なしの最小反例: 非支配フロント {(0.2,0.8),(0.8,0.2)} に
-    // 支配される点 (0.6,0.6) を1つ混ぜるだけ（重複は無関係であることの確認）。
+    // Minimal counterexample with no dominated points and no duplicates: mix in a
+    // dominated point (0.6,0.6) with the non-dominated front {(0.2,0.8),(0.8,0.2)}
+    // (confirms duplicates are irrelevant here).
     let front_only = vec![vec![0.2, 0.8], vec![0.8, 0.2]];
     let with_dominated = vec![vec![0.2, 0.8], vec![0.8, 0.2], vec![0.6, 0.6]];
     let ref_pt = vec![1.0, 1.0];

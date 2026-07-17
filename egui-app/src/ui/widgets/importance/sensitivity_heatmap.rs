@@ -3,39 +3,40 @@ use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_GRID_STROKE};
 use crate::theme::color_compute::{diverging_colormap, sequential_colormap};
 use crate::ui::widgets::importance_chart::ImportanceMetric;
 
-/// 感度ヒートマップウィジェット。手法は ImportanceChart と同じ `ImportanceMetric` を共有する。
-/// 計算結果は `AppState::sensitivity_heatmap_cache` に集約されるため、ここでは
-/// アイテム固有の UI 状態（選択手法・計算実行フラグ・計算要求）のみを持つ。
+/// Sensitivity heatmap widget. Shares the same `ImportanceMetric` methods with ImportanceChart.
+/// Since the computation results are aggregated in `AppState::sensitivity_heatmap_cache`,
+/// this only holds item-specific UI state (selected method, computing flag, compute request).
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SensitivityHeatmap {
     pub metric: ImportanceMetric,
     #[serde(skip)]
     pub computing: bool,
-    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    /// Whether to fit the model using feasible solutions only (UI shown only for constrained studies)
     pub feasible_only: bool,
-    /// poll_chart が消費する計算要求（対象手法, feasible_only）。
+    /// The compute request consumed by poll_chart (target method, feasible_only).
     #[serde(skip)]
     pub pending_compute: Option<(ImportanceMetric, bool)>,
 }
 
 impl SensitivityHeatmap {
-    /// グローバル widget の計算実行状態を取り込む。
-    /// 結果は `AppState::sensitivity_heatmap_cache` に集約されるため、キャンバスの各
-    /// アイテム（独立した WidgetStates）には実行フラグのみ反映すればよい。
-    /// 手法選択はアイテム固有なので維持する。
+    /// Adopts the computing state from the global widget.
+    /// Since results are aggregated in `AppState::sensitivity_heatmap_cache`, each item on
+    /// the canvas (independent WidgetStates) only needs the computing flag reflected.
+    /// The method selection is item-specific and is preserved.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
     }
 
-    /// 感度ヒートマップを描画する。`current` は選択中の手法の計算済み行列（あれば）。
+    /// Draws the sensitivity heatmap. `current` is the computed matrix for the currently
+    /// selected method (if any).
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         current: Option<&HeatmapMatrix>,
         has_constraints: bool,
     ) {
-        // コントロール行: Run ボタン + 手法選択 + spinner
+        // Control row: Run button + method selection + spinner
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
                 self.pending_compute = Some((self.metric, self.feasible_only));
@@ -45,7 +46,7 @@ impl SensitivityHeatmap {
             egui::ComboBox::from_id_salt("sensitivity_heatmap_metric")
                 .selected_text(self.metric.label())
                 .show_ui(ui, |ui| {
-                    // ImportanceChart と同じ系統別グループ分け。手法の性格が分かるようにする。
+                    // Same family-based grouping as ImportanceChart, to make each method's character clear.
                     ui.label(group_header("── Correlation / Linear ──"));
                     for m in [ImportanceMetric::Spearman, ImportanceMetric::Ridge] {
                         ui.selectable_value(&mut self.metric, m, m.label());
@@ -69,7 +70,7 @@ impl SensitivityHeatmap {
                     }
                 });
 
-            // 実行可能解フィルタ（制約付きスタディのみ）
+            // Feasible-solution filter (constrained studies only)
             if has_constraints {
                 ui.toggle_value(&mut self.feasible_only, "Feasible only")
                     .on_hover_text("Fit the model using feasible trials only");
@@ -81,8 +82,9 @@ impl SensitivityHeatmap {
             }
         });
 
-        // 低コストな手法（Spearman / Ridge）は未計算なら自動で計算要求を出す。
-        // 高コストな手法は Run ボタン必須（意図しない重い計算を避ける）。
+        // Low-cost methods (Spearman / Ridge) automatically issue a compute request if not
+        // yet computed. High-cost methods require the Run button (to avoid unintended heavy
+        // computation).
         if current.is_none()
             && !self.computing
             && self.pending_compute.is_none()
@@ -116,7 +118,7 @@ impl SensitivityHeatmap {
     }
 }
 
-/// コンボボックスの系統見出し（ImportanceChart と同じ弱色・小サイズ）。
+/// Combo box family heading (same weak color / small size as ImportanceChart).
 fn group_header(text: &str) -> egui::RichText {
     egui::RichText::new(text).weak().small()
 }
@@ -125,7 +127,8 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
     let n_params = matrix.param_names.len();
     let n_objs = matrix.objective_names.len();
 
-    // 非負系は目的（列）ごとに最大値で正規化する。列内のパラメータ相対比較を見やすくする。
+    // Non-negative metrics are normalized by the max value per objective (column), making
+    // relative parameter comparisons within a column easier to read.
     let col_max: Vec<f64> = (0..n_objs)
         .map(|j| {
             matrix
@@ -145,7 +148,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
     let painter = ui.painter();
     let text_color = ui.visuals().text_color();
 
-    // 列ヘッダ（目的関数名）
+    // Column headers (objective function names)
     for (j, obj_name) in matrix.objective_names.iter().enumerate() {
         let x = available.min.x + header_w + j as f32 * cell_w;
         let rect =
@@ -159,7 +162,7 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
         );
     }
 
-    // 行ヘッダ（パラメータ名）+ セルグリッド
+    // Row headers (parameter names) + cell grid
     for (i, param_name) in matrix.param_names.iter().enumerate() {
         let y = available.min.y + header_h + i as f32 * cell_h;
 
@@ -177,10 +180,10 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
             let x = available.min.x + header_w + j as f32 * cell_w;
             let cell_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
             let color = if matrix.signed {
-                // 符号付き: そのまま [-1,1] 想定で発散表示（範囲外はクランプ）。
+                // Signed: displayed diverging as-is, assuming [-1,1] (out-of-range values are clamped).
                 diverging_colormap(val)
             } else {
-                // 非負: 列最大値で正規化して逐次表示。
+                // Non-negative: normalized by the column max and displayed sequentially.
                 let denom = col_max[j];
                 let t = if denom > 0.0 { val.abs() / denom } else { 0.0 };
                 sequential_colormap(t)
@@ -225,7 +228,7 @@ mod tests {
             ..Default::default()
         };
         let mut item = SensitivityHeatmap {
-            metric: ImportanceMetric::Ridge, // アイテム固有の選択は維持される
+            metric: ImportanceMetric::Ridge, // item-specific selection is preserved
             ..Default::default()
         };
         item.adopt_compute_state(&global);

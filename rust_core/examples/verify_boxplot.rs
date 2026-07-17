@@ -1,14 +1,14 @@
-//! Python (numpy/matplotlib) とのボックスプロット統計クロスチェック用ハーネス。
+//! Harness for cross-checking box plot statistics against Python (numpy/matplotlib).
 //!
-//! 入力データと計算結果 (five-number summary, Tukey フェンス, 外れ値) を JSON で
-//! stdout に出力する。Python 側は同じ入力を numpy.percentile / matplotlib で
-//! 再計算して突き合わせる。
+//! Outputs the input data and computed results (five-number summary, Tukey fences, outliers)
+//! to stdout as JSON. The Python side recomputes the same input with numpy.percentile /
+//! matplotlib and compares against it.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_boxplot`
+//! Run with: `cargo run -p tunny-core --example verify_boxplot`
 
 use tunny_core::statistics::boxplot::{compute_boxplot, quantile};
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -47,18 +47,18 @@ fn boxplot_json(values: &[f64]) -> serde_json::Value {
 fn main() {
     let mut rng = Rng(0xABCDEF01_23456789);
 
-    // A: n=99 の一様分布 (奇数nで補間確認)
+    // A: uniform distribution with n=99 (odd n, to check interpolation)
     let uniform: Vec<f64> = (0..99).map(|_| rng.next_f64() * 50.0).collect();
 
-    // B: n=60、正規に近い分布 + 明確な外れ値を数点混入
+    // B: n=60, near-normal distribution + a few clear outliers mixed in
     let mut normal_with_outliers: Vec<f64> =
         (0..55).map(|_| rng.next_normal() * 3.0 + 20.0).collect();
     normal_with_outliers.extend_from_slice(&[100.0, -50.0, 80.0]);
 
-    // C: n=50、多数のタイ (離散データ)
+    // C: n=50, many ties (discrete data)
     let ties: Vec<f64> = (0..50).map(|_| (rng.next_f64() * 5.0).floor()).collect();
 
-    // D: n=51、NaN/Inf混入
+    // D: n=51, with NaN/Inf mixed in
     let with_nonfinite: Vec<f64> = (0..51)
         .enumerate()
         .map(|(i, _)| {
@@ -72,10 +72,10 @@ fn main() {
         })
         .collect();
 
-    // E: 単一要素
+    // E: a single element
     let single = vec![42.0];
 
-    // F: 偶数 n=8 の既知データ (linear interpolation の手計算確認用)
+    // F: known data with even n=8 (for hand-computing the linear interpolation check)
     let known: Vec<f64> = (1..=9).map(|v| v as f64).collect();
 
     let datasets: Vec<(String, Vec<f64>)> = vec![

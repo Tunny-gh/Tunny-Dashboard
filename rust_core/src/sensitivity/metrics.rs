@@ -11,19 +11,19 @@ use super::types::{
 };
 use crate::dataframe::DataFrame;
 
-/// ツリーベースの感度分析メトリクス共通トレイト。
+/// Common trait for tree-based sensitivity analysis metrics.
 ///
-/// `prepare_training_data` で前処理済みの `PreparedData` を受け取り、
-/// (feature_importances, r_squared) を返す。
-/// importances の合計は 1.0 になるよう正規化すること（またはすべて 0.0）。
-/// データ不足や LightGBM の訓練失敗時は `None` を返す。
+/// Receives `PreparedData` preprocessed by `prepare_training_data` and returns
+/// (feature_importances, r_squared).
+/// The importances must be normalized to sum to 1.0 (or be all 0.0).
+/// Returns `None` when data is insufficient or LightGBM training fails.
 pub(crate) trait TreeMetric {
     fn compute_importances(&self, data: &PreparedData) -> Option<(Vec<f64>, f64)>;
-    /// ダウンサンプリング上限行数
+    /// Upper bound on rows after downsampling
     fn max_rows(&self) -> usize;
-    /// データサンプリング用シード
+    /// Seed for data sampling
     fn data_seed(&self) -> u64;
-    /// ホールドアウト分割シャッフル用シード
+    /// Seed for the holdout split shuffle
     fn split_seed(&self) -> u64;
     fn metric_name(&self) -> &'static str;
     fn wrap_result(
@@ -167,7 +167,7 @@ impl TreeMetric for PermutationMetric {
 // SensitivityMetric blanket implementation for all TreeMetric implementors
 // ---------------------------------------------------------------------------
 
-/// `tree_extract_data` の戻り値: (パラメータ名, 目的名, 入力行列, 目的値ベクトル)。
+/// Return value of `tree_extract_data`: (param names, objective name, input matrix, objective value vector).
 type TreeExtractedData = (Vec<String>, String, Vec<Vec<f64>>, Vec<f64>);
 
 fn tree_extract_data(df: &DataFrame, obj_idx: usize) -> Option<TreeExtractedData> {

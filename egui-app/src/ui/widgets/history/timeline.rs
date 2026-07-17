@@ -1,7 +1,8 @@
-//! Timeline ウィジェット。
+//! Timeline widget.
 //!
-//! trial ごとの開始〜完了日時を横棒（ガントチャート）として並べ、
-//! 並列実行のワーカー数・スケジューリングの偏りを俯瞰できるようにする。
+//! Lays out each trial's start-to-completion datetime as a horizontal bar
+//! (Gantt chart), to give an overview of parallel worker count and
+//! scheduling skew.
 
 use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
 
@@ -12,11 +13,11 @@ use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::common::range_math::value_range;
 use crate::ui::widgets::trial_detail_modal::show_hover_tooltip;
 
-/// 横棒の高さ（trial_number ± half_width の範囲を占める）。
+/// Height of the horizontal bar (occupies the range trial_number ± half_width).
 const BAR_WIDTH: f64 = 0.8;
 
-/// 1 trial 分のタイムラインバー。`start` / `end` は study 内最早の
-/// `datetime_start` を 0 とした経過秒（elapsed seconds）。
+/// A timeline bar for a single trial. `start` / `end` are elapsed seconds,
+/// re-based so the earliest `datetime_start` in the study is 0.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimelineBar {
     pub trial_id: u32,
@@ -26,7 +27,7 @@ pub struct TimelineBar {
     pub end: f64,
 }
 
-/// X 軸の表示単位。全体スパンに応じて自動選択する。
+/// X-axis display unit. Chosen automatically based on the overall span.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeUnit {
     Seconds,
@@ -35,7 +36,7 @@ pub enum TimeUnit {
 }
 
 impl TimeUnit {
-    /// 経過秒をこの単位の値に変換する係数。
+    /// Factor to convert elapsed seconds into a value in this unit.
     pub fn divisor(self) -> f64 {
         match self {
             TimeUnit::Seconds => 1.0,
@@ -44,7 +45,7 @@ impl TimeUnit {
         }
     }
 
-    /// 軸ラベルに使う単位表記。
+    /// Unit notation used in the axis label.
     pub fn suffix(self) -> &'static str {
         match self {
             TimeUnit::Seconds => "s",
@@ -54,24 +55,27 @@ impl TimeUnit {
     }
 }
 
-/// Timeline チャートウィジェット。
+/// Timeline chart widget.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct TimelineChart {
-    /// バー位置（datetime → 経過秒への変換結果）の再構築を避けるキャッシュ。
-    /// ホバー状態は毎フレーム変わり得るため、色付けだけは `show` 内で
-    /// 都度この上に軽く重ねる（`TimelineCache` は位置のみを持つ）。
+    /// Cache that avoids rebuilding bar positions (the result of converting
+    /// datetime -> elapsed seconds). Since hover state can change every
+    /// frame, only the coloring is lightly re-applied on top of this each
+    /// time inside `show` (`TimelineCache` holds positions only).
     #[serde(skip)]
     cache: Option<TimelineCache>,
 }
 
-/// `build_timeline_bars` の結果（位置計算済みのバー群）と、そこから決まる
-/// 表示単位・凡例状態一覧をまとめたキャッシュ。
+/// A cache bundling the result of `build_timeline_bars` (bars with
+/// positions already computed) together with the display unit and legend
+/// state list determined from it.
 ///
-/// キーは `extras`（`StudyExtras`）の恒等性（アドレス）。呼び出し元は
-/// `ArcSwap::load_full()` 経由で同じ study の間は同一アロケーションを指す
-/// `Arc<StudyExtras>` を使い回すため（poll_chart.rs の DataFrame Arc 恒等性と
-/// 同じ発想）、参照先アドレスの変化 = データ更新とみなせる。
+/// The key is the identity (address) of `extras` (`StudyExtras`). Since the
+/// caller reuses the same `Arc<StudyExtras>` allocation for the duration of
+/// a given study via `ArcSwap::load_full()` (the same idea as the DataFrame
+/// Arc identity in poll_chart.rs), a change in the referenced address can
+/// be treated as a data update.
 #[derive(Debug, Clone)]
 struct TimelineCache {
     key: usize,
@@ -88,8 +92,9 @@ impl TimelineChart {
             return;
         };
 
-        // extras（StudyExtras）のアドレスをデータ恒等性として使う。ライブ更新時は
-        // ArcSwap が新しい Arc に差し替えるため、参照先アドレスも変わる。
+        // Use the address of extras (StudyExtras) as the data identity. On
+        // a live update, ArcSwap swaps in a new Arc, so the referenced
+        // address also changes.
         let key = extras as *const StudyExtras as usize;
         let cache_valid = self.cache.as_ref().is_some_and(|c| c.key == key);
         if !cache_valid {
@@ -134,8 +139,9 @@ impl TimelineChart {
                 }
             }
 
-            // 位置（start/end）はキャッシュ済み。ここではホバーに応じた着色のみを
-            // 毎フレーム軽く行う（datetime → 経過秒の再計算は発生しない）。
+            // Positions (start/end) are already cached. Only the
+            // hover-dependent coloring is lightly applied each frame here
+            // (no datetime -> elapsed-seconds recomputation occurs).
             let plot_bars: Vec<egui_plot::Bar> = bars
                 .iter()
                 .enumerate()
@@ -177,12 +183,14 @@ fn format_elapsed(seconds: f64, unit: TimeUnit) -> String {
     format!("{:.2} {}", seconds / unit.divisor(), unit.suffix())
 }
 
-/// `trials` からタイムラインバーを構築する（純粋関数・テスト対象）。
+/// Builds timeline bars from `trials` (a pure function, covered by tests).
 ///
-/// - `datetime_start` を持たない trial は除外する。
-/// - 経過秒は study 内最早の `datetime_start` を 0 として re-base する。
-/// - `datetime_complete` が無い trial（RUNNING など）は、study 内で判明している
-///   最大の日時（開始・完了いずれか）まで棒を伸ばす。
+/// - Trials without a `datetime_start` are excluded.
+/// - Elapsed seconds are re-based so the earliest `datetime_start` in the
+///   study is 0.
+/// - Trials with no `datetime_complete` (e.g. RUNNING) have their bar
+///   extended to the maximum known datetime in the study (either start or
+///   complete).
 pub fn build_timeline_bars(trials: &[TrialExtra]) -> Vec<TimelineBar> {
     let t0 = value_range(trials.iter().filter_map(|t| t.datetime_start))
         .map(|(mn, _)| mn)
@@ -216,8 +224,9 @@ pub fn build_timeline_bars(trials: &[TrialExtra]) -> Vec<TimelineBar> {
         .collect()
 }
 
-/// 全体スパン（経過秒の最大値）から表示単位を選ぶ。
-/// 600 秒超で分、7200 秒（2 時間）超で時間に切り替える。
+/// Chooses the display unit from the overall span (the max elapsed
+/// seconds). Switches to minutes above 600 seconds, and hours above 7200
+/// seconds (2 hours).
 pub fn select_time_unit(total_span_seconds: f64) -> TimeUnit {
     if total_span_seconds > 7200.0 {
         TimeUnit::Hours
@@ -228,8 +237,9 @@ pub fn select_time_unit(total_span_seconds: f64) -> TimeUnit {
     }
 }
 
-/// プロット座標 `(x, y)`（x は経過秒、y は trial_number 相当）にヒットするバーの
-/// index を返す。`half_width` はバーの縦方向の半幅（`BAR_WIDTH / 2`）。
+/// Returns the index of the bar hit by the plot coordinate `(x, y)` (x is
+/// elapsed seconds, y is roughly trial_number). `half_width` is the bar's
+/// vertical half-width (`BAR_WIDTH / 2`).
 pub fn bar_at_position(bars: &[TimelineBar], x: f64, y: f64, half_width: f64) -> Option<usize> {
     bars.iter()
         .position(|b| (b.trial_number as f64 - y).abs() <= half_width && x >= b.start && x <= b.end)

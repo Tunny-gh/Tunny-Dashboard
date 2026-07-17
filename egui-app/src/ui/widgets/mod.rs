@@ -1,4 +1,4 @@
-// 最適化履歴
+// Optimization history
 mod history;
 pub use history::convergence;
 pub use history::edf_plot;
@@ -6,23 +6,23 @@ pub use history::intermediate_values;
 pub use history::optimization_history;
 pub use history::timeline;
 
-// パレート分析
+// Pareto analysis
 mod pareto;
 pub use pareto::pareto_2d;
 pub use pareto::pareto_3d;
 
-// 重要度・感度分析
+// Importance / sensitivity analysis
 mod importance;
 pub use importance::importance_chart;
 pub use importance::sensitivity_heatmap;
 
-// 部分依存プロット・モデル可視化
+// Partial dependence plots / model visualization
 mod pdp;
 pub use pdp::pdp_2d;
 pub use pdp::pdp_chart;
 pub use pdp::slice_chart;
 
-// サロゲート最適化（応答曲面作成＋曲面上の最適化）
+// Surrogate optimization (build response surface + optimize on the surface)
 mod surrogate;
 pub use surrogate::anchor;
 pub use surrogate::compare;
@@ -30,7 +30,7 @@ pub use surrogate::response_surface;
 pub use surrogate::robustness;
 pub use surrogate::surrogate_opt;
 
-// 散布図・クラスタ探索
+// Scatter plots / cluster exploration
 mod scatter;
 pub use scatter::cluster_scatter;
 pub use scatter::cluster_scatter_3d;
@@ -43,7 +43,7 @@ pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;
 pub use scatter::som_map;
 
-// 意思決定分析 (MCDM)
+// Decision analysis (MCDM)
 mod decision;
 pub use decision::comparison_table;
 pub use decision::mcdm_chart;
@@ -51,23 +51,24 @@ pub use decision::mcdm_scatter_chart;
 pub use decision::mcdm_scatter_chart_3d;
 pub use decision::radar_comparison;
 
-// 統計ウィジェット (ヒストグラム・箱ひげ図・相関行列)
+// Statistics widgets (histogram, box plot, correlation matrix)
 mod stats;
 pub use stats::box_plot;
 pub use stats::correlation_matrix;
 pub use stats::histogram;
 
-// 共通 UI 部品
+// Common UI components
 mod common;
 pub use common::artifact_gallery;
 pub use common::cluster_table;
 pub use common::convergence_card;
 pub use common::csv_import_modal;
+pub use common::ghx_opt_modal;
 pub use common::license_modal;
 pub use common::rdb_url_modal;
 pub use common::report_modal;
 pub use common::trial_detail_modal;
 pub use common::trial_table;
-// state 層（`state::types::StudyContext::param_range`）から min/max 集計ヘルパーを
-// 再利用するための再エクスポート（D-9）。
+// Re-exported so the min/max aggregation helper from the state layer
+// (`state::types::StudyContext::param_range`) can be reused (D-9).
 pub(crate) use common::range_math;

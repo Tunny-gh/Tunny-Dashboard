@@ -1,6 +1,6 @@
-//! DataFrame の行を数値レンジ条件で絞り込むフィルタ。
+//! Filters that narrow down DataFrame rows by numeric range conditions.
 //!
-//! 列ごとのレンジ (min/max) を AND 条件として適用し、通過した行のインデックスを返す。
+//! Applies a per-column range (min/max) as an AND condition and returns the indices of the rows that pass.
 //!
 //! Reference: docs/implements/TASK-103/filter-requirements.md
 
@@ -10,16 +10,17 @@ use std::collections::HashMap;
 // Documentation.
 // =============================================================================
 
-/// 数値列を絞り込む範囲（下限・上限、いずれも省略可）。
+/// Range for narrowing a numeric column (lower/upper bound, both optional).
 #[derive(Debug, Clone)]
 pub struct Range {
     pub min: Option<f64>,
     pub max: Option<f64>,
 }
 
-/// filter_rows と同様の範囲 AND フィルタだが、レンジに指定された列が
-/// DataFrame に存在しない場合はその列を無視して素通しする（除外しない）。
-/// 存在する列の値が NaN/Inf の場合はそのフィルタで除外される点は filter_rows と同じ。
+/// The same range-AND filter as filter_rows, but if a column specified in the
+/// ranges doesn't exist in the DataFrame, that column is ignored and passed
+/// through (not excluded). Same as filter_rows in that a value of NaN/Inf in an
+/// existing column gets excluded by that filter.
 pub fn filter_rows_permissive(
     df: &crate::dataframe::DataFrame,
     ranges: &HashMap<String, Range>,
@@ -32,7 +33,7 @@ pub fn filter_rows_permissive(
         return (0..n as u32).collect();
     }
 
-    // 列が存在しない場合は None として保持し、フィルタ時に素通しする。
+    // If the column doesn't exist, keep it as None and pass it through during filtering.
     let col_ranges: Vec<(Option<&[f64]>, &Range)> = ranges
         .iter()
         .map(|(name, range)| (df.get_numeric_column(name), range))
@@ -42,7 +43,7 @@ pub fn filter_rows_permissive(
     'outer: for row in 0..n {
         for (col, range) in &col_ranges {
             let Some(col) = col else {
-                continue; // 列が存在しない場合は除外しない
+                continue; // Don't exclude if the column doesn't exist
             };
             let val = col[row];
             if !val.is_finite() {
@@ -78,7 +79,7 @@ mod tests {
     // Documentation.
     // -------------------------------------------------------------------------
 
-    /// テスト用の `TrialRow` を組み立てるヘルパー。
+    /// Helper to build a `TrialRow` for tests.
     fn make_row(trial_id: u32, params: &[(&str, f64)], obj: Vec<f64>) -> TrialRow {
         TrialRow {
             trial_id,
@@ -92,7 +93,7 @@ mod tests {
         }
     }
 
-    /// テスト用の `DataFrame` を構築し、アクティブ Study として登録するヘルパー。
+    /// Helper to build a `DataFrame` for tests and register it as the active Study.
     fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
         let param_names: Vec<String> = params.iter().map(|s| s.to_string()).collect();
         let obj_names: Vec<String> = objs.iter().map(|s| s.to_string()).collect();
@@ -125,7 +126,7 @@ mod tests {
 
         let result = filter_rows_permissive(&df, &ranges);
 
-        // 存在しない列は無視され、全行が通過する。
+        // A non-existent column is ignored, and all rows pass through.
         assert_eq!(result, vec![0, 1]);
     }
 
@@ -175,7 +176,7 @@ mod tests {
 
     #[test]
     fn permissive_mixed_known_and_missing_columns() {
-        // 既存列は通常通りフィルタし、存在しない列は無視する（AND 条件）。
+        // Existing columns are filtered normally, and non-existent columns are ignored (AND condition).
         let rows = vec![
             make_row(0, &[("x", 1.0)], vec![]),
             make_row(1, &[("x", 5.0)], vec![]),

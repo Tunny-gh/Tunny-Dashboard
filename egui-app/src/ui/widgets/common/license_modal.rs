@@ -1,24 +1,25 @@
-//! オープンソースライセンス表示モーダル。
+//! The open-source license display modal.
 //!
-//! 配布バイナリに含まれる依存クレートのライセンス（SPDX とライセンス全文）を
-//! 一覧表示する。データは `build.rs` が収集した [`crate::licenses::LICENSES`] を使う。
+//! Lists the licenses (SPDX and full license text) of the dependency crates bundled in
+//! the distributed binary. Uses [`crate::licenses::LICENSES`], the data collected by
+//! `build.rs`.
 
 use egui::RichText;
 
 use crate::licenses::{LicenseEntry, LICENSES};
 use crate::ui::widgets::common::modal::ModalScaffold;
 
-/// ライセンスモーダルの UI 状態。
+/// UI state for the license modal.
 #[derive(Default)]
 pub struct LicenseModalState {
-    /// モーダルを表示中か。
+    /// Whether the modal is currently shown.
     pub open: bool,
-    /// クレート名・ライセンス種別での絞り込み文字列。
+    /// The filter string for crate name / license kind.
     pub search: String,
 }
 
-/// ライセンスモーダルを描画する。`state.open` が true のときのみ表示し、
-/// Esc / 背景クリック / Close ボタンで閉じる。
+/// Renders the license modal. Only shown when `state.open` is true; closes on Esc /
+/// background click / the Close button.
 pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
     if !state.open {
         return;
@@ -52,7 +53,7 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
                 .filter(|e| matches_filter(e, &needle))
                 .collect();
 
-            // モーダル高をビューポートに対して抑え、長大なリストはスクロールさせる。
+            // Cap the modal height relative to the viewport, and let a long list scroll.
             let max_h = ctx.content_rect().height() * 0.6;
             egui::ScrollArea::vertical()
                 .max_height(max_h)
@@ -84,7 +85,8 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
     }
 }
 
-/// 絞り込み条件にマッチするか（クレート名 / ライセンス種別を対象、空なら全件）。
+/// Whether the entry matches the filter (targets crate name / license kind; matches
+/// everything if empty).
 fn matches_filter(entry: &LicenseEntry, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
@@ -92,7 +94,7 @@ fn matches_filter(entry: &LicenseEntry, needle: &str) -> bool {
     entry.name.to_lowercase().contains(needle) || entry.license.to_lowercase().contains(needle)
 }
 
-/// 1 クレート分のエントリを折りたたみ見出しで描画する。
+/// Renders one crate's entry as a collapsing header.
 fn show_entry(ui: &mut egui::Ui, entry: &LicenseEntry) {
     let license = if entry.license.is_empty() {
         "(license not specified)"
@@ -117,7 +119,7 @@ fn show_entry(ui: &mut egui::Ui, entry: &LicenseEntry) {
                 );
             } else {
                 ui.add_space(4.0);
-                // 等幅・選択可能なライセンス全文。
+                // The full license text, monospace and selectable.
                 ui.add(
                     egui::Label::new(RichText::new(entry.text).monospace().size(11.0))
                         .selectable(true),

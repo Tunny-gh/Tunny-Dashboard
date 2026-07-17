@@ -4,7 +4,22 @@ A Rust egui desktop app for analyzing Optuna optimization results.
 
 ## Language
 
-Code comments, commit messages, and PRs must always be written in English.
+- Code comments and doc comments, commit messages, and PR titles/bodies are
+  written in English.
+- Project documents such as ROADMAP.md are written in English.
+- UI text (labels, progress, error messages, and other user-facing strings) is
+  written in English.
+- Japanese report output (`ReportLang::Ja`) and the bilingual help/theory
+  documents stay Japanese — the Japanese content there is part of the
+  functional spec.
+- Chat responses follow the user's language (Japanese).
+
+## Task Delegation
+
+Divide work across agents appropriately to manage token usage.
+
+- Design, implementation, review, and other demanding work: Fable or Opus
+- Mechanical work: Sonnet
 
 ## Development Commands
 

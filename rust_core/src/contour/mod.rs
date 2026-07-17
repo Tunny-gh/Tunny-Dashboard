@@ -1,25 +1,28 @@
-//! 観測トライアル点だけから補間した等高線格子を作る（サロゲート非依存）。
+//! Build a contour grid interpolated only from observed trial points (surrogate-independent).
 //!
-//! Observed Contour ウィジェット用。PDP やサロゲート応答曲面と異なり、モデルを一切
-//! 学習せず、**観測点の Delaunay 線形補間**のみで値の格子を作る。データの無い領域
-//! （凸包の外、および疎ガードで落ちた三角形領域）は `None` でマスクし、**外挿しない**。
+//! For the Observed Contour widget. Unlike PDP or a surrogate response surface, this
+//! trains no model at all — it builds the value grid using only **Delaunay linear
+//! interpolation of observed points**. Regions with no data (outside the convex hull,
+//! or triangle regions dropped by the sparsity guard) are masked with `None`, and
+//! **no extrapolation** is performed.
 //!
-//! 座標は X/Y のスケール差（例: パラメータ vs 目的関数）を吸収するため正規化空間
-//! `[0,1]^2` で三角形分割・点位置判定を行い、補間値は元の `value` を使う。
+//! Coordinates are triangulated and point-location tests are done in normalized
+//! space `[0,1]^2` to absorb the scale difference between X/Y (e.g. parameter vs.
+//! objective), while the interpolated value uses the original `value`.
 
 use delaunator::{triangulate, Point};
 
 use crate::math::grid::linspace;
 
-/// 観測点だけから補間した格子。`None` のセルはデータなし（マスク＝外挿しない）。
+/// Grid interpolated only from observed points. `None` cells mean no data (masked = no extrapolation).
 #[derive(Debug, Clone)]
 pub struct ObservedSurface {
-    /// X 軸格子（観測 X 範囲の linspace、元の単位）。
+    /// X-axis grid (linspace over the observed X range, original units).
     pub x_values: Vec<f64>,
-    /// Y 軸格子（観測 Y 範囲の linspace、元の単位）。
+    /// Y-axis grid (linspace over the observed Y range, original units).
     pub y_values: Vec<f64>,
-    /// 補間値の格子。`z[i][j]` は (x_values[i], y_values[j]) の値。
-    /// `None` = 凸包外 / 疎ガードで落ちた三角形領域。
+    /// Grid of interpolated values. `z[i][j]` is the value at (x_values[i], y_values[j]).
+    /// `None` = outside the convex hull / triangle region dropped by the sparsity guard.
     pub z: Vec<Vec<Option<f64>>>,
 }
 
@@ -33,7 +36,7 @@ impl ObservedSurface {
     }
 }
 
-/// 正規化空間の三角形（頂点座標と各頂点の値）。
+/// Triangle in normalized space (vertex coordinates and each vertex's value).
 struct Tri {
     ax: f64,
     ay: f64,
@@ -46,26 +49,27 @@ struct Tri {
     vc: f64,
 }
 
-/// 観測点 `(x, y, value)` から、凸包内のみを Delaunay 線形補間した格子を返す。
+/// Returns a grid built by Delaunay linear interpolation over observed points `(x, y, value)`, limited to the convex hull interior.
 ///
-/// - `n_grid`: 一辺の格子点数（例 60）。
-/// - `max_edge_ratio`: 疎ガード。正規化空間で三角形の最長辺が `max_edge_ratio` を超えると
-///   その三角形を捨てる（離れたクラスタを偽の面で繋がない）。`0.0` で無効、典型 0.1〜0.3。
+/// - `n_grid`: number of grid points per side (e.g. 60).
+/// - `max_edge_ratio`: sparsity guard. If a triangle's longest edge in normalized
+///   space exceeds `max_edge_ratio`, the triangle is dropped (so distant clusters
+///   aren't bridged by a spurious surface). `0.0` disables it; typical range 0.1-0.3.
 ///
-/// 点が 3 未満 / 範囲が退化しているときは空の格子を返す（panic しない）。
-/// 共線で三角形が作れないときは、軸はあるが全セル `None` の格子を返す。
+/// Returns an empty grid when there are fewer than 3 points or the range is degenerate (never panics).
+/// When points are collinear and no triangle can be formed, returns a grid with axes but all cells `None`.
 pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) -> ObservedSurface {
     if n_grid == 0 {
         return ObservedSurface::empty();
     }
 
-    // 1. 有限点のみ + (x,y) 近重複を統合（値は平均）。
+    // 1. Keep only finite points and merge near-duplicate (x,y) points (averaging the value).
     let cleaned = clean_points(pts);
     if cleaned.len() < 3 {
         return ObservedSurface::empty();
     }
 
-    // 2. bbox（元の単位）。
+    // 2. Bounding box (original units).
     let (mut xmin, mut xmax) = (f64::INFINITY, f64::NEG_INFINITY);
     let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
     for p in &cleaned {
@@ -83,7 +87,7 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
     let x_values = linspace(xmin, xmax, n_grid);
     let y_values = linspace(ymin, ymax, n_grid);
 
-    // 3. 正規化座標 [0,1]^2 で三角形分割（X/Y のスケール差を吸収）。
+    // 3. Triangulate in normalized coordinates [0,1]^2 (absorbs the X/Y scale difference).
     let norm: Vec<Point> = cleaned
         .iter()
         .map(|p| Point {
@@ -93,7 +97,7 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
         .collect();
     let tri = triangulate(&norm);
     if tri.triangles.is_empty() {
-        // 共線など。軸はあるが補間できないので全マスク。
+        // Collinear points, etc. Axes exist but interpolation is impossible, so mask everything.
         return ObservedSurface {
             x_values,
             y_values,
@@ -101,7 +105,7 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
         };
     }
 
-    // 4. 三角形リスト（疎ガード適用）。
+    // 4. Triangle list (with sparsity guard applied).
     let guard = max_edge_ratio > 0.0;
     let mut tris: Vec<Tri> = Vec::with_capacity(tri.triangles.len() / 3);
     for t in tri.triangles.chunks_exact(3) {
@@ -126,7 +130,7 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
         });
     }
 
-    // 5. 正規化格子で点位置 + 重心補間（三角形 bbox のバケット索引で高速化）。
+    // 5. Point-location + barycentric interpolation on the normalized grid (sped up via a triangle-bbox bucket index).
     let index = TriGridIndex::new(tris);
     let gxs = linspace(0.0, 1.0, n_grid);
     let gys = linspace(0.0, 1.0, n_grid);
@@ -144,28 +148,30 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
     }
 }
 
-/// 三角形 bbox によるグリッドバケット索引（正規化空間 [0,1]^2 前提）。
+/// Grid bucket index keyed by triangle bounding boxes (assumes normalized space [0,1]^2).
 ///
-/// 格子セルごとの全三角形線形走査（O(grid² × tris)）を避けるため、
-/// 一様な nb×nb のバケット格子に「bbox が重なる三角形の index」を昇順で
-/// 積んでおき、点位置判定は点の属するバケット内の候補のみ調べる。
-/// バケット内の候補は三角形 index 昇順のまま保持されるため、
-/// 「最初に点を含む三角形が勝つ」という線形走査の結果と完全に一致する。
+/// To avoid a linear scan over all triangles per grid cell (O(grid² × tris)),
+/// this stacks the indices of triangles whose bbox overlaps each cell of a
+/// uniform nb×nb bucket grid, in ascending order; point-location then only
+/// examines the candidates in the point's own bucket. Since candidates within
+/// a bucket stay in ascending triangle-index order, this exactly matches the
+/// result of a linear scan where "the first triangle containing the point wins."
 struct TriGridIndex {
     tris: Vec<Tri>,
-    /// バケット格子の一辺の数。
+    /// Number of buckets per side of the bucket grid.
     nb: usize,
-    /// `buckets[iy * nb + ix]` = そのセルに bbox が重なる三角形 index（昇順）。
+    /// `buckets[iy * nb + ix]` = indices of triangles whose bbox overlaps this cell (ascending).
     buckets: Vec<Vec<u32>>,
 }
 
 impl TriGridIndex {
     fn new(tris: Vec<Tri>) -> Self {
-        // 三角形数の平方根程度のバケット数で、セルあたり候補数を O(√tris) に抑える。
+        // Use roughly sqrt(triangle count) buckets so candidates per cell stay O(√tris).
         let nb = ((tris.len() as f64).sqrt().ceil() as usize).clamp(1, 64);
         let mut buckets = vec![Vec::new(); nb * nb];
-        // 重心座標判定は EPS(1e-9) だけ三角形外の点も受理するため、bbox を
-        // それより十分大きいマージンで拡げて候補の取り漏らしを防ぐ。
+        // The barycentric-coordinate test accepts points up to EPS(1e-9) outside the
+        // triangle, so expand the bbox by a margin comfortably larger than that to
+        // avoid missing candidates.
         const MARGIN: f64 = 1e-6;
         for (ti, t) in tris.iter().enumerate() {
             let xmin = t.ax.min(t.bx).min(t.cx) - MARGIN;
@@ -183,13 +189,14 @@ impl TriGridIndex {
         Self { tris, nb, buckets }
     }
 
-    /// 座標（ほぼ [0,1]）→ バケット index。負値は 0 に飽和（`as usize` の仕様）。
+    /// Coordinate (approximately in [0,1]) → bucket index. Negative values saturate to 0 (per `as usize` semantics).
     fn cell(v: f64, nb: usize) -> usize {
         ((v * nb as f64) as usize).min(nb - 1)
     }
 
-    /// 点 `(px, py)` を含む最初（index 最小）の三角形で重心補間する。
-    /// どの三角形にも含まれなければ `None`（凸包外 / マスク領域）。
+    /// Barycentric-interpolates using the first (lowest-index) triangle containing
+    /// point `(px, py)`. Returns `None` if no triangle contains it (outside the
+    /// convex hull / masked region).
     fn interpolate(&self, px: f64, py: f64) -> Option<f64> {
         let bucket = &self.buckets[Self::cell(py, self.nb) * self.nb + Self::cell(px, self.nb)];
         for &ti in bucket {
@@ -201,12 +208,12 @@ impl TriGridIndex {
     }
 }
 
-/// 点 `(px, py)` が三角形 `t` 内（境界の数値誤差込み）なら重心座標で補間値を返す。
+/// Returns the barycentric-interpolated value if point `(px, py)` lies inside triangle `t` (within numerical tolerance at the boundary).
 fn barycentric_value(t: &Tri, px: f64, py: f64) -> Option<f64> {
     const EPS: f64 = 1e-9;
     let denom = (t.by - t.cy) * (t.ax - t.cx) + (t.cx - t.bx) * (t.ay - t.cy);
     if denom.abs() < 1e-15 {
-        return None; // 退化三角形。
+        return None; // Degenerate triangle.
     }
     let la = ((t.by - t.cy) * (px - t.cx) + (t.cx - t.bx) * (py - t.cy)) / denom;
     let lb = ((t.cy - t.ay) * (px - t.cx) + (t.ax - t.cx) * (py - t.cy)) / denom;
@@ -218,15 +225,16 @@ fn barycentric_value(t: &Tri, px: f64, py: f64) -> Option<f64> {
     }
 }
 
-/// 正規化空間のユークリッド距離。
+/// Euclidean distance in normalized space.
 fn dist(a: &Point, b: &Point) -> f64 {
     let dx = a.x - b.x;
     let dy = a.y - b.y;
     (dx * dx + dy * dy).sqrt()
 }
 
-/// 有限点のみ抽出し、(x,y) が近接する点を 1 つに統合（値は平均）する。
-/// 正規化グリッド（解像度 1e6）に量子化して重複を判定するため、浮動小数の同値問題に強い。
+/// Extracts only finite points and merges points whose (x,y) are close together
+/// into one (averaging the value). Duplicates are detected by quantizing onto a
+/// normalized grid (resolution 1e6), which is robust to floating-point equality issues.
 fn clean_points(pts: &[[f64; 3]]) -> Vec<[f64; 3]> {
     use std::collections::HashMap;
 
@@ -250,16 +258,17 @@ fn clean_points(pts: &[[f64; 3]]) -> Vec<[f64; 3]> {
     let xr = xmax - xmin;
     let yr = ymax - ymin;
     if xr <= 0.0 || yr <= 0.0 {
-        // 退化（後段で弾く）。重複統合はしない。
+        // Degenerate (rejected later). Skip duplicate merging.
         return finite;
     }
 
     const Q: f64 = 1.0e6;
-    // key -> (sum_x, sum_y, sum_v, count)。
-    // HashMap のイテレーション順はインスタンスごとにランダムなため、
-    // 出力順は挿入順（= 元データの出現順）を別途保持して決定的にする。
-    // 順序が揺れると三角形分割の順序が変わり、境界上の格子点の補間値が
-    // 実行ごとに最終桁で揺れてしまう。
+    // key -> (sum_x, sum_y, sum_v, count).
+    // HashMap iteration order is randomized per instance, so we separately track
+    // insertion order (= original data order) to make the output order deterministic.
+    // If the order drifted, the triangulation order would change, causing the
+    // interpolated values at grid points on boundaries to jitter in the last digit
+    // from run to run.
     let mut acc: HashMap<(i64, i64), (f64, f64, f64, u32)> = HashMap::new();
     let mut order: Vec<(i64, i64)> = Vec::new();
     for p in &finite {
@@ -285,12 +294,13 @@ fn clean_points(pts: &[[f64; 3]]) -> Vec<[f64; 3]> {
 }
 
 // ============================================================
-// 観測点の密度グリッド（散布オーバーレイのシェーディング用）
+// Density grid of observed points (for scatter-overlay shading)
 // ============================================================
 
-/// 観測点を (nx-1)×(ny-1) のセルにビニングし、半径 `blur_radius` で局所平滑化したうえで
-/// 最大値で割った正規化密度 (0..1) を返す。セル (i,j) は x∈[x_i,x_{i+1}]、y∈[y_j,y_{j+1}]。
-/// 1 セル単位ではほぼ 0/1 でノイズが多いため、平滑化して領域の濃淡を表す。
+/// Bins observed points into (nx-1)×(ny-1) cells, applies local smoothing with
+/// radius `blur_radius`, and returns the normalized density (0..1) divided by the
+/// max value. Cell (i,j) covers x∈[x_i,x_{i+1}], y∈[y_j,y_{j+1}]. A single cell is
+/// mostly 0/1 and noisy, so smoothing is applied to express regional shading.
 pub fn cell_density_grid(
     points: &[[f64; 3]],
     (x_min, x_max): (f64, f64),
@@ -319,14 +329,14 @@ pub fn cell_density_grid(
         .collect()
 }
 
-/// 2D グリッドに半径 `r` の分離型箱平滑化（近傍平均）を適用する。`r == 0` は恒等。
+/// Applies a separable box blur (neighborhood average) with radius `r` to a 2D grid. `r == 0` is the identity.
 pub fn box_blur_2d(grid: &[Vec<f32>], r: usize) -> Vec<Vec<f32>> {
     if r == 0 || grid.is_empty() {
         return grid.to_vec();
     }
     let nx = grid.len();
     let ny = grid[0].len();
-    // 横方向の移動平均。
+    // Horizontal moving average.
     let mut tmp = vec![vec![0f32; ny]; nx];
     for (i, col) in tmp.iter_mut().enumerate() {
         for (j, slot) in col.iter_mut().enumerate() {
@@ -339,7 +349,7 @@ pub fn box_blur_2d(grid: &[Vec<f32>], r: usize) -> Vec<Vec<f32>> {
             *slot = sum / (hi - lo + 1) as f32;
         }
     }
-    // 縦方向の移動平均。
+    // Vertical moving average.
     let mut out = vec![vec![0f32; ny]; nx];
     for (out_row, src_row) in out.iter_mut().zip(tmp.iter()) {
         for (j, slot) in out_row.iter_mut().enumerate() {
@@ -353,16 +363,16 @@ pub fn box_blur_2d(grid: &[Vec<f32>], r: usize) -> Vec<Vec<f32>> {
 }
 
 // ============================================================
-// マスク対応の等高線セグメント抽出（marching squares）
+// Mask-aware contour segment extraction (marching squares)
 // ============================================================
 
-/// マスク付き値グリッドから等高線の線分を抽出する（marching squares）。
-/// 4 隅とも `Some` のセルのみ対象。`n_levels` 本の等値線を
-/// `v_min..v_max` を等分した内部レベルに引く。
+/// Extracts contour-line segments from a masked value grid (marching squares).
+/// Only cells whose 4 corners are all `Some` are considered. Draws `n_levels`
+/// contour lines at internal levels obtained by evenly dividing `v_min..v_max`.
 ///
-/// 返す座標はグリッドのサンプル index 空間（`display[r][c]` のサンプルが
-/// `[c as f64, r as f64]`）。描画側はセル中心をサンプル位置として
-/// スクリーン座標へ写像する。
+/// The returned coordinates are in the grid's sample-index space (the sample at
+/// `display[r][c]` is `[c as f64, r as f64]`). The rendering side maps cell
+/// centers as sample positions to screen coordinates.
 pub fn contour_line_segments(
     display: &[Vec<Option<f64>>],
     v_min: f64,
@@ -389,9 +399,9 @@ pub fn contour_line_segments(
                     display[r + 1][c + 1],
                     display[r + 1][c],
                 ) else {
-                    continue; // 不完全セルは等高線を描かない。
+                    continue; // Skip incomplete cells; no contour is drawn there.
                 };
-                // 4 辺（上・右・下・左）の交点を集める。
+                // Collect intersection points on the 4 edges (top, right, bottom, left).
                 let mut pts: Vec<[f64; 2]> = Vec::with_capacity(4);
                 let (x0, x1) = (c as f64, (c + 1) as f64);
                 let (y0, y1) = (r as f64, (r + 1) as f64);
@@ -421,7 +431,7 @@ pub fn contour_line_segments(
     segments
 }
 
-/// 辺の 2 端点 `a`,`b` が `level` を挟むなら、a→b 上の交点比率 `t`(0..1) を返す。
+/// If the two edge endpoints `a`,`b` straddle `level`, returns the intersection ratio `t`(0..1) along a→b.
 fn edge_cross(a: f64, b: f64, level: f64) -> Option<f64> {
     let above_a = a >= level;
     let above_b = b >= level;
@@ -439,30 +449,30 @@ fn edge_cross(a: f64, b: f64, level: f64) -> Option<f64> {
 mod tests {
     use super::*;
 
-    /// 値の格子から Some の個数を数える。
+    /// Counts the number of `Some` entries in the value grid.
     fn count_some(s: &ObservedSurface) -> usize {
         s.z.iter().flatten().filter(|v| v.is_some()).count()
     }
 
     #[test]
     fn interpolates_plane_inside_hull_and_masks_outside() {
-        // 3 点で平面 value = x + 2y を張る三角形（領域 x+y<=1）。
+        // Triangle spanning the plane value = x + 2y from 3 points (region x+y<=1).
         let pts = [[0.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 2.0]];
         let s = observed_surface(&pts, 11, 0.0);
         assert_eq!(s.x_values.len(), 11);
         assert_eq!(s.z.len(), 11);
 
-        // 三角形内部（x+y<=1）は平面値に一致。i=2 → x=0.2, j=2 → y=0.2。
+        // Inside the triangle (x+y<=1), matches the plane value. i=2 → x=0.2, j=2 → y=0.2.
         let inside = s.z[2][2].expect("inside hull should be Some");
         assert!((inside - (0.2 + 2.0 * 0.2)).abs() < 1e-9, "got {inside}");
 
-        // 三角形外（x+y>1、例 i=9,j=9 → x=0.9,y=0.9）はマスク。
+        // Outside the triangle (x+y>1, e.g. i=9,j=9 → x=0.9,y=0.9) is masked.
         assert!(s.z[9][9].is_none(), "outside hull should be masked");
     }
 
     #[test]
     fn sparsity_guard_drops_bridging_triangle() {
-        // 2 つの離れたクラスタ。間を橋渡しする三角形は max_edge_ratio で落ちる。
+        // Two separated clusters. The bridging triangle between them is dropped by max_edge_ratio.
         let pts = [
             [0.0, 0.0, 0.0],
             [0.05, 0.0, 0.0],
@@ -471,14 +481,14 @@ mod tests {
             [0.95, 1.0, 10.0],
             [1.0, 0.95, 10.0],
         ];
-        // 厳しいガード: 中央 (0.5,0.5) は橋渡し三角形が落ちてマスクされる。
+        // Strict guard: the center (0.5,0.5) is masked because the bridging triangle is dropped.
         let strict = observed_surface(&pts, 21, 0.2);
         assert!(
             strict.z[10][10].is_none(),
             "midpoint should be masked under strict guard"
         );
 
-        // ガード無効: 中央は橋渡し三角形で補間される（Some が増える）。
+        // Guard disabled: the center is interpolated via the bridging triangle (more `Some` entries).
         let loose = observed_surface(&pts, 21, 0.0);
         assert!(
             count_some(&loose) > count_some(&strict),
@@ -496,7 +506,7 @@ mod tests {
 
     #[test]
     fn degenerate_range_returns_empty() {
-        // 全点が同じ X（縦一列）→ X 範囲ゼロ。
+        // All points share the same X (a vertical line) → zero X range.
         let pts = [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 2.0, 2.0]];
         let s = observed_surface(&pts, 10, 0.0);
         assert!(s.x_values.is_empty());
@@ -504,17 +514,17 @@ mod tests {
 
     #[test]
     fn bucketed_index_matches_linear_scan_exactly() {
-        // バケット索引は「index 最小の含有三角形が勝つ」線形走査と完全一致する。
+        // The bucket index exactly matches a linear scan where "the containing triangle with the lowest index wins."
         let pts: Vec<[f64; 3]> = (0..40)
             .map(|i| {
-                // 決定論的な擬似ランダム配置。
+                // Deterministic pseudo-random placement.
                 let x = ((i * 37 + 11) % 97) as f64 / 97.0;
                 let y = ((i * 53 + 29) % 89) as f64 / 89.0;
                 [x, y, x * 3.0 - y * 2.0 + (x * y).sin()]
             })
             .collect();
         let s = observed_surface(&pts, 31, 0.0);
-        // 同一入力から三角形リストを再構築し、線形走査で照合する。
+        // Rebuild the triangle list from the same input and cross-check via linear scan.
         let cleaned = clean_points(&pts);
         let (mut xmin, mut xmax) = (f64::INFINITY, f64::NEG_INFINITY);
         let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -559,7 +569,7 @@ mod tests {
 
     #[test]
     fn duplicate_points_do_not_panic() {
-        // 重複だらけでも統合され、三角形が作れれば surface が返る。
+        // Even with many duplicates, they are merged and a surface is returned as long as triangles can be formed.
         let mut pts = vec![[0.0, 0.0, 0.0]; 20];
         pts.extend_from_slice(&[[1.0, 0.0, 1.0], [0.0, 1.0, 2.0], [1.0, 1.0, 3.0]]);
         let s = observed_surface(&pts, 9, 0.0);
@@ -567,49 +577,49 @@ mod tests {
         assert!(count_some(&s) > 0);
     }
 
-    // ── 密度グリッド / 等高線セグメント（Observed Contour オーバーレイ用） ──
+    // ── Density grid / contour segments (for the Observed Contour overlay) ──
 
     #[test]
     fn edge_cross_detects_straddle() {
-        // 0 と 2 が level=1 を挟む → 中点 t=0.5。
+        // 0 and 2 straddle level=1 → midpoint t=0.5.
         assert_eq!(edge_cross(0.0, 2.0, 1.0), Some(0.5));
-        // 同符号は None。
+        // Same sign yields None.
         assert!(edge_cross(0.0, 0.5, 1.0).is_none());
         assert!(edge_cross(2.0, 3.0, 1.0).is_none());
     }
 
     #[test]
     fn cell_density_grid_bins_and_normalizes() {
-        // 3x3 グリッド → 2x2 セル。左下セルに 2 点、右上セルに 2 点。
+        // 3x3 grid → 2x2 cells. 2 points in the bottom-left cell, 2 in the top-right cell.
         let pts = vec![
             [0.1, 0.1, 0.0],
             [0.2, 0.2, 0.0],
             [0.9, 0.9, 0.0],
-            [1.0, 1.0, 0.0], // 端は最終セルにクランプ
+            [1.0, 1.0, 0.0], // Edge clamps to the last cell
         ];
-        // blur=0 はビニングそのまま（正規化のみ）。
+        // blur=0 leaves the binning as-is (only normalization).
         let d = cell_density_grid(&pts, (0.0, 1.0), (0.0, 1.0), 3, 3, 0);
         assert_eq!(d.len(), 2);
         assert_eq!(d[0].len(), 2);
-        // 左下 (i=0,j=0) が最大カウント 2 → 1.0。
+        // Bottom-left (i=0,j=0) has the max count of 2 → 1.0.
         assert!((d[0][0] - 1.0).abs() < 1e-6);
-        // 右上 (i=1,j=1) はカウント 2（0.9 と 1.0）→ 1.0。
+        // Top-right (i=1,j=1) has count 2 (0.9 and 1.0) → 1.0.
         assert!((d[1][1] - 1.0).abs() < 1e-6);
-        // 空セルは 0。
+        // Empty cells are 0.
         assert!(d[0][1].abs() < 1e-6);
         assert!(d[1][0].abs() < 1e-6);
     }
 
     #[test]
     fn box_blur_spreads_into_neighbors() {
-        // 中央だけ値を持つ 3x3。半径1の平滑化で隣接セルが非ゼロになる。
+        // 3x3 with only the center holding a value. Radius-1 smoothing makes neighboring cells nonzero.
         let mut g = vec![vec![0.0_f32; 3]; 3];
         g[1][1] = 9.0;
         let b = box_blur_2d(&g, 1);
         assert!(b[1][1] > 0.0);
-        assert!(b[0][1] > 0.0); // 縦横の隣接に滲む
+        assert!(b[0][1] > 0.0); // Bleeds into vertical/horizontal neighbors
         assert!(b[1][0] > 0.0);
-        // 総和は発散しない（端クランプの平均なので完全保存ではない）。
+        // The total sum doesn't diverge (not perfectly conserved since edges clamp the average).
         let before: f32 = g.iter().flatten().sum();
         let after: f32 = b.iter().flatten().sum();
         assert!((before - after).abs() < before);
@@ -623,11 +633,11 @@ mod tests {
 
     #[test]
     fn contour_segments_cross_simple_gradient() {
-        // 2x2 グリッド、値 0..3。level は内部等分なので必ず横切る線分が出る。
+        // 2x2 grid, values 0..3. Since levels are evenly spaced internally, a crossing segment is always produced.
         let g = vec![vec![Some(0.0), Some(1.0)], vec![Some(2.0), Some(3.0)]];
         let segs = contour_line_segments(&g, 0.0, 3.0, 2);
         assert!(!segs.is_empty());
-        // 座標はサンプル index 空間 [0,1]x[0,1] に収まる。
+        // Coordinates fall within the sample-index space [0,1]x[0,1].
         for (a, b) in &segs {
             for p in [a, b] {
                 assert!(p[0] >= 0.0 && p[0] <= 1.0);
@@ -638,7 +648,7 @@ mod tests {
 
     #[test]
     fn contour_segments_skip_masked_cells() {
-        // 1 隅が None のセルは線分を出さない。
+        // A cell with one corner as None produces no segment.
         let g = vec![vec![Some(0.0), None], vec![Some(2.0), Some(3.0)]];
         assert!(contour_line_segments(&g, 0.0, 3.0, 3).is_empty());
     }

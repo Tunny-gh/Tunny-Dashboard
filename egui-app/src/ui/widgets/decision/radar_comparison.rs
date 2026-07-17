@@ -1,10 +1,13 @@
-//! ピン留めした trial を重ね描きするレーダー比較ウィジェット。
+//! Radar comparison widget that overlays pinned trials.
 //!
-//! 軸は目的関数（常時）+ 数値パラメータ（トグルで追加）。各軸は Study 全体の
-//! 数値列で min-max 正規化し、"Outward = better" が有効なら最小化目的の軸だけ
-//! 反転する（外側 = 良い、で統一するため）。描画そのものはトライアル詳細モーダルの
-//! レーダーチャートと共通の [`crate::ui::widgets::common::radar_chart::draw_radar`] に委譲する。
-//! 詳細は `theory/{en,ja}/widgets/radar-comparison.md` を参照。
+//! Axes are the objective functions (always shown) + numeric parameters
+//! (added via a toggle). Each axis is min-max normalized over the whole
+//! Study's numeric column, and if "Outward = better" is enabled, only
+//! minimize-objective axes are flipped (so "outward = better" is
+//! consistent across all axes). The drawing itself is delegated to
+//! [`crate::ui::widgets::common::radar_chart::draw_radar`], shared with the
+//! trial detail modal's radar chart.
+//! See `theory/{en,ja}/widgets/radar-comparison.md` for details.
 
 use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::COLOR_EMPTY_STATE;
@@ -12,14 +15,15 @@ use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::radar_chart::{draw_radar, swatch, RadarSeries};
 use crate::ui::widgets::common::range_math::finite_value_range;
 
-/// レーダー比較ウィジェットの UI 状態。計算キャッシュは持たない
-/// （数個の多角形を毎フレーム再計算しても軽量なため）。
+/// UI state for the radar comparison widget. Holds no computation cache
+/// (recomputing a handful of polygons every frame is cheap enough).
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RadarComparisonChart {
-    /// 数値パラメータも軸に含めるか（既定は目的関数のみ）。
+    /// Whether to also include numeric parameters as axes (default is
+    /// objectives only).
     pub include_params: bool,
-    /// 最小化目的の軸を反転し、外側ほど良いに統一するか。
+    /// Whether to flip minimize-objective axes so "outward = better" is consistent.
     pub outward_better: bool,
 }
 
@@ -32,17 +36,20 @@ impl Default for RadarComparisonChart {
     }
 }
 
-/// レーダー 1 軸ぶんの情報（列の借用込み）。`show` と CSV エクスポートで共有する。
+/// Information for a single radar axis (including a borrow of the column).
+/// Shared between `show` and CSV export.
 pub struct AxisInfo<'a> {
     pub name: &'a str,
     pub col: &'a [f64],
     pub is_objective: bool,
-    /// 目的関数軸の場合、`directions` 内のインデックス（反転判定に使う）。
+    /// For an objective-function axis, the index within `directions` (used
+    /// to decide whether to flip).
     pub obj_idx: Option<usize>,
 }
 
-/// 軸リストを構築する（目的関数 → 数値パラメータの順）。数値列を持たない
-/// 目的・パラメータはスキップする。`include_params` が false ならパラメータ軸は追加しない。
+/// Builds the axis list (objectives, then numeric parameters). Objectives
+/// / parameters without a numeric column are skipped. If `include_params`
+/// is false, no parameter axes are added.
 pub fn build_axes<'a>(
     view: &'a StudyView,
     param_names: &'a [String],
@@ -75,13 +82,15 @@ pub fn build_axes<'a>(
     axes
 }
 
-/// 軸の値域（非有限値を除いた min/max）。範囲が空なら `(0.0, 0.0)`（degenerate 扱い）。
+/// The axis's value range (min/max excluding non-finite values). If the
+/// range is empty, returns `(0.0, 0.0)` (treated as degenerate).
 fn axis_range(col: &[f64]) -> (f64, f64) {
     finite_value_range(col.iter().copied()).unwrap_or((0.0, 0.0))
 }
 
-/// 値を軸上の半径割合 [0,1] に正規化する。`min == max`（degenerate）なら 0.5。
-/// `flip` が true なら `u -> 1 - u`（"outward = better" 用）。
+/// Normalizes a value to a radial fraction [0,1] on the axis. Returns 0.5
+/// when `min == max` (degenerate). If `flip` is true, applies `u -> 1 - u`
+/// (for "outward = better").
 pub fn normalize(v: f64, min: f64, max: f64, flip: bool) -> f64 {
     let span = max - min;
     let u = if span.abs() <= f64::EPSILON {
@@ -177,8 +186,8 @@ impl RadarComparisonChart {
             series.push(RadarSeries {
                 color,
                 fractions,
-                // 強調表示（扇形メッシュ塗り + ドット）はせず、太めの輪郭線のみで
-                // 複数トライアルを重ね描きしても見分けやすくする。
+                // No emphasis (fan-mesh fill + dots); use only a thicker
+                // outline so multiple overlaid trials stay distinguishable.
                 width: 2.0,
                 emphasized: false,
             });
@@ -186,7 +195,7 @@ impl RadarComparisonChart {
 
         draw_radar(ui, &axis_labels, &series);
 
-        // ── 凡例（ピン留めトライアルごとの色見本 + トライアル番号）──────
+        // ── Legend (color swatch + trial number for each pinned trial) ──────
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             for (color, label) in &legend_entries {

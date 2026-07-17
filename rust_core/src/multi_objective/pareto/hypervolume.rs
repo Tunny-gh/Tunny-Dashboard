@@ -1,12 +1,13 @@
 use super::helpers::{add_to_pareto_front, compute_ref_point, normalize_objectives};
 use super::types::HvHistoryResult;
 
-/// N次元ハイパーボリューム（最小化前提・厳密値）。
+/// N-dimensional hypervolume (assumes minimization, exact value).
 ///
-/// ref_point より全次元で厳密に小さい点のみ有効とする。m=1/2 は専用の高速パス、
-/// m>=3 は WFG アルゴリズム (While, Bradstreet, Barone 2012) で計算する。
-/// 入力に支配される点や重複点が含まれていてもよい（内部で非支配集合に縮約する）。
-/// 手法の詳細は theory/ja/optimization/hypervolume.md を参照。
+/// Only points strictly smaller than `ref_point` in every dimension are valid.
+/// m=1/2 use dedicated fast paths; m>=3 uses the WFG algorithm
+/// (While, Bradstreet, Barone 2012). The input may include dominated or
+/// duplicate points (they are reduced to the non-dominated set internally).
+/// See theory/ja/optimization/hypervolume.md for method details.
 pub fn hypervolume_nd(points: &[Vec<f64>], ref_point: &[f64]) -> f64 {
     let m = ref_point.len();
     if points.is_empty() || m == 0 {
@@ -33,9 +34,10 @@ pub fn hypervolume_nd(points: &[Vec<f64>], ref_point: &[f64]) -> f64 {
         return hypervolume_2d(&pts_2d, ref_point[0], ref_point[1]);
     }
 
-    // WFG の再帰コストは点数に対して増えるため、先に非支配集合へ縮約する。
-    // 最後の目的の昇順ソートは limitset 内の支配点を増やし枝刈りを効かせるための
-    // ヒューリスティック（正しさはソート順に依存しない）。
+    // WFG's recursion cost grows with the number of points, so reduce to the
+    // non-dominated set first. Sorting by the last objective ascending is a
+    // heuristic to increase dominated points within the limitset and improve
+    // pruning (correctness does not depend on the sort order).
     let mut front: Vec<Vec<f64>> = Vec::new();
     for p in valid {
         add_to_pareto_front(&mut front, p);
@@ -48,14 +50,16 @@ pub fn hypervolume_nd(points: &[Vec<f64>], ref_point: &[f64]) -> f64 {
     wfg(&front, ref_point)
 }
 
-/// WFG 本体: 非支配集合の HV を点ごとの排他的寄与 exclhv の和として計算する。
-/// 点数 0/1/2 は閉形式で打ち切り、再帰を浅くする。
+/// WFG core: computes the HV of a non-dominated set as the sum of each
+/// point's exclusive contribution (exclhv). Counts of 0/1/2 are handled in
+/// closed form to keep the recursion shallow.
 fn wfg(front: &[Vec<f64>], ref_point: &[f64]) -> f64 {
     match front.len() {
         0 => 0.0,
         1 => inclhv(&front[0], ref_point),
         2 => {
-            // 包除原理: |A∪B| = |A| + |B| − |A∩B|。共通部分は成分ごとの max。
+            // Inclusion-exclusion: |A∪B| = |A| + |B| − |A∩B|. The intersection
+            // is the component-wise max.
             let joint: Vec<f64> = front[0]
                 .iter()
                 .zip(front[1].iter())
@@ -67,7 +71,7 @@ fn wfg(front: &[Vec<f64>], ref_point: &[f64]) -> f64 {
     }
 }
 
-/// 点 p 単独の包含 HV: Π_k (ref_k − p_k)。
+/// Inclusive HV of a single point p: Π_k (ref_k − p_k).
 fn inclhv(p: &[f64], ref_point: &[f64]) -> f64 {
     p.iter()
         .zip(ref_point.iter())
@@ -75,9 +79,11 @@ fn inclhv(p: &[f64], ref_point: &[f64]) -> f64 {
         .product()
 }
 
-/// front[i] の排他的寄与: inclhv(front[i]) から後続点 front[i+1..] が front[i] の
-/// box 内に落とす「影」(limitset = 成分ごとの max) の HV を引く。
-/// 影は非支配集合へ縮約してから再帰する（WFG の中核となる枝刈り）。
+/// Exclusive contribution of front[i]: subtract from inclhv(front[i]) the HV
+/// of the "shadow" (limitset = component-wise max) that the subsequent
+/// points front[i+1..] cast inside front[i]'s box.
+/// The shadow is reduced to a non-dominated set before recursing (this is
+/// the core pruning step of WFG).
 fn exclhv(front: &[Vec<f64>], i: usize, ref_point: &[f64]) -> f64 {
     let p = &front[i];
     let mut limit: Vec<Vec<f64>> = Vec::new();
@@ -88,11 +94,12 @@ fn exclhv(front: &[Vec<f64>], i: usize, ref_point: &[f64]) -> f64 {
     inclhv(p, ref_point) - wfg(&limit, ref_point)
 }
 
-/// 2次元ハイパーボリューム（最小化前提・厳密値）。
+/// 2D hypervolume (assumes minimization, exact value).
 ///
-/// ref 点より両次元で厳密に小さい点のみ有効とする。入力に支配される点や
-/// 重複点が含まれていてもよい（内部で非支配フロントへ縮約してから
-/// x 昇順の区間和で計算する）。
+/// Only points strictly smaller than the ref point in both dimensions are
+/// valid. The input may include dominated or duplicate points (they are
+/// reduced to a non-dominated front internally, then summed over x-ascending
+/// intervals).
 pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f64 {
     if pareto_points.is_empty() {
         return 0.0;
@@ -111,9 +118,10 @@ pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f
             .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
     });
 
-    // 区間和は「x 昇順で y が厳密に減少する非支配フロント」を前提とするため、
-    // 支配される点・重複点をここで除去する。縮約しないと支配点の帯が
-    // 二重にカウントされ HV が過大になる。
+    // The interval sum assumes a non-dominated front where y strictly
+    // decreases as x increases, so dominated/duplicate points are removed
+    // here. Without this reduction, dominated points' strips would be
+    // double-counted and the HV would be overestimated.
     let mut front: Vec<(f64, f64)> = Vec::with_capacity(pts.len());
     for &(x, y) in &pts {
         if front.last().is_none_or(|&(_, last_y)| y < last_y) {
@@ -137,8 +145,8 @@ pub fn hypervolume_2d(pareto_points: &[(f64, f64)], ref_x: f64, ref_y: f64) -> f
     hv
 }
 
-/// スレッドローカルを使わずデータを直接受け取って HV 推移を計算する。
-/// バックグラウンドスレッドから呼び出す場合はこちらを使用する。
+/// Computes the HV history by taking data directly, without thread-local
+/// state. Use this variant when calling from a background thread.
 pub fn compute_hv_history_from_data(
     trial_ids: &[u32],
     objectives: &[Vec<f64>],
@@ -147,11 +155,12 @@ pub fn compute_hv_history_from_data(
     compute_hv_history_with_ref(trial_ids, objectives, is_minimize, None)
 }
 
-/// 参照点を任意指定できる HV 推移計算。
+/// Computes the HV history with an optional explicit reference point.
 ///
-/// `ref_point_override` は正規化空間の参照点（最大化目的は符号反転済み）。
-/// `None` の場合は観測点の nadir + 10% マージンから自動算出する。
-/// 戻り値の `ref_point` には実際に使用した参照点（正規化空間）を入れる。
+/// `ref_point_override` is a reference point in normalized space (maximize
+/// objectives already sign-flipped). If `None`, it is auto-computed from the
+/// observed points' nadir plus a 10% margin. The returned `ref_point` holds
+/// the reference point actually used (in normalized space).
 pub fn compute_hv_history_with_ref(
     trial_ids: &[u32],
     objectives: &[Vec<f64>],
@@ -161,7 +170,7 @@ pub fn compute_hv_history_with_ref(
     let n = objectives.len();
     let m = if n > 0 { objectives[0].len() } else { 0 };
 
-    // HV を計算しないケース（単目的・有効点なし）の空結果。
+    // Empty result for cases where HV is not computed (single objective, no valid points).
     let empty = || HvHistoryResult {
         trial_ids: trial_ids.to_vec(),
         hv_values: vec![0.0; n],
@@ -181,7 +190,8 @@ pub fn compute_hv_history_with_ref(
     if valid_objs.is_empty() {
         return empty();
     }
-    // 指定があり次元が一致し全要素有限ならそれを使う。さもなくば自動算出。
+    // Use the override if it's provided, matches the dimension, and all
+    // elements are finite; otherwise auto-compute.
     let ref_pt = match ref_point_override {
         Some(r) if r.len() == m && r.iter().all(|v| v.is_finite()) => r.to_vec(),
         _ => compute_ref_point(&valid_objs, m),
@@ -206,8 +216,9 @@ pub fn compute_hv_history_with_ref(
     }
 }
 
-/// アクティブな DataFrame の目的値列から HV 推移を計算するスレッドローカル版。
-/// アクティブ Study がなければ空の結果を返す。
+/// Thread-local version that computes the HV history from the active
+/// DataFrame's objective columns. Returns an empty result if there is no
+/// active study.
 pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
     crate::dataframe::with_active_df(|df| {
         let n = df.row_count();
@@ -239,8 +250,9 @@ pub fn compute_hypervolume_history(is_minimize: &[bool]) -> HvHistoryResult {
 mod wfg_tests {
     use super::*;
 
-    /// 旧・再帰スライス実装（WFG 導入前の本番コード）。WFG の検証用リファレンス
-    /// としてテスト内にのみ残す。概算 O(n^m) のため小規模入力専用。
+    /// Old recursive slicing implementation (production code before WFG was
+    /// introduced). Kept only in tests as a reference for validating WFG.
+    /// Roughly O(n^m), so it's for small inputs only.
     fn hypervolume_nd_slicing(points: &[Vec<f64>], ref_point: &[f64]) -> f64 {
         let m = ref_point.len();
         if points.is_empty() || m == 0 {
@@ -285,7 +297,7 @@ mod wfg_tests {
         hv
     }
 
-    /// 決定的な擬似乱数 (LCG)。テスト再現性のためシード固定。
+    /// Deterministic pseudo-random number generator (LCG). Seed is fixed for test reproducibility.
     fn lcg_next(state: &mut u64) -> f64 {
         *state = state
             .wrapping_mul(6364136223846793005)
@@ -293,7 +305,7 @@ mod wfg_tests {
         (*state >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    /// WFG がリファレンス実装（旧スライス法）と一致することをランダム前面で検証する。
+    /// Verifies that WFG matches the reference implementation (old slicing method) on random fronts.
     #[test]
     fn wfg_matches_slicing_reference_on_random_fronts() {
         for m in [3usize, 4, 5] {
@@ -310,8 +322,8 @@ mod wfg_tests {
         }
     }
 
-    /// 手計算検証: 点 (0,1,1), (1,0,0)、参照点 (1.1, 1.1, 1.1)。
-    /// 包除原理: 1.1·0.1·0.1 + 0.1·1.1·1.1 − 0.1³ = 0.011 + 0.121 − 0.001 = 0.131
+    /// Hand-computed check: points (0,1,1), (1,0,0), ref point (1.1, 1.1, 1.1).
+    /// Inclusion-exclusion: 1.1·0.1·0.1 + 0.1·1.1·1.1 − 0.1³ = 0.011 + 0.121 − 0.001 = 0.131
     #[test]
     fn wfg_3d_two_points_hand_computed() {
         let pts = vec![vec![0.0, 1.0, 1.0], vec![1.0, 0.0, 0.0]];
@@ -320,19 +332,19 @@ mod wfg_tests {
         assert!((hv - 0.131).abs() < 1e-12, "HV = {hv}, expected 0.131");
     }
 
-    /// 支配される点を混ぜても HV は変わらない（内部で非支配集合へ縮約するため）。
+    /// Mixing in dominated points does not change the HV (they are reduced to the non-dominated set internally).
     #[test]
     fn wfg_unaffected_by_dominated_points() {
         let front = vec![vec![0.0, 1.0, 1.0], vec![1.0, 0.0, 0.0]];
         let mut with_dominated = front.clone();
-        with_dominated.push(vec![1.05, 1.05, 1.05]); // 両点に支配される
+        with_dominated.push(vec![1.05, 1.05, 1.05]); // dominated by both points
         let ref_pt = vec![1.1, 1.1, 1.1];
         let a = hypervolume_nd(&front, &ref_pt);
         let b = hypervolume_nd(&with_dominated, &ref_pt);
         assert!((a - b).abs() < 1e-12, "a={a} b={b}");
     }
 
-    /// 重複点は 1 回だけ数えられる。
+    /// Duplicate points are counted only once.
     #[test]
     fn wfg_duplicate_points_counted_once() {
         let front = vec![vec![0.2, 0.8, 0.5], vec![0.8, 0.2, 0.5]];
@@ -344,7 +356,7 @@ mod wfg_tests {
         assert!((a - b).abs() < 1e-12, "a={a} b={b}");
     }
 
-    /// 単一点の HV は包含 HV（box 体積）に一致する。
+    /// A single point's HV equals the inclusive HV (box volume).
     #[test]
     fn wfg_single_point_is_box_volume() {
         let pts = vec![vec![0.25, 0.5, 0.75, 0.5]];

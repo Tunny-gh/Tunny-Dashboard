@@ -1,22 +1,23 @@
-//! Optuna JournalStorage（JSON Lines）の読み取り。
+//! Reader for Optuna JournalStorage (JSON Lines).
 //!
-//! `parser` が一括/オンデマンド解析、`live_update` がポーリング差分解析を担う。
+//! `parser` handles bulk/on-demand parsing, while `live_update` handles polling diff parsing.
 
 pub mod live_update;
 pub mod parser;
+pub mod writer;
 
-/// JSON パースを行わずに、行から `"key": <非負整数>` の値を高速抽出する。
+/// Quickly extract the value of `"key": <non-negative integer>` from a line without full JSON parsing.
 ///
-/// op_code / study_id / trial_id の string-level フィルタリング用
-/// （`parser` の Phase 1/2 スキャンと `live_update` のカウンタ seed 計算で共用）。
-/// キーは `"key"` の形（前後がダブルクォートの完全一致）のみ受理し、行毎の
-/// `format!` 等のヒープ割り当てなしで走査する。値が u32 に収まらない・数値でない
-/// 場合は `None`。
+/// Used for string-level filtering of op_code / study_id / trial_id
+/// (shared by `parser`'s Phase 1/2 scans and `live_update`'s counter seed computation).
+/// Only accepts keys in the exact form `"key"` (surrounded by matching double quotes),
+/// and scans without per-line heap allocation such as `format!`. Returns `None` if the
+/// value doesn't fit in a u32 or isn't numeric.
 pub(crate) fn line_u32_field(line: &str, key: &str) -> Option<u32> {
     let bytes = line.as_bytes();
     for (key_start, _) in line.match_indices(key) {
-        // 前後をダブルクォートで挟まれた完全一致キーのみ受理する
-        // （"study_id" が "study_idx" 等の部分文字列に誤マッチしないように）。
+        // Only accept an exact-match key surrounded by double quotes
+        // (so "study_id" doesn't accidentally match a substring like "study_idx").
         if key_start == 0 || bytes[key_start - 1] != b'"' {
             continue;
         }
@@ -67,15 +68,15 @@ mod tests {
 
     #[test]
     fn rejects_partial_key_match() {
-        // "study_id" は "study_idx" にマッチしない（閉じクォート必須）。
+        // "study_id" does not match "study_idx" (closing quote required).
         assert_eq!(line_u32_field(r#"{"study_idx":9}"#, "study_id"), None);
-        // 前にクォートが無い裸のキーもマッチしない。
+        // A bare key without a preceding quote doesn't match either.
         assert_eq!(line_u32_field(r#"{study_id:9}"#, "study_id"), None);
     }
 
     #[test]
     fn skips_lookalike_and_finds_real_key() {
-        // 部分一致のキーを読み飛ばし、後続の完全一致キーを拾う。
+        // Skip a partial-match key and pick up the subsequent exact-match key.
         assert_eq!(
             line_u32_field(r#"{"study_idx":9,"study_id":3}"#, "study_id"),
             Some(3)
@@ -91,7 +92,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_value() {
-        // u32 を超える値は None（黙って切り捨てない）。
+        // A value exceeding u32 range is None (never silently truncated).
         assert_eq!(
             line_u32_field(r#"{"trial_id":4294967296}"#, "trial_id"),
             None

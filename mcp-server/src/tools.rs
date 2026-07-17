@@ -1,14 +1,15 @@
-//! MCP ツールの定義と実装。
+//! MCP tool definitions and implementations.
 //!
-//! 各ツールは `storage`（journal / SQLite パス、または PostgreSQL / MySQL の
-//! 接続 URL）を受け取り、tunny-core のヘッドレス API で読み込んで分析結果を
-//! 返す。返り値はテキスト 1 件（Markdown または JSON 文字列）。
+//! Each tool takes a `storage` (journal / SQLite path, or a PostgreSQL / MySQL
+//! connection URL), loads it with tunny-core's headless API, and returns the
+//! analysis result. The return value is a single text item (Markdown or a JSON
+//! string).
 //!
-//! ツール一覧:
-//! - `list_studies`   — ストレージ内の study 一覧（JSON）
-//! - `study_summary`  — 1 study の要約（overview + key findings、JSON）
-//! - `study_report`   — 完全な分析レポート（Markdown / JSON、日英対応）
-//! - `trials`         — trial データのスライス（JSON、limit/offset）
+//! Tool list:
+//! - `list_studies`   — list of studies in the storage (JSON)
+//! - `study_summary`  — summary of a single study (overview + key findings, JSON)
+//! - `study_report`   — full analysis report (Markdown / JSON, supports en/ja)
+//! - `trials`         — a slice of trial data (JSON, limit/offset)
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,15 +20,15 @@ use tunny_core::{build_study_report, ReportLang, ReportOptions, ReportSource};
 
 use crate::storage;
 
-/// ツール呼び出しの失敗種別。
+/// The kind of tool-call failure.
 pub enum ToolError {
-    /// ツール名が未知（JSON-RPC の Invalid params として返す）。
+    /// The tool name is unknown (returned as a JSON-RPC Invalid params error).
     UnknownTool,
-    /// 実行時エラー（MCP の isError: true ツール結果として返す）。
+    /// A runtime error (returned as an MCP tool result with isError: true).
     Execution(String),
 }
 
-/// `tools/list` に返すツール定義（MCP 形式、inputSchema は JSON Schema）。
+/// Tool definitions returned by `tools/list` (MCP format; inputSchema is JSON Schema).
 pub fn definitions() -> Vec<Value> {
     let storage_prop = json!({
         "type": "string",
@@ -121,7 +122,7 @@ pub fn definitions() -> Vec<Value> {
     ]
 }
 
-/// ツールを実行する。返り値はテキストコンテンツ 1 件。
+/// Executes a tool. Returns a single text content item.
 pub fn call(name: &str, args: &Value) -> Result<String, ToolError> {
     match name {
         "list_studies" => list_studies(args),
@@ -133,7 +134,7 @@ pub fn call(name: &str, args: &Value) -> Result<String, ToolError> {
 }
 
 // =============================================================================
-// 引数ヘルパー
+// Argument helpers
 // =============================================================================
 
 fn arg_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolError> {
@@ -148,7 +149,8 @@ fn arg_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
         None => Err(ToolError::Execution(format!(
             "missing required argument: {key}"
         ))),
-        // 存在するが型・範囲が不正（負数・小数・u32 超過）は区別して伝える。
+        // Present but with an invalid type/range (negative, fractional, exceeds u32)
+        // is reported distinctly.
         Some(v) => v
             .as_u64()
             .and_then(|v| u32::try_from(v).ok())
@@ -164,8 +166,9 @@ fn exec_err(e: String) -> ToolError {
     ToolError::Execution(e)
 }
 
-/// レポート生成の共通入力（`ReportSource` + 生成時刻）を組み立てる。
-/// `study_report` / `study_summary` で重複していた組み立てを一元化する。
+/// Builds the common input for report generation (`ReportSource` + generation time).
+/// Centralizes the construction that used to be duplicated between `study_report` and
+/// `study_summary`.
 fn report_source(storage_display: String) -> ReportSource {
     ReportSource {
         storage_display,
@@ -258,9 +261,9 @@ fn study_report(args: &Value) -> Result<String, ToolError> {
 // study_summary
 // =============================================================================
 
-/// `trials` の limit の既定値。
+/// Default value for `trials`'s limit.
 const TRIALS_DEFAULT_LIMIT: usize = 50;
-/// `trials` の limit の上限（超えた分は黙ってこの値にクランプする）。
+/// Upper bound for `trials`'s limit (values above this are silently clamped to it).
 const TRIALS_MAX_LIMIT: usize = 200;
 
 fn study_summary(args: &Value) -> Result<String, ToolError> {
@@ -271,8 +274,9 @@ fn study_summary(args: &Value) -> Result<String, ToolError> {
         storage::load_study(storage_str, study_id).map_err(exec_err)?;
 
     let source = report_source(storage_display);
-    // 要約はレポート全体を出力しないため、MCDM・相関の計算を省略する
-    // （Key Findings とパレート表の TOPSIS 順は維持される）。
+    // The summary doesn't emit the full report, so skip the MCDM/correlation
+    // computations (the TOPSIS ordering for Key Findings and the Pareto table is
+    // still preserved).
     let opts = ReportOptions {
         skip_decision_sections: true,
         ..ReportOptions::default()
@@ -325,10 +329,11 @@ fn study_summary(args: &Value) -> Result<String, ToolError> {
 // trials
 // =============================================================================
 
-/// `offset`/`limit` 引数を解析する（純粋なパース処理、テスト容易にするため分離）。
+/// Parses the `offset`/`limit` arguments (pure parsing logic, separated out for
+/// testability).
 ///
-/// `offset` 省略時は 0、`limit` 省略時は [`TRIALS_DEFAULT_LIMIT`]。`limit` は
-/// [`TRIALS_MAX_LIMIT`] を超えると黙ってクランプする（エラーにしない）。
+/// `offset` defaults to 0 when omitted, `limit` defaults to [`TRIALS_DEFAULT_LIMIT`].
+/// `limit` is silently clamped (not an error) when it exceeds [`TRIALS_MAX_LIMIT`].
 fn parse_offset_limit(args: &Value) -> (usize, usize) {
     let offset = args
         .get("offset")
@@ -411,7 +416,8 @@ fn trials(args: &Value) -> Result<String, ToolError> {
     .map_err(|e| exec_err(format!("JSON serialization failed: {e}")))
 }
 
-/// 有限値ならそのまま JSON 数値、NaN/inf は JSON に表現できないため `null` にする。
+/// Passes finite values through as a JSON number; NaN/inf cannot be represented in
+/// JSON, so they become `null`.
 fn finite_or_null(v: f64) -> Value {
     if v.is_finite() {
         json!(v)
@@ -424,7 +430,7 @@ fn finite_or_null(v: f64) -> Value {
 mod tests {
     use super::*;
 
-    // ── study_summary: 引数エラー ────────────────────────────────
+    // ── study_summary: argument errors ────────────────────────────
 
     #[test]
     fn study_summary_missing_study_id_is_execution_error() {
@@ -446,7 +452,7 @@ mod tests {
         }
     }
 
-    // ── trials: 引数エラー ───────────────────────────────────────
+    // ── trials: argument errors ───────────────────────────────────
 
     #[test]
     fn trials_missing_study_id_is_execution_error() {
@@ -468,7 +474,7 @@ mod tests {
         }
     }
 
-    // ── trials: offset/limit のパース・クランプ ─────────────────
+    // ── trials: offset/limit parsing and clamping ─────────────────
 
     #[test]
     fn parse_offset_limit_defaults() {

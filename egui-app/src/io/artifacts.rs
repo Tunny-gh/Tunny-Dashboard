@@ -1,8 +1,9 @@
-//! Artifacts フォルダスキャンの非同期ディスパッチ。
+//! Asynchronous dispatch for scanning the Artifacts folder.
 //!
-//! パス検証・Journal メタデータ解析・レガシーレイアウト走査などの純粋なロジックは
-//! egui に依存しないため `tunny_core::io::artifacts` に移設済み。ここでは
-//! `spawn_task` を介した非同期実行と `AppMessage` 送信のみを扱う。
+//! Pure logic such as path validation, Journal metadata parsing, and legacy layout
+//! scanning has already been moved to `tunny_core::io::artifacts` since it has no
+//! dependency on egui. This module only handles asynchronous execution via
+//! `spawn_task` and sending `AppMessage`.
 
 pub use tunny_core::io::artifacts::{
     parse_artifact_metadata, resolve_from_metadata, scan_legacy_layout, ArtifactEntry,
@@ -13,13 +14,13 @@ pub use tunny_core::io::artifacts::{
 // scan_artifacts_dir
 // ============================================================
 
-/// `artifacts/` フォルダをスキャンし、trial_id 別にアーティファクトをグループ化する。
-/// 完了後に `AppMessage::ArtifactsDirScanned` を送信する（REQ-007-A/C）。
+/// Scans the `artifacts/` folder and groups artifacts by trial_id.
+/// Sends `AppMessage::ArtifactsDirScanned` on completion (REQ-007-A/C).
 ///
-/// 主経路: `journal_path` のメタデータ（`artifacts:<id>`）から `trial_id ↔ artifact_id` を解決し、
-/// `base_dir/<artifact_id>` の実体ファイルを対応付ける。
-/// フォールバック: メタデータが無い場合のみ、`artifacts/<trial_id>/file` のような
-/// レガシーレイアウトをファイル名の先頭数値から推測する。
+/// Primary path: resolves `trial_id <-> artifact_id` from `journal_path`'s metadata
+/// (`artifacts:<id>`) and maps it to the actual file at `base_dir/<artifact_id>`.
+/// Fallback: only when there's no metadata, infers a legacy layout like
+/// `artifacts/<trial_id>/file` from the leading number in the file name.
 pub fn scan_artifacts_dir(
     base_dir: std::path::PathBuf,
     journal_path: Option<std::path::PathBuf>,
@@ -45,7 +46,7 @@ pub fn scan_artifacts_dir(
 }
 
 // ============================================================
-// テスト
+// Tests
 // ============================================================
 
 #[cfg(test)]
@@ -87,7 +88,7 @@ mod tests {
                 assert_eq!(received.get(&0).unwrap()[0].filename, "result.png");
                 assert_eq!(received_dir, artifacts_dir);
             }
-            _ => panic!("予期しないメッセージタイプ"),
+            _ => panic!("unexpected message type"),
         }
     }
 }

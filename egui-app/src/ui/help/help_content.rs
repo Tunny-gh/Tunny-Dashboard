@@ -309,9 +309,10 @@ fn chart_help(id: &ChartId) -> HelpContent {
                 "/help/ja/widgets/response-surface-3d.html"
             )),
         },
-        // Compare Surrogates 専用の理論ドキュメントは無いため、モデル種別の解説を含む
-        // Surrogate Optimizer の理論ドキュメント（"Surrogate models" 節）を共有する
-        // （ClusterScatter3D が clustering/overview.html を共有する既存パターンと同じ）。
+        // There is no dedicated theory document for Compare Surrogates, so it shares
+        // the Surrogate Optimizer theory document (the "Surrogate models" section),
+        // which includes an explanation of model types.
+        // (Same existing pattern as ClusterScatter3D sharing clustering/overview.html.)
         ChartId::SurrogateCompare => HelpContent {
             widget_name: "compare-surrogates",
             html_en: include_str!(concat!(

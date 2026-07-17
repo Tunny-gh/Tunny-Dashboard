@@ -56,25 +56,30 @@ impl ImportanceMetric {
         }
     }
 
-    /// 値が符号を持つ（負の相関・負の係数があり得る）か。Spearman / Ridge のみ符号付きで、
-    /// 木ベース・Sobol は非負。Sensitivity Heatmap の発散/逐次カラーマップ切替に使う。
+    /// Whether values can have a sign (negative correlations / negative
+    /// coefficients are possible). Only Spearman / Ridge are signed;
+    /// tree-based and Sobol metrics are non-negative. Used to switch between
+    /// diverging/sequential colormaps in the Sensitivity Heatmap.
     pub fn is_signed(&self) -> bool {
         matches!(self, ImportanceMetric::Spearman | ImportanceMetric::Ridge)
     }
 
-    /// モデル訓練（木ベース）や Sobol サンプリングを伴い計算コストが高いか。
-    /// 低コストなのは相関/線形（Spearman・Ridge）のみ。
+    /// Whether this metric is computationally expensive, i.e. involves model
+    /// training (tree-based) or Sobol sampling. Only correlation/linear
+    /// metrics (Spearman, Ridge) are cheap.
     pub fn is_expensive(&self) -> bool {
         !matches!(self, ImportanceMetric::Spearman | ImportanceMetric::Ridge)
     }
 }
 
-/// Sobol 指数推定のサンプル数（ImportanceChart / Sensitivity Heatmap 共通）。
+/// Sample count for Sobol index estimation (shared by ImportanceChart /
+/// Sensitivity Heatmap).
 pub const SOBOL_SAMPLE_COUNT: usize = 1024;
 
-/// `ImportanceMetric` から対応するコア感度メトリクスを生成する。
-/// Sobol は専用の `compute_sobol_from_df` 経路を使うため `None` を返す。
-/// ImportanceChart と Sensitivity Heatmap が同じ対応表を共有するためのヘルパー。
+/// Constructs the corresponding core sensitivity metric from an
+/// `ImportanceMetric`. Returns `None` for Sobol, since it uses the dedicated
+/// `compute_sobol_from_df` path. Lets ImportanceChart and Sensitivity Heatmap
+/// share the same mapping table.
 pub fn core_sensitivity_metric(
     metric: ImportanceMetric,
 ) -> Option<Box<dyn tunny_core::sensitivity::SensitivityMetric>> {
@@ -94,7 +99,7 @@ pub fn core_sensitivity_metric(
     })
 }
 
-/// 感度分析バーチャートウィジェット
+/// Sensitivity analysis bar chart widget
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ImportanceChart {
@@ -102,9 +107,10 @@ pub struct ImportanceChart {
     #[serde(skip)]
     pub computing: bool,
     pub objective_index: usize,
-    /// 実行可能解のみでモデルをフィットするか（制約付きスタディのみ UI 表示）
+    /// Whether to fit the model using feasible trials only (UI shown only for
+    /// constrained studies)
     pub feasible_only: bool,
-    /// 計算要求 (手法, 目的 idx, feasible_only)。poll_chart が消費する。
+    /// Compute request (method, objective idx, feasible_only). Consumed by poll_chart.
     #[serde(skip)]
     pub pending_compute: Option<(ImportanceMetric, usize, bool)>,
 }
@@ -122,10 +128,11 @@ impl Default for ImportanceChart {
 }
 
 impl ImportanceChart {
-    /// グローバル widget の計算実行状態（computing/pending）を取り込む。
-    /// 結果は `app_state.importance_cache` / `sobol_cache` に集約されるため、
-    /// キャンバスの各アイテム（独立した WidgetStates）には実行状態のみ反映すればよい。
-    /// メトリクス・目的関数の選択はアイテム固有なので維持する。
+    /// Pulls in the global widget's compute execution state (computing/pending).
+    /// Results are aggregated into `app_state.importance_cache` /
+    /// `sobol_cache`, so each canvas item (an independent WidgetState) only
+    /// needs the execution state applied. Metric and objective selections are
+    /// per-item, so they are preserved.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
     }
@@ -138,7 +145,7 @@ impl ImportanceChart {
         obj_names: &[String],
         has_constraints: bool,
     ) {
-        // Run ボタン + メトリクスコンボボックス + 目的関数コンボボックス + spinner + R²（右端）
+        // Run button + metric combo box + objective combo box + spinner + R² (right-aligned)
         ui.horizontal(|ui| {
             if ui.button("Run").clicked() {
                 self.pending_compute =
@@ -221,7 +228,7 @@ impl ImportanceChart {
                     });
             }
 
-            // 実行可能解フィルタ（制約付きスタディのみ）
+            // Feasible-only filter (constrained studies only)
             if has_constraints {
                 ui.toggle_value(&mut self.feasible_only, "Feasible only")
                     .on_hover_text("Fit the model using feasible trials only");
@@ -232,7 +239,7 @@ impl ImportanceChart {
                 ui.label("Computing...");
             }
 
-            // R² を右端に表示（Spearman 以外）
+            // Show R² on the right (all metrics except Spearman)
             let r2_opt: Option<f64> = match self.metric {
                 ImportanceMetric::Spearman => None,
                 ImportanceMetric::Ridge => sensitivity
@@ -347,7 +354,7 @@ fn group_header(text: &str) -> egui::RichText {
     egui::RichText::new(text).weak().small()
 }
 
-/// RfAnova / Mdi / Shap / Permutation の R² を取得する（表示用の最初の目的関数値）
+/// Retrieves R² for RfAnova / Mdi / Shap / Permutation (first objective's value, for display)
 fn extract_tree_r_squared(result: &SensitivityResult, metric: &ImportanceMetric) -> Option<f64> {
     match metric {
         ImportanceMetric::RfAnova => result.rf_anova.as_ref()?.r_squared.first().copied(),
@@ -378,7 +385,7 @@ fn extract_tree_importance(
     )
 }
 
-/// SensitivityResult から重要度スコアを降順でソートして返す
+/// Returns importance scores from a SensitivityResult, sorted in descending order
 pub fn compute_sorted_importance(
     result: &SensitivityResult,
     metric: &ImportanceMetric,
@@ -422,8 +429,9 @@ pub fn compute_sorted_importance(
     pairs
 }
 
-/// SobolResult から重要度スコアを降順でソートして返す。
-/// metric に応じて一次指数（SobolFirst）または全効果指数（SobolTotal）を使用する。
+/// Returns importance scores from a SobolResult, sorted in descending order.
+/// Uses the first-order index (SobolFirst) or total-effect index
+/// (SobolTotal) depending on the metric.
 pub fn compute_sorted_sobol(
     result: &SobolResult,
     obj_idx: usize,
@@ -484,7 +492,7 @@ mod tests {
 
     #[test]
     fn metric_expensiveness() {
-        // 低コストは相関/線形のみ。
+        // Only correlation/linear metrics are cheap.
         assert!(!ImportanceMetric::Spearman.is_expensive());
         assert!(!ImportanceMetric::Ridge.is_expensive());
         assert!(ImportanceMetric::RfAnova.is_expensive());
@@ -518,7 +526,7 @@ mod tests {
         let global = ImportanceChart::default(); // computing=false
         item.adopt_compute_state(&global);
         assert!(!item.computing);
-        // 結果は app_state 側に集約されるため、選択はアイテム固有で維持される。
+        // Results are aggregated on the app_state side, so selections remain per-item.
         assert_eq!(item.metric, ImportanceMetric::Shap);
         assert_eq!(item.objective_index, 3);
     }

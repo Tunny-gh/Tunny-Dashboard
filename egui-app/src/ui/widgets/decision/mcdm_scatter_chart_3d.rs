@@ -19,7 +19,7 @@ use crate::ui::widgets::scatter_3d::{
 use crate::ui::widgets::trial_detail_modal::{fmt_opt, TrialDetailModal};
 use egui::Color32;
 
-// ── キャッシュ ────────────────────────────────────────────────────
+// ── Cache ─────────────────────────────────────────────────────────
 
 #[derive(Clone, PartialEq, Eq)]
 struct CacheKey {
@@ -30,14 +30,16 @@ struct CacheKey {
     colormap_name: ColormapName,
     top_n: usize,
     result_method: McdmMethod,
-    /// ranked_indices の FNV ライクなハッシュ。
-    /// 旧実装は scores[0] を使っていたが、パレートフロント外の試行は
-    /// expand_scores により常に 0.0 になり、ウェイト変更を検知できなかった。
+    /// FNV-like hash of ranked_indices.
+    /// The old implementation used scores[0], but for trials outside the
+    /// Pareto front, `expand_scores` always sets it to 0.0, so weight changes
+    /// could not be detected.
     ranked_indices_hash: u64,
 }
 
-/// clip 空間座標 [-1,1]・色・行 index に変換済みのポイントキャッシュ。
-/// 行 index は点クリック時にトライアルを特定するため保持する。
+/// Cache of points already converted to clip-space coordinates [-1,1], color,
+/// and row index. The row index is kept to identify the trial when a point is
+/// clicked.
 struct PointsCache {
     clip_pts: Vec<([f32; 3], Color32, usize)>,
     infeasible_clip_pts: Vec<([f32; 3], usize)>,
@@ -46,25 +48,25 @@ struct PointsCache {
     z_range: (f64, f64),
 }
 
-// ── ウィジェット ──────────────────────────────────────────────────
+// ── Widget ────────────────────────────────────────────────────────
 
-/// MCDM 3D 散布図ウィジェット
+/// MCDM 3D scatter plot widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct McdmScatterChart3D {
-    /// MCDM 設定・実行状態（手法 / 重み / Run など）
+    /// MCDM settings and execution state (method / weights / Run, etc.)
     pub controls: McdmControls,
     pub x_axis: String,
     pub y_axis: String,
     pub z_axis: String,
     pub camera: ArcballCamera,
-    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    /// Whether to show infeasible solutions (only relevant for constrained studies)
     pub show_infeasible: bool,
     #[serde(skip)]
     cache: Option<PointsCache>,
     #[serde(skip)]
     cache_key: Option<CacheKey>,
-    /// 点クリックで開くトライアル詳細モーダル
+    /// Trial detail modal opened by clicking a point
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -86,12 +88,12 @@ impl Default for McdmScatterChart3D {
 }
 
 impl McdmScatterChart3D {
-    /// グローバル widget の MCDM 実行状態を取り込む（キャンバスの各アイテム用）。
+    /// Pulls in the global widget's MCDM execution state (for each canvas item).
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.controls.adopt_compute_state(&src.controls);
     }
 
-    /// 2D 版と共有する `ranked_indices()` ハッシュ（H-3 で 2D/3D 共通化）。
+    /// `ranked_indices()` hash shared with the 2D version (unified 2D/3D in H-3).
     fn ranked_hash(result: &McdmResult) -> u64 {
         ranked_hash(result)
     }
@@ -136,7 +138,7 @@ impl McdmScatterChart3D {
         let y_range = val_range(&y_vals);
         let z_range = val_range(&z_vals);
 
-        // ranked_indices → rank_map（2D と共有・D-6）
+        // ranked_indices → rank_map (shared with 2D, D-6)
         let rank_map = build_rank_map(result.ranked_indices(), n_trials);
         let colored_range = top_n.max(1);
 
@@ -166,7 +168,7 @@ impl McdmScatterChart3D {
                 continue;
             }
 
-            // rank → 色（top_n 内はカラーマップ、範囲外は灰色。2D と共有・D-6）
+            // rank -> color (colormap within top_n, gray outside it; shared with 2D, D-6)
             let color = mcdm_rank_color(rank, colored_range, colormap);
             clip_pts.push(([cx, cy, cz], color, i));
         }
@@ -220,7 +222,7 @@ impl McdmScatterChart3D {
 
         let options = get_axis_options(result, obj_names);
 
-        // デフォルト軸のリセット（無効なIDを選択中の場合）
+        // Reset to default axis (when an invalid ID is currently selected)
         if !options.iter().any(|o| o.id == self.x_axis) {
             self.x_axis = fallback_axis_id(&options, 0);
             self.cache_key = None;
@@ -234,7 +236,7 @@ impl McdmScatterChart3D {
             self.cache_key = None;
         }
 
-        // 軸セレクタ
+        // Axis selectors
         ui.horizontal(|ui| {
             ui.label("X:");
             egui::ComboBox::from_id_salt("mcdm3d_x")
@@ -265,7 +267,7 @@ impl McdmScatterChart3D {
         let n_trials = view.row_count();
         let has_constraints = view.feasibility().has_constraints();
 
-        // キャッシュ再構築
+        // Rebuild cache
         if self.is_cache_stale(n_trials, result, colormap_name, top_n) {
             if let Err(e) =
                 self.rebuild_cache(result, view, obj_names, colormap, colormap_name, top_n)
@@ -281,10 +283,10 @@ impl McdmScatterChart3D {
             });
         }
 
-        // カメラ操作はキャッシュ借用前に完了させる
+        // Finish camera manipulation before borrowing the cache
         let (painter, rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, &mut self.camera);
 
-        // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
+        // For left-click point hit testing (trial_id, row, and screen coords of drawn points)
         let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::new();
         let has_infeasible;
         {
@@ -307,7 +309,7 @@ impl McdmScatterChart3D {
 
             candidates.reserve(pc.clip_pts.len() + pc.infeasible_clip_pts.len());
 
-            // 実行不可能解を最背面に描画
+            // Draw infeasible solutions at the very back
             if has_infeasible {
                 let mut inf_pts: Vec<DepthPoint> = Vec::with_capacity(pc.infeasible_clip_pts.len());
                 for &(clip, row) in &pc.infeasible_clip_pts {
@@ -324,7 +326,7 @@ impl McdmScatterChart3D {
                 draw_depth_sorted_points(&painter, &mut inf_pts, None);
             }
 
-            // 実行可能解を奥から手前の順（ペインターズアルゴリズム）
+            // Draw feasible solutions back-to-front (painter's algorithm)
             let mut pts: Vec<DepthPoint> = Vec::with_capacity(pc.clip_pts.len());
             for &(clip, color, row) in &pc.clip_pts {
                 let (pos, depth) = project(clip);
@@ -340,10 +342,10 @@ impl McdmScatterChart3D {
             draw_depth_sorted_points(&painter, &mut pts, None);
         }
 
-        // ── 右上カラーバー判例 ────────────────────────────────────
+        // ── Top-right colorbar legend ───────────────────────────────
         draw_colorbar_legend(&painter, rect, colormap, top_n, has_infeasible);
 
-        // MCDM ランク・スコア行を組み立てる（ホバーとクリックで同じ内容を表示する）。
+        // Build MCDM rank/score rows (hover and click show the same content).
         let rank_score_rows = |row: usize| -> Vec<(String, String)> {
             let rank = result
                 .ranked_indices()
@@ -370,7 +372,7 @@ impl McdmScatterChart3D {
             rank_score_rows,
         );
 
-        // 詳細モーダルを描画する。
+        // Draw the detail modal.
         if self.detail_modal.is_open() {
             self.detail_modal
                 .show(ui, view, param_names, obj_names, artifact_map);
@@ -378,7 +380,7 @@ impl McdmScatterChart3D {
     }
 }
 
-/// 3D キャンバスの右上にカラーバー判例を描画する
+/// Draws the colorbar legend in the top-right of the 3D canvas.
 fn draw_colorbar_legend(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -393,7 +395,7 @@ fn draw_colorbar_legend(
     const FONT_SZ: f32 = 10.0;
     const N_SEGS: usize = 24;
 
-    // 判例全体の高さ（カラーバー＋Others＋オプションのInfeasible）
+    // Total legend height (colorbar + Others + optional Infeasible)
     let row_h = 16.0_f32;
     let extra_rows = 1 + if has_infeasible { 1 } else { 0 };
     let legend_h = BAR_H + row_h * extra_rows as f32 + PADDING * 2.0;
@@ -401,7 +403,7 @@ fn draw_colorbar_legend(
 
     let origin = egui::pos2(rect.right() - legend_w - PADDING, rect.top() + PADDING);
 
-    // 半透明背景
+    // Semi-transparent background
     painter.rect_filled(
         egui::Rect::from_min_size(origin, egui::vec2(legend_w, legend_h)),
         4.0,
@@ -411,15 +413,15 @@ fn draw_colorbar_legend(
     let bar_x = origin.x + PADDING;
     let bar_y = origin.y + PADDING;
 
-    // カラーバー（上 = Rank 1 = t=1.0、下 = Rank top_n = t=0.0）。バー本体の描画は
-    // `common::heatmap::draw_gradient_bar` を共有する（D-10）。外枠は付けない。
+    // Colorbar (top = Rank 1 = t=1.0, bottom = Rank top_n = t=0.0). The bar body
+    // rendering is shared via `common::heatmap::draw_gradient_bar` (D-10). No border.
     let bar_rect = egui::Rect::from_min_size(egui::pos2(bar_x, bar_y), egui::vec2(BAR_W, BAR_H));
     draw_gradient_bar(painter, bar_rect, colormap, N_SEGS);
 
     let text_color = egui::Color32::from_rgb(220, 220, 220);
     let font = egui::FontId::proportional(FONT_SZ);
 
-    // 上ラベル（最良）
+    // Top label (best)
     painter.text(
         egui::pos2(bar_x + TEXT_X, bar_y),
         egui::Align2::LEFT_TOP,
@@ -427,7 +429,7 @@ fn draw_colorbar_legend(
         font.clone(),
         text_color,
     );
-    // 下ラベル（最下位着色）
+    // Bottom label (lowest colored rank)
     painter.text(
         egui::pos2(bar_x + TEXT_X, bar_y + BAR_H),
         egui::Align2::LEFT_BOTTOM,
@@ -436,7 +438,7 @@ fn draw_colorbar_legend(
         text_color,
     );
 
-    // Others 行
+    // Others row
     let others_y = bar_y + BAR_H + 4.0;
     painter.circle_filled(
         egui::pos2(bar_x + BAR_W * 0.5, others_y + row_h * 0.5),
@@ -451,7 +453,7 @@ fn draw_colorbar_legend(
         text_color,
     );
 
-    // Infeasible 行
+    // Infeasible row
     if has_infeasible {
         let inf_y = others_y + row_h;
         painter.circle_filled(
@@ -489,7 +491,7 @@ mod tests {
         assert_ne!(
             McdmScatterChart3D::ranked_hash(&r1),
             McdmScatterChart3D::ranked_hash(&r2),
-            "ランキング順序が変わればハッシュが変わる"
+            "hash changes when the ranking order changes"
         );
     }
 
@@ -506,7 +508,7 @@ mod tests {
     #[test]
     fn cache_stale_after_ranking_change() {
         let mut w = McdmScatterChart3D::default();
-        // 擬似的に cache_key をセットして "旧ランキング" 状態を作る
+        // Artificially set cache_key to simulate the "old ranking" state
         w.cache_key = Some(CacheKey {
             trial_count: 10,
             x_axis: w.x_axis.clone(),
@@ -517,7 +519,7 @@ mod tests {
             result_method: crate::state::results::McdmMethod::Topsis,
             ranked_indices_hash: McdmScatterChart3D::ranked_hash(&make_topsis(vec![5, 2, 8])),
         });
-        // ランキングが変わった新結果
+        // New result with a changed ranking
         let new_result = make_topsis(vec![2, 5, 8]);
         assert!(
             w.is_cache_stale(
@@ -526,7 +528,7 @@ mod tests {
                 &crate::state::types::ColormapName::Viridis,
                 10
             ),
-            "ランキング変更でキャッシュが無効化される"
+            "cache is invalidated when the ranking changes"
         );
     }
 
@@ -546,7 +548,7 @@ mod tests {
         });
         assert!(
             !w.is_cache_stale(10, &result, &crate::state::types::ColormapName::Viridis, 10),
-            "同じランキングならキャッシュは有効"
+            "cache stays valid for the same ranking"
         );
     }
 

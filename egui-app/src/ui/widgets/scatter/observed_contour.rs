@@ -1,10 +1,12 @@
-//! Observed Contour ウィジェット。
+//! Observed Contour widget.
 //!
-//! 観測トライアル点だけから補間した等高線を描く（サロゲート非依存）。
-//! PDP / サロゲート応答曲面と異なりモデルを学習せず、データの無い領域はマスクして
-//! **外挿を見せない**。X / Y / 値（色）はパラメータ・目的関数のどちらでも選べるため、
-//! 目的関数空間のトレードオフ面も honest に描ける。計算は `tunny_core::contour` が
-//! バックグラウンドで行う（poll_chart.rs 参照）。
+//! Draws contour lines interpolated purely from the observed trial points
+//! (surrogate-independent). Unlike a PDP / surrogate response surface, it
+//! doesn't train a model, and it masks regions with no data so it **never
+//! shows extrapolation**. X / Y / value (color) can each be either a
+//! parameter or an objective, so it can also honestly depict trade-off
+//! surfaces in objective space. The computation is done by `tunny_core::contour`
+//! on a background thread (see poll_chart.rs).
 
 use std::collections::HashMap;
 
@@ -25,9 +27,9 @@ use crate::ui::widgets::trial_detail_modal::{
     show_hover_tooltip, TrialDetailTarget, HIT_THRESHOLD,
 };
 
-/// 格子の一辺の点数。
+/// Number of points along one side of the grid.
 const N_GRID: usize = 60;
-/// 等高線のレベル数。
+/// Number of contour levels.
 const N_CONTOUR_LEVELS: usize = 6;
 
 #[allow(clippy::too_many_arguments)]
@@ -41,7 +43,7 @@ pub fn show(
     artifact_map: &HashMap<u32, Vec<ArtifactEntry>>,
     has_constraints: bool,
 ) {
-    // 選択可能な列（数値パラメータ ∪ 目的関数）。カテゴリカル列は除外する。
+    // Selectable columns (numeric parameters ∪ objectives). Excludes categorical columns.
     let columns: Vec<String> = param_names
         .iter()
         .filter(|p| view.numeric_column(p).is_some())
@@ -53,7 +55,7 @@ pub fn show(
         return;
     }
 
-    // デフォルト選択（Study 切替で消えた名前もリセット）。
+    // Default selection (also resets names that disappeared after switching Study).
     if !columns.contains(&state.selected_x) {
         state.selected_x = columns[0].clone();
     }
@@ -71,7 +73,7 @@ pub fn show(
             .unwrap_or_else(|| columns[0].clone());
     }
 
-    // ── 軸・値セレクタ ───────────────────────────────────────────
+    // ── Axis / value selectors ──────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("X:");
         combo(ui, "oc_x", &mut state.selected_x, &columns);
@@ -81,7 +83,7 @@ pub fn show(
         combo(ui, "oc_value", &mut state.selected_value, &columns);
     });
 
-    // ── Coverage（疎ガード）・トグル ─────────────────────────────
+    // ── Coverage (sparsity guard) / toggles ──────────────────────
     let mut slider_dragging = false;
     ui.horizontal(|ui| {
         ui.label("Coverage:");
@@ -114,7 +116,7 @@ pub fn show(
         }
     });
 
-    // 同一軸の警告（許容するが縮退する）。
+    // Warn when the same column is used for both axes (allowed, but degenerate).
     if state.selected_x == state.selected_y {
         ui.colored_label(
             egui::Color32::YELLOW,
@@ -122,7 +124,7 @@ pub fn show(
         );
     }
 
-    // ── 自動再計算（軸・値・Coverage・feasible が変わったら発行）──────
+    // ── Auto-recompute (triggered when axis / value / Coverage / feasible changes) ──
     let cur = (
         state.selected_x.clone(),
         state.selected_y.clone(),
@@ -164,8 +166,9 @@ pub fn show(
         return;
     }
 
-    // result の不変借用をブロックに閉じ込め、クリック対象だけ取り出す。
-    // state.result / state.camera は別フィールドなので分割借用できる。
+    // Confine the immutable borrow of result to this block and extract only
+    // the click target. state.result / state.camera are separate fields, so
+    // they can be split-borrowed.
     let view_3d = state.view_3d;
     let show_points = state.show_points;
     let show_contour_lines = state.show_contour_lines;
@@ -176,7 +179,7 @@ pub fn show(
             return;
         };
         if view_3d {
-            // 3D キャンバスは残り領域を全部使うので、キャプションは先（上）に描く。
+            // The 3D canvas uses up all remaining space, so draw the caption first (above it).
             ui.label(
                 "3D surface interpolated from observed trials; gaps = no data (not extrapolated).",
             );
@@ -222,7 +225,7 @@ struct RenderOpts {
     log_scale: bool,
 }
 
-/// 等高線を描画し、観測点クリックがあればその対象を返す。
+/// Draws the contour lines and returns the target if an observed point was clicked.
 fn render_2d(
     ui: &mut egui::Ui,
     result: &ObservedContourResult,
@@ -238,16 +241,17 @@ fn render_2d(
         return None;
     }
 
-    // 表示向き: 横 = X（左→右で増加）、縦 = Y（上 = 最大）。
-    // core の z[i][j] = f(x_i, y_j) を disp[r][c] = z[c][ny-1-r] に並べ替える。
+    // Display orientation: horizontal = X (increasing left -> right),
+    // vertical = Y (top = max). Rearranges core's z[i][j] = f(x_i, y_j) into
+    // disp[r][c] = z[c][ny-1-r].
     let display: Vec<Vec<Option<f64>>> = (0..ny)
         .map(|r| (0..nx).map(|c| surf.z[c][ny - 1 - r]).collect())
         .collect();
 
-    // 元の値域（カラーバー表示・等高線レベル用）。
+    // Original value range (used for the colorbar display and contour levels).
     let (v_min, v_max) = value_range_masked(&display);
 
-    // 色用に対数変換するか（正の値域のみ）。
+    // Whether to log-transform for coloring (only for a positive value range).
     let use_log = opts.log_scale && v_min > 0.0;
     let color_display: Vec<Vec<Option<f64>>> = if use_log {
         display
@@ -260,7 +264,8 @@ fn render_2d(
     let (cv_min, cv_max) = value_range_masked(&color_display);
 
     let available = ui.available_rect_before_wrap();
-    // 右にラベル付きカラーバー（バー＋数値目盛＋縦書きの値名）、下にサブタイトル1行ぶんを確保する。
+    // Reserve a labeled colorbar (bar + numeric ticks + vertical value name)
+    // on the right, and one subtitle line's worth of space at the bottom.
     const COLORBAR_RESERVE: f32 = 96.0;
     const CAPTION_RESERVE: f32 = 28.0;
     let plot_size = egui::vec2(
@@ -282,7 +287,7 @@ fn render_2d(
         draw_contour_lines(&painter, rect, &display, v_min, v_max);
     }
 
-    // 観測点の重畳（クリックヒットテスト用に screen 位置も集める）。
+    // Overlay observed points (also collect screen positions for click hit-testing).
     let (x_min, x_max) = (surf.x_values[0], surf.x_values[nx - 1]);
     let (y_min, y_max) = (surf.y_values[0], surf.y_values[ny - 1]);
     let mut screen_points: Vec<(egui::Pos2, usize)> = Vec::new();
@@ -312,7 +317,8 @@ fn render_2d(
         }
     }
 
-    // ラベル付きカラーバー（バー＋数値目盛＋縦書きの値名）。数値は元の値域（対数色でも実値）。
+    // Labeled colorbar (bar + numeric ticks + vertical value name). Numbers
+    // use the original value range (actual values even with log coloring).
     let bar_rect = egui::Rect::from_min_size(
         egui::pos2(rect.right() + 6.0, rect.top()),
         egui::vec2(14.0, rect.height()),
@@ -324,7 +330,7 @@ fn render_2d(
     };
     draw_colorbar_simple(ui, bar_rect, v_min, v_max, cmap.clone(), Some(&title));
 
-    // クリック → 最近傍の観測点を詳細表示。
+    // Click -> show details for the nearest observed point.
     if response.clicked() {
         if let Some(click) = response.interact_pointer_pos() {
             if let Some(idx) = nearest_point(&screen_points, click, HIT_THRESHOLD) {
@@ -345,13 +351,15 @@ fn render_2d(
 struct Render3dOpts {
     show_points: bool,
     density_shade: bool,
-    /// 詳細モーダル表示中はホバーツールチップを抑止する。
+    /// Suppresses the hover tooltip while the detail modal is open.
     modal_open: bool,
 }
 
-/// 3D サーフェス表示。角に `None` を含むセル（マスク）は描かない＝外挿を見せない。
-/// 軸: X=selected_x、Z=selected_y、縦 Y=value。深度ソートで奥から塗る（painter's algorithm）。
-/// 観測点（Show points 時のみ）のホバーでツールチップを、クリックで詳細対象を返す。
+/// Renders the 3D surface. Skips cells with a `None` corner (masked) = never
+/// shows extrapolation. Axes: X=selected_x, Z=selected_y, vertical Y=value.
+/// Painted back-to-front via depth sort (painter's algorithm). Hovering an
+/// observed point (only when Show points is on) shows a tooltip; clicking
+/// returns the detail target.
 fn render_3d(
     ui: &mut egui::Ui,
     result: &ObservedContourResult,
@@ -370,7 +378,7 @@ fn render_3d(
     let (x_min, x_max) = (surf.x_values[0], surf.x_values[nx - 1]);
     let (y_min, y_max) = (surf.y_values[0], surf.y_values[ny - 1]);
 
-    // value 範囲（マスクを除いた z セルから）。
+    // Value range (from the z cells, excluding masked ones).
     let (v_min, v_max) = {
         let mut mn = f64::INFINITY;
         let mut mx = f64::NEG_INFINITY;
@@ -394,8 +402,9 @@ fn render_3d(
     let (painter, _rect, project, click_pos, hover_pos) = setup_3d_canvas(ui, camera);
     draw_3d_grid(&painter, &project);
 
-    // 点密度シェーディング: 観測点を各セルにビニングし、局所窓で平滑化して正規化する。
-    // 1 セル単位ではほとんど 0/1 でノイズが多いため、近傍を平滑化して領域の濃淡にする。
+    // Point density shading: bin observed points into each cell, then smooth
+    // with a local window and normalize. Per-cell counts are mostly 0/1 and
+    // noisy, so smoothing over neighbors turns it into a regional shading.
     let density = if opts.density_shade {
         let blur_radius = (nx / 12).max(2);
         Some(tunny_core::contour::cell_density_grid(
@@ -410,7 +419,7 @@ fn render_3d(
         None
     };
 
-    // クリップ空間 [-1,1]^3 への写像。surf.z[i][j]=f(x_i,y_j)。
+    // Maps into clip space [-1,1]^3. surf.z[i][j]=f(x_i,y_j).
     let clip_at = |i: usize, j: usize, v: f64| -> [f32; 3] {
         let x = 2.0 * i as f32 / (nx - 1) as f32 - 1.0;
         let z = 2.0 * j as f32 / (ny - 1) as f32 - 1.0;
@@ -425,7 +434,7 @@ fn render_3d(
     }
     let mut items: Vec<(f32, Prim)> = Vec::new();
 
-    // 4 隅とも Some のセルのみ面を張る（マスクは穴のまま）。
+    // Only fill a face when all 4 corners are Some (masked cells stay as holes).
     for i in 0..nx - 1 {
         for j in 0..ny - 1 {
             let (Some(v00), Some(v10), Some(v11), Some(v01)) = (
@@ -456,7 +465,8 @@ fn render_3d(
             }
             let mean = (v00 + v10 + v11 + v01) / 4.0;
             let mut color = cmap.interpolate(normalize(mean, v_min, v_max));
-            // 観測の薄いセルを透明にする（密度→不透明度）。色相は保ち α だけ動かす。
+            // Make sparsely observed cells more transparent (density -> opacity).
+            // Keeps the hue and only varies alpha.
             if let Some(d) = &density {
                 let a = (40.0 + 215.0 * d[i][j].sqrt()).round().clamp(0.0, 255.0) as u8;
                 let [r, g, b, _] = rgba_key(color);
@@ -466,7 +476,7 @@ fn render_3d(
         }
     }
 
-    // 観測点の重畳（ホバー・クリックのヒットテスト用に screen 位置も集める）。
+    // Overlay observed points (also collect screen positions for hover/click hit-testing).
     let mut screen_points: Vec<(egui::Pos2, usize)> = Vec::new();
     if opts.show_points && x_max > x_min && y_max > y_min {
         for (idx, p) in result.points.iter().enumerate() {
@@ -486,7 +496,8 @@ fn render_3d(
         }
     }
 
-    // 軸線を細分化してサーフェスと一緒に深度ソートし、面との前後関係を反映する。
+    // Subdivide the axis lines and depth-sort them together with the
+    // surface, so front/back ordering with the faces is respected.
     for (a, b, color) in axis_segments_3d(24) {
         let (pos_a, depth_a) = project(a);
         let (pos_b, depth_b) = project(b);
@@ -498,7 +509,8 @@ fn render_3d(
 
     items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // 奥から手前へ描く。面・軸線は生メッシュ、点は円 Shape を挟むためメッシュを確定する。
+    // Draw back to front. Faces and axis lines go into the raw mesh; points
+    // are circle Shapes, so the mesh must be flushed in between.
     let mut mesh = egui::Mesh::default();
     for (_, prim) in &items {
         match prim {
@@ -523,7 +535,7 @@ fn render_3d(
         painter.add(egui::Shape::mesh(mesh));
     }
 
-    // 軸名・値ラベル（最前面）。X=selected_x, 縦 Y=value, Z=selected_y。
+    // Axis name / value labels (drawn on top). X=selected_x, vertical Y=value, Z=selected_y.
     draw_3d_axis_labels(
         &painter,
         &project,
@@ -531,7 +543,7 @@ fn render_3d(
         [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
     );
 
-    // ヒットした観測点から詳細対象を組み立てる（ホバー・クリック共用）。
+    // Builds the detail target from a hit observed point (shared by hover and click).
     let target_at = |idx: usize| -> Option<TrialDetailTarget> {
         let trial_id = result.point_trial_ids.get(idx).copied()?;
         let row_index = view.trial_ids.iter().position(|&t| t == trial_id)?;
@@ -543,7 +555,8 @@ fn render_3d(
         })
     };
 
-    // ホバー → ツールチップ（2D 版・他の 3D 散布図と同じ操作感。モーダル表示中は抑止）。
+    // Hover -> tooltip (same feel as the 2D version and other 3D scatter
+    // plots; suppressed while the modal is open).
     if !opts.modal_open {
         if let Some(hover) = hover_pos {
             if let Some(idx) = nearest_point(&screen_points, hover, HIT_THRESHOLD) {
@@ -564,7 +577,7 @@ fn render_3d(
         }
     }
 
-    // クリック → 最近傍の観測点を詳細表示。
+    // Click -> show details for the nearest observed point.
     if let Some(click) = click_pos {
         if let Some(idx) = nearest_point(&screen_points, click, HIT_THRESHOLD) {
             return target_at(idx);
@@ -573,7 +586,8 @@ fn render_3d(
     None
 }
 
-/// 三角形を生メッシュに追加する（投影後の退化形状でも安全なよう法線計算なし）。
+/// Adds a triangle to the raw mesh (no normal computation, so degenerate
+/// post-projection shapes are handled safely).
 fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
     let base = mesh.vertices.len() as u32;
     for p in pts {
@@ -586,7 +600,8 @@ fn push_tri(mesh: &mut egui::Mesh, pts: [egui::Pos2; 3], color: egui::Color32) {
     mesh.indices.extend([base, base + 1, base + 2]);
 }
 
-/// 線分を細いクアッド（三角形 2 枚）として生メッシュに追加する（深度ソートに混ぜる用途）。
+/// Adds a line segment to the raw mesh as a thin quad (2 triangles), so it can
+/// be mixed into the depth sort.
 fn push_edge(mesh: &mut egui::Mesh, a: egui::Pos2, b: egui::Pos2, color: egui::Color32, hw: f32) {
     let v = b - a;
     let len = v.length();
@@ -598,7 +613,8 @@ fn push_edge(mesh: &mut egui::Mesh, a: egui::Pos2, b: egui::Pos2, color: egui::C
     push_tri(mesh, [a + n, b - n, a - n], color);
 }
 
-/// `screen_points`（位置, インデックス）の中で `click` に最も近く閾値内の点のインデックスを返す。
+/// Returns the index of the point in `screen_points` (position, index) that
+/// is closest to `click` and within the threshold.
 fn nearest_point(
     screen_points: &[(egui::Pos2, usize)],
     click: egui::Pos2,
@@ -614,8 +630,9 @@ fn nearest_point(
     best.map(|(_, idx)| idx)
 }
 
-/// マスク対応の等高線（marching squares）。セグメント抽出は tunny_core に委譲し、
-/// ここではグリッドのサンプル index 空間 → スクリーン座標の写像と描画のみ行う。
+/// Mask-aware contour lines (marching squares). Segment extraction is
+/// delegated to tunny_core; this only maps grid sample index space to screen
+/// coordinates and draws.
 fn draw_contour_lines(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -633,7 +650,7 @@ fn draw_contour_lines(
     }
     let cw = rect.width() / nx as f32;
     let ch = rect.height() / ny as f32;
-    // セル中心をサンプル位置とする。
+    // Uses the cell center as the sample position.
     let to_screen = |p: [f64; 2]| {
         egui::pos2(
             rect.left() + (p[0] as f32 + 0.5) * cw,
@@ -653,8 +670,8 @@ fn draw_contour_lines(
 mod tests {
     use super::*;
 
-    // edge_cross / cell_density_grid / box_blur_2d のテストは
-    // rust_core/src/contour/mod.rs へ移設した（数値処理の移行に伴う）。
+    // The edge_cross / cell_density_grid / box_blur_2d tests were moved to
+    // rust_core/src/contour/mod.rs along with the numeric-processing migration.
 
     #[test]
     fn nearest_point_within_threshold() {

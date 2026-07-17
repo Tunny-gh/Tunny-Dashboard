@@ -1,7 +1,8 @@
-//! Optuna の試行データを保持する DataFrame とそのスナップショット管理。
+//! The DataFrame holding Optuna trial data and its snapshot management.
 //!
-//! 列指向データを保持する `DataFrame`（`model`）、feasibility 判定（`feasibility`）、
-//! Study ごとのスナップショット共有状態（`state`）、行データ型（`types`）で構成する。
+//! Composed of `DataFrame` holding column-oriented data (`model`), feasibility
+//! determination (`feasibility`), per-study snapshot shared state (`state`), and row
+//! data types (`types`).
 //!
 //! Reference: docs/implements/TASK-102/dataframe-requirements.md
 

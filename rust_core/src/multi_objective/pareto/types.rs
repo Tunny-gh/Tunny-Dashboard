@@ -1,22 +1,23 @@
-/// パレートランク計算の結果。
+/// Result of the Pareto rank computation.
 #[derive(Debug, Clone)]
 pub struct ParetoResult {
-    /// 各試行のパレートランク（0 = 非支配前面）。行順は DataFrame と同じ。
+    /// Pareto rank of each trial (0 = non-dominated front). Row order matches the DataFrame.
     pub ranks: Vec<u32>,
-    /// ランク 0（パレート前面）に属する試行の行インデックス。
+    /// Row indices of trials belonging to rank 0 (the Pareto front).
     pub pareto_indices: Vec<u32>,
-    /// パレート前面の Hypervolume。目的数 2 未満や前面 2 点未満では `None`。
+    /// Hypervolume of the Pareto front. `None` when fewer than 2 objectives or fewer than
+    /// 2 points on the front.
     pub hypervolume: Option<f64>,
 }
 
-/// Hypervolume 推移（試行を追加するごとの HV 値）の計算結果。
+/// Result of computing the Hypervolume trajectory (the HV value as each trial is added).
 #[derive(Debug, Clone)]
 pub struct HvHistoryResult {
-    /// 各点の trial_id（`hv_values` と同じ順序・要素数）。
+    /// trial_id of each point (same order and length as `hv_values`).
     pub trial_ids: Vec<u32>,
-    /// 試行順に前面へ点を加えたときの HV 値の推移。
+    /// Trajectory of HV values as points are added to the front in trial order.
     pub hv_values: Vec<f64>,
-    /// HV 計算に使用した参照点（正規化空間。最大化目的は符号反転済み）。
-    /// 単目的など HV を計算しない場合は空。
+    /// Reference point used for the HV computation (normalized space; maximize objectives
+    /// already have their sign flipped). Empty when HV is not computed, e.g. single-objective.
     pub ref_point: Vec<f64>,
 }

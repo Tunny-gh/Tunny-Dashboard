@@ -1,15 +1,17 @@
-//! 自己完結 HTML レポートレンダラ。
+//! Self-contained HTML report renderer.
 //!
-//! 外部リソース参照ゼロ・JS 不使用の 1 枚ページを生成する。スタイルは
-//! [`super::theme::css_variables`] が定義する CSS custom property を参照し、
-//! `prefers-color-scheme` によりライト/ダークへ自動追従する。チャートは
-//! [`super::svg`] のプリミティブを呼び出して SVG として埋め込み、すべての
-//! チャートには対応する数表を併置する（表がプライマリ、チャートは補助）。
+//! Produces a single page with zero external resource references and no JS.
+//! Styles reference the CSS custom properties defined by
+//! [`super::theme::css_variables`], and automatically follow light/dark via
+//! `prefers-color-scheme`. Charts are embedded as SVG by calling into the
+//! primitives in [`super::svg`], and every chart is paired with a
+//! corresponding numeric table (the table is primary, the chart supplementary).
 //!
-//! レンダラは計算しない・描くだけの原則に従い、系列や統計は builder が
-//! 事前に計算したモデル値をそのまま用いる（`HashMap` 反復に依存せず、
-//! 同一入力に対しバイト同一の出力を返す）。文言はすべて en / ja 対応で、
-//! Key Finding の文章テンプレートは [`super::text`] を Markdown と共有する。
+//! The renderer follows a "compute nothing, only draw" principle: series and
+//! statistics are used exactly as pre-computed by the builder (no dependence
+//! on `HashMap` iteration order, so output is byte-identical for identical
+//! input). All wording supports both en / ja, and the Key Finding wording
+//! template is shared with Markdown via [`super::text`].
 
 use std::fmt::Write as _;
 
@@ -19,12 +21,12 @@ use super::text::{self, format_unix_utc};
 use super::theme;
 use super::{format_number, pct, ReportLang};
 
-/// フルページ幅チャートの viewBox 幅（レスポンシブなので相対比のみ意味を持つ）。
+/// viewBox width for full-page-width charts (responsive, so only the relative ratio matters).
 const CHART_W: f64 = 880.0;
-/// ヒストグラムを描画する目的の最大数。
+/// Max number of objectives to draw a histogram for.
 const MAX_HISTOGRAMS: usize = 4;
 
-/// [`StudyReport`] を自己完結 HTML へレンダリングする。
+/// Renders a [`StudyReport`] to self-contained HTML.
 pub fn render_html(report: &StudyReport, lang: ReportLang) -> String {
     let mut s = String::new();
     let lang_attr = match lang {
@@ -70,7 +72,7 @@ pub fn render_html(report: &StudyReport, lang: ReportLang) -> String {
     s
 }
 
-/// ページ本体の CSS（`css_variables()` に続けて `<style>` に埋め込む）。
+/// Page body CSS (embedded in `<style>` following `css_variables()`).
 const PAGE_CSS: &str = r#"
 *, *::before, *::after { box-sizing: border-box; }
 body {
@@ -162,15 +164,15 @@ td.infeasible { color: var(--series-6); font-weight: 600; }
 "#;
 
 // =============================================================================
-// エスケープ・言語ヘルパー
+// Escape / language helpers
 // =============================================================================
 
-/// HTML テキストノード / 属性値用エスケープ（`svg` と共有）。
+/// Escapes for HTML text nodes / attribute values (shared with `svg`).
 fn esc(s: &str) -> String {
     svg::escape_xml(s)
 }
 
-/// 言語に応じて en / ja を返す。
+/// Returns the en or ja variant depending on the language.
 fn tr(lang: ReportLang, en: &'static str, ja: &'static str) -> &'static str {
     match lang {
         ReportLang::En => en,
@@ -193,7 +195,7 @@ fn yes_no(lang: ReportLang, b: bool) -> &'static str {
     }
 }
 
-/// 数値パラメータ値を `(表示文字列, 数値か)` として返す。
+/// Returns a parameter value as `(display string, is numeric)`.
 fn param_value(v: &ParamValue) -> (String, bool) {
     match v {
         ParamValue::Num(x) => (format_number(*x), true),
@@ -202,7 +204,7 @@ fn param_value(v: &ParamValue) -> (String, bool) {
 }
 
 // =============================================================================
-// テーブル出力ヘルパー
+// Table output helpers
 // =============================================================================
 
 fn open_table(s: &mut String) {
@@ -213,20 +215,20 @@ fn close_table(s: &mut String) {
     s.push_str("</table></div>\n");
 }
 
-/// `<th>` セルを書き出す。
+/// Writes out a `<th>` cell.
 fn th(s: &mut String, text: &str, numeric: bool) {
     let cls = if numeric { " class=\"num\"" } else { "" };
     let _ = write!(s, "<th{cls}>{}</th>", esc(text));
 }
 
-/// `<td>` セルを書き出す。
+/// Writes out a `<td>` cell.
 fn td(s: &mut String, text: &str, numeric: bool) {
     let cls = if numeric { " class=\"num\"" } else { "" };
     let _ = write!(s, "<td{cls}>{}</td>", esc(text));
 }
 
 // =============================================================================
-// ヘッダ・目次
+// Header / table of contents
 // =============================================================================
 
 fn render_header(s: &mut String, lang: ReportLang, report: &StudyReport) {
@@ -377,7 +379,7 @@ fn render_findings(s: &mut String, lang: ReportLang, findings: &[KeyFinding]) {
     }
 }
 
-/// Key Finding をエスケープ済み HTML 文へ整形する（テンプレートは `text` 共有）。
+/// Formats a Key Finding into an escaped HTML string (template shared with `text`).
 fn finding_html(lang: ReportLang, f: &KeyFinding) -> String {
     let mut out = String::new();
     for span in super::text::finding_spans(lang, f) {
@@ -459,7 +461,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
     }
 }
 
-/// 単目的の Outcome（最良 trial + 上位 trial 表）。
+/// Single-objective Outcome (best trial + top-trials table).
 fn render_outcome_single(
     s: &mut String,
     lang: ReportLang,
@@ -491,7 +493,7 @@ fn render_outcome_single(
     render_trial_table(s, lang, top_n, obj_names, has_constraints);
 }
 
-/// 目的ごとの極値表。
+/// Per-objective extremes table.
 fn render_extremes_table(s: &mut String, lang: ReportLang, extremes: &[ObjectiveExtreme]) {
     let _ = writeln!(
         s,
@@ -523,7 +525,7 @@ fn render_extremes_table(s: &mut String, lang: ReportLang, extremes: &[Objective
         if e.best_feasible {
             td(s, &format!("#{}", e.best_trial_number), true);
         } else {
-            // 制約違反 trial が最良の場合は赤字 + ✗ で明示する。
+            // If the best trial violates constraints, flag it in red with a ✗.
             let _ = write!(
                 s,
                 "<td class=\"num infeasible\">#{} ✗</td>",
@@ -537,7 +539,7 @@ fn render_extremes_table(s: &mut String, lang: ReportLang, extremes: &[Objective
     close_table(s);
 }
 
-/// 目的空間の散布図（先頭2目的軸、front / dominated 2系列）。
+/// Scatter plot of the objective space (first two objective axes, front / dominated series).
 fn render_outcome_scatter(
     s: &mut String,
     lang: ReportLang,
@@ -587,7 +589,7 @@ fn render_outcome_scatter(
     }
 }
 
-/// パレート表（TOPSIS 順）と、フォールバック注記・重複解凡例。
+/// Pareto table (TOPSIS order), plus the fallback note and duplicate-solution legend.
 fn render_pareto_table_block(
     s: &mut String,
     lang: ReportLang,
@@ -612,9 +614,10 @@ fn render_pareto_table_block(
     );
     render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
-    // 前面は feasible 行のみから計算されるため、違反 trial が表に
-    // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
-    // 件数は builder が cap 前の front 全体から集計済み。
+    // The front is computed only from feasible rows, so a violating trial
+    // appears in the table only during the "no feasible solution exists"
+    // fallback. The count is already tallied by the builder from the full
+    // pre-cap front.
     if pareto_infeasible_count > 0 {
         let note = text::infeasible_fallback_note(lang, pareto_infeasible_count);
         let _ = writeln!(s, "<p class=\"desc\">{}</p>", esc(&note));
@@ -637,7 +640,7 @@ fn scatter_pt(p: &ParetoPoint) -> ScatterPoint {
     }
 }
 
-/// TrialSummary の表（trial# + 目的 + パラメータ [+ 最大制約値]）。
+/// Table of TrialSummary rows (trial# + objectives + parameters [+ max constraint value]).
 fn render_trial_table(
     s: &mut String,
     lang: ReportLang,
@@ -653,7 +656,7 @@ fn render_trial_table(
         );
         return;
     }
-    // パラメータ列の数値/カテゴリ性を先頭行から確定する。
+    // Determine whether each parameter column is numeric or categorical from the first row.
     let param_cols: Vec<(String, bool)> = trials[0]
         .params
         .iter()
@@ -685,7 +688,7 @@ fn render_trial_table(
     for t in trials {
         s.push_str("<tr>");
         match t.duplicate_of {
-            // 同一目的値の重複解は初出 trial 番号を併記する（muted で控えめに）。
+            // For duplicate solutions with identical objective values, note the first-occurrence trial number (muted, understated).
             Some(first) => {
                 let _ = write!(
                     s,
@@ -706,7 +709,7 @@ fn render_trial_table(
         }
         if show_constraint {
             match t.max_constraint {
-                // 正値 = 制約違反（判定は model 側で共有）。赤字 + ✗ で明示する。
+                // Positive value = constraint violation (the check is shared with the model side). Flag in red with a ✗.
                 Some(v) if t.violates_constraints() => {
                     let _ = write!(
                         s,
@@ -765,7 +768,7 @@ fn render_convergence(s: &mut String, lang: ReportLang, conv: &ConvergenceSectio
         return;
     }
 
-    // 折れ線チャート（最良更新点にマーカー）。
+    // Line chart (markers at best-update points).
     let points: Vec<LinePoint> = conv
         .series
         .iter()
@@ -788,7 +791,7 @@ fn render_convergence(s: &mut String, lang: ReportLang, conv: &ConvergenceSectio
         esc(metric)
     );
 
-    // 末尾10点の表（<details> 内）。
+    // Table of the last 10 points (inside <details>).
     let tail = if conv.series.len() > 10 {
         &conv.series[conv.series.len() - 10..]
     } else {
@@ -927,7 +930,7 @@ fn render_objective_stats(s: &mut String, lang: ReportLang, stats: &[ObjectiveSt
     s.push_str("</tbody>\n");
     close_table(s);
 
-    // ヒストグラム（最大 MAX_HISTOGRAMS 枚）。
+    // Histograms (up to MAX_HISTOGRAMS charts).
     let mut shown = 0usize;
     for st in stats {
         if shown >= MAX_HISTOGRAMS {
@@ -1166,7 +1169,7 @@ fn render_execution(s: &mut String, lang: ReportLang, execution: Option<&Executi
 }
 
 // =============================================================================
-// Appendix（Reproduction + 全パラメータ）
+// Appendix (Reproduction + all parameters)
 // =============================================================================
 
 fn render_appendix(s: &mut String, lang: ReportLang, report: &StudyReport) {
@@ -1185,7 +1188,7 @@ fn render_appendix(s: &mut String, lang: ReportLang, report: &StudyReport) {
         ))
     );
 
-    // 再現情報。
+    // Reproduction info.
     let r = &report.reproduction;
     let _ = writeln!(s, "<h3>{}</h3>", esc(tr(lang, "Reproduction", "再現情報")));
     s.push_str("<ul class=\"facts\">\n");
@@ -1200,7 +1203,7 @@ fn render_appendix(s: &mut String, lang: ReportLang, report: &StudyReport) {
     fact_row(s, "schema_version", &r.schema_version.to_string());
     s.push_str("</ul>\n");
 
-    // 代表 trial の全パラメータ。
+    // All parameters of the representative trial.
     let representative = match &report.outcome {
         Outcome::SingleObj { best_trial, .. } => best_trial.as_ref(),
         Outcome::MultiObj { pareto_table, .. } => pareto_table.first(),
@@ -1250,7 +1253,7 @@ fn render_appendix(s: &mut String, lang: ReportLang, report: &StudyReport) {
 }
 
 // =============================================================================
-// テスト
+// Tests
 // =============================================================================
 
 #[cfg(test)]
@@ -1339,7 +1342,7 @@ mod tests {
     }
 
     fn df_multi() -> DataFrame {
-        // front = {trial0(1,4), trial1(2,2), trial2(4,1)}、他は支配される。
+        // front = {trial0(1,4), trial1(2,2), trial2(4,1)}, others are dominated.
         let pts = [
             (1.0, 4.0),
             (2.0, 2.0),
@@ -1369,7 +1372,7 @@ mod tests {
         )
     }
 
-    /// extras（COMPLETE + PRUNED + FAIL）を組み立てて実行情報セクションを有効化する。
+    /// Builds extras (COMPLETE + PRUNED + FAIL) to enable the execution info section.
     fn extras_multi() -> StudyExtras {
         let mut extras = StudyExtras::default();
         for i in 0..6u32 {
@@ -1405,11 +1408,12 @@ mod tests {
         html.matches(needle).count()
     }
 
-    /// 生成 HTML が自己完結（外部リソース参照ゼロ・JS 不使用）であることを確認する。
+    /// Confirms the generated HTML is self-contained (zero external resource
+    /// references, no JS).
     ///
-    /// SVG の `xmlns="http://www.w3.org/2000/svg"` は名前空間識別子であり
-    /// ネットワーク取得を伴わないため、外部フェッチのパターン（`href="http`・
-    /// `src=`・`url(`・`@import`）のみを検査する。
+    /// The SVG `xmlns="http://www.w3.org/2000/svg"` is a namespace
+    /// identifier and does not trigger a network fetch, so we only check for
+    /// external-fetch patterns (`href="http`, `src=`, `url(`, `@import`).
     fn assert_self_contained(html: &str) {
         assert!(html.starts_with("<!DOCTYPE html>"), "DOCTYPE 先頭");
         assert!(!html.contains("<script"), "JS を含まない");
@@ -1431,7 +1435,7 @@ mod tests {
         let html = render_html(&report, ReportLang::En);
 
         assert_self_contained(&html);
-        // 主要セクションのアンカーが揃っている（多目的 + extras の全部入り）。
+        // All primary section anchors are present (multi-objective + full extras).
         for id in [
             "id=\"key-findings\"",
             "id=\"outcome\"",
@@ -1445,19 +1449,19 @@ mod tests {
         ] {
             assert!(html.contains(id), "セクション欠落: {id}");
         }
-        // 目次にも MCDM へのリンクがある。
+        // The table of contents also links to MCDM.
         assert!(html.contains("<nav class=\"toc\""));
         assert!(html.contains("href=\"#mcdm\""));
 
-        // チャート: 収束 line + 散布図 + importance hbar + ヒストグラム + heatmap。
+        // Charts: convergence line + scatter + importance hbar + histograms + heatmap.
         let n_svg = count(&html, "<svg");
         assert!(
             n_svg >= 4,
             "多目的レポートは複数チャートを埋め込む: {n_svg}"
         );
-        // 散布図（front / dominated の凡例）が Outcome にある。
+        // The scatter plot (front / dominated legend) is in Outcome.
         assert!(html.contains("Pareto front"), "散布図の凡例");
-        // MCDM 3手法の見出し。
+        // Headings for the three MCDM methods.
         assert!(html.contains(">TOPSIS<"));
         assert!(html.contains(">VIKOR<"));
         assert!(html.contains(">PROMETHEE II<"));
@@ -1469,7 +1473,7 @@ mod tests {
         let html = render_html(&report, ReportLang::En);
 
         assert_self_contained(&html);
-        // 単目的では MCDM / 散布図 / 実行情報（extras なし）を出さない。
+        // Single-objective doesn't emit MCDM / scatter plot / execution info (no extras).
         assert!(!html.contains("id=\"mcdm\""), "単目的は MCDM を出さない");
         assert!(!html.contains("href=\"#mcdm\""), "目次に MCDM を出さない");
         assert!(!html.contains("Pareto front"), "単目的は散布図を出さない");
@@ -1477,7 +1481,7 @@ mod tests {
             !html.contains("id=\"execution\""),
             "extras 無しは実行情報なし"
         );
-        // 単目的の主要セクションは存在する。
+        // The primary single-objective sections are still present.
         assert!(html.contains("id=\"outcome\""));
         assert!(html.contains("id=\"convergence\""));
         assert!(html.contains("id=\"importance\""));
@@ -1502,7 +1506,7 @@ mod tests {
         let report = build_study_report(&meta, &df, None, &source(), &opts());
         let html = render_html(&report, ReportLang::En);
 
-        // 生の <script> / <b> はエスケープされ、実体参照として現れる。
+        // Raw <script> / <b> are escaped and appear as entity references.
         assert!(
             !html.contains("<script>alert"),
             "スクリプトが素通りしている"
@@ -1549,7 +1553,7 @@ mod tests {
         }
     }
 
-    /// 制約付き multi の行を組み立てる。
+    /// Builds a constrained multi-objective row.
     fn row_c(id: u32, params: &[(&str, f64)], objs: &[f64], cons: &[f64]) -> TrialRow {
         let mut r = row(id, params, objs);
         r.constraint_values = cons.to_vec();
@@ -1562,11 +1566,12 @@ mod tests {
         m
     }
 
-    /// 目的空間の front = {trial0, trial1, trial2}。
+    /// Objective-space front = {trial0, trial1, trial2}.
     ///
-    /// `all_infeasible = true` では全行が c=[0.4, -1.0]（合計は -0.6 と負だが
-    /// 最大は 0.4 で違反）となり、feasible 解ゼロ → 目的空間前面への
-    /// フォールバック + 違反マーク/注記の回帰ケースになる。
+    /// With `all_infeasible = true`, every row has c=[0.4, -1.0] (the sum is
+    /// -0.6, negative, but the max is 0.4, a violation), so there are zero
+    /// feasible solutions. This becomes the regression case for the
+    /// objective-space-front fallback plus the violation mark/note.
     fn df_multi_constrained(all_infeasible: bool) -> DataFrame {
         let pts = [
             (1.0, 4.0),
@@ -1605,8 +1610,8 @@ mod tests {
 
     #[test]
     fn all_infeasible_falls_back_and_marks_violations() {
-        // feasible 解ゼロ → 目的空間前面へフォールバックし、違反マークと
-        // フォールバック注記が出る。
+        // Zero feasible solutions → falls back to the objective-space front,
+        // and the violation mark and fallback note are emitted.
         let report = build_study_report(
             &meta_multi_constrained(),
             &df_multi_constrained(true),
@@ -1616,19 +1621,19 @@ mod tests {
         );
         let html = render_html(&report, ReportLang::En);
 
-        // 列ヘッダは意味論込み。
+        // The column header carries the semantics.
         assert!(html.contains("max constraint (≤0 = feasible)"), "列ヘッダ");
-        // 各行は sum なら -0.6（無印に見える）だが max は 0.4 → 違反マーク。
+        // Each row's sum would be -0.6 (looking unmarked), but the max is 0.4 → violation mark.
         assert!(
             html.contains("<td class=\"num infeasible\">0.4 ✗</td>"),
             "違反セルの赤字 + ✗ マーク（sum でなく max を表示）"
         );
-        // フォールバックの注記が出る。
+        // The fallback note is emitted.
         assert!(
             html.contains("no trial satisfies all constraints"),
             "Pareto 表直下のフォールバック注記"
         );
-        // 極値表の最良 trial も違反マーク付き。
+        // The best trial in the extremes table also carries a violation mark.
         assert!(
             html.contains("<td class=\"num infeasible\">#"),
             "極値表の違反 trial マーク"
@@ -1639,12 +1644,12 @@ mod tests {
         assert!(ja.contains("件は制約違反です"), "ja 注記");
         assert!(ja.contains("フォールバック"), "ja フォールバック注記");
 
-        // Markdown も同じ意味論。
+        // Markdown carries the same semantics.
         let md = render_markdown(&report, ReportLang::En);
         assert!(md.contains("max constraint (≤0 = feasible)"));
         assert!(md.contains("0.4 (infeasible)"));
         assert!(md.contains("no trial satisfies all constraints"));
-        // 極値表: 両目的とも最小化で best は #0 (obj0=1.0) / #2 (obj1=1.0)。
+        // Extremes table: both objectives are minimize, so best is #0 (obj0=1.0) / #2 (obj1=1.0).
         assert!(md.contains("#0 (infeasible)"), "極値表の違反マーク: {md}");
         let md_ja = render_markdown(&report, ReportLang::Ja);
         assert!(md_ja.contains("0.4（違反）"));
@@ -1653,8 +1658,9 @@ mod tests {
 
     #[test]
     fn infeasible_trial_is_excluded_from_front_when_feasible_exist() {
-        // trial1 (2,2) は目的空間では front だが制約違反 → 前面から除外され、
-        // 残る feasible 行で前面が再計算される（違反マーク・注記なし）。
+        // trial1 (2,2) is on the objective-space front but violates
+        // constraints → excluded from the front, which is recomputed from
+        // the remaining feasible rows (no violation mark or note).
         let pts = [(1.0, 4.0), (2.0, 2.0), (4.0, 1.0), (3.0, 3.0)];
         let rows: Vec<TrialRow> = pts
             .iter()
@@ -1687,9 +1693,9 @@ mod tests {
             !front_trials.contains(&1),
             "違反 trial1 は前面から除外: {front_trials:?}"
         );
-        // trial1 除外後は (3,3) も (1,4)/(4,1) に支配されないため front 入り。
+        // After excluding trial1, (3,3) is also not dominated by (1,4)/(4,1), so it joins the front.
         assert!(front_trials.contains(&0) && front_trials.contains(&2));
-        // 散布図では trial1 は feasible=false / on_front=false の点として残る。
+        // In the scatter plot, trial1 remains as a point with feasible=false / on_front=false.
         let p1 = scatter.iter().find(|p| p.trial_number == 1).unwrap();
         assert!(!p1.feasible && !p1.on_front);
 
@@ -1703,8 +1709,9 @@ mod tests {
 
     #[test]
     fn duplicate_objective_trials_are_marked() {
-        // trial1 と trial3 は同一目的値 (2,2) → 若い trial1 が正、trial3 に
-        // duplicate_of = 1 が付き、両レンダラに凡例と併記が出る。
+        // trial1 and trial3 share identical objective values (2,2) → the
+        // lower-numbered trial1 is canonical, trial3 gets duplicate_of = 1,
+        // and both renderers emit the legend and the annotation.
         let pts = [(1.0, 4.0), (2.0, 2.0), (4.0, 1.0), (2.0, 2.0)];
         let rows: Vec<TrialRow> = pts
             .iter()
@@ -1748,10 +1755,11 @@ mod tests {
         );
         let html = render_html(&report, ReportLang::En);
 
-        // 列自体は出る（制約ありスタディ）。
+        // The column itself is still present (constrained study).
         assert!(html.contains("max constraint (≤0 = feasible)"));
-        // 全 trial feasible → 違反マークも注記も出ない
-        // （PAGE_CSS の `td.infeasible` 定義は常在のためセル class で判定）。
+        // All trials feasible → neither the violation mark nor the note is
+        // emitted (checked via the cell class, since `td.infeasible` is
+        // always defined in PAGE_CSS).
         assert!(!html.contains("class=\"num infeasible\""), "違反マークなし");
         assert!(!html.contains("trials violate constraints"), "注記なし");
 
@@ -1764,7 +1772,7 @@ mod tests {
     fn markdown_generated_at_includes_iso_utc() {
         let report = build_study_report(&meta_single(), &df_single(), None, &source(), &opts());
         let md = render_markdown(&report, ReportLang::En);
-        // unix 秒だけでなく ISO UTC を併記する（決定論的変換）。
+        // Includes ISO UTC alongside the unix seconds (deterministic conversion).
         assert!(
             md.contains("Generated at: 2023-11-14T22:13:20Z (unix 1700000000)"),
             "ISO UTC + unix 併記"

@@ -1,7 +1,7 @@
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 
-/// LeftPanel を描画する（フィルター専用、チャート選択は右パネルへ移動）
+/// Renders the LeftPanel (filters only; chart selection moved to the right panel).
 pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mut LayoutState) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         show_study_info(ui, app_state);
@@ -9,7 +9,7 @@ pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mu
         show_filter_sliders(ui, app_state);
         ui.separator();
 
-        // REQ-008: Convergence Card（単目的のみ）
+        // REQ-008: Convergence Card (single-objective only)
         let obj_count = app_state
             .current_study
             .as_ref()
@@ -21,7 +21,7 @@ pub fn show_left_panel(ui: &mut egui::Ui, app_state: &mut AppState, _layout: &mu
     });
 }
 
-/// Study情報セクション
+/// Study info section
 fn show_study_info(ui: &mut egui::Ui, app_state: &AppState) {
     ui.heading("Study Info");
     if let Some(ctx) = &app_state.current_study {
@@ -39,7 +39,7 @@ fn show_study_info(ui: &mut egui::Ui, app_state: &AppState) {
     }
 }
 
-/// 変数フィルタースライダー
+/// Parameter filter sliders
 fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
     let param_names: Vec<String> = app_state
         .current_study
@@ -82,7 +82,7 @@ fn show_filter_sliders(ui: &mut egui::Ui, app_state: &mut AppState) {
                 )
                 .changed();
 
-            // min <= max を保証
+            // Ensure min <= max
             if filter_min > filter_max {
                 filter_min = filter_max;
             }

@@ -40,7 +40,7 @@ impl LiveUpdatePoller {
             }));
             if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
-                    "ポーリングスレッドが異常終了".to_string(),
+                    "Polling thread terminated unexpectedly".to_string(),
                 ));
             }
         });
@@ -65,8 +65,10 @@ impl LiveUpdatePoller {
 }
 
 impl Drop for LiveUpdatePoller {
-    /// ポーラーが明示 `stop()` されずに破棄された場合でもスレッドをリークさせない。
-    /// `stop()` は冪等（2 回目以降は thread_handle が None のため no-op）で二重呼び出し安全。
+    /// Prevents the thread from leaking even if the poller is dropped without
+    /// an explicit `stop()` call. `stop()` is idempotent (a no-op on the
+    /// second and later calls since thread_handle is None) and safe to call
+    /// twice.
     fn drop(&mut self) {
         self.stop();
     }
@@ -82,7 +84,7 @@ fn escalate_error(
     *error_count += 1;
     if *error_count >= 3 {
         let _ = tx.send(AppMessage::LiveUpdateError(
-            "連続エラーにより自動停止".to_string(),
+            "Stopped automatically after repeated errors".to_string(),
         ));
         stop_signal.store(true, Ordering::Relaxed);
         return true;
@@ -134,10 +136,11 @@ fn polling_loop(
 
         let file_size = metadata.len();
 
-        // ジャーナルのローテーション/切り詰め検出。ファイルサイズが既読オフセットより
-        // 小さくなった場合、ログが置き換え（ローテーション）または切り詰められたと判断し、
-        // オフセットを 0 に戻して先頭から読み直す。放置すると差分が永久に検出されず、
-        // 無変化タイムアウトで「最適化完了」と誤認してしまうため。
+        // Detect journal rotation/truncation. If the file size becomes
+        // smaller than the already-read offset, assume the log was replaced
+        // (rotated) or truncated, and reset the offset to 0 to re-read from
+        // the beginning. Otherwise the diff would never be detected, and the
+        // no-change timeout would misidentify this as "optimization complete".
         if file_size < byte_offset {
             byte_offset = 0;
         }
@@ -173,9 +176,11 @@ fn polling_loop(
             continue;
         }
 
-        // 差分全体を一括確保せず、1 tick あたり最大 MAX_READ_CHUNK バイトまでに制限する。
-        // 残りは次 tick で読む（append_journal_diff は行単位で consumed_bytes を返すため、
-        // チャンク末尾が行途中でも byte_offset は完全な行までしか進まず、取りこぼさない）。
+        // Rather than allocating the entire diff at once, cap each tick at up
+        // to MAX_READ_CHUNK bytes. The remainder is read on the next tick
+        // (since append_journal_diff returns consumed_bytes on a per-line
+        // basis, byte_offset only advances through complete lines even if
+        // the chunk ends mid-line, so nothing is lost).
         const MAX_READ_CHUNK: u64 = 8 * 1024 * 1024;
         let read_size = (file_size - byte_offset).min(MAX_READ_CHUNK) as usize;
         let mut buf = vec![0u8; read_size];
@@ -208,23 +213,24 @@ fn polling_loop(
 }
 
 // =============================================================================
-// SQLite ライブ更新ポーラー
+// SQLite live update poller
 //
-// journal はバイトオフセット差分で追記分だけを解析できるが、SQLite は
-// Optuna が trial の状態をインプレースで更新する（RUNNING→COMPLETE 等）ため
-// オフセット差分が使えない。代わりに `tunny_core::sqlite::study_fingerprint`
-// で変化の有無だけを安価に検出し、変化を検出したら対象 study を丸ごと
-// 再ロードするようメインスレッドへシグナルを送る（実際の再パースは
-// study worker スレッドが行う。本ポーラーはフィンガープリント取得のみ）。
+// The journal can be parsed incrementally via a byte-offset diff, but SQLite
+// is not: Optuna updates trial state in place (RUNNING→COMPLETE, etc.), so an
+// offset diff can't be used. Instead, `tunny_core::sqlite::study_fingerprint`
+// is used to cheaply detect whether anything changed, and when a change is
+// detected, a signal is sent to the main thread to fully reload the target
+// study (the actual re-parsing is done by the study worker thread; this
+// poller only retrieves the fingerprint).
 // =============================================================================
 
-/// SQLite ライブ更新ポーリングスレッドへ渡すコンテキスト。
+/// Context passed to the SQLite live update polling thread.
 #[derive(Debug, Clone)]
 pub struct SqliteLiveUpdateContext {
     pub file_path: PathBuf,
-    /// ポーリング対象 study（フィンガープリントは study 単位でしか取れない）。
+    /// The study being polled (fingerprints can only be obtained per study).
     pub study_id: u32,
-    /// ポーリング開始時点のフィンガープリント（journal の `initial_byte_offset` に相当）。
+    /// The fingerprint at the start of polling (equivalent to the journal's `initial_byte_offset`).
     pub initial_fingerprint: tunny_core::sqlite::StudyFingerprint,
     /// Milliseconds of no change before sending completion hint (default: 60_000)
     pub no_change_timeout_ms: u64,
@@ -261,7 +267,7 @@ impl SqliteLivePoller {
             }));
             if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
-                    "ポーリングスレッドが異常終了".to_string(),
+                    "Polling thread terminated unexpectedly".to_string(),
                 ));
             }
         });
@@ -286,8 +292,8 @@ impl SqliteLivePoller {
 }
 
 impl Drop for SqliteLivePoller {
-    /// 明示 `stop()` されずに破棄されてもポーリングスレッドをリークさせない
-    /// （`stop()` は冪等で二重呼び出し安全）。
+    /// Prevents the polling thread from leaking even if dropped without an
+    /// explicit `stop()` call (`stop()` is idempotent and safe to call twice).
     fn drop(&mut self) {
         self.stop();
     }
@@ -313,23 +319,24 @@ fn sqlite_polling_loop(
     );
 }
 
-/// SQLite / RDB 共通のフィンガープリント方式ポーリングループ本体。
+/// The shared fingerprint-based polling loop body for SQLite / RDB.
 ///
-/// 両者は「接続先からフィンガープリントを 1 回取得する手段」だけが異なり
-/// （SQLite: ローカルファイルパスの再オープン、RDB: 接続 URL への再接続）、
-/// 変化検出・エラーエスカレーション・完了ヒント送出のロジックは完全に共通。
-/// その差分を `fingerprint_fn` クロージャへ閉じ込めることで
-/// `SqliteLivePoller` / `RdbLivePoller` の両方から本関数を共有する。
+/// The two differ only in "how to obtain a fingerprint from the connection
+/// target once" (SQLite: reopening the local file path, RDB: reconnecting to
+/// the connection URL); the change detection, error escalation, and
+/// completion-hint dispatch logic is entirely shared. By confining that
+/// difference to the `fingerprint_fn` closure, this function is shared by
+/// both `SqliteLivePoller` and `RdbLivePoller`.
 ///
-/// 送信メッセージは SQLite 用に定義済みの `SqliteLiveChanged` をそのまま流用する
-/// （RDB 用の新規メッセージは増やさない。呼び出し側は `storage_kind` で
-/// 再ロード先を振り分ける）。
+/// The message sent reuses the `SqliteLiveChanged` message already defined
+/// for SQLite as-is (no new message is added for RDB; the caller dispatches
+/// the reload target via `storage_kind`).
 ///
-/// `fingerprint_fn` は `FnMut` を要求する。RDB 側は接続セッション
-/// （`tunny_core::rdb::RdbFingerprintSession`）を tick を跨いで使い回すため、
-/// クロージャ内部で状態（`Option<RdbFingerprintSession>`）を書き換える必要がある
-/// （SQLite 側は状態を持たない `Fn` クロージャのままでよく、`Fn` は `FnMut` を
-/// 自動的に満たすため互換性は保たれる）。
+/// `fingerprint_fn` requires `FnMut`. Since the RDB side reuses a connection
+/// session (`tunny_core::rdb::RdbFingerprintSession`) across ticks, it needs
+/// to mutate state (`Option<RdbFingerprintSession>`) inside the closure
+/// (the SQLite side can remain a stateless `Fn` closure, and since `Fn`
+/// automatically satisfies `FnMut`, compatibility is preserved).
 #[allow(clippy::too_many_arguments)]
 fn fingerprint_polling_loop<F>(
     study_id: u32,
@@ -390,23 +397,25 @@ fn fingerprint_polling_loop<F>(
 }
 
 // =============================================================================
-// RDB（PostgreSQL/MySQL）ライブ更新ポーラー
+// RDB (PostgreSQL/MySQL) live update poller
 //
-// SQLite と同じくフィンガープリント方式（`fingerprint_polling_loop` を共有）だが、
-// 接続先がローカルファイルパスではなく `RdbUrl`（接続 URL）である点が異なる。
-// フィンガープリント取得は `tunny_core::rdb::RdbFingerprintSession` で接続を
-// 保持し、tick を跨いで使い回す（毎 tick 再接続すると TCP ハンドシェイクの
-// コストがポーリング間隔ごとに掛かるため）。セッションは初回 tick で遅延接続し、
-// フィンガープリント取得がエラーになったら破棄して次 tick で再接続を試みる。
+// Like SQLite, this uses the fingerprint approach (sharing
+// `fingerprint_polling_loop`), but differs in that the connection target is
+// an `RdbUrl` (connection URL) rather than a local file path. Fingerprint
+// retrieval holds the connection via `tunny_core::rdb::RdbFingerprintSession`
+// and reuses it across ticks (reconnecting every tick would incur the cost
+// of a TCP handshake each polling interval). The session connects lazily on
+// the first tick, and if fingerprint retrieval errors out, it's discarded
+// and reconnection is attempted on the next tick.
 // =============================================================================
 
-/// RDB ライブ更新ポーリングスレッドへ渡すコンテキスト。
+/// Context passed to the RDB live update polling thread.
 #[derive(Debug, Clone)]
 pub struct RdbLiveUpdateContext {
     pub url: tunny_core::rdb::RdbUrl,
-    /// ポーリング対象 study（フィンガープリントは study 単位でしか取れない）。
+    /// The study being polled (fingerprints can only be obtained per study).
     pub study_id: u32,
-    /// ポーリング開始時点のフィンガープリント。
+    /// The fingerprint at the start of polling.
     pub initial_fingerprint: tunny_core::rdb::StudyFingerprint,
     /// Milliseconds of no change before sending completion hint (default: 60_000)
     pub no_change_timeout_ms: u64,
@@ -443,7 +452,7 @@ impl RdbLivePoller {
             }));
             if result.is_err() {
                 let _ = tx.send(AppMessage::LiveUpdateError(
-                    "ポーリングスレッドが異常終了".to_string(),
+                    "Polling thread terminated unexpectedly".to_string(),
                 ));
             }
         });
@@ -468,8 +477,8 @@ impl RdbLivePoller {
 }
 
 impl Drop for RdbLivePoller {
-    /// 明示 `stop()` されずに破棄されてもポーリングスレッドをリークさせない
-    /// （`stop()` は冪等で二重呼び出し安全）。
+    /// Prevents the polling thread from leaking even if dropped without an
+    /// explicit `stop()` call (`stop()` is idempotent and safe to call twice).
     fn drop(&mut self) {
         self.stop();
     }
@@ -483,9 +492,10 @@ fn rdb_polling_loop(
     no_change_timeout: Duration,
 ) {
     let url = context.url;
-    // tick を跨いで再利用する接続セッション。初回 tick で遅延接続し、
-    // フィンガープリント取得（あるいは接続そのもの）が失敗したら破棄して
-    // 次 tick で再接続を試みる（接続状態が壊れている可能性があるため）。
+    // A connection session reused across ticks. It connects lazily on the
+    // first tick, and if fingerprint retrieval (or the connection itself)
+    // fails, it's discarded and reconnection is attempted on the next tick
+    // (since the connection state may be broken).
     let mut session: Option<tunny_core::rdb::RdbFingerprintSession> = None;
     fingerprint_polling_loop(
         context.study_id,
@@ -494,7 +504,7 @@ fn rdb_polling_loop(
             if session.is_none() {
                 session = Some(tunny_core::rdb::RdbFingerprintSession::connect(&url)?);
             }
-            // 直前で Some を保証しているため `expect` は panic しない。
+            // `expect` cannot panic here since `Some` was just guaranteed above.
             let result = session
                 .as_mut()
                 .expect("session was just connected above")
@@ -687,9 +697,10 @@ mod sqlite_poller_tests {
     use super::*;
     use std::sync::mpsc;
 
-    /// `study_fingerprint` / `ensure_optuna_schema` が要求する最小限のテーブルだけを
-    /// 持つフィクスチャ DB を作る（`rust_core::io::sqlite::tests` の `create_schema` と
-    /// 同趣旨だが、egui-app 側からは private のため独自に用意する）。
+    /// Creates a fixture DB with only the minimal tables required by
+    /// `study_fingerprint` / `ensure_optuna_schema` (similar in spirit to
+    /// `create_schema` in `rust_core::io::sqlite::tests`, but provided
+    /// independently here since it's private from the egui-app side).
     fn make_fixture_db(path: &std::path::Path) -> rusqlite::Connection {
         let conn = rusqlite::Connection::open(path).unwrap();
         conn.execute_batch(
@@ -742,7 +753,7 @@ mod sqlite_poller_tests {
         let mut poller =
             SqliteLivePoller::start(make_sqlite_context(path.clone(), 1, initial), tx, 50);
 
-        // Optuna が RUNNING trial を COMPLETE へ遷移させたのと同じ状況を作る。
+        // Simulate the same situation as Optuna transitioning a RUNNING trial to COMPLETE.
         conn.execute(
             "UPDATE trials SET state = 'COMPLETE' WHERE trial_id = 1",
             [],
@@ -841,12 +852,14 @@ mod sqlite_poller_tests {
 }
 
 // =============================================================================
-// fingerprint_polling_loop 共有ロジックのテスト（fake フィンガープリント関数）
+// Tests for the shared fingerprint_polling_loop logic (fake fingerprint function)
 //
-// SqliteLivePoller は実 SQLite フィクスチャ DB で、RdbLivePoller は実 DB 接続が要る
-// ため CI では直接テストできない（RDB 側は #[ignore] 統合テストを別途用意する）。
-// 共有ループ本体（`fingerprint_polling_loop`）自体はクロージャ注入のため、
-// fake なフィンガープリント関数で両ポーラーの中核ロジックを検証できる。
+// SqliteLivePoller uses a real SQLite fixture DB, and RdbLivePoller requires
+// a real DB connection, so neither can be tested directly in CI (an
+// `#[ignore]` integration test is provided separately for the RDB side).
+// Since the shared loop body (`fingerprint_polling_loop`) itself uses
+// closure injection, the core logic of both pollers can be verified with a
+// fake fingerprint function.
 // =============================================================================
 
 #[cfg(test)]
@@ -891,8 +904,9 @@ mod fingerprint_polling_loop_tests {
         (stop_signal, handle)
     }
 
-    /// SqliteLivePoller / RdbLivePoller いずれの closure 注入でも変化検出で
-    /// `SqliteLiveChanged`（流用メッセージ）が送られることを確認する。
+    /// Verifies that `SqliteLiveChanged` (the reused message) is sent on
+    /// change detection, regardless of whether the closure is injected for
+    /// SqliteLivePoller or RdbLivePoller.
     #[test]
     fn detects_fingerprint_change_via_injected_closure() {
         let (tx, rx) = make_channel();
@@ -904,7 +918,7 @@ mod fingerprint_polling_loop_tests {
             move |study_id| {
                 assert_eq!(study_id, 42);
                 let n = call_count_clone.fetch_add(1, Ordering::Relaxed);
-                // 2 回目の呼び出しから変化させる（同じ値が続くのは変化なし扱い）。
+                // Change starting from the 2nd call (a repeated value counts as no change).
                 Ok(tunny_core::rdb::StudyFingerprint {
                     total_trials: if n >= 1 { 1 } else { 0 },
                     ..Default::default()

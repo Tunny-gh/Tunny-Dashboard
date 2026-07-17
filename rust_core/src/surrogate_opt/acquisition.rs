@@ -1,52 +1,57 @@
-//! 獲得関数（Acquisition Function）によるサロゲートモデルからの次候補提案。
+//! Next-candidate proposal from a surrogate model via acquisition functions.
 //!
-//! ガウス過程（GP）サロゲートの事後平均・分散を使い、ベイズ最適化の 1 ステップ相当の
-//! 候補点を提案する。バッチ候補は Constant Liar 戦略で生成する。
+//! Uses the posterior mean and variance of a Gaussian Process (GP) surrogate to
+//! propose a candidate point equivalent to one step of Bayesian optimization.
+//! Batch candidates are generated with the Constant Liar strategy.
 //!
-//! 正規化空間 [0,1]^d・z-score 目的空間で全計算を行い、結果を元の単位へ変換して返す。
+//! All computation is done in normalized space [0,1]^d with a z-scored objective;
+//! results are converted back to original units before being returned.
 
 use super::feasibility::feasibility_probability;
 use super::models::{fit_constraint_surrogate, fit_surrogate, FittedSurrogate, SurrogateModelKind};
 use super::optimizers::minimize_scalar_fn;
 use super::{best_observed_index, TrainedSurrogate};
 
-/// 獲得関数の種別。
+/// Acquisition function kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AcquisitionKind {
-    /// Expected Improvement（期待改善量）。
+    /// Expected Improvement.
     ExpectedImprovement,
-    /// Lower Confidence Bound（下限信頼境界）。
+    /// Lower Confidence Bound.
     LowerConfidenceBound,
 }
 
-/// EI の探索オフセット（z-score 単位）。
+/// EI exploration offset (z-score units).
 const XI: f64 = 0.01;
-/// LCB の探索係数 κ。
+/// LCB exploration coefficient κ.
 const KAPPA: f64 = 2.0;
-/// 制約付き LCB のペナルティ重み（z-score 単位）。
+/// Penalty weight for constrained LCB (z-score units).
 const CONSTRAINT_LCB_PENALTY: f64 = 10.0;
 
-/// 獲得関数の最適化によって提案された 1 候補点。パラメータ値・予測値は元の単位。
+/// A single candidate point proposed by optimizing the acquisition function.
+/// Parameter and predicted values are in original units.
 #[derive(Debug, Clone)]
 pub struct SuggestedCandidate {
-    /// パラメータ値（元の単位、`param_names` と同順）。
+    /// Parameter values (original units, same order as `param_names`).
     pub params: Vec<f64>,
-    /// サロゲート予測値（元の単位）。
+    /// Surrogate-predicted value (original units).
     pub predicted_value: f64,
-    /// 予測標準偏差（GP 系のみ Some; 元の単位へスケール済み）。
+    /// Predicted standard deviation (Some only for GP-family models; already
+    /// scaled to original units).
     pub predicted_std: Option<f64>,
-    /// 獲得スコア（最大化方向、値が大きいほど有望）。
+    /// Acquisition score (maximization direction; higher values are more promising).
     pub acq_score: f64,
-    /// 制約サロゲートの予測値（元の単位、`constraint_names` と同順）。制約なしのときは空。
+    /// Predicted constraint values (original units, same order as
+    /// `constraint_names`). Empty when there are no constraints.
     pub predicted_constraints: Vec<f64>,
-    /// 実行可能性確率（0.0〜1.0）。制約なしのときは None。
+    /// Feasibility probability (0.0 to 1.0). `None` when there are no constraints.
     pub feasibility_probability: Option<f64>,
 }
 
-/// 標準正規分布の CDF Φ(z)。
+/// CDF Φ(z) of the standard normal distribution.
 ///
-/// Abramowitz & Stegun 式 7.1.26 の erf 近似を使用する。
-/// 誤差は |ε| < 1.5 × 10⁻⁷。
+/// Uses the erf approximation from Abramowitz & Stegun formula 7.1.26.
+/// Error is |ε| < 1.5 × 10⁻⁷.
 pub(crate) fn normal_cdf(z: f64) -> f64 {
     // erf(x) ≈ 1 - (a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵)·exp(-x²)  (t = 1/(1+0.3275911·x))
     // Φ(z) = 0.5 · (1 + erf(z / √2))
@@ -61,19 +66,20 @@ pub(crate) fn normal_cdf(z: f64) -> f64 {
     0.5 * (1.0 + sign * erf_abs)
 }
 
-/// 標準正規分布の PDF φ(z)。
+/// PDF φ(z) of the standard normal distribution.
 fn normal_pdf(z: f64) -> f64 {
     (-0.5 * z * z).exp() / (2.0 * std::f64::consts::PI).sqrt()
 }
 
-/// 正規化空間における EI（期待改善量）を計算する。最大化方向。
+/// Computes EI (Expected Improvement) in normalized space. Maximization direction.
 ///
-/// `f_best`: 訓練データ中の最良 z-score 値（最小化なら最小値、最大化なら最小値（符号反転済み））。
-/// `mu`: サロゲートの事後平均（z-score）。
-/// `sigma`: 事後標準偏差（z-score）。
-/// `minimize`: true なら最小化問題。
+/// `f_best`: best z-score value in the training data (the minimum if minimizing,
+/// or the minimum of the sign-flipped values if maximizing).
+/// `mu`: surrogate posterior mean (z-score).
+/// `sigma`: posterior standard deviation (z-score).
+/// `minimize`: true for a minimization problem.
 fn ei_norm(f_best: f64, mu: f64, sigma: f64) -> f64 {
-    // 最小化として扱う（f_best は minimize/maximize の符号変換済み）。
+    // Treated as minimization (f_best already has the minimize/maximize sign conversion applied).
     if sigma < 1e-12 {
         return (f_best - mu - XI).max(0.0);
     }
@@ -82,31 +88,33 @@ fn ei_norm(f_best: f64, mu: f64, sigma: f64) -> f64 {
     i * normal_cdf(z) + sigma * normal_pdf(z)
 }
 
-/// 正規化空間における LCB を計算する。最小化スコア（小さいほど有望）。
+/// Computes LCB in normalized space. Minimization score (lower is more promising).
 ///
-/// `mu` / `sigma` は z-score 単位。
+/// `mu` / `sigma` are in z-score units.
 fn lcb_norm(mu: f64, sigma: f64) -> f64 {
     mu - KAPPA * sigma
 }
 
-/// インカンバント（z-score 空間の最良値）を取得する。
+/// Gets the incumbent (best value in z-score space).
 ///
-/// 制約がある場合は実行可能な trial のみを対象とする（全 trial が実行不可能なら全体で計算）。
-/// 最小化ならば z-score の最小値、最大化ならば z-score の最大値の符号反転（= −最大値）。
-/// 内部的には常に「最小化」の世界で動くため、maximize は負の符号を使う。
+/// If constraints are present, only feasible trials are considered (if every
+/// trial is infeasible, computed over the full set instead).
+/// For minimization this is the z-score minimum; for maximization, the
+/// sign-flipped z-score maximum (= −max). Internally everything is always
+/// treated as a "minimization" problem, so maximize uses the negative sign.
 fn incumbent(
     surrogate: &FittedSurrogate,
     y: &[f64],
     minimize: bool,
     constraint_values: &[Vec<f64>],
 ) -> f64 {
-    // y は元の単位なので z-score へ変換する。
+    // y is in original units, so convert it to z-score.
     let y_norm: Vec<f64> = y
         .iter()
         .map(|&v| (v - surrogate.y_mean) / surrogate.y_std)
         .collect();
 
-    // 実行可能 trial のインデックス: すべての制約値 ≤ 0。
+    // Indices of feasible trials: all constraint values ≤ 0.
     let feasible_indices: Vec<usize> = if constraint_values.is_empty() {
         (0..y_norm.len()).collect()
     } else {
@@ -119,7 +127,7 @@ fn incumbent(
             .collect()
     };
 
-    // 実行可能な trial が存在するならその中から選ぶ、なければ全体から選ぶ。
+    // Select from feasible trials if any exist, otherwise from the full set.
     let indices = if feasible_indices.is_empty() {
         (0..y_norm.len()).collect::<Vec<_>>()
     } else {
@@ -132,7 +140,7 @@ fn incumbent(
             .map(|&i| y_norm[i])
             .fold(f64::INFINITY, f64::min)
     } else {
-        // maximize → 符号反転して最小化問題として扱う。
+        // maximize → sign-flip and treat as a minimization problem.
         indices
             .iter()
             .map(|&i| -y_norm[i])
@@ -140,12 +148,12 @@ fn incumbent(
     }
 }
 
-/// 獲得関数のコスト（最小化方向）を 1 点で評価する。
+/// Evaluates the acquisition cost (minimization direction) at a single point.
 ///
-/// - 制約付き EI: `-EI(x) · P_feas(x)`
-/// - 制約付き LCB: `LCB(x) + CONSTRAINT_LCB_PENALTY · (1 − P_feas(x))`
+/// - Constrained EI: `-EI(x) · P_feas(x)`
+/// - Constrained LCB: `LCB(x) + CONSTRAINT_LCB_PENALTY · (1 − P_feas(x))`
 ///
-/// `c_models` が空なら P_feas = 1 として扱う（制約なし）。
+/// If `c_models` is empty, P_feas is treated as 1 (no constraints).
 fn acquisition_cost(
     surrogate: &FittedSurrogate,
     c_models: &[FittedSurrogate],
@@ -176,7 +184,8 @@ fn acquisition_cost(
     }
 }
 
-/// `work_c`（制約ごとの列）から行方向の制約値行列を再構築する（Constant Liar 追記分を含む）。
+/// Reconstructs the row-major constraint value matrix from `work_c` (columns
+/// per constraint), including any Constant Liar appended rows.
 fn constraint_rows(work_c: &[Vec<f64>], n_constraints: usize, n_rows: usize) -> Vec<Vec<f64>> {
     (0..n_rows)
         .map(|row| {
@@ -193,10 +202,11 @@ fn constraint_rows(work_c: &[Vec<f64>], n_constraints: usize, n_rows: usize) -> 
         .collect()
 }
 
-/// 獲得関数を最大化する候補点（正規化空間）を探索して確定する。
+/// Searches for and finalizes the candidate point (in normalized space) that
+/// maximizes the acquisition function.
 ///
-/// 既出候補と重複（正規化 L2² < 1e-12）した場合は `retry_seed` のランダム
-/// スタートで 1 回だけ再探索する。
+/// If it duplicates a previous candidate (normalized L2² < 1e-12), retries the
+/// search exactly once from a random start seeded with `retry_seed`.
 #[allow(clippy::too_many_arguments)]
 fn locate_candidate_norm(
     surrogate: &FittedSurrogate,
@@ -209,14 +219,14 @@ fn locate_candidate_norm(
     retry_seed: u64,
 ) -> Vec<f64> {
     let n_dims = start_norm.len();
-    // 獲得関数（最小化方向）。
+    // Acquisition function (minimization direction).
     let eval_acq = |x_norm: &[f64]| -> f64 {
         acquisition_cost(surrogate, c_models, acquisition, minimize, f_best, x_norm)
     };
 
     let cand = minimize_scalar_fn(&eval_acq, n_dims, start_norm);
 
-    // 重複ガード: 前の候補との L2 距離が 1e-6 以下なら再試行。
+    // Duplicate guard: retry if L2 distance from a previous candidate is ≤ 1e-6.
     let is_dup = prev_candidates.iter().any(|prev| {
         let prev_norm = surrogate.to_norm_x(&prev.params);
         let dist2: f64 = cand
@@ -227,7 +237,7 @@ fn locate_candidate_norm(
         dist2 < 1e-12
     });
     if is_dup {
-        // 再試行: 別シードのランダムスタートで再探索。
+        // Retry: re-search from a random start with a different seed.
         let mut rng = crate::math::rng::SeededRng::from_seed(retry_seed);
         let alt_start: Vec<f64> = (0..n_dims).map(|_| rng.next_f64()).collect();
         minimize_scalar_fn(&eval_acq, n_dims, &alt_start)
@@ -236,7 +246,8 @@ fn locate_candidate_norm(
     }
 }
 
-/// 確定した候補点（正規化空間）を元の単位の [`SuggestedCandidate`] に変換する。
+/// Converts a finalized candidate point (normalized space) into a
+/// [`SuggestedCandidate`] in original units.
 fn describe_candidate(
     surrogate: &FittedSurrogate,
     c_models: &[FittedSurrogate],
@@ -251,7 +262,7 @@ fn describe_candidate(
         .predict_var_norm(best_norm)
         .map(|v| v.max(0.0).sqrt() * surrogate.y_std);
 
-    // 獲得スコアは最大化方向（最小化コストの符号反転）。
+    // Acquisition score is in the maximization direction (sign-flipped minimization cost).
     let acq_score = -acquisition_cost(
         surrogate,
         c_models,
@@ -261,7 +272,7 @@ fn describe_candidate(
         best_norm,
     );
 
-    // 制約予測値と実行可能性確率を計算する。
+    // Compute predicted constraint values and feasibility probability.
     let (predicted_constraints, p_feas) = if c_models.is_empty() {
         (vec![], None)
     } else {
@@ -282,10 +293,11 @@ fn describe_candidate(
     }
 }
 
-/// Constant Liar の作業データで目的サロゲートと全制約サロゲートを再フィットする。
+/// Refits the objective surrogate and all constraint surrogates on the Constant
+/// Liar working data.
 ///
-/// いずれかの再フィットに失敗したら `None` を返す（呼び出し側でバッチを打ち切り、
-/// それまでの候補を返す）。
+/// Returns `None` if any refit fails (the caller then stops the batch early and
+/// returns the candidates gathered so far).
 fn refit_constant_liar(
     model_kind: SurrogateModelKind,
     work_x: &[Vec<f64>],
@@ -300,16 +312,18 @@ fn refit_constant_liar(
     Some((surrogate, c_models))
 }
 
-/// 訓練済みサロゲートから次試行の候補点を提案する。
+/// Proposes candidate points for the next trial from a trained surrogate.
 ///
-/// - `trained`: 検証済みの学習結果（GP 系のみ対応）。
-/// - `n_candidates`: 提案候補点数（≥ 1）。
-/// - `acquisition`: 使用する獲得関数。
-/// - `minimize`: true = 最小化問題、false = 最大化問題。
+/// - `trained`: validated training result (GP-family models only).
+/// - `n_candidates`: number of candidates to propose (≥ 1).
+/// - `acquisition`: acquisition function to use.
+/// - `minimize`: true = minimization problem, false = maximization problem.
 ///
-/// バッチ（n > 1）は Constant Liar 戦略: 1 候補ずつ追加後に「嘘の」観測値
-/// （最良観測値）を付加して GP を再フィットし、次候補を探索する。
-/// 制約モデルも同時に再フィットし、候補の予測制約平均値を嘘値として付加する。
+/// Batches (n > 1) use the Constant Liar strategy: after each candidate is
+/// added, a "lie" observation (the best observed value) is appended and the GP
+/// is refit before searching for the next candidate.
+/// Constraint models are refit at the same time, appending the candidate's
+/// predicted constraint mean as the lie value.
 pub fn suggest_candidates(
     trained: &TrainedSurrogate,
     n_candidates: usize,
@@ -320,7 +334,7 @@ pub fn suggest_candidates(
         return Err("n_candidates must be ≥ 1".to_string());
     }
 
-    // GP 系かどうかを確認する（事後分散が必要）。
+    // Check whether this is a GP-family model (posterior variance is required).
     let probe = trained
         .x_matrix
         .first()
@@ -338,10 +352,10 @@ pub fn suggest_candidates(
 
     let mut candidates: Vec<SuggestedCandidate> = Vec::with_capacity(n_candidates);
 
-    // Constant Liar 用の作業コピー。
+    // Working copy for Constant Liar.
     let mut work_x = trained.x_matrix.clone();
     let mut work_y = trained.y.clone();
-    // 制約の Constant Liar 用作業コピー（制約ごとの列）。
+    // Working copy of constraints for Constant Liar (one column per constraint).
     let mut work_c: Vec<Vec<f64>> = trained
         .constraint_models
         .iter()
@@ -355,22 +369,23 @@ pub fn suggest_candidates(
         })
         .collect();
 
-    // Constant Liar の「嘘」は現在の最良観測値（minimize なら最小、maximize なら最大）。
+    // The Constant Liar "lie" is the current best observed value (minimum for
+    // minimize, maximum for maximize).
     let lie_y = {
         let best_idx = best_observed_index(&trained.y, minimize);
         trained.y[best_idx]
     };
 
-    // 各反復で使うサロゲートを所有権付きで保持する Vec。
-    // 最初の要素はダミー（i=0 では trained.surrogate を直接使う）。
-    // i >= 1 では refitted[i-1] を参照する。
+    // Vec that owns the surrogate used at each iteration.
+    // The first element is a placeholder (i=0 uses trained.surrogate directly).
+    // For i >= 1, refitted[i-1] is referenced instead.
     let mut refitted: Vec<FittedSurrogate> = Vec::new();
-    // 制約の再フィット済みモデル群（制約 × 反復）。
-    // refitted_constraints[i-1][ci] が i 番目の反復で使う制約 ci のサロゲート。
+    // Refitted constraint models (constraint × iteration).
+    // refitted_constraints[i-1][ci] is the surrogate for constraint ci used at iteration i.
     let mut refitted_constraints: Vec<Vec<FittedSurrogate>> = Vec::new();
 
     for i in 0..n_candidates {
-        // 今回の反復で使うサロゲート／制約サロゲートへの参照を取得する。
+        // Get references to the surrogate/constraint surrogates used for this iteration.
         let surrogate: &FittedSurrogate = if i == 0 {
             &trained.surrogate
         } else {
@@ -382,15 +397,16 @@ pub fn suggest_candidates(
             &refitted_constraints[i - 1]
         };
 
-        // work_y と work_c から制約値行列を再構築する（Constant Liar 追記分を含む）。
+        // Reconstruct the constraint value matrix from work_y and work_c
+        // (including Constant Liar appended rows).
         let work_constraint_values = constraint_rows(&work_c, c_models.len(), work_y.len());
         let f_best = incumbent(surrogate, &work_y, minimize, &work_constraint_values);
 
-        // 開始点: 現在の観測ベスト点（正規化空間）。
+        // Starting point: current best observed point (normalized space).
         let best_idx = best_observed_index(&work_y, minimize);
         let start_norm = surrogate.to_norm_x(&work_x[best_idx]);
 
-        // 獲得関数を最適化して候補点を確定する。
+        // Optimize the acquisition function to finalize the candidate point.
         let best_norm = locate_candidate_norm(
             surrogate,
             c_models,
@@ -402,7 +418,7 @@ pub fn suggest_candidates(
             42 + i as u64 + 1,
         );
 
-        // 候補を元の単位へ変換して記録する。
+        // Convert the candidate to original units and record it.
         let candidate = describe_candidate(
             surrogate,
             c_models,
@@ -413,12 +429,12 @@ pub fn suggest_candidates(
         );
         candidates.push(candidate);
 
-        // Constant Liar: 次の候補のために作業データへ追加して再フィット。
+        // Constant Liar: append to the working data and refit for the next candidate.
         if i + 1 < n_candidates {
             let last = &candidates[i];
             work_x.push(last.params.clone());
             work_y.push(lie_y);
-            // 制約の嘘値: 候補の制約予測平均値を使う。
+            // Constraint lie value: use the candidate's predicted constraint mean.
             let lie_constraints = last.predicted_constraints.clone();
             for (ci, col) in work_c.iter_mut().enumerate() {
                 col.push(lie_constraints.get(ci).copied().unwrap_or(0.0));
@@ -428,7 +444,7 @@ pub fn suggest_candidates(
                     refitted.push(new_surrogate);
                     refitted_constraints.push(new_c_models);
                 }
-                // 再フィット失敗 → これまでの候補を Ok で返す。
+                // Refit failed → return the candidates gathered so far as Ok.
                 None => return Ok(candidates),
             }
         }
@@ -444,7 +460,7 @@ mod tests {
     use crate::surrogate_opt::models::SurrogateModelKind;
     use crate::surrogate_opt::{fit_surrogate_with_validation, SurrogateFitRequest};
 
-    // ── normal_cdf のユニットテスト ─────────────────────────────────
+    // ── Unit tests for normal_cdf ─────────────────────────────────
 
     #[test]
     fn normal_cdf_at_zero() {
@@ -464,13 +480,13 @@ mod tests {
         assert!((v - 0.1587).abs() < 1e-4, "Φ(-1) ≈ 0.1587, got {v}");
     }
 
-    // ── EI のプロパティテスト ────────────────────────────────────────
+    // ── Property tests for EI ────────────────────────────────────────
 
     #[test]
     fn ei_zero_when_sigma_tiny_and_mu_above_fbest() {
-        // σ → 0, μ > f_best → EI ≈ 0。
+        // σ → 0, μ > f_best → EI ≈ 0.
         let f_best = 0.0;
-        let mu = 1.0; // μ > f_best なので改善なし
+        let mu = 1.0; // μ > f_best, so no improvement
         let sigma = 1e-15;
         let ei = ei_norm(f_best, mu, sigma);
         assert!(
@@ -481,7 +497,7 @@ mod tests {
 
     #[test]
     fn ei_grows_with_sigma_at_fixed_mu() {
-        // σ が大きいほど EI が大きい。
+        // Larger σ gives larger EI.
         let f_best = 0.0;
         let mu = 0.0;
         let ei_small = ei_norm(f_best, mu, 0.01);
@@ -492,17 +508,18 @@ mod tests {
         );
     }
 
-    // ── 解析的モック上の候補提案テスト（再フィットなし: n=1） ─────────
-    // 既知の凸二次曲面 f(x,y) = (x−0.3)² + (y−0.7)² と一定分散 σ²=0.05 を注入する。
-    // GP フィットなしで獲得関数の最適化を一瞬・決定論的に検証でき、曲面が既知なので
-    // 提案点が真の最小近傍に来ることまで確認できる。
+    // ── Candidate-proposal tests on an analytic mock (no refit: n=1) ─────────
+    // Injects a known convex quadratic surface f(x,y) = (x−0.3)² + (y−0.7)² with
+    // constant variance σ²=0.05. This verifies acquisition-function optimization
+    // instantly and deterministically without a GP fit, and since the surface is
+    // known, we can also confirm the proposed point lands near the true minimum.
 
     fn quad2(x: &[f64]) -> f64 {
         (x[0] - 0.3).powi(2) + (x[1] - 0.7).powi(2)
     }
 
-    /// 二次曲面の解析的モック TrainedSurrogate。`with_variance=false` で事後分散なし
-    /// （非 GP 相当）のモデルを表す。
+    /// Analytic mock TrainedSurrogate for the quadratic surface. `with_variance=false`
+    /// represents a model with no posterior variance (i.e., a non-GP model).
     fn analytic_quadratic_mock(with_variance: bool) -> TrainedSurrogate {
         let var: Option<crate::surrogate_opt::models::AnalyticFn> = if with_variance {
             Some(Box::new(|_x: &[f64]| 0.05))
@@ -520,8 +537,8 @@ mod tests {
         TrainedSurrogate::analytic_mock(x_matrix, y, surrogate)
     }
 
-    /// GP-FITC を実際に学習したバッチ用 trained（Constant Liar の再フィットを伴う
-    /// バッチテストはモック化できないため実フィットを使う）。
+    /// A trained result with an actually-fit GP-FITC for batch tests (batch tests
+    /// involving Constant Liar refits can't be mocked, so a real fit is used).
     fn quadratic_trained_fitc(n: usize) -> TrainedSurrogate {
         let mut rng = SeededRng::from_seed(7);
         let x_matrix: Vec<Vec<f64>> = (0..n)
@@ -550,21 +567,22 @@ mod tests {
                 .expect("suggest should succeed");
         assert_eq!(candidates.len(), 1);
         let c = &candidates[0];
-        // 提案パラメータは元の単位で [0,1] 内にあるはず。
+        // Proposed parameters should be in [0,1] in original units.
         assert!(
             c.params.iter().all(|&v| (0.0..=1.0).contains(&v)),
             "params out of [0,1]: {:?}",
             c.params
         );
-        // 分散一定なら EI は予測平均が最小の点で最大 → 真の最小 (0.3, 0.7) 近傍を狙う。
+        // With constant variance, EI is maximized where the predicted mean is
+        // minimal → targets the true minimum (0.3, 0.7).
         assert!(
             (c.params[0] - 0.3).abs() < 0.1 && (c.params[1] - 0.7).abs() < 0.1,
             "EI with constant σ should target the minimum (0.3, 0.7), got {:?}",
             c.params
         );
-        // acq_score >= 0（EI は非負）。
+        // acq_score >= 0 (EI is non-negative).
         assert!(c.acq_score >= 0.0, "EI should be ≥ 0, got {}", c.acq_score);
-        // 事後分散ありモックなので predicted_std は Some（√0.05）。
+        // Mock has posterior variance, so predicted_std is Some (√0.05).
         assert!(c.predicted_std.is_some(), "GP-like mock has predicted_std");
         assert!(
             (c.predicted_std.unwrap() - 0.05_f64.sqrt()).abs() < 1e-9,
@@ -581,7 +599,7 @@ mod tests {
                 .expect("batch suggest should succeed");
         assert_eq!(candidates.len(), 3);
 
-        // ペアワイズ正規化 L2 距離 > 1e-4。
+        // Pairwise normalized L2 distance > 1e-4.
         let surrogate = &trained.surrogate;
         for i in 0..3 {
             for j in (i + 1)..3 {
@@ -621,7 +639,8 @@ mod tests {
 
     #[test]
     fn maximize_steers_away_from_minimum() {
-        // maximize=true（n=1, 再フィットなし）では二次関数の最大値（最遠の角）へ向かう。
+        // With maximize=true (n=1, no refit), it should move toward the
+        // quadratic's maximum (the farthest corner).
         let trained = analytic_quadratic_mock(true);
         let y_median = {
             let mut ys = trained.y.clone();
@@ -631,7 +650,8 @@ mod tests {
         let candidates =
             suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, false)
                 .expect("maximize suggest");
-        // 予測値がメジアン以上（最大化方向に動いている）。
+        // Predicted value should be at or above the median (moving in the
+        // maximization direction).
         assert!(
             candidates[0].predicted_value >= y_median - 0.1,
             "maximize should steer toward higher values, got {}",
@@ -641,8 +661,8 @@ mod tests {
 
     #[test]
     fn non_gp_model_returns_error() {
-        // 事後分散を持たないモデル（Ridge / LightGBM 相当）では獲得関数を使えず、
-        // GP を要求するエラーを返す。
+        // A model without posterior variance (e.g., Ridge / LightGBM) can't use
+        // the acquisition function and should return an error requiring GP.
         let trained = analytic_quadratic_mock(false);
         let err = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
             .unwrap_err();

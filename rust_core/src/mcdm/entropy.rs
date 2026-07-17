@@ -61,8 +61,10 @@ pub fn compute_entropy_weights(
                     result[row * n_objectives + j] = if range > 0.0 {
                         (values[i * n_objectives + j] - min_v) / range
                     } else {
-                        // 定数列は全行 1.0 とする。0.0 だと比率正規化で p=0 -> e_j=0 -> d_j=1 となり、
-                        // 情報量ゼロの列が最大重みを得てしまう（正の定数列は 1.0 のまま同じ結果になる）。
+                        // A constant column gets 1.0 for every row. With 0.0, ratio
+                        // normalization would give p=0 -> e_j=0 -> d_j=1, letting a
+                        // zero-information column win the largest weight (a positive
+                        // constant column stays 1.0 either way, so the result is the same).
                         1.0
                     };
                 }

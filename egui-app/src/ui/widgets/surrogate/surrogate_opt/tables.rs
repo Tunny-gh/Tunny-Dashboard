@@ -1,8 +1,10 @@
-//! 推定最適点・予測パレートフロントの表形式（TrialTable スタイル）レンダリング。
+//! Table-style (TrialTable style) rendering of the estimated optimum and
+//! the predicted Pareto front.
 
 use crate::state::messages::{SurrogateMultiOptUiResult, SurrogateOptUiResult};
 
-/// 推定最適点を TrialTable と同じ表形式（各パラメータ列 + 予測目的値列、1 行）で表示する。
+/// Displays the estimated optimum in the same table format as TrialTable
+/// (a row of parameter columns + a predicted-objective column).
 pub(super) fn render_best_point_table(ui: &mut egui::Ui, result: &SurrogateOptUiResult) {
     use egui_extras::{Column, TableBuilder};
 
@@ -14,8 +16,8 @@ pub(super) fn render_best_point_table(ui: &mut egui::Ui, result: &SurrogateOptUi
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
-                .columns(Column::initial(90.0).at_least(50.0), n_params) // 各パラメータ
-                .column(Column::initial(110.0).at_least(60.0)) // 予測目的値
+                .columns(Column::initial(90.0).at_least(50.0), n_params) // each parameter
+                .column(Column::initial(110.0).at_least(60.0)) // predicted objective value
                 .header(20.0, |mut header| {
                     for (name, _) in &result.best_params {
                         header.col(|ui| {
@@ -41,7 +43,8 @@ pub(super) fn render_best_point_table(ui: &mut egui::Ui, result: &SurrogateOptUi
         });
 }
 
-/// 予測パレートフロントの各点を TrialTable と同じ表形式（目的列 + パラメータ列）で表示する。
+/// Displays each point of the predicted Pareto front in the same table
+/// format as TrialTable (objective columns + parameter columns).
 pub(super) fn render_front_table(ui: &mut egui::Ui, result: &SurrogateMultiOptUiResult) {
     use egui_extras::{Column, TableBuilder};
 
@@ -59,8 +62,8 @@ pub(super) fn render_front_table(ui: &mut egui::Ui, result: &SurrogateMultiOptUi
             TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
-                .columns(Column::initial(80.0).at_least(50.0), n_obj) // 各目的
-                .columns(Column::initial(80.0).at_least(50.0), n_param) // 各パラメータ
+                .columns(Column::initial(80.0).at_least(50.0), n_obj) // each objective
+                .columns(Column::initial(80.0).at_least(50.0), n_param) // each parameter
                 .header(20.0, |mut header| {
                     for name in &result.objective_names {
                         header.col(|ui| {

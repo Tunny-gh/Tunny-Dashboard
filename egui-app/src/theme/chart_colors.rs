@@ -1,17 +1,18 @@
-//! チャート描画色のテーマ追従定義。
+//! Theme-following definitions for chart drawing colors.
 //!
-//! データ系列色（青・赤・緑・金）は両テーマ共通で、背景・テキスト・
-//! グリッド・半透明グレーアウト系のみダーク値を持つ。半透明色は
-//! premultiplied alpha（`from_rgba_premultiplied`）で、ライトは
-//! 白背景・ダークは gray-900 背景での視認性に合わせて調整している。
-//! すべて `NAME()` 形式の関数で、[`crate::theme::is_dark_mode`] に追従する。
+//! Data series colors (blue/red/green/gold) are shared across both themes;
+//! only background, text, grid, and semi-transparent grayout colors have
+//! separate dark values. Semi-transparent colors use premultiplied alpha
+//! (`from_rgba_premultiplied`), tuned for visibility on a white background in
+//! light mode and a gray-900 background in dark mode.
+//! All are functions in the `NAME()` form, following [`crate::theme::is_dark_mode`].
 
 use egui::Color32;
 
 use super::themed_color;
 
 // ====================================================================
-// Pareto 系
+// Pareto colors
 // ====================================================================
 
 themed_color!(
@@ -27,16 +28,16 @@ themed_color!(
 );
 
 themed_color!(
-    /// 非パレート点の減光色。
+    /// Dimmed color for non-Pareto points.
     /// light premultiplied: r=66*60/255≈16, g=133*60/255≈31, b=244*60/255≈57
-    /// dark はやや高い alpha（80）で暗背景上の視認性を確保する。
+    /// dark uses a slightly higher alpha (80) to keep visibility on a dark background.
     COLOR_NON_PARETO_DIM,
     Color32::from_rgba_premultiplied(16, 31, 57, 60),
     Color32::from_rgba_premultiplied(21, 42, 77, 80)
 );
 
 // ====================================================================
-// 3D 軸色
+// 3D axis colors
 // ====================================================================
 
 themed_color!(
@@ -58,10 +59,11 @@ themed_color!(
 );
 
 // ====================================================================
-// MCDM スコア段階色
+// MCDM score tier colors
 // ====================================================================
 
-/// 劣解（ランク外）はクラスター図の非パレート色と揃えて淡い水色で表示する
+/// Dominated solutions (outside the ranked range) are shown in a pale light
+/// blue, matching the non-Pareto color used in the cluster plot.
 #[allow(non_snake_case)]
 #[inline]
 pub fn COLOR_MCDM_NONE() -> Color32 {
@@ -69,7 +71,7 @@ pub fn COLOR_MCDM_NONE() -> Color32 {
 }
 
 // ====================================================================
-// バー・チャート系
+// Bar chart colors
 // ====================================================================
 
 themed_color!(
@@ -91,15 +93,15 @@ themed_color!(
 );
 
 themed_color!(
-    /// importance_chart 用バー色。light はダークネイビー、dark では
-    /// 暗背景に沈むため明るいスチールブルーに切り替える。
+    /// Bar color for importance_chart. light uses dark navy; dark switches to
+    /// a bright steel blue since dark navy would sink into a dark background.
     COLOR_IMPORTANCE_BAR,
     Color32::from_rgb(30, 60, 114),
     Color32::from_rgb(91, 141, 239)
 );
 
 // ====================================================================
-// 最適化履歴系
+// Optimization history colors
 // ====================================================================
 
 themed_color!(
@@ -121,7 +123,7 @@ themed_color!(
 );
 
 // ====================================================================
-// 収束指標チャート系
+// Convergence metric chart colors
 // ====================================================================
 
 themed_color!(
@@ -131,7 +133,7 @@ themed_color!(
 );
 
 // ====================================================================
-// フィット品質系
+// Fit quality colors
 // ====================================================================
 
 themed_color!(
@@ -153,7 +155,7 @@ themed_color!(
 );
 
 // ====================================================================
-// PDP 系
+// PDP colors
 // ====================================================================
 
 themed_color!(
@@ -163,7 +165,7 @@ themed_color!(
 );
 
 themed_color!(
-    /// PDP 信頼区間バンド。
+    /// PDP confidence interval band.
     /// light premultiplied: r=66*50/255≈13, g=133*50/255≈26, b=244*50/255≈48
     COLOR_PDP_CI,
     Color32::from_rgba_premultiplied(13, 26, 48, 50),
@@ -171,9 +173,9 @@ themed_color!(
 );
 
 themed_color!(
-    /// ICE 線。light は濃灰の半透明、dark は明灰の半透明。
-    /// light premultiplied: r=150*60/255≈35（×3成分）
-    /// dark premultiplied: r=200*60/255≈47（×3成分）
+    /// ICE lines. light is semi-transparent dark gray, dark is semi-transparent light gray.
+    /// light premultiplied: r=150*60/255≈35 (all 3 components)
+    /// dark premultiplied: r=200*60/255≈47 (all 3 components)
     COLOR_ICE_LINE,
     Color32::from_rgba_premultiplied(35, 35, 35, 60),
     Color32::from_rgba_premultiplied(47, 47, 47, 60)
@@ -186,7 +188,7 @@ themed_color!(
 );
 
 // ====================================================================
-// スキャッタ系
+// Scatter plot colors
 // ====================================================================
 
 themed_color!(
@@ -196,11 +198,11 @@ themed_color!(
 );
 
 // ====================================================================
-// 選択ハイライト系
+// Selection highlight colors
 // ====================================================================
 
 themed_color!(
-    /// 選択ハイライト面。
+    /// Selection highlight surface.
     /// light premultiplied: r=66*40/255≈10, g=133*40/255≈21, b=244*40/255≈38
     COLOR_SELECTION_HIGHLIGHT,
     Color32::from_rgba_premultiplied(10, 21, 38, 40),
@@ -208,17 +210,18 @@ themed_color!(
 );
 
 themed_color!(
-    /// 選択フィルタ外の散布図点を表す中間灰色（元の色相を残さず、選択点と
-    /// 明確に区別する）。半透明にして選択点を引き立てつつ、灰色であることが
-    /// 分かる程度の不透明度を保つ。
-    /// premultiplied: rgb(150,150,150) × 90/255 ≈ 53（×3成分）
+    /// Mid-gray used for scatter points outside the selection filter (drops
+    /// the original hue to clearly distinguish them from selected points).
+    /// Semi-transparent to keep selected points prominent, while keeping
+    /// enough opacity to be recognizable as gray.
+    /// premultiplied: rgb(150,150,150) x 90/255 ~= 53 (all 3 components)
     COLOR_UNSELECTED_POINT,
     Color32::from_rgba_premultiplied(53, 53, 53, 90),
     Color32::from_rgba_premultiplied(53, 53, 53, 90)
 );
 
 // ====================================================================
-// リンク色
+// Link color
 // ====================================================================
 
 themed_color!(
@@ -228,27 +231,27 @@ themed_color!(
 );
 
 // ====================================================================
-// 3D ビュー系
+// 3D view colors
 // ====================================================================
 
 themed_color!(
-    /// 3D ビューの背景。light = 淡灰 / dark = gray-800。
+    /// 3D view background. light = pale gray / dark = gray-800.
     COLOR_3D_BG,
     Color32::from_rgb(240, 242, 245),
     Color32::from_rgb(31, 41, 55) // #1F2937
 );
 
 themed_color!(
-    /// 3D グリッド線。
+    /// 3D grid lines.
     /// light premultiplied: r=120*70/255≈33, g=33, b=130*70/255≈36
-    /// dark premultiplied: rgb(170,170,180) × 70/255 ≈ 47,47,49
+    /// dark premultiplied: rgb(170,170,180) x 70/255 ~= 47,47,49
     COLOR_3D_GRID,
     Color32::from_rgba_premultiplied(33, 33, 36, 70),
     Color32::from_rgba_premultiplied(47, 47, 49, 70)
 );
 
 // ====================================================================
-// ハイライト試行点（pareto_2d / pareto_3d 共通）
+// Highlighted trial point (shared by pareto_2d / pareto_3d)
 // ====================================================================
 
 themed_color!(
@@ -258,11 +261,11 @@ themed_color!(
 );
 
 // ====================================================================
-// パラレルコーディネート系
+// Parallel coordinates colors
 // ====================================================================
 
 themed_color!(
-    /// 軸目盛テキスト: light = gray-600 相当 / dark = gray-400
+    /// Axis tick text: light = gray-600 equivalent / dark = gray-400
     COLOR_PARALLEL_TICK,
     Color32::from_rgb(95, 99, 104),
     Color32::from_rgb(156, 163, 175) // #9CA3AF
@@ -275,23 +278,23 @@ themed_color!(
 );
 
 themed_color!(
-    /// 軸線: light = 淡灰 / dark = gray-600
+    /// Axis line: light = pale gray / dark = gray-600
     COLOR_PARALLEL_AXIS,
     Color32::from_rgb(218, 220, 224),
     Color32::from_rgb(75, 85, 99) // #4B5563
 );
 
 themed_color!(
-    /// ブラシ選択範囲外の線をグレーアウトする色（premultiplied）。
-    /// light premultiplied: rgb(170,170,170) × 14/255 ≈ 9（×3成分）
-    /// dark premultiplied: rgb(200,200,200) × 14/255 ≈ 11（×3成分）
+    /// Color for graying out lines outside the brush selection range (premultiplied).
+    /// light premultiplied: rgb(170,170,170) x 14/255 ~= 9 (all 3 components)
+    /// dark premultiplied: rgb(200,200,200) x 14/255 ~= 11 (all 3 components)
     COLOR_PARALLEL_LINE_UNSELECTED,
     Color32::from_rgba_premultiplied(9, 9, 9, 14),
     Color32::from_rgba_premultiplied(11, 11, 11, 14)
 );
 
 // ====================================================================
-// PDP CI バンド凡例マーカー（egui_plot 用、non-premultiplied 相当）
+// PDP CI band legend marker (for egui_plot, non-premultiplied equivalent)
 // ====================================================================
 
 themed_color!(
@@ -302,86 +305,87 @@ themed_color!(
 );
 
 // ====================================================================
-// チャート汎用色
+// General-purpose chart colors
 // ====================================================================
 
 themed_color!(
-    /// チャートセル内テキスト（ヒートマップ・相関係数セルなど）
+    /// Text inside chart cells (heatmap, correlation coefficient cells, etc.)
     COLOR_CHART_TEXT,
     Color32::from_rgb(32, 33, 36),
     Color32::from_rgb(229, 231, 235) // #E5E7EB
 );
 
 themed_color!(
-    /// データなし・空状態の表示色: light = gray-600 相当 / dark = gray-400
+    /// Display color for no-data/empty state: light = gray-600 equivalent / dark = gray-400
     COLOR_EMPTY_STATE,
     Color32::from_rgb(95, 99, 104),
     Color32::from_rgb(156, 163, 175) // #9CA3AF
 );
 
 // ====================================================================
-// サロゲート多目的フロント（pareto_2d オーバーレイ）
+// Surrogate multi-objective front (pareto_2d overlay)
 // ====================================================================
 
 themed_color!(
-    /// サロゲート予測パレートフロント点の色（金色系。既存の赤・青と被らない）。
+    /// Color for surrogate-predicted Pareto front points (gold-ish, to avoid
+    /// clashing with the existing red/blue).
     COLOR_SURROGATE_FRONT,
     Color32::from_rgb(255, 193, 7),
     Color32::from_rgb(255, 193, 7)
 );
 
 themed_color!(
-    /// ヒートマップ・マトリクス系のグリッド線色: light = gray-500 相当 / dark = gray-600
+    /// Grid line color for heatmap/matrix-style charts: light = gray-500 equivalent / dark = gray-600
     COLOR_GRID_STROKE,
     Color32::from_rgb(154, 160, 166),
     Color32::from_rgb(75, 85, 99) // #4B5563
 );
 
 // ====================================================================
-// 実行不可能解（制約違反）
+// Infeasible solutions (constraint violation)
 // ====================================================================
 
 themed_color!(
-    /// 実行不可能解のグレーアウト色（premultiplied）
-    /// premultiplied: rgb(180,180,180) × 80/255 ≈ 56（×3成分）
+    /// Grayout color for infeasible solutions (premultiplied)
+    /// premultiplied: rgb(180,180,180) x 80/255 ~= 56 (all 3 components)
     COLOR_INFEASIBLE,
     Color32::from_rgba_premultiplied(56, 56, 56, 80),
     Color32::from_rgba_premultiplied(56, 56, 56, 80)
 );
 
 // ====================================================================
-// trial state 系（Intermediate Values / Timeline 共通）
+// Trial state colors (shared by Intermediate Values / Timeline)
 // ====================================================================
 
-/// COMPLETE trial（正常終了）。最適化履歴の "All Trials" と同じ青系を再利用する。
+/// COMPLETE trial (finished normally). Reuses the same blue used for "All Trials" in the optimization history.
 #[allow(non_snake_case)]
 #[inline]
 pub fn COLOR_STATE_COMPLETE() -> Color32 {
     COLOR_OPT_TRIAL()
 }
 
-/// PRUNED trial（枝刈り）。バーチャートのアクセント色（金色系）を再利用しオレンジとして扱う。
+/// PRUNED trial. Reuses the bar chart's accent color (gold-ish), treated as orange.
 #[allow(non_snake_case)]
 #[inline]
 pub fn COLOR_STATE_PRUNED() -> Color32 {
     COLOR_BAR_ACCENT()
 }
 
-/// RUNNING trial（実行中）。ニュートラルな灰色（空状態表示と同色）を再利用する。
+/// RUNNING trial. Reuses the neutral gray (same color as the empty state display).
 #[allow(non_snake_case)]
 #[inline]
 pub fn COLOR_STATE_RUNNING() -> Color32 {
     COLOR_EMPTY_STATE()
 }
 
-/// FAIL trial（失敗）。バーチャートの警告色（赤）を再利用する。
+/// FAIL trial. Reuses the bar chart's warning color (red).
 #[allow(non_snake_case)]
 #[inline]
 pub fn COLOR_STATE_FAIL() -> Color32 {
     COLOR_BAR_NEGATIVE()
 }
 
-/// WAITING trial（開始待ち）。グリッド線と同じ薄い灰色を再利用する。
+/// WAITING trial (not yet started). Reuses the same light gray as the grid lines.
 #[allow(non_snake_case)]
 #[inline]
 pub fn COLOR_STATE_WAITING() -> Color32 {

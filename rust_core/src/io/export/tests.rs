@@ -121,7 +121,7 @@ fn tc_1101_08_empty_indices_header_only() {
     let df = make_test_df();
     let csv = serialize_csv_from_df(&df, &[], &["x1".to_string()]);
     let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines.len(), 1, "translated");
+    assert_eq!(lines.len(), 1, "empty indices should produce header only");
 }
 
 #[test]
@@ -138,7 +138,10 @@ fn tc_1101_10_nonexistent_column_empty() {
     let df = make_test_df();
     let csv = serialize_csv_from_df(&df, &[0], &["nonexistent".to_string()]);
     let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines[1], "", "translated");
+    assert_eq!(
+        lines[1], "",
+        "nonexistent column should render as empty field"
+    );
 }
 
 #[test]
@@ -146,15 +149,30 @@ fn tc_1102_01_report_stats_numeric_columns() {
     let df = make_test_df();
     let json = compute_report_stats_from_df(&df);
 
-    assert!(!json.is_empty(), "translated JSON translated");
-    assert!(json.contains("\"x1\""), "x1 translated JSON translated");
-    assert!(json.contains("\"min\""), "min translated JSON translated");
-    assert!(json.contains("\"max\""), "max translated JSON translated");
-    assert!(json.contains("\"mean\""), "mean translated JSON translated");
-    assert!(json.contains("\"std\""), "std translated JSON translated");
+    assert!(!json.is_empty(), "report stats JSON should not be empty");
+    assert!(
+        json.contains("\"x1\""),
+        "report stats JSON should contain key x1"
+    );
+    assert!(
+        json.contains("\"min\""),
+        "report stats JSON should contain key min"
+    );
+    assert!(
+        json.contains("\"max\""),
+        "report stats JSON should contain key max"
+    );
+    assert!(
+        json.contains("\"mean\""),
+        "report stats JSON should contain key mean"
+    );
+    assert!(
+        json.contains("\"std\""),
+        "report stats JSON should contain key std"
+    );
     assert!(
         json.contains("\"count\""),
-        "count translated JSON translated"
+        "report stats JSON should contain key count"
     );
 }
 
@@ -164,7 +182,7 @@ fn tc_1102_02_report_stats_empty_df() {
     let json = compute_report_stats_from_df(&empty_df);
     assert_eq!(
         json, "{}",
-        "translated DataFrame translated {{}} translated"
+        "empty DataFrame should produce report stats {{}}"
     );
 }
 
@@ -175,17 +193,17 @@ fn tc_1102_03_report_stats_correct_values() {
 
     assert!(
         json.contains("\"min\":1.5"),
-        "x1 translated min=1.5 translated: {}",
+        "x1 report stats should have min=1.5: {}",
         json
     );
     assert!(
         json.contains("\"max\":3"),
-        "x1 translated max=3 translated: {}",
+        "x1 report stats should have max=3: {}",
         json
     );
     assert!(
         json.contains("\"count\":2"),
-        "x1 translated count=2 translated: {}",
+        "x1 report stats should have count=2: {}",
         json
     );
 }
@@ -194,6 +212,6 @@ fn tc_1102_03_report_stats_correct_values() {
 fn tc_1102_04_report_stats_valid_json_structure() {
     let df = make_test_df();
     let json = compute_report_stats_from_df(&df);
-    assert!(json.starts_with('{'), "JSON translated {{ translated");
-    assert!(json.ends_with('}'), "JSON translated }} translated");
+    assert!(json.starts_with('{'), "JSON should start with {{");
+    assert!(json.ends_with('}'), "JSON should end with }}");
 }

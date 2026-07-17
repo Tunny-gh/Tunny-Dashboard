@@ -1,19 +1,19 @@
-//! 階層クラスタリング（Ward 法）のデンドログラムウィジェット。
+//! Dendrogram widget for hierarchical clustering (Ward's method).
 //!
-//! `tunny_core::clustering::ward_linkage` で併合木を構築し、$k$ スライダーで
-//! カットして得られるクラスタを葉の色分けで示す。学習コストは軽い（$O(n^2)$、
-//! 800 行上限のサブサンプル込み）ため SYNC ウィジェット。理論的背景は
-//! theory/{en,ja}/clustering/hierarchical.md。
+//! Builds the merge tree with `tunny_core::clustering::ward_linkage` and shows the
+//! clusters obtained by cutting at the $k$ slider via leaf coloring. Training cost is
+//! low ($O(n^2)$, including the 800-row subsample cap), so this is a SYNC widget. See
+//! theory/{en,ja}/clustering/hierarchical.md for the theoretical background.
 //!
-//! 配線メモ（このファイルはまだ mod.rs に登録されていない。ChartId::Dendrogram /
-//! label "Dendrogram" / icon dendrogram.svg として配線予定）。
+//! Wiring note (this file is not yet registered in mod.rs; planned to be wired up as
+//! ChartId::Dendrogram / label "Dendrogram" / icon dendrogram.svg).
 
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::COLOR_EMPTY_STATE;
 use crate::theme::colormap::ColorMap;
 use tunny_core::clustering::{cut_tree, dendrogram_nodes, ward_linkage, HierarchicalResult, Merge};
 
-/// 距離行列に使う特徴空間。
+/// Feature space used for the distance matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum DendrogramSpace {
     #[default]
@@ -43,7 +43,7 @@ impl DendrogramSpace {
 /// (study_name, row_count, space disc)
 type DendrogramCacheKey = (String, usize, u8);
 
-/// デンドログラムウィジェットの UI 状態。
+/// UI state for the dendrogram widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct DendrogramChart {
@@ -79,14 +79,16 @@ fn feature_names(
     }
 }
 
-/// view から距離行列を組み立てる。指定した全特徴が有限な行のみ採用する
-/// （800 行超のサブサンプルは `ward_linkage` 内部が担う）。
+/// Builds the distance matrix from a view. Only rows where all specified features are
+/// finite are adopted (subsampling beyond 800 rows is handled internally by
+/// `ward_linkage`).
 fn build_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
     super::feature_matrix(view, features)
 }
 
-/// カット閾値（`merges[cutoff-1].distance` と `merges[cutoff].distance` の中点、
-/// `cutoff = n_leaves - k`）を返す。範囲外（`k < 2` または `k >= n_leaves`）は `None`。
+/// Returns the cut threshold (the midpoint between `merges[cutoff-1].distance` and
+/// `merges[cutoff].distance`, where `cutoff = n_leaves - k`). Returns `None` when out
+/// of range (`k < 2` or `k >= n_leaves`).
 pub fn cut_threshold(merges: &[Merge], n_leaves: usize, k: usize) -> Option<f64> {
     let cutoff = n_leaves.checked_sub(k)?;
     if cutoff == 0 || cutoff >= merges.len() {
@@ -95,9 +97,10 @@ pub fn cut_threshold(merges: &[Merge], n_leaves: usize, k: usize) -> Option<f64>
     Some((merges[cutoff - 1].distance + merges[cutoff].distance) / 2.0)
 }
 
-/// 各ノード（葉 0..n、内部ノード n..2n-1）に対する「カット後クラスタラベル」を返す。
-/// 葉のラベルは `cut_tree` の結果をそのまま使う。内部ノードは両子のラベルが
-/// 一致すればそのラベル、そうでなければ `None`（カットで分かれた枝＝グレー表示）。
+/// Returns the "post-cut cluster label" for each node (leaves 0..n, internal nodes
+/// n..2n-1). Leaf labels use the `cut_tree` result as-is. For an internal node, if both
+/// children's labels match, use that label; otherwise `None` (a branch split by the
+/// cut, shown in gray).
 fn compute_node_labels(result: &HierarchicalResult, leaf_labels: &[usize]) -> Vec<Option<usize>> {
     let n = leaf_labels.len();
     if n == 0 {
@@ -116,8 +119,9 @@ fn compute_node_labels(result: &HierarchicalResult, leaf_labels: &[usize]) -> Ve
     node_label
 }
 
-/// 葉位置 `x`（`0..n_leaves-1`）・高さ `height`（`0..=max_height`）を画面座標へ写像する。
-/// y は下が 0、上が `max_height`（画面は反転: 下端 = 0）。
+/// Maps leaf position `x` (`0..n_leaves-1`) and height `height` (`0..=max_height`) to
+/// screen coordinates. y is 0 at the bottom and `max_height` at the top (screen is
+/// flipped: bottom edge = 0).
 fn to_screen(
     x: f64,
     height: f64,
@@ -142,7 +146,8 @@ fn to_screen(
 }
 
 impl DendrogramChart {
-    /// CSV エクスポート用: 葉順に (元 view の行インデックス, カット後クラスタラベル) を返す。
+    /// For CSV export: returns (original view row index, post-cut cluster label) in
+    /// leaf order.
     pub fn leaf_assignments(&self) -> Option<Vec<(usize, usize)>> {
         let (_, result) = self.cache.as_ref()?;
         let n = result.leaf_order.len();
@@ -215,8 +220,8 @@ impl DendrogramChart {
         let cluster_color = |label: usize| -> egui::Color32 { cmap.sample_categorical(label, k) };
         const ABOVE_CUT_COLOR: egui::Color32 = egui::Color32::from_gray(140);
 
-        // サブサンプル時は下にキャプション行が続くため、その高さぶんを
-        // 先に差し引いてからプロット領域を確保する（キャプションの見切れ防止）。
+        // When subsampled, a caption line follows below, so subtract its height first
+        // before reserving the plot area (prevents the caption from being clipped).
         let subsampled = result.row_indices.len() < view.row_count();
         let caption_h = if subsampled {
             ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y

@@ -3,6 +3,7 @@ pub mod contour;
 pub mod convergence;
 pub mod data;
 pub(crate) mod gaussian_process;
+pub mod gh;
 pub mod io;
 pub(crate) mod lgbm;
 pub(crate) mod lgbm_sys;
@@ -33,7 +34,7 @@ mod tests {
 
     #[test]
     fn lib_compiles() {
-        // 到達すればライブラリのコンパイルとリンクに成功している。
+        // Reaching this point means the library compiled and linked successfully.
     }
 
     #[test]
@@ -41,7 +42,7 @@ mod tests {
         let result = crate::dataframe::with_active_df(|_df| 42usize);
         assert!(
             result.is_none(),
-            "translated Study translated None translated"
+            "with_active_df should return None when no study is active"
         );
     }
 

@@ -1,13 +1,14 @@
-//! 特殊関数（ガンマ関数・正規分位関数）。
+//! Special functions (gamma function, normal quantile function).
 //!
-//! ロバスト性解析の Weibull 標準化（Γ(1+1/k) / Γ(1+2/k)）と
-//! σ レベル換算（Φ⁻¹）に使う。外部依存を避けるため、よく知られた
-//! 近似式を自前実装する。精度はいずれも表示・判定用途に十分
-//! （ln_gamma: 相対誤差 ~1e-13、norm_ppf: 絶対誤差 ~1e-9）。
+//! Used for robustness-analysis Weibull standardization (Γ(1+1/k) / Γ(1+2/k))
+//! and sigma-level conversion (Φ⁻¹). To avoid external dependencies, well-known
+//! approximation formulas are implemented in-house. Accuracy is sufficient for
+//! display/judgment purposes in both cases
+//! (ln_gamma: relative error ~1e-13, norm_ppf: absolute error ~1e-9).
 
-/// ln Γ(x)（x > 0）。Lanczos 近似（g = 7、9 係数）。
+/// ln Γ(x) (x > 0). Lanczos approximation (g = 7, 9 coefficients).
 pub(crate) fn ln_gamma(x: f64) -> f64 {
-    // Lanczos (g=7, n=9) 係数。Numerical Recipes 系の標準値。
+    // Lanczos (g=7, n=9) coefficients. Standard values from the Numerical Recipes family.
     const COEFFS: [f64; 8] = [
         676.520_368_121_885_1,
         -1_259.139_216_722_402_8,
@@ -20,7 +21,7 @@ pub(crate) fn ln_gamma(x: f64) -> f64 {
     ];
     debug_assert!(x > 0.0, "ln_gamma requires x > 0, got {x}");
 
-    // 反射公式は不要（x > 0 のみ扱う）。x < 0.5 は反射で精度を保つ。
+    // The reflection formula isn't needed elsewhere (only x > 0 is handled). x < 0.5 uses reflection to preserve accuracy.
     if x < 0.5 {
         // Γ(x)Γ(1-x) = π / sin(πx)
         let pi = std::f64::consts::PI;
@@ -36,9 +37,9 @@ pub(crate) fn ln_gamma(x: f64) -> f64 {
     0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + a.ln()
 }
 
-/// 標準正規分布の分位関数 Φ⁻¹(p)（0 < p < 1）。Acklam の有理近似。
+/// Quantile function of the standard normal distribution Φ⁻¹(p) (0 < p < 1). Acklam's rational approximation.
 ///
-/// 絶対誤差はおよそ 1.15e-9。p が (0,1) の外なら NaN を返す。
+/// Absolute error is roughly 1.15e-9. Returns NaN if p is outside (0,1).
 pub(crate) fn norm_ppf(p: f64) -> f64 {
     if !(0.0..=1.0).contains(&p) || p == 0.0 || p == 1.0 {
         return f64::NAN;
@@ -77,18 +78,18 @@ pub(crate) fn norm_ppf(p: f64) -> f64 {
     const P_HIGH: f64 = 1.0 - P_LOW;
 
     if p < P_LOW {
-        // 下側裾
+        // Lower tail
         let q = (-2.0 * p.ln()).sqrt();
         (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
             / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
     } else if p <= P_HIGH {
-        // 中央領域
+        // Central region
         let q = p - 0.5;
         let r = q * q;
         (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
             / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
     } else {
-        // 上側裾（下側裾の対称）
+        // Upper tail (symmetric to the lower tail)
         let q = (-2.0 * (1.0 - p).ln()).sqrt();
         -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
             / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
@@ -107,14 +108,14 @@ mod tests {
         assert!((ln_gamma(3.0) - 2.0_f64.ln()).abs() < 1e-12);
         assert!((ln_gamma(4.0) - 6.0_f64.ln()).abs() < 1e-12);
         assert!((ln_gamma(0.5) - std::f64::consts::PI.sqrt().ln()).abs() < 1e-12);
-        // Weibull 標準化で使う領域: Γ(1 + 1/k)。Γ(1.5) = √π/2。
+        // The region used by Weibull standardization: Γ(1 + 1/k). Γ(1.5) = √π/2.
         let expected = (std::f64::consts::PI.sqrt() / 2.0).ln();
         assert!((ln_gamma(1.5) - expected).abs() < 1e-12);
     }
 
     #[test]
     fn norm_ppf_matches_known_quantiles() {
-        // 標準的な z 値（scipy.stats.norm.ppf と照合した定数）
+        // Standard z-values (constants verified against scipy.stats.norm.ppf)
         let cases = [
             (0.5, 0.0),
             (0.841_344_746_068_542_9, 1.0),

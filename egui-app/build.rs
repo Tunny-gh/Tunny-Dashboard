@@ -77,16 +77,17 @@ fn generate_help_html_files() {
     }
 }
 
-/// 依存クレートのライセンス情報を `cargo metadata` から収集し、
-/// `OUT_DIR/licenses.rs` に `pub static LICENSES: &[LicenseEntry]` として生成する。
+/// Collects license information for dependency crates from `cargo metadata` and
+/// generates it into `OUT_DIR/licenses.rs` as `pub static LICENSES: &[LicenseEntry]`.
 ///
-/// 生成物は `src/licenses.rs` から `include!` で取り込む。収集に失敗しても
-/// ビルドは止めず、空配列を書き出してアプリがコンパイルできるようにする。
+/// The generated file is pulled in via `include!` from `src/licenses.rs`. Even if
+/// collection fails, the build is not aborted; an empty array is written out so the
+/// app still compiles.
 fn generate_license_data() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
-    // 依存関係が変わったら再生成する。
+    // Regenerate whenever dependencies change.
     println!("cargo:rerun-if-changed=Cargo.toml");
     let lock = manifest_dir
         .parent()
@@ -105,8 +106,9 @@ fn generate_license_data() {
         .unwrap_or_else(|e| panic!("failed to write {}: {e}", out_path.display()));
 }
 
-/// `cargo metadata` を実行し、配布バイナリに含まれる外部クレートのライセンス
-/// エントリを Rust 配列リテラルの本体（各行 `LicenseEntry { ... },`）として返す。
+/// Runs `cargo metadata` and returns the license entries for external crates included
+/// in the shipped binary, as the body of a Rust array literal (each line
+/// `LicenseEntry { ... },`).
 fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
     use cargo_metadata::{DependencyKind, MetadataCommand};
     use std::collections::{BTreeMap, HashSet, VecDeque};
@@ -116,7 +118,7 @@ fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
         .exec()
         .map_err(|e| e.to_string())?;
 
-    // パッケージ id → Package の索引。
+    // Index from package id -> Package.
     let pkg_by_id: BTreeMap<_, _> = metadata
         .packages
         .iter()
@@ -129,7 +131,7 @@ fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
         .ok_or_else(|| "no resolve graph in metadata".to_string())?;
     let node_by_id: BTreeMap<_, _> = resolve.nodes.iter().map(|n| (n.id.clone(), n)).collect();
 
-    // ルート（このクレート）を名前で特定する。ワークスペースでは resolve.root が None になりうる。
+    // Identify the root (this crate) by name. In a workspace, resolve.root can be None.
     let root_id = metadata
         .packages
         .iter()
@@ -137,8 +139,9 @@ fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
         .map(|p| p.id.clone())
         .ok_or_else(|| "tunny-desktop package not found".to_string())?;
 
-    // ルートから Normal / Build 依存のみを辿り、配布物に含まれる閉包を求める
-    // （dev-dependencies は実行バイナリに入らないので除外）。
+    // Walk only Normal / Build dependencies from the root to compute the closure
+    // included in the distributed artifact (dev-dependencies are excluded since they
+    // don't end up in the executable binary).
     let mut reachable: HashSet<_> = HashSet::new();
     let mut queue: VecDeque<_> = VecDeque::new();
     queue.push_back(root_id.clone());
@@ -158,8 +161,8 @@ fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
         }
     }
 
-    // ローカル/ワークスペースのクレート（source = None）は対象外。
-    // 名前順に整列して安定した出力にする。
+    // Local/workspace crates (source = None) are excluded.
+    // Sort by name for stable output.
     let mut entries: Vec<&cargo_metadata::Package> = reachable
         .iter()
         .filter_map(|id| pkg_by_id.get(id).copied())
@@ -187,8 +190,9 @@ fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
     Ok(body)
 }
 
-/// クレートディレクトリ直下の LICENSE / COPYING / NOTICE 等を読み、全文を連結して返す。
-/// 複数ファイルはファイル名見出しを付けて区切る。
+/// Reads LICENSE / COPYING / NOTICE etc. directly under the crate directory and
+/// returns their concatenated full text. Multiple files are separated with a
+/// filename heading.
 fn read_license_text(crate_dir: &Path) -> String {
     let mut files: Vec<PathBuf> = match fs::read_dir(crate_dir) {
         Ok(rd) => rd
@@ -203,7 +207,7 @@ fn read_license_text(crate_dir: &Path) -> String {
     let mut out = String::new();
     for f in files {
         let Ok(text) = fs::read_to_string(&f) else {
-            continue; // バイナリ等は読み飛ばす
+            continue; // skip binary files, etc.
         };
         let name = f
             .file_name()
@@ -218,7 +222,8 @@ fn read_license_text(crate_dir: &Path) -> String {
     out
 }
 
-/// ライセンス全文を含むと推定されるファイル名か判定する（大文字小文字無視）。
+/// Determines whether a file name is likely to contain full license text
+/// (case-insensitive).
 fn is_license_file_name(path: &Path) -> bool {
     let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_uppercase()) else {
         return false;

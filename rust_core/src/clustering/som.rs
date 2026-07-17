@@ -1,20 +1,22 @@
-//! 自己組織化マップ（SOM、バッチ学習）。
+//! Self-Organizing Map (SOM, batch learning).
 //!
-//! 標準化した特徴空間で矩形グリッドのバッチ SOM を学習し、U-matrix・
-//! ヒットカウント・成分プレーン（元単位）を提供する。初期化は PCA の
-//! 第 1・第 2 主成分平面に沿った決定論的な線形初期化で、シードに依存しない
-//! 再現可能な地図を得る。理論的背景は theory/{en,ja}/clustering/som.md。
+//! Trains a batch SOM on a rectangular grid over the standardized feature
+//! space, providing the U-matrix, hit counts, and component planes (in
+//! original units). Initialization is a deterministic linear initialization
+//! along the first and second PCA principal-component planes, giving a
+//! reproducible map independent of any seed. See theory/{en,ja}/clustering/som.md
+//! for the theoretical background.
 
 use super::pca::run_pca_on_matrix_opts;
 
-/// SOM の学習仕様。
+/// Training spec for the SOM.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SomSpec {
-    /// グリッド幅（ノード列数）。
+    /// Grid width (number of node columns).
     pub grid_w: usize,
-    /// グリッド高さ（ノード行数）。
+    /// Grid height (number of node rows).
     pub grid_h: usize,
-    /// バッチエポック数。
+    /// Number of batch epochs.
     pub n_epochs: usize,
 }
 
@@ -28,27 +30,30 @@ impl Default for SomSpec {
     }
 }
 
-/// SOM の学習結果。ノードは行優先（node = y * grid_w + x）で格納する。
+/// Training result of the SOM. Nodes are stored in row-major order
+/// (node = y * grid_w + x).
 #[derive(Debug, Clone)]
 pub struct SomResult {
     pub grid_w: usize,
     pub grid_h: usize,
-    /// ノード重み（標準化空間）。`weights[node][feature]`。
+    /// Node weights (standardized space). `weights[node][feature]`.
     pub weights: Vec<Vec<f64>>,
-    /// U-matrix: 各ノードの隣接ノード（上下左右）との平均距離（標準化空間）。
+    /// U-matrix: average distance of each node to its neighboring nodes
+    /// (up/down/left/right), in standardized space.
     pub u_matrix: Vec<f64>,
-    /// 各ノードが BMU になった行数。
+    /// Number of rows for which each node became the BMU.
     pub hits: Vec<usize>,
-    /// 各データ行の BMU ノードインデックス。
+    /// BMU node index for each data row.
     pub bmu: Vec<usize>,
-    /// 標準化に使った列平均（成分プレーンの逆変換用）。
+    /// Column means used for standardization (for inverse-transforming component planes).
     pub feature_means: Vec<f64>,
-    /// 標準化に使った列標準偏差（分散ゼロ列は 0）。
+    /// Column standard deviations used for standardization (0 for zero-variance columns).
     pub feature_stds: Vec<f64>,
 }
 
 impl SomResult {
-    /// 特徴 j の成分プレーンを元単位で返す（`weights` の逆標準化）。
+    /// Returns the component plane for feature `j` in original units
+    /// (inverse-standardizes `weights`).
     pub fn component_plane(&self, feature: usize) -> Vec<f64> {
         self.weights
             .iter()
@@ -57,17 +62,22 @@ impl SomResult {
     }
 }
 
-/// バッチ学習のエポック内で使う最大行数。超える場合は等間隔サブサンプルした
-/// 行のみで重みを更新する（hierarchical の行数キャップと同じ慣行・決定論的）。
-/// BMU・ヒット・U-matrix は全行に対して計算するため出力の形は変わらない。
+/// Maximum number of rows used within a batch-learning epoch. When exceeded,
+/// weights are updated using only an evenly-spaced subsample of rows (the
+/// same convention as the hierarchical clustering row cap, deterministic).
+/// BMU, hits, and U-matrix are still computed over all rows, so the output
+/// shape is unaffected.
 pub const MAX_SOM_TRAINING_ROWS: usize = 800;
 
-/// バッチ SOM を学習する。行数 3 未満・特徴 0・グリッド 2x2 未満は `None`。
+/// Trains a batch SOM. Returns `None` if there are fewer than 3 rows, 0
+/// features, or the grid is smaller than 2x2.
 ///
-/// データは内部で標準化される（分散ゼロ列は 0 に写像され地図に寄与しない）。
-/// 近傍幅 σ はエポックに沿って `max(grid_w, grid_h)/2` から 0.5 へ指数減衰する。
-/// 行数が [`MAX_SOM_TRAINING_ROWS`] を超える場合、エポック内の重み更新のみ
-/// 等間隔サブサンプルで行う（結果は行数によらず決定論的）。
+/// Data is standardized internally (zero-variance columns map to 0 and do
+/// not contribute to the map). The neighborhood width σ decays
+/// exponentially from `max(grid_w, grid_h)/2` to 0.5 over the epochs. When
+/// the row count exceeds [`MAX_SOM_TRAINING_ROWS`], only the weight update
+/// within each epoch uses an evenly-spaced subsample (the result remains
+/// deterministic regardless of row count).
 pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
     let n = data.len();
     if n < 3 || data[0].is_empty() || spec.grid_w < 2 || spec.grid_h < 2 || spec.n_epochs == 0 {
@@ -76,13 +86,14 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
     let p = data[0].len();
     let n_nodes = spec.grid_w * spec.grid_h;
 
-    // ── 標準化（clustering 共通ヘルパ、母分散 n）─────────────────
+    // ── Standardization (shared clustering helper, population variance n) ──
     let mut x: Vec<Vec<f64>> = data.to_vec();
     let (means, stds) = super::standardize::standardize_columns(&mut x, 0);
 
-    // ── PCA 平面に沿った決定論的線形初期化 ──────────────────────
-    // 標準化済みデータの上位 2 主成分方向に ±2√λ の範囲でグリッドを張る。
-    // 成分が縮退している場合は 0 ベクトル初期化（バッチ更新で即座に動く）。
+    // ── Deterministic linear initialization along the PCA plane ────────────
+    // Lays out the grid over ±2√λ along the top-2 principal-component
+    // directions of the standardized data. If a component is degenerate,
+    // falls back to zero-vector initialization (batch updates move it right away).
     let pca = run_pca_on_matrix_opts(&x, 2, false);
     let axis = |comp: usize| -> (Vec<f64>, f64) {
         let dir = pca
@@ -139,8 +150,8 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         best
     };
 
-    // ── 学習行のサブサンプル（等間隔・決定論的）──────────────────
-    // 行数キャップ以下なら全行（従来と同一の挙動）。
+    // ── Subsample of training rows (evenly-spaced, deterministic) ──────────
+    // Uses all rows if within the row cap (same behavior as before).
     let train_indices: Vec<usize> = if n > MAX_SOM_TRAINING_ROWS {
         let step = n as f64 / MAX_SOM_TRAINING_ROWS as f64;
         (0..MAX_SOM_TRAINING_ROWS)
@@ -150,7 +161,7 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         (0..n).collect()
     };
 
-    // ── バッチ学習 ──────────────────────────────────────────────
+    // ── Batch learning ──────────────────────────────────────────────────
     let sigma0 = (spec.grid_w.max(spec.grid_h)) as f64 / 2.0;
     let sigma_end = 0.5f64;
     for epoch in 0..spec.n_epochs {
@@ -158,7 +169,7 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         let sigma = sigma0 * (sigma_end / sigma0).powf(t);
         let two_sigma2 = 2.0 * sigma * sigma;
 
-        // 各行の BMU を確定し、近傍カーネルで重み付き平均を取る。
+        // Determine the BMU for each row and take a weighted average using the neighborhood kernel.
         let mut num = vec![vec![0.0f64; p]; n_nodes];
         let mut den = vec![0.0f64; n_nodes];
         for row in train_indices.iter().map(|&ri| &x[ri]) {
@@ -186,7 +197,7 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         }
     }
 
-    // ── BMU・ヒット・U-matrix ────────────────────────────────────
+    // ── BMU, hits, U-matrix ──────────────────────────────────────────────
     let bmu: Vec<usize> = x.iter().map(|row| find_bmu(&weights, row)).collect();
     let mut hits = vec![0usize; n_nodes];
     for &b in &bmu {
@@ -250,7 +261,7 @@ mod tests {
 
     #[test]
     fn deterministic_without_seed() {
-        // PCA 初期化 + バッチ更新は完全に決定論的。
+        // PCA initialization + batch updates are fully deterministic.
         let a = train_som(&blobs(), &SomSpec::default()).unwrap();
         let b = train_som(&blobs(), &SomSpec::default()).unwrap();
         assert_eq!(a.bmu, b.bmu);
@@ -260,7 +271,7 @@ mod tests {
     #[test]
     fn separated_blobs_map_to_different_nodes() {
         let r = train_som(&blobs(), &SomSpec::default()).unwrap();
-        // 2 つの塊の BMU 集合が交わらない（結線確認、地図品質は問わない）。
+        // The BMU sets of the two clusters do not overlap (wiring check only; map quality is not assessed).
         let set_a: std::collections::HashSet<usize> = r.bmu.iter().step_by(2).copied().collect();
         let set_b: std::collections::HashSet<usize> =
             r.bmu.iter().skip(1).step_by(2).copied().collect();
@@ -271,14 +282,14 @@ mod tests {
     fn component_plane_is_in_original_units() {
         let r = train_som(&blobs(), &SomSpec::default()).unwrap();
         let plane = r.component_plane(0);
-        // 元単位: x0 は 0 付近と 10 付近の 2 群 → プレーンの範囲がそのスケールに乗る。
+        // Original units: x0 has two groups near 0 and near 10 → the plane's range should reach that scale.
         let max = plane.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         assert!(max > 1.0, "destandardized plane should reach data scale");
     }
 
     #[test]
     fn caps_training_rows_but_outputs_full_shapes() {
-        // 学習キャップを超えても BMU/ヒットは全行分返り、決定性が保たれる。
+        // Even beyond the training cap, BMU/hits are returned for all rows and determinism is preserved.
         let n = MAX_SOM_TRAINING_ROWS + 50;
         let data: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 7) as f64]).collect();
         let spec = SomSpec {

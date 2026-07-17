@@ -1,138 +1,321 @@
-# Tunny Dashboard 差別化ロードマップ
+# Tunny Dashboard Differentiation Roadmap
 
-商用 PIDO ツール（modeFRONTIER / Simcenter HEEDS / Isight / Optimus）との機能比較
-（2026-07 実施）に基づく、本ツールが優位に立つための特徴づけと実装ロードマップ。
+A feature-positioning and implementation roadmap for establishing this tool's edge, based
+on a feature comparison against commercial PIDO tools (modeFRONTIER / Simcenter HEEDS /
+Isight / Optimus) conducted in 2026-07.
 
-## 戦略の軸
+## Strategic Axis
 
-**「PIDO の縮小版」ではなく「Optuna エコシステムの決定支援層」を目指す。**
+**Aim to be the "decision-support layer for the Optuna ecosystem," not a "scaled-down PIDO."**
 
-商用ツールの中核価値であるプロセス統合（ソルバー連携・ワークフロー定義・ジョブ実行）
-の土俵では戦わない。この領域は Optuna 自体が担う。逆に商用ツールは Optuna の結果を
-読めないため、「Optuna で最適化する全ユーザーにとっての、唯一の本格的な分析・意思決定
-ツール」というポジションが最も守りやすい。
+Don't compete on the commercial tools' core value proposition — process integration
+(solver connectivity, workflow definition, job execution). That territory belongs to
+Optuna itself. Conversely, since commercial tools cannot read Optuna's results, the most
+defensible position is to become "the only serious analysis and decision-support tool for
+every user who optimizes with Optuna."
 
-## 現時点で商用ツールに対して優位な資産
+> **2026-07 update**: The goal above (the analysis/decision-support layer) has been
+> achieved. For the next strategic axis, see
+> "[Phase 2: Extending into the Execution Loop](#phase-2-extending-into-the-execution-loop-2026-07-policy-decision)".
+> We are expanding into execution, but the scope of that expansion is deliberately limited.
 
-| 資産 | 商用ツールとの比較 |
+## Assets Where We Currently Lead Commercial Tools
+
+| Asset | Comparison with commercial tools |
 |---|---|
-| MCDM 形式手法（TOPSIS / VIKOR / PROMETHEE I・II / エントロピー重み） | modeFRONTIER の MCDM ツールが最接近だが手法網羅性は本ツールが上回る |
-| 多目的収束指標の履歴（Hypervolume / IGD+ / ε / R2） | 商用 4 ツールのいずれも公開機能として非搭載 |
-| 感度解析の手法幅（Spearman / Ridge / RF-ANOVA / MDI / SHAP / Permutation / Sobol / ARD） | SHAP は商用非搭載（法的障壁はなく製品文化の問題。先行維持が可能） |
-| アルゴリズムの透明性（バイリンガル理論ドキュメント + Python 相互検証） | 商用はブラックボックスと批判されがちな領域 |
-| Rust + wgpu のネイティブ性能 | 商用の Java/Qt 系 UI に対し大規模 trial で優位に立てる素地 |
+| Formal MCDM methods (TOPSIS / VIKOR / PROMETHEE I & II / entropy weighting) | modeFRONTIER's MCDM tools come closest, but this tool covers a broader range of methods |
+| History of multi-objective convergence metrics (Hypervolume / IGD+ / ε / R2) | None of the four commercial tools offer this as a public feature |
+| Breadth of sensitivity analysis methods (Spearman / Ridge / RF-ANOVA / MDI / SHAP / Permutation / Sobol / ARD) | SHAP is absent from commercial tools (no legal barrier — it's a product-culture issue, so we can maintain our lead) |
+| Algorithm transparency (bilingual theory documentation + Python cross-validation) | An area where commercial tools are often criticized as black boxes |
+| Native performance from Rust + wgpu | A basis for outperforming commercial Java/Qt-based UIs on large-scale trials |
 
-これらは「守り、伸ばす」対象。README 等での訴求も実装に追随させること。
+These are assets to defend and grow. Messaging in the README, etc. should keep pace with
+implementation.
 
-## 短期（強みの取りこぼし解消・低コスト高効果）
+## Short Term (closing strength gaps, low cost / high impact)
 
-### 1. Optuna 完全対応の完成
+### 1. Complete Optuna Compatibility
 
-「optuna-dashboard の完全上位互換」と言い切れる状態を作る。
+Reach a state where we can confidently claim to be "a complete superset of
+optuna-dashboard."
 
-- [x] 中間値（intermediate values）の取り込み（journal `SET_TRIAL_INTERMEDIATE_VALUE`
-      / SQLite `trial_intermediate_values`）
-- [x] 学習曲線・枝刈り分析プロット（PRUNED trial を含む中間値の可視化 =
-      Intermediate Values ウィジェット）
-- [x] EDF プロット
-- [x] Timeline プロット（全 trial 状態 × datetime_start/complete）
-- [x] Rank プロット
-- [x] SQLite ストレージのライブ更新（フィンガープリントポーリング + 単一 study
-      再ロード方式）
+- [x] Ingestion of intermediate values (journal `SET_TRIAL_INTERMEDIATE_VALUE`
+      / SQLite `trial_intermediate_values`)
+- [x] Learning curve / pruning analysis plots (visualization of intermediate values
+      including PRUNED trials = the Intermediate Values widget)
+- [x] EDF plot
+- [x] Timeline plot (all trial states × datetime_start/complete)
+- [x] Rank plot
+- [x] Live updates for SQLite storage (fingerprint polling + single-study
+      reload approach)
 
-### 2. 自己完結型 HTML レポート出力 ✅
+### 2. Self-Contained HTML Report Export ✅
 
-全ウィジェットのスナップショット + 統計 + MCDM ランキングを 1 つの HTML に書き出す。
-VOLTA / HEEDS Connect のようなサーバー不要の「メールで送れる共有」という軽量な対抗軸。
+Export snapshots of all widgets, statistics, and the MCDM ranking into a single HTML
+file — a lightweight, server-free counter to VOLTA / HEEDS Connect, offering
+"shareable by email" as the value proposition.
 
-- [x] 構造化レポートモデル + ビルダー + Key Findings（レンダラ非依存）
-- [x] Markdown / HTML / JSON レンダラ（自己完結 HTML、ライト/ダーク、日英対応）
-- [x] SVG チャートプリミティブ（散布図・折れ線・棒・ヒストグラム・ヒートマップ）
-- [x] egui-app エクスポート UI（形式・言語・Top-N 選択モーダル）
-- [x] 実データ品質レビュー（SQLite / PostgreSQL、多目的制約付き・枝刈り・不完全 study）
+- [x] Structured report model + builder + Key Findings (renderer-agnostic)
+- [x] Markdown / HTML / JSON renderers (self-contained HTML, light/dark, Japanese/English
+      support)
+- [x] SVG chart primitives (scatter, line, bar, histogram, heatmap)
+- [x] egui-app export UI (modal for selecting format, language, and Top-N)
+- [x] Quality review against real data (SQLite / PostgreSQL; multi-objective,
+      constrained, pruned, and incomplete studies)
 
-- [x] パレート前面の制約対応（feasible trial のみで前面を計算。feasible 解
-      ゼロの場合のみ目的空間非劣解へフォールバックし注記で明示。極値表の
-      制約違反 trial にもマーク付与）
-- [x] 前面内の同一目的値 trial の重複マーク（「(= #N)」併記 + 凡例）
+- [x] Constraint handling for the Pareto front (the front is computed from feasible
+      trials only; falls back to non-dominated solutions in objective space, with an
+      explicit note, only when there are zero feasible solutions; constraint-violating
+      trials are also flagged in the extreme-value table)
+- [x] Marking of trials on the front that share identical objective values
+      ("(= #N)" annotation + legend)
 
-### 3. UI 磨き込み
+### 3. UI Polish
 
-- [x] ダークモード（ツールバートグル + テーマ追従色関数 + セッション保存）
-- UI 本体の日本語化（現状はヘルプ/理論ドキュメントのみバイリンガル）。
-  国内 CAE ユーザー層に対して商用が弱い部分 — 保留（ユーザー判断）
-- [x] README の機能リスト更新（全33ウィジェット・ストレージ対応・レポート出力等を反映）
+- [x] Dark mode (toolbar toggle + theme-aware color functions + session persistence)
+- Japanese localization of the main UI (currently only help/theory documentation is
+  bilingual). An area where commercial tools are weak with the domestic CAE user
+  base — on hold (pending user decision)
+- [x] Updated README feature list (reflecting all 33 widgets, storage support, report
+      export, etc.)
 
-## 中期（分析機能でのキャッチアップと逆転）
+## Mid Term (catching up and overtaking on analysis features)
 
-### 4. 候補提案 → Optuna への書き戻し
+### 4. Candidate Suggestions → Write-Back to Optuna
 
-既存の EHVI / 獲得関数による候補提案を、journal ファイル追記または `enqueue_trial`
-互換のエクスポートで Optuna に戻せるようにする。「分析 → 次の実験の示唆 → 実行」の
-ループが閉じ、商用の「what-if → 再実行」に相当する価値を実行機能を持たずに実現する。
+Enable candidates suggested by the existing EHVI / acquisition functions to be written
+back to Optuna, either by appending to the journal file or via an
+`enqueue_trial`-compatible export. This closes the "analyze → suggest next experiment →
+run" loop, delivering value equivalent to the commercial "what-if → re-run" cycle
+without needing execution capability of our own.
 
-### 5. ロバスト性解析の格上げ ✅
+### 5. Upgrading Robustness Analysis ✅
 
-既存の MC ノイズ伝播に σ レベル / 成功確率の定量表示と分布指定（Weibull 等）を追加。
-FORM/SORM までは不要でも「6σ 相当の判定ができる」と言えるだけで Isight 代替の検討
-土俵に乗れる。
+Add quantitative display of σ-level / success probability, plus distribution selection
+(Weibull, etc.), to the existing Monte Carlo noise propagation. Even without going as
+far as FORM/SORM, being able to claim "capable of a 6σ-equivalent judgment" is enough
+to enter consideration as an Isight alternative.
 
-- [x] 入力ノイズ分布の指定（Normal / Uniform / Weibull(k)、平均0・分散1標準化で
-      1σ スケールを統一）
-- [x] 仕様限界（LSL/USL）に対する成功確率・σ レベル（経験確率クランプ付き
-      Φ⁻¹）・Cpk の定量表示（色分き判定: σ≥4 / ≥2 / 未満）
-- [x] ヒストグラムへの限界線描画・ウィジェット UI（分布コンボ・限界入力）
+- [x] Input noise distribution selection (Normal / Uniform / Weibull(k), standardized
+      to mean 0 / variance 1 to unify the 1σ scale)
+- [x] Quantitative display of success probability, σ-level (Φ⁻¹ with
+      empirical-probability clamping), and Cpk relative to specification limits
+      (LSL/USL), with color-coded judgment (σ≥4 / ≥2 / below)
+- [x] Limit-line rendering on histograms and widget UI (distribution combo box, limit
+      input fields)
 
-### 6. サロゲート比較ビュー ✅
+### 6. Surrogate Comparison View ✅
 
-複数モデルの CV 精度・予測面のオーバーレイ比較（HEEDS 2504 の Compare Surrogates
-相当）。バックエンド（Auto 選択 / CV-R²）は既にあるので UI 追加が主。
+Overlay comparison of CV accuracy and prediction surfaces across multiple models
+(equivalent to HEEDS 2504's Compare Surrogates). The backend (Auto selection / CV-R²)
+already exists, so this is mainly a UI addition.
 
-- [x] 新ウィジェット「Compare Surrogates」: 全モデル一括フィット + CV R² /
-      Holdout / Train 指標テーブル（最良マーク）+ Best trial を通る 1D 予測
-      スライスのモデル別オーバーレイ（GP-MoE はオプション）
+- [x] New "Compare Surrogates" widget: batch fitting of all models + a CV R² /
+      Holdout / Train metrics table (with best-value marking) + per-model overlay of a
+      1D prediction slice through the best trial (GP-MoE optional)
 
-### 7. ストレージ対応拡大 ✅
+### 7. Expanded Storage Support ✅
 
-PostgreSQL / MySQL の Optuna RDB バックエンド対応。チームでの分散最適化は RDB
-バックエンドが標準的なため、実用上の優先度が高い。
+Support for Optuna's PostgreSQL / MySQL RDB backends. Since RDB backends are the
+standard choice for team-based distributed optimization, this has high practical
+priority.
 
-- [x] クエリロジックのバックエンド抽象化（OptunaBackend trait、SQLite と共有）
-- [x] PostgreSQL / MySQL リーダー（接続 URL 指定、SQLAlchemy 形式も受理）
-- [x] UI: ツールバー「Open URL…」ダイアログ、タイトルバーのパスワードマスク
-- [x] ライブ更新（フィンガープリントポーリング、SQLite と共通ループ）
-- 未対応: TLS 接続、artifacts の RDB 読み出し
+- [x] Backend abstraction for query logic (the `OptunaBackend` trait, shared with
+      SQLite)
+- [x] PostgreSQL / MySQL readers (connection URL specification; SQLAlchemy-style URLs
+      also accepted)
+- [x] UI: toolbar "Open URL…" dialog, password masking in the title bar
+- [x] Live updates (fingerprint polling, sharing the same loop as SQLite)
+- Not yet supported: TLS connections, reading artifacts from the RDB
 
-## 長期（時流に乗った独自性）
+## Long Term (differentiation aligned with industry trends)
 
-### 8. LLM / MCP 連携 ✅
+### 8. LLM / MCP Integration ✅
 
-Optimus が 2024 年に LLM ポストプロセッシングを製品化したのが業界の方向性。
-`tunny-core` がヘッドレスである構造的優位を活かし、MCP サーバーとして公開して
-「エージェントから自然言語で分析を依頼できる最適化分析ツール」にする。
+Optimus productizing LLM post-processing in 2024 signals the industry direction.
+Leverage the structural advantage of `tunny-core` being headless by exposing it as an
+MCP server, becoming "an optimization analysis tool that agents can query in natural
+language."
 
-- [x] `tunny-mcp` バイナリ（stdio JSON-RPC、MCP tools 実装、依存は serde のみ）
-- [x] ツール: `list_studies` / `study_summary` / `study_report`（LLM向けMarkdown
-      / 構造化JSON、日英） / `trials`（ページネーション付き生データ）
-- [x] 全ストレージ対応（journal / SQLite / PostgreSQL / MySQL、パスワードマスク）
-- [x] プロトコル・ツールのユニットテスト + バイナリ起動の統合テスト、実DB E2E 検証
-- 将来拡張候補: importance / MCDM の単独ツール化、resources 対応（レポートHTML配信）
+- [x] `tunny-mcp` binary (stdio JSON-RPC, MCP tools implementation, with `serde` as
+      its only dependency)
+- [x] Tools: `list_studies` / `study_summary` / `study_report` (LLM-oriented Markdown
+      / structured JSON, Japanese/English) / `trials` (paginated raw data)
+- [x] Support for all storage backends (journal / SQLite / PostgreSQL / MySQL, with
+      password masking)
+- [x] Unit tests for the protocol and tools + integration tests for binary startup,
+      plus end-to-end verification against real databases
+- Candidates for future expansion: turning importance / MCDM into standalone tools,
+  `resources` support (serving report HTML)
 
-### 9. 性能ベンチマークの公表
+### 9. Publishing Performance Benchmarks
 
-10 万〜100 万 trial の読み込み・描画時間を optuna-dashboard 等と比較公表し、
-「大規模スタディで唯一実用的なツール」を定量的に主張する。
+Publish load and rendering time comparisons against optuna-dashboard and others for
+studies of 100K to 1M trials, making a quantitative case for being "the only practical
+tool for large-scale studies."
 
-### 10. 透明性のブランド化
+### 10. Branding Transparency
 
-理論ドキュメント + Python 相互検証を「すべてのアルゴリズムが検証可能・引用可能」
-という形で前面に出す。規制産業（航空・医療機器）や学術用途で商用ブラックボックスに
-対する明確な差別化になる。
+Foreground the theory documentation and Python cross-validation as proof that "every
+algorithm is verifiable and citable." This is a clear differentiator against
+commercial black boxes for regulated industries (aerospace, medical devices) and
+academic use.
 
-## 優先度
+## Priorities (Phase 1)
 
-- 機能不足を埋める観点の最優先: **短期 1（Optuna 完全対応）→ 中期 7（PostgreSQL）→
-  短期 2（HTML レポート）**
-- 差別化観点の最優先: **長期 8（MCP/LLM 連携）と、MCDM + 収束指標を軸にした
-  「意思決定ダッシュボード」としての打ち出し**
-- 信頼性解析（FORM/SORM 等）・多忠実度サロゲートは上記完了後に投資判断する
+- Top priority for closing feature gaps: **Short Term 1 (complete Optuna
+  compatibility) → Mid Term 7 (PostgreSQL) → Short Term 2 (HTML report)**
+- Top priority for differentiation: **Long Term 8 (MCP/LLM integration), and
+  positioning as a "decision-support dashboard" built around MCDM + convergence
+  metrics**
+- Investment decisions on reliability analysis (FORM/SORM, etc.) and multi-fidelity
+  surrogates will be made after the above is complete
+
+---
+
+# Phase 2: Extending into the Execution Loop (2026-07 Policy Decision)
+
+The Phase 1 goal (the analysis/decision-support layer) has been achieved. In the next
+phase, we close the "analyze → suggest candidates → execute → re-analyze" loop and
+claim a position no commercial PIDO holds: **"an Optuna dashboard that can execute."**
+
+## Scoping Principles
+
+Commercial PIDO's "process integration / execution" capability is made up of three
+layers with distinct characteristics; we will expand into only Layers 1 and 2.
+
+| Layer | Content | Policy |
+|---|---|---|
+| 1. Execution management layer | Runner, parallel workers, retries, monitoring | **In scope** (the primary target) |
+| 2. Generic process integration layer | Dakota-style file interface | **In scope** (to guarantee generality) |
+| 3. Vendor-specific integration | Official per-solver adapters, workflow graph editor | **Out of scope** (except as noted below) |
+
+- Reason for avoiding Layer 3: it requires ongoing maintenance to track each solver
+  version upgrade, plus licenses for verification testing — unsustainable for a small
+  team. Users who need a graph editor are already on commercial tools, and price would
+  be the only reason for them to switch
+- **The sole exception is Grasshopper (Tunny)**. Commercial PIDO is weak here, and it
+  connects directly to our existing user base, so we treat it as a first-class solver
+  integration
+- For the generic side, we follow the "template substitution → execution → output
+  extraction" approach that Dakota (Sandia) has proven out over more than 20 years. It
+  allows integration with any solver without requiring vendor-specific knowledge
+
+## Core Work (Phase 2A: Write-Back — the human drives the loop)
+
+### 11. Candidate Suggestions → Write-Back to Optuna (formerly Mid Term 4)
+
+Enable candidates suggested by the existing EHVI / acquisition functions to be written
+back to Optuna.
+
+- [ ] Journal file appending (using file locking compatible with Optuna's
+      `JournalFileOpenLock`)
+- [ ] For RDB targets, limit this to an `enqueue_trial`-compatible export (JSON /
+      Python snippet). Direct INSERTs into the RDB would tightly couple us to the
+      Optuna schema, so that decision is deferred to Phase 2B
+
+### 12. Storage Write Layer and Safety Design
+
+Foundational work to avoid undermining our credibility as an analysis tool.
+
+- [x] Write API for creating studies and adding trials (journal support first) —
+      `io::journal::writer`. Format compatibility is guaranteed via round-trip tests
+      against the existing parser
+- [ ] Explicit read-only mode, a confirmation UI before writes, and an Optuna version
+      compatibility check
+
+## Core Work (Phase 2B: Runner — the tool drives the loop)
+
+### 13. Lightweight Runner
+
+The framing: "Optuna is the workflow engine; Dashboard is the cockpit."
+
+- [ ] UI for study creation + sampler configuration
+- [ ] Register the objective function as "a command + a parameter-passing convention
+      (environment variables / JSON / CLI arguments)" and evaluate it in a subprocess
+- [ ] Management of parallel worker count, timeouts, and failure retries
+- [ ] Monitoring UI during execution (reusing the existing live-update polling)
+
+### 14. Dakota-Style Generic Process Integration
+
+- [ ] A pipeline of input template substitution (parameter embedding) → solver
+      execution → output extraction (regex / JSON / CSV)
+- [ ] Persist the integration definition as TOML/JSON, editable via the GUI
+- [ ] A sequential hook chain of pre-command → evaluation → post-command
+      (no graph editor will be built; revisit once demand is proven)
+
+### 15. First-Class Grasshopper (Tunny) Integration
+
+**Ideal form (the core goal of Phase 2B)**: dragging and dropping a .gh file that runs
+an optimization via Tunny onto Dashboard lets Dashboard run that optimization directly
+using Rhino.Compute.
+
+**Approach (decided 2026-07)**: the MVP is built by **parsing .ghx (XML) directly**.
+Since .ghx is the XML serialization of GH_Archive, Dashboard can extract variable
+sliders (name, range, precision), wire connections (the Variables / Objectives inputs
+of the Tunny component), and Tunny's settings entirely on its own, **with no
+dependency on a Tunny release**. Injection of RH_IN / RH_OUT groups is likewise
+performed by Dashboard directly against the ghx (XML). The original proposal —
+"embedding a problem-definition manifest into the .gh file" (a feature addition on the
+Tunny side) — is demoted to a later stage, kept in reserve as a fallback for
+supporting D&D of plain .gh files and for future changes to the GH_Archive format.
+
+- [x] ghx parser + problem-definition extraction (Dashboard side): GH_Archive XML →
+      an intermediate representation `GhProblem` of variables, objectives, and
+      connections. Tunny component detection (`gh::problem`)
+- [x] Generation of Compute-ready definitions (Dashboard side): attaching RH_IN
+      groups to variable sliders and injecting RH_OUT parameters into objective
+      wires, performed directly on the ghx XML (`gh::compute_def`)
+- [x] Rhino.Compute client: an HTTP client that feeds variable values to a local
+      rhino.compute instance (no extra cost with a Rhino license), solves, and
+      extracts objective values. Parallel workers = concurrent requests (concurrency
+      is capped with a semaphore, `gh::compute`)
+- [x] D&D UI: drop a .ghx file → review the problem definition and configure the
+      sampler → create a study (journal, using the Item 11/12 write layer) → launch
+      the runner → monitor via the existing live-update mechanism. Because trials
+      land in Optuna-compatible storage, every analysis feature works unmodified
+- [x] Samplers: launch by repurposing the existing Rust implementations (Random /
+      NSGA-II) for real objective-function evaluation (`gh::runner`). Adding CMA-ES /
+      TPE, etc. will be decided based on demand
+- [ ] Later stage: the problem-definition manifest (.gh support and format fallback,
+      on the Tunny side), and end-to-end verification against a real Rhino.Compute
+      instance (confirming type GUIDs and other environment specifics)
+- [x] Launching and port management for the rhino.compute process: resolved by
+      supporting both modes. Given a URL, it connects to an already-running server;
+      given an EXE path, Dashboard launches it with `--port`, waits for the health
+      check, and stops it when the run finishes (`gh::compute_server`)
+- [ ] Open question: reconciling Compute's Windows-only assumption with Dashboard's
+      cross-platform nature, and coordination with the Tunny side via shared storage
+      (the reverse-direction integration where Tunny consumes trials enqueued by
+      Dashboard)
+
+## Core Work (Phase 2C: Automation and Agentification)
+
+### 16. Automating the Adaptive Loop
+
+- [ ] An automatic loop of surrogate suggestion → enqueue → evaluation → refitting
+      (equivalent to commercial adaptive sampling)
+
+### 17. Write-Capable Tools for tunny-mcp
+
+Enable LLM agents to drive the optimization loop itself — a differentiator none of the
+four commercial tools have, extending the direction set out in Long Term 8.
+
+- [ ] Write tools such as `create_study` / `enqueue_candidates`
+- [ ] Opt-in design for write permissions (read-only by default)
+
+## Prerequisites (to be in place by Phase 2B)
+
+- [ ] TLS connections for the RDB (required, since the execution system assumes
+      team-based operation)
+- [ ] Reading artifacts from the RDB
+
+## Priorities (Phase 2)
+
+- Proceed in the order **2A (Items 11-12) → 2B (Items 13-15) → 2C (Items 16-17)**.
+  Even 2A alone delivers value, since "analyze → write back → continue on the Optuna
+  side" is a complete workflow
+- Investment decisions on FORM/SORM and multi-fidelity surrogates will be made once
+  the execution loop is closed (maintaining the Phase 1 policy)
+- Enterprise features (user management, PLM integration) will be decided once demand
+  becomes visible

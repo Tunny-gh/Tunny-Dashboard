@@ -1,10 +1,11 @@
-//! サロゲート曲面上の最適化手法。
+//! Optimization methods on the surrogate surface.
 //!
-//! 正規化空間 [0,1]^d 内での最小化として実装する（maximize は符号反転）。
-//! 新しい手法はここへバリアントを追加する。
+//! Implemented as minimization within the normalized space [0,1]^d (maximize flips the sign).
+//! Add new methods here as additional variants.
 
 mod cma_es;
-mod nsga2;
+// Exposed within the crate because the gh runner (crate::gh::runner) repurposes it for real objective function evaluation
+pub(crate) mod nsga2;
 
 use argmin::core::{CostFunction, Error, Gradient};
 
@@ -12,36 +13,37 @@ use super::models::FittedSurrogate;
 use crate::math::rng::SeededRng;
 use crate::optimization::LbfgsOptimizer;
 
-/// サロゲート曲面上の最適化手法種別。
+/// Kind of optimization method used on the surrogate surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum OptimizerKind {
-    /// 観測ベスト点＋乱数点からのマルチスタート L-BFGS（数値勾配）。
+    /// Multi-start L-BFGS (numerical gradient) from the observed best point plus random points.
     MultiStartLbfgs,
-    /// 固定シードのランダムサーチ（常に動くベースライン）。
+    /// Random search with a fixed seed (an always-working baseline).
     RandomSearch,
-    /// NSGA-II（SBX 交叉・Polynomial Mutation・二項トーナメント選択）。
+    /// NSGA-II (SBX crossover, polynomial mutation, binary tournament selection).
     Nsga2,
-    /// CMA-ES（共分散行列適応進化戦略）。
+    /// CMA-ES (Covariance Matrix Adaptation Evolution Strategy).
     CmaEs,
 }
 
-/// マルチスタートのスタート点数（観測ベスト点 1 + 乱数 7）。
+/// Number of multi-start starting points (1 observed best point + 7 random).
 pub(crate) const N_RANDOM_STARTS: usize = 7;
-/// ランダムサーチの評価点数。
+/// Number of evaluation points for random search.
 const N_RANDOM_SEARCH: usize = 4096;
-/// 数値勾配（中心差分）のステップ幅。
+/// Step size for the numerical gradient (central difference).
 pub(crate) const FD_STEP: f64 = 1e-4;
-/// 箱外ペナルティの重み。
+/// Weight of the out-of-bounds penalty.
 pub(crate) const BOUND_PENALTY: f64 = 1e3;
-/// 乱数シード（再現性のため固定）。
+/// Random seed (fixed for reproducibility).
 pub(crate) const SEED: u64 = 42;
 
-/// 制約ペナルティの重み（z-score 単位）。
-/// 制約違反量（正規化 z-score 超過分）に乗じるスカラー。
+/// Weight of the constraint penalty (in z-score units).
+/// A scalar multiplied by the constraint violation amount (excess over the normalized z-score).
 const CONSTRAINT_PENALTY: f64 = 100.0;
 
-/// 箱 [0,1]^d の外側に出た成分への二次ペナルティ `Σ max(0, v−1)² + max(0, −v)²`。
-/// 各点は [0,1] にクランプして評価しつつ、外側方向へ滑らかな勾配を与えるために使う。
+/// Quadratic penalty `Σ max(0, v−1)² + max(0, −v)²` for components outside the box [0,1]^d.
+/// Each point is clamped to [0,1] for evaluation, while this term provides a smooth
+/// gradient pointing back inward from outside the box.
 fn box_penalty(t: &[f64]) -> f64 {
     t.iter()
         .map(|&v| {
@@ -52,16 +54,16 @@ fn box_penalty(t: &[f64]) -> f64 {
         .sum()
 }
 
-/// サロゲート曲面上で最適化し、正規化空間 [0,1]^d の最適点を返す。
-/// `minimize=false`（最大化）は符号反転した曲面の最小化として扱う。
+/// Optimizes on the surrogate surface and returns the optimal point in normalized space [0,1]^d.
+/// `minimize=false` (maximization) is handled as minimization of the sign-flipped surface.
 ///
-/// `constraint_models` が空でないとき、コスト関数に制約ペナルティを加える:
+/// When `constraint_models` is non-empty, a constraint penalty is added to the cost function:
 ///
 /// ```text
 /// cost = sign * mu_y_norm(x) + CONSTRAINT_PENALTY * Σ max(0, mu_ci_norm(x) - z0_i)
 /// ```
 ///
-/// z0_i = (0 - c_mean_i) / c_std_i は実行可能境界（正規化 z-score 単位）。
+/// z0_i = (0 - c_mean_i) / c_std_i is the feasibility boundary (in normalized z-score units).
 pub(crate) fn minimize_on_surrogate(
     surrogate: &FittedSurrogate,
     minimize: bool,
@@ -72,7 +74,7 @@ pub(crate) fn minimize_on_surrogate(
     let sign = if minimize { 1.0 } else { -1.0 };
 
     if constraint_models.is_empty() {
-        // 制約なし: 従来どおり surrogate のコストのみ最小化する。
+        // No constraints: minimize only the surrogate cost, as before.
         let t = match optimizer {
             OptimizerKind::MultiStartLbfgs => multi_start_lbfgs(surrogate, sign, start_norm),
             OptimizerKind::RandomSearch => random_search(surrogate, sign, start_norm),
@@ -82,7 +84,7 @@ pub(crate) fn minimize_on_surrogate(
         return t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
     }
 
-    // 制約あり: 汎用コスト関数 minimize_scalar_fn で最適化する。
+    // With constraints: optimize via the generic cost function minimize_scalar_fn.
     // z0_i = (0 - c_mean_i) / c_std_i
     let z0s: Vec<f64> = constraint_models
         .iter()
@@ -90,9 +92,9 @@ pub(crate) fn minimize_on_surrogate(
             if cm.y_std > 1e-12 {
                 (0.0 - cm.y_mean) / cm.y_std
             } else if cm.y_mean <= 0.0 {
-                f64::INFINITY // 常に実行可能
+                f64::INFINITY // Always feasible
             } else {
-                f64::NEG_INFINITY // 常に違反
+                f64::NEG_INFINITY // Always violated
             }
         })
         .collect();
@@ -114,20 +116,20 @@ pub(crate) fn minimize_on_surrogate(
     t.iter().map(|v| v.clamp(0.0, 1.0)).collect()
 }
 
-/// 箱内にクランプした点でサロゲートを評価し、箱外には二次ペナルティを課す。
+/// Evaluates the surrogate at a point clamped into the box, applying a quadratic penalty outside it.
 pub(crate) fn penalized_cost(surrogate: &FittedSurrogate, sign: f64, t: &[f64]) -> f64 {
     let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
     sign * surrogate.predict_norm(&clamped) + BOUND_PENALTY * box_penalty(t)
 }
 
-/// 観測ベスト点＋乱数点からのマルチスタート L-BFGS。
-/// 汎用化した `minimize_scalar_fn` を介してサロゲートを最小化する。
+/// Multi-start L-BFGS from the observed best point plus random points.
+/// Minimizes the surrogate via the generalized `minimize_scalar_fn`.
 fn multi_start_lbfgs(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
     let n_dims = start_norm.len();
     minimize_scalar_fn(&|t| penalized_cost(surrogate, sign, t), n_dims, start_norm)
 }
 
-/// 固定シードのランダムサーチ。観測ベスト点も候補に含める。
+/// Random search with a fixed seed. The observed best point is also included as a candidate.
 fn random_search(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
     let n_dims = start_norm.len();
     let mut rng = SeededRng::from_seed(SEED);
@@ -146,10 +148,11 @@ fn random_search(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> 
     best
 }
 
-/// NSGA-II をサロゲート単一目的の最小化として実行する。
-/// 適応度は長さ 1 のベクトル（将来の多目的サロゲート対応に備えた汎用実装を使う）。
+/// Runs NSGA-II as a single-objective minimization of the surrogate.
+/// Fitness is a length-1 vector (using the generic implementation in preparation for future
+/// multi-objective surrogate support).
 fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
-    // 現状は単一目的サロゲートのため η_c = 20 の設定を使う。
+    // Currently a single-objective surrogate, so use the η_c = 20 configuration.
     let cfg = nsga2::Nsga2Config::for_objectives(1);
     let front = nsga2::nsga2_minimize(
         |t| vec![penalized_cost(surrogate, sign, t)],
@@ -168,19 +171,19 @@ fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<
         .unwrap_or_else(|| start_norm.to_vec())
 }
 
-/// CMA-ES を観測ベスト点を初期平均として実行する。
+/// Runs CMA-ES with the observed best point as the initial mean.
 fn run_cma_es(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
     let cfg = cma_es::CmaEsConfig::default();
     cma_es::cma_es_minimize(|t| penalized_cost(surrogate, sign, t), start_norm, &cfg)
 }
 
-/// 任意のスカラー関数 `f: [0,1]^d → f64` をマルチスタート L-BFGS で最小化する。
+/// Minimizes an arbitrary scalar function `f: [0,1]^d → f64` via multi-start L-BFGS.
 ///
-/// - `start_norm`: 提供済みの初期点（[0,1]^d 内の正規化座標）。
-/// - `n_dims`: 次元数。
-/// - 戻り値: `[0,1]^d` にクランプした最良点。
+/// - `start_norm`: the supplied initial point (normalized coordinates in [0,1]^d).
+/// - `n_dims`: number of dimensions.
+/// - Return value: the best point, clamped to `[0,1]^d`.
 ///
-/// 内部的に `start_norm` + `N_RANDOM_STARTS` 個の固定シード乱数点からマルチスタートする。
+/// Internally multi-starts from `start_norm` plus `N_RANDOM_STARTS` fixed-seed random points.
 pub(crate) fn minimize_scalar_fn(
     f: &(dyn Fn(&[f64]) -> f64 + Sync),
     n_dims: usize,
@@ -193,7 +196,7 @@ pub(crate) fn minimize_scalar_fn(
         starts.push((0..n_dims).map(|_| rng.next_f64()).collect());
     }
 
-    /// argmin 用コスト関数（任意のクロージャをラップする）。
+    /// Cost function for argmin (wraps an arbitrary closure).
     struct ScalarProblem<'a> {
         f: &'a (dyn Fn(&[f64]) -> f64 + Sync),
     }
@@ -248,19 +251,19 @@ pub(crate) fn minimize_scalar_fn(
     best.iter().map(|v| v.clamp(0.0, 1.0)).collect()
 }
 
-/// 箱内にクランプした点で任意関数を評価し、箱外に二次ペナルティを課す。
+/// Evaluates an arbitrary function at a point clamped into the box, applying a quadratic penalty outside it.
 fn penalized_fn(f: &(dyn Fn(&[f64]) -> f64 + Sync), t: &[f64]) -> f64 {
     let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
     f(&clamped) + BOUND_PENALTY * box_penalty(t)
 }
 
-/// 多目的サロゲート曲面上で NSGA-II を実行し、第一パレートフロントを返す。
+/// Runs NSGA-II on multi-objective surrogate surfaces and returns the first Pareto front.
 ///
-/// - `surrogates`: 目的ごとの学習済みサロゲート（`signs[k]` が 1.0 なら最小化、-1.0 なら最大化）。
-/// - `signs`: 目的ごとの符号（最小化 = 1.0、最大化 = −1.0）。
-/// - `initial_seeds`: 初期集団にシードする正規化空間の点。
+/// - `surrogates`: the fitted surrogate for each objective (minimize if `signs[k]` is 1.0, maximize if -1.0).
+/// - `signs`: the sign for each objective (minimize = 1.0, maximize = −1.0).
+/// - `initial_seeds`: points in normalized space used to seed the initial population.
 ///
-/// 戻り値は `(遺伝子, 適応度ベクトル)` のリスト（第一フロントのみ）。
+/// Returns a list of `(genome, fitness vector)` pairs (first front only).
 pub(crate) fn multi_objective_nsga2(
     surrogates: &[&super::models::FittedSurrogate],
     signs: &[f64],

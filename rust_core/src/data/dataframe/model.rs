@@ -2,20 +2,21 @@ use std::collections::{HashMap, VecDeque};
 
 use super::types::TrialRow;
 
-/// 列指向の Trial テーブル（数値列・文字列列を名前で引く軽量 DataFrame）。
-/// journal / RDB パーサが構築し、UI・エクスポート・分析コードが共通で参照する。
+/// A column-oriented Trial table (a lightweight DataFrame that looks up
+/// numeric and string columns by name). Built by the journal / RDB parsers
+/// and shared by the UI, export, and analysis code.
 #[derive(Clone, Debug)]
 pub struct DataFrame {
     row_count: usize,
-    /// 行 index 順の trial_id。
+    /// trial_id, in row-index order.
     trial_ids: Vec<u32>,
-    /// Study 内 0 始まりの trial.number（行 index 順）。
+    /// 0-based trial.number within the study (in row-index order).
     trial_numbers: Vec<u32>,
-    /// 数値列（名前, 値）。param / objective / user_attr / constraint / 派生列を含む。
+    /// Numeric columns (name, values). Includes param / objective / user_attr / constraint / derived columns.
     numeric_cols: Vec<(String, Vec<f64>)>,
-    /// 文字列列（名前, 値）。カテゴリカル param / user_attr 文字列列。
+    /// String columns (name, values). Categorical param / user_attr string columns.
     string_cols: Vec<(String, Vec<String>)>,
-    /// パラメータ列名（生成順）。
+    /// Parameter column names (in generation order).
     param_col_names: Vec<String>,
     objective_col_names: Vec<String>,
     user_attr_numeric_col_names: Vec<String>,
@@ -26,7 +27,7 @@ pub struct DataFrame {
 }
 
 impl DataFrame {
-    /// 行 0・列 0 の空 DataFrame を返す。
+    /// Returns an empty DataFrame with 0 rows and 0 columns.
     pub fn empty() -> Self {
         DataFrame {
             row_count: 0,
@@ -43,12 +44,14 @@ impl DataFrame {
         }
     }
 
-    /// Trial 行データから DataFrame を構築する。
+    /// Builds a DataFrame from Trial row data.
     ///
-    /// 列の生成順は param → objective → user_attr（数値/文字列）→ constraint → 派生列。
-    /// param はカテゴリラベルが 1 行でもあれば文字列列、なければ数値列になる。
-    /// 制約がある場合は派生列 `is_feasible` / `constraint_sum` を追加する。
-    /// 欠損値は param: 0.0 / objective・user 数値: NaN / 文字列: "" / 制約: 0.0 で埋める。
+    /// Columns are generated in the order param → objective → user_attr
+    /// (numeric/string) → constraint → derived columns. A param becomes a
+    /// string column if even one row has a category label, otherwise a
+    /// numeric column. If constraints exist, the derived columns
+    /// `is_feasible` / `constraint_sum` are added. Missing values are filled
+    /// as: param: 0.0 / objective and user numeric: NaN / string: "" / constraint: 0.0.
     pub fn from_trials(
         trial_rows: &[TrialRow],
         param_names: &[String],
@@ -173,18 +176,23 @@ impl DataFrame {
         }
     }
 
-    /// 既存 DataFrame へ新規 trial 行を追記する（ストリーミングロード・ライブ更新用）。
+    /// Appends new trial rows to an existing DataFrame (for streaming loads / live updates).
     ///
-    /// 列内容は「既存行の元データと `new_rows` を連結して `from_trials` を呼んだ場合」と
-    /// 一致する（内部の列格納順のみ異なりうるが、参照は名前引きのため影響しない）。
-    /// 行を行指向に復元して全体を作り直す O(全行数) の再構築を避け、列を in-place で
-    /// 伸長するため、コストは O(new_rows × 列数) で済む。
+    /// The resulting column contents match what you'd get by concatenating
+    /// the existing rows' original data with `new_rows` and calling
+    /// `from_trials` (only the internal column storage order may differ,
+    /// which has no effect since lookups are by name). Rather than
+    /// reconstructing everything by restoring rows to row-oriented form
+    /// (an O(total rows) rebuild), columns are extended in place, so the
+    /// cost is O(new_rows × column count).
     ///
-    /// 名前リストは累積（既存列を含む全体）を渡すこと。ストリーミング途中で初出現した
-    /// 列は既存行ぶんをデフォルト値でバックフィルする（param 数値: 0.0 /
-    /// objective・user 数値: NaN / 文字列: "" / 制約: 0.0 / is_feasible: 1.0）。
-    /// 数値 param 列にカテゴリラベルが初出現した場合は `from_trials` と同様に
-    /// 列全体を文字列列へ置き換える（既存行は ""）。
+    /// Pass the cumulative name lists (the full set including existing
+    /// columns). A column that first appears partway through streaming is
+    /// backfilled for existing rows with a default value (param numeric:
+    /// 0.0 / objective and user numeric: NaN / string: "" / constraint: 0.0
+    /// / is_feasible: 1.0). If a category label first appears on a numeric
+    /// param column, the whole column is replaced with a string column, as
+    /// in `from_trials` (existing rows become "").
     pub fn append_trials(
         &mut self,
         new_rows: &[TrialRow],
@@ -203,12 +211,15 @@ impl DataFrame {
         self.trial_numbers
             .extend(new_rows.iter().map(|r| r.trial_number));
 
-        // 列名 → 「まだ伸長していない（長さ old_n の）同名列 index」のキュー。
-        // 同名列が複数カテゴリに存在しうるため、生成順（from_trials の
-        // param → objective → user → constraint）で先頭から消費する。本メソッドの
-        // 処理順が同じなので対応関係が保たれる。名前ごとの線形探索を避けるための
-        // HashMap 化（旧実装は伸長のたびに全列を線形走査していた）。
-        // キーは列名のコピーで持つ（ループ中に self.numeric_cols 等を可変借用するため）。
+        // A queue, keyed by column name, of "not-yet-extended (length old_n)
+        // same-named column indexes". Since the same name can occur across
+        // multiple categories, entries are consumed from the front in
+        // generation order (from_trials' param → objective → user →
+        // constraint). This method processes in the same order, so the
+        // correspondence is preserved. Uses a HashMap to avoid a linear scan
+        // per name (the old implementation linearly scanned all columns on
+        // every extension). Keys are owned copies of the column name
+        // (because self.numeric_cols etc. are mutably borrowed in the loop).
         let mut numeric_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
         for (i, (name, col)) in self.numeric_cols.iter().enumerate() {
             if col.len() == old_n {
@@ -225,7 +236,7 @@ impl DataFrame {
             }
         }
 
-        // 既存列名の membership 判定用セット（旧実装の `iter().any()` の置き換え）。
+        // Sets for membership checks against existing column names (replaces the old `iter().any()`).
         let mut param_name_set: std::collections::HashSet<String> =
             self.param_col_names.iter().cloned().collect();
         let mut objective_name_set: std::collections::HashSet<String> =
@@ -235,7 +246,7 @@ impl DataFrame {
         let mut uas_name_set: std::collections::HashSet<String> =
             self.user_attr_string_col_names.iter().cloned().collect();
 
-        /// pending キューの先頭 index の列を伸長する（無ければ no-op）。
+        /// Extends the column at the pending queue's front index (no-op if absent).
         fn extend_numeric(
             cols: &mut [(String, Vec<f64>)],
             pending: &mut HashMap<String, VecDeque<usize>>,
@@ -246,7 +257,7 @@ impl DataFrame {
                 cols[idx].1.extend(values);
             }
         }
-        /// pending キューの先頭 index の列を伸長する（無ければ no-op）。
+        /// Extends the column at the pending queue's front index (no-op if absent).
         fn extend_string(
             cols: &mut [(String, Vec<String>)],
             pending: &mut HashMap<String, VecDeque<usize>>,
@@ -271,7 +282,7 @@ impl DataFrame {
                 })
             };
             if !param_name_set.contains(name) {
-                // ストリーミング途中で初出現した param 列。既存行はデフォルトで埋める。
+                // A param column that first appears partway through streaming. Existing rows are filled with the default.
                 if new_has_label {
                     let mut vals = vec![String::new(); old_n];
                     vals.extend(label_values());
@@ -298,15 +309,17 @@ impl DataFrame {
                     label_values(),
                 );
             } else if new_has_label {
-                // 数値列にカテゴリラベルが初出現。from_trials は「1 行でもラベルがあれば
-                // 列全体を文字列」とするため、列を置き換える（既存の数値行は ""）。
+                // A category label first appears on a numeric column.
+                // Since from_trials treats "the whole column as string if
+                // even one row has a label", the column is replaced
+                // (existing numeric rows become "").
                 if let Some(idx) = numeric_pending
                     .get_mut(name.as_str())
                     .and_then(VecDeque::pop_front)
                 {
                     self.numeric_cols.remove(idx);
-                    // remove で idx より後ろの列が 1 つずつ前へ詰まるため、
-                    // pending キュー内の index を補正する。
+                    // Removing shifts every column after idx one position
+                    // forward, so correct the indexes stored in the pending queues.
                     for queue in numeric_pending.values_mut() {
                         for i in queue.iter_mut() {
                             if *i > idx {
@@ -375,7 +388,7 @@ impl DataFrame {
             }
         }
 
-        // 制約列数は縮まない（ストリーミング中に増えることはある）。
+        // The constraint column count never shrinks (it may grow during streaming).
         let max_c = max_constraints.max(self.constraint_col_names.len());
         if max_c > 0 {
             for ci in 0..max_c {
@@ -398,7 +411,7 @@ impl DataFrame {
                 }
             }
 
-            // 派生列。制約が途中から現れた場合、既存行は「制約なし」= feasible / 合計 0。
+            // Derived columns. If constraints appear only partway through, existing rows are "no constraint" = feasible / sum 0.
             let feasible_values = new_rows.iter().map(|r| {
                 if r.constraint_values.iter().all(|&c| c <= 0.0) {
                     1.0
@@ -449,13 +462,13 @@ impl DataFrame {
         );
     }
 
-    /// 指定行の trial_id を返す（範囲外は `None`）。
+    /// Returns the trial_id for the given row (`None` if out of range).
     pub fn get_trial_id(&self, row: usize) -> Option<u32> {
         self.trial_ids.get(row).copied()
     }
 
-    /// Study 内 0 始まりの trial.number（Optuna の `trial.number`）を返す。
-    /// 値が未設定の行は行 index にフォールバックする。
+    /// Returns the 0-based trial.number within the study (Optuna's `trial.number`).
+    /// Rows without a set value fall back to the row index.
     pub fn get_trial_number(&self, row: usize) -> Option<u32> {
         if row >= self.row_count {
             return None;
@@ -463,7 +476,7 @@ impl DataFrame {
         Some(self.trial_numbers.get(row).copied().unwrap_or(row as u32))
     }
 
-    /// パラメータ列名（生成順）。
+    /// Parameter column names (in generation order).
     pub fn param_col_names(&self) -> &[String] {
         &self.param_col_names
     }
@@ -484,19 +497,19 @@ impl DataFrame {
         &self.constraint_col_names
     }
 
-    /// 行数（trial 数）を返す。
+    /// Returns the row count (number of trials).
     pub fn row_count(&self) -> usize {
         self.row_count
     }
 
-    /// 全列名（数値列 → 文字列列の順）を返す。
+    /// Returns all column names (numeric columns then string columns).
     pub fn column_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.numeric_cols.iter().map(|(n, _)| n.clone()).collect();
         names.extend(self.string_cols.iter().map(|(n, _)| n.clone()));
         names
     }
 
-    /// 数値列を名前で引く（同名列が複数ある場合は先頭、無ければ `None`）。
+    /// Looks up a numeric column by name (the first one if duplicates exist; `None` if absent).
     pub fn get_numeric_column(&self, name: &str) -> Option<&[f64]> {
         self.numeric_cols
             .iter()
@@ -504,7 +517,7 @@ impl DataFrame {
             .map(|(_, v)| v.as_slice())
     }
 
-    /// 文字列列を名前で引く（同名列が複数ある場合は先頭、無ければ `None`）。
+    /// Looks up a string column by name (the first one if duplicates exist; `None` if absent).
     pub fn get_string_column(&self, name: &str) -> Option<&[String]> {
         self.string_cols
             .iter()

@@ -1,36 +1,39 @@
-//! フラット CSV（1 行 = 1 トライアル）形式の最適化結果インポート。
+//! Import of optimization results in flat CSV format (1 row = 1 trial).
 //!
-//! Optuna Journal とは異なる外部最適化プログラムの出力に対応する。
-//! ヘッダのラベル接頭辞で列の役割を判別する:
-//!   - `in:<name>`  → パラメータ（変数）
-//!   - `out:<name>` → 目的関数の評価値
-//!   - `img`        → アーティファクト（CSV と同じディレクトリにある画像等のファイル名）
+//! Supports output from external optimization programs other than the Optuna
+//! Journal. Column roles are determined from the header's label prefix:
+//!   - `in:<name>`  → a parameter (variable)
+//!   - `out:<name>` → an objective function evaluation value
+//!   - `img`        → an artifact (filename of an image or similar file
+//!     located in the same directory as the CSV)
 //!
-//! それ以外の列は user_attr として取り込む（数値なら numeric、非数値なら string）。
-//! 最適化方向は CSV に情報が無いため全目的を Minimize とみなす（Journal の未知方向と同じ既定）。
+//! All other columns are ingested as user_attr (numeric if the value parses as
+//! a number, otherwise string). Since the CSV carries no direction information,
+//! all objectives are treated as Minimize (the same default used for an unknown
+//! direction in the Journal).
 
 use std::collections::HashMap;
 
 use crate::dataframe::{DataFrame, TrialRow};
 use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
 
-/// フラット CSV のパース結果。
+/// Result of parsing a flat CSV.
 pub struct FlatCsvParseResult {
-    /// 単一 Study のメタ情報（`study_id` は 0 固定）。
+    /// Metadata for the single study (`study_id` is fixed at 0).
     pub meta: StudyMeta,
-    /// 構築済み DataFrame。
+    /// The constructed DataFrame.
     pub dataframe: DataFrame,
-    /// trial_id → 画像ファイル名（`img` 列）。空セルの行は含まない。
+    /// trial_id → image filename (from the `img` column). Rows with an empty cell are excluded.
     pub images: Vec<(u32, String)>,
 }
 
-/// 列の役割。ヘッダの接頭辞から判別する。
+/// A column's role, determined from the header's prefix.
 enum ColumnRole {
     Param(String),
     Objective(String),
-    /// `img` 列。アーティファクトのファイル名を持つ。
+    /// The `img` column. Holds an artifact's filename.
     Image,
-    /// `in:`/`out:`/`img` 以外。user_attr として取り込む。
+    /// Anything other than `in:`/`out:`/`img`. Ingested as a user_attr.
     UserAttr(String),
 }
 
@@ -47,8 +50,9 @@ fn classify_header(header: &str) -> ColumnRole {
     }
 }
 
-/// RFC 4180 準拠の最小 CSV 行パーサ。ダブルクォート囲み・`""` エスケープ・
-/// クォート内カンマを扱う。改行はクォート内に現れない前提（1 行 = 1 レコード）。
+/// A minimal RFC 4180-compliant CSV line parser. Handles double-quote wrapping,
+/// `""` escaping, and commas inside quotes. Assumes newlines never appear inside
+/// quotes (1 line = 1 record).
 fn parse_csv_line(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut field = String::new();
@@ -74,9 +78,9 @@ fn parse_csv_line(line: &str) -> Vec<String> {
     fields
 }
 
-/// フラット CSV のバイト列をパースして単一 Study を構築する。
+/// Parses a flat CSV byte slice and builds a single study.
 ///
-/// `study_name` は Study 名（通常はファイル名）。失敗時はエラーメッセージを返す。
+/// `study_name` is the study name (typically the filename). Returns an error message on failure.
 pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResult, String> {
     let text = String::from_utf8_lossy(data);
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
@@ -87,7 +91,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         .map(|h| classify_header(h))
         .collect();
 
-    // 列順を保ったまま役割ごとの名前リストを作る。
+    // Build a per-role name list while preserving column order.
     let mut param_names: Vec<String> = Vec::new();
     let mut objective_names: Vec<String> = Vec::new();
     for role in &roles {
@@ -103,8 +107,9 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         );
     }
 
-    // パラメータ列が数値かカテゴリかを判定するため、全セルを一旦文字列で集める。
-    // param_raw[name] = 各行の生文字列。
+    // Collect all cells as strings first, to later determine whether each
+    // parameter column is numeric or categorical.
+    // param_raw[name] = the raw string for each row.
     let mut param_raw: HashMap<String, Vec<String>> = param_names
         .iter()
         .map(|n| (n.clone(), Vec::new()))
@@ -113,7 +118,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         .iter()
         .map(|n| (n.clone(), Vec::new()))
         .collect();
-    // user_attr 列名（出現順）。
+    // user_attr column names (in order of appearance).
     let mut user_attr_names: Vec<String> = Vec::new();
     let mut user_attr_raw: HashMap<String, Vec<String>> = HashMap::new();
     for role in &roles {
@@ -151,8 +156,10 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         return Err("CSV has a header but no data rows".to_string());
     }
 
-    // パラメータ列ごとに数値判定。全行が f64 にパースできれば numeric、さもなくば categorical。
-    // param_bounds は numeric 列の観測 min/max を採用する（サロゲート最適化の探索箱に使う）。
+    // Determine numeric-ness per parameter column: numeric if every row parses
+    // as f64, otherwise categorical.
+    // param_bounds takes the observed min/max of numeric columns (used as the
+    // search box for surrogate optimization).
     let mut param_numeric: HashMap<String, Vec<f64>> = HashMap::new();
     let mut param_category: HashMap<String, Vec<String>> = HashMap::new();
     let mut param_bounds: HashMap<String, (f64, f64)> = HashMap::new();
@@ -175,7 +182,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         }
     }
 
-    // user_attr 列ごとに数値/文字列を判定する。
+    // Determine numeric vs. string for each user_attr column.
     let mut user_attr_numeric_names: Vec<String> = Vec::new();
     let mut user_attr_string_names: Vec<String> = Vec::new();
     let mut ua_numeric: HashMap<String, Vec<f64>> = HashMap::new();
@@ -195,7 +202,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         }
     }
 
-    // 目的列をパースする（非数値は NaN とする）。
+    // Parse the objective columns (non-numeric values become NaN).
     let obj_parsed: HashMap<String, Vec<f64>> = objective_names
         .iter()
         .map(|name| {
@@ -207,7 +214,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         })
         .collect();
 
-    // 行指向 TrialRow を構築する。
+    // Build row-oriented TrialRow entries.
     let mut trial_rows: Vec<TrialRow> = Vec::with_capacity(row_count as usize);
     for row in 0..row_count as usize {
         let mut param_display: HashMap<String, f64> = HashMap::new();
@@ -241,7 +248,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         });
     }
 
-    // DataFrame は列名をソート済み前提で扱う（finalize_state と同じ規約）。
+    // DataFrame assumes column names are pre-sorted (same convention as finalize_state).
     let mut sorted_params = param_names.clone();
     sorted_params.sort();
     let mut sorted_uan = user_attr_numeric_names.clone();

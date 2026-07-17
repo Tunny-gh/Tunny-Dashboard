@@ -7,10 +7,10 @@ use super::builders::TrialBuilder;
 use super::state::ParserState;
 use super::types::StudyMeta;
 
-/// `finalize_state` が返す 1 study 分の確定データ。
+/// Finalized data for a single study, as returned by `finalize_state`.
 ///
-/// 以前は `(Vec<StudyMeta>, Vec<DataFrame>, Vec<StudyExtras>)` の並行 3 Vec を返していたが、
-/// 呼び出し側の `nth(pos).unwrap()` 連発を避けるため study 単位の struct にまとめる。
+/// This used to return three parallel Vecs, `(Vec<StudyMeta>, Vec<DataFrame>, Vec<StudyExtras>)`,
+/// but that's now combined into a per-study struct to avoid repeated `nth(pos).unwrap()` calls on the caller side.
 pub(super) struct FinalizedStudy {
     pub(super) meta: StudyMeta,
     pub(super) dataframe: DataFrame,
@@ -32,7 +32,7 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
     let mut per_study_unn: Vec<HashSet<String>> = (0..n_studies).map(|_| HashSet::new()).collect();
     let mut per_study_usn: Vec<HashSet<String>> = (0..n_studies).map(|_| HashSet::new()).collect();
     let mut per_study_max_c: Vec<usize> = vec![0; n_studies];
-    // 全 trial（全 state）の付帯情報。trial_id 昇順（sorted_trials が昇順のため）。
+    // Extra info for all trials (any state). Ordered by ascending trial_id (since sorted_trials is ascending).
     let mut per_study_extras: Vec<Vec<TrialExtra>> = (0..n_studies).map(|_| Vec::new()).collect();
 
     for (trial_id, mut trial) in sorted_trials {
@@ -41,7 +41,7 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             continue;
         }
 
-        // extras は state を問わず全 trial を収集する。DataFrame（COMPLETE 限定）とは独立。
+        // extras collects all trials regardless of state, independently of the DataFrame (which is COMPLETE-only).
         let mut intermediate_values = std::mem::take(&mut trial.intermediate_values);
         intermediate_values.sort_by_key(|(step, _)| *step);
         per_study_extras[study_idx].push(TrialExtra {
@@ -128,8 +128,8 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             .collect();
         usn.sort();
 
-        // ピーク削減: 各 study の行 Vec を take して DataFrame 構築後に即解放する。
-        // take で所有権を移動させることで、全 study 行が同時メモリ上に残らない。
+        // Peak memory reduction: take each study's row Vec and free it right after building the DataFrame.
+        // Moving ownership via take means row data for all studies never coexists in memory at once.
         let study_rows = std::mem::take(&mut per_study_rows[index]);
         let dataframe = DataFrame::from_trials(
             &study_rows,
@@ -139,7 +139,7 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             &usn,
             per_study_max_c[index],
         );
-        // study_rows はここでドロップされ、この study の中間行データが解放される
+        // study_rows is dropped here, freeing this study's intermediate row data
 
         finalized.push(FinalizedStudy {
             meta,

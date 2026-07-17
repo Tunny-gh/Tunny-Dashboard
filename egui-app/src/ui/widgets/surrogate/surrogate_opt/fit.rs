@@ -1,7 +1,9 @@
-//! 左列（Fit & Validate）: 目的・モデル選択、フィット進捗、検証指標・OOF 散布図。
+//! Left column (Fit & Validate): objective/model selection, fit progress, validation
+//! metrics, and OOF scatter plot.
 //!
-//! 単目的・多目的いずれのフィット列も扱う。学習自体はバックグラウンドで
-//! 行われ（poll_chart.rs 参照）、ここでは選択 UI とフィット結果の検証表示を担う。
+//! Handles both single-objective and multi-objective fit columns. Training itself runs in
+//! the background (see poll_chart.rs); this module is responsible for the selection UI and
+//! the display of the fit's validation results.
 
 use std::sync::Arc;
 
@@ -15,7 +17,8 @@ use tunny_core::surrogate_opt::{SurrogateValidationReport, TrainedSurrogate};
 use super::labels::{model_label, verdict, AUTO_MODEL_LABEL};
 use super::{multi_trained_matches, trained_matches};
 
-/// 左列（単目的）: Objective / Model コンボ、Fit & Validate ボタン、検証結果。
+/// Left column (single-objective): Objective / Model combo boxes, Fit & Validate button,
+/// validation results.
 pub(super) fn render_fit_column(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -23,7 +26,7 @@ pub(super) fn render_fit_column(
     busy: bool,
     constraint_col_names: &[String],
 ) {
-    // ── 1段目: 目的・モデル ──────────────────────────────────────
+    // ── Row 1: objective / model ──────────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Objective:");
         let obj_text = obj_names
@@ -53,14 +56,15 @@ pub(super) fn render_fit_column(
         egui::ComboBox::from_id_salt("surrogate_model")
             .selected_text(selected_text)
             .show_ui(ui, |ui| {
-                // 先頭に Auto（交差検証で自動選択）。選ぶと auto_select = true。
+                // Auto (automatically selected via cross-validation) comes first. Selecting
+                // it sets auto_select = true.
                 if ui
                     .selectable_label(state.auto_select, AUTO_MODEL_LABEL)
                     .clicked()
                 {
                     state.auto_select = true;
                 }
-                // 具体的なモデルを選ぶと auto_select = false かつその kind に設定。
+                // Selecting a specific model sets auto_select = false and that kind.
                 for kind in MODEL_CHOICES {
                     let selected = !state.auto_select && state.model == kind;
                     if ui.selectable_label(selected, model_label(kind)).clicked() {
@@ -71,7 +75,7 @@ pub(super) fn render_fit_column(
             });
     });
 
-    // ── 制約チェックボックス（制約付き Study のみ表示） ──────────
+    // ── Constraint checkbox (only shown for constrained Studies) ──────────
     let n_constraints = constraint_col_names.len();
     if n_constraints > 0 {
         ui.horizontal(|ui| {
@@ -82,7 +86,7 @@ pub(super) fn render_fit_column(
         });
     }
 
-    // ── 2段目: Fit & Validate ────────────────────────────────────
+    // ── Row 2: Fit & Validate ────────────────────────────────────
     let can_fit = !busy && !obj_names.is_empty();
     if ui
         .add_enabled(can_fit, egui::Button::new("Fit & Validate"))
@@ -99,13 +103,13 @@ pub(super) fn render_fit_column(
         }
     }
 
-    // フィット中: 進捗バー＋キャンセルボタン。
+    // While fitting: progress bar + cancel button.
     if state.fitting {
         render_fit_progress(ui, state);
         return;
     }
 
-    // ── 検証セクション ───────────────────────────────────────────
+    // ── Validation section ───────────────────────────────────────────
     if let Some(ref trained) = state.trained.clone() {
         if trained_matches(trained, state, obj_names) {
             render_validation(ui, trained);
@@ -118,13 +122,13 @@ pub(super) fn render_fit_column(
     }
 }
 
-/// フィット中の進捗（段階ラベル・進捗バー）とキャンセルボタンを描画する。
+/// Renders the in-progress fit (stage label, progress bar) and the cancel button.
 ///
-/// 進捗ハンドルは学習スレッドと共有しており、Cancel ボタンは内部のキャンセルフラグを
-/// 立てる（学習側は段階の境界で検知して中止する）。学習中は毎フレーム再描画して
-/// 進捗バーを更新する。
+/// The progress handle is shared with the training thread; the Cancel button sets an
+/// internal cancellation flag (the training side detects it at stage boundaries and aborts).
+/// While training, the UI is repainted every frame to keep the progress bar updated.
 fn render_fit_progress(ui: &mut egui::Ui, state: &SurrogateOptState) {
-    // 進捗を滑らかに更新するため再描画を要求する。
+    // Request a repaint so the progress updates smoothly.
     ui.ctx().request_repaint();
 
     let snapshot = state.fit_progress.as_ref().map(|p| p.snapshot());
@@ -139,7 +143,7 @@ fn render_fit_progress(ui: &mut egui::Ui, state: &SurrogateOptState) {
         ui.label(label);
     });
 
-    // 進捗バー（総ステップ数が分かっているとき）。
+    // Progress bar (when the total number of steps is known).
     if let Some(s) = snapshot.as_ref().filter(|s| s.total > 0) {
         let frac = (s.done as f32 / s.total as f32).clamp(0.0, 1.0);
         ui.add(
@@ -149,7 +153,7 @@ fn render_fit_progress(ui: &mut egui::Ui, state: &SurrogateOptState) {
         );
     }
 
-    // キャンセルボタン。
+    // Cancel button.
     if let Some(progress) = &state.fit_progress {
         let cancelling = progress.is_cancelled();
         let label = if cancelling {
@@ -166,14 +170,15 @@ fn render_fit_progress(ui: &mut egui::Ui, state: &SurrogateOptState) {
     }
 }
 
-/// 左列（多目的）: 全目的固定ラベル + Model コンボ、Fit & Validate ボタン、検証結果。
+/// Left column (multi-objective): fixed label for all objectives + Model combo, Fit &
+/// Validate button, validation results.
 pub(super) fn render_fit_column_multi(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
     obj_names: &[String],
     busy: bool,
 ) {
-    // ── 1段目: 目的（固定ラベル）・モデル ───────────────────────
+    // ── Row 1: objectives (fixed label) / model ───────────────────────
     ui.label(format!("Objectives: all {} objectives", obj_names.len()));
     ui.horizontal(|ui| {
         ui.label("Model:");
@@ -186,7 +191,7 @@ pub(super) fn render_fit_column_multi(
             });
     });
 
-    // ── 2段目: Fit & Validate ────────────────────────────────────
+    // ── Row 2: Fit & Validate ────────────────────────────────────
     let can_fit = !busy && obj_names.len() >= 2;
     if ui
         .add_enabled(can_fit, egui::Button::new("Fit & Validate"))
@@ -196,13 +201,13 @@ pub(super) fn render_fit_column_multi(
         state.pending_multi_fit = Some(SurrogateMultiFitComputeRequest { model: state.model });
     }
 
-    // フィット中: 進捗バー＋キャンセルボタン。
+    // While fitting: progress bar + cancel button.
     if state.fitting {
         render_fit_progress(ui, state);
         return;
     }
 
-    // ── 検証セクション（目的ごとのコンパクトサマリ） ────────────
+    // ── Validation section (compact per-objective summary) ────────────
     if let Some(ref multi_trained) = state.multi_trained.clone() {
         if multi_trained_matches(multi_trained, state, obj_names) {
             render_multi_validation(ui, state, multi_trained);
@@ -215,12 +220,12 @@ pub(super) fn render_fit_column_multi(
     }
 }
 
-/// 検証指標セクションをレンダリングする。
+/// Renders the validation metrics section.
 fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
     let v = &trained.validation;
     ui.add_space(4.0);
 
-    // ── Auto 選択の経緯（Auto フィット時のみ表示） ────────────────
+    // ── History of the Auto selection (only shown for an Auto fit) ────────────────
     if let Some(selection) = trained.model_selection.as_ref() {
         render_model_selection(ui, selection);
     }
@@ -260,16 +265,17 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
             ui.end_row();
         });
 
-    // 品質判定。
+    // Quality verdict.
     let (verdict_text, verdict_color) = verdict(v.cv_r2_mean);
     ui.colored_label(verdict_color, verdict_text);
 
-    // predicted-vs-actual 散布図。
+    // predicted-vs-actual scatter plot.
     render_oof_plot(ui, v, "single", false);
 }
 
-/// Auto モデル選択の経緯を表示する。「Auto selected: <chosen>」見出しと、候補ごとの
-/// CV R² を降順に並べたコンパクトな表を出す（フィット／検証に失敗した候補は "—"）。
+/// Shows how the Auto model selection was made. Displays an "Auto selected: <chosen>"
+/// heading and a compact table of each candidate's CV R² sorted in descending order
+/// (candidates that failed to fit/validate show "—").
 fn render_model_selection(
     ui: &mut egui::Ui,
     selection: &tunny_core::surrogate_opt::ModelSelectionReport,
@@ -279,10 +285,10 @@ fn render_model_selection(
         model_label(selection.chosen)
     ))
     .on_hover_text(
-        "候補モデルを交差検証し、CV R² が最も高いものを自動選択しました（同点は単純なモデルを優先）。",
+        "Cross-validated the candidate models and selected the one with the highest CV R² (ties prefer the simpler model).",
     );
 
-    // 候補を CV R² の降順に並べる（失敗候補 = NEG_INFINITY は末尾）。
+    // Sort candidates by descending CV R² (failed candidates = NEG_INFINITY go last).
     let mut rows: Vec<(tunny_core::surrogate_opt::SurrogateModelKind, f64)> =
         selection.scores.clone();
     rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -295,7 +301,7 @@ fn render_model_selection(
             ui.strong("CV R²");
             ui.end_row();
             for (kind, score) in rows {
-                // 選ばれた候補を強調する。
+                // Highlight the chosen candidate.
                 if kind == selection.chosen {
                     ui.strong(model_label(kind));
                 } else {
@@ -304,7 +310,7 @@ fn render_model_selection(
                 if score.is_finite() {
                     ui.monospace(format!("{:.3}", score));
                 } else {
-                    // フィット／検証に失敗した候補。
+                    // Candidate that failed to fit/validate.
                     ui.monospace("—");
                 }
                 ui.end_row();
@@ -313,8 +319,8 @@ fn render_model_selection(
     ui.add_space(4.0);
 }
 
-/// 多目的検証サマリをコンパクトに表示する（目的ごとに 1 行）。
-/// グリッドの下に、選択した目的の OOF 予測 vs 実測プロットを表示する。
+/// Displays a compact multi-objective validation summary (one row per objective).
+/// Below the grid, shows the OOF predicted-vs-actual plot for the selected objective.
 fn render_multi_validation(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -333,7 +339,7 @@ fn render_multi_validation(
         .striped(true)
         .min_col_width(60.0)
         .show(ui, |ui| {
-            // ヘッダ行
+            // Header row
             ui.strong("Objective");
             ui.strong("Holdout R²");
             ui.strong("CV R² mean±std");
@@ -351,8 +357,8 @@ fn render_multi_validation(
             }
         });
 
-    // ── OOF プロット対象の目的選択 ───────────────────────────────
-    // インデックス範囲クランプ（目的数が減った場合など）。
+    // ── Objective selection for the OOF plot ───────────────────────────────
+    // Clamp the index range (e.g. if the number of objectives decreased).
     if state.multi_validation_objective >= trained.len() {
         state.multi_validation_objective = 0;
     }
@@ -378,26 +384,27 @@ fn render_multi_validation(
             });
     });
 
-    // 選択された目的の predicted-vs-actual 散布図。目的ごとに値域が異なるため
-    // プロット ID を目的別に分け、切替時は表示範囲をリセットして再フィットさせる。
+    // predicted-vs-actual scatter plot for the selected objective. Since value ranges
+    // differ per objective, split the plot ID per objective, and reset the display range
+    // when switching so it refits.
     if let Some(t) = trained.get(state.multi_validation_objective) {
         let switched = state.multi_validation_objective != prev_objective;
         render_oof_plot(ui, &t.validation, &t.objective_name, switched);
     }
 }
 
-/// OOF (out-of-fold) の predicted-vs-actual 散布図をレンダリングする。
-/// 列幅に合わせて利用可能な高さを使い、最低 180 px・最大 400 px に収める。
+/// Renders the OOF (out-of-fold) predicted-vs-actual scatter plot.
+/// Uses the available height matched to the column width, clamped between 180 px and 400 px.
 ///
-/// `id_salt` でプロットメモリ（ズーム・表示範囲）を呼び出し元ごとに分離する。
-/// `data_aspect` 指定時は初回フレーム以降の自動フィットが効かないため、
-/// 表示データが切り替わったフレームでは `reset = true` で範囲を再計算させる。
+/// `id_salt` separates the plot memory (zoom, display range) per caller.
+/// When `data_aspect` is set, auto-fit no longer takes effect after the first frame, so
+/// `reset = true` recomputes the range whenever the displayed data changes.
 fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &str, reset: bool) {
     if v.oof_pairs.is_empty() {
         return;
     }
 
-    // データ範囲を求める（y=x 参照線のスパン）。
+    // Compute the data range (span of the y=x reference line).
     let (mut min_val, mut max_val) = (f64::INFINITY, f64::NEG_INFINITY);
     for &(actual, pred) in &v.oof_pairs {
         if actual.is_finite() {
@@ -410,19 +417,21 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         }
     }
     if !min_val.is_finite() || !max_val.is_finite() || min_val >= max_val {
-        // データが縮退している場合は余白を加えて最低限表示する。
+        // If the data is degenerate, add margin to display something minimal.
         let center = if min_val.is_finite() { min_val } else { 0.0 };
         min_val = center - 1.0;
         max_val = center + 1.0;
     }
 
-    // パレートフロント所属フラグが揃っていれば、フロント点を分けて強調する。
-    // フロント所属が分かるのは多目的フィットのときのみ（単目的では全点を青で描く）。
+    // If Pareto-front membership flags are available, highlight front points separately.
+    // Front membership is only known for a multi-objective fit (single-objective draws
+    // every point in blue).
     let has_front_flags =
         v.oof_is_front.len() == v.oof_pairs.len() && v.oof_is_front.iter().any(|&f| f);
     let n_front = v.oof_is_front.iter().filter(|&&f| f).count();
 
-    // フロント点のみの近似度を数値で先に示す（散布図で埋もれがちなため）。
+    // Show the front-only fit quality as a number first (it tends to get buried in the
+    // scatter plot).
     if has_front_flags && (v.front_r2.is_some() || v.front_rmse.is_some()) {
         let r2_text = v
             .front_r2
@@ -446,12 +455,13 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
             ),
         )
         .on_hover_text(
-            "パレートフロント（rank 0）の trial だけで算出した out-of-fold の近似精度。\
-             最適化で実際に使うフロント近傍をサロゲートがどれだけ正しく予測できているかを示す。",
+            "Out-of-fold accuracy computed only on Pareto-front (rank 0) trials. \
+             Shows how well the surrogate predicts the region near the front that \
+             the optimization actually uses.",
         );
     }
 
-    // フロント点（赤）とそれ以外（青）に分ける。
+    // Split into front points (red) and the rest (blue).
     let mut front_pts: Vec<[f64; 2]> = Vec::new();
     let mut other_pts: Vec<[f64; 2]> = Vec::new();
     for (i, &(actual, pred)) in v.oof_pairs.iter().enumerate() {
@@ -467,7 +477,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
         .color(crate::theme::chart_colors::COLOR_GRID_STROKE())
         .style(egui_plot::LineStyle::Dashed { length: 6.0 });
 
-    // 列幅いっぱいを使い、高さは 180 px 〜 400 px に収める。
+    // Use the full column width, and clamp the height to 180 px – 400 px.
     let plot_h = ui.available_height().clamp(180.0, 400.0);
 
     let mut plot = egui_plot::Plot::new(("surrogate_oof_plot", id_salt))
@@ -482,14 +492,14 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
     }
     plot.show(ui, |plot_ui| {
         apply_wheel_zoom(plot_ui);
-        // 非フロント点（青）を背面に。
+        // Non-front points (blue) in the back.
         plot_ui.points(
             egui_plot::Points::new("Out-of-fold predictions", other_pts)
                 .color(egui::Color32::from_rgb(59, 130, 246)) // blue-500
                 .radius(3.0),
         );
         plot_ui.line(ref_seg);
-        // フロント点（赤・大きめ）を前面に。
+        // Front points (red, larger) in front.
         if !front_pts.is_empty() {
             plot_ui.points(
                 egui_plot::Points::new("Pareto front", front_pts)
@@ -514,7 +524,7 @@ mod tests {
         };
         let obj_names = ["obj0".to_string()];
 
-        // Fit & Validate ボタン押下と同じロジック。
+        // Same logic as clicking the Fit & Validate button.
         if let Some(obj_name) = obj_names.get(state.selected_objective) {
             state.error_message = None;
             state.pending_fit = Some(SurrogateFitComputeRequest {
@@ -539,7 +549,7 @@ mod tests {
         };
         let obj_names = ["obj0".to_string(), "obj1".to_string()];
 
-        // 多目的 Fit & Validate ボタン押下と同じロジック。
+        // Same logic as clicking the multi-objective Fit & Validate button.
         if obj_names.len() >= 2 {
             state.error_message = None;
             state.pending_multi_fit = Some(SurrogateMultiFitComputeRequest { model: state.model });

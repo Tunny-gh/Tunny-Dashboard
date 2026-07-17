@@ -11,12 +11,13 @@ pub struct McdmComputeRequest {
     pub v: f64,
 }
 
-/// MCDM 結果のキャッシュキー。
-/// 同じ設定（手法・重みモード・重み・v 値）で計算した結果を共有・再利用するため、
-/// 各チャート（Ranking / Scatter2D / Scatter3D / Table）はこのキーで
-/// `app_state.mcdm_cache` を参照する。
+/// Cache key for MCDM results.
+/// Each chart (Ranking / Scatter2D / Scatter3D / Table) references
+/// `app_state.mcdm_cache` with this key so that results computed for the same
+/// settings (method, weight mode, weights, v value) can be shared and reused.
 ///
-/// 重みと v は連続値のため、量子化（小数 6 桁）して Hash/Eq 可能にする。
+/// Weights and v are continuous values, so they are quantized (6 decimal places)
+/// to make the key Hash/Eq-able.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct McdmCacheKey {
     pub method: McdmMethod,
@@ -30,7 +31,7 @@ impl McdmCacheKey {
         (x * 1_000_000.0).round() as i64
     }
 
-    /// 正規化済みの重みからキーを構築する。
+    /// Builds a key from already-normalized weights.
     fn from_normalized(
         method: McdmMethod,
         weight_mode: WeightMode,
@@ -38,7 +39,7 @@ impl McdmCacheKey {
         v: f64,
     ) -> Self {
         let weights_q = weights.iter().map(|&w| Self::quantize(w)).collect();
-        // v 値は VIKOR でのみ意味を持つため、それ以外は 0 に正規化する。
+        // v is only meaningful for VIKOR, so normalize it to 0 for other methods.
         let v_q = if method == McdmMethod::Vikor {
             Self::quantize(v)
         } else {
@@ -52,7 +53,7 @@ impl McdmCacheKey {
         }
     }
 
-    /// 現在の設定（未正規化の重み）からキーを構築する。
+    /// Builds a key from the current settings (unnormalized weights).
     pub fn from_settings(
         method: McdmMethod,
         weight_mode: WeightMode,
@@ -62,13 +63,13 @@ impl McdmCacheKey {
         Self::from_normalized(method, weight_mode, &normalize_weights(weights), v)
     }
 
-    /// 計算リクエスト（重みは正規化済み）からキーを構築する。
+    /// Builds a key from a compute request (weights already normalized).
     pub fn from_request(req: &McdmComputeRequest, weight_mode: WeightMode) -> Self {
         Self::from_normalized(req.method, weight_mode, &req.weights, req.v)
     }
 }
 
-/// 上位N件表示切替
+/// Top-N display toggle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum McdmTopN {
     Top5,
@@ -104,10 +105,11 @@ impl McdmTopN {
     }
 }
 
-/// MCDM チャート共通の設定・実行状態。
-/// 手法 / 重みモード / 重み / v 値 / Top N と、計算の実行状態（computing / pending）を持つ。
-/// Ranking / Scatter2D / Scatter3D / Table の各チャートがそれぞれ 1 つ保持し、
-/// `cache_key()` で `app_state.mcdm_cache` を参照することで独立した結果を表示する。
+/// Shared configuration and execution state for MCDM charts.
+/// Holds method / weight mode / weights / v value / Top N, plus compute execution
+/// state (computing / pending). Each of the Ranking / Scatter2D / Scatter3D / Table
+/// charts keeps its own instance and displays independent results by referencing
+/// `app_state.mcdm_cache` via `cache_key()`.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct McdmControls {
@@ -142,30 +144,31 @@ impl Default for McdmControls {
     }
 }
 
-/// MCDMランキングバーチャートのUI状態
+/// UI state for the MCDM ranking bar chart.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct McdmRankChart {
     pub controls: McdmControls,
 }
 
-/// MCDMランキングテーブルのUI状態
+/// UI state for the MCDM ranking table.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct McdmTable {
     pub controls: McdmControls,
 }
 
-/// 正規化済み重みを返す（`tunny_core::mcdm::normalize_weights` に委譲）。
+/// Returns normalized weights (delegates to `tunny_core::mcdm::normalize_weights`).
 pub fn normalize_weights(weights: &[f64]) -> Vec<f64> {
     tunny_core::mcdm::normalize_weights(weights)
 }
 
 impl McdmControls {
-    /// グローバル widget の計算実行状態と共有出力を取り込む。
-    /// 計算結果は `app_state.mcdm_cache` に集約されるため、computing フラグ・
-    /// エントロピー重み・エントロピー詳細などの実行状態のみをキャンバスの各アイテムに反映する。
-    /// 手法・WeightMode・Top N・v 値などの UI 設定はアイテム固有なので維持する。
+    /// Adopts the compute execution state and shared output from the global widget.
+    /// Since compute results are aggregated in `app_state.mcdm_cache`, only execution
+    /// state such as the computing flag, entropy weights, and entropy details is
+    /// propagated to each canvas item. UI settings such as method, WeightMode, Top N,
+    /// and v value are item-specific and left untouched.
     pub fn adopt_compute_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.pending_entropy = src.pending_entropy;
@@ -173,15 +176,15 @@ impl McdmControls {
         self.entropy_result = src.entropy_result.clone();
     }
 
-    /// 現在の設定に対応するキャッシュキーを返す。
+    /// Returns the cache key corresponding to the current settings.
     pub fn cache_key(&self) -> McdmCacheKey {
         McdmCacheKey::from_settings(self.method, self.weight_mode, &self.weights, self.v_param)
     }
 
-    /// 設定 UI（手法 / 重みモード / Top N / Run / 重み / エントロピー詳細）を描画する。
-    /// 目的が無い場合は false を返し、呼び出し側は以降の描画をスキップする。
-    /// `id_prefix` で egui の ID 名前空間を分け、同一画面に複数の MCDM チャートを
-    /// 置いてもコントロールの ID が衝突しないようにする。
+    /// Draws the settings UI (method / weight mode / Top N / Run / weights / entropy details).
+    /// Returns false when there are no objectives, in which case the caller should skip
+    /// the rest of the rendering. `id_prefix` separates the egui ID namespace so that
+    /// control IDs don't collide when multiple MCDM charts are placed on the same screen.
     pub fn show_controls(
         &mut self,
         ui: &mut egui::Ui,
@@ -201,7 +204,7 @@ impl McdmControls {
         }
 
         ui.push_id(id_prefix, |ui| {
-            // 手法セレクタ + WeightMode + Top N + Runボタン + spinner
+            // Method selector + WeightMode + Top N + Run button + spinner
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("mcdm_method_combo")
                     .selected_text(self.method.label())
@@ -211,7 +214,7 @@ impl McdmControls {
                         }
                     });
 
-                // WeightMode セレクタ（手法セレクタの横）
+                // WeightMode selector (next to the method selector)
                 let prev_weight_mode = self.weight_mode;
                 egui::ComboBox::from_id_salt("mcdm_weight_mode_combo")
                     .selected_text(format!("Weight: {}", self.weight_mode.label()))
@@ -221,7 +224,7 @@ impl McdmControls {
                         }
                     });
 
-                // WeightMode 切替ロジック
+                // WeightMode switch logic
                 if prev_weight_mode != self.weight_mode {
                     self.pending_entropy = self.weight_mode == WeightMode::Entropy;
                 }
@@ -249,7 +252,7 @@ impl McdmControls {
 
             ui.separator();
 
-            // 重みスライダー
+            // Weight sliders
             ui.collapsing("Weights", |ui| {
                 let normalized = normalize_weights(&self.weights);
                 let is_entropy = self.weight_mode == WeightMode::Entropy;
@@ -257,7 +260,7 @@ impl McdmControls {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(obj_name.as_str()).strong());
                         if is_entropy {
-                            // Entropy mode: 読み取り専用スライダー
+                            // Entropy mode: read-only slider
                             let mut w = self.weights[i];
                             ui.add_enabled(
                                 false,
@@ -287,7 +290,7 @@ impl McdmControls {
                 }
             });
 
-            // エントロピー結果テーブル
+            // Entropy results table
             if self.weight_mode == WeightMode::Entropy {
                 if let Some(ref entropy) = self.entropy_result {
                     ui.collapsing("Entropy Details", |ui| {
@@ -408,7 +411,7 @@ impl McdmRankChart {
                 let bar_max_width = (available_width / 2.0).max(25.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_i[rank] as usize;
-                    // 隣の incomparable_counts と同様に防御的に添字参照する。
+                    // Access defensively via index, same as the neighboring incomparable_counts.
                     let phi_plus = r.phi_plus.get(idx).copied().unwrap_or(0.0);
                     let phi_minus = r.phi_minus.get(idx).copied().unwrap_or(0.0);
                     ui.horizontal(|ui| {
@@ -589,9 +592,9 @@ impl McdmTable {
         self.controls.adopt_compute_state(&src.controls);
     }
 
-    /// MCDM ランキングテーブルを描画する。
-    /// `pinned` は現在のピン留め trial_id。ピンボタンが押された行の trial_id を返す
-    /// （呼び出し側が `AppState::toggle_pinned_trial` を適用する）。
+    /// Draws the MCDM ranking table.
+    /// `pinned` is the set of currently pinned trial_ids. Returns the trial_id of the
+    /// row whose pin button was clicked (the caller applies `AppState::toggle_pinned_trial`).
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -632,10 +635,10 @@ impl McdmTable {
 
         let mut pin_toggled: Option<u32> = None;
 
-        // 各変数・目的を 1 列ずつに展開し、横スクロール可能にする
-        // （Cluster Table と同形式）。
+        // Expand each variable/objective into its own column, allowing horizontal scroll
+        // (same layout as the Cluster Table).
         egui::ScrollArea::horizontal().show(ui, |ui| {
-            // ストライプの色を強調して偶数/奇数行を見分けやすくする。
+            // Strengthen the stripe color to make it easier to distinguish even/odd rows.
             ui.visuals_mut().faint_bg_color = crate::theme::TABLE_STRIPE_BG();
             TableBuilder::new(ui)
                 .striped(true)
@@ -644,8 +647,8 @@ impl McdmTable {
                 .column(Column::initial(50.0).at_least(40.0)) // Rank
                 .column(Column::initial(70.0).at_least(50.0)) // Trial
                 .column(Column::initial(80.0).at_least(50.0)) // Score
-                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // 各目的
-                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // 各変数
+                .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // each objective
+                .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // each variable
                 .header(20.0, |mut header| {
                     header.col(|ui| {
                         ui.strong("📌");
@@ -708,14 +711,14 @@ impl McdmTable {
     }
 }
 
-/// ランキング上位N件の共通抽出データ
+/// Common extracted data for the top-N ranking entries.
 struct RankingEntry {
     rank: usize,
     trial_idx: usize,
     score: f64,
 }
 
-/// McdmResultから上位N件のランキングエントリを生成する
+/// Generates the top-N ranking entries from a McdmResult.
 fn enumerate_ranked(result: &McdmResult, top_n: usize) -> Vec<RankingEntry> {
     let scores = result.primary_scores();
     let ranked = result.ranked_indices();
@@ -734,19 +737,19 @@ fn enumerate_ranked(result: &McdmResult, top_n: usize) -> Vec<RankingEntry> {
         .collect()
 }
 
-/// テーブル行データ
+/// Table row data.
 pub struct RankingRow {
     pub rank: usize,
-    /// ピン留め・ハイライト用のグローバル trial_id。
+    /// Global trial_id used for pinning/highlighting.
     pub trial_id: u32,
-    /// 表示用の Optuna trial.number（Study 内 0 始まりの作成順番号）。
+    /// Optuna trial.number for display (0-based creation order within the Study).
     pub trial_number: u32,
     pub score: f64,
     pub parameters: Vec<f64>,
     pub objectives: Vec<f64>,
 }
 
-/// McdmResultから上位N件のテーブル行データを生成する
+/// Generates the top-N table row data from a McdmResult.
 pub fn build_ranking_rows(
     result: &McdmResult,
     view: &StudyView,
@@ -774,8 +777,8 @@ pub fn build_ranking_rows(
                     .get(e.trial_idx)
                     .copied()
                     .unwrap_or(e.trial_idx as u32),
-                // 行インデックスではなく Optuna の trial.number を表示する
-                // （pruned/failed を含む Study では両者がずれる）。
+                // Display the Optuna trial.number rather than the row index
+                // (they diverge in a Study that includes pruned/failed trials).
                 trial_number: view
                     .df
                     .get_trial_number(e.trial_idx)
@@ -817,10 +820,10 @@ mod tests {
 
         item.adopt_compute_state(&global);
 
-        // 実行状態・共有出力は取り込まれる。
+        // Execution state and shared output are adopted.
         assert!(!item.controls.computing);
         assert_eq!(item.controls.weights, vec![0.25, 0.75]);
-        // UI 設定はアイテム固有で維持される。
+        // UI settings remain item-specific.
         assert_eq!(item.controls.method, McdmMethod::Vikor);
         assert_eq!(item.controls.top_n, McdmTopN::Top20);
         assert_eq!(item.controls.v_param, 0.7);
@@ -1029,8 +1032,9 @@ mod tests {
 
     #[test]
     fn build_ranking_rows_distinguishes_trial_id_and_number() {
-        // trial_id（グローバル、ピン留め用）と trial.number（表示用）がずれる
-        // Study（pruned/failed を含む場合など）で両方が正しく引かれること。
+        // Verify both are resolved correctly for a Study where trial_id (global, used
+        // for pinning) and trial.number (for display) diverge (e.g. when it includes
+        // pruned/failed trials).
         let core_rows: Vec<CoreRow> = (0..3)
             .map(|i| CoreRow {
                 trial_id: i as u32 + 10,
@@ -1048,7 +1052,7 @@ mod tests {
 
         let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![2, 0, 1]);
         let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
-        // rank 1 は trial_idx 2 → trial_id 12 / number 102
+        // rank 1 is trial_idx 2 -> trial_id 12 / number 102
         assert_eq!(ranking[0].trial_id, 12);
         assert_eq!(ranking[0].trial_number, 102);
     }

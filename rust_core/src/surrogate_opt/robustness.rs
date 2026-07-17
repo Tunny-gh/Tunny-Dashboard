@@ -1,45 +1,50 @@
-//! ロバスト性解析: 学習済みサロゲート上での入力ノイズのモンテカルロ伝播。
+//! Robustness analysis: Monte Carlo propagation of input noise through a
+//! trained surrogate.
 //!
-//! 候補設計点の周りに入力ノイズ（1σ = 相対ノイズレベル × 各パラメータの
-//! 正規化箱レンジ、分布は正規 / 一様 / Weibull から選択）を与え、サロゲートの
-//! 予測を通した出力分布・制約充足率・仕様限界に対する成功確率（σ レベル・
-//! Cpk 換算付き）を推定する。理論的背景は
-//! theory/{en,ja}/optimization/robustness-analysis.md。
+//! Applies input noise around a candidate design point (1σ = relative noise
+//! level × each parameter's normalized box range, with the distribution
+//! chosen from normal / uniform / Weibull) and estimates, via the surrogate's
+//! predictions, the output distribution, constraint satisfaction rate, and
+//! success probability against spec limits (with sigma-level and Cpk
+//! conversion). Theoretical background is in
+//! theory/{en,ja}/optimization/robustness-analysis.md.
 
 use super::feasibility;
 use super::TrainedSurrogate;
 use crate::math::rng::SeededRng;
 use crate::math::special::{ln_gamma, norm_ppf};
 
-/// 入力ノイズの分布形。
+/// Distribution shape of the input noise.
 ///
-/// いずれも **平均 0・分散 1 に標準化した変量**を `1σ = relative_sigma × レンジ`
-/// でスケールして中心に加える。したがって分布を切り替えても入力ノイズの
-/// 標準偏差は同一で、形状（裾・歪み）だけが変わり、比較が公平になる。
+/// All variants sample a **variate standardized to mean 0, variance 1**, which
+/// is then scaled by `1σ = relative_sigma × range` and added to the center.
+/// So switching distributions keeps the input noise standard deviation
+/// identical; only the shape (tails / skew) changes, keeping comparisons fair.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NoiseDistribution {
-    /// 正規分布 N(0, 1)。
+    /// Normal distribution N(0, 1).
     Normal,
-    /// 一様分布 U(-√3, √3)（分散 1）。
+    /// Uniform distribution U(-√3, √3) (variance 1).
     Uniform,
-    /// Weibull 分布（形状 k）を平均 0・分散 1 に標準化したもの。
-    /// k < 3.6 で右に歪み、k ≈ 3.6 でほぼ対称になる。素材強度や寿命など
-    /// 歪んだ入力不確かさのモデル化に使う。
+    /// Weibull distribution (shape k) standardized to mean 0, variance 1.
+    /// Skews right for k < 3.6 and becomes nearly symmetric around k ≈ 3.6.
+    /// Used to model skewed input uncertainty such as material strength or
+    /// fatigue life.
     Weibull {
-        /// 形状パラメータ k（> 0）。
+        /// Shape parameter k (> 0).
         shape: f64,
     },
 }
 
 impl NoiseDistribution {
-    /// 平均 0・分散 1 の変量を 1 つサンプルする。
+    /// Samples one variate with mean 0, variance 1.
     fn sample_standardized(&self, rng: &mut SeededRng) -> f64 {
         match *self {
             NoiseDistribution::Normal => rng.next_gaussian(),
             NoiseDistribution::Uniform => (rng.next_f64() * 2.0 - 1.0) * 3.0_f64.sqrt(),
             NoiseDistribution::Weibull { shape } => {
-                // 逆関数法: W = (-ln(1-u))^(1/k)（λ = 1）。
-                // u = 1 は ln(0) になるため next_f64 の [0,1) をそのまま使う。
+                // Inverse transform sampling: W = (-ln(1-u))^(1/k) (λ = 1).
+                // u = 1 would give ln(0), so we use next_f64's [0,1) range as-is.
                 let u = rng.next_f64();
                 let w = (-(1.0 - u).ln()).powf(1.0 / shape);
                 let (mean, std) = weibull_mean_std(shape);
@@ -48,10 +53,11 @@ impl NoiseDistribution {
         }
     }
 
-    /// 分布仕様の妥当性検証（Weibull の形状パラメータ範囲）。
+    /// Validates the distribution spec (range of the Weibull shape parameter).
     fn validate(&self) -> Result<(), String> {
         if let NoiseDistribution::Weibull { shape } = *self {
-            // k が極端に小さいと分散が発散気味になり標準化が数値的に破綻する。
+            // If k is extremely small, the variance tends to diverge and
+            // standardization breaks down numerically.
             if !(shape.is_finite() && (0.2..=20.0).contains(&shape)) {
                 return Err(format!(
                     "Weibull shape must be finite and within [0.2, 20], got {shape}"
@@ -62,7 +68,8 @@ impl NoiseDistribution {
     }
 }
 
-/// 標準 Weibull（λ = 1）の平均と標準偏差: μ = Γ(1+1/k)、σ² = Γ(1+2/k) − μ²。
+/// Mean and standard deviation of the standard Weibull (λ = 1):
+/// μ = Γ(1+1/k), σ² = Γ(1+2/k) − μ².
 fn weibull_mean_std(shape: f64) -> (f64, f64) {
     let mean = ln_gamma(1.0 + 1.0 / shape).exp();
     let m2 = ln_gamma(1.0 + 2.0 / shape).exp();
@@ -70,67 +77,80 @@ fn weibull_mean_std(shape: f64) -> (f64, f64) {
     (mean, var.sqrt())
 }
 
-/// ロバスト性解析の入力仕様。
+/// Input spec for robustness analysis.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RobustnessSpec {
-    /// 候補設計点（元単位、`TrainedSurrogate::param_names` と同順）。
+    /// Candidate design point (original units, same order as
+    /// `TrainedSurrogate::param_names`).
     pub center: Vec<f64>,
-    /// 入力ノイズの 1σ を各パラメータのレンジに対する割合で指定する（例: 0.02 = ±2%）。
+    /// 1σ of the input noise, specified as a fraction of each parameter's
+    /// range (e.g., 0.02 = ±2%).
     pub relative_sigma: f64,
-    /// 入力ノイズの分布形（全パラメータ共通）。
+    /// Distribution shape of the input noise (shared across all parameters).
     pub distribution: NoiseDistribution,
-    /// モンテカルロサンプル数。
+    /// Number of Monte Carlo samples.
     pub n_samples: usize,
-    /// true なら GP 事後分散（認識論的不確かさ）もサンプリングに含める。
-    /// 分散を提供しないモデル（Ridge 等）では無視される。
+    /// If true, also includes GP posterior variance (epistemic uncertainty)
+    /// in the sampling. Ignored for models that don't provide variance
+    /// (e.g., Ridge).
     pub include_epistemic: bool,
-    /// 乱数シード（同一入力で再現可能な結果を得る）。
+    /// Random seed (for reproducible results given the same inputs).
     pub seed: u64,
-    /// 仕様下限（LSL、目的の元単位）。出力がこの値未満のサンプルは不良と数える。
+    /// Lower spec limit (LSL, original units of the objective). Samples below
+    /// this value count as failures.
     pub lower_spec: Option<f64>,
-    /// 仕様上限（USL、目的の元単位）。出力がこの値超のサンプルは不良と数える。
+    /// Upper spec limit (USL, original units of the objective). Samples above
+    /// this value count as failures.
     pub upper_spec: Option<f64>,
 }
 
-/// ロバスト性解析の結果（すべて元単位）。
+/// Result of robustness analysis (all values in original units).
 #[derive(Debug, Clone)]
 pub struct RobustnessResult {
-    /// 候補点そのものでのサロゲート予測値。
+    /// Surrogate-predicted value at the candidate point itself.
     pub nominal: f64,
-    /// 出力サンプルの経験平均。
+    /// Empirical mean of the output samples.
     pub mean: f64,
-    /// 出力サンプルの標準偏差（母集団分散の平方根）。
+    /// Standard deviation of the output samples (square root of the
+    /// population variance).
     pub std: f64,
-    /// 5 パーセンタイル。
+    /// 5th percentile.
     pub p05: f64,
-    /// 中央値。
+    /// Median.
     pub median: f64,
-    /// 95 パーセンタイル。
+    /// 95th percentile.
     pub p95: f64,
-    /// ヒストグラム描画用の出力サンプル全件。
+    /// All output samples, for histogram rendering.
     pub samples: Vec<f64>,
-    /// 制約充足確率の推定値（制約サロゲートがない場合は `None`）。
-    /// 各サンプル点での `P(全制約 ≤ 0)` をサンプル平均したもの。
+    /// Estimated constraint satisfaction probability (`None` if there are no
+    /// constraint surrogates). The sample average of `P(all constraints ≤ 0)`
+    /// at each sample point.
     pub feasibility_rate: Option<f64>,
-    /// いずれかの次元で宣言レンジ境界にクリップされたサンプルの割合。
-    /// 大きい場合、報告された分布は「箱の内側に留まる」条件付き分布である。
+    /// Fraction of samples clipped to the declared range boundary in any
+    /// dimension. If large, the reported distribution is conditional on
+    /// "staying inside the box."
     pub clipped_fraction: f64,
-    /// 仕様限界（LSL/USL）内に収まったサンプルの割合。限界未指定なら `None`。
+    /// Fraction of samples that fell within the spec limits (LSL/USL).
+    /// `None` if no limits are specified.
     pub success_rate: Option<f64>,
-    /// 成功確率の片側正規換算 z = Φ⁻¹(success_rate)。
-    /// 経験確率は [1/(2n), 1−1/(2n)] にクランプするため有限値になる
-    /// （全数成功でも「n サンプルで観測できた範囲」以上は主張しない）。
+    /// One-sided normal-equivalent z-score of the success probability,
+    /// z = Φ⁻¹(success_rate).
+    /// The empirical probability is clamped to [1/(2n), 1−1/(2n)] so this is
+    /// always finite (even with all samples passing, we don't claim more than
+    /// what "n samples could have observed").
     pub sigma_level: Option<f64>,
-    /// 工程能力指数 Cpk = min((USL−μ)/3σ, (μ−LSL)/3σ)（指定側のみ）。
-    /// 出力分布の標準偏差が 0 の場合は `None`。
+    /// Process capability index Cpk = min((USL−μ)/3σ, (μ−LSL)/3σ) (only the
+    /// specified side(s)). `None` if the output distribution's standard
+    /// deviation is 0.
     pub cpk: Option<f64>,
 }
 
-/// 学習済みサロゲート上で入力ノイズのモンテカルロ伝播を実行する。
+/// Runs Monte Carlo propagation of input noise through a trained surrogate.
 ///
-/// `spec.center` の次元数はサロゲートのパラメータ数と一致しなければならない。
-/// ノイズの 1σ は正規化箱（宣言レンジ、なければ観測レンジ）の幅に
-/// `spec.relative_sigma` を掛けた値で、サンプルは箱内にクリップされる。
+/// `spec.center` must have the same number of dimensions as the surrogate's
+/// parameters. The noise 1σ is `spec.relative_sigma` times the width of the
+/// normalized box (declared range, or observed range if none is declared),
+/// and samples are clipped to stay within the box.
 pub fn robustness_analysis(
     trained: &TrainedSurrogate,
     spec: &RobustnessSpec,
@@ -170,7 +190,7 @@ pub fn robustness_analysis(
     let mut clipped_count = 0usize;
 
     for _ in 0..spec.n_samples {
-        // 元単位でノイズを与え、箱（col_stats の (min, range)）内にクリップする。
+        // Apply noise in original units, clipping to the box (col_stats' (min, range)).
         let mut x = Vec::with_capacity(n_dims);
         let mut clipped = false;
         for (d, &(low, range)) in surrogate.col_stats.iter().enumerate() {
@@ -200,9 +220,10 @@ pub fn robustness_analysis(
         }
     }
 
-    // フェイルクローズ: 非有限の予測が混入すると mean/std/percentile と
-    // 成功率がすべて静かに歪む（NaN は仕様判定の両側で false になり
-    // 分母にだけ残る）ため、明示的にエラーにする。
+    // Fail closed: if non-finite predictions sneak in, mean/std/percentile and
+    // the success rate would all be silently skewed (NaN evaluates false on
+    // both sides of the spec check, so it only survives in the denominator),
+    // so we return an explicit error instead.
     if samples.iter().any(|y| !y.is_finite()) {
         return Err(
             "surrogate produced non-finite predictions around this center; \
@@ -238,14 +259,17 @@ pub fn robustness_analysis(
     })
 }
 
-/// 仕様限界に対する成功確率・σ レベル・Cpk を計算する。
+/// Computes the success probability, sigma level, and Cpk against spec limits.
 ///
-/// - `success_rate`: LSL ≤ y ≤ USL のサンプル割合（指定側のみ判定）。
-/// - `sigma_level`: Φ⁻¹(成功確率)。経験確率は [1/(2n), 1−1/(2n)] にクランプ
-///   するため、全数成功でも n に応じた有限値（例 n=1024 → 約 3.3σ）に留まる。
-/// - `cpk`: min((USL−μ)/3σ, (μ−LSL)/3σ)。指定された側のみで min を取る。
+/// - `success_rate`: fraction of samples with LSL ≤ y ≤ USL (only the
+///   specified side(s) are checked).
+/// - `sigma_level`: Φ⁻¹(success probability). The empirical probability is
+///   clamped to [1/(2n), 1−1/(2n)], so even with all samples passing it stays
+///   at a finite value determined by n (e.g., n=1024 → about 3.3σ).
+/// - `cpk`: min((USL−μ)/3σ, (μ−LSL)/3σ), taking the min over only the
+///   specified side(s).
 ///
-/// 限界が両方 `None` なら 3 値とも `None`。
+/// If both limits are `None`, all three return values are `None`.
 fn spec_metrics(
     samples: &[f64],
     mean: f64,
@@ -264,7 +288,8 @@ fn spec_metrics(
         .count() as f64;
     let rate = ok / n;
 
-    // 経験確率のクランプ（0/1 で z が発散するのを防ぎ、n の情報量を保つ）。
+    // Clamp the empirical probability (prevents z from diverging at 0/1 while
+    // preserving the information content of n).
     let half = 1.0 / (2.0 * n);
     let clamped = rate.clamp(half, 1.0 - half);
     let sigma_level = norm_ppf(clamped);
@@ -291,7 +316,8 @@ mod tests {
     use super::*;
     use crate::surrogate_opt::{ConstraintData, SurrogateModelKind};
 
-    /// 2 変数の単純な訓練データでサロゲートを学習する（結線検証用の最小構成）。
+    /// Trains a surrogate on simple two-variable training data (minimal setup
+    /// for wiring verification).
     fn train_simple(with_constraint: bool) -> TrainedSurrogate {
         let n = 20;
         let x_matrix: Vec<Vec<f64>> = (0..n)
@@ -302,7 +328,7 @@ mod tests {
             .collect();
         let y: Vec<f64> = x_matrix.iter().map(|r| r[0] * 2.0 + r[1]).collect();
         let constraints = if with_constraint {
-            // x0 - 5 <= 0 相当の線形制約値
+            // Linear constraint value equivalent to x0 - 5 <= 0
             vec![ConstraintData {
                 name: "c0".to_string(),
                 values: x_matrix.iter().map(|r| r[0] - 5.0).collect(),
@@ -370,7 +396,7 @@ mod tests {
     #[test]
     fn feasibility_rate_present_with_constraints() {
         let trained = train_simple(true);
-        // 制約 x0 - 5 <= 0: x0=1 は余裕で充足、x0=9 はほぼ違反
+        // Constraint x0 - 5 <= 0: x0=1 comfortably satisfies it, x0=9 nearly violates it
         let feas = robustness_analysis(&trained, &spec(vec![1.0, 0.0])).unwrap();
         let infeas = robustness_analysis(&trained, &spec(vec![9.0, 0.0])).unwrap();
         let f = feas.feasibility_rate.expect("Some with constraints");
@@ -382,7 +408,7 @@ mod tests {
     #[test]
     fn center_near_bound_reports_clipping() {
         let trained = train_simple(false);
-        let mut s = spec(vec![0.0, 0.0]); // x0 が下限ちょうど
+        let mut s = spec(vec![0.0, 0.0]); // x0 is exactly at the lower bound
         s.relative_sigma = 0.10;
         let r = robustness_analysis(&trained, &s).unwrap();
         assert!(r.clipped_fraction > 0.0, "half the noise should clip");
@@ -397,7 +423,7 @@ mod tests {
 
     #[test]
     fn surface_slice_at_returns_expected_grid() {
-        // train_simple を再利用するためここに置く（surface_slice_at の結線確認）。
+        // Placed here to reuse train_simple (wiring check for surface_slice_at).
         let trained = train_simple(false);
         let slice =
             crate::surrogate_opt::surface_slice_at(&trained, &[5.0, 0.0], 0, 1, 10).unwrap();
@@ -405,7 +431,7 @@ mod tests {
         assert_eq!(slice.y_values.len(), 10);
         assert_eq!(slice.z_values.len(), 10);
         assert!(slice.z_values.iter().all(|row| row.len() == 10));
-        // 次元不一致・同一軸は None
+        // Dimension mismatch / same axis -> None
         assert!(crate::surrogate_opt::surface_slice_at(&trained, &[5.0], 0, 1, 10).is_none());
         assert!(crate::surrogate_opt::surface_slice_at(&trained, &[5.0, 0.0], 0, 0, 10).is_none());
     }
@@ -420,13 +446,14 @@ mod tests {
     #[test]
     fn success_rate_and_sigma_level_with_limits() {
         let trained = train_simple(false);
-        // y = 2*x0 + x1、center (5,0) → nominal ≈ 10。
-        // 上限を分布のはるか上に置けば全数成功、中央値に置けば約半数成功。
+        // y = 2*x0 + x1, center (5,0) → nominal ≈ 10.
+        // Setting the upper limit far above the distribution gives all successes;
+        // at the median it gives about half.
         let mut s = spec(vec![5.0, 0.0]);
         s.upper_spec = Some(1e6);
         let all_ok = robustness_analysis(&trained, &s).unwrap();
         assert_eq!(all_ok.success_rate, Some(1.0));
-        // 全数成功でもクランプにより有限（n=256 → Φ⁻¹(1−1/512) ≈ 2.88）。
+        // Even with all successes, clamping keeps it finite (n=256 → Φ⁻¹(1−1/512) ≈ 2.88).
         let z = all_ok.sigma_level.unwrap();
         assert!(z > 2.5 && z < 3.2, "z = {z}");
         assert!(all_ok.cpk.unwrap() > 10.0, "limit far away -> huge Cpk");
@@ -444,13 +471,14 @@ mod tests {
         let trained = train_simple(false);
         let base = robustness_analysis(&trained, &spec(vec![5.0, 0.0])).unwrap();
         let mut s = spec(vec![5.0, 0.0]);
-        // 平均を挟む2側限界。上側の方が近い → Cpk は上側で決まる。
+        // Two-sided limits straddling the mean. The upper side is closer → Cpk is
+        // determined by the upper side.
         s.lower_spec = Some(base.mean - 10.0 * base.std);
         s.upper_spec = Some(base.mean + 2.0 * base.std);
         let r = robustness_analysis(&trained, &s).unwrap();
         let cpk = r.cpk.unwrap();
         assert!((cpk - 2.0 / 3.0).abs() < 0.05, "cpk = {cpk} (≈ 2σ/3σ)");
-        // LSL >= USL は入力エラー。
+        // LSL >= USL is an input error.
         let mut bad = spec(vec![5.0, 0.0]);
         bad.lower_spec = Some(1.0);
         bad.upper_spec = Some(0.0);
@@ -470,8 +498,9 @@ mod tests {
         let uniform = mk(NoiseDistribution::Uniform);
         let weibull = mk(NoiseDistribution::Weibull { shape: 1.5 });
 
-        // 標準化により出力分布の std はどの分布でもほぼ同じ
-        // （y は線形 → 出力 std = |係数| ノルム × 入力 std）。
+        // Because of standardization, the output distribution's std is nearly
+        // identical across distributions (y is linear → output std = |coefficient|
+        // norm × input std).
         let ratio_u = uniform.std / normal.std;
         let ratio_w = weibull.std / normal.std;
         assert!((0.9..=1.1).contains(&ratio_u), "uniform ratio = {ratio_u}");
@@ -480,7 +509,7 @@ mod tests {
             "weibull ratio = {ratio_w}"
         );
 
-        // 一様分布は裾が有限: 正規より極値が小さい。
+        // Uniform distribution has finite tails: smaller extreme values than normal.
         let max_dev_n = normal
             .samples
             .iter()
@@ -506,7 +535,8 @@ mod tests {
 
     #[test]
     fn weibull_standardization_is_zero_mean_unit_std() {
-        // sample_standardized の標準化検証（サロゲート不要の純サンプリング）。
+        // Verifies the standardization of sample_standardized (pure sampling,
+        // no surrogate required).
         for shape in [0.8, 1.5, 3.6, 8.0] {
             let dist = NoiseDistribution::Weibull { shape };
             let mut rng = SeededRng::from_seed(7);
@@ -527,7 +557,7 @@ mod tests {
 
     #[test]
     fn percentile_linear_interpolation() {
-        // 分位点は共通の statistics::quantile（NumPy type-7）へ委譲する。
+        // Percentile computation delegates to the shared statistics::quantile (NumPy type-7).
         let sorted = vec![0.0, 1.0, 2.0, 3.0];
         assert_eq!(crate::statistics::quantile(&sorted, 0.5), 1.5);
         assert_eq!(crate::statistics::quantile(&sorted, 0.0), 0.0);

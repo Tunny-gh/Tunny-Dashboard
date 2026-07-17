@@ -45,10 +45,11 @@ impl Drop for LgbmDataset {
 
 pub struct LgbmBooster(pub(crate) BoosterHandle);
 
-// SAFETY: LightGBM の Booster ハンドルはスレッド固有状態（TLS 等）を持たないため、
-// 所有権ごと別スレッドへ移動するのは安全。
-// Sync は実装しない: 同一ハンドルへの並行 predict は LightGBM C API では
-// 非スレッドセーフのため、共有が必要な場合は呼び出し側で Mutex 等により直列化する。
+// SAFETY: LightGBM's Booster handle holds no thread-specific state (TLS,
+// etc.), so moving ownership to another thread is safe.
+// Sync is not implemented: concurrent predict calls on the same handle are
+// not thread-safe in the LightGBM C API, so if sharing is required, the
+// caller must serialize access with a Mutex or similar.
 unsafe impl Send for LgbmBooster {}
 
 impl Drop for LgbmBooster {

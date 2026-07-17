@@ -1,18 +1,19 @@
-//! ヒストグラムへの分布あてはめ（最尤推定）。
+//! Distribution fitting for histograms (maximum likelihood estimation).
 //!
-//! 正規・対数正規・ワイブルの 3 分布を MLE でフィットし、AIC で比較する。
-//! 理論的背景は theory/{en,ja}/statistics/distribution-fitting.md。
+//! Fits Normal, Log-normal, and Weibull distributions via MLE and compares
+//! them using AIC. See theory/{en,ja}/statistics/distribution-fitting.md
+//! for the theoretical background.
 
 use std::f64::consts::{PI, TAU};
 
-/// あてはめ対象の分布族。
+/// Distribution family to fit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FitDistribution {
-    /// 正規分布 N(μ, σ²)。
+    /// Normal distribution N(μ, σ²).
     Normal,
-    /// 対数正規分布（ln x が正規）。正の値のみに適用可能。
+    /// Log-normal distribution (ln x is normal). Applicable only to positive values.
     LogNormal,
-    /// ワイブル分布（形状 k、尺度 λ）。正の値のみに適用可能。
+    /// Weibull distribution (shape k, scale λ). Applicable only to positive values.
     Weibull,
 }
 
@@ -26,20 +27,22 @@ impl FitDistribution {
     }
 }
 
-/// フィット結果。`params` の意味は分布ごとに異なる:
-/// Normal = (μ, σ)、LogNormal = (μ_ln, σ_ln)、Weibull = (k 形状, λ 尺度)。
+/// Fit result. The meaning of `params` depends on the distribution:
+/// Normal = (μ, σ), LogNormal = (μ_ln, σ_ln), Weibull = (k shape, λ scale).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FittedDistribution {
     pub dist: FitDistribution,
     pub params: (f64, f64),
     pub log_likelihood: f64,
-    /// AIC = 2·2 − 2 ln L（全分布パラメータ数 2 のため比較は実質 ln L）。
+    /// AIC = 2·2 − 2 ln L (every distribution here has 2 parameters, so
+    /// comparisons effectively reduce to comparing ln L).
     pub aic: f64,
 }
 
 impl FittedDistribution {
-    /// 確率密度関数の値。ヒストグラム重ね描き時は呼び出し側が
-    /// `n × ビン幅` を掛けてカウント尺度へ変換する。
+    /// Value of the probability density function. When overlaying on a
+    /// histogram, the caller should multiply by `n × bin width` to convert
+    /// to the count scale.
     pub fn pdf(&self, x: f64) -> f64 {
         let (a, b) = self.params;
         match self.dist {
@@ -65,7 +68,7 @@ impl FittedDistribution {
         }
     }
 
-    /// 表示用のパラメータ文字列（例: "μ=1.23, σ=0.45"）。
+    /// Parameter string for display (e.g. "μ=1.23, σ=0.45").
     pub fn param_text(&self) -> String {
         let (a, b) = self.params;
         match self.dist {
@@ -76,8 +79,9 @@ impl FittedDistribution {
     }
 }
 
-/// 指定した分布族を有限値サンプルへ MLE フィットする。
-/// 適用不能（サンプル不足・非正値を含む・退化）な場合は `None`。
+/// Fits the given distribution family to a sample of finite values via MLE.
+/// Returns `None` when not applicable (too few samples, contains non-positive
+/// values, or degenerate).
 pub fn fit_distribution(values: &[f64], dist: FitDistribution) -> Option<FittedDistribution> {
     let xs: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
     let n = xs.len();
@@ -94,7 +98,7 @@ pub fn fit_distribution(values: &[f64], dist: FitDistribution) -> Option<FittedD
                 return None;
             }
             let sigma = var.sqrt();
-            // MLE の σ² を代入した閉形式: ln L = -n/2 (ln 2πσ² + 1)
+            // Closed form after substituting the MLE σ²: ln L = -n/2 (ln 2πσ² + 1)
             let ll = -0.5 * nf * ((2.0 * PI * var).ln() + 1.0);
             ((mean, sigma), ll)
         }
@@ -117,7 +121,7 @@ pub fn fit_distribution(values: &[f64], dist: FitDistribution) -> Option<FittedD
             if xs.iter().any(|&x| x <= 0.0) {
                 return None;
             }
-            // 形状方程式はスケール不変なので max で正規化し x^k のオーバーフローを防ぐ。
+            // The shape equation is scale-invariant, so normalize by max to prevent x^k from overflowing.
             let max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let ys: Vec<f64> = xs.iter().map(|x| x / max).collect();
             let k = solve_weibull_shape(&ys)?;
@@ -148,7 +152,7 @@ pub fn fit_distribution(values: &[f64], dist: FitDistribution) -> Option<FittedD
     })
 }
 
-/// 適用可能な全分布をフィットし AIC 昇順（良い順）で返す。
+/// Fits all applicable distributions and returns them sorted by AIC ascending (best first).
 pub fn fit_all(values: &[f64]) -> Vec<FittedDistribution> {
     let mut fits: Vec<FittedDistribution> = [
         FitDistribution::Normal,
@@ -166,9 +170,10 @@ pub fn fit_all(values: &[f64]) -> Vec<FittedDistribution> {
     fits
 }
 
-/// ワイブル形状パラメータ k の MLE 方程式
-/// `Σ x^k ln x / Σ x^k − 1/k − mean(ln x) = 0` を二分法で解く。
-/// 単調性が保証される範囲 [1e-2, 1e3] で符号変化を探し、見つからなければ `None`。
+/// Solves the MLE equation for the Weibull shape parameter k,
+/// `Σ x^k ln x / Σ x^k − 1/k − mean(ln x) = 0`, via bisection.
+/// Searches for a sign change over the range [1e-2, 1e3] where monotonicity
+/// is guaranteed; returns `None` if no sign change is found.
 fn solve_weibull_shape(xs: &[f64]) -> Option<f64> {
     let nf = xs.len() as f64;
     let mean_ln = xs.iter().map(|x| x.ln()).sum::<f64>() / nf;
@@ -213,10 +218,11 @@ fn solve_weibull_shape(xs: &[f64]) -> Option<f64> {
 mod tests {
     use super::*;
 
-    /// 決定論的な擬似正規サンプル（Box-Muller 相当の固定列は避け、
-    /// 対称な格子点で代用。数値品質の再検証はしない — 結線のみ確認）。
+    /// Deterministic pseudo-normal sample (avoids a fixed Box-Muller-style
+    /// sequence, using a symmetric lattice of points instead. This does not
+    /// re-verify numerical quality — it's a wiring check only).
     fn symmetric_sample() -> Vec<f64> {
-        // 平均 10、対称分布
+        // Mean 10, symmetric distribution
         vec![7.0, 8.0, 9.0, 9.5, 10.0, 10.0, 10.5, 11.0, 12.0, 13.0]
     }
 
@@ -233,7 +239,7 @@ mod tests {
         let vals = vec![-1.0, 2.0, 3.0, 4.0];
         assert!(fit_distribution(&vals, FitDistribution::LogNormal).is_none());
         assert!(fit_distribution(&vals, FitDistribution::Weibull).is_none());
-        // Normal は符号を問わない
+        // Normal does not care about sign
         assert!(fit_distribution(&vals, FitDistribution::Normal).is_some());
     }
 
@@ -247,7 +253,7 @@ mod tests {
 
     #[test]
     fn pdf_integrates_roughly_to_one() {
-        // 結線確認: 正規 PDF を粗く数値積分して 1 に近いこと（数値品質の検証ではない）
+        // Wiring check: roughly numerically integrate the normal PDF and confirm it is close to 1 (not a numerical-quality verification)
         let f = fit_distribution(&symmetric_sample(), FitDistribution::Normal).unwrap();
         let (lo, hi, n) = (-20.0, 40.0, 6000);
         let dx = (hi - lo) / n as f64;

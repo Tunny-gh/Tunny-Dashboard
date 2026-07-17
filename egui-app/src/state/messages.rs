@@ -6,9 +6,10 @@ use crate::state::results::{ConvergenceHistory, EntropyResult};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 
-/// クラスタリングを開始したチャート。結果は設定キーで共有されるが、
-/// 実行状態（spinner / エラー）は開始元のウィジェットに反映する必要があるため、
-/// 完了・失敗メッセージにどのチャート発の計算かを持たせる。
+/// The chart that started clustering. Results are shared via the config key,
+/// but execution state (spinner / error) must be reflected on the originating
+/// widget, so completion/failure messages carry which chart triggered the
+/// computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClusterChartSource {
     Scatter2D,
@@ -17,7 +18,8 @@ pub enum ClusterChartSource {
     ArtifactGallery,
 }
 
-/// MCDM 計算を開始したチャート。クラスタと同じく実行状態を開始元へ反映するために持たせる。
+/// The chart that started the MCDM computation. Like clustering, this is
+/// carried so execution state can be reflected on the originating widget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McdmChartSource {
     Rank,
@@ -74,92 +76,97 @@ pub fn cluster_ui_error(
 }
 
 // ============================================================
-// Observed Contour 関連型
+// Observed Contour related types
 // ============================================================
 
-/// Observed Contour の描画結果。観測トライアル点だけから補間した格子
-/// （`tunny_core::contour::ObservedSurface`）と、重畳表示用の観測点を持つ。
+/// Rendering result for Observed Contour. Holds the grid interpolated only
+/// from observed trial points (`tunny_core::contour::ObservedSurface`), plus
+/// the observed points used for overlay display.
 #[derive(Debug, Clone)]
 pub struct ObservedContourResult {
     pub x_name: String,
     pub y_name: String,
     pub value_name: String,
     pub surface: tunny_core::contour::ObservedSurface,
-    /// 重畳表示用の観測点（feasible フィルタ適用済み）。`[x, y, value]`。
+    /// Observed points for overlay display (feasible filter already applied). `[x, y, value]`.
     pub points: Vec<[f64; 3]>,
-    /// `points` と同順の trial_id（点クリック→詳細表示用）。
+    /// trial_id in the same order as `points` (for point-click → detail view).
     pub point_trial_ids: Vec<u32>,
 }
 
 // ============================================================
-// Surrogate Optimizer 関連型
+// Surrogate Optimizer related types
 // ============================================================
 
-/// 獲得関数提案の UI 表示用結果。
+/// UI display result for acquisition function suggestions.
 #[derive(Debug, Clone)]
 pub struct SurrogateSuggestUiResult {
-    /// 提案候補（獲得関数の最適化結果）。
+    /// Suggested candidates (acquisition function optimization results).
     pub candidates: Vec<tunny_core::surrogate_opt::SuggestedCandidate>,
-    /// パラメータ名（`candidates[*].params` と同順）。
+    /// Parameter names (same order as `candidates[*].params`).
     pub param_names: Vec<String>,
-    /// 目的名（表示用）。
+    /// Objective name (for display).
     pub objective_name: String,
 }
 
-/// EHVI による多目的次候補提案の UI 表示用結果。
+/// UI display result for EHVI-based multi-objective next-candidate suggestions.
 #[derive(Debug, Clone)]
 pub struct SurrogateMultiSuggestUiResult {
-    /// 提案候補（EHVI の最適化結果）。
+    /// Suggested candidates (EHVI optimization results).
     pub candidates: Vec<tunny_core::surrogate_opt::MultiSuggestedCandidate>,
-    /// パラメータ名（`candidates[*].params` と同順）。
+    /// Parameter names (same order as `candidates[*].params`).
     pub param_names: Vec<String>,
-    /// 目的名（`candidates[*].predicted_values` と同順）。
+    /// Objective names (same order as `candidates[*].predicted_values`).
     pub objective_names: Vec<String>,
 }
 
-/// 多目的サロゲート最適化の UI 表示用結果。
-/// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
-/// パラメータ名・目的名・方向を付与してここへ詰め替える。
+/// UI display result for multi-objective surrogate optimization.
+/// The computation runs in the background via `tunny_core::surrogate_opt`,
+/// and parameter names, objective names, and directions are attached and
+/// repacked here.
 #[derive(Debug, Clone)]
 pub struct SurrogateMultiOptUiResult {
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
-    /// 予測パレートフロント（第 1 目的昇順ソート済み）。
+    /// Predicted Pareto front (sorted ascending by the first objective).
     pub front: Vec<tunny_core::surrogate_opt::ParetoFrontPoint>,
-    /// 目的ごとの訓練データ決定係数。
+    /// Coefficient of determination on training data, per objective.
     pub r_squared: Vec<f64>,
 }
 
-/// サロゲート最適化の UI 表示用結果。
-/// 計算は `tunny_core::surrogate_opt` がバックグラウンドで行い、
-/// パラメータ名と値の対応・方向（minimize/maximize）を付与してここへ詰め替える。
+/// UI display result for surrogate optimization.
+/// The computation runs in the background via `tunny_core::surrogate_opt`,
+/// and the parameter name/value mapping and direction (minimize/maximize)
+/// are attached and repacked here.
 #[derive(Debug, Clone)]
 pub struct SurrogateOptUiResult {
-    /// 推定最適点（パラメータ名, 値）。
+    /// Estimated optimum point (parameter name, value).
     pub best_params: Vec<(String, f64)>,
-    /// 推定最適点でのサロゲート予測値（元の単位）。
+    /// Surrogate predicted value at the estimated optimum (original units).
     pub best_value: f64,
-    /// 予測標準偏差（ガウス過程系のみ）。
+    /// Predicted standard deviation (Gaussian process methods only).
     pub predicted_std: Option<f64>,
-    /// 訓練データに対するサロゲートの決定係数。
+    /// Coefficient of determination of the surrogate on training data.
     pub r_squared: f64,
     pub objective_name: String,
-    /// true = 最小化問題として最適化した。
+    /// true = optimized as a minimization problem.
     pub minimize: bool,
-    /// 観測データ中のベスト値（元の単位）。最小化なら最小値、最大化なら最大値。
+    /// Best value among observed data (original units). Minimum for minimization, maximum for maximization.
     pub best_observed_value: f64,
-    /// 推定最適点での制約サロゲート予測値（元の単位、制約名と同順）。制約なしなら空。
+    /// Constraint surrogate predicted values at the estimated optimum (original units, same order as constraint names). Empty if there are no constraints.
     pub predicted_constraints: Vec<(String, f64)>,
-    /// 実行可能性確率（0.0〜1.0）。制約なしなら None。
+    /// Feasibility probability (0.0 to 1.0). None if there are no constraints.
     pub feasibility_probability: Option<f64>,
 }
 
 // ============================================================
-// Compare Surrogates 関連型
+// Compare Surrogates related types
 // ============================================================
 
-/// Compare Surrogates: 1 モデルの CV 指標比較行。フィット/検証に失敗した場合は
-/// `error` に理由を残し、他の数値フィールドは無効値（0.0）のまま UI 側で表示しない。
+/// Compare Surrogates: a comparison row of CV metrics for one model. If
+/// fitting/validation fails, the reason is left in `error` and the other
+/// numeric fields stay at the invalid value (0.0) and are not displayed on
+/// the UI side.
 #[derive(Debug, Clone)]
 pub struct SurrogateCompareRow {
     pub kind: tunny_core::surrogate_opt::SurrogateModelKind,
@@ -168,45 +175,48 @@ pub struct SurrogateCompareRow {
     pub holdout_r2: f64,
     pub holdout_rmse: f64,
     pub train_r2: f64,
-    /// フィット/検証に失敗した場合のエラーメッセージ。
+    /// Error message when fitting/validation fails.
     pub error: Option<String>,
 }
 
-/// Compare Surrogates ウィジェットの UI 表示用結果。選択目的に対して全モデル種別を
-/// フィットした CV 指標比較と、ベスト観測 trial をアンカーとした 1D 予測スライスの
-/// オーバーレイを保持する。
+/// UI display result for the Compare Surrogates widget. Holds the CV metric
+/// comparison from fitting all model kinds against the selected objective,
+/// plus the overlay of 1D prediction slices anchored on the best observed
+/// trial.
 #[derive(Debug, Clone)]
 pub struct SurrogateCompareUiResult {
-    /// モデルごとの CV 指標比較行（表示順は UI 側でソートする）。
+    /// CV metric comparison rows per model (display order is sorted on the UI side).
     pub rows: Vec<SurrogateCompareRow>,
-    /// フィットに成功したモデルの 1D 予測スライス（アンカー点を通る）。
+    /// 1D prediction slices for successfully fitted models (passing through the anchor point).
     pub slices: Vec<(
         tunny_core::surrogate_opt::SurrogateModelKind,
         tunny_core::surrogate_opt::LineSlice,
     )>,
-    /// スライス対象パラメータに対する観測データ (x, y)。
+    /// Observed data (x, y) for the parameter being sliced.
     pub observed: Vec<(f64, f64)>,
-    /// スライス対象パラメータ名。
+    /// Name of the parameter being sliced.
     pub param_name: String,
     pub objective_name: String,
-    /// アンカー点（元単位、学習に使ったパラメータ順）。
+    /// Anchor point (original units, in the parameter order used for training).
     pub anchor: Vec<f64>,
 }
 
 // ============================================================
-// ライブ更新ポーラーの起動準備結果（H-1 / H-2）
+// Live update poller startup preparation results (H-1 / H-2)
 // ============================================================
 
-/// ライブ更新ポーラーの起動に必要な初期状態を、UI スレッドをブロックせずに
-/// バックグラウンドで用意した結果。ストレージ種別ごとに、そのまま
-/// `*LivePoller::start` へ渡せる完成済みコンテキストを保持する。
+/// The result of preparing, in the background without blocking the UI
+/// thread, the initial state needed to start the live update poller. Holds a
+/// fully prepared context per storage kind that can be passed directly to
+/// `*LivePoller::start`.
 ///
-/// - RDB フィンガープリント取得（DB 接続 + クエリ）
-/// - ジャーナル全読込 + trial 数カウント
+/// - RDB fingerprint retrieval (DB connection + query)
+/// - Full journal read + trial count
 ///
-/// はいずれも I/O を伴い、従来は `restart_poller` が UI スレッドで同期実行して
-/// いた（DB 低速・大容量ジャーナルでウィンドウがフリーズする H-1 / H-2）。
-/// これを `AppMessage::PollerReady` として非同期に受け渡す。
+/// Both involve I/O and were previously run synchronously on the UI thread by
+/// `restart_poller` (causing the window to freeze with slow DBs or large
+/// journals — H-1 / H-2). This is now delivered asynchronously as
+/// `AppMessage::PollerReady`.
 pub enum PollerPrep {
     Journal(tunny_core::io::journal::live_update::LiveUpdateContext),
     Sqlite(crate::io::live_update_poller::SqliteLiveUpdateContext),
@@ -224,34 +234,36 @@ pub enum AppMessage {
     },
     StudySelected {
         meta: StudyMeta,
-        /// 共有ストア参照キー。UI 側が snapshot(study_id) で Arc<DataFrame> を取得する。
+        /// Shared store reference key. The UI side obtains Arc<DataFrame> via snapshot(study_id).
         study_id: u32,
-        /// Pareto ランク（行 index 順、アプリ層算出）。StudyView の並行配列へ。
+        /// Pareto rank (in row index order, computed at the app layer). Goes into StudyView's parallel array.
         pareto_rank: Vec<u32>,
         pareto_indices: Vec<u32>,
     },
-    /// Study 選択時の逐次（ストリーミング）ロード。完了 Trial を 1000 件ごとに送り、
-    /// UI 側はバッチごとに DataFrame を追記再構築して描画を更新する（読み込み中フリーズ回避）。
-    /// Pareto ランクは `is_final` のバッチで一度だけ確定計算する。
+    /// Incremental (streaming) load on Study selection. Completed Trials are
+    /// sent every 1000 rows, and the UI side appends and rebuilds the
+    /// DataFrame per batch to update rendering (avoids freezing during load).
+    /// The Pareto rank is computed and finalized only once, on the
+    /// `is_final` batch.
     StudyChunkLoaded {
         study_id: u32,
-        /// その時点までの累積 StudyMeta。
+        /// Cumulative StudyMeta up to this point.
         meta: StudyMeta,
-        /// 今回のバッチで新たに完了した Trial 行（core 表現）。
+        /// Trial rows newly completed in this batch (core representation).
         new_rows: Vec<tunny_core::dataframe::TrialRow>,
-        /// 累積パラメータ列名（ソート済み）。
+        /// Cumulative parameter column names (sorted).
         param_names: Vec<String>,
-        /// 目的列名。
+        /// Objective column names.
         objective_names: Vec<String>,
-        /// 累積 user_attr 数値列名。
+        /// Cumulative user_attr numeric column names.
         user_attr_numeric_names: Vec<String>,
-        /// 累積 user_attr 文字列列名。
+        /// Cumulative user_attr string column names.
         user_attr_string_names: Vec<String>,
-        /// 観測した制約数の最大値。
+        /// Maximum number of observed constraints.
         max_constraints: usize,
-        /// 最初のバッチか（StudyContext を新規生成する）。
+        /// Whether this is the first batch (a new StudyContext is created).
         is_first: bool,
-        /// 最終バッチか（Pareto 確定・ローディング終了）。
+        /// Whether this is the final batch (Pareto finalized, loading ends).
         is_final: bool,
     },
     SensitivityDone {
@@ -259,7 +271,7 @@ pub enum AppMessage {
         key: (u8, usize, bool),
         result: SensitivityResult,
     },
-    /// Sensitivity Heatmap 用：選択手法の全パラメータ × 全目的の感度行列。
+    /// For Sensitivity Heatmap: sensitivity matrix of all parameters × all objectives for the selected method.
     SensitivityHeatmapDone {
         metric: crate::ui::widgets::importance_chart::ImportanceMetric,
         feasible_only: bool,
@@ -303,126 +315,147 @@ pub enum AppMessage {
     LiveUpdateDone {
         new_trial_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
-        /// 全 trial（全 state）の付帯情報へ反映する extras 差分イベント。
+        /// Extras diff event to apply to the incidental info of all trials (all states).
         extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
     },
-    /// 連続エラー（ファイルアクセス失敗など）をポーラーが検出した
+    /// The poller detected consecutive errors (e.g., file access failures)
     LiveUpdateError(String),
-    /// 60秒間ファイル変化がなく最適化完了の可能性を検出した
+    /// Detected a possible optimization completion: no file changes for 60 seconds
     LiveUpdateMaybeComplete,
-    /// SQLite ライブ更新: フィンガープリントの変化を検出した。
-    /// SQLite は trial の状態がインプレースで更新される（RUNNING→COMPLETE 等）ため
-    /// journal のようなバイトオフセット差分ができない。対象 study の丸ごと再ロードを
-    /// ワーカースレッドへ依頼する必要があることを知らせるシグナルメッセージ。
+    /// SQLite live update: detected a fingerprint change.
+    /// Since SQLite updates trial state in place (RUNNING→COMPLETE, etc.), a
+    /// byte-offset diff like the journal's isn't possible. This is a signal
+    /// message indicating that a full reload of the target study needs to be
+    /// requested from the worker thread.
     ///
-    /// RDB（PostgreSQL/MySQL）ライブ更新もフィンガープリント方式は同型のため、
-    /// 新しいメッセージ種別を増やさずこのメッセージをそのまま流用する
-    /// （`RdbLivePoller` もこれを送信する）。
+    /// RDB (PostgreSQL/MySQL) live updates use the same fingerprint approach,
+    /// so this message is reused as-is instead of adding a new message kind
+    /// (`RdbLivePoller` also sends this).
     SqliteLiveChanged {
         study_id: u32,
     },
-    /// SQLite ライブ更新: 対象 study の再ロードが完了した。
-    /// ワーカースレッドが `tunny_core::dataframe::swap_snapshot` /
-    /// `store_extras_for` まで済ませているため、ここでは
-    /// StudyView の再構築（Pareto 再計算含む）とキャッシュ破棄のみ行う。
+    /// SQLite live update: the reload of the target study has completed.
+    /// Since the worker thread has already finished up through
+    /// `tunny_core::dataframe::swap_snapshot` / `store_extras_for`, only the
+    /// StudyView rebuild (including Pareto recomputation) and cache
+    /// invalidation are done here.
     ///
-    /// RDB ライブ更新の再ロード完了（`dispatch_reload_rdb_study` →
-    /// `crate::io::rdb::reload_single_study_task`）もこのメッセージをそのまま流用する。
+    /// RDB live update reload completion (`dispatch_reload_rdb_study` →
+    /// `crate::io::rdb::reload_single_study_task`) also reuses this message
+    /// as-is.
     SqliteLiveReloadDone {
         study_id: u32,
         meta: StudyMeta,
     },
-    /// 収束指標（HV / IGD+ / ε / R2）の推移計算が完了した。
-    /// 基準 Study と比較 Study の全系列を一括計算し、共通参照セットで正規化する。
+    /// The convergence indicator (HV / IGD+ / epsilon / R2) history
+    /// computation has completed. All series for the base Study and
+    /// comparison Studies are computed in one batch and normalized against a
+    /// common reference set.
     IndicatorHistoryDone {
         indicator: tunny_core::indicators::MoIndicator,
-        /// 基準 Study の指標推移。
+        /// Indicator history for the base Study.
         base: ConvergenceHistory,
-        /// 比較 Study の指標推移（comparison_studies と同じ順序）。
+        /// Indicator history for comparison Studies (same order as comparison_studies).
         comparisons: Vec<ConvergenceHistory>,
     },
     Error(String),
     SensitivityError(String),
-    /// M-4: `spawn_task` で起動したワーカースレッドが panic を捕捉した。
-    /// panic メッセージを `load_error` に反映してユーザーへ可視化する
-    /// （捕捉しないと該当ウィジェットの computing/fitting が立ちっぱなしになる）。
+    /// M-4: caught a panic from a worker thread launched via `spawn_task`.
+    /// The panic message is reflected in `load_error` to make it visible to
+    /// the user (without catching it, the corresponding widget's
+    /// computing/fitting indicator would stay stuck on).
     TaskPanicked(String),
-    /// H-1 / H-2: ライブ更新ポーラーの起動準備がバックグラウンドで完了した。
-    /// `generation` は準備中にトグル/Study 変更が起きた場合の陳腐化検出用で、
-    /// 受信時に `TunnyApp::poller_generation` と一致しなければ破棄する。
-    /// ポーラー起動は tx/poller を持つ `app.rs`（`poll_messages`）で行うため、
-    /// このメッセージは `MessageHandler::handle` では処理しない。
+    /// H-1 / H-2: startup preparation for the live update poller has
+    /// completed in the background. `generation` is used to detect staleness
+    /// if a toggle/Study change happens during preparation; if it doesn't
+    /// match `TunnyApp::poller_generation` on receipt, it's discarded.
+    /// Poller startup happens in `app.rs` (`poll_messages`), which holds
+    /// tx/poller, so this message is not handled in `MessageHandler::handle`.
     PollerReady {
         generation: u64,
         prep: PollerPrep,
     },
 
-    // ── TASK-2112: 新規バリアント ────────────────────────────────────
-    /// REQ-006: 比較 Study のロード完了
+    // ── TASK-2112: new variants ────────────────────────────────────
+    /// REQ-006: comparison Study load completed
     ComparisonStudyLoaded {
         context: Box<StudyContext>,
     },
-    /// REQ-007: Artifacts ディレクトリスキャン完了
+    /// REQ-007: Artifacts directory scan completed
     ArtifactsDirScanned {
         trial_artifacts: std::collections::HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
         artifacts_dir: std::path::PathBuf,
     },
     ComparisonStudyLoadFailed(String),
-    /// Observed Contour の格子生成が完了した（観測点の補間）。
+    /// Observed Contour grid generation has completed (interpolation of observed points).
     ObservedContourDone(ObservedContourResult),
     ObservedContourFailed(String),
-    /// サロゲートのフィット＋検証が完了した（最適化段階は別メッセージ）。
+    /// Surrogate fitting + validation has completed (the optimization stage is a separate message).
     SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
     SurrogateFitFailed(String),
-    /// サロゲートのフィットがユーザー操作でキャンセルされた。
+    /// Surrogate fitting was cancelled by user action.
     SurrogateFitCancelled,
     SurrogateOptDone(SurrogateOptUiResult),
-    /// 多目的サロゲートのフィット＋検証が完了した（全目的分の学習結果を保持）。
+    /// Multi-objective surrogate fitting + validation has completed (holds training results for all objectives).
     SurrogateMultiFitDone(std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>),
     SurrogateMultiFitFailed(String),
-    /// 多目的サロゲートのフィットがユーザー操作でキャンセルされた。
+    /// Multi-objective surrogate fitting was cancelled by user action.
     SurrogateMultiFitCancelled,
     SurrogateMultiOptDone(SurrogateMultiOptUiResult),
     SurrogateMultiOptFailed(String),
-    /// 獲得関数による候補提案が完了した。
+    /// Candidate suggestion by the acquisition function has completed.
     SurrogateSuggestDone(SurrogateSuggestUiResult),
-    /// 獲得関数による候補提案が失敗した。
+    /// Candidate suggestion by the acquisition function failed.
     SurrogateSuggestFailed(String),
-    /// EHVI による多目的候補提案が完了した。
+    /// EHVI-based multi-objective candidate suggestion has completed.
     SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult),
-    /// EHVI による多目的候補提案が失敗した。
+    /// EHVI-based multi-objective candidate suggestion failed.
     SurrogateMultiSuggestFailed(String),
-    /// ロバスト性解析用サロゲートのフィットが完了した。
+    /// Surrogate fitting for robustness analysis has completed.
     RobustnessFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
-    /// ロバスト性解析用サロゲートのフィットが失敗した。
+    /// Surrogate fitting for robustness analysis failed.
     RobustnessFitFailed(String),
-    /// 応答曲面 3D ビューア用サロゲートのフィットが完了した。
+    /// Surrogate fitting for the response surface 3D viewer has completed.
     ResponseSurfaceFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
-    /// 応答曲面 3D ビューア用サロゲートのフィットが失敗した。
+    /// Surrogate fitting for the response surface 3D viewer failed.
     ResponseSurfaceFitFailed(String),
-    /// Compare Surrogates: 全モデル種別のフィット＋比較が完了した
-    /// （個々のモデルのフィット失敗は `SurrogateCompareRow::error` に格納され、ここでは
-    /// 全モデルが失敗した場合のみ `SurrogateCompareFailed` を送る）。
+    /// Compare Surrogates: fitting + comparison of all model kinds has
+    /// completed (individual model fit failures are stored in
+    /// `SurrogateCompareRow::error`; `SurrogateCompareFailed` is sent here
+    /// only when all models fail).
     SurrogateCompareDone(std::sync::Arc<SurrogateCompareUiResult>),
-    /// Compare Surrogates: 全モデルのフィットに失敗した。
+    /// Compare Surrogates: fitting of all models failed.
     SurrogateCompareFailed(String),
 
-    /// low perf: CSV エクスポート（チャート / トライアルテーブル / 全 trial）の
-    /// バックグラウンド書き込みが成功した。成功時はトースト等の通知を持たないため
-    /// UI 側では何もしない（`ReportExportDone` と異なり表示すべき情報がない）。
+    /// low perf: background write of a CSV export (chart / trial table / all
+    /// trials) succeeded. There's no toast or other notification on success,
+    /// so the UI side does nothing (unlike `ReportExportDone`, there's no
+    /// information to display).
     CsvExportDone,
-    /// low perf: CSV エクスポートのバックグラウンド構築 / 書き込みが失敗した。
-    /// 既存の保存失敗（`ToolbarAction::ExportCsv`）と同方針で原因を `load_error` に反映する。
+    /// low perf: background construction / writing of the CSV export failed.
+    /// The cause is reflected in `load_error`, following the same policy as
+    /// the existing save failure (`ToolbarAction::ExportCsv`).
     CsvExportFailed(String),
 
-    /// R4: 自己完結型レポート出力（HTML/Markdown/JSON）がバックグラウンドで完了した。
-    /// 実際に書き出したファイルパス一覧（複数フォーマット選択時は複数件）。
-    /// 失敗時は既存の `Error` を再利用する。
+    /// R4: self-contained report export (HTML/Markdown/JSON) has completed
+    /// in the background. The list of file paths actually written (multiple
+    /// entries when multiple formats are selected).
+    /// The existing `Error` is reused on failure.
     ReportExportDone {
         paths: Vec<std::path::PathBuf>,
-        /// 既存ファイルを上書きした非プライマリの兄弟パス
-        /// （プライマリは OS 保存ダイアログ側で確認済みのため含めない）。
+        /// Non-primary sibling paths that overwrote existing files
+        /// (the primary is not included since it's already confirmed via the
+        /// OS save dialog).
         overwrote: Vec<std::path::PathBuf>,
+    },
+
+    /// .ghx background optimization (`tunny_core::gh::run_prepared`) has
+    /// completed. `Ok` is a normal exit including cancellation, `Err` is a
+    /// fatal error such as journal write failure (individual evaluation
+    /// failures are already aggregated in `GhRunSummary.failed` and don't
+    /// result in `Err`).
+    GhOptFinished {
+        result: Result<tunny_core::gh::GhRunSummary, String>,
     },
 }
 

@@ -1,7 +1,8 @@
-//! カード/画像描画。
+//! Card/image rendering.
 //!
-//! 1 枚の artifact カードの見た目（画像 or フォールバックアイコン + タイトル + 目的関数値）と、
-//! カードをグリッド状に折り返して並べる純粋な描画ロジックをまとめる。
+//! Groups together the appearance of a single artifact card (image or
+//! fallback icon + title + objective values) and the pure drawing logic that
+//! wraps cards into a grid layout.
 
 use std::collections::HashMap;
 
@@ -10,19 +11,19 @@ use crate::state::app_state::AppState;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::ui::widgets::trial_detail_modal::TrialDetailTarget;
 
-/// 1 枚のカード幅（サムネ + 枠線・内側余白・カード間隔）。
+/// Width of a single card (thumbnail + border, inner margin, card spacing).
 const CARD_PADDING: f32 = 24.0;
 
-/// 1 枚のカードクリックで要求されたアクション。
+/// Action requested by clicking a single card.
 #[derive(Default)]
 struct CardClick {
-    /// タイトルクリック → trial をハイライト。
+    /// Title clicked -> highlight the trial.
     highlight: bool,
-    /// 画像クリック → トライアル詳細モーダルを開く。
+    /// Image clicked -> open the trial detail modal.
     detail: bool,
 }
 
-/// `content_w` に収まるカード列数を返す（最低 1 列）。
+/// Returns the number of card columns that fit in `content_w` (minimum 1).
 fn card_columns(content_w: f32, thumb: f32) -> usize {
     let col_w = thumb + CARD_PADDING;
     if col_w <= 0.0 {
@@ -31,9 +32,10 @@ fn card_columns(content_w: f32, thumb: f32) -> usize {
     ((content_w / col_w).floor() as usize).max(1)
 }
 
-/// カード群を `content_w` に収まる列数で折り返して描画する。
-/// キャンバスの Area 内では `horizontal_wrapped` が折り返さないため、列数を明示計算して
-/// 行ごとに `horizontal` で並べる。クリックされたカードの trial_id を返す。
+/// Draws the cards wrapped into a column count that fits `content_w`.
+/// Inside a canvas Area, `horizontal_wrapped` doesn't wrap, so the column
+/// count is computed explicitly and each row is laid out with `horizontal`.
+/// Returns the trial_id of the clicked card.
 pub(super) fn render_card_grid(
     ui: &mut egui::Ui,
     app_state: &AppState,
@@ -65,9 +67,9 @@ pub(super) fn render_card_grid(
     (highlight, detail)
 }
 
-/// `trial_id` から散布図共有の詳細モーダル用ターゲットを組み立てる。
-/// `StudyView` 上の行 index を逆引きし、カードのバッジ（クラスタ番号 / MCDM ランク等）が
-/// あれば Chart Info として付加する。
+/// Builds the target for the detail modal shared with the scatter plots, from a `trial_id`.
+/// Looks up the row index in `StudyView`, and if the card's badge (cluster
+/// number / MCDM rank, etc.) is present, attaches it as Chart Info.
 fn detail_target_for(
     app_state: &AppState,
     trial_id: u32,
@@ -87,10 +89,11 @@ fn detail_target_for(
     })
 }
 
-/// 画像アーティファクトの file:// URI を返す。
-/// 画像でない、または非 UTF-8 パス（URI で表現できない）の場合は `None`。
-/// 非 UTF-8 パスを `to_string_lossy` で潰すと実在しないパスの URI になり画像が
-/// 無言で壊れるため、ここで弾いて呼び出し側にフォールバックさせる。
+/// Returns the file:// URI of an image artifact.
+/// Returns `None` if it's not an image, or if the path is non-UTF-8 (cannot
+/// be represented as a URI). Collapsing a non-UTF-8 path via `to_string_lossy`
+/// would produce a URI for a path that doesn't actually exist, silently
+/// breaking the image, so it's rejected here to let the caller fall back instead.
 pub(super) fn image_uri(entry: &ArtifactEntry) -> Option<String> {
     if !matches!(entry.file_type(), ArtifactFileType::Image) {
         return None;
@@ -98,8 +101,8 @@ pub(super) fn image_uri(entry: &ArtifactEntry) -> Option<String> {
     entry.path.to_str().map(|s| format!("file://{s}"))
 }
 
-/// 1 枚の artifact カードを描画する。
-/// 画像クリックで拡大プレビュー、タイトルクリックで trial ハイライトを要求する。
+/// Draws a single artifact card.
+/// An image click requests an enlarged preview; a title click requests a trial highlight.
 #[allow(clippy::too_many_arguments)]
 fn show_artifact_card(
     ui: &mut egui::Ui,
@@ -138,8 +141,8 @@ fn show_artifact_card(
                         }
                     }
                     (ArtifactFileType::Image, None) => {
-                        // 非 UTF-8 パスは file:// URI で表現できない。壊れた画像の代わりに
-                        // アイコン + Open ボタンでフォールバックする。
+                        // A non-UTF-8 path can't be represented as a file:// URI.
+                        // Fall back to an icon + Open button instead of a broken image.
                         ui.vertical_centered(|ui| {
                             ui.add_space(thumb * 0.2);
                             ui.label(egui::RichText::new("🖼").size(thumb * 0.4));
@@ -180,7 +183,7 @@ fn show_artifact_card(
                     click.highlight = true;
                 }
                 ui.add(egui::Label::new(egui::RichText::new(fname).small().weak()).truncate());
-                // 目的関数値（良し悪し判断の材料）。カード幅に合わせて折り返す。
+                // Objective values (basis for judging good/bad). Wraps to fit the card width.
                 if !obj_text.is_empty() {
                     ui.add(egui::Label::new(
                         egui::RichText::new(obj_text)
@@ -199,9 +202,9 @@ mod tests {
 
     #[test]
     fn card_columns_fits_width_and_min_one() {
-        // thumb=140 → 列幅 164。
-        assert_eq!(card_columns(700.0, 140.0), 4); // 700/164 = 4.26 → 4
+        // thumb=140 -> column width 164.
+        assert_eq!(card_columns(700.0, 140.0), 4); // 700/164 = 4.26 -> 4
         assert_eq!(card_columns(164.0, 140.0), 1);
-        assert_eq!(card_columns(10.0, 140.0), 1); // 最低 1 列
+        assert_eq!(card_columns(10.0, 140.0), 1); // minimum 1 column
     }
 }

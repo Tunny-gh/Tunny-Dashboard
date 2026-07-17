@@ -9,18 +9,19 @@ use crate::ui::widgets::trial_detail_modal::{
     axis_row, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
-/// パラメータ vs 目的関数の Slice 散布図ウィジェット
+/// A Slice scatter widget of parameter vs. objective function.
 ///
-/// X 軸に選択したパラメータ値、Y 軸に選択した目的関数値をプロットし、
-/// パレート最適（pareto_rank == 0）のトライアルをアクセントカラーで強調する。
+/// Plots the selected parameter value on the X axis and the selected objective function
+/// value on the Y axis, highlighting Pareto-optimal (pareto_rank == 0) trials with the
+/// accent color.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SliceChart {
     pub selected_param_idx: usize,
     pub selected_obj_idx: usize,
-    /// Y 軸（目的関数）対数スケール切替
+    /// Y axis (objective function) log-scale toggle
     pub log_scale: bool,
-    /// 点クリックで開くトライアル詳細モーダル。
+    /// Trial detail modal opened by clicking a point.
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -56,11 +57,11 @@ impl SliceChart {
             return;
         }
 
-        // インデックスのクランプ（データ更新後の範囲外アクセスを防ぐ）
+        // Clamp indices (avoids out-of-range access after a data update)
         self.selected_param_idx = self.selected_param_idx.min(param_names.len() - 1);
         self.selected_obj_idx = self.selected_obj_idx.min(obj_names.len() - 1);
 
-        // ツールバー: パラメータ・目的関数選択 ComboBox
+        // Toolbar: parameter / objective function selection ComboBoxes
         ui.horizontal(|ui| {
             ui.label("Parameter:");
             egui::ComboBox::from_id_salt("slice_param_combo")
@@ -80,7 +81,7 @@ impl SliceChart {
                     }
                 });
 
-            // Y 軸対数スケールトグル（最適化履歴チャートと同じ挙動）
+            // Y axis log-scale toggle (same behavior as the optimization history chart)
             ui.separator();
             if ui.selectable_label(self.log_scale, "Log Scale").clicked() {
                 self.log_scale = !self.log_scale;
@@ -101,15 +102,16 @@ impl SliceChart {
             ("Pareto", "Non-Pareto")
         };
 
-        // 対数スケール時は Y 値を log10 変換して描画する。正値のみ変換し、
-        // 0 以下の値はそのまま渡す（log10 不能なため）。
+        // In log-scale mode, draw with the Y value converted via log10. Only positive
+        // values are converted; values <= 0 are passed through unchanged (since log10 is
+        // undefined for them).
         let log_scale = self.log_scale;
         let apply_log = |[x, y]: [f64; 2]| -> [f64; 2] {
             [x, if log_scale && y > 0.0 { y.log10() } else { y }]
         };
 
-        // 点クリック判定用の候補（trial_id, 行 index, プロット座標）。
-        // プロット座標は描画と一致させるため対数変換後の Y を使う。
+        // Candidates for point-click hit testing (trial_id, row index, plot coordinates).
+        // The plot coordinates use the log-converted Y to match the drawing.
         let hit_candidates =
             compute_hit_candidates(view, param_name, obj_names, obj_idx, log_scale);
 
@@ -121,11 +123,11 @@ impl SliceChart {
         }
 
         let mut clicked_detail: Option<(u32, usize)> = None;
-        // マウスホバー中の点（trial_id, 行 index）。ツールチップ表示に使う。
+        // The point currently under the mouse hover (trial_id, row index). Used for tooltip display.
         let mut hovered_detail: Option<(u32, usize)> = None;
         plot.show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
-            // 点クリック・ホバーの対象を検出する。
+            // Detects the target of a point click/hover.
             (clicked_detail, hovered_detail) = resolve_click_hover(plot_ui, &hit_candidates);
             if !normal_pts.is_empty() {
                 let pts: egui_plot::PlotPoints = normal_pts.into_iter().map(apply_log).collect();
@@ -146,7 +148,7 @@ impl SliceChart {
             }
         });
 
-        // ホバー中の点があれば、ポインタ位置に概要ツールチップを表示する。
+        // If there's a hovered point, show a summary tooltip at the pointer position.
         if let Some((_, row)) = hovered_detail {
             let trial_number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
@@ -162,7 +164,7 @@ impl SliceChart {
             show_hover_tooltip(ui, "slice_hover_tooltip", trial_number, &rows);
         }
 
-        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = Pareto ランク）。
+        // A point click opens the trial detail modal (scatter plot info = Pareto rank).
         if let Some((trial_id, row)) = clicked_detail {
             let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
             let context = vec![("Pareto Rank".to_string(), rank.to_string())];
@@ -178,9 +180,9 @@ impl SliceChart {
     }
 }
 
-/// 点クリック判定用の候補（trial_id, 行 index, プロット座標 [x, y]）を返す。
-/// `log_scale` が有効なときは Y を log10 変換し、描画位置と一致させる。
-/// NaN/Inf の点はスキップする。
+/// Returns candidates for point-click hit testing (trial_id, row index, plot coordinates [x, y]).
+/// When `log_scale` is enabled, Y is log10-converted to match the drawing position.
+/// Points with NaN/Inf are skipped.
 fn compute_hit_candidates(
     view: &StudyView,
     param_name: &str,
@@ -209,14 +211,16 @@ fn compute_hit_candidates(
         .collect()
 }
 
-/// view から Slice チャートの描画点を計算する（テスト可能な純粋関数）
+/// Computes the drawing points of the Slice chart from a view (a testable pure function).
 ///
-/// - `param_name` に一致するパラメータを X 軸、`obj_names[obj_idx]` の目的関数を Y 軸とした点列を返す
-/// - `single_objective=true` のとき: ベスト値（minimize なら最小、maximize なら最大）のトライアルを
-///   1番目のタプルに、それ以外を2番目に分類する
-/// - `single_objective=false` のとき: pareto_rank == 0 を1番目、それ以外を2番目に分類する
-/// - `param_name` が view に存在しない、または `obj_idx` が範囲外のとき空を返す
-/// - NaN/Inf の値はスキップする
+/// - Returns a point series with the parameter matching `param_name` on the X axis and
+///   the objective function `obj_names[obj_idx]` on the Y axis
+/// - When `single_objective=true`: classifies the trial with the best value (minimum for
+///   minimize, maximum for maximize) into the 1st tuple element and the rest into the 2nd
+/// - When `single_objective=false`: classifies pareto_rank == 0 into the 1st element and
+///   the rest into the 2nd
+/// - Returns empty when `param_name` doesn't exist in the view, or `obj_idx` is out of range
+/// - Skips NaN/Inf values
 pub fn compute_plot_points(
     view: &StudyView,
     param_name: &str,
@@ -234,7 +238,7 @@ pub fn compute_plot_points(
         return (vec![], vec![]);
     };
 
-    // 有効な点を収集する（NaN/Inf はスキップ）
+    // Collect valid points (skipping NaN/Inf)
     let valid: Vec<(f64, f64, u32)> = (0..view.row_count())
         .filter_map(|i| {
             let x = params.get(i).copied()?;
@@ -360,7 +364,7 @@ mod tests {
     fn test_compute_plot_points_unknown_param_returns_empty() {
         let view = make_view(&[1.0, 3.0], &[2.0, 4.0], vec![0, 1]);
         let obj_names = vec!["obj0".to_string()];
-        // "y" は view に存在しない → 空
+        // "y" does not exist in the view → empty
         let (highlighted, normal) = compute_plot_points(&view, "y", &obj_names, 0, false, true);
         assert!(highlighted.is_empty());
         assert!(normal.is_empty());
@@ -370,7 +374,7 @@ mod tests {
     fn test_compute_plot_points_obj_idx_out_of_bounds() {
         let view = make_view(&[1.0], &[2.0], vec![0]);
         let obj_names = vec!["obj0".to_string()];
-        // obj_idx=1 だが obj_names は長さ 1 → 空
+        // obj_idx=1 but obj_names has length 1 → empty
         let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 1, false, true);
         assert!(highlighted.is_empty());
         assert!(normal.is_empty());
@@ -379,14 +383,14 @@ mod tests {
     #[test]
     fn test_compute_plot_points_skips_nan_obj() {
         use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
-        // obj_vals に NaN を含む行はスキップされる
+        // Rows whose obj_vals contains NaN are skipped
         let core_rows: Vec<CoreRow> = vec![
             CoreRow {
                 trial_id: 0,
                 trial_number: 0,
                 param_display: HashMap::from([("x".to_string(), 1.0)]),
                 param_category_label: HashMap::new(),
-                objective_values: vec![], // 目的関数なし → NaN
+                objective_values: vec![], // no objective function → NaN
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
                 constraint_values: vec![],

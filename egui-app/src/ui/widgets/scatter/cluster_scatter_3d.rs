@@ -14,7 +14,7 @@ use crate::ui::widgets::scatter_3d::{
 use crate::ui::widgets::scatter_matrix::{downsample_indices_to_cap, MAX_SCATTER_POINTS};
 use crate::ui::widgets::trial_detail_modal::{axis_row, push_feasible_row, TrialDetailModal};
 
-/// クラスタ 3D 散布図ウィジェット
+/// Cluster 3D scatter plot widget
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ClusterScatter3D {
@@ -23,12 +23,12 @@ pub struct ClusterScatter3D {
     pub z_objective: usize,
     pub camera: ArcballCamera,
     pub show_infeasible: bool,
-    // クラスタリング設定（2D の ClusterScatter と同じ操作を 3D からも可能にする）
+    // Clustering settings (allows the same operations as the 2D ClusterScatter, from 3D too)
     pub k: usize,
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
-    /// Elbow（自動）モードで探索する k の上限。
+    /// Upper bound on k explored in Elbow (automatic) mode.
     pub elbow_max_k: usize,
     #[serde(skip)]
     pub computing: bool,
@@ -38,7 +38,7 @@ pub struct ClusterScatter3D {
     pub last_error: Option<crate::state::messages::ClusterUiError>,
     #[serde(skip)]
     range_cache: Range3DCache<(usize, usize, usize, usize)>,
-    /// 点クリックで開くトライアル詳細モーダル
+    /// Trial detail modal opened by clicking a point
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -66,7 +66,7 @@ impl Default for ClusterScatter3D {
 }
 
 impl ClusterScatter3D {
-    /// 現在の設定に対応するキャッシュキーを返す。
+    /// Returns the cache key corresponding to the current settings.
     pub fn cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(
             self.target_space,
@@ -97,10 +97,10 @@ impl ClusterScatter3D {
         let view = &ctx.view;
         let trial_count = view.row_count();
         let has_constraints = view.feasibility().has_constraints();
-        // クラスタリング対象はパレートフロント（pareto_rank == 0）の解数で判定する。
+        // The clustering target is determined by the number of solutions on the Pareto front (pareto_rank == 0).
         let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
 
-        // クラスタリング設定 + Run（2D と同じ操作）
+        // Clustering settings + Run (same operation as 2D)
         self.show_cluster_controls(ui, pareto_count);
         if let Some(err) = self.last_error.clone() {
             ui.label(egui::RichText::new(&err.user_message).color(ERROR_COLOR()));
@@ -156,7 +156,7 @@ impl ClusterScatter3D {
             }
         });
 
-        // Cluster coloring（このチャート固有の設定キーでキャッシュを参照する）
+        // Cluster coloring (looks up the cache using this chart's own settings key)
         let cluster_key = self.cache_key();
         let cluster = app_state.cluster_cache.get(&cluster_key);
         let n_clusters = cluster.map(|r| r.n_clusters).unwrap_or(1).max(1);
@@ -179,8 +179,8 @@ impl ClusterScatter3D {
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
-        // 全 trial を毎フレーム 3 回（infeasible / other / feasible）深度ソートするのは重いため、
-        // 2D 系と同じ 1500 点上限で間引いてから描画・ソートする（M-13）。
+        // Depth-sorting all trials 3 times per frame (infeasible / other / feasible) is expensive,
+        // so subsample down to the same 1500-point cap as the 2D series before drawing/sorting (M-13).
         let all_indices: Vec<u32> = (0..trial_count as u32).collect();
         let displayed = downsample_indices_to_cap(&all_indices, MAX_SCATTER_POINTS);
 
@@ -188,9 +188,9 @@ impl ClusterScatter3D {
         let show_infeasible = self.show_infeasible;
         let mut feasible_pts: Vec<DepthPoint> = Vec::with_capacity(displayed.len());
         let mut infeasible_pts: Vec<DepthPoint> = Vec::new();
-        // クラスタリング対象外（非パレートフロント）の実行可能解 → 半透明で背面描画
+        // Feasible solutions outside the clustering target (non-Pareto-front) -> drawn semi-transparent in the background
         let mut other_pts: Vec<DepthPoint> = Vec::new();
-        // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
+        // For left-click point hit testing (trial_id, row, and screen coordinates of drawn points)
         let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(displayed.len());
 
         for &idx in &displayed {
@@ -198,7 +198,7 @@ impl ClusterScatter3D {
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let yv = y_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let zv = z_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-            // normalize→project は共通ヘルパー（D-1）。
+            // normalize -> project is a shared helper (D-1).
             let (pos, depth) = project_value_3d(&project, [xv, yv, zv], ranges);
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
@@ -220,7 +220,7 @@ impl ClusterScatter3D {
             let label = cluster.and_then(|r| r.labels.get(i).copied()).unwrap_or(0);
 
             if has_cluster && label < 0 {
-                // クラスタリング済みだが非パレートフロント → 半透明で描画
+                // Already clustered but not on the Pareto front -> draw semi-transparent
                 other_pts.push(DepthPoint {
                     pos,
                     depth,
@@ -251,7 +251,7 @@ impl ClusterScatter3D {
             );
         }
 
-        // クラスタ番号（未クラスタリング・非パレートフロントは "—"）を行 index から求める。
+        // Derives the cluster number from the row index ("—" for unclustered / non-Pareto-front).
         let cluster_str_for = |row: usize| -> String {
             let label = cluster
                 .and_then(|r| r.labels.get(row).copied())
@@ -287,7 +287,7 @@ impl ClusterScatter3D {
             },
         );
 
-        // 詳細モーダルを描画する。
+        // Draws the detail modal.
         if self.detail_modal.is_open() {
             self.detail_modal.show(
                 ui,
@@ -299,7 +299,7 @@ impl ClusterScatter3D {
         }
     }
 
-    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    /// Assembles a bundle of mutable references to the settings/runtime-state fields (for delegating to shared logic).
     fn controls(&mut self) -> ClusterControls<'_> {
         ClusterControls {
             k: &mut self.k,
@@ -313,8 +313,8 @@ impl ClusterScatter3D {
         }
     }
 
-    /// クラスタリング設定 UI（k / モード / 空間 / Init / Run）を描画する。
-    /// 2D の ClusterScatter::show_header と同じ操作感。
+    /// Draws the clustering settings UI (k / mode / space / Init / Run).
+    /// Same feel as 2D's ClusterScatter::show_header.
     fn show_cluster_controls(&mut self, ui: &mut egui::Ui, pareto_count: usize) {
         self.controls()
             .show_controls(ui, pareto_count, "cluster_scatter_3d", true);
@@ -335,9 +335,9 @@ impl ClusterScatter3D {
         self.last_error = None;
     }
 
-    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
-    /// クラスタリング結果は `app_state.cluster_cache` に集約されるため、
-    /// キャンバスの各アイテム（独立した WidgetStates）にも完了状態を反映する必要がある。
+    /// Adopts the shared clustering runtime state (computing / pending / error).
+    /// Since clustering results are aggregated into `app_state.cluster_cache`, the completion
+    /// state also needs to be reflected into each canvas item (which has independent WidgetStates).
     pub fn adopt_runtime_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.pending_compute = src.pending_compute.clone();

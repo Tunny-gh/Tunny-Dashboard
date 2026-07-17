@@ -13,7 +13,7 @@ pub(crate) const DRAG_HANDLE_HEIGHT: f32 = 24.0;
 pub enum CellToolbarAction {
     None,
     Close,
-    /// タイトルバーのダブルクリックでウィジェットを最大化表示する。
+    /// Maximizes the widget's display via a double-click on the title bar.
     Maximize(PanelItem),
     Help(PanelItem),
     SaveAsPng(PanelItem),
@@ -22,8 +22,8 @@ pub enum CellToolbarAction {
     CopyImage(PanelItem),
 }
 
-/// チャートセルの「…」(オプション) メニューボタンを描画し、選択されたアクションを返す。
-/// キャンバスビューのツールバーと最大化モーダルから共有する。
+/// Draws the chart cell's "…" (options) menu button and returns the selected action.
+/// Shared by the canvas view's toolbar and the maximize modal.
 pub(crate) fn show_chart_menu_button(
     ui: &mut egui::Ui,
     item: &PanelItem,
@@ -97,13 +97,14 @@ pub(crate) fn handle_toolbar_action(
             record_capture_target(&mut widgets.capture, target.clone(), CaptureDest::Clipboard);
         }
         CellToolbarAction::SaveAsCsv(PanelItem::Chart(chart_id)) => {
-            // 保存ダイアログ（rfd）は UI スレッドで先に実行してパスを確定する
-            // （report_export と同流儀: ダイアログ → バックグラウンド書き込み）。
+            // Run the save dialog (rfd) on the UI thread first to determine the
+            // path (same convention as report_export: dialog → background write).
             let filename = crate::io::csv_export::csv_export_filename(chart_id);
             if let Some(path) = crate::io::export::pick_csv_save_path(&filename) {
-                // build_chart_csv は &AppState / &WidgetStates（多数のキャッシュ・ウィジェット
-                // 状態）を要するためワーカーへは送れない。CSV 文字列は UI スレッドで構築し、
-                // ブロッキングになりうるファイル書き込みだけをバックグラウンドへ委譲する。
+                // build_chart_csv needs &AppState / &WidgetStates (many caches and
+                // widget states), so it can't be sent to a worker. Build the CSV
+                // string on the UI thread and delegate only the potentially
+                // blocking file write to the background.
                 if let Some(csv_str) =
                     crate::io::csv_export::build_chart_csv(chart_id, app_state, widgets)
                 {
@@ -119,8 +120,8 @@ pub(crate) fn handle_toolbar_action(
             }
         }
         CellToolbarAction::SaveAsCsv(PanelItem::TrialTable) => {
-            // Chart 版と同様、保存ダイアログを UI スレッドで先に実行してから
-            // ファイル書き込みをバックグラウンドへ委譲する。
+            // Same as the chart version: run the save dialog on the UI thread
+            // first, then delegate the file write to the background.
             let filename = crate::io::csv_export::trial_table_csv_filename(widgets);
             if let Some(path) = crate::io::export::pick_csv_save_path(&filename) {
                 if let Some(csv_str) =
@@ -140,10 +141,12 @@ pub(crate) fn handle_toolbar_action(
     }
 }
 
-/// PanelItem の本体（チャート/テーブル）を描画する共有関数。
-/// キャンバスビューと最大化モーダルの両方から呼ばれる。`id_salt` はインスタンスごとの
-/// egui ID 衝突回避用（canvas は item.id、最大化モーダルは固定文字列を渡す）。
-/// 戻り値はツールバーを含まない本体の描画矩形で、PNG/画像キャプチャのクロップに使う。
+/// Shared function that draws the body (chart/table) of a `PanelItem`.
+/// Called from both the canvas view and the maximize modal. `id_salt` avoids
+/// egui ID collisions between instances (canvas passes item.id, the maximize
+/// modal passes a fixed string).
+/// Returns the drawn rect of the body only (excluding the toolbar), used for
+/// cropping the PNG/image capture.
 pub(crate) fn render_panel_item_body(
     ui: &mut egui::Ui,
     app_state: &mut AppState,
@@ -168,10 +171,12 @@ pub(crate) fn render_panel_item_body(
     body_resp.response.rect
 }
 
-/// 最大化モーダルを描画する。
-/// `widgets.maximized_item` が `Some` のとき、画面を暗転させて対象ウィジェットを
-/// 大きく表示する。Esc キー・背景クリック・× ボタンで閉じる。
-/// `show_layout` の最後（各パネルより後）に呼び出し、すべての上に重ねる。
+/// Draws the maximize modal.
+/// When `widgets.maximized_item` is `Some`, dims the screen and displays the
+/// target widget enlarged. Closed via the Esc key, clicking the background, or
+/// the × button.
+/// Call this at the end of `show_layout` (after all panels) so it overlays
+/// everything.
 pub(crate) fn show_maximized_modal(
     ctx: &egui::Context,
     app_state: &mut AppState,
@@ -185,7 +190,7 @@ pub(crate) fn show_maximized_modal(
     let screen = ctx.content_rect();
     let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
-    // 背景の暗転（クリックで閉じる）。ウィンドウより先に生成して背面へ。
+    // Dim the background (click to close). Created before the window so it sits behind it.
     egui::Area::new(egui::Id::new("maximized_modal_dim"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
@@ -198,8 +203,8 @@ pub(crate) fn show_maximized_modal(
             }
         });
 
-    // 中央の最大化ウィンドウ（タイトルバーの × で閉じる）。
-    // チャート固有の補足説明（凡例）があればタイトルに連結して表示する。
+    // The centered maximize window (closed via the × in the title bar).
+    // If the chart has a specific supplementary caption (legend), append it to the title.
     let win_title = match item.subtitle() {
         Some(subtitle) => format!("{}    —    {}", item.label(), subtitle),
         None => item.label().to_string(),
@@ -232,7 +237,7 @@ mod tests {
     #[test]
     fn cell_toolbar_shows_menu_for_chart_cells() {
         use crate::state::layout_state::{ChartId, PanelItem};
-        // Chart セルは SaveAsPng メニューを持つ（CellToolbarAction に SaveAsPng バリアントがある）
+        // Chart cells have a SaveAsPng menu entry (CellToolbarAction has a SaveAsPng variant)
         let item = PanelItem::Chart(ChartId::OptimizationHistory);
         let action = CellToolbarAction::SaveAsPng(item);
         assert!(matches!(action, CellToolbarAction::SaveAsPng(_)));

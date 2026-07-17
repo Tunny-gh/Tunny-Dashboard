@@ -1,13 +1,16 @@
-//! 応答曲面 3D ビューア。
+//! Response surface 3D viewer.
 //!
-//! `robustness.rs` と同じ 2 段階構成: サロゲートのフィットは非同期（poll_chart 経由）、
-//! フィット済みモデルからのスライス評価（`tunny_core::surrogate_opt::surface_slice_at`）は
-//! ミリ秒オーダーのためレンダーパスで同期実行しキャッシュする。アンカー点
-//! （Best trial / pin 留めした trial）を通る 2 パラメータ平面のスライスを 3D メッシュで
-//! 表示する（PDP のような周辺化はせず、他パラメータをアンカー値に固定した「生の断面」）。
-//! アンカー点の選択は `robustness.rs` と共通の `anchor::CenterChoice` を使う。
+//! Same two-stage structure as `robustness.rs`: the surrogate fit runs
+//! asynchronously (via poll_chart), while slice evaluation from the fitted
+//! model (`tunny_core::surrogate_opt::surface_slice_at`) is on the order of
+//! milliseconds, so it runs synchronously in the render pass and is cached.
+//! Displays, as a 3D mesh, a slice through the 2-parameter plane passing
+//! through the anchor point (Best trial / a pinned trial) — this is not a PDP
+//! marginalization, but a "raw cross-section" with the other parameters fixed
+//! at the anchor values. Anchor point selection uses `anchor::CenterChoice`,
+//! shared with `robustness.rs`.
 //!
-//! 描画は `pdp_2d.rs` のサーフェスメッシュ共有描画（`draw_surface_mesh` ほか）を再利用する。
+//! Drawing reuses the shared surface mesh rendering from `pdp_2d.rs` (`draw_surface_mesh` etc.).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,18 +34,22 @@ use crate::ui::widgets::scatter_3d::{
 };
 use crate::ui::widgets::trial_detail_modal::{axis_row, TrialDetailModal};
 
-// モデル選択肢（コンボ表示順）。3 ウィジェット共通の単一情報源（`super::MODEL_CHOICES`）を使う。
+// Model choices (combo display order). Uses the single source of truth shared
+// by all 3 widgets (`super::MODEL_CHOICES`).
 use super::MODEL_CHOICES;
 
-/// グリッド解像度の選択肢。
+/// Grid resolution choices.
 const GRID_CHOICES: [usize; 3] = [20, 30, 50];
 
-/// GP 系モデルのスライス評価はグリッド点数の二乗に比例して重い（50²=2500 点予測）。
-/// 描画パス同期実行での UI ブロックを避けるため、GP 系ではグリッド解像度をこの値で頭打ちにする。
-/// Ridge / LightGBM は安価なため制限しない。
+/// Slice evaluation for GP-family models is expensive, scaling with the
+/// square of the grid point count (50^2 = 2500 point predictions). To avoid
+/// blocking the UI during synchronous execution in the render pass, GP-family
+/// models cap the grid resolution at this value. Ridge / LightGBM are cheap
+/// and are not limited.
 const GP_GRID_CAP: usize = 30;
 
-/// GP（ガウス過程）系モデルか。応答曲面スライスの計算コストが高いモデル群。
+/// Whether this is a GP (Gaussian process) family model. The group of models
+/// with high response-surface slice computation cost.
 fn is_gp_kind(kind: SurrogateModelKind) -> bool {
     matches!(
         kind,
@@ -50,24 +57,27 @@ fn is_gp_kind(kind: SurrogateModelKind) -> bool {
     )
 }
 
-/// フィット段階の計算リクエスト。poll_chart が消費する。
+/// Computation request for the fit stage. Consumed by poll_chart.
 pub struct ResponseSurfaceFitRequest {
     pub objective_index: usize,
     pub model: SurrogateModelKind,
 }
 
-/// キャッシュキー: (フィット世代 ID, x_idx, y_idx, アンカーのビット表現, n_grid)。
-/// 先頭要素は以前 `Arc::as_ptr` だったが、解放後に同一アドレスが再利用されると
-/// 別モデルの結果を誤表示しうる（ABA）。フィット採用時に単調増加する世代 ID
-/// （`ResponseSurfaceChart::fit_generation`）へ置き換えて回避する。
+/// Cache key: (fit generation ID, x_idx, y_idx, bit representation of anchor, n_grid).
+/// The first element used to be `Arc::as_ptr`, but if the same address is
+/// reused after deallocation, results from a different model could be
+/// displayed incorrectly (ABA problem). Avoided by replacing it with a
+/// generation ID (`ResponseSurfaceChart::fit_generation`) that increments
+/// monotonically whenever a fit is adopted.
 type SliceCacheKey = (u64, usize, usize, Vec<u64>, usize);
 
-/// アンカー解決結果のキャッシュキー: (フィット世代 ID, アンカー選択, DataFrame 恒等性)。
-/// 中心点解決（`resolve_center`）は全 trial を走査する O(N) 処理のため、
-/// 入力が変わらないフレームでは再走査を避ける。
+/// Cache key for anchor resolution results: (fit generation ID, anchor
+/// choice, DataFrame identity). Since center-point resolution
+/// (`resolve_center`) is an O(N) scan over all trials, this avoids
+/// re-scanning on frames where the input hasn't changed.
 type AnchorCacheKey = (u64, CenterChoice, usize);
 
-/// 応答曲面 3D ウィジェットの UI 状態。
+/// UI state for the response surface 3D widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ResponseSurfaceChart {
@@ -77,7 +87,7 @@ pub struct ResponseSurfaceChart {
     pub param_x: String,
     pub param_y: String,
     pub n_grid: usize,
-    /// GP 系のみ有効な ±1.96σ 帯表示トグル。
+    /// Toggle for showing the +-1.96 sigma band, only meaningful for GP-family models.
     pub show_uncertainty: bool,
     pub show_observed: bool,
     pub camera: ArcballCamera,
@@ -92,16 +102,16 @@ pub struct ResponseSurfaceChart {
     pub pending_fit: Option<ResponseSurfaceFitRequest>,
     #[serde(skip)]
     cache: Option<(SliceCacheKey, SurfaceSlice)>,
-    /// アンカー解決結果のキャッシュ（毎フレームの O(N) 走査回避）。
+    /// Cache of anchor resolution results (avoids the per-frame O(N) scan).
     #[serde(skip)]
     anchor_cache: Option<(AnchorCacheKey, Vec<f64>)>,
-    /// フィット採用時に単調増加する世代 ID。キャッシュキーの `Arc::as_ptr` 置換用。
+    /// Generation ID that increments monotonically whenever a fit is adopted. Used to replace `Arc::as_ptr` in the cache key.
     #[serde(skip)]
     fit_generation: u64,
-    /// 直近フレームで観測した学習済みモデルの Arc ポインタ（世代 ID 更新の変化検出用）。
+    /// The trained model's Arc pointer observed on the most recent frame (used to detect changes for generation ID updates).
     #[serde(skip)]
     fit_ptr: usize,
-    /// 観測点クリックで開くトライアル詳細モーダル。
+    /// Trial detail modal opened by clicking an observed point.
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -132,15 +142,15 @@ impl Default for ResponseSurfaceChart {
 }
 
 impl ResponseSurfaceChart {
-    /// グローバル widget の計算実行状態・結果・エラーを取り込む
-    /// （`ComputeSyncKind::ResponseSurfaceFit` から呼ぶ。`robustness.rs` と同じ規約）。
+    /// Pulls in the global widget's computation state, result, and error
+    /// (called from `ComputeSyncKind::ResponseSurfaceFit`; same convention as `robustness.rs`).
     pub fn adopt_compute_state(&mut self, global: &Self) {
         self.trained = global.trained.clone();
         self.fitting = global.fitting;
         self.fit_error = global.fit_error.clone();
     }
 
-    /// 直近のスライス評価結果（キャッシュ）。CSV エクスポート等が参照する。
+    /// The most recent slice evaluation result (cache). Referenced by CSV export, etc.
     pub fn cached_slice(&self) -> Option<&SurfaceSlice> {
         self.cache.as_ref().map(|(_, s)| s)
     }
@@ -163,9 +173,9 @@ fn cache_key(
 }
 
 impl ResponseSurfaceChart {
-    /// `obj_names` / `directions` は現在の Study の全目的（Best trial 解決用）。
-    /// `param_names` は数値パラメータ一覧（X/Y コンボの候補）。
-    /// `pinned_trials` は pin 留めした trial_id（Anchor コンボの候補）。
+    /// `obj_names` / `directions` are all objectives of the current Study (for resolving Best trial).
+    /// `param_names` is the list of numeric parameters (candidates for the X/Y combos).
+    /// `pinned_trials` are pinned trial_ids (candidates for the Anchor combo).
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -301,8 +311,9 @@ impl ResponseSurfaceChart {
             return;
         };
 
-        // フィット採用（trained の Arc が別モデルへ差し替わった）を検出して世代 ID を進める。
-        // キャッシュキーはこの世代 ID を使い、`Arc::as_ptr` のアドレス再利用（ABA）を避ける。
+        // Detect a fit being adopted (the trained Arc was swapped to a different
+        // model) and advance the generation ID. The cache key uses this
+        // generation ID to avoid address reuse (ABA) with `Arc::as_ptr`.
         let trained_ptr = Arc::as_ptr(&trained) as usize;
         if trained_ptr != self.fit_ptr {
             self.fit_ptr = trained_ptr;
@@ -327,8 +338,8 @@ impl ResponseSurfaceChart {
             return;
         };
 
-        // アンカー解決は全 trial を走査する O(N) 処理。入力（世代・選択・DataFrame）が
-        // 変わらないフレームでは前回結果を再利用する。
+        // Anchor resolution is an O(N) scan over all trials. Reuse the previous
+        // result on frames where the input (generation, selection, DataFrame) hasn't changed.
         let anchor_key: AnchorCacheKey = (
             self.fit_generation,
             self.anchor,
@@ -347,8 +358,9 @@ impl ResponseSurfaceChart {
         };
         let anchor = anchor.clone();
 
-        // GP 系はグリッド点数の二乗に比例して重いため、描画パス同期実行の UI ブロックを
-        // 抑えるようスライス解像度を頭打ちにする（Ridge / LightGBM は制限なし）。
+        // GP-family models scale with the square of the grid point count, so
+        // cap the slice resolution to limit UI blocking during synchronous
+        // execution in the render pass (Ridge / LightGBM are unrestricted).
         let effective_grid = if is_gp_kind(trained.model_kind) {
             self.n_grid.min(GP_GRID_CAP)
         } else {
@@ -372,7 +384,7 @@ impl ResponseSurfaceChart {
             return;
         }
 
-        // 不確実性バンド表示トグル（ガウス過程系のみ。cache の不変借用前に self を可変借用する）。
+        // Uncertainty band display toggle (Gaussian process models only; borrow self mutably before immutably borrowing cache).
         let has_uncertainty = self.cache.as_ref().is_some_and(|(_, s)| s.z_std.is_some());
         if has_uncertainty {
             ui.checkbox(&mut self.show_uncertainty, "95% CI (±1.96σ)");
@@ -386,8 +398,9 @@ impl ResponseSurfaceChart {
         let objective_name = obj_names[self.selected_objective].clone();
         let camera = &mut self.camera;
         let detail_modal = &mut self.detail_modal;
-        // `camera`（self.camera への可変借用）と `slice`（self.cache への不変借用）は
-        // 互いに素なフィールドなので同時に借用できる（pdp_2d.rs と同じパターン）。
+        // `camera` (a mutable borrow of self.camera) and `slice` (an immutable
+        // borrow of self.cache) are disjoint fields, so they can be borrowed
+        // simultaneously (same pattern as pdp_2d.rs).
         let (_, slice) = self.cache.as_ref().expect("checked non-empty above");
 
         let (c_min, c_max) = value_range_of(&slice.z_values);
@@ -443,15 +456,15 @@ impl ResponseSurfaceChart {
             })
             .collect();
 
-        // 下に続くアンカー説明キャプション 1 行ぶんを先に差し引いてから
-        // 3D キャンバスを確保する（キャプションの見切れ防止）。
+        // Subtract the height of the single-line anchor caption below before
+        // allocating the 3D canvas (prevents the caption from being clipped).
         let caption_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
         let avail = ui.available_size();
         let canvas_size = egui::vec2(
             (avail.x - 16.0).max(120.0),
             (avail.y - caption_h).max(160.0),
         );
-        // ホバーツールチップ・クリック詳細用の列参照（観測点は実トライアル）。
+        // Column references for the hover tooltip / click detail (observed points are real trials).
         let px_col = view.numeric_column(&param_x);
         let py_col = view.numeric_column(&param_y);
         let obj_col = view.numeric_column(&objective_name);
@@ -479,8 +492,8 @@ impl ResponseSurfaceChart {
                 [(x_min, x_max), (v_min, v_max), (y_min, y_max)],
             );
 
-            // 観測点のホバーツールチップ・クリック詳細（他の 3D 散布図と同じ操作感）。
-            // "Show data" オフ時は observed が空のため何も起きない。
+            // Hover tooltip / click detail for observed points (same interaction as other 3D scatter plots).
+            // When "Show data" is off, observed is empty so nothing happens.
             let candidates: Vec<(u32, usize, egui::Pos2)> = observed
                 .iter()
                 .zip(observed_clip.iter())
@@ -527,7 +540,7 @@ impl ResponseSurfaceChart {
             .weak(),
         );
 
-        // クリックで開いたトライアル詳細モーダルを描画する。
+        // Draws the trial detail modal opened by a click.
         if detail_modal.is_open() {
             detail_modal.show(ui, view, param_names, obj_names, artifact_map);
         }
@@ -569,7 +582,7 @@ mod tests {
         dst.adopt_compute_state(&src);
         assert!(!dst.fitting);
         assert_eq!(dst.fit_error.as_deref(), Some("err"));
-        // UI 選択は維持される。
+        // UI selections are preserved.
         assert_eq!(dst.selected_objective, 2);
         assert_eq!(dst.param_x, "x1");
     }

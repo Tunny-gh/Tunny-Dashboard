@@ -1,12 +1,16 @@
-//! ロバスト性解析ウィジェット。
+//! Robustness analysis widget.
 //!
-//! `SurrogateOpt` と同様にサロゲートを非同期で学習するが（フィット段階のみ、
-//! poll_chart.rs 参照）、ロバスト性解析自体（`tunny_core::surrogate_opt::robustness_analysis`）
-//! はミリ秒オーダーのためレンダーパスで同期実行し、結果をキャッシュする。
+//! Like `SurrogateOpt`, it trains a surrogate asynchronously (fit stage only,
+//! see poll_chart.rs), but the robustness analysis itself
+//! (`tunny_core::surrogate_opt::robustness_analysis`) runs on the order of
+//! milliseconds, so it is executed synchronously during the render pass and
+//! the result is cached.
 //!
-//! 候補設計点（Best trial または pin 留めした trial）の周りにガウス入力ノイズを与え、
-//! サロゲート予測を通した出力分布をヒストグラムで表示する。理論的背景は
-//! theory/{en,ja}/optimization/robustness-analysis.md。
+//! Gaussian input noise is applied around a candidate design point (the best
+//! trial or a pinned trial), and the resulting output distribution through the
+//! surrogate prediction is shown as a histogram. See
+//! theory/{en,ja}/optimization/robustness-analysis.md for the theoretical
+//! background.
 
 use std::sync::Arc;
 
@@ -21,41 +25,50 @@ use crate::state::types::{Direction, StudyView};
 use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 
-// モデル選択肢（コンボ表示順）。3 ウィジェット共通の単一情報源（`super::MODEL_CHOICES`）を使う。
+// Model choices (combo display order). Shares the single source of truth
+// (`super::MODEL_CHOICES`) across all three widgets.
 use super::MODEL_CHOICES;
 
-/// サンプル数の選択肢。
+/// Sample count choices.
 const SAMPLE_CHOICES: [usize; 3] = [256, 1024, 4096];
 
-/// フィット段階の計算リクエスト。poll_chart が消費する。
+/// Fit-stage compute request. Consumed by poll_chart.
 pub struct RobustnessFitRequest {
     pub objective_index: usize,
     pub model: SurrogateModelKind,
 }
 
-/// キャッシュキーのスカラー部分（center を除く）: (フィット世代 ID,
-/// ノイズ%のビット表現, サンプル数, 認識論的不確かさ込みか, ノイズ分布種別,
-/// Weibull 形状パラメータのビット表現, LSL のビット表現（未指定なら None）,
-/// USL のビット表現（未指定なら None）)。シードは固定 42 のためキーに含めない。
+/// Scalar part of the cache key (excluding center): (fit generation ID,
+/// bit representation of noise %, sample count, whether epistemic uncertainty
+/// is included, noise distribution kind, bit representation of the Weibull
+/// shape parameter, bit representation of LSL (None if unset), bit
+/// representation of USL (None if unset)). The seed is fixed at 42, so it is
+/// not included in the key.
 ///
-/// 先頭要素は以前 `Arc::as_ptr` だったが、解放後に同一アドレスが再利用されると別モデルの
-/// 結果を誤表示しうる（ABA）。フィット採用時に単調増加する世代 ID
-/// （`RobustnessChart::fit_generation`）へ置き換えて回避する。
+/// The first element used to be `Arc::as_ptr`, but if the same address is
+/// reused after deallocation, results from a different model could be shown
+/// incorrectly (ABA problem). This is avoided by replacing it with a
+/// monotonically increasing generation ID (`RobustnessChart::fit_generation`)
+/// that advances whenever a fit is adopted.
 ///
-/// center（Vec<u64>）とは別フィールドに分離している。スカラー部分は Copy で
-/// ヒープ確保が無いため、毎フレームの再計算・比較を安価に行える。center は
-/// 実際にキャッシュを再構築する（ミス時）ときだけ Vec<u64> 化する
-/// （`cache_matches` はキャッシュ済み center とのゼロコピー要素比較で済ませる）。
+/// Kept in a separate field from center (Vec<u64>). The scalar part is Copy
+/// and requires no heap allocation, so recomputing/comparing it every frame
+/// is cheap. center is only converted to Vec<u64> when the cache actually
+/// needs to be rebuilt (on a miss); `cache_matches` compares against the
+/// cached center element-by-element with zero copies.
 type RobustnessScalarKey = (u64, u64, usize, bool, u8, u64, Option<u64>, Option<u64>);
 
-/// 中心点解決結果のキャッシュキー: (フィット世代 ID, 中心選択, DataFrame 恒等性)。
-/// 中心点解決（`resolve_center`）は全 trial を走査する O(N) 処理のため、
-/// 入力が変わらないフレームでは再走査を避ける。
+/// Cache key for the resolved center point: (fit generation ID, center
+/// choice, DataFrame identity). Center resolution (`resolve_center`) is an
+/// O(N) scan over all trials, so avoid re-scanning on frames where the inputs
+/// have not changed.
 type CenterCacheKey = (u64, CenterChoice, usize);
 
-/// キャッシュした解析結果と、そこから一度だけ組み立てたヒストグラムのバー幾何
-/// `(中心, 高さ, 幅)`。結果と一緒に保持することで、毎フレームの `compute_histogram`
-/// と Bar Vec 生成を避ける（結果が不変な限り再計算しない）。
+/// A cached analysis result plus the histogram bar geometry
+/// `(center, height, width)` built from it exactly once. Keeping this
+/// alongside the result avoids recomputing `compute_histogram` and rebuilding
+/// the Bar Vec every frame (no recomputation as long as the result is
+/// unchanged).
 struct RobustnessRender {
     result: RobustnessResult,
     bars: Vec<(f64, f64, f64)>,
@@ -67,11 +80,12 @@ struct RobustnessCacheKey {
     center_bits: Vec<u64>,
 }
 
-/// ノイズ分布の選択肢（widget ローカル）。
+/// Noise distribution choices (widget-local).
 ///
-/// コアの `NoiseDistribution` は `Weibull { shape }` を持つデータ運搬型で
-/// シリアライズを実装していないため、UI 状態の永続化用にこの薄いミラーを持つ。
-/// Weibull の形状パラメータ自体は別フィールド `weibull_shape` に持たせる。
+/// The core `NoiseDistribution` is a data-carrying type with `Weibull { shape }`
+/// that does not implement serialization, so this thin mirror exists to persist
+/// UI state. The Weibull shape parameter itself is kept in a separate field,
+/// `weibull_shape`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NoiseDistKind {
     #[default]
@@ -80,7 +94,7 @@ pub enum NoiseDistKind {
     Weibull,
 }
 
-/// コンボ表示用ラベル。
+/// Label for combo box display.
 fn noise_dist_label(kind: NoiseDistKind) -> &'static str {
     match kind {
         NoiseDistKind::Normal => "Normal",
@@ -89,25 +103,25 @@ fn noise_dist_label(kind: NoiseDistKind) -> &'static str {
     }
 }
 
-/// ロバスト性解析ウィジェットの UI 状態。
+/// UI state for the robustness analysis widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RobustnessChart {
     pub selected_objective: usize,
     pub model: SurrogateModelKind,
     pub center: CenterChoice,
-    /// ノイズの 1σ（パラメータレンジに対する割合、%）。
+    /// Noise 1σ (as a percentage of the parameter range).
     pub noise_pct: f64,
-    /// ノイズの分布形。
+    /// Shape of the noise distribution.
     pub noise_dist: NoiseDistKind,
-    /// Weibull 分布の形状パラメータ k（[0.2, 20] の範囲）。
+    /// Shape parameter k of the Weibull distribution (range [0.2, 20]).
     pub weibull_shape: f64,
     pub n_samples: usize,
     pub include_epistemic: bool,
-    /// 仕様下限（LSL）を有効にするか、およびその値。
+    /// Whether the lower spec limit (LSL) is enabled, and its value.
     pub use_lower_spec: bool,
     pub lower_spec_value: f64,
-    /// 仕様上限（USL）を有効にするか、およびその値。
+    /// Whether the upper spec limit (USL) is enabled, and its value.
     pub use_upper_spec: bool,
     pub upper_spec_value: f64,
 
@@ -121,13 +135,15 @@ pub struct RobustnessChart {
     pub pending_fit: Option<RobustnessFitRequest>,
     #[serde(skip)]
     cache: Option<(RobustnessCacheKey, RobustnessRender)>,
-    /// 中心点解決結果のキャッシュ（毎フレームの O(N) 走査回避）。
+    /// Cache of the resolved center point (avoids an O(N) scan every frame).
     #[serde(skip)]
     center_cache: Option<(CenterCacheKey, Vec<f64>)>,
-    /// フィット採用時に単調増加する世代 ID。キャッシュキーの `Arc::as_ptr` 置換用。
+    /// Generation ID that increases monotonically when a fit is adopted. Used
+    /// in place of `Arc::as_ptr` in the cache key.
     #[serde(skip)]
     fit_generation: u64,
-    /// 直近フレームで観測した学習済みモデルの Arc ポインタ（世代 ID 更新の変化検出用）。
+    /// Arc pointer of the trained model observed in the most recent frame
+    /// (used to detect changes for the generation ID update).
     #[serde(skip)]
     fit_ptr: usize,
 }
@@ -160,22 +176,25 @@ impl Default for RobustnessChart {
 }
 
 impl RobustnessChart {
-    /// グローバル widget の計算実行状態・結果・エラーを取り込む（キャンバス各アイテム伝播用）。
-    /// 目的・モデル・中心点・ノイズ設定などの UI 選択は各アイテム側を維持する。
+    /// Pulls in the global widget's compute state, result, and error (used to
+    /// propagate state to each canvas item). UI selections such as objective,
+    /// model, center point, and noise settings remain per-item.
     pub fn adopt_compute_state(&mut self, global: &Self) {
         self.trained = global.trained.clone();
         self.fitting = global.fitting;
         self.fit_error = global.fit_error.clone();
     }
 
-    /// 直近のロバスト性解析結果（キャッシュ）。CSV エクスポート等が参照する。
+    /// The most recent robustness analysis result (cached). Referenced by CSV
+    /// export etc.
     pub fn cached_result(&self) -> Option<&RobustnessResult> {
         self.cache.as_ref().map(|(_, r)| &r.result)
     }
 }
 
-/// `obj_names` / `directions` は現在の Study の全目的（Best trial 解決用）。
-/// `pinned_trials` は pin 留めした trial_id（Center コンボの候補）。
+/// `obj_names` / `directions` are all objectives of the current study (used to
+/// resolve the best trial). `pinned_trials` is the list of pinned trial IDs
+/// (candidates for the Center combo box).
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
@@ -194,7 +213,7 @@ pub fn show(
         state.selected_objective = 0;
     }
 
-    // ── 目的・モデル選択 ─────────────────────────────────────────
+    // ── Objective / model selection ─────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Objective:");
         egui::ComboBox::from_id_salt("robustness_obj")
@@ -219,7 +238,7 @@ pub fn show(
             });
     });
 
-    // ── 中心点選択 ──────────────────────────────────────────────
+    // ── Center point selection ───────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Center:");
         let center_text = center_label(state.center, view);
@@ -241,13 +260,15 @@ pub fn show(
             });
     });
 
-    // スライダー / DragValue をドラッグ操作中かどうか。ドラッグ中は値が毎フレーム
-    // 変わりキャッシュミスし続けるため、最大 4096 サンプルのロバスト解析を毎フレーム
-    // 同期再実行してしまう。ドラッグ中は再計算を保留（前回結果を表示）し、指を離した
-    // フレーム（`dragged()` が false になる）で一度だけ再計算する（デバウンス）。
+    // Whether a slider / DragValue is currently being dragged. While dragging,
+    // the value changes every frame and keeps missing the cache, which would
+    // synchronously re-run the up-to-4096-sample robustness analysis every
+    // frame. Recomputation is deferred while dragging (the previous result is
+    // shown), and recomputed exactly once on the frame where the drag ends
+    // (`dragged()` becomes false) — i.e. debounced.
     let mut dragging = false;
 
-    // ── ノイズ・サンプル数・認識論的不確かさ ─────────────────────
+    // ── Noise / sample count / epistemic uncertainty ─────────────
     ui.horizontal(|ui| {
         ui.label("Noise % (1σ of range):");
         dragging |= ui
@@ -266,7 +287,7 @@ pub fn show(
         ui.checkbox(&mut state.include_epistemic, "Model uncertainty");
     });
 
-    // ── ノイズ分布 ────────────────────────────────────────────
+    // ── Noise distribution ───────────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Noise dist:");
         egui::ComboBox::from_id_salt("robustness_noise_dist")
@@ -292,10 +313,11 @@ pub fn show(
         }
     });
 
-    // ── 仕様限界（LSL/USL） ───────────────────────────────────
+    // ── Spec limits (LSL/USL) ─────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Spec limits:");
-        // 既存結果の nominal を基準にスケール調整したステップ量。結果がまだ無ければ 0.1。
+        // Step size scaled based on the nominal value of the existing result.
+        // 0.1 if there is no result yet.
         let speed = state
             .cache
             .as_ref()
@@ -317,7 +339,7 @@ pub fn show(
             .dragged();
     });
 
-    // ── trial 数不足 ─────────────────────────────────────────────
+    // ── Insufficient trial count ──────────────────────────────────
     if trial_count < MIN_TRIALS_FOR_SURROGATE_OPT {
         ui.label(
             egui::RichText::new(format!(
@@ -329,7 +351,7 @@ pub fn show(
         return;
     }
 
-    // ── Fit Surrogate ボタン ─────────────────────────────────────
+    // ── Fit Surrogate button ───────────────────────────────────────
     let can_fit = !state.fitting && state.pending_fit.is_none();
     if ui
         .add_enabled(can_fit, egui::Button::new("Fit Surrogate"))
@@ -358,16 +380,18 @@ pub fn show(
         return;
     };
 
-    // フィット採用（trained の Arc が別モデルへ差し替わった）を検出して世代 ID を進める。
-    // キャッシュキーはこの世代 ID を使い、`Arc::as_ptr` のアドレス再利用（ABA）を避ける。
+    // Detect that a fit was adopted (the trained Arc was swapped for a
+    // different model) and advance the generation ID. The cache key uses this
+    // generation ID to avoid address reuse (ABA problem) with `Arc::as_ptr`.
     let trained_ptr = Arc::as_ptr(&trained) as usize;
     if trained_ptr != state.fit_ptr {
         state.fit_ptr = trained_ptr;
         state.fit_generation = state.fit_generation.wrapping_add(1);
     }
 
-    // 中心点解決は全 trial を走査する O(N) 処理。入力（世代・選択・DataFrame）が
-    // 変わらないフレームでは前回結果を再利用する。
+    // Center point resolution is an O(N) scan over all trials. Reuse the
+    // previous result on frames where the inputs (generation, selection,
+    // DataFrame) have not changed.
     let center_key: CenterCacheKey = (
         state.fit_generation,
         state.center,
@@ -388,8 +412,9 @@ pub fn show(
 
     let lower_spec = state.use_lower_spec.then_some(state.lower_spec_value);
     let upper_spec = state.use_upper_spec.then_some(state.upper_spec_value);
-    // スカラー部分を先に比較し、一致した場合のみ center を（Vec 確保なしで）比較する。
-    // これにより、キャッシュがヒットするフレームでは Vec<u64> の確保が発生しない。
+    // Compare the scalar part first, and only compare center (without
+    // allocating a Vec) if it matches. This means no Vec<u64> allocation
+    // happens on frames where the cache hits.
     let cache_valid = state.cache.as_ref().is_some_and(|(k, _)| {
         cache_matches(
             k,
@@ -404,8 +429,9 @@ pub fn show(
             upper_spec,
         )
     });
-    // ドラッグ操作中はキャッシュミスしても再計算しない（デバウンス）。前回結果を表示し、
-    // 指を離したフレーム（`dragging` が false）で一度だけ再計算する。
+    // Don't recompute on a cache miss while dragging (debounced). Show the
+    // previous result and recompute exactly once on the frame where the drag
+    // ends (`dragging` is false).
     if !cache_valid && !dragging {
         let key = cache_key(
             state.fit_generation,
@@ -437,7 +463,8 @@ pub fn show(
         };
         match tunny_core::surrogate_opt::robustness_analysis(&trained, &spec) {
             Ok(result) => {
-                // ヒストグラムのバー幾何は結果が不変な限り再利用できるため、ここで一度だけ組む。
+                // The histogram bar geometry can be reused as long as the
+                // result is unchanged, so build it here exactly once.
                 let bars = build_histogram_bars(&result.samples);
                 state.cache = Some((key, RobustnessRender { result, bars }));
             }
@@ -457,9 +484,10 @@ pub fn show(
     }
 }
 
-/// 出力サンプルからヒストグラムのバー幾何 `(中心, 高さ, 幅)` を組み立てる。
-/// サンプル数が不足して `compute_histogram` が `None` を返す場合は空 Vec を返す
-/// （呼び出し側はこれを「プロット不能」の合図として扱う）。
+/// Builds the histogram bar geometry `(center, height, width)` from the output
+/// samples. Returns an empty Vec if there are too few samples and
+/// `compute_histogram` returns `None` (the caller treats this as a signal
+/// that plotting is not possible).
 fn build_histogram_bars(samples: &[f64]) -> Vec<(f64, f64, f64)> {
     let Some(hist) = compute_histogram(samples, BinRule::Sturges) else {
         return Vec::new();
@@ -502,9 +530,9 @@ fn scalar_key(
     )
 }
 
-/// キャッシュキーを構築する。center を Vec<u64> 化するため、キャッシュミス時
-/// （実際に再計算・格納するとき）だけ呼ぶこと。毎フレームの比較には
-/// `cache_matches` を使う。
+/// Builds the cache key. Because this converts center to Vec<u64>, call it
+/// only on a cache miss (i.e. when actually recomputing and storing). Use
+/// `cache_matches` for per-frame comparison.
 #[allow(clippy::too_many_arguments)]
 fn cache_key(
     fit_generation: u64,
@@ -532,9 +560,10 @@ fn cache_key(
     }
 }
 
-/// 現在の入力がキャッシュ済みキーと一致するかを Vec 確保なしで判定する。
-/// まずヒープ確保の無いスカラー部分を比較し、一致した場合のみ center を
-/// 要素ごとにゼロコピーで比較する（新たな Vec<u64> は作らない）。
+/// Determines whether the current inputs match the cached key, without
+/// allocating a Vec. First compares the heap-allocation-free scalar part, and
+/// only if that matches, compares center element-by-element with zero copies
+/// (no new Vec<u64> is created).
 #[allow(clippy::too_many_arguments)]
 fn cache_matches(
     cached: &RobustnessCacheKey,
@@ -569,9 +598,10 @@ fn cache_matches(
             .all(|(&bits, &v)| bits == v.to_bits())
 }
 
-/// ヒストグラム + 統計サマリを描画する。
-/// `lower_spec` / `upper_spec` は有効な場合のみヒストグラムに LSL/USL の縦線を描く。
-/// バー幾何はキャッシュ済み（`render.bars`）のため、毎フレームの再ビン化は行わない。
+/// Renders the histogram plus statistics summary.
+/// `lower_spec` / `upper_spec` draw LSL/USL vertical lines on the histogram
+/// only when set. The bar geometry is cached (`render.bars`), so no re-binning
+/// happens every frame.
 fn render_result(
     ui: &mut egui::Ui,
     render: &RobustnessRender,
@@ -584,7 +614,7 @@ fn render_result(
         return;
     }
 
-    // キャッシュ済みバー幾何（中心, 高さ, 幅）から egui_plot::Bar を再構築する（安価）。
+    // Rebuild egui_plot::Bar from the cached bar geometry (center, height, width) — cheap.
     let bars: Vec<egui_plot::Bar> = render
         .bars
         .iter()
@@ -592,9 +622,9 @@ fn render_result(
         .collect();
     let chart = egui_plot::BarChart::new("Samples", bars).color(COLOR_BAR_PRIMARY());
 
-    // 統計・成功確率のラベル行（プロット下）分の高さを確保する。
-    // 確保しないとプロットが利用可能高さ全体に広がり、ラベルが
-    // ウィジェット外へ押し出されて見えなくなる。
+    // Reserve height for the stats / success-rate label rows (below the
+    // plot). Without this, the plot would expand to fill the entire available
+    // height, pushing the labels outside the widget and out of view.
     let label_rows = 1
         + usize::from(result.feasibility_rate.is_some())
         + usize::from(result.success_rate.is_some())
@@ -653,9 +683,9 @@ fn render_result(
         } else {
             crate::theme::chart_colors::COLOR_FIT_LOW()
         };
-        let mut line = format!("Success: {:.2}%  ・ σ level: {:.2}σ", rate * 100.0, sigma);
+        let mut line = format!("Success: {:.2}%  |  σ level: {:.2}σ", rate * 100.0, sigma);
         if let Some(cpk) = result.cpk {
-            line.push_str(&format!("  ・ Cpk: {cpk:.2}"));
+            line.push_str(&format!("  |  Cpk: {cpk:.2}"));
         }
         ui.colored_label(color, line);
     }
@@ -709,7 +739,7 @@ mod tests {
 
     #[test]
     fn cache_key_changes_with_distribution_shape_and_specs() {
-        // フィット世代 ID は固定値で検証する（`Arc::as_ptr` から置き換えた恒等性キー）。
+        // Verify with a fixed fit generation ID (the identity key that replaced `Arc::as_ptr`).
         let gen = 1u64;
         let center = vec![0.5, 0.25];
 
@@ -779,7 +809,7 @@ mod tests {
             None,
             Some(1.0),
         );
-        // 世代 ID が変わると（＝別フィットを採用すると）キーも変わる。
+        // If the generation ID changes (i.e. a different fit is adopted), the key changes too.
         let different_generation = cache_key(
             gen + 1,
             &center,
@@ -800,7 +830,7 @@ mod tests {
         assert_ne!(with_lower, with_upper);
         assert_ne!(base, different_generation);
 
-        // 同じ引数なら同じキーになる。
+        // Same arguments produce the same key.
         let base_again = cache_key(
             gen,
             &center,
@@ -831,7 +861,7 @@ mod tests {
         dst.adopt_compute_state(&src);
         assert!(!dst.fitting);
         assert_eq!(dst.fit_error.as_deref(), Some("err"));
-        // UI 選択は維持される
+        // UI selections are preserved
         assert_eq!(dst.selected_objective, 2);
         assert_eq!(dst.noise_pct, 5.0);
     }

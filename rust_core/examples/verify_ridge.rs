@@ -1,16 +1,17 @@
-//! Python (sklearn) との Ridge回帰クロスチェック用ハーネス。
+//! Cross-check harness for Ridge regression against Python (sklearn).
 //!
-//! 対象は `sensitivity::ridge::compute_ridge`（`tunny_core::sensitivity::compute_ridge`
-//! として公開）。内部で X を平均0/分散1（分母 n、population std）に標準化した上で
-//! y を中心化し、切片は正則化しない Ridge 正規方程式 (X'X + αI)β = X'y_c を解く。
-//! sklearn 側は `fit_intercept=False` にして中心化済み y を渡すことで、切片を
-//! 正則化しない同条件に揃える。
+//! Targets `sensitivity::ridge::compute_ridge` (exposed as
+//! `tunny_core::sensitivity::compute_ridge`). Internally it standardizes X to mean 0 /
+//! variance 1 (denominator n, population std), then centers y, and solves the Ridge
+//! normal equation (X'X + αI)β = X'y_c, which doesn't regularize the intercept. On the
+//! sklearn side, set `fit_intercept=False` and pass in already-centered y to match the
+//! same condition of not regularizing the intercept.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_ridge`
+//! Usage: `cargo run -p tunny-core --example verify_ridge`
 
 use tunny_core::sensitivity::compute_ridge;
 
-/// 決定的な擬似乱数 (xorshift64*)。
+/// A deterministic pseudo-random generator (xorshift64*).
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -42,7 +43,7 @@ fn run_case(label: &str, x_matrix: Vec<Vec<f64>>, y: Vec<f64>, alpha: f64) -> se
 
 fn main() {
     let mut rng = Rng(0x5EED_2B01_1D6E_0011);
-    let alpha = 1.0; // RIDGE_ALPHA と同じ値
+    let alpha = 1.0; // same value as RIDGE_ALPHA
 
     // Case 1: 4 params, y is an exact linear combination of x1..x3 plus noise;
     // x4 is irrelevant (true coefficient 0) to check the surrogate assigns it ~0 weight.

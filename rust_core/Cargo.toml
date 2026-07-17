@@ -29,6 +29,9 @@ arc-swap = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 postgres = "0.19"
 mysql = { version = "28", default-features = false, features = ["minimal"] }
+quick-xml = "0.38"
+ureq = { version = "2", default-features = false }
+base64 = "0.22"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

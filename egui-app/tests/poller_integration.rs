@@ -15,7 +15,7 @@ use tunny_desktop::state::message_handler::MessageHandler;
 use tunny_desktop::state::messages::AppMessage;
 use tunny_desktop::ui::widget_states::WidgetStates;
 
-/// 空の StudyView（行0件）。ライブ更新テストの初期状態に用いる。
+/// An empty StudyView (0 rows). Used as the initial state for live-update tests.
 fn empty_view() -> StudyView {
     StudyView::new(Arc::new(DataFrame::empty()), vec![])
 }
@@ -247,15 +247,18 @@ fn tc_2224_03_zero_byte_file_no_errors() {
 // TC-006 (M-1): Journal rotation / truncation resets the byte offset
 // ─────────────────────────────────────────────
 
-/// ジャーナルがローテーション/切り詰めされ `file_size < byte_offset` になった場合、
-/// ポーラーがオフセットを 0 にリセットして先頭から読み直すことを検証する。
-/// リセットしないと差分が永久に検出されず、無変化タイムアウトで「最適化完了」と誤認する。
+/// Verifies that when the journal is rotated/truncated such that
+/// `file_size < byte_offset`, the poller resets the offset to 0 and
+/// re-reads from the beginning. Without this reset, the diff would never
+/// be detected again, and the no-change timeout would incorrectly report
+/// "optimization complete".
 #[test]
 fn tc_2224_06_journal_rotation_resets_offset() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("rotate.log");
-    // 初期内容として 3 トライアル分を書き、そのサイズをオフセットの起点にする
-    // （初期分は既読扱い）。他テストとの global パーサ状態衝突を避けるため id は高位に取る。
+    // Write 3 trials' worth as the initial content and use its size as the
+    // starting offset (the initial portion is treated as already read).
+    // Use high trial IDs to avoid colliding with other tests' global parser state.
     let initial = make_trial_bytes(3, 900_000);
     std::fs::write(&path, &initial).unwrap();
     let offset = std::fs::metadata(&path).unwrap().len();
@@ -263,11 +266,11 @@ fn tc_2224_06_journal_rotation_resets_offset() {
     let (tx, rx) = mpsc::sync_channel(64);
     let mut poller = LiveUpdatePoller::start(poller_context(path.clone(), offset), tx, 50);
 
-    // 数 tick ポーリングさせる（無変化）。
+    // Let it poll for a few ticks (no change).
     std::thread::sleep(Duration::from_millis(120));
 
-    // ローテーション: より小さい内容（2 トライアル）でファイルを丸ごと置き換える。
-    // これで file_size < byte_offset となり、切り詰め検出が発火するはず。
+    // Rotation: replace the entire file with smaller content (2 trials).
+    // This makes file_size < byte_offset, which should trigger truncation detection.
     let rotated = make_trial_bytes(2, 800_000);
     assert!(
         (rotated.len() as u64) < offset,
@@ -275,7 +278,7 @@ fn tc_2224_06_journal_rotation_resets_offset() {
     );
     std::fs::write(&path, &rotated).unwrap();
 
-    // 切り詰めを検出しオフセットを 0 にリセット → 先頭から読み直し → LiveUpdateDone。
+    // Detects truncation, resets the offset to 0 -> re-reads from the beginning -> LiveUpdateDone.
     let msg = wait_for_live_update_done(&rx, Duration::from_secs(5));
     poller.stop();
 
@@ -387,12 +390,13 @@ fn tc_2224_05_parse_performance_1000_lines() {
 }
 
 // ─────────────────────────────────────────────
-// TC-006: SQLite ライブ更新 E2E（フィンガープリント検出 → 丸ごと再ロード）
+// TC-006: SQLite live update E2E (fingerprint detection -> full reload)
 // ─────────────────────────────────────────────
 
-/// `study_fingerprint` / `parse_single_study` が要求する最小限の Optuna スキーマを持つ
-/// フィクスチャ DB を作る（rust_core 側の `create_schema` テストヘルパーと同趣旨だが、
-/// private なため egui-app の統合テストからは独自に用意する）。
+/// Creates a fixture DB with the minimal Optuna schema required by
+/// `study_fingerprint` / `parse_single_study` (the same idea as
+/// rust_core's `create_schema` test helper, but since that one is private,
+/// egui-app's integration tests build their own here).
 fn make_sqlite_fixture(path: &std::path::Path) -> rusqlite::Connection {
     let conn = rusqlite::Connection::open(path).unwrap();
     conn.execute_batch(
@@ -456,17 +460,19 @@ fn make_sqlite_fixture(path: &std::path::Path) -> rusqlite::Connection {
     conn
 }
 
-/// SQLite フィンガープリント検出 → 対象 study の丸ごと再ロード → MessageHandler 反映、
-/// という一連の流れを実データベースで検証する（journal の tc_2224_01 に相当する sqlite 版）。
-/// journal と異なり SQLite は差分追記ではなく「変化検出 → 全件再パース」方式であるため、
-/// ここでは RUNNING trial が COMPLETE へ遷移する状況を再現する。
+/// Verifies, against a real database, the full flow of SQLite fingerprint
+/// detection -> full reload of the target study -> MessageHandler applying
+/// the result (the sqlite equivalent of journal's tc_2224_01). Unlike the
+/// journal, SQLite works via "detect change -> reparse everything" rather
+/// than appending diffs, so this test reproduces a RUNNING trial
+/// transitioning to COMPLETE.
 #[test]
 fn tc_sqlite_e2e_fingerprint_reload_flow() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("study.db");
     let conn = make_sqlite_fixture(&path);
 
-    // 初期ロード（トライアルはまだ RUNNING のため 0 件）。
+    // Initial load (0 trials, since the trial is still RUNNING).
     let (tx, rx) = mpsc::sync_channel::<AppMessage>(16);
     let ok = tunny_desktop::io::sqlite::load_single_study_task(&path, 1, &tx);
     assert!(ok, "initial load must succeed");
@@ -486,7 +492,7 @@ fn tc_sqlite_e2e_fingerprint_reload_flow() {
     );
     assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 0);
 
-    // フィンガープリントポーラーを起動する。
+    // Start the fingerprint poller.
     let initial_fingerprint = tunny_core::sqlite::study_fingerprint(&path, 1).unwrap();
     let sqlite_ctx = SqliteLiveUpdateContext {
         file_path: path.clone(),
@@ -496,7 +502,7 @@ fn tc_sqlite_e2e_fingerprint_reload_flow() {
     };
     let mut poller = SqliteLivePoller::start(sqlite_ctx, tx.clone(), 50);
 
-    // Optuna が trial を RUNNING → COMPLETE へ遷移させたのと同じ状況を作る。
+    // Create the same situation as Optuna transitioning a trial from RUNNING to COMPLETE.
     conn.execute(
         "UPDATE trials SET state = 'COMPLETE' WHERE trial_id = 1",
         [],
@@ -509,7 +515,7 @@ fn tc_sqlite_e2e_fingerprint_reload_flow() {
     )
     .unwrap();
 
-    // ポーラーが変化を検出するまで待つ。
+    // Wait until the poller detects the change.
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut changed = None;
     while Instant::now() < deadline {
@@ -526,7 +532,7 @@ fn tc_sqlite_e2e_fingerprint_reload_flow() {
     };
     assert_eq!(study_id, 1);
 
-    // dispatch_reload_sqlite_study が行うのと同じ再ロードをワーカー相当の関数で行う。
+    // Perform the same reload that dispatch_reload_sqlite_study does, using the worker-equivalent function.
     let reload_ok = tunny_desktop::io::sqlite::reload_single_study_task(&path, study_id, &tx);
     assert!(reload_ok, "reload must succeed");
     let reload_msg = rx.recv_timeout(Duration::from_secs(3)).unwrap();

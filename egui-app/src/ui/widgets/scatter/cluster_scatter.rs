@@ -13,7 +13,7 @@ use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
-/// クラスタリング対象空間
+/// Feature space used for clustering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ClusterSpace {
     Objective,
@@ -84,15 +84,17 @@ pub struct ClusterComputeRequest {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
-    /// Elbow（自動）モードで使う探索範囲の上限 k。Manual モードでは無視される。
+    /// Upper bound of k explored in Elbow (auto) mode. Ignored in Manual mode.
     pub elbow_max_k: usize,
 }
 
-/// クラスタリング結果のキャッシュキー。
-/// 同じ設定（対象空間・k 選択モード・k・Init 戦略）で計算した結果を共有するため、
-/// 各チャート（2D / 3D / Table）はこのキーで `app_state.cluster_cache` を参照する。
+/// Cache key for clustering results.
+/// To share results computed with the same settings (target space, k selection
+/// mode, k, init strategy), each chart (2D / 3D / Table) looks up
+/// `app_state.cluster_cache` with this key.
 ///
-/// Elbow（自動）モードでは k はアルゴリズムが決めるため、入力 k はキーに含めず 0 に正規化する。
+/// In Elbow (auto) mode, k is chosen by the algorithm, so the input k is normalized
+/// to 0 and excluded from the key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClusterCacheKey {
     pub target_space: ClusterSpace,
@@ -110,8 +112,9 @@ impl ClusterCacheKey {
         init_strategy: KMeansInitStrategy,
         elbow_max_k: usize,
     ) -> Self {
-        // Elbow モードでは入力 k は無視されるため、キャッシュヒット判定がブレないよう 0 に正規化する。
-        // 対称的に、Manual モードでは elbow_max_k は使われないため 0 に正規化する。
+        // In Elbow mode the input k is ignored, so normalize it to 0 to keep cache
+        // hit checks stable. Symmetrically, elbow_max_k is unused in Manual mode, so
+        // normalize it to 0.
         let (k, elbow_max_k) = match k_mode {
             KSelectionMode::Manual => (k, 0),
             KSelectionMode::ElbowDefault => (0, elbow_max_k),
@@ -139,12 +142,12 @@ impl ClusterCacheKey {
 #[derive(Debug, Clone)]
 pub struct ClusterMatrix {
     pub flat_data: Vec<f64>,
-    /// クラスタリング対象（パレートフロント）の行数（k-means に渡す行数）
+    /// Number of rows to cluster (Pareto front), i.e. the row count passed to k-means.
     pub n_rows: usize,
     pub n_cols: usize,
-    /// 全トライアル数（非対象の解を含む）
+    /// Total number of trials (including solutions outside the clustering target).
     pub total_trials: usize,
-    /// matrix の行 index → 元の trial index のマッピング（パレートフロントの行）
+    /// Mapping from matrix row index to original trial index (Pareto-front rows).
     pub target_indices: Vec<usize>,
 }
 
@@ -154,7 +157,7 @@ impl ClusterMatrix {
     }
 }
 
-/// クラスタ散布図ウィジェット
+/// Cluster scatter plot widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ClusterScatter {
@@ -162,7 +165,7 @@ pub struct ClusterScatter {
     pub target_space: ClusterSpace,
     pub k_mode: KSelectionMode,
     pub init_strategy: KMeansInitStrategy,
-    /// Elbow（自動）モードで探索する k の上限。
+    /// Upper bound of k explored in Elbow (auto) mode.
     pub elbow_max_k: usize,
     #[serde(skip)]
     pub computing: bool,
@@ -170,7 +173,7 @@ pub struct ClusterScatter {
     pub pending_compute: Option<ClusterComputeRequest>,
     #[serde(skip)]
     pub last_error: Option<crate::state::messages::ClusterUiError>,
-    /// 点クリックで開くトライアル詳細モーダル。
+    /// Trial detail modal opened by clicking a point.
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
     #[serde(skip)]
@@ -198,7 +201,7 @@ impl Default for ClusterScatter {
 }
 
 impl ClusterScatter {
-    /// 現在の設定に対応するキャッシュキーを返す。
+    /// Returns the cache key for the current settings.
     pub fn cache_key(&self) -> ClusterCacheKey {
         ClusterCacheKey::new(
             self.target_space,
@@ -209,7 +212,7 @@ impl ClusterScatter {
         )
     }
 
-    /// クラスタ散布図を描画する
+    /// Draws the cluster scatter plot.
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -223,8 +226,9 @@ impl ClusterScatter {
         selected_indices: &[u32],
     ) {
         let n_trials = view.row_count();
-        // クラスタリング対象はパレートフロント（pareto_rank == 0）。
-        // k の上限・実行可否はフロント点数で判定する。
+        // The clustering target is the Pareto front (pareto_rank == 0).
+        // The upper bound of k and whether clustering can run are determined by the
+        // front's point count.
         let pareto_count = view.pareto_rank.iter().filter(|&&r| r == 0).count();
         if pareto_count < 2 {
             ui.centered_and_justified(|ui| {
@@ -237,7 +241,8 @@ impl ClusterScatter {
 
         self.show_header(ui, pareto_count);
 
-        // 選択フィルタ中は、クラスタがフロント全体で計算されている旨を明示する。
+        // While a selection filter is active, make it explicit that clusters are
+        // computed over the whole front.
         if !selected_indices.is_empty() {
             ui.label(
                 egui::RichText::new(
@@ -284,8 +289,9 @@ impl ClusterScatter {
             return;
         }
 
-        // キャッシュ確認・更新（目的関数軸の座標）。
-        // df の Arc 恒等性をキーに含め、同一次元の別 Study 切替でのスタール描画を防ぐ（M-6）。
+        // Check/update the cache (objective-axis coordinates).
+        // Include the Arc identity of df in the key to prevent stale drawing when
+        // switching to a different Study with the same dimensionality (M-6).
         let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
         let new_key = (df_ptr, n_trials, cr.n_clusters);
         if self.cached_points.is_none() || self.cache_key != new_key {
@@ -296,7 +302,7 @@ impl ClusterScatter {
 
         let feas = view.feasibility();
 
-        // 点クリック判定用の候補（trial_id, 行 index, 座標）。
+        // Candidates for point-click hit testing (trial_id, row index, coordinates).
         let hit_candidates: Vec<(u32, usize, [f64; 2])> = plot_points
             .iter()
             .enumerate()
@@ -306,17 +312,19 @@ impl ClusterScatter {
             })
             .collect();
 
-        // k 個のクラスタを [0, 1] 上に等間隔配置してカラーマップからサンプリング
-        // k=2 → t=0.0, 1.0（両端）、k=3 → t=0.0, 0.5, 1.0 など
+        // Place k clusters evenly on [0, 1] and sample colors from the colormap.
+        // E.g. k=2 → t=0.0, 1.0 (both ends); k=3 → t=0.0, 0.5, 1.0.
         let n_clusters = cr.n_clusters.max(1);
         let cluster_color = |label: i32| -> egui::Color32 {
             colormap.sample_categorical(label.max(0) as usize, n_clusters)
         };
 
-        // クラスタリング対象はパレートフロントのみ。クラスタ別に座標を集約し、
-        // 対象外（label < 0）の解は "Others"、infeasible は別途収集する。
-        // 選択フィルタ（PCP ブラシ等）が有効な場合、選択外は灰色でまとめて背面に描く。
-        // クラスタ計算自体はフロント全体のままで、ここでの分岐は表示上の強調に限る。
+        // Only the Pareto front is clustered. Aggregate coordinates per cluster;
+        // solutions outside the target (label < 0) go to "Others", and infeasible
+        // ones are collected separately. When a selection filter (e.g. PCP brush)
+        // is active, unselected points are grouped in gray and drawn behind
+        // everything else. Clustering itself is still computed over the whole
+        // front — the branching here only affects display emphasis.
         let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
         let mut unselected_pts: Vec<[f64; 2]> = Vec::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
@@ -328,14 +336,15 @@ impl ClusterScatter {
             }
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
             let selected = compute_point_alpha(trial_id, selected_indices) == 255;
-            // 選択フィルタ外は、クラスタ点・劣解（label < 0）を問わず灰色へまとめる。
+            // Points outside the selection filter are grouped in gray, regardless of
+            // whether they're a cluster point or a dominated solution (label < 0).
             if !selected {
                 unselected_pts.push([x as f64, y as f64]);
                 continue;
             }
             let label = cr.labels.get(i).copied().unwrap_or(-1);
             if label < 0 {
-                // パレートフロント以外の解（クラスタリング対象外）
+                // Solution outside the Pareto front (not a clustering target).
                 other_pts.push([x as f64, y as f64]);
             } else {
                 cluster_points
@@ -355,14 +364,14 @@ impl ClusterScatter {
             .legend(egui_plot::Legend::default())
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
-                // 点クリックで詳細モーダルを開く対象を検出する。
+                // Detect the target for opening the detail modal via point click.
                 let resp = plot_ui.response();
                 if resp.clicked_by(egui::PointerButton::Primary) {
                     clicked_detail = resp.interact_pointer_pos().and_then(|pos| {
                         hit_test_nearest(plot_ui, &hit_candidates, pos, HIT_THRESHOLD)
                     });
                 }
-                // infeasible を最背面に描画
+                // Draw infeasible points at the very back.
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", infeasible_pts)
@@ -371,7 +380,8 @@ impl ClusterScatter {
                             .name("Infeasible"),
                     );
                 }
-                // パレートフロント以外（クラスタリング対象外）を淡色で背面に描画
+                // Draw non-Pareto-front points (outside the clustering target) in a
+                // dim color behind everything else.
                 if !other_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", other_pts)
@@ -380,8 +390,10 @@ impl ClusterScatter {
                             .name("Others"),
                     );
                 }
-                // 選択外のクラスタ点は灰色で先に描画し、選択点と明確に区別する。
-                // クラスタ色は残さず（色相が紛らわしいため）"Others (unselected)" に集約する。
+                // Draw unselected cluster points first in gray to clearly
+                // distinguish them from selected points. Cluster colors are not
+                // preserved (the hues would be confusing), so they're grouped under
+                // "Others (unselected)".
                 if !unselected_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", unselected_pts)
@@ -400,7 +412,7 @@ impl ClusterScatter {
                 }
             });
 
-        // 点クリックでトライアル詳細モーダルを開く（散布図情報 = クラスタ番号）。
+        // Clicking a point opens the trial detail modal (scatter info = cluster number).
         if let Some((trial_id, row)) = clicked_detail {
             let label = cr.labels.get(row).copied().unwrap_or(-1);
             let cluster_str = if label < 0 {
@@ -422,7 +434,8 @@ impl ClusterScatter {
             .show(ui, view, param_names, obj_names, artifact_map);
     }
 
-    /// 設定値・実行状態のフィールドへの可変参照束を組み立てる（共通ロジック委譲用）。
+    /// Assembles a bundle of mutable references to the settings/running-state fields
+    /// (for delegating to shared logic).
     fn controls(&mut self) -> ClusterControls<'_> {
         ClusterControls {
             k: &mut self.k,
@@ -437,7 +450,8 @@ impl ClusterScatter {
     }
 
     fn show_header(&mut self, ui: &mut egui::Ui, trial_count: usize) {
-        // 2D はスピナーを本体側（show 内）で別途表示するため、ここでは出さない。
+        // For 2D, the spinner is shown separately on the body side (inside show), so it's
+        // not shown here.
         self.controls()
             .show_controls(ui, trial_count, "cluster_scatter", false);
     }
@@ -457,10 +471,11 @@ impl ClusterScatter {
         self.last_error = None;
     }
 
-    /// 共有のクラスタリング実行状態（computing / pending / error）を取り込む。
-    /// クラスタリング結果は `app_state.cluster_cache` に集約されるため、
-    /// キャンバスの各アイテム（独立した WidgetStates）にも完了状態を反映する必要がある。
-    /// 表示用キャッシュ（cached_points 等）はアイテム固有なので維持する。
+    /// Pulls in the shared clustering running state (computing / pending / error).
+    /// Since the clustering result is aggregated into `app_state.cluster_cache`, the
+    /// completion state must also be reflected into every canvas item (an independent
+    /// WidgetStates). Keeps display caches (cached_points, etc.) as-is since they're
+    /// item-specific.
     pub fn adopt_runtime_state(&mut self, src: &Self) {
         self.computing = src.computing;
         self.pending_compute = src.pending_compute.clone();
@@ -477,15 +492,16 @@ fn build_cluster_matrix_data(
     let total_trials = view.row_count();
     let n_cols = target_space.feature_count(param_names.len(), obj_names.len());
 
-    // クラスタリング対象はパレートフロント（pareto_rank == 0）の解に限定する。
-    // 制約あり Study では rank 0 は feasible 非劣解のみなので feasible 判定は不要。
+    // The clustering target is limited to Pareto-front solutions (pareto_rank == 0).
+    // For Studies with constraints, rank 0 is already only feasible non-dominated
+    // solutions, so a separate feasibility check isn't needed.
     let target_indices: Vec<usize> = (0..total_trials)
         .filter(|&i| view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
         .collect();
 
     let n_rows = target_indices.len();
 
-    // パレートフロントの解のみで特徴量行列を構築
+    // Build the feature matrix using only Pareto-front solutions
     let flat_data = match target_space {
         ClusterSpace::Objective => {
             let cols = view.numeric_columns(obj_names);
@@ -551,8 +567,8 @@ pub fn build_cluster_matrix(
     Ok(matrix)
 }
 
-/// 目的関数値の最初の 2 軸を散布図用に返す。
-/// 目的関数が 1 つのみの場合は Y 軸を 0.0 固定とする。
+/// Returns the first two objective-value axes for the scatter plot.
+/// If there's only one objective function, the Y axis is fixed at 0.0.
 fn compute_obj_axes_2d(view: &StudyView, obj_names: &[String]) -> Vec<[f32; 2]> {
     let n = view.row_count();
     let col0 = obj_names.first().and_then(|name| view.numeric_column(name));
@@ -678,13 +694,14 @@ mod tests {
 
     #[test]
     fn adopt_runtime_state_clears_stuck_computing() {
-        // キャンバスのアイテムが Run で computing=true になったまま、
-        // グローバル側の完了状態を取り込むと spinner が解除される（描画されない不具合の回帰防止）。
+        // If a canvas item is left with computing=true after Run, pulling in the
+        // completion state from the global side clears the spinner (regression guard for
+        // the never-rendered bug).
         let mut item = ClusterScatter {
             computing: true,
             ..Default::default()
         };
-        let global = ClusterScatter::default(); // 完了後（computing=false, error=None）
+        let global = ClusterScatter::default(); // post-completion (computing=false, error=None)
         item.adopt_runtime_state(&global);
         assert!(!item.computing);
         assert!(item.pending_compute.is_none());
@@ -693,7 +710,8 @@ mod tests {
 
     #[test]
     fn adopt_runtime_state_preserves_display_cache() {
-        // 表示用キャッシュ（cached_points / cache_key）はアイテム固有なので維持される。
+        // Display caches (cached_points / cache_key) are item-specific, so they're kept
+        // as-is.
         let mut item = ClusterScatter {
             computing: true,
             cached_points: Some(vec![[1.0, 2.0]]),
@@ -744,7 +762,7 @@ mod tests {
 
     #[test]
     fn cache_key_normalizes_unused_field_per_mode() {
-        // Manual モードでは elbow_max_k が意味を持たないため 0 に正規化される。
+        // In Manual mode, elbow_max_k is meaningless, so it's normalized to 0.
         let manual_key = ClusterCacheKey::new(
             ClusterSpace::Objective,
             KSelectionMode::Manual,
@@ -755,7 +773,7 @@ mod tests {
         assert_eq!(manual_key.k, 5);
         assert_eq!(manual_key.elbow_max_k, 0);
 
-        // Elbow モードでは k が意味を持たないため 0 に正規化される。
+        // In Elbow mode, k is meaningless, so it's normalized to 0.
         let elbow_key = ClusterCacheKey::new(
             ClusterSpace::Objective,
             KSelectionMode::ElbowDefault,

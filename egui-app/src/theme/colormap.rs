@@ -1,12 +1,12 @@
-/// カラーマップ補間ユーティリティ
+/// Colormap interpolation utility
 #[derive(Clone)]
 pub struct ColorMap {
-    /// (t, color) の停止点リスト。t は [0.0, 1.0] の範囲。
+    /// List of (t, color) stops. t is in the range [0.0, 1.0].
     pub stops: Vec<(f32, egui::Color32)>,
 }
 
 impl ColorMap {
-    /// Viridis カラーマップ（5停止点近似）
+    /// Viridis colormap (5-stop approximation)
     pub fn viridis() -> Self {
         Self {
             stops: vec![
@@ -19,7 +19,8 @@ impl ColorMap {
         }
     }
 
-    /// Plasma カラーマップ（5停止点近似）— 不確実性（標準偏差）の可視化に使用
+    /// Plasma colormap (5-stop approximation) - used for visualizing
+    /// uncertainty (standard deviation)
     pub fn plasma() -> Self {
         Self {
             stops: vec![
@@ -32,7 +33,7 @@ impl ColorMap {
         }
     }
 
-    /// Blue-to-Yellow カラーマップ（Pareto ランク用）
+    /// Blue-to-Yellow colormap (for Pareto rank)
     pub fn blue_yellow() -> Self {
         Self {
             stops: vec![
@@ -42,7 +43,7 @@ impl ColorMap {
         }
     }
 
-    /// Jet カラーマップ（7停止点近似）
+    /// Jet colormap (7-stop approximation)
     pub fn jet() -> Self {
         Self {
             stops: vec![
@@ -57,7 +58,7 @@ impl ColorMap {
         }
     }
 
-    /// Turbo カラーマップ（7停止点近似）
+    /// Turbo colormap (7-stop approximation)
     pub fn turbo() -> Self {
         Self {
             stops: vec![
@@ -72,7 +73,7 @@ impl ColorMap {
         }
     }
 
-    /// Inferno カラーマップ（5停止点近似）
+    /// Inferno colormap (5-stop approximation)
     pub fn inferno() -> Self {
         Self {
             stops: vec![
@@ -85,7 +86,7 @@ impl ColorMap {
         }
     }
 
-    /// Coolwarm カラーマップ（5停止点近似、発散型）
+    /// Coolwarm colormap (5-stop approximation, diverging)
     pub fn coolwarm() -> Self {
         Self {
             stops: vec![
@@ -98,7 +99,7 @@ impl ColorMap {
         }
     }
 
-    /// Spectral カラーマップ（7停止点近似）
+    /// Spectral colormap (7-stop approximation)
     pub fn spectral() -> Self {
         Self {
             stops: vec![
@@ -113,7 +114,7 @@ impl ColorMap {
         }
     }
 
-    /// Cividis カラーマップ（5停止点近似、色覚多様性対応）
+    /// Cividis colormap (5-stop approximation, colorblind-friendly)
     pub fn cividis() -> Self {
         Self {
             stops: vec![
@@ -126,9 +127,10 @@ impl ColorMap {
         }
     }
 
-    /// `count` 件のカテゴリのうち `idx` 番目に割り当てる色を、等間隔サンプリングで返す（D-11）。
-    /// `count <= 1` の場合は退化ケースとして中央値（t=0.5）を返す。それ以外は
-    /// `idx / (count - 1)` で `[0, 1]` に均等割り当てる。
+    /// Returns the color assigned to the `idx`-th of `count` categories via
+    /// even-spaced sampling (D-11). Returns the midpoint (t=0.5) as the
+    /// degenerate case when `count <= 1`. Otherwise, evenly distributes
+    /// over `[0, 1]` via `idx / (count - 1)`.
     pub fn sample_categorical(&self, idx: usize, count: usize) -> egui::Color32 {
         if count <= 1 {
             self.interpolate(0.5)
@@ -137,7 +139,7 @@ impl ColorMap {
         }
     }
 
-    /// t を [0.0, 1.0] にクランプして停止点間を線形補間する
+    /// Clamps t to [0.0, 1.0] and linearly interpolates between stops.
     pub fn interpolate(&self, t: f32) -> egui::Color32 {
         if self.stops.is_empty() {
             return egui::Color32::WHITE;

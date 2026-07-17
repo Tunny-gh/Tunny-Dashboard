@@ -1,8 +1,9 @@
-//! サロゲートモデルの学習・予測ラッパ。
+//! Training and prediction wrapper for surrogate models.
 //!
-//! Ridge（`sensitivity::ridge`）、ガウス過程 3 方式（FITC / VFE / 混合エキスパート）、
-//! LightGBM を統一インターフェースで包む。予測は正規化空間（X: min-max [0,1]、y: z-score）で行い、
-//! 元の単位との変換は [`FittedSurrogate`] が担う。
+//! Wraps Ridge (`sensitivity::ridge`), three Gaussian process variants (FITC / VFE /
+//! mixture of experts), and LightGBM behind a unified interface. Predictions are made
+//! in normalized space (X: min-max [0,1], y: z-score); [`FittedSurrogate`] handles
+//! conversion back to original units.
 
 use std::sync::Mutex;
 
@@ -11,52 +12,62 @@ use crate::lgbm::{lgbm_predict, train_lgbm_rf, LgbmBooster, LgbmRfConfig};
 use crate::pdp::utils::{normalize_x_minmax, normalize_y, r_squared};
 use crate::sensitivity::compute_ridge_from_vecs;
 
-/// 応答曲面の作成に使うサロゲートモデル種別。
-/// 新しいモデルはここへバリアントを追加する。
+/// Surrogate model kind used to build the response surface.
+/// Add new models as variants here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SurrogateModelKind {
-    /// Ridge 回帰（線形）。高速だが曲面は平面。
+    /// Ridge regression (linear). Fast, but the surface is planar.
     Ridge,
-    /// FITC 近似（Fully Independent Training Conditional）によるスパースガウス過程回帰。
-    /// M = min(N, 100) 誘導点を使用。N ≤ 100 では厳密 GP と等価。
+    /// Sparse Gaussian process regression via the FITC (Fully Independent Training
+    /// Conditional) approximation. Uses M = min(N, 100) inducing points; equivalent
+    /// to exact GP when N ≤ 100.
     GpFitc,
-    /// VFE 近似（Variational Free Energy）によるスパースガウス過程回帰。
-    /// FITC よりノイズを保守的に見積もる傾向がある。M = min(N, 100)。
+    /// Sparse Gaussian process regression via the VFE (Variational Free Energy)
+    /// approximation. Tends to estimate noise more conservatively than FITC.
+    /// M = min(N, 100).
     GpVfe,
-    /// 混合エキスパート（クラスタごとの FITC GP を滑らかに再結合）。
-    /// 不連続・多峰応答向け。クラスタ数は交差検証で自動選択（最大 3）。
+    /// Mixture of experts (smoothly recombines per-cluster FITC GPs).
+    /// Suited to discontinuous, multimodal responses. Cluster count is
+    /// auto-selected via cross-validation (up to 3).
     GpMoe,
-    /// LightGBM（RandomForest モード）。非線形・非平滑な応答に強いが、
-    /// 予測は区分定数のため勾配法（L-BFGS）とは相性が悪い。
+    /// LightGBM (RandomForest mode). Handles nonlinear, non-smooth responses
+    /// well, but predictions are piecewise constant, which pairs poorly with
+    /// gradient-based methods (L-BFGS).
     Lgbm,
 }
 
-/// テスト用解析的モックサロゲートが保持する closed-form クロージャ型（平均・分散共通）。
+/// Closed-form closure type held by the analytic mock surrogate used in tests
+/// (shared by mean and variance).
 #[cfg(test)]
 pub(crate) type AnalyticFn = Box<dyn Fn(&[f64]) -> f64 + Send + Sync>;
 
-/// 学習済みモデル本体（正規化空間で予測する）。
+/// The trained model itself (predicts in normalized space).
 pub(crate) enum FittedModel {
-    /// z-score 標準化済み列に対する Ridge 係数（`sensitivity::ridge` と同じ規約）。
+    /// Ridge coefficients for z-score standardized columns (same convention as
+    /// `sensitivity::ridge`).
     Ridge {
         beta: Vec<f64>,
         col_mean: Vec<f64>,
         col_std: Vec<f64>,
         y_norm_mean: f64,
     },
-    /// egobox-gp バックエンドによるガウス過程（FITC / VFE / MoE 共通）。
+    /// Gaussian process via the egobox-gp backend (shared by FITC / VFE / MoE).
     Gp(Box<GpModel>),
-    /// LightGBM RandomForest の Booster。
-    /// FittedSurrogate / TrainedSurrogate は Arc 経由で複数スレッドから共有されうるが、
-    /// LightGBM の predict は同一ハンドルに対して非スレッドセーフのため、
-    /// Mutex で直列化して Sync を満たす（`LgbmBooster` は Send のみ実装）。
+    /// LightGBM RandomForest booster.
+    /// FittedSurrogate / TrainedSurrogate can be shared across threads via Arc,
+    /// but LightGBM's predict is not thread-safe for the same handle, so we
+    /// serialize access with a Mutex to satisfy Sync (`LgbmBooster` only
+    /// implements Send).
     Lgbm(Mutex<LgbmBooster>),
-    /// テスト専用: 既知の closed-form 関数を返す解析的モック。
+    /// Test-only: an analytic mock that returns a known closed-form function.
     ///
-    /// GP フィットの代わりに同じインターフェースで応答曲面を注入するためのもの。
-    /// 曲面が解析的に既知なので、最適化・獲得関数・実行可能性などの「曲面を使う処理」を
-    /// 緩い許容ではなく厳密に検証できる。`var` が Some なら GP 系（事後分散あり）として
-    /// 振る舞い、None なら Ridge / LightGBM 同様に事後分散を持たないモデルを表す。
+    /// Lets us inject a response surface behind the same interface instead of
+    /// fitting a GP. Because the surface is analytically known, code that
+    /// consumes the surface (optimization, acquisition functions, feasibility,
+    /// etc.) can be verified exactly rather than with loose tolerances. When
+    /// `var` is Some, it behaves like a GP-family model (has posterior
+    /// variance); when None, it represents a model without posterior variance,
+    /// like Ridge / LightGBM.
     #[cfg(test)]
     Analytic {
         mean: AnalyticFn,
@@ -64,19 +75,20 @@ pub(crate) enum FittedModel {
     },
 }
 
-/// 学習済みサロゲートと正規化統計量。
+/// A trained surrogate together with its normalization statistics.
 pub(crate) struct FittedSurrogate {
     pub(crate) model: FittedModel,
-    /// 各列の (min, range)（`normalize_x_minmax` と同じ）。
+    /// Per-column (min, range) (same as `normalize_x_minmax`).
     pub(crate) col_stats: Vec<(f64, f64)>,
     pub(crate) y_mean: f64,
     pub(crate) y_std: f64,
-    /// 訓練データに対する決定係数（元の単位で評価）。
+    /// Coefficient of determination on the training data (evaluated in
+    /// original units).
     pub(crate) r_squared: f64,
 }
 
 impl FittedSurrogate {
-    /// 正規化空間での予測（y は z-score 単位）。
+    /// Prediction in normalized space (y in z-score units).
     pub(crate) fn predict_norm(&self, x_norm: &[f64]) -> f64 {
         match &self.model {
             FittedModel::Ridge {
@@ -93,8 +105,9 @@ impl FittedSurrogate {
             }
             FittedModel::Gp(model) => model.predict_mean(x_norm),
             FittedModel::Lgbm(booster) => {
-                // poisoned lock は panic 連鎖を避けて内部値をそのまま使う
-                // （Booster は predict で内部状態を変更しないため安全）。
+                // On a poisoned lock, use the inner value as-is to avoid a panic
+                // cascade (safe because Booster's predict doesn't mutate internal
+                // state).
                 let booster = booster.lock().unwrap_or_else(|e| e.into_inner());
                 lgbm_predict(&booster, &[x_norm.to_vec()])
                     .and_then(|preds| preds.first().copied())
@@ -105,8 +118,9 @@ impl FittedSurrogate {
         }
     }
 
-    /// 正規化空間での予測分散（事後分散を持つモデルのみ）。
-    /// ガウス過程 3 方式（FITC / VFE / MoE）はすべて Some を返す。
+    /// Predicted variance in normalized space (only for models with posterior
+    /// variance). All three Gaussian process variants (FITC / VFE / MoE) return
+    /// Some.
     pub(crate) fn predict_var_norm(&self, x_norm: &[f64]) -> Option<f64> {
         match &self.model {
             FittedModel::Ridge { .. } | FittedModel::Lgbm(_) => None,
@@ -116,7 +130,7 @@ impl FittedSurrogate {
         }
     }
 
-    /// 元の単位の点を正規化空間 [0,1]^d へ写す。
+    /// Maps a point in original units into normalized space [0,1]^d.
     pub(crate) fn to_norm_x(&self, x_orig: &[f64]) -> Vec<f64> {
         x_orig
             .iter()
@@ -125,7 +139,7 @@ impl FittedSurrogate {
             .collect()
     }
 
-    /// 正規化空間の点を元の単位へ戻す。
+    /// Maps a point in normalized space back to original units.
     pub(crate) fn to_original_x(&self, x_norm: &[f64]) -> Vec<f64> {
         x_norm
             .iter()
@@ -134,17 +148,21 @@ impl FittedSurrogate {
             .collect()
     }
 
-    /// z-score 単位の予測値を元の単位へ戻す。
+    /// Converts a prediction in z-score units back to original units.
     pub(crate) fn to_original_y(&self, y_norm: f64) -> f64 {
         y_norm * self.y_std + self.y_mean
     }
 
-    /// ARD 長さスケールから算出した相対パラメータ重要度（入力次元ごと、合計 1.0）。
+    /// Relative parameter importance derived from ARD length scales (per input
+    /// dimension, summing to 1.0).
     ///
-    /// GP（単一 SGP）のみ Some を返す。各次元の θ_d を θ の総和で割って正規化する
-    /// （egobox / SMT 規約では θ_d が大きいほど次元 d に敏感）。総和 ≤ 0 や非有限値が
-    /// あれば None。MoE は θ が一意でないため、Ridge / LightGBM は ARD を持たないため None。
-    /// 並びは学習時の入力列順（= `param_names` / `x_matrix` の列順）に一致する。
+    /// Only returns Some for GP (single SGP). Normalizes each dimension's θ_d
+    /// by dividing by the sum of θ (per the egobox / SMT convention, larger θ_d
+    /// means greater sensitivity to dimension d). Returns None if the sum is
+    /// ≤ 0 or any value is non-finite. Returns None for MoE because θ isn't
+    /// unique, and for Ridge / LightGBM because they have no ARD. The ordering
+    /// matches the input column order used during training (i.e. the column
+    /// order of `param_names` / `x_matrix`).
     pub(crate) fn param_importance(&self) -> Option<Vec<f64>> {
         let theta = match &self.model {
             FittedModel::Gp(model) => model.ard_theta()?,
@@ -156,7 +174,8 @@ impl FittedSurrogate {
             return None;
         }
         let sum: f64 = theta.iter().sum();
-        // theta は上で有限性を確認済みなので sum も有限。正でなければ正規化できない。
+        // theta's finiteness was already checked above, so sum is finite too.
+        // Can't normalize unless it's positive.
         if sum <= 0.0 {
             return None;
         }
@@ -164,10 +183,13 @@ impl FittedSurrogate {
     }
 }
 
-/// 各列を [0,1] へ正規化する。`bounds[d] = Some((lo, hi))`（lo<hi・有限）の列は宣言
-/// レンジで、それ以外は観測 min/max で正規化する。宣言レンジを使うと最適化の探索箱
-/// （正規化空間 [0,1]^d）が log 由来の真の変数範囲に一致し、観測データの外（未観測だが
-/// 有効な領域）も探索できる一方、`to_original_x` のクランプで範囲外へは出ない。
+/// Normalizes each column to [0,1]. Columns where `bounds[d] = Some((lo, hi))`
+/// (finite, lo<hi) are normalized against that declared range; other columns
+/// use the observed min/max. Using the declared range makes the optimization
+/// search box (normalized space [0,1]^d) match the true variable range derived
+/// from the log, allowing exploration outside the observed data (unobserved
+/// but valid regions), while the clamp in `to_original_x` still keeps values
+/// from leaving that range.
 fn normalize_x_box(
     x_matrix: &[Vec<f64>],
     bounds: Option<&[Option<(f64, f64)>]>,
@@ -200,19 +222,20 @@ fn normalize_x_box(
     (col_stats, x_norm)
 }
 
-/// 指定モデルでサロゲートを学習する。
+/// Trains a surrogate with the given model kind.
 pub(crate) fn fit_surrogate(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
     y: &[f64],
 ) -> Result<FittedSurrogate, String> {
-    // 優先行なし・観測レンジ正規化（従来動作）にデリゲートする。
+    // Delegates to the no-priority-rows, observed-range normalization (legacy behavior).
     fit_surrogate_with_priority(kind, x_matrix, y, &[])
 }
 
-/// `fit_surrogate` と同じだが、GP 系では `priority`（誘導点として優先する行 index）を
-/// パレートフロント等に集中させて学習する。N > GP の誘導点上限のときのみ効果がある。
-/// Ridge / LightGBM は `priority` を無視する。
+/// Same as `fit_surrogate`, but for GP-family models, trains with `priority`
+/// (row indices to prioritize as inducing points) concentrated on e.g. the
+/// Pareto front. Only has an effect when N exceeds the GP's inducing point
+/// cap. Ridge / LightGBM ignore `priority`.
 pub(crate) fn fit_surrogate_with_priority(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
@@ -222,9 +245,10 @@ pub(crate) fn fit_surrogate_with_priority(
     fit_surrogate_with_priority_bounds(kind, x_matrix, y, priority, None)
 }
 
-/// [`fit_surrogate_with_priority`] と同じだが、`bounds` で各列の宣言レンジを指定できる。
-/// 与えた列はその範囲で正規化し（= 探索箱が真の変数範囲に一致）、無い列は観測レンジに
-/// フォールバックする。
+/// Same as [`fit_surrogate_with_priority`], but lets you specify each column's
+/// declared range via `bounds`. Columns with a range are normalized against it
+/// (so the search box matches the true variable range); columns without one
+/// fall back to the observed range.
 pub(crate) fn fit_surrogate_with_priority_bounds(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
@@ -270,13 +294,14 @@ pub(crate) fn fit_surrogate_with_priority_bounds(
     Ok(surrogate)
 }
 
-/// 制約サロゲートを学習する。基本は目的関数と同じ `kind` を使うが、GP 系の学習が
-/// 失敗した場合は Ridge へフォールバックする。
+/// Trains a constraint surrogate. Uses the same `kind` as the objective by
+/// default, but falls back to Ridge if GP-family training fails.
 ///
-/// 完全に線形・ノイズゼロな制約（例: `c = 0.5 - x`）では GP のハイパーパラメータ
-/// 最適化が退化し（最適 lengthscale → ∞）学習に失敗しうる。その制約だけ Ridge に
-/// 落とせば（実行可能性確率はハード指標になるが）機能全体は継続でき、他の制約は
-/// GP の平滑な P(c ≤ 0) を保てる。
+/// For a perfectly linear, noise-free constraint (e.g. `c = 0.5 - x`), GP
+/// hyperparameter optimization can degenerate (optimal lengthscale → ∞) and
+/// training can fail. Falling back to Ridge for just that constraint (though
+/// the feasibility probability becomes a hard indicator) lets the feature keep
+/// working overall, while other constraints retain GP's smooth P(c ≤ 0).
 pub(crate) fn fit_constraint_surrogate(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
@@ -285,9 +310,11 @@ pub(crate) fn fit_constraint_surrogate(
     fit_constraint_surrogate_bounds(kind, x_matrix, values, None)
 }
 
-/// [`fit_constraint_surrogate`] と同じだが、`bounds` で各列の宣言レンジを指定できる。
-/// 制約サロゲートは最適化中に目的サロゲートと同じ正規化空間で評価されるため、目的と
-/// 同一の `bounds` を渡して正規化箱を一致させる必要がある。
+/// Same as [`fit_constraint_surrogate`], but lets you specify each column's
+/// declared range via `bounds`. Because the constraint surrogate is evaluated
+/// in the same normalized space as the objective surrogate during
+/// optimization, you must pass the same `bounds` as the objective to keep the
+/// normalization box consistent.
 pub(crate) fn fit_constraint_surrogate_bounds(
     kind: SurrogateModelKind,
     x_matrix: &[Vec<f64>],
@@ -341,13 +368,16 @@ fn fit_ridge(x_norm: &[Vec<f64>], y_norm: &[f64]) -> Result<FittedModel, String>
 
 #[cfg(test)]
 impl FittedSurrogate {
-    /// テスト用の解析的モックサロゲートを作る。
+    /// Builds an analytic mock surrogate for tests.
     ///
-    /// 正規化を恒等（`col_stats = (0, 1)`、`y_mean = 0`、`y_std = 1`）に固定するため、
-    /// 正規化空間 [0,1]^d がそのまま元の単位空間に一致する。したがって `mean` / `var`
-    /// クロージャの出力がそのまま元単位の予測平均・予測分散となり、既知の closed-form
-    /// 応答曲面を GP フィットなしで注入できる。`var` が `Some` なら GP 系（事後分散あり）
-    /// として、`None` なら Ridge / LightGBM 同様に事後分散を持たないモデルとして振る舞う。
+    /// Fixes normalization to the identity (`col_stats = (0, 1)`, `y_mean = 0`,
+    /// `y_std = 1`), so normalized space [0,1]^d coincides with the original
+    /// unit space. The `mean` / `var` closures' outputs are therefore directly
+    /// the predicted mean and variance in original units, letting a known
+    /// closed-form response surface be injected without a GP fit. When `var`
+    /// is `Some`, it behaves like a GP-family model (has posterior variance);
+    /// when `None`, it behaves like a model without posterior variance, as
+    /// Ridge / LightGBM do.
     pub(crate) fn analytic(
         n_dims: usize,
         mean: impl Fn(&[f64]) -> f64 + Send + Sync + 'static,

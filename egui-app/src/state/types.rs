@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tunny_core::dataframe::DataFrame;
@@ -6,7 +7,7 @@ use tunny_core::dataframe::DataFrame;
 use crate::ui::widgets::range_math::value_range;
 
 // ============================================================
-// 基本型定義
+// Basic type definitions
 // ============================================================
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,30 +24,30 @@ pub struct StudyMeta {
     pub completed_trials: usize,
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
-    /// パラメータごとの宣言レンジ (low, high)（表示単位、数値パラメータのみ）。
-    /// log 由来の探索空間範囲。サロゲート最適化の探索箱に使う。空 = 範囲不明。
+    /// Declared range (low, high) per parameter (display units, numeric parameters only).
+    /// Search-space range derived from the log. Used as the search box for surrogate optimization. Empty = range unknown.
     pub param_bounds: HashMap<String, (f64, f64)>,
 }
 
-/// CSV インポート確認ダイアログの編集状態。
+/// Edit state for the CSV import confirmation dialog.
 ///
-/// フラット CSV には最適化方向（最大化/最小化）や変数の宣言レンジが含まれないため、
-/// 読み込み直後にこのダイアログでユーザーが確認・修正できるようにする。
-/// `AppState::csv_import_settings` が `Some` のときダイアログを表示する。
+/// A flat CSV doesn't include the optimization directions (maximize/minimize) or the variables'
+/// declared ranges, so this dialog lets the user check and correct them right after loading.
+/// The dialog is shown while `AppState::csv_import_settings` is `Some`.
 #[derive(Debug, Clone)]
 pub struct CsvImportSettings {
-    /// 対象 Study（CSV は単一 Study なので常に 1 件）。
+    /// The target Study (CSV always yields a single Study, so this is always exactly one).
     pub study_id: u32,
     pub study_name: String,
-    /// 目的名（`maximize` と同順・同長）。
+    /// Objective names (same order and length as `maximize`).
     pub objective_names: Vec<String>,
-    /// 目的ごとの最大化フラグ（true=Maximize, false=Minimize）。
+    /// Per-objective maximize flag (true=Maximize, false=Minimize).
     pub maximize: Vec<bool>,
-    /// 数値パラメータのレンジ編集（パラメータ名昇順）。
+    /// Range edits for numeric parameters (sorted by parameter name).
     pub param_bounds: Vec<ParamBoundEdit>,
 }
 
-/// 数値パラメータ 1 件のレンジ編集行。
+/// A single range-edit row for one numeric parameter.
 #[derive(Debug, Clone)]
 pub struct ParamBoundEdit {
     pub name: String,
@@ -55,8 +56,8 @@ pub struct ParamBoundEdit {
 }
 
 impl CsvImportSettings {
-    /// パース直後の `StudyMeta`（方向は既定 Minimize、レンジは観測 min/max）から
-    /// 編集状態を構築する。
+    /// Builds the edit state from a freshly parsed `StudyMeta` (directions default to Minimize,
+    /// ranges default to the observed min/max).
     pub fn from_meta(meta: &StudyMeta) -> Self {
         let maximize: Vec<bool> = meta
             .directions
@@ -82,7 +83,7 @@ impl CsvImportSettings {
         }
     }
 
-    /// 編集値を `meta` へ反映する（`directions` と `param_bounds` を上書き）。
+    /// Applies the edited values to `meta` (overwrites `directions` and `param_bounds`).
     pub fn apply_to(&self, meta: &mut StudyMeta) {
         meta.directions = self
             .maximize
@@ -100,7 +101,7 @@ impl CsvImportSettings {
         }
     }
 
-    /// 全レンジが有効（min < max かつ有限）か。無効なら読み込みを抑止する。
+    /// Whether all ranges are valid (min < max and finite). Loading is blocked if invalid.
     pub fn bounds_valid(&self) -> bool {
         self.param_bounds
             .iter()
@@ -108,12 +109,13 @@ impl CsvImportSettings {
     }
 }
 
-/// テスト用の行指向フィクスチャ（旧表現、MEM-001 で列指向 `StudyView` に置換済み）。
+/// Row-oriented test fixture (legacy representation, already replaced by the column-oriented
+/// `StudyView` in MEM-001).
 #[cfg(test)]
 #[derive(Debug, Clone, Default)]
 pub struct TrialRow {
     pub trial_id: u32,
-    /// Study内での0始まり連番（表示用）
+    /// 0-based sequence number within the Study (for display)
     pub trial_number: u32,
     pub params: HashMap<String, f64>,
     pub objectives: Vec<f64>,
@@ -125,18 +127,18 @@ pub struct TrialRow {
 #[derive(Debug, Clone)]
 pub struct StudyContext {
     pub meta: StudyMeta,
-    /// 列指向データの軽量ビュー（旧 `trial_rows: Vec<TrialRow>` を置換、MEM-001）。
+    /// Lightweight view over the column-oriented data (replaces the legacy `trial_rows: Vec<TrialRow>`, MEM-001).
     pub view: StudyView,
     pub pareto_indices: Vec<u32>,
 }
 
 impl StudyContext {
-    /// 試行数（旧 `trial_rows.len()` 相当）。列ビューから取得し複製しない。
+    /// Trial count (equivalent to the legacy `trial_rows.len()`). Read from the column view without copying.
     pub fn trial_count(&self) -> usize {
         self.view.row_count()
     }
 
-    /// パラメータのデータ範囲 [min, max] を返す（データがない場合は [0.0, 1.0]）
+    /// Returns the parameter's data range [min, max] (returns [0.0, 1.0] if there's no data)
     pub fn param_range(&self, param_name: &str) -> (f64, f64) {
         let Some(values) = self.view.numeric_column(param_name) else {
             return (0.0, 1.0);
@@ -144,7 +146,7 @@ impl StudyContext {
         if values.is_empty() {
             return (0.0, 1.0);
         }
-        // `values` は直前の空チェックにより非空であることが保証されている。
+        // `values` is guaranteed non-empty by the emptiness check just above.
         let (min, max) = value_range(values.iter().cloned()).unwrap();
         if (max - min).abs() < f64::EPSILON {
             (min - 0.5, max + 0.5)
@@ -153,7 +155,7 @@ impl StudyContext {
         }
     }
 
-    /// テスト用: 既存 StudyContext の行データを差し替える（view/pareto_indices を再構築）。
+    /// Test-only: replaces the row data of an existing StudyContext (rebuilds view/pareto_indices).
     #[cfg(test)]
     pub(crate) fn set_rows_for_test(&mut self, rows: Vec<TrialRow>) {
         let rebuilt = StudyContext::from_rows_for_test(self.meta.clone(), rows);
@@ -161,9 +163,9 @@ impl StudyContext {
         self.pareto_indices = rebuilt.pareto_indices;
     }
 
-    /// テスト用: egui `TrialRow` の Vec から StudyContext を構築する。
-    /// 列名は行データから導出し、DataFrame→StudyView を組み立てる。
-    /// pareto_rank / cluster_id は行から並行配列へ引き継ぐ。
+    /// Test-only: builds a StudyContext from a Vec of egui `TrialRow`.
+    /// Column names are derived from the row data, and a DataFrame -> StudyView is assembled.
+    /// pareto_rank / cluster_id are carried over from the rows into parallel arrays.
     #[cfg(test)]
     pub(crate) fn from_rows_for_test(meta: StudyMeta, rows: Vec<TrialRow>) -> Self {
         use tunny_core::dataframe::TrialRow as CoreRow;
@@ -175,8 +177,8 @@ impl StudyContext {
             }
         }
         let param_names: Vec<String> = param_set.into_iter().collect();
-        // meta.objective_names を優先して DataFrame 列名と一致させる。
-        // meta が空のときは行データから auto 生成する（後方互換）。
+        // Prefer meta.objective_names so it matches the DataFrame column names.
+        // If meta is empty, auto-generate names from the row data (backward compatibility).
         let n_obj = rows.iter().map(|r| r.objectives.len()).max().unwrap_or(0);
         let obj_names: Vec<String> = if !meta.objective_names.is_empty() {
             meta.objective_names.clone()
@@ -212,30 +214,30 @@ impl StudyContext {
 }
 
 // ============================================================
-// TASK-2331: StudyView — 列指向 DataFrame スナップショットの軽量ビュー
+// TASK-2331: StudyView — a lightweight view over a column-oriented DataFrame snapshot
 //
-// `Arc<DataFrame>` をラップし、DataFrame にないアプリ層算出値（pareto_rank /
-// cluster_id / trial_ids）を並行配列で保持する。行指向 `Vec<TrialRow>`
-// と per-row HashMap を永続保持しないため、列データの複製が発生しない（MEM-001）。
-// 段階移行のため一時的な互換ヘルパー `row_at` / `to_trial_rows` を提供する
-// （最終的に TASK-2342 で除去予定）。
+// Wraps `Arc<DataFrame>` and holds app-layer-derived values not present in the DataFrame
+// (pareto_rank / cluster_id / trial_ids) as parallel arrays. Doesn't persistently hold a
+// row-oriented `Vec<TrialRow>` or per-row HashMap, so no column data is duplicated (MEM-001).
+// For the staged migration, temporary compatibility helpers `row_at` / `to_trial_rows` are
+// provided (planned for removal in TASK-2342).
 // ============================================================
 
 #[derive(Clone, Debug)]
 pub struct StudyView {
-    /// 共有ストアから取得した列データの不変スナップショット。
+    /// Immutable snapshot of the column data fetched from the shared store.
     pub df: Arc<DataFrame>,
-    /// 行 index → trial_id。
+    /// Row index -> trial_id.
     pub trial_ids: Vec<u32>,
-    /// Pareto ランク（行 index 順、アプリ層算出）。
+    /// Pareto rank (in row-index order, computed at the app layer).
     pub pareto_rank: Vec<u32>,
-    /// クラスタ ID（行 index 順、未割当は None）。
+    /// Cluster ID (in row-index order, None if unassigned).
     pub cluster_id: Vec<Option<i32>>,
 }
 
 impl StudyView {
-    /// `Arc<DataFrame>` と Pareto ランクから StudyView を構築する。
-    /// pareto_rank の長さが row_count と不一致の場合は 0 埋めする。
+    /// Builds a StudyView from an `Arc<DataFrame>` and Pareto ranks.
+    /// If the length of pareto_rank doesn't match row_count, pads with 0.
     pub fn new(df: Arc<DataFrame>, pareto_rank: Vec<u32>) -> Self {
         let n = df.row_count();
         let trial_ids: Vec<u32> = (0..n)
@@ -254,38 +256,38 @@ impl StudyView {
         }
     }
 
-    /// 行数（= DataFrame.row_count）。
+    /// Row count (= DataFrame.row_count).
     pub fn row_count(&self) -> usize {
         self.df.row_count()
     }
 
-    /// 数値列の借用スライス（行ごとの HashMap を作らない）。
+    /// Borrowed slice of a numeric column (doesn't build a per-row HashMap).
     pub fn numeric_column(&self, name: &str) -> Option<&[f64]> {
         self.df.get_numeric_column(name)
     }
 
-    /// 実行可能性ビュー。`is_feasible` 列の有無・閾値・
-    /// 「列なし = 全行実行可能」のフォールバック判定を一元化する。
+    /// Feasibility view. Centralizes whether the `is_feasible` column exists, its threshold, and
+    /// the "no column = all rows feasible" fallback logic.
     pub fn feasibility(&self) -> tunny_core::dataframe::Feasibility<'_> {
         self.df.feasibility()
     }
 
-    /// 複数の列名をまとめて借用スライスへ解決する（None は欠損列）。
+    /// Resolves multiple column names to borrowed slices at once (None for missing columns).
     pub fn numeric_columns(&self, names: &[String]) -> Vec<Option<&[f64]>> {
         names.iter().map(|name| self.numeric_column(name)).collect()
     }
 
-    /// パラメータ列名。
+    /// Parameter column names.
     pub fn param_names(&self) -> &[String] {
         self.df.param_col_names()
     }
 
-    /// 目的列名。
+    /// Objective column names.
     pub fn objective_names(&self) -> &[String] {
         self.df.objective_col_names()
     }
 
-    /// 互換シム: 列 + 並行配列から一時的に `TrialRow` を組み立てる（テストのみで使用）。
+    /// Compatibility shim: temporarily assembles a `TrialRow` from columns + parallel arrays (test-only).
     #[cfg(test)]
     pub(crate) fn row_at(&self, index: usize) -> TrialRow {
         let mut params = HashMap::with_capacity(self.df.param_col_names().len());
@@ -318,7 +320,7 @@ impl StudyView {
         }
     }
 
-    /// 全行を `TrialRow` として組み立てる（テストのみで使用）。
+    /// Assembles all rows as `TrialRow` (test-only).
     #[cfg(test)]
     pub(crate) fn to_trial_rows(&self) -> Vec<TrialRow> {
         (0..self.row_count()).map(|i| self.row_at(i)).collect()
@@ -368,6 +370,130 @@ impl ColormapName {
     }
 }
 
+// ============================================================
+// .ghx D&D -> optimization setup modal / background run state
+// ============================================================
+
+/// State of the optimization setup dialog opened via .ghx D&D.
+///
+/// While `AppState::gh_opt_dialog` is `Some`, `ghx_opt_modal` displays and edits this state.
+/// The side that receives [`GhxOptAction::Run`](crate::ui::widgets::common::ghx_opt_modal::GhxOptAction)
+/// (app.rs) assembles `GhRunConfig` / `ComputeConfig` from it.
+#[derive(Debug, Clone)]
+pub struct GhOptDialogState {
+    /// Absolute path of the .ghx file selected via D&D / Open.
+    pub ghx_path: PathBuf,
+    /// The original full .ghx XML text (passed as-is to `build_compute_definition` on Run).
+    pub ghx_text: String,
+    /// Extraction result from `extract_problem` (variables, objectives, warnings).
+    pub problem: tunny_core::gh::GhProblem,
+    /// Per-objective maximize flag (same order and length as `problem.objectives`, default false = Minimize).
+    pub maximize: Vec<bool>,
+    /// Study name used to keep it unique within the journal (default: "<ghx stem>-<last 6 digits of unix seconds>").
+    pub study_name: String,
+    /// Output journal path (default: "<stem>_optuna.log" in the same directory as the ghx).
+    pub journal_path: String,
+    /// true = launch a local rhino.compute EXE (the Dashboard starts/stops the
+    /// process; default), false = connect to an already-running server URL.
+    /// EXE mode is the default because the app can manage the whole lifecycle.
+    pub compute_use_exe: bool,
+    /// Server URL used when `compute_use_exe` is false (default "http://localhost:6500").
+    /// A pasted EXE path is still tolerated here (classified on run).
+    pub compute_url: String,
+    /// Path to the rhino.compute executable used when `compute_use_exe` is true.
+    pub compute_exe_path: String,
+    /// Port passed to rhino.compute in EXE mode (default 6500). Unused in URL mode.
+    pub compute_port: u16,
+    /// Rhino.Compute API key (treated as `ComputeConfig.api_key = None` if empty).
+    pub api_key: String,
+    /// Upper bound on concurrent requests (default 4, 1..=16).
+    pub max_parallel: usize,
+    /// true = Random sampler, false = NSGA-II (default).
+    pub sampler_is_random: bool,
+    /// Number of trials for the Random sampler (default 50).
+    pub n_trials: usize,
+    /// NSGA-II population size (default 16).
+    pub population_size: usize,
+    /// Number of NSGA-II generations (default 10).
+    pub generations: usize,
+    /// Random seed (default 42).
+    pub seed: u64,
+    /// Display text for when Run fails (errors from `build_compute_definition` / `prepare_gh_run`).
+    pub error: Option<String>,
+}
+
+impl GhOptDialogState {
+    /// Builds the dialog state with defaults right after .ghx extraction.
+    pub fn new(ghx_path: PathBuf, ghx_text: String, problem: tunny_core::gh::GhProblem) -> Self {
+        let stem = ghx_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("gh_opt")
+            .to_string();
+        let secs_suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() % 1_000_000)
+            .unwrap_or(0);
+        let study_name = format!("{stem}-{secs_suffix:06}");
+        let journal_path = ghx_path
+            .parent()
+            .map(|dir| dir.join(format!("{stem}_optuna.log")))
+            .unwrap_or_else(|| PathBuf::from(format!("{stem}_optuna.log")))
+            .to_string_lossy()
+            .into_owned();
+        let maximize = vec![false; problem.objectives.len()];
+        Self {
+            ghx_path,
+            ghx_text,
+            problem,
+            maximize,
+            study_name,
+            journal_path,
+            compute_use_exe: true,
+            compute_url: "http://localhost:6500".to_string(),
+            compute_exe_path: String::new(),
+            compute_port: 6500,
+            api_key: String::new(),
+            max_parallel: 4,
+            sampler_is_random: false,
+            n_trials: 50,
+            population_size: 16,
+            generations: 10,
+            seed: 42,
+            error: None,
+        }
+    }
+}
+
+/// State of a running .ghx optimization (used by the non-modal progress overlay).
+///
+/// While `AppState::gh_opt_run` is `Some`, the progress overlay (app.rs) is displayed.
+/// `progress` is a handle shared with the background thread running `run_prepared`;
+/// progress is read via `snapshot()` and cancellation requested via `request_cancel()`.
+/// `#[derive(Debug)]` isn't possible because `FitProgress` doesn't implement `Debug`
+/// (the same constraint as other existing progress-holding fields like `SurrogateOptState::fit_progress`).
+/// Since `AppState` derives `Debug`, a manual implementation is provided here that
+/// substitutes a placeholder for `progress`.
+#[derive(Clone)]
+pub struct GhOptRunState {
+    pub progress: tunny_core::surrogate_opt::FitProgress,
+    pub journal_path: PathBuf,
+    pub study_name: String,
+    /// `None` = running. `Some` = finished (success message or error string).
+    pub finished: Option<Result<String, String>>,
+}
+
+impl std::fmt::Debug for GhOptRunState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GhOptRunState")
+            .field("progress", &"FitProgress { .. }")
+            .field("journal_path", &self.journal_path)
+            .field("study_name", &self.study_name)
+            .field("finished", &self.finished)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,7 +510,66 @@ mod tests {
         }
     }
 
-    // ── TASK-2331: StudyView テスト ──────────────────────────────
+    // ── Default derivation for GhOptDialogState::new ──────────────────
+    fn make_gh_problem(n_objectives: usize) -> tunny_core::gh::GhProblem {
+        tunny_core::gh::GhProblem {
+            variables: vec![],
+            objectives: (0..n_objectives)
+                .map(|i| tunny_core::gh::GhObjective {
+                    source_guid: format!("guid-{i}"),
+                    name: format!("f{i}"),
+                })
+                .collect(),
+            tunny_component: "Tunny".to_string(),
+            warnings: vec![],
+        }
+    }
+
+    #[test]
+    fn gh_opt_dialog_state_derives_defaults_from_path() {
+        let path = PathBuf::from("/tmp/some_dir/model.ghx");
+        let state = GhOptDialogState::new(path.clone(), "<xml/>".to_string(), make_gh_problem(2));
+
+        assert_eq!(state.ghx_path, path);
+        assert_eq!(state.ghx_text, "<xml/>");
+        assert_eq!(state.maximize, vec![false, false]);
+        // study_name: "<stem>-<last 6 digits of unix seconds>" (zero-padded to 6 digits)
+        assert!(
+            state.study_name.starts_with("model-"),
+            "study_name: {}",
+            state.study_name
+        );
+        assert_eq!(state.study_name.len(), "model-".len() + 6);
+        // journal_path: "<stem>_optuna.log" in the same directory as the ghx
+        // (built via PathBuf::join so the separator matches the platform)
+        let expected_journal = PathBuf::from("/tmp/some_dir")
+            .join("model_optuna.log")
+            .display()
+            .to_string();
+        assert_eq!(state.journal_path, expected_journal);
+        assert!(state.compute_use_exe);
+        assert_eq!(state.compute_url, "http://localhost:6500");
+        assert_eq!(state.compute_exe_path, "");
+        assert_eq!(state.compute_port, 6500);
+        assert_eq!(state.api_key, "");
+        assert_eq!(state.max_parallel, 4);
+        assert!(!state.sampler_is_random);
+        assert_eq!(state.n_trials, 50);
+        assert_eq!(state.population_size, 16);
+        assert_eq!(state.generations, 10);
+        assert_eq!(state.seed, 42);
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn gh_opt_dialog_state_maximize_matches_objective_count() {
+        let path = PathBuf::from("model.ghx");
+        let state = GhOptDialogState::new(path, String::new(), make_gh_problem(3));
+        assert_eq!(state.maximize.len(), 3);
+        assert!(state.maximize.iter().all(|&m| !m));
+    }
+
+    // ── TASK-2331: StudyView tests ──────────────────────────────
     fn make_study_view(n: usize) -> StudyView {
         use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
         let core_rows: Vec<CoreRow> = (0..n)
@@ -457,7 +642,7 @@ mod tests {
             })
             .collect();
         let df = DataFrame::from_trials(&core_rows, &[], &["obj0".to_string()], &[], &[], 0);
-        // pareto_rank の長さ(1) != row_count(2) → 0 埋め
+        // pareto_rank length (1) != row_count (2) -> pad with 0
         let view = StudyView::new(std::sync::Arc::new(df), vec![5]);
         assert_eq!(view.pareto_rank, vec![0, 0]);
     }

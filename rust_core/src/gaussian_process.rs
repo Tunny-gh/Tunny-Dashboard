@@ -1,25 +1,31 @@
-//! ガウス過程回帰（egobox-gp / egobox-moe バックエンド）。
+//! Gaussian process regression (egobox-gp / egobox-moe backend).
 //!
-//! 単一 GP は FITC / VFE スパース近似（[`egobox_gp::SparseGaussianProcess`]、
-//! Matérn 5/2 ARD、ノイズ分散推定つき）、混合エキスパート（MoE）は
-//! [`egobox_moe::GpMixture`]（SparseGp エキスパート）で実装する。
+//! A single GP is implemented via FITC / VFE sparse approximation
+//! ([`egobox_gp::SparseGaussianProcess`], Matérn 5/2 ARD, with noise variance
+//! estimation), while the mixture of experts (MoE) is implemented via
+//! [`egobox_moe::GpMixture`] (SparseGp experts).
 //!
-//! egobox の通常 GP（`GaussianProcess`）はノイズ分散を推定しない補間器であり、
-//! 高次元データの一部の列だけで学習する PDP 用途（他次元の変動がノイズとして
-//! 現れる）には適さないため使わない。N ≤ max_inducing では誘導点 Z = X となり、
-//! FITC / VFE はノイズ推定つきの厳密 GP と数学的に等価になるため、機能としての
-//! Full GP はこの経路でカバーされる。
+//! egobox's plain GP (`GaussianProcess`) is an interpolator that does not
+//! estimate noise variance, so it is unsuitable for PDP use cases where we
+//! fit on only a subset of columns of high-dimensional data (variation in the
+//! other dimensions shows up as noise) — hence it is not used. When
+//! N ≤ max_inducing, the inducing points become Z = X, making FITC / VFE
+//! mathematically equivalent to an exact GP with noise estimation, so this
+//! path also covers full-GP functionality.
 //!
-//! - FITC / VFE: 誘導点 M = min(N, max_inducing)。N が大きい場合は k-means
-//!   誘導点（M=100 で厳密解とほぼ同一の θ・ノイズ推定が得られることを検証済み）。
-//! - MoE: 入力空間を GMM でクラスタリングし、クラスタごとに FITC エキスパートを
-//!   学習して滑らかに再結合する。クラスタ数は最大 500 点のサブサンプルに対する
-//!   交差検証（最大 3）で決める。エキスパートの誘導点には明示的な `Located` を
-//!   渡す（egobox-moe 0.35 はエキスパートへのシード伝播に `Option<u64>` の乱数を
-//!   使っており、`Randomized` だと非決定論的になるため）。
+//! - FITC / VFE: number of inducing points M = min(N, max_inducing). For
+//!   large N, k-means inducing points are used (verified that M=100 yields
+//!   θ and noise estimates nearly identical to the exact solution).
+//! - MoE: clusters the input space with a GMM, trains a FITC expert per
+//!   cluster, and smoothly recombines them. The number of clusters is chosen
+//!   by cross-validation (up to 3) on a subsample of at most 500 points.
+//!   Experts' inducing points are passed as an explicit `Located` (because
+//!   egobox-moe 0.35 propagates the seed to experts via an `Option<u64>`
+//!   random number, and `Randomized` would make the result non-deterministic).
 //!
-//! 学習は決定論的（k-means は固定シード、egobox の θ 多点スタートは固定格子、
-//! SGP / MoE の乱数シードは明示指定）。
+//! Training is deterministic (k-means uses a fixed seed, egobox's multi-start
+//! θ optimization uses a fixed grid, and SGP / MoE random seeds are
+//! explicitly specified).
 
 use egobox_gp::{
     correlation_models::Matern52Corr, Inducings, ParamTuning, SparseGaussianProcess, SparseMethod,
@@ -35,34 +41,39 @@ use rand_xoshiro::Xoshiro256Plus;
 
 use crate::clustering::{run_kmeans, InitStrategy};
 
-/// ガウス過程の学習方式。
+/// Gaussian process training method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GpMethod {
-    /// FITC（Fully Independent Training Conditional）近似。
+    /// FITC (Fully Independent Training Conditional) approximation.
     Fitc,
-    /// VFE（Variational Free Energy）近似。FITC よりノイズを保守的に見積もる傾向。
+    /// VFE (Variational Free Energy) approximation. Tends to estimate noise
+    /// more conservatively than FITC.
     Vfe,
-    /// 混合エキスパート（クラスタごとの FITC GP を滑らかに再結合）。
+    /// Mixture of experts (per-cluster FITC GPs smoothly recombined).
     Moe,
 }
 
-/// ノイズ分散の探索下限の候補（y は z-score 正規化済み＝分散 1 が前提）。
+/// Candidate lower bounds for the noise variance search (assumes `y` is
+/// z-score normalized, i.e. variance 1).
 ///
-/// egobox のデフォルト下限（~1e-14）ではノイズゼロの滑らかな関数で共分散行列が
-/// 正定値性を失い学習がパニックする。1e-6 は分散 1 に対して -120dB で予測バイアスは
-/// 実質ゼロのまま行列の条件数を改善する。それでも失敗した場合は 1e-3 まで持ち上げて
-/// 再試行する（わずかに平滑化されるが、学習失敗で何も表示できないよりよい）。
+/// With egobox's default lower bound (~1e-14), noise-free smooth functions
+/// can make the covariance matrix lose positive-definiteness and cause
+/// training to panic. 1e-6 is -120dB relative to variance 1, improving the
+/// matrix's condition number while leaving prediction bias essentially zero.
+/// If training still fails, retry with the bound raised to 1e-3 (slightly
+/// smooths the fit, but better than a training failure that shows nothing).
 const NOISE_FLOORS: [f64; 2] = [1e-6, 1e-3];
 
-/// MoE のクラスタ数探索に使うサブサンプルの上限。
-/// 探索は k-fold 交差検証で O(N) の繰り返しが重く、N=1000 で約 10 秒かかるため
-/// 500 点に制限する（N=500 までなら約 1.5 秒）。
+/// Upper bound on the subsample size used for MoE cluster-count search.
+/// The search performs O(N) repeated k-fold cross-validation, which is
+/// expensive (about 10 seconds at N=1000), so it is capped at 500 points
+/// (about 1.5 seconds at N=500).
 const MOE_CLUSTER_SEARCH_MAX_N: usize = 500;
 
-/// MoE の最大クラスタ数。
+/// Maximum number of MoE clusters.
 const MOE_MAX_CLUSTERS: usize = 3;
 
-/// 学習済みガウス過程モデル。
+/// A trained Gaussian process model.
 pub(crate) struct GpModel {
     inner: GpInner,
     n_dims: usize,
@@ -74,16 +85,19 @@ enum GpInner {
 }
 
 impl GpModel {
-    /// ガウス過程を学習する。
+    /// Trains a Gaussian process.
     ///
-    /// - `x`: 訓練入力（行 = サンプル）。正規化済みであること（[0,1]^d を想定）。
-    /// - `y`: 訓練目的値（z-score 正規化済みを想定）。
-    /// - `method`: 学習方式（FITC / VFE / MoE）。
-    /// - `max_inducing`: 誘導点数の上限 M。N ≤ M なら Z = X（厳密 GP 相当）。
-    /// - `seed`: 内部乱数のシード（再現性のため固定する）。
+    /// - `x`: training inputs (rows = samples). Must be normalized (assumed
+    ///   to be within [0,1]^d).
+    /// - `y`: training objective values (assumed to be z-score normalized).
+    /// - `method`: training method (FITC / VFE / MoE).
+    /// - `max_inducing`: upper bound M on the number of inducing points.
+    ///   If N ≤ M, Z = X (equivalent to an exact GP).
+    /// - `seed`: seed for internal randomness (fixed for reproducibility).
     ///
-    /// 学習失敗（数値的破綻・入力不正）時は `None`。MoE はフォールバックしない
-    /// （呼び出し側が明示的に別方式へフォールバックする）。
+    /// Returns `None` on training failure (numerical breakdown or invalid
+    /// input). MoE does not fall back on its own (the caller must explicitly
+    /// fall back to a different method).
     pub(crate) fn fit(
         x: &[Vec<f64>],
         y: &[f64],
@@ -91,14 +105,17 @@ impl GpModel {
         max_inducing: usize,
         seed: u64,
     ) -> Option<Self> {
-        // 優先行なし（priority = &[]）で従来どおりの一様誘導点選択にデリゲートする。
+        // No priority rows (priority = &[]): delegate to the usual uniform
+        // inducing-point selection.
         Self::fit_impl(x, y, method, max_inducing, seed, &[])
     }
 
-    /// パレートフロント等の優先行に誘導点を集中させて学習する。
+    /// Trains a GP while concentrating inducing points on priority rows
+    /// (e.g. the Pareto front).
     ///
-    /// `priority` は誘導点として優先する行 index（`x` への index）。N > max_inducing の
-    /// ときのみ効果がある（N ≤ max_inducing では Z = X で全点を使うため変化しない）。
+    /// `priority` is the set of row indices (into `x`) to prioritize as
+    /// inducing points. It only has an effect when N > max_inducing (when
+    /// N ≤ max_inducing, Z = X uses every point, so nothing changes).
     pub(crate) fn fit_front_focused(
         x: &[Vec<f64>],
         y: &[f64],
@@ -110,7 +127,8 @@ impl GpModel {
         Self::fit_impl(x, y, method, max_inducing, seed, priority)
     }
 
-    /// `fit` / `fit_front_focused` の共通実装。`priority` を誘導点選択に通す。
+    /// Shared implementation for `fit` / `fit_front_focused`. Passes
+    /// `priority` through to inducing-point selection.
     fn fit_impl(
         x: &[Vec<f64>],
         y: &[f64],
@@ -131,7 +149,8 @@ impl GpModel {
         let x_arr = Array2::from_shape_fn((n, n_dims), |(i, d)| x[i][d]);
         let y_arr = Array1::from_iter(y.iter().copied());
 
-        // 誘導点: N ≤ M なら訓練点そのもの（Z = X）、それ以外は priority を考慮して選ぶ。
+        // Inducing points: if N ≤ M, the training points themselves (Z = X);
+        // otherwise select while taking `priority` into account.
         let z = if n <= max_inducing {
             x_arr.clone()
         } else {
@@ -144,7 +163,8 @@ impl GpModel {
             GpMethod::Moe => Self::fit_moe(&x_arr, &y_arr, &z, seed)?,
         };
 
-        // 数値的破綻の検出: 訓練点での予測が有限であること
+        // Detect numerical breakdown: predictions at the training points
+        // must be finite.
         let model = GpModel { inner, n_dims };
         let check = model.predict_mean_batch(&x[..1]);
         if check.iter().any(|v| !v.is_finite()) {
@@ -153,7 +173,7 @@ impl GpModel {
         Some(model)
     }
 
-    /// 単一 SGP（FITC / VFE）を学習する。
+    /// Trains a single SGP (FITC / VFE).
     fn fit_sgp(
         x: &Array2<f64>,
         y: &Array1<f64>,
@@ -186,19 +206,21 @@ impl GpModel {
         Some(GpInner::Sgp(Box::new(sgp)))
     }
 
-    /// 混合エキスパート GP を学習する。
+    /// Trains a mixture-of-experts GP.
     ///
-    /// クラスタ数は最大 [`MOE_CLUSTER_SEARCH_MAX_N`] 点の等間隔サブサンプルに
-    /// 対する交差検証で選ぶ（上限 [`MOE_MAX_CLUSTERS`]）。エキスパートは
-    /// FITC SGP（誘導点は全データの k-means / Z=X を共有）。
+    /// The number of clusters is chosen by cross-validation (capped at
+    /// [`MOE_MAX_CLUSTERS`]) on an evenly-spaced subsample of at most
+    /// [`MOE_CLUSTER_SEARCH_MAX_N`] points. Experts are FITC SGPs (sharing
+    /// the full data's k-means / Z=X inducing points).
     ///
-    /// MoE エキスパートのノイズ分散下限は egobox-moe が外部公開していないため
-    /// 設定できない。ノイズゼロのデータでは学習がパニックし得るが、
-    /// `catch_unwind` で捕捉して `None` を返す。
+    /// The noise variance lower bound for MoE experts cannot be configured
+    /// because egobox-moe does not expose it. Training may panic on
+    /// noise-free data, but this is caught via `catch_unwind` and returns
+    /// `None`.
     fn fit_moe(x: &Array2<f64>, y: &Array1<f64>, z: &Array2<f64>, seed: u64) -> Option<GpInner> {
         let n = x.nrows();
 
-        // クラスタ数の探索（等間隔サブサンプル、決定論的）
+        // Search for the number of clusters (evenly-spaced subsample, deterministic).
         let n_clusters = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let (x_sub, y_sub) = if n > MOE_CLUSTER_SEARCH_MAX_N {
                 let idx: Vec<usize> = (0..MOE_CLUSTER_SEARCH_MAX_N)
@@ -240,7 +262,8 @@ impl GpModel {
         Some(GpInner::Moe(Box::new(moe)))
     }
 
-    /// 事後平均の生予測（エラー時 None）。SGP と MoE のエラー型を吸収する。
+    /// Raw prediction of the posterior mean (`None` on error). Absorbs the
+    /// differing error types of SGP and MoE.
     fn predict_raw(&self, x: &Array2<f64>) -> Option<Array1<f64>> {
         match &self.inner {
             GpInner::Sgp(sgp) => sgp.predict(x).ok(),
@@ -248,7 +271,7 @@ impl GpModel {
         }
     }
 
-    /// 事後分散の生予測（エラー時 None）。
+    /// Raw prediction of the posterior variance (`None` on error).
     fn predict_var_raw(&self, x: &Array2<f64>) -> Option<Array1<f64>> {
         match &self.inner {
             GpInner::Sgp(sgp) => sgp.predict_var(x).ok(),
@@ -256,7 +279,7 @@ impl GpModel {
         }
     }
 
-    /// 複数点の事後平均を一括予測する。
+    /// Predicts the posterior mean for a batch of points.
     pub(crate) fn predict_mean_batch(&self, rows: &[Vec<f64>]) -> Vec<f64> {
         let x = Array2::from_shape_fn((rows.len(), self.n_dims), |(i, d)| rows[i][d]);
         match self.predict_raw(&x) {
@@ -265,13 +288,14 @@ impl GpModel {
         }
     }
 
-    /// 1 点の事後平均を予測する。
+    /// Predicts the posterior mean for a single point.
     pub(crate) fn predict_mean(&self, x: &[f64]) -> f64 {
         let arr = Array2::from_shape_fn((1, self.n_dims), |(_, d)| x[d]);
         self.predict_raw(&arr).map(|m| m[0]).unwrap_or(f64::NAN)
     }
 
-    /// 1 点の事後分散を予測する（負値は 0 にクランプ）。
+    /// Predicts the posterior variance for a single point (negative values
+    /// are clamped to 0).
     pub(crate) fn predict_variance(&self, x: &[f64]) -> f64 {
         let arr = Array2::from_shape_fn((1, self.n_dims), |(_, d)| x[d]);
         self.predict_var_raw(&arr)
@@ -279,11 +303,13 @@ impl GpModel {
             .unwrap_or(f64::NAN)
     }
 
-    /// ARD 相関パラメータ θ（正規化 [0,1] 入力上、入力次元ごとに 1 個）を返す。
+    /// Returns the ARD correlation parameters θ (one per input dimension,
+    /// over normalized [0,1] inputs).
     ///
-    /// egobox / SMT の規約では θ_d が大きいほど次元 d の長さスケールが短く、
-    /// サロゲートはその次元に敏感になる。単一 SGP（FITC / VFE）のみ Some を返す。
-    /// MoE はエキスパートごとに θ を持ち、集約が一意でないため None を返す。
+    /// By egobox / SMT convention, a larger θ_d means a shorter length scale
+    /// for dimension d, i.e. the surrogate is more sensitive to that
+    /// dimension. Only a single SGP (FITC / VFE) returns `Some`. MoE has a θ
+    /// per expert with no unique aggregation, so it returns `None`.
     pub(crate) fn ard_theta(&self) -> Option<Vec<f64>> {
         match &self.inner {
             GpInner::Sgp(sgp) => Some(sgp.theta().to_vec()),
@@ -292,22 +318,30 @@ impl GpModel {
     }
 }
 
-/// 2 点が全次元で一致するか（誘導点の重複判定用、厳密一致）。
+/// Whether two points match in every dimension (exact equality, used to
+/// detect duplicate inducing points).
 fn rows_equal(a: &[f64], b: &[f64]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x == y)
 }
 
-/// N > max_inducing のときの誘導点を構築する（純粋・テスト可能）。
+/// Builds the inducing points for the N > max_inducing case (pure and
+/// testable).
 ///
-/// `priority` はパレートフロント等で優先する行 index。重複・範囲外は除去する。
-/// 三つの場合に分かれる:
-/// - P が空: 全行に対する k-means(max_inducing)（従来動作）。
-/// - |P| ≥ max_inducing: 優先行のみに対する k-means(max_inducing)（フロントに完全集中）。
-/// - 0 < |P| < max_inducing: 優先行を全て誘導点に採用し、残り枠を非優先行の
-///   k-means で埋める（空間を粗くカバー）。非優先 centroid が優先点と一致する
-///   場合は重複除去するため、最終個数が max_inducing をわずかに下回ることがある。
+/// `priority` is the set of row indices to prioritize (e.g. the Pareto
+/// front). Duplicates and out-of-range indices are removed. There are three
+/// cases:
+/// - P is empty: k-means(max_inducing) over all rows (the original
+///   behavior).
+/// - |P| ≥ max_inducing: k-means(max_inducing) over the priority rows only
+///   (fully concentrated on the front).
+/// - 0 < |P| < max_inducing: adopt all priority rows as inducing points, and
+///   fill the remaining budget with k-means over the non-priority rows
+///   (coarsely covering the rest of the space). Non-priority centroids that
+///   coincide with a priority point are deduplicated, so the final count may
+///   fall slightly short of max_inducing.
 ///
-/// 戻り値は (誘導点数, n_dims) の column-major 互換 `Array2`。失敗時は `None`。
+/// Returns an `Array2` of shape (number of inducing points, n_dims).
+/// `None` on failure.
 fn select_inducing_points(
     x: &[Vec<f64>],
     n_dims: usize,
@@ -316,9 +350,9 @@ fn select_inducing_points(
     seed: u64,
 ) -> Option<Array2<f64>> {
     let n = x.len();
-    let _ = seed; // k-means は固定シード相当（決定論的）。署名統一のため受け取る。
+    let _ = seed; // k-means is effectively fixed-seed (deterministic); accepted for signature uniformity.
 
-    // 優先行を重複・範囲外除去して一意な点として取り出す。
+    // Extract the priority rows as unique points, removing duplicates and out-of-range indices.
     let mut priority_rows: Vec<usize> = Vec::new();
     let mut seen = vec![false; n];
     for &idx in priority {
@@ -328,7 +362,7 @@ fn select_inducing_points(
         }
     }
 
-    // 全行 k-means のヘルパ（従来動作）。
+    // Helper for k-means over all rows (the original behavior).
     let kmeans_over = |rows: &[Vec<f64>], k: usize| -> Option<Vec<Vec<f64>>> {
         if rows.is_empty() || k == 0 {
             return None;
@@ -343,21 +377,21 @@ fn select_inducing_points(
     };
 
     let centroids: Vec<Vec<f64>> = if priority_rows.is_empty() {
-        // P が空: 従来動作（全行 k-means）。
+        // P is empty: original behavior (k-means over all rows).
         kmeans_over(x, max_inducing)?
     } else if priority_rows.len() >= max_inducing {
-        // |P| ≥ M: 優先行のみに対する k-means でフロントに完全集中。
+        // |P| ≥ M: k-means over the priority rows only, fully concentrated on the front.
         let p_points: Vec<Vec<f64>> = priority_rows.iter().map(|&i| x[i].clone()).collect();
         kmeans_over(&p_points, max_inducing)?
     } else {
-        // 0 < |P| < M: 優先行を全採用し、残りを非優先行の k-means で補う。
+        // 0 < |P| < M: adopt all priority rows, fill the rest with k-means over non-priority rows.
         let mut points: Vec<Vec<f64>> = priority_rows.iter().map(|&i| x[i].clone()).collect();
         let remaining = max_inducing - points.len();
         let non_priority: Vec<Vec<f64>> =
             (0..n).filter(|i| !seen[*i]).map(|i| x[i].clone()).collect();
         if remaining > 0 {
             if let Some(fill) = kmeans_over(&non_priority, remaining) {
-                // 優先点と一致する centroid は重複除去する（二重計上を避ける）。
+                // Deduplicate centroids that coincide with a priority point (avoid double-counting).
                 for c in fill {
                     if !points.iter().any(|p| rows_equal(p, &c)) {
                         points.push(c);
@@ -381,7 +415,7 @@ fn select_inducing_points(
 mod tests {
     use super::*;
 
-    /// 滑らかなテスト関数でデータを作る（決定論的な擬似乱数）。
+    /// Generates data from a smooth test function (deterministic pseudo-random numbers).
     fn make_data(n: usize, d: usize, seed: u64) -> (Vec<Vec<f64>>, Vec<f64>) {
         let mut state = seed;
         let mut next = move || {
@@ -401,15 +435,16 @@ mod tests {
         (x, y)
     }
 
-    // NOTE: GP の当てはめ品質（滑らかな関数で R² が高い、データから離れると分散が
-    // 増える、MoE が区分関数をよく当てる、ノイズ次元を補間しない 等）はサロゲートの
-    // バックエンドである egobox の責務であり、ここでは検証しない。本モジュールのテストは
-    // 自前ロジック（入力検証・誘導点選択・フォールバック・決定性・Send/Sync・
-    // ard_theta 受け渡し）の確認に限定する。
+    // NOTE: GP fit quality (e.g. high R² on smooth functions, increasing
+    // variance away from the data, MoE fitting piecewise functions well, not
+    // interpolating noise dimensions) is the responsibility of egobox, the
+    // surrogate backend, and is not verified here. Tests in this module are
+    // limited to checking our own logic (input validation, inducing-point
+    // selection, fallback, determinism, Send/Sync, ard_theta plumbing).
 
     #[test]
     fn fit_is_deterministic() {
-        // 決定性は自前の責務（シード固定）なので 3 方式とも確認するが、N は小さくてよい。
+        // Determinism is our own responsibility (fixed seed), so check all 3 methods, but N can be small.
         let (x, y) = make_data(60, 2, 3);
         for method in [GpMethod::Fitc, GpMethod::Vfe, GpMethod::Moe] {
             let m1 = GpModel::fit(&x, &y, method, 50, 42).expect("fit 1");
@@ -429,7 +464,7 @@ mod tests {
     #[test]
     fn moe_handles_small_n() {
         let (x, y) = make_data(12, 2, 5);
-        // 小さい N でもパニックせず Some/None を返すこと
+        // Must return Some/None without panicking even for small N.
         if let Some(model) = GpModel::fit(&x, &y, GpMethod::Moe, 100, 42) {
             let pred = model.predict_mean_batch(&x);
             assert!(pred.iter().all(|v| v.is_finite()));
@@ -441,9 +476,9 @@ mod tests {
         for method in [GpMethod::Fitc, GpMethod::Vfe, GpMethod::Moe] {
             // n < 3
             assert!(GpModel::fit(&[vec![0.0], vec![1.0]], &[0.0, 1.0], method, 10, 42).is_none());
-            // 空入力
+            // empty input
             assert!(GpModel::fit(&[], &[], method, 10, 42).is_none());
-            // 列数不一致
+            // mismatched column count
             let x = vec![vec![0.0, 1.0], vec![0.5], vec![1.0, 0.0]];
             assert!(GpModel::fit(&x, &[0.0, 0.5, 1.0], method, 10, 42).is_none());
             // max_inducing = 0
@@ -454,7 +489,7 @@ mod tests {
 
     #[test]
     fn duplicate_rows_do_not_break_fit() {
-        // 重複点があっても（K_ZZ が特異に近くても）ノイズ推定＋nugget で学習できる
+        // Training should succeed via noise estimation + nugget even with duplicate points (K_ZZ near-singular).
         let (mut x, mut y) = make_data(40, 2, 5);
         for i in 0..10 {
             x.push(x[i].clone());
@@ -465,12 +500,12 @@ mod tests {
             let pred = m.predict_mean_batch(&x);
             assert!(pred.iter().all(|v| v.is_finite()));
         }
-        // None でもパニックしないことが要件
+        // The requirement is that it must not panic even when it returns None.
     }
 
     #[test]
     fn ard_theta_is_some_for_sgp_none_for_moe() {
-        // x0 に強く依存し x1 にほぼ依存しない関数 → θ_0 > θ_1 を期待する。
+        // A function that depends strongly on x0 and barely on x1 → expect θ_0 > θ_1.
         let mut state = 12345u64;
         let mut next = move || {
             state = state
@@ -481,15 +516,15 @@ mod tests {
         let x: Vec<Vec<f64>> = (0..50).map(|_| vec![next(), next()]).collect();
         let y: Vec<f64> = x.iter().map(|r| 3.0 * r[0] + 0.05 * r[1]).collect();
 
-        // SGP の θ 受け渡しは SparseMethod 非依存なので代表として FITC のみ確認する。
+        // SGP's θ plumbing does not depend on SparseMethod, so check only FITC as a representative case.
         let model = GpModel::fit(&x, &y, GpMethod::Fitc, 100, 42).expect("fit");
         let theta = model.ard_theta().expect("SGP should expose theta");
         assert_eq!(theta.len(), 2);
         assert!(theta.iter().all(|t| t.is_finite() && *t > 0.0));
-        // x0 に敏感 ⇒ θ_0 が大きい（長さスケールが短い）
+        // Sensitive to x0 ⇒ θ_0 is larger (shorter length scale).
         assert!(theta[0] > theta[1], "theta={theta:?}");
 
-        // MoE は None
+        // MoE returns None.
         let moe = GpModel::fit(&x, &y, GpMethod::Moe, 100, 42).expect("MoE fit");
         assert!(moe.ard_theta().is_none());
     }
@@ -501,17 +536,17 @@ mod tests {
     }
 
     // ────────────────────────────────────────────────────────────
-    // 誘導点のフロント集中（select_inducing_points / fit_front_focused）
+    // Front-focused inducing points (select_inducing_points / fit_front_focused)
     // ────────────────────────────────────────────────────────────
 
     #[test]
     fn select_inducing_points_includes_priority_rows() {
-        // N=200, M=50, 優先 10 行 → 優先 10 点を含み、総数 ≤ 50。
+        // N=200, M=50, 10 priority rows → should include the 10 priority points, total ≤ 50.
         let (x, _) = make_data(200, 2, 5);
         let priority: Vec<usize> = vec![0, 3, 7, 11, 20, 33, 55, 88, 120, 199];
         let z = select_inducing_points(&x, 2, 50, &priority, 42).expect("should select");
         assert!(z.nrows() <= 50, "count {} should be ≤ 50", z.nrows());
-        // 優先各点が誘導点の行として（厳密一致で）存在する。
+        // Each priority point exists as an inducing-point row (exact match).
         for &p in &priority {
             let found = (0..z.nrows()).any(|r| (0..2).all(|d| z[[r, d]] == x[p][d]));
             assert!(found, "priority row {p} should be an inducing point");
@@ -521,13 +556,13 @@ mod tests {
 
     #[test]
     fn select_inducing_points_priority_exceeds_budget() {
-        // 優先 80 行 (> M=50) → 結果 ≤ 50 行、全て優先行集合の凸範囲内（k-means 制限）。
+        // 80 priority rows (> M=50) → result ≤ 50 rows, all within the convex range of the priority set (k-means constraint).
         let (x, _) = make_data(200, 2, 9);
         let priority: Vec<usize> = (0..80).collect();
         let z = select_inducing_points(&x, 2, 50, &priority, 42).expect("should select");
         assert!(z.nrows() <= 50, "count {} should be ≤ 50", z.nrows());
         assert!(z.iter().all(|v| v.is_finite()));
-        // 各 centroid は優先行のみの k-means なので、各次元が優先行の範囲内にある。
+        // Since each centroid comes from k-means over priority rows only, each dimension falls within the priority rows' range.
         for d in 0..2 {
             let lo = priority
                 .iter()
@@ -548,7 +583,7 @@ mod tests {
 
     #[test]
     fn select_inducing_points_empty_priority_behaves_as_before() {
-        // 優先なし → 従来動作（全行 k-means、≤ M 行）。
+        // No priority → original behavior (k-means over all rows, ≤ M rows).
         let (x, _) = make_data(200, 2, 13);
         let z = select_inducing_points(&x, 2, 50, &[], 42).expect("should select");
         assert!(z.nrows() <= 50);
@@ -557,7 +592,7 @@ mod tests {
 
     #[test]
     fn fit_front_focused_trains_and_is_deterministic() {
-        // N=80, M=50, 少数の優先行で学習・予測が有限、2 回で決定論的。
+        // N=80, M=50, with a small number of priority rows: training/prediction are finite and deterministic across two runs.
         let (x, y) = make_data(80, 2, 21);
         let priority: Vec<usize> = vec![0, 5, 10, 17, 42];
         let m1 =
@@ -573,7 +608,7 @@ mod tests {
 
     #[test]
     fn fit_front_focused_equals_fit_when_n_le_max_inducing() {
-        // N ≤ M では Z = X となり priority は無視される（fit と同一）。
+        // When N ≤ M, Z = X and priority is ignored (identical to `fit`).
         let (x, y) = make_data(40, 2, 3);
         let with_priority =
             GpModel::fit_front_focused(&x, &y, GpMethod::Fitc, 100, 42, &[0, 1, 2]).expect("fit");

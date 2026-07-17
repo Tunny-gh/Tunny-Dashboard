@@ -1,11 +1,12 @@
-//! RDB（PostgreSQL）URL 対応の手動 E2E 確認テスト。
+//! Manual E2E verification tests for RDB (PostgreSQL) URL support.
 //!
-//! CI には実 DB が無いため `#[ignore]` で外し、ローカルで手動実行する:
+//! CI has no real DB, so these are excluded via `#[ignore]` and run manually locally:
 //! `cargo test -p tunny-desktop --test rdb_integration -- --ignored`
 //!
-//! 事前条件: `postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test` に
-//! 3 studies（mo_constrained / pruned_lc / messy_states）が投入済みであること。
-//! 破壊的操作（UPDATE/INSERT）は行わず、読み取り専用の疎通・整合性確認に留める。
+//! Prerequisite: 3 studies (mo_constrained / pruned_lc / messy_states) must already be
+//! seeded at `postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test`.
+//! Performs no destructive operations (UPDATE/INSERT); limited to read-only
+//! connectivity/consistency checks.
 
 use std::sync::mpsc;
 use std::time::Duration;
@@ -20,8 +21,8 @@ fn test_url() -> RdbUrl {
     RdbUrl::parse(TEST_DB_URL).expect("TEST_DB_URL must parse as a valid RDB URL")
 }
 
-/// `scan_rdb_task` が実 DB に接続し、既知の 3 studies を返すことを確認する
-/// （study worker の `ScanRdb` ハンドラが呼ぶのと同じ関数）。
+/// Verifies that `scan_rdb_task` connects to a real DB and returns the 3 known studies
+/// (the same function the study worker's `ScanRdb` handler calls).
 #[test]
 #[ignore]
 fn scan_rdb_task_lists_known_studies() {
@@ -34,18 +35,20 @@ fn scan_rdb_task_lists_known_studies() {
     names.sort_unstable();
     assert_eq!(names, vec!["messy_states", "mo_constrained", "pruned_lc"]);
 
-    // JournalParsed.path には正規化済み URL 文字列がそのまま格納される
-    // （`journal_path` 配管の設計どおり）。
+    // JournalParsed.path holds the normalized URL string directly (as designed for the
+    // `journal_path` plumbing).
     assert_eq!(path, std::path::PathBuf::from(TEST_DB_URL));
 }
 
-/// `load_single_study_task`（study worker の `SelectStudy` RDB 分岐が呼ぶ関数）が
-/// 指定 study の全 COMPLETE trial を単一チャンクとして送ることを確認する。
+/// Verifies that `load_single_study_task` (the function the study worker's
+/// `SelectStudy` RDB branch calls) sends every COMPLETE trial of the given study as a
+/// single chunk.
 #[test]
 #[ignore]
 fn load_single_study_task_loads_mo_constrained() {
     let url = test_url();
-    // scan で study_id を確定してから対象 study を選ぶ（ハードコードした ID に依存しない）。
+    // Pin down study_id via scan first, then select the target study (avoids depending
+    // on a hardcoded ID).
     let studies = match scan_rdb_task(url.clone()) {
         AppMessage::JournalParsed { studies, .. } => studies,
         AppMessage::Error(e) => panic!("scan_rdb_task failed: {e}"),
@@ -85,9 +88,9 @@ fn load_single_study_task_loads_mo_constrained() {
     }
 }
 
-/// ライブ更新ポーリングが使うフィンガープリント取得（`study_fingerprint_url`）が、
-/// DB に変化が無ければ同一値を返すことを確認する（ポーリングループの
-/// `fingerprint_fn` クロージャに相当する呼び出しの安定性チェック）。
+/// Verifies that the fingerprint fetch (`study_fingerprint_url`) used by live update
+/// polling returns the same value when the DB hasn't changed (a stability check for
+/// calls equivalent to the polling loop's `fingerprint_fn` closure).
 #[test]
 #[ignore]
 fn study_fingerprint_url_is_stable_without_changes() {

@@ -14,7 +14,7 @@ use crate::ui::widgets::scatter_3d::{
 };
 use crate::ui::widgets::trial_detail_modal::{axis_row, push_feasible_row, TrialDetailModal};
 
-/// Pareto 3D チャートウィジェット
+/// The Pareto 3D chart widget
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Pareto3dChart {
@@ -24,9 +24,9 @@ pub struct Pareto3dChart {
     pub camera: ArcballCamera,
     #[serde(skip)]
     range_cache: Range3DCache<(usize, usize, usize, usize)>,
-    /// 実行不可能解を表示するか（制約あり Study でのみ有効）
+    /// Whether to show infeasible solutions (effective only for constrained Studies)
     pub show_infeasible: bool,
-    /// 点クリックで開くトライアル詳細モーダル
+    /// Trial detail modal opened by clicking a point
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
 }
@@ -45,8 +45,9 @@ impl Default for Pareto3dChart {
     }
 }
 
-/// Pareto ランク・選択状態から 3D 点（feasible のみ）の描画色とサイズを返す。
-/// infeasible 点の除外と COLOR_INFEASIBLE 適用は呼び出し元で行う。
+/// Returns the drawing color and size of a 3D point (feasible only) from its Pareto rank
+/// and selection state. Excluding infeasible points and applying COLOR_INFEASIBLE is
+/// done by the caller.
 pub fn determine_point_color_3d(rank: u32, alpha: u8) -> (egui::Color32, f32) {
     let (base_color, radius) = if rank == 0 {
         (COLOR_PARETO(), 5.0_f32)
@@ -124,7 +125,7 @@ impl Pareto3dChart {
             [(x_min, x_max), (y_min, y_max), (z_min, z_max)],
         );
 
-        // 選択集合は HashSet を 1 度だけ構築し、点ごとの線形走査を避ける（M-16）。
+        // The selected set is built as a HashSet only once, avoiding a linear scan per point (M-16).
         let selected_set: HashSet<u32> = app_state.selected_indices.iter().copied().collect();
         let highlighted = app_state.highlighted_trial;
         let x_col = obj_names
@@ -142,10 +143,10 @@ impl Pareto3dChart {
         let mut infeasible_draw_calls: Vec<DepthPoint> = Vec::with_capacity(32);
         let mut highlight_call: Option<egui::Pos2> = None;
         let show_infeasible = self.show_infeasible;
-        // 左クリックでの点ヒット判定用（描画した点の trial_id・行・スクリーン座標）
+        // For left-click point hit testing (trial_id, row, and screen coordinates of drawn points)
         let mut candidates: Vec<(u32, usize, egui::Pos2)> = Vec::with_capacity(trial_count);
 
-        // feasibility 分割・ランク参照は 2D と共有（D-6）。normalize→project は共通ヘルパー（D-1）。
+        // Feasibility splitting and rank lookup are shared with 2D (D-6). normalize→project is a shared helper (D-1).
         for r in classify_rows(view) {
             let i = r.row;
             let xv = x_col.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
@@ -219,7 +220,7 @@ impl Pareto3dChart {
             },
         );
 
-        // 詳細モーダルを描画する。
+        // Draws the detail modal.
         if self.detail_modal.is_open() {
             self.detail_modal.show(
                 ui,

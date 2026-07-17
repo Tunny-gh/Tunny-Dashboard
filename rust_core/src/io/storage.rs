@@ -1,17 +1,18 @@
-//! ストレージ種別（journal / SQLite / RDB URL）ディスパッチの一元化。
+//! Centralizes dispatch on storage kind (journal / SQLite / RDB URL).
 //!
-//! 同じ判定規則が mcp-server・examples・egui-app に分散してドリフトしていた
-//! ため、ここに集約する。判定規則:
-//! 1. [`RdbUrl::parse`] が URL とみなせば PostgreSQL / MySQL
-//! 2. 拡張子 `.log` / `.journal` なら Optuna journal ファイル
-//! 3. それ以外はローカル SQLite ファイル
+//! The same detection rules had drifted across mcp-server, examples, and egui-app
+//! as separate copies, so they are consolidated here. Detection rules:
+//! 1. If [`RdbUrl::parse`] recognizes it as a URL, it's PostgreSQL / MySQL
+//! 2. If the extension is `.log` / `.journal`, it's an Optuna journal file
+//! 3. Otherwise, it's a local SQLite file
 //!
-//! ## 資格情報の扱い
+//! ## Handling of credentials
 //!
-//! 返す表示用ストレージ名は RDB URL の場合必ず [`RdbUrl::masked`] を経由する。
-//! エラーメッセージには storage 文字列そのものを埋め込まない — URL として
-//! パースできなかった文字列にもパスワードが含まれ得るため（例: typo した
-//! スキーム `postgresqll://user:pass@...`）、経路を問わずエコーしない。
+//! The display storage name returned for an RDB URL always goes through
+//! [`RdbUrl::masked`]. Error messages never embed the raw storage string —
+//! even a string that fails to parse as a URL may contain a password (e.g. a
+//! typo'd scheme such as `postgresqll://user:pass@...`), so it is never echoed
+//! back regardless of the code path taken.
 
 use std::path::Path;
 
@@ -22,7 +23,7 @@ use crate::io::journal::parser::StudyMeta;
 use crate::io::rdb::{parse_single_study_url, scan_study_list_url, RdbUrl};
 use crate::io::sqlite;
 
-/// storage 文字列から study 一覧を取得する。
+/// Retrieves the list of studies from a storage string.
 pub fn scan_studies(storage: &str) -> Result<Vec<StudyMeta>, String> {
     if let Some(url) = RdbUrl::parse(storage) {
         return scan_study_list_url(&url);
@@ -35,9 +36,9 @@ pub fn scan_studies(storage: &str) -> Result<Vec<StudyMeta>, String> {
     sqlite::scan_study_list(path)
 }
 
-/// storage 文字列から単一 study を読み込む。
+/// Loads a single study from a storage string.
 ///
-/// 返り値の 4 要素目は表示用ストレージ名（RDB URL はパスワードマスク済み）。
+/// The 4th element of the return value is the display storage name (RDB URLs have their password masked).
 pub fn load_study(
     storage: &str,
     study_id: u32,
@@ -57,7 +58,7 @@ pub fn load_study(
     Ok((meta, df, extras, storage.to_string()))
 }
 
-/// journal ファイルとみなす拡張子か。
+/// Whether the extension identifies it as a journal file.
 pub fn is_journal(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()),
@@ -65,8 +66,8 @@ pub fn is_journal(path: &Path) -> bool {
     )
 }
 
-/// journal ファイルを読み込む。エラーにパス文字列を埋め込まない
-/// （モジュールドキュメントの資格情報方針を参照）。
+/// Reads a journal file. Does not embed the path string in the error
+/// (see the module doc's credentials-handling policy).
 fn read_journal(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("failed to read journal file: {e}"))
 }
@@ -91,9 +92,10 @@ mod tests {
 
     #[test]
     fn journal_error_does_not_echo_storage_string() {
-        // typo スキーム + パスワード入りの文字列が journal 拡張子で終わるケース。
-        // RdbUrl::parse は None → journal 分岐 → 読み込み失敗。エラーに
-        // パスワード（および storage 文字列全体）が現れてはならない。
+        // Case where a string with a typo'd scheme plus a password ends with a
+        // journal extension. RdbUrl::parse returns None → falls into the journal
+        // branch → read fails. The error must not contain the password (or the
+        // full storage string).
         let storage = "postgresqll://user:secret_pw@host/audit.journal";
         let err = scan_studies(storage).unwrap_err();
         assert!(!err.contains("secret_pw"), "leak: {err}");

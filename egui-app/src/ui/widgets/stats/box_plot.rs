@@ -4,7 +4,7 @@ use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::common::range_math::value_range;
 use tunny_core::statistics::{compute_boxplot, BoxPlotStats};
 
-/// 箱ひげ図の対象列グループ。
+/// The target column group for the box plot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum BoxPlotSource {
     #[default]
@@ -31,12 +31,13 @@ impl BoxPlotSource {
 /// (study_name, source_disc, normalize, row_count)
 type BoxCacheKey = (String, u8, bool, usize);
 
-/// 複数列の箱ひげ図を並べて表示するウィジェット。
+/// A widget that displays box plots for multiple columns side by side.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct BoxPlotChart {
     pub source: BoxPlotSource,
-    /// 表示用に各列を min-max 正規化するか（[0,1]。統計値そのものは変更しない）。
+    /// Whether to min-max normalize each column for display ([0,1]; the statistics
+    /// themselves are unchanged).
     pub normalize: bool,
     #[serde(skip)]
     cache: Option<(BoxCacheKey, Vec<(String, BoxPlotStats)>)>,
@@ -164,15 +165,16 @@ impl BoxPlotChart {
     }
 }
 
-/// 各列を独立に min-max 正規化する（表示専用）。定数列（min == max）は全値 0.0 に潰す。
-/// 非有限値はそのまま素通しし、後段の `compute_boxplot` で除外させる。
-/// CSV エクスポートでも同じ正規化を再現するため crate 内に公開する。
+/// Independently min-max normalizes each column (for display only). A constant column
+/// (min == max) collapses every value to 0.0.
+/// Non-finite values are passed through unchanged and excluded later by `compute_boxplot`.
+/// Exposed within the crate so the same normalization can be reproduced for CSV export.
 pub(crate) fn normalize_minmax(values: &[f64]) -> Vec<f64> {
     let finite: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
     if finite.is_empty() {
         return values.to_vec();
     }
-    // `finite` は空でないことを直前で確認済み。
+    // Just confirmed above that `finite` is non-empty.
     let (min, max) = value_range(finite.iter().copied()).unwrap();
     values
         .iter()

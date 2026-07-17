@@ -1,29 +1,30 @@
-//! Key Finding（まとめ）の文章テンプレート（レンダラ非依存）。
+//! Key Finding (summary) wording templates, renderer-independent.
 //!
-//! Markdown / HTML 双方のレンダラがここ 1 箇所のテンプレートを共有する
-//! （文言の重複定義を避けるため）。テンプレートは推測や誇張を入れず、
-//! モデルのファクトのみを言語化する。出力は「表示テキスト」と「強調フラグ」を
-//! 持つ [`Span`] 列で、各レンダラが自前のエスケープ規則・強調記法
-//! （Markdown は `**...**`、HTML は `<strong>`）で描画する。
+//! Both the Markdown and HTML renderers share this single set of templates
+//! (to avoid duplicating wording definitions). The templates never
+//! speculate or exaggerate — they only put the model's facts into words.
+//! The output is a list of [`Span`]s, each holding "display text" and an
+//! "emphasis flag"; each renderer draws them with its own escaping rules and
+//! emphasis notation (Markdown uses `**...**`, HTML uses `<strong>`).
 //!
-//! `Span::text` はエスケープ前の生文字列で、静的リテラル・数値・
-//! ユーザー由来文字列（param 名 / 目的名）が混在する。レンダラ側で
-//! 全 span を一律にエスケープすれば、リテラルは無変化・ユーザー文字列は
-//! 安全化され、決定論的かつ安全な出力になる。
+//! `Span::text` is the raw, pre-escape string, and mixes static literals,
+//! numbers, and user-derived strings (param names / objective names). If the
+//! renderer uniformly escapes every span, literals pass through unchanged
+//! while user strings are sanitized, yielding deterministic and safe output.
 
 use super::model::{FindingKind, KeyFinding};
 use super::{format_number, pct, ReportLang};
 
-/// 文章を構成する 1 区間。
+/// One segment making up the wording.
 pub(crate) struct Span {
-    /// 表示テキスト（エスケープ前の生文字列）。
+    /// Display text (raw string, before escaping).
     pub text: String,
-    /// 強調するか（Markdown は `**`、HTML は `<strong>`）。
+    /// Whether to emphasize it (Markdown uses `**`, HTML uses `<strong>`).
     pub emphasis: bool,
 }
 
 impl Span {
-    /// 通常テキストの span。
+    /// A plain-text span.
     fn plain(text: impl Into<String>) -> Span {
         Span {
             text: text.into(),
@@ -31,7 +32,7 @@ impl Span {
         }
     }
 
-    /// 強調テキストの span。
+    /// An emphasized-text span.
     fn strong(text: impl Into<String>) -> Span {
         Span {
             text: text.into(),
@@ -40,9 +41,10 @@ impl Span {
     }
 }
 
-/// 制約フォールバック注記（feasible 解が 1 件も無いためパレート前面が
-/// 全 trial の目的空間非劣解にフォールバックした旨）。Markdown / HTML
-/// 両レンダラで文言を共有する（エスケープは呼び出し側の責務）。
+/// Constraint fallback note (states that, since no trial is feasible, the
+/// Pareto front fell back to objective-space non-domination across all
+/// trials). Wording is shared by both the Markdown and HTML renderers
+/// (escaping is the caller's responsibility).
 pub(crate) fn infeasible_fallback_note(lang: ReportLang, n_infeasible: usize) -> String {
     match lang {
         ReportLang::En => format!(
@@ -59,8 +61,9 @@ pub(crate) fn infeasible_fallback_note(lang: ReportLang, n_infeasible: usize) ->
     }
 }
 
-/// 重複解（`duplicate_of`）の凡例注記。Markdown / HTML 両レンダラで
-/// 文言を共有する（エスケープは呼び出し側の責務）。
+/// Legend note for duplicate solutions (`duplicate_of`). Wording is shared
+/// by both the Markdown and HTML renderers (escaping is the caller's
+/// responsibility).
 pub(crate) fn duplicate_legend_note(lang: ReportLang) -> &'static str {
     match lang {
         ReportLang::En => {
@@ -74,7 +77,7 @@ pub(crate) fn duplicate_legend_note(lang: ReportLang) -> &'static str {
     }
 }
 
-/// unix 秒（UTC）を ISO-8601 文字列へ整形する（chrono 非依存・決定論的）。
+/// Formats unix seconds (UTC) as an ISO-8601 string (no chrono dependency, deterministic).
 pub(crate) fn format_unix_utc(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
@@ -83,7 +86,7 @@ pub(crate) fn format_unix_utc(secs: i64) -> String {
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{sec:02}Z")
 }
 
-/// 1970-01-01 からの経過日数を `(年, 月, 日)` に変換する（Howard Hinnant 方式）。
+/// Converts days elapsed since 1970-01-01 to `(year, month, day)` (Howard Hinnant's algorithm).
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -97,7 +100,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// [`KeyFinding`] を言語別の [`Span`] 列に展開する。
+/// Expands a [`KeyFinding`] into a language-specific list of [`Span`]s.
 pub(crate) fn finding_spans(lang: ReportLang, f: &KeyFinding) -> Vec<Span> {
     let num = |k: &str| f.metrics.get(k).copied().unwrap_or(f64::NAN);
     let lab = |k: &str| f.labels.get(k).cloned().unwrap_or_default();

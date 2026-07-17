@@ -1,11 +1,11 @@
 use crate::state::app_state::{Direction, StudyMeta};
 use crate::state::messages::AppMessage;
 
-/// バックグラウンドで select_study を実行し AppMessage を返す。
+/// Runs select_study in the background and returns an AppMessage.
 ///
-/// 行指向 `Vec<TrialRow>` は複製せず、`study_id` と Pareto ランクのみを送る（MEM-001）。
-/// UI 側は `StudySelected` 受信時に共有ストアから `Arc<DataFrame>` を取得し
-/// `StudyView` を構築する。
+/// Does not duplicate the row-oriented `Vec<TrialRow>`; only sends `study_id` and the
+/// Pareto rank (MEM-001). On receiving `StudySelected`, the UI side fetches the
+/// `Arc<DataFrame>` from the shared store and builds the `StudyView`.
 pub fn select_study_task(meta: StudyMeta) -> AppMessage {
     let is_minimize: Vec<bool> = meta
         .directions

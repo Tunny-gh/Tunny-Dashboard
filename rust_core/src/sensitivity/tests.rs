@@ -21,7 +21,7 @@ fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
     let obj_names: Vec<String> = objs.iter().map(|s| s.to_string()).collect();
     let df = DataFrame::from_trials(&rows, &param_names, &obj_names, &[], &[], 0);
     store_dataframes(vec![df.clone()]);
-    select_study(0).expect("study 0 translated");
+    select_study(0).expect("study 0 should be selectable");
     df
 }
 
@@ -34,7 +34,7 @@ fn tc_801_01_spearman_perfect_positive() {
 
     assert!(
         (r - 1.0).abs() < 1e-9,
-        "translatedSpearmantranslated1.0translated: {}",
+        "Spearman correlation should be ~1.0: {}",
         r
     );
 }
@@ -48,7 +48,7 @@ fn tc_801_02_spearman_perfect_negative() {
 
     assert!(
         (r + 1.0).abs() < 1e-9,
-        "translatedSpearmantranslated-1.0translated: {}",
+        "Spearman correlation should be ~-1.0: {}",
         r
     );
 }
@@ -63,7 +63,7 @@ fn tc_801_03_spearman_known_example() {
     let expected = 13.0 / 35.0;
     assert!(
         (r - expected).abs() < 1e-9,
-        "Spearmantranslated: expected={}, got={}",
+        "Spearman correlation mismatch: expected={}, got={}",
         expected,
         r
     );
@@ -76,7 +76,11 @@ fn tc_801_04_spearman_tied_ranks() {
 
     let r = compute_spearman(&x, &y);
 
-    assert!(r > 0.9, "translated: {}", r);
+    assert!(
+        r > 0.9,
+        "Spearman correlation should be positive for tied ranks: {}",
+        r
+    );
 }
 
 #[test]
@@ -84,8 +88,11 @@ fn tc_801_05_spearman_n_less_than_2_returns_zero() {
     let r1 = compute_spearman(&[], &[]);
     let r2 = compute_spearman(&[1.0], &[1.0]);
 
-    assert_eq!(r1, 0.0, "translated0.0translated");
-    assert_eq!(r2, 0.0, "n=1translated0.0translated");
+    assert_eq!(
+        r1, 0.0,
+        "Spearman correlation should be 0.0 for empty input"
+    );
+    assert_eq!(r2, 0.0, "Spearman correlation should be 0.0 for n=1");
 }
 
 #[test]
@@ -161,7 +168,7 @@ fn tc_801_06_ridge_perfect_linear_r_squared_near_1() {
 
     assert!(
         result.r_squared > 0.99,
-        "translatedR²translated1.0translated: {}",
+        "R² should be ~1.0 for perfect linear fit: {}",
         result.r_squared
     );
 }
@@ -176,7 +183,7 @@ fn tc_801_07_ridge_beta_sign_correct() {
 
     assert!(
         result.beta[0] > 0.0,
-        "translatedβ>0translated: {}",
+        "beta should be positive: {}",
         result.beta[0]
     );
 }
@@ -189,10 +196,10 @@ fn tc_801_08_ridge_two_params_identifies_stronger() {
 
     let result = compute_ridge_from_vecs(&x_matrix, &y, 0.01);
 
-    assert_eq!(result.beta.len(), 2, "βtranslated2translated");
+    assert_eq!(result.beta.len(), 2, "beta should have 2 entries");
     assert!(
         result.beta[0].abs() > result.beta[1].abs(),
-        "x1translatedx2translated: beta={:?}",
+        "x1 beta should exceed x2 beta: beta={:?}",
         result.beta
     );
 }
@@ -202,8 +209,8 @@ fn tc_801_09_ridge_empty_returns_zero_r_squared() {
     let empty: Vec<Vec<f64>> = vec![];
     let result = compute_ridge_from_vecs(&empty, &[], 1.0);
 
-    assert_eq!(result.beta.len(), 0, "translatedβtranslated");
-    assert_eq!(result.r_squared, 0.0, "translatedR²=0.0");
+    assert_eq!(result.beta.len(), 0, "beta should be empty for empty input");
+    assert_eq!(result.r_squared, 0.0, "R² should be 0.0 for empty input");
 }
 
 #[test]
@@ -338,8 +345,8 @@ fn tc_801_p01_spearman_50000_x_30_x_4_at_scale() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    // 全列が単調増加なので、どの param×obj ペアでも Spearman は厳密に 1.0 になる。
-    // 全ペアを計算することで大規模入力でも破綻しないこと（スケール時のスモーク）も兼ねる。
+    // All columns are monotonically increasing, so Spearman must be exactly 1.0 for every param x obj pair.
+    // Computing every pair also serves as a smoke test that nothing breaks at scale on large input.
     for param_column in &param_cols {
         for objective_column in &obj_cols {
             let r = compute_spearman(param_column, objective_column);
@@ -365,7 +372,7 @@ fn tc_801_p02_ridge_50000_x_30_at_scale() {
         .map(|o| (0..n).map(|i| (i * (o + 1)) as f64).collect())
         .collect();
 
-    // 各目的について Ridge を解き、パラメータごとに係数が 1 つ返ることを確認する。
+    // Solve Ridge for each objective and confirm exactly one coefficient is returned per parameter.
     for y in &y_vecs {
         let r = compute_ridge_from_vecs(&x_matrix, y, 1.0);
         assert_eq!(
@@ -385,7 +392,7 @@ fn tc_1610_01_build_quad_features_output_length() {
 
 #[test]
 fn tc_301_06_sobol_regression_after_seeded_rng_migration() {
-    // 【テスト目的】: lcg_next → SeededRng 移行後も Sobol 感度解析が正常動作することを確認
+    // [Test purpose]: Confirm Sobol sensitivity analysis still works correctly after the lcg_next -> SeededRng migration
     let rows: Vec<TrialRow> = (0..50)
         .map(|i| {
             let x1 = i as f64;
@@ -425,7 +432,7 @@ fn tc_1610_03_compute_sobol_insufficient_data_returns_none() {
 
 #[test]
 fn tc_1610_03b_compute_sobol_zero_n_samples_returns_none() {
-    // n_samples=0 は 0/0=NaN が clamp をすり抜けて NaN 汚染された結果を返してはならない。
+    // n_samples=0 must not let 0/0=NaN slip past the clamp and return a NaN-contaminated result.
     let rows: Vec<TrialRow> = (0..50)
         .map(|i| {
             let x1 = i as f64;
@@ -479,7 +486,7 @@ fn tc_1610_06_compute_sobol_index_pair_known_values() {
     let (fo, te) = compute_sobol_index_pair(&fa, &fb, &fab);
 
     // var_y = 1, unclamped s_i = 1.5 → clamped 1.0, raw st_i = 0.125
-    // ST_i >= S_i を強制するため max(0.125, 1.5) = 1.5 → clamp → 1.0
+    // To enforce ST_i >= S_i, max(0.125, 1.5) = 1.5 → clamp → 1.0
     assert!((fo - 1.0).abs() < 1e-12, "first-order mismatch: {fo}");
     assert!((te - 1.0).abs() < 1e-12, "total-effect mismatch: {te}");
 }
@@ -621,7 +628,7 @@ fn tc_pfi_int_02_result_shape() {
 }
 
 // ===========================================================================
-// TASK-2263: compute_sensitivity_single_obj 簡略化テスト
+// TASK-2263: compute_sensitivity_single_obj simplification tests
 // ===========================================================================
 
 #[test]

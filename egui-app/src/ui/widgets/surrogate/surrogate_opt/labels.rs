@@ -1,13 +1,13 @@
-//! サロゲート最適化ウィジェットのラベル・選択肢・品質判定ヘルパー。
+//! Label, choice, and quality-verdict helpers for the surrogate optimization widget.
 //!
-//! 表示専用の純粋関数と定数のみを持つ（副作用なし）。
+//! Contains only display-only pure functions and constants (no side effects).
 
 use tunny_core::surrogate_opt::{AcquisitionKind, OptimizerKind, SurrogateModelKind};
 
-/// Model コンボの "Auto" エントリのラベル。
+/// Label for the "Auto" entry in the model combo.
 pub(super) const AUTO_MODEL_LABEL: &str = "Auto (cross-validated)";
 
-/// 最適化手法の選択肢（コンボ表示順）。
+/// Optimizer choices (in combo display order).
 pub(super) const OPTIMIZER_CHOICES: [OptimizerKind; 4] = [
     OptimizerKind::MultiStartLbfgs,
     OptimizerKind::Nsga2,
@@ -41,7 +41,7 @@ pub(crate) fn optimizer_label(kind: OptimizerKind) -> &'static str {
     }
 }
 
-/// CV R² 平均値から品質判定文字列と色を返す純粋関数。
+/// Pure function that returns a quality-verdict string and color from the mean CV R².
 pub(crate) fn verdict(cv_r2_mean: f64) -> (&'static str, egui::Color32) {
     if cv_r2_mean >= 0.9 {
         (

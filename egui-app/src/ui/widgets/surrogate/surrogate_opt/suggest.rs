@@ -1,9 +1,10 @@
-//! 獲得関数（単目的）・EHVI（多目的）による候補提案の結果テーブル描画。
+//! Draws the result table for candidate suggestions from the acquisition function
+//! (single-objective) / EHVI (multi-objective).
 //!
-//! いずれも結果テーブルと "Copy enqueue JSON" ボタン（Optuna の
-//! `study.enqueue_trial(params)` に渡せる JSON 配列を生成）を表示する。
+//! Both display a result table and a "Copy enqueue JSON" button (generates a JSON array that
+//! can be passed to Optuna's `study.enqueue_trial(params)`).
 
-/// 獲得関数による候補提案の結果テーブルと "Copy enqueue JSON" ボタンを描画する。
+/// Draws the result table and "Copy enqueue JSON" button for candidate suggestions from the acquisition function.
 pub(super) fn render_suggest_result(
     ui: &mut egui::Ui,
     result: &crate::state::messages::SurrogateSuggestUiResult,
@@ -26,7 +27,7 @@ pub(super) fn render_suggest_result(
                 .striped(true)
                 .min_col_width(60.0)
                 .show(ui, |ui| {
-                    // ── ヘッダ行 ──────────────────────────────────────
+                    // ── Header row ──────────────────────────────────────
                     let has_feas = result
                         .candidates
                         .first()
@@ -43,7 +44,7 @@ pub(super) fn render_suggest_result(
                     ui.strong("Acq. score");
                     ui.end_row();
 
-                    // ── データ行 ──────────────────────────────────────
+                    // ── Data rows ──────────────────────────────────────
                     for c in &result.candidates {
                         for v in &c.params {
                             ui.monospace(format!("{:.6}", v));
@@ -79,12 +80,12 @@ pub(super) fn render_suggest_result(
 
     ui.add_space(4.0);
 
-    // ── "Copy enqueue JSON" ボタン ──────────────────────────────
-    // Optuna の study.enqueue_trial(params) に渡せる JSON 配列を生成する。
+    // ── "Copy enqueue JSON" button ──────────────────────────────
+    // Generates a JSON array that can be passed to Optuna's study.enqueue_trial(params).
     if ui
         .button("Copy enqueue JSON")
         .on_hover_text(
-            "Optuna の study.enqueue_trial(params) に渡せる形式でクリップボードへコピーします。",
+            "Copies to the clipboard in a format you can pass to Optuna's study.enqueue_trial(params).",
         )
         .clicked()
     {
@@ -106,7 +107,7 @@ pub(super) fn render_suggest_result(
     }
 }
 
-/// EHVI による多目的候補提案の結果テーブルと "Copy enqueue JSON" ボタンを描画する。
+/// Draws the result table and "Copy enqueue JSON" button for multi-objective candidate suggestions via EHVI.
 pub(super) fn render_multi_suggest_result(
     ui: &mut egui::Ui,
     result: &crate::state::messages::SurrogateMultiSuggestUiResult,
@@ -126,18 +127,18 @@ pub(super) fn render_multi_suggest_result(
                 .striped(true)
                 .min_col_width(60.0)
                 .show(ui, |ui| {
-                    // ── ヘッダ行 ──────────────────────────────────────
+                    // ── Header row ──────────────────────────────────────
                     for name in &result.param_names {
                         ui.strong(name);
                     }
-                    // 目的ごとに「予測値 ± std」列を 1 つにまとめる。
+                    // Combine each objective's "predicted value ± std" into a single column.
                     for name in &result.objective_names {
                         ui.strong(name);
                     }
                     ui.strong("EHVI");
                     ui.end_row();
 
-                    // ── データ行 ──────────────────────────────────────
+                    // ── Data rows ──────────────────────────────────────
                     for c in &result.candidates {
                         for v in &c.params {
                             ui.monospace(format!("{:.6}", v));
@@ -156,11 +157,11 @@ pub(super) fn render_multi_suggest_result(
 
     ui.add_space(4.0);
 
-    // ── "Copy enqueue JSON" ボタン（params のみのオブジェクト配列） ──
+    // ── "Copy enqueue JSON" button (an array of objects containing only params) ──
     if ui
         .button("Copy enqueue JSON")
         .on_hover_text(
-            "Optuna の study.enqueue_trial(params) に渡せる形式でクリップボードへコピーします。",
+            "Copies to the clipboard in a format you can pass to Optuna's study.enqueue_trial(params).",
         )
         .clicked()
     {

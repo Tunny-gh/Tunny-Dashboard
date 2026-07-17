@@ -1,10 +1,12 @@
 use super::formatting::{escape_csv_field, format_f64, sanitize_csv_text, CSV_DELIMITER};
 
-/// 指定した行インデックスと列名（JSON 配列文字列）から CSV 文字列を生成する。
+/// Generates a CSV string from the given row indices and column names (a JSON
+/// array string).
 ///
-/// アクティブな DataFrame の値を参照し、列が空または DataFrame 未設定の場合は空文字列を返す。
+/// References the values in the active DataFrame; returns an empty string if
+/// the columns are empty or no DataFrame is set.
 ///
-/// 🟢 REQ-150〜REQ-153
+/// 🟢 REQ-150~REQ-153
 pub fn serialize_csv(indices: &[u32], columns_json: &str) -> String {
     let columns: Vec<String> = parse_columns_json(columns_json);
     if columns.is_empty() {
@@ -17,7 +19,8 @@ pub fn serialize_csv(indices: &[u32], columns_json: &str) -> String {
     result.unwrap_or_default()
 }
 
-/// 指定 DataFrame から行インデックス・列名リストに基づき、ヘッダ付き CSV 文字列を生成する。
+/// Generates a CSV string with a header from the given DataFrame, based on the
+/// row indices and column name list.
 pub(crate) fn serialize_csv_from_df(
     df: &crate::dataframe::DataFrame,
     indices: &[u32],
@@ -26,7 +29,7 @@ pub(crate) fn serialize_csv_from_df(
     let n = df.row_count();
     let mut out = String::with_capacity(indices.len() * columns.len() * 10);
 
-    // ヘッダ（列名）はジャーナル由来のテキストなので数式ガードも適用する。
+    // The header (column names) originates from journal text, so the formula guard is applied too.
     let header_fields: Vec<String> = columns.iter().map(|c| sanitize_csv_text(c)).collect();
     out.push_str(&header_fields.join(&CSV_DELIMITER.to_string()));
     out.push('\n');
@@ -39,8 +42,9 @@ pub(crate) fn serialize_csv_from_df(
 
         let mut fields = Vec::with_capacity(columns.len());
         for col in columns {
-            // 文字列セル（カテゴリラベル・user attr）はテキストとして数式ガード、
-            // 数値セルは format_f64 済みの安全な文字列なので構造クオートのみ。
+            // String cells (category labels, user attrs) get the formula guard as
+            // text; numeric cells are already safe strings from format_f64, so
+            // only structural quoting is applied.
             if df.get_numeric_column(col).is_some() || col == "trial_id" {
                 fields.push(escape_csv_field(&get_cell_value(df, row, col)));
             } else {
@@ -54,8 +58,9 @@ pub(crate) fn serialize_csv_from_df(
     out
 }
 
-/// 指定セルの値を文字列化する。trial_id は専用処理、数値列は `format_f64`、
-/// 文字列列はそのままの値、該当なしは空文字列を返す。
+/// Stringifies the value of the given cell. trial_id gets dedicated handling,
+/// numeric columns use `format_f64`, string columns use the value as-is, and
+/// missing values return an empty string.
 fn get_cell_value(df: &crate::dataframe::DataFrame, row: usize, col: &str) -> String {
     if col == "trial_id" {
         return df
@@ -78,7 +83,7 @@ fn get_cell_value(df: &crate::dataframe::DataFrame, row: usize, col: &str) -> St
     String::new()
 }
 
-/// `["col1","col2"]` 形式の JSON 配列文字列を列名のリストにパースする。
+/// Parses a JSON array string in the form `["col1","col2"]` into a list of column names.
 pub(crate) fn parse_columns_json(json: &str) -> Vec<String> {
     let trimmed = json.trim();
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {

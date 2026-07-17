@@ -1,30 +1,38 @@
-//! NSGA-II（Deb et al., 2002）。
+//! NSGA-II (Deb et al., 2002).
 //!
-//! 遺伝子は正規化空間 [0,1]^d の実数ベクトル。遺伝オペレータは
-//! SBX 交叉（原論文どおり交叉ペアの全変数へ適用）・Polynomial Mutation・
-//! 二項トーナメント選択（crowded comparison）。
-//! 適応度は `Vec<f64>`（全目的を最小化）で扱う汎用実装のため、
-//! 単一目的サロゲートでは長さ 1、多目的サロゲートでは目的数 n の長さで呼ぶ。
-//! `optimizers::multi_objective_nsga2` が多目的サロゲートの呼び出しを担う。
+//! A genome is a real-valued vector in normalized space [0,1]^d. Genetic
+//! operators are SBX crossover (applied to all variables of a crossed pair,
+//! as in the original paper), polynomial mutation, and binary tournament
+//! selection (crowded comparison).
+//! This is a generic implementation that treats fitness as `Vec<f64>`
+//! (minimizing all objectives), so it's called with length 1 for
+//! single-objective surrogates and length n (the number of objectives) for
+//! multi-objective surrogates.
+//! `optimizers::multi_objective_nsga2` handles calls for multi-objective
+//! surrogates.
 
 use crate::math::rng::SeededRng;
 use crate::multi_objective::pareto::dominates_minimized;
 use rayon::prelude::*;
 
-/// 単目的最適化での SBX 分布指数 η_c（局所探索寄り）。
+/// SBX distribution index η_c for single-objective optimization (favors local search).
 const SBX_ETA_SINGLE_OBJECTIVE: f64 = 20.0;
-/// 多目的最適化での SBX 分布指数 η_c（フロント全域へ広く探索）。
+/// SBX distribution index η_c for multi-objective optimization (broad exploration
+/// across the whole front).
 const SBX_ETA_MULTI_OBJECTIVE: f64 = 2.0;
 
 pub(crate) struct Nsga2Config {
-    /// 個体数（偶数に切り上げて使う）。
+    /// Population size (rounded up to an even number).
     pub pop_size: usize,
     pub generations: usize,
-    /// SBX を行うか（ペア単位の交叉確率）。行わない場合、子は親のコピーになる。
+    /// Whether to perform SBX (per-pair crossover probability). If not, the
+    /// offspring are copies of the parents.
     pub crossover_prob: f64,
-    /// SBX 分布指数 η_c（単目的 20 / 多目的 2 を推奨。`for_objectives` 参照）。
+    /// SBX distribution index η_c (recommended: 20 for single-objective, 2 for
+    /// multi-objective; see `for_objectives`).
     pub crossover_eta: f64,
-    /// Polynomial Mutation 分布指数 η_m（遺伝子ごとの変異確率は 1/d）。
+    /// Polynomial mutation distribution index η_m (per-gene mutation
+    /// probability is 1/d).
     pub mutation_eta: f64,
     pub seed: u64,
 }
@@ -43,9 +51,10 @@ impl Default for Nsga2Config {
 }
 
 impl Nsga2Config {
-    /// 目的数に応じた推奨設定。
-    /// η_c は単目的では 20（最良解近傍の局所改善を優先）、多目的では 2
-    /// （親から離れた子を作りやすくしフロント全域をカバー）とする。
+    /// Recommended settings based on the number of objectives.
+    /// η_c is 20 for single-objective (favors local improvement near the best
+    /// solution) and 2 for multi-objective (makes it easier to produce
+    /// offspring further from their parents, covering the whole front).
     pub fn for_objectives(n_obj: usize) -> Self {
         Self {
             crossover_eta: if n_obj <= 1 {
@@ -58,8 +67,9 @@ impl Nsga2Config {
     }
 }
 
-/// [0,1]^d 上で `eval` の返す全目的を最小化し、最終世代の第一フロント
-/// `(遺伝子, 適応度)` を返す。`initial` の個体は初期集団へシードされる。
+/// Minimizes all objectives returned by `eval` over [0,1]^d, and returns the
+/// final generation's first front as `(genome, fitness)` pairs. Individuals in
+/// `initial` are seeded into the initial population.
 pub(crate) fn nsga2_minimize<F>(
     eval: F,
     n_dims: usize,
@@ -69,7 +79,7 @@ pub(crate) fn nsga2_minimize<F>(
 where
     F: Fn(&[f64]) -> Vec<f64> + Sync,
 {
-    let n = (cfg.pop_size.max(4) + 1) & !1; // 偶数化（最低 4）
+    let n = (cfg.pop_size.max(4) + 1) & !1; // Round up to even (minimum 4)
     let mut rng = SeededRng::from_seed(cfg.seed);
 
     let mut pop: Vec<Vec<f64>> = initial
@@ -81,16 +91,17 @@ where
     while pop.len() < n {
         pop.push((0..n_dims).map(|_| rng.next_f64()).collect());
     }
-    // 集団評価は RNG を使わない純粋なサロゲート予測なので rayon で並列化する
-    // （par_iter は入力順を保つため決定性は保たれる）。
+    // Population evaluation is pure surrogate prediction with no RNG use, so
+    // we parallelize it with rayon (par_iter preserves input order, so
+    // determinism is maintained).
     let mut fit: Vec<Vec<f64>> = pop.par_iter().map(|g| eval(g)).collect();
 
     for _ in 0..cfg.generations {
-        // 親集団のランクと混雑度（トーナメント選択用）。
+        // Parent population's ranks and crowding distance (for tournament selection).
         let fronts = fast_non_dominated_sort(&fit);
         let (ranks, crowd) = ranks_and_crowding(&fit, &fronts);
 
-        // ── 子集団の生成 ────────────────────────────────────────────
+        // ── Generate offspring population ───────────────────────────
         let mut offspring: Vec<Vec<f64>> = Vec::with_capacity(n);
         while offspring.len() < n {
             let p1 = tournament(&mut rng, n, &ranks, &crowd);
@@ -111,7 +122,7 @@ where
         }
         let offspring_fit: Vec<Vec<f64>> = offspring.par_iter().map(|g| eval(g)).collect();
 
-        // ── 環境選択（親子 2n からエリート n を残す） ────────────────
+        // ── Environmental selection (keep the elite n out of the combined 2n parents+offspring) ──
         pop.extend(offspring);
         fit.extend(offspring_fit);
         let fronts = fast_non_dominated_sort(&fit);
@@ -120,7 +131,7 @@ where
             if survivors.len() + front.len() <= n {
                 survivors.extend(front.iter().copied());
             } else {
-                // 最後のフロントは混雑度の大きい順に切り詰める。
+                // Truncate the last front by descending crowding distance.
                 let cd = crowding_distance(&fit, front);
                 let mut order: Vec<usize> = (0..front.len()).collect();
                 order.sort_by(|&a, &b| {
@@ -152,18 +163,21 @@ where
         .unwrap_or_default()
 }
 
-/// 高速非劣ソート。フロントごとの個体 index リストを返す（先頭が第一フロント）。
+/// Fast non-dominated sort. Returns a list of individual indices per front
+/// (the first element is the first front).
 ///
-/// NOTE: `multi_objective::pareto::ranking::nd_sort` と同一アルゴリズム
-/// （Fast Non-dominated Sort）だが、意図的に別実装として維持している。
-/// こちらは NSGA-II の世代ループ内で小集団（既定 `pop_size = 64`、親子合わせても
-/// 高々 128 個体）に対して毎世代呼ばれるホットパスであり、`nd_sort` が備える
-/// 並列化・NaN 行マスクなど大規模 DataFrame 向けの機構は不要かつオーバーヘッドに
-/// なるため、単純な逐次 O(n^2) 実装のままにしている。
+/// NOTE: this is the same algorithm (Fast Non-dominated Sort) as
+/// `multi_objective::pareto::ranking::nd_sort`, but is intentionally kept
+/// as a separate implementation. This one is a hot path called every
+/// generation on a small population (default `pop_size = 64`, at most 128
+/// individuals including parents and offspring) inside NSGA-II's
+/// generation loop, so the parallelization and NaN-row masking machinery
+/// `nd_sort` has for large DataFrames is unnecessary overhead here; this
+/// stays a simple sequential O(n^2) implementation.
 fn fast_non_dominated_sort(fit: &[Vec<f64>]) -> Vec<Vec<usize>> {
     let n = fit.len();
-    let mut dominated_by: Vec<Vec<usize>> = vec![Vec::new(); n]; // i が支配する個体
-    let mut domination_count = vec![0usize; n]; // i を支配する個体数
+    let mut dominated_by: Vec<Vec<usize>> = vec![Vec::new(); n]; // individuals that i dominates
+    let mut domination_count = vec![0usize; n]; // number of individuals that dominate i
     for i in 0..n {
         for j in (i + 1)..n {
             if dominates_minimized(&fit[i], &fit[j]) {
@@ -192,7 +206,8 @@ fn fast_non_dominated_sort(fit: &[Vec<f64>]) -> Vec<Vec<usize>> {
     fronts
 }
 
-/// フロント内の混雑距離（front と同じ並びで返す）。境界個体は +∞。
+/// Crowding distance within the front (returned in the same order as
+/// `front`). Boundary individuals get +∞.
 fn crowding_distance(fit: &[Vec<f64>], front: &[usize]) -> Vec<f64> {
     let len = front.len();
     let mut dist = vec![0.0f64; len];
@@ -200,7 +215,8 @@ fn crowding_distance(fit: &[Vec<f64>], front: &[usize]) -> Vec<f64> {
         return vec![f64::INFINITY; len];
     }
     let n_obj = fit[front[0]].len();
-    // 目的ごとにフロント内の値を列として取り出してから距離を累積する。
+    // For each objective, extract the within-front values as a column
+    // before accumulating the distance.
     let columns: Vec<Vec<f64>> = (0..n_obj)
         .map(|m| front.iter().map(|&i| fit[i][m]).collect())
         .collect();
@@ -226,7 +242,7 @@ fn crowding_distance(fit: &[Vec<f64>], front: &[usize]) -> Vec<f64> {
     dist
 }
 
-/// 全個体のランク（フロント番号）と混雑距離を返す。
+/// Returns the rank (front number) and crowding distance of every individual.
 fn ranks_and_crowding(fit: &[Vec<f64>], fronts: &[Vec<usize>]) -> (Vec<usize>, Vec<f64>) {
     let n = fit.len();
     let mut ranks = vec![0usize; n];
@@ -241,7 +257,8 @@ fn ranks_and_crowding(fit: &[Vec<f64>], fronts: &[Vec<usize>]) -> (Vec<usize>, V
     (ranks, crowd)
 }
 
-/// 二項トーナメント選択（crowded comparison: ランク優先、同ランクは混雑度大を選ぶ）。
+/// Binary tournament selection (crowded comparison: rank first; on a tie,
+/// pick the individual with the larger crowding distance).
 fn tournament(rng: &mut SeededRng, n: usize, ranks: &[usize], crowd: &[f64]) -> usize {
     let a = rng.next_usize(n);
     let b = rng.next_usize(n);
@@ -252,9 +269,10 @@ fn tournament(rng: &mut SeededRng, n: usize, ranks: &[usize], crowd: &[f64]) -> 
     }
 }
 
-/// SBX（Simulated Binary Crossover、Deb & Agrawal 1995）。
-/// 交叉確率 `prob` を満たしたペアでは全変数に β 混合を適用する
-/// （β は変数ごとに独立にサンプリング）。子は [0,1] にクランプする。
+/// SBX (Simulated Binary Crossover, Deb & Agrawal 1995).
+/// For a pair satisfying the crossover probability `prob`, β blending is
+/// applied to all variables (β is sampled independently per variable).
+/// Offspring are clamped to [0,1].
 fn sbx_crossover(
     rng: &mut SeededRng,
     p1: &[f64],
@@ -272,7 +290,7 @@ fn sbx_crossover(
         if (x1 - x2).abs() <= 1e-12 {
             continue;
         }
-        // next_f64 は [0,1) を返すため 1−u > 0 が保証される。
+        // next_f64 returns [0,1), so 1-u > 0 is guaranteed.
         let u = rng.next_f64();
         let beta = if u <= 0.5 {
             (2.0 * u).powf(1.0 / (eta + 1.0))
@@ -285,7 +303,7 @@ fn sbx_crossover(
     (c1, c2)
 }
 
-/// Polynomial Mutation（変異確率は遺伝子ごとに 1/d）。[0,1] にクランプする。
+/// Polynomial Mutation (mutation probability is 1/d per gene). Clamped to [0,1].
 fn polynomial_mutation(rng: &mut SeededRng, genome: &mut [f64], eta: f64) {
     if genome.is_empty() {
         return;
@@ -313,12 +331,12 @@ mod tests {
     fn dominates_requires_strict_improvement() {
         assert!(dominates_minimized(&[1.0, 1.0], &[2.0, 1.0]));
         assert!(!dominates_minimized(&[1.0, 1.0], &[1.0, 1.0]));
-        assert!(!dominates_minimized(&[1.0, 2.0], &[2.0, 1.0])); // 非劣関係
+        assert!(!dominates_minimized(&[1.0, 2.0], &[2.0, 1.0])); // non-dominated relation
     }
 
     #[test]
     fn non_dominated_sort_splits_fronts() {
-        // f0: (1,1) が (2,2) を支配。 (0,3) と (1,1) は非劣。
+        // f0: (1,1) dominates (2,2). (0,3) and (1,1) are non-dominated with respect to each other.
         let fit = vec![vec![2.0, 2.0], vec![1.0, 1.0], vec![0.0, 3.0]];
         let fronts = fast_non_dominated_sort(&fit);
         assert_eq!(fronts.len(), 2);
@@ -390,8 +408,8 @@ mod tests {
 
     #[test]
     fn nsga2_two_objective_front_spans_tradeoff() {
-        // Schaffer N.1 相当: f1 = x², f2 = (x−1)²（x ∈ [0,1]）。
-        // 第一フロントはトレードオフ全域に広がるはず（多目的設定 η_c = 2）。
+        // Equivalent to Schaffer N.1: f1 = x^2, f2 = (x-1)^2 (x in [0,1]).
+        // The first front should span the entire tradeoff (multi-objective setting eta_c = 2).
         let cfg = Nsga2Config {
             pop_size: 32,
             generations: 60,

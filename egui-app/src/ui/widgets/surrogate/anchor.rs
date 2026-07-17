@@ -1,28 +1,29 @@
-//! アンカー点（候補設計点）解決の共有ヘルパー。
+//! Shared helper for resolving the anchor point (candidate design point).
 //!
-//! ロバスト性解析（`robustness.rs`）と応答曲面 3D ビューア（`response_surface.rs`）の
-//! 両方が、Best trial または pin 留めした trial を中心点として使う。元は
-//! `robustness.rs` にあった `CenterChoice` をここへ移し、両ウィジェットで共有する。
+//! Both robustness analysis (`robustness.rs`) and the 3D response-surface viewer
+//! (`response_surface.rs`) use the Best trial, or a pinned trial, as the center point.
+//! `CenterChoice`, originally in `robustness.rs`, was moved here to be shared by both widgets.
 //!
-//! `CenterChoice` はセッションファイル（JSON）に永続化される設定のため、
-//! variant 名（`BestTrial` / `Pinned`）は変更しない（型パスが変わっても serde の
-//! シリアライズ形式は variant 名ベースなので互換性は保たれる）。
+//! Since `CenterChoice` is a setting persisted to the session file (JSON), the variant names
+//! (`BestTrial` / `Pinned`) must not be changed (serde's serialized form is based on the variant
+//! name, so compatibility is preserved even if the type path changes).
 
 use crate::state::types::{Direction, StudyView};
 use tunny_core::surrogate_opt::TrainedSurrogate;
 
-/// アンカー点（候補設計点）の選び方。
+/// How the anchor point (candidate design point) is chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum CenterChoice {
-    /// 選択目的のベスト観測 trial。
+    /// The best observed trial for the selected objective.
     #[default]
     BestTrial,
-    /// pin 留めした trial（trial_id）。消えている場合は BestTrial にフォールバックする。
+    /// A pinned trial (trial_id). Falls back to BestTrial if it no longer exists.
     Pinned(u32),
 }
 
-/// Center/Anchor コンボのラベル。Pinned が指す trial が既に存在しない場合は
-/// 実際に使われる中心点（フォールバック後）と食い違わないよう素直に "Best trial" と表示する。
+/// Label for the Center/Anchor combo. If the trial that Pinned refers to no longer exists,
+/// simply displays "Best trial" so it doesn't disagree with the center point actually used
+/// (after the fallback).
 pub fn center_label(choice: CenterChoice, view: &StudyView) -> String {
     match choice {
         CenterChoice::BestTrial => "Best trial".to_string(),
@@ -36,7 +37,7 @@ pub fn center_label(choice: CenterChoice, view: &StudyView) -> String {
     }
 }
 
-/// 選択目的の観測ベスト行（方向を考慮した argmin/argmax）を返す。
+/// Returns the observed best row for the selected objective (direction-aware argmin/argmax).
 pub fn best_trial_row(
     view: &StudyView,
     obj_names: &[String],
@@ -72,8 +73,8 @@ pub fn best_trial_row(
     best_row
 }
 
-/// 中心点を元単位のベクトル（`trained.param_names` と同順）として解決する。
-/// Pinned trial が消えている場合は Best trial にフォールバックする。
+/// Resolves the center point as a vector in original units (same order as `trained.param_names`).
+/// Falls back to Best trial if the Pinned trial no longer exists.
 pub fn resolve_center(
     trained: &TrainedSurrogate,
     choice: CenterChoice,
@@ -105,7 +106,7 @@ mod tests {
 
     #[test]
     fn center_choice_serde_round_trip_keeps_variant_names() {
-        // セッションファイル互換性の回帰防止: variant 名が JSON に出ることを確認する。
+        // Regression guard for session-file compatibility: verifies the variant name appears in the JSON.
         let best = serde_json::to_string(&CenterChoice::BestTrial).unwrap();
         assert_eq!(best, "\"BestTrial\"");
         let pinned = serde_json::to_string(&CenterChoice::Pinned(7)).unwrap();

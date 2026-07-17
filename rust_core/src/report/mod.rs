@@ -1,18 +1,19 @@
-//! 自己完結型レポート出力。
+//! Self-contained report output.
 //!
-//! Optuna 最適化結果を構造化した [`StudyReport`] に落とし込み、JSON / Markdown /
-//! （後続フェーズで HTML）へレンダリングする。レポートモデルは言語非依存の
-//! 構造化ファクトを持ち、文章化（en / ja）はレンダラのテンプレートが担当する。
-//! Markdown / JSON は将来の MCP サーバーが LLM にそのまま渡す想定。
+//! Distills Optuna optimization results into a structured [`StudyReport`] and
+//! renders it to JSON / Markdown / (HTML in a later phase). The report model
+//! holds language-independent structured facts, and wording (en / ja) is
+//! handled by the renderer templates. Markdown / JSON are meant to be passed
+//! directly to an LLM by a future MCP server.
 //!
-//! ## モジュール構成
+//! ## Module layout
 //!
-//! - [`model`] — [`StudyReport`] の構造体ツリー（`serde::Serialize`）
+//! - [`model`] — the [`StudyReport`] struct tree (`serde::Serialize`)
 //! - [`builder`] — `(StudyMeta, DataFrame, StudyExtras)` → [`StudyReport`]
-//! - [`findings`] — Key Findings（まとめ）の決定論的生成
-//! - [`markdown`] — Markdown レンダラ（LLM 向け主用途）
-//! - [`html`] — 自己完結 HTML レンダラ（SVG チャート埋め込み）
-//! - [`text`] — Key Finding 文章テンプレート（markdown / html が共有）
+//! - [`findings`] — deterministic generation of Key Findings (summary)
+//! - [`markdown`] — Markdown renderer (primary use case: LLM consumption)
+//! - [`html`] — self-contained HTML renderer (embeds SVG charts)
+//! - [`text`] — Key Finding wording templates (shared by markdown / html)
 
 pub mod builder;
 pub mod findings;
@@ -28,28 +29,28 @@ pub use html::render_html;
 pub use markdown::render_markdown;
 pub use model::*;
 
-/// レンダリング言語。
+/// Rendering language.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReportLang {
-    /// 英語。
+    /// English.
     #[default]
     En,
-    /// 日本語。
+    /// Japanese.
     Ja,
 }
 
-/// レポート生成オプション。
+/// Report generation options.
 #[derive(Debug, Clone, Copy)]
 pub struct ReportOptions {
-    /// 既定のレンダリング言語（`render_*` は明示引数で上書き可能）。
+    /// Default rendering language (`render_*` can override with an explicit argument).
     pub lang: ReportLang,
-    /// 上位表の件数（既定 10）。
+    /// Number of rows in the top-N table (default 10).
     pub top_n: usize,
-    /// 相関ヒートマップの最大パラメータ数（既定 15）。
+    /// Max number of parameters in the correlation heatmap (default 15).
     pub max_heatmap_params: usize,
-    /// `true` なら MCDM セクションと相関セクションの計算を省略する
-    /// （study_summary 等の軽量用途向け）。Key Findings・パレート表の
-    /// TOPSIS 順は維持する（既定 `false`）。
+    /// If `true`, skip computing the MCDM section and the correlation section
+    /// (for lightweight use cases such as study_summary). Key Findings and
+    /// the Pareto table's TOPSIS ordering are still preserved (default `false`).
     pub skip_decision_sections: bool,
 }
 
@@ -64,32 +65,34 @@ impl Default for ReportOptions {
     }
 }
 
-/// 呼び出し側が渡すソース情報。
+/// Source information supplied by the caller.
 ///
-/// `storage_display` は RDB URL の場合、**必ず** マスク済み（`RdbUrl::masked()`）の
-/// 文字列を渡すこと（レポートに生パスワードを残さない）。`generated_at_unix` は
-/// core が時計を持たないため呼び出し側が与える。`None` なら日時欄を省略する。
+/// If `storage_display` is an RDB URL, it **must** be the masked
+/// (`RdbUrl::masked()`) string (never leave a raw password in the report).
+/// `generated_at_unix` is supplied by the caller since core has no clock;
+/// `None` omits the timestamp field.
 #[derive(Debug, Clone)]
 pub struct ReportSource {
-    /// ストレージ表示名（RDB はマスク済み）。
+    /// Storage display name (RDBs are masked).
     pub storage_display: String,
-    /// 生成日時（unix 秒）。`None` なら省略。
+    /// Generation timestamp (unix seconds). `None` omits it.
     pub generated_at_unix: Option<i64>,
 }
 
-/// f64 を有効4桁で整形する（レンダラ共通フォーマッタ）。
+/// Formats an f64 to 4 significant digits (shared formatter across renderers).
 ///
-/// - 整数値はそのまま整数表示（末尾 `.0` を付けない）
-/// - 非整数は有効4桁に丸め、末尾の余分な 0 とドットを除去する
-/// - `NaN` / `±inf` はそれぞれ `"NaN"` / `"inf"` / `"-inf"`
+/// - Integer values are shown as plain integers (no trailing `.0`)
+/// - Non-integers are rounded to 4 significant digits, with trailing zeros
+///   and the trailing dot stripped
+/// - `NaN` / `±inf` render as `"NaN"` / `"inf"` / `"-inf"` respectively
 pub fn format_number(value: f64) -> String {
     format_sig(value, 4)
 }
 
-/// パーセント値の整形（整数丸め）。
+/// Formats a percentage value (rounded to an integer).
 ///
-/// Markdown / HTML / Key Finding テンプレートの3箇所で同一規則を共有する
-/// （以前はレンダラごとに同一実装が重複していた）。
+/// Shared by the three call sites — Markdown, HTML, and the Key Finding
+/// template — that previously each duplicated the same logic.
 pub(crate) fn pct(x: f64) -> String {
     format!("{x:.0}")
 }
@@ -104,7 +107,7 @@ fn format_sig(value: f64, sig: usize) -> String {
     if value == 0.0 {
         return "0".to_string();
     }
-    // 整数値は整数表示。
+    // Integer values are shown as plain integers.
     if value.fract() == 0.0 && value.abs() < 1e15 {
         return format!("{}", value as i64);
     }

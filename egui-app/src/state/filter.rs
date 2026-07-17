@@ -3,20 +3,21 @@ use std::collections::HashMap;
 use super::app_state::AppState;
 
 // ============================================================
-// AppState フィルターメソッド
+// AppState filter methods
 // ============================================================
 
 impl AppState {
-    /// パラメータのフィルター範囲を設定し、selected_indices を更新する
+    /// Sets the filter range for a parameter and updates selected_indices.
     pub fn set_filter(&mut self, param: &str, min: f64, max: f64) {
         self.filter_ranges.insert(param.to_string(), (min, max));
         self.apply_filters();
     }
 
-    /// filter_ranges に基づいて selected_indices を再計算する
+    /// Recomputes selected_indices based on filter_ranges.
     ///
-    /// 実際の行フィルタは `tunny_core::filter::filter_rows_permissive` に委譲する
-    /// （列が存在しない場合は除外しない「素通し」挙動）。
+    /// The actual row filtering is delegated to
+    /// `tunny_core::filter::filter_rows_permissive` (a "pass-through" behavior that does
+    /// not exclude rows when a column does not exist).
     fn apply_filters(&mut self) {
         if let Some(ctx) = &self.current_study {
             if self.filter_ranges.is_empty() {
@@ -46,7 +47,7 @@ impl AppState {
 }
 
 // ============================================================
-// テスト
+// Tests
 // ============================================================
 
 #[cfg(test)]

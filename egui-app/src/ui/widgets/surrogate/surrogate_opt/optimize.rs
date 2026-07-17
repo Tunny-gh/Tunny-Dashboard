@@ -1,5 +1,6 @@
-//! 右列（Optimization）: Optimizer 選択、結果サマリ、最適化履歴プロット、
-//! 単目的・多目的の最適化列と Suggest セクションの配線。
+//! Right column (Optimization): Optimizer selection, result summary,
+//! optimization history plot; wiring for the single- and multi-objective
+//! optimization columns and the Suggest section.
 
 use crate::state::messages::{SurrogateMultiOptUiResult, SurrogateOptUiResult};
 use crate::ui::widget_states::{
@@ -15,7 +16,8 @@ use super::suggest::{render_multi_suggest_result, render_suggest_result};
 use super::tables::{render_best_point_table, render_front_table};
 use super::ObservedData;
 
-/// 右列（単目的）: Optimizer / Surface X・Y コンボ、Run Optimization ボタン、結果。
+/// Right column (single-objective): Optimizer / Surface X-Y combos, Run
+/// Optimization button, results.
 pub(super) fn render_optimize_column(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -23,7 +25,7 @@ pub(super) fn render_optimize_column(
     has_matching_trained: bool,
     obj_history: Option<&[f64]>,
 ) {
-    // ── Optimizer コンボ ─────────────────────────────────────────
+    // ── Optimizer combo ─────────────────────────────────────────
     ui.horizontal(|ui| {
         ui.label("Optimizer:");
         egui::ComboBox::from_id_salt("surrogate_optimizer")
@@ -35,7 +37,7 @@ pub(super) fn render_optimize_column(
             });
     });
 
-    // ── Run Optimization ボタン ──────────────────────────────────
+    // ── Run Optimization button ──────────────────────────────────
     let can_optimize = has_matching_trained && !busy;
     if ui
         .add_enabled(can_optimize, egui::Button::new("Run Optimization"))
@@ -47,7 +49,7 @@ pub(super) fn render_optimize_column(
         });
     }
 
-    // 最適化中スピナー。
+    // Spinner shown while optimizing.
     if state.optimizing {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -65,8 +67,8 @@ pub(super) fn render_optimize_column(
 
     render_result(ui, result, obj_history);
 
-    // ── Suggest next trials セクション ──────────────────────────────
-    // 単目的・GP 系モデルのみ表示する。
+    // ── Suggest next trials section ──────────────────────────────
+    // Only shown for single-objective, GP-family models.
     let is_gp = matches!(
         state.model,
         SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe | SurrogateModelKind::GpMoe
@@ -77,7 +79,7 @@ pub(super) fn render_optimize_column(
         ui.add_space(4.0);
         ui.strong("Suggest next trials");
 
-        // 獲得関数コンボ。
+        // Acquisition function combo.
         ui.horizontal(|ui| {
             ui.label("Acquisition:");
             egui::ComboBox::from_id_salt("surrogate_acquisition")
@@ -96,13 +98,13 @@ pub(super) fn render_optimize_column(
                 });
         });
 
-        // 候補数 DragValue（1〜10、デフォルト 3）。
+        // Candidate count DragValue (1-10, default 3).
         ui.horizontal(|ui| {
             ui.label("Candidates:");
             ui.add(egui::DragValue::new(&mut state.n_suggest_candidates).range(1..=10));
         });
 
-        // Suggest ボタン。
+        // Suggest button.
         let can_suggest = has_matching_trained && !busy;
         let disabled_hint = if !can_suggest && !has_matching_trained {
             "Fit a GP surrogate model first (GP-FITC, GP-VFE, or GP-MOE)."
@@ -126,7 +128,7 @@ pub(super) fn render_optimize_column(
             });
         }
 
-        // 提案中スピナー。
+        // Spinner shown while suggesting.
         if state.suggesting {
             ui.horizontal(|ui| {
                 ui.spinner();
@@ -134,7 +136,7 @@ pub(super) fn render_optimize_column(
             });
         }
 
-        // 結果テーブル。
+        // Results table.
         if let Some(ref suggest) = state.suggest_result.clone() {
             render_suggest_result(ui, suggest);
         }
@@ -149,7 +151,8 @@ pub(super) fn render_optimize_column(
     }
 }
 
-/// 右列（多目的）: 固定 NSGA-II ラベル + Run Optimization ボタン、結果。
+/// Right column (multi-objective): fixed NSGA-II label + Run Optimization
+/// button, results.
 pub(super) fn render_optimize_column_multi(
     ui: &mut egui::Ui,
     state: &mut SurrogateOptState,
@@ -157,10 +160,10 @@ pub(super) fn render_optimize_column_multi(
     has_matching_multi_trained: bool,
     observed: Option<&ObservedData>,
 ) {
-    // ── Optimizer（固定ラベル） ───────────────────────────────────
+    // ── Optimizer (fixed label) ───────────────────────────────────
     ui.label("Optimizer: NSGA-II");
 
-    // ── Run Optimization ボタン ──────────────────────────────────
+    // ── Run Optimization button ──────────────────────────────────
     let can_optimize = has_matching_multi_trained && !busy;
     if ui
         .add_enabled(can_optimize, egui::Button::new("Run Optimization"))
@@ -170,7 +173,7 @@ pub(super) fn render_optimize_column_multi(
         state.pending_multi_optimize = Some(SurrogateMultiOptimizeComputeRequest);
     }
 
-    // 最適化中スピナー。
+    // Spinner shown while optimizing.
     if state.optimizing {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -188,8 +191,8 @@ pub(super) fn render_optimize_column_multi(
 
     render_multi_result(ui, result, state, observed);
 
-    // ── Suggest next trials (EHVI) セクション ────────────────────────
-    // 多目的・GP 系モデルのみ EHVI を提供する。
+    // ── Suggest next trials (EHVI) section ────────────────────────
+    // EHVI is only offered for multi-objective, GP-family models.
     let is_gp = matches!(
         state.model,
         SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe | SurrogateModelKind::GpMoe
@@ -200,13 +203,13 @@ pub(super) fn render_optimize_column_multi(
         ui.add_space(4.0);
         ui.strong("Suggest next trials (EHVI)");
 
-        // 候補数 DragValue（1〜10、デフォルト 3）。
+        // Candidate count DragValue (1-10, default 3).
         ui.horizontal(|ui| {
             ui.label("Candidates:");
             ui.add(egui::DragValue::new(&mut state.n_multi_suggest_candidates).range(1..=10));
         });
 
-        // Suggest ボタン。
+        // Suggest button.
         let can_suggest = has_matching_multi_trained && !busy;
         let disabled_hint = if !can_suggest && !has_matching_multi_trained {
             "Fit GP surrogates for all objectives first (GP-FITC, GP-VFE, or GP-MOE)."
@@ -227,7 +230,7 @@ pub(super) fn render_optimize_column_multi(
             });
         }
 
-        // 提案中スピナー。
+        // Spinner shown while suggesting.
         if state.multi_suggesting {
             ui.horizontal(|ui| {
                 ui.spinner();
@@ -235,7 +238,7 @@ pub(super) fn render_optimize_column_multi(
             });
         }
 
-        // 結果テーブル。
+        // Results table.
         if let Some(ref suggest) = state.multi_suggest_result.clone() {
             render_multi_suggest_result(ui, suggest);
         }
@@ -250,10 +253,13 @@ pub(super) fn render_optimize_column_multi(
     }
 }
 
-/// 改善量（正 = 改善あり）を方向を考慮して返す純粋関数。
+/// Pure function that returns the improvement amount (positive = there is
+/// improvement), taking the optimization direction into account.
 ///
-/// - minimize: `best_observed - predicted`（小さいほど良いので observed > predicted なら正）
-/// - maximize: `predicted - best_observed`（大きいほど良いので predicted > observed なら正）
+/// - minimize: `best_observed - predicted` (smaller is better, so this is
+///   positive when observed > predicted)
+/// - maximize: `predicted - best_observed` (larger is better, so this is
+///   positive when predicted > observed)
 pub(crate) fn improvement_delta(minimize: bool, best_observed: f64, predicted: f64) -> f64 {
     if minimize {
         best_observed - predicted
@@ -269,7 +275,7 @@ fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, obj_history: 
         "maximize"
     };
 
-    // ── (a) 改善サマリー ─────────────────────────────────────────────
+    // ── (a) Improvement summary ─────────────────────────────────────────────
     ui.strong(format!("Optimization results ({}):", direction));
     ui.label(format!("Surrogate R² = {:.3}", result.r_squared));
     ui.add_space(4.0);
@@ -325,7 +331,7 @@ fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, obj_history: 
         );
     }
 
-    // ── (b) 最適化履歴プロット（予測最適値のオーバーレイ付き） ──────────
+    // ── (b) Optimization history plot (with predicted-optimum overlay) ──────────
     let non_empty_history = obj_history.filter(|h| !h.is_empty());
     if let Some(history) = non_empty_history {
         ui.add_space(6.0);
@@ -333,7 +339,7 @@ fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, obj_history: 
         ui.add_space(6.0);
     }
 
-    // ── 実行可能性（制約ありのとき表示） ─────────────────────────────
+    // ── Feasibility (shown when constraints are present) ─────────────────────────────
     if let Some(p_feas) = result.feasibility_probability {
         ui.add_space(4.0);
         let pct = (p_feas * 100.0).round() as u32;
@@ -369,30 +375,32 @@ fn render_result(ui: &mut egui::Ui, result: &SurrogateOptUiResult, obj_history: 
         }
     }
 
-    // ── 推定最適点の変数組み合わせ（TrialTable 形式） ────────────────
-    // パラメータ列 + 予測目的値列を 1 行で示す（TrialTable と同じ表スタイル）。
+    // ── Variable combination at the estimated optimum (TrialTable style) ────────────────
+    // Shows the parameter columns + predicted objective column in one row
+    // (same table style as TrialTable).
     ui.add_space(6.0);
     ui.label("Optimal variable combination:");
     render_best_point_table(ui, result);
 }
 
-/// 多目的最適化の結果を表示する。
-/// 予測パレートフロントを目的空間の散布図で示し（ウィジェット内）、続けて
-/// フロント点の変数組み合わせを TrialTable 形式の表で示す。フロントは
-/// ParetoScatter ウィジェットにも金色ダイヤで重畳表示される。
+/// Displays the multi-objective optimization result.
+/// Shows the predicted Pareto front as a scatter plot in objective space
+/// (within the widget), followed by the front points' variable
+/// combinations as a TrialTable-style table. The front is also overlaid on
+/// the ParetoScatter widget as gold diamonds.
 fn render_multi_result(
     ui: &mut egui::Ui,
     result: &SurrogateMultiOptUiResult,
     state: &mut SurrogateOptState,
     observed: Option<&ObservedData>,
 ) {
-    // ── 見出し ────────────────────────────────────────────────────
+    // ── Heading ────────────────────────────────────────────────────
     ui.strong(format!(
         "Predicted Pareto Front: {} points",
         result.front.len()
     ));
 
-    // ── 目的ごとの R²（訓練） ─────────────────────────────────────
+    // ── Per-objective R² (training) ─────────────────────────────────────
     ui.add_space(2.0);
     ui.horizontal_wrapped(|ui| {
         for (i, r2) in result.r_squared.iter().enumerate() {
@@ -406,16 +414,17 @@ fn render_multi_result(
     });
     ui.add_space(4.0);
 
-    // ── 予測パレートフロント散布図（目的空間） ───────────────────────
+    // ── Predicted Pareto front scatter plot (objective space) ───────────────────────
     render_front_scatter(ui, result, state, observed);
 
-    // ── フロント点テーブル（TrialTable 形式: 各目的列 + 各パラメータ列） ──
+    // ── Front-point table (TrialTable style: objective columns + parameter columns) ──
     ui.add_space(6.0);
     ui.label("Predicted front variable combinations:");
     render_front_table(ui, result);
 }
 
-/// 最適化履歴プロット（全 trial 点 + 累積ベスト線 + 予測最適値の水平線）。
+/// Optimization history plot (all trial points + cumulative-best line +
+/// predicted-optimum horizontal line).
 fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOptUiResult) {
     use crate::theme::chart_colors::{COLOR_OPT_PRUNED, COLOR_OPT_TRIAL};
     use crate::ui::widgets::history::optimization_history::compute_best_values;
@@ -431,7 +440,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         egui::Color32::from_rgb(107, 114, 128) // gray-500
     };
 
-    // 全 trial の散布点。
+    // Scatter points for all trials.
     let all_pts: egui_plot::PlotPoints = history
         .iter()
         .enumerate()
@@ -441,7 +450,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         .color(COLOR_OPT_TRIAL())
         .radius(2.0);
 
-    // 累積ベスト線。
+    // Cumulative-best line.
     let best_pts: egui_plot::PlotPoints = compute_best_values(history, result.minimize)
         .into_iter()
         .collect();
@@ -449,7 +458,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
         .color(COLOR_OPT_PRUNED())
         .width(1.5);
 
-    // 予測最適値の水平線。
+    // Predicted-optimum horizontal line.
     let n = history.len() as f64;
     let hline_pts: egui_plot::PlotPoints = vec![
         [0.0, result.best_value],
@@ -473,7 +482,8 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
             plot_ui.line(best_line);
             plot_ui.line(hline);
 
-            // 予測最適点を大きな星マーカーで強調する（右端 = 最新 trial 位置に配置）。
+            // Highlight the predicted optimum with a large asterisk marker
+            // (placed at the right edge = the latest trial position).
             let opt_marker: egui_plot::PlotPoints =
                 vec![[n.max(1.0) - 1.0, result.best_value]].into();
             plot_ui.points(
@@ -483,7 +493,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
                     .color(predicted_line_color),
             );
 
-            // 予測標準偏差の ±1.96σ 帯（薄いグレーの破線）。
+            // ±1.96σ band of the predicted standard deviation (light gray dashed line).
             if let Some(std) = result.predicted_std {
                 let sigma = 1.96 * std;
                 for (offset, name) in [
@@ -523,39 +533,39 @@ mod tests {
         }
     }
 
-    // ── improvement_delta のユニットテスト ────────────────────────────
+    // ── Unit tests for improvement_delta ────────────────────────────
 
     #[test]
     fn improvement_delta_minimize_positive() {
-        // 観測 0.5、予測 0.1 → 改善量 = 0.5 - 0.1 = 0.4（正）
+        // observed 0.5, predicted 0.1 -> improvement = 0.5 - 0.1 = 0.4 (positive)
         let d = improvement_delta(true, 0.5, 0.1);
         assert!((d - 0.4).abs() < 1e-12, "delta = {d}");
     }
 
     #[test]
     fn improvement_delta_minimize_no_improvement() {
-        // 予測が観測より悪い場合は負または 0
+        // Negative or zero when the prediction is worse than the observed value.
         let d = improvement_delta(true, 0.1, 0.5);
         assert!(d < 0.0, "delta = {d}");
     }
 
     #[test]
     fn improvement_delta_maximize_positive() {
-        // 観測 0.8、予測 1.2 → 改善量 = 1.2 - 0.8 = 0.4（正）
+        // observed 0.8, predicted 1.2 -> improvement = 1.2 - 0.8 = 0.4 (positive)
         let d = improvement_delta(false, 0.8, 1.2);
         assert!((d - 0.4).abs() < 1e-12, "delta = {d}");
     }
 
     #[test]
     fn improvement_delta_maximize_no_improvement() {
-        // 予測が観測より悪い場合は負または 0
+        // Negative or zero when the prediction is worse than the observed value.
         let d = improvement_delta(false, 1.2, 0.8);
         assert!(d < 0.0, "delta = {d}");
     }
 
     #[test]
     fn improvement_delta_exact_zero() {
-        // 観測と予測が等しければ改善なし
+        // No improvement when observed and predicted are equal.
         assert_eq!(improvement_delta(true, 0.5, 0.5), 0.0);
         assert_eq!(improvement_delta(false, 0.5, 0.5), 0.0);
     }
@@ -598,15 +608,15 @@ mod tests {
         assert!(!item.optimizing);
         assert!(item.result.is_some());
         assert_eq!(item.error_message.as_deref(), Some("err"));
-        // 選択は維持される
+        // Selections are preserved.
         assert_eq!(item.model, SurrogateModelKind::Ridge);
         assert_eq!(item.optimizer, OptimizerKind::RandomSearch);
         assert_eq!(item.selected_objective, 1);
 
-        // Arc<TrainedSurrogate> も伝播される（ここでは None）。
+        // Arc<TrainedSurrogate> is also propagated (None here).
         assert!(item.trained.is_none());
-        // multi_trained も伝播される（ここでは None）。
+        // multi_trained is also propagated (None here).
         assert!(item.multi_trained.is_none());
-        drop(Arc::<u8>::new(0)); // Arc が使えることを確認する（コンパイルチェック）。
+        drop(Arc::<u8>::new(0)); // Confirm Arc is usable (compile check).
     }
 }

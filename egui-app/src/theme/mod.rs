@@ -10,26 +10,27 @@ pub mod ui_colors;
 
 pub use ui_colors::*;
 
-/// 現在のテーマ（ダークか）。描画スレッドからのみ書き換える前提の単純な
-/// グローバルフラグで、`ui_colors` / `chart_colors` の色関数が毎フレーム
-/// 参照する。egui の `Visuals` 切替（[`tunny_visuals`]）と必ず同時に
-/// [`set_dark_mode`] で更新すること。
+/// The current theme (whether it's dark). A simple global flag assumed to be written
+/// only from the rendering thread, referenced every frame by the color functions in
+/// `ui_colors` / `chart_colors`. Always update it via [`set_dark_mode`] at the same time
+/// as switching egui's `Visuals` ([`tunny_visuals`]).
 static DARK_MODE: AtomicBool = AtomicBool::new(false);
 
-/// テーマを切り替える（`true` = ダーク）。
+/// Switches the theme (`true` = dark).
 pub fn set_dark_mode(dark: bool) {
     DARK_MODE.store(dark, Ordering::Relaxed);
 }
 
-/// 現在ダークテーマか。
+/// Whether the current theme is dark.
 pub fn is_dark_mode() -> bool {
     DARK_MODE.load(Ordering::Relaxed)
 }
 
-/// ライト/ダーク共通の Tunny テーマ `Visuals` を構築する。
+/// Builds the `Visuals` for the Tunny theme, shared by light/dark.
 ///
-/// 色は `ui_colors` の同名関数群（テーマ追従）を参照するため、必ず
-/// [`set_dark_mode`] を呼んでから本関数で `Visuals` を作り直すこと。
+/// Since the colors reference the same-named function group in `ui_colors` (theme-
+/// following), always call [`set_dark_mode`] before rebuilding `Visuals` with this
+/// function.
 pub fn tunny_visuals(dark: bool) -> Visuals {
     set_dark_mode(dark);
     let mut v = if dark {
@@ -63,11 +64,11 @@ pub fn tunny_visuals(dark: bool) -> Visuals {
     v
 }
 
-/// テーマ追従色を定義するマクロ。
+/// A macro defining a theme-following color.
 ///
-/// `pub const NAME: Color32` 相当の使用感を保つため、大文字スネークケースの
-/// 関数として展開する（呼び出し側は `NAME()`）。ライト/ダークの実値は
-/// 定義箇所に並記され、[`is_dark_mode`] で毎回解決される。
+/// Expands into an uppercase-snake-case function (called as `NAME()`) to preserve a
+/// usage feel equivalent to `pub const NAME: Color32`. The light/dark actual values are
+/// listed side by side at the definition site, and resolved every time via [`is_dark_mode`].
 macro_rules! themed_color {
     ($(#[$doc:meta])* $name:ident, $light:expr, $dark:expr) => {
         $(#[$doc])*

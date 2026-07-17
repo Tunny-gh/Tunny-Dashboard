@@ -1,12 +1,15 @@
-//! PCA バイプロット — 標準化 PCA の第1・第2主成分にトライアルを射影し、
-//! 元の変数の寄与（loadings）を矢印で重ね描きするウィジェット。
+//! PCA biplot — a widget that projects trials onto the 1st and 2nd principal
+//! components of standardized PCA, overlaying the original variables' contributions
+//! (loadings) as arrows.
 //!
-//! PCA 本体は `tunny_core::clustering::run_pca_standardized` が担い、現在アクティブな
-//! Study の DataFrame（`with_active_df` 経由）を直接読む。同期ウィジェットとして描画パス内で
-//! 都度呼び出し、結果は (df の Arc 恒等性, Study 名, 行数, 対象空間) をキーに 1 件だけ
-//! キャッシュする。着色点群・loadings 矢印などの描画物はさらにカラーマップ・着色目的に
-//! 依存するため、別キーで併せてキャッシュする。
-//! 詳細は `theory/{en,ja}/clustering/pca-biplot.md` を参照。
+//! The PCA computation itself is handled by `tunny_core::clustering::run_pca_standardized`,
+//! which reads the currently active Study's DataFrame directly (via `with_active_df`).
+//! As a sync widget it is called every time in the draw path, and the result is
+//! cached, keyed by (df's Arc identity, Study name, row count, target space), holding
+//! just one entry. Draw artifacts such as colored point groups and loadings arrows
+//! additionally depend on the colormap and coloring objective, so they are cached
+//! together under a separate key.
+//! See `theory/{en,ja}/clustering/pca-biplot.md` for details.
 
 use std::collections::BTreeMap;
 
@@ -18,8 +21,9 @@ use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::common::range_math::finite_value_range;
 use tunny_core::clustering::PcaResult;
 
-/// PCA の対象空間。`tunny_core::clustering::PcaSpace` は serde を実装していないため、
-/// UI 状態の永続化用にこのミラー enum を用意し `to_core` で変換する。
+/// The target space for PCA. Since `tunny_core::clustering::PcaSpace` doesn't
+/// implement serde, this mirror enum is provided for UI-state persistence and
+/// converted via `to_core`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum PcaSpaceOption {
     #[default]
@@ -45,7 +49,7 @@ impl PcaSpaceOption {
         }
     }
 
-    /// キャッシュキー用の判別子。
+    /// Discriminant used for the cache key.
     fn disc(self) -> u8 {
         match self {
             PcaSpaceOption::Param => 0,
@@ -55,41 +59,45 @@ impl PcaSpaceOption {
     }
 }
 
-/// PCA バイプロットウィジェットの UI 状態。
+/// UI state for the PCA biplot widget.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct PcaBiplotChart {
     pub space: PcaSpaceOption,
     pub show_loadings: bool,
-    /// 連続着色に使う目的関数名。`None` なら単色。
+    /// The objective function name used for continuous coloring. `None` means a
+    /// single color.
     pub color_objective: Option<String>,
-    /// PCA 本体と描画物のキャッシュ。
+    /// Cache of the PCA computation and its draw artifacts.
     #[serde(skip)]
     cache: Option<PcaBiplotCache>,
 }
 
-/// PCA 本体（`PcaResult`）と描画物（色グループ・loadings 矢印）をまとめてキャッシュする。
+/// Caches the PCA computation (`PcaResult`) together with its draw artifacts (color
+/// groups, loadings arrows).
 ///
-/// PCA 本体は df の恒等性・Study・行数・対象空間が変わったときのみ再計算する。
-/// 描画物はさらにカラーマップ・着色目的にも依存するため、それらが変わったときは
-/// PCA 本体を保ったまま描画物だけ再構築する（M-17）。
+/// The PCA computation is only recomputed when the df's identity, Study, row count,
+/// or target space changes. Draw artifacts additionally depend on the colormap and
+/// coloring objective, so when those change, only the draw artifacts are rebuilt
+/// while keeping the PCA computation (M-17).
 struct PcaBiplotCache {
-    /// PCA 本体のキー: (df 恒等性, Study 名, 行数, 対象空間判別子)。
+    /// Key for the PCA computation: (df identity, Study name, row count, target space
+    /// discriminant).
     pca_key: (usize, String, usize, u8),
     result: PcaResult,
-    /// 描画物のキー: (カラーマップのフィンガープリント, 着色目的)。
+    /// Key for the draw artifacts: (colormap fingerprint, coloring objective).
     draw_key: (u64, Option<String>),
     draw: PcaDraw,
 }
 
-/// PCA バイプロットの描画物（毎フレーム再構築を避けるためキャッシュする・M-17）。
+/// Draw artifacts for the PCA biplot (cached to avoid rebuilding every frame, M-17).
 struct PcaDraw {
-    /// 着色済みの点群（色 → 射影座標一覧）。
+    /// Colored point groups (color -> list of projected coordinates).
     color_groups: BTreeMap<[u8; 4], Vec<[f64; 2]>>,
-    /// loadings 矢印の始点（常に原点）と終点。
+    /// Start points (always the origin) and end points of the loadings arrows.
     loading_origins: Vec<[f64; 2]>,
     loading_tips: Vec<[f64; 2]>,
-    /// 寄与率つきの軸ラベル。
+    /// Axis labels including the explained variance ratio.
     x_label: String,
     y_label: String,
 }
@@ -106,7 +114,7 @@ impl Default for PcaBiplotChart {
 }
 
 impl PcaBiplotChart {
-    /// CSV エクスポート用にキャッシュ済みの PCA 結果を返す。
+    /// Returns the cached PCA result, for CSV export.
     pub fn cached_result(&self) -> Option<&PcaResult> {
         self.cache.as_ref().map(|c| &c.result)
     }
@@ -150,8 +158,10 @@ impl PcaBiplotChart {
                 });
         });
 
-        // PCA 本体のキー: df の Arc 恒等性 + Study 名 + 行数 + 対象空間（low 指摘）。
-        // 恒等性を含めることで、同一 (Study 名, 行数, 空間) の別データへ切り替えても取り違えない。
+        // Key for the PCA computation: df's Arc identity + Study name + row count +
+        // target space (low-priority finding).
+        // Including identity avoids mixing up different data even when switching to
+        // another dataset with the same (Study name, row count, space).
         let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
         let pca_key = (
             df_ptr,
@@ -159,14 +169,15 @@ impl PcaBiplotChart {
             view.row_count(),
             self.space.disc(),
         );
-        // 描画物のキー: カラーマップ + 着色目的（M-17）。
+        // Key for the draw artifacts: colormap + coloring objective (M-17).
         let draw_key = (
             super::rank_plot::cmap_fingerprint(cmap),
             self.color_objective.clone(),
         );
 
-        // PCA 本体は pca_key が変わったときのみ再計算する。描画物は draw_key が
-        // 変わったときだけ、PCA 本体を保ったまま再構築する。
+        // The PCA computation is only recomputed when pca_key changes. Draw
+        // artifacts are rebuilt, keeping the PCA computation, only when draw_key
+        // changes.
         let pca_valid = self.cache.as_ref().is_some_and(|c| c.pca_key == pca_key);
         if !pca_valid {
             self.cache = tunny_core::clustering::run_pca_standardized(2, self.space.to_core()).map(
@@ -249,8 +260,10 @@ impl PcaBiplotChart {
     }
 }
 
-/// PCA 本体（`result`）から描画物（着色点群・loadings 矢印・軸ラベル）を構築する（M-17）。
-/// カラーマップ・着色目的にのみ依存する部分を分離し、これらが変わったときだけ再構築する。
+/// Builds the draw artifacts (colored point groups, loadings arrows, axis labels)
+/// from the PCA computation (`result`) (M-17).
+/// Separates out the part that depends only on colormap/coloring objective, and
+/// rebuilds only when those change.
 fn compute_pca_draw(
     result: &PcaResult,
     color_objective: &Option<String>,
@@ -290,7 +303,8 @@ fn compute_pca_draw(
         .max(1e-9);
     let loading_scale = 0.8 * max_abs_score;
 
-    // loadings が 2 主成分に満たない退化ケースでは矢印を描かない（添字 panic を防ぐ）。
+    // Don't draw arrows in the degenerate case where loadings has fewer than 2
+    // principal components (avoids an index panic).
     let (loading_origins, loading_tips) = if result.loadings.len() >= 2 {
         let origins = vec![[0.0, 0.0]; result.feature_names.len()];
         let tips: Vec<[f64; 2]> = (0..result.feature_names.len())
@@ -323,7 +337,8 @@ fn compute_pca_draw(
     }
 }
 
-/// 連続着色列の有限値のみを対象にした (min, max) を返す。列が無ければ (0.0, 0.0)。
+/// Returns (min, max) over only the finite values of the continuous-coloring column.
+/// Returns (0.0, 0.0) if there is no column.
 fn color_range(col: Option<&[f64]>) -> (f64, f64) {
     let Some(col) = col else {
         return (0.0, 0.0);

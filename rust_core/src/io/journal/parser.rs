@@ -1,7 +1,7 @@
-//! Optuna JournalStorage（JSON Lines）のパーサ。
+//! Parser for Optuna JournalStorage (JSON Lines).
 //!
-//! 一括解析（`parse_journal`）、Study 一覧の高速スキャン（`scan_study_list`）、
-//! 指定 study のオンデマンド解析（`parse_single_study` / `parse_single_study_streaming`）を提供する。
+//! Provides bulk parsing (`parse_journal`), fast study-list scanning (`scan_study_list`),
+//! and on-demand parsing of a given study (`parse_single_study` / `parse_single_study_streaming`).
 //!
 //! Reference: docs/implements/TASK-101/journal-parser-requirements.md
 
@@ -24,11 +24,11 @@ use builders::TrialBuilder;
 #[cfg(test)]
 use distribution::Distribution;
 
-/// Journal 全体を一括パースし、全 study の `StudyMeta` を返す。
+/// Bulk-parses the entire journal and returns `StudyMeta` for all studies.
 ///
-/// 併せて全 study の `DataFrame`（COMPLETE trial）と `StudyExtras`（全 state の付帯情報）を
-/// 構築し、共有ストア（`crate::dataframe`）へ格納する。不正な JSON 行は読み飛ばし、
-/// 有効行が 1 行も無い場合はエラーを返す。
+/// Also builds each study's `DataFrame` (COMPLETE trials) and `StudyExtras` (auxiliary
+/// info for all states) and stores them in the shared store (`crate::dataframe`). Invalid
+/// JSON lines are skipped; returns an error if there are no valid lines at all.
 pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     let start = std::time::Instant::now();
 
@@ -90,16 +90,16 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     })
 }
 
-/// Phase 1: op_code=0/3 のみスキャンして Study 一覧を高速取得する。
-/// Trial データは一切処理しないため、大規模ファイルでも即座に返る。
-/// StudyMeta の completed_trials / param_names 等は 0 / 空（Phase 2 で確定する）。
+/// Phase 1: scans only op_code=0/3 to quickly get the list of studies.
+/// Trial data is not processed at all, so this returns instantly even for large files.
+/// StudyMeta's completed_trials / param_names etc. are 0 / empty (finalized in Phase 2).
 pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
     if data.is_empty() {
         return Ok(vec![]);
     }
     let text = String::from_utf8_lossy(data);
     let mut studies: Vec<StudyMeta> = Vec::new();
-    // study 名の重複チェック用（Vec の線形探索を避ける）。
+    // For checking duplicate study names (avoids a linear Vec scan).
     let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for line in text.lines() {
@@ -107,9 +107,9 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         if line.is_empty() {
             continue;
         }
-        // op_code は Optuna journal の各行で必ず先頭フィールド (`{"op_code":N,...`)。
-        // 1 回だけ抽出して分岐し、行全体を何度も走査する contains を排除する。
-        // Trial 行（op_code 4/5/6/8/9）は全体の 99% 以上を占めるため、ここで即除外する。
+        // op_code is always the first field in each line of an Optuna journal (`{"op_code":N,...`).
+        // Extract it once and branch on it, eliminating repeated full-line `contains` scans.
+        // Trial lines (op_code 4/5/6/8/9) make up over 99% of the total, so exclude them immediately here.
         let op = match line_u32_field(line, "op_code") {
             Some(op) => u64::from(op),
             None => continue,
@@ -117,8 +117,8 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         if op != 0 && op != 3 {
             continue;
         }
-        // op3 の大半は巨大な sampler 属性配列。必要なのは metric_names を持つ行だけなので、
-        // それ以外は JSON パースを完全に回避する。
+        // Most op3 lines are huge sampler attribute arrays. Only lines with metric_names
+        // are actually needed, so JSON parsing is skipped entirely for the rest.
         if op == 3 && !line.contains("study:metric_names") {
             continue;
         }
@@ -128,7 +128,7 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         match op {
             0 => {
                 let name = get_str(&json, "study_name").unwrap_or("").to_string();
-                // 同名 study の重複 create_study 行はスキップ（HashSet で O(1) 判定）。
+                // Skip duplicate create_study lines for the same study name (O(1) check via HashSet).
                 if !seen_names.insert(name.clone()) {
                     continue;
                 }
@@ -189,12 +189,13 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
     Ok(studies)
 }
 
-/// op_code=0（CREATE_STUDY）/ 3（SET_STUDY_SYSTEM_ATTR）の共通処理
-/// （`parse_single_study` Pass 1 と `parse_single_study_streaming` で共用）。
+/// Common handling of op_code=0 (CREATE_STUDY) / 3 (SET_STUDY_SYSTEM_ATTR)
+/// (shared by `parse_single_study` Pass 1 and `parse_single_study_streaming`).
 ///
-/// op0 は数が少ないため即 JSON パースする。op3 の大半は巨大な sampler 属性行のため、
-/// `study:metric_names` を含む行のみパースする。戻り値は「有効行として数えるか」
-/// （op0 はパース成功時のみ、op3 は常に true）。
+/// op0 is parsed as JSON immediately since it's rare. Most op3 lines are huge
+/// sampler attribute lines, so only lines containing `study:metric_names` are
+/// parsed. The return value indicates whether to count it as a valid line
+/// (for op0 only on successful parse; for op3 always true).
 fn process_study_meta_op(state: &mut ParserState, op: u8, line: &str) -> bool {
     match op {
         0 => {
@@ -217,8 +218,9 @@ fn process_study_meta_op(state: &mut ParserState, op: u8, line: &str) -> bool {
     }
 }
 
-/// op_code=4 の非対象 study 行の共通処理: JSON パースせず、trial_id カウンタの整合と
-/// 該当 study の total_trials のみ更新する（`parse_single_study` / streaming で共用）。
+/// Common handling of op_code=4 lines for non-target studies: skips JSON parsing and
+/// only updates the trial_id counter and that study's total_trials (shared by
+/// `parse_single_study` / streaming).
 fn count_other_study_trial(state: &mut ParserState, sid: u32) {
     state.next_trial_id += 1;
     if (sid as usize) < state.studies.len() {
@@ -226,15 +228,15 @@ fn count_other_study_trial(state: &mut ParserState, sid: u32) {
     }
 }
 
-/// Phase 2: 指定 study_id の Trial データのみパースして (StudyMeta, DataFrame) を返す。
+/// Phase 2: parses only the trial data for the given study_id and returns (StudyMeta, DataFrame).
 ///
-/// 3-pass 設計で高速化する:
-///   Pass 1 (sequential): 全行を string スキャンして対象行を収集・カウンタ管理
-///   Pass 2 (rayon parallel): 収集した行を並列 JSON パース
-///   Pass 3 (sequential): パース済み結果を順序保持で state に適用
+/// Uses a 3-pass design for speed:
+///   Pass 1 (sequential): string-scans all lines, collecting target lines and managing counters
+///   Pass 2 (rayon parallel): parallel JSON-parses the collected lines
+///   Pass 3 (sequential): applies the parsed results to state while preserving order
 ///
-/// N Study ファイルで対象 Study が 1 件の場合、JSON パース量は約 1/N に削減される。
-/// さらに rayon による並列化でコア数に応じた追加高速化が得られる。
+/// For an N-study file with a single target study, the amount of JSON parsing is reduced
+/// to roughly 1/N. Parallelization via rayon gives further speedup depending on core count.
 pub fn parse_single_study(
     data: &[u8],
     target_study_id: u32,
@@ -253,14 +255,14 @@ pub fn parse_single_study(
     }
     let text = String::from_utf8_lossy(data);
     let mut state = ParserState::new_with_target(target_study_id);
-    // 対象 Study に属する trial_id セット（ops 5/6/8/9 のフィルタに使用）
+    // Set of trial_ids belonging to the target study (used to filter ops 5/6/8/9)
     let mut target_trial_ids = std::collections::HashSet::<u32>::new();
-    // Pass 2 用: (line_ref, op_code, pre_trial_id-for-op4)
+    // For Pass 2: (line_ref, op_code, pre_trial_id-for-op4)
     let mut deferred: Vec<(&str, u8, Option<u32>)> = Vec::new();
     let mut any_valid = false;
 
     // ── Pass 1: sequential string scan ──────────────────────────────────
-    // op_code は各行の先頭フィールド。1 回だけ抽出して match で分岐する。
+    // op_code is the first field of each line. Extract it once and branch with match.
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -284,17 +286,17 @@ pub fn parse_single_study(
                 let pre_trial_id = state.next_trial_id;
                 match line_u32_field(line, "study_id") {
                     Some(sid) if sid == target_study_id => {
-                        // 対象 Study → Pass 2 へ回す（カウンタは先に進める）
+                        // Target study → defer to Pass 2 (advance the counter now)
                         state.next_trial_id += 1;
                         target_trial_ids.insert(pre_trial_id);
                         deferred.push((line, 4, Some(pre_trial_id)));
                     }
                     Some(sid) => {
-                        // 他 Study → JSON 不要、カウンタのみ更新
+                        // Other study → no JSON needed, just update the counter
                         count_other_study_trial(&mut state, sid);
                     }
                     None => {
-                        // 抽出失敗 → 安全のためフルパースにフォールバック
+                        // Extraction failed → fall back to full parsing for safety
                         let tid = state.next_trial_id;
                         if let Ok(json) = serde_json::from_str::<Value>(line) {
                             state.process_op(4, &json);
@@ -306,7 +308,7 @@ pub fn parse_single_study(
                 }
             }
             5..=9 => {
-                // 試行更新系（op7 の中間値含む）: 対象 trial_id の行のみ Pass 2 へ
+                // Trial-update ops (including op7 intermediate values): only lines for target trial_ids go to Pass 2
                 any_valid = true;
                 if let Some(tid) = line_u32_field(line, "trial_id") {
                     if target_trial_ids.contains(&tid) {
@@ -323,7 +325,7 @@ pub fn parse_single_study(
     }
 
     // ── Pass 2: parallel JSON parse ──────────────────────────────────────
-    // &str は text と同じ生存期間を持ち Send なので rayon スレッドへ安全に送れる。
+    // &str has the same lifetime as text and is Send, so it can be safely sent to rayon threads.
     let parsed: Vec<(u8, Value, Option<u32>)> = deferred
         .par_iter()
         .filter_map(|(line, op, pre_tid)| {
@@ -334,10 +336,10 @@ pub fn parse_single_study(
         .collect();
     drop(deferred);
 
-    // ── Pass 3: sequential state update (順序保持) ───────────────────────
+    // ── Pass 3: sequential state update (preserving order) ───────────────────────
     for (op, json, pre_tid) in parsed {
         if op == 4 {
-            // op_code=4 は Pass 1 で割り当てた trial_id を使わせる
+            // For op_code=4, use the trial_id assigned in Pass 1
             if let Some(tid) = pre_tid {
                 state.next_trial_id = tid;
             }
@@ -353,36 +355,38 @@ pub fn parse_single_study(
     Ok((study.meta, study.dataframe, study.extras))
 }
 
-/// `parse_single_study_streaming` が逐次コールバックへ渡すバッチ。
+/// A batch that `parse_single_study_streaming` passes to the sequential callback.
 ///
-/// 完了 Trial を `batch_size` 件ずつ前方ストリーミングで送出する。各バッチには
-/// その時点までの累積メタ（列名集合・件数）を同梱するため、UI 側は新規列の追加も
-/// 含めて DataFrame を再構築できる。最終バッチは `is_final = true`（残り 0 件でも送出）。
+/// Emits completed trials forward-streamed in groups of `batch_size`. Each batch is
+/// bundled with cumulative metadata up to that point (column name sets and counts) so
+/// the UI side can rebuild the DataFrame, including newly added columns. The final batch
+/// has `is_final = true` (emitted even with 0 remaining rows).
 pub struct StudyStreamBatch {
-    /// その時点までの累積 StudyMeta（user_attr_names はマージ済みソート）。
+    /// The cumulative StudyMeta up to this point (user_attr_names is merged and sorted).
     pub meta: StudyMeta,
-    /// 今回のバッチで新たに完了した Trial 行。
+    /// Trial rows newly completed in this batch.
     pub new_rows: Vec<crate::dataframe::TrialRow>,
-    /// 累積パラメータ列名（ソート済み、DataFrame 構築用）。
+    /// Cumulative parameter column names (sorted, for DataFrame construction).
     pub param_names: Vec<String>,
-    /// 目的列名。
+    /// Objective column names.
     pub objective_names: Vec<String>,
-    /// 累積 user_attr 数値列名（ソート済み）。
+    /// Cumulative numeric user_attr column names (sorted).
     pub user_attr_numeric_names: Vec<String>,
-    /// 累積 user_attr 文字列列名（ソート済み）。
+    /// Cumulative string user_attr column names (sorted).
     pub user_attr_string_names: Vec<String>,
-    /// これまでに観測した制約数の最大値。
+    /// The maximum number of constraints observed so far.
     pub max_constraints: usize,
-    /// 最初のバッチか（UI 側で StudyContext を新規生成する判定に使う）。
+    /// Whether this is the first batch (used by the UI side to decide whether to create a new StudyContext).
     pub is_first: bool,
-    /// 最終バッチか（UI 側で Pareto を確定計算しローディングを終える）。
+    /// Whether this is the final batch (used by the UI side to finalize the Pareto computation and end loading).
     pub is_final: bool,
 }
 
-/// `parse_single_study_streaming` の累積状態（バッチ・列名集合・カウンタ）。
+/// Accumulated state for `parse_single_study_streaming` (batch, column name sets, counters).
 ///
-/// 旧 `stream_emit_completed_trial` が約 15 個の引数で受け渡していた可変状態を
-/// 1 つの struct に集約したもの（挙動は不変）。
+/// Consolidates into a single struct the mutable state that the old
+/// `stream_emit_completed_trial` used to pass around via roughly 15 arguments
+/// (behavior is unchanged).
 struct StreamAccum {
     batch: Vec<crate::dataframe::TrialRow>,
     batch_size: usize,
@@ -413,8 +417,8 @@ impl StreamAccum {
         }
     }
 
-    /// 目的名を選ぶ: study builder 側の確定名があればそれ、無ければ完了 trial の
-    /// values 数から導出した `obj{i}`。
+    /// Chooses the objective names: uses the confirmed names from the study builder
+    /// if available, otherwise `obj{i}` derived from the number of values in completed trials.
     fn objective_names(&self, state: &ParserState, target: u32) -> Vec<String> {
         let builder_names = &state.studies[target as usize].objective_names;
         if builder_names.is_empty() {
@@ -424,10 +428,10 @@ impl StreamAccum {
         }
     }
 
-    /// 累積集合から StudyMeta スナップショットを生成する。
+    /// Builds a StudyMeta snapshot from the accumulated sets.
     fn snapshot_meta(&self, state: &ParserState, target: u32) -> StudyMeta {
         let builder = &state.studies[target as usize];
-        // user_attr_names は数値・文字列をマージしソート（既存 finalize と同等）。
+        // user_attr_names merges numeric and string names and sorts them (same as the existing finalize step).
         let mut user_attr_names: Vec<String> = self
             .uan_set
             .iter()
@@ -450,8 +454,8 @@ impl StreamAccum {
         }
     }
 
-    /// 現在の累積内容から `StudyStreamBatch` を組み立てて送出する
-    /// （`batch` は take されて空になる）。
+    /// Builds and emits a `StudyStreamBatch` from the current accumulated content
+    /// (`batch` is taken and left empty).
     fn send_batch<F>(&mut self, state: &ParserState, target: u32, is_final: bool, on_batch: &mut F)
     where
         F: FnMut(StudyStreamBatch),
@@ -472,8 +476,8 @@ impl StreamAccum {
         self.first_sent = true;
     }
 
-    /// 完了 Trial（state==1）の builder をバッチへ取り込み、列名集合・カウンタを更新する。
-    /// バッチが満杯になったら `on_batch` で送出する。
+    /// Takes a completed trial's (state==1) builder into the batch, updating the column
+    /// name sets and counters. Emits via `on_batch` once the batch is full.
     fn emit_completed_trial<F>(
         &mut self,
         tid: u32,
@@ -526,12 +530,13 @@ impl StreamAccum {
         }
     }
 
-    /// trial の状態確定処理（op_code=4 のインライン state / op_code=6 で共通）。
+    /// Finalizes a trial's state (shared by op_code=4's inline state and op_code=6).
     ///
-    /// in-memory ストレージは op_code=4 にすべての Trial データ（state / values / params）を
-    /// インラインで持ち、後続の op_code=6 が来ない。一方ファイルストレージは op_code=6 で
-    /// 完了する。state==1（完了）なら確定行を送出し、2/3（prune/fail）は builder を破棄して
-    /// extras のみ記録する。それ以外（RUNNING）は builder を残して後続 op を待つ。
+    /// In-memory storage carries all trial data (state / values / params) inline in
+    /// op_code=4, with no subsequent op_code=6. File storage, on the other hand, completes
+    /// via op_code=6. If state==1 (complete), emits the finalized row; if 2/3 (prune/fail),
+    /// discards the builder and only records extras. Otherwise (RUNNING), keeps the builder
+    /// and waits for a subsequent op.
     fn resolve_trial_state<F>(
         &mut self,
         state: &mut ParserState,
@@ -555,8 +560,8 @@ impl StreamAccum {
     }
 }
 
-/// 除去（完了/prune/fail 確定または EOF 時点）される `TrialBuilder` から
-/// `TrialExtra` を構築する。中間値は step 昇順にそろえる。
+/// Builds a `TrialExtra` from a `TrialBuilder` that's being removed (finalized as
+/// complete/prune/fail, or at EOF). Intermediate values are sorted in ascending step order.
 fn trial_extra_from_builder(
     trial_id: u32,
     b: &builders::TrialBuilder,
@@ -573,17 +578,22 @@ fn trial_extra_from_builder(
     }
 }
 
-/// 対象 study の完了 Trial を前方 1 パスで解析し、`batch_size` 件ごとに `on_batch` へ送出する。
+/// Parses the target study's completed trials in a single forward pass, emitting to
+/// `on_batch` every `batch_size` trials.
 ///
-/// `parse_single_study` と異なり、全件パース完了を待たずに完了 Trial を逐次出力するため、
-/// UI 側で「読み込みながら描画」できる。完了は op_code=6 / state==1 の時点で確定し、
-/// それまでに設定された params/attrs/constraints を取り込む（live_update と同じ逐次セマンティクス）。
+/// Unlike `parse_single_study`, this emits completed trials incrementally without
+/// waiting for the entire parse to finish, letting the UI side "render while loading".
+/// A trial is finalized as complete at op_code=6 / state==1, incorporating the
+/// params/attrs/constraints set up to that point (the same incremental semantics as
+/// live_update).
 ///
-/// 列名集合（param/user_attr）は Trial をまたいで累積され、各バッチへ同梱する。
+/// The column name sets (param/user_attr) accumulate across trials and are bundled
+/// into each batch.
 ///
-/// 全 trial（全 state）の付帯情報（[`crate::data::extras::StudyExtras`]）もあわせて収集し、
-/// 完了時に `store_extras_for` で共有ストアへ格納する（`parse_journal` が
-/// `store_extras` で格納するのと対になる、単一 study ロード経路の格納口）。
+/// Auxiliary info for all trials (all states) ([`crate::data::extras::StudyExtras`]) is
+/// also collected, and stored into the shared store via `store_extras_for` upon
+/// completion (the counterpart, for the single-study load path, to `parse_journal`'s
+/// storage via `store_extras`).
 pub fn parse_single_study_streaming<F>(
     data: &[u8],
     target_study_id: u32,
@@ -600,7 +610,7 @@ where
     let mut state = ParserState::new_with_target(target_study_id);
     let mut acc = StreamAccum::new(batch_size);
     let mut any_valid = false;
-    // 全 trial（全 state）の付帯情報。除去時（完了/prune/fail/EOF）に随時追加する。
+    // Auxiliary info for all trials (all states). Appended as trials are removed (complete/prune/fail/EOF).
     let mut extras_trials: Vec<crate::data::extras::TrialExtra> = Vec::new();
 
     for line in text.lines() {
@@ -631,7 +641,7 @@ where
                         }
                     }
                     Some(sid) => {
-                        // 他 study: trial_id カウンタの整合のみ維持（JSON 不要）。
+                        // Other study: only keep the trial_id counter consistent (no JSON needed).
                         count_other_study_trial(&mut state, sid);
                     }
                     None => {
@@ -641,9 +651,9 @@ where
                         }
                     }
                 }
-                // in-memory ストレージは op_code=4 に state/values/params をインラインで持ち、
-                // 後続の op_code=6 が来ない。ここで完了 Trial（state==1）を確定・送出する。
-                // ファイルストレージの op_code=4 は state==0 のため builder を残して 5/6 を待つ。
+                // In-memory storage carries state/values/params inline in op_code=4, with
+                // no subsequent op_code=6. Finalize and emit the completed trial (state==1) here.
+                // File storage's op_code=4 has state==0, so the builder is kept, waiting for 5/6.
                 if parsed_target {
                     let tid = state.next_trial_id.wrapping_sub(1);
                     acc.resolve_trial_state(
@@ -661,7 +671,7 @@ where
                     continue;
                 };
                 if !state.trial_builders.contains_key(&tid) {
-                    continue; // 対象 study 以外の trial → 無視
+                    continue; // Trial not from the target study → ignore
                 }
                 let Ok(json) = serde_json::from_str::<Value>(line) else {
                     continue;
@@ -671,7 +681,7 @@ where
                 if op != 6 {
                     continue;
                 }
-                // op6 完了判定: state==1 で確定行を送出、2/3（prune/fail）は破棄。
+                // op6 completion check: emit the finalized row when state==1; discard for 2/3 (prune/fail).
                 acc.resolve_trial_state(
                     &mut state,
                     tid,
@@ -691,8 +701,8 @@ where
         return Err(format!("study_id {target_study_id} not found in journal"));
     }
 
-    // EOF 時点でまだ残っている trial_builders（対象 study のみ生成される）は
-    // 完了/prune/fail 未確定＝ Running のまま。extras に取り込む。
+    // trial_builders still remaining at EOF (only generated for the target study) are
+    // still Running, i.e. not yet finalized as complete/prune/fail. Fold them into extras.
     for (tid, b) in state.trial_builders.drain() {
         extras_trials.push(trial_extra_from_builder(tid, &b));
     }
@@ -704,7 +714,7 @@ where
         },
     );
 
-    // 最終バッチ（残り）を送出。完了 0 件でも is_final を通知する。
+    // Emit the final batch (remainder). Notifies is_final even with 0 completions.
     acc.send_batch(&state, target_study_id, true, &mut on_batch);
 
     Ok(())

@@ -1,12 +1,14 @@
-//! Markdown レンダラ（LLM 向け主用途）。
+//! Markdown renderer (primarily for LLM consumption).
 //!
-//! 構造: `# Optimization Report: {study}` → `## Key Findings`（箇条書き）→
-//! 各セクション `##` + パイプテーブル。チャートは出さず数表で代替する。
-//! 出力は決定論的（同一入力→バイト同一）で、`HashMap` 反復順に依存しない
-//! （モデルは BTreeMap / ソート済み Vec で保持済み）。
+//! Structure: `# Optimization Report: {study}` -> `## Key Findings` (bullet
+//! list) -> each section as `##` + a pipe table. No charts; tables are used
+//! instead. Output is deterministic (identical input -> byte-identical
+//! output) and does not depend on `HashMap` iteration order (the model
+//! already holds data in `BTreeMap` / sorted `Vec`).
 //!
-//! 言語（en / ja）はレンダリング時に選択する。テンプレートは推測や誇張を入れず、
-//! モデルのファクトのみを文章化する。
+//! The language (en / ja) is selected at render time. Templates avoid
+//! speculation or exaggeration and only phrase facts already present in the
+//! model.
 
 use std::fmt::Write as _;
 
@@ -15,11 +17,11 @@ use super::model::*;
 use super::text::{self, format_unix_utc};
 use super::{format_number, pct, ReportLang};
 
-/// [`StudyReport`] を Markdown へレンダリングする。
+/// Renders a [`StudyReport`] to Markdown.
 pub fn render_markdown(report: &StudyReport, lang: ReportLang) -> String {
     let mut s = String::new();
 
-    // タイトル。
+    // Title.
     let _ = writeln!(
         s,
         "# {}: {}",
@@ -43,10 +45,10 @@ pub fn render_markdown(report: &StudyReport, lang: ReportLang) -> String {
 }
 
 // =============================================================================
-// 言語・エスケープヘルパー
+// Language / escape helpers
 // =============================================================================
 
-/// 言語に応じて en / ja のいずれかを返す。
+/// Returns either the en or ja string depending on the language.
 fn tr(lang: ReportLang, en: &'static str, ja: &'static str) -> &'static str {
     match lang {
         ReportLang::En => en,
@@ -54,18 +56,21 @@ fn tr(lang: ReportLang, en: &'static str, ja: &'static str) -> &'static str {
     }
 }
 
-/// ユーザー由来文字列を Markdown セルセーフ / インラインセーフに
-/// エスケープする（テーブルセルと本文インラインの両方で使う）。
+/// Escapes a user-derived string to be safe as a Markdown table cell / safe
+/// for inline use (used for both table cells and inline body text).
 ///
-/// - `\` → `\\`、`|` → `\|`: テーブル構造の保護。1 文字ずつの単一パスで
-///   処理するため、逐次 `replace` で問題になる「先に置換した `\` を後段が
-///   二重エスケープする」順序依存は発生しない。
-/// - `&` → `&amp;`、`<` → `&lt;`: 出力 Markdown が下流で HTML 化される場合
-///   （MCP 経由の表示等）の XSS / 構造破壊を防ぐ。Markdown 上は実体参照と
-///   してそのまま表示される。
-/// - `* _ [ ] #` → `\*` 等: Markdown インライン記法（強調・リンク・見出し）
-///   としての誤解釈を防ぐ（Key Finding のユーザー由来 span を含む）。
-/// - 改行（`\n` / `\r`）→ 空白: セル・行構造の保護。
+/// - `\` -> `\\`, `|` -> `\|`: protects the table structure. Processed in a
+///   single pass character by character, so it avoids the ordering issue
+///   that a sequential `replace` chain would have (a later replacement
+///   double-escaping a `\` inserted by an earlier one).
+/// - `&` -> `&amp;`, `<` -> `&lt;`: prevents XSS / structure breakage when
+///   the output Markdown is converted to HTML downstream (e.g. rendered via
+///   MCP). In Markdown these still display as the literal character via the
+///   entity reference.
+/// - `* _ [ ] #` -> `\*` etc.: prevents misinterpretation as Markdown
+///   inline syntax (emphasis, links, headings), including user-derived
+///   spans in Key Findings.
+/// - Newlines (`\n` / `\r`) -> space: protects cell / row structure.
 fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -86,13 +91,14 @@ fn esc(s: &str) -> String {
     out
 }
 
-/// ユーザー由来の名前をインラインコード span として整形する。
+/// Formats a user-derived name as an inline code span.
 ///
-/// インラインコード内ではバックスラッシュエスケープが効かないため、
-/// [`esc`] は適用せず、CommonMark の規則で埋め込みバックティックに対応する:
-/// 中身に含まれる最長のバックティック連続長より 1 長いバックティック列で
-/// 囲み、中身の先頭/末尾がバックティックの場合は空白でパディングする
-/// （パース時に両端 1 個ずつの空白が剥がされる）。改行は空白へ置換する。
+/// Backslash escaping has no effect inside inline code, so [`esc`] is not
+/// applied; instead embedded backticks are handled per the CommonMark
+/// rule: wrap the content in a run of backticks one longer than the
+/// longest backtick run it contains, and pad with a space if the content
+/// starts or ends with a backtick (the parser strips one space from each
+/// end). Newlines are replaced with spaces.
 fn code_span(s: &str) -> String {
     let content: String = s
         .chars()
@@ -101,7 +107,7 @@ fn code_span(s: &str) -> String {
     let max_run = content.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat(max_run + 1);
     if content.is_empty() {
-        // 空のコード span は Markdown として成立しないため、空白 1 個を置く。
+        // An empty code span is not valid Markdown, so use a single space.
         return "` `".to_string();
     }
     if content.starts_with('`') || content.ends_with('`') {
@@ -111,7 +117,7 @@ fn code_span(s: &str) -> String {
     }
 }
 
-/// 方向ラベル。
+/// Direction label.
 fn dir_label(lang: ReportLang, d: Direction) -> &'static str {
     match d {
         Direction::Minimize => tr(lang, "Minimize", "最小化"),
@@ -127,7 +133,7 @@ fn param_val(v: &ParamValue) -> String {
 }
 
 // =============================================================================
-// メタ行
+// Meta line
 // =============================================================================
 
 fn render_meta_line(s: &mut String, lang: ReportLang, report: &StudyReport) {
@@ -202,13 +208,14 @@ fn render_key_findings(s: &mut String, lang: ReportLang, findings: &[KeyFinding]
     s.push('\n');
 }
 
-/// Key Finding を 1 文へ整形する（テンプレートは [`super::text`] で共有）。
+/// Formats a Key Finding into a single sentence (the template is shared
+/// via [`super::text`]).
 ///
-/// 強調 span は Markdown の `**...**` で囲み、全 span を [`esc`] で
-/// インラインセーフにする。ユーザー由来文字列（param 名等）の Markdown
-/// 特殊文字（`* _ [ ] #` 等）はここで安全化される。テンプレートリテラル
-/// 中の `#`（`trial #N` 等）も `\#` になるが、Markdown 描画上は `#` の
-/// まま表示されるため無害。
+/// Emphasis spans are wrapped in Markdown `**...**`, and every span is made
+/// inline-safe via [`esc`]. Markdown special characters (`* _ [ ] #` etc.)
+/// in user-derived strings (parameter names, etc.) are made safe here. The
+/// `#` inside template literals (e.g. `trial #N`) also becomes `\#`, but
+/// this is harmless since it still renders as `#` in Markdown.
 fn finding_sentence(lang: ReportLang, f: &KeyFinding) -> String {
     let mut out = String::new();
     for span in super::text::finding_spans(lang, f) {
@@ -271,7 +278,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                 complete_count
             );
 
-            // 目的ごとの極値。
+            // Per-objective extremes.
             let _ = writeln!(
                 s,
                 "{}\n",
@@ -292,7 +299,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             );
             let _ = writeln!(s, "|---|---|---|---|---|");
             for e in per_objective_extremes {
-                // 制約違反 trial が最良の場合は明示マークを付ける。
+                // Add an explicit mark when the best trial violates constraints.
                 let infeasible_mark = if e.best_feasible {
                     ""
                 } else {
@@ -311,7 +318,7 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             }
             s.push('\n');
 
-            // パレート表（TOPSIS 順）。
+            // Pareto table (ordered by TOPSIS).
             let _ = writeln!(
                 s,
                 "{}\n",
@@ -323,9 +330,11 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
             );
             render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
-            // 前面は feasible 行のみから計算されるため、違反 trial が表に
-            // 現れるのは「feasible 解が 1 件も無い」フォールバック時のみ。
-            // 件数は builder が cap 前の front 全体から集計済み。
+            // The front is computed from feasible rows only, so an
+            // infeasible trial appears in the table only in the fallback
+            // case where there are no feasible solutions at all. The count
+            // is already aggregated by the builder over the full
+            // pre-cap front.
             if *pareto_infeasible_count > 0 {
                 let _ = writeln!(
                     s,
@@ -350,7 +359,8 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
                     tr(lang, "objectives total", "目的中")
                 );
             }
-            // 制約違反点があれば件数を併記する（点自体は全 COMPLETE を含む）。
+            // If there are constraint-violating points, note the count
+            // (the points themselves include all COMPLETE trials).
             let n_scatter_infeasible = scatter.iter().filter(|p| !p.feasible).count();
             if n_scatter_infeasible > 0 {
                 let _ = writeln!(
@@ -373,18 +383,20 @@ fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyReport) {
     }
 }
 
-/// 表内に重複解（`duplicate_of` 付き trial）があれば凡例を 1 行出力する。
+/// Emits a one-line legend if the table contains duplicate solutions
+/// (trials with `duplicate_of` set).
 fn render_duplicate_note(s: &mut String, lang: ReportLang, trials: &[TrialSummary]) {
     if has_duplicate_marks(trials) {
         let _ = writeln!(s, "{}\n", text::duplicate_legend_note(lang));
     }
 }
 
-/// TrialSummary の表を出力する（trial# + 目的 + パラメータ [+ 最大制約値]）。
+/// Emits a table of `TrialSummary`s (trial# + objectives + parameters
+/// [+ max constraint value]).
 ///
-/// `user_attrs` はここでは意図的に出力しない（LLM 向けレポートを簡潔に保つ
-/// ため）。ユーザー付帯情報が必要な場合は HTML レンダラの付録（appendix）
-/// 側で確認できる。
+/// `user_attrs` is intentionally not output here (to keep the LLM-facing
+/// report concise). If user-attached info is needed, it can be found in the
+/// HTML renderer's appendix.
 fn render_trial_table(
     s: &mut String,
     lang: ReportLang,
@@ -402,7 +414,7 @@ fn render_trial_table(
     }
     let param_names: Vec<String> = trials[0].params.iter().map(|(n, _)| n.clone()).collect();
 
-    // ヘッダ。
+    // Header.
     let mut header = format!("| {} |", tr(lang, "trial", "trial"));
     for o in obj_names {
         let _ = write!(header, " {} |", esc(o));
@@ -431,7 +443,7 @@ fn render_trial_table(
 
     for t in trials {
         let mut row = match t.duplicate_of {
-            // 同一目的値の重複解は初出 trial 番号を併記する。
+            // For duplicate solutions with identical objective values, note the trial number of the first occurrence.
             Some(first) => format!("| #{} (= #{first}) |", t.trial_number),
             None => format!("| #{} |", t.trial_number),
         };
@@ -444,7 +456,7 @@ fn render_trial_table(
         }
         if show_constraint {
             let c = match t.max_constraint {
-                // 正値 = 制約違反（判定は model 側で共有）。明示マークを付ける。
+                // Positive value = constraint violation (the check is shared on the model side). Add an explicit mark.
                 Some(v) if t.violates_constraints() => format!(
                     "{}{}",
                     format_number(v),
@@ -838,25 +850,26 @@ mod esc_tests {
 
     #[test]
     fn escapes_backslash_before_pipe() {
-        // 単一パス処理のため `a\|b` の `\` と `|` のエスケープが
-        // 衝突せず、表構造が壊れない。
+        // Because processing is single-pass, escaping `\` and `|` in
+        // `a\|b` does not collide, and the table structure is not broken.
         assert_eq!(esc("a\\|b"), "a\\\\\\|b");
         assert_eq!(esc("trail\\"), "trail\\\\");
     }
 
     #[test]
     fn escapes_html_amp_and_lt() {
-        // 下流で HTML 化される場合の XSS / 構造破壊対策。
+        // Guards against XSS / structure breakage when converted to HTML downstream.
         assert_eq!(esc("a&b"), "a&amp;b");
         assert_eq!(esc("<script>"), "&lt;script>");
-        // `&` はそのまま実体参照化され、二重エスケープしない
-        // （単一パスのため `&amp;` の再処理は起きない）。
+        // `&` is turned into an entity reference as-is and is not
+        // double-escaped (since processing is single-pass, `&amp;` is not
+        // reprocessed).
         assert_eq!(esc("&lt;"), "&amp;lt;");
     }
 
     #[test]
     fn escapes_markdown_inline_specials() {
-        // 強調・リンク・見出し記法として誤解釈されない。
+        // Not misinterpreted as emphasis, link, or heading syntax.
         assert_eq!(esc("*em*"), "\\*em\\*");
         assert_eq!(esc("snake_case_name"), "snake\\_case\\_name");
         assert_eq!(esc("[link]"), "\\[link\\]");
@@ -875,13 +888,13 @@ mod esc_tests {
 
     #[test]
     fn code_span_handles_embedded_backticks() {
-        // 中身の最長バックティック連続長 +1 のフェンスで囲む。
+        // Wraps with a fence one longer than the content's longest backtick run.
         assert_eq!(code_span("a`b"), "``a`b``");
         assert_eq!(code_span("a``b"), "```a``b```");
-        // 先頭/末尾がバックティックの場合は空白でパディングする。
+        // Pads with a space when the content starts/ends with a backtick.
         assert_eq!(code_span("`lead"), "`` `lead ``");
         assert_eq!(code_span("trail`"), "`` trail` ``");
-        // 空文字列は空白 1 個のコード span にする。
+        // An empty string becomes a code span containing a single space.
         assert_eq!(code_span(""), "` `");
     }
 }

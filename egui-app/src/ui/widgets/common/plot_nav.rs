@@ -1,18 +1,16 @@
-//! 2D チャート共通のナビゲーション設定。
+//! Shared navigation settings for 2D charts.
 //!
-//! 全 2D チャート（egui_plot ベース）で操作系を統一する:
-//! - 左ドラッグ: 矩形ズーム（範囲選択で拡大）
-//! - 右ドラッグ: パン
-//! - 左ダブルクリック: デフォルトビュー（自動範囲）へリセット
-//! - スクロールホイール: カーソル位置を中心にズーム
-//!   （egui_plot 既定の「ホイール = 平行移動」は無効化し、[`apply_wheel_zoom`] で
-//!   ズームに割り当て直す）
+//! Unifies the interaction scheme across all 2D charts (egui_plot-based):
+//! - Left drag: box zoom (zoom in by selecting a range)
+//! - Right drag: pan
+//! - Left double-click: reset to the default view (auto range)
+//! - Scroll wheel: zoom centered on the cursor position
+//!   (egui_plot's default "wheel = pan" is disabled and reassigned to zoom via [`apply_wheel_zoom`])
 
-/// 統一ナビゲーション設定を `egui_plot::Plot` へ適用する拡張トレイト。
+/// Extension trait that applies the unified navigation settings to `egui_plot::Plot`.
 ///
-/// 2D チャートを追加する際は `Plot::new(..)` のビルダーチェーンに
-/// `.unified_nav()` を必ず挟み、`show` クロージャ先頭で [`apply_wheel_zoom`]
-/// を呼ぶこと。
+/// When adding a new 2D chart, always chain `.unified_nav()` into the `Plot::new(..)` builder,
+/// and call [`apply_wheel_zoom`] at the top of the `show` closure.
 pub trait UnifiedNav {
     fn unified_nav(self) -> Self;
 }
@@ -26,12 +24,12 @@ impl UnifiedNav for egui_plot::Plot<'_> {
     }
 }
 
-/// ホイール操作をカーソル位置中心のズームとして適用する。
+/// Applies a wheel action as a zoom centered on the cursor position.
 ///
-/// egui ではホイール単体は `smooth_scroll_delta`（平行移動用）になり、
-/// `zoom_delta` になるのは Ctrl+ホイール / ピンチのみ。チャート上では
-/// ホイール = 拡大縮小に統一したいため、プロットへのホバー中はスクロール
-/// 入力を消費してズームへ変換する（親コンテナのスクロールも抑止される）。
+/// In egui, the wheel alone maps to `smooth_scroll_delta` (for panning); it only becomes
+/// `zoom_delta` for Ctrl+wheel / pinch. Since we want wheel = zoom uniformly on charts, while
+/// hovering over the plot we consume the scroll input and convert it into a zoom
+/// (this also suppresses the parent container's scrolling).
 pub fn apply_wheel_zoom(plot_ui: &mut egui_plot::PlotUi<'_>) {
     if !plot_ui.response().hovered() {
         return;
@@ -42,7 +40,7 @@ pub fn apply_wheel_zoom(plot_ui: &mut egui_plot::PlotUi<'_>) {
         y
     });
     if scroll_y != 0.0 {
-        // egui の Ctrl+ホイールズームと同じ感度（2^(delta/200)）。
+        // Same sensitivity as egui's Ctrl+wheel zoom (2^(delta/200)).
         let factor = 2.0_f32.powf(scroll_y / 200.0);
         plot_ui.zoom_bounds_around_hovered(egui::Vec2::splat(factor));
     }

@@ -1,14 +1,15 @@
-//! Python (scipy) との相関係数クロスチェック用ハーネス。
+//! Cross-check harness for correlation coefficients against Python (scipy).
 //!
-//! 入力データと計算結果を JSON で stdout に出力する。Python 側は同じ入力を
-//! scipy.stats で再計算して突き合わせる。
+//! Outputs the input data and computed results as JSON to stdout. The Python side
+//! recomputes the same input with scipy.stats and compares them.
 //!
-//! 実行: `cargo run -p tunny-core --example verify_correlation`
+//! Usage: `cargo run -p tunny-core --example verify_correlation`
 
 use tunny_core::statistics::correlation::{compute_correlation_matrix, CorrelationMethod};
 
-/// 決定的な擬似乱数 (xorshift64*)。Python 側へは値そのものを JSON で渡すため
-/// 生成器を揃える必要はなく、決定性だけが必要。
+/// A deterministic pseudo-random generator (xorshift64*). Since the actual values are
+/// passed to the Python side as JSON, the generators don't need to match — only
+/// determinism is required.
 struct Rng(u64);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
@@ -24,7 +25,8 @@ fn main() {
     let mut rng = Rng(0x5EED_1234_ABCD_0001);
     let n = 60;
 
-    // 相関のある列・独立な列・タイを含む列・NaN 混入列を用意する
+    // Prepare a correlated column, an independent column, a column with ties, and a
+    // column with NaNs mixed in
     let x: Vec<f64> = (0..n).map(|_| rng.next_f64() * 10.0).collect();
     let y: Vec<f64> = x
         .iter()

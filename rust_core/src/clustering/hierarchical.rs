@@ -1,33 +1,36 @@
-//! 階層クラスタリング（Ward 法・凝集型）。
+//! Hierarchical clustering (Ward's method, agglomerative).
 //!
-//! 最近傍チェーン（nearest-neighbor chain）アルゴリズムと Lance-Williams 更新で
-//! O(n²) の Ward リンケージを計算する。理論的背景は
-//! theory/{en,ja}/clustering/hierarchical.md。
+//! Computes O(n²) Ward linkage using the nearest-neighbor chain algorithm with
+//! Lance-Williams updates. See theory/{en,ja}/clustering/hierarchical.md for the
+//! theoretical background.
 
-/// 1 回の併合。ノード ID は 0..n が葉（行）、n+i が i 番目の併合で生じた内部ノード。
+/// A single merge. Node IDs 0..n are leaves (rows); n+i is the internal node produced by
+/// the i-th merge.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Merge {
     pub a: usize,
     pub b: usize,
-    /// 併合時の Ward 距離（クラスタ内分散増分の平方根スケール）。
+    /// Ward distance at the time of the merge (square-root scale of the within-cluster
+    /// variance increase).
     pub distance: f64,
-    /// 併合後のクラスタサイズ。
+    /// Cluster size after the merge.
     pub size: usize,
 }
 
-/// Ward リンケージの結果。
+/// Result of Ward linkage.
 #[derive(Debug, Clone)]
 pub struct HierarchicalResult {
-    /// n-1 回の併合（距離昇順とは限らないが、チェーン法では単調非減少になる）。
+    /// The n-1 merges (not necessarily in ascending distance order, though the chain
+    /// algorithm makes them monotonically non-decreasing).
     pub merges: Vec<Merge>,
-    /// デンドログラム描画用の左→右の葉順（葉 = `row_indices` のインデックス）。
+    /// Left-to-right leaf order for dendrogram rendering (leaves = indices into `row_indices`).
     pub leaf_order: Vec<usize>,
-    /// 各葉が指す元データの行インデックス（サブサンプル時のため）。
+    /// Row index into the original data that each leaf refers to (for subsampling).
     pub row_indices: Vec<usize>,
 }
 
-/// デンドログラムの 1 内部ノードぶんの描画座標。
-/// x は葉位置（0..n-1）単位、height は Ward 距離。
+/// Drawing coordinates for a single internal node of the dendrogram.
+/// `x` is in leaf-position units (0..n-1); `height` is the Ward distance.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DendrogramNode {
     pub x: f64,
@@ -36,26 +39,28 @@ pub struct DendrogramNode {
     pub child_heights: (f64, f64),
 }
 
-/// 階層クラスタリングにかける最大行数。超える場合は等間隔サブサンプルする
-/// （デンドログラムはこの規模を超えると判読不能になる）。
+/// Maximum number of rows to run hierarchical clustering on. Rows beyond this are
+/// subsampled at even intervals (dendrograms become unreadable beyond this scale).
 pub const MAX_HIERARCHICAL_ROWS: usize = 800;
 
-/// Ward 法の凝集型階層クラスタリングを実行する。
+/// Runs agglomerative hierarchical clustering using Ward's method.
 ///
-/// `standardize` が true なら各列を平均 0・分散 1 に標準化してから距離を取る
-/// （単位の異なる変数を混在させる場合は必須）。NaN/Inf を含む行や特徴数の
-/// 揃わない行は距離が定義できないため冒頭で除外する（他のクラスタリング
-/// 関数と同じ方針）。行数が [`MAX_HIERARCHICAL_ROWS`] を超える場合は
-/// 等間隔サブサンプルする。有効行 2 未満・特徴 0 のときは `None`。
+/// If `standardize` is true, each column is standardized to mean 0, variance 1 before
+/// computing distances (required when mixing variables with different units). Rows
+/// containing NaN/Inf, or rows with a mismatched feature count, have undefined distances
+/// and are excluded up front (the same policy as the other clustering functions). Rows
+/// beyond [`MAX_HIERARCHICAL_ROWS`] are subsampled at even intervals. Returns `None` if
+/// fewer than 2 valid rows remain or there are 0 features.
 pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<HierarchicalResult> {
     if data.len() < 2 || data[0].is_empty() {
         return None;
     }
     let p = data[0].len();
 
-    // ── NaN/Inf 行・不揃い行の除外 ───────────────────────────────
-    // 非有限値が 1 つでも混入すると全ペア距離が NaN 化し、最近傍探索が
-    // 候補を見つけられず添字計算が範囲外 panic に到達する（H4 対策）。
+    // ── Exclude NaN/Inf rows and ragged rows ──────────────────────
+    // If even one non-finite value is present, all pairwise distances become NaN, causing
+    // nearest-neighbor search to find no candidate and index arithmetic to reach an
+    // out-of-bounds panic (mitigation for H4).
     let finite_rows: Vec<usize> = (0..data.len())
         .filter(|&r| data[r].len() == p && data[r].iter().all(|v| v.is_finite()))
         .collect();
@@ -63,7 +68,7 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
         return None;
     }
 
-    // ── サブサンプル（等間隔・決定論的）─────────────────────────
+    // ── Subsampling (even intervals, deterministic) ───────────────
     let row_indices: Vec<usize> = if finite_rows.len() > MAX_HIERARCHICAL_ROWS {
         let step = finite_rows.len() as f64 / MAX_HIERARCHICAL_ROWS as f64;
         (0..MAX_HIERARCHICAL_ROWS)
@@ -74,14 +79,14 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
     };
     let n = row_indices.len();
 
-    // ── 標準化（オプション）──────────────────────────────────────
+    // ── Standardization (optional) ────────────────────────────────
     let mut x: Vec<Vec<f64>> = row_indices.iter().map(|&r| data[r].clone()).collect();
     if standardize {
         super::standardize::standardize_columns(&mut x, 0);
     }
 
-    // ── 距離行列（Ward 初期値 = ユークリッド距離の 2 乗 / 2 ... 慣例的には
-    //    d² をそのまま使い Lance-Williams で更新する）─────────────
+    // ── Distance matrix (Ward's initial value = squared Euclidean distance / 2 ...
+    //    by convention, d² is used directly and updated via Lance-Williams) ───────
     let mut dist = vec![0.0f64; n * n];
     for i in 0..n {
         for j in (i + 1)..n {
@@ -91,9 +96,9 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
         }
     }
 
-    // ── 最近傍チェーン ────────────────────────────────────────────
-    // active[c] = クラスタ c が生存しているか。size[c] = 要素数。
-    // node_id[c] = デンドログラム上のノード ID（葉 or 内部）。
+    // ── Nearest-neighbor chain ─────────────────────────────────────
+    // active[c] = whether cluster c is still alive. size[c] = element count.
+    // node_id[c] = the node's ID in the dendrogram (leaf or internal).
     let mut active = vec![true; n];
     let mut size = vec![1usize; n];
     let mut node_id: Vec<usize> = (0..n).collect();
@@ -101,7 +106,7 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
     let mut chain: Vec<usize> = Vec::with_capacity(n);
     let mut next_node = n;
 
-    // 各内部ノードの子（葉順再構築用）。
+    // Children of each internal node (used to reconstruct the leaf order).
     let mut children: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
 
     let d = |dist: &Vec<f64>, a: usize, b: usize| dist[a * n + b];
@@ -113,7 +118,8 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
         }
         loop {
             let c = *chain.last().unwrap();
-            // c の最近傍（チェーン直前の要素を優先して相互最近傍を検出）。
+            // Nearest neighbor of c (prefers the previous element in the chain, to
+            // detect mutual nearest neighbors).
             let prev = if chain.len() >= 2 {
                 Some(chain[chain.len() - 2])
             } else {
@@ -131,13 +137,14 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
                     best = cand;
                 }
             }
-            // 二重防御: NaN 距離などで最近傍が見つからない場合は panic せず
-            // 安全に打ち切る（冒頭の有限値フィルタにより通常は到達しない）。
+            // Defense in depth: if no nearest neighbor is found (e.g. due to NaN
+            // distances), bail out safely instead of panicking (normally unreachable
+            // thanks to the finite-value filter at the top).
             if best == usize::MAX {
                 return None;
             }
             if Some(best) == prev {
-                // 相互最近傍 → 併合。
+                // Mutual nearest neighbors → merge.
                 let (a, b) = (chain.pop().unwrap(), chain.pop().unwrap());
                 let (sa, sb) = (size[a], size[b]);
                 merges.push(Merge {
@@ -148,8 +155,8 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
                 });
                 children.push((node_id[a], node_id[b]));
 
-                // b のスロットへ併合クラスタを格納し、a を無効化。
-                // Lance-Williams (Ward): d(k, a∪b)² 更新。
+                // Store the merged cluster in b's slot and invalidate a.
+                // Lance-Williams (Ward): update d(k, a∪b)².
                 for k in 0..n {
                     if !active[k] || k == a || k == b {
                         continue;
@@ -172,9 +179,11 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
         }
     }
 
-    // ── 距離昇順へ並べ替え（NN チェーンの時系列順は距離順とは限らない）──
-    // Ward は木単調（親の距離 ≥ 子の距離）なので、昇順安定ソートは
-    // トポロジカル順（子が親より先）を保ち、root は常に最後の併合になる。
+    // ── Sort into ascending distance order (the NN chain's chronological order does
+    //    not necessarily match distance order) ──────────────────────────────────
+    // Ward is tree-monotone (parent distance ≥ child distance), so a stable ascending
+    // sort preserves topological order (children before parents), and the root always
+    // ends up as the last merge.
     let mut order: Vec<usize> = (0..merges.len()).collect();
     order.sort_by(|&i, &j| {
         merges[i]
@@ -201,7 +210,7 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
         .collect();
     let children: Vec<(usize, usize)> = merges.iter().map(|m| (m.a, m.b)).collect();
 
-    // ── 葉順の再構築（左の子を先に辿る深さ優先）──────────────────
+    // ── Reconstruct leaf order (depth-first, visiting the left child first) ───────
     let root = 2 * n - 2;
     let mut leaf_order = Vec::with_capacity(n);
     let mut stack = vec![root];
@@ -210,7 +219,7 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
             leaf_order.push(node);
         } else {
             let (l, r) = children[node - n];
-            // pop 順を左→右にするため右を先に積む。
+            // Push right before left so pop order goes left → right.
             stack.push(r);
             stack.push(l);
         }
@@ -223,16 +232,17 @@ pub fn ward_linkage(data: &[Vec<f64>], standardize: bool) -> Option<Hierarchical
     })
 }
 
-/// デンドログラムをカットして k クラスタのラベル（葉 ID → 0..k-1）を返す。
-/// 距離の大きい順に k-1 本の併合を無視することで k 個の部分木に分割する。
+/// Cuts the dendrogram and returns k-cluster labels (leaf ID → 0..k-1).
+/// Splits into k subtrees by ignoring the k-1 merges with the largest distances.
 pub fn cut_tree(result: &HierarchicalResult, k: usize) -> Vec<usize> {
     let n = result.leaf_order.len();
     let k = k.clamp(1, n);
-    // 最後の k-1 併合を除いた森でラベル付けする（チェーン法の距離は単調なので
-    // merges 末尾 k-1 個が最も距離の大きい併合に一致する）。
-    let cutoff = n - k; // 採用する併合数
+    // Label using the forest with the last k-1 merges removed (since the chain
+    // algorithm's distances are monotone, the last k-1 entries of `merges` correspond
+    // to the merges with the largest distances).
+    let cutoff = n - k; // number of merges to keep
     let mut labels = vec![usize::MAX; n];
-    // Union-Find 簡易版: ノード → 代表葉。
+    // Simplified union-find: node → representative leaf.
     let mut parent: Vec<usize> = (0..(2 * n - 1)).collect();
     fn find(parent: &mut [usize], mut v: usize) -> usize {
         while parent[v] != v {
@@ -251,7 +261,7 @@ pub fn cut_tree(result: &HierarchicalResult, k: usize) -> Vec<usize> {
     let mut next_label = 0usize;
     let mut label_of_root: std::collections::HashMap<usize, usize> =
         std::collections::HashMap::new();
-    // 葉順でラベルを振ると左→右で 0,1,2,... になり描画と対応しやすい。
+    // Assigning labels in leaf order gives 0,1,2,... left → right, matching the rendering.
     for &leaf in &result.leaf_order {
         let root = find(&mut parent, leaf);
         let label = *label_of_root.entry(root).or_insert_with(|| {
@@ -264,8 +274,9 @@ pub fn cut_tree(result: &HierarchicalResult, k: usize) -> Vec<usize> {
     labels
 }
 
-/// デンドログラム描画用のノード座標を計算する。
-/// 葉 i の x 座標は `leaf_order` 内の位置、内部ノードの x は子の x の平均。
+/// Computes node coordinates for dendrogram rendering.
+/// Leaf i's x coordinate is its position within `leaf_order`; an internal node's x is
+/// the average of its children's x.
 pub fn dendrogram_nodes(result: &HierarchicalResult) -> Vec<DendrogramNode> {
     let n = result.leaf_order.len();
     let mut pos = vec![(0.0f64, 0.0f64); 2 * n - 1]; // (x, height)
@@ -292,7 +303,7 @@ pub fn dendrogram_nodes(result: &HierarchicalResult) -> Vec<DendrogramNode> {
 mod tests {
     use super::*;
 
-    /// 明確に分離した 2 クラスタのデータ。
+    /// Data with two clearly separated clusters.
     fn two_blobs() -> Vec<Vec<f64>> {
         let mut data = Vec::new();
         for i in 0..10 {
@@ -317,7 +328,7 @@ mod tests {
         let data = two_blobs();
         let r = ward_linkage(&data, false).unwrap();
         let labels = cut_tree(&r, 2);
-        // 偶数行（x≈0）と奇数行（x≈100）でラベルが分かれる。
+        // Even rows (x≈0) and odd rows (x≈100) get different labels.
         let l0 = labels[0];
         assert!(
             (0..data.len()).all(|i| if i % 2 == 0 {
@@ -331,7 +342,7 @@ mod tests {
 
     #[test]
     fn merge_distances_are_monotone_nondecreasing() {
-        // NN チェーン + Ward は単調（inversion なし）。描画の前提なので確認する。
+        // NN chain + Ward is monotone (no inversions). Verified since rendering relies on this.
         let data = two_blobs();
         let r = ward_linkage(&data, false).unwrap();
         for w in r.merges.windows(2) {
@@ -341,8 +352,10 @@ mod tests {
 
     #[test]
     fn standardize_makes_columns_comparable() {
-        // 第 2 列だけ巨大スケール: 標準化なしでは第 2 列が支配、ありなら両列が効く。
-        // 結線確認のみ（数値品質は問わない）: 標準化して 2 クラスタに割れること。
+        // Only the 2nd column has a huge scale: without standardization it dominates;
+        // with it, both columns contribute.
+        // Wiring check only (numerical quality not assessed): confirms it still splits
+        // into 2 clusters after standardization.
         let mut data = Vec::new();
         for i in 0..8 {
             data.push(vec![0.0, i as f64 * 1e6]);
@@ -382,7 +395,8 @@ mod tests {
 
     #[test]
     fn nan_rows_are_excluded_without_panic() {
-        // NaN 行が混入しても panic せず、有限行のみでクラスタリングされる（H4 回帰）。
+        // Even with NaN rows mixed in, clustering does not panic and only uses finite
+        // rows (H4 regression test).
         let mut data = two_blobs();
         data.insert(3, vec![f64::NAN, 0.0]);
         data.push(vec![0.5, f64::INFINITY]);
@@ -391,7 +405,7 @@ mod tests {
             let r = ward_linkage(&data, standardize).expect("valid rows remain");
             assert_eq!(r.row_indices.len(), n_valid);
             assert_eq!(r.merges.len(), n_valid - 1);
-            // row_indices は NaN 行 (3, 末尾) を含まない。
+            // row_indices does not include the NaN rows (3, last).
             assert!(!r.row_indices.contains(&3));
             assert!(!r.row_indices.contains(&(data.len() - 1)));
             assert!(r.merges.iter().all(|m| m.distance.is_finite()));
@@ -400,7 +414,7 @@ mod tests {
 
     #[test]
     fn all_nan_rows_return_none() {
-        // 有効行が 2 未満なら panic せず None。
+        // If fewer than 2 valid rows remain, returns None without panicking.
         let data = vec![vec![f64::NAN, 1.0], vec![2.0, f64::NAN], vec![1.0, 1.0]];
         assert!(ward_linkage(&data, false).is_none());
         assert!(ward_linkage(&data, true).is_none());
@@ -408,9 +422,10 @@ mod tests {
 
     #[test]
     fn ragged_rows_are_excluded_without_panic() {
-        // 特徴数の揃わない行も距離が定義できないため除外される。
+        // Rows with a mismatched feature count are also excluded, since their distance
+        // is undefined.
         let mut data = two_blobs();
-        data.push(vec![1.0]); // 1 特徴しかない行
+        data.push(vec![1.0]); // a row with only 1 feature
         let r = ward_linkage(&data, false).expect("valid rows remain");
         assert_eq!(r.row_indices.len(), data.len() - 1);
     }
