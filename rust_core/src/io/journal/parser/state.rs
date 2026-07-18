@@ -359,31 +359,21 @@ impl ParserState {
             return;
         };
 
-        for (key, value) in attrs {
-            if let Some(number) = value.as_f64() {
-                trial.user_attrs_numeric.insert(key.clone(), number);
-            } else if let Some(text) = value.as_str() {
-                trial
-                    .user_attrs_string
-                    .insert(key.clone(), text.to_string());
-            }
-        }
+        crate::io::journal::classify_user_attrs(
+            attrs,
+            &mut trial.user_attrs_numeric,
+            &mut trial.user_attrs_string,
+        );
     }
 
     fn process_set_trial_system_attr(&mut self, json: &Value) {
         let trial_id = get_u64(json, "trial_id").unwrap_or(0) as u32;
-        let Some(attrs) = json.get("system_attr").and_then(|value| value.as_object()) else {
-            return;
-        };
         let Some(trial) = self.trial_builders.get_mut(&trial_id) else {
             return;
         };
 
-        if let Some(constraints) = attrs.get("constraints").and_then(|value| value.as_array()) {
-            trial.constraint_values = constraints
-                .iter()
-                .filter_map(|value| value.as_f64())
-                .collect();
+        if let Some(constraints) = crate::io::journal::constraints_from_system_attr(json) {
+            trial.constraint_values = constraints;
             trial.has_constraints = true;
         }
     }

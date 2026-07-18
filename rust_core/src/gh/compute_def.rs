@@ -33,6 +33,13 @@ pub struct ComputeDefinition {
     pub input_params: Vec<String>,
     /// Output parameter names (`RH_OUT:objective_name`, in the same order as `GhProblem.objectives`)
     pub output_params: Vec<String>,
+    /// Constraint output parameter names (`RH_OUT:constraint:name`, in the same
+    /// order as `GhProblem.constraints`; the prefix keeps them from colliding
+    /// with objective outputs of the same name)
+    pub constraint_params: Vec<String>,
+    /// Per-trial attribute output parameter names (`RH_OUT:attr:name`, in the
+    /// same order as `GhProblem.attributes`)
+    pub attr_params: Vec<String>,
 }
 
 /// Generates a Compute-ready definition from the original .ghx and the extracted problem definition.
@@ -48,6 +55,8 @@ pub fn build_compute_definition(
     let mut next_index = anchors.object_count;
     let mut input_params = Vec::with_capacity(problem.variables.len());
     let mut output_params = Vec::with_capacity(problem.objectives.len());
+    let mut constraint_params = Vec::with_capacity(problem.constraints.len());
+    let mut attr_params = Vec::with_capacity(problem.attributes.len());
 
     for var in &problem.variables {
         let nick = format!("RH_IN:{}", var.name);
@@ -62,20 +71,48 @@ pub fn build_compute_definition(
         input_params.push(nick);
     }
 
+    // All relay outputs (objectives, constraints, attributes) share the same
+    // injection sequence: a relay Data parameter wired to the source, wrapped
+    // in an RH_OUT group. An objective's source is often a component's output
+    // parameter, which is not a document object and so cannot be placed
+    // directly into a group; the relay makes this uniform (it works the same
+    // way when the source is already a floating parameter).
+    //
+    // Kinds: 0 = objective, 1 = constraint, 2 = attribute. The prefixes keep
+    // the namespaces apart for ordinary names; `uniquify_nicks` below makes
+    // uniqueness structural even for adversarial names (e.g. an objective
+    // literally nicknamed "constraint:x" alongside a constraint "x"), since a
+    // duplicated ParamName would make the response mapping silently ambiguous.
+    let mut relays: Vec<(String, &str, &str, usize)> = Vec::new();
     for obj in &problem.objectives {
-        // An objective's source is often a component's output parameter, which is not a
-        // document object and so cannot be placed directly into a group. We always create
-        // a new relay Number parameter to receive from the source, and put the relay into
-        // the group instead (this works the same way even when the source is already a
-        // floating parameter, so no branching is needed).
-        let nick = format!("RH_OUT:{}", obj.name);
-        let relay_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&relay_param_xml(
-            next_index,
-            &relay_guid,
+        relays.push((
+            format!("RH_OUT:{}", obj.name),
             &obj.name,
             &obj.source_guid,
+            0,
         ));
+    }
+    for con in &problem.constraints {
+        relays.push((
+            format!("RH_OUT:constraint:{}", con.name),
+            &con.name,
+            &con.source_guid,
+            1,
+        ));
+    }
+    for attr in &problem.attributes {
+        relays.push((
+            format!("RH_OUT:attr:{}", attr.name),
+            &attr.name,
+            &attr.source_guid,
+            2,
+        ));
+    }
+    uniquify_nicks(&mut relays);
+
+    for (nick, name, source_guid, kind) in relays {
+        let relay_guid = synthetic_guid(xml, &mut guid_counter);
+        injected.push_str(&relay_param_xml(next_index, &relay_guid, name, source_guid));
         next_index += 1;
         let group_guid = synthetic_guid(xml, &mut guid_counter);
         injected.push_str(&group_object_xml(
@@ -85,7 +122,11 @@ pub fn build_compute_definition(
             &relay_guid,
         ));
         next_index += 1;
-        output_params.push(nick);
+        match kind {
+            0 => output_params.push(nick),
+            1 => constraint_params.push(nick),
+            _ => attr_params.push(nick),
+        }
     }
 
     // ── 3 splices, in ascending position order: the ObjectCount value, the chunks
@@ -104,6 +145,8 @@ pub fn build_compute_definition(
         ghx: out,
         input_params,
         output_params,
+        constraint_params,
+        attr_params,
     })
 }
 
@@ -201,6 +244,26 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
         chunks_count_text: (count_attr, count_attr_end),
         insertion_pos,
     })
+}
+
+/// Makes every relay nick unique across the union of the three output kinds by
+/// appending `_2`, `_3`, … to later duplicates (matching `dedupe_names` on the
+/// problem side). The final nick is what gets pushed into
+/// `output_params`/`constraint_params`/`attr_params`, so response mapping by
+/// ParamName stays unambiguous.
+fn uniquify_nicks(relays: &mut [(String, &str, &str, usize)]) {
+    for i in 1..relays.len() {
+        let mut suffix = 2;
+        while relays[..i].iter().any(|(n, ..)| *n == relays[i].0) {
+            let base = &relays[i].0;
+            let trimmed = base
+                .rfind('_')
+                .filter(|&pos| base[pos + 1..].chars().all(|c| c.is_ascii_digit()))
+                .map_or(base.as_str(), |pos| &base[..pos]);
+            relays[i].0 = format!("{trimmed}_{suffix}");
+            suffix += 1;
+        }
+    }
 }
 
 /// Generates a synthetic GUID that does not collide with the existing XML (deterministic).
@@ -334,21 +397,24 @@ mod tests {
 
         assert_eq!(def.input_params, vec!["RH_IN:span", "RH_IN:count"]);
         assert_eq!(def.output_params, vec!["RH_OUT:weight", "RH_OUT:disp"]);
+        assert_eq!(def.constraint_params, vec!["RH_OUT:constraint:penalty"]);
+        assert_eq!(def.attr_params, vec!["RH_OUT:attr:area"]);
 
         // Still well-formed after injection, and the object count is updated
-        // (original 5 + 2 RH_IN groups + 2×2 relay+group per objective = 11).
+        // (original 8 + 2 RH_IN groups + 2×2 relay+group per objective
+        // + 1×2 for the constraint + 1×2 for the attribute = 18).
         let root = crate::gh::ghx::parse_archive(&def.ghx).unwrap();
         let objects = root.find_chunk_recursive("DefinitionObjects").unwrap();
-        assert_eq!(objects.item_i64("ObjectCount"), Some(11));
-        assert_eq!(objects.chunks_named("Object").count(), 11);
-        assert!(def.ghx.contains(r#"<chunks count="11">"#));
+        assert_eq!(objects.item_i64("ObjectCount"), Some(18));
+        assert_eq!(objects.chunks_named("Object").count(), 18);
+        assert!(def.ghx.contains(r#"<chunks count="18">"#));
 
         // The RH_IN group has the slider's InstanceGuid as its member
         let groups: Vec<_> = objects
             .chunks_named("Object")
             .filter(|o| o.item_text("Name") == Some("Group"))
             .collect();
-        assert_eq!(groups.len(), 4);
+        assert_eq!(groups.len(), 6);
         let rh_in_span = groups
             .iter()
             .map(|g| g.find_chunk("Container").unwrap())
@@ -380,9 +446,77 @@ mod tests {
             .expect("RH_OUT:weight group");
         assert_eq!(rh_out_weight.item_text("ID"), Some(relay_guid));
 
+        // The constraint relay receives from the constraint's source parameter,
+        // and its group carries the prefixed RH_OUT name
+        let con_relays: Vec<_> = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("Name") == Some("Data"))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .filter(|c| c.item_text("NickName") == Some("penalty"))
+            .collect();
+        assert_eq!(con_relays.len(), 1);
+        assert_eq!(
+            con_relays[0].item_text("Source"),
+            Some("0aaaaaaa-0000-0000-0000-00000000pena")
+        );
+        let con_relay_guid = con_relays[0].item_text("InstanceGuid").unwrap();
+        let rh_out_con = groups
+            .iter()
+            .map(|g| g.find_chunk("Container").unwrap())
+            .find(|c| c.item_text("NickName") == Some("RH_OUT:constraint:penalty"))
+            .expect("RH_OUT:constraint:penalty group");
+        assert_eq!(rh_out_con.item_text("ID"), Some(con_relay_guid));
+
+        // The attribute relay receives from the attribute's source parameter,
+        // and its group carries the prefixed RH_OUT name
+        let attr_relays: Vec<_> = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("Name") == Some("Data"))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .filter(|c| c.item_text("NickName") == Some("area"))
+            .collect();
+        assert_eq!(attr_relays.len(), 1);
+        assert_eq!(
+            attr_relays[0].item_text("Source"),
+            Some("0aaaaaaa-0000-0000-0000-00000000area")
+        );
+        let attr_relay_guid = attr_relays[0].item_text("InstanceGuid").unwrap();
+        let rh_out_attr = groups
+            .iter()
+            .map(|g| g.find_chunk("Container").unwrap())
+            .find(|c| c.item_text("NickName") == Some("RH_OUT:attr:area"))
+            .expect("RH_OUT:attr:area group");
+        assert_eq!(rh_out_attr.item_text("ID"), Some(attr_relay_guid));
+
         // The original definition body (Tunny component, etc.) is preserved
         assert!(def.ghx.contains("Tunny"));
         assert!(def.ghx.contains("Beam Analyzer"));
+    }
+
+    /// An objective whose nickname embeds the constraint prefix must not
+    /// produce the same RH_OUT ParamName as a real constraint — the response
+    /// mapping would silently read the wrong value for one of them.
+    #[test]
+    fn colliding_output_nicks_are_uniquified() {
+        let xml = sample_ghx();
+        let mut problem = extract_problem(&xml).unwrap();
+        problem.objectives[0].name = "constraint:penalty".to_string();
+        // The fixture's constraint is named "penalty" → prefixed nick collides
+        // with the objective's.
+        let def = build_compute_definition(&xml, &problem).unwrap();
+        assert_eq!(def.output_params[0], "RH_OUT:constraint:penalty");
+        assert_eq!(def.constraint_params, vec!["RH_OUT:constraint:penalty_2"]);
+        // All output nicks are pairwise distinct
+        let mut all: Vec<&String> = def
+            .output_params
+            .iter()
+            .chain(&def.constraint_params)
+            .chain(&def.attr_params)
+            .collect();
+        all.sort();
+        let len_before = all.len();
+        all.dedup();
+        assert_eq!(all.len(), len_before);
     }
 
     #[test]

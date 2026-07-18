@@ -277,6 +277,19 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
 - [x] Samplers: launch by repurposing the existing Rust implementations (Random /
       NSGA-II) for real objective-function evaluation (`gh::runner`). Adding CMA-ES /
       TPE, etc. will be decided based on demand
+- [x] Constraints: sources wired to the Constraint input of the attribute component
+      (Construct Fish Attribute) are extracted from the ghx, evaluated through
+      injected RH_OUT relays, and recorded per trial as the Optuna-compatible
+      `constraints` system attribute (feasible when every value <= 0, soft
+      constraints). Feasibility flows through live update into the existing
+      constraint-aware analysis, and steers NSGA-II via a constrained-domination
+      penalty (feasible solutions always dominate; infeasible ones rank by total
+      violation)
+- [x] Attributes: sources wired to the attribute component's Attribute input are
+      recorded per trial as Optuna user attributes (numeric values become numeric
+      user-attr columns, anything else text) and flow through live update into the
+      user-attribute-aware widgets. The Geometry input is not captured (no journal
+      representation; deferred to a future artifact store)
 - [ ] Later stage: the problem-definition manifest (.gh support and format fallback,
       on the Tunny side), and end-to-end verification against a real Rhino.Compute
       instance (confirming type GUIDs and other environment specifics)

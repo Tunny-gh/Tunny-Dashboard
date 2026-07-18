@@ -41,6 +41,34 @@ pub(crate) fn line_u32_field(line: &str, key: &str) -> Option<u32> {
     None
 }
 
+/// Splits op8 (`SET_TRIAL_USER_ATTR`) values into numeric / string attribute
+/// maps: JSON numbers become numeric attrs, JSON strings become string attrs,
+/// anything else is dropped. Shared by the full parser and the live-diff parser
+/// so both classify a given journal record into the same column type.
+pub(crate) fn classify_user_attrs(
+    attrs: &serde_json::Map<String, serde_json::Value>,
+    numeric: &mut std::collections::HashMap<String, f64>,
+    string: &mut std::collections::HashMap<String, String>,
+) {
+    for (key, value) in attrs {
+        if let Some(number) = value.as_f64() {
+            numeric.insert(key.clone(), number);
+        } else if let Some(text) = value.as_str() {
+            string.insert(key.clone(), text.to_string());
+        }
+    }
+}
+
+/// Extracts the `"constraints"` array from an op9 (`SET_TRIAL_SYSTEM_ATTR`)
+/// record's `system_attr` object (non-numeric entries dropped). Shared by the
+/// full parser and the live-diff parser.
+pub(crate) fn constraints_from_system_attr(json: &serde_json::Value) -> Option<Vec<f64>> {
+    json.get("system_attr")?
+        .get("constraints")?
+        .as_array()
+        .map(|values| values.iter().filter_map(|v| v.as_f64()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::line_u32_field;

@@ -42,13 +42,39 @@ impl Default for ComputeConfig {
     }
 }
 
+/// A per-trial attribute value (recorded as an Optuna trial user attribute).
+/// Numeric values become numeric user-attribute columns in the dashboard;
+/// anything else is kept as text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GhAttrValue {
+    Number(f64),
+    Text(String),
+}
+
+/// Result of evaluating one trial.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GhEvaluation {
+    /// Objective values (in the same order as `GhProblem.objectives`).
+    pub objectives: Vec<f64>,
+    /// Constraint values (in the same order as `GhProblem.constraints`; empty
+    /// when the problem has no constraints). Feasible when every value <= 0.
+    pub constraints: Vec<f64>,
+    /// Per-trial attribute values (in the same order as `GhProblem.attributes`).
+    /// `None` when the attribute output was empty for this trial — attributes
+    /// are auxiliary metadata, so an empty output is tolerated rather than
+    /// failing the trial.
+    pub attributes: Vec<Option<GhAttrValue>>,
+}
+
 /// Evaluator for the real objective function. The implementation can be
 /// swapped between Rhino.Compute (production) and a mock (for tests and for
 /// verifying the runner in isolation).
 pub trait GhEvaluator: Send + Sync {
     /// Takes variable values (in the same order as `GhProblem.variables`) and
-    /// returns objective values (in the same order as `GhProblem.objectives`).
-    fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String>;
+    /// returns the evaluation (objectives, constraints, and per-trial
+    /// attributes — each in the same order as the corresponding `GhProblem`
+    /// list, with matching lengths).
+    fn evaluate(&self, values: &[f64]) -> Result<GhEvaluation, String>;
 }
 
 /// `GhEvaluator` implementation that evaluates via Rhino.Compute.
@@ -62,6 +88,8 @@ pub struct ComputeEvaluator {
     pointer: Option<String>,
     input_params: Vec<String>,
     output_params: Vec<String>,
+    constraint_params: Vec<String>,
+    attr_params: Vec<String>,
     agent: ureq::Agent,
     semaphore: Semaphore,
 }
@@ -79,6 +107,8 @@ impl ComputeEvaluator {
             pointer: None,
             input_params: def.input_params.clone(),
             output_params: def.output_params.clone(),
+            constraint_params: def.constraint_params.clone(),
+            attr_params: def.attr_params.clone(),
             agent,
             semaphore: Semaphore::new(cfg.max_parallel.max(1)),
         }
@@ -122,7 +152,7 @@ impl ComputeEvaluator {
 }
 
 impl GhEvaluator for ComputeEvaluator {
-    fn evaluate(&self, values: &[f64]) -> Result<Vec<f64>, String> {
+    fn evaluate(&self, values: &[f64]) -> Result<GhEvaluation, String> {
         if values.len() != self.input_params.len() {
             return Err(format!(
                 "Variable count mismatch (expected {}, got {})",
@@ -161,38 +191,22 @@ impl GhEvaluator for ComputeEvaluator {
             .map_err(|e| format!("Failed to read the Rhino.Compute response: {e}"))?;
         let parsed: Value = serde_json::from_str(&text)
             .map_err(|e| format!("Rhino.Compute response is not JSON: {e}"))?;
-        extract_outputs(&parsed, &self.output_params)
+        Ok(GhEvaluation {
+            objectives: extract_outputs(&parsed, &self.output_params)?,
+            constraints: extract_outputs(&parsed, &self.constraint_params)?,
+            attributes: extract_attr_outputs(&parsed, &self.attr_params)?,
+        })
     }
 }
 
-/// Extracts RH_OUT values from a Compute response (GrasshopperEndpoint schema).
-///
-/// Response format:
-/// `{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "...", "data": <number or JSON string>}]}}]}`
+/// Extracts RH_OUT values from a Compute response. Objective/constraint outputs
+/// must be present, non-empty, and finite numbers.
 fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64>, String> {
-    let values = response
-        .get("values")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Rhino.Compute response has no values field".to_string())?;
-
     let mut result = Vec::with_capacity(output_params.len());
     for name in output_params {
-        let entry = values
-            .iter()
-            .find(|e| e.get("ParamName").and_then(Value::as_str) == Some(name.as_str()))
-            .ok_or_else(|| {
-                format!(
-                    "The response does not contain {name}; check the definition's output wiring"
-                )
-            })?;
-        let first_item = entry
-            .get("InnerTree")
-            .and_then(Value::as_object)
-            .and_then(|tree| tree.values().next())
-            .and_then(Value::as_array)
-            .and_then(|items| items.first())
+        let item = first_item(response, name)?
             .ok_or_else(|| format!("{name} is empty (the solve may have failed)"))?;
-        let data = first_item
+        let data = item
             .get("data")
             .ok_or_else(|| format!("{name} has no data field in the response"))?;
         let value = parse_data_number(data)
@@ -203,6 +217,76 @@ fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64
         result.push(value);
     }
     Ok(result)
+}
+
+/// Extracts per-trial attribute values. Unlike objectives/constraints,
+/// attributes are auxiliary metadata: a missing or empty output yields `None`
+/// for that trial instead of failing the evaluation, and values are not
+/// required to be numeric.
+fn extract_attr_outputs(
+    response: &Value,
+    attr_params: &[String],
+) -> Result<Vec<Option<GhAttrValue>>, String> {
+    let mut result = Vec::with_capacity(attr_params.len());
+    for name in attr_params {
+        result.push(first_item(response, name)?.and_then(parse_data_attr));
+    }
+    Ok(result)
+}
+
+/// Finds the first item of the named output in a Compute response
+/// (GrasshopperEndpoint schema):
+/// `{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "...", "data": <number or JSON string>}]}}]}`
+///
+/// Returns `Err` only when the response itself is malformed (no `values`
+/// field); a missing output name or an empty tree returns `Ok(None)` so the
+/// caller decides whether that is fatal.
+fn first_item<'a>(response: &'a Value, name: &str) -> Result<Option<&'a Value>, String> {
+    let values = response
+        .get("values")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Rhino.Compute response has no values field".to_string())?;
+    Ok(values
+        .iter()
+        .find(|e| e.get("ParamName").and_then(Value::as_str) == Some(name))
+        .and_then(|entry| entry.get("InnerTree"))
+        .and_then(Value::as_object)
+        .and_then(|tree| tree.values().next())
+        .and_then(Value::as_array)
+        .and_then(|items| items.first()))
+}
+
+/// Interprets a Resthopper item as an attribute value, using the item's declared
+/// `type` to keep an attribute's column type stable across trials: a
+/// `System.String` output stays Text even when a particular value happens to
+/// look numeric (`"007"` keeps its leading zero); numeric/boolean types become
+/// Number. For unknown types, a finite number wins, otherwise Text. A
+/// double-encoded JSON string is unwrapped once so `"\"free\""` displays as
+/// `free`. Returns `None` when the item has no data.
+fn parse_data_attr(item: &Value) -> Option<GhAttrValue> {
+    let data = item.get("data")?;
+    let type_name = item.get("type").and_then(Value::as_str).unwrap_or("");
+    if type_name.contains("String") {
+        return Some(GhAttrValue::Text(data_as_text(data)));
+    }
+    if let Some(v) = parse_data_number(data) {
+        if v.is_finite() {
+            return Some(GhAttrValue::Number(v));
+        }
+    }
+    Some(GhAttrValue::Text(data_as_text(data)))
+}
+
+/// Renders a Resthopper `data` field as display text (a double-encoded JSON
+/// string is unwrapped once).
+fn data_as_text(data: &Value) -> String {
+    match data {
+        Value::String(s) => match serde_json::from_str::<Value>(s.trim()) {
+            Ok(Value::String(inner)) => inner,
+            _ => s.clone(),
+        },
+        other => other.to_string(),
+    }
 }
 
 /// Interprets a Resthopper `data` field as a number.
@@ -274,6 +358,8 @@ mod tests {
             ghx: "<Archive/>".to_string(),
             input_params: vec!["RH_IN:x".to_string()],
             output_params: vec!["RH_OUT:v".to_string()],
+            constraint_params: vec![],
+            attr_params: vec![],
         };
         let cfg = ComputeConfig::default();
         let plain = ComputeEvaluator::new(&cfg, &def);
@@ -313,6 +399,59 @@ mod tests {
     }
 
     #[test]
+    fn parse_data_attr_uses_declared_type() {
+        // Numeric type -> Number (data may arrive as a string)
+        assert_eq!(
+            parse_data_attr(&json!({"type": "System.Double", "data": "2.5"})),
+            Some(GhAttrValue::Number(2.5))
+        );
+        // String type stays Text even for numeric-looking values ("007" keeps
+        // its formatting and the column type stays stable across trials)
+        assert_eq!(
+            parse_data_attr(&json!({"type": "System.String", "data": "007"})),
+            Some(GhAttrValue::Text("007".to_string()))
+        );
+        // Double-encoded JSON string unwraps once
+        assert_eq!(
+            parse_data_attr(&json!({"type": "System.String", "data": "\"steel\""})),
+            Some(GhAttrValue::Text("steel".to_string()))
+        );
+        // Unknown type: number if parseable, otherwise text
+        assert_eq!(
+            parse_data_attr(&json!({"type": "Custom", "data": 1.5})),
+            Some(GhAttrValue::Number(1.5))
+        );
+        assert_eq!(
+            parse_data_attr(&json!({"type": "Custom", "data": "plain text"})),
+            Some(GhAttrValue::Text("plain text".to_string()))
+        );
+        // No data field -> None
+        assert_eq!(parse_data_attr(&json!({"type": "System.String"})), None);
+    }
+
+    #[test]
+    fn extract_attr_outputs_tolerates_missing_and_empty() {
+        let response: Value = serde_json::from_str(
+            r#"{"values": [
+                {"ParamName": "RH_OUT:attr:full", "InnerTree": {"{0}": [{"type": "System.Double", "data": 3.0}]}},
+                {"ParamName": "RH_OUT:attr:empty", "InnerTree": {"{0}": []}}
+            ]}"#,
+        )
+        .unwrap();
+        let params = vec![
+            "RH_OUT:attr:full".to_string(),
+            "RH_OUT:attr:empty".to_string(),
+            "RH_OUT:attr:absent".to_string(),
+        ];
+        assert_eq!(
+            extract_attr_outputs(&response, &params).unwrap(),
+            vec![Some(GhAttrValue::Number(3.0)), None, None]
+        );
+        // A malformed response (no values field) is still an error
+        assert!(extract_attr_outputs(&json!({}), &params).is_err());
+    }
+
+    #[test]
     fn parses_various_data_encodings() {
         assert_eq!(parse_data_number(&json!(1.5)), Some(1.5));
         assert_eq!(parse_data_number(&json!("2.5")), Some(2.5));
@@ -346,7 +485,7 @@ mod tests {
             reader.read_exact(&mut body).unwrap();
             let body = String::from_utf8(body).unwrap();
 
-            let reply = r#"{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "System.Double", "data": "42.5"}]}}]}"#;
+            let reply = r#"{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "System.Double", "data": "42.5"}]}}, {"ParamName": "RH_OUT:constraint:penalty", "InnerTree": {"{0}": [{"type": "System.Double", "data": "-0.25"}]}}, {"ParamName": "RH_OUT:attr:note", "InnerTree": {"{0}": [{"type": "System.String", "data": "\"ok\""}]}}]}"#;
             let mut stream = reader.into_inner();
             write!(
                 stream,
@@ -362,6 +501,8 @@ mod tests {
             ghx: "<Archive/>".to_string(),
             input_params: vec!["RH_IN:span".to_string()],
             output_params: vec!["RH_OUT:weight".to_string()],
+            constraint_params: vec!["RH_OUT:constraint:penalty".to_string()],
+            attr_params: vec!["RH_OUT:attr:note".to_string()],
         };
         let cfg = ComputeConfig {
             server_url: format!("http://127.0.0.1:{port}"),
@@ -370,7 +511,12 @@ mod tests {
         };
         let evaluator = ComputeEvaluator::new(&cfg, &def);
         let result = evaluator.evaluate(&[5.5]).unwrap();
-        assert_eq!(result, vec![42.5]);
+        assert_eq!(result.objectives, vec![42.5]);
+        assert_eq!(result.constraints, vec![-0.25]);
+        assert_eq!(
+            result.attributes,
+            vec![Some(GhAttrValue::Text("ok".to_string()))]
+        );
 
         // Verify the contents of the request the server received
         let request_body = server.join().unwrap();

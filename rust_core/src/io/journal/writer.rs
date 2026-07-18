@@ -195,6 +195,52 @@ impl JournalWriter {
         self.write_line(&record)
     }
 
+    /// Writes op8 (SET_TRIAL_USER_ATTR) with a single user attribute. The value is
+    /// any JSON value; the existing parsers read numbers into numeric attribute
+    /// columns and strings into string attribute columns.
+    pub fn set_trial_user_attr(
+        &mut self,
+        trial_id: u32,
+        key: &str,
+        value: &Value,
+    ) -> Result<(), String> {
+        let record = ordered_object(&[
+            ("op_code", j(8)),
+            ("worker_id", j(&self.worker_id)),
+            ("trial_id", j(trial_id)),
+            ("user_attr", ordered_object(&[(key, j(value))])),
+        ]);
+        self.write_line(&record)
+    }
+
+    /// Writes op9 (SET_TRIAL_SYSTEM_ATTR) with the trial's constraint values under
+    /// the `"constraints"` key — the same layout Optuna's samplers write, which the
+    /// existing parsers read for feasibility (feasible when every value <= 0).
+    pub fn set_trial_constraints(
+        &mut self,
+        trial_id: u32,
+        constraints: &[f64],
+    ) -> Result<(), String> {
+        // serde_json serializes non-finite f64 as null, which the parsers then
+        // drop — silently shifting later constraints into earlier columns.
+        // Reject instead of corrupting the journal.
+        if constraints.iter().any(|c| !c.is_finite()) {
+            return Err(format!(
+                "constraint values must be finite (trial {trial_id}: {constraints:?})"
+            ));
+        }
+        let record = ordered_object(&[
+            ("op_code", j(9)),
+            ("worker_id", j(&self.worker_id)),
+            ("trial_id", j(trial_id)),
+            (
+                "system_attr",
+                ordered_object(&[("constraints", j(constraints))]),
+            ),
+        ]);
+        self.write_line(&record)
+    }
+
     /// Writes op6. Writes values as an array when state is Complete, otherwise null.
     /// datetime_complete is the current time.
     pub fn finish_trial(
@@ -446,6 +492,94 @@ mod tests {
         assert_eq!(extras.trials[2].state, TrialState::Complete);
         assert!(extras.trials[2].datetime_start.is_some());
         assert!(extras.trials[2].datetime_complete.is_some());
+    }
+
+    /// Constraint round-trip: op9 written by the writer is read back by the
+    /// existing parser as constraint columns and feasibility.
+    #[test]
+    fn constraints_roundtrip_via_existing_parser() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("study.journal");
+        let mut writer = JournalWriter::open(&path).unwrap();
+
+        let study_id = writer
+            .create_study("con-study", &[OptimizationDirection::Minimize], &[])
+            .unwrap();
+
+        // trial0: feasible (all <= 0), trial1: infeasible
+        let trial0 = writer.create_trial(study_id).unwrap();
+        writer.set_trial_constraints(trial0, &[-0.5, 0.0]).unwrap();
+        writer
+            .finish_trial(trial0, TrialState::Complete, &[1.0])
+            .unwrap();
+        let trial1 = writer.create_trial(study_id).unwrap();
+        writer.set_trial_constraints(trial1, &[0.25, -1.0]).unwrap();
+        writer
+            .finish_trial(trial1, TrialState::Complete, &[2.0])
+            .unwrap();
+
+        let data = std::fs::read(&path).unwrap();
+        // The lightweight study-list scan does not track constraints; the full
+        // parse does.
+        let (meta, df, _) = parse_single_study(&data, 0).unwrap();
+        assert!(meta.has_constraints);
+        assert_eq!(df.get_numeric_column("c1"), Some([-0.5, 0.25].as_slice()));
+        assert_eq!(df.get_numeric_column("c2"), Some([0.0, -1.0].as_slice()));
+        assert_eq!(
+            df.get_numeric_column("is_feasible"),
+            Some([1.0, 0.0].as_slice())
+        );
+    }
+
+    /// Non-finite constraint values are rejected instead of being serialized as
+    /// null (which the parsers would silently drop, shifting columns).
+    #[test]
+    fn non_finite_constraints_are_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("study.journal");
+        let mut writer = JournalWriter::open(&path).unwrap();
+        let study_id = writer
+            .create_study("s", &[OptimizationDirection::Minimize], &[])
+            .unwrap();
+        let trial = writer.create_trial(study_id).unwrap();
+        assert!(writer
+            .set_trial_constraints(trial, &[f64::NAN, 5.0])
+            .is_err());
+        assert!(writer
+            .set_trial_constraints(trial, &[f64::INFINITY])
+            .is_err());
+        assert!(writer.set_trial_constraints(trial, &[-0.5]).is_ok());
+    }
+
+    /// User-attribute round-trip: op8 written by the writer is read back by the
+    /// existing parser into numeric / string attribute columns.
+    #[test]
+    fn user_attrs_roundtrip_via_existing_parser() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("study.journal");
+        let mut writer = JournalWriter::open(&path).unwrap();
+
+        let study_id = writer
+            .create_study("attr-study", &[OptimizationDirection::Minimize], &[])
+            .unwrap();
+        let trial0 = writer.create_trial(study_id).unwrap();
+        writer
+            .set_trial_user_attr(trial0, "area", &serde_json::json!(12.5))
+            .unwrap();
+        writer
+            .set_trial_user_attr(trial0, "material", &serde_json::json!("steel"))
+            .unwrap();
+        writer
+            .finish_trial(trial0, TrialState::Complete, &[1.0])
+            .unwrap();
+
+        let data = std::fs::read(&path).unwrap();
+        let (_, df, _) = parse_single_study(&data, 0).unwrap();
+        assert_eq!(df.get_numeric_column("area"), Some([12.5].as_slice()));
+        assert_eq!(
+            df.get_string_column("material").map(<[String]>::to_vec),
+            Some(vec!["steel".to_string()])
+        );
     }
 
     /// Append numbering: after closing once and reopening, study_id / trial_id must

@@ -38,12 +38,45 @@ pub struct GhObjective {
     pub name: String,
 }
 
+/// An optimization constraint (a parameter connected to the Constraint input of
+/// the attribute component wired to Tunny's Attributes input).
+///
+/// Tunny's convention: a trial is feasible when every constraint value is <= 0.
+/// Constraints are "soft" — infeasible trials are still evaluated and recorded;
+/// feasibility only steers the sampler and the analysis.
+#[derive(Debug, Clone)]
+pub struct GhConstraint {
+    /// The source parameter's InstanceGuid (used for RH_OUT relay injection)
+    pub source_guid: String,
+    /// Constraint name (the source parameter's NickName; a sequence number is appended on duplicates)
+    pub name: String,
+}
+
+/// A per-trial attribute (a parameter connected to the Attribute input of the
+/// attribute component wired to Tunny's Attributes input).
+///
+/// Recorded to the journal as an Optuna trial user attribute under this name,
+/// so it shows up in the dashboard's user-attribute columns. The Geometry
+/// input is not captured (geometry has no journal representation; it belongs
+/// to a future artifact store).
+#[derive(Debug, Clone)]
+pub struct GhAttribute {
+    /// The source parameter's InstanceGuid (used for RH_OUT relay injection)
+    pub source_guid: String,
+    /// Attribute name (the source parameter's NickName; a sequence number is appended on duplicates)
+    pub name: String,
+}
+
 /// Intermediate representation of an optimization problem extracted from a .ghx file.
 /// Will be merged into the same type once a future .gh + manifest path is added (ROADMAP item 15).
 #[derive(Debug, Clone)]
 pub struct GhProblem {
     pub variables: Vec<GhVariable>,
     pub objectives: Vec<GhObjective>,
+    /// Constraints wired via the attribute component (empty when none are set up)
+    pub constraints: Vec<GhConstraint>,
+    /// Per-trial attributes wired via the attribute component (empty when none are set up)
+    pub attributes: Vec<GhAttribute>,
     /// Display name of the detected Tunny component
     pub tunny_component: String,
     /// Notes on connections etc. ignored during extraction (shown in the UI)
@@ -161,15 +194,68 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
     let objective_sources = input_sources(tunny.container, &["objective", "objs"], "o");
     let mut objectives = Vec::new();
     for (i, guid) in objective_sources.iter().enumerate() {
-        let name = param_index
-            .get(guid.as_str())
-            .map(|p| p.nickname.clone())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("objective_{}", i + 1));
         objectives.push(GhObjective {
             source_guid: guid.clone(),
-            name,
+            name: resolve_param_name(&param_index, guid, "objective", i),
         });
+    }
+
+    // Attributes input → follow to the attribute component (Construct Fish
+    // Attribute) and read the sources of its Constraint input as constraints
+    // (Tunny's convention: constraint value <= 0 means the trial is feasible)
+    // and the sources of its Attribute input as per-trial attributes. The
+    // Geometry input is intentionally ignored (no journal representation).
+    let attribute_sources = input_sources(tunny.container, &["attribute", "attrs"], "attr");
+    let mut constraints = Vec::new();
+    let mut attributes = Vec::new();
+    for guid in &attribute_sources {
+        // The source GUID is the attribute component's output parameter (or the
+        // component itself when it is a floating object); resolve the owner.
+        let owner = records.iter().find(|r| {
+            r.instance_guid == guid.as_str()
+                || component_params(r.container)
+                    .iter()
+                    .any(|p| p.item_text("InstanceGuid") == Some(guid.as_str()))
+        });
+        let Some(owner) = owner else {
+            warnings.push(format!(
+                "Source {guid} of the attributes input was not found in the definition"
+            ));
+            continue;
+        };
+        // Identity check, mirroring the slider-type check on the variables
+        // input: the Constraint/Attribute input nicks ("C", "Attr") are generic
+        // enough that harvesting them from an arbitrary component wired into
+        // the Attributes input would silently invent constraints.
+        let owner_label = format!("{} {}", owner.type_name, owner.nickname).to_ascii_lowercase();
+        if !owner_label.contains("attr") {
+            warnings.push(format!(
+                "Skipped \"{}\" ({}) on the attributes input because it does not look like an attribute component",
+                owner.nickname, owner.type_name
+            ));
+            continue;
+        }
+        let constraint_sources = input_sources(owner.container, &["constraint"], "c");
+        let attr_value_sources = input_sources(owner.container, &["attribute", "attrs"], "attr");
+        if constraint_sources.is_empty() && attr_value_sources.is_empty() {
+            warnings.push(format!(
+                "No constraints or attributes found on attribute component \"{}\" (no sources on its Constraint / Attribute inputs)",
+                owner.nickname
+            ));
+            continue;
+        }
+        for guid in &constraint_sources {
+            constraints.push(GhConstraint {
+                source_guid: guid.clone(),
+                name: resolve_param_name(&param_index, guid, "constraint", constraints.len()),
+            });
+        }
+        for guid in &attr_value_sources {
+            attributes.push(GhAttribute {
+                source_guid: guid.clone(),
+                name: resolve_param_name(&param_index, guid, "attribute", attributes.len()),
+            });
+        }
     }
 
     if variables.is_empty() {
@@ -185,25 +271,73 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
         ));
     }
 
+    // Attribute names become journal user-attr column names, where they would
+    // collide with the parser's generated constraint/feasibility columns —
+    // colliding columns get silently shadowed or cross-contaminated downstream,
+    // so rename them here and tell the user.
+    for attr in &mut attributes {
+        if is_reserved_column_name(&attr.name) {
+            let renamed = format!("{}_attr", attr.name);
+            warnings.push(format!(
+                "Attribute \"{}\" was renamed to \"{renamed}\" because the name is reserved for constraint columns",
+                attr.name
+            ));
+            attr.name = renamed;
+        }
+    }
+
+    // Deduplicate across ALL name lists at once: every name ends up as a
+    // journal column in a single namespace (params / objectives / user attrs),
+    // so a cross-category duplicate (e.g. an attribute named like an objective)
+    // is just as harmful as one within a category.
     dedupe_names(
         &mut variables
             .iter_mut()
             .map(|v| &mut v.name)
-            .collect::<Vec<_>>(),
-    );
-    dedupe_names(
-        &mut objectives
-            .iter_mut()
-            .map(|o| &mut o.name)
+            .chain(objectives.iter_mut().map(|o| &mut o.name))
+            .chain(constraints.iter_mut().map(|c| &mut c.name))
+            .chain(attributes.iter_mut().map(|a| &mut a.name))
             .collect::<Vec<_>>(),
     );
 
     Ok(GhProblem {
         variables,
         objectives,
+        constraints,
+        attributes,
         tunny_component: tunny.nickname.clone(),
         warnings,
     })
+}
+
+/// Resolves the display name for a source parameter: its non-empty NickName
+/// from the index, or `"{fallback}_{index+1}"` when unknown. Shared by the
+/// objectives / constraints / attributes loops so the naming rule stays in one
+/// place.
+fn resolve_param_name(
+    param_index: &std::collections::HashMap<&str, ParamEntry>,
+    guid: &str,
+    fallback: &str,
+    index: usize,
+) -> String {
+    param_index
+        .get(guid)
+        .map(|p| p.nickname.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_{}", fallback, index + 1))
+}
+
+/// Whether a name collides with the journal parser's generated constraint /
+/// feasibility columns (`c1`..`cN`, `is_feasible`, `constraint_sum`).
+fn is_reserved_column_name(name: &str) -> bool {
+    if name == "is_feasible" || name == "constraint_sum" {
+        return true;
+    }
+    let mut chars = name.chars();
+    chars.next() == Some('c') && {
+        let rest = chars.as_str();
+        !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+    }
 }
 
 /// Recursively collects input/output parameter chunks (param_input /
@@ -309,7 +443,7 @@ fn dedupe_names(names: &mut [&mut String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gh::fixtures::sample_ghx;
+    use crate::gh::fixtures::{sample_ghx, sample_ghx_without_constraint};
 
     #[test]
     fn extracts_variables_and_objectives_from_fixture() {
@@ -339,6 +473,141 @@ mod tests {
         );
         // Objective via a floating parameter
         assert_eq!(problem.objectives[1].name, "disp");
+
+        // Constraint via the attribute component's Constraint input
+        assert_eq!(problem.constraints.len(), 1);
+        assert_eq!(problem.constraints[0].name, "penalty");
+        assert_eq!(
+            problem.constraints[0].source_guid,
+            "0aaaaaaa-0000-0000-0000-00000000pena"
+        );
+
+        // Per-trial attribute via the attribute component's Attribute input
+        assert_eq!(problem.attributes.len(), 1);
+        assert_eq!(problem.attributes[0].name, "area");
+        assert_eq!(
+            problem.attributes[0].source_guid,
+            "0aaaaaaa-0000-0000-0000-00000000area"
+        );
+        assert!(problem.warnings.is_empty());
+    }
+
+    #[test]
+    fn no_attribute_wiring_means_no_constraints_or_attributes() {
+        let problem = extract_problem(&sample_ghx_without_constraint()).unwrap();
+        assert!(problem.constraints.is_empty());
+        assert!(problem.attributes.is_empty());
+        // Not an error, and no warning either (an unwired Attributes input is normal)
+        assert!(problem.warnings.is_empty());
+    }
+
+    #[test]
+    fn attribute_component_without_recognized_inputs_warns() {
+        // Rename both the Constraint and Attribute inputs so the attribute
+        // component has no detectable inputs; extraction succeeds with a warning.
+        let xml = sample_ghx()
+            .replace(
+                r#"<item name="Name" type_name="gh_string" type_code="10">Constraint</item>"#,
+                r#"<item name="Name" type_name="gh_string" type_code="10">Other</item>"#,
+            )
+            .replace(
+                r#"<item name="NickName" type_name="gh_string" type_code="10">C</item>"#,
+                r#"<item name="NickName" type_name="gh_string" type_code="10">X</item>"#,
+            )
+            .replace(
+                r#"<item name="Name" type_name="gh_string" type_code="10">Attribute</item>"#,
+                r#"<item name="Name" type_name="gh_string" type_code="10">Misc</item>"#,
+            )
+            .replace(
+                r#"<item name="NickName" type_name="gh_string" type_code="10">Attr</item>"#,
+                r#"<item name="NickName" type_name="gh_string" type_code="10">Y</item>"#,
+            );
+        let problem = extract_problem(&xml).unwrap();
+        assert!(problem.constraints.is_empty());
+        assert!(problem.attributes.is_empty());
+        assert_eq!(problem.warnings.len(), 1);
+        assert!(
+            problem.warnings[0].contains("FishAttr"),
+            "unexpected warning: {}",
+            problem.warnings[0]
+        );
+    }
+
+    #[test]
+    fn attribute_named_like_constraint_column_is_renamed() {
+        // Rename the fixture's attribute source ("area") to the reserved "c1".
+        let xml = sample_ghx().replace(
+            r#"<item name="NickName" type_name="gh_string" type_code="10">area</item>"#,
+            r#"<item name="NickName" type_name="gh_string" type_code="10">c1</item>"#,
+        );
+        let problem = extract_problem(&xml).unwrap();
+        assert_eq!(problem.attributes[0].name, "c1_attr");
+        assert!(
+            problem.warnings.iter().any(|w| w.contains("c1_attr")),
+            "expected rename warning, got {:?}",
+            problem.warnings
+        );
+    }
+
+    #[test]
+    fn cross_category_duplicate_names_are_uniquified() {
+        // Rename the attribute source to "weight" (the first objective's name):
+        // the attribute must be renamed, not silently collide.
+        let xml = sample_ghx().replace(
+            r#"<item name="NickName" type_name="gh_string" type_code="10">area</item>"#,
+            r#"<item name="NickName" type_name="gh_string" type_code="10">weight</item>"#,
+        );
+        let problem = extract_problem(&xml).unwrap();
+        assert_eq!(problem.objectives[0].name, "weight");
+        assert_eq!(problem.attributes[0].name, "weight_2");
+    }
+
+    #[test]
+    fn non_attribute_component_on_attributes_input_is_skipped_with_warning() {
+        // Rename the attribute component so it no longer looks like one; its
+        // "C"/"Attr" inputs must not be harvested as constraints/attributes.
+        let xml = sample_ghx()
+            .replace(
+                r#"<item name="Name" type_name="gh_string" type_code="10">Construct Fish Attribute</item>"#,
+                r#"<item name="Name" type_name="gh_string" type_code="10">Custom Cluster</item>"#,
+            )
+            .replace(
+                r#"<item name="NickName" type_name="gh_string" type_code="10">FishAttr</item>"#,
+                r#"<item name="NickName" type_name="gh_string" type_code="10">Cluster</item>"#,
+            );
+        let problem = extract_problem(&xml).unwrap();
+        assert!(problem.constraints.is_empty());
+        assert!(problem.attributes.is_empty());
+        assert_eq!(problem.warnings.len(), 1);
+        assert!(
+            problem.warnings[0].contains("does not look like an attribute component"),
+            "unexpected warning: {}",
+            problem.warnings[0]
+        );
+    }
+
+    #[test]
+    fn reserved_column_name_detection() {
+        assert!(is_reserved_column_name("c1"));
+        assert!(is_reserved_column_name("c42"));
+        assert!(is_reserved_column_name("is_feasible"));
+        assert!(is_reserved_column_name("constraint_sum"));
+        assert!(!is_reserved_column_name("c"));
+        assert!(!is_reserved_column_name("c1a"));
+        assert!(!is_reserved_column_name("cost"));
+        assert!(!is_reserved_column_name("area"));
+    }
+
+    #[test]
+    fn constraint_only_when_attribute_input_is_unwired() {
+        // Remove the Attribute input's source: constraints stay, attributes empty.
+        let xml = sample_ghx().replace(
+            r#"<item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000area</item>"#,
+            "",
+        );
+        let problem = extract_problem(&xml).unwrap();
+        assert_eq!(problem.constraints.len(), 1);
+        assert!(problem.attributes.is_empty());
         assert!(problem.warnings.is_empty());
     }
 

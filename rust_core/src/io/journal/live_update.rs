@@ -216,6 +216,39 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         extras.intermediate_values.push((trial_id, step, value));
                     }
                 }
+                8 => {
+                    // SET_TRIAL_USER_ATTR: classified by the helper shared with
+                    // the full parser, so live rows and reloaded rows put a
+                    // given record into the same column type.
+                    let trial_id = json
+                        .get("trial_id")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(u64::MAX) as u32;
+                    if let Some(pending) = s.pending.get_mut(&trial_id) {
+                        if let Some(attrs) = json.get("user_attr").and_then(|v| v.as_object()) {
+                            crate::io::journal::classify_user_attrs(
+                                attrs,
+                                &mut pending.user_attrs_numeric,
+                                &mut pending.user_attrs_string,
+                            );
+                        }
+                    }
+                }
+                9 => {
+                    // SET_TRIAL_SYSTEM_ATTR: only the "constraints" key matters
+                    // for live rows (feasibility columns), same as the full parser.
+                    let trial_id = json
+                        .get("trial_id")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(u64::MAX) as u32;
+                    if let Some(pending) = s.pending.get_mut(&trial_id) {
+                        if let Some(values) =
+                            crate::io::journal::constraints_from_system_attr(&json)
+                        {
+                            pending.constraint_values = values;
+                        }
+                    }
+                }
                 6 => {
                     let trial_id = json
                         .get("trial_id")
@@ -775,6 +808,62 @@ mod tests {
                 stored,
                 decoded
             );
+        });
+    }
+
+    #[test]
+    fn tc_2218_09_op9_constraints_flow_into_trial_row() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                make_set_param(0, "x1", 0.5),
+                r#"{"op_code":9,"trial_id":0,"system_attr":{"constraints":[-0.5,0.25]}}"#
+                    .to_string(),
+                make_complete(0, &[1.0]),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.new_trial_rows.len(), 1);
+            assert_eq!(result.new_trial_rows[0].constraint_values, vec![-0.5, 0.25]);
+        });
+    }
+
+    #[test]
+    fn tc_2218_11_op8_user_attrs_flow_into_trial_row() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":8,"trial_id":0,"user_attr":{"area":12.5}}"#.to_string(),
+                r#"{"op_code":8,"trial_id":0,"user_attr":{"material":"steel"}}"#.to_string(),
+                make_complete(0, &[1.0]),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.new_trial_rows.len(), 1);
+            let row = &result.new_trial_rows[0];
+            assert_eq!(row.user_attrs_numeric.get("area"), Some(&12.5));
+            assert_eq!(
+                row.user_attrs_string.get("material"),
+                Some(&"steel".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn tc_2218_10_op9_other_system_attrs_ignored() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":9,"trial_id":0,"system_attr":{"nsga2:generation":3}}"#.to_string(),
+                make_complete(0, &[1.0]),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.new_trial_rows.len(), 1);
+            assert!(result.new_trial_rows[0].constraint_values.is_empty());
         });
     }
 
