@@ -422,6 +422,84 @@ pub struct GhOptDialogState {
     pub error: Option<String>,
 }
 
+/// User preferences for the .ghx optimization setup, persisted across app
+/// sessions (eframe storage). Captured from the dialog when a run starts and
+/// applied as defaults the next time the dialog opens, so the Compute
+/// connection (EXE path, port, …) and sampler settings don't have to be
+/// re-entered every session.
+///
+/// Per-file values (study name, journal path, directions) are intentionally
+/// not persisted — they are derived from the dropped .ghx.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct GhComputePrefs {
+    pub compute_use_exe: bool,
+    pub compute_exe_path: String,
+    pub compute_url: String,
+    pub compute_port: u16,
+    pub api_key: String,
+    pub max_parallel: usize,
+    pub sampler_is_random: bool,
+    pub n_trials: usize,
+    pub population_size: usize,
+    pub generations: usize,
+    pub seed: u64,
+}
+
+impl Default for GhComputePrefs {
+    /// Must stay in sync with the dialog defaults in [`GhOptDialogState::new`].
+    fn default() -> Self {
+        Self {
+            compute_use_exe: true,
+            compute_exe_path: String::new(),
+            compute_url: "http://localhost:6500".to_string(),
+            compute_port: 6500,
+            api_key: String::new(),
+            max_parallel: 4,
+            sampler_is_random: false,
+            n_trials: 50,
+            population_size: 16,
+            generations: 10,
+            seed: 42,
+        }
+    }
+}
+
+impl GhComputePrefs {
+    /// Applies the stored preferences onto a freshly created dialog state
+    /// (called right after [`GhOptDialogState::new`]).
+    pub fn apply_to(&self, dialog: &mut GhOptDialogState) {
+        dialog.compute_use_exe = self.compute_use_exe;
+        dialog.compute_exe_path = self.compute_exe_path.clone();
+        dialog.compute_url = self.compute_url.clone();
+        dialog.compute_port = self.compute_port;
+        dialog.api_key = self.api_key.clone();
+        dialog.max_parallel = self.max_parallel.clamp(1, 16);
+        dialog.sampler_is_random = self.sampler_is_random;
+        dialog.n_trials = self.n_trials.max(1);
+        dialog.population_size = self.population_size.max(1);
+        dialog.generations = self.generations.max(1);
+        dialog.seed = self.seed;
+    }
+
+    /// Captures the settings the user just confirmed with Run.
+    pub fn capture(dialog: &GhOptDialogState) -> Self {
+        Self {
+            compute_use_exe: dialog.compute_use_exe,
+            compute_exe_path: dialog.compute_exe_path.clone(),
+            compute_url: dialog.compute_url.clone(),
+            compute_port: dialog.compute_port,
+            api_key: dialog.api_key.clone(),
+            max_parallel: dialog.max_parallel,
+            sampler_is_random: dialog.sampler_is_random,
+            n_trials: dialog.n_trials,
+            population_size: dialog.population_size,
+            generations: dialog.generations,
+            seed: dialog.seed,
+        }
+    }
+}
+
 impl GhOptDialogState {
     /// Builds the dialog state with defaults right after .ghx extraction.
     pub fn new(ghx_path: PathBuf, ghx_text: String, problem: tunny_core::gh::GhProblem) -> Self {
@@ -525,6 +603,86 @@ mod tests {
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
         }
+    }
+
+    /// The persisted prefs round-trip: capture from a dialog, apply onto a
+    /// fresh one, and the connection/sampler settings carry over while
+    /// per-file values (study name, journal path) stay derived from the path.
+    #[test]
+    fn gh_compute_prefs_capture_and_apply_roundtrip() {
+        let path = PathBuf::from("/tmp/a/model.ghx");
+        let mut first =
+            GhOptDialogState::new(path.clone(), "<xml/>".to_string(), make_gh_problem(1));
+        first.compute_use_exe = false;
+        first.compute_url = "http://build-server:9900".to_string();
+        first.compute_exe_path = r"C:\compute\rhino.compute.exe".to_string();
+        first.compute_port = 9900;
+        first.api_key = "secret".to_string();
+        first.max_parallel = 8;
+        first.sampler_is_random = true;
+        first.n_trials = 123;
+        first.population_size = 32;
+        first.generations = 5;
+        first.seed = 7;
+
+        let prefs = GhComputePrefs::capture(&first);
+        let other = PathBuf::from("/tmp/b/other.ghx");
+        let mut second =
+            GhOptDialogState::new(other.clone(), "<xml/>".to_string(), make_gh_problem(1));
+        prefs.apply_to(&mut second);
+
+        assert!(!second.compute_use_exe);
+        assert_eq!(second.compute_url, "http://build-server:9900");
+        assert_eq!(second.compute_exe_path, r"C:\compute\rhino.compute.exe");
+        assert_eq!(second.compute_port, 9900);
+        assert_eq!(second.api_key, "secret");
+        assert_eq!(second.max_parallel, 8);
+        assert!(second.sampler_is_random);
+        assert_eq!(second.n_trials, 123);
+        assert_eq!(second.population_size, 32);
+        assert_eq!(second.generations, 5);
+        assert_eq!(second.seed, 7);
+        // Per-file values stay derived from the new path.
+        assert!(second.study_name.starts_with("other-"));
+        assert!(second.journal_path.contains("other_optuna"));
+    }
+
+    /// Out-of-range persisted values (hand-edited or from an older version)
+    /// are clamped on apply instead of propagating into the run config.
+    #[test]
+    fn gh_compute_prefs_apply_clamps_invalid_values() {
+        let prefs = GhComputePrefs {
+            max_parallel: 0,
+            n_trials: 0,
+            population_size: 0,
+            generations: 0,
+            ..GhComputePrefs::default()
+        };
+        let mut dialog = GhOptDialogState::new(
+            PathBuf::from("/tmp/m.ghx"),
+            "<xml/>".to_string(),
+            make_gh_problem(1),
+        );
+        prefs.apply_to(&mut dialog);
+        assert_eq!(dialog.max_parallel, 1);
+        assert_eq!(dialog.n_trials, 1);
+        assert_eq!(dialog.population_size, 1);
+        assert_eq!(dialog.generations, 1);
+    }
+
+    /// Serde round-trip with `#[serde(default)]`: an older stored blob with
+    /// missing fields deserializes with defaults instead of failing.
+    #[test]
+    fn gh_compute_prefs_serde_tolerates_missing_fields() {
+        let prefs: GhComputePrefs =
+            serde_json::from_str(r#"{"compute_exe_path": "C:/x/rhino.compute.exe"}"#).unwrap();
+        assert_eq!(prefs.compute_exe_path, "C:/x/rhino.compute.exe");
+        assert_eq!(prefs.compute_port, 6500);
+        assert!(prefs.compute_use_exe);
+
+        let json = serde_json::to_string(&GhComputePrefs::default()).unwrap();
+        let back: GhComputePrefs = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.compute_url, "http://localhost:6500");
     }
 
     #[test]

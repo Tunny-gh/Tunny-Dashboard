@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 tunny-core = { path = "../rust_core", default-features = false }
-eframe = { version = "0.35", features = ["wgpu"] }
+eframe = { version = "0.35", features = ["wgpu", "persistence"] }
 egui = "0.35"
 egui_extras = { version = "0.35", features = ["image", "file", "svg"] }
 egui_plot = "0.36"

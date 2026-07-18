@@ -196,6 +196,9 @@ pub struct TunnyApp {
 }
 
 impl TunnyApp {
+    /// eframe storage key for [`crate::state::app_state::GhComputePrefs`].
+    const GH_COMPUTE_PREFS_KEY: &'static str = "gh_compute_prefs";
+
     pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_visuals(false));
         // Register a loader so the artifact gallery can display file:// images.
@@ -232,8 +235,19 @@ impl TunnyApp {
         if let Some(path) = initial_path {
             dispatch_scan(path, tx.clone());
         }
+        let mut app_state = AppState::new();
+        // Restore persisted preferences (currently the .ghx Compute/sampler
+        // settings). Absent or unreadable storage falls back to defaults.
+        if let Some(storage) = cc.storage {
+            if let Some(prefs) = eframe::get_value::<crate::state::app_state::GhComputePrefs>(
+                storage,
+                Self::GH_COMPUTE_PREFS_KEY,
+            ) {
+                app_state.gh_compute_prefs = prefs;
+            }
+        }
         Self {
-            app_state: AppState::new(),
+            app_state,
             layout: LayoutState::default(),
             widget_states: WidgetStates::default(),
             canvas_widgets: HashMap::new(),
@@ -807,9 +821,12 @@ impl TunnyApp {
         match std::fs::read_to_string(&path) {
             Ok(text) => match tunny_core::gh::extract_problem(&text) {
                 Ok(problem) => {
-                    self.app_state.gh_opt_dialog = Some(
-                        crate::state::app_state::GhOptDialogState::new(path, text, problem),
-                    );
+                    let mut dialog =
+                        crate::state::app_state::GhOptDialogState::new(path, text, problem);
+                    // Pre-fill the Compute connection / sampler settings with the
+                    // persisted preferences from the last run.
+                    self.app_state.gh_compute_prefs.apply_to(&mut dialog);
+                    self.app_state.gh_opt_dialog = Some(dialog);
                 }
                 Err(e) => self.load_error = Some(e),
             },
@@ -856,6 +873,10 @@ impl TunnyApp {
     /// waiting also happen on the background task side (the progress overlay shows
     /// "Starting…").
     fn start_ghx_run(&mut self, mut dialog: crate::state::app_state::GhOptDialogState) {
+        // Remember the confirmed settings as the defaults for the next dialog
+        // (persisted across sessions via eframe storage).
+        self.app_state.gh_compute_prefs = crate::state::app_state::GhComputePrefs::capture(&dialog);
+
         use tunny_core::gh::{
             build_compute_definition, classify_compute_input, prepare_gh_run, run_prepared,
             start_compute_server_tracked, ComputeConfig, ComputeEvaluator, ComputeTarget,
@@ -1308,6 +1329,21 @@ impl Drop for TunnyApp {
 }
 
 impl eframe::App for TunnyApp {
+    /// Persists user preferences (called periodically and on shutdown by eframe).
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(
+            storage,
+            Self::GH_COMPUTE_PREFS_KEY,
+            &self.app_state.gh_compute_prefs,
+        );
+    }
+
+    /// Keep egui's own memory (window positions, collapsing states) out of the
+    /// storage — only explicitly chosen preferences are persisted.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     // logic() handles the non-rendering phase (message pump, state updates, screenshot
     // capture). In egui 0.35, eframe::App's update() was split into ui()/logic().
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {

@@ -123,6 +123,10 @@ pub struct AppState {
     /// progress overlay stays visible while running even if the user looks at a
     /// different study (see the comment on clear()).
     pub gh_opt_run: Option<GhOptRunState>,
+    /// Persisted defaults for the .ghx optimization setup (Compute connection,
+    /// sampler settings). Restored from eframe storage at startup and captured
+    /// on each Run.
+    pub gh_compute_prefs: GhComputePrefs,
 }
 
 impl AppState {
@@ -161,6 +165,7 @@ impl AppState {
             report_dialog: None,
             gh_opt_dialog: None,
             gh_opt_run: None,
+            gh_compute_prefs: GhComputePrefs::default(),
         }
     }
 

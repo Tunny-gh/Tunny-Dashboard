@@ -290,6 +290,9 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
       supporting both modes. Given a URL, it connects to an already-running server;
       given an EXE path, Dashboard launches it with `--port`, waits for the health
       check, and stops it when the run finishes (`gh::compute_server`)
+- [x] Compute connection and sampler settings (EXE path, port, URL, parallelism,
+      sampler parameters) persist across app sessions (eframe storage), so the
+      setup dialog opens pre-filled with the last-used values
 - [ ] Open question: reconciling Compute's Windows-only assumption with Dashboard's
       cross-platform nature
 
