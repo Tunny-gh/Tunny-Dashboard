@@ -27,6 +27,13 @@ fn nsga2_total_evaluations(population_size: usize, generations: usize) -> usize 
     even_pop * (generations + 1)
 }
 
+/// Upper bound on the adaptive sampler's evaluation count (bootstrap floored to
+/// the surrogate minimum of 10 on the core side; deduped candidates can lower
+/// the actual count).
+fn adaptive_total_evaluations(initial: usize, batch: usize, iterations: usize) -> usize {
+    initial.max(10) + batch.max(1) * iterations
+}
+
 /// Renders the .ghx optimization setup modal.
 ///
 /// Keeps the dialog open until `Some(GhxOptAction::Run)` / `Some(GhxOptAction::Cancel)`
@@ -210,39 +217,74 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
             ui.add_space(8.0);
 
             // ── Sampler ────────────────────────────────────────
+            use crate::state::app_state::GhSamplerChoice;
             ui.label(RichText::new("Sampler").strong());
             ui.horizontal(|ui| {
                 ui.label("Method:");
                 egui::ComboBox::from_id_salt("ghx_opt_sampler")
-                    .selected_text(if state.sampler_is_random {
-                        "Random"
-                    } else {
-                        "NSGA-II"
-                    })
+                    .selected_text(state.sampler.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.sampler_is_random, false, "NSGA-II");
-                        ui.selectable_value(&mut state.sampler_is_random, true, "Random");
+                        for choice in [
+                            GhSamplerChoice::Nsga2,
+                            GhSamplerChoice::Random,
+                            GhSamplerChoice::Adaptive,
+                        ] {
+                            ui.selectable_value(&mut state.sampler, choice, choice.label());
+                        }
                     });
             });
-            if state.sampler_is_random {
-                ui.horizontal(|ui| {
-                    ui.label("Trials:");
-                    ui.add(egui::DragValue::new(&mut state.n_trials).range(1..=1_000_000));
-                });
-            } else {
-                ui.horizontal(|ui| {
-                    ui.label("Population:");
-                    ui.add(egui::DragValue::new(&mut state.population_size).range(4..=10_000));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Generations:");
-                    ui.add(egui::DragValue::new(&mut state.generations).range(0..=100_000));
-                });
-                let total = nsga2_total_evaluations(state.population_size, state.generations);
-                ui.label(
-                    RichText::new(format!("Total evaluations = {total}"))
+            match state.sampler {
+                GhSamplerChoice::Random => {
+                    ui.horizontal(|ui| {
+                        ui.label("Trials:");
+                        ui.add(egui::DragValue::new(&mut state.n_trials).range(1..=1_000_000));
+                    });
+                }
+                GhSamplerChoice::Nsga2 => {
+                    ui.horizontal(|ui| {
+                        ui.label("Population:");
+                        ui.add(egui::DragValue::new(&mut state.population_size).range(4..=10_000));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Generations:");
+                        ui.add(egui::DragValue::new(&mut state.generations).range(0..=100_000));
+                    });
+                    let total = nsga2_total_evaluations(state.population_size, state.generations);
+                    ui.label(
+                        RichText::new(format!("Total evaluations = {total}"))
+                            .color(crate::theme::TEXT_SECONDARY()),
+                    );
+                }
+                GhSamplerChoice::Adaptive => {
+                    ui.horizontal(|ui| {
+                        ui.label("Initial random trials:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.adaptive_initial).range(10..=10_000),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Batch size:");
+                        ui.add(egui::DragValue::new(&mut state.adaptive_batch).range(1..=100));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Iterations:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.adaptive_iterations).range(1..=10_000),
+                        );
+                    });
+                    let total = adaptive_total_evaluations(
+                        state.adaptive_initial,
+                        state.adaptive_batch,
+                        state.adaptive_iterations,
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "Up to {total} evaluations. Each iteration fits a surrogate (Auto \
+                             model) and evaluates the most promising candidates (EI / EHVI)."
+                        ))
                         .color(crate::theme::TEXT_SECONDARY()),
-                );
+                    );
+                }
             }
             ui.horizontal(|ui| {
                 ui.label("Seed:");

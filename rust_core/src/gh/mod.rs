@@ -10,9 +10,11 @@
 //! 2. `compute_def::build_compute_definition` — generates a Compute-ready definition
 //!    with RH_IN / RH_OUT injected
 //! 3. `compute::ComputeEvaluator` — evaluates one trial via rhino.compute's /grasshopper endpoint
-//! 4. `runner` — runs the optimization loop with a sampler (Random / NSGA-II),
-//!    recording trials to the journal (existing live-update and full analysis features work as-is)
+//! 4. `runner` — runs the optimization loop with a sampler (Random / NSGA-II /
+//!    the `adaptive` surrogate loop), recording trials to the journal (existing
+//!    live-update and full analysis features work as-is)
 
+mod adaptive;
 mod ghx;
 
 pub mod compute;

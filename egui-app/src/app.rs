@@ -880,7 +880,7 @@ impl TunnyApp {
         use tunny_core::gh::{
             build_compute_definition, classify_compute_input, prepare_gh_run, run_prepared,
             start_compute_server_tracked, ComputeConfig, ComputeEvaluator, ComputeTarget,
-            GhRunConfig, GhSampler,
+            GhRunConfig,
         };
         use tunny_core::io::journal::parser::OptimizationDirection;
         use tunny_core::surrogate_opt::FitProgress;
@@ -899,14 +899,13 @@ impl TunnyApp {
         let run_cfg = GhRunConfig {
             study_name: dialog.study_name.clone(),
             directions,
-            sampler: if dialog.sampler_is_random {
-                GhSampler::Random
-            } else {
-                GhSampler::Nsga2
-            },
+            sampler: dialog.sampler.to_core(),
             n_trials: dialog.n_trials,
             population_size: dialog.population_size,
             generations: dialog.generations,
+            adaptive_initial: dialog.adaptive_initial,
+            adaptive_batch: dialog.adaptive_batch,
+            adaptive_iterations: dialog.adaptive_iterations,
             seed: dialog.seed,
         };
         // In EXE mode the path comes from the dedicated field; in URL mode a
