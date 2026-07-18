@@ -119,6 +119,13 @@ pub fn build_json_stdin(param_names: &[String], values: &[f64]) -> Result<String
     }
     let mut map = serde_json::Map::new();
     for (name, value) in param_names.iter().zip(values) {
+        if !value.is_finite() {
+            // serde_json encodes a non-finite f64 as `null`, silently changing
+            // the parameter type the command receives — reject instead.
+            return Err(format!(
+                "parameter \"{name}\" value must be finite (got {value})"
+            ));
+        }
         let json = if value.fract() == 0.0 && value.abs() < 9.007_199_254_740_992e15 {
             serde_json::Value::from(*value as i64)
         } else {

@@ -122,8 +122,16 @@ pub enum Extractor {
     /// `values.0` (array index). The addressed value must be a number (or a
     /// numeric string).
     JsonPath { path: String },
-    /// A cell of a CSV document.
-    Csv { row: CsvRow, column: CsvColumn },
+    /// A cell of a CSV document. `has_header` makes row indexing unambiguous:
+    /// when true, line 0 is the header (used for [`CsvColumn::Header`] lookup)
+    /// and data rows start at line 1; when false there is no header and every
+    /// line is a data row. [`CsvColumn::Header`] requires `has_header = true`.
+    Csv {
+        row: CsvRow,
+        column: CsvColumn,
+        #[serde(default)]
+        has_header: bool,
+    },
 }
 
 /// CSV row selector.
@@ -172,8 +180,33 @@ impl ProcessDefinition {
             if name.trim().is_empty() {
                 return Err("parameter names must not be empty".to_string());
             }
-            if !seen.insert(name) {
+            // Whitespace in a name breaks CLI-arg building (the expansion is
+            // split on whitespace into separate argv tokens) and makes a poor
+            // env-var / journal column name.
+            if name.split_whitespace().count() != 1 {
+                return Err(format!(
+                    "parameter name \"{name}\" must not contain whitespace"
+                ));
+            }
+            if !seen.insert(name.clone()) {
                 return Err(format!("duplicate parameter name \"{name}\""));
+            }
+        }
+        // Objective names become journal columns, so they must be present and
+        // unique. (Constraint values are recorded positionally as c1..cN, so
+        // their names are display-only and not checked for uniqueness here.)
+        let mut obj_seen = std::collections::HashSet::new();
+        for obj in &self.objectives {
+            if obj.name.trim().is_empty() {
+                return Err("objective names must not be empty".to_string());
+            }
+            if !obj_seen.insert(&obj.name) {
+                return Err(format!("duplicate objective name \"{}\"", obj.name));
+            }
+        }
+        if let InputSpec::Template { path, .. } = &self.input {
+            if path.trim().is_empty() {
+                return Err("input template path must not be empty".to_string());
             }
         }
         Ok(())
@@ -241,6 +274,39 @@ mod tests {
         let mut empty_prog = sample();
         empty_prog.command.program = "  ".to_string();
         assert!(empty_prog.validate().unwrap_err().contains("program"));
+
+        let mut spaced = sample();
+        spaced.param_names = vec!["max iter".to_string()];
+        assert!(spaced.validate().unwrap_err().contains("whitespace"));
+
+        let mut dup_obj = sample();
+        dup_obj.objectives = vec![
+            OutputSpec {
+                name: "f".to_string(),
+                source: OutputSource::Stdout,
+                extractor: Extractor::Regex {
+                    pattern: "(.+)".to_string(),
+                },
+            },
+            OutputSpec {
+                name: "f".to_string(),
+                source: OutputSource::Stdout,
+                extractor: Extractor::Regex {
+                    pattern: "(.+)".to_string(),
+                },
+            },
+        ];
+        assert!(dup_obj
+            .validate()
+            .unwrap_err()
+            .contains("duplicate objective"));
+
+        let mut empty_path = sample();
+        empty_path.input = InputSpec::Template {
+            template: "x={x}".to_string(),
+            path: "".to_string(),
+        };
+        assert!(empty_path.validate().unwrap_err().contains("path"));
     }
 
     #[test]

@@ -6,12 +6,24 @@ use serde_json::Value;
 
 use super::definition::{CsvColumn, CsvRow, Extractor};
 
-/// Extracts a numeric value from `text` using `extractor`.
+/// Extracts a numeric value from `text` using `extractor`. The result must be
+/// finite — a non-finite output (`inf` / `nan`) is an extraction error, so a
+/// diverged solver is treated as a failed evaluation rather than recorded as a
+/// finite-looking success.
 pub fn extract_value(extractor: &Extractor, text: &str) -> Result<f64, String> {
-    match extractor {
+    let value = match extractor {
         Extractor::Regex { pattern } => extract_regex(pattern, text),
         Extractor::JsonPath { path } => extract_json_path(path, text),
-        Extractor::Csv { row, column } => extract_csv(row, column, text),
+        Extractor::Csv {
+            row,
+            column,
+            has_header,
+        } => extract_csv(row, column, *has_header, text),
+    }?;
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(format!("extracted value is not finite: {value}"))
     }
 }
 
@@ -59,25 +71,40 @@ fn extract_json_path(path: &str, text: &str) -> Result<f64, String> {
     json_as_number(cur).ok_or_else(|| format!("JSON value at \"{path}\" is not a number"))
 }
 
-/// Extracts a cell from CSV `text`. Rows are non-empty lines; a header row is
-/// consulted only for [`CsvColumn::Header`]. Fields are comma-separated and
+/// Extracts a cell from CSV `text`. Non-empty lines are rows; when `has_header`
+/// is set, line 0 is the header (data rows start at line 1) and it is consulted
+/// for [`CsvColumn::Header`]. `CsvRow` indices always count from the first data
+/// row, independent of the column selector. Fields are comma-separated and
 /// trimmed.
-fn extract_csv(row: &CsvRow, column: &CsvColumn, text: &str) -> Result<f64, String> {
+fn extract_csv(
+    row: &CsvRow,
+    column: &CsvColumn,
+    has_header: bool,
+    text: &str,
+) -> Result<f64, String> {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.is_empty() {
         return Err("CSV output is empty".to_string());
     }
 
-    // Resolve the column index (a header is required only for Header columns).
-    let (col_index, data_lines): (usize, &[&str]) = match column {
-        CsvColumn::Index { index } => (*index, &lines[..]),
+    // Data rows and the (optional) header are split the same way regardless of
+    // the column selector, so `CsvRow` indices have one consistent origin.
+    let (header, data_lines): (Option<&&str>, &[&str]) = if has_header {
+        (Some(&lines[0]), &lines[1..])
+    } else {
+        (None, &lines[..])
+    };
+
+    let col_index = match column {
+        CsvColumn::Index { index } => *index,
         CsvColumn::Header { name } => {
-            let header: Vec<String> = split_csv(lines[0]);
-            let idx = header
+            let header = header.ok_or_else(|| {
+                format!("CSV column \"{name}\" needs has_header = true to resolve the header")
+            })?;
+            split_csv(header)
                 .iter()
                 .position(|h| h == name)
-                .ok_or_else(|| format!("CSV header \"{name}\" not found"))?;
-            (idx, &lines[1..])
+                .ok_or_else(|| format!("CSV header \"{name}\" not found"))?
         }
     };
 
@@ -104,17 +131,14 @@ fn split_csv(line: &str) -> Vec<String> {
 }
 
 /// Parses a number, tolerating surrounding whitespace and a leading `+`.
+///
+/// The whole trimmed token must be a valid `f64` — a partial parse is *not*
+/// attempted, because taking the leading numeric run silently misreads values
+/// like `1_000` (→ 1) or `0x1F` (→ 0), corrupting the objective with no error.
+/// If a tool prints a number with a trailing unit, use a regex extractor whose
+/// capture group isolates the number.
 fn parse_number(s: &str) -> Option<f64> {
-    let t = s.trim();
-    t.parse::<f64>().ok().or_else(|| {
-        // Some tools print "1_000" or leave a trailing unit; take the leading
-        // numeric token only.
-        let token: String = t
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
-            .collect();
-        token.parse::<f64>().ok()
-    })
+    s.trim().parse::<f64>().ok()
 }
 
 /// Interprets a JSON value as a number (numbers directly, numeric strings by
@@ -188,18 +212,55 @@ mod tests {
             column: CsvColumn::Header {
                 name: "loss".to_string(),
             },
+            has_header: true,
         };
         assert_eq!(extract_value(&e, text).unwrap(), 0.25);
     }
 
     #[test]
-    fn csv_by_index() {
+    fn csv_by_index_without_header() {
         let text = "1.0, 2.0, 3.0\n4.0, 5.0, 6.0\n";
         let e = Extractor::Csv {
             row: CsvRow::Index { index: 1 },
             column: CsvColumn::Index { index: 2 },
+            has_header: false,
         };
         assert_eq!(extract_value(&e, text).unwrap(), 6.0);
+    }
+
+    #[test]
+    fn csv_row_index_counts_from_first_data_row_with_header() {
+        // has_header=true: row 0 is the first DATA row (after the header),
+        // consistent whether the column is selected by index or by name.
+        let text = "a,b\n10,20\n30,40\n";
+        let by_index = Extractor::Csv {
+            row: CsvRow::Index { index: 0 },
+            column: CsvColumn::Index { index: 1 },
+            has_header: true,
+        };
+        let by_header = Extractor::Csv {
+            row: CsvRow::Index { index: 0 },
+            column: CsvColumn::Header {
+                name: "b".to_string(),
+            },
+            has_header: true,
+        };
+        assert_eq!(extract_value(&by_index, text).unwrap(), 20.0);
+        assert_eq!(extract_value(&by_header, text).unwrap(), 20.0);
+    }
+
+    #[test]
+    fn csv_header_column_requires_has_header() {
+        let e = Extractor::Csv {
+            row: CsvRow::Last,
+            column: CsvColumn::Header {
+                name: "loss".to_string(),
+            },
+            has_header: false,
+        };
+        assert!(extract_value(&e, "loss\n0.5\n")
+            .unwrap_err()
+            .contains("has_header"));
     }
 
     #[test]
@@ -208,9 +269,25 @@ mod tests {
         let e = Extractor::Csv {
             row: CsvRow::Index { index: 0 },
             column: CsvColumn::Index { index: 9 },
+            has_header: false,
         };
         assert!(extract_value(&e, text)
             .unwrap_err()
             .contains("out of range"));
+    }
+
+    #[test]
+    fn ambiguous_or_nonfinite_values_are_errors() {
+        // A value with a trailing separator/unit is not silently truncated.
+        let thousands = Extractor::Regex {
+            pattern: r"cost=(\S+)".to_string(),
+        };
+        assert!(extract_value(&thousands, "cost=1_000").is_err());
+        // inf / nan outputs are extraction errors (failed evaluation).
+        let val = Extractor::Regex {
+            pattern: r"f=(\S+)".to_string(),
+        };
+        assert!(extract_value(&val, "f=inf").unwrap_err().contains("finite"));
+        assert!(extract_value(&val, "f=nan").unwrap_err().contains("finite"));
     }
 }

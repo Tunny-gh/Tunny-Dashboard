@@ -28,4 +28,4 @@ pub use definition::{
     CommandSpec, CsvColumn, CsvRow, Extractor, InputSpec, OutputSource, OutputSpec,
     ProcessDefinition,
 };
-pub use evaluator::{ProcessEvaluation, ProcessEvaluator};
+pub use evaluator::{ProcessEvaluation, ProcessEvaluator, VarRange};

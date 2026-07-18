@@ -42,8 +42,66 @@ impl crate::runner::Evaluator for ProcessEvaluator {
             objectives: out.objectives,
             constraints: out.constraints,
             // Process definitions extract objectives and constraints; per-trial
-            // attributes are not (yet) part of the definition.
+            // attributes are not (yet) part of the definition, so a process
+            // `Problem` must declare no attribute names (see `build_problem`).
             attributes: Vec::new(),
+        })
+    }
+}
+
+/// Search range for one process parameter, used by
+/// [`ProcessDefinition::build_problem`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VarRange {
+    pub low: f64,
+    pub high: f64,
+    pub digits: u32,
+    pub is_integer: bool,
+}
+
+impl ProcessDefinition {
+    /// Builds a [`crate::runner::Problem`] that is guaranteed to line up with
+    /// this definition, so a process objective can be run without the
+    /// footguns of hand-aligning the two descriptions:
+    ///
+    /// - variables are emitted in `param_names` order (the order
+    ///   [`ProcessEvaluator`] delivers values), with the range from `ranges`;
+    /// - objective / constraint names come from the definition's own
+    ///   `objectives` / `constraints`, so the counts always match what the
+    ///   command produces (a mismatch would otherwise make every trial FAIL);
+    /// - `attribute_names` is empty (process definitions produce none).
+    ///
+    /// `ranges` must contain an entry for every parameter name.
+    pub fn build_problem(
+        &self,
+        ranges: &std::collections::HashMap<String, VarRange>,
+    ) -> Result<crate::runner::Problem, String> {
+        let mut variables = Vec::with_capacity(self.param_names.len());
+        for name in &self.param_names {
+            let r = ranges
+                .get(name)
+                .ok_or_else(|| format!("no search range given for parameter \"{name}\""))?;
+            // Strictly-less required (also rejects NaN, where partial_cmp is None).
+            if r.low.partial_cmp(&r.high) != Some(std::cmp::Ordering::Less) {
+                return Err(format!(
+                    "parameter \"{name}\" has an empty range (low {} must be < high {})",
+                    r.low, r.high
+                ));
+            }
+            variables.push(crate::runner::Variable {
+                name: name.clone(),
+                low: r.low,
+                high: r.high,
+                value: 0.5 * (r.low + r.high),
+                digits: r.digits,
+                is_integer: r.is_integer,
+            });
+        }
+        Ok(crate::runner::Problem {
+            variables,
+            objective_names: self.objectives.iter().map(|o| o.name.clone()).collect(),
+            constraint_names: self.constraints.iter().map(|c| c.name.clone()).collect(),
+            attribute_names: Vec::new(),
         })
     }
 }
@@ -223,7 +281,14 @@ fn run_command(
     stdin_data: Option<&str>,
 ) -> Result<CommandOutput, String> {
     let mut cmd = Command::new(&spec.program);
-    cmd.current_dir(work_dir);
+    // Each command honors its own working directory (pre/post commands may run
+    // elsewhere than the main command); `work_dir` is the fallback.
+    let dir = spec
+        .working_dir
+        .as_deref()
+        .map(Path::new)
+        .unwrap_or(work_dir);
+    cmd.current_dir(dir);
     for arg in &spec.args {
         cmd.arg(arg);
     }
@@ -278,10 +343,18 @@ fn run_with_timeout(
         s
     });
 
+    // On normal completion the child is reaped, its pipe write-ends close, and
+    // the reader threads finish promptly — so we join them to collect the
+    // output. On timeout we deliberately do NOT join: killing the direct child
+    // does not necessarily terminate a grandchild that inherited the pipe (e.g.
+    // `sh -c "sleep 5"`), and a blocking join there would negate the timeout by
+    // waiting for the grandchild. The reader threads are left to drain on their
+    // own once the pipe finally closes; they never block the caller.
     let status = if timeout_secs == 0 {
-        child
-            .wait()
-            .map_err(|e| format!("failed to wait for {program}: {e}"))?
+        match child.wait() {
+            Ok(status) => status,
+            Err(e) => return Err(format!("failed to wait for {program}: {e}")),
+        }
     } else {
         let deadline = Instant::now() + Duration::from_secs(timeout_secs);
         loop {
@@ -336,6 +409,86 @@ mod tests {
                 pattern: pattern.to_string(),
             },
         }
+    }
+
+    /// build_problem aligns variables to param_names order and derives the
+    /// objective/constraint counts from the definition, and errors on a
+    /// missing or empty range.
+    #[test]
+    fn build_problem_aligns_variables_and_counts() {
+        let def = ProcessDefinition {
+            param_names: vec!["y".to_string(), "x".to_string()],
+            input: InputSpec::Env,
+            command: CommandSpec::new("solver"),
+            objectives: vec![stdout_regex("f1", "(.+)"), stdout_regex("f2", "(.+)")],
+            constraints: vec![stdout_regex("g", "(.+)")],
+            pre_command: None,
+            post_command: None,
+        };
+        let ranges = std::collections::HashMap::from([
+            (
+                "x".to_string(),
+                VarRange {
+                    low: 0.0,
+                    high: 1.0,
+                    digits: 2,
+                    is_integer: false,
+                },
+            ),
+            (
+                "y".to_string(),
+                VarRange {
+                    low: 1.0,
+                    high: 5.0,
+                    digits: 0,
+                    is_integer: true,
+                },
+            ),
+        ]);
+        let problem = def.build_problem(&ranges).unwrap();
+        // Variable order follows param_names (y, x), not the ranges map.
+        assert_eq!(problem.variables[0].name, "y");
+        assert_eq!(problem.variables[1].name, "x");
+        assert!(problem.variables[0].is_integer);
+        // Objective/constraint counts come from the definition.
+        assert_eq!(problem.objective_names, vec!["f1", "f2"]);
+        assert_eq!(problem.constraint_names, vec!["g"]);
+        assert!(problem.attribute_names.is_empty());
+
+        // Missing range → error.
+        let partial = std::collections::HashMap::from([(
+            "x".to_string(),
+            VarRange {
+                low: 0.0,
+                high: 1.0,
+                digits: 2,
+                is_integer: false,
+            },
+        )]);
+        assert!(def.build_problem(&partial).unwrap_err().contains("y"));
+
+        // Empty range → error.
+        let bad = std::collections::HashMap::from([
+            (
+                "x".to_string(),
+                VarRange {
+                    low: 1.0,
+                    high: 1.0,
+                    digits: 2,
+                    is_integer: false,
+                },
+            ),
+            (
+                "y".to_string(),
+                VarRange {
+                    low: 1.0,
+                    high: 5.0,
+                    digits: 0,
+                    is_integer: true,
+                },
+            ),
+        ]);
+        assert!(def.build_problem(&bad).unwrap_err().contains("empty range"));
     }
 
     #[cfg(unix)]
@@ -501,6 +654,7 @@ mod tests {
                 extractor: Extractor::Csv {
                     row: crate::process::definition::CsvRow::Last,
                     column: crate::process::definition::CsvColumn::Index { index: 0 },
+                    has_header: true,
                 },
             }],
             constraints: vec![],
@@ -527,7 +681,7 @@ mod tests {
     #[test]
     fn process_optimization_runs_standalone_and_writes_journal() {
         use crate::io::journal::parser::{parse_single_study, OptimizationDirection};
-        use crate::runner::{prepare_run, run_prepared, RunConfig, Sampler, Variable};
+        use crate::runner::{prepare_run, run_prepared, RunConfig, Sampler};
 
         let dir = tempfile::tempdir().unwrap();
         let journal = dir.path().join("study_optuna.log");
@@ -555,18 +709,30 @@ mod tests {
             pre_command: None,
             post_command: None,
         };
+        // Build the Dashboard-side problem aligned to the definition (variable
+        // order + objective/constraint counts guaranteed to match).
+        let ranges = std::collections::HashMap::from([
+            (
+                "x".to_string(),
+                VarRange {
+                    low: 0.0,
+                    high: 6.0,
+                    digits: 3,
+                    is_integer: false,
+                },
+            ),
+            (
+                "y".to_string(),
+                VarRange {
+                    low: 0.0,
+                    high: 5.0,
+                    digits: 3,
+                    is_integer: false,
+                },
+            ),
+        ]);
+        let problem = def.build_problem(&ranges).unwrap();
         let evaluator = ProcessEvaluator::new(def).unwrap();
-
-        // The Dashboard-side problem: real-valued variable ranges.
-        let problem = crate::runner::Problem {
-            variables: vec![
-                Variable::float("x", 0.0, 6.0, 3),
-                Variable::float("y", 0.0, 5.0, 3),
-            ],
-            objective_names: vec!["f".to_string()],
-            constraint_names: vec![],
-            attribute_names: vec![],
-        };
         let cfg = RunConfig {
             study_name: "process-standalone".to_string(),
             directions: vec![OptimizationDirection::Minimize],
