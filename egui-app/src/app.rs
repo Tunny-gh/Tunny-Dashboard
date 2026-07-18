@@ -906,6 +906,13 @@ impl TunnyApp {
             adaptive_initial: dialog.adaptive_initial,
             adaptive_batch: dialog.adaptive_batch,
             adaptive_iterations: dialog.adaptive_iterations,
+            // Patience 0 disables early stopping on the core side.
+            adaptive_patience: if dialog.adaptive_early_stop {
+                dialog.adaptive_patience.max(1)
+            } else {
+                0
+            },
+            adaptive_min_improvement: dialog.adaptive_min_improvement_pct / 100.0,
             seed: dialog.seed,
         };
         // In EXE mode the path comes from the dedicated field; in URL mode a

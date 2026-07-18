@@ -307,8 +307,14 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
       multi-objective, feasibility-aware for single-objective) → evaluate via
       Rhino.Compute → refit. Extending the loop to the generic runners follows
       items 13/14
-- [ ] Convergence-based stopping and loop diagnostics (improvement history per
-      iteration) beyond the fixed iteration budget
+- [x] Convergence-based stopping and loop diagnostics (improvement history per
+      iteration) beyond the fixed iteration budget: the adaptive loop records a
+      per-iteration convergence metric (the feasible Pareto front's hypervolume
+      against a fixed reference, reducing to the shifted best value for a single
+      objective) and stops early once the relative improvement stays below a
+      threshold for a configurable number of iterations (patience). The setup
+      dialog exposes "Stop early on convergence" + patience / min-improvement,
+      and the completion message reports the stop reason and final metric
 
 ### 17. Write-Capable Tools for tunny-mcp
 

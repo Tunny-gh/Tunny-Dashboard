@@ -423,6 +423,14 @@ pub struct GhOptDialogState {
     pub adaptive_batch: usize,
     /// Adaptive sampler: fit → suggest → evaluate iterations (default 10).
     pub adaptive_iterations: usize,
+    /// Adaptive sampler: enable convergence-based early stopping (default false).
+    pub adaptive_early_stop: bool,
+    /// Adaptive sampler: consecutive low-improvement iterations before stopping
+    /// (default 3). Only used when `adaptive_early_stop` is true.
+    pub adaptive_patience: usize,
+    /// Adaptive sampler: relative-improvement threshold in percent (default 1.0).
+    /// Only used when `adaptive_early_stop` is true.
+    pub adaptive_min_improvement_pct: f64,
     /// Random seed (default 42).
     pub seed: u64,
     /// Display text for when Run fails (errors from `build_compute_definition` / `prepare_gh_run`).
@@ -482,6 +490,9 @@ pub struct GhComputePrefs {
     pub adaptive_initial: usize,
     pub adaptive_batch: usize,
     pub adaptive_iterations: usize,
+    pub adaptive_early_stop: bool,
+    pub adaptive_patience: usize,
+    pub adaptive_min_improvement_pct: f64,
     pub seed: u64,
 }
 
@@ -502,6 +513,9 @@ impl Default for GhComputePrefs {
             adaptive_initial: 10,
             adaptive_batch: 4,
             adaptive_iterations: 10,
+            adaptive_early_stop: false,
+            adaptive_patience: 3,
+            adaptive_min_improvement_pct: 1.0,
             seed: 42,
         }
     }
@@ -524,6 +538,9 @@ impl GhComputePrefs {
         dialog.adaptive_initial = self.adaptive_initial.max(1);
         dialog.adaptive_batch = self.adaptive_batch.max(1);
         dialog.adaptive_iterations = self.adaptive_iterations.max(1);
+        dialog.adaptive_early_stop = self.adaptive_early_stop;
+        dialog.adaptive_patience = self.adaptive_patience.max(1);
+        dialog.adaptive_min_improvement_pct = self.adaptive_min_improvement_pct.clamp(0.0, 100.0);
         dialog.seed = self.seed;
     }
 
@@ -543,6 +560,9 @@ impl GhComputePrefs {
             adaptive_initial: dialog.adaptive_initial,
             adaptive_batch: dialog.adaptive_batch,
             adaptive_iterations: dialog.adaptive_iterations,
+            adaptive_early_stop: dialog.adaptive_early_stop,
+            adaptive_patience: dialog.adaptive_patience,
+            adaptive_min_improvement_pct: dialog.adaptive_min_improvement_pct,
             seed: dialog.seed,
         }
     }
@@ -585,6 +605,9 @@ impl GhOptDialogState {
             adaptive_initial: 10,
             adaptive_batch: 4,
             adaptive_iterations: 10,
+            adaptive_early_stop: false,
+            adaptive_patience: 3,
+            adaptive_min_improvement_pct: 1.0,
             n_trials: 50,
             population_size: 16,
             generations: 10,

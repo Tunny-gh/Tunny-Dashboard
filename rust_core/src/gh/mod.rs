@@ -31,7 +31,8 @@ pub use compute_server::{
 };
 pub use problem::{extract_problem, GhAttribute, GhConstraint, GhObjective, GhProblem, GhVariable};
 pub use runner::{
-    prepare_gh_run, run_prepared, GhRunConfig, GhRunSummary, GhSampler, PreparedGhRun,
+    prepare_gh_run, run_prepared, GhIterationDiagnostic, GhRunConfig, GhRunSummary, GhSampler,
+    GhStopReason, PreparedGhRun,
 };
 
 /// Synthetic .ghx fixture for testing.
