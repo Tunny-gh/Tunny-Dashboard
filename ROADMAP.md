@@ -81,13 +81,13 @@ file — a lightweight, server-free counter to VOLTA / HEEDS Connect, offering
 
 ## Mid Term (catching up and overtaking on analysis features)
 
-### 4. Candidate Suggestions → Write-Back to Optuna
+### 4. Candidate Suggestions → Write-Back to Optuna (dropped)
 
-Enable candidates suggested by the existing EHVI / acquisition functions to be written
-back to Optuna, either by appending to the journal file or via an
-`enqueue_trial`-compatible export. This closes the "analyze → suggest next experiment →
-run" loop, delivering value equivalent to the commercial "what-if → re-run" cycle
-without needing execution capability of our own.
+**Dropped (2026-07)**: enqueue-based write-back to an external Optuna process is no
+longer planned. The Phase 2B runner (item 15) lets the dashboard execute suggested
+candidates directly via Rhino.Compute, which closes the "analyze → suggest next
+experiment → run" loop without an enqueue hand-off; the "Copy enqueue JSON" export in
+the suggestion tables remains for users who drive Optuna themselves.
 
 ### 5. Upgrading Robustness Analysis ✅
 
@@ -201,18 +201,11 @@ layers with distinct characteristics; we will expand into only Layers 1 and 2.
   extraction" approach that Dakota (Sandia) has proven out over more than 20 years. It
   allows integration with any solver without requiring vendor-specific knowledge
 
-## Core Work (Phase 2A: Write-Back — the human drives the loop)
+## Core Work (Phase 2A: Storage Write Layer)
 
-### 11. Candidate Suggestions → Write-Back to Optuna (formerly Mid Term 4)
-
-Enable candidates suggested by the existing EHVI / acquisition functions to be written
-back to Optuna.
-
-- [ ] Journal file appending (using file locking compatible with Optuna's
-      `JournalFileOpenLock`)
-- [ ] For RDB targets, limit this to an `enqueue_trial`-compatible export (JSON /
-      Python snippet). Direct INSERTs into the RDB would tightly couple us to the
-      Optuna schema, so that decision is deferred to Phase 2B
+Item 11 (candidate write-back to Optuna via `enqueue_trial`, formerly Mid Term 4) was
+dropped in 2026-07: the Phase 2B runner executes candidates directly, making the
+enqueue hand-off unnecessary (see Mid Term 4).
 
 ### 12. Storage Write Layer and Safety Design
 
@@ -298,23 +291,21 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
       given an EXE path, Dashboard launches it with `--port`, waits for the health
       check, and stops it when the run finishes (`gh::compute_server`)
 - [ ] Open question: reconciling Compute's Windows-only assumption with Dashboard's
-      cross-platform nature, and coordination with the Tunny side via shared storage
-      (the reverse-direction integration where Tunny consumes trials enqueued by
-      Dashboard)
+      cross-platform nature
 
 ## Core Work (Phase 2C: Automation and Agentification)
 
 ### 16. Automating the Adaptive Loop
 
-- [ ] An automatic loop of surrogate suggestion → enqueue → evaluation → refitting
-      (equivalent to commercial adaptive sampling)
+- [ ] An automatic loop of surrogate suggestion → evaluation via the runner (item 15)
+      → refitting (equivalent to commercial adaptive sampling)
 
 ### 17. Write-Capable Tools for tunny-mcp
 
 Enable LLM agents to drive the optimization loop itself — a differentiator none of the
 four commercial tools have, extending the direction set out in Long Term 8.
 
-- [ ] Write tools such as `create_study` / `enqueue_candidates`
+- [ ] Write tools such as `create_study` and starting runner-based optimizations
 - [ ] Opt-in design for write permissions (read-only by default)
 
 ## Prerequisites (to be in place by Phase 2B)
@@ -325,9 +316,9 @@ four commercial tools have, extending the direction set out in Long Term 8.
 
 ## Priorities (Phase 2)
 
-- Proceed in the order **2A (Items 11-12) → 2B (Items 13-15) → 2C (Items 16-17)**.
-  Even 2A alone delivers value, since "analyze → write back → continue on the Optuna
-  side" is a complete workflow
+- Proceed in the order **2A (Item 12) → 2B (Items 13-15) → 2C (Items 16-17)**.
+  The storage write layer underpins the 2B runner's journal output (item 11 was
+  dropped; see Phase 2A)
 - Investment decisions on FORM/SORM and multi-fidelity surrogates will be made once
   the execution loop is closed (maintaining the Phase 1 policy)
 - Enterprise features (user management, PLM integration) will be decided once demand
