@@ -217,23 +217,20 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                     }
                 }
                 8 => {
-                    // SET_TRIAL_USER_ATTR: numbers become numeric attrs, strings
-                    // become string attrs (same split as the full parser).
+                    // SET_TRIAL_USER_ATTR: classified by the helper shared with
+                    // the full parser, so live rows and reloaded rows put a
+                    // given record into the same column type.
                     let trial_id = json
                         .get("trial_id")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(u64::MAX) as u32;
                     if let Some(pending) = s.pending.get_mut(&trial_id) {
                         if let Some(attrs) = json.get("user_attr").and_then(|v| v.as_object()) {
-                            for (key, value) in attrs {
-                                if let Some(number) = value.as_f64() {
-                                    pending.user_attrs_numeric.insert(key.clone(), number);
-                                } else if let Some(text) = value.as_str() {
-                                    pending
-                                        .user_attrs_string
-                                        .insert(key.clone(), text.to_string());
-                                }
-                            }
+                            crate::io::journal::classify_user_attrs(
+                                attrs,
+                                &mut pending.user_attrs_numeric,
+                                &mut pending.user_attrs_string,
+                            );
                         }
                     }
                 }
@@ -245,13 +242,10 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         .and_then(|v| v.as_u64())
                         .unwrap_or(u64::MAX) as u32;
                     if let Some(pending) = s.pending.get_mut(&trial_id) {
-                        if let Some(values) = json
-                            .get("system_attr")
-                            .and_then(|attr| attr.get("constraints"))
-                            .and_then(|v| v.as_array())
+                        if let Some(values) =
+                            crate::io::journal::constraints_from_system_attr(&json)
                         {
-                            pending.constraint_values =
-                                values.iter().filter_map(|v| v.as_f64()).collect();
+                            pending.constraint_values = values;
                         }
                     }
                 }

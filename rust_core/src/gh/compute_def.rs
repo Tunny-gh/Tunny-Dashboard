@@ -71,64 +71,48 @@ pub fn build_compute_definition(
         input_params.push(nick);
     }
 
+    // All relay outputs (objectives, constraints, attributes) share the same
+    // injection sequence: a relay Data parameter wired to the source, wrapped
+    // in an RH_OUT group. An objective's source is often a component's output
+    // parameter, which is not a document object and so cannot be placed
+    // directly into a group; the relay makes this uniform (it works the same
+    // way when the source is already a floating parameter).
+    //
+    // Kinds: 0 = objective, 1 = constraint, 2 = attribute. The prefixes keep
+    // the namespaces apart for ordinary names; `uniquify_nicks` below makes
+    // uniqueness structural even for adversarial names (e.g. an objective
+    // literally nicknamed "constraint:x" alongside a constraint "x"), since a
+    // duplicated ParamName would make the response mapping silently ambiguous.
+    let mut relays: Vec<(String, &str, &str, usize)> = Vec::new();
     for obj in &problem.objectives {
-        // An objective's source is often a component's output parameter, which is not a
-        // document object and so cannot be placed directly into a group. We always create
-        // a new relay Number parameter to receive from the source, and put the relay into
-        // the group instead (this works the same way even when the source is already a
-        // floating parameter, so no branching is needed).
-        let nick = format!("RH_OUT:{}", obj.name);
-        let relay_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&relay_param_xml(
-            next_index,
-            &relay_guid,
+        relays.push((
+            format!("RH_OUT:{}", obj.name),
             &obj.name,
             &obj.source_guid,
+            0,
         ));
-        next_index += 1;
-        let group_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&group_object_xml(
-            next_index,
-            &group_guid,
-            &nick,
-            &relay_guid,
-        ));
-        next_index += 1;
-        output_params.push(nick);
     }
-
     for con in &problem.constraints {
-        // Constraint sources are relayed the same way as objectives (they are
-        // usually component output parameters too).
-        let nick = format!("RH_OUT:constraint:{}", con.name);
-        let relay_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&relay_param_xml(
-            next_index,
-            &relay_guid,
+        relays.push((
+            format!("RH_OUT:constraint:{}", con.name),
             &con.name,
             &con.source_guid,
+            1,
         ));
-        next_index += 1;
-        let group_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&group_object_xml(
-            next_index,
-            &group_guid,
-            &nick,
-            &relay_guid,
-        ));
-        next_index += 1;
-        constraint_params.push(nick);
     }
-
     for attr in &problem.attributes {
-        let nick = format!("RH_OUT:attr:{}", attr.name);
-        let relay_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&relay_param_xml(
-            next_index,
-            &relay_guid,
+        relays.push((
+            format!("RH_OUT:attr:{}", attr.name),
             &attr.name,
             &attr.source_guid,
+            2,
         ));
+    }
+    uniquify_nicks(&mut relays);
+
+    for (nick, name, source_guid, kind) in relays {
+        let relay_guid = synthetic_guid(xml, &mut guid_counter);
+        injected.push_str(&relay_param_xml(next_index, &relay_guid, name, source_guid));
         next_index += 1;
         let group_guid = synthetic_guid(xml, &mut guid_counter);
         injected.push_str(&group_object_xml(
@@ -138,7 +122,11 @@ pub fn build_compute_definition(
             &relay_guid,
         ));
         next_index += 1;
-        attr_params.push(nick);
+        match kind {
+            0 => output_params.push(nick),
+            1 => constraint_params.push(nick),
+            _ => attr_params.push(nick),
+        }
     }
 
     // ── 3 splices, in ascending position order: the ObjectCount value, the chunks
@@ -256,6 +244,26 @@ fn locate_definition_objects(xml: &str) -> Result<Anchors, String> {
         chunks_count_text: (count_attr, count_attr_end),
         insertion_pos,
     })
+}
+
+/// Makes every relay nick unique across the union of the three output kinds by
+/// appending `_2`, `_3`, … to later duplicates (matching `dedupe_names` on the
+/// problem side). The final nick is what gets pushed into
+/// `output_params`/`constraint_params`/`attr_params`, so response mapping by
+/// ParamName stays unambiguous.
+fn uniquify_nicks(relays: &mut [(String, &str, &str, usize)]) {
+    for i in 1..relays.len() {
+        let mut suffix = 2;
+        while relays[..i].iter().any(|(n, ..)| *n == relays[i].0) {
+            let base = &relays[i].0;
+            let trimmed = base
+                .rfind('_')
+                .filter(|&pos| base[pos + 1..].chars().all(|c| c.is_ascii_digit()))
+                .map_or(base.as_str(), |pos| &base[..pos]);
+            relays[i].0 = format!("{trimmed}_{suffix}");
+            suffix += 1;
+        }
+    }
 }
 
 /// Generates a synthetic GUID that does not collide with the existing XML (deterministic).
@@ -483,6 +491,32 @@ mod tests {
         // The original definition body (Tunny component, etc.) is preserved
         assert!(def.ghx.contains("Tunny"));
         assert!(def.ghx.contains("Beam Analyzer"));
+    }
+
+    /// An objective whose nickname embeds the constraint prefix must not
+    /// produce the same RH_OUT ParamName as a real constraint — the response
+    /// mapping would silently read the wrong value for one of them.
+    #[test]
+    fn colliding_output_nicks_are_uniquified() {
+        let xml = sample_ghx();
+        let mut problem = extract_problem(&xml).unwrap();
+        problem.objectives[0].name = "constraint:penalty".to_string();
+        // The fixture's constraint is named "penalty" → prefixed nick collides
+        // with the objective's.
+        let def = build_compute_definition(&xml, &problem).unwrap();
+        assert_eq!(def.output_params[0], "RH_OUT:constraint:penalty");
+        assert_eq!(def.constraint_params, vec!["RH_OUT:constraint:penalty_2"]);
+        // All output nicks are pairwise distinct
+        let mut all: Vec<&String> = def
+            .output_params
+            .iter()
+            .chain(&def.constraint_params)
+            .chain(&def.attr_params)
+            .collect();
+        all.sort();
+        let len_before = all.len();
+        all.dedup();
+        assert_eq!(all.len(), len_before);
     }
 
     #[test]

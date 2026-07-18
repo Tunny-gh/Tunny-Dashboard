@@ -221,6 +221,14 @@ impl JournalWriter {
         trial_id: u32,
         constraints: &[f64],
     ) -> Result<(), String> {
+        // serde_json serializes non-finite f64 as null, which the parsers then
+        // drop — silently shifting later constraints into earlier columns.
+        // Reject instead of corrupting the journal.
+        if constraints.iter().any(|c| !c.is_finite()) {
+            return Err(format!(
+                "constraint values must be finite (trial {trial_id}: {constraints:?})"
+            ));
+        }
         let record = ordered_object(&[
             ("op_code", j(9)),
             ("worker_id", j(&self.worker_id)),
@@ -521,6 +529,26 @@ mod tests {
             df.get_numeric_column("is_feasible"),
             Some([1.0, 0.0].as_slice())
         );
+    }
+
+    /// Non-finite constraint values are rejected instead of being serialized as
+    /// null (which the parsers would silently drop, shifting columns).
+    #[test]
+    fn non_finite_constraints_are_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("study.journal");
+        let mut writer = JournalWriter::open(&path).unwrap();
+        let study_id = writer
+            .create_study("s", &[OptimizationDirection::Minimize], &[])
+            .unwrap();
+        let trial = writer.create_trial(study_id).unwrap();
+        assert!(writer
+            .set_trial_constraints(trial, &[f64::NAN, 5.0])
+            .is_err());
+        assert!(writer
+            .set_trial_constraints(trial, &[f64::INFINITY])
+            .is_err());
+        assert!(writer.set_trial_constraints(trial, &[-0.5]).is_ok());
     }
 
     /// User-attribute round-trip: op8 written by the writer is read back by the

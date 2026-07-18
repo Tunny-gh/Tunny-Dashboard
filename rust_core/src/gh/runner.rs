@@ -31,26 +31,72 @@ use crate::surrogate_opt::FitProgress;
 use super::compute::GhEvaluator;
 use super::problem::{GhProblem, GhVariable};
 
-/// Penalty value returned to the optimization algorithm on evaluation failure or cancellation.
-/// Infinity would produce NaN when normalizing the crowding distance, so a large finite
-/// value is used instead.
-const FAIL_PENALTY: f64 = 1e12;
+/// Penalty value returned to the optimization algorithm on evaluation failure or
+/// cancellation. Strictly worse than any constraint-violating trial's fitness
+/// (`CONSTRAINT_PENALTY_BASE + MAX_COUNTED_VIOLATION < FAIL_PENALTY`), so the
+/// search never prefers a crashing region over a merely infeasible one.
+/// Infinity would produce NaN when normalizing the crowding distance, so a large
+/// finite value is used instead.
+const FAIL_PENALTY: f64 = 1e15;
+
+/// Base fitness for constraint-violating trials (see `constrained_penalty_fitness`).
+const CONSTRAINT_PENALTY_BASE: f64 = 1e12;
+
+/// Cap on the violation added to `CONSTRAINT_PENALTY_BASE`, keeping every
+/// infeasible fitness strictly below `FAIL_PENALTY` no matter how large the
+/// user's constraint values are.
+const MAX_COUNTED_VIOLATION: f64 = 1e14;
 
 /// Fitness returned to the optimization algorithm for a constraint-violating trial:
-/// `FAIL_PENALTY + total violation` on every objective. This emulates Deb's
-/// constrained domination with a generic minimizer: any feasible solution
-/// (objectives far below FAIL_PENALTY) dominates every infeasible one, and among
-/// infeasible solutions the one with less total violation dominates. Violations
-/// below f64 resolution at 1e12 (~1e-4) tie, which is acceptable for ranking.
-/// The trial itself is still recorded as COMPLETE with its real objective values
-/// (Tunny's constraints are soft — feasibility steers the search, not validity).
+/// `CONSTRAINT_PENALTY_BASE + total violation` on every objective (violation =
+/// the amount above 0, per Tunny's convention). This emulates Deb's constrained
+/// domination with a generic minimizer, with three strict tiers: any feasible
+/// solution (objectives far below the base) dominates every infeasible one;
+/// among infeasible solutions the one with less total violation dominates; and
+/// evaluation failures (`FAIL_PENALTY`) are worse than any infeasible solution.
+/// Violations below f64 resolution at 1e12 (~1e-4) tie, which is acceptable for
+/// ranking. The trial itself is still recorded as COMPLETE with its real
+/// objective values (Tunny's constraints are soft — feasibility steers the
+/// search, not validity).
 fn constrained_penalty_fitness(n_obj: usize, constraints: &[f64]) -> Option<Vec<f64>> {
     let violation: f64 = constraints.iter().map(|c| c.max(0.0)).sum();
     if violation > 0.0 {
-        Some(vec![FAIL_PENALTY + violation; n_obj])
+        Some(vec![
+            CONSTRAINT_PENALTY_BASE
+                + violation.min(MAX_COUNTED_VIOLATION);
+            n_obj
+        ])
     } else {
         None
     }
+}
+
+/// Checks a successful evaluation against the problem before recording it:
+/// constraint/attribute arity must match the problem definition, and objective /
+/// constraint values must be finite. Returns the failure reason, or `None` when
+/// the evaluation is recordable.
+fn validate_evaluation(eval: &super::compute::GhEvaluation, problem: &GhProblem) -> Option<String> {
+    if eval.constraints.len() != problem.constraints.len() {
+        return Some(format!(
+            "Constraint count mismatch (expected {}, got {})",
+            problem.constraints.len(),
+            eval.constraints.len()
+        ));
+    }
+    if eval.attributes.len() != problem.attributes.len() {
+        return Some(format!(
+            "Attribute count mismatch (expected {}, got {})",
+            problem.attributes.len(),
+            eval.attributes.len()
+        ));
+    }
+    if eval.objectives.iter().any(|v| !v.is_finite()) {
+        return Some("Objective value is not finite".to_string());
+    }
+    if eval.constraints.iter().any(|c| !c.is_finite()) {
+        return Some("Constraint value is not finite".to_string());
+    }
+    None
 }
 
 /// The kind of sampler.
@@ -258,6 +304,16 @@ impl TrialRecorder<'_> {
 
         match self.evaluator.evaluate(&values) {
             Ok(eval) if eval.objectives.len() == n_obj => {
+                // Validate the evaluation the same way the objective count is
+                // validated: wrong constraint/attribute arity or non-finite
+                // values would journal misaligned columns or silently vanish
+                // (serde_json writes non-finite f64 as null), so record FAIL
+                // instead. ComputeEvaluator guarantees all of this; the checks
+                // protect other GhEvaluator implementations.
+                if let Some(reason) = validate_evaluation(&eval, self.problem) {
+                    self.record_failure(trial_id, reason);
+                    return vec![FAIL_PENALTY; n_obj];
+                }
                 if let Err(e) = self.finish_complete(trial_id, &eval) {
                     self.set_io_error(e);
                     return vec![FAIL_PENALTY; n_obj];
@@ -317,17 +373,22 @@ impl TrialRecorder<'_> {
         Ok(trial_id)
     }
 
-    fn finish(&self, trial_id: u32, state: TrialState, values: &[f64]) -> Result<(), String> {
+    /// Records a FAIL for the trial. The Complete path goes through
+    /// `finish_complete` (which also writes op8/op9); keeping this FAIL-only
+    /// prevents a Complete trial from bypassing those records.
+    fn finish_fail(&self, trial_id: u32) -> Result<(), String> {
         self.writer
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .finish_trial(trial_id, state, values)
+            .finish_trial(trial_id, TrialState::Fail, &[])
     }
 
     /// Records a successful evaluation: constraint values (op9) and per-trial
     /// attributes (op8), if any, followed by COMPLETE with the objective values
     /// (holds the writer lock once so the records stay adjacent even under
-    /// parallel evaluation).
+    /// parallel evaluation). Attributes evaluated as empty (`None`) are skipped,
+    /// as are non-finite numeric attributes (serde_json would turn them into
+    /// null, which the parsers drop anyway).
     fn finish_complete(
         &self,
         trial_id: u32,
@@ -341,8 +402,9 @@ impl TrialRecorder<'_> {
         }
         for (attr, value) in self.problem.attributes.iter().zip(&eval.attributes) {
             let json = match value {
-                GhAttrValue::Number(v) => serde_json::json!(v),
-                GhAttrValue::Text(s) => serde_json::json!(s),
+                Some(GhAttrValue::Number(v)) if v.is_finite() => serde_json::json!(v),
+                Some(GhAttrValue::Number(_)) | None => continue,
+                Some(GhAttrValue::Text(s)) => serde_json::json!(s),
             };
             writer.set_trial_user_attr(trial_id, &attr.name, &json)?;
         }
@@ -350,7 +412,7 @@ impl TrialRecorder<'_> {
     }
 
     fn record_failure(&self, trial_id: u32, reason: String) {
-        if let Err(e) = self.finish(trial_id, TrialState::Fail, &[]) {
+        if let Err(e) = self.finish_fail(trial_id) {
             self.set_io_error(e);
             return;
         }
@@ -449,7 +511,7 @@ mod tests {
             Ok(GhEvaluation {
                 objectives: vec![v[0] + v[1], v[0] - v[1]],
                 constraints: vec![v[0] - 8.0],
-                attributes: vec![GhAttrValue::Number(v[0] * v[1])],
+                attributes: vec![Some(GhAttrValue::Number(v[0] * v[1]))],
             })
         })
     }
@@ -526,6 +588,101 @@ mod tests {
         assert_eq!(a[0], a[1]);
         assert!(a[0] < b[0], "less violation must rank better");
         assert!(a[0] > 1e11, "penalty must dominate any real objective");
+    }
+
+    /// The three penalty tiers must be strictly ordered: feasible objectives
+    /// < any infeasible fitness < the evaluation-failure fitness. In
+    /// particular a crashed solve must never rank better than a merely
+    /// constraint-violating trial (that would steer NSGA-II toward crash
+    /// regions).
+    #[test]
+    fn evaluation_failure_ranks_worse_than_any_infeasible_trial() {
+        let worst_infeasible = constrained_penalty_fitness(1, &[f64::MAX]).unwrap();
+        assert!(
+            worst_infeasible[0] < FAIL_PENALTY,
+            "infeasible fitness {} must stay below FAIL_PENALTY {}",
+            worst_infeasible[0],
+            FAIL_PENALTY
+        );
+        let mild_infeasible = constrained_penalty_fitness(1, &[1e-3]).unwrap();
+        assert!(mild_infeasible[0] < FAIL_PENALTY);
+    }
+
+    /// Wrong constraint arity from an evaluator is recorded as FAIL instead of
+    /// journaling misaligned constraint columns.
+    #[test]
+    fn constraint_arity_mismatch_is_recorded_as_fail() {
+        let problem = extract_problem(&sample_ghx()).unwrap();
+        assert_eq!(problem.constraints.len(), 1);
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let cfg = test_cfg(GhSampler::Random);
+
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        let wrong_arity = FnEvaluator(|v: &[f64]| {
+            Ok(GhEvaluation {
+                objectives: vec![v[0] + v[1], v[0] - v[1]],
+                constraints: vec![0.0, 0.0], // problem has 1 constraint
+                attributes: vec![Some(GhAttrValue::Number(1.0))],
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &wrong_arity, &cfg, &progress).unwrap();
+        assert_eq!(summary.completed, 0);
+        assert_eq!(summary.failed, 6);
+    }
+
+    /// A non-finite constraint value must not be treated as feasible (f64::max
+    /// ignores NaN) nor journaled as null — the trial is recorded as FAIL.
+    #[test]
+    fn non_finite_constraint_is_recorded_as_fail() {
+        let problem = extract_problem(&sample_ghx()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let cfg = test_cfg(GhSampler::Random);
+
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        let nan_constraint = FnEvaluator(|v: &[f64]| {
+            Ok(GhEvaluation {
+                objectives: vec![v[0] + v[1], v[0] - v[1]],
+                constraints: vec![f64::NAN],
+                attributes: vec![Some(GhAttrValue::Number(1.0))],
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &nan_constraint, &cfg, &progress).unwrap();
+        assert_eq!(summary.completed, 0);
+        assert_eq!(summary.failed, 6);
+    }
+
+    /// An empty attribute output (None) does not fail the trial; the trial
+    /// completes with its objectives and simply records no value for that
+    /// attribute.
+    #[test]
+    fn empty_attribute_does_not_fail_the_trial() {
+        let problem = extract_problem(&sample_ghx()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let cfg = test_cfg(GhSampler::Random);
+
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        let empty_attr = FnEvaluator(|v: &[f64]| {
+            Ok(GhEvaluation {
+                objectives: vec![v[0] + v[1], v[0] - v[1]],
+                constraints: vec![v[0] - 8.0],
+                attributes: vec![None],
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &empty_attr, &cfg, &progress).unwrap();
+        assert_eq!(summary.completed, 6);
+        assert_eq!(summary.failed, 0);
+
+        let data = std::fs::read(&journal).unwrap();
+        let (_, df, _) = parse_single_study(&data, 0).unwrap();
+        // No attribute column, but constraints are still recorded.
+        assert!(df.get_numeric_column("area").is_none());
+        assert!(df.get_numeric_column("c1").is_some());
     }
 
     #[test]

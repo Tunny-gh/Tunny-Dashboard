@@ -675,7 +675,7 @@ mod tests {
                 Ok(tunny_core::gh::GhEvaluation {
                     objectives: vec![values.iter().sum()],
                     constraints: vec![values[0] - 5.0],
-                    attributes: vec![tunny_core::gh::GhAttrValue::Number(values[0] * 2.0)],
+                    attributes: vec![Some(tunny_core::gh::GhAttrValue::Number(values[0] * 2.0))],
                 })
             }
         }

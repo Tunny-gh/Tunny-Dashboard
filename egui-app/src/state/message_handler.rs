@@ -628,6 +628,18 @@ impl MessageHandler {
         app_state.mcdm_result = None;
     }
 
+    /// Appends keys not yet in `dst` (and not `reserved`) in sorted order, so
+    /// column creation order is deterministic regardless of HashMap iteration.
+    fn extend_new_keys<'k>(
+        dst: &mut Vec<String>,
+        keys: impl Iterator<Item = &'k String>,
+        reserved: &dyn Fn(&String) -> bool,
+    ) {
+        let new_keys: std::collections::BTreeSet<&String> =
+            keys.filter(|k| !dst.contains(*k) && !reserved(k)).collect();
+        dst.extend(new_keys.into_iter().cloned());
+    }
+
     fn handle_live_update_done(
         new_core_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
         updated_study_counts: Vec<(u32, usize)>,
@@ -669,31 +681,40 @@ impl MessageHandler {
                 let obj_names = study.meta.objective_names.clone();
                 // User attrs (like constraints below) may first appear in live
                 // rows; append_trials backfills existing rows when passed names
-                // beyond the current columns.
+                // beyond the current columns. Keys whose name is already used
+                // by a non-user-attr column must NOT be adopted: append_trials'
+                // same-name pending queues would cross-contaminate the two
+                // columns on later batches.
                 let mut un = study.view.df.user_attr_numeric_col_names().to_vec();
                 let mut us = study.view.df.user_attr_string_col_names().to_vec();
-                let new_un: std::collections::BTreeSet<&String> = added_rows
-                    .iter()
-                    .flat_map(|r| r.user_attrs_numeric.keys())
-                    .filter(|k| !un.contains(*k))
-                    .collect();
-                un.extend(new_un.into_iter().cloned());
-                let new_us: std::collections::BTreeSet<&String> = added_rows
-                    .iter()
-                    .flat_map(|r| r.user_attrs_string.keys())
-                    .filter(|k| !us.contains(*k))
-                    .collect();
-                us.extend(new_us.into_iter().cloned());
-                // Constraints may first appear in live rows (e.g. a .ghx run on a
-                // fresh journal), so grow the column count beyond the existing df.
+                let df = &study.view.df;
+                let reserved = |name: &String| {
+                    df.param_col_names().contains(name)
+                        || df.objective_col_names().contains(name)
+                        || df.constraint_col_names().contains(name)
+                        || name == "is_feasible"
+                        || name == "constraint_sum"
+                };
+                Self::extend_new_keys(
+                    &mut un,
+                    added_rows.iter().flat_map(|r| r.user_attrs_numeric.keys()),
+                    &reserved,
+                );
+                Self::extend_new_keys(
+                    &mut us,
+                    added_rows.iter().flat_map(|r| r.user_attrs_string.keys()),
+                    &reserved,
+                );
+                // Constraints may first appear in live rows (e.g. a .ghx run on
+                // a fresh journal); append_trials itself takes the max with the
+                // existing column count (the count never shrinks).
                 let incoming_c = added_rows
                     .iter()
                     .map(|r| r.constraint_values.len())
                     .max()
                     .unwrap_or(0);
-                let max_c = study.view.df.constraint_col_names().len().max(incoming_c);
                 let mut new_df = (*study.view.df).clone();
-                new_df.append_trials(&added_rows, &param_names, &obj_names, &un, &us, max_c);
+                new_df.append_trials(&added_rows, &param_names, &obj_names, &un, &us, incoming_c);
 
                 let is_minimize: Vec<bool> = study
                     .meta
