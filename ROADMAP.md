@@ -254,8 +254,10 @@ later but is never needed to produce them.
       from stdout or an output file via regex capture group, dotted JSON path, or CSV
       cell (`process::Extractor`)
 - [x] Persist the integration definition as JSON, editable via the GUI: the whole
-      `ProcessDefinition` is `serde`-serializable (`to_json` / `from_json`); a TOML
-      encoding is a drop-in follow-up, and the GUI editor is pending
+      `ProcessDefinition` is `serde`-serializable (`to_json` / `from_json`), and the
+      GUI editor (toolbar **New Tool…** → builder modal: author / import / edit every
+      field and save back to JSON) is implemented; a TOML encoding is a drop-in
+      follow-up
 - [x] A sequential hook chain of pre-command → evaluation → post-command
       (no graph editor will be built; revisit once demand is proven)
 

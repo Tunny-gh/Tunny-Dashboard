@@ -591,6 +591,10 @@ impl TunnyApp {
                 ToolbarAction::OpenProcessDefinition(path) => {
                     self.open_process_definition(path);
                 }
+                ToolbarAction::NewProcessDefinition => {
+                    self.app_state.process_def_builder =
+                        Some(crate::state::app_state::ProcessDefBuilderState::new());
+                }
             }
         }
     }
@@ -1042,6 +1046,131 @@ impl TunnyApp {
                 Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
             },
             Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
+        }
+    }
+
+    /// Renders the process-definition builder (GUI editor). Save writes the form to
+    /// a JSON file; Optimize hands the definition to the run setup modal; Load
+    /// imports an existing JSON. Validation / I/O failures are shown in the builder,
+    /// which stays open. All file dialogs are performed here (not in the widget).
+    fn show_process_def_builder(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::process_def_modal::{self, ProcessDefBuilderAction};
+
+        let Some(mut builder) = self.app_state.process_def_builder.take() else {
+            return;
+        };
+        match process_def_modal::show(ctx, &mut builder) {
+            Some(ProcessDefBuilderAction::Save) => {
+                self.save_process_definition(&mut builder);
+                self.app_state.process_def_builder = Some(builder);
+            }
+            Some(ProcessDefBuilderAction::Optimize) => {
+                // Validate, then hand the definition to the run setup modal.
+                let def = builder.to_definition();
+                if let Err(e) = def.validate() {
+                    builder.error = Some(e);
+                    builder.status = None;
+                    self.app_state.process_def_builder = Some(builder);
+                } else {
+                    let path = builder
+                        .source_path
+                        .clone()
+                        .unwrap_or_else(|| std::path::PathBuf::from("tool_definition.json"));
+                    self.app_state.process_opt_dialog = Some(
+                        crate::state::app_state::ProcessOptDialogState::new(def, &path),
+                    );
+                    // Drop the builder to close it.
+                }
+            }
+            Some(ProcessDefBuilderAction::Load) => {
+                self.load_into_process_builder(&mut builder);
+                self.app_state.process_def_builder = Some(builder);
+            }
+            Some(ProcessDefBuilderAction::Cancel) => {
+                // Drop the builder to close it.
+            }
+            None => {
+                self.app_state.process_def_builder = Some(builder);
+            }
+        }
+    }
+
+    /// Validates the builder's form and, if valid, writes it to a user-chosen JSON
+    /// file. Success/failure is reported back into the builder's status/error.
+    fn save_process_definition(
+        &mut self,
+        builder: &mut crate::state::app_state::ProcessDefBuilderState,
+    ) {
+        let def = builder.to_definition();
+        if let Err(e) = def.validate() {
+            builder.error = Some(e);
+            builder.status = None;
+            return;
+        }
+        let json = match def.to_json() {
+            Ok(json) => json,
+            Err(e) => {
+                builder.error = Some(e);
+                builder.status = None;
+                return;
+            }
+        };
+        let mut dialog =
+            rfd::FileDialog::new().add_filter("Process definition (*.json)", &["json"]);
+        if let Some(dir) = builder.source_path.as_ref().and_then(|p| p.parent()) {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(name) = builder.source_path.as_ref().and_then(|p| p.file_name()) {
+            dialog = dialog.set_file_name(name.to_string_lossy());
+        } else {
+            dialog = dialog.set_file_name("tool_definition.json");
+        }
+        let Some(path) = dialog.save_file() else {
+            return; // Cancelled; leave the form as-is.
+        };
+        match std::fs::write(&path, json) {
+            Ok(()) => {
+                builder.status = Some(format!("Saved to {}", path.display()));
+                builder.error = None;
+                builder.source_path = Some(path);
+            }
+            Err(e) => {
+                builder.error = Some(format!("{}: {e}", path.display()));
+                builder.status = None;
+            }
+        }
+    }
+
+    /// Prompts for a definition JSON and, on success, replaces the builder's form
+    /// with the loaded definition. Read/parse errors are shown in the builder.
+    fn load_into_process_builder(
+        &mut self,
+        builder: &mut crate::state::app_state::ProcessDefBuilderState,
+    ) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Process definition (*.json)", &["json"])
+            .pick_file()
+        else {
+            return; // Cancelled.
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match tunny_core::process::ProcessDefinition::from_json(&text) {
+                Ok(def) => {
+                    *builder = crate::state::app_state::ProcessDefBuilderState::from_definition(
+                        &def,
+                        Some(path.clone()),
+                    );
+                    builder.status = Some(format!("Loaded {}", path.display()));
+                }
+                Err(e) => {
+                    builder.error = Some(format!("{}: {e}", path.display()));
+                    builder.status = None;
+                }
+            },
+            Err(e) => {
+                builder.error = Some(format!("{}: {e}", path.display()));
+                builder.status = None;
+            }
         }
     }
 
@@ -1576,6 +1705,7 @@ impl eframe::App for TunnyApp {
         self.show_db_url_dialog(&ctx);
         self.show_report_dialog(&ctx);
         self.show_ghx_opt_dialog(&ctx);
+        self.show_process_def_builder(&ctx);
         self.show_process_opt_dialog(&ctx);
         self.show_ghx_opt_overlay(&ctx);
         self.show_drop_hover_overlay(&ctx);

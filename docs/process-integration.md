@@ -11,12 +11,13 @@ This is the "Optuna is the workflow engine; Dashboard is the cockpit" runner for
 solvers that are not Grasshopper. (For Grasshopper, see the drag-and-drop `.ghx`
 flow instead.)
 
-> Status: you can start a run from the Dashboard — **Optimize Tool…** on the
-> toolbar loads a JSON **process definition** (below), lets you set each
-> parameter's search range, the objective directions, and the sampler, and runs
-> it with the live monitoring you already know. Authoring the definition itself
-> is still done by hand (a definition builder is planned); the same run can also
-> be driven through the `tunny-core` library.
+> Status: fully available from the Dashboard. **New Tool…** on the toolbar opens
+> a GUI **builder** for authoring (or importing and editing) a process
+> **definition** (below) and saving it back to JSON. **Optimize Tool…** loads a
+> saved definition, lets you set each parameter's search range, the objective
+> directions, and the sampler, and runs it with the live monitoring you already
+> know. The same definition and run can also be driven through the `tunny-core`
+> library.
 
 ## How it works
 
@@ -38,7 +39,7 @@ implemented in Rust — the same ones the Grasshopper runner uses.
 ## The process definition
 
 A run is described by a `ProcessDefinition`, which is plain JSON (so it can be
-saved, shared, and — later — edited in the GUI):
+saved, shared, and edited in the GUI builder):
 
 ```json
 {
@@ -117,10 +118,36 @@ Notes:
   line 1) and enables selecting a column by header `name`; row indices always
   count from the first data row.
 
+## Building a definition in the GUI
+
+You don't have to write the JSON by hand. Click **New Tool…** on the toolbar to
+open the **definition builder**, a form that maps one-to-one to the fields above:
+
+- **Parameters** — add / remove parameter names (referenced as `{name}`).
+- **Input** — pick how parameters reach the command (command-line args,
+  environment variables, JSON on stdin, or an input-file template) and fill in
+  that scheme's fields.
+- **Command** — the program, any fixed args (added / removed as rows), working
+  directory, timeout, and retries.
+- **Objectives** and **Constraints** — one boxed row each: the name, whether the
+  value comes from stdout or a file, and the extractor (regex / JSON path / CSV
+  cell) with its settings.
+- **Hooks** — optionally enable a pre- and/or post-command.
+
+Buttons at the bottom:
+
+- **Load…** imports an existing definition JSON into the form for editing.
+- **Save to File…** validates the form and writes it to a JSON file (the same
+  checks as loading: at least one objective, a non-blank program, and unique,
+  whitespace-free parameter and objective names). Blank rows are ignored.
+- **Optimize →** validates the form and hands the definition straight to the run
+  setup dialog below — no need to save first.
+
 ## Running a study from the Dashboard
 
-Click **Optimize Tool…** on the toolbar and pick a process-definition JSON. The
-setup dialog shows the command read-only and lets you fill in the rest:
+Click **Optimize Tool…** on the toolbar and pick a process-definition JSON (or
+reach this dialog via **Optimize →** in the builder). The setup dialog shows the
+command read-only and lets you fill in the rest:
 
 - a search **range** for each parameter (low / high, decimal digits, or an
   integer flag) — ranges start at `[0, 1]` for you to edit, and a row with

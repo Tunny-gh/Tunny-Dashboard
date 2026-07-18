@@ -65,6 +65,7 @@ pub use common::convergence_card;
 pub use common::csv_import_modal;
 pub use common::ghx_opt_modal;
 pub use common::license_modal;
+pub use common::process_def_modal;
 pub use common::process_opt_modal;
 pub use common::rdb_url_modal;
 pub use common::report_modal;
