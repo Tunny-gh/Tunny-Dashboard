@@ -300,8 +300,15 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
 
 ### 16. Automating the Adaptive Loop
 
-- [ ] An automatic loop of surrogate suggestion → evaluation via the runner (item 15)
-      → refitting (equivalent to commercial adaptive sampling)
+- [x] An automatic loop of surrogate suggestion → evaluation via the runner (item 15)
+      → refitting (equivalent to commercial adaptive sampling): the .ghx run dialog's
+      "Adaptive (surrogate)" sampler (`gh::adaptive`) — random bootstrap, then per
+      iteration fit (Auto model selection) → suggest (EI single-objective / EHVI
+      multi-objective, feasibility-aware for single-objective) → evaluate via
+      Rhino.Compute → refit. Extending the loop to the generic runners follows
+      items 13/14
+- [ ] Convergence-based stopping and loop diagnostics (improvement history per
+      iteration) beyond the fixed iteration budget
 
 ### 17. Write-Capable Tools for tunny-mcp
 

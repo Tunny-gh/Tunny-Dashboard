@@ -106,6 +106,10 @@ pub enum GhSampler {
     Random,
     /// NSGA-II (trial count = population size rounded to even × (generations + 1))
     Nsga2,
+    /// Adaptive surrogate loop: random bootstrap, then repeat
+    /// fit surrogate → suggest candidates (EI single-objective / EHVI
+    /// multi-objective) → evaluate → refit (`super::adaptive`).
+    Adaptive,
 }
 
 /// Configuration for an optimization run.
@@ -122,6 +126,12 @@ pub struct GhRunConfig {
     /// Number of generations for NSGA-II
     pub generations: usize,
     pub seed: u64,
+    /// Adaptive sampler: number of random bootstrap trials before the first fit.
+    pub adaptive_initial: usize,
+    /// Adaptive sampler: candidates evaluated per iteration.
+    pub adaptive_batch: usize,
+    /// Adaptive sampler: number of fit → suggest → evaluate iterations.
+    pub adaptive_iterations: usize,
 }
 
 impl Default for GhRunConfig {
@@ -134,6 +144,9 @@ impl Default for GhRunConfig {
             population_size: 16,
             generations: 10,
             seed: 42,
+            adaptive_initial: 10,
+            adaptive_batch: 4,
+            adaptive_iterations: 10,
         }
     }
 }
@@ -251,6 +264,9 @@ pub fn run_prepared(
             let initial = vec![normalize_current(problem)];
             nsga2_minimize(|x| recorder.eval_signed(x), n_dims, &initial, &nsga_cfg);
         }
+        GhSampler::Adaptive => {
+            super::adaptive::run_loop(&recorder, problem, cfg, progress)?;
+        }
     }
 
     if let Some(e) = recorder
@@ -271,8 +287,9 @@ pub fn run_prepared(
     })
 }
 
-/// Evaluates a single trial and records it to the journal. Shared across parallel evaluation threads.
-struct TrialRecorder<'a> {
+/// Evaluates a single trial and records it to the journal. Shared across parallel
+/// evaluation threads and reused by the adaptive loop (`super::adaptive`).
+pub(super) struct TrialRecorder<'a> {
     writer: &'a Mutex<JournalWriter>,
     study_id: u32,
     problem: &'a GhProblem,
@@ -294,35 +311,11 @@ impl TrialRecorder<'_> {
         }
         let values = denormalize(self.problem, x_norm);
 
-        let trial_id = match self.begin_trial(&values) {
-            Ok(id) => id,
-            Err(e) => {
-                self.set_io_error(e);
-                return vec![FAIL_PENALTY; n_obj];
-            }
-        };
-
-        match self.evaluator.evaluate(&values) {
-            Ok(eval) if eval.objectives.len() == n_obj => {
-                // Validate the evaluation the same way the objective count is
-                // validated: wrong constraint/attribute arity or non-finite
-                // values would journal misaligned columns or silently vanish
-                // (serde_json writes non-finite f64 as null), so record FAIL
-                // instead. ComputeEvaluator guarantees all of this; the checks
-                // protect other GhEvaluator implementations.
-                if let Some(reason) = validate_evaluation(&eval, self.problem) {
-                    self.record_failure(trial_id, reason);
-                    return vec![FAIL_PENALTY; n_obj];
-                }
-                if let Err(e) = self.finish_complete(trial_id, &eval) {
-                    self.set_io_error(e);
-                    return vec![FAIL_PENALTY; n_obj];
-                }
-                self.completed.fetch_add(1, Ordering::Relaxed);
-                self.progress.inc_done();
+        match self.evaluate_and_record(&values) {
+            Some(eval) => {
                 // Constraint-violating trials feed a penalty fitness to the
                 // algorithm (see constrained_penalty_fitness); the journal
-                // record above keeps the real objective values.
+                // record keeps the real objective values.
                 if let Some(penalized) = constrained_penalty_fitness(n_obj, &eval.constraints) {
                     return penalized;
                 }
@@ -335,6 +328,53 @@ impl TrialRecorder<'_> {
                     })
                     .collect()
             }
+            None => vec![FAIL_PENALTY; n_obj],
+        }
+    }
+
+    /// Evaluates real-unit parameter values, records the trial to the journal
+    /// (COMPLETE with constraints/attributes, or FAIL), and returns the
+    /// evaluation on success. `None` covers every non-success: cancellation,
+    /// journal I/O errors, evaluator errors, and invalid evaluations (wrong
+    /// arity / non-finite values — see `validate_evaluation`). Shared by the
+    /// samplers in this module and the adaptive loop.
+    pub(super) fn evaluate_and_record(
+        &self,
+        values: &[f64],
+    ) -> Option<super::compute::GhEvaluation> {
+        let n_obj = self.directions.len();
+        if self.progress.is_cancelled() || self.has_io_error() {
+            return None;
+        }
+
+        let trial_id = match self.begin_trial(values) {
+            Ok(id) => id,
+            Err(e) => {
+                self.set_io_error(e);
+                return None;
+            }
+        };
+
+        match self.evaluator.evaluate(values) {
+            Ok(eval) if eval.objectives.len() == n_obj => {
+                // Validate the evaluation the same way the objective count is
+                // validated: wrong constraint/attribute arity or non-finite
+                // values would journal misaligned columns or silently vanish
+                // (serde_json writes non-finite f64 as null), so record FAIL
+                // instead. ComputeEvaluator guarantees all of this; the checks
+                // protect other GhEvaluator implementations.
+                if let Some(reason) = validate_evaluation(&eval, self.problem) {
+                    self.record_failure(trial_id, reason);
+                    return None;
+                }
+                if let Err(e) = self.finish_complete(trial_id, &eval) {
+                    self.set_io_error(e);
+                    return None;
+                }
+                self.completed.fetch_add(1, Ordering::Relaxed);
+                self.progress.inc_done();
+                Some(eval)
+            }
             Ok(eval) => {
                 self.record_failure(
                     trial_id,
@@ -343,11 +383,11 @@ impl TrialRecorder<'_> {
                         eval.objectives.len()
                     ),
                 );
-                vec![FAIL_PENALTY; n_obj]
+                None
             }
             Err(e) => {
                 self.record_failure(trial_id, e);
-                vec![FAIL_PENALTY; n_obj]
+                None
             }
         }
     }
@@ -439,7 +479,7 @@ impl TrialRecorder<'_> {
 /// Converts a normalized point [0,1]^d into the slider's real value.
 /// Applies the slider's rounding (integer / decimal digits) so that the value
 /// recorded to the journal matches the value sent to Compute.
-fn denormalize(problem: &GhProblem, x_norm: &[f64]) -> Vec<f64> {
+pub(super) fn denormalize(problem: &GhProblem, x_norm: &[f64]) -> Vec<f64> {
     problem
         .variables
         .iter()
@@ -461,7 +501,7 @@ fn normalize_current(problem: &GhProblem) -> Vec<f64> {
         .collect()
 }
 
-fn round_variable(var: &GhVariable, raw: f64) -> f64 {
+pub(super) fn round_variable(var: &GhVariable, raw: f64) -> f64 {
     if var.is_integer {
         raw.round()
     } else {
@@ -500,6 +540,7 @@ mod tests {
             population_size: 4,
             generations: 1,
             seed: 7,
+            ..GhRunConfig::default()
         }
     }
 

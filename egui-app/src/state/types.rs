@@ -408,18 +408,54 @@ pub struct GhOptDialogState {
     pub api_key: String,
     /// Upper bound on concurrent requests (default 4, 1..=16).
     pub max_parallel: usize,
-    /// true = Random sampler, false = NSGA-II (default).
-    pub sampler_is_random: bool,
+    /// Sampler selection (default NSGA-II).
+    pub sampler: GhSamplerChoice,
     /// Number of trials for the Random sampler (default 50).
     pub n_trials: usize,
     /// NSGA-II population size (default 16).
     pub population_size: usize,
     /// Number of NSGA-II generations (default 10).
     pub generations: usize,
+    /// Adaptive sampler: random bootstrap trials before the first fit (default 10,
+    /// floored to the surrogate minimum on the core side).
+    pub adaptive_initial: usize,
+    /// Adaptive sampler: candidates evaluated per iteration (default 4).
+    pub adaptive_batch: usize,
+    /// Adaptive sampler: fit → suggest → evaluate iterations (default 10).
+    pub adaptive_iterations: usize,
     /// Random seed (default 42).
     pub seed: u64,
     /// Display text for when Run fails (errors from `build_compute_definition` / `prepare_gh_run`).
     pub error: Option<String>,
+}
+
+/// Sampler selection for a .ghx optimization run (maps onto
+/// `tunny_core::gh::GhSampler`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum GhSamplerChoice {
+    Nsga2,
+    Random,
+    /// Adaptive surrogate loop (random bootstrap → fit → EI/EHVI suggest →
+    /// evaluate → refit).
+    Adaptive,
+}
+
+impl GhSamplerChoice {
+    pub fn label(&self) -> &'static str {
+        match self {
+            GhSamplerChoice::Nsga2 => "NSGA-II",
+            GhSamplerChoice::Random => "Random",
+            GhSamplerChoice::Adaptive => "Adaptive (surrogate)",
+        }
+    }
+
+    pub fn to_core(self) -> tunny_core::gh::GhSampler {
+        match self {
+            GhSamplerChoice::Nsga2 => tunny_core::gh::GhSampler::Nsga2,
+            GhSamplerChoice::Random => tunny_core::gh::GhSampler::Random,
+            GhSamplerChoice::Adaptive => tunny_core::gh::GhSampler::Adaptive,
+        }
+    }
 }
 
 /// User preferences for the .ghx optimization setup, persisted across app
@@ -439,10 +475,13 @@ pub struct GhComputePrefs {
     pub compute_port: u16,
     pub api_key: String,
     pub max_parallel: usize,
-    pub sampler_is_random: bool,
+    pub sampler: GhSamplerChoice,
     pub n_trials: usize,
     pub population_size: usize,
     pub generations: usize,
+    pub adaptive_initial: usize,
+    pub adaptive_batch: usize,
+    pub adaptive_iterations: usize,
     pub seed: u64,
 }
 
@@ -456,10 +495,13 @@ impl Default for GhComputePrefs {
             compute_port: 6500,
             api_key: String::new(),
             max_parallel: 4,
-            sampler_is_random: false,
+            sampler: GhSamplerChoice::Nsga2,
             n_trials: 50,
             population_size: 16,
             generations: 10,
+            adaptive_initial: 10,
+            adaptive_batch: 4,
+            adaptive_iterations: 10,
             seed: 42,
         }
     }
@@ -475,10 +517,13 @@ impl GhComputePrefs {
         dialog.compute_port = self.compute_port;
         dialog.api_key = self.api_key.clone();
         dialog.max_parallel = self.max_parallel.clamp(1, 16);
-        dialog.sampler_is_random = self.sampler_is_random;
+        dialog.sampler = self.sampler;
         dialog.n_trials = self.n_trials.max(1);
         dialog.population_size = self.population_size.max(1);
         dialog.generations = self.generations.max(1);
+        dialog.adaptive_initial = self.adaptive_initial.max(1);
+        dialog.adaptive_batch = self.adaptive_batch.max(1);
+        dialog.adaptive_iterations = self.adaptive_iterations.max(1);
         dialog.seed = self.seed;
     }
 
@@ -491,10 +536,13 @@ impl GhComputePrefs {
             compute_port: dialog.compute_port,
             api_key: dialog.api_key.clone(),
             max_parallel: dialog.max_parallel,
-            sampler_is_random: dialog.sampler_is_random,
+            sampler: dialog.sampler,
             n_trials: dialog.n_trials,
             population_size: dialog.population_size,
             generations: dialog.generations,
+            adaptive_initial: dialog.adaptive_initial,
+            adaptive_batch: dialog.adaptive_batch,
+            adaptive_iterations: dialog.adaptive_iterations,
             seed: dialog.seed,
         }
     }
@@ -533,7 +581,10 @@ impl GhOptDialogState {
             compute_port: 6500,
             api_key: String::new(),
             max_parallel: 4,
-            sampler_is_random: false,
+            sampler: GhSamplerChoice::Nsga2,
+            adaptive_initial: 10,
+            adaptive_batch: 4,
+            adaptive_iterations: 10,
             n_trials: 50,
             population_size: 16,
             generations: 10,
@@ -619,7 +670,10 @@ mod tests {
         first.compute_port = 9900;
         first.api_key = "secret".to_string();
         first.max_parallel = 8;
-        first.sampler_is_random = true;
+        first.sampler = GhSamplerChoice::Adaptive;
+        first.adaptive_initial = 20;
+        first.adaptive_batch = 6;
+        first.adaptive_iterations = 3;
         first.n_trials = 123;
         first.population_size = 32;
         first.generations = 5;
@@ -637,7 +691,10 @@ mod tests {
         assert_eq!(second.compute_port, 9900);
         assert_eq!(second.api_key, "secret");
         assert_eq!(second.max_parallel, 8);
-        assert!(second.sampler_is_random);
+        assert_eq!(second.sampler, GhSamplerChoice::Adaptive);
+        assert_eq!(second.adaptive_initial, 20);
+        assert_eq!(second.adaptive_batch, 6);
+        assert_eq!(second.adaptive_iterations, 3);
         assert_eq!(second.n_trials, 123);
         assert_eq!(second.population_size, 32);
         assert_eq!(second.generations, 5);
@@ -713,7 +770,7 @@ mod tests {
         assert_eq!(state.compute_port, 6500);
         assert_eq!(state.api_key, "");
         assert_eq!(state.max_parallel, 4);
-        assert!(!state.sampler_is_random);
+        assert_eq!(state.sampler, GhSamplerChoice::Nsga2);
         assert_eq!(state.n_trials, 50);
         assert_eq!(state.population_size, 16);
         assert_eq!(state.generations, 10);
