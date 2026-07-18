@@ -132,6 +132,15 @@ pub struct GhRunConfig {
     pub adaptive_batch: usize,
     /// Adaptive sampler: number of fit → suggest → evaluate iterations.
     pub adaptive_iterations: usize,
+    /// Adaptive sampler: stop early after this many consecutive iterations whose
+    /// relative improvement in the convergence metric (hypervolume for
+    /// multi-objective, shifted best value for single-objective) stays below
+    /// `adaptive_min_improvement`. `0` disables convergence-based stopping (the
+    /// loop always runs the full `adaptive_iterations`).
+    pub adaptive_patience: usize,
+    /// Adaptive sampler: relative-improvement threshold for the convergence
+    /// check (e.g. `0.01` = 1%). Only used when `adaptive_patience > 0`.
+    pub adaptive_min_improvement: f64,
 }
 
 impl Default for GhRunConfig {
@@ -147,8 +156,41 @@ impl Default for GhRunConfig {
             adaptive_initial: 10,
             adaptive_batch: 4,
             adaptive_iterations: 10,
+            adaptive_patience: 0,
+            adaptive_min_improvement: 0.01,
         }
     }
+}
+
+/// Per-iteration diagnostics for the adaptive sampler.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GhIterationDiagnostic {
+    /// 1-based iteration index (0 = the random bootstrap phase).
+    pub iteration: usize,
+    /// Cumulative number of successful evaluations after this iteration.
+    pub trials_completed: usize,
+    /// Convergence metric after this iteration: the feasible Pareto front's
+    /// hypervolume against a fixed reference point (multi-objective), or the
+    /// shifted best value `ref - best` (single-objective). Monotonically
+    /// non-decreasing; larger is better.
+    pub metric: f64,
+    /// Relative improvement in `metric` versus the previous recorded iteration
+    /// (`(metric - prev) / max(|prev|, eps)`). `f64::INFINITY` on the first
+    /// non-zero metric.
+    pub relative_improvement: f64,
+}
+
+/// Why the adaptive loop stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GhStopReason {
+    /// Not an adaptive run, or the loop ran its full iteration budget.
+    Completed,
+    /// The convergence criterion (patience × min-improvement) was met.
+    Converged,
+    /// A whole batch of suggestions duplicated already-evaluated points.
+    NoNewCandidates,
+    /// The user cancelled.
+    Cancelled,
 }
 
 /// Summary of a run's results.
@@ -161,6 +203,11 @@ pub struct GhRunSummary {
     pub failed: usize,
     /// Whether the run was cut short by cancellation
     pub cancelled: bool,
+    /// Per-iteration diagnostics for the adaptive sampler (empty for the other
+    /// samplers).
+    pub adaptive_diagnostics: Vec<GhIterationDiagnostic>,
+    /// Why the run ended (always `Completed` for the non-adaptive samplers).
+    pub stop_reason: GhStopReason,
 }
 
 /// Result of `prepare_gh_run`. Holds a journal writer with the study already created.
@@ -234,6 +281,9 @@ pub fn run_prepared(
     let n_dims = problem.variables.len();
     progress.set_stage("Evaluating with Rhino.Compute");
 
+    let mut adaptive_diagnostics = Vec::new();
+    let mut stop_reason = GhStopReason::Completed;
+
     match cfg.sampler {
         GhSampler::Random => {
             let n = cfg.n_trials.max(1);
@@ -265,7 +315,9 @@ pub fn run_prepared(
             nsga2_minimize(|x| recorder.eval_signed(x), n_dims, &initial, &nsga_cfg);
         }
         GhSampler::Adaptive => {
-            super::adaptive::run_loop(&recorder, problem, cfg, progress)?;
+            let outcome = super::adaptive::run_loop(&recorder, problem, cfg, progress)?;
+            adaptive_diagnostics = outcome.diagnostics;
+            stop_reason = outcome.stop_reason;
         }
     }
 
@@ -279,11 +331,17 @@ pub fn run_prepared(
             "Aborted because writing to the journal failed: {e}"
         ));
     }
+    // Cancellation overrides the sampler's own stop reason.
+    if progress.is_cancelled() {
+        stop_reason = GhStopReason::Cancelled;
+    }
     Ok(GhRunSummary {
         study_id: prep.study_id,
         completed: recorder.completed.load(Ordering::Relaxed),
         failed: recorder.failed.load(Ordering::Relaxed),
         cancelled: progress.is_cancelled(),
+        adaptive_diagnostics,
+        stop_reason,
     })
 }
 

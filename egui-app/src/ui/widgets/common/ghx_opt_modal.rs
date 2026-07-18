@@ -272,18 +272,45 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                             egui::DragValue::new(&mut state.adaptive_iterations).range(1..=10_000),
                         );
                     });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut state.adaptive_early_stop, "Stop early on convergence");
+                    });
+                    if state.adaptive_early_stop {
+                        ui.horizontal(|ui| {
+                            ui.label("Patience (iterations):");
+                            ui.add(
+                                egui::DragValue::new(&mut state.adaptive_patience).range(1..=1_000),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Min improvement (%):");
+                            ui.add(
+                                egui::DragValue::new(&mut state.adaptive_min_improvement_pct)
+                                    .range(0.0..=100.0)
+                                    .speed(0.1),
+                            );
+                        });
+                    }
                     let total = adaptive_total_evaluations(
                         state.adaptive_initial,
                         state.adaptive_batch,
                         state.adaptive_iterations,
                     );
-                    ui.label(
-                        RichText::new(format!(
+                    let hint = if state.adaptive_early_stop {
+                        format!(
+                            "Up to {total} evaluations (stops early once the hypervolume / best \
+                             value improves by less than {:.1}% for {} iterations). Each iteration \
+                             fits a surrogate (Auto model) and evaluates the best candidates \
+                             (EI / EHVI).",
+                            state.adaptive_min_improvement_pct, state.adaptive_patience
+                        )
+                    } else {
+                        format!(
                             "Up to {total} evaluations. Each iteration fits a surrogate (Auto \
                              model) and evaluates the most promising candidates (EI / EHVI)."
-                        ))
-                        .color(crate::theme::TEXT_SECONDARY()),
-                    );
+                        )
+                    };
+                    ui.label(RichText::new(hint).color(crate::theme::TEXT_SECONDARY()));
                 }
             }
             ui.horizontal(|ui| {
