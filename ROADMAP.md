@@ -221,20 +221,42 @@ Foundational work to avoid undermining our credibility as an analysis tool.
 
 ### 13. Lightweight Runner
 
-The framing: "Optuna is the workflow engine; Dashboard is the cockpit."
+The framing: "Optuna is the workflow engine; Dashboard is the cockpit." The
+optimization loop runs entirely in the Dashboard (Rust samplers + the
+Dashboard's own journal writer); evaluation is delegated to Grasshopper
+(Rhino.Compute) or a user-specified tool. **No Python / Optuna is required at
+runtime** — the journal is only a file format, so Optuna can read the results
+later but is never needed to produce them.
 
 - [ ] UI for study creation + sampler configuration
-- [ ] Register the objective function as "a command + a parameter-passing convention
-      (environment variables / JSON / CLI arguments)" and evaluate it in a subprocess
-- [ ] Management of parallel worker count, timeouts, and failure retries
+- [x] Register the objective function as "a command + a parameter-passing convention
+      (environment variables / JSON / CLI arguments)" and evaluate it in a subprocess:
+      the `process` module's `ProcessEvaluator` runs one trial via an external command,
+      delivering parameters through any of the four conventions (input-file template,
+      env vars, JSON stdin, CLI args)
+- [x] Failure retries and per-command timeouts (subprocess killed on timeout)
+- [x] Self-contained optimization loop (`runner` module): drives the Random / NSGA-II
+      samplers over any `Evaluator` (the process command, Rhino.Compute, or a mock) and
+      writes every trial to an Optuna-compatible journal with the Dashboard's own Rust
+      writer — so a process optimization runs with **only the Dashboard and the target
+      tool**, no Python/Optuna at runtime. `ProcessEvaluator` implements
+      `runner::Evaluator`. Migrating the Grasshopper runner onto the shared `runner`
+      module, the adaptive sampler for the generic path, and parallel worker management
+      are follow-ups
 - [ ] Monitoring UI during execution (reusing the existing live-update polling)
 
 ### 14. Dakota-Style Generic Process Integration
 
-- [ ] A pipeline of input template substitution (parameter embedding) → solver
-      execution → output extraction (regex / JSON / CSV)
-- [ ] Persist the integration definition as TOML/JSON, editable via the GUI
-- [ ] A sequential hook chain of pre-command → evaluation → post-command
+- [x] A pipeline of input template substitution (parameter embedding) → solver
+      execution → output extraction (regex / JSON / CSV): `process::ProcessEvaluator`
+      substitutes `{param}` placeholders into an input-file template (or builds
+      args/env/JSON stdin), runs the command, and extracts each objective/constraint
+      from stdout or an output file via regex capture group, dotted JSON path, or CSV
+      cell (`process::Extractor`)
+- [x] Persist the integration definition as JSON, editable via the GUI: the whole
+      `ProcessDefinition` is `serde`-serializable (`to_json` / `from_json`); a TOML
+      encoding is a drop-in follow-up, and the GUI editor is pending
+- [x] A sequential hook chain of pre-command → evaluation → post-command
       (no graph editor will be built; revisit once demand is proven)
 
 ### 15. First-Class Grasshopper (Tunny) Integration
