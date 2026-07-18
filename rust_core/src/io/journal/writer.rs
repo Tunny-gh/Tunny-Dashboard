@@ -195,6 +195,24 @@ impl JournalWriter {
         self.write_line(&record)
     }
 
+    /// Writes op8 (SET_TRIAL_USER_ATTR) with a single user attribute. The value is
+    /// any JSON value; the existing parsers read numbers into numeric attribute
+    /// columns and strings into string attribute columns.
+    pub fn set_trial_user_attr(
+        &mut self,
+        trial_id: u32,
+        key: &str,
+        value: &Value,
+    ) -> Result<(), String> {
+        let record = ordered_object(&[
+            ("op_code", j(8)),
+            ("worker_id", j(&self.worker_id)),
+            ("trial_id", j(trial_id)),
+            ("user_attr", ordered_object(&[(key, j(value))])),
+        ]);
+        self.write_line(&record)
+    }
+
     /// Writes op9 (SET_TRIAL_SYSTEM_ATTR) with the trial's constraint values under
     /// the `"constraints"` key — the same layout Optuna's samplers write, which the
     /// existing parsers read for feasibility (feasible when every value <= 0).
@@ -502,6 +520,37 @@ mod tests {
         assert_eq!(
             df.get_numeric_column("is_feasible"),
             Some([1.0, 0.0].as_slice())
+        );
+    }
+
+    /// User-attribute round-trip: op8 written by the writer is read back by the
+    /// existing parser into numeric / string attribute columns.
+    #[test]
+    fn user_attrs_roundtrip_via_existing_parser() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("study.journal");
+        let mut writer = JournalWriter::open(&path).unwrap();
+
+        let study_id = writer
+            .create_study("attr-study", &[OptimizationDirection::Minimize], &[])
+            .unwrap();
+        let trial0 = writer.create_trial(study_id).unwrap();
+        writer
+            .set_trial_user_attr(trial0, "area", &serde_json::json!(12.5))
+            .unwrap();
+        writer
+            .set_trial_user_attr(trial0, "material", &serde_json::json!("steel"))
+            .unwrap();
+        writer
+            .finish_trial(trial0, TrialState::Complete, &[1.0])
+            .unwrap();
+
+        let data = std::fs::read(&path).unwrap();
+        let (_, df, _) = parse_single_study(&data, 0).unwrap();
+        assert_eq!(df.get_numeric_column("area"), Some([12.5].as_slice()));
+        assert_eq!(
+            df.get_string_column("material").map(<[String]>::to_vec),
+            Some(vec!["steel".to_string()])
         );
     }
 

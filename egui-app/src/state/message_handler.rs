@@ -667,8 +667,23 @@ impl MessageHandler {
             if !added_rows.is_empty() {
                 let param_names = study.meta.param_names.clone();
                 let obj_names = study.meta.objective_names.clone();
-                let un = study.view.df.user_attr_numeric_col_names().to_vec();
-                let us = study.view.df.user_attr_string_col_names().to_vec();
+                // User attrs (like constraints below) may first appear in live
+                // rows; append_trials backfills existing rows when passed names
+                // beyond the current columns.
+                let mut un = study.view.df.user_attr_numeric_col_names().to_vec();
+                let mut us = study.view.df.user_attr_string_col_names().to_vec();
+                let new_un: std::collections::BTreeSet<&String> = added_rows
+                    .iter()
+                    .flat_map(|r| r.user_attrs_numeric.keys())
+                    .filter(|k| !un.contains(*k))
+                    .collect();
+                un.extend(new_un.into_iter().cloned());
+                let new_us: std::collections::BTreeSet<&String> = added_rows
+                    .iter()
+                    .flat_map(|r| r.user_attrs_string.keys())
+                    .filter(|k| !us.contains(*k))
+                    .collect();
+                us.extend(new_us.into_iter().cloned());
                 // Constraints may first appear in live rows (e.g. a .ghx run on a
                 // fresh journal), so grow the column count beyond the existing df.
                 let incoming_c = added_rows

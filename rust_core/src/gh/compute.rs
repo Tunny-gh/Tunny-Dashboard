@@ -42,6 +42,15 @@ impl Default for ComputeConfig {
     }
 }
 
+/// A per-trial attribute value (recorded as an Optuna trial user attribute).
+/// Numeric values become numeric user-attribute columns in the dashboard;
+/// anything else is kept as text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GhAttrValue {
+    Number(f64),
+    Text(String),
+}
+
 /// Result of evaluating one trial.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GhEvaluation {
@@ -50,6 +59,8 @@ pub struct GhEvaluation {
     /// Constraint values (in the same order as `GhProblem.constraints`; empty
     /// when the problem has no constraints). Feasible when every value <= 0.
     pub constraints: Vec<f64>,
+    /// Per-trial attribute values (in the same order as `GhProblem.attributes`).
+    pub attributes: Vec<GhAttrValue>,
 }
 
 /// Evaluator for the real objective function. The implementation can be
@@ -73,6 +84,7 @@ pub struct ComputeEvaluator {
     input_params: Vec<String>,
     output_params: Vec<String>,
     constraint_params: Vec<String>,
+    attr_params: Vec<String>,
     agent: ureq::Agent,
     semaphore: Semaphore,
 }
@@ -91,6 +103,7 @@ impl ComputeEvaluator {
             input_params: def.input_params.clone(),
             output_params: def.output_params.clone(),
             constraint_params: def.constraint_params.clone(),
+            attr_params: def.attr_params.clone(),
             agent,
             semaphore: Semaphore::new(cfg.max_parallel.max(1)),
         }
@@ -176,6 +189,7 @@ impl GhEvaluator for ComputeEvaluator {
         Ok(GhEvaluation {
             objectives: extract_outputs(&parsed, &self.output_params)?,
             constraints: extract_outputs(&parsed, &self.constraint_params)?,
+            attributes: extract_attr_outputs(&parsed, &self.attr_params)?,
         })
     }
 }
@@ -185,31 +199,9 @@ impl GhEvaluator for ComputeEvaluator {
 /// Response format:
 /// `{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "...", "data": <number or JSON string>}]}}]}`
 fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64>, String> {
-    let values = response
-        .get("values")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Rhino.Compute response has no values field".to_string())?;
-
     let mut result = Vec::with_capacity(output_params.len());
     for name in output_params {
-        let entry = values
-            .iter()
-            .find(|e| e.get("ParamName").and_then(Value::as_str) == Some(name.as_str()))
-            .ok_or_else(|| {
-                format!(
-                    "The response does not contain {name}; check the definition's output wiring"
-                )
-            })?;
-        let first_item = entry
-            .get("InnerTree")
-            .and_then(Value::as_object)
-            .and_then(|tree| tree.values().next())
-            .and_then(Value::as_array)
-            .and_then(|items| items.first())
-            .ok_or_else(|| format!("{name} is empty (the solve may have failed)"))?;
-        let data = first_item
-            .get("data")
-            .ok_or_else(|| format!("{name} has no data field in the response"))?;
+        let data = first_data(response, name)?;
         let value = parse_data_number(data)
             .ok_or_else(|| format!("Cannot interpret the value of {name} as a number: {data}"))?;
         if !value.is_finite() {
@@ -218,6 +210,66 @@ fn extract_outputs(response: &Value, output_params: &[String]) -> Result<Vec<f64
         result.push(value);
     }
     Ok(result)
+}
+
+/// Extracts per-trial attribute values. Unlike objectives/constraints,
+/// attributes are not required to be numeric: a finite number becomes
+/// [`GhAttrValue::Number`], anything else is kept as text (unwrapping a
+/// double-encoded JSON string when present).
+fn extract_attr_outputs(
+    response: &Value,
+    attr_params: &[String],
+) -> Result<Vec<GhAttrValue>, String> {
+    let mut result = Vec::with_capacity(attr_params.len());
+    for name in attr_params {
+        let data = first_data(response, name)?;
+        result.push(parse_data_attr(data));
+    }
+    Ok(result)
+}
+
+/// Finds the `data` field of the first item of the named output in a Compute
+/// response (GrasshopperEndpoint schema).
+fn first_data<'a>(response: &'a Value, name: &str) -> Result<&'a Value, String> {
+    let values = response
+        .get("values")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Rhino.Compute response has no values field".to_string())?;
+    let entry = values
+        .iter()
+        .find(|e| e.get("ParamName").and_then(Value::as_str) == Some(name))
+        .ok_or_else(|| {
+            format!("The response does not contain {name}; check the definition's output wiring")
+        })?;
+    let first_item = entry
+        .get("InnerTree")
+        .and_then(Value::as_object)
+        .and_then(|tree| tree.values().next())
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .ok_or_else(|| format!("{name} is empty (the solve may have failed)"))?;
+    first_item
+        .get("data")
+        .ok_or_else(|| format!("{name} has no data field in the response"))
+}
+
+/// Interprets a Resthopper `data` field as an attribute value: a finite number
+/// becomes Number, everything else Text (a double-encoded JSON string is
+/// unwrapped once so `"\"free\""` displays as `free`).
+fn parse_data_attr(data: &Value) -> GhAttrValue {
+    if let Some(v) = parse_data_number(data) {
+        if v.is_finite() {
+            return GhAttrValue::Number(v);
+        }
+    }
+    let text = match data {
+        Value::String(s) => match serde_json::from_str::<Value>(s.trim()) {
+            Ok(Value::String(inner)) => inner,
+            _ => s.clone(),
+        },
+        other => other.to_string(),
+    };
+    GhAttrValue::Text(text)
 }
 
 /// Interprets a Resthopper `data` field as a number.
@@ -290,6 +342,7 @@ mod tests {
             input_params: vec!["RH_IN:x".to_string()],
             output_params: vec!["RH_OUT:v".to_string()],
             constraint_params: vec![],
+            attr_params: vec![],
         };
         let cfg = ComputeConfig::default();
         let plain = ComputeEvaluator::new(&cfg, &def);
@@ -329,6 +382,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_data_attr_number_and_text() {
+        assert_eq!(parse_data_attr(&json!(1.5)), GhAttrValue::Number(1.5));
+        assert_eq!(parse_data_attr(&json!("2.5")), GhAttrValue::Number(2.5));
+        // Double-encoded JSON string unwraps once
+        assert_eq!(
+            parse_data_attr(&json!("\"steel\"")),
+            GhAttrValue::Text("steel".to_string())
+        );
+        assert_eq!(
+            parse_data_attr(&json!("plain text")),
+            GhAttrValue::Text("plain text".to_string())
+        );
+    }
+
+    #[test]
     fn parses_various_data_encodings() {
         assert_eq!(parse_data_number(&json!(1.5)), Some(1.5));
         assert_eq!(parse_data_number(&json!("2.5")), Some(2.5));
@@ -362,7 +430,7 @@ mod tests {
             reader.read_exact(&mut body).unwrap();
             let body = String::from_utf8(body).unwrap();
 
-            let reply = r#"{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "System.Double", "data": "42.5"}]}}, {"ParamName": "RH_OUT:constraint:penalty", "InnerTree": {"{0}": [{"type": "System.Double", "data": "-0.25"}]}}]}"#;
+            let reply = r#"{"values": [{"ParamName": "RH_OUT:weight", "InnerTree": {"{0}": [{"type": "System.Double", "data": "42.5"}]}}, {"ParamName": "RH_OUT:constraint:penalty", "InnerTree": {"{0}": [{"type": "System.Double", "data": "-0.25"}]}}, {"ParamName": "RH_OUT:attr:note", "InnerTree": {"{0}": [{"type": "System.String", "data": "\"ok\""}]}}]}"#;
             let mut stream = reader.into_inner();
             write!(
                 stream,
@@ -379,6 +447,7 @@ mod tests {
             input_params: vec!["RH_IN:span".to_string()],
             output_params: vec!["RH_OUT:weight".to_string()],
             constraint_params: vec!["RH_OUT:constraint:penalty".to_string()],
+            attr_params: vec!["RH_OUT:attr:note".to_string()],
         };
         let cfg = ComputeConfig {
             server_url: format!("http://127.0.0.1:{port}"),
@@ -389,6 +458,7 @@ mod tests {
         let result = evaluator.evaluate(&[5.5]).unwrap();
         assert_eq!(result.objectives, vec![42.5]);
         assert_eq!(result.constraints, vec![-0.25]);
+        assert_eq!(result.attributes, vec![GhAttrValue::Text("ok".to_string())]);
 
         // Verify the contents of the request the server received
         let request_body = server.join().unwrap();

@@ -21,13 +21,13 @@ pub mod compute_server;
 pub mod problem;
 pub mod runner;
 
-pub use compute::{ComputeConfig, ComputeEvaluator, GhEvaluation, GhEvaluator};
+pub use compute::{ComputeConfig, ComputeEvaluator, GhAttrValue, GhEvaluation, GhEvaluator};
 pub use compute_def::{build_compute_definition, ComputeDefinition};
 pub use compute_server::{
     classify_compute_input, start_compute_server, start_compute_server_tracked,
     ComputeServerHandle, ComputeTarget,
 };
-pub use problem::{extract_problem, GhConstraint, GhObjective, GhProblem, GhVariable};
+pub use problem::{extract_problem, GhAttribute, GhConstraint, GhObjective, GhProblem, GhVariable};
 pub use runner::{
     prepare_gh_run, run_prepared, GhRunConfig, GhRunSummary, GhSampler, PreparedGhRun,
 };
@@ -43,7 +43,8 @@ pub use runner::{
 #[cfg(test)]
 pub(crate) mod fixtures {
     /// Variant of [`sample_ghx`] with the attribute wiring removed (the
-    /// Attributes input has no sources), i.e. a definition without constraints.
+    /// Attributes input has no sources), i.e. a definition without constraints
+    /// or per-trial attributes.
     pub fn sample_ghx_without_constraint() -> String {
         sample_ghx().replace(
             r#"<item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000faout</item>"#,
@@ -76,9 +77,9 @@ pub(crate) mod fixtures {
         </chunk>
         <chunk name="DefinitionObjects">
           <items count="1">
-            <item name="ObjectCount" type_name="gh_int32" type_code="3">7</item>
+            <item name="ObjectCount" type_name="gh_int32" type_code="3">8</item>
           </items>
-          <chunks count="7">
+          <chunks count="8">
             <chunk name="Object" index="0">
               <items count="2">
                 <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
@@ -200,6 +201,24 @@ pub(crate) mod fixtures {
                 </chunk>
               </chunks>
             </chunk>
+            <chunk name="Object" index="7">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000area</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Number</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">area</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">true</item>
+                    <item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000bem2</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                  </items>
+                </chunk>
+              </chunks>
+            </chunk>
             <chunk name="Object" index="5">
               <items count="2">
                 <item name="GUID" type_name="gh_guid" type_code="9">aaaabbbb-cccc-dddd-eeee-ffff00001111</item>
@@ -212,7 +231,7 @@ pub(crate) mod fixtures {
                     <item name="Name" type_name="gh_string" type_code="10">Construct Fish Attribute</item>
                     <item name="NickName" type_name="gh_string" type_code="10">FishAttr</item>
                   </items>
-                  <chunks count="3">
+                  <chunks count="4">
                     <chunk name="param_input" index="0">
                       <items count="4">
                         <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000fain0</item>
@@ -227,6 +246,15 @@ pub(crate) mod fixtures {
                         <item name="Name" type_name="gh_string" type_code="10">Constraint</item>
                         <item name="NickName" type_name="gh_string" type_code="10">C</item>
                         <item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000pena</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                    </chunk>
+                    <chunk name="param_input" index="2">
+                      <items count="5">
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000fain2</item>
+                        <item name="Name" type_name="gh_string" type_code="10">Attribute</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">Attr</item>
+                        <item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000area</item>
                         <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
                       </items>
                     </chunk>

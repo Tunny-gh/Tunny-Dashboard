@@ -52,6 +52,21 @@ pub struct GhConstraint {
     pub name: String,
 }
 
+/// A per-trial attribute (a parameter connected to the Attribute input of the
+/// attribute component wired to Tunny's Attributes input).
+///
+/// Recorded to the journal as an Optuna trial user attribute under this name,
+/// so it shows up in the dashboard's user-attribute columns. The Geometry
+/// input is not captured (geometry has no journal representation; it belongs
+/// to a future artifact store).
+#[derive(Debug, Clone)]
+pub struct GhAttribute {
+    /// The source parameter's InstanceGuid (used for RH_OUT relay injection)
+    pub source_guid: String,
+    /// Attribute name (the source parameter's NickName; a sequence number is appended on duplicates)
+    pub name: String,
+}
+
 /// Intermediate representation of an optimization problem extracted from a .ghx file.
 /// Will be merged into the same type once a future .gh + manifest path is added (ROADMAP item 15).
 #[derive(Debug, Clone)]
@@ -60,6 +75,8 @@ pub struct GhProblem {
     pub objectives: Vec<GhObjective>,
     /// Constraints wired via the attribute component (empty when none are set up)
     pub constraints: Vec<GhConstraint>,
+    /// Per-trial attributes wired via the attribute component (empty when none are set up)
+    pub attributes: Vec<GhAttribute>,
     /// Display name of the detected Tunny component
     pub tunny_component: String,
     /// Notes on connections etc. ignored during extraction (shown in the UI)
@@ -189,10 +206,13 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
     }
 
     // Attributes input → follow to the attribute component (Construct Fish
-    // Attribute) and read the sources of its Constraint input as constraints.
-    // Tunny's convention: constraint value <= 0 means the trial is feasible.
+    // Attribute) and read the sources of its Constraint input as constraints
+    // (Tunny's convention: constraint value <= 0 means the trial is feasible)
+    // and the sources of its Attribute input as per-trial attributes. The
+    // Geometry input is intentionally ignored (no journal representation).
     let attribute_sources = input_sources(tunny.container, &["attribute", "attrs"], "attr");
     let mut constraints = Vec::new();
+    let mut attributes = Vec::new();
     for guid in &attribute_sources {
         // The source GUID is the attribute component's output parameter (or the
         // component itself when it is a floating object); resolve the owner.
@@ -209,9 +229,10 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
             continue;
         };
         let constraint_sources = input_sources(owner.container, &["constraint"], "c");
-        if constraint_sources.is_empty() {
+        let attr_value_sources = input_sources(owner.container, &["attribute", "attrs"], "attr");
+        if constraint_sources.is_empty() && attr_value_sources.is_empty() {
             warnings.push(format!(
-                "No constraints found on attribute component \"{}\" (no sources on its Constraint input)",
+                "No constraints or attributes found on attribute component \"{}\" (no sources on its Constraint / Attribute inputs)",
                 owner.nickname
             ));
             continue;
@@ -224,6 +245,18 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| format!("constraint_{}", index + 1));
             constraints.push(GhConstraint {
+                source_guid: guid.clone(),
+                name,
+            });
+        }
+        for guid in &attr_value_sources {
+            let index = attributes.len();
+            let name = param_index
+                .get(guid.as_str())
+                .map(|p| p.nickname.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("attribute_{}", index + 1));
+            attributes.push(GhAttribute {
                 source_guid: guid.clone(),
                 name,
             });
@@ -261,11 +294,18 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
             .map(|c| &mut c.name)
             .collect::<Vec<_>>(),
     );
+    dedupe_names(
+        &mut attributes
+            .iter_mut()
+            .map(|a| &mut a.name)
+            .collect::<Vec<_>>(),
+    );
 
     Ok(GhProblem {
         variables,
         objectives,
         constraints,
+        attributes,
         tunny_component: tunny.nickname.clone(),
         warnings,
     })
@@ -412,21 +452,30 @@ mod tests {
             problem.constraints[0].source_guid,
             "0aaaaaaa-0000-0000-0000-00000000pena"
         );
+
+        // Per-trial attribute via the attribute component's Attribute input
+        assert_eq!(problem.attributes.len(), 1);
+        assert_eq!(problem.attributes[0].name, "area");
+        assert_eq!(
+            problem.attributes[0].source_guid,
+            "0aaaaaaa-0000-0000-0000-00000000area"
+        );
         assert!(problem.warnings.is_empty());
     }
 
     #[test]
-    fn no_attribute_wiring_means_no_constraints() {
+    fn no_attribute_wiring_means_no_constraints_or_attributes() {
         let problem = extract_problem(&sample_ghx_without_constraint()).unwrap();
         assert!(problem.constraints.is_empty());
+        assert!(problem.attributes.is_empty());
         // Not an error, and no warning either (an unwired Attributes input is normal)
         assert!(problem.warnings.is_empty());
     }
 
     #[test]
-    fn attribute_without_constraint_input_warns() {
-        // Rename the Constraint input so the attribute component has no
-        // detectable constraint input; extraction succeeds with a warning.
+    fn attribute_component_without_recognized_inputs_warns() {
+        // Rename both the Constraint and Attribute inputs so the attribute
+        // component has no detectable inputs; extraction succeeds with a warning.
         let xml = sample_ghx()
             .replace(
                 r#"<item name="Name" type_name="gh_string" type_code="10">Constraint</item>"#,
@@ -435,15 +484,37 @@ mod tests {
             .replace(
                 r#"<item name="NickName" type_name="gh_string" type_code="10">C</item>"#,
                 r#"<item name="NickName" type_name="gh_string" type_code="10">X</item>"#,
+            )
+            .replace(
+                r#"<item name="Name" type_name="gh_string" type_code="10">Attribute</item>"#,
+                r#"<item name="Name" type_name="gh_string" type_code="10">Misc</item>"#,
+            )
+            .replace(
+                r#"<item name="NickName" type_name="gh_string" type_code="10">Attr</item>"#,
+                r#"<item name="NickName" type_name="gh_string" type_code="10">Y</item>"#,
             );
         let problem = extract_problem(&xml).unwrap();
         assert!(problem.constraints.is_empty());
+        assert!(problem.attributes.is_empty());
         assert_eq!(problem.warnings.len(), 1);
         assert!(
             problem.warnings[0].contains("FishAttr"),
             "unexpected warning: {}",
             problem.warnings[0]
         );
+    }
+
+    #[test]
+    fn constraint_only_when_attribute_input_is_unwired() {
+        // Remove the Attribute input's source: constraints stay, attributes empty.
+        let xml = sample_ghx().replace(
+            r#"<item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000area</item>"#,
+            "",
+        );
+        let problem = extract_problem(&xml).unwrap();
+        assert_eq!(problem.constraints.len(), 1);
+        assert!(problem.attributes.is_empty());
+        assert!(problem.warnings.is_empty());
     }
 
     #[test]

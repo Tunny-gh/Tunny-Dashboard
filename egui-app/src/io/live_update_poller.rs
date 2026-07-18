@@ -675,6 +675,7 @@ mod tests {
                 Ok(tunny_core::gh::GhEvaluation {
                     objectives: vec![values.iter().sum()],
                     constraints: vec![values[0] - 5.0],
+                    attributes: vec![tunny_core::gh::GhAttrValue::Number(values[0] * 2.0)],
                 })
             }
         }
@@ -696,6 +697,10 @@ mod tests {
             constraints: vec![tunny_core::gh::GhConstraint {
                 source_guid: "c1".to_string(),
                 name: "g".to_string(),
+            }],
+            attributes: vec![tunny_core::gh::GhAttribute {
+                source_guid: "a1".to_string(),
+                name: "double_x".to_string(),
             }],
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
@@ -743,6 +748,9 @@ mod tests {
                     assert_eq!(row.constraint_values.len(), 1);
                     let x = row.params["x"];
                     assert!((row.constraint_values[0] - (x - 5.0)).abs() < 1e-9);
+                    // op8 user attributes stream through as well
+                    let attr = row.user_attrs_numeric.get("double_x").copied().unwrap();
+                    assert!((attr - x * 2.0).abs() < 1e-9);
                 }
                 rows += new_trial_rows.len();
             } else {

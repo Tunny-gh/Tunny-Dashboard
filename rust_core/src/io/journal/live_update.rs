@@ -216,6 +216,27 @@ pub fn append_journal_diff(data: &[u8]) -> AppendDiffResult {
                         extras.intermediate_values.push((trial_id, step, value));
                     }
                 }
+                8 => {
+                    // SET_TRIAL_USER_ATTR: numbers become numeric attrs, strings
+                    // become string attrs (same split as the full parser).
+                    let trial_id = json
+                        .get("trial_id")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(u64::MAX) as u32;
+                    if let Some(pending) = s.pending.get_mut(&trial_id) {
+                        if let Some(attrs) = json.get("user_attr").and_then(|v| v.as_object()) {
+                            for (key, value) in attrs {
+                                if let Some(number) = value.as_f64() {
+                                    pending.user_attrs_numeric.insert(key.clone(), number);
+                                } else if let Some(text) = value.as_str() {
+                                    pending
+                                        .user_attrs_string
+                                        .insert(key.clone(), text.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
                 9 => {
                     // SET_TRIAL_SYSTEM_ATTR: only the "constraints" key matters
                     // for live rows (feasibility columns), same as the full parser.
@@ -811,6 +832,28 @@ mod tests {
 
             assert_eq!(result.new_trial_rows.len(), 1);
             assert_eq!(result.new_trial_rows[0].constraint_values, vec![-0.5, 0.25]);
+        });
+    }
+
+    #[test]
+    fn tc_2218_11_op8_user_attrs_flow_into_trial_row() {
+        with_fresh_state(|| {
+            let lines = vec![
+                make_create_trial(0),
+                r#"{"op_code":8,"trial_id":0,"user_attr":{"area":12.5}}"#.to_string(),
+                r#"{"op_code":8,"trial_id":0,"user_attr":{"material":"steel"}}"#.to_string(),
+                make_complete(0, &[1.0]),
+            ];
+            let data = make_diff_bytes(&lines);
+            let result = append_journal_diff(&data);
+
+            assert_eq!(result.new_trial_rows.len(), 1);
+            let row = &result.new_trial_rows[0];
+            assert_eq!(row.user_attrs_numeric.get("area"), Some(&12.5));
+            assert_eq!(
+                row.user_attrs_string.get("material"),
+                Some(&"steel".to_string())
+            );
         });
     }
 

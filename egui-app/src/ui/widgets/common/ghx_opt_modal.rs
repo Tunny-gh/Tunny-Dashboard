@@ -141,6 +141,19 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                 ui.add_space(8.0);
             }
 
+            // ── Attributes (read-only; recorded as trial user attributes) ────────
+            if !state.problem.attributes.is_empty() {
+                ui.label(RichText::new("Attributes").strong());
+                for a in &state.problem.attributes {
+                    ui.label(&a.name);
+                }
+                ui.label(
+                    RichText::new("Recorded per trial as user attributes.")
+                        .color(crate::theme::TEXT_SECONDARY()),
+                );
+                ui.add_space(8.0);
+            }
+
             // ── Rhino.Compute connection settings ────────────────────────────────
             ui.label(RichText::new("Rhino.Compute").strong());
             ui.horizontal(|ui| {
@@ -301,6 +314,7 @@ mod tests {
                 })
                 .collect(),
             constraints: vec![],
+            attributes: vec![],
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
         }

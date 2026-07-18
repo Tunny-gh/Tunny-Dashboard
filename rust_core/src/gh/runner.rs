@@ -324,17 +324,27 @@ impl TrialRecorder<'_> {
             .finish_trial(trial_id, state, values)
     }
 
-    /// Records a successful evaluation: constraint values (op9, if any) followed
-    /// by COMPLETE with the objective values (holds the writer lock once so the
-    /// two records stay adjacent even under parallel evaluation).
+    /// Records a successful evaluation: constraint values (op9) and per-trial
+    /// attributes (op8), if any, followed by COMPLETE with the objective values
+    /// (holds the writer lock once so the records stay adjacent even under
+    /// parallel evaluation).
     fn finish_complete(
         &self,
         trial_id: u32,
         eval: &super::compute::GhEvaluation,
     ) -> Result<(), String> {
+        use super::compute::GhAttrValue;
+
         let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         if !eval.constraints.is_empty() {
             writer.set_trial_constraints(trial_id, &eval.constraints)?;
+        }
+        for (attr, value) in self.problem.attributes.iter().zip(&eval.attributes) {
+            let json = match value {
+                GhAttrValue::Number(v) => serde_json::json!(v),
+                GhAttrValue::Text(s) => serde_json::json!(s),
+            };
+            writer.set_trial_user_attr(trial_id, &attr.name, &json)?;
         }
         writer.finish_trial(trial_id, TrialState::Complete, &eval.objectives)
     }
@@ -405,7 +415,7 @@ mod tests {
     use crate::gh::problem::extract_problem;
     use crate::io::journal::parser::parse_single_study;
 
-    use crate::gh::compute::GhEvaluation;
+    use crate::gh::compute::{GhAttrValue, GhEvaluation};
 
     /// Mock evaluator that computes objective values via a closure.
     struct FnEvaluator<F: Fn(&[f64]) -> Result<GhEvaluation, String> + Send + Sync>(F);
@@ -432,12 +442,14 @@ mod tests {
     }
 
     /// Objectives: [span+count, span-count]. Constraint (the fixture wires one):
-    /// span - 8 (feasible when span <= 8).
+    /// span - 8 (feasible when span <= 8). Attribute (the fixture wires one):
+    /// area = span * count.
     fn sum_diff_evaluator() -> impl GhEvaluator {
         FnEvaluator(|v: &[f64]| {
             Ok(GhEvaluation {
                 objectives: vec![v[0] + v[1], v[0] - v[1]],
                 constraints: vec![v[0] - 8.0],
+                attributes: vec![GhAttrValue::Number(v[0] * v[1])],
             })
         })
     }
@@ -492,6 +504,12 @@ mod tests {
         for i in 0..df.row_count() {
             assert!((c1[i] - (span[i] - 8.0)).abs() < 1e-9);
             assert_eq!(feasible[i], if c1[i] <= 0.0 { 1.0 } else { 0.0 });
+        }
+
+        // Attributes recorded via op8 as a numeric user-attr column: area = span * count
+        let area = df.get_numeric_column("area").unwrap().to_vec();
+        for i in 0..df.row_count() {
+            assert!((area[i] - span[i] * count[i]).abs() < 1e-9);
         }
     }
 

@@ -521,6 +521,7 @@ mod tests {
                 })
                 .collect(),
             constraints: vec![],
+            attributes: vec![],
             tunny_component: "Tunny".to_string(),
             warnings: vec![],
         }
