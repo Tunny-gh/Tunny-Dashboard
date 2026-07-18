@@ -60,8 +60,11 @@ tunny-dashboard/
 │   │   ├── clustering/     # k-means, hierarchical, PCA, SOM
 │   │   ├── contour/        # Observed contour interpolation
 │   │   ├── data/           # DataFrame operations
+│   │   ├── gh/             # Grasshopper (.ghx) → Rhino.Compute execution
 │   │   ├── io/             # Journal / SQLite / PostgreSQL / MySQL / CSV / artifacts
 │   │   ├── mcdm/           # TOPSIS, VIKOR, PROMETHEE I·II, entropy weights
+│   │   ├── process/        # Generic external-tool objective (command integration)
+│   │   ├── runner/         # Self-contained optimization loop (no Python/Optuna)
 │   │   ├── multi_objective/# Pareto ranking, Hypervolume, IGD+, ε, R2
 │   │   ├── pdp/            # Partial Dependence Plots (1D/2D, GP-backed)
 │   │   ├── report/         # Self-contained HTML/Markdown/JSON report export
@@ -80,9 +83,25 @@ tunny-dashboard/
 │   │   └── main.rs     # Entry point
 │   └── Cargo.toml
 ├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
+├── docs/               # User guides (execution / integration)
 ├── theory/             # Bilingual (en/ja) algorithm documentation
 └── Cargo.toml          # Workspace configuration
 ```
+
+---
+
+## Running Optimizations
+
+Beyond analyzing existing studies, the Dashboard can **drive** an optimization
+itself: the samplers (Random / NSGA-II) run in Rust and the Dashboard writes an
+Optuna-compatible journal, so a run needs only the Dashboard and the tool that
+evaluates the objective — **no Python or Optuna at runtime**.
+
+- **Grasshopper** — drop a Tunny-configured `.ghx` onto the Dashboard to run the
+  optimization via Rhino.Compute. See [docs/tunny-plugin-integration.md](docs/tunny-plugin-integration.md).
+- **Any external tool** — describe how a command receives parameters and how its
+  output is parsed, and optimize it directly. See
+  [docs/process-integration.md](docs/process-integration.md).
 
 ---
 
