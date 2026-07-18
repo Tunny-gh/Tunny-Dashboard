@@ -32,6 +32,7 @@ mysql = { version = "28", default-features = false, features = ["minimal"] }
 quick-xml = "0.38"
 ureq = { version = "2", default-features = false }
 base64 = "0.22"
+regex = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -12,6 +12,7 @@ pub mod mcdm;
 pub mod multi_objective;
 pub(crate) mod optimization;
 pub mod pdp;
+pub mod process;
 pub mod report;
 pub mod sensitivity;
 pub mod statistics;
