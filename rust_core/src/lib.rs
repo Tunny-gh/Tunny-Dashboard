@@ -14,6 +14,7 @@ pub(crate) mod optimization;
 pub mod pdp;
 pub mod process;
 pub mod report;
+pub mod runner;
 pub mod sensitivity;
 pub mod statistics;
 pub mod surrogate_opt;

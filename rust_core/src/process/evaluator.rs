@@ -24,8 +24,28 @@ pub struct ProcessEvaluation {
 }
 
 /// Evaluates trials by running the command from a [`ProcessDefinition`].
+///
+/// Implements [`crate::runner::Evaluator`], so a process objective plugs
+/// directly into the self-contained optimization loop
+/// ([`crate::runner::run_prepared`]) — the Dashboard drives the sampling in
+/// Rust and the target command performs the evaluation, with no Python / Optuna
+/// dependency at runtime.
 pub struct ProcessEvaluator {
     def: ProcessDefinition,
+}
+
+impl crate::runner::Evaluator for ProcessEvaluator {
+    fn evaluate(&self, values: &[f64]) -> Result<crate::runner::Evaluation, String> {
+        // Call the inherent method explicitly (it also named `evaluate`).
+        let out = ProcessEvaluator::evaluate(self, values)?;
+        Ok(crate::runner::Evaluation {
+            objectives: out.objectives,
+            constraints: out.constraints,
+            // Process definitions extract objectives and constraints; per-trial
+            // attributes are not (yet) part of the definition.
+            attributes: Vec::new(),
+        })
+    }
 }
 
 impl ProcessEvaluator {
@@ -498,5 +518,86 @@ mod tests {
         };
         let eval = ProcessEvaluator::new(def).unwrap();
         assert_eq!(eval.evaluate(&[]).unwrap().objectives, vec![3.5]);
+    }
+
+    /// End-to-end: the Dashboard drives the sampler loop (Rust) and a
+    /// user-specified command performs the evaluation, producing an
+    /// Optuna-compatible journal — with no Python / Optuna at runtime.
+    #[cfg(unix)]
+    #[test]
+    fn process_optimization_runs_standalone_and_writes_journal() {
+        use crate::io::journal::parser::{parse_single_study, OptimizationDirection};
+        use crate::runner::{prepare_run, run_prepared, RunConfig, Sampler, Variable};
+
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("study_optuna.log");
+
+        // Objective f(x, y) = (x - 3)^2 + y, printed to stdout by a shell tool
+        // that receives the parameters as CLI args (--x=.. --y=..).
+        let def = ProcessDefinition {
+            param_names: vec!["x".to_string(), "y".to_string()],
+            input: InputSpec::Args {
+                arg_template: "{value}".to_string(),
+            },
+            command: CommandSpec {
+                program: "sh".to_string(),
+                args: vec![
+                    "-c".to_string(),
+                    "awk \"BEGIN{print \\\"f=\\\" (($1-3)*($1-3) + $2)}\"".to_string(),
+                    "sh".to_string(),
+                ],
+                working_dir: None,
+                timeout_secs: 10,
+                retries: 1,
+            },
+            objectives: vec![stdout_regex("f", r"f=([-0-9.]+)")],
+            constraints: vec![],
+            pre_command: None,
+            post_command: None,
+        };
+        let evaluator = ProcessEvaluator::new(def).unwrap();
+
+        // The Dashboard-side problem: real-valued variable ranges.
+        let problem = crate::runner::Problem {
+            variables: vec![
+                Variable::float("x", 0.0, 6.0, 3),
+                Variable::float("y", 0.0, 5.0, 3),
+            ],
+            objective_names: vec!["f".to_string()],
+            constraint_names: vec![],
+            attribute_names: vec![],
+        };
+        let cfg = RunConfig {
+            study_name: "process-standalone".to_string(),
+            directions: vec![OptimizationDirection::Minimize],
+            sampler: Sampler::Random,
+            n_trials: 12,
+            seed: 5,
+            ..RunConfig::default()
+        };
+
+        let prep = prepare_run(&journal, &problem, &cfg).unwrap();
+        let progress = crate::surrogate_opt::FitProgress::new();
+        let summary = run_prepared(&prep, &problem, &evaluator, &cfg, &progress).unwrap();
+        assert_eq!(summary.completed, 12);
+        assert_eq!(summary.failed, 0);
+
+        // The journal is a normal Optuna-compatible study the dashboard parses.
+        let data = std::fs::read(&journal).unwrap();
+        let (meta, df, _) = parse_single_study(&data, 0).unwrap();
+        assert_eq!(meta.completed_trials, 12);
+        // Objective matches f = (x-3)^2 + y for the recorded params.
+        let x = df.get_numeric_column("x").unwrap();
+        let y = df.get_numeric_column("y").unwrap();
+        let f = df.get_numeric_column("f").unwrap();
+        for i in 0..df.row_count() {
+            let expected = (x[i] - 3.0).powi(2) + y[i];
+            // awk prints ~6 significant digits, so allow a small tolerance.
+            assert!(
+                (f[i] - expected).abs() < 1e-3,
+                "row {i}: f={} expected {expected}",
+                f[i]
+            );
+        }
     }
 }
