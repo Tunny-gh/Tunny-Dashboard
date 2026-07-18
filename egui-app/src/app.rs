@@ -314,7 +314,12 @@ impl TunnyApp {
             };
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
             let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
-            let is_gh_opt_finished = matches!(&msg, AppMessage::GhOptFinished { .. });
+            // Both the .ghx and the process-integration runs use the same
+            // `gh_opt_run` overlay state, so both trigger the post-run refresh.
+            let is_gh_opt_finished = matches!(
+                &msg,
+                AppMessage::GhOptFinished { .. } | AppMessage::ProcessOptFinished { .. }
+            );
             // Limit streaming-load batches to one per frame so each batch's DataFrame
             // rebuild cost isn't concentrated into a single frame (avoids render stalls).
             // Remaining batches stay in the channel and are processed on the next frame.
@@ -582,6 +587,9 @@ impl TunnyApp {
                 ToolbarAction::OpenReportDialog => {
                     self.app_state.report_dialog =
                         Some(crate::ui::widgets::report_modal::ReportDialogState::default());
+                }
+                ToolbarAction::OpenProcessDefinition(path) => {
+                    self.open_process_definition(path);
                 }
             }
         }
@@ -1022,6 +1030,149 @@ impl TunnyApp {
         // Drop dialog to close the modal (don't put it back as None).
     }
 
+    /// Loads a process-integration definition (JSON) and, on success, opens the
+    /// tool optimization setup modal. Parse / read errors surface via `load_error`.
+    fn open_process_definition(&mut self, path: std::path::PathBuf) {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match tunny_core::process::ProcessDefinition::from_json(&text) {
+                Ok(def) => {
+                    let dialog = crate::state::app_state::ProcessOptDialogState::new(def, &path);
+                    self.app_state.process_opt_dialog = Some(dialog);
+                }
+                Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
+            },
+            Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
+        }
+    }
+
+    /// Renders the process-integration setup modal. On Run confirmation, wires into
+    /// `start_process_run`; setup errors (invalid ranges / journal open / study
+    /// creation) are sent back to the dialog, which stays open.
+    fn show_process_opt_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::process_opt_modal::{self, ProcessOptAction};
+
+        let Some(mut dialog) = self.app_state.process_opt_dialog.take() else {
+            return;
+        };
+        match process_opt_modal::show(ctx, &mut dialog) {
+            Some(ProcessOptAction::Run) => {
+                self.start_process_run(dialog);
+                // On a setup error, start_process_run puts the dialog back itself.
+            }
+            Some(ProcessOptAction::Cancel) => {
+                // Drop dialog to close it.
+            }
+            None => {
+                // Not confirmed yet. Keep showing it on the next frame.
+                self.app_state.process_opt_dialog = Some(dialog);
+            }
+        }
+    }
+
+    /// On Run confirmation, assembles the runner problem + `ProcessEvaluator` and
+    /// starts the optimization loop (`run_prepared`) on a background thread. The
+    /// Dashboard drives the sampling; the external command evaluates each trial.
+    /// Reuses `gh_opt_run` for the progress overlay / live update (the run overlay
+    /// is not Grasshopper-specific). Setup failures are put in `dialog.error` and
+    /// the modal is reopened.
+    fn start_process_run(&mut self, mut dialog: crate::state::app_state::ProcessOptDialogState) {
+        use tunny_core::io::journal::parser::OptimizationDirection;
+        use tunny_core::process::{ProcessEvaluator, VarRange};
+        use tunny_core::runner::{prepare_run, run_prepared, RunConfig, Sampler};
+        use tunny_core::surrogate_opt::FitProgress;
+
+        // Build the search-range map from the edited rows, aligned by name.
+        let ranges: std::collections::HashMap<String, VarRange> = dialog
+            .ranges
+            .iter()
+            .map(|r| {
+                (
+                    r.name.clone(),
+                    VarRange {
+                        low: r.low,
+                        high: r.high,
+                        digits: r.digits,
+                        is_integer: r.is_integer,
+                    },
+                )
+            })
+            .collect();
+
+        // build_problem keeps the variable order / objective / constraint counts
+        // aligned with the definition, so the evaluator never sees a mismatch.
+        let problem = match dialog.def.build_problem(&ranges) {
+            Ok(p) => p,
+            Err(e) => {
+                dialog.error = Some(e);
+                self.app_state.process_opt_dialog = Some(dialog);
+                return;
+            }
+        };
+
+        let directions: Vec<OptimizationDirection> = dialog
+            .maximize
+            .iter()
+            .map(|&is_max| {
+                if is_max {
+                    OptimizationDirection::Maximize
+                } else {
+                    OptimizationDirection::Minimize
+                }
+            })
+            .collect();
+        let cfg = RunConfig {
+            study_name: dialog.study_name.clone(),
+            directions,
+            sampler: if dialog.sampler_is_random {
+                Sampler::Random
+            } else {
+                Sampler::Nsga2
+            },
+            n_trials: dialog.n_trials,
+            population_size: dialog.population_size,
+            generations: dialog.generations,
+            seed: dialog.seed,
+        };
+
+        let evaluator = match ProcessEvaluator::new(dialog.def.clone()) {
+            Ok(e) => e,
+            Err(e) => {
+                dialog.error = Some(e);
+                self.app_state.process_opt_dialog = Some(dialog);
+                return;
+            }
+        };
+
+        let journal_path = std::path::PathBuf::from(&dialog.journal_path);
+        let prep = match prepare_run(&journal_path, &problem, &cfg) {
+            Ok(prep) => prep,
+            Err(e) => {
+                dialog.error = Some(e);
+                self.app_state.process_opt_dialog = Some(dialog);
+                return;
+            }
+        };
+
+        let progress = FitProgress::new();
+        self.app_state.gh_opt_run = Some(crate::state::app_state::GhOptRunState {
+            progress: progress.clone(),
+            journal_path: journal_path.clone(),
+            study_name: dialog.study_name.clone(),
+            finished: None,
+        });
+        // The study is already created in the journal, so opening it now will show
+        // it in the study list; start the poller so trials stream into the live view.
+        self.app_state.live_update.enabled = true;
+
+        spawn_task(self.sender(), move || {
+            let result = run_prepared(&prep, &problem, &evaluator, &cfg, &progress);
+            AppMessage::ProcessOptFinished { result }
+        });
+
+        self.open_path(journal_path);
+        // Drop dialog to close the modal.
+    }
+
     /// Displays a running (or just-finished) .ghx optimization in a non-modal progress
     /// overlay. Shows a progress bar + Cancel while running, and a result message +
     /// Close once finished.
@@ -1425,6 +1576,7 @@ impl eframe::App for TunnyApp {
         self.show_db_url_dialog(&ctx);
         self.show_report_dialog(&ctx);
         self.show_ghx_opt_dialog(&ctx);
+        self.show_process_opt_dialog(&ctx);
         self.show_ghx_opt_overlay(&ctx);
         self.show_drop_hover_overlay(&ctx);
         crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);

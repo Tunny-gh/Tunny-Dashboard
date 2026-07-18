@@ -117,6 +117,8 @@ pub struct AppState {
     /// Edit state for the optimization settings dialog opened via .ghx D&D / Open.
     /// `None` means hidden.
     pub gh_opt_dialog: Option<GhOptDialogState>,
+    /// Setup dialog for a generic process-integration optimization (Some = shown).
+    pub process_opt_dialog: Option<ProcessOptDialogState>,
     /// State of the currently running (or most recently finished) .ghx optimization.
     /// `None` means hidden.
     /// Not cleared by `clear()` on `open_path`'s study switch. This is so the
@@ -164,6 +166,7 @@ impl AppState {
             db_url_dialog: None,
             report_dialog: None,
             gh_opt_dialog: None,
+            process_opt_dialog: None,
             gh_opt_run: None,
             gh_compute_prefs: GhComputePrefs::default(),
         }

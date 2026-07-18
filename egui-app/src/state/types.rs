@@ -617,6 +617,96 @@ impl GhOptDialogState {
     }
 }
 
+/// Editable search range for one process-optimization parameter (the modal
+/// fills these before a run; converted to `runner::VarRange` on start).
+#[derive(Debug, Clone)]
+pub struct ParamRangeEdit {
+    pub name: String,
+    pub low: f64,
+    pub high: f64,
+    pub digits: u32,
+    pub is_integer: bool,
+}
+
+/// Setup state for a generic process-integration optimization: a loaded
+/// `ProcessDefinition` (the external command + how its I/O maps to parameters
+/// and objectives) plus the search ranges, objective directions, sampler
+/// settings, and journal output the user configures before running. Shown
+/// while `AppState::process_opt_dialog` is `Some`.
+#[derive(Debug, Clone)]
+pub struct ProcessOptDialogState {
+    /// The loaded definition (command / input / objectives / constraints).
+    pub def: tunny_core::process::ProcessDefinition,
+    /// One editable range per parameter (same order as `def.param_names`).
+    pub ranges: Vec<ParamRangeEdit>,
+    /// Per-objective maximize flag (same order/length as `def.objectives`).
+    pub maximize: Vec<bool>,
+    /// true = Random sampler, false = NSGA-II (default).
+    pub sampler_is_random: bool,
+    /// Number of trials for the Random sampler (default 50).
+    pub n_trials: usize,
+    /// NSGA-II population size (default 16).
+    pub population_size: usize,
+    /// Number of NSGA-II generations (default 10).
+    pub generations: usize,
+    /// Random seed (default 42).
+    pub seed: u64,
+    /// Study name (default: `<definition stem>-<last 6 unix seconds>`).
+    pub study_name: String,
+    /// Output journal path (default: `<stem>_optuna.log` beside the definition).
+    pub journal_path: String,
+    /// Error text for a failed Run (invalid ranges / journal open / study create).
+    pub error: Option<String>,
+}
+
+impl ProcessOptDialogState {
+    /// Builds the setup state with defaults right after loading a definition.
+    /// Ranges default to `[0, 1]` (2 decimals, continuous) for the user to edit.
+    pub fn new(def: tunny_core::process::ProcessDefinition, def_path: &std::path::Path) -> Self {
+        let stem = def_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("process_opt")
+            .to_string();
+        let secs_suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() % 1_000_000)
+            .unwrap_or(0);
+        let study_name = format!("{stem}-{secs_suffix:06}");
+        let journal_path = def_path
+            .parent()
+            .map(|dir| dir.join(format!("{stem}_optuna.log")))
+            .unwrap_or_else(|| PathBuf::from(format!("{stem}_optuna.log")))
+            .to_string_lossy()
+            .into_owned();
+        let ranges = def
+            .param_names
+            .iter()
+            .map(|name| ParamRangeEdit {
+                name: name.clone(),
+                low: 0.0,
+                high: 1.0,
+                digits: 2,
+                is_integer: false,
+            })
+            .collect();
+        let maximize = vec![false; def.objectives.len()];
+        Self {
+            def,
+            ranges,
+            maximize,
+            sampler_is_random: false,
+            n_trials: 50,
+            population_size: 16,
+            generations: 10,
+            seed: 42,
+            study_name,
+            journal_path,
+            error: None,
+        }
+    }
+}
+
 /// State of a running .ghx optimization (used by the non-modal progress overlay).
 ///
 /// While `AppState::gh_opt_run` is `Some`, the progress overlay (app.rs) is displayed.

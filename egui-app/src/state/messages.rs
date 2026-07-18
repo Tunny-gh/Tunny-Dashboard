@@ -457,6 +457,13 @@ pub enum AppMessage {
     GhOptFinished {
         result: Result<tunny_core::gh::GhRunSummary, String>,
     },
+    /// A generic process-integration optimization (`runner::run_prepared` with a
+    /// `ProcessEvaluator`) finished. Same contract as `GhOptFinished`: `Ok` is a
+    /// normal exit (including cancellation), `Err` is a fatal error such as a
+    /// journal write failure.
+    ProcessOptFinished {
+        result: Result<tunny_core::runner::RunSummary, String>,
+    },
 }
 
 #[cfg(test)]

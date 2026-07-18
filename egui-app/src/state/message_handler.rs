@@ -389,6 +389,24 @@ impl MessageHandler {
                     });
                 }
             }
+            AppMessage::ProcessOptFinished { result } => {
+                // Reuses the same run-overlay state (`gh_opt_run`) as the .ghx run.
+                if let Some(run) = app_state.gh_opt_run.as_mut() {
+                    run.finished = Some(match result {
+                        Ok(summary) => Ok(format!(
+                            "Done: {} trials succeeded / {} failed{}",
+                            summary.completed,
+                            summary.failed,
+                            if summary.cancelled {
+                                " (cancelled)"
+                            } else {
+                                ""
+                            }
+                        )),
+                        Err(e) => Err(e),
+                    });
+                }
+            }
         }
     }
 

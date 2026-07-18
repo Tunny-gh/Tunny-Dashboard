@@ -27,6 +27,10 @@ pub enum ToolbarAction {
 
     /// R4: Opens the "Report…" dialog (self-contained report export settings).
     OpenReportDialog,
+
+    /// Opens a process-integration definition (JSON) and shows the tool
+    /// optimization setup modal.
+    OpenProcessDefinition(std::path::PathBuf),
 }
 
 /// Draws the ToolBar.
@@ -66,6 +70,22 @@ pub fn show_toolbar(
         {
             if let Some(path) = crate::io::session::pick_session_file_dialog() {
                 actions.push(ToolbarAction::LoadSession(path));
+            }
+        }
+
+        // Run an optimization that drives any external command-line tool
+        // (process integration): pick a definition (JSON) and configure the run.
+        if toolbar_button(ui, "Optimize Tool…", open_enabled)
+            .on_hover_text(
+                "Run an optimization driving an external tool from a process definition (JSON)",
+            )
+            .clicked()
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Process definition (*.json)", &["json"])
+                .pick_file()
+            {
+                actions.push(ToolbarAction::OpenProcessDefinition(path));
             }
         }
 
