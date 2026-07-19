@@ -84,6 +84,13 @@ pub fn train_som(data: &[Vec<f64>], spec: &SomSpec) -> Option<SomResult> {
         return None;
     }
     let p = data[0].len();
+    // `standardize_columns` indexes every row up to `p` (its documented
+    // rectangularity precondition), so a ragged row would panic. The sibling
+    // clustering entry points (`run_pca_on_matrix_opts`, `hierarchical`) reject
+    // non-rectangular input here; SOM must do the same rather than crash.
+    if data.iter().any(|row| row.len() != p) {
+        return None;
+    }
     let n_nodes = spec.grid_w * spec.grid_h;
 
     // ── Standardization (shared clustering helper, population variance n) ──

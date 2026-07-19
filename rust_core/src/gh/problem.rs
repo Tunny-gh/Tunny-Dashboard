@@ -535,13 +535,23 @@ fn read_gene_pool(rec: &ObjectRecord<'_>) -> Result<Vec<GhVariable>, String> {
 /// Uniquifies duplicate names by appending a sequence-number suffix (journal
 /// param names / objective names must be unique).
 fn dedupe_names(names: &mut [&mut String]) {
-    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for name in names.iter_mut() {
-        let count = seen.entry(name.clone()).or_insert(0);
-        *count += 1;
-        if *count > 1 {
-            **name = format!("{}_{}", name, count);
+        if seen.insert((**name).clone()) {
+            continue;
         }
+        // Collision: probe `name_2`, `name_3`, ... until we find a suffix that
+        // is not already taken. A plain counter is not enough because the
+        // generated suffix can itself collide with a literal name elsewhere in
+        // the list (e.g. `["load", "load", "load_2"]`), which would otherwise
+        // emit two identical journal columns and silently overwrite a param.
+        let mut i = 2usize;
+        let mut candidate = format!("{}_{}", name, i);
+        while !seen.insert(candidate.clone()) {
+            i += 1;
+            candidate = format!("{}_{}", name, i);
+        }
+        **name = candidate;
     }
 }
 
@@ -549,6 +559,38 @@ fn dedupe_names(names: &mut [&mut String]) {
 mod tests {
     use super::*;
     use crate::gh::fixtures::{sample_ghx, sample_ghx_without_constraint};
+
+    fn dedupe(input: &[&str]) -> Vec<String> {
+        let mut owned: Vec<String> = input.iter().map(|s| s.to_string()).collect();
+        let mut refs: Vec<&mut String> = owned.iter_mut().collect();
+        dedupe_names(&mut refs);
+        owned
+    }
+
+    #[test]
+    fn dedupe_names_produces_unique_names() {
+        // Plain duplicates get sequential suffixes.
+        assert_eq!(dedupe(&["a", "a", "a"]), vec!["a", "a_2", "a_3"]);
+
+        // A generated suffix must not collide with a literal name already
+        // present in the list (regression: this used to yield two `load_2`).
+        let out = dedupe(&["load", "load", "load_2"]);
+        let unique: std::collections::HashSet<_> = out.iter().collect();
+        assert_eq!(
+            unique.len(),
+            out.len(),
+            "names must be pairwise unique: {out:?}"
+        );
+
+        // Collision regardless of ordering.
+        let out = dedupe(&["a_2", "a", "a"]);
+        let unique: std::collections::HashSet<_> = out.iter().collect();
+        assert_eq!(
+            unique.len(),
+            out.len(),
+            "names must be pairwise unique: {out:?}"
+        );
+    }
 
     #[test]
     fn extracts_variables_and_objectives_from_fixture() {
