@@ -119,6 +119,9 @@ pub struct AppState {
     pub gh_opt_dialog: Option<GhOptDialogState>,
     /// Setup dialog for a generic process-integration optimization (Some = shown).
     pub process_opt_dialog: Option<ProcessOptDialogState>,
+    /// GUI editor for authoring/editing a process-integration definition
+    /// (Some = shown). Independent of the run setup dialog above.
+    pub process_def_builder: Option<ProcessDefBuilderState>,
     /// State of the currently running (or most recently finished) .ghx optimization.
     /// `None` means hidden.
     /// Not cleared by `clear()` on `open_path`'s study switch. This is so the
@@ -167,6 +170,7 @@ impl AppState {
             report_dialog: None,
             gh_opt_dialog: None,
             process_opt_dialog: None,
+            process_def_builder: None,
             gh_opt_run: None,
             gh_compute_prefs: GhComputePrefs::default(),
         }

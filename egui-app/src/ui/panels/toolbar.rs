@@ -31,6 +31,10 @@ pub enum ToolbarAction {
     /// Opens a process-integration definition (JSON) and shows the tool
     /// optimization setup modal.
     OpenProcessDefinition(std::path::PathBuf),
+
+    /// Opens the process-definition builder (GUI editor) with a fresh, empty
+    /// definition. Existing definitions are imported from inside the builder.
+    NewProcessDefinition,
 }
 
 /// Draws the ToolBar.
@@ -87,6 +91,15 @@ pub fn show_toolbar(
             {
                 actions.push(ToolbarAction::OpenProcessDefinition(path));
             }
+        }
+
+        // Author or edit a process definition (JSON) in a GUI form instead of by
+        // hand. Existing definitions can be loaded from inside the builder.
+        if toolbar_button(ui, "New Tool…", true)
+            .on_hover_text("Build or edit a process definition (JSON) in a GUI form")
+            .clicked()
+        {
+            actions.push(ToolbarAction::NewProcessDefinition);
         }
 
         ui.separator();
