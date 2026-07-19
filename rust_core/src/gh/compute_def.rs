@@ -29,8 +29,14 @@ const DATA_PARAM_TYPE_GUID: &str = "8ec86459-bf01-4409-baee-174d0d2b13d0";
 pub struct ComputeDefinition {
     /// The injected .ghx text
     pub ghx: String,
-    /// Input parameter names (`RH_IN:variable_name`, in the same order as `GhProblem.variables`)
+    /// Input parameter names, one per RH_IN group: a Number Slider is its own
+    /// single-value input; a Gene Pool is one input carrying its whole gene list.
+    /// (`RH_IN:name`, in the order the groups appear in `GhProblem.variables`.)
     pub input_params: Vec<String>,
+    /// How many consecutive `GhProblem.variables` feed each `input_params` entry
+    /// (1 for a slider, N for an N-gene pool). Sums to `variables.len()`; the
+    /// evaluator uses it to slice a trial's flat value vector into per-input lists.
+    pub input_value_counts: Vec<usize>,
     /// Output parameter names (`RH_OUT:objective_name`, in the same order as `GhProblem.objectives`)
     pub output_params: Vec<String>,
     /// Constraint output parameter names (`RH_OUT:constraint:name`, in the same
@@ -53,22 +59,29 @@ pub fn build_compute_definition(
     let mut guid_counter: u64 = 1;
     let mut injected = String::new();
     let mut next_index = anchors.object_count;
-    let mut input_params = Vec::with_capacity(problem.variables.len());
     let mut output_params = Vec::with_capacity(problem.objectives.len());
     let mut constraint_params = Vec::with_capacity(problem.constraints.len());
     let mut attr_params = Vec::with_capacity(problem.attributes.len());
 
-    for var in &problem.variables {
-        let nick = format!("RH_IN:{}", var.name);
+    // Group variables into RH_IN inputs. A Number Slider is its own single-value
+    // input; a Gene Pool's genes (contiguous, all carrying the pool's
+    // InstanceGuid) are delivered together as one RH_IN list input. See
+    // `group_inputs`.
+    let groups = group_inputs(&problem.variables);
+    let mut input_params = Vec::with_capacity(groups.len());
+    let mut input_value_counts = Vec::with_capacity(groups.len());
+    for group in &groups {
+        let nick = format!("RH_IN:{}", group.name);
         let group_guid = synthetic_guid(xml, &mut guid_counter);
         injected.push_str(&group_object_xml(
             next_index,
             &group_guid,
             &nick,
-            &var.instance_guid,
+            group.member_guid,
         ));
         next_index += 1;
         input_params.push(nick);
+        input_value_counts.push(group.count);
     }
 
     // All relay outputs (objectives, constraints, attributes) share the same
@@ -144,10 +157,72 @@ pub fn build_compute_definition(
     Ok(ComputeDefinition {
         ghx: out,
         input_params,
+        input_value_counts,
         output_params,
         constraint_params,
         attr_params,
     })
+}
+
+/// One RH_IN input group: a display name, how many consecutive variables it
+/// consumes, and the InstanceGuid the injected group wraps.
+struct InputGroup<'a> {
+    name: String,
+    count: usize,
+    member_guid: &'a str,
+}
+
+/// Partitions the variables into RH_IN input groups (a slider → its own 1-value
+/// group; a Gene Pool → one group carrying all its genes). A gene pool declares
+/// its own size (`GenePoolSlot::count`); that size is bounded by the run of
+/// contiguous variables actually sharing the pool's InstanceGuid, so a
+/// truncated/edited variable list can never make a group over-read past its
+/// genes. Group names come from the pool nickname for genes, or the variable
+/// name for sliders; they are then made pairwise-unique (a pool nickname is not
+/// part of the variable-name dedup, so it could otherwise collide).
+fn group_inputs(variables: &[super::problem::GhVariable]) -> Vec<InputGroup<'_>> {
+    let mut groups: Vec<InputGroup<'_>> = Vec::new();
+    let mut i = 0;
+    while i < variables.len() {
+        let var = &variables[i];
+        let want = var.gene_pool.as_ref().map_or(1, |slot| slot.count.max(1));
+        let mut span = 1;
+        while span < want
+            && i + span < variables.len()
+            && variables[i + span].instance_guid == var.instance_guid
+        {
+            span += 1;
+        }
+        let name = match &var.gene_pool {
+            Some(slot) => slot.group_name.clone(),
+            None => var.name.clone(),
+        };
+        groups.push(InputGroup {
+            name,
+            count: span,
+            member_guid: &var.instance_guid,
+        });
+        i += span;
+    }
+    uniquify_input_names(&mut groups);
+    groups
+}
+
+/// Makes RH_IN group names pairwise-unique by appending `_2`, `_3`, … to later
+/// duplicates (mirrors `dedupe_names` / `uniquify_nicks`).
+fn uniquify_input_names(groups: &mut [InputGroup<'_>]) {
+    for i in 1..groups.len() {
+        let mut suffix = 2;
+        while groups[..i].iter().any(|g| g.name == groups[i].name) {
+            let base = &groups[i].name;
+            let trimmed = base
+                .rfind('_')
+                .filter(|&pos| base[pos + 1..].chars().all(|c| c.is_ascii_digit()))
+                .map_or(base.as_str(), |pos| &base[..pos]);
+            groups[i].name = format!("{trimmed}_{suffix}");
+            suffix += 1;
+        }
+    }
 }
 
 /// Edit positions within the DefinitionObjects chunk.
@@ -386,8 +461,8 @@ fn relay_param_xml(index: usize, instance_guid: &str, nickname: &str, source_gui
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gh::fixtures::sample_ghx;
-    use crate::gh::problem::extract_problem;
+    use crate::gh::fixtures::{sample_ghx, sample_ghx_gene_pool};
+    use crate::gh::problem::{extract_problem, GhVariable};
 
     #[test]
     fn injects_groups_and_relays() {
@@ -491,6 +566,77 @@ mod tests {
         // The original definition body (Tunny component, etc.) is preserved
         assert!(def.ghx.contains("Tunny"));
         assert!(def.ghx.contains("Beam Analyzer"));
+    }
+
+    #[test]
+    fn gene_pool_is_a_single_grouped_input() {
+        let xml = sample_ghx_gene_pool();
+        let problem = extract_problem(&xml).unwrap();
+        assert_eq!(problem.variables.len(), 3);
+
+        let def = build_compute_definition(&xml, &problem).unwrap();
+        // The 3 genes collapse to ONE RH_IN input that carries all 3 values.
+        assert_eq!(def.input_params, vec!["RH_IN:Genes"]);
+        assert_eq!(def.input_value_counts, vec![3]);
+        assert_eq!(def.output_params, vec!["RH_OUT:obj"]);
+
+        // Exactly one RH_IN group, wrapping the pool's InstanceGuid (not each gene).
+        let root = crate::gh::ghx::parse_archive(&def.ghx).unwrap();
+        let objects = root.find_chunk_recursive("DefinitionObjects").unwrap();
+        let rh_in: Vec<_> = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("Name") == Some("Group"))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .filter(|c| {
+                c.item_text("NickName")
+                    .is_some_and(|n| n.starts_with("RH_IN:"))
+            })
+            .collect();
+        assert_eq!(rh_in.len(), 1);
+        assert_eq!(rh_in[0].item_text("NickName"), Some("RH_IN:Genes"));
+        assert_eq!(
+            rh_in[0].item_text("ID"),
+            Some("0aaaaaaa-0000-0000-0000-00000000pool")
+        );
+    }
+
+    #[test]
+    fn mixed_slider_and_gene_pool_inputs_keep_order_and_counts() {
+        // A slider variable followed by a 2-gene pool: two RH_IN inputs with
+        // value counts [1, 2], in variable order.
+        let mut problem = extract_problem(&sample_ghx()).unwrap();
+        problem.variables.truncate(1); // keep only the "span" slider
+        problem.variables.push(GhVariable {
+            instance_guid: "pool-guid".to_string(),
+            name: "g0".to_string(),
+            low: 0.0,
+            high: 1.0,
+            value: 0.5,
+            digits: 2,
+            is_integer: false,
+            gene_pool: Some(crate::gh::GenePoolSlot {
+                group_name: "pool".to_string(),
+                count: 2,
+                index: 0,
+            }),
+        });
+        problem.variables.push(GhVariable {
+            instance_guid: "pool-guid".to_string(),
+            name: "g1".to_string(),
+            low: 0.0,
+            high: 1.0,
+            value: 0.5,
+            digits: 2,
+            is_integer: false,
+            gene_pool: Some(crate::gh::GenePoolSlot {
+                group_name: "pool".to_string(),
+                count: 2,
+                index: 1,
+            }),
+        });
+        let def = build_compute_definition(&sample_ghx(), &problem).unwrap();
+        assert_eq!(def.input_params, vec!["RH_IN:span", "RH_IN:pool"]);
+        assert_eq!(def.input_value_counts, vec![1, 2]);
     }
 
     /// An objective whose nickname embeds the constraint prefix must not

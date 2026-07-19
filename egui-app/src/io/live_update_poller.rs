@@ -689,6 +689,7 @@ mod tests {
                 value: 5.0,
                 digits: 2,
                 is_integer: false,
+                gene_pool: None,
             }],
             objectives: vec![tunny_core::gh::GhObjective {
                 source_guid: "o1".to_string(),

@@ -87,6 +87,9 @@ pub struct ComputeEvaluator {
     /// See [`ComputeEvaluator::with_definition_pointer`].
     pointer: Option<String>,
     input_params: Vec<String>,
+    /// Number of trial values each `input_params` entry consumes (1 per slider,
+    /// N per N-gene pool). Sums to the variable count.
+    input_value_counts: Vec<usize>,
     output_params: Vec<String>,
     constraint_params: Vec<String>,
     attr_params: Vec<String>,
@@ -106,6 +109,7 @@ impl ComputeEvaluator {
             algo: base64::engine::general_purpose::STANDARD.encode(def.ghx.as_bytes()),
             pointer: None,
             input_params: def.input_params.clone(),
+            input_value_counts: def.input_value_counts.clone(),
             output_params: def.output_params.clone(),
             constraint_params: def.constraint_params.clone(),
             attr_params: def.attr_params.clone(),
@@ -129,19 +133,23 @@ impl ComputeEvaluator {
     }
 
     fn request_body(&self, values: &[f64]) -> Value {
-        let inputs: Vec<Value> = self
-            .input_params
-            .iter()
-            .zip(values)
-            .map(|(name, v)| {
-                json!({
-                    "ParamName": name,
-                    "InnerTree": {
-                        "0": [ { "type": "System.Double", "data": v.to_string() } ]
-                    }
-                })
-            })
-            .collect();
+        // Each RH_IN input takes a contiguous slice of the trial's value vector
+        // (1 value for a slider, N for a gene pool). A slider sends a 1-item
+        // branch; a gene pool sends its whole list in a single branch, which
+        // Compute assigns to the pool.
+        let mut inputs = Vec::with_capacity(self.input_params.len());
+        let mut offset = 0;
+        for (name, &count) in self.input_params.iter().zip(&self.input_value_counts) {
+            let branch: Vec<Value> = values[offset..offset + count]
+                .iter()
+                .map(|v| json!({ "type": "System.Double", "data": v.to_string() }))
+                .collect();
+            inputs.push(json!({
+                "ParamName": name,
+                "InnerTree": { "0": branch }
+            }));
+            offset += count;
+        }
         json!({
             "algo": self.algo,
             "pointer": self.pointer.as_deref(),
@@ -153,10 +161,10 @@ impl ComputeEvaluator {
 
 impl GhEvaluator for ComputeEvaluator {
     fn evaluate(&self, values: &[f64]) -> Result<GhEvaluation, String> {
-        if values.len() != self.input_params.len() {
+        let expected: usize = self.input_value_counts.iter().sum();
+        if values.len() != expected {
             return Err(format!(
-                "Variable count mismatch (expected {}, got {})",
-                self.input_params.len(),
+                "Variable count mismatch (expected {expected}, got {})",
                 values.len()
             ));
         }
@@ -357,6 +365,7 @@ mod tests {
         let def = ComputeDefinition {
             ghx: "<Archive/>".to_string(),
             input_params: vec!["RH_IN:x".to_string()],
+            input_value_counts: vec![1],
             output_params: vec!["RH_OUT:v".to_string()],
             constraint_params: vec![],
             attr_params: vec![],
@@ -370,6 +379,36 @@ mod tests {
         assert_eq!(body["pointer"], r"C:\runs\model.compute.ghx");
         // algo stays included as a fallback for when the file cannot be read
         assert!(body["algo"].as_str().unwrap().len() > 4);
+    }
+
+    #[test]
+    fn gene_pool_input_packs_all_values_into_one_branch() {
+        // One grouped input (3 genes) + one slider: the pool's 3 values go into a
+        // single branch (a list), the slider's into its own 1-item branch.
+        let def = ComputeDefinition {
+            ghx: "<Archive/>".to_string(),
+            input_params: vec!["RH_IN:Genes".to_string(), "RH_IN:span".to_string()],
+            input_value_counts: vec![3, 1],
+            output_params: vec!["RH_OUT:obj".to_string()],
+            constraint_params: vec![],
+            attr_params: vec![],
+        };
+        let ev = ComputeEvaluator::new(&ComputeConfig::default(), &def);
+        let body = ev.request_body(&[25.0, 50.0, 75.0, 4.0]);
+        let values = body["values"].as_array().unwrap();
+        assert_eq!(values.len(), 2);
+
+        assert_eq!(values[0]["ParamName"], "RH_IN:Genes");
+        let genes = values[0]["InnerTree"]["0"].as_array().unwrap();
+        assert_eq!(genes.len(), 3);
+        assert_eq!(genes[0]["data"], "25");
+        assert_eq!(genes[1]["data"], "50");
+        assert_eq!(genes[2]["data"], "75");
+
+        assert_eq!(values[1]["ParamName"], "RH_IN:span");
+        let span = values[1]["InnerTree"]["0"].as_array().unwrap();
+        assert_eq!(span.len(), 1);
+        assert_eq!(span[0]["data"], "4");
     }
 
     #[test]
@@ -500,6 +539,7 @@ mod tests {
         let def = ComputeDefinition {
             ghx: "<Archive/>".to_string(),
             input_params: vec!["RH_IN:span".to_string()],
+            input_value_counts: vec![1],
             output_params: vec!["RH_OUT:weight".to_string()],
             constraint_params: vec!["RH_OUT:constraint:penalty".to_string()],
             attr_params: vec!["RH_OUT:attr:note".to_string()],

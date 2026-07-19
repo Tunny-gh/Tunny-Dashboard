@@ -17,8 +17,9 @@ setup is executable from the dashboard as-is:
 
 1. `extract_problem` reads variables / objectives / constraints / attributes
    from the XML (detection contract below).
-2. The dashboard injects `RH_IN:*` groups (variable sliders) and `RH_OUT:*`
-   relay parameters (objectives / constraints / attributes) into a copy of the
+2. The dashboard injects `RH_IN:*` groups (one per variable slider; one per
+   Gene Pool, carrying the pool's whole gene list) and `RH_OUT:*` relay
+   parameters (objectives / constraints / attributes) into a copy of the
    definition and solves it via rhino.compute's `/grasshopper` endpoint.
 3. Every trial is written to an Optuna-compatible journal (op codes
    0/3/4/5/6/8/9), so Optuna tooling and the dashboard's own analysis read the
@@ -36,7 +37,7 @@ strings the dashboard depends on:
 | Variables input | `Name` contains `variable`/`vars`, or NickName equals `v` |
 | Objectives input | `Name` contains `objective`/`objs`, or NickName equals `o` |
 | Attributes input | `Name` contains `attribute`/`attrs`, or NickName equals `attr` |
-| Variable sources | Must be `Number Slider` objects. Name from the slider NickName; range from the `Slider` chunk's `Min`/`Max`; resolution from `Digits` (0 = integer) |
+| Variable sources | `Number Slider` objects (one variable each) or a `Gene Pool` (type name `Gene Pool`, or type GUID `21553c44-…`; one variable per gene). Slider: name from NickName, range from the `Slider` chunk's `Min`/`Max`, resolution from `Digits` (0 = integer). Gene Pool: genes named `<pool nick><i>`, all sharing the pool's range/`Decimals` from its `GeneData` chunk (`Minimum`/`Maximum`/`Decimals`), each with its own `Value` |
 | Objective names | NickName of the source parameter wired into Objectives |
 | Attribute component | The component whose output feeds the Attributes input; accepted only when its type name or NickName contains `attr` (e.g. "Construct Fish Attribute") |
 | Constraint input (on the attribute component) | `Name` contains `constraint`, or NickName equals `c` |
@@ -81,7 +82,9 @@ warning, but variables/constraints would go undetected):
 3. The attribute component's type name containing `attr`
    ("Construct Fish Attribute" qualifies).
 4. The Number Slider serialization consumed from GH_Archive: the `Slider`
-   chunk's `Min` / `Max` / `Digits` / `Value` items.
+   chunk's `Min` / `Max` / `Digits` / `Value` items; and the Gene Pool
+   serialization: the `GeneData` chunk's `Minimum` / `Maximum` / `Decimals` /
+   `Count` and indexed `Value` items.
 5. The **≤ 0 = feasible** constraint convention.
 
 If a rename is unavoidable, keeping the old string as part of the new one

@@ -375,6 +375,7 @@ mod tests {
                 value: 5.0,
                 digits: 2,
                 is_integer: false,
+                gene_pool: None,
             }],
             objectives: (0..objectives)
                 .map(|i| tunny_core::gh::GhObjective {
