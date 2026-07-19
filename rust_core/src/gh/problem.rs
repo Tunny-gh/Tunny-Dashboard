@@ -2,7 +2,9 @@
 //!
 //! Extraction rules:
 //! - Find the Tunny component in the definition (an object name containing "tunny")
-//! - Number Sliders connected to its Variables input → variables (name, range, digits)
+//! - Number Sliders connected to its Variables input → one variable each
+//!   (name, range, digits); a Gene Pool → one variable per gene (the pool's
+//!   shared range/digits, each gene's own value)
 //! - Parameters connected to its Objectives input → objectives (name and source GUID)
 //!
 //! The objective direction (minimize/maximize) is not read from the ghx
@@ -12,21 +14,45 @@
 
 use super::ghx::{parse_archive, GhxChunk};
 
-/// An optimization variable (originating from a Number Slider).
+/// Type GUID of the Galapagos Gene Pool component (the `<item name="GUID">`
+/// directly under its `Object` chunk). Matched alongside the type name so a
+/// renamed/localized display name still resolves.
+const GENE_POOL_TYPE_GUID: &str = "21553c44-ea62-475e-a8bb-62b2a3ee5ca5";
+
+/// Locates one gene within its Gene Pool. All genes of a pool share the pool's
+/// `instance_guid` and are delivered to Rhino.Compute as a single RH_IN list
+/// input (one value per gene), rather than one input per gene.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenePoolSlot {
+    /// The pool's RH_IN input nickname (its NickName). Shared by every gene.
+    pub group_name: String,
+    /// Number of genes in the pool (= length of the RH_IN value list).
+    pub count: usize,
+    /// This gene's 0-based index within the pool.
+    pub index: usize,
+}
+
+/// An optimization variable (originating from a Number Slider, or one gene of a
+/// Gene Pool).
 #[derive(Debug, Clone)]
 pub struct GhVariable {
-    /// The slider's InstanceGuid (used for RH_IN group injection)
+    /// The source object's InstanceGuid (used for RH_IN group injection). For a
+    /// Gene Pool gene this is the pool's guid — shared by all of the pool's genes.
     pub instance_guid: String,
-    /// Becomes the journal's param name (the slider's NickName; a sequence number is appended on duplicates)
+    /// Becomes the journal's param name (the slider's NickName, or `<pool nick><i>`
+    /// for a gene; a sequence number is appended on duplicates)
     pub name: String,
     pub low: f64,
     pub high: f64,
-    /// The slider's value at the time the definition was saved
+    /// The value at the time the definition was saved
     pub value: f64,
-    /// Number of decimal digits (the slider's rounding; evaluated values are also rounded to this)
+    /// Number of decimal digits (the rounding; evaluated values are also rounded to this)
     pub digits: u32,
-    /// Whether it's an integer slider (digits == 0 is treated as integer)
+    /// Whether it's an integer variable (digits == 0 is treated as integer)
     pub is_integer: bool,
+    /// Set when this variable is one gene of a Gene Pool (see [`GenePoolSlot`]).
+    /// `None` for a standalone Number Slider (its own single-value RH_IN input).
+    pub gene_pool: Option<GenePoolSlot>,
 }
 
 /// An optimization objective (a parameter connected to Tunny's Objectives input).
@@ -85,8 +111,12 @@ pub struct GhProblem {
 
 /// Intermediate info for an object within the definition.
 struct ObjectRecord<'a> {
-    /// Object type name ("Number Slider" / "Group" etc.; the Name item directly under Object)
+    /// Object type name ("Number Slider" / "Gene Pool" / "Group" etc.; the Name
+    /// item directly under Object)
     type_name: &'a str,
+    /// Object type GUID (the `GUID` item directly under Object; identifies the
+    /// component type independently of its display name)
+    type_guid: &'a str,
     container: &'a GhxChunk,
     instance_guid: &'a str,
     nickname: String,
@@ -110,6 +140,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
     let mut records: Vec<ObjectRecord<'_>> = Vec::new();
     for obj in objects_chunk.chunks_named("Object") {
         let type_name = obj.item_text("Name").unwrap_or("");
+        let type_guid = obj.item_text("GUID").unwrap_or("");
         let Some(container) = obj.find_chunk("Container") else {
             continue;
         };
@@ -124,6 +155,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
             .to_string();
         records.push(ObjectRecord {
             type_name,
+            type_guid,
             container,
             instance_guid,
             nickname,
@@ -180,8 +212,12 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
                     Err(e) => warnings.push(e),
                 }
             }
+            Some(rec) if is_gene_pool(rec) => match read_gene_pool(rec) {
+                Ok(genes) => variables.extend(genes),
+                Err(e) => warnings.push(e),
+            },
             Some(rec) => warnings.push(format!(
-                "Skipped \"{}\" ({}) on the variables input because it is not a Number Slider",
+                "Skipped \"{}\" ({}) on the variables input because it is not a Number Slider or Gene Pool",
                 rec.nickname, rec.type_name
             )),
             None => warnings.push(format!(
@@ -424,7 +460,76 @@ fn read_slider(rec: &ObjectRecord<'_>) -> Result<GhVariable, String> {
         value,
         digits,
         is_integer: digits == 0,
+        gene_pool: None,
     })
+}
+
+/// Whether an object is a Galapagos Gene Pool (by type name or type GUID).
+fn is_gene_pool(rec: &ObjectRecord<'_>) -> bool {
+    rec.type_name.eq_ignore_ascii_case("Gene Pool")
+        || rec.type_guid.eq_ignore_ascii_case(GENE_POOL_TYPE_GUID)
+}
+
+/// Reads a Gene Pool into one variable per gene. Every gene shares the pool's
+/// range/decimals (from the `GeneData` chunk's `Minimum` / `Maximum` /
+/// `Decimals`) and carries its own saved value (the indexed `Value` items). Gene
+/// names are `<pool nick><i>`; all genes keep the pool's `instance_guid` so they
+/// are injected as a single RH_IN list input.
+fn read_gene_pool(rec: &ObjectRecord<'_>) -> Result<Vec<GhVariable>, String> {
+    let data = rec.container.find_chunk("GeneData").ok_or_else(|| {
+        format!(
+            "GeneData chunk not found for gene pool \"{}\"",
+            rec.nickname
+        )
+    })?;
+    let low = data
+        .item_f64("Minimum")
+        .ok_or_else(|| format!("Cannot read Minimum of gene pool \"{}\"", rec.nickname))?;
+    let high = data
+        .item_f64("Maximum")
+        .ok_or_else(|| format!("Cannot read Maximum of gene pool \"{}\"", rec.nickname))?;
+    if !high.is_finite() || !low.is_finite() || high <= low {
+        return Err(format!(
+            "Gene pool \"{}\" has an invalid range (Minimum={low}, Maximum={high})",
+            rec.nickname
+        ));
+    }
+    let digits = data.item_i64("Decimals").unwrap_or(2).max(0) as u32;
+    // Per-gene saved values, kept positionally: a value that fails to parse
+    // falls back to the low bound in place rather than being dropped (dropping
+    // would shift every later gene's value onto the wrong index).
+    let values: Vec<f64> = data
+        .items_named("Value")
+        .map(|it| it.text.trim().parse().unwrap_or(low))
+        .collect();
+    // The declared Count is authoritative; never emit fewer genes than there are
+    // Value items either (so a missing/short Count can't drop genes).
+    let count = (data.item_i64("Count").unwrap_or(0).max(0) as usize).max(values.len());
+    if count == 0 {
+        return Err(format!("Gene pool \"{}\" has no genes", rec.nickname));
+    }
+    let base = if rec.nickname.is_empty() {
+        "gene".to_string()
+    } else {
+        rec.nickname.clone()
+    };
+    let genes = (0..count)
+        .map(|i| GhVariable {
+            instance_guid: rec.instance_guid.to_string(),
+            name: format!("{base}{i}"),
+            low,
+            high,
+            value: values.get(i).copied().unwrap_or(low),
+            digits,
+            is_integer: digits == 0,
+            gene_pool: Some(GenePoolSlot {
+                group_name: base.clone(),
+                count,
+                index: i,
+            }),
+        })
+        .collect();
+    Ok(genes)
 }
 
 /// Uniquifies duplicate names by appending a sequence-number suffix (journal
@@ -490,6 +595,52 @@ mod tests {
             "0aaaaaaa-0000-0000-0000-00000000area"
         );
         assert!(problem.warnings.is_empty());
+    }
+
+    #[test]
+    fn extracts_gene_pool_as_one_variable_per_gene() {
+        use crate::gh::fixtures::sample_ghx_gene_pool;
+        let problem = extract_problem(&sample_ghx_gene_pool()).unwrap();
+
+        // 3 genes → 3 variables, each with the pool's shared range/decimals and
+        // its own saved value.
+        assert_eq!(problem.variables.len(), 3);
+        for (i, expected_value) in [25.0, 50.0, 75.0].into_iter().enumerate() {
+            let v = &problem.variables[i];
+            assert_eq!(v.name, format!("Genes{i}"));
+            assert_eq!(v.low, 0.0);
+            assert_eq!(v.high, 100.0);
+            assert_eq!(v.digits, 2);
+            assert!(!v.is_integer);
+            assert_eq!(v.value, expected_value);
+            // All genes share the pool's InstanceGuid (one RH_IN list input).
+            assert_eq!(v.instance_guid, "0aaaaaaa-0000-0000-0000-00000000pool");
+            let slot = v.gene_pool.as_ref().expect("gene should carry a pool slot");
+            assert_eq!(slot.group_name, "Genes");
+            assert_eq!(slot.count, 3);
+            assert_eq!(slot.index, i);
+        }
+
+        assert_eq!(problem.objectives.len(), 1);
+        assert_eq!(problem.objectives[0].name, "obj");
+        assert!(problem.warnings.is_empty());
+    }
+
+    #[test]
+    fn gene_pool_unparseable_value_keeps_gene_alignment() {
+        // A middle gene's value is corrupted: the gene count must stay 3, the bad
+        // value falls back to the low bound, and later genes keep their values
+        // (no index shift from dropping the bad item).
+        use crate::gh::fixtures::sample_ghx_gene_pool;
+        let xml = sample_ghx_gene_pool().replace(
+            r#"<item name="Value" index="1" type_name="gh_decimal" type_code="7">50</item>"#,
+            r#"<item name="Value" index="1" type_name="gh_decimal" type_code="7">N/A</item>"#,
+        );
+        let problem = extract_problem(&xml).unwrap();
+        assert_eq!(problem.variables.len(), 3);
+        assert_eq!(problem.variables[0].value, 25.0);
+        assert_eq!(problem.variables[1].value, 0.0); // fell back to low
+        assert_eq!(problem.variables[2].value, 75.0); // not shifted
     }
 
     #[test]

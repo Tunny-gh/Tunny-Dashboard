@@ -269,9 +269,9 @@ using Rhino.Compute.
 
 **Approach (decided 2026-07)**: the MVP is built by **parsing .ghx (XML) directly**.
 Since .ghx is the XML serialization of GH_Archive, Dashboard can extract variable
-sliders (name, range, precision), wire connections (the Variables / Objectives inputs
-of the Tunny component), and Tunny's settings entirely on its own, **with no
-dependency on a Tunny release**. Injection of RH_IN / RH_OUT groups is likewise
+sliders and Gene Pools (name, range, precision), wire connections (the Variables /
+Objectives inputs of the Tunny component), and Tunny's settings entirely on its own,
+**with no dependency on a Tunny release**. Injection of RH_IN / RH_OUT groups is likewise
 performed by Dashboard directly against the ghx (XML). The original proposal —
 "embedding a problem-definition manifest into the .gh file" (a feature addition on the
 Tunny side) — is demoted to a later stage, kept in reserve as a fallback for
@@ -282,7 +282,10 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
       connections. Tunny component detection (`gh::problem`)
 - [x] Generation of Compute-ready definitions (Dashboard side): attaching RH_IN
       groups to variable sliders and injecting RH_OUT parameters into objective
-      wires, performed directly on the ghx XML (`gh::compute_def`)
+      wires, performed directly on the ghx XML (`gh::compute_def`). Gene Pools are
+      supported as variable sources too: each pool becomes one variable per gene
+      (sharing the pool's range/decimals) and is injected as a single RH_IN list
+      input carrying all of the pool's values
 - [x] Rhino.Compute client: an HTTP client that feeds variable values to a local
       rhino.compute instance (no extra cost with a Rhino license), solves, and
       extracts objective values. Parallel workers = concurrent requests (concurrency

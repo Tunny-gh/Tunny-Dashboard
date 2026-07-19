@@ -29,7 +29,9 @@ pub use compute_server::{
     classify_compute_input, start_compute_server, start_compute_server_tracked,
     ComputeServerHandle, ComputeTarget,
 };
-pub use problem::{extract_problem, GhAttribute, GhConstraint, GhObjective, GhProblem, GhVariable};
+pub use problem::{
+    extract_problem, GenePoolSlot, GhAttribute, GhConstraint, GhObjective, GhProblem, GhVariable,
+};
 pub use runner::{
     prepare_gh_run, run_prepared, GhIterationDiagnostic, GhRunConfig, GhRunSummary, GhSampler,
     GhStopReason, PreparedGhRun,
@@ -53,6 +55,118 @@ pub(crate) mod fixtures {
             r#"<item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000faout</item>"#,
             "",
         )
+    }
+
+    /// Minimal .ghx whose sole variable source is a Gene Pool (3 genes, range
+    /// 0..100, 2 decimals, saved values 25/50/75) wired into a Tunny component,
+    /// with a single floating Number parameter ("obj") as the objective. Mirrors
+    /// the real Gene Pool serialization (`Container → GeneData` with
+    /// `Count`/`Decimals`/`Minimum`/`Maximum` and indexed `Value` items).
+    pub fn sample_ghx_gene_pool() -> String {
+        r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<Archive name="Root">
+  <items count="1">
+    <item name="ArchiveVersion" type_name="gh_version" type_code="80">
+      <Major>0</Major>
+      <Minor>2</Minor>
+      <Revision>2</Revision>
+    </item>
+  </items>
+  <chunks count="1">
+    <chunk name="Definition">
+      <chunks count="1">
+        <chunk name="DefinitionObjects">
+          <items count="1">
+            <item name="ObjectCount" type_name="gh_int32" type_code="3">3</item>
+          </items>
+          <chunks count="3">
+            <chunk name="Object" index="0">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">21553c44-ea62-475e-a8bb-62b2a3ee5ca5</item>
+                <item name="Name" type_name="gh_string" type_code="10">Gene Pool</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="4">
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000pool</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Gene Pool</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Genes</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="1">
+                    <chunk name="GeneData">
+                      <items count="7">
+                        <item name="Count" type_name="gh_int32" type_code="3">3</item>
+                        <item name="Decimals" type_name="gh_int32" type_code="3">2</item>
+                        <item name="Maximum" type_name="gh_decimal" type_code="7">100</item>
+                        <item name="Minimum" type_name="gh_decimal" type_code="7">0</item>
+                        <item name="Value" index="0" type_name="gh_decimal" type_code="7">25</item>
+                        <item name="Value" index="1" type_name="gh_decimal" type_code="7">50</item>
+                        <item name="Value" index="2" type_name="gh_decimal" type_code="7">75</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="1">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="4">
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000000obj</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Number</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">obj</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="2">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">99999999-8888-7777-6666-555555555555</item>
+                <item name="Name" type_name="gh_string" type_code="10">Tunny</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="3">
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-0000000tunny</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Tunny</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Tunny</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="param_input" index="0">
+                      <items count="5">
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000tin0</item>
+                        <item name="Name" type_name="gh_string" type_code="10">Variables</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">V</item>
+                        <item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000pool</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                    </chunk>
+                    <chunk name="param_input" index="1">
+                      <items count="5">
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000tin1</item>
+                        <item name="Name" type_name="gh_string" type_code="10">Objectives</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">O</item>
+                        <item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000000obj</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+          </chunks>
+        </chunk>
+      </chunks>
+    </chunk>
+  </chunks>
+</Archive>"#
+            .to_string()
     }
 
     pub fn sample_ghx() -> String {
