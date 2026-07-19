@@ -3,11 +3,27 @@ pub fn compute_improvement_rate(history: &[(u32, f64)], last_n: usize, is_minimi
     if window.len() < 2 {
         return 0.0;
     }
+    // Seed the running best from the best value observed *before* the window so
+    // the window's first element counts as an improvement only if it actually
+    // beats the pre-window best. When the window covers the whole history the
+    // prefix is empty and the seed stays at ±INF, so the first trial still
+    // counts as the initial improvement (preserving the full-history semantics).
+    let start = history.len() - window.len();
     let mut best_so_far = if is_minimize {
         f64::INFINITY
     } else {
         f64::NEG_INFINITY
     };
+    for &(_, val) in &history[..start] {
+        let improved = if is_minimize {
+            val < best_so_far
+        } else {
+            val > best_so_far
+        };
+        if improved {
+            best_so_far = val;
+        }
+    }
     let mut improved_count = 0usize;
     for &&(_, val) in window.iter().rev() {
         let improved = if is_minimize {
@@ -92,6 +108,41 @@ mod tests {
         let rate_as_maximize = compute_improvement_rate(&history, 100, false);
         assert_eq!(rate_as_minimize, 1.0 / 4.0);
         assert_eq!(rate_as_maximize, 2.0 / 4.0);
+    }
+
+    #[test]
+    fn improvement_rate_windowed_does_not_overcount_flat_tail() {
+        // 150-trial best-so-far history that improves early then stays flat.
+        // The last 100 values are all identical (no real improvement in the
+        // window), so the rate over the last 100 must be exactly 0.0. The window
+        // starts mid-history, which used to spuriously count its first element.
+        let mut history: Vec<(u32, f64)> = Vec::new();
+        for i in 0..50u32 {
+            history.push((i, 100.0 - i as f64)); // improving: 100, 99, ... 51
+        }
+        for i in 50..150u32 {
+            history.push((i, 51.0)); // flat tail, no improvement
+        }
+        let rate = compute_improvement_rate(&history, 100, true);
+        assert_eq!(rate, 0.0);
+    }
+
+    #[test]
+    fn improvement_rate_windowed_counts_only_in_window_improvements() {
+        // Flat prefix, then a single improvement inside the last-100 window.
+        let mut history: Vec<(u32, f64)> = Vec::new();
+        for i in 0..60u32 {
+            history.push((i, 10.0)); // flat prefix
+        }
+        for i in 60..160u32 {
+            // one improvement at the very end of the window
+            let v = if i == 159 { 9.0 } else { 10.0 };
+            history.push((i, v));
+        }
+        // Window = last 100 (trials 60..160). Only trial 159 improves on the
+        // pre-window best of 10.0 → exactly one improvement out of 100.
+        let rate = compute_improvement_rate(&history, 100, true);
+        assert_eq!(rate, 1.0 / 100.0);
     }
 
     #[test]

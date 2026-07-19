@@ -73,19 +73,8 @@ pub(crate) fn minimize_on_surrogate(
 ) -> Vec<f64> {
     let sign = if minimize { 1.0 } else { -1.0 };
 
-    if constraint_models.is_empty() {
-        // No constraints: minimize only the surrogate cost, as before.
-        let t = match optimizer {
-            OptimizerKind::MultiStartLbfgs => multi_start_lbfgs(surrogate, sign, start_norm),
-            OptimizerKind::RandomSearch => random_search(surrogate, sign, start_norm),
-            OptimizerKind::Nsga2 => run_nsga2(surrogate, sign, start_norm),
-            OptimizerKind::CmaEs => run_cma_es(surrogate, sign, start_norm),
-        };
-        return t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
-    }
-
-    // With constraints: optimize via the generic cost function minimize_scalar_fn.
-    // z0_i = (0 - c_mean_i) / c_std_i
+    // Feasibility boundary z0_i = (0 - c_mean_i) / c_std_i (normalized z-score
+    // units). Empty when there are no constraints.
     let z0s: Vec<f64> = constraint_models
         .iter()
         .map(|cm| {
@@ -99,20 +88,35 @@ pub(crate) fn minimize_on_surrogate(
         })
         .collect();
 
-    let constrained_cost = |t: &[f64]| -> f64 {
-        let clamped: Vec<f64> = t.iter().map(|v| v.clamp(0.0, 1.0)).collect();
-        let bound_pen = box_penalty(t);
-        let obj = sign * surrogate.predict_norm(&clamped);
+    // Base cost on an already-in-box point: the signed objective plus the
+    // constraint penalty. The out-of-bounds box penalty is applied by the
+    // optimizer wrappers (`penalized_fn` / `penalized_cost`), so this closure
+    // only ever sees clamped inputs.
+    //
+    // Routing every optimizer through this one closure means the user's
+    // optimizer choice is honored whether or not constraints are present.
+    // Previously the constrained path always fell back to gradient-based
+    // L-BFGS, silently discarding the requested optimizer; that stalls on
+    // non-smooth surrogates (e.g. LightGBM), whose finite-difference gradient
+    // is zero almost everywhere, so a constrained CMA-ES/NSGA-II request did no
+    // real search.
+    let base_cost = |c: &[f64]| -> f64 {
+        let obj = sign * surrogate.predict_norm(c);
         let con_pen: f64 = constraint_models
             .iter()
             .zip(z0s.iter())
-            .map(|(cm, &z0)| CONSTRAINT_PENALTY * (cm.predict_norm(&clamped) - z0).max(0.0))
+            .map(|(cm, &z0)| CONSTRAINT_PENALTY * (cm.predict_norm(c) - z0).max(0.0))
             .sum();
-        obj + con_pen + BOUND_PENALTY * bound_pen
+        obj + con_pen
     };
 
     let n_dims = start_norm.len();
-    let t = minimize_scalar_fn(&constrained_cost, n_dims, start_norm);
+    let t = match optimizer {
+        OptimizerKind::MultiStartLbfgs => minimize_scalar_fn(&base_cost, n_dims, start_norm),
+        OptimizerKind::RandomSearch => random_search(&base_cost, n_dims, start_norm),
+        OptimizerKind::Nsga2 => run_nsga2(&base_cost, n_dims, start_norm),
+        OptimizerKind::CmaEs => run_cma_es(&base_cost, start_norm),
+    };
     t.iter().map(|v| v.clamp(0.0, 1.0)).collect()
 }
 
@@ -122,24 +126,22 @@ pub(crate) fn penalized_cost(surrogate: &FittedSurrogate, sign: f64, t: &[f64]) 
     sign * surrogate.predict_norm(&clamped) + BOUND_PENALTY * box_penalty(t)
 }
 
-/// Multi-start L-BFGS from the observed best point plus random points.
-/// Minimizes the surrogate via the generalized `minimize_scalar_fn`.
-fn multi_start_lbfgs(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
-    let n_dims = start_norm.len();
-    minimize_scalar_fn(&|t| penalized_cost(surrogate, sign, t), n_dims, start_norm)
-}
-
-/// Random search with a fixed seed. The observed best point is also included as a candidate.
-fn random_search(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
-    let n_dims = start_norm.len();
+/// Random search with a fixed seed. The observed best point is also included as
+/// a candidate. `f` is the base cost on an in-box point; the box penalty is
+/// applied via `penalized_fn`.
+fn random_search(
+    f: &(dyn Fn(&[f64]) -> f64 + Sync),
+    n_dims: usize,
+    start_norm: &[f64],
+) -> Vec<f64> {
     let mut rng = SeededRng::from_seed(SEED);
 
     let mut best = start_norm.to_vec();
-    let mut best_cost = penalized_cost(surrogate, sign, &best);
+    let mut best_cost = penalized_fn(f, &best);
 
     for _ in 0..N_RANDOM_SEARCH {
         let t: Vec<f64> = (0..n_dims).map(|_| rng.next_f64()).collect();
-        let cost = penalized_cost(surrogate, sign, &t);
+        let cost = penalized_fn(f, &t);
         if cost < best_cost {
             best_cost = cost;
             best = t;
@@ -148,15 +150,15 @@ fn random_search(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> 
     best
 }
 
-/// Runs NSGA-II as a single-objective minimization of the surrogate.
+/// Runs NSGA-II as a single-objective minimization of `f`.
 /// Fitness is a length-1 vector (using the generic implementation in preparation for future
 /// multi-objective surrogate support).
-fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
+fn run_nsga2(f: &(dyn Fn(&[f64]) -> f64 + Sync), n_dims: usize, start_norm: &[f64]) -> Vec<f64> {
     // Currently a single-objective surrogate, so use the η_c = 20 configuration.
     let cfg = nsga2::Nsga2Config::for_objectives(1);
     let front = nsga2::nsga2_minimize(
-        |t| vec![penalized_cost(surrogate, sign, t)],
-        start_norm.len(),
+        |t| vec![penalized_fn(f, t)],
+        n_dims,
         std::slice::from_ref(&start_norm.to_vec()),
         &cfg,
     );
@@ -172,9 +174,9 @@ fn run_nsga2(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<
 }
 
 /// Runs CMA-ES with the observed best point as the initial mean.
-fn run_cma_es(surrogate: &FittedSurrogate, sign: f64, start_norm: &[f64]) -> Vec<f64> {
+fn run_cma_es(f: &(dyn Fn(&[f64]) -> f64 + Sync), start_norm: &[f64]) -> Vec<f64> {
     let cfg = cma_es::CmaEsConfig::default();
-    cma_es::cma_es_minimize(|t| penalized_cost(surrogate, sign, t), start_norm, &cfg)
+    cma_es::cma_es_minimize(|t| penalized_fn(f, t), start_norm, &cfg)
 }
 
 /// Minimizes an arbitrary scalar function `f: [0,1]^d → f64` via multi-start L-BFGS.

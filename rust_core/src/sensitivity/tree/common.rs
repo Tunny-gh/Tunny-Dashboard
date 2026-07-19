@@ -39,7 +39,12 @@ fn compute_split(n: usize) -> (bool, usize) {
     const MIN_TRAIN: usize = 2;
     let use_holdout = n >= MIN_TRAIN + MIN_EVAL;
     let split_idx = if use_holdout {
-        ((n * 4) / 5).max(MIN_TRAIN)
+        // Keep the 80/20 target but guarantee both sides meet their minimums:
+        // at least MIN_TRAIN training rows and at least MIN_EVAL eval rows.
+        // Without the upper clamp, `ceil(n/5) == 1` for n == 4 or 5, which
+        // leaves a single eval point and forces `mse_to_r_squared` to return
+        // 0.0 (ss_tot == 0) even for a perfect fit.
+        ((n * 4) / 5).max(MIN_TRAIN).min(n - MIN_EVAL)
     } else {
         n
     };
@@ -173,5 +178,28 @@ pub(crate) fn normalize(values: &mut [f64]) {
     }
     for v in values.iter_mut() {
         *v /= sum;
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::compute_split;
+
+    #[test]
+    fn holdout_always_leaves_at_least_two_eval_rows() {
+        // Too few rows: no holdout.
+        for n in 0..4 {
+            let (use_holdout, split_idx) = compute_split(n);
+            assert!(!use_holdout, "n={n} should not use holdout");
+            assert_eq!(split_idx, n);
+        }
+        // Holdout: both train and eval sides must have >= 2 rows. Previously
+        // n == 4 and n == 5 produced a single eval row (R^2 forced to 0).
+        for n in 4..200 {
+            let (use_holdout, split_idx) = compute_split(n);
+            assert!(use_holdout, "n={n} should use holdout");
+            assert!(split_idx >= 2, "n={n}: train side {split_idx} < 2");
+            assert!(n - split_idx >= 2, "n={n}: eval side {} < 2", n - split_idx);
+        }
     }
 }

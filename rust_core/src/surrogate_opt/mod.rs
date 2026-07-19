@@ -1032,7 +1032,7 @@ fn run_multi_optimize(
         if front_points.is_empty() || px >= n_dims || py >= n_dims || px == py {
             Vec::new()
         } else {
-            // Ideal point in normalized objective space.
+            // Ideal and nadir points in the sign-adjusted (minimization) frame.
             let ideal: Vec<f64> = (0..n_obj)
                 .map(|k| {
                     front_points
@@ -1041,12 +1041,29 @@ fn run_multi_optimize(
                         .fold(f64::INFINITY, f64::min)
                 })
                 .collect();
+            let nadir: Vec<f64> = (0..n_obj)
+                .map(|k| {
+                    front_points
+                        .iter()
+                        .map(|p| signs[k] * p.values[k])
+                        .fold(f64::NEG_INFINITY, f64::max)
+                })
+                .collect();
+            // Per-objective range, used to normalize each objective to [0, 1]
+            // before measuring distance. Without this the Euclidean distance is
+            // dominated by whichever objective has the larger numeric magnitude
+            // (e.g. one in [0, 1000] vs one in [0, 1]), so the chosen "balance"
+            // point would not actually be balanced. Guard the degenerate
+            // zero-range case.
+            let ranges: Vec<f64> = (0..n_obj)
+                .map(|k| (nadir[k] - ideal[k]).max(1e-12))
+                .collect();
 
             // Find the normalized parameters of the balance point (the point
-            // closest to the ideal point).
+            // closest to the ideal point in normalized objective space).
             let ideal_dist = |p: &ParetoFrontPoint| -> f64 {
                 (0..n_obj)
-                    .map(|k| (signs[k] * p.values[k] - ideal[k]).powi(2))
+                    .map(|k| ((signs[k] * p.values[k] - ideal[k]) / ranges[k]).powi(2))
                     .sum()
             };
             let balance_norm = front_points
