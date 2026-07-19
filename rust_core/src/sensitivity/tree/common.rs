@@ -159,6 +159,28 @@ where
     }
 }
 
+/// Normalizes values by their sum. If the sum is <= 0, sets all elements to 0.0.
+///
+/// NOTE: This is deliberately a different convention from `mcdm::normalize_weights`.
+/// That one falls back to a uniform distribution `1/n` in the degenerate case
+/// (sum non-finite or <= 0), but the input here is feature importances, and a
+/// sum of 0 means "the tree could not make any splits, so no feature has any
+/// importance." Substituting a uniform distribution would falsely convey that
+/// "all features are equally important," so returning all-zero elements
+/// (i.e., no importance) is the semantically correct choice for callers.
+pub(crate) fn normalize(values: &mut [f64]) {
+    let sum = values.iter().sum::<f64>();
+    if sum < f64::EPSILON {
+        for v in values.iter_mut() {
+            *v = 0.0;
+        }
+        return;
+    }
+    for v in values.iter_mut() {
+        *v /= sum;
+    }
+}
+
 #[cfg(test)]
 mod split_tests {
     use super::compute_split;
@@ -179,27 +201,5 @@ mod split_tests {
             assert!(split_idx >= 2, "n={n}: train side {split_idx} < 2");
             assert!(n - split_idx >= 2, "n={n}: eval side {} < 2", n - split_idx);
         }
-    }
-}
-
-/// Normalizes values by their sum. If the sum is <= 0, sets all elements to 0.0.
-///
-/// NOTE: This is deliberately a different convention from `mcdm::normalize_weights`.
-/// That one falls back to a uniform distribution `1/n` in the degenerate case
-/// (sum non-finite or <= 0), but the input here is feature importances, and a
-/// sum of 0 means "the tree could not make any splits, so no feature has any
-/// importance." Substituting a uniform distribution would falsely convey that
-/// "all features are equally important," so returning all-zero elements
-/// (i.e., no importance) is the semantically correct choice for callers.
-pub(crate) fn normalize(values: &mut [f64]) {
-    let sum = values.iter().sum::<f64>();
-    if sum < f64::EPSILON {
-        for v in values.iter_mut() {
-            *v = 0.0;
-        }
-        return;
-    }
-    for v in values.iter_mut() {
-        *v /= sum;
     }
 }
