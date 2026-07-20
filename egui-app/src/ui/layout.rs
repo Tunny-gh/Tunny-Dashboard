@@ -1,7 +1,6 @@
 use crate::app::TunnyApp;
 use crate::state::app_state::AppState;
 use crate::theme::TOOLBAR_BTN_FG;
-use crate::ui::help::help_types::HelpLanguage;
 
 /// Duration of the left/right panel open/close animation (seconds)
 pub const PANEL_ANIM_TIME: f32 = 0.20;
@@ -61,12 +60,12 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
             );
             app.apply_toolbar_actions(toolbar_actions);
 
-            // Toolbar row 2: colormap on the left (always shown), Help Language on the right
+            // Toolbar row 2: colormap on the left (always shown), theme / docs on the right
             ui.horizontal(|ui| {
                 show_colormap_selector(ui, &mut app.app_state, &mut app.widget_states);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     show_theme_toggle(ui, &mut app.app_state);
-                    show_language_menu(ui, &mut app.app_state);
+                    show_documentation_button(ui);
                     if ui.button("📄 Licenses").clicked() {
                         app.widget_states.license_modal.open = true;
                     }
@@ -357,35 +356,13 @@ pub fn show_theme_toggle(ui: &mut egui::Ui, app_state: &mut AppState) {
     }
 }
 
-/// Draws the help language switch menu.
-/// Call from a place with access to &mut AppState, such as the toolbar.
-pub fn show_language_menu(ui: &mut egui::Ui, app_state: &mut AppState) {
-    let current = app_state.help_language;
-    ui.menu_button("🌐 Help Language", |ui| {
-        if ui
-            .selectable_label(current == HelpLanguage::En, "English")
-            .clicked()
-        {
-            app_state.help_language = HelpLanguage::En;
-        }
-        if ui
-            .selectable_label(current == HelpLanguage::Ja, "日本語")
-            .clicked()
-        {
-            app_state.help_language = HelpLanguage::Ja;
-        }
-    });
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn show_language_menu_logic_sets_ja() {
-        use crate::state::app_state::AppState;
-        use crate::ui::help::help_types::HelpLanguage;
-        let mut state = AppState::new();
-        assert_eq!(state.help_language, HelpLanguage::En);
-        state.help_language = HelpLanguage::Ja;
-        assert_eq!(state.help_language, HelpLanguage::Ja);
+/// Draws the button that opens the online documentation top page.
+/// The documentation site has its own language switcher, so no language
+/// selection is offered here.
+pub fn show_documentation_button(ui: &mut egui::Ui) {
+    let resp = ui.button("📖 Documentation");
+    if resp.clicked() {
+        let _ = crate::ui::help::help_launcher::open_overview();
     }
+    resp.on_hover_text("Open the online documentation in your browser");
 }

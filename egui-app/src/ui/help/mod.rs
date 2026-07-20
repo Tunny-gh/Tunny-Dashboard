@@ -1,3 +1,2 @@
-pub mod help_content;
 pub mod help_launcher;
-pub mod help_types;
+pub mod help_url;

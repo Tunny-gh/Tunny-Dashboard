@@ -37,7 +37,7 @@ All sources support **live update**: running studies are polled via a lightweigh
 - **Artifacts gallery** — browse Optuna artifacts (images) attached to trials
 - **CSV export** — export selected trials with customizable columns
 - **Session persistence** — save and restore the full UI state as a JSON file
-- **Bilingual help** — built-in theory documentation (English / 日本語) for every widget and algorithm, cross-validated against Python reference implementations
+- **Bilingual help** — every widget links straight to its page on the online documentation site (English / 日本語), where each algorithm is documented and cross-validated against Python reference implementations
 
 ### Technology Stack
 
@@ -84,7 +84,6 @@ tunny-dashboard/
 │   └── Cargo.toml
 ├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
 ├── docs/               # User guides (execution / integration)
-├── theory/             # Bilingual (en/ja) algorithm documentation
 └── Cargo.toml          # Workspace configuration
 ```
 

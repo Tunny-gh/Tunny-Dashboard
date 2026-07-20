@@ -78,7 +78,6 @@ pub fn record_capture_target(
 pub(crate) fn handle_toolbar_action(
     ctx: &egui::Context,
     action: &CellToolbarAction,
-    help_language: crate::ui::help::help_types::HelpLanguage,
     widgets: &mut WidgetStates,
     app_state: &AppState,
     tx: &mpsc::SyncSender<AppMessage>,
@@ -86,7 +85,7 @@ pub(crate) fn handle_toolbar_action(
     use crate::ui::widget_states::CaptureDest;
     match action {
         CellToolbarAction::Help(help_item) => {
-            if let Err(e) = crate::ui::help::help_launcher::open_help(help_item, help_language) {
+            if let Err(e) = crate::ui::help::help_launcher::open_help(help_item) {
                 let _ = tx.try_send(AppMessage::Error(e));
             }
         }

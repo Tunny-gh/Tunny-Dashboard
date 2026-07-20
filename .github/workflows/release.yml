@@ -3,8 +3,9 @@ name: Release
 # Build a self-contained, ready-to-run package for each supported OS and
 # bundle every file an end user needs into a single folder, then zip it.
 #
-# The app embeds its in-app help/theory docs, third-party licenses, icon and
-# fonts into the binary at build time (see egui-app/build.rs), so the only
+# The app embeds third-party licenses, icon and fonts into the binary at build
+# time (see egui-app/build.rs) and links to the online documentation site for
+# help, so the only
 # external runtime dependency that must travel next to the executable is the
 # pre-built LightGBM native library. README.md and LICENSE are bundled as
 # user-facing documentation.
