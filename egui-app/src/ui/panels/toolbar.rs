@@ -46,61 +46,117 @@ pub fn show_toolbar(
 ) -> Vec<ToolbarAction> {
     let mut actions = Vec::new();
     ui.horizontal(|ui| {
-        // File open button
+        // The left half of the bar is grouped into three dropdown menus so that the
+        // individual entries don't push the Study selector off the visible width.
         let open_enabled = !is_loading;
-        if toolbar_button(ui, "Open", open_enabled).clicked() {
-            if let Some(path) = crate::io::file::open_file_dialog() {
-                actions.push(ToolbarAction::OpenJournal(path));
-            }
-        }
 
-        // A button to directly enter a PostgreSQL/MySQL connection URL, which can't be
-        // selected via the file dialog.
-        if toolbar_button(ui, "Open URL…", open_enabled).clicked() {
-            actions.push(ToolbarAction::OpenDbUrlDialog);
-        }
-
-        // Save/restore the session (layout + widget settings + view settings).
-        // The data itself is not saved, so this can always be pressed even before data is loaded.
-        if toolbar_button(ui, "Save Session", true)
-            .on_hover_text("Save the canvas layout, widget settings, and view settings")
+        // ── Open: data sources ────────────────────────────────────────────────
+        toolbar_menu(ui, "Open", true, |ui| {
+            if menu_item(
+                ui,
+                "Open File…",
+                open_enabled,
+                "Load a journal (.log) / SQLite / CSV file",
+            )
             .clicked()
-        {
-            actions.push(ToolbarAction::SaveSession);
-        }
-        if toolbar_button(ui, "Load Session", !is_loading)
-            .on_hover_text("Restore a saved session (keeps the currently loaded data)")
-            .clicked()
-        {
-            if let Some(path) = crate::io::session::pick_session_file_dialog() {
-                actions.push(ToolbarAction::LoadSession(path));
+            {
+                if let Some(path) = crate::io::file::open_file_dialog() {
+                    actions.push(ToolbarAction::OpenJournal(path));
+                }
+                ui.close();
             }
-        }
+            // Directly enter a PostgreSQL/MySQL connection URL, which can't be
+            // selected via the file dialog.
+            if menu_item(
+                ui,
+                "Open URL…",
+                open_enabled,
+                "Enter a PostgreSQL/MySQL connection URL",
+            )
+            .clicked()
+            {
+                actions.push(ToolbarAction::OpenDbUrlDialog);
+                ui.close();
+            }
+            ui.separator();
+            // REQ-007: Artifacts folder selection.
+            if menu_item(
+                ui,
+                "Artifacts Folder…",
+                true,
+                "Scan a folder for artifacts linked to trials",
+            )
+            .clicked()
+            {
+                if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
+                    actions.push(ToolbarAction::ScanArtifacts(base_dir));
+                }
+                ui.close();
+            }
+        });
 
-        // Run an optimization that drives any external command-line tool
-        // (process integration): pick a definition (JSON) and configure the run.
-        if toolbar_button(ui, "Optimize Tool…", open_enabled)
-            .on_hover_text(
+        // ── Session: layout + widget settings + view settings ─────────────────
+        // The data itself is not saved, so saving is allowed even before data is loaded.
+        toolbar_menu(ui, "Session", true, |ui| {
+            if menu_item(
+                ui,
+                "Save Session",
+                true,
+                "Save the canvas layout, widget settings, and view settings",
+            )
+            .clicked()
+            {
+                actions.push(ToolbarAction::SaveSession);
+                ui.close();
+            }
+            if menu_item(
+                ui,
+                "Load Session",
+                !is_loading,
+                "Restore a saved session (keeps the currently loaded data)",
+            )
+            .clicked()
+            {
+                if let Some(path) = crate::io::session::pick_session_file_dialog() {
+                    actions.push(ToolbarAction::LoadSession(path));
+                }
+                ui.close();
+            }
+        });
+
+        // ── Optimize: external tool (process integration) ──────────────────────
+        toolbar_menu(ui, "Optimize", true, |ui| {
+            // Pick a definition (JSON) and configure the run.
+            if menu_item(
+                ui,
+                "Optimize Tool…",
+                open_enabled,
                 "Run an optimization driving an external tool from a process definition (JSON)",
             )
             .clicked()
-        {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("Process definition (*.json)", &["json"])
-                .pick_file()
             {
-                actions.push(ToolbarAction::OpenProcessDefinition(path));
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Process definition (*.json)", &["json"])
+                    .pick_file()
+                {
+                    actions.push(ToolbarAction::OpenProcessDefinition(path));
+                }
+                ui.close();
             }
-        }
-
-        // Author or edit a process definition (JSON) in a GUI form instead of by
-        // hand. Existing definitions can be loaded from inside the builder.
-        if toolbar_button(ui, "New Tool…", true)
-            .on_hover_text("Build or edit a process definition (JSON) in a GUI form")
+            // Author or edit a process definition (JSON) in a GUI form instead of by
+            // hand. Existing definitions can be loaded from inside the builder.
+            if menu_item(
+                ui,
+                "New Tool…",
+                true,
+                "Build or edit a process definition (JSON) in a GUI form",
+            )
             .clicked()
-        {
-            actions.push(ToolbarAction::NewProcessDefinition);
-        }
+            {
+                actions.push(ToolbarAction::NewProcessDefinition);
+                ui.close();
+            }
+        });
 
         ui.separator();
 
@@ -208,56 +264,42 @@ pub fn show_toolbar(
 
             ui.separator();
 
-            // ── REQ-007: Artifacts folder selection ───────────────────────────────
-            if toolbar_button(ui, "Artifacts", true).clicked() {
-                if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
-                    actions.push(ToolbarAction::ScanArtifacts(base_dir));
+            // ── Export: CSV (TASK-2233) and R4 self-contained report ──────────────
+            // Every entry needs a loaded study, so they all grey out without one.
+            let has_study = app_state.current_study.is_some();
+            toolbar_menu(ui, "Export", true, |ui| {
+                use crate::io::export::ExportTarget;
+                for (label, target, hover) in [
+                    ("CSV: All Data", ExportTarget::AllData, "Export every trial"),
+                    (
+                        "CSV: Selected Only",
+                        ExportTarget::SelectedOnly,
+                        "Export only the currently selected trials",
+                    ),
+                    (
+                        "CSV: Pareto Only",
+                        ExportTarget::ParetoOnly,
+                        "Export only the Pareto-optimal trials",
+                    ),
+                ] {
+                    if menu_item(ui, label, has_study, hover).clicked() {
+                        actions.push(ToolbarAction::ExportCsv(target));
+                        ui.close();
+                    }
                 }
-            }
-
-            {
-                let has_study = app_state.current_study.is_some();
-                ui.scope(|ui| {
-                    apply_combo_visuals(ui.visuals_mut());
-                    ui.add_enabled_ui(has_study, |ui| {
-                        egui::ComboBox::from_id_salt("csv_export_combo")
-                            .selected_text(
-                                egui::RichText::new("CSV Export")
-                                    .color(crate::theme::TOOLBAR_TEXT()),
-                            )
-                            .width(110.0)
-                            .show_ui(ui, |ui| {
-                                if ui.selectable_label(false, "All Data").clicked() {
-                                    actions.push(ToolbarAction::ExportCsv(
-                                        crate::io::export::ExportTarget::AllData,
-                                    ));
-                                }
-                                if ui.selectable_label(false, "Selected Only").clicked() {
-                                    actions.push(ToolbarAction::ExportCsv(
-                                        crate::io::export::ExportTarget::SelectedOnly,
-                                    ));
-                                }
-                                if ui.selectable_label(false, "Pareto Only").clicked() {
-                                    actions.push(ToolbarAction::ExportCsv(
-                                        crate::io::export::ExportTarget::ParetoOnly,
-                                    ));
-                                }
-                            });
-                    });
-                });
-            }
-
-            // ── R4: self-contained report export (HTML/Markdown/JSON) ─────────────
-            {
-                let has_study = app_state.current_study.is_some();
-                let mut response = toolbar_button(ui, "Report…", has_study);
-                if !has_study {
-                    response = response.on_hover_text("Select a study first to export a report");
-                }
-                if response.clicked() && has_study {
+                ui.separator();
+                if menu_item(
+                    ui,
+                    "Report…",
+                    has_study,
+                    "Export a self-contained report (HTML/Markdown/JSON)",
+                )
+                .clicked()
+                {
                     actions.push(ToolbarAction::OpenReportDialog);
+                    ui.close();
                 }
-            }
+            });
 
             // Comparison targets are not laid out as chips on the bar; instead they're
             // managed via a checkbox list inside a single dropdown (to prevent the bar
@@ -369,7 +411,41 @@ fn push_comparison_selector(
     });
 }
 
+/// Draws a toolbar button that opens a dropdown menu on click.
+/// The button itself is painted exactly like [`toolbar_button`], with a "▾" hint
+/// painted after the label so it reads as a menu rather than a direct action.
+fn toolbar_menu(
+    ui: &mut egui::Ui,
+    label: &str,
+    enabled: bool,
+    contents: impl FnOnce(&mut egui::Ui),
+) {
+    let response = toolbar_button_impl(ui, label, enabled, true);
+    if enabled {
+        egui::Popup::menu(&response).show(contents);
+    }
+}
+
+/// A single entry inside a [`toolbar_menu`] dropdown.
+/// Stretches to the menu width and shows `hover` as a tooltip.
+fn menu_item(ui: &mut egui::Ui, label: &str, enabled: bool, hover: &str) -> egui::Response {
+    ui.add_enabled(enabled, egui::Button::new(label))
+        .on_hover_text(hover)
+}
+
 fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
+    toolbar_button_impl(ui, label, enabled, false)
+}
+
+/// Width reserved to the right of the label for the drop-down triangle.
+const ARROW_WIDTH: f32 = 14.0;
+
+fn toolbar_button_impl(
+    ui: &mut egui::Ui,
+    label: &str,
+    enabled: bool,
+    arrow: bool,
+) -> egui::Response {
     let padding = egui::vec2(10.0, 5.0);
     let text_color = if enabled {
         crate::theme::TOOLBAR_TEXT()
@@ -383,7 +459,10 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Respon
             text_color,
         )
     });
-    let desired = galley.size() + padding * 2.0;
+    let mut desired = galley.size() + padding * 2.0;
+    if arrow {
+        desired.x += ARROW_WIDTH;
+    }
     let sense = if enabled {
         egui::Sense::click()
     } else {
@@ -407,6 +486,22 @@ fn toolbar_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Respon
         ui.painter().rect_filled(rect, 4.0, bg);
         ui.painter()
             .galley(rect.min + padding, galley, final_text_color);
+        if arrow {
+            // Painted rather than drawn as a "▾" glyph: the bundled proportional
+            // font has no geometric-shape coverage and would render tofu.
+            let cx = rect.right() - padding.x - ARROW_WIDTH * 0.5;
+            let cy = rect.center().y;
+            let (hw, hh) = (4.0, 2.5);
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(cx - hw, cy - hh),
+                    egui::pos2(cx + hw, cy - hh),
+                    egui::pos2(cx, cy + hh),
+                ],
+                final_text_color,
+                egui::Stroke::NONE,
+            ));
+        }
     }
     resp
 }

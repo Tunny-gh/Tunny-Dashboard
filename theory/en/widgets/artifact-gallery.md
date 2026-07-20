@@ -1,8 +1,8 @@
 # Artifact Gallery
 
 The Artifact Gallery displays the files stored under the study's `artifacts/`
-folder (loaded with the **Artifacts** toolbar button), associating each file
-with its trial and with analysis results.
+folder (loaded with **Open ▸ Artifacts Folder…** on the toolbar), associating
+each file with its trial and with analysis results.
 
 ## View modes
 
