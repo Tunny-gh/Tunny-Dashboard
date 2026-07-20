@@ -9,9 +9,8 @@ A Rust egui desktop app for analyzing Optuna optimization results.
 - Project documents such as ROADMAP.md are written in English.
 - UI text (labels, progress, error messages, and other user-facing strings) is
   written in English.
-- Japanese report output (`ReportLang::Ja`) and the bilingual help/theory
-  documents stay Japanese — the Japanese content there is part of the
-  functional spec.
+- Japanese report output (`ReportLang::Ja`) stays Japanese — the Japanese
+  content there is part of the functional spec.
 - Chat responses follow the user's language (Japanese).
 
 ## Task Delegation

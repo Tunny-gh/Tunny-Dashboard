@@ -26,7 +26,7 @@ every user who optimizes with Optuna."
 | Formal MCDM methods (TOPSIS / VIKOR / PROMETHEE I & II / entropy weighting) | modeFRONTIER's MCDM tools come closest, but this tool covers a broader range of methods |
 | History of multi-objective convergence metrics (Hypervolume / IGD+ / ε / R2) | None of the four commercial tools offer this as a public feature |
 | Breadth of sensitivity analysis methods (Spearman / Ridge / RF-ANOVA / MDI / SHAP / Permutation / Sobol / ARD) | SHAP is absent from commercial tools (no legal barrier — it's a product-culture issue, so we can maintain our lead) |
-| Algorithm transparency (bilingual theory documentation + Python cross-validation) | An area where commercial tools are often criticized as black boxes |
+| Algorithm transparency (bilingual online documentation + Python cross-validation) | An area where commercial tools are often criticized as black boxes |
 | Native performance from Rust + wgpu | A basis for outperforming commercial Java/Qt-based UIs on large-scale trials |
 
 These are assets to defend and grow. Messaging in the README, etc. should keep pace with
@@ -73,7 +73,7 @@ file — a lightweight, server-free counter to VOLTA / HEEDS Connect, offering
 ### 3. UI Polish
 
 - [x] Dark mode (toolbar toggle + theme-aware color functions + session persistence)
-- Japanese localization of the main UI (currently only help/theory documentation is
+- Japanese localization of the main UI (currently only the online documentation is
   bilingual). An area where commercial tools are weak with the domestic CAE user
   base — on hold (pending user decision)
 - [x] Updated README feature list (reflecting all 33 widgets, storage support, report
@@ -156,7 +156,7 @@ tool for large-scale studies."
 
 ### 10. Branding Transparency
 
-Foreground the theory documentation and Python cross-validation as proof that "every
+Foreground the online documentation and Python cross-validation as proof that "every
 algorithm is verifiable and citable." This is a clear differentiator against
 commercial black boxes for regulated industries (aerospace, medical devices) and
 academic use.

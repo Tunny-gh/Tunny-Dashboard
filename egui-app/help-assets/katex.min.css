@@ -1,6 +1,0 @@
-/* KaTeX CSS placeholder.
-   Download the real file from:
-   https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css
-   and replace this file to enable math rendering. */
-.katex { font-family: KaTeX_Main, serif; font-size: 1.1em; }
-.katex-display { display: block; text-align: center; margin: 1em 0; }

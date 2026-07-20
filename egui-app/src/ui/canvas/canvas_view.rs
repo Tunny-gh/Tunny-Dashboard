@@ -218,7 +218,7 @@ pub fn show_canvas_view(
                 // Same order as grid: handle_toolbar_action (registers capture requests) → draw body.
                 let had_no_capture = iw.capture.pending_capture.is_none();
                 let ctx = content_ui.ctx().clone();
-                handle_toolbar_action(&ctx, &tb_action, app_state.help_language, iw, app_state, tx);
+                handle_toolbar_action(&ctx, &tb_action, iw, app_state, tx);
                 let body_rect = render_panel_item_body(
                     &mut content_ui,
                     app_state,

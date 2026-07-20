@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 
 use crate::state::app_state::{AppState, ColormapName};
 use crate::state::layout_state::LayoutState;
-use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::indicators::MoIndicator;
 
@@ -44,7 +43,6 @@ pub struct ViewSettings {
     pub pinned_trials: Vec<u32>,
     pub hv_ref_point_override: Option<Vec<f64>>,
     pub convergence_indicator: MoIndicator,
-    pub help_language: HelpLanguage,
     /// Whether the dark theme is active (older sessions are treated as
     /// light via `#[serde(default)]`).
     pub dark_mode: bool,
@@ -58,7 +56,6 @@ impl Default for ViewSettings {
             pinned_trials: Vec::new(),
             hv_ref_point_override: None,
             convergence_indicator: MoIndicator::Hypervolume,
-            help_language: HelpLanguage::default(),
             dark_mode: false,
         }
     }
@@ -74,7 +71,6 @@ impl ViewSettings {
             pinned_trials: app_state.pinned_trials.clone(),
             hv_ref_point_override: app_state.hv_ref_point_override.clone(),
             convergence_indicator: app_state.convergence_indicator,
-            help_language: app_state.help_language,
             dark_mode: app_state.dark_mode,
         }
     }
@@ -91,7 +87,6 @@ impl ViewSettings {
             app_state.convergence_history = None;
         }
         app_state.convergence_indicator = self.convergence_indicator;
-        app_state.help_language = self.help_language;
         app_state.dark_mode = self.dark_mode;
     }
 }

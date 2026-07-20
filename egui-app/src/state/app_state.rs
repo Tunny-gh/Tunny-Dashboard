@@ -1,7 +1,6 @@
 pub use super::results::*;
 pub use super::types::*;
 
-use crate::ui::help::help_types::HelpLanguage;
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 use crate::ui::widgets::report_modal::ReportDialogState;
@@ -82,10 +81,6 @@ pub struct AppState {
     /// The base study_id of the Comparison session
     pub comparison_base_study: Option<u32>,
 
-    // ── HTML Help Browser ─────────────────────────────────────────
-    /// Help display language (same pattern as selected_colormap; not reset by clear())
-    pub help_language: HelpLanguage,
-
     // ── Theme ────────────────────────────────────────────────────
     /// Whether dark theme is active (a view setting; not reset by clear()).
     /// The actual reflection into `Visuals` / `theme::set_dark_mode` is done every
@@ -162,7 +157,6 @@ impl AppState {
             best_trial_history: None,
             pinned_trials: Vec::new(),
             comparison_base_study: None,
-            help_language: HelpLanguage::default(),
             dark_mode: false,
             convergence_indicator: MoIndicator::Hypervolume,
             csv_import_settings: None,
@@ -238,8 +232,7 @@ impl AppState {
 
         // pinned_trials is not reset on Study switch either (preserves the user's pin settings)
         // comparison_base_study is not reset on Study switch either
-        // help_language is preserved as a user setting (same pattern as selected_colormap)
-        // dark_mode is preserved as a user setting (same as above)
+        // dark_mode is preserved as a user setting (same pattern as selected_colormap)
     }
 }
 
@@ -430,24 +423,6 @@ mod tests {
         // pinned_trials and comparison_base_study are not reset by clear()
         assert_eq!(state.pinned_trials, vec![1, 2, 3]);
         assert_eq!(state.comparison_base_study, Some(42));
-    }
-
-    // ── TASK-2254: tests for the help_language field ────────────────
-
-    #[test]
-    fn app_state_new_help_language_defaults_to_en() {
-        use crate::ui::help::help_types::HelpLanguage;
-        let state = AppState::new();
-        assert_eq!(state.help_language, HelpLanguage::En);
-    }
-
-    #[test]
-    fn app_state_clear_preserves_help_language() {
-        use crate::ui::help::help_types::HelpLanguage;
-        let mut state = AppState::new();
-        state.help_language = HelpLanguage::Ja;
-        state.clear();
-        assert_eq!(state.help_language, HelpLanguage::Ja);
     }
 
     // ── TASK-2232: visibility helper tests ───────────────────────────
