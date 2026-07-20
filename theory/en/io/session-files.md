@@ -56,4 +56,4 @@ Runtime-only fields (compute results, caches, trained models, modal state) are e
 
 ## Where It Is Used in the App
 
-- **Save Session / Load Session toolbar buttons**: save the current dashboard to a session JSON file, or restore one while keeping the currently loaded data.
+- **Session ▸ Save Session / Load Session** on the toolbar: save the current dashboard to a session JSON file, or restore one while keeping the currently loaded data.

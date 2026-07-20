@@ -1,7 +1,7 @@
 # Artifact Gallery（アーティファクト ギャラリー）
 
 Artifact Gallery は、Study の `artifacts/` フォルダ内のファイル（ツールバーの
-**Artifacts** ボタンで読み込み）を、各ファイルが属する trial や解析結果と関連付けて
+**Open ▸ Artifacts Folder…** で読み込み）を、各ファイルが属する trial や解析結果と関連付けて
 表示します。
 
 ## 表示モード

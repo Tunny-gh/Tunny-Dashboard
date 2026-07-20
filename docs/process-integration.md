@@ -11,12 +11,12 @@ This is the "Optuna is the workflow engine; Dashboard is the cockpit" runner for
 solvers that are not Grasshopper. (For Grasshopper, see the drag-and-drop `.ghx`
 flow instead.)
 
-> Status: fully available from the Dashboard. **New Tool…** on the toolbar opens
-> a GUI **builder** for authoring (or importing and editing) a process
-> **definition** (below) and saving it back to JSON. **Optimize Tool…** loads a
-> saved definition, lets you set each parameter's search range, the objective
-> directions, and the sampler, and runs it with the live monitoring you already
-> know. The same definition and run can also be driven through the `tunny-core`
+> Status: fully available from the Dashboard. **Optimize ▸ New Tool…** on the
+> toolbar opens a GUI **builder** for authoring (or importing and editing) a
+> process **definition** (below) and saving it back to JSON.
+> **Optimize ▸ Optimize Tool…** loads a saved definition, lets you set each
+> parameter's search range, the objective directions, and the sampler, and runs
+> it with the live monitoring you already know. The same definition and run can also be driven through the `tunny-core`
 > library.
 
 ## How it works
@@ -120,8 +120,9 @@ Notes:
 
 ## Building a definition in the GUI
 
-You don't have to write the JSON by hand. Click **New Tool…** on the toolbar to
-open the **definition builder**, a form that maps one-to-one to the fields above:
+You don't have to write the JSON by hand. Click **Optimize ▸ New Tool…** on the
+toolbar to open the **definition builder**, a form that maps one-to-one to the
+fields above:
 
 - **Parameters** — add / remove parameter names (referenced as `{name}`).
 - **Input** — pick how parameters reach the command (command-line args,
@@ -145,9 +146,9 @@ Buttons at the bottom:
 
 ## Running a study from the Dashboard
 
-Click **Optimize Tool…** on the toolbar and pick a process-definition JSON (or
-reach this dialog via **Optimize →** in the builder). The setup dialog shows the
-command read-only and lets you fill in the rest:
+Click **Optimize ▸ Optimize Tool…** on the toolbar and pick a process-definition
+JSON (or reach this dialog via **Optimize →** in the builder). The setup dialog
+shows the command read-only and lets you fill in the rest:
 
 - a search **range** for each parameter (low / high, decimal digits, or an
   integer flag) — ranges start at `[0, 1]` for you to edit, and a row with
