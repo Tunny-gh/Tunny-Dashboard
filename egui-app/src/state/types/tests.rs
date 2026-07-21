@@ -27,6 +27,7 @@ fn make_gh_problem(n_objectives: usize) -> tunny_core::gh::GhProblem {
         constraints: vec![],
         attributes: vec![],
         tunny_component: "Tunny".to_string(),
+        tunny_instance_guid: "tunny-guid".to_string(),
         warnings: vec![],
     }
 }

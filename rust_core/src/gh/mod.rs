@@ -59,8 +59,10 @@ pub(crate) mod fixtures {
 
     /// Minimal .ghx whose sole variable source is a Gene Pool (3 genes, range
     /// 0..100, 2 decimals, saved values 25/50/75) wired into a Tunny component,
-    /// with a single floating Number parameter ("obj") as the objective. Mirrors
-    /// the real Gene Pool serialization (`Container → GeneData` with
+    /// with a single floating Number parameter ("obj") as the objective, and a
+    /// Mass Addition component consuming the pool (2 sources, pool first) to
+    /// exercise downstream Source repointing. Mirrors the real Gene Pool
+    /// serialization (`Container → GeneData` with
     /// `Count`/`Decimals`/`Minimum`/`Maximum` and indexed `Value` items).
     pub fn sample_ghx_gene_pool() -> String {
         r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
@@ -77,9 +79,9 @@ pub(crate) mod fixtures {
       <chunks count="1">
         <chunk name="DefinitionObjects">
           <items count="1">
-            <item name="ObjectCount" type_name="gh_int32" type_code="3">3</item>
+            <item name="ObjectCount" type_name="gh_int32" type_code="3">4</item>
           </items>
-          <chunks count="3">
+          <chunks count="4">
             <chunk name="Object" index="0">
               <items count="2">
                 <item name="GUID" type_name="gh_guid" type_code="9">21553c44-ea62-475e-a8bb-62b2a3ee5ca5</item>
@@ -126,6 +128,33 @@ pub(crate) mod fixtures {
               </chunks>
             </chunk>
             <chunk name="Object" index="2">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">5b850221-b527-4bd6-8c62-e94168cd6efa</item>
+                <item name="Name" type_name="gh_string" type_code="10">Mass Addition</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="3">
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-0000000000ma</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Mass Addition</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">MA</item>
+                  </items>
+                  <chunks count="1">
+                    <chunk name="param_input" index="0">
+                      <items count="6">
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000main</item>
+                        <item name="Name" type_name="gh_string" type_code="10">Input</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">I</item>
+                        <item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000pool</item>
+                        <item name="Source" index="1" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000000obj</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">2</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <chunk name="Object" index="3">
               <items count="2">
                 <item name="GUID" type_name="gh_guid" type_code="9">99999999-8888-7777-6666-555555555555</item>
                 <item name="Name" type_name="gh_string" type_code="10">Tunny</item>

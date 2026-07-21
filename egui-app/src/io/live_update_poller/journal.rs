@@ -377,6 +377,7 @@ mod tests {
                 name: "double_x".to_string(),
             }],
             tunny_component: "Tunny".to_string(),
+            tunny_instance_guid: "tunny-guid".to_string(),
             warnings: vec![],
         };
         let cfg = GhRunConfig {

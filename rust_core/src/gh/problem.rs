@@ -105,6 +105,11 @@ pub struct GhProblem {
     pub attributes: Vec<GhAttribute>,
     /// Display name of the detected Tunny component
     pub tunny_component: String,
+    /// InstanceGuid of the detected Tunny component. Used by the Compute
+    /// definition builder to leave the Tunny component's own inputs untouched
+    /// when repointing Gene Pool consumers (Tunny validates that its Variables
+    /// sources are genuine Number Slider / Gene Pool objects).
+    pub tunny_instance_guid: String,
     /// Notes on connections etc. ignored during extraction (shown in the UI)
     pub warnings: Vec<String>,
 }
@@ -342,6 +347,7 @@ pub fn extract_problem(xml: &str) -> Result<GhProblem, String> {
         constraints,
         attributes,
         tunny_component: tunny.nickname.clone(),
+        tunny_instance_guid: tunny.instance_guid.to_string(),
         warnings,
     })
 }

@@ -5,16 +5,31 @@
 //! response. Here, for the original .ghx, we inject via XML string manipulation:
 //!
 //! - An `RH_IN:variable_name` group wrapping each variable slider
+//! - For each Gene Pool: an injected floating Number parameter wrapped in the
+//!   `RH_IN` group instead of the pool itself, with every downstream `Source`
+//!   reference to the pool repointed to that parameter in place (see below)
 //! - A relay Number parameter wired to each objective's source, plus an
 //!   `RH_OUT:objective_name` group wrapping it
 //!
-//! The original definition body is preserved byte-for-byte; only the DefinitionObjects
-//! object count and an append at the end are touched.
+//! The original definition body is preserved byte-for-byte except for the
+//! repointed Gene Pool `Source` guids; only the DefinitionObjects object count
+//! and an append at the end are touched otherwise.
+//!
+//! Gene Pools cannot be RH_IN targets directly: Compute assigns RH_IN values by
+//! injecting volatile data into the wrapped parameter, but a Gene Pool
+//! regenerates its output from its internal genome on every solve, silently
+//! discarding the injected values (verified against a live rhino.compute —
+//! every request solved with the genome saved in the .ghx). The replacement
+//! parameter must be a `Number` parameter: a generic `Data` parameter is
+//! silently ignored as an RH_IN injection target. The Tunny component's own
+//! inputs are excluded from the repointing because Tunny validates that its
+//! Variables sources are genuine Number Slider / Gene Pool objects and fails
+//! the whole solve otherwise.
 //!
 //! The type GUIDs and the serialization layout of the injected objects (Group /
-//! Data parameter) are modeled on, and verified against, GH_Group and floating
-//! parameter chunks found in real .ghx files. End-to-end solve behavior against
-//! a live Rhino.Compute still needs field verification (ROADMAP item 15).
+//! Data / Number parameter) are modeled on real .ghx files, and the end-to-end
+//! solve behavior (including the Gene Pool replacement) is verified against a
+//! live Rhino.Compute (ROADMAP item 15).
 
 use super::problem::GhProblem;
 
@@ -22,7 +37,12 @@ use super::problem::GhProblem;
 const GROUP_TYPE_GUID: &str = "c552a431-af5b-46a9-a8a4-0fcbc27ef596";
 /// Type GUID of the floating generic Data parameter, used as the RH_OUT relay
 /// (verified against real .ghx files; passes through values of any type).
+/// NOT usable as an RH_IN target — Compute's volatile-data injection silently
+/// no-ops on it; RH_IN replacements use [`NUMBER_PARAM_TYPE_GUID`] instead.
 const DATA_PARAM_TYPE_GUID: &str = "8ec86459-bf01-4409-baee-174d0d2b13d0";
+/// Type GUID of the floating Number parameter, used as the replacement RH_IN
+/// target for a Gene Pool (verified against a live Rhino.Compute).
+const NUMBER_PARAM_TYPE_GUID: &str = "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312";
 
 /// A Compute-ready definition with RH_IN / RH_OUT already injected.
 #[derive(Debug, Clone)]
@@ -53,32 +73,60 @@ pub fn build_compute_definition(
     xml: &str,
     problem: &GhProblem,
 ) -> Result<ComputeDefinition, String> {
-    let anchors = locate_definition_objects(xml)?;
+    // Group variables into RH_IN inputs. A Number Slider is its own single-value
+    // input; a Gene Pool's genes (contiguous, all carrying the pool's
+    // InstanceGuid) are delivered together as one RH_IN list input. See
+    // `group_inputs`.
+    let groups = group_inputs(&problem.variables);
+
+    // ── Replace each Gene Pool as a data source ─────────────────────
+    // Compute's RH_IN injection cannot drive a Gene Pool (see the module doc),
+    // so each pool gets a fresh floating Number parameter: downstream Source
+    // references to the pool are repointed to it in place (source order and
+    // indices untouched), except inside the Tunny component's own chunk. The
+    // pool object itself stays, so Tunny's Variables input keeps a valid
+    // source.
+    let mut guid_counter: u64 = 1;
+    let mut working = xml.to_string();
+    let mut pool_params: Vec<Option<String>> = Vec::with_capacity(groups.len());
+    for group in &groups {
+        if group.is_gene_pool {
+            let new_guid = synthetic_guid(&working, &mut guid_counter);
+            working = repoint_sources(
+                &working,
+                group.member_guid,
+                &new_guid,
+                &problem.tunny_instance_guid,
+            )?;
+            pool_params.push(Some(new_guid));
+        } else {
+            pool_params.push(None);
+        }
+    }
+
+    let anchors = locate_definition_objects(&working)?;
 
     // ── Generate the injected objects ───────────────────────────────
-    let mut guid_counter: u64 = 1;
     let mut injected = String::new();
     let mut next_index = anchors.object_count;
     let mut output_params = Vec::with_capacity(problem.objectives.len());
     let mut constraint_params = Vec::with_capacity(problem.constraints.len());
     let mut attr_params = Vec::with_capacity(problem.attributes.len());
 
-    // Group variables into RH_IN inputs. A Number Slider is its own single-value
-    // input; a Gene Pool's genes (contiguous, all carrying the pool's
-    // InstanceGuid) are delivered together as one RH_IN list input. See
-    // `group_inputs`.
-    let groups = group_inputs(&problem.variables);
     let mut input_params = Vec::with_capacity(groups.len());
     let mut input_value_counts = Vec::with_capacity(groups.len());
-    for group in &groups {
+    for (group, pool_param) in groups.iter().zip(&pool_params) {
         let nick = format!("RH_IN:{}", group.name);
-        let group_guid = synthetic_guid(xml, &mut guid_counter);
-        injected.push_str(&group_object_xml(
-            next_index,
-            &group_guid,
-            &nick,
-            group.member_guid,
-        ));
+        let member: &str = match pool_param {
+            Some(new_guid) => {
+                injected.push_str(&number_param_xml(next_index, new_guid, &group.name));
+                next_index += 1;
+                new_guid
+            }
+            None => group.member_guid,
+        };
+        let group_guid = synthetic_guid(&working, &mut guid_counter);
+        injected.push_str(&group_object_xml(next_index, &group_guid, &nick, member));
         next_index += 1;
         input_params.push(nick);
         input_value_counts.push(group.count);
@@ -96,12 +144,22 @@ pub fn build_compute_definition(
     // uniqueness structural even for adversarial names (e.g. an objective
     // literally nicknamed "constraint:x" alongside a constraint "x"), since a
     // duplicated ParamName would make the response mapping silently ambiguous.
+    // An output source that is itself a replaced Gene Pool reads through the
+    // replacement parameter (the pool would report its stale saved genome).
+    let pool_map: std::collections::HashMap<&str, &str> = groups
+        .iter()
+        .zip(&pool_params)
+        .filter_map(|(g, p)| p.as_deref().map(|np| (g.member_guid, np)))
+        .collect();
     let mut relays: Vec<(String, &str, &str, usize)> = Vec::new();
     for obj in &problem.objectives {
         relays.push((
             format!("RH_OUT:{}", obj.name),
             &obj.name,
-            &obj.source_guid,
+            pool_map
+                .get(obj.source_guid.as_str())
+                .copied()
+                .unwrap_or(&obj.source_guid),
             0,
         ));
     }
@@ -109,7 +167,10 @@ pub fn build_compute_definition(
         relays.push((
             format!("RH_OUT:constraint:{}", con.name),
             &con.name,
-            &con.source_guid,
+            pool_map
+                .get(con.source_guid.as_str())
+                .copied()
+                .unwrap_or(&con.source_guid),
             1,
         ));
     }
@@ -117,17 +178,20 @@ pub fn build_compute_definition(
         relays.push((
             format!("RH_OUT:attr:{}", attr.name),
             &attr.name,
-            &attr.source_guid,
+            pool_map
+                .get(attr.source_guid.as_str())
+                .copied()
+                .unwrap_or(&attr.source_guid),
             2,
         ));
     }
     uniquify_nicks(&mut relays);
 
     for (nick, name, source_guid, kind) in relays {
-        let relay_guid = synthetic_guid(xml, &mut guid_counter);
+        let relay_guid = synthetic_guid(&working, &mut guid_counter);
         injected.push_str(&relay_param_xml(next_index, &relay_guid, name, source_guid));
         next_index += 1;
-        let group_guid = synthetic_guid(xml, &mut guid_counter);
+        let group_guid = synthetic_guid(&working, &mut guid_counter);
         injected.push_str(&group_object_xml(
             next_index,
             &group_guid,
@@ -145,14 +209,14 @@ pub fn build_compute_definition(
     // ── 3 splices, in ascending position order: the ObjectCount value, the chunks
     //    count attribute, and the insertion at the end of the object list ───────────
     let new_count = next_index;
-    let mut out = String::with_capacity(xml.len() + injected.len() + 64);
-    out.push_str(&xml[..anchors.object_count_text.0]);
+    let mut out = String::with_capacity(working.len() + injected.len() + 64);
+    out.push_str(&working[..anchors.object_count_text.0]);
     out.push_str(&new_count.to_string());
-    out.push_str(&xml[anchors.object_count_text.1..anchors.chunks_count_text.0]);
+    out.push_str(&working[anchors.object_count_text.1..anchors.chunks_count_text.0]);
     out.push_str(&new_count.to_string());
-    out.push_str(&xml[anchors.chunks_count_text.1..anchors.insertion_pos]);
+    out.push_str(&working[anchors.chunks_count_text.1..anchors.insertion_pos]);
     out.push_str(&injected);
-    out.push_str(&xml[anchors.insertion_pos..]);
+    out.push_str(&working[anchors.insertion_pos..]);
 
     Ok(ComputeDefinition {
         ghx: out,
@@ -165,11 +229,16 @@ pub fn build_compute_definition(
 }
 
 /// One RH_IN input group: a display name, how many consecutive variables it
-/// consumes, and the InstanceGuid the injected group wraps.
+/// consumes, and the InstanceGuid of the original variable object (the slider
+/// the injected group wraps, or the Gene Pool that gets a replacement
+/// parameter).
 struct InputGroup<'a> {
     name: String,
     count: usize,
     member_guid: &'a str,
+    /// Whether this input is a Gene Pool (needs the replacement-parameter
+    /// strategy instead of being wrapped directly).
+    is_gene_pool: bool,
 }
 
 /// Partitions the variables into RH_IN input groups (a slider → its own 1-value
@@ -201,6 +270,7 @@ fn group_inputs(variables: &[super::problem::GhVariable]) -> Vec<InputGroup<'_>>
             name,
             count: span,
             member_guid: &var.instance_guid,
+            is_gene_pool: var.gene_pool.is_some(),
         });
         i += span;
     }
@@ -221,6 +291,96 @@ fn uniquify_input_names(groups: &mut [InputGroup<'_>]) {
                 .map_or(base.as_str(), |pos| &base[..pos]);
             groups[i].name = format!("{trimmed}_{suffix}");
             suffix += 1;
+        }
+    }
+}
+
+/// Repoints every `<item name="Source">` whose text equals `from_guid` to
+/// `to_guid`, editing the guid text in place so each input's source order and
+/// `index` attributes are untouched. Source items inside the Tunny component's
+/// own Object chunk are skipped: Tunny validates that its Variables sources
+/// are genuine Number Slider / Gene Pool objects, so its wiring must keep
+/// pointing at the original pool.
+fn repoint_sources(
+    xml: &str,
+    from_guid: &str,
+    to_guid: &str,
+    tunny_instance_guid: &str,
+) -> Result<String, String> {
+    let tunny_range = object_chunk_range_of_instance(xml, tunny_instance_guid)?;
+    let mut out = String::with_capacity(xml.len());
+    let mut copied = 0;
+    let mut cursor = 0;
+    while let Some(rel) = xml[cursor..].find(r#"<item name="Source""#) {
+        let tag_start = cursor + rel;
+        let Some(text_start) = xml[tag_start..].find('>').map(|i| tag_start + i + 1) else {
+            break;
+        };
+        let Some(text_end) = xml[text_start..].find("</item>").map(|i| text_start + i) else {
+            break;
+        };
+        if xml[text_start..text_end].trim() == from_guid
+            && !(tunny_range.0..tunny_range.1).contains(&tag_start)
+        {
+            out.push_str(&xml[copied..text_start]);
+            out.push_str(to_guid);
+            copied = text_end;
+        }
+        cursor = text_end;
+    }
+    out.push_str(&xml[copied..]);
+    Ok(out)
+}
+
+/// Byte range of the DefinitionObjects `Object` chunk whose Container's
+/// InstanceGuid equals `instance_guid`.
+fn object_chunk_range_of_instance(
+    xml: &str,
+    instance_guid: &str,
+) -> Result<(usize, usize), String> {
+    let err = |msg: String| format!("Unexpected .ghx structure: {msg}");
+    let needle = format!(
+        r#"<item name="InstanceGuid" type_name="gh_guid" type_code="9">{instance_guid}</item>"#
+    );
+    let pos = xml
+        .find(&needle)
+        .ok_or_else(|| err(format!("InstanceGuid {instance_guid} not found")))?;
+    let open = xml[..pos]
+        .rfind(r#"<chunk name="Object""#)
+        .ok_or_else(|| err(format!("no Object chunk encloses {instance_guid}")))?;
+    // Depth-match to the Object chunk's own closing tag. `<chunk` matches both
+    // `<chunk>` and `<chunks>` opens and `</chunk` both closes — each open of
+    // either kind is balanced by one close of either kind, so a single counter
+    // works. Self-closing tags (`<chunk name="Attributes" />`) don't nest.
+    let unbalanced = || err("unbalanced chunks in Object".to_string());
+    let mut cursor = xml[open..]
+        .find('>')
+        .map(|i| open + i + 1)
+        .ok_or_else(unbalanced)?;
+    let mut depth = 1usize;
+    loop {
+        let next_open = xml[cursor..].find("<chunk").map(|i| cursor + i);
+        let next_close = xml[cursor..].find("</chunk").map(|i| cursor + i);
+        match (next_open, next_close) {
+            (Some(o), Some(c)) if o < c => {
+                let tag_end = xml[o..].find('>').map(|i| o + i).ok_or_else(unbalanced)?;
+                if !xml[o..tag_end].ends_with('/') {
+                    depth += 1;
+                }
+                cursor = tag_end + 1;
+            }
+            (_, Some(c)) => {
+                let close_end = xml[c..]
+                    .find('>')
+                    .map(|i| c + i + 1)
+                    .ok_or_else(unbalanced)?;
+                depth -= 1;
+                if depth == 0 {
+                    return Ok((open, close_end));
+                }
+                cursor = close_end;
+            }
+            _ => return Err(unbalanced()),
         }
     }
 }
@@ -410,6 +570,52 @@ fn group_object_xml(
     )
 }
 
+/// XML for the floating Number parameter that replaces a Gene Pool as the
+/// RH_IN injection target. No Source items — its data arrives solely through
+/// Compute's RH_IN volatile-data injection; Optional keeps the empty state
+/// (before injection) from being an error. The layout is verified against a
+/// live Rhino.Compute solve.
+fn number_param_xml(index: usize, instance_guid: &str, nickname: &str) -> String {
+    format!(
+        r#"<chunk name="Object" index="{index}">
+  <items count="2">
+    <item name="GUID" type_name="gh_guid" type_code="9">{NUMBER_PARAM_TYPE_GUID}</item>
+    <item name="Name" type_name="gh_string" type_code="10">Number</item>
+  </items>
+  <chunks count="1">
+    <chunk name="Container">
+      <items count="6">
+        <item name="Description" type_name="gh_string" type_code="10">Contains a collection of floating point numbers</item>
+        <item name="InstanceGuid" type_name="gh_guid" type_code="9">{instance_guid}</item>
+        <item name="Name" type_name="gh_string" type_code="10">Number</item>
+        <item name="NickName" type_name="gh_string" type_code="10">{nick}</item>
+        <item name="Optional" type_name="gh_bool" type_code="1">true</item>
+        <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+      </items>
+      <chunks count="1">
+        <chunk name="Attributes">
+          <items count="2">
+            <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35">
+              <X>0</X>
+              <Y>0</Y>
+              <W>50</W>
+              <H>20</H>
+            </item>
+            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31">
+              <X>0</X>
+              <Y>0</Y>
+            </item>
+          </items>
+        </chunk>
+      </chunks>
+    </chunk>
+  </chunks>
+</chunk>
+"#,
+        nick = xml_escape(nickname),
+    )
+}
+
 /// XML for the relay parameter that receives the value from an objective's source.
 ///
 /// Uses the generic Data parameter (pass-through of any type). The layout
@@ -569,7 +775,7 @@ mod tests {
     }
 
     #[test]
-    fn gene_pool_is_a_single_grouped_input() {
+    fn gene_pool_is_replaced_by_a_number_param_input() {
         let xml = sample_ghx_gene_pool();
         let problem = extract_problem(&xml).unwrap();
         assert_eq!(problem.variables.len(), 3);
@@ -580,9 +786,21 @@ mod tests {
         assert_eq!(def.input_value_counts, vec![3]);
         assert_eq!(def.output_params, vec!["RH_OUT:obj"]);
 
-        // Exactly one RH_IN group, wrapping the pool's InstanceGuid (not each gene).
+        // 4 original objects + Number replacement + RH_IN group + relay + RH_OUT
+        // group = 8, and the result stays well-formed.
         let root = crate::gh::ghx::parse_archive(&def.ghx).unwrap();
         let objects = root.find_chunk_recursive("DefinitionObjects").unwrap();
+        assert_eq!(objects.item_i64("ObjectCount"), Some(8));
+
+        // The RH_IN group wraps the injected Number parameter, NOT the pool
+        // (Compute cannot drive a Gene Pool via RH_IN injection).
+        let replacement = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("GUID") == Some(NUMBER_PARAM_TYPE_GUID))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .find(|c| c.item_text("NickName") == Some("Genes"))
+            .expect("injected Number replacement parameter");
+        let replacement_guid = replacement.item_text("InstanceGuid").unwrap();
         let rh_in: Vec<_> = objects
             .chunks_named("Object")
             .filter(|o| o.item_text("Name") == Some("Group"))
@@ -594,10 +812,55 @@ mod tests {
             .collect();
         assert_eq!(rh_in.len(), 1);
         assert_eq!(rh_in[0].item_text("NickName"), Some("RH_IN:Genes"));
-        assert_eq!(
-            rh_in[0].item_text("ID"),
-            Some("0aaaaaaa-0000-0000-0000-00000000pool")
-        );
+        assert_eq!(rh_in[0].item_text("ID"), Some(replacement_guid));
+
+        // The pool object itself is preserved (Tunny's Variables input needs it).
+        assert!(def.ghx.contains(
+            r#"<item name="InstanceGuid" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000pool</item>"#
+        ));
+
+        // Mass Addition's first source is repointed to the replacement in place:
+        // same index attributes, same order (pool slot first, then "obj").
+        assert!(def.ghx.contains(&format!(
+            r#"<item name="Source" index="0" type_name="gh_guid" type_code="9">{replacement_guid}</item>"#
+        )));
+        assert!(def.ghx.contains(
+            r#"<item name="Source" index="1" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-000000000obj</item>"#
+        ));
+
+        // Tunny's own Variables input still points at the genuine pool — Tunny
+        // rejects any other source type for that input.
+        assert!(def.ghx.contains(
+            r#"<item name="Source" index="0" type_name="gh_guid" type_code="9">0aaaaaaa-0000-0000-0000-00000000pool</item>"#
+        ));
+    }
+
+    /// An objective wired directly to the Gene Pool must read through the
+    /// replacement parameter — the pool itself would report its stale saved
+    /// genome instead of the injected trial values.
+    #[test]
+    fn pool_sourced_output_reads_the_replacement_param() {
+        let xml = sample_ghx_gene_pool();
+        let mut problem = extract_problem(&xml).unwrap();
+        problem.objectives[0].source_guid = "0aaaaaaa-0000-0000-0000-00000000pool".to_string();
+
+        let def = build_compute_definition(&xml, &problem).unwrap();
+        let root = crate::gh::ghx::parse_archive(&def.ghx).unwrap();
+        let objects = root.find_chunk_recursive("DefinitionObjects").unwrap();
+        let replacement_guid = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("GUID") == Some(NUMBER_PARAM_TYPE_GUID))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .find(|c| c.item_text("NickName") == Some("Genes"))
+            .map(|c| c.item_text("InstanceGuid").unwrap().to_string())
+            .unwrap();
+        let relay = objects
+            .chunks_named("Object")
+            .filter(|o| o.item_text("Name") == Some("Data"))
+            .map(|o| o.find_chunk("Container").unwrap())
+            .find(|c| c.item_text("NickName") == Some("obj"))
+            .expect("objective relay");
+        assert_eq!(relay.item_text("Source"), Some(replacement_guid.as_str()));
     }
 
     #[test]
