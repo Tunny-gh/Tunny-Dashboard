@@ -305,7 +305,7 @@ impl Default for LiveUpdateState {
     fn default() -> Self {
         Self {
             enabled: false,
-            interval_ms: 2000,
+            interval_ms: 5000,
             poller_active: false,
             showing_completion_hint: false,
             storage_kind: LiveUpdateStorageKind::default(),
@@ -343,7 +343,7 @@ mod tests {
     fn live_update_state_defaults() {
         let state = LiveUpdateState::default();
         assert!(!state.enabled);
-        assert_eq!(state.interval_ms, 2000);
+        assert_eq!(state.interval_ms, 5000);
         assert!(!state.poller_active);
         assert!(!state.showing_completion_hint);
         assert_eq!(state.storage_kind, LiveUpdateStorageKind::Journal);

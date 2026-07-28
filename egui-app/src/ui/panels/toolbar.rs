@@ -250,11 +250,22 @@ pub fn show_toolbar(
             if app_state.live_update.enabled {
                 let mut interval_sec = app_state.live_update.interval_ms as f64 / 1000.0;
                 let prev = interval_sec;
-                ui.add(
-                    egui::Slider::new(&mut interval_sec, 1.0..=30.0)
-                        .step_by(1.0)
-                        .text(egui::RichText::new("s").color(crate::theme::TOOLBAR_TEXT())),
-                );
+                ui.scope(|ui| {
+                    // The toolbar panel blanks `widgets.inactive.bg_fill` to get flat
+                    // buttons, which also erases the slider rail and leaves only the
+                    // handle outline. Restore a visible rail and fill the elapsed side
+                    // so the widget reads as a slider.
+                    let vis = ui.visuals_mut();
+                    vis.widgets.inactive.bg_fill = crate::theme::TOOLBAR_INPUT_STROKE();
+                    vis.selection.bg_fill = crate::theme::ACCENT_BLUE();
+                    vis.slider_trailing_fill = true;
+                    ui.add(
+                        egui::Slider::new(&mut interval_sec, 5.0..=30.0)
+                            .step_by(1.0)
+                            .text(egui::RichText::new("s").color(crate::theme::TOOLBAR_TEXT())),
+                    )
+                    .on_hover_text("Polling interval");
+                });
                 if (interval_sec - prev).abs() > f64::EPSILON {
                     actions.push(ToolbarAction::SetPollInterval(
                         (interval_sec * 1000.0) as u64,
