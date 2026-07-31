@@ -375,6 +375,7 @@ impl TunnyApp {
     pub fn apply_toolbar_actions(&mut self, actions: Vec<ToolbarAction>) {
         for action in actions {
             match action {
+                ToolbarAction::New => self.request_new(),
                 ToolbarAction::OpenJournal(path) => self.open_path(path),
                 ToolbarAction::OpenDbUrlDialog => {
                     self.app_state.db_url_dialog = Some(String::new());
@@ -584,6 +585,7 @@ impl eframe::App for TunnyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         crate::ui::layout::show_layout(self, ui);
+        self.show_new_confirm_dialog(&ctx);
         self.show_csv_import_dialog(&ctx);
         self.show_db_url_dialog(&ctx);
         self.show_report_dialog(&ctx);

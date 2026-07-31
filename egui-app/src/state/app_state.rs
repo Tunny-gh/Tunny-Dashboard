@@ -97,6 +97,12 @@ pub struct AppState {
     /// The dialog is shown while `Some`, and the Study is not activated until confirmed.
     pub csv_import_settings: Option<CsvImportSettings>,
 
+    // ── File > New confirmation ──────────────────────────────────────
+    /// Whether the confirmation asking to discard the open file and the canvas
+    /// layout is shown. Only raised when there is something to discard; a `New`
+    /// with nothing to lose resets immediately.
+    pub new_confirm_open: bool,
+
     // ── RDB (PostgreSQL/MySQL) connection URL dialog ─────────────────
     /// The text currently being entered in the "Open URL…" dialog. `None` means
     /// hidden, `Some` means shown (the in-progress input string itself, including
@@ -158,6 +164,7 @@ impl AppState {
             dark_mode: false,
             convergence_indicator: MoIndicator::Hypervolume,
             csv_import_settings: None,
+            new_confirm_open: false,
             db_url_dialog: None,
             report_dialog: None,
             gh_opt_dialog: None,
@@ -200,6 +207,35 @@ impl AppState {
         self.comparison_colors.clear();
         self.comparison_convergence_histories.clear();
         self.comparison_base_study = None;
+    }
+
+    /// Returns to the startup state (File > New): everything describing the data
+    /// being viewed is dropped, so the app looks the way it did before any file was
+    /// opened.
+    ///
+    /// Settings that mean the same thing no matter which data is open are carried
+    /// over: the theme, the colormap, the convergence indicator, and the Compute
+    /// preferences (the last of which is persisted across app restarts anyway).
+    /// `pinned_trials` is deliberately not among them even though [`clear`](Self::clear)
+    /// keeps it across Study switches — it holds raw trial IDs, which would end up
+    /// re-applied to unrelated trials once the next file is opened.
+    ///
+    /// A *running* optimization keeps its progress overlay: this reset does not stop
+    /// the background thread, so dropping the overlay would leave that run with no
+    /// progress display and no way to cancel it. A *finished* one is dropped, since it
+    /// only points at a journal that is no longer open.
+    pub fn reset_to_empty(&mut self) {
+        let running_opt = self.gh_opt_run.take().filter(|run| run.finished.is_none());
+        // Struct update syntax on purpose: fields added later default to being reset,
+        // which is the safe side for "start from empty".
+        *self = Self {
+            dark_mode: self.dark_mode,
+            selected_colormap: self.selected_colormap.clone(),
+            convergence_indicator: self.convergence_indicator,
+            gh_compute_prefs: self.gh_compute_prefs.clone(),
+            gh_opt_run: running_opt,
+            ..Self::new()
+        };
     }
 
     /// Resets Brushing & Linking state and analysis results on Study switch
@@ -474,6 +510,126 @@ mod tests {
         assert!(state.comparison_studies.is_empty());
         assert!(state.comparison_colors.is_empty());
         assert!(state.comparison_base_study.is_none());
+    }
+
+    // ── File > New: reset to the empty state ──────────────────────────
+
+    /// An AppState carrying one of everything `New` is expected to throw away.
+    fn make_populated_state() -> AppState {
+        let mut state = AppState::new();
+        state.journal_path = Some(std::path::PathBuf::from("/tmp/study.log"));
+        state.all_studies.push(StudyMeta {
+            study_id: 1,
+            name: "study".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: 3,
+            param_names: vec!["x".to_string()],
+            objective_names: vec!["y".to_string()],
+            param_bounds: Default::default(),
+        });
+        state.selected_indices = vec![1, 2];
+        state.filter_ranges.insert("x".to_string(), (0.0, 1.0));
+        state.highlighted_trial = Some(2);
+        state.pinned_trials = vec![3, 8];
+        state.hv_ref_point_override = Some(vec![10.0, 20.0]);
+        state.artifacts_dir = Some(std::path::PathBuf::from("/tmp/artifacts"));
+        state.best_trial_history = Some(vec![(0, 1.0)]);
+        state.comparison_mode = true;
+        state.comparison_colors = vec![[255, 0, 0, 255]];
+        state.comparison_base_study = Some(1);
+        state
+    }
+
+    fn make_run_state(finished: Option<Result<String, String>>) -> GhOptRunState {
+        GhOptRunState {
+            progress: tunny_core::surrogate_opt::FitProgress::new(),
+            journal_path: std::path::PathBuf::from("/tmp/model_optuna.log"),
+            study_name: "model-000001".to_string(),
+            finished,
+        }
+    }
+
+    #[test]
+    fn reset_to_empty_drops_the_open_file_and_its_derived_state() {
+        let mut state = make_populated_state();
+
+        state.reset_to_empty();
+
+        assert!(state.journal_path.is_none());
+        assert!(state.all_studies.is_empty());
+        assert!(state.current_study.is_none());
+        assert!(state.selected_indices.is_empty());
+        assert!(state.filter_ranges.is_empty());
+        assert!(state.highlighted_trial.is_none());
+        assert!(state.hv_ref_point_override.is_none());
+        assert!(state.artifacts_dir.is_none());
+        assert!(state.best_trial_history.is_none());
+        assert!(!state.comparison_mode);
+        assert!(state.comparison_colors.is_empty());
+        assert!(state.comparison_base_study.is_none());
+    }
+
+    #[test]
+    fn reset_to_empty_drops_pinned_trials_unlike_clear() {
+        // pinned_trials survives a Study switch, but not a New: it holds raw trial
+        // IDs, which would otherwise be re-applied to the unrelated trials of
+        // whatever file is opened next.
+        let mut state = make_populated_state();
+
+        state.clear();
+        assert_eq!(state.pinned_trials, vec![3, 8]);
+
+        state.reset_to_empty();
+        assert!(state.pinned_trials.is_empty());
+    }
+
+    #[test]
+    fn reset_to_empty_preserves_data_independent_settings() {
+        let mut state = make_populated_state();
+        state.dark_mode = true;
+        state.selected_colormap = ColormapName::Turbo;
+        state.convergence_indicator = MoIndicator::IgdPlus;
+        state.gh_compute_prefs.compute_url = "http://localhost:9999".to_string();
+
+        state.reset_to_empty();
+
+        assert!(state.dark_mode);
+        assert_eq!(state.selected_colormap, ColormapName::Turbo);
+        assert_eq!(state.convergence_indicator, MoIndicator::IgdPlus);
+        assert_eq!(state.gh_compute_prefs.compute_url, "http://localhost:9999");
+    }
+
+    #[test]
+    fn reset_to_empty_keeps_a_running_optimization_overlay() {
+        // The reset doesn't stop the background thread, so taking the overlay away
+        // would strand the run with no progress display and no way to cancel it.
+        let mut state = make_populated_state();
+        state.gh_opt_run = Some(make_run_state(None));
+
+        state.reset_to_empty();
+
+        assert!(state.gh_opt_run.is_some());
+    }
+
+    #[test]
+    fn reset_to_empty_drops_a_finished_optimization_overlay() {
+        // A finished overlay only points at a journal that is no longer open.
+        let mut state = make_populated_state();
+        state.gh_opt_run = Some(make_run_state(Some(Ok("48 trials".to_string()))));
+
+        state.reset_to_empty();
+
+        assert!(state.gh_opt_run.is_none());
+    }
+
+    #[test]
+    fn reset_to_empty_closes_its_own_confirmation() {
+        let mut state = make_populated_state();
+        state.new_confirm_open = true;
+
+        state.reset_to_empty();
+
+        assert!(!state.new_confirm_open);
     }
 
     // ── TASK-2246: regression tests ───────────────────────────────────

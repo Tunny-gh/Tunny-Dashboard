@@ -36,7 +36,7 @@ All sources support **Reload**: press it to re-read the open storage, so trials 
 - **Multi-study comparison** — overlay or side-by-side comparison of multiple studies
 - **Artifacts gallery** — browse Optuna artifacts (images) attached to trials
 - **CSV export** — export selected trials with customizable columns
-- **Session persistence** — save and restore the full UI state as a JSON file
+- **Session persistence** — save and restore the full UI state as a JSON file from the **File** menu; **File ▸ New** closes the open storage and clears the layout to start over, so save a session first if you want to keep it
 - **Bilingual help** — every widget links straight to its page on the online documentation site (English / 日本語), where each algorithm is documented and cross-validated against Python reference implementations
 
 ### Technology Stack

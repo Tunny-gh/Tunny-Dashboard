@@ -1,6 +1,45 @@
 use super::*;
 
+/// Whether a `New` would throw away work the user cannot get back by other means.
+/// An open storage is only recoverable by re-opening it, and the canvas layout only
+/// from a saved session — so either one is worth a confirmation. With neither present
+/// the app is already in the state `New` would produce, and asking would be noise.
+///
+/// `journal_path` is checked separately from `all_studies` because a storage holding no
+/// studies still leaves a file open as far as the user can tell: the title bar names it.
+pub(super) fn has_discardable_state(app_state: &AppState, layout: &LayoutState) -> bool {
+    app_state.current_study.is_some()
+        || !app_state.all_studies.is_empty()
+        || app_state.journal_path.is_some()
+        || !layout.canvas.items.is_empty()
+}
+
 impl TunnyApp {
+    /// Handles `ToolbarAction::New`: resets straight away when nothing would be lost,
+    /// and asks for confirmation otherwise.
+    pub(super) fn request_new(&mut self) {
+        if has_discardable_state(&self.app_state, &self.layout) {
+            self.app_state.new_confirm_open = true;
+        } else {
+            self.reset_to_empty();
+        }
+    }
+
+    /// Returns to the startup state. [`AppState::reset_to_empty`] covers the data and
+    /// view state; the rest of the session — the canvas layout and every widget's
+    /// settings — lives on the app itself and is dropped here.
+    pub(super) fn reset_to_empty(&mut self) {
+        self.app_state.reset_to_empty();
+        self.layout = LayoutState::default();
+        self.widget_states = WidgetStates::default();
+        self.canvas_widgets.clear();
+        self.load_error = None;
+        // `New` is disabled mid-load, so no scan is in flight — but a post-run refresh
+        // deferred by `refresh_after_gh_opt` would still target the file just closed.
+        self.pending_reload = None;
+        self.reload_when_idle = false;
+    }
+
     /// Opens the given path (journal / CSV / SQLite / RDB URL — any of them).
     /// Shared handling called both from `ToolbarAction::OpenJournal` and the Open button
     /// of the "Open URL…" dialog (a URL is passed as

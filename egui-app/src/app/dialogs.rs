@@ -71,6 +71,25 @@ impl TunnyApp {
         }
     }
 
+    /// Renders the File > New confirmation and, once confirmed, performs the reset.
+    /// Only reached when `request_new` found something worth confirming; otherwise the
+    /// reset already happened without a dialog.
+    pub(super) fn show_new_confirm_dialog(&mut self, ctx: &egui::Context) {
+        use crate::ui::widgets::new_confirm_modal::{self, NewConfirmAction};
+
+        if !self.app_state.new_confirm_open {
+            return;
+        }
+        match new_confirm_modal::show(ctx) {
+            // `reset_to_empty` also lowers the flag (it rebuilds AppState), so the
+            // dialog closes along with the reset.
+            Some(NewConfirmAction::Confirm) => self.reset_to_empty(),
+            Some(NewConfirmAction::Cancel) => self.app_state.new_confirm_open = false,
+            // Not decided yet — keep showing it on the next frame.
+            None => {}
+        }
+    }
+
     /// Renders the "Open URL…" dialog and, on Open confirmation, feeds the normalized
     /// URL string into `open_path` (the same path as `ToolbarAction::OpenJournal`).
     pub(super) fn show_db_url_dialog(&mut self, ctx: &egui::Context) {
