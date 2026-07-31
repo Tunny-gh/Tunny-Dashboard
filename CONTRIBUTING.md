@@ -4,7 +4,7 @@
 
 ### Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) (stable)
+- [Rust](https://www.rust-lang.org/tools/install) (stable 1.97.1 or later — the `libsqlite3-sys` dependency requires Rust stable 1.97.1+, so run `rustup update` if your toolchain is older)
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
 - [Node.js](https://nodejs.org/) 18+
 
@@ -92,3 +92,69 @@ wasm-pack build rust_core --target web --out-dir ../frontend/src/wasm/pkg
 ### Runtime (Windows)
 
 On Windows, `lib_lightgbm.dll` must be discoverable at runtime. The `build.rs` script automatically copies it into the Cargo target directory during build, so `cargo test` and `cargo run` work out of the box. For a standalone binary, place `lib_lightgbm.dll` alongside the executable.
+
+## Development Commands
+
+CI is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Commands marked **CI** are run by CI with the exact flags shown below; unmarked commands are local-only conveniences.
+
+### Build
+
+```bash
+# Build the entire workspace
+cargo build --workspace
+
+# Release build
+cargo build --workspace --release
+```
+
+### Run Tests
+
+**CI** (see the `build-test` job; runs on Windows/macOS with the `ci-test` profile):
+
+```bash
+cargo test --workspace --locked --profile ci-test
+```
+
+Local only (quicker feedback, uses the default dev profile):
+
+```bash
+cargo test -p tunny-core
+cargo test -p tunny-desktop
+```
+
+### Static Analysis
+
+Always run these before committing. **CI** (see the `lint` job; runs on Linux, `--all-targets` is required so that test code is also covered by clippy):
+
+```bash
+cargo clippy --workspace --all-targets --locked -- -D warnings
+
+cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
+cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
+```
+
+Local only:
+
+```bash
+cargo fmt -p tunny-mcp -- --check
+```
+
+### Security Audit
+
+**CI** (see the `audit` job; requires `cargo-audit` to be installed locally):
+
+```bash
+cargo audit --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
+```
+
+### Run the Application
+
+```bash
+cargo run -p tunny-desktop
+```
+
+### Benchmark
+
+```bash
+cargo bench -p tunny-core
+```
