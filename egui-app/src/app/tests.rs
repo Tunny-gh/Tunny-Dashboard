@@ -1,3 +1,4 @@
+use super::files::has_discardable_state;
 use super::*;
 use crate::state::app_state::StudyMeta;
 
@@ -183,4 +184,55 @@ fn compute_window_title_rdb_url_without_password_unchanged() {
         TunnyApp::compute_window_title(Some(&path)),
         "Tunny Dashboard (Beta) - mysql://tunny@127.0.0.1:3306/tunny_test"
     );
+}
+
+// ── File > New: when to confirm before resetting ───────────
+
+#[test]
+fn has_discardable_state_is_false_on_the_startup_state() {
+    // Nothing open and nothing placed: a New here produces the state the app is
+    // already in, so asking for confirmation would be pure noise.
+    assert!(!has_discardable_state(
+        &AppState::new(),
+        &LayoutState::default()
+    ));
+}
+
+#[test]
+fn has_discardable_state_detects_a_scanned_storage() {
+    let mut app_state = AppState::new();
+    app_state.all_studies.push(StudyMeta {
+        study_id: 0,
+        name: "test".to_string(),
+        directions: vec![],
+        completed_trials: 0,
+        param_names: vec![],
+        objective_names: vec![],
+        param_bounds: Default::default(),
+    });
+    assert!(has_discardable_state(&app_state, &LayoutState::default()));
+}
+
+#[test]
+fn has_discardable_state_detects_a_storage_holding_no_studies() {
+    // The title bar names the file even when the scan found nothing in it, so a
+    // silent reset would look like the app dropped an open file on its own.
+    let mut app_state = AppState::new();
+    app_state.journal_path = Some(std::path::PathBuf::from("/tmp/empty.log"));
+    assert!(has_discardable_state(&app_state, &LayoutState::default()));
+}
+
+#[test]
+fn has_discardable_state_detects_canvas_items_without_data() {
+    // A layout can be built up from a restored session before any file is opened,
+    // and it is only recoverable from a session file.
+    let mut layout = LayoutState::default();
+    layout.canvas.add(
+        crate::state::layout_state::PanelItem::TrialTable,
+        0.0,
+        0.0,
+        360.0,
+        280.0,
+    );
+    assert!(has_discardable_state(&AppState::new(), &layout));
 }

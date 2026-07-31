@@ -8,6 +8,7 @@ pub mod heatmap;
 pub mod license_modal;
 pub mod log_scale;
 pub mod modal;
+pub mod new_confirm_modal;
 pub mod plot_nav;
 pub mod process_def_modal;
 pub mod process_opt_modal;

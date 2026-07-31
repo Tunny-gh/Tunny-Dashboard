@@ -5,6 +5,9 @@ use crate::ui::widget_states::WidgetStates;
 
 #[derive(Debug, Clone)]
 pub enum ToolbarAction {
+    /// Discards the open storage and the whole session (canvas layout, widget
+    /// settings, view settings), returning to the startup state.
+    New,
     OpenJournal(std::path::PathBuf),
     /// Opens the "Open URL…" dialog (directly enter a PostgreSQL/MySQL connection URL).
     OpenDbUrlDialog,
@@ -50,8 +53,26 @@ pub fn show_toolbar(
         // individual entries don't push the Study selector off the visible width.
         let open_enabled = !is_loading;
 
-        // ── Open: data sources ────────────────────────────────────────────────
-        toolbar_menu(ui, "Open", true, |ui| {
+        // ── File: new / data sources / session files ──────────────────────────
+        // Ordered the way a File menu is normally read: New, then the "open a
+        // document" entries, then the "save/restore the document" ones. The session
+        // file (layout + widget settings + view settings) is this app's document —
+        // the data itself is never written into it. Artifacts are supplementary to
+        // an already-open study rather than a document of their own, so they sit
+        // below the main sequence.
+        toolbar_menu(ui, "File", true, |ui| {
+            if menu_item(
+                ui,
+                "New",
+                open_enabled,
+                "Close the current file and start from an empty state",
+            )
+            .clicked()
+            {
+                actions.push(ToolbarAction::New);
+                ui.close();
+            }
+            ui.separator();
             if menu_item(
                 ui,
                 "Open File…",
@@ -79,6 +100,33 @@ pub fn show_toolbar(
                 ui.close();
             }
             ui.separator();
+            // The data itself is not saved, so saving is allowed even before data is
+            // loaded.
+            if menu_item(
+                ui,
+                "Save Session…",
+                true,
+                "Save the canvas layout, widget settings, and view settings",
+            )
+            .clicked()
+            {
+                actions.push(ToolbarAction::SaveSession);
+                ui.close();
+            }
+            if menu_item(
+                ui,
+                "Load Session…",
+                !is_loading,
+                "Restore a saved session (keeps the currently loaded data)",
+            )
+            .clicked()
+            {
+                if let Some(path) = crate::io::session::pick_session_file_dialog() {
+                    actions.push(ToolbarAction::LoadSession(path));
+                }
+                ui.close();
+            }
+            ui.separator();
             // REQ-007: Artifacts folder selection.
             if menu_item(
                 ui,
@@ -90,35 +138,6 @@ pub fn show_toolbar(
             {
                 if let Some(base_dir) = rfd::FileDialog::new().pick_folder() {
                     actions.push(ToolbarAction::ScanArtifacts(base_dir));
-                }
-                ui.close();
-            }
-        });
-
-        // ── Session: layout + widget settings + view settings ─────────────────
-        // The data itself is not saved, so saving is allowed even before data is loaded.
-        toolbar_menu(ui, "Session", true, |ui| {
-            if menu_item(
-                ui,
-                "Save Session",
-                true,
-                "Save the canvas layout, widget settings, and view settings",
-            )
-            .clicked()
-            {
-                actions.push(ToolbarAction::SaveSession);
-                ui.close();
-            }
-            if menu_item(
-                ui,
-                "Load Session",
-                !is_loading,
-                "Restore a saved session (keeps the currently loaded data)",
-            )
-            .clicked()
-            {
-                if let Some(path) = crate::io::session::pick_session_file_dialog() {
-                    actions.push(ToolbarAction::LoadSession(path));
                 }
                 ui.close();
             }
