@@ -68,27 +68,6 @@ pub fn load_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMe
     }
 }
 
-/// Live update: fully re-parses the study whose fingerprint change was detected,
-/// swaps out the shared store, and sends `AppMessage::SqliteLiveReloadDone` (RDB live
-/// update reuses this message as-is too. Same role as `io::sqlite::reload_single_study_task`).
-pub fn reload_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
-    match tunny_core::rdb::parse_single_study_url(url, study_id) {
-        Ok((meta, df, extras)) => {
-            tunny_core::dataframe::swap_snapshot(study_id, std::sync::Arc::new(df));
-            tunny_core::dataframe::store_extras_for(study_id, extras);
-            let _ = tx.send(AppMessage::SqliteLiveReloadDone {
-                study_id,
-                meta: crate::io::journal::convert_study_meta(meta),
-            });
-            true
-        }
-        Err(e) => {
-            let _ = tx.send(AppMessage::Error(e));
-            false
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,18 +111,6 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(4);
         let url = RdbUrl::parse("postgresql://u:p@127.0.0.1:1/nope").unwrap();
         let ok = load_single_study_task(&url, 1, &tx);
-        assert!(!ok);
-        match rx.try_recv() {
-            Ok(AppMessage::Error(_)) => {}
-            _ => panic!("Expected Error message"),
-        }
-    }
-
-    #[test]
-    fn reload_single_study_task_unreachable_host_sends_error() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(4);
-        let url = RdbUrl::parse("postgresql://u:p@127.0.0.1:1/nope").unwrap();
-        let ok = reload_single_study_task(&url, 1, &tx);
         assert!(!ok);
         match rx.try_recv() {
             Ok(AppMessage::Error(_)) => {}

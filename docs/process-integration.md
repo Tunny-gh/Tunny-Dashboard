@@ -4,8 +4,8 @@ Run an optimization where **the Dashboard drives the sampling** (in Rust) and
 **your own command-line tool evaluates the objective**. The whole loop needs
 only the Dashboard and your tool — **no Python and no Optuna at runtime**. Each
 trial is written to a normal Optuna-compatible journal, so every analysis
-feature (live update, all widgets, reports, MCP) works on the results exactly as
-it does for any other study.
+feature (all widgets, reports, MCP) works on the results exactly as it does for
+any other study.
 
 This is the "Optuna is the workflow engine; Dashboard is the cockpit" runner for
 solvers that are not Grasshopper. (For Grasshopper, see the drag-and-drop `.ghx`

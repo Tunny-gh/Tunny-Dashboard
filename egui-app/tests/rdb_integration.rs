@@ -88,9 +88,10 @@ fn load_single_study_task_loads_mo_constrained() {
     }
 }
 
-/// Verifies that the fingerprint fetch (`study_fingerprint_url`) used by live update
-/// polling returns the same value when the DB hasn't changed (a stability check for
-/// calls equivalent to the polling loop's `fingerprint_fn` closure).
+/// Verifies that the `study_fingerprint_url` change-detection query returns the
+/// same value when the DB hasn't changed. The Dashboard itself no longer polls
+/// for changes (Reload re-reads on demand), but the query stays part of
+/// `tunny_core`'s public API, so its stability is still worth pinning.
 #[test]
 #[ignore]
 fn study_fingerprint_url_is_stable_without_changes() {

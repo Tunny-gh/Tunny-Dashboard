@@ -15,7 +15,7 @@ Supported storage sources:
 - **PostgreSQL / MySQL** RDB storage (connection URL, SQLAlchemy-style URLs accepted)
 - **Flat CSV** import for non-Optuna data
 
-All sources support **live update**: running studies are polled via a lightweight fingerprint check and reloaded automatically as new trials arrive.
+All sources support **Reload**: press it to re-read the open storage, so trials written by a run in progress show up on demand.
 
 <img width="800" height="516" alt="1782045917513" src="https://github.com/user-attachments/assets/ab008af2-0556-4c10-9ff7-1bc50f0a595f" />
 
@@ -75,7 +75,7 @@ tunny-dashboard/
 │   └── Cargo.toml
 ├── egui-app/           # Desktop application (egui UI)
 │   ├── src/
-│   │   ├── io/         # File dialogs, storage readers, live update, export
+│   │   ├── io/         # File dialogs, storage readers, export
 │   │   ├── state/      # Application state & message handling
 │   │   ├── theme/      # Light/dark color palette & colormaps
 │   │   ├── ui/         # Panels, canvas, widgets, help system

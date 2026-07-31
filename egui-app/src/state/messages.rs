@@ -202,28 +202,6 @@ pub struct SurrogateCompareUiResult {
 }
 
 // ============================================================
-// Live update poller startup preparation results (H-1 / H-2)
-// ============================================================
-
-/// The result of preparing, in the background without blocking the UI
-/// thread, the initial state needed to start the live update poller. Holds a
-/// fully prepared context per storage kind that can be passed directly to
-/// `*LivePoller::start`.
-///
-/// - RDB fingerprint retrieval (DB connection + query)
-/// - Full journal read + trial count
-///
-/// Both involve I/O and were previously run synchronously on the UI thread by
-/// `restart_poller` (causing the window to freeze with slow DBs or large
-/// journals — H-1 / H-2). This is now delivered asynchronously as
-/// `AppMessage::PollerReady`.
-pub enum PollerPrep {
-    Journal(tunny_core::io::journal::live_update::LiveUpdateContext),
-    Sqlite(crate::io::live_update_poller::SqliteLiveUpdateContext),
-    Rdb(crate::io::live_update_poller::RdbLiveUpdateContext),
-}
-
-// ============================================================
 // AppMessage
 // ============================================================
 
@@ -312,41 +290,6 @@ pub enum AppMessage {
         result: PdpResult1d,
     },
     Pdp2dDone(PdpResult2d),
-    LiveUpdateDone {
-        new_trial_rows: Vec<tunny_core::io::journal::live_update::TrialRow>,
-        updated_study_counts: Vec<(u32, usize)>,
-        /// Extras diff event to apply to the incidental info of all trials (all states).
-        extras_events: tunny_core::io::journal::live_update::ExtrasDiff,
-    },
-    /// The poller detected consecutive errors (e.g., file access failures)
-    LiveUpdateError(String),
-    /// Detected a possible optimization completion: no file changes for 60 seconds
-    LiveUpdateMaybeComplete,
-    /// SQLite live update: detected a fingerprint change.
-    /// Since SQLite updates trial state in place (RUNNING→COMPLETE, etc.), a
-    /// byte-offset diff like the journal's isn't possible. This is a signal
-    /// message indicating that a full reload of the target study needs to be
-    /// requested from the worker thread.
-    ///
-    /// RDB (PostgreSQL/MySQL) live updates use the same fingerprint approach,
-    /// so this message is reused as-is instead of adding a new message kind
-    /// (`RdbLivePoller` also sends this).
-    SqliteLiveChanged {
-        study_id: u32,
-    },
-    /// SQLite live update: the reload of the target study has completed.
-    /// Since the worker thread has already finished up through
-    /// `tunny_core::dataframe::swap_snapshot` / `store_extras_for`, only the
-    /// StudyView rebuild (including Pareto recomputation) and cache
-    /// invalidation are done here.
-    ///
-    /// RDB live update reload completion (`dispatch_reload_rdb_study` →
-    /// `crate::io::rdb::reload_single_study_task`) also reuses this message
-    /// as-is.
-    SqliteLiveReloadDone {
-        study_id: u32,
-        meta: StudyMeta,
-    },
     /// The convergence indicator (HV / IGD+ / epsilon / R2) history
     /// computation has completed. All series for the base Study and
     /// comparison Studies are computed in one batch and normalized against a
@@ -365,16 +308,6 @@ pub enum AppMessage {
     /// the user (without catching it, the corresponding widget's
     /// computing/fitting indicator would stay stuck on).
     TaskPanicked(String),
-    /// H-1 / H-2: startup preparation for the live update poller has
-    /// completed in the background. `generation` is used to detect staleness
-    /// if a toggle/Study change happens during preparation; if it doesn't
-    /// match `TunnyApp::poller_generation` on receipt, it's discarded.
-    /// Poller startup happens in `app.rs` (`poll_messages`), which holds
-    /// tx/poller, so this message is not handled in `MessageHandler::handle`.
-    PollerReady {
-        generation: u64,
-        prep: PollerPrep,
-    },
 
     // ── TASK-2112: new variants ────────────────────────────────────
     /// REQ-006: comparison Study load completed

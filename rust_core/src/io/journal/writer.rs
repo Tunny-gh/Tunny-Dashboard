@@ -17,7 +17,7 @@ use serde_json::Value;
 
 use crate::data::extras::TrialState;
 use crate::io::datetime::format_naive_datetime;
-use crate::io::journal::live_update::count_created_trials;
+use crate::io::journal::count_created_trials;
 use crate::io::journal::parser::OptimizationDirection;
 
 /// Default value for worker_id (included in every record for compatibility with the original Optuna reader).

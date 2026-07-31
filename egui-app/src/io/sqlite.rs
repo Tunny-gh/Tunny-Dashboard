@@ -70,35 +70,6 @@ pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMes
     }
 }
 
-/// Live update: fully re-parses the study whose fingerprint change was detected,
-/// swaps out the shared store, and sends `AppMessage::SqliteLiveReloadDone`.
-///
-/// Unlike journal's live update (incremental append), SQLite updates trial state
-/// in place, so incremental application isn't possible. This is why the target study
-/// is fully re-read every time with `parse_single_study` (the same function as
-/// Phase 2). Parsing a single SQLite study is lightweight (on the order of a few ms),
-/// so this re-parse itself runs on the worker thread and doesn't block the UI thread.
-/// `swap_snapshot` / `store_extras_for` are also performed within this function (on
-/// the worker thread), following the same pattern as `LoadComparisonStudy`, so the
-/// `MessageHandler` side only needs to re-fetch `snapshot(study_id)` after receiving it.
-pub fn reload_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
-    match tunny_core::sqlite::parse_single_study(path, study_id) {
-        Ok((meta, df, extras)) => {
-            tunny_core::dataframe::swap_snapshot(study_id, std::sync::Arc::new(df));
-            tunny_core::dataframe::store_extras_for(study_id, extras);
-            let _ = tx.send(AppMessage::SqliteLiveReloadDone {
-                study_id,
-                meta: crate::io::journal::convert_study_meta(meta),
-            });
-            true
-        }
-        Err(e) => {
-            let _ = tx.send(AppMessage::Error(e));
-            false
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,17 +99,6 @@ mod tests {
     fn load_single_study_task_nonexistent_path_sends_error() {
         let (tx, rx) = std::sync::mpsc::sync_channel(4);
         let ok = load_single_study_task(Path::new("/nonexistent/study.db"), 1, &tx);
-        assert!(!ok);
-        match rx.try_recv() {
-            Ok(AppMessage::Error(_)) => {}
-            _ => panic!("Expected Error message"),
-        }
-    }
-
-    #[test]
-    fn reload_single_study_task_nonexistent_path_sends_error() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(4);
-        let ok = reload_single_study_task(Path::new("/nonexistent/study.db"), 1, &tx);
         assert!(!ok);
         match rx.try_recv() {
             Ok(AppMessage::Error(_)) => {}

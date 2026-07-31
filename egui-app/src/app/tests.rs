@@ -148,24 +148,6 @@ fn spawn_task_multiple_messages() {
     assert_eq!(received.len(), 2);
 }
 
-#[test]
-fn toggle_live_update_updates_state() {
-    let mut app_state = AppState::new();
-    assert!(!app_state.live_update.enabled);
-    app_state.live_update.enabled = true;
-    assert!(app_state.live_update.enabled);
-    app_state.live_update.enabled = false;
-    assert!(!app_state.live_update.enabled);
-}
-
-#[test]
-fn set_poll_interval_updates_state() {
-    let mut app_state = AppState::new();
-    assert_eq!(app_state.live_update.interval_ms, 5000);
-    app_state.live_update.interval_ms = 10000;
-    assert_eq!(app_state.live_update.interval_ms, 10000);
-}
-
 // ── Phase C: window title password masking ─────────────────
 
 #[test]
