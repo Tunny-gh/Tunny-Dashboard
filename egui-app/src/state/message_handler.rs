@@ -196,40 +196,6 @@ impl MessageHandler {
                 ));
                 *is_loading = false;
             }
-            AppMessage::PollerReady { .. } => {
-                // Poller startup is intercepted and handled by app.rs
-                // (poll_messages), which holds the tx/poller, so this never
-                // reaches MessageHandler (unreachable here).
-            }
-            AppMessage::LiveUpdateDone {
-                new_trial_rows,
-                updated_study_counts,
-                extras_events,
-            } => {
-                Self::handle_live_update_done(
-                    new_trial_rows,
-                    updated_study_counts,
-                    extras_events,
-                    app_state,
-                );
-            }
-            AppMessage::LiveUpdateError(msg) => {
-                app_state.live_update.poller_active = false;
-                *load_error = Some(msg);
-            }
-            AppMessage::LiveUpdateMaybeComplete => {
-                app_state.live_update.showing_completion_hint = true;
-            }
-            AppMessage::SqliteLiveChanged { .. } => {
-                // The actual reload has to go through a worker thread, so no
-                // state is changed here. The caller (app.rs) detects this
-                // message via `sqlite_reload_study_id` and issues
-                // `dispatch_reload_sqlite_study`. The reload result arrives as
-                // `SqliteLiveReloadDone`.
-            }
-            AppMessage::SqliteLiveReloadDone { study_id, meta } => {
-                Self::handle_sqlite_live_reload_done(study_id, meta, app_state);
-            }
             AppMessage::PdpDone {
                 param,
                 objective,
@@ -413,7 +379,6 @@ impl MessageHandler {
 
 mod clustering;
 mod gh;
-mod live_update;
 mod study;
 
 #[cfg(test)]

@@ -9,8 +9,8 @@ pub enum ToolbarAction {
     /// Opens the "Open URL…" dialog (directly enter a PostgreSQL/MySQL connection URL).
     OpenDbUrlDialog,
     SelectStudy(StudyMeta),
-    ToggleLiveUpdate,
-    SetPollInterval(u64),
+    /// Re-reads the currently open storage and rebuilds the view from it.
+    Reload,
     ScanArtifacts(std::path::PathBuf),
     ClearLoadError,
 
@@ -210,28 +210,25 @@ pub fn show_toolbar(
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Live update toggle (enabled only for journal (.log) / SQLite (.db, etc.) /
-            // PostgreSQL/MySQL connection URLs. Flat CSV is a one-time import with no
-            // concept of streaming appends, so this stays unpressable even when one is
-            // open). DB URLs have no extension, so they pass through the `!is_csv_path`
-            // check as-is.
-            let can_toggle = app_state
-                .journal_path
-                .as_deref()
-                .is_some_and(|p| !crate::io::flat_csv::is_csv_path(p));
-            let live_label = if app_state.live_update.enabled {
-                format!("Live: On ({}s)", app_state.live_update.interval_ms / 1000)
+            // Re-reads the open storage so trials written since it was opened
+            // (e.g. by a run in progress) show up. Enabled for journal (.log) /
+            // SQLite (.db, etc.) / PostgreSQL/MySQL connection URLs; DB URLs have
+            // no extension, so they pass the `!is_csv_path` check as-is.
+            let can_reload = crate::app::can_reload(app_state, is_loading);
+            let mut response = toolbar_button(ui, "Reload", can_reload);
+            response = if can_reload {
+                response.on_hover_text("Re-read the open file and refresh the view")
+            } else if is_loading {
+                response.on_hover_text("Loading…")
+            } else if app_state.current_study.is_none() {
+                response.on_hover_text("Open a study first")
             } else {
-                "Live: Off".to_string()
+                response.on_hover_text(
+                    "Reload is available for journal (.log) / SQLite / DB URL sources only",
+                )
             };
-            let mut response = toolbar_button(ui, &live_label, can_toggle);
-            if !can_toggle {
-                response = response.on_hover_text(
-                    "Live Update is available for journal (.log) / SQLite / DB URL sources only",
-                );
-            }
-            if response.clicked() && can_toggle {
-                actions.push(ToolbarAction::ToggleLiveUpdate);
+            if response.clicked() && can_reload {
+                actions.push(ToolbarAction::Reload);
             }
 
             // Trial count
@@ -245,33 +242,6 @@ pub fn show_toolbar(
                     .color(crate::theme::TOOLBAR_TEXT())
                     .size(12.0),
             );
-
-            // Polling interval slider (shown only when live update is ON)
-            if app_state.live_update.enabled {
-                let mut interval_sec = app_state.live_update.interval_ms as f64 / 1000.0;
-                let prev = interval_sec;
-                ui.scope(|ui| {
-                    // The toolbar panel blanks `widgets.inactive.bg_fill` to get flat
-                    // buttons, which also erases the slider rail and leaves only the
-                    // handle outline. Restore a visible rail and fill the elapsed side
-                    // so the widget reads as a slider.
-                    let vis = ui.visuals_mut();
-                    vis.widgets.inactive.bg_fill = crate::theme::TOOLBAR_INPUT_STROKE();
-                    vis.selection.bg_fill = crate::theme::ACCENT_BLUE();
-                    vis.slider_trailing_fill = true;
-                    ui.add(
-                        egui::Slider::new(&mut interval_sec, 5.0..=30.0)
-                            .step_by(1.0)
-                            .text(egui::RichText::new("s").color(crate::theme::TOOLBAR_TEXT())),
-                    )
-                    .on_hover_text("Polling interval");
-                });
-                if (interval_sec - prev).abs() > f64::EPSILON {
-                    actions.push(ToolbarAction::SetPollInterval(
-                        (interval_sec * 1000.0) as u64,
-                    ));
-                }
-            }
 
             ui.separator();
 

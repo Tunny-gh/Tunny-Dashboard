@@ -32,7 +32,6 @@ pub struct AppState {
     /// (target space / k / mode / Init), referenced and shared by 2D / 3D / Table
     /// with their own settings.
     pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
-    pub live_update: LiveUpdateState,
     /// The most recently computed MCDM result. Kept as the coloring basis for the
     /// McdmScore color mode.
     pub mcdm_result: Option<McdmResult>,
@@ -142,7 +141,6 @@ impl AppState {
             sobol_cache: HashMap::new(),
             sensitivity_heatmap_cache: HashMap::new(),
             cluster_cache: HashMap::new(),
-            live_update: LiveUpdateState::default(),
             mcdm_result: None,
             mcdm_cache: HashMap::new(),
             convergence_history: None,

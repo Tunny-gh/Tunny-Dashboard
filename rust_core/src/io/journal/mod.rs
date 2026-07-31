@@ -1,15 +1,32 @@
 //! Reader for Optuna JournalStorage (JSON Lines).
 //!
-//! `parser` handles bulk/on-demand parsing, while `live_update` handles polling diff parsing.
+//! `parser` handles bulk/on-demand parsing.
 
-pub mod live_update;
 pub mod parser;
 pub mod writer;
+
+/// Computes the global trial_id that Optuna will assign to the next CREATE_TRIAL.
+///
+/// Optuna's Journal storage assigns trial_id sequentially in order of op_code=4
+/// (CREATE_TRIAL) occurrence, **across all studies and all states (including
+/// running/failed/pruned)**. So the total count of op_code=4 records in the file
+/// equals the trial_id of the next trial to be created. `writer` seeds its
+/// trial_id counter with this value when appending to an existing journal.
+pub fn count_created_trials(data: &[u8]) -> u32 {
+    let text = String::from_utf8_lossy(data);
+    let mut count = 0u32;
+    for line in text.lines() {
+        if line_u32_field(line.trim_start(), "op_code") == Some(4) {
+            count += 1;
+        }
+    }
+    count
+}
 
 /// Quickly extract the value of `"key": <non-negative integer>` from a line without full JSON parsing.
 ///
 /// Used for string-level filtering of op_code / study_id / trial_id
-/// (shared by `parser`'s Phase 1/2 scans and `live_update`'s counter seed computation).
+/// (shared by `parser`'s Phase 1/2 scans and [`count_created_trials`]).
 /// Only accepts keys in the exact form `"key"` (surrounded by matching double quotes),
 /// and scans without per-line heap allocation such as `format!`. Returns `None` if the
 /// value doesn't fit in a u32 or isn't numeric.
@@ -71,7 +88,36 @@ pub(crate) fn constraints_from_system_attr(json: &serde_json::Value) -> Option<V
 
 #[cfg(test)]
 mod tests {
-    use super::line_u32_field;
+    use super::{count_created_trials, line_u32_field};
+
+    #[test]
+    fn counts_all_op4_across_studies_and_states() {
+        // Counts every op_code=4 even with 2 studies and a mix of
+        // completed / pruned / running / failed trials.
+        let data = [
+            r#"{"op_code":0,"study_name":"a","directions":[1]}"#,
+            r#"{"op_code":0,"study_name":"b","directions":[1]}"#,
+            r#"{"op_code":4,"study_id":0}"#, // tid 0 (completed)
+            r#"{"op_code":6,"trial_id":0,"state":1,"values":[1.0]}"#,
+            r#"{"op_code":4,"study_id":0}"#, // tid 1 (pruned)
+            r#"{"op_code":6,"trial_id":1,"state":2}"#,
+            r#"{"op_code":4,"study_id":1}"#, // tid 2 (running)
+            r#"{"op_code":4,"study_id":1}"#, // tid 3 (failed)
+            r#"{"op_code":6,"trial_id":3,"state":3}"#,
+        ]
+        .join("\n");
+        // op_code=4 appears 4 times -> the next trial_id is 4.
+        assert_eq!(count_created_trials(data.as_bytes()), 4);
+    }
+
+    #[test]
+    fn counts_zero_for_empty_or_trialless_journal() {
+        assert_eq!(count_created_trials(b""), 0);
+        assert_eq!(
+            count_created_trials(br#"{"op_code":0,"study_name":"a","directions":[1]}"#),
+            0
+        );
+    }
 
     #[test]
     fn extracts_leading_field() {

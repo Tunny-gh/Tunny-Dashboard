@@ -259,61 +259,6 @@ pub struct ConvergenceHistory {
 }
 
 // ============================================================
-// Live update state
-// ============================================================
-
-/// The storage kind targeted by live update. Used to switch between poller
-/// implementations (journal: byte-offset diffing / sqlite, rdb: fingerprint +
-/// full reload of a single Study). Determined at file load time (while
-/// handling `AppMessage::JournalParsed`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LiveUpdateStorageKind {
-    #[default]
-    Journal,
-    Sqlite,
-    /// A PostgreSQL/MySQL connection URL (stored as a URL string in
-    /// `journal_path`). Fingerprint retrieval / reload follows the same
-    /// pattern as `Sqlite`, but the target is an `RdbUrl` rather than a file
-    /// path (handled by `RdbLivePoller`).
-    Rdb,
-}
-
-#[derive(Debug)]
-pub struct LiveUpdateState {
-    pub enabled: bool,
-    pub interval_ms: u64,
-    pub poller_active: bool,
-    pub showing_completion_hint: bool,
-    /// Storage kind of the currently open file (journal / sqlite).
-    /// sqlite can't use byte-offset diffing, so the poller implementation switches.
-    pub storage_kind: LiveUpdateStorageKind,
-}
-
-impl Clone for LiveUpdateState {
-    fn clone(&self) -> Self {
-        Self {
-            enabled: self.enabled,
-            interval_ms: self.interval_ms,
-            poller_active: false,
-            showing_completion_hint: self.showing_completion_hint,
-            storage_kind: self.storage_kind,
-        }
-    }
-}
-
-impl Default for LiveUpdateState {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            interval_ms: 5000,
-            poller_active: false,
-            showing_completion_hint: false,
-            storage_kind: LiveUpdateStorageKind::default(),
-        }
-    }
-}
-
-// ============================================================
 // Tests
 // ============================================================
 
@@ -337,57 +282,6 @@ mod tests {
         let v = vec![1.0, 2.0];
         let is_min: Vec<bool> = vec![]; // missing -> treated as minimize (sign kept)
         assert_eq!(ref_point_to_normalized(&v, &is_min), v);
-    }
-
-    #[test]
-    fn live_update_state_defaults() {
-        let state = LiveUpdateState::default();
-        assert!(!state.enabled);
-        assert_eq!(state.interval_ms, 5000);
-        assert!(!state.poller_active);
-        assert!(!state.showing_completion_hint);
-        assert_eq!(state.storage_kind, LiveUpdateStorageKind::Journal);
-    }
-
-    #[test]
-    fn live_update_storage_kind_default_is_journal() {
-        assert_eq!(
-            LiveUpdateStorageKind::default(),
-            LiveUpdateStorageKind::Journal
-        );
-    }
-
-    #[test]
-    fn live_update_state_clone_preserves_storage_kind() {
-        let state = LiveUpdateState {
-            storage_kind: LiveUpdateStorageKind::Sqlite,
-            ..Default::default()
-        };
-        let cloned = state.clone();
-        assert_eq!(cloned.storage_kind, LiveUpdateStorageKind::Sqlite);
-    }
-
-    #[test]
-    fn live_update_state_extended_fields_update() {
-        let state = LiveUpdateState {
-            poller_active: true,
-            showing_completion_hint: true,
-            ..Default::default()
-        };
-        assert!(state.poller_active);
-        assert!(state.showing_completion_hint);
-    }
-
-    #[test]
-    fn live_update_state_clone_resets_runtime_fields() {
-        let state = LiveUpdateState {
-            enabled: true,
-            poller_active: true,
-            ..Default::default()
-        };
-        let cloned = state.clone();
-        assert!(cloned.enabled);
-        assert!(!cloned.poller_active);
     }
 
     // McdmMethod tests

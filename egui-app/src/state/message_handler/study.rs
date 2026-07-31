@@ -137,41 +137,4 @@ impl MessageHandler {
             *is_loading = false;
         }
     }
-
-    /// Activates the already-swapped `arc`, recomputes Pareto, and rebuilds
-    /// `study`'s StudyView (D-7: shared processing for live update / sqlite,rdb reload).
-    /// Before calling, `study.meta` must be up to date and `arc` must already
-    /// be swapped into the shared store.
-    pub(super) fn rebuild_active_view(
-        study: &mut StudyContext,
-        arc: std::sync::Arc<DataFrame>,
-        is_minimize: &[bool],
-    ) {
-        let _ = tunny_core::dataframe::select_study(study.meta.study_id);
-        let pareto = tunny_core::pareto::compute_pareto_ranks(is_minimize);
-        study.view = StudyView::new(arc, pareto.ranks);
-        study.pareto_indices = pareto.pareto_indices;
-    }
-
-    /// Shared post-processing after a live update / reload changes the trial
-    /// count (D-7): recomputes the best-trial history and discards
-    /// row-dependent caches (cluster / mcdm).
-    pub(super) fn invalidate_row_dependent_state(app_state: &mut AppState) {
-        Self::refresh_best_trial_history(app_state);
-        app_state.cluster_cache.clear();
-        app_state.mcdm_cache.clear();
-        app_state.mcdm_result = None;
-    }
-
-    /// Appends keys not yet in `dst` (and not `reserved`) in sorted order, so
-    /// column creation order is deterministic regardless of HashMap iteration.
-    pub(super) fn extend_new_keys<'k>(
-        dst: &mut Vec<String>,
-        keys: impl Iterator<Item = &'k String>,
-        reserved: &dyn Fn(&String) -> bool,
-    ) {
-        let new_keys: std::collections::BTreeSet<&String> =
-            keys.filter(|k| !dst.contains(*k) && !reserved(k)).collect();
-        dst.extend(new_keys.into_iter().cloned());
-    }
 }

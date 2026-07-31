@@ -309,6 +309,17 @@ impl TunnyApp {
                                     .color(crate::theme::TEXT_SECONDARY()),
                             );
                         }
+                        // The view is not updated while the run writes trials, so
+                        // point at the control that does update it. The reload on
+                        // completion is automatic, so this hint is only for the
+                        // in-progress state.
+                        ui.label(
+                            egui::RichText::new(
+                                "Click Reload in the toolbar to load the trials completed so far.",
+                            )
+                            .color(crate::theme::TEXT_SECONDARY())
+                            .size(11.0),
+                        );
                         let cancelling = run.progress.is_cancelled();
                         let label = if cancelling {
                             "Cancelling…"

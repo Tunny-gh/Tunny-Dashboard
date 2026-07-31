@@ -273,24 +273,6 @@ fn clustering_done_rejects_mismatched_label_length() {
     assert!(widgets.cluster_scatter.last_error.is_some());
 }
 
-fn make_core_trial_row(
-    trial_id: u32,
-    study_id: u32,
-    objectives: Vec<f64>,
-) -> tunny_core::io::journal::live_update::TrialRow {
-    tunny_core::io::journal::live_update::TrialRow {
-        trial_id,
-        trial_number: trial_id,
-        params: std::collections::HashMap::new(),
-        param_categories: std::collections::HashMap::new(),
-        objectives,
-        user_attrs_numeric: std::collections::HashMap::new(),
-        user_attrs_string: std::collections::HashMap::new(),
-        constraint_values: vec![],
-        study_id,
-    }
-}
-
 fn make_chunk_row(trial_id: u32, x: f64, obj: f64) -> CoreTrialRow {
     CoreTrialRow {
         trial_id,
@@ -373,325 +355,57 @@ fn study_chunks_accumulate_rows_across_batches() {
     assert_eq!(xs, vec![0.1, 0.2, 0.3]);
 }
 
+/// Regression: a batch containing a row with fewer objectives than the study
+/// declares must not panic the multi-objective Pareto computation on an
+/// out-of-range slice. A reload re-reads every trial through this path, so a
+/// journal holding one such row would otherwise crash on every reload.
 #[test]
-fn live_update_done_appends_trial_rows() {
+fn study_chunk_handles_ragged_objectives_without_panic() {
     let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
+    let mut is_loading = true;
     let mut load_error = None;
 
-    MessageHandler::handle(
-        make_study_message(3),
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-    assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 3);
-
-    MessageHandler::handle(
-        AppMessage::LiveUpdateDone {
-            new_trial_rows: vec![
-                make_core_trial_row(3, 1, vec![1.0]),
-                make_core_trial_row(4, 1, vec![2.0]),
-            ],
-            updated_study_counts: vec![(1, 5)],
-            extras_events: Default::default(),
-        },
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
-}
-
-/// Regression: even when the live diff includes a row with a different
-/// objective count (empty objectives), the multi-objective Pareto
-/// computation must not panic on an out-of-range slice.
-/// (Reproduces the case where a Trial that straddles the next
-/// create/complete boundary produces an empty-objectives row.)
-#[test]
-fn live_update_done_handles_ragged_objectives_without_panic() {
-    let _g = test_store_guard();
-    let mut app_state = AppState::new();
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    // Build a 2-objective study.
-    let core_rows: Vec<CoreTrialRow> = (0..3)
-        .map(|i| CoreTrialRow {
-            trial_id: i as u32,
-            trial_number: i as u32,
-            param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
-            param_category_label: std::collections::HashMap::new(),
-            objective_values: vec![i as f64, (i as f64) * 2.0],
-            user_attrs_numeric: std::collections::HashMap::new(),
-            user_attrs_string: std::collections::HashMap::new(),
-            constraint_values: vec![],
-        })
-        .collect();
-    let df = DataFrame::from_trials(
-        &core_rows,
-        &["x".to_string()],
-        &["o1".to_string(), "o2".to_string()],
-        &[],
-        &[],
-        0,
-    );
-    tunny_core::dataframe::store_dataframes(vec![df]);
-    MessageHandler::handle(
-        AppMessage::StudySelected {
-            meta: StudyMeta {
-                study_id: 0,
-                name: "s".to_string(),
-                directions: vec![Direction::Minimize, Direction::Minimize],
-                completed_trials: 3,
-                param_names: vec!["x".to_string()],
-                objective_names: vec!["o1".to_string(), "o2".to_string()],
-                param_bounds: Default::default(),
-            },
-            study_id: 0,
-            pareto_rank: vec![0; 3],
-            pareto_indices: vec![],
-        },
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    // Send a mix of 1 complete row + 1 garbage row with empty objectives (the old implementation panicked here).
-    let mut empty_obj_row = make_core_trial_row(4, 0, vec![]);
-    empty_obj_row.objectives = vec![];
-    MessageHandler::handle(
-        AppMessage::LiveUpdateDone {
-            new_trial_rows: vec![make_core_trial_row(3, 0, vec![1.0, 2.0]), empty_obj_row],
-            updated_study_counts: vec![],
-            extras_events: Default::default(),
-        },
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    // Verifies it doesn't panic and results in 5 rows.
-    assert_eq!(app_state.current_study.as_ref().unwrap().trial_count(), 5);
-}
-
-#[test]
-fn live_update_done_updates_all_studies_counts() {
-    let mut app_state = AppState::new();
-    app_state.all_studies = vec![crate::state::app_state::StudyMeta {
-        study_id: 1,
-        name: "s".to_string(),
-        directions: vec![],
-        completed_trials: 100,
-        param_names: vec![],
-        objective_names: vec![],
-        param_bounds: Default::default(),
-    }];
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    MessageHandler::handle(
-        AppMessage::LiveUpdateDone {
-            new_trial_rows: vec![],
-            updated_study_counts: vec![(1, 105)],
-            extras_events: Default::default(),
-        },
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    assert_eq!(app_state.all_studies[0].completed_trials, 105);
-}
-
-#[test]
-fn live_update_done_preserves_filter_ranges() {
-    let _g = test_store_guard();
-    let mut app_state = AppState::new();
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    MessageHandler::handle(
-        make_study_message(3),
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-    app_state.filter_ranges.insert("x".to_string(), (0.0, 1.0));
-    app_state.selected_indices = vec![0, 1];
-
-    MessageHandler::handle(
-        AppMessage::LiveUpdateDone {
-            new_trial_rows: vec![make_core_trial_row(3, 1, vec![1.0])],
-            updated_study_counts: vec![],
-            extras_events: Default::default(),
-        },
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    assert!(app_state.filter_ranges.contains_key("x"));
-    assert_eq!(app_state.selected_indices, vec![0, 1]);
-}
-
-#[test]
-fn live_update_error_sets_poller_inactive() {
-    let mut app_state = AppState::new();
-    app_state.live_update.poller_active = true;
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    MessageHandler::handle(
-        AppMessage::LiveUpdateError("test error".to_string()),
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    assert!(!app_state.live_update.poller_active);
-    assert!(load_error.is_some());
-}
-
-#[test]
-fn live_update_maybe_complete_sets_hint() {
-    let mut app_state = AppState::new();
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    MessageHandler::handle(
-        AppMessage::LiveUpdateMaybeComplete,
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    assert!(app_state.live_update.showing_completion_hint);
-}
-
-// ── SQLite live update: SqliteLiveChanged / SqliteLiveReloadDone ──────
-
-#[test]
-fn sqlite_live_changed_reports_reload_study_id() {
-    // SqliteLiveChanged is just a signal message that carries the study_id needing a reload.
-    // The actual reload dispatch is done by app.rs (which holds tx) using this function's return value.
-    let msg = AppMessage::SqliteLiveChanged { study_id: 7 };
-    assert_eq!(MessageHandler::sqlite_reload_study_id(&msg), Some(7));
-}
-
-#[test]
-fn sqlite_reload_study_id_is_none_for_other_messages() {
-    let msg = AppMessage::LiveUpdateMaybeComplete;
-    assert_eq!(MessageHandler::sqlite_reload_study_id(&msg), None);
-}
-
-#[test]
-fn sqlite_live_changed_handle_does_not_mutate_state() {
-    // handle() itself does not mutate state (dispatch is app.rs's responsibility).
-    let mut app_state = AppState::new();
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    MessageHandler::handle(
-        AppMessage::SqliteLiveChanged { study_id: 0 },
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-
-    assert!(app_state.current_study.is_none());
-    assert!(load_error.is_none());
-}
-
-#[test]
-fn sqlite_live_reload_done_rebuilds_view_and_clears_caches() {
-    let _g = test_store_guard();
-    let mut app_state = AppState::new();
-    let mut widgets = WidgetStates::default();
-    let mut is_loading = false;
-    let mut load_error = None;
-
-    // Initial selection: study_id=0 with 3 trials.
-    MessageHandler::handle(
-        make_study_message(3),
-        &mut app_state,
-        &mut widgets,
-        &mut is_loading,
-        &mut load_error,
-    );
-    app_state.all_studies = vec![StudyMeta {
+    let two_objective_meta = StudyMeta {
         study_id: 0,
         name: "s".to_string(),
-        directions: vec![Direction::Minimize],
+        directions: vec![Direction::Minimize, Direction::Minimize],
         completed_trials: 3,
         param_names: vec!["x".to_string()],
-        objective_names: vec!["y".to_string()],
+        objective_names: vec!["o1".to_string(), "o2".to_string()],
         param_bounds: Default::default(),
-    }];
-    // Simulate the cache having something in it (should be discarded by reload).
-    app_state.mcdm_result = Some(crate::state::app_state::McdmResult::Topsis(
-        crate::state::app_state::TopsisResult {
-            scores: vec![0.5],
-            ranked_indices: vec![0],
-            duration_ms: 1.0,
-        },
-    ));
-
-    // As the worker thread would do, first reflect the reload result (8
-    // trials) into the shared store, then send SqliteLiveReloadDone.
-    let reloaded_rows: Vec<CoreTrialRow> = (0..8)
-        .map(|i| CoreTrialRow {
-            trial_id: i as u32,
-            trial_number: i as u32,
-            param_display: std::collections::HashMap::from([("x".to_string(), i as f64)]),
-            param_category_label: std::collections::HashMap::new(),
-            objective_values: vec![i as f64],
-            user_attrs_numeric: std::collections::HashMap::new(),
-            user_attrs_string: std::collections::HashMap::new(),
-            constraint_values: vec![],
-        })
-        .collect();
-    let reloaded_df = DataFrame::from_trials(
-        &reloaded_rows,
-        &["x".to_string()],
-        &["y".to_string()],
-        &[],
-        &[],
-        0,
-    );
-    tunny_core::dataframe::swap_snapshot(0, std::sync::Arc::new(reloaded_df));
+    };
+    let ragged_row = |trial_id: u32, objective_values: Vec<f64>| CoreTrialRow {
+        trial_id,
+        trial_number: trial_id,
+        param_display: std::collections::HashMap::from([("x".to_string(), trial_id as f64)]),
+        param_category_label: std::collections::HashMap::new(),
+        objective_values,
+        user_attrs_numeric: std::collections::HashMap::new(),
+        user_attrs_string: std::collections::HashMap::new(),
+        constraint_values: vec![],
+    };
 
     MessageHandler::handle(
-        AppMessage::SqliteLiveReloadDone {
+        AppMessage::StudyChunkLoaded {
             study_id: 0,
-            meta: StudyMeta {
-                study_id: 0,
-                name: "s".to_string(),
-                directions: vec![Direction::Minimize],
-                completed_trials: 8,
-                param_names: vec!["x".to_string()],
-                objective_names: vec!["y".to_string()],
-                param_bounds: Default::default(),
-            },
+            meta: two_objective_meta,
+            new_rows: vec![
+                ragged_row(0, vec![1.0, 2.0]),
+                // A trial that straddled the create/complete boundary when the
+                // journal was written, so it carries no objectives at all.
+                ragged_row(1, vec![]),
+                // A trial with only part of the objective vector.
+                ragged_row(2, vec![3.0]),
+            ],
+            param_names: vec!["x".to_string()],
+            objective_names: vec!["o1".to_string(), "o2".to_string()],
+            user_attr_numeric_names: vec![],
+            user_attr_string_names: vec![],
+            max_constraints: 0,
+            is_first: true,
+            is_final: true,
         },
         &mut app_state,
         &mut widgets,
@@ -700,17 +414,10 @@ fn sqlite_live_reload_done_rebuilds_view_and_clears_caches() {
     );
 
     let study = app_state.current_study.as_ref().unwrap();
-    assert_eq!(study.trial_count(), 8, "view must reflect the reloaded df");
-    assert!(
-        !study.pareto_indices.is_empty(),
-        "pareto ranks must be recomputed"
-    );
-    assert_eq!(study.meta.completed_trials, 8);
-    assert!(
-        app_state.mcdm_result.is_none(),
-        "row-count-dependent caches must be cleared"
-    );
-    assert_eq!(app_state.all_studies[0].completed_trials, 8);
+    assert_eq!(study.trial_count(), 3);
+    // The complete row is the only Pareto candidate; the ragged ones are
+    // treated as NaN rows and simply excluded.
+    assert_eq!(study.pareto_indices, vec![0]);
 }
 
 #[test]

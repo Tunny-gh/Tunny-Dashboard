@@ -45,7 +45,13 @@ pub fn filter_rows_permissive(
             let Some(col) = col else {
                 continue; // Don't exclude if the column doesn't exist
             };
-            let val = col[row];
+            // A column shorter than row_count is treated the same as a missing
+            // one rather than indexed directly: a short column is a bug
+            // elsewhere, but it must not turn into a panic in the UI thread's
+            // filter path.
+            let Some(&val) = col.get(row) else {
+                continue;
+            };
             if !val.is_finite() {
                 continue 'outer;
             }

@@ -18,7 +18,7 @@ impl AppState {
     /// The actual row filtering is delegated to
     /// `tunny_core::filter::filter_rows_permissive` (a "pass-through" behavior that does
     /// not exclude rows when a column does not exist).
-    fn apply_filters(&mut self) {
+    pub(crate) fn apply_filters(&mut self) {
         if let Some(ctx) = &self.current_study {
             if self.filter_ranges.is_empty() {
                 self.selected_indices = ctx.view.trial_ids.clone();

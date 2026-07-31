@@ -14,10 +14,6 @@ impl TunnyApp {
             self.open_ghx_path(path);
             return;
         }
-        // Stop existing poller before loading new file
-        if let Some(mut p) = self.poller.take() {
-            p.stop();
-        }
         self.is_loading = true;
         self.load_error = None;
         self.app_state.all_studies.clear();
@@ -25,9 +21,10 @@ impl TunnyApp {
         // Opening a different file (a different URL) changes the study_id space, so
         // discard any comparison session that assumed the same file.
         self.app_state.reset_comparison_session();
-        // Invalidate the pending poller prep task before opening a different file
-        // (H-1/H-2).
-        self.invalidate_pending_poller();
+        // Abandon any in-flight or deferred reload: their target is the file
+        // being replaced, and the incoming scan result is not theirs.
+        self.pending_reload = None;
+        self.reload_when_idle = false;
         dispatch_scan(path, self.sender());
     }
 

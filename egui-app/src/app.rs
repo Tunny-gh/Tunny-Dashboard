@@ -1,54 +1,23 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
-use crate::io::live_update_poller::{LiveUpdatePoller, RdbLivePoller, SqliteLivePoller};
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
-use crate::state::results::LiveUpdateStorageKind;
 use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
 
 mod dialogs;
 mod files;
-mod poller;
+mod reload;
 mod run;
 
 #[cfg(test)]
 mod tests;
 
-/// No-change duration (milliseconds) between the live update poller deciding "no change"
-/// and sending the completion hint (`AppMessage::LiveUpdateMaybeComplete`).
-/// Used as the common default for all three pollers (journal/sqlite/rdb).
-const LIVE_UPDATE_NO_CHANGE_TIMEOUT_MS: u64 = 60_000;
-
-/// The live update poller currently running in the app. Since the implementation differs
-/// per storage kind (journal/sqlite/rdb) (journal: byte offset diffing, sqlite/rdb:
-/// fingerprint + full reload), `TunnyApp` wraps them in this enum so it can hold either one.
-enum ActivePoller {
-    Journal(LiveUpdatePoller),
-    Sqlite(SqliteLivePoller),
-    Rdb(RdbLivePoller),
-}
-
-impl ActivePoller {
-    fn stop(&mut self) {
-        match self {
-            ActivePoller::Journal(p) => p.stop(),
-            ActivePoller::Sqlite(p) => p.stop(),
-            ActivePoller::Rdb(p) => p.stop(),
-        }
-    }
-
-    fn update_interval(&self, new_interval_ms: u64) {
-        match self {
-            ActivePoller::Journal(p) => p.update_interval(new_interval_ms),
-            ActivePoller::Sqlite(p) => p.update_interval(new_interval_ms),
-            ActivePoller::Rdb(p) => p.update_interval(new_interval_ms),
-        }
-    }
-}
+pub use reload::can_reload;
+use reload::ReloadRestore;
 
 /// For each async-compute completion message, indicates which widget's completion state
 /// should be propagated to each canvas item (an independent `WidgetStates`).
@@ -187,13 +156,12 @@ pub struct TunnyApp {
     pub load_error: Option<String>,
     tx: mpsc::SyncSender<AppMessage>,
     rx: mpsc::Receiver<AppMessage>,
-    poller: Option<ActivePoller>,
-    /// Generation counter attached to live update poller startup prep (H-1/H-2).
-    /// Incremented by 1 on every `restart_poller` call; the poller is only started when
-    /// the ready message (`AppMessage::PollerReady`) matches the current generation.
-    /// Used to discard stale prep results if the user toggles / switches Study / opens
-    /// a different file while prep is still in flight.
-    poller_generation: u64,
+    /// View state held across an in-flight toolbar Reload, re-applied once the
+    /// re-read study has finished loading. `None` whenever no reload is running.
+    pending_reload: Option<ReloadRestore>,
+    /// A post-run refresh that arrived while a load was still in flight, held
+    /// until the app goes idle rather than being started on top of that load.
+    reload_when_idle: bool,
     /// The string currently set on the window title bar. Kept so an update command is only
     /// sent when it actually changes.
     current_window_title: Option<String>,
@@ -259,8 +227,8 @@ impl TunnyApp {
             load_error: None,
             tx,
             rx,
-            poller: None,
-            poller_generation: 0,
+            pending_reload: None,
+            reload_when_idle: false,
             current_window_title: None,
         }
     }
@@ -305,19 +273,7 @@ impl TunnyApp {
     /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
-            // H-1/H-2: poller prep completion needs tx/poller, so intercept it here
-            // (rather than in the tx-less MessageHandler) and only start it when the
-            // generation still matches.
-            let msg = match msg {
-                AppMessage::PollerReady { generation, prep } => {
-                    self.start_prepared_poller(generation, prep);
-                    ctx.request_repaint();
-                    continue;
-                }
-                other => other,
-            };
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
-            let is_live_error = matches!(&msg, AppMessage::LiveUpdateError(_));
             // Both the .ghx and the process-integration runs use the same
             // `gh_opt_run` overlay state, so both trigger the post-run refresh.
             let is_gh_opt_finished = matches!(
@@ -328,15 +284,11 @@ impl TunnyApp {
             // rebuild cost isn't concentrated into a single frame (avoids render stalls).
             // Remaining batches stay in the channel and are processed on the next frame.
             let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
-            // SQLite live update: once a study becomes active (selection completed), if
-            // live update is enabled, restart the poller so it tracks the new study_id
-            // (unlike journal, the fingerprint can only be obtained per study).
+            // A study finished loading (streamed to its last batch, or activated
+            // directly from the shared store). This is where an in-flight reload
+            // gets its captured view state re-applied.
             let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
                 || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
-            // SQLite live update: once a fingerprint change is detected, ask the worker
-            // to reload. The actual re-parse needs tx, so dispatch it here (in app.rs,
-            // which holds tx) rather than in the tx-less MessageHandler.
-            let sqlite_reload_study_id = MessageHandler::sqlite_reload_study_id(&msg);
             // Async compute completion/failure messages only update the global
             // widget_states. Since each canvas item holds independent WidgetStates
             // (commit 73883d8), the completion state (computing/result/cache) must be
@@ -359,94 +311,42 @@ impl TunnyApp {
             }
 
             if is_journal_parsed {
-                // Flat CSV has no info on optimization direction / variable range, so
-                // don't auto-activate — open the confirmation dialog instead. On
-                // confirmation, dispatch select_study with meta reflecting the edited
-                // values.
-                let is_csv = self
-                    .app_state
-                    .journal_path
-                    .as_deref()
-                    .is_some_and(crate::io::flat_csv::is_csv_path);
-                let is_sqlite = self
-                    .app_state
-                    .journal_path
-                    .as_deref()
-                    .is_some_and(crate::io::sqlite::is_sqlite_path);
-                let is_rdb = self
-                    .app_state
-                    .journal_path
-                    .as_deref()
-                    .is_some_and(|p| crate::io::rdb::path_as_rdb_url(p).is_some());
-                if is_csv {
-                    // CSV is a flat import (one-time ingestion) with no concept of
-                    // streaming appends, so force Live Update off and keep it out of
-                    // scope.
-                    self.app_state.live_update.enabled = false;
-                    self.app_state.live_update.poller_active = false;
-                } else {
-                    self.app_state.live_update.storage_kind = if is_sqlite {
-                        LiveUpdateStorageKind::Sqlite
-                    } else if is_rdb {
-                        LiveUpdateStorageKind::Rdb
-                    } else {
-                        LiveUpdateStorageKind::Journal
-                    };
-                    if is_sqlite || is_rdb {
-                        // SQLite/RDB fingerprinting needs study_id, so don't start the
-                        // poller before a Study is selected (it starts via
-                        // is_study_activated once Study selection completes).
-                        self.app_state.live_update.poller_active = false;
-                    } else if self.app_state.live_update.enabled {
-                        self.restart_poller();
+                // A reload re-runs this same scan, but the study to bring back up
+                // is the one that was on screen — not what the fresh-open
+                // heuristics below would pick — so it takes over the scan result.
+                if !self.continue_reload_after_scan() {
+                    // Flat CSV has no info on optimization direction / variable range, so
+                    // don't auto-activate — open the confirmation dialog instead. On
+                    // confirmation, dispatch select_study with meta reflecting the edited
+                    // values.
+                    let is_csv = self
+                        .app_state
+                        .journal_path
+                        .as_deref()
+                        .is_some_and(crate::io::flat_csv::is_csv_path);
+                    if is_csv {
+                        if let Some(meta) = self.app_state.all_studies.first() {
+                            self.app_state.csv_import_settings =
+                                Some(crate::state::app_state::CsvImportSettings::from_meta(meta));
+                        }
+                    } else if self.app_state.all_studies.len() == 1 {
+                        // If there's only one Study, automatically start Phase 2.
+                        self.is_loading = true;
+                        let meta = self.app_state.all_studies[0].clone();
+                        crate::io::study_worker::dispatch_select_study(meta, self.sender());
                     }
                 }
-                if is_csv {
-                    if let Some(meta) = self.app_state.all_studies.first() {
-                        self.app_state.csv_import_settings =
-                            Some(crate::state::app_state::CsvImportSettings::from_meta(meta));
-                    }
-                } else if self.app_state.all_studies.len() == 1 {
-                    // If there's only one Study, automatically start Phase 2.
-                    self.is_loading = true;
-                    let meta = self.app_state.all_studies[0].clone();
-                    crate::io::study_worker::dispatch_select_study(meta, self.sender());
-                }
-            }
-            if is_live_error {
-                // poller stopped itself — drop the handle
-                self.poller = None;
-                // Invalidate any pending prep task so an error doesn't cause it to
-                // restart the poller on its own.
-                self.invalidate_pending_poller();
             }
 
             if is_gh_opt_finished {
                 self.refresh_after_gh_opt();
             }
 
-            if let Some(study_id) = sqlite_reload_study_id {
-                // SqliteLiveChanged is a signal message reused by both SQLite and RDB
-                // live update, so dispatch the actual reload based on the current
-                // storage_kind.
-                if self.app_state.live_update.storage_kind == LiveUpdateStorageKind::Rdb {
-                    crate::io::study_worker::dispatch_reload_rdb_study(study_id, self.sender());
-                } else {
-                    crate::io::study_worker::dispatch_reload_sqlite_study(study_id, self.sender());
-                }
-            }
-
-            // SQLite/RDB live update can only get a fingerprint per study, so when the
-            // displayed study switches, restart the poller with the new study_id
-            // (journal tracks the whole file, so no restart is needed on study switch).
-            if is_study_activated
-                && self.app_state.live_update.enabled
-                && matches!(
-                    self.app_state.live_update.storage_kind,
-                    LiveUpdateStorageKind::Sqlite | LiveUpdateStorageKind::Rdb
-                )
-            {
-                self.restart_poller();
+            // The reloaded study is now on screen, so the view state captured
+            // before the reload can be re-applied (a no-op when no reload is in
+            // flight).
+            if is_study_activated {
+                self.finish_reload();
             }
 
             ctx.request_repaint();
@@ -454,6 +354,14 @@ impl TunnyApp {
             if is_study_chunk {
                 break;
             }
+        }
+
+        // A post-run refresh that had to wait for an in-flight load can start
+        // now that the app is idle.
+        if self.reload_when_idle && !self.is_loading {
+            self.reload_when_idle = false;
+            self.reload_current();
+            ctx.request_repaint();
         }
 
         // Keep repainting during streaming load even without input, to keep pulling in
@@ -475,25 +383,7 @@ impl TunnyApp {
                     self.is_loading = true;
                     crate::io::study_worker::dispatch_select_study(meta, self.sender());
                 }
-                ToolbarAction::ToggleLiveUpdate => {
-                    self.app_state.live_update.enabled = !self.app_state.live_update.enabled;
-                    if self.app_state.live_update.enabled {
-                        self.restart_poller();
-                    } else {
-                        if let Some(mut p) = self.poller.take() {
-                            p.stop();
-                        }
-                        // Invalidate any pending prep task (H-1/H-2).
-                        self.invalidate_pending_poller();
-                        self.app_state.live_update.poller_active = false;
-                    }
-                }
-                ToolbarAction::SetPollInterval(ms) => {
-                    self.app_state.live_update.interval_ms = ms;
-                    if let Some(ref poller) = self.poller {
-                        poller.update_interval(ms);
-                    }
-                }
+                ToolbarAction::Reload => self.reload_current(),
                 ToolbarAction::ScanArtifacts(base_dir) => {
                     crate::io::artifacts::scan_artifacts_dir(
                         base_dir,
@@ -547,8 +437,11 @@ impl TunnyApp {
                         .any(|s| s.meta.study_id == meta.study_id);
                     if base_id != Some(meta.study_id) && !already {
                         self.app_state.comparison_mode = true;
+                        // Not forced: adding a comparison target is a fresh
+                        // read, so an existing snapshot for it is current.
                         crate::io::study_worker::dispatch_load_comparison_study(
                             meta,
+                            false,
                             self.sender(),
                         );
                     }
@@ -600,14 +493,6 @@ impl TunnyApp {
                         Some(crate::state::app_state::ProcessDefBuilderState::new());
                 }
             }
-        }
-    }
-}
-
-impl Drop for TunnyApp {
-    fn drop(&mut self) {
-        if let Some(mut p) = self.poller.take() {
-            p.stop();
         }
     }
 }

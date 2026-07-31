@@ -110,11 +110,6 @@ impl TunnyApp {
             study_name: dialog.study_name.clone(),
             finished: None,
         });
-        // The study is already created in the journal, so opening it now will show it in
-        // the study list. Start the poller so subsequent trials stream into the live
-        // view.
-        self.app_state.live_update.enabled = true;
-
         let problem = dialog.problem.clone();
         spawn_task(self.sender(), move || {
             let result = (|| {
@@ -158,8 +153,9 @@ impl TunnyApp {
         });
 
         // The study is already written to the journal, so opening it shows it in the
-        // study list (if there's only one, poll_messages auto-selects it and live update
-        // streams the trials in).
+        // study list (if there's only one, poll_messages auto-selects it). Trials
+        // completed after this point reach the view when the user hits Reload, or
+        // automatically once the run finishes (`refresh_after_gh_opt`).
         self.open_path(journal_path);
         // Drop dialog to close the modal (don't put it back as None).
     }
@@ -258,10 +254,6 @@ impl TunnyApp {
             study_name: dialog.study_name.clone(),
             finished: None,
         });
-        // The study is already created in the journal, so opening it now will show
-        // it in the study list; start the poller so trials stream into the live view.
-        self.app_state.live_update.enabled = true;
-
         spawn_task(self.sender(), move || {
             let result = run_prepared(&prep, &problem, &evaluator, &cfg, &progress);
             AppMessage::ProcessOptFinished { result }
@@ -271,10 +263,10 @@ impl TunnyApp {
         // Drop dialog to close the modal.
     }
 
-    /// Reloads the displayed study when a .ghx optimization run finishes, as a
-    /// safety net for trials the live-update stream may have missed (e.g. polls
-    /// dropped after repeated I/O errors, or live update toggled off mid-run).
-    /// A full re-parse of the journal is authoritative, so the final state shown
+    /// Reloads the displayed study when an optimization run finishes, so the
+    /// trials it produced land in the view without the user having to press
+    /// Reload themselves. This runs the same re-read as the toolbar Reload — a
+    /// full re-parse of the journal is authoritative, so the final state shown
     /// always matches the file. Skipped if the user has meanwhile opened a
     /// different file.
     pub(super) fn refresh_after_gh_opt(&mut self) {
@@ -284,15 +276,14 @@ impl TunnyApp {
         if self.app_state.journal_path.as_deref() != Some(run.journal_path.as_path()) {
             return;
         }
-        let Some(meta) = self
-            .app_state
-            .current_study
-            .as_ref()
-            .map(|s| s.meta.clone())
-        else {
+        // A short run can finish before its journal has even finished loading.
+        // Reloading on top of that load would interleave two scans, so defer
+        // until the app is idle instead of dropping the refresh — the user was
+        // told the view updates by itself once the run ends.
+        if self.is_loading {
+            self.reload_when_idle = true;
             return;
-        };
-        self.is_loading = true;
-        crate::io::study_worker::dispatch_select_study(meta, self.sender());
+        }
+        self.reload_current();
     }
 }

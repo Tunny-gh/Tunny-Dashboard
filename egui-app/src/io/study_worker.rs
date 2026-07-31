@@ -41,20 +41,10 @@ enum StudyCommand {
     /// and returns a DataFrame snapshot and HV history without changing the active Study.
     LoadComparisonStudy {
         meta: StudyMeta,
-        tx: SyncSender<AppMessage>,
-    },
-    /// SQLite live update: fully re-parses a study whose fingerprint change was detected.
-    /// Unlike `SelectStudy`, this always re-parses regardless of whether it's in
-    /// `loaded_study_ids` (since a reload is triggered precisely because content changed
-    /// even if the study was already loaded).
-    ReloadSqliteStudy {
-        study_id: u32,
-        tx: SyncSender<AppMessage>,
-    },
-    /// RDB live-update counterpart of `ReloadSqliteStudy`. Fully re-parses a study whose
-    /// fingerprint change was detected, via the URL.
-    ReloadRdbStudy {
-        study_id: u32,
+        /// Re-parses from storage even when a snapshot for this study_id is
+        /// already in the shared store. Set by the toolbar Reload, whose whole
+        /// point is that the stored snapshot is stale.
+        force: bool,
         tx: SyncSender<AppMessage>,
     },
 }
@@ -185,47 +175,52 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             ));
                         }
                     }
-                    StudyCommand::LoadComparisonStudy { meta, tx } => {
+                    StudyCommand::LoadComparisonStudy { meta, force, tx } => {
                         let study_id = meta.study_id;
                         // Secure the DataFrame: use it as-is if already in the store,
                         // otherwise parse only the target Study from the cached storage.
+                        // `force` skips the store shortcut so a Reload re-reads the
+                        // comparison study from storage instead of reusing the stale
+                        // snapshot left over from before the reload.
                         // The old implementation swallowed parse failures with `Err(_) => None`,
                         // so the cause (corrupted data, DB error, etc.) never reached the user.
                         // Here the actual error string is kept and returned via `ComparisonStudyLoadFailed`.
-                        let df: Result<Arc<DataFrame>, String> =
-                            match tunny_core::dataframe::snapshot(study_id) {
-                                Some(df) => Ok(df),
-                                None => {
-                                    // Runs only the "parse" step per storage kind, normalizing the
-                                    // result to `Result<(DataFrame, StudyExtras), String>`.
-                                    // The "store registration" step shared across the three kinds is
-                                    // done together after a successful parse (consolidating the
-                                    // 8-line block that was copy-pasted 3 times in the old implementation
-                                    // into one place).
-                                    let parsed = if let Some(data) = state.journal_data.as_ref() {
-                                        tunny_core::io::journal::parser::parse_single_study(
-                                            data, study_id,
-                                        )
+                        let cached = (!force)
+                            .then(|| tunny_core::dataframe::snapshot(study_id))
+                            .flatten();
+                        let df: Result<Arc<DataFrame>, String> = match cached {
+                            Some(df) => Ok(df),
+                            None => {
+                                // Runs only the "parse" step per storage kind, normalizing the
+                                // result to `Result<(DataFrame, StudyExtras), String>`.
+                                // The "store registration" step shared across the three kinds is
+                                // done together after a successful parse (consolidating the
+                                // 8-line block that was copy-pasted 3 times in the old implementation
+                                // into one place).
+                                let parsed = if let Some(data) = state.journal_data.as_ref() {
+                                    tunny_core::io::journal::parser::parse_single_study(
+                                        data, study_id,
+                                    )
+                                    .map(|(_full_meta, df, extras)| (df, extras))
+                                } else if let Some(path) = state.sqlite_path.as_ref() {
+                                    tunny_core::sqlite::parse_single_study(path, study_id)
                                         .map(|(_full_meta, df, extras)| (df, extras))
-                                    } else if let Some(path) = state.sqlite_path.as_ref() {
-                                        tunny_core::sqlite::parse_single_study(path, study_id)
-                                            .map(|(_full_meta, df, extras)| (df, extras))
-                                    } else if let Some(url) = state.rdb_url.as_ref() {
-                                        tunny_core::rdb::parse_single_study_url(url, study_id)
-                                            .map(|(_full_meta, df, extras)| (df, extras))
-                                    } else {
-                                        Err("No storage is currently open.".to_string())
-                                    };
-                                    // Only on a successful parse does it perform the shared store registration and obtain the Arc.
-                                    parsed.map(|(df, extras)| {
-                                        let arc = Arc::new(df);
-                                        tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
-                                        tunny_core::dataframe::store_extras_for(study_id, extras);
-                                        state.loaded_study_ids.insert(study_id);
-                                        arc
-                                    })
-                                }
-                            };
+                                } else if let Some(url) = state.rdb_url.as_ref() {
+                                    tunny_core::rdb::parse_single_study_url(url, study_id)
+                                        .map(|(_full_meta, df, extras)| (df, extras))
+                                } else {
+                                    Err("No storage is currently open.".to_string())
+                                };
+                                // Only on a successful parse does it perform the shared store registration and obtain the Arc.
+                                parsed.map(|(df, extras)| {
+                                    let arc = Arc::new(df);
+                                    tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
+                                    tunny_core::dataframe::store_extras_for(study_id, extras);
+                                    state.loaded_study_ids.insert(study_id);
+                                    arc
+                                })
+                            }
+                        };
                         let msg = match df {
                             Ok(df) => build_comparison_loaded(meta, &df),
                             Err(detail) => AppMessage::ComparisonStudyLoadFailed(format!(
@@ -234,24 +229,6 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             )),
                         };
                         let _ = tx.send(msg);
-                    }
-                    StudyCommand::ReloadSqliteStudy { study_id, tx } => {
-                        if let Some(ref path) = state.sqlite_path {
-                            crate::io::sqlite::reload_single_study_task(path, study_id, &tx);
-                        } else {
-                            let _ = tx.send(AppMessage::Error(
-                                "SQLite live update requires an open SQLite study".to_string(),
-                            ));
-                        }
-                    }
-                    StudyCommand::ReloadRdbStudy { study_id, tx } => {
-                        if let Some(ref url) = state.rdb_url {
-                            crate::io::rdb::reload_single_study_task(url, study_id, &tx);
-                        } else {
-                            let _ = tx.send(AppMessage::Error(
-                                "RDB live update requires an open database study".to_string(),
-                            ));
-                        }
                     }
                 }
             }
@@ -286,18 +263,12 @@ pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
 /// Loads another Study within the same file as a comparison target.
 /// Reuses the cached byte buffer via the worker thread, and sends
 /// `ComparisonStudyLoaded` without changing the active Study.
-pub fn dispatch_load_comparison_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, tx });
-}
-
-/// SQLite live update: requests a reload of a study whose fingerprint change was detected.
-pub fn dispatch_reload_sqlite_study(study_id: u32, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::ReloadSqliteStudy { study_id, tx });
-}
-
-/// RDB live update: requests a reload of a study whose fingerprint change was detected.
-pub fn dispatch_reload_rdb_study(study_id: u32, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::ReloadRdbStudy { study_id, tx });
+///
+/// `force` re-parses from storage even when a snapshot is already registered —
+/// used by the toolbar Reload, where the stored snapshot is exactly what has
+/// gone stale.
+pub fn dispatch_load_comparison_study(meta: StudyMeta, force: bool, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, force, tx });
 }
 
 /// Builds a `StudyContext` from a comparison Study's DataFrame snapshot.
