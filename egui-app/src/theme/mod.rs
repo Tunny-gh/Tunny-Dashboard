@@ -45,8 +45,16 @@ pub fn tunny_visuals(dark: bool) -> Visuals {
     v.override_text_color = Some(TEXT_PRIMARY());
     v.extreme_bg_color = CENTRAL_BG();
 
-    v.widgets.active.bg_fill = ACCENT_BLUE();
-    v.widgets.active.fg_stroke = Stroke::new(1.5, TOOLBAR_BTN_FG());
+    // egui derives the color of `RichText::strong` from this stroke
+    // (`Visuals::strong_text_color` == `widgets.active.fg_stroke.color`), and that
+    // takes precedence over `override_text_color`. It therefore paints every
+    // `ui.strong(..)` in the app — chart cell titles, table headers — not just the
+    // pressed state of a widget, so it has to stay readable on the panel background
+    // rather than on the accent fill. The toolbar, which does want white-on-accent,
+    // overrides `active` locally (see `ui::layout`).
+    v.widgets.active.fg_stroke = Stroke::new(1.5, TEXT_PRIMARY());
+    v.widgets.active.bg_fill = ACCENT_BLUE_MUTED();
+    v.widgets.active.weak_bg_fill = ACCENT_BLUE_MUTED();
     v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT_BLUE());
 
     v.widgets.hovered.bg_fill = WIDGET_BG_HOVER();
@@ -84,3 +92,23 @@ macro_rules! themed_color {
     };
 }
 pub(crate) use themed_color;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `RichText::strong` resolves to `widgets.active.fg_stroke` and outranks
+    /// `override_text_color`, so a value picked for contrast against the accent fill
+    /// would make every chart cell title and table header invisible on the panel
+    /// background. The two must agree.
+    ///
+    /// Built for whichever theme the process is already in: `tunny_visuals` writes the
+    /// process-global `DARK_MODE` flag, and flipping it here would race the tests that
+    /// compare two theme-following colors while running in parallel.
+    #[test]
+    fn strong_text_color_matches_the_body_text_color() {
+        let v = tunny_visuals(is_dark_mode());
+        assert_eq!(v.strong_text_color(), TEXT_PRIMARY());
+        assert_eq!(Some(v.strong_text_color()), v.override_text_color);
+    }
+}

@@ -1,8 +1,16 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
+use crate::ui::widgets::common::axis_labels::{draw_plot_x_labels, plot_x_label_band};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::common::range_math::value_range;
 use tunny_core::statistics::{compute_boxplot, BoxPlotStats};
+
+/// Width assumed for the y axis on the very first frame, before the plot has reported
+/// its actual frame. From the second frame on, the measured width is used instead.
+const Y_AXIS_WIDTH_GUESS: f32 = 56.0;
+
+/// Floor on the plot height, so a long rotated label band cannot collapse the boxes.
+const MIN_PLOT_HEIGHT: f32 = 80.0;
 
 /// The target column group for the box plot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -138,17 +146,29 @@ impl BoxPlotChart {
 
         let box_plot = egui_plot::BoxPlot::new("Box Plot", boxes).color(COLOR_BAR_PRIMARY());
 
-        egui_plot::Plot::new("box_plot_plot")
+        // egui_plot derives its own x tick spacing from the available width and offers
+        // no way to rotate tick labels, so with more than a couple of columns it drops
+        // most of the names. Hide its x axis and paint every label into a band reserved
+        // below the plot instead, slanting them once they no longer fit side by side.
+        // The band has to be sized before the plot is laid out, so the "do the names
+        // still fit horizontally" test runs on the width measured last frame. It is
+        // kept in egui's per-`Ui` memory rather than on `self`, because the maximize
+        // modal draws the same widget state on top of the canvas cell within one frame
+        // and the two have different widths.
+        let avail = ui.available_size();
+        let width_memo_id = ui.id().with("box_plot_x_label_band_width");
+        let plot_width = ui
+            .data(|d| d.get_temp::<f32>(width_memo_id))
+            .filter(|w| *w > 0.0)
+            .unwrap_or_else(|| (avail.x - Y_AXIS_WIDTH_GUESS).max(1.0));
+        let plan = plot_x_label_band(ui, &labels, plot_width);
+        let plot_height = (avail.y - plan.height).max(MIN_PLOT_HEIGHT);
+
+        let resp = egui_plot::Plot::new("box_plot_plot")
             .unified_nav()
             .legend(egui_plot::Legend::default())
-            .x_axis_formatter(move |mark, _range| {
-                let idx = mark.value.round();
-                if (mark.value - idx).abs() < 1e-6 && idx >= 0.0 && (idx as usize) < labels.len() {
-                    labels[idx as usize].clone()
-                } else {
-                    String::new()
-                }
-            })
+            .show_axes([false, true])
+            .height(plot_height)
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
                 plot_ui.box_plot(box_plot);
@@ -162,6 +182,12 @@ impl BoxPlotChart {
                     );
                 }
             });
+
+        let measured_width = resp.transform.frame().width();
+        ui.data_mut(|d| d.insert_temp(width_memo_id, measured_width));
+        let (band, _) =
+            ui.allocate_exact_size(egui::vec2(avail.x, plan.height), egui::Sense::hover());
+        draw_plot_x_labels(ui, band, &resp.transform, &labels, &plan);
     }
 }
 

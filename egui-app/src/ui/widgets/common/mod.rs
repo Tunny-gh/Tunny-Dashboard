@@ -1,5 +1,6 @@
 pub mod about_modal;
 pub mod artifact_gallery;
+pub mod axis_labels;
 pub mod beta_notice_modal;
 pub mod cluster_controls;
 pub mod cluster_table;
