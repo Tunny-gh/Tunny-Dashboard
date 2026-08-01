@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::sync::mpsc;
 
+use crate::licenses::APP_VERSION;
 use crate::state::app_state::AppState;
 use crate::state::layout_state::LayoutState;
 use crate::state::message_handler::MessageHandler;
 use crate::state::messages::AppMessage;
 use crate::ui::toolbar::ToolbarAction;
 use crate::ui::widget_states::WidgetStates;
+use crate::ui::widgets::beta_notice_modal::{self, BetaNoticeDismissal, BetaNoticeState};
 
 mod dialogs;
 mod files;
@@ -165,13 +167,24 @@ pub struct TunnyApp {
     /// The string currently set on the window title bar. Kept so an update command is only
     /// sent when it actually changes.
     current_window_title: Option<String>,
+    /// State of the startup beta notice.
+    beta_notice: BetaNoticeState,
+    /// The version for which the user last ticked "Don't show this again", persisted
+    /// across sessions. `None` until they do.
+    beta_notice_ack: Option<String>,
 }
 
 impl TunnyApp {
     /// eframe storage key for [`crate::state::app_state::GhComputePrefs`].
     const GH_COMPUTE_PREFS_KEY: &'static str = "gh_compute_prefs";
+    /// eframe storage key for the acknowledged beta-notice version.
+    const BETA_NOTICE_ACK_KEY: &'static str = "beta_notice_ack_version";
 
-    pub fn new(cc: &eframe::CreationContext<'_>, initial_path: Option<std::path::PathBuf>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        initial_path: Option<std::path::PathBuf>,
+        beta_notice_allowed: bool,
+    ) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_visuals(false));
         // Register a loader so the artifact gallery can display file:// images.
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -208,8 +221,10 @@ impl TunnyApp {
             dispatch_scan(path, tx.clone());
         }
         let mut app_state = AppState::new();
-        // Restore persisted preferences (currently the .ghx Compute/sampler
-        // settings). Absent or unreadable storage falls back to defaults.
+        // Restore persisted preferences (the .ghx Compute/sampler settings and the
+        // acknowledged beta-notice version). Absent or unreadable storage falls back
+        // to defaults.
+        let mut beta_notice_ack = None;
         if let Some(storage) = cc.storage {
             if let Some(prefs) = eframe::get_value::<crate::state::app_state::GhComputePrefs>(
                 storage,
@@ -217,7 +232,15 @@ impl TunnyApp {
             ) {
                 app_state.gh_compute_prefs = prefs;
             }
+            beta_notice_ack = eframe::get_value::<String>(storage, Self::BETA_NOTICE_ACK_KEY);
         }
+        // The notice goes up on the very first frame, even while an initial path is
+        // still loading — it warns about the very results that are about to appear.
+        let beta_notice = BetaNoticeState {
+            open: beta_notice_allowed
+                && beta_notice_modal::should_show(beta_notice_ack.as_deref(), APP_VERSION),
+            dont_show_again: false,
+        };
         Self {
             app_state,
             layout: LayoutState::default(),
@@ -230,6 +253,8 @@ impl TunnyApp {
             pending_reload: None,
             reload_when_idle: false,
             current_window_title: None,
+            beta_notice,
+            beta_notice_ack,
         }
     }
 
@@ -506,6 +531,9 @@ impl eframe::App for TunnyApp {
             Self::GH_COMPUTE_PREFS_KEY,
             &self.app_state.gh_compute_prefs,
         );
+        if let Some(version) = &self.beta_notice_ack {
+            eframe::set_value(storage, Self::BETA_NOTICE_ACK_KEY, version);
+        }
     }
 
     /// Keep egui's own memory (window positions, collapsing states) out of the
@@ -594,7 +622,16 @@ impl eframe::App for TunnyApp {
         self.show_process_opt_dialog(&ctx);
         self.show_ghx_opt_overlay(&ctx);
         self.show_drop_hover_overlay(&ctx);
+        if crate::ui::widgets::about_modal::show(&ctx, &mut self.widget_states.about_modal) {
+            self.widget_states.license_modal.open = true;
+        }
         crate::ui::widgets::license_modal::show(&ctx, &mut self.widget_states.license_modal);
+        // Drawn last so the startup notice sits above everything else.
+        if let Some(dismissal) = beta_notice_modal::show(&ctx, &mut self.beta_notice) {
+            if dismissal == BetaNoticeDismissal::Suppress {
+                self.beta_notice_ack = Some(APP_VERSION.to_owned());
+            }
+        }
     }
 }
 

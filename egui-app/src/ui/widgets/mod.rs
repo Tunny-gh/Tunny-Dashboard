@@ -59,7 +59,9 @@ pub use stats::histogram;
 
 // Common UI components
 mod common;
+pub use common::about_modal;
 pub use common::artifact_gallery;
+pub use common::beta_notice_modal;
 pub use common::cluster_table;
 pub use common::convergence_card;
 pub use common::csv_import_modal;

@@ -44,6 +44,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # The startup beta notice is suppressed per version, keyed on
+      # CARGO_PKG_VERSION. Shipping a new tag without bumping egui-app/Cargo.toml
+      # would leave the notice permanently hidden for anyone who dismissed the
+      # previous release, so a mismatch fails the release instead.
+      - name: Verify tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          crate_version=$(grep -m1 '^version = ' egui-app/Cargo.toml | cut -d'"' -f2)
+          tag="${GITHUB_REF#refs/tags/}"
+          if [ "v${crate_version}" != "${tag}" ]; then
+            echo "::error::tag ${tag} does not match egui-app/Cargo.toml version ${crate_version}. Bump the crate version and re-tag."
+            exit 1
+          fi
+          echo "tag ${tag} matches crate version ${crate_version}"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 

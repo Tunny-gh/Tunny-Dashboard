@@ -2,12 +2,23 @@
 //!
 //! Lists the licenses (SPDX and full license text) of the dependency crates bundled in
 //! the distributed binary. Uses [`crate::licenses::LICENSES`], the data collected by
-//! `build.rs`.
+//! `build.rs`. Tunny Dashboard's own MIT License is listed first, from the `LICENSE`
+//! file embedded at build time — the beta notice points at it, so it has to be
+//! readable without leaving the app.
 
 use egui::RichText;
 
-use crate::licenses::{LicenseEntry, LICENSES};
+use crate::licenses::{LicenseEntry, APP_REPOSITORY, APP_VERSION, LICENSES};
 use crate::ui::widgets::common::modal::ModalScaffold;
+
+/// This application's own license, embedded from the repository root `LICENSE`.
+static APP_ENTRY: LicenseEntry = LicenseEntry {
+    name: "Tunny Dashboard",
+    version: APP_VERSION,
+    license: "MIT",
+    repository: APP_REPOSITORY,
+    text: include_str!("../../../../../LICENSE"),
+};
 
 /// UI state for the license modal.
 #[derive(Default)]
@@ -31,7 +42,7 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
         .show(ctx, |ui| {
             ui.label(
                 RichText::new(format!(
-                    "This application bundles {} third-party crates.",
+                    "Tunny Dashboard itself is MIT licensed, and bundles {} third-party crates.",
                     LICENSES.len()
                 ))
                 .color(crate::theme::TEXT_SECONDARY()),
@@ -48,8 +59,10 @@ pub fn show(ctx: &egui::Context, state: &mut LicenseModalState) {
             ui.separator();
 
             let needle = state.search.trim().to_lowercase();
-            let filtered: Vec<&LicenseEntry> = LICENSES
-                .iter()
+            // The app's own entry leads the list; the dependencies follow in the
+            // order build.rs collected them.
+            let filtered: Vec<&LicenseEntry> = std::iter::once(&APP_ENTRY)
+                .chain(LICENSES.iter())
                 .filter(|e| matches_filter(e, &needle))
                 .collect();
 
@@ -160,6 +173,13 @@ mod tests {
     #[test]
     fn filter_rejects_non_match() {
         assert!(!matches_filter(&entry(), "zzz_nonexistent"));
+    }
+
+    #[test]
+    fn app_entry_carries_the_embedded_mit_license() {
+        assert_eq!(APP_ENTRY.license, "MIT");
+        assert!(APP_ENTRY.text.contains("MIT License"));
+        assert!(APP_ENTRY.text.contains("WITHOUT WARRANTY OF ANY KIND"));
     }
 
     #[test]

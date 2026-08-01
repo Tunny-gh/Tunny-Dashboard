@@ -1,8 +1,21 @@
-//! License information for dependency crates.
+//! How this application identifies itself, and the license information it ships.
 //!
-//! The actual data is collected by `build.rs` from `cargo metadata` and generated into
-//! `OUT_DIR/licenses.rs` as `pub static LICENSES: &[LicenseEntry]`. This file defines the
-//! type that array references and pulls in the generated file via `include!`.
+//! The dependency data is collected by `build.rs` from `cargo metadata` and generated
+//! into `OUT_DIR/licenses.rs` as `pub static LICENSES: &[LicenseEntry]`. This file
+//! defines the type that array references and pulls in the generated file via
+//! `include!`.
+//!
+//! [`APP_VERSION`] and [`APP_REPOSITORY`] live here as the single source for everything
+//! that names the app: `--version`, the About modal, the license list's own entry, and
+//! the version the beta notice is suppressed for.
+
+/// The version this build reports. Bumped in `egui-app/Cargo.toml` for every release —
+/// the release workflow fails if the tag disagrees, because the beta notice is
+/// suppressed per version.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The project's repository.
+pub const APP_REPOSITORY: &str = "https://github.com/Tunny-gh/Tunny-Dashboard";
 
 /// License information for a single dependency crate.
 pub struct LicenseEntry {
@@ -23,7 +36,17 @@ include!(concat!(env!("OUT_DIR"), "/licenses.rs"));
 
 #[cfg(test)]
 mod tests {
-    use super::LICENSES;
+    use super::{APP_REPOSITORY, APP_VERSION, LICENSES};
+
+    #[test]
+    fn app_version_matches_cargo_package() {
+        assert_eq!(APP_VERSION, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn app_repository_is_an_https_url() {
+        assert!(APP_REPOSITORY.starts_with("https://"));
+    }
 
     #[test]
     fn licenses_are_collected() {

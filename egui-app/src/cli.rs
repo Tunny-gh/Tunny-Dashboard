@@ -2,7 +2,12 @@ use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CliAction {
-    Run { initial_path: Option<PathBuf> },
+    Run {
+        initial_path: Option<PathBuf>,
+        /// Whether the startup beta notice may be shown. False when
+        /// `--no-beta-notice` was passed.
+        beta_notice: bool,
+    },
     PrintVersion,
 }
 
@@ -13,10 +18,15 @@ where
 {
     let mut args = args.into_iter().map(Into::into);
     let mut initial_path = None;
+    let mut beta_notice = true;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "version" | "--version" | "-V" => return Ok(CliAction::PrintVersion),
+            // Undocumented on purpose: this exists so GUI verification runs and
+            // automated screenshots aren't blocked by the startup notice. It is
+            // deliberately left out of the usage string below.
+            "--no-beta-notice" => beta_notice = false,
             "-i" | "--input" => {
                 // Accept local file paths (journal .log / SQLite .db, etc.) as well as
                 // PostgreSQL/MySQL connection URLs (e.g. postgresql://user:pass@host:5432/db)
@@ -37,11 +47,14 @@ where
         }
     }
 
-    Ok(CliAction::Run { initial_path })
+    Ok(CliAction::Run {
+        initial_path,
+        beta_notice,
+    })
 }
 
 pub fn version_text() -> String {
-    format!("TunnyDashboard {}", env!("CARGO_PKG_VERSION"))
+    format!("TunnyDashboard {}", crate::licenses::APP_VERSION)
 }
 
 #[cfg(test)]
@@ -52,7 +65,10 @@ mod tests {
     fn parses_no_args_as_app_launch() {
         assert_eq!(
             parse_args([] as [&str; 0]),
-            Ok(CliAction::Run { initial_path: None })
+            Ok(CliAction::Run {
+                initial_path: None,
+                beta_notice: true
+            })
         );
     }
 
@@ -68,13 +84,33 @@ mod tests {
         assert_eq!(
             parse_args(["--input", "study.log"]),
             Ok(CliAction::Run {
-                initial_path: Some(PathBuf::from("study.log"))
+                initial_path: Some(PathBuf::from("study.log")),
+                beta_notice: true
             })
         );
         assert_eq!(
             parse_args(["-i", "study.log"]),
             Ok(CliAction::Run {
-                initial_path: Some(PathBuf::from("study.log"))
+                initial_path: Some(PathBuf::from("study.log")),
+                beta_notice: true
+            })
+        );
+    }
+
+    #[test]
+    fn parses_no_beta_notice_flag() {
+        assert_eq!(
+            parse_args(["--no-beta-notice"]),
+            Ok(CliAction::Run {
+                initial_path: None,
+                beta_notice: false
+            })
+        );
+        assert_eq!(
+            parse_args(["--no-beta-notice", "-i", "study.log"]),
+            Ok(CliAction::Run {
+                initial_path: Some(PathBuf::from("study.log")),
+                beta_notice: false
             })
         );
     }
