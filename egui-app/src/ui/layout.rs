@@ -66,8 +66,8 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     show_theme_toggle(ui, &mut app.app_state);
                     show_documentation_button(ui);
-                    if ui.button("📄 Licenses").clicked() {
-                        app.widget_states.license_modal.open = true;
+                    if ui.button("ℹ About").clicked() {
+                        app.widget_states.about_modal.open = true;
                     }
                 });
             });

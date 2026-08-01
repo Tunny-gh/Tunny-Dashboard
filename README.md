@@ -2,6 +2,8 @@
 
 A desktop analytics dashboard for [Optuna](https://optuna.org/) optimization results, built with Rust/egui.
 
+> **Beta** — Tunny Dashboard is still under active development. Features, layouts, and analysis results may change or contain errors without notice, so verify important results independently. The app shows this notice once per version at startup; it stays readable from the **About** button on the toolbar.
+
 ---
 
 ## Overview

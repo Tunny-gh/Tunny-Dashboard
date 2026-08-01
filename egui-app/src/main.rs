@@ -45,8 +45,11 @@ fn main() -> eframe::Result<()> {
     #[cfg(windows)]
     set_system_dpi_awareness();
 
-    let initial_path = match cli::parse_args(std::env::args().skip(1)) {
-        Ok(CliAction::Run { initial_path }) => initial_path,
+    let (initial_path, beta_notice) = match cli::parse_args(std::env::args().skip(1)) {
+        Ok(CliAction::Run {
+            initial_path,
+            beta_notice,
+        }) => (initial_path, beta_notice),
         Ok(CliAction::PrintVersion) => {
             println!("{}", cli::version_text());
             return Ok(());
@@ -67,6 +70,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Tunny Dashboard",
         options,
-        Box::new(move |cc| Ok(Box::new(app::TunnyApp::new(cc, initial_path)))),
+        Box::new(move |cc| Ok(Box::new(app::TunnyApp::new(cc, initial_path, beta_notice)))),
     )
 }

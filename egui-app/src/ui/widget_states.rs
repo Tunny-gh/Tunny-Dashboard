@@ -1,3 +1,4 @@
+use crate::ui::widgets::about_modal::AboutModalState;
 use crate::ui::widgets::edf_plot::EdfComparison;
 use crate::ui::widgets::license_modal::LicenseModalState;
 use crate::ui::widgets::optimization_history::OptHistoryComparison;
@@ -523,6 +524,9 @@ pub struct WidgetStates {
     /// State of the open-source license display modal
     #[serde(skip)]
     pub license_modal: LicenseModalState,
+    /// State of the About modal (version, beta notice, entry point to the licenses)
+    #[serde(skip)]
+    pub about_modal: AboutModalState,
 }
 
 impl WidgetStates {

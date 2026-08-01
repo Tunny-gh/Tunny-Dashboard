@@ -158,3 +158,27 @@ cargo run -p tunny-desktop
 ```bash
 cargo bench -p tunny-core
 ```
+
+### GUI Verification
+
+The startup beta notice blocks the window on a machine that has not dismissed it
+yet (including clean environments and CI). Pass the undocumented
+`--no-beta-notice` flag when driving the app for screenshots or automated checks:
+
+```bash
+cargo run -p tunny-desktop -- --no-beta-notice -i path/to/study.db
+```
+
+## Releasing
+
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which is triggered by pushing a `v*` tag.
+
+1. Bump `version` in `egui-app/Cargo.toml` and commit the updated `Cargo.lock`.
+2. Tag the commit as `v<version>` — the tag must match the crate version exactly.
+3. Push the tag.
+
+Step 1 is not optional. The startup beta notice records the version the user
+dismissed it for (`CARGO_PKG_VERSION`), so a release that reuses the previous
+version number would never show the notice again to existing users. The release
+workflow verifies the tag against `egui-app/Cargo.toml` and fails on a mismatch.
