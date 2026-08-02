@@ -500,6 +500,9 @@ pub(crate) fn render_chart(
             widgets
                 .som_map
                 .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name, &cmap);
+            if let Some(sel) = widgets.som_map.pending_selection.take() {
+                app_state.selected_indices = sel;
+            }
         }
         ChartId::Dendrogram => {
             widgets

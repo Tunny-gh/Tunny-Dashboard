@@ -100,9 +100,40 @@ pub fn sequential_colormap(t: f64) -> egui::Color32 {
     lerp_color(egui::Color32::WHITE, egui::Color32::RED, t)
 }
 
+/// Near-black or near-white, whichever stays legible on top of `bg`.
+///
+/// Labels painted onto colormapped cells cannot use a fixed color: a sequential
+/// colormap runs from very dark to very light, so either choice vanishes at one end of
+/// the scale.
+pub fn contrasting_text_color(bg: egui::Color32) -> egui::Color32 {
+    // Rec. 709 luma over the sRGB bytes — close enough for a two-way choice, and it
+    // does not need the gamma round trip a true relative-luminance test would.
+    let luma = 0.2126 * bg.r() as f32 + 0.7152 * bg.g() as f32 + 0.0722 * bg.b() as f32;
+    if luma > 140.0 {
+        egui::Color32::from_gray(20)
+    } else {
+        egui::Color32::from_gray(240)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contrasting_text_color_flips_between_light_and_dark_backgrounds() {
+        // The two ends of the viridis scale, which the SOM grid paints its cells with.
+        let dark_navy = egui::Color32::from_rgb(68, 1, 84);
+        let bright_yellow = egui::Color32::from_rgb(253, 231, 37);
+        assert_eq!(
+            contrasting_text_color(dark_navy),
+            egui::Color32::from_gray(240)
+        );
+        assert_eq!(
+            contrasting_text_color(bright_yellow),
+            egui::Color32::from_gray(20)
+        );
+    }
 
     #[test]
     fn rgba_key_roundtrips_through_key_to_color32() {
