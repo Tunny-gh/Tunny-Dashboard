@@ -39,6 +39,12 @@ where
                     return Err("input file was specified more than once".to_owned());
                 }
             }
+            // LaunchServices may pass a Process Serial Number (e.g. -psn_0_12345)
+            // to an app launched from Finder as a macOS .app bundle. It carries no
+            // meaning for us, but rejecting it would abort startup with a message
+            // that goes to the system log rather than a terminal, leaving the user
+            // with an app that silently fails to open. Drop it.
+            _ if arg.starts_with("-psn_") => {}
             _ => {
                 return Err(format!(
                     "unknown argument: {arg}\nusage: TunnyDashboard [version|--version|-V] [-i|--input <path>]"
@@ -111,6 +117,24 @@ mod tests {
             Ok(CliAction::Run {
                 initial_path: Some(PathBuf::from("study.log")),
                 beta_notice: false
+            })
+        );
+    }
+
+    #[test]
+    fn ignores_finder_process_serial_number() {
+        assert_eq!(
+            parse_args(["-psn_0_1234567"]),
+            Ok(CliAction::Run {
+                initial_path: None,
+                beta_notice: true
+            })
+        );
+        assert_eq!(
+            parse_args(["-psn_0_1234567", "-i", "study.log"]),
+            Ok(CliAction::Run {
+                initial_path: Some(PathBuf::from("study.log")),
+                beta_notice: true
             })
         );
     }

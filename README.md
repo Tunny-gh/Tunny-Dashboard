@@ -199,9 +199,38 @@ claude mcp add tunny -- /path/to/target/release/tunny-mcp
 
 ---
 
+## Installation
+
+Download the package for your platform from the
+[Releases](https://github.com/Tunny-gh/Tunny-Dashboard/releases) page.
+
+### macOS (Apple Silicon only)
+
+The `.dmg` is built for Apple Silicon (arm64). Intel Macs are not supported.
+
+1. Open the `.dmg` and drag **Tunny Dashboard** into your **Applications** folder.
+2. Launch it. macOS will report that the app cannot be opened because it is from
+   an unidentified developer.
+3. Open **System Settings → Privacy & Security**, scroll to the bottom, and click
+   **Open Anyway** next to the Tunny Dashboard message.
+4. Confirm once more when prompted. Subsequent launches open normally.
+
+Step 2 is expected, not a sign of a corrupted download. The app is signed
+ad-hoc, but it is not notarized by Apple, because notarization requires a paid
+Apple Developer Program membership that this project does not hold. macOS 15
+removed the older "Control-click → Open" shortcut, so System Settings is now the
+only way through. Nothing about the app changes once you have allowed it once.
+
+### Windows
+
+Extract the `.zip` and run `TunnyDashboard.exe`. Keep `lib_lightgbm.dll` in the
+same folder as the executable — the app loads it at startup.
+
+---
+
 ## Quick Start
 
-Build and run the desktop application:
+Build and run the desktop application from source:
 
 ```bash
 cargo run --release
