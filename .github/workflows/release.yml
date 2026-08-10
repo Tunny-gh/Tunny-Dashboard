@@ -1,14 +1,16 @@
 name: Release
 
-# Build a self-contained, ready-to-run package for each supported OS and
-# bundle every file an end user needs into a single folder, then zip it.
+# Build a self-contained, ready-to-run package for each supported OS.
+#
+# Windows ships a zipped folder holding every file an end user needs. macOS
+# ships a .app bundle inside a drag-to-install DMG; README.md and LICENSE are
+# not bundled there, because the app already shows its own MIT license and every
+# dependency license in its license modal.
 #
 # The app embeds third-party licenses, icon and fonts into the binary at build
 # time (see egui-app/build.rs) and links to the online documentation site for
-# help, so the only
-# external runtime dependency that must travel next to the executable is the
-# pre-built LightGBM native library. README.md and LICENSE are bundled as
-# user-facing documentation.
+# help, so the only external runtime dependency that must travel with the
+# executable is the pre-built LightGBM native library.
 on:
   push:
     tags:
@@ -131,34 +133,166 @@ jobs:
           Copy-Item LICENSE $env:PKG/
           Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
           echo "PKG=$env:PKG" >> $env:GITHUB_ENV
+          echo "PKG_FILE=$env:PKG.zip" >> $env:GITHUB_ENV
 
-      - name: Assemble package (macOS)
+      # --- macOS: build a .app bundle, then wrap it in a drag-install DMG ---
+      #
+      # The app is signed ad-hoc (`codesign -s -`), not with a Developer ID:
+      # the project has no Apple Developer Program membership, so notarization
+      # is not possible. Ad-hoc signing is still mandatory rather than optional
+      # — arm64 refuses to execute an unsigned binary at all. Gatekeeper still
+      # treats the result as an unidentified developer, so the release notes and
+      # README carry the "Open Anyway" instructions users need.
+      - name: Build app icon (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p AppIcon.iconset
+          # The source icon is 512x512, so every slot up to 256x256@2x is a
+          # downscale. 512x512@2x (1024px) is deliberately omitted rather than
+          # upscaled — a blurry slot looks worse than letting macOS scale the
+          # 512px one.
+          for spec in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
+                      128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
+                      512:icon_256x256@2x 512:icon_512x512; do
+            size="${spec%%:*}"
+            name="${spec#*:}"
+            sips -z "$size" "$size" egui-app/assets/TunnyIcon.png \
+              --out "AppIcon.iconset/${name}.png" >/dev/null
+          done
+          iconutil -c icns AppIcon.iconset -o AppIcon.icns
+
+      - name: Assemble app bundle (macOS)
         if: runner.os == 'macOS'
         shell: bash
         env:
           PKG: TunnyDashboard-${{ steps.ver.outputs.version }}-${{ matrix.label }}
         run: |
-          mkdir -p "$PKG"
-          cp target/release/TunnyDashboard "$PKG/"
-          # Bundle the dylibs next to the binary. The binary loads
-          # @rpath/lib_lightgbm.dylib; add an @executable_path rpath so it
-          # resolves the sibling copy instead of the build-time libs/ path.
-          # lib_lightgbm in turn finds libomp via @loader_path (same folder).
-          cp libs/lib_lightgbm.dylib "$PKG/"
-          cp libs/libomp.dylib "$PKG/"
-          install_name_tool -add_rpath @executable_path "$PKG/TunnyDashboard"
-          # add_rpath invalidates the signature; re-sign ad-hoc so macOS loads it.
-          codesign --force -s - "$PKG/TunnyDashboard"
-          cp README.md "$PKG/"
-          cp LICENSE "$PKG/"
-          zip -r "$PKG.zip" "$PKG"
+          set -euo pipefail
+          APP="TunnyDashboard.app"
+          # CFBundleShortVersionString must be a dotted numeric string, so it
+          # reads the crate version rather than steps.ver.outputs.version, which
+          # is a short commit SHA on workflow_dispatch runs. The tag and the
+          # crate version are verified to agree earlier in this job.
+          crate_version=$(grep -m1 '^version = ' egui-app/Cargo.toml | cut -d'"' -f2)
+
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
+          cp target/release/TunnyDashboard "$APP/Contents/MacOS/"
+          # The binary loads @rpath/lib_lightgbm.dylib, and lib_lightgbm in turn
+          # finds libomp via @loader_path (same folder), so both dylibs go to
+          # Frameworks/ and the rpath points there.
+          cp libs/lib_lightgbm.dylib libs/libomp.dylib "$APP/Contents/Frameworks/"
+          cp AppIcon.icns "$APP/Contents/Resources/"
+
+          # build.rs bakes in an absolute -rpath to the build-time libs/ dir,
+          # which cannot exist on a user's machine. dyld would just skip it, but
+          # drop it so `otool -l` output describes the shipped layout. rust_core
+          # and egui-app each emit one, and -delete_rpath removes a single entry
+          # per call, so try a bounded number of times and stop once it reports
+          # that no such rpath is left.
+          for _ in 1 2 3; do
+            install_name_tool -delete_rpath "$PWD/libs" \
+              "$APP/Contents/MacOS/TunnyDashboard" 2>/dev/null || break
+          done
+          install_name_tool -add_rpath @executable_path/../Frameworks \
+            "$APP/Contents/MacOS/TunnyDashboard"
+
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Tunny Dashboard</string>
+            <key>CFBundleDisplayName</key>
+            <string>Tunny Dashboard</string>
+            <key>CFBundleExecutable</key>
+            <string>TunnyDashboard</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.hrntsm.tunny.dashboard</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${crate_version}</string>
+            <key>CFBundleVersion</key>
+            <string>${crate_version}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>NSDocumentsFolderUsageDescription</key>
+            <string>Tunny Dashboard needs access to open your Optuna study files (journal logs and SQLite databases).</string>
+            <key>NSDesktopFolderUsageDescription</key>
+            <string>Tunny Dashboard needs access to open your Optuna study files (journal logs and SQLite databases).</string>
+            <key>NSDownloadsFolderUsageDescription</key>
+            <string>Tunny Dashboard needs access to open your Optuna study files (journal logs and SQLite databases).</string>
+          </dict>
+          </plist>
+          PLIST
+
+          # install_name_tool invalidates signatures, so sign the dylibs first
+          # and the bundle last — signing the bundle seals Info.plist and the
+          # resources along with the executable.
+          codesign --force --sign - "$APP/Contents/Frameworks/libomp.dylib"
+          codesign --force --sign - "$APP/Contents/Frameworks/lib_lightgbm.dylib"
+          codesign --force --sign - "$APP"
+
           echo "PKG=$PKG" >> "$GITHUB_ENV"
+          echo "PKG_FILE=$PKG.dmg" >> "$GITHUB_ENV"
+
+      # A broken rpath or a stale signature still produces a DMG that builds
+      # cleanly and only fails on the user's machine, so verify the bundle here.
+      # `--version` prints and exits before any window is created, which makes it
+      # runnable on a headless runner, and because lib_lightgbm is linked at load
+      # time it forces dyld to resolve the whole dylib chain. On arm64 it also
+      # proves the ad-hoc signature is valid, since a bad signature is fatal.
+      - name: Verify app bundle (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="TunnyDashboard.app"
+          crate_version=$(grep -m1 '^version = ' egui-app/Cargo.toml | cut -d'"' -f2)
+
+          codesign --verify --strict --verbose=2 "$APP"
+          otool -L "$APP/Contents/MacOS/TunnyDashboard"
+
+          actual=$("$APP/Contents/MacOS/TunnyDashboard" --version)
+          expected="TunnyDashboard ${crate_version}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::bundled binary reported '${actual}', expected '${expected}'"
+            exit 1
+          fi
+          echo "smoke test passed: ${actual}"
+
+      - name: Create DMG (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dmg-stage
+          mkdir dmg-stage
+          cp -R TunnyDashboard.app dmg-stage/
+          # The /Applications alias is what makes the mounted window a
+          # drag-to-install target.
+          ln -s /Applications dmg-stage/Applications
+          hdiutil create \
+            -volname "Tunny Dashboard" \
+            -srcfolder dmg-stage \
+            -ov -format UDZO \
+            "$PKG_FILE"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.PKG }}
-          path: ${{ env.PKG }}.zip
+          path: ${{ env.PKG_FILE }}
           if-no-files-found: error
 
   release:
@@ -173,8 +307,34 @@ jobs:
         with:
           path: dist
 
+      # The macOS app is ad-hoc signed but not notarized (no Apple Developer
+      # Program membership), so Gatekeeper blocks it on first launch. macOS 15
+      # removed the old Control-click workaround, leaving System Settings as the
+      # only route — without these instructions the app just reads as broken.
+      # generate_release_notes appends the changelog below this body.
       - name: Publish Release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/**/*.zip
+          files: |
+            dist/**/*.zip
+            dist/**/*.dmg
           generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### macOS (Apple Silicon only)
+
+            The `.dmg` is built for Apple Silicon (arm64). Intel Macs are not supported.
+
+            1. Open the `.dmg` and drag **Tunny Dashboard** into your **Applications** folder.
+            2. Launch it. macOS will report that the app cannot be opened because it
+               is from an unidentified developer — this is expected, because the app
+               is not notarized by Apple.
+            3. Open **System Settings → Privacy & Security**, scroll to the bottom,
+               and click **Open Anyway** next to the Tunny Dashboard message.
+            4. Confirm once more when prompted. Subsequent launches open normally.
+
+            ### Windows
+
+            Extract the `.zip` and run `TunnyDashboard.exe`. Keep `lib_lightgbm.dll`
+            in the same folder as the executable.
