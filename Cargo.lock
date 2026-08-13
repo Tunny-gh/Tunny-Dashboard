@@ -5958,7 +5958,7 @@ checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
 name = "tunny-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arc-swap",
  "argmin",
@@ -5989,7 +5989,7 @@ dependencies = [
 
 [[package]]
 name = "tunny-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arboard",
  "cargo_metadata",
@@ -6012,7 +6012,7 @@ dependencies = [
 
 [[package]]
 name = "tunny-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

@@ -1,6 +1,6 @@
 [package]
 name = "tunny-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Core analytics library for Tunny Dashboard — journal parsing and DataFrame operations"
 repository = "https://github.com/Tunny-gh/Tunny-Dashboard"
