@@ -1,12 +1,14 @@
 # Contributing to Tunny Dashboard
 
-## Building from Source
-
-### Prerequisites
+## Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) (stable 1.97.1 or later — the `libsqlite3-sys` dependency requires Rust stable 1.97.1+, so run `rustup update` if your toolchain is older)
-- [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
-- [Node.js](https://nodejs.org/) 18+
+
+Install Rust if not already present:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 ### LightGBM Library Setup
 
@@ -76,17 +78,38 @@ Alternatively, download from [LightGBM GitHub Releases](https://github.com/micro
 
 > The `lib_lightgbm.def` and `lib_lightgbm.exp` files sometimes bundled in LightGBM releases are not required.
 
-### Build
+## Building from Source
+
+### Development Build
 
 ```bash
-# Run tests (requires LightGBM libs to be in place)
-cargo test -p tunny-core
+cargo run -p tunny-desktop
+```
 
-# Build the egui desktop app
-cargo build -p egui-wgpu
+Builds and runs the desktop application in debug mode.
 
-# Build the WebAssembly package
-wasm-pack build rust_core --target web --out-dir ../frontend/src/wasm/pkg
+### Release Build
+
+```bash
+cargo build --workspace --release
+```
+
+Builds an optimized release binary. The executable will be at:
+
+- Windows: `target/release/TunnyDashboard.exe`
+- Linux/macOS: `target/release/TunnyDashboard`
+
+### Build Specific Workspace Members
+
+```bash
+# Build only the core library
+cargo build -p tunny-core
+
+# Build only the desktop app
+cargo build -p tunny-desktop
+
+# Build only the MCP server
+cargo build -p tunny-mcp
 ```
 
 ### Runtime (Windows)
@@ -96,16 +119,6 @@ On Windows, `lib_lightgbm.dll` must be discoverable at runtime. The `build.rs` s
 ## Development Commands
 
 CI is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Commands marked **CI** are run by CI with the exact flags shown below; unmarked commands are local-only conveniences.
-
-### Build
-
-```bash
-# Build the entire workspace
-cargo build --workspace
-
-# Release build
-cargo build --workspace --release
-```
 
 ### Run Tests
 
@@ -122,13 +135,17 @@ cargo test -p tunny-core
 cargo test -p tunny-desktop
 ```
 
-### Static Analysis
-
-Always run these before committing. **CI** (see the `lint` job; runs on Linux, `--all-targets` is required so that test code is also covered by clippy):
+Run tests with output:
 
 ```bash
-cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test -- --nocapture
+```
 
+### Formatting
+
+Always run these before committing. **CI** (see the `lint` job):
+
+```bash
 cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
 cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 ```
@@ -137,6 +154,16 @@ Local only:
 
 ```bash
 cargo fmt -p tunny-mcp -- --check
+```
+
+To apply formatting instead of just checking it, drop `-- --check` from any of the above.
+
+### Static Analysis
+
+Always run this before committing. **CI** (see the `lint` job; runs on Linux, `--all-targets` is required so that test code is also covered by clippy):
+
+```bash
+cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
 ### Security Audit
@@ -169,16 +196,57 @@ yet (including clean environments and CI). Pass the undocumented
 cargo run -p tunny-desktop -- --no-beta-notice -i path/to/study.db
 ```
 
+## Documentation
+
+`docs/` is organized by purpose, not by feature:
+
+| Folder | Purpose |
+| --- | --- |
+| `docs/guides/` | User-facing how-to guides (process integration, Grasshopper/Tunny integration) |
+| `docs/planning/` | Forward-looking strategy (`roadmap.md`) |
+| `docs/reports/` | Dated, one-off audits and investigations (quality reviews, cross-validation, gap analyses) — filename or subfolder prefixed `YYYY-MM-DD_` |
+| `docs/handoff/` | Dated implementation records of what was decided, what was done, and what's left — same `YYYY-MM-DD_short-topic.md` naming as `docs/reports/` |
+
+Two things must be updated alongside the code change itself, not deferred to a
+later cleanup pass:
+
+### CHANGELOG.md
+
+A user-facing change (new feature, behavior change, bug fix) adds an entry
+under `[Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md), in the same commit as
+the change. Internal refactors, test-only changes, and doc-only changes don't
+need an entry — the changelog is for people deciding whether to upgrade, not
+a commit log.
+
+### docs/handoff/
+
+Work that involved a non-trivial implementation decision (not a one-line fix)
+gets a note under `docs/handoff/`, in the same commit as the change. Each
+handoff file covers three things:
+
+1. **Decision** — what was decided and why, including alternatives that were
+   rejected and the reason. This is the part CHANGELOG.md can't capture.
+2. **What changed** — what was actually implemented.
+3. **Open Items** — what's left, or `None.` if the work is fully wrapped up.
+
+Adding a handoff file and updating the index table in
+[`docs/handoff/README.md`](docs/handoff/README.md) is one edit, not two
+separate steps — an entry missing from the index is as good as not existing.
+
 ## Releasing
 
 Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which is triggered by pushing a `v*` tag.
 
-1. Bump `version` in `egui-app/Cargo.toml` and commit the updated `Cargo.lock`.
-2. Tag the commit as `v<version>` — the tag must match the crate version exactly.
-3. Push the tag.
+1. Move the [`CHANGELOG.md`](CHANGELOG.md) `[Unreleased]` entries under a new
+   `[<version>]` heading and add a fresh empty `[Unreleased]` section above it.
+2. Bump `version` in `egui-app/Cargo.toml` and commit the updated `Cargo.lock`
+   together with the changelog update.
+3. Tag the commit as `v<version>` — the tag must match the crate version exactly.
+4. Push the tag.
 
-Step 1 is not optional. The startup beta notice records the version the user
-dismissed it for (`CARGO_PKG_VERSION`), so a release that reuses the previous
-version number would never show the notice again to existing users. The release
-workflow verifies the tag against `egui-app/Cargo.toml` and fails on a mismatch.
+Step 2's version bump is not optional. The startup beta notice records the
+version the user dismissed it for (`CARGO_PKG_VERSION`), so a release that
+reuses the previous version number would never show the notice again to
+existing users. The release workflow verifies the tag against
+`egui-app/Cargo.toml` and fails on a mismatch.

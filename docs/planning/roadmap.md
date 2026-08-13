@@ -1,5 +1,11 @@
 # Tunny Dashboard Differentiation Roadmap
 
+> **Last updated: 2026-07.** Most Phase 1 and Phase 2A/2B items below are now
+> `[x]` complete; treat this document as a record of strategy and design
+> decisions rather than a live task list. For what actually shipped since,
+> see [CHANGELOG.md](../../CHANGELOG.md) and the code itself; open items still
+> worth tracking are the unchecked `[ ]` boxes under Phase 2.
+
 A feature-positioning and implementation roadmap for establishing this tool's edge, based
 on a feature comparison against commercial PIDO tools (modeFRONTIER / Simcenter HEEDS /
 Isight / Optimus) conducted in 2026-07.
