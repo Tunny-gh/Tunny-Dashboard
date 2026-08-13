@@ -136,7 +136,7 @@ ideally inside the manifest above — the dialog would prefill them.
 
 The attribute component's Geometry input is ignored: geometry has no
 representation in the journal. Once the dashboard grows an artifact store
-(ROADMAP prerequisite "Reading artifacts from the RDB"), a shared convention —
+([roadmap](../planning/roadmap.md) prerequisite "Reading artifacts from the RDB"), a shared convention —
 e.g. Tunny writing per-trial geometry files and recording their paths as a
 trial user attribute or Optuna artifact — would let the dashboard display
 geometry per trial. No action needed until then; we will propose a concrete

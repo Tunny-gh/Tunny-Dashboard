@@ -85,7 +85,7 @@ tunny-dashboard/
 │   │   └── main.rs     # Entry point
 │   └── Cargo.toml
 ├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
-├── docs/               # User guides (execution / integration)
+├── docs/               # guides/ (execution / integration), planning/, reports/, handoff/
 └── Cargo.toml          # Workspace configuration
 ```
 
@@ -99,10 +99,10 @@ Optuna-compatible journal, so a run needs only the Dashboard and the tool that
 evaluates the objective — **no Python or Optuna at runtime**.
 
 - **Grasshopper** — drop a Tunny-configured `.ghx` onto the Dashboard to run the
-  optimization via Rhino.Compute. See [docs/tunny-plugin-integration.md](docs/tunny-plugin-integration.md).
+  optimization via Rhino.Compute. See [docs/guides/tunny-plugin-integration.md](docs/guides/tunny-plugin-integration.md).
 - **Any external tool** — describe how a command receives parameters and how its
   output is parsed, and optimize it directly. See
-  [docs/process-integration.md](docs/process-integration.md).
+  [docs/guides/process-integration.md](docs/guides/process-integration.md).
 
 ---
 
@@ -226,102 +226,10 @@ only way through. Nothing about the app changes once you have allowed it once.
 Extract the `.zip` and run `TunnyDashboard.exe`. Keep `lib_lightgbm.dll` in the
 same folder as the executable — the app loads it at startup.
 
----
+### Building from Source
 
-## Quick Start
-
-Build and run the desktop application from source:
-
-```bash
-cargo run --release
-```
-
----
-
-## Prerequisites
-
-| Tool                                            | Version        | Purpose               |
-| ----------------------------------------------- | -------------- | --------------------- |
-| [Rust](https://www.rust-lang.org/tools/install) | stable (1.70+) | Build the application |
-
-Install Rust if not already present:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
----
-
-## Build
-
-### Development Build
-
-```bash
-cargo run
-```
-
-Builds and runs the application in debug mode.
-
-### Production Build
-
-```bash
-cargo build --release
-```
-
-Builds an optimized release binary. The executable will be at:
-
-- Windows: `target/release/TunnyDashboard.exe`
-- Linux/macOS: `target/release/TunnyDashboard`
-
-### Build specific workspace members
-
-```bash
-# Build only the core library
-cargo build -p tunny-core
-
-# Build only the desktop app
-cargo build -p tunny-desktop
-```
-
----
-
-## Testing
-
-Run tests for the entire workspace:
-
-```bash
-cargo test
-```
-
-Run tests with output:
-
-```bash
-cargo test -- --nocapture
-```
-
-Run tests for a specific module:
-
-```bash
-cargo test -p tunny-core
-```
-
----
-
-## Formatting
-
-Format all Rust code:
-
-```bash
-cargo fmt
-```
-
-Check formatting without applying changes:
-
-```bash
-cargo fmt -- --check
-```
-
-Configuration can be added in `rustfmt.toml` if needed.
+To build the application yourself, or to contribute, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
