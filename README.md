@@ -233,6 +233,14 @@ To build the application yourself, or to contribute, see
 
 ---
 
+## Code signing policy
+
+See [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md) for how each platform's
+release artifacts are signed, including the pending
+[SignPath Foundation](https://signpath.org) application for Windows.
+
+---
+
 ## License
 
 [MIT](LICENSE)

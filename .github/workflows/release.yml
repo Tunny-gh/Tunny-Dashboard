@@ -28,6 +28,7 @@ env:
 
 permissions:
   contents: write # required to create/update the GitHub Release
+  actions: read # required by signpath/github-action-submit-signing-request to fetch the unsigned artifact
 
 jobs:
   package:
@@ -118,6 +119,46 @@ jobs:
           else
             echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
+
+      # --- Sign the Windows executable (SignPath Foundation OSS program) ---
+      #
+      # SignPath signs server-side: the private key never leaves SignPath's
+      # infrastructure. The unsigned exe is uploaded as a throwaway GitHub
+      # Actions artifact, signpath/github-action-submit-signing-request hands
+      # it to SignPath and downloads the signed copy back, and that copy
+      # replaces the unsigned one before packaging.
+      #
+      # Only runs for tag pushes on the upstream repo: SIGNPATH_API_TOKEN and
+      # SIGNPATH_ORGANIZATION_ID are repo secrets/variables that don't exist
+      # on forks, and workflow_dispatch test builds don't need a signed
+      # binary. See docs/handoff/2026-08-20_signpath-code-signing.md and
+      # CONTRIBUTING.md#code-signing-windows for setup (SignPath project
+      # creation, signing policy, required secrets/variables).
+      - name: Upload unsigned executable (Windows)
+        id: upload-unsigned-exe
+        if: runner.os == 'Windows' && github.repository == 'Tunny-gh/Tunny-Dashboard' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: TunnyDashboard-unsigned-${{ steps.ver.outputs.version }}-${{ matrix.label }}
+          path: target/release/TunnyDashboard.exe
+          if-no-files-found: error
+
+      - name: Sign executable (Windows)
+        if: runner.os == 'Windows' && github.repository == 'Tunny-gh/Tunny-Dashboard' && startsWith(github.ref, 'refs/tags/v')
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: tunny-dashboard
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.upload-unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Replace executable with signed copy (Windows)
+        if: runner.os == 'Windows' && github.repository == 'Tunny-gh/Tunny-Dashboard' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: Copy-Item signed/TunnyDashboard.exe target/release/TunnyDashboard.exe -Force
 
       - name: Assemble package (Windows)
         if: runner.os == 'Windows'
@@ -338,3 +379,6 @@ jobs:
 
             Extract the `.zip` and run `TunnyDashboard.exe`. Keep `lib_lightgbm.dll`
             in the same folder as the executable.
+
+            See [CODE_SIGNING_POLICY.md](https://github.com/Tunny-gh/Tunny-Dashboard/blob/main/CODE_SIGNING_POLICY.md)
+            for how release artifacts are signed on each platform.

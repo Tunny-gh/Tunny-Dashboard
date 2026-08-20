@@ -11,4 +11,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Added
+
+- CI infrastructure to Authenticode-sign Windows release builds via the
+  SignPath Foundation OSS program. Inactive until the SignPath project is
+  approved and its secrets/variables are configured (see
+  CONTRIBUTING.md#code-signing-windows); until then, Windows builds remain
+  unsigned as before.
+
 [Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...HEAD

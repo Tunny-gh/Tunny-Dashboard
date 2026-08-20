@@ -250,3 +250,33 @@ version the user dismissed it for (`CARGO_PKG_VERSION`), so a release that
 reuses the previous version number would never show the notice again to
 existing users. The release workflow verifies the tag against
 `egui-app/Cargo.toml` and fails on a mismatch.
+
+### Code signing (Windows)
+
+`TunnyDashboard.exe` is intended to be Authenticode-signed via the
+[SignPath Foundation OSS program](https://signpath.io/solutions/open-source-community),
+using the
+[`signpath/github-action-submit-signing-request`](https://github.com/SignPath/github-action-submit-signing-request)
+action in the `package` job of `release.yml`. The application to SignPath
+Foundation is still pending, so this is currently inactive and Windows builds
+ship unsigned — see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md) for
+platform-by-platform status. macOS is unaffected either way — it is signed
+ad-hoc as described in the README, since the project has no Apple Developer
+Program membership.
+
+Signing runs only for `v*` tag pushes on `Tunny-gh/Tunny-Dashboard`; forks and
+`workflow_dispatch` test builds skip it and ship an unsigned exe. It needs, in
+the repository's Actions settings:
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `SIGNPATH_API_TOKEN` | Secret | API token for a SignPath user with the `Submitter` role on the `release-signing` policy |
+| `SIGNPATH_ORGANIZATION_ID` | Variable | The SignPath organization ID (GUID) |
+
+`project-slug` (`tunny-dashboard`), `signing-policy-slug` (`release-signing`),
+and the artifact-configuration slug (`default`, from
+[`.signpath/artifact-configurations/default.xml`](.signpath/artifact-configurations/default.xml))
+are hardcoded in `release.yml` — they must match the names created in the
+SignPath project settings when the OSS application is approved. See
+[`docs/handoff/2026-08-20_signpath-code-signing.md`](docs/handoff/2026-08-20_signpath-code-signing.md)
+for how the pieces fit together and what's still pending.

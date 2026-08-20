@@ -29,3 +29,4 @@ opening any individual file.
 | Date | Topic | Open Items |
 | ---- | ----- | ---------- |
 | 2026-08-13 | [Documentation reorganization](2026-08-13_docs-reorganization.md) | CHANGELOG/handoff rules are prose-only, not CI-enforced |
+| 2026-08-20 | [SignPath code signing (Windows)](2026-08-20_signpath-code-signing.md) | Not yet functional — needs SignPath project approval, secrets, and a live test |
