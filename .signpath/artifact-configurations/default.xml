@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for release.yml's "Sign executable
+  (Windows)" step.
+
+  The step uploads a GitHub Actions artifact containing a single file,
+  TunnyDashboard.exe, at its root. GitHub Actions artifacts are stored and
+  transferred as zip archives, so the configuration models that root as a
+  <zip-file> containing one <pe-file>. This slug (the file name without
+  extension, "default") must match the artifact-configuration-slug set for
+  the signing policy in the SignPath project settings.
+
+  Reference: https://github.com/SignPath/github-actions-demo
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="TunnyDashboard.exe">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
