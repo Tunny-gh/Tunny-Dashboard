@@ -107,6 +107,14 @@ source material uncritically:
 - `CODE_SIGNING_POLICY.md`'s content needed one fact only the user could
   supply: the maintainer's GitHub handle for the policy's
   Authors/Reviewers/Approvers roles (`hrntsm`).
+- `/code-review --fix` caught that the initial draft stated SignPath's
+  required attribution line ("Free code signing provided by SignPath.io,
+  certificate by SignPath Foundation") as an unconditional present-tense
+  fact, two lines above its own "Status: Application pending" — self-
+  contradictory, and exactly the kind of overclaim a SignPath reviewer would
+  flag. Fixed by making the pending status explicit first ("Windows builds
+  are **not currently signed**") and reframing the attribution line as what
+  the page *will* carry once approved, not a current statement.
 
 ## What changed
 

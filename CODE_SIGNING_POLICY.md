@@ -9,15 +9,19 @@ requirements described in the
 Tunny Dashboard has applied for a free code signing certificate through the
 [SignPath Foundation](https://signpath.org) open-source program.
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate
-by [SignPath Foundation](https://signpath.org).
-
-**Status:** Application pending. The build pipeline
+**Status:** Application pending. No certificate has been issued yet, so
+Windows builds are **not currently signed**. The build pipeline
 ([`.github/workflows/release.yml`](.github/workflows/release.yml) and
 [`.signpath/artifact-configurations/default.xml`](.signpath/artifact-configurations/default.xml))
 is already in place; signing itself stays inactive until the SignPath project
 is approved and its secrets/variables are configured — see
 [CONTRIBUTING.md](CONTRIBUTING.md#code-signing-windows).
+
+Once approved, this page will carry SignPath's required attribution
+statement:
+
+> Free code signing provided by [SignPath.io](https://signpath.io),
+> certificate by [SignPath Foundation](https://signpath.org).
 
 ### What is signed
 
