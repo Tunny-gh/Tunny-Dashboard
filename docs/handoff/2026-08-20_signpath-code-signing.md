@@ -52,10 +52,61 @@ Decisions made, with rejected alternatives:
   (`https://zenn.dev/shm_7ec/articles/signpath-oss-code-signing`) that
   prompted this work could not be fetched — `zenn.dev`, `docs.signpath.io`,
   and `about.signpath.io` are all blocked by this session's network egress
-  policy. Everything here instead comes from cloning SignPath's own public
-  GitHub repositories (`github-actions-demo`,
+  policy. The above (workflow + artifact configuration) instead comes from
+  cloning SignPath's own public GitHub repositories (`github-actions-demo`,
   `github-action-submit-signing-request`) and web search results describing
-  the OSS application process and artifact-configuration syntax.
+  the OSS application process and artifact-configuration syntax. The user
+  later supplied the article as a PDF directly (see the second half of this
+  note) — it turned out to be Part 1 of a series ("申請編" / "Application"),
+  scoped only to *preparing and submitting* the SignPath Foundation
+  application, not to GitHub Actions integration (that's a follow-up article,
+  unpublished as of this writing, gated on the author's own application being
+  approved). The workflow/artifact-configuration work above was therefore
+  built ahead of what the source article itself covers, based on SignPath's
+  own official examples rather than the article — still accurate, but
+  premature relative to the article's scope. It was kept rather than reverted
+  since it's inert until the secrets described below are configured.
+
+## Addendum: application-prep documents (from the actual article)
+
+The user later shared the article's content directly (Zenn blocks this
+session's egress, so it could not be fetched independently). It documents the
+*pre-application* checklist for HardwareVisualizer's own SignPath Foundation
+submission, and recommends two governance documents be added to the
+repository before applying, to make the review easier: a code signing policy
+page, and a `CODE_OF_CONDUCT.md`.
+
+Before adding them, both were checked against SignPath's own published terms
+(<https://github.com/SignPath/Website-old/blob/v2/src/drafts/oss_policy.md>,
+their actual OSS Code of Conduct — not just the article's paraphrase) rather
+than taken at face value, per the user's explicit request not to follow the
+source material uncritically:
+
+- **`CODE_SIGNING_POLICY.md` is a genuine SignPath requirement**, not just
+  the article author's preference: their terms mandate a "Code signing
+  policy" section on the project's home page and download/release pages,
+  with a specific attribution line ("Free code signing provided by
+  SignPath.io, certificate by SignPath Foundation") and a specific privacy
+  statement ("This program will not transfer any information to other
+  networked systems unless specifically requested by the user or the person
+  installing or operating it.") verbatim. It only matters once a certificate
+  is actually in use, not for submitting the application form itself, but
+  since it costs little to prepare now and directly supports the CI plumbing
+  already in place, it was added at repo root.
+- **`CODE_OF_CONDUCT.md` is not a SignPath requirement at all** — nothing in
+  SignPath's terms mentions it. It's the article author's own general
+  OSS-hygiene practice, unrelated to the signing application. This was
+  surfaced to the user explicitly (with a recommendation to skip it for now,
+  given the project's current single-maintainer scale) before adding it. The
+  user initially asked for it anyway (Contributor Covenant v2.1, enforcement
+  contact via GitHub Issues / direct contact with `@hrntsm`, no email
+  published), but on reflection — since it has no bearing on SignPath
+  approval — decided against adding it for now. Not created; can be revisited
+  independently of code signing whenever the project actually wants an OSS
+  conduct policy.
+- `CODE_SIGNING_POLICY.md`'s content needed one fact only the user could
+  supply: the maintainer's GitHub handle for the policy's
+  Authors/Reviewers/Approvers roles (`hrntsm`).
 
 ## What changed
 
@@ -72,9 +123,22 @@ Decisions made, with rejected alternatives:
   uploaded artifact.
 - `CONTRIBUTING.md`: new "Code signing (Windows)" subsection under
   "Releasing", documenting the required `SIGNPATH_API_TOKEN` secret and
-  `SIGNPATH_ORGANIZATION_ID` variable, and pointing at this note.
+  `SIGNPATH_ORGANIZATION_ID` variable, and pointing at this note; later
+  reworded to say signing is "intended", not already active, and linked to
+  `CODE_SIGNING_POLICY.md`.
 - `CHANGELOG.md`: `[Unreleased]` entry noting the (currently inactive)
   infrastructure.
+- `CODE_SIGNING_POLICY.md` (new, repo root): per-platform signing policy —
+  Windows/SignPath status and required attribution/privacy statements, macOS
+  ad-hoc signing, and a note that Linux artifacts aren't built at all.
+  Required by SignPath's OSS terms once a certificate is in use (see
+  Addendum above).
+- `README.md`: added a "Code signing policy" section linking to
+  `CODE_SIGNING_POLICY.md`, satisfying SignPath's "must be specified on the
+  project's home page" requirement.
+- `.github/workflows/release.yml`: GitHub Release body now links to
+  `CODE_SIGNING_POLICY.md` too (SignPath's "download/release pages"
+  requirement).
 
 ## Open Items
 
@@ -106,3 +170,12 @@ Decisions made, with rejected alternatives:
 - **Untested.** No SignPath account was available in this session, so the
   signing step has not been exercised against the real API — only checked
   against SignPath's own reference examples for shape and consistency.
+- **Application itself is still manual.** This session prepared the
+  repository (CI plumbing, artifact configuration, `CODE_SIGNING_POLICY.md`)
+  but did not — and cannot — submit the actual SignPath Foundation
+  application form at <https://signpath.org/apply.html> (Project/Repository
+  URL, License, Download/Release URL, Project description); that's a step
+  only the user/maintainer can take, since it requires an account and a
+  contact email able to receive follow-up correspondence.
+- **`CODE_OF_CONDUCT.md` intentionally not added** — see Addendum above;
+  it doesn't affect SignPath approval and the user opted out of it for now.

@@ -379,3 +379,6 @@ jobs:
 
             Extract the `.zip` and run `TunnyDashboard.exe`. Keep `lib_lightgbm.dll`
             in the same folder as the executable.
+
+            See [CODE_SIGNING_POLICY.md](https://github.com/Tunny-gh/Tunny-Dashboard/blob/main/CODE_SIGNING_POLICY.md)
+            for how release artifacts are signed on each platform.

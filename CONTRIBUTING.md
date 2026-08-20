@@ -253,12 +253,16 @@ existing users. The release workflow verifies the tag against
 
 ### Code signing (Windows)
 
-`TunnyDashboard.exe` is Authenticode-signed via the [SignPath Foundation OSS
-program](https://signpath.io/solutions/open-source-community), using the
+`TunnyDashboard.exe` is intended to be Authenticode-signed via the
+[SignPath Foundation OSS program](https://signpath.io/solutions/open-source-community),
+using the
 [`signpath/github-action-submit-signing-request`](https://github.com/SignPath/github-action-submit-signing-request)
-action in the `package` job of `release.yml`. macOS is unaffected — it is
-still signed ad-hoc as described in the README, since the project has no
-Apple Developer Program membership.
+action in the `package` job of `release.yml`. The application to SignPath
+Foundation is still pending, so this is currently inactive and Windows builds
+ship unsigned — see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md) for
+platform-by-platform status. macOS is unaffected either way — it is signed
+ad-hoc as described in the README, since the project has no Apple Developer
+Program membership.
 
 Signing runs only for `v*` tag pushes on `Tunny-gh/Tunny-Dashboard`; forks and
 `workflow_dispatch` test builds skip it and ship an unsigned exe. It needs, in
