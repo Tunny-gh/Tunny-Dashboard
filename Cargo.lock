@@ -1488,9 +1488,9 @@ dependencies = [
 
 [[package]]
 name = "egobox-gp"
-version = "0.36.1"
+version = "0.36.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2b43b656b7aa1e3da5f373e68e77d4efb141791a1c0d46180d7ce7638538efa"
+checksum = "05e84515e1b98af6ff54118699d1bbf3265bd8b375b3600102b6069a52c9bdcc"
 dependencies = [
  "anyhow",
  "cobyla",
@@ -1514,9 +1514,9 @@ dependencies = [
 
 [[package]]
 name = "egobox-moe"
-version = "0.35.3"
+version = "0.35.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5793f21ffd7af9defa61f138472888bcdee8cc95da76441fda52d735037ecc8e"
+checksum = "502203e67dc56d9d633a65f721394ea4fac8c1f7a85554288d678eb22c82e03c"
 dependencies = [
  "bitflags 2.13.0",
  "egobox-doe",
@@ -3311,10 +3311,11 @@ dependencies = [
 
 [[package]]
 name = "mysql"
-version = "28.0.0"
+version = "28.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a732193888328fc060ab901c0ed1355521267a51ffbfd9a0b3786434c6b8e7f"
+checksum = "e99968f000e2aadff1545932ac7f7ed4002eeb0207061f377f15ac95ae82626c"
 dependencies = [
+ "arc-swap",
  "bufstream",
  "bytes",
  "crossbeam-queue",
@@ -4071,9 +4072,9 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "open"
-version = "5.4.1"
+version = "5.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9cfef937e9c486488c7e3d949ae31c0f1d06bdacd75b99c086cb35356e30408"
+checksum = "7c603ab8300cf18bc3b14146b19fe3dfcc4843ae5a400cd0e7a30b95aa366634"
 dependencies = [
  "is-wsl",
  "libc",
