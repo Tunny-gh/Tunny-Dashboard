@@ -205,7 +205,7 @@ cargo run -p tunny-desktop -- --no-beta-notice -i path/to/study.db
 | `docs/guides/` | User-facing how-to guides (process integration, Grasshopper/Tunny integration) |
 | `docs/planning/` | Forward-looking strategy (`roadmap.md`) |
 | `docs/reports/` | Dated, one-off audits and investigations (quality reviews, cross-validation, gap analyses) — filename or subfolder prefixed `YYYY-MM-DD_` |
-| `docs/handoff/` | Dated implementation records of what was decided, what was done, and what's left — same `YYYY-MM-DD_short-topic.md` naming as `docs/reports/` |
+| `docs/adr/` | Durable architectural and design decisions, with the context and rejected alternatives behind them — entry point and index at [`docs/adr/README.md`](docs/adr/README.md) |
 
 Two things must be updated alongside the code change itself, not deferred to a
 later cleanup pass:
@@ -218,20 +218,15 @@ the change. Internal refactors, test-only changes, and doc-only changes don't
 need an entry — the changelog is for people deciding whether to upgrade, not
 a commit log.
 
-### docs/handoff/
+### docs/adr/
 
-Work that involved a non-trivial implementation decision (not a one-line fix)
-gets a note under `docs/handoff/`, in the same commit as the change. Each
-handoff file covers three things:
-
-1. **Decision** — what was decided and why, including alternatives that were
-   rejected and the reason. This is the part CHANGELOG.md can't capture.
-2. **What changed** — what was actually implemented.
-3. **Open Items** — what's left, or `None.` if the work is fully wrapped up.
-
-Adding a handoff file and updating the index table in
-[`docs/handoff/README.md`](docs/handoff/README.md) is one edit, not two
-separate steps — an entry missing from the index is as good as not existing.
+A durable design decision gets an ADR under `docs/adr/`, in the same commit as
+the change. A decision needs an ADR only when all three of these hold: it is
+costly to reverse later; it would be surprising without historical context; and
+a real alternative existed and a trade-off was made. Routine fixes, small
+refactors, dependency updates, UI or documentation tweaks, and ordinary tests do
+not get ADRs. [`docs/adr/README.md`](docs/adr/README.md) defines the file naming,
+sections, and status vocabulary.
 
 ## Releasing
 

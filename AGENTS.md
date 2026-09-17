@@ -22,10 +22,15 @@ A Rust egui desktop app for analyzing Optuna optimization results.
 - A user-facing change (new feature, behavior change, bug fix) must add an
   entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) in the same
   commit. Internal refactors, tests, and doc-only changes are exempt.
-- Work that involved a non-trivial implementation decision must leave a note
-  under `docs/handoff/` in the same commit, and update the index in
-  [`docs/handoff/README.md`](docs/handoff/README.md). See
-  [CONTRIBUTING.md](CONTRIBUTING.md#documentation) for the required format.
+- Work that involved a durable design decision (costly to reverse later,
+  surprising without historical context, and chosen over a real alternative)
+  must be recorded as an ADR under `docs/adr/` in the same commit. See
+  [`docs/adr/README.md`](docs/adr/README.md) for the format and
+  [CONTRIBUTING.md](CONTRIBUTING.md#documentation) for when an ADR is expected.
+
+To understand why the project is the way it is, read in this order: this file,
+then relevant ADRs under `docs/adr/`, then relevant `docs/reports/` and
+`docs/planning/`, then the code.
 
 ## Development Commands
 

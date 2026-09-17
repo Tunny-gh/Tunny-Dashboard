@@ -85,7 +85,7 @@ tunny-dashboard/
 │   │   └── main.rs     # Entry point
 │   └── Cargo.toml
 ├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
-├── docs/               # guides/ (execution / integration), planning/, reports/, handoff/
+├── docs/               # adr/, guides/ (execution / integration), planning/, reports/
 └── Cargo.toml          # Workspace configuration
 ```
 
