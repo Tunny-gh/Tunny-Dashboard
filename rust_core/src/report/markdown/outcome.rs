@@ -1,8 +1,6 @@
 //! Outcome section: best trial / top trials (single-objective) or Pareto
 //! front table (multi-objective).
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::*;
 use crate::report::text;

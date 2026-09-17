@@ -97,6 +97,104 @@ pub(super) fn build_box_plot_csv(app_state: &AppState, widgets: &WidgetStates) -
     any.then(|| w.finish())
 }
 
+/// Recomputes the violin curves with the current Source/Category/Normalize settings and
+/// writes one row per (group, grid point). Mirrors the widget's selection fallbacks:
+/// an out-of-range numeric selection falls back to the first candidate, and a stale
+/// category is ignored. Without a category, one group is emitted per numeric column of
+/// the source; with one, groups are the (sorted) non-empty category levels of the
+/// selected numeric column.
+pub(super) fn build_violin_plot_csv(
+    app_state: &AppState,
+    widgets: &WidgetStates,
+) -> Option<String> {
+    use crate::ui::widgets::box_plot::normalize_minmax;
+    use crate::ui::widgets::violin_plot::{ViolinSource, GRID_POINTS};
+
+    let study = require_study(app_state)?;
+    let names: &[String] = match widgets.violin_plot.source {
+        ViolinSource::Objectives => &study.meta.objective_names,
+        ViolinSource::Parameters => &study.meta.param_names,
+    };
+    let numeric: Vec<&String> = names
+        .iter()
+        .filter(|n| study.view.numeric_column(n).is_some())
+        .collect();
+    if numeric.is_empty() {
+        return None;
+    }
+
+    let normalize = widgets.violin_plot.normalize;
+    let selected_numeric = numeric
+        .iter()
+        .copied()
+        .find(|n| n.as_str() == widgets.violin_plot.selected_numeric)
+        .unwrap_or(numeric[0]);
+
+    // Only use a category that is still a categorical parameter of the current Study.
+    let categorical = crate::ui::poll_chart::categorical_param_names(study);
+    let category = widgets
+        .violin_plot
+        .category
+        .as_ref()
+        .filter(|c| categorical.iter().any(|p| p == *c));
+
+    let groups: Vec<(String, Vec<f64>)> = match category {
+        None => numeric
+            .iter()
+            .filter_map(|name| {
+                let raw = study.view.numeric_column(name)?;
+                let values = if normalize {
+                    normalize_minmax(raw)
+                } else {
+                    raw.to_vec()
+                };
+                Some(((*name).clone(), values))
+            })
+            .collect(),
+        Some(cat) => {
+            let raw = study.view.numeric_column(selected_numeric)?;
+            // Normalize the whole column before splitting, matching the widget.
+            let values = if normalize {
+                normalize_minmax(raw)
+            } else {
+                raw.to_vec()
+            };
+            let cat_col = study.view.string_column(cat)?;
+            let mut map: std::collections::BTreeMap<&str, Vec<f64>> =
+                std::collections::BTreeMap::new();
+            for (i, label) in cat_col.iter().enumerate() {
+                if label.is_empty() {
+                    continue;
+                }
+                if let Some(&v) = values.get(i) {
+                    map.entry(label.as_str()).or_default().push(v);
+                }
+            }
+            map.into_iter()
+                .map(|(label, vals)| (label.to_string(), vals))
+                .collect()
+        }
+    };
+
+    let mut w = CsvWriter::new();
+    w.header(["group", "value", "density"]);
+    let mut any = false;
+    for (label, values) in &groups {
+        let Some(curve) = tunny_core::statistics::compute_violin(values, GRID_POINTS) else {
+            continue;
+        };
+        for (&value, &density) in curve.grid.iter().zip(curve.density.iter()) {
+            w.row([
+                CsvField::Text(label),
+                CsvField::Num(value),
+                CsvField::Num(density),
+            ]);
+            any = true;
+        }
+    }
+    any.then(|| w.finish())
+}
+
 /// Recomputes the correlation matrix with the current Method/column-group settings and
 /// turns it into CSV in wide format. NaN cells are output as an empty string.
 pub(super) fn build_correlation_matrix_csv(

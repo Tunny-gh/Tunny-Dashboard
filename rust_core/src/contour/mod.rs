@@ -108,7 +108,7 @@ pub fn observed_surface(pts: &[[f64; 3]], n_grid: usize, max_edge_ratio: f64) ->
     // 4. Triangle list (with sparsity guard applied).
     let guard = max_edge_ratio > 0.0;
     let mut tris: Vec<Tri> = Vec::with_capacity(tri.triangles.len() / 3);
-    for t in tri.triangles.chunks_exact(3) {
+    for t in tri.triangles.as_chunks::<3>().0 {
         let (ia, ib, ic) = (t[0], t[1], t[2]);
         let (na, nb, nc) = (&norm[ia], &norm[ib], &norm[ic]);
         if guard {
@@ -544,7 +544,9 @@ mod tests {
         let tri = triangulate(&norm);
         let tris: Vec<Tri> = tri
             .triangles
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|t| Tri {
                 ax: norm[t[0]].x,
                 ay: norm[t[0]].y,

@@ -56,6 +56,7 @@ mod stats;
 pub use stats::box_plot;
 pub use stats::correlation_matrix;
 pub use stats::histogram;
+pub use stats::violin_plot;
 
 // Common UI components
 mod common;

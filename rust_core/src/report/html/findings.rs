@@ -1,7 +1,5 @@
 //! Key Findings section.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::{FindingKind, KeyFinding};
 use crate::report::text;

@@ -1,8 +1,6 @@
 //! Multi-criteria decision analysis (MCDM) section: TOPSIS / VIKOR /
 //! PROMETHEE II ranking tables plus their consensus set.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::{McdmEntry, McdmSection};
 use crate::report::{format_number, ReportLang};

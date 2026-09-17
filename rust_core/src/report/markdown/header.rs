@@ -1,7 +1,5 @@
 //! Meta line and Key Findings section.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::{KeyFinding, StudyReport};
 use crate::report::text::{self, format_unix_utc};

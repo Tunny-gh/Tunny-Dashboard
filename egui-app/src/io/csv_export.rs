@@ -95,6 +95,7 @@ pub fn build_chart_csv(
             .and_then(|r| build_mcdm_scatter_csv(r, app_state)),
         ChartId::Histogram => build_histogram_csv(app_state, widgets),
         ChartId::BoxPlot => build_box_plot_csv(app_state, widgets),
+        ChartId::ViolinPlot => build_violin_plot_csv(app_state, widgets),
         ChartId::CorrelationMatrix => build_correlation_matrix_csv(app_state, widgets),
         ChartId::ArtifactGallery => None,
         ChartId::RadarComparison => build_radar_comparison_csv(app_state, widgets),
@@ -245,7 +246,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             app_state.current_study.is_some()
                 && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
         }
-        ChartId::Histogram | ChartId::BoxPlot => app_state
+        ChartId::Histogram | ChartId::BoxPlot | ChartId::ViolinPlot => app_state
             .current_study
             .as_ref()
             .is_some_and(|s| s.trial_count() > 0),
@@ -359,6 +360,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::McdmScatterChart3D => "mcdm_scatter_chart_3d",
         ChartId::Histogram => "histogram",
         ChartId::BoxPlot => "box_plot",
+        ChartId::ViolinPlot => "violin_plot",
         ChartId::CorrelationMatrix => "correlation_matrix",
         ChartId::ArtifactGallery => "artifact_gallery",
         ChartId::RadarComparison => "radar_comparison",

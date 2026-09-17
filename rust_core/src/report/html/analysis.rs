@@ -1,8 +1,6 @@
 //! Convergence, parameter importance, objective statistics, and
 //! correlations sections.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::*;
 use crate::report::svg::{self, HBarItem, HistBin, LinePoint};

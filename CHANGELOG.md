@@ -13,6 +13,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- New **Violin Plot** statistics chart. It estimates Gaussian kernel density
+  curves for numeric objectives/parameters side by side, or for the levels of a
+  categorical parameter, with an optional [0,1] normalization and a median
+  marker per violin. Non-constant columns whose interquartile range is zero are
+  still rendered, falling back to the standard deviation for the bandwidth.
 - CI infrastructure to Authenticode-sign Windows release builds via the
   SignPath Foundation OSS program. Inactive until the SignPath project is
   approved and its secrets/variables are configured (see

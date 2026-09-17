@@ -1,8 +1,6 @@
 //! Outcome section: best trial / top trials (single-objective) or Pareto
 //! front (multi-objective), including the objective-space scatter chart.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::*;
 use crate::report::svg::{self, ScatterPoint};

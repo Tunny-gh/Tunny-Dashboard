@@ -85,6 +85,9 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::BoxPlot => {
             egui::include_image!("../../../assets/widget_icons/box_plot.svg")
         }
+        ChartId::ViolinPlot => {
+            egui::include_image!("../../../assets/widget_icons/violin_plot.svg")
+        }
         ChartId::CorrelationMatrix => {
             egui::include_image!("../../../assets/widget_icons/correlation_matrix.svg")
         }
@@ -229,6 +232,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                 &[
                     PanelItem::Chart(ChartId::Histogram),
                     PanelItem::Chart(ChartId::BoxPlot),
+                    PanelItem::Chart(ChartId::ViolinPlot),
                     PanelItem::Chart(ChartId::CorrelationMatrix),
                 ],
             ),
