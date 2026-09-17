@@ -1,7 +1,5 @@
 //! Report header (title + metadata list) and table of contents.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::StudyReport;
 use crate::report::text::format_unix_utc;

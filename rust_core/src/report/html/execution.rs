@@ -1,8 +1,6 @@
 //! Execution info section and the Appendix (reproduction info + full
 //! parameters of the representative trial).
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::{ExecutionSection, Outcome, StudyReport};
 use crate::report::{format_number, pct, ReportLang};

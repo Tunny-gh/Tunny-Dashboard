@@ -1,7 +1,5 @@
 //! Execution info and reproduction info sections.
 
-use std::fmt::Write as _;
-
 use super::*;
 use crate::report::model::{ExecutionSection, StudyReport};
 use crate::report::{format_number, pct, ReportLang};
