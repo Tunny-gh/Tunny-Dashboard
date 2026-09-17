@@ -52,10 +52,12 @@ Decisions made, with rejected alternatives:
   strip that `FilledArea` uses internally, plus the outline and per-group
   median segment, and computes its own `PlotBounds` from the generated points
   so auto-bounds still work.
-- **50,000-sample cap.** `compute_violin` deterministically subsamples larger
-  inputs (uniformly spaced indices) before computing bandwidth and density, so
-  the O(n × grid) evaluation is bounded regardless of trial count.
-  `ViolinCurve::n` reports the number actually used.
+- **50,000-sample cap.** `compute_violin` sorts larger inputs first, then
+  deterministically subsamples them (uniformly spaced indices that keep both
+  endpoints) before computing bandwidth and density, so the O(n × grid)
+  evaluation is bounded regardless of trial count and the result depends only
+  on the value multiset, not row order. `ViolinCurve::n` reports the number
+  actually used.
 - **Synchronous computation.** The KDE is cheap enough (128 grid points,
   ≤ 50k samples) to run in the render path and is cached on the widget keyed
   by `(study_name, source, normalize, selected_numeric, category, row_count)`,

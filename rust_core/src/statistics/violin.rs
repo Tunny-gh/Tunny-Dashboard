@@ -1,9 +1,10 @@
 use super::boxplot::quantile;
 
 /// Upper bound on the number of samples used for the KDE. Larger inputs are
-/// deterministically subsampled (uniformly spaced indices) so that the O(n *
-/// grid) density evaluation stays bounded. `ViolinCurve::n` reports the number
-/// of samples actually used after subsampling.
+/// sorted and then deterministically subsampled (uniformly spaced indices,
+/// including both endpoints) so that the O(n * grid) density evaluation stays
+/// bounded. `ViolinCurve::n` reports the number of samples actually used after
+/// subsampling.
 const MAX_KDE_SAMPLES: usize = 50_000;
 
 /// A Gaussian kernel density estimate plus the summary needed to draw one violin.
@@ -44,25 +45,31 @@ pub struct ViolinCurve {
 /// evenly spaced points (both ends inclusive). The density at a grid point `g`
 /// is `1/(n*h) * sum_j exp(-0.5*((g - x_j)/h)^2) / sqrt(2*pi)`.
 ///
-/// To bound cost, inputs with more than 50,000 finite values are deterministically
-/// subsampled to 50,000 (uniformly spaced indices) before the bandwidth and
-/// density are computed; `ViolinCurve::n` reflects the number actually used.
+/// To bound cost, inputs with more than 50,000 finite values are sorted and
+/// then deterministically subsampled to 50,000 (uniformly spaced indices that
+/// keep both endpoints) before the bandwidth and density are computed. Because
+/// the sort happens before the subsample, the result depends only on the
+/// multiset of values, not on their row order; `ViolinCurve::n` reflects the
+/// number actually used.
 pub fn compute_violin(values: &[f64], grid_points: usize) -> Option<ViolinCurve> {
     let mut finite: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
     if finite.len() < 2 {
         return None;
     }
 
-    // Deterministic uniform subsample to cap the KDE cost.
+    finite.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    // Deterministic uniform subsample of the sorted values to cap the KDE cost. Both
+    // endpoints are kept, so the sampled range is order-independent and preserves
+    // data_min / data_max.
     if finite.len() > MAX_KDE_SAMPLES {
         let n_orig = finite.len();
         finite = (0..MAX_KDE_SAMPLES)
-            .map(|i| finite[i * n_orig / MAX_KDE_SAMPLES])
+            .map(|i| finite[i * (n_orig - 1) / (MAX_KDE_SAMPLES - 1)])
             .collect();
     }
 
     let n = finite.len();
-    finite.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
     let data_min = finite[0];
     let data_max = finite[n - 1];
@@ -279,5 +286,23 @@ mod tests {
         let values: Vec<f64> = (0..60_000).map(|i| i as f64).collect();
         let curve = compute_violin(&values, 32).unwrap();
         assert_eq!(curve.n, MAX_KDE_SAMPLES);
+    }
+
+    #[test]
+    fn large_input_subsampling_is_order_independent() {
+        // > MAX_KDE_SAMPLES values, with an extreme endpoint that a row-order
+        // subsample could drop in one ordering but keep in another.
+        let mut values: Vec<f64> = (0..60_000).map(|i| i as f64).collect();
+        values.push(1.0e9);
+        let reversed: Vec<f64> = values.iter().rev().copied().collect();
+
+        let a = compute_violin(&values, 128).unwrap();
+        let b = compute_violin(&reversed, 128).unwrap();
+
+        assert_eq!(a.n, MAX_KDE_SAMPLES);
+        assert_eq!(b.n, MAX_KDE_SAMPLES);
+        assert!((a.bandwidth - b.bandwidth).abs() < 1e-12);
+        assert!((a.data_min - b.data_min).abs() < 1e-12);
+        assert!((a.data_max - b.data_max).abs() < 1e-12);
     }
 }
