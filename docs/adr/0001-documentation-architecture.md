@@ -56,7 +56,8 @@ to `CONTRIBUTING.md`. The two dated reports directories are consolidated into
 - Agents and contributors follow the discovery order in
   [`docs/adr/README.md`](README.md): `AGENTS.md`, then relevant ADRs, then
   relevant `docs/reports/` and `docs/planning/`, then code.
-- ADR creation stays selective. Only decisions meeting all three conditions in
-  [`docs/adr/README.md`](README.md) get an ADR, keeping the directory readable.
+- ADR creation stays selective. Only decisions meeting at least one of the
+  conditions in [`docs/adr/README.md`](README.md) get an ADR, keeping the
+  directory readable.
 - Enforcement is prose-only, stated in `AGENTS.md` and `CONTRIBUTING.md`, not
   checked by CI. A missing ADR is caught in review, not by automation.

@@ -22,8 +22,9 @@ A Rust egui desktop app for analyzing Optuna optimization results.
 - A user-facing change (new feature, behavior change, bug fix) must add an
   entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) in the same
   commit. Internal refactors, tests, and doc-only changes are exempt.
-- Work that involved a durable design decision (costly to reverse later,
-  surprising without historical context, and chosen over a real alternative)
+- Work that involved a durable design decision meeting at least one of these
+  conditions (costly to reverse later, surprising without historical context, or
+  chosen over a real alternative where a meaningful trade-off was made)
   must be recorded as an ADR under `docs/adr/` in the same commit. See
   [`docs/adr/README.md`](docs/adr/README.md) for the format and
   [CONTRIBUTING.md](CONTRIBUTING.md#documentation) for when an ADR is expected.

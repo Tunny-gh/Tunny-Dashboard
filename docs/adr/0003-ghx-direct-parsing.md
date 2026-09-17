@@ -1,7 +1,7 @@
 # ADR-0003: Parse .ghx directly for Grasshopper integration
 
 Status: Accepted
-Date: 2026-09-17
+Date: 2026-07-16
 
 ## Context
 
@@ -12,8 +12,8 @@ file is a later, manifest-based fallback (see Alternatives). To run the optimiza
 the Dashboard must know the problem definition — which sliders and Gene Pools
 are variables and their ranges, how the Tunny component's inputs are wired, and
 the Tunny settings — and it must be able to inject the values Rhino.Compute
-needs. The choice between direct parsing and a Tunny-side manifest was made in
-2026-07.
+needs. The choice between direct parsing and a Tunny-side manifest was made on
+2026-07-16.
 
 ## Decision
 
@@ -36,5 +36,10 @@ injects RH_IN and RH_OUT groups directly into the ghx XML.
 - The Dashboard owns parsing and is coupled to the GH_Archive format. The
   manifest fallback mitigates this: if the format changes, the Tunny side can
   supply a stable definition instead.
-- Rhino.Compute is Windows-only, while the Dashboard is cross-platform. How to
-  reconcile the two remains an open question.
+- Rhino.Compute host support is Windows-first, with a limited Linux path.
+  [McNeel documents Rhino.Compute](https://developer.rhino3d.com/guides/compute/)
+  for Windows and Linux, but the Linux path is still work-in-progress with
+  limitations (notably third-party plug-in management), and macOS is not a
+  supported host. Because executing an optimization through Tunny requires its
+  Grasshopper plug-in, the availability of Tunny and third-party Grasshopper
+  plug-ins on non-Windows hosts constrains full cross-platform support.

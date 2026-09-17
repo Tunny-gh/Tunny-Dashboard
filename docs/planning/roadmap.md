@@ -314,8 +314,10 @@ preferred over a Tunny-side manifest are recorded in
 - [x] Compute connection and sampler settings (EXE path, port, URL, parallelism,
       sampler parameters) persist across app sessions (eframe storage), so the
       setup dialog opens pre-filled with the last-used values
-- [ ] Open question: reconciling Compute's Windows-only assumption with Dashboard's
-      cross-platform nature
+- [ ] Cross-platform execution beyond Windows-first Rhino.Compute: the Linux
+      path is work-in-progress with plug-in-management limitations, and
+      Tunny/third-party Grasshopper plug-in availability on non-Windows hosts
+      constrains full cross-platform support
 
 ## Core Work (Phase 2C: Automation and Agentification)
 

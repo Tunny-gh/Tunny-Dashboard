@@ -11,16 +11,15 @@ user-facing changes live in [CHANGELOG.md](../../CHANGELOG.md).
 
 ## When an ADR is required
 
-Write an ADR only when **all three** of these hold:
+Write an ADR when **at least one** of these holds:
 
 1. The decision is costly to reverse later.
 2. The decision would be surprising without the historical context.
 3. A real alternative existed and a trade-off was made.
 
-If any one of the three is missing, do not write an ADR. Routine fixes, small
-refactors, dependency updates, UI or documentation tweaks, and ordinary tests
-do **not** get ADRs. `CONTRIBUTING.md#documentation` states the same rule for
-contributors.
+Routine fixes, small refactors, dependency updates, UI or documentation
+tweaks, and ordinary tests do **not** get ADRs.
+`CONTRIBUTING.md#documentation` states the same rule for contributors.
 
 ## Format
 
@@ -50,9 +49,10 @@ Date: YYYY-MM-DD
   - `Proposed` — written down but not yet agreed.
   - `Superseded by ADR-NNNN` — a later ADR replaced it.
   - `Deprecated` — no longer in force, with no direct replacement.
-- `Date` is the date the ADR was accepted, in `YYYY-MM-DD`. If the decision
-  predates the ADR that records it, keep the acceptance date here and note the
-  original timing in `Context`.
+- `Date` is the date the decision was accepted for an `Accepted` ADR, or the
+  date it was proposed for a `Proposed` ADR (which has no acceptance date yet),
+  in `YYYY-MM-DD`. If the decision predates the ADR that records it, keep this
+  acceptance or proposal date here and note the original timing in `Context`.
 - `Context` gives the background and the forces at play. `Decision` states the
   choice. `Alternatives` lists the options that were rejected and why.
   `Consequences` states what follows, including the downsides accepted.
@@ -73,5 +73,5 @@ order:
 | # | Title | Status | Date |
 | --- | --- | --- | --- |
 | 0001 | [Documentation architecture](0001-documentation-architecture.md) | Accepted | 2026-09-17 |
-| 0002 | [Phase 2 scope — extend into the execution loop](0002-phase-2-scope.md) | Accepted | 2026-09-17 |
-| 0003 | [Parse .ghx directly for Grasshopper integration](0003-ghx-direct-parsing.md) | Accepted | 2026-09-17 |
+| 0002 | [Phase 2 scope — extend into the execution loop](0002-phase-2-scope.md) | Accepted | 2026-07-16 |
+| 0003 | [Parse .ghx directly for Grasshopper integration](0003-ghx-direct-parsing.md) | Accepted | 2026-07-16 |

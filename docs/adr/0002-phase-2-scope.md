@@ -1,16 +1,16 @@
 # ADR-0002: Phase 2 scope — extend into the execution loop
 
 Status: Accepted
-Date: 2026-09-17
+Date: 2026-07-16
 
 ## Context
 
 Phase 1 set out to build the decision-support layer for the Optuna ecosystem,
-and that goal has been achieved. In 2026-07 the project made a policy decision
-to extend the product beyond analysis, into the "analyze → suggest → execute →
-re-analyze" loop, to occupy a position no commercial PIDO tool holds: an Optuna
-dashboard that can itself execute optimizations. The question was how far into
-execution to expand.
+and that goal has been achieved. On 2026-07-16 the project made a policy
+decision to extend the product beyond analysis, into the "analyze → suggest →
+execute → re-analyze" loop, to occupy a position no commercial PIDO tool holds:
+an Optuna dashboard that can itself execute optimizations. The question was how
+far into execution to expand.
 
 Commercial PIDO process-integration and execution capability breaks into three
 layers: execution management (runner, workers, retries, monitoring), generic

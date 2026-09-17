@@ -221,9 +221,9 @@ a commit log.
 ### docs/adr/
 
 A durable design decision gets an ADR under `docs/adr/`, in the same commit as
-the change. A decision needs an ADR only when all three of these hold: it is
-costly to reverse later; it would be surprising without historical context; and
-a real alternative existed and a trade-off was made. Routine fixes, small
+the change. A decision needs an ADR when at least one of these holds: it is
+costly to reverse later; it would be surprising without historical context; or a
+real alternative existed and a trade-off was made. Routine fixes, small
 refactors, dependency updates, UI or documentation tweaks, and ordinary tests do
 not get ADRs. [`docs/adr/README.md`](docs/adr/README.md) defines the file naming,
 sections, and status vocabulary.
