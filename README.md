@@ -85,7 +85,7 @@ tunny-dashboard/
 │   │   └── main.rs     # Entry point
 │   └── Cargo.toml
 ├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
-├── docs/               # guides/ (execution / integration), planning/, reports/, handoff/
+├── docs/               # adr/, guides/ (execution / integration), planning/, reports/
 └── Cargo.toml          # Workspace configuration
 ```
 
@@ -231,14 +231,6 @@ same folder as the executable — the app loads it at startup.
 
 To build the application yourself, or to contribute, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## Code signing policy
-
-See [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md) for how each platform's
-release artifacts are signed, including the pending
-[SignPath Foundation](https://signpath.org) application for Windows.
 
 ---
 

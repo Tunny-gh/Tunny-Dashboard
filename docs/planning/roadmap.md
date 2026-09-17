@@ -192,20 +192,12 @@ layers with distinct characteristics; we will expand into only Layers 1 and 2.
 
 | Layer | Content | Policy |
 |---|---|---|
-| 1. Execution management layer | Runner, parallel workers, retries, monitoring | **In scope** (the primary target) |
-| 2. Generic process integration layer | Dakota-style file interface | **In scope** (to guarantee generality) |
-| 3. Vendor-specific integration | Official per-solver adapters, workflow graph editor | **Out of scope** (except as noted below) |
+| 1. Execution management layer | Runner, parallel workers, retries, monitoring | In scope (primary target) |
+| 2. Generic process integration layer | Dakota-style file interface | In scope (generality) |
+| 3. Vendor-specific integration | Per-solver adapters, workflow graph editor | Out of scope (single exception: Grasshopper/Tunny) |
 
-- Reason for avoiding Layer 3: it requires ongoing maintenance to track each solver
-  version upgrade, plus licenses for verification testing — unsustainable for a small
-  team. Users who need a graph editor are already on commercial tools, and price would
-  be the only reason for them to switch
-- **The sole exception is Grasshopper (Tunny)**. Commercial PIDO is weak here, and it
-  connects directly to our existing user base, so we treat it as a first-class solver
-  integration
-- For the generic side, we follow the "template substitution → execution → output
-  extraction" approach that Dakota (Sandia) has proven out over more than 20 years. It
-  allows integration with any solver without requiring vendor-specific knowledge
+See [`../adr/0002-phase-2-scope.md`](../adr/0002-phase-2-scope.md) for the full
+rationale behind this scope.
 
 ## Core Work (Phase 2A: Storage Write Layer)
 
@@ -274,15 +266,9 @@ later but is never needed to produce them.
 an optimization via Tunny onto Dashboard lets Dashboard run that optimization directly
 using Rhino.Compute.
 
-**Approach (decided 2026-07)**: the MVP is built by **parsing .ghx (XML) directly**.
-Since .ghx is the XML serialization of GH_Archive, Dashboard can extract variable
-sliders and Gene Pools (name, range, precision), wire connections (the Variables /
-Objectives inputs of the Tunny component), and Tunny's settings entirely on its own,
-**with no dependency on a Tunny release**. Injection of RH_IN / RH_OUT groups is likewise
-performed by Dashboard directly against the ghx (XML). The original proposal —
-"embedding a problem-definition manifest into the .gh file" (a feature addition on the
-Tunny side) — is demoted to a later stage, kept in reserve as a fallback for
-supporting D&D of plain .gh files and for future changes to the GH_Archive format.
+The chosen approach — parsing `.ghx` directly on the Dashboard side — and why it was
+preferred over a Tunny-side manifest are recorded in
+[`../adr/0003-ghx-direct-parsing.md`](../adr/0003-ghx-direct-parsing.md).
 
 - [x] ghx parser + problem-definition extraction (Dashboard side): GH_Archive XML →
       an intermediate representation `GhProblem` of variables, objectives, and
@@ -328,8 +314,10 @@ supporting D&D of plain .gh files and for future changes to the GH_Archive forma
 - [x] Compute connection and sampler settings (EXE path, port, URL, parallelism,
       sampler parameters) persist across app sessions (eframe storage), so the
       setup dialog opens pre-filled with the last-used values
-- [ ] Open question: reconciling Compute's Windows-only assumption with Dashboard's
-      cross-platform nature
+- [ ] Cross-platform execution beyond Windows-first Rhino.Compute: the Linux
+      path is work-in-progress with plug-in-management limitations, and
+      Tunny/third-party Grasshopper plug-in availability on non-Windows hosts
+      constrains full cross-platform support
 
 ## Core Work (Phase 2C: Automation and Agentification)
 
