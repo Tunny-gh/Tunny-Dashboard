@@ -132,6 +132,7 @@ All widgets can be freely arranged on the dashboard canvas via drag-and-drop.
 | **Observed Contour**     | Interpolated contour of observed objective values over a parameter pair.                                           |
 | **Histogram**            | Distribution histogram for any column.                                                                             |
 | **Box Plot**             | Per-column box plots, optionally grouped.                                                                          |
+| **Violin Plot**          | Kernel-density violins per column, or split by a categorical parameter.                                            |
 | **Correlation Matrix**   | Spearman correlation heatmap across parameters and objectives.                                                     |
 | **Trial Table**          | Full trial data table with sortable columns and row selection.                                                     |
 | **Artifact Gallery**     | Image artifacts attached to trials, linked to selection.                                                           |

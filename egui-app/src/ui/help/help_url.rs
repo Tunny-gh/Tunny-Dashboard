@@ -51,6 +51,7 @@ fn chart_slug(id: &ChartId) -> &'static str {
         ChartId::RankPlot => "rank-plot",
         ChartId::Histogram => "histogram",
         ChartId::BoxPlot => "box-plot",
+        ChartId::ViolinPlot => "violin-plot",
         ChartId::CorrelationMatrix => "correlation-matrix",
         ChartId::PdpChart => "pdp-chart",
         ChartId::PdpChart2D => "pdp-chart",

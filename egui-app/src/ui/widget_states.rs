@@ -17,7 +17,7 @@ use crate::ui::widgets::{
     rank_plot::RankPlotChart, response_surface::ResponseSurfaceChart, robustness::RobustnessChart,
     scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
     slice_chart::SliceChart, som_map::SomMapChart, timeline::TimelineChart,
-    trial_table::TrialTable,
+    trial_table::TrialTable, violin_plot::ViolinPlotChart,
 };
 
 // ── Observed Contour (contours from interpolating observed points) ────
@@ -488,6 +488,7 @@ pub struct WidgetStates {
     pub robustness: RobustnessChart,
     pub histogram: HistogramChart,
     pub box_plot: BoxPlotChart,
+    pub violin_plot: ViolinPlotChart,
     pub correlation_matrix: CorrelationMatrixChart,
     /// UI state for the radar comparison of pinned trials (decision-making phase)
     pub radar_comparison: RadarComparisonChart,

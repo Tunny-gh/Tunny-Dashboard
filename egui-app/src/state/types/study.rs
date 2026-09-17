@@ -265,6 +265,12 @@ impl StudyView {
         self.df.get_numeric_column(name)
     }
 
+    /// Borrowed slice of a string (categorical) column, or `None` if the column is
+    /// absent or numeric.
+    pub fn string_column(&self, name: &str) -> Option<&[String]> {
+        self.df.get_string_column(name)
+    }
+
     /// Feasibility view. Centralizes whether the `is_feasible` column exists, its threshold, and
     /// the "no column = all rows feasible" fallback logic.
     pub fn feasibility(&self) -> tunny_core::dataframe::Feasibility<'_> {

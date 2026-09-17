@@ -665,3 +665,104 @@ fn build_surrogate_opt_csv_prefers_multi_result() {
         header
     );
 }
+
+#[test]
+fn violin_plot_csv_writes_group_value_density_rows() {
+    let mut state = AppState::default();
+    let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
+    study.set_rows_for_test(vec![
+        make_trial(0, HashMap::new(), vec![1.0]),
+        make_trial(1, HashMap::new(), vec![2.0]),
+        make_trial(2, HashMap::new(), vec![3.0]),
+        make_trial(3, HashMap::new(), vec![4.0]),
+    ]);
+    state.current_study = Some(study);
+    // Defaults: source = Objectives, no category, no normalization. The empty
+    // selected_numeric falls back to the first numeric candidate ("f").
+    let widgets = WidgetStates::default();
+
+    let csv = build_violin_plot_csv(&state, &widgets).unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines[0], "group,value,density");
+    assert_eq!(
+        lines.len(),
+        1 + crate::ui::widgets::violin_plot::GRID_POINTS,
+        "expected a header plus one row per KDE grid point"
+    );
+    assert!(lines[1].starts_with("f,"), "group label: {}", lines[1]);
+}
+
+#[test]
+fn violin_plot_csv_returns_none_when_no_study() {
+    let state = AppState::default();
+    let widgets = WidgetStates::default();
+    assert!(build_violin_plot_csv(&state, &widgets).is_none());
+}
+
+/// Builds a Study with one numeric parameter (`x`) and one categorical parameter
+/// (`cat`). `from_rows_for_test` cannot carry category labels, so the core rows
+/// are constructed directly.
+fn make_category_study() -> StudyContext {
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+
+    let param_names = vec!["x".to_string(), "cat".to_string()];
+    let rows: Vec<CoreRow> = vec![
+        (0u32, 0.0, "a"),
+        (1, 2.0, "a"),
+        (2, 10.0, "b"),
+        (3, 12.0, "b"),
+    ]
+    .into_iter()
+    .map(|(id, x, cat)| CoreRow {
+        trial_id: id,
+        trial_number: id,
+        param_display: HashMap::from([("x".to_string(), x)]),
+        param_category_label: HashMap::from([("cat".to_string(), cat.to_string())]),
+        objective_values: vec![],
+        user_attrs_numeric: HashMap::new(),
+        user_attrs_string: HashMap::new(),
+        constraint_values: vec![],
+    })
+    .collect();
+    let df = DataFrame::from_trials(&rows, &param_names, &[], &[], &[], 0);
+    StudyContext {
+        meta: StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![],
+            completed_trials: 0,
+            param_names,
+            objective_names: vec![],
+            param_bounds: Default::default(),
+        },
+        view: crate::state::types::StudyView::new(Arc::new(df), vec![]),
+        pareto_indices: vec![],
+    }
+}
+
+#[test]
+fn violin_plot_csv_category_mode_writes_one_group_per_level() {
+    use crate::ui::widgets::violin_plot::{ViolinSource, GRID_POINTS};
+
+    let state = AppState {
+        current_study: Some(make_category_study()),
+        ..AppState::default()
+    };
+    let mut widgets = WidgetStates::default();
+    widgets.violin_plot.source = ViolinSource::Parameters;
+    widgets.violin_plot.category = Some("cat".to_string());
+    widgets.violin_plot.selected_numeric = "x".to_string();
+
+    let csv = build_violin_plot_csv(&state, &widgets).unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines[0], "group,value,density");
+    // One curve per non-empty category level ("a", "b"), each over GRID_POINTS rows.
+    assert_eq!(lines.len(), 1 + 2 * GRID_POINTS);
+    assert!(lines[1].starts_with("a,"), "first group: {}", lines[1]);
+    assert!(
+        lines[1 + GRID_POINTS].starts_with("b,"),
+        "second group: {}",
+        lines[1 + GRID_POINTS]
+    );
+}

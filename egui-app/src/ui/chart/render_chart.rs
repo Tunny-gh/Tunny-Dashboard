@@ -465,6 +465,11 @@ pub(crate) fn render_chart(
                 .box_plot
                 .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
         }
+        ChartId::ViolinPlot => {
+            widgets
+                .violin_plot
+                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+        }
         ChartId::CorrelationMatrix => {
             widgets
                 .correlation_matrix
