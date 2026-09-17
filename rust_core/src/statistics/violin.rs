@@ -21,21 +21,24 @@ pub struct ViolinCurve {
     pub grid: Vec<f64>,
     /// Kernel density at each `grid` point (same length as `grid`).
     pub density: Vec<f64>,
-    /// Scott's-rule bandwidth `h` used for the kernels.
+    /// Bandwidth `h` used for the kernels (a robust variant of Scott's rule).
     pub bandwidth: f64,
 }
 
 /// Compute a Gaussian kernel density estimate over `values`.
 ///
 /// Non-finite values (NaN/Inf) are excluded. Returns `None` if fewer than two
-/// finite values remain, or if the Scott's-rule bandwidth is not finite/positive
-/// (i.e. every value identical).
+/// finite values remain, or if the bandwidth is not finite/positive (i.e. every
+/// value identical).
 ///
-/// Bandwidth follows Scott's rule: `h = 1.06 * spread * n^(-1/5)`, using the
-/// population standard deviation and the sample IQR (via [`quantile`]) with
-/// `spread = min(sd, IQR/1.34)`. When the robust term is zero but `sd > 0` (a
-/// non-constant sample whose type-7 IQR collapses to 0, e.g. `[1,1,1,1,2]`),
-/// `spread` falls back to `sd` so such samples are still rendered.
+/// The bandwidth is a robust variant of Scott's rule:
+/// `h = 1.06 * spread * n^(-1/5)`, using the population standard deviation and
+/// the sample IQR (via [`quantile`]) with `spread = min(sd, IQR/1.34)`. The
+/// classic normal-reference Scott bandwidth uses `sd` alone; taking the minimum
+/// with the IQR term makes the estimate robust to skewed or heavy-tailed
+/// samples. When the robust term is zero but `sd > 0` (a non-constant sample
+/// whose type-7 IQR collapses to 0, e.g. `[1,1,1,1,2]`), `spread` falls back to
+/// `sd` so such samples are still rendered.
 ///
 /// The grid spans `[data_min - 2h, data_max + 2h]` with `max(grid_points, 2)`
 /// evenly spaced points (both ends inclusive). The density at a grid point `g`

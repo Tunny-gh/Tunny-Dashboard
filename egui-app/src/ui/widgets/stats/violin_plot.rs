@@ -328,7 +328,7 @@ fn not_enough_data(ui: &mut egui::Ui) {
     ui.centered_and_justified(|ui| {
         ui.label(
             egui::RichText::new(
-                "Not enough data to estimate a distribution (need at least 2 values).",
+                "Need at least 2 finite, non-identical values to estimate a distribution.",
             )
             .weak(),
         );
@@ -597,6 +597,31 @@ mod tests {
         StudyView::new(Arc::new(df), vec![])
     }
 
+    /// Builds a `StudyView` whose only objective column `x` is constant (`5.0`). The
+    /// column is numeric (so it is a candidate), but `compute_violin` returns `None`,
+    /// so the widget must fall back to the empty state rather than draw a violin.
+    fn view_with_constant_objective() -> StudyView {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+
+        let obj_names = vec!["x".to_string()];
+        let rows: Vec<CoreRow> = (0u32..3)
+            .map(|id| CoreRow {
+                trial_id: id,
+                trial_number: id,
+                param_display: HashMap::new(),
+                param_category_label: HashMap::new(),
+                objective_values: vec![5.0],
+                user_attrs_numeric: HashMap::new(),
+                user_attrs_string: HashMap::new(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(&rows, &[], &obj_names, &[], &[], 0);
+        StudyView::new(Arc::new(df), vec![])
+    }
+
     #[test]
     fn build_curves_category_mode_normalizes_whole_column_before_splitting() {
         let view = view_with_category();
@@ -631,6 +656,18 @@ mod tests {
         let labels: Vec<&str> = curves.iter().map(|(label, _)| label.as_str()).collect();
         assert_eq!(labels, vec!["a", "b"]);
         assert_eq!(attempted - curves.len(), 2);
+    }
+
+    /// A constant numeric column is a valid candidate, so the mode attempts one group,
+    /// but no curve can be built. Pinning `attempted == 1` with no curves keeps the
+    /// skip/message accounting correct: the widget falls through to the empty state
+    /// (not the "1 group(s) skipped" note, which needs a non-empty `curves`).
+    #[test]
+    fn build_curves_constant_column_yields_no_curves_but_counts_attempt() {
+        let view = view_with_constant_objective();
+        let (curves, attempted) = build_curves(&view, &["x".to_string()], None, "x", false);
+        assert!(curves.is_empty());
+        assert_eq!(attempted, 1);
     }
 
     /// The attempted count is stored alongside the curves in the cache, so the render
@@ -823,6 +860,53 @@ mod tests {
             labels,
             vec!["x", "y"],
             "the cache must hold the currently selected source's columns"
+        );
+    }
+
+    /// Regression test for the empty-state message: a constant column has plenty of
+    /// values but no variance, so `compute_violin` returns `None` and the widget must
+    /// show the empty state. The exact wording is asserted through AccessKit so the
+    /// test fails if the message regresses (e.g. back to the old "need at least 2
+    /// values" text, which was false for this input).
+    #[test]
+    fn constant_column_renders_empty_state_message() {
+        const MESSAGE: &str =
+            "Need at least 2 finite, non-identical values to estimate a distribution.";
+
+        let view = view_with_constant_objective();
+        let param_names: Vec<String> = vec![];
+        let obj_names = vec!["x".to_string()];
+        let mut chart = ViolinPlotChart {
+            source: ViolinSource::Objectives,
+            selected_numeric: "x".to_string(),
+            ..Default::default()
+        };
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| {
+                chart.show(ui, &view, &param_names, &obj_names, "study");
+            },
+        );
+
+        // The cache must hold the attempt with no curves, so the empty state is what
+        // was actually rendered (not, say, the plot frame).
+        let (_, curves, attempted) = chart.cache.as_ref().expect("cache should be populated");
+        assert!(curves.is_empty());
+        assert_eq!(*attempted, 1);
+
+        // egui exposes a `RichText` label as a Label node whose text is in `value`
+        // (the `label` accessor is left unset). Asserting the exact wording makes the
+        // test fail if the message regresses.
+        assert!(
+            accesskit_node(&out, egui::accesskit::Role::Label, None, Some(MESSAGE)).is_some(),
+            "the empty-state label must be exposed via AccessKit with the exact wording"
         );
     }
 }

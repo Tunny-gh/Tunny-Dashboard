@@ -22,12 +22,14 @@ Decisions made, with rejected alternatives:
   `numeric_column().is_some()`, which already excludes categorical columns.
   Rejected: inferring categories by low cardinality from numeric columns —
   it would silently reinterpret continuous parameters as categories.
-- **Gaussian KDE with Scott's rule, auto bandwidth only.** `compute_violin`
-  uses `h = 1.06 * spread * n^(-1/5)` with `spread = min(sd, IQR/1.34)`
-  (population sd, sample IQR via the existing `quantile`). There is no manual
-  bandwidth slider; a bad manual value either over-smooths every distribution
-  or turns it into spikes, and the automatic rule is what a violin plot is
-  expected to do. When the robust term is zero but `sd > 0` (a non-constant
+- **Gaussian KDE with a robust variant of Scott's rule, auto bandwidth only.**
+  `compute_violin` uses `h = 1.06 * spread * n^(-1/5)` with
+  `spread = min(sd, IQR/1.34)` (population sd, sample IQR via the existing
+  `quantile`). The textbook normal-reference Scott bandwidth uses `sd` alone;
+  the IQR term only makes it robust to skewed/heavy-tailed samples. There is no
+  manual bandwidth slider; a bad manual value either over-smooths every
+  distribution or turns it into spikes, and the automatic rule is what a violin
+  plot is expected to do. When the robust term is zero but `sd > 0` (a non-constant
   sample whose type-7 IQR collapses to 0, e.g. `[1,1,1,1,2]`), `spread` falls
   back to `sd`, so the sample is still drawn as a narrow spike. Only constant
   input (or a non-positive/non-finite `h`) returns `None`, and those groups are
@@ -87,7 +89,10 @@ Decisions made, with rejected alternatives:
   pre-click source while the cache key already used the new one, so switching to
   a source with an overlapping column name could cache the wrong columns for the
   rest of the session); an AccessKit-driven regression test clicks the source
-  combo and asserts the cache holds the newly selected source's columns.
+  combo and asserts the cache holds the newly selected source's columns. The
+  empty-state message now reads "Need at least 2 finite, non-identical values to
+  estimate a distribution.", which is accurate for constant columns as well as
+  for columns with fewer than two values; an AccessKit regression test pins it.
 - `egui-app/src/state/types/study.rs`: `StudyView::string_column` convenience
   accessor.
 - `egui-app/src/ui/chart/poll_chart/compute.rs` + `poll_chart.rs`:
