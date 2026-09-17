@@ -5,9 +5,10 @@ Date: 2026-09-17
 
 ## Context
 
-The ideal form of the Grasshopper integration (the core goal of Phase 2B) is
-drag-and-drop of a `.ghx` file onto the Dashboard to run an optimization via
-Rhino.Compute, with no dependency on a Tunny release. To run the optimization
+The core goal of Phase 2B is drag-and-drop of a Grasshopper definition onto the
+Dashboard to run an optimization via Rhino.Compute. The MVP form of this goal,
+decided here, is drag-and-drop of a `.ghx` file; drag-and-drop of a plain `.gh`
+file is a later, manifest-based fallback (see Alternatives). To run the optimization
 the Dashboard must know the problem definition — which sliders and Gene Pools
 are variables and their ranges, how the Tunny component's inputs are wired, and
 the Tunny settings — and it must be able to inject the values Rhino.Compute

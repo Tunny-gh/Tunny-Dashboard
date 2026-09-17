@@ -33,8 +33,9 @@ The documentation taxonomy is organized by purpose:
 
 Durable design decisions are recorded as ADRs. User-facing changes are recorded
 in `CHANGELOG.md`. Implementation status and remaining work live in Issues.
-`README.md` keeps only Installation and points to `CONTRIBUTING.md` for build,
-test, and format detail. The two dated reports directories are consolidated into
+`README.md` keeps end-user and overview content (overview, features, technology
+stack, repository structure, and usage) and defers build, test, and format detail
+to `CONTRIBUTING.md`. The two dated reports directories are consolidated into
 `docs/reports/`. `docs/handoff/` is retired.
 
 ## Alternatives
