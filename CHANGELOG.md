@@ -18,10 +18,5 @@ and `Security` as needed — omit headings that have nothing under them.
   categorical parameter, with an optional [0,1] normalization and a median
   marker per violin. Non-constant columns whose interquartile range is zero are
   still rendered, falling back to the standard deviation for the bandwidth.
-- CI infrastructure to Authenticode-sign Windows release builds via the
-  SignPath Foundation OSS program. Inactive until the SignPath project is
-  approved and its secrets/variables are configured (see
-  CONTRIBUTING.md#code-signing-windows); until then, Windows builds remain
-  unsigned as before.
 
 [Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...HEAD
