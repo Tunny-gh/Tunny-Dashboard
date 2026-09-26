@@ -973,9 +973,9 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "cobyla"
-version = "1.0.2"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d7c3233e5d400a8fd61b50b79797d28a0657e4c0abeb41469b69d2d9d60ef3e"
+checksum = "d0461872f7e4e7216e1a770fbccc1b45a400247538d6b72be1a030b2427c64c4"
 
 [[package]]
 name = "codespan-reporting"
@@ -1406,6 +1406,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "dyn-clonable"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a36efbb9bfd58e1723780aa04b61aba95ace6a05d9ffabfdb0b43672552f0805"
+dependencies = [
+ "dyn-clonable-impl",
+ "dyn-clone",
+]
+
+[[package]]
+name = "dyn-clonable-impl"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e8671d54058979a37a26f3511fbf8d198ba1aa35ffb202c42587d918d77213a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "dyn-clone"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
 name = "dyn-stack"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1488,9 +1515,9 @@ dependencies = [
 
 [[package]]
 name = "egobox-gp"
-version = "0.36.3"
+version = "0.36.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05e84515e1b98af6ff54118699d1bbf3265bd8b375b3600102b6069a52c9bdcc"
+checksum = "6a8e84b95e9ab56c30f85651397a824b866342f8be44af50ba3397c0c26a986f"
 dependencies = [
  "anyhow",
  "cobyla",
@@ -1514,11 +1541,12 @@ dependencies = [
 
 [[package]]
 name = "egobox-moe"
-version = "0.35.4"
+version = "0.35.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "502203e67dc56d9d633a65f721394ea4fac8c1f7a85554288d678eb22c82e03c"
+checksum = "0f3e1838870a13a201b630531cefba0ce7d96d1ae5f99f644351e14feb184a13"
 dependencies = [
  "bitflags 2.13.0",
+ "dyn-clonable",
  "egobox-doe",
  "egobox-gp",
  "env_logger",
