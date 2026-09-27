@@ -11,6 +11,8 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-27
+
 ### Added
 
 - New **Violin Plot** statistics chart. It estimates Gaussian kernel density
@@ -29,4 +31,5 @@ and `Security` as needed — omit headings that have nothing under them.
 - Reversed the Rank Plot colormap display so Best (rank 0) uses the high end and
   Worst (rank 1) uses the low end, matching the color-bar labels.
 
-[Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...v0.1.2
