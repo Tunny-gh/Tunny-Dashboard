@@ -19,4 +19,9 @@ and `Security` as needed — omit headings that have nothing under them.
   marker per violin. Non-constant columns whose interquartile range is zero are
   still rendered, falling back to the standard deviation for the bandwidth.
 
+### Fixed
+
+- Fixed the Rank Plot shrinking to the toolbar row height instead of using the
+  remaining vertical space.
+
 [Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...HEAD

@@ -212,6 +212,7 @@ impl RankPlotChart {
         let mut clicked_detail: Option<(u32, usize)> = None;
         let mut hovered_detail: Option<(u32, usize)> = None;
 
+        let available_height = ui.available_height();
         ui.horizontal(|ui| {
             let avail = ui.available_size();
             const BAR_W: f32 = 14.0;
@@ -221,7 +222,7 @@ impl RankPlotChart {
             let plot = egui_plot::Plot::new("rank_plot")
                 .unified_nav()
                 .width(plot_w)
-                .height(avail.y)
+                .height(available_height)
                 .x_axis_label(&x_name)
                 .y_axis_label(&y_name);
 
@@ -242,7 +243,7 @@ impl RankPlotChart {
             ui.add_space(4.0);
             ui.vertical(|ui| {
                 ui.add_space(4.0);
-                let bar_h = avail.y.clamp(60.0, 160.0);
+                let bar_h = available_height.clamp(60.0, 160.0);
                 let (bar_rect, _) =
                     ui.allocate_exact_size(egui::vec2(BAR_W, bar_h), egui::Sense::hover());
                 draw_rank_legend(ui, bar_rect, cmap);
