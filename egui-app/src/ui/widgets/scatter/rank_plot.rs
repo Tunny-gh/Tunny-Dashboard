@@ -186,7 +186,7 @@ impl RankPlotChart {
                 .map(|p| (p.trial_id, p.row, [p.x, p.y]))
                 .collect();
             for p in &points {
-                let color = cmap.interpolate(p.rank.clamp(0.0, 1.0) as f32);
+                let color = cmap.interpolate(rank_colormap_input(p.rank));
                 let key = [color.r(), color.g(), color.b(), color.a()];
                 color_groups.entry(key).or_default().push([p.x, p.y]);
             }
@@ -320,7 +320,8 @@ fn collect_rank_points(
 /// more intuitive than numeric tick marks, so only the label portion has a dedicated implementation.
 fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     let painter = ui.painter();
-    // i=0 is the top of the bar (color for Worst=1.0), the last entry is the bottom (color for Best=0.0).
+    // The shared helper puts t=1.0 at the top and t=0.0 at the bottom. Rank Plot reverses the
+    // colormap input so that Best (rank 0) is at the high end and Worst (rank 1) is at the low end.
     draw_gradient_bar(painter, bar_rect, cmap, 32);
     painter.rect_stroke(
         bar_rect,
@@ -334,17 +335,25 @@ fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     painter.text(
         egui::pos2(bar_rect.center().x, bar_rect.top() - 2.0),
         egui::Align2::CENTER_BOTTOM,
-        "Worst",
+        "Best",
         font.clone(),
         text_color,
     );
     painter.text(
         egui::pos2(bar_rect.center().x, bar_rect.bottom() + 2.0),
         egui::Align2::CENTER_TOP,
-        "Best",
+        "Worst",
         font,
         text_color,
     );
+}
+
+/// Converts a rank percentile into the colormap input used for display.
+///
+/// Rank 0 is best and should use the high end of the selected colormap, while rank 1 is worst
+/// and should use the low end.
+fn rank_colormap_input(rank: f64) -> f32 {
+    (1.0 - rank.clamp(0.0, 1.0)) as f32
 }
 
 /// Computes the rank percentiles of objective values (0.0=best to 1.0=worst).
@@ -446,6 +455,13 @@ mod tests {
     #[test]
     fn compute_rank_percentiles_empty_is_empty() {
         assert!(compute_rank_percentiles(&[], true).is_empty());
+    }
+
+    #[test]
+    fn rank_colormap_input_puts_best_at_high_end() {
+        assert_eq!(rank_colormap_input(0.0), 1.0);
+        assert_eq!(rank_colormap_input(1.0), 0.0);
+        assert_eq!(rank_colormap_input(0.25), 0.75);
     }
 
     #[test]

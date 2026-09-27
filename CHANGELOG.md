@@ -24,4 +24,9 @@ and `Security` as needed — omit headings that have nothing under them.
 - Fixed the Rank Plot shrinking to the toolbar row height instead of using the
   remaining vertical space.
 
+### Changed
+
+- Reversed the Rank Plot colormap display so Best (rank 0) uses the high end and
+  Worst (rank 1) uses the low end, matching the color-bar labels.
+
 [Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...HEAD
