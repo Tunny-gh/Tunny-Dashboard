@@ -239,6 +239,7 @@ impl MessageHandler {
             AppMessage::ArtifactsDirScanned {
                 trial_artifacts,
                 artifacts_dir,
+                ..
             } => {
                 app_state.artifact_map = trial_artifacts;
                 app_state.artifacts_dir = Some(artifacts_dir);

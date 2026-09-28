@@ -1,6 +1,5 @@
 use super::*;
 
-use crate::io::artifacts::ArtifactEntry;
 use std::collections::HashSet;
 
 /// Whether the toolbar Reload button is pressable.
@@ -44,7 +43,6 @@ pub(super) struct ReloadRestore {
     highlighted_trial: Option<u32>,
     filter_ranges: HashMap<String, (f64, f64)>,
     artifacts_dir: Option<std::path::PathBuf>,
-    artifact_map: HashMap<u32, Vec<ArtifactEntry>>,
     hv_ref_point_override: Option<Vec<f64>>,
     /// Set once the post-scan study re-selection has been dispatched, so a
     /// later scan result (e.g. the user opening another file mid-reload)
@@ -71,7 +69,6 @@ impl ReloadRestore {
             highlighted_trial: app_state.highlighted_trial,
             filter_ranges: app_state.filter_ranges.clone(),
             artifacts_dir: app_state.artifacts_dir.clone(),
-            artifact_map: app_state.artifact_map.clone(),
             hv_ref_point_override: app_state.hv_ref_point_override.clone(),
             reselect_dispatched: false,
         })
@@ -98,11 +95,6 @@ impl ReloadRestore {
         app_state.pinned_trials = keep(self.pinned_trials);
         app_state.highlighted_trial = self.highlighted_trial.filter(|id| live.contains(id));
         app_state.artifacts_dir = self.artifacts_dir;
-        app_state.artifact_map = self
-            .artifact_map
-            .into_iter()
-            .filter(|(trial_id, _)| live.contains(trial_id))
-            .collect();
         app_state.hv_ref_point_override = self.hv_ref_point_override;
         app_state.comparison_mode = self.comparison_mode;
         app_state.comparison_base_study = self.comparison_base_study;
@@ -197,6 +189,9 @@ impl TunnyApp {
             return;
         };
         let comparison_study_ids = restore.apply(&mut self.app_state);
+        if let Some(artifacts_dir) = self.app_state.artifacts_dir.clone() {
+            self.request_artifact_scan(artifacts_dir);
+        }
         for study_id in comparison_study_ids {
             let Some(meta) = self
                 .app_state
@@ -221,6 +216,28 @@ impl TunnyApp {
 mod tests {
     use super::*;
     use crate::state::app_state::{Direction, StudyContext, StudyMeta};
+    use crate::state::messages::AppMessage;
+    use std::sync::mpsc;
+
+    fn test_app() -> TunnyApp {
+        let (tx, rx) = mpsc::sync_channel(32);
+        TunnyApp {
+            app_state: AppState::new(),
+            layout: LayoutState::default(),
+            widget_states: WidgetStates::default(),
+            canvas_widgets: HashMap::new(),
+            is_loading: false,
+            load_error: None,
+            tx,
+            rx,
+            pending_reload: None,
+            latest_artifact_scan_id: 0,
+            reload_when_idle: false,
+            current_window_title: None,
+            beta_notice: BetaNoticeState::default(),
+            beta_notice_ack: None,
+        }
+    }
 
     fn meta(study_id: u32) -> StudyMeta {
         StudyMeta {
@@ -277,8 +294,6 @@ mod tests {
         before.selected_indices = vec![10, 12];
         before.pinned_trials = vec![11, 12];
         before.highlighted_trial = Some(12);
-        before.artifact_map.insert(10, vec![]);
-        before.artifact_map.insert(12, vec![]);
         before.artifacts_dir = Some("/artifacts".into());
         let restore = ReloadRestore::capture(&before).unwrap();
 
@@ -289,8 +304,8 @@ mod tests {
         assert_eq!(after.selected_indices, vec![10]);
         assert_eq!(after.pinned_trials, vec![11]);
         assert_eq!(after.highlighted_trial, None);
-        assert_eq!(after.artifact_map.keys().copied().collect::<Vec<_>>(), [10]);
-        // The artifacts folder itself survives; only per-trial entries are pruned.
+        assert!(after.artifact_map.is_empty());
+        // The artifacts folder survives for the scan after study activation.
         assert_eq!(after.artifacts_dir, Some("/artifacts".into()));
     }
 
@@ -329,5 +344,78 @@ mod tests {
         let mut after = state_with_trials(&[0]);
         // Order decides the assigned comparison color, so it must round-trip.
         assert_eq!(restore.apply(&mut after), vec![7, 3]);
+    }
+
+    #[test]
+    fn finishing_reload_scans_new_and_existing_trial_artifacts_authoritatively() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["10_old.png", "10_new.png", "12_new.png"] {
+            std::fs::write(dir.path().join(name), b"image").unwrap();
+        }
+
+        let mut before = state_with_trials(&[10, 11]);
+        before.journal_path = Some(dir.path().join("study.log"));
+        before.artifacts_dir = Some(dir.path().to_path_buf());
+        before.artifact_map.insert(10, vec![]);
+        before.artifact_map.insert(11, vec![]); // Removed from the source.
+        before.selected_indices = vec![10];
+        let mut restore = ReloadRestore::capture(&before).unwrap();
+        restore.reselect_dispatched = true;
+
+        let mut app = test_app();
+        app.app_state = state_with_trials(&[10, 11, 12]);
+        app.app_state.journal_path = before.journal_path;
+        app.pending_reload = Some(restore);
+        app.finish_reload();
+
+        let scanned = app
+            .rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(matches!(
+            &scanned,
+            AppMessage::ArtifactsDirScanned {
+                scan_id: Some(1),
+                ..
+            }
+        ));
+        app.tx.send(scanned).unwrap();
+        app.poll_messages(&egui::Context::default());
+
+        assert_eq!(app.app_state.selected_indices, vec![10]);
+        assert_eq!(app.app_state.artifacts_dir.as_deref(), Some(dir.path()));
+        assert_eq!(app.app_state.artifact_map[&10].len(), 2);
+        assert_eq!(app.app_state.artifact_map[&12].len(), 1);
+        assert!(!app.app_state.artifact_map.contains_key(&11));
+
+        // A previous asynchronous scan completing later must not restore old data.
+        app.tx
+            .send(AppMessage::ArtifactsDirScanned {
+                trial_artifacts: HashMap::from([(11, vec![])]),
+                artifacts_dir: dir.path().to_path_buf(),
+                scan_id: Some(0),
+            })
+            .unwrap();
+        app.poll_messages(&egui::Context::default());
+        assert_eq!(app.app_state.artifact_map[&12].len(), 1);
+        assert!(!app.app_state.artifact_map.contains_key(&11));
+    }
+
+    #[test]
+    fn finishing_reload_without_an_artifacts_folder_does_not_scan() {
+        let mut before = state_with_trials(&[10]);
+        before.journal_path = Some("study.log".into());
+        let mut restore = ReloadRestore::capture(&before).unwrap();
+        restore.reselect_dispatched = true;
+
+        let mut app = test_app();
+        app.app_state = state_with_trials(&[10, 11]);
+        app.app_state.journal_path = before.journal_path;
+        app.pending_reload = Some(restore);
+        app.finish_reload();
+
+        assert!(app.app_state.artifacts_dir.is_none());
+        assert_eq!(app.latest_artifact_scan_id, 0);
+        assert!(app.rx.try_recv().is_err());
     }
 }

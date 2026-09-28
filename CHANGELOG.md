@@ -11,6 +11,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reload now refreshes artifacts from the selected folder along with trial data,
+  including artifacts added to new or existing trials and removal of missing files.
+
 ## [0.1.2] - 2026-09-27
 
 ### Added

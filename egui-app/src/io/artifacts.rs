@@ -24,6 +24,7 @@ pub use tunny_core::io::artifacts::{
 pub fn scan_artifacts_dir(
     base_dir: std::path::PathBuf,
     journal_path: Option<std::path::PathBuf>,
+    scan_id: u64,
     tx: std::sync::mpsc::SyncSender<crate::state::messages::AppMessage>,
 ) {
     crate::app::spawn_task(tx, move || {
@@ -41,6 +42,7 @@ pub fn scan_artifacts_dir(
         crate::state::messages::AppMessage::ArtifactsDirScanned {
             trial_artifacts,
             artifacts_dir: base_dir,
+            scan_id: Some(scan_id),
         }
     });
 }
@@ -76,6 +78,7 @@ mod tests {
         tx.send(AppMessage::ArtifactsDirScanned {
             trial_artifacts: trial_artifacts.clone(),
             artifacts_dir: artifacts_dir.clone(),
+            scan_id: Some(1),
         })
         .unwrap();
 
@@ -83,10 +86,12 @@ mod tests {
             AppMessage::ArtifactsDirScanned {
                 trial_artifacts: received,
                 artifacts_dir: received_dir,
+                scan_id,
             } => {
                 assert_eq!(received.len(), 1);
                 assert_eq!(received.get(&0).unwrap()[0].filename, "result.png");
                 assert_eq!(received_dir, artifacts_dir);
+                assert_eq!(scan_id, Some(1));
             }
             _ => panic!("unexpected message type"),
         }

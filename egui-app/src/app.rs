@@ -161,6 +161,8 @@ pub struct TunnyApp {
     /// View state held across an in-flight toolbar Reload, re-applied once the
     /// re-read study has finished loading. `None` whenever no reload is running.
     pending_reload: Option<ReloadRestore>,
+    /// Identifies the latest directory scan so older asynchronous results are ignored.
+    latest_artifact_scan_id: u64,
     /// A post-run refresh that arrived while a load was still in flight, held
     /// until the app goes idle rather than being started on top of that load.
     reload_when_idle: bool,
@@ -251,6 +253,7 @@ impl TunnyApp {
             tx,
             rx,
             pending_reload: None,
+            latest_artifact_scan_id: 0,
             reload_when_idle: false,
             current_window_title: None,
             beta_notice,
@@ -295,9 +298,23 @@ impl TunnyApp {
         self.tx.clone()
     }
 
+    fn request_artifact_scan(&mut self, base_dir: std::path::PathBuf) {
+        self.latest_artifact_scan_id += 1;
+        crate::io::artifacts::scan_artifacts_dir(
+            base_dir,
+            self.app_state.journal_path.clone(),
+            self.latest_artifact_scan_id,
+            self.sender(),
+        );
+    }
+
     /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
+            if matches!(&msg, AppMessage::ArtifactsDirScanned { scan_id: Some(id), .. } if *id != self.latest_artifact_scan_id)
+            {
+                continue;
+            }
             let is_journal_parsed = matches!(&msg, AppMessage::JournalParsed { .. });
             // Both the .ghx and the process-integration runs use the same
             // `gh_opt_run` overlay state, so both trigger the post-run refresh.
@@ -411,11 +428,7 @@ impl TunnyApp {
                 }
                 ToolbarAction::Reload => self.reload_current(),
                 ToolbarAction::ScanArtifacts(base_dir) => {
-                    crate::io::artifacts::scan_artifacts_dir(
-                        base_dir,
-                        self.app_state.journal_path.clone(),
-                        self.sender(),
-                    );
+                    self.request_artifact_scan(base_dir);
                 }
                 ToolbarAction::ClearLoadError => {
                     self.load_error = None;
