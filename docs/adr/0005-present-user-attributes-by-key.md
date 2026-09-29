@@ -17,11 +17,11 @@ All Trials table, and its CSV output. In All Trials, an optional list expansion
 adds `key[0]`, `key[1]`, and subsequent columns after the base `key` column,
 up to the longest array stored under that key. The trial detail modal can
 likewise expand the current trial's arrays into indexed rows. The base value
-remains visible for scalar values used under the same key. CSV always exports
-the original array as compact JSON in the base key column. Preserve the
-underlying JSON value kind and keep numeric attribute data available to existing
-numeric analysis. A missing attribute remains distinct from an explicitly
-present JSON null.
+remains visible for scalar values used under the same key. All Trials CSV follows
+the expansion setting, retaining the original array in the base key column.
+Preserve the underlying JSON value kind and keep numeric attribute data
+available to existing numeric analysis. A missing attribute remains distinct
+from an explicitly present JSON null.
 
 ## Alternatives
 

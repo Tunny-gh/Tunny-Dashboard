@@ -810,6 +810,7 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
     assert!(csv.contains("2,1,11,21,text,,,0,"));
 
     widgets.trial_table.show_user_attrs = false;
+    widgets.trial_table.expand_user_attr_lists = true;
     let hidden = build_trial_table_csv(&state, &widgets).unwrap();
     assert_eq!(hidden, build_trial_based_csv(&state).unwrap());
     assert!(!hidden.contains("User attr:"));
@@ -849,7 +850,8 @@ fn all_trials_csv_distinguishes_json_null_missing_and_literal_text() {
         .insert("array".to_string(), json!("plain"));
     let df = DataFrame::from_trials(&[first, second], &[], &[], &[], &[], 0);
     let view = crate::state::types::StudyView::new(Arc::new(df), vec![]);
-    let csv = crate::io::export::build_trial_table_csv_from_view(&view, &[0, 1], &[], &[], true);
+    let csv =
+        crate::io::export::build_trial_table_csv_from_view(&view, &[0, 1], &[], &[], true, false);
     assert_eq!(csv, concat!(
         "trial_id,trial_number,User attr: array,User attr: flag,User attr: literal,User attr: nullish,User attr: object,pareto_rank,cluster_id\n",
         "0,0,\"[1,\"\"a,b\"\"]\",true,\"{\"\"a\"\":1}\",null,\"{\"\"a\"\":1,\"\"b\"\":2}\",0,\n",
@@ -872,8 +874,15 @@ fn all_trials_csv_distinguishes_json_null_missing_and_literal_text() {
         ..AppState::default()
     };
     let mut widgets = WidgetStates::default();
-    widgets.trial_table.expand_user_attr_lists = true;
     assert_eq!(build_trial_table_csv(&state, &widgets).unwrap(), csv);
+    widgets.trial_table.expand_user_attr_lists = true;
+    let expanded = build_trial_table_csv(&state, &widgets).unwrap();
+    assert!(expanded.starts_with(concat!(
+        "trial_id,trial_number,User attr: array,User attr: array[0],User attr: array[1],",
+        "User attr: flag,User attr: literal,User attr: nullish,User attr: object,pareto_rank,cluster_id\n"
+    )));
+    assert!(expanded.contains("0,0,\"[1,\"\"a,b\"\"]\",1,\"a,b\",true,"));
+    assert!(expanded.contains("1,1,plain,,,,,,,0,"));
 }
 
 #[test]

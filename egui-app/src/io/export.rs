@@ -41,6 +41,7 @@ pub fn build_trial_csv_from_view(
         objective_names,
         columns,
         false,
+        false,
     )
 }
 
@@ -51,6 +52,7 @@ pub fn build_trial_table_csv_from_view(
     param_names: &[String],
     objective_names: &[String],
     show_user_attrs: bool,
+    expand_user_attr_lists: bool,
 ) -> String {
     build_trial_csv_from_view_impl(
         view,
@@ -62,6 +64,7 @@ pub fn build_trial_table_csv_from_view(
             cluster_id: true,
         },
         show_user_attrs,
+        expand_user_attr_lists,
     )
 }
 
@@ -72,17 +75,18 @@ fn build_trial_csv_from_view_impl(
     objective_names: &[String],
     columns: TrialCsvColumns,
     show_user_attrs: bool,
+    expand_user_attr_lists: bool,
 ) -> String {
     let param_cols = view.numeric_columns(param_names);
     let obj_cols = view.numeric_columns(objective_names);
-    let attr_names = if show_user_attrs {
-        view.user_attribute_names()
+    let attr_cols = if show_user_attrs {
+        view.user_attribute_columns(expand_user_attr_lists)
     } else {
         Vec::new()
     };
-    let attr_headers: Vec<String> = attr_names
+    let attr_headers: Vec<String> = attr_cols
         .iter()
-        .map(|name| format!("User attr: {name}"))
+        .map(|column| format!("User attr: {}", column.label()))
         .collect();
 
     let mut w = CsvWriter::new();
@@ -109,9 +113,9 @@ fn build_trial_csv_from_view_impl(
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             fields.push(CsvField::Num(v));
         }
-        let attr_values: Vec<_> = attr_names
+        let attr_values: Vec<_> = attr_cols
             .iter()
-            .map(|name| view.df.user_attr_value(name, i))
+            .map(|column| column.value(&view.df, i))
             .collect();
         let attr_texts: Vec<_> = attr_values
             .iter()
