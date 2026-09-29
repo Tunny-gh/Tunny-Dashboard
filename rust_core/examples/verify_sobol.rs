@@ -59,6 +59,7 @@ fn build_df(param_names: &[&str], obj_name: &str, x: &[Vec<f64>], y: &[f64]) -> 
             objective_values: vec![yi],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();

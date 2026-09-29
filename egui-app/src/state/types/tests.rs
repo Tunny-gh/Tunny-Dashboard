@@ -1,4 +1,66 @@
 use super::*;
+
+#[test]
+fn user_attribute_format_preserves_json_kind_and_missing() {
+    use serde_json::json;
+
+    assert_eq!(format_user_attribute(None), "—");
+    assert_eq!(format_user_attribute(Some(&json!(null))), "null");
+    assert_eq!(format_user_attribute(Some(&json!(true))), "true");
+    assert_eq!(format_user_attribute(Some(&json!(1.23456))), "1.2346");
+    assert_eq!(
+        format_user_attribute(Some(&json!("{\"a\":1}"))),
+        "{\"a\":1}"
+    );
+    assert_eq!(format_user_attribute(Some(&json!([1, false]))), "[1,false]");
+    assert_eq!(
+        format_user_attribute(Some(&json!({"b": 2, "a": 1}))),
+        "{\"a\":1,\"b\":2}"
+    );
+}
+
+#[test]
+fn expanded_attribute_columns_follow_their_key_and_keep_scalar_rows() {
+    use serde_json::json;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow};
+
+    let row = |id, value| TrialRow {
+        trial_id: id,
+        trial_number: id,
+        param_display: HashMap::new(),
+        param_category_label: HashMap::new(),
+        objective_values: vec![],
+        user_attrs_numeric: HashMap::new(),
+        user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::from([("items".to_string(), value)]),
+        constraint_values: vec![],
+    };
+    let df = DataFrame::from_trials(
+        &[row(0, json!([1, {"ok": true}])), row(1, json!("scalar"))],
+        &[],
+        &[],
+        &[],
+        &[],
+        0,
+    );
+    let view = StudyView::new(Arc::new(df), vec![]);
+    assert!(view.has_array_user_attributes());
+    let collapsed = view.user_attribute_columns(false);
+    assert_eq!(
+        collapsed.iter().map(|col| col.label()).collect::<Vec<_>>(),
+        ["items"]
+    );
+    let expanded = view.user_attribute_columns(true);
+    assert_eq!(
+        expanded.iter().map(|col| col.label()).collect::<Vec<_>>(),
+        ["items", "items[0]", "items[1]"]
+    );
+    assert_eq!(expanded[0].value(&view.df, 1), Some(&json!("scalar")));
+    assert_eq!(expanded[1].value(&view.df, 0), Some(&json!(1)));
+    assert_eq!(expanded[2].value(&view.df, 0), Some(&json!({"ok": true})));
+    assert_eq!(expanded[1].value(&view.df, 1), None);
+}
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -172,6 +234,7 @@ fn make_study_view(n: usize) -> StudyView {
             objective_values: vec![i as f64, i as f64 * 2.0],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
@@ -229,6 +292,7 @@ fn study_view_new_pads_mismatched_pareto_rank() {
             objective_values: vec![i as f64],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();

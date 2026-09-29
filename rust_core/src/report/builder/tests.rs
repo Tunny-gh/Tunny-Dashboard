@@ -26,6 +26,7 @@ fn row(id: u32, params: &[(&str, f64)], objs: &[f64]) -> TrialRow {
         objective_values: objs.to_vec(),
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     }
 }
@@ -106,6 +107,45 @@ fn df_multi() -> DataFrame {
         &[],
         0,
     )
+}
+
+#[test]
+fn trial_summary_keeps_json_attributes_and_omits_missing_keys() {
+    use serde_json::json;
+
+    let mut first = row(0, &[], &[1.0]);
+    first.user_attrs_json = HashMap::from([
+        ("flag".to_string(), json!(true)),
+        ("nothing".to_string(), json!(null)),
+        ("list".to_string(), json!([1, false])),
+        ("details".to_string(), json!({"b": 2, "a": 1})),
+        ("literal".to_string(), json!("{\"a\":1}")),
+        ("mixed".to_string(), json!(1.25)),
+    ]);
+    let mut second = row(1, &[], &[2.0]);
+    second
+        .user_attrs_json
+        .insert("mixed".to_string(), json!("text"));
+    let df = DataFrame::from_trials(&[first, second], &[], &["obj0".to_string()], &[], &[], 0);
+    let mut meta = meta_single();
+    meta.param_names.clear();
+    let first = super::trial_summary::build_trial_summary(&df, &meta, 0);
+    let second = super::trial_summary::build_trial_summary(&df, &meta, 1);
+    assert_eq!(
+        first.user_attrs,
+        vec![
+            ("details".to_string(), "{\"a\":1,\"b\":2}".to_string()),
+            ("flag".to_string(), "true".to_string()),
+            ("list".to_string(), "[1,false]".to_string()),
+            ("literal".to_string(), "{\"a\":1}".to_string()),
+            ("mixed".to_string(), "1.25".to_string()),
+            ("nothing".to_string(), "null".to_string()),
+        ]
+    );
+    assert_eq!(
+        second.user_attrs,
+        vec![("mixed".to_string(), "text".to_string())]
+    );
 }
 
 // =============================================================================

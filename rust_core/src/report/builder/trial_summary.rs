@@ -98,19 +98,21 @@ pub(super) fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) 
         None
     };
 
-    let mut user_attrs: Vec<(String, String)> = Vec::new();
-    for name in df.user_attr_string_col_names() {
-        if let Some(col) = df.get_string_column(name) {
-            user_attrs.push((name.clone(), col.get(row).cloned().unwrap_or_default()));
-        }
-    }
-    for name in df.user_attr_numeric_col_names() {
-        if let Some(col) = df.get_numeric_column(name) {
-            let v = col.get(row).copied().unwrap_or(f64::NAN);
-            user_attrs.push((name.clone(), format_number(v)));
-        }
-    }
-    user_attrs.sort_by(|a, b| a.0.cmp(&b.0));
+    let user_attrs: Vec<(String, String)> = df
+        .user_attr_names()
+        .filter_map(|name| {
+            let value = df.user_attr_value(name, row)?;
+            let text = match value {
+                serde_json::Value::Number(number) => number
+                    .as_f64()
+                    .map(format_number)
+                    .unwrap_or_else(|| number.to_string()),
+                serde_json::Value::String(text) => text.clone(),
+                value => value.to_string(),
+            };
+            Some((name.to_string(), text))
+        })
+        .collect();
 
     TrialSummary {
         trial_number,

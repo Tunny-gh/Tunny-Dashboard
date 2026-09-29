@@ -224,6 +224,7 @@ mod tests {
             objective_values: vec![1.0],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         }];
         let df = DataFrame::from_trials(&rows, &["x".to_string()], &["y".to_string()], &[], &[], 0);
@@ -248,6 +249,7 @@ mod tests {
             objective_values: vec![1.0],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         }];
         DataFrame::from_trials(&rows, &["x".to_string()], &["y".to_string()], &[], &[], 0)

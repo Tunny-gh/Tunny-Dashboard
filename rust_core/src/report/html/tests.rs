@@ -29,6 +29,7 @@ fn row(id: u32, params: &[(&str, f64)], objs: &[f64]) -> TrialRow {
         objective_values: objs.to_vec(),
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     }
 }
@@ -161,6 +162,36 @@ fn assert_self_contained(html: &str) {
     assert!(!html.contains("src="), "外部リソース src を含まない");
     assert!(!html.contains("url("), "CSS url() 参照を含まない");
     assert!(!html.contains("@import"), "外部 CSS import を含まない");
+}
+
+#[test]
+fn representative_trial_html_renders_structured_user_attributes() {
+    use serde_json::json;
+
+    let mut trial = row(0, &[], &[1.0]);
+    trial.user_attrs_json = HashMap::from([
+        ("flag".to_string(), json!(true)),
+        ("nothing".to_string(), json!(null)),
+        ("list".to_string(), json!([1, false])),
+        ("details".to_string(), json!({"a": 1})),
+    ]);
+    let df = DataFrame::from_trials(&[trial], &[], &["obj0".to_string()], &[], &[], 0);
+    let mut meta = meta_single();
+    meta.param_names.clear();
+    let report = build_study_report(&meta, &df, None, &source(), &opts());
+    let html = render_html(&report, ReportLang::En);
+    for expected in [
+        "user_attr: flag",
+        "user_attr: nothing",
+        "user_attr: list",
+        "user_attr: details",
+        "[1,false]",
+        "{&quot;a&quot;:1}",
+        ">null<",
+        ">true<",
+    ] {
+        assert!(html.contains(expected), "missing {expected}");
+    }
 }
 
 #[test]

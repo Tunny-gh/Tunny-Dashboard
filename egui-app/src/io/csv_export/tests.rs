@@ -722,6 +722,7 @@ fn make_category_study() -> StudyContext {
         objective_values: vec![],
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     })
     .collect();
@@ -754,6 +755,7 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
         objective_values: vec![20.0],
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     };
     first.user_attrs_numeric.insert("shared".to_string(), 30.0);
@@ -769,6 +771,7 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
         objective_values: vec![21.0],
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     };
     second
@@ -802,17 +805,84 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
     let mut widgets = WidgetStates::default();
 
     let csv = build_trial_table_csv(&state, &widgets).unwrap();
-    assert!(csv.starts_with("trial_id,trial_number,shared,objective,User attr: mixed (numeric),User attr: mixed (text),User attr: note,User attr: shared,pareto_rank,cluster_id\n"));
-    assert!(csv.contains("1,0,10,20,1.5,,\"a,b\n\"\"quoted\"\"\",30,0,"));
-    assert!(csv.contains("2,1,11,21,,text,,,0,"));
+    assert!(csv.starts_with("trial_id,trial_number,shared,objective,User attr: mixed,User attr: note,User attr: shared,pareto_rank,cluster_id\n"));
+    assert!(csv.contains("1,0,10,20,1.5,\"a,b\n\"\"quoted\"\"\",30,0,"));
+    assert!(csv.contains("2,1,11,21,text,,,0,"));
 
     widgets.trial_table.show_user_attrs = false;
+    widgets.trial_table.expand_user_attr_lists = true;
     let hidden = build_trial_table_csv(&state, &widgets).unwrap();
     assert_eq!(hidden, build_trial_based_csv(&state).unwrap());
     assert!(!hidden.contains("User attr:"));
     widgets.trial_table.show_user_attrs = true;
     let chart_csv = build_chart_csv(&ChartId::ParallelCoordinates, &state, &widgets).unwrap();
     assert_eq!(chart_csv, hidden);
+}
+
+#[test]
+fn all_trials_csv_distinguishes_json_null_missing_and_literal_text() {
+    use serde_json::json;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+
+    let make_row = |id| CoreRow {
+        trial_id: id,
+        trial_number: id,
+        param_display: HashMap::new(),
+        param_category_label: HashMap::new(),
+        objective_values: vec![],
+        user_attrs_numeric: HashMap::new(),
+        user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
+        constraint_values: vec![],
+    };
+    let mut first = make_row(0);
+    first.user_attrs_json = HashMap::from([
+        ("flag".to_string(), json!(true)),
+        ("nullish".to_string(), json!(null)),
+        ("array".to_string(), json!([1, "a,b"])),
+        ("object".to_string(), json!({"b": 2, "a": 1})),
+        ("literal".to_string(), json!("{\"a\":1}")),
+    ]);
+    let mut second = make_row(1);
+    second
+        .user_attrs_json
+        .insert("array".to_string(), json!("plain"));
+    let df = DataFrame::from_trials(&[first, second], &[], &[], &[], &[], 0);
+    let view = crate::state::types::StudyView::new(Arc::new(df), vec![]);
+    let csv =
+        crate::io::export::build_trial_table_csv_from_view(&view, &[0, 1], &[], &[], true, false);
+    assert_eq!(csv, concat!(
+        "trial_id,trial_number,User attr: array,User attr: flag,User attr: literal,User attr: nullish,User attr: object,pareto_rank,cluster_id\n",
+        "0,0,\"[1,\"\"a,b\"\"]\",true,\"{\"\"a\"\":1}\",null,\"{\"\"a\"\":1,\"\"b\"\":2}\",0,\n",
+        "1,1,plain,,,,,0,\n",
+    ));
+    let state = AppState {
+        current_study: Some(StudyContext {
+            meta: StudyMeta {
+                study_id: 0,
+                name: "test".to_string(),
+                directions: vec![],
+                completed_trials: 2,
+                param_names: vec![],
+                objective_names: vec![],
+                param_bounds: Default::default(),
+            },
+            view,
+            pareto_indices: vec![],
+        }),
+        ..AppState::default()
+    };
+    let mut widgets = WidgetStates::default();
+    assert_eq!(build_trial_table_csv(&state, &widgets).unwrap(), csv);
+    widgets.trial_table.expand_user_attr_lists = true;
+    let expanded = build_trial_table_csv(&state, &widgets).unwrap();
+    assert!(expanded.starts_with(concat!(
+        "trial_id,trial_number,User attr: array,User attr: array[0],User attr: array[1],",
+        "User attr: flag,User attr: literal,User attr: nullish,User attr: object,pareto_rank,cluster_id\n"
+    )));
+    assert!(expanded.contains("0,0,\"[1,\"\"a,b\"\"]\",1,\"a,b\",true,"));
+    assert!(expanded.contains("1,1,plain,,,,,,,0,"));
 }
 
 #[test]

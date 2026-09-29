@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tunny_core::dataframe::DataFrame;
@@ -195,6 +195,7 @@ impl StudyContext {
                 objective_values: r.objectives.clone(),
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             })
             .collect();
@@ -234,16 +235,41 @@ pub struct StudyView {
     pub cluster_id: Vec<Option<i32>>,
 }
 
-/// A borrowed trial user-attribute column with a display label that disambiguates
-/// keys used with both numeric and text values.
-pub struct UserAttributeColumn<'a> {
-    pub label: String,
-    pub values: UserAttributeValues<'a>,
+/// Human-readable text for one original JSON attribute value.
+/// Missing and explicit JSON null have different representations.
+pub fn format_user_attribute(value: Option<&serde_json::Value>) -> String {
+    match value {
+        None => "—".to_string(),
+        Some(serde_json::Value::Number(number)) => number
+            .as_f64()
+            .map(|number| format!("{number:.4}"))
+            .unwrap_or_else(|| number.to_string()),
+        Some(serde_json::Value::String(text)) => text.clone(),
+        Some(value) => value.to_string(),
+    }
 }
 
-pub enum UserAttributeValues<'a> {
-    Numeric(&'a [f64]),
-    Text(&'a [String]),
+/// A base attribute column or an optional array element column in All Trials.
+pub struct UserAttributeDisplayColumn<'a> {
+    pub key: &'a str,
+    pub array_index: Option<usize>,
+}
+
+impl UserAttributeDisplayColumn<'_> {
+    pub fn label(&self) -> String {
+        match self.array_index {
+            Some(index) => format!("{}[{index}]", self.key),
+            None => self.key.to_string(),
+        }
+    }
+
+    pub fn value<'a>(&self, df: &'a DataFrame, row: usize) -> Option<&'a serde_json::Value> {
+        let value = df.user_attr_value(self.key, row)?;
+        match self.array_index {
+            Some(index) => value.as_array()?.get(index),
+            None => Some(value),
+        }
+    }
 }
 
 impl StudyView {
@@ -294,36 +320,38 @@ impl StudyView {
         names.iter().map(|name| self.numeric_column(name)).collect()
     }
 
-    /// Attribute columns sorted by key, with numeric before text for a mixed-type key.
-    pub fn user_attribute_columns(&self) -> Vec<UserAttributeColumn<'_>> {
-        let numeric_names = self.df.user_attr_numeric_col_names();
-        let text_names = self.df.user_attr_string_col_names();
-        let numeric_name_set: HashSet<&str> = numeric_names.iter().map(String::as_str).collect();
-        let text_name_set: HashSet<&str> = text_names.iter().map(String::as_str).collect();
-        let mut columns: Vec<_> =
-            self.df
-                .user_attr_numeric_columns()
-                .map(|(name, values)| UserAttributeColumn {
-                    label: if text_name_set.contains(name) {
-                        format!("{name} (numeric)")
-                    } else {
-                        name.to_string()
-                    },
-                    values: UserAttributeValues::Numeric(values),
-                })
-                .chain(self.df.user_attr_string_columns().map(|(name, values)| {
-                    UserAttributeColumn {
-                        label: if numeric_name_set.contains(name) {
-                            format!("{name} (text)")
-                        } else {
-                            name.to_string()
-                        },
-                        values: UserAttributeValues::Text(values),
-                    }
-                }))
-                .collect();
-        columns.sort_by(|a, b| a.label.cmp(&b.label));
+    /// One display column per attribute key, in deterministic order.
+    pub fn user_attribute_names(&self) -> Vec<&str> {
+        self.df.user_attr_names().collect()
+    }
+
+    /// Base columns are always present. Expanded array items follow their key.
+    pub fn user_attribute_columns(
+        &self,
+        expand_arrays: bool,
+    ) -> Vec<UserAttributeDisplayColumn<'_>> {
+        let mut columns = Vec::new();
+        for key in self.df.user_attr_names() {
+            columns.push(UserAttributeDisplayColumn {
+                key,
+                array_index: None,
+            });
+            if expand_arrays {
+                for index in 0..self.df.user_attr_array_len(key).unwrap_or(0) {
+                    columns.push(UserAttributeDisplayColumn {
+                        key,
+                        array_index: Some(index),
+                    });
+                }
+            }
+        }
         columns
+    }
+
+    pub fn has_array_user_attributes(&self) -> bool {
+        self.df
+            .user_attr_names()
+            .any(|key| self.df.user_attr_array_len(key).is_some_and(|len| len > 0))
     }
 
     /// Parameter column names.

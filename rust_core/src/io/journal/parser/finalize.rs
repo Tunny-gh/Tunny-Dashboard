@@ -63,12 +63,13 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             for name in trial.param_display.keys() {
                 study.param_names.insert(name.clone());
             }
-            for name in trial.user_attrs_numeric.keys() {
+            for name in trial.user_attrs_json.keys() {
                 study.user_attr_names.insert(name.clone());
+            }
+            for name in trial.user_attrs_numeric.keys() {
                 per_study_unn[study_idx].insert(name.clone());
             }
             for name in trial.user_attrs_string.keys() {
-                study.user_attr_names.insert(name.clone());
                 per_study_usn[study_idx].insert(name.clone());
             }
             if trial.has_constraints {
@@ -93,6 +94,7 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             objective_values: trial.values.unwrap_or_default(),
             user_attrs_numeric: trial.user_attrs_numeric,
             user_attrs_string: trial.user_attrs_string,
+            user_attrs_json: trial.user_attrs_json,
             constraint_values: trial.constraint_values,
         });
     }

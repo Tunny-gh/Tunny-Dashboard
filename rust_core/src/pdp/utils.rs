@@ -287,6 +287,7 @@ mod tests {
                 objective_values: vec![1.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             },
             TrialRow {
@@ -299,6 +300,7 @@ mod tests {
                 objective_values: vec![2.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             },
         ];
@@ -343,6 +345,7 @@ mod tests {
             objective_values: vec![1.0],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         }];
 
@@ -381,6 +384,7 @@ mod tests {
                 objective_values: vec![i as f64 * 10.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![c],
             })
             .collect();
@@ -418,6 +422,7 @@ mod tests {
             objective_values: vec![1.0],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         }];
         let df = DataFrame::from_trials(

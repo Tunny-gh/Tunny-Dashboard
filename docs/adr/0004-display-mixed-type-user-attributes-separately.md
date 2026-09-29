@@ -1,6 +1,6 @@
 # ADR-0004: Display mixed-type trial user attributes separately
 
-Status: Accepted
+Status: Superseded by ADR-0005
 Date: 2026-09-29
 
 ## Context

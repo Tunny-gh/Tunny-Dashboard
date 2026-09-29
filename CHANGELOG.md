@@ -13,6 +13,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- Trial User Attributes now retain and display every JSON value, including
+  booleans, null, arrays, and objects, in one column per attribute key by default across
+  trial details, the All Trials table, CSV export, and HTML reports.
+- An **Expand lists** checkbox in All Trials adds `key[0]`, `key[1]`, and later
+  array element columns. Trial details can also expand array attributes into
+  indexed rows. The All Trials CSV export follows the checkbox setting.
 - Trial details now show numeric and text User Attributes. The All Trials table
   and its CSV export include attribute columns, controlled by a visible-on-default
   **User attrs** checkbox.

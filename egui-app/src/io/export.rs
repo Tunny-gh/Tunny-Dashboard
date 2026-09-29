@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 
 use crate::state::messages::AppMessage;
-use crate::state::types::{StudyView, UserAttributeValues};
+use crate::state::types::StudyView;
 use tunny_core::export::{CsvField, CsvWriter};
 
 /// Target rows for CSV export.
@@ -41,6 +41,7 @@ pub fn build_trial_csv_from_view(
         objective_names,
         columns,
         false,
+        false,
     )
 }
 
@@ -51,6 +52,7 @@ pub fn build_trial_table_csv_from_view(
     param_names: &[String],
     objective_names: &[String],
     show_user_attrs: bool,
+    expand_user_attr_lists: bool,
 ) -> String {
     build_trial_csv_from_view_impl(
         view,
@@ -62,6 +64,7 @@ pub fn build_trial_table_csv_from_view(
             cluster_id: true,
         },
         show_user_attrs,
+        expand_user_attr_lists,
     )
 }
 
@@ -72,17 +75,18 @@ fn build_trial_csv_from_view_impl(
     objective_names: &[String],
     columns: TrialCsvColumns,
     show_user_attrs: bool,
+    expand_user_attr_lists: bool,
 ) -> String {
     let param_cols = view.numeric_columns(param_names);
     let obj_cols = view.numeric_columns(objective_names);
     let attr_cols = if show_user_attrs {
-        view.user_attribute_columns()
+        view.user_attribute_columns(expand_user_attr_lists)
     } else {
         Vec::new()
     };
     let attr_headers: Vec<String> = attr_cols
         .iter()
-        .map(|column| format!("User attr: {}", column.label))
+        .map(|column| format!("User attr: {}", column.label()))
         .collect();
 
     let mut w = CsvWriter::new();
@@ -109,16 +113,26 @@ fn build_trial_csv_from_view_impl(
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             fields.push(CsvField::Num(v));
         }
-        for column in &attr_cols {
-            fields.push(match column.values {
-                UserAttributeValues::Numeric(values) => values
-                    .get(i)
-                    .map(|&value| CsvField::Num(value))
+        let attr_values: Vec<_> = attr_cols
+            .iter()
+            .map(|column| column.value(&view.df, i))
+            .collect();
+        let attr_texts: Vec<_> = attr_values
+            .iter()
+            .map(|value| match value {
+                Some(serde_json::Value::String(text)) => text.clone(),
+                Some(serde_json::Value::Number(_)) | None => String::new(),
+                Some(value) => value.to_string(),
+            })
+            .collect();
+        for (value, text) in attr_values.iter().zip(&attr_texts) {
+            fields.push(match value {
+                Some(serde_json::Value::Number(number)) => number
+                    .as_f64()
+                    .map(CsvField::Num)
                     .unwrap_or(CsvField::Empty),
-                UserAttributeValues::Text(values) => values
-                    .get(i)
-                    .map(|value| CsvField::Text(value))
-                    .unwrap_or(CsvField::Empty),
+                Some(_) => CsvField::Text(text),
+                None => CsvField::Empty,
             });
         }
         if columns.pareto_rank {

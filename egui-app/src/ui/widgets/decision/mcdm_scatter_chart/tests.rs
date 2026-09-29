@@ -24,6 +24,7 @@ fn make_view_with_objectives(objective_rows: &[Vec<f64>]) -> (StudyView, Vec<Str
             objective_values: objective_rows[i].clone(),
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();

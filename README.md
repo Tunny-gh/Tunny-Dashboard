@@ -17,6 +17,10 @@ Supported storage sources:
 - **PostgreSQL / MySQL** RDB storage (connection URL, SQLAlchemy-style URLs accepted)
 - **Flat CSV** import for non-Optuna data
 
+Journal and RDB imports retain the JSON types of Optuna Trial User Attributes,
+including arrays, objects, booleans, and null. Flat CSV import does not infer
+JSON types from text.
+
 All sources support **Reload**: press it to re-read the open storage, so trials written by a run in progress show up on demand.
 
 <img width="800" height="516" alt="1782045917513" src="https://github.com/user-attachments/assets/ab008af2-0556-4c10-9ff7-1bc50f0a595f" />
@@ -134,7 +138,7 @@ All widgets can be freely arranged on the dashboard canvas via drag-and-drop.
 | **Box Plot**             | Per-column box plots, optionally grouped.                                                                          |
 | **Violin Plot**          | Kernel-density violins per column, or split by a categorical parameter.                                            |
 | **Correlation Matrix**   | Spearman correlation heatmap across parameters and objectives.                                                     |
-| **Trial Table**          | Full trial data table with row selection and optional numeric/text User Attribute columns, also included in its CSV export. |
+| **Trial Table**          | Full trial data table with row selection and optional JSON User Attribute columns; lists can expand into indexed columns in the table and its CSV export. |
 | **Artifact Gallery**     | Image artifacts attached to trials, linked to selection.                                                           |
 
 ### Sensitivity & surrogate models

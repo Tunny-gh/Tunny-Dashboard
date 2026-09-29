@@ -425,6 +425,7 @@ mod tests {
                 objective_values: vec![i as f64 * 2.0, 10.0 - i as f64],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             })
             .collect();
@@ -468,6 +469,7 @@ mod tests {
                 objective_values: vec![i as f64],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             })
             .collect();

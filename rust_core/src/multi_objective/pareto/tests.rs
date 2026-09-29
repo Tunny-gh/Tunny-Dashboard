@@ -11,6 +11,7 @@ fn make_row_obj(trial_id: u32, obj: Vec<f64>) -> TrialRow {
         objective_values: obj,
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     }
 }
@@ -24,6 +25,7 @@ fn make_row_constrained(trial_id: u32, obj: Vec<f64>, constraints: Vec<f64>) -> 
         objective_values: obj,
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: constraints,
     }
 }

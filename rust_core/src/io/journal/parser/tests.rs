@@ -1,4 +1,5 @@
 use super::*;
+use crate::dataframe::DataFrame;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -520,6 +521,77 @@ fn tc_101_13_user_attr_string() {
 }
 
 #[test]
+fn json_user_attrs_survive_inline_and_update_events_in_streaming() {
+    use serde_json::json;
+
+    let events = [
+        json!({"op_code":0,"worker_id":"w","study_name":"s","directions":[1]}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[1.0],"distributions":{},
+            "user_attrs":{"flag":true,"nothing":null,"list":[1,{"ok":false}],
+                "details":{"b":2,"a":1},"mixed":1.5,"literal":"{\"a\":1}"}}),
+        json!({"op_code":4,"worker_id":"w","study_id":0}),
+        json!({"op_code":8,"worker_id":"w","trial_id":1,"user_attr":{"mixed":2}}),
+        json!({"op_code":8,"worker_id":"w","trial_id":1,"user_attr":{"mixed":"two"}}),
+        json!({"op_code":8,"worker_id":"w","trial_id":1,"user_attr":{"mixed":null}}),
+        json!({"op_code":6,"worker_id":"w","trial_id":1,"state":1,"values":[2.0]}),
+    ];
+    let data = events
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, full, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+    assert_eq!(full.row_count(), 2);
+    assert_eq!(full.user_attr_value("flag", 0), Some(&json!(true)));
+    assert_eq!(full.user_attr_value("nothing", 0), Some(&Value::Null));
+    assert_eq!(full.user_attr_value("nothing", 1), None);
+    assert_eq!(
+        full.user_attr_value("list", 0),
+        Some(&json!([1,{"ok":false}]))
+    );
+    assert_eq!(
+        full.user_attr_value("details", 0),
+        Some(&json!({"a":1,"b":2}))
+    );
+    assert_eq!(
+        full.user_attr_value("literal", 0),
+        Some(&json!("{\"a\":1}"))
+    );
+    assert_eq!(full.user_attr_value("mixed", 0), Some(&json!(1.5)));
+    assert_eq!(full.user_attr_value("mixed", 1), Some(&Value::Null));
+    assert!(full.get_numeric_column("mixed").unwrap()[1].is_nan());
+
+    let mut batches = Vec::new();
+    parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| batches.push(batch)).unwrap();
+    let mut streamed = DataFrame::from_trials(
+        &batches[0].new_rows,
+        &batches[0].param_names,
+        &batches[0].objective_names,
+        &batches[0].user_attr_numeric_names,
+        &batches[0].user_attr_string_names,
+        batches[0].max_constraints,
+    );
+    for batch in batches.iter().skip(1) {
+        streamed.append_trials(
+            &batch.new_rows,
+            &batch.param_names,
+            &batch.objective_names,
+            &batch.user_attr_numeric_names,
+            &batch.user_attr_string_names,
+            batch.max_constraints,
+        );
+    }
+    for name in full.user_attr_names() {
+        for row in 0..full.row_count() {
+            assert_eq!(
+                streamed.user_attr_value(name, row),
+                full.user_attr_value(name, row)
+            );
+        }
+    }
+}
+
+#[test]
 fn tc_101_14_constraints_expansion() {
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
@@ -735,6 +807,7 @@ fn trial_builder_constraint_values_stored() {
         param_category_label: HashMap::new(),
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![-1.0, -0.5, 0.0],
         has_constraints: true,
         datetime_start: None,

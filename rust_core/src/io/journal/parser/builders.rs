@@ -29,6 +29,7 @@ pub(super) struct TrialBuilder {
     pub(super) param_category_label: HashMap<String, String>,
     pub(super) user_attrs_numeric: HashMap<String, f64>,
     pub(super) user_attrs_string: HashMap<String, String>,
+    pub(super) user_attrs_json: HashMap<String, serde_json::Value>,
     pub(super) constraint_values: Vec<f64>,
     pub(super) has_constraints: bool,
     /// Start datetime. Naive unix seconds. Derived from `datetime_start` on op_code=4.

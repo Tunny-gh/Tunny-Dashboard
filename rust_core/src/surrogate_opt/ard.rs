@@ -90,6 +90,7 @@ mod tests {
             objective_values: objectives,
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         }
     }

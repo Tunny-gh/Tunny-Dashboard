@@ -288,6 +288,64 @@ fn parse_single_study_reads_params_and_excludes_non_complete_trials() {
 }
 
 #[test]
+fn json_user_attributes_match_journal_values() {
+    use serde_json::{json, Value};
+
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    let attributes = [
+        (1, "flag", json!(true)),
+        (1, "nothing", Value::Null),
+        (1, "list", json!([1, {"ok": false}])),
+        (1, "details", json!({"b": 2, "a": 1})),
+        (1, "literal", json!("{\"a\":1}")),
+        (1, "mixed", json!(1.5)),
+        (2, "mixed", json!("two")),
+    ];
+    for (trial_id, key, value) in &attributes {
+        conn.execute(
+            "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES (?1, ?2, ?3)",
+            rusqlite::params![trial_id, key, value.to_string()],
+        )
+        .unwrap();
+    }
+    drop(conn);
+    let (_, rdb, _) = parse_single_study(file.path(), 1).unwrap();
+
+    let events = [
+        json!({"op_code":0,"worker_id":"w","study_name":"s","directions":[1]}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[1.5],"distributions":{},
+            "user_attrs":{"score":12.5,"flag":true,"nothing":null,
+                "list":[1,{"ok":false}],"details":{"a":1,"b":2},
+                "literal":"{\"a\":1}","mixed":1.5}}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[2.5],"distributions":{},
+            "user_attrs":{"mixed":"two"}}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[3.5],"distributions":{}}),
+    ];
+    let journal = events
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, from_journal, _) =
+        crate::io::journal::parser::parse_single_study(journal.as_bytes(), 0).unwrap();
+    assert_eq!(rdb.row_count(), from_journal.row_count());
+    for name in rdb.user_attr_names() {
+        for row in 0..rdb.row_count() {
+            assert_eq!(
+                rdb.user_attr_value(name, row),
+                from_journal.user_attr_value(name, row),
+                "{name} row {row}"
+            );
+        }
+    }
+    assert_eq!(rdb.user_attr_value("nothing", 0), Some(&Value::Null));
+    assert_eq!(rdb.user_attr_value("nothing", 1), None);
+}
+
+#[test]
 fn parse_single_study_converts_infinite_objective_values() {
     let file = tempfile::NamedTempFile::new().unwrap();
     let conn = Connection::open(file.path()).unwrap();

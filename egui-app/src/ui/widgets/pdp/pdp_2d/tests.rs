@@ -208,6 +208,7 @@ fn make_view_2p_ranked(p1: &[f64], p2: &[f64], obj: &[f64], ranks: Vec<u32>) -> 
             objective_values: vec![obj[i]],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();

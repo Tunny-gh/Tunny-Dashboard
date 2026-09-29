@@ -117,7 +117,11 @@ pub fn build_chart_csv(
 /// MCDM outputs the ranking.
 pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     match widgets.trial_table.mode {
-        TrialTableMode::All => build_all_trials_csv(app_state, widgets.trial_table.show_user_attrs),
+        TrialTableMode::All => build_all_trials_csv(
+            app_state,
+            widgets.trial_table.show_user_attrs,
+            widgets.trial_table.expand_user_attr_lists,
+        ),
         TrialTableMode::Cluster => {
             let key = widgets.trial_table.cluster.cache_key();
             let cr = app_state.cluster_cache.get(&key)?;
