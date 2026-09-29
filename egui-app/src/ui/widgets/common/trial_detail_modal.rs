@@ -365,28 +365,7 @@ fn kv_row(
             let key_width = available * 0.36;
             let value_width = (available - key_width - ui.spacing().item_spacing.x).max(40.0);
             ui.horizontal_top(|ui| {
-                let indent = if kind == AttributeRowKind::ArrayChild {
-                    18.0
-                } else {
-                    0.0
-                };
-                let key_label_width = key_width
-                    - indent
-                    - if indent > 0.0 {
-                        ui.spacing().item_spacing.x
-                    } else {
-                        0.0
-                    };
-                if indent > 0.0 {
-                    ui.add_space(indent);
-                }
-                let key_text = egui::RichText::new(key).color(crate::theme::TEXT_SECONDARY());
-                let key_text = if kind == AttributeRowKind::ArrayParent {
-                    key_text.strong()
-                } else {
-                    key_text
-                };
-                ui.add_sized([key_label_width, 0.0], egui::Label::new(key_text).wrap());
+                key_label(ui, key, kind, key_width);
                 ui.add_sized(
                     [value_width, 0.0],
                     egui::Label::new(value).wrap().halign(if numeric {
@@ -402,6 +381,26 @@ fn kv_row(
         row.response.rect.bottom(),
         egui::Stroke::new(0.5, ui.visuals().widgets.noninteractive.bg_stroke.color),
     );
+}
+
+fn key_label(ui: &mut egui::Ui, key: &str, kind: AttributeRowKind, width: f32) -> egui::Response {
+    let key_text = egui::RichText::new(key).color(crate::theme::TEXT_SECONDARY());
+    let key_text = if kind == AttributeRowKind::ArrayParent {
+        key_text.strong()
+    } else {
+        key_text
+    };
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::left_to_right(egui::Align::Min),
+        |ui| {
+            if kind == AttributeRowKind::ArrayChild {
+                ui.add_space(18.0);
+            }
+            ui.add(egui::Label::new(key_text).wrap())
+        },
+    )
+    .inner
 }
 
 /// Formats an `Option<f64>` to 4 decimal places (`None` becomes an em dash).
@@ -581,6 +580,19 @@ mod tests {
 
     fn row_pairs(rows: Vec<UserAttributeRow>) -> Vec<(String, String)> {
         rows.into_iter().map(|row| (row.key, row.value)).collect()
+    }
+
+    #[test]
+    fn expanded_array_child_key_is_indented() {
+        let ctx = egui::Context::default();
+        let mut key_positions = None;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            let parent = key_label(ui, "Attr1", AttributeRowKind::ArrayParent, 100.0);
+            let child = key_label(ui, "Attr1[0]", AttributeRowKind::ArrayChild, 100.0);
+            key_positions = Some((parent.rect.left(), child.rect.left()));
+        });
+        let (parent_x, child_x) = key_positions.unwrap();
+        assert!(child_x >= parent_x + 18.0);
     }
 
     #[test]
