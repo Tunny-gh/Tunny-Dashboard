@@ -134,7 +134,7 @@ All widgets can be freely arranged on the dashboard canvas via drag-and-drop.
 | **Box Plot**             | Per-column box plots, optionally grouped.                                                                          |
 | **Violin Plot**          | Kernel-density violins per column, or split by a categorical parameter.                                            |
 | **Correlation Matrix**   | Spearman correlation heatmap across parameters and objectives.                                                     |
-| **Trial Table**          | Full trial data table with sortable columns and row selection.                                                     |
+| **Trial Table**          | Full trial data table with row selection and optional numeric/text User Attribute columns, also included in its CSV export. |
 | **Artifact Gallery**     | Image artifacts attached to trials, linked to selection.                                                           |
 
 ### Sensitivity & surrogate models

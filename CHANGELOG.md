@@ -11,6 +11,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Added
+
+- Trial details now show numeric and text User Attributes. The All Trials table
+  and its CSV export include attribute columns, controlled by a visible-on-default
+  **User attrs** checkbox.
+
 ### Fixed
 
 - Reload now refreshes artifacts from the selected folder along with trial data,

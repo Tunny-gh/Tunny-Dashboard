@@ -742,6 +742,80 @@ fn make_category_study() -> StudyContext {
 }
 
 #[test]
+fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+
+    let mut first = CoreRow {
+        trial_id: 1,
+        trial_number: 0,
+        param_display: HashMap::from([("shared".to_string(), 10.0)]),
+        param_category_label: HashMap::new(),
+        objective_values: vec![20.0],
+        user_attrs_numeric: HashMap::new(),
+        user_attrs_string: HashMap::new(),
+        constraint_values: vec![],
+    };
+    first.user_attrs_numeric.insert("shared".to_string(), 30.0);
+    first.user_attrs_numeric.insert("mixed".to_string(), 1.5);
+    first
+        .user_attrs_string
+        .insert("note".to_string(), "a,b\n\"quoted\"".to_string());
+    let mut second = CoreRow {
+        trial_id: 2,
+        trial_number: 1,
+        param_display: HashMap::from([("shared".to_string(), 11.0)]),
+        param_category_label: HashMap::new(),
+        objective_values: vec![21.0],
+        user_attrs_numeric: HashMap::new(),
+        user_attrs_string: HashMap::new(),
+        constraint_values: vec![],
+    };
+    second
+        .user_attrs_string
+        .insert("mixed".to_string(), "text".to_string());
+    let df = DataFrame::from_trials(
+        &[first, second],
+        &["shared".to_string()],
+        &["objective".to_string()],
+        &["shared".to_string(), "mixed".to_string()],
+        &["mixed".to_string(), "note".to_string()],
+        0,
+    );
+    let study = StudyContext {
+        meta: StudyMeta {
+            study_id: 0,
+            name: "test".to_string(),
+            directions: vec![Direction::Minimize],
+            completed_trials: 2,
+            param_names: vec!["shared".to_string()],
+            objective_names: vec!["objective".to_string()],
+            param_bounds: Default::default(),
+        },
+        view: crate::state::types::StudyView::new(Arc::new(df), vec![]),
+        pareto_indices: vec![],
+    };
+    let state = AppState {
+        current_study: Some(study),
+        ..AppState::default()
+    };
+    let mut widgets = WidgetStates::default();
+
+    let csv = build_trial_table_csv(&state, &widgets).unwrap();
+    assert!(csv.starts_with("trial_id,trial_number,shared,objective,User attr: mixed (numeric),User attr: mixed (text),User attr: note,User attr: shared,pareto_rank,cluster_id\n"));
+    assert!(csv.contains("1,0,10,20,1.5,,\"a,b\n\"\"quoted\"\"\",30,0,"));
+    assert!(csv.contains("2,1,11,21,,text,,,0,"));
+
+    widgets.trial_table.show_user_attrs = false;
+    let hidden = build_trial_table_csv(&state, &widgets).unwrap();
+    assert_eq!(hidden, build_trial_based_csv(&state).unwrap());
+    assert!(!hidden.contains("User attr:"));
+    widgets.trial_table.show_user_attrs = true;
+    let chart_csv = build_chart_csv(&ChartId::ParallelCoordinates, &state, &widgets).unwrap();
+    assert_eq!(chart_csv, hidden);
+}
+
+#[test]
 fn violin_plot_csv_category_mode_writes_one_group_per_level() {
     use crate::ui::widgets::violin_plot::{ViolinSource, GRID_POINTS};
 

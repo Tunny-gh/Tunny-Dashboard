@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tunny_core::dataframe::DataFrame;
@@ -234,6 +234,18 @@ pub struct StudyView {
     pub cluster_id: Vec<Option<i32>>,
 }
 
+/// A borrowed trial user-attribute column with a display label that disambiguates
+/// keys used with both numeric and text values.
+pub struct UserAttributeColumn<'a> {
+    pub label: String,
+    pub values: UserAttributeValues<'a>,
+}
+
+pub enum UserAttributeValues<'a> {
+    Numeric(&'a [f64]),
+    Text(&'a [String]),
+}
+
 impl StudyView {
     /// Builds a StudyView from an `Arc<DataFrame>` and Pareto ranks.
     /// If the length of pareto_rank doesn't match row_count, pads with 0.
@@ -280,6 +292,38 @@ impl StudyView {
     /// Resolves multiple column names to borrowed slices at once (None for missing columns).
     pub fn numeric_columns(&self, names: &[String]) -> Vec<Option<&[f64]>> {
         names.iter().map(|name| self.numeric_column(name)).collect()
+    }
+
+    /// Attribute columns sorted by key, with numeric before text for a mixed-type key.
+    pub fn user_attribute_columns(&self) -> Vec<UserAttributeColumn<'_>> {
+        let numeric_names = self.df.user_attr_numeric_col_names();
+        let text_names = self.df.user_attr_string_col_names();
+        let numeric_name_set: HashSet<&str> = numeric_names.iter().map(String::as_str).collect();
+        let text_name_set: HashSet<&str> = text_names.iter().map(String::as_str).collect();
+        let mut columns: Vec<_> =
+            self.df
+                .user_attr_numeric_columns()
+                .map(|(name, values)| UserAttributeColumn {
+                    label: if text_name_set.contains(name) {
+                        format!("{name} (numeric)")
+                    } else {
+                        name.to_string()
+                    },
+                    values: UserAttributeValues::Numeric(values),
+                })
+                .chain(self.df.user_attr_string_columns().map(|(name, values)| {
+                    UserAttributeColumn {
+                        label: if numeric_name_set.contains(name) {
+                            format!("{name} (text)")
+                        } else {
+                            name.to_string()
+                        },
+                        values: UserAttributeValues::Text(values),
+                    }
+                }))
+                .collect();
+        columns.sort_by(|a, b| a.label.cmp(&b.label));
+        columns
     }
 
     /// Parameter column names.
