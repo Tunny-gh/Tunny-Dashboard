@@ -14,22 +14,6 @@ use crate::io::rdb::backend::{OptunaBackend, SqlParam, SqlValue};
 use super::study_list::{fetch_directions, fetch_metric_names, objective_names_for};
 use super::{ensure_optuna_schema, query_scalar_i64};
 
-/// Sorts numbers/strings using the same semantics as the journal parser (`state.rs`).
-/// Number → numeric, String → string. Anything else (bool, array, object, null) is discarded
-/// (journal's `process_set_trial_user_attr` discards them the same way, with no fallback to to_string).
-fn classify_user_attr(
-    value: &Value,
-    key: &str,
-    numeric: &mut HashMap<String, f64>,
-    string: &mut HashMap<String, String>,
-) {
-    if let Some(number) = value.as_f64() {
-        numeric.insert(key.to_string(), number);
-    } else if let Some(text) = value.as_str() {
-        string.insert(key.to_string(), text.to_string());
-    }
-}
-
 struct TrialAccum {
     trial_number: u32,
     objective_values: Vec<(i64, f64)>,
@@ -37,6 +21,7 @@ struct TrialAccum {
     param_category_label: HashMap<String, String>,
     user_attrs_numeric: HashMap<String, f64>,
     user_attrs_string: HashMap<String, String>,
+    user_attrs_json: HashMap<String, Value>,
     constraint_values: Vec<f64>,
 }
 
@@ -134,6 +119,7 @@ pub fn parse_single_study_rows(
                     param_category_label: HashMap::new(),
                     user_attrs_numeric: HashMap::new(),
                     user_attrs_string: HashMap::new(),
+                    user_attrs_json: HashMap::new(),
                     constraint_values: Vec::new(),
                 },
             );
@@ -223,6 +209,7 @@ pub fn parse_single_study_rows(
         std::collections::BTreeSet::new();
     let mut user_attr_string_names: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
+    let mut user_attr_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     backend.query_for_each(
         "SELECT tua.trial_id, tua.key, tua.value_json \
          FROM trial_user_attributes tua JOIN trials t ON tua.trial_id = t.trial_id \
@@ -245,17 +232,17 @@ pub fn parse_single_study_rows(
                 return Ok(());
             };
             if let Some(trial) = accum.get_mut(&trial_id) {
-                let before_numeric = trial.user_attrs_numeric.len();
-                let before_string = trial.user_attrs_string.len();
-                classify_user_attr(
-                    &value,
+                crate::io::user_attrs::insert_user_attr(
                     key,
+                    value,
                     &mut trial.user_attrs_numeric,
                     &mut trial.user_attrs_string,
+                    &mut trial.user_attrs_json,
                 );
-                if trial.user_attrs_numeric.len() > before_numeric {
+                user_attr_names.insert(key.to_string());
+                if trial.user_attrs_numeric.contains_key(key) {
                     user_attr_numeric_names.insert(key.to_string());
-                } else if trial.user_attrs_string.len() > before_string {
+                } else if trial.user_attrs_string.contains_key(key) {
                     user_attr_string_names.insert(key.to_string());
                 }
             }
@@ -310,6 +297,7 @@ pub fn parse_single_study_rows(
             objective_values: objective_values.into_iter().map(|(_, v)| v).collect(),
             user_attrs_numeric: trial.user_attrs_numeric,
             user_attrs_string: trial.user_attrs_string,
+            user_attrs_json: trial.user_attrs_json,
             constraint_values: trial.constraint_values,
         });
     }
@@ -317,10 +305,7 @@ pub fn parse_single_study_rows(
     let param_names: Vec<String> = param_names.into_iter().collect();
     let user_attr_numeric_names: Vec<String> = user_attr_numeric_names.into_iter().collect();
     let user_attr_string_names: Vec<String> = user_attr_string_names.into_iter().collect();
-    let mut user_attr_names = user_attr_numeric_names.clone();
-    user_attr_names.extend(user_attr_string_names.iter().cloned());
-    user_attr_names.sort();
-    user_attr_names.dedup();
+    let user_attr_names: Vec<String> = user_attr_names.into_iter().collect();
 
     let completed_trials = rows.len() as u32;
 

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use tunny_core::dataframe::Feasibility;
 
 use crate::io::artifacts::{file_image_uri, ArtifactEntry, ArtifactFileType};
-use crate::state::types::{StudyView, UserAttributeValues};
+use crate::state::types::{format_user_attribute, StudyView};
 
 use super::modal::ModalScaffold;
 use super::radar_chart;
@@ -43,6 +43,8 @@ pub struct TrialDetailTarget {
 pub struct TrialDetailModal {
     /// The currently displayed target. `None` means it's closed.
     open: Option<TrialDetailTarget>,
+    /// Show indexed rows for array user attributes in the current trial.
+    expand_user_attr_lists: bool,
 }
 
 impl TrialDetailModal {
@@ -147,8 +149,25 @@ impl TrialDetailModal {
                                         ui.add_space(8.0);
                                     }
 
-                                    section_label(ui, "User Attributes");
-                                    let rows = user_attribute_rows(view, target.row_index);
+                                    ui.horizontal(|ui| {
+                                        section_label(ui, "User Attributes");
+                                        if view.user_attribute_names().iter().any(|name| {
+                                            view.df
+                                                .user_attr_value(name, target.row_index)
+                                                .and_then(|value| value.as_array())
+                                                .is_some_and(|items| !items.is_empty())
+                                        }) {
+                                            ui.checkbox(
+                                                &mut self.expand_user_attr_lists,
+                                                "Expand lists",
+                                            );
+                                        }
+                                    });
+                                    let rows = user_attribute_rows(
+                                        view,
+                                        target.row_index,
+                                        self.expand_user_attr_lists,
+                                    );
                                     if rows.is_empty() {
                                         ui.label(egui::RichText::new("No user attributes.").weak());
                                     } else {
@@ -241,19 +260,19 @@ fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(Stri
         .collect()
 }
 
-fn user_attribute_rows(view: &StudyView, row_index: usize) -> Vec<(String, String)> {
-    view.user_attribute_columns()
+fn user_attribute_rows(
+    view: &StudyView,
+    row_index: usize,
+    expand_lists: bool,
+) -> Vec<(String, String)> {
+    view.user_attribute_columns(expand_lists)
         .into_iter()
-        .map(|column| {
-            let value = match column.values {
-                UserAttributeValues::Numeric(values) => {
-                    fmt_opt(values.get(row_index).copied().filter(|v| v.is_finite()))
-                }
-                UserAttributeValues::Text(values) => {
-                    values.get(row_index).cloned().unwrap_or_default()
-                }
-            };
-            (column.label, value)
+        .filter_map(|column| {
+            let value = column.value(&view.df, row_index);
+            if column.array_index.is_some() && value.is_none() {
+                return None;
+            }
+            Some((column.label(), format_user_attribute(value)))
         })
         .collect()
 }
@@ -495,6 +514,7 @@ mod tests {
             objective_values: vec![],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         };
         let mut first = new_row();
@@ -518,14 +538,63 @@ mod tests {
         );
         let view = StudyView::new(Arc::new(df), vec![]);
         assert_eq!(
-            user_attribute_rows(&view, 0),
+            user_attribute_rows(&view, 0, false),
             vec![
-                ("mixed (numeric)".to_string(), "1.2346".to_string()),
-                ("mixed (text)".to_string(), "".to_string()),
+                ("mixed".to_string(), "1.2346".to_string()),
                 ("note".to_string(), "a,b\n\"c\"".to_string()),
             ]
         );
-        assert_eq!(user_attribute_rows(&view, 1)[0].1, "—");
-        assert_eq!(user_attribute_rows(&view, 1)[1].1, "text");
+        assert_eq!(user_attribute_rows(&view, 1, false)[0].1, "text");
+        assert_eq!(user_attribute_rows(&view, 1, false)[1].1, "—");
+    }
+
+    #[test]
+    fn user_attribute_rows_expand_only_present_array_elements() {
+        use serde_json::json;
+        use std::sync::Arc;
+        use tunny_core::dataframe::{DataFrame, TrialRow};
+
+        let make_row = |id, value| TrialRow {
+            trial_id: id,
+            trial_number: id,
+            param_display: HashMap::new(),
+            param_category_label: HashMap::new(),
+            objective_values: vec![],
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::from([("items".to_string(), value)]),
+            constraint_values: vec![],
+        };
+        let df = DataFrame::from_trials(
+            &[
+                make_row(0, json!([1, null, {"ok": true}])),
+                make_row(1, json!(["short"])),
+                make_row(2, json!("scalar")),
+            ],
+            &[],
+            &[],
+            &[],
+            &[],
+            0,
+        );
+        let view = StudyView::new(Arc::new(df), vec![]);
+        assert_eq!(
+            user_attribute_rows(&view, 0, false),
+            vec![("items".into(), "[1,null,{\"ok\":true}]".into())]
+        );
+        assert_eq!(
+            user_attribute_rows(&view, 0, true),
+            vec![
+                ("items".into(), "[1,null,{\"ok\":true}]".into()),
+                ("items[0]".into(), "1.0000".into()),
+                ("items[1]".into(), "null".into()),
+                ("items[2]".into(), "{\"ok\":true}".into()),
+            ]
+        );
+        assert_eq!(user_attribute_rows(&view, 1, true).len(), 2);
+        assert_eq!(
+            user_attribute_rows(&view, 2, true),
+            vec![("items".into(), "scalar".into())]
+        );
     }
 }

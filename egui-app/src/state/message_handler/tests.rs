@@ -13,6 +13,7 @@ fn make_study_message(trial_count: usize) -> AppMessage {
             objective_values: vec![i as f64],
             user_attrs_numeric: std::collections::HashMap::new(),
             user_attrs_string: std::collections::HashMap::new(),
+            user_attrs_json: std::collections::HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
@@ -66,6 +67,7 @@ fn make_study_message_single_objective(values: &[f64], direction: Direction) -> 
             objective_values: vec![v],
             user_attrs_numeric: std::collections::HashMap::new(),
             user_attrs_string: std::collections::HashMap::new(),
+            user_attrs_json: std::collections::HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
@@ -107,6 +109,7 @@ fn make_study_message_multi_objective(trial_count: usize) -> AppMessage {
             objective_values: vec![i as f64, (trial_count - i) as f64],
             user_attrs_numeric: std::collections::HashMap::new(),
             user_attrs_string: std::collections::HashMap::new(),
+            user_attrs_json: std::collections::HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
@@ -282,6 +285,7 @@ fn make_chunk_row(trial_id: u32, x: f64, obj: f64) -> CoreTrialRow {
         objective_values: vec![obj],
         user_attrs_numeric: std::collections::HashMap::new(),
         user_attrs_string: std::collections::HashMap::new(),
+        user_attrs_json: std::collections::HashMap::new(),
         constraint_values: vec![],
     }
 }
@@ -384,6 +388,7 @@ fn study_chunk_handles_ragged_objectives_without_panic() {
         objective_values,
         user_attrs_numeric: std::collections::HashMap::new(),
         user_attrs_string: std::collections::HashMap::new(),
+        user_attrs_json: std::collections::HashMap::new(),
         constraint_values: vec![],
     };
 

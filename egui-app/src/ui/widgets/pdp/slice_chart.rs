@@ -301,6 +301,7 @@ mod tests {
                 objective_values: vec![obj_vals[i]],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             })
             .collect();
@@ -393,6 +394,7 @@ mod tests {
                 objective_values: vec![], // no objective function → NaN
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             },
             CoreRow {
@@ -403,6 +405,7 @@ mod tests {
                 objective_values: vec![4.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             },
         ];

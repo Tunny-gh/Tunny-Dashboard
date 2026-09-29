@@ -31,6 +31,7 @@ fn setup_sensitivity_df(n: usize, n_params: usize, n_objectives: usize) -> DataF
                 objective_values,
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             }
         })

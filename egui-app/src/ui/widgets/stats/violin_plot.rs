@@ -555,6 +555,7 @@ mod tests {
             objective_values: vec![],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
@@ -590,6 +591,7 @@ mod tests {
             objective_values: vec![],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
@@ -615,6 +617,7 @@ mod tests {
                 objective_values: vec![5.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             })
             .collect();
@@ -740,6 +743,7 @@ mod tests {
             objective_values: vec![x],
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();

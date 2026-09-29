@@ -206,13 +206,16 @@ impl ParserState {
 
             let mut user_attrs_numeric: HashMap<String, f64> = HashMap::new();
             let mut user_attrs_string: HashMap<String, String> = HashMap::new();
+            let mut user_attrs_json: HashMap<String, Value> = HashMap::new();
             if let Some(attrs) = json.get("user_attrs").and_then(|value| value.as_object()) {
                 for (key, value) in attrs {
-                    if let Some(number) = value.as_f64() {
-                        user_attrs_numeric.insert(key.clone(), number);
-                    } else if let Some(text) = value.as_str() {
-                        user_attrs_string.insert(key.clone(), text.to_string());
-                    }
+                    crate::io::user_attrs::insert_user_attr(
+                        key,
+                        value.clone(),
+                        &mut user_attrs_numeric,
+                        &mut user_attrs_string,
+                        &mut user_attrs_json,
+                    );
                 }
             }
 
@@ -242,6 +245,7 @@ impl ParserState {
                     param_category_label,
                     user_attrs_numeric,
                     user_attrs_string,
+                    user_attrs_json,
                     constraint_values,
                     has_constraints,
                     datetime_start,
@@ -261,6 +265,7 @@ impl ParserState {
                     param_category_label: HashMap::new(),
                     user_attrs_numeric: HashMap::new(),
                     user_attrs_string: HashMap::new(),
+                    user_attrs_json: HashMap::new(),
                     constraint_values: Vec::new(),
                     has_constraints: false,
                     datetime_start,
@@ -359,11 +364,15 @@ impl ParserState {
             return;
         };
 
-        crate::io::journal::classify_user_attrs(
-            attrs,
-            &mut trial.user_attrs_numeric,
-            &mut trial.user_attrs_string,
-        );
+        for (key, value) in attrs {
+            crate::io::user_attrs::insert_user_attr(
+                key,
+                value.clone(),
+                &mut trial.user_attrs_numeric,
+                &mut trial.user_attrs_string,
+                &mut trial.user_attrs_json,
+            );
+        }
     }
 
     fn process_set_trial_system_attr(&mut self, json: &Value) {

@@ -64,6 +64,7 @@ mod tests {
                 objective_values: vec![10.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             },
             TrialRow {
@@ -74,6 +75,7 @@ mod tests {
                 objective_values: vec![5.0],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             },
         ];

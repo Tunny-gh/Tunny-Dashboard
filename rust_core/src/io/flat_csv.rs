@@ -244,6 +244,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
             objective_values,
             user_attrs_numeric,
             user_attrs_string,
+            user_attrs_json: HashMap::new(),
             constraint_values: Vec::new(),
         });
     }

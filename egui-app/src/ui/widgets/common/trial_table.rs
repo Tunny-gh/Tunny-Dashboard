@@ -1,7 +1,7 @@
 use crate::state::app_state::AppState;
 #[cfg(test)]
 use crate::state::app_state::{StudyContext, TrialRow};
-use crate::state::types::UserAttributeValues;
+use crate::state::types::format_user_attribute;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widgets::cluster_table::ClusterTable;
@@ -42,8 +42,10 @@ impl TrialTableMode {
 #[serde(default)]
 pub struct TrialTable {
     pub mode: TrialTableMode,
-    /// Show numeric and string trial user attributes in All Trials mode.
+    /// Show trial user attributes in All Trials mode.
     pub show_user_attrs: bool,
+    /// Show one additional column per array element under each attribute key.
+    pub expand_user_attr_lists: bool,
     /// Sub-widget handling Cluster mode's settings and rendering.
     pub cluster: ClusterTable,
     /// Sub-widget handling MCDM mode's settings and rendering.
@@ -62,6 +64,7 @@ impl Default for TrialTable {
         Self {
             mode: TrialTableMode::default(),
             show_user_attrs: true,
+            expand_user_attr_lists: false,
             cluster: ClusterTable::default(),
             mcdm: McdmTable::default(),
             visible_cache: None,
@@ -81,6 +84,10 @@ impl TrialTable {
             return;
         }
 
+        let has_array_attrs = app_state
+            .current_study
+            .as_ref()
+            .is_some_and(|study| study.view.has_array_user_attributes());
         // Mode selector (same feel as the Artifact gallery).
         ui.horizontal(|ui| {
             ui.label("View:");
@@ -97,6 +104,9 @@ impl TrialTable {
                 });
             if self.mode == TrialTableMode::All {
                 ui.checkbox(&mut self.show_user_attrs, "User attrs");
+                if self.show_user_attrs && has_array_attrs {
+                    ui.checkbox(&mut self.expand_user_attr_lists, "Expand lists");
+                }
             }
         });
         ui.separator();
@@ -171,7 +181,7 @@ impl TrialTable {
         let param_cols = view.numeric_columns(&param_names);
         let obj_cols = view.numeric_columns(&obj_names);
         let attr_cols = if self.show_user_attrs {
-            view.user_attribute_columns()
+            view.user_attribute_columns(self.expand_user_attr_lists)
         } else {
             Vec::new()
         };
@@ -216,7 +226,7 @@ impl TrialTable {
                     }
                     for column in &attr_cols {
                         header.col(|ui| {
-                            ui.strong(format!("User attr: {}", column.label));
+                            ui.strong(format!("User attr: {}", column.label()));
                         });
                     }
                     header.col(|ui| {
@@ -263,17 +273,9 @@ impl TrialTable {
                         }
                         for column in &attr_cols {
                             row.col(|ui| {
-                                let value = match column.values {
-                                    UserAttributeValues::Numeric(values) => values
-                                        .get(idx)
-                                        .filter(|value| value.is_finite())
-                                        .map(|value| format!("{value:.4}"))
-                                        .unwrap_or_else(|| "—".to_string()),
-                                    UserAttributeValues::Text(values) => {
-                                        values.get(idx).cloned().unwrap_or_default()
-                                    }
-                                };
-                                ui.label(value);
+                                let value = format_user_attribute(column.value(&view.df, idx));
+                                ui.add(egui::Label::new(value.as_str()).truncate())
+                                    .on_hover_text(value);
                             });
                         }
                         row.col(|ui| {

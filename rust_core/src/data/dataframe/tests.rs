@@ -10,6 +10,7 @@ fn make_trial(params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {
         objective_values,
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     }
 }
@@ -452,6 +453,16 @@ fn assert_df_equivalent(appended: &DataFrame, rebuilt: &DataFrame) {
         appended.user_attr_string_col_names(),
         rebuilt.user_attr_string_col_names()
     );
+    let attr_names: Vec<_> = rebuilt.user_attr_names().collect();
+    assert_eq!(appended.user_attr_names().collect::<Vec<_>>(), attr_names);
+    for name in attr_names {
+        for row in 0..rebuilt.row_count() {
+            assert_eq!(
+                appended.user_attr_value(name, row),
+                rebuilt.user_attr_value(name, row)
+            );
+        }
+    }
     assert_eq!(
         appended.constraint_col_names(),
         rebuilt.constraint_col_names()
@@ -485,6 +496,92 @@ fn assert_df_equivalent(appended: &DataFrame, rebuilt: &DataFrame) {
             _ => panic!("column {name}: numeric/string type mismatch"),
         }
     }
+}
+
+#[test]
+fn json_user_attributes_keep_null_distinct_from_missing_and_append_matches_rebuild() {
+    let mut first = make_trial_n(0, &[], vec![1.0]);
+    first
+        .user_attrs_json
+        .insert("maybe".into(), serde_json::Value::Null);
+    first.user_attrs_numeric.insert("mixed".into(), 1.25);
+    first
+        .user_attrs_json
+        .insert("mixed".into(), serde_json::json!(1.25));
+    let mut second = make_trial_n(1, &[], vec![2.0]);
+    second.user_attrs_json.insert(
+        "mixed".into(),
+        serde_json::json!({"z": [2, true], "a": null}),
+    );
+    second
+        .user_attrs_json
+        .insert("late".into(), serde_json::json!([1, "x", false]));
+    let mut third = make_trial_n(2, &[], vec![3.0]);
+    third
+        .user_attrs_string
+        .insert("mixed".into(), "[1,2]".into());
+    third
+        .user_attrs_json
+        .insert("mixed".into(), serde_json::json!("[1,2]"));
+
+    let mut appended = DataFrame::from_trials(
+        &[first.clone()],
+        &[],
+        &["obj0".into()],
+        &["mixed".into()],
+        &[],
+        0,
+    );
+    appended.append_trials(
+        &[second.clone()],
+        &[],
+        &["obj0".into()],
+        &["mixed".into()],
+        &[],
+        0,
+    );
+    appended.append_trials(
+        &[third.clone()],
+        &[],
+        &["obj0".into()],
+        &["mixed".into()],
+        &["mixed".into()],
+        0,
+    );
+    let rebuilt = DataFrame::from_trials(
+        &[first, second, third],
+        &[],
+        &["obj0".into()],
+        &["mixed".into()],
+        &["mixed".into()],
+        0,
+    );
+    assert_df_equivalent(&appended, &rebuilt);
+    assert_eq!(
+        appended.user_attr_value("maybe", 0),
+        Some(&serde_json::Value::Null)
+    );
+    assert_eq!(appended.user_attr_value("maybe", 1), None);
+    assert_eq!(appended.user_attr_value("late", 0), None);
+    assert_eq!(
+        appended.user_attr_value("late", 1),
+        Some(&serde_json::json!([1, "x", false]))
+    );
+    assert_eq!(appended.user_attr_array_len("late"), Some(3));
+    assert_eq!(appended.user_attr_array_len("mixed"), None);
+    assert_eq!(
+        appended.user_attr_value("mixed", 2),
+        Some(&serde_json::json!("[1,2]"))
+    );
+    assert_eq!(
+        appended.user_attr_value("mixed", 1).unwrap().to_string(),
+        "{\"a\":null,\"z\":[2,true]}"
+    );
+    assert_eq!(
+        appended.user_attr_numeric_columns().next().unwrap().1[0],
+        1.25
+    );
+    assert!(appended.user_attr_numeric_columns().next().unwrap().1[1].is_nan());
 }
 
 fn make_trial_n(id: u32, params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {

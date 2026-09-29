@@ -393,6 +393,7 @@ struct StreamAccum {
     param_set: std::collections::BTreeSet<String>,
     uan_set: std::collections::BTreeSet<String>,
     uas_set: std::collections::BTreeSet<String>,
+    user_attr_name_set: std::collections::BTreeSet<String>,
     derived_objective_names: Vec<String>,
     has_constraints: bool,
     max_constraints: usize,
@@ -409,6 +410,7 @@ impl StreamAccum {
             param_set: std::collections::BTreeSet::new(),
             uan_set: std::collections::BTreeSet::new(),
             uas_set: std::collections::BTreeSet::new(),
+            user_attr_name_set: std::collections::BTreeSet::new(),
             derived_objective_names: Vec::new(),
             has_constraints: false,
             max_constraints: 0,
@@ -431,15 +433,7 @@ impl StreamAccum {
     /// Builds a StudyMeta snapshot from the accumulated sets.
     fn snapshot_meta(&self, state: &ParserState, target: u32) -> StudyMeta {
         let builder = &state.studies[target as usize];
-        // user_attr_names merges numeric and string names and sorts them (same as the existing finalize step).
-        let mut user_attr_names: Vec<String> = self
-            .uan_set
-            .iter()
-            .chain(self.uas_set.iter())
-            .cloned()
-            .collect();
-        user_attr_names.sort();
-        user_attr_names.dedup();
+        let user_attr_names: Vec<String> = self.user_attr_name_set.iter().cloned().collect();
         StudyMeta {
             study_id: target,
             name: builder.name.clone(),
@@ -503,6 +497,9 @@ impl StreamAccum {
         for name in b.user_attrs_string.keys() {
             self.uas_set.insert(name.clone());
         }
+        for name in b.user_attrs_json.keys() {
+            self.user_attr_name_set.insert(name.clone());
+        }
         if b.has_constraints {
             self.has_constraints = true;
         }
@@ -522,6 +519,7 @@ impl StreamAccum {
             objective_values: b.values.unwrap_or_default(),
             user_attrs_numeric: b.user_attrs_numeric,
             user_attrs_string: b.user_attrs_string,
+            user_attrs_json: b.user_attrs_json,
             constraint_values: b.constraint_values,
         });
 

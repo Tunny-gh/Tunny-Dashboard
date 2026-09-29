@@ -12,6 +12,7 @@ fn make_row_multi(trial_id: u32, params: &[(&str, f64)], objectives: Vec<f64>) -
         objective_values: objectives,
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),
+        user_attrs_json: HashMap::new(),
         constraint_values: vec![],
     }
 }
@@ -242,6 +243,7 @@ fn tc_801_11b_sensitivity_categorical_param_non_zero() {
                 objective_values: vec![y_vals[i]],
                 user_attrs_numeric: HashMap::new(),
                 user_attrs_string: HashMap::new(),
+                user_attrs_json: HashMap::new(),
                 constraint_values: vec![],
             }
         })

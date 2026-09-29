@@ -300,6 +300,7 @@ mod store_tests {
                 objective_values: vec![i as f64],
                 user_attrs_numeric: std::collections::HashMap::new(),
                 user_attrs_string: std::collections::HashMap::new(),
+                user_attrs_json: std::collections::HashMap::new(),
                 constraint_values: vec![],
             })
             .collect();

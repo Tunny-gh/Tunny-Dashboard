@@ -1,6 +1,48 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+
+use serde_json::Value;
 
 use super::types::TrialRow;
+
+fn append_json_attrs(
+    columns: &mut BTreeMap<String, Vec<(usize, Value)>>,
+    array_lengths: &mut BTreeMap<String, usize>,
+    row_index: usize,
+    row: &TrialRow,
+) {
+    let mut push = |name: &str, value: Value| {
+        if let Value::Array(items) = &value {
+            let max_len = array_lengths.entry(name.to_string()).or_default();
+            *max_len = (*max_len).max(items.len());
+        }
+        columns
+            .entry(name.to_string())
+            .or_default()
+            .push((row_index, value));
+    };
+    for (name, value) in &row.user_attrs_json {
+        push(name, value.clone());
+    }
+    // Rows built outside JSON storage (including flat CSV) may only populate
+    // the existing typed maps. Preserve their previous numeric/text behavior.
+    for (name, &number) in &row.user_attrs_numeric {
+        if !row.user_attrs_json.contains_key(name) {
+            if let Some(number) = serde_json::Number::from_f64(number) {
+                push(name, Value::Number(number));
+            }
+        }
+    }
+    for (name, text) in &row.user_attrs_string {
+        if !row.user_attrs_json.contains_key(name)
+            && !row
+                .user_attrs_numeric
+                .get(name)
+                .is_some_and(|v| v.is_finite())
+        {
+            push(name, Value::String(text.clone()));
+        }
+    }
+}
 
 /// A column-oriented Trial table (a lightweight DataFrame that looks up
 /// numeric and string columns by name). Built by the journal / RDB parsers
@@ -26,6 +68,10 @@ pub struct DataFrame {
     /// cannot distinguish an attribute from a same-named parameter or objective.
     user_attr_numeric_col_indices: Vec<usize>,
     user_attr_string_col_indices: Vec<usize>,
+    /// Present values only, in row order. Missing rows allocate no JSON value.
+    user_attr_json_cols: BTreeMap<String, Vec<(usize, Value)>>,
+    /// Maximum array length for each attribute key that has an array value.
+    user_attr_array_lengths: BTreeMap<String, usize>,
     constraint_col_names: Vec<String>,
     /// derived columns: is_feasible, constraint_sum 🟢
     derived_col_names: Vec<String>,
@@ -46,6 +92,8 @@ impl DataFrame {
             user_attr_string_col_names: vec![],
             user_attr_numeric_col_indices: vec![],
             user_attr_string_col_indices: vec![],
+            user_attr_json_cols: BTreeMap::new(),
+            user_attr_array_lengths: BTreeMap::new(),
             constraint_col_names: vec![],
             derived_col_names: vec![],
         }
@@ -83,6 +131,8 @@ impl DataFrame {
         let mut user_attr_string_col_names = Vec::new();
         let mut user_attr_numeric_col_indices = Vec::new();
         let mut user_attr_string_col_indices = Vec::new();
+        let mut user_attr_json_cols: BTreeMap<String, Vec<(usize, Value)>> = BTreeMap::new();
+        let mut user_attr_array_lengths = BTreeMap::new();
         let mut constraint_col_names = Vec::new();
         let mut derived_col_names = Vec::new();
 
@@ -140,6 +190,15 @@ impl DataFrame {
             user_attr_string_col_names.push(name.clone());
         }
 
+        for (row_index, row) in trial_rows.iter().enumerate() {
+            append_json_attrs(
+                &mut user_attr_json_cols,
+                &mut user_attr_array_lengths,
+                row_index,
+                row,
+            );
+        }
+
         if max_constraints > 0 {
             for ci in 0..max_constraints {
                 let col_name = format!("c{}", ci + 1);
@@ -184,6 +243,8 @@ impl DataFrame {
             user_attr_string_col_names,
             user_attr_numeric_col_indices,
             user_attr_string_col_indices,
+            user_attr_json_cols,
+            user_attr_array_lengths,
             constraint_col_names,
             derived_col_names,
         }
@@ -223,6 +284,14 @@ impl DataFrame {
         self.trial_ids.extend(new_rows.iter().map(|r| r.trial_id));
         self.trial_numbers
             .extend(new_rows.iter().map(|r| r.trial_number));
+        for (offset, row) in new_rows.iter().enumerate() {
+            append_json_attrs(
+                &mut self.user_attr_json_cols,
+                &mut self.user_attr_array_lengths,
+                old_n + offset,
+                row,
+            );
+        }
 
         // A queue, keyed by column name, of existing non-attribute columns
         // awaiting extension. Attribute columns use their recorded positions:
@@ -544,6 +613,26 @@ impl DataFrame {
             .map(|(name, &idx)| (name.as_str(), self.string_cols[idx].1.as_slice()))
     }
 
+    /// Keys with at least one present JSON value, in deterministic order.
+    pub fn user_attr_names(&self) -> impl Iterator<Item = &str> {
+        self.user_attr_json_cols.keys().map(String::as_str)
+    }
+
+    /// The original typed value for one key and row. `None` means absent;
+    /// `Some(Value::Null)` means explicitly present as JSON null.
+    pub fn user_attr_value(&self, name: &str, row: usize) -> Option<&Value> {
+        let values = self.user_attr_json_cols.get(name)?;
+        let index = values
+            .binary_search_by_key(&row, |(index, _)| *index)
+            .ok()?;
+        Some(&values[index].1)
+    }
+
+    /// Maximum length of an array stored under this key; `None` means no array value.
+    pub fn user_attr_array_len(&self, name: &str) -> Option<usize> {
+        self.user_attr_array_lengths.get(name).copied()
+    }
+
     pub fn constraint_col_names(&self) -> &[String] {
         &self.constraint_col_names
     }
@@ -652,6 +741,42 @@ impl DataFrame {
             })
             .collect();
 
+        let mut next_row = 0;
+        let row_map: Vec<Option<usize>> = (0..self.row_count)
+            .map(|index| {
+                mask.get(index).copied().unwrap_or(false).then(|| {
+                    let current = next_row;
+                    next_row += 1;
+                    current
+                })
+            })
+            .collect();
+        let user_attr_json_cols: BTreeMap<String, Vec<(usize, Value)>> = self
+            .user_attr_json_cols
+            .iter()
+            .map(|(name, values)| {
+                let filtered = values
+                    .iter()
+                    .filter_map(|(index, value)| {
+                        row_map[*index].map(|new_index| (new_index, value.clone()))
+                    })
+                    .collect();
+                (name.clone(), filtered)
+            })
+            .collect();
+        let user_attr_array_lengths = self
+            .user_attr_array_lengths
+            .keys()
+            .filter_map(|name| {
+                let max_len = user_attr_json_cols
+                    .get(name)?
+                    .iter()
+                    .filter_map(|(_, value)| value.as_array().map(Vec::len))
+                    .max()?;
+                Some((name.clone(), max_len))
+            })
+            .collect();
+
         DataFrame {
             row_count: trial_ids.len(),
             trial_ids,
@@ -664,6 +789,8 @@ impl DataFrame {
             user_attr_string_col_names: self.user_attr_string_col_names.clone(),
             user_attr_numeric_col_indices: self.user_attr_numeric_col_indices.clone(),
             user_attr_string_col_indices: self.user_attr_string_col_indices.clone(),
+            user_attr_json_cols,
+            user_attr_array_lengths,
             constraint_col_names: self.constraint_col_names.clone(),
             derived_col_names: self.derived_col_names.clone(),
         }

@@ -43,6 +43,7 @@ fn make_view_with_objs(obj_vals: &[Vec<f64>]) -> StudyView {
             objective_values: obj_vals[i].clone(),
             user_attrs_numeric: HashMap::new(),
             user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
             constraint_values: vec![],
         })
         .collect();
