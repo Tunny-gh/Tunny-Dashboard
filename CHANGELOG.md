@@ -15,6 +15,8 @@ and `Security` as needed — omit headings that have nothing under them.
 
 - Reload now refreshes artifacts from the selected folder along with trial data,
   including artifacts added to new or existing trials and removal of missing files.
+- Fixed image artifacts failing to load from Windows file paths in the gallery
+  and trial details.
 
 ## [0.1.2] - 2026-09-27
 
