@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
+use crate::io::artifacts::{file_image_uri, ArtifactEntry, ArtifactFileType};
 use crate::state::app_state::AppState;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::ui::widgets::trial_detail_modal::TrialDetailTarget;
@@ -98,7 +98,7 @@ pub(super) fn image_uri(entry: &ArtifactEntry) -> Option<String> {
     if !matches!(entry.file_type(), ArtifactFileType::Image) {
         return None;
     }
-    entry.path.to_str().map(|s| format!("file://{s}"))
+    file_image_uri(&entry.path)
 }
 
 /// Draws a single artifact card.

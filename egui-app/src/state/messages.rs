@@ -318,6 +318,8 @@ pub enum AppMessage {
     ArtifactsDirScanned {
         trial_artifacts: std::collections::HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
         artifacts_dir: std::path::PathBuf,
+        /// `None` for CSV artifacts supplied by the study worker, without a directory scan.
+        scan_id: Option<u64>,
     },
     ComparisonStudyLoadFailed(String),
     /// Observed Contour grid generation has completed (interpolation of observed points).

@@ -147,6 +147,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 let _ = tx.send(AppMessage::ArtifactsDirScanned {
                                     trial_artifacts: artifacts.clone(),
                                     artifacts_dir: dir.clone(),
+                                    scan_id: None,
                                 });
                             }
                         } else if let Some(ref data) = state.journal_data {

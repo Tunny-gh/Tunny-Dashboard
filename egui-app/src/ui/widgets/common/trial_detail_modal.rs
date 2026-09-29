@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use tunny_core::dataframe::Feasibility;
 
-use crate::io::artifacts::{ArtifactEntry, ArtifactFileType};
+use crate::io::artifacts::{file_image_uri, ArtifactEntry, ArtifactFileType};
 use crate::state::types::StudyView;
 
 use super::modal::ModalScaffold;
@@ -270,19 +270,18 @@ fn render_artifacts(ui: &mut egui::Ui, entries: &[ArtifactEntry]) {
         for entry in entries {
             ui.allocate_ui(egui::vec2(THUMB_SIZE, THUMB_SIZE + 24.0), |ui| {
                 ui.vertical(|ui| {
-                    match entry.file_type() {
+                    match (entry.file_type(), file_image_uri(&entry.path)) {
                         // Collapsing a non-UTF-8 path with `to_string_lossy` produces a URI
                         // for a path that doesn't actually exist, silently breaking the
                         // image. Reject it with `to_str()` and fall back the same way as
                         // for non-image files.
-                        ArtifactFileType::Image if entry.path.to_str().is_some() => {
-                            let uri = format!("file://{}", entry.path.to_str().unwrap());
+                        (ArtifactFileType::Image, Some(uri)) => {
                             ui.add(
                                 egui::Image::from_uri(uri)
                                     .fit_to_exact_size(egui::vec2(THUMB_SIZE, THUMB_SIZE)),
                             );
                         }
-                        other => {
+                        (other, _) => {
                             let icon = if matches!(other, ArtifactFileType::Csv) {
                                 "📊"
                             } else {
