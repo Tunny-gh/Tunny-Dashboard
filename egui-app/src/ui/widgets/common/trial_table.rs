@@ -1,6 +1,7 @@
 use crate::state::app_state::AppState;
 #[cfg(test)]
 use crate::state::app_state::{StudyContext, TrialRow};
+use crate::state::types::UserAttributeValues;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::theme::colormap_name::colormap_from_name;
 use crate::ui::widgets::cluster_table::ClusterTable;
@@ -37,10 +38,12 @@ impl TrialTableMode {
 /// compute results are shared/cached per settings key in `cluster_cache` / `mcdm_cache`
 /// (the same unified style as the Artifact gallery).
 /// Can be placed in any cell of the grid canvas via D&D.
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct TrialTable {
     pub mode: TrialTableMode,
+    /// Show numeric and string trial user attributes in All Trials mode.
+    pub show_user_attrs: bool,
     /// Sub-widget handling Cluster mode's settings and rendering.
     pub cluster: ClusterTable,
     /// Sub-widget handling MCDM mode's settings and rendering.
@@ -52,6 +55,19 @@ pub struct TrialTable {
     visible_cache: Option<Vec<usize>>,
     #[serde(skip)]
     visible_cache_key: Option<(Vec<u32>, Vec<u32>, usize)>, // (selected_indices, pinned, row_count)
+}
+
+impl Default for TrialTable {
+    fn default() -> Self {
+        Self {
+            mode: TrialTableMode::default(),
+            show_user_attrs: true,
+            cluster: ClusterTable::default(),
+            mcdm: McdmTable::default(),
+            visible_cache: None,
+            visible_cache_key: None,
+        }
+    }
 }
 
 impl TrialTable {
@@ -79,6 +95,9 @@ impl TrialTable {
                         ui.selectable_value(&mut self.mode, m, m.label());
                     }
                 });
+            if self.mode == TrialTableMode::All {
+                ui.checkbox(&mut self.show_user_attrs, "User attrs");
+            }
         });
         ui.separator();
 
@@ -151,6 +170,11 @@ impl TrialTable {
         // Borrow column slices from view (no row cloning)
         let param_cols = view.numeric_columns(&param_names);
         let obj_cols = view.numeric_columns(&obj_names);
+        let attr_cols = if self.show_user_attrs {
+            view.user_attribute_columns()
+        } else {
+            Vec::new()
+        };
         let trial_ids = &view.trial_ids;
         let pareto_rank = &view.pareto_rank;
 
@@ -171,6 +195,7 @@ impl TrialTable {
                 .column(Column::initial(70.0).at_least(50.0)) // Trial ID
                 .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // per variable
                 .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // per objective
+                .columns(Column::initial(110.0).at_least(60.0), attr_cols.len()) // user attrs
                 .column(Column::initial(90.0).at_least(50.0)) // Pareto Rank
                 .header(20.0, |mut header| {
                     header.col(|ui| {
@@ -187,6 +212,11 @@ impl TrialTable {
                     for name in &obj_names {
                         header.col(|ui| {
                             ui.strong(name);
+                        });
+                    }
+                    for column in &attr_cols {
+                        header.col(|ui| {
+                            ui.strong(format!("User attr: {}", column.label));
                         });
                     }
                     header.col(|ui| {
@@ -229,6 +259,21 @@ impl TrialTable {
                             row.col(|ui| {
                                 let v = col.and_then(|c| c.get(idx)).copied().unwrap_or(0.0);
                                 ui.label(format!("{:.4}", v));
+                            });
+                        }
+                        for column in &attr_cols {
+                            row.col(|ui| {
+                                let value = match column.values {
+                                    UserAttributeValues::Numeric(values) => values
+                                        .get(idx)
+                                        .filter(|value| value.is_finite())
+                                        .map(|value| format!("{value:.4}"))
+                                        .unwrap_or_else(|| "—".to_string()),
+                                    UserAttributeValues::Text(values) => {
+                                        values.get(idx).cloned().unwrap_or_default()
+                                    }
+                                };
+                                ui.label(value);
                             });
                         }
                         row.col(|ui| {
@@ -303,6 +348,13 @@ mod tests {
             param_bounds: Default::default(),
         };
         StudyContext::from_rows_for_test(meta, trial_rows)
+    }
+
+    #[test]
+    fn user_attributes_default_on_and_old_widget_state_loads_on() {
+        assert!(TrialTable::default().show_user_attrs);
+        let table: TrialTable = serde_json::from_str("{}").unwrap();
+        assert!(table.show_user_attrs);
     }
 
     #[test]

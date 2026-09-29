@@ -12,3 +12,15 @@ pub(super) fn build_trial_based_csv(app_state: &AppState) -> Option<String> {
         &study.meta.objective_names,
     ))
 }
+
+pub(super) fn build_all_trials_csv(app_state: &AppState, show_user_attrs: bool) -> Option<String> {
+    let study = require_study(app_state)?;
+    let row_indices: Vec<usize> = (0..study.trial_count()).collect();
+    Some(crate::io::export::build_trial_table_csv_from_view(
+        &study.view,
+        &row_indices,
+        &study.meta.param_names,
+        &study.meta.objective_names,
+        show_user_attrs,
+    ))
+}

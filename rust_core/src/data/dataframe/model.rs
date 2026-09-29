@@ -21,6 +21,11 @@ pub struct DataFrame {
     objective_col_names: Vec<String>,
     user_attr_numeric_col_names: Vec<String>,
     user_attr_string_col_names: Vec<String>,
+    /// Positions of user-attribute columns in the corresponding value vectors.
+    /// Streaming can append new columns after other categories, so names alone
+    /// cannot distinguish an attribute from a same-named parameter or objective.
+    user_attr_numeric_col_indices: Vec<usize>,
+    user_attr_string_col_indices: Vec<usize>,
     constraint_col_names: Vec<String>,
     /// derived columns: is_feasible, constraint_sum 🟢
     derived_col_names: Vec<String>,
@@ -39,6 +44,8 @@ impl DataFrame {
             objective_col_names: vec![],
             user_attr_numeric_col_names: vec![],
             user_attr_string_col_names: vec![],
+            user_attr_numeric_col_indices: vec![],
+            user_attr_string_col_indices: vec![],
             constraint_col_names: vec![],
             derived_col_names: vec![],
         }
@@ -74,6 +81,8 @@ impl DataFrame {
         let mut objective_col_names = Vec::new();
         let mut user_attr_numeric_col_names = Vec::new();
         let mut user_attr_string_col_names = Vec::new();
+        let mut user_attr_numeric_col_indices = Vec::new();
+        let mut user_attr_string_col_indices = Vec::new();
         let mut constraint_col_names = Vec::new();
         let mut derived_col_names = Vec::new();
 
@@ -116,6 +125,7 @@ impl DataFrame {
                 .iter()
                 .map(|r| *r.user_attrs_numeric.get(name).unwrap_or(&f64::NAN))
                 .collect();
+            user_attr_numeric_col_indices.push(numeric_cols.len());
             numeric_cols.push((name.clone(), vals));
             user_attr_numeric_col_names.push(name.clone());
         }
@@ -125,6 +135,7 @@ impl DataFrame {
                 .iter()
                 .map(|r| r.user_attrs_string.get(name).cloned().unwrap_or_default())
                 .collect();
+            user_attr_string_col_indices.push(string_cols.len());
             string_cols.push((name.clone(), vals));
             user_attr_string_col_names.push(name.clone());
         }
@@ -171,6 +182,8 @@ impl DataFrame {
             objective_col_names,
             user_attr_numeric_col_names,
             user_attr_string_col_names,
+            user_attr_numeric_col_indices,
+            user_attr_string_col_indices,
             constraint_col_names,
             derived_col_names,
         }
@@ -211,18 +224,15 @@ impl DataFrame {
         self.trial_numbers
             .extend(new_rows.iter().map(|r| r.trial_number));
 
-        // A queue, keyed by column name, of "not-yet-extended (length old_n)
-        // same-named column indexes". Since the same name can occur across
-        // multiple categories, entries are consumed from the front in
-        // generation order (from_trials' param → objective → user →
-        // constraint). This method processes in the same order, so the
-        // correspondence is preserved. Uses a HashMap to avoid a linear scan
-        // per name (the old implementation linearly scanned all columns on
-        // every extension). Keys are owned copies of the column name
-        // (because self.numeric_cols etc. are mutably borrowed in the loop).
+        // A queue, keyed by column name, of existing non-attribute columns
+        // awaiting extension. Attribute columns use their recorded positions:
+        // streaming can append a parameter after an existing same-named
+        // attribute, so physical order does not establish category order.
         let mut numeric_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
+        let numeric_attr_positions: std::collections::HashSet<usize> =
+            self.user_attr_numeric_col_indices.iter().copied().collect();
         for (i, (name, col)) in self.numeric_cols.iter().enumerate() {
-            if col.len() == old_n {
+            if col.len() == old_n && !numeric_attr_positions.contains(&i) {
                 numeric_pending
                     .entry(name.clone())
                     .or_default()
@@ -230,8 +240,10 @@ impl DataFrame {
             }
         }
         let mut string_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
+        let string_attr_positions: std::collections::HashSet<usize> =
+            self.user_attr_string_col_indices.iter().copied().collect();
         for (i, (name, col)) in self.string_cols.iter().enumerate() {
-            if col.len() == old_n {
+            if col.len() == old_n && !string_attr_positions.contains(&i) {
                 string_pending.entry(name.clone()).or_default().push_back(i);
             }
         }
@@ -318,6 +330,11 @@ impl DataFrame {
                     .and_then(VecDeque::pop_front)
                 {
                     self.numeric_cols.remove(idx);
+                    for attr_idx in &mut self.user_attr_numeric_col_indices {
+                        if *attr_idx > idx {
+                            *attr_idx -= 1;
+                        }
+                    }
                     // Removing shifts every column after idx one position
                     // forward, so correct the indexes stored in the pending queues.
                     for queue in numeric_pending.values_mut() {
@@ -363,10 +380,19 @@ impl DataFrame {
                 .iter()
                 .map(|r| *r.user_attrs_numeric.get(name).unwrap_or(&f64::NAN));
             if uan_name_set.contains(name) {
-                extend_numeric(&mut self.numeric_cols, &mut numeric_pending, name, values);
+                if let Some(position) = self
+                    .user_attr_numeric_col_names
+                    .iter()
+                    .position(|existing| existing == name)
+                {
+                    let idx = self.user_attr_numeric_col_indices[position];
+                    self.numeric_cols[idx].1.extend(values);
+                }
             } else {
                 let mut vals = vec![f64::NAN; old_n];
                 vals.extend(values);
+                self.user_attr_numeric_col_indices
+                    .push(self.numeric_cols.len());
                 self.numeric_cols.push((name.clone(), vals));
                 self.user_attr_numeric_col_names.push(name.clone());
                 uan_name_set.insert(name.clone());
@@ -378,10 +404,19 @@ impl DataFrame {
                 .iter()
                 .map(|r| r.user_attrs_string.get(name).cloned().unwrap_or_default());
             if uas_name_set.contains(name) {
-                extend_string(&mut self.string_cols, &mut string_pending, name, values);
+                if let Some(position) = self
+                    .user_attr_string_col_names
+                    .iter()
+                    .position(|existing| existing == name)
+                {
+                    let idx = self.user_attr_string_col_indices[position];
+                    self.string_cols[idx].1.extend(values);
+                }
             } else {
                 let mut vals = vec![String::new(); old_n];
                 vals.extend(values);
+                self.user_attr_string_col_indices
+                    .push(self.string_cols.len());
                 self.string_cols.push((name.clone(), vals));
                 self.user_attr_string_col_names.push(name.clone());
                 uas_name_set.insert(name.clone());
@@ -491,6 +526,22 @@ impl DataFrame {
 
     pub fn user_attr_string_col_names(&self) -> &[String] {
         &self.user_attr_string_col_names
+    }
+
+    /// User attribute columns in category order, safe when another category
+    /// contains a column with the same name.
+    pub fn user_attr_numeric_columns(&self) -> impl Iterator<Item = (&str, &[f64])> {
+        self.user_attr_numeric_col_names
+            .iter()
+            .zip(&self.user_attr_numeric_col_indices)
+            .map(|(name, &idx)| (name.as_str(), self.numeric_cols[idx].1.as_slice()))
+    }
+
+    pub fn user_attr_string_columns(&self) -> impl Iterator<Item = (&str, &[String])> {
+        self.user_attr_string_col_names
+            .iter()
+            .zip(&self.user_attr_string_col_indices)
+            .map(|(name, &idx)| (name.as_str(), self.string_cols[idx].1.as_slice()))
     }
 
     pub fn constraint_col_names(&self) -> &[String] {
@@ -611,6 +662,8 @@ impl DataFrame {
             objective_col_names: self.objective_col_names.clone(),
             user_attr_numeric_col_names: self.user_attr_numeric_col_names.clone(),
             user_attr_string_col_names: self.user_attr_string_col_names.clone(),
+            user_attr_numeric_col_indices: self.user_attr_numeric_col_indices.clone(),
+            user_attr_string_col_indices: self.user_attr_string_col_indices.clone(),
             constraint_col_names: self.constraint_col_names.clone(),
             derived_col_names: self.derived_col_names.clone(),
         }

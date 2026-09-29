@@ -98,6 +98,127 @@ fn tc_102_05_user_attr_string() {
 }
 
 #[test]
+fn user_attribute_accessors_ignore_same_named_other_categories() {
+    let mut row = make_trial(&[("shared", 1.0)], vec![2.0]);
+    row.param_category_label
+        .insert("tag".to_string(), "parameter".to_string());
+    row.user_attrs_numeric.insert("shared".to_string(), 3.0);
+    row.user_attrs_numeric.insert("objective".to_string(), 4.0);
+    row.user_attrs_string
+        .insert("tag".to_string(), "attribute".to_string());
+    let df = DataFrame::from_trials(
+        &[row],
+        &["shared".to_string(), "tag".to_string()],
+        &["objective".to_string()],
+        &["shared".to_string(), "objective".to_string()],
+        &["tag".to_string()],
+        0,
+    );
+    let numeric: Vec<_> = df.user_attr_numeric_columns().collect();
+    let text: Vec<_> = df.user_attr_string_columns().collect();
+    assert_eq!(numeric[0], ("shared", &[3.0][..]));
+    assert_eq!(numeric[1], ("objective", &[4.0][..]));
+    assert_eq!(text[0], ("tag", &["attribute".to_string()][..]));
+}
+
+#[test]
+fn user_attribute_indices_survive_late_same_named_parameter() {
+    let mut first = make_trial(&[], vec![]);
+    first.user_attrs_numeric.insert("shared".to_string(), 7.0);
+    let mut df = DataFrame::from_trials(&[first], &[], &[], &["shared".to_string()], &[], 0);
+    let mut second = make_trial(&[("shared", 2.0)], vec![]);
+    second.user_attrs_numeric.insert("shared".to_string(), 8.0);
+    df.append_trials(
+        &[second],
+        &["shared".to_string()],
+        &[],
+        &["shared".to_string()],
+        &[],
+        0,
+    );
+    let mut third = make_trial(&[("shared", 3.0)], vec![]);
+    third.user_attrs_numeric.insert("shared".to_string(), 9.0);
+    df.append_trials(
+        &[third],
+        &["shared".to_string()],
+        &[],
+        &["shared".to_string()],
+        &[],
+        0,
+    );
+    let attrs: Vec<_> = df.user_attr_numeric_columns().collect();
+    assert_eq!(attrs[0], ("shared", &[7.0, 8.0, 9.0][..]));
+}
+
+#[test]
+fn user_attribute_string_stays_separate_when_parameter_becomes_categorical() {
+    let mut first = make_trial(&[("shared", 1.0)], vec![]);
+    first
+        .user_attrs_string
+        .insert("shared".to_string(), "attr-one".to_string());
+    let mut df = DataFrame::from_trials(
+        &[first],
+        &["shared".to_string()],
+        &[],
+        &[],
+        &["shared".to_string()],
+        0,
+    );
+    let mut second = make_trial(&[], vec![]);
+    second
+        .param_category_label
+        .insert("shared".to_string(), "category".to_string());
+    second
+        .user_attrs_string
+        .insert("shared".to_string(), "attr-two".to_string());
+    df.append_trials(
+        &[second],
+        &["shared".to_string()],
+        &[],
+        &[],
+        &["shared".to_string()],
+        0,
+    );
+    let attrs: Vec<_> = df.user_attr_string_columns().collect();
+    assert_eq!(
+        attrs[0],
+        (
+            "shared",
+            &["attr-one".to_string(), "attr-two".to_string()][..]
+        )
+    );
+}
+
+#[test]
+fn user_attribute_indices_survive_parameter_type_change() {
+    let mut first = make_trial(&[("choice", 0.0)], vec![]);
+    first.user_attrs_numeric.insert("score".to_string(), 7.0);
+    let mut df = DataFrame::from_trials(
+        &[first],
+        &["choice".to_string()],
+        &[],
+        &["score".to_string()],
+        &[],
+        0,
+    );
+    let mut second = make_trial(&[], vec![]);
+    second
+        .param_category_label
+        .insert("choice".to_string(), "b".to_string());
+    second.user_attrs_numeric.insert("score".to_string(), 8.0);
+    df.append_trials(
+        &[second],
+        &["choice".to_string()],
+        &[],
+        &["score".to_string()],
+        &[],
+        0,
+    );
+    let attrs: Vec<_> = df.user_attr_numeric_columns().collect();
+    assert_eq!(attrs[0], ("score", &[7.0, 8.0][..]));
+}
+
+#[test]
 fn tc_102_06_constraint_columns() {
     let mut row = make_trial(&[], vec![1.0]);
     row.constraint_values = vec![-0.5, 0.3];

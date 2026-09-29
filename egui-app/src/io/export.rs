@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 
 use crate::state::messages::AppMessage;
-use crate::state::types::StudyView;
+use crate::state::types::{StudyView, UserAttributeValues};
 use tunny_core::export::{CsvField, CsvWriter};
 
 /// Target rows for CSV export.
@@ -34,13 +34,62 @@ pub fn build_trial_csv_from_view(
     objective_names: &[String],
     columns: TrialCsvColumns,
 ) -> String {
+    build_trial_csv_from_view_impl(
+        view,
+        row_indices,
+        param_names,
+        objective_names,
+        columns,
+        false,
+    )
+}
+
+/// Trial Table's All Trials CSV, including user attributes only when visible.
+pub fn build_trial_table_csv_from_view(
+    view: &StudyView,
+    row_indices: &[usize],
+    param_names: &[String],
+    objective_names: &[String],
+    show_user_attrs: bool,
+) -> String {
+    build_trial_csv_from_view_impl(
+        view,
+        row_indices,
+        param_names,
+        objective_names,
+        TrialCsvColumns {
+            pareto_rank: true,
+            cluster_id: true,
+        },
+        show_user_attrs,
+    )
+}
+
+fn build_trial_csv_from_view_impl(
+    view: &StudyView,
+    row_indices: &[usize],
+    param_names: &[String],
+    objective_names: &[String],
+    columns: TrialCsvColumns,
+    show_user_attrs: bool,
+) -> String {
     let param_cols = view.numeric_columns(param_names);
     let obj_cols = view.numeric_columns(objective_names);
+    let attr_cols = if show_user_attrs {
+        view.user_attribute_columns()
+    } else {
+        Vec::new()
+    };
+    let attr_headers: Vec<String> = attr_cols
+        .iter()
+        .map(|column| format!("User attr: {}", column.label))
+        .collect();
 
     let mut w = CsvWriter::new();
     let mut header: Vec<&str> = vec!["trial_id", "trial_number"];
     header.extend(param_names.iter().map(String::as_str));
     header.extend(objective_names.iter().map(String::as_str));
+    header.extend(attr_headers.iter().map(String::as_str));
     if columns.pareto_rank {
         header.push("pareto_rank");
     }
@@ -59,6 +108,18 @@ pub fn build_trial_csv_from_view(
         for col in param_cols.iter().chain(&obj_cols) {
             let v = col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
             fields.push(CsvField::Num(v));
+        }
+        for column in &attr_cols {
+            fields.push(match column.values {
+                UserAttributeValues::Numeric(values) => values
+                    .get(i)
+                    .map(|&value| CsvField::Num(value))
+                    .unwrap_or(CsvField::Empty),
+                UserAttributeValues::Text(values) => values
+                    .get(i)
+                    .map(|value| CsvField::Text(value))
+                    .unwrap_or(CsvField::Empty),
+            });
         }
         if columns.pareto_rank {
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);

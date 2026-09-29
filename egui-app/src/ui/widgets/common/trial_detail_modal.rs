@@ -4,14 +4,14 @@
 //! trial for the clicked point and passes the target to [`TrialDetailModal::open`], then
 //! calls [`TrialDetailModal::show`] every frame to render it. In addition to chart-specific
 //! information (Pareto rank / cluster number / MCDM rank, etc.), the modal shows objective
-//! values, parameter values, and artifacts (thumbnail + filename).
+//! values, parameter values, user attributes, and artifacts (thumbnail + filename).
 
 use std::collections::HashMap;
 
 use tunny_core::dataframe::Feasibility;
 
 use crate::io::artifacts::{file_image_uri, ArtifactEntry, ArtifactFileType};
-use crate::state::types::StudyView;
+use crate::state::types::{StudyView, UserAttributeValues};
 
 use super::modal::ModalScaffold;
 use super::radar_chart;
@@ -119,7 +119,7 @@ impl TrialDetailModal {
                         // Three columns: left = text info / center = radar chart / right =
                         // artifacts.
                         ui.horizontal_top(|ui| {
-                            // Left: text info (Chart Info / Objectives / Variables).
+                            // Left: text info (Chart Info / Objectives / Variables / User Attributes).
                             ui.allocate_ui_with_layout(
                                 egui::vec2(left_w, body_max_h),
                                 egui::Layout::top_down(egui::Align::Min),
@@ -145,6 +145,29 @@ impl TrialDetailModal {
                                         let rows = value_rows(view, param_names, target.row_index);
                                         kv_grid(ui, "trial_detail_params", &rows);
                                         ui.add_space(8.0);
+                                    }
+
+                                    section_label(ui, "User Attributes");
+                                    let rows = user_attribute_rows(view, target.row_index);
+                                    if rows.is_empty() {
+                                        ui.label(egui::RichText::new("No user attributes.").weak());
+                                    } else {
+                                        for (key, value) in rows {
+                                            ui.horizontal_top(|ui| {
+                                                ui.add_sized(
+                                                    [left_w * 0.36, 0.0],
+                                                    egui::Label::new(
+                                                        egui::RichText::new(key)
+                                                            .color(crate::theme::TEXT_SECONDARY()),
+                                                    )
+                                                    .wrap(),
+                                                );
+                                                ui.add_sized(
+                                                    [left_w * 0.56, 0.0],
+                                                    egui::Label::new(value).wrap(),
+                                                );
+                                            });
+                                        }
                                     }
                                 },
                             );
@@ -215,6 +238,23 @@ fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(Stri
         .iter()
         .zip(cols.iter())
         .map(|(name, col)| axis_row(name, *col, row_index))
+        .collect()
+}
+
+fn user_attribute_rows(view: &StudyView, row_index: usize) -> Vec<(String, String)> {
+    view.user_attribute_columns()
+        .into_iter()
+        .map(|column| {
+            let value = match column.values {
+                UserAttributeValues::Numeric(values) => {
+                    fmt_opt(values.get(row_index).copied().filter(|v| v.is_finite()))
+                }
+                UserAttributeValues::Text(values) => {
+                    values.get(row_index).cloned().unwrap_or_default()
+                }
+            };
+            (column.label, value)
+        })
         .collect()
 }
 
@@ -440,5 +480,52 @@ mod tests {
     fn fmt_opt_formats_and_handles_none() {
         assert_eq!(fmt_opt(Some(1.23456)), "1.2346");
         assert_eq!(fmt_opt(None), "—");
+    }
+
+    #[test]
+    fn user_attribute_rows_preserve_types_missing_values_and_order() {
+        use std::sync::Arc;
+        use tunny_core::dataframe::{DataFrame, TrialRow};
+
+        let new_row = || TrialRow {
+            trial_id: 0,
+            trial_number: 0,
+            param_display: HashMap::new(),
+            param_category_label: HashMap::new(),
+            objective_values: vec![],
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
+            constraint_values: vec![],
+        };
+        let mut first = new_row();
+        first
+            .user_attrs_numeric
+            .insert("mixed".to_string(), 1.23456);
+        first
+            .user_attrs_string
+            .insert("note".to_string(), "a,b\n\"c\"".to_string());
+        let mut second = new_row();
+        second
+            .user_attrs_string
+            .insert("mixed".to_string(), "text".to_string());
+        let df = DataFrame::from_trials(
+            &[first, second],
+            &[],
+            &[],
+            &["mixed".to_string()],
+            &["mixed".to_string(), "note".to_string()],
+            0,
+        );
+        let view = StudyView::new(Arc::new(df), vec![]);
+        assert_eq!(
+            user_attribute_rows(&view, 0),
+            vec![
+                ("mixed (numeric)".to_string(), "1.2346".to_string()),
+                ("mixed (text)".to_string(), "".to_string()),
+                ("note".to_string(), "a,b\n\"c\"".to_string()),
+            ]
+        );
+        assert_eq!(user_attribute_rows(&view, 1)[0].1, "—");
+        assert_eq!(user_attribute_rows(&view, 1)[1].1, "text");
     }
 }

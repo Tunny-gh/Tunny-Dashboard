@@ -75,3 +75,4 @@ order:
 | 0001 | [Documentation architecture](0001-documentation-architecture.md) | Accepted | 2026-09-17 |
 | 0002 | [Phase 2 scope — extend into the execution loop](0002-phase-2-scope.md) | Accepted | 2026-07-16 |
 | 0003 | [Parse .ghx directly for Grasshopper integration](0003-ghx-direct-parsing.md) | Accepted | 2026-07-16 |
+| 0004 | [Display mixed-type trial user attributes separately](0004-display-mixed-type-user-attributes-separately.md) | Accepted | 2026-09-29 |
