@@ -35,6 +35,14 @@ pub fn compute_entropy_weights(
         return Err("No valid trials for entropy computation (all NaN)".to_string());
     }
     let m = valid_indices.len();
+    let constant_columns: Vec<bool> = (0..n_objectives)
+        .map(|j| {
+            let first = values[valid_indices[0] * n_objectives + j];
+            valid_indices
+                .iter()
+                .all(|&i| values[i * n_objectives + j] == first)
+        })
+        .collect();
 
     // Step: preprocess negative values (min-max normalization per column if needed)
     let processed: Vec<f64> = {
@@ -80,6 +88,12 @@ pub fn compute_entropy_weights(
     // Step: proportional normalization p_ij = x_ij / sum_i(x_ij)
     let mut normalized_matrix = vec![0.0; m * n_objectives];
     for j in 0..n_objectives {
+        if m > 1 && constant_columns[j] {
+            for i in 0..m {
+                normalized_matrix[i * n_objectives + j] = 1.0 / m as f64;
+            }
+            continue;
+        }
         let sum_j: f64 = (0..m).map(|i| processed[i * n_objectives + j]).sum();
         if sum_j > 0.0 {
             for i in 0..m {
@@ -92,7 +106,10 @@ pub fn compute_entropy_weights(
     let ln_m = (m as f64).ln();
     let mut entropies = vec![0.0; n_objectives];
     for j in 0..n_objectives {
-        if ln_m > 0.0 {
+        if m > 1 && constant_columns[j] {
+            // Exact unit entropy avoids rounding residuals in the all-constant fallback.
+            entropies[j] = 1.0;
+        } else if ln_m > 0.0 {
             let sum: f64 = (0..m)
                 .map(|i| {
                     let p = normalized_matrix[i * n_objectives + j];
@@ -133,6 +150,131 @@ pub fn compute_entropy_weights(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_close(actual: &[f64], expected: &[f64]) {
+        assert_eq!(actual.len(), expected.len());
+        for (&actual, &expected) in actual.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-12, "{actual} != {expected}");
+        }
+    }
+
+    #[test]
+    fn constant_columns_mixed_with_varying_column() {
+        for constant in [0.0, 5.0, -3.0, f64::MAX, -f64::MAX] {
+            let values = [constant, 1.0, constant, 2.0, constant, 3.0];
+            let result = compute_entropy_weights(&values, 3, 2).unwrap();
+            assert_close(
+                &result.normalized_matrix,
+                &[1.0 / 3.0, 1.0 / 6.0, 1.0 / 3.0, 2.0 / 6.0, 1.0 / 3.0, 0.5],
+            );
+            assert_eq!(result.entropies[0], 1.0);
+            assert_eq!(result.diversities[0], 0.0);
+            assert_close(&result.weights, &[0.0, 1.0]);
+        }
+    }
+
+    #[test]
+    fn all_constant_columns_use_equal_weight_fallback() {
+        for row in [[5.0, 5.0, 5.0], [0.0, 0.0, 0.0], [5.0, -3.0, 0.0]] {
+            for m in [2, 3, 7] {
+                let result = compute_entropy_weights(&row.repeat(m), m, 3).unwrap();
+                assert_close(&result.normalized_matrix, &vec![1.0 / m as f64; m * 3]);
+                assert_eq!(result.entropies, vec![1.0; 3]);
+                assert_eq!(result.diversities, vec![0.0; 3]);
+                assert_close(&result.weights, &[1.0 / 3.0; 3]);
+            }
+        }
+    }
+
+    #[test]
+    fn single_valid_trial_preserves_existing_policy() {
+        let row = [5.0, -3.0, 0.0];
+        let filtered = [f64::NAN, 1.0, 2.0, 5.0, -3.0, 0.0, 1.0, f64::INFINITY, 2.0];
+        for values in [row.as_slice(), filtered.as_slice()] {
+            let result = compute_entropy_weights(values, values.len() / 3, 3).unwrap();
+            assert_eq!(result.normalized_matrix, vec![1.0, 1.0, 0.0]);
+            assert_eq!(result.entropies, vec![0.0; 3]);
+            assert_eq!(result.diversities, vec![1.0; 3]);
+            assert_close(&result.weights, &[1.0 / 3.0; 3]);
+        }
+    }
+
+    #[test]
+    fn constancy_uses_only_retained_finite_rows() {
+        let values = [
+            0.0,
+            1.0,
+            9.0,
+            f64::NAN,
+            0.0,
+            2.0,
+            8.0,
+            f64::INFINITY,
+            0.0,
+            3.0,
+            7.0,
+            f64::NEG_INFINITY,
+        ];
+        let result = compute_entropy_weights(&values, 6, 2).unwrap();
+        let retained = compute_entropy_weights(&[0.0, 1.0, 0.0, 2.0, 0.0, 3.0], 3, 2).unwrap();
+        assert_eq!(result.normalized_matrix, retained.normalized_matrix);
+        assert_eq!(result.entropies, retained.entropies);
+        assert_eq!(result.diversities, retained.diversities);
+        assert_close(&result.weights, &[0.0, 1.0]);
+    }
+
+    #[test]
+    fn nonconstant_calculations_are_unchanged() {
+        // Positive ratios, negative min-max preprocessing, and nonconstant zeros.
+        let values = [1.0, -2.0, 0.0, 2.0, 0.0, 1.0, 3.0, 2.0, 1.0];
+        let result = compute_entropy_weights(&values, 3, 3).unwrap();
+        let probabilities: [f64; 9] = [
+            1.0 / 6.0,
+            0.0,
+            0.0,
+            1.0 / 3.0,
+            1.0 / 3.0,
+            0.5,
+            0.5,
+            2.0 / 3.0,
+            0.5,
+        ];
+        let entropies: Vec<f64> = (0..3)
+            .map(|j| {
+                -(0..3)
+                    .map(|i| {
+                        let p = probabilities[i * 3 + j];
+                        if p > 0.0 {
+                            p * p.ln()
+                        } else {
+                            0.0
+                        }
+                    })
+                    .sum::<f64>()
+                    / 3.0_f64.ln()
+            })
+            .collect();
+        let diversities: Vec<f64> = entropies.iter().map(|e| 1.0 - e).collect();
+        let sum: f64 = diversities.iter().sum();
+        let weights: Vec<f64> = diversities.iter().map(|d| d / sum).collect();
+        assert_close(&result.normalized_matrix, &probabilities);
+        assert_close(&result.entropies, &entropies);
+        assert_close(&result.diversities, &diversities);
+        assert_close(&result.weights, &weights);
+    }
+
+    #[test]
+    fn near_constant_column_is_not_constant() {
+        let values = [0.0, 1.0, 1e-15, 2.0, 2e-15, 3.0];
+        let result = compute_entropy_weights(&values, 3, 2).unwrap();
+        assert_close(
+            &result.normalized_matrix,
+            &[0.0, 1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0, 0.5],
+        );
+        assert!(result.entropies[0] < 1.0);
+        assert!(result.diversities[0] > 0.0);
+        assert!(result.weights[0] > 0.0);
+    }
 
     #[test]
     fn tc_entropy_01_basic_2objectives() {
