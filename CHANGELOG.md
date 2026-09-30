@@ -31,6 +31,9 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- IGD+ histories now give each exactly distinct finite reference objective vector
+  equal weight, ignoring duplicate vectors (including signed-zero variants) within
+  a study or across comparison studies while preserving every trial history entry.
 - Absent numeric parameters now remain missing (NaN), rather than becoming zero,
   in initial and incremental loads. PCA excludes incomplete rows before scaling
   and keeps trial coloring aligned, while preserving the feature list and existing

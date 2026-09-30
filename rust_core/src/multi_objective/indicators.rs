@@ -144,6 +144,12 @@ pub fn compute_indicator_histories(
     // Reference front shared across all series (non-dominated set of the union).
     let mut reference_front: Vec<Vec<f64>> = Vec::new();
     for p in &union_valid {
+        // Only IGD+ reference preparation deduplicates finite vectors, before unit scaling.
+        // Vec equality compares coordinates exactly (no tolerance), with +0.0 == -0.0.
+        // Keep all trial entries, other indicators, and the shared Pareto helper unchanged.
+        if matches!(indicator, MoIndicator::IgdPlus) && reference_front.contains(p) {
+            continue;
+        }
         add_to_pareto_front(&mut reference_front, p.clone());
     }
 
@@ -508,6 +514,113 @@ mod tests {
                 let s: f64 = w.iter().sum();
                 approx_eq(s, 1.0);
             }
+        }
+    }
+
+    #[test]
+    fn igd_plus_histories_ignore_reference_duplicates_but_keep_trials() {
+        let objectives = vec![vec![0.0, 1.0], vec![0.0, 1.0], vec![1.0, 0.0]];
+        let ids = [7, 11, 23];
+        let histories = compute_indicator_histories(
+            &[SeriesInput {
+                trial_ids: &ids,
+                objectives: &objectives,
+            }],
+            &[true, true],
+            MoIndicator::IgdPlus,
+            None,
+        );
+        assert_eq!(histories.len(), 1);
+        assert_eq!(histories[0].trial_ids, ids);
+        assert_eq!(histories[0].values, [0.5, 0.5, 0.0]);
+        // The public numerical kernel still averages every supplied reference entry.
+        approx_eq(igd_plus(&objectives[..1], &objectives), 1.0 / 3.0);
+    }
+
+    #[test]
+    fn igd_plus_histories_match_single_study_and_repeated_comparison_union() {
+        let unique = vec![vec![0.0, 1.0], vec![1.0, 0.0]];
+        let unique_ids = [7, 23];
+        let single = compute_indicator_histories(
+            &[SeriesInput {
+                trial_ids: &unique_ids,
+                objectives: &unique,
+            }],
+            &[true, true],
+            MoIndicator::IgdPlus,
+            None,
+        );
+        let repeated = vec![vec![0.0, 1.0], vec![0.0, 1.0], vec![1.0, 0.0]];
+        let repeated_ids = [31, 37, 41];
+        let comparison = compute_indicator_histories(
+            &[
+                SeriesInput {
+                    trial_ids: &unique_ids,
+                    objectives: &unique,
+                },
+                SeriesInput {
+                    trial_ids: &repeated_ids,
+                    objectives: &repeated,
+                },
+            ],
+            &[true, true],
+            MoIndicator::IgdPlus,
+            None,
+        );
+        assert_eq!(comparison.len(), 2);
+        assert_eq!(comparison[0].trial_ids, unique_ids);
+        assert_eq!(comparison[1].trial_ids, repeated_ids);
+        assert_eq!(comparison[0].values, single[0].values);
+        assert_eq!(comparison[1].values.len(), repeated_ids.len());
+        assert_eq!(comparison[1].values[0], single[0].values[0]);
+        assert_eq!(comparison[1].values[1], single[0].values[0]);
+        assert_eq!(comparison[1].values[2], single[0].values[1]);
+    }
+
+    #[test]
+    fn igd_plus_histories_preserve_nearby_distinct_nondominated_points() {
+        let delta = 1e-12;
+        let objectives = vec![
+            vec![0.0, 1.0],
+            vec![delta, 1.0 - delta],
+            vec![delta, 1.0 - delta],
+            vec![1.0, 0.0],
+        ];
+        let ids = [2, 5, 9, 17];
+        let histories = compute_indicator_histories(
+            &[SeriesInput {
+                trial_ids: &ids,
+                objectives: &objectives,
+            }],
+            &[true, true],
+            MoIndicator::IgdPlus,
+            None,
+        );
+        assert_eq!(histories[0].trial_ids, ids);
+        assert_eq!(histories[0].values.len(), ids.len());
+        approx_eq(histories[0].values[0], (1.0 + delta) / 3.0);
+        approx_eq(histories[0].values[1], (1.0 - delta) / 3.0);
+        assert_eq!(histories[0].values[1], histories[0].values[2]);
+        assert_eq!(histories[0].values[3], 0.0);
+    }
+
+    #[test]
+    fn igd_plus_histories_treat_signed_zeros_as_equal() {
+        for minimize_first in [true, false] {
+            let endpoint = if minimize_first { 1.0 } else { -1.0 };
+            let objectives = vec![vec![0.0, 1.0], vec![-0.0, 1.0], vec![endpoint, 0.0]];
+            let ids = [3, 8, 12];
+            let histories = compute_indicator_histories(
+                &[SeriesInput {
+                    trial_ids: &ids,
+                    objectives: &objectives,
+                }],
+                &[minimize_first, true],
+                MoIndicator::IgdPlus,
+                None,
+            );
+            assert_eq!(histories[0].trial_ids, ids);
+            assert_eq!(histories[0].values, [0.5, 0.5, 0.0]);
         }
     }
 
