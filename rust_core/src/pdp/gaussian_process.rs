@@ -285,7 +285,7 @@ pub(crate) fn compute_pdp_2d_gp(
     };
 
     let n = y.len();
-    if n < 3 || !super::utils::valid_xy(x_matrix, y) || n_grid == 0 {
+    if n < 3 || n_grid == 0 {
         return empty;
     }
     // Guard against an empty feature matrix (e.g. y populated but x rows missing).

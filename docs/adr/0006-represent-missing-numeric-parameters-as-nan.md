@@ -31,8 +31,9 @@ including NaN and infinities, through exclusion or rejection rather than
 silently treating them as valid measurements or imputing zero.
 
 PCA uses complete-case rows: retain only rows whose values are finite across
-all selected numeric parameter features. Filter these rows before centering or
-standardization, and preserve their correspondence to source trial rows for
+all selected numeric features. Preserve the original feature list, including
+existing constant-zero categorical string features. Filter these rows before
+centering or standardization, and preserve their correspondence to source trial rows for
 projections and coloring. If too few rows remain to perform PCA, the result is
 unavailable; do not impute missing values to make PCA available. Other analysis
 methods retain their existing method-appropriate finite-pair or complete-row
@@ -73,7 +74,7 @@ deliberately handle non-finite inputs without reintroducing silent zero
 imputation.
 
 PCA excludes incomplete or otherwise non-finite rows for the selected numeric
-parameter features, reducing the analyzed sample and potentially making the
+features, reducing the analyzed sample and potentially making the
 result unavailable. Projections and coloring must remain aligned with the
 retained source trial rows rather than the original unfiltered row positions.
 No global preprocessing redesign is introduced. Broader commonization of

@@ -2,6 +2,79 @@ use super::pca::run_pca_on_matrix_opts;
 use super::*;
 
 #[test]
+fn public_pca_preserves_mixed_features_and_complete_row_outputs() {
+    use crate::dataframe::{store_dataframes, DataFrame, TrialRow};
+    let complete: Vec<TrialRow> = (0..3)
+        .map(|i| TrialRow {
+            trial_id: 100 + i,
+            trial_number: 20 + i,
+            param_display: [("x".to_string(), 2.0 * i as f64)].into(),
+            param_category_label: [("category".to_string(), format!("c{i}"))].into(),
+            objective_values: vec![10.0 * i as f64],
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: vec![],
+        })
+        .collect();
+    let names = vec!["x".to_string(), "category".to_string()];
+    let load = |rows: &[TrialRow]| {
+        store_dataframes(vec![DataFrame::from_trials(
+            rows,
+            &names,
+            &["obj".to_string()],
+            &[],
+            &[],
+            0,
+        )]);
+        crate::dataframe::select_study(0).unwrap();
+    };
+    for (standardized, pca) in [
+        (false, run_pca as fn(_, _) -> _),
+        (true, run_pca_standardized),
+    ] {
+        load(&complete);
+        let expected = pca(2, PcaSpace::Param).unwrap();
+        assert_eq!(expected.feature_names, names);
+        assert_eq!(expected.row_indices, vec![0, 1, 2]);
+        assert_eq!(expected.loadings.len(), 2);
+        assert!(expected
+            .loadings
+            .iter()
+            .all(|component| component.len() == 2));
+        assert!(expected.projections.iter().all(|row| row.len() == 2));
+        let matrix = vec![vec![0.0, 0.0], vec![2.0, 0.0], vec![4.0, 0.0]];
+        let baseline = run_pca_on_matrix_opts(&matrix, 2, standardized);
+        assert_eq!(expected.projections, baseline.projections);
+        assert_eq!(expected.loadings, baseline.loadings);
+
+        let mut absent = complete[0].clone();
+        absent.param_display.remove("x");
+        let mut non_finite = complete[0].clone();
+        non_finite
+            .param_display
+            .insert("x".to_string(), f64::INFINITY);
+        let mut nan = complete[0].clone();
+        nan.param_display.insert("x".to_string(), f64::NAN);
+        load(&[
+            absent,
+            complete[0].clone(),
+            non_finite,
+            complete[1].clone(),
+            nan,
+            complete[2].clone(),
+        ]);
+        let actual = pca(2, PcaSpace::Param).unwrap();
+        assert_eq!(actual.feature_names, names);
+        assert_eq!(actual.row_indices, vec![1, 3, 5]);
+        assert_eq!(actual.projections, expected.projections);
+        assert_eq!(actual.loadings, expected.loadings);
+        assert_eq!(actual.explained_variance, expected.explained_variance);
+        assert_eq!(actual.explained_ratio, expected.explained_ratio);
+    }
+}
+
+#[test]
 fn public_pca_handles_absent_params_and_insufficient_complete_rows() {
     use crate::dataframe::{store_dataframes, DataFrame, TrialRow};
     let mut rows: Vec<TrialRow> = (0..4)

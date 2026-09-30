@@ -33,7 +33,8 @@ and `Security` as needed — omit headings that have nothing under them.
 
 - Absent numeric parameters now remain missing (NaN), rather than becoming zero,
   in initial and incremental loads. PCA excludes incomplete rows before scaling
-  and keeps trial coloring aligned. PCA CSV exports include the original row index;
+  and keeps trial coloring aligned, while preserving the feature list and existing
+  constant-zero categorical features. PCA CSV exports include the original row index;
   numerical fitting boundaries no longer silently consume missing parameter measurements.
 - Entropy weighting now treats every finite constant objective, including all-zero
   columns, as zero-information when multiple valid trials exist. Single-valid-trial

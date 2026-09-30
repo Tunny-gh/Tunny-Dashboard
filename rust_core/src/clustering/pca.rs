@@ -175,7 +175,7 @@ pub fn run_pca_standardized(n_components: usize, space: PcaSpace) -> Option<PcaR
     run_pca_impl(n_components, space, true)
 }
 
-/// Centered PCA over numeric columns, unavailable with fewer than two complete rows.
+/// Centered PCA, unavailable with fewer than two complete rows.
 pub fn run_pca(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
     run_pca_impl(n_components, space, false)
 }
@@ -191,10 +191,7 @@ fn run_pca_impl(n_components: usize, space: PcaSpace, standardize: bool) -> Opti
                 names.extend_from_slice(df.user_attr_numeric_col_names());
                 names
             }
-        }
-        .into_iter()
-        .filter(|name| df.get_numeric_column(name).is_some())
-        .collect();
+        };
 
         if feature_names.is_empty() {
             return None;
@@ -210,10 +207,10 @@ fn run_pca_impl(n_components: usize, space: PcaSpace, standardize: bool) -> Opti
                 feature_names
                     .iter()
                     .map(|name| {
+                        // Preserve existing constant-zero string features, but never
+                        // impute missing cells in numeric columns.
                         df.get_numeric_column(name)
-                            .and_then(|c| c.get(i))
-                            .copied()
-                            .unwrap_or(f64::NAN)
+                            .map_or(0.0, |c| c.get(i).copied().unwrap_or(f64::NAN))
                     })
                     .collect()
             })
