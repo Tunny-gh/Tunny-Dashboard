@@ -37,6 +37,9 @@ pub fn compute_pdp_from_data(
             n_grid,
         )
     };
+    if !super::utils::valid_xy(&x_matrix, &y) {
+        return ridge_fallback();
+    }
 
     if let Some(method) = resolve_gp_method(model_type) {
         return compute_pdp_1d_gp_raw(

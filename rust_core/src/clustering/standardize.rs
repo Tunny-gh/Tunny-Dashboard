@@ -13,7 +13,7 @@
 ///   deviation is the raw post-correction value (not rounded to 0 even for a
 ///   zero-variance column; the inverse-transform side must apply the same threshold check).
 ///
-/// Precondition: all rows must have the same length (validated by the caller).
+/// Precondition: all rows must have the same length and finite values (validated by the caller).
 pub(super) fn standardize_columns(x: &mut [Vec<f64>], ddof: usize) -> (Vec<f64>, Vec<f64>) {
     let n = x.len();
     if n == 0 || x[0].is_empty() {
@@ -30,7 +30,9 @@ pub(super) fn standardize_columns(x: &mut [Vec<f64>], ddof: usize) -> (Vec<f64>,
         means[j] = mean;
         stds[j] = std;
         for row in x.iter_mut() {
-            row[j] = if std > 1e-12 {
+            row[j] = if !mean.is_finite() || !std.is_finite() {
+                f64::NAN
+            } else if std > 1e-12 {
                 (row[j] - mean) / std
             } else {
                 0.0
@@ -43,6 +45,13 @@ pub(super) fn standardize_columns(x: &mut [Vec<f64>], ddof: usize) -> (Vec<f64>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_finite_statistics_are_not_imputed_as_zero_variance() {
+        let mut x = vec![vec![0.0], vec![f64::NAN], vec![2.0]];
+        standardize_columns(&mut x, 1);
+        assert!(x.iter().all(|row| row[0].is_nan()));
+    }
 
     #[test]
     fn population_variance_standardizes_to_unit() {

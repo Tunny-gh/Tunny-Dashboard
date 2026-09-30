@@ -34,7 +34,7 @@ pub(crate) fn compute_pdp_from_matrix(
     };
 
     let n = y.len();
-    if n < 2 || x_matrix.is_empty() || n_grid == 0 {
+    if n < 2 || !super::utils::valid_xy(x_matrix, y) || n_grid == 0 {
         return empty;
     }
     if target_param_idx >= x_matrix[0].len() {
@@ -96,7 +96,7 @@ pub(crate) fn compute_pdp_2d_from_matrix(
     };
 
     let n = y.len();
-    if n < 2 || x_matrix.is_empty() || n_grid == 0 {
+    if n < 2 || !super::utils::valid_xy(x_matrix, y) || n_grid == 0 {
         return empty;
     }
     let p = x_matrix[0].len();

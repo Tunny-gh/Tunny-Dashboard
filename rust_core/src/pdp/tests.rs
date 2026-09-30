@@ -490,3 +490,33 @@ fn tc_1653_01_gp_fitc_dispatch_returns_finite_results() {
         }
     }
 }
+#[test]
+fn public_pdp_boundary_rejects_missing_features_without_ridge_imputation() {
+    for model in ["ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest"] {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let result = super::compute_pdp_from_data(
+                vec![vec![0.0], vec![bad], vec![2.0]],
+                vec![0.0, 1.0, 2.0],
+                vec!["x".to_string()],
+                "obj",
+                0,
+                10,
+                model,
+            );
+            assert!(
+                result.grid.is_empty(),
+                "{model} must reject non-finite features"
+            );
+        }
+        let ragged = super::compute_pdp_from_data(
+            vec![vec![0.0], vec![], vec![2.0]],
+            vec![0.0, 1.0, 2.0],
+            vec!["x".to_string()],
+            "obj",
+            0,
+            10,
+            model,
+        );
+        assert!(ragged.grid.is_empty());
+    }
+}

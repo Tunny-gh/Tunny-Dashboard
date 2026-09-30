@@ -232,6 +232,7 @@ pub(crate) fn compute_r_squared(x_cols: &[f64], y_c: &[f64], beta: &[f64], n: us
     (1.0 - ss_res / ss_tot).max(0.0)
 }
 
+/// In-sample Ridge fit. Non-finite inputs return an empty coefficient vector.
 pub fn compute_ridge(x_matrix: &faer::Mat<f64>, y: &[f64], alpha: f64) -> RidgeResult {
     let n = y.len();
     let empty = RidgeResult {
@@ -243,6 +244,11 @@ pub fn compute_ridge(x_matrix: &faer::Mat<f64>, y: &[f64], alpha: f64) -> RidgeR
     }
     let p = x_matrix.ncols();
     if p == 0 {
+        return empty;
+    }
+    if y.iter().any(|v| !v.is_finite())
+        || (0..n).any(|i| (0..p).any(|j| !x_matrix[(i, j)].is_finite()))
+    {
         return empty;
     }
     let x_cols = transpose_and_standardize_faer(x_matrix, n, p);
@@ -260,7 +266,7 @@ pub(crate) fn compute_ridge_from_vecs(x_matrix: &[Vec<f64>], y: &[f64], alpha: f
         return empty;
     }
     let p = x_matrix.first().map(|r| r.len()).unwrap_or(0);
-    if p == 0 {
+    if p == 0 || x_matrix.iter().any(|row| row.len() != p) {
         return empty;
     }
     let faer_x = faer::Mat::from_fn(n, p, |i, j| x_matrix[i][j]);

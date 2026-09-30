@@ -77,3 +77,4 @@ order:
 | 0003 | [Parse .ghx directly for Grasshopper integration](0003-ghx-direct-parsing.md) | Accepted | 2026-07-16 |
 | 0004 | [Display mixed-type trial user attributes separately](0004-display-mixed-type-user-attributes-separately.md) | Superseded by ADR-0005 | 2026-09-29 |
 | 0005 | [Present trial user attributes by key](0005-present-user-attributes-by-key.md) | Accepted | 2026-09-29 |
+| 0006 | [Represent missing numeric parameters as NaN](0006-represent-missing-numeric-parameters-as-nan.md) | Accepted | 2026-09-30 |

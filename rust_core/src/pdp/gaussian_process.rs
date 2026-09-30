@@ -28,7 +28,7 @@ pub(crate) fn compute_pdp_1d_gp_raw(
     let n = y.len();
     let n_dims = x_matrix.first()?.len();
 
-    if n < 3 || n_grid == 0 || target_param_idx >= n_dims {
+    if n < 3 || !super::utils::valid_xy(x_matrix, y) || n_grid == 0 || target_param_idx >= n_dims {
         return None;
     }
 
@@ -157,7 +157,12 @@ pub(crate) fn compute_pdp_2d_gp_raw(
 ) -> Option<PdpResult2d> {
     let n = y.len();
     let n_dims = x_matrix.first()?.len();
-    if n < 3 || n_grid == 0 || param1_idx >= n_dims || param2_idx >= n_dims {
+    if n < 3
+        || !super::utils::valid_xy(x_matrix, y)
+        || n_grid == 0
+        || param1_idx >= n_dims
+        || param2_idx >= n_dims
+    {
         return None;
     }
 
@@ -280,7 +285,7 @@ pub(crate) fn compute_pdp_2d_gp(
     };
 
     let n = y.len();
-    if n < 3 || n_grid == 0 {
+    if n < 3 || !super::utils::valid_xy(x_matrix, y) || n_grid == 0 {
         return empty;
     }
     // Guard against an empty feature matrix (e.g. y populated but x rows missing).

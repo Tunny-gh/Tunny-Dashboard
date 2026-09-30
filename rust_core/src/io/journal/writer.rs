@@ -475,8 +475,11 @@ mod tests {
             Some([12.3, 10.0].as_slice())
         );
         assert_eq!(df.get_numeric_column("disp"), Some([4.5, 6.0].as_slice()));
-        assert_eq!(df.get_numeric_column("span"), Some([5.5, 0.0].as_slice()));
-        assert_eq!(df.get_numeric_column("count"), Some([3.0, 0.0].as_slice()));
+        for (name, observed) in [("span", 5.5), ("count", 3.0)] {
+            let col = df.get_numeric_column(name).unwrap();
+            assert_eq!(col[0], observed);
+            assert!(col[1].is_nan());
+        }
 
         // StudyExtras: 3 trials, states Complete/Fail/Complete, datetimes are Some.
         assert_eq!(extras.trials.len(), 3);

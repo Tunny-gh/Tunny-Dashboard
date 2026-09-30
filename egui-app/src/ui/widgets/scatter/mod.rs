@@ -11,15 +11,8 @@ pub mod som_map;
 
 use crate::state::types::StudyView;
 
-/// Resolves the `features` columns from `view` and returns a training matrix containing
-/// only rows where every feature is finite (D-11). Returns empty if even one column
-/// name doesn't exist. Rows containing NaN/Inf are skipped (post-processing such as
-/// subsampling or distance computation is the caller's responsibility).
-pub(super) fn feature_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
-    feature_matrix_with_rows(view, features).1
-}
-
-/// Same as [`feature_matrix`], but also returns the source row index of every kept row.
+/// Resolves finite feature rows and their source row indices.
+/// Returns empty if any column does not exist.
 ///
 /// Callers that map a per-row result of a clustering routine back onto trials need this:
 /// dropping the NaN rows shifts every later row's position, so the returned matrix can no

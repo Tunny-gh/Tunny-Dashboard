@@ -34,6 +34,8 @@ pub enum PcaSpace {
 pub struct PcaResult {
     /// Coordinates of each row projected into principal-component space. `projections[row][component]`.
     pub projections: Vec<Vec<f64>>,
+    /// Source row index for each projection, before complete-case filtering.
+    pub row_indices: Vec<usize>,
     /// Loadings (eigenvectors) of each principal component. `loadings[component][feature]`.
     pub loadings: Vec<Vec<f64>>,
     /// Explained variance of each component (eigenvalues, descending).

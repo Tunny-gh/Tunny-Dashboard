@@ -93,7 +93,9 @@ pub(crate) fn r_squared(y_actual: &[f64], y_pred: &[f64]) -> f64 {
 
 /// Extract feature matrix and objective variable from DataFrame.
 ///
-/// Missing values (non-existent column or index out of bounds) fallback to 0.0.
+/// Only rows with finite features and objective values are included.
+/// Existing string parameters retain their prior constant-zero treatment;
+/// absent columns and invalid numeric cells remain missing, not zero-imputed.
 /// When `feasible_only` is `true`, only rows where `is_feasible > 0.5` are
 /// included.  If the `is_feasible` column is absent (unconstrained study) all
 /// rows are included regardless of the flag.
@@ -114,10 +116,10 @@ pub(crate) fn extract_xy(
         .map(|i| {
             param_names
                 .iter()
-                .map(|p| {
-                    df.get_numeric_column(p)
-                        .and_then(|c| c.get(i).copied())
-                        .unwrap_or(0.0)
+                .map(|p| match df.get_numeric_column(p) {
+                    Some(values) => values.get(i).copied().unwrap_or(f64::NAN),
+                    None if df.get_string_column(p).is_some() => 0.0,
+                    None => f64::NAN,
                 })
                 .collect()
         })
@@ -126,15 +128,114 @@ pub(crate) fn extract_xy(
         .map(|i| {
             df.get_numeric_column(objective_name)
                 .and_then(|c| c.get(i).copied())
-                .unwrap_or(0.0)
+                .unwrap_or(f64::NAN)
         })
         .collect();
-    (x_matrix, y)
+    x_matrix
+        .into_iter()
+        .zip(y)
+        .filter(|(row, value)| value.is_finite() && row.iter().all(|v| v.is_finite()))
+        .unzip()
+}
+
+/// Reject invalid matrices before normalization, fitting, or fallback models.
+pub(crate) fn valid_xy(x: &[Vec<f64>], y: &[f64]) -> bool {
+    let p = x.first().map_or(0, Vec::len);
+    p > 0
+        && x.len() == y.len()
+        && y.iter().all(|v| v.is_finite())
+        && x.iter()
+            .all(|row| row.len() == p && row.iter().all(|v| v.is_finite()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_type_pdp_keeps_categories_constant_and_filters_missing_numbers() {
+        use crate::dataframe::{DataFrame, TrialRow};
+        let mut rows: Vec<TrialRow> = (0..4)
+            .map(|i| TrialRow {
+                trial_id: i,
+                trial_number: i,
+                param_display: [
+                    ("x".to_string(), i as f64),
+                    ("y".to_string(), (i % 2) as f64),
+                ]
+                .into(),
+                param_category_label: [("category".to_string(), format!("label{}", i % 2))].into(),
+                objective_values: vec![i as f64],
+                user_attrs_numeric: Default::default(),
+                user_attrs_string: Default::default(),
+                user_attrs_json: Default::default(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let params = vec!["x".to_string(), "y".to_string(), "category".to_string()];
+        for incomplete in [false, true] {
+            if incomplete {
+                rows[1].param_display.remove("x");
+                rows[2].param_display.insert("x".to_string(), f64::INFINITY);
+            }
+            let df = DataFrame::from_trials(&rows, &params, &["obj".to_string()], &[], &[], 0);
+            let (x, y) = extract_xy(&df, &params, "obj", false);
+            assert_eq!(
+                y,
+                if incomplete {
+                    vec![0.0, 3.0]
+                } else {
+                    vec![0.0, 1.0, 2.0, 3.0]
+                }
+            );
+            assert_eq!(x[0], vec![0.0, 0.0, 0.0]);
+            assert!(x.iter().all(|row| row[2] == 0.0));
+            let mut unknown_params = params.clone();
+            unknown_params.push("unknown".to_string());
+            assert!(extract_xy(&df, &unknown_params, "obj", false).0.is_empty());
+            crate::dataframe::store_dataframes(vec![df]);
+            crate::dataframe::select_study(0).unwrap();
+            let result = crate::pdp::compute_pdp_2d("x", "y", "obj", 5, "ridge", false).unwrap();
+            assert_eq!(result.z_values.len(), 5);
+            assert!(result.z_values.iter().flatten().all(|v| v.is_finite()));
+            let numeric_x: Vec<Vec<f64>> = x.iter().map(|row| row[..2].to_vec()).collect();
+            let expected = super::super::ridge::compute_pdp_2d_from_matrix(
+                &numeric_x,
+                &y,
+                &params[..2],
+                "obj",
+                0,
+                1,
+                5,
+            );
+            assert_eq!(result.z_values, expected.z_values);
+        }
+    }
+
+    #[test]
+    fn extraction_keeps_only_complete_observed_pairs_in_source_order() {
+        use crate::dataframe::{DataFrame, TrialRow};
+        let rows: Vec<TrialRow> = [Some(0.0), None, Some(3.0), Some(f64::INFINITY)]
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| TrialRow {
+                trial_id: i as u32,
+                trial_number: i as u32,
+                param_display: x.map(|v| ("x".to_string(), v)).into_iter().collect(),
+                param_category_label: Default::default(),
+                objective_values: vec![i as f64],
+                user_attrs_numeric: Default::default(),
+                user_attrs_string: Default::default(),
+                user_attrs_json: Default::default(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df =
+            DataFrame::from_trials(&rows, &["x".to_string()], &["obj".to_string()], &[], &[], 0);
+        let (x, y) = extract_xy(&df, &["x".to_string()], "obj", false);
+        assert_eq!(x, vec![vec![0.0], vec![3.0]]);
+        assert_eq!(y, vec![0.0, 2.0]);
+    }
 
     #[test]
     fn tc_101_01_normal_data_normalization() {
@@ -331,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn tc_301_e01_missing_column_fallback() {
+    fn tc_301_e01_missing_column_excludes_rows() {
         // Given: DataFrame where requested column doesn't exist
         use crate::dataframe::DataFrame;
         use crate::dataframe::TrialRow;
@@ -361,11 +462,8 @@ mod tests {
         // When: extract_xy requests non-existent column "z"
         let (x_matrix, _y) = extract_xy(&df, &["x".to_string(), "z".to_string()], "obj0", false);
 
-        // Then: Should fallback to 0.0 for missing column
-        assert_eq!(x_matrix.len(), 1);
-        assert_eq!(x_matrix[0].len(), 2);
-        assert!((x_matrix[0][0] - 0.5).abs() < 1e-9);
-        assert_eq!(x_matrix[0][1], 0.0); // z doesn't exist, so 0.0
+        // A missing feature must not fabricate a training measurement.
+        assert!(x_matrix.is_empty());
     }
 
     /// Builds a DataFrame with constraints (has an is_feasible column).

@@ -106,7 +106,7 @@ impl DataFrame {
     /// string column if even one row has a category label, otherwise a
     /// numeric column. If constraints exist, the derived columns
     /// `is_feasible` / `constraint_sum` are added. Missing values are filled
-    /// as: param: 0.0 / objective and user numeric: NaN / string: "" / constraint: 0.0.
+    /// as: numeric param, objective and user numeric: NaN / string: "" / constraint: 0.0.
     pub fn from_trials(
         trial_rows: &[TrialRow],
         param_names: &[String],
@@ -154,7 +154,7 @@ impl DataFrame {
             } else {
                 let vals: Vec<f64> = trial_rows
                     .iter()
-                    .map(|r| *r.param_display.get(name).unwrap_or(&0.0))
+                    .map(|r| *r.param_display.get(name).unwrap_or(&f64::NAN))
                     .collect();
                 numeric_cols.push((name.clone(), vals));
             }
@@ -262,8 +262,8 @@ impl DataFrame {
     ///
     /// Pass the cumulative name lists (the full set including existing
     /// columns). A column that first appears partway through streaming is
-    /// backfilled for existing rows with a default value (param numeric:
-    /// 0.0 / objective and user numeric: NaN / string: "" / constraint: 0.0
+    /// backfilled for existing rows with a default value (numeric param,
+    /// objective and user numeric: NaN / string: "" / constraint: 0.0
     /// / is_feasible: 1.0). If a category label first appears on a numeric
     /// param column, the whole column is replaced with a string column, as
     /// in `from_trials` (existing rows become "").
@@ -369,11 +369,11 @@ impl DataFrame {
                     vals.extend(label_values());
                     self.string_cols.push((name.clone(), vals));
                 } else {
-                    let mut vals = vec![0.0; old_n];
+                    let mut vals = vec![f64::NAN; old_n];
                     vals.extend(
                         new_rows
                             .iter()
-                            .map(|r| *r.param_display.get(name).unwrap_or(&0.0)),
+                            .map(|r| *r.param_display.get(name).unwrap_or(&f64::NAN)),
                     );
                     self.numeric_cols.push((name.clone(), vals));
                 }
@@ -424,7 +424,7 @@ impl DataFrame {
                     name,
                     new_rows
                         .iter()
-                        .map(|r| *r.param_display.get(name).unwrap_or(&0.0)),
+                        .map(|r| *r.param_display.get(name).unwrap_or(&f64::NAN)),
                 );
             }
         }

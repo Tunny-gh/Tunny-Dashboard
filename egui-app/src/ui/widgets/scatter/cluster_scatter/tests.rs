@@ -165,3 +165,104 @@ fn cache_key_normalizes_unused_field_per_mode() {
     assert_eq!(elbow_key.k, 0);
     assert_eq!(elbow_key.elbow_max_k, 42);
 }
+#[test]
+fn cluster_matrix_filters_missing_numeric_params_and_preserves_targets() {
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow};
+    let rows: Vec<TrialRow> = (0..4)
+        .map(|i| TrialRow {
+            trial_id: 100 + i,
+            trial_number: 20 + i,
+            param_display: if i == 1 {
+                Default::default()
+            } else {
+                [("x".to_string(), i as f64)].into()
+            },
+            param_category_label: Default::default(),
+            objective_values: vec![i as f64],
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: vec![],
+        })
+        .collect();
+    let params = vec!["x".to_string()];
+    let objectives = vec!["obj".to_string()];
+    let df = DataFrame::from_trials(&rows, &params, &objectives, &[], &[], 0);
+    let view = StudyView::new(Arc::new(df), vec![0, 0, 1, 0]);
+    for space in [ClusterSpace::Variable, ClusterSpace::Combined] {
+        let matrix =
+            super::matrix::build_cluster_matrix(&view, &params, &objectives, space).unwrap();
+        assert_eq!(matrix.target_indices, vec![0, 3]);
+        assert_eq!(matrix.n_rows, 2);
+        assert!(matrix.flat_data.iter().all(|v| v.is_finite()));
+        assert_eq!(matrix.flat_data[0], 0.0);
+    }
+    let matrix =
+        super::matrix::build_cluster_matrix(&view, &params, &objectives, ClusterSpace::Objective)
+            .unwrap();
+    assert_eq!(matrix.target_indices, vec![0, 1, 3]);
+}
+
+#[test]
+fn mixed_type_cluster_matrix_keeps_categories_constant_and_filters_missing_numbers() {
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow};
+    let mut rows: Vec<TrialRow> = (0..4)
+        .map(|i| TrialRow {
+            trial_id: 100 + i,
+            trial_number: i,
+            param_display: [("x".to_string(), i as f64)].into(),
+            param_category_label: [("category".to_string(), format!("label{}", i % 2))].into(),
+            objective_values: vec![i as f64],
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: vec![],
+        })
+        .collect();
+    let params = vec!["x".to_string(), "category".to_string()];
+    let objectives = vec!["obj".to_string()];
+    for incomplete in [false, true] {
+        if incomplete {
+            rows[1].param_display.remove("x");
+            rows[2].param_display.insert("x".to_string(), f64::INFINITY);
+        }
+        let df = DataFrame::from_trials(&rows, &params, &objectives, &[], &[], 0);
+        let view = StudyView::new(Arc::new(df), vec![0; rows.len()]);
+        for space in [ClusterSpace::Variable, ClusterSpace::Combined] {
+            let matrix =
+                super::matrix::build_cluster_matrix(&view, &params, &objectives, space).unwrap();
+            let expected_rows = if incomplete {
+                vec![0, 3]
+            } else {
+                vec![0, 1, 2, 3]
+            };
+            assert_eq!(matrix.target_indices, expected_rows);
+            for (row, &source) in matrix
+                .flat_data
+                .chunks_exact(matrix.n_cols)
+                .zip(&matrix.target_indices)
+            {
+                assert_eq!(&row[..2], &[source as f64, 0.0]);
+            }
+            assert_eq!(matrix.flat_data[0], 0.0);
+            let result = tunny_core::clustering::run_kmeans(
+                2,
+                &matrix.flat_data,
+                matrix.n_cols,
+                tunny_core::clustering::InitStrategy::Deterministic,
+            );
+            assert_eq!(result.labels.len(), matrix.n_rows);
+            let mut unknown_params = params.clone();
+            unknown_params.push("unknown".to_string());
+            assert!(super::matrix::build_cluster_matrix(
+                &view,
+                &unknown_params,
+                &objectives,
+                space
+            )
+            .is_err());
+        }
+    }
+}

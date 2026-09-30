@@ -110,6 +110,7 @@ fn rectangular_ncol(x: &[Vec<f64>]) -> Option<usize> {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Creates a LightGBM dataset from a feature matrix and label vector.
+/// Rejects non-finite measurements; missing-data handling belongs to the caller.
 pub fn to_lgbm_dataset(x: &[Vec<f64>], y: &[f64]) -> Result<LgbmDataset, LgbmError> {
     if x.is_empty() || y.is_empty() {
         return Err(LgbmError("empty data".into()));
@@ -118,6 +119,9 @@ pub fn to_lgbm_dataset(x: &[Vec<f64>], y: &[f64]) -> Result<LgbmDataset, LgbmErr
         .ok_or_else(|| LgbmError("feature matrix must be non-empty and rectangular".into()))?;
     if x.len() != y.len() {
         return Err(LgbmError("row count and label count differ".into()));
+    }
+    if x.iter().flatten().chain(y).any(|v| !v.is_finite()) {
+        return Err(LgbmError("input contains non-finite values".into()));
     }
     let nrow = dim_to_i32(x.len(), "nrow")?;
     let ncol = dim_to_i32(ncol_usize, "ncol")?;
@@ -565,6 +569,14 @@ pub fn compute_pdp_1d_lgbm(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dataset_boundary_rejects_non_finite_measurements() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(super::to_lgbm_dataset(&[vec![0.0], vec![bad]], &[0.0, 1.0]).is_err());
+            assert!(super::to_lgbm_dataset(&[vec![0.0], vec![1.0]], &[0.0, bad]).is_err());
+        }
+    }
 
     fn synthetic_data(n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
         let x: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 3) as f64]).collect();
