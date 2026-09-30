@@ -11,6 +11,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Changed
+
+- Trial details now use aligned key/value rows with subtle stripes and separators,
+  clearer section boundaries, and indented array elements. Expanded arrays show
+  an item count in the parent row.
+
 ### Added
 
 - Trial User Attributes now retain and display every JSON value, including

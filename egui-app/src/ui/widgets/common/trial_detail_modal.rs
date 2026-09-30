@@ -126,29 +126,36 @@ impl TrialDetailModal {
                                 egui::vec2(left_w, body_max_h),
                                 egui::Layout::top_down(egui::Align::Min),
                                 |ui| {
+                                    let mut first_section = true;
                                     // Chart-specific info (rank, cluster number, etc.).
                                     if !target.context.is_empty() {
-                                        section_label(ui, "Chart Info");
-                                        kv_grid(ui, "trial_detail_context", &target.context);
-                                        ui.add_space(8.0);
+                                        detail_section_label(ui, "Chart Info", &mut first_section);
+                                        kv_rows(ui, &target.context, left_w, |i| {
+                                            target.context[i].1.parse::<f64>().is_ok()
+                                        });
                                     }
 
                                     // Objective values.
                                     if !obj_names.is_empty() {
-                                        section_label(ui, "Objectives");
+                                        detail_section_label(ui, "Objectives", &mut first_section);
                                         let rows = value_rows(view, obj_names, target.row_index);
-                                        kv_grid(ui, "trial_detail_objectives", &rows);
-                                        ui.add_space(8.0);
+                                        kv_rows(ui, &rows, left_w, |_| true);
                                     }
 
                                     // Parameter values.
                                     if !param_names.is_empty() {
-                                        section_label(ui, "Variables");
+                                        detail_section_label(ui, "Variables", &mut first_section);
                                         let rows = value_rows(view, param_names, target.row_index);
-                                        kv_grid(ui, "trial_detail_params", &rows);
-                                        ui.add_space(8.0);
+                                        kv_rows(ui, &rows, left_w, |i| {
+                                            view.numeric_column(&param_names[i]).is_some()
+                                        });
                                     }
 
+                                    if !first_section {
+                                        ui.add_space(8.0);
+                                        ui.separator();
+                                        ui.add_space(4.0);
+                                    }
                                     ui.horizontal(|ui| {
                                         section_label(ui, "User Attributes");
                                         if view.user_attribute_names().iter().any(|name| {
@@ -171,21 +178,16 @@ impl TrialDetailModal {
                                     if rows.is_empty() {
                                         ui.label(egui::RichText::new("No user attributes.").weak());
                                     } else {
-                                        for (key, value) in rows {
-                                            ui.horizontal_top(|ui| {
-                                                ui.add_sized(
-                                                    [left_w * 0.36, 0.0],
-                                                    egui::Label::new(
-                                                        egui::RichText::new(key)
-                                                            .color(crate::theme::TEXT_SECONDARY()),
-                                                    )
-                                                    .wrap(),
-                                                );
-                                                ui.add_sized(
-                                                    [left_w * 0.56, 0.0],
-                                                    egui::Label::new(value).wrap(),
-                                                );
-                                            });
+                                        for (index, row) in rows.iter().enumerate() {
+                                            kv_row(
+                                                ui,
+                                                left_w,
+                                                index,
+                                                &row.key,
+                                                &row.value,
+                                                row.numeric,
+                                                row.kind,
+                                            );
                                         }
                                     }
                                 },
@@ -250,6 +252,16 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).strong());
 }
 
+fn detail_section_label(ui: &mut egui::Ui, text: &str, first: &mut bool) {
+    if !*first {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+    }
+    *first = false;
+    section_label(ui, text);
+}
+
 /// Builds (name, formatted value) pairs from a column-name -> value-slice mapping.
 fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(String, String)> {
     let cols = view.numeric_columns(names);
@@ -260,11 +272,26 @@ fn value_rows(view: &StudyView, names: &[String], row_index: usize) -> Vec<(Stri
         .collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttributeRowKind {
+    Plain,
+    ArrayParent,
+    ArrayChild,
+}
+
+#[derive(Debug, PartialEq)]
+struct UserAttributeRow {
+    key: String,
+    value: String,
+    kind: AttributeRowKind,
+    numeric: bool,
+}
+
 fn user_attribute_rows(
     view: &StudyView,
     row_index: usize,
     expand_lists: bool,
-) -> Vec<(String, String)> {
+) -> Vec<UserAttributeRow> {
     view.user_attribute_columns(expand_lists)
         .into_iter()
         .filter_map(|column| {
@@ -272,23 +299,108 @@ fn user_attribute_rows(
             if column.array_index.is_some() && value.is_none() {
                 return None;
             }
-            Some((column.label(), format_user_attribute(value)))
+            let kind = if column.array_index.is_some() {
+                AttributeRowKind::ArrayChild
+            } else if expand_lists && value.is_some_and(serde_json::Value::is_array) {
+                AttributeRowKind::ArrayParent
+            } else {
+                AttributeRowKind::Plain
+            };
+            let display = match (kind, value) {
+                (AttributeRowKind::ArrayParent, Some(serde_json::Value::Array(items))) => {
+                    format!("Array [{}]", items.len())
+                }
+                _ => format_user_attribute(value),
+            };
+            Some(UserAttributeRow {
+                key: column.label(),
+                value: display,
+                kind,
+                numeric: value.is_some_and(serde_json::Value::is_number),
+            })
         })
         .collect()
 }
 
-/// Renders a two-column key/value grid.
-fn kv_grid(ui: &mut egui::Ui, id: &str, rows: &[(String, String)]) {
-    egui::Grid::new(id)
-        .num_columns(2)
-        .spacing([16.0, 2.0])
+fn kv_rows(
+    ui: &mut egui::Ui,
+    rows: &[(String, String)],
+    width: f32,
+    is_numeric: impl Fn(usize) -> bool,
+) {
+    for (index, (key, value)) in rows.iter().enumerate() {
+        kv_row(
+            ui,
+            width,
+            index,
+            key,
+            value,
+            is_numeric(index),
+            AttributeRowKind::Plain,
+        );
+    }
+}
+
+/// Draws a bounded key/value row with subtle stripes and a bottom separator.
+fn kv_row(
+    ui: &mut egui::Ui,
+    width: f32,
+    index: usize,
+    key: &str,
+    value: &str,
+    numeric: bool,
+    kind: AttributeRowKind,
+) {
+    let background = if index % 2 == 1 || kind == AttributeRowKind::ArrayParent {
+        ui.visuals().faint_bg_color
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    let row = egui::Frame::new()
+        .fill(background)
+        .inner_margin(egui::Margin::symmetric(4, 3))
         .show(ui, |ui| {
-            for (k, v) in rows {
-                ui.label(egui::RichText::new(k).color(crate::theme::TEXT_SECONDARY()));
-                ui.label(v);
-                ui.end_row();
-            }
+            let available = (width - 8.0).max(120.0);
+            ui.set_width(available);
+            let key_width = available * 0.36;
+            let value_width = (available - key_width - ui.spacing().item_spacing.x).max(40.0);
+            ui.horizontal_top(|ui| {
+                key_label(ui, key, kind, key_width);
+                ui.add_sized(
+                    [value_width, 0.0],
+                    egui::Label::new(value).wrap().halign(if numeric {
+                        egui::Align::RIGHT
+                    } else {
+                        egui::Align::LEFT
+                    }),
+                );
+            });
         });
+    ui.painter().hline(
+        row.response.rect.x_range(),
+        row.response.rect.bottom(),
+        egui::Stroke::new(0.5, ui.visuals().widgets.noninteractive.bg_stroke.color),
+    );
+}
+
+fn key_label(ui: &mut egui::Ui, key: &str, kind: AttributeRowKind, width: f32) -> egui::Response {
+    let key_text = egui::RichText::new(key).color(crate::theme::TEXT_SECONDARY());
+    let key_text = if kind == AttributeRowKind::ArrayParent {
+        key_text.strong()
+    } else {
+        key_text
+    };
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::left_to_right(egui::Align::Min),
+        |ui| {
+            if kind == AttributeRowKind::ArrayChild {
+                ui.add_space(18.0);
+            }
+            ui.add(egui::Label::new(key_text).wrap())
+        },
+    )
+    .inner
 }
 
 /// Formats an `Option<f64>` to 4 decimal places (`None` becomes an em dash).
@@ -466,6 +578,23 @@ pub fn resolve_click_hover(
 mod tests {
     use super::*;
 
+    fn row_pairs(rows: Vec<UserAttributeRow>) -> Vec<(String, String)> {
+        rows.into_iter().map(|row| (row.key, row.value)).collect()
+    }
+
+    #[test]
+    fn expanded_array_child_key_is_indented() {
+        let ctx = egui::Context::default();
+        let mut key_positions = None;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            let parent = key_label(ui, "Attr1", AttributeRowKind::ArrayParent, 100.0);
+            let child = key_label(ui, "Attr1[0]", AttributeRowKind::ArrayChild, 100.0);
+            key_positions = Some((parent.rect.left(), child.rect.left()));
+        });
+        let (parent_x, child_x) = key_positions.unwrap();
+        assert!(child_x >= parent_x + 18.0);
+    }
+
     #[test]
     fn nearest_within_returns_closest_in_threshold() {
         let pts = vec![
@@ -538,14 +667,14 @@ mod tests {
         );
         let view = StudyView::new(Arc::new(df), vec![]);
         assert_eq!(
-            user_attribute_rows(&view, 0, false),
+            row_pairs(user_attribute_rows(&view, 0, false)),
             vec![
                 ("mixed".to_string(), "1.2346".to_string()),
                 ("note".to_string(), "a,b\n\"c\"".to_string()),
             ]
         );
-        assert_eq!(user_attribute_rows(&view, 1, false)[0].1, "text");
-        assert_eq!(user_attribute_rows(&view, 1, false)[1].1, "—");
+        assert_eq!(user_attribute_rows(&view, 1, false)[0].value, "text");
+        assert_eq!(user_attribute_rows(&view, 1, false)[1].value, "—");
     }
 
     #[test]
@@ -579,21 +708,26 @@ mod tests {
         );
         let view = StudyView::new(Arc::new(df), vec![]);
         assert_eq!(
-            user_attribute_rows(&view, 0, false),
+            row_pairs(user_attribute_rows(&view, 0, false)),
             vec![("items".into(), "[1,null,{\"ok\":true}]".into())]
         );
         assert_eq!(
-            user_attribute_rows(&view, 0, true),
+            row_pairs(user_attribute_rows(&view, 0, true)),
             vec![
-                ("items".into(), "[1,null,{\"ok\":true}]".into()),
+                ("items".into(), "Array [3]".into()),
                 ("items[0]".into(), "1.0000".into()),
                 ("items[1]".into(), "null".into()),
                 ("items[2]".into(), "{\"ok\":true}".into()),
             ]
         );
+        let rows = user_attribute_rows(&view, 0, true);
+        assert_eq!(rows[0].kind, AttributeRowKind::ArrayParent);
+        assert_eq!(rows[1].kind, AttributeRowKind::ArrayChild);
+        assert!(rows[1].numeric);
+        assert!(!rows[2].numeric);
         assert_eq!(user_attribute_rows(&view, 1, true).len(), 2);
         assert_eq!(
-            user_attribute_rows(&view, 2, true),
+            row_pairs(user_attribute_rows(&view, 2, true)),
             vec![("items".into(), "scalar".into())]
         );
     }
