@@ -1,4 +1,167 @@
+use super::pca::run_pca_on_matrix_opts;
 use super::*;
+
+#[test]
+fn public_pca_preserves_mixed_features_and_complete_row_outputs() {
+    use crate::dataframe::{store_dataframes, DataFrame, TrialRow};
+    let complete: Vec<TrialRow> = (0..3)
+        .map(|i| TrialRow {
+            trial_id: 100 + i,
+            trial_number: 20 + i,
+            param_display: [("x".to_string(), 2.0 * i as f64)].into(),
+            param_category_label: [("category".to_string(), format!("c{i}"))].into(),
+            objective_values: vec![10.0 * i as f64],
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: vec![],
+        })
+        .collect();
+    let names = vec!["x".to_string(), "category".to_string()];
+    let load = |rows: &[TrialRow]| {
+        store_dataframes(vec![DataFrame::from_trials(
+            rows,
+            &names,
+            &["obj".to_string()],
+            &[],
+            &[],
+            0,
+        )]);
+        crate::dataframe::select_study(0).unwrap();
+    };
+    for (standardized, pca) in [
+        (false, run_pca as fn(_, _) -> _),
+        (true, run_pca_standardized),
+    ] {
+        load(&complete);
+        let expected = pca(2, PcaSpace::Param).unwrap();
+        assert_eq!(expected.feature_names, names);
+        assert_eq!(expected.row_indices, vec![0, 1, 2]);
+        assert_eq!(expected.loadings.len(), 2);
+        assert!(expected
+            .loadings
+            .iter()
+            .all(|component| component.len() == 2));
+        assert!(expected.projections.iter().all(|row| row.len() == 2));
+        let matrix = vec![vec![0.0, 0.0], vec![2.0, 0.0], vec![4.0, 0.0]];
+        let baseline = run_pca_on_matrix_opts(&matrix, 2, standardized);
+        assert_eq!(expected.projections, baseline.projections);
+        assert_eq!(expected.loadings, baseline.loadings);
+
+        let mut absent = complete[0].clone();
+        absent.param_display.remove("x");
+        let mut non_finite = complete[0].clone();
+        non_finite
+            .param_display
+            .insert("x".to_string(), f64::INFINITY);
+        let mut nan = complete[0].clone();
+        nan.param_display.insert("x".to_string(), f64::NAN);
+        load(&[
+            absent,
+            complete[0].clone(),
+            non_finite,
+            complete[1].clone(),
+            nan,
+            complete[2].clone(),
+        ]);
+        let actual = pca(2, PcaSpace::Param).unwrap();
+        assert_eq!(actual.feature_names, names);
+        assert_eq!(actual.row_indices, vec![1, 3, 5]);
+        assert_eq!(actual.projections, expected.projections);
+        assert_eq!(actual.loadings, expected.loadings);
+        assert_eq!(actual.explained_variance, expected.explained_variance);
+        assert_eq!(actual.explained_ratio, expected.explained_ratio);
+    }
+}
+
+#[test]
+fn public_pca_handles_absent_params_and_insufficient_complete_rows() {
+    use crate::dataframe::{store_dataframes, DataFrame, TrialRow};
+    let mut rows: Vec<TrialRow> = (0..4)
+        .map(|i| TrialRow {
+            trial_id: 100 + i,
+            trial_number: 20 + i,
+            param_display: [
+                ("x".to_string(), i as f64),
+                ("y".to_string(), 2.0 * i as f64),
+            ]
+            .into(),
+            param_category_label: Default::default(),
+            objective_values: vec![10.0 * i as f64],
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: vec![],
+        })
+        .collect();
+    rows[1].param_display.remove("x");
+    let names = vec!["x".to_string(), "y".to_string()];
+    for remaining in [4, 2] {
+        store_dataframes(vec![DataFrame::from_trials(
+            &rows[..remaining],
+            &names,
+            &["obj".to_string()],
+            &[],
+            &[],
+            0,
+        )]);
+        crate::dataframe::select_study(0).unwrap();
+        for result in [
+            run_pca(2, PcaSpace::Param),
+            run_pca_standardized(2, PcaSpace::Param),
+        ] {
+            if remaining == 4 {
+                let result = result.unwrap();
+                assert_eq!(result.row_indices, vec![0, 2, 3]);
+                assert_eq!(result.feature_names, names);
+            } else {
+                assert!(result.is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn pca_filters_before_centering_and_standardizing_and_keeps_source_rows() {
+    let complete = vec![vec![0.0, 2.0], vec![2.0, 4.0], vec![4.0, 8.0]];
+    let missing = vec![
+        vec![f64::NAN, 99.0],
+        complete[0].clone(),
+        vec![1.0, f64::INFINITY],
+        complete[1].clone(),
+        complete[2].clone(),
+    ];
+    for standardized in [false, true] {
+        let expected = run_pca_on_matrix_opts(&complete, 2, standardized);
+        let actual = run_pca_on_matrix_opts(&missing, 2, standardized);
+        assert_eq!(actual.row_indices, vec![1, 3, 4]);
+        assert_eq!(actual.projections, expected.projections);
+        assert_eq!(actual.loadings, expected.loadings);
+        assert_eq!(actual.explained_variance, expected.explained_variance);
+        assert!(actual.projections.iter().flatten().all(|v| v.is_finite()));
+        assert!(run_pca_on_matrix_opts(&missing[..3], 2, standardized)
+            .projections
+            .is_empty());
+    }
+}
+
+#[test]
+fn clustering_public_boundaries_reject_non_finite_input() {
+    for missing in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let data = vec![vec![0.0], vec![missing], vec![2.0]];
+        assert!(
+            run_kmeans(2, &[0.0, missing, 2.0], 1, InitStrategy::Deterministic)
+                .labels
+                .is_empty()
+        );
+        assert!(estimate_k_elbow(&[0.0, missing, 2.0], 1, 3)
+            .wcss_per_k
+            .is_empty());
+        assert!(train_som(&data, &SomSpec::default()).is_none());
+        let ward = ward_linkage(&data, true).unwrap();
+        assert_eq!(ward.row_indices, vec![0, 2]);
+    }
+}
 
 #[test]
 fn tc_2262_05_kmeans_plusplus_correct_clusters_after_refactor() {

@@ -32,21 +32,26 @@ fn build_cluster_matrix_data(
     // The clustering target is limited to Pareto-front solutions (pareto_rank == 0).
     // For Studies with constraints, rank 0 is already only feasible non-dominated
     // solutions, so a separate feasibility check isn't needed.
-    let target_indices: Vec<usize> = (0..total_trials)
+    let mut target_indices: Vec<usize> = (0..total_trials)
         .filter(|&i| view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
         .collect();
 
-    let n_rows = target_indices.len();
+    // Preserve constant-zero categorical columns without imputing missing numeric cells.
+    let param_value = |col: Option<&[f64]>, name: &str, row: usize| match col {
+        Some(values) => values.get(row).copied().unwrap_or(f64::NAN),
+        None if view.string_column(name).is_some() => 0.0,
+        None => f64::NAN,
+    };
 
     // Build the feature matrix using only Pareto-front solutions
-    let flat_data = match target_space {
+    let flat_data: Vec<f64> = match target_space {
         ClusterSpace::Objective => {
             let cols = view.numeric_columns(obj_names);
             target_indices
                 .iter()
                 .flat_map(|&i| {
                     cols.iter()
-                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN))
                 })
                 .collect()
         }
@@ -56,7 +61,8 @@ fn build_cluster_matrix_data(
                 .iter()
                 .flat_map(|&i| {
                     cols.iter()
-                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .zip(param_names)
+                        .map(move |(&col, name)| param_value(col, name, i))
                 })
                 .collect()
         }
@@ -68,15 +74,36 @@ fn build_cluster_matrix_data(
                 .flat_map(|&i| {
                     param_cols
                         .iter()
-                        .chain(obj_cols.iter())
-                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
+                        .zip(param_names)
+                        .map(move |(&col, name)| param_value(col, name, i))
+                        .chain(obj_cols.iter().map(move |col| {
+                            col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN)
+                        }))
                 })
                 .collect()
         }
     };
 
+    let mut finite_data = Vec::new();
+    if n_cols > 0 {
+        target_indices = target_indices
+            .iter()
+            .zip(flat_data.chunks_exact(n_cols))
+            .filter_map(|(&source, row)| {
+                if row.iter().all(|v| v.is_finite()) {
+                    finite_data.extend_from_slice(row);
+                    Some(source)
+                } else {
+                    None
+                }
+            })
+            .collect();
+    } else {
+        target_indices.clear();
+    }
+    let n_rows = target_indices.len();
     ClusterMatrix {
-        flat_data,
+        flat_data: finite_data,
         n_rows,
         n_cols,
         total_trials,

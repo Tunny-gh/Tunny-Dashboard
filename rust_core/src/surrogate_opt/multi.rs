@@ -362,6 +362,11 @@ pub fn fit_multi_surrogates_tracked(
         }
     }
 
+    // Validate before subsampling or Pareto ranking can hide invalid inputs.
+    for col in objective_values {
+        super::fit::validate_inputs(x_matrix, col)?;
+    }
+
     // Subsample large data into a single subset shared across all objectives
     // (using a different subset per objective would make the Pareto front
     // inconsistent). After subsampling, each objective's fit already has

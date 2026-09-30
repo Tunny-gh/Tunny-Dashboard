@@ -34,6 +34,7 @@ pub(crate) fn run_pca_on_matrix(data: &[Vec<f64>], n_components: usize) -> PcaRe
 /// standard deviation (correlation-matrix PCA), so variables with different units still
 /// contribute equal weight. A zero-variance column becomes 0 after standardization and
 /// contributes nothing to the components (loadings alignment is preserved).
+/// Non-finite rows are excluded before either transform; projections retain source indices.
 pub(crate) fn run_pca_on_matrix_opts(
     data: &[Vec<f64>],
     n_components: usize,
@@ -41,6 +42,7 @@ pub(crate) fn run_pca_on_matrix_opts(
 ) -> PcaResult {
     let empty = PcaResult {
         projections: vec![],
+        row_indices: vec![],
         loadings: vec![],
         explained_variance: vec![],
         explained_ratio: vec![],
@@ -57,6 +59,14 @@ pub(crate) fn run_pca_on_matrix_opts(
     if data.iter().any(|row| row.len() != p) {
         return empty;
     }
+    let row_indices: Vec<usize> = (0..n)
+        .filter(|&i| data[i].iter().all(|v| v.is_finite()))
+        .collect();
+    let data: Vec<Vec<f64>> = row_indices.iter().map(|&i| data[i].clone()).collect();
+    let n = data.len();
+    if n < 2 {
+        return empty;
+    }
     let k = n_components.min(p);
 
     let x_c = if standardize {
@@ -66,7 +76,7 @@ pub(crate) fn run_pca_on_matrix_opts(
         super::standardize::standardize_columns(&mut x, 1);
         x
     } else {
-        center_data(data, &col_means(data))
+        center_data(&data, &col_means(&data))
     };
 
     let mut x_cols = vec![0.0f64; n * p];
@@ -90,6 +100,9 @@ pub(crate) fn run_pca_on_matrix_opts(
                 / nf;
             cov[(i, j)] = value;
             cov[(j, i)] = value;
+            if !value.is_finite() {
+                return empty;
+            }
         }
     }
 
@@ -147,6 +160,7 @@ pub(crate) fn run_pca_on_matrix_opts(
 
     PcaResult {
         projections,
+        row_indices,
         loadings,
         explained_variance: eigenvalues[..k].to_vec(),
         explained_ratio,
@@ -161,6 +175,7 @@ pub fn run_pca_standardized(n_components: usize, space: PcaSpace) -> Option<PcaR
     run_pca_impl(n_components, space, true)
 }
 
+/// Centered PCA, unavailable with fewer than two complete rows.
 pub fn run_pca(n_components: usize, space: PcaSpace) -> Option<PcaResult> {
     run_pca_impl(n_components, space, false)
 }
@@ -192,16 +207,19 @@ fn run_pca_impl(n_components: usize, space: PcaSpace, standardize: bool) -> Opti
                 feature_names
                     .iter()
                     .map(|name| {
+                        // Preserve existing constant-zero string features, but never
+                        // impute missing cells in numeric columns.
                         df.get_numeric_column(name)
-                            .and_then(|c| c.get(i))
-                            .copied()
-                            .unwrap_or(0.0)
+                            .map_or(0.0, |c| c.get(i).copied().unwrap_or(f64::NAN))
                     })
                     .collect()
             })
             .collect();
 
         let mut result = run_pca_on_matrix_opts(&data, n_components, standardize);
+        if result.projections.is_empty() {
+            return None;
+        }
         result.feature_names = feature_names;
         Some(result)
     })

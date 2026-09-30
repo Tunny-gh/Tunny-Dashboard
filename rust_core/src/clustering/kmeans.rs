@@ -29,13 +29,18 @@ pub(crate) fn run_kmeans_on_data(
     init: InitStrategy,
 ) -> KmeansResult {
     let empty = KmeansResult {
-        labels: vec![0; n],
+        labels: vec![],
         centroids: vec![],
         wcss: 0.0,
         iterations: 0,
     };
 
-    if n < k || k == 0 || p == 0 || flat_data.len() < n * p {
+    if n < k
+        || k == 0
+        || p == 0
+        || flat_data.len() < n * p
+        || flat_data.iter().any(|v| !v.is_finite())
+    {
         return empty;
     }
 
@@ -76,7 +81,7 @@ pub(crate) fn estimate_k_elbow_on_data(
     max_k: usize,
 ) -> ElbowResult {
     let effective_max_k = max_k.min(n);
-    if effective_max_k < 2 {
+    if effective_max_k < 2 || flat_data.iter().any(|v| !v.is_finite()) {
         return ElbowResult {
             wcss_per_k: vec![],
             recommended_k: 2,

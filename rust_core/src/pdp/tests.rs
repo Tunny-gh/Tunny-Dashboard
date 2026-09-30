@@ -490,3 +490,69 @@ fn tc_1653_01_gp_fitc_dispatch_returns_finite_results() {
         }
     }
 }
+#[test]
+fn public_pdp_boundary_rejects_missing_features_without_ridge_imputation() {
+    for model in ["ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest"] {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let result = super::compute_pdp_from_data(
+                vec![vec![0.0], vec![bad], vec![2.0]],
+                vec![0.0, 1.0, 2.0],
+                vec!["x".to_string()],
+                "obj",
+                0,
+                10,
+                model,
+            );
+            assert!(
+                result.grid.is_empty(),
+                "{model} must reject non-finite features"
+            );
+        }
+        let ragged = super::compute_pdp_from_data(
+            vec![vec![0.0], vec![], vec![2.0]],
+            vec![0.0, 1.0, 2.0],
+            vec!["x".to_string()],
+            "obj",
+            0,
+            10,
+            model,
+        );
+        assert!(ragged.grid.is_empty());
+    }
+}
+
+#[test]
+fn gp_2d_wrapper_rejects_invalid_input_at_raw_method_boundary() {
+    use crate::gaussian_process::GpMethod;
+    let names = vec!["x1".to_string(), "x2".to_string()];
+    let valid_x = vec![vec![0.0, 1.0], vec![1.0, 2.0], vec![2.0, 3.0]];
+    let valid_y = vec![0.0, 1.0, 2.0];
+    let mut cases = vec![
+        (vec![], valid_y.clone()),
+        (vec![vec![]; 3], valid_y.clone()),
+        (
+            vec![vec![0.0, 1.0], vec![1.0], vec![2.0, 3.0]],
+            valid_y.clone(),
+        ),
+        (valid_x.clone(), vec![0.0, 1.0, 2.0, 3.0]),
+    ];
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut x = valid_x.clone();
+        x[1][0] = bad;
+        cases.push((x, valid_y.clone()));
+        cases.push((valid_x.clone(), vec![0.0, bad, 2.0]));
+    }
+    for method in [GpMethod::Fitc, GpMethod::Vfe, GpMethod::Moe] {
+        for (x, y) in &cases {
+            let result =
+                super::gaussian_process::compute_pdp_2d_gp(x, y, &names, "obj", 0, 1, 5, method);
+            assert_eq!(result.param1_name, "x1");
+            assert_eq!(result.param2_name, "x2");
+            assert_eq!(result.objective_name, "obj");
+            assert!(result.x_values.is_empty());
+            assert!(result.y_values.is_empty());
+            assert!(result.z_values.is_empty());
+            assert!(result.uncertainties.is_none());
+        }
+    }
+}

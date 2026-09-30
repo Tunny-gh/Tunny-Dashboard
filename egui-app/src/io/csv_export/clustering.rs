@@ -3,6 +3,7 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::ChartId;
 use crate::state::results::ClusterResult;
 use crate::ui::widget_states::WidgetStates;
+use tunny_core::clustering::PcaResult;
 use tunny_core::export::{CsvField, CsvWriter};
 
 pub(super) fn build_cluster_csv(
@@ -53,18 +54,26 @@ pub(super) fn build_cluster_csv_from_result(
     Some(w.finish())
 }
 
-/// Turns the cached PCA result into a two-column `pc1,pc2` CSV.
+/// Exports PCA coordinates with their original zero-based source row indices.
 pub(super) fn build_pca_biplot_csv(widgets: &WidgetStates) -> Option<String> {
     let result = widgets.pca_biplot.cached_result()?;
+    build_pca_biplot_csv_from_result(result)
+}
+
+fn build_pca_biplot_csv_from_result(result: &PcaResult) -> Option<String> {
     if result.projections.is_empty() {
         return None;
     }
     let mut w = CsvWriter::new();
-    w.header(["pc1", "pc2"]);
-    for row in &result.projections {
+    w.header(["row_index", "pc1", "pc2"]);
+    for (i, row) in result.projections.iter().enumerate() {
         let pc1 = row.first().copied().unwrap_or(0.0);
         let pc2 = row.get(1).copied().unwrap_or(0.0);
-        w.row([CsvField::Num(pc1), CsvField::Num(pc2)]);
+        w.row([
+            CsvField::UInt(*result.row_indices.get(i)? as u64),
+            CsvField::Num(pc1),
+            CsvField::Num(pc2),
+        ]);
     }
     Some(w.finish())
 }
@@ -229,4 +238,39 @@ pub(super) fn build_comparison_table_csv(
         w.row(fields);
     }
     Some(w.finish())
+}
+
+#[cfg(test)]
+mod pca_tests {
+    use super::*;
+
+    fn result_with_source_rows(row_indices: Vec<usize>) -> PcaResult {
+        PcaResult {
+            projections: vec![vec![0.0, -1.25], vec![2.5, 3.0]],
+            row_indices,
+            loadings: vec![],
+            explained_variance: vec![],
+            explained_ratio: vec![],
+            feature_names: vec![],
+        }
+    }
+
+    #[test]
+    fn pca_csv_retains_source_rows_after_filtering() {
+        // Source rows 0 and 2 were excluded, before and between retained projections.
+        let result = result_with_source_rows(vec![1, 3]);
+        assert_eq!(
+            build_pca_biplot_csv_from_result(&result).unwrap(),
+            "row_index,pc1,pc2\n1,0,-1.25\n3,2.5,3\n"
+        );
+    }
+
+    #[test]
+    fn pca_csv_keeps_complete_projection_values_unchanged() {
+        let result = result_with_source_rows(vec![0, 1]);
+        assert_eq!(
+            build_pca_biplot_csv_from_result(&result).unwrap(),
+            "row_index,pc1,pc2\n0,0,-1.25\n1,2.5,3\n"
+        );
+    }
 }

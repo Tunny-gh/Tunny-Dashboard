@@ -1671,3 +1671,32 @@ fn fit_with_validation_subsamples_large_data() {
     );
     assert_eq!(trained.x_matrix.len(), trained.y.len());
 }
+#[test]
+fn multi_fit_rejects_non_finite_input_before_subsampling_and_ranking() {
+    for n in [10, super::MAX_TRAIN_FOR_FIT + 1] {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for bad_feature in [true, false] {
+                let mut x: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
+                let mut y: Vec<f64> = (0..n).map(|i| i as f64).collect();
+                if bad_feature {
+                    x[n / 2][0] = bad;
+                } else {
+                    y[n / 2] = bad;
+                }
+                let error = super::fit_multi_surrogates_tracked(
+                    &x,
+                    &[y],
+                    &["x".to_string()],
+                    &["obj".to_string()],
+                    super::SurrogateModelKind::Ridge,
+                    &[true],
+                    None,
+                    &super::FitProgress::default(),
+                )
+                .err()
+                .unwrap();
+                assert!(error.contains("non-finite"), "{error}");
+            }
+        }
+    }
+}

@@ -13,7 +13,7 @@
 ///   deviation is the raw post-correction value (not rounded to 0 even for a
 ///   zero-variance column; the inverse-transform side must apply the same threshold check).
 ///
-/// Precondition: all rows must have the same length (validated by the caller).
+/// Precondition: all rows must have the same length and finite values (validated by the caller).
 pub(super) fn standardize_columns(x: &mut [Vec<f64>], ddof: usize) -> (Vec<f64>, Vec<f64>) {
     let n = x.len();
     if n == 0 || x[0].is_empty() {

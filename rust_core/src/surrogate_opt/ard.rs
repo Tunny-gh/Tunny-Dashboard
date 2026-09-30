@@ -95,6 +95,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn ard_rejects_absent_numeric_parameters() {
+        let mut rows: Vec<TrialRow> = (0..10)
+            .map(|i| make_row(i, &[("x", i as f64)], vec![i as f64]))
+            .collect();
+        rows[3].param_display.clear();
+        let df =
+            DataFrame::from_trials(&rows, &["x".to_string()], &["obj".to_string()], &[], &[], 0);
+        assert!(compute_ard_importance_from_df(&df, 0).is_none());
+    }
+
     /// Wiring check: fitting GP-FITC yields ARD importance that is consistent with
     /// param_names and sums to 1.0. Does not verify the numerical quality of the
     /// egobox GP itself.

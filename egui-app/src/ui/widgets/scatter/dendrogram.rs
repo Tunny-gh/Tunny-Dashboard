@@ -79,11 +79,15 @@ fn feature_names(
     }
 }
 
-/// Builds the distance matrix from a view. Only rows where all specified features are
-/// finite are adopted (subsampling beyond 800 rows is handled internally by
-/// `ward_linkage`).
-fn build_matrix(view: &StudyView, features: &[String]) -> Vec<Vec<f64>> {
-    super::feature_matrix(view, features)
+/// Builds Ward linkage from finite feature rows and maps leaves back to view rows.
+/// Subsampling beyond 800 rows is handled internally by `ward_linkage`.
+fn build_linkage(view: &StudyView, features: &[String]) -> Option<HierarchicalResult> {
+    let (source_rows, matrix) = super::feature_matrix_with_rows(view, features);
+    let mut result = ward_linkage(&matrix, true)?;
+    for index in &mut result.row_indices {
+        *index = source_rows[*index];
+    }
+    Some(result)
 }
 
 /// Returns the cut threshold (the midpoint between `merges[cutoff-1].distance` and
@@ -196,8 +200,7 @@ impl DendrogramChart {
 
         let key: DendrogramCacheKey = (study_name.to_string(), view.row_count(), self.space.disc());
         if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
-            let matrix = build_matrix(view, &features);
-            self.cache = ward_linkage(&matrix, true).map(|r| (key, r));
+            self.cache = build_linkage(view, &features).map(|r| (key, r));
         }
 
         let Some((_, result)) = &self.cache else {
@@ -424,12 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn build_matrix_skips_rows_with_non_finite_values() {
+    fn linkage_and_export_preserve_source_rows_after_filtering() {
         use std::collections::HashMap;
         use std::sync::Arc;
         use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
 
-        let core_rows: Vec<CoreRow> = vec![
+        let mut core_rows: Vec<CoreRow> = vec![
             CoreRow {
                 trial_id: 0,
                 trial_number: 0,
@@ -453,11 +456,31 @@ mod tests {
                 constraint_values: vec![],
             },
         ];
+        let mut last = core_rows[0].clone();
+        last.trial_id = 2;
+        last.param_display.insert("x".to_string(), 3.0);
+        core_rows.push(last);
         let param_names = vec!["x".to_string()];
         let df = DataFrame::from_trials(&core_rows, &param_names, &[], &[], &[], 0);
-        let view = StudyView::new(Arc::new(df), vec![0, 0]);
-        let matrix = build_matrix(&view, &param_names);
-        assert_eq!(matrix.len(), 1);
-        assert_eq!(matrix[0], vec![1.0]);
+        let view = StudyView::new(Arc::new(df), vec![0, 0, 0]);
+        let result = build_linkage(&view, &param_names).unwrap();
+        assert_eq!(result.row_indices, vec![0, 2]);
+        let expected_sources: Vec<usize> = result
+            .leaf_order
+            .iter()
+            .map(|&leaf| result.row_indices[leaf])
+            .collect();
+        let chart = DendrogramChart {
+            cache: Some((("test".to_string(), 3, 0), result)),
+            ..Default::default()
+        };
+        let assignments = chart.leaf_assignments().unwrap();
+        assert_eq!(
+            assignments
+                .iter()
+                .map(|&(source, _)| source)
+                .collect::<Vec<_>>(),
+            expected_sources
+        );
     }
 }

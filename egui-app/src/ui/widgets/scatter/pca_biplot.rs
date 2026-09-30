@@ -281,7 +281,12 @@ fn compute_pca_draw(
         let y = row.get(1).copied().unwrap_or(0.0);
         let color = match color_col {
             Some(col) => {
-                let v = col.get(i).copied().unwrap_or(f64::NAN);
+                let v = result
+                    .row_indices
+                    .get(i)
+                    .and_then(|&source| col.get(source))
+                    .copied()
+                    .unwrap_or(f64::NAN);
                 if v.is_finite() && color_max > color_min {
                     let t = ((v - color_min) / (color_max - color_min)) as f32;
                     cmap.interpolate(t)
@@ -349,6 +354,63 @@ fn color_range(col: Option<&[f64]>) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pca_coloring_uses_retained_source_rows() {
+        use std::sync::Arc;
+        use tunny_core::dataframe::{DataFrame, TrialRow};
+        let rows: Vec<TrialRow> = (0..4)
+            .map(|i| TrialRow {
+                trial_id: 100 + i,
+                trial_number: 20 + i,
+                param_display: if i == 1 || i == 3 {
+                    [
+                        ("x".to_string(), i as f64),
+                        ("y".to_string(), 2.0 * i as f64),
+                    ]
+                    .into()
+                } else {
+                    Default::default()
+                },
+                param_category_label: Default::default(),
+                objective_values: vec![20.0 * i as f64],
+                user_attrs_numeric: Default::default(),
+                user_attrs_string: Default::default(),
+                user_attrs_json: Default::default(),
+                constraint_values: vec![],
+            })
+            .collect();
+        let df = DataFrame::from_trials(
+            &rows,
+            &["x".to_string(), "y".to_string()],
+            &["obj".to_string()],
+            &[],
+            &[],
+            0,
+        );
+        let view = StudyView::new(Arc::new(df), vec![0; 4]);
+        let result = PcaResult {
+            projections: vec![vec![-1.0, 0.0], vec![1.0, 0.0]],
+            row_indices: vec![1, 3],
+            loadings: vec![],
+            explained_variance: vec![],
+            explained_ratio: vec![],
+            feature_names: vec![],
+        };
+        assert_eq!(result.row_indices, vec![1, 3]);
+        let cmap = ColorMap::turbo();
+        let draw = compute_pca_draw(&result, &Some("obj".to_string()), &view, &cmap);
+        for (projection, fraction) in [(0, 1.0 / 3.0), (1, 1.0)] {
+            let key = rgba_key(cmap.interpolate(fraction));
+            assert_eq!(
+                draw.color_groups[&key],
+                vec![[
+                    result.projections[projection][0],
+                    result.projections[projection][1]
+                ]]
+            );
+        }
+    }
 
     #[test]
     fn defaults_are_param_space_with_loadings_and_no_color() {

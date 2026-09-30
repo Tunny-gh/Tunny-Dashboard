@@ -704,3 +704,46 @@ fn tc_2263_04_empty_metrics_vec_returns_empty() {
     let results: Vec<SensitivityResult> = compute_sensitivity_single_obj(&df, vec![], 0);
     assert!(results.is_empty());
 }
+#[test]
+fn public_ridge_rejects_non_finite_features_and_objectives() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let x = faer::Mat::from_fn(3, 1, |i, _| if i == 1 { bad } else { i as f64 });
+        assert!(super::compute_ridge(&x, &[0.0, 1.0, 2.0], 1.0)
+            .beta
+            .is_empty());
+        let x = faer::Mat::from_fn(3, 1, |i, _| i as f64);
+        assert!(super::compute_ridge(&x, &[0.0, bad, 2.0], 1.0)
+            .beta
+            .is_empty());
+    }
+}
+#[test]
+fn missing_parameters_do_not_change_sensitivity_of_complete_rows() {
+    let complete: Vec<TrialRow> = (0..8)
+        .map(|i| TrialRow {
+            trial_id: i,
+            trial_number: i,
+            param_display: [("x".to_string(), i as f64)].into(),
+            param_category_label: Default::default(),
+            objective_values: vec![2.0 * i as f64],
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: vec![],
+        })
+        .collect();
+    let mut incomplete = complete.clone();
+    let mut missing = complete[0].clone();
+    missing.param_display.clear();
+    missing.objective_values = vec![9999.0];
+    incomplete.insert(1, missing);
+    let clean = setup_df(complete, &["x"], &["obj"]);
+    let missing = setup_df(incomplete, &["x"], &["obj"]);
+    let a = RidgeMetric.compute(&clean, 0).unwrap();
+    let b = RidgeMetric.compute(&missing, 0).unwrap();
+    assert_eq!(a.ridge[0].beta, b.ridge[0].beta);
+    assert_eq!(a.ridge[0].r_squared, b.ridge[0].r_squared);
+    let a = SpearmanMetric.compute(&clean, 0).unwrap();
+    let b = SpearmanMetric.compute(&missing, 0).unwrap();
+    assert_eq!(a.spearman, b.spearman);
+}

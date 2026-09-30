@@ -610,6 +610,41 @@ fn append_trials_equals_from_trials_basic() {
 }
 
 #[test]
+fn missing_numeric_params_match_initial_and_chunked_ingestion() {
+    let rows = vec![
+        make_trial_n(10, &[], vec![1.0]),
+        make_trial_n(20, &[("x", 0.0)], vec![2.0]),
+        make_trial_n(30, &[("x", 3.0), ("late", 0.0)], vec![3.0]),
+        make_trial_n(40, &[], vec![4.0]),
+        make_trial_n(50, &[("late", 7.0)], vec![5.0]),
+    ];
+    let names = vec!["x".to_string(), "late".to_string()];
+    let initial = DataFrame::from_trials(&rows, &names, &[], &[], &[], 0);
+    for chunk_size in [1, 2, 3, 5] {
+        let mut appended = DataFrame::empty();
+        let mut cumulative = Vec::new();
+        for chunk in rows.chunks(chunk_size) {
+            for name in &names {
+                if !cumulative.contains(name)
+                    && chunk.iter().any(|r| r.param_display.contains_key(name))
+                {
+                    cumulative.push(name.clone());
+                }
+            }
+            appended.append_trials(chunk, &cumulative, &[], &[], &[], 0);
+        }
+        assert_df_equivalent(&initial, &appended);
+    }
+    let x = initial.get_numeric_column("x").unwrap();
+    assert!(x[0].is_nan() && x[3].is_nan() && x[4].is_nan());
+    assert_eq!(&x[1..3], &[0.0, 3.0]);
+    let late = initial.get_numeric_column("late").unwrap();
+    assert!(late[0].is_nan() && late[1].is_nan() && late[3].is_nan());
+    assert_eq!(late[2], 0.0);
+    assert_eq!(late[4], 7.0);
+}
+
+#[test]
 fn append_trials_backfills_new_param_column() {
     let o = vec!["obj0".to_string()];
     let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
