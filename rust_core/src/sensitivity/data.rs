@@ -1,6 +1,9 @@
 use crate::dataframe::DataFrame;
 use crate::math::rng::SeededRng;
 
+/// First-appearance label encoding for tree metrics, Sobol, and GP ARD only.
+/// Codes impose arbitrary order/distances; these consumers are not nominal-invariant.
+/// Spearman/Ridge sensitivity must use numeric columns directly instead.
 pub(crate) fn get_param_numeric_values(
     df: &DataFrame,
     param_name: &str,

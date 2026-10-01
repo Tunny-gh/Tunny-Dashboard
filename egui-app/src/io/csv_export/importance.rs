@@ -18,9 +18,16 @@ pub(super) fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates)
     } else {
         let key = (metric.cache_id(), obj_idx, feasible_only);
         let sensitivity = app_state.importance_cache.get(&key)?;
-        compute_sorted_importance(sensitivity, metric, obj_idx)
+        // Each cache entry contains one objective, irrespective of the study index.
+        compute_sorted_importance(sensitivity, metric, 0)
     };
-    if pairs.is_empty() {
+    let unsupported = app_state
+        .importance_cache
+        .get(&(metric.cache_id(), obj_idx, feasible_only))
+        .filter(|_| metric.is_signed())
+        .map(|r| r.unsupported_categorical.as_slice())
+        .unwrap_or_default();
+    if pairs.is_empty() && unsupported.is_empty() {
         return None;
     }
     let mut w = CsvWriter::new();
@@ -29,6 +36,13 @@ pub(super) fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates)
         w.row([
             CsvField::Text(name),
             CsvField::Num(*score),
+            CsvField::Text(method_name),
+        ]);
+    }
+    for name in unsupported {
+        w.row([
+            CsvField::Text(name),
+            CsvField::Text("Unsupported (categorical)"),
             CsvField::Text(method_name),
         ]);
     }
@@ -55,6 +69,15 @@ pub(super) fn build_sensitivity_csv(
         for &val in &m.values[i] {
             fields.push(CsvField::Num(val));
         }
+        w.row(fields);
+    }
+    for name in &m.unsupported_categorical {
+        let mut fields = vec![CsvField::Text(name)];
+        fields.extend(
+            m.objective_names
+                .iter()
+                .map(|_| CsvField::Text("Unsupported (categorical)")),
+        );
         w.row(fields);
     }
     Some(w.finish())

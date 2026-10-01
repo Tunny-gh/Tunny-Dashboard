@@ -215,7 +215,7 @@ fn tc_801_09_ridge_empty_returns_zero_r_squared() {
 }
 
 #[test]
-fn tc_801_11b_sensitivity_categorical_param_non_zero() {
+fn tc_801_11b_sensitivity_categorical_param_unsupported() {
     let labels = ["A", "B", "C", "A", "B", "C"];
     let y_vals = [1.0, 2.0, 3.0, 1.2, 2.2, 3.2];
 
@@ -259,16 +259,11 @@ fn tc_801_11b_sensitivity_categorical_param_non_zero() {
     assert_eq!(results.len(), 2, "both metrics should return results");
     let spearman_result = &results[0];
     let ridge_result = &results[1];
-    assert_eq!(spearman_result.param_names, vec!["cat"]);
-    assert!(
-        spearman_result.spearman[0][0].abs() > 0.7,
-        "categorical param should contribute to sensitivity: {}",
-        spearman_result.spearman[0][0]
-    );
-    assert!(
-        ridge_result.ridge[0].beta[0].abs() > 0.0,
-        "categorical param beta should not be zero"
-    );
+    assert!(spearman_result.param_names.is_empty());
+    assert_eq!(spearman_result.unsupported_categorical, vec!["cat"]);
+    assert!(spearman_result.spearman.is_empty());
+    assert_eq!(ridge_result.unsupported_categorical, vec!["cat"]);
+    assert!(ridge_result.ridge.is_empty());
 }
 
 #[test]
@@ -746,4 +741,139 @@ fn missing_parameters_do_not_change_sensitivity_of_complete_rows() {
     let a = SpearmanMetric.compute(&clean, 0).unwrap();
     let b = SpearmanMetric.compute(&missing, 0).unwrap();
     assert_eq!(a.spearman, b.spearman);
+}
+
+#[test]
+fn nominal_categories_never_receive_spearman_or_ridge_scores() {
+    // Three identities, bijective relabeling, and changed first appearance.
+    // Compare Ridge to the numeric-only model for each row order: holdout is seeded,
+    // so row permutation is not required to preserve the numerical model's R².
+    for labels in [["steel", "wood", "glass"], ["10", "2", "99"]] {
+        for order in [[0, 1, 2], [2, 0, 1], [1, 2, 0]] {
+            let rows: Vec<_> = (0..30)
+                .map(|i| {
+                    let mut row = make_row_multi(
+                        i,
+                        &[("x", i as f64), ("cat", order[i as usize % 3] as f64)],
+                        vec![2.0 * i as f64],
+                    );
+                    row.param_category_label
+                        .insert("cat".into(), labels[order[i as usize % 3]].into());
+                    row
+                })
+                .collect();
+            for permuted in [false, true] {
+                let mut rows = rows.clone();
+                if permuted {
+                    rows.rotate_left(1);
+                }
+                let mixed = setup_df(rows.clone(), &["cat", "x"], &["obj"]);
+                let numeric = setup_df(rows.clone(), &["x"], &["obj"]);
+                let categorical = setup_df(rows, &["cat"], &["obj"]);
+                let a = SpearmanMetric.compute(&mixed, 0).unwrap();
+                let b = SpearmanMetric.compute(&numeric, 0).unwrap();
+                assert_eq!(a.param_names, vec!["x"]);
+                assert_eq!(a.unsupported_categorical, vec!["cat"]);
+                assert_eq!(a.spearman, b.spearman);
+                let a = RidgeMetric.compute(&mixed, 0).unwrap();
+                let b = RidgeMetric.compute(&numeric, 0).unwrap();
+                assert_eq!(a.param_names, vec!["x"]);
+                assert_eq!(a.unsupported_categorical, vec!["cat"]);
+                assert_eq!(a.ridge[0].beta, b.ridge[0].beta);
+                assert_eq!(a.ridge[0].r_squared, b.ridge[0].r_squared);
+                for metric in [&SpearmanMetric as &dyn SensitivityMetric, &RidgeMetric] {
+                    let r = metric.compute(&categorical, 0).unwrap();
+                    assert!(r.param_names.is_empty());
+                    assert_eq!(r.unsupported_categorical, vec!["cat"]);
+                    assert!(r.spearman.is_empty());
+                    assert!(r.ridge.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn numerical_sensitivity_matches_existing_primitives_and_keeps_nan_supported() {
+    let rows: Vec<_> = (0..30)
+        .map(|i| {
+            make_row_multi(
+                i,
+                &[("x", i as f64), ("z", (i % 5) as f64)],
+                vec![2.0 * i as f64],
+            )
+        })
+        .collect();
+    let df = setup_df(rows, &["x", "z"], &["obj"]);
+    let x: Vec<_> = (0..30).map(|i| vec![i as f64, (i % 5) as f64]).collect();
+    let y: Vec<_> = (0..30).map(|i| 2.0 * i as f64).collect();
+    let r = RidgeMetric.compute(&df, 0).unwrap();
+    let expected = super::ridge::compute_ridge_result(&x, &y);
+    assert_eq!(r.ridge[0].beta, expected.beta);
+    assert_eq!(r.ridge[0].r_squared, expected.r_squared);
+    assert!(r.unsupported_categorical.is_empty());
+    let r = SpearmanMetric.compute(&df, 0).unwrap();
+    for (j, name) in ["x", "z"].iter().enumerate() {
+        assert_eq!(
+            r.spearman[j][0],
+            compute_spearman(df.get_numeric_column(name).unwrap(), &y)
+        );
+    }
+    let df = setup_df(
+        vec![
+            make_row_multi(0, &[("x", f64::NAN)], vec![0.0]),
+            make_row_multi(1, &[("x", f64::NAN)], vec![1.0]),
+        ],
+        &["x"],
+        &["obj"],
+    );
+    let r = SpearmanMetric.compute(&df, 0).unwrap();
+    assert_eq!(r.param_names, vec!["x"]);
+    assert!(r.unsupported_categorical.is_empty());
+    assert!(r.spearman[0][0].is_nan());
+}
+
+#[test]
+fn optuna_numeric_categorical_choices_stay_nominal_while_int_and_float_are_supported() {
+    use serde_json::json;
+    let mut lines = vec![
+        json!({"op_code":0,"worker_id":"w","study_name":"nominal","directions":[1]}).to_string(),
+    ];
+    for i in 0..12 {
+        lines.push(json!({"op_code":4,"worker_id":"w","study_id":0}).to_string());
+        for (name, value, distribution) in [
+            (
+                "cat",
+                (i % 3) as f64,
+                json!({"name":"CategoricalDistribution","choices":[10,2,99]}),
+            ),
+            (
+                "integer",
+                i as f64,
+                json!({"name":"IntDistribution","low":0,"high":20,"step":1,"log":false}),
+            ),
+            (
+                "float",
+                i as f64 / 2.0,
+                json!({"name":"FloatDistribution","low":0.0,"high":20.0,"log":false}),
+            ),
+        ] {
+            lines.push(json!({"op_code":5,"worker_id":"w","trial_id":i,"param_name":name,"param_value_internal":value,"distribution":distribution}).to_string());
+        }
+        lines.push(
+            json!({"op_code":6,"worker_id":"w","trial_id":i,"state":1,"values":[i as f64]})
+                .to_string(),
+        );
+    }
+    let (_, df, _) =
+        crate::io::journal::parser::parse_single_study(lines.join("\n").as_bytes(), 0).unwrap();
+    assert!(df.get_string_column("cat").is_some());
+    assert!(df.get_numeric_column("cat").is_none());
+    for metric in [&SpearmanMetric as &dyn SensitivityMetric, &RidgeMetric] {
+        let r = metric.compute(&df, 0).unwrap();
+        assert_eq!(r.unsupported_categorical, vec!["cat"]);
+        assert_eq!(r.param_names.len(), 2);
+        assert!(r.param_names.iter().any(|n| n == "integer"));
+        assert!(r.param_names.iter().any(|n| n == "float"));
+    }
 }

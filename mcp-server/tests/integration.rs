@@ -73,6 +73,76 @@ fn notif(method: &str) -> String {
 }
 
 #[test]
+fn categorical_importance_is_explicit_in_mcp_summary_and_report() {
+    use serde_json::json;
+    for mixed in [false, true] {
+        let dir = make_temp_dir();
+        let path = dir.join("nominal.log");
+        let mut lines = vec![
+            json!({"op_code":0,"worker_id":"w","study_name":"nominal","directions":[1]})
+                .to_string(),
+        ];
+        for i in 0..6 {
+            lines.push(json!({"op_code":4,"worker_id":"w","study_id":0}).to_string());
+            lines.push(json!({"op_code":5,"worker_id":"w","trial_id":i,"param_name":"cat","param_value_internal":i % 3,"distribution":{"name":"CategoricalDistribution","choices":["steel","wood","glass"]}}).to_string());
+            if mixed {
+                lines.push(json!({"op_code":5,"worker_id":"w","trial_id":i,"param_name":"x","param_value_internal":i as f64,"distribution":{"name":"FloatDistribution","low":0.0,"high":10.0}}).to_string());
+            }
+            lines.push(
+                json!({"op_code":6,"worker_id":"w","trial_id":i,"state":1,"values":[i as f64]})
+                    .to_string(),
+            );
+        }
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_tunny-mcp"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for (id, name) in [(1, "study_summary"), (2, "study_report")] {
+            writeln!(stdin, "{}", req(id, "tools/call", json!({"name":name,"arguments":{"storage":path.to_string_lossy(),"study_id":0,"format":"json"}}))).unwrap();
+        }
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let responses: Vec<Value> = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(responses.len(), 2);
+        let payload = |index: usize| -> Value {
+            assert_eq!(responses[index]["result"]["isError"], false);
+            serde_json::from_str(
+                responses[index]["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            payload(0)["unsupported_categorical_importance"],
+            json!(["cat"])
+        );
+        let report = payload(1);
+        assert_eq!(
+            report["importance"]["unsupported_categorical"],
+            json!(["cat"])
+        );
+        let scores = report["importance"]["scores"].as_array().unwrap();
+        assert_eq!(scores.len(), usize::from(mixed));
+        assert!(scores.iter().all(|score| score[0] == "x"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn full_session_over_stdio() {
     let dir = make_temp_dir();
     let journal_path = dir.join("study.log");

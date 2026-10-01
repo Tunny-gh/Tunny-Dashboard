@@ -294,6 +294,14 @@ fn study_summary(args: &Value) -> Result<String, ToolError> {
     out.insert("overview".to_string(), overview);
     out.insert("key_findings".to_string(), key_findings);
     out.insert(
+        "unsupported_categorical_importance".to_string(),
+        json!(report
+            .importance
+            .as_ref()
+            .map(|r| r.unsupported_categorical.as_slice())
+            .unwrap_or_default()),
+    );
+    out.insert(
         "convergence".to_string(),
         json!({
             "status": convergence_status,

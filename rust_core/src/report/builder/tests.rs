@@ -13,6 +13,44 @@ fn source() -> ReportSource {
     }
 }
 
+#[test]
+fn reports_keep_nominal_parameters_unsupported_not_ranked() {
+    for mixed in [false, true] {
+        let mut meta = meta_single();
+        meta.param_names = if mixed {
+            vec!["cat".into(), "x".into()]
+        } else {
+            vec!["cat".into()]
+        };
+        let rows: Vec<_> = (0..12)
+            .map(|i| {
+                let mut r = row(i, &[("cat", (i % 3) as f64), ("x", i as f64)], &[i as f64]);
+                r.param_category_label.insert(
+                    "cat".into(),
+                    ["steel", "wood", "glass"][i as usize % 3].into(),
+                );
+                r
+            })
+            .collect();
+        let df =
+            DataFrame::from_trials(&rows, &meta.param_names, &meta.objective_names, &[], &[], 0);
+        let report = build_study_report(&meta, &df, None, &source(), &opts());
+        let importance = report.importance.as_ref().unwrap();
+        assert_eq!(importance.unsupported_categorical, vec!["cat"]);
+        assert_eq!(importance.scores.len(), usize::from(mixed));
+        assert!(importance.scores.iter().all(|(name, _)| name == "x"));
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json["importance"]["unsupported_categorical"],
+            serde_json::json!(["cat"])
+        );
+        let md = render_markdown(&report, ReportLang::En);
+        assert!(md.contains("cat | Unsupported (categorical)"));
+        let html = crate::report::render_html(&report, ReportLang::En);
+        assert!(html.contains("Unsupported (categorical)"));
+    }
+}
+
 fn opts() -> ReportOptions {
     ReportOptions::default()
 }

@@ -107,6 +107,11 @@ impl SensitivityHeatmap {
             return;
         };
 
+        super::importance_chart::show_unsupported(
+            ui,
+            &matrix.unsupported_categorical,
+            matrix.param_names.is_empty(),
+        );
         if !matrix.is_well_formed() {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No data.").weak());
@@ -114,7 +119,9 @@ impl SensitivityHeatmap {
             return;
         }
 
-        draw_matrix(ui, matrix);
+        if !matrix.param_names.is_empty() {
+            draw_matrix(ui, matrix);
+        }
     }
 }
 
@@ -211,6 +218,36 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &HeatmapMatrix) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn categorical_heatmap_ui_never_draws_a_scored_category_cell() {
+        for mixed in [false, true] {
+            let matrix = HeatmapMatrix {
+                param_names: if mixed { vec!["x".into()] } else { vec![] },
+                unsupported_categorical: vec!["cat".into()],
+                objective_names: vec!["obj".into()],
+                values: if mixed { vec![vec![0.9]] } else { vec![] },
+                signed: true,
+            };
+            let ctx = egui::Context::default();
+            let mut chart = SensitivityHeatmap::default();
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                chart.show(ui, Some(&matrix), false);
+            });
+            let text = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::epaint::Shape::Text(t) => Some(t.galley.text()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(text.contains("cat: Unsupported (categorical)"), "{text}");
+            assert_eq!(text.contains("No supported numerical parameters"), !mixed);
+            assert!(!text.contains("0.00"));
+        }
+    }
 
     #[test]
     fn sensitivity_heatmap_default() {

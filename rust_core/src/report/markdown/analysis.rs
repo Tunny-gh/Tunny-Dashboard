@@ -105,6 +105,12 @@ pub(super) fn render_importance(
     for (name, score) in &sec.scores {
         let _ = writeln!(s, "| {} | {} |", esc(name), format_number(*score));
     }
+    for name in &sec.unsupported_categorical {
+        let _ = writeln!(s, "| {} | Unsupported (categorical) |", esc(name));
+    }
+    if sec.scores.is_empty() && !sec.unsupported_categorical.is_empty() {
+        s.push_str("\nNo numerical scores available\n");
+    }
     s.push('\n');
 }
 

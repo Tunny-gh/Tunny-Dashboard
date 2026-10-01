@@ -1,5 +1,4 @@
 use super::constants::{RIDGE_ALPHA, RIDGE_MAX_ROWS, RIDGE_SEED};
-use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::tree::common::{run_importances_pipeline, PreparedData};
 use super::types::{RidgeResult, SensitivityResult};
@@ -131,12 +130,16 @@ pub struct RidgeMetric;
 
 impl SensitivityMetric for RidgeMetric {
     fn compute(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
-        let param_names = df.param_col_names().to_vec();
+        let (param_names, unsupported_categorical): (Vec<_>, Vec<_>) = df
+            .param_col_names()
+            .iter()
+            .cloned()
+            .partition(|name| df.get_numeric_column(name).is_some());
         let objective_names = df.objective_col_names().to_vec();
         let n = df.row_count();
 
         let objective_name = objective_names.get(obj_idx)?.clone();
-        if n < 2 || param_names.is_empty() {
+        if n < 2 || df.param_col_names().is_empty() {
             return None;
         }
 
@@ -147,7 +150,14 @@ impl SensitivityMetric for RidgeMetric {
 
         let param_cols: Vec<Vec<f64>> = param_names
             .iter()
-            .map(|name| get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]))
+            .map(|name| {
+                df.get_numeric_column(name)
+                    .unwrap()
+                    .iter()
+                    .take(n)
+                    .copied()
+                    .collect()
+            })
             .collect();
         let x_matrix: Vec<Vec<f64>> = (0..n)
             .map(|row_index| {
@@ -158,10 +168,15 @@ impl SensitivityMetric for RidgeMetric {
             })
             .collect();
 
-        let ridge = vec![compute_ridge_result(&x_matrix, &y)];
+        let ridge = if param_names.is_empty() {
+            vec![] // No numerical model, hence no R².
+        } else {
+            vec![compute_ridge_result(&x_matrix, &y)]
+        };
 
         Some(SensitivityResult {
             param_names,
+            unsupported_categorical,
             objective_names: vec![objective_name],
             ridge,
             ..Default::default()
